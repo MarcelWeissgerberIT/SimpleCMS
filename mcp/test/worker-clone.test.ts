@@ -9,17 +9,16 @@
  */
 import assert from 'node:assert/strict'
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { execFileSync } from 'node:child_process'
 import { request } from 'node:http'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { after, afterEach, describe, test } from 'node:test'
 import { strToU8, zipSync } from 'fflate'
 import type { WorkerMessage, WorkspaceRef } from '../../src/app/features/coding/protocol.ts'
 import { cloneBase, cloneHint, folderName, parseCloneUrl } from '../src/worker/clone.ts'
-import { commitImport, dotGitIn, entryPath, importZip, isDotGit, isUnsafe } from '../src/worker/zipimport.ts'
+import { commitImport, entryPath, finishImport, gitDirIn, importZip, isDotGit, isUnsafe } from '../src/worker/zipimport.ts'
 import { openPr } from '../src/worker/git.ts'
-import { sanitizeConfig, type RepoConfig } from '../src/worker/config.ts'
+import { SOURCE_MARK, sanitizeConfig, type RepoConfig } from '../src/worker/config.ts'
 import { buildPrompt } from '../src/worker/run.ts'
 import { checkPublish, slugName, suggestName } from '../src/worker/publish.ts'
 import { waitFor } from './helpers.ts'
@@ -139,7 +138,7 @@ describe('clone addresses', () => {
   })
 })
 
-describe('ZIP import: no .git in any spelling, nothing in the ZIP runs', () => {
+describe('ZIP import: no git folder in any spelling or shape, nothing in the ZIP runs', () => {
   /** A script outside every repository that leaves `<name>` in `dir` when something runs it. */
   const tripwire = (dir: string, name: string) => {
     const file = join(dir, `${name}.sh`)
@@ -152,7 +151,8 @@ describe('ZIP import: no .git in any spelling, nothing in the ZIP runs', () => {
     writeFileSync(f, Buffer.from(zipSync(Object.fromEntries(Object.entries(files).map(([k, v]) => [k, strToU8(v)])))))
     return f
   }
-  const hookDirs = () => readdirSync(tmpdir()).filter((n) => n.startsWith('one-import-hooks-')).length
+  /** What a commit leaves next to the repository: its temporary git folder (with the empty hooks folder) is gone. */
+  const leftovers = (dir: string) => readdirSync(dirname(dir)).filter((n) => n.startsWith('.one-import'))
   /** Run with the identity of `global` (a gitconfig) only — the test env's GIT_AUTHOR_* / GIT_COMMITTER_* set aside. */
   const asPerson = async <T>(global: string, fn: () => Promise<T>): Promise<T> => {
     const keys = ['GIT_AUTHOR_NAME', 'GIT_AUTHOR_EMAIL', 'GIT_COMMITTER_NAME', 'GIT_COMMITTER_EMAIL', 'GIT_CONFIG_GLOBAL']
@@ -170,6 +170,12 @@ describe('ZIP import: no .git in any spelling, nothing in the ZIP runs', () => {
       }
     }
   }
+  /** Does the disk under `dir` ignore case (macOS APFS, Windows NTFS)? There ".GIT" IS ".git". */
+  const foldsCase = () => {
+    const probe = tempDir('case')
+    mkdirSync(join(probe, 'Probe'))
+    return existsSync(join(probe, 'pROBE'))
+  }
 
   test('git\'s is_ntfs_dotgit / is_hfs_dotgit: case, trailing dots and spaces, NTFS streams, GIT~1, HFS+ ignorable code points', () => {
     for (const name of ['.git', '.GIT', '.Git', '.gIT', '.git.', '.git ', '.git. . ', '.git::$INDEX_ALLOCATION', '.git:x', 'git~1', 'GIT~1', 'Git~2', 'git~1.', '.g\u200cit', '.gi\u200dt', '\u200e.git', '.git\u200f', '.g\u202ait', '.\u202bgit', '.gi\u202ct', '.g\u202dit', '.git\u202e', '.g\u206ait', '.\u206bGIT', '.gi\u206ct', '.g\u206dit', '.g\u206eit', '.git\u206f', '\ufeff.git', '.G\u200cI\ufeffT. '])
@@ -178,39 +184,104 @@ describe('ZIP import: no .git in any spelling, nothing in the ZIP runs', () => {
       assert.ok(!isDotGit(name), JSON.stringify(name))
   })
 
-  test('entries: every .git variant left out; ":", control characters, device names and dot-only names refuse the ZIP; usual names kept', () => {
-    const dropped = ['p/.GIT/config', 'p/.Git/hooks/pre-commit', 'p/.git/config', '.GIT/config', 'p/GIT~1/config', 'p/git~1/hooks/post-checkout', 'p/.git./config', 'p/.git /config', 'p/.git. . /HEAD', 'p/.g\u200cit/config', 'p/\ufeff.git/config', 'p/.gi\u202et/config', 'p/.git\u206f/config', 'p/sub/deep/.GIT/config', 'p/.GIT', 'p/GIT~1']
-    for (const n of dropped) assert.equal(entryPath(n), null, JSON.stringify(n))
-    const why = (n: string) => {
-      const r = entryPath(n)
-      assert.ok(isUnsafe(r), JSON.stringify(n))
+  test('entries: left out before any check (every .git variant, __MACOSX, Finder files); a path outside or a control character refuses the ZIP; ":" and device names only on Windows', () => {
+    const dropped = ['p/.GIT/config', 'p/.Git/hooks/pre-commit', 'p/.git/config', '.GIT/config', 'p/GIT~1/config', 'p/git~1/hooks/post-checkout', 'p/.git./config', 'p/.git /config', 'p/.git. . /HEAD', 'p/.g\u200cit/config', 'p/\ufeff.git/config', 'p/.gi\u202et/config', 'p/.git\u206f/config', 'p/sub/deep/.GIT/config', 'p/.GIT', 'p/GIT~1', 'p/.git::$INDEX_ALLOCATION/config', 'p/.git:stream',
+      // never written, so their names cannot refuse the ZIP: Finder's icon file, its picture, a branch named aux or con
+      'p/Icon\r', 'p/sub/Icon\r', '__MACOSX/p/._Icon\r', '__MACOSX/p/img/._logo.png:Zone.Identifier', '__MACOSX/p/aux.c', 'p/.git/refs/heads/aux', 'p/.git/logs/refs/heads/con', 'p/.DS_Store', '__MACOSX/../evil.txt']
+    for (const platform of ['linux', 'darwin', 'win32'] as const)
+      for (const n of dropped) assert.equal(entryPath(n, platform), null, `${platform} ${JSON.stringify(n)}`)
+    const why = (n: string, platform: NodeJS.Platform = 'linux') => {
+      const r = entryPath(n, platform)
+      assert.ok(isUnsafe(r), `${platform} ${JSON.stringify(n)} → ${JSON.stringify(r)}`)
       return r.unsafe
     }
-    for (const n of ['p/.git::$INDEX_ALLOCATION/config', 'p/.git:stream', 'p/a:b.txt', 'p/x/file.txt:Zone.Identifier']) assert.match(why(n), /":"/, n)
-    for (const n of ['p/a\nb.txt', 'p/a\rb', 'p/\u001b[31mred', 'p/tab\there', 'p/del\u007f', 'a\0b']) assert.match(why(n), /control character/, JSON.stringify(n))
-    for (const n of ['con', 'p/CON', 'p/nul.txt', 'p/NUL.tar.gz', 'p/aux.c', 'p/Prn.log', 'p/com1', 'p/COM9.txt', 'p/com0', 'p/lpt1', 'p/LPT9.dat', 'p/com\u00b9', 'p/lpt\u00b3.x', 'p/con .txt', 'p/nul.', 'p/conin$', 'p/CONOUT$.txt', 'p/aux/x.c']) assert.match(why(n), /device/, n)
-    for (const n of ['p/.. /x', 'p/... /x', 'p/..\u200c/x', 'p/ /x', 'p/. /x', '../evil.txt', '/etc/passwd', 'C:/Windows/x', '\\\\server\\share\\x', '']) assert.match(why(n), /outside its folder/, JSON.stringify(n))
-    const kept = ['p/.github/workflows/ci.yml', 'p/.gitignore', 'p/.gitattributes', 'p/.gitmodules', 'p/git/notes.txt', 'p/.git-blame-ignore-revs', 'p/console.log', 'p/com10.txt', 'p/lpt.txt', 'p/auxiliary.c', 'p/connect/a.ts', 'p/naïve café.md', 'p/a b/c d.txt', 'p/..foo', 'p/foo..', 'p/x.', 'p/\u0084ber.txt']
-    for (const n of kept) assert.equal(entryPath(n), n, JSON.stringify(n))
+    for (const platform of ['linux', 'darwin', 'win32'] as const) {
+      for (const n of ['p/a\nb.txt', 'p/a\rb', 'p/Icon\rx', 'p/Icon\r/x.txt', 'p/\u001b[31mred', 'p/tab\there', 'p/del\u007f', 'a\0b']) assert.match(why(n, platform), /control character/, JSON.stringify(n))
+      for (const n of ['p/.. /x', 'p/... /x', 'p/..\u200c/x', 'p/ /x', 'p/. /x', '../evil.txt', '/etc/passwd', 'C:/Windows/x', '\\\\server\\share\\x', '']) assert.match(why(n, platform), /outside its folder/, JSON.stringify(n))
+    }
+    // Windows: "name:stream" writes into a hidden stream, a device name opens the device
+    const colon = ['p/a:b.txt', 'p/x/file.txt:Zone.Identifier', 'p/img/logo.png:Zone.Identifier']
+    const devices = ['con', 'p/CON', 'p/nul', 'p/nul.txt', 'p/NUL.tar.gz', 'p/aux.c', 'p/Prn.log', 'p/com1', 'p/COM9.txt', 'p/com0', 'p/lpt1', 'p/LPT9.dat', 'p/com\u00b9', 'p/lpt\u00b3.x', 'p/con .txt', 'p/nul.', 'p/conin$', 'p/CONOUT$.txt', 'p/aux/x.c', 'p/con.go', 'p/aux.py', 'p/com1.ts', 'linux/drivers/gpu/drm/nouveau/nvkm/subdev/i2c/aux.c']
+    for (const n of colon) assert.match(why(n, 'win32'), /":"/, n)
+    for (const n of devices) assert.match(why(n, 'win32'), /device/, n)
+    // macOS and Linux: plain names git keeps — the kernel's aux.c, a stray nul, a WSL Zone.Identifier
+    for (const platform of ['linux', 'darwin'] as const) for (const n of [...colon, ...devices]) assert.equal(entryPath(n, platform), n, `${platform} ${n}`)
+    const kept = ['p/.github/workflows/ci.yml', 'p/.gitignore', 'p/.gitattributes', 'p/.gitmodules', 'p/git/notes.txt', 'p/.git-blame-ignore-revs', 'p/console.log', 'p/com10.txt', 'p/lpt.txt', 'p/auxiliary.c', 'p/connect/a.ts', 'p/naïve café.md', 'p/a b/c d.txt', 'p/..foo', 'p/foo..', 'p/x.', 'p/\u0084ber.txt', 'p/Icon', 'p/Icon.png']
+    for (const platform of ['linux', 'darwin', 'win32'] as const) for (const n of kept) assert.equal(entryPath(n, platform), n, `${platform} ${JSON.stringify(n)}`)
     assert.equal(entryPath('p\\.GIT\\config'), null)
     assert.equal(entryPath('p\\src\\a.ts'), 'p/src/a.ts')
   })
 
-  test('the second guard finds a .git spelling the file system kept — at any depth — and the file system\'s own ".git"', () => {
+  test('the second guard finds a .git spelling the file system kept, the file system\'s own ".git", and a folder git takes for a repository', () => {
     const clean = tempDir('guard')
     mkdirSync(join(clean, 'src', '.github'), { recursive: true })
     writeFileSync(join(clean, 'src', '.gitignore'), 'x\n')
-    assert.equal(dotGitIn(clean), null)
+    // a HEAD file and folders named objects / refs that do not make a repository together
+    mkdirSync(join(clean, 'docs', 'objects'), { recursive: true })
+    writeFileSync(join(clean, 'docs', 'HEAD'), 'ref: refs/heads/main\n')
+    mkdirSync(join(clean, 'model', 'HEAD'), { recursive: true })
+    mkdirSync(join(clean, 'model', 'objects'))
+    mkdirSync(join(clean, 'model', 'refs'))
+    assert.equal(gitDirIn(clean), null)
     const top = tempDir('guard')
     mkdirSync(join(top, '.GIT'))
-    assert.equal(dotGitIn(top), join(top, '.GIT'))
+    assert.deepEqual(gitDirIn(top), { path: join(top, '.GIT'), kind: 'dotgit' })
     const deep = tempDir('guard')
     mkdirSync(join(deep, 'a', 'b', 'GIT~1'), { recursive: true })
-    assert.equal(dotGitIn(deep), join(deep, 'a', 'b', 'GIT~1'))
+    assert.deepEqual(gitDirIn(deep), { path: join(deep, 'a', 'b', 'GIT~1'), kind: 'dotgit' })
     const file = tempDir('guard')
     mkdirSync(join(file, 'vendor'))
     writeFileSync(join(file, 'vendor', '.git'), 'gitdir: ../../elsewhere\n')
-    assert.equal(dotGitIn(file), join(file, 'vendor', '.git'))
+    assert.deepEqual(gitDirIn(file), { path: join(file, 'vendor', '.git'), kind: 'dotgit' })
+    // a bare repository under any name: HEAD + objects/ + refs/, or HEAD + commondir — at any depth, the top too
+    const bare = tempDir('guard')
+    mkdirSync(join(bare, 'test', 'fixtures', 'sub', 'objects'), { recursive: true })
+    mkdirSync(join(bare, 'test', 'fixtures', 'sub', 'refs'))
+    writeFileSync(join(bare, 'test', 'fixtures', 'sub', 'HEAD'), 'ref: refs/heads/x\n')
+    assert.deepEqual(gitDirIn(bare), { path: join(bare, 'test', 'fixtures', 'sub'), kind: 'repo' })
+    const common = tempDir('guard')
+    mkdirSync(join(common, 'wt'))
+    writeFileSync(join(common, 'wt', 'HEAD'), 'ref: refs/heads/x\n')
+    writeFileSync(join(common, 'wt', 'commondir'), '../shared\n')
+    assert.deepEqual(gitDirIn(common), { path: join(common, 'wt'), kind: 'repo' })
+    const atTop = tempDir('guard')
+    mkdirSync(join(atTop, 'objects'))
+    mkdirSync(join(atTop, 'refs'))
+    writeFileSync(join(atTop, 'HEAD'), 'ref: refs/heads/main\n')
+    assert.deepEqual(gitDirIn(atTop), { path: atTop, kind: 'repo' })
+  })
+
+  test('after unpacking, the second guard runs before any git step and the folder goes again (finishImport)', async () => {
+    const path = process.env.PATH
+    // no git at all: a refusal here can only come from the guard, before git was ever started
+    process.env.PATH = tempDir('nobin')
+    try {
+      for (const [plant, why] of [
+        [(d: string) => mkdirSync(join(d, '.GIT')), /another spelling \(\.GIT\)/],
+        [(d: string) => writeFileSync(join(d, 'vendor', '.git'), 'gitdir: ../../x\n'), /another spelling \(vendor\/\.git\)/],
+        [(d: string) => {
+          mkdirSync(join(d, 'sub', 'objects', 'info'), { recursive: true })
+          mkdirSync(join(d, 'sub', 'refs', 'heads'), { recursive: true })
+          writeFileSync(join(d, 'sub', 'HEAD'), 'ref: refs/heads/x\n')
+          writeFileSync(join(d, 'sub', 'config'), '[core]\n\tfsmonitor = touch pwned\n')
+        }, /git repository in sub \(HEAD, objects, refs\)/],
+      ] as const) {
+        const dir = join(tempDir('finish'), 'proj')
+        mkdirSync(join(dir, 'vendor'), { recursive: true })
+        writeFileSync(join(dir, 'README.md'), '# x\n')
+        plant(dir)
+        await assert.rejects(finishImport(dir, 'p.zip'), why)
+        assert.ok(!existsSync(dir), 'the folder is removed')
+      }
+      // a clean folder gets past the guard: git is what fails then, and the folder goes too
+      const dir = join(tempDir('finish'), 'proj')
+      mkdirSync(dir)
+      writeFileSync(join(dir, 'a.txt'), 'a\n')
+      await assert.rejects(finishImport(dir, 'p.zip'), /git init failed/)
+      assert.ok(!existsSync(dir))
+    } finally {
+      process.env.PATH = path
+    }
   })
 
   test('a crafted ZIP: .GIT/config with core.fsmonitor, .Git/hooks, the exact .git/config and more spellings — imported without any, nothing ran', async () => {
@@ -219,7 +290,6 @@ describe('ZIP import: no .git in any spelling, nothing in the ZIP runs', () => {
     const hook = `#!/bin/sh\ntouch '${join(trap, 'hook-ran')}'\n`
     const config = `[core]\n\tfsmonitor = ${fsmonitor}\n\thooksPath = .Git/hooks\n[filter "x"]\n\tclean = ${fsmonitor}\n`
     const base = tempDir('clones')
-    const before = hookDirs()
     const res = await asPerson('', () => importZip(zipFile({
       'proj/README.md': '# Legacy\n',
       'proj/src/app.js': 'console.log(1)\n',
@@ -244,14 +314,40 @@ describe('ZIP import: no .git in any spelling, nothing in the ZIP runs', () => {
     assert.equal(sh(res.dir, 'log', '-1', '--format=%s %an').trim(), 'Import proj.zip One worker')
     assert.deepEqual(readdirSync(trap).sort(), ['fsmonitor-ran.sh'], 'no hook, fsmonitor or filter ran')
     assert.deepEqual(readdirSync(base), ['proj'], 'no temp folder left')
-    assert.equal(hookDirs(), before, 'the empty hooks folder is removed')
+    // on a disk that ignores case (macOS, Windows) .GIT/config IS .git/config: there the 1.8.0 import ran its fsmonitor
+    if (foldsCase()) assert.ok(!existsSync(join(trap, 'fsmonitor-ran')), 'case-insensitive disk: nothing ran')
   })
 
-  test('the git steps never run a planted .git\'s fsmonitor or hooks (a .GIT a case-insensitive disk made .git); the identity still comes from git config', async () => {
+  test('an embedded bare repository (HEAD, objects/, refs/, config with core.fsmonitor) refuses the ZIP: git would run its fsmonitor in that folder', async () => {
+    const trap = tempDir('trap')
+    const fsmonitor = tripwire(trap, 'fsmonitor-ran')
+    const base = tempDir('clones')
+    await assert.rejects(asPerson('', () => importZip(zipFile({
+      'proj/README.md': '# x\n',
+      'proj/sub/HEAD': 'ref: refs/heads/x\n',
+      'proj/sub/objects/info/keep': '',
+      'proj/sub/refs/heads/x': '',
+      'proj/sub/config': `[core]\n\trepositoryformatversion = 0\n\tbare = false\n\tworktree = .\n\tfsmonitor = ${fsmonitor}\n`,
+    }), base, 'proj', 'proj.zip')), /git repository in sub \(HEAD, objects, refs\).*nothing was imported/)
+    assert.deepEqual(readdirSync(base), [], 'nothing left')
+    assert.deepEqual(readdirSync(trap), ['fsmonitor-ran.sh'])
+    // why: such a folder is a live repository for any git command run inside it
+    const live = join(tempDir('bare'), 'sub')
+    mkdirSync(join(live, 'objects', 'info'), { recursive: true })
+    mkdirSync(join(live, 'refs', 'heads'), { recursive: true })
+    writeFileSync(join(live, 'HEAD'), 'ref: refs/heads/x\n')
+    writeFileSync(join(live, 'config'), `[core]\n\trepositoryformatversion = 0\n\tbare = false\n\tworktree = .\n\tfsmonitor = ${fsmonitor}\n`)
+    execFileSync('git', ['status', '--short'], { cwd: live, env: { ...process.env, ...GIT_ENV }, stdio: 'ignore' })
+    assert.ok(existsSync(join(trap, 'fsmonitor-ran')), 'plain git status ran the planted fsmonitor')
+  })
+
+  test('the commit never reads a git folder in the import (fsmonitor, hooks, filter drivers, gpg.program, include.path) — it is made outside and refused at the end', async () => {
     const trap = tempDir('trap')
     const dir = join(tempDir('planted'), 'proj')
     mkdirSync(join(dir, 'src'), { recursive: true })
     writeFileSync(join(dir, 'src', 'a.js'), 'module.exports = 1\n')
+    writeFileSync(join(dir, '.gitattributes'), '* filter=x\n')
+    // a .GIT a case-insensitive disk made .git, live, as if it had slipped past both guards
     sh(dir, 'init', '-q')
     const evilHooks = join(trap, 'evil-hooks')
     mkdirSync(evilHooks)
@@ -261,37 +357,49 @@ describe('ZIP import: no .git in any spelling, nothing in the ZIP runs', () => {
         chmodSync(join(at, name), 0o755)
       }
     }
-    const fsmonitor = tripwire(trap, 'fsmonitor-ran')
-    sh(dir, 'config', 'core.fsmonitor', fsmonitor)
+    sh(dir, 'config', 'core.fsmonitor', tripwire(trap, 'fsmonitor-ran'))
     sh(dir, 'config', 'core.hooksPath', evilHooks)
-    sh(dir, 'config', 'user.email', 'kim@example.invalid')
-    sh(dir, 'config', 'user.name', 'Kim Person')
-    const before = hookDirs()
-    await asPerson('', () => commitImport(dir, 'legacy.zip'))
-    assert.equal(sh(dir, 'log', '-1', '--format=%s|%an|%ae').trim(), 'Import legacy.zip|Kim Person|kim@example.invalid')
-    assert.equal(sh(dir, 'branch', '--show-current').trim(), 'main')
-    assert.deepEqual(readdirSync(trap).sort(), ['evil-hooks', 'fsmonitor-ran.sh'], 'nothing ran')
-    assert.equal(hookDirs(), before)
+    sh(dir, 'config', 'filter.x.clean', tripwire(trap, 'filter-clean-ran'))
+    sh(dir, 'config', 'filter.x.required', 'true')
+    sh(dir, 'config', 'gpg.program', tripwire(trap, 'gpg-ran'))
+    sh(dir, 'config', 'gpg.format', 'openpgp')
+    sh(dir, 'config', 'commit.gpgSign', 'true')
+    const included = join(trap, 'included.gitconfig')
+    writeFileSync(included, `[core]\n\tsshCommand = ${tripwire(trap, 'ssh-ran')}\n[diff]\n\texternal = ${tripwire(trap, 'diff-ran')}\n`)
+    sh(dir, 'config', 'include.path', included)
+    const before = readFileSync(join(dir, '.git', 'config'), 'utf8')
+    await assert.rejects(asPerson('', () => commitImport(dir, 'legacy.zip')), /another spelling \(\.git\)/)
+    assert.deepEqual(readdirSync(trap).filter((n) => !n.endsWith('.sh') && !n.endsWith('.gitconfig')).sort(), ['evil-hooks'], 'nothing ran')
+    assert.deepEqual(leftovers(dir), [], 'the temporary git folder is gone')
+    assert.equal(readFileSync(join(dir, '.git', 'config'), 'utf8'), before, 'the planted folder was not touched')
     // the planted config was live: plain git runs it
-    sh(dir, 'commit', '-q', '--allow-empty', '-m', 'probe')
-    assert.ok(existsSync(join(trap, 'pre-commit-ran')) && existsSync(join(trap, 'post-commit-ran')), 'the probe commit ran the planted hooks')
+    sh(dir, 'add', '-A')
+    assert.ok(existsSync(join(trap, 'filter-clean-ran')) && existsSync(join(trap, 'fsmonitor-ran')), 'plain git add ran the planted filter and fsmonitor')
   })
 
-  test('a usual project imports with one commit; a refused or failed import leaves nothing behind', async () => {
+  test('a usual project imports with one commit (the person\'s identity, no core.worktree, marked as an import); a refused or failed import leaves nothing behind', async () => {
     const base = tempDir('clones')
-    const files = { 'shop-main/README.md': '# Shop\n', 'shop-main/src/index.ts': 'export {}\n', 'shop-main/.github/workflows/ci.yml': 'on: push\n', 'shop-main/.gitignore': 'dist/\n', 'shop-main/dist/x.js': '1\n' }
-    // the person's own identity from their global git config
+    const files = { 'shop-main/README.md': '# Shop\n', 'shop-main/src/index.ts': 'export {}\n', 'shop-main/.github/workflows/ci.yml': 'on: push\n', 'shop-main/.gitignore': 'dist/\n', 'shop-main/dist/x.js': '1\n', 'shop-main/Icon\r': '', '__MACOSX/shop-main/._Icon\r': 'x', 'shop-main/.git/refs/heads/aux': 'x', '__MACOSX/shop-main/._logo.png:Zone.Identifier': 'x' }
     const ok = await asPerson('[user]\n\tname = Kim Global\n\temail = kim.global@example.invalid\n', () => importZip(zipFile(files), base, 'shop', 'shop-main.zip'))
     assert.equal(ok.dir, join(base, 'shop'))
     assert.deepEqual(sh(ok.dir, 'ls-files').trim().split('\n'), ['.github/workflows/ci.yml', '.gitignore', 'README.md', 'src/index.ts'])
     assert.equal(sh(ok.dir, 'rev-list', '--count', 'HEAD').trim(), '1')
     assert.equal(sh(ok.dir, 'log', '-1', '--format=%s|%an|%ae').trim(), 'Import shop-main.zip|Kim Global|kim.global@example.invalid')
+    assert.equal(sh(ok.dir, 'branch', '--show-current').trim(), 'main')
     assert.equal(sh(ok.dir, 'status', '--porcelain').trim(), '')
+    assert.ok(!/worktree/.test(readFileSync(join(ok.dir, '.git', 'config'), 'utf8')), 'no core.worktree: the folder can move')
+    assert.equal(readFileSync(join(ok.dir, '.git', SOURCE_MARK), 'utf8'), 'zip\n')
+    assert.deepEqual(leftovers(ok.dir), [])
+
+    // macOS / Linux: names Windows keeps for devices or streams are plain files there (the kernel's aux.c)
+    if (process.platform !== 'win32') {
+      const kept = await asPerson('', () => importZip(zipFile({ 'linux/drivers/i2c/aux.c': 'int aux;\n', 'linux/nul': '', 'linux/con.go': 'package con\n', 'linux/img/logo.png:Zone.Identifier': '[ZoneTransfer]\n' }), base, 'linux', 'linux.zip'))
+      assert.deepEqual(sh(kept.dir, 'ls-files').trim().split('\n'), ['con.go', 'drivers/i2c/aux.c', 'img/logo.png:Zone.Identifier', 'nul'])
+    }
 
     for (const [files, why] of [
-      [{ 'p/a.txt': 'a', 'p/aux.c': 'int x;' }, /device.*\(p\/aux\.c\)/],
-      [{ 'p/a.txt': 'a', 'p/.git::$INDEX_ALLOCATION/config': '[core]' }, /":"/],
       [{ 'p/a.txt': 'a', 'p/evil\u001b]0;x\u0007.txt': 'x' }, /control character \(p\/evil\?\]0;x\?\.txt\)/],
+      [{ 'p/a.txt': 'a', 'p/.. /x.txt': 'x' }, /outside its folder/],
       [{ 'p/.GIT/config': '[core]' }, /no files/],
     ] as const) {
       const empty = tempDir('clones')
@@ -377,6 +485,7 @@ describe('the setup page: clone, projects, ZIP import, own MCP servers', () => {
     const dir = join(home, 'work', 'clones', 'remote')
     assert.equal(cloned.clone.done, dir)
     assert.ok(existsSync(join(dir, 'README.md')))
+    assert.equal(readFileSync(join(dir, '.git', SOURCE_MARK), 'utf8'), 'clone\n', 'a clone is marked: its own Claude Code settings stay out')
     assert.ok(cloned.repos.some((r: { path: string; ticked: boolean }) => r.path === dir && !r.ticked))
     assert.equal(cloned.cloneDir, '~/work/clones')
     // the same address again: already there, added
@@ -393,7 +502,9 @@ describe('the setup page: clone, projects, ZIP import, own MCP servers', () => {
       'legacy-app/.GIT/config': strToU8('[core]\n\tfsmonitor = touch pwned\n'),
       'legacy-app/GIT~1/config': strToU8('[core]\n\tfsmonitor = touch pwned\n'),
       'legacy-app/.DS_Store': strToU8('x'),
+      'legacy-app/Icon\r': strToU8(''),
       '__MACOSX/legacy-app/._README.md': strToU8('x'),
+      '__MACOSX/legacy-app/._Icon\r': strToU8('x'),
     }))
     assert.equal((await call('/setup/api/import?name=legacy-app.zip', { token, raw: zip, type: 'text/plain' })).status, 415)
     const imp = await call('/setup/api/import?name=legacy-app.zip', { token, raw: zip, type: 'application/zip' })
@@ -410,6 +521,7 @@ describe('the setup page: clone, projects, ZIP import, own MCP servers', () => {
     assert.equal(sh(app, 'branch', '--show-current').trim(), 'main')
     assert.equal(sh(app, 'status', '--porcelain').trim(), '')
     assert.ok(!existsSync(join(home, 'pwned')) && !existsSync(join(app, 'pwned')))
+    assert.equal(readFileSync(join(app, '.git', SOURCE_MARK), 'utf8'), 'zip\n')
 
     // Create it on GitLab: the person's glab makes the project (in the group acme), origin added, main pushed
     assert.equal((await call('/setup/api/publish', { token, body: { path: app, host: 'gitlab', name: 'bad name' } })).status, 400)

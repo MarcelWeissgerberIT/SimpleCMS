@@ -8,15 +8,16 @@
  *    helper instead), no option-like or ext:: / file:: addresses, no "..".
  *  - cloneInto: `git -c protocol.ext.allow=never -c protocol.file.allow=never clone --progress -- <url> <dir>`
  *    without a terminal (git.ts: a password / passphrase question fails at once with a hint); progress per line;
- *    up to 30 min (ONE_WORKER_CLONE_MS); a failed clone removes the folder it made.
+ *    up to 30 min (ONE_WORKER_CLONE_MS); a failed clone removes the folder it made; a new clone is marked as the
+ *    worker's (SOURCE_MARK): Claude Code runs on it without the repo's own settings (config.ts).
  *  - listProjects: the person's projects from the glab / gh command-line tools when they are installed and
  *    signed in (names and clone addresses only; nothing is stored).
  */
 import { execFile, spawn } from 'node:child_process'
-import { existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { isAbsolute, join, resolve, sep } from 'node:path'
-import { inICloud } from './config.ts'
+import { SOURCE_MARK, inICloud } from './config.ts'
 import { git } from './git.ts'
 
 export interface CloneUrl {
@@ -170,6 +171,8 @@ export async function cloneInto(target: CloneUrl, base: string, onProgress: (p: 
     if (made) rmSync(dir, { recursive: true, force: true })
     throw new Error(res.timedOut ? `The clone did not finish within ${Math.round(timeoutMs / 60_000)} min.` : cloneHint(res.stderr))
   }
+  // code from elsewhere: Claude Code runs on it without the repo's own settings until the person trusts it (config.ts)
+  writeFileSync(join(dir, '.git', SOURCE_MARK), 'clone\n')
   return { dir, already: false }
 }
 

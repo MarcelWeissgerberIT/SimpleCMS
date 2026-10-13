@@ -7567,49 +7567,49 @@ var require_fast_uri = __commonJS({
       schemelessOptions.skipEscape = true;
       return serialize(resolved, schemelessOptions);
     }
-    function resolveComponent(base, relative2, options, skipNormalization) {
+    function resolveComponent(base, relative3, options, skipNormalization) {
       const target = {};
       if (!skipNormalization) {
         base = parse4(serialize(base, options), options);
-        relative2 = parse4(serialize(relative2, options), options);
+        relative3 = parse4(serialize(relative3, options), options);
       }
       options = options || {};
-      if (!options.tolerant && relative2.scheme) {
-        target.scheme = relative2.scheme;
-        target.userinfo = relative2.userinfo;
-        target.host = relative2.host;
-        target.port = relative2.port;
-        target.path = removeDotSegments(relative2.path || "");
-        target.query = relative2.query;
+      if (!options.tolerant && relative3.scheme) {
+        target.scheme = relative3.scheme;
+        target.userinfo = relative3.userinfo;
+        target.host = relative3.host;
+        target.port = relative3.port;
+        target.path = removeDotSegments(relative3.path || "");
+        target.query = relative3.query;
       } else {
-        if (relative2.userinfo !== void 0 || relative2.host !== void 0 || relative2.port !== void 0) {
-          target.userinfo = relative2.userinfo;
-          target.host = relative2.host;
-          target.port = relative2.port;
-          target.path = removeDotSegments(relative2.path || "");
-          target.query = relative2.query;
+        if (relative3.userinfo !== void 0 || relative3.host !== void 0 || relative3.port !== void 0) {
+          target.userinfo = relative3.userinfo;
+          target.host = relative3.host;
+          target.port = relative3.port;
+          target.path = removeDotSegments(relative3.path || "");
+          target.query = relative3.query;
         } else {
-          if (!relative2.path) {
+          if (!relative3.path) {
             target.path = base.path;
-            if (relative2.query !== void 0) {
-              target.query = relative2.query;
+            if (relative3.query !== void 0) {
+              target.query = relative3.query;
             } else {
               target.query = base.query;
             }
           } else {
-            if (relative2.path[0] === "/") {
-              target.path = removeDotSegments(relative2.path);
+            if (relative3.path[0] === "/") {
+              target.path = removeDotSegments(relative3.path);
             } else {
               if ((base.userinfo !== void 0 || base.host !== void 0 || base.port !== void 0) && !base.path) {
-                target.path = "/" + relative2.path;
+                target.path = "/" + relative3.path;
               } else if (!base.path) {
-                target.path = relative2.path;
+                target.path = relative3.path;
               } else {
-                target.path = base.path.slice(0, base.path.lastIndexOf("/") + 1) + relative2.path;
+                target.path = base.path.slice(0, base.path.lastIndexOf("/") + 1) + relative3.path;
               }
               target.path = removeDotSegments(target.path);
             }
-            target.query = relative2.query;
+            target.query = relative3.query;
           }
           target.userinfo = base.userinfo;
           target.host = base.host;
@@ -7617,7 +7617,7 @@ var require_fast_uri = __commonJS({
         }
         target.scheme = base.scheme;
       }
-      target.fragment = relative2.fragment;
+      target.fragment = relative3.fragment;
       return target;
     }
     function equal(uriA, uriB, options) {
@@ -10894,7 +10894,7 @@ var require_dist = __commonJS({
 
 // src/worker/index.ts
 import { fileURLToPath } from "node:url";
-import { existsSync as existsSync7, statSync as statSync3 } from "node:fs";
+import { existsSync as existsSync8, statSync as statSync3 } from "node:fs";
 import { homedir as homedir8 } from "node:os";
 import { resolve as resolve6 } from "node:path";
 
@@ -10946,7 +10946,7 @@ var RELAY_CLOSE_FORBIDDEN = 4403;
 // src/worker/config.ts
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir, hostname } from "node:os";
-import { dirname, isAbsolute, join, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 function defaultConfigFile() {
   return join(homedir(), ".config", "one", "worker.json");
 }
@@ -10997,6 +10997,12 @@ var isObj = (v) => !!v && typeof v === "object" && !Array.isArray(v);
 var REF_PART = /^(?!-)(?!.*\.\.)(?!.*\/\/)(?!.*@\{)(?!.*\.lock(\/|$))[A-Za-z0-9._/-]{1,120}(?<![/.])$/;
 var REMOTE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 var PREFIX = /^(?!-)[A-Za-z0-9._/-]{0,40}$/;
+var SOURCE_MARK = "one-worker-source";
+function madeByWorker(path, cloneDir) {
+  if (existsSync(join(path, ".git", SOURCE_MARK))) return true;
+  const rel = relative(cloneDir, path);
+  return !isAbsolute(rel) && rel.split(/[\\/]/)[0] !== "..";
+}
 function inICloud(path, home = homedir(), platform = process.platform) {
   if (platform !== "darwin") return false;
   const p = resolve(path);
@@ -11014,7 +11020,7 @@ function expandHome(p) {
 var num = (v, def, min, max2) => typeof v === "number" && Number.isFinite(v) && v >= min && v <= max2 ? v : def;
 var usd = (v) => typeof v === "number" && Number.isFinite(v) && v > 0 ? Math.round(v * 100) / 100 : null;
 var strings = (v, max2 = 100) => Array.isArray(v) ? v.filter((s) => typeof s === "string" && !!s.trim()).map((s) => s.trim().slice(0, 300)).slice(0, max2) : [];
-function claudeConfig(raw, where, problems) {
+function claudeConfig(raw, where, problems, trusted) {
   const c = isObj(raw) ? raw : {};
   const modes = {};
   if (isObj(c.permissionMode)) {
@@ -11028,6 +11034,7 @@ function claudeConfig(raw, where, problems) {
     }
   }
   const model = cleanModel(c.model);
+  if (c.projectSettings !== void 0 && typeof c.projectSettings !== "boolean") problems.push(`${where}: claude.projectSettings must be true or false \u2014 ${trusted ? "true" : "false"} is used`);
   return {
     model,
     maxTurns: Math.floor(num(c.maxTurns, 30, 1, 200)),
@@ -11035,7 +11042,8 @@ function claudeConfig(raw, where, problems) {
     allowedTools: strings(c.allowedTools),
     disallowedTools: strings(c.disallowedTools),
     strictMcp: c.strictMcp !== false,
-    mcpServers: mcpNames(c.mcpServers, where, problems)
+    mcpServers: mcpNames(c.mcpServers, where, problems),
+    projectSettings: typeof c.projectSettings === "boolean" ? c.projectSettings : trusted
   };
 }
 var MCP_NAME = /^[A-Za-z0-9_-]{1,64}$/;
@@ -11047,7 +11055,7 @@ function mcpNames(raw, where, problems) {
   }
   return [...new Set(out)];
 }
-function repoConfig(raw, index, configDir, problems, opts = {}) {
+function repoConfig(raw, index, configDir, problems, opts, cloneDir) {
   const where = `repos[${index}]`;
   if (!isObj(raw)) {
     problems.push(`${where} is not an object`);
@@ -11113,7 +11121,7 @@ function repoConfig(raw, index, configDir, problems, opts = {}) {
     analyzeTimeoutSec: Math.floor(num(raw.analyzeTimeoutSec, 900, 5, 7200)),
     push: raw.push !== false,
     pr,
-    claude: claudeConfig(raw.claude, at, problems),
+    claude: claudeConfig(raw.claude, at, problems, !madeByWorker(path, cloneDir)),
     maxUsdPerTask: usd(raw.maxUsdPerTask),
     maxUsdPerDay: usd(raw.maxUsdPerDay)
   };
@@ -11137,11 +11145,12 @@ function sanitizeConfig(raw, file, env = process.env, opts = {}) {
     if (WORKSPACE_ID.test(r.workspace.trim())) workspace = r.workspace.trim();
     else problems.push(`"workspace" ${JSON.stringify(r.workspace)} is not a workspace id (One shows it in Settings \u2192 Coding worker, e.g. "local:abc123")`);
   }
+  const cloneDir = cloneDirOf(env.ONE_WORKER_CLONE_DIR ?? r.cloneDir, configDir, problems);
   const repos = [];
   const list = Array.isArray(r.repos) ? r.repos : [];
   if (!Array.isArray(r.repos)) problems.push('"repos" is missing: list the repositories this worker may work in');
-  list.forEach((entry, i2) => {
-    const repo = repoConfig(entry, i2, configDir, problems, opts);
+  list.forEach((entry2, i2) => {
+    const repo = repoConfig(entry2, i2, configDir, problems, opts, cloneDir);
     if (!repo) return;
     if (repos.some((x2) => x2.name === repo.name)) problems.push(`repos[${i2}]: the name "${repo.name}" is used twice \u2014 the second one is ignored`);
     else repos.push(repo);
@@ -11159,7 +11168,7 @@ function sanitizeConfig(raw, file, env = process.env, opts = {}) {
       pollSec: Math.floor(num(r.pollSec, 15, 2, 600)),
       origins: strings(r.origins, 20),
       repos,
-      cloneDir: cloneDirOf(env.ONE_WORKER_CLONE_DIR ?? r.cloneDir, configDir, problems),
+      cloneDir,
       mcpServers: mcpNames(r.mcpServers, "worker", problems),
       intake: r.intake !== false,
       preset: null
@@ -11191,7 +11200,7 @@ function scratchRepo(config2, taskId) {
     analyzeTimeoutSec: 900,
     push: false,
     pr: "none",
-    claude: { model: null, maxTurns: 40, permissionMode: {}, allowedTools: [], disallowedTools: [], strictMcp: true, mcpServers: config2.mcpServers },
+    claude: { model: null, maxTurns: 40, permissionMode: {}, allowedTools: [], disallowedTools: [], strictMcp: true, mcpServers: config2.mcpServers, projectSettings: false },
     maxUsdPerTask: null,
     maxUsdPerDay: null
   };
@@ -11336,26 +11345,26 @@ function saveRepos(file, choices, workspace, env = process.env, extra = {}) {
   const pathOf = (r) => typeof r.path === "string" && r.path.trim() ? resolve(configDir, expandHome(r.path.trim())) : null;
   const repos = choices.map((c) => {
     const old = before.find((r) => pathOf(r) === resolve(c.path)) ?? {};
-    const entry = { ...old, name: c.name, path: homeRelative(resolve(c.path)), baseBranch: c.baseBranch };
-    if (c.remote && c.remote !== "origin") entry.remote = c.remote;
-    if (c.testCommand?.length) entry.testCommand = c.testCommand;
-    else delete entry.testCommand;
+    const entry2 = { ...old, name: c.name, path: homeRelative(resolve(c.path)), baseBranch: c.baseBranch };
+    if (c.remote && c.remote !== "origin") entry2.remote = c.remote;
+    if (c.testCommand?.length) entry2.testCommand = c.testCommand;
+    else delete entry2.testCommand;
     if (c.analyzeCommand !== void 0) {
-      if (c.analyzeCommand?.length) entry.analyzeCommand = c.analyzeCommand;
-      else delete entry.analyzeCommand;
+      if (c.analyzeCommand?.length) entry2.analyzeCommand = c.analyzeCommand;
+      else delete entry2.analyzeCommand;
     }
-    entry.push = c.push;
-    entry.pr = c.pr;
-    if (c.maxUsdPerTask) entry.maxUsdPerTask = c.maxUsdPerTask;
-    else delete entry.maxUsdPerTask;
+    entry2.push = c.push;
+    entry2.pr = c.pr;
+    if (c.maxUsdPerTask) entry2.maxUsdPerTask = c.maxUsdPerTask;
+    else delete entry2.maxUsdPerTask;
     if (c.mcpServers) {
-      const claude = isObj(entry.claude) ? { ...entry.claude } : {};
+      const claude = isObj(entry2.claude) ? { ...entry2.claude } : {};
       if (c.mcpServers.length) claude.mcpServers = c.mcpServers;
       else delete claude.mcpServers;
-      if (Object.keys(claude).length) entry.claude = claude;
-      else delete entry.claude;
+      if (Object.keys(claude).length) entry2.claude = claude;
+      else delete entry2.claude;
     }
-    return entry;
+    return entry2;
   });
   const next = { ...raw };
   if (workspace) next.workspace = workspace;
@@ -11439,12 +11448,12 @@ ${stderr}` });
 }
 async function detectClaude(bin = claudeBin()) {
   const v = await capture(bin, ["--version"]);
-  if (v.code === 127 || v.code !== 0 && !v.out.trim()) return { found: false, version: null, budget: false, modes: [] };
+  if (v.code === 127 || v.code !== 0 && !v.out.trim()) return { found: false, version: null, budget: false, modes: [], settingSources: false };
   const version2 = /(\d+\.\d+\.\d+[\w.-]*)/.exec(v.out)?.[1] ?? null;
   const help = await capture(bin, ["--help"]);
   const modeLine = /--permission-mode[\s\S]{0,400}?\(choices:([^)]*)\)/.exec(help.out)?.[1] ?? "";
   const modes = [...modeLine.matchAll(/"([A-Za-z]+)"/g)].map((m) => m[1]);
-  return { found: true, version: version2, budget: /--max-budget-usd/.test(help.out), modes };
+  return { found: true, version: version2, budget: /--max-budget-usd/.test(help.out), modes, settingSources: /--setting-sources/.test(help.out) };
 }
 function cliMode(mode, caps) {
   if (!caps.modes.length || caps.modes.includes(mode)) return mode;
@@ -11472,6 +11481,7 @@ function claudeArgs(r) {
   if (r.allowedTools.length) args.push("--allowedTools", r.allowedTools.join(","));
   if (r.disallowedTools.length) args.push("--disallowedTools", r.disallowedTools.join(","));
   if (r.budgetUsd !== null && r.caps.budget) args.push("--max-budget-usd", r.budgetUsd.toFixed(2));
+  if (!r.projectSettings && r.caps.settingSources) args.push("--setting-sources", "user");
   if (r.mcpConfig) {
     args.push("--mcp-config", r.mcpConfig);
     if (r.strictMcp) args.push("--strict-mcp-config");
@@ -12289,9 +12299,9 @@ var WorkerState = class {
   created(repo, branch) {
     return this.data.created[repo]?.[branch] ?? null;
   }
-  remember(repo, branch, entry) {
+  remember(repo, branch, entry2) {
     ;
-    (this.data.created[repo] ??= {})[branch] = entry;
+    (this.data.created[repo] ??= {})[branch] = entry2;
     this.save();
   }
   forget(repo, branch) {
@@ -12325,13 +12335,13 @@ var WorkerState = class {
 
 // src/worker/intake.ts
 import { createWriteStream, rmSync as rmSync4 } from "node:fs";
-import { homedir as homedir5, tmpdir as tmpdir2 } from "node:os";
+import { homedir as homedir5, tmpdir } from "node:os";
 import { join as join9 } from "node:path";
 import { randomBytes as randomBytes2 } from "node:crypto";
 
 // src/worker/clone.ts
 import { execFile as execFile3, spawn as spawn3 } from "node:child_process";
-import { existsSync as existsSync4, mkdirSync as mkdirSync3, readdirSync, rmSync as rmSync2 } from "node:fs";
+import { existsSync as existsSync4, mkdirSync as mkdirSync3, readdirSync, rmSync as rmSync2, writeFileSync as writeFileSync3 } from "node:fs";
 import { homedir as homedir3 } from "node:os";
 import { isAbsolute as isAbsolute2, join as join5, resolve as resolve3, sep as sep4 } from "node:path";
 var HOST = /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/;
@@ -12452,6 +12462,7 @@ async function cloneInto(target, base, onProgress, opts = {}) {
     if (made) rmSync2(dir, { recursive: true, force: true });
     throw new Error(res.timedOut ? `The clone did not finish within ${Math.round(timeoutMs / 6e4)} min.` : cloneHint(res.stderr));
   }
+  writeFileSync3(join5(dir, ".git", SOURCE_MARK), "clone\n");
   return { dir, already: false };
 }
 var runCli = (cmd, args) => new Promise((done) => {
@@ -13135,10 +13146,9 @@ var Unzip = /* @__PURE__ */ (function() {
 })();
 
 // src/worker/zipimport.ts
-import { closeSync, createReadStream, existsSync as existsSync5, lstatSync as lstatSync2, mkdirSync as mkdirSync4, mkdtempSync, openSync, readdirSync as readdirSync2, renameSync as renameSync3, rmSync as rmSync3, statSync as statSync2, writeSync } from "node:fs";
+import { closeSync, createReadStream, existsSync as existsSync5, lstatSync as lstatSync2, mkdirSync as mkdirSync4, openSync, readdirSync as readdirSync2, renameSync as renameSync3, rmSync as rmSync3, statSync as statSync2, writeFileSync as writeFileSync4, writeSync } from "node:fs";
 import { randomBytes } from "node:crypto";
-import { tmpdir } from "node:os";
-import { dirname as dirname4, join as join6, relative, resolve as resolve4, sep as sep5 } from "node:path";
+import { dirname as dirname4, join as join6, relative as relative2, resolve as resolve4, sep as sep5 } from "node:path";
 var ZIP_MAX = () => Number(process.env.ONE_WORKER_ZIP_MAX) || 500 * 1024 * 1024;
 var UNPACKED_MAX = 2 * 1024 * 1024 * 1024;
 var FILES_MAX = 1e5;
@@ -13153,32 +13163,51 @@ function isDotGit(part) {
   return s === ".git" || /^git~\d+$/.test(s);
 }
 var isDevice = (part) => /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³]|conin\$|conout\$)$/i.test(part.split(".")[0].replace(/ +$/, ""));
-function entryPath(name) {
+var FINDER_FILES = /* @__PURE__ */ new Set([".DS_Store", "Icon\r"]);
+function entryPath(name, platform = process.platform) {
   const n = name.replace(/\\/g, "/");
   if (!n) return OUTSIDE;
+  const parts = n.split("/").filter((p) => p && p !== ".");
+  if (parts.some(isDotGit) || parts[0] === "__MACOSX" || FINDER_FILES.has(parts.at(-1) ?? "")) return null;
   if (/[\u0000-\u001f\u007f]/.test(n)) return CONTROL;
   if (n.startsWith("/") || /^[A-Za-z]:/.test(n)) return OUTSIDE;
-  const parts = n.split("/").filter((p) => p && p !== ".");
   if (parts.some((p) => /^[. ]*$/.test(p.replace(HFS_IGNORABLE, "")))) return OUTSIDE;
-  if (parts.some((p) => p.includes(":"))) return COLON;
-  if (parts.some(isDevice)) return DEVICE;
+  if (platform === "win32") {
+    if (parts.some((p) => p.includes(":"))) return COLON;
+    if (parts.some(isDevice)) return DEVICE;
+  }
   if (!parts.length || n.endsWith("/")) return null;
-  if (parts.some((p) => isDotGit(p) || p.length > 255) || parts[0] === "__MACOSX" || parts[parts.length - 1] === ".DS_Store") return null;
+  if (parts.some((p) => p.length > 255)) return null;
   return parts.join("/");
 }
 var isUnsafe = (v) => typeof v === "object" && v !== null && "unsafe" in v;
 var shown = (name) => name.replace(/[\u0000-\u001f\u007f]/g, "?").slice(0, 120);
-function dotGitIn(dir) {
+var entry = (path) => lstatSync2(path, { throwIfNoEntry: false });
+function isRepoDir(d) {
+  const head = entry(join6(d, "HEAD"));
+  if (!head || head.isDirectory()) return false;
+  if (entry(join6(d, "commondir"))?.isFile()) return true;
+  return !!entry(join6(d, "objects"))?.isDirectory() && !!entry(join6(d, "refs"))?.isDirectory();
+}
+function gitDirIn(dir) {
   const todo = [dir];
   while (todo.length) {
     const d = todo.pop();
-    if (lstatSync2(join6(d, ".git"), { throwIfNoEntry: false })) return join6(d, ".git");
+    if (entry(join6(d, ".git"))) return { path: join6(d, ".git"), kind: "dotgit" };
+    if (isRepoDir(d)) return { path: d, kind: "repo" };
     for (const e of readdirSync2(d, { withFileTypes: true })) {
-      if (isDotGit(e.name)) return join6(d, e.name);
+      if (isDotGit(e.name)) return { path: join6(d, e.name), kind: "dotgit" };
       if (e.isDirectory()) todo.push(join6(d, e.name));
     }
   }
   return null;
+}
+function refusePlanted(dir) {
+  const planted = gitDirIn(dir);
+  if (!planted) return;
+  const at = shown(relative2(dir, planted.path) || ".");
+  if (planted.kind === "dotgit") throw new Error(`the ZIP holds a git folder under another spelling (${at}) \u2014 nothing was imported`);
+  throw new Error(`the ZIP holds a git repository in ${at} (HEAD, objects, refs) \u2014 git would use it, and its config, for every git command run in that folder. Leave it out (a test fixture too) and zip again \u2014 nothing was imported`);
 }
 async function importZip(zipFile, base, name, label, onProgress = () => {
 }) {
@@ -13257,36 +13286,45 @@ async function importZip(zipFile, base, name, label, onProgress = () => {
     for (let i2 = 2; existsSync5(dir); i2++) dir = join6(base, `${name}-${i2}`);
     renameSync3(root, dir);
     if (root !== tmp) rmSync3(tmp, { recursive: true, force: true });
-    try {
-      const planted = dotGitIn(dir);
-      if (planted) throw new Error(`the ZIP holds a git folder under another spelling (${shown(relative(dir, planted))}) \u2014 nothing was imported`);
-      await commitImport(dir, label);
-    } catch (e) {
-      rmSync3(dir, { recursive: true, force: true });
-      throw e;
-    }
+    await finishImport(dir, label);
     return { dir, files };
   } finally {
     if (existsSync5(tmp)) rmSync3(tmp, { recursive: true, force: true });
   }
 }
+async function finishImport(dir, label) {
+  try {
+    refusePlanted(dir);
+    await commitImport(dir, label);
+  } catch (e) {
+    rmSync3(dir, { recursive: true, force: true });
+    throw e;
+  }
+}
 async function commitImport(dir, label) {
-  const hooks = mkdtempSync(join6(tmpdir(), "one-import-hooks-"));
+  const holder = join6(dirname4(dir), `.one-import-git-${randomBytes(6).toString("hex")}`);
+  const gitDir2 = join6(holder, ".git");
+  const hooks = join6(holder, "no-hooks");
+  mkdirSync4(hooks, { recursive: true });
   const safe = ["-c", "core.fsmonitor=false", "-c", `core.hooksPath=${hooks}`];
-  const run2 = async (args, timeoutMs = 12e4) => {
-    const r = await git(dir, [...safe, ...args], timeoutMs);
+  const repo = [`--git-dir=${gitDir2}`, `--work-tree=${dir}`];
+  const run2 = async (cwd, args, timeoutMs = 12e4) => {
+    const r = await git(cwd, [...safe, ...args], timeoutMs);
     const verb = args.find((a, i2) => !a.startsWith("-") && args[i2 - 1] !== "-c");
     if (r.code !== 0) throw new Error(`git ${verb} failed: ${(r.stderr || r.stdout).trim().split("\n").slice(-2).join(" ")}`);
   };
   try {
-    await run2(["init", "-q"]);
-    await run2(["symbolic-ref", "HEAD", "refs/heads/main"]);
-    await run2(["add", "-A"], 10 * 6e4);
-    const who = (await git(dir, [...safe, "config", "user.email"])).stdout.trim();
+    await run2(holder, ["init", "-q"]);
+    await run2(dir, [...repo, "symbolic-ref", "HEAD", "refs/heads/main"]);
+    await run2(dir, [...repo, "add", "-A"], 10 * 6e4);
+    const who = (await git(dir, [...safe, ...repo, "config", "user.email"])).stdout.trim();
     const identity = who ? [] : ["-c", "user.name=One worker", "-c", "user.email=one-worker@localhost"];
-    await run2([...identity, "commit", "-q", "--no-verify", "--allow-empty", "-m", `Import ${label.slice(0, 200)}`], 10 * 6e4);
+    await run2(dir, [...identity, ...repo, "commit", "-q", "--no-verify", "--allow-empty", "-m", `Import ${label.slice(0, 200)}`], 10 * 6e4);
+    writeFileSync4(join6(gitDir2, SOURCE_MARK), "zip\n");
+    refusePlanted(dir);
+    renameSync3(gitDir2, join6(dir, ".git"));
   } finally {
-    rmSync3(hooks, { recursive: true, force: true });
+    rmSync3(holder, { recursive: true, force: true });
   }
 }
 
@@ -13745,7 +13783,7 @@ var Intake = class {
     if (declared <= 0) throw new Error("The ZIP is empty.");
     if (declared > max2) throw new Error(`The ZIP is larger than ${Math.round(max2 / 1024 / 1024)} MB.`);
     this.base();
-    const tmp = join9(tmpdir2(), `one-intake-${randomBytes2(8).toString("hex")}.zip`);
+    const tmp = join9(tmpdir(), `one-intake-${randomBytes2(8).toString("hex")}.zip`);
     const upload = { id: randomBytes2(12).toString("hex"), taskId: id, file, tmp, out: createWriteStream(tmp, { mode: 384 }), size: 0, declared, timer: setTimeout(() => this.drop("the upload stopped"), IDLE_MS), error: null };
     upload.timer.unref?.();
     upload.out.on("error", (e) => {
@@ -14697,12 +14735,12 @@ ${text2}`);
 
 // src/worker/run.ts
 import { randomBytes as randomBytes4 } from "node:crypto";
-import { mkdtempSync as mkdtempSync2, rmSync as rmSync5, writeFileSync as writeFileSync3 } from "node:fs";
-import { tmpdir as tmpdir4 } from "node:os";
+import { existsSync as existsSync7, mkdtempSync, rmSync as rmSync5, writeFileSync as writeFileSync5 } from "node:fs";
+import { tmpdir as tmpdir3 } from "node:os";
 import { basename as basename2, join as join10 } from "node:path";
 
 // src/worker/scrub.ts
-import { homedir as homedir6, tmpdir as tmpdir3 } from "node:os";
+import { homedir as homedir6, tmpdir as tmpdir2 } from "node:os";
 import { realpathSync as realpathSync2 } from "node:fs";
 var escape2 = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 function variants(p) {
@@ -14722,7 +14760,7 @@ function variants(p) {
 var Scrubber = class {
   rules = [];
   constructor(pairs = []) {
-    const base = [...pairs, [tmpdir3(), "<tmp>"], [homedir6(), "~"]];
+    const base = [...pairs, [tmpdir2(), "<tmp>"], [homedir6(), "~"]];
     const list = [];
     for (const [p, to] of base) if (p) for (const v of variants(p)) list.push({ from: v, to });
     list.sort((a, b) => b.from.length - a.from.length);
@@ -14849,9 +14887,9 @@ function dataBlock(label, body, code) {
   return [`<<<${label} ${code}`, body, `${label} ${code}>>>`];
 }
 function writeMcpConfig(taskMcp) {
-  const dir = mkdtempSync2(join10(tmpdir4(), "one-worker-"));
+  const dir = mkdtempSync(join10(tmpdir3(), "one-worker-"));
   const file = join10(dir, "mcp.json");
-  writeFileSync3(file, JSON.stringify({ mcpServers: { "one-task": { type: "stdio", command: taskMcp.command, args: taskMcp.args, env: taskMcp.env } } }, null, 2), { mode: 384 });
+  writeFileSync5(file, JSON.stringify({ mcpServers: { "one-task": { type: "stdio", command: taskMcp.command, args: taskMcp.args, env: taskMcp.env } } }, null, 2), { mode: 384 });
   return { file, dispose: () => rmSync5(dir, { recursive: true, force: true }) };
 }
 function stageModel(task, repo) {
@@ -14863,6 +14901,20 @@ function logModel(log2, m) {
   if (m.from === "one") log2("info", `Model: ${m.model} (chosen in One)`, "modelOne", { model: m.model });
   else if (m.from === "repo") log2("info", `Model: ${m.model} (worker.json)`, "modelRepo", { model: m.model });
   else log2("info", "Model: Claude Code's default", "modelDefault");
+}
+var OWN_SETTINGS = [".claude", ".mcp.json", "CLAUDE.md", "CLAUDE.local.md"];
+function ownSettings(ctx, cwd, log2) {
+  const { repo, caps } = ctx;
+  if (repo.claude.projectSettings) return null;
+  const has = OWN_SETTINGS.filter((n) => existsSync7(join10(cwd, n)));
+  if (!has.length) return null;
+  if (caps.settingSources) {
+    log2("info", `${repo.name}: Claude Code runs without the repo's own ${has.join(", ")} \u2014 the worker cloned or imported it, and its settings could run commands. To trust them: "claude": { "projectSettings": true } for this repo in worker.json.`, "projectSettingsOff", { repo: repo.name, files: has.join(", ") });
+    return null;
+  }
+  const runs = has.filter((n) => n === ".claude" || n === ".mcp.json");
+  if (!runs.length) return null;
+  return `This Claude Code version cannot leave ${repo.name}'s own ${runs.join(" and ")} out (it has no --setting-sources), and the worker cloned or imported this repo: its settings could run commands. Update Claude Code (claude update), or trust the repo with "claude": { "projectSettings": true } in worker.json.`;
 }
 var TASK_TOOL_PERMS = ["mcp__one-task__one_task_read", "mcp__one-task__one_task_note", "mcp__one-task__one_task_ask"];
 function limits(ctx) {
@@ -14932,6 +14984,11 @@ async function claudeStage(ctx, wt, scrub, log2) {
     return { status: "limit", branch: wt.branch, error: lim.refuse };
   }
   if (lim.budget !== null && !caps.budget) log2("info", `This Claude Code version has no --max-budget-usd: the cost limit is checked between stages.`);
+  const refuse = ownSettings(ctx, wt.dir, log2);
+  if (refuse) {
+    log2("error", refuse);
+    return { status: "failed", branch: wt.branch, error: scrub.text(refuse) };
+  }
   const plan = task.stage.kind === "plan";
   const mode = plan ? "plan" : repo.claude.permissionMode.implement ?? task.stage.permissionMode;
   const mcp = ctx.taskMcp ? writeMcpConfig(ctx.taskMcp) : null;
@@ -14952,6 +15009,7 @@ async function claudeStage(ctx, wt, scrub, log2) {
       disallowedTools: repo.claude.disallowedTools,
       mcpConfig: mcp?.file ?? null,
       strictMcp: repo.claude.strictMcp && !repo.claude.mcpServers.length,
+      projectSettings: repo.claude.projectSettings,
       budgetUsd: lim.budget,
       caps,
       env: claudeEnv(),
@@ -14987,6 +15045,11 @@ async function docStage(ctx, scrub, log2, branch, dir) {
     log2("warn", lim.refuse);
     return { status: "limit", error: lim.refuse };
   }
+  const refuse = ownSettings(ctx, dir ?? repo.path, log2);
+  if (refuse) {
+    log2("error", refuse);
+    return { status: "failed", error: scrub.text(refuse) };
+  }
   const changes = branch ? await branchDiff(repo, branch, dir).catch(() => null) : null;
   if (changes) log2("git", `The branch ${branch} changes ${changes.files} file(s) \u2014 the diff goes along${changes.clipped ? " (clipped)" : ""}`, "docDiff", { branch, n: changes.files });
   const mcp = ctx.taskMcp ? writeMcpConfig(ctx.taskMcp) : null;
@@ -15006,6 +15069,7 @@ async function docStage(ctx, scrub, log2, branch, dir) {
       disallowedTools: [.../* @__PURE__ */ new Set([...DOC_DENIED, ...repo.claude.disallowedTools])],
       mcpConfig: mcp?.file ?? null,
       strictMcp: repo.claude.strictMcp && !repo.claude.mcpServers.length,
+      projectSettings: repo.claude.projectSettings,
       budgetUsd: lim.budget,
       caps,
       env: claudeEnv(),
@@ -15221,7 +15285,7 @@ var Worker2 = class {
   state;
   opts;
   link;
-  caps = { found: false, version: null, budget: false, modes: [] };
+  caps = { found: false, version: null, budget: false, modes: [], settingSources: false };
   runs = /* @__PURE__ */ new Map();
   tokens = /* @__PURE__ */ new Map();
   workspace = null;
@@ -23061,9 +23125,9 @@ var memo = {
     if (!bucket)
       return empty2;
     handoff = void 0;
-    const entry = { value: empty2, issues: null };
-    bucket.set(payload.value, entry);
-    open.push(entry);
+    const entry2 = { value: empty2, issues: null };
+    bucket.set(payload.value, entry2);
+    open.push(entry2);
     return empty2;
   },
   guard(inst) {
@@ -23137,16 +23201,16 @@ var memo = {
         const depth = open.length;
         const result = base(payload, ctx);
         handoff = void 0;
-        const entry = open.length > depth ? open.pop() : void 0;
+        const entry2 = open.length > depth ? open.pop() : void 0;
         if (result instanceof Promise) {
           return result.then((r) => {
-            if (entry)
-              entry.issues = r.issues.length ? cloneIssues(r.issues) : NO_ISSUES;
+            if (entry2)
+              entry2.issues = r.issues.length ? cloneIssues(r.issues) : NO_ISSUES;
             return r;
           });
         }
-        if (entry)
-          entry.issues = result.issues.length ? cloneIssues(result.issues) : NO_ISSUES;
+        if (entry2)
+          entry2.issues = result.issues.length ? cloneIssues(result.issues) : NO_ISSUES;
         return result;
       };
       inst._zod.parse = wrapped;
@@ -23974,42 +24038,42 @@ function extractDefs(ctx, schema) {
   if (ctx.external && ctx.sharedDefsExtractedFor === ctx.external)
     return;
   const idToSchema = /* @__PURE__ */ new Map();
-  for (const entry of ctx.seen.entries()) {
-    const id = ctx.metadataRegistry.get(entry[0])?.id;
+  for (const entry2 of ctx.seen.entries()) {
+    const id = ctx.metadataRegistry.get(entry2[0])?.id;
     if (id) {
       const existing = idToSchema.get(id);
-      if (existing && existing !== entry[0]) {
+      if (existing && existing !== entry2[0]) {
         throw new Error(`Duplicate schema id "${id}" detected during JSON Schema conversion. Two different schemas cannot share the same id when converted together.`);
       }
-      idToSchema.set(id, entry[0]);
+      idToSchema.set(id, entry2[0]);
     }
   }
-  const makeURI = (entry) => {
+  const makeURI = (entry2) => {
     const defsSegment = ctx.target === "draft-2020-12" ? "$defs" : "definitions";
     if (ctx.external) {
-      const externalId = ctx.external.registry.get(entry[0])?.id;
+      const externalId = ctx.external.registry.get(entry2[0])?.id;
       const uriGenerator = ctx.external.uri ?? ((id2) => id2);
       if (externalId) {
         return { ref: uriGenerator(externalId) };
       }
-      const id = entry[1].defId ?? entry[1].schema.id ?? `schema${ctx.counter++}`;
-      entry[1].defId = id;
+      const id = entry2[1].defId ?? entry2[1].schema.id ?? `schema${ctx.counter++}`;
+      entry2[1].defId = id;
       return { defId: id, ref: `${uriGenerator("__shared")}#/${defsSegment}/${encodeJSONPointerSegment(id)}` };
     }
     const uriPrefix = `#`;
     const defUriPrefix = `${uriPrefix}/${defsSegment}/`;
-    if (entry[1] === root && !entry[1].schema.id) {
+    if (entry2[1] === root && !entry2[1].schema.id) {
       return { ref: uriPrefix };
     }
-    const defId = entry[1].schema.id ?? `__schema${ctx.counter++}`;
+    const defId = entry2[1].schema.id ?? `__schema${ctx.counter++}`;
     return { defId, ref: defUriPrefix + encodeJSONPointerSegment(defId) };
   };
-  const extractToDef = (entry) => {
-    if (entry[1].schema.$ref) {
+  const extractToDef = (entry2) => {
+    if (entry2[1].schema.$ref) {
       return;
     }
-    const seen = entry[1];
-    const { ref, defId } = makeURI(entry);
+    const seen = entry2[1];
+    const { ref, defId } = makeURI(entry2);
     seen.def = { ...seen.schema };
     if (defId)
       seen.defId = defId;
@@ -24020,8 +24084,8 @@ function extractDefs(ctx, schema) {
     schema2.$ref = ref;
   };
   if (ctx.cycles === "throw") {
-    for (const entry of ctx.seen.entries()) {
-      const seen = entry[1];
+    for (const entry2 of ctx.seen.entries()) {
+      const seen = entry2[1];
       if (seen.cycle) {
         throw new Error(`Cycle detected: #/${seen.cycle?.join("/")}/<root>
 
@@ -24029,31 +24093,31 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
       }
     }
   }
-  for (const entry of ctx.seen.entries()) {
-    const seen = entry[1];
-    if (schema === entry[0]) {
-      extractToDef(entry);
+  for (const entry2 of ctx.seen.entries()) {
+    const seen = entry2[1];
+    if (schema === entry2[0]) {
+      extractToDef(entry2);
       continue;
     }
     if (ctx.external) {
-      const ext = ctx.external.registry.get(entry[0])?.id;
-      if (schema !== entry[0] && ext) {
-        extractToDef(entry);
+      const ext = ctx.external.registry.get(entry2[0])?.id;
+      if (schema !== entry2[0] && ext) {
+        extractToDef(entry2);
         continue;
       }
     }
-    const id = ctx.metadataRegistry.get(entry[0])?.id;
+    const id = ctx.metadataRegistry.get(entry2[0])?.id;
     if (id) {
-      extractToDef(entry);
+      extractToDef(entry2);
       continue;
     }
     if (seen.cycle) {
-      extractToDef(entry);
+      extractToDef(entry2);
       continue;
     }
     if (seen.count > 1) {
       if (ctx.reused === "ref") {
-        extractToDef(entry);
+        extractToDef(entry2);
       }
     }
   }
@@ -24235,12 +24299,12 @@ function finalize(ctx, schema) {
     });
   };
   if (!ctx.external || ctx.sharedEmitDoneFor !== ctx.external) {
-    for (const entry of [...ctx.seen.entries()].reverse()) {
-      flattenRef(entry[0]);
+    for (const entry2 of [...ctx.seen.entries()].reverse()) {
+      flattenRef(entry2[0]);
     }
     if (ctx.target !== "openapi-3.0") {
-      for (const entry of ctx.seen.entries()) {
-        compactTypeUnion(entry[1].def ?? entry[1].schema);
+      for (const entry2 of ctx.seen.entries()) {
+        compactTypeUnion(entry2[1].def ?? entry2[1].schema);
       }
     }
     for (const rewrite of ctx.deferred)
@@ -24287,8 +24351,8 @@ function finalize(ctx, schema) {
     delete result.id;
   const defs = ctx.external?.defs ?? {};
   if (!ctx.external || ctx.sharedEmitDoneFor !== ctx.external) {
-    for (const entry of ctx.seen.entries()) {
-      const seen = entry[1];
+    for (const entry2 of ctx.seen.entries()) {
+      const seen = entry2[1];
       if (seen.def && seen.defId) {
         if (seen.def.id === seen.defId)
           delete seen.def.id;
@@ -24900,9 +24964,9 @@ function stringifyKeyNames(bySchema, json, visited) {
 var pendingRecords = /* @__PURE__ */ new WeakMap();
 function rewriteKeyNames(ctx) {
   const bySchema = /* @__PURE__ */ new Map();
-  for (const entry of ctx.seen.values()) {
-    if (entry.def && !bySchema.has(entry.schema))
-      bySchema.set(entry.schema, entry);
+  for (const entry2 of ctx.seen.values()) {
+    if (entry2.def && !bySchema.has(entry2.schema))
+      bySchema.set(entry2.schema, entry2);
   }
   const rewrites = /* @__PURE__ */ new Map();
   for (const record2 of pendingRecords.get(ctx) ?? []) {
@@ -24916,8 +24980,8 @@ function rewriteKeyNames(ctx) {
   }
   if (!rewrites.size)
     return;
-  for (const entry of ctx.seen.values()) {
-    for (const carrier of [entry.schema, entry.def]) {
+  for (const entry2 of ctx.seen.values()) {
+    for (const carrier of [entry2.schema, entry2.def]) {
       const rewritten = carrier && rewrites.get(carrier.propertyNames);
       if (rewritten)
         carrier.propertyNames = rewritten;
@@ -25111,8 +25175,8 @@ function toJSONSchema(input, params) {
     const registry2 = input;
     const ctx2 = initializeContext({ ...params, processors: allProcessors });
     const defs = {};
-    for (const entry of registry2._idmap.entries()) {
-      const [_, schema] = entry;
+    for (const entry2 of registry2._idmap.entries()) {
+      const [_, schema] = entry2;
       processSchema(schema, ctx2);
     }
     const schemas = {};
@@ -25122,8 +25186,8 @@ function toJSONSchema(input, params) {
       defs
     };
     ctx2.external = external;
-    for (const entry of registry2._idmap.entries()) {
-      const [key, schema] = entry;
+    for (const entry2 of registry2._idmap.entries()) {
+      const [key, schema] = entry2;
       extractDefs(ctx2, schema);
       assignProp(schemas, key, finalize(ctx2, schema));
     }
@@ -33566,7 +33630,7 @@ var SETUP_JS = String.raw`(function () {
 
 // src/worker/setup.ts
 import { createWriteStream as createWriteStream2, rmSync as rmSync6 } from "node:fs";
-import { tmpdir as tmpdir5 } from "node:os";
+import { tmpdir as tmpdir4 } from "node:os";
 var MAX_BODY = 256 * 1024;
 var HEADERS = { "cache-control": "no-store", "x-content-type-options": "nosniff", "referrer-policy": "no-referrer", "x-frame-options": "DENY", "cross-origin-resource-policy": "same-origin" };
 var CSP = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
@@ -33761,7 +33825,7 @@ var SetupServer = class {
     if (typeof base !== "string") return { ok: false, status: 400, error: base.error };
     const max2 = ZIP_MAX();
     if (Number(req.headers["content-length"] ?? 0) > max2) return { ok: false, status: 413, error: `The ZIP is larger than ${Math.round(max2 / 1024 / 1024)} MB.` };
-    const tmp = join11(tmpdir5(), `one-import-${randomBytes6(8).toString("hex")}.zip`);
+    const tmp = join11(tmpdir4(), `one-import-${randomBytes6(8).toString("hex")}.zip`);
     let size = 0;
     const out = createWriteStream2(tmp, { mode: 384 });
     try {
@@ -34103,7 +34167,7 @@ Next: add your repositories to "repos", then run: node ${self} check
   if (presetProblem) log(`the preset in this file is ignored (${presetProblem}) \u2014 download the worker from One again`);
   let loaded;
   try {
-    loaded = existsSync7(configFile) || !preset ? loadConfig(configFile, process.env, configOpts) : { config: emptyConfig(configFile), problems: [] };
+    loaded = existsSync8(configFile) || !preset ? loadConfig(configFile, process.env, configOpts) : { config: emptyConfig(configFile), problems: [] };
   } catch (e) {
     process.stderr.write(`${e instanceof Error ? e.message : String(e)}
 Or download the worker from One (Settings \u2192 Coding worker): that file comes ready-paired and asks for your repos itself.
@@ -34117,7 +34181,7 @@ Or download the worker from One (Settings \u2192 Coding worker): that file comes
     const caps = await detectClaude(bin);
     const relay = cloud ? await checkCloud(preset.origin, preset.cloud.token) : null;
     const lines = [
-      `config     ${configFile}${existsSync7(configFile) ? "" : " (not written yet)"}`,
+      `config     ${configFile}${existsSync8(configFile) ? "" : " (not written yet)"}`,
       ...cloud ? [`download   cloud worker for "${preset.name}" \xB7 paired (end-to-end) with the browser that downloaded it`, `cloud      ${relay.line}`] : preset ? [`download   paired with a browser for "${preset.name}" \xB7 accepts ${preset.origin}${preset.dev ? " (+ localhost)" : ""}`] : [],
       `workspace  ${config2.workspace ?? "not set \u2014 every One tab is refused"}`,
       `port       ${config2.port}${cloud ? " (task tools and the setup page only \u2014 One reaches this worker through the team server)" : ""}`,

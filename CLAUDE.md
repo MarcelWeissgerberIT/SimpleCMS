@@ -505,11 +505,17 @@ the public APIs stable — other areas are built against them in parallel.
   (`ONE_WORKER_LIVE_GIT_MS`); browser notifications only via coding/notify.ts (per device `one.coding.notify`).
   New repos only from the worker's local setup page: clone (mcp/src/worker/clone.ts — `parseCloneUrl` refuses tokens in
   https addresses, ext::/file::, option-like and `..`; `git -c protocol.ext.allow=never … clone -- <url> <dir>`; projects
-  from glab / gh) and ZIP import (zipimport.ts — fflate streaming, every part some disk reads as `.git` left out
-  (`isDotGit` = git's is_ntfs_dotgit + is_hfs_dotgit: case, trailing dots / spaces, `:stream`, `GIT~n`, HFS+ ignorables),
-  a path outside / `:` / a control character / a Windows device name refuses the ZIP, `dotGitIn` checks again before
-  `git init` + one commit, run with fsmonitor off, an empty hooksPath and --no-verify) into `cloneDir` (default
-  ~/one-repos, never iCloud). `claude.mcpServers` per repo =
+  from glab / gh) and ZIP import (zipimport.ts — fflate streaming; left out before any check: every part some disk reads
+  as `.git` (`isDotGit` = git's is_ntfs_dotgit + is_hfs_dotgit: case, trailing dots / spaces, `:stream`, `GIT~n`, HFS+
+  ignorables), `__MACOSX`, `.DS_Store`, `Icon\r`; a path outside / a control character refuses the ZIP, `:` / a device
+  name only on Windows (`entryPath(name, platform)`); `gitDirIn` refuses any `.git` spelling or a folder git takes for a
+  repository (HEAD + objects/ + refs/ or commondir) before any git step (`finishImport`); one commit against a fresh git
+  dir outside the folder (`--git-dir` / `--work-tree`, fsmonitor off, empty hooksPath, --no-verify — no config inside
+  the folder is ever read), moved in as `.git` after a last check) into `cloneDir` (default ~/one-repos, never iCloud).
+  Clones and imports are marked `.git/one-worker-source` (`SOURCE_MARK`); such a repo, or one inside `cloneDir`, gets
+  `claude.projectSettings` false unless worker.json says true → Claude Code runs with `--setting-sources user` (none of
+  the repo's hooks, apiKeyHelper, .mcp.json, CLAUDE.md; log code `projectSettingsOff`; a CLI without the flag refuses the
+  stage while the repo has `.claude/` or `.mcp.json`). `claude.mcpServers` per repo =
   the person's own Claude Code MCP servers (tools allowed, no --strict-mcp-config). GitLab: `glab mr create`. After an
   import the page offers "Create it on GitLab / GitHub" (publish.ts: name from the code, the person's glab / gh api,
   origin + push; only for a repo without a remote). Pipeline

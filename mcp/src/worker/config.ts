@@ -7,7 +7,7 @@
  */
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { homedir, hostname } from 'node:os'
-import { dirname, isAbsolute, join, resolve, sep } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { PARALLEL_MAX, PERMISSION_MODES, REPO_NAME, cleanModel, WORKER_DEFAULT_PORT, WORKSPACE_ID, type PermissionMode, type WorkerPreset } from '../../../src/app/features/coding/protocol.ts'
 
 export interface ClaudeConfig {
@@ -26,6 +26,13 @@ export interface ClaudeConfig {
    * Claude Code knows them under; their tools are allowed (mcp__<name>) and --strict-mcp-config is left out
    */
   mcpServers: string[]
+  /**
+   * Claude Code may load the repo's own settings (.claude/settings*.json — hooks, apiKeyHelper, MCP approvals —
+   * .mcp.json and CLAUDE.md). Default: yes, except for a repo the worker cloned or imported (SOURCE_MARK, or a
+   * folder inside cloneDir) — its settings could run commands the moment Claude Code starts, even in a read-only
+   * stage; there Claude Code runs with `--setting-sources user`
+   */
+  projectSettings: boolean
 }
 
 export interface RepoConfig {
@@ -149,6 +156,19 @@ const REMOTE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
 const PREFIX = /^(?!-)[A-Za-z0-9._/-]{0,40}$/
 
 /**
+ * A file the worker leaves in the git folder of a repository it made from code elsewhere: "zip" (zipimport.ts) or
+ * "clone" (clone.ts). Such a repo's own Claude Code settings are not loaded unless the person trusts it (config).
+ */
+export const SOURCE_MARK = 'one-worker-source'
+
+/** Made by the worker from code elsewhere: its mark in the git folder, or a folder inside the clone folder. */
+export function madeByWorker(path: string, cloneDir: string): boolean {
+  if (existsSync(join(path, '.git', SOURCE_MARK))) return true
+  const rel = relative(cloneDir, path)
+  return !isAbsolute(rel) && rel.split(/[\\/]/)[0] !== '..'
+}
+
+/**
  * macOS: a folder iCloud Drive syncs — its files can be "in the cloud only", and git then waits for each download.
  * iCloud Drive itself, and ~/Documents · ~/Desktop when "Desktop & Documents Folders" is on (they then appear in it).
  */
@@ -172,7 +192,7 @@ const num = (v: unknown, def: number, min: number, max: number) => (typeof v ===
 const usd = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? Math.round(v * 100) / 100 : null)
 const strings = (v: unknown, max = 100): string[] => (Array.isArray(v) ? v.filter((s): s is string => typeof s === 'string' && !!s.trim()).map((s) => s.trim().slice(0, 300)).slice(0, max) : [])
 
-function claudeConfig(raw: unknown, where: string, problems: string[]): ClaudeConfig {
+function claudeConfig(raw: unknown, where: string, problems: string[], trusted: boolean): ClaudeConfig {
   const c = isObj(raw) ? raw : {}
   const modes: ClaudeConfig['permissionMode'] = {}
   if (isObj(c.permissionMode)) {
@@ -187,6 +207,7 @@ function claudeConfig(raw: unknown, where: string, problems: string[]): ClaudeCo
   }
   // the same rule as a stage's model from One (protocol.ts MODEL_NAME)
   const model = cleanModel(c.model)
+  if (c.projectSettings !== undefined && typeof c.projectSettings !== 'boolean') problems.push(`${where}: claude.projectSettings must be true or false — ${trusted ? 'true' : 'false'} is used`)
   return {
     model,
     maxTurns: Math.floor(num(c.maxTurns, 30, 1, 200)),
@@ -195,6 +216,7 @@ function claudeConfig(raw: unknown, where: string, problems: string[]): ClaudeCo
     disallowedTools: strings(c.disallowedTools),
     strictMcp: c.strictMcp !== false,
     mcpServers: mcpNames(c.mcpServers, where, problems),
+    projectSettings: typeof c.projectSettings === 'boolean' ? c.projectSettings : trusted,
   }
 }
 
@@ -209,7 +231,7 @@ function mcpNames(raw: unknown, where: string, problems: string[]): string[] {
   return [...new Set(out)]
 }
 
-function repoConfig(raw: unknown, index: number, configDir: string, problems: string[], opts: ConfigOptions = {}): RepoConfig | null {
+function repoConfig(raw: unknown, index: number, configDir: string, problems: string[], opts: ConfigOptions, cloneDir: string): RepoConfig | null {
   const where = `repos[${index}]`
   if (!isObj(raw)) {
     problems.push(`${where} is not an object`)
@@ -284,7 +306,7 @@ function repoConfig(raw: unknown, index: number, configDir: string, problems: st
     analyzeTimeoutSec: Math.floor(num(raw.analyzeTimeoutSec, 900, 5, 7200)),
     push: raw.push !== false,
     pr,
-    claude: claudeConfig(raw.claude, at, problems),
+    claude: claudeConfig(raw.claude, at, problems, !madeByWorker(path, cloneDir)),
     maxUsdPerTask: usd(raw.maxUsdPerTask),
     maxUsdPerDay: usd(raw.maxUsdPerDay),
   }
@@ -311,11 +333,12 @@ export function sanitizeConfig(raw: unknown, file: string, env: NodeJS.ProcessEn
     if (WORKSPACE_ID.test(r.workspace.trim())) workspace = r.workspace.trim()
     else problems.push(`"workspace" ${JSON.stringify(r.workspace)} is not a workspace id (One shows it in Settings → Coding worker, e.g. "local:abc123")`)
   }
+  const cloneDir = cloneDirOf(env.ONE_WORKER_CLONE_DIR ?? r.cloneDir, configDir, problems)
   const repos: RepoConfig[] = []
   const list = Array.isArray(r.repos) ? r.repos : []
   if (!Array.isArray(r.repos)) problems.push('"repos" is missing: list the repositories this worker may work in')
   list.forEach((entry, i) => {
-    const repo = repoConfig(entry, i, configDir, problems, opts)
+    const repo = repoConfig(entry, i, configDir, problems, opts, cloneDir)
     if (!repo) return
     if (repos.some((x) => x.name === repo.name)) problems.push(`repos[${i}]: the name "${repo.name}" is used twice — the second one is ignored`)
     else repos.push(repo)
@@ -333,7 +356,7 @@ export function sanitizeConfig(raw: unknown, file: string, env: NodeJS.ProcessEn
       pollSec: Math.floor(num(r.pollSec, 15, 2, 600)),
       origins: strings(r.origins, 20),
       repos,
-      cloneDir: cloneDirOf(env.ONE_WORKER_CLONE_DIR ?? r.cloneDir, configDir, problems),
+      cloneDir,
       mcpServers: mcpNames(r.mcpServers, 'worker', problems),
       intake: r.intake !== false,
       preset: null,
@@ -369,7 +392,7 @@ export function scratchRepo(config: WorkerConfig, taskId: string): RepoConfig {
     analyzeTimeoutSec: 900,
     push: false,
     pr: 'none',
-    claude: { model: null, maxTurns: 40, permissionMode: {}, allowedTools: [], disallowedTools: [], strictMcp: true, mcpServers: config.mcpServers },
+    claude: { model: null, maxTurns: 40, permissionMode: {}, allowedTools: [], disallowedTools: [], strictMcp: true, mcpServers: config.mcpServers, projectSettings: false },
     maxUsdPerTask: null,
     maxUsdPerDay: null,
   }

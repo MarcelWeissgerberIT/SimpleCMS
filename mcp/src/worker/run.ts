@@ -8,7 +8,7 @@
  * worker's own instructions; Claude Code's permission rules stay on (no bypassing flag, ever).
  */
 import { randomBytes } from 'node:crypto'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import type { GitInfo, LogLine, StageOutcome, TaskPayload, TaskProgress, TestResult, ToolEdit } from '../../../src/app/features/coding/protocol.ts'
@@ -148,6 +148,28 @@ function logModel(log: Log, m: ReturnType<typeof stageModel>): void {
   else log('info', "Model: Claude Code's default", 'modelDefault')
 }
 
+/** What a repo can bring for Claude Code itself: settings (hooks, apiKeyHelper, MCP approvals), MCP servers, memory. */
+const OWN_SETTINGS = ['.claude', '.mcp.json', 'CLAUDE.md', 'CLAUDE.local.md']
+
+/**
+ * A repo whose own Claude Code settings stay out (config.ts projectSettings: one the worker cloned or imported): the
+ * log names what is left out. When this Claude Code cannot leave them out (no --setting-sources) and the repo has
+ * settings or MCP servers, which could run commands at start, the stage is refused — the reason is returned.
+ */
+function ownSettings(ctx: StageContext, cwd: string, log: Log): string | null {
+  const { repo, caps } = ctx
+  if (repo.claude.projectSettings) return null
+  const has = OWN_SETTINGS.filter((n) => existsSync(join(cwd, n)))
+  if (!has.length) return null
+  if (caps.settingSources) {
+    log('info', `${repo.name}: Claude Code runs without the repo's own ${has.join(', ')} — the worker cloned or imported it, and its settings could run commands. To trust them: "claude": { "projectSettings": true } for this repo in worker.json.`, 'projectSettingsOff', { repo: repo.name, files: has.join(', ') })
+    return null
+  }
+  const runs = has.filter((n) => n === '.claude' || n === '.mcp.json')
+  if (!runs.length) return null
+  return `This Claude Code version cannot leave ${repo.name}'s own ${runs.join(' and ')} out (it has no --setting-sources), and the worker cloned or imported this repo: its settings could run commands. Update Claude Code (claude update), or trust the repo with "claude": { "projectSettings": true } in worker.json.`
+}
+
 /** Tool names Claude Code may call without asking: the task tools always. */
 export const TASK_TOOL_PERMS = ['mcp__one-task__one_task_read', 'mcp__one-task__one_task_note', 'mcp__one-task__one_task_ask']
 
@@ -224,6 +246,11 @@ async function claudeStage(ctx: StageContext, wt: TaskWorktree, scrub: Scrubber,
     return { status: 'limit', branch: wt.branch, error: lim.refuse }
   }
   if (lim.budget !== null && !caps.budget) log('info', `This Claude Code version has no --max-budget-usd: the cost limit is checked between stages.`)
+  const refuse = ownSettings(ctx, wt.dir, log)
+  if (refuse) {
+    log('error', refuse)
+    return { status: 'failed', branch: wt.branch, error: scrub.text(refuse) }
+  }
   const plan = task.stage.kind === 'plan'
   const mode = plan ? 'plan' : (repo.claude.permissionMode.implement ?? task.stage.permissionMode)
   const mcp = ctx.taskMcp ? writeMcpConfig(ctx.taskMcp) : null
@@ -245,6 +272,7 @@ async function claudeStage(ctx: StageContext, wt: TaskWorktree, scrub: Scrubber,
       disallowedTools: repo.claude.disallowedTools,
       mcpConfig: mcp?.file ?? null,
       strictMcp: repo.claude.strictMcp && !repo.claude.mcpServers.length,
+      projectSettings: repo.claude.projectSettings,
       budgetUsd: lim.budget,
       caps,
       env: claudeEnv(),
@@ -287,6 +315,11 @@ async function docStage(ctx: StageContext, scrub: Scrubber, log: Log, branch: st
     log('warn', lim.refuse)
     return { status: 'limit', error: lim.refuse }
   }
+  const refuse = ownSettings(ctx, dir ?? repo.path, log)
+  if (refuse) {
+    log('error', refuse)
+    return { status: 'failed', error: scrub.text(refuse) }
+  }
   const changes = branch ? await branchDiff(repo, branch, dir).catch(() => null) : null
   if (changes) log('git', `The branch ${branch} changes ${changes.files} file(s) — the diff goes along${changes.clipped ? ' (clipped)' : ''}`, 'docDiff', { branch: branch!, n: changes.files })
   const mcp = ctx.taskMcp ? writeMcpConfig(ctx.taskMcp) : null
@@ -306,6 +339,7 @@ async function docStage(ctx: StageContext, scrub: Scrubber, log: Log, branch: st
       disallowedTools: [...new Set([...DOC_DENIED, ...repo.claude.disallowedTools])],
       mcpConfig: mcp?.file ?? null,
       strictMcp: repo.claude.strictMcp && !repo.claude.mcpServers.length,
+      projectSettings: repo.claude.projectSettings,
       budgetUsd: lim.budget,
       caps,
       env: claudeEnv(),
