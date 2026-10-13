@@ -638,7 +638,9 @@ the public APIs stable — other areas are built against them in parallel.
   `createProject` / `trashProject` with Undo); the worker takes tasks from every project. Stages that need a newer worker
   (`stageNeeds` → `WORKER_CAN` incl. 'doc', sent with every `next` as `can`; `workerCan(can, docs)`: any `can` or `docs: true`
   implies 'doc') go only to a worker that names them — never to an older one (the task fails with err.oldWorker; the #/coding
-  plate shows `OutdatedWorker` from `useCoding.can`). The worker reports a task it cannot read back as 'refused' (`taskIds`),
+  plate shows `OutdatedWorker` from `useCoding.can`; a worker whose welcome names a version with the ZIP-import gap —
+  `workerUnsafe`: `WORKER_IMPORT_SINCE` ≤ v < `WORKER_SAFE`, protocol.ts; an unreadable version never — gets the security
+  notice instead, also in the setup cards; through the relay its key opens Settings → Coding worker, never the local file). The worker reports a task it cannot read back as 'refused' (`taskIds`),
   never drops it silently; bump mcp/package.json for every worker change (the site's download = the newest version).
   Models: `PipelineStage.model` only on stages that run Claude Code (plan · implement · doc; `claudeRuns()`) — an alias
   ('opus' · 'sonnet' · 'haiku'), a full id or an own name; per task per device `TaskLocal.model` (never synced, never hashed).
