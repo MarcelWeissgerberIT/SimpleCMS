@@ -13,6 +13,7 @@ import { precheck } from './core/gate'
 import { routed, shapeOf, withShape } from './core/shape'
 import { relatedRows, rowFactsFor, type FactsContext } from './rowFacts'
 import { useWorkspace } from '../../store/store'
+import { newId } from '../../lib/ids'
 import type { SourceRef } from '@/shared/ai/types'
 import { estimateLabel, estimateOn, routeFor } from './core/status'
 import { providerInfo } from '@/shared/ai/providers'
@@ -176,7 +177,7 @@ export function buildAutofillPrompt(req: AutofillRequest): { system: string; pro
  * Ask Claude for one field value. Throws AIError for API failures (no key, rate limit after
  * retries, offline, aborted …); a reply that is not `{ "value": … }` resolves as `{ ok: false }`.
  */
-export async function requestAutofill(req: AutofillRequest, signal?: AbortSignal, rowId?: string | null, field?: { dbId: string; propId: string } | null): Promise<AutofillAnswer> {
+export async function requestAutofill(req: AutofillRequest, signal?: AbortSignal, rowId?: string | null, field?: { dbId: string; propId: string; job?: string; mode?: 'bulk' | 'trigger' } | null): Promise<AutofillAnswer> {
   // the row's fields and page content go out (a caller without the row id: the database as a whole)
   const base: SourceRef[] = rowId ? [{ row: rowId }] : [{ all: true }]
   // the route first: the row is read for it (D-S2-28 — names, transcripts, pages it may not see left out)
@@ -195,7 +196,9 @@ export async function requestAutofill(req: AutofillRequest, signal?: AbortSignal
     schema,
     maxTokens: long ? 8000 : 4096,
     signal,
-    ...(field ? { ledgerSource: `autofill:${field.dbId}:${field.propId}` } : {}),
+    // the job's source (autofill:<db>:<prop>:<job> — a watch fill is its own job) and how it runs: a person's job or
+    // the watch (features/governor modes.ts)
+    run: { ...(field ? { source: `autofill:${field.dbId}:${field.propId}:${field.job ?? newId()}` } : {}), mode: field?.mode ?? 'bulk' },
     ...routed(pre),
     onRun: (r) => (ai = aiRunMeta(r) ?? ai),
   })

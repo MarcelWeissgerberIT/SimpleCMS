@@ -404,7 +404,8 @@ async function runOnce(agent: CustomAgent, req: RunRequest): Promise<AgentRun> {
       system: agentSystem(agent.write, unlocks, canCreateItems()),
       model: agent.model,
       effort: agent.effort,
-      ledgerSource: `agent:${agent.id}:${run.id}`,
+      // the run's source and how it started (features/governor modes.ts — an agent runs three ways)
+      run: { source: `agent:${agent.id}:${run.id}`, mode: req.manual || req.trigger.type === 'manual' ? 'manual' : req.trigger.type === 'schedule' ? 'scheduled' : 'trigger' },
       // the tool reads are built for the route (ai/agent/run.ts); the trigger's rows were read before it — with them a
       // route that does not see everything is refused (the gate's backstop)
       applied: req.rows?.length ? null : appliedOf(pre),

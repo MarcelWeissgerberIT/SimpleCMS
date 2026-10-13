@@ -47,6 +47,12 @@ export interface EffectEnv {
   signal: AbortSignal
   scriptName: string
   lang: 'en' | 'de'
+  /**
+   * The run as the governor counts it (features/governor modes.ts): its ledger source (`script:<id>:<run>`) and how it
+   * runs — 'trigger' when an automation started the script (never asks at the red line), else the person's
+   * ('interactive'). Absent (an older caller): the person's.
+   */
+  run?: { source: string; mode: 'interactive' | 'trigger' }
 }
 
 export type EffectImpl<K extends EffectName> = (input: EffectInputs[K], env: EffectEnv) => Promise<EffectOutputs[K]>
@@ -81,7 +87,7 @@ const defaultClaude: EffectImpl<'claude'> = async (input, env) => {
   const { streamCompletion } = await import('../../ai/client')
   const prompt = input.context ? `${input.prompt}\n\n<context>\n${input.context}\n</context>` : input.prompt
   // the context a script hands in can be anything it read (until runs record their reads: the workspace as a whole)
-  return (await streamCompletion({ purpose: 'scripts.effect', sources: [{ all: true }], typed: input.prompt, system: SCRIPT_SYSTEM, prompt, signal: env.signal, mcp: false })).trim()
+  return (await streamCompletion({ purpose: 'scripts.effect', sources: [{ all: true }], typed: input.prompt, system: SCRIPT_SYSTEM, prompt, signal: env.signal, mcp: false, run: env.run ?? { mode: 'interactive' } })).trim()
 }
 
 const defaultHttp: EffectImpl<'http.post'> = async (input, env) => {

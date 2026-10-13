@@ -18,7 +18,7 @@ import type AnthropicSDK from '@anthropic-ai/sdk'
 import type { BetaContentBlock, BetaMessageParam, BetaToolResultBlockParam, BetaToolUnion } from '@anthropic-ai/sdk/resources/beta/messages/messages'
 import type { BetaRunnableTool } from '@anthropic-ai/sdk/lib/tools/BetaRunnableTool'
 import { AIError, claudeClient, reachOf, thinks, toAIError } from '../client'
-import { prepare, settle, type Applied, type Prepared } from '../core/gate'
+import { prepare, settle, type Applied, type Prepared, type PrepareInput } from '../core/gate'
 import { claudeCut, claudeResponse, deltaChars, meterCall } from '../core/meter'
 import type { PurposeId } from '../core/purposes'
 import type { LedgerEntry, SourceRef, Usage } from '@/shared/ai/types'
@@ -162,6 +162,8 @@ export async function runAgent(opts: {
   applied?: Applied | null
   /** the ledger's source id ('terminal:<conversation>' · 'agent:<id>:<run>') */
   ledgerSource?: string
+  /** the run: its ledger source and run mode (an agent's: manual · scheduled · trigger — core/gate.ts PrepareInput.run) */
+  run?: PrepareInput['run']
 }): Promise<RunEnd> {
   const { stage, signal, hooks } = opts
   const mcp = opts.mcp ?? null
@@ -180,11 +182,12 @@ export async function runAgent(opts: {
     // its size: the system prompt (+ the servers' part), the conversation and the tool definitions; the answer budget
     const defs = (opts.tools ?? TERMINAL_TOOLS).map((x) => ({ name: x.name, description: x.description, input_schema: x.input_schema }))
     const size = { promptChars: (opts.system ?? AGENT_SYSTEM).length + (mcp?.system.length ?? 0) + JSON.stringify(messages).length + JSON.stringify(defs).length, maxTokens: 64000 }
-    prepared = prepare({ purpose: opts.purpose, sources: opts.sources, typed: opts.typed, model: opts.model, size, applied: opts.applied })
+    const run = opts.run ?? (opts.ledgerSource ? { source: opts.ledgerSource } : undefined)
+    prepared = prepare({ purpose: opts.purpose, sources: opts.sources, typed: opts.typed, model: opts.model, size, applied: opts.applied, ...(run ? { run } : {}) })
     // the tool reads of a route that does not see everything: built for it, pages it may not see out of scope (B6)
     const shape = shapeOf(prepared)
     const seen = shape ? prepared.visible : null
-    const call = meterCall(prepared, { source: opts.ledgerSource, signal })
+    const call = meterCall(prepared, { source: run?.source, signal })
     const got = await claudeClient()
     sdk = got.sdk
     const { client } = got

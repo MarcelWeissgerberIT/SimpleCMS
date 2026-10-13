@@ -666,6 +666,9 @@ test.describe('the ledger: one entry per response, every engine', () => {
     await page.waitForTimeout(300)
     const entries = await ledger(page)
     expect(entries.map((e) => e.purpose)).toEqual(['help.ask', 'setup.test'])
+    // each one-shot its own source (Regler B4): <series>:<request id>, never the bare purpose
+    expect(entries[0].source).toMatch(/^help:[a-z0-9]{12}$/)
+    expect(entries[1].source).toMatch(/^setup:[a-z0-9]{12}$/)
     // the help's text is public; the key test's fixed sentence is no workspace data at all (D-S2-6)
     expect(entries.map((e) => e.classes)).toEqual([['public'], []])
     // the help on the device's model; the test sentence on Claude's fast role
@@ -677,7 +680,8 @@ test.describe('the ledger: one entry per response, every engine', () => {
     const requests = await keyed(page, [text(JSON.stringify({ value: 'Low' }))])
     const { dbId, propId } = await autofillPriority(page)
     const [e] = await expectMetered(page, requests, 1, 'bulk.autofill', ['rows'])
-    expect(e.source).toBe(`autofill:${dbId}:${propId}`)
+    // the job's own source (Regler B4): autofill:<db>:<prop>:<job>
+    expect(e.source).toMatch(new RegExp(`^autofill:${dbId}:${propId}:[a-z0-9]{12}$`))
   })
 })
 

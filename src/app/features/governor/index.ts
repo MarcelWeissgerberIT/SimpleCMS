@@ -12,6 +12,7 @@
  *    · noteScope() · deviceLineScopes()
  *  - allowOnce(usd) · allowTask(source, usd) · allowanceOf(ctx) · consume(id)
  *  - readPaused(scope) · addPaused(scope, rows) · takePaused(scope, match)
+ *  - RUN_MODES · modeOf(purpose, given) · missesMode · minOut(purpose, thinks) · sourceFor(purpose, id) (modes.ts)
  * The price table itself is src/shared/ai/prices.ts (PRICES, costOf, PRICES_DATE) — re-exported here.
  */
 export { meter, registerMeter, onLedgerPing, onLedgerDelta, flushLedger, ledgerEntries, ledgerDay, ledgerTotals, totalsOf, wipeLedgerScope, reserve, adjust, settle, reservedUsd, dayOf, LEDGER_DB, LEDGER_DAYS, type LedgerDelta, type LedgerRange, type LedgerTotal, type TotalsBy } from './ledger'
@@ -23,6 +24,7 @@ export { writeDeviceLimit } from './line'
 export { allowOnce, allowTask, allowanceOf, consume, allowedBy, clearAllowances, type AllowToken } from './allow'
 export { readPaused, addPaused, takePaused, wipePaused, PAUSED_PREFIX, PAUSED_MAX, type PausedRow, type PausedList } from './paused'
 export { BOOK_CHANNEL } from './book'
+export { RUN_MODES, CALLER_MODE, isRunMode, modeRow, modeOf, missesMode, minOut, sourceFor, SOURCE_RE, type AnswerKind, type ModeRow } from './modes'
 export type { Binding, Limits, Rest } from './limits'
 export type { BrakeFix, BrakeRun, Halt, HaltCheaper, RefuseDetail, RoundVerdict, RunMode, StartVerdict } from './brake'
 export { PRICES, PRICES_DATE, costOf, priceRow } from '@/shared/ai/prices'

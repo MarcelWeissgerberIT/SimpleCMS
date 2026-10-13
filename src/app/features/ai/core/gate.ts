@@ -37,7 +37,8 @@ import { useWorkspace } from '../../../store/store'
 import type { ID } from '../../../store/types'
 import { withWriter, type Writer } from '../../../store/writer'
 import { hasAIKey } from '../../../store/secrets'
-import { estimate, reserve, settle as settleReservation, type Band } from '../../governor'
+import { estimate, missesMode, modeOf, reserve, settle as settleReservation, sourceFor, SOURCE_RE, type Band, type RunMode } from '../../governor'
+import { newId } from '../../../lib/ids'
 import { AIError, type AIFix } from './errors'
 import { usesDemo } from './demoMode'
 import { classOfPage, classesOf, isSources, type SourceWorld } from './sources'
@@ -78,7 +79,36 @@ export interface PrepareInput {
    * and whose upper end is reserved while the request runs.
    */
   size?: { promptChars: number; maxTokens: number | ((caps: Caps | null) => number) }
+  /**
+   * The run this request belongs to (features/governor modes.ts): its ledger source (fixed ids — 'agent:<id>:<run>',
+   * 'autofill:<db>:<prop>:<job>' … — else `<series>:<request id>`, never the bare purpose) and how it runs (the four
+   * caller-mode purposes must say: DEV / ?e2e throw without it), plus what the brake reads of it (RunCtx).
+   */
+  run?: Partial<RunCtx>
 }
+
+/**
+ * The run a request belongs to, as the brake reads it (Regler design § 5.3): its ledger source and run mode, and —
+ * where they apply — a run's own budget and spend (an agent's maxRunUsd), the allowance token the person granted with E
+ * (one-shots), whether the person chose the route for this run, the run's decide reservation (SJ).
+ */
+export interface RunCtx {
+  source: string
+  mode: RunMode
+  /** the series band (G3: run rings) — absent: none */
+  band?: Band | null
+  /** the person chose the route for this run (a chip, the Vorlauf's ↵ / S): saving rules never move it (G3) */
+  chosen?: boolean
+  budget?: number
+  spent?: number
+  /** a one-request allowance token (allowOnce) */
+  allowance?: string
+  /** the run's decide reservation (SJ): gate.* requests it covers pass the day line */
+  decide?: string
+}
+
+/** The run a prepared request belongs to (its ledger source and run mode always set). */
+export type PreparedRun = RunCtx
 
 export interface Prepared {
   purpose: PurposeId
@@ -106,6 +136,8 @@ export interface Prepared {
   allows: (cls: DataClass) => boolean
   /** the route as people read it ("OpenRouter · …", Claude's own labels) */
   label: string
+  /** the run it belongs to: its ledger source (the call site's, else its own `<series>:<id>`) and run mode */
+  run: PreparedRun
 }
 
 /* ------------------------------------------------------------------ */
@@ -152,6 +184,16 @@ if (typeof window !== 'undefined' && new URLSearchParams(window.location.search)
         return JSON.parse(JSON.stringify({ ok: true, route: p.route ? routeKey(p.route) : null, level: p.level, sees: p.sees, redact: p.redact, classes: p.classes, pool: p.pool ?? null, label: p.label })) as unknown
       } catch (e) {
         return e instanceof AIError ? (JSON.parse(JSON.stringify({ ok: false, code: e.code, detail: e.detail ?? null, fix: e.fix ?? null, fixes: e.fixes ?? [], label: e.label ?? null })) as unknown) : { ok: false, code: 'unknown', detail: String(e) }
+      }
+    },
+    // a whole prepare() (nothing sent; the reservation settled at once): the run it would carry, or why it was refused
+    prepare: (input: PrepareInput) => {
+      try {
+        const p = prepare(input)
+        settle(p)
+        return { ok: true, route: p.route ? routeKey(p.route) : null, run: { ...p.run } }
+      } catch (e) {
+        return e instanceof AIError ? { ok: false, code: e.code, detail: e.detail ?? null } : { ok: false, code: 'contract', detail: e instanceof Error ? e.message : String(e) }
       }
     },
     // can a build of generation `gen` enforce the stored rules? (an older tab, simulated)
@@ -210,12 +252,22 @@ function checkContract(input: PrepareInput): void {
   if (!input.sources.length && !decl.pageless) throw new Error(`[ai] ${input.purpose} carries page data: its sources cannot be empty`)
   const outside = (input.carries ?? []).filter((c) => !decl.needs.includes(c) && !decl.may.includes(c))
   if (outside.length) throw new Error(`[ai] ${input.purpose} carries ${outside.join(', ')} — not in its declaration (needs / may, features/ai/core/purposes.ts)`)
+  if (input.run?.source !== undefined && !SOURCE_RE.test(input.run.source)) throw new Error(`[ai] ${input.purpose}: a ledger source of ids only (${input.run.source})`)
 }
+
+/** DEV, `?e2e`: a purpose that runs both ways sends no request without its run mode (features/governor modes.ts). */
+function checkMode(input: PrepareInput): void {
+  if (strict() && missesMode(input.purpose, input.run?.mode)) throw new Error(`[governor] ${input.purpose} runs both ways — its call site passes run.mode (features/governor/modes.ts)`)
+}
+
+/** The run of a request: the call site's source and mode, else its own `<series>:<id>` and the purpose's mode. */
+const runOf = (input: PrepareInput): PreparedRun => ({ ...(input.run ?? {}), source: input.run?.source ?? sourceFor(input.purpose, newId()), mode: modeOf(input.purpose, input.run?.mode) })
 
 const typedTexts = (t: PrepareInput['typed']): string[] => (typeof t === 'string' ? [t] : Array.isArray(t) ? t.filter((x): x is string => typeof x === 'string') : [])
 
 /** The gate — throws AIError ('reload' · 'key_in_text' · 'off' · 'no_key' · 'policy' · 'capability' · 'model_gone'). */
 export function prepare(input: PrepareInput): Prepared {
+  checkMode(input)
   return gate(input, true)
 }
 
@@ -276,7 +328,7 @@ function gate(input: PrepareInput, held: boolean): Prepared {
   const caps = [...new Set([...purpose.caps, ...(input.needs ?? [])])]
   const res = resolveFor(purpose.cls, { chip: input.route, model: input.model, caps, classes: [...classes] })
   if (!res.ok && res.none) {
-    if (usesDemo()) return { purpose: input.purpose, cls: purpose.cls, route: null, provider: 'demo', model: 'demo', caps: null, classes: [...classes], steps: res.steps, reservation: null, level: null, label: 'Demo', ...DEMO_SHAPE }
+    if (usesDemo()) return { purpose: input.purpose, cls: purpose.cls, route: null, provider: 'demo', model: 'demo', caps: null, classes: [...classes], steps: res.steps, reservation: null, level: null, label: 'Demo', run: runOf(input), ...DEMO_SHAPE }
     throw new AIError('no_key', undefined, undefined, undefined, [{ kind: 'step', step: 'key', provider: 'anthropic' }])
   }
   if (!res.ok) throw new AIError(res.code, res.detail, undefined, labelFor(res.route), res.fixes)
@@ -297,6 +349,7 @@ function gate(input: PrepareInput, held: boolean): Prepared {
   const size = input.size
   const price = route.p === 'anthropic' ? undefined : priceFor(route, pool)
   const band = size ? estimate(route, { promptChars: size.promptChars, maxTokens: typeof size.maxTokens === 'function' ? size.maxTokens(known) : size.maxTokens }, Date.now(), price, known, res.info.hints) : null
+  const run = runOf(input)
   const said = beforeSendHook(input.purpose, route, band)
   const usd = typeof said === 'number' ? said : (band?.high ?? 0)
   return {
@@ -308,7 +361,7 @@ function gate(input: PrepareInput, held: boolean): Prepared {
     caps: known,
     classes: [...classes],
     steps: res.steps,
-    reservation: held ? reserve(usd, input.purpose) : null,
+    reservation: held ? reserve(usd, run.source) : null,
     ...(pool ? { pool: [...pool] } : {}),
     level: res.level,
     redact,
@@ -316,6 +369,7 @@ function gate(input: PrepareInput, held: boolean): Prepared {
     sees,
     allows,
     label,
+    run,
   }
 }
 

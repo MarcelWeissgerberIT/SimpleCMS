@@ -11,7 +11,7 @@ import { DEFAULT_CLAUDE_MODEL, MODELS } from '@/shared/ai/models'
 import { priceRow } from '@/shared/ai/prices'
 import { AIError } from './core/errors'
 import { usesDemo } from './core/demoMode'
-import { precheck, prepare, settle, type Applied, type Prepared } from './core/gate'
+import { precheck, prepare, settle, type Applied, type Prepared, type PrepareInput } from './core/gate'
 import { meterCall, type MeterCall, type Receipt } from './core/meter'
 import { memoryRef } from './core/refs'
 import type { Need, PurposeId } from './core/purposes'
@@ -79,6 +79,8 @@ export interface RunAIOptions {
   carries?: readonly DataClass[]
   /** what its text went through for the route (precheck's redaction and page filter — core/gate.ts Applied) */
   applied?: Applied | null
+  /** the run it belongs to: its ledger source and run mode (core/gate.ts PrepareInput.run) */
+  run?: PrepareInput['run']
 }
 
 /** The routing part of a facade's options: the chip, what the request carries beyond its purpose, what its text went
@@ -92,6 +94,8 @@ export interface RouteOptions {
   applied?: Applied | null
   /** what it needs of the model beyond its purpose (a PDF, an addressed MCP server …) */
   needs?: readonly Need[]
+  /** the run it belongs to: its ledger source and run mode (core/gate.ts PrepareInput.run — the governor's modes) */
+  run?: PrepareInput['run']
 }
 
 /** An addressed MCP server is a hard requirement (D18): the route must connect MCP and may receive `mcp`. */
@@ -191,7 +195,7 @@ export async function streamCompletion(opts: StreamOptions): Promise<string> {
   const cw = opts.mcp === false ? null : opts.codewords
   let prepared: Prepared
   try {
-    prepared = prepare({ purpose: opts.purpose, sources: opts.sources, typed: opts.typed, size, route: opts.route, applied: opts.applied, ...withCodewords(opts, cw) })
+    prepared = prepare({ purpose: opts.purpose, sources: opts.sources, typed: opts.typed, size, route: opts.route, applied: opts.applied, ...withCodewords(opts, cw), ...(opts.run ? { run: opts.run } : {}) })
   } catch (e) {
     throw codewordRefusal(e, opts, cw)
   }
@@ -304,7 +308,7 @@ export interface StructuredUsage {
  */
 export async function completeStructured(opts: StructuredOptions): Promise<string> {
   // the gate: nothing is loaded or sent before it (features/ai/core/gate.ts); every response is metered (core/meter.ts)
-  const prepared = prepare({ purpose: opts.purpose, sources: opts.sources, typed: opts.typed, size: { promptChars: opts.system.length + opts.prompt.length, maxTokens: opts.maxTokens ?? 4096 }, route: opts.route, applied: opts.applied, needs: opts.needs, carries: opts.carries })
+  const prepared = prepare({ purpose: opts.purpose, sources: opts.sources, typed: opts.typed, size: { promptChars: opts.system.length + opts.prompt.length, maxTokens: opts.maxTokens ?? 4096 }, route: opts.route, applied: opts.applied, needs: opts.needs, carries: opts.carries, ...(opts.run ? { run: opts.run } : {}) })
   const call = meterCall(prepared, { source: opts.ledgerSource, signal: opts.signal, onRun: opts.onRun })
   try {
     if (prepared.provider !== 'anthropic' && prepared.provider !== 'demo') {
@@ -451,6 +455,7 @@ export async function runAI(opts: RunAIOptions): Promise<string> {
     route: opts.route,
     carries: carriesOf(opts),
     applied: opts.applied,
+    ...(opts.run ? { run: opts.run } : {}),
   })
   return opts.action === 'autofill' ? text.trim().replace(/^["'`]|["'`]$/g, '') : stripFence(text)
 }

@@ -253,7 +253,7 @@ export function syncNow(opts: { connect?: boolean } = {}): Promise<void> {
 /** The person on a mail page (Load images, Load) — named: a mail job may be running meanwhile (store/writer.ts). */
 const YOU: Writer = { kind: 'you', via: 'ui' }
 /** Claude organising mails: an AI run of its own (store/writer.ts). */
-const ORGANISE = (): Writer => ({ kind: 'ai', run: newId(), action: 'mail_organise' })
+const ORGANISE = (): Extract<Writer, { kind: 'ai' }> => ({ kind: 'ai', run: newId(), action: 'mail_organise' })
 
 async function run(): Promise<void> {
   abort?.abort()
@@ -287,7 +287,9 @@ async function run(): Promise<void> {
     }
     if (cfg.organise.enabled && res.created.length && isAIConfigured()) {
       patch({ phase: 'organising' })
-      await inMailJob(ORGANISE(), () => organiseRows(res.created, ctrl.signal, (p) => patch({ progress: p })))
+      // during a sync: background work (features/governor — it pauses at the red line, never asks)
+      const w = ORGANISE()
+      await inMailJob(w, () => organiseRows(res.created, ctrl.signal, (p) => patch({ progress: p }), { mode: 'trigger', source: `mail:${w.run}` }))
     }
   } catch (e) {
     if (ctrl.signal.aborted) return
@@ -317,7 +319,9 @@ export async function organiseEarlier(): Promise<void> {
     try {
       const { organiseCandidates, organiseRows } = await engine()
       const ids = await organiseCandidates(readMail().maxPerRun)
-      await inMailJob(ORGANISE(), () => organiseRows(ids, ctrl.signal, (p) => patch({ progress: p })))
+      // "Organise now": the person's run
+      const w = ORGANISE()
+      await inMailJob(w, () => organiseRows(ids, ctrl.signal, (p) => patch({ progress: p }), { mode: 'bulk', source: `mail:${w.run}` }))
     } catch (e) {
       if (!ctrl.signal.aborted) patch({ error: errorInfo(e).text, errorAt: 'sync' })
     } finally {

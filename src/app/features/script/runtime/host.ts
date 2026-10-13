@@ -102,6 +102,17 @@ export class Host {
     this.writer = o.writer
   }
 
+  /**
+   * The run as the governor counts its `claude()` calls: `script:<id | ->:<run>`, an automation's ('trigger' — it never
+   * asks at the red line) when the run's writer names one as its caller, else the person's.
+   */
+  governed(): { source: string; mode: 'interactive' | 'trigger' } {
+    const via = this.writer.kind === 'script' ? this.writer.via : undefined
+    const id = this.scriptId && /^[A-Za-z0-9_-]{1,64}$/.test(this.scriptId) ? this.scriptId : '-'
+    const run = /^[A-Za-z0-9_-]{1,64}$/.test(this.runId) ? this.runId : 'run'
+    return { source: `script:${id}:${run}`, mode: via?.startsWith('automation:') ? 'trigger' : 'interactive' }
+  }
+
   /** A synchronous burst of store writes as this run's (store/writer.ts). */
   private as<T>(fn: () => T): T {
     return withWriter(this.writer, fn)
@@ -415,7 +426,7 @@ export class Host {
       return null
     }
     try {
-      let out = await effectImpl(name)(input, { signal: this.signal, scriptName: this.scriptName, lang: this.lang })
+      let out = await effectImpl(name)(input, { signal: this.signal, scriptName: this.scriptName, lang: this.lang, run: this.governed() })
       // Claude may have read a mail or a file in the context: a web image in its answer becomes a link
       // (written into a page it would load by itself the moment the page opens)
       if (name === 'claude' && typeof out === 'string') out = withoutWebImages(out) as EffectOutputs[K]

@@ -27,7 +27,7 @@ import { TargetError, checkTarget, createMailDatabase, ensureOptions, ensureProp
 import { useCloud } from '../../cloud'
 import { emptyState, loadBody, loadState, saveBody, saveState, type MailSyncState } from './storage'
 import { readMail, scopeOf, setMail } from './settings'
-import { ORGANISE_BATCH, organiseBatch, type OrganiseMail } from './organise'
+import { ORGANISE_BATCH, organiseBatch, type OrganiseMail, type OrganiseRun } from './organise'
 import { asMail } from './writer'
 import { withWriter } from '../../store/writer'
 
@@ -286,7 +286,7 @@ const isEmpty = (v: PropertyValue | undefined) => v === undefined || v === null 
  * Let Claude organise these mails (Gmail ids of synced rows): fills Category / Priority / Needs reply /
  * Summary / Project where the row's field is still empty, then marks them organised. Throws AIError.
  */
-export async function organiseRows(ids: string[], signal: AbortSignal, progress: (p: { done: number; total: number } | null) => void): Promise<number> {
+export async function organiseRows(ids: string[], signal: AbortSignal, progress: (p: { done: number; total: number } | null) => void, run: OrganiseRun = { mode: 'bulk' }): Promise<number> {
   const cfg = readMail()
   const o = cfg.organise
   if (!o.enabled || !ids.length || !cfg.databaseId) return 0
@@ -323,7 +323,7 @@ export async function organiseRows(ids: string[], signal: AbortSignal, progress:
         })
       }
       if (batch.length) {
-        const answers = await organiseBatch(batch, o, [...projects.keys()], signal, dbId)
+        const answers = await organiseBatch(batch, o, [...projects.keys()], signal, dbId, run)
         const cats = props.category ? ensureOptions(dbId, props.category, o.categories) : new Map<string, ID>()
         const prios = props.priority ? priorityOptions(dbId, props.priority) : new Map<string, ID>()
         for (const m of batch) {

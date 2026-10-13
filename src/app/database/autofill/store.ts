@@ -200,7 +200,7 @@ const errCode = (e: unknown): string | undefined => (e && typeof e === 'object' 
  * Ask Claude for one cell and validate the answer. Never writes. Throws only when aborted;
  * every other failure becomes a proposal with status 'error' (`fatal` when the run should stop).
  */
-export async function fillRow(dbId: ID, propId: ID, rowId: ID, signal: AbortSignal): Promise<(Proposal & { fatal?: string }) | null> {
+export async function fillRow(dbId: ID, propId: ID, rowId: ID, signal: AbortSignal, run: { job?: string; mode: 'bulk' | 'trigger' } = { mode: 'bulk' }): Promise<(Proposal & { fatal?: string }) | null> {
   const found = lookup(dbId, propId)
   const row = useWorkspace.getState().pages[rowId]
   if (!found || !row || row.trashed || row.databaseId !== dbId) return null
@@ -209,7 +209,8 @@ export async function fillRow(dbId: ID, propId: ID, rowId: ID, signal: AbortSign
   const base = { rowId, title: row.title, current: row.properties[prop.id] ?? null, hash }
   try {
     const api = await loadFeatures()
-    const answer = await api.requestAutofill(request, signal, rowId, { dbId, propId })
+    // the job's ledger source and how it runs: a person's job ('bulk') or the watch ('trigger') — features/governor
+    const answer = await api.requestAutofill(request, signal, rowId, { dbId, propId, ...(run.job ? { job: run.job } : {}), mode: run.mode })
     if (!answer.ok) return { ...base, status: 'error', error: t('database.autofill.err.json') }
     const c = coerceAnswer(prop, cfg, answer.value)
     if (!c.ok) return { ...base, status: 'error', error: c.error }
@@ -331,7 +332,7 @@ export async function startFill(dbId: ID, propId: ID, mode: RunMode, only?: ID[]
       setCells({ [ck]: { state: 'running' } })
       let p: (Proposal & { fatal?: string }) | null
       try {
-        p = await fillRow(dbId, propId, row.id, ac.signal)
+        p = await fillRow(dbId, propId, row.id, ac.signal, { job: run, mode: 'bulk' })
       } catch {
         setCells({ [ck]: null })
         continue

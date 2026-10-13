@@ -177,7 +177,7 @@ export async function requestFile(req: FileRequest): Promise<string> {
     // the request's size: the task, the system prompt and the file as it counts (a stopped request is estimated from it)
     const promptChars = () => SYSTEM.length + prompt.length + materialChars(material)
     // the gate: nothing is sent before it (features/ai/core/gate.ts); the response is metered (core/meter.ts)
-    prepared = prepare({ purpose: req.purpose, sources: req.sources, typed: req.typed, needs: material.type === 'pdf' ? ['pdf'] : [], size: { promptChars: promptChars(), maxTokens: (caps) => (thinks(caps) ? maxTokens : Math.min(maxTokens, 32000)) }, route: req.route, applied: req.applied, carries: req.carries })
+    prepared = prepare({ purpose: req.purpose, sources: req.sources, typed: req.typed, needs: material.type === 'pdf' ? ['pdf'] : [], size: { promptChars: promptChars(), maxTokens: (caps) => (thinks(caps) ? maxTokens : Math.min(maxTokens, 32000)) }, route: req.route, applied: req.applied, carries: req.carries, ...(req.run ? { run: req.run } : {}) })
     const call = meterCall(prepared, { signal, onRun: req.onRun })
     if (prepared.provider !== 'anthropic') {
       // another provider (OpenRouter): a PDF as a file the model reads natively, other files as a text document; the

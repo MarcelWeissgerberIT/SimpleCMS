@@ -135,3 +135,33 @@ test.describe('case 14 — one generation stamp (B1)', () => {
     expect(seen[0]).toContain("ai.gen below the governor's generation")
   })
 })
+
+test.describe('run modes and sources (B4)', () => {
+  /** a whole prepare() through the ?e2e seam (nothing sent) */
+  const gatePrepare = (page: Page, input: AnyState) => page.evaluate((i) => (window as unknown as { __oneAI: { prepare(i: unknown): AnyState } }).__oneAI.prepare(i), input)
+  const SIZE = { promptChars: 400, maxTokens: 400 }
+
+  test('a purpose that runs both ways sends nothing without run.mode (?e2e); with it the request carries its own source', async ({ page }) => {
+    await openApp(page)
+    await wsEval(page, (s) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key' }))
+    for (const purpose of ['bulk.mail', 'bulk.autofill', 'agents.run', 'scripts.effect']) {
+      const r = await gatePrepare(page, { purpose, sources: [{ all: true }], size: SIZE })
+      expect(r, purpose).toMatchObject({ ok: false, code: 'contract' })
+      expect(r.detail, purpose).toContain('runs both ways')
+    }
+    // positive control: with its mode it passes, and its source is its own — `<series>:<request id>`
+    const mail = await gatePrepare(page, { purpose: 'bulk.mail', sources: [{ all: true }], size: SIZE, run: { mode: 'bulk' } })
+    expect(mail).toMatchObject({ ok: true, run: { mode: 'bulk' } })
+    expect(mail.run.source).toMatch(/^mail:[a-z0-9]{12}$/)
+    // a call site's own source wins; an interactive purpose needs no mode
+    expect(await gatePrepare(page, { purpose: 'agents.run', sources: [{ all: true }], size: SIZE, run: { mode: 'scheduled', source: 'agent:ag-nordlicht:r1' } })).toMatchObject({ ok: true, run: { mode: 'scheduled', source: 'agent:ag-nordlicht:r1' } })
+    const help = await gatePrepare(page, { purpose: 'help.ask', sources: [], size: SIZE })
+    expect(help).toMatchObject({ ok: true, run: { mode: 'interactive' } })
+    expect(help.run.source).toMatch(/^help:[a-z0-9]{12}$/)
+    // two requests of the same purpose never share a source
+    const again = await gatePrepare(page, { purpose: 'help.ask', sources: [], size: SIZE })
+    expect(again.run.source).not.toBe(help.run.source)
+    // a source outside the ledger grammar is a contract error
+    expect(await gatePrepare(page, { purpose: 'help.ask', sources: [], size: SIZE, run: { source: 'help.ask' } })).toMatchObject({ ok: false, code: 'contract' })
+  })
+})

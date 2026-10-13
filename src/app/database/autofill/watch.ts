@@ -112,7 +112,8 @@ async function run(k: string, { dbId, propId, rowId }: { dbId: ID; propId: ID; r
   inflight.add(k)
   setCells({ [k]: { state: 'running' } })
   try {
-    const p = await fillRow(dbId, propId, rowId, new AbortController().signal)
+    // the watch: background work ('trigger' — at the red line it pauses, never asks)
+    const p = await fillRow(dbId, propId, rowId, new AbortController().signal, { mode: 'trigger' })
     const prop = useWorkspace.getState().databases[dbId]?.properties.find((x) => x.id === propId)
     if (!p || !prop || !isAuto(prop)) {
       setCells({ [k]: null })

@@ -96,6 +96,8 @@ import { build, type BuildOpts } from '../../src/shared/ai/wire/openrouterChat'
 import { wireMaxTokens } from '../../src/shared/ai/wire/maxTokens'
 import { JEV_ROUTER } from '../../src/shared/ai/jev'
 import { estimate, wireOutFor } from '../../src/app/features/governor/estimate'
+import { CALLER_MODE, RUN_MODES, SOURCE_RE, minOut, missesMode, modeOf, sourceFor } from '../../src/app/features/governor/modes'
+import { PURPOSES } from '../../src/app/features/ai/core/purposes'
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url))
 
@@ -438,6 +440,43 @@ test.describe('one answer-budget rule on the wire (B3, shared/ai/wire/maxTokens.
     expect(estimate(haiku, { promptTokens: 68_000, maxTokens: 22_000, outTokens: 15_000 }, 0)!.low).toBeCloseTo(0.068 + 0.075, 6)
     // the brake's wireOut is the same rule
     expect(wireOutFor({ p: 'openrouter', m: JEV_ROUTER }, info(JEV_ROUTER).caps)(2000)).toBe(wireMaxTokens({ p: 'openrouter', m: JEV_ROUTER }, 2000, info(JEV_ROUTER).caps))
+  })
+})
+
+test.describe('run modes (B4, features/governor/modes.ts)', () => {
+  test('one row per purpose of PURPOSES; the four caller-mode ones; text purposes capped no lower than minOut', () => {
+    expect(Object.keys(RUN_MODES).sort()).toEqual(Object.keys(PURPOSES).sort())
+    expect(Object.keys(RUN_MODES)).toHaveLength(28)
+    expect([...CALLER_MODE].sort()).toEqual(['agents.run', 'bulk.autofill', 'bulk.mail', 'scripts.effect'])
+    // a caller-mode purpose without its mode: the contract misses it; with one: taken; an unknown mode reads as trigger
+    expect(missesMode('bulk.mail')).toBe(true)
+    expect(missesMode('bulk.mail', 'bulk')).toBe(false)
+    expect(modeOf('bulk.mail')).toBe('trigger')
+    expect(modeOf('bulk.mail', 'bulk')).toBe('bulk')
+    expect(modeOf('agents.run', 'turbo')).toBe('trigger')
+    // positive controls: the defaults
+    expect(missesMode('menu.action')).toBe(false)
+    expect(modeOf('menu.action')).toBe('interactive')
+    expect(modeOf('memory.propose')).toBe('follow-up')
+    expect(modeOf('nonsense.purpose')).toBe('trigger')
+    // text purposes: 1 024, 2 048 where thinking sits inside max_tokens; structured and loops: never capped
+    expect(minOut('menu.action', false)).toBe(1024)
+    expect(minOut('menu.action', true)).toBe(2048)
+    expect(minOut('structure.todb', false)).toBeNull()
+    expect(minOut('terminal.task', false)).toBeNull()
+    expect(minOut('bulk.autofill', true)).toBeNull()
+  })
+  test('a request\'s own source: <series>:<id> in the ledger grammar — never the bare purpose', () => {
+    for (const p of Object.keys(RUN_MODES)) {
+      const src = sourceFor(p, 'r0a1b2c3d4e5')
+      expect(src, p).toMatch(SOURCE_RE)
+      expect(src, p).not.toBe(p)
+    }
+    expect(sourceFor('palette.ask', 'x1')).toBe('palette:x1')
+    expect(sourceFor('help.ask', 'x1')).toBe('help:x1')
+    expect(sourceFor('outbox.draft', 'x1')).toBe('outbox:x1')
+    // the bare purpose is not a source (it has a dot)
+    expect(SOURCE_RE.test('palette.ask')).toBe(false)
   })
 })
 

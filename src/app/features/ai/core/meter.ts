@@ -65,7 +65,7 @@ export interface Receipt {
 }
 
 export interface MeterOpts {
-  /** the ledger's source id (fixed ids only — 'ai:<run>' …); default: the purpose */
+  /** the ledger's source id (fixed ids only — 'ai:<run>' …); default: the prepared run's (core/gate.ts PreparedRun) */
   source?: string
   role?: LedgerRole
   /** the call's abort signal: taps on it hear of every entry (runs.ts) */
@@ -148,7 +148,8 @@ export function meterResponse(prepared: Prepared, opts: Pick<MeterOpts, 'source'
     scope: '',
     purpose: prepared.purpose,
     cls: prepared.cls,
-    source: opts.source || prepared.purpose,
+    // the call site's source, else the run's own (`<series>:<request id>` — never the bare purpose)
+    source: opts.source || prepared.run?.source || prepared.purpose,
     role: opts.role ?? 'main',
     route: routeKey(route),
     served: { p: route.p, model: servedRoute.m, ...(r.upstream ? { upstream: r.upstream.slice(0, 80) } : {}) },

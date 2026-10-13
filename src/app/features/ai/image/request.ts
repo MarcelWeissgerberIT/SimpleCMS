@@ -150,7 +150,7 @@ export async function requestImage(req: ImageRequest): Promise<string> {
     // the request's size: the task, the system prompt and the picture as it counts (a stopped request is estimated from it)
     const promptChars = () => SYSTEM.length + prompt.length + imageChars(image.width, image.height)
     // the gate: nothing is sent before it (features/ai/core/gate.ts); the response is metered (core/meter.ts)
-    prepared = prepare({ purpose: req.purpose, sources: req.sources, typed: req.typed, size: { promptChars: promptChars(), maxTokens: (caps) => (thinks(caps) ? 16000 : 8000) }, route: req.route, applied: req.applied, carries: req.carries })
+    prepared = prepare({ purpose: req.purpose, sources: req.sources, typed: req.typed, size: { promptChars: promptChars(), maxTokens: (caps) => (thinks(caps) ? 16000 : 8000) }, route: req.route, applied: req.applied, carries: req.carries, ...(req.run ? { run: req.run } : {}) })
     const call = meterCall(prepared, { signal, onRun: req.onRun })
     if (prepared.provider !== 'anthropic') {
       // another provider (OpenRouter): the picture as an image part, the task as text — the neutral wire
