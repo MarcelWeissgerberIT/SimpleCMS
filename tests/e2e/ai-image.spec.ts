@@ -433,7 +433,7 @@ test.describe('Claude for images', () => {
     await expect(term).toContainText('I looked at the image')
   })
 
-  test('German at 390 px: the KI key, the Claude group, the panel fits the phone', async ({ page, context }) => {
+  test('German at 390 px: the KI key, the KI group, the panel fits the phone', async ({ page, context }) => {
     await page.setViewportSize({ width: 390, height: 844 })
     const claude = await mockClaude(context)
     await openApp(page)
@@ -443,7 +443,7 @@ test.describe('Claude for images', () => {
     const key = figure(page, id).getByTestId('image-ai-key')
     await expect(key).toHaveText(/KI/)
     await key.click()
-    await expect(page.getByRole('menu').getByText('AI', { exact: true })).toBeVisible()
+    await expect(page.getByRole('menu').getByText('KI', { exact: true })).toBeVisible()
     await page.getByRole('menuitem', { name: /Bild beschreiben/ }).click()
     const ai = panel(page)
     await expect(ai.getByRole('textbox', { name: 'Alternativtext' })).toHaveValue(ALT)
