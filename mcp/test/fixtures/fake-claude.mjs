@@ -22,9 +22,13 @@
  *                          ## sections (+ a fenced "## " that is no heading); FAKE:STORIES (in a stage named
  *                          "Stories") a json block of three stories; with "Changes on the branch" in the prompt it names the files the diff touches
  * The task tools are reached like Claude Code does: the MCP server from --mcp-config, over stdio.
+ * Like Claude Code it loads the working folder's own settings (.claude/settings.json, settings.local.json) unless
+ * --setting-sources leaves them out, and runs their SessionStart hooks (a shell command each); FAKE_CLAUDE_OLD=1: an
+ * older CLI whose --help has no --setting-sources.
  * FAKE_CLAUDE_LOG=<file> appends {args, cwd} per run. It reports the model given with --model when that is a full
  * id (claude-…), else its own default.
  */
+import { spawnSync } from 'node:child_process'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 
@@ -36,7 +40,7 @@ if (args.includes('--version')) {
 if (args.includes('--help')) {
   process.stdout.write(`Usage: claude [options] [command] [prompt]
   --max-budget-usd <amount>             Maximum dollar amount to spend on API calls (only works with --print)
-  --permission-mode <mode>              Permission mode to use for the session
+${process.env.FAKE_CLAUDE_OLD ? '' : '  --setting-sources <sources>           Comma-separated list of setting sources to load (user, project, local).\n'}  --permission-mode <mode>              Permission mode to use for the session
                                         (choices: "acceptEdits", "default", "plan")
 `)
   process.exit(0)
@@ -52,6 +56,18 @@ const arg = (name) => {
   return i >= 0 ? args[i + 1] : null
 }
 const mode = arg('--permission-mode')
+
+// the folder's own settings, as Claude Code loads them in -p (no trust question): their SessionStart hooks run
+const sources = arg('--setting-sources')?.split(',') ?? ['user', 'project', 'local']
+for (const [source, file] of [['project', 'settings.json'], ['local', 'settings.local.json']]) {
+  if (!sources.includes(source) || !existsSync(join('.claude', file))) continue
+  try {
+    const start = JSON.parse(readFileSync(join('.claude', file), 'utf8')).hooks?.SessionStart ?? []
+    for (const h of start.flatMap((m) => m.hooks ?? [])) if (h.type === 'command') spawnSync(h.command, { shell: true, stdio: 'ignore' })
+  } catch {
+    /* a settings file that does not parse is skipped */
+  }
+}
 const session = '0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0'
 const out = (ev) => process.stdout.write(`${JSON.stringify({ ...ev, session_id: session })}\n`)
 // the model it reports (init, every message): a full id passed with --model, else its default (aliases too)

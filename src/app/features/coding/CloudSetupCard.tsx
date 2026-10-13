@@ -22,7 +22,7 @@ import { CLOUD_WORKER_FILE, downloadCloudWorker } from './download'
 import { cloudRevoked } from './service'
 import { useCoding } from './state'
 import { CodeBlock } from './CodeBlock'
-import { ChangeReposButton, NeedsLine, Step, type StepState } from './SetupCard'
+import { ChangeReposButton, NeedsLine, OutdatedWorker, Step, type StepState } from './SetupCard'
 import { workerStateText } from './stateText'
 import { cloudErrorKey, deviceOf, listCloudWorkers, revokeCloudWorker, serverWorkspaceId, type CloudWorker } from './cloudWorkers'
 import './coding.css'
@@ -157,6 +157,7 @@ export function CloudSetupCard({ code }: { code: string }) {
           <CodeBlock code={`ssh -L ${port}:127.0.0.1:${port} <host>`} label={t('features.coding.cloud.sshLabel')} />
         </Step>
       </ol>
+      {!viewer && <OutdatedWorker only="security" download={askDownload} busy={busy} />}
       <footer className="cs-live cs-live--cloud" role="status" data-testid="coding-cloud-live">
         <span className="cs-live__row">
           <span className="label cs-live__k">{t('features.coding.card.live')}</span>

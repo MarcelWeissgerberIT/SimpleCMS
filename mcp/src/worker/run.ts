@@ -8,11 +8,11 @@
  * worker's own instructions; Claude Code's permission rules stay on (no bypassing flag, ever).
  */
 import { randomBytes } from 'node:crypto'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import type { GitInfo, LogLine, StageOutcome, TaskPayload, TaskProgress, TestResult, ToolEdit } from '../../../src/app/features/coding/protocol.ts'
-import { inICloud, type RepoConfig } from './config.ts'
+import { inICloud, type RepoConfig, type SourceWhy } from './config.ts'
 import type { WorkerState } from './state.ts'
 import { runClaude, type ClaudeCaps } from './claude.ts'
 import { GitError, branchDiff, commentPr, commitAll, ensureWorktree, git, info, isDirty, mergePr, openPr, push, updateFromBase, worktreeOf, type TaskWorktree } from './git.ts'
@@ -148,6 +148,50 @@ function logModel(log: Log, m: ReturnType<typeof stageModel>): void {
   else log('info', "Model: Claude Code's default", 'modelDefault')
 }
 
+/** What a repo can bring for Claude Code itself: settings (hooks, apiKeyHelper, MCP approvals), MCP servers, memory. */
+const OWN_SETTINGS = ['.claude', '.mcp.json', 'CLAUDE.md', 'CLAUDE.local.md']
+
+/** Why a repo's own settings stay out, as the log says it — by the rule that matched (config.ts sourceOf). */
+const OFF: Record<SourceWhy, { code: string; why: string }> = {
+  cloned: { code: 'projectSettingsOffCloned', why: 'the worker cloned it (marked in .git/one-worker-source)' },
+  imported: { code: 'projectSettingsOffImported', why: 'the worker imported it from a ZIP (marked in .git/one-worker-source)' },
+  marked: { code: 'projectSettingsOffMarked', why: 'it was a clone in the worker\'s default clone folder (~/one-repos) when this worker version first started, so it was marked as code from elsewhere (.git/one-worker-source)' },
+  cloneDir: { code: 'projectSettingsOffFolder', why: 'it lies in the worker\'s clone folder (cloneDir in worker.json), where clones and imports go' },
+}
+export const TRUST = 'To trust them: switch on "Use this repo\'s own Claude Code settings" on the worker\'s setup page (or "claude": { "projectSettings": true } for this repo in worker.json).'
+
+/**
+ * A repo whose own Claude Code settings stay out (config.ts projectSettings — code from elsewhere, or worker.json says
+ * so): the log names what is left out and the rule that keeps it out — for code from elsewhere its reason and how to
+ * trust it, also when worker.json holds the "false" (the setup page's Save writes it for a row it showed off) — and that
+ * only user-scope MCP servers reach Claude Code then. When this Claude Code cannot leave them out (no --setting-sources) and the repo has settings or
+ * MCP servers, which could run commands at start, the stage is refused — the reason is returned.
+ */
+function ownSettings(ctx: StageContext, cwd: string, log: Log): string | null {
+  const { repo, caps } = ctx
+  if (repo.claude.projectSettings) return null
+  // --setting-sources user also leaves out the person's local-scope MCP servers (`claude mcp add`'s default scope,
+  // kept per folder in ~/.claude.json): only user-scope ones reach Claude Code
+  if (caps.settingSources && repo.claude.mcpServers.length) {
+    const names = repo.claude.mcpServers.join(', ')
+    log('info', `${repo.name}: only your user-scope MCP servers reach Claude Code here — add ${names} with "claude mcp add -s user …"; a server added in the default (local) scope stays out while the repo's own settings are off.`, 'mcpUserScope', { repo: repo.name, names })
+  }
+  const has = OWN_SETTINGS.filter((n) => existsSync(join(cwd, n)))
+  if (!has.length) return null
+  const off = repo.source ? OFF[repo.source] : null
+  const files = has.join(', ')
+  if (caps.settingSources) {
+    if (off) log('info', `${repo.name}: Claude Code runs without the repo's own ${files} — ${off.why}, and such settings could run commands as Claude Code starts. ${TRUST}`, off.code, { repo: repo.name, files })
+    else if (repo.claude.projectSettingsSet) log('info', `${repo.name}: Claude Code runs without the repo's own ${files} — worker.json says "projectSettings": false for it.`, 'projectSettingsOffSet', { repo: repo.name, files })
+    else log('info', `${repo.name}: Claude Code runs without the folder's own ${files}.`, 'projectSettingsOff', { repo: repo.name, files })
+    return null
+  }
+  const runs = has.filter((n) => n === '.claude' || n === '.mcp.json')
+  if (!runs.length) return null
+  const why = off ? off.why : repo.claude.projectSettingsSet ? 'worker.json says "projectSettings": false for this repo' : 'it is not a repository of yours'
+  return `This Claude Code version cannot leave ${repo.name}'s own ${runs.join(' and ')} out (it has no --setting-sources), and ${why}: its settings could run commands. Update Claude Code (claude update), or trust the repo with "claude": { "projectSettings": true } in worker.json (the switch on the worker's setup page).`
+}
+
 /** Tool names Claude Code may call without asking: the task tools always. */
 export const TASK_TOOL_PERMS = ['mcp__one-task__one_task_read', 'mcp__one-task__one_task_note', 'mcp__one-task__one_task_ask']
 
@@ -224,6 +268,11 @@ async function claudeStage(ctx: StageContext, wt: TaskWorktree, scrub: Scrubber,
     return { status: 'limit', branch: wt.branch, error: lim.refuse }
   }
   if (lim.budget !== null && !caps.budget) log('info', `This Claude Code version has no --max-budget-usd: the cost limit is checked between stages.`)
+  const refuse = ownSettings(ctx, wt.dir, log)
+  if (refuse) {
+    log('error', refuse)
+    return { status: 'failed', branch: wt.branch, error: scrub.text(refuse) }
+  }
   const plan = task.stage.kind === 'plan'
   const mode = plan ? 'plan' : (repo.claude.permissionMode.implement ?? task.stage.permissionMode)
   const mcp = ctx.taskMcp ? writeMcpConfig(ctx.taskMcp) : null
@@ -245,6 +294,7 @@ async function claudeStage(ctx: StageContext, wt: TaskWorktree, scrub: Scrubber,
       disallowedTools: repo.claude.disallowedTools,
       mcpConfig: mcp?.file ?? null,
       strictMcp: repo.claude.strictMcp && !repo.claude.mcpServers.length,
+      projectSettings: repo.claude.projectSettings,
       budgetUsd: lim.budget,
       caps,
       env: claudeEnv(),
@@ -287,6 +337,11 @@ async function docStage(ctx: StageContext, scrub: Scrubber, log: Log, branch: st
     log('warn', lim.refuse)
     return { status: 'limit', error: lim.refuse }
   }
+  const refuse = ownSettings(ctx, dir ?? repo.path, log)
+  if (refuse) {
+    log('error', refuse)
+    return { status: 'failed', error: scrub.text(refuse) }
+  }
   const changes = branch ? await branchDiff(repo, branch, dir).catch(() => null) : null
   if (changes) log('git', `The branch ${branch} changes ${changes.files} file(s) — the diff goes along${changes.clipped ? ' (clipped)' : ''}`, 'docDiff', { branch: branch!, n: changes.files })
   const mcp = ctx.taskMcp ? writeMcpConfig(ctx.taskMcp) : null
@@ -306,6 +361,7 @@ async function docStage(ctx: StageContext, scrub: Scrubber, log: Log, branch: st
       disallowedTools: [...new Set([...DOC_DENIED, ...repo.claude.disallowedTools])],
       mcpConfig: mcp?.file ?? null,
       strictMcp: repo.claude.strictMcp && !repo.claude.mcpServers.length,
+      projectSettings: repo.claude.projectSettings,
       budgetUsd: lim.budget,
       caps,
       env: claudeEnv(),

@@ -5,11 +5,13 @@
  * "Download again". A 1.3.x worker (it names `can`, so it knows document stages) gets the same stage after Retry; so
  * does the worker the Business analysis / QA pipelines came with (`docs: true`, no `can` yet) — from the start. The
  * worker is played by the test: a WebSocket server on 127.0.0.1 speaking the protocol of features/coding/protocol.ts —
- * nothing else runs.
+ * nothing else runs. A worker with the ZIP-import gap (1.3.1 up to 1.8.0 — `workerUnsafe`, read from the version its
+ * welcome names) is named with its version and the download, wherever the connected worker shows; that notice wins
+ * over the capability text.
  */
 import type { Page } from '@playwright/test'
 import { test, expect, openApp, wsEval } from './fixtures'
-import { WORKER_SUBPROTOCOL, type WorkerInfo } from '../../src/app/features/coding/protocol'
+import { WORKER_CAN, WORKER_SAFE, WORKER_SUBPROTOCOL, workerUnsafe, type WorkerInfo } from '../../src/app/features/coding/protocol'
 
 const PORT = 47391
 
@@ -164,6 +166,8 @@ test('an older worker (no `can`) is never handed a document stage: the task fail
     const outdated = plate.getByTestId('coding-worker-outdated')
     await expect(outdated).toContainText('A newer worker is on the site')
     await expect(outdated.getByTestId('coding-download-again')).toHaveText('Download again')
+    // 1.1.0 came before the ZIP import: no security notice, only the capability text
+    await expect(page.getByTestId('coding-worker-unsafe')).toHaveCount(0)
     await expect(page.getByTestId('coding-needs')).toContainText('Invoice approval flow')
     const [download] = await Promise.all([page.waitForEvent('download'), outdated.getByTestId('coding-download-again').click()])
     expect(download.suggestedFilename()).toBe('one-worker.mjs')
@@ -228,11 +232,14 @@ test('the worker the Business analysis / QA pipelines came with (`docs: true`, n
     await expect(page.getByTestId('coding-state')).toContainText('Running')
     await expect(page.locator('.ctk-box--err')).toHaveCount(0)
 
-    // it still lacks what came later (Static analysis, Post review, Merge): the plate offers the newer file
+    // it still lacks what came later (Static analysis, Post review, Merge) — and 1.3.1 has the ZIP import with its gap:
+    // the security notice wins over the capability text, with the same key
     await page.evaluate(() => (window.location.hash = '#/coding'))
     const plate = page.getByTestId('coding-worker')
     await expect(plate).toContainText('ba-box')
-    await expect(plate.getByTestId('coding-worker-outdated')).toContainText('A newer worker is on the site')
+    await expect(plate.getByTestId('coding-worker-unsafe')).toContainText('This worker (1.3.1) has a security gap in ZIP import')
+    await expect(plate.getByTestId('coding-worker-unsafe').getByTestId('coding-download-again')).toHaveText('Download again')
+    await expect(page.getByTestId('coding-worker-outdated')).toHaveCount(0)
     await expect(page.getByTestId('coding-needs')).toHaveCount(0)
   } finally {
     await fake.close()
@@ -294,9 +301,10 @@ test('a worker that does not pass a model on (`can` without "model") never gets 
     expect(fake.handed()[0]).toMatchObject({ id, stage: { kind: 'doc', name: 'Analysis', model: null } })
     await expect(page.getByTestId('coding-state')).toContainText('Running')
 
-    // #/coding: the plate offers the newer file
+    // #/coding: the plate offers the newer file — as the security notice (1.4.0 has the ZIP-import gap), which wins
     await page.evaluate(() => (window.location.hash = '#/coding'))
-    await expect(page.getByTestId('coding-worker').getByTestId('coding-worker-outdated')).toContainText('A newer worker is on the site')
+    await expect(page.getByTestId('coding-worker').getByTestId('coding-worker-unsafe')).toContainText('This worker (1.4.0) has a security gap in ZIP import')
+    await expect(page.getByTestId('coding-worker-outdated')).toHaveCount(0)
 
     // the newer worker names "model": a stage with one is handed out, the model in the payload; nothing outdated
     fake.can = ['analyze', 'git:comment', 'git:merge', 'doc', 'model', 'mcp-list']
@@ -308,6 +316,81 @@ test('a worker that does not pass a model on (`can` without "model") never gets 
     await page.evaluate(() => (window.location.hash = '#/coding'))
     await expect(page.getByTestId('coding-worker')).toContainText('mid-box')
     await expect(page.getByTestId('coding-worker-outdated')).toHaveCount(0)
+    // the gap is the version's, not the capabilities': the notice stays
+    await expect(page.getByTestId('coding-worker-unsafe')).toContainText('This worker (1.4.0)')
+  } finally {
+    await fake.close()
+  }
+})
+
+test('workerUnsafe: 1.3.1 (the ZIP import) up to 1.8.0 has the gap — numeric part by part, a pre-release below its release, a version One cannot read never flagged', () => {
+  expect(WORKER_SAFE).toBe('1.8.1')
+  for (const v of ['1.8.0', '1.3.1', '1.4.0', '1.7.1', 'v1.8.0', ' 1.8.0 ', '1.8', '1.8.0-beta.2', '1.8.1-rc.1', '1.8.0+build.7', '1.8.0.9']) expect(workerUnsafe(v), v).toBe(true)
+  for (const v of ['1.8.1', '1.8.2', '1.9.0', '1.10.0', '1.80.0', '2.0.0', '1.8.1+build.7', '1.3.0', '1.3.1-rc.1', '1.2.9', '1.1.0', '0.9.0']) expect(workerUnsafe(v), v).toBe(false)
+  for (const v of [null, undefined, '', ' ', 'dev', 'garbage', '1.x.0', '1..8', '.1.8', '1.8.0-', 'x1.8.0', '1.8.0.0.0', '99999999999999999999.0.0', '1'.repeat(65), 180 as unknown as string]) expect(workerUnsafe(v), String(v)).toBe(false)
+})
+
+test('a worker with the ZIP-import gap (1.8.0, every capability) is named with its version and the download — the #/coding plate and Settings → Coding worker; German too', async ({ page, errors }) => {
+  errors.allow(/WebSocket connection to 'ws:\/\/127\.0\.0\.1/)
+  const fake = await startFakeWorker(PORT, { worker: '1.8.0', name: 'zip-box', repos: [{ name: 'website', baseBranch: 'main', mcp: [] }], parallel: 1, busy: [], spentToday: 0, dayLimit: null, claude: { found: true, version: '2.0.0' }, setup: true, mcp: [] })
+  fake.can = [...WORKER_CAN]
+  try {
+    await openApp(page)
+    await connect(page, 'zip-box')
+    await page.evaluate(() => (window.location.hash = '#/coding'))
+    const plate = page.getByTestId('coding-worker')
+    await expect(plate).toContainText('zip-box')
+    // it named every capability (its first `next` arrived) — still the notice: the version decides
+    await expect.poll(() => fake.asked.filter((a) => a.answer).length).toBeGreaterThan(0)
+    const unsafe = plate.getByTestId('coding-worker-unsafe')
+    await expect(unsafe).toHaveAttribute('role', 'status')
+    await expect(unsafe.locator('.cv-plate__sec')).toHaveText('Security')
+    await expect(unsafe).toContainText('This worker (1.8.0) has a security gap in ZIP import — download the new one, stop the old one (Ctrl+C) and start the new file.')
+    await expect(page.getByTestId('coding-worker-outdated')).toHaveCount(0)
+    const [download] = await Promise.all([page.waitForEvent('download'), unsafe.getByTestId('coding-download-again').click()])
+    expect(download.suggestedFilename()).toBe('one-worker.mjs')
+    await expect(page.locator('.toast').filter({ hasText: 'Saved one-worker.mjs — now start it.' })).toBeVisible()
+    // until the new file connects, the old one is still this one
+    await expect(unsafe).toBeVisible()
+
+    // Settings → Coding worker: the setup card names it too, with its key
+    await page.evaluate(() => (window as unknown as { __one: { ui: { getState: () => { openModal: (m: unknown) => void } } } }).__one.ui.getState().openModal({ type: 'settings' }))
+    await page.getByRole('tab', { name: /Coding worker|Coding-Worker/ }).click()
+    const card = page.getByTestId('coding-setup-card')
+    await expect(card.getByTestId('coding-worker-unsafe')).toContainText('This worker (1.8.0) has a security gap in ZIP import')
+    await expect(card.getByTestId('coding-worker-unsafe').getByTestId('coding-download-again')).toHaveText('Download again')
+    await page.keyboard.press('Escape')
+
+    // German
+    await wsEval(page, (s) => s.updateSettings({ language: 'de' }))
+    await expect(unsafe.locator('.cv-plate__sec')).toHaveText('Sicherheit')
+    await expect(unsafe).toContainText('Dieser Worker (1.8.0) hat eine Sicherheitslücke beim ZIP-Import – lade den neuen herunter, beende den alten (Ctrl+C) und starte die neue Datei.')
+    await expect(unsafe.getByTestId('coding-download-again')).toHaveText('Erneut herunterladen')
+  } finally {
+    await fake.close()
+  }
+})
+
+test('a worker without the gap (1.8.1) gets no notice; the same version naming older capabilities gets the capability text, never the security one', async ({ page, errors }) => {
+  errors.allow(/WebSocket connection to 'ws:\/\/127\.0\.0\.1/)
+  const fake = await startFakeWorker(PORT, { worker: '1.8.1', name: 'safe-box', repos: [{ name: 'website', baseBranch: 'main', mcp: [] }], parallel: 1, busy: [], spentToday: 0, dayLimit: null, claude: { found: true, version: '2.0.0' }, setup: true, mcp: [] })
+  fake.can = [...WORKER_CAN]
+  try {
+    await openApp(page)
+    await connect(page, 'safe-box')
+    await page.evaluate(() => (window.location.hash = '#/coding'))
+    const plate = page.getByTestId('coding-worker')
+    await expect(plate).toContainText('safe-box')
+    await expect.poll(() => fake.asked.filter((a) => a.answer).length).toBeGreaterThan(0)
+    await expect(page.getByTestId('coding-worker-unsafe')).toHaveCount(0)
+    await expect(page.getByTestId('coding-worker-outdated')).toHaveCount(0)
+
+    // it names fewer capabilities on its next round: the capability text, the version stays safe
+    const answered = fake.asked.filter((a) => a.answer).length
+    fake.can = ['analyze', 'git:comment', 'git:merge']
+    await expect.poll(() => fake.asked.filter((a) => a.answer).length, { timeout: 10_000 }).toBeGreaterThan(answered)
+    await expect(plate.getByTestId('coding-worker-outdated')).toContainText('A newer worker is on the site')
+    await expect(page.getByTestId('coding-worker-unsafe')).toHaveCount(0)
   } finally {
     await fake.close()
   }

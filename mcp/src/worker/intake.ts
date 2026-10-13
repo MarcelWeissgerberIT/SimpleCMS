@@ -178,7 +178,7 @@ export class Intake {
       name = facts.name
       await this.host.reload()
     }
-    this.host.log(`import for task ${taskId}: ready as repo "${name}"`)
+    this.host.log(`import for task ${taskId}: ready as repo "${name}"${source === 'zip' ? ' — no git filter, diff or merge driver runs in it, Git LFS files stay plain files (.git/info/attributes)' : ''}`)
     this.host.event(taskId, { state: 'done', source, label, line, percent: 100, repo: name, ...(suggest ? { suggest } : {}) })
   }
 

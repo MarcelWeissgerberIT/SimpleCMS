@@ -79,6 +79,46 @@ export function workerOutdated(can: readonly string[] | null): boolean {
   return WORKER_CAN.some((c) => !has.has(c))
 }
 /**
+ * The first worker without the ZIP-import gap: up to 1.8.0 an imported ZIP could plant a `.git` (spelled `.GIT`,
+ * `.Git` … on a case-insensitive disk — macOS, Windows) whose core.fsmonitor or hooks ran during the import's git
+ * steps. 1.8.0 names every capability, so `workerOutdated` never caught it: the version it reports does.
+ */
+export const WORKER_SAFE = '1.8.1'
+/**
+ * The first version with the ZIP import (and clones) on the setup page — older workers have no such gap. 1.3.1 was
+ * built both before and after the import came; it counts in: a notice too many beats a gap nobody is told about.
+ */
+export const WORKER_IMPORT_SINCE = '1.3.1'
+/** "1.8.0", "v1.10.2", "1.8.1-rc.1+abc" → numeric parts + pre-release; anything else (missing, "dev", "1.x") → null. */
+function parseVersion(v: unknown): { parts: number[]; pre: boolean } | null {
+  if (typeof v !== 'string' || v.length > 64) return null
+  const m = /^v?(\d+(?:\.\d+){0,3})(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/.exec(v.trim())
+  if (!m) return null
+  const parts = m[1]!.split('.').map(Number)
+  if (!parts.every(Number.isSafeInteger)) return null
+  return { parts, pre: !!m[2] }
+}
+/** Numeric, part by part ("1.10.0" > "1.9.9"; missing parts are 0); a pre-release ranks below its release (semver). */
+function compareVersions(a: { parts: number[]; pre: boolean }, b: { parts: number[]; pre: boolean }): number {
+  for (let i = 0; i < Math.max(a.parts.length, b.parts.length); i++) {
+    const d = (a.parts[i] ?? 0) - (b.parts[i] ?? 0)
+    if (d) return Math.sign(d)
+  }
+  return a.pre === b.pre ? 0 : a.pre ? -1 : 1
+}
+/**
+ * A worker with the ZIP-import gap (WORKER_IMPORT_SINCE ≤ version < WORKER_SAFE), read from the version its welcome
+ * names (`WorkerInfo.worker` — local and through the relay alike). A version One cannot read is never flagged: every
+ * published worker sends its package version; "dev" is a worker run from source, and garbage names nothing One could
+ * honestly put in "This worker (…) has a security gap" — a notice that cries wolf gets ignored. Such a worker is still
+ * named by `workerOutdated` when it lacks a capability.
+ */
+export function workerUnsafe(version: string | null | undefined): boolean {
+  const v = parseVersion(version)
+  if (!v) return false
+  return compareVersions(v, parseVersion(WORKER_IMPORT_SINCE)!) >= 0 && compareVersions(v, parseVersion(WORKER_SAFE)!) < 0
+}
+/**
  * The capabilities a stage needs ([]: every worker runs it). `model` = the model the stage runs with (the task's own
  * pick on this device, else the stage's): a worker that does not name 'model' would ignore it.
  */

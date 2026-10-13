@@ -41,6 +41,13 @@ export const LOG_CODES = new Set([
   'modelOne',
   'modelRepo',
   'modelDefault',
+  'projectSettingsOff',
+  'projectSettingsOffSet',
+  'projectSettingsOffCloned',
+  'projectSettingsOffImported',
+  'projectSettingsOffMarked',
+  'projectSettingsOffFolder',
+  'mcpUserScope',
 ])
 
 const CODE = /^[a-zA-Z][a-zA-Z.]{0,40}$/

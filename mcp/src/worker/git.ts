@@ -332,7 +332,8 @@ export async function branchDiff(repo: RepoConfig, branch: string, dir: string |
   const stat = (await git(cwd, ['diff', '--stat=120', '-M', ...range])).stdout.trimEnd()
   const files = (await git(cwd, ['diff', '--name-only', '-M', ...range])).stdout.split('\n').filter(Boolean).length
   const fresh = dir ? (await git(cwd, ['ls-files', '--others', '--exclude-standard'])).stdout.split('\n').filter(Boolean).slice(0, 100) : []
-  let diff = (await git(cwd, ['diff', '-M', ...range], 120_000)).stdout
+  // git's own diff (--no-ext-diff): never the person's diff.external / GIT_EXTERNAL_DIFF, a command that runs in the repo
+  let diff = (await git(cwd, ['diff', '--no-ext-diff', '-M', ...range], 120_000)).stdout
   if (!diff.trim() && !fresh.length) return null
   let clipped = false
   if (diff.length > max) {
@@ -486,7 +487,7 @@ async function diffFiles(dir: string, base: string, status: StatusEntry[]): Prom
       if (!path) continue
       const binary = add === '-' && del === '-'
       const st = statusOfPath.get(path) ?? 'M'
-      const piece = binary ? { diff: null, truncated: false } : take((await git(dir, ['diff', '-M', mb, '--', path])).stdout)
+      const piece = binary ? { diff: null, truncated: false } : take((await git(dir, ['diff', '--no-ext-diff', '-M', mb, '--', path])).stdout)
       files.push({ path, status: st, add: binary ? 0 : count(add), del: binary ? 0 : count(del), binary, ...piece })
     }
   }

@@ -8,7 +8,7 @@
  * browser — lists the repos, a tick shows in One, Change repositories, a newer download retires the old file);
  * German at 390 px.
  */
-import { readFileSync, statSync } from 'node:fs'
+import { readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
 import { test, expect, openApp, reloadApp, waitForApp, wsEval } from './fixtures'
@@ -389,8 +389,9 @@ test('the 3 steps: a download comes ready-paired, connects without any switch, i
   await expect(S.getByTestId('coding-step-1')).toHaveAttribute('data-state', 'done')
   await expect(page.getByRole('switch', { name: 'Connect to a coding worker on this computer' })).toBeChecked()
 
-  // 2 — start it: a temp home with two repos, no config file, no flag
+  // 2 — start it: a temp home with two repos, no config file, no flag — "notes" as a clone the worker made
   const home = makeCodingHome(repo, ['shop', 'notes'])
+  writeFileSync(join(home, 'code', 'notes', '.git', 'one-worker-source'), 'clone\n')
   const opener = fakeOpener(repo)
   worker = await startDownloadedWorker(file, home, repo, opener.program)
   await expect(S.getByTestId('coding-card-live')).toContainText(/Connected · .+ · no repos yet/, { timeout: 20_000 })
@@ -408,6 +409,37 @@ test('the 3 steps: a download comes ready-paired, connects without any switch, i
   await expect(setup.locator('#repos')).toContainText('~/code/shop')
   await setup.getByRole('checkbox', { name: 'shop' }).check()
   await expect(setup.locator('.kbd').first()).toHaveText('npm')
+  // the repo's own Claude Code settings: a screen reader hears only the hints shown, as the switch moves
+  const OWN = /^Use this repo’s own Claude Code settings/
+  const MCP_HINT = /^Names as “claude mcp list” shows them/
+  const USER_ONLY = /Its own settings are off: only servers added with/
+  const WARN = /On: this repo’s hooks and helper commands/
+  const shopRow = setup.locator('li.repo').filter({ hasText: '~/code/shop' })
+  const shopOwn = shopRow.getByRole('switch', { name: OWN })
+  const shopMcp = shopRow.getByRole('textbox', { name: 'Own MCP servers for Claude Code' })
+  await expect(shopOwn).toBeChecked()
+  await expect(shopOwn).toHaveAccessibleDescription(/^On for your own repositories\. Off: Claude Code starts with your own settings only/)
+  await expect(shopMcp).toHaveAccessibleDescription(MCP_HINT)
+  await expect(shopMcp).not.toHaveAccessibleDescription(USER_ONLY)
+  await shopOwn.click()
+  await expect(shopMcp).toHaveAccessibleDescription(USER_ONLY)
+  await expect(shopOwn).not.toHaveAccessibleDescription(WARN)
+  await shopOwn.click()
+  await expect(shopMcp).not.toHaveAccessibleDescription(USER_ONLY)
+  // a clone the worker made: off with the reason; the warning only while it is switched on against that
+  await setup.getByRole('checkbox', { name: 'notes' }).check()
+  const notesRow = setup.locator('li.repo').filter({ hasText: '~/code/notes' })
+  const notesOwn = notesRow.getByRole('switch', { name: OWN })
+  const notesMcp = notesRow.getByRole('textbox', { name: 'Own MCP servers for Claude Code' })
+  await expect(notesOwn).not.toBeChecked()
+  await expect(notesOwn).toHaveAccessibleDescription('Off by default: cloned by the worker. Switch it on only for code you trust.')
+  await expect(notesMcp).toHaveAccessibleDescription(USER_ONLY)
+  await notesOwn.click()
+  await expect(notesOwn).toHaveAccessibleDescription(WARN)
+  await expect(notesMcp).not.toHaveAccessibleDescription(USER_ONLY)
+  await notesOwn.click()
+  await expect(notesOwn).not.toHaveAccessibleDescription(WARN)
+  await setup.getByRole('checkbox', { name: 'notes' }).uncheck()
   await setup.locator('#save').click()
   await expect(setup.locator('#note')).toHaveText('Saved — One sees 1 repository now.')
   await expect(setup.locator('#st-one')).toContainText('Connected · One')

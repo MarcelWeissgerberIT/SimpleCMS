@@ -8,7 +8,7 @@
  *
  * (CHANGELOG_DRAFT=1 lets the build pass while a new entry's picture does not exist yet.)
  *
- * Shots: regler, agent-precheck, ai-setup, ai-receipts, agent-trust, claude-tasks, flight-recorder-eject, flight-recorder-window, preflight, flight-recorder, tasks, outbox, mirror-again, glass-switches, history-compare, mcp-overview, mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
+ * Shots: safe-zip-import, regler, agent-precheck, ai-setup, ai-receipts, agent-trust, claude-tasks, flight-recorder-eject, flight-recorder-window, preflight, flight-recorder, tasks, outbox, mirror-again, glass-switches, history-compare, mcp-overview, mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
  * custom-agents, gmail, help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
  * workspace in English, light theme, 1440 × 900 at device scale 2; the crop of the relevant area is scaled
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
@@ -568,6 +568,8 @@ const FEED_POSTS = [
 const WORKER = fileURLToPath(new URL('../public/mcp/one-worker.mjs', import.meta.url))
 const FAKE_CLAUDE = fileURLToPath(new URL('../mcp/test/fixtures/fake-claude.mjs', import.meta.url))
 const WORKER_PORT = 47388
+/** the safe-zip-import shot's worker (its setup page only, no One tab) */
+const ZIP_SHOT_PORT = 47627
 
 function codingRepo() {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'one-shot-coding-')))
@@ -832,6 +834,82 @@ function drawVolumeTable(t) {
 const toolResult = (body, id) => (body.messages ?? []).flatMap((m) => (Array.isArray(m.content) ? m.content : [])).find((c) => c.type === 'tool_result' && c.tool_use_id === id)
 
 const shots = {
+  /**
+   * Worker 1.8.1, its own setup page: "legacy-shop" (a ZIP an older worker imported into ~/one-repos, unmarked) is
+   * marked once at the start — the note on top — and its switch is off with the reason, the MCP field saying only
+   * user-scope servers reach it; "website" (the person's own checkout in ~/code) follows below the crop. The repository's
+   * own worker (public/mcp/one-worker.mjs, `setup`) from a temp home with the fake Claude Code CLI and a fake browser
+   * that only notes the page's address — no One tab, no real host.
+   */
+  async 'safe-zip-import'(browser) {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'one-shot-zip-')))
+    const home = join(root, 'home')
+    writeFileSync(join(root, 'gitconfig'), '')
+    const env = { ...process.env, HOME: home, GIT_CONFIG_GLOBAL: join(root, 'gitconfig'), GIT_CONFIG_NOSYSTEM: '1', GIT_AUTHOR_NAME: 'Marcel', GIT_AUTHOR_EMAIL: 'marcel@example.invalid', GIT_COMMITTER_NAME: 'Marcel', GIT_COMMITTER_EMAIL: 'marcel@example.invalid' }
+    const repo = (dir, files, message, hoursAgo, remote) => {
+      mkdirSync(dir, { recursive: true })
+      for (const [n, t] of Object.entries(files)) {
+        mkdirSync(join(dir, n, '..'), { recursive: true })
+        writeFileSync(join(dir, n), t)
+      }
+      const at = new Date(Date.now() - hoursAgo * 3_600_000).toISOString()
+      const git = (...args) => execFileSync('git', args, { cwd: dir, env: { ...env, GIT_AUTHOR_DATE: at, GIT_COMMITTER_DATE: at }, stdio: 'ignore' })
+      git('init', '-q', '-b', 'main')
+      git('add', '-A')
+      git('commit', '-qm', message)
+      if (remote) git('remote', 'add', 'origin', remote)
+    }
+    repo(join(home, 'code', 'website'), { 'package.json': '{"scripts":{"test":"vitest run"}}', 'pnpm-lock.yaml': '', 'src/index.ts': 'export {}\n' }, 'initial', 3, 'git@github.com:studio/website.git')
+    // what worker 1.8.0 made of legacy-shop.zip: one commit "Import legacy-shop.zip", no mark yet
+    repo(join(home, 'one-repos', 'legacy-shop'), { 'composer.json': '{"name":"studio/legacy-shop"}', 'index.php': '<?php\nrequire "cart.php";\n', 'cart.php': '<?php\nfunction cart_total(array $items) { return 0; }\n' }, 'Import legacy-shop.zip', 50)
+    const configDir = join(home, '.config', 'one')
+    mkdirSync(configDir, { recursive: true })
+    writeFileSync(join(configDir, 'worker.json'), JSON.stringify({
+      workspace: 'local:studio',
+      name: 'studio-mac',
+      port: ZIP_SHOT_PORT,
+      repos: [
+        { name: 'legacy-shop', path: '~/one-repos/legacy-shop', testCommand: ['composer', 'test'], push: false, pr: 'none', claude: { mcpServers: ['kb'] } },
+        { name: 'website', path: '~/code/website', testCommand: ['pnpm', 'test'] },
+      ],
+    }))
+    const opened = join(root, 'opened.txt')
+    const opener = join(root, 'open.mjs')
+    writeFileSync(opener, `#!${process.execPath}\nimport { appendFileSync } from 'node:fs'\nappendFileSync(${JSON.stringify(opened)}, process.argv[2] + '\\n')\n`)
+    chmodSync(opener, 0o755)
+    const worker = spawn(process.execPath, [WORKER, 'setup'], { env: { ...env, CLAUDE_BIN: FAKE_CLAUDE, ONE_WORKER_BROWSER: opener }, stdio: ['ignore', 'ignore', 'ignore'] })
+    // tall enough that the page's fixed Save bar stays below the note and the first repo
+    const ctx = await browser.newContext({ viewport: { width: W, height: 1400 }, deviceScaleFactor: SCALE, colorScheme: 'light', locale: 'en-US', timezoneId: 'Europe/Berlin' })
+    try {
+      for (let i = 0; i < 200 && !existsSync(opened); i++) await sleep(100)
+      if (!existsSync(opened)) throw new Error('the worker did not open its setup page')
+      // nothing but the worker's own page
+      await ctx.route(/^https?:\/\/(?!127\.0\.0\.1)/, (route) => route.abort())
+      const page = await ctx.newPage()
+      page.on('pageerror', (e) => errors.push(`setup pageerror: ${String(e).slice(0, 200)}`))
+      page.on('console', (m) => m.type() === 'error' && errors.push(`setup console.error: ${m.text().slice(0, 200)}`))
+      await page.goto(readFileSync(opened, 'utf8').split('\n')[0])
+      const shop = page.locator('.repo', { hasText: 'legacy-shop' })
+      await shop.getByRole('switch', { name: /own Claude Code settings/ }).waitFor()
+      await page.getByRole('button', { name: 'Got it' }).waitFor()
+      // the search for further repositories is done (the list stays as it is)
+      await page.waitForFunction(() => !(document.querySelector('#app')?.textContent ?? '').includes('Scanning…'), null, { timeout: 20_000 })
+      await page.waitForTimeout(600)
+      // the marking note, the page's keys (Import a ZIP… among them) and the imported repo, down to the hairline above
+      // the next one
+      const note = await page.locator('#marks').boundingBox()
+      const next = await page.locator('.repo', { hasText: 'website' }).boundingBox()
+      const wrap = await page.locator('.wrap').boundingBox()
+      const top = Math.round(note.y - 12)
+      await save(page, 'safe-zip-import', { x: Math.round(wrap.x), y: top, width: Math.round(wrap.width), height: Math.round(next.y + 1 - top) })
+    } finally {
+      // the page first: it asks the worker every second while it is open
+      await ctx.close()
+      worker.kill('SIGTERM')
+      rmSync(root, { recursive: true, force: true })
+    }
+  },
+
   /**
    * A red line for AI spending (Regler G1): #/regler with a day of fictional usage — the dial at $4.12 of a $6 day budget,
    * yesterday's mark, the month bar, the consumers (terminal, agent, AI menu, mail, autofill, ⌘K) with an agent the

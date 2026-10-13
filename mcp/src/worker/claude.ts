@@ -1,12 +1,12 @@
 /**
  * one-worker — Claude Code, headless: `claude -p --output-format stream-json --verbose --permission-mode …
- * --max-turns N [--model …] [--allowedTools …] [--disallowedTools …] [--max-budget-usd …] --mcp-config
- * <task tools> [--strict-mcp-config]` in the task's worktree. The prompt goes in on stdin (task text never
- * shows in the process list). Claude Code keeps its own permission rules: no flag that skips them is ever
+ * --max-turns N [--model …] [--allowedTools …] [--disallowedTools …] [--max-budget-usd …] [--setting-sources user]
+ * --mcp-config <task tools> [--strict-mcp-config]` in the task's worktree. The prompt goes in on stdin (task text
+ * never shows in the process list). Claude Code keeps its own permission rules: no flag that skips them is ever
  * passed. Stop kills the whole process tree.
  *
  * The CLI is `CLAUDE_BIN` or `claude` on PATH. What it supports is read from its --help once (the budget
- * flag, the permission mode names), so older and newer versions both work.
+ * flag, the permission mode names, --setting-sources), so older and newer versions both work.
  */
 import { spawn, execFile, type ChildProcess } from 'node:child_process'
 import { createInterface } from 'node:readline'
@@ -23,6 +23,8 @@ export interface ClaudeCaps {
   budget: boolean
   /** --permission-mode choices it lists ([] = unknown: pass ours as they are) */
   modes: string[]
+  /** --setting-sources is known (a repo's own settings can be left out) */
+  settingSources: boolean
 }
 
 export const claudeBin = (env: NodeJS.ProcessEnv = process.env) => (env.CLAUDE_BIN && env.CLAUDE_BIN.trim()) || 'claude'
@@ -39,12 +41,12 @@ function capture(bin: string, args: string[], timeoutMs = 15_000): Promise<{ cod
 /** What the installed CLI supports (never calls the API: --version and --help only). */
 export async function detectClaude(bin = claudeBin()): Promise<ClaudeCaps> {
   const v = await capture(bin, ['--version'])
-  if (v.code === 127 || (v.code !== 0 && !v.out.trim())) return { found: false, version: null, budget: false, modes: [] }
+  if (v.code === 127 || (v.code !== 0 && !v.out.trim())) return { found: false, version: null, budget: false, modes: [], settingSources: false }
   const version = /(\d+\.\d+\.\d+[\w.-]*)/.exec(v.out)?.[1] ?? null
   const help = await capture(bin, ['--help'])
   const modeLine = /--permission-mode[\s\S]{0,400}?\(choices:([^)]*)\)/.exec(help.out)?.[1] ?? ''
   const modes = [...modeLine.matchAll(/"([A-Za-z]+)"/g)].map((m) => m[1]!)
-  return { found: true, version, budget: /--max-budget-usd/.test(help.out), modes }
+  return { found: true, version, budget: /--max-budget-usd/.test(help.out), modes, settingSources: /--setting-sources/.test(help.out) }
 }
 
 /** Our mode name → the CLI's ('default' is called 'manual' by some versions). Never a bypassing mode. */
@@ -65,6 +67,8 @@ export interface ClaudeRun {
   disallowedTools: string[]
   mcpConfig: string | null
   strictMcp: boolean
+  /** the repo's own Claude Code settings may load (false: `--setting-sources user`, config.ts projectSettings) */
+  projectSettings: boolean
   /** $ this run may spend (null = no limit) */
   budgetUsd: number | null
   caps: ClaudeCaps
@@ -121,6 +125,8 @@ export function claudeArgs(r: Omit<ClaudeRun, 'bin' | 'cwd' | 'prompt' | 'env' |
   if (r.allowedTools.length) args.push('--allowedTools', r.allowedTools.join(','))
   if (r.disallowedTools.length) args.push('--disallowedTools', r.disallowedTools.join(','))
   if (r.budgetUsd !== null && r.caps.budget) args.push('--max-budget-usd', r.budgetUsd.toFixed(2))
+  // the person's own settings only: the repo's hooks, apiKeyHelper, MCP approvals, .mcp.json and CLAUDE.md stay out
+  if (!r.projectSettings && r.caps.settingSources) args.push('--setting-sources', 'user')
   if (r.mcpConfig) {
     args.push('--mcp-config', r.mcpConfig)
     if (r.strictMcp) args.push('--strict-mcp-config')

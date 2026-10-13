@@ -16,8 +16,9 @@ import { Led } from '../../ui/controls'
 import { useLang, useT } from '../../i18n'
 import { workspaceInfo } from '../mcp/identity'
 import { downloadWorker, startCommand } from './download'
-import { workerOutdated } from './protocol'
+import { workerOutdated, workerUnsafe } from './protocol'
 import { openWorkerSetup, viaFor } from './service'
+import { openCodingSettings } from './open'
 import { CloudSetupCard } from './CloudSetupCard'
 import { useCoding } from './state'
 import { CodeBlock } from './CodeBlock'
@@ -112,23 +113,44 @@ async function downloadWithToast(t: ReturnType<typeof useT>): Promise<void> {
   }
 }
 
-/** A worker older than the download on the site (it does not name everything One hands out): say so, offer the file. */
-export function OutdatedWorker() {
+/**
+ * A worker older than the download on the site (it does not name everything One hands out): say so, offer the file.
+ * A worker with the ZIP-import gap (`workerUnsafe` — the version its welcome names) gets the security notice instead:
+ * it wins over the capability text, since 1.8.0 names every capability. `only="security"`: the setup cards (Settings →
+ * Coding worker, #/coding before a repo is ticked) show that one alone. `download`: the card's own download (the
+ * cloud card asks before it replaces a worker); without one the local file — through the relay the key opens
+ * Settings → Coding worker instead, where the cloud card's download is (never the local file for a cloud worker).
+ */
+export function OutdatedWorker({ only, download, busy: cardBusy }: { only?: 'security'; download?: () => void | Promise<void>; busy?: boolean }) {
   const t = useT()
   const can = useCoding((s) => s.can)
+  const version = useCoding((s) => (s.conn === 'connected' ? (s.worker?.worker ?? null) : null))
+  useCoding((s) => s.via)
+  useCloud((x) => x.active)
   const [busy, setBusy] = useState(false)
-  if (!workerOutdated(can)) return null
-  const download = async () => {
+  const unsafe = workerUnsafe(version)
+  if (!unsafe && (only === 'security' || !workerOutdated(can))) return null
+  const viaCloud = !download && viaFor(workspaceInfo()) === 'cloud'
+  const pending = cardBusy ?? busy
+  const press = async () => {
+    if (download) return void download()
+    if (viaCloud) return openCodingSettings()
     setBusy(true)
     await downloadWithToast(t)
     setBusy(false)
   }
   return (
-    <p className="cv-plate__old" role="status" data-testid="coding-worker-outdated">
+    <p className="cv-plate__old" data-kind={unsafe ? 'security' : 'outdated'} role="status" data-testid={unsafe ? 'coding-worker-unsafe' : 'coding-worker-outdated'}>
       <Led state="on" />
-      <span>{t('features.coding.worker.outdated')}</span>
-      <button type="button" className="btn btn--sm" onClick={() => void download()} disabled={busy} data-testid="coding-download-again">
-        <Download size={13} strokeWidth={1.75} aria-hidden /> {busy ? t('features.coding.card.downloading') : t('features.coding.card.downloadAgain')}
+      {unsafe ? (
+        <span>
+          <span className="label cv-plate__sec">{t('features.coding.worker.unsafeLabel')}</span> {t('features.coding.worker.unsafe', { version: String(version).trim() })}
+        </span>
+      ) : (
+        <span>{t('features.coding.worker.outdated')}</span>
+      )}
+      <button type="button" className="btn btn--sm" onClick={() => void press()} disabled={pending} data-testid="coding-download-again">
+        <Download size={13} strokeWidth={1.75} aria-hidden /> {viaCloud ? t('features.coding.worker.toDownload') : pending ? t('features.coding.card.downloading') : t('features.coding.card.downloadAgain')}
       </button>
     </p>
   )
@@ -199,6 +221,7 @@ function LocalSetupCard({ code }: { code: string }) {
           <p className="cs-hint">{t('features.coding.card.step3Hint')}</p>
         </Step>
       </ol>
+      <OutdatedWorker only="security" download={download} busy={busy} />
       <footer className="cs-live" role="status" data-testid="coding-card-live">
         <span className="label cs-live__k">{t('features.coding.card.live')}</span>
         <Led state={led} />

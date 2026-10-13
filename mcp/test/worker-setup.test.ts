@@ -3,8 +3,9 @@
  * (the built bundle with a preset line, as One's download writes it), the repo scan against a temp home
  * (nested repos found; node_modules, hidden folders and symbolic links skipped; caps), the test-command
  * guesses, the local setup page's API (its key, Host and Origin checks, saving worker.json 0600 with only the
- * ticked repos, rescan, "Add a folder"), `open-setup` (and that it opens nothing without a setup page) and
- * the terminal checklist. A fake browser opener and a fake Claude Code CLI — nothing leaves the machine.
+ * ticked repos, rescan, "Add a folder", the per-repo switch for the repo's own Claude Code settings), `open-setup`
+ * (and that it opens nothing without a setup page) and the terminal checklist. A fake browser opener and a fake
+ * Claude Code CLI — nothing leaves the machine.
  */
 import assert from 'node:assert/strict'
 import { chmodSync, mkdirSync, readFileSync, statSync, symlinkSync, writeFileSync, existsSync } from 'node:fs'
@@ -529,6 +530,90 @@ describe('the setup page', () => {
     assert.equal((await call('/setup')).status, 426)
     await new Promise((r) => setTimeout(r, 300))
     assert.deepEqual(opener.urls(), [])
+  })
+
+  test('per repo, "Use this repo\'s own Claude Code settings": off with the reason for code from elsewhere, on for the person\'s own; Save writes it only with the page\'s key and origin', async () => {
+    const home = tempDir('home')
+    const shop = plainRepo(join(home, 'code', 'shop'))
+    const billing = plainRepo(join(home, 'one-repos', 'billing'))
+    writeFileSync(join(billing, '.git', 'one-worker-source'), 'clone\n')
+    const legacy = plainRepo(join(home, 'one-repos', 'legacy'))
+    writeFileSync(join(legacy, '.git', 'one-worker-source'), 'zip\n')
+    const byHand = plainRepo(join(home, 'one-repos', 'by-hand'))
+    const opener = fakeOpener()
+    worker = await spawnWorker({ bundle: presetBundle(PRESET), home, env: { ONE_WORKER_BROWSER: opener.program } })
+    await waitFor(() => opener.urls().length === 1, 8000, () => worker!.stderr())
+    const token = tokenOf(opener.urls()[0]!)
+    const own = (st: { repos: Array<{ name: string; ownSettings: boolean; source: string | null }> }) => Object.fromEntries(st.repos.map((r) => [r.name, [r.ownSettings, r.source]]))
+    const before = await doneState(token)
+    assert.deepEqual(own(before), { shop: [true, null], billing: [false, 'cloned'], legacy: [false, 'imported'], 'by-hand': [false, 'cloneDir'] })
+
+    // the page: the switch, the reasons and the warning in English and German
+    const js = (await call('/setup/app.js')).text
+    for (const s of ['Use this repo’s own Claude Code settings (.claude/, .mcp.json, CLAUDE.md, local MCP servers)', 'Eigene Claude-Code-Einstellungen dieses Repos nutzen (.claude/, .mcp.json, CLAUDE.md, lokale MCP-Server)', 'cloned by the worker', 'vom Worker geklont', 'in the clone folder', 'im Klon-Ordner', 'will run on this computer when a task starts', 'laufen auf diesem Rechner, wenn eine Aufgabe startet', 'claude mcp add -s user'])
+      assert.ok(js.includes(s), s)
+
+    const file = join(home, '.config', 'one', 'worker.json')
+    const plain = (path: string, name: string) => ({ path, name, baseBranch: 'main', test: '', push: false, pr: 'none', maxUsdPerTask: null })
+    const entry = (path: string, name: string, projectSettings: boolean) => ({ ...plain(path, name), projectSettings })
+    const body = { repos: [entry(shop, 'shop', false), entry(billing, 'billing', true), entry(legacy, 'legacy', false), entry(byHand, 'by-hand', false)] }
+    const save = (extra: Parameters<typeof call>[1] = {}) => call('/setup/api/save', { token, origin: SELF, body, ...extra })
+    // the save path: its key, exactly, and the page's own origin
+    assert.equal((await save({ token: undefined })).status, 401)
+    assert.equal((await save({ token: token.replace(/^./, (c) => (c === 'a' ? 'b' : 'a')) })).status, 403)
+    assert.equal((await save({ origin: undefined })).status, 403)
+    assert.equal((await save({ origin: 'https://evil.example' })).status, 403)
+    assert.equal((await save({ host: `localhost:${PORT}` })).status, 403)
+    assert.ok(!existsSync(file), 'nothing written without the page\'s key and origin')
+
+    const saved = await save()
+    assert.equal(saved.status, 200, saved.text)
+    const raw = JSON.parse(readFileSync(file, 'utf8').replace(/^\/\/.*$/gm, ''))
+    const claudeOf = (name: string) => raw.repos.find((r: { name: string }) => r.name === name).claude
+    // written where it decides something: against the default, and an "off" that rests on the clone folder alone (it
+    // would turn on once cloneDir moves); an "off" by the worker's mark needs no key
+    assert.deepEqual(claudeOf('shop'), { projectSettings: false })
+    assert.deepEqual(claudeOf('billing'), { projectSettings: true })
+    assert.equal(claudeOf('legacy'), undefined)
+    assert.deepEqual(claudeOf('by-hand'), { projectSettings: false })
+    // the worker reads it back so (the page shows the reloaded config)
+    assert.deepEqual(own(saved.json()), { shop: [false, null], billing: [true, 'cloned'], legacy: [false, 'imported'], 'by-hand': [false, 'cloneDir'] })
+
+    // a body without the switch (an older page, the terminal checklist) leaves worker.json's keys as they are
+    const again = await call('/setup/api/save', { token, origin: SELF, body: { repos: [plain(shop, 'shop'), plain(billing, 'billing'), plain(legacy, 'legacy'), plain(byHand, 'by-hand')] } })
+    assert.equal(again.status, 200, again.text)
+    assert.deepEqual(own(again.json()), { shop: [false, null], billing: [true, 'cloned'], legacy: [false, 'imported'], 'by-hand': [false, 'cloneDir'] })
+    // switched back: the explicit key follows
+    const back = await call('/setup/api/save', { token, origin: SELF, body: { repos: [entry(shop, 'shop', true), entry(billing, 'billing', false)] } })
+    assert.equal(back.status, 200, back.text)
+    const raw2 = JSON.parse(readFileSync(file, 'utf8').replace(/^\/\/.*$/gm, ''))
+    assert.deepEqual(raw2.repos.map((r: { name: string; claude?: unknown }) => [r.name, r.claude]), [['shop', { projectSettings: true }], ['billing', { projectSettings: false }]])
+  })
+
+  test('the one-time marking of an older worker\'s clones is named on the setup page until the person takes note', async () => {
+    const home = tempDir('home')
+    const billing = plainRepo(join(home, 'one-repos', 'billing'), { 'README.md': '# x\n' }, 'git@gitlab.example.com:acme/billing.git')
+    const shop = plainRepo(join(home, 'code', 'shop'), { 'README.md': '# x\n' }, 'git@github.com:me/shop.git')
+    mkdirSync(join(home, '.config', 'one'), { recursive: true })
+    const file = join(home, '.config', 'one', 'worker.json')
+    writeFileSync(file, JSON.stringify({ workspace: WS.id, repos: [{ name: 'billing', path: billing }, { name: 'shop', path: shop }] }))
+    const opener = fakeOpener()
+    worker = await spawnWorker({ bundle: presetBundle(PRESET), home, args: ['setup'], env: { ONE_WORKER_BROWSER: opener.program } })
+    await waitFor(() => opener.urls().length === 1, 8000, () => worker!.stderr())
+    assert.match(worker.stdout() + worker.stderr(), /marked 1 repo\(s\) an older worker cloned or imported as code from elsewhere \(billing\)/)
+    const token = tokenOf(opener.urls()[0]!)
+    const st = await doneState(token)
+    assert.deepEqual(st.marked, ['billing'])
+    assert.deepEqual(st.repos.filter((r: { name: string }) => r.name === 'billing' || r.name === 'shop').map((r: { name: string; ownSettings: boolean; source: string | null }) => [r.name, r.ownSettings, r.source]), [['billing', false, 'marked'], ['shop', true, null]])
+    const js = (await call('/setup/app.js')).text
+    for (const s of ['This worker version marked {list} as code from elsewhere', 'Diese Worker-Version hat {list} als fremden Code markiert', 'Got it', 'Verstanden'])
+      assert.ok(js.includes(s), s)
+    // only the page itself takes note
+    assert.equal((await call('/setup/api/marks-seen', { token, body: {} })).status, 403)
+    const seen = await call('/setup/api/marks-seen', { token, origin: SELF, body: {} })
+    assert.equal(seen.status, 200, seen.text)
+    assert.deepEqual(seen.json().marked, [])
+    assert.ok(JSON.parse(readFileSync(join(home, '.config', 'one', 'worker-marks.json'), 'utf8')).seen)
   })
 
   test('a hand-written worker.json keeps its other settings and gets a .bak copy once', async () => {

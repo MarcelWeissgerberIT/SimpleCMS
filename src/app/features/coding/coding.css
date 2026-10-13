@@ -1067,6 +1067,19 @@
   border-top: 1px solid var(--rule);
   font-size: var(--text-sm);
 }
+/* the ZIP-import gap (workerUnsafe): the placard's kicker in the signal ink (two classes: ui.css's .label loads later) */
+.cv-plate__old .cv-plate__sec {
+  margin-right: 4px;
+  color: var(--signal-ink);
+}
+/* inside a setup card: its own row between the steps and the live line (the text wraps there: LED on its first line) */
+.cs > .cv-plate__old {
+  align-items: start;
+  padding: 10px 14px;
+}
+.cs > .cv-plate__old .led {
+  margin-top: calc((1lh - 6px) / 2);
+}
 .cv-plate__hint {
   margin: 0;
   color: var(--ink-2);

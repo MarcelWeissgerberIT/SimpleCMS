@@ -1,11 +1,13 @@
 /**
  * Lamp "Worker offline" (fitted where coding is switched on): red while the worker link is refused / blocked /
  * replaced / off, or still connecting a minute after it began; amber while the connected worker is older than the
- * download. Ids: worker:<conn> · worker:outdated@<version>.
+ * download — with the ZIP-import gap (`workerUnsafe`, by the version it names: 1.8.0 names every capability) or
+ * without a capability One hands out (`workerOutdated`); the gap wins, as on the #/coding plate.
+ * Ids: worker:<conn> · worker:unsafe@<version> · worker:outdated@<version>.
  */
 import { t } from '../../../i18n'
 import { openCodingSettings, useCoding } from '../../coding'
-import { workerOutdated } from '../../coding/protocol'
+import { workerOutdated, workerUnsafe } from '../../coding/protocol'
 import type { LampReading, LampSourceDef } from '../registry'
 import { fmtTime } from '../format'
 import { watch } from './util'
@@ -47,6 +49,7 @@ export const workerLamp: LampSourceDef = {
     const s = useCoding.getState()
     if (s.conn === 'connected') {
       const version = s.worker?.worker ?? ''
+      if (workerUnsafe(version)) return { state: 'ok', count: 1, ids: [`worker:unsafe@${version.trim()}`], level: 'amber', second: t('features.preflight.lamp.worker.second.unsafe') }
       if (workerOutdated(s.can)) return { state: 'ok', count: 1, ids: [`worker:outdated@${version}`], level: 'amber', second: t('features.preflight.lamp.worker.second.outdated') }
       return { state: 'ok', count: 0, ids: [], second: version ? t('features.preflight.lamp.worker.second.ok', { version }) : '' }
     }
@@ -60,7 +63,9 @@ export const workerLamp: LampSourceDef = {
       const r = workerLamp.read(ctx) as LampReading
       return fixItems('worker', r.ids, (id) => ({
         tag: t('features.preflight.lamp.worker.short'),
-        title: t(id.startsWith('worker:outdated') ? 'features.preflight.fix.worker.outdated' : 'features.preflight.fix.worker.down'),
+        title: id.startsWith('worker:unsafe@')
+          ? t('features.preflight.fix.worker.unsafe', { version: id.slice('worker:unsafe@'.length) })
+          : t(id.startsWith('worker:outdated') ? 'features.preflight.fix.worker.outdated' : 'features.preflight.fix.worker.down'),
         detail: r.second ?? '',
       }))
     },

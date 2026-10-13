@@ -137,7 +137,7 @@ export class Worker {
   readonly state: WorkerState
   private opts: WorkerOptions
   private link: WorkerLink
-  private caps: ClaudeCaps = { found: false, version: null, budget: false, modes: [] }
+  private caps: ClaudeCaps = { found: false, version: null, budget: false, modes: [], settingSources: false }
   private runs = new Map<string, Run>()
   private tokens = new Map<string, Run>()
   private workspace: WorkspaceRef | null = null
