@@ -46,6 +46,8 @@ export { shapeOf, withShape, routed, type Shape } from './ai/core/shape'
 export { aiRunMeta, aiWriterOf, type AIRunMeta } from './ai/core/runMeta'
 /** The route chip + picker (routing/RouteChip.tsx): which model one request goes to; Alt+M opens it. */
 export { RouteChip, isRouteKey, type RouteChipHandle } from './ai/routing/RouteChip'
+/** "Belegt?" (slice SJ): Jev checks an answer against its sources — off by default (ai/decide). */
+export { SupportedLine, deeperRoute, runVerify, useVerifyOn, verifyOn, type VerifyResult } from './ai/decide'
 export type { Receipt } from './ai/core/meter'
 /** Claude's Markdown → a safe document: web images / media / frames as links (addresses a page shows already stay). */
 export { webImagesOf } from './agents/images'

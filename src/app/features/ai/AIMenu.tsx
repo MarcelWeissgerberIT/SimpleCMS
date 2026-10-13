@@ -111,6 +111,8 @@ import { codewordsIn, readServers } from './mcp-servers/config'
 import { callLabel, type McpCall } from './mcp-servers/activity'
 import { CodewordChip, McpSkippedNote, skippedLabel } from './mcp-servers/Codeword'
 import { citationsToLinks, findSource, type WorkspaceSource } from './workspace'
+import { deeperRoute, useVerifyOn } from './decide/answers'
+import { SupportedLine } from './decide/ui/SupportedLine'
 import { MarkdownLite } from './MarkdownLite'
 import { snapshotNow } from '../history/snapshots'
 import { webImagesOf } from '../agents/images'
@@ -398,6 +400,8 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
   /** the review's "Change instructions": the card again, a new run replaces this one */
   const [redoEdit, setRedoEdit] = useState(false)
   const [wsMode, setWsMode] = useState(false)
+  // "Belegt?" on this device: the workspace question says before it is sent that Jev reads along
+  const verifies = useVerifyOn()
   /** "Generate image / video": the card's values (null: not generating) · the card again over a finished run ("Change prompt") */
   const [genDraft, setGenDraft] = useState<GenerateDraft | null>(() => (generate && !openRun ? draftOf(generate) : null))
   const [genEdit, setGenEdit] = useState(false)
@@ -2322,6 +2326,16 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
                 {run?.req.kind === 'action' && !!run.media?.length && (
                   <MediaCards items={run.media} onSaved={(saved) => insertMedia(saved.map(mediaNode), 'below')} privateTarget={pagePrivate(pageId)} where={t('features.ai.media.whereMenu')} />
                 )}
+                {/* "Belegt?" (slice SJ, off by default): what Jev found — "Ask more thoroughly (R)" asks again on the deep role */}
+                {run?.req.kind === 'workspace' && phase === 'done' && run.verify && (
+                  <SupportedLine
+                    result={run.verify}
+                    onDeeper={(() => {
+                      const deeper = run.verify !== 'checking' && run.verify.support === 'unsupported' ? deeperRoute('workspace.ask', run.chip ?? null) : null
+                      return deeper ? () => start(run.req, undefined, deeper) : null
+                    })()}
+                  />
+                )}
                 {run?.req.kind === 'workspace' && sources.length > 0 && (
                   <div className="ai-sources">
                     <span className="label">{t('features.ai.sources')}</span>
@@ -2412,6 +2426,11 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
             )}
 
             {phase === 'idle' && wsMode && !query.trim() && <div className="ai-hint">{t('features.ai.wsHint')}</div>}
+            {phase === 'idle' && wsMode && verifies && (
+              <p className="jev-goes ai-hint" data-testid="ws-jev-goes">
+                {t('features.ai.jev.verify.goes')}
+              </p>
+            )}
 
             {!redoHead && (
               <div className="ai-foot">

@@ -1,13 +1,15 @@
 /**
  * "Ask the help": a question → the AI (your key) answers from the best-matching help articles only and
- * links the ones it used. Without a key: a hint and the matching articles instead.
+ * links the ones it used. Without a key: a hint and the matching articles instead. With "Belegt?" on (Settings › AI,
+ * slice SJ — off by default) the form says before the first send that Jev checks the answer against the articles,
+ * and one line under the answer says what Jev found ("Ask more thoroughly (R)" asks again on the deep role).
  */
 import { useEffect, useMemo, useRef, type KeyboardEvent } from 'react'
 import { create } from 'zustand'
 import { ArrowRight, Square } from 'lucide-react'
 import { useLang, useT } from '../i18n'
 import { useWorkspace } from '../store/store'
-import { AINeedsSetup, RouteChip, aiStatus, offersAI, destinationOf, isAIConfigured, isRouteKey, type Route, type RouteChipHandle } from '../features'
+import { AINeedsSetup, RouteChip, SupportedLine, aiStatus, deeperRoute, offersAI, destinationOf, isAIConfigured, isRouteKey, runVerify, useVerifyOn, verifyOn, type Route, type RouteChipHandle, type VerifyResult } from '../features'
 import { shortcutLabel } from '../ui/controls'
 import { askHelp, linkCitations } from './ask'
 import { LIBRARY } from './content'
@@ -31,10 +33,12 @@ interface AskState {
   handled: number
   /** the route chip: the model for the next question only (null: the rules decide) */
   chip: Route | null
+  /** "Belegt?": what Jev found about the answer (null: not asked — off, or no answer yet) */
+  verify: VerifyResult | 'checking' | null
 }
 
 /** The ask session outlives the view: open a cited article, come back, the answer is still there. */
-const useAsk = create<AskState>()(() => ({ phase: 'idle', asked: '', answer: '', error: '', sources: [], handled: 0, chip: null }))
+const useAsk = create<AskState>()(() => ({ phase: 'idle', asked: '', answer: '', error: '', sources: [], handled: 0, chip: null, verify: null }))
 let abort: AbortController | null = null
 
 /** The article last open in the panel: a question asked from it is probably about it. */
@@ -47,12 +51,12 @@ function lastArticle(): string | undefined {
   return undefined
 }
 
-async function ask(lang: HelpLang, q = useHelp.getState().question): Promise<void> {
+async function ask(lang: HelpLang, q = useHelp.getState().question, route?: Route | null): Promise<void> {
   const text = q.trim()
   if (!text) return
   abort?.abort()
   const sources = articlesForQuestion(LIBRARY, lang, text, 6, lastArticle())
-  useAsk.setState({ asked: text, answer: '', error: '', sources })
+  useAsk.setState({ asked: text, answer: '', error: '', sources, verify: null })
   // the gate's answer for help questions (a key for a route the rules allow); demo answers stay out of the help
   const st = aiStatus('help.ask')
   if (!offersAI(st) || !isAIConfigured()) return useAsk.setState({ phase: 'nokey' })
@@ -61,9 +65,15 @@ async function ask(lang: HelpLang, q = useHelp.getState().question): Promise<voi
   abort = ctrl
   useAsk.setState({ phase: 'running' })
   try {
-    const final = await askHelp({ question: text, articles: sources, lang, signal: ctrl.signal, route: useAsk.getState().chip, onToken: (d) => useAsk.setState((s) => ({ answer: s.answer + d })) })
+    const final = await askHelp({ question: text, articles: sources, lang, signal: ctrl.signal, route: route ?? useAsk.getState().chip, onToken: (d) => useAsk.setState((s) => ({ answer: s.answer + d })) })
     if (ctrl.signal.aborted) return
     useAsk.setState({ answer: final, phase: 'done' })
+    // "Belegt?" (off by default): Jev checks the answer against the articles it was built from, as sent
+    if (verifyOn() && final.trim()) {
+      useAsk.setState({ verify: 'checking' })
+      const res = await runVerify({ question: text, sources: sources.map((a) => ({ title: a.title, text: `${a.summary ? `${a.summary}\n` : ''}${a.source}` })), answer: final, refs: [], source: 'help:ask', signal: ctrl.signal, applied: { people: true, transcript: true, visible: true } })
+      if (!ctrl.signal.aborted && useAsk.getState().answer === final) useAsk.setState({ verify: res })
+    }
   } catch (e) {
     if (ctrl.signal.aborted) return
     useAsk.setState({ error: e instanceof Error ? e.message : String(e), phase: 'error' })
@@ -83,7 +93,8 @@ export function AskView() {
   const question = useHelp((s) => s.question)
   const askRun = useHelp((s) => s.askRun)
   const model = useWorkspace((s) => s.settings.aiModel)
-  const { phase, asked, answer, error, sources, chip } = useAsk()
+  const { phase, asked, answer, error, sources, chip, verify } = useAsk()
+  const checks = useVerifyOn()
   const chipRef = useRef<RouteChipHandle | null>(null)
   const fieldRef = useRef<HTMLTextAreaElement | null>(null)
 
@@ -111,6 +122,8 @@ export function AskView() {
   // the model the answer comes from (the chip, else the rules); re-read when this device's model changes
   const dest = useMemo(() => destinationOf('help.ask', { route: chip }), [chip, model])
   const modelLabel = dest.label
+  // "Ask more thoroughly": the deep role of the provider that answered (null: none deeper)
+  const deeper = useMemo(() => (verify && verify !== 'checking' && verify.support === 'unsupported' ? deeperRoute('help.ask', chip) : null), [verify, chip, model])
 
   return (
     <div className="help-ask">
@@ -164,6 +177,12 @@ export function AskView() {
             </button>
           )}
         </div>
+        {/* "Belegt?" on: said before the first send — Jev reads the question, the articles and the answer */}
+        {checks && (
+          <p className="jev-goes help-ask__jev" data-testid="help-jev-goes">
+            {t('features.ai.jev.verify.goes')}
+          </p>
+        )}
       </form>
 
       {phase === 'idle' && !asked && (
@@ -199,6 +218,7 @@ export function AskView() {
           <p className="label help-ask__head">
             <span className={`led${phase === 'running' ? ' led--on help-blink' : phase === 'error' ? '' : ' led--ok'}`} aria-hidden />
             {t('help.ask.model', { model: modelLabel })}
+            {checks && ` ${t('features.ai.jev.verify.goes')}`}
             {phase === 'running' && <span className="help-ask__reading"> · {t('help.ask.reading', { n: sources.length })}</span>}
           </p>
           {phase === 'error' ? (
@@ -206,7 +226,10 @@ export function AskView() {
               {error}
             </p>
           ) : blocks.length ? (
-            <Doc blocks={blocks} nav={nav} className="help-doc--answer" />
+            <>
+              <Doc blocks={blocks} nav={nav} className="help-doc--answer" />
+              {phase === 'done' && verify && <SupportedLine result={verify} onDeeper={deeper ? () => void ask(lang, asked, deeper) : null} />}
+            </>
           ) : (
             <p className="help-ask__wait" aria-hidden>
               …

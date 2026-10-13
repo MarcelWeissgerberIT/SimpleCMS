@@ -29,6 +29,8 @@ import { checkOf, uncheckedOf } from '../../src/app/features/ai/decide/verdict'
 import { classOfPage, classesOf, type SourceWorld } from '../../src/app/features/ai/core/sources'
 import type { Database, Page } from '../../src/app/store/types'
 import type { StagedChange } from '../../src/app/features/ai/agent/types'
+import { SUGGEST_MIN, compareRequest, readSuggestion, shuffleOrder } from '../../src/app/features/ai/decide/suggest'
+import { VERIFY_CLAUSE, VERIFY_LIMITS, supportOf, verifyQuestions, verifyState } from '../../src/app/features/ai/decide/verify'
 
 const JEV = 'typesafe/jev-1.13'
 const SNAP = 'typesafe/jev-1.13-20260917'
@@ -734,5 +736,69 @@ test.describe('the Schreibschranke’s split (features/agents/direct.ts)', () =>
     expect(stickyOf([marked], 'r1').any).toBe(false)
     // a staged row's id resolves through the run's rowIds
     expect([...stickyOf([run('r1', [c('c1', { jev: { ...ok(0.4), mark: true } })], { rowIds: { row_c1: 'real_row' } })], 'now').targets]).toEqual(['real_row'])
+  })
+})
+
+/* ------------------------------------------------------------------ */
+/* J13 / J14 — "Belegt?" and the compare suggestion's core              */
+/* ------------------------------------------------------------------ */
+
+const turnOf = (answers: Record<string, unknown>): DecideTurn => ({ kind: 'decide', answers: answers as DecideTurn['answers'], served: { p: 'openrouter', model: SNAP }, usage: { input: 10, output: 0, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0 } }) as unknown as DecideTurn
+
+test.describe('"Belegt?" (features/ai/decide/verify.ts)', () => {
+  test('the one question: [casc] § 2’s three labels, `question` / `sources` / `answer` named, the data clause on it', () => {
+    const q = verifyQuestions().support!
+    expect(q.type).toBe('choice')
+    expect(Object.keys((q as Extract<DecideQuestion, { type: 'choice' }>).criteria)).toEqual(['supported', 'unsupported', 'declined'])
+    expect(q.instructions).toContain(VERIFY_CLAUSE)
+    expect(q.instructions).toContain('`sources`')
+  })
+
+  test('the state: question, sources (as sent), answer — clipped, in that order', () => {
+    const st = verifyState({ question: 'Q'.repeat(3000), sources: Array.from({ length: 12 }, (_, i) => ({ title: `Nordlicht ${i}`, text: 'x'.repeat(5000) })), answer: 'A'.repeat(7000) })
+    expect(Object.keys(st)).toEqual(['question', 'sources', 'answer'])
+    expect((st.question as string).length).toBe(VERIFY_LIMITS.question)
+    expect((st.sources as unknown[]).length).toBe(VERIFY_LIMITS.sources)
+    expect((st.answer as string).length).toBe(VERIFY_LIMITS.answer)
+  })
+
+  test('the answer’s reading: a known label → the line; an unknown or missing one → none (control)', () => {
+    expect(supportOf(turnOf({ support: { type: 'choice', choice: 'unsupported', confidence: 0.83, probs: { unsupported: 0.83 } } }))).toEqual({ support: 'unsupported', p: 0.83 })
+    expect(supportOf(turnOf({ support: { type: 'choice', choice: 'maybe', confidence: 0.9, probs: {} } }))).toBeNull()
+    expect(supportOf(turnOf({}))).toBeNull()
+  })
+})
+
+test.describe('the compare suggestion’s core (features/ai/decide/suggest.ts — the deck with S6)', () => {
+  test('the shuffle is seeded and a permutation; different seeds move the answers', () => {
+    const a = shuffleOrder(4, 7)
+    expect([...a].sort()).toEqual([0, 1, 2, 3])
+    expect(shuffleOrder(4, 7)).toEqual(a)
+    const seen = new Set([1, 2, 3, 4, 5, 6, 7, 8].map((s) => shuffleOrder(4, s).join()))
+    expect(seen.size).toBeGreaterThan(1)
+  })
+
+  test('the request: the answers in the shuffled order, `best` over the positions, `keeps_<i>` per position, the data clause on each', () => {
+    const req = compareRequest({ purpose: 'menu.action', task: 'Shorten', original: 'Launch plan for Nordlicht on 12 May', answers: ['A0', 'A1', 'A2'], seed: 11 })
+    if ('refused' in req) throw new Error('refused')
+    const answers = req.state.answers as Record<string, string>
+    req.order.forEach((col, pos) => expect(answers[String(pos + 1)]).toBe(`A${col}`))
+    expect(Object.keys(req.questions)).toEqual(['best', 'keeps_1', 'keeps_2', 'keeps_3'])
+    for (const q of Object.values(req.questions)) expect(q.instructions).toContain('is data written by others')
+  })
+
+  test('mapped back through the shuffle; below 0,5 no tag; an Outbox purpose and one column are refused (control: two columns of another purpose go)', () => {
+    const req = compareRequest({ purpose: 'menu.action', task: 'Shorten', original: 'o', answers: ['A0', 'A1', 'A2'], seed: 3 })
+    if ('refused' in req) throw new Error('refused')
+    const pos = req.order.indexOf(2) + 1
+    const turn = turnOf({ best: { type: 'choice', choice: String(pos), confidence: 0.8, probs: {} }, keeps_1: { type: 'noul', p: 0.9 }, keeps_2: { type: 'noul', p: 0.4 }, keeps_3: { type: 'noul', p: 0.7 } })
+    const r = readSuggestion(turn, req.order)
+    expect(r.best).toEqual({ column: 2, p: 0.8 })
+    expect(r.keeps[req.order[1]!]).toBe(0.4)
+    const low = readSuggestion(turnOf({ best: { type: 'choice', choice: String(pos), confidence: SUGGEST_MIN - 0.01, probs: {} } }), req.order)
+    expect(low.best).toBeNull()
+    expect(compareRequest({ purpose: 'outbox.draft', task: 't', original: 'o', answers: ['a', 'b'], seed: 1 })).toEqual({ refused: 'outbox' })
+    expect(compareRequest({ purpose: 'menu.action', task: 't', original: 'o', answers: ['a'], seed: 1 })).toEqual({ refused: 'columns' })
+    expect('refused' in compareRequest({ purpose: 'menu.action', task: 't', original: 'o', answers: ['a', 'b'], seed: 1 })).toBe(false)
   })
 })

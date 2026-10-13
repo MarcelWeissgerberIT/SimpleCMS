@@ -9,6 +9,9 @@
  *  - verdict.ts: the stored check (`StagedChange.jev`) and its math
  *  - text.ts: why a change was not pre-checked, a question's label (in the UI's words)
  *  - checkRun.ts: an agent run's checks (lazy: `import('…/decide/checkRun')` — never loaded for a run without a Vorprüfer)
+ *  - verify.ts / answers.ts / ui/SupportedLine.tsx: "Belegt?" under answers of the help and "Ask the workspace" (off by
+ *    default; the check loads lazily)
+ *  - ui/: the card's Jev line, section 06 of the agent editor, the Vorprüfer rows of setup and Settings
  */
 export { DATA_CLAUSE, QSET, precheckQuestions } from './questions'
 export { CHECKED_KINDS, isCheckedKind } from './kinds'
@@ -17,3 +20,6 @@ export { stateWorld } from './world'
 export { answered, checkOf, gateAllows, markOf, nearOf, sanitizeJevCheck, uncheckedOf, weakest, type JevCheck, type JevCheckKey, type JevWhy } from './verdict'
 export { checkReason, jevName, questionLabel, whyText } from './text'
 export type { CheckRunInput, CheckRunResult } from './checkRun'
+export { deeperRoute, runVerify, useVerifyOn, verifyOn } from './answers'
+export type { Support, VerifyInput, VerifyResult } from './verify'
+export { SupportedLine } from './ui/SupportedLine'
