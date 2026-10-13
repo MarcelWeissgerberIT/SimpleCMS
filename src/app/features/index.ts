@@ -49,6 +49,8 @@ export { RouteChip, isRouteKey, type RouteChipHandle } from './ai/routing/RouteC
 export type { Receipt } from './ai/core/meter'
 /** The Regler's brake at the gate (governor/install.ts): main.tsx, once, before any service can start a request. */
 export { install as installGovernor } from './governor/install'
+/** The Regler for background work (the autofill watch's paused rows, a line that moved, E for a job or the watch). */
+export { budgetRefusal, watchSource, pauseRows, takeRows, pausedRows, onLineChange, allowTask, ALLOW_USD, fmtLimit, type BudgetRefusal } from './governor'
 /** Claude's Markdown → a safe document: web images / media / frames as links (addresses a page shows already stay). */
 export { webImagesOf } from './agents/images'
 export { claudeDoc } from './ai/claudeDoc'

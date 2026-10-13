@@ -1,6 +1,6 @@
 /**
- * The Regler in the e2e specs: a stored budget this tab enforces and spending today as a response would meter it.
- * Values are fictional.
+ * The Regler in the e2e specs: a stored budget this tab enforces, spending today as a response would meter it, and
+ * the autofill watch's paused rows (localStorage `one.governor.paused:<scope>`). Values are fictional.
  */
 import { expect, type Page } from '@playwright/test'
 import { wsEval } from '../fixtures'
@@ -38,3 +38,10 @@ export async function spend(page: Page, usd: number): Promise<void> {
     [usd] as const,
   )
 }
+
+/** The autofill watch's rows paused at the line in this browser's local workspace. */
+export const pausedRowsOf = (page: Page) =>
+  page.evaluate(() => {
+    const raw = localStorage.getItem('one.governor.paused:local:local')
+    return (raw ? JSON.parse(raw) : { rows: [], dropped: 0 }) as { rows: Array<{ db: string; prop: string; row: string; cause: string | null; at: number }>; dropped: number }
+  })

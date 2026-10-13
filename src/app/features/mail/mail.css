@@ -729,3 +729,12 @@
     transition: none;
   }
 }
+
+/* organising paused at the Regler's red line (features/governor): said, never an error */
+.ml-note--regler {
+  margin: 10px 0 0;
+  padding: 6px 10px;
+  border-left: 2px solid var(--signal);
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}

@@ -29,6 +29,7 @@ export { RUN_MODES, CALLER_MODE, isRunMode, modeRow, modeOf, missesMode, minOut,
 export type { Binding, Limits, Rest } from './limits'
 export type { BrakeFix, BrakeRun, Halt, HaltCheaper, HCandidate, HistoryNeeds, RefuseDetail, RoundVerdict, RunMode, StartVerdict } from './brake'
 export { ALLOW_USD } from './brake'
+export { budgetRefusal, watchSource, pauseRows, takeRows, pausedRows, onLineChange, type BudgetRefusal } from './background'
 export { FIRST_STEP_OUT } from './steps'
 export { fmtBand, fmtLimit, fmtOf } from './format'
 export type { HaltCardProps } from './ui/HaltCard'

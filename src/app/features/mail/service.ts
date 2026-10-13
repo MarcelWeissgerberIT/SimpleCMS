@@ -55,6 +55,8 @@ export interface MailState {
   target: TargetProblem | null
   /** Gmail labels (after connecting) */
   labels: GmailLabel[] | null
+  /** organising stopped at the Regler's red line (features/governor): the mails stay unorganised — never an error */
+  paused: boolean
 }
 
 export const useMail = create<MailState>()(() => ({
@@ -75,6 +77,7 @@ export const useMail = create<MailState>()(() => ({
   ownHint: false,
   target: null,
   labels: null,
+  paused: false,
 }))
 
 const patch = (p: Partial<MailState>) => useMail.setState(p)
@@ -255,6 +258,17 @@ const YOU: Writer = { kind: 'you', via: 'ui' }
 /** Claude organising mails: an AI run of its own (store/writer.ts). */
 const ORGANISE = (): Extract<Writer, { kind: 'ai' }> => ({ kind: 'ai', run: newId(), action: 'mail_organise' })
 
+/** Organising at the Regler's red line: refused before sending (AIError 'budget') is a pause, not a failure — true. */
+async function atLine(fn: () => Promise<unknown>): Promise<boolean> {
+  try {
+    await fn()
+    return false
+  } catch (e) {
+    if ((e as { code?: unknown } | null)?.code === 'budget') return true
+    throw e
+  }
+}
+
 async function run(): Promise<void> {
   abort?.abort()
   const ctrl = new AbortController()
@@ -287,9 +301,10 @@ async function run(): Promise<void> {
     }
     if (cfg.organise.enabled && res.created.length && isAIConfigured()) {
       patch({ phase: 'organising' })
-      // during a sync: background work (features/governor — it pauses at the red line, never asks)
+      // during a sync: background work (features/governor — it pauses at the red line, never asks): the batch that
+      // would cross it is not sent, the mails stay unorganised ("Organise earlier mails" after a raise)
       const w = ORGANISE()
-      await inMailJob(w, () => organiseRows(res.created, ctrl.signal, (p) => patch({ progress: p }), { mode: 'trigger', source: `mail:${w.run}` }))
+      patch({ paused: await atLine(() => inMailJob(w, () => organiseRows(res.created, ctrl.signal, (p) => patch({ progress: p }), { mode: 'trigger', source: `mail:${w.run}` }))) })
     }
   } catch (e) {
     if (ctrl.signal.aborted) return
@@ -319,9 +334,9 @@ export async function organiseEarlier(): Promise<void> {
     try {
       const { organiseCandidates, organiseRows } = await engine()
       const ids = await organiseCandidates(readMail().maxPerRun)
-      // "Organise now": the person's run
+      // "Organise now": the person's run (at the red line it stops before the batch that would cross it)
       const w = ORGANISE()
-      await inMailJob(w, () => organiseRows(ids, ctrl.signal, (p) => patch({ progress: p }), { mode: 'bulk', source: `mail:${w.run}` }))
+      patch({ paused: await atLine(() => inMailJob(w, () => organiseRows(ids, ctrl.signal, (p) => patch({ progress: p }), { mode: 'bulk', source: `mail:${w.run}` }))) })
     } catch (e) {
       if (!ctrl.signal.aborted) patch({ error: errorInfo(e).text, errorAt: 'sync' })
     } finally {

@@ -14,17 +14,21 @@
  *  - loops and starts (B6): case 5 (the halt card — zero requests and reservations while it waits; E, H across thinking,
  *    Mod+., a pause_turn, the first request), case 6 (agents held: the coalesced start record, a mid-run stop, the manual
  *    start dialog from the agent page and a database command).
+ *  - background work (B7): case 7 (the autofill watch pauses, keeps its rows over a reload and fills them on a raise or
+ *    E; a person's autofill run waits at a row boundary), a script's claude() crossing mid-run, an automation's script at
+ *    the line. The mail pause lives in mail-gmail.spec.ts.
  * No AI host is reached (the aiNet guard); values are fictional (Nordlicht, Tessera, Launch plan).
  */
 import type { Page } from '@playwright/test'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { test, expect, openApp, reloadApp, wsEval, flush, createPage, gotoPage, pageIdByTitle } from './fixtures'
+import { test, expect, openApp, reloadApp, wsEval, flush, createPage, gotoPage, pageIdByTitle, sse } from './fixtures'
 import { exportBackup, importBackup } from './helpers/backup'
 import { ARCHIVE, TRANSFORM_STEPS, aiPanel, autofillPriority, improve, ledger, ownRequest, transformAuto } from './helpers/aiFlows'
 import { mockClaudeScript, mockOpenRouter, seedEndpoints, text } from './helpers/providers'
 import { openTerminal, prompt as termPrompt, run as runTask, terminal } from './helpers/terminal'
-import { budget, spend } from './helpers/governor'
+import { budget, pausedRowsOf, spend } from './helpers/governor'
+import { expectLane, markRec, startRecorder } from './helpers/recorder'
 import { capsOfRow, readCatalogRow } from '../../src/shared/ai/catalog'
 import { costOf } from '../../src/shared/ai/prices'
 import type { Route, ShortlistRow } from '../../src/shared/ai/types'
@@ -689,5 +693,251 @@ test.describe('agents at the line: held, never waiting (B6 · case 6)', () => {
     const [e] = (await ledger(page)).filter((e) => e.source.startsWith('agent:ag-nordlicht:'))
     expect(e.allowance).toBe(1)
     expect(e.steps).toEqual(expect.arrayContaining([{ k: 'allowance', code: '1' }]))
+  })
+})
+
+/* ------------------------------------------------------------------ */
+/* B7 — background work at the line                                    */
+/* ------------------------------------------------------------------ */
+
+const SUMMARY = text(JSON.stringify({ value: 'Nordlicht launch — summary.' }))
+const valueOf = (page: Page, row: string, prop: string) => wsEval(page, (s, a) => s.pages[a.row].properties[a.prop] ?? null, { row, prop })
+
+/** Projects with an auto-updating AI "Summary" (the watch runs while a database view is open). */
+async function autoSummary(page: Page): Promise<{ db: string; prop: string }> {
+  const db = await pageIdByTitle(page, 'Projects')
+  await gotoPage(page, db)
+  const prop = (await wsEval(page, (s, db) => s.addProperty(db, { type: 'text', name: 'Summary', autofill: { preset: 'summary', auto: true, skipReview: false } }), db)) as string
+  return { db, prop }
+}
+
+/** The table view → header → property menu → "AI autofill…" → the panel. */
+async function openAutofillPanel(page: Page, propName: string) {
+  await page.locator('#main section.db').first().getByRole('tab').filter({ hasText: 'All projects' }).click()
+  await expect(page.locator('#main section.db').first()).toHaveAttribute('data-view', 'table')
+  await page.locator('#main section.db').first().locator('.dbt-hcell__btn', { hasText: propName }).click()
+  await page.getByRole('menuitem', { name: /AI autofill/ }).click()
+  const dlg = page.getByRole('dialog', { name: `AI autofill · ${propName}` })
+  await expect(dlg).toBeVisible()
+  return dlg
+}
+
+/** A small task database "Nordlicht Aufgaben": Status (Offen / Erledigt) · Priorität (Hoch / Niedrig); ids back. */
+async function nordlichtTasks(page: Page): Promise<{ db: string; rows: string[] }> {
+  return wsEval(page, (s) => {
+    const db = s.createDatabase({
+      title: 'Nordlicht Aufgaben',
+      parentId: null,
+      properties: [
+        { id: 'p_name', name: 'Name', type: 'title' },
+        { id: 'p_status', name: 'Status', type: 'select', options: [{ id: 'o_open', name: 'Offen', color: 'blue' }, { id: 'o_done', name: 'Erledigt', color: 'green' }] },
+        { id: 'p_prio', name: 'Priorität', type: 'select', options: [{ id: 'o_high', name: 'Hoch', color: 'red' }, { id: 'o_low', name: 'Niedrig', color: 'gray' }] },
+      ],
+    }) as string
+    const rows = (['Launch plan', 'Tessera Angebot', 'Mara Lind anrufen'] as const).map((title, i) => s.createRow(db, { title, properties: { p_status: i === 2 ? 'o_done' : 'o_open', p_prio: 'o_low' } }) as string)
+    return { db, rows }
+  })
+}
+const prioOf = (page: Page, ids: string[]) => wsEval(page, (s, ids) => ids.map((id: string) => s.pages[id].properties.p_prio), ids)
+async function addScript(page: Page, name: string, code: string): Promise<string> {
+  return wsEval(
+    page,
+    (s, a) => {
+      const id = `sc${Math.random().toString(36).slice(2, 10)}`
+      s.upsertScript({ id, name: a.name, code: a.code, kind: 'script', createdAt: Date.now(), updatedAt: Date.now() })
+      return id
+    },
+    { name, code },
+  )
+}
+
+/** Claude answering the scripts' claude() (SSE); `before(n)` runs before the n-th answer (0-based) goes back. */
+async function mockScriptClaude(page: Page, before?: (n: number) => Promise<void>): Promise<string[]> {
+  const bodies: string[] = []
+  await page.context().route('https://api.anthropic.com/**', async (route) => {
+    const req = route.request()
+    const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*' }
+    if (req.method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors })
+    if (req.method() === 'GET') return route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'application/json' }, body: JSON.stringify({ data: [], has_more: false }) })
+    bodies.push(req.postData() ?? '')
+    await before?.(bodies.length - 1)
+    return route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'text/event-stream' }, body: sse('Nordlicht läuft.') })
+  })
+  return bodies
+}
+
+test.describe('background work at the line (B7 · case 7)', () => {
+  test('the autofill watch: below the line a change is filled; at the line zero requests — the row paused with its cause, kept over a reload; a raised budget fills it as the autofill', async ({ page }) => {
+    const { requests } = await mockClaudeScript(page.context(), [], { fallback: SUMMARY })
+    await openApp(page)
+    await KEY(page)
+    await startRecorder(page)
+    const { db, prop } = await autoSummary(page)
+    await budget(page, { v: 1, day: 1 })
+    // positive control: below the line the watch fills a changed row
+    const launch = await pageIdByTitle(page, 'Website relaunch')
+    await wsEval(page, (s, id) => s.updatePage(id, { title: 'Website relaunch Nordlicht' }), launch)
+    await expect.poll(() => requests.length, { timeout: 15_000 }).toBe(1)
+    await expect.poll(() => valueOf(page, launch, prop)).toBe('Nordlicht launch — summary.')
+    // at the line: the next change sends nothing — the row waits, persisted with the change that caused it
+    await spend(page, 1)
+    const brand = await pageIdByTitle(page, 'Brand refresh')
+    await wsEval(page, (s, id) => s.updatePage(id, { title: 'Brand refresh Tessera' }), brand)
+    await expect.poll(async () => (await pausedRowsOf(page)).rows, { timeout: 15_000 }).toEqual([expect.objectContaining({ db, prop, row: brand, cause: 'you~ui:e2e' })])
+    await page.waitForTimeout(500)
+    expect(requests).toHaveLength(1)
+    expect(await valueOf(page, brand, prop)).toBeNull()
+    expect((await ledger(page)).filter((e) => e.source.startsWith('autofill:'))).toHaveLength(1)
+
+    // a reload keeps it; the watch never resumes at start
+    await flush(page)
+    await reloadApp(page)
+    await startRecorder(page)
+    expect((await pausedRowsOf(page)).rows).toHaveLength(1)
+    await gotoPage(page, db)
+    await page.waitForTimeout(800)
+    expect(requests).toHaveLength(1)
+    // a raised budget: the paused row is filled — written as the autofill, caused by the person's change
+    const m = await markRec(page)
+    await budget(page, { v: 1, day: 10 })
+    await expect.poll(() => requests.length, { timeout: 15_000 }).toBe(2)
+    await expect.poll(() => valueOf(page, brand, prop)).toBe('Nordlicht launch — summary.')
+    await expectLane(page, m, 'autofill', undefined, new RegExp(`^autofill:${db}/${prop}<you~ui:e2e$`))
+    expect((await pausedRowsOf(page)).rows).toEqual([])
+    const [, e] = (await ledger(page)).filter((e) => e.source.startsWith('autofill:'))
+    expect(e.source).toMatch(new RegExp(`^autofill:${db}:${prop}:w\\d{8}$`))
+  })
+
+  test('E in the panel fills the paused rows now (+1 $ for the watch today, on its entry); a person\'s run at the line waits at a row boundary — Stop ends it, E goes on', async ({ page }) => {
+    const { requests } = await mockClaudeScript(page.context(), [], { fallback: SUMMARY })
+    await openApp(page)
+    await KEY(page)
+    const { db, prop } = await autoSummary(page)
+    await budget(page, { v: 1, day: 1 })
+    await spend(page, 1)
+    const brand = await pageIdByTitle(page, 'Brand refresh')
+    await wsEval(page, (s, id) => s.updatePage(id, { title: 'Brand refresh Tessera' }), brand)
+    await expect.poll(async () => (await pausedRowsOf(page)).rows.length, { timeout: 15_000 }).toBe(1)
+
+    const dlg = await openAutofillPanel(page, 'Summary')
+    const rowsStrip = dlg.getByTestId('af-paused-rows')
+    await expect(rowsStrip).toContainText('1 row waits at the red line')
+    // E only with focus in the strip
+    await page.keyboard.press('e')
+    await page.waitForTimeout(300)
+    expect(requests).toHaveLength(0)
+    await rowsStrip.getByRole('button', { name: /\+\$1 once and fill them/ }).focus()
+    await page.keyboard.press('e')
+    await expect.poll(() => requests.length, { timeout: 15_000 }).toBe(1)
+    await expect.poll(() => valueOf(page, brand, prop)).toBe('Nordlicht launch — summary.')
+    await expect(rowsStrip).toHaveCount(0)
+    const [w] = (await ledger(page)).filter((e) => e.source.startsWith('autofill:'))
+    expect(w.source).toMatch(new RegExp(`^autofill:${db}:${prop}:w\\d{8}$`))
+    expect(w.allowance).toBe(1)
+
+    // the person's run: every row waits at the line (nothing sent); Stop ends it
+    await dlg.getByRole('button', { name: /Fill all rows/ }).click()
+    const runStrip = dlg.getByTestId('af-paused-run')
+    await expect(runStrip).toContainText('Paused at the red line')
+    await page.waitForTimeout(400)
+    expect(requests).toHaveLength(1)
+    await runStrip.getByRole('button', { name: 'Stop' }).click()
+    await expect(runStrip).toHaveCount(0)
+    await expect(dlg.getByText('Run complete')).toBeVisible()
+    expect(requests).toHaveLength(1)
+    await dlg.getByRole('button', { name: 'Done' }).click()
+    await expect(dlg).toBeHidden()
+
+    // again: E with focus in the strip goes on (+1 $ for this run) — every row is filled, then the review
+    const dlg2 = await openAutofillPanel(page, 'Summary')
+    await dlg2.getByRole('button', { name: /Fill all rows/ }).click()
+    const strip2 = dlg2.getByTestId('af-paused-run')
+    await expect(strip2).toBeVisible()
+    await strip2.getByRole('button', { name: /\+\$1 once and go on/ }).focus()
+    await page.keyboard.press('e')
+    await expect(dlg2.getByRole('table', { name: 'Proposed values' })).toBeVisible({ timeout: 20_000 })
+    expect(requests).toHaveLength(9)
+    const run = (await ledger(page)).filter((e) => e.source.startsWith('autofill:') && !/:w\d{8}$/.test(e.source))
+    expect(run).toHaveLength(8)
+    expect(new Set(run.map((e) => e.source)).size).toBe(1)
+    expect(run.every((e) => e.allowance === 1)).toBe(true)
+  })
+
+  test('a script\'s claude() crossing the line mid-run stops the run there ("Undo run" takes its writes back); positive control: a day that holds it runs to the end', async ({ page }) => {
+    let pageRef: Page | null = null
+    const bodies = await mockScriptClaude(page, async (n) => {
+      // the first answer of the first run: the rest of the day is spent while it streams
+      if (n === 0 && pageRef) await spend(pageRef, 1)
+    })
+    await openApp(page)
+    pageRef = page
+    await KEY(page)
+    const { db, rows } = await nordlichtTasks(page)
+    const code = `for t in db(@[Nordlicht Aufgaben](p:${db})).where(Status = "Offen") {\n  t.set(Priorität: "Hoch")\n}\nlet a = claude("Fasse Nordlicht zusammen")\nprint(a)\nlet b = claude("Und Tessera")\nprint(b)\n`
+    const id = await addScript(page, 'Nordlicht Bericht', code)
+    await budget(page, { v: 1, day: 1 })
+    await page.evaluate((id) => (window.location.hash = `#/scripts/${id}`), id)
+    await expect(page.locator('.sc-code__input')).toBeVisible()
+    await page.getByTestId('sc-run').click()
+    await expect(page.getByTestId('sc-dialog-plan')).toContainText('Ask Claude: Und Tessera')
+    await page.getByRole('button', { name: 'Run (2 of 2)' }).click()
+    const out = page.getByTestId('sc-console')
+    await expect(out).toHaveAttribute('data-status', 'error')
+    await expect(out).toContainText('Red line: claude was not sent — the run stopped here')
+    expect(bodies).toHaveLength(1)
+    expect(await prioOf(page, rows)).toEqual(['o_high', 'o_high', 'o_low'])
+    // Undo run
+    await page.getByRole('tab', { name: 'Run log' }).click()
+    const last = page.getByTestId('sc-runs').locator('.sc-run').first()
+    await expect(last).toHaveAttribute('data-status', 'error')
+    await last.locator('.sc-run__head').click()
+    await last.getByRole('button', { name: 'Undo run' }).click()
+    await expect.poll(() => prioOf(page, rows)).toEqual(['o_low', 'o_low', 'o_low'])
+
+    // positive control: a day that holds it — both requests, to the end
+    await budget(page, { v: 1, day: 10 })
+    await page.getByRole('tab', { name: 'Console' }).click()
+    await page.getByTestId('sc-run').click()
+    await page.getByRole('button', { name: 'Run (2 of 2)' }).click()
+    await expect(page.getByTestId('sc-console')).toHaveAttribute('data-status', 'ok')
+    expect(bodies).toHaveLength(3)
+    expect(await prioOf(page, rows)).toEqual(['o_high', 'o_high', 'o_low'])
+  })
+
+  test('an automation\'s script at the line: claude() is refused at the effect (nothing sent), the automation says "Red line"; its other actions run; positive control below the line', async ({ page }) => {
+    const bodies = await mockScriptClaude(page)
+    await openApp(page)
+    await KEY(page)
+    const { db, rows } = await nordlichtTasks(page)
+    const scriptId = await addScript(page, 'Nordlicht Notiz', 'let a = claude("Fasse Nordlicht zusammen")\nprint(a)\n')
+    await wsEval(
+      page,
+      (s, a) =>
+        s.updateDatabase(a.db, {
+          automations: [{ id: 'au-nl', name: 'Nordlicht', enabled: true, trigger: { type: 'property_changed', propertyId: 'p_status' }, actions: [{ type: 'run_script', scriptId: a.scriptId }, { type: 'set_property', propertyId: 'p_prio', value: 'o_high' }], lastRunAt: null, lastStatus: null, lastMessage: null }],
+        }),
+      { db, scriptId },
+    )
+    await budget(page, { v: 1, day: 1 })
+    await spend(page, 1)
+    await wsEval(page, (s, id) => s.setRowProperty(id, 'p_status', 'o_done'), rows[0])
+    const plan = page.getByTestId('sc-dialog-plan')
+    // the person's consent to the effect (scripts ask once per run, automations too)
+    await expect(plan).toContainText('Ask Claude: Fasse Nordlicht zusammen')
+    await page.getByRole('button', { name: 'Run (1 of 1)' }).click()
+    const status = () => wsEval(page, (s, db) => JSON.parse(JSON.stringify(s.databases[db].automations[0])), db)
+    await expect.poll(async () => (await status()).lastStatus, { timeout: 15_000 }).toBe('error')
+    expect((await status()).lastMessage).toContain('Red line — Nordlicht Notiz: its AI step was not sent')
+    expect(bodies).toHaveLength(0)
+    await expect.poll(() => prioOf(page, rows)).toEqual(['o_high', 'o_low', 'o_low'])
+
+    // positive control: the line raised — the next change sends the script's request
+    await budget(page, { v: 1, day: 10 })
+    await wsEval(page, (s, id) => s.setRowProperty(id, 'p_status', 'o_done'), rows[1])
+    // the person's consent to the effect (scripts ask once per run, automations too)
+    await expect(plan).toContainText('Ask Claude: Fasse Nordlicht zusammen')
+    await page.getByRole('button', { name: 'Run (1 of 1)' }).click()
+    await expect.poll(() => bodies.length, { timeout: 15_000 }).toBe(1)
+    await expect.poll(async () => (await status()).lastStatus, { timeout: 15_000 }).toBe('ok')
   })
 })

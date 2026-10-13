@@ -975,8 +975,11 @@ async function proposeFor(n: number, task: string, answer: string, existing: str
     if (!list.length) set((s) => ({ memCards: s.memCards.filter((c) => c.id !== card.id) }))
     else patchCard(card.id, (c) => ({ ...c, state: 'ready', items: list.map(itemOf) }))
   } catch (e) {
-    // quiet: proposals are a convenience — the task itself is done
-    if (!ac.signal.aborted) console.warn('[one] memory: no proposals', e)
+    // quiet: proposals are a convenience — the task itself is done; at the Regler's red line a line says it was skipped
+    // (a follow-up never asks after the answer)
+    if (!ac.signal.aborted && (e as { code?: unknown } | null)?.code === 'budget') {
+      if (mine === epoch) set((s) => ({ steps: [...s.steps, { id: nextId('s'), turn: n, kind: 'note', text: t('features.governor.memory.skipped'), state: 'ok', startedAt: Date.now() }] }))
+    } else if (!ac.signal.aborted) console.warn('[one] memory: no proposals', e)
     set((s) => ({ memCards: s.memCards.filter((c) => c.id !== card.id) }))
   } finally {
     untap()

@@ -1059,3 +1059,44 @@
     height: 36px;
   }
 }
+
+/* the Regler's red line (features/governor): what waits — a run at a row boundary, the watch's paused rows — and E */
+.af-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  margin: 10px 20px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--signal);
+  border-radius: var(--radius-1);
+  background: color-mix(in srgb, var(--signal) 8%, var(--surface));
+}
+
+.af-run .af-line {
+  margin: 0;
+}
+
+.af-line:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.af-line__lamp {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--signal-ink);
+}
+
+.af-line__text {
+  min-width: 12em;
+  flex: 1 1 16em;
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--text-sm);
+}
+
+.af-line .af-line__key {
+  gap: 6px;
+}

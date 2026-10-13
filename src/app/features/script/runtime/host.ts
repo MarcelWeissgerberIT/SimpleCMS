@@ -437,6 +437,8 @@ export class Host {
       if (this.signal.aborted) throw new ScriptError('stopped')
       const detail = String((e as Error)?.message ?? e).slice(0, 300)
       this.effects.push({ kind, key, label, status: 'failed', detail })
+      // the Regler's red line: nothing was sent — the run stops here (its Undo takes back what it wrote)
+      if ((e as { code?: unknown } | null)?.code === 'budget') throw new ScriptError('effect_budget', { name })
       throw new ScriptError('effect_failed', { name, detail })
     }
   }

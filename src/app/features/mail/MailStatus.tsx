@@ -33,6 +33,7 @@ export function useMailReadout(): { state: ReadoutState; text: string } {
   const error = useMail((s) => (s.errorAt === 'sync' ? s.error : null))
   const reconnect = useMail((s) => s.reconnect)
   const lastAt = useMail((s) => s.lastAt)
+  const paused = useMail((s) => s.paused)
   const dbId = useWorkspace((s) => s.settings.mail?.databaseId ?? null)
   if (phase === 'running' || phase === 'linking' || phase === 'organising') {
     const n = progress && progress.total ? `${progress.done}/${progress.total}` : ''
@@ -40,6 +41,8 @@ export function useMailReadout(): { state: ReadoutState; text: string } {
   }
   if (error) return { state: 'error', text: t('features.mail.status.error') }
   if (reconnect) return { state: 'reconnect', text: t('features.mail.status.reconnect') }
+  // organising waits at the Regler's red line (the mails are synced; they stay unorganised)
+  if (paused) return { state: 'ok', text: t('features.governor.mail.status') }
   const time = fmtTime(lastAt, lang)
   if (time) return { state: 'ok', text: t('features.mail.status.synced', { time }) }
   return { state: 'off', text: dbId ? t('features.mail.status.idle') : t('features.mail.status.off') }

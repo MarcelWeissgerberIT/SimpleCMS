@@ -22,6 +22,7 @@ import { isDbReadOnly } from '../readonly'
 import { autofillOf } from './config'
 import { buildRequest } from './context'
 import { coerceAnswer, sameValue } from './coerce'
+import type { BudgetRefusal } from '../../features'
 
 type FeaturesApi = typeof import('../../features')
 let featuresApi: FeaturesApi | null = null
@@ -73,6 +74,8 @@ export interface Proposal {
   prev?: PropertyValue
   /** the AI route that answered (route keys only — the recorder's run meta) */
   ai?: Pick<RunMeta, 'ai' | 'aiAlso'>
+  /** the Regler refused it at the red line (nothing was sent): the row waits — paused, never an error */
+  brake?: BudgetRefusal
 }
 
 export interface Job {
@@ -97,6 +100,8 @@ export interface Job {
   fatalCode?: string
   /** the written values were rolled back */
   undone?: boolean
+  /** the Regler's red line: the run waits at a row boundary for E (+1 $ for this run, today) or Stop */
+  paused?: BudgetRefusal
 }
 
 export type CellState = { state: 'queued' | 'running' } | { state: 'error'; message: string }
@@ -108,9 +113,11 @@ interface AutofillState {
   panel: { dbId: ID; propId: ID } | null
   /** mounted panel hosts; the first one renders the panel */
   hosts: string[]
+  /** bumped when the watch paused or resumed rows at the Regler's red line (the panel reads the list again) */
+  paused: number
 }
 
-export const useAutofill = create<AutofillState>()(() => ({ jobs: {}, cells: {}, panel: null, hosts: [] }))
+export const useAutofill = create<AutofillState>()(() => ({ jobs: {}, cells: {}, panel: null, hosts: [], paused: 0 }))
 const st = () => useAutofill.getState()
 const set = useAutofill.setState
 
@@ -219,7 +226,9 @@ export async function fillRow(dbId: ID, propId: ID, rowId: ID, signal: AbortSign
     const code = errCode(e)
     if (signal.aborted || code === 'aborted') throw e
     const message = e instanceof Error ? e.message : String(e)
-    return { ...base, status: 'error', error: message, fatal: code && FATAL.has(code) ? code : undefined }
+    // at the red line nothing was sent: the row pauses (the watch keeps it, a person's run waits for E)
+    const brake = code === 'budget' ? (featuresApi?.budgetRefusal(e) ?? null) : null
+    return { ...base, status: 'error', error: message, ...(brake ? { brake } : {}), fatal: code && FATAL.has(code) ? code : undefined }
   }
 }
 
@@ -325,9 +334,28 @@ export async function startFill(dbId: ID, propId: ID, mode: RunMode, only?: ID[]
 
   const fills: Record<ID, { at: number; hash: string }> = {}
   let next = 0
+  /** rows refused at the red line: they run again once the person allows (never lost, never an error) */
+  const again: Page[] = []
+  /** the pause at the line (one for every worker): true = go on (E), false = stop */
+  let gate: Promise<boolean> | null = null
+  const pause = (brake: BudgetRefusal): Promise<boolean> =>
+    (gate ??= new Promise<boolean>((resolve) => {
+      patchJob(key, () => ({ paused: brake }))
+      // the person's run waits for a key: said where they are when its panel is closed
+      const panel = st().panel
+      if (panel?.dbId !== dbId || panel.propId !== propId) useUI.getState().toast({ message: t('features.governor.autofill.paused'), action: { label: t('common.open'), run: () => openAutofillPanel(dbId, propId) }, timeout: 12000 })
+      resumers.set(key, (go) => {
+        resumers.delete(key)
+        gate = null
+        patchJob(key, () => ({ paused: undefined }))
+        resolve(go)
+      })
+    }))
   const worker = async () => {
-    while (!ac.signal.aborted && next < rows.length) {
-      const row = rows[next++]
+    while (!ac.signal.aborted && (again.length || next < rows.length)) {
+      if (gate && !(await gate)) break
+      const row = again.shift() ?? (next < rows.length ? rows[next++] : undefined)
+      if (!row) break
       const ck = cellKey(propId, row.id)
       setCells({ [ck]: { state: 'running' } })
       let p: (Proposal & { fatal?: string }) | null
@@ -343,6 +371,14 @@ export async function startFill(dbId: ID, propId: ID, mode: RunMode, only?: ID[]
         continue
       }
       const { fatal, ...proposal } = p
+      // the Regler's red line (bulk: the person's run waits at this row boundary — E goes on, Stop ends it; one cell
+      // is a one-shot: its refusal is said on the cell)
+      if (proposal.brake && mode !== 'cell') {
+        again.push(row)
+        setCells({ [ck]: { state: 'queued' } })
+        if (!(await pause(proposal.brake))) break
+        continue
+      }
       if (fatal) {
         ac.abort()
         patchJob(key, () => ({ fatal: proposal.error, fatalCode: fatal }))
@@ -417,6 +453,24 @@ export function cancelFill(key: string) {
   if (!ac) return
   patchJob(key, () => ({ cancelled: true }))
   ac.abort()
+  resumers.get(key)?.(false)
+}
+
+/** a paused run's way on: true = go on, false = stop */
+const resumers = new Map<string, (go: boolean) => void>()
+
+/** E on a run paused at the red line: +1 $ for this run (today), then it goes on with the row it stopped at. */
+export function continueFill(key: string) {
+  const j = st().jobs[key]
+  const go = resumers.get(key)
+  if (!j || !go || !featuresApi) return
+  featuresApi.allowTask(`autofill:${j.dbId}:${j.propId}:${j.run}`, featuresApi.ALLOW_USD)
+  go(true)
+}
+
+/** Stop on a run paused at the red line: what it filled so far goes to the review, the rest stays as it was. */
+export function stopPausedFill(key: string) {
+  resumers.get(key)?.(false)
 }
 
 export function clearJob(key: string) {
