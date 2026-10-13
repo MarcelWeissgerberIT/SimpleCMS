@@ -87,7 +87,7 @@ import { Kbd, isMac } from '../../ui/controls'
 import { useLang, useT } from '../../i18n'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
-import { editAs, endUndoStep, itemSafePoint, openContextPicker, pageContextMarks, setContextMode, startUndoStep, topBlockKeys, useContextMarks, type ContextMode } from '../../editor'
+import { EDITOR_PERSON_META, editAs, endUndoStep, itemSafePoint, openContextPicker, pageContextMarks, setContextMode, startUndoStep, topBlockKeys, useContextMarks, type ContextMode } from '../../editor'
 import { newId } from '../../lib/ids'
 import { closeHistory } from '@tiptap/pm/history'
 import { toAIMarkdown } from '../share/markdown'
@@ -183,10 +183,11 @@ export interface AIMenuProps {
   /** Open on the generate card (`/generate image` · `/generate video` · an empty image block's "Generate…"). */
   generate?: GenerateKind
   /**
-   * Opened by a Space typed on an empty line. Without AI set up here, a key typed on the card that shows instead is
-   * more writing: the card steps aside and the Space and that key go into the page (Backspace takes the Space back).
+   * Opened by a Space typed on an empty line: that Space's place, followed through every change since (null: gone —
+   * editor/lib/typedAt.ts). Without AI set up here, a key typed on the card that shows instead is more writing: the
+   * card steps aside and the Space and that key go into the page (Backspace takes the Space back).
    */
-  typed?: boolean
+  typed?: { readonly at: number | null }
 }
 
 /* ------------------------------------------------------------------ */
@@ -390,21 +391,25 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
     if (!setup) setTypedCard(false)
   }, [setup])
   /**
-   * The card would come only after more letters had reached the page (the first Space of a session waits for the
-   * menu's code, and React may hold a fresh panel back a few hundred ms): the person is writing. Decided once, as the
-   * panel commits (a render can be that much older): no card, the keyboard stays in the page, the Space goes in where
-   * it was typed — at the start of the line those letters are on — and the typing goes on undisturbed.
+   * The keys typed before the card shows are the page's (the first Space of a session waits for the menu's code, and
+   * React may hold a fresh panel back a few hundred ms). Decided once, as the panel commits (a render can be that much
+   * older), from where the Space was typed (`typed.at`, followed through every change since — typedNow): the caret
+   * still on that empty line → the card; letters followed the Space on that line → no card, the Space goes in where it
+   * was typed and the keyboard never leaves the page; the caret left that empty line, or the line is gone → no card and
+   * nothing written (never a Space at the start of another line).
    */
-  const typedOnAt = useRef<boolean | null>(null)
-  const typedOn = () => (typedOnAt.current ??= typedCard && !editor.isDestroyed && editor.state.selection.$from.parent.content.size > 0)
-  const typedOnDone = useRef(false)
+  const typedAt = useRef<TypedNow | null>(null)
+  const typedWhere = () => (typedAt.current ??= typedNow(editor, typed?.at ?? null))
+  const typedDone = useRef(false)
   useLayoutEffect(() => {
-    // once (StrictMode runs a mount effect twice in development); the panel's own focus asked typedOn() first
-    if (!typedOn() || typedOnDone.current || editor.isDestroyed) return
-    typedOnDone.current = true
-    const view = editor.view
-    const { $from } = view.state.selection
-    if ($from.parent.type.name === 'paragraph') view.dispatch(view.state.tr.insertText(' ', $from.start()))
+    // once (StrictMode runs a mount effect twice in development); the panel's own focus asked typedWhere() first
+    if (!typedCard || typedDone.current || editor.isDestroyed) return
+    const where = typedWhere()
+    if (where === 'card') return
+    typedDone.current = true
+    const at = typed?.at
+    // the person's own Space, written as the menu shows (their typing — the editor's flush names it, never "no writer")
+    if (where === 'on' && at != null) editor.view.dispatch(editor.state.tr.insertText(' ', at).setMeta(EDITOR_PERSON_META, true))
     onClose()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps -- once, as the menu mounts
   const [query, setQuery] = useState('')
@@ -876,7 +881,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
   /**
    * The key card opened by a typed Space: the person is writing, not asking. The card closes and the editor takes the
    * keyboard back where its caret is (the empty line the Space was typed on — the card took the keyboard before any
-   * letter reached the page, see typedOn); the Space and the typed key go into the page as typed (input rules and
+   * letter reached the page, see typedWhere); the Space and the typed key go into the page as typed (input rules and
    * suggestions see the characters as typed, Enter runs the editor's own Enter), Backspace takes the Space back — the
    * rest of the typing follows in the page.
    */
@@ -2055,7 +2060,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
   return (
     <>
       {target.mode === 'selection' && !target.lost && !picking && !redoIds && !isRedo && !img?.only && !file?.only && run?.req.kind !== 'image' && run?.req.kind !== 'file' && <SelectionShade editor={editor} from={target.from} to={target.to} />}
-      <Popover open={!picking} focusIf={typedCard ? () => !typedOn() : undefined} anchor={anchor} onClose={onPopoverClose} placement="bottom-start" offset={8} bare className="ai-panel" resizable="ai-menu" role="dialog" aria-label={t('features.ai.title')}>
+      <Popover open={!picking} focusIf={typedCard ? () => typedWhere() === 'card' : undefined} anchor={anchor} onClose={onPopoverClose} placement="bottom-start" offset={8} bare className="ai-panel" resizable="ai-menu" role="dialog" aria-label={t('features.ai.title')}>
         {setup ? (
           <KeySetup
             purpose={chipPurpose}
@@ -2694,6 +2699,23 @@ function SelectionShade({ editor, from, to }: { editor: Editor; from: number; to
   )
 }
 
+/**
+ * Where the typing is, for the key card a typed Space opened, as the menu shows: 'card' — the caret is still on the
+ * empty line the Space was typed on (`at`); 'on' — letters followed the Space on that line, wherever the caret is now
+ * (the person is writing: the Space belongs at `at`, the start of that line); 'away' — the caret left that empty line,
+ * or the line is gone (an arrow key, a click elsewhere, Backspace, select all …).
+ */
+type TypedNow = 'card' | 'on' | 'away'
+function typedNow(editor: Editor, at: number | null): TypedNow {
+  if (at === null || editor.isDestroyed) return 'away'
+  const { doc, selection } = editor.state
+  if (at > doc.content.size) return 'away'
+  const $at = doc.resolve(at)
+  if ($at.parent.type.name !== 'paragraph' || $at.parentOffset !== 0) return 'away'
+  if ($at.parent.content.size > 0) return 'on'
+  return selection.empty && selection.from === at ? 'card' : 'away'
+}
+
 /** A key typed on the key card: a character (Space included), Enter (Shift: a line break) or Backspace. */
 type TypedKey = { key: string; shift: boolean }
 
@@ -2718,7 +2740,9 @@ function KeySetup({ purpose, onOpen, onDemo, onCancel, onType }: { purpose: Purp
     if (e.nativeEvent.isComposing || (e.target as HTMLElement).closest('button, a, input, textarea, select')) return
     const enter = e.key === 'Enter' && !e.altKey && !e.ctrlKey && !e.metaKey
     if (enter || e.key === 'Backspace' || typesChar(e.nativeEvent)) {
+      // the card's key alone: nothing after it (the shell's '?' = the help) sees it, the card may be gone by then
       e.preventDefault()
+      e.stopPropagation()
       onType?.({ key: e.key, shift: e.shiftKey })
     }
   }

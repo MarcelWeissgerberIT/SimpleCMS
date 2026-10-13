@@ -5,6 +5,7 @@
 import { createStore, type StoreApi } from 'zustand/vanilla'
 import type { Range } from '@tiptap/core'
 import type { TransformPick } from '../../features'
+import type { TypedAt } from './typedAt'
 
 export type SuggestKind = 'slash' | 'mention' | 'emoji' | 'ref'
 
@@ -36,9 +37,10 @@ export interface OverlayState {
    * transform the selection into this form at once; `open`: on a submenu ('todb': "More …" with "Turn into database"
    * highlighted — the grip menu's "Turn into database…"; 'transform': the forms of "Transform into …"); `generate`: the
    * generate card (`/generate image` · `/generate video` · an empty image block's "Generate…", features/ai/media);
-   * `typed`: opened by a Space typed on an empty line (without AI set up, more typing goes back into the page)
+   * `typed`: opened by a Space typed on an empty line — that Space's place, followed through every change until the menu
+   * shows (lib/typedAt.ts; without AI set up, more typing goes back into the page)
    */
-  ai: { mode: 'selection' | 'block'; redo?: string[]; transform?: TransformPick; open?: 'todb' | 'transform'; generate?: 'image' | 'video'; typed?: boolean } | null
+  ai: { mode: 'selection' | 'block'; redo?: string[]; transform?: TransformPick; open?: 'todb' | 'transform'; generate?: 'image' | 'video'; typed?: TypedAt } | null
   /** URL pasted on an empty line → offer Link / Bookmark / Embed */
   urlPaste: { url: string; from: number; to: number } | null
   /** Mod+K / link button: bubble toolbar in link-input mode */
