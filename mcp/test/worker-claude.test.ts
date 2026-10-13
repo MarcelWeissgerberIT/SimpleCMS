@@ -3,7 +3,8 @@
  * stream-json reader (log lines, plan, cost), Stop killing the process — all with the fake CLI.
  */
 import assert from 'node:assert/strict'
-import { chmodSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { chmodSync, existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, describe, test } from 'node:test'
@@ -11,7 +12,7 @@ import type { LogLine, TaskProgress } from '../../src/app/features/coding/protoc
 import { AUTH_HINT, claudeArgs, cliMode, detectClaude, runClaude, toolLine, type ClaudeCaps } from '../src/worker/claude.ts'
 import { buildPrompt, commitMessage } from '../src/worker/run.ts'
 import { estimateCost, usageOf } from '../src/worker/price.ts'
-import { sanitizeConfig } from '../src/worker/config.ts'
+import { SOURCE_MARK, loadConfig, marksSeen, sanitizeConfig, scratchRepo, unseenMarks, type Loaded } from '../src/worker/config.ts'
 import { sanitizeTask } from '../src/worker/worker.ts'
 import { FAKE_CLAUDE, cleanupAll, task, tempDir } from './worker-helpers.ts'
 
@@ -21,20 +22,150 @@ after(cleanupAll)
 describe('Claude Code CLI', () => {
   test('capabilities come from --version / --help; a missing CLI is reported, not thrown', async () => {
     const caps = await detectClaude(FAKE_CLAUDE)
-    assert.deepEqual(caps, { found: true, version: '9.9.9', budget: true, modes: ['acceptEdits', 'default', 'plan'] })
+    assert.deepEqual(caps, { found: true, version: '9.9.9', budget: true, modes: ['acceptEdits', 'default', 'plan'], settingSources: true })
     const none = await detectClaude(join(tmpdir(), 'no-such-claude-bin'))
     assert.equal(none.found, false)
     assert.equal(cliMode('default', { ...caps, modes: ['acceptEdits', 'manual', 'plan'] }), 'manual')
   })
 
   test('argv: headless stream-json, the stage\'s mode and turns, the task tools strictly — never a bypassing flag', () => {
-    const caps: ClaudeCaps = { found: true, version: '1', budget: true, modes: [] }
-    const args = claudeArgs({ mode: 'acceptEdits', maxTurns: 12, model: null, allowedTools: ['Read', 'Edit'], disallowedTools: ['Bash(git push:*)'], mcpConfig: '/tmp/x/mcp.json', strictMcp: true, budgetUsd: 1.5, caps })
+    const caps: ClaudeCaps = { found: true, version: '1', budget: true, modes: [], settingSources: true }
+    const args = claudeArgs({ mode: 'acceptEdits', maxTurns: 12, model: null, allowedTools: ['Read', 'Edit'], disallowedTools: ['Bash(git push:*)'], mcpConfig: '/tmp/x/mcp.json', strictMcp: true, projectSettings: true, budgetUsd: 1.5, caps })
     assert.deepEqual(args, ['-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', 'acceptEdits', '--max-turns', '12', '--allowedTools', 'Read,Edit', '--disallowedTools', 'Bash(git push:*)', '--max-budget-usd', '1.50', '--mcp-config', '/tmp/x/mcp.json', '--strict-mcp-config'])
-    const old = claudeArgs({ mode: 'plan', maxTurns: 3, model: 'some-model', allowedTools: [], disallowedTools: [], mcpConfig: null, strictMcp: true, budgetUsd: 2, caps: { ...caps, budget: false } })
+    const old = claudeArgs({ mode: 'plan', maxTurns: 3, model: 'some-model', allowedTools: [], disallowedTools: [], mcpConfig: null, strictMcp: true, projectSettings: true, budgetUsd: 2, caps: { ...caps, budget: false } })
     assert.ok(!old.includes('--max-budget-usd'))
     assert.ok(old.includes('--model'))
     for (const a of [...args, ...old]) assert.ok(!/dangerously|bypass|skip-permissions/i.test(a), a)
+  })
+
+  test('a repo the worker cloned or imported: Claude Code runs without the repo\'s own settings (--setting-sources user) unless worker.json trusts it', () => {
+    const caps: ClaudeCaps = { found: true, version: '1', budget: true, modes: [], settingSources: true }
+    const run = { mode: 'default' as const, maxTurns: 3, model: null, allowedTools: [], disallowedTools: [], mcpConfig: null, strictMcp: true, budgetUsd: null }
+    const off = claudeArgs({ ...run, projectSettings: false, caps })
+    assert.deepEqual(off.slice(off.indexOf('--setting-sources'), off.indexOf('--setting-sources') + 2), ['--setting-sources', 'user'])
+    assert.ok(!claudeArgs({ ...run, projectSettings: true, caps }).includes('--setting-sources'))
+    // an older CLI does not know the flag: never passed (run.ts refuses a stage that would need it)
+    assert.ok(!claudeArgs({ ...run, projectSettings: false, caps: { ...caps, settingSources: false } }).includes('--setting-sources'))
+
+    const home = tempDir('trust')
+    const clones = join(home, 'one-repos')
+    const own = join(home, 'code', 'shop')
+    const marked = join(home, 'elsewhere', 'legacy')
+    for (const d of [own, marked]) mkdirSync(join(d, '.git'), { recursive: true })
+    writeFileSync(join(marked, '.git', SOURCE_MARK), 'zip\n')
+    const repos = [
+      { name: 'own', path: own },
+      { name: 'cloned', path: join(clones, 'billing') },
+      { name: 'deep', path: join(clones, 'acme', 'billing') },
+      { name: 'marked', path: marked },
+      { name: 'sibling', path: join(home, 'one-repos-old', 'x') },
+      { name: 'trusted', path: join(clones, 'mine'), claude: { projectSettings: true } },
+      { name: 'kept-out', path: own, claude: { projectSettings: false } },
+      { name: 'bad', path: join(clones, 'x'), claude: { projectSettings: 'yes' } },
+    ]
+    const trust = (cfg: Record<string, unknown>, env: NodeJS.ProcessEnv = {}) => {
+      const { config, problems } = sanitizeConfig({ workspace: 'local:x1', repos, ...cfg }, join(home, 'worker.json'), env)
+      return { trust: Object.fromEntries(config.repos.map((r) => [r.name, r.claude.projectSettings])), problems }
+    }
+    const { trust: t, problems } = trust({ cloneDir: clones })
+    assert.deepEqual(t, { own: true, cloned: false, deep: false, marked: false, sibling: true, trusted: true, 'kept-out': false, bad: false })
+    // the rule that matched: the mark first (whatever cloneDir says), else the clone folder
+    const { config } = sanitizeConfig({ workspace: 'local:x1', repos, cloneDir: clones }, join(home, 'worker.json'), {})
+    assert.deepEqual(Object.fromEntries(config.repos.map((r) => [r.name, [r.source, r.claude.projectSettingsSet]])), { own: [null, false], cloned: ['cloneDir', false], deep: ['cloneDir', false], marked: ['imported', false], sibling: [null, false], trusted: ['cloneDir', true], 'kept-out': [null, true], bad: ['cloneDir', false] })
+    assert.ok(problems.some((p) => /bad.*claude\.projectSettings must be true or false — false is used/.test(p)), problems.join('\n'))
+    // ONE_WORKER_CLONE_DIR is the clone folder too; a repo's mark counts wherever it lies
+    assert.deepEqual(trust({}, { ONE_WORKER_CLONE_DIR: join(home, 'code') }).trust, { own: false, cloned: true, deep: true, marked: false, sibling: true, trusted: true, 'kept-out': false, bad: true })
+    // a task without a repository: the scratch folder has none of its own
+    assert.equal(scratchRepo(sanitizeConfig({ repos: [] }, join(home, 'worker.json')).config, 'abc').claude.projectSettings, false)
+  })
+
+  test('the clone folder rule compares as the disk does: through links, and without case on macOS / Windows', () => {
+    const home = tempDir('trust')
+    const real = join(home, 'one-repos')
+    mkdirSync(join(real, 'billing', '.git'), { recursive: true })
+    const link = join(home, 'clones-link')
+    symlinkSync(real, link)
+    const trust = (cfg: Record<string, unknown>, platform?: NodeJS.Platform) =>
+      Object.fromEntries(sanitizeConfig({ workspace: 'local:x1', ...cfg }, join(home, 'worker.json'), {}, { platform }).config.repos.map((r) => [r.name, [r.claude.projectSettings, r.source]]))
+    // the clone folder through a link and the repo by its real path — and the other way round
+    assert.deepEqual(trust({ cloneDir: link, repos: [{ name: 'a', path: join(real, 'billing') }] }), { a: [false, 'cloneDir'] })
+    assert.deepEqual(trust({ cloneDir: real, repos: [{ name: 'a', path: join(link, 'billing') }] }), { a: [false, 'cloneDir'] })
+    assert.deepEqual(trust({ cloneDir: link, repos: [{ name: 'a', path: join(link, 'not-yet', 'x') }] }), { a: [false, 'cloneDir'] })
+    // macOS and Windows disks ignore case: ~/One-Repos is ~/one-repos there
+    const spelled = { cloneDir: join(home, 'One-Repos'), repos: [{ name: 'a', path: join(real, 'billing') }] }
+    assert.deepEqual(trust(spelled, 'darwin'), { a: [false, 'cloneDir'] })
+    assert.deepEqual(trust(spelled, 'win32'), { a: [false, 'cloneDir'] })
+    assert.deepEqual(trust(spelled, 'linux'), { a: [true, null] })
+  })
+
+  test('once per config, an older worker\'s imports (anywhere) and clones (in the default clone folder) get the mark — the person\'s own repos in a clone folder of their choice never do', () => {
+    const home = tempDir('marks')
+    const clones = join(home, 'one-repos')
+    const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, stdio: 'ignore' })
+    /** A git repo with one commit `subject` (and an origin address, never contacted). */
+    const repo = (p: string, subject = 'initial', origin?: string) => {
+      mkdirSync(p, { recursive: true })
+      git(p, 'init', '-q', '-b', 'main')
+      writeFileSync(join(p, 'README.md'), '# x\n')
+      git(p, 'add', '-A')
+      git(p, 'commit', '-q', '-m', subject)
+      if (origin) git(p, 'remote', 'add', 'origin', origin)
+      return p
+    }
+    // worker 1.8.0 left no mark: a clone in ~/one-repos, an import there and one in a folder the page took then
+    const old = repo(join(clones, 'billing'), 'initial', 'git@gitlab.example.com:acme/billing.git')
+    const oldImport = repo(join(clones, 'legacy-app'), 'Import legacy-app.zip')
+    const elsewhere = repo(join(home, 'legacy', 'vendor'), 'Import vendor-2019.ZIP')
+    // published later (Create it on GitLab): still an import
+    const published = repo(join(home, 'legacy', 'shop'), 'Import shop-main.zip', 'git@gitlab.example.com:acme/shop.git')
+    // in ~/one-repos, but not named after its origin (the person's own), and one with no origin
+    const renamed = repo(join(clones, 'mine'), 'initial', 'https://gitlab.example.com/acme/other.git')
+    const scratch = repo(join(clones, 'scratch'))
+    // a wide clone folder of the person's choice (1.8.0 took any): their own hand-made clones there look the same
+    const code = join(home, 'code')
+    const own = repo(join(code, 'shop'), 'initial', 'https://github.com/me/shop.git')
+    const ownNoRemote = repo(join(code, 'notes'), 'first notes')
+    const decided = repo(join(clones, 'decided'), 'Import decided.zip')
+    const cfgDir = join(home, 'cfg')
+    mkdirSync(cfgDir)
+    const file = join(cfgDir, 'worker.json')
+    const repos = [
+      { name: 'old', path: old }, { name: 'old-import', path: oldImport }, { name: 'elsewhere', path: elsewhere }, { name: 'published', path: published },
+      { name: 'renamed', path: renamed }, { name: 'scratch', path: scratch }, { name: 'own', path: own }, { name: 'notes', path: ownNoRemote },
+      { name: 'decided', path: decided, claude: { projectSettings: true } },
+    ]
+    const write = (cfg: Record<string, unknown>) => writeFileSync(file, `// mine\n${JSON.stringify({ workspace: 'local:x1', ...cfg })}\n`)
+    const state = (l: Loaded) => Object.fromEntries(l.config.repos.map((r) => [r.name, [r.claude.projectSettings, r.source]]))
+    const mark = (p: string) => (existsSync(join(p, '.git', SOURCE_MARK)) ? readFileSync(join(p, '.git', SOURCE_MARK), 'utf8').trim() : null)
+    write({ cloneDir: code, repos })
+    const first = loadConfig(file, {}, { home })
+    assert.deepEqual(
+      Object.fromEntries(repos.map((r) => [r.name, mark(r.path)])),
+      { old: 'folder', 'old-import': 'zip', elsewhere: 'zip', published: 'zip', renamed: null, scratch: null, own: null, notes: null, decided: null },
+    )
+    assert.match(first.notes?.join('\n') ?? '', /marked 4 repo\(s\) an older worker cloned or imported as code from elsewhere \(old, old-import, elsewhere, published\)/)
+    assert.deepEqual(state(first), {
+      old: [false, 'marked'], 'old-import': [false, 'imported'], elsewhere: [false, 'imported'], published: [false, 'imported'],
+      renamed: [true, null], scratch: [true, null], own: [false, 'cloneDir'], notes: [false, 'cloneDir'], decided: [true, null],
+    })
+    // the setup page names them until the person took note
+    assert.deepEqual(unseenMarks(file), ['old', 'old-import', 'elsewhere', 'published'])
+    // the person sets the clone folder back (~/one-repos — the test's home): their own repos are theirs again, what was
+    // marked stays out
+    write({ cloneDir: clones, repos })
+    const reset = state(loadConfig(file, {}, { home }))
+    assert.deepEqual([reset.own, reset.notes, reset.old, reset.elsewhere], [[true, null], [true, null], [false, 'marked'], [false, 'imported']])
+    assert.deepEqual(reset.renamed, [false, 'cloneDir'], 'in the default clone folder now: the rule')
+    // once: a repo added later is judged by the rule alone; the record is kept
+    const later = repo(join(clones, 'later'), 'Import later.zip')
+    write({ cloneDir: clones, repos: [...repos, { name: 'later', path: later }] })
+    const again = loadConfig(file, {}, { home })
+    assert.equal(again.notes, undefined)
+    assert.equal(mark(later), null)
+    assert.deepEqual(state(again).later, [false, 'cloneDir'])
+    marksSeen(file)
+    assert.deepEqual(unseenMarks(file), [])
+    assert.deepEqual(JSON.parse(readFileSync(join(cfgDir, 'worker-marks.json'), 'utf8')).marked, ['old', 'old-import', 'elsewhere', 'published'])
   })
 
   test('config: a bypassing permission mode or a shell-line test command is refused', () => {
@@ -53,7 +184,7 @@ describe('Claude Code CLI', () => {
     writeFileSync(join(dir, 'README.md'), '# x\n')
     const lines: LogLine[] = []
     const caps = await detectClaude(FAKE_CLAUDE)
-    const res = await runClaude({ bin: FAKE_CLAUDE, cwd: dir, prompt: buildPrompt(task({ kind: 'plan' }), { name: 'demo', remote: 'origin', baseBranch: 'main' } as never, 'one/x'), mode: 'plan', maxTurns: 5, model: null, allowedTools: [], disallowedTools: [], mcpConfig: null, strictMcp: true, budgetUsd: null, caps, env: process.env, signal: new AbortController().signal, onLog: (l) => lines.push(l) })
+    const res = await runClaude({ bin: FAKE_CLAUDE, cwd: dir, prompt: buildPrompt(task({ kind: 'plan' }), { name: 'demo', remote: 'origin', baseBranch: 'main' } as never, 'one/x'), mode: 'plan', maxTurns: 5, model: null, allowedTools: [], disallowedTools: [], mcpConfig: null, strictMcp: true, projectSettings: true, budgetUsd: null, caps, env: process.env, signal: new AbortController().signal, onLog: (l) => lines.push(l) })
     assert.equal(res.ok, true)
     assert.match(res.plan ?? '', /## Steps/)
     assert.equal(res.cost, 0.05)
@@ -67,7 +198,7 @@ describe('Claude Code CLI', () => {
     const lines: LogLine[] = []
     const seen: TaskProgress[] = []
     const caps = await detectClaude(FAKE_CLAUDE)
-    await runClaude({ bin: FAKE_CLAUDE, cwd: dir, prompt: buildPrompt(task({ kind: 'plan' }), { name: 'demo', remote: 'origin', baseBranch: 'main' } as never, 'one/x'), mode: 'plan', maxTurns: 7, model: null, allowedTools: [], disallowedTools: [], mcpConfig: null, strictMcp: true, budgetUsd: null, caps, env: process.env, signal: new AbortController().signal, onLog: (l) => lines.push(l), onProgress: (p) => seen.push(p) })
+    await runClaude({ bin: FAKE_CLAUDE, cwd: dir, prompt: buildPrompt(task({ kind: 'plan' }), { name: 'demo', remote: 'origin', baseBranch: 'main' } as never, 'one/x'), mode: 'plan', maxTurns: 7, model: null, allowedTools: [], disallowedTools: [], mcpConfig: null, strictMcp: true, projectSettings: true, budgetUsd: null, caps, env: process.env, signal: new AbortController().signal, onLog: (l) => lines.push(l), onProgress: (p) => seen.push(p) })
     // init (0 turns), 3 messages, then the result with Claude Code's own cost
     assert.deepEqual(seen.map((p) => p.turns), [0, 1, 2, 3, 3])
     assert.ok(seen.every((p) => p.maxTurns === 7 && p.model === 'claude-opus-5-5'))
@@ -103,7 +234,7 @@ describe('Claude Code CLI', () => {
     const dir = tempDir('claude')
     const lines: LogLine[] = []
     const caps = await detectClaude(FAKE_CLAUDE)
-    const res = await runClaude({ bin: FAKE_CLAUDE, cwd: dir, prompt: 'FAKE:AUTH', mode: 'plan', maxTurns: 5, model: null, allowedTools: [], disallowedTools: [], mcpConfig: null, strictMcp: true, budgetUsd: null, caps, env: process.env, signal: new AbortController().signal, onLog: (l) => lines.push(l) })
+    const res = await runClaude({ bin: FAKE_CLAUDE, cwd: dir, prompt: 'FAKE:AUTH', mode: 'plan', maxTurns: 5, model: null, allowedTools: [], disallowedTools: [], mcpConfig: null, strictMcp: true, projectSettings: true, budgetUsd: null, caps, env: process.env, signal: new AbortController().signal, onLog: (l) => lines.push(l) })
     assert.equal(res.ok, false)
     assert.equal(res.error, AUTH_HINT)
     assert.ok(lines.some((l) => l.c === 'claudeAuth' && l.k === 'error'))
@@ -116,7 +247,7 @@ describe('Claude Code CLI', () => {
     const caps = await detectClaude(FAKE_CLAUDE)
     const started = Date.now()
     setTimeout(() => ac.abort(), 600)
-    const res = await runClaude({ bin: FAKE_CLAUDE, cwd: dir, prompt: 'FAKE:SLOW', mode: 'acceptEdits', maxTurns: 5, model: null, allowedTools: [], disallowedTools: [], mcpConfig: null, strictMcp: true, budgetUsd: null, caps, env: process.env, signal: ac.signal, onLog: () => {} })
+    const res = await runClaude({ bin: FAKE_CLAUDE, cwd: dir, prompt: 'FAKE:SLOW', mode: 'acceptEdits', maxTurns: 5, model: null, allowedTools: [], disallowedTools: [], mcpConfig: null, strictMcp: true, projectSettings: true, budgetUsd: null, caps, env: process.env, signal: ac.signal, onLog: () => {} })
     assert.equal(res.stopped, true)
     assert.ok(Date.now() - started < 5000)
   })
@@ -131,7 +262,7 @@ describe('sign of life', () => {
     process.env.ONE_WORKER_QUIET_MS = '200'
     try {
       setTimeout(() => ac.abort(), 900)
-      await runClaude({ bin: FAKE_CLAUDE, cwd: dir, prompt: 'FAKE:QUIET', mode: 'acceptEdits', maxTurns: 5, model: null, allowedTools: [], disallowedTools: [], mcpConfig: null, strictMcp: true, budgetUsd: null, caps, env: process.env, signal: ac.signal, onLog: (l) => lines.push(l) })
+      await runClaude({ bin: FAKE_CLAUDE, cwd: dir, prompt: 'FAKE:QUIET', mode: 'acceptEdits', maxTurns: 5, model: null, allowedTools: [], disallowedTools: [], mcpConfig: null, strictMcp: true, projectSettings: true, budgetUsd: null, caps, env: process.env, signal: ac.signal, onLog: (l) => lines.push(l) })
     } finally {
       delete process.env.ONE_WORKER_QUIET_MS
     }
@@ -206,10 +337,10 @@ describe('prompt', () => {
     assert.equal(cfg('opus && echo'), null)
     assert.equal(cfg('--dangerously-skip-permissions'), null)
     // the argv: the name follows --model as its own entry
-    const caps: ClaudeCaps = { found: true, version: '1', budget: true, modes: [] }
-    const args = claudeArgs({ mode: 'plan', maxTurns: 3, model: 'claude-fable-5-1', allowedTools: [], disallowedTools: [], mcpConfig: null, strictMcp: true, budgetUsd: null, caps })
+    const caps: ClaudeCaps = { found: true, version: '1', budget: true, modes: [], settingSources: true }
+    const args = claudeArgs({ mode: 'plan', maxTurns: 3, model: 'claude-fable-5-1', allowedTools: [], disallowedTools: [], mcpConfig: null, strictMcp: true, projectSettings: true, budgetUsd: null, caps })
     assert.equal(args[args.indexOf('--model') + 1], 'claude-fable-5-1')
-    assert.ok(!claudeArgs({ mode: 'plan', maxTurns: 3, model: null, allowedTools: [], disallowedTools: [], mcpConfig: null, strictMcp: true, budgetUsd: null, caps }).includes('--model'))
+    assert.ok(!claudeArgs({ mode: 'plan', maxTurns: 3, model: null, allowedTools: [], disallowedTools: [], mcpConfig: null, strictMcp: true, projectSettings: true, budgetUsd: null, caps }).includes('--model'))
   })
 
   test('tool calls become one short log line', () => {

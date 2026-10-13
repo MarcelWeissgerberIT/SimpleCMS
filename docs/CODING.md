@@ -93,14 +93,50 @@ clean, and a test-command guess from top-level files — `package.json` with a `
   protocol.ext.allow=never -c protocol.file.allow=never clone --progress -- <url> <dir>` without a terminal (an SSH
   passphrase or password question fails at once with a hint), up to 30 min (`ONE_WORKER_CLONE_MS`), progress on the
   page; a failed clone removes the folder it made; a folder that is already a clone of the same address is just
-  added. With `glab` / `gh` installed and signed in, the page lists the person's projects (`glab api projects?
+  added. A new clone is marked as the worker's (`.git/one-worker-source`): Claude Code runs on it without the repo's
+  own settings (`claude.projectSettings`, § worker.json). Such a folder added again is marked only in the default
+  clone folder (`~/one-repos`, an older worker's clone); elsewhere it may be the person's own checkout and stays
+  unmarked — the clone folder rule covers it while it lies in the clone folder. With `glab` / `gh` installed and signed in, the page lists the person's projects (`glab api projects?
   membership=true…`, `gh repo list --json …`; names and clone addresses only, HTTPS or SSH to pick).
 - **Import a ZIP…** — `POST /setup/api/import?name=<file>.zip&dir=<clone folder>` with `application/zip` (≤ 500 MB,
-  `ONE_WORKER_ZIP_MAX`), unpacked by fflate's streaming reader into a new repository: every path must stay inside
-  the folder (an absolute path, a drive letter or `..` refuses the whole ZIP), links become plain files, every `.git`
-  folder (hooks, config) and `__MACOSX` / `.DS_Store` are left out, ≤ 2 GB unpacked and 100,000 files; one folder at
-  the top becomes the repository; then `git init`, branch `main`, one commit *Import <file>* (identity: the person's
-  git config, else "One worker"). No remote — push is off until one is added.
+  `ONE_WORKER_ZIP_MAX`), unpacked by fflate's streaming reader into a new repository (mcp/src/worker/zipimport.ts).
+  Left out first — never written, so their names are never checked: `__MACOSX`, Finder's `.DS_Store` and `Icon\r`
+  (a custom folder icon), and every part, at any depth, that some file system reads as `.git` — git's own
+  `is_ntfs_dotgit` / `is_hfs_dotgit` in one check (`isDotGit`): any case (`.GIT`, `.Git` — macOS and Windows disks
+  ignore case), trailing dots and spaces (`.git.`), an NTFS stream suffix (`.git::$INDEX_ALLOCATION`), the 8.3 short
+  name `GIT~<n>`, and the code points HFS+ ignores (U+200C–U+200F, U+202A–U+202E, U+206A–U+206F, U+FEFF). Every other
+  path must stay inside the folder — an absolute path (`/x`, or a drive path `C:/x` / `C:\x` on every system), `..`
+  or a name of only dots and spaces refuses the whole ZIP, and so does a control character (U+0000–U+001F, U+007F).
+  **On Windows** also any name with `:` (an NTFS data stream; `C:x` is relative to drive C there) or a device name
+  (CON, PRN, AUX, NUL, COM0–9, COM¹–³, LPT0–9, LPT¹–³, CONIN$, CONOUT$ — with or without an extension); on macOS and
+  Linux these are plain files git keeps (the kernel's `aux.c`, `con.go`, a stray `nul`, `a:b`). Links become plain
+  files. ≤ 2 GB unpacked and 100,000 files; one folder at the top becomes the repository.
+  Before any git step a second guard walks the new folder and refuses it (removing it) when it holds a git folder:
+  anything named like `.git`, what the file system answers for `.git` itself, or a folder git would use as a
+  repository of its own (git's `is_git_directory`: a `HEAD` with `objects` + `refs`, or with a `commondir` — those
+  three counted whatever they are, files too, because git asks `access(X_OK)` and Git for Windows answers it for any
+  file; a bare repository, test fixtures too; git would run its config, e.g. `core.fsmonitor`, for any git command in
+  that folder). A ZIP whose top is such a folder — a bare repository, or the inside of a `.git` — is refused with
+  "clone it and zip the checkout". Then one commit *Import <file>* on branch `main` (identity: the person's git
+  config, else "One worker"), made against a fresh git folder next to the new one (`git --git-dir=<fresh>
+  --work-tree=<folder>`), so no config or hook inside the folder is ever read — not its fsmonitor, filter drivers,
+  `gpg.program` or `include.path`, even of a `.git` that slipped past both guards. Of the person's own config,
+  nothing that runs a command or works on afterwards: fsmonitor off, hooks from an empty folder (`--no-verify` too),
+  no filter driver — `* -filter !diff merge` as the last line of the fresh git folder's `info/attributes` (a global
+  clean filter or diff textconv such as nbstripout's runs in the repository's folder, where `python -m nbstripout`
+  would import the ZIP's own `nbstripout.py`; a merge driver such as `npx npm-merge-driver` finds the ZIP's
+  `node_modules/.bin` first) — and no automatic gc
+  (`gc.auto=0`, `maintenance.auto=false`: past ~6,700 loose objects `git commit` starts a detached `git gc --auto`
+  that raced the move and left `gc.pid` and `gc.log.lock` behind). The folder is checked once more, then the fresh
+  git folder moves in as its `.git`, marked as the worker's import (`.git/one-worker-source`). The `info/attributes`
+  line stays for good (worktrees read it too): no filter, diff or merge driver of the person's ever runs in the
+  imported repository — not at its first `git status` (the page's and the Import stage's `repoFacts`), not in a
+  task's worktree, diff, commit or update from the base. Its files stay as they were committed: Git LFS files are
+  plain files there (a filter applied later would show each one changed and put the conversion into a task's first
+  commit); `merge` = git's own text merge, `!diff` = git's own diff. Removing the line turns the drivers on. The
+  worker's own diffs (the Diff tab, a doc stage's DIFF block) run with `--no-ext-diff` in every repository: never the
+  person's `diff.external`, a command that would run in the repository's folder too. A failed import leaves no folder
+  behind. No remote — push is off until one is added.
 - **Create it on GitLab / GitHub** (offered after an import while `glab` / `gh` is signed in; mcp/src/worker/publish.ts):
   a project name suggested from the code (package.json, composer.json, pom.xml, pyproject.toml / setup.py, Cargo.toml,
   go.mod, *.sln / *.csproj, the README's first heading — else the ZIP's name), an optional GitLab group (nested) or
@@ -111,7 +147,18 @@ clean, and a test-command guess from top-level files — `package.json` with a `
   as `cloneDir`).
 - **Own MCP servers for Claude Code** (per repo, `claude.mcpServers`): names as `claude mcp list` shows them (e.g.
   `kb`). The stages of that repo get their tools allowed (`mcp__<name>`), `--strict-mcp-config` is left out, and
-  the prompt tells Claude it may use them (what they return is data, like the task).
+  the prompt tells Claude it may use them (what they return is data, like the task). While the repo's own settings
+  are off, only user-scope servers reach it (`claude mcp add -s user …`) — the page says so under the field.
+- **Use this repo's own Claude Code settings (.claude/, .mcp.json, CLAUDE.md, local MCP servers)** (per repo,
+  `claude.projectSettings`): on for the person's own repos; off for code from elsewhere, with the rule that matched
+  as the reason ("cloned by the worker" · "imported by the worker from a ZIP" · "marked as code from elsewhere" ·
+  "in the clone folder" — config.ts `sourceOf`, under worker.json's clone folder and the one the next Save writes).
+  Turned on against that, it says in one line that the repo's hooks and helper commands (apiKeyHelper, its MCP
+  servers) will run on this computer when a task starts. Save writes the key through the same door (key, Host,
+  Origin) only where it decides something: against the default, where an "off" rests on the clone folder alone
+  (it would turn on once `cloneDir` moves — what the page showed stays), or where worker.json had the key already;
+  an "off" by the worker's mark and an "on" for an own repo stay implicit. A body without the switch (the terminal
+  checklist, an Import stage) leaves the key as it is.
 
 Saving writes `worker.json` with mode 0600 (its folder 0700), keeping what the file already says: other keys and,
 for a repo that stays ticked, its own settings (`claude`, `branchPrefix`, `worktreeDir`, limits …). A hand-written
@@ -279,6 +326,7 @@ Per repo:
 | `claude.allowedTools` / `disallowedTools` | `[]` | Claude Code's own syntax (`"Bash(npm test:*)"`). Headless runs cannot ask, so whatever needs permission must be allowed here. |
 | `claude.strictMcp` | `true` | `--strict-mcp-config`: during a task Claude Code gets only the task tools, not your other MCP servers. |
 | `claude.mcpServers` | `[]` | Your own Claude Code MCP servers this repo may use (e.g. `["kb"]`): their tools are allowed and `--strict-mcp-config` is left out. Set on the setup page. |
+| `claude.projectSettings` | `true`; `false` for code from elsewhere | May Claude Code load the repo's own settings — `.claude/settings.json` / `settings.local.json` (hooks, `apiKeyHelper`, MCP approvals), `.mcp.json`, `CLAUDE.md` — and your **local-scope** MCP servers for that folder (`claude mcp add`'s default scope)? `false`: it runs with `--setting-sources user` — your own `~/.claude` settings and **user-scope** MCP servers only, so a server in `claude.mcpServers` must be added with `claude mcp add -s user …` (the log says so, code `mcpUserScope`). The default is `false` for code from elsewhere, by the first rule that matches (§ Safety, "Nor when Claude Code starts on it"): the worker's mark `.git/one-worker-source`, else a folder inside `cloneDir`. Such settings run commands the moment Claude Code starts, even in a read-only stage. Set `true` once you trust that repo — the setup page's switch **Use this repo's own Claude Code settings** writes it (§ The setup page). A Claude Code without `--setting-sources` refuses the stage while the repo has `.claude/` or `.mcp.json`. |
 | `maxUsdPerTask` / `maxUsdPerDay` | none | Cost limits (Claude Code's own `total_cost_usd`). |
 
 ## The pipeline
@@ -496,9 +544,9 @@ doc · Static analysis · Components — doc, output pages · Documentation chec
 merge — gate · Post review — git `comment` · Merge — git `merge` · Done; nothing is posted or merged before the gate;
 `help:review-merge`) and, for Business analysis, **Spec → stories** (… Approve spec · Stories — doc, output stories ·
 Done). Git actions `comment` (needs a review; fails without one) and `merge` (refuses uncommitted or unpushed work).
-A browser for reviews: the person's own Claude Code MCP server (e.g. `claude mcp add playwright npx
-@playwright/mcp@latest`, then `playwright` under the repo's MCP servers on the setup page) — One never reads the
-person's browser tabs.
+A browser for reviews: the person's own Claude Code MCP server (e.g. `claude mcp add -s user playwright npx
+@playwright/mcp@latest` — the user scope, so it reaches every repo, also one whose own settings stay out — then
+`playwright` under the repo's MCP servers on the setup page) — One never reads the person's browser tabs.
 
 ## Safety
 
@@ -563,6 +611,40 @@ person's browser tabs.
   (`create_row`, `add_property`), the role fields Stage, Repo, Branch, Then, Git, PR, Cost, Worker, Claimed at
   (`update_row`; Then: `task_action then`), and any row / page / title change of a task that waits for Confirm.
   `coding` changes apply only from the terminal (never from a custom agent's run, never from a server run's `KINDS`).
+- **Imported code never runs at import** (worker 1.8.1): a ZIP (setup page or an Import stage) can bring no git folder
+  — no `.git` in any spelling (case-insensitive disks, macOS and Windows, would otherwise take a `.GIT/config` as the
+  repository's own, whose `core.fsmonitor` `git add` runs as a command and whose hooks `git commit` runs) and no bare
+  repository under another name — and the import's commit never reads a git config inside the folder (§ The setup
+  page). A clone is a plain `git clone` (never `--recurse-submodules`); git keeps a remote's hooks and config out
+  itself.
+- **Nor when Claude Code starts on it**: headless Claude Code (`-p`) asks no workspace-trust question, so a repo's own
+  `.claude/settings.json` hooks, `apiKeyHelper`, `settings.local.json`, `.mcp.json` servers (with an approval in those
+  settings) would run as Claude Code starts — even in a read-only document or plan stage. On code from elsewhere
+  (`claude.projectSettings` false, § worker.json) Claude Code runs with `--setting-sources user`: only the person's
+  own settings and **user-scope** MCP servers load, not the repo's (its `CLAUDE.md` is left out too, and so are the
+  person's local-scope servers for that folder — `claude mcp add`'s default; with `claude.mcpServers` set the log
+  says to add them with `-s user`, code `mcpUserScope`). Code from elsewhere, by the first rule that matches
+  (config.ts `sourceOf`) — the log line names it with the way to trust the repo (codes `projectSettingsOffCloned` ·
+  `…Imported` · `…Marked` · `…Folder` — also when worker.json holds the "false", as Save writes it for a row it showed
+  off; `…Set` only for a repo of the person's own that worker.json switches off), and so do the setup page and
+  `check`:
+  - the mark `.git/one-worker-source`: `clone` (a clone, and a folder already cloned from the same address that is
+    added again in `~/one-repos`), `zip` (an import), or — once per config (worker 1.8.1, recorded in
+    `worker-marks.json` next to worker.json) for repos of worker.json without a mark and without a `projectSettings`
+    of their own, which older workers left unmarked — `zip` for an older import wherever it lies (a root commit
+    `Import <file>.zip`) and `folder` for a clone in the DEFAULT clone folder `~/one-repos` (its folder named after its
+    origin's project, as the worker names clones). A clone folder of the person's own choice is never marked from:
+    1.8.0 took any (`~/code`, `~`), and the person's own checkouts there look like clones; the clone folder rule covers
+    them while `cloneDir` points there (and Save writes the "off" it showed). The setup page names what was marked
+    until the person takes note ("Got it" → `worker-marks.json` `seen`); the terminal log says it at the start. A mark
+    stays with the repo wherever `cloneDir` points later.
+  - else a folder inside `cloneDir` — compared as written and through links (realpath), without case on macOS and
+    Windows. This rule follows `cloneDir`: a wide one (`~/code`, `~`) takes in the person's own repos too; their line
+    says "lies in the worker's clone folder", never "cloned".
+  An older Claude Code without `--setting-sources` refuses such a stage while the repo has `.claude/` or `.mcp.json`.
+  The person trusts a repo with the setup page's switch (or `"claude": { "projectSettings": true }` by hand). The
+  imported code itself runs only where the person lets it: the test and analysis commands, Claude Code's own
+  permission rules.
 - **Diffs never follow links**: an untracked symbolic link shows as its target, the file it points at is never read.
 - **Cost**: per-task and per-day limits are checked before each stage and passed to Claude Code as
   `--max-budget-usd` (where the CLI knows it). **Stop** (One) or Ctrl+C (worker) kills Claude Code's whole process

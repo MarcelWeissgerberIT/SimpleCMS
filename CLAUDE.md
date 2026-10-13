@@ -598,8 +598,30 @@ the public APIs stable — other areas are built against them in parallel.
   (`ONE_WORKER_LIVE_GIT_MS`); browser notifications only via coding/notify.ts (per device `one.coding.notify`).
   New repos only from the worker's local setup page: clone (mcp/src/worker/clone.ts — `parseCloneUrl` refuses tokens in
   https addresses, ext::/file::, option-like and `..`; `git -c protocol.ext.allow=never … clone -- <url> <dir>`; projects
-  from glab / gh) and ZIP import (zipimport.ts — fflate streaming, every `.git` folder left out, a path outside refuses
-  the ZIP, `git init` + one commit) into `cloneDir` (default ~/one-repos, never iCloud). `claude.mcpServers` per repo =
+  from glab / gh) and ZIP import (zipimport.ts — fflate streaming; left out before any check: every part some disk reads
+  as `.git` (`isDotGit` = git's is_ntfs_dotgit + is_hfs_dotgit: case, trailing dots / spaces, `:stream`, `GIT~n`, HFS+
+  ignorables), `__MACOSX`, `.DS_Store`, `Icon\r`; a path outside / a control character refuses the ZIP, `:` / a device
+  name only on Windows (`entryPath(name, platform)`); `gitDirIn` refuses any `.git` spelling or a folder git takes for a
+  repository (HEAD + objects + refs or commondir, any file type; a ZIP that is one itself → "clone it") before any git
+  step (`finishImport`); one commit against a fresh git dir outside the folder (`--git-dir` / `--work-tree`, fsmonitor
+  off, empty hooksPath, --no-verify, gc.auto=0 + maintenance.auto=false — no config inside the folder is ever read, no
+  detached gc runs), moved in as `.git` after a last check) into `cloneDir` (default ~/one-repos, never iCloud). Its
+  `info/attributes` ends with `NO_DRIVERS` (`* -filter !diff merge`) for good: no filter / diff textconv / merge driver
+  of the person's runs in an imported repo (import, repoFacts' status, worktrees, diffs, commits, updates); LFS files
+  stay plain files; the worker's patch diffs use `--no-ext-diff` (never the person's diff.external).
+  Clones and imports are marked `.git/one-worker-source` (`SOURCE_MARK`: clone · zip · folder; a clone of the same
+  address added again only in the default ~/one-repos; once per config, `worker-marks.json`, an older import anywhere
+  by its root commit `Import <file>.zip` → zip, an older clone only in the default ~/one-repos named after its origin →
+  folder — never from a clone folder of the person's choice; the setup page names them until "Got it"); such a
+  repo, or one inside `cloneDir` (`inFolder`: realpath, no case on darwin / win32), gets `claude.projectSettings` false
+  unless worker.json says true (`sourceOf` → `RepoConfig.source`) → Claude Code runs with `--setting-sources user` (none
+  of the repo's hooks, apiKeyHelper, .mcp.json, CLAUDE.md, nor the person's local-scope MCP servers — user scope only,
+  log `mcpUserScope`; the log names the rule + how to trust: `projectSettingsOff{Cloned,Imported,Marked,Folder}` also
+  when worker.json holds false, `…Set` only without a source; a CLI without the
+  flag refuses the stage while the repo has `.claude/` or `.mcp.json`). The setup page's per-repo switch "Use this repo's
+  own Claude Code settings" (`PageRepo.ownSettings` / `source` = the reason; on against the default → a one-line warning)
+  is the only UI for `projectSettings`; Save (same key / Host / Origin door) writes it only where it decides something
+  (≠ default, an "off" resting on cloneDir alone, or a key already there — saveRepos). `claude.mcpServers` per repo =
   the person's own Claude Code MCP servers (tools allowed, no --strict-mcp-config). GitLab: `glab mr create`. After an
   import the page offers "Create it on GitLab / GitHub" (publish.ts: name from the code, the person's glab / gh api,
   origin + push; only for a repo without a remote). Pipeline

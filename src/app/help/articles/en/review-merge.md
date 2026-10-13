@@ -23,7 +23,7 @@ In the task's **Git** tab: **Post review** (the task's newest review) and **Merg
 - Any pipeline can use it: in **Pipeline** a **Git** stage's action *Post the review to the merge request* / *Merge the merge request*, and a document stage's result *Review*.
 
 ## Checking the UI in a browser
-Give Claude Code a browser: add the Playwright MCP server for Claude Code on the worker's computer (`claude mcp add playwright npx @playwright/mcp@latest`) and enter `playwright` under *Own MCP servers for Claude Code* on the setup page. Name the address where the change runs in the task (e.g. a preview link) — the review then opens it and checks the changed screens too. One never reads your own browser tabs.
+Give Claude Code a browser: add the Playwright MCP server for Claude Code on the worker's computer (`claude mcp add -s user playwright npx @playwright/mcp@latest`) and enter `playwright` under *Own MCP servers for Claude Code* on the setup page. Name the address where the change runs in the task (e.g. a preview link) — the review then opens it and checks the changed screens too. One never reads your own browser tabs.
 
 ## Static analysis first
 Add a **Static analysis** stage before the review: its findings are in the page, and the review reads them — see [Explain legacy code](help:explain-code).

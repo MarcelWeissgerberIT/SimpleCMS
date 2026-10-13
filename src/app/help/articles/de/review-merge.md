@@ -23,7 +23,7 @@ Im Tab **Git** der Aufgabe: **Review posten** (das neueste Review der Aufgabe) u
 - Jede Pipeline kann es nutzen: unter **Pipeline** die Aktion einer **Git**-Stufe *Review an den Merge Request posten* / *Merge Request mergen*, und das Ergebnis *Review* einer Dokument-Stufe.
 
 ## Die Oberfläche im Browser prüfen
-Gib Claude Code einen Browser: Füge auf dem Rechner des Workers den Playwright-MCP-Server für Claude Code hinzu (`claude mcp add playwright npx @playwright/mcp@latest`) und trage auf der Einrichtungsseite unter *Eigene MCP-Server für Claude Code* `playwright` ein. Nenne in der Aufgabe die Adresse, unter der die Änderung läuft (z. B. ein Vorschau-Link) – das Review öffnet sie dann und prüft auch die geänderten Ansichten. One liest nie deine eigenen Browser-Tabs.
+Gib Claude Code einen Browser: Füge auf dem Rechner des Workers den Playwright-MCP-Server für Claude Code hinzu (`claude mcp add -s user playwright npx @playwright/mcp@latest`) und trage auf der Einrichtungsseite unter *Eigene MCP-Server für Claude Code* `playwright` ein. Nenne in der Aufgabe die Adresse, unter der die Änderung läuft (z. B. ein Vorschau-Link) – das Review öffnet sie dann und prüft auch die geänderten Ansichten. One liest nie deine eigenen Browser-Tabs.
 
 ## Vorher statische Analyse
 Stell eine Stufe **Statische Analyse** vor das Review: Ihre Befunde stehen in der Seite, und das Review liest sie – siehe [Altsoftware erklären](help:explain-code).

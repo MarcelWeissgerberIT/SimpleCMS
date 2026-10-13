@@ -1,8 +1,10 @@
 /**
  * one-worker — the local setup page: http://127.0.0.1:<port>/setup#k=<token>, on the worker's own port.
  * The person ticks the repositories One may hand tasks to (found by scan.ts), sets base branch, test
- * command, push, pull requests and a cost limit per repo, and saves: worker.json is written (0600) and the
- * worker reloads — One sees the new repo names at once (a fresh `welcome`).
+ * command, push, pull requests, a cost limit and whether Claude Code may load the repo's own settings
+ * (claude.projectSettings — off for code from elsewhere, with the reason) per repo, and saves: worker.json is
+ * written (0600) and the worker reloads — One sees the new repo names at once (a fresh `welcome`). The repos the
+ * one-time marking marked (config.ts markOlderSources) are named on the page until the person takes note.
  *
  * The door: Host must be exactly 127.0.0.1:<port> (DNS rebinding); every API call carries the token —
  * random per worker start, only in the page's address fragment (never sent by the browser on its own),
@@ -20,7 +22,7 @@ import { homedir } from 'node:os'
 import { isAbsolute, join, resolve, sep } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { REPO_NAME, type OpenSetupResult, type WorkerPreset } from '../../../src/app/features/coding/protocol.ts'
-import { MCP_NAME, saveRepos, splitArgs, type RepoChoice, type WorkerConfig } from './config.ts'
+import { MCP_NAME, inFolder, marksSeen, saveRepos, sourceOf, splitArgs, unseenMarks, type RepoChoice, type SourceWhy, type WorkerConfig } from './config.ts'
 import { bareRepo, factsOf, findRepos, isMainCheckoutAsync, realpathTimed, repoFacts, shortPath, type FindResult, type FoundRepo, type ScanOptions } from './scan.ts'
 import { pickFolder, type PickResult } from './picker.ts'
 import { sameSecret } from './preset.ts'
@@ -94,6 +96,10 @@ export interface PageRepo extends FoundRepo {
   mcp: string
   /** the Static analysis stage's command as one line (configured, else the guess) */
   analyzeLine: string
+  /** Claude Code may load this repo's own settings (worker.json says so, else: on unless `source`) */
+  ownSettings: boolean
+  /** why it counts as code from elsewhere — its own settings off by default (config.ts sourceOf); null: the person's own */
+  source: SourceWhy | null
 }
 
 const MAX_BODY = 256 * 1024
@@ -194,6 +200,14 @@ export class SetupServer {
     return this.scanning
   }
 
+  /**
+   * Why a repo counts as code from elsewhere: its mark, else the clone folder of worker.json — or the one this page
+   * writes with the next Save (a clone into another folder), so the switch shows what will hold after it.
+   */
+  private sourceNow(path: string): SourceWhy | null {
+    return sourceOf(path, this.host.config().cloneDir) ?? (this.cloneDir && inFolder(path, this.cloneDir) ? 'cloneDir' : null)
+  }
+
   /** The repos the page lists: worker.json's first (in its order), then the rest, most recently active first. */
   repos(): PageRepo[] {
     const config = this.host.config()
@@ -202,6 +216,7 @@ export class SetupServer {
     for (const r of config.repos) {
       const f = this.found.get(r.path)
       seen.add(r.path)
+      const source = this.sourceNow(r.path)
       out.push({
         ...(f ?? { path: r.path, short: shortPath(r.path, this.home), branch: null, branches: [r.baseBranch], remote: r.remote, host: null, dirty: null, lastCommit: null, test: null }),
         name: r.name,
@@ -216,10 +231,15 @@ export class SetupServer {
         testLine: joinArgs(r.testCommand),
         mcp: r.claude.mcpServers.join(', '),
         analyzeLine: joinArgs(r.analyzeCommand),
+        ownSettings: r.claude.projectSettingsSet ? r.claude.projectSettings : source === null,
+        source,
       })
     }
     const rest = [...this.found.values()].filter((f) => !seen.has(f.path)).sort((a, b) => (b.lastCommit ?? 0) - (a.lastCommit ?? 0))
-    for (const f of rest) out.push({ ...f, ticked: false, configured: false, push: !!f.remote, pr: 'gh', maxUsdPerTask: null, testLine: joinArgs(f.test), mcp: '', analyzeLine: joinArgs(f.analyze ?? null) })
+    for (const f of rest) {
+      const source = this.sourceNow(f.path)
+      out.push({ ...f, ticked: false, configured: false, push: !!f.remote, pr: 'gh', maxUsdPerTask: null, testLine: joinArgs(f.test), mcp: '', analyzeLine: joinArgs(f.analyze ?? null), ownSettings: source === null, source })
+    }
     return out
   }
 
@@ -239,6 +259,8 @@ export class SetupServer {
       // the person's own Claude Code MCP servers for tasks without a repository (document stages)
       mcpServers: config.mcpServers,
       clone: this.clone,
+      // what the one-time marking marked (an older worker's clones and imports), until the person took note
+      marked: unseenMarks(this.host.configFile),
       scan: this.scanning ? { ...(this.scanned ?? {}), running: true, progress: { ...this.progress } } : this.scanned ? { ...this.scanned, running: false } : null,
       repos: this.repos(),
       live: this.host.live(),
@@ -262,7 +284,10 @@ export class SetupServer {
     if (!(await isMainCheckoutAsync(dir))) return { ok: false, error: 'That folder is not the main checkout of a git repository (no .git folder in it).' }
     if (!this.found.has(dir)) {
       const taken = new Set([...this.host.config().repos.map((r) => r.name.toLowerCase()), ...[...this.found.values()].map((r) => r.name.toLowerCase())])
-      this.found.set(dir, await repoFacts(dir, taken, this.home))
+      // read first, then set (here and below): a search that ends meanwhile replaces this.found — `this.found.set(…,
+      // await …)` would put the repo into the map it replaced
+      const facts = await repoFacts(dir, taken, this.home)
+      this.found.set(dir, facts)
     }
     return { ok: true, path: dir }
   }
@@ -282,10 +307,13 @@ export class SetupServer {
     void cloneInto(target, base, (p) => {
       job.line = p.line
       job.percent = p.percent
-    }, { local: target.kind === 'local' })
+    }, { local: target.kind === 'local', home: this.home })
       .then(async ({ dir, already }) => {
         const taken = new Set([...this.host.config().repos.map((r) => r.name.toLowerCase()), ...[...this.found.values()].map((r) => r.name.toLowerCase())])
-        if (!this.found.has(dir)) this.found.set(dir, await repoFacts(dir, taken, this.home))
+        if (!this.found.has(dir)) {
+          const facts = await repoFacts(dir, taken, this.home)
+          this.found.set(dir, facts)
+        }
         job.done = dir
         job.line = already ? 'Already cloned — added.' : 'Cloned.'
         job.percent = 100
@@ -338,12 +366,13 @@ export class SetupServer {
     })
       .then(async ({ dir, files }) => {
         const taken = new Set([...this.host.config().repos.map((r) => r.name.toLowerCase()), ...[...this.found.values()].map((r) => r.name.toLowerCase())])
-        this.found.set(dir, await repoFacts(dir, taken, this.home))
+        const facts = await repoFacts(dir, taken, this.home)
+        this.found.set(dir, facts)
         job.suggest = suggestName(dir, name)
         job.done = dir
         job.line = `${files} files`
         job.percent = 100
-        this.host.log(`setup page: imported ${file} as ${dir} (${files} files, one commit)`)
+        this.host.log(`setup page: imported ${file} as ${dir} (${files} files, one commit) — no git filter, diff or merge driver runs in it, Git LFS files stay plain files (.git/info/attributes)`)
       })
       .catch((e: unknown) => {
         job.error = e instanceof Error ? e.message : String(e)
@@ -374,7 +403,8 @@ export class SetupServer {
     void publishRepo(repo.path, target, this.host.cli ?? runCli, (line) => (job.line = line), process.env.ONE_WORKER_CLONE_LOCAL === '1')
       .then(async ({ web }) => {
         const taken = new Set([...this.host.config().repos.map((r) => r.name.toLowerCase()), ...[...this.found.values()].filter((r) => r.path !== repo.path).map((r) => r.name.toLowerCase())])
-        this.found.set(repo.path, await repoFacts(repo.path, taken, this.home))
+        const facts = await repoFacts(repo.path, taken, this.home)
+        this.found.set(repo.path, facts)
         job.web = web
         job.done = repo.path
         job.line = web
@@ -423,7 +453,9 @@ export class SetupServer {
         if (mcpServers.length > 20) return ['At most 20 MCP servers per repository.']
       }
       const analyze = typeof item.analyze === 'string' ? splitArgs(item.analyze) : undefined
-      choices.push({ path: repo.path, name, baseBranch, remote: repo.remote, testCommand: test?.length ? test : null, ...(analyze !== undefined ? { analyzeCommand: analyze?.length ? analyze : null } : {}), push: item.push === true, pr: item.pr === 'none' ? 'none' : 'gh', maxUsdPerTask: limit, mcpServers })
+      // the switch "Use this repo's own Claude Code settings" (absent: leave worker.json as it is)
+      const projectSettings = typeof item.projectSettings === 'boolean' ? item.projectSettings : undefined
+      choices.push({ path: repo.path, name, baseBranch, remote: repo.remote, testCommand: test?.length ? test : null, ...(analyze !== undefined ? { analyzeCommand: analyze?.length ? analyze : null } : {}), push: item.push === true, pr: item.pr === 'none' ? 'none' : 'gh', maxUsdPerTask: limit, mcpServers, projectSettings })
     }
     let workerMcp: string[] | undefined
     if (isObj(body) && typeof body.mcpServers === 'string') {
@@ -528,6 +560,10 @@ export class SetupServer {
     if (op === 'publish') {
       const r = this.startPublish(body)
       if (!r.ok) return json(r.status, { error: r.error }), true
+      return json(200, await this.state()), true
+    }
+    if (op === 'marks-seen') {
+      marksSeen(this.host.configFile)
       return json(200, await this.state()), true
     }
     if (op === 'save') {
