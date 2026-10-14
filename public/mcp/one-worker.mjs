@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// SimpleCMS One — coding worker 1.9.0 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp/src/worker
+// SimpleCMS One — coding worker 1.10.0 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp/src/worker
 // Runs coding tasks from One with Claude Code on this computer. Setup: node one-worker.mjs --help
 // Docs and security model: https://github.com/MarcelWeissgerberIT/SimpleCMS/blob/main/docs/CODING.md
 import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);
@@ -10910,7 +10910,7 @@ var PARALLEL_MAX = 2;
 var STAGE_KINDS = ["queue", "import", "analyze", "plan", "doc", "gate", "implement", "test", "git", "done"];
 var PERMISSION_MODES = ["plan", "acceptEdits", "default"];
 var GIT_ACTIONS = ["commit", "push", "pr", "update-base", "comment", "merge"];
-var WORKER_CAN = ["analyze", "git:comment", "git:merge", "doc", "model", "mcp-list"];
+var WORKER_CAN = ["analyze", "git:comment", "git:merge", "doc", "model", "mcp-list", "ship"];
 var MODEL_NAME = /^[A-Za-z0-9][A-Za-z0-9._:[\]-]{0,99}$/;
 function cleanModel(v) {
   if (typeof v !== "string") return null;
@@ -10918,6 +10918,16 @@ function cleanModel(v) {
   return MODEL_NAME.test(m) ? m : null;
 }
 var GIT_VERBS = ["refresh", "commit", "push", "force-push", "pr", "update-base", "discard", "cleanup", "reveal", "comment-pr", "merge-pr"];
+var SHIP_TRAILER = "One-Task";
+var WEB_BASE = /^https?:\/\/[a-z0-9.-]+(?::\d{1,5})?(?:\/[A-Za-z0-9_.-]+){2,}$/;
+function cleanWeb(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const { base, forge } = raw;
+  if (typeof base !== "string" || base.length > 300 || !WEB_BASE.test(base)) return null;
+  if (base.split("/").slice(3).some((seg) => seg === "." || seg === "..")) return null;
+  return forge === "github" || forge === "gitlab" ? { base, forge } : null;
+}
+var GIT_SHA = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/;
 var REPO_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 var WORKSPACE_ID = /^(local|team):[A-Za-z0-9_-]{1,64}$/;
 var PRESET_GLOBAL = "ONE_WORKER_PRESET";
@@ -11672,12 +11682,14 @@ function configGet(args, cwd, env, timeoutMs, platform) {
     child.on("close", (code) => finish(code === 0 ? !!out.trim() : code === 1 ? false : null));
   });
 }
+var PUSH_REJECTED = /\[rejected\][^\n]*\((?:non-fast-forward|fetch first)\)|Updates were rejected because the (?:tip of your current branch is behind|remote contains work)/i;
 var IDENTITY = /unable to auto-detect email address|empty ident name|Please tell me who you are|Author identity unknown|Committer identity unknown|no email was given and auto-detection is disabled|no name was given and auto-detection is disabled/i;
 function gitHint(text2, platform = process.platform) {
   const s = text2.replace(/\r/g, "\n");
   if (/detected dubious ownership/i.test(s)) return "dubiousOwnership";
   if (/index\.lock'?: File exists/i.test(s)) return "gitLock";
   if (IDENTITY.test(s)) return "gitIdentity";
+  if (PUSH_REJECTED.test(s)) return "pushRejected";
   if (/Host key verification failed|HOST IDENTIFICATION HAS CHANGED/i.test(s)) return "sshHostKey";
   if (/Permission denied \(publickey|Load key .*passphrase/i.test(s)) return "sshKey";
   if (/could not read (?:Username|Password)|terminal prompts disabled|Authentication failed/i.test(s)) return "gitSignIn";
@@ -11701,6 +11713,8 @@ function hintLine(code, at) {
       return { c: code, v: { repo }, s: `git in ${repo} is blocked by a lock file (index.lock) that a stopped git left behind. When no git runs there, delete the file the worker\u2019s terminal names, then press Retry.` };
     case "gitIdentity":
       return { c: code, v: { repo }, s: `git in ${repo} does not know who commits: user.name and user.email are not set. Run \`git config --global user.name "Your Name"\` and \`git config --global user.email you@example.com\` once in a terminal, then press Retry.` };
+    case "pushRejected":
+      return { c: code, v: { remote }, s: `${remote} refused the push: the branch there has commits this one does not have (pushed from elsewhere, or changed on the host). Press \u201CUpdate from base\u201D \u2014 it merges them in first \u2014 then Retry. The worker never force-pushes on its own.` };
   }
 }
 function hintTerminal(code, text2) {
@@ -11971,6 +11985,8 @@ function repoConfig(raw, index, configDir, problems, opts, cloneDir) {
     }
   }
   const pr = raw.pr === "none" ? "none" : "gh";
+  const forge = raw.forge === "github" || raw.forge === "gitlab" ? raw.forge : "auto";
+  if (raw.forge !== void 0 && raw.forge !== "auto" && forge === "auto") problems.push(`${at}: "forge" must be "auto", "github" or "gitlab" \u2014 "auto" is used`);
   const source = sourceOf(path, cloneDir, opts.platform);
   return {
     name,
@@ -11985,6 +12001,7 @@ function repoConfig(raw, index, configDir, problems, opts, cloneDir) {
     analyzeTimeoutSec: Math.floor(num(raw.analyzeTimeoutSec, 900, 5, 7200)),
     push: raw.push !== false,
     pr,
+    forge,
     claude: claudeConfig(raw.claude, at, problems, source === null),
     maxUsdPerTask: usd(raw.maxUsdPerTask),
     maxUsdPerDay: usd(raw.maxUsdPerDay),
@@ -12068,6 +12085,7 @@ function scratchRepo(config2, taskId) {
     analyzeTimeoutSec: 900,
     push: false,
     pr: "none",
+    forge: "auto",
     claude: { model: null, maxTurns: 40, permissionMode: {}, allowedTools: [], disallowedTools: [], strictMcp: true, mcpServers: config2.mcpServers, projectSettings: false, projectSettingsSet: false },
     maxUsdPerTask: null,
     maxUsdPerDay: null,
@@ -12116,6 +12134,9 @@ function exampleConfig(workspace) {
       "push": true,
       // "gh": open pull requests with the GitHub CLI (when installed and signed in) \xB7 "none": only a compare link.
       "pr": "gh",
+      // Links in One and gh / glab follow the remote's host name ("github" / "gitlab" in it). A self-hosted GitLab or
+      // GitHub Enterprise under its own name: "gitlab" / "github". Default "auto".
+      // "forge": "auto",
 
       "claude": {
         // A model name Claude Code accepts; null = Claude Code's default.
@@ -12225,6 +12246,11 @@ function saveRepos(file, choices, workspace, env = process.env, extra = {}) {
     }
     entry.push = c.push;
     entry.pr = c.pr;
+    if (c.forge !== void 0) {
+      if (c.forge === "auto") delete entry.forge;
+      else entry.forge = c.forge;
+    }
+    if (entry.forge !== void 0 && entry.forge !== "github" && entry.forge !== "gitlab") delete entry.forge;
     if (c.maxUsdPerTask) entry.maxUsdPerTask = c.maxUsdPerTask;
     else delete entry.maxUsdPerTask;
     if (c.mcpServers) {
@@ -13100,7 +13126,8 @@ async function info(repo, state, dir, branch) {
   const own2 = state.created(repo.name, branch);
   const head = (await git(dir, ["rev-parse", "HEAD"])).stdout.trim();
   const merged = count(ahead) === 0 && status.length === 0 && !!own2?.fork && head !== own2.fork && (await git(dir, ["merge-base", "--is-ancestor", "HEAD", base])).code === 0;
-  return { branch, base, ahead: count(ahead), behind: count(behind), pushed, unpushed, dirty: status.length, commits, files, conflicts, created: !!own2?.branchCreated, merged, at: Date.now() };
+  const web = await webOf(repo).catch(() => null);
+  return { branch, base, ahead: count(ahead), behind: count(behind), pushed, unpushed, dirty: status.length, commits, files, conflicts, created: !!own2?.branchCreated, merged, at: Date.now(), web };
 }
 async function diffFiles(dir, base, status) {
   const mb = (await git(dir, ["merge-base", base, "HEAD"])).stdout.trim();
@@ -13209,32 +13236,49 @@ async function push(repo, dir, branch, force = false) {
   if (!await hasRemote(repo)) throw new GitError(`the repo has no remote "${repo.remote}"`);
   await gitOk(dir, ["push", ...force ? ["--force-with-lease"] : [], "-u", repo.remote, branch], 3e5);
 }
-function webBase(remoteUrl) {
+async function headOf(dir) {
+  const r = await git(dir, ["rev-parse", "HEAD"], 3e4);
+  const sha = r.code === 0 ? r.stdout.trim() : "";
+  return GIT_SHA.test(sha) ? sha : null;
+}
+var forgeOfHost = (host) => !host ? null : /github/i.test(host) ? "github" : /gitlab/i.test(host) ? "gitlab" : null;
+function webBase(remoteUrl, forge = "auto") {
   let host = "";
   let path = "";
+  let origin = "";
   const scp = /^(?:[^@/]+@)?([^:/]+):(?!\/)(.+)$/.exec(remoteUrl);
   try {
     if (/^(https?|ssh|git):\/\//.test(remoteUrl)) {
       const u = new URL(remoteUrl);
-      host = u.hostname;
+      host = u.hostname.toLowerCase();
       path = u.pathname;
+      origin = /^https?:$/.test(u.protocol) ? `${u.protocol}//${host}${u.port ? `:${u.port}` : ""}` : `https://${host}`;
     } else if (scp) {
-      host = scp[1];
+      host = scp[1].toLowerCase();
       path = scp[2];
+      origin = `https://${host}`;
     }
   } catch {
     return null;
   }
   path = path.replace(/^\/+/, "").replace(/\.git$/, "").replace(/\/+$/, "");
   if (!host || !/^[\w.-]+$/.test(host) || !/^[\w.-]+(\/[\w.-]+)+$/.test(path)) return null;
-  const kind = /github/i.test(host) ? "github" : /gitlab/i.test(host) ? "gitlab" : null;
-  return kind ? { host: host.toLowerCase(), path, kind } : null;
+  const kind = forge === "github" || forge === "gitlab" ? forge : forgeOfHost(host);
+  return kind ? cleanWeb({ base: `${origin}/${path}`, forge: kind }) : null;
 }
-function compareUrl(remoteUrl, base, branch) {
-  const w = webBase(remoteUrl);
-  if (!w) return null;
-  const enc = (s) => s.split("/").map(encodeURIComponent).join("/");
-  return w.kind === "github" ? `https://${w.host}/${w.path}/compare/${enc(base)}...${enc(branch)}?expand=1` : `https://${w.host}/${w.path}/-/merge_requests/new?merge_request%5Bsource_branch%5D=${encodeURIComponent(branch)}&merge_request%5Btarget_branch%5D=${encodeURIComponent(base)}`;
+async function webOf(repo) {
+  const r = await git(repo.path, ["remote", "get-url", repo.remote], 3e4);
+  return r.code === 0 ? webBase(r.stdout.trim(), repo.forge) : null;
+}
+function webFromRequest(url, forge) {
+  const m = forge === "gitlab" ? /^(https?:\/\/[^/?#]+\/.+?)\/-\/merge_requests\/\d+/.exec(url) : /^(https?:\/\/[^/?#]+\/[^/?#]+\/[^/?#]+)\/pull\/\d+/.exec(url);
+  if (!m) return null;
+  const parts = /^(https?:\/\/[^/?#]+)(\/.*)$/.exec(m[1]);
+  return parts ? cleanWeb({ base: `${parts[1].toLowerCase()}${parts[2]}`, forge }) : null;
+}
+var encRef = (s) => s.split("/").map(encodeURIComponent).join("/");
+function compareFor(web, base, branch) {
+  return web.forge === "github" ? `${web.base}/compare/${encRef(base)}...${encRef(branch)}?expand=1` : `${web.base}/-/merge_requests/new?merge_request%5Bsource_branch%5D=${encodeURIComponent(branch)}&merge_request%5Btarget_branch%5D=${encodeURIComponent(base)}`;
 }
 async function run(cmd, args, cwd, timeoutMs = 12e4, input) {
   const r = await execFileSafe(cmd, args, { cwd, env: { ...process.env, GH_PROMPT_DISABLED: "1", NO_COLOR: "1" }, timeoutMs, maxBuffer: 8 * 1024 * 1024, allow: "shim", ...input !== void 0 ? { input } : {} });
@@ -13244,9 +13288,8 @@ var BODY_MAX = 6e4;
 var GLAB_TEXT_MAX_WIN = 15e3;
 var glabText = (text2, platform = process.platform) => text2.slice(0, platform === "win32" ? GLAB_TEXT_MAX_WIN : BODY_MAX);
 async function openPr(repo, dir, branch, title, body) {
-  const remoteUrl = (await git(repo.path, ["remote", "get-url", repo.remote])).stdout.trim();
-  const web = webBase(remoteUrl);
-  if (repo.pr === "gh" && web?.kind === "github") {
+  const web = await webOf(repo);
+  if (repo.pr === "gh" && web?.forge === "github") {
     const gh = await run("gh", ["--version"], dir, 1e4);
     if (gh.code === 0) {
       const made = await run("gh", ["pr", "create", "--base", repo.baseBranch, "--head", branch, "--title", title.slice(0, 250), "--body-file", "-"], dir, 12e4, body.slice(0, BODY_MAX));
@@ -13254,46 +13297,57 @@ async function openPr(repo, dir, branch, title, body) {
       if (made.code === 0 && url2) return { url: url2, via: "gh" };
       if (/already exists/i.test(made.stderr)) {
         const view = await run("gh", ["pr", "view", branch, "--json", "url", "--jq", ".url"], dir);
-        if (view.code === 0 && view.stdout.trim()) return { url: view.stdout.trim(), via: "gh" };
+        if (view.code === 0 && /^https?:\/\/\S+$/.test(view.stdout.trim())) return { url: view.stdout.trim(), via: "gh", existing: true };
       }
       throw new GitError(`gh pr create failed: ${(made.stderr || made.stdout).trim().split("\n").slice(-3).join(" ")}`);
     }
   }
-  if (repo.pr === "gh" && web?.kind === "gitlab") {
+  let why2;
+  if (repo.pr === "gh" && web?.forge === "gitlab") {
     const glab = await run("glab", ["--version"], dir, 1e4);
     if (glab.code === 0) {
+      const found = await requestOf("glab", dir, branch);
+      if (found?.open) return { url: found.url, via: "glab", existing: true };
       const made = await run("glab", ["mr", "create", "--source-branch", branch, "--target-branch", repo.baseBranch, "--title", title.slice(0, 250), "--description", glabText(body), "--yes"], dir);
       const url2 = /https?:\/\/\S+\/-\/merge_requests\/\d+/.exec(`${made.stdout}
 ${made.stderr}`)?.[0];
       if (url2) return { url: url2, via: "glab" };
+      const again2 = await requestOf("glab", dir, branch);
+      if (again2?.open) return { url: again2.url, via: "glab", existing: true };
+      why2 = lastLines(made, 2) || void 0;
     }
   }
-  const url = compareUrl(remoteUrl, repo.baseBranch, branch);
-  return { url, via: url ? "link" : "none" };
+  const url = web ? compareFor(web, repo.baseBranch, branch) : null;
+  return { url, via: url ? "link" : "none", ...why2 ? { why: why2 } : {} };
 }
 async function hostCli(repo, dir) {
   if (repo.pr !== "gh") throw new GitError('pull / merge requests are off for this repo (worker.json "pr": "none")');
-  const remoteUrl = (await git(repo.path, ["remote", "get-url", repo.remote])).stdout.trim();
-  const web = webBase(remoteUrl);
-  if (!web) throw new GitError(`the remote "${repo.remote}" is neither a GitHub nor a GitLab address`);
-  const tool = web.kind === "github" ? "gh" : "glab";
+  const web = await webOf(repo);
+  if (!web) throw new GitError(`the remote "${repo.remote}" is neither a GitHub nor a GitLab address \u2014 pick the host type on the worker's setup page if it is one`);
+  const tool = web.forge === "github" ? "gh" : "glab";
   if ((await run(tool, ["--version"], dir, 1e4)).code !== 0) throw new GitError(`${tool} is not installed on this computer \u2014 install it and sign in (${tool} auth login)`);
-  return { tool, url: `https://${web.host}/${web.path}` };
+  return { tool, web };
 }
 var lastLines = (r, n = 3) => (r.stderr || r.stdout).trim().split("\n").slice(-n).join(" ");
-async function requestUrl(tool, dir, branch) {
-  if (tool === "gh") {
-    const view2 = await run("gh", ["pr", "view", branch, "--json", "url", "--jq", ".url"], dir, 3e4);
-    return view2.code === 0 && /^https?:\/\//.test(view2.stdout.trim()) ? view2.stdout.trim() : null;
-  }
-  const view = await run("glab", ["mr", "view", branch, "--output", "json"], dir, 3e4);
+async function requestOf(tool, dir, branch) {
+  const view = tool === "gh" ? await run("gh", ["pr", "view", branch, "--json", "url,state"], dir, 3e4) : await run("glab", ["mr", "view", branch, "--output", "json"], dir, 3e4);
   if (view.code !== 0) return null;
+  const out = view.stdout.trim();
+  let url;
+  let state;
   try {
-    const url = JSON.parse(view.stdout).web_url;
-    return typeof url === "string" && /^https?:\/\//.test(url) ? url : null;
+    const o = JSON.parse(out);
+    url = tool === "gh" ? o.url : o.web_url;
+    state = o.state;
   } catch {
-    return /https?:\/\/\S+\/-\/merge_requests\/\d+/.exec(view.stdout)?.[0] ?? null;
+    url = (tool === "gh" ? /https?:\/\/\S+/ : /https?:\/\/\S+\/-\/merge_requests\/\d+/).exec(out)?.[0];
+    state = void 0;
   }
+  if (typeof url !== "string" || !/^https?:\/\/\S+$/.test(url)) return null;
+  return { url, open: state === void 0 || state === null || typeof state === "string" && /^open/i.test(state) };
+}
+async function requestUrl(tool, dir, branch) {
+  return (await requestOf(tool, dir, branch))?.url ?? null;
 }
 async function commentPr(repo, dir, branch, body) {
   const text2 = body.trim().slice(0, BODY_MAX);
@@ -13329,19 +13383,32 @@ async function updateFromBase(repo, dir, branch) {
     throw new GitError("the worktree has uncommitted changes \u2014 commit them first (Commit), nothing was changed");
   }
   await fetchRemote(repo);
+  let remote = false;
+  if (await remoteBranchExists(repo, branch)) {
+    const theirs = count((await gitOk(dir, ["rev-list", "--count", `HEAD..${repo.remote}/${branch}`])).trim());
+    if (theirs > 0) {
+      const mg2 = await git(dir, ["merge", "--no-edit", `${repo.remote}/${branch}`]);
+      if (mg2.code !== 0) {
+        const conflicts2 = await conflictsOf(dir);
+        if (conflicts2.length) return { how: "conflicts", conflicts: conflicts2, remote: true };
+        throw gitFailure(mg2, "merge failed", 4);
+      }
+      remote = true;
+    }
+  }
   const base = await baseRef(repo);
   const behind = count((await gitOk(dir, ["rev-list", "--count", `HEAD..${base}`])).trim());
-  if (behind === 0) return { how: "up-to-date", conflicts: [] };
+  if (behind === 0) return { how: "up-to-date", conflicts: [], remote };
   const pushed = await remoteBranchExists(repo, branch);
   if (!pushed) {
     const rb = await git(dir, ["rebase", base]);
-    if (rb.code === 0) return { how: "rebased", conflicts: [] };
+    if (rb.code === 0) return { how: "rebased", conflicts: [], remote };
     await git(dir, ["rebase", "--abort"]);
   }
   const mg = await git(dir, ["merge", "--no-edit", "--no-ff", base]);
-  if (mg.code === 0) return { how: "merged", conflicts: [] };
+  if (mg.code === 0) return { how: "merged", conflicts: [], remote };
   const conflicts = await conflictsOf(dir);
-  if (conflicts.length) return { how: "conflicts", conflicts };
+  if (conflicts.length) return { how: "conflicts", conflicts, remote };
   throw gitFailure(mg, "merge failed", 4);
 }
 async function discard(repo, state, branch) {
@@ -14187,11 +14254,66 @@ async function testStage(ctx, wt, scrub, log2) {
   if (ctx.signal.aborted) return { status: "stopped", branch: wt.branch, test, git: git2, error: "Stopped in One." };
   return res.ok ? { status: "ok", branch: wt.branch, test, git: git2, summary: `Tests passed in ${Math.round(res.ms / 1e3)} s.` } : { status: "failed", branch: wt.branch, test, git: git2, error: `Tests failed (exit code ${res.code ?? "\u2014"}).` };
 }
+var TASK_ID = /^[A-Za-z0-9_-]{1,64}$/;
+var trailerOf = (taskId) => TASK_ID.test(taskId) ? `${SHIP_TRAILER}: ${taskId}` : null;
+var withoutTaskTrailers = (s) => s.replace(/^[ \t]*One-Task[ \t]*:.*$/gim, "").replace(/\n{3,}/g, "\n\n");
+function withTaskTrailer(message, taskId, max2 = 4e3) {
+  const trailer = trailerOf(taskId);
+  const clean = withoutTaskTrailers(message).trim() || "One task";
+  if (!trailer) return clean.slice(0, max2);
+  const head = clean.slice(0, Math.max(1, max2 - trailer.length - 2)).trimEnd();
+  const paras = head.split(/\n{2,}/);
+  const last = paras.length > 1 ? paras[paras.length - 1] : "";
+  const block = !!last && last.split("\n").every((l) => /^[A-Za-z0-9][A-Za-z0-9-]*: \S/.test(l));
+  return `${head}${block ? "\n" : "\n\n"}${trailer}`;
+}
+var REQUEST_FOOTER = "\u2014 From One (coding pipeline).";
+function requestBody(text2, taskId, max2 = process.platform === "win32" ? GLAB_TEXT_MAX_WIN : BODY_MAX) {
+  const trailer = trailerOf(taskId);
+  const tail = `
+
+${REQUEST_FOOTER}${trailer ? `
+
+${trailer}` : ""}`;
+  return `${withoutTaskTrailers(text2).trim().slice(0, Math.max(0, max2 - tail.length))}${tail}`;
+}
 function commitMessage(task) {
   const body = (task.summary ?? "").trim();
-  return `${task.title.trim().slice(0, 72) || "One task"}${body ? `
+  return withTaskTrailer(`${task.title.trim().slice(0, 72) || "One task"}${body ? `
 
-${body.slice(0, 3e3)}` : ""}`;
+${body.slice(0, 3e3)}` : ""}`, task.id);
+}
+function newShip(action, from, branch, web) {
+  return { action, from, at: Date.now(), branch, commit: null, head: null, pushed: null, request: null, web };
+}
+function withRequest(rec, url, how) {
+  rec.request = { url, how };
+  if (how !== "link" && rec.web) rec.web = webFromRequest(url, rec.web.forge) ?? rec.web;
+}
+var requestKind = (web) => web?.forge === "gitlab" ? "mr" : "pr";
+function requestLine(pr, rec, repo) {
+  const kind = requestKind(rec.web);
+  const Label = kind === "mr" ? "Merge request" : "Pull request";
+  const label = Label.toLowerCase();
+  if (pr.url && pr.via !== "link" && pr.via !== "none") {
+    const how = pr.existing ? "existing" : "opened";
+    withRequest(rec, pr.url, how);
+    return pr.existing ? { warn: null, line: { k: "git", s: `${Label} already open: ${pr.url}`, c: "requestExisting", v: { kind, url: pr.url } } } : { warn: null, line: { k: "git", s: `${Label} opened: ${pr.url}`, c: "requestOpened", v: { kind, url: pr.url } } };
+  }
+  if (pr.url) {
+    withRequest(rec, pr.url, "link");
+    return {
+      warn: pr.why ? `glab mr create failed: ${pr.why}` : null,
+      line: { k: "git", s: `No ${label} opened \u2014 create it from the link: ${pr.url}`, c: "requestLink", v: { kind, url: pr.url } }
+    };
+  }
+  return { warn: null, line: { k: "info", s: `No pull / merge request link: ${repo.remote} is not a GitHub / GitLab address the worker knows \u2014 pick the host type on the worker's setup page.`, c: "requestNone", v: { remote: repo.remote } } };
+}
+function logRequest(log2, pr, rec, repo) {
+  const r = requestLine(pr, rec, repo);
+  if (r.warn) log2("warn", r.warn);
+  log2(r.line.k, r.line.s, r.line.c, r.line.v);
+  return r.line;
 }
 async function gitStage(ctx, wt, scrub, log2) {
   const { repo, task } = ctx;
@@ -14203,10 +14325,12 @@ async function gitStage(ctx, wt, scrub, log2) {
       log2("warn", `Conflicts in ${r.conflicts.length} file(s): ${r.conflicts.join(", ")}`);
       return { status: "failed", branch: wt.branch, git: git3, error: `Conflicts in ${r.conflicts.length} file(s) \u2014 resolve them (a rework of the implement stage can ask Claude to) and run this stage again.` };
     }
-    const summary = r.how === "up-to-date" ? `Already up to date with ${repo.remote}/${repo.baseBranch}.` : `${r.how === "rebased" ? "Rebased onto" : "Merged"} ${repo.remote}/${repo.baseBranch}.`;
-    log2("git", summary);
-    return { status: "ok", branch: wt.branch, git: git3, summary };
+    if (r.remote) log2("git", `Merged ${repo.remote}/${wt.branch} in (commits made elsewhere)`, "remoteMerged", { remote: repo.remote, branch: wt.branch });
+    const base = r.how === "up-to-date" ? `Already up to date with ${repo.remote}/${repo.baseBranch}.` : `${r.how === "rebased" ? "Rebased onto" : "Merged"} ${repo.remote}/${repo.baseBranch}.`;
+    log2("git", base);
+    return { status: "ok", branch: wt.branch, git: git3, summary: `${r.remote ? `Merged ${repo.remote}/${wt.branch} in. ` : ""}${base}` };
   }
+  const web = await webOf(repo).catch(() => null);
   if (action === "comment") {
     const review = (task.review ?? "").trim();
     if (!review) return { status: "failed", branch: wt.branch, error: 'There is no review to post yet \u2014 a document stage with the output "Review" writes it.' };
@@ -14214,7 +14338,11 @@ async function gitStage(ctx, wt, scrub, log2) {
 
 \u2014 Review from One (coding pipeline).`);
     log2("git", `Review posted to the ${r.via === "gh" ? "pull" : "merge"} request${r.url ? `: ${r.url}` : ""}`, "reviewPosted", { url: r.url ?? "" });
-    return { status: "ok", branch: wt.branch, url: r.url ?? void 0, git: await gitSnapshot(ctx, wt, scrub), summary: `Review posted to the ${r.via === "gh" ? "pull" : "merge"} request.` };
+    const rec2 = newShip("comment", "stage", wt.branch, web);
+    if (r.url) withRequest(rec2, r.url, "commented");
+    rec2.head = await headOf(wt.dir).catch(() => null);
+    rec2.at = Date.now();
+    return { status: "ok", branch: wt.branch, url: r.url ?? void 0, git: await gitSnapshot(ctx, wt, scrub), summary: `Review posted to the ${r.via === "gh" ? "pull" : "merge"} request.`, ship: rec2 };
   }
   if (action === "merge") {
     if (await isDirty(wt.dir)) return { status: "failed", branch: wt.branch, git: await gitSnapshot(ctx, wt, scrub), error: "The worktree has uncommitted changes that would not be merged \u2014 commit and push them first (a Ship stage, or Commit \xB7 Push)." };
@@ -14222,34 +14350,55 @@ async function gitStage(ctx, wt, scrub, log2) {
     if (before && before.unpushed > 0) return { status: "failed", branch: wt.branch, git: before, error: `${before.unpushed} commit(s) are not pushed yet and would not be merged \u2014 push first.` };
     const r = await mergePr(repo, wt.dir, wt.branch);
     log2("git", `Merged the ${r.via === "gh" ? "pull" : "merge"} request${r.url ? `: ${r.url}` : ""}`, "requestMerged", { url: r.url ?? "" });
-    return { status: "ok", branch: wt.branch, url: r.url ?? void 0, git: await gitSnapshot(ctx, wt, scrub), summary: `Merged the ${r.via === "gh" ? "pull" : "merge"} request into ${repo.baseBranch}.` };
+    const rec2 = newShip("merge", "stage", wt.branch, web);
+    if (r.url) withRequest(rec2, r.url, "merged");
+    rec2.head = await headOf(wt.dir).catch(() => null);
+    rec2.at = Date.now();
+    return { status: "ok", branch: wt.branch, url: r.url ?? void 0, git: await gitSnapshot(ctx, wt, scrub), summary: `Merged the ${r.via === "gh" ? "pull" : "merge"} request into ${repo.baseBranch}.`, ship: rec2 };
   }
   const sha = await commitAll(wt.dir, commitMessage(task));
   log2("git", sha ? `Committed ${sha.slice(0, 8)}` : "Nothing new to commit", sha ? "committed" : "nothingToCommit", { sha: (sha ?? "").slice(0, 8) });
+  const rec = newShip(action, "stage", wt.branch, web);
+  if (sha) rec.commit = { sha };
   const done = [sha ? `Committed ${sha.slice(0, 8)}.` : "Nothing new to commit."];
   let url;
-  if (action === "push" || action === "pr") {
-    if (!repo.push) {
-      done.push("Pushing is off for this repo in worker.json.");
-      log2("info", 'Pushing is off for this repo (worker.json "push": false).');
-    } else {
-      await push(repo, wt.dir, wt.branch);
-      log2("git", `Pushed ${wt.branch} to ${repo.remote}`, "pushed", { branch: wt.branch, remote: repo.remote });
-      done.push(`Pushed to ${repo.remote}/${wt.branch}.`);
-      if (action === "pr") {
-        const pr = await openPr(repo, wt.dir, wt.branch, task.title, `${(task.summary ?? "").trim() || task.title}
-
-\u2014 From One (coding pipeline).`);
-        if (pr.url) {
-          url = pr.url;
-          log2("git", pr.via === "gh" ? `Pull request: ${pr.url}` : pr.via === "glab" ? `Merge request: ${pr.url}` : `Compare: ${pr.url}`);
-          done.push(pr.via === "gh" ? "Pull request opened." : pr.via === "glab" ? "Merge request opened." : "Open the pull request from the compare link.");
-        } else done.push("No pull request link for this remote.");
+  let step = "push";
+  try {
+    if (action === "push" || action === "pr") {
+      if (!repo.push) {
+        rec.pushOff = true;
+        done.push("Pushing is off for this repo in worker.json.");
+        log2("info", `Pushing is off for ${repo.name} (worker.json "push": false) \u2014 committed only.`, "pushOff", { repo: repo.name });
+      } else {
+        await push(repo, wt.dir, wt.branch);
+        rec.pushed = { remote: repo.remote };
+        log2("git", `Pushed ${wt.branch} to ${repo.remote}`, "pushed", { branch: wt.branch, remote: repo.remote });
+        done.push(`Pushed to ${repo.remote}/${wt.branch}.`);
+        if (action === "pr") {
+          step = "request";
+          const pr = await openPr(repo, wt.dir, wt.branch, task.title, requestBody((task.summary ?? "").trim() || task.title, task.id));
+          logRequest(log2, pr, rec, repo);
+          if (pr.url) url = pr.url;
+          const kind = requestKind(rec.web) === "mr" ? "Merge" : "Pull";
+          if (pr.url) done.push(pr.via === "link" ? "Open the pull request from the compare link." : pr.existing ? `${kind} request already open.` : `${kind} request opened.`);
+          else done.push("No pull request link for this remote.");
+        }
       }
     }
+  } catch (e) {
+    const msg = e instanceof GitError ? `git: ${e.message}` : e instanceof Error ? e.message : String(e);
+    const detail = hintText(e, msg);
+    log2("error", msg);
+    noteGitHint(detail, repo, log2, ctx.terminal, ctx.platform);
+    rec.failed = { step, ...step === "push" && gitHint(detail, ctx.platform) === "pushRejected" ? { code: "pushRejected" } : {} };
+    rec.head = await headOf(wt.dir).catch(() => null);
+    rec.at = Date.now();
+    return { status: "failed", branch: wt.branch, git: await gitSnapshot(ctx, wt, scrub), error: scrub.text(msg), ship: rec };
   }
+  rec.head = await headOf(wt.dir).catch(() => null);
+  rec.at = Date.now();
   const git2 = await gitSnapshot(ctx, wt, scrub);
-  return { status: "ok", branch: wt.branch, git: git2, url, summary: done.join(" ") };
+  return { status: "ok", branch: wt.branch, git: git2, url, summary: done.join(" "), ship: rec };
 }
 
 // src/worker/worker.ts
@@ -15869,7 +16018,7 @@ async function realpathTimed(p) {
 var INTAKE_CHUNK = 4 * 1024 * 1024;
 var IDLE_MS = 10 * 6e4;
 var secs = (ms) => `${(ms / 1e3).toFixed(1)} s`;
-var TASK_ID = /^[A-Za-z0-9_-]{1,64}$/;
+var TASK_ID2 = /^[A-Za-z0-9_-]{1,64}$/;
 var Intake = class {
   upload = null;
   running = null;
@@ -15879,7 +16028,7 @@ var Intake = class {
   }
   check(taskId) {
     if (this.host.config().intake === false) throw new Error('This worker does not take imports from One ("intake": false in worker.json) \u2014 use its setup page.');
-    if (typeof taskId !== "string" || !TASK_ID.test(taskId)) throw new Error("bad task id");
+    if (typeof taskId !== "string" || !TASK_ID2.test(taskId)) throw new Error("bad task id");
     if (!this.running && this.upload?.taskId === taskId) this.drop("started again", true);
     if (this.running || this.upload) throw new Error("Another import is running on this worker \u2014 wait until it is done.");
     return taskId;
@@ -16994,7 +17143,8 @@ var Worker2 = class {
     return {
       worker: this.opts.version,
       name: this.config.name,
-      repos: this.config.repos.map((r) => ({ name: r.name, baseBranch: r.baseBranch, branches: this.branches.get(r.name) ?? [], mcp: r.claude.mcpServers })),
+      // push / pr: worker.json's flags (One's pipeline editor warns when a git stage wants what is off here)
+      repos: this.config.repos.map((r) => ({ name: r.name, baseBranch: r.baseBranch, branches: this.branches.get(r.name) ?? [], mcp: r.claude.mcpServers, push: r.push, pr: r.pr })),
       parallel: this.config.parallel,
       busy: this.busy(),
       spentToday: this.state.spentToday(),
@@ -17370,12 +17520,13 @@ var Worker2 = class {
     forgetGitEnv();
     let scrub = repoScrubber(repo);
     let dir = null;
-    const snap = async (message, url) => {
+    const line = (k, s, c, v) => this.logLine(taskId, { t: Date.now(), k, s: scrub.text(s), ...c ? { c, v: v ? Object.fromEntries(Object.entries(v).map(([key, x2]) => [key, typeof x2 === "string" ? scrub.text(x2) : x2])) : {} } : {} });
+    const snap = async (message, o = {}) => {
       const g = dir ? await info(repo, this.state, dir, branch) : void 0;
-      const git2 = g ? { ...g, files: g.files.map((f) => ({ ...f, diff: f.diff === null ? null : scrub.text(f.diff) })) } : void 0;
+      const git2 = g ? { ...g, files: g.files.map((f) => ({ ...f, diff: f.diff === null ? null : scrub.text(f.diff) })), commits: g.commits.map((c) => ({ ...c, subject: scrub.text(c.subject) })) } : void 0;
       if (git2) this.link.send({ type: "event", taskId, kind: "git", git: git2 });
-      this.logLine(taskId, { t: Date.now(), k: "git", s: scrub.text(message) });
-      return { message: scrub.text(message), url, git: git2 };
+      line(o.k ?? "git", message, o.c, o.v);
+      return { message: scrub.text(message), url: o.url, git: git2, ...o.ship ? { ship: { ...o.ship, at: Date.now() } } : {}, ...o.error ? { error: scrub.text(o.error) } : {} };
     };
     const need = () => {
       if (!dir) throw new GitError(`the branch "${branch}" has no worktree of the worker`);
@@ -17384,6 +17535,7 @@ var Worker2 = class {
     try {
       dir = await worktreeOf(repo, branch);
       scrub = repoScrubber(repo, dir);
+      const web = await webOf(repo).catch(() => null);
       switch (verb) {
         case "refresh":
           return await snap("Git status refreshed.");
@@ -17392,25 +17544,48 @@ var Worker2 = class {
           this.opts.log(`worktree of task "${msg.title}" (${repo.name} \xB7 ${branch}): ${dir}`);
           return { message: "The worker printed the folder in its terminal." };
         case "commit": {
-          const sha = await commitAll(need(), (msg.message ?? "").trim() || msg.title || "One task");
-          return await snap(sha ? `Committed ${sha.slice(0, 8)}.` : "Nothing to commit.");
+          const sha = await commitAll(need(), withTaskTrailer((msg.message ?? "").trim() || msg.title || "One task", taskId));
+          if (!sha) return await snap("Nothing to commit.", { c: "nothingToCommit", v: { sha: "" } });
+          const rec = newShip("commit", "key", branch, web);
+          rec.commit = { sha };
+          rec.head = sha;
+          return await snap(`Committed ${sha.slice(0, 8)}.`, { c: "committed", v: { sha: sha.slice(0, 8) }, ship: rec });
         }
         case "push":
-        case "force-push":
+        case "force-push": {
           if (!repo.push) throw new GitError('pushing is off for this repo (worker.json "push": false)');
-          await push(repo, need(), branch, verb === "force-push");
-          return await snap(verb === "force-push" ? `Force-pushed ${branch} (with lease).` : `Pushed ${branch}.`);
+          const force = verb === "force-push";
+          await push(repo, need(), branch, force);
+          const rec = newShip(verb, "key", branch, web);
+          rec.pushed = { remote: repo.remote, ...force ? { force: true } : {} };
+          rec.head = await headOf(need()).catch(() => null);
+          return await snap(force ? `Force-pushed ${branch} (with lease).` : `Pushed ${branch}.`, { c: force ? "forcePushed" : "pushed", v: { branch, remote: repo.remote }, ship: rec });
+        }
         case "pr": {
           if (!repo.push) throw new GitError('pushing is off for this repo (worker.json "push": false)');
           await push(repo, need(), branch);
-          const pr = await openPr(repo, need(), branch, msg.title || branch, `${msg.title}
-
-\u2014 From One (coding pipeline).`);
-          return await snap(pr.url ? pr.via === "gh" ? "Pull request opened." : pr.via === "glab" ? "Merge request opened." : "Pushed \u2014 open the pull request from the link." : "Pushed. This remote has no pull request page One could link to.", pr.url ?? void 0);
+          const rec = newShip("pr", "key", branch, web);
+          rec.pushed = { remote: repo.remote };
+          rec.head = await headOf(need()).catch(() => null);
+          try {
+            const pr = await openPr(repo, need(), branch, msg.title || branch, requestBody(msg.title || branch, taskId));
+            const r = requestLine(pr, rec, repo);
+            if (r.warn) line("warn", r.warn);
+            const Kind = requestKind(rec.web) === "mr" ? "Merge" : "Pull";
+            const message = pr.url ? pr.via === "link" ? "Pushed \u2014 open the pull request from the link." : pr.existing ? `${Kind} request already open.` : `${Kind} request opened.` : "Pushed. This remote has no pull request page One could link to.";
+            return await snap(message, { url: pr.url ?? void 0, k: r.line.k, c: r.line.c, v: r.line.v, ship: rec });
+          } catch (e) {
+            const why2 = e instanceof GitError ? `git: ${e.message}` : e instanceof Error ? e.message : String(e);
+            noteGitHint(e instanceof GitError && e.detail ? e.detail : why2, repo, line, (l) => this.opts.log(l));
+            rec.failed = { step: "request" };
+            return await snap(`Pushed ${branch}. The ${requestKind(rec.web) === "mr" ? "merge" : "pull"} request could not be opened: ${why2}`, { k: "error", ship: rec, error: why2 });
+          }
         }
         case "update-base": {
           const r = await updateFromBase(repo, need(), branch);
-          return await snap(r.how === "conflicts" ? `Conflicts in ${r.conflicts.length} file(s): ${r.conflicts.join(", ")}` : r.how === "up-to-date" ? "Already up to date." : r.how === "rebased" ? "Rebased onto the base." : "Merged the base in.");
+          if (r.remote && r.how !== "conflicts") line("git", `Merged ${repo.remote}/${branch} in (commits made elsewhere)`, "remoteMerged", { remote: repo.remote, branch });
+          const pre = r.remote && r.how !== "conflicts" ? `Merged ${repo.remote}/${branch} in. ` : "";
+          return await snap(r.how === "conflicts" ? `Conflicts in ${r.conflicts.length} file(s): ${r.conflicts.join(", ")}` : `${pre}${r.how === "up-to-date" ? "Already up to date." : r.how === "rebased" ? "Rebased onto the base." : "Merged the base in."}`);
         }
         case "discard": {
           const r = await discard(repo, this.state, branch);
@@ -17423,12 +17598,18 @@ var Worker2 = class {
           const r = await commentPr(repo, dir ?? repo.path, branch, `${review}
 
 \u2014 Review from One (coding pipeline).`);
-          return await snap(`Review posted to the ${r.via === "gh" ? "pull" : "merge"} request.`, r.url ?? void 0);
+          const rec = newShip("comment", "key", branch, web);
+          if (r.url) withRequest(rec, r.url, "commented");
+          if (dir) rec.head = await headOf(dir).catch(() => null);
+          return await snap(`Review posted to the ${r.via === "gh" ? "pull" : "merge"} request.`, { url: r.url ?? void 0, c: "reviewPosted", v: { url: r.url ?? "" }, ...r.url ? { ship: rec } : {} });
         }
         case "merge-pr": {
           if (dir && await isDirty(dir)) throw new GitError("the worktree has uncommitted changes that would not be merged \u2014 commit and push them first");
           const r = await mergePr(repo, dir ?? repo.path, branch);
-          return await snap(`Merged the ${r.via === "gh" ? "pull" : "merge"} request into ${repo.baseBranch}.`, r.url ?? void 0);
+          const rec = newShip("merge", "key", branch, web);
+          if (r.url) withRequest(rec, r.url, "merged");
+          if (dir) rec.head = await headOf(dir).catch(() => null);
+          return await snap(`Merged the ${r.via === "gh" ? "pull" : "merge"} request into ${repo.baseBranch}.`, { url: r.url ?? void 0, c: "requestMerged", v: { url: r.url ?? "" }, ...r.url ? { ship: rec } : {} });
         }
         case "cleanup": {
           const r = await cleanup(repo, this.state, branch);
@@ -17438,9 +17619,8 @@ var Worker2 = class {
       }
     } catch (e) {
       const msg2 = e instanceof GitError ? `git: ${e.message}` : e instanceof Error ? e.message : String(e);
-      const hint = (k, s, c, v) => this.logLine(taskId, { t: Date.now(), k, s: scrub.text(s), ...c ? { c, v } : {} });
-      if (e instanceof GitError && e.code === "folderBusy") hint("warn", FOLDER_BUSY, "folderBusy", {});
-      else noteGitHint(e instanceof GitError && e.detail ? e.detail : msg2, repo, hint, (line) => this.opts.log(line));
+      if (e instanceof GitError && e.code === "folderBusy") line("warn", FOLDER_BUSY, "folderBusy", {});
+      else noteGitHint(e instanceof GitError && e.detail ? e.detail : msg2, repo, line, (l) => this.opts.log(l));
       throw new Error(scrub.text(msg2));
     }
     throw new Error("unknown git action");
@@ -34608,6 +34788,7 @@ input[type='text']:focus, input[type='number']:focus, select:focus { border-colo
 .detail { display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.2fr) minmax(0, 1.6fr); gap: 12px 14px; margin: 0 14px 0 46px; padding: 2px 0 14px; }
 .field { display: grid; gap: 4px; align-content: start; min-width: 0; }
 .field--wide { grid-column: span 2; }
+.forge select { max-width: 320px; }
 .wmcp { margin: 14px 0 0; max-width: 640px; }
 .keys { display: flex; flex-wrap: wrap; gap: 4px; min-height: 20px; }
 .kbd { display: inline-block; padding: 1px 6px; border: 1px solid var(--rule-strong); border-bottom-width: 2px; border-radius: 2px; background: var(--surface); color: var(--ink); font: 11px/1.5 var(--mono); }
@@ -34712,6 +34893,12 @@ var SETUP_JS = String.raw`(function () {
     noTests: 'No test stage',
     push: 'Push branches',
     pr: 'Pull / merge requests (gh · glab)',
+    forgeLabel: 'Host type',
+    forgeAuto: 'Automatic — {kind}',
+    forgeNone: 'not recognised',
+    forgeGitlab: 'GitLab (also self-hosted)',
+    forgeGithub: 'GitHub (also Enterprise)',
+    forgeHint: 'Automatic reads the address: a host with “gitlab” or “github” in its name. A self-hosted GitLab or GitHub Enterprise under its own name: pick it here — then One links commits and branches, and the worker opens merge / pull requests with glab / gh.',
     limit: 'Cost limit per task (USD)',
     mcpLabel: 'Own MCP servers for Claude Code',
     mcpHint: 'Names as “claude mcp list” shows them, e.g. kb — this repo\'s stages may use their tools (a knowledge base, a design system). Empty: only One\'s task tools.',
@@ -34839,6 +35026,12 @@ var SETUP_JS = String.raw`(function () {
     noTests: 'Keine Test-Stufe',
     push: 'Branches pushen',
     pr: 'Pull / Merge Requests (gh · glab)',
+    forgeLabel: 'Host-Art',
+    forgeAuto: 'Automatisch – {kind}',
+    forgeNone: 'nicht erkannt',
+    forgeGitlab: 'GitLab (auch selbst betrieben)',
+    forgeGithub: 'GitHub (auch Enterprise)',
+    forgeHint: 'Automatisch liest die Adresse: ein Host mit „gitlab“ oder „github“ im Namen. Ein selbst betriebenes GitLab oder GitHub Enterprise unter eigenem Namen: hier wählen – dann verlinkt One Commits und Branches, und der Worker öffnet Merge / Pull Requests mit glab / gh.',
     limit: 'Kostengrenze pro Aufgabe (USD)',
     mcpLabel: 'Eigene MCP-Server für Claude Code',
     mcpHint: 'Namen wie in „claude mcp list“, z. B. kb – die Stufen dieses Repos dürfen ihre Tools nutzen (eine Wissensbasis, ein Designsystem). Leer: nur die Aufgaben-Tools von One.',
@@ -35007,7 +35200,7 @@ var SETUP_JS = String.raw`(function () {
   }
 
   function editOf(r) {
-    if (!edits[r.path]) edits[r.path] = { ticked: r.ticked, name: r.name, base: r.base, test: r.testLine, push: r.push, pr: r.pr, limit: r.maxUsdPerTask === null ? '' : String(r.maxUsdPerTask), mcp: r.mcp || '', analyze: r.analyzeLine || '', own: r.ownSettings, own0: r.ownSettings }
+    if (!edits[r.path]) edits[r.path] = { ticked: r.ticked, name: r.name, base: r.base, test: r.testLine, push: r.push, pr: r.pr, forge: r.forge || 'auto', limit: r.maxUsdPerTask === null ? '' : String(r.maxUsdPerTask), mcp: r.mcp || '', analyze: r.analyzeLine || '', own: r.ownSettings, own0: r.ownSettings }
     return edits[r.path]
   }
 
@@ -35099,12 +35292,26 @@ var SETUP_JS = String.raw`(function () {
       ownWarn
     ])
     if (state.gh || state.glab) toggles.push(el('label', { className: 'sw' }, [el('input', { type: 'checkbox', role: 'switch', checked: e.pr === 'gh', onchange: function (ev) { e.pr = ev.target.checked ? 'gh' : 'none' } }), t('pr')]))
+    // the host type (worker.json "forge"): only for a repo with a remote — "Automatic" names what its host's name says
+    var forge = null
+    if (r.remote) {
+      var kind = r.forgeAuto === 'gitlab' ? 'GitLab' : r.forgeAuto === 'github' ? 'GitHub' : t('forgeNone')
+      var sel = el('select', { id: id + 'f', 'aria-describedby': id + 'fh', onchange: function () { e.forge = sel.value } })
+      ;[['auto', t('forgeAuto', { kind: kind })], ['gitlab', t('forgeGitlab')], ['github', t('forgeGithub')]].forEach(function (o) { sel.appendChild(el('option', { value: o[0], text: o[1] })) })
+      sel.value = e.forge
+      forge = el('div', { className: 'field field--wide forge' }, [
+        el('label', { className: 'label', for: id + 'f', text: t('forgeLabel') }),
+        sel,
+        el('span', { className: 'hint', id: id + 'fh', text: t('forgeHint') })
+      ])
+    }
     return el('div', { className: 'detail' }, [
       el('div', { className: 'field' }, [el('label', { className: 'label', for: id + 'n', text: t('nameLabel') }), el('input', { type: 'text', id: id + 'n', value: e.name, maxlength: 64, spellcheck: 'false', oninput: function (ev) { e.name = ev.target.value } })]),
       el('div', { className: 'field' }, [el('label', { className: 'label', for: id + 'b', text: t('baseLabel') }), base]),
       el('div', { className: 'field' }, [el('label', { className: 'label', for: id + 't', text: t('testLabel') }), el('input', { type: 'text', id: id + 't', value: e.test, spellcheck: 'false', autocomplete: 'off', oninput: function (ev) { e.test = ev.target.value; drawKeys() } }), keys, el('span', { className: 'hint', text: t(windows() ? 'testHintWin' : 'testHint') })]),
       el('div', { className: 'field' }, [el('label', { className: 'label', for: id + 'a', text: t('analyzeLabel') }), el('input', { type: 'text', id: id + 'a', value: e.analyze, spellcheck: 'false', autocomplete: 'off', oninput: function (ev) { e.analyze = ev.target.value } }), el('span', { className: 'hint', text: t('analyzeHint') })]),
       el('div', { className: 'field field--wide' }, [el('div', { className: 'toggles' }, toggles)]),
+      forge,
       el('div', { className: 'field' }, [el('div', { className: 'limit' }, [el('label', { className: 'label', for: id + 'l', text: t('limit') }), el('input', { type: 'number', id: id + 'l', min: '0', step: '0.5', value: e.limit, placeholder: t('noLimit'), inputmode: 'decimal', oninput: function (ev) { e.limit = ev.target.value } })])]),
       el('div', { className: 'field field--wide' }, [el('label', { className: 'label', for: id + 'm', text: t('mcpLabel') }), mcpInput, el('span', { className: 'hint', id: id + 'mh', text: t('mcpHint') }), mcpUser]),
       own
@@ -35415,7 +35622,7 @@ var SETUP_JS = String.raw`(function () {
     var repos = state.repos.filter(function (r) { return editOf(r).ticked }).map(function (r) {
       var e = editOf(r)
       var limit = parseFloat(String(e.limit).replace(',', '.'))
-      return { path: r.path, name: e.name.trim(), baseBranch: e.base, test: e.test, analyze: e.analyze, push: e.push, pr: e.pr, maxUsdPerTask: isFinite(limit) && limit > 0 ? limit : null, mcp: e.mcp, projectSettings: e.own }
+      return { path: r.path, name: e.name.trim(), baseBranch: e.base, test: e.test, analyze: e.analyze, push: e.push, pr: e.pr, forge: e.forge, maxUsdPerTask: isFinite(limit) && limit > 0 ? limit : null, mcp: e.mcp, projectSettings: e.own }
     })
     busy = 'save'
     note = null
@@ -35567,6 +35774,8 @@ var SetupServer = class {
         configured: true,
         push: r.push,
         pr: r.pr,
+        forge: r.forge,
+        forgeAuto: forgeOfHost(f?.host ?? null),
         maxUsdPerTask: r.maxUsdPerTask,
         test: r.testCommand,
         testLine: joinArgs(r.testCommand),
@@ -35580,7 +35789,7 @@ var SetupServer = class {
     const rest = [...this.found.values()].filter((f) => !seen.has(pathId(f.path))).sort((a, b) => (b.lastCommit ?? 0) - (a.lastCommit ?? 0));
     for (const f of rest) {
       const source = this.sourceNow(f.path);
-      out.push({ ...f, ticked: false, configured: false, push: !!f.remote, pr: "gh", maxUsdPerTask: null, testLine: joinArgs(f.test), mcp: "", analyzeLine: joinArgs(f.analyze ?? null), ownSettings: source === null, source, ...this.syncedOf(f.path, null) });
+      out.push({ ...f, ticked: false, configured: false, push: !!f.remote, pr: "gh", forge: "auto", forgeAuto: forgeOfHost(f.host), maxUsdPerTask: null, testLine: joinArgs(f.test), mcp: "", analyzeLine: joinArgs(f.analyze ?? null), ownSettings: source === null, source, ...this.syncedOf(f.path, null) });
     }
     return out;
   }
@@ -35780,7 +35989,8 @@ var SetupServer = class {
       }
       const analyze = typeof item.analyze === "string" ? splitArgs(item.analyze) : void 0;
       const projectSettings = typeof item.projectSettings === "boolean" ? item.projectSettings : void 0;
-      choices.push({ path: repo.path, name, baseBranch, remote: repo.remote, testCommand: test?.length ? test : null, ...analyze !== void 0 ? { analyzeCommand: analyze?.length ? analyze : null } : {}, push: item.push === true, pr: item.pr === "none" ? "none" : "gh", maxUsdPerTask: limit, mcpServers, projectSettings });
+      const forge = item.forge === "auto" || item.forge === "github" || item.forge === "gitlab" ? item.forge : void 0;
+      choices.push({ path: repo.path, name, baseBranch, remote: repo.remote, testCommand: test?.length ? test : null, ...analyze !== void 0 ? { analyzeCommand: analyze?.length ? analyze : null } : {}, push: item.push === true, pr: item.pr === "none" ? "none" : "gh", maxUsdPerTask: limit, mcpServers, projectSettings, ...forge !== void 0 ? { forge } : {} });
     }
     let workerMcp;
     if (isObj7(body) && typeof body.mcpServers === "string") {
@@ -35956,7 +36166,7 @@ ${prompt}`);
 }
 
 // src/worker/index.ts
-var VERSION = true ? "1.9.0" : "dev";
+var VERSION = true ? "1.10.0" : "dev";
 var quiet = process.env.ONE_WORKER_QUIET === "1";
 var recent = [];
 var log = (msg) => {
@@ -36073,7 +36283,7 @@ Or download the worker from One (Settings \u2192 Coding worker): that file comes
         const remote = await hasRemote(repo);
         const own2 = repo.claude.projectSettings ? "on" : `off (${repo.source ? SOURCE_WORDS[repo.source] : repo.claude.projectSettingsSet ? "worker.json" : "default"})`;
         if (!repo.claude.projectSettings && repo.source) untrusted++;
-        lines.push(`repo       ${repo.name}: ok \xB7 base ${repo.baseBranch} \xB7 ${remote ? `remote ${repo.remote}` : `no remote "${repo.remote}" (push off)`} \xB7 tests ${repo.testCommand ? "yes" : "none"} \xB7 its own Claude Code settings ${own2}`);
+        lines.push(`repo       ${repo.name}: ok \xB7 base ${repo.baseBranch} \xB7 ${remote ? `remote ${repo.remote}` : `no remote "${repo.remote}" (push off)`} \xB7 tests ${repo.testCommand ? "yes" : "none"} \xB7 host type ${repo.forge === "auto" ? "auto" : repo.forge} \xB7 its own Claude Code settings ${own2}`);
       } catch (e) {
         ok = false;
         lines.push(`repo       ${repo.name}: ${e instanceof Error ? e.message : String(e)}`);

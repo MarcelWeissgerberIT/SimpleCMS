@@ -25,6 +25,7 @@ import {
   type LogLine,
   type NextResult,
   type OpenSetupResult,
+  type ShipRecord,
   type StageOutcome,
   type TabMessage,
   type TaskPayload,
@@ -36,14 +37,14 @@ import { WorkerState } from './state.ts'
 import { claudeInstallHint, claudeMissingError, detectClaude, findClaude, nativeNotOnPath, type ClaudeBin, type ClaudeCaps } from './claude.ts'
 import { scratchRepo } from './config.ts'
 import { Intake } from './intake.ts'
-import { checkRepo, cleanup, commentPr, commitAll, discard, info, isDirty, localBranches, mergePr, openPr, ownLocks, prune, push, sweepLeftovers, updateFromBase, worktreeOf, GitError } from './git.ts'
+import { checkRepo, cleanup, commentPr, commitAll, discard, headOf, info, isDirty, localBranches, mergePr, openPr, ownLocks, prune, push, sweepLeftovers, updateFromBase, webOf, worktreeOf, GitError } from './git.ts'
 import { FOLDER_BUSY, forgetGitEnv } from './gitenv.ts'
 import { pathId } from './paths.ts'
 import { WorkerLink } from './link.ts'
 import type { CloudFatal } from './cloud.ts'
 import { cloudOf } from './config.ts'
 import { relayUrl, workerOrigins } from './preset.ts'
-import { dataBlock, markerCode, noteGitHint, runStage } from './run.ts'
+import { dataBlock, markerCode, newShip, noteGitHint, requestBody, requestKind, requestLine, runStage, withRequest, withTaskTrailer } from './run.ts'
 import { Scrubber, repoScrubber } from './scrub.ts'
 import { cloneBase } from './clone.ts'
 import type { SetupLive } from './setup.ts'
@@ -227,7 +228,8 @@ export class Worker {
     return {
       worker: this.opts.version,
       name: this.config.name,
-      repos: this.config.repos.map((r) => ({ name: r.name, baseBranch: r.baseBranch, branches: this.branches.get(r.name) ?? [], mcp: r.claude.mcpServers })),
+      // push / pr: worker.json's flags (One's pipeline editor warns when a git stage wants what is off here)
+      repos: this.config.repos.map((r) => ({ name: r.name, baseBranch: r.baseBranch, branches: this.branches.get(r.name) ?? [], mcp: r.claude.mcpServers, push: r.push, pr: r.pr })),
       parallel: this.config.parallel,
       busy: this.busy(),
       spentToday: this.state.spentToday(),
@@ -661,12 +663,19 @@ export class Worker {
     // before any git runs: its error (a refused folder, git's safe.directory line …) passes the scrubber too
     let scrub = repoScrubber(repo)
     let dir: string | null = null
-    const snap = async (message: string, url?: string): Promise<GitResult> => {
+    /** a log line of this key (scrubbed: its text and its values) */
+    const line = (k: LogLine['k'], s: string, c?: string, v?: Record<string, string | number>) =>
+      this.logLine(taskId, { t: Date.now(), k, s: scrub.text(s), ...(c ? { c, v: v ? Object.fromEntries(Object.entries(v).map(([key, x]) => [key, typeof x === 'string' ? scrub.text(x) : x])) : {} } : {}) })
+    /**
+     * The key's answer: the git snapshot (also as an event), its line in the log (coded when `c`), and — worker 1.10.0 —
+     * what it shipped (`ship`) and, key 'pr' only, the request's failure after the push (`error`).
+     */
+    const snap = async (message: string, o: { url?: string; k?: LogLine['k']; c?: string; v?: Record<string, string | number>; ship?: ShipRecord; error?: string } = {}): Promise<GitResult> => {
       const g = dir ? await info(repo, this.state, dir, branch) : undefined
-      const git = g ? { ...g, files: g.files.map((f) => ({ ...f, diff: f.diff === null ? null : scrub.text(f.diff) })) } : undefined
+      const git = g ? { ...g, files: g.files.map((f) => ({ ...f, diff: f.diff === null ? null : scrub.text(f.diff) })), commits: g.commits.map((c) => ({ ...c, subject: scrub.text(c.subject) })) } : undefined
       if (git) this.link.send({ type: 'event', taskId, kind: 'git', git })
-      this.logLine(taskId, { t: Date.now(), k: 'git', s: scrub.text(message) })
-      return { message: scrub.text(message), url, git }
+      line(o.k ?? 'git', message, o.c, o.v)
+      return { message: scrub.text(message), url: o.url, git, ...(o.ship ? { ship: { ...o.ship, at: Date.now() } } : {}), ...(o.error ? { error: scrub.text(o.error) } : {}) }
     }
     const need = () => {
       if (!dir) throw new GitError(`the branch "${branch}" has no worktree of the worker`)
@@ -675,6 +684,8 @@ export class Worker {
     try {
       dir = await worktreeOf(repo, branch)
       scrub = repoScrubber(repo, dir)
+      // the repo's web address (ship records link with it) — scheme, host and project path only
+      const web = await webOf(repo).catch(() => null)
       switch (verb) {
         case 'refresh':
           return await snap('Git status refreshed.')
@@ -684,23 +695,57 @@ export class Worker {
           this.opts.log(`worktree of task "${msg.title}" (${repo.name} · ${branch}): ${dir}`)
           return { message: 'The worker printed the folder in its terminal.' }
         case 'commit': {
-          const sha = await commitAll(need(), (msg.message ?? '').trim() || msg.title || 'One task')
-          return await snap(sha ? `Committed ${sha.slice(0, 8)}.` : 'Nothing to commit.')
+          // the message the person typed (or the title) + "One-Task: <id>" — a spoofed trailer in it goes
+          const sha = await commitAll(need(), withTaskTrailer((msg.message ?? '').trim() || msg.title || 'One task', taskId))
+          if (!sha) return await snap('Nothing to commit.', { c: 'nothingToCommit', v: { sha: '' } })
+          const rec = newShip('commit', 'key', branch, web)
+          rec.commit = { sha }
+          rec.head = sha
+          return await snap(`Committed ${sha.slice(0, 8)}.`, { c: 'committed', v: { sha: sha.slice(0, 8) }, ship: rec })
         }
         case 'push':
-        case 'force-push':
+        case 'force-push': {
           if (!repo.push) throw new GitError('pushing is off for this repo (worker.json "push": false)')
-          await push(repo, need(), branch, verb === 'force-push')
-          return await snap(verb === 'force-push' ? `Force-pushed ${branch} (with lease).` : `Pushed ${branch}.`)
+          const force = verb === 'force-push'
+          await push(repo, need(), branch, force)
+          const rec = newShip(verb, 'key', branch, web)
+          rec.pushed = { remote: repo.remote, ...(force ? { force: true as const } : {}) }
+          rec.head = await headOf(need()).catch(() => null)
+          return await snap(force ? `Force-pushed ${branch} (with lease).` : `Pushed ${branch}.`, { c: force ? 'forcePushed' : 'pushed', v: { branch, remote: repo.remote }, ship: rec })
+        }
         case 'pr': {
           if (!repo.push) throw new GitError('pushing is off for this repo (worker.json "push": false)')
           await push(repo, need(), branch)
-          const pr = await openPr(repo, need(), branch, msg.title || branch, `${msg.title}\n\n— From One (coding pipeline).`)
-          return await snap(pr.url ? (pr.via === 'gh' ? 'Pull request opened.' : pr.via === 'glab' ? 'Merge request opened.' : 'Pushed — open the pull request from the link.') : 'Pushed. This remote has no pull request page One could link to.', pr.url ?? undefined)
+          const rec = newShip('pr', 'key', branch, web)
+          rec.pushed = { remote: repo.remote }
+          rec.head = await headOf(need()).catch(() => null)
+          try {
+            const pr = await openPr(repo, need(), branch, msg.title || branch, requestBody(msg.title || branch, taskId))
+            const r = requestLine(pr, rec, repo)
+            if (r.warn) line('warn', r.warn)
+            const Kind = requestKind(rec.web) === 'mr' ? 'Merge' : 'Pull'
+            const message = pr.url
+              ? pr.via === 'link'
+                ? 'Pushed — open the pull request from the link.'
+                : pr.existing
+                  ? `${Kind} request already open.`
+                  : `${Kind} request opened.`
+              : 'Pushed. This remote has no pull request page One could link to.'
+            return await snap(message, { url: pr.url ?? undefined, k: r.line.k, c: r.line.c, v: r.line.v, ship: rec })
+          } catch (e) {
+            // the push went through: recorded, and the request's failure is the answer's error — never thrown
+            const why = e instanceof GitError ? `git: ${e.message}` : e instanceof Error ? e.message : String(e)
+            noteGitHint(e instanceof GitError && e.detail ? e.detail : why, repo, line, (l) => this.opts.log(l))
+            rec.failed = { step: 'request' }
+            return await snap(`Pushed ${branch}. The ${requestKind(rec.web) === 'mr' ? 'merge' : 'pull'} request could not be opened: ${why}`, { k: 'error', ship: rec, error: why })
+          }
         }
         case 'update-base': {
+          // no ship record: a merge commit it makes shows in the Git tab; the next push records it
           const r = await updateFromBase(repo, need(), branch)
-          return await snap(r.how === 'conflicts' ? `Conflicts in ${r.conflicts.length} file(s): ${r.conflicts.join(', ')}` : r.how === 'up-to-date' ? 'Already up to date.' : r.how === 'rebased' ? 'Rebased onto the base.' : 'Merged the base in.')
+          if (r.remote && r.how !== 'conflicts') line('git', `Merged ${repo.remote}/${branch} in (commits made elsewhere)`, 'remoteMerged', { remote: repo.remote, branch })
+          const pre = r.remote && r.how !== 'conflicts' ? `Merged ${repo.remote}/${branch} in. ` : ''
+          return await snap(r.how === 'conflicts' ? `Conflicts in ${r.conflicts.length} file(s): ${r.conflicts.join(', ')}` : `${pre}${r.how === 'up-to-date' ? 'Already up to date.' : r.how === 'rebased' ? 'Rebased onto the base.' : 'Merged the base in.'}`)
         }
         case 'discard': {
           const r = await discard(repo, this.state, branch)
@@ -711,12 +756,18 @@ export class Worker {
           const review = typeof msg.message === 'string' ? msg.message.trim() : ''
           if (!review) throw new GitError('there is no review to post')
           const r = await commentPr(repo, dir ?? repo.path, branch, `${review}\n\n— Review from One (coding pipeline).`)
-          return await snap(`Review posted to the ${r.via === 'gh' ? 'pull' : 'merge'} request.`, r.url ?? undefined)
+          const rec = newShip('comment', 'key', branch, web)
+          if (r.url) withRequest(rec, r.url, 'commented')
+          if (dir) rec.head = await headOf(dir).catch(() => null)
+          return await snap(`Review posted to the ${r.via === 'gh' ? 'pull' : 'merge'} request.`, { url: r.url ?? undefined, c: 'reviewPosted', v: { url: r.url ?? '' }, ...(r.url ? { ship: rec } : {}) })
         }
         case 'merge-pr': {
           if (dir && (await isDirty(dir))) throw new GitError('the worktree has uncommitted changes that would not be merged — commit and push them first')
           const r = await mergePr(repo, dir ?? repo.path, branch)
-          return await snap(`Merged the ${r.via === 'gh' ? 'pull' : 'merge'} request into ${repo.baseBranch}.`, r.url ?? undefined)
+          const rec = newShip('merge', 'key', branch, web)
+          if (r.url) withRequest(rec, r.url, 'merged')
+          if (dir) rec.head = await headOf(dir).catch(() => null)
+          return await snap(`Merged the ${r.via === 'gh' ? 'pull' : 'merge'} request into ${repo.baseBranch}.`, { url: r.url ?? undefined, c: 'requestMerged', v: { url: r.url ?? '' }, ...(r.url ? { ship: rec } : {}) })
         }
         case 'cleanup': {
           const r = await cleanup(repo, this.state, branch)
@@ -727,10 +778,9 @@ export class Worker {
     } catch (e) {
       const msg = e instanceof GitError ? `git: ${e.message}` : e instanceof Error ? e.message : String(e)
       // what it means for the person, in the task's log (the error itself goes back to the key they pressed)
-      const hint = (k: LogLine['k'], s: string, c?: string, v?: Record<string, string | number>) => this.logLine(taskId, { t: Date.now(), k, s: scrub.text(s), ...(c ? { c, v } : {}) })
-      if (e instanceof GitError && e.code === 'folderBusy') hint('warn', FOLDER_BUSY, 'folderBusy', {})
+      if (e instanceof GitError && e.code === 'folderBusy') line('warn', FOLDER_BUSY, 'folderBusy', {})
       // git's whole message (a lock file or an ownership report is not in its last lines), the hint by its code only
-      else noteGitHint(e instanceof GitError && e.detail ? e.detail : msg, repo, hint, (line) => this.opts.log(line))
+      else noteGitHint(e instanceof GitError && e.detail ? e.detail : msg, repo, line, (l) => this.opts.log(l))
       throw new Error(scrub.text(msg))
     }
     throw new Error('unknown git action')

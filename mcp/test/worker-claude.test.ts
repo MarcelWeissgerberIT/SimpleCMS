@@ -345,7 +345,8 @@ describe('prompt', () => {
     assert.match(p, /<<<REWORK c0de42\nUse the blue colour\nREWORK c0de42>>>/)
     assert.match(p, /Q: Which colour\?\nA: Blue/)
     assert.match(p, /do not commit, push/)
-    assert.equal(commitMessage({ ...t, title: 'Add it', summary: '- did it' }), 'Add it\n\n- did it')
+    // the task's id as a git trailer of its own (worker 1.10.0)
+    assert.equal(commitMessage({ ...t, title: 'Add it', summary: '- did it' }), `Add it\n\n- did it\n\nOne-Task: ${t.id}`)
   })
 
   test('task text cannot close its data block: the markers carry a code made for each prompt', () => {

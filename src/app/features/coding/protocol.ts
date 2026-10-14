@@ -59,9 +59,10 @@ export type GitAction = (typeof GIT_ACTIONS)[number]
  * git actions 'git:comment' / 'git:merge', 'doc' (document stages), 'model' (it passes the stage's model to Claude
  * Code) and 'mcp-list' (it names each repo's own Claude Code MCP servers, so the task panel can show them). One hands a stage that needs one of them only to a worker that says so — an older worker would run an unknown
  * stage kind as a git stage, drop the task as unreadable (and get it again on every round), or quietly run Claude
- * Code with another model than the one picked.
+ * Code with another model than the one picked. 'ship' (git stages and keys return a ShipRecord — nothing is handed out
+ * by it: an older worker's git stages run as before and One writes their summary).
  */
-export const WORKER_CAN = ['analyze', 'git:comment', 'git:merge', 'doc', 'model', 'mcp-list'] as const
+export const WORKER_CAN = ['analyze', 'git:comment', 'git:merge', 'doc', 'model', 'mcp-list', 'ship'] as const
 /**
  * What a worker runs, read from its `next`. Document stages came before `can`, together with `docs: true`: a worker
  * that sends either knows them, so a `can` without 'doc' (1.3.x) or `docs` without a `can` (1.3.1 before `can`)
@@ -159,6 +160,93 @@ export function cleanModel(v: unknown): string | null {
  */
 export const GIT_VERBS = ['refresh', 'commit', 'push', 'force-push', 'pr', 'update-base', 'discard', 'cleanup', 'reveal', 'comment-pr', 'merge-pr'] as const
 export type GitVerb = (typeof GIT_VERBS)[number]
+
+/* ------------------------------------------------------------------ the ship log (worker 1.10.0) */
+
+/** worker 1.10.0: every commit message and merge / pull request body ends with "One-Task: <task id>" (built as text, never by git's trailer machinery). */
+export const SHIP_TRAILER = 'One-Task'
+
+/** A repository host the worker knows: web links and merge / pull requests (gh · glab). */
+export const FORGES = ['github', 'gitlab'] as const
+export type Forge = (typeof FORGES)[number]
+/** worker.json "forge" per repo: 'auto' = by the remote's host name ("github" / "gitlab" in it), else that forge (a self-hosted GitLab, GitHub Enterprise). */
+export const FORGE_SETTINGS = ['auto', 'github', 'gitlab'] as const
+export type ForgeSetting = (typeof FORGE_SETTINGS)[number]
+
+/**
+ * A repository's web address: scheme + host (+ the port of an http(s) remote) + project path — e.g.
+ * "https://gitlab.example.test/nordlicht/website". Never credentials, a query, a fragment or a local path.
+ */
+export interface ForgeWeb {
+  base: string
+  forge: Forge
+}
+
+const WEB_BASE = /^https?:\/\/[a-z0-9.-]+(?::\d{1,5})?(?:\/[A-Za-z0-9_.-]+){2,}$/
+
+/** A ForgeWeb as One and the worker accept it (null: anything else) — the one rule for both sides. */
+export function cleanWeb(raw: unknown): ForgeWeb | null {
+  if (!raw || typeof raw !== 'object') return null
+  const { base, forge } = raw as Record<string, unknown>
+  if (typeof base !== 'string' || base.length > 300 || !WEB_BASE.test(base)) return null
+  if (base.split('/').slice(3).some((seg) => seg === '.' || seg === '..')) return null
+  return forge === 'github' || forge === 'gitlab' ? { base, forge } : null
+}
+
+/** A git object id (sha-1 or sha-256). */
+export const GIT_SHA = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/
+
+const encPath = (s: string) => s.split('/').map(encodeURIComponent).join('/')
+/** GitHub: <base>/commit/<sha> · GitLab: <base>/-/commit/<sha> */
+export const commitUrl = (web: ForgeWeb, sha: string): string => `${web.base}${web.forge === 'gitlab' ? '/-' : ''}/commit/${sha}`
+/** GitHub: <base>/tree/<branch> · GitLab: <base>/-/tree/<branch> (each path part encoded, "/" kept) */
+export const branchUrl = (web: ForgeWeb, branch: string): string => `${web.base}${web.forge === 'gitlab' ? '/-' : ''}/tree/${encPath(branch)}`
+/** A merge / pull request's number from its address: ".../-/merge_requests/42" → mr 42 · ".../pull/7" → pr 7; else null (a compare / new-request link). */
+export function requestNumber(url: string): { kind: 'mr' | 'pr'; n: number } | null {
+  const mr = /\/-\/merge_requests\/(\d{1,9})(?:[/?#]|$)/.exec(url)
+  if (mr) return { kind: 'mr', n: Number(mr[1]) }
+  const pr = /\/pull\/(\d{1,9})(?:[/?#]|$)/.exec(url)
+  return pr ? { kind: 'pr', n: Number(pr[1]) } : null
+}
+
+/** What a ship record says a step did with the merge / pull request. */
+export const SHIP_ACTIONS = ['commit', 'push', 'force-push', 'pr', 'comment', 'merge'] as const
+export type ShipAction = (typeof SHIP_ACTIONS)[number]
+export const SHIP_REQUEST = ['opened', 'existing', 'link', 'commented', 'merged'] as const
+export type ShipRequestHow = (typeof SHIP_REQUEST)[number]
+
+/**
+ * worker 1.10.0 ('ship'): what a git stage or a git key did with commits, the push and the merge / pull request —
+ * One writes it into the task page as one dated, linked line in the person's language (coding/ship.ts). Data only:
+ * ids, names, the repo's web address and the request's address — never a local path, a command or a credential.
+ */
+export interface ShipRecord {
+  /** the stage's git action, or the key's verb ('force-push' only from a key) */
+  action: ShipAction
+  /** a pipeline stage or a key in the task panel's Git tab */
+  from: 'stage' | 'key'
+  /** when the worker finished the step (ms) */
+  at: number
+  /** the task's branch */
+  branch: string
+  /** the commit this step made; null: nothing new to commit, or a step that commits nothing (push · comment · merge) */
+  commit: { sha: string } | null
+  /** HEAD of the branch after the step — what was pushed / merged (null: unknown) */
+  head: string | null
+  /** pushed to this remote (the branch keeps its name there); null: not pushed */
+  pushed: { remote: string; force?: true } | null
+  /** the stage wanted to push, worker.json "push": false */
+  pushOff?: true
+  /**
+   * the merge / pull request: its address on the host (from gh / glab) — or, how 'link', the compare / new-request link
+   * to create one. null: none (not asked for, "pr": "none" on an unknown host, or it failed: see `failed`)
+   */
+  request: { url: string; how: ShipRequestHow } | null
+  /** the repository's web address and forge (cleanWeb); null: not a GitHub / GitLab address the worker knows — no links */
+  web: ForgeWeb | null
+  /** a step after the commit failed (status 'failed' of a stage; GitResult.error of a key); the commit / push before it stays recorded */
+  failed?: { step: 'push' | 'request'; code?: 'pushRejected' }
+}
 
 /** A repo name as worker.json may name it (One shows and stores only names). */
 export const REPO_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
@@ -321,6 +409,8 @@ export interface GitInfo {
   /** the branch is merged into the base */
   merged: boolean
   at: number
+  /** worker 1.10.0: the repo's web address (cleanWeb) — the Git tab links commits and the branch; null / absent: none */
+  web?: ForgeWeb | null
 }
 
 export interface TestResult {
@@ -353,6 +443,8 @@ export interface StageOutcome {
   url?: string
   test?: TestResult
   git?: GitInfo
+  /** worker 1.10.0: git stages (commit · push · pr · comment · merge) — also on a 'failed' outcome after the commit */
+  ship?: ShipRecord
 }
 
 export interface BusyTask {
@@ -369,6 +461,10 @@ export interface WorkerRepo {
   branches?: string[]
   /** the person's own Claude Code MCP servers this repo's stages may use — names only (older workers send none) */
   mcp?: string[]
+  /** worker.json "push" for this repo (older workers send none: One warns about nothing) */
+  push?: boolean
+  /** worker.json "pr" for this repo ("none": no gh / glab — a compare link only; posting a review / merging fail) */
+  pr?: 'gh' | 'none'
 }
 
 export interface WorkerInfo {
@@ -573,6 +669,10 @@ export interface GitResult {
   git?: GitInfo
   /** discard / cleanup deleted the task's branch (One clears the Branch field: the next run makes a new one) */
   branchGone?: boolean
+  /** worker 1.10.0: what the key did (commit · push · force-push · pr · comment-pr · merge-pr) */
+  ship?: ShipRecord
+  /** worker 1.10.0, key 'pr' only: the push went through but the request could not be opened — One shows this as an error and still records the push (`message` says both, in English, for older apps) */
+  error?: string
 }
 
 /* ------------------------------------------------------------------ the Outbox: exactly the reviewed bytes */

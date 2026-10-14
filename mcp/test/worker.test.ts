@@ -68,7 +68,7 @@ describe('handshake', () => {
     const tab = await connect()
     const welcome = await tab.next('welcome')
     assert.equal(welcome.name, 'test-box')
-    assert.deepEqual(welcome.repos, [{ name: 'demo', baseBranch: 'main', branches: ['main'], mcp: [] }])
+    assert.deepEqual(welcome.repos, [{ name: 'demo', baseBranch: 'main', branches: ['main'], mcp: [], push: true, pr: 'none' }])
     assert.equal(welcome.claude.found, true)
     assertNoPaths(tab, r)
 
@@ -106,7 +106,7 @@ describe('handshake', () => {
     // a tab that connects the moment the worker listens (One retries all the time)
     const tab = await connect()
     const welcome = await tab.next('welcome')
-    assert.deepEqual(welcome.repos, [{ name: 'demo', baseBranch: 'main', branches: ['main'], mcp: [] }], 'read before the worker listened')
+    assert.deepEqual(welcome.repos, [{ name: 'demo', baseBranch: 'main', branches: ['main'], mcp: [], push: true, pr: 'none' }], 'read before the worker listened')
   })
 
   test('a branch list slower than the start waits for: ready on time, and One hears of the branches once they are read', { skip: FAKE_GIT_SKIP }, async () => {

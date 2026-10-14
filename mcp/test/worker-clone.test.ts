@@ -78,6 +78,8 @@ if (three === 'api groups/acme ') say('{"id":7}')
 if (three === 'config get git_protocol') say('ssh')
 if (a[0] === '--version') say('glab 1.99')
 if (a[0] === 'api') say('[{"path_with_namespace":"acme/legacy-billing","http_url_to_repo":"https://gitlab.example.com/acme/legacy-billing.git","ssh_url_to_repo":"git@gitlab.example.com:acme/legacy-billing.git","last_activity_at":"2026-10-01T10:00:00Z"},{"path_with_namespace":"acme/bad","http_url_to_repo":"https://user:tok@gitlab.example.com/acme/bad.git","ssh_url_to_repo":"-oProxyCommand=x","last_activity_at":"2026-10-02T10:00:00Z"}]')
+// no open merge request for the branch yet (worker 1.10.0 looks first)
+if (a[0] === 'mr' && a[1] === 'view') process.exit(1)
 if (a[0] === 'mr') {
   process.stdout.write('Creating merge request for ' + (a[2] ?? '') + ' into ' + (a[4] ?? '') + '\\n')
   say('https://gitlab.example.com/acme/demo/-/merge_requests/7')

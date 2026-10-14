@@ -119,6 +119,7 @@ input[type='text']:focus, input[type='number']:focus, select:focus { border-colo
 .detail { display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.2fr) minmax(0, 1.6fr); gap: 12px 14px; margin: 0 14px 0 46px; padding: 2px 0 14px; }
 .field { display: grid; gap: 4px; align-content: start; min-width: 0; }
 .field--wide { grid-column: span 2; }
+.forge select { max-width: 320px; }
 .wmcp { margin: 14px 0 0; max-width: 640px; }
 .keys { display: flex; flex-wrap: wrap; gap: 4px; min-height: 20px; }
 .kbd { display: inline-block; padding: 1px 6px; border: 1px solid var(--rule-strong); border-bottom-width: 2px; border-radius: 2px; background: var(--surface); color: var(--ink); font: 11px/1.5 var(--mono); }
@@ -224,6 +225,12 @@ export const SETUP_JS = String.raw`(function () {
     noTests: 'No test stage',
     push: 'Push branches',
     pr: 'Pull / merge requests (gh · glab)',
+    forgeLabel: 'Host type',
+    forgeAuto: 'Automatic — {kind}',
+    forgeNone: 'not recognised',
+    forgeGitlab: 'GitLab (also self-hosted)',
+    forgeGithub: 'GitHub (also Enterprise)',
+    forgeHint: 'Automatic reads the address: a host with “gitlab” or “github” in its name. A self-hosted GitLab or GitHub Enterprise under its own name: pick it here — then One links commits and branches, and the worker opens merge / pull requests with glab / gh.',
     limit: 'Cost limit per task (USD)',
     mcpLabel: 'Own MCP servers for Claude Code',
     mcpHint: 'Names as “claude mcp list” shows them, e.g. kb — this repo\'s stages may use their tools (a knowledge base, a design system). Empty: only One\'s task tools.',
@@ -351,6 +358,12 @@ export const SETUP_JS = String.raw`(function () {
     noTests: 'Keine Test-Stufe',
     push: 'Branches pushen',
     pr: 'Pull / Merge Requests (gh · glab)',
+    forgeLabel: 'Host-Art',
+    forgeAuto: 'Automatisch – {kind}',
+    forgeNone: 'nicht erkannt',
+    forgeGitlab: 'GitLab (auch selbst betrieben)',
+    forgeGithub: 'GitHub (auch Enterprise)',
+    forgeHint: 'Automatisch liest die Adresse: ein Host mit „gitlab“ oder „github“ im Namen. Ein selbst betriebenes GitLab oder GitHub Enterprise unter eigenem Namen: hier wählen – dann verlinkt One Commits und Branches, und der Worker öffnet Merge / Pull Requests mit glab / gh.',
     limit: 'Kostengrenze pro Aufgabe (USD)',
     mcpLabel: 'Eigene MCP-Server für Claude Code',
     mcpHint: 'Namen wie in „claude mcp list“, z. B. kb – die Stufen dieses Repos dürfen ihre Tools nutzen (eine Wissensbasis, ein Designsystem). Leer: nur die Aufgaben-Tools von One.',
@@ -519,7 +532,7 @@ export const SETUP_JS = String.raw`(function () {
   }
 
   function editOf(r) {
-    if (!edits[r.path]) edits[r.path] = { ticked: r.ticked, name: r.name, base: r.base, test: r.testLine, push: r.push, pr: r.pr, limit: r.maxUsdPerTask === null ? '' : String(r.maxUsdPerTask), mcp: r.mcp || '', analyze: r.analyzeLine || '', own: r.ownSettings, own0: r.ownSettings }
+    if (!edits[r.path]) edits[r.path] = { ticked: r.ticked, name: r.name, base: r.base, test: r.testLine, push: r.push, pr: r.pr, forge: r.forge || 'auto', limit: r.maxUsdPerTask === null ? '' : String(r.maxUsdPerTask), mcp: r.mcp || '', analyze: r.analyzeLine || '', own: r.ownSettings, own0: r.ownSettings }
     return edits[r.path]
   }
 
@@ -611,12 +624,26 @@ export const SETUP_JS = String.raw`(function () {
       ownWarn
     ])
     if (state.gh || state.glab) toggles.push(el('label', { className: 'sw' }, [el('input', { type: 'checkbox', role: 'switch', checked: e.pr === 'gh', onchange: function (ev) { e.pr = ev.target.checked ? 'gh' : 'none' } }), t('pr')]))
+    // the host type (worker.json "forge"): only for a repo with a remote — "Automatic" names what its host's name says
+    var forge = null
+    if (r.remote) {
+      var kind = r.forgeAuto === 'gitlab' ? 'GitLab' : r.forgeAuto === 'github' ? 'GitHub' : t('forgeNone')
+      var sel = el('select', { id: id + 'f', 'aria-describedby': id + 'fh', onchange: function () { e.forge = sel.value } })
+      ;[['auto', t('forgeAuto', { kind: kind })], ['gitlab', t('forgeGitlab')], ['github', t('forgeGithub')]].forEach(function (o) { sel.appendChild(el('option', { value: o[0], text: o[1] })) })
+      sel.value = e.forge
+      forge = el('div', { className: 'field field--wide forge' }, [
+        el('label', { className: 'label', for: id + 'f', text: t('forgeLabel') }),
+        sel,
+        el('span', { className: 'hint', id: id + 'fh', text: t('forgeHint') })
+      ])
+    }
     return el('div', { className: 'detail' }, [
       el('div', { className: 'field' }, [el('label', { className: 'label', for: id + 'n', text: t('nameLabel') }), el('input', { type: 'text', id: id + 'n', value: e.name, maxlength: 64, spellcheck: 'false', oninput: function (ev) { e.name = ev.target.value } })]),
       el('div', { className: 'field' }, [el('label', { className: 'label', for: id + 'b', text: t('baseLabel') }), base]),
       el('div', { className: 'field' }, [el('label', { className: 'label', for: id + 't', text: t('testLabel') }), el('input', { type: 'text', id: id + 't', value: e.test, spellcheck: 'false', autocomplete: 'off', oninput: function (ev) { e.test = ev.target.value; drawKeys() } }), keys, el('span', { className: 'hint', text: t(windows() ? 'testHintWin' : 'testHint') })]),
       el('div', { className: 'field' }, [el('label', { className: 'label', for: id + 'a', text: t('analyzeLabel') }), el('input', { type: 'text', id: id + 'a', value: e.analyze, spellcheck: 'false', autocomplete: 'off', oninput: function (ev) { e.analyze = ev.target.value } }), el('span', { className: 'hint', text: t('analyzeHint') })]),
       el('div', { className: 'field field--wide' }, [el('div', { className: 'toggles' }, toggles)]),
+      forge,
       el('div', { className: 'field' }, [el('div', { className: 'limit' }, [el('label', { className: 'label', for: id + 'l', text: t('limit') }), el('input', { type: 'number', id: id + 'l', min: '0', step: '0.5', value: e.limit, placeholder: t('noLimit'), inputmode: 'decimal', oninput: function (ev) { e.limit = ev.target.value } })])]),
       el('div', { className: 'field field--wide' }, [el('label', { className: 'label', for: id + 'm', text: t('mcpLabel') }), mcpInput, el('span', { className: 'hint', id: id + 'mh', text: t('mcpHint') }), mcpUser]),
       own
@@ -927,7 +954,7 @@ export const SETUP_JS = String.raw`(function () {
     var repos = state.repos.filter(function (r) { return editOf(r).ticked }).map(function (r) {
       var e = editOf(r)
       var limit = parseFloat(String(e.limit).replace(',', '.'))
-      return { path: r.path, name: e.name.trim(), baseBranch: e.base, test: e.test, analyze: e.analyze, push: e.push, pr: e.pr, maxUsdPerTask: isFinite(limit) && limit > 0 ? limit : null, mcp: e.mcp, projectSettings: e.own }
+      return { path: r.path, name: e.name.trim(), baseBranch: e.base, test: e.test, analyze: e.analyze, push: e.push, pr: e.pr, forge: e.forge, maxUsdPerTask: isFinite(limit) && limit > 0 ? limit : null, mcp: e.mcp, projectSettings: e.own }
     })
     busy = 'save'
     note = null

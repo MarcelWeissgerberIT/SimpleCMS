@@ -8,7 +8,8 @@
  *    for a clone also any includeIf in their global / system config, which may set one for the new repository). macOS /
  *    Linux: as before 1.9.0 (git runs without a terminal there; an askpass dialog still asks). The worker never answers
  *    such a question.
- *  - gitHint: what git's error means for the person — One shows it in their language by its code.
+ *  - gitHint: what git's error means for the person — One shows it in their language by its code (a rejected push:
+ *    "Update from base", never a force).
  */
 import type { ChildProcess } from 'node:child_process'
 import { homedir } from 'node:os'
@@ -148,7 +149,13 @@ function configGet(args: string[], cwd: string, env: NodeJS.ProcessEnv, timeoutM
 /* ------------------------------------------------------------------ hints */
 
 /** What a git error means for the person (the codes One shows in their language). */
-export type GitHintCode = 'longpaths' | 'sshHostKey' | 'sshKey' | 'gitSignIn' | 'dubiousOwnership' | 'gitLock' | 'gitIdentity'
+export type GitHintCode = 'longpaths' | 'sshHostKey' | 'sshKey' | 'gitSignIn' | 'dubiousOwnership' | 'gitLock' | 'gitIdentity' | 'pushRejected'
+
+/**
+ * A push the remote refused as not a fast-forward: the branch there has commits this one lacks (pushed from elsewhere,
+ * changed on the host). Not a `[remote rejected]` (a hook, a protected branch): git's own line says that one.
+ */
+export const PUSH_REJECTED = /\[rejected\][^\n]*\((?:non-fast-forward|fetch first)\)|Updates were rejected because the (?:tip of your current branch is behind|remote contains work)/i
 
 /** git refuses a commit because it does not know who commits (no user.name / user.email, nothing it can guess). */
 export const IDENTITY = /unable to auto-detect email address|empty ident name|Please tell me who you are|Author identity unknown|Committer identity unknown|no email was given and auto-detection is disabled|no name was given and auto-detection is disabled/i
@@ -159,6 +166,7 @@ export function gitHint(text: string, platform: NodeJS.Platform = process.platfo
   if (/detected dubious ownership/i.test(s)) return 'dubiousOwnership'
   if (/index\.lock'?: File exists/i.test(s)) return 'gitLock'
   if (IDENTITY.test(s)) return 'gitIdentity'
+  if (PUSH_REJECTED.test(s)) return 'pushRejected'
   if (/Host key verification failed|HOST IDENTIFICATION HAS CHANGED/i.test(s)) return 'sshHostKey'
   if (/Permission denied \(publickey|Load key .*passphrase/i.test(s)) return 'sshKey'
   if (/could not read (?:Username|Password)|terminal prompts disabled|Authentication failed/i.test(s)) return 'gitSignIn'
@@ -184,6 +192,8 @@ export function hintLine(code: GitHintCode, at: { repo: string; remote: string }
       return { c: code, v: { repo }, s: `git in ${repo} is blocked by a lock file (index.lock) that a stopped git left behind. When no git runs there, delete the file the worker’s terminal names, then press Retry.` }
     case 'gitIdentity':
       return { c: code, v: { repo }, s: `git in ${repo} does not know who commits: user.name and user.email are not set. Run \`git config --global user.name "Your Name"\` and \`git config --global user.email you@example.com\` once in a terminal, then press Retry.` }
+    case 'pushRejected':
+      return { c: code, v: { remote }, s: `${remote} refused the push: the branch there has commits this one does not have (pushed from elsewhere, or changed on the host). Press “Update from base” — it merges them in first — then Retry. The worker never force-pushes on its own.` }
   }
 }
 

@@ -8,7 +8,7 @@
 import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir, hostname } from 'node:os'
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
-import { PARALLEL_MAX, PERMISSION_MODES, REPO_NAME, cleanModel, WORKER_DEFAULT_PORT, WORKSPACE_ID, type PermissionMode, type WorkerPreset } from '../../../src/app/features/coding/protocol.ts'
+import { PARALLEL_MAX, PERMISSION_MODES, REPO_NAME, cleanModel, WORKER_DEFAULT_PORT, WORKSPACE_ID, type ForgeSetting, type PermissionMode, type WorkerPreset } from '../../../src/app/features/coding/protocol.ts'
 import { execFileSyncSafe } from './exec.ts'
 import { GIT_ENV, gitArgs } from './gitenv.ts'
 import { inFolder, inICloud, inSyncedFolder, pathId, renameRetry, samePath } from './paths.ts'
@@ -61,6 +61,8 @@ export interface RepoConfig {
   analyzeTimeoutSec: number
   push: boolean
   pr: 'gh' | 'none'
+  /** links and gh / glab: 'auto' = by the remote's host name; 'github' / 'gitlab' for a host whose name does not say it */
+  forge: ForgeSetting
   claude: ClaudeConfig
   maxUsdPerTask: number | null
   maxUsdPerDay: number | null
@@ -451,6 +453,9 @@ function repoConfig(raw: unknown, index: number, configDir: string, problems: st
     }
   }
   const pr = raw.pr === 'none' ? 'none' : 'gh'
+  // a host type the worker does not know is a problem, not a drop: the repo stays (links follow the host's name)
+  const forge: ForgeSetting = raw.forge === 'github' || raw.forge === 'gitlab' ? raw.forge : 'auto'
+  if (raw.forge !== undefined && raw.forge !== 'auto' && forge === 'auto') problems.push(`${at}: "forge" must be "auto", "github" or "gitlab" — "auto" is used`)
   const source = sourceOf(path, cloneDir, opts.platform)
   return {
     name,
@@ -465,6 +470,7 @@ function repoConfig(raw: unknown, index: number, configDir: string, problems: st
     analyzeTimeoutSec: Math.floor(num(raw.analyzeTimeoutSec, 900, 5, 7200)),
     push: raw.push !== false,
     pr,
+    forge,
     claude: claudeConfig(raw.claude, at, problems, source === null),
     maxUsdPerTask: usd(raw.maxUsdPerTask),
     maxUsdPerDay: usd(raw.maxUsdPerDay),
@@ -556,6 +562,7 @@ export function scratchRepo(config: WorkerConfig, taskId: string): RepoConfig {
     analyzeTimeoutSec: 900,
     push: false,
     pr: 'none',
+    forge: 'auto',
     claude: { model: null, maxTurns: 40, permissionMode: {}, allowedTools: [], disallowedTools: [], strictMcp: true, mcpServers: config.mcpServers, projectSettings: false, projectSettingsSet: false },
     maxUsdPerTask: null,
     maxUsdPerDay: null,
@@ -608,6 +615,9 @@ export function exampleConfig(workspace: string | null): string {
       "push": true,
       // "gh": open pull requests with the GitHub CLI (when installed and signed in) · "none": only a compare link.
       "pr": "gh",
+      // Links in One and gh / glab follow the remote's host name ("github" / "gitlab" in it). A self-hosted GitLab or
+      // GitHub Enterprise under its own name: "gitlab" / "github". Default "auto".
+      // "forge": "auto",
 
       "claude": {
         // A model name Claude Code accepts; null = Claude Code's default.
@@ -723,6 +733,8 @@ export interface RepoChoice {
   mcpServers?: string[]
   /** Claude Code may load the repo's own settings (the setup page's switch) — undefined: leave as it is */
   projectSettings?: boolean
+  /** the host type (the setup page's "Host type"; 'auto' removes the key) — undefined: leave as it is */
+  forge?: ForgeSetting
 }
 
 const HEADER = '// one-worker — written by its setup page'
@@ -768,6 +780,12 @@ export function saveRepos(file: string, choices: RepoChoice[], workspace: string
     }
     entry.push = c.push
     entry.pr = c.pr
+    if (c.forge !== undefined) {
+      if (c.forge === 'auto') delete entry.forge
+      else entry.forge = c.forge
+    }
+    // a host type the worker does not know is read as "auto" — written so (never a refusal to save)
+    if (entry.forge !== undefined && entry.forge !== 'github' && entry.forge !== 'gitlab') delete entry.forge
     if (c.maxUsdPerTask) entry.maxUsdPerTask = c.maxUsdPerTask
     else delete entry.maxUsdPerTask
     if (c.mcpServers) {

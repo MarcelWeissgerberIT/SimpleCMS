@@ -1,7 +1,8 @@
 /**
  * one-worker — the local setup page: http://127.0.0.1:<port>/setup#k=<token>, on the worker's own port.
  * The person ticks the repositories One may hand tasks to (found by scan.ts), sets base branch, test
- * command, push, pull requests, a cost limit and whether Claude Code may load the repo's own settings
+ * command, push, pull requests, the host type (worker.json "forge": a self-hosted GitLab / GitHub Enterprise under its
+ * own name), a cost limit and whether Claude Code may load the repo's own settings
  * (claude.projectSettings — off for code from elsewhere, with the reason) per repo, and saves: worker.json is
  * written (0600) and the worker reloads — One sees the new repo names at once (a fresh `welcome`). The repos the
  * one-time marking marked (config.ts markOlderSources) are named on the page until the person takes note.
@@ -20,7 +21,7 @@ import { randomBytes } from 'node:crypto'
 import { homedir } from 'node:os'
 import { isAbsolute, join, resolve } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { REPO_NAME, type OpenSetupResult, type WorkerPreset } from '../../../src/app/features/coding/protocol.ts'
+import { REPO_NAME, type Forge, type ForgeSetting, type OpenSetupResult, type WorkerPreset } from '../../../src/app/features/coding/protocol.ts'
 import { MCP_NAME, cloudOf, inFolder, marksSeen, saveRepos, sourceOf, splitArgs, unseenMarks, type RepoChoice, type SourceWhy, type WorkerConfig } from './config.ts'
 import { bareRepo, factsOf, findRepos, isMainCheckoutAsync, realpathTimed, repoFacts, shortPath, type FindResult, type FoundRepo, type ScanOptions } from './scan.ts'
 import { pickFolder, type PickResult } from './picker.ts'
@@ -31,6 +32,7 @@ import { cloneBase, cloneInto, folderName, listProjects, parseCloneUrl, runCli, 
 import { ZIP_MAX, importZip } from './zipimport.ts'
 import { checkPublish, publishRepo, suggestName } from './publish.ts'
 import { execFileSafe } from './exec.ts'
+import { forgeOfHost } from './git.ts'
 import { inSyncedFolder, pathId, samePath, worktreesAt, type Synced, type WorktreesAt } from './paths.ts'
 import { createWriteStream, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -90,6 +92,10 @@ export interface PageRepo extends FoundRepo {
   configured: boolean
   push: boolean
   pr: 'gh' | 'none'
+  /** worker.json "forge" (not ticked: 'auto') */
+  forge: ForgeSetting
+  /** what 'auto' reads from the remote's host name (the scan's host — never the remote's URL); null: not recognised */
+  forgeAuto: Forge | null
   maxUsdPerTask: number | null
   /** the test command as one line (argv joined; quoted where needed) */
   testLine: string
@@ -256,6 +262,8 @@ export class SetupServer {
         configured: true,
         push: r.push,
         pr: r.pr,
+        forge: r.forge,
+        forgeAuto: forgeOfHost(f?.host ?? null),
         maxUsdPerTask: r.maxUsdPerTask,
         test: r.testCommand,
         testLine: joinArgs(r.testCommand),
@@ -269,7 +277,7 @@ export class SetupServer {
     const rest = [...this.found.values()].filter((f) => !seen.has(pathId(f.path))).sort((a, b) => (b.lastCommit ?? 0) - (a.lastCommit ?? 0))
     for (const f of rest) {
       const source = this.sourceNow(f.path)
-      out.push({ ...f, ticked: false, configured: false, push: !!f.remote, pr: 'gh', maxUsdPerTask: null, testLine: joinArgs(f.test), mcp: '', analyzeLine: joinArgs(f.analyze ?? null), ownSettings: source === null, source, ...this.syncedOf(f.path, null) })
+      out.push({ ...f, ticked: false, configured: false, push: !!f.remote, pr: 'gh', forge: 'auto', forgeAuto: forgeOfHost(f.host), maxUsdPerTask: null, testLine: joinArgs(f.test), mcp: '', analyzeLine: joinArgs(f.analyze ?? null), ownSettings: source === null, source, ...this.syncedOf(f.path, null) })
     }
     return out
   }
@@ -490,7 +498,9 @@ export class SetupServer {
       const analyze = typeof item.analyze === 'string' ? splitArgs(item.analyze) : undefined
       // the switch "Use this repo's own Claude Code settings" (absent: leave worker.json as it is)
       const projectSettings = typeof item.projectSettings === 'boolean' ? item.projectSettings : undefined
-      choices.push({ path: repo.path, name, baseBranch, remote: repo.remote, testCommand: test?.length ? test : null, ...(analyze !== undefined ? { analyzeCommand: analyze?.length ? analyze : null } : {}), push: item.push === true, pr: item.pr === 'none' ? 'none' : 'gh', maxUsdPerTask: limit, mcpServers, projectSettings })
+      // the host type (absent or unknown: leave worker.json as it is)
+      const forge = item.forge === 'auto' || item.forge === 'github' || item.forge === 'gitlab' ? item.forge : undefined
+      choices.push({ path: repo.path, name, baseBranch, remote: repo.remote, testCommand: test?.length ? test : null, ...(analyze !== undefined ? { analyzeCommand: analyze?.length ? analyze : null } : {}), push: item.push === true, pr: item.pr === 'none' ? 'none' : 'gh', maxUsdPerTask: limit, mcpServers, projectSettings, ...(forge !== undefined ? { forge } : {}) })
     }
     let workerMcp: string[] | undefined
     if (isObj(body) && typeof body.mcpServers === 'string') {

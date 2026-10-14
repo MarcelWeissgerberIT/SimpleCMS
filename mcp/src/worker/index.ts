@@ -172,7 +172,7 @@ async function main() {
         // the reason first (also when worker.json holds the "false" the setup page wrote for a row it showed off)
         const own = repo.claude.projectSettings ? 'on' : `off (${repo.source ? SOURCE_WORDS[repo.source] : repo.claude.projectSettingsSet ? 'worker.json' : 'default'})`
         if (!repo.claude.projectSettings && repo.source) untrusted++
-        lines.push(`repo       ${repo.name}: ok · base ${repo.baseBranch} · ${remote ? `remote ${repo.remote}` : `no remote "${repo.remote}" (push off)`} · tests ${repo.testCommand ? 'yes' : 'none'} · its own Claude Code settings ${own}`)
+        lines.push(`repo       ${repo.name}: ok · base ${repo.baseBranch} · ${remote ? `remote ${repo.remote}` : `no remote "${repo.remote}" (push off)`} · tests ${repo.testCommand ? 'yes' : 'none'} · host type ${repo.forge === 'auto' ? 'auto' : repo.forge} · its own Claude Code settings ${own}`)
       } catch (e) {
         ok = false
         lines.push(`repo       ${repo.name}: ${e instanceof Error ? e.message : String(e)}`)

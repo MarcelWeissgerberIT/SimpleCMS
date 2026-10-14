@@ -2,7 +2,9 @@
  * one-worker — one stage of one task: plan / implement (Claude Code in the task's worktree), document (Claude Code
  * reads only; with the branch's diff when the task has one), static analysis + test (the repo's analyzeCommand /
  * testCommand), git (commit · push · pull request · update from base · post the review · merge the request). Returns
- * the outcome One writes into the task; everything that goes to One passes the path scrubber first.
+ * the outcome One writes into the task; everything that goes to One passes the path scrubber first. A git stage also
+ * returns a ShipRecord (worker 1.10.0): what it committed, pushed and opened — ids, names and the repo's web address,
+ * never a path — and every commit message / request body ends with the trailer "One-Task: <task id>".
  *
  * Task text is untrusted input: it goes into the prompt between markers, labelled as data, after the
  * worker's own instructions; Claude Code's permission rules stay on (no bypassing flag, ever).
@@ -11,12 +13,12 @@ import { randomBytes } from 'node:crypto'
 import { existsSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { GitInfo, LogLine, StageOutcome, TaskPayload, TaskProgress, TestResult, ToolEdit } from '../../../src/app/features/coding/protocol.ts'
+import { SHIP_TRAILER, type ForgeWeb, type GitInfo, type LogLine, type ShipAction, type ShipRecord, type ShipRequestHow, type StageOutcome, type TaskPayload, type TaskProgress, type TestResult, type ToolEdit } from '../../../src/app/features/coding/protocol.ts'
 import type { RepoConfig, SourceWhy } from './config.ts'
 import type { WorkerState } from './state.ts'
 import { claudeMissingError, mcpLaunchers, runClaude, type ClaudeCaps } from './claude.ts'
 import { commandName, pathAbsolute, plantedProgram } from './exec.ts'
-import { GitError, branchDiff, commentPr, commitAll, ensureWorktree, git, info, isDirty, mergePr, openPr, push, updateFromBase, worktreeOf, type TaskWorktree } from './git.ts'
+import { BODY_MAX, GLAB_TEXT_MAX_WIN, GitError, branchDiff, commentPr, commitAll, ensureWorktree, git, headOf, info, isDirty, mergePr, openPr, push, updateFromBase, webFromRequest, webOf, worktreeOf, type OpenPr, type TaskWorktree } from './git.ts'
 import { FOLDER_BUSY, forgetGitEnv, gitHint, hintLine, hintTerminal } from './gitenv.ts'
 import { inSyncedFolder, rmRetry, worktreesAt, type Synced, type WorktreesAt } from './paths.ts'
 import { repoScrubber, type Scrubber } from './scrub.ts'
@@ -53,7 +55,7 @@ export interface StageContext {
 const SUMMARY_MAX = 6000
 
 /** A line for One's log; `c` + `v` = the worker's own message code (One shows it in the person's language). */
-type Log = (k: LogLine['k'], s: string, c?: string, v?: Record<string, string | number>) => void
+export type Log = (k: LogLine['k'], s: string, c?: string, v?: Record<string, string | number>) => void
 const scrubVars = (scrub: Scrubber, v?: Record<string, string | number>) =>
   v ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, typeof x === 'string' ? scrub.text(x) : x])) : undefined
 /** An edit's path and text with this machine's paths replaced (like every log line). */
@@ -598,32 +600,127 @@ async function testStage(ctx: StageContext, wt: TaskWorktree, scrub: Scrubber, l
   return res.ok ? { status: 'ok', branch: wt.branch, test, git, summary: `Tests passed in ${Math.round(res.ms / 1000)} s.` } : { status: 'failed', branch: wt.branch, test, git, error: `Tests failed (exit code ${res.code ?? '—'}).` }
 }
 
-/** The commit message: the task title, then the newest summary. */
+/* ------------------------------------------------------------------ the ship log: trailer, record, request lines */
+
+/** A task id the trailer may carry (One's ids — sanitizeTask checks the same characters). */
+export const TASK_ID = /^[A-Za-z0-9_-]{1,64}$/
+const trailerOf = (taskId: string) => (TASK_ID.test(taskId) ? `${SHIP_TRAILER}: ${taskId}` : null)
+/** Every "One-Task:" line of a text goes (Claude's summary or a typed message could spoof one): ours is the only one. */
+const withoutTaskTrailers = (s: string) => s.replace(/^[ \t]*One-Task[ \t]*:.*$/gim, '').replace(/\n{3,}/g, '\n\n')
+
+/**
+ * The commit message with "One-Task: <id>" as a git trailer: added to the message's last paragraph when that is a
+ * trailer block already (every line "Token: value" — Signed-off-by …), else as a paragraph of its own. Built as text —
+ * never `git interpret-trailers` / `git commit --trailer` (a trailer.<token>.cmd in the person's or repo's config runs
+ * commands). The message is cut first, so the trailer always stays whole within `max`.
+ */
+export function withTaskTrailer(message: string, taskId: string, max = 4000): string {
+  const trailer = trailerOf(taskId)
+  const clean = withoutTaskTrailers(message).trim() || 'One task'
+  if (!trailer) return clean.slice(0, max)
+  const head = clean.slice(0, Math.max(1, max - trailer.length - 2)).trimEnd()
+  const paras = head.split(/\n{2,}/)
+  const last = paras.length > 1 ? paras[paras.length - 1]! : ''
+  const block = !!last && last.split('\n').every((l) => /^[A-Za-z0-9][A-Za-z0-9-]*: \S/.test(l))
+  return `${head}${block ? '\n' : '\n\n'}${trailer}`
+}
+
+export const REQUEST_FOOTER = '— From One (coding pipeline).'
+/** A merge / pull request's body: the text, cut so the footer and the trailer always stay whole within `max` (glab on Windows takes 15,000). */
+export function requestBody(text: string, taskId: string, max = process.platform === 'win32' ? GLAB_TEXT_MAX_WIN : BODY_MAX): string {
+  const trailer = trailerOf(taskId)
+  const tail = `\n\n${REQUEST_FOOTER}${trailer ? `\n\n${trailer}` : ''}`
+  return `${withoutTaskTrailers(text).trim().slice(0, Math.max(0, max - tail.length))}${tail}`
+}
+
+/** The commit message: the task title, then the newest summary, then the trailer. */
 export function commitMessage(task: TaskPayload): string {
   const body = (task.summary ?? '').trim()
-  return `${task.title.trim().slice(0, 72) || 'One task'}${body ? `\n\n${body.slice(0, 3000)}` : ''}`
+  return withTaskTrailer(`${task.title.trim().slice(0, 72) || 'One task'}${body ? `\n\n${body.slice(0, 3000)}` : ''}`, task.id)
+}
+
+/** A fresh ship record (worker.ts uses it for the keys). */
+export function newShip(action: ShipAction, from: 'stage' | 'key', branch: string, web: ForgeWeb | null): ShipRecord {
+  return { action, from, at: Date.now(), branch, commit: null, head: null, pushed: null, request: null, web }
+}
+
+/** A request's address from gh / glab: the record's web address follows it (an SSH alias, another web host). */
+export function withRequest(rec: ShipRecord, url: string, how: ShipRequestHow): void {
+  rec.request = { url, how }
+  if (how !== 'link' && rec.web) rec.web = webFromRequest(url, rec.web.forge) ?? rec.web
+}
+
+/** The request's kind for log lines: 'mr' on GitLab, else 'pr'. */
+export const requestKind = (web: ForgeWeb | null): 'mr' | 'pr' => (web?.forge === 'gitlab' ? 'mr' : 'pr')
+
+/** A coded log line (kind, English text, code, values). */
+export interface CodedLine {
+  k: LogLine['k']
+  s: string
+  c: string
+  v: Record<string, string | number>
+}
+
+/**
+ * What openPr did, into the record and as the request's coded line — plus, when the host tool said no and the link is
+ * what is left, the tool's own words as an uncoded warning (scrubbed by the logger) before it.
+ */
+export function requestLine(pr: OpenPr, rec: ShipRecord, repo: RepoConfig): { warn: string | null; line: CodedLine } {
+  const kind = requestKind(rec.web)
+  const Label = kind === 'mr' ? 'Merge request' : 'Pull request'
+  const label = Label.toLowerCase()
+  if (pr.url && pr.via !== 'link' && pr.via !== 'none') {
+    const how = pr.existing ? 'existing' : 'opened'
+    withRequest(rec, pr.url, how)
+    return pr.existing
+      ? { warn: null, line: { k: 'git', s: `${Label} already open: ${pr.url}`, c: 'requestExisting', v: { kind, url: pr.url } } }
+      : { warn: null, line: { k: 'git', s: `${Label} opened: ${pr.url}`, c: 'requestOpened', v: { kind, url: pr.url } } }
+  }
+  if (pr.url) {
+    withRequest(rec, pr.url, 'link')
+    return {
+      warn: pr.why ? `glab mr create failed: ${pr.why}` : null,
+      line: { k: 'git', s: `No ${label} opened — create it from the link: ${pr.url}`, c: 'requestLink', v: { kind, url: pr.url } },
+    }
+  }
+  return { warn: null, line: { k: 'info', s: `No pull / merge request link: ${repo.remote} is not a GitHub / GitLab address the worker knows — pick the host type on the worker's setup page.`, c: 'requestNone', v: { remote: repo.remote } } }
+}
+
+/** requestLine, logged: the tool's warning (if any), then the request's coded line. */
+export function logRequest(log: Log, pr: OpenPr, rec: ShipRecord, repo: RepoConfig): CodedLine {
+  const r = requestLine(pr, rec, repo)
+  if (r.warn) log('warn', r.warn)
+  log(r.line.k, r.line.s, r.line.c, r.line.v)
+  return r.line
 }
 
 async function gitStage(ctx: StageContext, wt: TaskWorktree, scrub: Scrubber, log: Log): Promise<StageOutcome> {
   const { repo, task } = ctx
   const action = task.stage.gitAction ?? 'pr'
   if (action === 'update-base') {
+    // no ship record: the merge commit it may make shows in the Git tab, the next push / Ship records it
     const r = await updateFromBase(repo, wt.dir, wt.branch)
     const git = await gitSnapshot(ctx, wt, scrub)
     if (r.how === 'conflicts') {
       log('warn', `Conflicts in ${r.conflicts.length} file(s): ${r.conflicts.join(', ')}`)
       return { status: 'failed', branch: wt.branch, git, error: `Conflicts in ${r.conflicts.length} file(s) — resolve them (a rework of the implement stage can ask Claude to) and run this stage again.` }
     }
-    const summary = r.how === 'up-to-date' ? `Already up to date with ${repo.remote}/${repo.baseBranch}.` : `${r.how === 'rebased' ? 'Rebased onto' : 'Merged'} ${repo.remote}/${repo.baseBranch}.`
-    log('git', summary)
-    return { status: 'ok', branch: wt.branch, git, summary }
+    if (r.remote) log('git', `Merged ${repo.remote}/${wt.branch} in (commits made elsewhere)`, 'remoteMerged', { remote: repo.remote, branch: wt.branch })
+    const base = r.how === 'up-to-date' ? `Already up to date with ${repo.remote}/${repo.baseBranch}.` : `${r.how === 'rebased' ? 'Rebased onto' : 'Merged'} ${repo.remote}/${repo.baseBranch}.`
+    log('git', base)
+    return { status: 'ok', branch: wt.branch, git, summary: `${r.remote ? `Merged ${repo.remote}/${wt.branch} in. ` : ''}${base}` }
   }
+  const web = await webOf(repo).catch(() => null)
   if (action === 'comment') {
     const review = (task.review ?? '').trim()
     if (!review) return { status: 'failed', branch: wt.branch, error: 'There is no review to post yet — a document stage with the output "Review" writes it.' }
     const r = await commentPr(repo, wt.dir, wt.branch, `${review}\n\n— Review from One (coding pipeline).`)
     log('git', `Review posted to the ${r.via === 'gh' ? 'pull' : 'merge'} request${r.url ? `: ${r.url}` : ''}`, 'reviewPosted', { url: r.url ?? '' })
-    return { status: 'ok', branch: wt.branch, url: r.url ?? undefined, git: await gitSnapshot(ctx, wt, scrub), summary: `Review posted to the ${r.via === 'gh' ? 'pull' : 'merge'} request.` }
+    const rec = newShip('comment', 'stage', wt.branch, web)
+    if (r.url) withRequest(rec, r.url, 'commented')
+    rec.head = await headOf(wt.dir).catch(() => null)
+    rec.at = Date.now()
+    return { status: 'ok', branch: wt.branch, url: r.url ?? undefined, git: await gitSnapshot(ctx, wt, scrub), summary: `Review posted to the ${r.via === 'gh' ? 'pull' : 'merge'} request.`, ship: rec }
   }
   if (action === 'merge') {
     // what is not pushed would not be merged: refuse instead of merging half of it
@@ -632,30 +729,56 @@ async function gitStage(ctx: StageContext, wt: TaskWorktree, scrub: Scrubber, lo
     if (before && before.unpushed > 0) return { status: 'failed', branch: wt.branch, git: before, error: `${before.unpushed} commit(s) are not pushed yet and would not be merged — push first.` }
     const r = await mergePr(repo, wt.dir, wt.branch)
     log('git', `Merged the ${r.via === 'gh' ? 'pull' : 'merge'} request${r.url ? `: ${r.url}` : ''}`, 'requestMerged', { url: r.url ?? '' })
-    return { status: 'ok', branch: wt.branch, url: r.url ?? undefined, git: await gitSnapshot(ctx, wt, scrub), summary: `Merged the ${r.via === 'gh' ? 'pull' : 'merge'} request into ${repo.baseBranch}.` }
+    const rec = newShip('merge', 'stage', wt.branch, web)
+    if (r.url) withRequest(rec, r.url, 'merged')
+    rec.head = await headOf(wt.dir).catch(() => null)
+    rec.at = Date.now()
+    return { status: 'ok', branch: wt.branch, url: r.url ?? undefined, git: await gitSnapshot(ctx, wt, scrub), summary: `Merged the ${r.via === 'gh' ? 'pull' : 'merge'} request into ${repo.baseBranch}.`, ship: rec }
   }
+  // commit · push · pr — a commit that fails is the stage's failure (nothing happened: no record)
   const sha = await commitAll(wt.dir, commitMessage(task))
   log('git', sha ? `Committed ${sha.slice(0, 8)}` : 'Nothing new to commit', sha ? 'committed' : 'nothingToCommit', { sha: (sha ?? '').slice(0, 8) })
+  const rec = newShip(action, 'stage', wt.branch, web)
+  if (sha) rec.commit = { sha }
   const done: string[] = [sha ? `Committed ${sha.slice(0, 8)}.` : 'Nothing new to commit.']
   let url: string | undefined
-  if (action === 'push' || action === 'pr') {
-    if (!repo.push) {
-      done.push('Pushing is off for this repo in worker.json.')
-      log('info', 'Pushing is off for this repo (worker.json "push": false).')
-    } else {
-      await push(repo, wt.dir, wt.branch)
-      log('git', `Pushed ${wt.branch} to ${repo.remote}`, 'pushed', { branch: wt.branch, remote: repo.remote })
-      done.push(`Pushed to ${repo.remote}/${wt.branch}.`)
-      if (action === 'pr') {
-        const pr = await openPr(repo, wt.dir, wt.branch, task.title, `${(task.summary ?? '').trim() || task.title}\n\n— From One (coding pipeline).`)
-        if (pr.url) {
-          url = pr.url
-          log('git', pr.via === 'gh' ? `Pull request: ${pr.url}` : pr.via === 'glab' ? `Merge request: ${pr.url}` : `Compare: ${pr.url}`)
-          done.push(pr.via === 'gh' ? 'Pull request opened.' : pr.via === 'glab' ? 'Merge request opened.' : 'Open the pull request from the compare link.')
-        } else done.push('No pull request link for this remote.')
+  let step: 'push' | 'request' = 'push'
+  try {
+    if (action === 'push' || action === 'pr') {
+      if (!repo.push) {
+        rec.pushOff = true
+        done.push('Pushing is off for this repo in worker.json.')
+        log('info', `Pushing is off for ${repo.name} (worker.json "push": false) — committed only.`, 'pushOff', { repo: repo.name })
+      } else {
+        // never forced: a branch the remote has moved on is "rejected" (Update from base merges it in)
+        await push(repo, wt.dir, wt.branch)
+        rec.pushed = { remote: repo.remote }
+        log('git', `Pushed ${wt.branch} to ${repo.remote}`, 'pushed', { branch: wt.branch, remote: repo.remote })
+        done.push(`Pushed to ${repo.remote}/${wt.branch}.`)
+        if (action === 'pr') {
+          step = 'request'
+          const pr = await openPr(repo, wt.dir, wt.branch, task.title, requestBody((task.summary ?? '').trim() || task.title, task.id))
+          logRequest(log, pr, rec, repo)
+          if (pr.url) url = pr.url
+          const kind = requestKind(rec.web) === 'mr' ? 'Merge' : 'Pull'
+          if (pr.url) done.push(pr.via === 'link' ? 'Open the pull request from the compare link.' : pr.existing ? `${kind} request already open.` : `${kind} request opened.`)
+          else done.push('No pull request link for this remote.')
+        }
       }
     }
+  } catch (e) {
+    // what came before stays recorded: the commit (and the push, when the request failed)
+    const msg = e instanceof GitError ? `git: ${e.message}` : e instanceof Error ? e.message : String(e)
+    const detail = hintText(e, msg)
+    log('error', msg)
+    noteGitHint(detail, repo, log, ctx.terminal, ctx.platform)
+    rec.failed = { step, ...(step === 'push' && gitHint(detail, ctx.platform) === 'pushRejected' ? { code: 'pushRejected' as const } : {}) }
+    rec.head = await headOf(wt.dir).catch(() => null)
+    rec.at = Date.now()
+    return { status: 'failed', branch: wt.branch, git: await gitSnapshot(ctx, wt, scrub), error: scrub.text(msg), ship: rec }
   }
+  rec.head = await headOf(wt.dir).catch(() => null)
+  rec.at = Date.now()
   const git = await gitSnapshot(ctx, wt, scrub)
-  return { status: 'ok', branch: wt.branch, git, url, summary: done.join(' ') }
+  return { status: 'ok', branch: wt.branch, git, url, summary: done.join(' '), ship: rec }
 }

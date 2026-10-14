@@ -195,6 +195,9 @@ describe('diff, commit, push', () => {
     assert.match(compareUrl('ssh://git@gitlab.com/acme/site.git', 'main', 'b')!, /^https:\/\/gitlab\.com\/acme\/site\/-\/merge_requests\/new\?/)
     assert.equal(compareUrl('/home/me/remote.git', 'main', 'b'), null)
     assert.equal(webBase('file:///tmp/x.git'), null)
+    // an http(s) remote keeps its port (a self-hosted GitLab on :8443); an ssh port is never the web's
+    assert.match(compareUrl('https://gitlab.example.test:8443/acme/site.git', 'main', 'b')!, /^https:\/\/gitlab\.example\.test:8443\/acme\/site\/-\/merge_requests\/new\?/)
+    assert.equal(webBase('ssh://git@gitlab.example.test:2222/acme/site.git')?.base, 'https://gitlab.example.test/acme/site')
   })
 })
 

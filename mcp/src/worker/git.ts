@@ -8,14 +8,18 @@
  *  - ensureWorktree: a new branch <prefix><slug>-<shortid> from <remote>/<base> (after a fetch — one that fails
  *    or takes over 60 s is noted and the local state is used) in its own
  *    worktree, or the branch the task names (must exist; never reset)
- *  - info: ahead / behind, pushed, commits, per-file diff (size-capped, binary skipped), conflicts
- *  - commit · push · openPr (gh, else a compare link) · updateFromBase (rebase only if never pushed,
- *    else merge; conflicts reported per file, left for a stage to resolve) · discard · cleanup
+ *  - info: ahead / behind, pushed, commits, per-file diff (size-capped, binary skipped), conflicts, the web address
+ *  - commit · push · openPr (gh / glab, else a compare link; on GitLab an open merge request is found first) ·
+ *    updateFromBase (the remote task branch merged in first when it has commits HEAD lacks — never a rebase or a force
+ *    there —, then the base: rebase only if never pushed, else merge; conflicts reported per file, left for a stage to
+ *    resolve) · discard · cleanup
+ *  - the web address per forge (webBase / webOf, worker.json "forge"): scheme + host + project path, never credentials
+ *    or a local path — what One links commits, branches and requests with
  */
 import { createHash } from 'node:crypto'
 import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, statSync } from 'node:fs'
 import { dirname, join, posix, resolve, win32 } from 'node:path'
-import type { GitCommit, GitFile, GitInfo } from '../../../src/app/features/coding/protocol.ts'
+import { GIT_SHA, cleanWeb, type Forge, type ForgeSetting, type ForgeWeb, type GitCommit, type GitFile, type GitInfo } from '../../../src/app/features/coding/protocol.ts'
 import type { RepoConfig } from './config.ts'
 import { execFileSafe, killTree, spawnSafe } from './exec.ts'
 import { FOLDER_BUSY, GIT_ENV, folderBusyCode, gitArgs, gitEnv } from './gitenv.ts'
@@ -637,7 +641,9 @@ export async function info(repo: RepoConfig, state: WorkerState, dir: string, br
   const own = state.created(repo.name, branch)
   const head = (await git(dir, ['rev-parse', 'HEAD'])).stdout.trim()
   const merged = count(ahead) === 0 && status.length === 0 && !!own?.fork && head !== own.fork && (await git(dir, ['merge-base', '--is-ancestor', 'HEAD', base])).code === 0
-  return { branch, base, ahead: count(ahead), behind: count(behind), pushed, unpushed, dirty: status.length, commits, files, conflicts, created: !!own?.branchCreated, merged, at: Date.now() }
+  // the repo's web address (One links commits and the branch with it) — never the remote's URL itself
+  const web = await webOf(repo).catch(() => null)
+  return { branch, base, ahead: count(ahead), behind: count(behind), pushed, unpushed, dirty: status.length, commits, files, conflicts, created: !!own?.branchCreated, merged, at: Date.now(), web }
 }
 
 async function diffFiles(dir: string, base: string, status: StatusEntry[]): Promise<GitFile[]> {
@@ -745,36 +751,76 @@ export async function push(repo: RepoConfig, dir: string, branch: string, force 
   await gitOk(dir, ['push', ...(force ? ['--force-with-lease'] : []), '-u', repo.remote, branch], 300_000)
 }
 
-/** The remote's web address (credentials stripped), for github / gitlab-like hosts only. */
-export function webBase(remoteUrl: string): { host: string; path: string; kind: 'github' | 'gitlab' } | null {
+/** HEAD of a worktree (a full object id), null when git cannot say. */
+export async function headOf(dir: string): Promise<string | null> {
+  const r = await git(dir, ['rev-parse', 'HEAD'], 30_000)
+  const sha = r.code === 0 ? r.stdout.trim() : ''
+  return GIT_SHA.test(sha) ? sha : null
+}
+
+/** A remote host's forge by its name ("github" / "gitlab" in it), else null — the setup page's "Automatic" says the same. */
+export const forgeOfHost = (host: string | null | undefined): Forge | null => (!host ? null : /github/i.test(host) ? 'github' : /gitlab/i.test(host) ? 'gitlab' : null)
+
+/**
+ * The remote's web address (credentials stripped): https://<host>/<project> for ssh / scp / git remotes, the remote's
+ * own scheme, host and port for http(s) ones; the forge from `forge`, else from the host's name. Null for a local path,
+ * file://, an unknown host with forge 'auto', or anything cleanWeb refuses.
+ */
+export function webBase(remoteUrl: string, forge: ForgeSetting = 'auto'): ForgeWeb | null {
   let host = ''
   let path = ''
+  let origin = ''
   const scp = /^(?:[^@/]+@)?([^:/]+):(?!\/)(.+)$/.exec(remoteUrl)
   try {
     if (/^(https?|ssh|git):\/\//.test(remoteUrl)) {
       const u = new URL(remoteUrl)
-      host = u.hostname
+      host = u.hostname.toLowerCase()
       path = u.pathname
+      // http(s): the remote's own scheme and port (a self-hosted GitLab on :8443); ssh's port is never the web's
+      origin = /^https?:$/.test(u.protocol) ? `${u.protocol}//${host}${u.port ? `:${u.port}` : ''}` : `https://${host}`
     } else if (scp) {
-      host = scp[1]!
+      host = scp[1]!.toLowerCase()
       path = scp[2]!
+      origin = `https://${host}`
     }
   } catch {
     return null
   }
   path = path.replace(/^\/+/, '').replace(/\.git$/, '').replace(/\/+$/, '')
   if (!host || !/^[\w.-]+$/.test(host) || !/^[\w.-]+(\/[\w.-]+)+$/.test(path)) return null
-  const kind = /github/i.test(host) ? 'github' : /gitlab/i.test(host) ? 'gitlab' : null
-  return kind ? { host: host.toLowerCase(), path, kind } : null
+  const kind = forge === 'github' || forge === 'gitlab' ? forge : forgeOfHost(host)
+  return kind ? cleanWeb({ base: `${origin}/${path}`, forge: kind }) : null
 }
 
-export function compareUrl(remoteUrl: string, base: string, branch: string): string | null {
-  const w = webBase(remoteUrl)
-  if (!w) return null
-  const enc = (s: string) => s.split('/').map(encodeURIComponent).join('/')
-  return w.kind === 'github'
-    ? `https://${w.host}/${w.path}/compare/${enc(base)}...${enc(branch)}?expand=1`
-    : `https://${w.host}/${w.path}/-/merge_requests/new?merge_request%5Bsource_branch%5D=${encodeURIComponent(branch)}&merge_request%5Btarget_branch%5D=${encodeURIComponent(base)}`
+/** The repo's web address (webBase of its remote, its worker.json forge) — null without one. */
+export async function webOf(repo: RepoConfig): Promise<ForgeWeb | null> {
+  const r = await git(repo.path, ['remote', 'get-url', repo.remote], 30_000)
+  return r.code === 0 ? webBase(r.stdout.trim(), repo.forge) : null
+}
+
+/**
+ * The web address a request's own address names (the part before /-/merge_requests/<n> · /pull/<n>; the host
+ * lower-cased) — an SSH host alias (git@gitlab-work:…) or a web host other than the remote's still links right.
+ */
+export function webFromRequest(url: string, forge: Forge): ForgeWeb | null {
+  const m = forge === 'gitlab' ? /^(https?:\/\/[^/?#]+\/.+?)\/-\/merge_requests\/\d+/.exec(url) : /^(https?:\/\/[^/?#]+\/[^/?#]+\/[^/?#]+)\/pull\/\d+/.exec(url)
+  if (!m) return null
+  const parts = /^(https?:\/\/[^/?#]+)(\/.*)$/.exec(m[1]!)
+  return parts ? cleanWeb({ base: `${parts[1]!.toLowerCase()}${parts[2]}`, forge }) : null
+}
+
+const encRef = (s: string) => s.split('/').map(encodeURIComponent).join('/')
+
+/** The compare / new-merge-request link of a branch on a web address. */
+export function compareFor(web: ForgeWeb, base: string, branch: string): string {
+  return web.forge === 'github'
+    ? `${web.base}/compare/${encRef(base)}...${encRef(branch)}?expand=1`
+    : `${web.base}/-/merge_requests/new?merge_request%5Bsource_branch%5D=${encodeURIComponent(branch)}&merge_request%5Btarget_branch%5D=${encodeURIComponent(base)}`
+}
+
+export function compareUrl(remoteUrl: string, base: string, branch: string, forge: ForgeSetting = 'auto'): string | null {
+  const w = webBase(remoteUrl, forge)
+  return w ? compareFor(w, base, branch) : null
 }
 
 /** gh / glab: an .exe, or a shim the reader reads (exec.ts — never through cmd.exe). `input` goes to stdin. */
@@ -788,15 +834,25 @@ export const BODY_MAX = 60_000
 export const GLAB_TEXT_MAX_WIN = 15_000
 const glabText = (text: string, platform: NodeJS.Platform = process.platform) => text.slice(0, platform === 'win32' ? GLAB_TEXT_MAX_WIN : BODY_MAX)
 
+/** What openPr did: a request on the host (opened, or `existing` — found open), the compare / new-request link, or nothing. */
+export interface OpenPr {
+  url: string | null
+  via: 'gh' | 'glab' | 'link' | 'none'
+  /** the request was open already (found, not created) */
+  existing?: true
+  /** why the link instead of a request: the host tool's own words (scrubbed by the caller before it is logged) */
+  why?: string
+}
+
 /**
  * Open a pull request: `gh pr create` when the repo wants it, gh is installed and the remote is a GitHub
- * host; a merge request with `glab mr create` on a GitLab host (glab installed and signed in); otherwise the
- * compare / new-merge-request link (null when the remote has no web page One could link to).
+ * host; on a GitLab host the branch's open merge request (`glab mr view`) — else a new one with `glab mr create`
+ * (glab installed and signed in); otherwise the compare / new-merge-request link (null when the remote has no web
+ * page One could link to). The host follows worker.json "forge" (a self-hosted GitLab under its own name).
  */
-export async function openPr(repo: RepoConfig, dir: string, branch: string, title: string, body: string): Promise<{ url: string | null; via: 'gh' | 'glab' | 'link' | 'none' }> {
-  const remoteUrl = (await git(repo.path, ['remote', 'get-url', repo.remote])).stdout.trim()
-  const web = webBase(remoteUrl)
-  if (repo.pr === 'gh' && web?.kind === 'github') {
+export async function openPr(repo: RepoConfig, dir: string, branch: string, title: string, body: string): Promise<OpenPr> {
+  const web = await webOf(repo)
+  if (repo.pr === 'gh' && web?.forge === 'github') {
     const gh = await run('gh', ['--version'], dir, 10_000)
     if (gh.code === 0) {
       const made = await run('gh', ['pr', 'create', '--base', repo.baseBranch, '--head', branch, '--title', title.slice(0, 250), '--body-file', '-'], dir, 120_000, body.slice(0, BODY_MAX))
@@ -804,51 +860,67 @@ export async function openPr(repo: RepoConfig, dir: string, branch: string, titl
       if (made.code === 0 && url) return { url, via: 'gh' }
       if (/already exists/i.test(made.stderr)) {
         const view = await run('gh', ['pr', 'view', branch, '--json', 'url', '--jq', '.url'], dir)
-        if (view.code === 0 && view.stdout.trim()) return { url: view.stdout.trim(), via: 'gh' }
+        if (view.code === 0 && /^https?:\/\/\S+$/.test(view.stdout.trim())) return { url: view.stdout.trim(), via: 'gh', existing: true }
       }
       throw new GitError(`gh pr create failed: ${(made.stderr || made.stdout).trim().split('\n').slice(-3).join(' ')}`)
     }
   }
-  // GitLab: a merge request with glab when it is installed and signed in — else the link below
-  if (repo.pr === 'gh' && web?.kind === 'gitlab') {
+  // GitLab: the branch's open merge request, else a new one with glab when it is installed and signed in — else the link
+  let why: string | undefined
+  if (repo.pr === 'gh' && web?.forge === 'gitlab') {
     const glab = await run('glab', ['--version'], dir, 10_000)
     if (glab.code === 0) {
+      // a Ship again (a rework, a Retry): the merge request is there already — never a second one
+      const found = await requestOf('glab', dir, branch)
+      if (found?.open) return { url: found.url, via: 'glab', existing: true }
       const made = await run('glab', ['mr', 'create', '--source-branch', branch, '--target-branch', repo.baseBranch, '--title', title.slice(0, 250), '--description', glabText(body), '--yes'], dir)
       const url = /https?:\/\/\S+\/-\/merge_requests\/\d+/.exec(`${made.stdout}\n${made.stderr}`)?.[0]
       if (url) return { url, via: 'glab' }
+      // glab said no without an address ("already exists" in another form, a refused field …): look once more
+      const again = await requestOf('glab', dir, branch)
+      if (again?.open) return { url: again.url, via: 'glab', existing: true }
+      why = lastLines(made, 2) || undefined
     }
   }
-  const url = compareUrl(remoteUrl, repo.baseBranch, branch)
-  return { url, via: url ? 'link' : 'none' }
+  const url = web ? compareFor(web, repo.baseBranch, branch) : null
+  return { url, via: url ? 'link' : 'none', ...(why ? { why } : {}) }
 }
 
 /** The host CLI for this repo's merge / pull requests: gh on a GitHub remote, glab on a GitLab one (installed, `pr: "gh"`). */
-async function hostCli(repo: RepoConfig, dir: string): Promise<{ tool: 'gh' | 'glab'; url: string }> {
+async function hostCli(repo: RepoConfig, dir: string): Promise<{ tool: 'gh' | 'glab'; web: ForgeWeb }> {
   if (repo.pr !== 'gh') throw new GitError('pull / merge requests are off for this repo (worker.json "pr": "none")')
-  const remoteUrl = (await git(repo.path, ['remote', 'get-url', repo.remote])).stdout.trim()
-  const web = webBase(remoteUrl)
-  if (!web) throw new GitError(`the remote "${repo.remote}" is neither a GitHub nor a GitLab address`)
-  const tool = web.kind === 'github' ? 'gh' : 'glab'
+  const web = await webOf(repo)
+  if (!web) throw new GitError(`the remote "${repo.remote}" is neither a GitHub nor a GitLab address — pick the host type on the worker's setup page if it is one`)
+  const tool = web.forge === 'github' ? 'gh' : 'glab'
   if ((await run(tool, ['--version'], dir, 10_000)).code !== 0) throw new GitError(`${tool} is not installed on this computer — install it and sign in (${tool} auth login)`)
-  return { tool, url: `https://${web.host}/${web.path}` }
+  return { tool, web }
 }
 
 const lastLines = (r: GitRun, n = 3) => (r.stderr || r.stdout).trim().split('\n').slice(-n).join(' ')
 
-/** The address of the branch's open merge / pull request (null when there is none). */
-async function requestUrl(tool: 'gh' | 'glab', dir: string, branch: string): Promise<string | null> {
-  if (tool === 'gh') {
-    const view = await run('gh', ['pr', 'view', branch, '--json', 'url', '--jq', '.url'], dir, 30_000)
-    return view.code === 0 && /^https?:\/\//.test(view.stdout.trim()) ? view.stdout.trim() : null
-  }
-  const view = await run('glab', ['mr', 'view', branch, '--output', 'json'], dir, 30_000)
+/** The branch's merge / pull request on the host: its address and whether it is open (glab --output json · gh --json url,state). */
+async function requestOf(tool: 'gh' | 'glab', dir: string, branch: string): Promise<{ url: string; open: boolean } | null> {
+  const view = tool === 'gh' ? await run('gh', ['pr', 'view', branch, '--json', 'url,state'], dir, 30_000) : await run('glab', ['mr', 'view', branch, '--output', 'json'], dir, 30_000)
   if (view.code !== 0) return null
+  const out = view.stdout.trim()
+  let url: unknown
+  let state: unknown
   try {
-    const url = (JSON.parse(view.stdout) as { web_url?: unknown }).web_url
-    return typeof url === 'string' && /^https?:\/\//.test(url) ? url : null
+    const o = JSON.parse(out) as { url?: unknown; web_url?: unknown; state?: unknown }
+    url = tool === 'gh' ? o.url : o.web_url
+    state = o.state
   } catch {
-    return /https?:\/\/\S+\/-\/merge_requests\/\d+/.exec(view.stdout)?.[0] ?? null
+    // not JSON (an older tool, a plain address): the address it names, taken as open
+    url = (tool === 'gh' ? /https?:\/\/\S+/ : /https?:\/\/\S+\/-\/merge_requests\/\d+/).exec(out)?.[0]
+    state = undefined
   }
+  if (typeof url !== 'string' || !/^https?:\/\/\S+$/.test(url)) return null
+  return { url, open: state === undefined || state === null || (typeof state === 'string' && /^open/i.test(state)) }
+}
+
+/** The address of the branch's merge / pull request (null when there is none). */
+async function requestUrl(tool: 'gh' | 'glab', dir: string, branch: string): Promise<string | null> {
+  return (await requestOf(tool, dir, branch))?.url ?? null
 }
 
 /** Post a comment (the review) to the branch's merge / pull request — the person's own gh / glab. */
@@ -892,12 +964,16 @@ export async function mergePr(repo: RepoConfig, dir: string, branch: string): Pr
 export interface UpdateResult {
   how: 'up-to-date' | 'rebased' | 'merged' | 'conflicts'
   conflicts: string[]
+  /** the remote task branch had commits HEAD lacked: merged in first (pushed from elsewhere, changed on the host) */
+  remote?: boolean
 }
 
 /**
  * Bring the base in: rebase when the branch was never pushed, else merge (no history rewrite of a pushed
- * branch). Refuses a worktree with uncommitted changes. Conflicts are left in the worktree (a merge in
- * progress) and listed — a stage (or the person) resolves them; nothing is resolved automatically.
+ * branch). First the remote task branch, when it has commits HEAD lacks (a push from elsewhere, a change on the host —
+ * what makes a push "rejected"): merged in, a fast-forward when it can be — never a rebase, never a force. Refuses a
+ * worktree with uncommitted changes. Conflicts are left in the worktree (a merge in progress) and listed — a stage (or
+ * the person) resolves them; nothing is resolved automatically.
  */
 export async function updateFromBase(repo: RepoConfig, dir: string, branch: string): Promise<UpdateResult> {
   if (await isDirty(dir)) {
@@ -906,19 +982,33 @@ export async function updateFromBase(repo: RepoConfig, dir: string, branch: stri
     throw new GitError('the worktree has uncommitted changes — commit them first (Commit), nothing was changed')
   }
   await fetchRemote(repo)
+  let remote = false
+  if (await remoteBranchExists(repo, branch)) {
+    const theirs = count((await gitOk(dir, ['rev-list', '--count', `HEAD..${repo.remote}/${branch}`])).trim())
+    if (theirs > 0) {
+      // fast-forward when it can; a merge commit otherwise — never a rebase of what is on the remote
+      const mg = await git(dir, ['merge', '--no-edit', `${repo.remote}/${branch}`])
+      if (mg.code !== 0) {
+        const conflicts = await conflictsOf(dir)
+        if (conflicts.length) return { how: 'conflicts', conflicts, remote: true }
+        throw gitFailure(mg, 'merge failed', 4)
+      }
+      remote = true
+    }
+  }
   const base = await baseRef(repo)
   const behind = count((await gitOk(dir, ['rev-list', '--count', `HEAD..${base}`])).trim())
-  if (behind === 0) return { how: 'up-to-date', conflicts: [] }
+  if (behind === 0) return { how: 'up-to-date', conflicts: [], remote }
   const pushed = await remoteBranchExists(repo, branch)
   if (!pushed) {
     const rb = await git(dir, ['rebase', base])
-    if (rb.code === 0) return { how: 'rebased', conflicts: [] }
+    if (rb.code === 0) return { how: 'rebased', conflicts: [], remote }
     await git(dir, ['rebase', '--abort'])
   }
   const mg = await git(dir, ['merge', '--no-edit', '--no-ff', base])
-  if (mg.code === 0) return { how: 'merged', conflicts: [] }
+  if (mg.code === 0) return { how: 'merged', conflicts: [], remote }
   const conflicts = await conflictsOf(dir)
-  if (conflicts.length) return { how: 'conflicts', conflicts }
+  if (conflicts.length) return { how: 'conflicts', conflicts, remote }
   throw gitFailure(mg, 'merge failed', 4)
 }
 
