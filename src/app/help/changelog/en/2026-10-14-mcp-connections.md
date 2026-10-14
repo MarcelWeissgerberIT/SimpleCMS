@@ -1,7 +1,7 @@
 ---
 id: 2026-10-14-mcp-connections
 date: 2026-10-14
-order: 1
+order: 2
 title: MCP · Connections — what is connected, on one page
 summary: One page lists every MCP connection One knows of — One's own MCP servers, Claude Desktop and Claude Code through this tab, Claude Code in the coding worker, the team server — each with a lamp and the key that fixes it.
 image: assets/shots/changelog/mcp-connections.webp

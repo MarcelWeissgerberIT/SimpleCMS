@@ -1,7 +1,7 @@
 ---
 id: 2026-10-14-mcp-connections
 date: 2026-10-14
-order: 1
+order: 2
 title: MCP · Verbindungen – was verbunden ist, auf einer Seite
 summary: Eine Seite zeigt jede MCP-Verbindung, die One kennt – die MCP-Server von Claude in One, Claude Desktop und Claude Code über diesen Tab, Claude Code im Coding-Worker, den Team-Server –, jede mit Lampe und der Taste, die hilft.
 image: assets/shots/changelog/mcp-connections.webp
