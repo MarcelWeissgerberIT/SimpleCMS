@@ -12,8 +12,8 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { after, afterEach, describe, test } from 'node:test'
 import { cloneBase, unquote } from '../src/worker/clone.ts'
-import { splitArgs } from '../src/worker/config.ts'
-import { ownLocks, worktreeFolder } from '../src/worker/git.ts'
+import { splitArgs, type RepoConfig } from '../src/worker/config.ts'
+import { git, insideWorktrees, ownLocks, worktreeFolder } from '../src/worker/git.ts'
 import { BATCH_SSH, forgetGitEnv, gitArgs, gitEnv, gitHint, hintLine, hintTerminal } from '../src/worker/gitenv.ts'
 import { inSyncedFolder, renameRetry } from '../src/worker/paths.ts'
 import { guessAnalyzeAsync, guessTest, shortPath, usualPlaces } from '../src/worker/scan.ts'
@@ -80,6 +80,24 @@ describe('git on Windows: long paths, ssh that never asks, hints', () => {
     forgetGitEnv()
   })
 
+  test('git() runs with them: ssh in BatchMode in its environment, long paths on Windows (passed on to the git it starts)', async () => {
+    const repo = plainRepo(join(tempDir('gitrun'), 'repo'))
+    const saved = { ...process.env }
+    for (const k of Object.keys(process.env)) if (/^git_ssh(_command)?$/i.test(k)) delete process.env[k]
+    Object.assign(process.env, GIT_ENV)
+    try {
+      forgetGitEnv()
+      const r = await git(repo, ['-c', 'alias.probe=!echo "ssh=$GIT_SSH_COMMAND"; git config --get core.longpaths || echo none', 'probe'])
+      assert.equal(r.code, 0, r.stderr)
+      assert.match(r.stdout, /ssh=ssh -o BatchMode=yes/)
+      assert.match(r.stdout, process.platform === 'win32' ? /^true$/m : /^none$/m)
+    } finally {
+      for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k]
+      Object.assign(process.env, saved)
+      forgetGitEnv()
+    }
+  })
+
   test('gitHint: what git\'s message means — each code; "Filename too long" only on Windows; anything else none', () => {
     const cases: Array<[string, ReturnType<typeof gitHint>]> = [
       ["fatal: detected dubious ownership in repository at 'C:/Users/Max/repo'", 'dubiousOwnership'],
@@ -117,6 +135,17 @@ describe('git on Windows: long paths, ssh that never asks, hints', () => {
 /* ------------------------------------------------------------------ worktree folders */
 
 describe('worktree folder names', () => {
+  test('insideWorktrees: as written, without case on Windows — never the folder itself, a neighbour or a way out', () => {
+    const repo = { path: 'C:\\code\\site', worktreeDir: 'C:\\code\\.one-worktrees\\site' } as RepoConfig
+    assert.equal(insideWorktrees(repo, 'c:/CODE/.one-worktrees/site/one-x', 'win32'), true)
+    assert.equal(insideWorktrees(repo, 'C:\\code\\.one-worktrees\\site', 'win32'), false)
+    assert.equal(insideWorktrees(repo, 'C:\\code\\.one-worktrees\\site-other\\x', 'win32'), false)
+    assert.equal(insideWorktrees(repo, 'C:\\code\\.one-worktrees\\site\\..\\..\\site', 'win32'), false)
+    const posix = { path: '/srv/site', worktreeDir: '/srv/.one-worktrees/site' } as RepoConfig
+    assert.equal(insideWorktrees(posix, '/srv/.one-worktrees/site/one-x', 'linux'), true)
+    assert.equal(insideWorktrees(posix, '/SRV/.one-worktrees/site/one-x', 'linux'), false)
+  })
+
   const RESERVED = /[<>:"|?*\u0000-\u001f]/
   const DEVICE = /^(con|prn|aux|nul|com[0-9]|lpt[0-9])$/i
   const valid = (name: string) => !RESERVED.test(name) && !/[. ]$/.test(name) && !DEVICE.test(name.split('.')[0]!) && name.length <= 39 && !/[\\/]/.test(name)

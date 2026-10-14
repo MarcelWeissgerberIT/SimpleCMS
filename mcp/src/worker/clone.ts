@@ -91,7 +91,7 @@ export function parseCloneUrl(raw: unknown, local = false): CloneUrl | { error: 
   return { error: 'That is not a clone address — copy it from the project page (Clone → HTTPS or SSH).' }
 }
 
-/** A typed folder: trimmed, one pair of surrounding quotes off ("C:\\x y" from Explorer's "Copy as path"). */
+/** A typed folder: trimmed, one pair of surrounding quotes off (Explorer's "Copy as path" gives "C:\x y"). */
 export const unquote = (raw: string): string => {
   const t = raw.trim()
   return (/^"(.*)"$/s.exec(t)?.[1] ?? /^'(.*)'$/s.exec(t)?.[1] ?? t).trim()

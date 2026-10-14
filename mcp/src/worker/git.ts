@@ -19,7 +19,7 @@ import type { GitCommit, GitFile, GitInfo } from '../../../src/app/features/codi
 import type { RepoConfig } from './config.ts'
 import { execFileSafe, killTree, spawnSafe } from './exec.ts'
 import { FOLDER_BUSY, GIT_ENV, gitArgs, gitEnv } from './gitenv.ts'
-import { inFolder, pathId, rmRetry, samePath } from './paths.ts'
+import { pathId, rmRetry, samePath } from './paths.ts'
 import type { WorkerState } from './state.ts'
 
 export interface GitRun {
@@ -852,7 +852,13 @@ export function ownLocks(repo: RepoConfig, state: WorkerState): string[] {
   return out
 }
 
-/** Is `dir` inside the repo's worktree folder (not the folder itself — never the main checkout)? */
-export function insideWorktrees(repo: RepoConfig, dir: string): boolean {
-  return inFolder(dir, repo.worktreeDir) && !samePath(dir, repo.worktreeDir) && !samePath(dir, repo.path)
+/**
+ * Is `dir` inside the repo's worktree folder (not the folder itself — never the main checkout)? As written (no link
+ * followed: it decides what may be removed), without case on Windows / macOS.
+ */
+export function insideWorktrees(repo: RepoConfig, dir: string, platform: NodeJS.Platform = process.platform): boolean {
+  const root = pathId(repo.worktreeDir, platform)
+  const sep = platform === 'win32' ? '\\' : '/'
+  const d = pathId(dir, platform)
+  return d.startsWith(root.endsWith(sep) ? root : root + sep) && d !== pathId(repo.path, platform)
 }

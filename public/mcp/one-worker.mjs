@@ -13015,8 +13015,11 @@ function ownLocks(repo, state) {
   }
   return out;
 }
-function insideWorktrees(repo, dir) {
-  return inFolder(dir, repo.worktreeDir) && !samePath(dir, repo.worktreeDir) && !samePath(dir, repo.path);
+function insideWorktrees(repo, dir, platform = process.platform) {
+  const root = pathId(repo.worktreeDir, platform);
+  const sep5 = platform === "win32" ? "\\" : "/";
+  const d = pathId(dir, platform);
+  return d.startsWith(root.endsWith(sep5) ? root : root + sep5) && d !== pathId(repo.path, platform);
 }
 
 // src/worker/run.ts
