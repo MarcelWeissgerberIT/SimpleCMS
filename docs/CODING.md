@@ -21,7 +21,8 @@ diffs, logs, test output and cost — nothing else. One can never send a command
 **Runs on** macOS, Linux and Windows 10 / 11 (natively from worker 1.9.0 — § Windows); WSL2 works too.
 
 **Needs**: Node.js 22 or newer (tested on 22 and 24; 20 still starts, with a note that it is past its end of life),
-`git` (on Windows: Git for Windows), and the Claude Code CLI — installed and signed in (`claude` on `PATH`, or
+`git` (on Windows: Git for Windows; with your `user.name` / `user.email` set — `gitIdentity` otherwise), and the Claude
+Code CLI — installed and signed in (`claude` on `PATH`, its native installer's `~/.local/bin`, or
 `CLAUDE_BIN=/path/to/claude`). `gh` (GitHub CLI, signed in) if you want pull requests opened for you.
 
 *Settings → Coding worker* (and **#/coding** while no worker with repos is connected) shows one card:
@@ -219,8 +220,9 @@ carries no system (protocol.ts has no such field), but a worker reached over **L
 on the browser's own computer. So a worker older than 1.9.0 over Local from a browser on Windows (its platform, not
 the start-line switch) gets a security notice with *Download again* on the #/coding plate and the setup card, and the
 Preflight worker lamp turns amber (`features/coding/winWorker.ts`; the ZIP-import notice for 1.3.1 – 1.8.0 wins where
-both apply). A worker reached through **Cloud** runs on another computer and is never flagged; one running in WSL on
-this computer is a Linux one — the notice says it does not apply then. macOS and Linux never get it.
+both apply). A worker reached through **Cloud** runs on another computer and is never flagged. One running in WSL on
+this computer is a Linux one, which One cannot tell apart over Local — it is flagged too, and the notice says it does
+not apply then. macOS and Linux browsers never get it.
 
 **Install** (once):
 
@@ -246,13 +248,26 @@ of its own: `$env:ONE_WORKER_PORT = '47400'; node …` / `set "ONE_WORKER_PORT=4
   tools (`cmd.exe`, `taskkill`, PowerShell for the folder dialog) by their System32 path. git runs only as
   `git.exe`. An npm / pnpm / scoop `.cmd` shim (Claude Code installed with npm, `npx`, `pnpm`) is **read, not run**:
   the worker starts what it points to (Node with the script, or the `.exe`).
-- **What the programs start** — every child gets `NoDefaultCurrentDirectoryInExePath=1`, so what it starts by a bare
-  name (cmd.exe's commands, a Node child's own spawn) is not looked up in its working folder either. Some lookups
-  ignore that variable — node-which in cross-spawn / execa (Claude Code's own `git` among them) and Bun's own — so a
-  stage **does not start** while the top of its folder (the task's worktree, or the repository) holds a program such
-  a lookup would take: `git.exe`, `claude.exe`, `node.exe`, `npm.cmd`, `bash.exe`, `ssh.exe`, `python.exe` … (the
-  names tools start, with any extension Windows runs). The log says `plantedProgram` and names the file; move or
-  rename it in the repository, then **Retry**.
+- **What the programs start** — the programs One starts by itself (git, Claude Code, gh, glab, the System32 tools)
+  get `NoDefaultCurrentDirectoryInExePath=1`, so what they start by a bare name (cmd.exe's commands, a Node child's own
+  spawn) is not looked up in their working folder either. Your own `testCommand` / `analyzeCommand` and
+  `ONE_WORKER_BROWSER` / `ONE_WORKER_PICKER` keep your environment as it is: their scripts may call a program in the
+  working folder by its bare name (`gradlew`), as in your terminal — tests and analysis run the repository's own code
+  by design. Some lookups ignore that variable — node-which in cross-spawn / execa (Claude Code's own `git`, the
+  launchers of the MCP servers it starts) and Bun's own — so a **Claude Code stage** (plan, implement, document)
+  **does not start** while the top of its folder (the task's worktree, else the repository or the stage's scratch
+  folder) holds a file such a lookup could take: an extension Windows runs (your `PATHEXT` plus `.exe .com .cmd .bat
+  .ps1 .js .jse .vbs .vbe .wsf .wsh .msc`) on a base name (any case) that is a program on `PATH`, the launcher of one
+  of your MCP servers (the stdio `command` of the servers in `~/.claude.json` — with the repo's own Claude Code
+  settings on, also its project entry there and the repo's `.mcp.json`), or one of `git claude node npm npx pnpm yarn
+  corepack bash sh ssh gh glab rg cmd powershell pwsh where python py uv uvx bunx bun deno docker podman pipx java
+  dotnet`. A `~/.claude.json` the worker cannot read leaves `PATH` and that list. So `gradlew.bat`, `mvnw.cmd` or
+  `build.cmd` pass unless such a program is on your `PATH`. Right after an implement stage the worker looks again (a
+  program Claude Code wrote there ends the stage the same way). The log says `plantedProgram` and names the file (the
+  worker's terminal names the folder). Remove or rename it in the repository **and** on the task's branch — an
+  existing worktree keeps the file: change it there (Git → *Show folder* prints it in the worker's terminal), or commit and push the change on the base
+  branch and press *Update from base* (for a branch the worker made, *Discard worktree* works too once the base branch
+  has the change: the next run branches from it) — then **Retry**. Test and Analyze stages are never refused for it.
 - **cmd.exe** — only the person's own `testCommand` / `analyzeCommand` (worker.json, the setup page) and the
   `ONE_WORKER_BROWSER` / `ONE_WORKER_PICKER` programs may run through `cmd.exe`, and only when they name a `.cmd` /
   `.bat` the reader cannot read (`.\gradlew.bat`, a script of your own) — escaped for cmd (`/d /v:off /s /c`, every
@@ -560,7 +575,8 @@ hooks and your git config apply as usual. On Windows every git call gets `-c cor
   repository) and the worker adds nothing for that clone — its terminal says so. Setting `core.sshCommand` yourself
   — plain `ssh` too — opts out. **macOS and Linux: nothing is added**, as before 1.9.0.
 - **Hints**: after git's error line the log adds a hint in your language: `sshHostKey`, `sshKey`, `gitSignIn`,
-  `dubiousOwnership`, `gitLock`, `longpaths`. A fetch for a new task that fails or takes over 60 s
+  `dubiousOwnership`, `gitLock`, `gitIdentity`, `longpaths`. git's own guess at who commits (`got '<account>@<computer>…'`)
+  never reaches One. A fetch for a new task that fails or takes over 60 s
   (`ONE_WORKER_FETCH_MS`) is logged and the task goes on from the local refs.
 - **iCloud Drive (macOS)**: a repo under iCloud Drive (or ~/Documents / ~/Desktop when they sync) gets a warning in
   the log — git waits whenever a file is only in the cloud. Its worktrees go to `~/.one-worktrees/<name>` (outside
@@ -724,11 +740,13 @@ A browser for reviews: the person's own Claude Code MCP server (e.g. `claude mcp
   `<repo>`, worktrees folder → `<worktrees>`, home → `~`, temp → `<tmp>`; on Windows in every spelling — any case,
   `/` for `\`, MSYS `/c/Users/…`, JSON-escaped `\\`, `file:///C:/…`, the home folder's 8.3 short name). The config's
   commands are never sent; an error names a command by its program name only.
-- **No program from the repository by name.** Every program the worker starts goes through `mcp/src/worker/exec.ts`
-  — an argument list, never `shell: true`. On Windows a bare name is looked up in `PATH` only, never in the repo or
-  worktree it runs in; `.cmd` shims are read, not run; every child looks nothing up in its working folder either
-  (`NoDefaultCurrentDirectoryInExePath`), and a stage does not start while its folder holds a program named like one
-  a tool starts (`plantedProgram`); only your own worker.json commands and `ONE_WORKER_BROWSER` /
+- **No git or Claude Code from the repository.** Every program the worker starts goes through
+  `mcp/src/worker/exec.ts` — an argument list, never `shell: true`. One never takes git or Claude Code from the repo
+  folder: on Windows a bare name is looked up in `PATH` only, never in the repo or worktree it runs in; `.cmd` shims are
+  read, not run; the programs One starts by itself look nothing up in their working folder either
+  (`NoDefaultCurrentDirectoryInExePath`), and a Claude Code stage does not start while a program a lookup by name could
+  take sits at the top of its folder (`plantedProgram`). Tests and analysis run the repository's own code (your
+  worker.json commands, with your environment as it is). Only your own worker.json commands and `ONE_WORKER_BROWSER` /
   `ONE_WORKER_PICKER` may run through cmd.exe, never anything One sends or a repository holds (§ Windows).
 - **One cannot command.** It sends task data and the fixed verbs (`stop`, the git verbs above) for repos in the
   config. Unknown verbs, unknown repos and malformed tasks are refused; tasks of a `gate` / `queue` / `done` stage
@@ -855,7 +873,7 @@ and cannot inject, change, replay or reorder a frame. It can **delay or drop** f
 | **A stolen session cookie** | Open a tab link as you — the relay would pair it with your worker | Without this device's pairing secret its boxes do not open: the worker refuses it (`pair`). Signing out closes that session's relay links at once; `revoke-sessions` on the server within a minute (the relay re-checks sessions) |
 | **A stolen worker token** (the file was copied) | Connect as your worker — the newest connection wins (the old one gets 4001 and stops) | With the file it also has the pairing secret: treat the file like a key (`chmod 600`; Windows: `icacls`, § Windows). **Revoke** in Settings ends it at once (`node dist/cli.js revoke-workers <email>` on the server: within a minute); your tab shows which worker connected (name, repos) |
 | **A malicious tab** (injected script, another site) | — | The relay accepts tabs only from the server's own origin with a session cookie; a tab without the pairing secret is refused by the worker. Task text stays data: Claude Code's permissions, the stage rules and trust are unchanged |
-| **A cloned or imported repository** (any worker, local or cloud) | Carry a program named `git.exe`, `claude.exe` or `npm.exe` at its root, for Windows to start in place of the real one | Worker 1.9.0 looks programs up in `PATH` only, never in the folder it runs in, reads `.cmd` shims instead of running them, keeps its children from looking there (`NoDefaultCurrentDirectoryInExePath`) and starts no stage while the folder's top holds such a program (`plantedProgram` — for the lookups that ignore that variable, Claude Code's own among them; § Windows). **Older workers on Windows could start such a program** — use 1.9.0 or newer there; One names one it can see (Local, a browser on Windows). macOS / Linux never searched the working folder |
+| **A cloned or imported repository** (any worker, local or cloud) | Carry a program named `git.exe`, `claude.exe` or `npm.exe` at its root, for Windows to start in place of the real one | Worker 1.9.0 never takes git or Claude Code from the repo folder: it looks programs up in `PATH` only, never in the folder it runs in, reads `.cmd` shims instead of running them, keeps the programs it starts by itself from looking there (`NoDefaultCurrentDirectoryInExePath`) and starts no Claude Code stage while the folder's top holds a program a lookup by name could take (`plantedProgram` — for the lookups that ignore that variable, Claude Code's own among them; § Windows). Tests and analysis run the repository's own code by design. **Older workers on Windows could start such a program** — use 1.9.0 or newer there; One names one it can see (Local, a browser on Windows). macOS / Linux never searched the working folder |
 | **Removed member / now a viewer** | — | Removal or a role change to viewer closes their relay links at once and revokes their tokens (removal); the worker exits (removed) or waits (viewer) |
 
 ## Protocol
@@ -925,8 +943,10 @@ state: pending | active, online }` — what `node one-worker-cloud.mjs check` pr
   analysis, Post review, Merge, a stage with a model — worker 1.5 or newer). **Download again** (#/coding, or Settings → Coding worker), stop the old worker
   (Ctrl+C), start the new file — the browser may have saved it as `one-worker (1).mjs` — then **Retry** on the task.
 - **Claude Code was not found** — install it and sign in once interactively, then **Retry** on the task: the worker
-  looks for Claude Code again. A Claude Code outside `PATH`: set `CLAUDE_BIN` and start the worker again (it reads
-  the variable at start). `node one-worker.mjs check` shows what the worker sees (on Windows also how it starts Claude Code and which Git Bash it found). A
+  looks for Claude Code again — on the `PATH` it started with and in its native installer's folder
+  (`%USERPROFILE%\.local\bin`, `~/.local/bin`) —, and its setup page notices a new install within seconds; no restart
+  needed. Installed elsewhere outside `PATH`: set `CLAUDE_BIN` and start the worker again (it reads the variable at
+  start). `node one-worker.mjs check` shows what the worker sees (on Windows also how it starts Claude Code and which Git Bash it found). A
   Claude Code `.cmd` the worker cannot read is refused (`claudeCmdRefused`): the native installer, or `CLAUDE_BIN`
   set to `claude.exe` / its `cli.js`.
 - **Windows: cannot listen on 127.0.0.1:<port> — Windows keeps the port for itself** — Hyper-V, WSL or Docker reserve
@@ -934,12 +954,19 @@ state: pending | active, online }` — what `node one-worker-cloud.mjs check` pr
   worker, then download again) or start with `ONE_WORKER_PORT` (§ Windows).
 - **Windows: a repo in OneDrive is slow or a step fails with a locked file** — move it to a local folder (`C:\code`)
   and tick that one; until then its worktrees live in `%USERPROFILE%\.one-worktrees` (a cloud worker: in its config
-  folder; an own `worktreeDir` wins).
+  folder; an own `worktreeDir` wins). The warning says which — and when your `worktreeDir` lies in a synced folder
+  too.
 - **Windows: Filename too long** — `git config --global core.longpaths true` and long paths in Windows, or a short
   `worktreeDir` (§ Windows).
-- **Windows: a stage does not start — "holds a program named git.exe at its top level"** (`plantedProgram`) — the
-  repository carries a file named like a program tools start by name; remove or rename it in the repository (or
-  move it into a subfolder), then **Retry** (§ Windows › What the programs start).
+- **Windows: a Claude Code stage does not start — "holds a program named git.exe at its top level"**
+  (`plantedProgram`) — the stage's folder holds a file a lookup by name could take (§ Windows › What the programs
+  start; the worker's terminal names the folder). Remove or rename it in the repository **and** on the task's branch —
+  an existing worktree keeps the file: change it there (Git → *Show folder* prints it in the worker's terminal), or commit and push the change on the base
+  branch and press *Update from base* — then **Retry**. A flat package whose entry file is named like a tool (`node.js` with
+  `.JS` in `PATHEXT`) needs that rename too. Test and Analyze stages are never refused for it.
+- **git does not know who commits** (`gitIdentity`) — a fresh Git (Git for Windows sets neither) has no `user.name` /
+  `user.email`: run `git config --global user.name "Your Name"` and `git config --global user.email you@example.com`
+  once, then **Retry**.
 - **A fetch or push fails at once with an SSH message** — `sshHostKey`: run `ssh -T git@<host>` once in a terminal
   and read what ssh says; `sshKey`: add the key to your SSH agent (`ssh-add`). On Windows Git's own ssh does not see
   the OpenSSH Authentication Agent service: `start-ssh-agent` in the Command Prompt and the worker started in that

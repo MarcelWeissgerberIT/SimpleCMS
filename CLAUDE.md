@@ -581,7 +581,8 @@ the public APIs stable — other areas are built against them in parallel.
   `ONE_WORKER_PICKER` may, and nothing One sends or a repo holds ever reaches a cmd.exe line; on Windows every git call
   gets `-c core.longpaths=true` and worktree folders a short safe name, `ssh -o BatchMode=yes` only on Windows and only
   when no SSH command is set (a clone: any `includeIf` in the global / system config counts as set; macOS / Linux add
-  nothing, as 1.8), a repo in a synced folder (iCloud, CloudStorage, OneDrive) keeps its worktrees in ~/.one-worktrees;
+  nothing, as 1.8), a repo in a synced folder (iCloud, CloudStorage, OneDrive) keeps its worktrees in ~/.one-worktrees unless worktreeDir
+  says otherwise (the warning's `worktrees` = home · own · synced, rendered by coding/logValues.ts);
   the worker needs Node 22+ (Windows from 1.9.0; start lines per shell: coding/startLines.ts — PowerShell spells the
   home `$env:USERPROFILE`, never `$HOME`). Team: the worker takes only tasks whose version (SHA-256) was written or confirmed on this device. Version =
   title + page + Repo / Branch / Stage + the pipeline (names, kinds, Auto, mode, turns, git action, next, instructions);

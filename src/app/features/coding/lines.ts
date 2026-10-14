@@ -7,6 +7,7 @@ import type { Lang, Translate } from '@/shared/i18n'
 import { currentLang } from '../../i18n'
 import { fmtUsd } from '../../lib/money'
 import { budgetSet } from '../governor'
+import { logValues } from './logValues'
 import { EDIT_CHARS, EDIT_HUNKS, type LogLine, type ToolEdit } from './protocol'
 
 export const LOG_CODES = new Set([
@@ -57,12 +58,13 @@ export const LOG_CODES = new Set([
   'gitSignIn',
   'dubiousOwnership',
   'gitLock',
+  'gitIdentity',
   'folderBusy',
   'claudeMissing',
   'claudeCmdRefused',
   'commandMissing',
   'commandRefused',
-  // a stage that does not start: a program with a tool's name at the top of its folder (Windows)
+  // a Claude Code stage that does not start: a program a lookup by name could take at the top of its folder (Windows)
   'plantedProgram',
 ])
 
@@ -97,7 +99,7 @@ export function lineText(t: Translate, l: LogLine, lang: Lang = currentLang()): 
     // Claude Code runs on the person's own subscription: with a budget set, the line says it is not counted
     return budgetSet() ? `${line} · ${t('features.governor.cost.worker')}` : line
   }
-  return t(`features.coding.log.c.${l.c}`, v)
+  return t(`features.coding.log.c.${l.c}`, logValues(l.c, v, (key) => t(key)))
 }
 
 /** An edit as it arrives from the worker: strings only, within the limits; anything else is dropped. */

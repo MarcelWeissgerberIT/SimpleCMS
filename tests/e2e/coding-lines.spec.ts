@@ -10,6 +10,7 @@ import { test, expect } from '@playwright/test'
 import { detectOs, downloadLines, startLines } from '../../src/app/features/coding/startLines'
 import { WORKER_WIN_SAFE, workerOldOnWindows } from '../../src/app/features/coding/winWorker'
 import { messages } from '../../src/app/features/coding/messages'
+import { logValues } from '../../src/app/features/coding/logValues'
 
 const LINES_TS = fileURLToPath(new URL('../../src/app/features/coding/lines.ts', import.meta.url))
 
@@ -78,7 +79,7 @@ function logCodes(): string[] {
   return [...set.matchAll(/'([A-Za-z.]+)'/g)].map((m) => m[1]!)
 }
 
-/** The 1.9.0 codes with the values the worker sends (docs/CODING.md § Log codes). */
+/** The 1.9.0 codes with the values the worker sends (docs/CODING.md § Log codes) — each shown in the line. */
 const WIN_CODES: Record<string, Record<string, string>> = {
   onedrive: { repo: 'shop' },
   cloudStorage: { repo: 'shop' },
@@ -88,6 +89,7 @@ const WIN_CODES: Record<string, Record<string, string>> = {
   gitSignIn: { remote: 'origin' },
   dubiousOwnership: { repo: 'shop' },
   gitLock: { repo: 'shop' },
+  gitIdentity: { repo: 'shop' },
   folderBusy: {},
   claudeMissing: {},
   claudeCmdRefused: {},
@@ -95,6 +97,19 @@ const WIN_CODES: Record<string, Record<string, string>> = {
   commandRefused: { cmd: 'run-tests.bat' },
   plantedProgram: { file: 'git.exe' },
 }
+
+/** Values the worker sends that the line says in words, not as they are (onedrive / cloudStorage: where the worktrees are). */
+const WORDED: Record<string, Record<string, string>> = {
+  onedrive: { worktrees: 'home' },
+  cloudStorage: { worktrees: 'own' },
+}
+
+/** The app's interpolate() (src/shared/i18n.ts — not importable under Node: brand.ts, which it imports, reads import.meta.env). */
+const tr = (lang: 'en' | 'de') => (key: string, v: Record<string, string | number> = {}) => messages[lang][key]!.replace(/\{(\w+)\}/g, (m, k: string) => (k in v ? String(v[k]) : m))
+const en = tr('en')
+const de = tr('de')
+/** A worker line as lines.ts renders it: its values completed by logValues() (pure), then the code's text. */
+const line = (lang: 'en' | 'de', code: string, v: Record<string, string>) => tr(lang)(`features.coding.log.c.${code}`, logValues(code, v, (k) => tr(lang)(k)))
 
 test('every worker log code has its EN and DE line; the 1.9.0 codes render in both with their values', () => {
   const codes = logCodes()
@@ -104,25 +119,86 @@ test('every worker log code has its EN and DE line; the 1.9.0 codes render in bo
     expect(messages.en[`features.coding.log.c.${code}`], `en ${code}`).toBeTruthy()
     expect(messages.de[`features.coding.log.c.${code}`], `de ${code}`).toBeTruthy()
   }
-  // the app's interpolate() (src/shared/i18n.ts — not importable under Node: brand.ts, which it imports, reads import.meta.env)
-  const tr = (lang: 'en' | 'de') => (key: string, v: Record<string, string>) => messages[lang][key]!.replace(/\{(\w+)\}/g, (m, k: string) => (k in v ? v[k]! : m))
-  const en = tr('en')
-  const de = tr('de')
   for (const [code, v] of Object.entries(WIN_CODES)) {
-    const lines = [en(`features.coding.log.c.${code}`, v), de(`features.coding.log.c.${code}`, v)]
-    for (const line of lines) {
-      expect(line, code).not.toMatch(/\{\w+\}/)
-      for (const value of Object.values(v)) expect(line, code).toContain(value)
+    const lines = [line('en', code, { ...v, ...WORDED[code] }), line('de', code, { ...v, ...WORDED[code] })]
+    for (const l of lines) {
+      expect(l, code).not.toMatch(/\{\w+\}/)
+      for (const value of Object.values(v)) expect(l, code).toContain(value)
     }
     expect(lines[0], code).not.toBe(lines[1])
   }
   // Windows' backslashes reach the line as one
   expect(en('features.coding.log.c.commandMissing', WIN_CODES.commandMissing!)).toContain('`.\\gradlew.bat`')
-  expect(de('features.coding.log.c.onedrive', WIN_CODES.onedrive!)).toContain('C:\\code')
-  // where the worktrees are is said only as it is: a cloud worker or an own worktreeDir keeps them elsewhere
-  for (const code of ['onedrive', 'cloudStorage'])
-    for (const line of [en(`features.coding.log.c.${code}`, WIN_CODES[code]!), de(`features.coding.log.c.${code}`, WIN_CODES[code]!)]) {
-      expect(line, code).toContain('worktreeDir')
-      expect(line, code).toMatch(/cloud worker|Cloud-Worker/)
+  expect(line('de', 'onedrive', { repo: 'shop', worktrees: 'home' })).toContain('C:\\code')
+})
+
+test('a synced folder\'s warning says where the task worktrees are only as the worker says they are (worktrees: home · own · synced)', () => {
+  for (const lang of ['en', 'de'] as const) {
+    const say = (code: string, worktrees?: string) => line(lang, code, { repo: 'shop', ...(worktrees ? { worktrees } : {}) })
+    const out = lang === 'en' ? 'stay out of it' : 'bleiben außerhalb'
+    const too = lang === 'en' ? 'lie in a synced folder too' : 'Auch die Worktrees'
+    // home: the default folder, named per computer (OneDrive is Windows', ~/Library/CloudStorage the Mac's)
+    expect(say('onedrive', 'home')).toContain(lang === 'en' ? '.one-worktrees in your user folder' : '.one-worktrees in deinem Benutzerordner')
+    expect(say('cloudStorage', 'home')).toContain('~/.one-worktrees')
+    for (const code of ['onedrive', 'cloudStorage']) {
+      expect(say(code, 'home'), code).toContain(out)
+      // own: worktreeDir elsewhere, a cloud worker's own folder — never the default folder's name
+      expect(say(code, 'own'), code).toContain(out)
+      expect(say(code, 'own'), code).not.toContain('.one-worktrees')
+      expect(say(code, 'own'), code).toMatch(/worktreeDir/)
+      // synced: worktreeDir in a synced folder too — never "stay out of it"
+      expect(say(code, 'synced'), code).toContain(too)
+      expect(say(code, 'synced'), code).not.toContain(out)
+      expect(say(code, 'synced'), code).not.toContain('.one-worktrees')
+      // a line without the value (or one One does not know): only what holds in every case
+      for (const l of [say(code), say(code, 'elsewhere')]) {
+        expect(l, code).toContain('worktreeDir')
+        expect(l, code).not.toContain('.one-worktrees')
+      }
+      for (const w of [undefined, 'home', 'own', 'synced', 'elsewhere']) expect(say(code, w), `${code} ${w}`).not.toMatch(/\{\w+\}/)
     }
+  }
+  // logValues touches nothing but the synced folders' lines
+  expect(logValues('gitLock', { repo: 'shop', worktrees: 'home' }, () => 'x')).toEqual({ repo: 'shop', worktrees: 'home' })
+})
+
+test('Claude Code not found: Retry looks again (also in its installer\'s folder) — a restart only for CLAUDE_BIN', () => {
+  const e = en('features.coding.log.c.claudeMissing')
+  const d = de('features.coding.log.c.claudeMissing')
+  for (const l of [e, d]) {
+    expect(l).toContain('%USERPROFILE%\\.local\\bin')
+    expect(l).toContain('~/.local/bin')
+    expect(l).toContain('CLAUDE_BIN')
+  }
+  expect(e).toMatch(/press Retry: the worker looks for it again/)
+  expect(e).toMatch(/no restart needed/)
+  // the restart belongs to CLAUDE_BIN alone (it is read at start)
+  expect(e).toMatch(/Installed elsewhere outside PATH: set CLAUDE_BIN to its program and start the worker again\.$/)
+  expect(d).toMatch(/„Erneut versuchen“ drücken: Der Worker sucht es erneut/)
+  expect(d).toMatch(/kein Neustart nötig/)
+  expect(d).toMatch(/Anderswo außerhalb des PATH installiert: CLAUDE_BIN auf das Programm setzen und den Worker neu starten\.$/)
+})
+
+test('a program planted at the top of a Claude Code stage\'s folder: the line says how to clear it on the task\'s branch too', () => {
+  for (const lang of ['en', 'de'] as const) {
+    const l = line(lang, 'plantedProgram', { file: 'git.exe' })
+    const m = messages[lang]
+    // the worktree keeps the file: the Git tab's own keys, by their names
+    expect(l, lang).toContain(m['features.coding.git.reveal']!)
+    expect(l, lang).toContain(m['features.coding.git.updateBase']!)
+    expect(l, lang).toContain(lang === 'en' ? 'on the task’s branch' : 'im Branch der Aufgabe')
+    // only Claude Code stages are refused: tests and analysis run the repo's own code
+    expect(l, lang).toContain('Claude Code')
+    expect(l, lang).not.toMatch(/test runner|Testlauf|node or npm|node oder npm/)
+  }
+})
+
+test('git without a name / email: the line says how to set them — and names the repo, never git\'s guess (account, computer)', () => {
+  for (const lang of ['en', 'de'] as const) {
+    const l = line(lang, 'gitIdentity', { repo: 'shop' })
+    expect(l, lang).toContain('shop')
+    expect(l, lang).toContain('git config --global user.name')
+    expect(l, lang).toContain('git config --global user.email')
+    expect(l, lang).not.toMatch(/\(none\)|@DESKTOP/)
+  }
 })

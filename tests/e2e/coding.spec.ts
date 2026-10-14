@@ -689,6 +689,27 @@ test('while a stage runs: what the worker did last (ticking), Step x/y, the esti
   await expect(log).toContainText('Working… step 3')
 })
 
+test('the worker\'s 1.9.0 hint lines as the panel writes them: where the worktrees are (home · own · synced, none), git without a name, a planted program (EN, DE)', async ({ page }) => {
+  await openApp(page)
+  await page.waitForFunction(() => !!(window as unknown as { __oneCoding?: unknown }).__oneCoding)
+  const line = (c: string, v: Record<string, string>) =>
+    page.evaluate(({ c, v }) => (window as unknown as { __oneCoding: { lineText: (l: unknown) => string } }).__oneCoding.lineText({ t: Date.now(), k: 'warn', s: 'as the worker wrote it', c, v }), { c, v })
+  const one = (worktrees?: string) => line('onedrive', { repo: 'shop', ...(worktrees ? { worktrees } : {}) })
+  expect(await one('home')).toBe('shop lies in OneDrive: OneDrive downloads online-only files first and locks files while it syncs, so git steps can stall or fail. The task worktrees stay out of it, in .one-worktrees in your user folder. Faster: move the repo out of OneDrive (e.g. to C:\\code) and tick that folder.')
+  expect(await line('cloudStorage', { repo: 'shop', worktrees: 'home' })).toContain('The task worktrees stay out of it, in ~/.one-worktrees.')
+  expect(await one('own')).toContain('The task worktrees stay out of it, where worktreeDir in worker.json puts them')
+  expect(await one('synced')).toContain('The task worktrees lie in a synced folder too (worktreeDir in worker.json) — set one outside it.')
+  expect(await one()).toContain('Unless worktreeDir in worker.json says otherwise, the task worktrees stay out of it.')
+  for (const w of [undefined, 'home', 'own', 'synced']) expect(await one(w)).not.toMatch(/\{\w+\}/)
+  expect(await line('gitIdentity', { repo: 'shop' })).toMatch(/^git in shop does not know who commits/)
+  expect(await line('plantedProgram', { file: 'uvx.cmd' })).toContain('Remove or rename uvx.cmd where it lies — in the repository and on the task’s branch')
+  await wsEval(page, (s) => s.updateSettings({ language: 'de' }))
+  expect(await one('synced')).toContain('Auch die Worktrees der Aufgaben liegen in einem synchronisierten Ordner (worktreeDir in worker.json) – lege sie außerhalb an.')
+  expect(await one('home')).toContain('in .one-worktrees in deinem Benutzerordner.')
+  expect(await line('gitIdentity', { repo: 'shop' })).toMatch(/^git in shop weiß nicht, wer committet/)
+  expect(await line('plantedProgram', { file: 'uvx.cmd' })).toContain('uvx.cmd dort entfernen oder umbenennen, wo sie liegt – im Repository und im Branch der Aufgabe')
+})
+
 test('template "Modernise legacy code": Analysis, Design and Test design each write their own section; the task waits at "Approve concept"', async ({ page }) => {
   await openApp(page)
   await connect(page)
