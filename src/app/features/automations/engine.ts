@@ -92,6 +92,42 @@ function pushLog(e: Omit<RunLogEntry, 'id' | 'at'>) {
   logListeners.forEach((l) => l())
 }
 
+/**
+ * One action an automation ran in this tab, as it ended (ids, kinds and the outcome — never a row's text, a URL or a
+ * message): the Patchbay's live signal (features/patchbay live/) lights automation → its way out from it.
+ */
+export interface AutomationActionNote {
+  at: number
+  databaseId: ID
+  automationId: ID
+  /** the action's place in the automation's list */
+  index: number
+  action: AutomationAction['type']
+  status: 'ok' | 'error'
+  /** the run (store/writer.ts: the automation writer's `run`) */
+  run: string
+}
+
+const actionListeners = new Set<(note: AutomationActionNote) => void>()
+
+/** Hear every action this tab's automations run (as each ends). Returns the unsubscribe. */
+export function onAutomationAction(fn: (note: AutomationActionNote) => void): () => void {
+  actionListeners.add(fn)
+  return () => {
+    actionListeners.delete(fn)
+  }
+}
+
+function noteAction(note: AutomationActionNote): void {
+  for (const fn of [...actionListeners]) {
+    try {
+      fn(note)
+    } catch (e) {
+      console.warn('[automations] an action listener failed', e)
+    }
+  }
+}
+
 export function getRunLog(): RunLogEntry[] {
   return runLog
 }
@@ -278,7 +314,7 @@ async function runActions(db: Database, automation: Automation, rowSnapshot: Pag
   const row = state.pages[rowSnapshot.id] ?? rowSnapshot
   let status: 'ok' | 'error' = 'ok'
   const messages: string[] = []
-  for (const action of automation.actions) {
+  for (const [index, action] of automation.actions.entries()) {
     let ok = true
     let message = ''
     try {
@@ -319,6 +355,7 @@ async function runActions(db: Database, automation: Automation, rowSnapshot: Pag
     if (!ok) status = 'error'
     messages.push(message)
     pushLog({ databaseId: dbId, automationId, automationName: automation.name, event, rowTitle: row.title, action: action.type, status: ok ? 'ok' : 'error', message })
+    noteAction({ at: Date.now(), databaseId: dbId, automationId, index, action: action.type, status: ok ? 'ok' : 'error', run: writer.kind === 'automation' ? writer.run : '' })
   }
   setStatus(dbId, automationId, status, messages.join(' · ') || t('features.auto.res.noActions'))
 }

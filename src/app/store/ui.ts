@@ -36,7 +36,8 @@ export type ModalState =
   | { type: 'memoryExample'; pageId: ID; tag?: string; blocks?: JSONContent[] | null }
 
 /** Why the AI setup opened (it starts at the step the reason points to). */
-export type AISetupReason = 'nokey' | 'route' | 'refused' | 'no_credit' | 'policy' | 'capability' | 'models' | 'add' | 'change' | 'remove' | 'rotate' | 'first-run'
+/** 'patchbay': the Patchbay's setup lamp 00 KEY (features/patchbay setup/; it names the step and the provider itself) */
+export type AISetupReason = 'nokey' | 'route' | 'refused' | 'no_credit' | 'policy' | 'capability' | 'models' | 'add' | 'change' | 'remove' | 'rotate' | 'first-run' | 'patchbay'
 /** The assistant's steps: 01 provider · 02 key & check · 03 models · 04 data & limits · 05 working together · 06 done. */
 export type AISetupStep = 'provider' | 'key' | 'models' | 'data' | 'routing' | 'done'
 

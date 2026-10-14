@@ -11,3 +11,9 @@ import './scriptMail'
 export { startMail, stopMail, openMailSettings, consumeMailSettingsRequest, useMail, syncNow, organiseEarlier } from './service'
 export { MailTab } from './MailTab'
 export { MailSyncLed } from './MailStatus'
+/**
+ * This device's mail settings (the Patchbay reads them, §1.15 / §2.3; its organise key writes the switch):
+ * readMail() (complete, normalized) · useMailSettings() · setOrganise(patch) — "Organise with Claude" (e.g.
+ * `{ enabled: false }`: sort mail by hand only)
+ */
+export { readMail, useMailSettings, setOrganise } from './settings'

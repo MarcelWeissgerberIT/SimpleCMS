@@ -5,7 +5,7 @@ import { useUI } from '../store/ui'
 import { usePage } from '../store/selectors'
 import { useThemeAndLanguage } from '../lib/theme'
 import { useWorkspaceLook } from '../lib/look'
-import { GraphView, SharedPageView, Presentation, AgentsRoute, ScriptsRoute, ScriptDialogHost, CodingRoute, KitRoute, KitHost, OutboxRoute, OutboxHost, ReglerRoute, McpConnectionsRoute } from '../features'
+import { GraphView, SharedPageView, Presentation, AgentsRoute, ScriptsRoute, ScriptDialogHost, CodingRoute, KitRoute, KitHost, OutboxRoute, OutboxHost, ReglerRoute, McpConnectionsRoute, PatchbayRoute } from '../features'
 import { McpOAuthScreen, OpenRouterOAuthScreen } from '../features'
 import { SharedFormView } from '../database'
 import { PageIcon } from '../ui/PageIcon'
@@ -203,6 +203,8 @@ function RouteView({ route }: { route: Route }) {
       return <ReglerRoute />
     case 'mcp':
       return <McpConnectionsRoute />
+    case 'patchbay':
+      return <PatchbayRoute m={route.m} f={route.f} setup={route.setup} />
     case 'workspace':
       return <WorkspacePage section={route.section} />
     case 'journal':
@@ -224,5 +226,5 @@ function RouteTitle({ route }: { route: Route }) {
         <span>{page.title.trim() || t('common.untitled')}</span>
       </>
     )
-  return <span>{route.name === 'graph' ? t('shell.nav.graph') : route.name === 'agenda' ? t('shell.nav.agenda') : route.name === 'inbox' ? t('shell.nav.inbox') : route.name === 'agents' ? t('features.agents.title') : route.name === 'scripts' ? t('features.script.title') : route.name === 'coding' ? t('features.coding.title') : route.name === 'outbox' ? t('features.outbox.title') : route.name === 'kit' ? t('features.kit.title') : route.name === 'workspace' ? t('shell.ws.title') : route.name === 'discover' ? t('shell.discover.title') : route.name === 'regler' ? t('features.governor.title') : route.name === 'mcp' ? t('features.mcp.page.title') : t('shell.nav.home')}</span>
+  return <span>{route.name === 'graph' ? t('shell.nav.graph') : route.name === 'agenda' ? t('shell.nav.agenda') : route.name === 'inbox' ? t('shell.nav.inbox') : route.name === 'agents' ? t('features.agents.title') : route.name === 'scripts' ? t('features.script.title') : route.name === 'coding' ? t('features.coding.title') : route.name === 'outbox' ? t('features.outbox.title') : route.name === 'kit' ? t('features.kit.title') : route.name === 'workspace' ? t('shell.ws.title') : route.name === 'discover' ? t('shell.discover.title') : route.name === 'regler' ? t('features.governor.title') : route.name === 'mcp' ? t('features.mcp.page.title') : route.name === 'patchbay' ? t('features.patchbay.title') : t('shell.nav.home')}</span>
 }

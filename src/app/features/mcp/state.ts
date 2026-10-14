@@ -3,6 +3,7 @@
  * Settings live in localStorage ('one.mcp'): per browser, never part of the workspace, never
  * synced to a team. The activity log is this tab's session only.
  */
+import { useMemo } from 'react'
 import { create } from 'zustand'
 import { MCP_DEFAULT_PORT, type McpAgentMode, type McpClientInfo, type McpPeer, type McpToolName } from './contract'
 import type { WritePlan } from './write'
@@ -122,6 +123,24 @@ export const useMcp = create<McpState>()(() => ({
   activity: [],
   approvals: [],
 }))
+
+/** This browser's bridge as the Patchbay reads it: switched on here, and its write mode. */
+export interface BridgeSettings {
+  enabled: boolean
+  mode: McpAgentMode
+}
+
+/** This browser's bridge settings now ({ enabled, mode }). */
+export function mcpSettings(s: Pick<McpState, 'enabled' | 'mode'> = useMcp.getState()): BridgeSettings {
+  return { enabled: s.enabled, mode: s.mode }
+}
+
+/** React: this browser's bridge settings ({ enabled, mode }), re-rendered when either changes. */
+export function useMcpSettings(): BridgeSettings {
+  const enabled = useMcp((s) => s.enabled)
+  const mode = useMcp((s) => s.mode)
+  return useMemo(() => ({ enabled, mode }), [enabled, mode])
+}
 
 /** "claude-ai" → "Claude Desktop" … (the clientInfo names MCP clients send). */
 export function clientLabel(c: McpClientInfo | null): string | null {

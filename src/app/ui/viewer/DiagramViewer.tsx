@@ -518,7 +518,7 @@ export default function DiagramViewer({ source, onClose }: { source: ViewerSourc
 
   /* ---------- render ---------- */
   const pct = view ? Math.round(view.s * 100) : 100
-  const kindLabel = t(source.kind === 'chart' ? 'ui.viewer.chart' : 'ui.viewer.diagram')
+  const kindLabel = t(source.kind === 'chart' ? 'ui.viewer.chart' : source.kind === 'schematic' ? 'ui.viewer.schematic' : 'ui.viewer.diagram')
   const plate = source.type ? `${kindLabel} · ${source.type}` : kindLabel
   const overflow = !!view && !!content && !!stage && !fitsInStage(view, content, stage)
   const showMini = miniOn && overflow && !!markup

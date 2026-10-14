@@ -26,8 +26,9 @@ import type { ID, PageIcon } from '../../store/types'
 import { safeLocalGet, safeLocalSet } from '@/shared/brand'
 import { goToPage } from '../lib/actions'
 import { withWriter, type Writer } from '../../store/writer'
+// the Inbox's id prefix and lookup live in lib/capture.ts (the Patchbay reads them too)
+import { INBOX_ID_PREFIX, findInboxIn } from '../../lib/capture'
 
-export const INBOX_ID_PREFIX = 'inbx'
 /** setContent origin for pages written by capture */
 export const CLIP_ORIGIN = 'clip'
 const INBOX_ICON: PageIcon = { type: 'asset', value: 'import' }
@@ -46,10 +47,7 @@ const isDe = () => ws().settings.language === 'de'
 /** The Inbox page id, or null if there is none (yet) or it is in the trash. */
 export function findInbox(): ID | null {
   const { pages } = ws()
-  const live = Object.values(pages)
-    .filter((p) => p.id.startsWith(INBOX_ID_PREFIX) && p.kind === 'page' && !p.databaseId && !isEffectivelyTrashed(pages, p.id))
-    .sort((a, b) => a.createdAt - b.createdAt)
-  return live[0]?.id ?? null
+  return findInboxIn(pages, (id) => isEffectivelyTrashed(pages, id))
 }
 
 /** Find or create the Inbox (at the workspace root). */

@@ -53,6 +53,9 @@ export { DbCommandKey, DbCommandsMenu, openCommandsEditor, type DbCommandKeyProp
 export { CommandsEditor } from './CommandsEditor'
 export { paletteDbCommands, type PaletteCommand } from './palette'
 export { readDbCommands, saveDbCommands } from './model'
+/** the Patchbay (§1.13): agentsOf(dbId, agents) — the agents a database's "Run <agent> now" defaults are for ·
+ * hasDefaultCommand(dbId, agentId) — that default is in the menu (not switched off) */
+export { agentsOf, hasDefaultCommand } from './defaults'
 /** the field-like picker of the settings forms (for the Pickers of registered kinds) */
 export { FieldPicker } from './parts'
 export { withoutCommandSecrets } from './kinds/actions'

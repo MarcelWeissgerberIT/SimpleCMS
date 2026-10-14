@@ -22,6 +22,14 @@ export function toolWords(name: string): string[] {
     .filter(Boolean)
 }
 
+/**
+ * Carries a write word ("create", "update", "send", "post" … — WRITE_WORDS), whatever else it says: such a tool is never
+ * read as a read, not even when a profile declares it one (the Patchbay keeps it WRITE?, §1.5).
+ */
+export function isWriteNamed(name: string): boolean {
+  return toolWords(name).some((w) => WRITE_WORDS.has(w))
+}
+
 /** Looks like a tool that only reads (get / list / search / query / read / fetch / find / whoami / context, no write verb). */
 export function isReadTool(name: string): boolean {
   const words = toolWords(name)

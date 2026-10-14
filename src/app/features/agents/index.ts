@@ -86,3 +86,34 @@ export { AgentChangeBody, AGENT_BODY_KINDS } from './body'
 export { setSupersedeGuard, supersedeGuard, type SupersedeGuard } from './supersede'
 export { catchUpSupersede } from './runner'
 export { setProposalsShown } from './hold'
+/**
+ * The Patchbay's reads (features/patchbay — §1.2, §2.3; every export below exists for it, the rules are this area's own):
+ *  - tool names: isReadTool(name) · isWriteNamed(name) (a write word: never read as a read) · toolWords(name) ·
+ *    testedTools(name, local, remote?) (a server's tools as this browser knows them; null = never tested)
+ *  - scope: scopeFilter(agent) (null = everything outside templates) · scopeText(agent)
+ *  - routeBlock(agent) / RUNNABLE_PROVIDERS: an agent this build cannot run · awaitsConfirm(agent): a browser agent
+ *    another member changed waits for its creator · runsHere(agent): this browser runs it
+ *  - integration profiles on this device: integrationStatuses() / useIntegrationStatuses() · deviceServers() ·
+ *    openIntegrations(profileId?) (Workspace › Integrations; the profile focused from B11 on)
+ *  - mirrors: mirrorAgentOf(agents, dbId, servers, owner?) · sameNamedDb(…) · mirrorTitles(…)
+ *  - the editor's save checks: agentSaveIssues(t, draft, ctx) — the trash / gone rules of gone.ts included
+ *    (lostPages, lostText, runBlock)
+ *  - dialogs over any route (B11 fills them): openMirrorSetup({ profileId, recipeId?, from? }) ·
+ *    openAgentEditor(idOrDraft, { from?, section? }) · AgentDialogsHost (mounted once in ModalHost, B11)
+ *  - profiles: resolveRecipe(…) · validateProfileText(…)
+ */
+export { isReadTool, isWriteNamed, toolWords, testedTools } from './mcpTools'
+export { scopeFilter, scopeText } from './scope'
+export { routeBlock, RUNNABLE_PROVIDERS } from './routeBlock'
+export { awaitsConfirm } from './confirm'
+export { runsHere } from './runner'
+export { integrationStatuses, useIntegrationStatuses, deviceServers, type IntegrationState } from './integrations/status'
+export { openIntegrations } from './integrations/open'
+export { mirrorAgentOf, sameNamedDb, mirrorTitles, type SameNamed, type MirrorTitles } from './mirror'
+export { agentSaveIssues, type AgentSaveErrors, type AgentSaveCtx } from './saveIssues'
+export { lostPages, lostText, runBlock, type LostPage, type LostRole } from './gone'
+export { openMirrorSetup, openAgentEditor, type MirrorSetupRequest, type AgentEditorRequest } from './dialogs'
+export { AgentDialogsHost } from './AgentDialogsHost'
+/** profiles for the setup lamps / the profile drop (B11 / B12): resolveRecipe(profile, recipe, lang) (what a recipe makes) · validateProfileText(text, t, lang) */
+export { resolveRecipe, type ResolvedRecipe } from './integrations/recipe'
+export { validateProfileText, type Validation as ProfileValidation } from './integrations/validate'

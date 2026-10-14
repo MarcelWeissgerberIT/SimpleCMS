@@ -33,7 +33,7 @@ import { addTrusted, appendLog, loadTask, patchTask, stampApprovals, taskLocal, 
 import { isTrusted, keepTrust, trustTask, versionOf } from './trust'
 import { taskText } from './refs'
 import { APPROVALS_KEY, approvalsAt, defaultApprovals, noteApprovalsChange, useCoding, type ApprovalsLevel } from './state'
-import { cleanShip, prFieldNext, shipNote, shipShows } from './ship'
+import { cleanShip, noteShip, prFieldNext, shipNote, shipShows } from './ship'
 import { notifyAway } from './notify'
 import { currentWriter, endRun, noteRun, SYSTEM, withWriter, type Writer } from '../../store/writer'
 import { isEjectWriter } from '../recorder/settled'
@@ -340,6 +340,7 @@ export async function finishStage(taskId: ID, stageId: ID, outcome: StageOutcome
   // worker 1.10.0: what a git stage did with commits, the push and the request — also on a failed outcome after its commit
   const ship = stage?.kind === 'git' ? cleanShip(outcome.ship) : null
   const prNow = () => text(ws().pages[taskId]?.properties[props.pr ?? ''])
+  if (ship) noteShip({ taskId, dbId: ctx.db.id, ship })
 
   if (outcome.git) patch.git = outcome.git
   if (ship) {

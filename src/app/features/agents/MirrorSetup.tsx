@@ -347,7 +347,7 @@ export function MirrorSetup({ source, onClose, onCreated }: { source: RecipeSour
           <p className="agx-notice agx-mir__none" role="alert" data-testid="agx-mir-broken">
             <span className="led agx-led--err" aria-hidden />
             <span>{t(built.errors === 1 ? 'features.agents.mirror.err.recipeOne' : 'features.agents.mirror.err.recipe', { count: built.errors })}</span>
-            <button type="button" className="btn btn--sm btn--ink" onClick={openIntegrations}>
+            <button type="button" className="btn btn--sm btn--ink" onClick={() => openIntegrations()}>
               {t('features.integrations.open')}
             </button>
           </p>

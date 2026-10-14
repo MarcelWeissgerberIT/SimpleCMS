@@ -22,6 +22,7 @@ import { openMailSettings, organiseEarlier, syncNow, useMail } from '../mail'
 import { runAgentNow } from '../agents'
 import { outboxCommands } from '../outbox'
 import { CommandFailure } from './failure'
+import { readDbCommands } from './model'
 import type { DefaultSpec, Runner, SubItem } from './types'
 
 const ws = () => useWorkspace.getState()
@@ -93,6 +94,17 @@ export function agentsOf(dbId: ID, agents: Record<ID, CustomAgent> | undefined):
   return Object.values(agents ?? {})
     .filter((a) => ((a.trigger.type === 'row_created' || a.trigger.type === 'row_changed') && a.trigger.databaseId === dbId) || a.scope.databases.includes(dbId))
     .sort((a, b) => a.name.localeCompare(b.name))
+}
+
+/**
+ * Is the default "Run <agent> now" in the database's command menu: the agent watches the database or names it in its
+ * scope (agentsOf), and the person did not switch that default off (a stored `{ id: 'agent:<id>', kind: 'default',
+ * hidden: true }`). The Patchbay plugs no second command for it (§1.13).
+ */
+export function hasDefaultCommand(dbId: ID, agentId: ID, s: { databases: Record<ID, Database>; agents?: Record<ID, CustomAgent> } = ws()): boolean {
+  const db = s.databases[dbId]
+  if (!db || !agentsOf(dbId, s.agents).some((a) => a.id === agentId)) return false
+  return !readDbCommands(db.commands).some((c) => c.kind === 'default' && c.id === `agent:${agentId}` && c.hidden)
 }
 
 const runAgent =

@@ -43,7 +43,7 @@ import { cleanCode, cleanEdit } from './lines'
 import { addRepoOptions, codingProps, pipelineDbIds } from './schema'
 import { finishStage, heartbeat, intakeDone, pickNext, setNudge, startApprovalsWatch, taskContext, gitSummary, writeShipNote } from './tasks'
 import { keepTrust, startTrustWatch } from './trust'
-import { cleanShip, prFieldNext, shipShows } from './ship'
+import { cleanShip, noteShip, prFieldNext, shipShows } from './ship'
 import { openCloudLink, openLocalLink, type LinkHandle, type LinkHandlers } from './transport'
 import { cloudContextOk, listCloudWorkers, relayAvailable } from './cloudWorkers'
 import { cloudKey, dropCloudKeys, keepCloudKey } from './cloudKeys'
@@ -837,6 +837,7 @@ export async function gitTask(taskId: string, verb: GitVerb, message?: string): 
   const s = useWorkspace.getState()
   const ship = cleanShip(res?.ship)
   const error = typeof res?.error === 'string' && res.error.trim() ? res.error.slice(0, 2000) : null
+  if (ship) noteShip({ taskId, dbId: ctx.db.id, ship })
   // the git summary is bookkeeping (like the live snapshot); the request's address and a branch gone are the person's
   if (res?.git) {
     await patchTask(taskId, { git: res.git })

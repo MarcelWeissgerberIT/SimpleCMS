@@ -379,7 +379,7 @@ function ConnectionsLink() {
       <p className="mcp-all__hint" id={`${id}-h`}>
         {t('features.mcp.page.linkHint')}
       </p>
-      <button type="button" className="btn btn--sm mcp-all__key" onClick={openMcpConnections} aria-describedby={`${id}-h`} data-testid="mcp-tab-connections">
+      <button type="button" className="btn btn--sm mcp-all__key" onClick={() => openMcpConnections()} aria-describedby={`${id}-h`} data-testid="mcp-tab-connections">
         {t('features.mcp.page.link')} <ArrowRight size={13} strokeWidth={1.75} aria-hidden />
       </button>
     </div>

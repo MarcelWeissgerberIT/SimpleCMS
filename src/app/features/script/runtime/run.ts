@@ -13,7 +13,7 @@
 import { useWorkspace } from '../../../store/store'
 import type { ID, Page, PropertyValue } from '../../../store/types'
 import { newId } from '../../../lib/ids'
-import { Interpreter, SDate, SRecord, ScriptError, inspect, parse, toPlain, walk, type Limits, type Program, type Value } from '../lang'
+import { Interpreter, SDate, SRecord, ScriptError, inspect, parse, toPlain, type Limits, type Program, type Value } from '../lang'
 import { Host, SCRIPT_ORIGIN } from './host'
 import { customFunction, globalsFor, objectFor, resolveRef } from './globals'
 import { makers, reachable } from './objects'
@@ -27,6 +27,7 @@ import { planBand } from '../../governor'
 import { loadScriptRuns, putScriptRun, scriptScope } from './runs'
 import { isSettled } from '../../recorder/settled'
 import { codeHash, isTrusted, trustCode } from './trust'
+import { needsCheck } from './check'
 import type { ChangeItem, ConfirmItem, EffectItem, ErrorInfo, LogLine, ResultTable, RunBand, RunMode, RunUI, ScriptRun, UndoData } from './types'
 import { endRun, noteRun, withWriter, type Writer, type WriterKey } from '../../../store/writer'
 
@@ -98,17 +99,6 @@ const UNDO_STORE_MAX = 2_000_000
 export function errorInfo(e: unknown): ErrorInfo {
   if (e instanceof ScriptError) return { code: e.code, params: e.params, line: e.pos?.line ?? null, col: e.pos?.col ?? null, start: e.pos?.start ?? null, end: e.pos?.end ?? null }
   return { code: 'internal', params: { detail: String((e as Error)?.message ?? e).slice(0, 300) }, line: null, col: null, start: null, end: null }
-}
-
-/** Names that make a run ask first: effects and the trash. */
-function needsCheck(program: Program): boolean {
-  let hit = false
-  walk(program, (n) => {
-    if (hit) return
-    if (n.type === 'Ident' && ['mail', 'claude', 'http', 'trash'].includes(n.name.toLowerCase())) hit = true
-    else if (n.type === 'Member' && n.name.toLowerCase() === 'trash') hit = true
-  })
-  return hit
 }
 
 /** JSON as script values (records for objects, nothing deeper than 20 levels). */

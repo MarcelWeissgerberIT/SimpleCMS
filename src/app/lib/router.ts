@@ -15,6 +15,8 @@
  *   #/discover      → "What can One do?" — the feature cards (shell/discover)
  *   #/regler        → the Regler (features/governor): usage today and this month, the red line, consumers, receipts
  *   #/mcp           → MCP · Connections (features/mcp/connections): every MCP connection One knows of, as this tab knows it
+ *   #/patchbay      → the Patchbay (features/patchbay): what runs by itself, wired as a rack · ?m=<module key> focuses a
+ *                     module · ?f=<fuse path key> selects a fuse · ?setup=<profile id> opens a profile's setup
  *   #/workspace     → workspace settings (shell/workspace) · #/workspace/<section> → overview | look | people |
  *                     blocks | automation | integrations | data | danger
  *   #/s/<payload>   → read-only shared page (payload = compressed page, see features/share)
@@ -52,6 +54,11 @@ export type Route =
   | { name: 'regler' }
   /** #/mcp → MCP · Connections: One's Claude's servers, the bridge, the coding worker, the team server (see features/mcp/connections) */
   | { name: 'mcp' }
+  /**
+   * #/patchbay → the Patchbay (see features/patchbay): `m` = a module key to focus, `f` = a fuse's path key (64 hex) to
+   * select, `setup` = an integration profile's id whose setup lamps open
+   */
+  | { name: 'patchbay'; m?: string; f?: string; setup?: string }
   /** #/workspace → workspace settings · #/workspace/<section> → one section (see shell/workspace) */
   | { name: 'workspace'; section?: string }
   | { name: 'share'; payload: string }
@@ -95,6 +102,7 @@ export function parseHash(hash: string): Route {
   if (parts[0] === 'discover') return { name: 'discover' }
   if (parts[0] === 'regler') return { name: 'regler' }
   if (parts[0] === 'mcp') return { name: 'mcp' }
+  if (parts[0] === 'patchbay') return patchbayRoute(params)
   if (parts[0] === 'workspace') return parts[1] ? { name: 'workspace', section: parts[1] } : { name: 'workspace' }
   if (parts[0] === 's' && parts[1]) return { name: 'share', payload: parts.slice(1).join('/') }
   if (parts[0] === 'f' && parts[1]) return { name: 'form', payload: parts.slice(1).join('/') }
@@ -109,6 +117,23 @@ export function parseHash(hash: string): Route {
     return { name: 'clip', url: q.get('url') ?? '', title: q.get('title') ?? '', text: q.get('text') ?? '', desc: q.get('desc') ?? '', ...(share ? { share } : {}) }
   }
   return { name: 'notfound', path }
+}
+
+/** A module key (`<kind>:<ids…>`, features/patchbay/ref.ts), a fuse's path key and a profile id — anything else is dropped. */
+const PB_MODULE = /^[a-z][a-zA-Z]{1,15}:[A-Za-z0-9_.:%~-]{1,400}$/
+const PB_FUSE = /^[0-9a-f]{64}$/
+const PB_PROFILE = /^[a-z0-9][a-z0-9_-]{0,63}$/
+
+function patchbayRoute(params: URLSearchParams): Route {
+  const m = params.get('m')
+  const f = params.get('f')
+  const setup = params.get('setup')
+  return {
+    name: 'patchbay',
+    ...(m && PB_MODULE.test(m) ? { m } : {}),
+    ...(f && PB_FUSE.test(f) ? { f } : {}),
+    ...(setup && PB_PROFILE.test(setup) ? { setup } : {}),
+  }
 }
 
 export function routeHref(r: Route): string {
@@ -141,6 +166,12 @@ export function routeHref(r: Route): string {
       return '#/regler'
     case 'mcp':
       return '#/mcp'
+    case 'patchbay': {
+      const q = new URLSearchParams()
+      for (const k of ['m', 'f', 'setup'] as const) if (r[k]) q.set(k, r[k]!)
+      const qs = q.toString()
+      return `#/patchbay${qs ? `?${qs}` : ''}`
+    }
     case 'workspace':
       return r.section ? `#/workspace/${r.section}` : '#/workspace'
     case 'share':

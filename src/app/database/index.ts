@@ -49,6 +49,11 @@ export { SharedFormView } from './form/public'
 export { useAutofill } from './autofill/store'
 export { openAutofillPanel } from './autofill'
 /**
+ * The Patchbay (§1.9 key 1, §3.9 ↵): setAutofillAuto(dbId, propId, on) → false when refused (B10 fills it: locked /
+ * read-only refused) · openAutofill(dbId, propId): the database page with that property's autofill panel
+ */
+export { setAutofillAuto, openAutofill } from './autofill/auto'
+/**
  * Properties created on the fly (also for the workspace agent / MCP tools):
  *  - createPropertyQuick(dbId, { name, type, relation?: { databaseId, twoWay?, reverseName? }, options?, numberFormat? },
  *      { toast? }) → the new PropertyDef (null: locked, view only, bad target). Default: an undo toast.

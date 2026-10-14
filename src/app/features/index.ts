@@ -33,13 +33,18 @@ export { HistoryModal } from './history/HistoryModal'
  *  - openRecorder() / closeRecorder() / toggleRecorder() / useRecorderOpen() / isRecorderOpen(); REWIND_SHORTCUT = 'Mod+Alt+Z'
  */
 export { startRecorder, wipeRecorderScope, recorderFileRefs, RECORDER_DB, RecorderHost, RecorderStatusCell, RewindKey, RecorderDataLine, openRecorder, closeRecorder, toggleRecorder, useRecorderOpen, isRecorderOpen, REWIND_SHORTCUT, useRecorderMark, RecorderDbRead, type RecorderMark } from './recorder'
-export { startAutomations } from './automations/engine'
-export { AutomationsModal } from './automations/AutomationsModal'
+/*
+ * Database automations (features/automations — see automations/index.ts): startAutomations() (main.tsx) ·
+ * AutomationsModal (modal 'automations') · useRunLog() / getRunLog() (this tab's last 30 actions) · onAutomationAction(fn)
+ * (each action as it ends: ids, kinds, status) · readAutomations(raw) / saveAutomations(dbId, list, writer): THE reader
+ * and writer of Database.automations (the lock rule: B15)
+ */
+export { startAutomations, AutomationsModal, useRunLog, getRunLog, onAutomationAction, readAutomations, saveAutomations, type RunLogEntry, type AutomationActionNote } from './automations'
 export { isAIConfigured, runAI, type AIAction, type RunAIOptions } from './ai/client'
 /* one streamed completion with your own system prompt (help/ask.ts: "Ask the help", mcp: false = no MCP server) */
 export { streamCompletion, type StreamOptions } from './ai/client'
 // the AI core (multi-provider): status before a request, purposes and the sources a call names
-export { AIError, aiStatus, routeFor, destinationOf, precheck, type AIStatus, type PurposeId, type SourceRef, type DataClass, type FeatureClass, type Route, type RouteRule, type ProviderId, type Prepared, type AIFix } from './ai/core'
+export { AIError, aiStatus, routeFor, destinationOf, precheck, classAllowedOn, type AIStatus, type PurposeId, type SourceRef, type DataClass, type FeatureClass, type Route, type RouteRule, type ProviderId, type Prepared, type AIFix } from './ai/core'
 /** Request text built for the route (core/shape.ts): shapeOf(precheck(…)) → withShape(shape, build) → facade({ …routed(pre) }). */
 export { shapeOf, withShape, routed, type Shape } from './ai/core/shape'
 /** The recorder's meta of an AI run (core/runMeta.ts): the route that served its writes. */
@@ -281,6 +286,8 @@ export { ReminderSelect, DateReminderEditor, type DateReminderValue } from './in
  *  - openSyncSettings(): open Settings on the Sync tab · consumeSyncSettingsRequest(): SettingsModal asks on open
  */
 export { startSync, stopSync, openSyncSettings, consumeSyncSettingsRequest, useSync, SyncTab, SyncStatusCell } from './sync'
+/* this device's sync as plain facts — never the token: syncState() · onSyncState(fn) (the Patchbay's sync modules) */
+export { syncState, onSyncState, type SyncFacts } from './sync'
 /*
  * Gmail → a "Mails" database (BYO Google OAuth client ID, gmail.readonly, token in memory only; this device's settings):
  *  - startMail(): background service (start once from main.tsx after hydrate): schedule + "Load images" in mail rows
@@ -395,6 +402,8 @@ export { agentTriggerText, loadAgentRuns, useAgentRuns } from './agents'
  * gates its Key / Only by hand switches with it) · IntegrationsPanel: the body of Workspace → Integrations
  */
 export { useUnlocked, unlocked, IntegrationsPanel } from './agents'
+/* the agents' dialogs over any route (B11 fills them; ModalHost mounts the host once): MirrorSetup / AgentEditor */
+export { AgentDialogsHost, openMirrorSetup, openAgentEditor } from './agents'
 /*
  * One Script (features/script — a small, safe script language that only reaches One; see script/index.ts):
  *  - ScriptsRoute { scriptId? } (route #/scripts, #/scripts/<id>) · ScriptDialogHost (mount once: what a run asks)
@@ -496,6 +505,11 @@ export {
   createRecordType,
   type KitTab,
   type OwnPropertyDef,
+  /* the Patchbay's kit relays: valuePropsOf(db, kit) (pure) · kitTrustNow(code) / useKitTrust (team: a code saved / confirmed here) */
+  valuePropsOf,
+  kitTrustNow,
+  useKitTrust,
+  type ValueProp,
 } from './kit'
 /*
  * The Outbox (features/outbox — reviewed write-backs to MCP servers; see outbox/index.ts, docs/OUTBOX.md):
@@ -596,3 +610,46 @@ export {
   usePreflightSections,
   openPreflight,
 } from './preflight'
+/*
+ * The Patchbay ("Schaltplan", features/patchbay — see patchbay/index.ts): what runs by itself as one rack, with a fuse on
+ * every path that could carry private data out.
+ *  - PatchbayRoute { m?, f?, setup? } (#/patchbay, lazy) · openPatchbay({ m?, f?, setup? }) · startPatchbay() (main.tsx)
+ *  - PatchbayNavRow (sidebar) · usePatchbayCounts() / patchbayCounts() · PatchbayStatusCells · PatchbayReturnChip (topbar)
+ *  - wiringInventory(source, WIRING_READERS) · wiringCount() (Workspace › Automation counts the same) · moduleKey /
+ *    inventoryKeys (the `?m=` keys) · fuseHintOf / useFuseHint / FuseHintLine (hint.ts — importable directly)
+ *  - PATCHBAY_DB · wipePatchbay(scope | null) · PATCHBAY_LS_PREFIX · PATCHBAY_RETURN_KEY: the device stores
+ */
+export {
+  PatchbayRoute,
+  openPatchbay,
+  startPatchbay,
+  usePatchbayCounts,
+  patchbayCounts,
+  PatchbayNavRow,
+  PatchbayStatusCells,
+  PatchbayReturnChip,
+  fuseHintOf,
+  useFuseHint,
+  FuseHintLine,
+  wiringInventory,
+  wiringCount,
+  liveDatabases,
+  WIRING_READERS,
+  moduleKey,
+  inventoryKeys,
+  scheduleKey,
+  PATCHBAY_DB,
+  wipePatchbay,
+  PATCHBAY_LS_PREFIX,
+  PATCHBAY_RETURN_KEY,
+  type PatchbayRouteProps,
+  type OpenPatchbayOptions,
+  type WiringInventory,
+  type WiringReaders,
+  type WiringSource,
+  type ModuleKey,
+  type ModuleRef,
+  type PatchbayCounts,
+  type FuseHint,
+  type HintKind,
+} from './patchbay'

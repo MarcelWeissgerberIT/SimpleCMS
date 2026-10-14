@@ -14,4 +14,14 @@ export { McpTab } from './McpTab'
 export { McpStatusCell, openMcpSettings, consumeMcpSettingsRequest } from './McpStatus'
 export { useMcp } from './state'
 export { McpConnectionsRoute } from './connections/route'
-export { openMcpConnections } from './connections/open'
+export { openMcpConnections, type McpConnectionsOptions } from './connections/open'
+/**
+ * The Patchbay's reads (features/patchbay — §1.3 the bridge as a decider, §1.11 setup lamps 01 / 02; pure rules of MCP ·
+ * Connections): serverState(server, now, refused) · ledOf(state) · needsYou(servers, now, refused) ·
+ * missingNamed(agents, servers) — and this browser's bridge: useMcpSettings() / mcpSettings() ({ enabled, mode }),
+ * setMcpMode(mode) (the bridge's own setter: 'ask' · 'apply' · 'read', this browser only)
+ */
+export { serverState, ledOf, needsYou, missingNamed, type ServerState, type Level as ConnectionLevel } from './connections/model'
+export { setMcpMode } from './service'
+export { useMcpSettings, mcpSettings, type BridgeSettings } from './state'
+export type { McpAgentMode } from './contract'

@@ -7,6 +7,8 @@ export { reservedUsd } from '../../governor'
 export { PURPOSES, PAGE_DERIVED, purposeOf, isPurposeId, type PurposeId, type PurposeDecl, type Need } from './purposes'
 export { classOfPage, classesOf, memberClassesOf, type SourceWorld } from './sources'
 export { aiStatus, routeFor, shortOf, destinationOf, type AIStatus } from './status'
+/** classAllowedOn(route, cls, { ws, device }): a data rule's answer for a route (pure; `device: null` = work that runs elsewhere) */
+export { classAllowedOn } from './allowed'
 export { ROUTABLE, routable } from './routable'
 export { AIError, aiErrorText, type AIErrorCode, type AIFix } from './errors'
 export { setAIDemo, isAIDemo, onAIDemo, usesDemo } from './demoMode'

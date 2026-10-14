@@ -267,6 +267,7 @@ export function useRouteEffects(route: Route) {
     else if (route.name === 'discover') name = t('shell.discover.title')
     else if (route.name === 'regler') name = t('features.governor.title')
     else if (route.name === 'mcp') name = t('features.mcp.page.title')
+    else if (route.name === 'patchbay') name = t('features.patchbay.title')
     else if (route.name === 'workspace') name = t('shell.ws.title')
     else if (route.name === 'clip') name = t('shell.capture.crumb')
     else if (route.name === 'notfound') name = t('shell.notFound.title')

@@ -37,3 +37,10 @@ export { KitValue, useKitOptions, ensureKitOption, type KitValueProps } from './
 export { writeUserValue, isKitComputed, kitChecksWrite } from './write'
 export { recomputeProperty, startKit } from './recompute'
 export { ownTypeOf, createList, createPropType, createRecordType, itemsFromText, type ListInput, type PropTypeInput, type RecordTypeInput } from './model'
+/**
+ * The Patchbay's reads (§1.15 kit relays): valuePropsOf(db, kit) — a database's value properties (pure) · the trust of
+ * a code on this device: kitTrustNow(code) (true / false; undefined = not checked yet — a check starts; local: true) ·
+ * useKitTrust (the checked codes)
+ */
+export { valuePropsOf, type ValueProp } from './valueProps'
+export { trustNow as kitTrustNow, useKitTrust } from './scripts'

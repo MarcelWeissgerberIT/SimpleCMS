@@ -15,6 +15,47 @@ import { GIT_SHA, SHIP_ACTIONS, SHIP_REQUEST, branchUrl, cleanWeb, commitUrl, re
 
 export type Tr = (key: string, vars?: Record<string, string | number>) => string
 
+/* ------------------------------------------------------------------ the live signal (this tab) */
+
+/**
+ * A ship record as it arrived in this tab (a git stage's outcome, a git key's answer — already checked by cleanShip):
+ * the task, its pipeline database and the record. The Patchbay's live signal lights pipeline → GIT from it; nothing
+ * here is stored or sent.
+ */
+export interface ShipNote {
+  taskId: string
+  dbId: string
+  ship: ShipRecord
+}
+
+const shipListeners = new Set<(note: ShipNote) => void>()
+const lastByDb = new Map<string, ShipNote>()
+
+/** Tell this tab's listeners about a ship record that arrived (tasks.ts finishStage · service.ts gitTask). */
+export function noteShip(note: ShipNote): void {
+  lastByDb.set(note.dbId, note)
+  for (const fn of [...shipListeners]) {
+    try {
+      fn(note)
+    } catch (e) {
+      console.warn('[coding] a ship listener failed', e)
+    }
+  }
+}
+
+/** Hear every ship record that arrives in this tab. Returns the unsubscribe. */
+export function onShipRecord(fn: (note: ShipNote) => void): () => void {
+  shipListeners.add(fn)
+  return () => {
+    shipListeners.delete(fn)
+  }
+}
+
+/** The newest ship record of a pipeline database that arrived in this tab (null: none since the tab opened). */
+export function lastShip(dbId: string): ShipNote | null {
+  return lastByDb.get(dbId) ?? null
+}
+
 /**
  * A branch name as git takes it (check-ref-format: no control character, space, ~ ^ : ? * [ \\, "..", "@{", "//", no
  * part starting with "." or ending in ".lock", no "/" or "." at the end) and never an option (no leading "-"), ≤ 200

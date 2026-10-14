@@ -13,8 +13,8 @@ import { createRoot, type Root } from 'react-dom/client'
 import { create } from 'zustand'
 
 export interface ViewerSource {
-  /** first word of the spec plate: 'diagram' (Mermaid) | 'chart' */
-  kind: 'diagram' | 'chart'
+  /** first word of the spec plate: 'diagram' (Mermaid) | 'chart' | 'schematic' (the Patchbay's static picture) */
+  kind: 'diagram' | 'chart' | 'schematic'
   /** second word: the diagram's type, already translated ("Flowchart", "Bar") */
   type?: string
   /** the diagram's own title (chart title, Mermaid front-matter title) */

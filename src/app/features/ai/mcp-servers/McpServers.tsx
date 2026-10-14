@@ -113,7 +113,7 @@ export function McpServers({ openId, add }: { openId?: string; add?: boolean } =
           </h4>
         </div>
         <span className="label mcps__count">{t('features.ai.mcp.count', { count: servers.length, max: MAX_SERVERS })}</span>
-        <button type="button" className="btn btn--sm btn--ghost mcps__all" onClick={openMcpConnections} data-testid="mcp-servers-connections">
+        <button type="button" className="btn btn--sm btn--ghost mcps__all" onClick={() => openMcpConnections()} data-testid="mcp-servers-connections">
           {t('features.mcp.page.link')} <ArrowRight size={13} strokeWidth={1.75} aria-hidden />
         </button>
         <button type="button" className="btn btn--sm" onClick={() => setAdding(true)} disabled={adding || servers.length >= MAX_SERVERS}>

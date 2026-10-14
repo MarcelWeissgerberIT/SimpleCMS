@@ -9,10 +9,11 @@
  *  - codingDbId(): the Coding database (Database.system 'coding') · useCoding: the worker link's state
  */
 import { t } from '../../i18n'
-import { pipelineDbIds } from './schema'
+import { inTeam, pipelineDbIds } from './schema'
 import { useCodingLocal } from './local'
-import { useCoding } from './state'
+import { defaultApprovals, useCoding, type ApprovalsLevel, type CodingState } from './state'
 import { workerDownText } from './stateText'
+import { workerOutdated, workerUnsafe } from './protocol'
 
 export { startCoding } from './service'
 export { CodingRoute, CodingTaskSlot } from './slot'
@@ -106,3 +107,37 @@ export { confirmTaskVersion } from './tasks'
 export const useCodingTrustRev = (): number => useCodingLocal((s) => s.trustRev)
 /** admins: every member's cloud worker with Revoke (the workspace page's Automation section; renders nothing otherwise) */
 export { CloudWorkers as CodingCloudWorkers } from './CloudWorkers'
+/**
+ * The Patchbay's reads (features/patchbay — §1.3 gates, §1.4 the GIT exit, §1.7 live; the rules stay this area's own):
+ *  - pipelineDbIdsOf(kind) (every live project of a kind, oldest first; team: private ones) · readPipeline(db) (the
+ *    stages in Stage-option order, each with its git action, gate, hold) · gitStageWarnings(action, repos)
+ *  - onShipRecord(fn) / lastShip(dbId): ship records as they arrive in this tab (pipeline → GIT, live)
+ *  - approvalsDefault(): this device's Approvals for new tasks ('all' · 'review' · 'none')
+ *  - taskConfirmRule(): who waits for a confirmed version — 'always' (team) · 'agent' (local: tasks an agent created or
+ *    changed last, trust.ts needsConfirm)
+ *  - worker state: workerOnline(s) · workerCaps(s) (what the connected worker runs; null: not known) ·
+ *    workerVerdict(s) ('ok' | 'outdated' | 'unsafe' | null offline) · workerUnsafe(version) · workerOutdated(can)
+ */
+export { pipelineDbIdsOf, readPipeline, type ResolvedStage } from './schema'
+export { gitStageWarnings, onShipRecord, lastShip, type ShipNote } from './ship'
+export { workerUnsafe, workerOutdated } from './protocol'
+export type { ApprovalsLevel } from './state'
+
+/** This device's Approvals for new tasks (localStorage one.coding.approvals). */
+export const approvalsDefault = (): ApprovalsLevel => defaultApprovals()
+
+/** Who waits for a confirmed task version before the worker runs it: every task in a team, local tasks an agent wrote. */
+export const taskConfirmRule = (): 'always' | 'agent' => (inTeam() ? 'always' : 'agent')
+
+/** The worker link is up (switched on here and connected). */
+export const workerOnline = (s: Pick<CodingState, 'enabled' | 'conn'> = useCoding.getState()): boolean => s.enabled && s.conn === 'connected'
+
+/** What the connected worker runs, from its last `next` (null: offline, or it has not asked yet). */
+export const workerCaps = (s: Pick<CodingState, 'enabled' | 'conn' | 'can'> = useCoding.getState()): readonly string[] | null => (workerOnline(s) ? s.can : null)
+
+/** The connected worker's verdict: 'unsafe' (the ZIP-import gap — the security notice), 'outdated' (a stage it cannot run), 'ok'; null while offline. */
+export function workerVerdict(s: Pick<CodingState, 'enabled' | 'conn' | 'can' | 'worker'> = useCoding.getState()): 'ok' | 'outdated' | 'unsafe' | null {
+  if (!workerOnline(s)) return null
+  if (workerUnsafe(s.worker?.worker)) return 'unsafe'
+  return workerOutdated(s.can) ? 'outdated' : 'ok'
+}

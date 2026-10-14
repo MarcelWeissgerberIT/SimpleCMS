@@ -9,3 +9,5 @@
 export { startSync, stopSync, openSyncSettings, consumeSyncSettingsRequest, useSync, resumeFolder, resolveMissing } from './service'
 export { SyncTab } from './SyncTab'
 export { SyncStatusCell } from './SyncStatus'
+/** This device's sync as plain facts (the Patchbay): syncState() · onSyncState(fn) — never the token */
+export { syncState, onSyncState, type SyncFacts } from './syncState'

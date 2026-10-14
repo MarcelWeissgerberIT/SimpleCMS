@@ -35,6 +35,8 @@ export type YouVia =
   | 'outbox'
   /** a key in Preflight's queue that writes through no source writer of its own (features/preflight/queue/calls.ts) */
   | 'preflight'
+  /** a fuse key, a patch or a setup step in the Patchbay (features/patchbay; its Undo writes as 'undo') */
+  | 'patchbay'
 
 /** A writer's canonical id (grammar: features/recorder/model/writerKeys.ts). */
 export type WriterKey = string
