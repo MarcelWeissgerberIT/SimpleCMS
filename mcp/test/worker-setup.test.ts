@@ -10,6 +10,7 @@
 import assert from 'node:assert/strict'
 import { chmodSync, mkdirSync, readFileSync, statSync, symlinkSync, writeFileSync, existsSync } from 'node:fs'
 import { request } from 'node:http'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { after, afterEach, describe, test } from 'node:test'
 import { WORKER_CLOSE_REFUSED, WORKER_CLOUD_PORT, WORKER_DEFAULT_PORT, cloudOriginAllowed, cloudWorkerPort, type OpenSetupResult, type WorkerMessage, type WorkspaceRef } from '../../src/app/features/coding/protocol.ts'
@@ -21,7 +22,7 @@ import { pickerCommand } from '../src/worker/picker.ts'
 import { checklistText } from '../src/worker/checklist.ts'
 import { browserCommand } from '../src/worker/opener.ts'
 import { waitFor } from './helpers.ts'
-import { FakeTab, cleanupAll, fakeOpener, plainRepo, presetBundle, sh, spawnWorker, tempDir, type SpawnedWorker } from './worker-helpers.ts'
+import { FakeTab, IS_WIN, cleanupAll, fakeOpener, linkDir, plainRepo, presetBundle, sh, spawnWorker, tempDir, type SpawnedWorker } from './worker-helpers.ts'
 
 const PORT = 47384
 const ORIGIN = 'http://127.0.0.1:5350'
@@ -54,11 +55,11 @@ function makeHome(): { home: string; outside: string } {
   // a linked worktree / submodule: a .git FILE
   mkdirSync(join(home, 'code', 'linked'), { recursive: true })
   writeFileSync(join(home, 'code', 'linked', '.git'), 'gitdir: /elsewhere\n')
-  // symbolic links are never followed: neither to a repo inside nor to one outside the home folder
+  // symbolic links are never followed: neither to a repo inside nor to one outside the home folder (junctions on Windows)
   const outside = plainRepo(join(tempDir('outside'), 'zeta'))
   mkdirSync(join(home, 'links'))
-  symlinkSync(join(home, 'code', 'alpha'), join(home, 'links', 'alias'))
-  symlinkSync(outside, join(home, 'links', 'zeta'))
+  linkDir(join(home, 'code', 'alpha'), join(home, 'links', 'alias'))
+  linkDir(outside, join(home, 'links', 'zeta'))
   return { home, outside }
 }
 
@@ -174,7 +175,7 @@ describe('the preset of a download', () => {
   })
 
   test('a cloud worker keeps its own folder: config, state and worktrees never meet a local worker\'s', () => {
-    const home = process.env.HOME ?? ''
+    const home = homedir()
     assert.ok(cloudConfigFile('team:Ab12cd34').startsWith(join(home, '.config', 'one', 'cloud', 'team-Ab12cd34')))
     assert.notEqual(cloudConfigFile('team:Ab12cd34'), defaultConfigFile())
     assert.notEqual(cloudConfigFile('team:Ab12cd34'), cloudConfigFile('team:Other999'))
@@ -362,11 +363,12 @@ describe('test command guesses', () => {
   })
 
   test('a command line becomes argv without a shell', () => {
-    assert.deepEqual(splitArgs('npm run test -- --ci'), ['npm', 'run', 'test', '--', '--ci'])
-    assert.deepEqual(splitArgs(`pytest -k "slow and not db" 'a b' c\\ d`), ['pytest', '-k', 'slow and not db', 'a b', 'c d'])
-    assert.deepEqual(splitArgs('make test && rm -rf /'), ['make', 'test', '&&', 'rm', '-rf', '/'])
-    assert.deepEqual(splitArgs('  '), [])
-    assert.deepEqual(splitArgs('a ""'), ['a', ''])
+    // macOS / Linux rules (a backslash escapes) — Windows keeps it: worker-win.test.ts
+    assert.deepEqual(splitArgs('npm run test -- --ci', 'linux'), ['npm', 'run', 'test', '--', '--ci'])
+    assert.deepEqual(splitArgs(`pytest -k "slow and not db" 'a b' c\\ d`, 'linux'), ['pytest', '-k', 'slow and not db', 'a b', 'c d'])
+    assert.deepEqual(splitArgs('make test && rm -rf /', 'linux'), ['make', 'test', '&&', 'rm', '-rf', '/'])
+    assert.deepEqual(splitArgs('  ', 'linux'), [])
+    assert.deepEqual(splitArgs('a ""', 'linux'), ['a', ''])
   })
 
   test('the opener: argv only, none when switched off or headless', () => {
@@ -396,8 +398,9 @@ describe('the setup page', () => {
     const dir = tempDir('picker')
     const answer = join(dir, 'answer.txt')
     const program = join(dir, 'pick.mjs')
+    // started by its path: a Node script on Windows (exec.ts), an executable with this line elsewhere
     writeFileSync(program, `#!${process.execPath}\nimport { readFileSync } from 'node:fs'\nconst a = readFileSync(${JSON.stringify(answer)}, 'utf8')\nif (!a) process.exit(1)\nprocess.stdout.write(a + '/\\n')\n`)
-    chmodSync(program, 0o755)
+    if (!IS_WIN) chmodSync(program, 0o755)
     const opener = fakeOpener()
     worker = await spawnWorker({ bundle: presetBundle(PRESET), home, env: { ONE_WORKER_BROWSER: opener.program, ONE_WORKER_PICKER: program } })
     await waitFor(() => opener.urls().length === 1, 8000, () => worker!.stderr())
@@ -489,7 +492,8 @@ describe('the setup page', () => {
     const saved = await save(pick)
     assert.equal(saved.status, 200, saved.text)
     const file = join(home, '.config', 'one', 'worker.json')
-    assert.equal(statSync(file).mode & 0o777, 0o600)
+    // Windows keeps no mode bits (the private file there is its ACL — docs/CODING.md § Windows)
+    if (!IS_WIN) assert.equal(statSync(file).mode & 0o777, 0o600)
     const written = sanitizeConfig(JSON.parse(readFileSync(file, 'utf8').replace(/^\/\/.*$/gm, '')), file, {})
     assert.deepEqual(written.problems, [])
     assert.equal(written.config.workspace, WS.id)
@@ -623,7 +627,7 @@ describe('the setup page', () => {
     plainRepo(join(home, 'code', 'docs'))
     mkdirSync(join(home, '.config', 'one'), { recursive: true })
     const file = join(home, '.config', 'one', 'worker.json')
-    const original = `// mine\n{ "name": "studio-mac", "parallel": 1, "repos": [ { "name": "site", "path": "${site}", "branchPrefix": "me/", "claude": { "maxTurns": 12 } } ] }\n`
+    const original = `// mine\n{ "name": "studio-mac", "parallel": 1, "repos": [ { "name": "site", "path": ${JSON.stringify(site)}, "branchPrefix": "me/", "claude": { "maxTurns": 12 } } ] }\n`
     writeFileSync(file, original)
     const opener = fakeOpener()
     worker = await spawnWorker({ bundle: presetBundle(PRESET), home, args: ['setup'], env: { ONE_WORKER_BROWSER: opener.program } })
@@ -669,7 +673,7 @@ describe('the terminal checklist (--no-browser)', () => {
     worker.write('\n')
     await waitFor(() => /Saved 1 repo\(s\)/.test(worker!.stdout()), 8000, () => worker!.stdout())
     const file = join(home, '.config', 'one', 'worker.json')
-    assert.equal(statSync(file).mode & 0o777, 0o600)
+    if (!IS_WIN) assert.equal(statSync(file).mode & 0o777, 0o600)
     const raw = JSON.parse(readFileSync(file, 'utf8').replace(/^\/\/.*$/gm, ''))
     assert.deepEqual(raw.repos.map((r: { name: string; testCommand: string[] }) => [r.name, r.testCommand]), [['beta', ['cargo', 'test']]])
     await waitFor(() => tab.messages.filter((m) => m.type === 'welcome').length === 2)

@@ -13758,7 +13758,7 @@ import { randomBytes as randomBytes3 } from "node:crypto";
 // src/worker/clone.ts
 import { existsSync as existsSync6, mkdirSync as mkdirSync3, readdirSync, writeFileSync as writeFileSync4 } from "node:fs";
 import { homedir as homedir6 } from "node:os";
-import { isAbsolute as isAbsolute2, join as join7, posix as posix3, win32 as win324 } from "node:path";
+import { join as join7, posix as posix3, win32 as win324 } from "node:path";
 var HOST = /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/;
 var SEGMENT = /^[A-Za-z0-9_~][A-Za-z0-9_.~+-]{0,99}$/;
 var USER = /^[A-Za-z0-9._-]{1,64}$/;
@@ -13767,14 +13767,15 @@ function segments(path) {
   if (parts.length < 2 || parts.length > 20) return null;
   return parts.every((p) => SEGMENT.test(p) && p !== "." && p !== "..") ? parts : null;
 }
-function parseCloneUrl(raw, local = false) {
+function parseCloneUrl(raw, local = false, platform = process.platform) {
   const text2 = typeof raw === "string" ? raw.trim() : "";
   if (!text2) return { error: "Paste the clone address of the repository (HTTPS or SSH)." };
   if (text2.length > 500 || /[\s\u0000-\u001f\u007f]/.test(text2) || text2.startsWith("-")) return { error: "That is not a clone address." };
-  if (local && (text2.startsWith("/") || text2.startsWith("file://"))) {
+  const win2 = platform === "win32";
+  if (local && (text2.startsWith("/") || text2.startsWith("file://") || win2 && /^[A-Za-z]:[\\/]/.test(text2))) {
     const dir = text2.startsWith("file://") ? decodeURIComponent(text2.slice(7)) : text2;
-    if (!isAbsolute2(dir) || dir.split(/[\\/]/).includes("..")) return { error: "That is not a clone address." };
-    return { url: dir, host: "local", path: dir.replace(/^\/+/, ""), name: folderName(dir), kind: "local" };
+    if (!(win2 ? win324 : posix3).isAbsolute(dir) || dir.split(/[\\/]/).includes("..")) return { error: "That is not a clone address." };
+    return { url: dir, host: "local", path: dir.replace(/^\/+/, ""), name: folderName(win2 ? dir.replace(/\\/g, "/") : dir), kind: "local" };
   }
   if (/^[a-z][a-z0-9+.-]*::/i.test(text2)) return { error: "Only HTTPS and SSH addresses can be cloned here." };
   if (/[\\/:]\.\.?(?=[\\/]|$)/.test(text2)) return { error: "The project path looks wrong (group/project)." };
@@ -33672,7 +33673,7 @@ async function serveTaskMcp(version2) {
 // src/worker/setup.ts
 import { randomBytes as randomBytes6 } from "node:crypto";
 import { homedir as homedir9 } from "node:os";
-import { isAbsolute as isAbsolute3, join as join12, resolve as resolve5 } from "node:path";
+import { isAbsolute as isAbsolute2, join as join12, resolve as resolve5 } from "node:path";
 
 // src/worker/picker.ts
 var PROMPT = "One worker \u2014 pick the folder of a git repository";
@@ -34842,7 +34843,7 @@ var SetupServer = class {
     if (!raw || raw.length > 1e3 || /[\u0000-\u001f]/.test(raw)) return { ok: false, error: "Type the folder of a git repository." };
     let dir;
     if (raw === "~" || raw.startsWith("~/") || raw.startsWith("~\\")) dir = join12(this.home, raw.slice(2));
-    else if (isAbsolute3(raw)) dir = resolve5(raw);
+    else if (isAbsolute2(raw)) dir = resolve5(raw);
     else {
       dir = resolve5(this.home, raw);
       if (!inFolder(dir, this.home)) return { ok: false, error: "A relative folder must stay inside your home folder." };

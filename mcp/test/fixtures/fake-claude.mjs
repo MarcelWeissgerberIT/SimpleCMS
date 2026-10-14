@@ -23,13 +23,15 @@
  *                          "Stories") a json block of three stories; with "Changes on the branch" in the prompt it names the files the diff touches
  * The task tools are reached like Claude Code does: the MCP server from --mcp-config, over stdio.
  * Like Claude Code it loads the working folder's own settings (.claude/settings.json, settings.local.json) unless
- * --setting-sources leaves them out, and runs their SessionStart hooks (a shell command each); FAKE_CLAUDE_OLD=1: an
- * older CLI whose --help has no --setting-sources.
+ * --setting-sources leaves them out, and runs their SessionStart hooks (a shell command each — sh, or cmd.exe on Windows:
+ * the tests write hooks both read); FAKE_CLAUDE_OLD=1: an older CLI whose --help has no --setting-sources. Its home folder
+ * is os.homedir() like Claude Code's (USERPROFILE on Windows).
  * FAKE_CLAUDE_LOG=<file> appends {args, cwd} per run. It reports the model given with --model when that is a full
  * id (claude-…), else its own default.
  */
 import { spawnSync } from 'node:child_process'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
 
 const args = process.argv.slice(2)
@@ -133,9 +135,9 @@ if (prompt.includes('FAKE:AUTH')) {
 if (mode === 'plan' && prompt.includes('FAKE:PLANFILE')) {
   // newer Claude Code: the plan goes to a plan file, ExitPlanMode is switched off in headless runs
   const tools = prompt.includes('FAKE:TOOLS') ? `\n\nTools: ${await toolHints()}` : ''
-  const file = join(process.env.HOME ?? '.', '.claude', 'plans', 'fake-plan.md')
+  const file = join(homedir(), '.claude', 'plans', 'fake-plan.md')
   const plan = `## Plan from the file\n1. Add \`feature.txt\`.${tools}`
-  mkdirSync(join(process.env.HOME ?? '.', '.claude', 'plans'), { recursive: true })
+  mkdirSync(join(homedir(), '.claude', 'plans'), { recursive: true })
   writeFileSync(file, plan)
   tool('Write', { file_path: file, content: plan })
   result('I wrote the plan to ~/.claude/plans/fake-plan.md.', 0.05)

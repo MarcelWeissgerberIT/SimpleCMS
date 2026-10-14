@@ -19,7 +19,7 @@
  */
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { isAbsolute, join, posix, win32 } from 'node:path'
+import { join, posix, win32 } from 'node:path'
 import { SOURCE_MARK, folderName, markSource } from './config.ts'
 import { execFileSafe, killTree, spawnSafe } from './exec.ts'
 import { git } from './git.ts'
@@ -50,14 +50,16 @@ function segments(path: string): string[] | null {
 export { folderName }
 
 /** Check a typed clone address. `local` (tests only): a path or file:// URL of a repository on this computer. */
-export function parseCloneUrl(raw: unknown, local = false): CloneUrl | { error: string } {
+export function parseCloneUrl(raw: unknown, local = false, platform: NodeJS.Platform = process.platform): CloneUrl | { error: string } {
   const text = typeof raw === 'string' ? raw.trim() : ''
   if (!text) return { error: 'Paste the clone address of the repository (HTTPS or SSH).' }
   if (text.length > 500 || /[\s\u0000-\u001f\u007f]/.test(text) || text.startsWith('-')) return { error: 'That is not a clone address.' }
-  if (local && (text.startsWith('/') || text.startsWith('file://'))) {
+  // Windows: a local path starts with its drive (C:\…)
+  const win = platform === 'win32'
+  if (local && (text.startsWith('/') || text.startsWith('file://') || (win && /^[A-Za-z]:[\\/]/.test(text)))) {
     const dir = text.startsWith('file://') ? decodeURIComponent(text.slice(7)) : text
-    if (!isAbsolute(dir) || dir.split(/[\\/]/).includes('..')) return { error: 'That is not a clone address.' }
-    return { url: dir, host: 'local', path: dir.replace(/^\/+/, ''), name: folderName(dir), kind: 'local' }
+    if (!(win ? win32 : posix).isAbsolute(dir) || dir.split(/[\\/]/).includes('..')) return { error: 'That is not a clone address.' }
+    return { url: dir, host: 'local', path: dir.replace(/^\/+/, ''), name: folderName(win ? dir.replace(/\\/g, '/') : dir), kind: 'local' }
   }
   if (/^[a-z][a-z0-9+.-]*::/i.test(text)) return { error: 'Only HTTPS and SSH addresses can be cloned here.' }
   if (/[\\/:]\.\.?(?=[\\/]|$)/.test(text)) return { error: 'The project path looks wrong (group/project).' }

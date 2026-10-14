@@ -4,7 +4,7 @@
  */
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, describe, test } from 'node:test'
@@ -14,15 +14,16 @@ import { buildPrompt, commitMessage } from '../src/worker/run.ts'
 import { estimateCost, usageOf } from '../src/worker/price.ts'
 import { SOURCE_MARK, loadConfig, marksSeen, sanitizeConfig, scratchRepo, unseenMarks, type Loaded } from '../src/worker/config.ts'
 import { sanitizeTask } from '../src/worker/worker.ts'
-import { FAKE_CLAUDE, cleanupAll, task, tempDir } from './worker-helpers.ts'
+import { FAKE_CLAUDE, IS_WIN, cleanupAll, linkDir, task, tempDir } from './worker-helpers.ts'
 
-chmodSync(FAKE_CLAUDE, 0o755)
+if (!IS_WIN) chmodSync(FAKE_CLAUDE, 0o755)
 after(cleanupAll)
 
 describe('Claude Code CLI', () => {
   test('capabilities come from --version / --help; a missing CLI is reported, not thrown', async () => {
     const caps = await detectClaude(FAKE_CLAUDE)
-    assert.deepEqual(caps, { found: true, version: '9.9.9', budget: true, modes: ['acceptEdits', 'default', 'plan'], settingSources: true })
+    // Windows also says what runs (for `check`): the .mjs as a Node script
+    assert.deepEqual(caps, { found: true, version: '9.9.9', budget: true, modes: ['acceptEdits', 'default', 'plan'], settingSources: true, ...(IS_WIN ? { path: FAKE_CLAUDE, via: 'node-shim' } : {}) })
     const none = await detectClaude(join(tmpdir(), 'no-such-claude-bin'))
     assert.equal(none.found, false)
     assert.equal(cliMode('default', { ...caps, modes: ['acceptEdits', 'manual', 'plan'] }), 'manual')
@@ -84,7 +85,7 @@ describe('Claude Code CLI', () => {
     const real = join(home, 'one-repos')
     mkdirSync(join(real, 'billing', '.git'), { recursive: true })
     const link = join(home, 'clones-link')
-    symlinkSync(real, link)
+    linkDir(real, link)
     const trust = (cfg: Record<string, unknown>, platform?: NodeJS.Platform) =>
       Object.fromEntries(sanitizeConfig({ workspace: 'local:x1', ...cfg }, join(home, 'worker.json'), {}, { platform }).config.repos.map((r) => [r.name, [r.claude.projectSettings, r.source]]))
     // the clone folder through a link and the repo by its real path — and the other way round

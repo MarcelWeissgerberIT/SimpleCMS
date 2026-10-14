@@ -11,6 +11,24 @@ import { MCP_SUBPROTOCOL, MCP_SUBPROTOCOL_V1, type AppMessage, type BridgeMessag
 export const BUNDLE = fileURLToPath(new URL('../../public/mcp/one-mcp.mjs', import.meta.url))
 export const PORT = 47399
 
+/** The suite runs on Windows: the harness differs there only where the OS does (env keys, path forms, links, modes). */
+export const IS_WIN = process.platform === 'win32'
+
+/**
+ * A child's environment from layers, later ones winning. Windows: a variable is one in any case — libuv hands the child
+ * the first of the sorted keys, so a "PATH" left in would shadow a later "Path" (pathWith's key there).
+ */
+export function childEnv(...layers: Array<Record<string, string | undefined>>): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const layer of layers)
+    for (const [k, v] of Object.entries(layer)) {
+      if (v === undefined) continue
+      if (IS_WIN) for (const old of Object.keys(out)) if (old !== k && old.toLowerCase() === k.toLowerCase()) delete out[old]
+      out[k] = v
+    }
+  return out
+}
+
 export interface Started {
   client: Client
   stderr: () => string

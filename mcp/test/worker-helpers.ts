@@ -1,29 +1,113 @@
 /**
  * Test helpers for one-worker: temp git repos with a local bare remote (never a real host), an isolated
  * git config (no global settings, no signing), the fake Claude Code CLI, and a fake One tab that speaks
- * the worker protocol over a plain WebSocket client.
+ * the worker protocol over a plain WebSocket client. The same on Windows: there a child gets the whole environment,
+ * fakes are npm-style .cmd shims (fakeBin), directory links are junctions and the temp folder is its long form.
  */
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import WebSocket from 'ws'
 import { WORKER_SUBPROTOCOL, type StageOutcome, type TabMessage, type TaskPayload, type WorkerMessage, type WorkspaceRef } from '../../src/app/features/coding/protocol.ts'
-import { envGet, pathKey } from '../src/worker/exec.ts'
-import { waitFor } from './helpers.ts'
+import { envGet, killTree, pathKey } from '../src/worker/exec.ts'
+import { IS_WIN, childEnv, waitFor } from './helpers.ts'
+
+export { IS_WIN, childEnv }
 
 export const WORKER_BUNDLE = fileURLToPath(new URL('../../public/mcp/one-worker.mjs', import.meta.url))
 export const FAKE_CLAUDE = fileURLToPath(new URL('./fixtures/fake-claude.mjs', import.meta.url))
 
-const root = realpathSync(mkdtempSync(join(tmpdir(), 'one-worker-test-')))
+// Windows: the long form (C:\Users\RUNNER~1\… → C:\Users\runneradmin\…), as git, realpath.native and the worker see it
+const root = (IS_WIN ? realpathSync.native : realpathSync)(mkdtempSync(join(tmpdir(), 'one-worker-test-')))
 const emptyConfig = join(root, 'gitconfig')
 writeFileSync(emptyConfig, '')
 /** git (here and in every child) without the machine's global or system config */
 export const GIT_ENV = { GIT_CONFIG_GLOBAL: emptyConfig, GIT_CONFIG_NOSYSTEM: '1', GIT_AUTHOR_NAME: 'Test Person', GIT_AUTHOR_EMAIL: 'test@example.invalid', GIT_COMMITTER_NAME: 'Test Person', GIT_COMMITTER_EMAIL: 'test@example.invalid' }
 Object.assign(process.env, GIT_ENV)
 
-export const cleanupAll = () => rmSync(root, { recursive: true, force: true })
+/** Windows may still hold a file a killed child had open for a moment: retried there, and a leftover temp folder is no failure. */
+export const cleanupAll = () => {
+  try {
+    rmSync(root, { recursive: true, force: true, maxRetries: IS_WIN ? 10 : 0, retryDelay: 200 })
+  } catch (e) {
+    if (!IS_WIN) throw e
+    process.stderr.write(`# temp folder left behind: ${(e as Error).message}\n`)
+  }
+}
+
+/** HOME for this code, USERPROFILE for Windows' os.homedir() — a child's home folder on every OS. */
+export const homeEnv = (home: string) => ({ HOME: home, USERPROFILE: home })
+
+/** A path as sh scripts and git config values read it: Windows keeps the drive and writes "/" (Git for Windows' sh
+ * and its config reader take "\" as an escape); unchanged elsewhere. */
+export const slashPath = (p: string) => (IS_WIN ? p.replace(/\\/g, '/') : p)
+
+/** A link to a folder: a junction on Windows (no admin rights or Developer Mode needed; Node and the worker see a link). */
+export const linkDir = (target: string, link: string) => symlinkSync(target, link, IS_WIN ? 'junction' : undefined)
+
+/** `./name` as the scrubber leaves a file in the worktree: `.\name` on Windows (the path Claude Code wrote, "." for the worktree). */
+export const dotPath = (name: string) => (IS_WIN ? `.\\${name.replace(/\//g, '\\')}` : `./${name}`)
+
+/** A shell command (sh, or cmd.exe on Windows — Claude Code's hooks) that creates `file`: node, not touch. */
+export const touchCommand = (file: string) => `"${process.execPath}" -e "require('fs').writeFileSync(process.argv[1], '')" "${file}"`
+
+/** The short (8.3) forms of the home folder this computer writes (TEMP = C:\Users\RUNNER~1\AppData\Local\Temp on a runner). */
+function shortHomes(): string[] {
+  if (!IS_WIN) return []
+  const home = homedir().toLowerCase()
+  const out = new Set<string>()
+  for (const key of ['TEMP', 'TMP', 'LOCALAPPDATA']) {
+    const v = envGet(process.env, key) ?? ''
+    const parts = v.split(/[\\/]/)
+    const i = parts.findIndex((p) => p.includes('~'))
+    if (i < 1) continue
+    const short = parts.slice(0, i + 1).join('\\')
+    try {
+      if (realpathSync.native(short).toLowerCase() === home) out.add(short)
+    } catch {
+      /* not there */
+    }
+  }
+  return [...out]
+}
+
+/**
+ * Every way `p` can be written in what the worker sends — as is and JSON-escaped; on Windows also with "/", as MSYS
+ * /c/…, percent-encoded, under the home folder's 8.3 name, in any case (NTFS ignores it). A check for the raw form only
+ * would pass on Windows, where a path in JSON reads C:\\Users\\….
+ */
+export function pathForms(p: string): string[] {
+  const forms = new Set<string>([p, JSON.stringify(p).slice(1, -1)])
+  if (!IS_WIN) return [...forms]
+  const longs = [p]
+  const home = homedir()
+  if (p.toLowerCase().startsWith(home.toLowerCase())) for (const s of shortHomes()) longs.push(s + p.slice(home.length))
+  for (const l of longs) {
+    const fwd = l.replace(/\\/g, '/')
+    for (const f of [l, fwd, l.replace(/\\/g, '\\\\'), encodeURI(fwd)]) forms.add(f)
+    const drive = /^([A-Za-z]):\//.exec(fwd)
+    if (drive) for (const pre of ['/', '/cygdrive/', '/mnt/']) forms.add(`${pre}${drive[1]!.toLowerCase()}${fwd.slice(2)}`)
+  }
+  return [...forms].map((f) => f.toLowerCase())
+}
+
+/** The first of `paths` (in any of its forms) or `literals` found in `text` — null when none. */
+export function leakIn(text: string, paths: string[], literals: string[] = []): string | null {
+  const t = IS_WIN ? text.toLowerCase() : text
+  for (const p of paths) for (const f of pathForms(p)) if (t.includes(f)) return `${p} (as ${f})`
+  for (const l of literals) if (text.includes(l)) return l
+  return null
+}
+
+/** Where `name` lives on this computer's PATH (Windows: with PATHEXT's .exe / .cmd …) — the git the runner has, not /usr/bin's. */
+export function onPath(name: string): string {
+  const exts = IS_WIN ? ['.exe', '.cmd', '.bat', '.com'] : ['']
+  for (const dir of (envGet(process.env, 'PATH') ?? '').split(delimiter).filter(Boolean))
+    for (const ext of exts) if (existsSync(join(dir, name + ext))) return join(dir, name + ext)
+  throw new Error(`${name} is not on PATH`)
+}
 
 /** A fresh empty folder inside this run's temp root (removed by cleanupAll). */
 export const tempDir = (prefix = 'tmp') => mkdtempSync(join(root, `${prefix}-`))
@@ -98,12 +182,17 @@ export interface SpawnedWorker extends StartedWorker {
   write: (text: string) => void
 }
 
+/** A child's base environment: Windows the whole one (node.exe cannot open a socket without SystemRoot; ComSpec, PATHEXT,
+ * TEMP …), elsewhere PATH and HOME as before. */
+export const baseEnv = (): Record<string, string | undefined> => (IS_WIN ? { ...process.env } : { PATH: process.env.PATH ?? '', HOME: process.env.HOME ?? '' })
+
 /** Start a worker file (the bundle, or a download with a preset) — never opens a real browser. */
-export async function spawnWorker(opts: { bundle: string; args?: string[]; env?: Record<string, string>; home?: string; stdin?: boolean }): Promise<SpawnedWorker> {
-  chmodSync(FAKE_CLAUDE, 0o755)
+export async function spawnWorker(opts: { bundle: string; args?: string[]; env?: Record<string, string>; home?: string; stdin?: boolean; cwd?: string }): Promise<SpawnedWorker> {
+  if (!IS_WIN) chmodSync(FAKE_CLAUDE, 0o755)
   const child = spawn(process.execPath, [opts.bundle, ...(opts.args ?? [])], {
-    env: { PATH: process.env.PATH ?? '', HOME: opts.home ?? process.env.HOME ?? '', ...GIT_ENV, CLAUDE_BIN: FAKE_CLAUDE, ONE_WORKER_HEARTBEAT_MS: '400', ONE_WORKER_BROWSER: 'none', ...opts.env },
+    env: childEnv(baseEnv(), opts.home ? homeEnv(opts.home) : {}, GIT_ENV, { CLAUDE_BIN: FAKE_CLAUDE, ONE_WORKER_HEARTBEAT_MS: '400', ONE_WORKER_BROWSER: 'none' }, opts.env ?? {}),
     stdio: [opts.stdin ? 'pipe' : 'ignore', 'pipe', 'pipe'],
+    ...(opts.cwd ? { cwd: opts.cwd } : {}),
   })
   let err = ''
   let out = ''
@@ -123,7 +212,9 @@ export async function spawnWorker(opts: { bundle: string; args?: string[]; env?:
       new Promise((resolve) => {
         if (child.exitCode !== null) return resolve()
         child.once('exit', () => resolve())
-        child.kill('SIGTERM')
+        // Windows has no SIGTERM to catch: the whole tree goes (taskkill /T), so no git or fake CLI keeps a file or the port
+        if (IS_WIN) void killTree(child, 'win32')
+        else child.kill('SIGTERM')
       }),
   }
 }
@@ -142,8 +233,9 @@ export function fakeOpener(): { program: string; urls: () => string[] } {
   const dir = tempDir('opener')
   const log = join(dir, 'opened.txt')
   const program = join(dir, 'open.mjs')
+  // started by its path: Windows reads the .mjs as a Node script (exec.ts), elsewhere the line above makes it one
   writeFileSync(program, `#!${process.execPath}\nimport { appendFileSync } from 'node:fs'\nappendFileSync(${JSON.stringify(log)}, process.argv[2] + '\\n')\n`)
-  chmodSync(program, 0o755)
+  if (!IS_WIN) chmodSync(program, 0o755)
   return { program, urls: () => (existsSync(log) ? readFileSync(log, 'utf8').split('\n').filter(Boolean) : []) }
 }
 

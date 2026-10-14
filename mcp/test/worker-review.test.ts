@@ -14,7 +14,8 @@ import type { RepoConfig } from '../src/worker/config.ts'
 import { buildPrompt } from '../src/worker/run.ts'
 import type { TaskPayload } from '../../src/app/features/coding/protocol.ts'
 import { waitFor } from './helpers.ts'
-import { FakeTab, WS_LOCAL, cleanupAll, fakeBin, makeRepo, pathWith, plainRepo, repoEntry, sh, startWorker, task, tempDir, writeConfig, type StartedWorker, type TempRepo } from './worker-helpers.ts'
+import { commandName } from '../src/worker/exec.ts'
+import { FakeTab, WS_LOCAL, cleanupAll, fakeBin, leakIn, makeRepo, pathWith, plainRepo, repoEntry, sh, startWorker, task, tempDir, writeConfig, type StartedWorker, type TempRepo } from './worker-helpers.ts'
 
 const PORT = 47389
 let worker: StartedWorker | null = null
@@ -39,9 +40,12 @@ async function boot(r: TempRepo, repo: Record<string, unknown> = {}, env: Record
 }
 
 function assertNoPaths(tab: FakeTab, r: TempRepo) {
-  const all = tab.raw.join('\n')
-  for (const secret of [r.path, r.worktrees, r.dir, homedir(), process.execPath, 'fake-claude']) assert.ok(!all.includes(secret), `the tab received ${JSON.stringify(secret)}`)
+  const leak = leakIn(tab.raw.join('\n'), [r.path, r.worktrees, r.dir, homedir(), process.execPath], ['fake-claude'])
+  assert.equal(leak, null, `the tab received ${leak}`)
 }
+
+/** node's program name as the worker shows a command (its name only — node.exe on Windows) */
+const NODE = commandName(process.execPath).replace(/\./g, '\\.')
 
 /** A linter that names files by their full path (scrubbed on the way to One) and finds something (exit 1). */
 const LINT = "console.log(process.cwd() + '/src/a.js:1:1 warning Unexpected var')\nconsole.log('1 problem')\nprocess.exit(1)\n"
@@ -107,7 +111,7 @@ describe('static analysis', () => {
     assert.equal(out.status, 'ok', JSON.stringify(out))
     assert.match(out.plan!, /findings \(exit code 1\)/)
     assert.match(out.plan!, /<repo>\/src\/a\.js:1:1 warning Unexpected var/)
-    assert.match(out.plan!, /^`node lint\.mjs` · findings/)
+    assert.match(out.plan!, new RegExp(`^\`${NODE} lint\\.mjs\` · findings`))
     assert.equal(out.branch, undefined)
     assert.ok(!existsSync(r.worktrees) || readdirSync(r.worktrees).length === 0, 'no worktree')
     const lines = tab.messages.flatMap((m) => (m.type === 'event' && m.kind === 'log' ? m.lines : []))

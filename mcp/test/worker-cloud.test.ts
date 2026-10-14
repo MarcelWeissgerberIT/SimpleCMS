@@ -197,7 +197,9 @@ describe('cloud worker', () => {
     const run = await spawnWorker({ bundle, home, args: ['check'] })
     await waitFor(() => run.child.exitCode !== null, 15_000, () => run.stderr())
     assert.match(run.stdout(), /cloud {6}127\.0\.0\.1:\d+ · "Cloud team" as ada@example\.com · new token \(its first start activates it\)/)
-    assert.match(run.stdout(), new RegExp(`config {5}${home.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/\\.config/one/cloud/team-CloudWs1/worker\\.json`))
+    // the path as this OS writes it (Windows: backslashes)
+    const config = join(home, '.config', 'one', 'cloud', 'team-CloudWs1', 'worker.json')
+    assert.match(run.stdout(), new RegExp(`config {5}${config.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`))
     assert.equal(relay.upgrades.at(-1)!.authorization, `Bearer ${TOKEN}`)
     relay.check = { status: 401, body: {} }
     const refused = await spawnWorker({ bundle, home, args: ['check'] })

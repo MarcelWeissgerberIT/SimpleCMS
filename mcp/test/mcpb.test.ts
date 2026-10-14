@@ -7,7 +7,7 @@
 import assert from 'node:assert/strict'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync, chmodSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, join, normalize } from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { after, describe, test } from 'node:test'
@@ -19,7 +19,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { MCP_DEFAULT_PORT, MCP_TOOLS } from '../../src/app/features/mcp/contract.ts'
 import { MCPB_ENTRY, MCPB_MANIFEST_VERSION, packMcpb, type McpbManifest } from '../src/mcpb.ts'
 import { unzip, zip } from '../src/zip.ts'
-import { BUNDLE, waitFor } from './helpers.ts'
+import { BUNDLE, IS_WIN, waitFor } from './helpers.ts'
 
 const file = (rel: string) => fileURLToPath(new URL(rel, import.meta.url))
 const MCPB = file('../../public/mcp/one.mcpb')
@@ -47,14 +47,14 @@ function desktopConfig(m: McpbManifest, dir: string, userConfig: Record<string, 
   return { command: c.command, args: c.args.map(sub), env: Object.fromEntries(Object.entries(c.env).map(([k, v]) => [k, sub(v)])) }
 }
 
-/** Unpack into a fresh folder, like Claude Desktop does on install (modes kept). */
+/** Unpack into a fresh folder, like Claude Desktop does on install (modes kept — Windows has none to keep). */
 function install(): string {
   const dir = mkdtempSync(join(tmp, 'ext-'))
   for (const [name, e] of entries) {
     const out = join(dir, name)
     mkdirSync(dirname(out), { recursive: true })
     writeFileSync(out, e.data)
-    if (e.mode) chmodSync(out, e.mode)
+    if (e.mode && !IS_WIN) chmodSync(out, e.mode)
   }
   return dir
 }
@@ -133,7 +133,8 @@ describe('one.mcpb', () => {
     const dir = install()
     const cfg = desktopConfig(manifest, dir)
     assert.deepEqual(cfg.env, { ONE_MCP_PORT: String(MCP_DEFAULT_PORT), ONE_ORIGINS: '' })
-    assert.equal(cfg.args[0], join(dir, MCPB_ENTRY))
+    // `${__dirname}/server/…` — Windows takes the "/" as a separator (normalize shows it so)
+    assert.equal(normalize(cfg.args[0]!), join(dir, MCPB_ENTRY))
     assert.equal(execFileSync(process.execPath, [cfg.args[0]!, '--version'], { encoding: 'utf8' }).trim(), pkg.version)
   })
 

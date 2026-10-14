@@ -25,7 +25,7 @@ import { WorkerState } from '../src/worker/state.ts'
 import { buildPrompt } from '../src/worker/run.ts'
 import { checkPublish, slugName, suggestName } from '../src/worker/publish.ts'
 import { waitFor } from './helpers.ts'
-import { FakeTab, GIT_ENV, cleanupAll, makeRepo, plainRepo, presetBundle, sh, spawnWorker, task, tempDir, type SpawnedWorker } from './worker-helpers.ts'
+import { FakeTab, GIT_ENV, IS_WIN, cleanupAll, fakeBin, makeRepo, pathWith, plainRepo, presetBundle, sh, slashPath, spawnWorker, task, tempDir, type SpawnedWorker } from './worker-helpers.ts'
 
 /** Is git-lfs installed here? (the LFS test runs only then) */
 function hasGitLfs(): boolean {
@@ -54,33 +54,43 @@ afterEach(async () => {
 })
 after(cleanupAll)
 
-/** Fake glab and gh: their project lists, `mr create` printing a merge request address. */
+/**
+ * Fake glab and gh (JavaScript, started as this OS starts an installed CLI — fakeBin): their project lists, a project
+ * made by `api -X POST` (its address = FAKE_REMOTE, the call logged to FAKE_LOG), `mr create` printing a merge request
+ * address. Anything else: exit 1.
+ */
 function fakeTools(): string {
   const bin = tempDir('bin')
-  const glab = `#!/bin/sh
-case "$1 $2 $3" in
-  "api -X POST") echo "{\\"web_url\\":\\"https://gitlab.example.com/acme/billing-core\\",\\"ssh_url_to_repo\\":\\"$FAKE_REMOTE\\",\\"http_url_to_repo\\":\\"$FAKE_REMOTE\\",\\"args\\":\\"$*\\"}"; echo "$*" >> "$FAKE_LOG"; exit 0 ;;
-  "api groups/acme ") echo '{"id":7}'; exit 0 ;;
-  "config get git_protocol") echo ssh; exit 0 ;;
-esac
-case "$1" in
-  --version) echo "glab 1.99"; exit 0 ;;
-  api) echo '[{"path_with_namespace":"acme/legacy-billing","http_url_to_repo":"https://gitlab.example.com/acme/legacy-billing.git","ssh_url_to_repo":"git@gitlab.example.com:acme/legacy-billing.git","last_activity_at":"2026-10-01T10:00:00Z"},{"path_with_namespace":"acme/bad","http_url_to_repo":"https://user:tok@gitlab.example.com/acme/bad.git","ssh_url_to_repo":"-oProxyCommand=x","last_activity_at":"2026-10-02T10:00:00Z"}]'; exit 0 ;;
-  mr) echo "Creating merge request for $3 into $5"; echo "https://gitlab.example.com/acme/demo/-/merge_requests/7"; exit 0 ;;
-esac
-exit 1
+  const head = `import { appendFileSync } from 'node:fs'
+const a = process.argv.slice(2)
+const say = (s) => {
+  process.stdout.write(s + '\\n')
+  process.exit(0)
+}
 `
-  const gh = `#!/bin/sh
-case "$1" in
-  --version) echo "gh 9.9"; exit 0 ;;
-  repo) echo '[{"nameWithOwner":"me/old-shop","url":"https://github.com/me/old-shop","sshUrl":"git@github.com:me/old-shop.git","updatedAt":"2026-09-20T08:00:00Z"}]'; exit 0 ;;
-esac
-exit 1
+  const glab = `${head}
+const three = [a[0], a[1], a[2]].map((x) => x ?? '').join(' ')
+if (three === 'api -X POST') {
+  if (process.env.FAKE_LOG) appendFileSync(process.env.FAKE_LOG, a.join(' ') + '\\n')
+  say(JSON.stringify({ web_url: 'https://gitlab.example.com/acme/billing-core', ssh_url_to_repo: process.env.FAKE_REMOTE ?? '', http_url_to_repo: process.env.FAKE_REMOTE ?? '', args: a.join(' ') }))
+}
+if (three === 'api groups/acme ') say('{"id":7}')
+if (three === 'config get git_protocol') say('ssh')
+if (a[0] === '--version') say('glab 1.99')
+if (a[0] === 'api') say('[{"path_with_namespace":"acme/legacy-billing","http_url_to_repo":"https://gitlab.example.com/acme/legacy-billing.git","ssh_url_to_repo":"git@gitlab.example.com:acme/legacy-billing.git","last_activity_at":"2026-10-01T10:00:00Z"},{"path_with_namespace":"acme/bad","http_url_to_repo":"https://user:tok@gitlab.example.com/acme/bad.git","ssh_url_to_repo":"-oProxyCommand=x","last_activity_at":"2026-10-02T10:00:00Z"}]')
+if (a[0] === 'mr') {
+  process.stdout.write('Creating merge request for ' + (a[2] ?? '') + ' into ' + (a[4] ?? '') + '\\n')
+  say('https://gitlab.example.com/acme/demo/-/merge_requests/7')
+}
+process.exit(1)
 `
-  writeFileSync(join(bin, 'glab'), glab)
-  writeFileSync(join(bin, 'gh'), gh)
-  chmodSync(join(bin, 'glab'), 0o755)
-  chmodSync(join(bin, 'gh'), 0o755)
+  const gh = `${head}
+if (a[0] === '--version') say('gh 9.9')
+if (a[0] === 'repo') say('[{"nameWithOwner":"me/old-shop","url":"https://github.com/me/old-shop","sshUrl":"git@github.com:me/old-shop.git","updatedAt":"2026-09-20T08:00:00Z"}]')
+process.exit(1)
+`
+  fakeBin(bin, 'glab', glab)
+  fakeBin(bin, 'gh', gh)
   return bin
 }
 
@@ -121,17 +131,22 @@ describe('clone addresses', () => {
     assert.equal(ok('https://git.internal.example/team/app').name, 'app')
     for (const bad of ['https://user:glpat-xyz@gitlab.com/a/b.git', 'https://oauth2@gitlab.com/a/b.git', 'ext::sh -c touch% /tmp/x', 'file:///etc/passwd', '/home/me/repo', '-uhttps://x', 'http://gitlab.com/a/b.git', 'git@gitlab.com:../../etc', 'git@gitlab.com:-x/y', 'https://gitlab.com/a/../b', 'https://gitlab.com/a/b?x=1', 'git@evil host:a/b', '', 'https://gitlab.com/a b/c'])
       assert.ok('error' in parseCloneUrl(bad), bad)
-    // a local path only with the test seam
+    // a local path only with the test seam — on Windows with its drive
     assert.equal((parseCloneUrl('/tmp/remote.git', true) as { kind: string }).kind, 'local')
+    assert.deepEqual(parseCloneUrl(String.raw`C:\Users\kim\case1\remote.git`, true, 'win32'), { url: String.raw`C:\Users\kim\case1\remote.git`, host: 'local', path: String.raw`C:\Users\kim\case1\remote.git`, name: 'remote', kind: 'local' })
+    assert.ok('error' in parseCloneUrl(String.raw`C:\Users\kim\remote.git`, false, 'win32'))
+    assert.ok('error' in parseCloneUrl(String.raw`C:\Users\kim\remote.git`, true, 'linux'))
+    assert.ok('error' in parseCloneUrl(String.raw`C:\Users\..\remote.git`, true, 'win32'))
     assert.equal(folderName('acme/my app.git'), 'my-app')
     assert.equal(folderName('acme/.hidden'), 'hidden')
   })
 
   test('the clone folder: ~ and absolute paths, never iCloud Drive; git\'s refusals become a hint', () => {
     const home = '/Users/kim'
-    assert.equal(cloneBase('~/one-repos', home), '/Users/kim/one-repos')
-    assert.equal(cloneBase('/srv/repos', home), '/srv/repos')
-    assert.ok(typeof cloneBase('one-repos', home) !== 'string')
+    // POSIX paths: pinned to Linux (worker-win.test.ts has Windows' — ~\, C:\…, quotes, OneDrive)
+    assert.equal(cloneBase('~/one-repos', home, 'linux'), '/Users/kim/one-repos')
+    assert.equal(cloneBase('/srv/repos', home, 'linux'), '/srv/repos')
+    assert.ok(typeof cloneBase('one-repos', home, 'linux') !== 'string')
     assert.match((cloneBase('~/Library/Mobile Documents/com~apple~CloudDocs/repos', home, 'darwin') as { error: string }).error, /iCloud/)
     assert.match(cloneHint('git@gitlab.com: Permission denied (publickey).\nfatal: Could not read from remote repository.'), /SSH key was refused/)
     assert.match(cloneHint("fatal: could not read Username for 'https://gitlab.com': terminal prompts disabled"), /credential helper/)
@@ -170,12 +185,15 @@ describe('clone addresses', () => {
 })
 
 describe('ZIP import: no git folder in any spelling or shape, nothing in the ZIP runs', () => {
-  /** A script outside every repository that leaves `<name>` in `dir` when something runs it. */
+  /**
+   * A script outside every repository that leaves `<name>` in `dir` when something runs it. Its path as git config takes
+   * it (slashPath: Git for Windows runs it with its own sh, which reads "\\" as an escape).
+   */
   const tripwire = (dir: string, name: string) => {
     const file = join(dir, `${name}.sh`)
-    writeFileSync(file, `#!/bin/sh\ntouch '${join(dir, name)}'\nexit 0\n`)
-    chmodSync(file, 0o755)
-    return file
+    writeFileSync(file, `#!/bin/sh\ntouch '${slashPath(join(dir, name))}'\nexit 0\n`)
+    if (!IS_WIN) chmodSync(file, 0o755)
+    return slashPath(file)
   }
   const zipFile = (files: Record<string, string>) => {
     const f = join(tempDir('zip'), 'upload.zip')
@@ -359,7 +377,7 @@ describe('ZIP import: no git folder in any spelling or shape, nothing in the ZIP
   test('a crafted ZIP: .GIT/config with core.fsmonitor, .Git/hooks, the exact .git/config and more spellings — imported without any, nothing ran', async () => {
     const trap = tempDir('trap')
     const fsmonitor = tripwire(trap, 'fsmonitor-ran')
-    const hook = `#!/bin/sh\ntouch '${join(trap, 'hook-ran')}'\n`
+    const hook = `#!/bin/sh\ntouch '${slashPath(join(trap, 'hook-ran'))}'\n`
     const config = `[core]\n\tfsmonitor = ${fsmonitor}\n\thooksPath = .Git/hooks\n[filter "x"]\n\tclean = ${fsmonitor}\n`
     const base = tempDir('clones')
     const res = await asPerson('', () => importZip(zipFile({
@@ -425,12 +443,12 @@ describe('ZIP import: no git folder in any spelling or shape, nothing in the ZIP
     mkdirSync(evilHooks)
     for (const name of ['pre-commit', 'prepare-commit-msg', 'commit-msg', 'post-commit', 'post-index-change', 'reference-transaction']) {
       for (const at of [evilHooks, join(dir, '.git', 'hooks')]) {
-        writeFileSync(join(at, name), `#!/bin/sh\ntouch '${join(trap, `${name}-ran`)}'\nexit 0\n`)
-        chmodSync(join(at, name), 0o755)
+        writeFileSync(join(at, name), `#!/bin/sh\ntouch '${slashPath(join(trap, `${name}-ran`))}'\nexit 0\n`)
+        if (!IS_WIN) chmodSync(join(at, name), 0o755)
       }
     }
     sh(dir, 'config', 'core.fsmonitor', tripwire(trap, 'fsmonitor-ran'))
-    sh(dir, 'config', 'core.hooksPath', evilHooks)
+    sh(dir, 'config', 'core.hooksPath', slashPath(evilHooks))
     sh(dir, 'config', 'filter.x.clean', tripwire(trap, 'filter-clean-ran'))
     sh(dir, 'config', 'filter.x.required', 'true')
     sh(dir, 'config', 'gpg.program', tripwire(trap, 'gpg-ran'))
@@ -438,7 +456,7 @@ describe('ZIP import: no git folder in any spelling or shape, nothing in the ZIP
     sh(dir, 'config', 'commit.gpgSign', 'true')
     const included = join(trap, 'included.gitconfig')
     writeFileSync(included, `[core]\n\tsshCommand = ${tripwire(trap, 'ssh-ran')}\n[diff]\n\texternal = ${tripwire(trap, 'diff-ran')}\n`)
-    sh(dir, 'config', 'include.path', included)
+    sh(dir, 'config', 'include.path', slashPath(included))
     const before = readFileSync(join(dir, '.git', 'config'), 'utf8')
     await assert.rejects(asPerson('', () => commitImport(dir, 'legacy.zip')), /another spelling \(\.git\)/)
     assert.deepEqual(readdirSync(trap).filter((n) => !n.endsWith('.sh') && !n.endsWith('.gitconfig')).sort(), ['evil-hooks'], 'nothing ran')
@@ -530,20 +548,20 @@ describe('ZIP import: no git folder in any spelling or shape, nothing in the ZIP
     // process; and an LFS-like filter of the person's own that turns content into a pointer
     writeFileSync(attributes, '*.ipynb filter=nbstrip diff=nbstrip merge=drv\n*.csv filter=lfsish\n')
     const pointer = join(trap, 'pointer.sh')
-    writeFileSync(pointer, `#!/bin/sh\ncat >/dev/null\ntouch '${join(trap, 'pointer-ran')}'\necho 'version https://git-lfs.github.com/spec/v1'\n`)
-    chmodSync(pointer, 0o755)
+    writeFileSync(pointer, `#!/bin/sh\ncat >/dev/null\ntouch '${slashPath(join(trap, 'pointer-ran'))}'\necho 'version https://git-lfs.github.com/spec/v1'\n`)
+    if (!IS_WIN) chmodSync(pointer, 0o755)
     const global = [
       '[user]\n\tname = Kim\n\temail = kim@example.invalid',
       '[filter "nbstrip"]\n\tclean = sh nbstripout.sh clean\n\tsmudge = sh nbstripout.sh smudge\n\trequired = true',
       '[diff "nbstrip"]\n\ttextconv = sh nbstripout.sh textconv',
       '[merge "drv"]\n\tname = notebooks\n\tdriver = sh nbstripout.sh merge %O %A %B',
       '[filter "lfsish"]\n\tprocess = sh nbstripout.sh process',
-      `[filter "lfs"]\n\tclean = ${pointer}\n\tsmudge = cat\n\trequired = true`,
-      `[core]\n\tattributesFile = ${attributes}`,
+      `[filter "lfs"]\n\tclean = ${slashPath(pointer)}\n\tsmudge = cat\n\trequired = true`,
+      `[core]\n\tattributesFile = ${slashPath(attributes)}`,
       // an external diff command of the person's (diff.external): it runs in the repository's folder too
       '[diff]\n\texternal = sh nbstripout.sh external',
     ].join('\n') + '\n'
-    const script = `touch '${join(trap, 'ran')}'-"$1"\ncat\n`
+    const script = `touch '${slashPath(join(trap, 'ran'))}'-"$1"\ncat\n`
     const notebook = '{"cells": [{"outputs": ["secret"]}]}\n'
     const data = 'BINARY\u0000DATA'.repeat(200)
     const base = tempDir('clones')
@@ -654,7 +672,7 @@ describe('the setup page: clone, projects, ZIP import, own MCP servers', () => {
     mkdirSync(created, { recursive: true })
     execFileSync('git', ['init', '--quiet', '--bare', '-b', 'main', created], { env: { ...process.env, ...GIT_ENV } })
     const glabLog = join(tempDir('glablog'), 'calls.txt')
-    worker = await spawnWorker({ bundle: presetBundle(PRESET), home, env: { PATH: `${bin}:${process.env.PATH}`, ONE_WORKER_CLONE_LOCAL: '1', FAKE_REMOTE: created, FAKE_LOG: glabLog } })
+    worker = await spawnWorker({ bundle: presetBundle(PRESET), home, env: { ...pathWith(bin), ONE_WORKER_CLONE_LOCAL: '1', FAKE_REMOTE: created, FAKE_LOG: glabLog } })
     await waitFor(() => /setup#k=([A-Za-z0-9_-]{43})/.test(worker!.stdout()), 8000, () => worker!.stderr())
     const token = /setup#k=([A-Za-z0-9_-]{43})/.exec(worker.stdout())![1]!
     const tab = await FakeTab.connect(PORT, { origin: ORIGIN })
@@ -784,10 +802,10 @@ describe('an imported repository with the person\'s global git filters (nbstripo
     writeFileSync(attributes, '*.ipynb filter=nbstripout diff=ipynb\n')
     // what `nbstripout --install --global` writes, with the ZIP's own script in the place of `python -m nbstripout`
     const global = join(tempDir('gitconfig'), 'gitconfig')
-    writeFileSync(global, `[filter "nbstripout"]\n\tclean = sh nbstripout.sh\n\tsmudge = cat\n[diff "ipynb"]\n\ttextconv = sh nbstripout.sh\n[core]\n\tattributesFile = ${attributes}\n`)
+    writeFileSync(global, `[filter "nbstripout"]\n\tclean = sh nbstripout.sh\n\tsmudge = cat\n[diff "ipynb"]\n\ttextconv = sh nbstripout.sh\n[core]\n\tattributesFile = ${slashPath(attributes)}\n`)
     const zip = (top: string) => Buffer.from(zipSync({
       [`${top}/analysis.ipynb`]: strToU8('{"cells": []}\n'),
-      [`${top}/nbstripout.sh`]: strToU8(`touch '${join(trap, top)}'\ncat\n`),
+      [`${top}/nbstripout.sh`]: strToU8(`touch '${slashPath(join(trap, top))}'\ncat\n`),
     }))
     worker = await spawnWorker({ bundle: presetBundle(PRESET), home, env: { GIT_CONFIG_GLOBAL: global } })
     await waitFor(() => /setup#k=([A-Za-z0-9_-]{43})/.test(worker!.stdout()), 8000, () => worker!.stderr())
@@ -825,7 +843,8 @@ describe('GitLab and own MCP servers', () => {
     const dir = plainRepo(join(tempDir('mr'), 'demo'), { 'README.md': '# d\n' }, 'git@gitlab.example.com:acme/demo.git')
     const repo = { path: dir, remote: 'origin', baseBranch: 'main', pr: 'gh' } as RepoConfig
     const path = process.env.PATH
-    process.env.PATH = `${fakeTools()}:${path}`
+    // the fake tools' folder first (process.env takes "Path" as PATH on Windows)
+    Object.assign(process.env, pathWith(fakeTools()))
     try {
       assert.deepEqual(await openPr(repo, dir, 'one/fix-1', 'Fix it', 'Body'), { url: 'https://gitlab.example.com/acme/demo/-/merge_requests/7', via: 'glab' })
       const link = await openPr({ ...repo, pr: 'none' }, dir, 'one/fix-1', 'Fix it', 'Body')

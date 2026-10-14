@@ -5,6 +5,7 @@
  */
 import assert from 'node:assert/strict'
 import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { after, describe, test } from 'node:test'
 import { inICloud, loadConfig, type RepoConfig } from '../src/worker/config.ts'
@@ -285,12 +286,14 @@ describe('cleanup', () => {
 
 describe('paths', () => {
   test('the scrubber replaces the worktree, the repo, the worktree folder and the home folder', () => {
+    // POSIX paths: pinned to Linux (Windows' forms — C:\…, MSYS, 8.3, any case — are in worker-win.test.ts)
     const repo = { path: '/home/me/code/site', worktreeDir: '/home/me/code/.one-worktrees/site' }
-    const s = repoScrubber(repo, '/home/me/code/.one-worktrees/site/one-x-1')
+    const s = repoScrubber(repo, '/home/me/code/.one-worktrees/site/one-x-1', { platform: 'linux' })
     assert.equal(s.text('Edit /home/me/code/.one-worktrees/site/one-x-1/src/a.ts'), 'Edit ./src/a.ts')
     assert.equal(s.text('see /home/me/code/site/README.md'), 'see <repo>/README.md')
     assert.equal(s.text('in /home/me/code/.one-worktrees/site/other'), 'in <worktrees>/other')
+    // this computer's own home folder (os.homedir(): USERPROFILE on Windows, where HOME may be unset)
     const home = new Scrubber([])
-    assert.ok(!home.text(`${process.env.HOME}/x`).includes(String(process.env.HOME)))
+    assert.ok(!home.text(join(homedir(), 'x')).includes(homedir()))
   })
 })
