@@ -1591,17 +1591,22 @@ describe('Fix3: the scrubber after a letter, cut lines, the planted-program text
 
   test('N8 — a clone\'s progress line: whole from clone.ts, scrubbed before the worker cuts it for One (never a path in halves)', async () => {
     const root = tempDir('n8')
-    // git names the missing local repository in its last line
-    const cloneHome = homeAt(root, 187, "fatal: repository '".length)
+    // git names the missing local repository on one line: "fatal: repository '…' does not exist" (macOS / Linux, its
+    // last line) · "fatal: '…' does not appear to be a git repository" (Git for Windows, lines about access rights after it)
+    const lead = process.platform === 'win32' ? "fatal: '".length : "fatal: repository '".length
+    const cloneHome = homeAt(root, 187, lead)
     const target = parseCloneUrl(join(cloneHome, 'nope.git'), true)
     assert.ok(!('error' in target), JSON.stringify(target))
     const lines: string[] = []
     await assert.rejects(cloneInto(target, tempDir('clones'), (p) => lines.push(p.line), { local: true }))
-    const last = lines.at(-1) ?? ''
+    const named = lines.find((l) => l.includes('nope.git')) ?? ''
+    assert.match(named, /nope\.git/, JSON.stringify(lines))
+    // the home's name runs across the cut — else this test would prove nothing
+    const at = named.indexOf('maximilian')
+    assert.ok(at > 0 && at < 200 && at + 'maximilian.mustermann'.length > 200, `${at}: ${named}`)
     // what One gets: the worker's intake scrubber, then the cut (worker.ts intakeScrub)
-    const shown = clip(new Scrubber([], { home: cloneHome }).text(last), 200)
+    const shown = clip(new Scrubber([], { home: cloneHome }).text(named), 200)
     assert.equal(fragment(shown), null, shown)
-    assert.match(last, /nope\.git/, JSON.stringify(lines))
     const w = new Worker({ config: { ...emptyConfig(join(tempDir('cfg'), 'worker.json')), cloneDir: tempDir('clones2') }, version: 'test', bin: 'claude', self: 'x', log: () => {} })
     const st = w.intakeScrub({ state: 'running', source: 'clone', label: 'x', line: `${'y'.repeat(190)} ${join(homedir(), 'one-repos', 'shop')} and more`, percent: null })
     assert.ok(st.line.length <= 200, `${st.line.length}`)
