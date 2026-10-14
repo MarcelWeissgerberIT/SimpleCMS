@@ -1,22 +1,28 @@
 /**
  * The pipeline editor: the stages of the Coding database (= the options of its Stage select) — name, kind,
  * whether the worker takes tasks there by itself, Claude Code's permission mode, turns and model (a chip in the
- * stage's row when set), the git action, the stage that follows, the stage's instructions; add, reorder, remove. A
- * locked database shows them read-only. Saved with savePipeline (options + Database.pipeline together).
+ * stage's row when set), the git action, the stage that follows, the stage's instructions; a gate's "Always stop here"
+ * (hold — Approvals never skip it; a chip in its row); add, reorder, remove. A git stage the connected worker cannot
+ * fully run for this project's repos — pushing off, or pull / merge requests off (WorkerRepo.push / pr, worker 1.10.0)
+ * — carries a warning (it never blocks Save). A locked database shows them read-only. Saved with savePipeline (options +
+ * Database.pipeline together).
  */
 import { useMemo, useState } from 'react'
 import { ArrowDown, ArrowUp, ChevronRight, Plus, Trash2 } from 'lucide-react'
 import { Modal } from '../../ui/Modal'
-import { Switch } from '../../ui/controls'
+import { Led, Switch } from '../../ui/controls'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import type { ColorName, PipelineStage, SelectOption } from '../../store/types'
 import { newId } from '../../lib/ids'
 import { useT } from '../../i18n'
 import { GIT_ACTIONS, PERMISSION_MODES, STAGE_KINDS, claudeRuns, cleanModel, type StageKind } from './protocol'
-import { DOC_OUTPUTS, KIND_TEMPLATES, kindOfDb, readPipeline, savePipeline, templatePipeline, type PipelineTemplate } from './schema'
+import { DOC_OUTPUTS, KIND_TEMPLATES, codingProps, kindOfDb, readPipeline, savePipeline, templatePipeline, type PipelineTemplate } from './schema'
 import { keepTrust } from './trust'
 import { MODEL_CHOICES, allTasks, modelLabel } from './tasks'
+import { useCoding } from './state'
+import { gitStageWarnings } from './ship'
+import { ChangeReposButton } from './SetupCard'
 
 interface Draft {
   option: SelectOption
@@ -48,6 +54,12 @@ export function PipelineEditor({ dbId, locked, onClose }: { dbId: string; locked
   const [open, setOpen] = useState<string | null>(null)
   const ro = locked
   const kind = kindOfDb(dbId) ?? 'coding'
+  // the connected worker's repos this project's tasks use (its Repo options): their push / request switches
+  const workerRepos = useCoding((s) => s.worker?.repos)
+  const repos = useMemo(() => {
+    const names = new Set((db ? (db.properties.find((p) => p.id === codingProps(db).repo)?.options ?? []) : []).map((o) => o.name))
+    return (workerRepos ?? []).filter((r) => names.has(r.name))
+  }, [db, workerRepos])
 
   const patch = (i: number, p: Partial<PipelineStage>, name?: string) =>
     setRows((rs) => rs.map((r, j) => (j === i ? { ...r, option: name === undefined ? r.option : { ...r.option, name }, stage: { ...r.stage, ...p } } : r)))
@@ -158,12 +170,24 @@ export function PipelineEditor({ dbId, locked, onClose }: { dbId: string; locked
           const s = r.stage
           const expanded = open === s.id
           const claude = s.kind === 'plan' || s.kind === 'implement' || s.kind === 'doc'
+          const w = s.kind === 'git' ? gitStageWarnings(s.gitAction ?? 'pr', repos) : null
+          const warn = !!w && (w.pushOff.length > 0 || w.prOff.length > 0)
           return (
             <li key={s.id} className="cpe-row" data-kind={s.kind}>
               <div className="cpe-main">
                 <span className="cpe-n label">ST-{String(i + 1).padStart(2, '0')}</span>
                 <span className="cpe-namecell">
                   <input className="input cpe-name" value={r.option.name} onChange={(e) => patch(i, {}, e.target.value)} disabled={ro} aria-label={t('features.coding.pipeline.name')} maxLength={60} />
+                  {s.kind === 'gate' && s.hold && (
+                    <span className="label cpe-chip" data-testid="coding-pipeline-hold-chip">
+                      {t('features.coding.pipeline.holdChip')}
+                    </span>
+                  )}
+                  {warn && (
+                    <span className="label cpe-chip" data-warn="" title={t('features.coding.pipeline.warn.chip')} data-testid="coding-pipeline-warn-chip">
+                      <Led state="on" /> {t('features.coding.pipeline.warn.chip')}
+                    </span>
+                  )}
                   {claude && s.model != null && (s.model.trim() || !expanded) && (
                     // an own name not typed yet shows in the row too once the stage is closed — Save waits for it
                     <span className="label cpe-chip" data-bad={modelProblem(s.model) ? '' : undefined} title={s.model.trim() ? t('features.coding.pipeline.model.chip', { model: s.model.trim() }) : t('features.coding.pipeline.model.empty')} data-testid="coding-pipeline-chip">
@@ -173,7 +197,7 @@ export function PipelineEditor({ dbId, locked, onClose }: { dbId: string; locked
                 </span>
                 <select className="input cpe-kind" value={s.kind} disabled={ro} aria-label={t('features.coding.pipeline.kind')} onChange={(e) => {
                   const kind = e.target.value as StageKind
-                  patch(i, { kind, auto: kind === 'gate' || kind === 'done' || kind === 'import' ? false : s.auto, ...(kind === 'git' && !s.gitAction ? { gitAction: 'pr' as const } : {}), ...(kind !== 'doc' ? { output: undefined } : {}), ...(!claudeRuns(kind) ? { model: undefined } : {}) })
+                  patch(i, { kind, auto: kind === 'gate' || kind === 'done' || kind === 'import' ? false : s.auto, ...(kind === 'git' && !s.gitAction ? { gitAction: 'pr' as const } : {}), ...(kind !== 'doc' ? { output: undefined } : {}), ...(!claudeRuns(kind) ? { model: undefined } : {}), ...(kind !== 'gate' ? { hold: undefined } : {}) })
                 }}>
                   {STAGE_KINDS.map((k) => (
                     <option key={k} value={k}>
@@ -203,6 +227,27 @@ export function PipelineEditor({ dbId, locked, onClose }: { dbId: string; locked
               {expanded && (
                 <div className="cpe-detail">
                   <p className="cpe-kindhint">{t(`features.coding.kind.${s.kind}.hint`)}</p>
+                  {s.kind === 'gate' && (
+                    <div className="cpe-hold" data-testid="coding-pipeline-hold">
+                      <Switch size="sm" seed={`${s.id}-hold`} checked={!!s.hold} onChange={(v) => patch(i, { hold: v ? true : undefined })} disabled={ro} label={t('features.coding.pipeline.hold')} describedBy={`cpe-hold-${s.id}`} />
+                      <span className="label" aria-hidden>
+                        {t('features.coding.pipeline.hold')}
+                      </span>
+                      <p className="cpe-hold__hint" id={`cpe-hold-${s.id}`}>
+                        {t('features.coding.pipeline.holdHint')}
+                      </p>
+                    </div>
+                  )}
+                  {w && warn && (
+                    <div className="cpe-warn" role="note" data-testid="coding-pipeline-warn">
+                      <Led state="on" />
+                      <div className="cpe-warn__text">
+                        {w.pushOff.length > 0 && <p>{t('features.coding.pipeline.warn.pushOff', { repos: w.pushOff.join(', ') })}</p>}
+                        {w.prOff.length > 0 && <p>{t(w.prFails ? 'features.coding.pipeline.warn.prOffFails' : 'features.coding.pipeline.warn.prOff', { repos: w.prOff.join(', ') })}</p>}
+                        <ChangeReposButton className="btn btn--sm btn--ghost" />
+                      </div>
+                    </div>
+                  )}
                   {claude && (
                     <div className="cpe-grid">
                       {s.kind === 'doc' ? (

@@ -71,7 +71,7 @@ The worker runs natively on Windows 10 and 11 from version **1.9.0** — WSL2 wo
 - **Port refused?** Hyper-V, WSL or Docker can reserve a range of ports. The worker's terminal says so — pick another port in **Settings → Coding worker** before you download.
 
 ## Approvals — or just do it
-In the coding panel, **Approvals** sets where the task waits for you: **Approve the plan and the review** (default), **Review only — the plan runs on**, or **None — just do it**: plan, work, tests and shipping then run through without a stop; tests that fail twice still stop at the review. The choice is per device and becomes the default for new tasks. A task already waiting at an approval you just switched off goes on at once.
+In the coding panel, **Approvals** sets where the task waits for you: **Approve the plan and the review** (default), **Review only — the plan runs on**, or **None — just do it**: plan, work, tests and shipping then run through without a stop; tests that fail twice still stop at the review. The choice is per task, on this device. **Use for new tasks** makes it this device's default for tasks you create here — picking for one task never changes another. In **Pipeline**, a gate can be set to **Always stop here**: Approvals *None* runs past every other gate but waits there (new *Review & merge* pipelines set it for *Approve review & merge*). A task already waiting at an approval you just switched off goes on at once.
 
 The **Log** tab shows every step: *Fetching origin…*, the new branch, *Starting Claude Code…*, every tool Claude Code uses — and, while it works quietly, *still working* once a minute. When the worker can't fetch the remote (no network, or git would need a password or an SSH key passphrase), the log says so within 60 seconds and the task goes on with what your computer has. For push and pull requests git needs an SSH agent or a credential helper — the worker can't type anything.
 
@@ -86,7 +86,7 @@ For one task, **Model** in the coding panel (next to Approvals) overrides every 
 3. **Approve**, or **Rework…** with instructions: it goes back to Plan with your note.
 4. **Implement** — Claude Code changes the code in its own git worktree; **Test** runs your test command. If the tests fail, Implement gets one more try with their output.
 5. **Review** — the **Diff** and **Tests** tabs show what changed. Approve, or send it back.
-6. **Ship** — commit, push, pull request (with the GitHub CLI) or a compare link. **Done**.
+6. **Ship** — commit, push, pull request (with the GitHub CLI) or a compare link — noted in the page with links (**What One records**). **Done**.
 
 Each task works on its own branch (`one/<title>-<id>`) in its own worktree — your main checkout stays as it is. Before a task runs, the coding panel lets you pick the **Repo** (the repos your worker announces) and the **Branch**: *New branch (automatic)* or an existing branch of that repo on your computer to continue on (the base branch is never offered). You can also type one into the **Branch** field.
 
@@ -101,10 +101,21 @@ Each task works on its own branch (`one/<title>-<id>`) in its own worktree — y
 
 **Repos in iCloud Drive** (e.g. in Documents with "Desktop & Documents Folders" on): git waits whenever a file is only in the cloud, so steps can take minutes — the log says so. Faster: keep the folder downloaded, or clone it again with **Clone from GitLab / GitHub…** on the worker's setup page (into `~/one-repos`, which is not synced) and tick that one. The worker starts at once either way and names a repository whose git is slow in its log. The worker's own working copies never go into iCloud.
 
+## What One records
+When a git stage or a key in the **Git** tab commits, pushes or opens a merge / pull request, the task page gets one grey note — for example **Ship · 14 Oct 14:32** with the line *Commit a1b2c3d · Branch one/fix-login-ab12cd · MR !42 · pushed to origin/one/fix-login-ab12cd*.
+
+- The commit, the branch and the request are links to your GitLab / GitHub — once they are on the remote. A commit whose push or request then failed is noted too (*push failed*, *MR could not be opened*): you see what is only on your computer.
+- **PR / commit** (the task's field) holds the merge / pull request — without one, the link to the pushed commit. A request link is never replaced by a commit link.
+- Every commit message and request description ends with `One-Task: <task id>`: search for it on GitLab / GitHub to find what a task shipped.
+- The note names the repository's web address (host and project) — never a folder of your computer. The full git state and the log stay on this device (**Git** and **Log** tabs).
+- A self-hosted GitLab or GitHub Enterprise whose address does not say *gitlab* / *github*: pick its **Host type** on the worker's setup page — links and merge requests then work there too. An open merge request is found again instead of a new-request link.
+- **Push rejected?** The branch on the remote has commits this one does not have. **Update from base** merges them in first, then **Retry**. The worker never force-pushes on its own.
+- A worker older than 1.10.0 keeps writing the stage's summary instead — **Download again** for the note with links.
+
 ## From the AI terminal
 Ask the [AI terminal](help:agent) (<kbd>Mod+J</kbd>) *“what waits for me in the pipelines?”*, *“create a task to fix the login form in website and start it”* or *“approve the plan of Fix login”*: Claude reads the pipelines and **proposes** tasks and actions, you apply them in its review. The card of a new task shows its whole page as Claude Code will read it; an approval shows the plan. What starts the worker (**STARTS WORKER**) is applied on its own, never with *Apply all*; a task waiting for **Confirm on this device** is confirmed only here in its panel. `/pipelines` lists the open tasks.
 
 ## Safety
-The worker touches only the repos you ticked; One can send it task text and fixed git actions — never a command, and it can never tick a repo itself. A downloaded worker only accepts this browser and this workspace; a cloud worker's messages are sealed between this browser and the worker — the server only passes them on. Claude Code keeps its permission rules, and task text goes to it as data, not as instructions. A cost limit per task is set on the worker's page, one per day in `worker.json`. In a team workspace your worker only takes tasks you wrote or confirmed on this device (**Confirm on this device**) — a stage (its model too), repo or branch changed on another device asks again. A task one of your custom agents wrote waits for the same confirmation, also in your local workspace. The AI terminal never confirms a task: its actions are proposals you apply, those that start the worker one by one, and they are refused for a task that waits for Confirm.
+The worker touches only the repos you ticked; One can send it task text and fixed git actions — never a command, and it can never tick a repo itself. A downloaded worker only accepts this browser and this workspace; a cloud worker's messages are sealed between this browser and the worker — the server only passes them on. Claude Code keeps its permission rules, and task text goes to it as data, not as instructions. A cost limit per task is set on the worker's page, one per day in `worker.json`. For the note, One learns the repository's web address (host and project) — never a path. In a team workspace your worker only takes tasks you wrote or confirmed on this device (**Confirm on this device**) — a stage (its model too), repo or branch changed on another device asks again. A task one of your custom agents wrote waits for the same confirmation, also in your local workspace. The AI terminal never confirms a task: its actions are proposals you apply, those that start the worker one by one, and they are refused for a task that waits for Confirm.
 
 > Tip: the full reference — config keys, protocol, troubleshooting — is `docs/CODING.md` in the repository.

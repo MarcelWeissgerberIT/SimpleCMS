@@ -152,7 +152,7 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
         {pipeline.map((s) => {
           const pos = !stage ? 'next' : s.index < stage.index ? 'done' : s.id === stage.id ? 'now' : 'next'
           return (
-            <li key={s.id} className="ctk-stop" data-pos={pos} data-kind={s.kind} aria-current={pos === 'now' ? 'step' : undefined} title={s.auto ? t('features.coding.panel.auto') : undefined}>
+            <li key={s.id} className="ctk-stop" data-pos={pos} data-kind={s.kind} data-hold={s.hold ? '' : undefined} aria-current={pos === 'now' ? 'step' : undefined} title={s.hold ? t('features.coding.pipeline.holdChip') : s.auto ? t('features.coding.panel.auto') : undefined}>
               <span className="ctk-stop__tick" aria-hidden />
               <span className="ctk-stop__name">{s.name}</span>
             </li>
@@ -174,7 +174,7 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
         {setup && <TaskSetup taskId={pageId} repo={repo} branch={branch} described={taskHasText(task)} kind={kind} />}
         {canAct && stage?.kind !== 'done' && (
           <div className="ctk-picks">
-            <ApprovalsPick taskId={pageId} kind={kind} />
+            <ApprovalsPick taskId={pageId} kind={kind} pipeline={pipeline} />
             <ModelPick taskId={pageId} pipeline={pipeline} />
           </div>
         )}

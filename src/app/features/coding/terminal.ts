@@ -1024,6 +1024,8 @@ export interface TaskVersionView {
     next: string | null
     output: NonNullable<PipelineStage['output']> | null
     model?: string
+    /** a gate's "Always stop here" (only when set, like the model) */
+    hold?: true
   }>
   /** the pages it links that go along to the worker: title + the text the worker reads */
   refs: Array<{ id: ID; title: string; markdown: string }>
@@ -1063,6 +1065,7 @@ export async function taskVersionView(taskId: ID): Promise<TaskVersionView | nul
       next: st.next ? (pipeline.find((x) => x.id === st.next)?.name ?? st.next) : null,
       output: st.output ?? null,
       ...(st.model ? { model: st.model } : {}),
+      ...(st.hold ? { hold: true as const } : {}),
     })),
     refs: taskRefs(taskId).map((r) => ({ id: r.id, title: r.title, markdown: r.markdown })),
   }

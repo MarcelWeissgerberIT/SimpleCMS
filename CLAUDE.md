@@ -607,8 +607,12 @@ the public APIs stable — other areas are built against them in parallel.
   The worker announces each ticked repo's local branch NAMES (`WorkerRepo.branches`, newest first, ≤ 100); the task
   panel's setup strip (coding/TaskSetup.tsx) picks Repo + Branch before a run (default "new branch", never the base
   branch) and offers "Insert outline" on an empty task page (origin 'template').
-  Approvals per task and device (`TaskLocal.approvals` 'all' | 'review' | 'none', default localStorage
-  `one.coding.approvals`): finishStage passes skipped gates (logged), failing tests still stop at the review gate. Worker
+  Approvals per task and device (`TaskLocal.approvals` 'all' | 'review' | 'none'; a new task gets this device's default —
+  localStorage `one.coding.approvals`, written ONLY by `setDefaultApprovals` ("Use for new tasks"), never by a task's pick;
+  createTask stamps it): finishStage passes skipped gates (logged), failing tests still stop at the review gate; a gate
+  with `PipelineStage.hold` ("Always stop here"; sanitizeStage keeps it on gates only; joins the version only when set,
+  like a stage's model) is never skipped (`skipsGate`) — the Review & merge template's approveMerge has it in NEW
+  pipelines (stored ones are never changed). Worker
   git runs without a terminal (never waits for a password); a failed / slow (60 s) fetch is logged, not fatal.
   A repo in iCloud Drive (config.ts `inICloud`) is warned about in the log and its worktrees default to
   `~/.one-worktrees/<name>`; `git worktree add` (≤ 10 min, a line per 30 s) cleans up its folder + new branch on failure.
@@ -671,6 +675,20 @@ the public APIs stable — other areas are built against them in parallel.
   `claude.model`; payload `stage.model` = task pick ?? stage ?? null (`modelFor`); a stage with a model needs capability
   'model'; worker `--model` = One's > repo claude.model > none, one argv entry. A stage's model joins the task version
   only when set (old hashes stay valid). Pickers use `MODEL_CHOICES` / `modelLabel()`.
+  Ship log (worker 1.10.0, `can` 'ship'): git stages (`StageOutcome.ship`, also a failed outcome after its commit) and
+  the git keys (`GitResult.ship`; `GitResult.error` = key 'pr' whose request failed after the push — it resolves, never
+  throws) return a `ShipRecord` (protocol.ts: action, from, at, branch, commit, head, pushed, pushOff, request { url, how },
+  `web` = the repo's web address — scheme + host + project path, `cleanWeb` on both sides, never credentials or a local
+  path; from a request's own address when gh / glab gave one —, failed step); One checks it again (coding/ship.ts
+  `cleanShip`) and writes ONE grey callout per record (`shipNote`, "<stage | Git (by hand)> · <date>" — links only to
+  what is on the remote) inside keepTrust: the stage run's writer in finishStage's aiWrite, `you~ui` for a key; PR /
+  Commit = `prFieldNext` (the request's address, else the pushed commit's link — never over a request link); an older
+  worker keeps the summary note. Commit messages and request bodies end with `One-Task: <task id>` (run.ts
+  `withTaskTrailer` / `requestBody`, text only — never `git interpret-trailers` / `--trailer`: `trailer.*.cmd` runs
+  commands). worker.json `forge` per repo ('auto' | 'github' | 'gitlab'; the setup page's "Host type") decides links and
+  gh / glab; GitLab finds an open MR first (`requestOf`). A rejected push logs `pushRejected`; Update from base merges
+  `<remote>/<branch>` in first; never a force in a stage. `WorkerRepo.push` / `pr` announce worker.json's flags (the
+  pipeline editor warns, `gitStageWarnings`; older workers: none).
   Pipelines (docs/CODING.md § Pipelines): `Database.system` 'coding' | 'spec' (Business analysis) | 'qa', each its own
   board (#/coding, #/coding/spec, #/coding/qa), each usable alone; find them only with `pipelineDbId(kind)` /
   `kindOfDb()`; "Then" (`followUps` multi-select) spawns follow-ups when a task is done (`spawnFollowUp`). Stage kind

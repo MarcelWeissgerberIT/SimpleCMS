@@ -727,7 +727,8 @@ test('Approvals: "review only" runs past the plan gate on its own; switched to "
   await expect(state(page)).toContainText('Done', { timeout: 30_000 })
   await page.getByTestId('coding-tab-log').click()
   await expect(page.getByTestId('coding-log')).toContainText('No approval needed: on past “Review”.')
-  expect(await page.evaluate(() => localStorage.getItem('one.coding.approvals'))).toBe('none')
+  // a task's pick never changes this device's default for new tasks (only "Use for new tasks" does)
+  expect(await page.evaluate(() => localStorage.getItem('one.coding.approvals'))).toBe('review')
 })
 
 test('while a stage runs: what the worker did last (ticking), Step x/y, the estimate, the changed files; a notification while One is in the background; the worker\'s lines in German', async ({ page }) => {

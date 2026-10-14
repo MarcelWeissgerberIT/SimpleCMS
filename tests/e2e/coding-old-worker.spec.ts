@@ -13,7 +13,8 @@
  */
 import type { Page } from '@playwright/test'
 import { test, expect, openApp, wsEval } from './fixtures'
-import { WORKER_CAN, WORKER_SAFE, WORKER_SUBPROTOCOL, workerUnsafe, type WorkerInfo } from '../../src/app/features/coding/protocol'
+import { WORKER_CAN, WORKER_SAFE, workerUnsafe } from '../../src/app/features/coding/protocol'
+import { startFakeWorker } from './helpers/fakeWorker'
 
 const PORT = 47391
 const LINUX_UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36'
@@ -24,96 +25,6 @@ test.use({ userAgent: LINUX_UA })
 
 // one fake worker on a fixed port
 test.describe.configure({ mode: 'serial' })
-
-type Json = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
-
-interface Asked {
-  /** what the worker said it runs (undefined: it sent no `can`) */
-  can: string[] | undefined
-  /** the tab's answer (undefined while it is open) */
-  answer?: Json
-}
-
-interface FakeWorker {
-  /** null: an older worker (no `can`); a list: what a newer one names (with `docs: true`) */
-  can: string[] | null
-  /** `docs: true` without a `can`: the worker the Business analysis / QA pipelines came with */
-  docs: boolean
-  hellos: Json[]
-  asked: Asked[]
-  /** `next` requests the tab has not answered yet */
-  open: () => number
-  /** the tasks the tab handed out */
-  handed: () => Json[]
-  close: () => Promise<void>
-}
-
-/** Like an older one-worker: the welcome of its time (no setup page, no pairing, no branches), `next` on welcome, nudge and every 2 s. */
-async function startFakeWorker(port: number, info: WorkerInfo): Promise<FakeWorker> {
-  const { WebSocketServer } = (await import('../../mcp/node_modules/ws/wrapper.mjs')) as typeof import('../../mcp/node_modules/@types/ws/index.d.ts')
-  const wss = new WebSocketServer({ host: '127.0.0.1', port, handleProtocols: (p: Set<string>) => (p.has(WORKER_SUBPROTOCOL) ? WORKER_SUBPROTOCOL : false) })
-  await new Promise<void>((resolve, reject) => {
-    wss.once('listening', () => resolve())
-    wss.once('error', reject)
-  })
-  let tab: { send: (data: string) => void; readyState: number } | null = null
-  let seq = 0
-  let again = false
-  const pending = new Map<string, Asked>()
-  const fake: FakeWorker = {
-    can: null,
-    docs: false,
-    hellos: [],
-    asked: [],
-    open: () => pending.size,
-    handed: () => fake.asked.flatMap((a) => (a.answer?.result?.task ? [a.answer.result.task as Json] : [])),
-    close: () => {
-      clearInterval(poll)
-      for (const c of wss.clients) c.terminate()
-      return new Promise<void>((resolve) => wss.close(() => resolve()))
-    },
-  }
-  // one `next` at a time (again right after, when asked meanwhile) — like the real worker
-  const ask = () => {
-    // parallel 1: busy with a handed-out task, it asks for nothing more
-    if (!tab || tab.readyState !== 1 || fake.handed().length >= info.parallel) return
-    if (pending.size) {
-      again = true
-      return
-    }
-    again = false
-    const id = `n${++seq}`
-    const can = fake.can ? [...fake.can] : undefined
-    const entry: Asked = { can }
-    pending.set(id, entry)
-    fake.asked.push(entry)
-    tab.send(JSON.stringify({ type: 'req', id, op: 'next', repos: info.repos.map((r) => r.name), worker: info.name, ...(can || fake.docs ? { docs: true } : {}), ...(can ? { can } : {}) }))
-  }
-  const poll = setInterval(ask, 2000)
-  wss.on('connection', (ws) => {
-    ws.on('message', (d) => {
-      const m = JSON.parse(String(d)) as Json
-      if (m.type === 'hello') {
-        fake.hellos.push(m)
-        tab = ws
-        ws.send(JSON.stringify({ type: 'welcome', ...info }))
-        return ask()
-      }
-      if (m.type === 'nudge') return ask()
-      if (m.type === 'res') {
-        const entry = pending.get(String(m.id))
-        if (!entry) return
-        pending.delete(String(m.id))
-        entry.answer = m
-        // a task: it runs here now (what One shows as "Running")
-        const task = m.result?.task as Json | null | undefined
-        if (task) ws.send(JSON.stringify({ type: 'status', busy: [{ taskId: task.id, repo: task.repo, stageId: task.stage.id, since: Date.now() }], spentToday: 0 }))
-        if (again) ask()
-      }
-    })
-  })
-  return fake
-}
 
 /** The connected worker as if its welcome had named another version (the coding store through the Preflight seam, ?e2e). */
 async function nameVersion(page: Page, version: string) {
@@ -323,7 +234,7 @@ test('a worker that does not pass a model on (`can` without "model") never gets 
     await expect(page.getByTestId('coding-worker-outdated')).toHaveCount(0)
 
     // the newer worker names "model": a stage with one is handed out, the model in the payload; nothing outdated
-    fake.can = ['analyze', 'git:comment', 'git:merge', 'doc', 'model', 'mcp-list']
+    fake.can = [...WORKER_CAN]
     await setAnalysisModel(page, 'opus')
     const second = await addAnalysisTask(page, 'Supplier onboarding')
     await expect.poll(() => fake.handed().length, { timeout: 15_000 }).toBe(2)
@@ -472,7 +383,7 @@ test('the task panel names Claude Code\'s own MCP servers for the task; a task t
   errors.allow(/WebSocket connection to 'ws:\/\/127\.0\.0\.1/)
   // a current worker: the repo has the person's own "kb" server; tasks without a repository have none
   const fake = await startFakeWorker(PORT, { worker: '1.7.0', name: 'mcp-box', repos: [{ name: 'website', baseBranch: 'main', mcp: ['kb'] }], parallel: 1, busy: [], spentToday: 0, dayLimit: null, claude: { found: true, version: '2.0.0' }, setup: true, mcp: [] })
-  fake.can = ['analyze', 'git:comment', 'git:merge', 'doc', 'model', 'mcp-list']
+  fake.can = [...WORKER_CAN]
   try {
     await openApp(page)
     // One's own MCP servers (for One's Claude): "tracker" (codeword "kb") and "wiki"
@@ -542,7 +453,7 @@ test('Settings → MCP servers: the overview table — codeword, One’s Claude,
   errors.allow(/WebSocket connection to 'ws:\/\/127\.0\.0\.1/)
   // Claude Code: the repo "website" has "KB" (the codeword of One's "tracker", any case), tasks without a repo have "notes"
   const fake = await startFakeWorker(PORT, { worker: '1.7.1', name: 'mcp-box', repos: [{ name: 'website', baseBranch: 'main', mcp: ['KB'] }], parallel: 1, busy: [], spentToday: 0, dayLimit: null, claude: { found: true, version: '2.0.0' }, setup: true, mcp: ['notes'] })
-  fake.can = ['analyze', 'git:comment', 'git:merge', 'doc', 'model', 'mcp-list']
+  fake.can = [...WORKER_CAN]
   try {
     await openApp(page)
     await wsEval(page, (s) => {

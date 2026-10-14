@@ -89,7 +89,7 @@ function MemoryBody({ item }: { item: QueueItem }) {
   )
 }
 
-/** One stage of a version as hashed: kind · auto · mode · turns · git action · next · output · model (what is set). */
+/** One stage of a version as hashed: kind · auto · mode · turns · git action · next · output · model · hold (what is set). */
 function stageLine(t: (k: string, v?: Record<string, string | number>) => string, s: TaskVersionView['stages'][number]): string {
   const parts = [t(`features.coding.kind.${s.kind}`)]
   if (s.auto) parts.push(t('features.coding.pipeline.autoShort'))
@@ -99,6 +99,7 @@ function stageLine(t: (k: string, v?: Record<string, string | number>) => string
   if (s.next) parts.push(`${t('features.coding.pipeline.next')}: ${s.next}`)
   if (s.output) parts.push(`${t('features.coding.pipeline.output')}: ${t(`features.coding.pipeline.output.${s.output}`)}`)
   if (s.model) parts.push(s.model)
+  if (s.hold) parts.push(t('features.coding.pipeline.holdChip'))
   return parts.join(' · ')
 }
 

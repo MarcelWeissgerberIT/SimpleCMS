@@ -155,3 +155,49 @@ export async function startCodingWorker(repo: CodingRepo, workspace: string, por
       }),
   }
 }
+
+/** The merge request the fake glab opens (a fictional host — never contacted). */
+export const FAKE_MR = 'https://gitlab.example.test/nordlicht/website/-/merge_requests/42'
+
+/**
+ * The repo's remote as a GitLab project: the fetch URL `git@gitlab.example.test:nordlicht/website.git` (never contacted —
+ * start the worker with GIT_SSH_COMMAND=false), pushes still going to the local bare repo.
+ */
+export function asGitLab(repo: CodingRepo): void {
+  repo.git(repo.path, 'remote', 'set-url', 'origin', 'git@gitlab.example.test:nordlicht/website.git')
+  repo.git(repo.path, 'remote', 'set-url', '--push', 'origin', repo.remote)
+}
+
+/**
+ * A fake glab in a folder of its own (put it first in PATH): `--version`; `mr view <branch>` exits 1 until `mr create`
+ * ran, then answers the open merge request as JSON; `mr create` prints its address; `mr note` / `mr merge` succeed.
+ * Every call is logged with its arguments.
+ */
+export function fakeGlab(repo: CodingRepo, mr = FAKE_MR): { bin: string; calls: () => string[][] } {
+  const bin = join(repo.root, `glab-${Date.now()}`)
+  mkdirSync(bin)
+  const state = join(bin, 'made.json')
+  const log = join(bin, 'calls.jsonl')
+  writeFileSync(
+    join(bin, 'glab.mjs'),
+    `import { appendFileSync, existsSync, writeFileSync } from 'node:fs'
+const a = process.argv.slice(2)
+appendFileSync(${JSON.stringify(log)}, JSON.stringify(a) + '\\n')
+const say = (s) => { process.stdout.write(s + '\\n'); process.exit(0) }
+const two = a[0] + ' ' + (a[1] ?? '')
+if (a[0] === '--version') say('glab 1.99')
+if (two === 'mr view') {
+  if (existsSync(${JSON.stringify(state)})) say(JSON.stringify({ iid: 42, state: 'opened', web_url: ${JSON.stringify(mr)} }))
+  process.stderr.write('no open merge request available\\n')
+  process.exit(1)
+}
+if (two === 'mr create') { writeFileSync(${JSON.stringify(state)}, '1'); say(${JSON.stringify(mr)}) }
+if (two === 'mr note') process.exit(0)
+if (two === 'mr merge') say('Merged!')
+process.exit(1)
+`,
+  )
+  writeFileSync(join(bin, 'glab'), `#!/bin/sh\nexec '${process.execPath}' '${join(bin, 'glab.mjs')}' "$@"\n`)
+  chmodSync(join(bin, 'glab'), 0o755)
+  return { bin, calls: () => (existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n').filter(Boolean).map((l) => JSON.parse(l) as string[]) : []) }
+}

@@ -684,6 +684,11 @@ export interface PipelineStage {
    * its own on a device (TaskLocal.model). Sanitized in readPipeline, written with savePipeline.
    */
   model?: string | null
+  /**
+   * gates only: "Always stop here" — Approvals never skip this gate ("None — just do it" waits here too). Absent = no.
+   * Part of a task's version only when set (features/coding/trust.ts). Sanitized in readPipeline, written with savePipeline.
+   */
+  hold?: boolean
 }
 
 /**

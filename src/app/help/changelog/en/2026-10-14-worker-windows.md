@@ -1,7 +1,7 @@
 ---
 id: 2026-10-14-worker-windows
 date: 2026-10-14
-order: 1
+order: 3
 title: Coding worker 1.9.0 — native on Windows
 summary: The coding worker runs directly on Windows 10 and 11 — start it from PowerShell or the Command Prompt. On Windows, use 1.9.0 or newer.
 image: assets/shots/changelog/worker-windows.webp

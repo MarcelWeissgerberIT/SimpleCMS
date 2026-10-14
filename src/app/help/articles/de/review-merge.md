@@ -11,7 +11,7 @@ Die Vorlage **Review & Merge** bringt eine Coding-Aufgabe bis zum Ende: Nach **A
 
 ## Die Stufen nach „Ausliefern“
 1. **KI-Review** – eine Dokument-Stufe mit dem Ergebnis *Review*. Sie läuft im Worktree der Aufgabe und bekommt den ganzen Diff des Branches gegenüber der Basis: Korrektheit, Sicherheit, Fehlerbehandlung, Tests, Lesbarkeit. Das Review ist ein Abschnitt der Seite: **Freigeben** oder **Änderungen nötig**, dann Befunde mit Datei:Zeile, Schwere und Korrektur.
-2. **Review & Merge freigeben** – das Tor. Noch ist nichts gepostet oder gemergt. Nicht zufrieden? **Nacharbeit…** schickt eine Notiz an das Review; um den Code zu ändern, schieb die Aufgabe zurück nach **Umsetzen**.
+2. **Review & Merge freigeben** – das Tor. Noch ist nichts gepostet oder gemergt. Nicht zufrieden? **Nacharbeit…** schickt eine Notiz an das Review; um den Code zu ändern, schieb die Aufgabe zurück nach **Umsetzen**. In neuen Pipelines aus dieser Vorlage ist sie auf **Immer hier anhalten** gestellt – Freigaben *Keine* läuft nie an ihr vorbei.
 3. **Review posten** – das Review wird ein Kommentar am Merge Request (`glab mr note` / `gh pr comment`), unter deinem Namen.
 4. **Mergen** – `glab mr merge` / `gh pr merge` (Merge-Commit; Squash oder Rebase, wenn das Repository nur das erlaubt). Was nicht gepusht ist, wird nicht gemergt: Ungespeicherte oder ungepushte Arbeit hält die Stufe an. Der Branch bleibt – **Aufräumen** entfernt ihn danach.
 

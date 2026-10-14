@@ -66,6 +66,17 @@ export const LOG_CODES = new Set([
   'commandRefused',
   // a Claude Code stage that does not start: a program a lookup by name could take at the top of its folder (Windows)
   'plantedProgram',
+  // worker 1.10.0: the ship log — the merge / pull request (opened · already open · a link to create it · no host the
+  // worker knows), pushing off for the repo, a push the remote refused (non-fast-forward), a force push from the Git
+  // key, the remote task branch merged in by Update from base
+  'requestOpened',
+  'requestExisting',
+  'requestLink',
+  'requestNone',
+  'pushOff',
+  'pushRejected',
+  'forcePushed',
+  'remoteMerged',
 ])
 
 const CODE = /^[a-zA-Z][a-zA-Z.]{0,40}$/

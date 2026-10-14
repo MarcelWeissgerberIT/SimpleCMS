@@ -1,7 +1,7 @@
 ---
 id: 2026-10-14-worker-windows
 date: 2026-10-14
-order: 1
+order: 3
 title: Coding-Worker 1.9.0 – direkt unter Windows
 summary: Der Coding-Worker läuft direkt unter Windows 10 und 11 – starte ihn aus PowerShell oder der Eingabeaufforderung. Unter Windows Version 1.9.0 oder neuer nehmen.
 image: assets/shots/changelog/worker-windows.webp

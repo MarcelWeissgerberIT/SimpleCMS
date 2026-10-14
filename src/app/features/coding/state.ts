@@ -17,6 +17,21 @@ import { PAIR_SECRET, WORKER_DEFAULT_PORT, WORKSPACE_ID, type BusyTask, type Int
 
 export const CODING_STORAGE_KEY = 'one.coding'
 
+/** Which gates a task stops at: 'all' (plan + review) · 'review' (the plan runs on) · 'none' (no stop — "just do it"). */
+export type ApprovalsLevel = 'all' | 'review' | 'none'
+/** This device's Approvals for new tasks (localStorage; written ONLY by tasks.ts setDefaultApprovals — "Use for new tasks"). */
+export const APPROVALS_KEY = 'one.coding.approvals'
+
+/** This device's choice for new tasks (set with setDefaultApprovals). */
+export function defaultApprovals(): ApprovalsLevel {
+  try {
+    const v = localStorage.getItem(APPROVALS_KEY)
+    return v === 'review' || v === 'none' ? v : 'all'
+  } catch {
+    return 'all'
+  }
+}
+
 export interface WorkerPair {
   secret: string
   /** when the worker was downloaded (ms) */
@@ -198,6 +213,8 @@ export interface CodingState extends CodingSettings {
   projectRev: number
   /** what the connected worker runs, from its last `next` (null: it has not asked yet) — an outdated one is named */
   can: string[] | null
+  /** this device's Approvals for new tasks (localStorage one.coding.approvals, tasks.ts setDefaultApprovals) */
+  approvalsDefault: ApprovalsLevel
 }
 
 export const useCoding = create<CodingState>()(() => ({
@@ -217,4 +234,5 @@ export const useCoding = create<CodingState>()(() => ({
   intake: {},
   projectRev: 0,
   can: null,
+  approvalsDefault: defaultApprovals(),
 }))

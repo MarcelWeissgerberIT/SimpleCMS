@@ -37,12 +37,13 @@ import {
   type WorkerMessage,
   type WorkspaceRef,
 } from './protocol'
-import { DEFAULT_CODING, CODING_STORAGE_KEY, MAX_CLOUD_KEYS, legacyCloudSecrets, loadCodingSettings, saveCodingSettings, useCoding, validPort, type CodingRefused, type CodingSettings } from './state'
+import { APPROVALS_KEY, DEFAULT_CODING, CODING_STORAGE_KEY, MAX_CLOUD_KEYS, defaultApprovals, legacyCloudSecrets, loadCodingSettings, saveCodingSettings, useCoding, validPort, type CodingRefused, type CodingSettings } from './state'
 import { appendLog, patchTask, flushLogs, loadTask, taskLocal } from './local'
 import { cleanCode, cleanEdit } from './lines'
 import { addRepoOptions, codingProps, pipelineDbIds } from './schema'
-import { finishStage, heartbeat, intakeDone, pickNext, setNudge, taskContext, gitSummary } from './tasks'
-import { startTrustWatch } from './trust'
+import { finishStage, heartbeat, intakeDone, pickNext, setNudge, taskContext, gitSummary, writeShipNote } from './tasks'
+import { keepTrust, startTrustWatch } from './trust'
+import { cleanShip, prFieldNext, shipShows } from './ship'
 import { openCloudLink, openLocalLink, type LinkHandle, type LinkHandlers } from './transport'
 import { cloudContextOk, listCloudWorkers, relayAvailable } from './cloudWorkers'
 import { cloudKey, dropCloudKeys, keepCloudKey } from './cloudKeys'
@@ -796,7 +797,11 @@ export async function stopTask(taskId: string): Promise<void> {
 /** A git verb the person asked for in the task panel: its results are theirs (flight recorder). */
 const PERSON: Writer = { kind: 'you', via: 'ui' }
 
-/** One of the fixed git verbs for a task's branch. Updates the git state and the PR field. */
+/**
+ * One of the fixed git verbs for a task's branch. Updates the git state, the PR field and — worker 1.10.0 — writes the
+ * key's ship record into the page ("Git (by hand) · <date time>", ship.ts). `error`: the key 'pr' pushed, but the request
+ * could not be opened (the push is recorded all the same).
+ */
 export async function gitTask(taskId: string, verb: GitVerb, message?: string): Promise<GitResult> {
   const ctx = taskContext(taskId)
   if (!ctx) throw new Error(t('features.coding.err.noTask'))
@@ -806,18 +811,33 @@ export async function gitTask(taskId: string, verb: GitVerb, message?: string): 
   const res = (await request({ op: 'git', taskId, verb, repo, branch, title: ctx.row.title.trim() || t('common.untitled'), ...(message ? { message } : {}) } as never)) as GitResult
   await loadTask(taskId)
   const s = useWorkspace.getState()
+  const ship = cleanShip(res?.ship)
+  const error = typeof res?.error === 'string' && res.error.trim() ? res.error.slice(0, 2000) : null
   // the git summary is bookkeeping (like the live snapshot); the request's address and a branch gone are the person's
   if (res?.git) {
     await patchTask(taskId, { git: res.git })
     if (ctx.props.git) withWriter(SYSTEM('bookkeeping'), () => s.setRowProperty(taskId, ctx.props.git!, gitSummary(res.git!)))
   }
-  if (res?.url && ctx.props.pr) withWriter(PERSON, () => s.setRowProperty(taskId, ctx.props.pr!, res.url!))
+  // PR / Commit and the ship note are the person's (their key) — inside keepTrust: the version takes the page and the field
+  const prNow = () => (ctx.props.pr ? String(useWorkspace.getState().pages[taskId]?.properties[ctx.props.pr] ?? '') : '')
+  const next = ship ? prFieldNext(prNow(), ship) : (res?.url ?? null)
+  if ((next && ctx.props.pr) || (ship && shipShows(ship)))
+    await keepTrust(
+      [taskId],
+      () => {
+        if (next && ctx.props.pr && next !== prNow()) useWorkspace.getState().setRowProperty(taskId, ctx.props.pr, next)
+        if (ship && shipShows(ship)) writeShipNote(taskId, t('features.coding.ship.byHand'), ship)
+      },
+      PERSON,
+    )
+  if (next) await patchTask(taskId, { url: next })
   if (verb === 'discard' || verb === 'cleanup') {
     if (ctx.props.git) withWriter(SYSTEM('bookkeeping'), () => s.setRowProperty(taskId, ctx.props.git!, null))
     if (res?.branchGone && ctx.props.branch) withWriter(PERSON, () => s.setRowProperty(taskId, ctx.props.branch!, null))
     await patchTask(taskId, { git: null })
   }
-  return res
+  const { ship: _raw, error: _err, ...rest } = res ?? ({} as GitResult)
+  return { ...rest, ...(ship ? { ship } : {}), ...(error ? { error } : {}) }
 }
 
 /** Is the worker on this device working on the task right now? */
@@ -870,6 +890,8 @@ export function startCoding() {
   })
   // settings changed in another tab: switching off disconnects everywhere
   window.addEventListener('storage', (e) => {
+    // "Use for new tasks" in another tab of this device
+    if (e.key === APPROVALS_KEY) set({ approvalsDefault: defaultApprovals() })
     if (e.key !== CODING_STORAGE_KEY) return
     const next = e.newValue ? loadCodingSettings() : { ...DEFAULT_CODING }
     if (!next.enabled && get().enabled) {

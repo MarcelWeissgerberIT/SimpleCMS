@@ -8,7 +8,7 @@
  *
  * (CHANGELOG_DRAFT=1 lets the build pass while a new entry's picture does not exist yet.)
  *
- * Shots: mcp-connections, worker-windows, safe-zip-import, regler, agent-precheck, ai-setup, ai-receipts, agent-trust, claude-tasks, flight-recorder-eject, flight-recorder-window, preflight, flight-recorder, tasks, outbox, mirror-again, glass-switches, history-compare, mcp-overview, mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
+ * Shots: ship-log, mcp-connections, worker-windows, safe-zip-import, regler, agent-precheck, ai-setup, ai-receipts, agent-trust, claude-tasks, flight-recorder-eject, flight-recorder-window, preflight, flight-recorder, tasks, outbox, mirror-again, glass-switches, history-compare, mcp-overview, mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
  * custom-agents, gmail, help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
  * workspace in English, light theme, 1440 × 900 at device scale 2; the crop of the relevant area is scaled
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
@@ -31,7 +31,7 @@ import { execFileSync, spawn } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { createRequire } from 'node:module'
-import { join, resolve } from 'node:path'
+import { delimiter, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { strToU8, zipSync } from 'fflate'
 import { seedMorning, waitPreflight } from '../tests/e2e/helpers/preflightStory.mjs'
@@ -835,6 +835,87 @@ const toolResult = (body, id) => (body.messages ?? []).flatMap((m) => (Array.isA
 
 const shots = {
   /**
+   * The ship log (worker 1.10.0): a task with Approvals "None" ships by itself — left the Git tab (the branch and the
+   * commits linked to the GitLab project), right the end of the task page with the implement note and the ship note
+   * ("Ship · <date> — Commit · Branch · MR !42 · pushed to origin/…"). The repository's own worker with the fake Claude
+   * Code CLI; the remote looks like a GitLab project (its fetch URL is never contacted — git's ssh is `false`; pushes go
+   * to the local bare repo) and glab is a fake that opens merge request 42 — no real host.
+   */
+  async 'ship-log'(browser) {
+    const work = codingRepo()
+    execFileSync('git', ['remote', 'set-url', 'origin', 'git@gitlab.example.test:nordlicht/website.git'], { cwd: work.path, env: work.env })
+    execFileSync('git', ['remote', 'set-url', '--push', 'origin', join(work.root, 'remote.git')], { cwd: work.path, env: work.env })
+    const bin = join(work.root, 'bin')
+    mkdirSync(bin)
+    const created = join(bin, 'created')
+    const mr = 'https://gitlab.example.test/nordlicht/website/-/merge_requests/42'
+    writeFileSync(
+      join(bin, 'glab'),
+      `#!${process.execPath}
+const { existsSync, writeFileSync } = require('node:fs')
+const a = process.argv.slice(2)
+const say = (s) => { process.stdout.write(s + '\\n'); process.exit(0) }
+if (a[0] === '--version') say('glab 1.99')
+if (a[0] === 'mr' && a[1] === 'view') {
+  if (existsSync(${JSON.stringify(created)})) say(JSON.stringify({ iid: 42, state: 'opened', web_url: ${JSON.stringify(mr)} }))
+  process.exit(1)
+}
+if (a[0] === 'mr' && a[1] === 'create') { writeFileSync(${JSON.stringify(created)}, '1'); say(${JSON.stringify(mr)}) }
+process.exit(1)
+`,
+    )
+    chmodSync(join(bin, 'glab'), 0o755)
+    const { ctx, page } = await freshPage(browser, { viewport: { width: W, height: H + 200 } })
+    let worker = null
+    try {
+      await page.evaluate(() => localStorage.setItem('one.coding.approvals', 'none'))
+      await page.evaluate(() => window.__one.ui.getState().openModal({ type: 'settings' }))
+      await page.getByRole('tab', { name: 'Coding worker' }).click()
+      const init = await page.locator('.cw-code pre').filter({ hasText: 'init --workspace' }).first().textContent()
+      worker = await startCodingWorker(work, /--workspace (\S+)/.exec(init)[1], { PATH: `${bin}${delimiter}${process.env.PATH ?? ''}`, GIT_SSH_COMMAND: 'false', ONE_WORKER_FETCH_MS: '5000' }, { pr: 'gh' })
+      const port = page.getByLabel('Port', { exact: true })
+      await port.fill(String(WORKER_PORT))
+      await port.press('Enter')
+      await page.getByRole('switch', { name: 'Connect to a coding worker on this computer' }).click()
+      await page.getByTestId('coding-conn').filter({ hasText: 'Connected' }).waitFor({ timeout: 20_000 })
+      await page.keyboard.press('Escape')
+      await page.getByRole('dialog').waitFor({ state: 'detached' })
+      await page.evaluate(() => (window.location.hash = '#/coding'))
+      await page.getByTestId('coding-new').click()
+      await page.getByTestId('coding-new-title').fill('Fix the login form')
+      await page.getByTestId('coding-new-repo').fill('website')
+      await page.getByTestId('coding-new-goal').fill('A wrong password fails silently. Name the field and say what is wrong. FAKE:DEMO')
+      await page.getByTestId('coding-new-criteria').fill('The message names the field\nShort passwords are explained')
+      await page.getByTestId('coding-create').click()
+      const panel = page.getByTestId('coding-panel')
+      await panel.waitFor()
+      await page.getByTestId('coding-state').filter({ hasText: 'Done' }).waitFor({ timeout: 90_000 })
+      // left: the Git tab — the branch and the commits linked to GitLab
+      await page.getByTestId('coding-tab-git').click()
+      await page.getByTestId('coding-git-commit-link').first().waitFor()
+      const git = page.getByTestId('coding-git')
+      await scrollToTop(panel, 28)
+      await rest(page)
+      const top = await boxOf(panel, 16)
+      const at = await git.locator('.cg-at').boundingBox()
+      await page.screenshot({ path: `${TMP}/ship-log-git.png`, clip: { ...top, height: at.y + at.height + 4 - top.y } })
+      // right: the end of the page — the implement note and the ship note
+      const notes = page.locator('#main .ProseMirror [data-type="callout"]')
+      await notes.last().scrollIntoViewIfNeeded()
+      await page.evaluate(() => window.scrollBy(0, 120))
+      await rest(page)
+      const first = await notes.nth(Math.max(0, (await notes.count()) - 2)).boundingBox()
+      const last = await notes.last().boundingBox()
+      await page.screenshot({ path: `${TMP}/ship-log-page.png`, clip: { x: first.x - 16, y: first.y - 12, width: first.width + 32, height: last.y + last.height + 12 - (first.y - 12) } })
+      await saveSideBySide('ship-log', [`${TMP}/ship-log-git.png`, `${TMP}/ship-log-page.png`])
+    } finally {
+      worker?.kill('SIGTERM')
+      await ctx.close()
+      rmSync(work.root, { recursive: true, force: true })
+    }
+  },
+
+  /**
    * Worker 1.9.0 on Windows: Settings → Coding worker, the card on "Windows" — step 2 with the PowerShell and the
    * Command Prompt line (each with its copy key), the Windows note and what it needs. No worker runs.
    */
@@ -855,6 +936,10 @@ const shots = {
       await save(page, 'worker-windows', { x: Math.round(head.x) - 12, y: Math.round(head.y) - 12, width: Math.round(head.width) + 24, height: Math.round(step2.y + step2.height - head.y) + 12 })
     } finally {
       await ctx.close()
+    }
+  },
+
+  /**
    * MCP · Connections (#/mcp): four servers of this device (nordlicht OK, signed in, codeword nl:, every AI call;
    * tessera token refused; archiv test failed; polar off), the agents "Daily digest" (nordlicht, 2 tools) and "Triage"
    * (names "tracker", which this device does not have), the profile "Item tracker"; the repository's own bridge driven

@@ -2478,3 +2478,85 @@ dd:has(> .cw-port) {
   grid-column: 2;
   justify-self: start;
 }
+
+/* ------------------------------------------------------------------ the ship log (worker 1.10.0) + gates that always stop */
+
+/* the Git tab: a commit on the remote and the pushed branch link to GitLab / GitHub */
+.cg-sha {
+  color: inherit;
+  text-decoration: none;
+  border-radius: var(--radius-1);
+}
+.cg-sha code {
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 35%, transparent);
+  text-underline-offset: 2px;
+}
+.cg-sha:hover code {
+  color: var(--ink);
+  text-decoration-color: currentColor;
+}
+.cg-sha:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.cg-ro__cell .cg-sha code {
+  color: var(--signal-ink);
+}
+/* Approvals: "Use for new tasks" sits next to the select; the gates that always stop get a line of their own */
+.ctk-appr .ctk-appr__default {
+  flex: none;
+}
+.ctk-appr__holds {
+  flex-basis: 100%;
+  color: var(--ink-2);
+}
+/* the pipeline editor: a gate's "Always stop here" */
+.cpe-hold {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 4px 8px;
+}
+.cpe-hold__hint {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--ink-3);
+  font-size: var(--text-sm);
+}
+/* a git stage the worker cannot fully run for a repo (pushing / requests off): the row chip and the note in the details */
+.cpe-namecell .cpe-chip[data-warn] {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-color: color-mix(in srgb, var(--signal-ink) 45%, var(--rule));
+  color: var(--signal-ink);
+}
+.cpe-chip[data-warn] > .led {
+  flex: none;
+}
+.cpe-warn {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--rule);
+  border-left: 2px solid var(--signal-ink);
+  border-radius: var(--radius-1);
+  background: var(--surface-2);
+  font-size: var(--text-sm);
+}
+.cpe-warn > .led {
+  margin-top: 5px;
+}
+.cpe-warn__text {
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+  min-width: 0;
+}
+.cpe-warn__text p {
+  margin: 0;
+  color: var(--ink-2);
+}

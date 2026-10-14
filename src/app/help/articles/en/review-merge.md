@@ -11,7 +11,7 @@ The template **Review & merge** carries a coding task to the end: after **Ship**
 
 ## The stages after Ship
 1. **AI review** — a document stage with the result *Review*. It runs in the task's worktree and gets the branch's whole diff against the base: correctness, security, error handling, tests, readability. The review is a section of the page: **Approve** or **Request changes**, then findings with file:line, severity and a fix.
-2. **Approve review & merge** — the gate. Nothing has been posted or merged yet. Not happy? **Rework…** sends a note to the review; to change the code, move the task back to **Implement**.
+2. **Approve review & merge** — the gate. Nothing has been posted or merged yet. Not happy? **Rework…** sends a note to the review; to change the code, move the task back to **Implement**. In new pipelines from this template it is marked **Always stop here** — Approvals *None* never runs past it.
 3. **Post review** — the review becomes a comment on the merge request (`glab mr note` / `gh pr comment`), under your name.
 4. **Merge** — `glab mr merge` / `gh pr merge` (merge commit; squash or rebase when the repository allows only those). What is not pushed is not merged: uncommitted or unpushed work stops the stage. The branch stays — **Clean up** removes it afterwards.
 

@@ -4,11 +4,13 @@
  * empty — where the task itself is written (the page below: goal + acceptance criteria) with an outline to
  * fill in. No repo yet: "New repo: import a ZIP / clone…" opens the worker's setup page. Business analysis / QA
  * tasks may run without a repo (document stages only: "No repository"). ApprovalsPick: which gates the task stops
- * at (plan + review · review only · none — "just do it"). ModelPick: the model of its Claude Code stages.
+ * at (plan + review · review only · none — "just do it"; a gate marked "Always stop here" always) — the device default
+ * for new tasks changes only with "Use for new tasks". ModelPick: the model of its Claude Code stages.
  */
 import { useMemo } from 'react'
 import { FileText } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
+import { useUI } from '../../store/ui'
 import { useT } from '../../i18n'
 import type { ID } from '../../store/types'
 import { useCoding } from './state'
@@ -16,7 +18,7 @@ import { useTaskLocal } from './local'
 import { ChangeReposButton } from './SetupCard'
 import type { PipelineKind, ResolvedStage } from './schema'
 import { claudeRuns, cleanModel } from './protocol'
-import { APPROVALS, MODEL_CHOICES, approvalsOf, insertTaskOutline, knownRepos, modelLabel, pipelineModels, setTaskApprovals, setTaskBranch, setTaskModel, setTaskRepo, workerBranches } from './tasks'
+import { APPROVALS, MODEL_CHOICES, approvalsOf, insertTaskOutline, knownRepos, modelLabel, pipelineModels, setDefaultApprovals, setTaskApprovals, setTaskBranch, setTaskModel, setTaskRepo, skipsGate, workerBranches, type Approvals } from './tasks'
 
 export function TaskSetup({ taskId, repo, branch, described, kind = 'coding' }: { taskId: ID; repo: string | null; branch: string | null; described: boolean; kind?: PipelineKind }) {
   const t = useT()
@@ -92,41 +94,57 @@ export function TaskSetup({ taskId, repo, branch, described, kind = 'coding' }: 
 }
 
 /**
- * Which gates this task stops at — on this device; the last pick is the default for new tasks. Business analysis
- * / QA (no plan stage): wait at every approval, or none ("review" works like "all" there).
+ * Which gates this task stops at — on this device. A new task takes this device's default; only "Use for new tasks"
+ * changes that default (a pick here never changes another task). Gates marked "Always stop here" the level would pass
+ * are named. Business analysis / QA (no plan stage): wait at every approval, or none ("review" works like "all" there).
  */
-export function ApprovalsPick({ taskId, kind = 'coding' }: { taskId: ID; kind?: PipelineKind }) {
+export function ApprovalsPick({ taskId, kind = 'coding', pipeline = [] }: { taskId: ID; kind?: PipelineKind; pipeline?: ResolvedStage[] }) {
   const t = useT()
   const stored = approvalsOf(useTaskLocal(taskId))
-  if (kind !== 'coding') {
-    const level = stored === 'none' ? 'none' : 'all'
-    return (
-      <div className="ctk-appr" data-testid="coding-approvals">
-        <label className="ctk-appr__field">
-          <span className="label">{t('features.coding.approvals.label')}</span>
-          <select className="input" value={level} onChange={(e) => void setTaskApprovals(taskId, e.target.value === 'none' ? 'none' : 'all')} data-testid="coding-approvals-select">
-            <option value="all">{t('features.coding.approvals.doc.all')}</option>
-            <option value="none">{t('features.coding.approvals.doc.none')}</option>
-          </select>
-        </label>
-        <span className="ctk-hint">{t(`features.coding.approvals.doc.${level}Hint`)}</span>
-      </div>
-    )
-  }
-  const level = stored
+  const def = useCoding((s) => s.approvalsDefault)
+  const doc = kind !== 'coding'
+  const level: Approvals = doc ? (stored === 'none' ? 'none' : 'all') : stored
+  const sameAsDefault = level === (doc ? (def === 'none' ? 'none' : 'all') : def)
+  // the gates this level would run past but that always stop
+  const holds = pipeline.filter((s) => s.kind === 'gate' && s.hold && skipsGate(level, pipeline, { ...s, hold: false })).map((s) => s.name)
   return (
     <div className="ctk-appr" data-testid="coding-approvals">
       <label className="ctk-appr__field">
         <span className="label">{t('features.coding.approvals.label')}</span>
-        <select className="input" value={level} onChange={(e) => void setTaskApprovals(taskId, e.target.value as typeof level)} data-testid="coding-approvals-select">
-          {APPROVALS.map((a) => (
-            <option key={a} value={a}>
-              {t(`features.coding.approvals.${a}`)}
-            </option>
-          ))}
-        </select>
+        {doc ? (
+          <select className="input" value={level} onChange={(e) => void setTaskApprovals(taskId, e.target.value === 'none' ? 'none' : 'all')} data-testid="coding-approvals-select">
+            <option value="all">{t('features.coding.approvals.doc.all')}</option>
+            <option value="none">{t('features.coding.approvals.doc.none')}</option>
+          </select>
+        ) : (
+          <select className="input" value={level} onChange={(e) => void setTaskApprovals(taskId, e.target.value as Approvals)} data-testid="coding-approvals-select">
+            {APPROVALS.map((a) => (
+              <option key={a} value={a}>
+                {t(`features.coding.approvals.${a}`)}
+              </option>
+            ))}
+          </select>
+        )}
       </label>
-      <span className="ctk-hint">{t(`features.coding.approvals.${level}Hint`)}</span>
+      {!sameAsDefault && (
+        <button
+          type="button"
+          className="btn btn--sm btn--ghost ctk-appr__default"
+          onClick={() => {
+            setDefaultApprovals(level)
+            useUI.getState().toast({ message: t('features.coding.approvals.defaultSet'), kind: 'success' })
+          }}
+          data-testid="coding-approvals-default"
+        >
+          {t('features.coding.approvals.makeDefault')}
+        </button>
+      )}
+      <span className="ctk-hint">{t(doc ? `features.coding.approvals.doc.${level}Hint` : `features.coding.approvals.${level}Hint`)}</span>
+      {holds.length > 0 && (
+        <span className="ctk-hint ctk-appr__holds" data-testid="coding-approvals-holds">
+          {t('features.coding.approvals.holds', { stages: holds.join(', ') })}
+        </span>
+      )}
     </div>
   )
 }

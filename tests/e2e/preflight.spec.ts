@@ -127,7 +127,7 @@ test.describe('Preflight — the lamps (T-P1-2)', () => {
     await pf(page, (p) => p.stores.coding.setState({ enabled: true, conn: 'refused' }))
     await expect.poll(async () => (await readings(page)).worker).toMatchObject({ count: 1, level: 'red', ids: ['worker:refused'] })
     const worker = (version: string) => ({ worker: version, name: 'Werkbank', repos: [], parallel: 1, busy: [], spentToday: 0, dayLimit: null, claude: { found: true, version: '2.0.0' } })
-    const every = ['analyze', 'git:comment', 'git:merge', 'doc', 'model', 'mcp-list']
+    const every = ['analyze', 'git:comment', 'git:merge', 'doc', 'model', 'mcp-list', 'ship']
     await pf(page, (p, w) => p.stores.coding.setState({ conn: 'connected', worker: w, can: [] }), worker('1.9.0'))
     await expect.poll(async () => (await readings(page)).worker).toMatchObject({ count: 1, level: 'amber', ids: ['worker:outdated@1.9.0'], second: 'outdated' })
     await pf(page, (p, can) => p.stores.coding.setState({ can }), every)

@@ -503,7 +503,7 @@ test.describe('MCP · Connections (#/mcp)', () => {
     await goto(page, '#/mcp')
     const r = workerRow(page)
     const info = { worker: '1.9.0', name: 'studio-mac', repos: [{ name: 'website', baseBranch: 'main', mcp: ['nordlicht', 'notizen'] }], mcp: ['notizen'], parallel: 1, busy: [], spentToday: 0, dayLimit: null, claude: { found: true, version: '2.1' } }
-    await coding(page, { enabled: true, conn: 'connected', worker: info, can: ['analyze', 'git:comment', 'git:merge', 'doc', 'model', 'mcp-list'] })
+    await coding(page, { enabled: true, conn: 'connected', worker: info, can: ['analyze', 'git:comment', 'git:merge', 'doc', 'model', 'mcp-list', 'ship'] })
     await expect(r.locator('.mcpc-row__name')).toHaveText('STUDIO-MAC')
     await expect(r.locator('.mcpc-row__host')).toHaveText('worker 1.9.0')
     await expect(r.locator('.mcpc-led')).toHaveClass(/led--ok/)
@@ -554,7 +554,7 @@ test.describe('MCP · Connections (#/mcp)', () => {
     await goto(page, '#/mcp')
     const r = workerRow(page)
     const info = { worker: '1.9.0', name: 'studio-mac', repos: [], parallel: 1, busy: [], spentToday: 0, dayLimit: null, claude: { found: true, version: '2.1' } }
-    await coding(page, { enabled: true, conn: 'connected', worker: info, can: ['analyze', 'git:comment', 'git:merge', 'doc', 'model', 'mcp-list'] })
+    await coding(page, { enabled: true, conn: 'connected', worker: info, can: ['analyze', 'git:comment', 'git:merge', 'doc', 'model', 'mcp-list', 'ship'] })
     await expect(r.locator('.mcpc-led')).toHaveClass(/led--ok/)
     await coding(page, { conn: 'waiting', worker: null, can: null })
     // inside the grace: on, no tone — the lamp counts nothing yet
@@ -572,7 +572,7 @@ test.describe('MCP · Connections (#/mcp)', () => {
     const lamp = await pf(page, (p) => p.readings().worker ?? null)
     expect(lamp).toMatchObject({ count: 1, level: 'red', ids: ['worker:waiting'] })
     // back: ok again
-    await coding(page, { conn: 'connected', worker: info, can: ['analyze', 'git:comment', 'git:merge', 'doc', 'model', 'mcp-list'] })
+    await coding(page, { conn: 'connected', worker: info, can: ['analyze', 'git:comment', 'git:merge', 'doc', 'model', 'mcp-list', 'ship'] })
     await expect(r).not.toHaveAttribute('data-level', /.+/)
   })
 
@@ -681,7 +681,7 @@ test.describe('MCP · Connections — source guard and rules (Node)', () => {
   })
 
   test('workerLed, workerPlaces, workerNames, agentsOfThisBrowser, missingNamed, teamEndpoint, hostOnly', () => {
-    const all = ['analyze', 'git:comment', 'git:merge', 'doc', 'model', 'mcp-list']
+    const all = ['analyze', 'git:comment', 'git:merge', 'doc', 'model', 'mcp-list', 'ship']
     const now = 10_000_000
     const led = (s: AnyState, since: number | null = now) => workerLed({ worker: null, can: null, ...s } as never, since, now)
     expect(led({ enabled: false, conn: 'connected', can: all })).toBe('off')

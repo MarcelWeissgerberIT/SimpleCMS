@@ -57,14 +57,15 @@ async function sha256(text: string): Promise<string> {
 /**
  * The pipeline's part of a task version: what each stage sends to the worker or decides next. A stage's model is
  * appended only when it has one (as `{ model }`, never to be read as an output): a stage without a model hashes
- * exactly as before models existed, so tasks confirmed then stay confirmed.
+ * exactly as before models existed, so tasks confirmed then stay confirmed. A gate's `hold` ("Always stop here") the same
+ * way, only when set — a pipeline without one hashes exactly as before.
  *
  * The task's own model (TaskLocal.model) is not part of the version: it is kept on this device only (never synced),
  * so only the person at this device can set it — the one whose worker and Claude account run the task. There is no
  * one else's change to confirm.
  */
 const pipelineKey = (db: Database | undefined) =>
-  JSON.stringify(readPipeline(db).map((s) => [s.id, s.name, s.kind, !!s.auto, s.permissionMode ?? null, s.maxTurns ?? null, s.gitAction ?? null, s.next ?? null, s.instructions ?? '', ...(s.output ? [s.output] : []), ...(s.model ? [{ model: s.model }] : [])]))
+  JSON.stringify(readPipeline(db).map((s) => [s.id, s.name, s.kind, !!s.auto, s.permissionMode ?? null, s.maxTurns ?? null, s.gitAction ?? null, s.next ?? null, s.instructions ?? '', ...(s.output ? [s.output] : []), ...(s.model ? [{ model: s.model }] : []), ...(s.hold ? [{ hold: true }] : [])]))
 
 /** The row's fields that decide where the worker works: the repo (by name), the branch, the stage. */
 function fieldsKey(page: Page, db: Database | undefined): string {

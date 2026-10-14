@@ -248,8 +248,8 @@ const REVIEW_MERGE: Array<[string, StageKind, boolean, Partial<PipelineStage>, s
   ['test', 'test', true, {}],
   ['ship', 'git', true, { gitAction: 'pr' }],
   ['aiReview', 'doc', true, { maxTurns: 40, output: 'review' }, 'aiReview'],
-  // the person reads the review first: nothing is posted or merged before this gate
-  ['approveMerge', 'gate', false, {}],
+  // the person reads the review first: nothing is posted or merged before this gate, and Approvals never skip it
+  ['approveMerge', 'gate', false, { hold: true }],
   ['postReview', 'git', true, { gitAction: 'comment' }],
   ['merge', 'git', true, { gitAction: 'merge' }],
   ['done', 'done', false, {}],
@@ -307,6 +307,8 @@ export function sanitizeStage(raw: unknown, id: ID): PipelineStage {
   // only stages that run Claude Code keep a model — and only one that passes the shared rule
   const model = claudeRuns(kind) ? cleanModel(r.model) : null
   if (model) out.model = model
+  // "Always stop here": gates only, only when set (a pipeline without one reads — and hashes — as before)
+  if (kind === 'gate' && r.hold === true) out.hold = true
   return out
 }
 

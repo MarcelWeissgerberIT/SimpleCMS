@@ -4,7 +4,8 @@
  * Open PR · Update from base · Show folder; Force push and Discard are confirmed twice; Clean up only after
  * the merge) and the merge / pull request: Post review (the task's newest review document) and Merge (confirmed),
  * both with the person's own glab / gh. The folder's path stays on the computer: "Show folder" prints it in the
- * worker's terminal.
+ * worker's terminal. Commits on the remote and the pushed branch link to GitLab / GitHub (worker 1.10.0: the repo's
+ * web address, GitInfo.web); a key's toast says what it shipped in the person's language (ship.ts).
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { ArrowUpFromLine, FolderSearch, GitCommitHorizontal, GitMerge, GitPullRequestArrow, GitPullRequestClosed, MessageSquareText, RefreshCw, Trash2, TriangleAlert } from 'lucide-react'
@@ -12,8 +13,9 @@ import { format } from 'date-fns'
 import { useT } from '../../i18n'
 import { Modal } from '../../ui/Modal'
 import { useUI } from '../../store/ui'
-import type { GitInfo, GitVerb } from './protocol'
+import { GIT_SHA, branchUrl, cleanWeb, commitUrl, type GitInfo, type GitVerb } from './protocol'
 import { gitTask } from './service'
+import { branchOk, shipShows, shipText } from './ship'
 
 type T = ReturnType<typeof useT>
 
@@ -81,7 +83,11 @@ export function GitBox({ taskId, git, branch, connected, running, title, review,
     setBusy(verb)
     try {
       const res = await gitTask(taskId, verb, message)
-      useUI.getState().toast({ message: res.message || t('features.coding.git.done'), kind: 'success', ...(res.url ? { action: { label: t('features.coding.git.openLink'), run: () => window.open(res.url, '_blank', 'noopener') } } : {}) })
+      const ship = res.ship ?? null
+      const open = res.url ? { action: { label: t('features.coding.git.openLink'), run: () => window.open(res.url, '_blank', 'noopener') } } : {}
+      // 'pr' pushed but the request failed: an error (the push is in the page's note all the same)
+      if (res.error) useUI.getState().toast({ message: res.error, kind: 'error', timeout: 8000, ...open })
+      else useUI.getState().toast({ message: (ship && shipShows(ship) ? shipText(ship, t) : '') || res.message || t('features.coding.git.done'), kind: 'success', ...open })
     } catch (e) {
       useUI.getState().toast({ message: e instanceof Error ? e.message : String(e), kind: 'error', timeout: 8000 })
     } finally {
@@ -90,13 +96,27 @@ export function GitBox({ taskId, git, branch, connected, running, title, review,
   }
 
   const off = !connected || running || !!busy || !branch
+  // worker 1.10.0: the repo's web address — what is on the remote links to it
+  const web = cleanWeb(git?.web)
   const why = !connected ? t('features.coding.git.offline') : running ? t('features.coding.git.running') : !branch ? t('features.coding.git.noBranch') : null
   return (
     <div className="cg" data-testid="coding-git">
       {git ? (
         <>
           <dl className="cg-ro">
-            <Cell t={t} k="branch" v={<code title={git.branch}>{git.branch}</code>} />
+            <Cell
+              t={t}
+              k="branch"
+              v={
+                web && git.pushed && branchOk(git.branch) ? (
+                  <a className="cg-sha" href={branchUrl(web, git.branch)} target="_blank" rel="noopener noreferrer" data-testid="coding-git-branch-link">
+                    <code title={git.branch}>{git.branch}</code>
+                  </a>
+                ) : (
+                  <code title={git.branch}>{git.branch}</code>
+                )
+              }
+            />
             <Cell t={t} k="base" v={<code>{git.base}</code>} />
             <Cell t={t} k="aheadBehind" v={`↑${git.ahead} ↓${git.behind}`} />
             <Cell t={t} k="remote" v={git.pushed ? (git.unpushed ? t('features.coding.git.unpushed', { n: git.unpushed }) : t('features.coding.git.pushed')) : t('features.coding.git.notPushed')} />
@@ -121,9 +141,16 @@ export function GitBox({ taskId, git, branch, connected, running, title, review,
           )}
           {git.commits.length > 0 && (
             <ol className="cg-commits" aria-label={t('features.coding.git.commits')}>
-              {git.commits.map((c) => (
+              {git.commits.map((c, i) => (
                 <li key={c.sha}>
-                  <code>{c.sha.slice(0, 7)}</code>
+                  {/* newest first: the first `unpushed` are only on this computer */}
+                  {web && git.pushed && i >= git.unpushed && GIT_SHA.test(c.sha) ? (
+                    <a className="cg-sha" href={commitUrl(web, c.sha)} target="_blank" rel="noopener noreferrer" aria-label={t('features.coding.git.commitLink', { sha: c.sha.slice(0, 7) })} data-testid="coding-git-commit-link">
+                      <code>{c.sha.slice(0, 7)}</code>
+                    </a>
+                  ) : (
+                    <code>{c.sha.slice(0, 7)}</code>
+                  )}
                   <span className="cg-subject">{c.subject}</span>
                   <span className="cg-meta">
                     {c.author} · {format(c.at, 'dd.MM. HH:mm')}

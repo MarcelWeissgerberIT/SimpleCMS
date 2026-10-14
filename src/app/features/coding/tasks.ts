@@ -2,8 +2,11 @@
  * Coding pipeline — the task operations on the workspace (store actions only):
  *  - for the worker: pickNext (choose + claim: Worker + Claimed at), heartbeat, finishStage (cost, branch,
  *    git state, PR link, the plan / summary into the page with origin 'coding', the stage move: ok → next;
- *    a failing test → back to implement once with the output, then the next gate)
- *  - for the person: createTask, approve, rework, answer, run now / retry, confirm (team trust), move
+ *    a failing test → back to implement once with the output, then the next gate); PR / Commit and the ship note
+ *    from the worker's ShipRecord (worker 1.10.0, ship.ts — a git stage's commit / push / request as one dated,
+ *    linked line in the person's language; an older worker's summary as before)
+ *  - for the person: createTask (it takes this device's Approvals default), approve, rework, answer, run now / retry,
+ *    confirm (team trust), move; Approvals per task — a gate marked "Always stop here" (hold) is never skipped
  *
  * Writes into the page go through setContent(…, 'coding'); row writes through setRowProperty. A stage's outcome
  * is written inside aiWrite (one "AI" version per page and call, like other machine writes); the claim and its
@@ -21,15 +24,16 @@ import { canCreateItems } from '../workitems'
 import { claudeDoc } from '../ai/claudeDoc'
 import { navigate, parseHash } from '../../lib/router'
 import { aiWrite } from '../history/snapshots'
-import { t } from '../../i18n'
-import { CLAIM_STALE_MS, MCP_SERVER_NAME, claudeRuns, cleanModel, stageNeeds, workerCan, type GitInfo, type StageOutcome, type TaskPayload, type WorkerInfo } from './protocol'
+import { currentLang, t } from '../../i18n'
+import { CLAIM_STALE_MS, MCP_SERVER_NAME, claudeRuns, cleanModel, stageNeeds, workerCan, type GitInfo, type ShipRecord, type StageOutcome, type TaskPayload, type WorkerInfo } from './protocol'
 import { CASE_TYPES, FOLLOW_UPS, PIPELINE_KINDS, caseProps, codingProps, createProject, currentProjectId, ensureCaseDb, ensurePipelineDb, addRepoOptions, inTeam, kindOfDb, nextStage, optionByName, optionName, pipelineDbIds, priorityRank, readPipeline, stageNear, stageOfRow, type CodingProps, type PipelineKind, type ResolvedStage } from './schema'
 import { parseStories, splitSections, type DocSection, type Story } from './outputs'
 import { createPrivatePage } from '../../cloud'
 import { addTrusted, appendLog, loadTask, patchTask, taskLocal, type TaskLocal } from './local'
 import { isTrusted, keepTrust, trustTask, versionOf } from './trust'
 import { taskText } from './refs'
-import { useCoding } from './state'
+import { APPROVALS_KEY, defaultApprovals, useCoding, type ApprovalsLevel } from './state'
+import { cleanShip, prFieldNext, shipNote, shipShows } from './ship'
 import { notifyAway } from './notify'
 import { endRun, noteRun, SYSTEM, withWriter, type Writer } from '../../store/writer'
 import { newId } from '../../lib/ids'
@@ -165,6 +169,16 @@ function appendNote(pageId: ID, icon: string, color: string, label: string, md: 
 }
 
 const stamp = () => format(new Date(), 'HH:mm')
+
+/**
+ * A ship record's note at the end of the page: the existing grey callout, "<label> · <date time>" and the record's
+ * line with links (ship.ts shipNote). Callers write it inside keepTrust under their writer.
+ */
+export function writeShipNote(taskId: ID, label: string, ship: ShipRecord): void {
+  const p = ws().pages[taskId]
+  if (!p) return
+  ws().setContent(taskId, { type: 'doc', content: [...docOf(p), shipNote(label, ship, t, currentLang())] }, 'coding')
+}
 
 /* ------------------------------------------------------------------ the worker's side */
 
@@ -322,9 +336,15 @@ export async function finishStage(taskId: ID, stageId: ID, outcome: StageOutcome
   const patch: Partial<TaskLocal> = { state: 'idle', error: null, question: null, stageId }
   let moveTo: ResolvedStage | null = null
   let toast: { key: string; kind: 'info' | 'success' | 'error' } | null = null
+  // worker 1.10.0: what a git stage did with commits, the push and the request — also on a failed outcome after its commit
+  const ship = stage?.kind === 'git' ? cleanShip(outcome.ship) : null
+  const prNow = () => text(ws().pages[taskId]?.properties[props.pr ?? ''])
 
   if (outcome.git) patch.git = outcome.git
-  if (outcome.url) patch.url = outcome.url
+  if (ship) {
+    const next = prFieldNext(prNow(), ship)
+    if (next) patch.url = next
+  } else if (outcome.url) patch.url = outcome.url
   if (outcome.test) patch.test = outcome.test
   // QA: the test cases of a document stage become rows of the Test cases database (the JSON leaves the page)
   let doc = outcome.plan ?? null
@@ -353,6 +373,8 @@ export async function finishStage(taskId: ID, stageId: ID, outcome: StageOutcome
   if (outcome.summary && stage?.kind === 'implement') patch.summary = outcome.summary
 
   const passed: string[] = []
+  /** a gate marked "Always stop here" the task's Approvals would have passed: it waits there (logged) */
+  let held: string | null = null
   switch (outcome.status) {
     case 'ok':
       if (stage?.kind === 'test') patch.testFailures = 0
@@ -362,6 +384,7 @@ export async function finishStage(taskId: ID, stageId: ID, outcome: StageOutcome
         passed.push(moveTo.name)
         moveTo = nextStage(pipeline, moveTo)
       }
+      if (moveTo?.kind === 'gate' && moveTo.hold && skipsGate(approvalsOf(local), pipeline, { ...moveTo, hold: false })) held = moveTo.name
       // answers and rework notes belong to the stage they were given in
       patch.answers = (local.answers ?? []).filter((a) => a.stageId !== stageId)
       if (local.rework?.stageId === stageId) patch.rework = null
@@ -412,7 +435,11 @@ export async function finishStage(taskId: ID, stageId: ID, outcome: StageOutcome
       }
       if (outcome.branch && text(row.properties[props.branch ?? '']) !== outcome.branch) set(taskId, props.branch, outcome.branch)
       if (outcome.git) set(taskId, props.git, gitSummary(outcome.git))
-      if (outcome.url) set(taskId, props.pr, outcome.url)
+      // PR / Commit: the request's address, else the pushed commit's link — never over a request's address (ship.ts)
+      if (ship) {
+        const next = prFieldNext(prNow(), ship)
+        if (next) set(taskId, props.pr, next)
+      } else if (outcome.url) set(taskId, props.pr, outcome.url)
       set(taskId, props.worker, null)
       set(taskId, props.claimed, null)
       if (cases.length) {
@@ -431,7 +458,9 @@ export async function finishStage(taskId: ID, stageId: ID, outcome: StageOutcome
         writePlan(taskId, doc, sectionTitleOf(pipeline, stage), extra)
         wrote = true
       }
-      if (outcome.status === 'ok' && outcome.summary && stage && (stage.kind === 'implement' || stage.kind === 'git'))
+      // the ship note (a failed push / request too: the commit before it stays recorded); an older worker's summary as before
+      if (ship && shipShows(ship)) writeShipNote(taskId, stage!.name, ship)
+      else if (outcome.status === 'ok' && outcome.summary && stage && (stage.kind === 'implement' || stage.kind === 'git'))
         appendNote(taskId, KIND_ICON[stage.kind] ?? 'asset:code', 'gray', `${stage.name} · ${stamp()}`, outcome.summary)
       if (moveTo) moveRow(taskId, props, moveTo.id)
     }),
@@ -444,6 +473,7 @@ export async function finishStage(taskId: ID, stageId: ID, outcome: StageOutcome
     appendLog(taskId, passed.map((name) => ({ t: Date.now(), k: 'info' as const, s: t('features.coding.approvals.passed', { stage: name }) })))
     if (moveTo?.auto) nudge()
   }
+  if (held) appendLog(taskId, [{ t: Date.now(), k: 'info', s: t('features.coding.approvals.held', { stage: held }) }])
   dropProgress(taskId)
   if (moveTo?.kind === 'done') await spawnFollowUps(taskId, w)
   endRun(w)
@@ -857,10 +887,14 @@ export function taskBody(input: Pick<NewTask, 'goal' | 'goalDoc' | 'criteria' | 
   return content.length ? content : [para('')]
 }
 
-/** A new task (the Coding database is created on first use). Trusted on this device. */
+/**
+ * A new task (the Coding database is created on first use). Trusted on this device; it takes this device's Approvals
+ * default for new tasks (setDefaultApprovals) as its own — before the worker may take it.
+ */
 export async function createTask(input: NewTask, writer: Writer = PANEL): Promise<ID> {
   const id = withWriter(writer, () => createTaskRow(input))
   await trustTask(id)
+  await patchTask(id, { approvals: defaultApprovals() })
   nudge()
   return id
 }
@@ -1021,45 +1055,51 @@ export function insertTaskOutline(taskId: ID): void {
 /* ------------------------------------------------------------------ approvals */
 
 /** Which gates a task stops at: 'all' (plan + review) · 'review' (the plan runs on) · 'none' (no stop — "just do it"). */
-export type Approvals = NonNullable<TaskLocal['approvals']>
+export type Approvals = ApprovalsLevel
 export const APPROVALS: Approvals[] = ['all', 'review', 'none']
-const APPROVALS_KEY = 'one.coding.approvals'
+export { APPROVALS_KEY, defaultApprovals }
 
-/** This device's choice for tasks that have none of their own (the last one picked). */
-export function defaultApprovals(): Approvals {
-  try {
-    const v = localStorage.getItem(APPROVALS_KEY)
-    return v === 'review' || v === 'none' ? v : 'all'
-  } catch {
-    return 'all'
-  }
-}
-
+/** A task's own Approvals (a task from before they were stamped at creation: this device's default for new tasks). */
 export function approvalsOf(local: TaskLocal): Approvals {
   return local.approvals && APPROVALS.includes(local.approvals) ? local.approvals : defaultApprovals()
 }
 
-/** A gate right after a plan stage approves the plan; every other gate is a review. */
+/**
+ * Does a task with these Approvals run past this gate? A gate right after a plan stage approves the plan; every other
+ * gate is a review. A gate marked "Always stop here" (hold) is never skipped.
+ */
 export function skipsGate(level: Approvals, pipeline: ResolvedStage[], gate: ResolvedStage): boolean {
+  if (gate.hold) return false
   if (level === 'none') return true
   return level === 'review' && pipeline[gate.index - 1]?.kind === 'plan'
 }
 
-/** A task's approvals (and this device's default from now on); a task waiting at a gate it now skips goes on. */
+/**
+ * A task's Approvals on this device; a task waiting at a gate it now skips goes on (a hold gate it would skip says it
+ * stops there). This device's default for new tasks never changes here — only setDefaultApprovals.
+ */
 export async function setTaskApprovals(taskId: ID, level: Approvals): Promise<void> {
   await loadTask(taskId)
   await patchTask(taskId, { approvals: level })
+  const ctx = taskContext(taskId)
+  const local = taskLocal(taskId)
+  if (ctx?.stage?.kind !== 'gate' || local.state !== 'idle') return
+  if (skipsGate(level, ctx.pipeline, ctx.stage)) {
+    appendLog(taskId, [{ t: Date.now(), k: 'info', s: t('features.coding.approvals.passed', { stage: ctx.stage.name }) }])
+    await approveTask(taskId)
+  } else if (ctx.stage.hold && skipsGate(level, ctx.pipeline, { ...ctx.stage, hold: false })) {
+    appendLog(taskId, [{ t: Date.now(), k: 'info', s: t('features.coding.approvals.held', { stage: ctx.stage.name }) }])
+  }
+}
+
+/** This device's default for new tasks ("Use for new tasks" in the coding panel) — the only writer of one.coding.approvals. */
+export function setDefaultApprovals(level: Approvals): void {
   try {
     localStorage.setItem(APPROVALS_KEY, level)
   } catch {
-    /* private mode: only this task */
+    /* private mode: this tab only */
   }
-  const ctx = taskContext(taskId)
-  const local = taskLocal(taskId)
-  if (ctx?.stage?.kind === 'gate' && local.state === 'idle' && skipsGate(level, ctx.pipeline, ctx.stage)) {
-    appendLog(taskId, [{ t: Date.now(), k: 'info', s: t('features.coding.approvals.passed', { stage: ctx.stage.name }) }])
-    await approveTask(taskId)
-  }
+  useCoding.setState({ approvalsDefault: level })
 }
 
 /* ------------------------------------------------------------------ models */

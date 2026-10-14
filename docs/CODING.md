@@ -498,7 +498,8 @@ Per repo:
 | `analyzeCommand` | none | The **Static analysis** stage — an argv list like `testCommand` (`["npx", "eslint", "."]`, `["dotnet", "build", "-nologo"]`); the setup page guesses one (the `lint` script by lockfile, ESLint config, `.sln` / `.csproj`, `go vet`, `cargo clippy`, ruff, flake8). |
 | `analyzeTimeoutSec` | `900` | |
 | `push` | `true` | `false`: Ship commits only. |
-| `pr` | `"gh"` | `"gh"`: `gh pr create` on a GitHub host, `glab mr create` on a GitLab host (when the tool is installed and signed in); otherwise (and with `"none"`) a compare / new-merge-request link for GitHub / GitLab remotes. Posting a review and merging need `"gh"` and the host's tool. |
+| `pr` | `"gh"` | `"gh"`: `gh pr create` on a GitHub host, `glab mr create` on a GitLab host (an open MR is found first: `glab mr view <branch>`, state opened — no second MR) (when the tool is installed and signed in); otherwise (and with `"none"`) a compare / new-merge-request link for GitHub / GitLab remotes. Posting a review and merging need `"gh"` and the host's tool. |
+| `forge` | `"auto"` | Links in One and the request tool: `"auto"` = by the remote's host name ("github" / "gitlab" in it); `"gitlab"` / `"github"` for a self-hosted GitLab or GitHub Enterprise under its own name (the setup page's **Host type**). An unknown host with `"auto"`: no links, no compare link either. An unknown value is a problem in `check` and reads as `"auto"`. |
 | `claude.model` | Claude Code's default | A model name Claude Code accepts (the same rule as a stage's model, § Model per stage). A model One sends for a stage — the stage's or the task's own — wins over it. |
 | `claude.maxTurns` | `30` | Upper bound per stage (a stage may ask for fewer). |
 | `claude.permissionMode.implement` | the stage's | `acceptEdits` or `default` — overrides what the pipeline asks for. Plan stages always run in `plan` mode. A mode that skips permissions is refused. |
@@ -529,7 +530,7 @@ database refuses):
 | Implement | implement | ✓ | Claude Code (`acceptEdits`) changes the worktree; its summary goes into the page. |
 | Test | test | ✓ | `testCommand`. Fails once → back to Implement with the output as rework note; fails again → the next gate. |
 | Review | gate | – | Diff + tests. **Approve** · **Rework…** (→ Implement). |
-| Ship | git (pr) | ✓ | Commit (`git add -A`, message = title + summary), push `-u`, pull request (or compare link) → **PR / commit**. |
+| Ship | git (pr) | ✓ | Commit (`git add -A`, message = title + summary + `One-Task: <id>`), push `-u`, pull request (or compare link) → **PR / commit**, the ship note (§ What One records). |
 | Done | done | – | **Clean up** removes the worktree + branch once merged. |
 
 ### Model per stage
@@ -622,16 +623,21 @@ hooks and your git config apply as usual. On Windows every git call gets `-c cor
   `one.coding.notify`): the gate / question / failed / done toasts also become a browser notification while the tab
   is hidden or another window has the focus (coding/notify.ts); a click focuses One and opens the task.
 - **Approvals** (One, per device): *all* (plan gate + review), *review* (the gate after a plan stage passes by itself),
-  *none* (every gate passes; tests failing twice still stop at the review gate). Kept in the task's local state
-  (`TaskLocal.approvals`); the last pick is this device's default (localStorage `one.coding.approvals`).
+  *none* (every gate passes). Kept per task in `TaskLocal.approvals`; a new task gets this device's default
+  (localStorage `one.coding.approvals`, stamped by `createTask`), which only **Use for new tasks** (`setDefaultApprovals`)
+  writes — a task's pick never changes it (another tab follows through the `storage` event). A gate with `hold`
+  (**Always stop here**, pipeline editor; `PipelineStage.hold`, gates only) is never skipped (`skipsGate`; the log says
+  *"<gate>" always stops — waiting for you.*); tests failing twice still stop at the next gate. `hold` joins the task
+  version only when set (trust.ts `pipelineKey`, like a stage's model): a pipeline without one hashes as before.
 - **Reuse a branch**: pick it in the task panel's Branch picker (the worker announces each repo's local branch
   names, newest first, ≤ 100 — names only, never the base branch), type it into the task's **Branch** field, or use
   *Existing branch* in New task. It must exist
   (locally or on the remote — then it is tracked); it is never reset. A branch checked out in the main checkout is
   refused, and so is the repo's base branch (Ship would push straight to it).
 - **Git actions** in the panel are fixed verbs: **Refresh**, **Commit** (message), **Push**, **Open PR**, **Update
-  from base** (rebase while the branch was never pushed, else merge; a worktree with uncommitted changes is
-  refused; conflicts are listed per file and left for a stage — or you — to resolve, never auto-resolved), **Show
+  from base** (first merges `<remote>/<branch>` in when the remote task branch has commits HEAD lacks — fast-forward
+  when it can, never a rebase, never a force, log `remoteMerged`; then the base: rebase while the branch was never
+  pushed, else merge; a worktree with uncommitted changes is refused; conflicts are listed per file and left for a stage — or you — to resolve, never auto-resolved), **Show
   folder** (the path is printed in the worker's terminal only). **Force push** (`--force-with-lease`) and **Discard
   worktree** are confirmed twice. Discard removes the worktree the worker made (with its uncommitted changes) and
   deletes the branch only if the worker created it. **Clean up** does the same only after the merge and never forced.
@@ -641,6 +647,49 @@ hooks and your git config apply as usual. On Windows every git call gets `-c cor
   (`glab mr view` / `gh pr view`) and merges it — `glab mr merge <branch> --yes` (the project's merge method) / `gh pr
   merge <branch> --merge` (then `--squash`, `--rebase` when the repository allows only those). Both need `pr: "gh"`
   and the host's tool signed in; a dirty worktree is not merged; the branch stays (Clean up); a fetch follows.
+- **Log codes of a ship** (worker 1.10.0): `committed`, `nothingToCommit`, `pushed`, `forcePushed`, `pushOff`,
+  `pushRejected` (a non-fast-forward push: Update from base, then Retry — the worker never force-pushes on its own; a
+  `[remote rejected]` from a hook or a protected branch keeps git's own line), `requestOpened` / `requestExisting` /
+  `requestLink` ({ kind: mr | pr, url }), `requestNone` ({ remote }: not a host the worker knows), `reviewPosted`,
+  `requestMerged`, `remoteMerged` — the keys' lines are coded too. glab's / gh's own words stay uncoded (scrubbed).
+
+### What One records (ship log)
+
+Worker 1.10.0 (`can` 'ship' — it gates no stage: an older worker's git stages run as before and One writes their
+summary note; a worker without it shows **Download again**). Every git stage (commit · push · pr · comment · merge;
+also a `failed` outcome after its commit) and every git key (commit · push · force-push · pr · comment-pr · merge-pr)
+returns a `ShipRecord` (protocol.ts) in `StageOutcome.ship` / `GitResult.ship`: `action`, `from` (stage | key), `at`,
+`branch`, `commit` { sha } (null: nothing new to commit), `head`, `pushed` { remote, force? }, `pushOff`, `request`
+{ url, how: opened | existing | link | commented | merged }, `web` (below) and `failed` { step: push | request, code?:
+pushRejected }. The key 'pr' whose request fails after the push answers `GitResult.error` (and still `ship`) instead of
+throwing; `message` says both in English for older apps. Update from base, refresh, reveal, discard and cleanup write
+no record.
+
+- **Where**: One checks it again (coding/ship.ts `cleanShip`: the branch, shas, the remote's name, `cleanWeb`, a request
+  only on `web.base` + "/", http(s), no credentials, no fragment) and writes ONE grey callout per record that says
+  anything (`shipShows`) at the end of the task page: **"<stage> · <date time>"** (`shipWhen`: "14 Oct 14:32" ·
+  "14.10. 14:32") or **"Git (by hand) · …"** for a key, then the line *Commit a1b2c3d · Branch one/… · MR !42 · pushed
+  to origin/one/…* in the person's language. A stage's note sits in finishStage's `keepTrust(aiWrite(…))` under the stage
+  run's writer (`coding:<task>:<run>`); a key's in gitTask's `keepTrust(…)` under `you~ui` — the task version stays
+  trusted (team: the version takes the page). Only the line and the PR / commit value go into the synced page / row;
+  the full git snapshot, `git.web` and the log stay per device.
+- **Links only to what is on the remote**: the commit, the head and the branch are linked when this record pushed them
+  or a request on the host exists (opened · existing · commented · merged); a commit only on the person's computer
+  (push off, push failed, the Commit key) shows its short sha as text. GitHub `<base>/commit/<sha>` · `<base>/tree/<branch>`,
+  GitLab `<base>/-/commit/<sha>` · `<base>/-/tree/<branch>` (`commitUrl` / `branchUrl`, each path part encoded). The Git
+  tab links the pushed commits and the branch the same way (`GitInfo.web`).
+- **PR / commit** = `prFieldNext`: the request's address wins (a 'link' never over an open request's address); else the
+  pushed commit's link (commit, else head) — only into an empty field or over an older commit link of the same
+  repository. Nothing else is overwritten.
+- **The trailer**: commit messages (stages and the Commit key) and request descriptions end with `One-Task: <task id>`
+  — built as text (run.ts `withTaskTrailer` / `requestBody`), never with `git interpret-trailers` / `git commit
+  --trailer` (a `trailer.<token>.cmd` in the person's or the repo's config runs commands). A `One-Task:` line in
+  Claude's summary or a typed message is removed first.
+- **`web`** = the repository's web address: scheme + host (+ the port of an http(s) remote) + project path, never a user
+  name, token, query, fragment or local path (`cleanWeb` on both sides, the one rule); from the remote URL (`webOf`,
+  worker.json `forge`) — or, when gh / glab named the request, from that address (an SSH host alias, another web host).
+  The owner agreed that host + project path go into the page; in a team the Coding database is the member's private one.
+- An older app ignores `ship` and keeps writing `outcome.url` / `summary`, which the worker still sends.
 
 ### Claude Code
 
@@ -733,7 +782,8 @@ task text of every later stage. Help: *Modernise legacy code* (`help:legacy-mode
 **Static analysis** stage after Ready. More templates: **Explain the code** (Backlog · Import · Ready · Overview —
 doc · Static analysis · Components — doc, output pages · Documentation check — doc · Approve documentation · Done;
 `help:explain-code`), **Review & merge** (Standard up to Ship, then AI review — doc, output review · Approve review &
-merge — gate · Post review — git `comment` · Merge — git `merge` · Done; nothing is posted or merged before the gate;
+merge — gate, a hold gate in new pipelines (Approvals never skip it; stored pipelines are not changed) · Post review —
+git `comment` · Merge — git `merge` · Done; nothing is posted or merged before the gate;
 `help:review-merge`) and, for Business analysis, **Spec → stories** (… Approve spec · Stories — doc, output stories ·
 Done). Git actions `comment` (needs a review; fails without one) and `merge` (refuses uncommitted or unpushed work).
 A browser for reviews: the person's own Claude Code MCP server (e.g. `claude mcp add -s user playwright npx
@@ -758,6 +808,10 @@ A browser for reviews: the person's own Claude Code MCP server (e.g. `claude mcp
   `<repo>`, worktrees folder → `<worktrees>`, home → `~`, temp → `<tmp>`; on Windows in every spelling — any case,
   `/` for `\`, MSYS `/c/Users/…`, JSON-escaped `\\`, `file:///C:/…`, the home folder's 8.3 short name). The config's
   commands are never sent; an error names a command by its program name only.
+- **The repository's web address, nothing more.** Through ship records and `GitInfo.web` (worker 1.10.0) One learns the
+  repository's web address — scheme, host, project path (`cleanWeb` on both sides) — never a user name, token or local
+  path; request addresses come from gh / glab or the compare link and must lie on that address. The setup page's scan
+  still learns the remote's host only (§ Finding the repositories).
 - **No git or Claude Code from the repository.** Every program the worker starts goes through `mcp/src/worker/exec.ts`
   — an argument list, never `shell: true`. One never takes git or Claude Code from the repo folder: on every OS the
   programs One starts by itself get a `PATH` of absolute folders only (an empty or `.` entry would make macOS / Linux
@@ -904,10 +958,10 @@ JSON text frames, subprotocol `one-worker.v1`, defined in
 | Direction | Message |
 |---|---|
 | tab → worker | `{ type: "hello", app: "one", version, workspace: { id, name, kind, readOnly }, pair? }` (`pair`: this device's secret for a downloaded worker) · `status` (same workspace, or the tab is refused) · `nudge` |
-| worker → tab | `welcome` { worker, name, repos: [{ name, baseBranch }], parallel, busy, spentToday, dayLimit, claude: { found, version }, setup, paired } (sent again when the setup page saves) · `refused` { reason: workspace \| unbound \| pair, paired? } + close 4003 · `status` { busy, spentToday } |
-| worker → tab (req) | `next` { repos, worker, docs?, can? } → `{ task: TaskPayload \| null }` (claimed; `stage.model` = the model Claude Code runs with, or null; `can` = `WORKER_CAN` — 'analyze', 'git:comment', 'git:merge', 'doc', 'model' (a stage whose model is set): a stage that needs one goes only to a worker that names it, else the task fails with "needs a newer coding worker" — an older worker ran unknown kinds as git stages or dropped the task as unreadable. Document stages came before `can`, together with `docs: true`: a worker that sends either knows them (`workerCan`), one with neither gets none; a worker that does not name all of `WORKER_CAN` shows "Download again" on #/coding; a worker whose welcome names 1.3.1 up to 1.8.0 — the ZIP import that could plant a `.git`, `workerUnsafe` — shows the security notice with its version instead, on #/coding and in the setup card) · `heartbeat` { taskIds } · `finish` { taskId, stageId, outcome } (retried until confirmed; a task the worker cannot read — a stage kind it does not know — comes back at once as `{ status: 'refused' }`, so One does not hand it out again) |
-| worker → tab (event) | `log` { lines } (a tool line of Edit / MultiEdit / Write carries `e`: { path, hunks: [{ old, new }], clipped? } — ≤ 6 changes × 4,000 characters, scrubbed) · `git` { git } · `note` { text } · `question` { text } · `progress` { progress: { turns, maxTurns, cost, model } } · `intake` { intake: { state, source, label, line, percent, repo?, suggest?, error? } } |
-| tab → worker (req) | `stop` { taskId } · `git` { taskId, verb, repo, branch, title, message? } — verbs: refresh, commit, push, force-push, pr, update-base, discard, cleanup, reveal, comment-pr (`message` = the review), merge-pr · `open-setup` → `{ opened, reason?: off \| no-browser }` · `intake-begin` { taskId, name, size } → `{ uploadId, chunk }` · `intake-chunk` { uploadId, data } · `intake-end` { uploadId } · `intake-clone` { taskId, url } |
+| worker → tab | `welcome` { worker, name, repos: [{ name, baseBranch, branches?, mcp?, push?, pr? }], parallel, busy, spentToday, dayLimit, claude: { found, version }, setup, paired } (sent again when the setup page saves) · `refused` { reason: workspace \| unbound \| pair, paired? } + close 4003 · `status` { busy, spentToday } |
+| worker → tab (req) | `next` { repos, worker, docs?, can? } → `{ task: TaskPayload \| null }` (claimed; `stage.model` = the model Claude Code runs with, or null; `can` = `WORKER_CAN` — 'analyze', 'git:comment', 'git:merge', 'doc', 'model' (a stage whose model is set), 'mcp-list', 'ship' (git stages and keys return a ShipRecord — it gates nothing): a stage that needs one goes only to a worker that names it, else the task fails with "needs a newer coding worker" — an older worker ran unknown kinds as git stages or dropped the task as unreadable. Document stages came before `can`, together with `docs: true`: a worker that sends either knows them (`workerCan`), one with neither gets none; a worker that does not name all of `WORKER_CAN` shows "Download again" on #/coding; a worker whose welcome names 1.3.1 up to 1.8.0 — the ZIP import that could plant a `.git`, `workerUnsafe` — shows the security notice with its version instead, on #/coding and in the setup card) · `heartbeat` { taskIds } · `finish` { taskId, stageId, outcome } (`outcome.ship?` — § What One records; retried until confirmed; a task the worker cannot read — a stage kind it does not know — comes back at once as `{ status: 'refused' }`, so One does not hand it out again) |
+| worker → tab (event) | `log` { lines } (a tool line of Edit / MultiEdit / Write carries `e`: { path, hunks: [{ old, new }], clipped? } — ≤ 6 changes × 4,000 characters, scrubbed) · `git` { git } (`git.web?`: the repo's web address) · `note` { text } · `question` { text } · `progress` { progress: { turns, maxTurns, cost, model } } · `intake` { intake: { state, source, label, line, percent, repo?, suggest?, error? } } |
+| tab → worker (req) | `stop` { taskId } · `git` { taskId, verb, repo, branch, title, message? } — verbs: refresh, commit, push, force-push, pr, update-base, discard, cleanup, reveal, comment-pr (`message` = the review), merge-pr → `{ message, url?, git?, branchGone?, ship?, error? }` (`error`: key 'pr' after the push) · `open-setup` → `{ opened, reason?: off \| no-browser }` · `intake-begin` { taskId, name, size } → `{ uploadId, chunk }` · `intake-chunk` { uploadId, data } · `intake-end` { uploadId } · `intake-clone` { taskId, url } |
 
 `POST http://127.0.0.1:<port>/task` (`Authorization: Bearer <run token>`, no `Origin`): the task tools.
 `/setup`, `/setup/app.css`, `/setup/app.js`, `/setup/api/state | status` (GET) and `/setup/api/scan | add | save`
@@ -940,6 +994,12 @@ workspace, no relay or a takeover by another copy of its file; a viewer waits an
 state: pending | active, online }` — what `node one-worker-cloud.mjs check` prints.
 
 ## Troubleshooting
+
+- **Push rejected** (`pushRejected`) — the task branch on the remote has commits this one lacks (pushed from elsewhere,
+  or changed on the host). **Update from base** merges them in first, then **Retry**; the worker never force-pushes
+  on its own (Force push stays a confirmed key).
+- **No links in the ship note** — the remote's host is not recognised (no "github" / "gitlab" in its name): pick the
+  **Host type** on the setup page (`forge` in worker.json). The log says `requestNone`.
 
 - **Waiting for the worker** — is it running (`node ~/Downloads/one-worker.mjs`) on the port One uses? Set the
   port in Settings *before* the download: the file carries it. Preflight's *Worker offline* card says the same ("The
