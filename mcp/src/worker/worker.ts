@@ -33,10 +33,10 @@ import {
 } from '../../../src/app/features/coding/protocol.ts'
 import type { RepoConfig, WorkerConfig } from './config.ts'
 import { WorkerState } from './state.ts'
-import { claudeInstallHint, claudeMissingError, detectClaude, type ClaudeCaps } from './claude.ts'
+import { claudeInstallHint, claudeMissingError, detectClaude, findClaude, nativeNotOnPath, type ClaudeBin, type ClaudeCaps } from './claude.ts'
 import { scratchRepo } from './config.ts'
 import { Intake } from './intake.ts'
-import { checkRepo, cleanup, commentPr, commitAll, discard, info, isDirty, localBranches, mergePr, openPr, ownLocks, prune, push, updateFromBase, worktreeOf, GitError } from './git.ts'
+import { checkRepo, cleanup, commentPr, commitAll, discard, info, isDirty, localBranches, mergePr, openPr, ownLocks, prune, push, sweepLeftovers, updateFromBase, worktreeOf, GitError } from './git.ts'
 import { FOLDER_BUSY, forgetGitEnv } from './gitenv.ts'
 import { pathId } from './paths.ts'
 import { WorkerLink } from './link.ts'
@@ -53,6 +53,8 @@ export interface WorkerOptions {
   version: string
   /** the Claude Code CLI */
   bin: string
+  /** where `bin` came from (claude.ts findClaude): by its name or the installer's file → looked for anew while not found; else kept */
+  claudeFrom?: ClaudeBin['from']
   /** this program's file (task-mcp is started from it) */
   self: string
   log: (msg: string) => void
@@ -70,6 +72,15 @@ export interface WorkerOptions {
   /** cloud mode, tests: the reconnect steps (ms) */
   backoffMs?: number[]
 }
+
+/**
+ * How long the start waits for the branch lists before the link listens (ONE_WORKER_BRANCHES_MS for tests): the first
+ * welcome names them; a slower read goes on and One hears of it.
+ */
+const BRANCHES_FIRST_MS = Number(process.env.ONE_WORKER_BRANCHES_MS) || 2000
+
+/** While Claude Code is not found, the setup page's polls look for it again at most this often (ONE_WORKER_LOOK_MS: tests). */
+const lookAgainMs = () => Number(process.env.ONE_WORKER_LOOK_MS) || 5000
 
 interface Run {
   task: TaskPayload
@@ -148,6 +159,11 @@ export class Worker {
   private opts: WorkerOptions
   private link: WorkerLink
   private caps: ClaudeCaps = { found: false, version: null, budget: false, modes: [], settingSources: false }
+  /** the Claude Code CLI the stages run (the start's — or the one found later, lookForClaude) */
+  private bin: string
+  /** a search for Claude Code under way, and when the last one ended (the setup page asks at most every few seconds) */
+  private looking: Promise<ClaudeCaps> | null = null
+  private lookedAt = 0
   private runs = new Map<string, Run>()
   private tokens = new Map<string, Run>()
   private workspace: WorkspaceRef | null = null
@@ -163,6 +179,7 @@ export class Worker {
 
   constructor(opts: WorkerOptions) {
     this.opts = opts
+    this.bin = opts.bin
     this.config = opts.config
     this.state = new WorkerState(opts.config.file)
     const cloud = cloudOf(opts.config)
@@ -219,6 +236,8 @@ export class Worker {
 
   /** What the setup page shows live (local only: titles and the log are fine there). */
   live(): SetupLive {
+    // installed since the start? the page shows it within seconds (the next poll)
+    if (!this.caps.found && Date.now() - this.lookedAt > lookAgainMs()) void this.lookForClaude()
     const ws = this.link.connected
     return {
       workspace: this.config.workspace,
@@ -259,6 +278,9 @@ export class Worker {
       try {
         await checkRepo(repo)
         await prune(repo)
+        // folders of failed checkouts Windows still held last time (worker-state.json): removed now if they can be
+        const swept = await sweepLeftovers(repo, this.state)
+        if (swept.length) this.opts.log(`repo "${repo.name}": removed ${swept.length} worktree folder(s) a failed checkout had left behind`)
         // a git the worker's own work stopped (a kill, a crash) may have left its lock: every git step there would fail
         for (const lock of ownLocks(repo, this.state)) this.opts.log(`repo "${repo.name}": ${lock} is left from a git that stopped — delete it when no git runs there (else git steps in that task fail)`)
       } catch (e) {
@@ -291,15 +313,21 @@ export class Worker {
   }
 
   async start(): Promise<'listening' | 'in-use' | 'refused'> {
-    this.caps = await detectClaude(this.opts.bin)
+    this.caps = await detectClaude(this.bin)
+    this.lookedAt = Date.now()
     // this terminal only: the program it looked for may be a path of this computer
     if (!this.caps.found)
       this.opts.log(
         this.caps.missing === 'cmd-refused'
-          ? `${claudeMissingError('cmd-refused')} ("${this.opts.bin}") — plan, implement and document stages fail until then`
-          : `Claude Code was not found ("${this.opts.bin}") — plan, implement and document stages fail until it is installed. ${claudeInstallHint()}`,
+          ? `${claudeMissingError('cmd-refused')} ("${this.bin}") — plan, implement and document stages fail until then`
+          : `Claude Code was not found ("${this.bin}") — plan, implement and document stages fail until it is installed (the worker looks for it again before each of them). ${claudeInstallHint()}`,
       )
-    // ready first: a repo whose git is slow (iCloud Drive fetching files) must not keep One waiting
+    // the branch lists before the first tab can connect — its welcome would name none (a slow git: Windows, a full disk
+    // cache) and the Branch picker would stay empty until the next welcome; but never longer than BRANCHES_FIRST_MS:
+    // a repo whose git is slow (iCloud Drive fetching files) must not keep One waiting (the read goes on, One hears of it)
+    let waited: ReturnType<typeof setTimeout> | undefined
+    await Promise.race([this.refreshBranches(), new Promise((r) => (waited = setTimeout(r, BRANCHES_FIRST_MS)))])
+    clearTimeout(waited)
     const up = await this.link.start()
     if (up === 'listening') void this.checkRepos()
     if (up === 'listening') {
@@ -395,7 +423,7 @@ export class Worker {
           task,
           team: this.workspace?.kind === 'team',
           caps,
-          bin: this.opts.bin,
+          bin: this.bin,
           taskMcp: { command: process.execPath, args: [this.opts.self, 'task-mcp'], env: { ONE_WORKER_TASK_URL: `http://127.0.0.1:${this.config.port}/task`, ONE_WORKER_TASK_TOKEN: token } },
           signal: run.abort.signal,
           log: (line) => this.logLine(task.id, line),
@@ -429,13 +457,36 @@ export class Worker {
   private async claudeForStage(task: TaskPayload): Promise<ClaudeCaps> {
     const kind = task.stage.kind
     if (this.caps.found || (kind !== 'plan' && kind !== 'implement' && kind !== 'doc')) return this.caps
-    const caps = await detectClaude(this.opts.bin)
-    if (caps.found) {
-      this.caps = caps
-      this.opts.log(`Claude Code found${caps.version ? ` (${caps.version})` : ''} — plan, implement and document stages run again`)
-      this.link.announce()
-    }
-    return caps
+    return this.lookForClaude()
+  }
+
+  /**
+   * Look for Claude Code again (only while it is not found; one search at a time): CLAUDE_BIN as it was set — else
+   * findClaude anew, by its name on PATH or in its native installer's folder (a worker started before the install keeps
+   * its old PATH). Found: the stages use it from now on, the terminal and the setup page say so, One gets a new welcome.
+   */
+  private lookForClaude(): Promise<ClaudeCaps> {
+    if (this.caps.found) return Promise.resolve(this.caps)
+    this.looking ??= (async () => {
+      try {
+        // CLAUDE_BIN (or a caller's own file): as it was set — only a name or the installer's file is looked for anew
+        const where = this.opts.claudeFrom === 'path' || this.opts.claudeFrom === 'native' ? findClaude() : null
+        const bin = where?.bin ?? this.bin
+        const caps = await detectClaude(bin)
+        if (caps.found && !this.caps.found) {
+          this.bin = bin
+          this.caps = caps
+          this.opts.log(`Claude Code found${caps.version ? ` (${caps.version})` : ''} — plan, implement and document stages run again`)
+          if (where?.from === 'native') this.opts.log(nativeNotOnPath())
+          this.link.announce()
+        }
+        return caps
+      } finally {
+        this.lookedAt = Date.now()
+        this.looking = null
+      }
+    })()
+    return this.looking
   }
 
   /** Log lines per task, sent together (cloud mode: every 250 ms or 200 lines — one relay frame instead of hundreds). */

@@ -25,12 +25,12 @@ import { WorkerState } from '../src/worker/state.ts'
 import { buildPrompt } from '../src/worker/run.ts'
 import { checkPublish, slugName, suggestName } from '../src/worker/publish.ts'
 import { waitFor } from './helpers.ts'
-import { FakeTab, GIT_ENV, IS_WIN, cleanupAll, fakeBin, makeRepo, pathWith, plainRepo, presetBundle, sh, slashPath, spawnWorker, task, tempDir, type SpawnedWorker } from './worker-helpers.ts'
+import { FakeTab, GIT_ENV, IS_WIN, cleanupAll, fakeBin, gitProgram, makeRepo, pathWith, plainRepo, presetBundle, sh, slashPath, spawnWorker, task, tempDir, type SpawnedWorker } from './worker-helpers.ts'
 
 /** Is git-lfs installed here? (the LFS test runs only then) */
 function hasGitLfs(): boolean {
   try {
-    execFileSync('git', ['lfs', 'version'], { stdio: 'ignore' })
+    execFileSync(gitProgram(), ['lfs', 'version'], { stdio: 'ignore' })
     return true
   } catch {
     return false
@@ -160,13 +160,13 @@ describe('clone addresses', () => {
     assert.ok(!('error' in target))
     // the person cloned it by hand into ~/code long ago
     const own = join(t, 'code', 'remote')
-    execFileSync('git', ['clone', '--quiet', remote, own], { env: { ...process.env, ...GIT_ENV } })
+    execFileSync(gitProgram(), ['clone', '--quiet', remote, own], { env: { ...process.env, ...GIT_ENV } })
     const mine = await cloneInto(target, join(t, 'code'), () => {}, { local: true, home: t })
     assert.deepEqual(mine, { dir: own, already: true })
     assert.ok(!existsSync(join(own, '.git', SOURCE_MARK)), 'the person\'s own checkout stays theirs')
     // in ~/one-repos: an older worker's clone without a mark
     const older = join(t, 'one-repos', 'remote')
-    execFileSync('git', ['clone', '--quiet', remote, older], { env: { ...process.env, ...GIT_ENV } })
+    execFileSync(gitProgram(), ['clone', '--quiet', remote, older], { env: { ...process.env, ...GIT_ENV } })
     assert.deepEqual(await cloneInto(target, join(t, 'one-repos'), () => {}, { local: true, home: t }), { dir: older, already: true })
     assert.equal(readFileSync(join(older, '.git', SOURCE_MARK), 'utf8'), 'clone\n')
   })
@@ -427,7 +427,7 @@ describe('ZIP import: no git folder in any spelling or shape, nothing in the ZIP
     mkdirSync(join(live, 'refs', 'heads'), { recursive: true })
     writeFileSync(join(live, 'HEAD'), 'ref: refs/heads/x\n')
     writeFileSync(join(live, 'config'), `[core]\n\trepositoryformatversion = 0\n\tbare = false\n\tworktree = .\n\tfsmonitor = ${fsmonitor}\n`)
-    execFileSync('git', ['status', '--short'], { cwd: live, env: { ...process.env, ...GIT_ENV }, stdio: 'ignore' })
+    execFileSync(gitProgram(), ['status', '--short'], { cwd: live, env: { ...process.env, ...GIT_ENV }, stdio: 'ignore' })
     assert.ok(existsSync(join(trap, 'fsmonitor-ran')), 'plain git status ran the planted fsmonitor')
   })
 
@@ -609,7 +609,7 @@ describe('ZIP import: no git folder in any spelling or shape, nothing in the ZIP
       // the setup was live: plain git diff runs the person's external diff in the repository's folder, and without the
       // line their diff textconv (the ZIP's script both times)
       sh(wt.dir, 'merge', '--abort')
-      const plainDiff = (...args: string[]) => execFileSync('git', ['diff', ...args, 'HEAD~1', '--', 'analysis.ipynb'], { cwd: wt.dir, env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1' }, stdio: 'ignore' })
+      const plainDiff = (...args: string[]) => execFileSync(gitProgram(), ['diff', ...args, 'HEAD~1', '--', 'analysis.ipynb'], { cwd: wt.dir, env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1' }, stdio: 'ignore' })
       plainDiff()
       assert.deepEqual(ran(), ['ran-external'], 'plain git diff ran the external diff')
       writeFileSync(join(res.dir, '.git', 'info', 'attributes'), '')
@@ -624,12 +624,12 @@ describe('ZIP import: no git folder in any spelling or shape, nothing in the ZIP
     await asPerson(global, async () => {
       const res = await importZip(zipFile({ 'game/.gitattributes': '*.bin filter=lfs diff=lfs merge=lfs -text\n', 'game/data.bin': data, 'game/readme.md': 'hi\n' }), tempDir('clones'), 'game', 'game.zip')
       assert.equal((await repoFacts(res.dir, new Set())).dirty, 0)
-      assert.equal(execFileSync('git', ['status', '--porcelain'], { cwd: res.dir, env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1' }, encoding: 'utf8' }), '')
+      assert.equal(execFileSync(gitProgram(), ['status', '--porcelain'], { cwd: res.dir, env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1' }, encoding: 'utf8' }), '')
       const file = join(tempDir('cfg'), 'worker.json')
       writeFileSync(file, JSON.stringify({ workspace: 'local:lfs-ws-1', repos: [{ name: 'game', path: res.dir, baseBranch: 'main', remote: 'origin', worktreeDir: tempDir('wt'), pr: 'none', push: false }] }))
       const repo = loadConfig(file, {}).config.repos[0]!
       const wt = await ensureWorktree(repo, new WorkerState(file), { id: 'lfstask1', title: 'Readme' }, null)
-      assert.equal(execFileSync('git', ['status', '--porcelain'], { cwd: wt.dir, env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1' }, encoding: 'utf8' }), '', 'no "should have been a pointer"')
+      assert.equal(execFileSync(gitProgram(), ['status', '--porcelain'], { cwd: wt.dir, env: { ...process.env, GIT_CONFIG_NOSYSTEM: '1' }, encoding: 'utf8' }), '', 'no "should have been a pointer"')
       writeFileSync(join(wt.dir, 'readme.md'), 'hello\n')
       await commitAll(wt.dir, 'Readme')
       assert.deepEqual(sh(wt.dir, 'show', '--name-only', '--format=', 'HEAD').trim().split('\n'), ['readme.md'], 'no LFS conversion in the task\'s commit')
@@ -670,7 +670,7 @@ describe('the setup page: clone, projects, ZIP import, own MCP servers', () => {
     // the "GitLab" project a publish creates: a local bare repository the fake glab hands out as its address
     const created = join(tempDir('gitlab'), 'billing-core.git')
     mkdirSync(created, { recursive: true })
-    execFileSync('git', ['init', '--quiet', '--bare', '-b', 'main', created], { env: { ...process.env, ...GIT_ENV } })
+    execFileSync(gitProgram(), ['init', '--quiet', '--bare', '-b', 'main', created], { env: { ...process.env, ...GIT_ENV } })
     const glabLog = join(tempDir('glablog'), 'calls.txt')
     worker = await spawnWorker({ bundle: presetBundle(PRESET), home, env: { ...pathWith(bin), ONE_WORKER_CLONE_LOCAL: '1', FAKE_REMOTE: created, FAKE_LOG: glabLog } })
     await waitFor(() => /setup#k=([A-Za-z0-9_-]{43})/.test(worker!.stdout()), 8000, () => worker!.stderr())
@@ -716,7 +716,7 @@ describe('the setup page: clone, projects, ZIP import, own MCP servers', () => {
     assert.deepEqual(readded.repos.filter((r: { path: string }) => r.path === dir).map((r: { ownSettings: boolean; source: string | null }) => [r.ownSettings, r.source]), [[false, 'cloneDir']])
     // … in ~/one-repos it is an older worker's clone without a mark: marked
     const inDefault = join(home, 'one-repos', 'remote')
-    execFileSync('git', ['clone', '--quiet', remote, inDefault], { env: { ...process.env, ...GIT_ENV } })
+    execFileSync(gitProgram(), ['clone', '--quiet', remote, inDefault], { env: { ...process.env, ...GIT_ENV } })
     await call('/setup/api/clone', { token, body: { url: remote, dir: '~/one-repos' } })
     assert.equal((await jobDone(token)).clone.done, inDefault)
     assert.equal(readFileSync(join(inDefault, '.git', SOURCE_MARK), 'utf8'), 'clone\n', 'an existing clone in the default clone folder is marked when it is added')

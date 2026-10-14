@@ -2,12 +2,13 @@
  * one-worker — what it remembers between runs (worker-state.json next to worker.json, mode 0600, never
  * sent anywhere):
  *  - which branches and worktrees IT created (only those are ever removed — cleanup, discard),
+ *  - the folders of its own failed checkouts that Windows still held (removed once they can be — git.ts),
  *  - which worktree a task works in,
  *  - what Claude Code cost per task and per day (the limits in worker.json).
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { renameRetry } from './paths.ts'
+import { pathId, renameRetry } from './paths.ts'
 
 export interface CreatedEntry {
   task: string
@@ -17,6 +18,16 @@ export interface CreatedEntry {
   branchCreated: boolean
   /** the base commit the branch started from */
   fork: string | null
+  at: number
+}
+
+/** A folder of the worker's own failed checkout it could not remove yet (Windows held a file in it). */
+export interface Leftover {
+  dir: string
+  /** the branch that checkout was for */
+  branch: string
+  /** set when that checkout created the branch and it was still there: deleted with the folder while it points here */
+  tip: string | null
   at: number
 }
 
@@ -30,9 +41,26 @@ export interface StateData {
   spent: Record<string, number>
   /** task id → $ */
   taskSpent: Record<string, number>
+  /** repo name → leftovers of failed checkouts (an older worker drops the key: it only forgets) */
+  leftovers: Record<string, Leftover[]>
 }
 
-const empty = (): StateData => ({ v: 1, created: {}, tasks: {}, spent: {}, taskSpent: {} })
+const empty = (): StateData => ({ v: 1, created: {}, tasks: {}, spent: {}, taskSpent: {}, leftovers: {} })
+
+/** Leftovers as read from the file: well-formed entries only, at most 50 per repo. */
+function readLeftovers(raw: unknown): StateData['leftovers'] {
+  const out: StateData['leftovers'] = {}
+  if (!isObj(raw)) return out
+  for (const [repo, list] of Object.entries(raw)) {
+    if (!Array.isArray(list)) continue
+    const ok = list
+      .filter((l): l is Leftover => isObj(l) && typeof l.dir === 'string' && !!l.dir && typeof l.branch === 'string' && !!l.branch && (l.tip === null || typeof l.tip === 'string') && typeof l.at === 'number')
+      .slice(0, 50)
+      .map((l) => ({ dir: l.dir, branch: l.branch, tip: l.tip, at: l.at }))
+    if (ok.length) out[repo] = ok
+  }
+  return out
+}
 
 export const today = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 
@@ -55,6 +83,7 @@ export class WorkerState {
             tasks: isObj(raw.tasks) ? (raw.tasks as StateData['tasks']) : {},
             spent: isObj(raw.spent) ? (raw.spent as StateData['spent']) : {},
             taskSpent: isObj(raw.taskSpent) ? (raw.taskSpent as StateData['taskSpent']) : {},
+            leftovers: readLeftovers(raw.leftovers),
           }
         }
       }
@@ -82,6 +111,29 @@ export class WorkerState {
   forget(repo: string, branch: string): void {
     if (this.data.created[repo]) delete this.data.created[repo][branch]
     for (const [id, t] of Object.entries(this.data.tasks)) if (t.repo === repo && t.branch === branch) delete this.data.tasks[id]
+    this.save()
+  }
+
+  /** The leftovers of `repo`'s failed checkouts (git.ts removes them once Windows lets go). */
+  leftovers(repo: string): Leftover[] {
+    return [...(this.data.leftovers[repo] ?? [])]
+  }
+
+  /** Is `dir` a leftover of `repo` (compared as the disk does — paths.ts pathId)? */
+  isLeftover(repo: string, dir: string): boolean {
+    return (this.data.leftovers[repo] ?? []).some((l) => pathId(l.dir) === pathId(dir))
+  }
+
+  addLeftover(repo: string, entry: Leftover): void {
+    const list = (this.data.leftovers[repo] ?? []).filter((l) => pathId(l.dir) !== pathId(entry.dir))
+    this.data.leftovers[repo] = [...list, entry].slice(-50)
+    this.save()
+  }
+
+  dropLeftover(repo: string, dir: string): void {
+    const list = (this.data.leftovers[repo] ?? []).filter((l) => pathId(l.dir) !== pathId(dir))
+    if (list.length) this.data.leftovers[repo] = list
+    else delete this.data.leftovers[repo]
     this.save()
   }
 

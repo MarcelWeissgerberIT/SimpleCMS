@@ -7,27 +7,29 @@
  * and no path of this computer reaches the tab.
  */
 import assert from 'node:assert/strict'
-import { chmodSync, lchownSync, lstatSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { chmodSync, copyFileSync, existsSync, lchownSync, lstatSync, mkdirSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { after, afterEach, describe, test } from 'node:test'
 import type { LogLine } from '../../src/app/features/coding/protocol.ts'
-import { findClaude } from '../src/worker/claude.ts'
+import { findClaude, nativeNotOnPath } from '../src/worker/claude.ts'
 import { cloneBase, cloneInto, parseCloneUrl, unquote } from '../src/worker/clone.ts'
 import { emptyConfig, loadConfig, splitArgs, type RepoConfig } from '../src/worker/config.ts'
-import { GitError, git, gitFailure, gitMessage, gitOk, insideWorktrees, ownLocks, worktreeFolder } from '../src/worker/git.ts'
-import { BATCH_SSH, INCLUDE_IF_NOTE, folderBusyCode, forgetGitEnv, gitArgs, gitEnv, gitHint, hintLine, hintTerminal } from '../src/worker/gitenv.ts'
-import { inSyncedFolder, renameRetry } from '../src/worker/paths.ts'
-import { noteGitHint, runStage } from '../src/worker/run.ts'
+import { GitError, checkRepo, ensureWorktree, git, gitFailure, gitMessage, gitOk, insideWorktrees, nativePath, ownLocks, parseWorktrees, sweepLeftovers, worktreeFolder } from '../src/worker/git.ts'
+import { BATCH_SSH, INCLUDE_IF_NOTE, folderBusyCode, forgetGitEnv, gitArgs, gitEnv, gitHint, hintLine, hintTerminal, sshCommandInEnv } from '../src/worker/gitenv.ts'
+import { inICloud, inSyncedFolder, renameRetry } from '../src/worker/paths.ts'
+import { noteGitHint, runStage, syncedWarning } from '../src/worker/run.ts'
 import { guessAnalyzeAsync, guessTest, shortPath, usualPlaces } from '../src/worker/scan.ts'
 import { Scrubber, repoScrubber } from '../src/worker/scrub.ts'
-import { joinArgs } from '../src/worker/setup.ts'
+import { joinArgs, syncedRow } from '../src/worker/setup.ts'
+import { SETUP_JS } from '../src/worker/setup-page.ts'
 import { WorkerState } from '../src/worker/state.ts'
 import { Worker } from '../src/worker/worker.ts'
-import { entryPath, isUnsafe } from '../src/worker/zipimport.ts'
+import { entryPath, gitDirIn, isUnsafe, type GuardDisk } from '../src/worker/zipimport.ts'
 import { waitFor } from './helpers.ts'
-import { FAKE_CLAUDE, FakeTab, GIT_ENV, WS_LOCAL, cleanupAll, leakIn, makeRepo, plainRepo, repoEntry, sh, slashPath, spawnWorker, task, tempDir, writeConfig, WORKER_BUNDLE, type SpawnedWorker } from './worker-helpers.ts'
+import { FAKE_CLAUDE, FakeTab, GIT_ENV, IS_WIN, WS_LOCAL, caseFolds, cleanupAll, gitProgram, leakIn, makeRepo, onPath, plainRepo, repoEntry, sh, slashPath, spawnWorker, task, tempDir, writeConfig, WORKER_BUNDLE, type SpawnedWorker } from './worker-helpers.ts'
 
 after(cleanupAll)
 
@@ -799,5 +801,322 @@ describe('W1: a real worker — git actions, request errors, Claude Code install
     const again = await tab.run(task({ kind: 'implement' }, { id: 'late1abc', branch: first.branch! }))
     assert.equal(again.status, 'ok', JSON.stringify(again))
     await waitFor(() => tab.messages.some((m) => m.type === 'welcome' && m.claude.found), 5000)
+  })
+})
+
+/* ------------------------------------------------------------------ W2 */
+
+describe('W2: ssh on a clone — core.sshCommand handed over in the environment (Windows); macOS / Linux as 1.8.1', () => {
+  /** This process's environment without a GIT_SSH* or GIT_CONFIG_* of the test machine (a runner's proxy sets some). */
+  const clean = (extra: Record<string, string> = {}): NodeJS.ProcessEnv => {
+    const env: NodeJS.ProcessEnv = { ...process.env, ...GIT_ENV }
+    for (const k of Object.keys(env)) if (/^(git_ssh(_command)?|git_config_(count|key_\d+|value_\d+|parameters))$/i.test(k)) delete env[k]
+    return { ...env, ...extra }
+  }
+  const viaCount = { GIT_CONFIG_COUNT: '2', GIT_CONFIG_KEY_0: 'user.name', GIT_CONFIG_VALUE_0: 'x', GIT_CONFIG_KEY_1: 'Core.SSHCommand', GIT_CONFIG_VALUE_1: 'ssh -i ~/.ssh/id_work' }
+
+  test('sshCommandInEnv: GIT_CONFIG_COUNT / KEY_<n> (any case of the key, and of the variable on Windows) and GIT_CONFIG_PARAMETERS (`git -c`)', () => {
+    assert.equal(sshCommandInEnv(viaCount, 'linux'), true)
+    assert.equal(sshCommandInEnv({ git_config_count: '1', git_config_key_0: 'core.sshcommand' }, 'win32'), true)
+    assert.equal(sshCommandInEnv({ git_config_count: '1', git_config_key_0: 'core.sshcommand' }, 'linux'), false, 'POSIX keys keep their case')
+    assert.equal(sshCommandInEnv({ GIT_CONFIG_PARAMETERS: "'core.sshCommand'='ssh -i k' 'alias.p'='!x'" }, 'linux'), true)
+    assert.equal(sshCommandInEnv({ GIT_CONFIG_PARAMETERS: "'core.sshcommand=ssh'" }, 'linux'), true, 'the older quoting')
+    assert.equal(sshCommandInEnv({ GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'core.sshCommandX' }, 'linux'), false)
+    assert.equal(sshCommandInEnv({ GIT_CONFIG_COUNT: '2', GIT_CONFIG_KEY_0: 'credential.interactive', GIT_CONFIG_KEY_1: 'url.https://h/.insteadOf' }, 'linux'), false)
+    assert.equal(sshCommandInEnv({ GIT_CONFIG_PARAMETERS: "'alias.x'='core.sshCommand=1'" }, 'linux'), false, 'a value that only mentions it')
+    assert.equal(sshCommandInEnv({ GIT_CONFIG_PARAMETERS: "'a.b'='it'\\''s' 'core.sshCommand'='ssh'" }, 'linux'), true, 'after a value with a quote in it')
+    assert.equal(sshCommandInEnv({ GIT_CONFIG_PARAMETERS: 'not git\'s quoting core.sshCommand=x' }, 'linux'), true, 'a form it cannot read: any mention counts (their ssh stays)')
+    assert.equal(sshCommandInEnv({}, 'win32'), false)
+  })
+
+  test('a clone with core.sshCommand in the environment: no BatchMode on Windows (the scoped --global read cannot see it); macOS / Linux never add one', async () => {
+    forgetGitEnv()
+    // the real git: its scoped read misses the environment's config — what a clone would otherwise decide on
+    const scoped = gitExit(['config', '--global', '--get', 'core.sshCommand'], clean(viaCount))
+    assert.equal(scoped, 1, 'git config --global does not read GIT_CONFIG_COUNT')
+    assert.equal((await gitEnv(null, clean(viaCount), { platform: 'win32' })).GIT_SSH_COMMAND, undefined)
+    assert.equal((await gitEnv(null, clean({ GIT_CONFIG_PARAMETERS: "'core.sshCommand'='ssh -i k'" }), { platform: 'win32' })).GIT_SSH_COMMAND, undefined)
+    assert.equal((await gitEnv(null, clean(), { platform: 'win32' })).GIT_SSH_COMMAND, BATCH_SSH, 'nothing set: BatchMode (Windows)')
+    // an existing repository: git's own unscoped read sees the environment's config — no BatchMode either
+    const repo = plainRepo(join(tempDir('gitenv'), 'repo'))
+    forgetGitEnv()
+    assert.equal((await gitEnv(repo, clean(viaCount), { platform: 'win32' })).GIT_SSH_COMMAND, undefined)
+    for (const platform of ['linux', 'darwin'] as const) {
+      forgetGitEnv()
+      assert.equal((await gitEnv(null, clean(), { platform })).GIT_SSH_COMMAND, undefined, `${platform}: as 1.8.1`)
+      assert.equal((await gitEnv(null, clean(viaCount), { platform })).GIT_SSH_COMMAND, undefined, platform)
+      assert.equal((await gitEnv(repo, clean(), { platform })).GIT_SSH_COMMAND, undefined, platform)
+    }
+    forgetGitEnv()
+  })
+})
+
+/** git's exit code for `args` with `env` (the tests' own git, by its file on Windows). */
+function gitExit(args: string[], env: NodeJS.ProcessEnv): number {
+  try {
+    execFileSync(gitProgram(), args, { env, stdio: 'ignore', cwd: tempDir('cwd') })
+    return 0
+  } catch (e) {
+    return (e as { status?: number }).status ?? -1
+  }
+}
+
+describe('W2: paths git prints, in this computer\'s form', () => {
+  test('nativePath / parseWorktrees: Git for Windows\' C:/Users/… becomes C:\\Users\\… (and UNC \\\\server\\share); elsewhere as git wrote it', () => {
+    assert.equal(nativePath('C:/Users/runneradmin/AppData/Local/Temp/wt/one-x', 'win32'), 'C:\\Users\\runneradmin\\AppData\\Local\\Temp\\wt\\one-x')
+    assert.equal(nativePath('//server/share/repo/', 'win32'), '\\\\server\\share\\repo')
+    assert.equal(nativePath('/home/me/wt/one-x/', 'linux'), '/home/me/wt/one-x')
+    const out = 'worktree C:/code/site\r\nHEAD abc\r\nbranch refs/heads/main\r\n\r\nworktree C:/code/.one-worktrees/site/one-fix-1\r\nHEAD def\r\nbranch refs/heads/one/fix-1\r\n\r\nworktree D:/bare.git\r\nbare\r\n'
+    assert.deepEqual(parseWorktrees(out, 'win32'), [
+      { path: 'C:\\code\\site', branch: 'main', head: 'abc', bare: false },
+      { path: 'C:\\code\\.one-worktrees\\site\\one-fix-1', branch: 'one/fix-1', head: 'def', bare: false },
+      { path: 'D:\\bare.git', branch: null, head: null, bare: true },
+    ])
+    assert.deepEqual(parseWorktrees('worktree /srv/a b/x\nHEAD 1\ndetached\n', 'linux'), [{ path: '/srv/a b/x', branch: null, head: '1', bare: false }])
+  })
+
+  test('a task\'s worktree from an earlier stage comes back as the worker made it (the same string), from git\'s own list', async () => {
+    const r = makeRepo()
+    const file = writeConfig(r, { workspace: WS_LOCAL.id, repos: [repoEntry(r)] })
+    const repo = loadConfig(file).config.repos[0]!
+    const state = new WorkerState(file)
+    const first = await ensureWorktree(repo, state, { id: 'same1abc', title: 'Same path' }, null)
+    const again = await ensureWorktree(repo, state, { id: 'same1abc', title: 'Same path' }, null)
+    assert.equal(again.dir, first.dir)
+    assert.ok(again.dir.startsWith(r.worktrees), again.dir)
+    assert.equal(await checkRepo(repo), nativePath(sh(r.path, 'rev-parse', '--show-toplevel').trim()))
+  })
+
+  test('inICloud resolves the home folder as it resolves the path (a home written another way)', () => {
+    const rel = join('kim-home', 'Library', 'Mobile Documents', 'com~apple~CloudDocs', 'repo')
+    assert.equal(inICloud(join(process.cwd(), rel), 'kim-home', 'darwin'), true)
+    assert.equal(inICloud('/Users/kim/Library/Mobile Documents/x', '/Users/kim/', 'darwin'), true)
+    assert.equal(inICloud('/Users/kim/code/x', '/Users/kim', 'darwin'), false)
+  })
+})
+
+describe('W2: the ZIP guard names a git folder as it is stored — also on a disk that folds names', () => {
+  /** A disk that answers for any spelling of a name (case-insensitive, as APFS and NTFS usually are). */
+  const folding: GuardDisk = {
+    lstat: (p) => {
+      const dir = dirname(p)
+      const hit = existsSync(dir) ? readdirSync(dir).find((n) => n.toLowerCase() === basename(p).toLowerCase()) : undefined
+      return hit === undefined ? undefined : lstatSync(join(dir, hit))
+    },
+    list: (dir) => readdirSync(dir, { withFileTypes: true }),
+  }
+
+  test('".GIT" on a folding disk: refused as ".GIT" (the name the person finds in their ZIP), not ".git"', () => {
+    const top = tempDir('guard')
+    mkdirSync(join(top, '.GIT'))
+    assert.deepEqual(gitDirIn(top, folding), { path: join(top, '.GIT'), kind: 'dotgit' })
+    assert.deepEqual(gitDirIn(top), { path: join(top, '.GIT'), kind: 'dotgit' })
+    const deep = tempDir('guard')
+    mkdirSync(join(deep, 'a', '.Git'), { recursive: true })
+    assert.deepEqual(gitDirIn(deep, folding), { path: join(deep, 'a', '.Git'), kind: 'dotgit' })
+  })
+
+  test('a folding nobody foresaw (the disk answers ".git" for another name): named by the entry it answers with', () => {
+    const top = tempDir('guard')
+    mkdirSync(join(top, 'odd-name'))
+    writeFileSync(join(top, 'README.md'), 'x\n')
+    const odd: GuardDisk = { ...folding, lstat: (p) => (basename(p) === '.git' ? lstatSync(join(dirname(p), 'odd-name')) : folding.lstat(p)) }
+    assert.deepEqual(gitDirIn(top, odd), { path: join(top, 'odd-name'), kind: 'dotgit' })
+    const clean = tempDir('guard')
+    mkdirSync(join(clean, 'src'))
+    assert.equal(gitDirIn(clean, folding), null)
+  })
+
+  test('caseFolds asks the disk itself (the macOS / Windows runners: true; Linux: false) — never the OS', () => {
+    const dir = tempDir('fold')
+    writeFileSync(join(dir, 'Probe-A.txt'), '')
+    assert.equal(caseFolds(dir), existsSync(join(dir, 'probe-a.TXT')))
+  })
+})
+
+describe('W2: a failed checkout\'s folder Windows still held — remembered in worker-state.json, removed next time', () => {
+  /** Make `dir` impossible to remove for this account (root: an immutable file; else a folder without write access). */
+  const asRoot = typeof process.getuid === 'function' && process.getuid() === 0
+  const holdScript = asRoot ? 'mkdir -p locked && echo x > locked/f && chattr +i locked/f' : 'mkdir -p locked && echo x > locked/f && chmod 555 locked'
+  const release = (dir: string) => {
+    if (!existsSync(join(dir, 'locked'))) return
+    if (asRoot) execFileSync('chattr', ['-i', join(dir, 'locked', 'f')])
+    else chmodSync(join(dir, 'locked'), 0o755)
+  }
+  /** Can a folder be held here at all (chattr needs an ext4-like disk; Windows has no sh hook)? */
+  const canHold = (() => {
+    if (IS_WIN) return false
+    const probe = tempDir('hold')
+    try {
+      execFileSync('sh', ['-c', holdScript], { cwd: probe, stdio: 'ignore' })
+      try {
+        rmSync(probe, { recursive: true, force: true })
+        return false
+      } catch {
+        return true
+      } finally {
+        release(probe)
+      }
+    } catch {
+      return false
+    }
+  })()
+
+  test('the folder and the branch are in the state file; after a restart the same task gets the same branch and folder back', { skip: !canHold && 'cannot hold a folder here (Windows: no sh hook; a disk without chattr)' }, async () => {
+    const r = makeRepo()
+    const file = writeConfig(r, { workspace: WS_LOCAL.id, repos: [repoEntry(r)] })
+    const repo = loadConfig(file).config.repos[0]!
+    // the checkout fails (its hook exits 1) and leaves a folder nobody can remove
+    const hook = join(r.path, '.git', 'hooks', 'post-checkout')
+    writeFileSync(hook, `#!/bin/sh\n${holdScript}\nexit 1\n`, { mode: 0o755 })
+    const notes: Array<[string, string, string | undefined]> = []
+    await assert.rejects(ensureWorktree(repo, new WorkerState(file), { id: 'held1abc', title: 'Held' }, null, (k, s, c) => notes.push([k, s, c])))
+    const dir = join(r.worktrees, 'one-held-held1a')
+    assert.ok(existsSync(dir), 'the folder is still there')
+    // a restart: what the worker knows comes from worker-state.json alone
+    const left = new WorkerState(file).leftovers('demo')
+    assert.deepEqual(left.map((l) => [l.dir, l.branch]), [[dir, 'one/held-held1a']])
+    assert.ok(!notes.some(([, , c]) => c === 'folderBusy'), 'folderBusy only on Windows')
+    // the person closes what held it; the next try (after the restart) removes it and takes the same name
+    release(dir)
+    rmSync(hook)
+    const state = new WorkerState(file)
+    const wt = await ensureWorktree(repo, state, { id: 'held1abc', title: 'Held' }, null)
+    assert.deepEqual([wt.dir, wt.branch], [dir, 'one/held-held1a'])
+    assert.ok(existsSync(join(dir, 'README.md')))
+    assert.deepEqual(new WorkerState(file).leftovers('demo'), [])
+  })
+
+  test('sweepLeftovers removes only what a failed checkout left: never a task\'s worktree, never outside the worktree folder, a branch only while untouched', async () => {
+    const r = makeRepo()
+    const file = writeConfig(r, { workspace: WS_LOCAL.id, repos: [repoEntry(r)] })
+    const repo = loadConfig(file).config.repos[0]!
+    const state = new WorkerState(file)
+    const live = await ensureWorktree(repo, state, { id: 'live1abc', title: 'Live' }, null)
+    const outside = join(tempDir('outside'), 'keep')
+    mkdirSync(outside)
+    const gone = join(r.worktrees, 'one-gone-x1')
+    mkdirSync(join(gone, 'sub'), { recursive: true })
+    // a branch the failed checkout made, untouched since — and one that got a commit since (kept)
+    sh(r.path, 'branch', 'one/gone-x1', 'main')
+    const tip = sh(r.path, 'rev-parse', 'one/gone-x1').trim()
+    sh(r.path, 'branch', 'one/moved-x2', 'main')
+    const moved = join(r.worktrees, 'one-moved-x2')
+    mkdirSync(moved)
+    state.addLeftover('demo', { dir: live.dir, branch: live.branch, tip: null, at: 1 })
+    state.addLeftover('demo', { dir: outside, branch: 'x', tip: null, at: 1 })
+    state.addLeftover('demo', { dir: gone, branch: 'one/gone-x1', tip, at: 1 })
+    state.addLeftover('demo', { dir: moved, branch: 'one/moved-x2', tip: '0'.repeat(40), at: 1 })
+    const removed = await sweepLeftovers(repo, state)
+    assert.deepEqual(removed.sort(), [gone, moved].sort())
+    assert.ok(existsSync(join(live.dir, 'README.md')), 'a task\'s worktree stays')
+    assert.ok(existsSync(outside), 'outside the worktree folder: never removed')
+    assert.equal(existsSync(gone), false)
+    assert.equal(sh(r.path, 'branch', '--list', 'one/gone-x1').trim(), '', 'the untouched branch went with it')
+    assert.match(sh(r.path, 'branch', '--list', 'one/moved-x2'), /one\/moved-x2/, 'a branch that is not where the checkout left it stays')
+    assert.deepEqual(new WorkerState(file).leftovers('demo'), [])
+  })
+})
+
+describe('W2: where the task worktrees are, as the synced-folder lines say it', () => {
+  const home = '/Users/kim'
+  const cloud = `${home}/Library/CloudStorage/OneDrive-Personal/site`
+  const repoAt = (worktreeDir: string) => ({ name: 'site', path: cloud, worktreeDir }) as RepoConfig
+  const mac = { platform: 'darwin' as const, home }
+
+  test('syncedWarning: ~/.one-worktrees named only when they are there; an own folder, or one in a synced folder too, said as it is', () => {
+    const atHome = syncedWarning('cloudStorage', repoAt(`${home}/.one-worktrees/site`), mac)
+    assert.deepEqual(atHome.v, { repo: 'site', worktrees: 'home' })
+    assert.match(atHome.s, /stay out of it, in ~\/\.one-worktrees\./)
+    const own = syncedWarning('cloudStorage', repoAt('/Volumes/fast/wt/site'), mac)
+    assert.deepEqual(own.v, { repo: 'site', worktrees: 'own' })
+    assert.ok(!own.s.includes('.one-worktrees'), own.s)
+    assert.match(own.s, /stay out of it\./)
+    const synced = syncedWarning('cloudStorage', repoAt(`${home}/Library/CloudStorage/Dropbox/wt/site`), mac)
+    assert.deepEqual(synced.v, { repo: 'site', worktrees: 'synced' })
+    assert.match(synced.s, /in a synced folder too \(worktreeDir in worker\.json\)/)
+    // Windows: OneDrive, the worktrees in .one-worktrees in the user folder — or a cloud worker's own folder
+    const win = { platform: 'win32' as const, home: 'C:\\Users\\Kim', env: { OneDrive: 'C:\\Users\\Kim\\OneDrive' } }
+    const od = (worktreeDir: string) => syncedWarning('onedrive', { name: 'site', path: 'C:\\Users\\Kim\\OneDrive\\code\\site', worktreeDir } as RepoConfig, win)
+    assert.equal(od('C:\\Users\\Kim\\.one-worktrees\\site').v.worktrees, 'home')
+    assert.match(od('C:\\Users\\Kim\\.one-worktrees\\site').s, /in \.one-worktrees in your user folder\./)
+    assert.equal(od('C:\\Users\\Kim\\.config\\one-cloud\\worktrees\\site').v.worktrees, 'own')
+    assert.equal(od('c:\\users\\kim\\onedrive\\wt\\site').v.worktrees, 'synced')
+    // iCloud's line says nothing of them (as before) — the value is there all the same
+    assert.equal(syncedWarning('icloud', repoAt(`${home}/.one-worktrees/site`), mac).v.worktrees, 'home')
+  })
+
+  test('the setup page\'s rows: a ticked repo by its worktreeDir, one not ticked yet by the default it would get (a cloud worker: its own folder)', () => {
+    const opts = { home, platform: 'darwin' as const, cloud: false }
+    assert.deepEqual(syncedRow(cloud, null, opts), { synced: 'cloudStorage', worktrees: 'home' })
+    assert.deepEqual(syncedRow(cloud, null, { ...opts, cloud: true }), { synced: 'cloudStorage', worktrees: 'own' })
+    assert.deepEqual(syncedRow(cloud, '/Volumes/fast/wt/site', opts), { synced: 'cloudStorage', worktrees: 'own' })
+    assert.deepEqual(syncedRow(cloud, `${home}/Library/CloudStorage/Dropbox/wt`, opts), { synced: 'cloudStorage', worktrees: 'synced' })
+    assert.deepEqual(syncedRow(`${home}/code/site`, null, opts), { synced: null, worktrees: null })
+    // the page has the words for each, in English and German
+    for (const key of ['wthome', 'wtown', 'wtsynced', 'syncedcloudStorage', 'syncedonedrive']) assert.equal(SETUP_JS.split(`${key}: '`).length - 1, 2, key)
+    assert.ok(!/Unless worktreeDir|Sofern worktreeDir/.test(SETUP_JS), 'no line claims a folder the worktrees may not be in')
+  })
+})
+
+describe('W2: Claude Code installed after the start — by its native installer, off the worker\'s PATH', () => {
+  test('findClaude: macOS / Linux take ~/.local/bin/claude while PATH has none (as Windows takes its claude.exe); on PATH: by its name', () => {
+    const exists = (files: string[]) => (p: string) => files.includes(p)
+    const native = '/home/max/.local/bin/claude'
+    assert.deepEqual(findClaude({ PATH: '/usr/bin:/bin' }, { platform: 'linux', home: '/home/max', exists: exists([native]) }), { bin: native, from: 'native' })
+    assert.deepEqual(findClaude({ PATH: '/usr/bin:/opt/n/bin' }, { platform: 'darwin', home: '/home/max', exists: exists([native, '/opt/n/bin/claude']) }), { bin: 'claude', from: 'path' })
+    assert.deepEqual(findClaude({ PATH: '/usr/bin' }, { platform: 'linux', home: '/home/max', exists: exists([]) }), { bin: 'claude', from: 'path' })
+    // a relative PATH entry is the working folder: never counts as "on PATH"
+    assert.deepEqual(findClaude({ PATH: '.:bin' }, { platform: 'linux', home: '/home/max', exists: (p) => p === native || !p.startsWith('/') }), { bin: native, from: 'native' })
+    assert.match(nativeNotOnPath('linux'), /~\/\.local\/bin/)
+    assert.match(nativeNotOnPath('win32'), /%USERPROFILE%/)
+  })
+
+  const FAKE_NATIVE_SKIP = IS_WIN && 'a fake Claude Code cannot be claude.exe — the native file on Windows is covered by findClaude above'
+
+  test('a stage\'s Retry finds it, and the setup page within seconds: the worker looks again with findClaude, not only at the file it started with', { skip: FAKE_NATIVE_SKIP }, async () => {
+    const r = makeRepo()
+    const home = tempDir('home')
+    // PATH: git and node only — no claude anywhere
+    const bin = tempDir('bin')
+    symlinkSync(onPath('git'), join(bin, 'git'))
+    symlinkSync(process.execPath, join(bin, 'node'))
+    const file = writeConfig(r, { workspace: WS_LOCAL.id, port: PORT, pollSec: 2, name: 'test-box', repos: [repoEntry(r)] })
+    worker = await spawnWorker({ bundle: WORKER_BUNDLE, args: ['--config', file], home, env: { CLAUDE_BIN: '', PATH: bin } })
+    const tab = await FakeTab.connect(PORT)
+    tabs.push(tab)
+    tab.hello(WS_LOCAL)
+    assert.equal((await tab.next('welcome')).claude.found, false)
+    const first = await tab.run(task({ kind: 'implement' }, { id: 'native1a' }))
+    assert.equal(first.status, 'failed')
+    // the native installer puts it in ~/.local/bin and only tells the person to add that to PATH
+    mkdirSync(join(home, '.local', 'bin'), { recursive: true })
+    writeFileSync(join(home, '.local', 'bin', 'claude'), `#!/bin/sh\nexec '${process.execPath}' '${FAKE_CLAUDE}' "$@"\n`, { mode: 0o755 })
+    const again = await tab.run(task({ kind: 'implement' }, { id: 'native1a', branch: first.branch! }))
+    assert.equal(again.status, 'ok', JSON.stringify(again))
+    await waitFor(() => tab.messages.some((m) => m.type === 'welcome' && m.claude.found), 5000)
+    assert.match(worker.stderr(), /claude is in ~\/\.local\/bin, which is not on the PATH the worker started with/)
+  })
+
+  test('in-process: while not found, the setup page\'s polls look again (at most every few seconds) — and see a later install', async () => {
+    const home = tempDir('home')
+    const saved = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE, PATH: process.env.PATH, look: process.env.ONE_WORKER_LOOK_MS }
+    const bin = tempDir('bin')
+    Object.assign(process.env, { HOME: home, USERPROFILE: home, PATH: bin, ONE_WORKER_LOOK_MS: '50' })
+    try {
+      const w = new Worker({ config: { ...emptyConfig(join(tempDir('cfg'), 'worker.json')), port: 0 }, version: 'test', bin: 'claude', claudeFrom: 'path', self: 'x', log: () => {} })
+      assert.equal(w.live().claude.found, false)
+      const native = join(home, '.local', 'bin', IS_WIN ? 'claude.exe' : 'claude')
+      mkdirSync(dirname(native), { recursive: true })
+      if (IS_WIN) copyFileSync(process.execPath, native)
+      else writeFileSync(native, `#!/bin/sh\nexec '${process.execPath}' '${FAKE_CLAUDE}' "$@"\n`, { mode: 0o755 })
+      await waitFor(() => w.live().claude.found, 10_000)
+      assert.equal(w.info().claude.found, true)
+    } finally {
+      for (const [k, v] of Object.entries({ HOME: saved.HOME, USERPROFILE: saved.USERPROFILE, PATH: saved.PATH, ONE_WORKER_LOOK_MS: saved.look })) {
+        if (v === undefined) delete process.env[k]
+        else process.env[k] = v
+      }
+    }
   })
 })

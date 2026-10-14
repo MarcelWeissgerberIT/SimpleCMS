@@ -52,8 +52,9 @@ export interface ClaudeBin {
  *    path with a folder (`.\tools\claude.exe`, `./claude`, `~/…`) is resolved ONCE, against the folder the worker starts
  *    in — never later against a task's worktree, where a repository could ship a file of that name
  *  - else `claude` by its name (PATH)
- *  - else, Windows: the native installer's %USERPROFILE%\.local\bin\claude.exe while PATH does not name it (the
- *    installer only prints a note about that) — `check` and the start say so
+ *  - else the native installer's own file while PATH does not name `claude` — Windows %USERPROFILE%\.local\bin\claude.exe,
+ *    macOS / Linux ~/.local/bin/claude (the installer only prints a note about PATH, and a worker started before the
+ *    install keeps its old PATH anyway) — `check` and the start say so
  */
 export function findClaude(env: NodeJS.ProcessEnv = process.env, opts: { platform?: NodeJS.Platform; cwd?: string; home?: string; exists?: (p: string) => boolean } = {}): ClaudeBin {
   const platform = opts.platform ?? process.platform
@@ -66,9 +67,14 @@ export function findClaude(env: NodeJS.ProcessEnv = process.env, opts: { platfor
     const withFolder = /[\\/]/.test(set) || (platform === 'win32' && /^[A-Za-z]:/.test(set))
     return { bin: withFolder ? P.resolve(opts.cwd ?? process.cwd(), set) : set, from: 'env' }
   }
-  if (platform === 'win32' && !resolveCommand('claude', [], { platform, env, ...(opts.exists ? { exists: opts.exists } : {}) }, 'shim').ok) {
-    const native = win32.join(home, '.local', 'bin', 'claude.exe')
-    if ((opts.exists ?? isFile)(native)) return { bin: native, from: 'native' }
+  const exists = opts.exists ?? isFile
+  const onPath =
+    platform === 'win32'
+      ? resolveCommand('claude', [], { platform, env, exists }, 'shim').ok
+      : (envGet(env, 'PATH', platform) ?? '').split(':').some((d) => d.startsWith('/') && exists(posix.join(d, 'claude')))
+  if (!onPath) {
+    const native = P.join(home, '.local', 'bin', platform === 'win32' ? 'claude.exe' : 'claude')
+    if (exists(native)) return { bin: native, from: 'native' }
   }
   return { bin: 'claude', from: 'path' }
 }
@@ -77,6 +83,10 @@ export const claudeBin = (env: NodeJS.ProcessEnv = process.env): string => findC
 
 /** The terminal's line for Claude Code found only in its native installer's folder (Windows; never sent). */
 export const NATIVE_NOT_ON_PATH = 'claude.exe is in %USERPROFILE%\\.local\\bin, which is not on PATH — the worker uses it; to run `claude` yourself, add that folder to your user PATH (then open a new terminal), or set CLAUDE_BIN'
+
+/** That line on this kind of computer (macOS / Linux: ~/.local/bin). */
+export const nativeNotOnPath = (platform: NodeJS.Platform = process.platform): string =>
+  platform === 'win32' ? NATIVE_NOT_ON_PATH : 'claude is in ~/.local/bin, which is not on the PATH the worker started with — the worker uses it; to run `claude` yourself, add that folder to PATH (the installer says how), or set CLAUDE_BIN'
 
 /** How to get Claude Code on this kind of computer (terminal lines). */
 export function claudeInstallHint(platform: NodeJS.Platform = process.platform): string {

@@ -11431,11 +11431,12 @@ function inFolder(path, folder, platform = process.platform) {
 function inICloud(path, home = homedir(), platform = process.platform) {
   if (platform !== "darwin") return false;
   const p = resolve(path);
+  const h = resolve(home);
   const under = (dir) => p === dir || p.startsWith(dir + sep);
-  const mobile = join(home, "Library", "Mobile Documents");
+  const mobile = join(h, "Library", "Mobile Documents");
   if (under(mobile)) return true;
   const drive = join(mobile, "com~apple~CloudDocs");
-  return ["Documents", "Desktop"].some((f) => under(join(home, f)) && existsSync(join(drive, f)));
+  return ["Documents", "Desktop"].some((f) => under(join(h, f)) && existsSync(join(drive, f)));
 }
 var ONEDRIVE_VARS = ["OneDrive", "OneDriveConsumer", "OneDriveCommercial"];
 function inSyncedFolder(path, opts = {}) {
@@ -11452,6 +11453,12 @@ function inSyncedFolder(path, opts = {}) {
     if (dir && /^(?:[A-Za-z]:[\\/]|[\\/]{2}[^\\/])/.test(dir) && inFolder(path, dir, "win32")) return "onedrive";
   }
   return null;
+}
+function worktreesAt(worktreeDir, opts = {}) {
+  const platform = opts.platform ?? process.platform;
+  const home = opts.home ?? homedir();
+  if (inSyncedFolder(worktreeDir, { ...opts, platform, home })) return "synced";
+  return inFolder(worktreeDir, (platform === "win32" ? win322 : posix2).join(home, ".one-worktrees"), platform) ? "home" : "own";
 }
 var HELD = /* @__PURE__ */ new Set(["EPERM", "EBUSY", "EACCES"]);
 var sleepSync = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
@@ -11490,12 +11497,36 @@ function forgetGitEnv() {
   sshConfig.clear();
 }
 var isSet = (env, key, platform) => !!envGet(env, key, platform)?.trim();
+function sshCommandInEnv(env, platform = process.platform) {
+  const count2 = Number(envGet(env, "GIT_CONFIG_COUNT", platform)?.trim());
+  if (Number.isInteger(count2) && count2 > 0) {
+    for (let i2 = 0; i2 < Math.min(count2, 1e3); i2++) if (envGet(env, `GIT_CONFIG_KEY_${i2}`, platform)?.trim().toLowerCase() === "core.sshcommand") return true;
+  }
+  const params = envGet(env, "GIT_CONFIG_PARAMETERS", platform) ?? "";
+  const keys = paramKeys(params);
+  return keys ? keys.some((k) => k.toLowerCase() === "core.sshcommand") : /core\.sshcommand/i.test(params);
+}
+var SQ = "'((?:[^']|'\\\\'')*)'";
+var PARAM = new RegExp(`\\s*${SQ}(?:=${SQ})?`, "y");
+function paramKeys(text2) {
+  const keys = [];
+  PARAM.lastIndex = 0;
+  while (PARAM.lastIndex < text2.length) {
+    const at = PARAM.lastIndex;
+    const m = PARAM.exec(text2);
+    if (!m) return text2.slice(at).trim() ? null : keys;
+    const first = m[1].replace(/'\\''/g, "'");
+    keys.push(m[2] !== void 0 ? first : first.split("=")[0]);
+  }
+  return keys;
+}
 var INCLUDE_IF_NOTE = "ssh for this clone runs as you set it up (not in BatchMode): your global or system git config has includeIf sections, and one may set core.sshCommand for the new repository \u2014 a host-key or passphrase question then waits until the clone's time limit.";
 async function gitEnv(cwd, base = process.env, opts = {}) {
   const platform = opts.platform ?? process.platform;
   const env = { ...base, ...GIT_ENV };
   if (platform !== "win32") return env;
   if (isSet(base, "GIT_SSH_COMMAND", platform) || isSet(base, "GIT_SSH", platform)) return env;
+  if (cwd === null && sshCommandInEnv(base, platform)) return env;
   const key = cwd === null ? "" : pathId(cwd, platform);
   let set = sshConfig.get(key);
   if (set === void 0) {
@@ -11709,13 +11740,13 @@ function markOlderSources(raw, file, platform = process.platform, home = homedir
   const r = isObj(raw) ? raw : {};
   const defaultDir = join2(home, "one-repos");
   const marked = [];
-  for (const entry2 of Array.isArray(r.repos) ? r.repos : []) {
-    if (!isObj(entry2) || typeof entry2.path !== "string" || !entry2.path.trim()) continue;
-    if (isObj(entry2.claude) && typeof entry2.claude.projectSettings === "boolean") continue;
-    const path = resolve2(configDir, expandHome(entry2.path.trim()));
+  for (const entry of Array.isArray(r.repos) ? r.repos : []) {
+    if (!isObj(entry) || typeof entry.path !== "string" || !entry.path.trim()) continue;
+    if (isObj(entry.claude) && typeof entry.claude.projectSettings === "boolean") continue;
+    const path = resolve2(configDir, expandHome(entry.path.trim()));
     if (markOf(path)) continue;
     const kind = olderImport(path, defaultDir, platform) ? "zip" : inFolder(path, defaultDir, platform) && clonedLike(path, platform) ? "folder" : null;
-    if (kind && markSource(path, kind)) marked.push(typeof entry2.name === "string" ? entry2.name.slice(0, 64) : basename(path));
+    if (kind && markSource(path, kind)) marked.push(typeof entry.name === "string" ? entry.name.slice(0, 64) : basename(path));
   }
   try {
     mkdirSync(configDir, { recursive: true, mode: 448 });
@@ -11887,8 +11918,8 @@ function sanitizeConfig(raw, file, env = process.env, opts = {}) {
   const repos = [];
   const list = Array.isArray(r.repos) ? r.repos : [];
   if (!Array.isArray(r.repos)) problems.push('"repos" is missing: list the repositories this worker may work in');
-  list.forEach((entry2, i2) => {
-    const repo = repoConfig(entry2, i2, configDir, problems, opts, cloneDir);
+  list.forEach((entry, i2) => {
+    const repo = repoConfig(entry, i2, configDir, problems, opts, cloneDir);
     if (!repo) return;
     if (repos.some((x2) => x2.name === repo.name)) problems.push(`repos[${i2}]: the name "${repo.name}" is used twice \u2014 the second one is ignored`);
     else repos.push(repo);
@@ -12085,26 +12116,26 @@ function saveRepos(file, choices, workspace, env = process.env, extra = {}) {
   const pathOf2 = (r) => typeof r.path === "string" && r.path.trim() ? resolve2(configDir, expandHome(r.path.trim())) : null;
   const repos = choices.map((c) => {
     const old = before.find((r) => pathOf2(r) !== null && samePath(pathOf2(r), c.path)) ?? {};
-    const entry2 = { ...old, name: c.name, path: homeRelative(resolve2(c.path)), baseBranch: c.baseBranch };
-    if (c.remote && c.remote !== "origin") entry2.remote = c.remote;
-    if (c.testCommand?.length) entry2.testCommand = c.testCommand;
-    else delete entry2.testCommand;
+    const entry = { ...old, name: c.name, path: homeRelative(resolve2(c.path)), baseBranch: c.baseBranch };
+    if (c.remote && c.remote !== "origin") entry.remote = c.remote;
+    if (c.testCommand?.length) entry.testCommand = c.testCommand;
+    else delete entry.testCommand;
     if (c.analyzeCommand !== void 0) {
-      if (c.analyzeCommand?.length) entry2.analyzeCommand = c.analyzeCommand;
-      else delete entry2.analyzeCommand;
+      if (c.analyzeCommand?.length) entry.analyzeCommand = c.analyzeCommand;
+      else delete entry.analyzeCommand;
     }
-    entry2.push = c.push;
-    entry2.pr = c.pr;
-    if (c.maxUsdPerTask) entry2.maxUsdPerTask = c.maxUsdPerTask;
-    else delete entry2.maxUsdPerTask;
+    entry.push = c.push;
+    entry.pr = c.pr;
+    if (c.maxUsdPerTask) entry.maxUsdPerTask = c.maxUsdPerTask;
+    else delete entry.maxUsdPerTask;
     if (c.mcpServers) {
-      const claude = isObj(entry2.claude) ? { ...entry2.claude } : {};
+      const claude = isObj(entry.claude) ? { ...entry.claude } : {};
       if (c.mcpServers.length) claude.mcpServers = c.mcpServers;
       else delete claude.mcpServers;
-      if (Object.keys(claude).length) entry2.claude = claude;
-      else delete entry2.claude;
+      if (Object.keys(claude).length) entry.claude = claude;
+      else delete entry.claude;
     }
-    return entry2;
+    return entry;
   });
   const next = { ...raw };
   if (workspace) next.workspace = workspace;
@@ -12117,14 +12148,14 @@ function saveRepos(file, choices, workspace, env = process.env, extra = {}) {
   const nextCloneDir = cloneDirOf(env.ONE_WORKER_CLONE_DIR ?? next.cloneDir, configDir, []);
   choices.forEach((c, i2) => {
     if (c.projectSettings === void 0) return;
-    const entry2 = repos[i2];
+    const entry = repos[i2];
     const path = resolve2(c.path);
     const mark = markOf(path);
     const byDefault = !mark && !inFolder(path, nextCloneDir);
-    const claude = isObj(entry2.claude) ? { ...entry2.claude } : {};
+    const claude = isObj(entry.claude) ? { ...entry.claude } : {};
     if (typeof claude.projectSettings !== "boolean" && c.projectSettings === byDefault && c.projectSettings === !mark) return;
     claude.projectSettings = c.projectSettings;
-    entry2.claude = claude;
+    entry.claude = claude;
   });
   const check = sanitizeConfig(next, file, env);
   const dropped = check.problems.filter((p) => p.startsWith("repos["));
@@ -12198,14 +12229,17 @@ function findClaude(env = process.env, opts = {}) {
     const withFolder = /[\\/]/.test(set) || platform === "win32" && /^[A-Za-z]:/.test(set);
     return { bin: withFolder ? P.resolve(opts.cwd ?? process.cwd(), set) : set, from: "env" };
   }
-  if (platform === "win32" && !resolveCommand("claude", [], { platform, env, ...opts.exists ? { exists: opts.exists } : {} }, "shim").ok) {
-    const native = win323.join(home, ".local", "bin", "claude.exe");
-    if ((opts.exists ?? isFile)(native)) return { bin: native, from: "native" };
+  const exists = opts.exists ?? isFile;
+  const onPath = platform === "win32" ? resolveCommand("claude", [], { platform, env, exists }, "shim").ok : (envGet(env, "PATH", platform) ?? "").split(":").some((d) => d.startsWith("/") && exists(posix3.join(d, "claude")));
+  if (!onPath) {
+    const native = P.join(home, ".local", "bin", platform === "win32" ? "claude.exe" : "claude");
+    if (exists(native)) return { bin: native, from: "native" };
   }
   return { bin: "claude", from: "path" };
 }
 var claudeBin = (env = process.env) => findClaude(env).bin;
 var NATIVE_NOT_ON_PATH = "claude.exe is in %USERPROFILE%\\.local\\bin, which is not on PATH \u2014 the worker uses it; to run `claude` yourself, add that folder to your user PATH (then open a new terminal), or set CLAUDE_BIN";
+var nativeNotOnPath = (platform = process.platform) => platform === "win32" ? NATIVE_NOT_ON_PATH : "claude is in ~/.local/bin, which is not on the PATH the worker started with \u2014 the worker uses it; to run `claude` yourself, add that folder to PATH (the installer says how), or set CLAUDE_BIN";
 function claudeInstallHint(platform = process.platform) {
   if (platform === "win32")
     return "Install Claude Code (native installer in PowerShell: irm https://claude.ai/install.ps1 | iex \xB7 or npm i -g @anthropic-ai/claude-code; it needs Git for Windows) and sign in once with `claude` \u2014 or set CLAUDE_BIN to claude.exe or its cli.js";
@@ -12453,7 +12487,7 @@ Claude Code could not start (${e.code ?? e.name})`;
 // src/worker/git.ts
 import { createHash } from "node:crypto";
 import { existsSync as existsSync3, lstatSync as lstatSync2, mkdirSync as mkdirSync2, readFileSync as readFileSync3, readlinkSync } from "node:fs";
-import { dirname as dirname2, join as join4, resolve as resolve3 } from "node:path";
+import { dirname as dirname2, join as join4, posix as posix4, resolve as resolve3, win32 as win324 } from "node:path";
 var GitError = class extends Error {
   /** a log code that says more (folderBusy: Windows still holds files in a folder the worker removes) */
   code;
@@ -12532,20 +12566,21 @@ async function gitOk(cwd, args, timeoutMs) {
 var same = (a, b) => samePath(a, b);
 async function checkRepo(repo) {
   if (!existsSync3(repo.path)) throw new GitError(`the folder does not exist`);
-  const top = (await gitOk(repo.path, ["rev-parse", "--show-toplevel"], 3e4)).trim();
+  const r = await git(repo.path, ["rev-parse", "--show-toplevel"], 3e4, { local: true });
+  if (r.code !== 0) throw gitFailure(r, "git rev-parse failed");
+  const top = r.stdout.trim();
   if (!top) throw new GitError("not a git checkout");
-  return top;
+  return nativePath(top);
 }
-async function hasRemote(repo) {
-  return (await git(repo.path, ["remote", "get-url", repo.remote])).code === 0;
+function nativePath(p, platform = process.platform) {
+  return platform === "win32" ? win324.resolve(p) : posix4.resolve(p);
 }
-async function listWorktrees(repo) {
-  const out = await gitOk(repo.path, ["worktree", "list", "--porcelain"]);
+function parseWorktrees(out, platform = process.platform) {
   const list = [];
   let cur = null;
   for (const line of out.split(/\r?\n/)) {
     if (line.startsWith("worktree ")) {
-      cur = { path: line.slice(9), branch: null, head: null, bare: false };
+      cur = { path: nativePath(line.slice(9), platform), branch: null, head: null, bare: false };
       list.push(cur);
     } else if (cur && line.startsWith("branch ")) cur.branch = line.slice(7).replace(/^refs\/heads\//, "");
     else if (cur && line.startsWith("HEAD ")) cur.head = line.slice(5);
@@ -12553,14 +12588,22 @@ async function listWorktrees(repo) {
   }
   return list;
 }
+async function hasRemote(repo) {
+  return (await git(repo.path, ["remote", "get-url", repo.remote])).code === 0;
+}
+async function listWorktrees(repo) {
+  const r = await git(repo.path, ["worktree", "list", "--porcelain"], 12e4, { local: true });
+  if (r.code !== 0) throw gitFailure(r, "git worktree failed");
+  return parseWorktrees(r.stdout);
+}
 var BRANCHES_MAX = 100;
 async function localBranches(repo, timeoutMs = 5e3) {
-  const r = await git(repo.path, ["for-each-ref", "--sort=-committerdate", `--count=${BRANCHES_MAX}`, "--format=%(refname:short)", "refs/heads"], timeoutMs);
+  const r = await git(repo.path, ["for-each-ref", "--sort=-committerdate", `--count=${BRANCHES_MAX}`, "--format=%(refname:short)", "refs/heads"], timeoutMs, { local: true });
   if (r.code !== 0) return [];
   return r.stdout.split(/\r?\n/).map((b) => b.trim()).filter((b) => b && b.length <= 200);
 }
 async function prune(repo) {
-  await git(repo.path, ["worktree", "prune"], 3e4);
+  await git(repo.path, ["worktree", "prune"], 3e4, { local: true });
 }
 var refExists = async (cwd, ref) => (await git(cwd, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`])).code === 0;
 var branchExists = (repo, b) => refExists(repo.path, `refs/heads/${b}`);
@@ -12606,13 +12649,42 @@ function worktreeFolder(branch, platform = process.platform) {
   const cut = s.slice(0, 32).replace(/[. ]+$/, "") || "_";
   return `${cut}-${createHash("sha1").update(branch).digest("hex").slice(0, 6)}`;
 }
-var leftovers = /* @__PURE__ */ new Set();
-async function freeFolder(repo, dir, branch) {
-  if (!existsSync3(dir)) return;
-  if (leftovers.has(pathId(dir)) && insideWorktrees(repo, dir) && await rmRetry(dir)) {
-    leftovers.delete(pathId(dir));
-    await prune(repo);
+async function sweepLeftovers(repo, state) {
+  const removed = [];
+  for (const l of state.leftovers(repo.name)) {
+    try {
+      const used = state.created(repo.name, l.branch);
+      const at = (await listWorktrees(repo)).find((w) => same(w.path, l.dir));
+      if (!insideWorktrees(repo, l.dir) || at && at.branch !== l.branch || used?.worktree && same(used.worktree, l.dir)) {
+        state.dropLeftover(repo.name, l.dir);
+        continue;
+      }
+      if (existsSync3(l.dir) && !await rmRetry(l.dir)) continue;
+      await prune(repo);
+      if (l.tip && !used && await branchExists(repo, l.branch)) {
+        const tip = (await git(repo.path, ["rev-parse", "--verify", "--quiet", `refs/heads/${l.branch}^{commit}`], 3e4, { local: true })).stdout.trim();
+        const out = !(await listWorktrees(repo)).some((w) => w.branch === l.branch);
+        if (tip === l.tip && out) await git(repo.path, ["branch", "-D", l.branch], 3e4, { local: true });
+      }
+      state.dropLeftover(repo.name, l.dir);
+      removed.push(l.dir);
+    } catch {
+    }
+  }
+  return removed;
+}
+async function freeFolder(repo, state, dir, branch) {
+  if (!existsSync3(dir)) {
+    if (state.isLeftover(repo.name, dir)) state.dropLeftover(repo.name, dir);
     return;
+  }
+  if (state.isLeftover(repo.name, dir) && insideWorktrees(repo, dir)) {
+    if (await rmRetry(dir)) {
+      state.dropLeftover(repo.name, dir);
+      await prune(repo);
+      return;
+    }
+    throw new GitError(`the worktree folder for ${branch}, left by a failed checkout, could not be removed yet`, folderBusyCode());
   }
   throw new GitError(`the worktree folder for ${branch} already exists and is not a worktree of this repo \u2014 move it away first`);
 }
@@ -12625,6 +12697,7 @@ async function ensureWorktree(repo, state, task, wanted, note) {
     if (tree && existsSync3(tree.path)) return { dir: tree.path, branch: known.branch, created: !!state.created(repo.name, known.branch)?.branchCreated };
   }
   if (wanted) return reuse(repo, state, task, wanted, top, trees, note);
+  await sweepLeftovers(repo, state);
   await tryFetch(repo, note);
   const base = await baseRef(repo);
   const fork = (await gitOk(repo.path, ["rev-parse", `${base}^{commit}`])).trim();
@@ -12632,17 +12705,17 @@ async function ensureWorktree(repo, state, task, wanted, note) {
   for (let n = 2; await branchExists(repo, branch) && n < 50; n++) branch = `${repo.branchPrefix}${slug(task.title)}-${shortId(task.id)}-${n}`;
   if (!await validBranch(repo, branch)) throw new GitError(`"${branch}" is not a valid branch name (check branchPrefix in worker.json)`);
   const dir = join4(repo.worktreeDir, worktreeFolder(branch));
-  await freeFolder(repo, dir, branch);
+  await freeFolder(repo, state, dir, branch);
   mkdirSync2(dirname2(dir), { recursive: true });
   note?.("git", `New branch ${branch} from ${base} in its own worktree\u2026`, "newBranch", { branch, base });
-  await addWorktree(repo, ["-b", branch, dir, base], dir, branch, note);
+  await addWorktree(repo, state, ["-b", branch, dir, base], dir, branch, branch, note);
   state.remember(repo.name, branch, { task: task.id, worktree: dir, branchCreated: true, fork, at: Date.now() });
   state.setTask(task.id, { repo: repo.name, branch, worktree: dir });
   return { dir, branch, created: true };
 }
 var checkoutMs = () => Number(process.env.ONE_WORKER_CHECKOUT_MS) || 6e5;
 var clock2 = (ms) => `${Math.floor(ms / 6e4)}:${String(Math.round(ms / 1e3) % 60).padStart(2, "0")}`;
-async function addWorktree(repo, args, dir, newBranch, note) {
+async function addWorktree(repo, state, args, dir, branch, newBranch, note) {
   const started = Date.now();
   const beat = setInterval(() => {
     const time4 = clock2(Date.now() - started);
@@ -12655,16 +12728,20 @@ async function addWorktree(repo, args, dir, newBranch, note) {
     const failed = gitFailure(r, "git worktree add failed");
     await r.ended;
     try {
+      let held = false;
       if (insideWorktrees(repo, dir)) {
         await git(repo.path, ["worktree", "remove", "--force", dir]);
-        if (!await rmRetry(dir)) {
-          leftovers.add(pathId(dir));
-          const busy = folderBusyCode();
-          if (busy) note?.("warn", FOLDER_BUSY, busy, {});
-        }
+        held = !await rmRetry(dir);
       }
       await prune(repo);
       if (newBranch && await branchExists(repo, newBranch)) await git(repo.path, ["branch", "-D", newBranch]);
+      if (held) {
+        const made = !!newBranch && await branchExists(repo, newBranch);
+        const tip = made ? (await git(repo.path, ["rev-parse", "--verify", "--quiet", `refs/heads/${newBranch}^{commit}`], 3e4, { local: true })).stdout.trim() || null : null;
+        state.addLeftover(repo.name, { dir, branch, tip, at: Date.now() });
+        const busy = folderBusyCode();
+        if (busy) note?.("warn", FOLDER_BUSY, busy, {});
+      }
     } catch {
     }
     throw failed;
@@ -12683,14 +12760,14 @@ async function reuse(repo, state, task, branch, top, trees, note) {
     return { dir: tree.path, branch, created: !!own2?.branchCreated };
   }
   const dir = join4(repo.worktreeDir, worktreeFolder(branch));
-  await freeFolder(repo, dir, branch);
+  await freeFolder(repo, state, dir, branch);
   mkdirSync2(dirname2(dir), { recursive: true });
   if (await branchExists(repo, branch)) {
-    await addWorktree(repo, [dir, branch], dir, null, note);
+    await addWorktree(repo, state, [dir, branch], dir, branch, null, note);
   } else {
     await tryFetch(repo, note);
     if (!await remoteBranchExists(repo, branch)) throw new GitError(`the branch "${branch}" does not exist (locally or on ${repo.remote}) \u2014 check the task's Branch field`);
-    await addWorktree(repo, ["--track", "-b", branch, dir, `${repo.remote}/${branch}`], dir, branch, note);
+    await addWorktree(repo, state, ["--track", "-b", branch, dir, `${repo.remote}/${branch}`], dir, branch, branch, note);
   }
   state.remember(repo.name, branch, { task: task.id, worktree: dir, branchCreated: !!own2?.branchCreated, fork: own2?.fork ?? null, at: own2?.at ?? Date.now() });
   state.setTask(task.id, { repo: repo.name, branch, worktree: dir });
@@ -13081,13 +13158,13 @@ async function cleanup(repo, state, branch) {
 }
 function ownLocks(repo, state) {
   const out = [];
-  for (const entry2 of Object.values(state.data.created[repo.name] ?? {})) {
-    if (!entry2.worktree) continue;
+  for (const entry of Object.values(state.data.created[repo.name] ?? {})) {
+    if (!entry.worktree) continue;
     try {
-      const link = readFileSync3(join4(entry2.worktree, ".git"), "utf8");
+      const link = readFileSync3(join4(entry.worktree, ".git"), "utf8");
       const gitdir = /^gitdir:\s*(.+)$/m.exec(link)?.[1]?.trim();
       if (!gitdir) continue;
-      const lock = join4(resolve3(entry2.worktree, gitdir), "index.lock");
+      const lock = join4(resolve3(entry.worktree, gitdir), "index.lock");
       if (existsSync3(lock)) out.push(lock);
     } catch {
     }
@@ -13427,11 +13504,21 @@ function claudeMissing(caps, log2) {
   log2("error", error2, caps.missing === "cmd-refused" ? "claudeCmdRefused" : "claudeMissing", {});
   return error2;
 }
-var SYNCED = {
-  icloud: (repo) => `${repo} lies in iCloud Drive: git waits whenever a file is only in the cloud, so steps can take minutes. Faster: keep the folder downloaded (Finder \u2192 right-click \u2192 Keep Downloaded), or clone it again with "Clone from GitLab / GitHub\u2026" on the worker's setup page (into ~/one-repos, not synced) and tick that one.`,
-  cloudStorage: (repo) => `${repo} lies in a synced cloud folder (~/Library/CloudStorage \u2014 OneDrive, Google Drive, Dropbox \u2026): files may be downloaded on demand and locked while they sync, so git steps can stall. Unless worktreeDir in worker.json says otherwise, the task worktrees stay out of it (in ~/.one-worktrees; a cloud worker keeps them in its own folder). Faster: a clone outside it (~/one-repos).`,
-  onedrive: (repo) => `${repo} lies in OneDrive: OneDrive downloads online-only files first and locks files while it syncs, so git steps can stall or fail. Unless worktreeDir in worker.json says otherwise, the task worktrees stay out of it (in .one-worktrees in your user folder; a cloud worker keeps them in its own folder). Faster: move the repo out of OneDrive (e.g. to C:\\code) and tick that folder.`
+var WORKTREES = {
+  home: (home) => `The task worktrees stay out of it, in ${home}.`,
+  own: () => "The task worktrees stay out of it.",
+  synced: () => "The task worktrees lie in a synced folder too (worktreeDir in worker.json) \u2014 set one outside it."
 };
+function syncedWarning(kind, repo, opts = {}) {
+  const at = worktreesAt(repo.worktreeDir, opts);
+  const v = { repo: repo.name, worktrees: at };
+  const name = repo.name;
+  if (kind === "icloud")
+    return { v, s: `${name} lies in iCloud Drive: git waits whenever a file is only in the cloud, so steps can take minutes. Faster: keep the folder downloaded (Finder \u2192 right-click \u2192 Keep Downloaded), or clone it again with "Clone from GitLab / GitHub\u2026" on the worker's setup page (into ~/one-repos, not synced) and tick that one.` };
+  if (kind === "cloudStorage")
+    return { v, s: `${name} lies in a synced cloud folder (~/Library/CloudStorage \u2014 OneDrive, Google Drive, Dropbox \u2026): files may be downloaded on demand and locked while they sync, so git steps can stall. ${WORKTREES[at]("~/.one-worktrees")} Faster: a clone outside it (~/one-repos).` };
+  return { v, s: `${name} lies in OneDrive: OneDrive downloads online-only files first and locks files while it syncs, so git steps can stall or fail. ${WORKTREES[at](".one-worktrees in your user folder")} Faster: move the repo out of OneDrive (e.g. to C:\\code) and tick that folder.` };
+}
 function noteGitHint(text2, repo, log2, terminal, platform = process.platform) {
   const code = gitHint(text2, platform);
   if (!code) return;
@@ -13527,7 +13614,10 @@ async function runStage(ctx) {
   try {
     log2("info", `Stage "${task.stage.name}" (${kind}) on ${repo.name}`, "stage", { stage: task.stage.name, kind, repo: repo.name });
     const synced = inSyncedFolder(repo.path);
-    if (synced) log2("warn", SYNCED[synced](repo.name), synced, { repo: repo.name });
+    if (synced) {
+      const w = syncedWarning(synced, repo);
+      log2("warn", w.s, synced, w.v);
+    }
     const wt = await ensureWorktree(repo, ctx.state, task, task.branch, (k, s, c, v, detail) => {
       log2(k, s, c, v);
       if (c === "fetchFailed" && typeof v?.why === "string") noteGitHint(detail ?? v.why, repo, log2, ctx.terminal, ctx.platform);
@@ -13828,7 +13918,17 @@ import { randomBytes as randomBytes5 } from "node:crypto";
 // src/worker/state.ts
 import { existsSync as existsSync5, readFileSync as readFileSync4, writeFileSync as writeFileSync3 } from "node:fs";
 import { dirname as dirname3, join as join6 } from "node:path";
-var empty = () => ({ v: 1, created: {}, tasks: {}, spent: {}, taskSpent: {} });
+var empty = () => ({ v: 1, created: {}, tasks: {}, spent: {}, taskSpent: {}, leftovers: {} });
+function readLeftovers(raw) {
+  const out = {};
+  if (!isObj2(raw)) return out;
+  for (const [repo, list] of Object.entries(raw)) {
+    if (!Array.isArray(list)) continue;
+    const ok = list.filter((l) => isObj2(l) && typeof l.dir === "string" && !!l.dir && typeof l.branch === "string" && !!l.branch && (l.tip === null || typeof l.tip === "string") && typeof l.at === "number").slice(0, 50).map((l) => ({ dir: l.dir, branch: l.branch, tip: l.tip, at: l.at }));
+    if (ok.length) out[repo] = ok;
+  }
+  return out;
+}
 var today = (d = /* @__PURE__ */ new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 var isObj2 = (v) => !!v && typeof v === "object" && !Array.isArray(v);
 var WorkerState = class {
@@ -13846,7 +13946,8 @@ var WorkerState = class {
             created: isObj2(raw.created) ? raw.created : {},
             tasks: isObj2(raw.tasks) ? raw.tasks : {},
             spent: isObj2(raw.spent) ? raw.spent : {},
-            taskSpent: isObj2(raw.taskSpent) ? raw.taskSpent : {}
+            taskSpent: isObj2(raw.taskSpent) ? raw.taskSpent : {},
+            leftovers: readLeftovers(raw.leftovers)
           };
         }
       }
@@ -13861,14 +13962,33 @@ var WorkerState = class {
   created(repo, branch) {
     return this.data.created[repo]?.[branch] ?? null;
   }
-  remember(repo, branch, entry2) {
+  remember(repo, branch, entry) {
     ;
-    (this.data.created[repo] ??= {})[branch] = entry2;
+    (this.data.created[repo] ??= {})[branch] = entry;
     this.save();
   }
   forget(repo, branch) {
     if (this.data.created[repo]) delete this.data.created[repo][branch];
     for (const [id, t] of Object.entries(this.data.tasks)) if (t.repo === repo && t.branch === branch) delete this.data.tasks[id];
+    this.save();
+  }
+  /** The leftovers of `repo`'s failed checkouts (git.ts removes them once Windows lets go). */
+  leftovers(repo) {
+    return [...this.data.leftovers[repo] ?? []];
+  }
+  /** Is `dir` a leftover of `repo` (compared as the disk does — paths.ts pathId)? */
+  isLeftover(repo, dir) {
+    return (this.data.leftovers[repo] ?? []).some((l) => pathId(l.dir) === pathId(dir));
+  }
+  addLeftover(repo, entry) {
+    const list = (this.data.leftovers[repo] ?? []).filter((l) => pathId(l.dir) !== pathId(entry.dir));
+    this.data.leftovers[repo] = [...list, entry].slice(-50);
+    this.save();
+  }
+  dropLeftover(repo, dir) {
+    const list = (this.data.leftovers[repo] ?? []).filter((l) => pathId(l.dir) !== pathId(dir));
+    if (list.length) this.data.leftovers[repo] = list;
+    else delete this.data.leftovers[repo];
     this.save();
   }
   taskAt(taskId) {
@@ -13904,7 +14024,7 @@ import { randomBytes as randomBytes3 } from "node:crypto";
 // src/worker/clone.ts
 import { existsSync as existsSync6, mkdirSync as mkdirSync3, readdirSync as readdirSync2, writeFileSync as writeFileSync4 } from "node:fs";
 import { homedir as homedir6 } from "node:os";
-import { join as join7, posix as posix4, win32 as win324 } from "node:path";
+import { join as join7, posix as posix5, win32 as win325 } from "node:path";
 var HOST = /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/;
 var SEGMENT = /^[A-Za-z0-9_~][A-Za-z0-9_.~+-]{0,99}$/;
 var USER = /^[A-Za-z0-9._-]{1,64}$/;
@@ -13920,7 +14040,7 @@ function parseCloneUrl(raw, local = false, platform = process.platform) {
   const win2 = platform === "win32";
   if (local && (text2.startsWith("/") || text2.startsWith("file://") || win2 && /^[A-Za-z]:[\\/]/.test(text2))) {
     const dir = text2.startsWith("file://") ? decodeURIComponent(text2.slice(7)) : text2;
-    if (!(win2 ? win324 : posix4).isAbsolute(dir) || dir.split(/[\\/]/).includes("..")) return { error: "That is not a clone address." };
+    if (!(win2 ? win325 : posix5).isAbsolute(dir) || dir.split(/[\\/]/).includes("..")) return { error: "That is not a clone address." };
     return { url: dir, host: "local", path: dir.replace(/^\/+/, ""), name: folderName(win2 ? dir.replace(/\\/g, "/") : dir), kind: "local" };
   }
   if (/^[a-z][a-z0-9+.-]*::/i.test(text2)) return { error: "Only HTTPS and SSH addresses can be cloned here." };
@@ -13960,7 +14080,7 @@ var unquote = (raw) => {
 function cloneBase(raw, home = homedir6(), platform = process.platform, env = process.env) {
   const text2 = unquote(typeof raw === "string" ? raw : "");
   if (!text2 || text2.length > 1e3 || /[\u0000-\u001f]/.test(text2)) return { error: "Type the folder the clones go into." };
-  const P = platform === "win32" ? win324 : posix4;
+  const P = platform === "win32" ? win325 : posix5;
   let dir;
   if (text2 === "~" || text2.startsWith("~/") || text2.startsWith("~\\")) dir = P.join(home, text2.slice(2));
   else if (P.isAbsolute(text2) && (platform !== "win32" || /^(?:[A-Za-z]:[\\/]|[\\/]{2}[^\\/])/.test(text2))) dir = P.resolve(text2);
@@ -14751,23 +14871,33 @@ function entryPath(name, platform = process.platform) {
 }
 var isUnsafe = (v) => typeof v === "object" && v !== null && "unsafe" in v;
 var shown = (name) => name.replace(/[\u0000-\u001f\u007f]/g, "?").slice(0, 120);
-var entry = (path) => lstatSync3(path, { throwIfNoEntry: false });
-function isRepoDir(d) {
-  const head = entry(join8(d, "HEAD"));
+var DISK = {
+  lstat: (path) => lstatSync3(path, { throwIfNoEntry: false }),
+  list: (dir) => readdirSync3(dir, { withFileTypes: true })
+};
+function isRepoDir(d, disk) {
+  const head = disk.lstat(join8(d, "HEAD"));
   if (!head || head.isDirectory()) return false;
-  if (entry(join8(d, "commondir"))) return true;
-  return !!entry(join8(d, "objects")) && !!entry(join8(d, "refs"));
+  if (disk.lstat(join8(d, "commondir"))) return true;
+  return !!disk.lstat(join8(d, "objects")) && !!disk.lstat(join8(d, "refs"));
 }
-function gitDirIn(dir) {
+function gitDirIn(dir, disk = DISK) {
   const todo = [dir];
   while (todo.length) {
     const d = todo.pop();
-    if (entry(join8(d, ".git"))) return { path: join8(d, ".git"), kind: "dotgit" };
-    if (isRepoDir(d)) return { path: d, kind: "repo" };
-    for (const e of readdirSync3(d, { withFileTypes: true })) {
-      if (isDotGit(e.name)) return { path: join8(d, e.name), kind: "dotgit" };
-      if (e.isDirectory()) todo.push(join8(d, e.name));
+    const entries = disk.list(d);
+    const named = entries.find((e) => isDotGit(e.name));
+    if (named) return { path: join8(d, named.name), kind: "dotgit" };
+    const dot = disk.lstat(join8(d, ".git"));
+    if (dot) {
+      const same2 = entries.find((e) => {
+        const st = disk.lstat(join8(d, e.name));
+        return !!st && st.dev === dot.dev && st.ino === dot.ino;
+      });
+      return { path: join8(d, same2?.name ?? ".git"), kind: "dotgit" };
     }
+    if (isRepoDir(d, disk)) return { path: d, kind: "repo" };
+    for (const e of entries) if (e.isDirectory()) todo.push(join8(d, e.name));
   }
   return null;
 }
@@ -16346,6 +16476,8 @@ ${text2}`);
 };
 
 // src/worker/worker.ts
+var BRANCHES_FIRST_MS = Number(process.env.ONE_WORKER_BRANCHES_MS) || 2e3;
+var lookAgainMs = () => Number(process.env.ONE_WORKER_LOOK_MS) || 5e3;
 var isObj6 = (v) => !!v && typeof v === "object" && !Array.isArray(v);
 var INTAKE_EVENT_MS = 250;
 var str3 = (v, max2) => typeof v === "string" ? v.slice(0, max2) : "";
@@ -16404,6 +16536,11 @@ var Worker2 = class {
   opts;
   link;
   caps = { found: false, version: null, budget: false, modes: [], settingSources: false };
+  /** the Claude Code CLI the stages run (the start's — or the one found later, lookForClaude) */
+  bin;
+  /** a search for Claude Code under way, and when the last one ended (the setup page asks at most every few seconds) */
+  looking = null;
+  lookedAt = 0;
   runs = /* @__PURE__ */ new Map();
   tokens = /* @__PURE__ */ new Map();
   workspace = null;
@@ -16418,6 +16555,7 @@ var Worker2 = class {
   branches = /* @__PURE__ */ new Map();
   constructor(opts) {
     this.opts = opts;
+    this.bin = opts.bin;
     this.config = opts.config;
     this.state = new WorkerState(opts.config.file);
     const cloud2 = cloudOf(opts.config);
@@ -16469,6 +16607,7 @@ var Worker2 = class {
   }
   /** What the setup page shows live (local only: titles and the log are fine there). */
   live() {
+    if (!this.caps.found && Date.now() - this.lookedAt > lookAgainMs()) void this.lookForClaude();
     const ws = this.link.connected;
     return {
       workspace: this.config.workspace,
@@ -16506,6 +16645,8 @@ var Worker2 = class {
       try {
         await checkRepo(repo);
         await prune(repo);
+        const swept = await sweepLeftovers(repo, this.state);
+        if (swept.length) this.opts.log(`repo "${repo.name}": removed ${swept.length} worktree folder(s) a failed checkout had left behind`);
         for (const lock of ownLocks(repo, this.state)) this.opts.log(`repo "${repo.name}": ${lock} is left from a git that stopped \u2014 delete it when no git runs there (else git steps in that task fail)`);
       } catch (e) {
         this.opts.log(`repo "${repo.name}": ${e instanceof Error ? e.message : String(e)}`);
@@ -16534,11 +16675,15 @@ var Worker2 = class {
     return [...this.runs.values()].map((r) => ({ taskId: r.task.id, repo: r.repo.name, stageId: r.task.stage.id, since: r.since }));
   }
   async start() {
-    this.caps = await detectClaude(this.opts.bin);
+    this.caps = await detectClaude(this.bin);
+    this.lookedAt = Date.now();
     if (!this.caps.found)
       this.opts.log(
-        this.caps.missing === "cmd-refused" ? `${claudeMissingError("cmd-refused")} ("${this.opts.bin}") \u2014 plan, implement and document stages fail until then` : `Claude Code was not found ("${this.opts.bin}") \u2014 plan, implement and document stages fail until it is installed. ${claudeInstallHint()}`
+        this.caps.missing === "cmd-refused" ? `${claudeMissingError("cmd-refused")} ("${this.bin}") \u2014 plan, implement and document stages fail until then` : `Claude Code was not found ("${this.bin}") \u2014 plan, implement and document stages fail until it is installed (the worker looks for it again before each of them). ${claudeInstallHint()}`
       );
+    let waited;
+    await Promise.race([this.refreshBranches(), new Promise((r) => waited = setTimeout(r, BRANCHES_FIRST_MS))]);
+    clearTimeout(waited);
     const up = await this.link.start();
     if (up === "listening") void this.checkRepos();
     if (up === "listening") {
@@ -16621,7 +16766,7 @@ var Worker2 = class {
         task,
         team: this.workspace?.kind === "team",
         caps,
-        bin: this.opts.bin,
+        bin: this.bin,
         taskMcp: { command: process.execPath, args: [this.opts.self, "task-mcp"], env: { ONE_WORKER_TASK_URL: `http://127.0.0.1:${this.config.port}/task`, ONE_WORKER_TASK_TOKEN: token } },
         signal: run2.abort.signal,
         log: (line) => this.logLine(task.id, line),
@@ -16650,13 +16795,34 @@ var Worker2 = class {
   async claudeForStage(task) {
     const kind = task.stage.kind;
     if (this.caps.found || kind !== "plan" && kind !== "implement" && kind !== "doc") return this.caps;
-    const caps = await detectClaude(this.opts.bin);
-    if (caps.found) {
-      this.caps = caps;
-      this.opts.log(`Claude Code found${caps.version ? ` (${caps.version})` : ""} \u2014 plan, implement and document stages run again`);
-      this.link.announce();
-    }
-    return caps;
+    return this.lookForClaude();
+  }
+  /**
+   * Look for Claude Code again (only while it is not found; one search at a time): CLAUDE_BIN as it was set — else
+   * findClaude anew, by its name on PATH or in its native installer's folder (a worker started before the install keeps
+   * its old PATH). Found: the stages use it from now on, the terminal and the setup page say so, One gets a new welcome.
+   */
+  lookForClaude() {
+    if (this.caps.found) return Promise.resolve(this.caps);
+    this.looking ??= (async () => {
+      try {
+        const where = this.opts.claudeFrom === "path" || this.opts.claudeFrom === "native" ? findClaude() : null;
+        const bin = where?.bin ?? this.bin;
+        const caps = await detectClaude(bin);
+        if (caps.found && !this.caps.found) {
+          this.bin = bin;
+          this.caps = caps;
+          this.opts.log(`Claude Code found${caps.version ? ` (${caps.version})` : ""} \u2014 plan, implement and document stages run again`);
+          if (where?.from === "native") this.opts.log(nativeNotOnPath());
+          this.link.announce();
+        }
+        return caps;
+      } finally {
+        this.lookedAt = Date.now();
+        this.looking = null;
+      }
+    })();
+    return this.looking;
   }
   /** Log lines per task, sent together (cloud mode: every 250 ms or 200 lines — one relay frame instead of hundreds). */
   logBuf = /* @__PURE__ */ new Map();
@@ -24283,9 +24449,9 @@ var memo = {
     if (!bucket)
       return empty2;
     handoff = void 0;
-    const entry2 = { value: empty2, issues: null };
-    bucket.set(payload.value, entry2);
-    open.push(entry2);
+    const entry = { value: empty2, issues: null };
+    bucket.set(payload.value, entry);
+    open.push(entry);
     return empty2;
   },
   guard(inst) {
@@ -24359,16 +24525,16 @@ var memo = {
         const depth = open.length;
         const result = base(payload, ctx);
         handoff = void 0;
-        const entry2 = open.length > depth ? open.pop() : void 0;
+        const entry = open.length > depth ? open.pop() : void 0;
         if (result instanceof Promise) {
           return result.then((r) => {
-            if (entry2)
-              entry2.issues = r.issues.length ? cloneIssues(r.issues) : NO_ISSUES;
+            if (entry)
+              entry.issues = r.issues.length ? cloneIssues(r.issues) : NO_ISSUES;
             return r;
           });
         }
-        if (entry2)
-          entry2.issues = result.issues.length ? cloneIssues(result.issues) : NO_ISSUES;
+        if (entry)
+          entry.issues = result.issues.length ? cloneIssues(result.issues) : NO_ISSUES;
         return result;
       };
       inst._zod.parse = wrapped;
@@ -25196,42 +25362,42 @@ function extractDefs(ctx, schema) {
   if (ctx.external && ctx.sharedDefsExtractedFor === ctx.external)
     return;
   const idToSchema = /* @__PURE__ */ new Map();
-  for (const entry2 of ctx.seen.entries()) {
-    const id = ctx.metadataRegistry.get(entry2[0])?.id;
+  for (const entry of ctx.seen.entries()) {
+    const id = ctx.metadataRegistry.get(entry[0])?.id;
     if (id) {
       const existing = idToSchema.get(id);
-      if (existing && existing !== entry2[0]) {
+      if (existing && existing !== entry[0]) {
         throw new Error(`Duplicate schema id "${id}" detected during JSON Schema conversion. Two different schemas cannot share the same id when converted together.`);
       }
-      idToSchema.set(id, entry2[0]);
+      idToSchema.set(id, entry[0]);
     }
   }
-  const makeURI = (entry2) => {
+  const makeURI = (entry) => {
     const defsSegment = ctx.target === "draft-2020-12" ? "$defs" : "definitions";
     if (ctx.external) {
-      const externalId = ctx.external.registry.get(entry2[0])?.id;
+      const externalId = ctx.external.registry.get(entry[0])?.id;
       const uriGenerator = ctx.external.uri ?? ((id2) => id2);
       if (externalId) {
         return { ref: uriGenerator(externalId) };
       }
-      const id = entry2[1].defId ?? entry2[1].schema.id ?? `schema${ctx.counter++}`;
-      entry2[1].defId = id;
+      const id = entry[1].defId ?? entry[1].schema.id ?? `schema${ctx.counter++}`;
+      entry[1].defId = id;
       return { defId: id, ref: `${uriGenerator("__shared")}#/${defsSegment}/${encodeJSONPointerSegment(id)}` };
     }
     const uriPrefix = `#`;
     const defUriPrefix = `${uriPrefix}/${defsSegment}/`;
-    if (entry2[1] === root && !entry2[1].schema.id) {
+    if (entry[1] === root && !entry[1].schema.id) {
       return { ref: uriPrefix };
     }
-    const defId = entry2[1].schema.id ?? `__schema${ctx.counter++}`;
+    const defId = entry[1].schema.id ?? `__schema${ctx.counter++}`;
     return { defId, ref: defUriPrefix + encodeJSONPointerSegment(defId) };
   };
-  const extractToDef = (entry2) => {
-    if (entry2[1].schema.$ref) {
+  const extractToDef = (entry) => {
+    if (entry[1].schema.$ref) {
       return;
     }
-    const seen = entry2[1];
-    const { ref, defId } = makeURI(entry2);
+    const seen = entry[1];
+    const { ref, defId } = makeURI(entry);
     seen.def = { ...seen.schema };
     if (defId)
       seen.defId = defId;
@@ -25242,8 +25408,8 @@ function extractDefs(ctx, schema) {
     schema2.$ref = ref;
   };
   if (ctx.cycles === "throw") {
-    for (const entry2 of ctx.seen.entries()) {
-      const seen = entry2[1];
+    for (const entry of ctx.seen.entries()) {
+      const seen = entry[1];
       if (seen.cycle) {
         throw new Error(`Cycle detected: #/${seen.cycle?.join("/")}/<root>
 
@@ -25251,31 +25417,31 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
       }
     }
   }
-  for (const entry2 of ctx.seen.entries()) {
-    const seen = entry2[1];
-    if (schema === entry2[0]) {
-      extractToDef(entry2);
+  for (const entry of ctx.seen.entries()) {
+    const seen = entry[1];
+    if (schema === entry[0]) {
+      extractToDef(entry);
       continue;
     }
     if (ctx.external) {
-      const ext = ctx.external.registry.get(entry2[0])?.id;
-      if (schema !== entry2[0] && ext) {
-        extractToDef(entry2);
+      const ext = ctx.external.registry.get(entry[0])?.id;
+      if (schema !== entry[0] && ext) {
+        extractToDef(entry);
         continue;
       }
     }
-    const id = ctx.metadataRegistry.get(entry2[0])?.id;
+    const id = ctx.metadataRegistry.get(entry[0])?.id;
     if (id) {
-      extractToDef(entry2);
+      extractToDef(entry);
       continue;
     }
     if (seen.cycle) {
-      extractToDef(entry2);
+      extractToDef(entry);
       continue;
     }
     if (seen.count > 1) {
       if (ctx.reused === "ref") {
-        extractToDef(entry2);
+        extractToDef(entry);
       }
     }
   }
@@ -25457,12 +25623,12 @@ function finalize(ctx, schema) {
     });
   };
   if (!ctx.external || ctx.sharedEmitDoneFor !== ctx.external) {
-    for (const entry2 of [...ctx.seen.entries()].reverse()) {
-      flattenRef(entry2[0]);
+    for (const entry of [...ctx.seen.entries()].reverse()) {
+      flattenRef(entry[0]);
     }
     if (ctx.target !== "openapi-3.0") {
-      for (const entry2 of ctx.seen.entries()) {
-        compactTypeUnion(entry2[1].def ?? entry2[1].schema);
+      for (const entry of ctx.seen.entries()) {
+        compactTypeUnion(entry[1].def ?? entry[1].schema);
       }
     }
     for (const rewrite of ctx.deferred)
@@ -25509,8 +25675,8 @@ function finalize(ctx, schema) {
     delete result.id;
   const defs = ctx.external?.defs ?? {};
   if (!ctx.external || ctx.sharedEmitDoneFor !== ctx.external) {
-    for (const entry2 of ctx.seen.entries()) {
-      const seen = entry2[1];
+    for (const entry of ctx.seen.entries()) {
+      const seen = entry[1];
       if (seen.def && seen.defId) {
         if (seen.def.id === seen.defId)
           delete seen.def.id;
@@ -26122,9 +26288,9 @@ function stringifyKeyNames(bySchema, json, visited) {
 var pendingRecords = /* @__PURE__ */ new WeakMap();
 function rewriteKeyNames(ctx) {
   const bySchema = /* @__PURE__ */ new Map();
-  for (const entry2 of ctx.seen.values()) {
-    if (entry2.def && !bySchema.has(entry2.schema))
-      bySchema.set(entry2.schema, entry2);
+  for (const entry of ctx.seen.values()) {
+    if (entry.def && !bySchema.has(entry.schema))
+      bySchema.set(entry.schema, entry);
   }
   const rewrites = /* @__PURE__ */ new Map();
   for (const record2 of pendingRecords.get(ctx) ?? []) {
@@ -26138,8 +26304,8 @@ function rewriteKeyNames(ctx) {
   }
   if (!rewrites.size)
     return;
-  for (const entry2 of ctx.seen.values()) {
-    for (const carrier of [entry2.schema, entry2.def]) {
+  for (const entry of ctx.seen.values()) {
+    for (const carrier of [entry.schema, entry.def]) {
       const rewritten = carrier && rewrites.get(carrier.propertyNames);
       if (rewritten)
         carrier.propertyNames = rewritten;
@@ -26333,8 +26499,8 @@ function toJSONSchema(input, params) {
     const registry2 = input;
     const ctx2 = initializeContext({ ...params, processors: allProcessors });
     const defs = {};
-    for (const entry2 of registry2._idmap.entries()) {
-      const [_, schema] = entry2;
+    for (const entry of registry2._idmap.entries()) {
+      const [_, schema] = entry;
       processSchema(schema, ctx2);
     }
     const schemas = {};
@@ -26344,8 +26510,8 @@ function toJSONSchema(input, params) {
       defs
     };
     ctx2.external = external;
-    for (const entry2 of registry2._idmap.entries()) {
-      const [key, schema] = entry2;
+    for (const entry of registry2._idmap.entries()) {
+      const [key, schema] = entry;
       extractDefs(ctx2, schema);
       assignProp(schemas, key, finalize(ctx2, schema));
     }
@@ -34102,11 +34268,14 @@ var SETUP_JS = String.raw`(function () {
     reading: 'Reading the repositories… {f} of {n}',
     noKey: 'This page needs its key. Open it at the address the worker printed in its terminal.',
     unbound: 'This worker is not bound to a workspace. Download it from One (Settings → Coding worker) — that file comes ready-paired.',
-    noClaude: 'Claude Code was not found. Install it, sign in once (claude), then restart the worker.',
-    noClaudeWin: 'Claude Code was not found. Install it — its native installer (PowerShell: irm https://claude.ai/install.ps1 | iex; it needs Git for Windows) or npm i -g @anthropic-ai/claude-code —, sign in once (claude), then restart the worker. A .cmd the worker cannot read is never started through cmd.exe: then set CLAUDE_BIN to claude.exe or Claude Code’s cli.js.',
+    noClaude: 'Claude Code was not found. Install it and sign in once (claude) — the worker looks for it again: this page within seconds, a stage when you press Retry in One. Installed where PATH does not reach? Set CLAUDE_BIN and restart the worker.',
+    noClaudeWin: 'Claude Code was not found. Install it — its native installer (PowerShell: irm https://claude.ai/install.ps1 | iex; it needs Git for Windows) or npm i -g @anthropic-ai/claude-code — and sign in once (claude): the worker looks for it again, this page within seconds, a stage when you press Retry in One. A .cmd the worker cannot read is never started through cmd.exe: then set CLAUDE_BIN to claude.exe or Claude Code’s cli.js and restart the worker.',
     syncedicloud: 'In iCloud Drive: git waits for files that are only in the cloud. Faster: a clone outside it (~/one-repos).',
-    syncedcloudStorage: 'In a synced cloud folder (~/Library/CloudStorage): files may be downloaded on demand and locked while they sync. Unless worktreeDir in worker.json says otherwise, task worktrees go to ~/.one-worktrees (a cloud worker: its own folder); faster: a clone outside it.',
-    syncedonedrive: 'In OneDrive: online-only files are downloaded first and files are locked while they sync, so git steps can stall. Unless worktreeDir in worker.json says otherwise, task worktrees go to .one-worktrees in your user folder (a cloud worker: its own folder); faster: move the repo out of OneDrive (e.g. to C:\\code).',
+    syncedcloudStorage: 'In a synced cloud folder (~/Library/CloudStorage): files may be downloaded on demand and locked while they sync. Faster: a clone outside it.',
+    syncedonedrive: 'In OneDrive: online-only files are downloaded first and files are locked while they sync, so git steps can stall. Faster: move the repo out of OneDrive (e.g. to C:\\code).',
+    wthome: 'Its task worktrees stay out of it, in .one-worktrees in your home folder.',
+    wtown: 'Its task worktrees stay out of it.',
+    wtsynced: 'Its task worktrees lie in a synced folder too (worktreeDir in worker.json) — set one outside it.',
     found: 'Found {n} repositories in {s} s',
     foundOne: 'Found 1 repository in {s} s',
     capTime: 'stopped after {s} s — add a folder if one is missing',
@@ -34226,11 +34395,14 @@ var SETUP_JS = String.raw`(function () {
     reading: 'Lese die Repositories … {f} von {n}',
     noKey: 'Diese Seite braucht ihren Schlüssel. Öffne sie unter der Adresse, die der Worker in seinem Terminal zeigt.',
     unbound: 'Dieser Worker ist an keinen Arbeitsbereich gebunden. Lade ihn in One herunter (Einstellungen → Coding-Worker) – diese Datei ist schon gekoppelt.',
-    noClaude: 'Claude Code wurde nicht gefunden. Installiere es, melde dich einmal an (claude) und starte den Worker neu.',
-    noClaudeWin: 'Claude Code wurde nicht gefunden. Installiere es – mit dem eigenen Installer (PowerShell: irm https://claude.ai/install.ps1 | iex; er braucht Git for Windows) oder npm i -g @anthropic-ai/claude-code –, melde dich einmal an (claude) und starte den Worker neu. Eine .cmd, die der Worker nicht lesen kann, startet er nie über cmd.exe: dann CLAUDE_BIN auf claude.exe oder die cli.js von Claude Code setzen.',
+    noClaude: 'Claude Code wurde nicht gefunden. Installiere es und melde dich einmal an (claude) – der Worker sucht es erneut: diese Seite nach wenigen Sekunden, eine Stufe, wenn du in One „Erneut versuchen“ drückst. Liegt es außerhalb des PATH? Dann CLAUDE_BIN setzen und den Worker neu starten.',
+    noClaudeWin: 'Claude Code wurde nicht gefunden. Installiere es – mit dem eigenen Installer (PowerShell: irm https://claude.ai/install.ps1 | iex; er braucht Git for Windows) oder npm i -g @anthropic-ai/claude-code – und melde dich einmal an (claude): Der Worker sucht es erneut, diese Seite nach wenigen Sekunden, eine Stufe, wenn du in One „Erneut versuchen“ drückst. Eine .cmd, die der Worker nicht lesen kann, startet er nie über cmd.exe: dann CLAUDE_BIN auf claude.exe oder die cli.js von Claude Code setzen und den Worker neu starten.',
     syncedicloud: 'In iCloud Drive: git wartet auf Dateien, die nur in der Cloud liegen. Schneller: ein Klon außerhalb (~/one-repos).',
-    syncedcloudStorage: 'In einem synchronisierten Cloud-Ordner (~/Library/CloudStorage): Dateien werden erst bei Bedarf geladen und beim Synchronisieren gesperrt. Sofern worktreeDir in worker.json nichts anderes sagt, liegen die Worktrees der Aufgaben in ~/.one-worktrees (ein Cloud-Worker: in seinem eigenen Ordner); schneller: ein Klon außerhalb.',
-    syncedonedrive: 'In OneDrive: reine Online-Dateien werden erst heruntergeladen und beim Synchronisieren gesperrt – git-Schritte können hängen. Sofern worktreeDir in worker.json nichts anderes sagt, liegen die Worktrees der Aufgaben in .one-worktrees in deinem Benutzerordner (ein Cloud-Worker: in seinem eigenen Ordner); schneller: das Repo aus OneDrive verschieben (z. B. nach C:\\code).',
+    syncedcloudStorage: 'In einem synchronisierten Cloud-Ordner (~/Library/CloudStorage): Dateien werden erst bei Bedarf geladen und beim Synchronisieren gesperrt. Schneller: ein Klon außerhalb.',
+    syncedonedrive: 'In OneDrive: reine Online-Dateien werden erst heruntergeladen und beim Synchronisieren gesperrt – git-Schritte können hängen. Schneller: das Repo aus OneDrive verschieben (z. B. nach C:\\code).',
+    wthome: 'Die Worktrees seiner Aufgaben liegen außerhalb, in .one-worktrees in deinem Benutzerordner.',
+    wtown: 'Die Worktrees seiner Aufgaben liegen außerhalb.',
+    wtsynced: 'Auch die Worktrees seiner Aufgaben liegen in einem synchronisierten Ordner (worktreeDir in worker.json) – lege sie außerhalb an.',
     found: '{n} Repositories gefunden in {s} s',
     foundOne: '1 Repository gefunden in {s} s',
     capTime: 'nach {s} s angehalten – füge einen Ordner hinzu, falls eines fehlt',
@@ -34343,6 +34515,10 @@ var SETUP_JS = String.raw`(function () {
   }
   var L = de ? DE : EN
   document.documentElement.lang = de ? 'de' : 'en'
+  // a synced folder's cost — and where the task worktrees really are (iCloud: the hint alone, as in the worker's log)
+  function syncedHint(r) {
+    return t('synced' + r.synced) + (r.worktrees && r.synced !== 'icloud' ? ' ' + t('wt' + r.worktrees) : '')
+  }
   function t(key, vars) {
     var s = L[key] || EN[key] || key
     if (vars) Object.keys(vars).forEach(function (k) { s = s.split('{' + k + '}').join(String(vars[k])) })
@@ -34481,7 +34657,7 @@ var SETUP_JS = String.raw`(function () {
       : el('span', { className: 'label dirty' }, [el('span', { className: 'led', 'data-s': 'ok' }), t('clean')])
     var main = el('div', { className: 'repo__main', onclick: function (ev) { if (ev.target !== box) { box.checked = !box.checked; box.dispatchEvent(new Event('change')) } } }, [
       box,
-      el('div', { className: 'repo__body' }, [el('div', { className: 'repo__name', text: r.name }), el('div', { className: 'repo__path', text: r.short, title: r.path }), facts].concat(r.synced ? [el('span', { className: 'warn', text: t('synced' + r.synced) })] : [])),
+      el('div', { className: 'repo__body' }, [el('div', { className: 'repo__name', text: r.name }), el('div', { className: 'repo__path', text: r.short, title: r.path }), facts].concat(r.synced ? [el('span', { className: 'warn', text: syncedHint(r) })] : [])),
       el('div', { className: 'repo__side' }, [dirty, el('span', { className: 'label', text: ago(r.lastCommit) })])
     ])
     li.appendChild(main)
@@ -34866,6 +35042,13 @@ var SETUP_JS = String.raw`(function () {
 // src/worker/setup.ts
 import { createWriteStream as createWriteStream2, rmSync as rmSync3 } from "node:fs";
 import { tmpdir as tmpdir4 } from "node:os";
+function syncedRow(path, worktreeDir, opts) {
+  const where = { home: opts.home, ...opts.platform ? { platform: opts.platform } : {}, ...opts.env ? { env: opts.env } : {} };
+  const synced = inSyncedFolder(path, where);
+  if (!synced) return { synced: null, worktrees: null };
+  if (worktreeDir) return { synced, worktrees: worktreesAt(worktreeDir, where) };
+  return { synced, worktrees: opts.cloud ? "own" : "home" };
+}
 var MAX_BODY = 256 * 1024;
 var HEADERS = { "cache-control": "no-store", "x-content-type-options": "nosniff", "referrer-policy": "no-referrer", "x-frame-options": "DENY", "cross-origin-resource-policy": "same-origin" };
 var CSP = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
@@ -34959,6 +35142,9 @@ var SetupServer = class {
   sourceNow(path) {
     return sourceOf(path, this.host.config().cloneDir) ?? (this.cloneDir && inFolder(path, this.cloneDir) ? "cloneDir" : null);
   }
+  syncedOf(path, worktreeDir) {
+    return syncedRow(path, worktreeDir, { home: this.home, cloud: !!cloudOf(this.host.config()) });
+  }
   /** The repos the page lists: worker.json's first (in its order), then the rest, most recently active first. */
   repos() {
     const config2 = this.host.config();
@@ -34984,13 +35170,13 @@ var SetupServer = class {
         analyzeLine: joinArgs(r.analyzeCommand),
         ownSettings: r.claude.projectSettingsSet ? r.claude.projectSettings : source === null,
         source,
-        synced: inSyncedFolder(r.path, { home: this.home })
+        ...this.syncedOf(r.path, r.worktreeDir)
       });
     }
     const rest = [...this.found.values()].filter((f) => !seen.has(pathId(f.path))).sort((a, b) => (b.lastCommit ?? 0) - (a.lastCommit ?? 0));
     for (const f of rest) {
       const source = this.sourceNow(f.path);
-      out.push({ ...f, ticked: false, configured: false, push: !!f.remote, pr: "gh", maxUsdPerTask: null, testLine: joinArgs(f.test), mcp: "", analyzeLine: joinArgs(f.analyze ?? null), ownSettings: source === null, source, synced: inSyncedFolder(f.path, { home: this.home }) });
+      out.push({ ...f, ticked: false, configured: false, push: !!f.remote, pr: "gh", maxUsdPerTask: null, testLine: joinArgs(f.test), mcp: "", analyzeLine: joinArgs(f.analyze ?? null), ownSettings: source === null, source, ...this.syncedOf(f.path, null) });
     }
     return out;
   }
@@ -35471,7 +35657,7 @@ Or download the worker from One (Settings \u2192 Coding worker): that file comes
       `workspace  ${config2.workspace ?? "not set \u2014 every One tab is refused"}`,
       `port       ${config2.port}${cloud ? " (task tools and the setup page only \u2014 One reaches this worker through the team server)" : ""}`,
       `claude     ${caps.found ? `${caps.version ?? "found"}${caps.via ? ` \xB7 ${caps.via === "node-shim" ? "npm shim \u2192" : caps.via} ${caps.path}` : ""}${caps.budget ? "" : " (no --max-budget-usd: limits are checked between stages)"}${claude2.from === "native" ? `
-           ${NATIVE_NOT_ON_PATH}` : ""}` : caps.missing === "cmd-refused" ? `REFUSED ("${bin}") \u2014 a .cmd / .bat the worker cannot read, and it never starts Claude Code through cmd.exe: install it with its native installer, or set CLAUDE_BIN to claude.exe or its cli.js` : `NOT FOUND ("${bin}") \u2014 ${claudeInstallHint()}`}`,
+           ${nativeNotOnPath()}` : ""}` : caps.missing === "cmd-refused" ? `REFUSED ("${bin}") \u2014 a .cmd / .bat the worker cannot read, and it never starts Claude Code through cmd.exe: install it with its native installer, or set CLAUDE_BIN to claude.exe or its cli.js` : `NOT FOUND ("${bin}") \u2014 ${claudeInstallHint()}`}`,
       ...bash ? [`git bash   ${bash.path ? `${bash.path}${bash.from === "env" ? " (CLAUDE_CODE_GIT_BASH_PATH)" : ""}` : "NOT FOUND \u2014 Claude Code on Windows needs Git for Windows (its Git Bash): install it, or set CLAUDE_CODE_GIT_BASH_PATH to bash.exe"}`] : [],
       `node       ${process.versions.node}${nodeMajor < 22 ? ` \u2014 past its end of life (30 April 2026) and untested: use Node.js 22 or newer` : ""}`
     ];
@@ -35535,8 +35721,8 @@ ${ok ? "All good." : "Fix the lines above."}
     void shutdown(2);
   };
   const claude = findClaude();
-  if (claude.from === "native") log(NATIVE_NOT_ON_PATH);
-  worker = new Worker2({ config: config2, version: VERSION, bin: claude.bin, self, log, setup, recent: () => recent, intake: { configFile, reload: () => reload(worker) }, onFatal });
+  if (claude.from === "native") log(nativeNotOnPath());
+  worker = new Worker2({ config: config2, version: VERSION, bin: claude.bin, claudeFrom: claude.from, self, log, setup, recent: () => recent, intake: { configFile, reload: () => reload(worker) }, onFatal });
   const up = await worker.start();
   if (up !== "listening") {
     if (command === "setup" && up === "in-use")

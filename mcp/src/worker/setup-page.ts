@@ -184,11 +184,14 @@ export const SETUP_JS = String.raw`(function () {
     reading: 'Reading the repositories… {f} of {n}',
     noKey: 'This page needs its key. Open it at the address the worker printed in its terminal.',
     unbound: 'This worker is not bound to a workspace. Download it from One (Settings → Coding worker) — that file comes ready-paired.',
-    noClaude: 'Claude Code was not found. Install it, sign in once (claude), then restart the worker.',
-    noClaudeWin: 'Claude Code was not found. Install it — its native installer (PowerShell: irm https://claude.ai/install.ps1 | iex; it needs Git for Windows) or npm i -g @anthropic-ai/claude-code —, sign in once (claude), then restart the worker. A .cmd the worker cannot read is never started through cmd.exe: then set CLAUDE_BIN to claude.exe or Claude Code’s cli.js.',
+    noClaude: 'Claude Code was not found. Install it and sign in once (claude) — the worker looks for it again: this page within seconds, a stage when you press Retry in One. Installed where PATH does not reach? Set CLAUDE_BIN and restart the worker.',
+    noClaudeWin: 'Claude Code was not found. Install it — its native installer (PowerShell: irm https://claude.ai/install.ps1 | iex; it needs Git for Windows) or npm i -g @anthropic-ai/claude-code — and sign in once (claude): the worker looks for it again, this page within seconds, a stage when you press Retry in One. A .cmd the worker cannot read is never started through cmd.exe: then set CLAUDE_BIN to claude.exe or Claude Code’s cli.js and restart the worker.',
     syncedicloud: 'In iCloud Drive: git waits for files that are only in the cloud. Faster: a clone outside it (~/one-repos).',
-    syncedcloudStorage: 'In a synced cloud folder (~/Library/CloudStorage): files may be downloaded on demand and locked while they sync. Unless worktreeDir in worker.json says otherwise, task worktrees go to ~/.one-worktrees (a cloud worker: its own folder); faster: a clone outside it.',
-    syncedonedrive: 'In OneDrive: online-only files are downloaded first and files are locked while they sync, so git steps can stall. Unless worktreeDir in worker.json says otherwise, task worktrees go to .one-worktrees in your user folder (a cloud worker: its own folder); faster: move the repo out of OneDrive (e.g. to C:\\code).',
+    syncedcloudStorage: 'In a synced cloud folder (~/Library/CloudStorage): files may be downloaded on demand and locked while they sync. Faster: a clone outside it.',
+    syncedonedrive: 'In OneDrive: online-only files are downloaded first and files are locked while they sync, so git steps can stall. Faster: move the repo out of OneDrive (e.g. to C:\\code).',
+    wthome: 'Its task worktrees stay out of it, in .one-worktrees in your home folder.',
+    wtown: 'Its task worktrees stay out of it.',
+    wtsynced: 'Its task worktrees lie in a synced folder too (worktreeDir in worker.json) — set one outside it.',
     found: 'Found {n} repositories in {s} s',
     foundOne: 'Found 1 repository in {s} s',
     capTime: 'stopped after {s} s — add a folder if one is missing',
@@ -308,11 +311,14 @@ export const SETUP_JS = String.raw`(function () {
     reading: 'Lese die Repositories … {f} von {n}',
     noKey: 'Diese Seite braucht ihren Schlüssel. Öffne sie unter der Adresse, die der Worker in seinem Terminal zeigt.',
     unbound: 'Dieser Worker ist an keinen Arbeitsbereich gebunden. Lade ihn in One herunter (Einstellungen → Coding-Worker) – diese Datei ist schon gekoppelt.',
-    noClaude: 'Claude Code wurde nicht gefunden. Installiere es, melde dich einmal an (claude) und starte den Worker neu.',
-    noClaudeWin: 'Claude Code wurde nicht gefunden. Installiere es – mit dem eigenen Installer (PowerShell: irm https://claude.ai/install.ps1 | iex; er braucht Git for Windows) oder npm i -g @anthropic-ai/claude-code –, melde dich einmal an (claude) und starte den Worker neu. Eine .cmd, die der Worker nicht lesen kann, startet er nie über cmd.exe: dann CLAUDE_BIN auf claude.exe oder die cli.js von Claude Code setzen.',
+    noClaude: 'Claude Code wurde nicht gefunden. Installiere es und melde dich einmal an (claude) – der Worker sucht es erneut: diese Seite nach wenigen Sekunden, eine Stufe, wenn du in One „Erneut versuchen“ drückst. Liegt es außerhalb des PATH? Dann CLAUDE_BIN setzen und den Worker neu starten.',
+    noClaudeWin: 'Claude Code wurde nicht gefunden. Installiere es – mit dem eigenen Installer (PowerShell: irm https://claude.ai/install.ps1 | iex; er braucht Git for Windows) oder npm i -g @anthropic-ai/claude-code – und melde dich einmal an (claude): Der Worker sucht es erneut, diese Seite nach wenigen Sekunden, eine Stufe, wenn du in One „Erneut versuchen“ drückst. Eine .cmd, die der Worker nicht lesen kann, startet er nie über cmd.exe: dann CLAUDE_BIN auf claude.exe oder die cli.js von Claude Code setzen und den Worker neu starten.',
     syncedicloud: 'In iCloud Drive: git wartet auf Dateien, die nur in der Cloud liegen. Schneller: ein Klon außerhalb (~/one-repos).',
-    syncedcloudStorage: 'In einem synchronisierten Cloud-Ordner (~/Library/CloudStorage): Dateien werden erst bei Bedarf geladen und beim Synchronisieren gesperrt. Sofern worktreeDir in worker.json nichts anderes sagt, liegen die Worktrees der Aufgaben in ~/.one-worktrees (ein Cloud-Worker: in seinem eigenen Ordner); schneller: ein Klon außerhalb.',
-    syncedonedrive: 'In OneDrive: reine Online-Dateien werden erst heruntergeladen und beim Synchronisieren gesperrt – git-Schritte können hängen. Sofern worktreeDir in worker.json nichts anderes sagt, liegen die Worktrees der Aufgaben in .one-worktrees in deinem Benutzerordner (ein Cloud-Worker: in seinem eigenen Ordner); schneller: das Repo aus OneDrive verschieben (z. B. nach C:\\code).',
+    syncedcloudStorage: 'In einem synchronisierten Cloud-Ordner (~/Library/CloudStorage): Dateien werden erst bei Bedarf geladen und beim Synchronisieren gesperrt. Schneller: ein Klon außerhalb.',
+    syncedonedrive: 'In OneDrive: reine Online-Dateien werden erst heruntergeladen und beim Synchronisieren gesperrt – git-Schritte können hängen. Schneller: das Repo aus OneDrive verschieben (z. B. nach C:\\code).',
+    wthome: 'Die Worktrees seiner Aufgaben liegen außerhalb, in .one-worktrees in deinem Benutzerordner.',
+    wtown: 'Die Worktrees seiner Aufgaben liegen außerhalb.',
+    wtsynced: 'Auch die Worktrees seiner Aufgaben liegen in einem synchronisierten Ordner (worktreeDir in worker.json) – lege sie außerhalb an.',
     found: '{n} Repositories gefunden in {s} s',
     foundOne: '1 Repository gefunden in {s} s',
     capTime: 'nach {s} s angehalten – füge einen Ordner hinzu, falls eines fehlt',
@@ -425,6 +431,10 @@ export const SETUP_JS = String.raw`(function () {
   }
   var L = de ? DE : EN
   document.documentElement.lang = de ? 'de' : 'en'
+  // a synced folder's cost — and where the task worktrees really are (iCloud: the hint alone, as in the worker's log)
+  function syncedHint(r) {
+    return t('synced' + r.synced) + (r.worktrees && r.synced !== 'icloud' ? ' ' + t('wt' + r.worktrees) : '')
+  }
   function t(key, vars) {
     var s = L[key] || EN[key] || key
     if (vars) Object.keys(vars).forEach(function (k) { s = s.split('{' + k + '}').join(String(vars[k])) })
@@ -563,7 +573,7 @@ export const SETUP_JS = String.raw`(function () {
       : el('span', { className: 'label dirty' }, [el('span', { className: 'led', 'data-s': 'ok' }), t('clean')])
     var main = el('div', { className: 'repo__main', onclick: function (ev) { if (ev.target !== box) { box.checked = !box.checked; box.dispatchEvent(new Event('change')) } } }, [
       box,
-      el('div', { className: 'repo__body' }, [el('div', { className: 'repo__name', text: r.name }), el('div', { className: 'repo__path', text: r.short, title: r.path }), facts].concat(r.synced ? [el('span', { className: 'warn', text: t('synced' + r.synced) })] : [])),
+      el('div', { className: 'repo__body' }, [el('div', { className: 'repo__name', text: r.name }), el('div', { className: 'repo__path', text: r.short, title: r.path }), facts].concat(r.synced ? [el('span', { className: 'warn', text: syncedHint(r) })] : [])),
       el('div', { className: 'repo__side' }, [dirty, el('span', { className: 'label', text: ago(r.lastCommit) })])
     ])
     li.appendChild(main)

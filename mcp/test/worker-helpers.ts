@@ -117,7 +117,21 @@ export const tempDir = (prefix = 'tmp') => mkdtempSync(join(root, `${prefix}-`))
  * there, and a test repo may hold a planted git.exe (worker-native.test.ts); the bare name elsewhere.
  */
 let gitPath: string | null = null
-const gitProgram = () => (IS_WIN ? (gitPath ??= onPath('git')) : 'git')
+export const gitProgram = (): string => (IS_WIN ? (gitPath ??= onPath('git')) : 'git')
+
+/**
+ * Does the disk under `dir` fold case (APFS / HFS+ and NTFS as usually set up — the macOS and Windows runners)? Asked
+ * of the disk itself: a test whose answer depends on it expects what that disk does, never what the OS usually does.
+ */
+export function caseFolds(dir: string): boolean {
+  const probe = mkdtempSync(join(dir, 'Fold-'))
+  try {
+    writeFileSync(join(probe, 'Probe.txt'), '')
+    return existsSync(join(probe, 'probe.TXT'))
+  } finally {
+    rmSync(probe, { recursive: true, force: true })
+  }
+}
 
 export function sh(cwd: string, ...args: string[]): string {
   return execFileSync(gitProgram(), args, { cwd, env: { ...process.env, ...GIT_ENV }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })

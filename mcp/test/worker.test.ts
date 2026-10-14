@@ -97,6 +97,31 @@ describe('handshake', () => {
     await waitFor(() => /repo "demo": git is slow here/.test(worker!.stderr()), 12_000, () => worker!.stderr())
   })
 
+  test('the first welcome names the local branches even when git is slow to list them (Windows: every git start is slow)', { skip: FAKE_GIT_SKIP }, async () => {
+    const r = makeRepo()
+    const bin = tempDir('slowrefs')
+    writeFileSync(join(bin, 'git'), `#!/bin/sh\nif [ "$1" = "for-each-ref" ]; then sleep 1; fi\nexec ${onPath('git')} "$@"\n`)
+    chmodSync(join(bin, 'git'), 0o755)
+    await boot(r, {}, {}, { PATH: `${bin}:${process.env.PATH}` })
+    // a tab that connects the moment the worker listens (One retries all the time)
+    const tab = await connect()
+    const welcome = await tab.next('welcome')
+    assert.deepEqual(welcome.repos, [{ name: 'demo', baseBranch: 'main', branches: ['main'], mcp: [] }], 'read before the worker listened')
+  })
+
+  test('a branch list slower than the start waits for: ready on time, and One hears of the branches once they are read', { skip: FAKE_GIT_SKIP }, async () => {
+    const r = makeRepo()
+    const bin = tempDir('slowrefs')
+    writeFileSync(join(bin, 'git'), `#!/bin/sh\nif [ "$1" = "for-each-ref" ]; then sleep 2; fi\nexec ${onPath('git')} "$@"\n`)
+    chmodSync(join(bin, 'git'), 0o755)
+    const started = Date.now()
+    await boot(r, {}, {}, { PATH: `${bin}:${process.env.PATH}`, ONE_WORKER_BRANCHES_MS: '300' })
+    assert.ok(Date.now() - started < 1800, `ready after ${Date.now() - started} ms`)
+    const tab = await connect()
+    assert.deepEqual((await tab.next('welcome')).repos[0]!.branches, [])
+    await waitFor(() => tab.messages.some((m) => m.type === 'welcome' && m.repos[0]?.branches?.includes('main')), 8000, () => JSON.stringify(tab.messages))
+  })
+
   test('git gives up at its time limit even when the process does not end', { skip: FAKE_GIT_SKIP }, async () => {
     const bin = tempDir('stuckgit')
     // a git that ignores the kill of its group: it keeps running, the worker must not wait for it

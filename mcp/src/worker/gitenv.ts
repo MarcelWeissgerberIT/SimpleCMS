@@ -36,14 +36,48 @@ export function forgetGitEnv(): void {
 
 const isSet = (env: NodeJS.ProcessEnv, key: string, platform: NodeJS.Platform) => !!envGet(env, key, platform)?.trim()
 
+/**
+ * core.sshCommand given to git through the environment — GIT_CONFIG_COUNT + GIT_CONFIG_KEY_<n> (git 2.31+) or
+ * GIT_CONFIG_PARAMETERS (what `git -c` hands its children). Part of the config every git of this worker reads, but not
+ * of a scoped `--global` / `--system` read (a clone's): looked at here. Keys without case, as git compares them.
+ */
+export function sshCommandInEnv(env: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform): boolean {
+  const count = Number(envGet(env, 'GIT_CONFIG_COUNT', platform)?.trim())
+  if (Number.isInteger(count) && count > 0)
+    for (let i = 0; i < Math.min(count, 1000); i++) if (envGet(env, `GIT_CONFIG_KEY_${i}`, platform)?.trim().toLowerCase() === 'core.sshcommand') return true
+  const params = envGet(env, 'GIT_CONFIG_PARAMETERS', platform) ?? ''
+  const keys = paramKeys(params)
+  // a form this reader does not know: any mention of the key counts (wider rather than narrower — their ssh stays)
+  return keys ? keys.some((k) => k.toLowerCase() === 'core.sshcommand') : /core\.sshcommand/i.test(params)
+}
+
+/** A shell-quoted token as git writes it ('it'\''s'). */
+const SQ = "'((?:[^']|'\\\\'')*)'"
+const PARAM = new RegExp(`\\s*${SQ}(?:=${SQ})?`, 'y')
+
+/** The keys of GIT_CONFIG_PARAMETERS: 'key'='value' pairs (git 2.31+) or 'key=value' (older) — null when unreadable. */
+function paramKeys(text: string): string[] | null {
+  const keys: string[] = []
+  PARAM.lastIndex = 0
+  while (PARAM.lastIndex < text.length) {
+    const at = PARAM.lastIndex
+    const m = PARAM.exec(text)
+    if (!m) return text.slice(at).trim() ? null : keys
+    const first = m[1]!.replace(/'\\''/g, "'")
+    keys.push(m[2] !== undefined ? first : first.split('=')[0]!)
+  }
+  return keys
+}
+
 /** The terminal's line when a clone keeps the person's ssh because their config holds an includeIf. */
 export const INCLUDE_IF_NOTE = 'ssh for this clone runs as you set it up (not in BatchMode): your global or system git config has includeIf sections, and one may set core.sshCommand for the new repository — a host-key or passphrase question then waits until the clone\'s time limit.'
 
 /**
  * The environment git runs with in `cwd` (null: no repository — a clone; then the global and system config decide).
  * Windows only, BatchMode while the person set nothing: a variable of theirs, or core.sshCommand in the config git reads
- * there — for a clone also no includeIf at all in the global / system config (its condition cannot be read before the
- * repository exists: `note` says so). When that config cannot be read (git missing, a slow disk, a refused folder)
+ * there (in a repository git's own answer: every file, includes, the environment's config) — for a clone the global /
+ * system files, the environment's config (GIT_CONFIG_COUNT / GIT_CONFIG_PARAMETERS), and no includeIf at all in the
+ * global / system config (its condition cannot be read before the repository exists: `note` says so). When that config cannot be read (git missing, a slow disk, a refused folder)
  * nothing is added — their setup stays. macOS / Linux: no BatchMode, nothing read (as before 1.9.0).
  */
 export async function gitEnv(cwd: string | null, base: NodeJS.ProcessEnv = process.env, opts: { platform?: NodeJS.Platform; timeoutMs?: number; note?: (msg: string) => void } = {}): Promise<NodeJS.ProcessEnv> {
@@ -51,6 +85,8 @@ export async function gitEnv(cwd: string | null, base: NodeJS.ProcessEnv = proce
   const env: NodeJS.ProcessEnv = { ...base, ...GIT_ENV }
   if (platform !== 'win32') return env
   if (isSet(base, 'GIT_SSH_COMMAND', platform) || isSet(base, 'GIT_SSH', platform)) return env
+  // a clone reads the global / system files only — core.sshCommand handed over in the environment counts too
+  if (cwd === null && sshCommandInEnv(base, platform)) return env
   const key = cwd === null ? '' : pathId(cwd, platform)
   let set = sshConfig.get(key)
   if (set === undefined) {

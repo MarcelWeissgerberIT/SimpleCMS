@@ -18,7 +18,7 @@ import { claudeMissingError, runClaude, type ClaudeCaps } from './claude.ts'
 import { commandName, plantedProgram } from './exec.ts'
 import { GitError, branchDiff, commentPr, commitAll, ensureWorktree, git, info, isDirty, mergePr, openPr, push, updateFromBase, worktreeOf, type TaskWorktree } from './git.ts'
 import { FOLDER_BUSY, forgetGitEnv, gitHint, hintLine, hintTerminal } from './gitenv.ts'
-import { inSyncedFolder, rmRetry, type Synced } from './paths.ts'
+import { inSyncedFolder, rmRetry, worktreesAt, type Synced, type WorktreesAt } from './paths.ts'
 import { repoScrubber, type Scrubber } from './scrub.ts'
 import { runAnalysis, runTests, type RunResult } from './testrun.ts'
 
@@ -162,11 +162,27 @@ function claudeMissing(caps: ClaudeCaps, log: Log): string {
   return error
 }
 
-/** A synced folder's warning, by its kind (iCloud Drive · ~/Library/CloudStorage · OneDrive). */
-const SYNCED: Record<Synced, (repo: string) => string> = {
-  icloud: (repo) => `${repo} lies in iCloud Drive: git waits whenever a file is only in the cloud, so steps can take minutes. Faster: keep the folder downloaded (Finder → right-click → Keep Downloaded), or clone it again with "Clone from GitLab / GitHub…" on the worker's setup page (into ~/one-repos, not synced) and tick that one.`,
-  cloudStorage: (repo) => `${repo} lies in a synced cloud folder (~/Library/CloudStorage — OneDrive, Google Drive, Dropbox …): files may be downloaded on demand and locked while they sync, so git steps can stall. Unless worktreeDir in worker.json says otherwise, the task worktrees stay out of it (in ~/.one-worktrees; a cloud worker keeps them in its own folder). Faster: a clone outside it (~/one-repos).`,
-  onedrive: (repo) => `${repo} lies in OneDrive: OneDrive downloads online-only files first and locks files while it syncs, so git steps can stall or fail. Unless worktreeDir in worker.json says otherwise, the task worktrees stay out of it (in .one-worktrees in your user folder; a cloud worker keeps them in its own folder). Faster: move the repo out of OneDrive (e.g. to C:\\code) and tick that folder.`,
+/** What a synced folder's warning says of the task worktrees — only where they really are (paths.ts worktreesAt). */
+const WORKTREES: Record<WorktreesAt, (home: string) => string> = {
+  home: (home) => `The task worktrees stay out of it, in ${home}.`,
+  own: () => 'The task worktrees stay out of it.',
+  synced: () => 'The task worktrees lie in a synced folder too (worktreeDir in worker.json) — set one outside it.',
+}
+
+/**
+ * A synced folder's warning, by its kind (iCloud Drive · ~/Library/CloudStorage · OneDrive): the line (English) and its
+ * values — `worktrees` says where the task worktrees are (home · own · synced), so the line never claims a folder they
+ * are not in.
+ */
+export function syncedWarning(kind: Synced, repo: RepoConfig, opts: { platform?: NodeJS.Platform; home?: string; env?: NodeJS.ProcessEnv } = {}): { s: string; v: { repo: string; worktrees: WorktreesAt } } {
+  const at = worktreesAt(repo.worktreeDir, opts)
+  const v = { repo: repo.name, worktrees: at }
+  const name = repo.name
+  if (kind === 'icloud')
+    return { v, s: `${name} lies in iCloud Drive: git waits whenever a file is only in the cloud, so steps can take minutes. Faster: keep the folder downloaded (Finder → right-click → Keep Downloaded), or clone it again with "Clone from GitLab / GitHub…" on the worker's setup page (into ~/one-repos, not synced) and tick that one.` }
+  if (kind === 'cloudStorage')
+    return { v, s: `${name} lies in a synced cloud folder (~/Library/CloudStorage — OneDrive, Google Drive, Dropbox …): files may be downloaded on demand and locked while they sync, so git steps can stall. ${WORKTREES[at]('~/.one-worktrees')} Faster: a clone outside it (~/one-repos).` }
+  return { v, s: `${name} lies in OneDrive: OneDrive downloads online-only files first and locks files while it syncs, so git steps can stall or fail. ${WORKTREES[at]('.one-worktrees in your user folder')} Faster: move the repo out of OneDrive (e.g. to C:\\code) and tick that folder.` }
 }
 
 /**
@@ -298,7 +314,10 @@ export async function runStage(ctx: StageContext): Promise<StageOutcome> {
   try {
     log('info', `Stage "${task.stage.name}" (${kind}) on ${repo.name}`, 'stage', { stage: task.stage.name, kind, repo: repo.name })
     const synced = inSyncedFolder(repo.path)
-    if (synced) log('warn', SYNCED[synced](repo.name), synced, { repo: repo.name })
+    if (synced) {
+      const w = syncedWarning(synced, repo)
+      log('warn', w.s, synced, w.v)
+    }
     const wt = await ensureWorktree(repo, ctx.state, task, task.branch, (k, s, c, v, detail) => {
       log(k, s, c, v)
       // a fetch that failed: what git's message means (sign in, a host key …)

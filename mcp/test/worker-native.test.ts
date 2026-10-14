@@ -16,7 +16,7 @@ import { execFileSafe, pathKey, resolveCommand } from '../src/worker/exec.ts'
 import { ensureWorktree, info } from '../src/worker/git.ts'
 import { loadConfig } from '../src/worker/config.ts'
 import { WorkerState } from '../src/worker/state.ts'
-import { FAKE_CLAUDE, FakeTab, GIT_ENV, IS_WIN, WORKER_BUNDLE, WS_LOCAL, cleanupAll, childEnv, fakeBin, leakIn, makeRepo, pathWith, repoEntry, sh, slashPath, spawnWorker, task, tempDir, writeConfig, type SpawnedWorker } from './worker-helpers.ts'
+import { FAKE_CLAUDE, FakeTab, GIT_ENV, IS_WIN, WORKER_BUNDLE, WS_LOCAL, cleanupAll, childEnv, fakeBin, gitProgram, leakIn, makeRepo, pathWith, repoEntry, sh, slashPath, spawnWorker, task, tempDir, writeConfig, type SpawnedWorker } from './worker-helpers.ts'
 
 /** not the port of another worker test */
 const PORT = 47386
@@ -227,7 +227,7 @@ describe('long paths', () => {
     assert.ok(g.files.some((f) => f.path === rel.join('/') && f.status === 'M'), JSON.stringify(g.files.map((f) => f.path)))
     if (IS_WIN) {
       // why the worker sets it: plain git without core.longpaths (recorded, not asserted — a runner may set it system-wide)
-      const plain = spawnSync('git', ['worktree', 'add', '-q', '-b', 'plain-long', join(tempDir('plainwt'), 'w'), 'origin/main'], { cwd: r.path, env: { ...process.env, ...GIT_ENV }, encoding: 'utf8' })
+      const plain = spawnSync(gitProgram(), ['worktree', 'add', '-q', '-b', 'plain-long', join(tempDir('plainwt'), 'w'), 'origin/main'], { cwd: r.path, env: { ...process.env, ...GIT_ENV }, encoding: 'utf8' })
       t.diagnostic(`git worktree add without core.longpaths: exit ${plain.status} ${(plain.stderr ?? '').trim().split('\n')[0] ?? ''}`)
     }
   })

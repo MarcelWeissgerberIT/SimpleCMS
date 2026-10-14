@@ -64,12 +64,14 @@ export function inFolder(path: string, folder: string, platform: NodeJS.Platform
  */
 export function inICloud(path: string, home: string = homedir(), platform: NodeJS.Platform = process.platform): boolean {
   if (platform !== 'darwin') return false
+  // both sides resolved alike (a home written another way — relative, a trailing "/" — or, in tests on Windows, a drive)
   const p = resolve(path)
+  const h = resolve(home)
   const under = (dir: string) => p === dir || p.startsWith(dir + sep)
-  const mobile = join(home, 'Library', 'Mobile Documents')
+  const mobile = join(h, 'Library', 'Mobile Documents')
   if (under(mobile)) return true
   const drive = join(mobile, 'com~apple~CloudDocs')
-  return ['Documents', 'Desktop'].some((f) => under(join(home, f)) && existsSync(join(drive, f)))
+  return ['Documents', 'Desktop'].some((f) => under(join(h, f)) && existsSync(join(drive, f)))
 }
 
 /** A synced folder git should not work in: iCloud Drive and ~/Library/CloudStorage (macOS), OneDrive (Windows). */
@@ -97,6 +99,20 @@ export function inSyncedFolder(path: string, opts: { platform?: NodeJS.Platform;
     if (dir && /^(?:[A-Za-z]:[\\/]|[\\/]{2}[^\\/])/.test(dir) && inFolder(path, dir, 'win32')) return 'onedrive'
   }
   return null
+}
+
+/**
+ * Where a repo's task worktrees lie, said beside a synced folder's warning: `home` — ~/.one-worktrees (the default for a
+ * repo in a synced folder), `own` — elsewhere outside any synced folder (worktreeDir in worker.json, a cloud worker's
+ * own folder), `synced` — in a synced folder too (a worktreeDir of the person's there).
+ */
+export type WorktreesAt = 'home' | 'own' | 'synced'
+
+export function worktreesAt(worktreeDir: string, opts: { platform?: NodeJS.Platform; home?: string; env?: NodeJS.ProcessEnv } = {}): WorktreesAt {
+  const platform = opts.platform ?? process.platform
+  const home = opts.home ?? homedir()
+  if (inSyncedFolder(worktreeDir, { ...opts, platform, home })) return 'synced'
+  return inFolder(worktreeDir, (platform === 'win32' ? win32 : posix).join(home, '.one-worktrees'), platform) ? 'home' : 'own'
 }
 
 /** Errors a file someone holds open gives on Windows (Defender, the indexer, an editor) — worth a second try. */

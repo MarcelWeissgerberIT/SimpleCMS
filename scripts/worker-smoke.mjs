@@ -4,7 +4,7 @@
  *  - the built public/mcp/one-worker.mjs with a download's preset line (workspace, origin, port, pairing key), saved in
  *    the Downloads folder of a home folder with a space and an umlaut ("Smoke Jürgen");
  *  - started with the very line One's card shows for this computer (src/app/features/coding/startLines.ts: cmd on
- *    Windows — PowerShell's too when $HOME follows the test home —, sh elsewhere), the port set by that line;
+ *    Windows — PowerShell's `--version` line too —, sh elsewhere), the port set by that line;
  *  - Claude Code = a dependency-free fake installed as a real npm global package (npm's own shim on Windows), found by
  *    its name on PATH — no CLAUDE_BIN; `check` must find it;
  *  - a repository whose test is `npm test` (npm's own npm.cmd on Windows) with a local bare remote;
@@ -94,8 +94,17 @@ function npmCli() {
 /** PATH under the key this environment keeps it ("Path" on most Windows machines). */
 const pathKeyOf = (env) => Object.keys(env).find((k) => k.toUpperCase() === 'PATH') ?? 'PATH'
 
-/** git for the test's own setup (never with a working folder that could hold a planted program — exec.ts' rule). */
-const git = (cwd, ...args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', env: smokeEnv, stdio: ['ignore', 'pipe', 'pipe'] })
+/** Where `name` lives on the smoke's PATH (Windows: with .exe / .cmd …) — found once, never in a working folder. */
+function onPath(name, env) {
+  const exts = WIN ? ['.exe', '.cmd', '.bat', '.com'] : ['']
+  for (const dir of (env[pathKeyOf(env)] ?? '').split(delimiter).filter(Boolean))
+    for (const ext of exts) if (existsSync(join(dir, name + ext))) return join(dir, name + ext)
+  throw new Error(`${name} is not on PATH`)
+}
+let gitFile = null
+/** git for the test's own setup: by its file on PATH (Windows looks for a bare name in the working folder first), with -C — never a working folder that could hold a planted program (exec.ts' rule). */
+const gitBin = () => (gitFile ??= onPath('git', smokeEnv))
+const git = (cwd, ...args) => execFileSync(gitBin(), ['-C', cwd, ...args], { encoding: 'utf8', env: smokeEnv, stdio: ['ignore', 'pipe', 'pipe'] })
 
 /* ------------------------------------------------------------------ leak forms */
 
@@ -227,7 +236,7 @@ async function main() {
   const npmBin = WIN ? npmGlobal : join(npmGlobal, 'bin')
   smokeEnv = { ...process.env, HOME: home, USERPROFILE: home, [pathKey]: `${npmBin}${delimiter}${process.env[pathKey] ?? ''}`, ONE_WORKER_BROWSER: 'none', npm_config_update_notifier: 'false', npm_config_fund: 'false', npm_config_audit: 'false' }
   if (WIN) {
-    // Windows PowerShell 5.1 takes $HOME from these
+    // every way a Windows program finds the home folder points at the test home (Windows PowerShell 5.1: $HOME from these)
     const [, drive, rest] = /^([A-Za-z]:)(.*)$/.exec(home)
     Object.assign(smokeEnv, { HOMEDRIVE: drive, HOMEPATH: rest })
   }
@@ -247,8 +256,8 @@ async function main() {
   // the repository: `npm test`, a local bare remote
   const repo = join(home, 'code', 'shop')
   const remote = join(home, 'remotes', 'shop.git')
-  execFileSync('git', ['init', '-q', '--bare', '-b', 'main', remote], { env: smokeEnv })
-  execFileSync('git', ['init', '-q', '-b', 'main', repo], { env: smokeEnv })
+  execFileSync(gitBin(), ['init', '-q', '--bare', '-b', 'main', remote], { env: smokeEnv })
+  execFileSync(gitBin(), ['init', '-q', '-b', 'main', repo], { env: smokeEnv })
   writeFileSync(join(repo, 'package.json'), JSON.stringify({ name: 'shop', version: '1.0.0', private: true, scripts: { test: 'node check.mjs' } }, null, 2))
   writeFileSync(join(repo, 'check.mjs'), "import { existsSync } from 'node:fs'\nconsole.log('checking in ' + process.cwd())\nif (!existsSync('feature.txt')) { console.log('FAIL no feature.txt'); process.exit(1) }\nconsole.log('PASS 1 check')\n")
   writeFileSync(join(repo, 'README.md'), '# Shop\n')
@@ -275,14 +284,11 @@ async function main() {
   must(`check (${shell}: ${checkLine})`, checked.code === 0 && /All good\./.test(checked.out), checked.out.trim().split('\n').slice(-6).join(' / '))
   check('check finds Claude Code by its name', new RegExp(`claude {5}9\\.9\\.9${WIN ? ' · npm shim → .*cli\\.js' : ''}`).test(checked.out), /claude .*/.exec(checked.out)?.[0] ?? '')
 
-  // PowerShell's line too, where $HOME follows this home folder (Windows PowerShell 5.1: HOMEDRIVE + HOMEPATH)
+  // PowerShell's line too: it reads $env:USERPROFILE (startLines.ts — never $HOME), which is this home folder here
   if (WIN) {
     const ps = startLines('one-worker.mjs', { os, args: ['--version'] }).find((l) => l.shell === 'powershell').line
-    const where = await collect(runLine('Write-Output $HOME', 'powershell'))
-    if (where.out.trim().toLowerCase() === home.toLowerCase()) {
-      const v = await collect(runLine(ps, 'powershell'))
-      check(`PowerShell line (${ps})`, v.code === 0 && /^\d+\.\d+\.\d+/m.test(v.out), v.out.trim().slice(0, 200))
-    } else check('PowerShell line', null, `$HOME is ${where.out.trim() || '(nothing)'} here, not the test home — the owner's checklist covers it`)
+    const v = await collect(runLine(ps, 'powershell'))
+    check(`PowerShell line (${ps})`, v.code === 0 && /^\d+\.\d+\.\d+/m.test(v.out), v.out.trim().slice(0, 200))
   }
 
   // start: the card's line with the port

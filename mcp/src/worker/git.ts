@@ -14,7 +14,7 @@
  */
 import { createHash } from 'node:crypto'
 import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join, posix, resolve, win32 } from 'node:path'
 import type { GitCommit, GitFile, GitInfo } from '../../../src/app/features/coding/protocol.ts'
 import type { RepoConfig } from './config.ts'
 import { execFileSafe, killTree, spawnSafe } from './exec.ts'
@@ -144,9 +144,34 @@ const same = (a: string, b: string) => samePath(a, b)
 /** The repo's main checkout (toplevel); throws when `path` is not a git checkout. */
 export async function checkRepo(repo: RepoConfig): Promise<string> {
   if (!existsSync(repo.path)) throw new GitError(`the folder does not exist`)
-  const top = (await gitOk(repo.path, ['rev-parse', '--show-toplevel'], 30_000)).trim()
+  const r = await git(repo.path, ['rev-parse', '--show-toplevel'], 30_000, { local: true })
+  if (r.code !== 0) throw gitFailure(r, 'git rev-parse failed')
+  const top = r.stdout.trim()
   if (!top) throw new GitError('not a git checkout')
-  return top
+  return nativePath(top)
+}
+
+/**
+ * A path git printed, in this computer's own form: Git for Windows writes C:/Users/… — the worker keeps and compares
+ * C:\Users\… (what join / resolve give it). Elsewhere as git wrote it (resolved: no trailing separator, no "//").
+ */
+export function nativePath(p: string, platform: NodeJS.Platform = process.platform): string {
+  return platform === 'win32' ? win32.resolve(p) : posix.resolve(p)
+}
+
+/** `git worktree list --porcelain` read: each worktree's path in this computer's form (nativePath). */
+export function parseWorktrees(out: string, platform: NodeJS.Platform = process.platform): Worktree[] {
+  const list: Worktree[] = []
+  let cur: Worktree | null = null
+  for (const line of out.split(/\r?\n/)) {
+    if (line.startsWith('worktree ')) {
+      cur = { path: nativePath(line.slice(9), platform), branch: null, head: null, bare: false }
+      list.push(cur)
+    } else if (cur && line.startsWith('branch ')) cur.branch = line.slice(7).replace(/^refs\/heads\//, '')
+    else if (cur && line.startsWith('HEAD ')) cur.head = line.slice(5)
+    else if (cur && line === 'bare') cur.bare = true
+  }
+  return list
 }
 
 export async function hasRemote(repo: RepoConfig): Promise<boolean> {
@@ -161,25 +186,16 @@ export interface Worktree {
 }
 
 export async function listWorktrees(repo: RepoConfig): Promise<Worktree[]> {
-  const out = await gitOk(repo.path, ['worktree', 'list', '--porcelain'])
-  const list: Worktree[] = []
-  let cur: Worktree | null = null
-  for (const line of out.split(/\r?\n/)) {
-    if (line.startsWith('worktree ')) {
-      cur = { path: line.slice(9), branch: null, head: null, bare: false }
-      list.push(cur)
-    } else if (cur && line.startsWith('branch ')) cur.branch = line.slice(7).replace(/^refs\/heads\//, '')
-    else if (cur && line.startsWith('HEAD ')) cur.head = line.slice(5)
-    else if (cur && line === 'bare') cur.bare = true
-  }
-  return list
+  const r = await git(repo.path, ['worktree', 'list', '--porcelain'], 120_000, { local: true })
+  if (r.code !== 0) throw gitFailure(r, 'git worktree failed')
+  return parseWorktrees(r.stdout)
 }
 
 /** Branch names only — the newest first, at most BRANCHES_MAX (what One offers in a task's Branch field). */
 export const BRANCHES_MAX = 100
 
 export async function localBranches(repo: RepoConfig, timeoutMs = 5000): Promise<string[]> {
-  const r = await git(repo.path, ['for-each-ref', '--sort=-committerdate', `--count=${BRANCHES_MAX}`, '--format=%(refname:short)', 'refs/heads'], timeoutMs)
+  const r = await git(repo.path, ['for-each-ref', '--sort=-committerdate', `--count=${BRANCHES_MAX}`, '--format=%(refname:short)', 'refs/heads'], timeoutMs, { local: true })
   if (r.code !== 0) return []
   return r.stdout
     .split(/\r?\n/)
@@ -188,7 +204,7 @@ export async function localBranches(repo: RepoConfig, timeoutMs = 5000): Promise
 }
 
 export async function prune(repo: RepoConfig): Promise<void> {
-  await git(repo.path, ['worktree', 'prune'], 30_000)
+  await git(repo.path, ['worktree', 'prune'], 30_000, { local: true })
 }
 
 const refExists = async (cwd: string, ref: string) => (await git(cwd, ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`])).code === 0
@@ -272,16 +288,54 @@ export function worktreeFolder(branch: string, platform: NodeJS.Platform = proce
   return `${cut}-${createHash('sha1').update(branch).digest('hex').slice(0, 6)}`
 }
 
-/** Folders of the worker's own a failed checkout could not remove yet (Windows held a file): tried again before reuse. */
-const leftovers = new Set<string>()
+/**
+ * The folders of the worker's own failed checkouts that Windows still held (worker-state.json keeps them, so a restart
+ * forgets none): removed now where they can be — only inside the repo's worktree folder, never while git has another
+ * branch checked out there or a task works there — and with each the branch that checkout made, while that still
+ * points where the checkout left it, nothing has it checked out and no task took it. Runs before every new worktree of
+ * the repo and at the worker's start. Never throws; a folder still held stays for the next time. Returns what went.
+ */
+export async function sweepLeftovers(repo: RepoConfig, state: WorkerState): Promise<string[]> {
+  const removed: string[] = []
+  for (const l of state.leftovers(repo.name)) {
+    try {
+      const used = state.created(repo.name, l.branch)
+      const at = (await listWorktrees(repo)).find((w) => same(w.path, l.dir))
+      // not the failed checkout's any more: another branch there, or a task works in it — the folder stays
+      if (!insideWorktrees(repo, l.dir) || (at && at.branch !== l.branch) || (used?.worktree && same(used.worktree, l.dir))) {
+        state.dropLeftover(repo.name, l.dir)
+        continue
+      }
+      if (existsSync(l.dir) && !(await rmRetry(l.dir))) continue
+      await prune(repo)
+      if (l.tip && !used && (await branchExists(repo, l.branch))) {
+        const tip = (await git(repo.path, ['rev-parse', '--verify', '--quiet', `refs/heads/${l.branch}^{commit}`], 30_000, { local: true })).stdout.trim()
+        const out = !(await listWorktrees(repo)).some((w) => w.branch === l.branch)
+        if (tip === l.tip && out) await git(repo.path, ['branch', '-D', l.branch], 30_000, { local: true })
+      }
+      state.dropLeftover(repo.name, l.dir)
+      removed.push(l.dir)
+    } catch {
+      /* git or the disk refused: tried again next time */
+    }
+  }
+  return removed
+}
 
 /** The task's worktree folder, free: a leftover of the worker's own is removed now (it failed before) — else refused. */
-async function freeFolder(repo: RepoConfig, dir: string, branch: string): Promise<void> {
-  if (!existsSync(dir)) return
-  if (leftovers.has(pathId(dir)) && insideWorktrees(repo, dir) && (await rmRetry(dir))) {
-    leftovers.delete(pathId(dir))
-    await prune(repo)
+async function freeFolder(repo: RepoConfig, state: WorkerState, dir: string, branch: string): Promise<void> {
+  if (!existsSync(dir)) {
+    // gone meanwhile (the person removed it): nothing left to remember — the new worktree there is a task's
+    if (state.isLeftover(repo.name, dir)) state.dropLeftover(repo.name, dir)
     return
+  }
+  if (state.isLeftover(repo.name, dir) && insideWorktrees(repo, dir)) {
+    if (await rmRetry(dir)) {
+      state.dropLeftover(repo.name, dir)
+      await prune(repo)
+      return
+    }
+    throw new GitError(`the worktree folder for ${branch}, left by a failed checkout, could not be removed yet`, folderBusyCode())
   }
   throw new GitError(`the worktree folder for ${branch} already exists and is not a worktree of this repo — move it away first`)
 }
@@ -307,6 +361,8 @@ export async function ensureWorktree(repo: RepoConfig, state: WorkerState, task:
     if (tree && existsSync(tree.path)) return { dir: tree.path, branch: known.branch, created: !!state.created(repo.name, known.branch)?.branchCreated }
   }
   if (wanted) return reuse(repo, state, task, wanted, top, trees, note)
+  // what a failed checkout left (Windows held a file): its folder and branch go first, so the task gets its own name again
+  await sweepLeftovers(repo, state)
   await tryFetch(repo, note)
   const base = await baseRef(repo)
   const fork = (await gitOk(repo.path, ['rev-parse', `${base}^{commit}`])).trim()
@@ -314,10 +370,10 @@ export async function ensureWorktree(repo: RepoConfig, state: WorkerState, task:
   for (let n = 2; (await branchExists(repo, branch)) && n < 50; n++) branch = `${repo.branchPrefix}${slug(task.title)}-${shortId(task.id)}-${n}`
   if (!(await validBranch(repo, branch))) throw new GitError(`"${branch}" is not a valid branch name (check branchPrefix in worker.json)`)
   const dir = join(repo.worktreeDir, worktreeFolder(branch))
-  await freeFolder(repo, dir, branch)
+  await freeFolder(repo, state, dir, branch)
   mkdirSync(dirname(dir), { recursive: true })
   note?.('git', `New branch ${branch} from ${base} in its own worktree…`, 'newBranch', { branch, base })
-  await addWorktree(repo, ['-b', branch, dir, base], dir, branch, note)
+  await addWorktree(repo, state, ['-b', branch, dir, base], dir, branch, branch, note)
   state.remember(repo.name, branch, { task: task.id, worktree: dir, branchCreated: true, fork, at: Date.now() })
   state.setTask(task.id, { repo: repo.name, branch, worktree: dir })
   return { dir, branch, created: true }
@@ -333,7 +389,7 @@ const clock = (ms: number) => `${Math.floor(ms / 60_000)}:${String(Math.round(ms
  * branch this call created. git is gone first (its whole tree, on Windows too); a folder Windows still holds is tried
  * again and named (folderBusy) — git's own error is what the stage reports, whatever the cleanup met.
  */
-async function addWorktree(repo: RepoConfig, args: string[], dir: string, newBranch: string | null, note?: GitNote): Promise<void> {
+async function addWorktree(repo: RepoConfig, state: WorkerState, args: string[], dir: string, branch: string, newBranch: string | null, note?: GitNote): Promise<void> {
   const started = Date.now()
   const beat = setInterval(() => {
     const time = clock(Date.now() - started)
@@ -346,16 +402,22 @@ async function addWorktree(repo: RepoConfig, args: string[], dir: string, newBra
     const failed = gitFailure(r, 'git worktree add failed')
     await r.ended
     try {
+      let held = false
       if (insideWorktrees(repo, dir)) {
         await git(repo.path, ['worktree', 'remove', '--force', dir])
-        if (!(await rmRetry(dir))) {
-          leftovers.add(pathId(dir))
-          const busy = folderBusyCode()
-          if (busy) note?.('warn', FOLDER_BUSY, busy, {})
-        }
+        held = !(await rmRetry(dir))
       }
       await prune(repo)
       if (newBranch && (await branchExists(repo, newBranch))) await git(repo.path, ['branch', '-D', newBranch])
+      if (held) {
+        // kept in worker-state.json: removed before the repo's next new worktree or at the next start (sweepLeftovers) —
+        // the branch this call made with it, when it is still there, at the commit it has now
+        const made = !!newBranch && (await branchExists(repo, newBranch))
+        const tip = made ? (await git(repo.path, ['rev-parse', '--verify', '--quiet', `refs/heads/${newBranch}^{commit}`], 30_000, { local: true })).stdout.trim() || null : null
+        state.addLeftover(repo.name, { dir, branch, tip, at: Date.now() })
+        const busy = folderBusyCode()
+        if (busy) note?.('warn', FOLDER_BUSY, busy, {})
+      }
     } catch {
       /* the cleanup's own trouble never hides git's error */
     }
@@ -377,14 +439,14 @@ async function reuse(repo: RepoConfig, state: WorkerState, task: { id: string },
     return { dir: tree.path, branch, created: !!own?.branchCreated }
   }
   const dir = join(repo.worktreeDir, worktreeFolder(branch))
-  await freeFolder(repo, dir, branch)
+  await freeFolder(repo, state, dir, branch)
   mkdirSync(dirname(dir), { recursive: true })
   if (await branchExists(repo, branch)) {
-    await addWorktree(repo, [dir, branch], dir, null, note)
+    await addWorktree(repo, state, [dir, branch], dir, branch, null, note)
   } else {
     await tryFetch(repo, note)
     if (!(await remoteBranchExists(repo, branch))) throw new GitError(`the branch "${branch}" does not exist (locally or on ${repo.remote}) — check the task's Branch field`)
-    await addWorktree(repo, ['--track', '-b', branch, dir, `${repo.remote}/${branch}`], dir, branch, note)
+    await addWorktree(repo, state, ['--track', '-b', branch, dir, `${repo.remote}/${branch}`], dir, branch, branch, note)
   }
   // the worktree is the worker's (it may remove it); the branch stays the person's
   state.remember(repo.name, branch, { task: task.id, worktree: dir, branchCreated: !!own?.branchCreated, fork: own?.fork ?? null, at: own?.at ?? Date.now() })

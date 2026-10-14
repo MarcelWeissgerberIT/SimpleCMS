@@ -21,7 +21,7 @@ import { homedir } from 'node:os'
 import { isAbsolute, join, resolve } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { REPO_NAME, type OpenSetupResult, type WorkerPreset } from '../../../src/app/features/coding/protocol.ts'
-import { MCP_NAME, inFolder, marksSeen, saveRepos, sourceOf, splitArgs, unseenMarks, type RepoChoice, type SourceWhy, type WorkerConfig } from './config.ts'
+import { MCP_NAME, cloudOf, inFolder, marksSeen, saveRepos, sourceOf, splitArgs, unseenMarks, type RepoChoice, type SourceWhy, type WorkerConfig } from './config.ts'
 import { bareRepo, factsOf, findRepos, isMainCheckoutAsync, realpathTimed, repoFacts, shortPath, type FindResult, type FoundRepo, type ScanOptions } from './scan.ts'
 import { pickFolder, type PickResult } from './picker.ts'
 import { sameSecret } from './preset.ts'
@@ -31,7 +31,7 @@ import { cloneBase, cloneInto, folderName, listProjects, parseCloneUrl, runCli, 
 import { ZIP_MAX, importZip } from './zipimport.ts'
 import { checkPublish, publishRepo, suggestName } from './publish.ts'
 import { execFileSafe } from './exec.ts'
-import { inSyncedFolder, pathId, samePath, type Synced } from './paths.ts'
+import { inSyncedFolder, pathId, samePath, worktreesAt, type Synced, type WorktreesAt } from './paths.ts'
 import { createWriteStream, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 
@@ -103,6 +103,20 @@ export interface PageRepo extends FoundRepo {
   source: SourceWhy | null
   /** the synced folder it lies in (iCloud Drive, ~/Library/CloudStorage, OneDrive): the page says what that costs */
   synced: Synced | null
+  /** with `synced`: where its task worktrees are (or will be, once ticked) — the page names only where they really are */
+  worktrees: WorktreesAt | null
+}
+
+/**
+ * A row's synced folder and where its task worktrees are: worker.json's worktreeDir for a ticked repo; for one not ticked
+ * yet the default it would get (config.ts: a cloud worker's own folder, else ~/.one-worktrees for a synced repo).
+ */
+export function syncedRow(path: string, worktreeDir: string | null, opts: { home: string; cloud: boolean; platform?: NodeJS.Platform; env?: NodeJS.ProcessEnv }): { synced: Synced | null; worktrees: WorktreesAt | null } {
+  const where = { home: opts.home, ...(opts.platform ? { platform: opts.platform } : {}), ...(opts.env ? { env: opts.env } : {}) }
+  const synced = inSyncedFolder(path, where)
+  if (!synced) return { synced: null, worktrees: null }
+  if (worktreeDir) return { synced, worktrees: worktreesAt(worktreeDir, where) }
+  return { synced, worktrees: opts.cloud ? 'own' : 'home' }
 }
 
 const MAX_BODY = 256 * 1024
@@ -220,6 +234,10 @@ export class SetupServer {
     return sourceOf(path, this.host.config().cloneDir) ?? (this.cloneDir && inFolder(path, this.cloneDir) ? 'cloneDir' : null)
   }
 
+  private syncedOf(path: string, worktreeDir: string | null): { synced: Synced | null; worktrees: WorktreesAt | null } {
+    return syncedRow(path, worktreeDir, { home: this.home, cloud: !!cloudOf(this.host.config()) })
+  }
+
   /** The repos the page lists: worker.json's first (in its order), then the rest, most recently active first. */
   repos(): PageRepo[] {
     const config = this.host.config()
@@ -245,13 +263,13 @@ export class SetupServer {
         analyzeLine: joinArgs(r.analyzeCommand),
         ownSettings: r.claude.projectSettingsSet ? r.claude.projectSettings : source === null,
         source,
-        synced: inSyncedFolder(r.path, { home: this.home }),
+        ...this.syncedOf(r.path, r.worktreeDir),
       })
     }
     const rest = [...this.found.values()].filter((f) => !seen.has(pathId(f.path))).sort((a, b) => (b.lastCommit ?? 0) - (a.lastCommit ?? 0))
     for (const f of rest) {
       const source = this.sourceNow(f.path)
-      out.push({ ...f, ticked: false, configured: false, push: !!f.remote, pr: 'gh', maxUsdPerTask: null, testLine: joinArgs(f.test), mcp: '', analyzeLine: joinArgs(f.analyze ?? null), ownSettings: source === null, source, synced: inSyncedFolder(f.path, { home: this.home }) })
+      out.push({ ...f, ticked: false, configured: false, push: !!f.remote, pr: 'gh', maxUsdPerTask: null, testLine: joinArgs(f.test), mcp: '', analyzeLine: joinArgs(f.analyze ?? null), ownSettings: source === null, source, ...this.syncedOf(f.path, null) })
     }
     return out
   }

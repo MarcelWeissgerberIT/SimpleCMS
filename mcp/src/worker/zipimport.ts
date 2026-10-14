@@ -109,7 +109,17 @@ export const isUnsafe = (v: unknown): v is Unsafe => typeof v === 'object' && v 
 /** A name as it may be shown on the setup page, in One and in the log. */
 const shown = (name: string) => name.replace(/[\u0000-\u001f\u007f]/g, '?').slice(0, 120)
 
-const entry = (path: string) => lstatSync(path, { throwIfNoEntry: false })
+/** What the guard asks of the file system (tests pass one that folds names, as a case-insensitive disk does). */
+export interface GuardDisk {
+  /** lstat: undefined when nothing answers for the name */
+  lstat: (path: string) => { isDirectory(): boolean; dev: number; ino: number } | undefined
+  /** a folder's entries as stored */
+  list: (dir: string) => Array<{ name: string; isDirectory(): boolean }>
+}
+const DISK: GuardDisk = {
+  lstat: (path) => lstatSync(path, { throwIfNoEntry: false }),
+  list: (dir) => readdirSync(dir, { withFileTypes: true }),
+}
 
 /**
  * A folder git would take for a repository of its own (git's is_git_directory, setup.c): a HEAD, and objects + refs
@@ -118,11 +128,11 @@ const entry = (path: string) => lstatSync(path, { throwIfNoEntry: false })
  * file (and Linux / macOS for an executable one). git uses such a folder — a bare repository — for any git command
  * run inside it, its config included.
  */
-function isRepoDir(d: string): boolean {
-  const head = entry(join(d, 'HEAD'))
+function isRepoDir(d: string, disk: GuardDisk): boolean {
+  const head = disk.lstat(join(d, 'HEAD'))
   if (!head || head.isDirectory()) return false
-  if (entry(join(d, 'commondir'))) return true
-  return !!entry(join(d, 'objects')) && !!entry(join(d, 'refs'))
+  if (disk.lstat(join(d, 'commondir'))) return true
+  return !!disk.lstat(join(d, 'objects')) && !!disk.lstat(join(d, 'refs'))
 }
 
 export interface PlantedGit {
@@ -137,16 +147,25 @@ export interface PlantedGit {
  * volume), or a folder git would use as a repository (isRepoDir) — else null. entryPath left every ".git" name out
  * already: this catches a folding nobody foresaw, and a bare repository planted under any name.
  */
-export function gitDirIn(dir: string): PlantedGit | null {
+export function gitDirIn(dir: string, disk: GuardDisk = DISK): PlantedGit | null {
   const todo = [dir]
   while (todo.length) {
     const d = todo.pop()!
-    if (entry(join(d, '.git'))) return { path: join(d, '.git'), kind: 'dotgit' }
-    if (isRepoDir(d)) return { path: d, kind: 'repo' }
-    for (const e of readdirSync(d, { withFileTypes: true })) {
-      if (isDotGit(e.name)) return { path: join(d, e.name), kind: 'dotgit' }
-      if (e.isDirectory()) todo.push(join(d, e.name))
+    const entries = disk.list(d)
+    // named as it is stored (".GIT", "GIT~1"): the refusal names what the person will find in their ZIP
+    const named = entries.find((e) => isDotGit(e.name))
+    if (named) return { path: join(d, named.name), kind: 'dotgit' }
+    // a folding nobody foresaw: the file system answers for ".git" — named by the entry it answers with, if one is
+    const dot = disk.lstat(join(d, '.git'))
+    if (dot) {
+      const same = entries.find((e) => {
+        const st = disk.lstat(join(d, e.name))
+        return !!st && st.dev === dot.dev && st.ino === dot.ino
+      })
+      return { path: join(d, same?.name ?? '.git'), kind: 'dotgit' }
     }
+    if (isRepoDir(d, disk)) return { path: d, kind: 'repo' }
+    for (const e of entries) if (e.isDirectory()) todo.push(join(d, e.name))
   }
   return null
 }

@@ -14,7 +14,7 @@ import { buildPrompt, commitMessage } from '../src/worker/run.ts'
 import { estimateCost, usageOf } from '../src/worker/price.ts'
 import { SOURCE_MARK, loadConfig, marksSeen, sanitizeConfig, scratchRepo, unseenMarks, type Loaded } from '../src/worker/config.ts'
 import { sanitizeTask } from '../src/worker/worker.ts'
-import { FAKE_CLAUDE, IS_WIN, cleanupAll, linkDir, task, tempDir } from './worker-helpers.ts'
+import { FAKE_CLAUDE, IS_WIN, caseFolds, cleanupAll, gitProgram, linkDir, task, tempDir } from './worker-helpers.ts'
 
 if (!IS_WIN) chmodSync(FAKE_CLAUDE, 0o755)
 after(cleanupAll)
@@ -96,13 +96,15 @@ describe('Claude Code CLI', () => {
     const spelled = { cloneDir: join(home, 'One-Repos'), repos: [{ name: 'a', path: join(real, 'billing') }] }
     assert.deepEqual(trust(spelled, 'darwin'), { a: [false, 'cloneDir'] })
     assert.deepEqual(trust(spelled, 'win32'), { a: [false, 'cloneDir'] })
-    assert.deepEqual(trust(spelled, 'linux'), { a: [true, null] })
+    // Linux's rule (case counts) — where the disk under the test keeps case apart; on a disk that folds it (the macOS and
+    // Windows runners) ~/One-Repos IS ~/one-repos, and the disk is what the rule asks (asked of it, not of the OS)
+    assert.deepEqual(trust(spelled, 'linux'), caseFolds(home) ? { a: [false, 'cloneDir'] } : { a: [true, null] })
   })
 
   test('once per config, an older worker\'s imports (anywhere) and clones (in the default clone folder) get the mark — the person\'s own repos in a clone folder of their choice never do', () => {
     const home = tempDir('marks')
     const clones = join(home, 'one-repos')
-    const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, stdio: 'ignore' })
+    const git = (cwd: string, ...args: string[]) => execFileSync(gitProgram(), args, { cwd, stdio: 'ignore' })
     /** A git repo with one commit `subject` (and an origin address, never contacted). */
     const repo = (p: string, subject = 'initial', origin?: string) => {
       mkdirSync(p, { recursive: true })
@@ -173,7 +175,7 @@ describe('Claude Code CLI', () => {
   test('the one-time marking takes an import only as the worker made it — a person\'s own repo whose first commit is "Import <x>.zip" is never marked outside ~/one-repos', () => {
     const home = tempDir('marks')
     const clones = join(home, 'one-repos')
-    const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, stdio: 'ignore' })
+    const git = (cwd: string, ...args: string[]) => execFileSync(gitProgram(), args, { cwd, stdio: 'ignore' })
     const repo = (p: string, subject: string) => {
       mkdirSync(p, { recursive: true })
       git(p, 'init', '-q', '-b', 'main')
