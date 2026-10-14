@@ -530,16 +530,20 @@ test.describe('MCP · Connections (#/mcp)', () => {
     await expect(row(page, 'nordlicht').locator('[data-fact="code"] dd')).toHaveText('Not named yet — the worker says when it next asks for a task')
     await expect(r).not.toHaveAttribute('data-level', /.+/)
 
-    // older than the ZIP import (no security gap) and naming no capability: outdated, and it names no servers
+    // older than the ZIP import (no ZIP gap) and naming no capability: it names no servers. The test browser says it runs
+    // on Windows (Playwright's Desktop Chrome), where a worker older than 1.9.0 is the Windows gap — the lamp's order:
+    // that word wins over "outdated", with the Windows sentence
     await coding(page, { worker: { ...info, worker: '1.2.0' }, can: [] })
     await expect(r.getByTestId('mcpc-worker-old')).toHaveText('Worker too old to tell — download it again')
     await expect(r).toHaveAttribute('data-level', 'amber')
-    await expect(r.getByTestId('mcpc-word')).toHaveText('outdated')
+    await expect(r.getByTestId('mcpc-word')).toHaveText('security gap')
+    await expect(r).toContainText('On Windows, this worker (1.2.0) can start a program named git.exe')
 
     await coding(page, { conn: 'refused', refused: 'pair', worker: null, can: null })
     await expect(r).toHaveAttribute('data-level', 'red')
     // red at once, with the time it went down — the lamp's own clock
     await expect(r.getByTestId('mcpc-word')).toHaveText('Refused')
+    await expect(r).toContainText('an older download is running')
     await expect(r.getByTestId('mcpc-worker-since')).toHaveText(/^Not connected since \d{2}:\d{2}\.$/)
     await expect(r.getByTestId('mcpc-worker-tools')).toHaveCount(0)
 
@@ -565,6 +569,8 @@ test.describe('MCP · Connections (#/mcp)', () => {
     await page.clock.fastForward(61_000)
     await expect(r).toHaveAttribute('data-level', 'red')
     await expect(r.getByTestId('mcpc-word')).toHaveText('Waiting')
+    // down: why, as the Preflight worker card says it
+    await expect(r).toContainText('The worker does not answer — is it running in a terminal?')
     await expect(r.getByTestId('mcpc-worker-since')).toHaveText(/^Not connected since \d{2}:\d{2}\.$/)
     await expect(page.getByTestId('mcpc-readout').locator('[data-cell="worker"] .mcpc-led')).toHaveClass(/mcpc-led--red/)
     // the lamp says the same
@@ -688,6 +694,8 @@ test.describe('MCP · Connections — source guard and rules (Node)', () => {
     expect(led({ enabled: true, conn: 'connected', worker: { worker: '1.9.0' }, can: all })).toBe('ok')
     expect(led({ enabled: true, conn: 'connected', worker: { worker: '1.8.0' }, can: all })).toBe('amber')
     expect(led({ enabled: true, conn: 'connected', worker: { worker: '1.9.0' }, can: ['doc'] })).toBe('amber')
+    // older than 1.9.0 on this Windows computer (coding workerOldHere — the caller reads the browser): amber, as the lamp
+    expect(led({ enabled: true, conn: 'connected', worker: { worker: '1.8.1' }, can: all, oldHere: true })).toBe('amber')
     // not asked for a task yet: no "older worker"
     expect(led({ enabled: true, conn: 'connected', worker: { worker: '1.9.0' }, can: null })).toBe('ok')
     for (const conn of ['refused', 'blocked', 'replaced']) expect(led({ enabled: true, conn })).toBe('red')

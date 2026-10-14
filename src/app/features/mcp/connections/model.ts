@@ -39,14 +39,14 @@ export function needsYou<S extends ServerFacts>(servers: S[], now: number, refus
 }
 
 /**
- * The worker link's lamp, by the Preflight Worker lamp's rule: connected → amber for a security gap / an older worker,
- * else ok · switched off here → off · down (refused / blocked / replaced at once; connecting / waiting / off once down
+ * The worker link's lamp, by the Preflight Worker lamp's rule: connected → amber for a security gap / an older worker
+ * (`oldHere`: older than 1.9.0 on this Windows computer — coding `workerOldHere`, which reads the browser), else ok · switched off here → off · down (refused / blocked / replaced at once; connecting / waiting / off once down
  * for the lamp's grace — `since` is the lamp's own clock, workerDownSince) → red · inside the grace: connecting /
  * waiting 'on', off 'off'.
  */
-export function workerLed(s: { enabled: boolean; conn: string; worker: Pick<WorkerInfo, 'worker'> | null; can: readonly string[] | null }, since: number | null, now: number): Level {
+export function workerLed(s: { enabled: boolean; conn: string; worker: Pick<WorkerInfo, 'worker'> | null; can: readonly string[] | null; oldHere?: boolean }, since: number | null, now: number): Level {
   if (!s.enabled) return 'off'
-  if (s.conn === 'connected') return workerUnsafe(s.worker?.worker) || workerOutdated(s.can) ? 'amber' : 'ok'
+  if (s.conn === 'connected') return workerUnsafe(s.worker?.worker) || s.oldHere || workerOutdated(s.can) ? 'amber' : 'ok'
   if (workerLinkDown(s.conn, since, now)) return 'red'
   if (s.conn === 'connecting' || s.conn === 'waiting') return 'on'
   return 'off'

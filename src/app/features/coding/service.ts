@@ -210,6 +210,8 @@ const pending = new Map<string, { resolve: (v: unknown) => void; reject: (e: Err
 let helloAs: string | null = null
 
 const BACKOFF = [600, 1200, 2500, 5000, 8000, 12_000]
+/** what a Local worker refuses a tab for — each clears once the right file runs (the person restarts it) */
+const LOCAL_REFUSALS: ReadonlySet<CodingRefused> = new Set<CodingRefused>(['pair', 'workspace', 'unbound'])
 const delay = () => (Date.now() < fastUntil ? 1500 : failingSince && Date.now() - failingSince > 120_000 ? 30_000 : BACKOFF[Math.min(attempt, BACKOFF.length - 1)])
 
 function me(): WorkspaceRef {
@@ -235,7 +237,11 @@ function schedule() {
   retryTimer = window.setTimeout(connect, delay())
 }
 
-function connect() {
+/**
+ * @param keepRefused a Local worker's refusal stays shown while this try runs (the tab came back: has the person started
+ *   the right file?) — another refusal keeps it, an answer clears it, no worker at all waits as usual
+ */
+function connect(keepRefused = false) {
   window.clearTimeout(retryTimer)
   if (!get().enabled || link) return
   // between workspaces (loading, signed out): wait
@@ -260,7 +266,7 @@ function connect() {
     set({ conn: 'blocked', blocked: 'insecure', lna: null })
     return
   }
-  set((s) => ({ conn: attempt === 0 && s.conn !== 'waiting' ? 'connecting' : 'waiting', blocked: null }))
+  set((s) => ({ conn: keepRefused && s.conn === 'refused' ? 'refused' : attempt === 0 && s.conn !== 'waiting' ? 'connecting' : 'waiting', blocked: null }))
 }
 
 /** The Local Network Access status this service listens to (Chrome answers every query with a new object). */
@@ -526,7 +532,8 @@ function attach(open: (h: LinkHandlers) => LinkHandle) {
         attempt += 1
         failingSince ||= Date.now()
       }
-      set({ conn: 'waiting' })
+      // a refusal this tab showed while it tried again (wake) no longer holds: no worker answers now
+      set(via === 'local' ? { conn: 'waiting', refused: null, refusedPaired: false } : { conn: 'waiting' })
       // Local, closed before it ever opened: no worker answers — or the browser blocks this page (askLocalNetwork)
       if (via === 'local' && !opened) return askLocalNetwork()
       schedule()
@@ -563,7 +570,7 @@ async function receive(msg: WorkerMessage) {
       failingSince = 0
       wasCurrent = true
       const { type: _type, ...info } = msg
-      set({ conn: 'connected', refused: null, pendingHere: false, worker: info, busy: info.busy ?? [], spentToday: info.spentToday ?? 0 })
+      set({ conn: 'connected', refused: null, refusedPaired: false, pendingHere: false, worker: info, busy: info.busy ?? [], spentToday: info.spentToday ?? 0 })
       // the worker's repos as Repo options: upkeep, nobody's change (flight recorder)
       withWriter(SYSTEM('maintenance'), () => {
         for (const dbId of pipelineDbIds()) addRepoOptions(dbId, (info.repos ?? []).map((r) => r.name))
@@ -909,11 +916,18 @@ export function startCoding() {
   })
   const wake = () => {
     if (document.visibilityState !== 'visible' || !get().enabled || link) return
+    const s = get()
     // waiting, or blocked by the browser (the person may have allowed it meanwhile): try again now
-    if (get().conn === 'waiting' || get().conn === 'blocked') {
+    if (s.conn === 'waiting' || s.conn === 'blocked') {
       attempt = Math.min(attempt, 1)
       connect()
-    } else if (get().conn === 'replaced') void checkReplaced()
+    } else if (s.conn === 'replaced') void checkReplaced()
+    else if (s.conn === 'refused' && s.refused && LOCAL_REFUSALS.has(s.refused) && viaFor(currentWorkspace()) === 'local') {
+      // a Local worker said no (an older download, another workspace's, an unbound one): a link it refused never tries
+      // again by itself — the person comes back from the terminal where they started the right file, so try once now
+      attempt = Math.min(attempt, 1)
+      connect(true)
+    }
   }
   document.addEventListener('visibilitychange', wake)
   window.addEventListener('focus', wake)

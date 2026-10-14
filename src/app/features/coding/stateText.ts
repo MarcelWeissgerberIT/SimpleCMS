@@ -3,6 +3,7 @@ import type { useT } from '../../i18n'
 import { currentWorkspace } from '../mcp/identity'
 import { viaFor } from './service'
 import type { CodingState } from './state'
+import { inAppWindow } from '../../lib/localNetwork'
 
 type T = ReturnType<typeof useT>
 
@@ -59,7 +60,9 @@ export function workerStateText(t: T, s: StateIn): string {
       }
     case 'blocked':
       if (cloud) return t('features.coding.conn.blocked')
-      return t(s.blocked === 'permission' ? 'features.coding.conn.blockedPermission' : s.blocked === 'insecure' ? 'features.coding.conn.blockedInsecure' : 'features.coding.conn.blocked')
+      // an installed app's window has no address bar: its site settings are under ⋮ → App info
+      if (s.blocked === 'permission') return t(inAppWindow() ? 'features.coding.conn.blockedPermissionApp' : 'features.coding.conn.blockedPermission')
+      return t(s.blocked === 'insecure' ? 'features.coding.conn.blockedInsecure' : 'features.coding.conn.blocked')
     default:
       return t('features.coding.conn.off')
   }

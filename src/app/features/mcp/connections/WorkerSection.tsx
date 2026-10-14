@@ -5,7 +5,7 @@
  * task tools (MCP_TASK_TOOLS).
  */
 import { useT } from '../../../i18n'
-import { CodingChangeReposButton, codingWorkerStateText, openCodingSettings, useCoding } from '../../coding'
+import { CodingChangeReposButton, codingWorkerDownText, codingWorkerStateText, openCodingSettings, useCoding, workerOldHere } from '../../coding'
 import { workerOutdated, workerUnsafe } from '../../coding/protocol'
 import { fmtTime } from '../../preflight/format'
 import { MCP_TASK_TOOLS } from '../contract'
@@ -22,19 +22,25 @@ export function WorkerSection() {
   const refused = useCoding((s) => s.refused)
   const relay = useCoding((s) => s.relay)
   const pendingHere = useCoding((s) => s.pendingHere)
+  const blocked = useCoding((s) => s.blocked)
+  const lna = useCoding((s) => s.lna)
   const can = useCoding((s) => s.can)
   const servers = useServers()
   const connected = enabled && conn === 'connected'
   const { level, since } = useWorkerLevel()
   const version = connected ? (worker?.worker ?? '') : ''
   const unsafe = connected && workerUnsafe(version)
-  const outdated = connected && !unsafe && workerOutdated(can)
+  // older than 1.9.0 on this Windows computer: the same gap word as the Preflight lamp (worker:windows@…)
+  const oldHere = connected && !unsafe && workerOldHere(version)
+  const outdated = connected && !unsafe && !oldHere && workerOutdated(can)
   const state = !enabled ? 'off' : conn
   // down (the lamp's red): since when, by the lamp's own clock
   const downSince = level === 'red' && since !== null ? fmtTime(since) : null
-  const word = unsafe ? t('features.preflight.lamp.worker.second.unsafe') : outdated ? t('features.preflight.lamp.worker.second.outdated') : t(`features.mcp.page.wstate.${state}`)
+  const word = unsafe || oldHere ? t('features.preflight.lamp.worker.second.unsafe') : outdated ? t('features.preflight.lamp.worker.second.outdated') : t(`features.mcp.page.wstate.${state}`)
   const places = workerPlaces(connected ? worker : null, can)
-  const text = codingWorkerStateText(t, { enabled, conn, worker, busy, refused, relay, pendingHere })
+  const state_ = { enabled, conn, worker, busy, refused, relay, pendingHere, blocked, lna }
+  // down (red): why, as the Preflight worker card says it — a Local link that waits: is the worker running
+  const text = level === 'red' ? codingWorkerDownText(t, state_) : codingWorkerStateText(t, state_)
 
   return (
     <Section n="03" code={t('features.mcp.page.worker.code')} scope={t('features.mcp.page.scope.browser')} title={t('features.mcp.page.worker.title')} note={t('features.mcp.page.worker.note')} testId="mcpc-worker">
@@ -55,6 +61,7 @@ export function WorkerSection() {
                 </span>
               )}
               {unsafe && <span className="mcpc-why2">{t('features.coding.worker.unsafe', { version })}</span>}
+              {oldHere && <span className="mcpc-why2">{t('features.coding.worker.windows', { version })}</span>}
               {outdated && <span className="mcpc-why2">{t('features.coding.worker.outdated')}</span>}
             </>
           }
