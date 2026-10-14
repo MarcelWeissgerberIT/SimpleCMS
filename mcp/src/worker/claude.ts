@@ -44,8 +44,8 @@ export const claudeBin = (env: NodeJS.ProcessEnv = process.env) => (env.CLAUDE_B
 /** How to get Claude Code on this kind of computer (terminal lines). */
 export function claudeInstallHint(platform: NodeJS.Platform = process.platform): string {
   if (platform === 'win32')
-    return 'Install Claude Code — its native installer (PowerShell: irm https://claude.ai/install.ps1 | iex) or npm i -g @anthropic-ai/claude-code; it needs Git for Windows (Git Bash) — sign in once with `claude`, or set CLAUDE_BIN to claude.exe or its cli.js'
-  return 'Install Claude Code — its native installer (curl -fsSL https://claude.ai/install.sh | bash) or npm i -g @anthropic-ai/claude-code — sign in once with `claude`, or set CLAUDE_BIN to its program'
+    return 'Install Claude Code (native installer in PowerShell: irm https://claude.ai/install.ps1 | iex · or npm i -g @anthropic-ai/claude-code; it needs Git for Windows) and sign in once with `claude` — or set CLAUDE_BIN to claude.exe or its cli.js'
+  return 'Install Claude Code (native installer: curl -fsSL https://claude.ai/install.sh | bash · or npm i -g @anthropic-ai/claude-code) and sign in once with `claude` — or set CLAUDE_BIN to its program'
 }
 
 /** The stage error when Claude Code cannot start (English, as every stage error; never the path it was looked for at). */

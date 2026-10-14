@@ -25,7 +25,7 @@
  */
 import { fileURLToPath } from 'node:url'
 import { existsSync, statSync } from 'node:fs'
-import { homedir } from 'node:os'
+import { homedir, userInfo } from 'node:os'
 import { resolve } from 'node:path'
 import { WORKER_DEFAULT_PORT } from '../../../src/app/features/coding/protocol.ts'
 import { SOURCE_WORDS, cloudConfigFile, defaultConfigFile, emptyConfig, initConfig, loadConfig, saveRepos, withPreset, type RepoChoice } from './config.ts'
@@ -69,8 +69,17 @@ const self = fileURLToPath(import.meta.url)
 /** `node <this file> <sub>` as the person types it (quoted when the path has spaces) */
 const again = (sub: string) => `node ${/\s/.test(self) ? `"${self}"` : self} ${sub}`
 const win = process.platform === 'win32'
-/** how to keep a file readable by its owner only */
-const privately = (file: string) => (win ? `icacls "${file}" /inheritance:r /grant:r "%USERNAME%:F"` : `chmod 600 ${/\s/.test(file) ? `"${file}"` : file}`)
+/** how to keep a file readable by its owner only (Windows: the account by name — %USERNAME% means nothing to PowerShell) */
+const privately = (file: string) => {
+  if (!win) return `chmod 600 ${/\s/.test(file) ? `"${file}"` : file}`
+  let user = '%USERNAME%'
+  try {
+    user = userInfo().username || user
+  } catch {
+    /* no account name: cmd's variable */
+  }
+  return `icacls "${file}" /inheritance:r /grant:r "${user}:F"`
+}
 /** Node 20 still runs the worker, untested: its end of life was 30 April 2026 */
 const nodeMajor = Number(process.versions.node.split('.')[0])
 const NODE_OLD = `Node.js ${process.versions.node} is past its end of life (30 April 2026) and untested with this worker — use Node.js 22 or newer`
@@ -107,7 +116,6 @@ Needs: Node.js 22 or newer, git${win ? ' (Git for Windows — Claude Code needs 
 `)
   process.exit(0)
 }
-
 
 async function main() {
   if (command === 'task-mcp') return serveTaskMcp(VERSION)

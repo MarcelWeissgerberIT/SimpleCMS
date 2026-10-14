@@ -19,7 +19,8 @@ import { runAnalysis, runTests } from '../src/worker/testrun.ts'
 import { browserCommand } from '../src/worker/opener.ts'
 import { pickerCommand } from '../src/worker/picker.ts'
 import { listenError } from '../src/worker/link.ts'
-import type { RepoConfig } from '../src/worker/config.ts'
+import { emptyConfig, type RepoConfig } from '../src/worker/config.ts'
+import { Worker } from '../src/worker/worker.ts'
 import { WORKER_BUNDLE, cleanupAll, cmdShimV7, fakeBin, pathWith, tempDir } from './worker-helpers.ts'
 
 after(cleanupAll)
@@ -572,6 +573,15 @@ describe('exec in use — crash safety', () => {
     assert.doesNotMatch(`${r.stdout}${r.stderr}`, /\n\s+at /)
   })
 
+  test('Worker.start survives a missing Claude Code: it listens, says so, and stops cleanly', async () => {
+    const dir = tempDir('nostart')
+    const logs: string[] = []
+    const worker = new Worker({ config: { ...emptyConfig(join(dir, 'worker.json'), {}), port: 0 }, version: 'test', bin: join(dir, 'nope', 'claude'), self: WORKER_BUNDLE, log: (m) => logs.push(m) })
+    assert.equal(await worker.start(), 'listening')
+    await worker.stop()
+    assert.ok(logs.some((l) => /Claude Code/.test(l) && /not found|install/i.test(l)), logs.join('\n'))
+  })
+
   test('Windows dialogs: PowerShell by its path, UTF-8 out, in front (TopMost) · the browser through cmd.exe by its path', () => {
     const env = { SystemRoot: String.raw`C:\Windows` }
     const pick = pickerCommand(env, 'win32')!
@@ -588,6 +598,9 @@ describe('exec in use — crash safety', () => {
     assert.equal(open.cmd, String.raw`C:\Windows\System32\cmd.exe`)
     assert.deepEqual(open.args, ['/d', '/c', 'start', '""', url])
     assert.equal(browserCommand(url, { ONE_WORKER_BROWSER: 'firefox' }, 'win32')!.allow, 'person')
+    // a path typed with its quotes (Explorer's "Copy as path")
+    assert.equal(browserCommand(url, { ONE_WORKER_BROWSER: String.raw`"C:\Program Files\Mozilla Firefox\firefox.exe"` }, 'win32')!.cmd, String.raw`C:\Program Files\Mozilla Firefox\firefox.exe`)
+    assert.equal(pickerCommand({ ONE_WORKER_PICKER: '"C:\\tools\\pick folder.exe"' }, 'win32')!.cmd, 'C:\\tools\\pick folder.exe')
   })
 
   test('test commands: CRLF lines arrive without \\r; a program not in PATH → notStarted "missing" (never a throw)', async () => {

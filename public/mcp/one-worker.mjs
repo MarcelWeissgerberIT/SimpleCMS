@@ -10895,7 +10895,7 @@ var require_dist = __commonJS({
 // src/worker/index.ts
 import { fileURLToPath } from "node:url";
 import { existsSync as existsSync8, statSync as statSync4 } from "node:fs";
-import { homedir as homedir8 } from "node:os";
+import { homedir as homedir8, userInfo } from "node:os";
 import { resolve as resolve6 } from "node:path";
 
 // ../src/app/features/coding/protocol.ts
@@ -11964,8 +11964,8 @@ function usageOf(raw) {
 var claudeBin = (env = process.env) => env.CLAUDE_BIN && env.CLAUDE_BIN.trim() || "claude";
 function claudeInstallHint(platform = process.platform) {
   if (platform === "win32")
-    return "Install Claude Code \u2014 its native installer (PowerShell: irm https://claude.ai/install.ps1 | iex) or npm i -g @anthropic-ai/claude-code; it needs Git for Windows (Git Bash) \u2014 sign in once with `claude`, or set CLAUDE_BIN to claude.exe or its cli.js";
-  return "Install Claude Code \u2014 its native installer (curl -fsSL https://claude.ai/install.sh | bash) or npm i -g @anthropic-ai/claude-code \u2014 sign in once with `claude`, or set CLAUDE_BIN to its program";
+    return "Install Claude Code (native installer in PowerShell: irm https://claude.ai/install.ps1 | iex \xB7 or npm i -g @anthropic-ai/claude-code; it needs Git for Windows) and sign in once with `claude` \u2014 or set CLAUDE_BIN to claude.exe or its cli.js";
+  return "Install Claude Code (native installer: curl -fsSL https://claude.ai/install.sh | bash \xB7 or npm i -g @anthropic-ai/claude-code) and sign in once with `claude` \u2014 or set CLAUDE_BIN to its program";
 }
 function claudeMissingError(missing) {
   return missing === "cmd-refused" ? "Claude Code is installed as a .cmd / .bat file the worker cannot read \u2014 install it with its native installer, or set CLAUDE_BIN to claude.exe or its cli.js." : "Claude Code was not found on this computer. Install it and sign in, or set CLAUDE_BIN.";
@@ -33281,7 +33281,7 @@ import { isAbsolute as isAbsolute3, join as join11, resolve as resolve5, sep as 
 // src/worker/picker.ts
 var PROMPT = "One worker \u2014 pick the folder of a git repository";
 function pickerCommand(env = process.env, platform = process.platform) {
-  const custom2 = (env.ONE_WORKER_PICKER ?? "").trim();
+  const custom2 = (env.ONE_WORKER_PICKER ?? "").trim().replace(/^"(.+)"$/, "$1");
   if (custom2 === "none") return null;
   if (custom2) return { cmd: custom2, args: [], allow: "person" };
   if (platform === "darwin") {
@@ -33315,7 +33315,7 @@ async function pickFolder(env = process.env) {
 
 // src/worker/opener.ts
 function browserCommand(url, env = process.env, platform = process.platform) {
-  const custom2 = (env.ONE_WORKER_BROWSER ?? "").trim();
+  const custom2 = (env.ONE_WORKER_BROWSER ?? "").trim().replace(/^"(.+)"$/, "$1");
   const base = { stdio: "ignore", windowsHide: true };
   if (custom2 === "none") return null;
   if (custom2) return { cmd: custom2, args: [url], opts: base, allow: "person" };
@@ -34792,7 +34792,15 @@ var configOpts = { cloud: !!cloud };
 var self = fileURLToPath(import.meta.url);
 var again = (sub) => `node ${/\s/.test(self) ? `"${self}"` : self} ${sub}`;
 var win = process.platform === "win32";
-var privately = (file) => win ? `icacls "${file}" /inheritance:r /grant:r "%USERNAME%:F"` : `chmod 600 ${/\s/.test(file) ? `"${file}"` : file}`;
+var privately = (file) => {
+  if (!win) return `chmod 600 ${/\s/.test(file) ? `"${file}"` : file}`;
+  let user = "%USERNAME%";
+  try {
+    user = userInfo().username || user;
+  } catch {
+  }
+  return `icacls "${file}" /inheritance:r /grant:r "${user}:F"`;
+};
 var nodeMajor = Number(process.versions.node.split(".")[0]);
 var NODE_OLD = `Node.js ${process.versions.node} is past its end of life (30 April 2026) and untested with this worker \u2014 use Node.js 22 or newer`;
 if (flag("--version") || flag("-v")) {

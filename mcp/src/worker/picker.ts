@@ -22,7 +22,7 @@ const PROMPT = 'One worker — pick the folder of a git repository'
 
 /** The folder dialog of this computer (null: none — headless, or switched off). */
 export function pickerCommand(env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): PickCommand | null {
-  const custom = (env.ONE_WORKER_PICKER ?? '').trim()
+  const custom = (env.ONE_WORKER_PICKER ?? '').trim().replace(/^"(.+)"$/, '$1')
   if (custom === 'none') return null
   if (custom) return { cmd: custom, args: [], allow: 'person' }
   if (platform === 'darwin') {

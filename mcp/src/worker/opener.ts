@@ -18,7 +18,8 @@ export interface OpenCommand {
 
 /** How to open `url` here (null: no browser to open — headless, or switched off). */
 export function browserCommand(url: string, env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): OpenCommand | null {
-  const custom = (env.ONE_WORKER_BROWSER ?? '').trim()
+  // one pair of quotes around a path with spaces is the person's quoting, not part of the name
+  const custom = (env.ONE_WORKER_BROWSER ?? '').trim().replace(/^"(.+)"$/, '$1')
   const base: SpawnSafeOptions = { stdio: 'ignore', windowsHide: true }
   if (custom === 'none') return null
   if (custom) return { cmd: custom, args: [url], opts: base, allow: 'person' }
