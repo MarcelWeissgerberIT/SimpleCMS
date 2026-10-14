@@ -13,7 +13,7 @@
  * hosts only, §1.2).
  */
 import type { Route as AppRoute } from '../../lib/router'
-import type { AgentWriteMode, Automation, CustomAgent, Database, DbCommand, ID, IntegrationProfile, McpServerConfig, OneScript, PipelineStage, PropertyDef } from '../../store/types'
+import type { AgentWriteMode, Automation, CustomAgent, Database, DbCommand, FuseSignoff, ID, IntegrationProfile, McpServerConfig, OneScript, PipelineStage, PropertyDef } from '../../store/types'
 import type { DeviceAI, Route as AIRoute, WorkspaceAI } from '@/shared/ai/types'
 
 /* ================================================================== the rack */
@@ -351,6 +351,48 @@ export type LampAction =
   | { kind: 'runAgent'; agent: ID }
   | { kind: 'review'; agent: ID }
 
+/**
+ * One recipe of a profile as the setup reads it (§1.11, §3.7): what it makes and what of it is there. setup/lamps.ts
+ * (04–06) and setup/ghosts.ts are pure and take it as data — Node specs pass it straight in; they never import
+ * agents/mirror.ts or agents/integrations/recipe.ts (those load the store, the cloud, i18n and CSS). The browser fills
+ * it (B11) from the agents area's index: resolveRecipe(profile, recipe, lang) for what the recipe makes, mirrorTitles()
+ * for the names (the very titles the setup's spec plate shows and createMirror / reuseMirror give), sameNamedDb /
+ * mirrorAgentOf / rememberedReports for what is there — durable facts, never MirrorSetup's in-memory state. Names are
+ * shown only, never a key part. B11 may ADD optional fields.
+ */
+export interface RecipeFacts {
+  profileId: string
+  recipeId: string
+  /** the recipe's name (ResolvedRecipe.name) */
+  name: string
+  /** this device's servers matching the profile (by name / host), switched on or off — [] = none yet (a server ghost) */
+  servers: Array<{ id: ID; name: string }>
+  /**
+   * the database: `id` = the one there (live, or in the trash with a saved mirror marked for it — `trashed`), null =
+   * not made yet (a ghost); `name` = its title, else the name the setup gives it
+   */
+  database: { id: ID | null; name: string; trashed?: boolean }
+  /** the report page: `id` = a live one (the saved agent's, or the page "Use" takes back), null = not made yet */
+  report: { id: ID | null; title: string }
+  /**
+   * the agent: `id` = the saved mirror agent (mirrorAgentOf), null = not saved yet — then what the setup's draft holds
+   * (mirrorDraft, named by mirrorTitles); `draftLost`: the database was made by a setup here but no agent was saved
+   * (05 reopens MirrorSetup — "Use …")
+   */
+  agent: {
+    id: ID | null
+    name: string
+    runner: CustomAgent['runner']
+    trigger: CustomAgent['trigger']
+    write: AgentWriteMode
+    /** its allow-list per source server (null: every tool / not known before the test) */
+    tools: string[] | null
+    draftLost?: boolean
+  }
+  /** 06 — this device's runs of the saved agent (or its server runs): null = not read yet */
+  runs: { total: number; open: number } | null
+}
+
 export interface SetupLamp {
   n: 0 | 1 | 2 | 3 | 4 | 5 | 6
   id: LampId
@@ -464,6 +506,11 @@ export interface PageFacts {
   trashed: boolean
   /** the page or a page above it is in the trash */
   gone: boolean
+  /**
+   * the page in the trash above it when it is only below one (`trashed` false, `gone` true) — the agent editor's checks
+   * name it (agents agentSaveIssues takes PageFacts as they are); null / absent: not below a page in the trash
+   */
+  root?: { id: ID; title: string } | null
   inTemplate: boolean
   private: boolean
 }
@@ -545,13 +592,11 @@ export interface HookInput {
   db: ID | null
 }
 
-/** A stored allowance as the model reads it (store/fuseSignoffs.ts in B9 holds the same shape). */
-export interface SignoffEntry {
-  sig: string
-  parts: Record<string, string>
-  at: number
-  updatedBy: string | null
-}
+/**
+ * A stored allowance as the model reads it — Workspace.fuseSignoffs' own type (store/types.ts FuseSignoff), read only
+ * through store/fuseSignoffs.ts sanitizeFuseSignoffs (B1: reads none; B9 fills it).
+ */
+export type SignoffEntry = FuseSignoff
 
 /** Everything buildModel reads — plain data; Node specs pass fixtures straight in. */
 export interface ModelInput {

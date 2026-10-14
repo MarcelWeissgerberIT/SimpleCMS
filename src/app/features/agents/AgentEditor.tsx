@@ -26,7 +26,8 @@ import { readServers } from '../ai/mcp-servers/config'
 import { outToolsOf } from '../../store/integrations'
 import { fmtAmount, parseAmount, weekdayName } from './format'
 import { seesAllPagesOf, trashedRoot } from './gone'
-import { agentSaveIssues, type AgentSaveErrors } from './saveIssues'
+import { agentSaveErrors } from './saveIssues'
+import type { AgentSaveErrors } from './saveChecks'
 import { usdSignAfter } from '../../lib/money'
 import { isReadTool, testedTools } from './mcpTools'
 import { placeholdersIn } from './mirror'
@@ -229,12 +230,12 @@ export function AgentEditor({
 
   // errors follow the draft once a save was tried
   useEffect(() => {
-    if (tried) setErrors(agentSaveIssues(t, d, { pages, serverOk, inCloud, titles: titles.current, budget: { text: budgetText, lang }, seesAll }))
+    if (tried) setErrors(agentSaveErrors(t, d, { pages, serverOk, inCloud, titles: titles.current, budget: { text: budgetText, lang }, seesAll }))
   }, [d, tried, t, pages, serverOk, inCloud, budgetText, lang, seesAll])
 
   const save = () => {
     setTried(true)
-    const e = agentSaveIssues(t, d, ctx)
+    const e = agentSaveErrors(t, d, ctx)
     setErrors(e)
     const first = Object.keys(e)[0]
     if (first) {
@@ -802,7 +803,7 @@ function ScopeFields({ d, set, error, titles }: { d: CustomAgent; set: (p: Parti
       {!d.scope.everything && (
         <div className="agx-chips" aria-label={t('features.agents.ed.scope')}>
           {chosen.map((id) => {
-            // in the trash (or below a page there — named) or deleted for good: saving refuses it (agentSaveIssues) — the chip
+            // in the trash (or below a page there — named) or deleted for good: saving refuses it (agentSaveErrors) — the chip
             // says which one, and its × takes it out
             const p = pages[id]
             const binned = !!p && (!!p.trashed || isEffectivelyTrashed(pages, id))

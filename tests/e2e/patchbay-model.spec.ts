@@ -7,7 +7,12 @@
  *    template or without a page never counts) — and that it never walks the page map (the pages sit behind a proxy that
  *    counts every key listing);
  *  - the seed workspace: the inventory computed here on the seeded state (pages behind the same proxy) equals what
- *    #/patchbay's readout and Workspace › Automation show in the app.
+ *    #/patchbay's readout and Workspace › Automation show in the app;
+ *  - the pure seams the parallel tracks build on load in Node (agents/saveChecks.ts, store/fuseSignoffs.ts,
+ *    patchbay/cache.ts) — the editor's save checks as message refs from page facts (B15's patches run them), the
+ *    sign-off reader (B2 reads it, B9 fills it);
+ *  - the device stores' wipe: `cloud:<ws>` takes every member's scope of that workspace along (cache.ts, run in a
+ *    browser — bundled here with Vite's build API, nothing of the app involved).
  * Every page and value is fictional.
  */
 import { test, expect, openApp, wsEval } from './fixtures'
@@ -16,6 +21,9 @@ import { liveDatabases, wiringCount, wiringInventory, type WiringReaders } from 
 import { inventoryKeys, keyPart, kindOfKey, moduleKey, scheduleKey } from '../../src/app/features/patchbay/ref'
 import { readAutomations } from '../../src/app/features/automations/read'
 import type { Automation, CustomAgent, Database, DbCommand, ID, OneScript, Page } from '../../src/app/store/types'
+import type { PageFacts } from '../../src/app/features/patchbay/types'
+import { messages as agentMessages } from '../../src/app/features/agents/messages'
+import { build } from 'vite'
 
 /* ------------------------------------------------------------------ fixtures */
 
@@ -223,5 +231,178 @@ test.describe('wiring inventory — the seed workspace', () => {
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Schaltplan')
     await expect(page.getByTestId('patchbay-page')).toContainText('Was von allein läuft')
     await expect(page).toHaveURL(/#\/patchbay\?setup=in-01$/)
+  })
+})
+
+/* ------------------------------------------------------------------ pure seams (B2 / B9 / B11 / B15 build on them) */
+
+/** A plain translator over the agents' messages (shared/i18n is not Node-loadable: brand.ts reads import.meta.env). */
+const tr = (lang: 'en' | 'de') => (key: string, vars?: Record<string, string | number>) =>
+  (agentMessages[lang][key] ?? key).replace(/\{(\w+)\}/g, (m, k: string) => (vars && k in vars ? String(vars[k]) : m))
+
+const draft = (over: Partial<CustomAgent> = {}): CustomAgent => ({ ...agent('agNordlicht', 'Nordlicht digest'), ...over }) as CustomAgent
+
+const facts = (lang: 'en' | 'de' = 'en') => ({ serverOk: false, inCloud: false, lang, untitled: lang === 'de' ? 'Ohne Titel' : 'Untitled' })
+
+/** Every issue is a message ref: a key and plain values (titles are data) — never a sentence. */
+function refsOnly(issues: Record<string, Array<{ key: string; vars?: Record<string, unknown>; titles?: string[] }>>) {
+  for (const [field, list] of Object.entries(issues)) {
+    expect(list.length, field).toBeGreaterThan(0)
+    for (const i of list) {
+      expect(i.key).toMatch(/^features\.agents\.[a-zA-Z.]+$/)
+      for (const v of Object.values(i.vars ?? {})) expect(['string', 'number']).toContain(typeof v)
+    }
+  }
+}
+
+test.describe('pure seams — they load in Node', () => {
+  test('the save checks, the sign-off reader and the device stores import without the store, i18n or CSS', async () => {
+    const checks = await import('../../src/app/features/agents/saveChecks')
+    expect(typeof checks.agentSaveIssues).toBe('function')
+    expect(typeof checks.savePagesOf).toBe('function')
+    const signoffs = await import('../../src/app/store/fuseSignoffs')
+    // B1: reads none as allowed (every fuse stays open) — the same answer every time, so B2's memo keeps its reference
+    const stored = { ['a'.repeat(64)]: { sig: 'b'.repeat(64), parts: { a: 'c'.repeat(16) }, at: 1, updatedBy: null } }
+    expect(signoffs.sanitizeFuseSignoffs(stored)).toEqual({})
+    expect(signoffs.sanitizeFuseSignoffs(undefined)).toBe(signoffs.sanitizeFuseSignoffs(stored))
+    const cache = await import('../../src/app/features/patchbay/cache')
+    expect([cache.PATCHBAY_DB, cache.PATCHBAY_STORE]).toEqual(['one-patchbay', 'kv'])
+  })
+})
+
+test.describe('agent save checks — saveChecks.ts (the editor and the Patchbay run the same)', () => {
+  test('a clean draft has none; every field answers with message refs, never text', async () => {
+    const { agentSaveIssues } = await import('../../src/app/features/agents/saveChecks')
+    expect(agentSaveIssues(draft({ scope: { everything: true, pages: [], databases: [] } }), { ...facts(), pages: {} })).toEqual({})
+    const bad = agentSaveIssues(
+      draft({ name: ' ', instructions: '', trigger: { type: 'schedule', every: 'day', at: '25:00', tz: 'Europe/Berlin' }, scope: { everything: false, pages: [], databases: [] }, runner: 'server', maxRunUsd: 80 }),
+      { ...facts(), pages: {} },
+    )
+    expect(Object.keys(bad)).toEqual(['name', 'instructions', 'trigger', 'scope', 'budget', 'runner'])
+    expect(bad.trigger?.[0].key).toBe('features.agents.err.time')
+    expect(bad.budget?.[0]).toEqual({ key: 'features.agents.err.budget', vars: { min: '$0.01', max: '$50.00' } })
+    refsOnly(bad)
+    // the open placeholders are counted by the caller (mirror.ts placeholdersIn) and only block an enabled agent
+    expect(agentSaveIssues(draft({ scope: { everything: true, pages: [], databases: [] } }), { ...facts(), pages: {}, placeholders: 2 }).instructions).toEqual([{ key: 'features.agents.mirror.err.placeholders', vars: { count: 2 } }])
+    expect(agentSaveIssues(draft({ enabled: false, scope: { everything: true, pages: [], databases: [] } }), { ...facts(), pages: {}, placeholders: 2 })).toEqual({})
+    // the budget field's text in the UI's language
+    expect(agentSaveIssues(draft({ scope: { everything: true, pages: [], databases: [] } }), { ...facts('de'), pages: {}, budget: { text: '1.5' } })).toEqual({})
+    expect(agentSaveIssues(draft({ scope: { everything: true, pages: [], databases: [] } }), { ...facts('de'), pages: {}, budget: { text: 'zwei' } }).budget).toEqual([{ key: 'features.agents.err.budgetNumber', vars: { example: '1,50' } }])
+  })
+
+  test('pages in the trash, below a page there, or gone for good — from page facts (the Patchbay’s PageFacts as they are)', async () => {
+    const { agentSaveIssues, agentSaveTexts } = await import('../../src/app/features/agents/saveChecks')
+    const pf = (id: ID, title: string, over: Partial<PageFacts> = {}): PageFacts => ({ id, title, kind: 'page', trashed: false, gone: false, inTemplate: false, private: false, ...over })
+    const pages: Record<ID, PageFacts> = {
+      pgAlpha: pf('pgAlpha', 'Alpha', { trashed: true, gone: true }),
+      pgBeta: pf('pgBeta', 'Beta', { trashed: true, gone: true }),
+      pgLaunch: pf('pgLaunch', 'Launch plan', { gone: true, root: { id: 'pgArchive', title: 'Archive' } }),
+      dbTessera: pf('dbTessera', 'Tessera', { kind: 'database', gone: true, root: { id: 'pgArchive', title: 'Archive' } }),
+      pgReport: pf('pgReport', '', { trashed: true, gone: true }),
+    }
+    const d = draft({
+      scope: { everything: false, pages: ['pgAlpha', 'pgBeta', 'pgGone1', 'pgLaunch'], databases: ['dbGone2'] },
+      trigger: { type: 'row_created', databaseId: 'dbTessera' },
+      output: { pageId: 'pgReport', mode: 'append' },
+    })
+    const issues = agentSaveIssues(d, { ...facts(), pages, titles: { pgGone1: 'Mara Lind', dbGone2: 'Nordlicht' } })
+    refsOnly(issues)
+    expect(issues.trigger).toEqual([{ key: 'features.agents.err.databaseBelow', vars: { title: 'Tessera', parent: 'Archive' } }])
+    expect(issues.output).toEqual([{ key: 'features.agents.err.outputTrashed', vars: { title: 'Untitled' } }])
+    expect(issues.scope).toEqual([
+      { key: 'features.agents.err.scopeGone.other', titles: ['Mara Lind', 'Nordlicht'] },
+      { key: 'features.agents.err.scopeTrashed.other', titles: ['Alpha', 'Beta'] },
+      { key: 'features.agents.err.scopeBelow', vars: { title: 'Launch plan', parent: 'Archive' } },
+    ])
+    // the words: a list is quoted and joined in the UI's language
+    const words = agentSaveTexts(tr('de'), issues)
+    expect(words.scope).toBe(
+      '„Mara Lind“ und „Nordlicht“ gibt es nicht mehr — nimm sie aus „Darf nutzen“ heraus. ' +
+        '„Alpha“ und „Beta“ liegen im Papierkorb — nimm sie aus „Darf nutzen“ heraus oder stell sie wieder her. ' +
+        '„Launch plan“ liegt in „Archive“, und „Archive“ liegt im Papierkorb — nimm sie aus „Darf nutzen“ heraus oder stell „Archive“ wieder her.',
+    )
+    // a teammate's private pages are not on this device: a page missing here is not "gone" then
+    expect(agentSaveIssues(draft({ scope: { everything: false, pages: ['pgGone1'], databases: [] } }), { ...facts(), pages: {}, seesAll: false })).toEqual({})
+    // missing with an unknown title: named by what it was
+    expect(agentSaveIssues(draft({ scope: { everything: false, pages: [], databases: ['dbGone2'] } }), { ...facts(), pages: {} }).scope).toEqual([{ key: 'features.agents.err.scopeGone.database' }])
+  })
+
+  test('savePagesOf reads the same facts from a page map (the editor’s way in) — the trash walk is cycle-safe', async () => {
+    const { agentSaveIssues, agentSaveTexts, savePagesOf } = await import('../../src/app/features/agents/saveChecks')
+    const map: Record<ID, Page> = {
+      pgArchive: page('pgArchive', { title: 'Archive', trashed: true, trashedAt: 2 }),
+      pgLaunch: page('pgLaunch', { title: 'Launch plan', parentId: 'pgArchive' }),
+      pgLive: page('pgLive', { title: 'Tessera notes' }),
+      loopA: page('loopA', { title: 'Loop', parentId: 'loopB' }),
+      loopB: page('loopB', { parentId: 'loopA' }),
+    }
+    const d = draft({ scope: { everything: false, pages: ['pgLaunch', 'pgLive', 'loopA', 'pgArchive'], databases: [] } })
+    expect(savePagesOf(map, d)).toEqual({
+      pgLaunch: { title: 'Launch plan', trashed: false, gone: true, root: { id: 'pgArchive', title: 'Archive' } },
+      pgLive: { title: 'Tessera notes', trashed: false, gone: false, root: null },
+      loopA: { title: 'Loop', trashed: false, gone: false, root: null },
+      pgArchive: { title: 'Archive', trashed: true, gone: true, root: null },
+    })
+    const words = agentSaveTexts(tr('en'), agentSaveIssues(d, { ...facts(), pages: savePagesOf(map, d) }))
+    expect(words).toEqual({
+      scope: '“Archive” is in the trash — remove it from “May use” or restore it. “Launch plan” is in “Archive”, and “Archive” is in the trash — remove it from “May use” or restore “Archive”.',
+    })
+  })
+})
+
+test.describe('device stores — cache.ts', () => {
+  test('inPatchbayScope: a workspace scope holds its members’ scopes, never another workspace’s', async () => {
+    const { inPatchbayScope, lazyKey, runsKey, setupKey } = await import('../../src/app/features/patchbay/cache')
+    expect(inPatchbayScope(lazyKey('cloud:W1:u:A'), 'cloud:W1')).toBe(true)
+    expect(inPatchbayScope(runsKey('cloud:W1:u:B', '2026-10-14'), 'cloud:W1')).toBe(true)
+    expect(inPatchbayScope(setupKey('cloud:W1'), 'cloud:W1')).toBe(true)
+    expect(inPatchbayScope(lazyKey('cloud:W10:u:A'), 'cloud:W1')).toBe(false)
+    expect(inPatchbayScope(lazyKey('local:local'), 'cloud:W1')).toBe(false)
+    // a member's scope holds only that member's
+    expect(inPatchbayScope(lazyKey('cloud:W1:u:A'), 'cloud:W1:u:A')).toBe(true)
+    expect(inPatchbayScope(lazyKey('cloud:W1:u:AB'), 'cloud:W1:u:A')).toBe(false)
+    expect(inPatchbayScope(lazyKey('local:local'), null)).toBe(true)
+  })
+
+  test('wipePatchbay("cloud:<ws>") removes every member’s records of that workspace and nothing else', async ({ page }) => {
+    const out = await build({ configFile: false, logLevel: 'silent', build: { write: false, minify: false, lib: { entry: 'src/app/features/patchbay/cache.ts', formats: ['iife'], name: 'PatchbayCache', fileName: 'cache' } } })
+    const code = (Array.isArray(out) ? out[0] : out) as { output: Array<{ code: string }> }
+    await openApp(page)
+    await page.addScriptTag({ content: code.output[0].code })
+    const left = await page.evaluate(async () => {
+      type Cache = typeof import('../../src/app/features/patchbay/cache')
+      const pb = (window as unknown as { PatchbayCache: Cache }).PatchbayCache
+      const scopes = ['cloud:W1:u:A', 'cloud:W1:u:B', 'cloud:W10:u:A', 'local:local']
+      for (const s of scopes) {
+        await pb.writeCache(pb.lazyKey(s), { v: 1 })
+        await pb.writeCache(pb.setupKey(s), { profileId: 'in-01' })
+        pb.lsSet(pb.lsOrder(s), '[]')
+      }
+      await pb.writeCache(pb.runsKey('cloud:W1:u:B', '2026-10-14'), { n: {}, last: {} })
+      pb.lsSet(pb.LS_SEEN, '1')
+      await pb.wipePatchbay('cloud:W1')
+      const all = await new Promise<string[]>((resolve, reject) => {
+        const req = indexedDB.open(pb.PATCHBAY_DB)
+        req.onerror = () => reject(req.error)
+        req.onsuccess = () => {
+          const tx = req.result.transaction(pb.PATCHBAY_STORE, 'readonly')
+          const keys = tx.objectStore(pb.PATCHBAY_STORE).getAllKeys()
+          keys.onsuccess = () => {
+            resolve((keys.result as string[]).sort())
+            req.result.close()
+          }
+        }
+      })
+      return { idb: all, ls: Object.keys(localStorage).filter((k) => k.startsWith('one.patchbay.')).sort() }
+    })
+    expect(left.idb).toEqual(['cloud:W10:u:A|lazy', 'cloud:W10:u:A|setup', 'local:local|lazy', 'local:local|setup'])
+    expect(left.ls).toEqual(['one.patchbay.order:cloud:W10:u:A', 'one.patchbay.order:local:local', 'one.patchbay.seen'])
+    // null = every scope (the local reset): the device's switches too
+    const after = await page.evaluate(async () => {
+      const pb = (window as unknown as { PatchbayCache: typeof import('../../src/app/features/patchbay/cache') }).PatchbayCache
+      await pb.wipePatchbay(null)
+      return { lazy: await pb.readCache(pb.lazyKey('local:local'), (v): v is unknown => v !== undefined), ls: Object.keys(localStorage).filter((k) => k.startsWith('one.patchbay.')) }
+    })
+    expect(after).toEqual({ lazy: null, ls: [] })
   })
 })

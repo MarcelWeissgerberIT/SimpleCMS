@@ -95,12 +95,22 @@ export { setProposalsShown } from './hold'
  *    another member changed waits for its creator · runsHere(agent): this browser runs it
  *  - integration profiles on this device: integrationStatuses() / useIntegrationStatuses() · deviceServers() ·
  *    openIntegrations(profileId?) (Workspace › Integrations; the profile focused from B11 on)
- *  - mirrors: mirrorAgentOf(agents, dbId, servers, owner?) · sameNamedDb(…) · mirrorTitles(…)
- *  - the editor's save checks: agentSaveIssues(t, draft, ctx) — the trash / gone rules of gone.ts included
- *    (lostPages, lostText, runBlock)
+ *  - mirrors: mirrorAgentOf(agents, dbId, servers, owner?) · sameNamedDb(…) · mirrorTitles(…) — browser only (mirror.ts
+ *    loads the store, the cloud and CSS): the Patchbay's setup reads them into RecipeFacts (patchbay/types.ts)
+ *  - the editor's save checks live in features/agents/saveChecks.ts — import THAT file directly (dependency-free and
+ *    Node-loadable, like patchbay/hint.ts and preflight/registry.ts; kept out of this index so it stays off the boot
+ *    path): agentSaveIssues(draft, facts) → { field: [{ key, vars, titles? }] } (message refs, never text) ·
+ *    savePagesOf(pages, draft) · agentSaveText(t, issue) / agentSaveTexts(t, issues) (an issue with `titles` reads only
+ *    through them) — the trash / gone rules of gone.ts; lostPages, lostText, runBlock below
  *  - dialogs over any route (B11 fills them): openMirrorSetup({ profileId, recipeId?, from? }) ·
- *    openAgentEditor(idOrDraft, { from?, section? }) · AgentDialogsHost (mounted once in ModalHost, B11)
- *  - profiles: resolveRecipe(…) · validateProfileText(…)
+ *    openAgentEditor(idOrDraft, { from?, section? }) · AgentDialogsHost (mounted once in ModalHost, B11) — a lazy
+ *    wrapper that must stay one (AgentDialogsHost.tsx imports no dialog: they load with AgentDialogs.tsx)
+ *  - profiles: resolveRecipe(…) · validateProfileText(…) — browser only (store, i18n, CSS): the setup's pure parts
+ *    take what they make as data (patchbay types RecipeFacts)
+ *  - the team server's agents: loadRuntime() (GET agent-runtime → useServerAgents.state / runtime: 'forbidden' for a
+ *    viewer) · loadServerRuns(agentId) (→ useServerAgents.runs[agentId]) — the Patchbay reads them on open
+ *  - mirrors this device's setups made: rememberedReports(dbId) (report page ids, newest first; not checked against
+ *    the pages)
  */
 export { isReadTool, isWriteNamed, toolWords, testedTools } from './mcpTools'
 export { scopeFilter, scopeText } from './scope'
@@ -110,10 +120,11 @@ export { runsHere } from './runner'
 export { integrationStatuses, useIntegrationStatuses, deviceServers, type IntegrationState } from './integrations/status'
 export { openIntegrations } from './integrations/open'
 export { mirrorAgentOf, sameNamedDb, mirrorTitles, type SameNamed, type MirrorTitles } from './mirror'
-export { agentSaveIssues, type AgentSaveErrors, type AgentSaveCtx } from './saveIssues'
 export { lostPages, lostText, runBlock, type LostPage, type LostRole } from './gone'
 export { openMirrorSetup, openAgentEditor, type MirrorSetupRequest, type AgentEditorRequest } from './dialogs'
 export { AgentDialogsHost } from './AgentDialogsHost'
 /** profiles for the setup lamps / the profile drop (B11 / B12): resolveRecipe(profile, recipe, lang) (what a recipe makes) · validateProfileText(text, t, lang) */
 export { resolveRecipe, type ResolvedRecipe } from './integrations/recipe'
 export { validateProfileText, type Validation as ProfileValidation } from './integrations/validate'
+export { loadRuntime, loadServerRuns } from './server'
+export { rememberedReports } from './mirrorMemory'

@@ -617,7 +617,8 @@ export {
  *  - PatchbayNavRow (sidebar) · usePatchbayCounts() / patchbayCounts() · PatchbayStatusCells · PatchbayReturnChip (topbar)
  *  - wiringInventory(source, WIRING_READERS) · wiringCount() (Workspace › Automation counts the same) · moduleKey /
  *    inventoryKeys (the `?m=` keys) · fuseHintOf / useFuseHint / FuseHintLine (hint.ts — importable directly)
- *  - PATCHBAY_DB · wipePatchbay(scope | null) · PATCHBAY_LS_PREFIX · PATCHBAY_RETURN_KEY: the device stores
+ *  - PATCHBAY_DB · PATCHBAY_STORE · wipePatchbay(scope | null) (`cloud:<ws>`: every member's scope of it too) ·
+ *    inPatchbayScope(key, scope) · PATCHBAY_LS_PREFIX · PATCHBAY_RETURN_KEY: the device stores
  */
 export {
   PatchbayRoute,
@@ -639,7 +640,9 @@ export {
   inventoryKeys,
   scheduleKey,
   PATCHBAY_DB,
+  PATCHBAY_STORE,
   wipePatchbay,
+  inPatchbayScope,
   PATCHBAY_LS_PREFIX,
   PATCHBAY_RETURN_KEY,
   type PatchbayRouteProps,

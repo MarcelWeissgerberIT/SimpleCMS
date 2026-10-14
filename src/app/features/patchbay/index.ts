@@ -12,8 +12,9 @@
  *  - wiringInventory(source, WIRING_READERS) → agents, scripts, automations, own commands, repeating templates, live
  *    databases (pure, no page-map walk — Workspace › Automation counts the same) · wiringCount(inventory)
  *  - moduleKey(ref) / inventoryKeys / scheduleKey(trigger): THE spelling of a module's key (`#/patchbay?m=`)
- *  - PATCHBAY_DB / wipePatchbay(scope | null) / PATCHBAY_LS_PREFIX / PATCHBAY_RETURN_KEY: the device stores (the
- *    device-copy wipe and the local reset, B9)
+ *  - PATCHBAY_DB / PATCHBAY_STORE / wipePatchbay(scope | null) / inPatchbayScope(key, scope) / PATCHBAY_LS_PREFIX /
+ *    PATCHBAY_RETURN_KEY: the device stores (the device-copy wipe and the local reset, B9) — `wipePatchbay('cloud:<ws>')`
+ *    takes every member's scope of that workspace along (`cloud:<ws>:u:<account>`)
  */
 export { PatchbayRoute, type PatchbayRouteProps } from './route'
 export { openPatchbay, type OpenPatchbayOptions } from './open'
@@ -26,5 +27,5 @@ export { fuseHintOf, useFuseHint, FuseHintLine } from './hint'
 export { wiringInventory, wiringCount, liveDatabases, type WiringInventory, type WiringReaders, type WiringSource } from './inventory'
 export { WIRING_READERS } from './readers'
 export { moduleKey, inventoryKeys, scheduleKey } from './ref'
-export { PATCHBAY_DB, wipePatchbay, LS_PREFIX as PATCHBAY_LS_PREFIX, SS_RETURN as PATCHBAY_RETURN_KEY } from './cache'
+export { PATCHBAY_DB, PATCHBAY_STORE, wipePatchbay, inPatchbayScope, LS_PREFIX as PATCHBAY_LS_PREFIX, SS_RETURN as PATCHBAY_RETURN_KEY } from './cache'
 export type { ModuleKey, ModuleRef, PatchbayCounts, FuseHint, HintKind } from './types'

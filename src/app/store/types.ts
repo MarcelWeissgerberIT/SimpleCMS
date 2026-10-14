@@ -1029,6 +1029,25 @@ export interface Workspace {
    * carry it (a restore keeps this workspace's), page backups never.
    */
   governor?: WorkspaceGovernor | Unreadable
+  /**
+   * The Patchbay's allowed paths ("Allow this path" / "Weg zulassen", features/patchbay §1.10 / §2.8): path key (64 hex)
+   * → FuseSignoff. Every reader sanitizes (store/fuseSignoffs.ts sanitizeFuseSignoffs). Written only with signOffFuse /
+   * withdrawSignoff (B9; owners / admins). Team: meta map `fuseSignoffs`, one entry per path key, guarded by the server
+   * (it stamps `updatedBy`). No stampGen, no schema gate. Assign `undefined`, never `delete`. Full backups carry it (a
+   * restore keeps this workspace's), page backups never. An older build may drop it: fuses come back open (fail-safe).
+   */
+  fuseSignoffs?: Record<string, FuseSignoff>
+}
+
+/** One allowed path (Workspace.fuseSignoffs): the path's signature and its parts' digests when it was allowed. */
+export interface FuseSignoff {
+  /** the path signature (64 hex) — a changed path no longer matches: the allowance lapses */
+  sig: string
+  /** part letter (+ index) → 16-hex digest of that part (what changed is named) */
+  parts: Record<string, string>
+  at: number
+  /** who allowed it (account id; team: stamped by the server), null locally */
+  updatedBy: string | null
 }
 
 /* ------------------------------------------------------------------ */
