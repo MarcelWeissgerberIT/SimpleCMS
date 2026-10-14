@@ -1,0 +1,63 @@
+/**
+ * The worker's start and download lines per computer — pure, no imports (scripts/worker-smoke.mjs imports it
+ * under Node). Windows gets a PowerShell and a Command Prompt line, the file always quoted (user folders have
+ * spaces; `~` reaches node.exe unexpanded in both shells, `%HOMEPATH%` has no drive); macOS and Linux one sh line
+ * as before. Inputs are One's own constants, fixed verbs and a checked workspace id — never anything typed.
+ */
+export type StartOs = 'windows' | 'posix'
+export type StartShell = 'powershell' | 'cmd' | 'sh'
+export interface StartLine {
+  shell: StartShell
+  line: string
+}
+export interface StartOpts {
+  os: StartOs
+  /** A port other than the default: set for this start only. */
+  port?: number | null
+  /** After the file: fixed verbs and flags (`init`, `--workspace`, a checked id, `check`). */
+  args?: string[]
+  /** Where the file lies: the browser's Downloads folder (the paired download) or the home folder (manual setup). */
+  dir?: 'downloads' | 'home'
+}
+
+const SHELLS: Record<StartOs, StartShell[]> = { windows: ['powershell', 'cmd'], posix: ['sh'] }
+/** What may follow the file: no quote, space, variable or operator of any of the three shells. */
+const ARG = /^[A-Za-z0-9_:.=-]+$/
+const FILE = /^[A-Za-z0-9_.-]+$/
+
+function where(shell: StartShell, dir: 'downloads' | 'home', file: string): string {
+  if (shell === 'sh') return dir === 'home' ? `~/${file}` : `~/Downloads/${file}`
+  const home = shell === 'powershell' ? '$HOME' : '%USERPROFILE%'
+  return `"${home}\\${dir === 'home' ? '' : 'Downloads\\'}${file}"`
+}
+
+/** One line per shell of that computer: `node <file> [args]`, with the port set before it when given. */
+export function startLines(file: string, { os, port = null, args = [], dir = 'downloads' }: StartOpts): StartLine[] {
+  if (!FILE.test(file) || args.some((a) => !ARG.test(a))) throw new Error('not a start line')
+  const p = port !== null && Number.isInteger(port) && port > 0 && port < 65536 ? port : null
+  return SHELLS[os].map((shell) => {
+    const run = ['node', where(shell, dir, file), ...args].join(' ')
+    if (p === null) return { shell, line: run }
+    const env = shell === 'sh' ? `ONE_WORKER_PORT=${p} ` : shell === 'powershell' ? `$env:ONE_WORKER_PORT = '${p}'; ` : `set "ONE_WORKER_PORT=${p}" && `
+    return { shell, line: env + run }
+  })
+}
+
+/** Save the plain worker in the home folder (manual setup). PowerShell 5.1's `curl` is Invoke-WebRequest: named in full. */
+export function downloadLines(url: string, file: string, os: StartOs): StartLine[] {
+  if (!FILE.test(file) || !/^https?:\/\/[^\s"'`$%^&|<>]+$/.test(url)) throw new Error('not a download line')
+  return SHELLS[os].map((shell) => ({
+    shell,
+    line:
+      shell === 'sh'
+        ? `curl -fsSL ${url} -o ~/${file}`
+        : shell === 'powershell'
+          ? `Invoke-WebRequest -UseBasicParsing "${url}" -OutFile "$HOME\\${file}"`
+          : `curl.exe -fsSL "${url}" -o "%USERPROFILE%\\${file}"`,
+  }))
+}
+
+/** Windows or not, from the browser's own platform hint (else its user agent). */
+export function detectOs(platform: string | null | undefined, userAgent: string): StartOs {
+  return /^windows/i.test(platform ?? '') || (!platform && /Windows/i.test(userAgent)) ? 'windows' : 'posix'
+}

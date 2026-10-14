@@ -48,6 +48,20 @@ export const LOG_CODES = new Set([
   'projectSettingsOffMarked',
   'projectSettingsOffFolder',
   'mcpUserScope',
+  // worker 1.9.0: synced folders, git's sign-in / SSH / lock hints, Claude Code or a command that did not start
+  'onedrive',
+  'cloudStorage',
+  'longpaths',
+  'sshHostKey',
+  'sshKey',
+  'gitSignIn',
+  'dubiousOwnership',
+  'gitLock',
+  'folderBusy',
+  'claudeMissing',
+  'claudeCmdRefused',
+  'commandMissing',
+  'commandRefused',
 ])
 
 const CODE = /^[a-zA-Z][a-zA-Z.]{0,40}$/

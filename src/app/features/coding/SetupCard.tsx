@@ -2,7 +2,8 @@
  * The coding worker in three steps — Settings → Coding worker and #/coding while no worker is connected (or it
  * has no repos yet):
  *   01 Download the worker for this workspace (download.ts: ready-paired with this browser)
- *   02 Start it (node ~/Downloads/one-worker.mjs; needs Node.js 20+ and Claude Code, signed in)
+ *   02 Start it (startLines.ts: Windows | macOS · Linux — a PowerShell and a cmd line, or the sh line; needs
+ *      Node.js 22+ and Claude Code, signed in)
  *   03 Tick your repositories in the page that opens (the worker's local setup page)
  * and the live state underneath: waiting → connected · laptop · 2 repos. Once connected, "Change repositories"
  * asks the worker to open its page again (`open-setup` — One never sees the page).
@@ -15,13 +16,13 @@ import { useCloud } from '../../cloud'
 import { Led } from '../../ui/controls'
 import { useLang, useT } from '../../i18n'
 import { workspaceInfo } from '../mcp/identity'
-import { downloadWorker, startCommand } from './download'
+import { WORKER_FILE, downloadWorker, startLines } from './download'
 import { workerOutdated, workerUnsafe } from './protocol'
 import { openWorkerSetup, viaFor } from './service'
 import { openCodingSettings } from './open'
 import { CloudSetupCard } from './CloudSetupCard'
 import { useCoding } from './state'
-import { CodeBlock } from './CodeBlock'
+import { OsSwitch, StartBlock, useStartOs } from './StartBlock'
 import { workerStateText } from './stateText'
 import './coding.css'
 
@@ -63,7 +64,7 @@ export function ChangeReposButton({ className = 'btn btn--sm', label, testId = '
 
 export type StepState = 'done' | 'current' | 'todo'
 
-/** "Needs Node.js 20+ and Claude Code, signed in" with the two links (the local and the cloud card). */
+/** "Needs Node.js 22+ and Claude Code, signed in" with the two links (the local and the cloud card). */
 export function NeedsLine() {
   const t = useT()
   return (
@@ -168,6 +169,7 @@ function LocalSetupCard({ code }: { code: string }) {
   const t = useT()
   const lang = useLang()
   const s = useCoding()
+  const os = useStartOs()
   useWorkspace((x) => x.settings.workspaceName)
   useWorkspace((x) => x.epoch)
   useCloud((x) => x.active)
@@ -214,7 +216,9 @@ function LocalSetupCard({ code }: { code: string }) {
         </Step>
         <Step n={2} state={state(1)} title={t('features.coding.card.step2')}>
           <p className="cs-hint">{t('features.coding.card.step2Hint')}</p>
-          <CodeBlock code={startCommand()} label={t('features.coding.card.startLabel')} testId="coding-start-command" />
+          <OsSwitch />
+          <StartBlock make={(os) => [startLines(WORKER_FILE, { os })]} label={t('features.coding.card.startLabel')} testId="coding-start-command" />
+          {os === 'windows' && <p className="cs-hint">{t('features.coding.card.windows')}</p>}
           <NeedsLine />
         </Step>
         <Step n={3} state={state(2)} title={t('features.coding.card.step3')} action={<ChangeReposButton />}>

@@ -18,8 +18,9 @@ import { WORKER_DEFAULT_PORT } from './protocol'
 import { reconnect, setCodingEnabled, setCodingPort, setCodingVia, viaFor } from './service'
 import { cloudContextOk, relayAvailable } from './cloudWorkers'
 import { useCoding, validPort, type CodingState } from './state'
-import { CodeBlock } from './CodeBlock'
 import { SetupCard } from './SetupCard'
+import { WORKER_FILE, downloadLines, startLines } from './download'
+import { OsSwitch, StartBlock } from './StartBlock'
 import { workerStateText } from './stateText'
 import { notifyEnabled, notifyPermission, setNotify } from './notify'
 import './coding.css'
@@ -95,7 +96,16 @@ function Refused({ s, wsId, cloud }: { s: CodingState; wsId: string; cloud: bool
   return (
     <div className="cw-msg cw-msg--warn" data-testid="coding-refused" data-reason={s.refused ?? undefined}>
       <p>{text}</p>
-      {legacy && <CodeBlock code={`node ~/one-worker.mjs init --workspace ${wsId}${s.refused === 'unbound' ? '' : ' --force'}`} label={t('features.coding.settings.initLabel')} />}
+      {legacy && (
+        <>
+          <OsSwitch />
+          <StartBlock
+            make={(os) => [startLines(WORKER_FILE, { os, dir: 'home', args: ['init', '--workspace', wsId, ...(s.refused === 'unbound' ? [] : ['--force'])] })]}
+            label={t('features.coding.settings.initLabel')}
+            testId="coding-refused-init"
+          />
+        </>
+      )}
       <button type="button" className="btn btn--sm" onClick={reconnect}>
         {t('features.coding.settings.retry')}
       </button>
@@ -217,7 +227,7 @@ export function WorkerTab() {
     if (p) setCodingPort(p)
     else setPort(String(s.port))
   }
-  const portFlag = s.port !== WORKER_DEFAULT_PORT ? `ONE_WORKER_PORT=${s.port} ` : ''
+  const portFlag = s.port !== WORKER_DEFAULT_PORT ? s.port : null
   const led = connected ? (s.busy.length ? 'on' : 'ok') : s.enabled && (s.conn === 'waiting' || s.conn === 'connecting') ? 'on' : 'off'
   const cloud = viaFor(ws) === 'cloud'
   const waitingText = cloud
@@ -342,9 +352,8 @@ export function WorkerTab() {
 }
 
 /** For a worker.json of one's own (Local only): download, init with this workspace's id, check, run. */
-function ManualSetup({ code, wsId, portFlag }: { code: string; wsId: string; portFlag: string }) {
+function ManualSetup({ code, wsId, portFlag }: { code: string; wsId: string; portFlag: number | null }) {
   const t = useT()
-  const ws = { id: wsId }
   return (
     <details className="cw-panel cw-manual">
       <summary className="cw-panel__head">
@@ -355,6 +364,7 @@ function ManualSetup({ code, wsId, portFlag }: { code: string; wsId: string; por
       </summary>
       <div className="cw-panel__body">
         <p className="cw-switch__hint cw-manual__lead">{t('features.coding.settings.manualHint')}</p>
+        <OsSwitch />
         <ol className="cw-steps">
           <li>
             <p>{t('features.coding.settings.step1')}</p>
@@ -362,19 +372,23 @@ function ManualSetup({ code, wsId, portFlag }: { code: string; wsId: string; por
           <li>
             <p>{t('features.coding.settings.step2')}</p>
             <div className="cw-row">
-              <a className="btn btn--sm" href={`${import.meta.env.BASE_URL}mcp/one-worker.mjs`} download="one-worker.mjs">
-                <Download size={13} strokeWidth={1.75} aria-hidden /> one-worker.mjs
+              <a className="btn btn--sm" href={`${import.meta.env.BASE_URL}mcp/${WORKER_FILE}`} download={WORKER_FILE}>
+                <Download size={13} strokeWidth={1.75} aria-hidden /> {WORKER_FILE}
               </a>
             </div>
-            <CodeBlock code={`curl -fsSL ${workerUrl()} -o ~/one-worker.mjs`} label={t('features.coding.settings.download')} />
+            <StartBlock make={(os) => [downloadLines(workerUrl(), WORKER_FILE, os)]} label={t('features.coding.settings.download')} testId="coding-manual-download" />
           </li>
           <li>
             <p>{t('features.coding.settings.step3')}</p>
-            <CodeBlock code={`node ~/one-worker.mjs init --workspace ${ws.id}`} label={t('features.coding.settings.initLabel')} />
+            <StartBlock make={(os) => [startLines(WORKER_FILE, { os, dir: 'home', args: ['init', '--workspace', wsId] })]} label={t('features.coding.settings.initLabel')} testId="coding-manual-init" />
           </li>
           <li>
             <p>{t('features.coding.settings.step4')}</p>
-            <CodeBlock code={`node ~/one-worker.mjs check\n${portFlag}node ~/one-worker.mjs`} label={t('features.coding.settings.runLabel')} />
+            <StartBlock
+              make={(os) => [startLines(WORKER_FILE, { os, dir: 'home', args: ['check'] }), startLines(WORKER_FILE, { os, dir: 'home', port: portFlag })]}
+              label={t('features.coding.settings.runLabel')}
+              testId="coding-manual-run"
+            />
           </li>
         </ol>
       </div>

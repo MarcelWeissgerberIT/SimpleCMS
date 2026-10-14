@@ -1533,6 +1533,44 @@ dd:has(> .cw-port) {
 .cw-code__copy {
   margin: 5px 5px 0 0;
 }
+/* start lines per computer (StartBlock.tsx): Windows | macOS · Linux, a caption per Windows shell */
+.cw-os {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  align-items: center;
+  margin: 8px 0 0;
+}
+.cw-manual__lead + .cw-os {
+  margin: 0 0 12px;
+}
+.cw-msg .cw-os {
+  margin: 0 0 8px;
+}
+.cw-os__k {
+  color: var(--ink-3);
+}
+.cw-os__opt {
+  height: 26px;
+  font-weight: 600;
+}
+.cw-start {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0 6px;
+}
+.cw-start .cw-code,
+.cs-body .cw-start .cw-code {
+  margin: 0;
+}
+.cw-start__shell {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.cw-start__k {
+  color: var(--ink-3);
+}
 .cw-safety {
   display: grid;
   gap: 6px;

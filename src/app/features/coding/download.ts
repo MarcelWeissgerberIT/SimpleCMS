@@ -116,8 +116,8 @@ export async function downloadCloudWorker(): Promise<void> {
   cloudDownloaded(preset.workspace, worker.id, stays)
 }
 
-/** The command that starts the downloaded file (Windows PowerShell spells the home folder differently). */
-export function startCommand(file: string = WORKER_FILE): string {
-  const win = /Windows/i.test(navigator.userAgent)
-  return win ? `node $HOME\\Downloads\\${file}` : `node ~/Downloads/${file}`
-}
+/**
+ * The lines that start the downloaded file, per computer: Windows a PowerShell and a Command Prompt line (the
+ * home folder spelled per shell, the path quoted), macOS · Linux one sh line — startLines.ts (pure).
+ */
+export { detectOs, downloadLines, startLines, type StartLine, type StartOs } from './startLines'
