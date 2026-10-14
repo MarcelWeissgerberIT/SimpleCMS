@@ -25,6 +25,8 @@ export { useCoding } from './state'
 export { codingDbId } from './schema'
 /** the worker link's state in words (Settings → Coding worker, the workspace page's Automation section) */
 export { workerStateText as codingWorkerStateText } from './stateText'
+/** why the link is down, as Preflight's worker card says it (a Local link that waits: is the worker running) — MCP · Connections */
+export { workerDownText as codingWorkerDownText } from './stateText'
 /**
  * Why the worker link is down, in words, now (Preflight's worker card): the state text Settings → Coding worker shows —
  * a refusal, the browser's block — and for a Local link that waits, what to check (is the worker running in a terminal;

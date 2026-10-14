@@ -6,7 +6,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useWorkspace } from '../../../store/store'
 import { useCloud } from '../../../cloud'
-import { useCoding } from '../../coding'
+import { useCoding, workerOldHere } from '../../coding'
 import { onRefusedChanged, readServers } from '../../ai/mcp-servers/config'
 import { workerDownSince } from '../../preflight/sources/worker'
 import { WORKER_GRACE_MS, workerLinkDown } from '../../preflight/sources/workerRule'
@@ -54,7 +54,8 @@ export function useWorkerLevel(): { level: Level; since: number | null } {
     const id = window.setTimeout(() => setTick((n) => n + 1), Math.max(0, since + WORKER_GRACE_MS - Date.now()) + 50)
     return () => window.clearTimeout(id)
   }, [enabled, conn, down, since])
-  return { level: workerLed({ enabled, conn, worker, can }, since, now), since: conn === 'connected' ? null : since }
+  const oldHere = conn === 'connected' && workerOldHere(worker?.worker)
+  return { level: workerLed({ enabled, conn, worker, can, oldHere }, since, now), since: conn === 'connected' ? null : since }
 }
 
 /** The browser agents whose runs happen in this browser (model.ts agentsOfThisBrowser: in a team, the member's own). */
