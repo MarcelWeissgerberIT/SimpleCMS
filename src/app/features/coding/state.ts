@@ -150,6 +150,12 @@ export type CodingConn = 'off' | 'connecting' | 'waiting' | 'connected' | 'repla
  */
 export type CodingRefused = RefusedReason | 'viewer' | 'forbidden' | 'removed' | 'relay-off' | 'other-device' | 'worker-unknown'
 
+/**
+ * Why the browser blocks the Local link (conn 'blocked'): this browser does not let an https page open ws:// at all
+ * (`new WebSocket` throws) · Chrome's Local Network Access permission for this site is denied.
+ */
+export type CodingBlock = 'insecure' | 'permission'
+
 /** Cloud mode: the relay's view of the member's cloud worker (memory only). */
 export interface RelayView {
   online: boolean
@@ -162,6 +168,14 @@ export interface RelayView {
 export interface CodingState extends CodingSettings {
   conn: CodingConn
   refused: CodingRefused | null
+  /** Local only: why the browser blocks the link (with conn 'blocked'; null otherwise) */
+  blocked: CodingBlock | null
+  /**
+   * Local only: the Local Network Access permission was still to be asked ('prompt') when the link last failed to
+   * open — the waiting texts say to choose Allow if the browser asks (memory only; cleared by an open link, Retry,
+   * another workspace, Local | Cloud)
+   */
+  lna: 'prompt' | null
   /** cloud mode only (null: local, or not known yet) */
   relay: RelayView | null
   /**
@@ -190,6 +204,8 @@ export const useCoding = create<CodingState>()(() => ({
   ...loadCodingSettings(),
   conn: 'off',
   refused: null,
+  blocked: null,
+  lna: null,
   relay: null,
   pendingHere: false,
   dropped: 0,

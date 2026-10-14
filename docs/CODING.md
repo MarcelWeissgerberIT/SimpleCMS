@@ -942,7 +942,14 @@ state: pending | active, online }` — what `node one-worker-cloud.mjs check` pr
 ## Troubleshooting
 
 - **Waiting for the worker** — is it running (`node ~/Downloads/one-worker.mjs`) on the port One uses? Set the
-  port in Settings *before* the download: the file carries it.
+  port in Settings *before* the download: the file carries it. Preflight's *Worker offline* card says the same ("The
+  worker does not answer — is it running in a terminal?") with the time it went down.
+- **Blocked by the browser** (Local only) — Chrome's Local Network Access permission for this site is denied: the tab
+  asks the permission (`lib/localNetwork.ts`, shared with the MCP bridge) whenever a Local link closes before it ever
+  opened. Denied → conn `blocked` / `blocked: 'permission'`, no retries until the permission's `change` event, *Retry
+  now* or the tab is looked at again; still to be asked (`lna: 'prompt'`) → the waiting texts say to choose Allow.
+  The fix: the icon left of the address → *Apps on device* / *Local network access* → Allow. A browser that does not
+  let an https page open `ws://` at all (Safari) → `blocked: 'insecure'`: use Chrome, Edge or Firefox.
 - **Refused: this worker belongs to another download** — the file was downloaded in another browser, or a newer
   download replaced its pairing. Browsers name a second download `one-worker (1).mjs`: start the newest file (or
   delete the old one and download again).

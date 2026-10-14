@@ -5,9 +5,11 @@
  * than 1.9.0 on this Windows computer (`workerOldHere`: a Local link from a browser on Windows) or without a capability
  * One hands out (`workerOutdated`); in that order, as on the #/coding plate.
  * Ids: worker:<conn> · worker:unsafe@<version> · worker:windows@<version> · worker:outdated@<version>.
+ * A worker:<conn> card says why, before "since": the link's own state text (a refusal, the browser's block) — for a Local
+ * link that waits, what to check (codingConnText, features/coding).
  */
 import { t } from '../../../i18n'
-import { openCodingSettings, useCoding, workerOldHere } from '../../coding'
+import { codingConnText, openCodingSettings, useCoding, workerOldHere } from '../../coding'
 import { workerOutdated, workerUnsafe } from '../../coding/protocol'
 import type { LampReading, LampSourceDef } from '../registry'
 import { fmtTime } from '../format'
@@ -40,7 +42,7 @@ export const workerLamp: LampSourceDef = {
   fitted: () => useCoding.getState().enabled,
   subscribe: (changed) => {
     track()
-    return watch(useCoding, (s) => [s.conn, s.enabled, s.worker, s.can], () => {
+    return watch(useCoding, (s) => [s.conn, s.enabled, s.worker, s.can, s.refused, s.blocked, s.lna], () => {
       track()
       changed()
     })
@@ -63,6 +65,9 @@ export const workerLamp: LampSourceDef = {
   queue: {
     items: (ctx) => {
       const r = workerLamp.read(ctx) as LampReading
+      // the link down: why (as Settings says it), then since when
+      const why = codingConnText()
+      const down = why ? [why, r.second].filter(Boolean).join(' · ') : (r.second ?? '')
       return fixItems('worker', r.ids, (id) => ({
         tag: t('features.preflight.lamp.worker.short'),
         title: id.startsWith('worker:unsafe@')
@@ -70,7 +75,7 @@ export const workerLamp: LampSourceDef = {
           : id.startsWith('worker:windows@')
             ? t('features.preflight.fix.worker.windows', { version: id.slice('worker:windows@'.length) })
             : t(id.startsWith('worker:outdated') ? 'features.preflight.fix.worker.outdated' : 'features.preflight.fix.worker.down'),
-        detail: r.second ?? '',
+        detail: id === `worker:${useCoding.getState().conn}` ? down : (r.second ?? ''),
       }))
     },
     actions: () => [openKey(t('features.preflight.fix.worker.open'), () => openCodingSettings())],

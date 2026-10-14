@@ -149,6 +149,46 @@ test.describe('Preflight — the lamps (T-P1-2)', () => {
     await pf(page, (p) => p.stores.coding.setState({ enabled: false, conn: 'off' }))
   })
 
+  test('the worker card says why the link is down, then since when: not answering, an older download, the browser’s block', async ({ page }) => {
+    // Wednesday 14 Oct 2026, 09:24: the link stops answering
+    await page.clock.install({ time: new Date('2026-10-14T09:24:00+02:00') })
+    await start(page)
+    await home(page)
+    await pf(page, (p) => p.stores.coding.setState({ enabled: true, conn: 'waiting', refused: null, blocked: null, lna: null }))
+    // waiting counts only after its minute
+    expect((await readings(page)).worker).toMatchObject({ count: 0 })
+    await page.clock.runFor('01:05')
+    await expect.poll(async () => (await readings(page)).worker).toMatchObject({ count: 1, level: 'red', ids: ['worker:waiting'], second: 'since 09:24' })
+    await cap(page, 'worker').focus()
+    await page.keyboard.press('Enter')
+    const card = page.locator('.pf-q article.pf-card[data-current]')
+    await expect(card).toHaveAttribute('data-id', 'worker:waiting')
+    await expect(card.locator('.pf-card__title')).toContainText('The worker is not connected')
+    await expect(card.locator('.pf-card__detail')).toHaveText('The worker does not answer — is it running in a terminal? · since 09:24')
+    // the next reasons arrive as rows of the queue (reason · since · title)
+    const row = (id: string) => page.getByTestId('pf-queue').locator(`.pf-qr[data-id="${id}"]`)
+    await pf(page, (p) => p.stores.coding.setState({ conn: 'refused', refused: 'pair' }))
+    await expect(row('worker:refused')).toContainText('Refused: an older download is running — stop it (Ctrl+C) and start the file you downloaded last · since 09:24 · The worker is not connected')
+    await pf(page, (p) => p.stores.coding.setState({ conn: 'blocked', refused: null, blocked: 'permission' }))
+    await expect(row('worker:blocked')).toContainText('Blocked by the browser: this page may not reach the worker on this device — allow it in the site settings (the icon left of the address: “Apps on device” / “Local network access”), then retry · since 09:24')
+    await pf(page, (p) => p.stores.coding.setState({ enabled: false, conn: 'off', blocked: null }))
+  })
+
+  test('the worker card of a link that waits while the browser has still to ask: the question named, Allow', async ({ page }) => {
+    await page.clock.install({ time: new Date('2026-10-14T09:24:00+02:00') })
+    await start(page)
+    await home(page)
+    await pf(page, (p) => p.stores.coding.setState({ enabled: true, conn: 'waiting', refused: null, blocked: null, lna: 'prompt' }))
+    await page.clock.runFor('01:05')
+    await expect.poll(async () => (await readings(page)).worker).toMatchObject({ count: 1, ids: ['worker:waiting'] })
+    await cap(page, 'worker').focus()
+    await page.keyboard.press('Enter')
+    const card = page.locator('.pf-q article.pf-card[data-current]')
+    await expect(card).toHaveAttribute('data-id', 'worker:waiting')
+    await expect(card.locator('.pf-card__detail')).toHaveText('The worker does not answer — is it running in a terminal? If the browser asks whether One may reach apps on this device, choose Allow · since 09:24')
+    await pf(page, (p) => p.stores.coding.setState({ enabled: false, conn: 'off', lna: null }))
+  })
+
   test('a version to confirm counts only where coding is switched on (M7)', async ({ page }) => {
     await start(page)
     const pipe = await seedPipeline(page)

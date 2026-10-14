@@ -1732,6 +1732,12 @@ dd:has(> .cw-port) {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.cs-live__v--wrap {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  line-height: 1.45;
+}
 .cv-setup {
   margin: 22px 0 0;
 }

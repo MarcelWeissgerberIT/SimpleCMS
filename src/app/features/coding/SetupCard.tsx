@@ -239,7 +239,8 @@ function LocalSetupCard({ code }: { code: string }) {
       <footer className="cs-live" role="status" data-testid="coding-card-live">
         <span className="label cs-live__k">{t('features.coding.card.live')}</span>
         <Led state={led} />
-        <span className="cs-live__v">{s.enabled ? workerStateText(t, s) : t('features.coding.card.idle')}</span>
+        {/* the whole text, wrapped: a refusal or the browser's block says what to do */}
+        <span className="cs-live__v cs-live__v--wrap">{s.enabled ? workerStateText(t, s) : t('features.coding.card.idle')}</span>
       </footer>
     </section>
   )

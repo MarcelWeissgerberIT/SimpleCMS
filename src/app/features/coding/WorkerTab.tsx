@@ -254,7 +254,7 @@ export function WorkerTab() {
         code="§ C"
         title={t('features.coding.settings.worker')}
         state={
-          <span className="cw-state" role="status" data-testid="coding-conn">
+          <span className="cw-state" role="status" data-testid="coding-conn" title={workerStateText(t, { ...s, cloud })}>
             <Led state={led} />
             <span className="label">{workerStateText(t, { ...s, cloud })}</span>
           </span>
@@ -307,9 +307,18 @@ export function WorkerTab() {
             </button>
           </div>
         )}
+        {s.enabled && s.conn === 'blocked' && (
+          <div className="cw-msg cw-msg--warn" data-testid="coding-blocked" data-reason={s.blocked ?? undefined}>
+            <p>{t(s.blocked === 'insecure' ? 'features.coding.settings.insecure' : s.blocked === 'permission' ? 'features.coding.settings.permission' : 'features.coding.conn.blocked')}</p>
+            <button type="button" className="btn btn--sm" onClick={reconnect} data-testid="coding-blocked-retry">
+              {t('features.coding.settings.retry')}
+            </button>
+          </div>
+        )}
         {s.enabled && s.conn === 'waiting' && (
           <div className="cw-msg" data-testid="coding-waiting">
             {t(waitingText)}
+            {!cloud && s.lna === 'prompt' && ` ${t('features.coding.settings.lnaPrompt')}`}
           </div>
         )}
         {connected && (

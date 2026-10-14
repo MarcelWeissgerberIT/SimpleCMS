@@ -8,8 +8,11 @@
  *  - openCodingSettings() / consumeCodingSettingsRequest(): open Settings on that tab
  *  - codingDbId(): the Coding database (Database.system 'coding') · useCoding: the worker link's state
  */
+import { t } from '../../i18n'
 import { pipelineDbIds } from './schema'
 import { useCodingLocal } from './local'
+import { useCoding } from './state'
+import { workerDownText } from './stateText'
 
 export { startCoding } from './service'
 export { CodingRoute, CodingTaskSlot } from './slot'
@@ -22,6 +25,15 @@ export { useCoding } from './state'
 export { codingDbId } from './schema'
 /** the worker link's state in words (Settings → Coding worker, the workspace page's Automation section) */
 export { workerStateText as codingWorkerStateText } from './stateText'
+/**
+ * Why the worker link is down, in words, now (Preflight's worker card): the state text Settings → Coding worker shows —
+ * a refusal, the browser's block — and for a Local link that waits, what to check (is the worker running in a terminal;
+ * the browser's question). '' while connected or switched off.
+ */
+export function codingConnText(): string {
+  const s = useCoding.getState()
+  return s.enabled && s.conn !== 'connected' && s.conn !== 'off' ? workerDownText(t, s) : ''
+}
 /** the AI terminal (features/ai/agent/coding.ts): reading the pipelines, planning + applying task changes the person reviewed */
 export {
   taskPhase,

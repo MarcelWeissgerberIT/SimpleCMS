@@ -355,6 +355,130 @@ test('a worker bound to another workspace is refused and Settings say how to bin
   await expect.poll(() => worker!.log()).toContain('refused the tab')
 })
 
+/**
+ * Chrome's Local Network Access as the person left it: `navigator.permissions.query` answers the test's state for its
+ * names (the same status object each time, its `change` listeners called by `__lna.flip`); every other permission as the
+ * browser has it. Counts this page's attempts to reach the worker's port (`__lna.tries`).
+ */
+async function stubLocalNetwork(page: Page, state: PermissionState, port: number) {
+  await page.addInitScript(
+    ({ state, port }) => {
+      const listeners = new Set<() => void>()
+      const lna = { state, tries: 0, flip: (s: PermissionState) => ((lna.state = s), listeners.forEach((fn) => fn())) }
+      ;(window as unknown as { __lna: typeof lna }).__lna = lna
+      const status = { name: 'local-network-access', onchange: null, get state() { return lna.state }, addEventListener: (_: string, fn: () => void) => listeners.add(fn), removeEventListener: (_: string, fn: () => void) => listeners.delete(fn), dispatchEvent: () => true }
+      const query = navigator.permissions.query.bind(navigator.permissions)
+      navigator.permissions.query = ((d: PermissionDescriptor) =>
+        ['loopback-network', 'local-network-access', 'local-network'].includes(String(d.name)) ? Promise.resolve(status as unknown as PermissionStatus) : query(d)) as typeof navigator.permissions.query
+      const Native = window.WebSocket
+      window.WebSocket = class extends Native {
+        constructor(url: string | URL, protocols?: string | string[]) {
+          super(url, protocols)
+          if (String(url).startsWith(`ws://127.0.0.1:${port}`)) lna.tries += 1
+        }
+      }
+    },
+    { state, port },
+  )
+}
+
+const lna = (page: Page) => page.evaluate(() => (window as unknown as { __lna: { state: string; tries: number } }).__lna)
+const flipLna = (page: Page, state: PermissionState) => page.evaluate((s) => (window as unknown as { __lna: { flip: (s: PermissionState) => void } }).__lna.flip(s), state)
+
+/** Start → the Worker offline lamp's queue: its current card (red at once for a refusal or a block). */
+async function workerCard(page: Page) {
+  await page.evaluate(() => (window.location.hash = '#/'))
+  const cap = page.locator('.pf-cap[data-lamp="worker"]')
+  await expect(cap).toHaveAttribute('data-lit', 'red')
+  await cap.focus()
+  await page.keyboard.press('Enter')
+  const card = page.locator('.pf-q article.pf-card[data-current]')
+  await expect(card).toHaveAttribute('data-lamp', 'worker')
+  return card
+}
+
+test('the browser blocks the local link (Local Network Access): the waiting text says to allow it; denied, Settings and the Preflight card say why — no retries; allowed, it connects by itself', async ({ page, errors }) => {
+  // the link looks for the worker before it is started: Chrome logs those attempts
+  errors.allow(/WebSocket connection to 'ws:\/\/127\.0\.0\.1/)
+  await stubLocalNetwork(page, 'prompt', PORT)
+  await page.addInitScript(() => localStorage.setItem('one.tour', '{"off":true}'))
+  await openApp(page)
+  await openWorkerSettings(page)
+  const id = await workspaceId(page)
+  const S = page.getByTestId('coding-settings')
+  const port = page.getByLabel('Port', { exact: true })
+  await port.fill(String(PORT))
+  await port.press('Enter')
+  await page.getByRole('switch', { name: 'Connect to a coding worker on this computer' }).click()
+  // still to be asked: the link keeps trying and the waiting text says to choose Allow
+  await expect(S.getByTestId('coding-waiting')).toContainText('No worker answers yet. Start it (step 2) — this tab keeps trying. If the browser asks whether One may reach apps on this device, choose Allow.')
+  await expect(S.getByTestId('coding-conn')).toContainText('Waiting for the worker — if the browser asks whether One may reach apps on this device, choose Allow')
+
+  // the person said no: blocked with the reason, the whole text and a Retry key — and no more attempts
+  await flipLna(page, 'denied')
+  const blocked = S.getByTestId('coding-blocked')
+  await expect(blocked).toHaveAttribute('data-reason', 'permission')
+  await expect(blocked).toContainText('The browser blocks this page from reaching the worker on this device. Allow it in the site settings (the icon left of the address: “Apps on device” / “Local network access”), then retry.')
+  await expect(blocked.getByRole('button', { name: 'Retry now' })).toBeVisible()
+  await expect(S.getByTestId('coding-card-live')).toContainText('Blocked by the browser: this page may not reach the worker on this device — allow it in the site settings')
+  await expect(S.getByTestId('coding-waiting')).toHaveCount(0)
+  const tries = (await lna(page)).tries
+  expect(tries).toBeGreaterThan(0)
+  // Retry while still denied: one attempt, blocked again
+  await blocked.getByRole('button', { name: 'Retry now' }).click()
+  await expect.poll(async () => (await lna(page)).tries).toBe(tries + 1)
+  await expect(blocked).toHaveAttribute('data-reason', 'permission')
+  await page.waitForTimeout(3000)
+  expect((await lna(page)).tries).toBe(tries + 1)
+
+  // Preflight: red at once, the card names the reason before "since"
+  await page.keyboard.press('Escape')
+  const card = await workerCard(page)
+  await expect(card).toHaveAttribute('data-id', 'worker:blocked')
+  await expect(card.locator('.pf-card__detail')).toHaveText(/^Blocked by the browser: this page may not reach the worker on this device — allow it in the site settings \(the icon left of the address: “Apps on device” \/ “Local network access”\), then retry · since \d\d:\d\d$/)
+
+  // allowed in the site settings, the worker started: the link tries again by itself and connects
+  worker = await startCodingWorker(repo, id, PORT)
+  await flipLna(page, 'granted')
+  await expect(page.getByTestId('coding-status')).toHaveAttribute('title', /^Connected · e2e-box · 1 repo/, { timeout: 15_000 })
+  // the lamp goes dark (its card leaves the reading)
+  await expect.poll(() => page.evaluate(async () => {
+    const p = (window as unknown as { __onePreflight: { flush: (id: string) => Promise<void>; readings: () => Record<string, { count: number } | null> } }).__onePreflight
+    await p.flush('worker')
+    return p.readings().worker?.count ?? null
+  })).toBe(0)
+  await openWorkerSettings(page)
+  await expect(S.getByTestId('coding-blocked')).toHaveCount(0)
+  await expect(S.getByTestId('coding-card-live')).toContainText('Connected · e2e-box · 1 repo')
+})
+
+test('a browser that does not let this page open ws:// at all (Safari): blocked with what to use instead — Settings and the Preflight card', async ({ page }) => {
+  await page.addInitScript((port) => {
+    const Native = window.WebSocket
+    window.WebSocket = class extends Native {
+      constructor(url: string | URL, protocols?: string | string[]) {
+        if (String(url).startsWith(`ws://127.0.0.1:${port}`)) throw new DOMException('An insecure WebSocket connection may not be initiated from a page loaded over HTTPS.', 'SecurityError')
+        super(url, protocols)
+      }
+    }
+  }, PORT)
+  await page.addInitScript(() => localStorage.setItem('one.tour', '{"off":true}'))
+  await openApp(page)
+  await openWorkerSettings(page)
+  const S = page.getByTestId('coding-settings')
+  const port = page.getByLabel('Port', { exact: true })
+  await port.fill(String(PORT))
+  await port.press('Enter')
+  await page.getByRole('switch', { name: 'Connect to a coding worker on this computer' }).click()
+  const blocked = S.getByTestId('coding-blocked')
+  await expect(blocked).toHaveAttribute('data-reason', 'insecure')
+  await expect(blocked).toContainText('This browser does not let a secure (https) page reach the worker on this computer. Use Chrome, Edge or Firefox.')
+  await expect(blocked.getByRole('button', { name: 'Retry now' })).toBeVisible()
+  await page.keyboard.press('Escape')
+  const card = await workerCard(page)
+  await expect(card.locator('.pf-card__detail')).toHaveText(/^Blocked by the browser: it does not let an https page reach the worker on this computer — use Chrome, Edge or Firefox · since \d\d:\d\d$/)
+})
+
 test('the 3 steps: a download comes ready-paired, connects without any switch, its setup page lists the repos, a tick makes One show 1 repo; Change repositories sends open-setup; a newer download retires the old file', async ({ page, errors }) => {
   // the link looks for the worker before it is started: Chrome logs those attempts
   errors.allow(/WebSocket connection to 'ws:\/\/127\.0\.0\.1/)
@@ -514,6 +638,11 @@ test('the 3 steps: a download comes ready-paired, connects without any switch, i
   await expect(page.getByTestId('coding-refused')).toContainText('a newer download replaced it', { timeout: 15_000 })
   await expect(page.getByTestId('coding-conn')).toContainText('Refused: an older download is running')
   await expect.poll(() => worker!.log()).toContain("did not bring this download's pairing key")
+  // Preflight's card names the older download, then since when
+  await page.keyboard.press('Escape')
+  const card = await workerCard(page)
+  await expect(card).toHaveAttribute('data-id', 'worker:refused')
+  await expect(card.locator('.pf-card__detail')).toHaveText(/^Refused: an older download is running — stop it \(Ctrl\+C\) and start the file you downloaded last · since \d\d:\d\d$/)
 })
 
 test('the task panel before a run: Repo from the worker, Branch from its branches (default a new one), and where the task is written', async ({ page }) => {

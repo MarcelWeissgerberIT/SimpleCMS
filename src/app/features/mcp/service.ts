@@ -32,6 +32,7 @@ import { planRunScript } from './script'
 import { warmMembers } from '../workitems'
 import { DEFAULT_SETTINGS, loadSettings, MCP_STORAGE_KEY, saveSettings, useMcp, validPort, type ActivityState, type McpActivity, type McpSettings, type Verdict } from './state'
 import { endRun, noteRun, withWriter, type Writer } from '../../store/writer'
+import { localNetworkPermission } from '../../lib/localNetwork'
 
 const set = useMcp.setState
 const get = useMcp.getState
@@ -133,19 +134,6 @@ function delay(): number {
   // a long wait (no bridge for minutes): every 30 s; focus / visibility retry at once anyway
   if (failingSince && Date.now() - failingSince > 120_000) return 30_000
   return BACKOFF[Math.min(attempt, BACKOFF.length - 1)]
-}
-
-/** Chrome's Local Network Access permission ('granted' · 'denied' · 'prompt'), where it exists. */
-async function localNetworkPermission(): Promise<PermissionState | null> {
-  for (const name of ['loopback-network', 'local-network-access', 'local-network']) {
-    try {
-      const st = await navigator.permissions.query({ name: name as PermissionName })
-      return st.state
-    } catch {
-      /* not a permission this browser knows */
-    }
-  }
-  return null
 }
 
 function hello(): AppMessage {

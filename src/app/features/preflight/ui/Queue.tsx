@@ -8,6 +8,7 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { Hand, Undo2 } from 'lucide-react'
 import { useLang, useT } from '../../../i18n'
 import { restoreFocus } from '../../../ui/focus'
+import { titleIfClipped } from '../../../ui/clip'
 import { ackLamps } from '../engine'
 import { isLit } from '../lamps'
 import { usePreflight } from '../state'
@@ -112,7 +113,18 @@ function Row({ item, n, onPick }: { item: QueueItem; n: number; onPick: () => vo
   const t = useT()
   const clean = !item.hand.length
   return (
-    <button type="button" className="pf-qr" data-hand={clean ? undefined : ''} data-lamp={item.lamp} data-id={item.id} data-testid="pf-row" onClick={onPick}>
+    <button
+      type="button"
+      className="pf-qr"
+      data-hand={clean ? undefined : ''}
+      data-lamp={item.lamp}
+      data-id={item.id}
+      data-testid="pf-row"
+      onClick={onPick}
+      // a long detail is cut with "…": its whole text on hover / focus
+      onMouseEnter={(e) => titleIfClipped(e, '.pf-qr__t')}
+      onFocus={(e) => titleIfClipped(e, '.pf-qr__t')}
+    >
       <span className="pf-qr__no">{pad(n)}</span>
       <span className="pf-tag">{item.tag}</span>
       <span className="pf-qr__t">

@@ -3,7 +3,7 @@ id: coding-pipeline
 title: Coding pipeline (Claude Code on your machine)
 section: ai
 order: 9
-keywords: coding, pipeline, claude code, worker, one-worker, download, setup, windows, powershell, cmd, wsl, pairing, model, opus, sonnet, haiku, fable, tick repositories, git, branch, worktree, pull request, pr, diff, tests, repo, repository, code review, programmieren, aufgaben, cloud worker, one-worker-cloud, build server, vm, relay, remote, another computer, local or cloud
+keywords: coding, pipeline, claude code, worker, one-worker, download, setup, windows, powershell, cmd, wsl, pairing, model, opus, sonnet, haiku, fable, tick repositories, git, branch, worktree, pull request, pr, diff, tests, repo, repository, code review, programmieren, aufgaben, cloud worker, one-worker-cloud, build server, vm, relay, remote, another computer, local or cloud, offline, not connected, local network access, apps on device
 related: pipelines, legacy-modernisation, mcp-bridge, custom-agents, agent
 summary: Hand coding tasks to Claude Code on your computer — plan, approve, implement, test, ship — and follow every step in One.
 ---
@@ -34,6 +34,12 @@ New code? The same page clones from **GitLab / GitHub** (an address, or a pick f
 To change them later, press **Change repositories** — the worker opens its page again on your computer. One only ever learns the repos' names; paths and commands stay in `~/.config/one/worker.json` on your machine.
 
 > Tip: a new download replaces the pairing — start the file you downloaded last. On a computer without a browser, `node one-worker.mjs --no-browser` asks in the terminal instead (numbers tick, Enter saves).
+
+## When the worker does not connect
+The **WORKER** LED stays dark; **Settings → Coding worker** and the *Worker offline* lamp of [Preflight](help:preflight) say why:
+- **The worker does not answer** — it is not running: start it again in a terminal (step 2) and keep that window open.
+- **An older download is running** — stop it (<kbd>Ctrl+C</kbd>) and start the file you downloaded last. Your browser may have saved it as `one-worker (1).mjs`: start that name, or delete the old copies and download again.
+- **Blocked by the browser** — Chrome asks whether One may reach apps on this device: choose **Allow**. Said no? Allow it in the site settings (the icon left of the address: **Apps on device** / **Local network access**), then **Retry now**.
 
 ## Run the worker on another computer (Cloud)
 In a **team workspace on a One server**, **Settings → Coding worker → Where the worker runs** offers **Local | Cloud**. With **Cloud** the worker runs on any computer — a build server, a VM, the desktop at the office — and connects **out** to your One server: no port to open, no VPN.

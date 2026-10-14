@@ -50,6 +50,7 @@ import { browserOs, workerOldOnWindows } from './winWorker'
 import type { SessionKey } from './relayBox'
 import { CloudError, useCloud } from '../../cloud'
 import { SYSTEM, withWriter, type Writer } from '../../store/writer'
+import { localNetworkStatus } from '../../lib/localNetwork'
 
 const set = useCoding.setState
 const get = useCoding.getState
@@ -85,7 +86,8 @@ export function setCodingVia(workspaceId: string, via: 'local' | 'cloud') {
   if (via === 'cloud') next[workspaceId] = 'cloud'
   else delete next[workspaceId]
   patchSettings({ via: next })
-  set({ relay: null, refused: null, dropped: 0, pendingHere: false })
+  // a Local block or the browser's question belongs to the Local link only
+  set({ relay: null, refused: null, dropped: 0, pendingHere: false, blocked: null, lna: null })
   if (get().enabled) reconnect()
 }
 
@@ -242,16 +244,70 @@ function connect() {
     return schedule()
   }
   lastWs = self.id
-  if (viaFor(self) === 'cloud') return void connectCloud(self)
+  if (viaFor(self) === 'cloud') {
+    // what the browser said about the Local link does not hold for the team server's
+    if (get().blocked || get().lna) set({ blocked: null, lna: null })
+    return void connectCloud(self)
+  }
   set({ relay: null })
   const port = get().port
   try {
     attach((h) => openLocalLink(port, h))
   } catch {
-    set({ conn: 'blocked' })
+    // Safari (and older Firefox): an https page may not open ws:// at all — mixed content
+    window.clearTimeout(retryTimer)
+    set({ conn: 'blocked', blocked: 'insecure', lna: null })
     return
   }
-  set((s) => ({ conn: attempt === 0 && s.conn !== 'waiting' ? 'connecting' : 'waiting' }))
+  set((s) => ({ conn: attempt === 0 && s.conn !== 'waiting' ? 'connecting' : 'waiting', blocked: null }))
+}
+
+/** The Local Network Access status this service listens to (Chrome answers every query with a new object). */
+let lnaStatus: PermissionStatus | null = null
+
+/**
+ * A Local link closed before it ever opened: no worker answers — or Chrome keeps this page from reaching apps on this
+ * device (Local Network Access). Denied: 'blocked' with the reason and no retries until the permission changes, Retry
+ * or the tab is looked at again. Still to be asked: the link keeps trying, the waiting texts say to choose Allow.
+ */
+function askLocalNetwork() {
+  const gen = generation
+  void localNetworkStatus().then((st) => {
+    const self = currentWorkspace()
+    // a newer link, Retry, switched off, another workspace or Cloud meanwhile: that one decides
+    if (gen !== generation || link || !get().enabled || get().conn !== 'waiting' || !self || viaFor(self) !== 'local') return
+    watchLocalNetwork(st)
+    if (st?.state === 'denied') {
+      window.clearTimeout(retryTimer)
+      return set({ conn: 'blocked', blocked: 'permission', lna: null })
+    }
+    set({ lna: st?.state === 'prompt' ? 'prompt' : null })
+    schedule()
+  })
+}
+
+function watchLocalNetwork(st: PermissionStatus | null) {
+  if (!st || st === lnaStatus || typeof st.addEventListener !== 'function') return
+  lnaStatus?.removeEventListener('change', onLocalNetwork)
+  lnaStatus = st
+  st.addEventListener('change', onLocalNetwork)
+}
+
+/** The person changed the permission (site settings, the browser's question): a blocked link tries again once it is not denied. */
+function onLocalNetwork() {
+  const state = lnaStatus?.state
+  const s = get()
+  const self = currentWorkspace()
+  if (!s.enabled || link || !self || viaFor(self) !== 'local') return
+  if (state === 'denied') {
+    if (s.conn !== 'waiting') return
+    window.clearTimeout(retryTimer)
+    return set({ conn: 'blocked', blocked: 'permission', lna: null })
+  }
+  if (s.conn !== 'waiting' && !(s.conn === 'blocked' && s.blocked === 'permission')) return
+  attempt = 0
+  set({ lna: state === 'prompt' ? 'prompt' : null })
+  connect()
 }
 
 /**
@@ -382,6 +438,8 @@ function watchReplaced() {
 /** Open a link (local or cloud) with the one set of handlers. */
 function attach(open: (h: LinkHandlers) => LinkHandle) {
   let refused = false
+  /** the link carried frames (local: the socket opened) — a close before that may be the browser's block */
+  let opened = false
   /** cloud: closed to ask the server which of this device's downloads still work (another device's worker answered) */
   let recheck = false
   let handle: LinkHandle | null = null
@@ -389,6 +447,9 @@ function attach(open: (h: LinkHandlers) => LinkHandle) {
   const h: LinkHandlers = {
     open: () => {
       if (!mine()) return
+      opened = true
+      // the browser lets this page through: whatever it said before no longer holds
+      if (get().blocked || get().lna) set({ blocked: null, lna: null })
       const self = me()
       helloAs = self.id
       // this device's pairing with the worker downloaded for this workspace (a worker.json worker ignores it) —
@@ -465,6 +526,8 @@ function attach(open: (h: LinkHandlers) => LinkHandle) {
         failingSince ||= Date.now()
       }
       set({ conn: 'waiting' })
+      // Local, closed before it ever opened: no worker answers — or the browser blocks this page (askLocalNetwork)
+      if (via === 'local' && !opened) return askLocalNetwork()
       schedule()
     },
   }
@@ -480,7 +543,7 @@ function disconnect(off = true) {
   helloAs = null
   rejectPending()
   l?.close(1000, off ? 'switched off' : 'reconnecting')
-  set({ conn: off ? 'off' : 'connecting', worker: null, busy: [], can: null, refused: null, refusedPaired: false, pendingHere: false })
+  set({ conn: off ? 'off' : 'connecting', worker: null, busy: [], can: null, refused: null, refusedPaired: false, pendingHere: false, blocked: null, lna: null })
 }
 
 /* ------------------------------------------------------------------ messages */
@@ -824,13 +887,15 @@ export function startCoding() {
   })
   const wake = () => {
     if (document.visibilityState !== 'visible' || !get().enabled || link) return
-    if (get().conn === 'waiting') {
+    // waiting, or blocked by the browser (the person may have allowed it meanwhile): try again now
+    if (get().conn === 'waiting' || get().conn === 'blocked') {
       attempt = Math.min(attempt, 1)
       connect()
     } else if (get().conn === 'replaced') void checkReplaced()
   }
   document.addEventListener('visibilitychange', wake)
   window.addEventListener('focus', wake)
+  window.addEventListener('online', wake)
   window.addEventListener('pagehide', () => {
     void flushLogs()
     // a page may only close with 1000 or 3000–4999 (1001 throws)
