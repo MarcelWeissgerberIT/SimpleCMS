@@ -339,7 +339,8 @@ export class SetupServer {
     this.clone = job
     this.host.log(`setup page: cloning ${target.url} into ${base}`)
     void cloneInto(target, base, (p) => {
-      job.line = p.line
+      // this page only (this computer's own browser): git's line, cut for the row
+      job.line = p.line.slice(0, 200)
       job.percent = p.percent
     }, { local: target.kind === 'local', home: this.home, log: (msg) => this.host.log(`setup page: ${msg}`) })
       .then(async ({ dir, already }) => {

@@ -8,20 +8,21 @@
  */
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { chmodSync, copyFileSync, existsSync, lchownSync, lstatSync, mkdirSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import fs, { chmodSync, copyFileSync, existsSync, lchownSync, lstatSync, mkdirSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { syncBuiltinESMExports } from 'node:module'
 import { homedir, tmpdir } from 'node:os'
 import { basename, dirname, join, posix, win32 } from 'node:path'
 import { strToU8, zipSync } from 'fflate'
 import { pathToFileURL } from 'node:url'
 import { after, afterEach, describe, test } from 'node:test'
 import type { LogLine } from '../../src/app/features/coding/protocol.ts'
-import { editOf, findClaude, mcpLaunchers, nativeNotOnPath, toolLine } from '../src/worker/claude.ts'
+import { editOf, findClaude, mcpLaunchers, nativeNotOnPath, runClaude, toolLine } from '../src/worker/claude.ts'
 import { cloneBase, cloneInto, parseCloneUrl, unquote } from '../src/worker/clone.ts'
 import { emptyConfig, loadConfig, splitArgs, type RepoConfig } from '../src/worker/config.ts'
-import { GitError, checkRepo, ensureWorktree, folderId, git, gitFailure, gitMessage, gitOk, insideWorktrees, nativePath, ownLocks, parseWorktrees, stillOurs, sweepLeftovers, worktreeFolder } from '../src/worker/git.ts'
+import { GitError, checkRepo, ensureWorktree, folderId, git, gitFailure, gitMessage, gitOk, insideWorktrees, nativePath, ownLocks, parseWorktrees, stillOurs, sweepLeftovers, tryFetch, worktreeFolder } from '../src/worker/git.ts'
 import { BATCH_SSH, INCLUDE_IF_NOTE, folderBusyCode, forgetGitEnv, gitArgs, gitEnv, gitHint, hintLine, hintTerminal, sshCommandInEnv } from '../src/worker/gitenv.ts'
 import { inICloud, inSyncedFolder, renameRetry } from '../src/worker/paths.ts'
-import { noteGitHint, runStage, syncedWarning } from '../src/worker/run.ts'
+import { noteGitHint, plantedError, runStage, syncedWarning } from '../src/worker/run.ts'
 import { guessAnalyzeAsync, guessTest, shortPath, usualPlaces } from '../src/worker/scan.ts'
 import { Scrubber, repoScrubber } from '../src/worker/scrub.ts'
 import { joinArgs, syncedRow } from '../src/worker/setup.ts'
@@ -31,7 +32,7 @@ import { Worker } from '../src/worker/worker.ts'
 import { entryPath, gitDirIn, importZip, isUnsafe, zipPath, type GuardDisk } from '../src/worker/zipimport.ts'
 import { OutputLines, runTests, safeHead } from '../src/worker/testrun.ts'
 import { waitFor } from './helpers.ts'
-import { FAKE_CLAUDE, FakeTab, GIT_ENV, IS_WIN, WS_LOCAL, caseFolds, cleanupAll, gitProgram, leakIn, makeRepo, onPath, plainRepo, repoEntry, sh, slashPath, spawnWorker, task, tempDir, writeConfig, WORKER_BUNDLE, type SpawnedWorker } from './worker-helpers.ts'
+import { FAKE_CLAUDE, FakeTab, GIT_ENV, IS_WIN, WS_LOCAL, caseFolds, cleanupAll, fakeBin, gitProgram, leakIn, makeRepo, onPath, plainRepo, repoEntry, sh, slashPath, spawnWorker, task, tempDir, writeConfig, WORKER_BUNDLE, type SpawnedWorker } from './worker-helpers.ts'
 
 after(cleanupAll)
 
@@ -1456,5 +1457,204 @@ describe('Fix2: CI — a ZIP\'s own paths with "/", the import\'s progress and s
     assert.ok(first, 'the scrubber is kept')
     w.intakeScrub(st)
     assert.equal((w as unknown as { intakeScrubber: unknown }).intakeScrubber, first, 'built once, not per event')
+  })
+})
+
+/* ------------------------------------------------------------------ Fix3 */
+
+describe('Fix3: the scrubber after a letter, cut lines, the planted-program text, nothing read on macOS / Linux, MCP servers of plugins and the organisation', () => {
+  const HOME = '/home/maximilian.mustermann'
+  const fragment = (t: string) => /maximilian|mustermann|ilian\.|\.musterm|stermann/.exec(t)?.[0] ?? null
+
+  test('N1 — macOS / Linux: a two-name path right after a letter is replaced again (-I, -L, -isystem, -F, vscode://file, file://host); one-name and encoded / JSON-escaped roots still only where no name goes on', () => {
+    const sc = new Scrubber([], { platform: 'linux', home: '/home/max', tmp: '/tmp', realpath: () => null })
+    for (const [text, want] of [
+      ['g++ -I/home/max/inc -L/home/max/lib -isystem/home/max/sdk -o a.o', 'g++ -I~/inc -L~/lib -isystem~/sdk -o a.o'],
+      ['vscode://file/home/max/a.ts:3', 'vscode://file~/a.ts:3'],
+      ['file://devbox/home/max/a.ts', 'file://devbox~/a.ts'],
+      ['cc -I/tmp/build/include', 'cc -I/tmp/build/include'],
+      // unchanged from round 2
+      ['/var/tmp/x', '/var/tmp/x'],
+      ['./tmp/x and ~/tmp/x', './tmp/x and ~/tmp/x'],
+      ['me%2Fhome%2Fmax', 'me%2Fhome%2Fmax'],
+      ['https://gitlab.com/api/v4/projects/me%2Ftmp/merge_requests', 'https://gitlab.com/api/v4/projects/me%2Ftmp/merge_requests'],
+      ['file%3A%2F%2F%2Fhome%2Fmax%2Fa', 'file%3A%2F%2F~%2Fa'],
+      ['{"p":"\\/home\\/max\\/x","q":"\\n\\/home\\/max"}', '{"p":"~\\/x","q":"\\n~"}'],
+      ['/home/max2/x and /home/max%20Muster/x', '/home/max2/x and /home/max%20Muster/x'],
+    ] as const)
+      assert.equal(sc.text(text), want, text)
+    const mac = new Scrubber([], { platform: 'darwin', home: '/Users/max', tmp: '/var/folders/zz/abc/T', realpath: (p) => (p.startsWith('/var/') ? `/private${p}` : null) })
+    assert.equal(mac.text('cc -I/Users/max/include -F/Users/max/Frameworks'), 'cc -I~/include -F~/Frameworks')
+    assert.equal(mac.text('at /private/var/folders/zz/abc/T/case19/x.js and /var/folders/zz/abc/T/case19'), 'at <tmp>/case19/x.js and <tmp>/case19')
+    const long = new Scrubber([], { platform: 'linux', home: HOME, tmp: '/tmp', realpath: () => null })
+    assert.equal(fragment(long.text(`g++ -I${HOME}/.cache/node-gyp/22.12.0/include/node -L${HOME}/lib`)), null)
+  })
+
+  test('N3 — Claude Code\'s stderr tail: the line its cut went through is dropped, all of it when no line break follows (a path is never sent in halves)', async () => {
+    const run = async (text: string) => {
+      const dir = tempDir('fakecli')
+      fakeBin(dir, 'fakecli', `process.stdin.resume(); process.stdin.on('end', () => { process.stderr.write(${JSON.stringify(text)}); process.exit(3) })`)
+      const res = await runClaude({
+        bin: join(dir, IS_WIN ? 'fakecli.cmd' : 'fakecli'), cwd: dir, prompt: 'x', mode: 'plan', maxTurns: 1, model: null, allowedTools: [], disallowedTools: [], mcpConfig: null, strictMcp: true, projectSettings: false, budgetUsd: null,
+        caps: { found: true, version: '9.9.9', budget: true, modes: [], settingSources: true }, env: process.env, signal: new AbortController().signal, onLog: () => {},
+        scrub: (s) => s.replaceAll(HOME, '~'),
+      })
+      return res.error ?? ''
+    }
+    // one line, past the 8,000 characters kept, its cut inside the home folder's name
+    const head = `Error: cannot read ${HOME}/shop/config.json `
+    const at = head.indexOf(HOME) + 10
+    const oneLine = `${head}${'x'.repeat(8000 + at - head.length - 4)} end`
+    assert.equal(oneLine.length - 8000, at)
+    const a = await run(oneLine)
+    assert.equal(fragment(a), null, a)
+    assert.equal(a, 'Claude Code exited with code 3')
+    // a break after the cut line: the tail starts after it
+    const b = await run(`${oneLine}\nsecond line at ${HOME}/shop/x.js`)
+    assert.equal(fragment(b), null, b)
+    assert.match(b, /^Claude Code exited with code 3: second line at ~\/shop\/x\.js$/)
+  })
+
+  test('N4 — a line far over 4,000 characters ending in a bare "\\r" at a piece\'s end: the next line is kept (live and in the tail)', () => {
+    for (const pieces of [
+      ['A'.repeat(5000) + '\r', 'FAILED test/login.test.js\n'],
+      ['A'.repeat(5000), 'AAA\r', 'FAILED test/login.test.js\n'],
+      ['A'.repeat(5000), 'AAA\r', '\nFAILED test/login.test.js\n'],
+      ['A'.repeat(5000) + '\r', '\nFAILED test/login.test.js\n'],
+    ]) {
+      const live: string[] = []
+      const o = new OutputLines((s) => s, (l) => live.push(l))
+      for (const p of pieces) o.add('out', p)
+      o.flush()
+      assert.equal(live.at(-1), 'FAILED test/login.test.js', JSON.stringify(live.map((l) => l.slice(0, 30))))
+      assert.equal(live.filter((l) => !l.startsWith('A')).length, 1, 'no empty line, no second FAILED')
+      assert.match(o.output(), /\nFAILED test\/login\.test\.js$/)
+    }
+  })
+
+  test('N6 — the planted-program error says what the app says: commit and push on the base branch, then Update from base — no Discard', () => {
+    const e = plantedError('git.exe')
+    assert.match(e, /an existing worktree keeps it: delete it there, or commit and push the change on the base branch and press Update from base\), then press Retry\.$/)
+    assert.doesNotMatch(e, /Discard/)
+  })
+
+  test('N7 — macOS / Linux: a Claude Code stage reads nothing for the planted-program check (no ~/.claude.json, no plugin or organisation file)', async () => {
+    const r = makeRepo()
+    const cfg = writeConfig(r, { workspace: WS_LOCAL.id, repos: [repoEntry(r)] })
+    const repo = loadConfig(cfg).config.repos[0]!
+    const state = new WorkerState(cfg)
+    const home = tempDir('home')
+    writeFileSync(join(home, '.claude.json'), JSON.stringify({ mcpServers: { kb: { command: 'kb' } } }))
+    const caps = { found: true, version: '9.9.9', budget: true, modes: [], settingSources: true }
+    const read = async (platform: NodeJS.Platform) => {
+      const paths: string[] = []
+      const orig = fs.readFileSync
+      const had = process.env.CLAUDE_CONFIG_DIR
+      delete process.env.CLAUDE_CONFIG_DIR
+      fs.readFileSync = ((p: fs.PathOrFileDescriptor, ...rest: unknown[]) => {
+        paths.push(String(p))
+        return (orig as (...a: unknown[]) => unknown)(p, ...rest)
+      }) as typeof fs.readFileSync
+      syncBuiltinESMExports()
+      try {
+        await runStage({ repo, state, task: task({ kind: 'plan' }, { id: `noread${platform.slice(0, 3)}` }), team: false, caps, bin: join(tempDir('noclaude'), 'claude'), taskMcp: null, signal: new AbortController().signal, log: () => {}, git: () => {}, question: () => null, platform, home })
+      } finally {
+        fs.readFileSync = orig
+        syncBuiltinESMExports()
+        if (had !== undefined) process.env.CLAUDE_CONFIG_DIR = had
+      }
+      return paths.filter((p) => /\.claude\.json$|installed_plugins\.json$|managed-mcp\.json$|managed-settings\.json$/.test(p))
+    }
+    // Windows' rules: the person's config is read (the check can see this way)
+    assert.ok((await read('win32')).some((p) => p.endsWith('.claude.json')))
+    assert.deepEqual(await read('linux'), [])
+    assert.deepEqual(await read('darwin'), [])
+  })
+
+  // a home folder (never made: git only names it) whose name starts `col` characters into git's line, so the old cut
+  // (200 for a progress line, 300 for a fetch's reason) went through it — padding folders of ≤ 200 characters
+  const homeAt = (root: string, col: number, lead: number) => {
+    const parts: string[] = []
+    let left = col - lead - root.length - 1
+    while (left > 201) {
+      parts.push('p'.repeat(200))
+      left -= 201
+    }
+    assert.ok(left >= 2, `${left}`)
+    parts.push('p'.repeat(left - 1))
+    const home = join(root, ...parts, 'maximilian.mustermann')
+    assert.equal(lead + home.indexOf('maximilian'), col)
+    return home
+  }
+  const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s)
+
+  test('N8 — a clone\'s progress line: whole from clone.ts, scrubbed before the worker cuts it for One (never a path in halves)', async () => {
+    const root = tempDir('n8')
+    // git names the missing local repository in its last line
+    const cloneHome = homeAt(root, 187, "fatal: repository '".length)
+    const target = parseCloneUrl(join(cloneHome, 'nope.git'), true)
+    assert.ok(!('error' in target), JSON.stringify(target))
+    const lines: string[] = []
+    await assert.rejects(cloneInto(target, tempDir('clones'), (p) => lines.push(p.line), { local: true }))
+    const last = lines.at(-1) ?? ''
+    // what One gets: the worker's intake scrubber, then the cut (worker.ts intakeScrub)
+    const shown = clip(new Scrubber([], { home: cloneHome }).text(last), 200)
+    assert.equal(fragment(shown), null, shown)
+    assert.match(last, /nope\.git/, JSON.stringify(lines))
+    const w = new Worker({ config: { ...emptyConfig(join(tempDir('cfg'), 'worker.json')), cloneDir: tempDir('clones2') }, version: 'test', bin: 'claude', self: 'x', log: () => {} })
+    const st = w.intakeScrub({ state: 'running', source: 'clone', label: 'x', line: `${'y'.repeat(190)} ${join(homedir(), 'one-repos', 'shop')} and more`, percent: null })
+    assert.ok(st.line.length <= 200, `${st.line.length}`)
+    assert.equal(st.line.includes(homedir()), false)
+  })
+
+  test('N8 — a failed fetch\'s reason: scrubbed before tryFetch cuts it (never a path in halves)', async () => {
+    const root = tempDir('n8f')
+    // a remote that is a missing folder — git's reason names it
+    const fetchHome = homeAt(root, 290, "fatal: '".length)
+    const dir = plainRepo(join(root, 'repo'), { 'README.md': 'x\n' }, join(fetchHome, 'gone.git'))
+    const notes: Array<Record<string, string | number> | undefined> = []
+    const scrub = new Scrubber([], { home: fetchHome })
+    await tryFetch({ path: dir, remote: 'origin' } as unknown as RepoConfig, (_k, _s, c, v) => c === 'fetchFailed' && notes.push(v), (s) => scrub.text(s))
+    const why = String(notes[0]?.why ?? '')
+    // run.ts's log scrubs every value once more: nothing of the name may be left in halves
+    assert.equal(fragment(scrub.text(why)), null, why)
+    assert.match(why, /gone\.git|repository/, why)
+    assert.ok(why.length <= 300)
+  })
+
+  test('N9 — mcpLaunchers: the organisation\'s (managed-mcp.json, managedMcpServers, managed-settings.d) and every installed plugin\'s servers — a plugin\'s by name only', () => {
+    const home = tempDir('home')
+    const cfgDir = join(home, '.claude')
+    const managed = tempDir('managed')
+    writeFileSync(join(managed, 'managed-mcp.json'), JSON.stringify({ mcpServers: { org: { command: 'org-tool', args: [] }, remote: { type: 'http', url: 'https://x.invalid/mcp' } } }))
+    writeFileSync(join(managed, 'managed-settings.json'), JSON.stringify({ managedMcpServers: { pinned: { type: 'stdio', command: 'C:\\tools\\pinned.exe' } } }))
+    mkdirSync(join(managed, 'managed-settings.d'))
+    writeFileSync(join(managed, 'managed-settings.d', '10-team.json'), JSON.stringify({ managedMcpServers: { drop: { command: 'drop-in' } } }))
+    // two installed plugins: one with .mcp.json (bare map), one declaring its servers in plugin.json (object + a file)
+    const p1 = join(cfgDir, 'plugins', 'cache', 'mk', 'kb', '1.0.0')
+    const p2 = join(cfgDir, 'plugins', 'cache', 'mk', 'db', '2.0.0')
+    mkdirSync(join(p1), { recursive: true })
+    mkdirSync(join(p2, '.claude-plugin'), { recursive: true })
+    writeFileSync(join(p1, '.mcp.json'), JSON.stringify({ kb: { command: 'plugin-kb', args: ['serve'] }, own: { command: '${CLAUDE_PLUGIN_ROOT}/server.js' }, rel: { command: './bin/main' } }))
+    writeFileSync(join(p2, '.claude-plugin', 'plugin.json'), JSON.stringify({ name: 'db', mcpServers: ['./servers.json'] }))
+    writeFileSync(join(p2, 'servers.json'), JSON.stringify({ mcpServers: { db: { command: 'plugin-db' }, win: { command: '%APPDATA%\\x\\index.cmd' } } }))
+    writeFileSync(join(cfgDir, 'plugins', 'installed_plugins.json'), JSON.stringify({ version: 2, plugins: { 'kb@mk': [{ scope: 'user', installPath: p1, version: '1.0.0' }], 'db@mk': [{ scope: 'project', projectPath: home, installPath: p2 }], 'bad@mk': [{ installPath: 'relative/path' }] } }))
+    writeFileSync(join(home, '.claude.json'), JSON.stringify({ mcpServers: { a: { command: 'uvx' } } }))
+    const names = mcpLaunchers({ dirs: [tempDir('wt')], projectSettings: false, home, env: {}, managed: [managed] })
+    assert.deepEqual(names, ['drop-in', 'org-tool', 'pinned', 'plugin-db', 'plugin-kb', 'uvx'])
+    // $CLAUDE_CODE_PLUGIN_CACHE_DIR: the plugins folder named by the person
+    const cache = tempDir('cache')
+    const p3 = join(cache, 'p3')
+    mkdirSync(p3)
+    writeFileSync(join(p3, '.mcp.json'), JSON.stringify({ mcpServers: { c: { command: 'cached-tool' } } }))
+    writeFileSync(join(cache, 'installed_plugins.json'), JSON.stringify({ plugins: { 'c@m': { installPath: p3 } } }))
+    assert.deepEqual(mcpLaunchers({ dirs: [], projectSettings: false, home, env: { CLAUDE_CODE_PLUGIN_CACHE_DIR: cache }, managed: [] }), ['cached-tool', 'uvx'])
+    // a plugin folder named in $CLAUDE_CODE_PLUGIN_DIRS (Claude Code loads it like --plugin-dir)
+    const inline = tempDir('inline')
+    writeFileSync(join(inline, '.mcp.json'), JSON.stringify({ mcpServers: { i: { command: 'inline-tool' } } }))
+    assert.deepEqual(mcpLaunchers({ dirs: [], projectSettings: false, home, env: { CLAUDE_CODE_PLUGIN_CACHE_DIR: cache, CLAUDE_CODE_PLUGIN_DIRS: inline }, managed: [] }), ['cached-tool', 'inline-tool', 'uvx'])
+    // nothing there: none (and a broken file adds none)
+    writeFileSync(join(managed, 'managed-mcp.json'), '{ broken')
+    assert.deepEqual(mcpLaunchers({ dirs: [], projectSettings: false, home: tempDir('none'), env: {}, managed: [managed, tempDir('empty')] }), ['drop-in', 'pinned'])
   })
 })

@@ -15,7 +15,7 @@ import type { GitInfo, LogLine, StageOutcome, TaskPayload, TaskProgress, TestRes
 import type { RepoConfig, SourceWhy } from './config.ts'
 import type { WorkerState } from './state.ts'
 import { claudeMissingError, mcpLaunchers, runClaude, type ClaudeCaps } from './claude.ts'
-import { commandName, plantedProgram } from './exec.ts'
+import { commandName, pathAbsolute, plantedProgram } from './exec.ts'
 import { GitError, branchDiff, commentPr, commitAll, ensureWorktree, git, info, isDirty, mergePr, openPr, push, updateFromBase, worktreeOf, type TaskWorktree } from './git.ts'
 import { FOLDER_BUSY, forgetGitEnv, gitHint, hintLine, hintTerminal } from './gitenv.ts'
 import { inSyncedFolder, rmRetry, worktreesAt, type Synced, type WorktreesAt } from './paths.ts'
@@ -149,6 +149,8 @@ function writeMcpConfig(taskMcp: NonNullable<StageContext['taskMcp']>): { file: 
  * with the file's NAME for One; this computer's terminal names the folder. Null: nothing found (always elsewhere).
  */
 function planted(ctx: StageContext, dir: string, log: Log): string | null {
+  // Windows only: nothing to read elsewhere (no ~/.claude.json, no folder listing)
+  if ((ctx.platform ?? process.platform) !== 'win32') return null
   const { repo } = ctx
   const env = claudeEnv()
   const names = mcpLaunchers({ dirs: [dir, repo.path], projectSettings: repo.claude.projectSettings, home: ctx.home, env, platform: ctx.platform })
@@ -161,7 +163,7 @@ function planted(ctx: StageContext, dir: string, log: Log): string | null {
 
 /** The stage's error for a program at the top of its folder (English; One shows `plantedProgram` in the person's language). */
 export const plantedError = (file: string): string =>
-  `The folder this stage runs in holds ${file} at its top level, a program a lookup by name could take instead of the real one (Claude Code's own git, an MCP server's launcher), so Claude Code does not start there. Remove or rename ${file} in the repository AND on the task's branch (an existing worktree keeps it: delete it there, or commit the change on the base branch and use Update from base — or Discard the branch), then press Retry.`
+  `The folder this stage runs in holds ${file} at its top level, a program a lookup by name could take instead of the real one (Claude Code's own git, an MCP server's launcher), so Claude Code does not start there. Remove or rename ${file} in the repository AND on the task's branch (an existing worktree keeps it: delete it there, or commit and push the change on the base branch and press Update from base), then press Retry.`
 
 /** Git's whole message for the hints (a GitError's detail — the lines that name a lock file may be cut from its message). */
 const hintText = (e: unknown, msg: string) => (e instanceof GitError && e.detail ? e.detail : msg)
@@ -329,11 +331,12 @@ export async function runStage(ctx: StageContext): Promise<StageOutcome> {
       const w = syncedWarning(synced, repo)
       log('warn', w.s, synced, w.v)
     }
+    // (the last argument: git's reason for a failed fetch is scrubbed before tryFetch cuts it)
     const wt = await ensureWorktree(repo, ctx.state, task, task.branch, (k, s, c, v, detail) => {
       log(k, s, c, v)
       // a fetch that failed: what git's message means (sign in, a host key …)
       if (c === 'fetchFailed' && typeof v?.why === 'string') noteGitHint(detail ?? v.why, repo, log, ctx.terminal, ctx.platform)
-    })
+    }, (s) => scrub.text(s))
     scrub = repoScrubber(repo, wt.dir)
     ctx.onWorktree?.(wt, scrub)
     log('git', `${wt.created ? 'Branch' : 'Reusing branch'} ${wt.branch}`, wt.created ? 'branch' : 'reuse', { branch: wt.branch })
@@ -560,11 +563,15 @@ function notStartedLine(why: NonNullable<RunResult['notStarted']>, name: string,
   else log('error', `${name} runs through cmd.exe, which cannot pass an argument with a line break — change the command on the worker’s setup page.`, 'commandRefused', { cmd: name })
 }
 
-/** Claude Code's environment: this process's, without the worker's own variables. */
+/**
+ * Claude Code's environment: this process's, without the worker's own variables, PATH of absolute folders only (what
+ * Claude Code starts by name — its git, its MCP servers' launchers — is never looked up in the task's folder through an
+ * empty or relative PATH entry; spawnSafe does the same for every program the worker starts by itself).
+ */
 function claudeEnv(): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {}
   for (const [k, v] of Object.entries(process.env)) if (!k.startsWith('ONE_WORKER_')) env[k] = v
-  return env
+  return pathAbsolute(env)
 }
 
 async function testStage(ctx: StageContext, wt: TaskWorktree, scrub: Scrubber, log: Log): Promise<StageOutcome> {

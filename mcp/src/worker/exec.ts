@@ -2,7 +2,8 @@
  * one-worker — the ONE place that starts programs (no other worker file imports node:child_process). Every program
  * is a file with an argument list — never a shell line, never Node's shell option.
  *
- * macOS / Linux: the command goes to spawn as it is (the system looks it up in PATH, as before).
+ * macOS / Linux: the command goes to spawn as it is (the system looks it up in the child's PATH — for the worker's own
+ * programs one of absolute folders only, see "Every OS" below).
  *
  * Windows: the worker finds the file itself, because Windows would look in the CHILD's working folder first — a
  * git.exe, claude.exe or npm.exe at the root of a cloned or imported repository would run instead of the real one.
@@ -25,6 +26,10 @@
  *  - a file inside the working folder is named from there (`.\tools\x.exe`) — at the spawn, from THAT spawn's working
  *    folder (spawnForm): the folder's own path (a worktree named after a branch from One) never reaches a command line
  *    or a cmd.exe line. What resolveCommand returns (and `check` shows) stays absolute.
+ * Every OS: the programs the worker starts by itself get a PATH of absolute folders only (pathAbsolute) — an empty entry,
+ * "." or a relative folder makes a lookup by name search the working folder (macOS / Linux: execvp, also for git's own
+ * children and Claude Code's), so neither they nor what they start take a `git` from a repository. The person's own
+ * commands keep their PATH as it is.
  * Not covered (the launched program's own hygiene): DLLs a program loads from its own folder or the working folder.
  *
  * spawnSafe / execFileSafe / execFileSyncSafe never throw and never reject: a program that cannot start is code 127
@@ -32,7 +37,7 @@
  */
 import { spawn, spawnSync, type ChildProcess, type SpawnOptions } from 'node:child_process'
 import { closeSync, openSync, readSync, readdirSync, statSync } from 'node:fs'
-import { posix, win32 } from 'node:path'
+import { join, posix, win32 } from 'node:path'
 
 export type Via = 'direct' | 'node-shim' | 'comspec'
 
@@ -144,6 +149,36 @@ export function noCwdLookup(env: NodeJS.ProcessEnv, platform: NodeJS.Platform = 
 }
 
 const ABS_WIN = /^(?:[A-Za-z]:[\\/]|[\\/]{2}[^\\/])/
+
+/** A PATH entry that names a folder by itself (Windows: C:\… or \\server\…, quotes allowed; elsewhere: /…). */
+const absEntry = (d: string, platform: NodeJS.Platform) => (platform === 'win32' ? ABS_WIN.test(d.trim().replace(/^"(.*)"$/, '$1').trim()) : d.startsWith('/'))
+
+/**
+ * PATH with its absolute folders only — an empty entry, "." or a relative folder dropped (on Windows under every spelling
+ * of the key). macOS / Linux: execvp searches the working folder for such an entry (PATH=":/usr/bin" finds ./git first);
+ * Windows: such an entry is read against the working folder. Nothing left: PATH is removed (an empty PATH is itself the
+ * working folder on macOS / Linux; without one the system's default folders are searched). Unchanged when every entry is
+ * absolute (the same object).
+ */
+export function pathAbsolute(env: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform): NodeJS.ProcessEnv {
+  const sep = platform === 'win32' ? ';' : ':'
+  let out: NodeJS.ProcessEnv = env
+  for (const k of Object.keys(env)) {
+    const v = env[k]
+    if (v === undefined || (platform === 'win32' ? k.toLowerCase() !== 'path' : k !== 'PATH')) continue
+    const kept = v.split(sep).filter((d) => absEntry(d, platform))
+    if (kept.join(sep) === v) continue
+    if (out === env) out = { ...env }
+    if (kept.length) out[k] = kept.join(sep)
+    else delete out[k]
+  }
+  return out
+}
+
+/** The environment of a program the worker starts by itself: PATH absolute only (every OS), and on Windows noCwdLookup. */
+export function ownEnv(env: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform): NodeJS.ProcessEnv {
+  return pathAbsolute(noCwdLookup(env, platform), platform)
+}
 
 /** The absolute path of a Windows system tool (System32) — the bare name elsewhere. */
 export function systemTool(name: 'cmd' | 'taskkill' | 'powershell', env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform, exists: (p: string) => boolean = isFile): string {
@@ -293,19 +328,58 @@ const ownPathExt = (env: NodeJS.ProcessEnv) =>
     .map((e) => e.trim().toLowerCase())
     .filter((e) => /^\.[a-z0-9]{1,8}$/.test(e))
 
-/** A file name as Windows opens it (a trailing dot or space dropped: "git.exe." opens git.exe), lower case. */
-const winName = (name: string) => name.toLowerCase().replace(/[. ]+$/, '')
+/**
+ * The three letters outside ASCII whose case partner is an ASCII letter (ı ↔ I, ſ ↔ S, the Kelvin sign K ↔ k). Whether a
+ * disk takes "gıt.exe" for "git.exe" is the disk's own case table (NTFS: its $UpCase file), not JavaScript's — so these
+ * are never folded here: plantedProgram asks the disk (foldsTo).
+ */
+const DISK_FOLDS: Record<string, string> = { '\u0131': 'i', '\u017f': 's', '\u212a': 'k' }
+
+/**
+ * A file name as Windows opens it (a trailing dot or space dropped: "git.exe." opens git.exe), lower case — the letters
+ * of DISK_FOLDS as they are.
+ */
+const winName = (name: string) =>
+  [...name]
+    .map((c) => (c in DISK_FOLDS ? c : c.toLowerCase()))
+    .join('')
+    .replace(/[. ]+$/, '')
+
+/** The name with the letters of DISK_FOLDS as the ASCII letters a disk may fold them to (null: none in it). */
+const foldsTo = (n: string): string | null => (/[\u0131\u017f\u212a]/.test(n) ? [...n].map((c) => DISK_FOLDS[c] ?? c).join('') : null)
+
+/** A folder as Windows compares it: separators "\\", "." / ".." resolved, no trailing separator, lower case. */
+const winFolder = (d: string) => win32.normalize(d).replace(/[\\/]+$/, '').toLowerCase()
+
+/** Windows' own folder (%SystemRoot%, %windir% — C:\Windows while neither is set), as winFolder writes it. */
+export function systemRoots(env: NodeJS.ProcessEnv): string[] {
+  const roots = ['SystemRoot', 'windir'].map((k) => envGet(env, k, 'win32')?.trim()).filter((r): r is string => !!r && ABS_WIN.test(r))
+  return [...new Set((roots.length ? roots : ['C:\\Windows']).map(winFolder))]
+}
+
+/** A folder inside Windows' own folder (or that folder): System32, SysWOW64, Wbem, WindowsPowerShell, OpenSSH … */
+export function inSystemRoot(dir: string, env: NodeJS.ProcessEnv): boolean {
+  const d = winFolder(dir)
+  return systemRoots(env).some((r) => d === r || d.startsWith(`${r}\\`))
+}
 
 /**
  * The base names (lower case, no extension) of every program a lookup by name finds in PATH's folders (absolute entries;
- * PATHEXT of `env`, else Windows' own) — `list` reads a folder's files.
+ * PATHEXT of `env`, else Windows' own) — `list` reads a folder's files. Windows' own folders (inSystemRoot: System32 and
+ * the rest under %SystemRoot%) do not count: their hundreds of names (find, sort, tree, format, help, route …) are
+ * everyday file names in a repository; the ones a tool does start by name (cmd, powershell, where, taskkill, tasklist,
+ * ssh, bash) are in BY_NAME.
  */
 export function programsOnPath(env: NodeJS.ProcessEnv, list: (dir: string) => string[] = topFiles): Set<string> {
   const own = ownPathExt(env)
   const exts = new Set(own.length ? own : PATHEXT_WINDOWS)
   const out = new Set<string>()
-  // each folder once (C:\Tools\ and C:\tools are one), read as PATH names it
-  const dirs = new Map(pathDirs(env).map((d) => [d.toLowerCase().replace(/[\\/]+$/, ''), d] as const))
+  // each folder once (C:\Tools\ and C:\tools are one), read as PATH names it; Windows' own folders never
+  const dirs = new Map(
+    pathDirs(env)
+      .filter((d) => !inSystemRoot(d, env))
+      .map((d) => [winFolder(d), d] as const),
+  )
   for (const dir of dirs.values()) {
     for (const f of list(dir)) {
       const n = winName(f)
@@ -329,25 +403,36 @@ export function programName(cmd: string, env: NodeJS.ProcessEnv = process.env): 
  * node-which in cross-spawn / execa — Claude Code's own `git`, the launchers of its MCP servers — and Bun's own check the
  * working folder first. So a Claude Code stage does not start in a folder holding one (run.ts). A file counts when its
  * extension is one such a lookup runs (the worker's PATHEXT ∪ RUNNABLE_WINDOWS) AND its base name (without case) is
- *  - a program on PATH (programsOnPath — `gradlew.bat`, `build.cmd` stay allowed unless PATH has such a program),
+ *  - a program on PATH outside Windows' own folders (programsOnPath — `gradlew.bat`, `build.cmd` stay allowed unless PATH
+ *    has such a program; `find.js`, `sort.js`, `route.js` stay allowed beside System32's find / sort / route),
  *  - one of `names` (run.ts: the launchers of the person's MCP servers), or
  *  - BY_NAME.
+ * Without case as the disk compares names: a name holding ı, ſ or the Kelvin sign counts when the disk opens it under the
+ * ASCII name it may fold to ("gıt.exe" for git.exe) — `exists` asks the disk itself, never a guess.
  * Only the file's name is returned (the first in sorted order).
  */
-export function plantedProgram(dir: string, opts: { platform?: NodeJS.Platform; env?: NodeJS.ProcessEnv; list?: (dir: string) => string[]; names?: Iterable<string> } = {}): string | null {
+export function plantedProgram(dir: string, opts: { platform?: NodeJS.Platform; env?: NodeJS.ProcessEnv; list?: (dir: string) => string[]; names?: Iterable<string>; exists?: (p: string) => boolean } = {}): string | null {
   if ((opts.platform ?? process.platform) !== 'win32') return null
   const env = opts.env ?? process.env
   const list = opts.list ?? topFiles
+  const exists = opts.exists ?? isFile
   const exts = new Set([...RUNNABLE_WINDOWS, ...ownPathExt(env)])
-  const named = new Set([...BY_NAME, ...[...(opts.names ?? [])].map((n) => n.toLowerCase())])
+  const named = new Set([...BY_NAME, ...[...(opts.names ?? [])].map((n) => winName(n))])
   let onPath: Set<string> | null = null
+  // PATH's folders are read once, and only for a file with such an extension
+  const program = (n: string) => {
+    const ext = win32.extname(n)
+    if (!ext || !exts.has(ext)) return false
+    const base = n.slice(0, -ext.length)
+    return named.has(base) || (onPath ??= programsOnPath(env, list)).has(base)
+  }
   for (const name of [...list(dir)].sort()) {
     const n = winName(name)
-    const ext = win32.extname(n)
-    if (!ext || !exts.has(ext)) continue
-    const base = n.slice(0, -ext.length)
-    // PATH's folders are read once, and only for a file with such an extension
-    if (named.has(base) || (onPath ??= programsOnPath(env, list)).has(base)) return name
+    if (program(n)) return name
+    // "gıt.exe": the disk answers whether a lookup of git.exe opens it
+    const ascii = foldsTo(n)
+    // (the folder is this computer's: joined by its own rules, as topFiles reads it)
+    if (ascii !== null && program(ascii) && exists(join(dir, ascii))) return name
   }
   return null
 }
@@ -532,12 +617,13 @@ export type Spawned = { ok: true; child: ChildProcess; via: Via; file: string } 
 const errCode = (e: unknown) => String((e as NodeJS.ErrnoException)?.code ?? (e instanceof Error ? e.name : 'error'))
 
 /**
- * A Windows child's environment: the program's own variables (a shim's NODE_PATH) on top, and — for the programs the
- * worker starts by itself, never the person's own commands (allow 'person') — NoDefaultCurrentDirectoryInExePath.
+ * A child's environment: the program's own variables (a shim's NODE_PATH) on top, and — for the programs the worker
+ * starts by itself, never the person's own commands (allow 'person') — PATH of absolute folders only, and on Windows
+ * NoDefaultCurrentDirectoryInExePath (ownEnv).
  */
-function childEnv(env: NodeJS.ProcessEnv, r: Extract<Resolved, { ok: true }>, allow: Allow): NodeJS.ProcessEnv {
+function childEnv(env: NodeJS.ProcessEnv, r: Extract<Resolved, { ok: true }>, allow: Allow, platform: NodeJS.Platform): NodeJS.ProcessEnv {
   const all = r.env ? { ...env, ...r.env } : env
-  return allow === 'person' ? all : noCwdLookup(all, 'win32')
+  return allow === 'person' ? all : ownEnv(all, platform)
 }
 
 /** Start a program (never throws). An ENOENT on macOS / Linux arrives later, as the child's 'error' event. */
@@ -555,7 +641,8 @@ export function spawnSafe(cmd: string, args: string[], opts: SpawnSafeOptions = 
       ...rest,
       // Windows: the folder a file inside it is named from (spawnForm) — and the worker's own programs never look there by name
       ...(win ? { cwd: c.cwd } : {}),
-      env: win ? childEnv(env, r, allow) : r.env ? { ...env, ...r.env } : rest.env,
+      // the worker's own programs: PATH absolute only (every OS), no lookup in the working folder (Windows)
+      env: childEnv(env, r, allow, c.platform),
       shell: false,
       // a caller's own verbatim line only for a program started as it is (the opener's `start ""`)
       windowsVerbatimArguments: r.verbatim || (r.via === 'direct' && !!rest.windowsVerbatimArguments),
@@ -668,7 +755,7 @@ export function execFileSyncSafe(cmd: string, args: string[], opts: { cwd?: stri
   try {
     const res = spawnSync(run.file, run.args, {
       cwd: win ? c.cwd : opts.cwd,
-      env: win ? childEnv(env, r, allow) : r.env ? { ...env, ...r.env } : opts.env,
+      env: childEnv(env, r, allow, c.platform),
       encoding: 'utf8',
       timeout: opts.timeoutMs,
       maxBuffer: opts.maxBuffer ?? 8 * 1024 * 1024,
@@ -712,7 +799,7 @@ export function killTree(child: ChildProcess, platform: NodeJS.Platform = proces
     child.once('close', finish)
     try {
       if (platform === 'win32') {
-        const k = spawn(systemTool('taskkill'), ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true, env: noCwdLookup(process.env, 'win32') })
+        const k = spawn(systemTool('taskkill'), ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true, env: ownEnv(process.env, 'win32') })
         k.on('error', () => {})
       } else process.kill(-pid, 'SIGTERM')
     } catch {

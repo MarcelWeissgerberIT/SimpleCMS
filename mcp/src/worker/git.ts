@@ -236,14 +236,20 @@ export async function fetchRemote(repo: RepoConfig): Promise<boolean> {
 /** What a task's preparation tells the log (`detail`: git's whole message behind a failure — for the hints, never One). */
 export type GitNote = (kind: 'git' | 'warn', text: string, code?: string, vars?: Record<string, string | number>, detail?: string) => void
 
-/** Fetch for a new task: a failure is noted and the task goes on from what this computer has. */
-export async function tryFetch(repo: RepoConfig, note?: GitNote): Promise<boolean> {
+/** How much of git's reason a failed fetch shows (cut after the scrubber). */
+export const FETCH_WHY_MAX = 300
+
+/**
+ * Fetch for a new task: a failure is noted and the task goes on from what this computer has. `scrub` takes this
+ * computer's paths out of git's reason BEFORE it is cut to FETCH_WHY_MAX (a path cut in two passes the scrubber).
+ */
+export async function tryFetch(repo: RepoConfig, note?: GitNote, scrub: (s: string) => string = (s) => s): Promise<boolean> {
   if (!(await hasRemote(repo))) return false
   note?.('git', `Fetching ${repo.remote}…`, 'fetching', { remote: repo.remote })
   try {
     return await fetchRemote(repo)
   } catch (e) {
-    const why = (e instanceof Error ? e.message : String(e)).replace(/\s+/g, ' ').trim().slice(0, 300)
+    const why = scrub((e instanceof Error ? e.message : String(e)).replace(/\s+/g, ' ').trim()).slice(0, FETCH_WHY_MAX)
     note?.('warn', `Could not fetch ${repo.remote} (${why}) — going on with what this computer has.`, 'fetchFailed', { remote: repo.remote, why }, e instanceof GitError ? e.detail : undefined)
     return false
   }
@@ -393,7 +399,7 @@ export interface TaskWorktree {
  * The worktree a task works in. `wanted` = the task's Branch field: reuse that branch (its worktree when
  * it has one) — it must exist, it is never reset. Without one: a new branch from the base in a new worktree.
  */
-export async function ensureWorktree(repo: RepoConfig, state: WorkerState, task: { id: string; title: string }, wanted: string | null, note?: GitNote): Promise<TaskWorktree> {
+export async function ensureWorktree(repo: RepoConfig, state: WorkerState, task: { id: string; title: string }, wanted: string | null, note?: GitNote, scrub?: (s: string) => string): Promise<TaskWorktree> {
   const top = await checkRepo(repo)
   const known = state.taskAt(task.id)
   const trees = await listWorktrees(repo)
@@ -402,10 +408,10 @@ export async function ensureWorktree(repo: RepoConfig, state: WorkerState, task:
     const tree = trees.find((w) => w.branch === known.branch && same(w.path, known.worktree))
     if (tree && existsSync(tree.path)) return { dir: tree.path, branch: known.branch, created: !!state.created(repo.name, known.branch)?.branchCreated }
   }
-  if (wanted) return reuse(repo, state, task, wanted, top, trees, note)
+  if (wanted) return reuse(repo, state, task, wanted, top, trees, note, scrub)
   // what a failed checkout left (Windows held a file): its folder and branch go first, so the task gets its own name again
   await sweepLeftovers(repo, state)
-  await tryFetch(repo, note)
+  await tryFetch(repo, note, scrub)
   const base = await baseRef(repo)
   const fork = (await gitOk(repo.path, ['rev-parse', `${base}^{commit}`])).trim()
   let branch = `${repo.branchPrefix}${slug(task.title)}-${shortId(task.id)}`
@@ -470,7 +476,7 @@ async function addWorktree(repo: RepoConfig, state: WorkerState, args: string[],
   }
 }
 
-async function reuse(repo: RepoConfig, state: WorkerState, task: { id: string }, branch: string, top: string, trees: Worktree[], note?: GitNote): Promise<TaskWorktree> {
+async function reuse(repo: RepoConfig, state: WorkerState, task: { id: string }, branch: string, top: string, trees: Worktree[], note?: GitNote, scrub?: (s: string) => string): Promise<TaskWorktree> {
   if (!(await validBranch(repo, branch))) throw new GitError(`"${branch}" is not a valid branch name`)
   const own = state.created(repo.name, branch)
   const tree = trees.find((w) => w.branch === branch)
@@ -487,7 +493,7 @@ async function reuse(repo: RepoConfig, state: WorkerState, task: { id: string },
   if (await branchExists(repo, branch)) {
     await addWorktree(repo, state, [dir, branch], dir, branch, null, note)
   } else {
-    await tryFetch(repo, note)
+    await tryFetch(repo, note, scrub)
     if (!(await remoteBranchExists(repo, branch))) throw new GitError(`the branch "${branch}" does not exist (locally or on ${repo.remote}) — check the task's Branch field`)
     await addWorktree(repo, state, ['--track', '-b', branch, dir, `${repo.remote}/${branch}`], dir, branch, branch, note)
   }

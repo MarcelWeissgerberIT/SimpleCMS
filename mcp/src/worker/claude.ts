@@ -12,9 +12,9 @@
  */
 import type { ChildProcess } from 'node:child_process'
 import { createInterface } from 'node:readline'
-import { readFileSync, realpathSync, statSync } from 'node:fs'
+import { readFileSync, readdirSync, realpathSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join, posix, win32 } from 'node:path'
+import { delimiter, isAbsolute, join, posix, resolve, win32 } from 'node:path'
 import { EDIT_CHARS, EDIT_HUNKS, type LogLine, type PermissionMode, type TaskProgress, type ToolEdit } from '../../../src/app/features/coding/protocol.ts'
 import { inFolder } from './config.ts'
 import { envGet, execFileSafe, isFile, killTree, programName, resolveCommand, spawnSafe, type ExecCtx, type Via } from './exec.ts'
@@ -224,9 +224,9 @@ export function readPlanFile(path: string, home = homedir()): string | null {
 }
 
 /** A JSON file's object (≤ 64 MB — Claude Code's own config grows with its history), null when it cannot be read. */
-function readJson(file: string): Record<string, unknown> | null {
+function readJson(file: string, max = 64 * 1024 * 1024): Record<string, unknown> | null {
   try {
-    if (statSync(file).size > 64 * 1024 * 1024) return null
+    if (statSync(file).size > max) return null
     const v = JSON.parse(readFileSync(file, 'utf8')) as unknown
     return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null
   } catch {
@@ -234,30 +234,125 @@ function readJson(file: string): Record<string, unknown> | null {
   }
 }
 
-/** The program each stdio server of an `mcpServers` object starts (its `command`). */
-function launchers(servers: unknown, env: NodeJS.ProcessEnv): string[] {
+/**
+ * The program each stdio server of an `mcpServers` object starts (its `command`). `bareOnly`: only a command given by its
+ * name (`npx`, `uvx`) — a plugin's own file (`${CLAUDE_PLUGIN_ROOT}/server.js`) is a path no lookup by name takes, and
+ * its base name (server, index, main) is an everyday file name in a repository.
+ */
+function launchers(servers: unknown, env: NodeJS.ProcessEnv, bareOnly = false): string[] {
   if (!servers || typeof servers !== 'object' || Array.isArray(servers)) return []
   const out: string[] = []
   for (const s of Object.values(servers as Record<string, unknown>)) {
     if (!s || typeof s !== 'object') continue
     const { type, command } = s as { type?: unknown; command?: unknown }
-    if ((type === undefined || type === 'stdio') && typeof command === 'string' && command.trim()) out.push(programName(command, env))
+    if ((type !== undefined && type !== 'stdio') || typeof command !== 'string' || !command.trim()) continue
+    if (bareOnly && /[\\/$%]/.test(command)) continue
+    out.push(programName(command, env))
+  }
+  return out
+}
+
+/** A server map as a file holds it: `{ "mcpServers": { … } }` or the map itself (a plugin's .mcp.json may be either). */
+const serverMap = (o: Record<string, unknown> | null): unknown => (o && o.mcpServers && typeof o.mcpServers === 'object' ? o.mcpServers : o)
+
+/** Plugin and organisation files are small: larger ones are not read. */
+const SMALL_JSON = 1024 * 1024
+/** At most this many installed plugins are looked at. */
+const PLUGINS_MAX = 200
+
+/**
+ * The folders Claude Code reads an organisation's files in (managed-mcp.json, managed-settings.json — its own fixed places,
+ * read from the installed CLI): Windows C:\Program Files\ClaudeCode (also under %ProgramFiles%, and %ProgramData%\ClaudeCode
+ * where older versions read them), macOS /Library/Application Support/ClaudeCode, Linux /etc/claude-code.
+ */
+export function managedDirs(platform: NodeJS.Platform = process.platform, env: NodeJS.ProcessEnv = process.env): string[] {
+  if (platform === 'darwin') return ['/Library/Application Support/ClaudeCode']
+  if (platform !== 'win32') return ['/etc/claude-code']
+  const dirs = ['C:\\Program Files\\ClaudeCode']
+  for (const key of ['ProgramFiles', 'ProgramData']) {
+    const v = envGet(env, key, 'win32')?.trim()
+    if (v && win32.isAbsolute(v)) dirs.push(win32.join(v, 'ClaudeCode'))
+  }
+  return [...new Map(dirs.map((d) => [d.toLowerCase(), d] as const)).values()]
+}
+
+/**
+ * The servers an organisation sets for Claude Code: managed-mcp.json (`mcpServers`) and `managedMcpServers` in
+ * managed-settings.json and its managed-settings.d/*.json drop-ins.
+ */
+function managedServers(dirs: string[]): unknown[] {
+  const out: unknown[] = []
+  for (const dir of dirs) {
+    out.push(serverMap(readJson(join(dir, 'managed-mcp.json'), SMALL_JSON)))
+    out.push(readJson(join(dir, 'managed-settings.json'), SMALL_JSON)?.managedMcpServers)
+    let drops: string[] = []
+    try {
+      drops = readdirSync(join(dir, 'managed-settings.d')).filter((f) => f.toLowerCase().endsWith('.json')).slice(0, 50)
+    } catch {
+      /* none */
+    }
+    for (const f of drops) out.push(readJson(join(dir, 'managed-settings.d', f), SMALL_JSON)?.managedMcpServers)
+  }
+  return out
+}
+
+/**
+ * The servers of the person's installed Claude Code plugins — every one installed (enabled or not: which are on is spread
+ * over several settings files; one more name only makes the check stricter): <plugins folder>/installed_plugins.json
+ * names each install's folder (`installPath`); a plugin's servers are its .mcp.json and the `mcpServers` of its
+ * .claude-plugin/plugin.json (an object, or files inside the plugin). The plugins folder: $CLAUDE_CODE_PLUGIN_CACHE_DIR, else
+ * <config folder>/plugins; also each folder of $CLAUDE_CODE_PLUGIN_SEED_DIR. And each plugin folder named in
+ * $CLAUDE_CODE_PLUGIN_DIRS (loaded like --plugin-dir — the worker itself passes no --plugin-dir).
+ */
+function pluginServers(configDir: string, env: NodeJS.ProcessEnv, platform: NodeJS.Platform): unknown[] {
+  const list = (key: string) => (envGet(env, key, platform) ?? '').split(delimiter).map((d) => d.trim()).filter(Boolean)
+  const cache = envGet(env, 'CLAUDE_CODE_PLUGIN_CACHE_DIR', platform)?.trim()
+  const seeds = list('CLAUDE_CODE_PLUGIN_SEED_DIR')
+  const roots: string[] = list('CLAUDE_CODE_PLUGIN_DIRS').filter((d) => isAbsolute(d)).slice(0, PLUGINS_MAX)
+  for (const dir of [cache || join(configDir, 'plugins'), ...seeds]) {
+    const plugins = readJson(join(dir, 'installed_plugins.json'), 16 * SMALL_JSON)?.plugins
+    if (!plugins || typeof plugins !== 'object') continue
+    for (const installs of Object.values(plugins as Record<string, unknown>))
+      for (const one of Array.isArray(installs) ? installs : [installs]) {
+        const at = (one as { installPath?: unknown } | null)?.installPath
+        if (typeof at === 'string' && isAbsolute(at) && roots.length < PLUGINS_MAX) roots.push(at)
+      }
+  }
+  const out: unknown[] = []
+  for (const root of new Set(roots)) {
+    out.push(serverMap(readJson(join(root, '.mcp.json'), SMALL_JSON)))
+    const declared = readJson(join(root, '.claude-plugin', 'plugin.json'), SMALL_JSON)?.mcpServers
+    if (declared && typeof declared === 'object' && !Array.isArray(declared)) out.push(declared)
+    for (const rel of typeof declared === 'string' ? [declared] : Array.isArray(declared) ? declared.slice(0, 20) : []) {
+      if (typeof rel !== 'string') continue
+      const file = resolve(root, rel)
+      if (inFolder(file, root)) out.push(serverMap(readJson(file, SMALL_JSON)))
+    }
   }
   return out
 }
 
 /**
  * The programs the person's MCP servers start Claude Code with — base names, lower case (`uvx`, `docker`, `my-tool`):
- * user scope from Claude Code's config ($CLAUDE_CONFIG_DIR/.claude.json, else ~/.claude.json) and, while the repo's own
- * settings load (`projectSettings`), the local scope of the stage's folder and the repo (`projects[<folder>]`) and
- * the folder's .mcp.json. A file that cannot be read adds none (plantedProgram still checks PATH and its own list).
+ *  - user scope from Claude Code's config ($CLAUDE_CONFIG_DIR/.claude.json, else ~/.claude.json)
+ *  - the organisation's (managed-mcp.json, managedMcpServers — managedDirs) and the installed plugins' (pluginServers;
+ *    their commands by name only)
+ *  - while the repo's own settings load (`projectSettings`), the local scope of the stage's folder and the repo
+ *    (`projects[<folder>]`) and the folder's .mcp.json.
+ * A file that cannot be read adds none (plantedProgram still checks PATH and its own list). Not read: a plugin folder
+ * given only on Claude Code's command line (the worker passes none) and servers Claude Desktop or claude.ai hand over
+ * (no program on this computer starts them by name).
  */
-export function mcpLaunchers(opts: { dirs: string[]; projectSettings: boolean; home?: string; env?: NodeJS.ProcessEnv; platform?: NodeJS.Platform }): string[] {
+export function mcpLaunchers(opts: { dirs: string[]; projectSettings: boolean; home?: string; env?: NodeJS.ProcessEnv; platform?: NodeJS.Platform; managed?: string[] }): string[] {
   const env = opts.env ?? process.env
   // the files are this computer's (its own path rules), whatever rules `platform` asks about
-  const dir = envGet(env, 'CLAUDE_CONFIG_DIR', opts.platform ?? process.platform)?.trim()
-  const config = readJson(dir ? join(dir, '.claude.json') : join(opts.home ?? homedir(), '.claude.json'))
+  const platform = opts.platform ?? process.platform
+  const dir = envGet(env, 'CLAUDE_CONFIG_DIR', platform)?.trim()
+  const home = opts.home ?? homedir()
+  const config = readJson(dir ? join(dir, '.claude.json') : join(home, '.claude.json'))
   const names = new Set(launchers(config?.mcpServers, env))
+  for (const servers of managedServers(opts.managed ?? managedDirs(process.platform, env))) for (const n of launchers(servers, env)) names.add(n)
+  for (const servers of pluginServers(dir || join(home, '.claude'), env, platform)) for (const n of launchers(servers, env, true)) names.add(n)
   if (opts.projectSettings) {
     const projects = config?.projects && typeof config.projects === 'object' ? (config.projects as Record<string, unknown>) : {}
     for (const [key, p] of Object.entries(projects))
@@ -285,7 +380,12 @@ export function claudeArgs(r: Omit<ClaudeRun, 'bin' | 'cwd' | 'prompt' | 'env' |
 
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s)
 /** Claude Code's stderr kept for an error (its tail) */
-const STDERR_KEEP = 8000
+export const STDERR_KEEP = 8000
+/** What follows the first line break of a text whose beginning was cut off ('' when there is none: all of it is that one cut line). */
+export const afterFirstBreak = (s: string): string => {
+  const at = s.search(/[\r\n]/)
+  return at < 0 ? '' : s.slice(at + 1)
+}
 const oneLine = (s: string) => s.replace(/\s+/g, ' ').trim()
 
 const same = (s: string) => s
@@ -340,6 +440,8 @@ export function runClaude(r: ClaudeRun): Promise<ClaudeResult> {
     }
     const child: ChildProcess = spawned.child
     let stderr = ''
+    // the kept stderr lost its beginning (it is only the last STDERR_KEEP characters)
+    let stderrCut = false
     let gotResult = false
     const scrub = r.scrub ?? same
     const log = (k: LogLine['k'], s: string, c?: string, v?: LogLine['v']) => r.onLog({ t: Date.now(), k, s, ...(c ? { c, v } : {}) })
@@ -375,8 +477,11 @@ export function runClaude(r: ClaudeRun): Promise<ClaudeResult> {
     })
     child.stdin?.on('error', () => {})
     child.stdin?.end(r.prompt)
-    child.stderr?.on('data', (d: Buffer) => {
-      stderr = (stderr + d.toString()).slice(-STDERR_KEEP)
+    child.stderr?.setEncoding('utf8')
+    child.stderr?.on('data', (d: string) => {
+      const all = stderr + d
+      if (all.length > STDERR_KEEP) stderrCut = true
+      stderr = all.slice(-STDERR_KEEP)
     })
     const lines = createInterface({ input: child.stdout! })
     lines.on('line', (line) => {
@@ -457,8 +562,9 @@ export function runClaude(r: ClaudeRun): Promise<ClaudeResult> {
       if (r.mode === 'plan' && !result.plan && planFile) result.plan = readPlanFile(planFile)
       if (!gotResult && !result.stopped) {
         result.ok = false
-        // the kept tail starts at a line (a cut line is dropped), scrubbed before it is clipped
-        const tail = scrub(stderr.length >= STDERR_KEEP ? stderr.slice(stderr.indexOf('\n') + 1) : stderr).trim()
+        // the kept tail starts at a line: the line the cut went through is dropped — all of it when no line break follows
+        // (a path cut in two would pass the scrubber in halves) — then scrubbed, then clipped
+        const tail = scrub(stderrCut ? afterFirstBreak(stderr) : stderr).trim()
         result.error = code === null ? 'Claude Code was ended' : `Claude Code exited with code ${code}${tail ? `: ${clip(oneLine(tail.split('\n').slice(-3).join(' ')), 400)}` : ''}`
         if (/ENOENT|not found/i.test(stderr)) result.error = claudeMissingError('not-found')
         else if (SIGNED_OUT.test(stderr)) {

@@ -53,6 +53,8 @@ export class OutputLines {
   private out = ''
   private partial: Record<'out' | 'err', string> = { out: '', err: '' }
   private skipping: Record<'out' | 'err', number | null> = { out: null, err: null }
+  /** the last piece ended with a bare "\r" (its line is done): a "\n" first in the next piece is its other half */
+  private cr: Record<'out' | 'err', boolean> = { out: false, err: false }
 
   private readonly scrub: (s: string) => string
   private readonly onLine?: (s: string) => void
@@ -64,9 +66,16 @@ export class OutputLines {
     this.max = max
   }
 
-  /** A piece of a stream's text (decoded). */
+  /**
+   * A piece of a stream's text (decoded). A "\r" at a piece's end ends its line at once (bare or the first half of
+   * "\r\n": either way a break) — a "\n" starting the next piece is then its other half, not an empty line.
+   */
   add(which: 'out' | 'err', text: string): void {
     let rest = text
+    if (this.cr[which]) {
+      this.cr[which] = false
+      if (rest.startsWith('\n')) rest = rest.slice(1)
+    }
     if (this.skipping[which] !== null) {
       const at = rest.search(BREAK)
       const dropped = this.skipping[which] ?? 0
@@ -75,24 +84,27 @@ export class OutputLines {
         return
       }
       this.endLong(which, dropped + at)
-      rest = rest.slice(at + (rest.startsWith('\r\n', at) ? 2 : 1))
+      const two = rest.startsWith('\r\n', at)
+      if (!two && rest[at] === '\r' && at === rest.length - 1) this.cr[which] = true
+      rest = rest.slice(at + (two ? 2 : 1))
     }
     let buf = this.partial[which] + rest
-    // a "\r" at the end may be the first half of "\r\n": it waits for the next piece
-    const held = buf.endsWith('\r') ? '\r' : ''
-    if (held) buf = buf.slice(0, -1)
+    // a "\r" at the end ends the line before it now (the next piece's "\n" belongs to it: cr)
+    const ended = buf.endsWith('\r')
+    if (ended) {
+      buf = buf.slice(0, -1)
+      this.cr[which] = true
+    }
     const lines = buf.split(BREAK)
-    let last = lines.pop() ?? ''
+    const last = ended ? '' : (lines.pop() ?? '')
     for (const l of lines) this.whole(l)
     if (last.length > LONG_LINE) {
-      const head = last.slice(0, LONG_LINE)
-      this.long(head)
-      this.skipping[which] = last.length - LONG_LINE + held.length
-      last = ''
+      this.long(last.slice(0, LONG_LINE))
+      this.skipping[which] = last.length - LONG_LINE
       this.partial[which] = ''
       return
     }
-    this.partial[which] = last + held
+    this.partial[which] = last
   }
 
   /** The stream ended: what is left of it is a line. */
@@ -100,8 +112,9 @@ export class OutputLines {
     for (const which of ['out', 'err'] as const) {
       const dropped = this.skipping[which]
       if (dropped !== null) this.endLong(which, dropped)
-      const rest = this.partial[which].replace(/\r$/, '')
+      const rest = this.partial[which]
       this.partial[which] = ''
+      this.cr[which] = false
       if (rest) this.whole(rest)
     }
   }

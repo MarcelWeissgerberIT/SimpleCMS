@@ -66,7 +66,9 @@ test('a worker older than 1.9.0 is flagged only on Windows over a Local link —
   for (const v of ['1.8.1', '1.8.0', '1.1.0', '0.9.0', 'v1.8.1', ' 1.8.1 ', '1.8', '1.9.0-rc.1', '1.8.1+build.7', '1.8.99']) expect(workerOldOnWindows(v, 'local', 'windows'), v).toBe(true)
   for (const v of ['1.9.0', '1.9.1', '1.10.0', '2.0.0', '1.9.0+build.2', 'v1.9']) expect(workerOldOnWindows(v, 'local', 'windows'), v).toBe(false)
   for (const v of [null, undefined, '', 'dev', 'garbage', '1.x.0', '1'.repeat(65)]) expect(workerOldOnWindows(v, 'local', 'windows'), String(v)).toBe(false)
-  // macOS · Linux never searched the working folder; a cloud worker runs on another computer whose system One does not know
+  // macOS · Linux search the working folder only through an empty or relative PATH entry (the person's own setup; 1.9.0
+  // drops those for the programs it starts itself) — no notice there; a cloud worker runs on another computer whose
+  // system One does not know
   expect(workerOldOnWindows('1.8.1', 'local', 'posix')).toBe(false)
   expect(workerOldOnWindows('1.8.1', 'cloud', 'windows')).toBe(false)
   expect(workerOldOnWindows('1.1.0', 'cloud', 'posix')).toBe(false)

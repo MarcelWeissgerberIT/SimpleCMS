@@ -135,9 +135,16 @@ export function cloneHint(stderr: string): string {
 }
 
 export interface CloneProgress {
+  /**
+   * git's last whole progress line (each ends with "\r" or "\n") — never cut here: whoever sends it on scrubs it first,
+   * then cuts it (a path cut in two would pass the scrubber in halves)
+   */
   line: string
   percent: number | null
 }
+
+/** A progress line longer than this without a break is never one (its rest up to the next break is dropped). */
+const PROGRESS_LINE_MAX = 16 * 1024
 
 /**
  * Clone into `<base>/<name>`. A folder that is already there: fine when it is a clone of the same address
@@ -174,16 +181,30 @@ export async function cloneInto(target: CloneUrl, base: string, onProgress: (p: 
     const child = s.child
     let err = ''
     let timedOut = false
+    // the line still coming (no break yet) · a line too long to be progress: dropped up to its break
+    let partial = ''
+    let dropping = false
     const timer = setTimeout(() => {
       timedOut = true
       // the whole tree (Windows: ssh / git-remote-https under git too): close follows once it is gone
       void killTree(child)
     }, timeoutMs)
-    child.stderr!.on('data', (d: Buffer) => {
-      const text = d.toString()
+    child.stderr!.setEncoding('utf8')
+    child.stderr!.on('data', (text: string) => {
       err = (err + text).slice(-64 * 1024)
-      const line = text.split(/[\r\n]+/).map((l) => l.trim()).filter(Boolean).pop()
-      if (line) onProgress({ line: line.slice(0, 200), percent: /(\d{1,3})%/.test(line) ? Number(/(\d{1,3})%/.exec(line)![1]) : null })
+      // whole lines only: a line split between two pieces would reach the scrubber in halves
+      const parts = (partial + text).split(/[\r\n]+/)
+      partial = parts.pop() ?? ''
+      if (dropping && parts.length) {
+        parts.shift()
+        dropping = false
+      }
+      if (partial.length > PROGRESS_LINE_MAX) {
+        partial = ''
+        dropping = true
+      }
+      const line = parts.map((l) => l.trim()).filter(Boolean).pop()
+      if (line) onProgress({ line, percent: /(\d{1,3})%/.test(line) ? Number(/(\d{1,3})%/.exec(line)![1]) : null })
     })
     child.on('error', (e) => {
       clearTimeout(timer)

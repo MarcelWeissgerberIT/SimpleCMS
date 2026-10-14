@@ -12,9 +12,11 @@
  *    writing another code page leaves it: U+FFFD for each lost byte, "?", or its UTF-8 read as Latin-1 ("JÃ¼rgen"), as
  *    Windows-1252 ("WeiÃŸ") or as the console's OEM code page 437 / 850 ("J├╢rg")
  *  - only as a whole name: a rule ends where a name ends (C:\w is not C:\Windows, /home/me not /home/me2, an encoded
- *    Max%20Muster is not Max); on macOS / Linux it starts where no name goes on before it (/var/tmp is not /tmp,
- *    me%2Fhome is the folder "home" inside "me" — an escape before it is no name: "\n/home" in JSON), and the encoded
- *    and JSON-escaped forms ("%2Fhome", "\/home") go only to paths of two or more names (a lone "%2Ftmp" is too often
+ *    Max%20Muster is not Max). On macOS / Linux a path of two or more names written plainly is replaced wherever it
+ *    starts, also right after a letter (g++ -I/home/me/inc, -isystem/home/me/sdk, vscode://file/home/me/a.ts); a
+ *    one-name path (/tmp) and the encoded / JSON-escaped forms ("%2Fhome", "\/home") only where no name goes on before
+ *    them (/var/tmp is not /tmp, me%2Fhome is the folder "home" inside "me" — an escape before it is no name: "\n/home"
+ *    in JSON); the encoded and JSON-escaped forms go only to paths of two or more names (a lone "%2Ftmp" is too often
  *    part of another name)
  *  - and every path also as the disk resolves it (realpath, Node's and the system's: macOS /var → /private/var, /tmp →
  *    /private/tmp, a home folder behind a link), on every OS
@@ -124,9 +126,11 @@ function nameSource(name: string): string {
 const END = '(?![\\p{L}\\p{N}_-]|\\.[\\p{L}\\p{N}_-]|%20|%[89A-Fa-f][0-9A-Fa-f])'
 
 /**
- * Before a macOS / Linux path's root: no name going on — no letter, digit, "_", "-", "." or "~" right before it (/var/tmp
- * is not /tmp, ./tmp and ~/tmp are other folders, me%2Ftmp is "tmp" inside "me"), unless that character ends an escape
- * itself (%3A%2F…, a JSON "\n/home" or "\n\/home").
+ * Before a macOS / Linux root that could be part of another name — a one-name path's "/" (/var/tmp is not /tmp, ./tmp and
+ * ~/tmp are other folders) or an encoded / JSON-escaped first separator (me%2Fhome is "home" inside "me"): no name going
+ * on — no letter, digit, "_", "-", "." or "~" right before it, unless that character ends an escape itself (%3A%2F…, a
+ * JSON "\n/home" or "\n\/home"). A plain "/" of a path of two or more names needs none: what goes on before it is
+ * a flag or a scheme far more often than a folder (-I/home/me/inc, vscode://file/home/me) — and the path is the same.
  */
 const START = '(?<!(?<!%[0-9A-Fa-f]|\\\\)[\\p{L}\\p{N}_.~-])'
 
@@ -137,15 +141,16 @@ const POSIX_ONE = '(?:\\\\?/|%2[Ff])'
 const POSIX_SEP = `${POSIX_ONE}+`
 
 /**
- * The root's one "/" first (file:///home/… keeps its "file://"), then the names — only where no name goes on before the
- * root (START). Encoded and JSON-escaped separators only for a path of two or more names: "%2Ftmp" or "\/tmp" alone is
- * too often part of something else (a regex /^\/tmp/) — the plain "/tmp" is replaced as always.
+ * The root's one "/" first (file:///home/… keeps its "file://"), then the names. A path of two or more names: its plain
+ * "/" wherever it is (also right after a letter: -I/home/me/inc), its encoded or JSON-escaped first separator only where
+ * no name goes on before it (START). A one-name path only plainly and only after START: "%2Ftmp" or "\/tmp" alone is too
+ * often part of something else (a regex /^\/tmp/), and /var/tmp is not /tmp.
  */
 function posixSource(p: string): string | null {
   const names = p.split('/').filter(Boolean)
   if (!p.startsWith('/') || !names.length) return null
   if (names.length === 1) return `${START}/${nameSource(names[0]!)}${END}`
-  return `${START}${POSIX_ONE}${names.map(nameSource).join(POSIX_SEP)}${END}`
+  return `(?:/|${START}(?:\\\\/|%2[Ff]))${names.map(nameSource).join(POSIX_SEP)}${END}`
 }
 
 /* ------------------------------------------------------------------ Windows */

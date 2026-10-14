@@ -7,12 +7,12 @@
  */
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { delimiter, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { after, describe, test } from 'node:test'
-import { BY_NAME, cmdLine, commandName, envGet, execFileSafe, execFileSyncSafe, fromCwd, killTree, noCwdLookup, pathKey, plantedProgram, programName, programsOnPath, readShim, resolveCommand, spawnForm, spawnSafe, systemTool, type Allow, type ExecCtx, type Resolved } from '../src/worker/exec.ts'
+import { BY_NAME, cmdLine, commandName, envGet, execFileSafe, execFileSyncSafe, fromCwd, inSystemRoot, isFile, killTree, noCwdLookup, ownEnv, pathAbsolute, pathKey, plantedProgram, programName, programsOnPath, readShim, resolveCommand, spawnForm, spawnSafe, systemRoots, systemTool, type Allow, type ExecCtx, type Resolved } from '../src/worker/exec.ts'
 import { pathId, samePath } from '../src/worker/paths.ts'
 import { detectClaude, gitBash } from '../src/worker/claude.ts'
 import { runAnalysis, runTests } from '../src/worker/testrun.ts'
@@ -486,22 +486,24 @@ describe('exec — a child never looks in its working folder, and that folder ne
       return d === String.raw`C:\repo` ? top : (pathFolders[d.toLowerCase()] ?? [])
     }
     const env = { Path: String.raw`C:\Windows\System32;C:\Tools\;relative;C:\tools` }
-    // tree.com is in System32: a top-level tree.js would be taken by name
-    assert.equal(plantedProgram(String.raw`C:\repo`, { platform: 'win32', env: { Path: String.raw`C:\Windows\System32` }, list }), 'tree.js')
+    // tree.com is in System32 — Windows' own folders do not count (Fix3 N5): a top-level tree.js stays allowed
+    assert.equal(plantedProgram(String.raw`C:\repo`, { platform: 'win32', env: { Path: String.raw`C:\Windows\System32` }, list }), null)
     reads.length = 0
     // C:\tools has build.exe now: build.cmd would be taken
     assert.equal(plantedProgram(String.raw`C:\repo`, { platform: 'win32', env, list: (d) => (d === String.raw`C:\repo` ? ['gradlew.bat', 'build.cmd', 'mvnw.cmd'] : list(d)) }), 'build.cmd')
-    // C:\Tools\ and C:\tools are one folder: read once; a relative entry never
-    assert.deepEqual(reads.map((d) => d.toLowerCase()).sort(), [String.raw`c:\tools`, String.raw`c:\windows\system32`])
+    // C:\Tools\ and C:\tools are one folder: read once; a relative entry never, Windows' own folders never
+    assert.deepEqual(reads.map((d) => d.toLowerCase()).sort(), [String.raw`c:\tools`])
     // nothing on PATH named so: the build scripts stay allowed
     assert.equal(plantedProgram(String.raw`C:\repo`, { platform: 'win32', env: {}, list: (d) => (d === String.raw`C:\repo` ? ['gradlew.bat', 'build.cmd', 'mvnw.cmd'] : []) }), null)
     // PATH's folders are read only for a file with a runnable extension
     reads.length = 0
     assert.equal(plantedProgram(String.raw`C:\repo`, { platform: 'win32', env, list: (d) => (d === String.raw`C:\repo` ? ['notes.txt', 'README.md'] : list(d)) }), null)
     assert.deepEqual(reads, [])
-    // the programs on PATH (PATHEXT of the env, else Windows' own)
-    assert.deepEqual([...programsOnPath(env, (d) => pathFolders[d.toLowerCase()] ?? [])].sort(), ['build', 'cmd', 'find', 'tree'])
-    assert.deepEqual([...programsOnPath({ ...env, PATHEXT: '.EXE' }, (d) => pathFolders[d.toLowerCase()] ?? [])].sort(), ['build', 'cmd', 'find'])
+    // the programs on PATH (PATHEXT of the env, else Windows' own) — outside Windows' own folders
+    assert.deepEqual([...programsOnPath(env, (d) => pathFolders[d.toLowerCase()] ?? [])].sort(), ['build'])
+    const tools: Record<string, string[]> = { [String.raw`c:\tools`]: ['Build.EXE', 'tree.com', 'readme.md'] }
+    assert.deepEqual([...programsOnPath({ ...env, PATHEXT: '.EXE' }, (d) => tools[d.toLowerCase()] ?? [])].sort(), ['build'])
+    assert.deepEqual([...programsOnPath(env, (d) => tools[d.toLowerCase()] ?? [])].sort(), ['build', 'tree'])
     // a launcher's program name: folder, quotes and a runnable extension off
     assert.equal(programName(String.raw`"C:\Program Files\Docker\docker.exe"`), 'docker')
     assert.equal(programName('uvx'), 'uvx')
@@ -874,3 +876,111 @@ describe('exec — source guard', () => {
   })
 })
 
+
+/* ------------------------------------------------------------------ Fix3 */
+
+describe('Fix3: PATH of absolute folders for the worker\'s own programs (every OS); Windows\' own folders and the disk\'s case table in plantedProgram', () => {
+  test('pathAbsolute: an empty entry, "." and a relative folder dropped (Windows: every spelling of the key, quoted folders kept); nothing left → no PATH; all absolute → the same object', () => {
+    assert.deepEqual(pathAbsolute({ PATH: ':/usr/bin:.:bin:/opt/x::', HOME: '/h' }, 'linux'), { PATH: '/usr/bin:/opt/x', HOME: '/h' })
+    assert.deepEqual(pathAbsolute({ PATH: '/usr/bin:./node_modules/.bin' }, 'darwin'), { PATH: '/usr/bin' })
+    const clean = { PATH: '/usr/bin:/bin' }
+    assert.equal(pathAbsolute(clean, 'linux'), clean)
+    assert.deepEqual(pathAbsolute({ PATH: ':.', X: '1' }, 'linux'), { X: '1' })
+    // macOS / Linux: only "PATH" is PATH
+    assert.deepEqual(pathAbsolute({ Path: ':.' }, 'linux'), { Path: ':.' })
+    const win = pathAbsolute({ Path: String.raw`;C:\Git\cmd;.;tools;"C:\Program Files\x";\\srv\share\bin;%USERPROFILE%\bin;\rooted`, PATH: '.;D:\\y' }, 'win32')
+    assert.deepEqual(win, { Path: String.raw`C:\Git\cmd;"C:\Program Files\x";\\srv\share\bin`, PATH: 'D:\\y' })
+    const before = { PATH: ':/usr/bin' }
+    pathAbsolute(before, 'linux')
+    assert.deepEqual(before, { PATH: ':/usr/bin' }, 'the caller\'s object stays as it was')
+    assert.deepEqual(ownEnv({ Path: String.raw`.;C:\t` }, 'win32'), { Path: String.raw`C:\t`, NoDefaultCurrentDirectoryInExePath: '1' })
+    assert.deepEqual(ownEnv({ PATH: '.:/usr/bin' }, 'linux'), { PATH: '/usr/bin' })
+  })
+
+  test('macOS / Linux: PATH=":"+PATH and an executable git in the working folder — git, a program the worker starts and what IT starts by name all take the real git; the person\'s own command keeps PATH as it is', { skip: process.platform === 'win32' && 'Windows resolves every name itself, PATH only (see above) — the relative-entry case is the pure test' }, async () => {
+    const dir = tempDir('planted-path')
+    writeFileSync(join(dir, 'git'), '#!/bin/sh\necho PLANTED-GIT\n')
+    chmodSync(join(dir, 'git'), 0o755)
+    const env: NodeJS.ProcessEnv = { ...process.env, PATH: `${delimiter}${process.env.PATH}` }
+    const real = /^git version /
+    // git (allow 'exe'), all three ways in
+    const a = await execFileSafe('git', ['--version'], { cwd: dir, env, timeoutMs: 20_000, allow: 'exe' })
+    assert.match(a.stdout, real, a.stdout)
+    const b = execFileSyncSafe('git', ['--version'], { cwd: dir, env, timeoutMs: 20_000, allow: 'exe' })
+    assert.match(b.stdout, real, b.stdout)
+    const s = spawnSafe('git', ['--version'], { cwd: dir, env, stdio: ['ignore', 'pipe', 'ignore'], allow: 'exe' })
+    assert.ok(s.ok)
+    let out = ''
+    s.child.stdout!.on('data', (d: Buffer) => (out += d.toString()))
+    await new Promise((r) => s.child.on('close', r))
+    assert.match(out, real, out)
+    // a program the worker starts by itself (Claude Code, gh, glab: allow 'shim') — and the git IT starts by name
+    const inner = await execFileSafe('sh', ['-c', 'printf "%s|" "$PATH"; git --version'], { cwd: dir, env, timeoutMs: 20_000, allow: 'shim' })
+    assert.match(inner.stdout, /\|git version /, inner.stdout)
+    assert.ok(!inner.stdout.split('|')[0]!.split(':').some((d) => !d.startsWith('/')), inner.stdout)
+    // the person's own command (allow 'person'): PATH exactly as given
+    const person = await execFileSafe('sh', ['-c', 'printf "%s" "$PATH"'], { cwd: dir, env, timeoutMs: 20_000, allow: 'person' })
+    assert.equal(person.stdout, env.PATH)
+    const tested = await runTests({ testCommand: ['sh', '-c', 'printf "%s" "$PATH"'], testTimeoutSec: 20 } as unknown as RepoConfig, dir, new AbortController().signal)
+    assert.equal(tested.output, process.env.PATH, 'the test stage: the worker\'s own environment, as it is')
+  })
+
+  test('plantedProgram rule (a): PATH folders under %SystemRoot% / %windir% (C:\\Windows when neither is set) do not count — find.js, sort.js, format.js, route.js, a Python convert.py stay allowed; BY_NAME (cmd, where, ssh …) and other folders still count', () => {
+    const disk: Record<string, string[]> = {
+      [String.raw`c:\windows\system32`]: ['find.exe', 'sort.exe', 'format.com', 'route.exe', 'convert.exe', 'tree.com', 'help.exe', 'where.exe', 'cmd.exe', 'taskkill.exe'],
+      [String.raw`c:\windows`]: ['notepad.exe', 'write.exe'],
+      [String.raw`c:\windows\system32\openssh`]: ['ssh.exe', 'scp.exe'],
+      [String.raw`d:\win\system32`]: ['find.exe'],
+      [String.raw`c:\users\max\appdata\roaming\npm`]: ['ng.cmd', 'tsc.cmd'],
+      [String.raw`c:\program files\dotnet`]: ['dotnet.exe'],
+    }
+    const top = (files: string[]) => (d: string) => (d === String.raw`C:\repo` ? files : (disk[d.toLowerCase().replace(/\\+$/, '')] ?? []))
+    const Path = ['C:\\WINDOWS\\system32\\', String.raw`C:\Windows`, String.raw`C:/Windows/System32/OpenSSH`, String.raw`C:\Users\max\AppData\Roaming\npm`, String.raw`C:\Program Files\dotnet`].join(';')
+    const at = (files: string[], env: NodeJS.ProcessEnv) => plantedProgram(String.raw`C:\repo`, { platform: 'win32', env, list: top(files), exists: () => false })
+    const PATHEXT = '.COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC;.PY;.PYW'
+    for (const env of [{ Path, PATHEXT, SystemRoot: String.raw`C:\Windows` }, { Path, PATHEXT, windir: String.raw`c:\windows` }, { Path, PATHEXT }]) {
+      // the flat Node library, color-convert, a Python project with .PY in PATHEXT, notepad.js / write.js beside C:\Windows'
+      for (const files of [['index.js', 'find.js', 'format.js', 'sort.js'], ['route.js', 'conversions.js'], ['convert.py', 'tree.py', 'help.py'], ['notepad.js', 'write.vbs'], ['scp.js']]) assert.equal(at(files, env), null, `${files.join(' ')} ${JSON.stringify(env).slice(0, 80)}`)
+      // still refused: BY_NAME (cmd, where, taskkill, ssh, node, dotnet), a program on PATH outside Windows' folders (ng)
+      for (const f of ['cmd.js', 'where.bat', 'taskkill.cmd', 'ssh.exe', 'node.js', 'dotnet.cmd', 'ng.js']) assert.equal(at([f], env), f, f)
+    }
+    // another Windows folder (D:\Win): its own System32 is Windows', C:\Windows is not special then
+    assert.equal(at(['find.js'], { Path: String.raw`D:\Win\System32`, SystemRoot: String.raw`D:\Win` }), null)
+    assert.equal(at(['find.js'], { Path: String.raw`D:\Win\System32` }), 'find.js')
+    // inside, never beside
+    assert.equal(inSystemRoot(String.raw`C:\Windows.old\System32`, {}), false)
+    assert.equal(inSystemRoot(String.raw`C:\Windows\..\Tools`, {}), false)
+    assert.equal(inSystemRoot('c:\\windows\\SysWOW64\\', {}), true)
+    assert.deepEqual(systemRoots({ SystemRoot: 'C:\\Windows\\', windir: String.raw`C:\WINDOWS` }), [String.raw`c:\windows`])
+    assert.deepEqual(systemRoots({ SystemRoot: '%x%' }), [String.raw`c:\windows`])
+  })
+
+  test('plantedProgram: ı, ſ and the Kelvin sign count as the disk\'s own case table has it — asked of the disk, never folded by guess', () => {
+    const at = (files: string[], exists: (p: string) => boolean) => plantedProgram(String.raw`C:\repo`, { platform: 'win32', env: {}, list: (d) => (d === String.raw`C:\repo` ? files : []), exists })
+    // a disk that folds them (its lookup of git.exe opens gıt.exe) — and one that does not
+    const asked: string[] = []
+    const folding = (p: string) => (asked.push(p.replace(/^.*[\\/]/, '')), true)
+    // docker.ſh: ".sh" is no extension a lookup runs · kubectl: no program the check knows here
+    for (const f of ['gıt.exe', 'ſsh.exe', 'docker.ſh', 'node.jſ', '\u212aubectl.cmd']) {
+      const want = f === 'docker.ſh' || f === '\u212aubectl.cmd' ? null : f
+      assert.equal(at([f], folding), want, f)
+    }
+    assert.deepEqual(asked, ['git.exe', 'ssh.exe', 'node.js'], 'only the ASCII name it may fold to is asked for — a name that is no program is never asked')
+    for (const f of ['gıt.exe', 'ſsh.exe', 'node.jſ']) assert.equal(at([f], () => false), null, f)
+    // the Kelvin sign is not folded by JavaScript's lower case any more: "\u212aubectl" is no "kubectl" until the disk says so
+    assert.equal(plantedProgram(String.raw`C:\repo`, { platform: 'win32', env: {}, list: (d) => (d === String.raw`C:\repo` ? ['\u212aube.exe'] : []), names: ['kube'], exists: () => false }), null)
+    assert.equal(plantedProgram(String.raw`C:\repo`, { platform: 'win32', env: {}, list: (d) => (d === String.raw`C:\repo` ? ['\u212aube.exe'] : []), names: ['kube'], exists: () => true }), '\u212aube.exe')
+  })
+
+  test('plantedProgram on this disk: "gıt.exe" / "ſsh.exe" at the top of a folder count exactly when the disk opens them as git.exe / ssh.exe (NTFS on the Windows runner — documented here)', (t) => {
+    for (const [file, ascii] of [['gıt.exe', 'git.exe'], ['ſsh.exe', 'ssh.exe'], ['\u212aubectl.exe', 'kubectl.exe']] as const) {
+      const dir = tempDir('fold')
+      writeFileSync(join(dir, file), 'MZ')
+      const folds = isFile(join(dir, ascii))
+      t.diagnostic(`${process.platform}: ${file} ${folds ? 'opens' : 'does not open'} as ${ascii}`)
+      // kubectl is no program the check knows here (not BY_NAME, no PATH given): never counted
+      const want = folds && ascii !== 'kubectl.exe' ? file : null
+      assert.equal(plantedProgram(dir, { platform: 'win32', env: {} }), want, `${file} (the disk folds: ${folds})`)
+    }
+  })
+})
