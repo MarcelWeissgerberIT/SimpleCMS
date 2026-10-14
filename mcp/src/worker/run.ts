@@ -165,8 +165,8 @@ function claudeMissing(caps: ClaudeCaps, log: Log): string {
 /** A synced folder's warning, by its kind (iCloud Drive · ~/Library/CloudStorage · OneDrive). */
 const SYNCED: Record<Synced, (repo: string) => string> = {
   icloud: (repo) => `${repo} lies in iCloud Drive: git waits whenever a file is only in the cloud, so steps can take minutes. Faster: keep the folder downloaded (Finder → right-click → Keep Downloaded), or clone it again with "Clone from GitLab / GitHub…" on the worker's setup page (into ~/one-repos, not synced) and tick that one.`,
-  cloudStorage: (repo) => `${repo} lies in a synced cloud folder (~/Library/CloudStorage — OneDrive, Google Drive, Dropbox …): files may be downloaded on demand and locked while they sync, so git steps can stall. The worker keeps this repo’s task worktrees in ~/.one-worktrees. Faster: a clone outside it (~/one-repos).`,
-  onedrive: (repo) => `${repo} lies in OneDrive: OneDrive downloads online-only files first and locks files while it syncs, so git steps can stall or fail. The worker keeps this repo’s task worktrees in .one-worktrees in your user folder. Faster: move the repo out of OneDrive (e.g. to C:\\code) and tick that folder.`,
+  cloudStorage: (repo) => `${repo} lies in a synced cloud folder (~/Library/CloudStorage — OneDrive, Google Drive, Dropbox …): files may be downloaded on demand and locked while they sync, so git steps can stall. Unless worktreeDir in worker.json says otherwise, the task worktrees stay out of it (in ~/.one-worktrees; a cloud worker keeps them in its own folder). Faster: a clone outside it (~/one-repos).`,
+  onedrive: (repo) => `${repo} lies in OneDrive: OneDrive downloads online-only files first and locks files while it syncs, so git steps can stall or fail. Unless worktreeDir in worker.json says otherwise, the task worktrees stay out of it (in .one-worktrees in your user folder; a cloud worker keeps them in its own folder). Faster: move the repo out of OneDrive (e.g. to C:\\code) and tick that folder.`,
 }
 
 /**

@@ -13429,8 +13429,8 @@ function claudeMissing(caps, log2) {
 }
 var SYNCED = {
   icloud: (repo) => `${repo} lies in iCloud Drive: git waits whenever a file is only in the cloud, so steps can take minutes. Faster: keep the folder downloaded (Finder \u2192 right-click \u2192 Keep Downloaded), or clone it again with "Clone from GitLab / GitHub\u2026" on the worker's setup page (into ~/one-repos, not synced) and tick that one.`,
-  cloudStorage: (repo) => `${repo} lies in a synced cloud folder (~/Library/CloudStorage \u2014 OneDrive, Google Drive, Dropbox \u2026): files may be downloaded on demand and locked while they sync, so git steps can stall. The worker keeps this repo\u2019s task worktrees in ~/.one-worktrees. Faster: a clone outside it (~/one-repos).`,
-  onedrive: (repo) => `${repo} lies in OneDrive: OneDrive downloads online-only files first and locks files while it syncs, so git steps can stall or fail. The worker keeps this repo\u2019s task worktrees in .one-worktrees in your user folder. Faster: move the repo out of OneDrive (e.g. to C:\\code) and tick that folder.`
+  cloudStorage: (repo) => `${repo} lies in a synced cloud folder (~/Library/CloudStorage \u2014 OneDrive, Google Drive, Dropbox \u2026): files may be downloaded on demand and locked while they sync, so git steps can stall. Unless worktreeDir in worker.json says otherwise, the task worktrees stay out of it (in ~/.one-worktrees; a cloud worker keeps them in its own folder). Faster: a clone outside it (~/one-repos).`,
+  onedrive: (repo) => `${repo} lies in OneDrive: OneDrive downloads online-only files first and locks files while it syncs, so git steps can stall or fail. Unless worktreeDir in worker.json says otherwise, the task worktrees stay out of it (in .one-worktrees in your user folder; a cloud worker keeps them in its own folder). Faster: move the repo out of OneDrive (e.g. to C:\\code) and tick that folder.`
 };
 function noteGitHint(text2, repo, log2, terminal, platform = process.platform) {
   const code = gitHint(text2, platform);
@@ -34105,8 +34105,8 @@ var SETUP_JS = String.raw`(function () {
     noClaude: 'Claude Code was not found. Install it, sign in once (claude), then restart the worker.',
     noClaudeWin: 'Claude Code was not found. Install it — its native installer (PowerShell: irm https://claude.ai/install.ps1 | iex; it needs Git for Windows) or npm i -g @anthropic-ai/claude-code —, sign in once (claude), then restart the worker. A .cmd the worker cannot read is never started through cmd.exe: then set CLAUDE_BIN to claude.exe or Claude Code’s cli.js.',
     syncedicloud: 'In iCloud Drive: git waits for files that are only in the cloud. Faster: a clone outside it (~/one-repos).',
-    syncedcloudStorage: 'In a synced cloud folder (~/Library/CloudStorage): files may be downloaded on demand and locked while they sync. Task worktrees go to ~/.one-worktrees; faster: a clone outside it.',
-    syncedonedrive: 'In OneDrive: online-only files are downloaded first and files are locked while they sync, so git steps can stall. Task worktrees go to .one-worktrees in your user folder; faster: move the repo out of OneDrive (e.g. to C:\\code).',
+    syncedcloudStorage: 'In a synced cloud folder (~/Library/CloudStorage): files may be downloaded on demand and locked while they sync. Unless worktreeDir in worker.json says otherwise, task worktrees go to ~/.one-worktrees (a cloud worker: its own folder); faster: a clone outside it.',
+    syncedonedrive: 'In OneDrive: online-only files are downloaded first and files are locked while they sync, so git steps can stall. Unless worktreeDir in worker.json says otherwise, task worktrees go to .one-worktrees in your user folder (a cloud worker: its own folder); faster: move the repo out of OneDrive (e.g. to C:\\code).',
     found: 'Found {n} repositories in {s} s',
     foundOne: 'Found 1 repository in {s} s',
     capTime: 'stopped after {s} s — add a folder if one is missing',
@@ -34229,8 +34229,8 @@ var SETUP_JS = String.raw`(function () {
     noClaude: 'Claude Code wurde nicht gefunden. Installiere es, melde dich einmal an (claude) und starte den Worker neu.',
     noClaudeWin: 'Claude Code wurde nicht gefunden. Installiere es – mit dem eigenen Installer (PowerShell: irm https://claude.ai/install.ps1 | iex; er braucht Git for Windows) oder npm i -g @anthropic-ai/claude-code –, melde dich einmal an (claude) und starte den Worker neu. Eine .cmd, die der Worker nicht lesen kann, startet er nie über cmd.exe: dann CLAUDE_BIN auf claude.exe oder die cli.js von Claude Code setzen.',
     syncedicloud: 'In iCloud Drive: git wartet auf Dateien, die nur in der Cloud liegen. Schneller: ein Klon außerhalb (~/one-repos).',
-    syncedcloudStorage: 'In einem synchronisierten Cloud-Ordner (~/Library/CloudStorage): Dateien werden erst bei Bedarf geladen und beim Synchronisieren gesperrt. Die Worktrees der Aufgaben liegen in ~/.one-worktrees; schneller: ein Klon außerhalb.',
-    syncedonedrive: 'In OneDrive: reine Online-Dateien werden erst heruntergeladen und beim Synchronisieren gesperrt – git-Schritte können hängen. Die Worktrees der Aufgaben liegen in .one-worktrees in deinem Benutzerordner; schneller: das Repo aus OneDrive verschieben (z. B. nach C:\\code).',
+    syncedcloudStorage: 'In einem synchronisierten Cloud-Ordner (~/Library/CloudStorage): Dateien werden erst bei Bedarf geladen und beim Synchronisieren gesperrt. Sofern worktreeDir in worker.json nichts anderes sagt, liegen die Worktrees der Aufgaben in ~/.one-worktrees (ein Cloud-Worker: in seinem eigenen Ordner); schneller: ein Klon außerhalb.',
+    syncedonedrive: 'In OneDrive: reine Online-Dateien werden erst heruntergeladen und beim Synchronisieren gesperrt – git-Schritte können hängen. Sofern worktreeDir in worker.json nichts anderes sagt, liegen die Worktrees der Aufgaben in .one-worktrees in deinem Benutzerordner (ein Cloud-Worker: in seinem eigenen Ordner); schneller: das Repo aus OneDrive verschieben (z. B. nach C:\\code).',
     found: '{n} Repositories gefunden in {s} s',
     foundOne: '1 Repository gefunden in {s} s',
     capTime: 'nach {s} s angehalten – füge einen Ordner hinzu, falls eines fehlt',
