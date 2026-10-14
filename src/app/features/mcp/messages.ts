@@ -50,6 +50,8 @@ export const messages: Messages = {
       'This browser does not let a secure (https) page talk to the bridge on your computer. Use Chrome, Edge or Firefox — or open One from http://localhost.',
     'features.mcp.msg.permission':
       'The browser blocks this page from reaching apps on this device. Allow it in the site settings (the icon left of the address: “Apps on device” / “Local network access”), then retry.',
+    'features.mcp.msg.permissionApp':
+      'The browser blocks this page from reaching apps on this device. Allow it in the app’s settings (in the app window: ⋮\u00a0→\u00a0App\u00a0info → “Apps on device” / “Local network access”), then retry.',
     'features.mcp.retry': 'Retry now',
     'features.mcp.useHere': 'Use this tab',
 
@@ -298,6 +300,8 @@ export const messages: Messages = {
       'Dieser Browser lässt eine sichere (https-)Seite nicht mit der Brücke auf deinem Computer sprechen. Nimm Chrome, Edge oder Firefox — oder öffne One über http://localhost.',
     'features.mcp.msg.permission':
       'Der Browser hindert diese Seite daran, Apps auf diesem Gerät zu erreichen. Erlaube es in den Website-Einstellungen (Symbol links neben der Adresse: „Apps auf dem Gerät“ / „Zugriff auf lokales Netzwerk“) und versuche es erneut.',
+    'features.mcp.msg.permissionApp':
+      'Der Browser hindert diese Seite daran, Apps auf diesem Gerät zu erreichen. Erlaube es in den App-Einstellungen (im App-Fenster: ⋮\u00a0→\u00a0App-Info → „Apps auf dem Gerät“ / „Zugriff auf lokales Netzwerk“) und versuche es erneut.',
     'features.mcp.retry': 'Erneut versuchen',
     'features.mcp.useHere': 'Diesen Tab nutzen',
 

@@ -38,8 +38,8 @@ To change them later, press **Change repositories** — the worker opens its pag
 ## When the worker does not connect
 The **WORKER** LED stays dark; **Settings → Coding worker** and the *Worker offline* lamp of [Preflight](help:preflight) say why:
 - **The worker does not answer** — it is not running: start it again in a terminal (step 2) and keep that window open.
-- **An older download is running** — stop it (<kbd>Ctrl+C</kbd>) and start the file you downloaded last. Your browser may have saved it as `one-worker (1).mjs`: start that name, or delete the old copies and download again.
-- **Blocked by the browser** — Chrome asks whether One may reach apps on this device: choose **Allow**. Said no? Allow it in the site settings (the icon left of the address: **Apps on device** / **Local network access**), then **Retry now**.
+- **An older download is running** — stop it (<kbd>Ctrl+C</kbd>) and start the file you downloaded last. Your browser may have saved it as `one-worker (1).mjs`: start that name, or delete the old copies and download again. One tries again when you switch back to it — or press **Retry now**.
+- **Blocked by the browser** — Chrome asks whether One may reach apps on this device: choose **Allow**. Said no? Allow it in the site settings (the icon left of the address: **Apps on device** / **Local network access**; in One's app window, which has no address bar: ⋮ → **App info**), then **Retry now**.
 
 ## Run the worker on another computer (Cloud)
 In a **team workspace on a One server**, **Settings → Coding worker → Where the worker runs** offers **Local | Cloud**. With **Cloud** the worker runs on any computer — a build server, a VM, the desktop at the office — and connects **out** to your One server: no port to open, no VPN.

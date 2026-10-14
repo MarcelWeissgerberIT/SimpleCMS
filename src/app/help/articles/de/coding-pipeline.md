@@ -38,8 +38,8 @@ Später ändern: **Repositories ändern** — der Worker öffnet seine Seite wie
 ## Wenn sich der Worker nicht verbindet
 Die **WORKER**-LED bleibt dunkel; **Einstellungen → Coding-Worker** und die Lampe *Worker offline* im [Vorflug-Check](help:preflight) sagen, warum:
 - **Der Worker antwortet nicht** — er läuft nicht: Starte ihn wieder in einem Terminal (Schritt 2) und lass das Fenster offen.
-- **Ein älterer Download läuft** — beende ihn (<kbd>Ctrl+C</kbd>) und starte die zuletzt heruntergeladene Datei. Dein Browser hat sie vielleicht als `one-worker (1).mjs` gespeichert: Starte diesen Namen, oder lösche die alten Kopien und lade sie erneut herunter.
-- **Vom Browser blockiert** — Chrome fragt, ob One Apps auf diesem Gerät erreichen darf: Wähle **Zulassen**. Abgelehnt? Erlaube es in den Website-Einstellungen (Symbol links neben der Adresse: **Apps auf dem Gerät** / **Zugriff auf lokales Netzwerk**) und wähle dann **Jetzt erneut versuchen**.
+- **Ein älterer Download läuft** — beende ihn (<kbd>Ctrl+C</kbd>) und starte die zuletzt heruntergeladene Datei. Dein Browser hat sie vielleicht als `one-worker (1).mjs` gespeichert: Starte diesen Namen, oder lösche die alten Kopien und lade sie erneut herunter. Wechselst du zurück zu One, versucht One es erneut – oder wähle **Jetzt erneut versuchen**.
+- **Vom Browser blockiert** — Chrome fragt, ob One Apps auf diesem Gerät erreichen darf: Wähle **Zulassen**. Abgelehnt? Erlaube es in den Website-Einstellungen (Symbol links neben der Adresse: **Apps auf dem Gerät** / **Zugriff auf lokales Netzwerk**; im App-Fenster von One gibt es keine Adresszeile: ⋮ → **App-Info**) und wähle dann **Jetzt erneut versuchen**.
 
 ## Den Worker auf einem anderen Rechner laufen lassen (Cloud)
 In einem **Team-Arbeitsbereich auf einem One-Server** bietet **Einstellungen → Coding-Worker → Wo der Worker läuft** die Wahl **Lokal | Cloud**. Mit **Cloud** läuft der Worker auf einem beliebigen Rechner — Build-Server, VM, der Rechner im Büro — und verbindet sich selbst mit deinem One-Server: kein Port, kein VPN.

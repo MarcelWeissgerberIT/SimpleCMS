@@ -13,6 +13,7 @@ import { Led, Switch } from '../../ui/controls'
 import { useLang, useT } from '../../i18n'
 import { HelpLink } from '../../help'
 import { navigate } from '../../lib/router'
+import { inAppWindow } from '../../lib/localNetwork'
 import { workspaceInfo } from '../mcp/identity'
 import { WORKER_DEFAULT_PORT } from './protocol'
 import { reconnect, setCodingEnabled, setCodingPort, setCodingVia, viaFor } from './service'
@@ -41,7 +42,7 @@ function NotifySwitch() {
       <Switch checked={on} onChange={change} label={t('features.coding.notify.switch')} />
       <div>
         <div className="cw-switch__label">{t('features.coding.notify.switch')}</div>
-        <div className="cw-switch__hint">{t(denied ? 'features.coding.notify.denied' : 'features.coding.notify.hint')}</div>
+        <div className="cw-switch__hint">{t(denied ? (inAppWindow() ? 'features.coding.notify.deniedApp' : 'features.coding.notify.denied') : 'features.coding.notify.hint')}</div>
       </div>
     </div>
   )
@@ -309,7 +310,7 @@ export function WorkerTab() {
         )}
         {s.enabled && s.conn === 'blocked' && (
           <div className="cw-msg cw-msg--warn" data-testid="coding-blocked" data-reason={s.blocked ?? undefined}>
-            <p>{t(s.blocked === 'insecure' ? 'features.coding.settings.insecure' : s.blocked === 'permission' ? 'features.coding.settings.permission' : 'features.coding.conn.blocked')}</p>
+            <p>{t(s.blocked === 'insecure' ? 'features.coding.settings.insecure' : s.blocked === 'permission' ? (inAppWindow() ? 'features.coding.settings.permissionApp' : 'features.coding.settings.permission') : 'features.coding.conn.blocked')}</p>
             <button type="button" className="btn btn--sm" onClick={reconnect} data-testid="coding-blocked-retry">
               {t('features.coding.settings.retry')}
             </button>
