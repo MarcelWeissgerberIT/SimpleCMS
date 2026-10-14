@@ -79,6 +79,18 @@ export function workerOutdated(can: readonly string[] | null): boolean {
   const has = workerCan(can)
   return WORKER_CAN.some((c) => !has.has(c))
 }
+/** Capabilities no stage waits for ('ship': the ship note with links) — a worker without them runs every stage as before. */
+export const WORKER_EXTRAS: readonly string[] = ['ship']
+/**
+ * An outdated worker that lacks only WORKER_EXTRAS (1.9.0 without 'ship'): it skips nothing — the #/coding plate says
+ * what the newer one adds instead of "skips stages it does not know".
+ */
+export function workerLacksOnlyExtras(can: readonly string[] | null): boolean {
+  if (!can) return false
+  const has = workerCan(can)
+  const lacks = WORKER_CAN.filter((c) => !has.has(c))
+  return lacks.length > 0 && lacks.every((c) => WORKER_EXTRAS.includes(c))
+}
 /**
  * The first worker without the ZIP-import gap: up to 1.8.0 an imported ZIP could plant a `.git` (spelled `.GIT`,
  * `.Git` … on a case-insensitive disk — macOS, Windows) whose core.fsmonitor or hooks ran during the import's git
@@ -374,6 +386,12 @@ export interface GitCommit {
   subject: string
   author: string
   at: number
+  /**
+   * worker 1.10.0: the commit is on the remote task branch (pushed) — the Git tab links only these. Per commit, never by
+   * position: after Update from base merged commits pushed from elsewhere, local and pushed ones interleave by date.
+   * Absent / false: only on this computer, or not known (no link).
+   */
+  remote?: boolean
 }
 
 export interface GitFile {

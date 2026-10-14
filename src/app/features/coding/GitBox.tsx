@@ -4,18 +4,21 @@
  * Open PR · Update from base · Show folder; Force push and Discard are confirmed twice; Clean up only after
  * the merge) and the merge / pull request: Post review (the task's newest review document) and Merge (confirmed),
  * both with the person's own glab / gh. The folder's path stays on the computer: "Show folder" prints it in the
- * worker's terminal. Commits on the remote and the pushed branch link to GitLab / GitHub (worker 1.10.0: the repo's
- * web address, GitInfo.web); a key's toast says what it shipped in the person's language (ship.ts).
+ * worker's terminal. Commits on the remote (each one the worker marks pushed — GitCommit.remote) and the pushed branch
+ * link to GitLab / GitHub (worker 1.10.0: the repo's web address, GitInfo.web); a key's toast says what it shipped in the
+ * person's language (ship.ts). "Find on the host": the task's own "One-Task: <id>" line, ready to copy — what every commit
+ * and request of the task ends with. The request group's Open key opens a request (or the link to create one), never
+ * the commit PR / Commit holds without one.
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { ArrowUpFromLine, FolderSearch, GitCommitHorizontal, GitMerge, GitPullRequestArrow, GitPullRequestClosed, MessageSquareText, RefreshCw, Trash2, TriangleAlert } from 'lucide-react'
+import { ArrowUpFromLine, Copy, FolderSearch, GitCommitHorizontal, GitMerge, GitPullRequestArrow, GitPullRequestClosed, MessageSquareText, RefreshCw, Trash2, TriangleAlert } from 'lucide-react'
 import { format } from 'date-fns'
 import { useT } from '../../i18n'
 import { Modal } from '../../ui/Modal'
 import { useUI } from '../../store/ui'
-import { GIT_SHA, branchUrl, cleanWeb, commitUrl, type GitInfo, type GitVerb } from './protocol'
+import { GIT_SHA, SHIP_TRAILER, branchUrl, cleanWeb, commitUrl, type GitInfo, type GitVerb } from './protocol'
 import { gitTask } from './service'
-import { branchOk, shipShows, shipText } from './ship'
+import { branchOk, isCommitUrl, shipShows, shipText } from './ship'
 
 type T = ReturnType<typeof useT>
 
@@ -143,10 +146,10 @@ export function GitBox({ taskId, git, branch, connected, running, title, review,
           )}
           {git.commits.length > 0 && (
             <ol className="cg-commits" aria-label={t('features.coding.git.commits')}>
-              {git.commits.map((c, i) => (
+              {git.commits.map((c) => (
                 <li key={c.sha}>
-                  {/* newest first: the first `unpushed` are only on this computer */}
-                  {web && git.pushed && i >= git.unpushed && GIT_SHA.test(c.sha) ? (
+                  {/* the worker says per commit whether it is on the remote — never by its place in the list */}
+                  {web && c.remote === true && GIT_SHA.test(c.sha) ? (
                     <a className="cg-sha" href={commitUrl(web, c.sha)} target="_blank" rel="noopener noreferrer" aria-label={t('features.coding.git.commitLink', { sha: c.sha.slice(0, 7) })} data-testid="coding-git-commit-link">
                       <code>{c.sha.slice(0, 7)}</code>
                     </a>
@@ -161,6 +164,8 @@ export function GitBox({ taskId, git, branch, connected, running, title, review,
               ))}
             </ol>
           )}
+          {/* a 1.10.0 worker's snapshot (it names the web address, null or not): its commits carry the trailer */}
+          {'web' in git && <TaskTrailer taskId={taskId} />}
           <p className="cg-at label">{t('features.coding.git.at', { time: format(git.at, 'HH:mm:ss') })}</p>
         </>
       ) : (
@@ -226,8 +231,9 @@ export function GitBox({ taskId, git, branch, connected, running, title, review,
           <GitPullRequestClosed size={13} strokeWidth={1.75} aria-hidden />
           {t('features.coding.git.mergePr')}
         </button>
-        {url && (
-          <a className="ctk-link" href={url} target="_blank" rel="noopener noreferrer">
+        {/* a request (or the link to create one) — the commit PR / Commit holds without one is no merge request */}
+        {url && !isCommitUrl(url) && (
+          <a className="ctk-link" href={url} target="_blank" rel="noopener noreferrer" data-testid="coding-git-request-link">
             {t('features.coding.git.openLink')}
           </a>
         )}
@@ -297,6 +303,34 @@ export function GitBox({ taskId, git, branch, connected, running, title, review,
           }}
         />
       )}
+    </div>
+  )
+}
+
+/** "One-Task: <id>": what the task's commits and requests end with — to search for on GitLab / GitHub (copy key). */
+function TaskTrailer({ taskId }: { taskId: string }) {
+  const t = useT()
+  const line = `${SHIP_TRAILER}: ${taskId}`
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(line)
+      useUI.getState().toast({ message: t('features.coding.copied'), kind: 'success' })
+    } catch {
+      useUI.getState().toast({ message: t('features.coding.copyFailed'), kind: 'error' })
+    }
+  }
+  return (
+    <div className="cg-trailer" data-testid="coding-git-trailer">
+      <span className="label" id={`cg-trailer-${taskId}`}>
+        {t('features.coding.git.trailer')}
+      </span>
+      <code>{line}</code>
+      <button type="button" className="icon-btn icon-btn--sm" onClick={() => void copy()} aria-label={t('features.coding.copy', { what: line })} title={t('features.coding.copy', { what: line })} aria-describedby={`cg-trailer-h-${taskId}`} data-testid="coding-git-trailer-copy">
+        <Copy size={13} strokeWidth={1.75} aria-hidden />
+      </button>
+      <span className="cg-trailer__hint" id={`cg-trailer-h-${taskId}`}>
+        {t('features.coding.git.trailerHint')}
+      </span>
     </div>
   )
 }

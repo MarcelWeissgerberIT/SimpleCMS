@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { test, expect } from '@playwright/test'
 import type { JSONContent } from '@tiptap/core'
-import { cleanShip, gitStageWarnings, prFieldNext, shipInline, shipNote, shipShows, shipText, shipWhen } from '../../src/app/features/coding/ship'
+import { cleanShip, gitStageWarnings, isCommitUrl, prFieldNext, shipInline, shipNote, shipShows, shipText, shipWhen } from '../../src/app/features/coding/ship'
 import { branchUrl, cleanWeb, commitUrl, requestNumber, type ShipRecord } from '../../src/app/features/coding/protocol'
 import { messages } from '../../src/app/features/coding/messages'
 import { logValues } from '../../src/app/features/coding/logValues'
@@ -51,8 +51,13 @@ test('cleanShip: every field is checked; a request must live on the record\'s ow
   const good = cleanShip(shipped())
   expect(good).toEqual(shipped({ at: good!.at }))
   // unknown action / from, a bad branch: nothing usable
-  for (const bad of [{ action: 'rebase' }, { from: 'tab' }, { branch: '-x' }, { branch: 'a/../b' }, { branch: 'a b' }, { branch: '.hidden/x' }, { branch: '' }])
+  for (const bad of [{ action: 'rebase' }, { from: 'tab' }, { branch: '-x' }, { branch: 'a/../b' }, { branch: 'a b' }, { branch: '.hidden/x' }, { branch: '' }, { branch: 'x.lock' }, { branch: 'a~1' }, { branch: 'a@{1}' }, { branch: 'a:b' }, { branch: 'fix/\u202eevil' }, { branch: 'x/' }, { branch: 'x.' }, { branch: 'b'.repeat(201) }])
     expect(cleanShip({ ...shipped(), ...bad }), JSON.stringify(bad)).toBeNull()
+  // any branch git takes is kept — umlauts, "+", "@" — written as text, its link encoded per part
+  for (const branch of ['fix/ümlaute', 'feature+x', 'team@nordlicht/x', 'release/1.2'])
+    expect(cleanShip({ ...shipped(), branch })!.branch, branch).toBe(branch)
+  const uml = cleanShip({ ...shipped(), branch: 'fix/ümlaute' })!
+  expect(links(shipInline(uml, en))).toContainEqual(['fix/ümlaute', `${GL.base}/-/tree/fix/%C3%BCmlaute`])
   for (const raw of [null, 'x', 42, [], undefined]) expect(cleanShip(raw)).toBeNull()
   // a 39-char sha, an upper-case one: no commit / head
   const short = cleanShip({ ...shipped(), commit: { sha: SHA.slice(1) }, head: SHA.toUpperCase() })!
@@ -88,6 +93,10 @@ test('cleanShip: every field is checked; a request must live on the record\'s ow
     expect(r.commit, url).not.toBeNull()
   }
   expect(cleanShip({ ...shipped(), request: { url: MR, how: 'closed' } })!.request).toBeNull()
+  // the address as a URL writes it: a host in capitals or the default port named is the same address — kept in that form
+  const self = { base: 'https://git.nordlicht.example.test/team/web', forge: 'gitlab' as const }
+  for (const url of ['https://Git.Nordlicht.example.test/team/web/-/merge_requests/5', 'https://git.nordlicht.example.test:443/team/web/-/merge_requests/5'])
+    expect(cleanShip({ ...shipped(), web: self, request: { url, how: 'opened' } })!.request, url).toEqual({ url: `${self.base}/-/merge_requests/5`, how: 'opened' })
   // no web address: no request (and no links)
   expect(cleanShip({ ...shipped(), web: null })!.request).toBeNull()
   // a web address cleanWeb refuses: none
@@ -185,13 +194,23 @@ test('each request, push and failure reads right — and a commit only on this c
   expect(shipShows(shipped({ action: 'comment', commit: null, pushed: null, request: null }))).toBe(false)
 })
 
-test('the note\'s date: "14.10. 14:32" (de) · "14 Oct 14:32" (en); a worker clock more than a day off: now', () => {
+test('the note\'s date: "14.10. 14:32" (de) · "14 Oct 14:32" (en); a late record keeps its time, a time ahead of now is now', () => {
   const at = new Date(2026, 9, 14, 14, 32).getTime()
   expect(shipWhen(at, 'de', at + 60_000)).toBe('14.10. 14:32')
   expect(shipWhen(at, 'en', at + 60_000)).toBe('14 Oct 14:32')
-  const now = new Date(2026, 9, 16, 9, 5).getTime()
-  expect(shipWhen(at, 'de', now)).toBe('16.10. 09:05')
-  expect(shipWhen(Number.NaN, 'en', now)).toBe('16 Oct 09:05')
+  // Friday's Ship delivered on Monday: Friday's time
+  const friday = new Date(2026, 9, 16, 18, 1).getTime()
+  const monday = new Date(2026, 9, 19, 9, 0).getTime()
+  expect(shipWhen(friday, 'de', monday)).toBe('16.10. 18:01')
+  expect(shipWhen(friday, 'en', monday)).toBe('16 Oct 18:01')
+  // another year: with the year
+  const lastYear = new Date(2025, 11, 30, 17, 45).getTime()
+  expect(shipWhen(lastYear, 'de', monday)).toBe('30.12.2025 17:45')
+  expect(shipWhen(lastYear, 'en', monday)).toBe('30 Dec 2025 17:45')
+  // a worker clock a little ahead: now; far ahead, or no time at all: now
+  expect(shipWhen(monday + 2 * 60_000, 'de', monday)).toBe('19.10. 09:00')
+  expect(shipWhen(monday + 3 * 86_400_000, 'de', monday)).toBe('19.10. 09:00')
+  expect(shipWhen(Number.NaN, 'en', monday)).toBe('19 Oct 09:00')
 })
 
 test('PR / Commit: the request\'s address wins; a commit link only into an empty field or over an older commit link', () => {
@@ -234,11 +253,20 @@ test('the pipeline editor\'s warning: only an explicit push false / pr none coun
   ]
   expect(gitStageWarnings('pr', repos)).toEqual({ pushOff: ['website'], prOff: ['tessera'], prFails: false })
   expect(gitStageWarnings('push', repos)).toEqual({ pushOff: ['website'], prOff: [], prFails: false })
-  expect(gitStageWarnings('comment', repos)).toEqual({ pushOff: [], prOff: ['website', 'tessera'], prFails: true })
-  expect(gitStageWarnings('merge', repos)).toEqual({ pushOff: [], prOff: ['website', 'tessera'], prFails: true })
+  // posting a review / merging: push off fails there too (nothing pushed, no request) — each repo named once
+  expect(gitStageWarnings('comment', repos)).toEqual({ pushOff: ['website'], prOff: ['tessera'], prFails: true })
+  expect(gitStageWarnings('merge', repos)).toEqual({ pushOff: ['website'], prOff: ['tessera'], prFails: true })
+  expect(gitStageWarnings('merge', [{ name: 'tessera', push: false, pr: 'gh' }])).toEqual({ pushOff: ['tessera'], prOff: [], prFails: true })
   for (const a of ['commit', 'update-base', null, undefined] as const) expect(gitStageWarnings(a, repos)).toEqual({ pushOff: [], prOff: [], prFails: false })
   // an older worker names neither: no warning
   expect(gitStageWarnings('pr', [{ name: 'website' }])).toEqual({ pushOff: [], prOff: [], prFails: false })
+})
+
+test('a commit page (what PR / Commit holds without a request) is no merge request', () => {
+  expect(isCommitUrl(`${GL.base}/-/commit/${SHA}`)).toBe(true)
+  expect(isCommitUrl(`${GH.base}/commit/${SHA}`)).toBe(true)
+  for (const url of [MR, `${GH.base}/pull/7`, `${GL.base}/-/merge_requests/new?merge_request%5Bsource_branch%5D=x`, `${GL.base}/-/commit/${SHA}?view=parallel`, 'https://example.com/ticket/9', ''])
+    expect(isCommitUrl(url), url).toBe(false)
 })
 
 /** The codes of LOG_CODES as lines.ts lists them (it imports the app's runtime, so it is read, not imported). */

@@ -15,9 +15,16 @@ import { GIT_SHA, SHIP_ACTIONS, SHIP_REQUEST, branchUrl, cleanWeb, commitUrl, re
 
 export type Tr = (key: string, vars?: Record<string, string | number>) => string
 
-/** A branch name as a link may carry it: git's own rules, a little stricter (no "..", no part starting with "."). */
-const BRANCH = /^[A-Za-z0-9._/-]{1,200}$/
-export const branchOk = (b: string): boolean => BRANCH.test(b) && !b.startsWith('-') && !b.startsWith('/') && !b.endsWith('/') && !b.includes('..') && !b.includes('//') && !b.split('/').some((p) => p.startsWith('.'))
+/**
+ * A branch name as git takes it (check-ref-format: no control character, space, ~ ^ : ? * [ \\, "..", "@{", "//", no
+ * part starting with "." or ending in ".lock", no "/" or "." at the end) and never an option (no leading "-"), ≤ 200
+ * characters — "fix/ümlaute" too: whatever the worker could make a branch of. Stricter only for what would mislead in a
+ * line of text (bidi and zero-width marks). It is written as text; its link encodes each part.
+ */
+// eslint-disable-next-line no-control-regex
+const BRANCH_BAD = /[\u0000-\u0020\u007f-\u009f~^:?*[\\\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/
+export const branchOk = (b: string): boolean =>
+  b.length > 0 && b.length <= 200 && !BRANCH_BAD.test(b) && b !== '@' && !b.startsWith('-') && !b.startsWith('/') && !b.endsWith('/') && !b.endsWith('.') && !b.includes('..') && !b.includes('//') && !b.includes('@{') && !b.split('/').some((p) => p.startsWith('.') || p.endsWith('.lock'))
 /** A remote's name as worker.json may name it. */
 const REMOTE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
 
@@ -25,8 +32,9 @@ const shaOf = (v: unknown): string | null => (typeof v === 'string' && GIT_SHA.t
 const objOf = (v: unknown): Record<string, unknown> | null => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null)
 
 /**
- * A request's address as One takes it: http(s), on the record's own repository (it starts with `web.base` + "/"),
- * no user name or password, no fragment, no white space — null otherwise (and always without a web address).
+ * A request's address as One takes it: http(s), on the record's own repository (as a URL writes it — host lower-cased, no
+ * default port — it starts with `web.base` + "/"), no user name or password, no fragment, no white space — kept in that
+ * form; null otherwise (and always without a web address).
  */
 function cleanRequest(raw: unknown, web: ForgeWeb | null): ShipRecord['request'] {
   const r = objOf(raw)
@@ -40,8 +48,8 @@ function cleanRequest(raw: unknown, web: ForgeWeb | null): ShipRecord['request']
     return null
   }
   const at = `${web.base}/`
-  if ((u.protocol !== 'https:' && u.protocol !== 'http:') || u.username || u.password || u.hash || !url.startsWith(at) || !u.href.startsWith(at)) return null
-  return { url, how: how as ShipRequestHow }
+  if ((u.protocol !== 'https:' && u.protocol !== 'http:') || u.username || u.password || u.hash || !u.href.startsWith(at)) return null
+  return { url: u.href, how: how as ShipRequestHow }
 }
 
 /** A ship record as it arrives from a worker — every field checked; null: nothing usable. */
@@ -74,11 +82,18 @@ export function cleanShip(raw: unknown): ShipRecord | null {
 /** Does the record say anything worth a note? A commit, a push (or that it was off / failed) or a request. */
 export const shipShows = (s: ShipRecord): boolean => !!(s.commit || s.pushed || s.pushOff || s.request || s.failed)
 
-/** The note's date in the UI's language: "14.10. 14:32" (de) · "14 Oct 14:32" (en). A worker clock off by > 1 day: now. */
+/**
+ * The note's date in the UI's language: "14.10. 14:32" (de) · "14 Oct 14:32" (en) — with the year when it is not this
+ * year's. A record delivered late (the worker keeps an outcome until a tab takes it — Friday's Ship on Monday) keeps its
+ * own time, however old; only a time in the future (a worker's clock ahead by more than a few minutes) becomes now.
+ */
 export function shipWhen(at: number, lang: 'en' | 'de', now = Date.now()): string {
-  const when = Number.isFinite(at) && Math.abs(at - now) < 86_400_000 ? at : now
-  return format(when, lang === 'de' ? 'dd.MM. HH:mm' : 'd MMM HH:mm')
+  const when = Number.isFinite(at) && at > 0 && at <= now + FUTURE_SLACK_MS ? Math.min(at, now) : now
+  const year = new Date(when).getFullYear() !== new Date(now).getFullYear()
+  return format(when, lang === 'de' ? (year ? 'dd.MM.yyyy HH:mm' : 'dd.MM. HH:mm') : year ? 'd MMM yyyy HH:mm' : 'd MMM HH:mm')
 }
+/** How far ahead of this tab's clock a record's time may be and still count (a worker on another computer). */
+const FUTURE_SLACK_MS = 5 * 60_000
 
 const txt = (text: string, href?: string | null): JSONContent => (href ? { type: 'text', text, marks: [{ type: 'link', attrs: { href } }] } : { type: 'text', text })
 
@@ -171,6 +186,9 @@ export function shipNote(label: string, s: ShipRecord, t: Tr, lang: 'en' | 'de',
   }
 }
 
+/** A commit's page on a host (".../-/commit/<sha>" · ".../commit/<sha>") — what PR / Commit holds when there is no request. */
+export const isCommitUrl = (url: string): boolean => /^https?:\/\/[^/?#]+\/[^?#]*?\/(?:-\/)?commit\/[0-9a-f]{40}(?:[0-9a-f]{24})?$/.test(url.trim())
+
 /**
  * The PR / Commit field after a record (D6): the request's address wins (a 'link' never over an opened request's
  * address); else the pushed commit's link (commit, else head) — only into an empty field or over an older commit link
@@ -192,14 +210,16 @@ export function prFieldNext(current: string | null | undefined, s: ShipRecord): 
 
 /**
  * Pipeline editor: the connected worker's repos (of this project's Repo options) where a git stage cannot do all it
- * says. push / pr: push off → commits only · pr: requests off → a link only · comment / merge: requests off → fails.
+ * says. push / pr: push off → commits only · pr: requests off → a link only · comment / merge: push off (nothing was
+ * pushed, so there is no request) or requests off → fails (`prFails`: both lines say "fails there").
  * Only an explicit `push: false` / `pr: 'none'` counts — an older worker announces neither and warns about nothing.
  */
 export function gitStageWarnings(action: GitAction | null | undefined, repos: ReadonlyArray<{ name: string; push?: unknown; pr?: unknown }>): { pushOff: string[]; prOff: string[]; prFails: boolean } {
   const names = (pick: (r: { push?: unknown; pr?: unknown }) => boolean) => [...new Set(repos.filter(pick).map((r) => r.name))]
   if (action === 'comment' || action === 'merge') {
-    const prOff = names((r) => r.pr === 'none')
-    return { pushOff: [], prOff, prFails: prOff.length > 0 }
+    const pushOff = names((r) => r.push === false)
+    const prOff = names((r) => r.pr === 'none').filter((n) => !pushOff.includes(n))
+    return { pushOff, prOff, prFails: pushOff.length + prOff.length > 0 }
   }
   if (action !== 'push' && action !== 'pr') return { pushOff: [], prOff: [], prFails: false }
   const pushOff = names((r) => r.push === false)

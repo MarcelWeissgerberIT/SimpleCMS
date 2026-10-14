@@ -13,9 +13,9 @@ import { join } from 'node:path'
 import { after, afterEach, describe, test } from 'node:test'
 import { GIT_SHA, WORKER_CAN, branchUrl, cleanWeb, commitUrl, requestNumber, type GitResult, type LogLine, type ShipRecord, type WorkerMessage } from '../../src/app/features/coding/protocol.ts'
 import { saveRepos, sanitizeConfig, type RepoConfig } from '../src/worker/config.ts'
-import { compareUrl, forgeOfHost, openPr, webBase, webFromRequest } from '../src/worker/git.ts'
+import { compareUrl, forgeOfHost, forgetSshNames, openPr, sshHostName, sshHostOf, webBase, webFromRequest } from '../src/worker/git.ts'
 import { gitHint } from '../src/worker/gitenv.ts'
-import { REQUEST_FOOTER, commitMessage, newShip, requestBody, requestLine, withTaskTrailer } from '../src/worker/run.ts'
+import { REQUEST_FOOTER, commitMessage, newShip, requestBody, requestLine, withRequest, withTaskTrailer } from '../src/worker/run.ts'
 import { SetupServer } from '../src/worker/setup.ts'
 import { FakeTab, WS_LOCAL, cleanupAll, fakeBin, leakIn, makeRepo, pathWith, plainRepo, repoEntry, sh, startWorker, task, tempDir, writeConfig, type StartedWorker, type TempRepo } from './worker-helpers.ts'
 
@@ -257,12 +257,18 @@ describe('a rejected push', () => {
     assert.equal(shipOf(first).web, null)
     assert.deepEqual(shipOf(first).pushed, { remote: 'origin' })
 
-    // a colleague pushes to the task's branch
+    // a colleague pushes to the task's branch — dated later than the commit Ship makes below: the log (by date) then
+    // lists it among the commits that are only here
     const o = r.other()
     sh(o, 'checkout', '--quiet', branch)
     writeFileSync(join(o, 'colleague.txt'), 'theirs\n')
     sh(o, 'add', 'colleague.txt')
-    sh(o, 'commit', '--quiet', '-m', 'their change')
+    process.env.GIT_COMMITTER_DATE = new Date(Date.now() + 3_600_000).toISOString()
+    try {
+      sh(o, 'commit', '--quiet', '-m', 'their change')
+    } finally {
+      delete process.env.GIT_COMMITTER_DATE
+    }
     sh(o, 'push', '--quiet', 'origin', branch)
     const theirs = sh(o, 'rev-parse', 'HEAD').trim()
 
@@ -291,6 +297,16 @@ describe('a rejected push', () => {
     assert.match(up.message, /^Merged origin\/one\/\S+ in\. Already up to date\.$/)
     assert.deepEqual(logLines(tab).find((l) => l.c === 'remoteMerged')!.v, { remote: 'origin', branch })
     assert.equal(sh(r.path, 'show', `${branch}:colleague.txt`), 'theirs\n')
+    // the Git tab links per commit, never by position: the log lists the merge, then the colleague's commit (newer by
+    // date) before the one the rejected push left — the colleague's is on the remote, the merge and ours only here
+    const commits = up.git!.commits
+    assert.equal(up.git!.unpushed, 2)
+    assert.equal(commits[1]!.sha, theirs)
+    const on = new Map(commits.map((c) => [c.sha, c.remote]))
+    assert.equal(on.get(theirs), true)
+    assert.equal(on.get(s.commit!.sha), false)
+    assert.equal(commits.filter((c) => c.remote === false).length, 2)
+    assert.ok(commits.some((c) => c.remote === true && c.sha !== theirs), 'the first push is on the remote')
 
     // Ship again: nothing new to commit, the merge pushed
     const shipped = await tab.run(task({ kind: 'git', gitAction: 'push' }, { id, branch }))
@@ -299,6 +315,7 @@ describe('a rejected push', () => {
     assert.equal(s2.commit, null)
     assert.deepEqual(s2.pushed, { remote: 'origin' })
     assert.equal(s2.head, sh(r.remote, 'rev-parse', branch).trim())
+    assert.ok(shipped.git!.commits.length >= 4 && shipped.git!.commits.every((c) => c.remote === true), 'every commit on the remote now')
     // the remote's history was never rewritten: both commits are in it
     sh(r.remote, 'merge-base', '--is-ancestor', theirs, branch)
     sh(r.remote, 'merge-base', '--is-ancestor', s.commit!.sha, branch)
@@ -504,12 +521,77 @@ describe('the trailer, the web address, the hint (pure)', () => {
     assert.match(compareUrl('git@git.nordlicht.example.test:team/website.git', 'main', 'b', 'gitlab')!, /^https:\/\/git\.nordlicht\.example\.test\/team\/website\/-\/merge_requests\/new\?/)
   })
 
+  test('an ssh host alias: the web address names the host ssh connects to (ssh -G), the forge read from it first', async () => {
+    const real = 'gitlab.example.test'
+    assert.deepEqual(webBase('git@gitlab.com-work:nordlicht/website.git', 'auto', real), GITLAB_WEB)
+    assert.deepEqual(webBase('git@work:nordlicht/website.git', 'auto', real), GITLAB_WEB, 'the alias says nothing; the real host does')
+    assert.deepEqual(webBase('ssh://git@work:2222/nordlicht/website.git', 'auto', 'github.example.com'), GITHUB_WEB)
+    assert.deepEqual(webBase('https://gitlab.example.test/nordlicht/website.git', 'auto', 'elsewhere.example.com'), GITLAB_WEB, 'never for an http(s) remote')
+    assert.deepEqual(webBase('git@gitlab.example.test:nordlicht/website.git', 'auto', '-oProxyCommand=x'), GITLAB_WEB, 'an answer that is no host name is ignored')
+    assert.equal(sshHostOf('git@gitlab.com-work:nordlicht/website.git'), 'gitlab.com-work')
+    assert.equal(sshHostOf('ssh://git@Code.Example.test:2222/a/b.git'), 'code.example.test')
+    for (const no of ['https://gitlab.example.test/a/b.git', 'git://gitlab.example.test/a/b.git', 'file:///tmp/x.git', '/home/me/x.git', 'C:\\code\\x.git', 'c:/code/x.git', 'git@-oProxyCommand=x:a/b.git'])
+      assert.equal(sshHostOf(no), null, no)
+
+    // ssh -G through the person's ssh (here a fake on PATH): its "hostname" line; asked once per host for a while
+    const bin = tempDir('ssh')
+    fakeBin(
+      bin,
+      'ssh',
+      `import { appendFileSync } from 'node:fs'
+const a = process.argv.slice(2)
+appendFileSync(${JSON.stringify(join(bin, 'calls.txt'))}, a.join(' ') + '\\n')
+if (a[0] !== '-G') process.exit(255)
+if (a[1] === 'gitlab.com-work') process.stdout.write('user git\\nhostname gitlab.example.test\\nport 22\\n')
+else if (a[1] === 'odd') process.stdout.write('hostname two words\\n')
+else process.stdout.write('hostname ' + a[1] + '\\n')
+`,
+    )
+    const key = Object.keys(pathWith(bin))[0]!
+    const before = process.env[key]
+    const restore = () => {
+      if (before === undefined) delete process.env[key]
+      else process.env[key] = before
+      forgetSshNames()
+    }
+    process.env[key] = pathWith(bin)[key]
+    forgetSshNames()
+    try {
+      assert.equal(await sshHostName('gitlab.com-work'), real)
+      assert.equal(await sshHostName('gitlab.com-work'), real)
+      assert.equal(await sshHostName('odd'), 'odd', 'no usable name: the host itself')
+      assert.equal(await sshHostName('-oProxyCommand=x'), '-oProxyCommand=x')
+      const calls = readFileSync(join(bin, 'calls.txt'), 'utf8').trim().split(/\r?\n/)
+      assert.deepEqual(calls, ['-G gitlab.com-work', '-G odd'], 'once per host; never for something that is no host name')
+    } finally {
+      restore()
+    }
+    // no ssh at all: the host as written
+    process.env[key] = tempDir('no-ssh')
+    try {
+      assert.equal(await sshHostName('gitlab.com-work'), 'gitlab.com-work')
+    } finally {
+      restore()
+    }
+  })
+
   test('webFromRequest: the web address before the request\'s own path (the host lower-cased); credentials or another form give none', () => {
     assert.deepEqual(webFromRequest('https://Code.Nordlicht.example.test/team/sub/website/-/merge_requests/9#note_1', 'gitlab'), { base: 'https://code.nordlicht.example.test/team/sub/website', forge: 'gitlab' })
     assert.deepEqual(webFromRequest('https://github.example.com/nordlicht/website/pull/7', 'github'), GITHUB_WEB)
     assert.equal(webFromRequest('https://user:pw@gitlab.example.test/a/b/-/merge_requests/1', 'gitlab'), null)
     assert.equal(webFromRequest('https://github.example.com/nordlicht/website/pull/7', 'gitlab'), null)
     assert.equal(webFromRequest('https://gitlab.example.test/a/b/-/merge_requests/new?x=1', 'gitlab'), null)
+    // a default port is no part of the address (as a URL writes it)
+    assert.deepEqual(webFromRequest('https://Gitlab.Example.test:443/nordlicht/website/-/merge_requests/5', 'gitlab'), GITLAB_WEB)
+  })
+
+  test('withRequest: the request\'s address as a URL writes it — it starts with the web address taken from it (One checks that)', () => {
+    for (const raw of ['https://Git.Nordlicht.example.test/team/web/-/merge_requests/5', 'https://git.nordlicht.example.test:443/team/web/-/merge_requests/5']) {
+      const rec = newShip('pr', 'stage', 'one/x', { base: 'https://git.nordlicht.example.test/team/web', forge: 'gitlab' })
+      withRequest(rec, raw, 'opened')
+      assert.equal(rec.request!.url, 'https://git.nordlicht.example.test/team/web/-/merge_requests/5', raw)
+      assert.ok(rec.request!.url.startsWith(`${rec.web!.base}/`), raw)
+    }
   })
 
   test('the shared rules: cleanWeb, commit / branch links, request numbers', () => {

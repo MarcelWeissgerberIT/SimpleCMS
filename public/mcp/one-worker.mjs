@@ -13109,18 +13109,24 @@ function linkTarget(path) {
     return "";
   }
 }
+var LOCAL_MAX = 2e3;
 async function info(repo, state, dir, branch) {
   const base = await baseRef(repo).catch(() => repo.baseBranch);
   const lr = await git(dir, ["rev-list", "--left-right", "--count", `${base}...HEAD`]);
   const [behind = "0", ahead = "0"] = lr.code === 0 ? lr.stdout.trim().split(/\s+/) : [];
   const pushed = await remoteBranchExists(repo, branch);
   const unpushed = pushed ? count((await git(dir, ["rev-list", "--count", `${repo.remote}/${branch}..HEAD`])).stdout) : count(ahead);
+  let local = /* @__PURE__ */ new Set();
+  if (pushed && unpushed > 0) {
+    const r = unpushed <= LOCAL_MAX ? await git(dir, ["rev-list", "-n", String(LOCAL_MAX), `${repo.remote}/${branch}..HEAD`]) : null;
+    local = r && r.code === 0 ? new Set(r.stdout.split("\n").map((l) => l.trim()).filter(Boolean)) : null;
+  }
   const status = await statusOf(dir);
   const conflicts = unresolved(dir, status);
   const log2 = await git(dir, ["log", "--format=%H%x1f%s%x1f%an%x1f%at%x1e", "-n", "20", `${base}..HEAD`]);
   const commits = log2.code === 0 ? log2.stdout.split("").map((r) => r.trim()).filter(Boolean).map((r) => {
     const [sha = "", subject = "", author = "", at = "0"] = r.split("");
-    return { sha: sha.slice(0, 40), subject: subject.slice(0, 200), author: author.slice(0, 80), at: Number(at) * 1e3 };
+    return { sha: sha.slice(0, 40), subject: subject.slice(0, 200), author: author.slice(0, 80), at: Number(at) * 1e3, remote: pushed && !!local && !local.has(sha) };
   }) : [];
   const files = await diffFiles(dir, base, status);
   const own2 = state.created(repo.name, branch);
@@ -13242,20 +13248,23 @@ async function headOf(dir) {
   return GIT_SHA.test(sha) ? sha : null;
 }
 var forgeOfHost = (host) => !host ? null : /github/i.test(host) ? "github" : /gitlab/i.test(host) ? "gitlab" : null;
-function webBase(remoteUrl, forge = "auto") {
+function webBase(remoteUrl, forge = "auto", sshHost) {
   let host = "";
+  let named = "";
   let path = "";
   let origin = "";
   const scp = /^(?:[^@/]+@)?([^:/]+):(?!\/)(.+)$/.exec(remoteUrl);
   try {
     if (/^(https?|ssh|git):\/\//.test(remoteUrl)) {
       const u = new URL(remoteUrl);
-      host = u.hostname.toLowerCase();
+      host = named = u.hostname.toLowerCase();
       path = u.pathname;
+      if (u.protocol === "ssh:" && sshHost && SSH_HOST.test(sshHost)) host = sshHost;
       origin = /^https?:$/.test(u.protocol) ? `${u.protocol}//${host}${u.port ? `:${u.port}` : ""}` : `https://${host}`;
     } else if (scp) {
-      host = scp[1].toLowerCase();
+      host = named = scp[1].toLowerCase();
       path = scp[2];
+      if (sshHost && SSH_HOST.test(sshHost)) host = sshHost;
       origin = `https://${host}`;
     }
   } catch {
@@ -13263,15 +13272,49 @@ function webBase(remoteUrl, forge = "auto") {
   }
   path = path.replace(/^\/+/, "").replace(/\.git$/, "").replace(/\/+$/, "");
   if (!host || !/^[\w.-]+$/.test(host) || !/^[\w.-]+(\/[\w.-]+)+$/.test(path)) return null;
-  const kind = forge === "github" || forge === "gitlab" ? forge : forgeOfHost(host);
+  const kind = forge === "github" || forge === "gitlab" ? forge : forgeOfHost(host) ?? forgeOfHost(named);
   return kind ? cleanWeb({ base: `${origin}/${path}`, forge: kind }) : null;
+}
+var SSH_HOST = /^[a-z0-9][a-z0-9.-]{0,252}$/;
+function sshHostOf(remoteUrl) {
+  let host = null;
+  if (/^ssh:\/\//i.test(remoteUrl)) {
+    try {
+      host = new URL(remoteUrl).hostname.toLowerCase();
+    } catch {
+      return null;
+    }
+  } else if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(remoteUrl)) host = /^(?:[^@/]+@)?([^:/\\]{2,}):(?!\/)(.+)$/.exec(remoteUrl)?.[1]?.toLowerCase() ?? null;
+  return host && SSH_HOST.test(host) ? host : null;
+}
+var SSH_NAME_MS = 10 * 6e4;
+var sshNames = /* @__PURE__ */ new Map();
+function sshHostName(host) {
+  if (!SSH_HOST.test(host)) return Promise.resolve(host);
+  const hit = sshNames.get(host);
+  if (hit && Date.now() - hit.at < SSH_NAME_MS) return hit.name;
+  const name = execFileSafe("ssh", ["-G", host], { timeoutMs: 5e3, maxBuffer: 256 * 1024, allow: "exe" }).then((r) => {
+    const real = r.code === 0 ? /^hostname[ \t]+(\S+)[ \t]*$/im.exec(r.stdout)?.[1]?.toLowerCase() : void 0;
+    return real && SSH_HOST.test(real) ? real : host;
+  }).catch(() => host);
+  sshNames.set(host, { at: Date.now(), name });
+  return name;
 }
 async function webOf(repo) {
   const r = await git(repo.path, ["remote", "get-url", repo.remote], 3e4);
-  return r.code === 0 ? webBase(r.stdout.trim(), repo.forge) : null;
+  if (r.code !== 0) return null;
+  const url = r.stdout.trim();
+  const alias = sshHostOf(url);
+  return webBase(url, repo.forge, alias ? await sshHostName(alias) : null);
 }
 function webFromRequest(url, forge) {
-  const m = forge === "gitlab" ? /^(https?:\/\/[^/?#]+\/.+?)\/-\/merge_requests\/\d+/.exec(url) : /^(https?:\/\/[^/?#]+\/[^/?#]+\/[^/?#]+)\/pull\/\d+/.exec(url);
+  let href;
+  try {
+    href = new URL(url).href;
+  } catch {
+    return null;
+  }
+  const m = forge === "gitlab" ? /^(https?:\/\/[^/?#]+\/.+?)\/-\/merge_requests\/\d+/.exec(href) : /^(https?:\/\/[^/?#]+\/[^/?#]+\/[^/?#]+)\/pull\/\d+/.exec(href);
   if (!m) return null;
   const parts = /^(https?:\/\/[^/?#]+)(\/.*)$/.exec(m[1]);
   return parts ? cleanWeb({ base: `${parts[1].toLowerCase()}${parts[2]}`, forge }) : null;
@@ -14287,8 +14330,13 @@ function newShip(action, from, branch, web) {
   return { action, from, at: Date.now(), branch, commit: null, head: null, pushed: null, request: null, web };
 }
 function withRequest(rec, url, how) {
-  rec.request = { url, how };
-  if (how !== "link" && rec.web) rec.web = webFromRequest(url, rec.web.forge) ?? rec.web;
+  let href = url;
+  try {
+    href = new URL(url).href;
+  } catch {
+  }
+  rec.request = { url: href, how };
+  if (how !== "link" && rec.web) rec.web = webFromRequest(href, rec.web.forge) ?? rec.web;
 }
 var requestKind = (web) => web?.forge === "gitlab" ? "mr" : "pr";
 function requestLine(pr, rec, repo) {

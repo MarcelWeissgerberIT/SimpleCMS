@@ -805,6 +805,23 @@ export async function stopTask(taskId: string): Promise<void> {
 const PERSON: Writer = { kind: 'you', via: 'ui' }
 
 /**
+ * How long a git key may take before the tab stops waiting: at least the worker's own worst case — a push (300 s), then
+ * gh / glab (version 10 s, view 30 s, create 120 s, view again 30 s), a merge (gh tries up to three methods, 300 s each,
+ * then a fetch). A tab that gave up earlier would drop the late answer — the push and the request happen all the same,
+ * but no note and no PR / Commit would be written. A link that drops ends the wait at once (as for every request).
+ */
+const GIT_KEY_MS: Partial<Record<GitVerb, number>> = {
+  push: 8 * 60_000,
+  'force-push': 8 * 60_000,
+  pr: 12 * 60_000,
+  'comment-pr': 5 * 60_000,
+  'merge-pr': 18 * 60_000,
+  'update-base': 8 * 60_000,
+  discard: 5 * 60_000,
+  cleanup: 5 * 60_000,
+}
+
+/**
  * One of the fixed git verbs for a task's branch. Updates the git state, the PR field and — worker 1.10.0 — writes the
  * key's ship record into the page ("Git (by hand) · <date time>", ship.ts). `error`: the key 'pr' pushed, but the request
  * could not be opened (the push is recorded all the same).
@@ -815,7 +832,7 @@ export async function gitTask(taskId: string, verb: GitVerb, message?: string): 
   const repo = ctx.props.repo ? ctx.db.properties.find((p) => p.id === ctx.props.repo)?.options?.find((o) => o.id === ctx.row.properties[ctx.props.repo!])?.name : null
   if (!repo) throw new Error(t('features.coding.err.noRepo'))
   const branch = ctx.props.branch ? String(ctx.row.properties[ctx.props.branch] ?? '').trim() || null : null
-  const res = (await request({ op: 'git', taskId, verb, repo, branch, title: ctx.row.title.trim() || t('common.untitled'), ...(message ? { message } : {}) } as never)) as GitResult
+  const res = (await request({ op: 'git', taskId, verb, repo, branch, title: ctx.row.title.trim() || t('common.untitled'), ...(message ? { message } : {}) } as never, GIT_KEY_MS[verb] ?? 120_000)) as GitResult
   await loadTask(taskId)
   const s = useWorkspace.getState()
   const ship = cleanShip(res?.ship)

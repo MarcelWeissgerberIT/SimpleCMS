@@ -13,8 +13,9 @@
  *    updateFromBase (the remote task branch merged in first when it has commits HEAD lacks — never a rebase or a force
  *    there —, then the base: rebase only if never pushed, else merge; conflicts reported per file, left for a stage to
  *    resolve) · discard · cleanup
- *  - the web address per forge (webBase / webOf, worker.json "forge"): scheme + host + project path, never credentials
- *    or a local path — what One links commits, branches and requests with
+ *  - the web address per forge (webBase / webOf, worker.json "forge"; an ssh host alias named by `ssh -G`, nothing
+ *    connects): scheme + host + project path, never credentials or a local path — what One links commits, branches and
+ *    requests with; info marks each commit pushed or not (GitCommit.remote)
  */
 import { createHash } from 'node:crypto'
 import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, statSync } from 'node:fs'
@@ -617,6 +618,9 @@ function linkTarget(path: string): string {
   }
 }
 
+/** At most this many local-only commits are listed to tell the pushed ones apart (more: none is linked). */
+const LOCAL_MAX = 2000
+
 /** The branch's state, its commits and its diff against the base (working tree included). */
 export async function info(repo: RepoConfig, state: WorkerState, dir: string, branch: string): Promise<GitInfo> {
   const base = await baseRef(repo).catch(() => repo.baseBranch)
@@ -624,6 +628,13 @@ export async function info(repo: RepoConfig, state: WorkerState, dir: string, br
   const [behind = '0', ahead = '0'] = lr.code === 0 ? lr.stdout.trim().split(/\s+/) : []
   const pushed = await remoteBranchExists(repo, branch)
   const unpushed = pushed ? count((await git(dir, ['rev-list', '--count', `${repo.remote}/${branch}..HEAD`])).stdout) : count(ahead)
+  // which commits are only here — per commit (the log below is by date: after a merge of the remote branch, local and
+  // pushed ones interleave). Not known (git failed, more than LOCAL_MAX): none counts as pushed — no link to a 404.
+  let local: Set<string> | null = new Set()
+  if (pushed && unpushed > 0) {
+    const r = unpushed <= LOCAL_MAX ? await git(dir, ['rev-list', '-n', String(LOCAL_MAX), `${repo.remote}/${branch}..HEAD`]) : null
+    local = r && r.code === 0 ? new Set(r.stdout.split('\n').map((l) => l.trim()).filter(Boolean)) : null
+  }
   const status = await statusOf(dir)
   const conflicts = unresolved(dir, status)
   const log = await git(dir, ['log', '--format=%H%x1f%s%x1f%an%x1f%at%x1e', '-n', '20', `${base}..HEAD`])
@@ -634,7 +645,7 @@ export async function info(repo: RepoConfig, state: WorkerState, dir: string, br
         .filter(Boolean)
         .map((r) => {
           const [sha = '', subject = '', author = '', at = '0'] = r.split('\x1f')
-          return { sha: sha.slice(0, 40), subject: subject.slice(0, 200), author: author.slice(0, 80), at: Number(at) * 1000 }
+          return { sha: sha.slice(0, 40), subject: subject.slice(0, 200), author: author.slice(0, 80), at: Number(at) * 1000, remote: pushed && !!local && !local.has(sha) }
         })
     : []
   const files = await diffFiles(dir, base, status)
@@ -764,23 +775,28 @@ export const forgeOfHost = (host: string | null | undefined): Forge | null => (!
 /**
  * The remote's web address (credentials stripped): https://<host>/<project> for ssh / scp / git remotes, the remote's
  * own scheme, host and port for http(s) ones; the forge from `forge`, else from the host's name. Null for a local path,
- * file://, an unknown host with forge 'auto', or anything cleanWeb refuses.
+ * file://, an unknown host with forge 'auto', or anything cleanWeb refuses. `sshHost`: ssh's own name for an ssh / scp
+ * remote's host (sshHostName — an alias in ~/.ssh/config, git@gitlab-work:…, names the real host); the web address
+ * then uses it, and the forge is read from it first, then from the alias.
  */
-export function webBase(remoteUrl: string, forge: ForgeSetting = 'auto'): ForgeWeb | null {
+export function webBase(remoteUrl: string, forge: ForgeSetting = 'auto', sshHost?: string | null): ForgeWeb | null {
   let host = ''
+  let named = ''
   let path = ''
   let origin = ''
   const scp = /^(?:[^@/]+@)?([^:/]+):(?!\/)(.+)$/.exec(remoteUrl)
   try {
     if (/^(https?|ssh|git):\/\//.test(remoteUrl)) {
       const u = new URL(remoteUrl)
-      host = u.hostname.toLowerCase()
+      host = named = u.hostname.toLowerCase()
       path = u.pathname
+      if (u.protocol === 'ssh:' && sshHost && SSH_HOST.test(sshHost)) host = sshHost
       // http(s): the remote's own scheme and port (a self-hosted GitLab on :8443); ssh's port is never the web's
       origin = /^https?:$/.test(u.protocol) ? `${u.protocol}//${host}${u.port ? `:${u.port}` : ''}` : `https://${host}`
     } else if (scp) {
-      host = scp[1]!.toLowerCase()
+      host = named = scp[1]!.toLowerCase()
       path = scp[2]!
+      if (sshHost && SSH_HOST.test(sshHost)) host = sshHost
       origin = `https://${host}`
     }
   } catch {
@@ -788,14 +804,62 @@ export function webBase(remoteUrl: string, forge: ForgeSetting = 'auto'): ForgeW
   }
   path = path.replace(/^\/+/, '').replace(/\.git$/, '').replace(/\/+$/, '')
   if (!host || !/^[\w.-]+$/.test(host) || !/^[\w.-]+(\/[\w.-]+)+$/.test(path)) return null
-  const kind = forge === 'github' || forge === 'gitlab' ? forge : forgeOfHost(host)
+  const kind = forge === 'github' || forge === 'gitlab' ? forge : (forgeOfHost(host) ?? forgeOfHost(named))
   return kind ? cleanWeb({ base: `${origin}/${path}`, forge: kind }) : null
 }
 
-/** The repo's web address (webBase of its remote, its worker.json forge) — null without one. */
+/** A host name ssh may be asked about (never an option: no leading "-"). */
+const SSH_HOST = /^[a-z0-9][a-z0-9.-]{0,252}$/
+
+/** The host an ssh remote names ("git@gitlab-work:a/b.git", "ssh://git@host:2222/a/b"); null for any other remote (a drive letter is no host). */
+export function sshHostOf(remoteUrl: string): string | null {
+  let host: string | null = null
+  if (/^ssh:\/\//i.test(remoteUrl)) {
+    try {
+      host = new URL(remoteUrl).hostname.toLowerCase()
+    } catch {
+      return null
+    }
+  } else if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(remoteUrl)) host = /^(?:[^@/]+@)?([^:/\\]{2,}):(?!\/)(.+)$/.exec(remoteUrl)?.[1]?.toLowerCase() ?? null
+  return host && SSH_HOST.test(host) ? host : null
+}
+
+/** ssh's answers per host, for SSH_NAME_MS (asked again after: ~/.ssh/config may have changed). */
+const SSH_NAME_MS = 10 * 60_000
+const sshNames = new Map<string, { at: number; name: Promise<string> }>()
+
+/** Forget what ssh said (tests). */
+export function forgetSshNames(): void {
+  sshNames.clear()
+}
+
+/**
+ * ssh's own name for a host: `ssh -G <host>` prints the configuration it would use, after Host / Match blocks — its
+ * "hostname" line names the real host of an alias (Host gitlab-work → HostName gitlab.com). Nothing connects; the
+ * person's own ssh and config, as git uses them for this remote. The host itself when ssh is missing, refuses, takes
+ * over 5 s or names nothing usable.
+ */
+export function sshHostName(host: string): Promise<string> {
+  if (!SSH_HOST.test(host)) return Promise.resolve(host)
+  const hit = sshNames.get(host)
+  if (hit && Date.now() - hit.at < SSH_NAME_MS) return hit.name
+  const name = execFileSafe('ssh', ['-G', host], { timeoutMs: 5000, maxBuffer: 256 * 1024, allow: 'exe' })
+    .then((r) => {
+      const real = r.code === 0 ? /^hostname[ \t]+(\S+)[ \t]*$/im.exec(r.stdout)?.[1]?.toLowerCase() : undefined
+      return real && SSH_HOST.test(real) ? real : host
+    })
+    .catch(() => host)
+  sshNames.set(host, { at: Date.now(), name })
+  return name
+}
+
+/** The repo's web address (webBase of its remote — an ssh host alias resolved — its worker.json forge); null without one. */
 export async function webOf(repo: RepoConfig): Promise<ForgeWeb | null> {
   const r = await git(repo.path, ['remote', 'get-url', repo.remote], 30_000)
-  return r.code === 0 ? webBase(r.stdout.trim(), repo.forge) : null
+  if (r.code !== 0) return null
+  const url = r.stdout.trim()
+  const alias = sshHostOf(url)
+  return webBase(url, repo.forge, alias ? await sshHostName(alias) : null)
 }
 
 /**
@@ -803,7 +867,14 @@ export async function webOf(repo: RepoConfig): Promise<ForgeWeb | null> {
  * lower-cased) — an SSH host alias (git@gitlab-work:…) or a web host other than the remote's still links right.
  */
 export function webFromRequest(url: string, forge: Forge): ForgeWeb | null {
-  const m = forge === 'gitlab' ? /^(https?:\/\/[^/?#]+\/.+?)\/-\/merge_requests\/\d+/.exec(url) : /^(https?:\/\/[^/?#]+\/[^/?#]+\/[^/?#]+)\/pull\/\d+/.exec(url)
+  // as a URL writes it: the host lower-cased, a default port (:443 / :80) left out
+  let href: string
+  try {
+    href = new URL(url).href
+  } catch {
+    return null
+  }
+  const m = forge === 'gitlab' ? /^(https?:\/\/[^/?#]+\/.+?)\/-\/merge_requests\/\d+/.exec(href) : /^(https?:\/\/[^/?#]+\/[^/?#]+\/[^/?#]+)\/pull\/\d+/.exec(href)
   if (!m) return null
   const parts = /^(https?:\/\/[^/?#]+)(\/.*)$/.exec(m[1]!)
   return parts ? cleanWeb({ base: `${parts[1]!.toLowerCase()}${parts[2]}`, forge }) : null

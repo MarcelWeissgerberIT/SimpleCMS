@@ -125,6 +125,9 @@ test('a task ships by itself: the note with links to GitLab, PR / commit = the m
   await page.getByTestId('coding-tab-git').click()
   await expect(page.getByTestId('coding-git-branch-link')).toHaveAttribute('href', `${GL}/-/tree/${branch}`)
   await expect(page.getByTestId('coding-git-commit-link').first()).toHaveAttribute('href', `${GL}/-/commit/${sha}`)
+  // every commit is pushed: each one is a link; the task's trailer line to search for
+  await expect(page.getByTestId('coding-git').locator('.cg-commits li')).toHaveCount(await page.getByTestId('coding-git-commit-link').count())
+  await expect(page.getByTestId('coding-git-trailer')).toContainText(`One-Task: ${id}`)
 
   // Push (nothing new): the toast says it in words, a note "Git (by hand)", the request's address stays
   await page.getByTestId('coding-git').getByRole('button', { name: 'Push', exact: true }).click()

@@ -2503,6 +2503,37 @@ dd:has(> .cw-port) {
 .cg-ro__cell .cg-sha code {
   color: var(--signal-ink);
 }
+/* the Git tab: "One-Task: <id>" — what the task's commits and requests end with, ready to copy */
+.cg-trailer {
+  display: grid;
+  grid-template-columns: auto minmax(0, max-content) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 2px 10px;
+  padding: 6px 10px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-1);
+}
+.cg-trailer code {
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: calc(12px * var(--text-scale));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: all;
+}
+.cg-trailer__hint {
+  grid-column: 1 / -1;
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+}
+@container (max-width: 560px) {
+  .cg-trailer {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .cg-trailer .label {
+    grid-column: 1 / -1;
+  }
+}
 /* Approvals: "Use for new tasks" sits next to the select; the gates that always stop get a line of their own */
 .ctk-appr .ctk-appr__default {
   flex: none;

@@ -7,7 +7,7 @@
  * at (plan + review · review only · none — "just do it"; a gate marked "Always stop here" always) — the device default
  * for new tasks changes only with "Use for new tasks". ModelPick: the model of its Claude Code stages.
  */
-import { useMemo } from 'react'
+import { useMemo, useRef } from 'react'
 import { FileText } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
@@ -95,13 +95,18 @@ export function TaskSetup({ taskId, repo, branch, described, kind = 'coding' }: 
 
 /**
  * Which gates this task stops at — on this device. A new task takes this device's default; only "Use for new tasks"
- * changes that default (a pick here never changes another task). Gates marked "Always stop here" the level would pass
- * are named. Business analysis / QA (no plan stage): wait at every approval, or none ("review" works like "all" there).
+ * changes that default (a pick here never changes another task, and a task without a pick keeps the default it was
+ * created under). After that key (it goes away) focus stays on the select. Gates marked "Always stop here" the level
+ * would pass are named. Business analysis / QA (no plan stage): wait at every approval, or none ("review" works like
+ * "all" there).
  */
 export function ApprovalsPick({ taskId, kind = 'coding', pipeline = [] }: { taskId: ID; kind?: PipelineKind; pipeline?: ResolvedStage[] }) {
   const t = useT()
-  const stored = approvalsOf(useTaskLocal(taskId))
+  // a task without a pick of its own: the default it was created under (the row's createdAt)
+  const createdAt = useWorkspace((s) => s.pages[taskId]?.createdAt)
   const def = useCoding((s) => s.approvalsDefault)
+  const stored = approvalsOf(useTaskLocal(taskId), createdAt)
+  const select = useRef<HTMLSelectElement>(null)
   const doc = kind !== 'coding'
   const level: Approvals = doc ? (stored === 'none' ? 'none' : 'all') : stored
   const sameAsDefault = level === (doc ? (def === 'none' ? 'none' : 'all') : def)
@@ -112,12 +117,12 @@ export function ApprovalsPick({ taskId, kind = 'coding', pipeline = [] }: { task
       <label className="ctk-appr__field">
         <span className="label">{t('features.coding.approvals.label')}</span>
         {doc ? (
-          <select className="input" value={level} onChange={(e) => void setTaskApprovals(taskId, e.target.value === 'none' ? 'none' : 'all')} data-testid="coding-approvals-select">
+          <select ref={select} className="input" value={level} onChange={(e) => void setTaskApprovals(taskId, e.target.value === 'none' ? 'none' : 'all')} data-testid="coding-approvals-select">
             <option value="all">{t('features.coding.approvals.doc.all')}</option>
             <option value="none">{t('features.coding.approvals.doc.none')}</option>
           </select>
         ) : (
-          <select className="input" value={level} onChange={(e) => void setTaskApprovals(taskId, e.target.value as Approvals)} data-testid="coding-approvals-select">
+          <select ref={select} className="input" value={level} onChange={(e) => void setTaskApprovals(taskId, e.target.value as Approvals)} data-testid="coding-approvals-select">
             {APPROVALS.map((a) => (
               <option key={a} value={a}>
                 {t(`features.coding.approvals.${a}`)}
@@ -132,6 +137,8 @@ export function ApprovalsPick({ taskId, kind = 'coding', pipeline = [] }: { task
           className="btn btn--sm btn--ghost ctk-appr__default"
           onClick={() => {
             setDefaultApprovals(level)
+            // the key goes away (the level is the default now): focus stays in the field it belongs to
+            select.current?.focus()
             useUI.getState().toast({ message: t('features.coding.approvals.defaultSet'), kind: 'success' })
           }}
           data-testid="coding-approvals-default"

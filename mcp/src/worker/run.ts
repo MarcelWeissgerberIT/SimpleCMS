@@ -644,10 +644,20 @@ export function newShip(action: ShipAction, from: 'stage' | 'key', branch: strin
   return { action, from, at: Date.now(), branch, commit: null, head: null, pushed: null, request: null, web }
 }
 
-/** A request's address from gh / glab: the record's web address follows it (an SSH alias, another web host). */
+/**
+ * A request's address from gh / glab: the record's web address follows it (an SSH alias, another web host). The address
+ * is kept as a URL writes it (host lower-cased, no default port — "https://Git.Nordlicht.de:443/…" → "https://git.nordlicht.de/…"):
+ * the web address taken from it and the address itself then start alike, as One checks.
+ */
 export function withRequest(rec: ShipRecord, url: string, how: ShipRequestHow): void {
-  rec.request = { url, how }
-  if (how !== 'link' && rec.web) rec.web = webFromRequest(url, rec.web.forge) ?? rec.web
+  let href = url
+  try {
+    href = new URL(url).href
+  } catch {
+    /* not a URL: One drops it (cleanShip) */
+  }
+  rec.request = { url: href, how }
+  if (how !== 'link' && rec.web) rec.web = webFromRequest(href, rec.web.forge) ?? rec.web
 }
 
 /** The request's kind for log lines: 'mr' on GitLab, else 'pr'. */

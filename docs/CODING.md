@@ -625,7 +625,10 @@ hooks and your git config apply as usual. On Windows every git call gets `-c cor
 - **Approvals** (One, per device): *all* (plan gate + review), *review* (the gate after a plan stage passes by itself),
   *none* (every gate passes). Kept per task in `TaskLocal.approvals`; a new task gets this device's default
   (localStorage `one.coding.approvals`, stamped by `createTask`), which only **Use for new tasks** (`setDefaultApprovals`)
-  writes — a task's pick never changes it (another tab follows through the `storage` event). A gate with `hold`
+  writes — a task's pick never changes it (another tab follows through the `storage` event). A task without a pick of
+  its own (made before the stamp, a row added on the board or by an agent, a team task from another device) takes the
+  default in effect when its row was created: each change notes the default it replaces with the time (localStorage
+  `one.coding.approvals.history`, ≤ 50, state.ts `approvalsAt`) — a new default never changes an existing task. A gate with `hold`
   (**Always stop here**, pipeline editor; `PipelineStage.hold`, gates only) is never skipped (`skipsGate`; the log says
   *"<gate>" always stops — waiting for you.*); tests failing twice still stop at the next gate. `hold` joins the task
   version only when set (trust.ts `pipelineKey`, like a stage's model): a pipeline without one hashes as before.
@@ -656,20 +659,25 @@ hooks and your git config apply as usual. On Windows every git call gets `-c cor
 ### What One records (ship log)
 
 Worker 1.10.0 (`can` 'ship' — it gates no stage: an older worker's git stages run as before and One writes their
-summary note; a worker without it shows **Download again**). Every git stage (commit · push · pr · comment · merge;
+summary note; a worker without it shows **Download again**, and the plate says what the newer one adds rather than
+"skips stages" while 'ship' is all it lacks — protocol.ts `WORKER_EXTRAS` / `workerLacksOnlyExtras`). Every git stage (commit · push · pr · comment · merge;
 also a `failed` outcome after its commit) and every git key (commit · push · force-push · pr · comment-pr · merge-pr)
 returns a `ShipRecord` (protocol.ts) in `StageOutcome.ship` / `GitResult.ship`: `action`, `from` (stage | key), `at`,
 `branch`, `commit` { sha } (null: nothing new to commit), `head`, `pushed` { remote, force? }, `pushOff`, `request`
 { url, how: opened | existing | link | commented | merged }, `web` (below) and `failed` { step: push | request, code?:
 pushRejected }. The key 'pr' whose request fails after the push answers `GitResult.error` (and still `ship`) instead of
 throwing; `message` says both in English for older apps. Update from base, refresh, reveal, discard and cleanup write
-no record.
+no record. The tab waits for a key's answer as long as the worker may take (service.ts `GIT_KEY_MS`: push 8 min, pr
+12 min, merge-pr 18 min …; a link that drops ends the wait at once) — a key's record has no redelivery: a tab that
+reloads meanwhile writes no note for it (the push / request happened; the device log has the coded lines).
 
-- **Where**: One checks it again (coding/ship.ts `cleanShip`: the branch, shas, the remote's name, `cleanWeb`, a request
-  only on `web.base` + "/", http(s), no credentials, no fragment) and writes ONE grey callout per record that says
+- **Where**: One checks it again (coding/ship.ts `cleanShip`: the branch by git's own rules — any name git takes, umlauts
+  too, no control / bidi marks —, shas, the remote's name, `cleanWeb`, a request only on `web.base` + "/" as a URL
+  writes it, http(s), no credentials, no fragment) and writes ONE grey callout per record that says
   anything (`shipShows`; a record that says nothing — nothing new to commit, nothing pushed — writes none, and never
   the stage's English summary) at the end of the task page: **"<stage> · <date time>"** (`shipWhen`: "14 Oct 14:32" ·
-  "14.10. 14:32") or **"Git (by hand) · …"** for a key, then the line *Commit a1b2c3d · Branch one/… · MR !42 · pushed
+  "14.10. 14:32", with the year when it is not this year's; a record delivered late keeps its own time — only a time
+  more than 5 minutes ahead of the tab's clock becomes now) or **"Git (by hand) · …"** for a key, then the line *Commit a1b2c3d · Branch one/… · MR !42 · pushed
   to origin/one/…* in the person's language. A stage's note sits in finishStage's `keepTrust(aiWrite(…))` under the stage
   run's writer (`coding:<task>:<run>`); a key's in gitTask's `keepTrust(…)` under `you~ui` — the task version stays
   trusted (team: the version takes the page). Only the line and the PR / commit value go into the synced page / row;
@@ -678,17 +686,26 @@ no record.
   or a request on the host exists (opened · existing · commented · merged); a commit only on the person's computer
   (push off, push failed, the Commit key) shows its short sha as text. GitHub `<base>/commit/<sha>` · `<base>/tree/<branch>`,
   GitLab `<base>/-/commit/<sha>` · `<base>/-/tree/<branch>` (`commitUrl` / `branchUrl`, each path part encoded). The Git
-  tab links the pushed commits and the branch the same way (`GitInfo.web`).
+  tab links the branch the same way (`GitInfo.web`) and each commit the worker marks as on the remote task branch
+  (`GitCommit.remote`: not in `git rev-list <remote>/<branch>..HEAD` — per commit, never by its place in the by-date log,
+  where local and pushed commits interleave after Update from base merged the remote branch in). Its **Find on the
+  host** row shows `One-Task: <task id>` with a copy key; its request group's **Open** opens a request (or the link to
+  create one), never the commit PR / commit holds without one (`isCommitUrl`).
 - **PR / commit** = `prFieldNext`: the request's address wins (a 'link' never over an open request's address); else the
   pushed commit's link (commit, else head) — only into an empty field or over an older commit link of the same
   repository. Nothing else is overwritten.
-- **The trailer**: commit messages (stages and the Commit key) and request descriptions end with `One-Task: <task id>`
+- **The trailer**: commit messages the worker makes (stages and the Commit key — not a merge commit of Update from
+  base) and request descriptions end with `One-Task: <task id>` (the page id; the Git tab shows the line to copy)
   — built as text (run.ts `withTaskTrailer` / `requestBody`), never with `git interpret-trailers` / `git commit
   --trailer` (a `trailer.<token>.cmd` in the person's or the repo's config runs commands). A `One-Task:` line in
   Claude's summary or a typed message is removed first.
 - **`web`** = the repository's web address: scheme + host (+ the port of an http(s) remote) + project path, never a user
   name, token, query, fragment or local path (`cleanWeb` on both sides, the one rule); from the remote URL (`webOf`,
-  worker.json `forge`) — or, when gh / glab named the request, from that address (an SSH host alias, another web host).
+  worker.json `forge`; an ssh remote's host as ssh names it — `ssh -G <host>`'s `hostname`, so an alias in ~/.ssh/config
+  such as `git@gitlab.com-work:…` links to gitlab.com; nothing connects, asked once per host per 10 minutes, the host as
+  written when ssh is missing or says nothing usable) — or, when gh / glab named the request, from that address (another
+  web host). The request's address is kept as a URL writes it (host lower-cased, no default port): it always starts
+  with the web address taken from it; One checks that and keeps that form.
   The owner agreed that host + project path go into the page; in a team the Coding database is the member's private one.
 - An older app ignores `ship` and keeps writing `outcome.url` / `summary`, which the worker still sends.
 
@@ -961,7 +978,7 @@ JSON text frames, subprotocol `one-worker.v1`, defined in
 | tab → worker | `{ type: "hello", app: "one", version, workspace: { id, name, kind, readOnly }, pair? }` (`pair`: this device's secret for a downloaded worker) · `status` (same workspace, or the tab is refused) · `nudge` |
 | worker → tab | `welcome` { worker, name, repos: [{ name, baseBranch, branches?, mcp?, push?, pr? }], parallel, busy, spentToday, dayLimit, claude: { found, version }, setup, paired } (sent again when the setup page saves) · `refused` { reason: workspace \| unbound \| pair, paired? } + close 4003 · `status` { busy, spentToday } |
 | worker → tab (req) | `next` { repos, worker, docs?, can? } → `{ task: TaskPayload \| null }` (claimed; `stage.model` = the model Claude Code runs with, or null; `can` = `WORKER_CAN` — 'analyze', 'git:comment', 'git:merge', 'doc', 'model' (a stage whose model is set), 'mcp-list', 'ship' (git stages and keys return a ShipRecord — it gates nothing): a stage that needs one goes only to a worker that names it, else the task fails with "needs a newer coding worker" — an older worker ran unknown kinds as git stages or dropped the task as unreadable. Document stages came before `can`, together with `docs: true`: a worker that sends either knows them (`workerCan`), one with neither gets none; a worker that does not name all of `WORKER_CAN` shows "Download again" on #/coding; a worker whose welcome names 1.3.1 up to 1.8.0 — the ZIP import that could plant a `.git`, `workerUnsafe` — shows the security notice with its version instead, on #/coding and in the setup card) · `heartbeat` { taskIds } · `finish` { taskId, stageId, outcome } (`outcome.ship?` — § What One records; retried until confirmed; a task the worker cannot read — a stage kind it does not know — comes back at once as `{ status: 'refused' }`, so One does not hand it out again) |
-| worker → tab (event) | `log` { lines } (a tool line of Edit / MultiEdit / Write carries `e`: { path, hunks: [{ old, new }], clipped? } — ≤ 6 changes × 4,000 characters, scrubbed) · `git` { git } (`git.web?`: the repo's web address) · `note` { text } · `question` { text } · `progress` { progress: { turns, maxTurns, cost, model } } · `intake` { intake: { state, source, label, line, percent, repo?, suggest?, error? } } |
+| worker → tab (event) | `log` { lines } (a tool line of Edit / MultiEdit / Write carries `e`: { path, hunks: [{ old, new }], clipped? } — ≤ 6 changes × 4,000 characters, scrubbed) · `git` { git } (`git.web?`: the repo's web address; `git.commits[].remote?`: that commit is on the remote task branch) · `note` { text } · `question` { text } · `progress` { progress: { turns, maxTurns, cost, model } } · `intake` { intake: { state, source, label, line, percent, repo?, suggest?, error? } } |
 | tab → worker (req) | `stop` { taskId } · `git` { taskId, verb, repo, branch, title, message? } — verbs: refresh, commit, push, force-push, pr, update-base, discard, cleanup, reveal, comment-pr (`message` = the review), merge-pr → `{ message, url?, git?, branchGone?, ship?, error? }` (`error`: key 'pr' after the push) · `open-setup` → `{ opened, reason?: off \| no-browser }` · `intake-begin` { taskId, name, size } → `{ uploadId, chunk }` · `intake-chunk` { uploadId, data } · `intake-end` { uploadId } · `intake-clone` { taskId, url } |
 
 `POST http://127.0.0.1:<port>/task` (`Authorization: Bearer <run token>`, no `Origin`): the task tools.

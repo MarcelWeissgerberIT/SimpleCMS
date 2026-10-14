@@ -32,7 +32,7 @@ import { createPrivatePage } from '../../cloud'
 import { addTrusted, appendLog, loadTask, patchTask, taskLocal, type TaskLocal } from './local'
 import { isTrusted, keepTrust, trustTask, versionOf } from './trust'
 import { taskText } from './refs'
-import { APPROVALS_KEY, defaultApprovals, useCoding, type ApprovalsLevel } from './state'
+import { APPROVALS_KEY, approvalsAt, defaultApprovals, noteApprovalsChange, useCoding, type ApprovalsLevel } from './state'
 import { cleanShip, prFieldNext, shipNote, shipShows } from './ship'
 import { notifyAway } from './notify'
 import { endRun, noteRun, SYSTEM, withWriter, type Writer } from '../../store/writer'
@@ -380,11 +380,11 @@ export async function finishStage(taskId: ID, stageId: ID, outcome: StageOutcome
       if (stage?.kind === 'test') patch.testFailures = 0
       if (stillThere) moveTo = nextStage(pipeline, stage!)
       // gates this task does not stop at (Approvals): straight on, noted in the log
-      for (let hops = 0; moveTo?.kind === 'gate' && skipsGate(approvalsOf(local), pipeline, moveTo) && hops < pipeline.length; hops++) {
+      for (let hops = 0; moveTo?.kind === 'gate' && skipsGate(approvalsOf(local, row.createdAt), pipeline, moveTo) && hops < pipeline.length; hops++) {
         passed.push(moveTo.name)
         moveTo = nextStage(pipeline, moveTo)
       }
-      if (moveTo?.kind === 'gate' && moveTo.hold && skipsGate(approvalsOf(local), pipeline, { ...moveTo, hold: false })) held = moveTo.name
+      if (moveTo?.kind === 'gate' && moveTo.hold && skipsGate(approvalsOf(local, row.createdAt), pipeline, { ...moveTo, hold: false })) held = moveTo.name
       // answers and rework notes belong to the stage they were given in
       patch.answers = (local.answers ?? []).filter((a) => a.stageId !== stageId)
       if (local.rework?.stageId === stageId) patch.rework = null
@@ -1062,9 +1062,13 @@ export type Approvals = ApprovalsLevel
 export const APPROVALS: Approvals[] = ['all', 'review', 'none']
 export { APPROVALS_KEY, defaultApprovals }
 
-/** A task's own Approvals (a task from before they were stamped at creation: this device's default for new tasks). */
-export function approvalsOf(local: TaskLocal): Approvals {
-  return local.approvals && APPROVALS.includes(local.approvals) ? local.approvals : defaultApprovals()
+/**
+ * A task's own Approvals. A task without a pick of its own (made before they were stamped at creation, a row added on
+ * the board or by an agent, a team task from another device): this device's default as it was when the task was
+ * created (`createdAt`, the row's) — a later "Use for new tasks" never changes it. Without `createdAt`: today's default.
+ */
+export function approvalsOf(local: TaskLocal, createdAt?: number | null): Approvals {
+  return local.approvals && APPROVALS.includes(local.approvals) ? local.approvals : approvalsAt(createdAt)
 }
 
 /**
@@ -1095,8 +1099,14 @@ export async function setTaskApprovals(taskId: ID, level: Approvals): Promise<vo
   }
 }
 
-/** This device's default for new tasks ("Use for new tasks" in the coding panel) — the only writer of one.coding.approvals. */
+/**
+ * This device's default for new tasks ("Use for new tasks" in the coding panel) — the only writer of one.coding.approvals.
+ * The default it replaces is noted with the time (one.coding.approvals.history): every task without a pick of its own
+ * keeps the default it was created under (approvalsOf) — no existing task changes.
+ */
 export function setDefaultApprovals(level: Approvals): void {
+  const was = defaultApprovals()
+  if (was !== level) noteApprovalsChange(was)
   try {
     localStorage.setItem(APPROVALS_KEY, level)
   } catch {

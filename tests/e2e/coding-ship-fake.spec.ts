@@ -145,9 +145,15 @@ test('an older worker (no "ship"): the git stage\'s summary goes into the page a
   expect(ship[0]!.label).toMatch(/^Ship · \d{2}:\d{2}$/)
   expect(ship[0]!.text).toContain('Committed abcd1234.')
   expect(await field(page, id, 'pr')).toBe(MR)
-  // #/coding: the plate offers the newer file (it lacks 'ship')
+  // #/coding: the plate offers the newer file (it lacks 'ship') — and says what it adds: this one skips no stage
   await page.evaluate(() => (window.location.hash = '#/coding'))
-  await expect(page.getByTestId('coding-worker-outdated')).toContainText('A newer worker is on the site')
+  const plate = page.getByTestId('coding-worker-outdated')
+  await expect(plate).toContainText('A newer worker is on the site — it notes every commit, push and merge request in the task page, with links. This one runs every stage as before.')
+  await expect(plate).not.toContainText('skips stages')
+  // the Git tab of an older worker's snapshot (no web address): no "Find on the host" (its commits carry no trailer)
+  await page.evaluate((id) => (window.location.hash = `#/p/${id}`), id)
+  await page.getByTestId('coding-tab-git').click()
+  await expect(page.getByTestId('coding-git-trailer')).toHaveCount(0)
 })
 
 test('a failed push in German: the note "Ausliefern · <date>" records the commit, nothing linked, the task failed, PR / Commit untouched', async ({ page, errors }) => {
@@ -251,9 +257,20 @@ test('PR / commit never loses a request to a commit link; hostile records are dr
   expect(note.text).toBe(`Nothing new to commit · Branch ${BRANCH} · push failed`)
 
   // the Git tab: Push → the ship text as the toast, a note "Git (by hand)"; PR / commit keeps the request
+  // the snapshot after an Update from base that merged commits pushed from elsewhere: by date the merge, a pushed commit
+  // (newer), then one only here — the worker marks each; the Git tab links per commit, never by position
+  const SHA3 = 'c3d4e5f60718293a4b5c6d7e8f90123456789012'
+  const snapshot = {
+    branch: BRANCH, base: 'origin/main', ahead: 3, behind: 0, pushed: true, unpushed: 2, dirty: 0, files: [], conflicts: [], created: true, merged: false, at: Date.now(), web: GL,
+    commits: [
+      { sha: SHA3, subject: 'Merge origin/one/fix-the-login-form-ab12cd', author: 'Nordlicht', at: Date.now(), remote: false },
+      { sha: SHA2, subject: 'Apply suggestion', author: 'Tessera', at: Date.now() - 60_000, remote: true },
+      { sha: SHA, subject: 'Fix the login form', author: 'Nordlicht', at: Date.now() - 120_000, remote: false },
+    ],
+  }
   fake.onGit = (req) =>
     req.verb === 'push'
-      ? { message: `Pushed ${BRANCH} to origin.`, ship: rec({ action: 'push', from: 'key', commit: null, head: SHA2, request: null }) }
+      ? { message: `Pushed ${BRANCH} to origin.`, git: snapshot, ship: rec({ action: 'push', from: 'key', commit: null, head: SHA2, request: null }) }
       : req.verb === 'pr'
         ? { message: `Pushed ${BRANCH}. The pull request could not be opened: git: gh pr create failed: GraphQL: something`, error: 'git: gh pr create failed: GraphQL: something', ship: rec({ action: 'pr', from: 'key', commit: null, head: SHA2, request: null, web: GH, failed: { step: 'request' } }) }
         : new Error('not played')
@@ -265,6 +282,19 @@ test('PR / commit never loses a request to a commit link; hostile records are dr
   expect(note.text).toBe(`At ${SHA2.slice(0, 7)} · Branch ${BRANCH} · pushed to origin/${BRANCH}`)
   expect(note.links[0]).toEqual([SHA2.slice(0, 7), `${GL.base}/-/commit/${SHA2}`])
   expect(await field(page, id, 'pr')).toBe(MR)
+  // the Git tab: only the commit the worker marked pushed is a link (the second of three — by position it would not be)
+  const commitLinks = page.getByTestId('coding-git-commit-link')
+  await expect(commitLinks).toHaveCount(1)
+  await expect(commitLinks).toHaveAttribute('href', `${GL.base}/-/commit/${SHA2}`)
+  // "Find on the host": the task's own trailer line, with a copy key
+  await expect(page.getByTestId('coding-git-trailer')).toContainText(`One-Task: ${id}`)
+  await expect(page.getByTestId('coding-git-trailer-copy')).toHaveAttribute('aria-label', `Copy One-Task: ${id}`)
+  // the request group opens the merge request — never a commit the field holds without one
+  await expect(page.getByTestId('coding-git-request-link')).toHaveAttribute('href', MR)
+  await setField(page, id, `${GL.base}/-/commit/${SHA2}`)
+  await expect(page.getByTestId('coding-git-request-link')).toHaveCount(0)
+  await setField(page, id, MR)
+  await expect(page.getByTestId('coding-git-request-link')).toHaveAttribute('href', MR)
   // Open PR: pushed, the request failed — an error toast, and the push recorded
   const count = (await notes(page, id)).length
   await page.getByTestId('coding-git').getByRole('button', { name: 'Open PR' }).click()
@@ -298,12 +328,14 @@ test('the pipeline editor warns when the worker has pushing or requests off for 
   await expect(warn).toContainText('website: pushing is off in the worker — this stage only commits there.')
   await expect(warn).toContainText('tessera: pull / merge requests are off in the worker — this stage pushes there and leaves a link to create the request.')
   await expect(warn.getByTestId('coding-change-repos')).toBeVisible()
-  // Review & merge: posting the review and merging fail where requests are off
+  // Review & merge: posting the review and merging fail where requests are off — and where pushing is off (nothing was
+  // pushed, so there is no request)
   await page.getByTestId('coding-template-reviewmerge').click()
   for (const name of ['Post review', 'Merge']) {
     await expect(row(name).getByTestId('coding-pipeline-warn-chip')).toBeVisible()
     await row(name).getByRole('button', { name: 'Stage details' }).click()
     await expect(row(name).getByTestId('coding-pipeline-warn')).toContainText('tessera: pull / merge requests are off in the worker — this stage fails there.')
+    await expect(row(name).getByTestId('coding-pipeline-warn')).toContainText('website: pushing is off in the worker — nothing is pushed there, so there is no merge request to review or merge: this stage fails there.')
     await row(name).getByRole('button', { name: 'Stage details' }).click()
   }
   // the warning never blocks Save
@@ -366,7 +398,7 @@ test('"Always stop here": a new Review & merge pipeline holds at Approve review 
   await row('Approve plan').getByRole('button', { name: 'Stage details' }).click()
   const hold = row('Approve plan').getByRole('switch', { name: 'Always stop here' })
   await expect(hold).toHaveAttribute('aria-checked', 'false')
-  await expect(row('Approve plan').getByTestId('coding-pipeline-hold')).toContainText('The task waits here even with Approvals “None — just do it”.')
+  await expect(row('Approve plan').getByTestId('coding-pipeline-hold')).toContainText('The task waits here even with Approvals “None”.')
   await hold.click()
   await expect(row('Approve plan').getByTestId('coding-pipeline-hold-chip')).toBeVisible()
   await page.getByTestId('coding-pipeline-save').click()
@@ -391,13 +423,28 @@ test('"Always stop here": a new Review & merge pipeline holds at Approve review 
   expect(await holds()).toEqual([])
 })
 
-test('Approvals: a task\'s pick never changes the default for new tasks — only "Use for new tasks" does', async ({ page }) => {
+test('Approvals: a task\'s pick never changes the default for new tasks — only "Use for new tasks" does, and it changes no existing task', async ({ page }) => {
   await openApp(page)
   await page.evaluate(() => localStorage.setItem('one.coding.approvals', 'review'))
   await reloadApp(page)
   const select = page.getByTestId('coding-approvals-select')
   const stored = () => page.evaluate(() => localStorage.getItem('one.coding.approvals'))
   const a = await newTask(page, 'Nordlicht header')
+  // a row added outside New task (the board's "+ New", an agent, another device): no pick of its own
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  const addRow = (title: string) =>
+    wsEval(
+      page,
+      (s, title) => {
+        const db = Object.values(s.databases).find((x: any) => x.system === 'coding') as any
+        const prop = (n: string) => db.properties.find((p: any) => p.name === n)
+        const ready = prop('Stage').options.find((o: any) => o.name === 'Ready').id
+        return s.createRow(db.id, { title, properties: { [prop('Stage').id]: ready } }) as string
+      },
+      title,
+    )
+  /* eslint-enable @typescript-eslint/no-explicit-any */
+  const row = await addRow('Tessera board row')
   await expect(select).toHaveValue('review')
   await expect(page.getByTestId('coding-approvals-default')).toHaveCount(0)
   await select.selectOption('none')
@@ -408,10 +455,24 @@ test('Approvals: a task\'s pick never changes the default for new tasks — only
   await expect(select).toHaveValue('review')
   await page.evaluate((id) => (window.location.hash = `#/p/${id}`), a)
   await expect(select).toHaveValue('none')
-  await page.getByTestId('coding-approvals-default').click()
+  // by keyboard: the key goes away, focus stays on the select (never the page's main region)
+  await page.getByTestId('coding-approvals-default').focus()
+  await page.keyboard.press('Enter')
   await expect(page.locator('.toast').filter({ hasText: 'Now the default for new tasks on this device.' })).toBeVisible()
   expect(await stored()).toBe('none')
   await expect(page.getByTestId('coding-approvals-default')).toHaveCount(0)
+  await expect(select).toBeFocused()
+  // the row without a pick keeps the default it was made under ("review") — the new default changes no existing task
+  await page.evaluate((id) => (window.location.hash = `#/p/${id}`), row)
+  await expect(select).toHaveValue('review')
+  // a row added now takes the new default
+  const later = await addRow('Launch plan board row')
+  await page.evaluate((id) => (window.location.hash = `#/p/${id}`), later)
+  await expect(select).toHaveValue('none')
+  // after a reload too (the history of defaults is this device's, in localStorage)
+  await reloadApp(page)
+  await page.evaluate((id) => (window.location.hash = `#/p/${id}`), row)
+  await expect(select).toHaveValue('review')
   // a task made now takes it; the earlier one keeps its own
   await newTask(page, 'Launch plan')
   await expect(select).toHaveValue('none')

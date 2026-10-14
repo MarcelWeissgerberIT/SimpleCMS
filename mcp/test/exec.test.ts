@@ -857,6 +857,7 @@ describe('exec — source guard', () => {
       'clone.ts: cmd', // runCli: 'git' (an .exe only) · 'gh' · 'glab'
       "config.ts: 'git'",
       "git.ts: 'git'",
+      "git.ts: 'ssh'", // sshHostName(): `ssh -G <host>` — a host name (SSH_HOST: never an option) the remote's address names
       'git.ts: cmd', // run(): 'gh' | 'glab'
       "gitenv.ts: 'git'",
       'opener.ts: how.cmd', // cmd.exe from System32, or ONE_WORKER_BROWSER (the person's)

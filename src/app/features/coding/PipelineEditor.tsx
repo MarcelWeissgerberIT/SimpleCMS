@@ -242,7 +242,7 @@ export function PipelineEditor({ dbId, locked, onClose }: { dbId: string; locked
                     <div className="cpe-warn" role="note" data-testid="coding-pipeline-warn">
                       <Led state="on" />
                       <div className="cpe-warn__text">
-                        {w.pushOff.length > 0 && <p>{t('features.coding.pipeline.warn.pushOff', { repos: w.pushOff.join(', ') })}</p>}
+                        {w.pushOff.length > 0 && <p>{t(w.prFails ? 'features.coding.pipeline.warn.pushOffFails' : 'features.coding.pipeline.warn.pushOff', { repos: w.pushOff.join(', ') })}</p>}
                         {w.prOff.length > 0 && <p>{t(w.prFails ? 'features.coding.pipeline.warn.prOffFails' : 'features.coding.pipeline.warn.prOff', { repos: w.prOff.join(', ') })}</p>}
                         <ChangeReposButton className="btn btn--sm btn--ghost" />
                       </div>

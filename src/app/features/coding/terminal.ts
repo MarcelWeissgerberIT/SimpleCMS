@@ -413,7 +413,7 @@ export async function taskDetail(id: ID, logLines = 25, limit: ReadLimitFn = nul
       : { rework: local.rework ?? null, answers: local.answers ?? [], plan: local.plan ?? null, summary: local.summary ?? null, test: local.test ?? null, git: local.git ?? null, url: local.url ?? null, approvals: local.approvals, spawned: local.spawned },
     log,
     limited: lim,
-    approvals: approvalsOf(local),
+    approvals: approvalsOf(local, live.row.createdAt),
     planEdited: !lim && !!local.plan?.trim() && !!local.planSig && !live.pipeline.some((st) => (st.kind === 'plan' || st.kind === 'doc' || st.kind === 'analyze') && textHash(planSection(id, sectionTitleOf(live.pipeline, st)) ?? '') === local.planSig),
   }
 }
@@ -814,7 +814,7 @@ export async function planTaskAction(taskId: ID, op: TaskOp, input: { note?: str
     if (v.length > TEXT_MAX) throw new CodingPlanError(`"${what}" is too long (${v.length} characters, at most ${TEXT_MAX}).`)
     return v
   }
-  const approvals = approvalsOf(local)
+  const approvals = approvalsOf(local, row.createdAt)
   switch (op) {
     case 'approve': {
       if (phase !== 'gate' || !stage) throw new CodingPlanError(`${where}: approve works only while a task waits at a gate.`)
@@ -898,7 +898,7 @@ export function startsNow(c: { op: 'create' | TaskOp; starts: boolean; task?: Ne
   const ctx = taskContext(a.taskId)
   const next = ctx?.stage ? nextStage(ctx.pipeline, ctx.stage) : null
   if (!ctx || !next) return true
-  return landsOn(ctx.pipeline, next) === 'worker' || ((next.kind === 'done' || runsFrom(ctx.pipeline, next, approvalsOf(taskLocal(a.taskId))).stop?.kind === 'done') && followUpsOf(a.taskId).length > 0)
+  return landsOn(ctx.pipeline, next) === 'worker' || ((next.kind === 'done' || runsFrom(ctx.pipeline, next, approvalsOf(taskLocal(a.taskId), ctx.row.createdAt)).stop?.kind === 'done') && followUpsOf(a.taskId).length > 0)
 }
 
 /**

@@ -32,6 +32,64 @@ export function defaultApprovals(): ApprovalsLevel {
   }
 }
 
+/**
+ * The defaults this device had before each change (localStorage, written with the change by setDefaultApprovals):
+ * `[{ l: the level, u: until when (ms) }]`, oldest first, the last APPROVALS_HISTORY_MAX. A task without a pick of its own
+ * (made before the defaults were stamped, a row added on the board, a team member's task from another device) takes
+ * the default in effect when it was created — "Use for new tasks" never changes it afterwards.
+ */
+export const APPROVALS_HISTORY_KEY = 'one.coding.approvals.history'
+const APPROVALS_HISTORY_MAX = 50
+export interface ApprovalsSpan {
+  l: ApprovalsLevel
+  u: number
+}
+const level = (v: unknown): v is ApprovalsLevel => v === 'all' || v === 'review' || v === 'none'
+/** The history read and checked (an entry that is not { l, u } is left out). */
+export function readApprovalsHistory(raw: string | null): ApprovalsSpan[] {
+  if (!raw) return []
+  try {
+    const v: unknown = JSON.parse(raw)
+    if (!Array.isArray(v)) return []
+    return v
+      .filter((e): e is ApprovalsSpan => !!e && typeof e === 'object' && level((e as ApprovalsSpan).l) && Number.isFinite((e as ApprovalsSpan).u))
+      .map((e) => ({ l: e.l, u: e.u }))
+      .sort((a, b) => a.u - b.u)
+      .slice(-APPROVALS_HISTORY_MAX)
+  } catch {
+    return []
+  }
+}
+/** private mode (no localStorage): this tab's changes */
+let historyHere: ApprovalsSpan[] = []
+let historyRead: { raw: string | null; list: ApprovalsSpan[] } | null = null
+function approvalsHistory(): ApprovalsSpan[] {
+  let raw: string | null
+  try {
+    raw = localStorage.getItem(APPROVALS_HISTORY_KEY)
+  } catch {
+    return historyHere
+  }
+  if (raw === null && historyHere.length) return historyHere
+  if (historyRead?.raw !== raw) historyRead = { raw, list: readApprovalsHistory(raw) }
+  return historyRead.list
+}
+/** The default in effect at `at` (a task's creation): the first change after it names it; none after it — today's. */
+export function approvalsAt(at: number | null | undefined, history: readonly ApprovalsSpan[] = approvalsHistory(), now: ApprovalsLevel = defaultApprovals()): ApprovalsLevel {
+  if (typeof at === 'number' && Number.isFinite(at)) for (const s of history) if (at < s.u) return s.l
+  return now
+}
+/** Note that the default `was` until now (setDefaultApprovals, before it writes the new one). */
+export function noteApprovalsChange(was: ApprovalsLevel, until = Date.now()): void {
+  const list = [...approvalsHistory(), { l: was, u: until }].slice(-APPROVALS_HISTORY_MAX)
+  historyHere = list
+  try {
+    localStorage.setItem(APPROVALS_HISTORY_KEY, JSON.stringify(list))
+  } catch {
+    /* private mode: this tab only */
+  }
+}
+
 export interface WorkerPair {
   secret: string
   /** when the worker was downloaded (ms) */
