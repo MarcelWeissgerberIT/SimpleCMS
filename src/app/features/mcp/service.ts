@@ -559,6 +559,13 @@ if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams
       set((s) => ({ activity: [{ ...a, ...(undoable ? { undo: () => ((w.__oneMcpUndos = (w.__oneMcpUndos ?? 0) + 1), true) } : {}) }, ...s.activity] }))
     },
     undos: () => (window as unknown as { __oneMcpUndos?: number }).__oneMcpUndos ?? 0,
+    /** MCP · Connections' bridge row in a given state (never connects, never sends — the state only) */
+    seed: (patch: Record<string, unknown>) => {
+      const keys = ['enabled', 'conn', 'blocked', 'prompt', 'client', 'peers', 'legacy', 'calls', 'bridge', 'session'] as const
+      const out: Record<string, unknown> = {}
+      for (const k of keys) if (k in patch) out[k] = patch[k]
+      set(out as Partial<ReturnType<typeof get>>)
+    },
     busy: mcpBusy,
     settle: settleMcpCall,
     unsettle: unsettleMcpCall,

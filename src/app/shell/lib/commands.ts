@@ -7,7 +7,7 @@ import { Bell, CalendarDays, CalendarRange, Copy, Download, FilePlus2, FolderInp
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { navigate } from '../../lib/router'
-import { openTodayJournal, openAgent, AGENT_SHORTCUT, openFunctionBuilder, paletteDbCommands, createScript, openScripts, paletteScripts, openOutbox, openRecorder, REWIND_SHORTCUT, openPreflight, preflightIsOn, openAISetup, openRegler } from '../../features'
+import { openTodayJournal, openAgent, AGENT_SHORTCUT, openFunctionBuilder, paletteDbCommands, createScript, openScripts, paletteScripts, openOutbox, openRecorder, REWIND_SHORTCUT, openPreflight, preflightIsOn, openAISetup, openRegler, openMcpConnections } from '../../features'
 import type { ID } from '../../store/types'
 import type { Translate } from '@/shared/i18n'
 import { quickNoteToInbox } from '../capture/inbox'
@@ -168,6 +168,9 @@ export function buildCommands(t: Translate, pageId: ID | null): Command[] {
   for (const c of paletteDbCommands()) list.push({ id: `db:${c.id}`, group: 'database', label: c.label, icon: c.icon, keywords: c.keywords, run: () => { closeMobileSidebar(); c.run() } })
   // saved scripts (features/script): "Run script: <name>" for the open page — found by typing, like the database commands
   for (const c of paletteScripts(live ? page.id : null)) list.push({ id: c.id, group: 'database', label: c.label, icon: c.icon, keywords: c.keywords, run: () => { closeMobileSidebar(); c.run() } })
+  // MCP · Connections (#/mcp): every MCP connection One knows of — reads only, so viewers have it too. Last in the list:
+  // its many keywords never win a tie against a command that owns the word ("worker", "team" …); "mcp" finds it by its label
+  list.push({ id: 'mcp', group: 'navigate', label: t('features.mcp.page.cmd'), icon: Plug, keywords: t('features.mcp.page.cmdKeywords'), run: () => openMcpConnections() })
   // viewers read: nothing that creates, moves or deletes pages
   if (cloud.readOnly) return list.filter((c) => !EDITING.has(c.id))
   return list

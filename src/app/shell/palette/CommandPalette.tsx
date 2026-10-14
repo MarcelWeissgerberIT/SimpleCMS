@@ -462,7 +462,7 @@ function rankCommands(commands: Cmd[], term: string): Cmd[] {
     const keywords = c.keywords?.toLowerCase() ?? ''
     if (label.startsWith(n)) return 0
     if (wordStarts(label, n)) return 1
-    if (wordStarts(keywords, n)) return 2
+    if (wordStarts(keywords, n) || phraseStarts(keywords, n)) return 2
     if (label.includes(n)) return 3
     if (keywords.includes(n) || (c.group !== 'database' && c.id.includes(n))) return 4
     return -1
@@ -475,6 +475,9 @@ function rankCommands(commands: Cmd[], term: string): Cmd[] {
 }
 
 const wordStarts = (text: string, n: string) => text.split(/[\s()&,/…-]+/).some((w) => w.startsWith(n))
+/** Keywords may list phrases people type, set apart by " · " ("mcp server · mcp-server"): a query of several words (or
+ *  a hyphenated one) that begins such a phrase ranks like a keyword's word — a single word ranks as it always did. */
+const phraseStarts = (keywords: string, n: string) => /[\s-]/.test(n.trim()) && keywords.split(' · ').some((p) => p.trim().startsWith(n.trim()))
 const labelStarts = (label: string, term: string) => label.toLowerCase().startsWith(term.toLowerCase())
 
 /** The commands of the list without a query, most used first within their groups. */

@@ -1,0 +1,600 @@
+/* ================================================================
+   #/mcp — MCP · Connections (lazy, ConnectionsPage.tsx): the head,
+   the readout strip, four sections of rows (LED · NAME + host · state
+   word · reason · keys, facts below). Tokens only; sizes --text-* or
+   calc(n px * var(--text-scale)); rules that meet a primitive (.btn,
+   .label) carry two classes. Hairlines, no cards, no shadows.
+   ================================================================ */
+
+.mcpc {
+  max-width: 1180px;
+  padding: 26px clamp(16px, 4cqi, 40px) 36px;
+  container: mcpc / inline-size;
+}
+
+/* head */
+.mcpc__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+.mcpc__icon {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-1);
+  color: var(--ink-2);
+}
+.mcpc__title.display {
+  /* a long word ("Verbindungen" at a large text size) breaks inside the column rather than pushing it sideways */
+  min-width: 0;
+  margin: 0;
+  font-size: var(--text-3xl);
+  line-height: 1.1;
+  overflow-wrap: break-word;
+  hyphens: auto;
+}
+.mcpc__title:focus {
+  outline: none;
+}
+.mcpc__title:focus-visible {
+  outline: none;
+  box-shadow: none;
+  text-decoration: underline 3px var(--signal);
+  text-underline-offset: 7px;
+}
+.mcpc__sub.label {
+  color: var(--ink-2);
+  padding-top: 6px;
+}
+.mcpc__foot.label {
+  margin: 28px 0 0;
+  color: var(--ink-3);
+}
+
+/* the readout strip (the #/regler look) */
+.mcpc-ro {
+  display: flex;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+}
+.mcpc-ro__cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 28px;
+  padding: 0 12px 0 0;
+  margin-right: 12px;
+  border-right: 1px solid var(--rule);
+  white-space: nowrap;
+}
+.mcpc-ro__cell:last-child {
+  border-right: 0;
+}
+.mcpc-ro__cell .label {
+  color: var(--ink-2);
+}
+.mcpc-ro__val {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+/* an address path reads as it is typed (/mcp, never /MCP) */
+.mcpc-ro__val.mcpc-ro__val--path {
+  text-transform: none;
+}
+
+/* LEDs: the Preflight lamps' fixed tones for red / amber; ok / on / off from ui.css */
+.mcpc-led--red {
+  background: var(--lamp-red);
+}
+.mcpc-led--amber {
+  background: var(--lamp-amber);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 25%, transparent);
+}
+.mcpc-led--live {
+  animation: mcpc-blink 0.6s steps(2, jump-none) infinite;
+}
+@keyframes mcpc-blink {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+/* sections */
+.mcpc-sec {
+  margin-top: 26px;
+}
+.mcpc-sec__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 22px;
+}
+.mcpc-sec__code.label {
+  margin: 0;
+  color: var(--ink-2);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.mcpc-sec__n {
+  color: var(--signal-ink);
+  font-weight: 600;
+}
+.mcpc-sec__rule {
+  flex: 1;
+  min-width: 12px;
+  height: 1px;
+  background-image: linear-gradient(to right, var(--rule-strong) 1px, transparent 1px);
+  background-size: 4px 1px;
+}
+.mcpc-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: calc(19px * var(--text-scale));
+  padding: 0 6px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.mcpc-sec__count {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-3);
+}
+.mcpc-sec__lead {
+  margin: 6px 0 0;
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--ink-2);
+  max-width: 92ch;
+}
+.mcpc-sec__title {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* rows */
+.mcpc-rows {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  border-top: 1px solid var(--rule-strong);
+}
+.mcpc-row {
+  display: grid;
+  grid-template-columns: 12px minmax(calc(160px * var(--text-scale)), calc(220px * var(--text-scale))) calc(130px * var(--text-scale)) minmax(0, 1fr) auto;
+  grid-template-areas:
+    'led id word why keys'
+    '. facts facts facts facts'
+    '. more more more more';
+  align-items: start;
+  column-gap: 14px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--rule);
+}
+.mcpc-row > .mcpc-led {
+  grid-area: led;
+  width: 8px;
+  height: 8px;
+  margin-top: calc(6px * var(--text-scale));
+}
+.mcpc-row__id {
+  grid-area: id;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.35;
+}
+.mcpc-row__name {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  overflow-wrap: anywhere;
+}
+.mcpc-row__host {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--ink-3);
+  overflow-wrap: anywhere;
+}
+.mcpc-row__word {
+  grid-area: word;
+  justify-self: start;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  line-height: calc(18px * var(--text-scale));
+  color: var(--ink-2);
+}
+.mcpc-row__word[data-tone] {
+  padding-left: 7px;
+  color: var(--ink);
+}
+.mcpc-row__word[data-tone='red'] {
+  box-shadow: inset 2px 0 0 var(--lamp-red);
+  color: var(--c-red-text);
+}
+.mcpc-row__word[data-tone='amber'] {
+  box-shadow: inset 2px 0 0 var(--lamp-amber);
+}
+.mcpc-row__why {
+  grid-area: why;
+  min-width: 0;
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--ink-2);
+  overflow-wrap: break-word;
+}
+.mcpc-why2 {
+  display: block;
+  margin-top: 3px;
+}
+.mcpc-row__keys {
+  grid-area: keys;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
+}
+.mcpc-row__more {
+  grid-area: more;
+  min-width: 0;
+}
+.mcpc-signin {
+  display: contents;
+}
+.mcpc-go.btn {
+  gap: 5px;
+}
+.mcpc-go__arrow {
+  color: var(--ink-3);
+}
+/* a key whose action runs (Testing…, Connecting…, Loading …): it says so and keeps the keyboard */
+.mcpc-row__keys .btn[aria-disabled='true'] {
+  opacity: 0.62;
+  cursor: default;
+}
+.mcpc-row__keys .btn[aria-disabled='true']:active {
+  transform: none;
+}
+
+/* facts: LABEL value · LABEL value … */
+.mcpc-facts {
+  grid-area: facts;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 18px;
+  margin: 6px 0 0;
+  min-width: 0;
+}
+.mcpc-fact {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 2px 7px;
+  min-width: 0;
+}
+.mcpc-fact dt.label {
+  color: var(--ink-3);
+}
+.mcpc-fact dd {
+  margin: 0;
+  min-width: 0;
+  font-size: var(--text-sm);
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.mcpc-code {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--ink-2);
+}
+.mcpc-muted {
+  color: var(--ink-3);
+}
+.mcpc-out {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+/* chips: agents, integrations, repos, Claude Code's names */
+.mcpc-tags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  vertical-align: baseline;
+}
+.mcpc-tag {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  max-width: 100%;
+  padding: 0 5px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-1);
+  background: var(--surface-2);
+  font-size: var(--text-xs);
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.mcpc-tag--mono {
+  font-family: var(--font-mono);
+}
+.mcpc-tag[data-off] {
+  color: var(--ink-3);
+  text-decoration: line-through;
+  text-decoration-color: var(--ink-3);
+}
+.mcpc-tag__sub {
+  font-family: var(--font-mono);
+  font-size: calc(10px * var(--text-scale));
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+.mcpc-tag__also {
+  padding-left: 5px;
+  border-left: 1px solid var(--rule-strong);
+  font-family: var(--font-mono);
+  font-size: calc(9.5px * var(--text-scale));
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--signal-ink);
+  white-space: nowrap;
+}
+
+/* notes under a row (the bridge's messages, the worker's lines) */
+.mcpc-note {
+  margin: 8px 0 0;
+  padding: 6px 10px;
+  border-left: 2px solid var(--ink-3);
+  background: var(--surface-2);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+.mcpc-note--err {
+  border-left-color: var(--c-red-text);
+  color: var(--c-red-text);
+}
+.mcpc-note--plain {
+  padding: 0;
+  border-left: 0;
+  background: none;
+}
+.mcpc-err {
+  margin: 8px 0 0;
+  font-size: var(--text-sm);
+  color: var(--c-red-text);
+}
+.mcpc-row__more .mcps-code {
+  margin-top: 8px;
+}
+.mcpc-missing {
+  margin: 10px 0 0;
+  padding: 6px 10px;
+  border-left: 2px solid var(--lamp-amber);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+.mcpc-empty {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 14px 0;
+  border-top: 1px solid var(--rule-strong);
+  border-bottom: 1px solid var(--rule);
+  margin-top: 10px;
+}
+.mcpc-empty p {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--ink-2);
+}
+.mcpc-empty > .ai-needs,
+.mcpc-empty > [data-testid='mcpc-needs'] {
+  flex-basis: 100%;
+}
+
+/* the worker: Claude Code's names per place */
+.mcpc-places {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+}
+.mcpc-places .label {
+  color: var(--ink-3);
+}
+.mcpc-places__list {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.mcpc-place {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+.mcpc-place__where {
+  min-width: calc(120px * var(--text-scale));
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--ink-2);
+}
+
+/* the team server */
+.mcpc-addr {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.mcpc-srv {
+  display: grid;
+  gap: 4px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.mcpc-srv__item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
+}
+.mcpc-srv__name {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--ink);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.mcpc-srv__host {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--ink-3);
+}
+.mcpc-srv__tok {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+/* narrower: the reason goes under the name, the keys stay right */
+@container mcpc (max-width: 900px) {
+  .mcpc-row {
+    grid-template-columns: 12px minmax(0, 1fr) auto;
+    grid-template-areas:
+      'led id keys'
+      '. word word'
+      '. why why'
+      '. facts facts'
+      '. more more';
+    row-gap: 4px;
+  }
+}
+
+/* phones: 2 × n readout, each row a stacked card, facts as label / value, keys full width */
+@container mcpc (max-width: 640px) {
+  /* the title fits the column at every text size (XL "Verbindungen" on a 390 px phone) */
+  .mcpc__title.display {
+    font-size: min(var(--text-3xl), 11cqi);
+  }
+  .mcpc__sub.label {
+    flex-basis: 100%;
+    padding-top: 0;
+  }
+  .mcpc-ro {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+  .mcpc-ro__cell {
+    margin: 0;
+    padding: 6px 8px 6px 0;
+    border-right: 0;
+    border-bottom: 1px solid var(--rule);
+    white-space: normal;
+    flex-wrap: wrap;
+    min-width: 0;
+  }
+  .mcpc-ro__cell:nth-child(odd) {
+    border-right: 1px solid var(--rule);
+  }
+  .mcpc-ro__cell:nth-child(even) {
+    padding-left: 10px;
+  }
+  .mcpc-ro__cell:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+    border-right: 0;
+  }
+  .mcpc-ro__cell:last-child,
+  .mcpc-ro__cell:nth-last-child(2):nth-child(odd) {
+    border-bottom: 0;
+  }
+  .mcpc-sec__head {
+    flex-wrap: wrap;
+  }
+  .mcpc-row {
+    grid-template-columns: 12px minmax(0, 1fr) auto;
+    grid-template-areas:
+      'led id word'
+      '. why why'
+      '. facts facts'
+      '. more more'
+      '. keys keys';
+    row-gap: 6px;
+    padding: 12px 0;
+  }
+  .mcpc-row__word {
+    justify-self: end;
+    text-align: right;
+  }
+  .mcpc-row__keys {
+    justify-content: stretch;
+    margin-top: 4px;
+  }
+  .mcpc-row__keys .btn {
+    flex: 1 1 auto;
+    justify-content: center;
+    min-height: 40px;
+  }
+  .mcpc-facts {
+    display: grid;
+    grid-template-columns: minmax(calc(84px * var(--text-scale)), auto) minmax(0, 1fr);
+    gap: 4px 12px;
+  }
+  .mcpc-fact {
+    display: contents;
+  }
+  .mcpc-fact dt.label {
+    padding-top: 2px;
+  }
+  .mcpc-empty .btn {
+    min-height: 40px;
+  }
+}
+@media (max-width: 600px) {
+  .mcpc {
+    padding: 18px 16px 28px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mcpc-led--live {
+    animation: none;
+  }
+}

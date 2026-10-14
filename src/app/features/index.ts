@@ -136,7 +136,7 @@ export const OpenRouterOAuthScreen = lazy(() => import('./ai/providers/OpenRoute
  * Setting up AI (multi-provider S2, stage C — features/ai/setup):
  *  - openAISetup({ reason?, feature?, provider?, step?, data? }): the assistant "Set up AI" (modal 'aiSetup') — every
  *    "no key" surface, ⌘K "Set up AI", the changelog try and a refused request's key fixes use it
- *  - openAISettings({ section?: 'mcp' | 'memory' | 'limit' }): Settings › AI (this device), scrolled to its MCP servers /
+ *  - openAISettings({ section?: 'mcp' | 'memory' | 'limit', server?, add? }): Settings › AI (this device), scrolled to its MCP servers /
  *    memory / the person's own limit in this browser (the Regler)
  *  - AISetupModal (lazy; ModalHost renders it) · ProvidersTab (lazy; render it inside a Suspense): Settings › AI
  *  - <AINeedsSetup purpose …/>: the one card a surface shows when its kind of work cannot run (aiStatus) ·
@@ -299,8 +299,9 @@ export { classify as classifyFile, type AttachmentKind as FileBlockKind } from '
  *  - startMcp(): background service (start once from main.tsx after hydrate; idle until switched on)
  *  - McpTab: Settings → Agents · MCP · McpStatusCell: status bar "AGENT" LED (renders nothing while unused)
  *  - openMcpSettings(): open Settings on that tab · consumeMcpSettingsRequest(): SettingsModal asks on open
+ *  - McpConnectionsRoute (#/mcp, lazy) · openMcpConnections(): MCP · Connections — every MCP connection One knows of
  */
-export { startMcp, McpTab, McpStatusCell, openMcpSettings, consumeMcpSettingsRequest } from './mcp'
+export { startMcp, McpTab, McpStatusCell, openMcpSettings, consumeMcpSettingsRequest, McpConnectionsRoute, openMcpConnections } from './mcp'
 /*
  * Custom functions, built by clicking — no code (Workspace.functions; usable in spreadsheet cells and database formulas):
  *  - startCustomFunctions(): background service (start once from main.tsx after hydrate) — pushes the workspace's

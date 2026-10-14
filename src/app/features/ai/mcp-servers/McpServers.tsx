@@ -10,7 +10,7 @@
  */
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { format } from 'date-fns'
-import { ChevronDown, ChevronRight, Copy, ExternalLink, Info, KeyRound, LogIn, LogOut, Plus, Trash2 } from 'lucide-react'
+import { ArrowRight, ChevronDown, ChevronRight, Info, LogOut, Plus, Trash2 } from 'lucide-react'
 import { useT } from '../../../i18n'
 import { useWorkspace } from '../../../store/store'
 import type { McpServerConfig } from '../../../store/types'
@@ -19,6 +19,7 @@ import { SecretField } from '../../../ui/SecretField'
 import {
   INSTRUCTIONS_MAX,
   addServer,
+  clearRefused,
   MAX_SERVERS,
   NAME_MAX,
   PROMPT_MAX,
@@ -34,7 +35,9 @@ import {
 import { cancelCheck, checkServer, useMcpChecks, type CheckMode } from './checks'
 import { codewordProblem, normalizeCodeword, suggestCodeword } from './codeword'
 import { linkBaseOf } from '../../../lib/foreignLinks'
-import { cancelSignIn, offersCode, signIn, signInWithCode, signOut, signedIn, useMcpSignIn, type SignInState } from './oauth'
+import { signOut, signedIn, useMcpSignIn } from './oauth'
+import { DeviceCode, SignInKeys } from './SignIn'
+import { openMcpConnections } from '../../mcp/connections/open'
 import { HelpLink } from '../../../help'
 import { CodeArea, markdownTokenizer } from '../../../ui/code'
 import { McpOverview } from './McpOverview'
@@ -47,16 +50,46 @@ const tn = (t: T, key: string, count: number) => t(`${key}.${count === 1 ? 'one'
 /** "https://kb.example.com/mcp" → "kb.example.com/mcp" */
 const shortUrl = (url: string) => url.replace(/^https:\/\//, '').replace(/\/$/, '')
 
-export function McpServers() {
+/**
+ * `openId`: open with that server's details, in view, its toggle focused (MCP · Connections' "Settings ↗") ·
+ * `add`: open with the add form, its URL field focused (the page's "Add a server").
+ */
+export function McpServers({ openId, add }: { openId?: string; add?: boolean } = {}) {
   const t = useT()
   const raw = useWorkspace((s) => s.settings.mcpServers)
   const servers = useMemo(() => readServers({ mcpServers: raw }), [raw])
   const hasKey = useWorkspace((s) => !!s.settings.aiApiKey.trim())
   /** the add form is open */
-  const [adding, setAdding] = useState(false)
+  const [adding, setAdding] = useState(!!add && servers.length < MAX_SERVERS)
   /** the server whose details are open */
-  const [open, setOpen] = useState<string | null>(null)
+  const [open, setOpen] = useState<string | null>(() => (openId && servers.some((s) => s.id === openId) ? openId : null))
   const headId = useId()
+  // asked for one server: its card in view and its toggle focused, after the dialog focused its tab (two frames)
+  useEffect(() => {
+    if (!openId) return
+    let id = requestAnimationFrame(() => {
+      id = requestAnimationFrame(() => {
+        const card = document.querySelector<HTMLElement>(`.mcps-card[data-id="${CSS.escape(openId)}"]`)
+        if (!card) return
+        card.scrollIntoView({ block: 'start' })
+        card.querySelector<HTMLElement>('.mcps-card__toggle')?.focus({ preventScroll: true })
+      })
+    })
+    return () => cancelAnimationFrame(id)
+  }, [openId])
+  // asked for the add form: its URL field keeps the keyboard once the dialog focused its tab
+  useEffect(() => {
+    if (!add) return
+    let id = requestAnimationFrame(() => {
+      id = requestAnimationFrame(() => {
+        const field = document.querySelector<HTMLElement>('.mcps-card--new input[type="url"]')
+        if (!field) return
+        field.scrollIntoView({ block: 'center' })
+        field.focus({ preventScroll: true })
+      })
+    })
+    return () => cancelAnimationFrame(id)
+  }, [add])
   // the overview's server name: open that server's details and bring them into view
   const show = (id: string) => {
     setOpen(id)
@@ -80,6 +113,9 @@ export function McpServers() {
           </h4>
         </div>
         <span className="label mcps__count">{t('features.ai.mcp.count', { count: servers.length, max: MAX_SERVERS })}</span>
+        <button type="button" className="btn btn--sm btn--ghost mcps__all" onClick={openMcpConnections} data-testid="mcp-servers-connections">
+          {t('features.mcp.page.link')} <ArrowRight size={13} strokeWidth={1.75} aria-hidden />
+        </button>
         <button type="button" className="btn btn--sm" onClick={() => setAdding(true)} disabled={adding || servers.length >= MAX_SERVERS}>
           <Plus size={13} strokeWidth={1.75} aria-hidden /> {t('features.ai.mcp.add')}
         </button>
@@ -351,7 +387,9 @@ function Connection({ server, others, words }: { server: McpServerConfig; others
         setTouched(true)
         if (!dirty || nameErr || urlErr || cwErr || baseErr) return
         const moved = url.trim() !== server.url
-        patchServer(server.id, { name: cleanName, url: url.trim(), codeword: cw || undefined, linkBase: base || undefined, ...(moved ? { checkedAt: undefined, checkError: undefined, tools: undefined } : {}) })
+        // a new address: what One knew of the old one (its test, a refused token — also this tab's note) goes with it
+        patchServer(server.id, { name: cleanName, url: url.trim(), codeword: cw || undefined, linkBase: base || undefined, ...(moved ? { checkedAt: undefined, checkError: undefined, checkAuth: undefined, tools: undefined } : {}) })
+        if (moved) clearRefused(cleanName)
         if (moved) void checkServer(server.id, server.prompt.trim() ? 'test' : 'guide')
       }}
     >
@@ -513,83 +551,6 @@ function SignInKey({ server }: { server: McpServerConfig }) {
           {t(`features.ai.mcp.oauth.err.${st.issue}`, { detail: st.detail ?? '' })}
         </p>
       )}
-    </div>
-  )
-}
-
-/**
- * Sign in · while the window is open: Cancel and "Use a code instead" · once the server's sign-in is known to
- * offer a code: "Sign in with a code" (the device flow, for when the way back to this page can't work).
- */
-function SignInKeys({ server, st, testId, describedBy }: { server: McpServerConfig; st: SignInState | undefined; testId: string; describedBy?: string }) {
-  const t = useT()
-  const phase = st?.phase
-  const busy = phase === 'working' || phase === 'waiting' || phase === 'code'
-  const code = offersCode(server)
-  const label = phase === 'waiting' ? t('features.ai.mcp.oauth.waiting') : phase === 'code' ? t('features.ai.mcp.oauth.code.waiting') : busy ? t('features.ai.mcp.oauth.busy') : signedIn(server) ? t('features.ai.mcp.oauth.again') : t('features.ai.mcp.oauth.signIn')
-  return (
-    <>
-      <button type="button" className="btn btn--sm btn--ink" disabled={busy} onClick={() => void signIn(server.id).catch(() => {})} aria-describedby={describedBy} data-testid={testId}>
-        <LogIn size={13} strokeWidth={1.75} aria-hidden /> {label}
-      </button>
-      {phase === 'waiting' && (
-        <>
-          {code && (
-            <button type="button" className="btn btn--sm" onClick={() => void signInWithCode(server.id).catch(() => {})} data-testid="mcp-use-code">
-              <KeyRound size={13} strokeWidth={1.75} aria-hidden /> {t('features.ai.mcp.oauth.useCode')}
-            </button>
-          )}
-          <button type="button" className="btn btn--sm btn--ghost" onClick={() => cancelSignIn(server.id)}>
-            {t('common.cancel')}
-          </button>
-        </>
-      )}
-      {code && !busy && (
-        <button type="button" className="btn btn--sm btn--ghost" onClick={() => void signInWithCode(server.id).catch(() => {})} data-testid="mcp-signin-code">
-          <KeyRound size={13} strokeWidth={1.75} aria-hidden /> {t('features.ai.mcp.oauth.withCode')}
-        </button>
-      )}
-    </>
-  )
-}
-
-/** A sign-in with a code (device flow): the code to enter on the server's page while One waits for it. */
-function DeviceCode({ server, st }: { server: McpServerConfig; st: SignInState }) {
-  const t = useT()
-  const [copied, setCopied] = useState(false)
-  const timer = useRef(0)
-  useEffect(() => () => window.clearTimeout(timer.current), [])
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(st.userCode ?? '')
-      setCopied(true)
-      window.clearTimeout(timer.current)
-      timer.current = window.setTimeout(() => setCopied(false), 1600)
-    } catch {
-      /* no clipboard here: the code is on screen */
-    }
-  }
-  return (
-    <div className="mcps-code" role="group" aria-label={t('features.ai.mcp.oauth.code.label')} data-testid="mcp-device-code">
-      <span className="label mcps-code__label">
-        <span className="led led--on" aria-hidden /> {t('features.ai.mcp.oauth.code.label')}
-      </span>
-      <output className="mcps-code__value" data-testid="mcp-user-code">
-        {st.userCode}
-      </output>
-      <p className="mcps-code__text">{t('features.ai.mcp.oauth.code.text', { host: hostOf(st.verifyUrl ?? '') })}</p>
-      <div className="mcps-code__keys">
-        <a className="btn btn--sm btn--ink" href={st.verifyComplete ?? st.verifyUrl} target="_blank" rel="noopener noreferrer" data-testid="mcp-code-open">
-          <ExternalLink size={13} strokeWidth={1.75} aria-hidden /> {t('features.ai.mcp.oauth.code.open')}
-        </a>
-        <button type="button" className="btn btn--sm" onClick={() => void copy()}>
-          <Copy size={13} strokeWidth={1.75} aria-hidden /> {copied ? t('features.ai.mcp.oauth.code.copied') : t('features.ai.mcp.oauth.code.copy')}
-        </button>
-        <button type="button" className="btn btn--sm btn--ghost" onClick={() => cancelSignIn(server.id)} data-testid="mcp-code-cancel">
-          {t('common.cancel')}
-        </button>
-        {st.expiresAt && <span className="label mcps-code__until">{t('features.ai.mcp.oauth.code.until', { time: format(st.expiresAt, 'HH:mm') })}</span>}
-      </div>
     </div>
   )
 }

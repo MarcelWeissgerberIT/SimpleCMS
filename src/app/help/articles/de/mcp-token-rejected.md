@@ -10,10 +10,12 @@ summary: „Der MCP-Server hat das Token abgelehnt“ — Token ersetzen oder de
 **Der MCP-Server „kb“ hat das Token abgelehnt — es ist vielleicht falsch oder abgelaufen.** Claude kann diesen Server erst wieder nutzen, wenn er ein gültiges Token bekommt.
 
 1. Im Dienst (z. B. deiner Wissensdatenbank) ein neues Token erstellen — möglichst nur lesend — oder prüfen, ob das alte noch gilt.
-2. In One: **Einstellungen → Claude KI → MCP-Server**, beim Server **Erweitert** öffnen.
+2. In One: **Einstellungen → KI → MCP-Server**, beim Server **Erweitert** öffnen.
 3. **Token** → **Ersetzen**, das neue Token einfügen und bestätigen. One testet die Verbindung sofort; die LED sollte auf **Verbunden** springen.
 
 Ein Server mit eigener Anmeldung (OAuth): Drück stattdessen **Anmelden** in seiner Zeile. Im [KI-Terminal](help:agent) zeigt eine so gescheiterte Aufgabe **Bei kb anmelden** — oder drück <kbd>Enter</kbd> in der leeren Eingabe; das Fenster öffnet sich, und ist er verbunden, führt **Aufgabe erneut ausführen** (<kbd>Enter</kbd>) sie mit der neuen Anmeldung aus. `/verbinden kb` macht dasselbe jederzeit.
+
+⌘K **MCP · Verbindungen** nennt jeden Server, dessen Token abgelehnt wurde (rot, wie die Token-Lampe im Vorflug-Check), und bietet in seiner Zeile **Anmelden** und **Testen**.
 
 ## Verwandte Meldungen
 - **Dieser Browser hat keine Kopie des Tokens** — Tokens sind pro Browser versiegelt. Auf einem neuen Gerät oder nach dem Löschen der Browserdaten trägst du das Token unter **Erweitert** erneut ein.

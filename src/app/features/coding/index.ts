@@ -34,6 +34,8 @@ export function codingConnText(): string {
   const s = useCoding.getState()
   return s.enabled && s.conn !== 'connected' && s.conn !== 'off' ? workerDownText(t, s) : ''
 }
+/** "Change repositories": the connected worker opens its setup page (renders only while it has one) — MCP · Connections */
+export { ChangeReposButton as CodingChangeReposButton } from './SetupCard'
 /** the AI terminal (features/ai/agent/coding.ts): reading the pipelines, planning + applying task changes the person reviewed */
 export {
   taskPhase,

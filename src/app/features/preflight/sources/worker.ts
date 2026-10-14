@@ -15,10 +15,7 @@ import type { LampReading, LampSourceDef } from '../registry'
 import { fmtTime } from '../format'
 import { watch } from './util'
 import { fixItems, openKey } from './fix'
-
-/** connecting / waiting / off count only after this long */
-const GRACE_MS = 60_000
-const DEFINITE = new Set(['refused', 'blocked', 'replaced'])
+import { workerLinkDown } from './workerRule'
 
 /** since when the link has not been connected (this tab) */
 let downSince: number | null = null
@@ -29,6 +26,12 @@ function track(now = Date.now()): void {
   if (conn === lastConn) return
   lastConn = conn
   downSince = conn === 'connected' ? null : (downSince ?? now)
+}
+
+/** Since when this tab has seen the worker link down (null: connected) — the lamp's own clock, read by MCP · Connections. */
+export function workerDownSince(now = Date.now()): number | null {
+  track(now)
+  return downSince
 }
 
 export const workerLamp: LampSourceDef = {
@@ -57,8 +60,7 @@ export const workerLamp: LampSourceDef = {
       if (workerOutdated(s.can)) return { state: 'ok', count: 1, ids: [`worker:outdated@${version}`], level: 'amber', second: t('features.preflight.lamp.worker.second.outdated') }
       return { state: 'ok', count: 0, ids: [], second: version ? t('features.preflight.lamp.worker.second.ok', { version }) : '' }
     }
-    const since = downSince ?? now
-    if (!DEFINITE.has(s.conn) && now - since < GRACE_MS) return { state: 'ok', count: 0, ids: [], second: '' }
+    if (!workerLinkDown(s.conn, downSince, now)) return { state: 'ok', count: 0, ids: [], second: '' }
     return { state: 'ok', count: 1, ids: [`worker:${s.conn}`], level: 'red', second: downSince ? t('features.preflight.lamp.worker.second.since', { time: fmtTime(downSince) }) : t('features.preflight.lamp.worker.second.off') }
   },
   open: () => openCodingSettings(),

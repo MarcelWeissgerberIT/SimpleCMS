@@ -1,24 +1,19 @@
 /**
  * Lamp "Token refused": per enabled MCP server of this device — red when its token was refused (at the last check or
  * in this tab) or its sign-in ran out without a refresh; amber when the last check failed for another reason. Servers
- * never checked count nothing. Ids: mcp:<serverId>@<last 8 of the token marker>.
+ * never checked count nothing (the rule: tokenTrouble, ai/mcp-servers/health.ts). Ids: mcp:<serverId>@<last 8 of the token
+ * marker>. The lamp opens MCP · Connections (#/mcp); its cards keep their own keys.
  */
 import { useWorkspace } from '../../../store/store'
-import type { McpServerConfig } from '../../../store/types'
 import { openAISettings } from '../../ai/setup/openAISetup'
+import { openMcpConnections } from '../../mcp/connections/open'
 import { t } from '../../../i18n'
 import { onRefusedChanged, readServers, refusedHere } from '../../ai/mcp-servers/config'
 import { useMcpSignIn } from '../../ai/mcp-servers/oauth'
+import { tokenTrouble } from '../../ai/mcp-servers/health'
 import type { CardAction, LampReading, LampSourceDef, QueueItem } from '../registry'
 import { checkConnection, signInServer } from '../queue/calls'
 import { all, watch } from './util'
-
-function stateOf(s: McpServerConfig, now: number): 'red' | 'amber' | null {
-  if (s.checkAuth === true || refusedHere(s)) return 'red'
-  if (s.oauth?.expiresAt && s.oauth.expiresAt < now && !s.oauth.refresh) return 'red'
-  if (s.checkError) return 'amber'
-  return null
-}
 
 const enabled = () => readServers(useWorkspace.getState().settings).filter((s) => s.enabled)
 
@@ -37,7 +32,7 @@ export const tokenLamp: LampSourceDef = {
     const names: string[] = []
     let red = false
     for (const s of enabled()) {
-      const st = stateOf(s, now)
+      const st = tokenTrouble(s, now, refusedHere(s))?.level ?? null
       if (!st) continue
       if (st === 'red') red = true
       ids.push(`mcp:${s.id}@${(s.token ?? '').slice(-8)}`)
@@ -46,12 +41,13 @@ export const tokenLamp: LampSourceDef = {
     const second = names.length === 1 ? t('features.preflight.lamp.token.second', { name: names[0] }) : names.length > 1 ? t('features.preflight.lamp.token.second.many', { n: names.length }) : ''
     return { state: 'ok', count: ids.length, ids, second, ...(ids.length ? { level: red ? ('red' as const) : ('amber' as const) } : {}) }
   },
-  open: () => openAISettings({ section: 'mcp' }),
+  // MCP · Connections names the server, why, and offers Sign in / Test in its row
+  open: () => openMcpConnections(),
   queue: {
     items: ({ now }) => {
       const out: QueueItem[] = []
       for (const s of enabled()) {
-        const st = stateOf(s, now)
+        const st = tokenTrouble(s, now, refusedHere(s))?.level ?? null
         if (!st) continue
         out.push({
           id: `mcp:${s.id}@${(s.token ?? '').slice(-8)}`,

@@ -68,13 +68,16 @@ const ROWS: Array<{ id: string; classes: FeatureClass[] }> = [
 ]
 // 'review' is a slice of its own (S6); 'gate' (slice SJ) has its own row below: Jev versions only, starts off
 
-export function ProvidersTab({ section }: { section?: 'mcp' | 'memory' | 'limit' }) {
+/** `server` / `add` (section 'mcp'): McpServers opens that server's details / the add form and takes the focus itself. */
+export function ProvidersTab({ section, server, add }: { section?: 'mcp' | 'memory' | 'limit'; server?: string; add?: boolean }) {
   const t = useT()
   const mcpRef = useRef<HTMLDivElement>(null)
   const memRef = useRef<HTMLDivElement>(null)
   const limitRef = useRef<HTMLDivElement>(null)
+  // McpServers focuses its card / its add form itself
+  const own = section === 'mcp' && (!!server || !!add)
   useEffect(() => {
-    const el = section === 'mcp' ? mcpRef.current : section === 'memory' ? memRef.current : section === 'limit' ? limitRef.current : null
+    const el = own ? null : section === 'mcp' ? mcpRef.current : section === 'memory' ? memRef.current : section === 'limit' ? limitRef.current : null
     if (!el) return
     // a frame after the dialog focused its tab: the section takes the focus (and the view) from there
     let id = requestAnimationFrame(() => {
@@ -84,7 +87,7 @@ export function ProvidersTab({ section }: { section?: 'mcp' | 'memory' | 'limit'
       })
     })
     return () => cancelAnimationFrame(id)
-  }, [section])
+  }, [section, own])
   return (
     <div className="aip" data-testid="ai-settings">
       <h3 className="st-h">
@@ -106,7 +109,7 @@ export function ProvidersTab({ section }: { section?: 'mcp' | 'memory' | 'limit'
       </div>
       <div ref={mcpRef} className="aip__section" data-section="mcp" tabIndex={-1} aria-label={t('features.ai.prov.tab.mcp')}>
         <McpProviders />
-        <McpServers />
+        <McpServers openId={section === 'mcp' ? server : undefined} add={section === 'mcp' && add} />
       </div>
       <div ref={memRef} className="aip__section" data-section="memory" tabIndex={-1} aria-label={t('features.ai.prov.tab.memory')}>
         <MemorySettings />

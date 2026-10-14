@@ -230,6 +230,10 @@ Claude Desktop / Claude Code ──stdio──▶ one-mcp.mjs ──ws://127.0.0
         (MCP client)                    (the bridge, on your computer)        (runs the tools)
 ```
 
+Is it connected? In One, ⌘K **MCP · Connections** (`#/mcp`) shows this tab's bridge (client, change mode, calls) next to
+every other MCP connection One knows of — its own Claude's MCP servers, the coding worker, the team server's `/mcp`. The
+page reads only what the tab already knows: opening it sends nothing.
+
 The bridge is one file, [`one-mcp.mjs`](https://getonecms.com/mcp/one-mcp.mjs) (Node.js 20 or newer, no install).
 The MCP client starts it; it lists the tools, and forwards every call to the tab of the workspace it is meant for,
 which runs it against that workspace in the browser — the same code paths as the in-app agent — and answers. For Claude Desktop it also comes

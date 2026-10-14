@@ -54,11 +54,15 @@ export function openAISetup(o: AISetupOptions = {}): void {
   ui.openModal({ type: 'aiSetup', ...o, step: stepOf(o) })
 }
 
-/** Open Settings › AI (this device) — at its MCP servers or its memory switches when asked. */
-export function openAISettings(o: { section?: 'mcp' | 'memory' | 'limit' } = {}): void {
+/**
+ * Open Settings › AI (this device) — at its MCP servers or its memory switches when asked. With the MCP servers:
+ * `server` = that server's details open, its toggle focused · `add` = the add form open, its URL field focused.
+ */
+export function openAISettings(o: { section?: 'mcp' | 'memory' | 'limit'; server?: string; add?: boolean } = {}): void {
   const ui = useUI.getState()
   handOver()
   if (ui.paletteOpen) ui.closePalette()
   if (ui.mobileSidebarOpen) ui.setMobileSidebar(false)
-  ui.openModal({ type: 'settings', tab: 'ai', ...(o.section ? { section: o.section } : {}) })
+  const mcp = o.section === 'mcp' ? { ...(o.server ? { server: o.server } : {}), ...(o.add ? { add: true } : {}) } : {}
+  ui.openModal({ type: 'settings', tab: 'ai', ...(o.section ? { section: o.section } : {}), ...mcp })
 }

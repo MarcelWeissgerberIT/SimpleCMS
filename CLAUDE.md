@@ -60,6 +60,13 @@ src/app/features/governor/**         the Regler (Governor, G1): the ledger (Inde
                                      pure multi-provider contracts (app + server; governor.ts, generations.ts)
 src/app/features/outbox/**           the Outbox: slips for another tool's send routes, drafted without tools, sent by hand
                                      (dock, #/outbox, receipts; public API outbox/index.ts; docs/OUTBOX.md)
+src/app/features/mcp/connections/**  #/mcp MCP · Connections (lazy; openMcpConnections(): ⌘K "MCP", Settings › Agents · MCP and
+                                     Settings › AI › MCP servers links, the Token lamp, What's new try 'mcp'): every MCP connection on one
+                                     page — reads only what this tab knows (never a token, never a request on open; Test / Sign in /
+                                     Retry / Read only on a press); § 01 lamps = tokenTrouble (ai/mcp-servers/health.ts, the Token
+                                     lamp's rule), § 03 = the Worker lamp's (preflight/sources/workerRule.ts, its grace too); agents
+                                     only those that run in this browser (a team: the member's own); openAISettings({ section: 'mcp',
+                                     server | add }) lands on that server / the add form
 src/app/features/preflight/**        Preflight ("Vorflug-Check"): the lamp panel on Start, MASTER CAUTION, the keyboard queue
                                      (lamps register through preflight/registry.ts; public API preflight/index.ts; sources/ =
                                      built-in lamps; queue/calls.ts = every call into another area)

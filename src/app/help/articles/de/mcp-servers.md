@@ -3,11 +3,11 @@ id: mcp-servers
 title: MCP-Server (Wissensdatenbanken & Co.)
 section: ai
 order: 6
-keywords: mcp, mcp-server, übersicht, tabelle, freigabe, werkzeuge, connector, wissensdatenbank, token, externe werkzeuge, integration, codewort, kb:, oauth, anmelden, anmeldecode, code, bild, video, generieren, medien, in one speichern, tools, knowledge base, codeword, sign in, generate image
+keywords: mcp, mcp-server, mcp verbindungen, verbindungen, was verbunden ist, übersichtsseite, übersicht, tabelle, freigabe, werkzeuge, connector, wissensdatenbank, token, externe werkzeuge, integration, codewort, kb:, oauth, anmelden, anmeldecode, code, bild, video, generieren, medien, in one speichern, tools, knowledge base, codeword, sign in, generate image, connections, overview page
 related: agent, ai-menu, mcp-token-rejected, mcp-bridge, claude-key
 summary: Lass Ones Claude die Werkzeuge anderer Systeme nutzen — eine Wissensdatenbank, einen Tracker, ein CRM.
 ---
-**Einstellungen → Claude KI → MCP-Server.** Dafür brauchst du zuerst [deinen Claude-Schlüssel](help:claude-key).
+**Einstellungen → KI → MCP-Server.** Dafür brauchst du zuerst [deinen Claude-Schlüssel](help:claude-key).
 
 ## Server hinzufügen (Beispiel Wissensdatenbank)
 1. In deiner Wissensdatenbank die MCP-Server-Adresse kopieren (`https://…/mcp`) und ein Token für One erstellen — nur lesend und auf die nötigen Projekte beschränkt, wenn sie das anbietet.
@@ -16,6 +16,15 @@ summary: Lass Ones Claude die Werkzeuge anderer Systeme nutzen — eine Wissensd
 
 ## Übersicht: wo welcher Server genutzt werden darf
 Der Abschnitt beginnt mit einer Tabelle, eine Zeile pro Server: sein **Codewort**, **Claude in One** (welche Anfragen ihn nutzen, oder *Aus*), die **eigenen Agenten**, die ihn nutzen (mit der Zahl der Werkzeuge, die eine Werkzeugliste erlaubt; ein ausgeschalteter Agent durchgestrichen), die **Integrationen**, die er aktiv macht, und **Claude Code (Worker)** – die Repositories (und *Aufgaben ohne Repository*), in denen Claude Code im Coding-Worker einen Server gleichen Namens oder Codeworts hat. Die Server von Claude Code sind seine eigenen (dein `claude mcp`-Setup, pro Repository auf der Einrichtungsseite des Workers angehakt): Ein Name, den nur Claude Code hat, bekommt eine eigene Zeile. Ein Klick auf den Namen öffnet die Details des Servers.
+
+## Alle Verbindungen auf einen Blick
+⌘K **MCP · Verbindungen** (`#/mcp`) zeigt jede MCP-Verbindung, die One kennt, auf einer Seite — **Alle Verbindungen →** hier und unter **Einstellungen → Agenten · MCP** öffnet sie auch:
+- **§ 01 Claude in One** — diese Server, jeder mit Lampe und Wort: **OK** (wann getestet, wie viele Werkzeuge), **Nicht getestet**, **Test fehlgeschlagen** (gelb), **Token abgelehnt** oder **Anmeldung abgelaufen** (rot), **Aus**. Die Lampen folgen der Token-Lampe im [Vorflug-Check](help:preflight): Dort sind dieselben Server rot oder gelb. Jede Zeile bietet **Testen** (eine kurze Claude-Anfrage — nur auf deinen Druck), **Anmelden** in einer roten Zeile und **Einstellungen ↗** zu seiner Karte hier.
+- **§ 02 Claude Desktop · Code** — die Brücke dieses Tabs ([Claude Desktop & lokales MCP](help:mcp-bridge)): verbunden oder nicht, welcher Client, was Agenten ändern dürfen.
+- **§ 03 Coding-Worker** — die Verbindung dieses Browsers zum Worker und die MCP-Server, die Claude Code dort hat, pro Repository.
+- **§ 04 Team-Server** — in einem Team-Workspace: die `/mcp`-Adresse des Workspace und die MCP-Server der Server-Agenten.
+
+Die Seite sendet beim Öffnen nichts und öffnet kein Token: Sie zeigt, was One zuletzt sah — den letzten Test, Ablehnungen in diesem Tab, wann eine Anmeldung abläuft. Jeder Abschnitt sagt, wo seine Einstellung liegt (dieses Gerät, dieser Tab, dieser Browser, der Team-Server). **Dieser Browser hat keine Kopie des Tokens** steht nur hier in den Einstellungen, auf der Karte des Servers — die Seite öffnet die versiegelten Tokens nie. Anfragen lassen den Server dann wortlos weg; nur eine Anfrage, die ihn mit seinem Codewort anspricht, sagt es.
 
 ## Wo er genutzt wird
 **Erweitert** → **Verwendet bei**:
@@ -26,7 +35,7 @@ Einen ausgeschalteten Server nutzt One auf diesem Gerät nicht — auch eigene A
 
 Unter **Erweitert** stehen außerdem Name, Codewort (unten), Token, Nutzungs-Prompt (**Erzeugen** / **Neu erzeugen**, oder selbst schreiben), **Verbindung testen** und **Server entfernen**. Während Claude arbeitet, erscheinen MCP-Aufrufe als kleine Chips, z. B. `KB · search`.
 
-Ein Server, der sein Token ablehnt (abgelaufen oder noch nicht angemeldet), hält deine Anfragen nicht mehr auf: Claude antwortet ohne ihn, und ein Hinweis sagt *„… hat sein Token abgelehnt — Claude antwortet ohne ihn“*. In diesem Tab bleibt er draußen, bis du dich neu anmeldest oder das Token ersetzt — oder du sprichst ihn mit seinem Codewort an, dann siehst du den Fehler.
+Ein Server, der sein Token ablehnt (abgelaufen oder noch nicht angemeldet), hält deine Anfragen nicht mehr auf: Claude antwortet ohne ihn, und ein Hinweis sagt *„… hat sein Token abgelehnt — Claude antwortet ohne ihn“*. In diesem Tab bleibt er draußen, bis du dich neu anmeldest, das Token ersetzt oder ein Test gelingt — oder du sprichst ihn mit seinem Codewort an, dann siehst du den Fehler.
 
 ## Codewort
 **Erweitert** → **Codewort**: ein kurzes Wort wie `kb` — One schlägt den Namen des Servers vor, **verwenden** übernimmt ihn. Beginne eine Anfrage damit — *„kb: Was wissen wir über den Launch?“* — im KI-Menü, bei `⌘K ?` oder im Agenten, und Claude antwortet zuerst mit den Werkzeugen dieses Servers (das `kb:` selbst wird nicht mitgeschickt). Mehrere gehen auch: `kb: wiki: …`. Im KI-Terminal zeigt `kb:` die Werkzeuge des Servers (aus **Verbindung testen**): eines mit <kbd>Tab</kbd> wählen, und Claude soll genau das nutzen.

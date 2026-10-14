@@ -26,7 +26,7 @@ export function ModalHost() {
 function ModalSwitch({ modal, onClose }: { modal: ModalState; onClose: () => void }) {
   switch (modal.type) {
     case 'settings':
-      return <SettingsModal initialTab={modal.tab} section={modal.section} onClose={onClose} />
+      return <SettingsModal initialTab={modal.tab} section={modal.section} server={modal.server} add={modal.add} onClose={onClose} />
     case 'aiSetup':
       return (
         <Suspense fallback={null}>

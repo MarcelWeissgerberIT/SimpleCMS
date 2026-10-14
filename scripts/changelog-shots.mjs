@@ -8,7 +8,7 @@
  *
  * (CHANGELOG_DRAFT=1 lets the build pass while a new entry's picture does not exist yet.)
  *
- * Shots: worker-windows, safe-zip-import, regler, agent-precheck, ai-setup, ai-receipts, agent-trust, claude-tasks, flight-recorder-eject, flight-recorder-window, preflight, flight-recorder, tasks, outbox, mirror-again, glass-switches, history-compare, mcp-overview, mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
+ * Shots: mcp-connections, worker-windows, safe-zip-import, regler, agent-precheck, ai-setup, ai-receipts, agent-trust, claude-tasks, flight-recorder-eject, flight-recorder-window, preflight, flight-recorder, tasks, outbox, mirror-again, glass-switches, history-compare, mcp-overview, mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
  * custom-agents, gmail, help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
  * workspace in English, light theme, 1440 × 900 at device scale 2; the crop of the relevant area is scaled
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
@@ -855,6 +855,66 @@ const shots = {
       await save(page, 'worker-windows', { x: Math.round(head.x) - 12, y: Math.round(head.y) - 12, width: Math.round(head.width) + 24, height: Math.round(step2.y + step2.height - head.y) + 12 })
     } finally {
       await ctx.close()
+   * MCP · Connections (#/mcp): four servers of this device (nordlicht OK, signed in, codeword nl:, every AI call;
+   * tessera token refused; archiv test failed; polar off), the agents "Daily digest" (nordlicht, 2 tools) and "Triage"
+   * (names "tracker", which this device does not have), the profile "Item tracker"; the repository's own bridge driven
+   * over stdio as Claude Desktop, and its own worker with the fake Claude Code CLI whose repo names nordlicht + notizen.
+   * Nothing is sent to an AI host; tokens stay sealed.
+   */
+  async 'mcp-connections'(browser) {
+    const work = codingRepo()
+    const bridge = new Bridge(BRIDGE_PORT)
+    const { ctx, page } = await freshPage(browser, { viewport: { width: W, height: H + 520 } })
+    let worker = null
+    try {
+      await bridge.call('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'claude-ai', version: '1.0.0' } })
+      bridge.notify('notifications/initialized')
+      await page.evaluate(() => {
+        const s = window.__one.workspace.getState()
+        const now = Date.now()
+        const oauth = { issuer: 'https://auth.example.com', authorizationEndpoint: 'https://auth.example.com/authorize', tokenEndpoint: 'https://auth.example.com/token', clientId: 'one-shot', redirectUri: `${location.origin}/app/?oauth=mcp`, resource: 'https://mcp.example.com/mcp', at: now - 3_600_000, expiresAt: now + 2 * 3_600_000, refresh: true }
+        s.updateSettings({
+          mcpServers: [
+            { id: 'm1', name: 'nordlicht', codeword: 'nl', scope: 'all', url: 'https://mcp.example.com/mcp', token: 'nordlicht-shot-token-0001', enabled: true, prompt: 'Use list_items.', tools: ['list_items', 'get_item', 'add_comment'], checkedAt: now - 40 * 60_000, oauth },
+            { id: 'm2', name: 'tessera', url: 'https://tessera.example.test/mcp', token: '', enabled: true, prompt: '', checkAuth: true, checkError: 'The server turned the token down (401).', checkedAt: now - 86_400_000 },
+            { id: 'm3', name: 'archiv', url: 'https://archiv.example.test/v2/mcp', token: '', enabled: true, prompt: '', checkError: 'Timeout' },
+            { id: 'm4', name: 'polar', url: 'https://polar.example.test/mcp', token: '', enabled: false, prompt: '' },
+          ],
+        })
+        const agent = { instructions: 'Sum up the open items.', trigger: { type: 'manual' }, scope: { everything: true, pages: [], databases: [] }, write: 'none', output: null, runner: 'browser', model: null, effort: null, maxRunUsd: 0.5, enabled: true, createdAt: now, updatedAt: now }
+        s.upsertAgent({ ...agent, id: 'ag-digest', name: 'Daily digest', mcpServers: ['nordlicht'], mcpTools: { nordlicht: ['list_items', 'get_item'] } })
+        s.upsertAgent({ ...agent, id: 'ag-triage', name: 'Triage', mcpServers: ['nordlicht', 'tracker'] })
+        s.upsertIntegration({ schema: 'one.integration/1', id: 'items', name: 'Item tracker', match: { tools: ['list_items', 'get_item'] }, unlocks: ['keys', 'upsert'] })
+      })
+      await page.evaluate(() => window.__one.ui.getState().openModal({ type: 'settings' }))
+      await page.getByRole('tab', { name: 'Coding worker' }).click()
+      const init = await page.locator('.cw-code pre').filter({ hasText: 'init --workspace' }).first().textContent()
+      worker = await startCodingWorker(work, /--workspace (\S+)/.exec(init)[1], {}, { claude: { mcpServers: ['nordlicht', 'notizen'] } })
+      const wport = page.getByLabel('Port', { exact: true })
+      await wport.fill(String(WORKER_PORT))
+      await wport.press('Enter')
+      await page.getByRole('switch', { name: 'Connect to a coding worker on this computer' }).click()
+      await page.getByTestId('coding-conn').filter({ hasText: 'Connected' }).waitFor({ timeout: 20_000 })
+      await page.getByRole('tab', { name: /Agents · MCP/ }).click()
+      const bport = page.getByLabel('Port', { exact: true })
+      await bport.fill(String(BRIDGE_PORT))
+      await bport.press('Enter')
+      await page.getByRole('switch', { name: 'Allow AI agents on this computer' }).click()
+      await page.getByTestId('mcp-state').filter({ hasText: 'Connected' }).waitFor({ timeout: 20_000 })
+      await page.keyboard.press('Escape')
+      await page.getByRole('dialog').waitFor({ state: 'detached' })
+      await page.evaluate(() => (window.location.hash = '#/mcp'))
+      const pageEl = page.getByTestId('mcp-connections')
+      await pageEl.locator('[data-testid="mcpc-worker-places"]').waitFor({ timeout: 20_000 })
+      await pageEl.locator('[data-row="bridge"][data-state="connected"]').waitFor({ timeout: 20_000 })
+      await page.waitForTimeout(400)
+      await rest(page)
+      await save(page, 'mcp-connections', await boxOf(pageEl))
+    } finally {
+      worker?.kill('SIGTERM')
+      bridge.close()
+      await ctx.close()
+      rmSync(work.root, { recursive: true, force: true })
     }
   },
 

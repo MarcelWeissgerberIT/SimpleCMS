@@ -1,5 +1,53 @@
 /* One MCP: Settings → Agents · MCP (panels, read-out, setup, activity log), status bar cell, approval card. */
 
+/* ---------- "All connections": MCP · Connections (#/mcp) ---------- */
+.mcp-all {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    'label key'
+    'hint key';
+  align-items: center;
+  column-gap: 14px;
+  row-gap: 2px;
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--rule);
+  border-left: 2px solid var(--ink);
+  border-radius: var(--radius-1);
+}
+.mcp-all__label.label {
+  grid-area: label;
+  color: var(--ink-2);
+}
+.mcp-all__hint {
+  grid-area: hint;
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+}
+.mcp-all__key.btn {
+  grid-area: key;
+  gap: 6px;
+  white-space: nowrap;
+}
+@media (max-width: 600px) {
+  .mcp-all {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      'label'
+      'hint'
+      'key';
+    row-gap: 8px;
+  }
+  .mcp-all__key.btn {
+    justify-self: stretch;
+    justify-content: center;
+    min-height: 40px;
+  }
+}
+
 /* ---------- panels ---------- */
 .mcp-panel {
   margin: 0 0 16px;

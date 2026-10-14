@@ -60,11 +60,30 @@ export function parseInspect(text: string): InspectResult {
   return { tools, guide: rest.join('\n').trim() }
 }
 
+/*
+ * A check that ended before anything went out — the gate refused it (AI off, a data rule, the Regler, newer rules …) or
+ * this browser has no copy of the server's token — says nothing about the server: checks.ts keeps its "refused" mark.
+ */
+const unsent = new WeakSet<object>()
+
+/** The check's error came before anything was sent (the gate, no token here): it says nothing about the server. */
+export const sentNothing = (e: unknown): boolean => typeof e === 'object' && e !== null && unsent.has(e)
+
+function markUnsent(e: unknown): unknown {
+  if (typeof e === 'object' && e !== null) unsent.add(e)
+  return e
+}
+
 /** Run one check against `server`. Throws AIError ('mcp' when the server could not be used). */
 export async function inspectServer(server: McpServerConfig, mode: 'test' | 'guide', signal?: AbortSignal): Promise<InspectResult> {
   // the gate: a check sends no page — only the server's tool definitions reach Claude
   // one server joins (the brake counts its rounds and never caps it)
-  const prepared = prepare({ purpose: 'mcp-setup.inspect', sources: [], size: { promptChars: SYSTEM(server.name).length + 400, maxTokens: mode === 'guide' ? 4000 : 1500 }, mcp: { servers: 1 } })
+  let prepared: Prepared
+  try {
+    prepared = prepare({ purpose: 'mcp-setup.inspect', sources: [], size: { promptChars: SYSTEM(server.name).length + 400, maxTokens: mode === 'guide' ? 4000 : 1500 }, mcp: { servers: 1 } })
+  } catch (e) {
+    throw markUnsent(e)
+  }
   try {
     return await inspectOnce(server, mode, signal, prepared, meterCall(prepared, { signal }))
   } finally {
@@ -74,7 +93,7 @@ export async function inspectServer(server: McpServerConfig, mode: 'test' | 'gui
 
 async function inspectOnce(server: McpServerConfig, mode: 'test' | 'guide', signal: AbortSignal | undefined, prepared: Prepared, call: MeterCall): Promise<InspectResult> {
   const mcp = await attachMcp({ servers: [{ ...server, enabled: true }], instructions: '' }, 'free', { forced: [server.name] })
-  if (!mcp) throw new AIError('mcp', 'the token is not available in this browser', server.name)
+  if (!mcp) throw markUnsent(new AIError('mcp', 'the token is not available in this browser', server.name))
   let sdk: SDKModule | null = null
   try {
     const got = await claudeClient()

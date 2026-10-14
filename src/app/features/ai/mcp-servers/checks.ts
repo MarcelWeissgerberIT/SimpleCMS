@@ -9,7 +9,7 @@ import type { McpServerConfig } from '../../../store/types'
 import { t } from '../../../i18n'
 import { AIError, isAIConfigured } from '../client'
 import { PROMPT_MAX, outToolsFor, patchServer, readServers } from './config'
-import { inspectServer } from './generate'
+import { inspectServer, sentNothing } from './generate'
 import { LISTING_SHOWS_DISABLED, mergeTestedTools } from './lock'
 
 export type CheckMode = 'test' | 'guide'
@@ -61,9 +61,10 @@ export async function checkServer(id: string, mode: CheckMode = 'guide', opts: {
           : e instanceof Error
             ? e.message
             : String(e)
-    // a refused token (401 / 403): Settings offers "Sign in" next to the address
+    // a refused token (401 / 403): Settings offers "Sign in" next to the address. Only a check that went out may set or
+    // clear that mark: one the gate stopped, or one without the token in this browser, never reached the server
     const auth = e instanceof AIError && e.code === 'mcp_auth'
-    patchServer(id, { checkError: msg.length > 300 ? `${msg.slice(0, 299)}…` : msg, checkAuth: auth || undefined })
+    patchServer(id, { checkError: msg.length > 300 ? `${msg.slice(0, 299)}…` : msg, ...(sentNothing(e) ? {} : { checkAuth: auth || undefined }) })
   } finally {
     if (controllers.get(id) === ctrl) {
       controllers.delete(id)

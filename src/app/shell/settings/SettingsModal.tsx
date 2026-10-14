@@ -42,7 +42,7 @@ const BASE_TABS: SettingsTab[] = ['general', 'appearance', 'ai', 'data', 'sync',
 /** Server admins (ADMIN_EMAILS) also get "Server" (registration links) — after General. */
 const withServer = (tabs: SettingsTab[], admin: boolean): SettingsTab[] => (admin ? [tabs[0], 'server', ...tabs.slice(1)] : tabs)
 
-export function SettingsModal({ initialTab, section, onClose }: { initialTab?: SettingsTab | 'team'; section?: 'mcp' | 'memory' | 'limit'; onClose: () => void }) {
+export function SettingsModal({ initialTab, section, server, add, onClose }: { initialTab?: SettingsTab | 'team'; section?: 'mcp' | 'memory' | 'limit'; server?: string; add?: boolean; onClose: () => void }) {
   // "Team" moved to the workspace page: an old entry point (a link, a hand-off) lands on its People section
   const team = initialTab === 'team'
   useEffect(() => {
@@ -51,10 +51,10 @@ export function SettingsModal({ initialTab, section, onClose }: { initialTab?: S
     openWorkspaceSettings('people')
   }, [team, onClose])
   if (team) return null
-  return <Settings initialTab={initialTab} section={section} onClose={onClose} />
+  return <Settings initialTab={initialTab} section={section} server={server} add={add} onClose={onClose} />
 }
 
-function Settings({ initialTab, section, onClose }: { initialTab?: SettingsTab; section?: 'mcp' | 'memory' | 'limit'; onClose: () => void }) {
+function Settings({ initialTab, section, server, add, onClose }: { initialTab?: SettingsTab; section?: 'mcp' | 'memory' | 'limit'; server?: string; add?: boolean; onClose: () => void }) {
   const t = useT()
   const serverAdmin = useCloud((c) => !!c.user && !!c.serverAdmin)
   const TABS = withServer(BASE_TABS, serverAdmin)
@@ -153,7 +153,7 @@ function Settings({ initialTab, section, onClose }: { initialTab?: SettingsTab; 
             {tab === 'ai' && (
               // a lazy chunk (Settings › AI is not on the boot path); the tab head stays while it loads
               <Suspense fallback={<p className="st__loading label" aria-busy="true">{t('common.loading')}</p>}>
-                <ProvidersTab section={section} />
+                <ProvidersTab section={section} server={server} add={add} />
               </Suspense>
             )}
             {tab === 'data' && <DataTab onClose={onClose} />}

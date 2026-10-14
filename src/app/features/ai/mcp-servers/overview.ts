@@ -15,12 +15,22 @@ import { matchingServers, outToolsOf } from '../../../store/integrations'
 export interface WorkerMcp {
   repos: Array<{ name: string; mcp?: string[] }>
   mcp?: string[]
-  /** the worker names its servers (it lists 'mcp-list' in `can`; older workers send no names) */
-  named: boolean
+  /** the worker names its servers (workerNames: true) · an older worker that names none (false) · not known yet (null) */
+  named: boolean | null
 }
 
-/** Claude Code: not connected · a worker too old to name its servers · the repos (and "no repo") that have it */
-export type CodeUse = { kind: 'none' } | { kind: 'old' } | { kind: 'has'; repos: string[]; noRepo: boolean }
+/**
+ * Does the connected worker name Claude Code's servers? Its `can` says so ('mcp-list'; a `can` without it = an older
+ * worker that sends no names). `can` is null until the worker first asks for a task — a worker whose every slot is busy
+ * asks for none, maybe for a long while: then its info says it (server lists sent = it names them), else not known yet.
+ */
+export function workerNames(worker: { repos: Array<{ mcp?: unknown }>; mcp?: unknown }, can: readonly string[] | null): boolean | null {
+  if (can) return can.includes('mcp-list')
+  return Array.isArray(worker.mcp) || worker.repos.some((r) => Array.isArray(r.mcp)) ? true : null
+}
+
+/** Claude Code: not connected · a worker too old to name its servers · not known yet · the repos (and "no repo") that have it */
+export type CodeUse = { kind: 'none' } | { kind: 'old' } | { kind: 'unknown' } | { kind: 'has'; repos: string[]; noRepo: boolean }
 
 export interface OverviewRow {
   key: string
@@ -50,9 +60,10 @@ const hostOf = (url: string): string => {
 
 const fold = (s: string) => s.toLowerCase()
 
-/** Claude Code's names per place: repo name → names, '' = tasks without a repo. null = no worker / an older one. */
-function codeNames(worker: WorkerMcp | null): Map<string, string[]> | 'old' | null {
+/** Claude Code's names per place: repo name → names, '' = tasks without a repo. null = no worker; 'old' / 'unknown' = no names. */
+function codeNames(worker: WorkerMcp | null): Map<string, string[]> | 'old' | 'unknown' | null {
   if (!worker) return null
+  if (worker.named === null) return 'unknown'
   if (!worker.named) return 'old'
   const out = new Map<string, string[]>()
   for (const r of worker.repos) if (Array.isArray(r.mcp)) out.set(r.name, r.mcp.filter((n) => typeof n === 'string'))
@@ -83,7 +94,7 @@ export function overviewRows(
     const words = new Set([fold(s.name), ...(s.codeword ? [fold(s.codeword)] : [])])
     const match = (n: string) => words.has(fold(n))
     let code: CodeUse = { kind: 'none' }
-    if (places === 'old') code = { kind: 'old' }
+    if (places === 'old' || places === 'unknown') code = { kind: places }
     else if (places) {
       code = useIn(places, match)
       for (const names of places.values()) for (const n of names) if (match(n)) seen.add(fold(n))
@@ -108,7 +119,7 @@ export function overviewRows(
     }
   })
   // servers only Claude Code has: a row each (by name, case-insensitive)
-  if (places && places !== 'old') {
+  if (places && places !== 'old' && places !== 'unknown') {
     const extra = new Map<string, string>()
     for (const names of places.values()) for (const n of names) if (!seen.has(fold(n)) && !extra.has(fold(n))) extra.set(fold(n), n)
     for (const [key, name] of [...extra].sort((a, b) => a[0].localeCompare(b[0])))

@@ -14,6 +14,7 @@
  *   #/kit           → Building blocks (features/kit) · #/kit/<lists|types|records> · #/kit/<tab>/<id> → one block
  *   #/discover      → "What can One do?" — the feature cards (shell/discover)
  *   #/regler        → the Regler (features/governor): usage today and this month, the red line, consumers, receipts
+ *   #/mcp           → MCP · Connections (features/mcp/connections): every MCP connection One knows of, as this tab knows it
  *   #/workspace     → workspace settings (shell/workspace) · #/workspace/<section> → overview | look | people |
  *                     blocks | automation | integrations | data | danger
  *   #/s/<payload>   → read-only shared page (payload = compressed page, see features/share)
@@ -49,6 +50,8 @@ export type Route =
   | { name: 'discover' }
   /** #/regler → the Regler: usage, the red line, consumers and receipts of this device (see features/governor) */
   | { name: 'regler' }
+  /** #/mcp → MCP · Connections: One's Claude's servers, the bridge, the coding worker, the team server (see features/mcp/connections) */
+  | { name: 'mcp' }
   /** #/workspace → workspace settings · #/workspace/<section> → one section (see shell/workspace) */
   | { name: 'workspace'; section?: string }
   | { name: 'share'; payload: string }
@@ -91,6 +94,7 @@ export function parseHash(hash: string): Route {
   }
   if (parts[0] === 'discover') return { name: 'discover' }
   if (parts[0] === 'regler') return { name: 'regler' }
+  if (parts[0] === 'mcp') return { name: 'mcp' }
   if (parts[0] === 'workspace') return parts[1] ? { name: 'workspace', section: parts[1] } : { name: 'workspace' }
   if (parts[0] === 's' && parts[1]) return { name: 'share', payload: parts.slice(1).join('/') }
   if (parts[0] === 'f' && parts[1]) return { name: 'form', payload: parts.slice(1).join('/') }
@@ -135,6 +139,8 @@ export function routeHref(r: Route): string {
       return '#/discover'
     case 'regler':
       return '#/regler'
+    case 'mcp':
+      return '#/mcp'
     case 'workspace':
       return r.section ? `#/workspace/${r.section}` : '#/workspace'
     case 'share':

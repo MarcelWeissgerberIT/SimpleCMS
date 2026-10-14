@@ -3,11 +3,13 @@ id: mcp-bridge
 title: Claude Desktop & lokales MCP
 section: ai
 order: 7
-keywords: mcp, claude desktop, claude code, cursor, brücke, mcpb, erweiterung, agent, lokal, one-mcp, codewort, one:, aufräumen, papierkorb, wiederherstellen, verschieben, aufgaben, one_list_work_items, one_update_work_item, bridge, extension
+keywords: mcp, mcp verbindungen, verbunden, claude desktop, claude code, cursor, brücke, mcpb, erweiterung, agent, lokal, one-mcp, codewort, one:, aufräumen, papierkorb, wiederherstellen, verschieben, aufgaben, one_list_work_items, one_update_work_item, bridge, extension
 related: mcp-servers, agent, team-cloud
 summary: Lass Claude Desktop, Claude Code oder jeden MCP-Client in deinem offenen One-Tab arbeiten.
 ---
 **Einstellungen → Agenten · MCP.** Eine kleine Brücke auf deinem Computer verbindet den MCP-Client mit diesem Tab — dein Workspace bleibt im Browser.
+
+Ist sie verbunden? ⌘K **MCP · Verbindungen** zeigt die Brücke dieses Tabs neben jeder anderen MCP-Verbindung — den MCP-Servern von Claude in One, dem Coding-Worker, dem Team-Server.
 
 ## Claude Desktop — ein Klick
 1. **Zu Claude Desktop hinzufügen** lädt `one.mcpb` herunter (macOS, Windows). Datei öffnen — Claude Desktop fragt, ob es die Erweiterung installieren soll. Kein Terminal, kein Node.js.

@@ -66,6 +66,7 @@ export const CHANGELOG_TRIES = [
   'preflight',
   'agent-precheck',
   'regler',
+  'mcp',
 ] as const
 export type ChangelogTry = (typeof CHANGELOG_TRIES)[number]
 

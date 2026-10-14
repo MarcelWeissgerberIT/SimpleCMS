@@ -3,11 +3,11 @@ id: mcp-servers
 title: MCP servers (knowledge bases & co)
 section: ai
 order: 6
-keywords: mcp, mcp server, overview, table, where used, tools, connector, knowledge base, token, external tools, integration, codeword, kb:, oauth, sign in, sign-in code, device code, image, video, generate, media, save to one, MCP-Server, Werkzeuge, Wissensdatenbank, Codewort, Anmelden, Bild generieren
+keywords: mcp, mcp server, mcp connections, connections, what is connected, overview page, overview, table, where used, tools, connector, knowledge base, token, external tools, integration, codeword, kb:, oauth, sign in, sign-in code, device code, image, video, generate, media, save to one, MCP-Server, Werkzeuge, Wissensdatenbank, Codewort, Anmelden, Bild generieren, Verbindungen, Übersichtsseite
 related: agent, ai-menu, mcp-token-rejected, mcp-bridge, claude-key
 summary: Let One's Claude use the tools of other systems — a knowledge base, a tracker, a CRM.
 ---
-**Settings → Claude AI → MCP servers.** You need [your Claude key](help:claude-key) first.
+**Settings → AI → MCP servers.** You need [your Claude key](help:claude-key) first.
 
 ## Add a server (a knowledge base as example)
 1. In your knowledge base, copy its MCP server address (`https://…/mcp`) and create a token for One — read-only, limited to the projects you need, if it lets you choose.
@@ -16,6 +16,15 @@ summary: Let One's Claude use the tools of other systems — a knowledge base, a
 
 ## Overview: where each server may be used
 The section opens with a table, one row per server: its **codeword**, **One's Claude** (which requests take it, or *Off*), the **custom agents** that attach it (with the number of tools a tool list allows; a switched-off agent struck through), the **integrations** it makes active, and **Claude Code (worker)** — the repos (and *tasks without a repo*) where Claude Code in the coding worker has a server of the same name or codeword. Claude Code's servers are its own (your `claude mcp` setup, ticked per repo on the worker's setup page): a name only Claude Code has gets a row of its own. Click a server's name to open its details.
+
+## All connections at a glance
+⌘K **MCP · Connections** (`#/mcp`) shows every MCP connection One knows of on one page — **All connections →** here and in **Settings → Agents · MCP** opens it too:
+- **§ 01 One's Claude** — these servers, each with a lamp and a word: **OK** (when it was tested, how many tools), **Not tested**, **Test failed** (amber), **Token refused** or **Sign-in ran out** (red), **Off**. The lamps follow the [Preflight](help:preflight) Token lamp: the same servers are red or amber there. Each row offers **Test** (one short Claude request — only when you press it), **Sign in** on a red row, and **Settings ↗** to its card here.
+- **§ 02 Claude Desktop · Code** — this tab's bridge ([Claude Desktop & local MCP](help:mcp-bridge)): connected or not, which client, what agents may change.
+- **§ 03 Coding worker** — this browser's link to the worker and the MCP servers Claude Code has there, per repo.
+- **§ 04 Team server** — in a team workspace: the workspace's `/mcp` address and the server agents' MCP servers.
+
+Opening the page sends nothing and opens no token: it shows what One last saw — the last test, refusals in this tab, when a sign-in runs out. Each section says where its setting lives (this device, this tab, this browser, the team server). **This browser has no copy of the token** shows only here in Settings, on the server's card — the page never opens the sealed tokens. Requests then leave the server out without a word; only a request that names it by its codeword says so.
 
 ## Where it is used
 **Details** → **Used in**:
@@ -26,7 +35,7 @@ A server you switch off is not used by One on this device — custom agents that
 
 **Details** also holds the name, the codeword (below), the token, the usage prompt (**Generate** / **Regenerate**, or write your own), **Test connection** and **Remove server**. While Claude works, MCP calls show as small chips, e.g. `KB · search`.
 
-A server that rejects its token (expired, or not signed in yet) no longer stops your requests: Claude answers without it and a note says *“… rejected its token — Claude answers without it”*. It stays left out in this tab until you sign in again or replace the token — or address it by its codeword, which shows the error instead.
+A server that rejects its token (expired, or not signed in yet) no longer stops your requests: Claude answers without it and a note says *“… rejected its token — Claude answers without it”*. It stays left out in this tab until you sign in again, replace the token or a test passes — or address it by its codeword, which shows the error instead.
 
 ## Codeword
 **Details** → **Codeword**: a short word like `kb` — One suggests the server's name, **Use** takes it. Start a request with it — *“kb: what do we know about the launch?”* — in the AI menu, in `⌘K ?` or in the agent, and Claude answers with this server's tools first (the `kb:` itself is not sent). Several work at once: `kb: wiki: …`. In the AI terminal, `kb:` lists the server's tools (from **Test connection**): pick one with <kbd>Tab</kbd> and Claude is told to use it.

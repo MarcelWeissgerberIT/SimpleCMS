@@ -5,7 +5,7 @@
  * Claude Desktop JSON) and the activity log.
  */
 import { useId, useState, type ReactNode } from 'react'
-import { ChevronRight, Copy, Download, RotateCcw, Undo2 } from 'lucide-react'
+import { ArrowRight, ChevronRight, Copy, Download, RotateCcw, Undo2 } from 'lucide-react'
 import { useUI } from '../../store/ui'
 import { useWorkspace } from '../../store/store'
 import { useCloud } from '../../cloud'
@@ -15,9 +15,9 @@ import { MCP_CODEWORD, MCP_DEFAULT_PORT, type McpAgentMode } from './contract'
 import { shortId, workspaceInfo } from './identity'
 import { clearMcpActivity, connectMcpNow, setMcpEnabled, setMcpMode, setMcpPort, undoMcpActivity } from './service'
 import { clientLabel, useMcp, validPort, type McpActivity, type McpConn } from './state'
+import { bridgeLed, bridgeStateText } from './stateText'
+import { openMcpConnections } from './connections/open'
 import './mcp.css'
-
-type T = ReturnType<typeof useT>
 
 /** Where the site serves the bridge (respects the app's base: getonecms.com/mcp/one-mcp.mjs). */
 export function bridgeUrl(): string {
@@ -80,7 +80,7 @@ function Panel({ code, title, state, stateText, children }: { code: string; titl
         </span>
         {stateText && (
           <span className="mcp-panel__state" role="status" data-testid="mcp-state">
-            <Led state={state === 'connected' ? 'ok' : state === 'connecting' || state === 'waiting' ? 'on' : 'off'} />
+            <Led state={bridgeLed(state ?? 'off')} />
             <span className="label">{stateText}</span>
           </span>
         )}
@@ -88,23 +88,6 @@ function Panel({ code, title, state, stateText, children }: { code: string; titl
       <div className="mcp-panel__body">{children}</div>
     </section>
   )
-}
-
-function stateText(t: T, conn: McpConn, client: string | null, calls: number, bridge: string | null): string {
-  switch (conn) {
-    case 'off':
-      return t('features.mcp.state.off')
-    case 'connecting':
-      return t('features.mcp.state.connecting')
-    case 'waiting':
-      return t('features.mcp.state.waiting')
-    case 'connected':
-      return t(calls === 1 ? 'features.mcp.state.connected.one' : 'features.mcp.state.connected.other', { client: client ?? t('features.mcp.bridge', { v: bridge ?? '' }).trim(), n: calls })
-    case 'replaced':
-      return t('features.mcp.state.replaced')
-    case 'blocked':
-      return t('features.mcp.state.blocked')
-  }
 }
 
 function BridgePanel() {
@@ -128,7 +111,7 @@ function BridgePanel() {
     else setPort(String(s.port))
   }
   return (
-    <Panel code="§ A" title={t('features.mcp.panel.bridge')} state={s.enabled ? s.conn : 'off'} stateText={stateText(t, s.enabled ? s.conn : 'off', client, s.calls, s.bridge)}>
+    <Panel code="§ A" title={t('features.mcp.panel.bridge')} state={s.enabled ? s.conn : 'off'} stateText={bridgeStateText(t, s.enabled ? s.conn : 'off', client, s.calls, s.bridge)}>
       <div className="mcp-switch">
         <Switch checked={s.enabled} onChange={setMcpEnabled} label={t('features.mcp.allow')} />
         <div>
@@ -380,12 +363,35 @@ function ActivityLog() {
   )
 }
 
+/**
+ * MCP · Connections (#/mcp) — One's Claude, this bridge, the coding worker, the team server. The key reads "All
+ * connections →" as on Settings › AI (the help and What's new name it so).
+ */
+function ConnectionsLink() {
+  const t = useT()
+  const id = useId()
+  return (
+    <div className="mcp-all" role="group" aria-labelledby={`${id}-l`}>
+      <span className="label mcp-all__label" id={`${id}-l`}>
+        {t('features.mcp.page.title')}
+      </span>
+      <p className="mcp-all__hint" id={`${id}-h`}>
+        {t('features.mcp.page.linkHint')}
+      </p>
+      <button type="button" className="btn btn--sm mcp-all__key" onClick={openMcpConnections} aria-describedby={`${id}-h`} data-testid="mcp-tab-connections">
+        {t('features.mcp.page.link')} <ArrowRight size={13} strokeWidth={1.75} aria-hidden />
+      </button>
+    </div>
+  )
+}
+
 export function McpTab() {
   const t = useT()
   return (
     <div className="mcp-tab">
       <h3 className="st-h">{t('features.mcp.title')}</h3>
       <p className="st-p">{t('features.mcp.lead')}</p>
+      <ConnectionsLink />
       <BridgePanel />
       <ModePanel />
       <SetupPanel />

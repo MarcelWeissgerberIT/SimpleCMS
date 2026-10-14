@@ -9,7 +9,7 @@ import { useT } from '../../../i18n'
 import { useWorkspace } from '../../../store/store'
 import type { McpServerConfig } from '../../../store/types'
 import { useCoding } from '../../coding'
-import { overviewRows, type CodeUse, type OverviewRow } from './overview'
+import { overviewRows, workerNames, type CodeUse, type OverviewRow } from './overview'
 
 type T = ReturnType<typeof useT>
 
@@ -21,7 +21,7 @@ export function McpOverview({ servers, onShow }: { servers: McpServerConfig[]; o
   const worker = useCoding((s) => (s.enabled && s.conn === 'connected' ? s.worker : null))
   const can = useCoding((s) => s.can)
   const rows = useMemo(
-    () => overviewRows(servers, Object.values(agents ?? {}), profiles ?? [], worker ? { repos: worker.repos, mcp: worker.mcp, named: !!can?.includes('mcp-list') } : null),
+    () => overviewRows(servers, Object.values(agents ?? {}), profiles ?? [], worker ? { repos: worker.repos, mcp: worker.mcp, named: workerNames(worker, can) } : null),
     [servers, agents, profiles, worker, can],
   )
   if (!rows.length) return null
@@ -139,6 +139,7 @@ function Row({ row: r, withProfiles, withOut, onShow }: { row: OverviewRow; with
 function Code({ use, t }: { use: CodeUse; t: T }) {
   if (use.kind === 'none') return <span className="mcpo__muted">{t('features.ai.mcp.ov.codeOff')}</span>
   if (use.kind === 'old') return <span className="mcpo__muted">{t('features.ai.mcp.ov.codeOld')}</span>
+  if (use.kind === 'unknown') return <span className="mcpo__muted">{t('features.ai.mcp.ov.codeUnknown')}</span>
   if (!use.repos.length && !use.noRepo) return <span className="mcpo__none">—</span>
   return (
     <ul className="mcpo__chips">
