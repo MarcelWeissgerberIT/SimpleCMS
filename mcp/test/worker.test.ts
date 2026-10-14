@@ -528,6 +528,9 @@ describe('documents, tasks without a repository, imports', () => {
     const ev = tab.messages.filter((m): m is Extract<WorkerMessage, { type: 'event'; kind: 'intake' }> => m.type === 'event' && m.kind === 'intake').at(-1)!
     assert.equal(ev.intake.state, 'done', JSON.stringify(ev))
     assert.ok(ev.intake.repo)
+    // git's own lines ("Cloning into …") name the folder only — never where it is
+    assert.ok(!tab.raw.join('\n').includes(clones), 'the clone folder never reaches the tab')
+    assertNoPaths(tab, r)
     await worker!.stop()
     worker = null
     const r2 = makeRepo()

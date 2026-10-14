@@ -156,7 +156,7 @@ export class Intake {
     this.running = id
     this.host.log(`import for task ${id}: cloning ${target.url} into ${base}`)
     this.host.event(id, { state: 'running', source: 'clone', label: target.url, line: 'Cloning…', percent: null })
-    void cloneInto(target, base, (p) => this.host.event(id, { state: 'running', source: 'clone', label: target.url, line: p.line, percent: p.percent }), { local: target.kind === 'local' })
+    void cloneInto(target, base, (p) => this.host.event(id, { state: 'running', source: 'clone', label: target.url, line: p.line, percent: p.percent }), { local: target.kind === 'local', log: (msg) => this.host.log(`import for task ${id}: ${msg}`) })
       .then(async ({ dir, already }) => this.adopt(id, 'clone', target.url, dir, already ? 'Already cloned — added.' : 'Cloned.'))
       .catch((e: unknown) => this.fail(id, 'clone', target.url, e))
       .finally(() => {
@@ -175,7 +175,11 @@ export class Intake {
       const keep: RepoChoice[] = cfg.repos.map((r) => ({ path: r.path, name: r.name, baseBranch: r.baseBranch, remote: r.remote, testCommand: r.testCommand, push: r.push, pr: r.pr, maxUsdPerTask: r.maxUsdPerTask }))
       keep.push({ path: dir, name: facts.name, baseBranch: facts.base, remote: facts.remote, testCommand: facts.test, push: !!facts.remote, pr: facts.remote ? 'gh' : 'none', maxUsdPerTask: null })
       const problems = saveRepos(this.host.configFile, keep, cfg.workspace)
-      if (problems.length) throw new Error(`The repository is at ${dir}, but worker.json could not take it: ${problems.join('; ')}`)
+      // the folder goes to this terminal only
+      if (problems.length) {
+        this.host.log(`import for task ${taskId}: the repository is at ${dir}`)
+        throw new Error(`The repository was made, but worker.json could not take it: ${problems.join('; ')}`)
+      }
       name = facts.name
       await this.host.reload()
     }

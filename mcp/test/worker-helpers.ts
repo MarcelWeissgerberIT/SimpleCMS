@@ -112,8 +112,15 @@ export function onPath(name: string): string {
 /** A fresh empty folder inside this run's temp root (removed by cleanupAll). */
 export const tempDir = (prefix = 'tmp') => mkdtempSync(join(root, `${prefix}-`))
 
+/**
+ * The tests' own git: on Windows by its path on PATH — Node looks for a bare name in the child's working folder first
+ * there, and a test repo may hold a planted git.exe (worker-native.test.ts); the bare name elsewhere.
+ */
+let gitPath: string | null = null
+const gitProgram = () => (IS_WIN ? (gitPath ??= onPath('git')) : 'git')
+
 export function sh(cwd: string, ...args: string[]): string {
-  return execFileSync('git', args, { cwd, env: { ...process.env, ...GIT_ENV }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+  return execFileSync(gitProgram(), args, { cwd, env: { ...process.env, ...GIT_ENV }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
 }
 
 export interface TempRepo {
@@ -132,8 +139,8 @@ export function makeRepo(): TempRepo {
   mkdirSync(dir, { recursive: true })
   const remote = join(dir, 'remote.git')
   const path = join(dir, 'repo')
-  execFileSync('git', ['init', '--quiet', '--bare', '-b', 'main', remote], { env: { ...process.env, ...GIT_ENV } })
-  execFileSync('git', ['init', '--quiet', '-b', 'main', path], { env: { ...process.env, ...GIT_ENV } })
+  execFileSync(gitProgram(), ['init', '--quiet', '--bare', '-b', 'main', remote], { env: { ...process.env, ...GIT_ENV } })
+  execFileSync(gitProgram(), ['init', '--quiet', '-b', 'main', path], { env: { ...process.env, ...GIT_ENV } })
   writeFileSync(join(path, 'README.md'), '# Demo\n\nA line.\n')
   writeFileSync(join(path, 'check.mjs'), "import { existsSync, readFileSync } from 'node:fs'\nconst f = existsSync('feature.txt') ? readFileSync('feature.txt', 'utf8') : ''\nif (f.includes('BROKEN')) { console.log('FAIL feature.txt is broken'); process.exit(1) }\nconsole.log('PASS 1 check')\n")
   sh(path, 'add', '-A')
@@ -148,7 +155,7 @@ export function makeRepo(): TempRepo {
     worktrees,
     other: () => {
       const o = join(dir, `other${Date.now()}`)
-      execFileSync('git', ['clone', '--quiet', remote, o], { env: { ...process.env, ...GIT_ENV } })
+      execFileSync(gitProgram(), ['clone', '--quiet', remote, o], { env: { ...process.env, ...GIT_ENV } })
       return o
     },
   }
@@ -269,7 +276,7 @@ export function pathWith(dir: string, env: NodeJS.ProcessEnv = process.env): Rec
 /** A git repo at `dir` with one commit (and optionally a remote URL — never contacted). */
 export function plainRepo(dir: string, files: Record<string, string> = { 'README.md': '# x\n' }, remoteUrl?: string): string {
   mkdirSync(dir, { recursive: true })
-  execFileSync('git', ['init', '--quiet', '-b', 'main', dir], { env: { ...process.env, ...GIT_ENV } })
+  execFileSync(gitProgram(), ['init', '--quiet', '-b', 'main', dir], { env: { ...process.env, ...GIT_ENV } })
   for (const [name, text] of Object.entries(files)) writeFileSync(join(dir, name), text)
   sh(dir, 'add', '-A')
   sh(dir, 'commit', '--quiet', '-m', 'initial')

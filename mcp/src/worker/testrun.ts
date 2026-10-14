@@ -37,16 +37,33 @@ function runCommand(argv: string[] | null, timeoutSec: number, what: string, cwd
     let timedOut = false
     let missing = false
     let settled = false
-    const add = (d: Buffer) => {
-      const text = d.toString()
-      out = (out + text).slice(-TEST_OUTPUT_MAX * 2)
-      if (onLine) for (const line of text.split(/\r?\n/)) if (line.trim()) onLine(line.slice(0, 500))
+    // live lines are whole lines: a path cut between two pieces of output would pass the scrubber in halves
+    const partial = { out: '', err: '' }
+    const line = (l: string) => {
+      if (onLine && l.trim()) onLine(l.slice(0, 500))
     }
-    child.stdout?.on('data', add)
-    child.stderr?.on('data', add)
+    const add = (which: 'out' | 'err') => (text: string) => {
+      out = (out + text).slice(-TEST_OUTPUT_MAX * 2)
+      const lines = (partial[which] + text).split(/\r?\n/)
+      partial[which] = lines.pop() ?? ''
+      // a line without an end that keeps growing still goes out (its first 500 characters, as every live line)
+      if (partial[which].length > 4000) {
+        line(partial[which])
+        partial[which] = ''
+      }
+      for (const l of lines) line(l)
+    }
+    // text, decoded across pieces: a character split between two pieces stays whole (else "ü" arrives as two U+FFFD)
+    child.stdout?.setEncoding('utf8')
+    child.stderr?.setEncoding('utf8')
+    child.stdout?.on('data', add('out'))
+    child.stderr?.on('data', add('err'))
     const finish = (code: number | null) => {
       if (settled) return
       settled = true
+      line(partial.out)
+      line(partial.err)
+      partial.out = partial.err = ''
       clearTimeout(timer)
       signal.removeEventListener('abort', onAbort)
       if (missing) return done(notStarted('missing'))

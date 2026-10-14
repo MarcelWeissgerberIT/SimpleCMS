@@ -41,6 +41,7 @@ import { isAllowedHost, isAllowedOrigin } from '../policy.ts'
 import { BoxSession, newNonce, sessionKey } from './box.ts'
 import { CloudDial, type CloudFatal } from './cloud.ts'
 import { sameSecret } from './preset.ts'
+import { Scrubber } from './scrub.ts'
 
 export interface CloudLink {
   /** wss://<server>/coding/worker */
@@ -248,6 +249,8 @@ export class WorkerLink {
   private flushing = false
   private pinger: ReturnType<typeof setInterval> | null = null
   private refusals = 0
+  /** what a request's error may not carry to One: this computer's home and temp folders (worker.ts scrubs per repo before) */
+  private errorScrub = new Scrubber()
   private dial: CloudDial | null = null
   private pairing: Pairing | null = null
 
@@ -639,7 +642,8 @@ export class WorkerLink {
         this.opts
           .onRequest(msg)
           .then((result) => conn.isOpen() && conn.send(JSON.stringify({ type: 'res', id, ok: true, result } satisfies WorkerMessage)))
-          .catch((e: unknown) => conn.isOpen() && conn.send(JSON.stringify({ type: 'res', id, ok: false, error: e instanceof Error ? e.message : String(e) } satisfies WorkerMessage)))
+          // a backstop: whatever an error names of this computer (home, temp folder — every way Windows writes them) stays here
+          .catch((e: unknown) => conn.isOpen() && conn.send(JSON.stringify({ type: 'res', id, ok: false, error: this.errorScrub.text(e instanceof Error ? e.message : String(e)) } satisfies WorkerMessage)))
         return
       }
     }

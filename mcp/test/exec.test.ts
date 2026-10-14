@@ -7,12 +7,12 @@
  */
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { readFileSync, readdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { after, describe, test } from 'node:test'
-import { cmdLine, commandName, envGet, execFileSafe, execFileSyncSafe, killTree, pathKey, readShim, resolveCommand, spawnSafe, systemTool, type Allow, type ExecCtx } from '../src/worker/exec.ts'
+import { cmdLine, commandName, envGet, execFileSafe, execFileSyncSafe, fromCwd, killTree, noCwdLookup, pathKey, plantedProgram, readShim, resolveCommand, spawnSafe, systemTool, type Allow, type ExecCtx } from '../src/worker/exec.ts'
 import { pathId, samePath } from '../src/worker/paths.ts'
 import { detectClaude, gitBash } from '../src/worker/claude.ts'
 import { runAnalysis, runTests } from '../src/worker/testrun.ts'
@@ -212,10 +212,11 @@ describe('exec — Windows resolution (injected platform)', () => {
     const files = { [String.raw`C:\repo\gradlew`]: '#!/bin/sh', [String.raw`C:\repo\gradlew.bat`]: '@echo off\r\nsetlocal enabledelayedexpansion\r\n', [String.raw`C:\tools\x.exe`]: 'MZ', [String.raw`C:\repo\tools\lint.cmd`]: SHIM_PWSH }
     // `.\gradlew test` on Windows: the sh script is skipped, gradlew.bat (unreadable as a shim) runs through cmd.exe — person only
     const g = resolveCommand('./gradlew', ['test'], win(files, { ComSpec: String.raw`C:\Windows\system32\cmd.exe` }), 'person')
-    assert.deepEqual(g, { ok: true, file: String.raw`C:\Windows\System32\cmd.exe`, args: ['/d', '/v:off', '/s', '/c', String.raw`"C:\repo\gradlew.bat ^"test^""`], via: 'comspec', verbatim: true })
+    // the script inside the working folder is named from there (fromCwd): the folder's own path stays off the line
+    assert.deepEqual(g, { ok: true, file: String.raw`C:\Windows\System32\cmd.exe`, args: ['/d', '/v:off', '/s', '/c', String.raw`".\gradlew.bat ^"test^""`], via: 'comspec', verbatim: true })
     assert.equal(resolveCommand(String.raw`.\gradlew.bat`, ['test'], win(files), 'shim').ok, false)
     assert.deepEqual(resolveCommand(String.raw`C:\tools\x`, ['-a'], win(files)), { ok: true, file: String.raw`C:\tools\x.exe`, args: ['-a'], via: 'direct', verbatim: false })
-    assert.equal((resolveCommand('tools/lint', [], win(files), 'person') as { args: string[] }).args[4], String.raw`"C:\repo\tools\lint.cmd"`)
+    assert.equal((resolveCommand('tools/lint', [], win(files), 'person') as { args: string[] }).args[4], String.raw`".\tools\lint.cmd"`)
     // CLAUDE_BIN = Claude Code's cli.js: this Node runs it
     assert.deepEqual(resolveCommand(CLAUDE_JS, ['--version'], win({ [CLAUDE_JS]: '' })), { ok: true, file: NODE, args: [CLAUDE_JS, '--version'], via: 'node-shim', verbatim: false })
     // .ps1 / .vbs / no extension: not a program the worker starts
@@ -345,6 +346,93 @@ describe('exec — Windows resolution (injected platform)', () => {
     for (const platform of ['linux', 'darwin'] as const)
       for (const [cmd, args, allow] of [['git', ['status'], 'exe'], ['claude', ['-p'], 'shim'], ['./gradlew', ['test'], 'person'], [CLAUDE_JS, [], 'shim'], ['npm', ['a&b', 'x\ny'], 'person']] as Array<[string, string[], Allow]>)
         assert.deepEqual(resolveCommand(cmd, args, { platform, env: { PATH: '/usr/bin', PATHEXT: '.CMD' }, cwd: '/repo', execPath: '/usr/bin/node', ...disk(files) }, allow), { ok: true, file: cmd, args, via: 'direct', verbatim: false })
+  })
+})
+
+/* ------------------------------------------------------------------ the working folder (Windows) */
+
+describe('exec — a child never looks in its working folder, and that folder never reaches a command line (Windows)', () => {
+  test('noCwdLookup: a Windows child gets NoDefaultCurrentDirectoryInExePath (one of the person\'s, in any case, is kept); elsewhere nothing changes', () => {
+    const env: NodeJS.ProcessEnv = { PATH: String.raw`C:\tools` }
+    assert.deepEqual(noCwdLookup(env, 'win32'), { PATH: String.raw`C:\tools`, NoDefaultCurrentDirectoryInExePath: '1' })
+    assert.equal('NoDefaultCurrentDirectoryInExePath' in env, false, 'the caller\'s object stays as it was')
+    const own = { nodefaultcurrentdirectoryinexepath: '0' }
+    assert.equal(noCwdLookup(own, 'win32'), own)
+    assert.equal(noCwdLookup(env, 'linux'), env)
+    assert.equal(noCwdLookup(env, 'darwin'), env)
+  })
+
+  test('every child the exec layer starts carries it on Windows — spawnSafe, execFileSafe, execFileSyncSafe, with or without an env of the caller\'s (none elsewhere)', async () => {
+    const probe = ['-e', 'process.stdout.write(String(process.env.NoDefaultCurrentDirectoryInExePath))']
+    const want = process.platform === 'win32' ? '1' : 'undefined'
+    const env: NodeJS.ProcessEnv = { ...process.env }
+    for (const k of Object.keys(env)) if (k.toLowerCase() === 'nodefaultcurrentdirectoryinexepath') delete env[k]
+    assert.equal((await execFileSafe(process.execPath, probe, { timeoutMs: 20_000, env })).stdout, want)
+    assert.equal(execFileSyncSafe(process.execPath, probe, { timeoutMs: 20_000, env }).stdout, want)
+    if (!Object.keys(process.env).some((k) => k.toLowerCase() === 'nodefaultcurrentdirectoryinexepath')) assert.equal((await execFileSafe(process.execPath, probe, { timeoutMs: 20_000 })).stdout, want)
+    const s = spawnSafe(process.execPath, probe, { env, stdio: ['ignore', 'pipe', 'ignore'] })
+    assert.ok(s.ok)
+    let out = ''
+    s.child.stdout!.on('data', (d: Buffer) => (out += d.toString()))
+    await new Promise((r) => s.child.on('close', r))
+    assert.equal(out, want)
+  })
+
+  test('a file inside the working folder is named from there: the folder — a worktree named after a branch — never reaches argv[0], a script argument or a cmd.exe line', () => {
+    // a folder named with everything cmd.exe reads (as a branch from One or a remote could have named a worktree)
+    const wt = String.raw`C:\Users\Max\.one-worktrees\shop\fix=1&calc^%x!y,z;(w) q`
+    const files = {
+      [`${wt}\\gradlew.bat`]: '@echo off\r\nsetlocal enabledelayedexpansion\r\n',
+      [`${wt}\\tools\\x.exe`]: 'MZ',
+      [`${wt}\\scripts\\test.mjs`]: '',
+      [`${wt}\\node_modules\\.bin\\vitest.cmd`]: cmdShimV7(String.raw`..\vitest\vitest.mjs`),
+      [`${wt}\\node_modules\\vitest\\vitest.mjs`]: '',
+      [String.raw`C:\tools\lint.bat`]: '@echo off\r\nsetlocal\r\n',
+    }
+    const ctx = win(files, { PATH: String.raw`C:\tools` }, wt)
+    const bat = resolveCommand(String.raw`.\gradlew.bat`, ['test'], ctx, 'person')
+    assert.deepEqual(bat, { ok: true, file: String.raw`C:\Windows\System32\cmd.exe`, args: ['/d', '/v:off', '/s', '/c', String.raw`".\gradlew.bat ^"test^""`], via: 'comspec', verbatim: true })
+    assert.deepEqual(resolveCommand('tools/x', ['-a'], ctx, 'person'), { ok: true, file: String.raw`.\tools\x.exe`, args: ['-a'], via: 'direct', verbatim: false })
+    assert.deepEqual(resolveCommand(String.raw`.\scripts\test.mjs`, ['--ci'], ctx, 'person'), { ok: true, file: NODE, args: [String.raw`.\scripts\test.mjs`, '--ci'], via: 'node-shim', verbatim: false })
+    assert.deepEqual(resolveCommand(String.raw`.\node_modules\.bin\vitest.cmd`, ['run'], ctx, 'person'), { ok: true, file: NODE, args: [String.raw`.\node_modules\vitest\vitest.mjs`, 'run'], via: 'node-shim', verbatim: false })
+    // outside the folder: as found — the person's PATH, this Node
+    const lint = resolveCommand('lint', ['x'], ctx, 'person')
+    assert.equal(lint.ok && lint.args[4], String.raw`"C:\tools\lint.bat ^"x^""`)
+    for (const r of [bat, lint, resolveCommand('tools/x', [], ctx), resolveCommand(String.raw`.\scripts\test.mjs`, [], ctx), resolveCommand(String.raw`.\node_modules\.bin\vitest.cmd`, [], ctx)]) {
+      assert.ok(r.ok, JSON.stringify(r))
+      const line = [r.file, ...r.args].join(' ')
+      for (const part of ['.one-worktrees', 'shop', 'fix', 'calc', 'Max']) assert.ok(!line.includes(part), `${part} in ${line}`)
+    }
+    assert.equal(fromCwd(String.raw`C:\a\b\c.exe`, String.raw`c:\A`), String.raw`.\b\c.exe`)
+    assert.equal(fromCwd(String.raw`C:\a\c.exe`, String.raw`C:\a\b`), String.raw`C:\a\c.exe`)
+    assert.equal(fromCwd(String.raw`D:\a\c.exe`, String.raw`C:\a`), String.raw`D:\a\c.exe`)
+  })
+
+  test('plantedProgram (Windows): a program a lookup by name would take at the top of a folder — its name only; build scripts, folders and other systems never', () => {
+    const at = (names: string[], env: NodeJS.ProcessEnv = {}) => plantedProgram(String.raw`C:\repo`, { platform: 'win32', env, list: () => names })
+    assert.equal(at(['README.md', 'gradlew', 'gradlew.bat', 'build.cmd', 'mvnw.cmd', 'make.bat', 'setup.py', 'env.js', 'index.js', 'git.ps1', 'gitk.exe', '.git']), null)
+    assert.equal(at(['src', 'git.exe']), 'git.exe')
+    assert.equal(at(['CLAUDE.EXE']), 'CLAUDE.EXE')
+    assert.equal(at(['npm.cmd']), 'npm.cmd')
+    // cross-spawn runs a .js it found through cmd.exe: the Windows Script Host would start it
+    assert.equal(at(['node.js']), 'node.js')
+    // Windows drops a trailing dot or space
+    assert.equal(at(['git.exe.']), 'git.exe.')
+    // the person's PATHEXT counts too
+    assert.equal(at(['python.py']), null)
+    assert.equal(at(['python.py'], { PATHEXT: '.COM;.EXE;.BAT;.CMD;.PY' }), 'python.py')
+    // the same name every time (sorted)
+    assert.equal(at(['git.exe', 'claude.exe']), 'claude.exe')
+    assert.equal(plantedProgram(String.raw`C:\repo`, { platform: 'linux', list: () => ['git.exe'] }), null)
+    assert.equal(plantedProgram('/repo', { platform: 'darwin', list: () => ['git'] }), null)
+    // on the disk: files count, a folder of that name does not; a folder that is not there holds nothing
+    const dir = tempDir('plant')
+    mkdirSync(join(dir, 'git.exe'))
+    writeFileSync(join(dir, 'README.md'), '')
+    assert.equal(plantedProgram(dir, { platform: 'win32' }), null)
+    writeFileSync(join(dir, 'Npx.CMD'), '')
+    assert.equal(plantedProgram(dir, { platform: 'win32' }), 'Npx.CMD')
+    assert.equal(plantedProgram(join(dir, 'gone'), { platform: 'win32' }), null)
   })
 })
 
@@ -619,6 +707,17 @@ describe('exec in use — crash safety', () => {
     assert.match(timed.output, /ran longer than 1 s/)
   })
 
+  test('test output: a line cut between two pieces arrives whole, a character cut between them stays one (no U+FFFD) — the scrubber sees whole paths', async () => {
+    const cwd = tempDir('pieces')
+    // "/home/J" + the first byte of "ü" · its second byte + "rgen/x\n" · a last line without an end
+    const script = "const w = (b) => new Promise((r) => process.stdout.write(Buffer.from(b), () => setTimeout(r, 80))); (async () => { await w([0x2f, 0x68, 0x6f, 0x6d, 0x65, 0x2f, 0x4a, 0xc3]); await w([0xbc, 0x72, 0x67, 0x65, 0x6e, 0x2f, 0x78, 0x0a]); await w('tail without end') })()"
+    const lines: string[] = []
+    const r = await runTests({ testCommand: [process.execPath, '-e', script], testTimeoutSec: 30 } as unknown as RepoConfig, cwd, new AbortController().signal, (l) => lines.push(l))
+    assert.equal(r.ok, true, r.output)
+    assert.deepEqual(lines, ['/home/Jürgen/x', 'tail without end'])
+    assert.equal(r.output, '/home/Jürgen/x\ntail without end')
+  })
+
   test('listen errors: "another worker" only for a port in use; Windows\' excluded ports are named with the netsh line', () => {
     const exclusion = listenError('EACCES', 'listen EACCES: permission denied 127.0.0.1:47400', 47400, false, 'win32')
     assert.equal(exclusion.result, 'refused')
@@ -663,6 +762,38 @@ describe('exec — source guard', () => {
       if (/'person'/.test(src)) assert.ok(['exec.ts', 'testrun.ts', 'opener.ts', 'picker.ts'].includes(f), `${f} uses allow 'person'`)
     }
     assert.deepEqual(offenders.sort(), [...NOT_YET].sort(), 'a file in NOT_YET that no longer starts programs leaves the list; a new one uses exec.ts')
+  })
+  /**
+   * The invariant "nothing One sends and nothing from a repository reaches argv[0] or a cmd.exe line", by construction:
+   * every call that starts a program, with where its program comes from. A new call site fails here until it is added
+   * with its source (One's data and a repository's content are never one).
+   */
+  test('INVARIANT: every program the worker starts is a fixed name, the person\'s own setting or this Node — never text from One or a repository', () => {
+    const dir = fileURLToPath(new URL('../src/worker/', import.meta.url))
+    const calls: string[] = []
+    for (const f of readdirSync(dir).filter((n) => n.endsWith('.ts') && n !== 'exec.ts')) {
+      for (const m of readFileSync(join(dir, f), 'utf8').matchAll(/\b(spawnSafe|execFileSafe|execFileSyncSafe)\(\s*([^,]+?)\s*,/g)) calls.push(`${f}: ${m[2]}`)
+    }
+    assert.deepEqual(calls.sort(), [
+      'claude.ts: bin', // findClaude(): CLAUDE_BIN (resolved once, at the start — never in a worktree) or `claude` / the native install
+      'claude.ts: r.bin', // the same (StageContext.bin = WorkerOptions.bin)
+      "clone.ts: 'git'",
+      'clone.ts: cmd', // runCli: 'git' (an .exe only) · 'gh' · 'glab'
+      "config.ts: 'git'",
+      "git.ts: 'git'",
+      'git.ts: cmd', // run(): 'gh' | 'glab'
+      "gitenv.ts: 'git'",
+      'opener.ts: how.cmd', // cmd.exe from System32, or ONE_WORKER_BROWSER (the person's)
+      'picker.ts: how.cmd', // powershell.exe from System32, or ONE_WORKER_PICKER (the person's)
+      'setup.ts: cmd', // installed(): 'gh' | 'glab'
+      'testrun.ts: argv[0]!', // worker.json testCommand / analyzeCommand — the person's, or a fixed guess (scan.ts: bare names)
+    ])
+    // their arguments: run()'s and runCli's tool names are typed as the fixed ones
+    const git = readFileSync(join(dir, 'git.ts'), 'utf8')
+    assert.match(git, /async function run\(cmd: 'gh' \| 'glab'/)
+    assert.match(readFileSync(join(dir, 'setup.ts'), 'utf8'), /async function installed\(cmd: 'gh' \| 'glab'\)/)
+    // what a file in a working folder reaches the line as: named from that folder, never its path (see the Windows tests)
+    assert.match(readFileSync(join(dir, 'exec.ts'), 'utf8'), /const line = cmdLine\(\[fromCwd\(file, c\.cwd\), \.\.\.args\]/)
   })
 })
 

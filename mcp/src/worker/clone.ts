@@ -6,9 +6,10 @@
  *  - parseCloneUrl: https://host/group/project(.git) · ssh://[user@]host[:port]/… · user@host:group/project — no
  *    user name or token inside an https address (it would be kept in .git/config: git asks the credential
  *    helper instead), no option-like or ext:: / file:: addresses, no "..".
- *  - cloneInto: `git -c protocol.ext.allow=never -c protocol.file.allow=never clone --progress -- <url> <dir>`
- *    without a terminal and with ssh in BatchMode unless the person set their own (gitenv.ts: a password / passphrase
- *    question fails at once with a hint); progress per line; up to 30 min (ONE_WORKER_CLONE_MS); a failed clone
+ *  - cloneInto: `git -c protocol.ext.allow=never -c protocol.file.allow=never clone --progress -- <url> <name>` run in
+ *    the clone folder (git's lines name the folder, never where it is), without a terminal and — on Windows — with ssh in
+ *    BatchMode unless the person set their own (gitenv.ts: a password / passphrase question fails at once with a hint;
+ *    an includeIf in their config keeps their ssh); progress per line; up to 30 min (ONE_WORKER_CLONE_MS); a failed clone
  *    removes the folder it made (git and what it started ended first); a new clone is marked as the
  *    worker's (SOURCE_MARK): Claude Code runs on it without the repo's own settings (config.ts). A folder that is
  *    already a clone of the same address is added again — marked only in the default clone folder (~/one-repos), where
@@ -142,7 +143,7 @@ export interface CloneProgress {
  * Clone into `<base>/<name>`. A folder that is already there: fine when it is a clone of the same address
  * (`already`), refused otherwise. A failed clone removes the folder it created.
  */
-export async function cloneInto(target: CloneUrl, base: string, onProgress: (p: CloneProgress) => void, opts: { timeoutMs?: number; local?: boolean; home?: string } = {}): Promise<{ dir: string; already: boolean }> {
+export async function cloneInto(target: CloneUrl, base: string, onProgress: (p: CloneProgress) => void, opts: { timeoutMs?: number; local?: boolean; home?: string; log?: (msg: string) => void } = {}): Promise<{ dir: string; already: boolean }> {
   const dir = join(base, target.name)
   if (!inFolder(dir, base) || samePath(dir, base)) throw new Error('That folder name is not allowed.')
   if (existsSync(dir)) {
@@ -163,8 +164,10 @@ export async function cloneInto(target: CloneUrl, base: string, onProgress: (p: 
   mkdirSync(base, { recursive: true })
   const made = !existsSync(dir)
   const timeoutMs = opts.timeoutMs ?? (Number(process.env.ONE_WORKER_CLONE_MS) || 30 * 60_000)
-  const args = gitArgs(['-c', 'protocol.ext.allow=never', '-c', `protocol.file.allow=${opts.local ? 'always' : 'never'}`, 'clone', '--progress', '--', target.url, dir])
-  const env = await gitEnv(null, process.env)
+  // into the folder's NAME, run in the clone folder: git's progress says "Cloning into 'shop'…" — never a path of this
+  // computer (the Import stage hands these lines to One)
+  const args = gitArgs(['-c', 'protocol.ext.allow=never', '-c', `protocol.file.allow=${opts.local ? 'always' : 'never'}`, 'clone', '--progress', '--', target.url, target.name])
+  const env = await gitEnv(null, process.env, { note: opts.log })
   const res = await new Promise<{ code: number; stderr: string; timedOut: boolean }>((done) => {
     const s = spawnSafe('git', args, { cwd: base, env, stdio: ['ignore', 'ignore', 'pipe'], detached: process.platform !== 'win32', windowsHide: true, allow: 'exe' })
     if (!s.ok) return done({ code: 127, stderr: s.error, timedOut: false })

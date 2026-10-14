@@ -4,11 +4,17 @@
  * worktree folder "<worktrees>", the home folder "~", the temp folder "<tmp>". Longest first, so a
  * worktree inside the home folder is "." and not "~/…".
  *
- * Windows writes one path many ways, and every one is replaced (without case — NTFS ignores it): C:\Users\Max Muster,
- * c:/users/max muster, MSYS / Git Bash /c/Users/… (also /cygdrive/c/…, /mnt/c/…), JSON-escaped C:\\Users\\…, percent-
- * encoded file:///C:/Users/Max%20Muster, the long form a link or junction resolves to, and the home folder's 8.3 short
- * name (C:\Users\MAXMUS~1 — learned from TEMP / TMP / LOCALAPPDATA, plus the pattern Windows makes such names by). The
- * user name alone is never replaced (a user called "test" would eat code).
+ * Each rule is ONE path, matched every way tools write it:
+ *  - its separators "\" and "/" mixed, doubled (JSON-escaped C:\\Users\\…), percent-encoded (%5C, %2F); "\/" (JSON) on
+ *    macOS / Linux
+ *  - each folder name also percent-encoded in every usual way (file:///…/Max%20Muster, J%C3%BCrgen — hex digits in any
+ *    case), a space also as a shell's "\ ", both Unicode normal forms; a name with letters outside ASCII also as a program
+ *    writing another code page leaves it: U+FFFD for each lost byte, "?", or its UTF-8 read as Latin-1 ("JÃ¼rgen")
+ *  - only as a whole name: a rule ends where a name ends (C:\w is not C:\Windows, /home/me not /home/me2)
+ * Windows also (without case — NTFS ignores it): the drive as C: or C%3A (VS Code's file URIs), MSYS / Git Bash /c/…,
+ * /cygdrive/c/…, /mnt/c/…, a UNC path \\server\share\…, the long form a link or junction resolves to, and the home
+ * folder's 8.3 short name (C:\Users\MAXMUS~1 — learned from TEMP / TMP / LOCALAPPDATA, plus the pattern Windows makes
+ * such names by). The user name alone is never replaced (a user called "test" would eat code).
  */
 import { homedir, tmpdir } from 'node:os'
 import { realpathSync } from 'node:fs'
@@ -34,20 +40,68 @@ const diskPath = (native: boolean) => (p: string): string | null => {
   }
 }
 
-function variants(p: string, realpath: (p: string) => string | null): string[] {
-  const out = new Set<string>()
-  const add = (x: string) => {
-    if (!x || x === '/' || x.length < 2) return
-    out.add(x.replace(/[\\/]+$/, ''))
-    if (x.includes('\\')) out.add(x.replace(/\\/g, '/').replace(/\/+$/, ''))
+/* ------------------------------------------------------------------ one name, every way it is written */
+
+const hexClass = (d: string) => (/[A-Fa-f]/.test(d) ? `[${d.toUpperCase()}${d.toLowerCase()}]` : d)
+/** Percent-encoded text as a source: its hex digits in either case (%c3%bc is %C3%BC). */
+const pctSource = (enc: string) => escape(enc).replace(/%([0-9A-Fa-f])([0-9A-Fa-f])/g, (_m, a: string, b: string) => `%${hexClass(a)}${hexClass(b)}`)
+
+/** Every byte but the unreserved ones percent-encoded (how VS Code and most URL writers do it). */
+const pctAll = (s: string) =>
+  [...Buffer.from(s, 'utf8')].map((b) => (b < 0x80 && /[A-Za-z0-9._~-]/.test(String.fromCharCode(b)) ? String.fromCharCode(b) : `%${b.toString(16).toUpperCase().padStart(2, '0')}`)).join('')
+
+const tryEncode = (f: (s: string) => string, s: string): string | null => {
+  try {
+    return f(s)
+  } catch {
+    // a lone surrogate (a Windows file name may hold one): pctAll covers it
+    return null
   }
-  add(p)
-  const real = realpath(p)
-  if (real) add(real)
-  return [...out]
+}
+
+/** A name as written: a space also as a shell's "\ "; a character outside ASCII also lost (U+FFFD for each byte, "?"). */
+function literalSource(name: string): string {
+  let out = ''
+  for (const ch of name) {
+    if (ch === ' ') out += '(?: |\\\\ )'
+    else if (ch.codePointAt(0)! > 0x7f) out += `(?:${escape(ch)}|\\uFFFD{1,4}|\\?)`
+    else out += escape(ch)
+  }
+  return out
+}
+
+/** One folder or file name as a regex source: every way above. */
+function nameSource(name: string): string {
+  const alts = new Set<string>()
+  for (const form of new Set([name, name.normalize('NFC'), name.normalize('NFD')])) {
+    alts.add(literalSource(form))
+    for (const enc of [tryEncode(encodeURIComponent, form), tryEncode(encodeURI, form), pctAll(form)]) if (enc !== null && enc !== form) alts.add(pctSource(enc))
+    const latin1 = Buffer.from(form, 'utf8').toString('latin1')
+    if (latin1 !== form) alts.add(escape(latin1))
+  }
+  return alts.size === 1 ? [...alts][0]! : `(?:${[...alts].join('|')})`
+}
+
+/** A rule ends where a name ends: never before a letter, digit, "_" or "-", nor before a "." that goes on into a name. */
+const END = '(?![\\p{L}\\p{N}_-]|\\.[\\p{L}\\p{N}_-])'
+
+/* ------------------------------------------------------------------ macOS / Linux */
+
+/** macOS / Linux: "/" — also JSON's "\/" and percent-encoded. */
+const POSIX_ONE = '(?:\\\\?/|%2[Ff])'
+const POSIX_SEP = `${POSIX_ONE}+`
+
+/** The root's one "/" first (file:///home/… keeps its "file://"), then the names. */
+function posixSource(p: string): string | null {
+  const names = p.split('/').filter(Boolean)
+  if (!p.startsWith('/') || !names.length) return null
+  return `${POSIX_ONE}${names.map(nameSource).join(POSIX_SEP)}${END}`
 }
 
 /* ------------------------------------------------------------------ Windows */
+
+/** Windows: one or more separators — "\" or "/", doubled (JSON), percent-encoded. */
+const WIN_SEP = '(?:[\\\\/]|%5[Cc]|%2[Ff])+'
 
 /** A Windows path without trailing separators, in backslash form (a drive root keeps its own). */
 const winNorm = (p: string) => {
@@ -55,31 +109,21 @@ const winNorm = (p: string) => {
   return /^[A-Za-z]:\\$/.test(s) ? s : s.replace(/\\+$/, '')
 }
 
-/**
- * Every way a Windows path is written, as regex sources: `pathSource` is the backslash form as a regex source (a
- * literal, or with the 8.3 pattern inside), `literal` the path itself — null for a pattern (no percent form then).
- */
-function winForms(pathSource: string, literal: string | null): string[] {
-  // pathSource: the backslash form as a regex source with \\ for each separator — the forms swap the separators
-  const sep = '\\\\'
-  const out = new Set<string>()
-  out.add(pathSource)
-  const fwd = pathSource.split(sep).join('/')
-  out.add(fwd)
-  // JSON-escaped: every backslash doubled
-  out.add(pathSource.split(sep).join(`${sep}${sep}`))
-  const drive = /^([A-Za-z]):/.exec(pathSource)?.[1]?.toLowerCase()
-  if (drive) {
-    const rest = fwd.slice(2)
-    for (const pre of [`/${drive}`, `/cygdrive/${drive}`, `/mnt/${drive}`]) out.add(`${escape(pre)}${rest}`)
-  }
-  // percent-encoded (a file:// URL): only where it differs — spaces, non-ASCII
-  if (literal !== null) {
-    const plain = literal.replace(/\\/g, '/')
-    const enc = encodeURI(plain)
-    if (enc !== plain) out.add(escape(enc))
-  }
-  return [...out]
+/** A Windows path's drive (null: a UNC path \\server\share\…) and names — null for anything else. */
+function winParts(native: string): { drive: string | null; names: string[] } | null {
+  const s = winNorm(native)
+  const d = /^([A-Za-z]):\\(.*)$/.exec(s)
+  if (d) return { drive: d[1]!.toLowerCase(), names: d[2]!.split('\\').filter(Boolean) }
+  const unc = /^\\\\([^\\].*)$/.exec(s)
+  if (unc) return { drive: null, names: unc[1]!.split('\\').filter(Boolean) }
+  return null
+}
+
+/** Every way Windows writes a path, from its names as sources: C: / C%3A / MSYS /c/ … or a UNC head; any separators. */
+function winSource(drive: string | null, names: string[]): string | null {
+  if (!names.length) return null
+  if (drive === null) return `[\\\\/]{2,4}${names.join(WIN_SEP)}${END}`
+  return `(?:${drive}(?::|%3[Aa])|(?:/cygdrive|/mnt)?/${drive})${WIN_SEP}${names.join(WIN_SEP)}${END}`
 }
 
 /**
@@ -106,17 +150,14 @@ function shortHomes(home: string, env: NodeJS.ProcessEnv, realpath: (p: string) 
   return [...out]
 }
 
-/** The pattern Windows makes a short name by: the first ≤ 6 letters / digits, upper case, "~" and a number. */
+/** The pattern Windows makes a short name by, for the home folder's own name: the first ≤ 6 letters / digits, "~" and a number. */
 function shortPattern(home: string): string | null {
   const h = winNorm(home)
-  const cut = h.lastIndexOf('\\')
-  if (cut < 2) return null
-  const name = h.slice(cut + 1)
+  const name = h.slice(h.lastIndexOf('\\') + 1)
   // a name that fits 8.3 as it is has no other short form
-  if (/^[A-Za-z0-9_-]{1,8}$/.test(name)) return null
+  if (!name || /^[A-Za-z0-9_-]{1,8}$/.test(name)) return null
   const head = name.replace(/[^A-Za-z0-9]/g, '').slice(0, 6).toUpperCase()
-  if (!head) return null
-  return `${escape(h.slice(0, cut))}\\\\${escape(head)}~\\d{1,6}`
+  return head ? `${escape(head)}~\\d{1,6}` : null
 }
 
 /* ------------------------------------------------------------------ the scrubber */
@@ -128,25 +169,37 @@ export class Scrubber {
     const platform = opts.platform ?? process.platform
     const base: Array<[string | null | undefined, string]> = [...pairs, [opts.tmp ?? tmpdir(), '<tmp>'], [opts.home ?? homedir(), '~']]
     const list: Array<{ source: string; len: number; to: string }> = []
+    const seen = new Set<string>()
+    const push = (source: string | null, len: number, to: string) => {
+      if (!source) return
+      const key = `${source}\u0000${to}`
+      if (seen.has(key)) return
+      seen.add(key)
+      list.push({ source, len, to })
+    }
     if (platform !== 'win32') {
       const realpath = opts.realpath ?? diskPath(false)
-      for (const [p, to] of base) if (p) for (const v of variants(p, realpath)) list.push({ source: escape(v), len: v.length, to })
-      list.sort((a, b) => b.len - a.len)
-      this.rules = list.map(({ source, to }) => ({ re: new RegExp(source, 'g'), to }))
+      for (const [p, to] of base) {
+        if (!p) continue
+        for (const v of [p, realpath(p)]) {
+          const x = v?.replace(/\/+$/, '')
+          if (x && x.length >= 2) push(posixSource(x), x.length, to)
+        }
+      }
+      list.sort((a, b) => b.len - a.len || b.source.length - a.source.length)
+      this.rules = list.map(({ source, to }) => ({ re: new RegExp(source, 'gu'), to }))
       return
     }
     const realpath = opts.realpath ?? diskPath(true)
     const env = opts.env ?? process.env
     const home = winNorm(opts.home ?? homedir())
     const homeKey = home.toLowerCase()
+    const homeNames = winParts(home)?.names.length ?? 0
     const shorts = shortHomes(home, env, realpath)
     const pattern = shortPattern(home)
-    const seen = new Set<string>()
-    const push = (source: string, len: number, to: string) => {
-      const key = `${source.toLowerCase()}\u0000${to}`
-      if (seen.has(key)) return
-      seen.add(key)
-      list.push({ source, len, to })
+    const from = (native: string) => {
+      const parts = winParts(native)
+      return parts ? { drive: parts.drive, names: parts.names.map(nameSource) } : null
     }
     for (const [p, to] of base) {
       if (!p) continue
@@ -155,18 +208,27 @@ export class Scrubber {
       if (real) longs.add(winNorm(real))
       for (const long of longs) {
         if (long.length < 3) continue
-        for (const f of winForms(escape(long), long)) push(f, long.length, to)
+        const parts = from(long)
+        if (!parts) continue
+        push(winSource(parts.drive, parts.names), long.length, to)
         // inside the home folder: the same path under the home folder's short names
         const inHome = long.toLowerCase() === homeKey || long.toLowerCase().startsWith(`${homeKey}\\`)
         if (!inHome) continue
         const rest = long.slice(home.length)
-        for (const s of shorts) for (const f of winForms(escape(s + rest), s + rest)) push(f, long.length, to)
-        if (pattern) for (const f of winForms(`${pattern}${escape(rest)}`, null)) push(f, long.length, to)
+        for (const s of shorts) {
+          const sp = from(s + rest)
+          if (sp) push(winSource(sp.drive, sp.names), long.length, to)
+        }
+        if (pattern && parts.drive !== null && homeNames > 0) {
+          const names = [...parts.names]
+          names[homeNames - 1] = pattern
+          push(winSource(parts.drive, names), long.length, to)
+        }
       }
     }
     // longest first; at equal length the literal before the pattern
     list.sort((a, b) => b.len - a.len || b.source.length - a.source.length)
-    this.rules = list.map(({ source, to }) => ({ re: new RegExp(source, 'gi'), to }))
+    this.rules = list.map(({ source, to }) => ({ re: new RegExp(source, 'giu'), to }))
   }
 
   text(s: string): string {

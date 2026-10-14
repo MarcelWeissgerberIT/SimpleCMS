@@ -16,13 +16,19 @@
  *    with every argument escaped. Nothing One sends and nothing from a repository ever reaches a cmd.exe line:
  *    Claude Code never runs through cmd.exe, git only as an .exe, gh / glab as an .exe or a shim the reader reads.
  *  - system tools (cmd, taskkill, powershell) by their absolute path in %SystemRoot%\System32
+ *  - every child gets NoDefaultCurrentDirectoryInExePath: what IT starts by a bare name is not looked up in its working
+ *    folder either (cmd.exe; libuv in a Node child). Lookups that ignore the variable (node-which in cross-spawn / execa,
+ *    Bun's own) remain — a stage never starts while its folder holds a program such a lookup would take
+ *    (plantedProgram; run.ts refuses the stage)
+ *  - a file inside the working folder is named from there (`.\tools\x.exe`): the folder's own path — a worktree named
+ *    after a branch from One — never reaches a command line or a cmd.exe line
  * Not covered (the launched program's own hygiene): DLLs a program loads from its own folder or the working folder.
  *
  * spawnSafe / execFileSafe / execFileSyncSafe never throw and never reject: a program that cannot start is code 127
  * (`why` says missing · refused · failed), a time limit is code 124. Error texts name the command, never a path.
  */
 import { spawn, spawnSync, type ChildProcess, type SpawnOptions } from 'node:child_process'
-import { closeSync, openSync, readSync, statSync } from 'node:fs'
+import { closeSync, openSync, readSync, readdirSync, statSync } from 'node:fs'
 import { posix, win32 } from 'node:path'
 
 export type Via = 'direct' | 'node-shim' | 'comspec'
@@ -116,6 +122,19 @@ export function pathKey(env: NodeJS.ProcessEnv = process.env, platform: NodeJS.P
   return envKey(env, 'PATH', platform) ?? (platform === 'win32' ? 'Path' : 'PATH')
 }
 
+/** The variable that keeps Windows from looking for a program by name in the working folder (any value counts). */
+export const NO_CWD_LOOKUP = 'NoDefaultCurrentDirectoryInExePath'
+
+/**
+ * A child's environment on Windows: NoDefaultCurrentDirectoryInExePath set (unless it is), so what the child starts by a
+ * bare name — cmd.exe's commands, a Node child's spawn (libuv asks NeedCurrentDirectoryForExePathW) — is looked up in PATH
+ * only, never in its working folder (a repository). Unchanged elsewhere.
+ */
+export function noCwdLookup(env: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform): NodeJS.ProcessEnv {
+  if (platform !== 'win32' || Object.keys(env).some((k) => k.toLowerCase() === NO_CWD_LOOKUP.toLowerCase() && env[k] !== undefined)) return env
+  return { ...env, [NO_CWD_LOOKUP]: '1' }
+}
+
 const ABS_WIN = /^(?:[A-Za-z]:[\\/]|[\\/]{2}[^\\/])/
 
 /** The absolute path of a Windows system tool (System32) — the bare name elsewhere. */
@@ -185,15 +204,25 @@ export function resolveCommand(cmd: string, args: string[], ctx?: Partial<ExecCt
   return classify(found, args, c, allow, 0, name)
 }
 
+/**
+ * A file inside the working folder, named from there (`.\tools\x.exe`) — the child resolves it against that same folder.
+ * So the folder's own path (a task's worktree, named after a branch One or a remote chose) never reaches argv[0], a
+ * script argument or a cmd.exe line: what is left there is what the person typed, their PATH, or this Node.
+ */
+export function fromCwd(p: string, cwd: string): string {
+  const rel = win32.relative(cwd, p)
+  return rel && !rel.startsWith('..') && !win32.isAbsolute(rel) ? `.\\${rel}` : p
+}
+
 function classify(file: string, args: string[], c: ExecCtx, allow: Allow, depth: number, name: string): Resolved {
   const ext = extOf(file)
-  if (ext === '.exe' || ext === '.com') return { ok: true, file, args, via: 'direct', verbatim: false }
+  if (ext === '.exe' || ext === '.com') return { ok: true, file: fromCwd(file, c.cwd), args, via: 'direct', verbatim: false }
   if (allow === 'exe') return { ok: false, code: 127, why: 'refused', error: `${name} is a ${ext || 'file without an extension'} — only a program (.exe) is started for it` }
-  if (JS.has(ext)) return { ok: true, file: c.execPath, args: [file, ...args], via: 'node-shim', verbatim: false }
+  if (JS.has(ext)) return { ok: true, file: fromCwd(c.execPath, c.cwd), args: [fromCwd(file, c.cwd), ...args], via: 'node-shim', verbatim: false }
   if (ext === '.cmd' || ext === '.bat') {
     const text = c.readFile(file)
     const shim = text === null ? null : readShim(text, file, c)
-    if (shim?.kind === 'node') return { ok: true, file: shim.node, args: [...shim.pre, shim.script, ...args], via: 'node-shim', verbatim: false, ...(shim.env ? { env: shim.env } : {}) }
+    if (shim?.kind === 'node') return { ok: true, file: fromCwd(shim.node, c.cwd), args: [...shim.pre, fromCwd(shim.script, c.cwd), ...args], via: 'node-shim', verbatim: false, ...(shim.env ? { env: shim.env } : {}) }
     if (shim?.kind === 'target' && depth < 3) return classify(shim.file, args, c, allow, depth + 1, name)
     if (allow === 'person') return comspec(file, args, c, name)
     return { ok: false, code: 127, why: 'refused', error: `${name} is a ${ext} file the worker cannot read as a shim — it never starts it through cmd.exe` }
@@ -203,9 +232,51 @@ function classify(file: string, args: string[], c: ExecCtx, allow: Allow, depth:
 
 /** The person's own .cmd / .bat through cmd.exe: /d (no AutoRun) /v:off (no !var!) /s /c "<escaped line>". */
 function comspec(file: string, args: string[], c: ExecCtx, name: string): Resolved {
-  const line = cmdLine([file, ...args], BIN_SHIM.test(file))
+  const line = cmdLine([fromCwd(file, c.cwd), ...args], BIN_SHIM.test(file))
   if (line === null) return { ok: false, code: 127, why: 'refused', error: `${name} runs through cmd.exe, which cannot pass an argument with a line break` }
   return { ok: true, file: systemTool('cmd', c.env, 'win32', c.exists), args: ['/d', '/v:off', '/s', '/c', `"${line}"`], via: 'comspec', verbatim: true }
+}
+
+/* ------------------------------------------------------------------ programs planted in a working folder */
+
+/**
+ * Programs tools start by their bare name: Claude Code's own git, a test runner's node / npm / npx, shells, ssh, ripgrep,
+ * Python, the host CLIs, Windows' own helpers.
+ */
+export const BY_NAME = ['git', 'git-lfs', 'claude', 'node', 'npm', 'npx', 'pnpm', 'pnpx', 'yarn', 'corepack', 'bun', 'gh', 'glab', 'ssh', 'bash', 'sh', 'cmd', 'powershell', 'pwsh', 'where', 'rg', 'python', 'python3', 'py', 'cygpath', 'taskkill', 'tasklist']
+/** What Windows runs by a name: Windows' own PATHEXT list (scripts for the Windows Script Host too) — and the person's PATHEXT. */
+const PATHEXT_WINDOWS = ['.com', '.exe', '.bat', '.cmd', '.vbs', '.vbe', '.js', '.jse', '.wsf', '.wsh', '.msc']
+
+const topFiles = (dir: string): string[] => {
+  try {
+    return readdirSync(dir, { withFileTypes: true })
+      .filter((e) => !e.isDirectory())
+      .map((e) => e.name)
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Windows: a program at the top of `dir` that a lookup by name would take — git.exe, claude.exe, npm.cmd, node.js …
+ * (null: none; elsewhere always null). The worker's children never look in their working folder (noCwdLookup), but some
+ * lookups ignore that: node-which in cross-spawn / execa — Claude Code's own `git` among them — and Bun's own check the
+ * working folder first. So a stage does not start in a folder holding one (run.ts). Only the name is returned.
+ */
+export function plantedProgram(dir: string, opts: { platform?: NodeJS.Platform; env?: NodeJS.ProcessEnv; list?: (dir: string) => string[] } = {}): string | null {
+  if ((opts.platform ?? process.platform) !== 'win32') return null
+  const own = (envGet(opts.env ?? process.env, 'PATHEXT', 'win32') ?? '')
+    .split(';')
+    .map((e) => e.trim().toLowerCase())
+    .filter((e) => /^\.[a-z0-9]{1,8}$/.test(e))
+  const exts = new Set([...PATHEXT_WINDOWS, ...own])
+  for (const name of [...(opts.list ?? topFiles)(dir)].sort()) {
+    // Windows drops a trailing dot or space: "git.exe." opens git.exe
+    const n = name.toLowerCase().replace(/[. ]+$/, '')
+    const ext = win32.extname(n)
+    if (ext && exts.has(ext) && BY_NAME.includes(n.slice(0, -ext.length))) return name
+  }
+  return null
 }
 
 /* ------------------------------------------------------------------ the shim reader (pure) */
@@ -394,10 +465,13 @@ export function spawnSafe(cmd: string, args: string[], opts: SpawnSafeOptions = 
   const c = fullCtx({ ...ctx, env, cwd: rest.cwd ?? ctx?.cwd ?? process.cwd() })
   const r = resolveCommand(cmd, args, c, allow)
   if (!r.ok) return r
+  const win = c.platform === 'win32'
   try {
     const child = spawn(r.file, r.args, {
       ...rest,
-      env: r.env ? { ...env, ...r.env } : rest.env,
+      // Windows: the folder a file inside it is named from (fromCwd) — and the child never looks there by name either
+      ...(win ? { cwd: c.cwd } : {}),
+      env: win ? noCwdLookup(r.env ? { ...env, ...r.env } : env, 'win32') : r.env ? { ...env, ...r.env } : rest.env,
       shell: false,
       // a caller's own verbatim line only for a program started as it is (the opener's `start ""`)
       windowsVerbatimArguments: r.verbatim || (r.via === 'direct' && !!rest.windowsVerbatimArguments),
@@ -504,10 +578,11 @@ export function execFileSyncSafe(cmd: string, args: string[], opts: { cwd?: stri
   const c = fullCtx({ ...opts.ctx, env, cwd: opts.cwd ?? opts.ctx?.cwd ?? process.cwd() })
   const r = resolveCommand(cmd, args, c, opts.allow ?? 'shim')
   if (!r.ok) return { code: 127, stdout: '', stderr: '', why: r.why }
+  const win = c.platform === 'win32'
   try {
     const res = spawnSync(r.file, r.args, {
-      cwd: opts.cwd,
-      env: r.env ? { ...env, ...r.env } : opts.env,
+      cwd: win ? c.cwd : opts.cwd,
+      env: win ? noCwdLookup(r.env ? { ...env, ...r.env } : env, 'win32') : r.env ? { ...env, ...r.env } : opts.env,
       encoding: 'utf8',
       timeout: opts.timeoutMs,
       maxBuffer: opts.maxBuffer ?? 8 * 1024 * 1024,
@@ -551,7 +626,7 @@ export function killTree(child: ChildProcess, platform: NodeJS.Platform = proces
     child.once('close', finish)
     try {
       if (platform === 'win32') {
-        const k = spawn(systemTool('taskkill'), ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true })
+        const k = spawn(systemTool('taskkill'), ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true, env: noCwdLookup(process.env, 'win32') })
         k.on('error', () => {})
       } else process.kill(-pid, 'SIGTERM')
     } catch {

@@ -1,7 +1,7 @@
 /**
  * one-worker — git, always as a program with an argument list (exec.ts: never a shell line; on Windows only a git.exe
- * from PATH, never one from the repository; hooks and the person's git config apply as usual; no terminal and ssh in
- * BatchMode unless they set their own, so git never waits for a typed password — gitenv.ts). The main checkout's
+ * from PATH, never one from the repository; hooks and the person's git config apply as usual; no terminal — and on
+ * Windows ssh in BatchMode unless they set their own —, so git never waits for a typed password — gitenv.ts). The main checkout's
  * working tree is never touched: every task works in its own worktree. Nothing here deletes work the worker did not
  * create, and nothing is force-pushed unless the person picked "Force push" in One (then --force-with-lease).
  *
@@ -18,7 +18,7 @@ import { dirname, join, resolve } from 'node:path'
 import type { GitCommit, GitFile, GitInfo } from '../../../src/app/features/coding/protocol.ts'
 import type { RepoConfig } from './config.ts'
 import { execFileSafe, killTree, spawnSafe } from './exec.ts'
-import { FOLDER_BUSY, GIT_ENV, gitArgs, gitEnv } from './gitenv.ts'
+import { FOLDER_BUSY, GIT_ENV, folderBusyCode, gitArgs, gitEnv } from './gitenv.ts'
 import { pathId, rmRetry, samePath } from './paths.ts'
 import type { WorkerState } from './state.ts'
 
@@ -35,10 +35,41 @@ export interface GitRun {
 export class GitError extends Error {
   /** a log code that says more (folderBusy: Windows still holds files in a folder the worker removes) */
   code?: string
-  constructor(message: string, code?: string) {
+  /**
+   * git's whole message (≤ 16 KB) — what the hints read (gitenv.ts gitHint: the line that names a lock file or dubious
+   * ownership may be anywhere in it) and this computer's terminal only. Never sent to One: `message` is.
+   */
+  detail?: string
+  constructor(message: string, code?: string, detail?: string) {
     super(message)
     if (code) this.code = code
+    if (detail) this.detail = detail.slice(0, 16 * 1024)
   }
+}
+
+/** A line of Git for Windows' ownership report: an account (computer / user) with its SID, and the lines around it. */
+const ACCOUNT_LINE = /\(S-1-[0-9-]+\)\s*$|^\s*'[^'\n]*' is owned by:\s*$|^\s*but the current user is:\s*$/i
+
+/**
+ * git's message as One may get it: its last `lines` lines — without the account names and SIDs of an ownership report
+ * (Git for Windows names the folder's owner and the current user: computer, user name, SID). A dubious-ownership refusal
+ * is its first line only (the folder: the scrubber makes it <repo>); the safe.directory line stays in the terminal.
+ */
+export function gitMessage(text: string, lines = 6): string {
+  const s = text.replace(/\r\n?/g, '\n').trim()
+  const dubious = /^.*detected dubious ownership.*$/im.exec(s)?.[0]
+  if (dubious) return dubious.trim()
+  return s
+    .split('\n')
+    .filter((l) => !ACCOUNT_LINE.test(l))
+    .slice(-lines)
+    .join('\n')
+}
+
+/** A GitError from a git run: the clipped message for One, git's whole text for the hints and the terminal. */
+export const gitFailure = (r: { stderr: string; stdout: string }, fallback: string, lines = 6, code?: string): GitError => {
+  const text = r.stderr || r.stdout
+  return new GitError(gitMessage(text, lines) || fallback, code, text)
 }
 
 /** Per-file and total diff caps (what goes to One). */
@@ -102,7 +133,7 @@ export async function git(cwd: string, args: string[], timeoutMs = 120_000, opts
 /** Run git; throw a GitError with git's message on a non-zero exit. */
 export async function gitOk(cwd: string, args: string[], timeoutMs?: number): Promise<string> {
   const r = await git(cwd, args, timeoutMs)
-  if (r.code !== 0) throw new GitError((r.stderr || r.stdout).trim().split('\n').slice(-6).join('\n') || `git ${args[0]} failed`)
+  if (r.code !== 0) throw gitFailure(r, `git ${args[0]} failed`)
   return r.stdout
 }
 
@@ -180,8 +211,8 @@ export async function fetchRemote(repo: RepoConfig): Promise<boolean> {
   return true
 }
 
-/** What a task's preparation tells the log. */
-export type GitNote = (kind: 'git' | 'warn', text: string, code?: string, vars?: Record<string, string | number>) => void
+/** What a task's preparation tells the log (`detail`: git's whole message behind a failure — for the hints, never One). */
+export type GitNote = (kind: 'git' | 'warn', text: string, code?: string, vars?: Record<string, string | number>, detail?: string) => void
 
 /** Fetch for a new task: a failure is noted and the task goes on from what this computer has. */
 export async function tryFetch(repo: RepoConfig, note?: GitNote): Promise<boolean> {
@@ -191,7 +222,7 @@ export async function tryFetch(repo: RepoConfig, note?: GitNote): Promise<boolea
     return await fetchRemote(repo)
   } catch (e) {
     const why = (e instanceof Error ? e.message : String(e)).replace(/\s+/g, ' ').trim().slice(0, 300)
-    note?.('warn', `Could not fetch ${repo.remote} (${why}) — going on with what this computer has.`, 'fetchFailed', { remote: repo.remote, why })
+    note?.('warn', `Could not fetch ${repo.remote} (${why}) — going on with what this computer has.`, 'fetchFailed', { remote: repo.remote, why }, e instanceof GitError ? e.detail : undefined)
     return false
   }
 }
@@ -224,16 +255,18 @@ export const shortId = (taskId: string) => taskId.toLowerCase().replace(/[^a-z0-
 const DEVICE = /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³]|conin\$|conout\$)$/i
 
 /**
- * The worktree's folder name for a branch. macOS / Linux: the branch with "/" as "-" (as always). Windows: also no
- * <>:"|?* or control characters ("_"), no trailing dot or space, no device name, and at most 32 characters + "-" + 6 hex
+ * The worktree's folder name for a branch. macOS / Linux: the branch with "/" as "-" (as always). Windows: also nothing
+ * but letters, digits, "." "_" "-" (else "_"), no trailing dot, no device name, and at most 32 characters + "-" + 6 hex
  * of the branch's hash whenever a name was changed or cut — distinct per branch, short enough for deep repos under
  * the 260-character limit. The branch itself keeps its name on every OS.
  */
 export function worktreeFolder(branch: string, platform: NodeJS.Platform = process.platform): string {
   const plain = branch.replace(/[\\/]+/g, '-')
   if (platform !== 'win32') return plain
-  let s = plain.replace(/[<>:"|?*\u0000-\u001f]/g, '_').replace(/[. ]+$/, '')
-  if (DEVICE.test(s.split('.')[0]!.replace(/ +$/, ''))) s = `_${s}`
+  // letters, digits, "." "_" "-" only: a branch name One or a remote chose never puts a character cmd.exe or a command
+  // line reads (= , ; & ^ % ! space …) into the worktree's path — exec.ts names files inside it relatively anyway
+  let s = plain.replace(/[^A-Za-z0-9._-]/g, '_').replace(/[. ]+$/, '')
+  if (DEVICE.test(s.split('.')[0]!)) s = `_${s}`
   if (s === plain && s.length <= 32) return s
   const cut = s.slice(0, 32).replace(/[. ]+$/, '') || '_'
   return `${cut}-${createHash('sha1').update(branch).digest('hex').slice(0, 6)}`
@@ -310,14 +343,15 @@ async function addWorktree(repo: RepoConfig, args: string[], dir: string, newBra
   try {
     const r = await git(repo.path, ['worktree', 'add', ...args], checkoutMs())
     if (r.code === 0) return
-    const failed = new GitError((r.stderr || r.stdout).trim().split(/\r?\n/).slice(-6).join('\n') || 'git worktree add failed')
+    const failed = gitFailure(r, 'git worktree add failed')
     await r.ended
     try {
       if (insideWorktrees(repo, dir)) {
         await git(repo.path, ['worktree', 'remove', '--force', dir])
         if (!(await rmRetry(dir))) {
           leftovers.add(pathId(dir))
-          note?.('warn', FOLDER_BUSY, 'folderBusy', {})
+          const busy = folderBusyCode()
+          if (busy) note?.('warn', FOLDER_BUSY, busy, {})
         }
       }
       await prune(repo)
@@ -774,7 +808,7 @@ export async function updateFromBase(repo: RepoConfig, dir: string, branch: stri
   if (mg.code === 0) return { how: 'merged', conflicts: [] }
   const conflicts = await conflictsOf(dir)
   if (conflicts.length) return { how: 'conflicts', conflicts }
-  throw new GitError((mg.stderr || mg.stdout).trim().split('\n').slice(-4).join('\n') || 'merge failed')
+  throw gitFailure(mg, 'merge failed', 4)
 }
 
 /* ------------------------------------------------------------------ cleanup */
@@ -794,9 +828,8 @@ export async function discard(repo: RepoConfig, state: WorkerState, branch: stri
     if (r.code !== 0) {
       // Windows: a file someone holds open (an editor, the indexer) — the folder is the worker's own: remove it, then
       // let git forget it; git's own error when it still cannot go
-      const failed = (r.stderr || r.stdout).trim().split(/\r?\n/).slice(-6).join('\n') || 'git worktree remove failed'
-      if (!insideWorktrees(repo, tree.path)) throw new GitError(failed)
-      if (!(await rmRetry(tree.path))) throw new GitError(failed, 'folderBusy')
+      if (!insideWorktrees(repo, tree.path)) throw gitFailure(r, 'git worktree remove failed')
+      if (!(await rmRetry(tree.path))) throw gitFailure(r, 'git worktree remove failed', 6, folderBusyCode())
       await prune(repo)
     }
     removedTree = true

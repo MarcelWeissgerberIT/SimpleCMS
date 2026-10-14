@@ -10950,7 +10950,7 @@ import { basename, dirname, isAbsolute, join as join2, resolve as resolve2, sep 
 
 // src/worker/exec.ts
 import { spawn, spawnSync } from "node:child_process";
-import { closeSync, openSync, readSync, statSync } from "node:fs";
+import { closeSync, openSync, readSync, readdirSync, statSync } from "node:fs";
 import { posix, win32 } from "node:path";
 var READ_MAX = 64 * 1024;
 var PATHEXT_DEFAULT = [".COM", ".EXE", ".BAT", ".CMD"];
@@ -10999,6 +10999,11 @@ function envGet(env, key, platform = process.platform) {
   const k = envKey(env, key, platform);
   return k === void 0 ? void 0 : env[k];
 }
+var NO_CWD_LOOKUP = "NoDefaultCurrentDirectoryInExePath";
+function noCwdLookup(env, platform = process.platform) {
+  if (platform !== "win32" || Object.keys(env).some((k) => k.toLowerCase() === NO_CWD_LOOKUP.toLowerCase() && env[k] !== void 0)) return env;
+  return { ...env, [NO_CWD_LOOKUP]: "1" };
+}
 var ABS_WIN = /^(?:[A-Za-z]:[\\/]|[\\/]{2}[^\\/])/;
 function systemTool(name, env = process.env, platform = process.platform, exists = isFile) {
   if (platform !== "win32") return name;
@@ -11044,15 +11049,19 @@ function resolveCommand(cmd, args, ctx, allow = "shim") {
   if (!found) return { ok: false, code: 127, why: "missing", error: `${name} was not found (PATH only, never the working folder)` };
   return classify(found, args, c, allow, 0, name);
 }
+function fromCwd(p, cwd) {
+  const rel = win32.relative(cwd, p);
+  return rel && !rel.startsWith("..") && !win32.isAbsolute(rel) ? `.\\${rel}` : p;
+}
 function classify(file, args, c, allow, depth, name) {
   const ext = extOf(file);
-  if (ext === ".exe" || ext === ".com") return { ok: true, file, args, via: "direct", verbatim: false };
+  if (ext === ".exe" || ext === ".com") return { ok: true, file: fromCwd(file, c.cwd), args, via: "direct", verbatim: false };
   if (allow === "exe") return { ok: false, code: 127, why: "refused", error: `${name} is a ${ext || "file without an extension"} \u2014 only a program (.exe) is started for it` };
-  if (JS.has(ext)) return { ok: true, file: c.execPath, args: [file, ...args], via: "node-shim", verbatim: false };
+  if (JS.has(ext)) return { ok: true, file: fromCwd(c.execPath, c.cwd), args: [fromCwd(file, c.cwd), ...args], via: "node-shim", verbatim: false };
   if (ext === ".cmd" || ext === ".bat") {
     const text2 = c.readFile(file);
     const shim = text2 === null ? null : readShim(text2, file, c);
-    if (shim?.kind === "node") return { ok: true, file: shim.node, args: [...shim.pre, shim.script, ...args], via: "node-shim", verbatim: false, ...shim.env ? { env: shim.env } : {} };
+    if (shim?.kind === "node") return { ok: true, file: fromCwd(shim.node, c.cwd), args: [...shim.pre, fromCwd(shim.script, c.cwd), ...args], via: "node-shim", verbatim: false, ...shim.env ? { env: shim.env } : {} };
     if (shim?.kind === "target" && depth < 3) return classify(shim.file, args, c, allow, depth + 1, name);
     if (allow === "person") return comspec(file, args, c, name);
     return { ok: false, code: 127, why: "refused", error: `${name} is a ${ext} file the worker cannot read as a shim \u2014 it never starts it through cmd.exe` };
@@ -11060,9 +11069,29 @@ function classify(file, args, c, allow, depth, name) {
   return { ok: false, code: 127, why: "missing", error: `${name} is not a program the worker starts (.exe, .cmd, .bat or a Node script)` };
 }
 function comspec(file, args, c, name) {
-  const line = cmdLine([file, ...args], BIN_SHIM.test(file));
+  const line = cmdLine([fromCwd(file, c.cwd), ...args], BIN_SHIM.test(file));
   if (line === null) return { ok: false, code: 127, why: "refused", error: `${name} runs through cmd.exe, which cannot pass an argument with a line break` };
   return { ok: true, file: systemTool("cmd", c.env, "win32", c.exists), args: ["/d", "/v:off", "/s", "/c", `"${line}"`], via: "comspec", verbatim: true };
+}
+var BY_NAME = ["git", "git-lfs", "claude", "node", "npm", "npx", "pnpm", "pnpx", "yarn", "corepack", "bun", "gh", "glab", "ssh", "bash", "sh", "cmd", "powershell", "pwsh", "where", "rg", "python", "python3", "py", "cygpath", "taskkill", "tasklist"];
+var PATHEXT_WINDOWS = [".com", ".exe", ".bat", ".cmd", ".vbs", ".vbe", ".js", ".jse", ".wsf", ".wsh", ".msc"];
+var topFiles = (dir) => {
+  try {
+    return readdirSync(dir, { withFileTypes: true }).filter((e) => !e.isDirectory()).map((e) => e.name);
+  } catch {
+    return [];
+  }
+};
+function plantedProgram(dir, opts = {}) {
+  if ((opts.platform ?? process.platform) !== "win32") return null;
+  const own2 = (envGet(opts.env ?? process.env, "PATHEXT", "win32") ?? "").split(";").map((e) => e.trim().toLowerCase()).filter((e) => /^\.[a-z0-9]{1,8}$/.test(e));
+  const exts = /* @__PURE__ */ new Set([...PATHEXT_WINDOWS, ...own2]);
+  for (const name of [...(opts.list ?? topFiles)(dir)].sort()) {
+    const n = name.toLowerCase().replace(/[. ]+$/, "");
+    const ext = win32.extname(n);
+    if (ext && exts.has(ext) && BY_NAME.includes(n.slice(0, -ext.length))) return name;
+  }
+  return null;
 }
 var BOILERPLATE = /* @__PURE__ */ new Set([
   "echo off",
@@ -11212,10 +11241,13 @@ function spawnSafe(cmd, args, opts = {}) {
   const c = fullCtx({ ...ctx, env, cwd: rest.cwd ?? ctx?.cwd ?? process.cwd() });
   const r = resolveCommand(cmd, args, c, allow);
   if (!r.ok) return r;
+  const win2 = c.platform === "win32";
   try {
     const child = spawn(r.file, r.args, {
       ...rest,
-      env: r.env ? { ...env, ...r.env } : rest.env,
+      // Windows: the folder a file inside it is named from (fromCwd) — and the child never looks there by name either
+      ...win2 ? { cwd: c.cwd } : {},
+      env: win2 ? noCwdLookup(r.env ? { ...env, ...r.env } : env, "win32") : r.env ? { ...env, ...r.env } : rest.env,
       shell: false,
       // a caller's own verbatim line only for a program started as it is (the opener's `start ""`)
       windowsVerbatimArguments: r.verbatim || r.via === "direct" && !!rest.windowsVerbatimArguments,
@@ -11285,10 +11317,11 @@ function execFileSyncSafe(cmd, args, opts) {
   const c = fullCtx({ ...opts.ctx, env, cwd: opts.cwd ?? opts.ctx?.cwd ?? process.cwd() });
   const r = resolveCommand(cmd, args, c, opts.allow ?? "shim");
   if (!r.ok) return { code: 127, stdout: "", stderr: "", why: r.why };
+  const win2 = c.platform === "win32";
   try {
     const res = spawnSync(r.file, r.args, {
-      cwd: opts.cwd,
-      env: r.env ? { ...env, ...r.env } : opts.env,
+      cwd: win2 ? c.cwd : opts.cwd,
+      env: win2 ? noCwdLookup(r.env ? { ...env, ...r.env } : env, "win32") : r.env ? { ...env, ...r.env } : opts.env,
       encoding: "utf8",
       timeout: opts.timeoutMs,
       maxBuffer: opts.maxBuffer ?? 8 * 1024 * 1024,
@@ -11326,7 +11359,7 @@ function killTree(child, platform = process.platform) {
     child.once("close", finish);
     try {
       if (platform === "win32") {
-        const k = spawn(systemTool("taskkill"), ["/pid", String(pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
+        const k = spawn(systemTool("taskkill"), ["/pid", String(pid), "/T", "/F"], { stdio: "ignore", windowsHide: true, env: noCwdLookup(process.env, "win32") });
         k.on("error", () => {
         });
       } else process.kill(-pid, "SIGTERM");
@@ -11457,20 +11490,30 @@ function forgetGitEnv() {
   sshConfig.clear();
 }
 var isSet = (env, key, platform) => !!envGet(env, key, platform)?.trim();
+var INCLUDE_IF_NOTE = "ssh for this clone runs as you set it up (not in BatchMode): your global or system git config has includeIf sections, and one may set core.sshCommand for the new repository \u2014 a host-key or passphrase question then waits until the clone's time limit.";
 async function gitEnv(cwd, base = process.env, opts = {}) {
   const platform = opts.platform ?? process.platform;
   const env = { ...base, ...GIT_ENV };
+  if (platform !== "win32") return env;
   if (isSet(base, "GIT_SSH_COMMAND", platform) || isSet(base, "GIT_SSH", platform)) return env;
   const key = cwd === null ? "" : pathId(cwd, platform);
   let set = sshConfig.get(key);
   if (set === void 0) {
     const ms = Math.min(opts.timeoutMs ?? 1e4, 1e4);
-    const read2 = (where, dir) => configGet(["config", ...where, "--get", "core.sshCommand"], dir, env, ms, platform);
+    const get = (args, dir) => configGet(["config", ...args], dir, env, ms, platform);
     let found;
-    if (cwd !== null) found = await read2([], cwd);
+    if (cwd !== null) found = await get(["--get", "core.sshCommand"], cwd);
     else {
-      found = await read2(["--global"], homedir2());
-      if (found === false) found = await read2(["--system"], homedir2());
+      found = await get(["--global", "--includes", "--get", "core.sshCommand"], homedir2());
+      if (found === false) found = await get(["--system", "--includes", "--get", "core.sshCommand"], homedir2());
+      if (found === false) {
+        let cond = await get(["--global", "--includes", "--get-regexp", "^includeif\\."], homedir2());
+        if (cond === false) cond = await get(["--system", "--includes", "--get-regexp", "^includeif\\."], homedir2());
+        if (cond !== false) {
+          if (cond) opts.note?.(INCLUDE_IF_NOTE);
+          return env;
+        }
+      }
     }
     if (found === null) return env;
     set = found;
@@ -11521,7 +11564,7 @@ function hintLine(code, at) {
     case "sshHostKey":
       return { c: code, v: { remote }, s: `${remote}: this computer does not know (or no longer trusts) the host\u2019s SSH key, and the worker never answers that question. In a terminal run \`ssh -T git@<host>\` once and read what ssh says, then press Retry.` };
     case "sshKey":
-      return { c: code, v: { remote }, s: `${remote}: the SSH key was refused or needs its passphrase, which the worker cannot type. Add the key to your SSH agent (\`ssh-add\`; on Windows the \u201COpenSSH Authentication Agent\u201D service) and to your account on the host \u2014 or use the HTTPS address.` };
+      return { c: code, v: { remote }, s: `${remote}: the SSH key was refused or needs its passphrase, which the worker cannot type. Add the key to your SSH agent (\`ssh-add\`) and to your account on the host \u2014 or use the HTTPS address. On Windows, Git for Windows\u2019 own ssh does not use the \u201COpenSSH Authentication Agent\u201D service: to use that agent, run \`git config --global core.sshCommand C:/Windows/System32/OpenSSH/ssh.exe\` once.` };
     case "gitSignIn":
       return { c: code, v: { remote }, s: `${remote} wants a sign-in, and git may not ask while the worker runs it. Sign in once in a terminal (\`git fetch\` in that repo \u2014 Git Credential Manager keeps the login; or \`gh auth setup-git\` / \`glab auth login\`), then press Retry.` };
     case "dubiousOwnership":
@@ -11543,6 +11586,7 @@ function hintTerminal(code, text2) {
   return null;
 }
 var FOLDER_BUSY = "Windows still holds files in the worktree folder (an editor, the search indexer or antivirus), so it could not be removed yet. Close what has it open; the worker tries again next time.";
+var folderBusyCode = (platform = process.platform) => platform === "win32" ? "folderBusy" : void 0;
 
 // src/worker/config.ts
 function defaultConfigFile() {
@@ -12109,7 +12153,7 @@ ${JSON.stringify(next, null, 2)}
 import { createInterface } from "node:readline";
 import { readFileSync as readFileSync2, realpathSync as realpathSync2, statSync as statSync2 } from "node:fs";
 import { homedir as homedir4 } from "node:os";
-import { join as join3, win32 as win323 } from "node:path";
+import { join as join3, posix as posix3, win32 as win323 } from "node:path";
 
 // src/worker/price.ts
 var PRICES = [
@@ -12143,7 +12187,25 @@ function usageOf(raw) {
 }
 
 // src/worker/claude.ts
-var claudeBin = (env = process.env) => env.CLAUDE_BIN && env.CLAUDE_BIN.trim() || "claude";
+function findClaude(env = process.env, opts = {}) {
+  const platform = opts.platform ?? process.platform;
+  const P = platform === "win32" ? win323 : posix3;
+  const home = opts.home ?? homedir4();
+  const raw = (envGet(env, "CLAUDE_BIN", platform) ?? "").trim();
+  const set = (/^"(.+)"$/s.exec(raw)?.[1] ?? /^'(.+)'$/s.exec(raw)?.[1] ?? raw).trim();
+  if (set) {
+    if (set === "~" || /^~[\\/]/.test(set)) return { bin: P.join(home, set.slice(2)), from: "env" };
+    const withFolder = /[\\/]/.test(set) || platform === "win32" && /^[A-Za-z]:/.test(set);
+    return { bin: withFolder ? P.resolve(opts.cwd ?? process.cwd(), set) : set, from: "env" };
+  }
+  if (platform === "win32" && !resolveCommand("claude", [], { platform, env, ...opts.exists ? { exists: opts.exists } : {} }, "shim").ok) {
+    const native = win323.join(home, ".local", "bin", "claude.exe");
+    if ((opts.exists ?? isFile)(native)) return { bin: native, from: "native" };
+  }
+  return { bin: "claude", from: "path" };
+}
+var claudeBin = (env = process.env) => findClaude(env).bin;
+var NATIVE_NOT_ON_PATH = "claude.exe is in %USERPROFILE%\\.local\\bin, which is not on PATH \u2014 the worker uses it; to run `claude` yourself, add that folder to your user PATH (then open a new terminal), or set CLAUDE_BIN";
 function claudeInstallHint(platform = process.platform) {
   if (platform === "win32")
     return "Install Claude Code (native installer in PowerShell: irm https://claude.ai/install.ps1 | iex \xB7 or npm i -g @anthropic-ai/claude-code; it needs Git for Windows) and sign in once with `claude` \u2014 or set CLAUDE_BIN to claude.exe or its cli.js";
@@ -12395,10 +12457,27 @@ import { dirname as dirname2, join as join4, resolve as resolve3 } from "node:pa
 var GitError = class extends Error {
   /** a log code that says more (folderBusy: Windows still holds files in a folder the worker removes) */
   code;
-  constructor(message, code) {
+  /**
+   * git's whole message (≤ 16 KB) — what the hints read (gitenv.ts gitHint: the line that names a lock file or dubious
+   * ownership may be anywhere in it) and this computer's terminal only. Never sent to One: `message` is.
+   */
+  detail;
+  constructor(message, code, detail) {
     super(message);
     if (code) this.code = code;
+    if (detail) this.detail = detail.slice(0, 16 * 1024);
   }
+};
+var ACCOUNT_LINE = /\(S-1-[0-9-]+\)\s*$|^\s*'[^'\n]*' is owned by:\s*$|^\s*but the current user is:\s*$/i;
+function gitMessage(text2, lines = 6) {
+  const s = text2.replace(/\r\n?/g, "\n").trim();
+  const dubious = /^.*detected dubious ownership.*$/im.exec(s)?.[0];
+  if (dubious) return dubious.trim();
+  return s.split("\n").filter((l) => !ACCOUNT_LINE.test(l)).slice(-lines).join("\n");
+}
+var gitFailure = (r, fallback, lines = 6, code) => {
+  const text2 = r.stderr || r.stdout;
+  return new GitError(gitMessage(text2, lines) || fallback, code, text2);
 };
 var DIFF_FILE_MAX = 12e4;
 var DIFF_TOTAL_MAX = 15e5;
@@ -12447,7 +12526,7 @@ async function git(cwd, args, timeoutMs = 12e4, opts = {}) {
 }
 async function gitOk(cwd, args, timeoutMs) {
   const r = await git(cwd, args, timeoutMs);
-  if (r.code !== 0) throw new GitError((r.stderr || r.stdout).trim().split("\n").slice(-6).join("\n") || `git ${args[0]} failed`);
+  if (r.code !== 0) throw gitFailure(r, `git ${args[0]} failed`);
   return r.stdout;
 }
 var same = (a, b) => samePath(a, b);
@@ -12503,7 +12582,7 @@ async function tryFetch(repo, note) {
     return await fetchRemote(repo);
   } catch (e) {
     const why2 = (e instanceof Error ? e.message : String(e)).replace(/\s+/g, " ").trim().slice(0, 300);
-    note?.("warn", `Could not fetch ${repo.remote} (${why2}) \u2014 going on with what this computer has.`, "fetchFailed", { remote: repo.remote, why: why2 });
+    note?.("warn", `Could not fetch ${repo.remote} (${why2}) \u2014 going on with what this computer has.`, "fetchFailed", { remote: repo.remote, why: why2 }, e instanceof GitError ? e.detail : void 0);
     return false;
   }
 }
@@ -12521,8 +12600,8 @@ var DEVICE = /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³]|conin\$|conout\$)$
 function worktreeFolder(branch, platform = process.platform) {
   const plain = branch.replace(/[\\/]+/g, "-");
   if (platform !== "win32") return plain;
-  let s = plain.replace(/[<>:"|?*\u0000-\u001f]/g, "_").replace(/[. ]+$/, "");
-  if (DEVICE.test(s.split(".")[0].replace(/ +$/, ""))) s = `_${s}`;
+  let s = plain.replace(/[^A-Za-z0-9._-]/g, "_").replace(/[. ]+$/, "");
+  if (DEVICE.test(s.split(".")[0])) s = `_${s}`;
   if (s === plain && s.length <= 32) return s;
   const cut = s.slice(0, 32).replace(/[. ]+$/, "") || "_";
   return `${cut}-${createHash("sha1").update(branch).digest("hex").slice(0, 6)}`;
@@ -12573,14 +12652,15 @@ async function addWorktree(repo, args, dir, newBranch, note) {
   try {
     const r = await git(repo.path, ["worktree", "add", ...args], checkoutMs());
     if (r.code === 0) return;
-    const failed = new GitError((r.stderr || r.stdout).trim().split(/\r?\n/).slice(-6).join("\n") || "git worktree add failed");
+    const failed = gitFailure(r, "git worktree add failed");
     await r.ended;
     try {
       if (insideWorktrees(repo, dir)) {
         await git(repo.path, ["worktree", "remove", "--force", dir]);
         if (!await rmRetry(dir)) {
           leftovers.add(pathId(dir));
-          note?.("warn", FOLDER_BUSY, "folderBusy", {});
+          const busy = folderBusyCode();
+          if (busy) note?.("warn", FOLDER_BUSY, busy, {});
         }
       }
       await prune(repo);
@@ -12955,7 +13035,7 @@ async function updateFromBase(repo, dir, branch) {
   if (mg.code === 0) return { how: "merged", conflicts: [] };
   const conflicts = await conflictsOf(dir);
   if (conflicts.length) return { how: "conflicts", conflicts };
-  throw new GitError((mg.stderr || mg.stdout).trim().split("\n").slice(-4).join("\n") || "merge failed");
+  throw gitFailure(mg, "merge failed", 4);
 }
 async function discard(repo, state, branch) {
   const own2 = state.created(repo.name, branch);
@@ -12966,9 +13046,8 @@ async function discard(repo, state, branch) {
   if (tree && !same(tree.path, top) && own2.worktree && same(tree.path, own2.worktree)) {
     const r = await git(repo.path, ["worktree", "remove", "--force", tree.path]);
     if (r.code !== 0) {
-      const failed = (r.stderr || r.stdout).trim().split(/\r?\n/).slice(-6).join("\n") || "git worktree remove failed";
-      if (!insideWorktrees(repo, tree.path)) throw new GitError(failed);
-      if (!await rmRetry(tree.path)) throw new GitError(failed, "folderBusy");
+      if (!insideWorktrees(repo, tree.path)) throw gitFailure(r, "git worktree remove failed");
+      if (!await rmRetry(tree.path)) throw gitFailure(r, "git worktree remove failed", 6, folderBusyCode());
       await prune(repo);
     }
     removedTree = true;
@@ -13039,40 +13118,60 @@ var diskPath = (native) => (p) => {
     return null;
   }
 };
-function variants(p, realpath2) {
-  const out = /* @__PURE__ */ new Set();
-  const add = (x2) => {
-    if (!x2 || x2 === "/" || x2.length < 2) return;
-    out.add(x2.replace(/[\\/]+$/, ""));
-    if (x2.includes("\\")) out.add(x2.replace(/\\/g, "/").replace(/\/+$/, ""));
-  };
-  add(p);
-  const real = realpath2(p);
-  if (real) add(real);
-  return [...out];
+var hexClass = (d) => /[A-Fa-f]/.test(d) ? `[${d.toUpperCase()}${d.toLowerCase()}]` : d;
+var pctSource = (enc) => escape2(enc).replace(/%([0-9A-Fa-f])([0-9A-Fa-f])/g, (_m, a, b) => `%${hexClass(a)}${hexClass(b)}`);
+var pctAll = (s) => [...Buffer.from(s, "utf8")].map((b) => b < 128 && /[A-Za-z0-9._~-]/.test(String.fromCharCode(b)) ? String.fromCharCode(b) : `%${b.toString(16).toUpperCase().padStart(2, "0")}`).join("");
+var tryEncode = (f, s) => {
+  try {
+    return f(s);
+  } catch {
+    return null;
+  }
+};
+function literalSource(name) {
+  let out = "";
+  for (const ch of name) {
+    if (ch === " ") out += "(?: |\\\\ )";
+    else if (ch.codePointAt(0) > 127) out += `(?:${escape2(ch)}|\\uFFFD{1,4}|\\?)`;
+    else out += escape2(ch);
+  }
+  return out;
 }
+function nameSource(name) {
+  const alts = /* @__PURE__ */ new Set();
+  for (const form of /* @__PURE__ */ new Set([name, name.normalize("NFC"), name.normalize("NFD")])) {
+    alts.add(literalSource(form));
+    for (const enc of [tryEncode(encodeURIComponent, form), tryEncode(encodeURI, form), pctAll(form)]) if (enc !== null && enc !== form) alts.add(pctSource(enc));
+    const latin1 = Buffer.from(form, "utf8").toString("latin1");
+    if (latin1 !== form) alts.add(escape2(latin1));
+  }
+  return alts.size === 1 ? [...alts][0] : `(?:${[...alts].join("|")})`;
+}
+var END = "(?![\\p{L}\\p{N}_-]|\\.[\\p{L}\\p{N}_-])";
+var POSIX_ONE = "(?:\\\\?/|%2[Ff])";
+var POSIX_SEP = `${POSIX_ONE}+`;
+function posixSource(p) {
+  const names = p.split("/").filter(Boolean);
+  if (!p.startsWith("/") || !names.length) return null;
+  return `${POSIX_ONE}${names.map(nameSource).join(POSIX_SEP)}${END}`;
+}
+var WIN_SEP = "(?:[\\\\/]|%5[Cc]|%2[Ff])+";
 var winNorm = (p) => {
   const s = p.replace(/\//g, "\\");
   return /^[A-Za-z]:\\$/.test(s) ? s : s.replace(/\\+$/, "");
 };
-function winForms(pathSource, literal2) {
-  const sep5 = "\\\\";
-  const out = /* @__PURE__ */ new Set();
-  out.add(pathSource);
-  const fwd = pathSource.split(sep5).join("/");
-  out.add(fwd);
-  out.add(pathSource.split(sep5).join(`${sep5}${sep5}`));
-  const drive = /^([A-Za-z]):/.exec(pathSource)?.[1]?.toLowerCase();
-  if (drive) {
-    const rest = fwd.slice(2);
-    for (const pre of [`/${drive}`, `/cygdrive/${drive}`, `/mnt/${drive}`]) out.add(`${escape2(pre)}${rest}`);
-  }
-  if (literal2 !== null) {
-    const plain = literal2.replace(/\\/g, "/");
-    const enc = encodeURI(plain);
-    if (enc !== plain) out.add(escape2(enc));
-  }
-  return [...out];
+function winParts(native) {
+  const s = winNorm(native);
+  const d = /^([A-Za-z]):\\(.*)$/.exec(s);
+  if (d) return { drive: d[1].toLowerCase(), names: d[2].split("\\").filter(Boolean) };
+  const unc = /^\\\\([^\\].*)$/.exec(s);
+  if (unc) return { drive: null, names: unc[1].split("\\").filter(Boolean) };
+  return null;
+}
+function winSource(drive, names) {
+  if (!names.length) return null;
+  if (drive === null) return `[\\\\/]{2,4}${names.join(WIN_SEP)}${END}`;
+  return `(?:${drive}(?::|%3[Aa])|(?:/cygdrive|/mnt)?/${drive})${WIN_SEP}${names.join(WIN_SEP)}${END}`;
 }
 function shortHomes(home, env, realpath2) {
   const out = /* @__PURE__ */ new Set();
@@ -13094,13 +13193,10 @@ function shortHomes(home, env, realpath2) {
 }
 function shortPattern(home) {
   const h = winNorm(home);
-  const cut = h.lastIndexOf("\\");
-  if (cut < 2) return null;
-  const name = h.slice(cut + 1);
-  if (/^[A-Za-z0-9_-]{1,8}$/.test(name)) return null;
+  const name = h.slice(h.lastIndexOf("\\") + 1);
+  if (!name || /^[A-Za-z0-9_-]{1,8}$/.test(name)) return null;
   const head = name.replace(/[^A-Za-z0-9]/g, "").slice(0, 6).toUpperCase();
-  if (!head) return null;
-  return `${escape2(h.slice(0, cut))}\\\\${escape2(head)}~\\d{1,6}`;
+  return head ? `${escape2(head)}~\\d{1,6}` : null;
 }
 var Scrubber = class {
   rules = [];
@@ -13108,25 +13204,37 @@ var Scrubber = class {
     const platform = opts.platform ?? process.platform;
     const base = [...pairs, [opts.tmp ?? tmpdir(), "<tmp>"], [opts.home ?? homedir5(), "~"]];
     const list = [];
+    const seen = /* @__PURE__ */ new Set();
+    const push2 = (source, len, to) => {
+      if (!source) return;
+      const key = `${source}\0${to}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      list.push({ source, len, to });
+    };
     if (platform !== "win32") {
       const realpath3 = opts.realpath ?? diskPath(false);
-      for (const [p, to] of base) if (p) for (const v of variants(p, realpath3)) list.push({ source: escape2(v), len: v.length, to });
-      list.sort((a, b) => b.len - a.len);
-      this.rules = list.map(({ source, to }) => ({ re: new RegExp(source, "g"), to }));
+      for (const [p, to] of base) {
+        if (!p) continue;
+        for (const v of [p, realpath3(p)]) {
+          const x2 = v?.replace(/\/+$/, "");
+          if (x2 && x2.length >= 2) push2(posixSource(x2), x2.length, to);
+        }
+      }
+      list.sort((a, b) => b.len - a.len || b.source.length - a.source.length);
+      this.rules = list.map(({ source, to }) => ({ re: new RegExp(source, "gu"), to }));
       return;
     }
     const realpath2 = opts.realpath ?? diskPath(true);
     const env = opts.env ?? process.env;
     const home = winNorm(opts.home ?? homedir5());
     const homeKey = home.toLowerCase();
+    const homeNames = winParts(home)?.names.length ?? 0;
     const shorts = shortHomes(home, env, realpath2);
     const pattern = shortPattern(home);
-    const seen = /* @__PURE__ */ new Set();
-    const push2 = (source, len, to) => {
-      const key = `${source.toLowerCase()}\0${to}`;
-      if (seen.has(key)) return;
-      seen.add(key);
-      list.push({ source, len, to });
+    const from = (native) => {
+      const parts = winParts(native);
+      return parts ? { drive: parts.drive, names: parts.names.map(nameSource) } : null;
     };
     for (const [p, to] of base) {
       if (!p) continue;
@@ -13135,16 +13243,25 @@ var Scrubber = class {
       if (real) longs.add(winNorm(real));
       for (const long of longs) {
         if (long.length < 3) continue;
-        for (const f of winForms(escape2(long), long)) push2(f, long.length, to);
+        const parts = from(long);
+        if (!parts) continue;
+        push2(winSource(parts.drive, parts.names), long.length, to);
         const inHome = long.toLowerCase() === homeKey || long.toLowerCase().startsWith(`${homeKey}\\`);
         if (!inHome) continue;
         const rest = long.slice(home.length);
-        for (const s of shorts) for (const f of winForms(escape2(s + rest), s + rest)) push2(f, long.length, to);
-        if (pattern) for (const f of winForms(`${pattern}${escape2(rest)}`, null)) push2(f, long.length, to);
+        for (const s of shorts) {
+          const sp = from(s + rest);
+          if (sp) push2(winSource(sp.drive, sp.names), long.length, to);
+        }
+        if (pattern && parts.drive !== null && homeNames > 0) {
+          const names = [...parts.names];
+          names[homeNames - 1] = pattern;
+          push2(winSource(parts.drive, names), long.length, to);
+        }
       }
     }
     list.sort((a, b) => b.len - a.len || b.source.length - a.source.length);
-    this.rules = list.map(({ source, to }) => ({ re: new RegExp(source, "gi"), to }));
+    this.rules = list.map(({ source, to }) => ({ re: new RegExp(source, "giu"), to }));
   }
   text(s) {
     let out = s;
@@ -13184,18 +13301,30 @@ function runCommand(argv2, timeoutSec, what, cwd, signal, onLine) {
     let timedOut = false;
     let missing = false;
     let settled = false;
-    const add = (d) => {
-      const text2 = d.toString();
-      out = (out + text2).slice(-TEST_OUTPUT_MAX * 2);
-      if (onLine) {
-        for (const line of text2.split(/\r?\n/)) if (line.trim()) onLine(line.slice(0, 500));
-      }
+    const partial2 = { out: "", err: "" };
+    const line = (l) => {
+      if (onLine && l.trim()) onLine(l.slice(0, 500));
     };
-    child.stdout?.on("data", add);
-    child.stderr?.on("data", add);
+    const add = (which) => (text2) => {
+      out = (out + text2).slice(-TEST_OUTPUT_MAX * 2);
+      const lines = (partial2[which] + text2).split(/\r?\n/);
+      partial2[which] = lines.pop() ?? "";
+      if (partial2[which].length > 4e3) {
+        line(partial2[which]);
+        partial2[which] = "";
+      }
+      for (const l of lines) line(l);
+    };
+    child.stdout?.setEncoding("utf8");
+    child.stderr?.setEncoding("utf8");
+    child.stdout?.on("data", add("out"));
+    child.stderr?.on("data", add("err"));
     const finish = (code) => {
       if (settled) return;
       settled = true;
+      line(partial2.out);
+      line(partial2.err);
+      partial2.out = partial2.err = "";
       clearTimeout(timer);
       signal.removeEventListener("abort", onAbort);
       if (missing) return done(notStarted("missing"));
@@ -13285,6 +13414,14 @@ function writeMcpConfig(taskMcp) {
   writeFileSync2(file, JSON.stringify({ mcpServers: { "one-task": { type: "stdio", command: taskMcp.command, args: taskMcp.args, env: taskMcp.env } } }, null, 2), { mode: 384 });
   return { file, dispose: () => void rmRetry(dir) };
 }
+function planted(ctx, dir, log2) {
+  const file = plantedProgram(dir, { platform: ctx.platform });
+  if (!file) return null;
+  const error2 = `The folder this stage runs in holds a program named ${file} at its top level. On Windows a tool that starts a program by its name (Claude Code's own git, a test runner's node or npm) may run that file instead of the real one, so the worker starts nothing there. Remove or rename ${file} in the repository (or move it into a subfolder), then press Retry.`;
+  log2("error", error2, "plantedProgram", { file });
+  return error2;
+}
+var hintText = (e, msg) => e instanceof GitError && e.detail ? e.detail : msg;
 function claudeMissing(caps, log2) {
   const error2 = claudeMissingError(caps.missing);
   log2("error", error2, caps.missing === "cmd-refused" ? "claudeCmdRefused" : "claudeMissing", {});
@@ -13369,6 +13506,7 @@ async function runStage(ctx) {
   const { repo, task } = ctx;
   let scrub = repoScrubber(repo);
   const log2 = (k, s, c, v) => ctx.log({ t: Date.now(), k, s: scrub.text(s), ...c ? { c, v: scrubVars(scrub, v) } : {} });
+  forgetGitEnv();
   if (ctx.team && !task.trusted) return { status: "refused", error: "This task was written or changed on another device and is not confirmed on this one. Confirm it in One (task panel) first." };
   const kind = task.stage.kind;
   if (kind === "queue" || kind === "gate" || kind === "done" || kind === "import") return { status: "refused", error: `A ${kind} stage is not run by the worker.` };
@@ -13382,7 +13520,7 @@ async function runStage(ctx) {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       log2("error", msg);
-      noteGitHint(msg, repo, log2, ctx.terminal);
+      noteGitHint(hintText(e, msg), repo, log2, ctx.terminal, ctx.platform);
       return { status: "failed", error: scrub.text(msg) };
     }
   }
@@ -13390,9 +13528,9 @@ async function runStage(ctx) {
     log2("info", `Stage "${task.stage.name}" (${kind}) on ${repo.name}`, "stage", { stage: task.stage.name, kind, repo: repo.name });
     const synced = inSyncedFolder(repo.path);
     if (synced) log2("warn", SYNCED[synced](repo.name), synced, { repo: repo.name });
-    const wt = await ensureWorktree(repo, ctx.state, task, task.branch, (k, s, c, v) => {
+    const wt = await ensureWorktree(repo, ctx.state, task, task.branch, (k, s, c, v, detail) => {
       log2(k, s, c, v);
-      if (c === "fetchFailed" && typeof v?.why === "string") noteGitHint(v.why, repo, log2, ctx.terminal);
+      if (c === "fetchFailed" && typeof v?.why === "string") noteGitHint(detail ?? v.why, repo, log2, ctx.terminal, ctx.platform);
     });
     scrub = repoScrubber(repo, wt.dir);
     ctx.onWorktree?.(wt, scrub);
@@ -13404,12 +13542,14 @@ async function runStage(ctx) {
     const msg = e instanceof GitError ? `git: ${e.message}` : e instanceof Error ? e.message : String(e);
     log2("error", msg);
     if (e instanceof GitError && e.code === "folderBusy") log2("warn", FOLDER_BUSY, "folderBusy", {});
-    else noteGitHint(msg, repo, log2, ctx.terminal);
+    else noteGitHint(hintText(e, msg), repo, log2, ctx.terminal, ctx.platform);
     return { status: "failed", error: scrub.text(msg) };
   }
 }
 async function claudeStage(ctx, wt, scrub, log2) {
   const { repo, task, caps } = ctx;
+  const plant = planted(ctx, wt.dir, log2);
+  if (plant) return { status: "refused", branch: wt.branch, error: plant };
   if (!caps.found) return { status: "failed", branch: wt.branch, error: claudeMissing(caps, log2) };
   const lim = limits(ctx);
   if (lim.refuse) {
@@ -13472,6 +13612,8 @@ var DOC_TOOLS = ["Read", "Grep", "Glob", "LS"];
 var DOC_DENIED = ["Edit", "MultiEdit", "Write", "NotebookEdit", "Bash"];
 async function docStage(ctx, scrub, log2, branch, dir) {
   const { repo, task, caps } = ctx;
+  const plant = planted(ctx, dir ?? repo.path, log2);
+  if (plant) return { status: "refused", error: plant };
   if (!caps.found) return { status: "failed", error: claudeMissing(caps, log2) };
   const lim = limits(ctx);
   if (lim.refuse) {
@@ -13534,6 +13676,8 @@ async function analyzeStage(ctx, scrub, log2, dir) {
     log2("info", `No analysis command for ${repo.name} \u2014 the stage passes. Set one on the worker's setup page (Change repositories \u2192 the repo \u2192 Static analysis).`, "analyzeNone", { repo: repo.name });
     return { status: "ok", summary: "No static analysis configured.", plan: "_No static analysis command is set for this repository \u2014 the worker's setup page (Change repositories \u2192 the repository \u2192 Static analysis) takes one, e.g. `npx eslint .`, `dotnet build`, `go vet ./...`._" };
   }
+  const plant = planted(ctx, dir ?? repo.path, log2);
+  if (plant) return { status: "refused", error: plant };
   const name = commandName(argv2[0]);
   const shown2 = clip2(scrub.text([name, ...argv2.slice(1)].join(" ")), 160);
   log2("test", `Running the static analysis: ${shown2}`, "analyzeRun", { cmd: shown2 });
@@ -13595,6 +13739,8 @@ async function testStage(ctx, wt, scrub, log2) {
     const test2 = { ok: true, output: "", ms: 0, code: null, skipped: true };
     return { status: "ok", branch: wt.branch, test: test2, summary: "No tests configured.", git: await gitSnapshot(ctx, wt, scrub) };
   }
+  const plant = planted(ctx, wt.dir, log2);
+  if (plant) return { status: "refused", branch: wt.branch, error: plant };
   log2("test", "Running the tests\u2026", "testsRun");
   let lines = 0;
   const { notStarted: notStarted2, ...res } = await runTests(ctx.repo, wt.dir, ctx.signal, (line) => {
@@ -13756,9 +13902,9 @@ import { join as join11 } from "node:path";
 import { randomBytes as randomBytes3 } from "node:crypto";
 
 // src/worker/clone.ts
-import { existsSync as existsSync6, mkdirSync as mkdirSync3, readdirSync, writeFileSync as writeFileSync4 } from "node:fs";
+import { existsSync as existsSync6, mkdirSync as mkdirSync3, readdirSync as readdirSync2, writeFileSync as writeFileSync4 } from "node:fs";
 import { homedir as homedir6 } from "node:os";
-import { join as join7, posix as posix3, win32 as win324 } from "node:path";
+import { join as join7, posix as posix4, win32 as win324 } from "node:path";
 var HOST = /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/;
 var SEGMENT = /^[A-Za-z0-9_~][A-Za-z0-9_.~+-]{0,99}$/;
 var USER = /^[A-Za-z0-9._-]{1,64}$/;
@@ -13774,7 +13920,7 @@ function parseCloneUrl(raw, local = false, platform = process.platform) {
   const win2 = platform === "win32";
   if (local && (text2.startsWith("/") || text2.startsWith("file://") || win2 && /^[A-Za-z]:[\\/]/.test(text2))) {
     const dir = text2.startsWith("file://") ? decodeURIComponent(text2.slice(7)) : text2;
-    if (!(win2 ? win324 : posix3).isAbsolute(dir) || dir.split(/[\\/]/).includes("..")) return { error: "That is not a clone address." };
+    if (!(win2 ? win324 : posix4).isAbsolute(dir) || dir.split(/[\\/]/).includes("..")) return { error: "That is not a clone address." };
     return { url: dir, host: "local", path: dir.replace(/^\/+/, ""), name: folderName(win2 ? dir.replace(/\\/g, "/") : dir), kind: "local" };
   }
   if (/^[a-z][a-z0-9+.-]*::/i.test(text2)) return { error: "Only HTTPS and SSH addresses can be cloned here." };
@@ -13814,7 +13960,7 @@ var unquote = (raw) => {
 function cloneBase(raw, home = homedir6(), platform = process.platform, env = process.env) {
   const text2 = unquote(typeof raw === "string" ? raw : "");
   if (!text2 || text2.length > 1e3 || /[\u0000-\u001f]/.test(text2)) return { error: "Type the folder the clones go into." };
-  const P = platform === "win32" ? win324 : posix3;
+  const P = platform === "win32" ? win324 : posix4;
   let dir;
   if (text2 === "~" || text2.startsWith("~/") || text2.startsWith("~\\")) dir = P.join(home, text2.slice(2));
   else if (P.isAbsolute(text2) && (platform !== "win32" || /^(?:[A-Za-z]:[\\/]|[\\/]{2}[^\\/])/.test(text2))) dir = P.resolve(text2);
@@ -13841,7 +13987,7 @@ async function cloneInto(target, base, onProgress, opts = {}) {
   const dir = join7(base, target.name);
   if (!inFolder(dir, base) || samePath(dir, base)) throw new Error("That folder name is not allowed.");
   if (existsSync6(dir)) {
-    const entries = readdirSync(dir);
+    const entries = readdirSync2(dir);
     if (entries.length) {
       const origin = existsSync6(join7(dir, ".git")) ? (await git(dir, ["remote", "get-url", "origin"], 1e4)).stdout.trim() : "";
       const bare = (u) => u.replace(/\.git$/, "");
@@ -13855,8 +14001,8 @@ async function cloneInto(target, base, onProgress, opts = {}) {
   mkdirSync3(base, { recursive: true });
   const made = !existsSync6(dir);
   const timeoutMs = opts.timeoutMs ?? (Number(process.env.ONE_WORKER_CLONE_MS) || 30 * 6e4);
-  const args = gitArgs(["-c", "protocol.ext.allow=never", "-c", `protocol.file.allow=${opts.local ? "always" : "never"}`, "clone", "--progress", "--", target.url, dir]);
-  const env = await gitEnv(null, process.env);
+  const args = gitArgs(["-c", "protocol.ext.allow=never", "-c", `protocol.file.allow=${opts.local ? "always" : "never"}`, "clone", "--progress", "--", target.url, target.name]);
+  const env = await gitEnv(null, process.env, { note: opts.log });
   const res = await new Promise((done) => {
     const s = spawnSafe("git", args, { cwd: base, env, stdio: ["ignore", "ignore", "pipe"], detached: process.platform !== "win32", windowsHide: true, allow: "exe" });
     if (!s.ok) return done({ code: 127, stderr: s.error, timedOut: false });
@@ -14565,7 +14711,7 @@ var Unzip = /* @__PURE__ */ (function() {
 })();
 
 // src/worker/zipimport.ts
-import { closeSync as closeSync2, createReadStream, existsSync as existsSync7, lstatSync as lstatSync3, mkdirSync as mkdirSync4, openSync as openSync2, readFileSync as readFileSync5, readdirSync as readdirSync2, rmSync, statSync as statSync3, writeFileSync as writeFileSync5, writeSync } from "node:fs";
+import { closeSync as closeSync2, createReadStream, existsSync as existsSync7, lstatSync as lstatSync3, mkdirSync as mkdirSync4, openSync as openSync2, readFileSync as readFileSync5, readdirSync as readdirSync3, rmSync, statSync as statSync3, writeFileSync as writeFileSync5, writeSync } from "node:fs";
 import { randomBytes as randomBytes2 } from "node:crypto";
 import { dirname as dirname4, join as join8, relative, resolve as resolve4, sep as sep3 } from "node:path";
 var ZIP_MAX = () => Number(process.env.ONE_WORKER_ZIP_MAX) || 500 * 1024 * 1024;
@@ -14618,7 +14764,7 @@ function gitDirIn(dir) {
     const d = todo.pop();
     if (entry(join8(d, ".git"))) return { path: join8(d, ".git"), kind: "dotgit" };
     if (isRepoDir(d)) return { path: d, kind: "repo" };
-    for (const e of readdirSync2(d, { withFileTypes: true })) {
+    for (const e of readdirSync3(d, { withFileTypes: true })) {
       if (isDotGit(e.name)) return { path: join8(d, e.name), kind: "dotgit" };
       if (e.isDirectory()) todo.push(join8(d, e.name));
     }
@@ -14626,11 +14772,11 @@ function gitDirIn(dir) {
   return null;
 }
 function refusePlanted(dir) {
-  const planted = gitDirIn(dir);
-  if (!planted) return;
-  const at = shown(relative(dir, planted.path) || ".");
-  if (planted.kind === "dotgit") throw new Error(`the ZIP holds a git folder under another spelling (${at}) \u2014 nothing was imported`);
-  if (planted.path === dir) throw new Error("the ZIP is a git repository itself (HEAD, objects, refs \u2014 a bare one, or the inside of a .git folder), not the code: clone it and zip the checkout, or clone it here \u2014 nothing was imported");
+  const planted2 = gitDirIn(dir);
+  if (!planted2) return;
+  const at = shown(relative(dir, planted2.path) || ".");
+  if (planted2.kind === "dotgit") throw new Error(`the ZIP holds a git folder under another spelling (${at}) \u2014 nothing was imported`);
+  if (planted2.path === dir) throw new Error("the ZIP is a git repository itself (HEAD, objects, refs \u2014 a bare one, or the inside of a .git folder), not the code: clone it and zip the checkout, or clone it here \u2014 nothing was imported");
   throw new Error(`the ZIP holds a git repository in ${at} (HEAD, objects, refs) \u2014 git would use it, and its config, for every git command run in that folder. Leave it out (a test fixture too) and zip again \u2014 nothing was imported`);
 }
 async function importZip(zipFile, base, name, label, onProgress = () => {
@@ -14704,7 +14850,7 @@ async function importZip(zipFile, base, name, label, onProgress = () => {
     if (!fail && open2 > 0) fail = "the ZIP ended in the middle of a file";
     if (!fail && files === 0) fail = "the ZIP has no files";
     if (fail) throw new Error(fail);
-    const top = readdirSync2(tmp);
+    const top = readdirSync3(tmp);
     const root = top.length === 1 && statSync3(join8(tmp, top[0])).isDirectory() ? join8(tmp, top[0]) : tmp;
     let dir = join8(base, name);
     for (let i2 = 2; existsSync7(dir); i2++) dir = join8(base, `${name}-${i2}`);
@@ -14762,7 +14908,7 @@ async function commitImport(dir, label) {
 }
 
 // src/worker/publish.ts
-import { existsSync as existsSync8, readFileSync as readFileSync6, readdirSync as readdirSync3 } from "node:fs";
+import { existsSync as existsSync8, readFileSync as readFileSync6, readdirSync as readdirSync4 } from "node:fs";
 import { join as join9 } from "node:path";
 var NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
 var OWNER = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}(\/[A-Za-z0-9][A-Za-z0-9._-]{0,99}){0,5}$/;
@@ -14790,7 +14936,7 @@ function suggestName(dir, fallback) {
     () => /^module\s+(\S+)/m.exec(read(dir, "go.mod") ?? "")?.[1],
     () => {
       try {
-        return readdirSync3(dir).find((f) => /\.(sln|csproj|vbproj)$/i.test(f))?.replace(/\.[^.]+$/, "");
+        return readdirSync4(dir).find((f) => /\.(sln|csproj|vbproj)$/i.test(f))?.replace(/\.[^.]+$/, "");
       } catch {
         return null;
       }
@@ -15293,7 +15439,7 @@ var Intake = class {
     this.running = id;
     this.host.log(`import for task ${id}: cloning ${target.url} into ${base}`);
     this.host.event(id, { state: "running", source: "clone", label: target.url, line: "Cloning\u2026", percent: null });
-    void cloneInto(target, base, (p) => this.host.event(id, { state: "running", source: "clone", label: target.url, line: p.line, percent: p.percent }), { local: target.kind === "local" }).then(async ({ dir, already }) => this.adopt(id, "clone", target.url, dir, already ? "Already cloned \u2014 added." : "Cloned.")).catch((e) => this.fail(id, "clone", target.url, e)).finally(() => {
+    void cloneInto(target, base, (p) => this.host.event(id, { state: "running", source: "clone", label: target.url, line: p.line, percent: p.percent }), { local: target.kind === "local", log: (msg) => this.host.log(`import for task ${id}: ${msg}`) }).then(async ({ dir, already }) => this.adopt(id, "clone", target.url, dir, already ? "Already cloned \u2014 added." : "Cloned.")).catch((e) => this.fail(id, "clone", target.url, e)).finally(() => {
       this.running = null;
     });
     return { ok: true };
@@ -15308,7 +15454,10 @@ var Intake = class {
       const keep = cfg.repos.map((r) => ({ path: r.path, name: r.name, baseBranch: r.baseBranch, remote: r.remote, testCommand: r.testCommand, push: r.push, pr: r.pr, maxUsdPerTask: r.maxUsdPerTask }));
       keep.push({ path: dir, name: facts.name, baseBranch: facts.base, remote: facts.remote, testCommand: facts.test, push: !!facts.remote, pr: facts.remote ? "gh" : "none", maxUsdPerTask: null });
       const problems = saveRepos(this.host.configFile, keep, cfg.workspace);
-      if (problems.length) throw new Error(`The repository is at ${dir}, but worker.json could not take it: ${problems.join("; ")}`);
+      if (problems.length) {
+        this.host.log(`import for task ${taskId}: the repository is at ${dir}`);
+        throw new Error(`The repository was made, but worker.json could not take it: ${problems.join("; ")}`);
+      }
       name = facts.name;
       await this.host.reload();
     }
@@ -15785,6 +15934,8 @@ var WorkerLink = class {
   flushing = false;
   pinger = null;
   refusals = 0;
+  /** what a request's error may not carry to One: this computer's home and temp folders (worker.ts scrubs per repo before) */
+  errorScrub = new Scrubber();
   dial = null;
   pairing = null;
   constructor(opts) {
@@ -16141,7 +16292,7 @@ ${text2}`);
       case "req": {
         if (conn !== this.tab) return;
         const id = String(msg.id);
-        this.opts.onRequest(msg).then((result) => conn.isOpen() && conn.send(JSON.stringify({ type: "res", id, ok: true, result }))).catch((e) => conn.isOpen() && conn.send(JSON.stringify({ type: "res", id, ok: false, error: e instanceof Error ? e.message : String(e) })));
+        this.opts.onRequest(msg).then((result) => conn.isOpen() && conn.send(JSON.stringify({ type: "res", id, ok: true, result }))).catch((e) => conn.isOpen() && conn.send(JSON.stringify({ type: "res", id, ok: false, error: this.errorScrub.text(e instanceof Error ? e.message : String(e)) })));
         return;
       }
     }
@@ -16463,24 +16614,26 @@ var Worker2 = class {
     this.tokens.set(token, run2);
     this.sendStatus();
     this.opts.log(`task ${task.id} "${task.title}" \u2014 ${task.stage.name} (${task.stage.kind}) in ${repo.name}`);
-    void runStage({
-      repo,
-      state: this.state,
-      task,
-      team: this.workspace?.kind === "team",
-      caps: this.caps,
-      bin: this.opts.bin,
-      taskMcp: { command: process.execPath, args: [this.opts.self, "task-mcp"], env: { ONE_WORKER_TASK_URL: `http://127.0.0.1:${this.config.port}/task`, ONE_WORKER_TASK_TOKEN: token } },
-      signal: run2.abort.signal,
-      log: (line) => this.logLine(task.id, line),
-      git: (g) => this.link.send({ type: "event", taskId: task.id, kind: "git", git: g }),
-      progress: (p) => this.link.send({ type: "event", taskId: task.id, kind: "progress", progress: p }),
-      question: () => run2.question,
-      onWorktree: (_wt, scrub) => {
-        run2.scrub = scrub;
-      },
-      terminal: (msg) => this.opts.log(msg)
-    }).catch((e) => ({ status: "failed", error: run2.scrub.text(e instanceof Error ? e.message : String(e)) })).then((outcome) => scrubOutcome(outcome, run2.scrub)).then(async (outcome) => {
+    void this.claudeForStage(task).then(
+      (caps) => runStage({
+        repo,
+        state: this.state,
+        task,
+        team: this.workspace?.kind === "team",
+        caps,
+        bin: this.opts.bin,
+        taskMcp: { command: process.execPath, args: [this.opts.self, "task-mcp"], env: { ONE_WORKER_TASK_URL: `http://127.0.0.1:${this.config.port}/task`, ONE_WORKER_TASK_TOKEN: token } },
+        signal: run2.abort.signal,
+        log: (line) => this.logLine(task.id, line),
+        git: (g) => this.link.send({ type: "event", taskId: task.id, kind: "git", git: g }),
+        progress: (p) => this.link.send({ type: "event", taskId: task.id, kind: "progress", progress: p }),
+        question: () => run2.question,
+        onWorktree: (_wt, scrub) => {
+          run2.scrub = scrub;
+        },
+        terminal: (msg) => this.opts.log(msg)
+      })
+    ).catch((e) => ({ status: "failed", error: run2.scrub.text(e instanceof Error ? e.message : String(e)) })).then((outcome) => scrubOutcome(outcome, run2.scrub)).then(async (outcome) => {
       this.tokens.delete(token);
       this.runs.delete(task.id);
       this.opts.log(`task ${task.id}: ${outcome.status}${outcome.error ? ` \u2014 ${outcome.error}` : ""}`);
@@ -16489,6 +16642,21 @@ var Worker2 = class {
       void this.refreshBranches();
       this.tick();
     });
+  }
+  /**
+   * Claude Code as this stage finds it: looked for again while it was not found (installed since the start — Retry then
+   * works without restarting the worker); One hears of it once it is there.
+   */
+  async claudeForStage(task) {
+    const kind = task.stage.kind;
+    if (this.caps.found || kind !== "plan" && kind !== "implement" && kind !== "doc") return this.caps;
+    const caps = await detectClaude(this.opts.bin);
+    if (caps.found) {
+      this.caps = caps;
+      this.opts.log(`Claude Code found${caps.version ? ` (${caps.version})` : ""} \u2014 plan, implement and document stages run again`);
+      this.link.announce();
+    }
+    return caps;
   }
   /** Log lines per task, sent together (cloud mode: every 250 ms or 200 lines — one relay frame instead of hundreds). */
   logBuf = /* @__PURE__ */ new Map();
@@ -16581,7 +16749,17 @@ var Worker2 = class {
   /** An import's progress at most every 250 ms per task (the newest wins); its result at once, after it — never lost. */
   intakeHeld = /* @__PURE__ */ new Map();
   intakeSent = /* @__PURE__ */ new Map();
-  intakeEvent(taskId, intake) {
+  /**
+   * An import's texts without a path of this computer: git's lines, a failure (Node's file errors name their paths), a
+   * local address — the clone folder becomes "<clones>", the home folder "~", the temp folder "<tmp>".
+   */
+  intakeScrub(st) {
+    const base = cloneBase(this.config.cloneDir);
+    const sc = new Scrubber([[typeof base === "string" ? base : null, "<clones>"]]);
+    return { ...st, label: sc.text(st.label), line: sc.text(st.line), ...st.error !== void 0 ? { error: sc.text(st.error) } : {} };
+  }
+  intakeEvent(taskId, raw) {
+    const intake = this.intakeScrub(raw);
     const send = (st) => this.link.send({ type: "event", taskId, kind: "intake", intake: st });
     const held = this.intakeHeld.get(taskId);
     if (intake.state !== "running") {
@@ -16619,8 +16797,9 @@ var Worker2 = class {
     if (this.runs.has(taskId) && verb !== "refresh" && verb !== "reveal") throw new Error("the task is running \u2014 stop it first");
     const branch = typeof msg.branch === "string" && msg.branch.trim() || this.state.taskAt(taskId)?.branch || null;
     if (!branch) throw new Error("the task has no branch yet");
-    const dir = await worktreeOf(repo, branch);
-    const scrub = repoScrubber(repo, dir);
+    forgetGitEnv();
+    let scrub = repoScrubber(repo);
+    let dir = null;
     const snap = async (message, url) => {
       const g = dir ? await info(repo, this.state, dir, branch) : void 0;
       const git2 = g ? { ...g, files: g.files.map((f) => ({ ...f, diff: f.diff === null ? null : scrub.text(f.diff) })) } : void 0;
@@ -16633,6 +16812,8 @@ var Worker2 = class {
       return dir;
     };
     try {
+      dir = await worktreeOf(repo, branch);
+      scrub = repoScrubber(repo, dir);
       switch (verb) {
         case "refresh":
           return await snap("Git status refreshed.");
@@ -16689,7 +16870,7 @@ var Worker2 = class {
       const msg2 = e instanceof GitError ? `git: ${e.message}` : e instanceof Error ? e.message : String(e);
       const hint = (k, s, c, v) => this.logLine(taskId, { t: Date.now(), k, s: scrub.text(s), ...c ? { c, v } : {} });
       if (e instanceof GitError && e.code === "folderBusy") hint("warn", FOLDER_BUSY, "folderBusy", {});
-      else noteGitHint(msg2, repo, hint, (line) => this.opts.log(line));
+      else noteGitHint(e instanceof GitError && e.detail ? e.detail : msg2, repo, hint, (line) => this.opts.log(line));
       throw new Error(scrub.text(msg2));
     }
     throw new Error("unknown git action");
@@ -34875,7 +35056,7 @@ var SetupServer = class {
     void cloneInto(target, base, (p) => {
       job.line = p.line;
       job.percent = p.percent;
-    }, { local: target.kind === "local", home: this.home }).then(async ({ dir, already }) => {
+    }, { local: target.kind === "local", home: this.home, log: (msg) => this.host.log(`setup page: ${msg}`) }).then(async ({ dir, already }) => {
       const taken = /* @__PURE__ */ new Set([...this.host.config().repos.map((r) => r.name.toLowerCase()), ...[...this.found.values()].map((r) => r.name.toLowerCase())]);
       if (!this.found.has(pathId(dir))) {
         const facts = await repoFacts(dir, taken, this.home);
@@ -35279,7 +35460,8 @@ Or download the worker from One (Settings \u2192 Coding worker): that file comes
   for (const p of loaded.problems) log(`config: ${p}`);
   for (const n of loaded.notes ?? []) log(`config: ${n}`);
   if (command === "check") {
-    const bin = claudeBin();
+    const claude2 = findClaude();
+    const bin = claude2.bin;
     const caps = await detectClaude(bin);
     const bash = win ? gitBash() : null;
     const relay = cloud ? await checkCloud(preset.origin, preset.cloud.token) : null;
@@ -35288,7 +35470,8 @@ Or download the worker from One (Settings \u2192 Coding worker): that file comes
       ...cloud ? [`download   cloud worker for "${preset.name}" \xB7 paired (end-to-end) with the browser that downloaded it`, `cloud      ${relay.line}`] : preset ? [`download   paired with a browser for "${preset.name}" \xB7 accepts ${preset.origin}${preset.dev ? " (+ localhost)" : ""}`] : [],
       `workspace  ${config2.workspace ?? "not set \u2014 every One tab is refused"}`,
       `port       ${config2.port}${cloud ? " (task tools and the setup page only \u2014 One reaches this worker through the team server)" : ""}`,
-      `claude     ${caps.found ? `${caps.version ?? "found"}${caps.via ? ` \xB7 ${caps.via === "node-shim" ? "npm shim \u2192" : caps.via} ${caps.path}` : ""}${caps.budget ? "" : " (no --max-budget-usd: limits are checked between stages)"}` : caps.missing === "cmd-refused" ? `REFUSED ("${bin}") \u2014 a .cmd / .bat the worker cannot read, and it never starts Claude Code through cmd.exe: install it with its native installer, or set CLAUDE_BIN to claude.exe or its cli.js` : `NOT FOUND ("${bin}") \u2014 ${claudeInstallHint()}`}`,
+      `claude     ${caps.found ? `${caps.version ?? "found"}${caps.via ? ` \xB7 ${caps.via === "node-shim" ? "npm shim \u2192" : caps.via} ${caps.path}` : ""}${caps.budget ? "" : " (no --max-budget-usd: limits are checked between stages)"}${claude2.from === "native" ? `
+           ${NATIVE_NOT_ON_PATH}` : ""}` : caps.missing === "cmd-refused" ? `REFUSED ("${bin}") \u2014 a .cmd / .bat the worker cannot read, and it never starts Claude Code through cmd.exe: install it with its native installer, or set CLAUDE_BIN to claude.exe or its cli.js` : `NOT FOUND ("${bin}") \u2014 ${claudeInstallHint()}`}`,
       ...bash ? [`git bash   ${bash.path ? `${bash.path}${bash.from === "env" ? " (CLAUDE_CODE_GIT_BASH_PATH)" : ""}` : "NOT FOUND \u2014 Claude Code on Windows needs Git for Windows (its Git Bash): install it, or set CLAUDE_CODE_GIT_BASH_PATH to bash.exe"}`] : [],
       `node       ${process.versions.node}${nodeMajor < 22 ? ` \u2014 past its end of life (30 April 2026) and untested: use Node.js 22 or newer` : ""}`
     ];
@@ -35351,7 +35534,9 @@ ${ok ? "All good." : "Fix the lines above."}
     log(message);
     void shutdown(2);
   };
-  worker = new Worker2({ config: config2, version: VERSION, bin: claudeBin(), self, log, setup, recent: () => recent, intake: { configFile, reload: () => reload(worker) }, onFatal });
+  const claude = findClaude();
+  if (claude.from === "native") log(NATIVE_NOT_ON_PATH);
+  worker = new Worker2({ config: config2, version: VERSION, bin: claude.bin, self, log, setup, recent: () => recent, intake: { configFile, reload: () => reload(worker) }, onFatal });
   const up = await worker.start();
   if (up !== "listening") {
     if (command === "setup" && up === "in-use")

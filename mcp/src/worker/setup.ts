@@ -323,7 +323,7 @@ export class SetupServer {
     void cloneInto(target, base, (p) => {
       job.line = p.line
       job.percent = p.percent
-    }, { local: target.kind === 'local', home: this.home })
+    }, { local: target.kind === 'local', home: this.home, log: (msg) => this.host.log(`setup page: ${msg}`) })
       .then(async ({ dir, already }) => {
         const taken = new Set([...this.host.config().repos.map((r) => r.name.toLowerCase()), ...[...this.found.values()].map((r) => r.name.toLowerCase())])
         if (!this.found.has(pathId(dir))) {

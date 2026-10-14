@@ -44,7 +44,8 @@ import type { CloudFatal } from './cloud.ts'
 import { cloudOf } from './config.ts'
 import { relayUrl, workerOrigins } from './preset.ts'
 import { dataBlock, markerCode, noteGitHint, runStage } from './run.ts'
-import { repoScrubber, type Scrubber } from './scrub.ts'
+import { Scrubber, repoScrubber } from './scrub.ts'
+import { cloneBase } from './clone.ts'
 import type { SetupLive } from './setup.ts'
 
 export interface WorkerOptions {
@@ -386,24 +387,27 @@ export class Worker {
     this.tokens.set(token, run)
     this.sendStatus()
     this.opts.log(`task ${task.id} "${task.title}" — ${task.stage.name} (${task.stage.kind}) in ${repo.name}`)
-    void runStage({
-      repo,
-      state: this.state,
-      task,
-      team: this.workspace?.kind === 'team',
-      caps: this.caps,
-      bin: this.opts.bin,
-      taskMcp: { command: process.execPath, args: [this.opts.self, 'task-mcp'], env: { ONE_WORKER_TASK_URL: `http://127.0.0.1:${this.config.port}/task`, ONE_WORKER_TASK_TOKEN: token } },
-      signal: run.abort.signal,
-      log: (line) => this.logLine(task.id, line),
-      git: (g) => this.link.send({ type: 'event', taskId: task.id, kind: 'git', git: g }),
-      progress: (p) => this.link.send({ type: 'event', taskId: task.id, kind: 'progress', progress: p }),
-      question: () => run.question,
-      onWorktree: (_wt, scrub) => {
-        run.scrub = scrub
-      },
-      terminal: (msg) => this.opts.log(msg),
-    })
+    void this.claudeForStage(task)
+      .then((caps) =>
+        runStage({
+          repo,
+          state: this.state,
+          task,
+          team: this.workspace?.kind === 'team',
+          caps,
+          bin: this.opts.bin,
+          taskMcp: { command: process.execPath, args: [this.opts.self, 'task-mcp'], env: { ONE_WORKER_TASK_URL: `http://127.0.0.1:${this.config.port}/task`, ONE_WORKER_TASK_TOKEN: token } },
+          signal: run.abort.signal,
+          log: (line) => this.logLine(task.id, line),
+          git: (g) => this.link.send({ type: 'event', taskId: task.id, kind: 'git', git: g }),
+          progress: (p) => this.link.send({ type: 'event', taskId: task.id, kind: 'progress', progress: p }),
+          question: () => run.question,
+          onWorktree: (_wt, scrub) => {
+            run.scrub = scrub
+          },
+          terminal: (msg) => this.opts.log(msg),
+        }),
+      )
       .catch((e: unknown): StageOutcome => ({ status: 'failed', error: run.scrub.text(e instanceof Error ? e.message : String(e)) }))
       // defence in depth: run.ts scrubs every text it hands back; once more here (idempotent) catches a site that did not
       .then((outcome) => scrubOutcome(outcome, run.scrub))
@@ -416,6 +420,22 @@ export class Worker {
         void this.refreshBranches()
         this.tick()
       })
+  }
+
+  /**
+   * Claude Code as this stage finds it: looked for again while it was not found (installed since the start — Retry then
+   * works without restarting the worker); One hears of it once it is there.
+   */
+  private async claudeForStage(task: TaskPayload): Promise<ClaudeCaps> {
+    const kind = task.stage.kind
+    if (this.caps.found || (kind !== 'plan' && kind !== 'implement' && kind !== 'doc')) return this.caps
+    const caps = await detectClaude(this.opts.bin)
+    if (caps.found) {
+      this.caps = caps
+      this.opts.log(`Claude Code found${caps.version ? ` (${caps.version})` : ''} — plan, implement and document stages run again`)
+      this.link.announce()
+    }
+    return caps
   }
 
   /** Log lines per task, sent together (cloud mode: every 250 ms or 200 lines — one relay frame instead of hundreds). */
@@ -524,7 +544,18 @@ export class Worker {
   private intakeHeld = new Map<string, { latest: IntakeState; timer: ReturnType<typeof setTimeout> }>()
   private intakeSent = new Map<string, number>()
 
-  private intakeEvent(taskId: string, intake: IntakeState) {
+  /**
+   * An import's texts without a path of this computer: git's lines, a failure (Node's file errors name their paths), a
+   * local address — the clone folder becomes "<clones>", the home folder "~", the temp folder "<tmp>".
+   */
+  intakeScrub(st: IntakeState): IntakeState {
+    const base = cloneBase(this.config.cloneDir)
+    const sc = new Scrubber([[typeof base === 'string' ? base : null, '<clones>']])
+    return { ...st, label: sc.text(st.label), line: sc.text(st.line), ...(st.error !== undefined ? { error: sc.text(st.error) } : {}) }
+  }
+
+  private intakeEvent(taskId: string, raw: IntakeState) {
+    const intake = this.intakeScrub(raw)
     const send = (st: IntakeState) => this.link.send({ type: 'event', taskId, kind: 'intake', intake: st })
     const held = this.intakeHeld.get(taskId)
     if (intake.state !== 'running') {
@@ -563,8 +594,11 @@ export class Worker {
     if (this.runs.has(taskId) && verb !== 'refresh' && verb !== 'reveal') throw new Error('the task is running — stop it first')
     const branch = (typeof msg.branch === 'string' && msg.branch.trim()) || this.state.taskAt(taskId)?.branch || null
     if (!branch) throw new Error('the task has no branch yet')
-    const dir = await worktreeOf(repo, branch)
-    const scrub = repoScrubber(repo, dir)
+    // a core.sshCommand the person set after a hint applies now (Retry)
+    forgetGitEnv()
+    // before any git runs: its error (a refused folder, git's safe.directory line …) passes the scrubber too
+    let scrub = repoScrubber(repo)
+    let dir: string | null = null
     const snap = async (message: string, url?: string): Promise<GitResult> => {
       const g = dir ? await info(repo, this.state, dir, branch) : undefined
       const git = g ? { ...g, files: g.files.map((f) => ({ ...f, diff: f.diff === null ? null : scrub.text(f.diff) })) } : undefined
@@ -577,6 +611,8 @@ export class Worker {
       return dir
     }
     try {
+      dir = await worktreeOf(repo, branch)
+      scrub = repoScrubber(repo, dir)
       switch (verb) {
         case 'refresh':
           return await snap('Git status refreshed.')
@@ -631,7 +667,8 @@ export class Worker {
       // what it means for the person, in the task's log (the error itself goes back to the key they pressed)
       const hint = (k: LogLine['k'], s: string, c?: string, v?: Record<string, string | number>) => this.logLine(taskId, { t: Date.now(), k, s: scrub.text(s), ...(c ? { c, v } : {}) })
       if (e instanceof GitError && e.code === 'folderBusy') hint('warn', FOLDER_BUSY, 'folderBusy', {})
-      else noteGitHint(msg, repo, hint, (line) => this.opts.log(line))
+      // git's whole message (a lock file or an ownership report is not in its last lines), the hint by its code only
+      else noteGitHint(e instanceof GitError && e.detail ? e.detail : msg, repo, hint, (line) => this.opts.log(line))
       throw new Error(scrub.text(msg))
     }
     throw new Error('unknown git action')

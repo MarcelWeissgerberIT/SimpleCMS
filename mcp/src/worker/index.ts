@@ -29,7 +29,7 @@ import { homedir, userInfo } from 'node:os'
 import { resolve } from 'node:path'
 import { WORKER_DEFAULT_PORT } from '../../../src/app/features/coding/protocol.ts'
 import { SOURCE_WORDS, cloudConfigFile, defaultConfigFile, emptyConfig, initConfig, loadConfig, saveRepos, withPreset, type RepoChoice } from './config.ts'
-import { claudeBin, claudeInstallHint, detectClaude, gitBash } from './claude.ts'
+import { NATIVE_NOT_ON_PATH, claudeInstallHint, detectClaude, findClaude, gitBash } from './claude.ts'
 import { checkRepo, hasRemote } from './git.ts'
 import { TRUST } from './run.ts'
 import { Worker } from './worker.ts'
@@ -145,7 +145,8 @@ async function main() {
   for (const n of loaded.notes ?? []) log(`config: ${n}`)
 
   if (command === 'check') {
-    const bin = claudeBin()
+    const claude = findClaude()
+    const bin = claude.bin
     const caps = await detectClaude(bin)
     const bash = win ? gitBash() : null
     const relay = cloud ? await checkCloud(preset!.origin, preset!.cloud!.token) : null
@@ -158,7 +159,7 @@ async function main() {
           : []),
       `workspace  ${config.workspace ?? 'not set — every One tab is refused'}`,
       `port       ${config.port}${cloud ? ' (task tools and the setup page only — One reaches this worker through the team server)' : ''}`,
-      `claude     ${caps.found ? `${caps.version ?? 'found'}${caps.via ? ` · ${caps.via === 'node-shim' ? 'npm shim →' : caps.via} ${caps.path}` : ''}${caps.budget ? '' : ' (no --max-budget-usd: limits are checked between stages)'}` : caps.missing === 'cmd-refused' ? `REFUSED ("${bin}") — a .cmd / .bat the worker cannot read, and it never starts Claude Code through cmd.exe: install it with its native installer, or set CLAUDE_BIN to claude.exe or its cli.js` : `NOT FOUND ("${bin}") — ${claudeInstallHint()}`}`,
+      `claude     ${caps.found ? `${caps.version ?? 'found'}${caps.via ? ` · ${caps.via === 'node-shim' ? 'npm shim →' : caps.via} ${caps.path}` : ''}${caps.budget ? '' : ' (no --max-budget-usd: limits are checked between stages)'}${claude.from === 'native' ? `\n           ${NATIVE_NOT_ON_PATH}` : ''}` : caps.missing === 'cmd-refused' ? `REFUSED ("${bin}") — a .cmd / .bat the worker cannot read, and it never starts Claude Code through cmd.exe: install it with its native installer, or set CLAUDE_BIN to claude.exe or its cli.js` : `NOT FOUND ("${bin}") — ${claudeInstallHint()}`}`,
       ...(bash ? [`git bash   ${bash.path ? `${bash.path}${bash.from === 'env' ? ' (CLAUDE_CODE_GIT_BASH_PATH)' : ''}` : 'NOT FOUND — Claude Code on Windows needs Git for Windows (its Git Bash): install it, or set CLAUDE_CODE_GIT_BASH_PATH to bash.exe'}`] : []),
       `node       ${process.versions.node}${nodeMajor < 22 ? ` — past its end of life (30 April 2026) and untested: use Node.js 22 or newer` : ''}`,
     ]
@@ -227,7 +228,9 @@ async function main() {
     log(message)
     void shutdown(2)
   }
-  worker = new Worker({ config, version: VERSION, bin: claudeBin(), self, log, setup, recent: () => recent, intake: { configFile, reload: () => reload(worker!) }, onFatal })
+  const claude = findClaude()
+  if (claude.from === 'native') log(NATIVE_NOT_ON_PATH)
+  worker = new Worker({ config, version: VERSION, bin: claude.bin, self, log, setup, recent: () => recent, intake: { configFile, reload: () => reload(worker!) }, onFatal })
   const up = await worker.start()
   if (up !== 'listening') {
     // 'refused': the line above says why (a port Windows keeps for itself …)

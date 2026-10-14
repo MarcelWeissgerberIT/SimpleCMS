@@ -5,15 +5,16 @@
  * never shows in the process list). Claude Code keeps its own permission rules: no flag that skips them is ever
  * passed. Stop kills the whole process tree.
  *
- * The CLI is `CLAUDE_BIN` or `claude` on PATH (Windows: claude.exe, or the script behind npm's claude.cmd — never
- * through cmd.exe, never from the worktree; exec.ts). What it supports is read from its --help once (the budget
+ * The CLI is `CLAUDE_BIN` or `claude` on PATH — Windows: claude.exe, or the script behind npm's claude.cmd (never
+ * through cmd.exe, never from the worktree; exec.ts), else the native installer's one off PATH (findClaude). What it
+ * supports is read from its --help (the budget
  * flag, the permission mode names, --setting-sources), so older and newer versions both work.
  */
 import type { ChildProcess } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import { readFileSync, realpathSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join, win32 } from 'node:path'
+import { join, posix, win32 } from 'node:path'
 import { EDIT_CHARS, EDIT_HUNKS, type LogLine, type PermissionMode, type TaskProgress, type ToolEdit } from '../../../src/app/features/coding/protocol.ts'
 import { inFolder } from './config.ts'
 import { envGet, execFileSafe, isFile, killTree, resolveCommand, spawnSafe, type ExecCtx, type Via } from './exec.ts'
@@ -39,7 +40,43 @@ export interface ClaudeCaps {
   missing?: 'not-found' | 'cmd-refused'
 }
 
-export const claudeBin = (env: NodeJS.ProcessEnv = process.env) => (env.CLAUDE_BIN && env.CLAUDE_BIN.trim()) || 'claude'
+/** The CLI the worker runs, and where it was found (env: CLAUDE_BIN · path: `claude` by its name · native: below). */
+export interface ClaudeBin {
+  bin: string
+  from: 'env' | 'path' | 'native'
+}
+
+/**
+ * The Claude Code CLI — the same file for `check`, the start and every stage:
+ *  - CLAUDE_BIN, one pair of quotes off (cmd's `set CLAUDE_BIN="C:\…\claude.exe"` and the Windows dialog keep them); a
+ *    path with a folder (`.\tools\claude.exe`, `./claude`, `~/…`) is resolved ONCE, against the folder the worker starts
+ *    in — never later against a task's worktree, where a repository could ship a file of that name
+ *  - else `claude` by its name (PATH)
+ *  - else, Windows: the native installer's %USERPROFILE%\.local\bin\claude.exe while PATH does not name it (the
+ *    installer only prints a note about that) — `check` and the start say so
+ */
+export function findClaude(env: NodeJS.ProcessEnv = process.env, opts: { platform?: NodeJS.Platform; cwd?: string; home?: string; exists?: (p: string) => boolean } = {}): ClaudeBin {
+  const platform = opts.platform ?? process.platform
+  const P = platform === 'win32' ? win32 : posix
+  const home = opts.home ?? homedir()
+  const raw = (envGet(env, 'CLAUDE_BIN', platform) ?? '').trim()
+  const set = (/^"(.+)"$/s.exec(raw)?.[1] ?? /^'(.+)'$/s.exec(raw)?.[1] ?? raw).trim()
+  if (set) {
+    if (set === '~' || /^~[\\/]/.test(set)) return { bin: P.join(home, set.slice(2)), from: 'env' }
+    const withFolder = /[\\/]/.test(set) || (platform === 'win32' && /^[A-Za-z]:/.test(set))
+    return { bin: withFolder ? P.resolve(opts.cwd ?? process.cwd(), set) : set, from: 'env' }
+  }
+  if (platform === 'win32' && !resolveCommand('claude', [], { platform, env, ...(opts.exists ? { exists: opts.exists } : {}) }, 'shim').ok) {
+    const native = win32.join(home, '.local', 'bin', 'claude.exe')
+    if ((opts.exists ?? isFile)(native)) return { bin: native, from: 'native' }
+  }
+  return { bin: 'claude', from: 'path' }
+}
+
+export const claudeBin = (env: NodeJS.ProcessEnv = process.env): string => findClaude(env).bin
+
+/** The terminal's line for Claude Code found only in its native installer's folder (Windows; never sent). */
+export const NATIVE_NOT_ON_PATH = 'claude.exe is in %USERPROFILE%\\.local\\bin, which is not on PATH — the worker uses it; to run `claude` yourself, add that folder to your user PATH (then open a new terminal), or set CLAUDE_BIN'
 
 /** How to get Claude Code on this kind of computer (terminal lines). */
 export function claudeInstallHint(platform: NodeJS.Platform = process.platform): string {

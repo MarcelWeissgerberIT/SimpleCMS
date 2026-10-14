@@ -15,9 +15,9 @@ import type { GitInfo, LogLine, StageOutcome, TaskPayload, TaskProgress, TestRes
 import type { RepoConfig, SourceWhy } from './config.ts'
 import type { WorkerState } from './state.ts'
 import { claudeMissingError, runClaude, type ClaudeCaps } from './claude.ts'
-import { commandName } from './exec.ts'
+import { commandName, plantedProgram } from './exec.ts'
 import { GitError, branchDiff, commentPr, commitAll, ensureWorktree, git, info, isDirty, mergePr, openPr, push, updateFromBase, worktreeOf, type TaskWorktree } from './git.ts'
-import { FOLDER_BUSY, gitHint, hintLine, hintTerminal } from './gitenv.ts'
+import { FOLDER_BUSY, forgetGitEnv, gitHint, hintLine, hintTerminal } from './gitenv.ts'
 import { inSyncedFolder, rmRetry, type Synced } from './paths.ts'
 import { repoScrubber, type Scrubber } from './scrub.ts'
 import { runAnalysis, runTests, type RunResult } from './testrun.ts'
@@ -44,6 +44,8 @@ export interface StageContext {
   onWorktree?: (wt: TaskWorktree, scrub: Scrubber) => void
   /** a line for this computer's terminal only (never One): what a hint must not send — a folder, a lock file's path */
   terminal?: (msg: string) => void
+  /** whose rules apply (tests: Windows' on any computer) */
+  platform?: NodeJS.Platform
 }
 
 const SUMMARY_MAX = 6000
@@ -135,6 +137,23 @@ function writeMcpConfig(taskMcp: NonNullable<StageContext['taskMcp']>): { file: 
   writeFileSync(file, JSON.stringify({ mcpServers: { 'one-task': { type: 'stdio', command: taskMcp.command, args: taskMcp.args, env: taskMcp.env } } }, null, 2), { mode: 0o600 })
   return { file, dispose: () => void rmRetry(dir) }
 }
+
+/**
+ * Windows: a program at the top of the folder a stage runs in that a tool starting it by name would take (git.exe,
+ * claude.exe, npm.cmd, node.js …; exec.ts plantedProgram). The worker's own children never look there, but Claude Code's
+ * own lookups (its git, through cross-spawn / Bun) and a test runner's may — before any permission is asked. So nothing
+ * starts there: the stage is refused with the file's NAME (never a path). Null: nothing found (always elsewhere).
+ */
+function planted(ctx: StageContext, dir: string, log: Log): string | null {
+  const file = plantedProgram(dir, { platform: ctx.platform })
+  if (!file) return null
+  const error = `The folder this stage runs in holds a program named ${file} at its top level. On Windows a tool that starts a program by its name (Claude Code's own git, a test runner's node or npm) may run that file instead of the real one, so the worker starts nothing there. Remove or rename ${file} in the repository (or move it into a subfolder), then press Retry.`
+  log('error', error, 'plantedProgram', { file })
+  return error
+}
+
+/** Git's whole message for the hints (a GitError's detail — the lines that name a lock file may be cut from its message). */
+const hintText = (e: unknown, msg: string) => (e instanceof GitError && e.detail ? e.detail : msg)
 
 /** Claude Code missing (or a .cmd the worker cannot read): the log line by its code, the stage's error — never its path. */
 function claudeMissing(caps: ClaudeCaps, log: Log): string {
@@ -255,6 +274,8 @@ export async function runStage(ctx: StageContext): Promise<StageOutcome> {
   const { repo, task } = ctx
   let scrub = repoScrubber(repo)
   const log: Log = (k, s, c, v) => ctx.log({ t: Date.now(), k, s: scrub.text(s), ...(c ? { c, v: scrubVars(scrub, v) } : {}) })
+  // a core.sshCommand the person set after a hint applies now (Retry)
+  forgetGitEnv()
   if (ctx.team && !task.trusted) return { status: 'refused', error: 'This task was written or changed on another device and is not confirmed on this one. Confirm it in One (task panel) first.' }
   const kind = task.stage.kind
   if (kind === 'queue' || kind === 'gate' || kind === 'done' || kind === 'import') return { status: 'refused', error: `A ${kind} stage is not run by the worker.` }
@@ -270,7 +291,7 @@ export async function runStage(ctx: StageContext): Promise<StageOutcome> {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       log('error', msg)
-      noteGitHint(msg, repo, log, ctx.terminal)
+      noteGitHint(hintText(e, msg), repo, log, ctx.terminal, ctx.platform)
       return { status: 'failed', error: scrub.text(msg) }
     }
   }
@@ -278,10 +299,10 @@ export async function runStage(ctx: StageContext): Promise<StageOutcome> {
     log('info', `Stage "${task.stage.name}" (${kind}) on ${repo.name}`, 'stage', { stage: task.stage.name, kind, repo: repo.name })
     const synced = inSyncedFolder(repo.path)
     if (synced) log('warn', SYNCED[synced](repo.name), synced, { repo: repo.name })
-    const wt = await ensureWorktree(repo, ctx.state, task, task.branch, (k, s, c, v) => {
+    const wt = await ensureWorktree(repo, ctx.state, task, task.branch, (k, s, c, v, detail) => {
       log(k, s, c, v)
       // a fetch that failed: what git's message means (sign in, a host key …)
-      if (c === 'fetchFailed' && typeof v?.why === 'string') noteGitHint(v.why, repo, log, ctx.terminal)
+      if (c === 'fetchFailed' && typeof v?.why === 'string') noteGitHint(detail ?? v.why, repo, log, ctx.terminal, ctx.platform)
     })
     scrub = repoScrubber(repo, wt.dir)
     ctx.onWorktree?.(wt, scrub)
@@ -293,13 +314,15 @@ export async function runStage(ctx: StageContext): Promise<StageOutcome> {
     const msg = e instanceof GitError ? `git: ${e.message}` : e instanceof Error ? e.message : String(e)
     log('error', msg)
     if (e instanceof GitError && e.code === 'folderBusy') log('warn', FOLDER_BUSY, 'folderBusy', {})
-    else noteGitHint(msg, repo, log, ctx.terminal)
+    else noteGitHint(hintText(e, msg), repo, log, ctx.terminal, ctx.platform)
     return { status: 'failed', error: scrub.text(msg) }
   }
 }
 
 async function claudeStage(ctx: StageContext, wt: TaskWorktree, scrub: Scrubber, log: Log): Promise<StageOutcome> {
   const { repo, task, caps } = ctx
+  const plant = planted(ctx, wt.dir, log)
+  if (plant) return { status: 'refused', branch: wt.branch, error: plant }
   if (!caps.found) return { status: 'failed', branch: wt.branch, error: claudeMissing(caps, log) }
   const lim = limits(ctx)
   if (lim.refuse) {
@@ -370,6 +393,8 @@ export const DOC_DENIED = ['Edit', 'MultiEdit', 'Write', 'NotebookEdit', 'Bash']
  */
 async function docStage(ctx: StageContext, scrub: Scrubber, log: Log, branch: string | null, dir: string | null): Promise<StageOutcome> {
   const { repo, task, caps } = ctx
+  const plant = planted(ctx, dir ?? repo.path, log)
+  if (plant) return { status: 'refused', error: plant }
   if (!caps.found) return { status: 'failed', error: claudeMissing(caps, log) }
   const lim = limits(ctx)
   if (lim.refuse) {
@@ -442,6 +467,8 @@ async function analyzeStage(ctx: StageContext, scrub: Scrubber, log: Log, dir: s
     log('info', `No analysis command for ${repo.name} — the stage passes. Set one on the worker's setup page (Change repositories → the repo → Static analysis).`, 'analyzeNone', { repo: repo.name })
     return { status: 'ok', summary: 'No static analysis configured.', plan: '_No static analysis command is set for this repository — the worker\'s setup page (Change repositories → the repository → Static analysis) takes one, e.g. `npx eslint .`, `dotnet build`, `go vet ./...`._' }
   }
+  const plant = planted(ctx, dir ?? repo.path, log)
+  if (plant) return { status: 'refused', error: plant }
   // the program's name, not where it lives on this machine
   const name = commandName(argv[0]!)
   const shown = clip(scrub.text([name, ...argv.slice(1)].join(' ')), 160)
@@ -513,6 +540,8 @@ async function testStage(ctx: StageContext, wt: TaskWorktree, scrub: Scrubber, l
     const test: TestResult = { ok: true, output: '', ms: 0, code: null, skipped: true }
     return { status: 'ok', branch: wt.branch, test, summary: 'No tests configured.', git: await gitSnapshot(ctx, wt, scrub) }
   }
+  const plant = planted(ctx, wt.dir, log)
+  if (plant) return { status: 'refused', branch: wt.branch, error: plant }
   log('test', 'Running the tests…', 'testsRun')
   let lines = 0
   const { notStarted, ...res } = await runTests(ctx.repo, wt.dir, ctx.signal, (line) => {

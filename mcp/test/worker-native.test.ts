@@ -2,11 +2,12 @@
  * one-worker against this computer's own programs, not stand-ins: CLIs installed by npm itself (its real shims — the
  * .cmd npm writes on Windows, read as a Node script, never run through cmd.exe), Node's own npm / npx, a program named
  * git or claude planted at the root of a repository and of a task's worktree (it never starts — on Windows a bare name
- * is looked up in PATH only, never in the working folder), and a checkout deeper than Windows' 260 characters. Every
+ * is looked up in PATH only, never in the working folder, every child is told the same, and a stage does not start while
+ * such a file lies at the top of its folder), and a checkout deeper than Windows' 260 characters. Every
  * test runs on every OS; what only Windows can show is said where it differs. Nothing leaves the machine (npm --offline).
  */
 import assert from 'node:assert/strict'
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync, chmodSync } from 'node:fs'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -124,10 +125,23 @@ describe('a program planted in the repository never runs', () => {
     else spawnSync(join(dir, 'git'), [], { stdio: 'ignore' })
     assert.match(p.ran(), /^git(\.exe)? in /, 'the plant reports when it runs')
     writeFileSync(p.markers, '')
-    // plain Node, a bare name with that working folder: Windows (libuv) looks in the working folder first — recorded only
-    spawnSync('git', ['--version'], { cwd: dir, env: childEnv({ ...process.env }, p.env), stdio: 'ignore' })
+    // plain Node, a bare name with that working folder: Windows (libuv) looks in the working folder first — recorded only.
+    // `-e 0`: what makes the plant (a node.exe copy) load its probe; the real git just refuses the option
+    spawnSync('git', ['-e', '0'], { cwd: dir, env: childEnv({ ...process.env }, p.env), stdio: 'ignore' })
     t.diagnostic(`plain spawn('git') in a folder holding a planted git: ${p.ran() ? `the PLANT ran (${p.ran()})` : 'the real git ran'}`)
     writeFileSync(p.markers, '')
+    if (IS_WIN) {
+      // what the exec layer gives every child (exec.ts noCwdLookup): a Node program — Claude Code — that starts `git` by its
+      // name skips its working folder (libuv asks NeedCurrentDirectoryForExePathW, which reads the starting process's own
+      // environment: set here in this one)
+      process.env.NoDefaultCurrentDirectoryInExePath = '1'
+      try {
+        spawnSync('git', ['-e', '0'], { cwd: dir, env: childEnv({ ...process.env }, p.env), stdio: 'ignore' })
+      } finally {
+        delete process.env.NoDefaultCurrentDirectoryInExePath
+      }
+      assert.equal(p.ran(), '', 'with NoDefaultCurrentDirectoryInExePath a plain spawn by name never takes the folder\'s git.exe')
+    }
     // the exec layer: PATH only, never the working folder
     const git = await execFileSafe('git', ['--version'], { cwd: dir, env: childEnv({ ...process.env }, p.env), timeoutMs: 20_000, allow: 'exe' })
     assert.equal(git.code, 0, git.error ?? git.stderr)
@@ -162,6 +176,18 @@ describe('a program planted in the repository never runs', () => {
     const wt = join(r.worktrees, branch.replace(/\//g, '-'))
     assert.ok(existsSync(wt), wt)
     p.plant(wt)
+    if (IS_WIN) {
+      // Windows: lookups the worker cannot steer (Claude Code's own git through cross-spawn) would take them — the stage
+      // is refused, by the file's name
+      const refused = await tab.run(task({ kind: 'implement' }, { id: 'plant1ab', branch }))
+      assert.equal(refused.status, 'refused', JSON.stringify(refused))
+      assert.match(refused.error!, /a program named claude\.exe at its top level/)
+      const lines = tab.messages.flatMap((m) => (m.type === 'event' && m.kind === 'log' ? m.lines : []))
+      assert.ok(lines.some((l) => l.c === 'plantedProgram' && l.v?.file === 'claude.exe'), JSON.stringify(lines.map((l) => l.c ?? l.s)))
+      // moved into a subfolder (as the error says): the task goes on — the worker's own git and Claude Code never take them
+      mkdirSync(join(wt, 'plants'))
+      for (const n of p.names) renameSync(join(wt, n), join(wt, 'plants', n))
+    }
     const impl = await tab.run(task({ kind: 'implement' }, { id: 'plant1ab', branch }))
     assert.equal(impl.status, 'ok', JSON.stringify(impl))
     const tested = await tab.run(task({ kind: 'test' }, { id: 'plant1ab', branch }))
