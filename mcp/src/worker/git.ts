@@ -13,13 +13,13 @@
  *    else merge; conflicts reported per file, left for a stage to resolve) · discard · cleanup
  */
 import { createHash } from 'node:crypto'
-import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, statSync } from 'node:fs'
 import { dirname, join, posix, resolve, win32 } from 'node:path'
 import type { GitCommit, GitFile, GitInfo } from '../../../src/app/features/coding/protocol.ts'
 import type { RepoConfig } from './config.ts'
 import { execFileSafe, killTree, spawnSafe } from './exec.ts'
 import { FOLDER_BUSY, GIT_ENV, folderBusyCode, gitArgs, gitEnv } from './gitenv.ts'
-import { pathId, rmRetry, samePath } from './paths.ts'
+import { inFolder, pathId, rmRetry, samePath } from './paths.ts'
 import type { WorkerState } from './state.ts'
 
 export interface GitRun {
@@ -53,10 +53,16 @@ const ACCOUNT_LINE = /\(S-1-[0-9-]+\)\s*$|^\s*'[^'\n]*' is owned by:\s*$|^\s*but
 /**
  * git's message as One may get it: its last `lines` lines — without the account names and SIDs of an ownership report
  * (Git for Windows names the folder's owner and the current user: computer, user name, SID). A dubious-ownership refusal
- * is its first line only (the folder: the scrubber makes it <repo>); the safe.directory line stays in the terminal.
+ * is its first line only (the folder: the scrubber makes it <repo>); the safe.directory line stays in the terminal. An
+ * identity refusal loses the identity git guessed — account and computer name (`(got 'max@DESKTOP-4F2K9QL.(none)')`,
+ * `(for <max@desktop>)`) — the hint gitIdentity says what to do.
  */
 export function gitMessage(text: string, lines = 6): string {
-  const s = text.replace(/\r\n?/g, '\n').trim()
+  const s = text
+    .replace(/\r\n?/g, '\n')
+    .trim()
+    .replace(/\(got '[^'\n]*'\)/g, "(got '…')")
+    .replace(/\(for <[^>\n]*>\)/g, '(for <…>)')
   const dubious = /^.*detected dubious ownership.*$/im.exec(s)?.[0]
   if (dubious) return dubious.trim()
   return s
@@ -301,8 +307,9 @@ export async function sweepLeftovers(repo: RepoConfig, state: WorkerState): Prom
     try {
       const used = state.created(repo.name, l.branch)
       const at = (await listWorktrees(repo)).find((w) => same(w.path, l.dir))
-      // not the failed checkout's any more: another branch there, or a task works in it — the folder stays
-      if (!insideWorktrees(repo, l.dir) || (at && at.branch !== l.branch) || (used?.worktree && same(used.worktree, l.dir))) {
+      // not the failed checkout's any more: another branch there, a task works in it, or it is no longer this repo's
+      // checkout (another repo's worktree in a shared worktreeDir, a folder made anew) — the folder stays
+      if (!insideWorktrees(repo, l.dir) || (at && at.branch !== l.branch) || (used?.worktree && same(used.worktree, l.dir)) || !(await stillOurs(repo, state, l))) {
         state.dropLeftover(repo.name, l.dir)
         continue
       }
@@ -322,6 +329,38 @@ export async function sweepLeftovers(repo: RepoConfig, state: WorkerState): Prom
   return removed
 }
 
+/** A folder's own id on its disk ("<dev>:<ino>"), null when it cannot be read. */
+export function folderId(dir: string): string | null {
+  try {
+    const st = statSync(dir, { bigint: true })
+    return `${st.dev}:${st.ino}`
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Is the leftover's folder still `repo`'s own failed checkout — the only thing sweepLeftovers and freeFolder remove? Not
+ * when any repo's task works there (worker-state.json), when the folder was made anew since it was left (another
+ * folder id), or when it holds a `.git` that is not a worktree link into this repo's own git folder
+ * (`<common dir>/worktrees/…`): a worktree of another repo sharing the worktreeDir, a repository of its own.
+ */
+export async function stillOurs(repo: RepoConfig, state: WorkerState, l: { dir: string; id?: string }): Promise<boolean> {
+  if (state.inUse(l.dir)) return false
+  if (l.id && existsSync(l.dir) && folderId(l.dir) !== l.id) return false
+  const dotGit = join(l.dir, '.git')
+  const st = lstatSync(dotGit, { throwIfNoEntry: false })
+  if (!st) return true
+  if (!st.isFile()) return false
+  const link = /^gitdir:\s*(.+?)\s*$/m.exec(readFileSync(dotGit, 'utf8').slice(0, 4096))?.[1]
+  if (!link) return false
+  const common = (await git(repo.path, ['rev-parse', '--git-common-dir'], 30_000, { local: true })).stdout.trim()
+  if (!common) return false
+  const into = resolve(l.dir, link)
+  const worktrees = join(resolve(repo.path, common), 'worktrees')
+  return inFolder(into, worktrees) && !samePath(into, worktrees)
+}
+
 /** The task's worktree folder, free: a leftover of the worker's own is removed now (it failed before) — else refused. */
 async function freeFolder(repo: RepoConfig, state: WorkerState, dir: string, branch: string): Promise<void> {
   if (!existsSync(dir)) {
@@ -329,7 +368,10 @@ async function freeFolder(repo: RepoConfig, state: WorkerState, dir: string, bra
     if (state.isLeftover(repo.name, dir)) state.dropLeftover(repo.name, dir)
     return
   }
-  if (state.isLeftover(repo.name, dir) && insideWorktrees(repo, dir)) {
+  const left = state.leftovers(repo.name).find((l) => same(l.dir, dir))
+  // a leftover no longer this repo's own checkout: forgotten, the folder stays (refused below, as any foreign folder)
+  if (left && !(await stillOurs(repo, state, left))) state.dropLeftover(repo.name, dir)
+  else if (left && insideWorktrees(repo, dir)) {
     if (await rmRetry(dir)) {
       state.dropLeftover(repo.name, dir)
       await prune(repo)
@@ -414,7 +456,8 @@ async function addWorktree(repo: RepoConfig, state: WorkerState, args: string[],
         // the branch this call made with it, when it is still there, at the commit it has now
         const made = !!newBranch && (await branchExists(repo, newBranch))
         const tip = made ? (await git(repo.path, ['rev-parse', '--verify', '--quiet', `refs/heads/${newBranch}^{commit}`], 30_000, { local: true })).stdout.trim() || null : null
-        state.addLeftover(repo.name, { dir, branch, tip, at: Date.now() })
+        const id = folderId(dir)
+        state.addLeftover(repo.name, { dir, branch, tip, at: Date.now(), ...(id ? { id } : {}) })
         const busy = folderBusyCode()
         if (busy) note?.('warn', FOLDER_BUSY, busy, {})
       }

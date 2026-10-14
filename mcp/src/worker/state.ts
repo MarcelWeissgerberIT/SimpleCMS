@@ -29,6 +29,8 @@ export interface Leftover {
   /** set when that checkout created the branch and it was still there: deleted with the folder while it points here */
   tip: string | null
   at: number
+  /** the folder's own id on its disk ("<dev>:<ino>") when it was left: a folder made anew there since is not this one */
+  id?: string
 }
 
 export interface StateData {
@@ -56,7 +58,7 @@ function readLeftovers(raw: unknown): StateData['leftovers'] {
     const ok = list
       .filter((l): l is Leftover => isObj(l) && typeof l.dir === 'string' && !!l.dir && typeof l.branch === 'string' && !!l.branch && (l.tip === null || typeof l.tip === 'string') && typeof l.at === 'number')
       .slice(0, 50)
-      .map((l) => ({ dir: l.dir, branch: l.branch, tip: l.tip, at: l.at }))
+      .map((l) => ({ dir: l.dir, branch: l.branch, tip: l.tip, at: l.at, ...(typeof l.id === 'string' && l.id ? { id: l.id } : {}) }))
     if (ok.length) out[repo] = ok
   }
   return out
@@ -105,6 +107,8 @@ export class WorkerState {
 
   remember(repo: string, branch: string, entry: CreatedEntry): void {
     ;(this.data.created[repo] ??= {})[branch] = entry
+    // a task's worktree now: no repo's leftover any more, whoever left a folder there before
+    if (entry.worktree) this.dropLeftoverAt(entry.worktree)
     this.save()
   }
 
@@ -130,6 +134,24 @@ export class WorkerState {
     this.save()
   }
 
+  /** Does any repo's state name `dir` as a task's worktree (tasks, or a worktree the worker made)? */
+  inUse(dir: string): boolean {
+    const id = pathId(dir)
+    if (Object.values(this.data.tasks).some((t) => typeof t?.worktree === 'string' && pathId(t.worktree) === id)) return true
+    return Object.values(this.data.created).some((branches) => Object.values(branches ?? {}).some((c) => typeof c?.worktree === 'string' && pathId(c.worktree) === id))
+  }
+
+  /** `dir` is no repo's leftover (it became a task's worktree). */
+  private dropLeftoverAt(dir: string): void {
+    const id = pathId(dir)
+    for (const [repo, list] of Object.entries(this.data.leftovers)) {
+      const kept = list.filter((l) => pathId(l.dir) !== id)
+      if (kept.length === list.length) continue
+      if (kept.length) this.data.leftovers[repo] = kept
+      else delete this.data.leftovers[repo]
+    }
+  }
+
   dropLeftover(repo: string, dir: string): void {
     const list = (this.data.leftovers[repo] ?? []).filter((l) => pathId(l.dir) !== pathId(dir))
     if (list.length) this.data.leftovers[repo] = list
@@ -143,6 +165,7 @@ export class WorkerState {
 
   setTask(taskId: string, at: { repo: string; branch: string; worktree: string }): void {
     this.data.tasks[taskId] = at
+    this.dropLeftoverAt(at.worktree)
     this.save()
   }
 

@@ -17,7 +17,7 @@ import { homedir } from 'node:os'
 import { join, posix, win32 } from 'node:path'
 import { EDIT_CHARS, EDIT_HUNKS, type LogLine, type PermissionMode, type TaskProgress, type ToolEdit } from '../../../src/app/features/coding/protocol.ts'
 import { inFolder } from './config.ts'
-import { envGet, execFileSafe, isFile, killTree, resolveCommand, spawnSafe, type ExecCtx, type Via } from './exec.ts'
+import { envGet, execFileSafe, isFile, killTree, programName, resolveCommand, spawnSafe, type ExecCtx, type Via } from './exec.ts'
 import { samePath } from './paths.ts'
 import { estimateCost, usageOf, type Usage } from './price.ts'
 
@@ -134,7 +134,8 @@ export async function detectClaude(bin = claudeBin(), ctx?: Partial<ExecCtx>): P
     const r = resolveCommand(bin, ['--version'], { ...ctx, env: { ...process.env, NO_COLOR: '1' } }, 'shim')
     if (!r.ok) return none(r.why === 'refused' ? 'cmd-refused' : 'not-found')
     // Windows only: what runs (macOS / Linux look it up themselves)
-    const where: Pick<ClaudeCaps, 'path' | 'via'> = platform === 'win32' ? { path: r.via === 'node-shim' ? r.args[r.args.length - 2] : r.file, via: r.via } : {}
+    // (absolute: resolveCommand names nothing from a working folder — only a spawn does, from its own)
+    const where: Pick<ClaudeCaps, 'path' | 'via'> = platform === 'win32' ? { path: r.via === 'node-shim' && r.script !== undefined ? r.args[r.script] : r.file, via: r.via } : {}
     const v = await capture(bin, ['--version'], ctx)
     if (v.code === 127 || (v.code !== 0 && !v.out.trim())) return none(v.why === 'refused' ? 'cmd-refused' : 'not-found')
     const version = /(\d+\.\d+\.\d+[\w.-]*)/.exec(v.out)?.[1] ?? null
@@ -175,6 +176,11 @@ export interface ClaudeRun {
   onLog: (line: LogLine) => void
   /** after every turn: turns so far, the limit, a cost estimate */
   onProgress?: (p: TaskProgress) => void
+  /**
+   * this machine's paths out of a text (run.ts: the stage's Scrubber) — applied BEFORE any text is cut to its length, so
+   * a path is never cut in two halves no rule can match any more
+   */
+  scrub?: (s: string) => string
 }
 
 /** Claude Code's own sign-in is gone (expired login, no API key): the person fixes it with `claude` → /login. */
@@ -217,8 +223,52 @@ export function readPlanFile(path: string, home = homedir()): string | null {
   }
 }
 
+/** A JSON file's object (≤ 64 MB — Claude Code's own config grows with its history), null when it cannot be read. */
+function readJson(file: string): Record<string, unknown> | null {
+  try {
+    if (statSync(file).size > 64 * 1024 * 1024) return null
+    const v = JSON.parse(readFileSync(file, 'utf8')) as unknown
+    return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null
+  } catch {
+    return null
+  }
+}
+
+/** The program each stdio server of an `mcpServers` object starts (its `command`). */
+function launchers(servers: unknown, env: NodeJS.ProcessEnv): string[] {
+  if (!servers || typeof servers !== 'object' || Array.isArray(servers)) return []
+  const out: string[] = []
+  for (const s of Object.values(servers as Record<string, unknown>)) {
+    if (!s || typeof s !== 'object') continue
+    const { type, command } = s as { type?: unknown; command?: unknown }
+    if ((type === undefined || type === 'stdio') && typeof command === 'string' && command.trim()) out.push(programName(command, env))
+  }
+  return out
+}
+
+/**
+ * The programs the person's MCP servers start Claude Code with — base names, lower case (`uvx`, `docker`, `my-tool`):
+ * user scope from Claude Code's config ($CLAUDE_CONFIG_DIR/.claude.json, else ~/.claude.json) and, while the repo's own
+ * settings load (`projectSettings`), the local scope of the stage's folder and the repo (`projects[<folder>]`) and
+ * the folder's .mcp.json. A file that cannot be read adds none (plantedProgram still checks PATH and its own list).
+ */
+export function mcpLaunchers(opts: { dirs: string[]; projectSettings: boolean; home?: string; env?: NodeJS.ProcessEnv; platform?: NodeJS.Platform }): string[] {
+  const env = opts.env ?? process.env
+  // the files are this computer's (its own path rules), whatever rules `platform` asks about
+  const dir = envGet(env, 'CLAUDE_CONFIG_DIR', opts.platform ?? process.platform)?.trim()
+  const config = readJson(dir ? join(dir, '.claude.json') : join(opts.home ?? homedir(), '.claude.json'))
+  const names = new Set(launchers(config?.mcpServers, env))
+  if (opts.projectSettings) {
+    const projects = config?.projects && typeof config.projects === 'object' ? (config.projects as Record<string, unknown>) : {}
+    for (const [key, p] of Object.entries(projects))
+      if (opts.dirs.some((d) => samePath(key, d)) && p && typeof p === 'object') for (const n of launchers((p as { mcpServers?: unknown }).mcpServers, env)) names.add(n)
+    for (const d of opts.dirs) for (const n of launchers(readJson(join(d, '.mcp.json'))?.mcpServers, env)) names.add(n)
+  }
+  return [...names].filter(Boolean).sort()
+}
+
 /** The argv for a run (exported for the tests: no bypassing flag ever). */
-export function claudeArgs(r: Omit<ClaudeRun, 'bin' | 'cwd' | 'prompt' | 'env' | 'signal' | 'onLog' | 'onProgress'>): string[] {
+export function claudeArgs(r: Omit<ClaudeRun, 'bin' | 'cwd' | 'prompt' | 'env' | 'signal' | 'onLog' | 'onProgress' | 'scrub'>): string[] {
   const args = ['-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', cliMode(r.mode, r.caps), '--max-turns', String(r.maxTurns)]
   if (r.model) args.push('--model', r.model)
   if (r.allowedTools.length) args.push('--allowedTools', r.allowedTools.join(','))
@@ -234,21 +284,25 @@ export function claudeArgs(r: Omit<ClaudeRun, 'bin' | 'cwd' | 'prompt' | 'env' |
 }
 
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s)
+/** Claude Code's stderr kept for an error (its tail) */
+const STDERR_KEEP = 8000
 const oneLine = (s: string) => s.replace(/\s+/g, ' ').trim()
 
-/** "Edit src/a.ts" · "Bash npm test" · "Grep login" — a tool call as one log line. */
-export function toolLine(name: string, input: unknown): string {
+const same = (s: string) => s
+
+/** "Edit src/a.ts" · "Bash npm test" · "Grep login" — a tool call as one log line (scrubbed, then clipped). */
+export function toolLine(name: string, input: unknown, scrub: (s: string) => string = same): string {
   const i = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>
   const pick = ['file_path', 'path', 'command', 'pattern', 'url', 'query', 'description'].map((k) => i[k]).find((v) => typeof v === 'string' && v.trim()) as string | undefined
-  return clip(`${name}${pick ? ` ${oneLine(pick)}` : ''}`, 300)
+  return clip(scrub(`${name}${pick ? ` ${oneLine(pick)}` : ''}`), 300)
 }
 
-/** What an Edit / MultiEdit / Write tool call changes (null for other tools) — clipped for the log. */
-export function editOf(name: string, input: unknown): ToolEdit | null {
+/** What an Edit / MultiEdit / Write tool call changes (null for other tools) — scrubbed, then clipped for the log. */
+export function editOf(name: string, input: unknown, scrub: (s: string) => string = same): ToolEdit | null {
   const i = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>
-  const path = typeof i.file_path === 'string' ? i.file_path : ''
+  const path = typeof i.file_path === 'string' ? scrub(i.file_path) : ''
   if (!path) return null
-  const str = (v: unknown) => (typeof v === 'string' ? v : '')
+  const str = (v: unknown) => (typeof v === 'string' ? scrub(v) : '')
   let raw: Array<{ old: string; new: string }>
   if (name === 'Edit') raw = [{ old: str(i.old_string), new: str(i.new_string) }]
   else if (name === 'MultiEdit') raw = (Array.isArray(i.edits) ? i.edits : []).map((e) => ({ old: str((e as Record<string, unknown>)?.old_string), new: str((e as Record<string, unknown>)?.new_string) }))
@@ -287,6 +341,7 @@ export function runClaude(r: ClaudeRun): Promise<ClaudeResult> {
     const child: ChildProcess = spawned.child
     let stderr = ''
     let gotResult = false
+    const scrub = r.scrub ?? same
     const log = (k: LogLine['k'], s: string, c?: string, v?: LogLine['v']) => r.onLog({ t: Date.now(), k, s, ...(c ? { c, v } : {}) })
     // progress: one turn per assistant message (by id), the token counts of each for the estimate
     let model: string | null = null
@@ -321,7 +376,7 @@ export function runClaude(r: ClaudeRun): Promise<ClaudeResult> {
     child.stdin?.on('error', () => {})
     child.stdin?.end(r.prompt)
     child.stderr?.on('data', (d: Buffer) => {
-      stderr = (stderr + d.toString()).slice(-4000)
+      stderr = (stderr + d.toString()).slice(-STDERR_KEEP)
     })
     const lines = createInterface({ input: child.stdout! })
     lines.on('line', (line) => {
@@ -332,7 +387,7 @@ export function runClaude(r: ClaudeRun): Promise<ClaudeResult> {
       try {
         ev = JSON.parse(s) as Record<string, unknown>
       } catch {
-        log('info', clip(s, 500))
+        log('info', clip(scrub(s), 500))
         return
       }
       if (typeof ev.session_id === 'string') result.sessionId = ev.session_id
@@ -354,11 +409,11 @@ export function runClaude(r: ClaudeRun): Promise<ClaudeResult> {
           progress()
           const content = ((ev.message as { content?: unknown })?.content ?? []) as Array<Record<string, unknown>>
           for (const block of Array.isArray(content) ? content : []) {
-            if (block.type === 'text' && typeof block.text === 'string' && block.text.trim()) log('claude', clip(block.text.trim(), 4000))
+            if (block.type === 'text' && typeof block.text === 'string' && block.text.trim()) log('claude', clip(scrub(block.text.trim()), 4000))
             else if (block.type === 'tool_use' && typeof block.name === 'string') {
               // a change to a file carries what changed (the log shows it as a diff)
-              const e = editOf(block.name, block.input)
-              r.onLog({ t: Date.now(), k: 'tool', s: toolLine(block.name, block.input), ...(e ? { e } : {}) })
+              const e = editOf(block.name, block.input, scrub)
+              r.onLog({ t: Date.now(), k: 'tool', s: toolLine(block.name, block.input, scrub), ...(e ? { e } : {}) })
               const input = block.input as { plan?: unknown; file_path?: unknown } | undefined
               if (block.name === 'ExitPlanMode' && typeof input?.plan === 'string') result.plan = input.plan
               else if ((block.name === 'Write' || block.name === 'Edit' || block.name === 'MultiEdit') && typeof input?.file_path === 'string' && PLAN_FILE.test(input.file_path)) planFile = input.file_path
@@ -371,7 +426,7 @@ export function runClaude(r: ClaudeRun): Promise<ClaudeResult> {
           for (const block of Array.isArray(content) ? content : []) {
             if (block.type !== 'tool_result' || block.is_error !== true) continue
             const text = typeof block.content === 'string' ? block.content : Array.isArray(block.content) ? (block.content as Array<{ text?: string }>).map((c) => c.text ?? '').join(' ') : ''
-            log('warn', clip(`tool error: ${oneLine(text)}`, 500))
+            log('warn', clip(scrub(`tool error: ${oneLine(text)}`), 500))
           }
           return
         }
@@ -402,7 +457,9 @@ export function runClaude(r: ClaudeRun): Promise<ClaudeResult> {
       if (r.mode === 'plan' && !result.plan && planFile) result.plan = readPlanFile(planFile)
       if (!gotResult && !result.stopped) {
         result.ok = false
-        result.error = code === null ? 'Claude Code was ended' : `Claude Code exited with code ${code}${stderr.trim() ? `: ${clip(oneLine(stderr.trim().split('\n').slice(-3).join(' ')), 400)}` : ''}`
+        // the kept tail starts at a line (a cut line is dropped), scrubbed before it is clipped
+        const tail = scrub(stderr.length >= STDERR_KEEP ? stderr.slice(stderr.indexOf('\n') + 1) : stderr).trim()
+        result.error = code === null ? 'Claude Code was ended' : `Claude Code exited with code ${code}${tail ? `: ${clip(oneLine(tail.split('\n').slice(-3).join(' ')), 400)}` : ''}`
         if (/ENOENT|not found/i.test(stderr)) result.error = claudeMissingError('not-found')
         else if (SIGNED_OUT.test(stderr)) {
           result.error = AUTH_HINT

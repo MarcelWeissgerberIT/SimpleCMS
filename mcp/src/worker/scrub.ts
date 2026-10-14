@@ -9,8 +9,15 @@
  *    macOS / Linux
  *  - each folder name also percent-encoded in every usual way (file:///…/Max%20Muster, J%C3%BCrgen — hex digits in any
  *    case), a space also as a shell's "\ ", both Unicode normal forms; a name with letters outside ASCII also as a program
- *    writing another code page leaves it: U+FFFD for each lost byte, "?", or its UTF-8 read as Latin-1 ("JÃ¼rgen")
- *  - only as a whole name: a rule ends where a name ends (C:\w is not C:\Windows, /home/me not /home/me2)
+ *    writing another code page leaves it: U+FFFD for each lost byte, "?", or its UTF-8 read as Latin-1 ("JÃ¼rgen"), as
+ *    Windows-1252 ("WeiÃŸ") or as the console's OEM code page 437 / 850 ("J├╢rg")
+ *  - only as a whole name: a rule ends where a name ends (C:\w is not C:\Windows, /home/me not /home/me2, an encoded
+ *    Max%20Muster is not Max); on macOS / Linux it starts where no name goes on before it (/var/tmp is not /tmp,
+ *    me%2Fhome is the folder "home" inside "me" — an escape before it is no name: "\n/home" in JSON), and the encoded
+ *    and JSON-escaped forms ("%2Fhome", "\/home") go only to paths of two or more names (a lone "%2Ftmp" is too often
+ *    part of another name)
+ *  - and every path also as the disk resolves it (realpath, Node's and the system's: macOS /var → /private/var, /tmp →
+ *    /private/tmp, a home folder behind a link), on every OS
  * Windows also (without case — NTFS ignores it): the drive as C: or C%3A (VS Code's file URIs), MSYS / Git Bash /c/…,
  * /cygdrive/c/…, /mnt/c/…, a UNC path \\server\share\…, the long form a link or junction resolves to, and the home
  * folder's 8.3 short name (C:\Users\MAXMUS~1 — learned from TEMP / TMP / LOCALAPPDATA, plus the pattern Windows makes
@@ -32,13 +39,17 @@ export interface ScrubOptions {
   realpath?: (p: string) => string | null
 }
 
-const diskPath = (native: boolean) => (p: string): string | null => {
+const tryReal = (f: (p: string) => string, p: string): string | null => {
   try {
-    return native ? realpathSync.native(p) : realpathSync(p)
+    return f(p)
   } catch {
     return null
   }
 }
+
+/** `p` as the disk resolves it — Node's own realpath and the system's (they differ in case and in 8.3 names). */
+const diskPaths = (opts: ScrubOptions) => (p: string): string[] =>
+  opts.realpath ? [opts.realpath(p)].filter((x): x is string => !!x) : [...new Set([tryReal(realpathSync, p), tryReal(realpathSync.native, p)].filter((x): x is string => !!x))]
 
 /* ------------------------------------------------------------------ one name, every way it is written */
 
@@ -70,20 +81,54 @@ function literalSource(name: string): string {
   return out
 }
 
+/**
+ * Code pages a program on Windows reads UTF-8 bytes as (and writes the result back as UTF-8): what each byte from 0x80
+ * becomes. Windows-1252 differs from Latin-1 at 0x80–0x9F only (its five unused bytes stay as Latin-1 has them); the
+ * console's OEM code pages 437 (US) and 850 (Western Europe) differ everywhere above 0x7F.
+ */
+const CP1252_80 = '€\u0081‚ƒ„…†‡ˆ‰Š‹Œ\u008DŽ\u008F\u0090‘’“”•–—˜™š›œ\u009DžŸ'
+const CP437 = 'ÇüéâäàåçêëèïîìÄÅÉæÆôöòûùÿÖÜ¢£¥₧ƒáíóúñÑªº¿⌐¬½¼¡«»░▒▓│┤╡╢╖╕╣║╗╝╜╛┐└┴┬├─┼╞╟╚╔╩╦╠═╬╧╨╤╥╙╘╒╓╫╪┘┌█▄▌▐▀αßΓπΣσµτΦΘΩδ∞φε∩≡±≥≤⌠⌡÷≈°∙·√ⁿ²■\u00A0'
+const CP850 = 'ÇüéâäàåçêëèïîìÄÅÉæÆôöòûùÿÖÜø£Ø×ƒáíóúñÑªº¿®¬½¼¡«»░▒▓│┤ÁÂÀ©╣║╗╝¢¥┐└┴┬├─┼ãÃ╚╔╩╦╠═╬¤ðÐÊËÈıÍÎÏ┘┌█▄¦Ì▀ÓßÔÒõÕµþÞÚÛÙýÝ¯´\u00AD±‗¾¶§÷¸°¨·¹³²■\u00A0'
+
+/** A name's UTF-8 bytes as a program reading them in another code page shows them. */
+function misread(name: string, page: 'latin1' | 'cp1252' | 'cp437' | 'cp850'): string {
+  let out = ''
+  for (const b of Buffer.from(name, 'utf8')) {
+    if (b < 0x80) out += String.fromCharCode(b)
+    else if (page === 'cp437') out += [...CP437][b - 0x80]
+    else if (page === 'cp850') out += [...CP850][b - 0x80]
+    else if (page === 'cp1252' && b < 0xa0) out += [...CP1252_80][b - 0x80]
+    else out += String.fromCharCode(b)
+  }
+  return out
+}
+
 /** One folder or file name as a regex source: every way above. */
 function nameSource(name: string): string {
   const alts = new Set<string>()
   for (const form of new Set([name, name.normalize('NFC'), name.normalize('NFD')])) {
     alts.add(literalSource(form))
     for (const enc of [tryEncode(encodeURIComponent, form), tryEncode(encodeURI, form), pctAll(form)]) if (enc !== null && enc !== form) alts.add(pctSource(enc))
-    const latin1 = Buffer.from(form, 'utf8').toString('latin1')
-    if (latin1 !== form) alts.add(escape(latin1))
+    for (const page of ['latin1', 'cp1252', 'cp437', 'cp850'] as const) {
+      const wrong = misread(form, page)
+      if (wrong !== form) alts.add(escape(wrong))
+    }
   }
   return alts.size === 1 ? [...alts][0]! : `(?:${[...alts].join('|')})`
 }
 
-/** A rule ends where a name ends: never before a letter, digit, "_" or "-", nor before a "." that goes on into a name. */
-const END = '(?![\\p{L}\\p{N}_-]|\\.[\\p{L}\\p{N}_-])'
+/**
+ * A rule ends where a name ends: never before a letter, digit, "_" or "-", nor before a "." that goes on into a name —
+ * nor before a percent-encoded space or byte outside ASCII (Max%20Muster, Max%C3%A9: the name goes on).
+ */
+const END = '(?![\\p{L}\\p{N}_-]|\\.[\\p{L}\\p{N}_-]|%20|%[89A-Fa-f][0-9A-Fa-f])'
+
+/**
+ * Before a macOS / Linux path's root: no name going on — no letter, digit, "_", "-", "." or "~" right before it (/var/tmp
+ * is not /tmp, ./tmp and ~/tmp are other folders, me%2Ftmp is "tmp" inside "me"), unless that character ends an escape
+ * itself (%3A%2F…, a JSON "\n/home" or "\n\/home").
+ */
+const START = '(?<!(?<!%[0-9A-Fa-f]|\\\\)[\\p{L}\\p{N}_.~-])'
 
 /* ------------------------------------------------------------------ macOS / Linux */
 
@@ -91,11 +136,16 @@ const END = '(?![\\p{L}\\p{N}_-]|\\.[\\p{L}\\p{N}_-])'
 const POSIX_ONE = '(?:\\\\?/|%2[Ff])'
 const POSIX_SEP = `${POSIX_ONE}+`
 
-/** The root's one "/" first (file:///home/… keeps its "file://"), then the names. */
+/**
+ * The root's one "/" first (file:///home/… keeps its "file://"), then the names — only where no name goes on before the
+ * root (START). Encoded and JSON-escaped separators only for a path of two or more names: "%2Ftmp" or "\/tmp" alone is
+ * too often part of something else (a regex /^\/tmp/) — the plain "/tmp" is replaced as always.
+ */
 function posixSource(p: string): string | null {
   const names = p.split('/').filter(Boolean)
   if (!p.startsWith('/') || !names.length) return null
-  return `${POSIX_ONE}${names.map(nameSource).join(POSIX_SEP)}${END}`
+  if (names.length === 1) return `${START}/${nameSource(names[0]!)}${END}`
+  return `${START}${POSIX_ONE}${names.map(nameSource).join(POSIX_SEP)}${END}`
 }
 
 /* ------------------------------------------------------------------ Windows */
@@ -177,11 +227,11 @@ export class Scrubber {
       seen.add(key)
       list.push({ source, len, to })
     }
+    const reals = diskPaths(opts)
     if (platform !== 'win32') {
-      const realpath = opts.realpath ?? diskPath(false)
       for (const [p, to] of base) {
         if (!p) continue
-        for (const v of [p, realpath(p)]) {
+        for (const v of [p, ...reals(p)]) {
           const x = v?.replace(/\/+$/, '')
           if (x && x.length >= 2) push(posixSource(x), x.length, to)
         }
@@ -190,7 +240,7 @@ export class Scrubber {
       this.rules = list.map(({ source, to }) => ({ re: new RegExp(source, 'gu'), to }))
       return
     }
-    const realpath = opts.realpath ?? diskPath(true)
+    const realpath = (p: string) => (opts.realpath ? opts.realpath(p) : tryReal(realpathSync.native, p))
     const env = opts.env ?? process.env
     const home = winNorm(opts.home ?? homedir())
     const homeKey = home.toLowerCase()
@@ -203,9 +253,7 @@ export class Scrubber {
     }
     for (const [p, to] of base) {
       if (!p) continue
-      const longs = new Set([winNorm(p)])
-      const real = realpath(p)
-      if (real) longs.add(winNorm(real))
+      const longs = new Set([winNorm(p), ...reals(p).map(winNorm)])
       for (const long of longs) {
         if (long.length < 3) continue
         const parts = from(long)

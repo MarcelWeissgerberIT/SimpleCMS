@@ -10894,7 +10894,7 @@ var require_dist = __commonJS({
 
 // src/worker/index.ts
 import { fileURLToPath } from "node:url";
-import { existsSync as existsSync9, statSync as statSync4 } from "node:fs";
+import { existsSync as existsSync9, statSync as statSync5 } from "node:fs";
 import { homedir as homedir10, userInfo } from "node:os";
 import { resolve as resolve6 } from "node:path";
 
@@ -11053,15 +11053,23 @@ function fromCwd(p, cwd) {
   const rel = win32.relative(cwd, p);
   return rel && !rel.startsWith("..") && !win32.isAbsolute(rel) ? `.\\${rel}` : p;
 }
+function spawnForm(r, cwd, platform = process.platform) {
+  if (platform !== "win32") return { file: r.file, args: r.args };
+  if (r.line) {
+    const line = cmdLine([fromCwd(r.line.argv[0], cwd), ...r.line.argv.slice(1)], r.line.double);
+    return { file: r.file, args: ["/d", "/v:off", "/s", "/c", `"${line}"`] };
+  }
+  return { file: fromCwd(r.file, cwd), args: r.script === void 0 ? r.args : r.args.map((a, i2) => i2 === r.script ? fromCwd(a, cwd) : a) };
+}
 function classify(file, args, c, allow, depth, name) {
   const ext = extOf(file);
-  if (ext === ".exe" || ext === ".com") return { ok: true, file: fromCwd(file, c.cwd), args, via: "direct", verbatim: false };
+  if (ext === ".exe" || ext === ".com") return { ok: true, file, args, via: "direct", verbatim: false };
   if (allow === "exe") return { ok: false, code: 127, why: "refused", error: `${name} is a ${ext || "file without an extension"} \u2014 only a program (.exe) is started for it` };
-  if (JS.has(ext)) return { ok: true, file: fromCwd(c.execPath, c.cwd), args: [fromCwd(file, c.cwd), ...args], via: "node-shim", verbatim: false };
+  if (JS.has(ext)) return { ok: true, file: c.execPath, args: [file, ...args], via: "node-shim", verbatim: false, script: 0 };
   if (ext === ".cmd" || ext === ".bat") {
     const text2 = c.readFile(file);
     const shim = text2 === null ? null : readShim(text2, file, c);
-    if (shim?.kind === "node") return { ok: true, file: fromCwd(shim.node, c.cwd), args: [...shim.pre, fromCwd(shim.script, c.cwd), ...args], via: "node-shim", verbatim: false, ...shim.env ? { env: shim.env } : {} };
+    if (shim?.kind === "node") return { ok: true, file: shim.node, args: [...shim.pre, shim.script, ...args], via: "node-shim", verbatim: false, script: shim.pre.length, ...shim.env ? { env: shim.env } : {} };
     if (shim?.kind === "target" && depth < 3) return classify(shim.file, args, c, allow, depth + 1, name);
     if (allow === "person") return comspec(file, args, c, name);
     return { ok: false, code: 127, why: "refused", error: `${name} is a ${ext} file the worker cannot read as a shim \u2014 it never starts it through cmd.exe` };
@@ -11069,11 +11077,13 @@ function classify(file, args, c, allow, depth, name) {
   return { ok: false, code: 127, why: "missing", error: `${name} is not a program the worker starts (.exe, .cmd, .bat or a Node script)` };
 }
 function comspec(file, args, c, name) {
-  const line = cmdLine([fromCwd(file, c.cwd), ...args], BIN_SHIM.test(file));
+  const double = BIN_SHIM.test(file);
+  const line = cmdLine([file, ...args], double);
   if (line === null) return { ok: false, code: 127, why: "refused", error: `${name} runs through cmd.exe, which cannot pass an argument with a line break` };
-  return { ok: true, file: systemTool("cmd", c.env, "win32", c.exists), args: ["/d", "/v:off", "/s", "/c", `"${line}"`], via: "comspec", verbatim: true };
+  return { ok: true, file: systemTool("cmd", c.env, "win32", c.exists), args: ["/d", "/v:off", "/s", "/c", `"${line}"`], via: "comspec", verbatim: true, line: { argv: [file, ...args], double } };
 }
-var BY_NAME = ["git", "git-lfs", "claude", "node", "npm", "npx", "pnpm", "pnpx", "yarn", "corepack", "bun", "gh", "glab", "ssh", "bash", "sh", "cmd", "powershell", "pwsh", "where", "rg", "python", "python3", "py", "cygpath", "taskkill", "tasklist"];
+var BY_NAME = ["git", "claude", "node", "npm", "npx", "pnpm", "yarn", "corepack", "bash", "sh", "ssh", "gh", "glab", "rg", "cmd", "powershell", "pwsh", "where", "python", "py", "uv", "uvx", "bunx", "bun", "deno", "docker", "podman", "pipx", "java", "dotnet", "git-lfs", "pnpx", "python3", "cygpath", "taskkill", "tasklist"];
+var RUNNABLE_WINDOWS = [".com", ".exe", ".bat", ".cmd", ".ps1", ".vbs", ".vbe", ".js", ".jse", ".wsf", ".wsh", ".msc"];
 var PATHEXT_WINDOWS = [".com", ".exe", ".bat", ".cmd", ".vbs", ".vbe", ".js", ".jse", ".wsf", ".wsh", ".msc"];
 var topFiles = (dir) => {
   try {
@@ -11082,14 +11092,40 @@ var topFiles = (dir) => {
     return [];
   }
 };
+var ownPathExt = (env) => (envGet(env, "PATHEXT", "win32") ?? "").split(";").map((e) => e.trim().toLowerCase()).filter((e) => /^\.[a-z0-9]{1,8}$/.test(e));
+var winName = (name) => name.toLowerCase().replace(/[. ]+$/, "");
+function programsOnPath(env, list = topFiles) {
+  const own2 = ownPathExt(env);
+  const exts = new Set(own2.length ? own2 : PATHEXT_WINDOWS);
+  const out = /* @__PURE__ */ new Set();
+  const dirs = new Map(pathDirs(env).map((d) => [d.toLowerCase().replace(/[\\/]+$/, ""), d]));
+  for (const dir of dirs.values()) {
+    for (const f of list(dir)) {
+      const n = winName(f);
+      const ext = win32.extname(n);
+      if (ext && exts.has(ext)) out.add(n.slice(0, -ext.length));
+    }
+  }
+  return out;
+}
+function programName(cmd, env = process.env) {
+  const n = winName(win32.basename(cmd.trim().replace(/^"(.*)"$/, "$1")));
+  const ext = win32.extname(n);
+  return ext && (/* @__PURE__ */ new Set([...RUNNABLE_WINDOWS, ...ownPathExt(env)])).has(ext) ? n.slice(0, -ext.length) : n;
+}
 function plantedProgram(dir, opts = {}) {
   if ((opts.platform ?? process.platform) !== "win32") return null;
-  const own2 = (envGet(opts.env ?? process.env, "PATHEXT", "win32") ?? "").split(";").map((e) => e.trim().toLowerCase()).filter((e) => /^\.[a-z0-9]{1,8}$/.test(e));
-  const exts = /* @__PURE__ */ new Set([...PATHEXT_WINDOWS, ...own2]);
-  for (const name of [...(opts.list ?? topFiles)(dir)].sort()) {
-    const n = name.toLowerCase().replace(/[. ]+$/, "");
+  const env = opts.env ?? process.env;
+  const list = opts.list ?? topFiles;
+  const exts = /* @__PURE__ */ new Set([...RUNNABLE_WINDOWS, ...ownPathExt(env)]);
+  const named = /* @__PURE__ */ new Set([...BY_NAME, ...[...opts.names ?? []].map((n) => n.toLowerCase())]);
+  let onPath = null;
+  for (const name of [...list(dir)].sort()) {
+    const n = winName(name);
     const ext = win32.extname(n);
-    if (ext && exts.has(ext) && BY_NAME.includes(n.slice(0, -ext.length))) return name;
+    if (!ext || !exts.has(ext)) continue;
+    const base = n.slice(0, -ext.length);
+    if (named.has(base) || (onPath ??= programsOnPath(env, list)).has(base)) return name;
   }
   return null;
 }
@@ -11235,6 +11271,10 @@ function cmdLine(argv2, doubleEscape) {
   return [escCommand(argv2[0]), ...argv2.slice(1).map((a) => escArgument(a, doubleEscape))].join(" ");
 }
 var errCode = (e) => String(e?.code ?? (e instanceof Error ? e.name : "error"));
+function childEnv(env, r, allow) {
+  const all = r.env ? { ...env, ...r.env } : env;
+  return allow === "person" ? all : noCwdLookup(all, "win32");
+}
 function spawnSafe(cmd, args, opts = {}) {
   const { allow = "shim", ctx, ...rest } = opts;
   const env = rest.env ?? process.env;
@@ -11242,12 +11282,13 @@ function spawnSafe(cmd, args, opts = {}) {
   const r = resolveCommand(cmd, args, c, allow);
   if (!r.ok) return r;
   const win2 = c.platform === "win32";
+  const run2 = spawnForm(r, c.cwd, c.platform);
   try {
-    const child = spawn(r.file, r.args, {
+    const child = spawn(run2.file, run2.args, {
       ...rest,
-      // Windows: the folder a file inside it is named from (fromCwd) — and the child never looks there by name either
+      // Windows: the folder a file inside it is named from (spawnForm) — and the worker's own programs never look there by name
       ...win2 ? { cwd: c.cwd } : {},
-      env: win2 ? noCwdLookup(r.env ? { ...env, ...r.env } : env, "win32") : r.env ? { ...env, ...r.env } : rest.env,
+      env: win2 ? childEnv(env, r, allow) : r.env ? { ...env, ...r.env } : rest.env,
       shell: false,
       // a caller's own verbatim line only for a program started as it is (the opener's `start ""`)
       windowsVerbatimArguments: r.verbatim || r.via === "direct" && !!rest.windowsVerbatimArguments,
@@ -11315,13 +11356,15 @@ function execFileSafe(cmd, args, opts) {
 function execFileSyncSafe(cmd, args, opts) {
   const env = opts.env ?? process.env;
   const c = fullCtx({ ...opts.ctx, env, cwd: opts.cwd ?? opts.ctx?.cwd ?? process.cwd() });
-  const r = resolveCommand(cmd, args, c, opts.allow ?? "shim");
+  const allow = opts.allow ?? "shim";
+  const r = resolveCommand(cmd, args, c, allow);
   if (!r.ok) return { code: 127, stdout: "", stderr: "", why: r.why };
   const win2 = c.platform === "win32";
+  const run2 = spawnForm(r, c.cwd, c.platform);
   try {
-    const res = spawnSync(r.file, r.args, {
+    const res = spawnSync(run2.file, run2.args, {
       cwd: win2 ? c.cwd : opts.cwd,
-      env: win2 ? noCwdLookup(r.env ? { ...env, ...r.env } : env, "win32") : r.env ? { ...env, ...r.env } : opts.env,
+      env: win2 ? childEnv(env, r, allow) : r.env ? { ...env, ...r.env } : opts.env,
       encoding: "utf8",
       timeout: opts.timeoutMs,
       maxBuffer: opts.maxBuffer ?? 8 * 1024 * 1024,
@@ -11577,10 +11620,12 @@ function configGet(args, cwd, env, timeoutMs, platform) {
     child.on("close", (code) => finish(code === 0 ? !!out.trim() : code === 1 ? false : null));
   });
 }
+var IDENTITY = /unable to auto-detect email address|empty ident name|Please tell me who you are|Author identity unknown|Committer identity unknown|no email was given and auto-detection is disabled|no name was given and auto-detection is disabled/i;
 function gitHint(text2, platform = process.platform) {
   const s = text2.replace(/\r/g, "\n");
   if (/detected dubious ownership/i.test(s)) return "dubiousOwnership";
   if (/index\.lock'?: File exists/i.test(s)) return "gitLock";
+  if (IDENTITY.test(s)) return "gitIdentity";
   if (/Host key verification failed|HOST IDENTIFICATION HAS CHANGED/i.test(s)) return "sshHostKey";
   if (/Permission denied \(publickey|Load key .*passphrase/i.test(s)) return "sshKey";
   if (/could not read (?:Username|Password)|terminal prompts disabled|Authentication failed/i.test(s)) return "gitSignIn";
@@ -11602,6 +11647,8 @@ function hintLine(code, at) {
       return { c: code, v: { repo }, s: `git refuses ${repo}: the folder belongs to another user account (git calls it \u201Cdubious ownership\u201D). If it is yours, mark it as safe with \`git config --global --add safe.directory\` and the folder \u2014 the worker\u2019s terminal shows the exact line. The worker never sets this itself.` };
     case "gitLock":
       return { c: code, v: { repo }, s: `git in ${repo} is blocked by a lock file (index.lock) that a stopped git left behind. When no git runs there, delete the file the worker\u2019s terminal names, then press Retry.` };
+    case "gitIdentity":
+      return { c: code, v: { repo }, s: `git in ${repo} does not know who commits: user.name and user.email are not set. Run \`git config --global user.name "Your Name"\` and \`git config --global user.email you@example.com\` once in a terminal, then press Retry.` };
   }
 }
 function hintTerminal(code, text2) {
@@ -12273,7 +12320,7 @@ async function detectClaude(bin = claudeBin(), ctx) {
     const platform = ctx?.platform ?? process.platform;
     const r = resolveCommand(bin, ["--version"], { ...ctx, env: { ...process.env, NO_COLOR: "1" } }, "shim");
     if (!r.ok) return none(r.why === "refused" ? "cmd-refused" : "not-found");
-    const where = platform === "win32" ? { path: r.via === "node-shim" ? r.args[r.args.length - 2] : r.file, via: r.via } : {};
+    const where = platform === "win32" ? { path: r.via === "node-shim" && r.script !== void 0 ? r.args[r.script] : r.file, via: r.via } : {};
     const v = await capture(bin, ["--version"], ctx);
     if (v.code === 127 || v.code !== 0 && !v.out.trim()) return none(v.why === "refused" ? "cmd-refused" : "not-found");
     const version2 = /(\d+\.\d+\.\d+[\w.-]*)/.exec(v.out)?.[1] ?? null;
@@ -12305,6 +12352,38 @@ function readPlanFile(path, home = homedir4()) {
     return null;
   }
 }
+function readJson(file) {
+  try {
+    if (statSync2(file).size > 64 * 1024 * 1024) return null;
+    const v = JSON.parse(readFileSync2(file, "utf8"));
+    return v && typeof v === "object" && !Array.isArray(v) ? v : null;
+  } catch {
+    return null;
+  }
+}
+function launchers(servers, env) {
+  if (!servers || typeof servers !== "object" || Array.isArray(servers)) return [];
+  const out = [];
+  for (const s of Object.values(servers)) {
+    if (!s || typeof s !== "object") continue;
+    const { type, command: command2 } = s;
+    if ((type === void 0 || type === "stdio") && typeof command2 === "string" && command2.trim()) out.push(programName(command2, env));
+  }
+  return out;
+}
+function mcpLaunchers(opts) {
+  const env = opts.env ?? process.env;
+  const dir = envGet(env, "CLAUDE_CONFIG_DIR", opts.platform ?? process.platform)?.trim();
+  const config2 = readJson(dir ? join3(dir, ".claude.json") : join3(opts.home ?? homedir4(), ".claude.json"));
+  const names = new Set(launchers(config2?.mcpServers, env));
+  if (opts.projectSettings) {
+    const projects = config2?.projects && typeof config2.projects === "object" ? config2.projects : {};
+    for (const [key, p] of Object.entries(projects))
+      if (opts.dirs.some((d) => samePath(key, d)) && p && typeof p === "object") for (const n of launchers(p.mcpServers, env)) names.add(n);
+    for (const d of opts.dirs) for (const n of launchers(readJson(join3(d, ".mcp.json"))?.mcpServers, env)) names.add(n);
+  }
+  return [...names].filter(Boolean).sort();
+}
 function claudeArgs(r) {
   const args = ["-p", "--output-format", "stream-json", "--verbose", "--permission-mode", cliMode(r.mode, r.caps), "--max-turns", String(r.maxTurns)];
   if (r.model) args.push("--model", r.model);
@@ -12319,17 +12398,19 @@ function claudeArgs(r) {
   return args;
 }
 var clip = (s, n) => s.length > n ? `${s.slice(0, n - 1)}\u2026` : s;
+var STDERR_KEEP = 8e3;
 var oneLine = (s) => s.replace(/\s+/g, " ").trim();
-function toolLine(name, input) {
+var same = (s) => s;
+function toolLine(name, input, scrub = same) {
   const i2 = input && typeof input === "object" ? input : {};
   const pick2 = ["file_path", "path", "command", "pattern", "url", "query", "description"].map((k) => i2[k]).find((v) => typeof v === "string" && v.trim());
-  return clip(`${name}${pick2 ? ` ${oneLine(pick2)}` : ""}`, 300);
+  return clip(scrub(`${name}${pick2 ? ` ${oneLine(pick2)}` : ""}`), 300);
 }
-function editOf(name, input) {
+function editOf(name, input, scrub = same) {
   const i2 = input && typeof input === "object" ? input : {};
-  const path = typeof i2.file_path === "string" ? i2.file_path : "";
+  const path = typeof i2.file_path === "string" ? scrub(i2.file_path) : "";
   if (!path) return null;
-  const str4 = (v) => typeof v === "string" ? v : "";
+  const str4 = (v) => typeof v === "string" ? scrub(v) : "";
   let raw;
   if (name === "Edit") raw = [{ old: str4(i2.old_string), new: str4(i2.new_string) }];
   else if (name === "MultiEdit") raw = (Array.isArray(i2.edits) ? i2.edits : []).map((e) => ({ old: str4(e?.old_string), new: str4(e?.new_string) }));
@@ -12362,6 +12443,7 @@ function runClaude(r) {
     const child = spawned.child;
     let stderr = "";
     let gotResult = false;
+    const scrub = r.scrub ?? same;
     const log2 = (k, s, c, v) => r.onLog({ t: Date.now(), k, s, ...c ? { c, v } : {} });
     let model = null;
     let turns = 0;
@@ -12394,7 +12476,7 @@ Claude Code could not start (${e.code ?? e.name})`;
     });
     child.stdin?.end(r.prompt);
     child.stderr?.on("data", (d) => {
-      stderr = (stderr + d.toString()).slice(-4e3);
+      stderr = (stderr + d.toString()).slice(-STDERR_KEEP);
     });
     const lines = createInterface({ input: child.stdout });
     lines.on("line", (line) => {
@@ -12405,7 +12487,7 @@ Claude Code could not start (${e.code ?? e.name})`;
       try {
         ev = JSON.parse(s);
       } catch {
-        log2("info", clip(s, 500));
+        log2("info", clip(scrub(s), 500));
         return;
       }
       if (typeof ev.session_id === "string") result.sessionId = ev.session_id;
@@ -12427,10 +12509,10 @@ Claude Code could not start (${e.code ?? e.name})`;
           progress();
           const content = ev.message?.content ?? [];
           for (const block of Array.isArray(content) ? content : []) {
-            if (block.type === "text" && typeof block.text === "string" && block.text.trim()) log2("claude", clip(block.text.trim(), 4e3));
+            if (block.type === "text" && typeof block.text === "string" && block.text.trim()) log2("claude", clip(scrub(block.text.trim()), 4e3));
             else if (block.type === "tool_use" && typeof block.name === "string") {
-              const e = editOf(block.name, block.input);
-              r.onLog({ t: Date.now(), k: "tool", s: toolLine(block.name, block.input), ...e ? { e } : {} });
+              const e = editOf(block.name, block.input, scrub);
+              r.onLog({ t: Date.now(), k: "tool", s: toolLine(block.name, block.input, scrub), ...e ? { e } : {} });
               const input = block.input;
               if (block.name === "ExitPlanMode" && typeof input?.plan === "string") result.plan = input.plan;
               else if ((block.name === "Write" || block.name === "Edit" || block.name === "MultiEdit") && typeof input?.file_path === "string" && PLAN_FILE.test(input.file_path)) planFile = input.file_path;
@@ -12443,7 +12525,7 @@ Claude Code could not start (${e.code ?? e.name})`;
           for (const block of Array.isArray(content) ? content : []) {
             if (block.type !== "tool_result" || block.is_error !== true) continue;
             const text2 = typeof block.content === "string" ? block.content : Array.isArray(block.content) ? block.content.map((c) => c.text ?? "").join(" ") : "";
-            log2("warn", clip(`tool error: ${oneLine(text2)}`, 500));
+            log2("warn", clip(scrub(`tool error: ${oneLine(text2)}`), 500));
           }
           return;
         }
@@ -12472,7 +12554,8 @@ Claude Code could not start (${e.code ?? e.name})`;
       if (r.mode === "plan" && !result.plan && planFile) result.plan = readPlanFile(planFile);
       if (!gotResult && !result.stopped) {
         result.ok = false;
-        result.error = code === null ? "Claude Code was ended" : `Claude Code exited with code ${code}${stderr.trim() ? `: ${clip(oneLine(stderr.trim().split("\n").slice(-3).join(" ")), 400)}` : ""}`;
+        const tail = scrub(stderr.length >= STDERR_KEEP ? stderr.slice(stderr.indexOf("\n") + 1) : stderr).trim();
+        result.error = code === null ? "Claude Code was ended" : `Claude Code exited with code ${code}${tail ? `: ${clip(oneLine(tail.split("\n").slice(-3).join(" ")), 400)}` : ""}`;
         if (/ENOENT|not found/i.test(stderr)) result.error = claudeMissingError("not-found");
         else if (SIGNED_OUT.test(stderr)) {
           result.error = AUTH_HINT;
@@ -12486,7 +12569,7 @@ Claude Code could not start (${e.code ?? e.name})`;
 
 // src/worker/git.ts
 import { createHash } from "node:crypto";
-import { existsSync as existsSync3, lstatSync as lstatSync2, mkdirSync as mkdirSync2, readFileSync as readFileSync3, readlinkSync } from "node:fs";
+import { existsSync as existsSync3, lstatSync as lstatSync2, mkdirSync as mkdirSync2, readFileSync as readFileSync3, readlinkSync, statSync as statSync3 } from "node:fs";
 import { dirname as dirname2, join as join4, posix as posix4, resolve as resolve3, win32 as win324 } from "node:path";
 var GitError = class extends Error {
   /** a log code that says more (folderBusy: Windows still holds files in a folder the worker removes) */
@@ -12504,7 +12587,7 @@ var GitError = class extends Error {
 };
 var ACCOUNT_LINE = /\(S-1-[0-9-]+\)\s*$|^\s*'[^'\n]*' is owned by:\s*$|^\s*but the current user is:\s*$/i;
 function gitMessage(text2, lines = 6) {
-  const s = text2.replace(/\r\n?/g, "\n").trim();
+  const s = text2.replace(/\r\n?/g, "\n").trim().replace(/\(got '[^'\n]*'\)/g, "(got '\u2026')").replace(/\(for <[^>\n]*>\)/g, "(for <\u2026>)");
   const dubious = /^.*detected dubious ownership.*$/im.exec(s)?.[0];
   if (dubious) return dubious.trim();
   return s.split("\n").filter((l) => !ACCOUNT_LINE.test(l)).slice(-lines).join("\n");
@@ -12563,7 +12646,7 @@ async function gitOk(cwd, args, timeoutMs) {
   if (r.code !== 0) throw gitFailure(r, `git ${args[0]} failed`);
   return r.stdout;
 }
-var same = (a, b) => samePath(a, b);
+var same2 = (a, b) => samePath(a, b);
 async function checkRepo(repo) {
   if (!existsSync3(repo.path)) throw new GitError(`the folder does not exist`);
   const r = await git(repo.path, ["rev-parse", "--show-toplevel"], 3e4, { local: true });
@@ -12654,8 +12737,8 @@ async function sweepLeftovers(repo, state) {
   for (const l of state.leftovers(repo.name)) {
     try {
       const used = state.created(repo.name, l.branch);
-      const at = (await listWorktrees(repo)).find((w) => same(w.path, l.dir));
-      if (!insideWorktrees(repo, l.dir) || at && at.branch !== l.branch || used?.worktree && same(used.worktree, l.dir)) {
+      const at = (await listWorktrees(repo)).find((w) => same2(w.path, l.dir));
+      if (!insideWorktrees(repo, l.dir) || at && at.branch !== l.branch || used?.worktree && same2(used.worktree, l.dir) || !await stillOurs(repo, state, l)) {
         state.dropLeftover(repo.name, l.dir);
         continue;
       }
@@ -12673,12 +12756,37 @@ async function sweepLeftovers(repo, state) {
   }
   return removed;
 }
+function folderId(dir) {
+  try {
+    const st = statSync3(dir, { bigint: true });
+    return `${st.dev}:${st.ino}`;
+  } catch {
+    return null;
+  }
+}
+async function stillOurs(repo, state, l) {
+  if (state.inUse(l.dir)) return false;
+  if (l.id && existsSync3(l.dir) && folderId(l.dir) !== l.id) return false;
+  const dotGit = join4(l.dir, ".git");
+  const st = lstatSync2(dotGit, { throwIfNoEntry: false });
+  if (!st) return true;
+  if (!st.isFile()) return false;
+  const link = /^gitdir:\s*(.+?)\s*$/m.exec(readFileSync3(dotGit, "utf8").slice(0, 4096))?.[1];
+  if (!link) return false;
+  const common = (await git(repo.path, ["rev-parse", "--git-common-dir"], 3e4, { local: true })).stdout.trim();
+  if (!common) return false;
+  const into = resolve3(l.dir, link);
+  const worktrees = join4(resolve3(repo.path, common), "worktrees");
+  return inFolder(into, worktrees) && !samePath(into, worktrees);
+}
 async function freeFolder(repo, state, dir, branch) {
   if (!existsSync3(dir)) {
     if (state.isLeftover(repo.name, dir)) state.dropLeftover(repo.name, dir);
     return;
   }
-  if (state.isLeftover(repo.name, dir) && insideWorktrees(repo, dir)) {
+  const left = state.leftovers(repo.name).find((l) => same2(l.dir, dir));
+  if (left && !await stillOurs(repo, state, left)) state.dropLeftover(repo.name, dir);
+  else if (left && insideWorktrees(repo, dir)) {
     if (await rmRetry(dir)) {
       state.dropLeftover(repo.name, dir);
       await prune(repo);
@@ -12693,7 +12801,7 @@ async function ensureWorktree(repo, state, task, wanted, note) {
   const known = state.taskAt(task.id);
   const trees = await listWorktrees(repo);
   if (known && known.repo === repo.name && (!wanted || wanted === known.branch)) {
-    const tree = trees.find((w) => w.branch === known.branch && same(w.path, known.worktree));
+    const tree = trees.find((w) => w.branch === known.branch && same2(w.path, known.worktree));
     if (tree && existsSync3(tree.path)) return { dir: tree.path, branch: known.branch, created: !!state.created(repo.name, known.branch)?.branchCreated };
   }
   if (wanted) return reuse(repo, state, task, wanted, top, trees, note);
@@ -12738,7 +12846,8 @@ async function addWorktree(repo, state, args, dir, branch, newBranch, note) {
       if (held) {
         const made = !!newBranch && await branchExists(repo, newBranch);
         const tip = made ? (await git(repo.path, ["rev-parse", "--verify", "--quiet", `refs/heads/${newBranch}^{commit}`], 3e4, { local: true })).stdout.trim() || null : null;
-        state.addLeftover(repo.name, { dir, branch, tip, at: Date.now() });
+        const id = folderId(dir);
+        state.addLeftover(repo.name, { dir, branch, tip, at: Date.now(), ...id ? { id } : {} });
         const busy = folderBusyCode();
         if (busy) note?.("warn", FOLDER_BUSY, busy, {});
       }
@@ -12753,7 +12862,7 @@ async function reuse(repo, state, task, branch, top, trees, note) {
   if (!await validBranch(repo, branch)) throw new GitError(`"${branch}" is not a valid branch name`);
   const own2 = state.created(repo.name, branch);
   const tree = trees.find((w) => w.branch === branch);
-  if (tree && same(tree.path, top)) throw new GitError(`the branch "${branch}" is checked out in the main checkout \u2014 the worker never works there. Switch the main checkout to another branch, or let the task make its own branch (clear the Branch field).`);
+  if (tree && same2(tree.path, top)) throw new GitError(`the branch "${branch}" is checked out in the main checkout \u2014 the worker never works there. Switch the main checkout to another branch, or let the task make its own branch (clear the Branch field).`);
   if (branch === repo.baseBranch) throw new GitError(`"${branch}" is the base branch of ${repo.name} \u2014 the worker never works on it. Let the task make its own branch (clear the Branch field).`);
   if (tree) {
     state.setTask(task.id, { repo: repo.name, branch, worktree: tree.path });
@@ -12776,7 +12885,7 @@ async function reuse(repo, state, task, branch, top, trees, note) {
 async function worktreeOf(repo, branch) {
   const top = await checkRepo(repo);
   const tree = (await listWorktrees(repo)).find((w) => w.branch === branch);
-  return tree && !same(tree.path, top) && existsSync3(tree.path) ? tree.path : null;
+  return tree && !same2(tree.path, top) && existsSync3(tree.path) ? tree.path : null;
 }
 async function branchDiff(repo, branch, dir, max2 = 8e4) {
   if (!dir && !await branchExists(repo, branch)) return null;
@@ -13120,7 +13229,7 @@ async function discard(repo, state, branch) {
   const top = await checkRepo(repo);
   const tree = (await listWorktrees(repo)).find((w) => w.branch === branch);
   let removedTree = false;
-  if (tree && !same(tree.path, top) && own2.worktree && same(tree.path, own2.worktree)) {
+  if (tree && !same2(tree.path, top) && own2.worktree && same2(tree.path, own2.worktree)) {
     const r = await git(repo.path, ["worktree", "remove", "--force", tree.path]);
     if (r.code !== 0) {
       if (!insideWorktrees(repo, tree.path)) throw gitFailure(r, "git worktree remove failed");
@@ -13131,7 +13240,7 @@ async function discard(repo, state, branch) {
   }
   let removedBranch = false;
   if (own2.branchCreated && await branchExists(repo, branch)) {
-    if (tree && same(tree.path, top)) throw new GitError(`"${branch}" is checked out in the main checkout \u2014 not deleted`);
+    if (tree && same2(tree.path, top)) throw new GitError(`"${branch}" is checked out in the main checkout \u2014 not deleted`);
     await gitOk(repo.path, ["branch", "-D", branch]);
     removedBranch = true;
   }
@@ -13188,13 +13297,14 @@ import { join as join5 } from "node:path";
 import { homedir as homedir5, tmpdir } from "node:os";
 import { realpathSync as realpathSync3 } from "node:fs";
 var escape2 = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-var diskPath = (native) => (p) => {
+var tryReal = (f, p) => {
   try {
-    return native ? realpathSync3.native(p) : realpathSync3(p);
+    return f(p);
   } catch {
     return null;
   }
 };
+var diskPaths = (opts) => (p) => opts.realpath ? [opts.realpath(p)].filter((x2) => !!x2) : [...new Set([tryReal(realpathSync3, p), tryReal(realpathSync3.native, p)].filter((x2) => !!x2))];
 var hexClass = (d) => /[A-Fa-f]/.test(d) ? `[${d.toUpperCase()}${d.toLowerCase()}]` : d;
 var pctSource = (enc) => escape2(enc).replace(/%([0-9A-Fa-f])([0-9A-Fa-f])/g, (_m, a, b) => `%${hexClass(a)}${hexClass(b)}`);
 var pctAll = (s) => [...Buffer.from(s, "utf8")].map((b) => b < 128 && /[A-Za-z0-9._~-]/.test(String.fromCharCode(b)) ? String.fromCharCode(b) : `%${b.toString(16).toUpperCase().padStart(2, "0")}`).join("");
@@ -13214,23 +13324,41 @@ function literalSource(name) {
   }
   return out;
 }
+var CP1252_80 = "\u20AC\x81\u201A\u0192\u201E\u2026\u2020\u2021\u02C6\u2030\u0160\u2039\u0152\x8D\u017D\x8F\x90\u2018\u2019\u201C\u201D\u2022\u2013\u2014\u02DC\u2122\u0161\u203A\u0153\x9D\u017E\u0178";
+var CP437 = "\xC7\xFC\xE9\xE2\xE4\xE0\xE5\xE7\xEA\xEB\xE8\xEF\xEE\xEC\xC4\xC5\xC9\xE6\xC6\xF4\xF6\xF2\xFB\xF9\xFF\xD6\xDC\xA2\xA3\xA5\u20A7\u0192\xE1\xED\xF3\xFA\xF1\xD1\xAA\xBA\xBF\u2310\xAC\xBD\xBC\xA1\xAB\xBB\u2591\u2592\u2593\u2502\u2524\u2561\u2562\u2556\u2555\u2563\u2551\u2557\u255D\u255C\u255B\u2510\u2514\u2534\u252C\u251C\u2500\u253C\u255E\u255F\u255A\u2554\u2569\u2566\u2560\u2550\u256C\u2567\u2568\u2564\u2565\u2559\u2558\u2552\u2553\u256B\u256A\u2518\u250C\u2588\u2584\u258C\u2590\u2580\u03B1\xDF\u0393\u03C0\u03A3\u03C3\xB5\u03C4\u03A6\u0398\u03A9\u03B4\u221E\u03C6\u03B5\u2229\u2261\xB1\u2265\u2264\u2320\u2321\xF7\u2248\xB0\u2219\xB7\u221A\u207F\xB2\u25A0\xA0";
+var CP850 = "\xC7\xFC\xE9\xE2\xE4\xE0\xE5\xE7\xEA\xEB\xE8\xEF\xEE\xEC\xC4\xC5\xC9\xE6\xC6\xF4\xF6\xF2\xFB\xF9\xFF\xD6\xDC\xF8\xA3\xD8\xD7\u0192\xE1\xED\xF3\xFA\xF1\xD1\xAA\xBA\xBF\xAE\xAC\xBD\xBC\xA1\xAB\xBB\u2591\u2592\u2593\u2502\u2524\xC1\xC2\xC0\xA9\u2563\u2551\u2557\u255D\xA2\xA5\u2510\u2514\u2534\u252C\u251C\u2500\u253C\xE3\xC3\u255A\u2554\u2569\u2566\u2560\u2550\u256C\xA4\xF0\xD0\xCA\xCB\xC8\u0131\xCD\xCE\xCF\u2518\u250C\u2588\u2584\xA6\xCC\u2580\xD3\xDF\xD4\xD2\xF5\xD5\xB5\xFE\xDE\xDA\xDB\xD9\xFD\xDD\xAF\xB4\xAD\xB1\u2017\xBE\xB6\xA7\xF7\xB8\xB0\xA8\xB7\xB9\xB3\xB2\u25A0\xA0";
+function misread(name, page) {
+  let out = "";
+  for (const b of Buffer.from(name, "utf8")) {
+    if (b < 128) out += String.fromCharCode(b);
+    else if (page === "cp437") out += [...CP437][b - 128];
+    else if (page === "cp850") out += [...CP850][b - 128];
+    else if (page === "cp1252" && b < 160) out += [...CP1252_80][b - 128];
+    else out += String.fromCharCode(b);
+  }
+  return out;
+}
 function nameSource(name) {
   const alts = /* @__PURE__ */ new Set();
   for (const form of /* @__PURE__ */ new Set([name, name.normalize("NFC"), name.normalize("NFD")])) {
     alts.add(literalSource(form));
     for (const enc of [tryEncode(encodeURIComponent, form), tryEncode(encodeURI, form), pctAll(form)]) if (enc !== null && enc !== form) alts.add(pctSource(enc));
-    const latin1 = Buffer.from(form, "utf8").toString("latin1");
-    if (latin1 !== form) alts.add(escape2(latin1));
+    for (const page of ["latin1", "cp1252", "cp437", "cp850"]) {
+      const wrong = misread(form, page);
+      if (wrong !== form) alts.add(escape2(wrong));
+    }
   }
   return alts.size === 1 ? [...alts][0] : `(?:${[...alts].join("|")})`;
 }
-var END = "(?![\\p{L}\\p{N}_-]|\\.[\\p{L}\\p{N}_-])";
+var END = "(?![\\p{L}\\p{N}_-]|\\.[\\p{L}\\p{N}_-]|%20|%[89A-Fa-f][0-9A-Fa-f])";
+var START = "(?<!(?<!%[0-9A-Fa-f]|\\\\)[\\p{L}\\p{N}_.~-])";
 var POSIX_ONE = "(?:\\\\?/|%2[Ff])";
 var POSIX_SEP = `${POSIX_ONE}+`;
 function posixSource(p) {
   const names = p.split("/").filter(Boolean);
   if (!p.startsWith("/") || !names.length) return null;
-  return `${POSIX_ONE}${names.map(nameSource).join(POSIX_SEP)}${END}`;
+  if (names.length === 1) return `${START}/${nameSource(names[0])}${END}`;
+  return `${START}${POSIX_ONE}${names.map(nameSource).join(POSIX_SEP)}${END}`;
 }
 var WIN_SEP = "(?:[\\\\/]|%5[Cc]|%2[Ff])+";
 var winNorm = (p) => {
@@ -13289,11 +13417,11 @@ var Scrubber = class {
       seen.add(key);
       list.push({ source, len, to });
     };
+    const reals = diskPaths(opts);
     if (platform !== "win32") {
-      const realpath3 = opts.realpath ?? diskPath(false);
       for (const [p, to] of base) {
         if (!p) continue;
-        for (const v of [p, realpath3(p)]) {
+        for (const v of [p, ...reals(p)]) {
           const x2 = v?.replace(/\/+$/, "");
           if (x2 && x2.length >= 2) push2(posixSource(x2), x2.length, to);
         }
@@ -13302,7 +13430,7 @@ var Scrubber = class {
       this.rules = list.map(({ source, to }) => ({ re: new RegExp(source, "gu"), to }));
       return;
     }
-    const realpath2 = opts.realpath ?? diskPath(true);
+    const realpath2 = (p) => opts.realpath ? opts.realpath(p) : tryReal(realpathSync3.native, p);
     const env = opts.env ?? process.env;
     const home = winNorm(opts.home ?? homedir5());
     const homeKey = home.toLowerCase();
@@ -13315,9 +13443,7 @@ var Scrubber = class {
     };
     for (const [p, to] of base) {
       if (!p) continue;
-      const longs = /* @__PURE__ */ new Set([winNorm(p)]);
-      const real = realpath2(p);
-      if (real) longs.add(winNorm(real));
+      const longs = /* @__PURE__ */ new Set([winNorm(p), ...reals(p).map(winNorm)]);
       for (const long of longs) {
         if (long.length < 3) continue;
         const parts = from(long);
@@ -13359,14 +13485,110 @@ function repoScrubber(repo, worktree, opts = {}) {
 
 // src/worker/testrun.ts
 var TEST_OUTPUT_MAX = 64e3;
-function runTests(repo, cwd, signal, onLine) {
-  return runCommand(repo.testCommand, repo.testTimeoutSec, "tests", cwd, signal, onLine);
+function runTests(repo, cwd, signal, onLine, scrub) {
+  return runCommand(repo.testCommand, repo.testTimeoutSec, "tests", cwd, signal, onLine, scrub);
 }
-function runAnalysis(repo, cwd, signal, onLine) {
-  return runCommand(repo.analyzeCommand, repo.analyzeTimeoutSec, "analysis", cwd, signal, onLine);
+function runAnalysis(repo, cwd, signal, onLine, scrub) {
+  return runCommand(repo.analyzeCommand, repo.analyzeTimeoutSec, "analysis", cwd, signal, onLine, scrub);
 }
 var notStarted = (why2) => ({ ok: false, output: "", ms: 0, code: -1, notStarted: why2 });
-function runCommand(argv2, timeoutSec, what, cwd, signal, onLine) {
+var LONG_LINE = 4e3;
+var LIVE_LINE = 500;
+var PATH_ROOM = 1024;
+var ANSI = /\x1b\[[0-9;]*[A-Za-z]/g;
+var BREAK = /\r\n|\r|\n/;
+function safeHead(raw, scrub, n) {
+  const s = scrub(raw);
+  return s.slice(0, Math.max(0, Math.min(n, s.length - PATH_ROOM)));
+}
+var OutputLines = class {
+  out = "";
+  partial = { out: "", err: "" };
+  skipping = { out: null, err: null };
+  scrub;
+  onLine;
+  max;
+  constructor(scrub = (s) => s, onLine, max2 = TEST_OUTPUT_MAX) {
+    this.scrub = scrub;
+    this.onLine = onLine;
+    this.max = max2;
+  }
+  /** A piece of a stream's text (decoded). */
+  add(which, text2) {
+    let rest = text2;
+    if (this.skipping[which] !== null) {
+      const at = rest.search(BREAK);
+      const dropped = this.skipping[which] ?? 0;
+      if (at < 0) {
+        this.skipping[which] = dropped + rest.length;
+        return;
+      }
+      this.endLong(which, dropped + at);
+      rest = rest.slice(at + (rest.startsWith("\r\n", at) ? 2 : 1));
+    }
+    let buf = this.partial[which] + rest;
+    const held = buf.endsWith("\r") ? "\r" : "";
+    if (held) buf = buf.slice(0, -1);
+    const lines = buf.split(BREAK);
+    let last = lines.pop() ?? "";
+    for (const l of lines) this.whole(l);
+    if (last.length > LONG_LINE) {
+      const head = last.slice(0, LONG_LINE);
+      this.long(head);
+      this.skipping[which] = last.length - LONG_LINE + held.length;
+      last = "";
+      this.partial[which] = "";
+      return;
+    }
+    this.partial[which] = last + held;
+  }
+  /** The stream ended: what is left of it is a line. */
+  flush() {
+    for (const which of ["out", "err"]) {
+      const dropped = this.skipping[which];
+      if (dropped !== null) this.endLong(which, dropped);
+      const rest = this.partial[which].replace(/\r$/, "");
+      this.partial[which] = "";
+      if (rest) this.whole(rest);
+    }
+  }
+  /** What One gets: the tail, starting at a line ("…" first when lines were left out). */
+  output() {
+    if (this.out.length <= this.max) return this.out.replace(/\n$/, "");
+    const from = this.out.indexOf("\n", this.out.length - this.max);
+    return `\u2026
+${this.out.slice(from + 1).replace(/\n$/, "")}`;
+  }
+  /** text added at the end of the output (scrubbed) */
+  note(text2) {
+    this.keep(this.scrub(text2));
+  }
+  /** A whole line: scrubbed as a whole first, then cut (a long one that came in one piece too). */
+  whole(raw) {
+    const line = this.scrub(raw.replace(ANSI, ""));
+    if (this.onLine && line.trim()) this.onLine(line.slice(0, LIVE_LINE));
+    this.keep(line.length > LONG_LINE ? `${line.slice(0, LONG_LINE)} \u2026 [one-worker] ${line.length - LONG_LINE} more characters of that line left out` : line);
+  }
+  long(head) {
+    const clean = head.replace(ANSI, "");
+    const live = safeHead(clean, this.scrub, LIVE_LINE);
+    if (this.onLine && live.trim()) this.onLine(`${live} \u2026`);
+    this.keep(`${safeHead(clean, this.scrub, LONG_LINE)} \u2026`);
+  }
+  endLong(which, dropped) {
+    this.skipping[which] = null;
+    this.keep(`[one-worker] ${dropped} more characters of that line left out`);
+  }
+  keep(line) {
+    this.out += `${line}
+`;
+    if (this.out.length > this.max * 2) {
+      const from = this.out.indexOf("\n", this.out.length - this.max * 2);
+      this.out = this.out.slice(from + 1);
+    }
+  }
+};
+function runCommand(argv2, timeoutSec, what, cwd, signal, onLine, scrub) {
   if (!argv2?.length) return Promise.resolve({ ok: true, output: "", ms: 0, code: null, skipped: true });
   const started = Date.now();
   const env = { ...process.env, CI: process.env.CI ?? "1", FORCE_COLOR: "0", NO_COLOR: "1" };
@@ -13374,43 +13596,23 @@ function runCommand(argv2, timeoutSec, what, cwd, signal, onLine) {
   if (!s.ok) return Promise.resolve(s.why === "failed" ? { ok: false, output: s.error, ms: 0, code: -1 } : notStarted(s.why));
   const child = s.child;
   return new Promise((done) => {
-    let out = "";
+    const lines = new OutputLines(scrub, onLine);
     let timedOut = false;
     let missing = false;
     let settled = false;
-    const partial2 = { out: "", err: "" };
-    const line = (l) => {
-      if (onLine && l.trim()) onLine(l.slice(0, 500));
-    };
-    const add = (which) => (text2) => {
-      out = (out + text2).slice(-TEST_OUTPUT_MAX * 2);
-      const lines = (partial2[which] + text2).split(/\r?\n/);
-      partial2[which] = lines.pop() ?? "";
-      if (partial2[which].length > 4e3) {
-        line(partial2[which]);
-        partial2[which] = "";
-      }
-      for (const l of lines) line(l);
-    };
     child.stdout?.setEncoding("utf8");
     child.stderr?.setEncoding("utf8");
-    child.stdout?.on("data", add("out"));
-    child.stderr?.on("data", add("err"));
+    child.stdout?.on("data", (t) => lines.add("out", t));
+    child.stderr?.on("data", (t) => lines.add("err", t));
     const finish = (code) => {
       if (settled) return;
       settled = true;
-      line(partial2.out);
-      line(partial2.err);
-      partial2.out = partial2.err = "";
+      lines.flush();
       clearTimeout(timer);
       signal.removeEventListener("abort", onAbort);
       if (missing) return done(notStarted("missing"));
-      let output = out.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "");
-      if (output.length > TEST_OUTPUT_MAX) output = `\u2026
-${output.slice(-TEST_OUTPUT_MAX)}`;
-      if (timedOut) output += `
-[one-worker] the ${what} ran longer than ${timeoutSec} s and were stopped`;
-      done({ ok: code === 0 && !timedOut && !signal.aborted, output, ms: Date.now() - started, code });
+      if (timedOut) lines.note(`[one-worker] the ${what} ran longer than ${timeoutSec} s and were stopped`);
+      done({ ok: code === 0 && !timedOut && !signal.aborted, output: lines.output(), ms: Date.now() - started, code });
     };
     const timer = setTimeout(() => {
       timedOut = true;
@@ -13420,8 +13622,7 @@ ${output.slice(-TEST_OUTPUT_MAX)}`;
     signal.addEventListener("abort", onAbort, { once: true });
     child.on("error", (e) => {
       if (e.code === "ENOENT") missing = true;
-      else out += `
-${commandName(argv2[0])} could not start (${e.code ?? e.name})`;
+      else lines.note(`${commandName(argv2[0])} could not start (${e.code ?? e.name})`);
     });
     child.on("close", (code) => finish(code));
   });
@@ -13492,12 +13693,16 @@ function writeMcpConfig(taskMcp) {
   return { file, dispose: () => void rmRetry(dir) };
 }
 function planted(ctx, dir, log2) {
-  const file = plantedProgram(dir, { platform: ctx.platform });
+  const { repo } = ctx;
+  const env = claudeEnv();
+  const names = mcpLaunchers({ dirs: [dir, repo.path], projectSettings: repo.claude.projectSettings, home: ctx.home, env, platform: ctx.platform });
+  const file = plantedProgram(dir, { platform: ctx.platform, env, names });
   if (!file) return null;
-  const error2 = `The folder this stage runs in holds a program named ${file} at its top level. On Windows a tool that starts a program by its name (Claude Code's own git, a test runner's node or npm) may run that file instead of the real one, so the worker starts nothing there. Remove or rename ${file} in the repository (or move it into a subfolder), then press Retry.`;
-  log2("error", error2, "plantedProgram", { file });
-  return error2;
+  log2("error", plantedError(file), "plantedProgram", { file });
+  ctx.terminal?.(`repo "${repo.name}": ${file} at the top of ${dir} keeps Claude Code from starting there \u2014 remove or rename it in the repository and in that folder (the task's branch), then press Retry in One`);
+  return plantedError(file);
 }
+var plantedError = (file) => `The folder this stage runs in holds ${file} at its top level, a program a lookup by name could take instead of the real one (Claude Code's own git, an MCP server's launcher), so Claude Code does not start there. Remove or rename ${file} in the repository AND on the task's branch (an existing worktree keeps it: delete it there, or commit the change on the base branch and use Update from base \u2014 or Discard the branch), then press Retry.`;
 var hintText = (e, msg) => e instanceof GitError && e.detail ? e.detail : msg;
 function claudeMissing(caps, log2) {
   const error2 = claudeMissingError(caps.missing);
@@ -13678,13 +13883,16 @@ async function claudeStage(ctx, wt, scrub, log2) {
       env: claudeEnv(),
       signal: ctx.signal,
       onLog: (l) => ctx.log({ ...l, s: scrub.text(l.s), ...l.v ? { v: scrubVars(scrub, l.v) } : {}, ...l.e ? { e: scrubEdit(scrub, l.e) } : {} }),
-      onProgress: ctx.progress
+      onProgress: ctx.progress,
+      scrub: (s) => scrub.text(s)
     });
     if (res.cost > 0) ctx.state.addCost(task.id, res.cost);
     const git2 = await gitSnapshot(ctx, wt, scrub);
     const base = { branch: wt.branch, cost: res.cost, turns: res.turns, git: git2 };
     const question = ctx.question();
     if (res.stopped) return { ...base, status: "stopped", error: "Stopped in One." };
+    const after = plan ? null : planted(ctx, wt.dir, log2);
+    if (after) return { ...base, status: "refused", error: after, summary: clip2(scrub.text(res.text.trim()), SUMMARY_MAX) || void 0 };
     if (question) return { ...base, status: "question", question: scrub.text(question), summary: clip2(scrub.text(res.text.trim()), SUMMARY_MAX) || void 0 };
     if (!res.ok) return { ...base, status: /budget/i.test(res.subtype ?? "") ? "limit" : "failed", error: scrub.text(res.error ?? "Claude Code failed"), summary: clip2(scrub.text(res.text.trim()), SUMMARY_MAX) || void 0 };
     if (plan) {
@@ -13740,7 +13948,8 @@ async function docStage(ctx, scrub, log2, branch, dir) {
       env: claudeEnv(),
       signal: ctx.signal,
       onLog: (l) => ctx.log({ ...l, s: scrub.text(l.s), ...l.v ? { v: scrubVars(scrub, l.v) } : {}, ...l.e ? { e: scrubEdit(scrub, l.e) } : {} }),
-      onProgress: ctx.progress
+      onProgress: ctx.progress,
+      scrub: (s) => scrub.text(s)
     });
     if (res.cost > 0) ctx.state.addCost(task.id, res.cost);
     const base = { cost: res.cost, turns: res.turns };
@@ -13766,15 +13975,13 @@ async function analyzeStage(ctx, scrub, log2, dir) {
     log2("info", `No analysis command for ${repo.name} \u2014 the stage passes. Set one on the worker's setup page (Change repositories \u2192 the repo \u2192 Static analysis).`, "analyzeNone", { repo: repo.name });
     return { status: "ok", summary: "No static analysis configured.", plan: "_No static analysis command is set for this repository \u2014 the worker's setup page (Change repositories \u2192 the repository \u2192 Static analysis) takes one, e.g. `npx eslint .`, `dotnet build`, `go vet ./...`._" };
   }
-  const plant = planted(ctx, dir ?? repo.path, log2);
-  if (plant) return { status: "refused", error: plant };
   const name = commandName(argv2[0]);
   const shown2 = clip2(scrub.text([name, ...argv2.slice(1)].join(" ")), 160);
   log2("test", `Running the static analysis: ${shown2}`, "analyzeRun", { cmd: shown2 });
   let lines = 0;
   const res = await runAnalysis(repo, dir ?? repo.path, ctx.signal, (line) => {
     if (lines++ < 200) log2("test", line);
-  });
+  }, (s2) => scrub.text(s2));
   if (ctx.signal.aborted) return { status: "stopped", error: "Stopped in One." };
   if (res.notStarted) notStartedLine(res.notStarted, name, log2);
   const output = scrub.text(res.output).trim();
@@ -13829,13 +14036,11 @@ async function testStage(ctx, wt, scrub, log2) {
     const test2 = { ok: true, output: "", ms: 0, code: null, skipped: true };
     return { status: "ok", branch: wt.branch, test: test2, summary: "No tests configured.", git: await gitSnapshot(ctx, wt, scrub) };
   }
-  const plant = planted(ctx, wt.dir, log2);
-  if (plant) return { status: "refused", branch: wt.branch, error: plant };
   log2("test", "Running the tests\u2026", "testsRun");
   let lines = 0;
   const { notStarted: notStarted2, ...res } = await runTests(ctx.repo, wt.dir, ctx.signal, (line) => {
     if (lines++ < 200) log2("test", line);
-  });
+  }, (s) => scrub.text(s));
   const test = { ...res, output: scrub.text(res.output) };
   if (notStarted2) {
     const name = commandName(ctx.repo.testCommand[0]);
@@ -13924,7 +14129,7 @@ function readLeftovers(raw) {
   if (!isObj2(raw)) return out;
   for (const [repo, list] of Object.entries(raw)) {
     if (!Array.isArray(list)) continue;
-    const ok = list.filter((l) => isObj2(l) && typeof l.dir === "string" && !!l.dir && typeof l.branch === "string" && !!l.branch && (l.tip === null || typeof l.tip === "string") && typeof l.at === "number").slice(0, 50).map((l) => ({ dir: l.dir, branch: l.branch, tip: l.tip, at: l.at }));
+    const ok = list.filter((l) => isObj2(l) && typeof l.dir === "string" && !!l.dir && typeof l.branch === "string" && !!l.branch && (l.tip === null || typeof l.tip === "string") && typeof l.at === "number").slice(0, 50).map((l) => ({ dir: l.dir, branch: l.branch, tip: l.tip, at: l.at, ...typeof l.id === "string" && l.id ? { id: l.id } : {} }));
     if (ok.length) out[repo] = ok;
   }
   return out;
@@ -13965,6 +14170,7 @@ var WorkerState = class {
   remember(repo, branch, entry) {
     ;
     (this.data.created[repo] ??= {})[branch] = entry;
+    if (entry.worktree) this.dropLeftoverAt(entry.worktree);
     this.save();
   }
   forget(repo, branch) {
@@ -13985,6 +14191,22 @@ var WorkerState = class {
     this.data.leftovers[repo] = [...list, entry].slice(-50);
     this.save();
   }
+  /** Does any repo's state name `dir` as a task's worktree (tasks, or a worktree the worker made)? */
+  inUse(dir) {
+    const id = pathId(dir);
+    if (Object.values(this.data.tasks).some((t) => typeof t?.worktree === "string" && pathId(t.worktree) === id)) return true;
+    return Object.values(this.data.created).some((branches) => Object.values(branches ?? {}).some((c) => typeof c?.worktree === "string" && pathId(c.worktree) === id));
+  }
+  /** `dir` is no repo's leftover (it became a task's worktree). */
+  dropLeftoverAt(dir) {
+    const id = pathId(dir);
+    for (const [repo, list] of Object.entries(this.data.leftovers)) {
+      const kept = list.filter((l) => pathId(l.dir) !== id);
+      if (kept.length === list.length) continue;
+      if (kept.length) this.data.leftovers[repo] = kept;
+      else delete this.data.leftovers[repo];
+    }
+  }
   dropLeftover(repo, dir) {
     const list = (this.data.leftovers[repo] ?? []).filter((l) => pathId(l.dir) !== pathId(dir));
     if (list.length) this.data.leftovers[repo] = list;
@@ -13996,6 +14218,7 @@ var WorkerState = class {
   }
   setTask(taskId, at) {
     this.data.tasks[taskId] = at;
+    this.dropLeftoverAt(at.worktree);
     this.save();
   }
   spentToday() {
@@ -14831,7 +15054,7 @@ var Unzip = /* @__PURE__ */ (function() {
 })();
 
 // src/worker/zipimport.ts
-import { closeSync as closeSync2, createReadStream, existsSync as existsSync7, lstatSync as lstatSync3, mkdirSync as mkdirSync4, openSync as openSync2, readFileSync as readFileSync5, readdirSync as readdirSync3, rmSync, statSync as statSync3, writeFileSync as writeFileSync5, writeSync } from "node:fs";
+import { closeSync as closeSync2, createReadStream, existsSync as existsSync7, lstatSync as lstatSync3, mkdirSync as mkdirSync4, openSync as openSync2, readFileSync as readFileSync5, readdirSync as readdirSync3, rmSync, statSync as statSync4, writeFileSync as writeFileSync5, writeSync } from "node:fs";
 import { randomBytes as randomBytes2 } from "node:crypto";
 import { dirname as dirname4, join as join8, relative, resolve as resolve4, sep as sep3 } from "node:path";
 var ZIP_MAX = () => Number(process.env.ONE_WORKER_ZIP_MAX) || 500 * 1024 * 1024;
@@ -14890,27 +15113,30 @@ function gitDirIn(dir, disk = DISK) {
     if (named) return { path: join8(d, named.name), kind: "dotgit" };
     const dot = disk.lstat(join8(d, ".git"));
     if (dot) {
-      const same2 = entries.find((e) => {
+      const same3 = entries.find((e) => {
         const st = disk.lstat(join8(d, e.name));
         return !!st && st.dev === dot.dev && st.ino === dot.ino;
       });
-      return { path: join8(d, same2?.name ?? ".git"), kind: "dotgit" };
+      return { path: join8(d, same3?.name ?? ".git"), kind: "dotgit" };
     }
     if (isRepoDir(d, disk)) return { path: d, kind: "repo" };
     for (const e of entries) if (e.isDirectory()) todo.push(join8(d, e.name));
   }
   return null;
 }
+var zipPath = (dir, path, P = { relative, sep: sep3 }) => P.relative(dir, path).split(P.sep).join("/") || ".";
 function refusePlanted(dir) {
   const planted2 = gitDirIn(dir);
   if (!planted2) return;
-  const at = shown(relative(dir, planted2.path) || ".");
+  const at = shown(zipPath(dir, planted2.path));
   if (planted2.kind === "dotgit") throw new Error(`the ZIP holds a git folder under another spelling (${at}) \u2014 nothing was imported`);
   if (planted2.path === dir) throw new Error("the ZIP is a git repository itself (HEAD, objects, refs \u2014 a bare one, or the inside of a .git folder), not the code: clone it and zip the checkout, or clone it here \u2014 nothing was imported");
   throw new Error(`the ZIP holds a git repository in ${at} (HEAD, objects, refs) \u2014 git would use it, and its config, for every git command run in that folder. Leave it out (a test fixture too) and zip again \u2014 nothing was imported`);
 }
+var PROGRESS_MS = 200;
 async function importZip(zipFile, base, name, label, onProgress = () => {
 }) {
+  const started = Date.now();
   mkdirSync4(base, { recursive: true });
   const tmp = join8(base, `.one-import-${randomBytes2(6).toString("hex")}`);
   mkdirSync4(tmp);
@@ -14918,6 +15144,14 @@ async function importZip(zipFile, base, name, label, onProgress = () => {
   let bytes = 0;
   let fail = null;
   let open2 = 0;
+  const made = /* @__PURE__ */ new Set([tmp]);
+  let told = 0;
+  const progress = (force = false) => {
+    const now = Date.now();
+    if (!force && now - told < PROGRESS_MS) return;
+    told = now;
+    onProgress({ files, bytes });
+  };
   try {
     const uz = new Unzip((file) => {
       if (fail) return;
@@ -14936,7 +15170,11 @@ async function importZip(zipFile, base, name, label, onProgress = () => {
         fail = `the ZIP has a path outside its folder (${shown(file.name)})`;
         return;
       }
-      mkdirSync4(dirname4(dest), { recursive: true });
+      const folder = dirname4(dest);
+      if (!made.has(folder)) {
+        mkdirSync4(folder, { recursive: true });
+        made.add(folder);
+      }
       let fd2 = openSync2(dest, "w", 420);
       open2++;
       const close = () => {
@@ -14960,7 +15198,7 @@ async function importZip(zipFile, base, name, label, onProgress = () => {
         if (data.length) writeSync(fd2, data);
         if (final) {
           close();
-          onProgress({ files, bytes });
+          progress();
         }
       };
       try {
@@ -14980,22 +15218,27 @@ async function importZip(zipFile, base, name, label, onProgress = () => {
     if (!fail && open2 > 0) fail = "the ZIP ended in the middle of a file";
     if (!fail && files === 0) fail = "the ZIP has no files";
     if (fail) throw new Error(fail);
+    progress(true);
     const top = readdirSync3(tmp);
-    const root = top.length === 1 && statSync3(join8(tmp, top[0])).isDirectory() ? join8(tmp, top[0]) : tmp;
+    const root = top.length === 1 && statSync4(join8(tmp, top[0])).isDirectory() ? join8(tmp, top[0]) : tmp;
     let dir = join8(base, name);
     for (let i2 = 2; existsSync7(dir); i2++) dir = join8(base, `${name}-${i2}`);
     renameRetry(root, dir);
     if (root !== tmp) rmSync(tmp, { recursive: true, force: true });
-    await finishImport(dir, label);
-    return { dir, files };
+    const unpacked = Date.now();
+    const parts = await finishImport(dir, label);
+    return { dir, files, times: { unpack: unpacked - started, ...parts } };
   } finally {
     if (existsSync7(tmp)) rmSync(tmp, { recursive: true, force: true });
   }
 }
 async function finishImport(dir, label) {
   try {
+    const t0 = Date.now();
     refusePlanted(dir);
+    const t1 = Date.now();
     await commitImport(dir, label);
+    return { guard: t1 - t0, commit: Date.now() - t1 };
   } catch (e) {
     rmSync(dir, { recursive: true, force: true });
     throw e;
@@ -15018,7 +15261,7 @@ async function commitImport(dir, label) {
   try {
     await run2(holder, ["init", "-q"]);
     const attributes = join8(gitDir2, "info", "attributes");
-    const was = statSync3(attributes, { throwIfNoEntry: false });
+    const was = statSync4(attributes, { throwIfNoEntry: false });
     const theirs = was?.isFile() && was.size <= 1024 * 1024 ? readFileSync5(attributes, "utf8") : "";
     rmSync(attributes, { force: true });
     mkdirSync4(dirname4(attributes), { recursive: true });
@@ -15477,6 +15720,7 @@ async function realpathTimed(p) {
 // src/worker/intake.ts
 var INTAKE_CHUNK = 4 * 1024 * 1024;
 var IDLE_MS = 10 * 6e4;
+var secs = (ms) => `${(ms / 1e3).toFixed(1)} s`;
 var TASK_ID = /^[A-Za-z0-9_-]{1,64}$/;
 var Intake = class {
   upload = null;
@@ -15554,7 +15798,12 @@ var Intake = class {
     const name = folderName(u.file.replace(/\.zip$/i, ""));
     this.running = u.taskId;
     this.host.log(`import for task ${u.taskId}: unpacking ${u.file} into ${base}`);
-    void importZip(u.tmp, base, name, u.file, (p) => this.host.event(u.taskId, { state: "running", source: "zip", label: u.file, line: `${p.files} files \xB7 ${(p.bytes / 1024 / 1024).toFixed(1)} MB`, percent: 60 })).then(async ({ dir, files }) => this.adopt(u.taskId, "zip", u.file, dir, `${files} files`, suggestName(dir, name))).catch((e) => this.fail(u.taskId, "zip", u.file, e)).finally(() => {
+    void importZip(u.tmp, base, name, u.file, (p) => this.host.event(u.taskId, { state: "running", source: "zip", label: u.file, line: `${p.files} files \xB7 ${(p.bytes / 1024 / 1024).toFixed(1)} MB`, percent: 60 })).then(async ({ dir, files, times }) => {
+      this.host.log(`import for task ${u.taskId}: ${files} files unpacked in ${secs(times.unpack)} \xB7 guard ${secs(times.guard)} \xB7 commit ${secs(times.commit)}`);
+      const t = Date.now();
+      await this.adopt(u.taskId, "zip", u.file, dir, `${files} files`, suggestName(dir, name));
+      this.host.log(`import for task ${u.taskId}: added in ${secs(Date.now() - t)}`);
+    }).catch((e) => this.fail(u.taskId, "zip", u.file, e)).finally(() => {
       this.running = null;
       rmSync2(u.tmp, { force: true });
     });
@@ -16921,9 +17170,12 @@ var Worker2 = class {
    */
   intakeScrub(st) {
     const base = cloneBase(this.config.cloneDir);
-    const sc = new Scrubber([[typeof base === "string" ? base : null, "<clones>"]]);
+    const key = typeof base === "string" ? base : "";
+    if (this.intakeScrubber?.key !== key) this.intakeScrubber = { key, sc: new Scrubber([[key || null, "<clones>"]]) };
+    const sc = this.intakeScrubber.sc;
     return { ...st, label: sc.text(st.label), line: sc.text(st.line), ...st.error !== void 0 ? { error: sc.text(st.error) } : {} };
   }
+  intakeScrubber = null;
   intakeEvent(taskId, raw) {
     const intake = this.intakeScrub(raw);
     const send = (st) => this.link.send({ type: "event", taskId, kind: "intake", intake: st });
@@ -35691,7 +35943,7 @@ ${ok ? "All good." : "Fix the lines above."}
   if (nodeMajor < 22) log(NODE_OLD);
   if (cloud && !win) {
     try {
-      if ((statSync4(self).mode & 63) !== 0) log(`this file holds your worker token \u2014 make it private: ${privately(self)}`);
+      if ((statSync5(self).mode & 63) !== 0) log(`this file holds your worker token \u2014 make it private: ${privately(self)}`);
     } catch {
     }
   }

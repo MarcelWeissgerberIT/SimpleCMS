@@ -208,7 +208,7 @@ describe('cloud worker', () => {
     assert.equal(refused.child.exitCode, 1)
   })
 
-  test('an Import ZIP of 3,000 files through the relay: its progress comes throttled, never marked droppable — and its result arrives', async () => {
+  test('an Import ZIP of 3,000 files through the relay: its progress comes throttled, never marked droppable — and its result arrives', async (t) => {
     const { home } = await boot()
     await relay!.connected()
     const tab = relay!.openTab(PAIR)
@@ -224,7 +224,11 @@ describe('cloud worker', () => {
     for (let off = 0; off < zip.length; off += chunk) assert.equal((await tab.request({ op: 'intake-chunk', uploadId, data: zip.subarray(off, off + chunk).toString('base64') })).ok, true)
     assert.equal((await tab.request({ op: 'intake-end', uploadId })).ok, true)
     const intakes = () => tab.messages.filter((m): m is Extract<WorkerMessage, { kind: 'intake' }> => m.type === 'event' && m.kind === 'intake')
+    // 30 s on every OS: Windows finished it well inside that in CI run 1; run 2 timed out after a scrubber was built for
+    // every file's progress event (Fix2: one scrubber, progress every 200 ms). The worker's terminal names each part's
+    // time (unpacked · guard · commit · added) — printed below, so a CI log gives the measured value before this changes
     await waitFor(() => intakes().some((m) => m.intake.state !== 'running'), 30_000, () => worker!.stderr())
+    for (const line of worker!.stderr().split('\n').filter((l) => /import for task zip1abcd: (\d+ files unpacked|added in)/.test(l))) t.diagnostic(line.trim())
     const last = intakes().at(-1)!
     assert.equal(last.intake.state, 'done', JSON.stringify(last))
     assert.equal(last.intake.repo, 'ledger')

@@ -181,7 +181,7 @@ describe('a program planted in the repository never runs', () => {
       // is refused, by the file's name
       const refused = await tab.run(task({ kind: 'implement' }, { id: 'plant1ab', branch }))
       assert.equal(refused.status, 'refused', JSON.stringify(refused))
-      assert.match(refused.error!, /a program named claude\.exe at its top level/)
+      assert.match(refused.error!, /holds claude\.exe at its top level, a program a lookup by name could take/)
       const lines = tab.messages.flatMap((m) => (m.type === 'event' && m.kind === 'log' ? m.lines : []))
       assert.ok(lines.some((l) => l.c === 'plantedProgram' && l.v?.file === 'claude.exe'), JSON.stringify(lines.map((l) => l.c ?? l.s)))
       // moved into a subfolder (as the error says): the task goes on — the worker's own git and Claude Code never take them

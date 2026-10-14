@@ -12,6 +12,8 @@
  *   FAKE:AUTH            → the CLI's expired login (an error result that says "success")
  *   FAKE:LIVE            → writes live.txt at once, then works 8 s (the live diff during a stage)
  *   FAKE:EXPENSIVE       → costs $4.00
+ *   FAKE:PLANT <name>    → implement also writes a file of that name at the top of the working folder (a program a
+ *                          lookup by name could take — the worker ends the stage refused)
  *   FAKE:DEMO            → a realistic TypeScript change to src/login.ts (the changelog screenshot)
  *   FAKE:DEMOLIVE        → the same change at a working pace, ~20 s (the running panel's screenshot)
  *   FAKE:PLANFILE        → plan mode without ExitPlanMode: the plan goes to ~/.claude/plans/fake-plan.md
@@ -288,6 +290,11 @@ if (prompt.includes('FAKE:DEMO') && existsSync(login)) {
   process.exit(0)
 }
 
+const plant = /FAKE:PLANT ([\w.-]+)/.exec(prompt)?.[1]
+if (plant) {
+  tool('Write', { file_path: join(process.cwd(), plant), content: '#!/usr/bin/env node\n' })
+  writeFileSync(join(process.cwd(), plant), '#!/usr/bin/env node\n')
+}
 const broken = prompt.includes('FAKE:FAILTEST') && !hasRework
 const colour = /A: (.+)/.exec(prompt.split('<<<ANSWERS')[1] ?? '')?.[1]?.trim()
 const file = join(process.cwd(), 'feature.txt')

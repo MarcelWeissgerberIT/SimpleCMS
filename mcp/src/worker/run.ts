@@ -14,7 +14,7 @@ import { join } from 'node:path'
 import type { GitInfo, LogLine, StageOutcome, TaskPayload, TaskProgress, TestResult, ToolEdit } from '../../../src/app/features/coding/protocol.ts'
 import type { RepoConfig, SourceWhy } from './config.ts'
 import type { WorkerState } from './state.ts'
-import { claudeMissingError, runClaude, type ClaudeCaps } from './claude.ts'
+import { claudeMissingError, mcpLaunchers, runClaude, type ClaudeCaps } from './claude.ts'
 import { commandName, plantedProgram } from './exec.ts'
 import { GitError, branchDiff, commentPr, commitAll, ensureWorktree, git, info, isDirty, mergePr, openPr, push, updateFromBase, worktreeOf, type TaskWorktree } from './git.ts'
 import { FOLDER_BUSY, forgetGitEnv, gitHint, hintLine, hintTerminal } from './gitenv.ts'
@@ -46,6 +46,8 @@ export interface StageContext {
   terminal?: (msg: string) => void
   /** whose rules apply (tests: Windows' on any computer) */
   platform?: NodeJS.Platform
+  /** the home folder Claude Code reads its config in (tests; default: this account's) */
+  home?: string
 }
 
 const SUMMARY_MAX = 6000
@@ -139,18 +141,27 @@ function writeMcpConfig(taskMcp: NonNullable<StageContext['taskMcp']>): { file: 
 }
 
 /**
- * Windows: a program at the top of the folder a stage runs in that a tool starting it by name would take (git.exe,
- * claude.exe, npm.cmd, node.js …; exec.ts plantedProgram). The worker's own children never look there, but Claude Code's
- * own lookups (its git, through cross-spawn / Bun) and a test runner's may — before any permission is asked. So nothing
- * starts there: the stage is refused with the file's NAME (never a path). Null: nothing found (always elsewhere).
+ * Windows, before Claude Code starts (plan · implement · doc — never the tests or the analysis, which run the repo's own
+ * code anyway): a program at the top of the folder the stage runs in that a lookup by name could take instead of the
+ * real one (exec.ts plantedProgram: a program on PATH, a launcher of the person's MCP servers, or a usual tool's name).
+ * The worker's own programs never look there, but Claude Code's own lookups do (its git, its MCP servers' launchers —
+ * through cross-spawn / Bun) before any permission is asked. So Claude Code does not start there: the stage is refused
+ * with the file's NAME for One; this computer's terminal names the folder. Null: nothing found (always elsewhere).
  */
 function planted(ctx: StageContext, dir: string, log: Log): string | null {
-  const file = plantedProgram(dir, { platform: ctx.platform })
+  const { repo } = ctx
+  const env = claudeEnv()
+  const names = mcpLaunchers({ dirs: [dir, repo.path], projectSettings: repo.claude.projectSettings, home: ctx.home, env, platform: ctx.platform })
+  const file = plantedProgram(dir, { platform: ctx.platform, env, names })
   if (!file) return null
-  const error = `The folder this stage runs in holds a program named ${file} at its top level. On Windows a tool that starts a program by its name (Claude Code's own git, a test runner's node or npm) may run that file instead of the real one, so the worker starts nothing there. Remove or rename ${file} in the repository (or move it into a subfolder), then press Retry.`
-  log('error', error, 'plantedProgram', { file })
-  return error
+  log('error', plantedError(file), 'plantedProgram', { file })
+  ctx.terminal?.(`repo "${repo.name}": ${file} at the top of ${dir} keeps Claude Code from starting there — remove or rename it in the repository and in that folder (the task's branch), then press Retry in One`)
+  return plantedError(file)
 }
+
+/** The stage's error for a program at the top of its folder (English; One shows `plantedProgram` in the person's language). */
+export const plantedError = (file: string): string =>
+  `The folder this stage runs in holds ${file} at its top level, a program a lookup by name could take instead of the real one (Claude Code's own git, an MCP server's launcher), so Claude Code does not start there. Remove or rename ${file} in the repository AND on the task's branch (an existing worktree keeps it: delete it there, or commit the change on the base branch and use Update from base — or Discard the branch), then press Retry.`
 
 /** Git's whole message for the hints (a GitError's detail — the lines that name a lock file may be cut from its message). */
 const hintText = (e: unknown, msg: string) => (e instanceof GitError && e.detail ? e.detail : msg)
@@ -382,12 +393,16 @@ async function claudeStage(ctx: StageContext, wt: TaskWorktree, scrub: Scrubber,
       signal: ctx.signal,
       onLog: (l) => ctx.log({ ...l, s: scrub.text(l.s), ...(l.v ? { v: scrubVars(scrub, l.v) } : {}), ...(l.e ? { e: scrubEdit(scrub, l.e) } : {}) }),
       onProgress: ctx.progress,
+      scrub: (s) => scrub.text(s),
     })
     if (res.cost > 0) ctx.state.addCost(task.id, res.cost)
     const git = await gitSnapshot(ctx, wt, scrub)
     const base = { branch: wt.branch, cost: res.cost, turns: res.turns, git }
     const question = ctx.question()
     if (res.stopped) return { ...base, status: 'stopped', error: 'Stopped in One.' }
+    // what Claude Code wrote may be such a program itself: the stage ends refused, before anything goes on in that folder
+    const after = plan ? null : planted(ctx, wt.dir, log)
+    if (after) return { ...base, status: 'refused', error: after, summary: clip(scrub.text(res.text.trim()), SUMMARY_MAX) || undefined }
     if (question) return { ...base, status: 'question', question: scrub.text(question), summary: clip(scrub.text(res.text.trim()), SUMMARY_MAX) || undefined }
     if (!res.ok) return { ...base, status: /budget/i.test(res.subtype ?? '') ? 'limit' : 'failed', error: scrub.text(res.error ?? 'Claude Code failed'), summary: clip(scrub.text(res.text.trim()), SUMMARY_MAX) || undefined }
     if (plan) {
@@ -451,6 +466,7 @@ async function docStage(ctx: StageContext, scrub: Scrubber, log: Log, branch: st
       signal: ctx.signal,
       onLog: (l) => ctx.log({ ...l, s: scrub.text(l.s), ...(l.v ? { v: scrubVars(scrub, l.v) } : {}), ...(l.e ? { e: scrubEdit(scrub, l.e) } : {}) }),
       onProgress: ctx.progress,
+      scrub: (s) => scrub.text(s),
     })
     if (res.cost > 0) ctx.state.addCost(task.id, res.cost)
     const base = { cost: res.cost, turns: res.turns }
@@ -486,8 +502,6 @@ async function analyzeStage(ctx: StageContext, scrub: Scrubber, log: Log, dir: s
     log('info', `No analysis command for ${repo.name} — the stage passes. Set one on the worker's setup page (Change repositories → the repo → Static analysis).`, 'analyzeNone', { repo: repo.name })
     return { status: 'ok', summary: 'No static analysis configured.', plan: '_No static analysis command is set for this repository — the worker\'s setup page (Change repositories → the repository → Static analysis) takes one, e.g. `npx eslint .`, `dotnet build`, `go vet ./...`._' }
   }
-  const plant = planted(ctx, dir ?? repo.path, log)
-  if (plant) return { status: 'refused', error: plant }
   // the program's name, not where it lives on this machine
   const name = commandName(argv[0]!)
   const shown = clip(scrub.text([name, ...argv.slice(1)].join(' ')), 160)
@@ -495,7 +509,7 @@ async function analyzeStage(ctx: StageContext, scrub: Scrubber, log: Log, dir: s
   let lines = 0
   const res = await runAnalysis(repo, dir ?? repo.path, ctx.signal, (line) => {
     if (lines++ < 200) log('test', line)
-  })
+  }, (s) => scrub.text(s))
   if (ctx.signal.aborted) return { status: 'stopped', error: 'Stopped in One.' }
   if (res.notStarted) notStartedLine(res.notStarted, name, log)
   const output = scrub.text(res.output).trim()
@@ -559,14 +573,12 @@ async function testStage(ctx: StageContext, wt: TaskWorktree, scrub: Scrubber, l
     const test: TestResult = { ok: true, output: '', ms: 0, code: null, skipped: true }
     return { status: 'ok', branch: wt.branch, test, summary: 'No tests configured.', git: await gitSnapshot(ctx, wt, scrub) }
   }
-  const plant = planted(ctx, wt.dir, log)
-  if (plant) return { status: 'refused', branch: wt.branch, error: plant }
   log('test', 'Running the tests…', 'testsRun')
   let lines = 0
   const { notStarted, ...res } = await runTests(ctx.repo, wt.dir, ctx.signal, (line) => {
     // the first lines live; the whole tail comes with the result
     if (lines++ < 200) log('test', line)
-  })
+  }, (s) => scrub.text(s))
   const test: TestResult = { ...res, output: scrub.text(res.output) }
   if (notStarted) {
     const name = commandName(ctx.repo.testCommand[0]!)

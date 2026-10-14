@@ -50,6 +50,8 @@ interface Upload {
 /** raw bytes per chunk (base64 on the wire stays below the link's 8 MB) */
 export const INTAKE_CHUNK = 4 * 1024 * 1024
 const IDLE_MS = 10 * 60_000
+/** 1234 → "1.2 s" (the terminal's import times) */
+const secs = (ms: number) => `${(ms / 1000).toFixed(1)} s`
 const TASK_ID = /^[A-Za-z0-9_-]{1,64}$/
 
 export class Intake {
@@ -138,7 +140,13 @@ export class Intake {
     this.running = u.taskId
     this.host.log(`import for task ${u.taskId}: unpacking ${u.file} into ${base}`)
     void importZip(u.tmp, base, name, u.file, (p) => this.host.event(u.taskId, { state: 'running', source: 'zip', label: u.file, line: `${p.files} files · ${(p.bytes / 1024 / 1024).toFixed(1)} MB`, percent: 60 }))
-      .then(async ({ dir, files }) => this.adopt(u.taskId, 'zip', u.file, dir, `${files} files`, suggestName(dir, name)))
+      .then(async ({ dir, files, times }) => {
+        // where an import's time goes (this terminal only): unpacking, the guard, the commit — then adding it
+        this.host.log(`import for task ${u.taskId}: ${files} files unpacked in ${secs(times.unpack)} · guard ${secs(times.guard)} · commit ${secs(times.commit)}`)
+        const t = Date.now()
+        await this.adopt(u.taskId, 'zip', u.file, dir, `${files} files`, suggestName(dir, name))
+        this.host.log(`import for task ${u.taskId}: added in ${secs(Date.now() - t)}`)
+      })
       .catch((e: unknown) => this.fail(u.taskId, 'zip', u.file, e))
       .finally(() => {
         this.running = null

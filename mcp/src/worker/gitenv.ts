@@ -148,13 +148,17 @@ function configGet(args: string[], cwd: string, env: NodeJS.ProcessEnv, timeoutM
 /* ------------------------------------------------------------------ hints */
 
 /** What a git error means for the person (the codes One shows in their language). */
-export type GitHintCode = 'longpaths' | 'sshHostKey' | 'sshKey' | 'gitSignIn' | 'dubiousOwnership' | 'gitLock'
+export type GitHintCode = 'longpaths' | 'sshHostKey' | 'sshKey' | 'gitSignIn' | 'dubiousOwnership' | 'gitLock' | 'gitIdentity'
+
+/** git refuses a commit because it does not know who commits (no user.name / user.email, nothing it can guess). */
+export const IDENTITY = /unable to auto-detect email address|empty ident name|Please tell me who you are|Author identity unknown|Committer identity unknown|no email was given and auto-detection is disabled|no name was given and auto-detection is disabled/i
 
 /** The hint for git's message (null: none). "Filename too long" only on Windows (its 260-character limit). */
 export function gitHint(text: string, platform: NodeJS.Platform = process.platform): GitHintCode | null {
   const s = text.replace(/\r/g, '\n')
   if (/detected dubious ownership/i.test(s)) return 'dubiousOwnership'
   if (/index\.lock'?: File exists/i.test(s)) return 'gitLock'
+  if (IDENTITY.test(s)) return 'gitIdentity'
   if (/Host key verification failed|HOST IDENTIFICATION HAS CHANGED/i.test(s)) return 'sshHostKey'
   if (/Permission denied \(publickey|Load key .*passphrase/i.test(s)) return 'sshKey'
   if (/could not read (?:Username|Password)|terminal prompts disabled|Authentication failed/i.test(s)) return 'gitSignIn'
@@ -178,6 +182,8 @@ export function hintLine(code: GitHintCode, at: { repo: string; remote: string }
       return { c: code, v: { repo }, s: `git refuses ${repo}: the folder belongs to another user account (git calls it “dubious ownership”). If it is yours, mark it as safe with \`git config --global --add safe.directory\` and the folder — the worker’s terminal shows the exact line. The worker never sets this itself.` }
     case 'gitLock':
       return { c: code, v: { repo }, s: `git in ${repo} is blocked by a lock file (index.lock) that a stopped git left behind. When no git runs there, delete the file the worker’s terminal names, then press Retry.` }
+    case 'gitIdentity':
+      return { c: code, v: { repo }, s: `git in ${repo} does not know who commits: user.name and user.email are not set. Run \`git config --global user.name "Your Name"\` and \`git config --global user.email you@example.com\` once in a terminal, then press Retry.` }
   }
 }
 

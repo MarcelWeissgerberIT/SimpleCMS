@@ -606,11 +606,13 @@ describe('limits and refusals', () => {
 
     const slow = tab.run(task({ kind: 'implement' }, { id: 'slow1abc', text: 'FAKE:SLOW' }))
     await waitFor(() => tab.messages.some((m) => m.type === 'event' && m.kind === 'log' && m.lines.some((l) => /Working… step 3/.test(l.s))), 10_000)
+    // the heartbeat confirms the claim while it runs (every 400 ms here): waited for before the stop — a heartbeat comes
+    // only while a run is on, and step 3 can come sooner than the first one
+    await waitFor(() => tab.heartbeats >= 1, 10_000, () => worker!.stderr())
     const stop = await tab.request({ op: 'stop', taskId: 'slow1abc' })
     assert.deepEqual((stop as { result: unknown }).result, { stopped: true })
     const stopped = await slow
     assert.equal(stopped.status, 'stopped')
-    // the heartbeat confirmed the claim while it ran
     assert.ok(tab.heartbeats >= 1)
   })
 

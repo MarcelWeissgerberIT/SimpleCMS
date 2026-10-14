@@ -16,12 +16,15 @@
  *    with every argument escaped. Nothing One sends and nothing from a repository ever reaches a cmd.exe line:
  *    Claude Code never runs through cmd.exe, git only as an .exe, gh / glab as an .exe or a shim the reader reads.
  *  - system tools (cmd, taskkill, powershell) by their absolute path in %SystemRoot%\System32
- *  - every child gets NoDefaultCurrentDirectoryInExePath: what IT starts by a bare name is not looked up in its working
- *    folder either (cmd.exe; libuv in a Node child). Lookups that ignore the variable (node-which in cross-spawn / execa,
- *    Bun's own) remain — a stage never starts while its folder holds a program such a lookup would take
- *    (plantedProgram; run.ts refuses the stage)
- *  - a file inside the working folder is named from there (`.\tools\x.exe`): the folder's own path — a worktree named
- *    after a branch from One — never reaches a command line or a cmd.exe line
+ *  - the programs the worker starts by itself (git, Claude Code, gh, glab, the System32 tools) get
+ *    NoDefaultCurrentDirectoryInExePath: what THEY start by a bare name is not looked up in their working folder either
+ *    (cmd.exe; libuv in a Node child). The person's own commands (testCommand / analyzeCommand, ONE_WORKER_BROWSER /
+ *    _PICKER: allow 'person') keep their environment as it is — their scripts may call a program in their folder by its
+ *    bare name (`gradlew`). Lookups that ignore the variable (node-which in cross-spawn / execa, Bun's own) remain: a
+ *    Claude Code stage never starts while its folder holds a program such a lookup could take (plantedProgram, run.ts)
+ *  - a file inside the working folder is named from there (`.\tools\x.exe`) — at the spawn, from THAT spawn's working
+ *    folder (spawnForm): the folder's own path (a worktree named after a branch from One) never reaches a command line
+ *    or a cmd.exe line. What resolveCommand returns (and `check` shows) stays absolute.
  * Not covered (the launched program's own hygiene): DLLs a program loads from its own folder or the working folder.
  *
  * spawnSafe / execFileSafe / execFileSyncSafe never throw and never reject: a program that cannot start is code 127
@@ -49,8 +52,13 @@ export interface ExecCtx {
 /** git: an .exe only · claude, gh, glab (default): an .exe or a shim the reader reads · the person's own commands: + cmd.exe */
 export type Allow = 'exe' | 'shim' | 'person'
 
+/**
+ * What runs, with absolute paths (a stored one stays right whatever folder it starts from later). `script`: the index in
+ * `args` of the script a Node shim runs · `line`: what a cmd.exe line is built from. spawnForm names files inside the
+ * spawn's working folder from there.
+ */
 export type Resolved =
-  | { ok: true; file: string; args: string[]; via: Via; verbatim: boolean; env?: Record<string, string> }
+  | { ok: true; file: string; args: string[]; via: Via; verbatim: boolean; env?: Record<string, string>; script?: number; line?: { argv: string[]; double: boolean } }
   | { ok: false; code: 127; why: 'missing' | 'refused'; error: string }
 
 /** What a .cmd / .bat shim runs: a script with Node, or another program (an .exe, or a shim to read next). */
@@ -205,24 +213,38 @@ export function resolveCommand(cmd: string, args: string[], ctx?: Partial<ExecCt
 }
 
 /**
- * A file inside the working folder, named from there (`.\tools\x.exe`) — the child resolves it against that same folder.
- * So the folder's own path (a task's worktree, named after a branch One or a remote chose) never reaches argv[0], a
- * script argument or a cmd.exe line: what is left there is what the person typed, their PATH, or this Node.
+ * A file inside the working folder `cwd`, named from there (`.\tools\x.exe`) — the child resolves it against that same
+ * folder. Only at a spawn, from that spawn's own working folder (spawnForm): a name made for one folder is wrong in any
+ * other. So the folder's own path (a task's worktree, named after a branch One or a remote chose) never reaches argv[0],
+ * a script argument or a cmd.exe line: what is left there is what the person typed, their PATH, or this Node.
  */
 export function fromCwd(p: string, cwd: string): string {
   const rel = win32.relative(cwd, p)
   return rel && !rel.startsWith('..') && !win32.isAbsolute(rel) ? `.\\${rel}` : p
 }
 
+/**
+ * The program and arguments a spawn in `cwd` gets (Windows): every file inside `cwd` named from there — the program, a
+ * Node shim's script, a cmd.exe line's own file (the line is built here). Elsewhere `r` as it is.
+ */
+export function spawnForm(r: Extract<Resolved, { ok: true }>, cwd: string, platform: NodeJS.Platform = process.platform): { file: string; args: string[] } {
+  if (platform !== 'win32') return { file: r.file, args: r.args }
+  if (r.line) {
+    const line = cmdLine([fromCwd(r.line.argv[0]!, cwd), ...r.line.argv.slice(1)], r.line.double)
+    return { file: r.file, args: ['/d', '/v:off', '/s', '/c', `"${line}"`] }
+  }
+  return { file: fromCwd(r.file, cwd), args: r.script === undefined ? r.args : r.args.map((a, i) => (i === r.script ? fromCwd(a, cwd) : a)) }
+}
+
 function classify(file: string, args: string[], c: ExecCtx, allow: Allow, depth: number, name: string): Resolved {
   const ext = extOf(file)
-  if (ext === '.exe' || ext === '.com') return { ok: true, file: fromCwd(file, c.cwd), args, via: 'direct', verbatim: false }
+  if (ext === '.exe' || ext === '.com') return { ok: true, file, args, via: 'direct', verbatim: false }
   if (allow === 'exe') return { ok: false, code: 127, why: 'refused', error: `${name} is a ${ext || 'file without an extension'} — only a program (.exe) is started for it` }
-  if (JS.has(ext)) return { ok: true, file: fromCwd(c.execPath, c.cwd), args: [fromCwd(file, c.cwd), ...args], via: 'node-shim', verbatim: false }
+  if (JS.has(ext)) return { ok: true, file: c.execPath, args: [file, ...args], via: 'node-shim', verbatim: false, script: 0 }
   if (ext === '.cmd' || ext === '.bat') {
     const text = c.readFile(file)
     const shim = text === null ? null : readShim(text, file, c)
-    if (shim?.kind === 'node') return { ok: true, file: fromCwd(shim.node, c.cwd), args: [...shim.pre, fromCwd(shim.script, c.cwd), ...args], via: 'node-shim', verbatim: false, ...(shim.env ? { env: shim.env } : {}) }
+    if (shim?.kind === 'node') return { ok: true, file: shim.node, args: [...shim.pre, shim.script, ...args], via: 'node-shim', verbatim: false, script: shim.pre.length, ...(shim.env ? { env: shim.env } : {}) }
     if (shim?.kind === 'target' && depth < 3) return classify(shim.file, args, c, allow, depth + 1, name)
     if (allow === 'person') return comspec(file, args, c, name)
     return { ok: false, code: 127, why: 'refused', error: `${name} is a ${ext} file the worker cannot read as a shim — it never starts it through cmd.exe` }
@@ -230,21 +252,28 @@ function classify(file: string, args: string[], c: ExecCtx, allow: Allow, depth:
   return { ok: false, code: 127, why: 'missing', error: `${name} is not a program the worker starts (.exe, .cmd, .bat or a Node script)` }
 }
 
-/** The person's own .cmd / .bat through cmd.exe: /d (no AutoRun) /v:off (no !var!) /s /c "<escaped line>". */
+/**
+ * The person's own .cmd / .bat through cmd.exe: /d (no AutoRun) /v:off (no !var!) /s /c "<escaped line>" — here with
+ * the file's absolute path; spawnForm builds the line a spawn gets, the file named from its working folder.
+ */
 function comspec(file: string, args: string[], c: ExecCtx, name: string): Resolved {
-  const line = cmdLine([fromCwd(file, c.cwd), ...args], BIN_SHIM.test(file))
+  const double = BIN_SHIM.test(file)
+  const line = cmdLine([file, ...args], double)
   if (line === null) return { ok: false, code: 127, why: 'refused', error: `${name} runs through cmd.exe, which cannot pass an argument with a line break` }
-  return { ok: true, file: systemTool('cmd', c.env, 'win32', c.exists), args: ['/d', '/v:off', '/s', '/c', `"${line}"`], via: 'comspec', verbatim: true }
+  return { ok: true, file: systemTool('cmd', c.env, 'win32', c.exists), args: ['/d', '/v:off', '/s', '/c', `"${line}"`], via: 'comspec', verbatim: true, line: { argv: [file, ...args], double } }
 }
 
 /* ------------------------------------------------------------------ programs planted in a working folder */
 
 /**
- * Programs tools start by their bare name: Claude Code's own git, a test runner's node / npm / npx, shells, ssh, ripgrep,
- * Python, the host CLIs, Windows' own helpers.
+ * Programs tools start by their bare name, whatever is installed: Claude Code's own git, a test runner's node / npm /
+ * npx, shells, ssh, ripgrep, Python, the host CLIs, the usual MCP server launchers (uv / uvx, bunx, deno, docker,
+ * podman, pipx, java, dotnet), Windows' own helpers.
  */
-export const BY_NAME = ['git', 'git-lfs', 'claude', 'node', 'npm', 'npx', 'pnpm', 'pnpx', 'yarn', 'corepack', 'bun', 'gh', 'glab', 'ssh', 'bash', 'sh', 'cmd', 'powershell', 'pwsh', 'where', 'rg', 'python', 'python3', 'py', 'cygpath', 'taskkill', 'tasklist']
-/** What Windows runs by a name: Windows' own PATHEXT list (scripts for the Windows Script Host too) — and the person's PATHEXT. */
+export const BY_NAME = ['git', 'claude', 'node', 'npm', 'npx', 'pnpm', 'yarn', 'corepack', 'bash', 'sh', 'ssh', 'gh', 'glab', 'rg', 'cmd', 'powershell', 'pwsh', 'where', 'python', 'py', 'uv', 'uvx', 'bunx', 'bun', 'deno', 'docker', 'podman', 'pipx', 'java', 'dotnet', 'git-lfs', 'pnpx', 'python3', 'cygpath', 'taskkill', 'tasklist']
+/** What a lookup by name may run on Windows: Windows' own PATHEXT list, PowerShell scripts — and the person's PATHEXT. */
+const RUNNABLE_WINDOWS = ['.com', '.exe', '.bat', '.cmd', '.ps1', '.vbs', '.vbe', '.js', '.jse', '.wsf', '.wsh', '.msc']
+/** Windows' own PATHEXT (what cmd.exe and node-which use while the variable is not set). */
 const PATHEXT_WINDOWS = ['.com', '.exe', '.bat', '.cmd', '.vbs', '.vbe', '.js', '.jse', '.wsf', '.wsh', '.msc']
 
 const topFiles = (dir: string): string[] => {
@@ -257,24 +286,68 @@ const topFiles = (dir: string): string[] => {
   }
 }
 
-/**
- * Windows: a program at the top of `dir` that a lookup by name would take — git.exe, claude.exe, npm.cmd, node.js …
- * (null: none; elsewhere always null). The worker's children never look in their working folder (noCwdLookup), but some
- * lookups ignore that: node-which in cross-spawn / execa — Claude Code's own `git` among them — and Bun's own check the
- * working folder first. So a stage does not start in a folder holding one (run.ts). Only the name is returned.
- */
-export function plantedProgram(dir: string, opts: { platform?: NodeJS.Platform; env?: NodeJS.ProcessEnv; list?: (dir: string) => string[] } = {}): string | null {
-  if ((opts.platform ?? process.platform) !== 'win32') return null
-  const own = (envGet(opts.env ?? process.env, 'PATHEXT', 'win32') ?? '')
+/** The extensions of PATHEXT as written in `env` (lower case; [] when it is not set). */
+const ownPathExt = (env: NodeJS.ProcessEnv) =>
+  (envGet(env, 'PATHEXT', 'win32') ?? '')
     .split(';')
     .map((e) => e.trim().toLowerCase())
     .filter((e) => /^\.[a-z0-9]{1,8}$/.test(e))
-  const exts = new Set([...PATHEXT_WINDOWS, ...own])
-  for (const name of [...(opts.list ?? topFiles)(dir)].sort()) {
-    // Windows drops a trailing dot or space: "git.exe." opens git.exe
-    const n = name.toLowerCase().replace(/[. ]+$/, '')
+
+/** A file name as Windows opens it (a trailing dot or space dropped: "git.exe." opens git.exe), lower case. */
+const winName = (name: string) => name.toLowerCase().replace(/[. ]+$/, '')
+
+/**
+ * The base names (lower case, no extension) of every program a lookup by name finds in PATH's folders (absolute entries;
+ * PATHEXT of `env`, else Windows' own) — `list` reads a folder's files.
+ */
+export function programsOnPath(env: NodeJS.ProcessEnv, list: (dir: string) => string[] = topFiles): Set<string> {
+  const own = ownPathExt(env)
+  const exts = new Set(own.length ? own : PATHEXT_WINDOWS)
+  const out = new Set<string>()
+  // each folder once (C:\Tools\ and C:\tools are one), read as PATH names it
+  const dirs = new Map(pathDirs(env).map((d) => [d.toLowerCase().replace(/[\\/]+$/, ''), d] as const))
+  for (const dir of dirs.values()) {
+    for (const f of list(dir)) {
+      const n = winName(f)
+      const ext = win32.extname(n)
+      if (ext && exts.has(ext)) out.add(n.slice(0, -ext.length))
+    }
+  }
+  return out
+}
+
+/** The base name of a program a command names (`C:\tools\uvx.exe` → uvx, `npx` → npx): its extension off only when it is one a lookup runs. */
+export function programName(cmd: string, env: NodeJS.ProcessEnv = process.env): string {
+  const n = winName(win32.basename(cmd.trim().replace(/^"(.*)"$/, '$1')))
+  const ext = win32.extname(n)
+  return ext && new Set([...RUNNABLE_WINDOWS, ...ownPathExt(env)]).has(ext) ? n.slice(0, -ext.length) : n
+}
+
+/**
+ * Windows: a program at the top of `dir` that a lookup by name could take instead of the real one (null: none; elsewhere
+ * always null). The worker's own programs never look in their working folder (noCwdLookup), but some lookups ignore that:
+ * node-which in cross-spawn / execa — Claude Code's own `git`, the launchers of its MCP servers — and Bun's own check the
+ * working folder first. So a Claude Code stage does not start in a folder holding one (run.ts). A file counts when its
+ * extension is one such a lookup runs (the worker's PATHEXT ∪ RUNNABLE_WINDOWS) AND its base name (without case) is
+ *  - a program on PATH (programsOnPath — `gradlew.bat`, `build.cmd` stay allowed unless PATH has such a program),
+ *  - one of `names` (run.ts: the launchers of the person's MCP servers), or
+ *  - BY_NAME.
+ * Only the file's name is returned (the first in sorted order).
+ */
+export function plantedProgram(dir: string, opts: { platform?: NodeJS.Platform; env?: NodeJS.ProcessEnv; list?: (dir: string) => string[]; names?: Iterable<string> } = {}): string | null {
+  if ((opts.platform ?? process.platform) !== 'win32') return null
+  const env = opts.env ?? process.env
+  const list = opts.list ?? topFiles
+  const exts = new Set([...RUNNABLE_WINDOWS, ...ownPathExt(env)])
+  const named = new Set([...BY_NAME, ...[...(opts.names ?? [])].map((n) => n.toLowerCase())])
+  let onPath: Set<string> | null = null
+  for (const name of [...list(dir)].sort()) {
+    const n = winName(name)
     const ext = win32.extname(n)
-    if (ext && exts.has(ext) && BY_NAME.includes(n.slice(0, -ext.length))) return name
+    if (!ext || !exts.has(ext)) continue
+    const base = n.slice(0, -ext.length)
+    // PATH's folders are read once, and only for a file with such an extension
+    if (named.has(base) || (onPath ??= programsOnPath(env, list)).has(base)) return name
   }
   return null
 }
@@ -458,6 +531,15 @@ export type Spawned = { ok: true; child: ChildProcess; via: Via; file: string } 
 
 const errCode = (e: unknown) => String((e as NodeJS.ErrnoException)?.code ?? (e instanceof Error ? e.name : 'error'))
 
+/**
+ * A Windows child's environment: the program's own variables (a shim's NODE_PATH) on top, and — for the programs the
+ * worker starts by itself, never the person's own commands (allow 'person') — NoDefaultCurrentDirectoryInExePath.
+ */
+function childEnv(env: NodeJS.ProcessEnv, r: Extract<Resolved, { ok: true }>, allow: Allow): NodeJS.ProcessEnv {
+  const all = r.env ? { ...env, ...r.env } : env
+  return allow === 'person' ? all : noCwdLookup(all, 'win32')
+}
+
 /** Start a program (never throws). An ENOENT on macOS / Linux arrives later, as the child's 'error' event. */
 export function spawnSafe(cmd: string, args: string[], opts: SpawnSafeOptions = {}): Spawned {
   const { allow = 'shim', ctx, ...rest } = opts
@@ -466,12 +548,14 @@ export function spawnSafe(cmd: string, args: string[], opts: SpawnSafeOptions = 
   const r = resolveCommand(cmd, args, c, allow)
   if (!r.ok) return r
   const win = c.platform === 'win32'
+  // Windows: files inside the working folder named from there — this spawn's folder (fromCwd)
+  const run = spawnForm(r, c.cwd, c.platform)
   try {
-    const child = spawn(r.file, r.args, {
+    const child = spawn(run.file, run.args, {
       ...rest,
-      // Windows: the folder a file inside it is named from (fromCwd) — and the child never looks there by name either
+      // Windows: the folder a file inside it is named from (spawnForm) — and the worker's own programs never look there by name
       ...(win ? { cwd: c.cwd } : {}),
-      env: win ? noCwdLookup(r.env ? { ...env, ...r.env } : env, 'win32') : r.env ? { ...env, ...r.env } : rest.env,
+      env: win ? childEnv(env, r, allow) : r.env ? { ...env, ...r.env } : rest.env,
       shell: false,
       // a caller's own verbatim line only for a program started as it is (the opener's `start ""`)
       windowsVerbatimArguments: r.verbatim || (r.via === 'direct' && !!rest.windowsVerbatimArguments),
@@ -576,13 +660,15 @@ export interface SyncResult {
 export function execFileSyncSafe(cmd: string, args: string[], opts: { cwd?: string; env?: NodeJS.ProcessEnv; timeoutMs: number; maxBuffer?: number; allow?: Allow; ctx?: Partial<ExecCtx> }): SyncResult {
   const env = opts.env ?? process.env
   const c = fullCtx({ ...opts.ctx, env, cwd: opts.cwd ?? opts.ctx?.cwd ?? process.cwd() })
-  const r = resolveCommand(cmd, args, c, opts.allow ?? 'shim')
+  const allow = opts.allow ?? 'shim'
+  const r = resolveCommand(cmd, args, c, allow)
   if (!r.ok) return { code: 127, stdout: '', stderr: '', why: r.why }
   const win = c.platform === 'win32'
+  const run = spawnForm(r, c.cwd, c.platform)
   try {
-    const res = spawnSync(r.file, r.args, {
+    const res = spawnSync(run.file, run.args, {
       cwd: win ? c.cwd : opts.cwd,
-      env: win ? noCwdLookup(r.env ? { ...env, ...r.env } : env, 'win32') : r.env ? { ...env, ...r.env } : opts.env,
+      env: win ? childEnv(env, r, allow) : r.env ? { ...env, ...r.env } : opts.env,
       encoding: 'utf8',
       timeout: opts.timeoutMs,
       maxBuffer: opts.maxBuffer ?? 8 * 1024 * 1024,

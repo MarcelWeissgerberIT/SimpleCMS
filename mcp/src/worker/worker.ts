@@ -601,9 +601,13 @@ export class Worker {
    */
   intakeScrub(st: IntakeState): IntakeState {
     const base = cloneBase(this.config.cloneDir)
-    const sc = new Scrubber([[typeof base === 'string' ? base : null, '<clones>']])
+    const key = typeof base === 'string' ? base : ''
+    // made once per clone folder: building one reads the disk (realpath, Windows' short names) — never once per event
+    if (this.intakeScrubber?.key !== key) this.intakeScrubber = { key, sc: new Scrubber([[key || null, '<clones>']]) }
+    const sc = this.intakeScrubber.sc
     return { ...st, label: sc.text(st.label), line: sc.text(st.line), ...(st.error !== undefined ? { error: sc.text(st.error) } : {}) }
   }
+  private intakeScrubber: { key: string; sc: Scrubber } | null = null
 
   private intakeEvent(taskId: string, raw: IntakeState) {
     const intake = this.intakeScrub(raw)

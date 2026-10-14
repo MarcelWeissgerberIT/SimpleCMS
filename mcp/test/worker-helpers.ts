@@ -203,9 +203,12 @@ export interface SpawnedWorker extends StartedWorker {
   write: (text: string) => void
 }
 
-/** A child's base environment: Windows the whole one (node.exe cannot open a socket without SystemRoot; ComSpec, PATHEXT,
- * TEMP …), elsewhere PATH and HOME as before. */
-export const baseEnv = (): Record<string, string | undefined> => (IS_WIN ? { ...process.env } : { PATH: process.env.PATH ?? '', HOME: process.env.HOME ?? '' })
+/**
+ * A child's base environment: Windows the whole one (node.exe cannot open a socket without SystemRoot; ComSpec, PATHEXT,
+ * TEMP …), elsewhere PATH, HOME and TMPDIR — the temp folder a person's terminal hands the worker (macOS: a per-user
+ * /var/folders/…/T, whose files tools print as /private/var/…): the worker knows the folder the tests' paths lie in.
+ */
+export const baseEnv = (): Record<string, string | undefined> => (IS_WIN ? { ...process.env } : { PATH: process.env.PATH ?? '', HOME: process.env.HOME ?? '', TMPDIR: process.env.TMPDIR })
 
 /** Start a worker file (the bundle, or a download with a preset) — never opens a real browser. */
 export async function spawnWorker(opts: { bundle: string; args?: string[]; env?: Record<string, string>; home?: string; stdin?: boolean; cwd?: string }): Promise<SpawnedWorker> {

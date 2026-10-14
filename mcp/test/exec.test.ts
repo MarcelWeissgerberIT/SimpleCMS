@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { after, describe, test } from 'node:test'
-import { cmdLine, commandName, envGet, execFileSafe, execFileSyncSafe, fromCwd, killTree, noCwdLookup, pathKey, plantedProgram, readShim, resolveCommand, spawnSafe, systemTool, type Allow, type ExecCtx } from '../src/worker/exec.ts'
+import { BY_NAME, cmdLine, commandName, envGet, execFileSafe, execFileSyncSafe, fromCwd, killTree, noCwdLookup, pathKey, plantedProgram, programName, programsOnPath, readShim, resolveCommand, spawnForm, spawnSafe, systemTool, type Allow, type ExecCtx, type Resolved } from '../src/worker/exec.ts'
 import { pathId, samePath } from '../src/worker/paths.ts'
 import { detectClaude, gitBash } from '../src/worker/claude.ts'
 import { runAnalysis, runTests } from '../src/worker/testrun.ts'
@@ -212,13 +212,15 @@ describe('exec — Windows resolution (injected platform)', () => {
     const files = { [String.raw`C:\repo\gradlew`]: '#!/bin/sh', [String.raw`C:\repo\gradlew.bat`]: '@echo off\r\nsetlocal enabledelayedexpansion\r\n', [String.raw`C:\tools\x.exe`]: 'MZ', [String.raw`C:\repo\tools\lint.cmd`]: SHIM_PWSH }
     // `.\gradlew test` on Windows: the sh script is skipped, gradlew.bat (unreadable as a shim) runs through cmd.exe — person only
     const g = resolveCommand('./gradlew', ['test'], win(files, { ComSpec: String.raw`C:\Windows\system32\cmd.exe` }), 'person')
-    // the script inside the working folder is named from there (fromCwd): the folder's own path stays off the line
-    assert.deepEqual(g, { ok: true, file: String.raw`C:\Windows\System32\cmd.exe`, args: ['/d', '/v:off', '/s', '/c', String.raw`".\gradlew.bat ^"test^""`], via: 'comspec', verbatim: true })
+    // resolved: the absolute file (what `check` would show); the spawn names it from its own working folder (spawnForm)
+    assert.deepEqual(g, { ok: true, file: String.raw`C:\Windows\System32\cmd.exe`, args: ['/d', '/v:off', '/s', '/c', String.raw`"C:\repo\gradlew.bat ^"test^""`], via: 'comspec', verbatim: true, line: { argv: [String.raw`C:\repo\gradlew.bat`, 'test'], double: false } })
+    assert.deepEqual(g.ok && spawnForm(g, String.raw`C:\repo`, 'win32'), { file: String.raw`C:\Windows\System32\cmd.exe`, args: ['/d', '/v:off', '/s', '/c', String.raw`".\gradlew.bat ^"test^""`] })
     assert.equal(resolveCommand(String.raw`.\gradlew.bat`, ['test'], win(files), 'shim').ok, false)
     assert.deepEqual(resolveCommand(String.raw`C:\tools\x`, ['-a'], win(files)), { ok: true, file: String.raw`C:\tools\x.exe`, args: ['-a'], via: 'direct', verbatim: false })
-    assert.equal((resolveCommand('tools/lint', [], win(files), 'person') as { args: string[] }).args[4], String.raw`".\tools\lint.cmd"`)
+    const lint = resolveCommand('tools/lint', [], win(files), 'person')
+    assert.equal(lint.ok && spawnForm(lint, String.raw`C:\repo`, 'win32').args[4], String.raw`".\tools\lint.cmd"`)
     // CLAUDE_BIN = Claude Code's cli.js: this Node runs it
-    assert.deepEqual(resolveCommand(CLAUDE_JS, ['--version'], win({ [CLAUDE_JS]: '' })), { ok: true, file: NODE, args: [CLAUDE_JS, '--version'], via: 'node-shim', verbatim: false })
+    assert.deepEqual(resolveCommand(CLAUDE_JS, ['--version'], win({ [CLAUDE_JS]: '' })), { ok: true, file: NODE, args: [CLAUDE_JS, '--version'], via: 'node-shim', verbatim: false, script: 0 })
     // .ps1 / .vbs / no extension: not a program the worker starts
     assert.equal(resolveCommand(String.raw`C:\tools\run.ps1`, [], win({ [String.raw`C:\tools\run.ps1`]: '' }), 'person').ok, false)
   })
@@ -243,7 +245,7 @@ describe('exec — Windows resolution (injected platform)', () => {
     const claude = `${NPM_DIR}\\claude.cmd`
     for (const text of [SHIM_V7, SHIM_V4]) {
       const r = resolveCommand('claude', ['-p', '--model', 'x y'], win({ [claude]: text, [CLAUDE_JS]: '' }, { PATH: NPM_DIR }))
-      assert.deepEqual(r, { ok: true, file: NODE, args: [CLAUDE_JS, '-p', '--model', 'x y'], via: 'node-shim', verbatim: false })
+      assert.deepEqual(r, { ok: true, file: NODE, args: [CLAUDE_JS, '-p', '--model', 'x y'], via: 'node-shim', verbatim: false, script: 0 })
     }
     // a node.exe beside the shim is the one it would take
     const near = `${NPM_DIR}\\node.exe`
@@ -251,7 +253,7 @@ describe('exec — Windows resolution (injected platform)', () => {
     // the shebang's flags come along, before the script
     const flagged = `${NPM_DIR}\\flagged.cmd`
     const run = `${NPM_DIR}\\node_modules\\flagged\\run.js`
-    assert.deepEqual(resolveCommand('flagged', ['a'], win({ [flagged]: SHIM_V7_FLAGS, [run]: '' }, { PATH: NPM_DIR })), { ok: true, file: NODE, args: ['--max-old-space-size=4096', run, 'a'], via: 'node-shim', verbatim: false })
+    assert.deepEqual(resolveCommand('flagged', ['a'], win({ [flagged]: SHIM_V7_FLAGS, [run]: '' }, { PATH: NPM_DIR })), { ok: true, file: NODE, args: ['--max-old-space-size=4096', run, 'a'], via: 'node-shim', verbatim: false, script: 1 })
     // a bin without a shebang: its .exe
     const tool = `${NPM_DIR}\\tool.cmd`
     const exe = `${NPM_DIR}\\node_modules\\tool\\bin\\tool.exe`
@@ -269,12 +271,12 @@ describe('exec — Windows resolution (injected platform)', () => {
     const dir = String.raw`C:\Program Files\nodejs`
     const npm = `${dir}\\npm.cmd`
     const js = `${dir}\\node_modules\\corepack\\dist\\npm.js`
-    assert.deepEqual(resolveCommand('npm', ['test'], win({ [npm]: SHIM_PNPM, [js]: '', [NODE]: 'MZ' }, { PATH: dir })), { ok: true, file: NODE, args: [js, 'test'], via: 'node-shim', verbatim: false })
+    assert.deepEqual(resolveCommand('npm', ['test'], win({ [npm]: SHIM_PNPM, [js]: '', [NODE]: 'MZ' }, { PATH: dir })), { ok: true, file: NODE, args: [js, 'test'], via: 'node-shim', verbatim: false, script: 0 })
     const pnpm = String.raw`C:\Users\Max Muster\AppData\Local\pnpm`
     const eslint = `${pnpm}\\global\\5\\node_modules\\eslint\\bin\\eslint.js`
     const np = String.raw`C:\Users\Max Muster\AppData\Local\pnpm\global\5\node_modules`
     const files = { [`${pnpm}\\eslint.cmd`]: SHIM_PNPM_NODE_PATH, [eslint]: '' }
-    assert.deepEqual(resolveCommand('eslint', ['.'], win(files, { PATH: pnpm })), { ok: true, file: NODE, args: [eslint, '.'], via: 'node-shim', verbatim: false, env: { NODE_PATH: np } })
+    assert.deepEqual(resolveCommand('eslint', ['.'], win(files, { PATH: pnpm })), { ok: true, file: NODE, args: [eslint, '.'], via: 'node-shim', verbatim: false, script: 0, env: { NODE_PATH: np } })
     assert.deepEqual((resolveCommand('eslint', ['.'], win(files, { PATH: pnpm, Node_Path: String.raw`D:\libs` })) as { env: unknown }).env, { Node_Path: `${np};D:\\libs` })
   })
 
@@ -283,7 +285,7 @@ describe('exec — Windows resolution (injected platform)', () => {
     for (const [cli, text] of [['npm', NPM_CMD('npm')], ['npx', NPM_CMD('npx')], ['npm', NPM_CMD_OLD]] as const) {
       const js = `${dir}\\node_modules\\npm\\bin\\${cli}-cli.js`
       const r = resolveCommand(cli, ['test'], win({ [`${dir}\\${cli}.cmd`]: text, [js]: '', [NODE]: 'MZ' }, { Path: `C:\\Windows\\system32;${dir}` }), 'person')
-      assert.deepEqual(r, { ok: true, file: NODE, args: [js, 'test'], via: 'node-shim', verbatim: false })
+      assert.deepEqual(r, { ok: true, file: NODE, args: [js, 'test'], via: 'node-shim', verbatim: false, script: 0 })
     }
     // without node.exe beside it: this Node, never a PATH node
     const js = `${dir}\\node_modules\\npm\\bin\\npm-cli.js`
@@ -326,7 +328,7 @@ describe('exec — Windows resolution (injected platform)', () => {
       assert.equal(r.ok, false, name)
       assert.equal(!r.ok && r.why, 'refused', name)
       assert.equal(!r.ok && r.error, `${name} is a .cmd file the worker cannot read as a shim — it never starts it through cmd.exe`)
-      assert.deepEqual(resolveCommand(name, ['a&b'], win(files, env), 'person'), { ok: true, file: String.raw`C:\Windows\system32\cmd.exe`, args: ['/d', '/v:off', '/s', '/c', `"C:\\t\\${name}.cmd ^"a^&b^""`], via: 'comspec', verbatim: true })
+      assert.deepEqual(resolveCommand(name, ['a&b'], win(files, env), 'person'), { ok: true, file: String.raw`C:\Windows\system32\cmd.exe`, args: ['/d', '/v:off', '/s', '/c', `"C:\\t\\${name}.cmd ^"a^&b^""`], via: 'comspec', verbatim: true, line: { argv: [`C:\\t\\${name}.cmd`, 'a&b'], double: false } })
       assert.equal(resolveCommand(name, [], win(files, env), 'exe').ok, false)
     }
     // the reader directly
@@ -362,13 +364,26 @@ describe('exec — a child never looks in its working folder, and that folder ne
     assert.equal(noCwdLookup(env, 'darwin'), env)
   })
 
-  test('every child the exec layer starts carries it on Windows — spawnSafe, execFileSafe, execFileSyncSafe, with or without an env of the caller\'s (none elsewhere)', async () => {
+  test('every program the worker starts by itself carries it on Windows — spawnSafe, execFileSafe, execFileSyncSafe, with or without an env of the caller\'s (none elsewhere); the person\'s own commands never get it', async () => {
     const probe = ['-e', 'process.stdout.write(String(process.env.NoDefaultCurrentDirectoryInExePath))']
     const want = process.platform === 'win32' ? '1' : 'undefined'
     const env: NodeJS.ProcessEnv = { ...process.env }
     for (const k of Object.keys(env)) if (k.toLowerCase() === 'nodefaultcurrentdirectoryinexepath') delete env[k]
     assert.equal((await execFileSafe(process.execPath, probe, { timeoutMs: 20_000, env })).stdout, want)
     assert.equal(execFileSyncSafe(process.execPath, probe, { timeoutMs: 20_000, env }).stdout, want)
+    // testCommand / analyzeCommand, ONE_WORKER_BROWSER / _PICKER (allow 'person'): their scripts may call `gradlew` by its
+    // bare name in their own folder — their environment as it is, on every OS
+    assert.equal((await execFileSafe(process.execPath, probe, { timeoutMs: 20_000, env, allow: 'person' })).stdout, 'undefined')
+    assert.equal(execFileSyncSafe(process.execPath, probe, { timeoutMs: 20_000, env, allow: 'person' }).stdout, 'undefined')
+    // the test stage (the worker's own environment without the variable, as a person's terminal has it)
+    const had = Object.entries(process.env).filter(([k]) => k.toLowerCase() === 'nodefaultcurrentdirectoryinexepath')
+    for (const [k] of had) delete process.env[k]
+    try {
+      const tested = await runTests({ testCommand: [process.execPath, ...probe], testTimeoutSec: 20 } as unknown as RepoConfig, tmpdir(), new AbortController().signal)
+      assert.equal(tested.output, 'undefined')
+    } finally {
+      for (const [k, v] of had) process.env[k] = v
+    }
     if (!Object.keys(process.env).some((k) => k.toLowerCase() === 'nodefaultcurrentdirectoryinexepath')) assert.equal((await execFileSafe(process.execPath, probe, { timeoutMs: 20_000 })).stdout, want)
     const s = spawnSafe(process.execPath, probe, { env, stdio: ['ignore', 'pipe', 'ignore'] })
     assert.ok(s.ok)
@@ -378,7 +393,7 @@ describe('exec — a child never looks in its working folder, and that folder ne
     assert.equal(out, want)
   })
 
-  test('a file inside the working folder is named from there: the folder — a worktree named after a branch — never reaches argv[0], a script argument or a cmd.exe line', () => {
+  test('a file inside the working folder is named from there — at the spawn, from that spawn\'s folder: the folder (a worktree named after a branch) never reaches argv[0], a script argument or a cmd.exe line; what resolves stays absolute', () => {
     // a folder named with everything cmd.exe reads (as a branch from One or a remote could have named a worktree)
     const wt = String.raw`C:\Users\Max\.one-worktrees\shop\fix=1&calc^%x!y,z;(w) q`
     const files = {
@@ -390,37 +405,61 @@ describe('exec — a child never looks in its working folder, and that folder ne
       [String.raw`C:\tools\lint.bat`]: '@echo off\r\nsetlocal\r\n',
     }
     const ctx = win(files, { PATH: String.raw`C:\tools` }, wt)
+    type Ok = Extract<Resolved, { ok: true }>
+    const at = (r: Resolved, cwd = wt) => {
+      assert.ok(r.ok, JSON.stringify(r))
+      return spawnForm(r as Ok, cwd, 'win32')
+    }
     const bat = resolveCommand(String.raw`.\gradlew.bat`, ['test'], ctx, 'person')
-    assert.deepEqual(bat, { ok: true, file: String.raw`C:\Windows\System32\cmd.exe`, args: ['/d', '/v:off', '/s', '/c', String.raw`".\gradlew.bat ^"test^""`], via: 'comspec', verbatim: true })
-    assert.deepEqual(resolveCommand('tools/x', ['-a'], ctx, 'person'), { ok: true, file: String.raw`.\tools\x.exe`, args: ['-a'], via: 'direct', verbatim: false })
-    assert.deepEqual(resolveCommand(String.raw`.\scripts\test.mjs`, ['--ci'], ctx, 'person'), { ok: true, file: NODE, args: [String.raw`.\scripts\test.mjs`, '--ci'], via: 'node-shim', verbatim: false })
-    assert.deepEqual(resolveCommand(String.raw`.\node_modules\.bin\vitest.cmd`, ['run'], ctx, 'person'), { ok: true, file: NODE, args: [String.raw`.\node_modules\vitest\vitest.mjs`, 'run'], via: 'node-shim', verbatim: false })
+    assert.deepEqual(at(bat), { file: String.raw`C:\Windows\System32\cmd.exe`, args: ['/d', '/v:off', '/s', '/c', String.raw`".\gradlew.bat ^"test^""`] })
+    assert.deepEqual(at(resolveCommand('tools/x', ['-a'], ctx, 'person')), { file: String.raw`.\tools\x.exe`, args: ['-a'] })
+    assert.deepEqual(at(resolveCommand(String.raw`.\scripts\test.mjs`, ['--ci'], ctx, 'person')), { file: NODE, args: [String.raw`.\scripts\test.mjs`, '--ci'] })
+    assert.deepEqual(at(resolveCommand(String.raw`.\node_modules\.bin\vitest.cmd`, ['run'], ctx, 'person')), { file: NODE, args: [String.raw`.\node_modules\vitest\vitest.mjs`, 'run'] })
+    // only the script is named from the folder: an ARGUMENT that happens to be a path inside it stays as given
+    assert.deepEqual(at(resolveCommand(String.raw`.\scripts\test.mjs`, [`${wt}\\x`], ctx, 'person')).args, [String.raw`.\scripts\test.mjs`, `${wt}\\x`])
     // outside the folder: as found — the person's PATH, this Node
     const lint = resolveCommand('lint', ['x'], ctx, 'person')
-    assert.equal(lint.ok && lint.args[4], String.raw`"C:\tools\lint.bat ^"x^""`)
+    assert.equal(at(lint).args[4], String.raw`"C:\tools\lint.bat ^"x^""`)
     for (const r of [bat, lint, resolveCommand('tools/x', [], ctx), resolveCommand(String.raw`.\scripts\test.mjs`, [], ctx), resolveCommand(String.raw`.\node_modules\.bin\vitest.cmd`, [], ctx)]) {
-      assert.ok(r.ok, JSON.stringify(r))
-      const line = [r.file, ...r.args].join(' ')
+      const run = at(r)
+      const line = [run.file, ...run.args].join(' ')
       for (const part of ['.one-worktrees', 'shop', 'fix', 'calc', 'Max']) assert.ok(!line.includes(part), `${part} in ${line}`)
     }
+    // what resolves stays absolute — a file resolved for one folder and started from ANOTHER (Claude Code: found at the
+    // worker's start, run in a task's worktree) is named from that other folder, or by its path
+    const js = String.raw`C:\Users\Max\one-worker\tools\claude\cli.js`
+    const r = resolveCommand(js, ['-p'], { ...win({ [js]: '' }), cwd: String.raw`C:\Users\Max\one-worker` }) as Ok
+    assert.deepEqual(r.args, [js, '-p'])
+    assert.deepEqual(spawnForm(r, String.raw`C:\Users\Max\.one-worktrees\shop\t1`, 'win32').args, [js, '-p'])
+    assert.deepEqual(spawnForm(r, String.raw`C:\Users\Max\one-worker`, 'win32').args, [String.raw`.\tools\claude\cli.js`, '-p'])
+    // macOS / Linux: as resolved
+    assert.deepEqual(spawnForm({ ok: true, file: 'git', args: ['status'], via: 'direct', verbatim: false }, '/repo', 'linux'), { file: 'git', args: ['status'] })
     assert.equal(fromCwd(String.raw`C:\a\b\c.exe`, String.raw`c:\A`), String.raw`.\b\c.exe`)
     assert.equal(fromCwd(String.raw`C:\a\c.exe`, String.raw`C:\a\b`), String.raw`C:\a\c.exe`)
     assert.equal(fromCwd(String.raw`D:\a\c.exe`, String.raw`C:\a`), String.raw`D:\a\c.exe`)
   })
 
-  test('plantedProgram (Windows): a program a lookup by name would take at the top of a folder — its name only; build scripts, folders and other systems never', () => {
-    const at = (names: string[], env: NodeJS.ProcessEnv = {}) => plantedProgram(String.raw`C:\repo`, { platform: 'win32', env, list: () => names })
-    assert.equal(at(['README.md', 'gradlew', 'gradlew.bat', 'build.cmd', 'mvnw.cmd', 'make.bat', 'setup.py', 'env.js', 'index.js', 'git.ps1', 'gitk.exe', '.git']), null)
+  test('plantedProgram (Windows): a program a lookup by name could take at the top of a folder — its name only; build scripts, folders and other systems never', () => {
+    const at = (names: string[], env: NodeJS.ProcessEnv = {}, more: string[] = []) => plantedProgram(String.raw`C:\repo`, { platform: 'win32', env, list: () => names, names: more })
+    assert.equal(at(['README.md', 'gradlew', 'gradlew.bat', 'build.cmd', 'mvnw.cmd', 'make.bat', 'setup.py', 'env.js', 'index.js', 'gitk.exe', '.git']), null)
     assert.equal(at(['src', 'git.exe']), 'git.exe')
     assert.equal(at(['CLAUDE.EXE']), 'CLAUDE.EXE')
     assert.equal(at(['npm.cmd']), 'npm.cmd')
     // cross-spawn runs a .js it found through cmd.exe: the Windows Script Host would start it
     assert.equal(at(['node.js']), 'node.js')
+    // PowerShell scripts count too
+    assert.equal(at(['git.ps1']), 'git.ps1')
     // Windows drops a trailing dot or space
     assert.equal(at(['git.exe.']), 'git.exe.')
     // the person's PATHEXT counts too
     assert.equal(at(['python.py']), null)
     assert.equal(at(['python.py'], { PATHEXT: '.COM;.EXE;.BAT;.CMD;.PY' }), 'python.py')
+    // the usual MCP launchers, whatever is installed (D1 (c))
+    for (const n of ['uvx.cmd', 'uv.exe', 'docker.bat', 'bunx.cmd', 'deno.exe', 'podman.exe', 'pipx.cmd', 'java.exe', 'dotnet.exe']) assert.equal(at([n]), n, n)
+    for (const n of ['uvx', 'docker', 'deno', 'dotnet', 'java', 'pipx', 'podman', 'bunx', 'uv']) assert.ok(BY_NAME.includes(n), n)
+    // the launchers of the person's own MCP servers (run.ts reads them from Claude Code's config)
+    assert.equal(at(['kb-server.cmd']), null)
+    assert.equal(at(['KB-Server.cmd'], {}, ['kb-server']), 'KB-Server.cmd')
     // the same name every time (sorted)
     assert.equal(at(['git.exe', 'claude.exe']), 'claude.exe')
     assert.equal(plantedProgram(String.raw`C:\repo`, { platform: 'linux', list: () => ['git.exe'] }), null)
@@ -429,10 +468,45 @@ describe('exec — a child never looks in its working folder, and that folder ne
     const dir = tempDir('plant')
     mkdirSync(join(dir, 'git.exe'))
     writeFileSync(join(dir, 'README.md'), '')
-    assert.equal(plantedProgram(dir, { platform: 'win32' }), null)
+    assert.equal(plantedProgram(dir, { platform: 'win32', env: {} }), null)
     writeFileSync(join(dir, 'Npx.CMD'), '')
-    assert.equal(plantedProgram(dir, { platform: 'win32' }), 'Npx.CMD')
-    assert.equal(plantedProgram(join(dir, 'gone'), { platform: 'win32' }), null)
+    assert.equal(plantedProgram(dir, { platform: 'win32', env: {} }), 'Npx.CMD')
+    assert.equal(plantedProgram(join(dir, 'gone'), { platform: 'win32', env: {} }), null)
+  })
+
+  test('plantedProgram (Windows): any program on PATH counts — gradlew.bat / build.cmd stay allowed until such a program is installed; PATH\'s folders read once', () => {
+    const top = ['gradlew.bat', 'build.cmd', 'mvnw.cmd', 'tree.js', 'notes.txt']
+    const pathFolders: Record<string, string[]> = {
+      [String.raw`c:\windows\system32`]: ['cmd.exe', 'tree.com', 'find.exe', 'notes.txt'],
+      [String.raw`c:\tools`]: ['Build.EXE', 'readme.md'],
+    }
+    const reads: string[] = []
+    const list = (d: string) => {
+      reads.push(d)
+      return d === String.raw`C:\repo` ? top : (pathFolders[d.toLowerCase()] ?? [])
+    }
+    const env = { Path: String.raw`C:\Windows\System32;C:\Tools\;relative;C:\tools` }
+    // tree.com is in System32: a top-level tree.js would be taken by name
+    assert.equal(plantedProgram(String.raw`C:\repo`, { platform: 'win32', env: { Path: String.raw`C:\Windows\System32` }, list }), 'tree.js')
+    reads.length = 0
+    // C:\tools has build.exe now: build.cmd would be taken
+    assert.equal(plantedProgram(String.raw`C:\repo`, { platform: 'win32', env, list: (d) => (d === String.raw`C:\repo` ? ['gradlew.bat', 'build.cmd', 'mvnw.cmd'] : list(d)) }), 'build.cmd')
+    // C:\Tools\ and C:\tools are one folder: read once; a relative entry never
+    assert.deepEqual(reads.map((d) => d.toLowerCase()).sort(), [String.raw`c:\tools`, String.raw`c:\windows\system32`])
+    // nothing on PATH named so: the build scripts stay allowed
+    assert.equal(plantedProgram(String.raw`C:\repo`, { platform: 'win32', env: {}, list: (d) => (d === String.raw`C:\repo` ? ['gradlew.bat', 'build.cmd', 'mvnw.cmd'] : []) }), null)
+    // PATH's folders are read only for a file with a runnable extension
+    reads.length = 0
+    assert.equal(plantedProgram(String.raw`C:\repo`, { platform: 'win32', env, list: (d) => (d === String.raw`C:\repo` ? ['notes.txt', 'README.md'] : list(d)) }), null)
+    assert.deepEqual(reads, [])
+    // the programs on PATH (PATHEXT of the env, else Windows' own)
+    assert.deepEqual([...programsOnPath(env, (d) => pathFolders[d.toLowerCase()] ?? [])].sort(), ['build', 'cmd', 'find', 'tree'])
+    assert.deepEqual([...programsOnPath({ ...env, PATHEXT: '.EXE' }, (d) => pathFolders[d.toLowerCase()] ?? [])].sort(), ['build', 'cmd', 'find'])
+    // a launcher's program name: folder, quotes and a runnable extension off
+    assert.equal(programName(String.raw`"C:\Program Files\Docker\docker.exe"`), 'docker')
+    assert.equal(programName('uvx'), 'uvx')
+    assert.equal(programName('mcp-server.v2'), 'mcp-server.v2')
+    assert.equal(programName('/usr/local/bin/deno'), 'deno')
   })
 })
 
@@ -792,8 +866,11 @@ describe('exec — source guard', () => {
     const git = readFileSync(join(dir, 'git.ts'), 'utf8')
     assert.match(git, /async function run\(cmd: 'gh' \| 'glab'/)
     assert.match(readFileSync(join(dir, 'setup.ts'), 'utf8'), /async function installed\(cmd: 'gh' \| 'glab'\)/)
-    // what a file in a working folder reaches the line as: named from that folder, never its path (see the Windows tests)
-    assert.match(readFileSync(join(dir, 'exec.ts'), 'utf8'), /const line = cmdLine\(\[fromCwd\(file, c\.cwd\), \.\.\.args\]/)
+    // what a file in a working folder reaches the line as: named from the spawn's own folder, never its path (see the
+    // Windows tests) — and nothing spawns a resolved command but through spawnForm
+    const exec = readFileSync(join(dir, 'exec.ts'), 'utf8')
+    assert.match(exec, /const line = cmdLine\(\[fromCwd\(r\.line\.argv\[0\]!, cwd\), \.\.\.r\.line\.argv\.slice\(1\)\]/)
+    assert.deepEqual([...exec.matchAll(/\bspawn(?:Sync)?\(([^,]+),/g)].map((m) => m[1]).sort(), ['run.file', 'run.file', 'systemTool(\'taskkill\')'])
   })
 })
 

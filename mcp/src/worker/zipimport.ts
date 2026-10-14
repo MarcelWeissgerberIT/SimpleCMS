@@ -170,11 +170,14 @@ export function gitDirIn(dir: string, disk: GuardDisk = DISK): PlantedGit | null
   return null
 }
 
+/** A path inside the ZIP as the person finds it there: "/" between names on every OS (vendor/.git, never vendor\\.git). */
+export const zipPath = (dir: string, path: string, P: { relative: (a: string, b: string) => string; sep: string } = { relative, sep }): string => P.relative(dir, path).split(P.sep).join('/') || '.'
+
 /** Throws when `dir` holds a git folder (gitDirIn): nothing is imported then. */
 function refusePlanted(dir: string): void {
   const planted = gitDirIn(dir)
   if (!planted) return
-  const at = shown(relative(dir, planted.path) || '.')
+  const at = shown(zipPath(dir, planted.path))
   if (planted.kind === 'dotgit') throw new Error(`the ZIP holds a git folder under another spelling (${at}) — nothing was imported`)
   // the ZIP's top is a git folder itself (a bare repository, or the inside of a .git): no files to import
   if (planted.path === dir) throw new Error('the ZIP is a git repository itself (HEAD, objects, refs — a bare one, or the inside of a .git folder), not the code: clone it and zip the checkout, or clone it here — nothing was imported')
@@ -186,8 +189,19 @@ export interface ImportProgress {
   bytes: number
 }
 
+/** How long each part of an import took (ms) — the worker's terminal says it (never One). */
+export interface ImportTimes {
+  unpack: number
+  guard: number
+  commit: number
+}
+
+/** Progress at most this often (and once at the end): a ZIP of thousands of small files must not mean thousands of events. */
+const PROGRESS_MS = 200
+
 /** Unpack `zipFile` into `<base>/<name>` (or <name>-2 …), make it a repository with one commit. */
-export async function importZip(zipFile: string, base: string, name: string, label: string, onProgress: (p: ImportProgress) => void = () => {}): Promise<{ dir: string; files: number }> {
+export async function importZip(zipFile: string, base: string, name: string, label: string, onProgress: (p: ImportProgress) => void = () => {}): Promise<{ dir: string; files: number; times: ImportTimes }> {
+  const started = Date.now()
   mkdirSync(base, { recursive: true })
   const tmp = join(base, `.one-import-${randomBytes(6).toString('hex')}`)
   mkdirSync(tmp)
@@ -195,6 +209,15 @@ export async function importZip(zipFile: string, base: string, name: string, lab
   let bytes = 0
   let fail: string | null = null
   let open = 0
+  // folders made so far: one mkdir per folder, never one per file
+  const made = new Set<string>([tmp])
+  let told = 0
+  const progress = (force = false) => {
+    const now = Date.now()
+    if (!force && now - told < PROGRESS_MS) return
+    told = now
+    onProgress({ files, bytes })
+  }
   try {
     const uz = new Unzip((file) => {
       if (fail) return
@@ -213,7 +236,11 @@ export async function importZip(zipFile: string, base: string, name: string, lab
         fail = `the ZIP has a path outside its folder (${shown(file.name)})`
         return
       }
-      mkdirSync(dirname(dest), { recursive: true })
+      const folder = dirname(dest)
+      if (!made.has(folder)) {
+        mkdirSync(folder, { recursive: true })
+        made.add(folder)
+      }
       let fd: number | null = openSync(dest, 'w', 0o644)
       open++
       const close = () => {
@@ -237,7 +264,7 @@ export async function importZip(zipFile: string, base: string, name: string, lab
         if (data.length) writeSync(fd!, data)
         if (final) {
           close()
-          onProgress({ files, bytes })
+          progress()
         }
       }
       try {
@@ -259,6 +286,7 @@ export async function importZip(zipFile: string, base: string, name: string, lab
     if (!fail && open > 0) fail = 'the ZIP ended in the middle of a file'
     if (!fail && files === 0) fail = 'the ZIP has no files'
     if (fail) throw new Error(fail)
+    progress(true)
 
     // one folder at the top: that folder is the project
     const top = readdirSync(tmp)
@@ -268,18 +296,22 @@ export async function importZip(zipFile: string, base: string, name: string, lab
     // Windows: Defender may still read a file just written
     renameRetry(root, dir)
     if (root !== tmp) rmSync(tmp, { recursive: true, force: true })
-    await finishImport(dir, label)
-    return { dir, files }
+    const unpacked = Date.now()
+    const parts = await finishImport(dir, label)
+    return { dir, files, times: { unpack: unpacked - started, ...parts } }
   } finally {
     if (existsSync(tmp)) rmSync(tmp, { recursive: true, force: true })
   }
 }
 
 /** After unpacking: the second guard (gitDirIn), then the commit. The folder goes again when either fails. */
-export async function finishImport(dir: string, label: string): Promise<void> {
+export async function finishImport(dir: string, label: string): Promise<{ guard: number; commit: number }> {
   try {
+    const t0 = Date.now()
     refusePlanted(dir)
+    const t1 = Date.now()
     await commitImport(dir, label)
+    return { guard: t1 - t0, commit: Date.now() - t1 }
   } catch (e) {
     rmSync(dir, { recursive: true, force: true })
     throw e
