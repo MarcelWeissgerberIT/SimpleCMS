@@ -375,7 +375,8 @@ describe('test command guesses', () => {
     assert.equal(browserCommand(url, {}, 'linux'), null)
     assert.deepEqual(browserCommand(url, { DISPLAY: ':0' }, 'linux')!.args, [url])
     assert.equal(browserCommand(url, {}, 'darwin')!.cmd, 'open')
-    assert.deepEqual(browserCommand(url, {}, 'win32')!.args, ['/c', 'start', '""', url])
+    // Windows: cmd.exe by its path in System32, no AutoRun (exec.test.ts has the details)
+    assert.deepEqual(browserCommand(url, {}, 'win32')!.args, ['/d', '/c', 'start', '""', url])
   })
 })
 
@@ -383,7 +384,7 @@ describe('the setup page', () => {
   test('Choose a folder…: the computer\'s own dialog (fixed arguments) — a picked repo is added, a plain folder refused, cancel and no dialog said so', async () => {
     assert.equal(pickerCommand({}, 'darwin')!.cmd, 'osascript')
     assert.ok(pickerCommand({}, 'darwin')!.args.join(' ').includes('choose folder'))
-    assert.equal(pickerCommand({}, 'win32')!.cmd, 'powershell')
+    assert.match(pickerCommand({}, 'win32')!.cmd, /\\System32\\WindowsPowerShell\\v1\.0\\powershell\.exe$/)
     assert.equal(pickerCommand({}, 'linux'), null)
     assert.equal(pickerCommand({ DISPLAY: ':0' }, 'linux')!.cmd, 'zenity')
     assert.equal(pickerCommand({ ONE_WORKER_PICKER: 'none' }, 'darwin'), null)

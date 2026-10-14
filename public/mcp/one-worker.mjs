@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// SimpleCMS One — coding worker 1.8.1 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp/src/worker
+// SimpleCMS One — coding worker 1.9.0 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp/src/worker
 // Runs coding tasks from One with Claude Code on this computer. Setup: node one-worker.mjs --help
 // Docs and security model: https://github.com/MarcelWeissgerberIT/SimpleCMS/blob/main/docs/CODING.md
 import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);
@@ -10894,7 +10894,7 @@ var require_dist = __commonJS({
 
 // src/worker/index.ts
 import { fileURLToPath } from "node:url";
-import { existsSync as existsSync8, statSync as statSync3 } from "node:fs";
+import { existsSync as existsSync8, statSync as statSync4 } from "node:fs";
 import { homedir as homedir8 } from "node:os";
 import { resolve as resolve6 } from "node:path";
 
@@ -11533,11 +11533,401 @@ ${JSON.stringify(next, null, 2)}
 }
 
 // src/worker/claude.ts
-import { spawn, execFile } from "node:child_process";
 import { createInterface } from "node:readline";
-import { readFileSync as readFileSync2, realpathSync as realpathSync2, statSync } from "node:fs";
+import { readFileSync as readFileSync2, realpathSync as realpathSync2, statSync as statSync2 } from "node:fs";
 import { homedir as homedir2 } from "node:os";
-import { join as join2, sep as sep2 } from "node:path";
+import { join as join2, win32 as win323 } from "node:path";
+
+// src/worker/exec.ts
+import { spawn, spawnSync } from "node:child_process";
+import { closeSync, openSync, readSync, statSync } from "node:fs";
+import { posix, win32 } from "node:path";
+var READ_MAX = 64 * 1024;
+var PATHEXT_DEFAULT = [".COM", ".EXE", ".BAT", ".CMD"];
+var JS = /* @__PURE__ */ new Set([".js", ".mjs", ".cjs"]);
+var isFile = (p) => {
+  try {
+    return statSync(p).isFile();
+  } catch {
+    return false;
+  }
+};
+var readHead = (p) => {
+  let fd2 = null;
+  try {
+    fd2 = openSync(p, "r");
+    const buf = Buffer.alloc(READ_MAX);
+    const n = readSync(fd2, buf, 0, READ_MAX, 0);
+    return buf.subarray(0, n).toString("utf8").replace(/^\uFEFF/, "");
+  } catch {
+    return null;
+  } finally {
+    if (fd2 !== null)
+      try {
+        closeSync(fd2);
+      } catch {
+      }
+  }
+};
+function fullCtx(c = {}) {
+  return {
+    platform: c.platform ?? process.platform,
+    env: c.env ?? process.env,
+    exists: c.exists ?? isFile,
+    readFile: c.readFile ?? readHead,
+    execPath: c.execPath ?? process.execPath,
+    cwd: c.cwd ?? process.cwd()
+  };
+}
+function envKey(env, key, platform = process.platform) {
+  if (platform !== "win32") return Object.prototype.hasOwnProperty.call(env, key) ? key : void 0;
+  const want = key.toLowerCase();
+  const keys = Object.keys(env).filter((k) => k.toLowerCase() === want && env[k] !== void 0).sort();
+  return keys[0];
+}
+function envGet(env, key, platform = process.platform) {
+  const k = envKey(env, key, platform);
+  return k === void 0 ? void 0 : env[k];
+}
+var ABS_WIN = /^(?:[A-Za-z]:[\\/]|[\\/]{2}[^\\/])/;
+function systemTool(name, env = process.env, platform = process.platform, exists = isFile) {
+  if (platform !== "win32") return name;
+  if (name === "cmd") {
+    const spec = envGet(env, "ComSpec", platform);
+    if (spec && ABS_WIN.test(spec) && win32.basename(spec).toLowerCase() === "cmd.exe" && exists(spec)) return spec;
+  }
+  const raw = envGet(env, "SystemRoot", platform) ?? envGet(env, "windir", platform);
+  const root = raw && ABS_WIN.test(raw) ? raw : "C:\\Windows";
+  const sys = win32.join(root, "System32");
+  if (name === "powershell") return win32.join(sys, "WindowsPowerShell", "v1.0", "powershell.exe");
+  return win32.join(sys, `${name}.exe`);
+}
+function commandName(cmd, platform = process.platform) {
+  return (platform === "win32" ? win32 : posix).basename(cmd) || cmd;
+}
+function pathExts(env) {
+  const listed = (envGet(env, "PATHEXT", "win32") ?? "").split(";").map((e) => e.trim().toUpperCase()).filter((e, i2, all) => PATHEXT_DEFAULT.includes(e) && all.indexOf(e) === i2);
+  return listed.length ? listed : PATHEXT_DEFAULT;
+}
+function pathDirs(env) {
+  return (envGet(env, "PATH", "win32") ?? "").split(";").map((d) => d.trim().replace(/^"(.*)"$/, "$1").trim()).filter((d) => ABS_WIN.test(d));
+}
+function findWin(cmd, c) {
+  const exts = pathExts(c.env).map((e) => e.toLowerCase());
+  if (/[\\/]/.test(cmd) || /^[A-Za-z]:/.test(cmd)) {
+    const abs = win32.resolve(c.cwd, cmd);
+    for (const t of [abs, ...exts.map((e) => abs + e)]) if (runnable(t) && c.exists(t)) return t;
+    return null;
+  }
+  const own2 = win32.extname(cmd).toLowerCase();
+  const names = exts.includes(own2) ? [cmd] : exts.map((e) => cmd + e);
+  for (const dir of pathDirs(c.env)) for (const n of names) if (c.exists(win32.join(dir, n))) return win32.join(dir, n);
+  return null;
+}
+var extOf = (p) => win32.extname(p).toLowerCase();
+var runnable = (p) => [".exe", ".com", ".cmd", ".bat"].includes(extOf(p)) || JS.has(extOf(p));
+function resolveCommand(cmd, args, ctx, allow = "shim") {
+  const c = fullCtx(ctx);
+  if (c.platform !== "win32") return { ok: true, file: cmd, args, via: "direct", verbatim: false };
+  const name = commandName(cmd, "win32");
+  const found = cmd ? findWin(cmd, c) : null;
+  if (!found) return { ok: false, code: 127, why: "missing", error: `${name} was not found (PATH only, never the working folder)` };
+  return classify(found, args, c, allow, 0, name);
+}
+function classify(file, args, c, allow, depth, name) {
+  const ext = extOf(file);
+  if (ext === ".exe" || ext === ".com") return { ok: true, file, args, via: "direct", verbatim: false };
+  if (allow === "exe") return { ok: false, code: 127, why: "refused", error: `${name} is a ${ext || "file without an extension"} \u2014 only a program (.exe) is started for it` };
+  if (JS.has(ext)) return { ok: true, file: c.execPath, args: [file, ...args], via: "node-shim", verbatim: false };
+  if (ext === ".cmd" || ext === ".bat") {
+    const text2 = c.readFile(file);
+    const shim = text2 === null ? null : readShim(text2, file, c);
+    if (shim?.kind === "node") return { ok: true, file: shim.node, args: [...shim.pre, shim.script, ...args], via: "node-shim", verbatim: false, ...shim.env ? { env: shim.env } : {} };
+    if (shim?.kind === "target" && depth < 3) return classify(shim.file, args, c, allow, depth + 1, name);
+    if (allow === "person") return comspec(file, args, c, name);
+    return { ok: false, code: 127, why: "refused", error: `${name} is a ${ext} file the worker cannot read as a shim \u2014 it never starts it through cmd.exe` };
+  }
+  return { ok: false, code: 127, why: "missing", error: `${name} is not a program the worker starts (.exe, .cmd, .bat or a Node script)` };
+}
+function comspec(file, args, c, name) {
+  const line = cmdLine([file, ...args], BIN_SHIM.test(file));
+  if (line === null) return { ok: false, code: 127, why: "refused", error: `${name} runs through cmd.exe, which cannot pass an argument with a line break` };
+  return { ok: true, file: systemTool("cmd", c.env, "win32", c.exists), args: ["/d", "/v:off", "/s", "/c", `"${line}"`], via: "comspec", verbatim: true };
+}
+var BOILERPLATE = /* @__PURE__ */ new Set([
+  "echo off",
+  "goto start",
+  ":find_dp0",
+  "set dp0=%~dp0",
+  "exit /b",
+  ":start",
+  "setlocal",
+  "call :find_dp0",
+  "endlocal",
+  "exit /b %errorlevel%",
+  ")",
+  ") else (",
+  "set pathext=%pathext:;.js;=;%",
+  "if not defined node_path (",
+  // npm's cmd-shim: no node.exe beside the shim → Node from PATH (this Node here)
+  'set "_prog=node"',
+  // npm.cmd / npx.cmd of Node's installer
+  'if not exist "%node_exe%" (',
+  'set "node_exe=node"'
+]);
+var LOCAL_NODE = /* @__PURE__ */ new Set(['if exist "%dp0%\\node.exe" (', 'if exist "%~dp0\\node.exe" (', 'set "_prog=%dp0%\\node.exe"', 'set "node_exe=%~dp0\\node.exe"']);
+var NPM_IGNORED = [
+  /^set\s+"NPM_PREFIX_JS=%~dp0\\[^"%!]+"$/i,
+  /^for\s+\/f\s+"delims="\s+%%F\s+in\s+\('CALL\s+"%NODE_EXE%"\s+"%NP[MX]_(?:PREFIX|CLI)_JS%"(?:\s+prefix\s+-g)?'\)\s+do\s+\($/i,
+  /^set\s+"NPM_PREFIX_NP[MX]_CLI_JS=%%F\\node_modules\\npm\\bin\\np[mx]-cli\.js"$/i,
+  /^if\s+exist\s+"%NPM_PREFIX_NP[MX]_CLI_JS%"\s+\($/i,
+  /^set\s+"(NP[MX]_CLI_JS)=%NPM_PREFIX_\1%"$/i
+];
+var NPM_VAR = /^set\s+"(NP[MX]_CLI_JS)=%~dp0\\([^"%!]+)"$/i;
+var NODE_PATH_ONLY = /^set\s+"NODE_PATH=([^"%!]*)"$/i;
+var NODE_PATH_MORE = /^set\s+"NODE_PATH=([^"%!]*);%NODE_PATH%"$/i;
+var COMMAND = /^(?:endlocal\s*&\s*goto\s+#_undefined_#\s+2>NUL\s*\|\|\s*title\s+%COMSPEC%\s*&\s*)?(?:("%_prog%"|"%~dp0\\node\.exe"|"%dp0%\\node\.exe"|node|"%NODE_EXE%")\s+)?((?:--[\w.=:,-]+\s+)*)"([^"]+)"\s+%\*$/i;
+var BIN_SHIM = /node_modules[\\/]\.bin[\\/][^\\/]+\.cmd$/i;
+function readShim(text2, shimPath, ctx) {
+  if (text2.length >= READ_MAX || /[\0]/.test(text2)) return null;
+  const dir = win32.dirname(shimPath);
+  let localNode = false;
+  let progNode = false;
+  let nodeExe = false;
+  let np1;
+  let np2;
+  const vars = /* @__PURE__ */ new Map();
+  const commands = [];
+  for (const raw of text2.split(/\r?\n/)) {
+    const line = raw.trim().replace(/^@\s*/, "");
+    if (!line || /^rem(\s|$)/i.test(line) || line.startsWith("::")) continue;
+    const k = line.replace(/\s+/g, " ").toLowerCase();
+    if (LOCAL_NODE.has(k)) {
+      localNode = true;
+      if (k.startsWith('set "node_exe')) nodeExe = true;
+      continue;
+    }
+    if (BOILERPLATE.has(k)) {
+      if (k === 'set "node_exe=node"' || k === 'if not exist "%node_exe%" (') nodeExe = true;
+      if (k === 'set "_prog=node"') progNode = true;
+      continue;
+    }
+    if (/^set "_prog=/.test(k)) return null;
+    let m = NODE_PATH_MORE.exec(line);
+    if (m) {
+      np2 = m[1];
+      continue;
+    }
+    m = NODE_PATH_ONLY.exec(line);
+    if (m) {
+      np1 = m[1];
+      continue;
+    }
+    m = NPM_VAR.exec(line);
+    if (m) {
+      vars.set(m[1].toLowerCase(), m[2]);
+      continue;
+    }
+    if (NPM_IGNORED.some((r) => r.test(line))) continue;
+    m = COMMAND.exec(line);
+    if (m) {
+      commands.push({ prog: (m[1] ?? "").toLowerCase(), pre: (m[2] ?? "").trim().replace(/\s+/g, " "), target: m[3] });
+      continue;
+    }
+    return null;
+  }
+  const first = commands[0];
+  if (!first || commands.some((x2) => x2.pre !== first.pre || x2.target !== first.target || !x2.prog !== !first.prog)) return null;
+  for (const { prog } of commands) {
+    if (prog === '"%_prog%"' && !progNode) return null;
+    if (prog === '"%node_exe%"' && !nodeExe) return null;
+    if (prog.includes("node.exe")) localNode = true;
+  }
+  let target;
+  const v = /^%(NP[MX]_CLI_JS)%$/i.exec(first.target);
+  const rel = /^%(?:~dp0|dp0%)\\?(.*)$/i.exec(first.target);
+  if (v) {
+    const r = vars.get(v[1].toLowerCase());
+    if (r === void 0) return null;
+    target = win32.resolve(dir, r);
+  } else if (rel) {
+    if (/[%"!\0-\x1f]/.test(rel[1])) return null;
+    target = win32.resolve(dir, rel[1]);
+  } else if (ABS_WIN.test(first.target) && !/[%"!\0-\x1f]/.test(first.target)) target = win32.resolve(first.target);
+  else return null;
+  if (!ctx.exists(target)) return null;
+  const ext = extOf(target);
+  if (!first.prog) {
+    if (first.pre) return null;
+    return [".exe", ".com", ".cmd", ".bat"].includes(ext) ? { kind: "target", file: target } : null;
+  }
+  const js = JS.has(ext) || ext === "" && /^#!.*\bnode(?:\.exe)?\b/.test((ctx.readFile(target) ?? "").split(/\r?\n/, 1)[0] ?? "");
+  if (!js) return null;
+  const near = win32.join(dir, "node.exe");
+  const node2 = localNode && ctx.exists(near) ? near : ctx.execPath;
+  let env;
+  if (np1 !== void 0 || np2 !== void 0) {
+    if (np1 !== void 0 && np2 !== void 0 && np1 !== np2) return null;
+    const value2 = np1 ?? np2;
+    const key = envKey(ctx.env, "NODE_PATH", "win32");
+    const had = key === void 0 ? void 0 : ctx.env[key];
+    env = { [key ?? "NODE_PATH"]: had && np2 !== void 0 ? `${value2};${had}` : value2 };
+  }
+  return { kind: "node", node: node2, script: target, pre: first.pre ? first.pre.split(" ") : [], ...env ? { env } : {} };
+}
+var META = /([()\][%!^"`<>&|;, *?])/g;
+var escCommand = (s) => s.replace(META, "^$1");
+function escArgument(arg, double) {
+  let a = "";
+  let run2 = 0;
+  for (const ch of arg) {
+    if (ch === "\\") {
+      run2++;
+      continue;
+    }
+    a += ch === '"' ? `${"\\".repeat(run2 * 2 + 1)}"` : `${"\\".repeat(run2)}${ch}`;
+    run2 = 0;
+  }
+  a = `"${a}${"\\".repeat(run2 * 2)}"`.replace(META, "^$1");
+  return double ? a.replace(META, "^$1") : a;
+}
+function cmdLine(argv2, doubleEscape) {
+  if (!argv2.length || argv2.some((a) => /[\0\r\n]/.test(a))) return null;
+  return [escCommand(argv2[0]), ...argv2.slice(1).map((a) => escArgument(a, doubleEscape))].join(" ");
+}
+var errCode = (e) => String(e?.code ?? (e instanceof Error ? e.name : "error"));
+function spawnSafe(cmd, args, opts = {}) {
+  const { allow = "shim", ctx, ...rest } = opts;
+  const env = rest.env ?? process.env;
+  const c = fullCtx({ ...ctx, env, cwd: rest.cwd ?? ctx?.cwd ?? process.cwd() });
+  const r = resolveCommand(cmd, args, c, allow);
+  if (!r.ok) return r;
+  try {
+    const child = spawn(r.file, r.args, {
+      ...rest,
+      env: r.env ? { ...env, ...r.env } : rest.env,
+      shell: false,
+      // a caller's own verbatim line only for a program started as it is (the opener's `start ""`)
+      windowsVerbatimArguments: r.verbatim || r.via === "direct" && !!rest.windowsVerbatimArguments,
+      windowsHide: rest.windowsHide ?? true
+    });
+    return { ok: true, child, via: r.via, file: r.file };
+  } catch (e) {
+    return { ok: false, code: 127, why: "failed", error: `${commandName(cmd, c.platform)} could not start (${errCode(e)})` };
+  }
+}
+function execFileSafe(cmd, args, opts) {
+  const name = commandName(cmd, opts.ctx?.platform);
+  const s = spawnSafe(cmd, args, {
+    cwd: opts.cwd,
+    env: opts.env,
+    allow: opts.allow,
+    ctx: opts.ctx,
+    stdio: [opts.input !== void 0 ? "pipe" : "ignore", "pipe", "pipe"],
+    detached: opts.detached ?? false,
+    windowsHide: opts.windowsHide ?? true
+  });
+  if (!s.ok) return Promise.resolve({ code: 127, stdout: "", stderr: "", why: s.why, error: s.error });
+  const child = s.child;
+  const max2 = opts.maxBuffer ?? 8 * 1024 * 1024;
+  return new Promise((done) => {
+    const out = [];
+    const err2 = [];
+    let size = 0;
+    let settled = false;
+    let timedOut = false;
+    let tooLarge = false;
+    const text2 = (b) => Buffer.concat(b).toString("utf8");
+    const finish = (r) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      done({ stdout: text2(out), stderr: text2(err2), ...r });
+    };
+    const ended = () => timedOut ? { code: 124, timedOut: true } : tooLarge ? { code: 1, error: `${name}: output too large` } : null;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      void killTree(child).then(() => finish(ended()));
+    }, opts.timeoutMs);
+    const take = (into) => (d) => {
+      if (tooLarge) return;
+      size += d.length;
+      if (size > max2) {
+        tooLarge = true;
+        void killTree(child).then(() => finish(ended()));
+        return;
+      }
+      into.push(d);
+    };
+    child.stdout?.on("data", take(out));
+    child.stderr?.on("data", take(err2));
+    child.on("error", (e) => finish(ended() ?? { code: 127, why: errCode(e) === "ENOENT" ? "missing" : "failed", error: `${name} could not start (${errCode(e)})` }));
+    child.on("close", (code) => finish(ended() ?? { code: typeof code === "number" ? code : 1 }));
+    if (opts.input !== void 0) {
+      child.stdin?.on("error", () => {
+      });
+      child.stdin?.end(opts.input);
+    }
+  });
+}
+function killTree(child, platform = process.platform) {
+  if (child.exitCode !== null || child.pid === void 0) return Promise.resolve();
+  const pid = child.pid;
+  const gone = child.signalCode !== null;
+  return new Promise((resolve7) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      clearTimeout(cap);
+      child.off("close", finish);
+      resolve7();
+    };
+    child.once("close", finish);
+    try {
+      if (platform === "win32") {
+        const k = spawn(systemTool("taskkill"), ["/pid", String(pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
+        k.on("error", () => {
+        });
+      } else process.kill(-pid, "SIGTERM");
+    } catch {
+      try {
+        child.kill("SIGTERM");
+      } catch {
+      }
+    }
+    const hard = setTimeout(() => {
+      if (child.exitCode !== null) return;
+      try {
+        if (platform !== "win32") process.kill(-pid, "SIGKILL");
+        else child.kill("SIGKILL");
+      } catch {
+        try {
+          child.kill("SIGKILL");
+        } catch {
+        }
+      }
+    }, 3e3);
+    hard.unref();
+    const cap = setTimeout(finish, 5e3);
+    cap.unref();
+    if (gone) finish();
+  });
+}
+
+// src/worker/paths.ts
+import { posix as posix2, win32 as win322 } from "node:path";
+var folds = (platform) => platform === "win32" || platform === "darwin";
+function pathId(p, platform = process.platform) {
+  const P = platform === "win32" ? win322 : posix2;
+  let s = P.resolve(p);
+  const root = P.parse(s).root;
+  while (s.length > root.length && /[\\/]$/.test(s)) s = s.slice(0, -1);
+  return folds(platform) ? s.toLowerCase() : s;
+}
+function samePath(a, b, platform = process.platform) {
+  return pathId(a, platform) === pathId(b, platform);
+}
 
 // src/worker/price.ts
 var PRICES = [
@@ -11572,23 +11962,50 @@ function usageOf(raw) {
 
 // src/worker/claude.ts
 var claudeBin = (env = process.env) => env.CLAUDE_BIN && env.CLAUDE_BIN.trim() || "claude";
-function capture(bin, args, timeoutMs = 15e3) {
-  return new Promise((done) => {
-    execFile(bin, args, { timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024, windowsHide: true, env: { ...process.env, NO_COLOR: "1" } }, (err2, stdout, stderr) => {
-      const code = err2 ? typeof err2.code === "number" ? err2.code : 127 : 0;
-      done({ code, out: `${stdout}
-${stderr}` });
-    });
-  });
+function claudeInstallHint(platform = process.platform) {
+  if (platform === "win32")
+    return "Install Claude Code \u2014 its native installer (PowerShell: irm https://claude.ai/install.ps1 | iex) or npm i -g @anthropic-ai/claude-code; it needs Git for Windows (Git Bash) \u2014 sign in once with `claude`, or set CLAUDE_BIN to claude.exe or its cli.js";
+  return "Install Claude Code \u2014 its native installer (curl -fsSL https://claude.ai/install.sh | bash) or npm i -g @anthropic-ai/claude-code \u2014 sign in once with `claude`, or set CLAUDE_BIN to its program";
 }
-async function detectClaude(bin = claudeBin()) {
-  const v = await capture(bin, ["--version"]);
-  if (v.code === 127 || v.code !== 0 && !v.out.trim()) return { found: false, version: null, budget: false, modes: [], settingSources: false };
-  const version2 = /(\d+\.\d+\.\d+[\w.-]*)/.exec(v.out)?.[1] ?? null;
-  const help = await capture(bin, ["--help"]);
-  const modeLine = /--permission-mode[\s\S]{0,400}?\(choices:([^)]*)\)/.exec(help.out)?.[1] ?? "";
-  const modes = [...modeLine.matchAll(/"([A-Za-z]+)"/g)].map((m) => m[1]);
-  return { found: true, version: version2, budget: /--max-budget-usd/.test(help.out), modes, settingSources: /--setting-sources/.test(help.out) };
+function claudeMissingError(missing) {
+  return missing === "cmd-refused" ? "Claude Code is installed as a .cmd / .bat file the worker cannot read \u2014 install it with its native installer, or set CLAUDE_BIN to claude.exe or its cli.js." : "Claude Code was not found on this computer. Install it and sign in, or set CLAUDE_BIN.";
+}
+function gitBash(env = process.env, ctx) {
+  const exists = ctx?.exists ?? isFile;
+  const set = envGet(env, "CLAUDE_CODE_GIT_BASH_PATH", "win32")?.trim();
+  if (set) return { path: exists(set) ? set : null, from: "env" };
+  const git2 = resolveCommand("git", [], { ...ctx, platform: "win32", env }, "exe");
+  if (!git2.ok) return { path: null, from: null };
+  const dir = win323.dirname(git2.file);
+  const up = win323.dirname(dir);
+  const roots = [up, .../^(mingw64|mingw32|clangarm64)$/i.test(win323.basename(up)) ? [win323.dirname(up)] : []];
+  for (const root of roots) {
+    const bash = win323.join(root, "bin", "bash.exe");
+    if (exists(bash)) return { path: bash, from: "git" };
+  }
+  return { path: null, from: "git" };
+}
+function capture(bin, args, ctx, timeoutMs = 15e3) {
+  return execFileSafe(bin, args, { timeoutMs, maxBuffer: 4 * 1024 * 1024, env: { ...process.env, NO_COLOR: "1" }, allow: "shim", ctx }).then((r) => ({ code: r.code, out: `${r.stdout}
+${r.stderr}`, why: r.why }));
+}
+async function detectClaude(bin = claudeBin(), ctx) {
+  const none = (missing) => ({ found: false, version: null, budget: false, modes: [], settingSources: false, missing });
+  try {
+    const platform = ctx?.platform ?? process.platform;
+    const r = resolveCommand(bin, ["--version"], { ...ctx, env: { ...process.env, NO_COLOR: "1" } }, "shim");
+    if (!r.ok) return none(r.why === "refused" ? "cmd-refused" : "not-found");
+    const where = platform === "win32" ? { path: r.via === "node-shim" ? r.args[r.args.length - 2] : r.file, via: r.via } : {};
+    const v = await capture(bin, ["--version"], ctx);
+    if (v.code === 127 || v.code !== 0 && !v.out.trim()) return none(v.why === "refused" ? "cmd-refused" : "not-found");
+    const version2 = /(\d+\.\d+\.\d+[\w.-]*)/.exec(v.out)?.[1] ?? null;
+    const help = await capture(bin, ["--help"], ctx);
+    const modeLine = /--permission-mode[\s\S]{0,400}?\(choices:([^)]*)\)/.exec(help.out)?.[1] ?? "";
+    const modes = [...modeLine.matchAll(/"([A-Za-z]+)"/g)].map((m) => m[1]);
+    return { found: true, version: version2, budget: /--max-budget-usd/.test(help.out), modes, settingSources: /--setting-sources/.test(help.out), ...where };
+  } catch {
+    return none("not-found");
+  }
 }
 function cliMode(mode, caps) {
   if (!caps.modes.length || caps.modes.includes(mode)) return mode;
@@ -11601,9 +12018,9 @@ var PLAN_FILE = /[\\/]\.claude[\\/]plans[\\/][^\\/]+\.md$/;
 function readPlanFile(path, home = homedir2()) {
   try {
     const dir = realpathSync2(join2(home, ".claude", "plans"));
-    const real = realpathSync2(path.startsWith("~/") ? join2(home, path.slice(2)) : path);
-    if (!real.startsWith(dir + sep2) || !real.endsWith(".md")) return null;
-    if (statSync(real).size > 200 * 1024) return null;
+    const real = realpathSync2(path.startsWith("~/") || path.startsWith("~\\") ? join2(home, path.slice(2)) : path);
+    if (!inFolder(real, dir) || samePath(real, dir) || !/\.md$/i.test(real)) return null;
+    if (statSync2(real).size > 200 * 1024) return null;
     const text2 = readFileSync2(real, "utf8").trim();
     return text2 || null;
   } catch {
@@ -11652,28 +12069,6 @@ function editOf(name, input) {
   const hunks = raw.slice(0, EDIT_HUNKS).map((h) => ({ old: cut(h.old), new: cut(h.new) }));
   return { path, hunks, ...clipped ? { clipped: true } : {} };
 }
-function killTree(child) {
-  if (child.exitCode !== null || child.pid === void 0) return;
-  try {
-    if (process.platform === "win32") execFile("taskkill", ["/pid", String(child.pid), "/T", "/F"], () => {
-    });
-    else process.kill(-child.pid, "SIGTERM");
-  } catch {
-    try {
-      child.kill("SIGTERM");
-    } catch {
-    }
-  }
-  const hard = setTimeout(() => {
-    if (child.exitCode !== null) return;
-    try {
-      if (process.platform !== "win32") process.kill(-child.pid, "SIGKILL");
-      else child.kill("SIGKILL");
-    } catch {
-    }
-  }, 3e3);
-  hard.unref();
-}
 var clock = (ms) => {
   const sec = Math.max(0, Math.round(ms / 1e3));
   return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
@@ -11681,13 +12076,12 @@ var clock = (ms) => {
 function runClaude(r) {
   return new Promise((done) => {
     const result = { ok: false, stopped: false, text: "", plan: null, cost: 0, turns: 0, sessionId: null, subtype: null };
-    let child;
-    try {
-      child = spawn(r.bin, claudeArgs(r), { cwd: r.cwd, env: r.env, stdio: ["pipe", "pipe", "pipe"], detached: process.platform !== "win32", windowsHide: true });
-    } catch (e) {
-      done({ ...result, error: `Claude Code could not start: ${e instanceof Error ? e.message : String(e)}` });
+    const spawned = spawnSafe(r.bin, claudeArgs(r), { cwd: r.cwd, env: r.env, stdio: ["pipe", "pipe", "pipe"], detached: process.platform !== "win32", windowsHide: true, allow: "shim" });
+    if (!spawned.ok) {
+      done({ ...result, error: spawned.why === "failed" ? `Claude Code could not start: ${spawned.error}` : claudeMissingError(spawned.why === "refused" ? "cmd-refused" : "not-found") });
       return;
     }
+    const child = spawned.child;
     let stderr = "";
     let gotResult = false;
     const log2 = (k, s, c, v) => r.onLog({ t: Date.now(), k, s, ...c ? { c, v } : {} });
@@ -11710,13 +12104,13 @@ function runClaude(r) {
     const onAbort = () => {
       result.stopped = true;
       log2("warn", "Stopped \u2014 Claude Code was ended.", "stopped");
-      killTree(child);
+      void killTree(child);
     };
     if (r.signal.aborted) onAbort();
     r.signal.addEventListener("abort", onAbort, { once: true });
     child.on("error", (e) => {
       stderr += `
-${e.message}`;
+Claude Code could not start (${e.code ?? e.name})`;
     });
     child.stdin?.on("error", () => {
     });
@@ -11801,7 +12195,7 @@ ${e.message}`;
       if (!gotResult && !result.stopped) {
         result.ok = false;
         result.error = code === null ? "Claude Code was ended" : `Claude Code exited with code ${code}${stderr.trim() ? `: ${clip(oneLine(stderr.trim().split("\n").slice(-3).join(" ")), 400)}` : ""}`;
-        if (/ENOENT|not found/i.test(stderr)) result.error = `Claude Code was not found ("${r.bin}"). Install it (npm i -g @anthropic-ai/claude-code) or set CLAUDE_BIN.`;
+        if (/ENOENT|not found/i.test(stderr)) result.error = claudeMissingError("not-found");
         else if (SIGNED_OUT.test(stderr)) {
           result.error = AUTH_HINT;
           log2("error", AUTH_HINT, "claudeAuth");
@@ -11813,9 +12207,9 @@ ${e.message}`;
 }
 
 // src/worker/git.ts
-import { execFile as execFile2, spawn as spawn2 } from "node:child_process";
+import { execFile, spawn as spawn2 } from "node:child_process";
 import { existsSync as existsSync2, lstatSync as lstatSync2, mkdirSync as mkdirSync2, readFileSync as readFileSync3, readlinkSync, rmSync } from "node:fs";
-import { dirname as dirname2, join as join3, resolve as resolve2, sep as sep3 } from "node:path";
+import { dirname as dirname2, join as join3, resolve as resolve2, sep as sep2 } from "node:path";
 var GitError = class extends Error {
 };
 var DIFF_FILE_MAX = 12e4;
@@ -12246,7 +12640,7 @@ function compareUrl(remoteUrl, base, branch) {
 }
 function run(cmd, args, cwd, timeoutMs = 12e4) {
   return new Promise((done) => {
-    execFile2(cmd, args, { cwd, timeout: timeoutMs, maxBuffer: 8 * 1024 * 1024, env: { ...process.env, GH_PROMPT_DISABLED: "1", NO_COLOR: "1" }, windowsHide: true }, (err2, stdout, stderr) => {
+    execFile(cmd, args, { cwd, timeout: timeoutMs, maxBuffer: 8 * 1024 * 1024, env: { ...process.env, GH_PROMPT_DISABLED: "1", NO_COLOR: "1" }, windowsHide: true }, (err2, stdout, stderr) => {
       const code = err2 ? typeof err2.code === "number" ? err2.code : 127 : 0;
       done({ code, stdout: String(stdout), stderr: String(stderr || (err2 && code === 127 ? err2.message : "")) });
     });
@@ -12391,7 +12785,7 @@ async function cleanup(repo, state, branch) {
   return { worktree: !!dir, branch: removedBranch };
 }
 function insideWorktrees(repo, dir) {
-  const root = resolve2(repo.worktreeDir) + sep3;
+  const root = resolve2(repo.worktreeDir) + sep2;
   return resolve2(dir).startsWith(root);
 }
 
@@ -12443,7 +12837,6 @@ function repoScrubber(repo, worktree) {
 }
 
 // src/worker/testrun.ts
-import { spawn as spawn3 } from "node:child_process";
 var TEST_OUTPUT_MAX = 64e3;
 function runTests(repo, cwd, signal, onLine) {
   return runCommand(repo.testCommand, repo.testTimeoutSec, "tests", cwd, signal, onLine);
@@ -12451,42 +12844,53 @@ function runTests(repo, cwd, signal, onLine) {
 function runAnalysis(repo, cwd, signal, onLine) {
   return runCommand(repo.analyzeCommand, repo.analyzeTimeoutSec, "analysis", cwd, signal, onLine);
 }
+var notStarted = (why2) => ({ ok: false, output: "", ms: 0, code: -1, notStarted: why2 });
 function runCommand(argv2, timeoutSec, what, cwd, signal, onLine) {
   if (!argv2?.length) return Promise.resolve({ ok: true, output: "", ms: 0, code: null, skipped: true });
   const started = Date.now();
+  const env = { ...process.env, CI: process.env.CI ?? "1", FORCE_COLOR: "0", NO_COLOR: "1" };
+  const s = spawnSafe(argv2[0], argv2.slice(1), { cwd, env, stdio: ["ignore", "pipe", "pipe"], detached: process.platform !== "win32", windowsHide: true, allow: "person" });
+  if (!s.ok) return Promise.resolve(s.why === "failed" ? { ok: false, output: s.error, ms: 0, code: -1 } : notStarted(s.why));
+  const child = s.child;
   return new Promise((done) => {
     let out = "";
     let timedOut = false;
-    const child = spawn3(argv2[0], argv2.slice(1), { cwd, env: { ...process.env, CI: process.env.CI ?? "1", FORCE_COLOR: "0", NO_COLOR: "1" }, stdio: ["ignore", "pipe", "pipe"], detached: process.platform !== "win32", windowsHide: true, shell: false });
+    let missing = false;
+    let settled = false;
     const add = (d) => {
-      const s = d.toString();
-      out = (out + s).slice(-TEST_OUTPUT_MAX * 2);
+      const text2 = d.toString();
+      out = (out + text2).slice(-TEST_OUTPUT_MAX * 2);
       if (onLine) {
-        for (const line of s.split("\n")) if (line.trim()) onLine(line.slice(0, 500));
+        for (const line of text2.split(/\r?\n/)) if (line.trim()) onLine(line.slice(0, 500));
       }
     };
     child.stdout?.on("data", add);
     child.stderr?.on("data", add);
-    const timer = setTimeout(() => {
-      timedOut = true;
-      killTree(child);
-    }, timeoutSec * 1e3);
-    const onAbort = () => killTree(child);
-    signal.addEventListener("abort", onAbort, { once: true });
-    child.on("error", (e) => {
-      out += `
-${e.message}`;
-    });
-    child.on("close", (code) => {
+    const finish = (code) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
       signal.removeEventListener("abort", onAbort);
+      if (missing) return done(notStarted("missing"));
       let output = out.replace(/\x1b\[[0-9;]*[A-Za-z]/g, "");
       if (output.length > TEST_OUTPUT_MAX) output = `\u2026
 ${output.slice(-TEST_OUTPUT_MAX)}`;
       if (timedOut) output += `
 [one-worker] the ${what} ran longer than ${timeoutSec} s and were stopped`;
       done({ ok: code === 0 && !timedOut && !signal.aborted, output, ms: Date.now() - started, code });
+    };
+    const timer = setTimeout(() => {
+      timedOut = true;
+      void killTree(child).then(() => finish(child.exitCode));
+    }, timeoutSec * 1e3);
+    const onAbort = () => void killTree(child);
+    signal.addEventListener("abort", onAbort, { once: true });
+    child.on("error", (e) => {
+      if (e.code === "ENOENT") missing = true;
+      else out += `
+${commandName(argv2[0])} could not start (${e.code ?? e.name})`;
     });
+    child.on("close", (code) => finish(code));
   });
 }
 
@@ -12990,10 +13394,10 @@ import { join as join10 } from "node:path";
 import { randomBytes as randomBytes3 } from "node:crypto";
 
 // src/worker/clone.ts
-import { execFile as execFile3, spawn as spawn4 } from "node:child_process";
+import { execFile as execFile2, spawn as spawn3 } from "node:child_process";
 import { existsSync as existsSync5, mkdirSync as mkdirSync3, readdirSync, rmSync as rmSync3, writeFileSync as writeFileSync4 } from "node:fs";
 import { homedir as homedir4 } from "node:os";
-import { isAbsolute as isAbsolute2, join as join6, resolve as resolve3, sep as sep4 } from "node:path";
+import { isAbsolute as isAbsolute2, join as join6, resolve as resolve3, sep as sep3 } from "node:path";
 var HOST = /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/;
 var SEGMENT = /^[A-Za-z0-9_~][A-Za-z0-9_.~+-]{0,99}$/;
 var USER = /^[A-Za-z0-9._-]{1,64}$/;
@@ -13065,7 +13469,7 @@ function cloneHint(stderr) {
 }
 async function cloneInto(target, base, onProgress, opts = {}) {
   const dir = join6(base, target.name);
-  if (!dir.startsWith(base + sep4)) throw new Error("That folder name is not allowed.");
+  if (!dir.startsWith(base + sep3)) throw new Error("That folder name is not allowed.");
   if (existsSync5(dir)) {
     const entries = readdirSync(dir);
     if (entries.length) {
@@ -13082,7 +13486,7 @@ async function cloneInto(target, base, onProgress, opts = {}) {
   const timeoutMs = opts.timeoutMs ?? (Number(process.env.ONE_WORKER_CLONE_MS) || 30 * 6e4);
   const args = ["-c", "protocol.ext.allow=never", "-c", `protocol.file.allow=${opts.local ? "always" : "never"}`, "clone", "--progress", "--", target.url, dir];
   const res = await new Promise((done) => {
-    const child = spawn4("git", args, { cwd: base, env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "never", LC_ALL: "C" }, stdio: ["ignore", "ignore", "pipe"], detached: process.platform !== "win32", windowsHide: true });
+    const child = spawn3("git", args, { cwd: base, env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "never", LC_ALL: "C" }, stdio: ["ignore", "ignore", "pipe"], detached: process.platform !== "win32", windowsHide: true });
     let err2 = "";
     let timedOut = false;
     const timer = setTimeout(() => {
@@ -13117,7 +13521,7 @@ async function cloneInto(target, base, onProgress, opts = {}) {
 }
 var runCli = (cmd, args) => new Promise((done) => {
   try {
-    execFile3(cmd, args, { timeout: 2e4, maxBuffer: 8 * 1024 * 1024, env: { ...process.env, GH_PROMPT_DISABLED: "1", NO_PROMPT: "1", NO_COLOR: "1" }, windowsHide: true }, (err2, stdout, stderr) => {
+    execFile2(cmd, args, { timeout: 2e4, maxBuffer: 8 * 1024 * 1024, env: { ...process.env, GH_PROMPT_DISABLED: "1", NO_PROMPT: "1", NO_COLOR: "1" }, windowsHide: true }, (err2, stdout, stderr) => {
       const code = err2 ? typeof err2.code === "number" ? err2.code : 127 : 0;
       done({ code, stdout: String(stdout), stderr: String(stderr) });
     });
@@ -13796,9 +14200,9 @@ var Unzip = /* @__PURE__ */ (function() {
 })();
 
 // src/worker/zipimport.ts
-import { closeSync, createReadStream, existsSync as existsSync6, lstatSync as lstatSync3, mkdirSync as mkdirSync4, openSync, readFileSync as readFileSync5, readdirSync as readdirSync2, renameSync as renameSync3, rmSync as rmSync4, statSync as statSync2, writeFileSync as writeFileSync5, writeSync } from "node:fs";
+import { closeSync as closeSync2, createReadStream, existsSync as existsSync6, lstatSync as lstatSync3, mkdirSync as mkdirSync4, openSync as openSync2, readFileSync as readFileSync5, readdirSync as readdirSync2, renameSync as renameSync3, rmSync as rmSync4, statSync as statSync3, writeFileSync as writeFileSync5, writeSync } from "node:fs";
 import { randomBytes as randomBytes2 } from "node:crypto";
-import { dirname as dirname4, join as join7, relative as relative2, resolve as resolve4, sep as sep5 } from "node:path";
+import { dirname as dirname4, join as join7, relative as relative2, resolve as resolve4, sep as sep4 } from "node:path";
 var ZIP_MAX = () => Number(process.env.ONE_WORKER_ZIP_MAX) || 500 * 1024 * 1024;
 var UNPACKED_MAX = 2 * 1024 * 1024 * 1024;
 var FILES_MAX = 1e5;
@@ -13883,16 +14287,16 @@ async function importZip(zipFile, base, name, label, onProgress = () => {
         return;
       }
       const dest = resolve4(tmp, rel);
-      if (!dest.startsWith(tmp + sep5)) {
+      if (!dest.startsWith(tmp + sep4)) {
         fail = `the ZIP has a path outside its folder (${shown(file.name)})`;
         return;
       }
       mkdirSync4(dirname4(dest), { recursive: true });
-      let fd2 = openSync(dest, "w", 420);
+      let fd2 = openSync2(dest, "w", 420);
       open2++;
       const close = () => {
         if (fd2 === null) return;
-        closeSync(fd2);
+        closeSync2(fd2);
         fd2 = null;
         open2--;
       };
@@ -13932,7 +14336,7 @@ async function importZip(zipFile, base, name, label, onProgress = () => {
     if (!fail && files === 0) fail = "the ZIP has no files";
     if (fail) throw new Error(fail);
     const top = readdirSync2(tmp);
-    const root = top.length === 1 && statSync2(join7(tmp, top[0])).isDirectory() ? join7(tmp, top[0]) : tmp;
+    const root = top.length === 1 && statSync3(join7(tmp, top[0])).isDirectory() ? join7(tmp, top[0]) : tmp;
     let dir = join7(base, name);
     for (let i2 = 2; existsSync6(dir); i2++) dir = join7(base, `${name}-${i2}`);
     renameSync3(root, dir);
@@ -13969,7 +14373,7 @@ async function commitImport(dir, label) {
   try {
     await run2(holder, ["init", "-q"]);
     const attributes = join7(gitDir2, "info", "attributes");
-    const was = statSync2(attributes, { throwIfNoEntry: false });
+    const was = statSync3(attributes, { throwIfNoEntry: false });
     const theirs = was?.isFile() && was.size <= 1024 * 1024 ? readFileSync5(attributes, "utf8") : "";
     rmSync4(attributes, { force: true });
     mkdirSync4(dirname4(attributes), { recursive: true });
@@ -14107,7 +14511,7 @@ async function publishRepo(dir, t, run2, onLine = () => {
 // src/worker/scan.ts
 import { lstat, readFile, readdir, realpath } from "node:fs/promises";
 import { homedir as homedir5 } from "node:os";
-import { basename as basename3, join as join9, sep as sep6 } from "node:path";
+import { basename as basename3, join as join9, sep as sep5 } from "node:path";
 var USUAL_PLACES = ["code", "projects", "dev", "src", "repos", "git", "GitHub", "Documents/GitHub", "Developer", "workspace", "Documents", "Desktop"];
 var SKIP_DIRS = /* @__PURE__ */ new Set([
   "node_modules",
@@ -14217,7 +14621,7 @@ var GIT_MS = 3e3;
 function shortPath(path, home = homedir5()) {
   const h = home.replace(/[\\/]+$/, "");
   if (path === h) return "~";
-  if (path.startsWith(h + sep6) || path.startsWith(`${h}/`)) return `~/${path.slice(h.length + 1).replace(/\\/g, "/")}`;
+  if (path.startsWith(h + sep5) || path.startsWith(`${h}/`)) return `~/${path.slice(h.length + 1).replace(/\\/g, "/")}`;
   return path.replace(/\\/g, "/");
 }
 function suggestName2(path, taken) {
@@ -14963,11 +15367,24 @@ function shrinkForRelay(text2, max2 = RELAY_MAX_PLAIN) {
   if (isObj5(msg.result)) msg.result = { ...msg.result, git: slim(msg.result.git) };
   if (msg.git) msg.git = slim(msg.git);
   if (Array.isArray(msg.lines)) msg.lines = msg.lines.map((l) => isObj5(l) ? { ...l, e: void 0 } : l);
-  const again = JSON.stringify(msg);
-  if (again.length <= max2) return again;
+  const again2 = JSON.stringify(msg);
+  if (again2.length <= max2) return again2;
   if (msg.type === "req" && msg.op === "finish") return JSON.stringify({ ...msg, outcome: { status: "failed", error: "The outcome was too large to send through the team server." } });
   if (msg.type === "res") return JSON.stringify({ type: "res", id: msg.id, ok: false, error: "The answer was too large to send through the team server." });
   return null;
+}
+function listenError(code, message, port, cloud2, platform = process.platform) {
+  if (code === "EADDRINUSE")
+    return {
+      result: "in-use",
+      line: cloud2 ? `port ${port} is in use \u2014 another one-worker runs on this computer (an older cloud worker of this workspace? stop it first: this file takes over once it connects) \u2014 or start this one with ONE_WORKER_PORT=<a free port>` : `port ${port} is in use \u2014 is another one-worker running? (set "port" in worker.json and the same port in One)`
+    };
+  if (code === "EACCES" && platform === "win32")
+    return {
+      result: "refused",
+      line: `cannot listen on 127.0.0.1:${port}: Windows keeps port ${port} for itself \u2014 \`netsh int ipv4 show excludedportrange protocol=tcp\` lists the ranges; start with ONE_WORKER_PORT=<free port>${cloud2 ? "" : " and set the same port in One"}`
+    };
+  return { result: "refused", line: `cannot listen on 127.0.0.1:${port}: ${message}` };
 }
 var WorkerLink = class {
   state = "idle";
@@ -15000,14 +15417,14 @@ var WorkerLink = class {
   get via() {
     return this.dial?.host ?? (this.opts.cloud ? new URL(this.opts.cloud.url).host : null);
   }
+  /** 'in-use': another program holds the port (another one-worker?) · 'refused': the system does not let the worker listen there */
   start() {
     return new Promise((resolve7) => {
       const onError = (e) => {
         this.state = "in-use";
-        this.opts.log(
-          e.code !== "EADDRINUSE" ? `cannot listen on 127.0.0.1:${this.opts.port}: ${e.message}` : this.opts.cloud ? `port ${this.opts.port} is in use \u2014 another one-worker runs on this computer (an older cloud worker of this workspace? stop it first: this file takes over once it connects) \u2014 or start this one with ONE_WORKER_PORT=<a free port>` : `port ${this.opts.port} is in use \u2014 is another one-worker running? (set "port" in worker.json and the same port in One)`
-        );
-        resolve7("in-use");
+        const why2 = listenError(e.code, e.message, this.opts.port, !!this.opts.cloud);
+        this.opts.log(why2.line);
+        resolve7(why2.result);
       };
       this.http.once("error", onError);
       this.http.listen(this.opts.port, this.opts.host ?? "127.0.0.1", () => {
@@ -32857,52 +33274,55 @@ async function serveTaskMcp(version2) {
 
 // src/worker/setup.ts
 import { randomBytes as randomBytes6 } from "node:crypto";
-import { execFile as execFile5 } from "node:child_process";
+import { execFile as execFile3 } from "node:child_process";
 import { homedir as homedir7 } from "node:os";
-import { isAbsolute as isAbsolute3, join as join11, resolve as resolve5, sep as sep7 } from "node:path";
+import { isAbsolute as isAbsolute3, join as join11, resolve as resolve5, sep as sep6 } from "node:path";
 
 // src/worker/picker.ts
-import { execFile as execFile4 } from "node:child_process";
 var PROMPT = "One worker \u2014 pick the folder of a git repository";
 function pickerCommand(env = process.env, platform = process.platform) {
   const custom2 = (env.ONE_WORKER_PICKER ?? "").trim();
   if (custom2 === "none") return null;
-  if (custom2) return { cmd: custom2, args: [] };
+  if (custom2) return { cmd: custom2, args: [], allow: "person" };
   if (platform === "darwin") {
     return { cmd: "osascript", args: ["-e", "tell me to activate", "-e", `POSIX path of (choose folder with prompt "${PROMPT}" default location (path to documents folder))`] };
   }
   if (platform === "win32") {
-    const script = `Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.FolderBrowserDialog; $d.Description = '${PROMPT.replace("\u2014", "-")}'; if ($d.ShowDialog() -eq 'OK') { [Console]::Out.Write($d.SelectedPath) }`;
-    return { cmd: "powershell", args: ["-NoProfile", "-STA", "-Command", script] };
+    const script = [
+      "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8",
+      "Add-Type -AssemblyName System.Windows.Forms",
+      "$o = New-Object System.Windows.Forms.Form -Property @{ TopMost = $true; ShowInTaskbar = $false }",
+      "$d = New-Object System.Windows.Forms.FolderBrowserDialog",
+      `$d.Description = '${PROMPT.replace("\u2014", "-")}'`,
+      "if ($d.ShowDialog($o) -eq 'OK') { [Console]::Out.Write($d.SelectedPath) }",
+      "$o.Dispose()"
+    ].join("; ");
+    return { cmd: systemTool("powershell", env, platform), args: ["-NoProfile", "-NonInteractive", "-STA", "-Command", script], allow: "exe" };
   }
   if (!env.DISPLAY && !env.WAYLAND_DISPLAY) return null;
   return { cmd: "zenity", args: ["--file-selection", "--directory", `--title=${PROMPT}`] };
 }
-function pickFolder(env = process.env) {
+async function pickFolder(env = process.env) {
   const how = pickerCommand(env);
-  if (!how) return Promise.resolve({ none: true });
-  return new Promise((resolve7) => {
-    execFile4(how.cmd, how.args, { timeout: 5 * 6e4, maxBuffer: 64 * 1024, windowsHide: false }, (err2, stdout) => {
-      const out = String(stdout ?? "").trim();
-      const path = out.length > 1 ? out.replace(/[\\/]+$/, "") : out;
-      if (path) return resolve7({ path });
-      if (err2 && err2.code === "ENOENT") return resolve7({ none: true });
-      resolve7({ cancelled: true });
-    });
-  });
+  if (!how) return { none: true };
+  const r = await execFileSafe(how.cmd, how.args, { timeoutMs: 5 * 6e4, maxBuffer: 64 * 1024, windowsHide: false, allow: how.allow ?? "exe" });
+  const out = r.stdout.trim();
+  const path = out.length > 1 ? out.replace(/[\\/]+$/, "") : out;
+  if (path && !r.timedOut) return { path };
+  if (r.why) return { none: true };
+  return { cancelled: true };
 }
 
 // src/worker/opener.ts
-import { spawn as spawn5 } from "node:child_process";
 function browserCommand(url, env = process.env, platform = process.platform) {
   const custom2 = (env.ONE_WORKER_BROWSER ?? "").trim();
   const base = { stdio: "ignore", windowsHide: true };
   if (custom2 === "none") return null;
-  if (custom2) return { cmd: custom2, args: [url], opts: base };
-  if (platform === "darwin") return { cmd: "open", args: [url], opts: base };
-  if (platform === "win32") return { cmd: "cmd", args: ["/c", "start", '""', url], opts: { ...base, windowsVerbatimArguments: true } };
+  if (custom2) return { cmd: custom2, args: [url], opts: base, allow: "person" };
+  if (platform === "darwin") return { cmd: "open", args: [url], opts: base, allow: "exe" };
+  if (platform === "win32") return { cmd: systemTool("cmd", env, platform), args: ["/d", "/c", "start", '""', url], opts: { ...base, windowsVerbatimArguments: true }, allow: "exe" };
   if (!env.DISPLAY && !env.WAYLAND_DISPLAY) return null;
-  return { cmd: "xdg-open", args: [url], opts: base };
+  return { cmd: "xdg-open", args: [url], opts: base, allow: "exe" };
 }
 function openUrl(url, env = process.env) {
   if (!/^http:\/\/127\.0\.0\.1:\d{4,5}\/setup#k=[A-Za-z0-9_-]{43}$/.test(url)) return Promise.resolve(false);
@@ -32915,17 +33335,15 @@ function openUrl(url, env = process.env) {
       done = true;
       resolve7(ok);
     };
-    try {
-      const child = spawn5(how.cmd, how.args, { ...how.opts, detached: process.platform !== "win32" });
-      child.once("error", () => finish(false));
-      child.once("exit", (code) => finish(code === 0));
-      setTimeout(() => {
-        child.unref();
-        finish(true);
-      }, 4e3).unref();
-    } catch {
-      finish(false);
-    }
+    const s = spawnSafe(how.cmd, how.args, { ...how.opts, detached: process.platform !== "win32", allow: how.allow });
+    if (!s.ok) return finish(false);
+    const child = s.child;
+    child.once("error", () => finish(false));
+    child.once("exit", (code) => finish(code === 0));
+    setTimeout(() => {
+      child.unref();
+      finish(true);
+    }, 4e3).unref();
   });
 }
 
@@ -33867,7 +34285,7 @@ function joinArgs(argv2) {
 function installed(cmd) {
   return new Promise((done) => {
     try {
-      execFile5(cmd, ["--version"], { timeout: 5e3, windowsHide: true }, (err2) => done(!err2));
+      execFile3(cmd, ["--version"], { timeout: 5e3, windowsHide: true }, (err2) => done(!err2));
     } catch {
       done(false);
     }
@@ -34012,7 +34430,7 @@ var SetupServer = class {
     else if (isAbsolute3(raw)) dir = resolve5(raw);
     else {
       dir = resolve5(this.home, raw);
-      if (dir !== this.home && !dir.startsWith(this.home + sep7)) return { ok: false, error: "A relative folder must stay inside your home folder." };
+      if (dir !== this.home && !dir.startsWith(this.home + sep6)) return { ok: false, error: "A relative folder must stay inside your home folder." };
     }
     const real = await realpathTimed(dir);
     if (!real) return { ok: false, error: "That folder does not exist (or did not answer \u2014 an iCloud folder may still be downloading)." };
@@ -34350,7 +34768,7 @@ ${prompt}`);
 }
 
 // src/worker/index.ts
-var VERSION = true ? "1.8.1" : "dev";
+var VERSION = true ? "1.9.0" : "dev";
 var quiet = process.env.ONE_WORKER_QUIET === "1";
 var recent = [];
 var log = (msg) => {
@@ -34371,6 +34789,12 @@ var { preset, problem: presetProblem } = filePreset();
 var cloud = preset?.cloud ? { origin: preset.origin, host: new URL(preset.origin).host } : null;
 var configFile = resolve6(value("--config") ?? process.env.ONE_WORKER_CONFIG ?? (preset?.cloud ? cloudConfigFile(preset.workspace) : defaultConfigFile()));
 var configOpts = { cloud: !!cloud };
+var self = fileURLToPath(import.meta.url);
+var again = (sub) => `node ${/\s/.test(self) ? `"${self}"` : self} ${sub}`;
+var win = process.platform === "win32";
+var privately = (file) => win ? `icacls "${file}" /inheritance:r /grant:r "%USERNAME%:F"` : `chmod 600 ${/\s/.test(file) ? `"${file}"` : file}`;
+var nodeMajor = Number(process.versions.node.split(".")[0]);
+var NODE_OLD = `Node.js ${process.versions.node} is past its end of life (30 April 2026) and untested with this worker \u2014 use Node.js 22 or newer`;
 if (flag("--version") || flag("-v")) {
   process.stdout.write(`${VERSION}
 `);
@@ -34381,7 +34805,8 @@ if (flag("--help") || flag("-h")) {
 ${cloud ? `
 This CLOUD worker was downloaded for the workspace "${preset.name}" (${preset.workspace}). It connects out to
 ${cloud.host} (no port to open) and works for the browser that downloaded it, end-to-end encrypted.
-Tasks run while One is open in that browser. The file holds your worker token: keep it private (chmod 600).
+Tasks run while One is open in that browser. The file holds your worker token: keep it private
+(${privately(self)}).
 Its config, state and worktrees: ${configFile.replace(/[/\\]worker\.json$/, "")}
 Exit code 2: the server let this file go for good (token revoked or replaced, membership ended) \u2014 download it again.
 ` : preset ? `
@@ -34396,18 +34821,17 @@ This file was downloaded for the workspace "${preset.name}" (${preset.workspace}
 Options: --config <file> (or ONE_WORKER_CONFIG), --no-browser (no setup page: pick the repos in this
 terminal), --force (init: replace the file), --help, --version
 Environment: CLAUDE_BIN (default "claude"), ONE_WORKER_PORT (default ${preset?.port ?? WORKER_DEFAULT_PORT}), ONE_ORIGINS, ONE_WORKER_BROWSER, ONE_WORKER_QUIET=1
-Needs: Node.js 20+, git, the Claude Code CLI (signed in). Docs: docs/CODING.md
+Needs: Node.js 22 or newer, git${win ? " (Git for Windows \u2014 Claude Code needs its Git Bash)" : ""}, the Claude Code CLI (signed in). Docs: docs/CODING.md
 `);
   process.exit(0);
 }
-var self = fileURLToPath(import.meta.url);
 async function main() {
   if (command === "task-mcp") return serveTaskMcp(VERSION);
   if (command === "init") {
     try {
       const file = initConfig(configFile, value("--workspace"), flag("--force"));
       process.stdout.write(`Wrote ${file}
-Next: add your repositories to "repos", then run: node ${self} check
+Next: add your repositories to "repos", then run: ${again("check")}
 `);
       process.exit(0);
     } catch (e) {
@@ -34432,15 +34856,18 @@ Or download the worker from One (Settings \u2192 Coding worker): that file comes
   if (command === "check") {
     const bin = claudeBin();
     const caps = await detectClaude(bin);
+    const bash = win ? gitBash() : null;
     const relay = cloud ? await checkCloud(preset.origin, preset.cloud.token) : null;
     const lines = [
       `config     ${configFile}${existsSync8(configFile) ? "" : " (not written yet)"}`,
       ...cloud ? [`download   cloud worker for "${preset.name}" \xB7 paired (end-to-end) with the browser that downloaded it`, `cloud      ${relay.line}`] : preset ? [`download   paired with a browser for "${preset.name}" \xB7 accepts ${preset.origin}${preset.dev ? " (+ localhost)" : ""}`] : [],
       `workspace  ${config2.workspace ?? "not set \u2014 every One tab is refused"}`,
       `port       ${config2.port}${cloud ? " (task tools and the setup page only \u2014 One reaches this worker through the team server)" : ""}`,
-      `claude     ${caps.found ? `${caps.version ?? "found"}${caps.budget ? "" : " (no --max-budget-usd: limits are checked between stages)"}` : `NOT FOUND ("${bin}")`}`
+      `claude     ${caps.found ? `${caps.version ?? "found"}${caps.via ? ` \xB7 ${caps.via === "node-shim" ? "npm shim \u2192" : caps.via} ${caps.path}` : ""}${caps.budget ? "" : " (no --max-budget-usd: limits are checked between stages)"}` : caps.missing === "cmd-refused" ? `REFUSED ("${bin}") \u2014 a .cmd / .bat the worker cannot read, and it never starts Claude Code through cmd.exe: install it with its native installer, or set CLAUDE_BIN to claude.exe or its cli.js` : `NOT FOUND ("${bin}") \u2014 ${claudeInstallHint()}`}`,
+      ...bash ? [`git bash   ${bash.path ? `${bash.path}${bash.from === "env" ? " (CLAUDE_CODE_GIT_BASH_PATH)" : ""}` : "NOT FOUND \u2014 Claude Code on Windows needs Git for Windows (its Git Bash): install it, or set CLAUDE_CODE_GIT_BASH_PATH to bash.exe"}`] : [],
+      `node       ${process.versions.node}${nodeMajor < 22 ? ` \u2014 past its end of life (30 April 2026) and untested: use Node.js 22 or newer` : ""}`
     ];
-    let ok = caps.found && !!config2.workspace && config2.repos.length > 0 && (relay?.ok ?? true);
+    let ok = caps.found && !!config2.workspace && config2.repos.length > 0 && (relay?.ok ?? true) && (!bash || bash.path !== null);
     let untrusted = 0;
     for (const repo of config2.repos) {
       try {
@@ -34455,7 +34882,7 @@ Or download the worker from One (Settings \u2192 Coding worker): that file comes
       }
     }
     if (untrusted) lines.push(`           code from elsewhere: Claude Code runs without its own settings. ${TRUST}`);
-    if (!config2.repos.length) lines.push(preset ? "repos      none yet \u2014 run the worker: it opens a page to tick them (node one-worker.mjs setup)" : 'repos      none \u2014 add at least one to "repos" (or run: node one-worker.mjs setup)');
+    if (!config2.repos.length) lines.push(preset ? `repos      none yet \u2014 run the worker: it opens a page to tick them (${again("setup")})` : `repos      none \u2014 add at least one to "repos" (or run: ${again("setup")})`);
     if (loaded.problems.length) ok = false;
     process.stdout.write(`${lines.join("\n")}
 ${ok ? "All good." : "Fix the lines above."}
@@ -34467,9 +34894,10 @@ ${ok ? "All good." : "Fix the lines above."}
 `);
     process.exit(1);
   }
-  if (cloud && process.platform !== "win32") {
+  if (nodeMajor < 22) log(NODE_OLD);
+  if (cloud && !win) {
     try {
-      if ((statSync3(self).mode & 63) !== 0) log(`this file holds your worker token \u2014 make it private: chmod 600 ${self}`);
+      if ((statSync4(self).mode & 63) !== 0) log(`this file holds your worker token \u2014 make it private: ${privately(self)}`);
     } catch {
     }
   }
@@ -34501,7 +34929,7 @@ ${ok ? "All good." : "Fix the lines above."}
   worker = new Worker2({ config: config2, version: VERSION, bin: claudeBin(), self, log, setup, recent: () => recent, intake: { configFile, reload: () => reload(worker) }, onFatal });
   const up = await worker.start();
   if (up !== "listening") {
-    if (command === "setup")
+    if (command === "setup" && up === "in-use")
       process.stderr.write(
         cloud ? `Another one-worker seems to run on port ${config2.port}. Stop it first (a new download takes over once it connects), or start this one with ONE_WORKER_PORT=<a free port>.
 ` : `Another one-worker seems to run on port ${config2.port}. Use "Change repositories" in One (Settings \u2192 Coding worker) to open its setup page \u2014 or stop it first.
@@ -34512,6 +34940,7 @@ ${ok ? "All good." : "Fix the lines above."}
   process.on("SIGINT", () => void shutdown());
   process.on("SIGTERM", () => void shutdown());
   process.on("SIGHUP", () => void shutdown());
+  if (win) process.on("SIGBREAK", () => void shutdown());
   if (command === "setup" || !config2.repos.length) await pickRepos(worker, setup);
 }
 async function checkCloud(origin, token) {
@@ -34552,19 +34981,22 @@ Looking for git repositories below ${home} \u2026
   const found = await findRepos({ home });
   const configured = worker.config.repos;
   const taken = new Set(configured.map((r) => r.name.toLowerCase()));
-  const paths = [.../* @__PURE__ */ new Set([...configured.map((r) => r.path), ...found.paths])];
+  const byId = /* @__PURE__ */ new Map();
+  for (const p of [...configured.map((r) => r.path), ...found.paths]) if (!byId.has(pathId(p))) byId.set(pathId(p), p);
+  const paths = [...byId.values()];
+  const own2 = (path) => configured.find((r) => samePath(r.path, path));
   const facts = (await factsOf(paths, taken, home)).map((f) => {
-    const c = configured.find((r) => r.path === f.path);
+    const c = own2(f.path);
     return c ? { ...f, name: c.name, base: c.baseBranch, test: c.testCommand } : f;
   });
-  const picked = await terminalChecklist({ input: process.stdin, output: process.stdout, title: preset?.name ?? worker.config.name, repos: facts, ticked: new Set(configured.map((r) => r.path)) });
+  const picked = await terminalChecklist({ input: process.stdin, output: process.stdout, title: preset?.name ?? worker.config.name, repos: facts, ticked: new Set(facts.filter((f) => own2(f.path)).map((f) => f.path)) });
   if (!picked) {
-    process.stdout.write(`Nothing saved. ${configured.length ? "" : "One hands this worker no tasks until repos are ticked \u2014 "}run "node ${self} setup" to pick them.
+    process.stdout.write(`Nothing saved. ${configured.length ? "" : "One hands this worker no tasks until repos are ticked \u2014 "}run ${again("setup")} to pick them.
 `);
     return;
   }
   const choices = facts.filter((f) => picked.has(f.path)).map((f) => {
-    const c = configured.find((r) => r.path === f.path);
+    const c = own2(f.path);
     return c ? { path: f.path, name: c.name, baseBranch: c.baseBranch, remote: c.remote, testCommand: c.testCommand, push: c.push, pr: c.pr, maxUsdPerTask: c.maxUsdPerTask } : { path: f.path, name: f.name, baseBranch: f.base, remote: f.remote, testCommand: f.test, push: !!f.remote, pr: "gh", maxUsdPerTask: null };
   });
   const problems = saveRepos(configFile, choices, preset?.workspace ?? worker.config.workspace);
@@ -34578,4 +35010,8 @@ ${problems.map((p) => `  ${p}`).join("\n")}
 `);
   await reload(worker);
 }
-void main();
+main().catch((e) => {
+  process.stderr.write(`[one-worker] stopped: ${e instanceof Error ? e.message : String(e)}
+`);
+  process.exit(1);
+});

@@ -276,7 +276,7 @@ export class Worker {
     return [...this.runs.values()].map((r) => ({ taskId: r.task.id, repo: r.repo.name, stageId: r.task.stage.id, since: r.since }))
   }
 
-  async start(): Promise<'listening' | 'in-use'> {
+  async start(): Promise<'listening' | 'in-use' | 'refused'> {
     this.caps = await detectClaude(this.opts.bin)
     if (!this.caps.found) this.opts.log(`Claude Code was not found ("${this.opts.bin}") — plan and implement stages will fail until it is installed (or CLAUDE_BIN is set)`)
     // ready first: a repo whose git is slow (iCloud Drive fetching files) must not keep One waiting

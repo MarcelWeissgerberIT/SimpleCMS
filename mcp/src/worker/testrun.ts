@@ -1,55 +1,73 @@
 /**
  * one-worker — the Test stage: the repo's testCommand (an argv list from worker.json, never a shell line)
  * in the task's worktree, with a timeout; the output's tail goes to One (paths of this machine replaced).
+ * The program is looked up in PATH only — never in the worktree (exec.ts); one inside the repo needs its path.
  */
-import { spawn } from 'node:child_process'
 import type { TestResult } from '../../../src/app/features/coding/protocol.ts'
 import type { RepoConfig } from './config.ts'
-import { killTree } from './claude.ts'
+import { commandName, killTree, spawnSafe } from './exec.ts'
 
 /** What of the output One gets (the tail: failures are usually at the end). */
 export const TEST_OUTPUT_MAX = 64_000
 
-export function runTests(repo: RepoConfig, cwd: string, signal: AbortSignal, onLine?: (s: string) => void): Promise<TestResult> {
+/** notStarted: the program was not found (PATH only) or cannot run (a .cmd cmd.exe cannot pass the arguments to) — ok false, output '', ms 0, code -1 */
+export type RunResult = TestResult & { notStarted?: 'missing' | 'refused' }
+
+export function runTests(repo: RepoConfig, cwd: string, signal: AbortSignal, onLine?: (s: string) => void): Promise<RunResult> {
   return runCommand(repo.testCommand, repo.testTimeoutSec, 'tests', cwd, signal, onLine)
 }
 
 /** The Static analysis stage: the repo's analyzeCommand, like the tests (a non-zero exit is a finding, not a failure). */
-export function runAnalysis(repo: RepoConfig, cwd: string, signal: AbortSignal, onLine?: (s: string) => void): Promise<TestResult> {
+export function runAnalysis(repo: RepoConfig, cwd: string, signal: AbortSignal, onLine?: (s: string) => void): Promise<RunResult> {
   return runCommand(repo.analyzeCommand, repo.analyzeTimeoutSec, 'analysis', cwd, signal, onLine)
 }
 
-function runCommand(argv: string[] | null, timeoutSec: number, what: string, cwd: string, signal: AbortSignal, onLine?: (s: string) => void): Promise<TestResult> {
+const notStarted = (why: 'missing' | 'refused'): RunResult => ({ ok: false, output: '', ms: 0, code: -1, notStarted: why })
+
+function runCommand(argv: string[] | null, timeoutSec: number, what: string, cwd: string, signal: AbortSignal, onLine?: (s: string) => void): Promise<RunResult> {
   if (!argv?.length) return Promise.resolve({ ok: true, output: '', ms: 0, code: null, skipped: true })
   const started = Date.now()
+  const env = { ...process.env, CI: process.env.CI ?? '1', FORCE_COLOR: '0', NO_COLOR: '1' }
+  // the person's own command: a .cmd / .bat the reader cannot read may run through cmd.exe (escaped)
+  const s = spawnSafe(argv[0]!, argv.slice(1), { cwd, env, stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32', windowsHide: true, allow: 'person' })
+  if (!s.ok) return Promise.resolve(s.why === 'failed' ? { ok: false, output: s.error, ms: 0, code: -1 } : notStarted(s.why))
+  const child = s.child
   return new Promise((done) => {
     let out = ''
     let timedOut = false
-    const child = spawn(argv[0]!, argv.slice(1), { cwd, env: { ...process.env, CI: process.env.CI ?? '1', FORCE_COLOR: '0', NO_COLOR: '1' }, stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32', windowsHide: true, shell: false })
+    let missing = false
+    let settled = false
     const add = (d: Buffer) => {
-      const s = d.toString()
-      out = (out + s).slice(-TEST_OUTPUT_MAX * 2)
-      if (onLine) for (const line of s.split('\n')) if (line.trim()) onLine(line.slice(0, 500))
+      const text = d.toString()
+      out = (out + text).slice(-TEST_OUTPUT_MAX * 2)
+      if (onLine) for (const line of text.split(/\r?\n/)) if (line.trim()) onLine(line.slice(0, 500))
     }
     child.stdout?.on('data', add)
     child.stderr?.on('data', add)
-    const timer = setTimeout(() => {
-      timedOut = true
-      killTree(child)
-    }, timeoutSec * 1000)
-    const onAbort = () => killTree(child)
-    signal.addEventListener('abort', onAbort, { once: true })
-    child.on('error', (e) => {
-      out += `\n${e.message}`
-    })
-    child.on('close', (code) => {
+    const finish = (code: number | null) => {
+      if (settled) return
+      settled = true
       clearTimeout(timer)
       signal.removeEventListener('abort', onAbort)
+      if (missing) return done(notStarted('missing'))
       // strip ANSI colours, keep the tail
       let output = out.replace(/\x1b\[[0-9;]*[A-Za-z]/g, '')
       if (output.length > TEST_OUTPUT_MAX) output = `…\n${output.slice(-TEST_OUTPUT_MAX)}`
       if (timedOut) output += `\n[one-worker] the ${what} ran longer than ${timeoutSec} s and were stopped`
       done({ ok: code === 0 && !timedOut && !signal.aborted, output, ms: Date.now() - started, code })
+    }
+    const timer = setTimeout(() => {
+      timedOut = true
+      // the whole tree first (Windows: taskkill /T), then the result
+      void killTree(child).then(() => finish(child.exitCode))
+    }, timeoutSec * 1000)
+    const onAbort = () => void killTree(child)
+    signal.addEventListener('abort', onAbort, { once: true })
+    child.on('error', (e) => {
+      // macOS / Linux look the program up when it starts: not found arrives here
+      if ((e as NodeJS.ErrnoException).code === 'ENOENT') missing = true
+      else out += `\n${commandName(argv[0]!)} could not start (${(e as NodeJS.ErrnoException).code ?? e.name})`
     })
+    child.on('close', (code) => finish(code))
   })
 }

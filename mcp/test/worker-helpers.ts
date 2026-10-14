@@ -6,10 +6,11 @@
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { delimiter, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import WebSocket from 'ws'
 import { WORKER_SUBPROTOCOL, type StageOutcome, type TabMessage, type TaskPayload, type WorkerMessage, type WorkspaceRef } from '../../src/app/features/coding/protocol.ts'
+import { envGet, pathKey } from '../src/worker/exec.ts'
 import { waitFor } from './helpers.ts'
 
 export const WORKER_BUNDLE = fileURLToPath(new URL('../../public/mcp/one-worker.mjs', import.meta.url))
@@ -144,6 +145,33 @@ export function fakeOpener(): { program: string; urls: () => string[] } {
   writeFileSync(program, `#!${process.execPath}\nimport { appendFileSync } from 'node:fs'\nappendFileSync(${JSON.stringify(log)}, process.argv[2] + '\\n')\n`)
   chmodSync(program, 0o755)
   return { program, urls: () => (existsSync(log) ? readFileSync(log, 'utf8').split('\n').filter(Boolean) : []) }
+}
+
+/** npm's cmd-shim (v6 / v7) for `target` (relative to the shim's folder, backslashes) — the shape npm writes on Windows. */
+export const cmdShimV7 = (target: string) =>
+  ['@ECHO off', 'GOTO start', ':find_dp0', 'SET dp0=%~dp0', 'EXIT /b', ':start', 'SETLOCAL', 'CALL :find_dp0', '', 'IF EXIST "%dp0%\\node.exe" (', '  SET "_prog=%dp0%\\node.exe"', ') ELSE (', '  SET "_prog=node"', '  SET PATHEXT=%PATHEXT:;.JS;=;%', ')', '', `endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\\${target}" %*`, ''].join('\r\n')
+
+/**
+ * A fake program `name` in `dir` written in JavaScript, started the way this OS starts an installed CLI: Windows —
+ * `<name>.mjs` + npm's `<name>.cmd` shim (the worker reads it); else `<name>.mjs` + an executable `<name>` (sh). Returns dir.
+ */
+export function fakeBin(dir: string, name: string, js: string): string {
+  mkdirSync(dir, { recursive: true })
+  const script = join(dir, `${name}.mjs`)
+  writeFileSync(script, js)
+  if (process.platform === 'win32') writeFileSync(join(dir, `${name}.cmd`), cmdShimV7(`${name}.mjs`))
+  else {
+    const q = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`
+    writeFileSync(join(dir, name), `#!/bin/sh\nexec ${q(process.execPath)} ${q(script)} "$@"\n`)
+    chmodSync(join(dir, name), 0o755)
+  }
+  return dir
+}
+
+/** `dir` FIRST in PATH (under the key this environment uses: "Path" on Windows) — for a child's env. */
+export function pathWith(dir: string, env: NodeJS.ProcessEnv = process.env): Record<string, string> {
+  const rest = envGet(env, 'PATH') ?? ''
+  return { [pathKey(env)]: rest ? `${dir}${delimiter}${rest}` : dir }
 }
 
 /** A git repo at `dir` with one commit (and optionally a remote URL — never contacted). */

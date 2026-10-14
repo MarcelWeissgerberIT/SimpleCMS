@@ -5,16 +5,22 @@
  * never shows in the process list). Claude Code keeps its own permission rules: no flag that skips them is ever
  * passed. Stop kills the whole process tree.
  *
- * The CLI is `CLAUDE_BIN` or `claude` on PATH. What it supports is read from its --help once (the budget
+ * The CLI is `CLAUDE_BIN` or `claude` on PATH (Windows: claude.exe, or the script behind npm's claude.cmd — never
+ * through cmd.exe, never from the worktree; exec.ts). What it supports is read from its --help once (the budget
  * flag, the permission mode names, --setting-sources), so older and newer versions both work.
  */
-import { spawn, execFile, type ChildProcess } from 'node:child_process'
+import type { ChildProcess } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import { readFileSync, realpathSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join, sep } from 'node:path'
+import { join, win32 } from 'node:path'
 import { EDIT_CHARS, EDIT_HUNKS, type LogLine, type PermissionMode, type TaskProgress, type ToolEdit } from '../../../src/app/features/coding/protocol.ts'
+import { inFolder } from './config.ts'
+import { envGet, execFileSafe, isFile, killTree, resolveCommand, spawnSafe, type ExecCtx, type Via } from './exec.ts'
+import { samePath } from './paths.ts'
 import { estimateCost, usageOf, type Usage } from './price.ts'
+
+export { killTree } from './exec.ts'
 
 export interface ClaudeCaps {
   found: boolean
@@ -25,28 +31,73 @@ export interface ClaudeCaps {
   modes: string[]
   /** --setting-sources is known (a repo's own settings can be left out) */
   settingSources: boolean
+  /** Windows: the file that runs (`check` prints it — never sent) */
+  path?: string
+  /** Windows: how it starts (an .exe, or a script behind npm's shim) */
+  via?: Via
+  /** not found — or a .cmd / .bat the worker cannot read (it never starts Claude Code through cmd.exe) */
+  missing?: 'not-found' | 'cmd-refused'
 }
 
 export const claudeBin = (env: NodeJS.ProcessEnv = process.env) => (env.CLAUDE_BIN && env.CLAUDE_BIN.trim()) || 'claude'
 
-function capture(bin: string, args: string[], timeoutMs = 15_000): Promise<{ code: number; out: string }> {
-  return new Promise((done) => {
-    execFile(bin, args, { timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024, windowsHide: true, env: { ...process.env, NO_COLOR: '1' } }, (err, stdout, stderr) => {
-      const code = err ? (typeof (err as { code?: unknown }).code === 'number' ? (err as { code: number }).code : 127) : 0
-      done({ code, out: `${stdout}\n${stderr}` })
-    })
-  })
+/** How to get Claude Code on this kind of computer (terminal lines). */
+export function claudeInstallHint(platform: NodeJS.Platform = process.platform): string {
+  if (platform === 'win32')
+    return 'Install Claude Code — its native installer (PowerShell: irm https://claude.ai/install.ps1 | iex) or npm i -g @anthropic-ai/claude-code; it needs Git for Windows (Git Bash) — sign in once with `claude`, or set CLAUDE_BIN to claude.exe or its cli.js'
+  return 'Install Claude Code — its native installer (curl -fsSL https://claude.ai/install.sh | bash) or npm i -g @anthropic-ai/claude-code — sign in once with `claude`, or set CLAUDE_BIN to its program'
 }
 
-/** What the installed CLI supports (never calls the API: --version and --help only). */
-export async function detectClaude(bin = claudeBin()): Promise<ClaudeCaps> {
-  const v = await capture(bin, ['--version'])
-  if (v.code === 127 || (v.code !== 0 && !v.out.trim())) return { found: false, version: null, budget: false, modes: [], settingSources: false }
-  const version = /(\d+\.\d+\.\d+[\w.-]*)/.exec(v.out)?.[1] ?? null
-  const help = await capture(bin, ['--help'])
-  const modeLine = /--permission-mode[\s\S]{0,400}?\(choices:([^)]*)\)/.exec(help.out)?.[1] ?? ''
-  const modes = [...modeLine.matchAll(/"([A-Za-z]+)"/g)].map((m) => m[1]!)
-  return { found: true, version, budget: /--max-budget-usd/.test(help.out), modes, settingSources: /--setting-sources/.test(help.out) }
+/** The stage error when Claude Code cannot start (English, as every stage error; never the path it was looked for at). */
+export function claudeMissingError(missing: ClaudeCaps['missing']): string {
+  return missing === 'cmd-refused'
+    ? 'Claude Code is installed as a .cmd / .bat file the worker cannot read — install it with its native installer, or set CLAUDE_BIN to claude.exe or its cli.js.'
+    : 'Claude Code was not found on this computer. Install it and sign in, or set CLAUDE_BIN.'
+}
+
+/**
+ * Windows: the Git Bash Claude Code needs — CLAUDE_CODE_GIT_BASH_PATH, else bin\bash.exe of the Git for Windows whose
+ * git.exe PATH names (…\Git\cmd, …\Git\bin or …\Git\mingw64\bin). `check` prints it.
+ */
+export function gitBash(env: NodeJS.ProcessEnv = process.env, ctx?: Partial<ExecCtx>): { path: string | null; from: 'env' | 'git' | null } {
+  const exists = ctx?.exists ?? isFile
+  const set = envGet(env, 'CLAUDE_CODE_GIT_BASH_PATH', 'win32')?.trim()
+  if (set) return { path: exists(set) ? set : null, from: 'env' }
+  const git = resolveCommand('git', [], { ...ctx, platform: 'win32', env }, 'exe')
+  if (!git.ok) return { path: null, from: null }
+  const dir = win32.dirname(git.file)
+  const up = win32.dirname(dir)
+  const roots = [up, ...(/^(mingw64|mingw32|clangarm64)$/i.test(win32.basename(up)) ? [win32.dirname(up)] : [])]
+  for (const root of roots) {
+    const bash = win32.join(root, 'bin', 'bash.exe')
+    if (exists(bash)) return { path: bash, from: 'git' }
+  }
+  return { path: null, from: 'git' }
+}
+
+function capture(bin: string, args: string[], ctx?: Partial<ExecCtx>, timeoutMs = 15_000): Promise<{ code: number; out: string; why?: string }> {
+  return execFileSafe(bin, args, { timeoutMs, maxBuffer: 4 * 1024 * 1024, env: { ...process.env, NO_COLOR: '1' }, allow: 'shim', ctx }).then((r) => ({ code: r.code, out: `${r.stdout}\n${r.stderr}`, why: r.why }))
+}
+
+/** What the installed CLI supports (never calls the API: --version and --help only). Never rejects. */
+export async function detectClaude(bin = claudeBin(), ctx?: Partial<ExecCtx>): Promise<ClaudeCaps> {
+  const none = (missing: ClaudeCaps['missing']): ClaudeCaps => ({ found: false, version: null, budget: false, modes: [], settingSources: false, missing })
+  try {
+    const platform = ctx?.platform ?? process.platform
+    const r = resolveCommand(bin, ['--version'], { ...ctx, env: { ...process.env, NO_COLOR: '1' } }, 'shim')
+    if (!r.ok) return none(r.why === 'refused' ? 'cmd-refused' : 'not-found')
+    // Windows only: what runs (macOS / Linux look it up themselves)
+    const where: Pick<ClaudeCaps, 'path' | 'via'> = platform === 'win32' ? { path: r.via === 'node-shim' ? r.args[r.args.length - 2] : r.file, via: r.via } : {}
+    const v = await capture(bin, ['--version'], ctx)
+    if (v.code === 127 || (v.code !== 0 && !v.out.trim())) return none(v.why === 'refused' ? 'cmd-refused' : 'not-found')
+    const version = /(\d+\.\d+\.\d+[\w.-]*)/.exec(v.out)?.[1] ?? null
+    const help = await capture(bin, ['--help'], ctx)
+    const modeLine = /--permission-mode[\s\S]{0,400}?\(choices:([^)]*)\)/.exec(help.out)?.[1] ?? ''
+    const modes = [...modeLine.matchAll(/"([A-Za-z]+)"/g)].map((m) => m[1]!)
+    return { found: true, version, budget: /--max-budget-usd/.test(help.out), modes, settingSources: /--setting-sources/.test(help.out), ...where }
+  } catch {
+    return none('not-found')
+  }
 }
 
 /** Our mode name → the CLI's ('default' is called 'manual' by some versions). Never a bypassing mode. */
@@ -108,8 +159,9 @@ const PLAN_FILE = /[\\/]\.claude[\\/]plans[\\/][^\\/]+\.md$/
 export function readPlanFile(path: string, home = homedir()): string | null {
   try {
     const dir = realpathSync(join(home, '.claude', 'plans'))
-    const real = realpathSync(path.startsWith('~/') ? join(home, path.slice(2)) : path)
-    if (!real.startsWith(dir + sep) || !real.endsWith('.md')) return null
+    const real = realpathSync(path.startsWith('~/') || path.startsWith('~\\') ? join(home, path.slice(2)) : path)
+    // inside the plans folder (without case where the disk ignores it), never the folder itself
+    if (!inFolder(real, dir) || samePath(real, dir) || !/\.md$/i.test(real)) return null
     if (statSync(real).size > 200 * 1024) return null
     const text = readFileSync(real, 'utf8').trim()
     return text || null
@@ -169,31 +221,6 @@ export function editOf(name: string, input: unknown): ToolEdit | null {
   return { path, hunks, ...(clipped ? { clipped: true } : {}) }
 }
 
-/** Kill the process and everything it started. */
-export function killTree(child: ChildProcess): void {
-  if (child.exitCode !== null || child.pid === undefined) return
-  try {
-    if (process.platform === 'win32') execFile('taskkill', ['/pid', String(child.pid), '/T', '/F'], () => {})
-    else process.kill(-child.pid, 'SIGTERM')
-  } catch {
-    try {
-      child.kill('SIGTERM')
-    } catch {
-      /* gone */
-    }
-  }
-  const hard = setTimeout(() => {
-    if (child.exitCode !== null) return
-    try {
-      if (process.platform !== 'win32') process.kill(-child.pid!, 'SIGKILL')
-      else child.kill('SIGKILL')
-    } catch {
-      /* gone */
-    }
-  }, 3000)
-  hard.unref()
-}
-
 /** 75_000 → "1:15" */
 const clock = (ms: number) => {
   const sec = Math.max(0, Math.round(ms / 1000))
@@ -204,13 +231,13 @@ const clock = (ms: number) => {
 export function runClaude(r: ClaudeRun): Promise<ClaudeResult> {
   return new Promise((done) => {
     const result: ClaudeResult = { ok: false, stopped: false, text: '', plan: null, cost: 0, turns: 0, sessionId: null, subtype: null }
-    let child: ChildProcess
-    try {
-      child = spawn(r.bin, claudeArgs(r), { cwd: r.cwd, env: r.env, stdio: ['pipe', 'pipe', 'pipe'], detached: process.platform !== 'win32', windowsHide: true })
-    } catch (e) {
-      done({ ...result, error: `Claude Code could not start: ${e instanceof Error ? e.message : String(e)}` })
+    // an .exe or a script behind npm's shim — never through cmd.exe, never from the worktree (exec.ts)
+    const spawned = spawnSafe(r.bin, claudeArgs(r), { cwd: r.cwd, env: r.env, stdio: ['pipe', 'pipe', 'pipe'], detached: process.platform !== 'win32', windowsHide: true, allow: 'shim' })
+    if (!spawned.ok) {
+      done({ ...result, error: spawned.why === 'failed' ? `Claude Code could not start: ${spawned.error}` : claudeMissingError(spawned.why === 'refused' ? 'cmd-refused' : 'not-found') })
       return
     }
+    const child: ChildProcess = spawned.child
     let stderr = ''
     let gotResult = false
     const log = (k: LogLine['k'], s: string, c?: string, v?: LogLine['v']) => r.onLog({ t: Date.now(), k, s, ...(c ? { c, v } : {}) })
@@ -236,12 +263,13 @@ export function runClaude(r: ClaudeRun): Promise<ClaudeResult> {
     const onAbort = () => {
       result.stopped = true
       log('warn', 'Stopped — Claude Code was ended.', 'stopped')
-      killTree(child)
+      void killTree(child)
     }
     if (r.signal.aborted) onAbort()
     r.signal.addEventListener('abort', onAbort, { once: true })
     child.on('error', (e) => {
-      stderr += `\n${e.message}`
+      // the code only: the message names the path it looked at
+      stderr += `\nClaude Code could not start (${(e as NodeJS.ErrnoException).code ?? e.name})`
     })
     child.stdin?.on('error', () => {})
     child.stdin?.end(r.prompt)
@@ -328,7 +356,7 @@ export function runClaude(r: ClaudeRun): Promise<ClaudeResult> {
       if (!gotResult && !result.stopped) {
         result.ok = false
         result.error = code === null ? 'Claude Code was ended' : `Claude Code exited with code ${code}${stderr.trim() ? `: ${clip(oneLine(stderr.trim().split('\n').slice(-3).join(' ')), 400)}` : ''}`
-        if (/ENOENT|not found/i.test(stderr)) result.error = `Claude Code was not found ("${r.bin}"). Install it (npm i -g @anthropic-ai/claude-code) or set CLAUDE_BIN.`
+        if (/ENOENT|not found/i.test(stderr)) result.error = claudeMissingError('not-found')
         else if (SIGNED_OUT.test(stderr)) {
           result.error = AUTH_HINT
           log('error', AUTH_HINT, 'claudeAuth')

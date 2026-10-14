@@ -213,6 +213,26 @@ export function shrinkForRelay(text: string, max = RELAY_MAX_PLAIN): string | nu
   return null
 }
 
+/**
+ * Why the worker cannot listen on its port (a terminal line). EADDRINUSE: another program has it — usually another
+ * one-worker. EACCES on Windows: the port lies in a range Windows keeps for itself (Hyper-V, WSL, Docker).
+ */
+export function listenError(code: string | undefined, message: string, port: number, cloud: boolean, platform: NodeJS.Platform = process.platform): { result: 'in-use' | 'refused'; line: string } {
+  if (code === 'EADDRINUSE')
+    return {
+      result: 'in-use',
+      line: cloud
+        ? `port ${port} is in use — another one-worker runs on this computer (an older cloud worker of this workspace? stop it first: this file takes over once it connects) — or start this one with ONE_WORKER_PORT=<a free port>`
+        : `port ${port} is in use — is another one-worker running? (set "port" in worker.json and the same port in One)`,
+    }
+  if (code === 'EACCES' && platform === 'win32')
+    return {
+      result: 'refused',
+      line: `cannot listen on 127.0.0.1:${port}: Windows keeps port ${port} for itself — \`netsh int ipv4 show excludedportrange protocol=tcp\` lists the ranges; start with ONE_WORKER_PORT=<free port>${cloud ? '' : ' and set the same port in One'}`,
+    }
+  return { result: 'refused', line: `cannot listen on 127.0.0.1:${port}: ${message}` }
+}
+
 export class WorkerLink {
   state: 'idle' | 'listening' | 'in-use' | 'closed' = 'idle'
   private opts: LinkOptions
@@ -248,18 +268,14 @@ export class WorkerLink {
     return this.dial?.host ?? (this.opts.cloud ? new URL(this.opts.cloud.url).host : null)
   }
 
-  start(): Promise<'listening' | 'in-use'> {
+  /** 'in-use': another program holds the port (another one-worker?) · 'refused': the system does not let the worker listen there */
+  start(): Promise<'listening' | 'in-use' | 'refused'> {
     return new Promise((resolve) => {
       const onError = (e: NodeJS.ErrnoException) => {
         this.state = 'in-use'
-        this.opts.log(
-          e.code !== 'EADDRINUSE'
-            ? `cannot listen on 127.0.0.1:${this.opts.port}: ${e.message}`
-            : this.opts.cloud
-              ? `port ${this.opts.port} is in use — another one-worker runs on this computer (an older cloud worker of this workspace? stop it first: this file takes over once it connects) — or start this one with ONE_WORKER_PORT=<a free port>`
-              : `port ${this.opts.port} is in use — is another one-worker running? (set "port" in worker.json and the same port in One)`,
-        )
-        resolve('in-use')
+        const why = listenError(e.code, e.message, this.opts.port, !!this.opts.cloud)
+        this.opts.log(why.line)
+        resolve(why.result)
       }
       this.http.once('error', onError)
       this.http.listen(this.opts.port, this.opts.host ?? '127.0.0.1', () => {
