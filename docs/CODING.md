@@ -625,10 +625,19 @@ hooks and your git config apply as usual. On Windows every git call gets `-c cor
 - **Approvals** (One, per device): *all* (plan gate + review), *review* (the gate after a plan stage passes by itself),
   *none* (every gate passes). Kept per task in `TaskLocal.approvals`; a new task gets this device's default
   (localStorage `one.coding.approvals`, stamped by `createTask`), which only **Use for new tasks** (`setDefaultApprovals`)
-  writes — a task's pick never changes it (another tab follows through the `storage` event). A task without a pick of
-  its own (made before the stamp, a row added on the board or by an agent, a team task from another device) takes the
-  default in effect when its row was created: each change notes the default it replaces with the time (localStorage
-  `one.coding.approvals.history`, ≤ 50, state.ts `approvalsAt`) — a new default never changes an existing task. A gate with `hold`
+  writes — a task's pick never changes it (another tab follows through the `storage` event). A row that becomes a task on
+  this device gets a level of its own at that moment (tasks.ts `startApprovalsWatch`, local.ts `stampApprovals` — one
+  read-modify-write of the stored state, a pick already there stays): a row new here (the board's "+ New", an agent, a
+  team task arriving) the default in effect when it was created; a page dropped on a pipeline database in the sidebar or
+  a row moved in (MCP `one_move_row`) **today's** default — never the one in effect when the page was written; never at
+  load, for an eject, or between two pipeline databases. A task still without one (made before the stamp, or arrived
+  while no tab was open) takes the default in effect when its row was created: each change notes the default it replaces
+  with the time (localStorage `one.coding.approvals.history`, ≤ 50, in the order written — `u` only grows, a clock set
+  back reorders nothing; state.ts `approvalsAt`) — and that level is frozen as its own once this device resolves it (the
+  panel shows it, a stage finishes). Rows whose creation time is ahead of the change (another device's or the team
+  server's clock) are stamped with the old default by `setDefaultApprovals` — a new default never changes an existing
+  task. Limit: a task of another workspace of this browser created within the clock difference before the change and
+  never shown here can still follow it. A gate with `hold`
   (**Always stop here**, pipeline editor; `PipelineStage.hold`, gates only) is never skipped (`skipsGate`; the log says
   *"<gate>" always stops — waiting for you.*); tests failing twice still stop at the next gate. `hold` joins the task
   version only when set (trust.ts `pipelineKey`, like a stage's model): a pipeline without one hashes as before.
@@ -703,7 +712,11 @@ reloads meanwhile writes no note for it (the push / request happened; the device
   name, token, query, fragment or local path (`cleanWeb` on both sides, the one rule); from the remote URL (`webOf`,
   worker.json `forge`; an ssh remote's host as ssh names it — `ssh -G <host>`'s `hostname`, so an alias in ~/.ssh/config
   such as `git@gitlab.com-work:…` links to gitlab.com; nothing connects, asked once per host per 10 minutes, the host as
-  written when ssh is missing or says nothing usable) — or, when gh / glab named the request, from that address (another
+  written when ssh is missing or says nothing usable. ssh's answer only resolves an alias, it never replaces a working
+  web host: github.com / gitlab.com as written stay (ssh is not asked), an IP literal (`HostName 10.20.30.40`) or a host
+  below the written one (`HostName ssh.gitlab.company.de` for gitlab.company.de) is ignored, and the "SSH over the HTTPS
+  port" fronts `ssh.github.com` / `altssh.gitlab.com` — ssh's answer or the host as written — link to github.com /
+  gitlab.com) — or, when gh / glab named the request, from that address (another
   web host). The request's address is kept as a URL writes it (host lower-cased, no default port): it always starts
   with the web address taken from it; One checks that and keeps that form.
   The owner agreed that host + project path go into the page; in a team the Coding database is the member's private one.

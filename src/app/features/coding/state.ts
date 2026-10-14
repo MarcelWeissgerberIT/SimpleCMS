@@ -34,9 +34,10 @@ export function defaultApprovals(): ApprovalsLevel {
 
 /**
  * The defaults this device had before each change (localStorage, written with the change by setDefaultApprovals):
- * `[{ l: the level, u: until when (ms) }]`, oldest first, the last APPROVALS_HISTORY_MAX. A task without a pick of its own
- * (made before the defaults were stamped, a row added on the board, a team member's task from another device) takes
- * the default in effect when it was created — "Use for new tasks" never changes it afterwards.
+ * `[{ l: the level, u: until when (ms) }]` in the order they were written (`u` only grows — a clock set back never
+ * reorders them), the last APPROVALS_HISTORY_MAX. A task without a pick of its own that this device has not resolved yet
+ * (made before the defaults were stamped, a team member's task from another device) takes the default in effect when it
+ * was created; tasks.ts then freezes that level (TaskLocal.approvals) — "Use for new tasks" never changes it afterwards.
  */
 export const APPROVALS_HISTORY_KEY = 'one.coding.approvals.history'
 const APPROVALS_HISTORY_MAX = 50
@@ -45,17 +46,23 @@ export interface ApprovalsSpan {
   u: number
 }
 const level = (v: unknown): v is ApprovalsLevel => v === 'all' || v === 'review' || v === 'none'
-/** The history read and checked (an entry that is not { l, u } is left out). */
+/**
+ * The history read and checked (an entry that is not { l, u } is left out), in the order it was written — never sorted:
+ * an entry whose `u` is not past the one before it (written by hand) is lifted just past it, so the walk in approvalsAt
+ * stays in step with the order the defaults changed in.
+ */
 export function readApprovalsHistory(raw: string | null): ApprovalsSpan[] {
   if (!raw) return []
   try {
     const v: unknown = JSON.parse(raw)
     if (!Array.isArray(v)) return []
-    return v
-      .filter((e): e is ApprovalsSpan => !!e && typeof e === 'object' && level((e as ApprovalsSpan).l) && Number.isFinite((e as ApprovalsSpan).u))
-      .map((e) => ({ l: e.l, u: e.u }))
-      .sort((a, b) => a.u - b.u)
-      .slice(-APPROVALS_HISTORY_MAX)
+    const list: ApprovalsSpan[] = []
+    for (const e of v.slice(-APPROVALS_HISTORY_MAX)) {
+      if (!e || typeof e !== 'object' || !level((e as ApprovalsSpan).l) || !Number.isFinite((e as ApprovalsSpan).u)) continue
+      const last = list[list.length - 1]
+      list.push({ l: (e as ApprovalsSpan).l, u: last ? Math.max((e as ApprovalsSpan).u, last.u + 1) : (e as ApprovalsSpan).u })
+    }
+    return list
   } catch {
     return []
   }
@@ -74,20 +81,31 @@ function approvalsHistory(): ApprovalsSpan[] {
   if (historyRead?.raw !== raw) historyRead = { raw, list: readApprovalsHistory(raw) }
   return historyRead.list
 }
-/** The default in effect at `at` (a task's creation): the first change after it names it; none after it — today's. */
+/**
+ * The default in effect at `at` (a task's creation): the first change after it names it; none after it — today's (also
+ * for a creation time ahead of this device's clock: another device's or the team server's — tasks.ts freezes the level
+ * once this device resolved it, so a later change of the default cannot reach such a task).
+ */
 export function approvalsAt(at: number | null | undefined, history: readonly ApprovalsSpan[] = approvalsHistory(), now: ApprovalsLevel = defaultApprovals()): ApprovalsLevel {
   if (typeof at === 'number' && Number.isFinite(at)) for (const s of history) if (at < s.u) return s.l
   return now
 }
-/** Note that the default `was` until now (setDefaultApprovals, before it writes the new one). */
-export function noteApprovalsChange(was: ApprovalsLevel, until = Date.now()): void {
-  const list = [...approvalsHistory(), { l: was, u: until }].slice(-APPROVALS_HISTORY_MAX)
+/**
+ * Note that the default `was` until now (setDefaultApprovals, before it writes the new one); returns the entry's `u` —
+ * never at or before the last one's (a clock set back), so the entries keep the order they were written in.
+ */
+export function noteApprovalsChange(was: ApprovalsLevel, until = Date.now()): number {
+  const before = approvalsHistory()
+  const last = before[before.length - 1]
+  const u = last ? Math.max(until, last.u + 1) : until
+  const list = [...before, { l: was, u }].slice(-APPROVALS_HISTORY_MAX)
   historyHere = list
   try {
     localStorage.setItem(APPROVALS_HISTORY_KEY, JSON.stringify(list))
   } catch {
     /* private mode: this tab only */
   }
+  return u
 }
 
 export interface WorkerPair {

@@ -13,11 +13,11 @@ import { join } from 'node:path'
 import { after, afterEach, describe, test } from 'node:test'
 import { GIT_SHA, WORKER_CAN, branchUrl, cleanWeb, commitUrl, requestNumber, type GitResult, type LogLine, type ShipRecord, type WorkerMessage } from '../../src/app/features/coding/protocol.ts'
 import { saveRepos, sanitizeConfig, type RepoConfig } from '../src/worker/config.ts'
-import { compareUrl, forgeOfHost, forgetSshNames, openPr, sshHostName, sshHostOf, webBase, webFromRequest } from '../src/worker/git.ts'
+import { compareUrl, forgeOfHost, forgetSshNames, openPr, sshHostName, sshHostOf, sshWebHost, webBase, webFromRequest } from '../src/worker/git.ts'
 import { gitHint } from '../src/worker/gitenv.ts'
 import { REQUEST_FOOTER, commitMessage, newShip, requestBody, requestLine, withRequest, withTaskTrailer } from '../src/worker/run.ts'
 import { SetupServer } from '../src/worker/setup.ts'
-import { FakeTab, WS_LOCAL, cleanupAll, fakeBin, leakIn, makeRepo, pathWith, plainRepo, repoEntry, sh, startWorker, task, tempDir, writeConfig, type StartedWorker, type TempRepo } from './worker-helpers.ts'
+import { FakeTab, IS_WIN, WS_LOCAL, cleanupAll, fakeBin, leakIn, makeRepo, pathWith, plainRepo, repoEntry, sh, startWorker, task, tempDir, writeConfig, type StartedWorker, type TempRepo } from './worker-helpers.ts'
 
 const PORT = 47382
 let worker: StartedWorker | null = null
@@ -521,7 +521,7 @@ describe('the trailer, the web address, the hint (pure)', () => {
     assert.match(compareUrl('git@git.nordlicht.example.test:team/website.git', 'main', 'b', 'gitlab')!, /^https:\/\/git\.nordlicht\.example\.test\/team\/website\/-\/merge_requests\/new\?/)
   })
 
-  test('an ssh host alias: the web address names the host ssh connects to (ssh -G), the forge read from it first', async () => {
+  test('an ssh host alias: the web address names the host ssh connects to (ssh -G), the forge read from it first — never an ssh-only front-end, an IP literal or a replaced forge host', async () => {
     const real = 'gitlab.example.test'
     assert.deepEqual(webBase('git@gitlab.com-work:nordlicht/website.git', 'auto', real), GITLAB_WEB)
     assert.deepEqual(webBase('git@work:nordlicht/website.git', 'auto', real), GITLAB_WEB, 'the alias says nothing; the real host does')
@@ -532,6 +532,29 @@ describe('the trailer, the web address, the hint (pure)', () => {
     assert.equal(sshHostOf('ssh://git@Code.Example.test:2222/a/b.git'), 'code.example.test')
     for (const no of ['https://gitlab.example.test/a/b.git', 'git://gitlab.example.test/a/b.git', 'file:///tmp/x.git', '/home/me/x.git', 'C:\\code\\x.git', 'c:/code/x.git', 'git@-oProxyCommand=x:a/b.git'])
       assert.equal(sshHostOf(no), null, no)
+
+    // ssh's answer resolves an alias — it never replaces a working web host
+    // GitHub's "SSH over the HTTPS port": Host github.com / HostName ssh.github.com / Port 443 — ssh on 443, no HTTPS there
+    assert.deepEqual(webBase('git@github.com:acme/app.git', 'auto', 'ssh.github.com'), { base: 'https://github.com/acme/app', forge: 'github' })
+    // GitLab's: Host gitlab.com / HostName altssh.gitlab.com / Port 443
+    assert.deepEqual(webBase('git@gitlab.com:acme/app.git', 'auto', 'altssh.gitlab.com'), { base: 'https://gitlab.com/acme/app', forge: 'gitlab' })
+    // the front-end as written (the documented clone address) or behind an alias: its forge's web host
+    assert.deepEqual(webBase('ssh://git@ssh.github.com:443/acme/app.git'), { base: 'https://github.com/acme/app', forge: 'github' })
+    assert.deepEqual(webBase('ssh://git@altssh.gitlab.com:443/acme/app.git', 'auto', 'altssh.gitlab.com'), { base: 'https://gitlab.com/acme/app', forge: 'gitlab' })
+    assert.deepEqual(webBase('git@gh-work:acme/app.git', 'auto', 'ssh.github.com'), { base: 'https://github.com/acme/app', forge: 'github' })
+    // an IP literal pinned in HostName is no web host: the host as written
+    assert.deepEqual(webBase('git@gitlab.company.de:acme/app.git', 'auto', '10.20.30.40'), { base: 'https://gitlab.company.de/acme/app', forge: 'gitlab' })
+    assert.deepEqual(webBase('git@gitlab.company.de:acme/app.git', 'gitlab', '10.20.30.40'), { base: 'https://gitlab.company.de/acme/app', forge: 'gitlab' })
+    // a host below the written one (an ssh front of a self-hosted forge) and a forge's own web host stay as written
+    assert.deepEqual(webBase('git@gitlab.company.de:acme/app.git', 'auto', 'ssh.gitlab.company.de'), { base: 'https://gitlab.company.de/acme/app', forge: 'gitlab' })
+    assert.deepEqual(webBase('git@github.com:acme/app.git', 'auto', 'mirror.example.com'), { base: 'https://github.com/acme/app', forge: 'github' })
+    assert.equal(sshWebHost('gitlab.com-work', 'gitlab.example.test'), 'gitlab.example.test')
+    assert.equal(sshWebHost('work', 'Altssh.GitLab.com'), 'gitlab.com')
+    assert.equal(sshWebHost('github.com', 'ssh.github.com'), 'github.com')
+    assert.equal(sshWebHost('gitlab.com', 'gitlab.example.test'), 'gitlab.com')
+    assert.equal(sshWebHost('git.example.test', '192.168.1.20'), 'git.example.test')
+    assert.equal(sshWebHost('git.example.test', null), 'git.example.test')
+    assert.equal(sshWebHost('ssh.github.com', null), 'github.com')
 
     // ssh -G through the person's ssh (here a fake on PATH): its "hostname" line; asked once per host for a while
     const bin = tempDir('ssh')
@@ -556,13 +579,21 @@ else process.stdout.write('hostname ' + a[1] + '\\n')
     }
     process.env[key] = pathWith(bin)[key]
     forgetSshNames()
+    const callsFile = join(bin, 'calls.txt')
     try {
-      assert.equal(await sshHostName('gitlab.com-work'), real)
-      assert.equal(await sshHostName('gitlab.com-work'), real)
-      assert.equal(await sshHostName('odd'), 'odd', 'no usable name: the host itself')
-      assert.equal(await sshHostName('-oProxyCommand=x'), '-oProxyCommand=x')
-      const calls = readFileSync(join(bin, 'calls.txt'), 'utf8').trim().split(/\r?\n/)
-      assert.deepEqual(calls, ['-G gitlab.com-work', '-G odd'], 'once per host; never for something that is no host name')
+      if (IS_WIN) {
+        // Windows: ssh is started only as a program (.exe, allow 'exe') — the fake is a .cmd shim, refused before it is
+        // read: the host as written, nothing ran
+        assert.equal(await sshHostName('gitlab.com-work'), 'gitlab.com-work')
+        assert.equal(existsSync(callsFile), false, 'a .cmd ssh never runs')
+      } else {
+        assert.equal(await sshHostName('gitlab.com-work'), real)
+        assert.equal(await sshHostName('gitlab.com-work'), real)
+        assert.equal(await sshHostName('odd'), 'odd', 'no usable name: the host itself')
+        assert.equal(await sshHostName('-oProxyCommand=x'), '-oProxyCommand=x')
+        const calls = readFileSync(callsFile, 'utf8').trim().split(/\r?\n/)
+        assert.deepEqual(calls, ['-G gitlab.com-work', '-G odd'], 'once per host; never for something that is no host name')
+      }
     } finally {
       restore()
     }

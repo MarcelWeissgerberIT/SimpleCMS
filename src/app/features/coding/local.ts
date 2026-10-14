@@ -123,12 +123,22 @@ export function newerTask(stored: unknown, mem: TaskLocal | undefined, snapshotO
   return (st.at ?? 0) > (mem.at ?? 0) ? st : { ...st, ...mem }
 }
 
-/** Load a task's state and log into memory (once per task and workspace). */
-export async function loadTask(taskId: ID): Promise<void> {
+/** loads under way: a second caller waits for the same read */
+const loading = new Map<string, Promise<void>>()
+
+/** Load a task's state and log into memory (once per task and workspace; a load under way is waited for). */
+export function loadTask(taskId: ID): Promise<void> {
+  const key = memKey(taskId)
+  if (loaded.has(key)) return loading.get(key) ?? Promise.resolve()
+  loaded.add(key)
+  const p = readTask(taskId).finally(() => loading.delete(key))
+  loading.set(key, p)
+  return p
+}
+
+async function readTask(taskId: ID): Promise<void> {
   const s = scope()
   const key = memKey(taskId, s)
-  if (loaded.has(key)) return
-  loaded.add(key)
   // a tab that holds task states hears the other tabs' writes
   taskChannel()
   const [task, log] = await Promise.all([read<TaskLocal>(`${s}|task|${taskId}`), read<LogLine[]>(`${s}|log|${taskId}`)])
@@ -230,6 +240,70 @@ const NO_LINES: LogLine[] = []
 export function useTaskLog(taskId: ID): LogLine[] {
   const key = memKey(taskId)
   return useCodingLocal((s) => s.logs[key]) ?? NO_LINES
+}
+
+type ApprovalsLevel = NonNullable<TaskLocal['approvals']>
+const ownLevel = (t: unknown): ApprovalsLevel | null => {
+  const a = t && typeof t === 'object' ? (t as TaskLocal).approvals : undefined
+  return a === 'all' || a === 'review' || a === 'none' ? a : null
+}
+
+/**
+ * Approvals for tasks that hold none of their own on this device (tasks.ts freezeApprovals / the join watch): each task's
+ * state is loaded first, then the level is written into its stored state in ONE read-modify-write transaction — nothing
+ * else in the state changes (`at` neither: a newer state elsewhere still wins), and a level already stored (a pick,
+ * another tab's stamp) stays and is what memory takes. Announced to the other tabs like any task write.
+ */
+export async function stampApprovals(levels: ReadonlyArray<readonly [ID, ApprovalsLevel]>): Promise<void> {
+  const s = scope()
+  const open = () => levels.filter(([id]) => !ownLevel(useCodingLocal.getState().tasks[memKey(id, s)]))
+  if (!open().length) return
+  await Promise.all(open().map(([id]) => loadTask(id)))
+  const todo = open()
+  if (!todo.length || scope() !== s) return
+  const kept = new Map<ID, ApprovalsLevel>()
+  const store = kv()
+  if (store) {
+    try {
+      await store('readwrite', (os) => {
+        for (const [id, level] of todo) {
+          const key = `${s}|task|${id}`
+          const req = os.get(key)
+          req.onsuccess = () => {
+            const old: unknown = req.result
+            const has = ownLevel(old)
+            if (has) kept.set(id, has)
+            else os.put({ ...(old && typeof old === 'object' ? (old as TaskLocal) : { state: 'idle' }), approvals: level }, key)
+          }
+        }
+        return new Promise<void>((done, fail) => {
+          os.transaction.oncomplete = () => done()
+          os.transaction.onerror = os.transaction.onabort = () => fail(os.transaction.error)
+        })
+      })
+    } catch {
+      noDb = true
+    }
+  }
+  useCodingLocal.setState((st) => {
+    const tasks = { ...st.tasks }
+    let changed = false
+    for (const [id, level] of todo) {
+      const key = memKey(id, s)
+      const cur = tasks[key]
+      if (ownLevel(cur) && !kept.has(id)) continue
+      tasks[key] = { ...(cur ?? { state: 'idle' }), approvals: kept.get(id) ?? level }
+      changed = true
+    }
+    return changed ? { tasks } : st
+  })
+  for (const [id] of todo) {
+    try {
+      taskChannel()?.postMessage({ scope: s, taskId: id })
+    } catch {
+      /* closed */
+    }
+  }
 }
 
 /** Change a task's state (memory now, IndexedDB right after). */

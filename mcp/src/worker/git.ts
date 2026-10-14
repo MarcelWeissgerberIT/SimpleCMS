@@ -776,8 +776,8 @@ export const forgeOfHost = (host: string | null | undefined): Forge | null => (!
  * The remote's web address (credentials stripped): https://<host>/<project> for ssh / scp / git remotes, the remote's
  * own scheme, host and port for http(s) ones; the forge from `forge`, else from the host's name. Null for a local path,
  * file://, an unknown host with forge 'auto', or anything cleanWeb refuses. `sshHost`: ssh's own name for an ssh / scp
- * remote's host (sshHostName — an alias in ~/.ssh/config, git@gitlab-work:…, names the real host); the web address
- * then uses it, and the forge is read from it first, then from the alias.
+ * remote's host (sshHostName — an alias in ~/.ssh/config, git@gitlab-work:…, names the real host); the web host is
+ * then sshWebHost's pick, and the forge is read from it first, then from the host as written.
  */
 export function webBase(remoteUrl: string, forge: ForgeSetting = 'auto', sshHost?: string | null): ForgeWeb | null {
   let host = ''
@@ -790,13 +790,13 @@ export function webBase(remoteUrl: string, forge: ForgeSetting = 'auto', sshHost
       const u = new URL(remoteUrl)
       host = named = u.hostname.toLowerCase()
       path = u.pathname
-      if (u.protocol === 'ssh:' && sshHost && SSH_HOST.test(sshHost)) host = sshHost
+      if (u.protocol === 'ssh:') host = sshWebHost(host, sshHost)
       // http(s): the remote's own scheme and port (a self-hosted GitLab on :8443); ssh's port is never the web's
       origin = /^https?:$/.test(u.protocol) ? `${u.protocol}//${host}${u.port ? `:${u.port}` : ''}` : `https://${host}`
     } else if (scp) {
       host = named = scp[1]!.toLowerCase()
       path = scp[2]!
-      if (sshHost && SSH_HOST.test(sshHost)) host = sshHost
+      host = sshWebHost(host, sshHost)
       origin = `https://${host}`
     }
   } catch {
@@ -810,6 +810,30 @@ export function webBase(remoteUrl: string, forge: ForgeSetting = 'auto', sshHost
 
 /** A host name ssh may be asked about (never an option: no leading "-"). */
 const SSH_HOST = /^[a-z0-9][a-z0-9.-]{0,252}$/
+
+/**
+ * The ssh-only front-ends GitHub and GitLab document for "SSH over the HTTPS port" (Host github.com → HostName
+ * ssh.github.com, Port 443; ssh://git@altssh.gitlab.com:443/…) — they speak ssh on 443, never HTTPS: their forge's web host.
+ */
+const SSH_FRONTS: Readonly<Record<string, string>> = { 'ssh.github.com': 'github.com', 'altssh.gitlab.com': 'gitlab.com' }
+/** Forge web hosts a remote may name as written: ssh's answer never replaces them (their HostName is a front-end). */
+const FORGE_WEB_HOSTS = new Set(['github.com', 'gitlab.com'])
+/** An IPv4 literal (SSH_HOST takes one; an IPv6 one never passes it): an address, no web host — certificates and virtual hosts name the host. */
+const IP_LITERAL = /^\d{1,3}(\.\d{1,3}){3}$/
+
+/**
+ * The web host of an ssh / scp remote: ssh's answer (`ssh -G`'s hostname) only where it resolves an alias — never where
+ * it would replace a working web host: the host as written stays when it is a forge's own web host (github.com,
+ * gitlab.com), when the answer is an IP literal or a host below the written one (HostName ssh.gitlab.company.de for
+ * gitlab.company.de), or when the answer is no host name. A documented ssh-only front-end (ssh.github.com,
+ * altssh.gitlab.com) — ssh's answer or the host as written — stands for its forge's web host.
+ */
+export function sshWebHost(written: string, answer?: string | null): string {
+  const real = answer?.toLowerCase()
+  const host =
+    real && real !== written && SSH_HOST.test(real) && !IP_LITERAL.test(real) && !FORGE_WEB_HOSTS.has(written) && !real.endsWith(`.${written}`) ? real : written
+  return SSH_FRONTS[host] ?? host
+}
 
 /** The host an ssh remote names ("git@gitlab-work:a/b.git", "ssh://git@host:2222/a/b"); null for any other remote (a drive letter is no host). */
 export function sshHostOf(remoteUrl: string): string | null {
@@ -859,7 +883,8 @@ export async function webOf(repo: RepoConfig): Promise<ForgeWeb | null> {
   if (r.code !== 0) return null
   const url = r.stdout.trim()
   const alias = sshHostOf(url)
-  return webBase(url, repo.forge, alias ? await sshHostName(alias) : null)
+  // a forge's own web host is never replaced (sshWebHost): ssh is not asked about it
+  return webBase(url, repo.forge, alias && !FORGE_WEB_HOSTS.has(alias) ? await sshHostName(alias) : null)
 }
 
 /**

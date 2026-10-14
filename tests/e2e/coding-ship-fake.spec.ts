@@ -480,3 +480,104 @@ test('Approvals: a task\'s pick never changes the default for new tasks — only
   await expect(select).toHaveValue('review')
   await expect(page.getByTestId('coding-approvals-default')).toBeVisible()
 })
+
+const openTask = (page: Page, id: string) => page.evaluate((id) => (window.location.hash = `#/p/${id}`), id)
+
+test('Approvals: a page that becomes a task (dropped on the Coding database, moved in by MCP) takes the default of that moment — not the one its page was written under', async ({ page }) => {
+  await openApp(page)
+  await page.evaluate(() => localStorage.setItem('one.coding.approvals', 'none'))
+  await reloadApp(page)
+  const select = page.getByTestId('coding-approvals-select')
+  // a plain page, written an hour ago while the default was "None — just do it"
+  const plain = await wsEval(page, (s) => {
+    const id = s.createPage({ title: 'Refactor auth' }) as string
+    s.updatePage(id, { createdAt: Date.now() - 3_600_000 })
+    return id
+  })
+  // later the person chooses "Approve the plan and the review" for new tasks
+  const first = await newTask(page, 'Nordlicht header')
+  await expect(select).toHaveValue('none')
+  await select.selectOption('all')
+  await page.getByTestId('coding-approvals-default').click()
+  expect(await page.evaluate(() => localStorage.getItem('one.coding.approvals'))).toBe('all')
+  // now the page becomes a task: as the sidebar drop writes it (shell/sidebar/entries.ts makeEntry; one_move_row the same)
+  await wsEval(
+    page,
+    (s, a) => {
+      const db = (Object.values(s.databases) as Array<{ id: string; system?: string }>).find((x) => x.system === 'coding')!
+      s.updatePage(a, { parentId: db.id, databaseId: db.id, properties: {} })
+    },
+    plain,
+  )
+  await openTask(page, plain)
+  await expect(page.getByTestId('coding-panel')).toBeVisible()
+  await expect(select).toHaveValue('all')
+  // it keeps it: a later "Use for new tasks" changes it no more (after a reload too)
+  await openTask(page, first)
+  await select.selectOption('review')
+  await page.getByTestId('coding-approvals-default').click()
+  await openTask(page, plain)
+  await expect(select).toHaveValue('all')
+  await reloadApp(page)
+  await openTask(page, plain)
+  await expect(select).toHaveValue('all')
+})
+
+test('Approvals: a creation time from a clock ahead of this one (another device, the team server) never makes a task follow a later default — shown here or not', async ({ page }) => {
+  await openApp(page)
+  await page.evaluate(() => localStorage.setItem('one.coding.approvals', 'all'))
+  await reloadApp(page)
+  const select = page.getByTestId('coding-approvals-select')
+  const first = await newTask(page, 'Nordlicht header')
+  // two rows stamped 3 minutes ahead of this device's clock (a server agent's / the public API's rows carry the server's)
+  const ahead = (title: string) =>
+    wsEval(
+      page,
+      (s, title) => {
+        const db = (Object.values(s.databases) as Array<{ id: string; system?: string }>).find((x) => x.system === 'coding')!
+        const id = s.createRow(db.id, { title }) as string
+        s.updatePage(id, { createdAt: Date.now() + 180_000 })
+        return id
+      },
+      title,
+    )
+  const shown = await ahead('Server agent task')
+  const unseen = await ahead('API task')
+  // … that this device holds no pick for (they arrived before this tab opened): their state records go
+  await page.waitForTimeout(400)
+  await page.evaluate(
+    (ids) =>
+      new Promise<void>((done, fail) => {
+        const open = indexedDB.open('one-coding')
+        open.onerror = () => fail(open.error)
+        open.onsuccess = () => {
+          const tx = open.result.transaction('kv', 'readwrite')
+          for (const id of ids) tx.objectStore('kv').delete(`local:local|task|${id}`)
+          tx.oncomplete = () => {
+            open.result.close()
+            done()
+          }
+          tx.onerror = () => fail(tx.error)
+        }
+      }),
+    [shown, unseen],
+  )
+  await reloadApp(page)
+  await openTask(page, shown)
+  await expect(page.getByTestId('coding-panel')).toBeVisible()
+  await expect(select).toHaveValue('all')
+  // "None" for new tasks, chosen on another task — before this device's clock reaches those creation times
+  await openTask(page, first)
+  await select.selectOption('none')
+  await page.getByTestId('coding-approvals-default').click()
+  expect(await page.evaluate(() => localStorage.getItem('one.coding.approvals'))).toBe('none')
+  // both keep "all": the one shown before, and the one never shown here
+  for (const id of [shown, unseen]) {
+    await openTask(page, id)
+    await expect(page.getByTestId('coding-panel')).toBeVisible()
+    await expect(select).toHaveValue('all')
+  }
+  await reloadApp(page)
+  await openTask(page, unseen)
+  await expect(select).toHaveValue('all')
+})

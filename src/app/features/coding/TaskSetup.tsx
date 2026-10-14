@@ -7,7 +7,7 @@
  * at (plan + review · review only · none — "just do it"; a gate marked "Always stop here" always) — the device default
  * for new tasks changes only with "Use for new tasks". ModelPick: the model of its Claude Code stages.
  */
-import { useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { FileText } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
@@ -18,7 +18,7 @@ import { useTaskLocal } from './local'
 import { ChangeReposButton } from './SetupCard'
 import type { PipelineKind, ResolvedStage } from './schema'
 import { claudeRuns, cleanModel } from './protocol'
-import { APPROVALS, MODEL_CHOICES, approvalsOf, insertTaskOutline, knownRepos, modelLabel, pipelineModels, setDefaultApprovals, setTaskApprovals, setTaskBranch, setTaskModel, setTaskRepo, skipsGate, workerBranches, type Approvals } from './tasks'
+import { APPROVALS, MODEL_CHOICES, approvalsOf, freezeApprovals, insertTaskOutline, ownApprovals, knownRepos, modelLabel, pipelineModels, setDefaultApprovals, setTaskApprovals, setTaskBranch, setTaskModel, setTaskRepo, skipsGate, workerBranches, type Approvals } from './tasks'
 
 export function TaskSetup({ taskId, repo, branch, described, kind = 'coding' }: { taskId: ID; repo: string | null; branch: string | null; described: boolean; kind?: PipelineKind }) {
   const t = useT()
@@ -96,16 +96,22 @@ export function TaskSetup({ taskId, repo, branch, described, kind = 'coding' }: 
 /**
  * Which gates this task stops at — on this device. A new task takes this device's default; only "Use for new tasks"
  * changes that default (a pick here never changes another task, and a task without a pick keeps the default it was
- * created under). After that key (it goes away) focus stays on the select. Gates marked "Always stop here" the level
- * would pass are named. Business analysis / QA (no plan stage): wait at every approval, or none ("review" works like
- * "all" there).
+ * created under — frozen as its own once shown here). After that key (it goes away) focus stays on the select. Gates
+ * marked "Always stop here" the level would pass are named. Business analysis / QA (no plan stage): wait at every
+ * approval, or none ("review" works like "all" there).
  */
 export function ApprovalsPick({ taskId, kind = 'coding', pipeline = [] }: { taskId: ID; kind?: PipelineKind; pipeline?: ResolvedStage[] }) {
   const t = useT()
-  // a task without a pick of its own: the default it was created under (the row's createdAt)
+  // a task without a pick of its own: the default it was created under (the row's createdAt) — frozen as its own once
+  // shown here, so a later "Use for new tasks" never changes what the person saw (also with a creation time from a clock ahead)
   const createdAt = useWorkspace((s) => s.pages[taskId]?.createdAt)
   const def = useCoding((s) => s.approvalsDefault)
-  const stored = approvalsOf(useTaskLocal(taskId), createdAt)
+  const local = useTaskLocal(taskId)
+  const stored = approvalsOf(local, createdAt)
+  const own = ownApprovals(local)
+  useEffect(() => {
+    if (!own && createdAt !== undefined) freezeApprovals(taskId, createdAt)
+  }, [taskId, own, createdAt])
   const select = useRef<HTMLSelectElement>(null)
   const doc = kind !== 'coding'
   const level: Approvals = doc ? (stored === 'none' ? 'none' : 'all') : stored

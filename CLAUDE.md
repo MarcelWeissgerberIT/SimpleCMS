@@ -609,9 +609,14 @@ the public APIs stable — other areas are built against them in parallel.
   branch) and offers "Insert outline" on an empty task page (origin 'template').
   Approvals per task and device (`TaskLocal.approvals` 'all' | 'review' | 'none'; a new task gets this device's default —
   localStorage `one.coding.approvals`, written ONLY by `setDefaultApprovals` ("Use for new tasks"), never by a task's pick;
-  createTask stamps it; a task without a pick takes the default in effect when its row was created — `approvalsOf(local,
-  row.createdAt)`, each change notes the default it replaces in `one.coding.approvals.history`, so a new default never
-  changes an existing task): finishStage passes skipped gates (logged), failing tests still stop at the review gate; a gate
+  createTask stamps it, and so does the watch (tasks.ts `startApprovalsWatch`) for a row that becomes a task here: new
+  here = the default when it was created, a page dropped on / a row moved into a pipeline database = today's (never by
+  `page.createdAt`). A task without one takes the default in effect when its row was created — `approvalsOf(local,
+  row.createdAt)`, each change notes the default it replaces in `one.coding.approvals.history` (insertion order, `u` only
+  grows) — and that level is frozen as its own once resolved here (the panel, finishStage; `stampApprovals`: one
+  read-modify-write, a stored pick stays; `setDefaultApprovals` stamps rows whose `createdAt` is ahead of the change), so
+  a new default never changes an existing task): finishStage passes skipped gates (logged), failing tests still stop at
+  the review gate; a gate
   with `PipelineStage.hold` ("Always stop here"; sanitizeStage keeps it on gates only; joins the version only when set,
   like a stage's model) is never skipped (`skipsGate`) — the Review & merge template's approveMerge has it in NEW
   pipelines (stored ones are never changed). Worker
@@ -682,7 +687,8 @@ the public APIs stable — other areas are built against them in parallel.
   throws) return a `ShipRecord` (protocol.ts: action, from, at, branch, commit, head, pushed, pushOff, request { url,
   how } (the address as a URL writes it — host lower-cased, no default port), `web` = the repo's web address — scheme +
   host + project path, `cleanWeb` on both sides, never credentials or a local path; an ssh alias host as `ssh -G` names
-  it (nothing connects); from a request's own address when gh / glab gave one —, failed step); One checks it again
+  it (nothing connects; git.ts `sshWebHost`: never over github.com / gitlab.com as written, an IP literal or a host below the
+  written one; the ssh-only fronts ssh.github.com / altssh.gitlab.com → their forge's web host); from a request's own address when gh / glab gave one —, failed step); One checks it again
   (coding/ship.ts `cleanShip`; a branch by git's own rules) and writes ONE grey callout per record (`shipNote`, "<stage | Git (by hand)> · <date>" — links only to
   what is on the remote; a record that says nothing writes none, never the English summary) inside keepTrust: the stage
   run's writer in finishStage's aiWrite, `you~ui` for a key; PR / Commit = `prFieldNext` (the request's address, else

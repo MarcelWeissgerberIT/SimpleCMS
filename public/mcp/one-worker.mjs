@@ -13259,12 +13259,12 @@ function webBase(remoteUrl, forge = "auto", sshHost) {
       const u = new URL(remoteUrl);
       host = named = u.hostname.toLowerCase();
       path = u.pathname;
-      if (u.protocol === "ssh:" && sshHost && SSH_HOST.test(sshHost)) host = sshHost;
+      if (u.protocol === "ssh:") host = sshWebHost(host, sshHost);
       origin = /^https?:$/.test(u.protocol) ? `${u.protocol}//${host}${u.port ? `:${u.port}` : ""}` : `https://${host}`;
     } else if (scp) {
       host = named = scp[1].toLowerCase();
       path = scp[2];
-      if (sshHost && SSH_HOST.test(sshHost)) host = sshHost;
+      host = sshWebHost(host, sshHost);
       origin = `https://${host}`;
     }
   } catch {
@@ -13276,6 +13276,14 @@ function webBase(remoteUrl, forge = "auto", sshHost) {
   return kind ? cleanWeb({ base: `${origin}/${path}`, forge: kind }) : null;
 }
 var SSH_HOST = /^[a-z0-9][a-z0-9.-]{0,252}$/;
+var SSH_FRONTS = { "ssh.github.com": "github.com", "altssh.gitlab.com": "gitlab.com" };
+var FORGE_WEB_HOSTS = /* @__PURE__ */ new Set(["github.com", "gitlab.com"]);
+var IP_LITERAL = /^\d{1,3}(\.\d{1,3}){3}$/;
+function sshWebHost(written, answer) {
+  const real = answer?.toLowerCase();
+  const host = real && real !== written && SSH_HOST.test(real) && !IP_LITERAL.test(real) && !FORGE_WEB_HOSTS.has(written) && !real.endsWith(`.${written}`) ? real : written;
+  return SSH_FRONTS[host] ?? host;
+}
 function sshHostOf(remoteUrl) {
   let host = null;
   if (/^ssh:\/\//i.test(remoteUrl)) {
@@ -13305,7 +13313,7 @@ async function webOf(repo) {
   if (r.code !== 0) return null;
   const url = r.stdout.trim();
   const alias = sshHostOf(url);
-  return webBase(url, repo.forge, alias ? await sshHostName(alias) : null);
+  return webBase(url, repo.forge, alias && !FORGE_WEB_HOSTS.has(alias) ? await sshHostName(alias) : null);
 }
 function webFromRequest(url, forge) {
   let href;

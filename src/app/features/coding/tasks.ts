@@ -14,7 +14,7 @@
  */
 import { format } from 'date-fns'
 import type { JSONContent } from '@tiptap/core'
-import { useWorkspace } from '../../store/store'
+import { pageChanges, useWorkspace } from '../../store/store'
 import { selectRows } from '../../store/selectors'
 import { useUI } from '../../store/ui'
 import type { Database, DateValue, ID, Page, PropertyValue } from '../../store/types'
@@ -26,16 +26,17 @@ import { navigate, parseHash } from '../../lib/router'
 import { aiWrite } from '../history/snapshots'
 import { currentLang, t } from '../../i18n'
 import { CLAIM_STALE_MS, MCP_SERVER_NAME, claudeRuns, cleanModel, stageNeeds, workerCan, type GitInfo, type ShipRecord, type StageOutcome, type TaskPayload, type WorkerInfo } from './protocol'
-import { CASE_TYPES, FOLLOW_UPS, PIPELINE_KINDS, caseProps, codingProps, createProject, currentProjectId, ensureCaseDb, ensurePipelineDb, addRepoOptions, inTeam, kindOfDb, nextStage, optionByName, optionName, pipelineDbIds, priorityRank, readPipeline, stageNear, stageOfRow, type CodingProps, type PipelineKind, type ResolvedStage } from './schema'
+import { CASE_TYPES, FOLLOW_UPS, PIPELINE_KINDS, caseProps, codingProps, createProject, currentProjectId, ensureCaseDb, ensurePipelineDb, addRepoOptions, inTeam, isPipelineKind, kindOfDb, nextStage, optionByName, optionName, pipelineDbIds, priorityRank, readPipeline, stageNear, stageOfRow, type CodingProps, type PipelineKind, type ResolvedStage } from './schema'
 import { parseStories, splitSections, type DocSection, type Story } from './outputs'
 import { createPrivatePage } from '../../cloud'
-import { addTrusted, appendLog, loadTask, patchTask, taskLocal, type TaskLocal } from './local'
+import { addTrusted, appendLog, loadTask, patchTask, stampApprovals, taskLocal, type TaskLocal } from './local'
 import { isTrusted, keepTrust, trustTask, versionOf } from './trust'
 import { taskText } from './refs'
 import { APPROVALS_KEY, approvalsAt, defaultApprovals, noteApprovalsChange, useCoding, type ApprovalsLevel } from './state'
 import { cleanShip, prFieldNext, shipNote, shipShows } from './ship'
 import { notifyAway } from './notify'
-import { endRun, noteRun, SYSTEM, withWriter, type Writer } from '../../store/writer'
+import { currentWriter, endRun, noteRun, SYSTEM, withWriter, type Writer } from '../../store/writer'
+import { isEjectWriter } from '../recorder/settled'
 import { newId } from '../../lib/ids'
 
 const ws = () => useWorkspace.getState()
@@ -375,16 +376,19 @@ export async function finishStage(taskId: ID, stageId: ID, outcome: StageOutcome
   const passed: string[] = []
   /** a gate marked "Always stop here" the task's Approvals would have passed: it waits there (logged) */
   let held: string | null = null
+  // the task's Approvals; one this device resolved without a pick of its own is frozen here (a later default never reaches it)
+  const approvals = approvalsOf(local, row.createdAt)
+  if (!ownApprovals(local)) patch.approvals = approvals
   switch (outcome.status) {
     case 'ok':
       if (stage?.kind === 'test') patch.testFailures = 0
       if (stillThere) moveTo = nextStage(pipeline, stage!)
       // gates this task does not stop at (Approvals): straight on, noted in the log
-      for (let hops = 0; moveTo?.kind === 'gate' && skipsGate(approvalsOf(local, row.createdAt), pipeline, moveTo) && hops < pipeline.length; hops++) {
+      for (let hops = 0; moveTo?.kind === 'gate' && skipsGate(approvals, pipeline, moveTo) && hops < pipeline.length; hops++) {
         passed.push(moveTo.name)
         moveTo = nextStage(pipeline, moveTo)
       }
-      if (moveTo?.kind === 'gate' && moveTo.hold && skipsGate(approvalsOf(local, row.createdAt), pipeline, { ...moveTo, hold: false })) held = moveTo.name
+      if (moveTo?.kind === 'gate' && moveTo.hold && skipsGate(approvals, pipeline, { ...moveTo, hold: false })) held = moveTo.name
       // answers and rework notes belong to the stage they were given in
       patch.answers = (local.answers ?? []).filter((a) => a.stageId !== stageId)
       if (local.rework?.stageId === stageId) patch.rework = null
@@ -1062,13 +1066,59 @@ export type Approvals = ApprovalsLevel
 export const APPROVALS: Approvals[] = ['all', 'review', 'none']
 export { APPROVALS_KEY, defaultApprovals }
 
+/** A task's own Approvals on this device: its pick, or the level stamped when it became a task here / frozen once resolved; else null. */
+export function ownApprovals(local: TaskLocal): Approvals | null {
+  return local.approvals && APPROVALS.includes(local.approvals) ? local.approvals : null
+}
+
 /**
- * A task's own Approvals. A task without a pick of its own (made before they were stamped at creation, a row added on
- * the board or by an agent, a team task from another device): this device's default as it was when the task was
- * created (`createdAt`, the row's) — a later "Use for new tasks" never changes it. Without `createdAt`: today's default.
+ * A task's Approvals. Its own (ownApprovals) — set when it is created (New task, createTask) or becomes a task on this
+ * device (a row new here, a page dropped on a pipeline database, a row moved in: startApprovalsWatch). A task without
+ * one (from before Approvals were stamped; a team task that came in while this device had no tab open): this device's
+ * default as it was when the row was created (`createdAt`, approvalsAt) — the level is then frozen as its own once this
+ * device resolved it (the panel shows it, a stage finishes), so a later "Use for new tasks" never changes it; nor for a
+ * row whose `createdAt` came from a clock ahead of this one (setDefaultApprovals). Without `createdAt`: today's default.
  */
 export function approvalsOf(local: TaskLocal, createdAt?: number | null): Approvals {
-  return local.approvals && APPROVALS.includes(local.approvals) ? local.approvals : approvalsAt(createdAt)
+  return ownApprovals(local) ?? approvalsAt(createdAt)
+}
+
+/** Freeze the Approvals this device resolved for a task without a pick of its own (the panel shows them): its own from now on. */
+export function freezeApprovals(taskId: ID, createdAt: number | null | undefined): void {
+  if (ownApprovals(taskLocal(taskId))) return
+  void stampApprovals([[taskId, approvalsAt(createdAt)]])
+}
+
+let watchingJoins = false
+
+/**
+ * Rows that become tasks on this device get its Approvals of that moment as their own: a page dropped on a pipeline
+ * database (the sidebar's makeEntry), a row moved in (MCP one_move_row), a row moved back by an Undo — today's default,
+ * never the one in effect when the PAGE was written; a row new here (the board's "+ New", an agent, the public API, a
+ * team member's task arriving) — the default in effect when it was created (approvalsAt: today's for a row made now).
+ * Never at load or a workspace switch (no row became a task then), never for an eject (it puts rows back as they were),
+ * never between two pipeline databases (a task already). A pick or an earlier stamp stays (stampApprovals).
+ */
+export function startApprovalsWatch(): void {
+  if (watchingJoins) return
+  watchingJoins = true
+  useWorkspace.subscribe((s, prev) => {
+    if (s.pages === prev.pages || !s.ready || !prev.ready || s.epoch !== prev.epoch) return
+    if (isEjectWriter(currentWriter())) return
+    let dbIds: Set<ID> | null = null
+    const stamps: Array<[ID, Approvals]> = []
+    for (const id of pageChanges(s.pages, prev.pages).changed) {
+      const now = s.pages[id]
+      // cheap first: only rows of a database marked as a pipeline whose database changed (or that are new)
+      if (!now?.databaseId || now.trashed || !isPipelineKind(s.databases[now.databaseId]?.system)) continue
+      const before = prev.pages[id]
+      if (before?.databaseId === now.databaseId) continue
+      dbIds ??= new Set(pipelineDbIds())
+      if (!dbIds.has(now.databaseId) || (before?.databaseId && dbIds.has(before.databaseId))) continue
+      stamps.push([id, before ? defaultApprovals() : approvalsAt(now.createdAt)])
+    }
+    if (stamps.length) void stampApprovals(stamps)
+  })
 }
 
 /**
@@ -1102,11 +1152,20 @@ export async function setTaskApprovals(taskId: ID, level: Approvals): Promise<vo
 /**
  * This device's default for new tasks ("Use for new tasks" in the coding panel) — the only writer of one.coding.approvals.
  * The default it replaces is noted with the time (one.coding.approvals.history): every task without a pick of its own
- * keeps the default it was created under (approvalsOf) — no existing task changes.
+ * keeps the default it was created under (approvalsOf) — no existing task changes. Tasks of this workspace created
+ * "after" the change by their own clock (another device's, the team server's — a creation time ahead of this one) and
+ * holding no level of their own would take the new default: they keep the one they had (stamped).
  */
 export function setDefaultApprovals(level: Approvals): void {
   const was = defaultApprovals()
-  if (was !== level) noteApprovalsChange(was)
+  if (was !== level) {
+    const u = noteApprovalsChange(was)
+    const { pages } = useWorkspace.getState()
+    const dbs = new Set(pipelineDbIds())
+    const ahead: Array<[ID, Approvals]> = []
+    for (const p of Object.values(pages)) if (p.databaseId && dbs.has(p.databaseId) && p.createdAt >= u && !ownApprovals(taskLocal(p.id))) ahead.push([p.id, was])
+    if (ahead.length) void stampApprovals(ahead)
+  }
   try {
     localStorage.setItem(APPROVALS_KEY, level)
   } catch {

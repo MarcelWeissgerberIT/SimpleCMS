@@ -41,7 +41,7 @@ import { APPROVALS_KEY, DEFAULT_CODING, CODING_STORAGE_KEY, MAX_CLOUD_KEYS, defa
 import { appendLog, patchTask, flushLogs, loadTask, taskLocal } from './local'
 import { cleanCode, cleanEdit } from './lines'
 import { addRepoOptions, codingProps, pipelineDbIds } from './schema'
-import { finishStage, heartbeat, intakeDone, pickNext, setNudge, taskContext, gitSummary, writeShipNote } from './tasks'
+import { finishStage, heartbeat, intakeDone, pickNext, setNudge, startApprovalsWatch, taskContext, gitSummary, writeShipNote } from './tasks'
 import { keepTrust, startTrustWatch } from './trust'
 import { cleanShip, prFieldNext, shipShows } from './ship'
 import { openCloudLink, openLocalLink, type LinkHandle, type LinkHandlers } from './transport'
@@ -879,6 +879,8 @@ export function startCoding() {
   started = true
   setNudge(nudgeWorker)
   startTrustWatch()
+  // rows that become tasks here take this device's Approvals of that moment (switched on or not)
+  startApprovalsWatch()
   // an earlier build's plain-text cloud secrets become non-extractable keys before the first cloud link
   void moveLegacySecrets().finally(() => {
     if (get().enabled && !link) connect()

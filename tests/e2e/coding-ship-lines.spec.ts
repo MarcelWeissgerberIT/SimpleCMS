@@ -13,6 +13,7 @@ import { cleanShip, gitStageWarnings, isCommitUrl, prFieldNext, shipInline, ship
 import { branchUrl, cleanWeb, commitUrl, requestNumber, type ShipRecord } from '../../src/app/features/coding/protocol'
 import { messages } from '../../src/app/features/coding/messages'
 import { logValues } from '../../src/app/features/coding/logValues'
+import { approvalsAt, readApprovalsHistory } from '../../src/app/features/coding/state'
 
 /** The app's interpolate() (src/shared/i18n.ts is not importable under Node). */
 const tr = (lang: 'en' | 'de') => (key: string, v: Record<string, string | number> = {}) => {
@@ -309,4 +310,22 @@ test('the worker 1.10.0 log codes: each in EN and DE with its values, the reques
     expect(l).toContain(messages[lang]['features.coding.git.updateBase']!)
     expect(l).toContain(messages[lang]['features.coding.act.retry']!)
   }
+})
+
+test('Approvals history: kept in the order written (a clock set back reorders nothing), the default in effect at a creation time', () => {
+  // written in this order; the second change's clock was set back an hour — it stays second, lifted past the first
+  const list = readApprovalsHistory(JSON.stringify([{ l: 'none', u: 10_000 }, { l: 'all', u: 6_400 }, { l: 'x', u: 1 }, null, { l: 'review', u: Number.NaN }, { l: 'review', u: 20_000 }]))
+  expect(list).toEqual([
+    { l: 'none', u: 10_000 },
+    { l: 'all', u: 10_001 },
+    { l: 'review', u: 20_000 },
+  ])
+  expect(approvalsAt(5_000, list, 'all')).toBe('none')
+  expect(approvalsAt(10_000, list, 'all')).toBe('all')
+  expect(approvalsAt(15_000, list, 'none')).toBe('review')
+  // after the last change, or ahead of it (another clock): today's — tasks.ts freezes it once resolved, setDefaultApprovals stamps those ahead
+  expect(approvalsAt(25_000, list, 'none')).toBe('none')
+  expect(approvalsAt(null, list, 'review')).toBe('review')
+  expect(readApprovalsHistory('{')).toEqual([])
+  expect(readApprovalsHistory(null)).toEqual([])
 })
