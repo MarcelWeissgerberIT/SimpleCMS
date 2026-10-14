@@ -416,6 +416,48 @@ test.describe('own templates', () => {
     expect(await wsEval(page, (s, id) => s.pages[id].trashed, second)).toBe(true)
   })
 
+  test('the banner stays on top while a table with a sticky title column scrolls under it', async ({ page }) => {
+    // a short window, so the inline database scrolls up to the banner (iPad report: the title column covered the banner)
+    await page.setViewportSize({ width: 1024, height: 520 })
+    await openApp(page)
+    const kit = await seedKit(page)
+    // room above the database, so the page scrolls far enough
+    await wsEval(page, (s, root) => {
+      const doc = s.pages[root].content
+      const filler = Array.from({ length: 12 }, (_, i) => ({ type: 'paragraph', content: [{ type: 'text', text: `Line ${i + 1}` }] }))
+      s.setContent(root, { ...doc, content: [...filler, ...doc.content] }, 'e2e')
+    }, kit.root)
+    const tplId = await saveAsTemplate(page, kit.root)
+    await gotoPage(page, tplId)
+    const banner = page.locator('#main .tplb')
+    await expect(banner).toBeVisible()
+    // the row's title cell: the first column, sticky to the left (dbt-sticky1)
+    const title = page.locator('#main .dbt-sticky1').filter({ hasText: 'Kit kickoff' }).first()
+    await page.locator('#main').getByText('Kit kickoff').first().scrollIntoViewIfNeeded()
+    await expect(title).toBeVisible()
+    // scroll until the row's sticky title cell sits exactly under the banner's name
+    const name = banner.locator('.tplb__name')
+    const nb = (await name.boundingBox())!
+    const tb = (await title.boundingBox())!
+    // scroll the page with the wheel, as a person does, until the title cell sits under the banner's name
+    await page.mouse.move(700, 300)
+    for (let i = 0; i < 8; i++) {
+      const cur = (await title.boundingBox())!
+      const dy = cur.y + cur.height / 2 - (nb.y + nb.height / 2)
+      if (Math.abs(dy) < 6) break
+      await page.mouse.wheel(0, dy)
+      await page.waitForTimeout(150)
+    }
+    const box = (await title.boundingBox())!
+    expect(Math.abs(box.y + box.height / 2 - (nb.y + nb.height / 2))).toBeLessThan(12)
+    // what the pointer finds at the banner's name: the banner, never the table cell under it
+    const onTop = await page.evaluate(([x, y]) => !!document.elementFromPoint(x, y)?.closest('.tplb'), [nb.x + Math.min(20, nb.width / 2), nb.y + nb.height / 2])
+    expect(onTop).toBe(true)
+    // the reading gauge (2 px on the topbar's hairline) still draws over the banner
+    const z = await page.evaluate(() => [document.querySelector('.gauge-line'), document.querySelector('#main .tplb')].map((el) => Number(getComputedStyle(el!).zIndex)))
+    expect(z[0]).toBeGreaterThan(z[1])
+  })
+
   test('customise a built-in: edit it, use the edit, reset to the original', async ({ page }) => {
     await openApp(page)
     let dialog = await openGallery(page)

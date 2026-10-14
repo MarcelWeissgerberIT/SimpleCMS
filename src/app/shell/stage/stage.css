@@ -209,11 +209,12 @@
   flex: none;
 }
 
-/* reading gauge (sticky, sits on the topbar's bottom hairline) */
+/* reading gauge (sticky, sits on the topbar's bottom hairline) — one above the page's sticky layer, so a template's
+   banner (templates.css .tplb) never covers it */
 .gauge-line {
   position: sticky;
   top: 0;
-  z-index: 6;
+  z-index: calc(var(--z-sticky) + 1);
   height: 0;
   pointer-events: none;
 }

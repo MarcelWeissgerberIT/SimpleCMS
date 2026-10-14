@@ -717,10 +717,11 @@
 }
 
 /* ---------- template banner (on every page of a template) ---------- */
+/* the page's sticky layer: above what sticks inside the content (a table's title column and gutter, z 3–8) */
 .tplb {
   position: sticky;
   top: 0;
-  z-index: 3;
+  z-index: var(--z-sticky);
   background: var(--surface);
   border-bottom: 1.5px solid var(--ink);
 }
