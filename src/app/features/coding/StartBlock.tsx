@@ -8,7 +8,8 @@ import { useId, useSyncExternalStore } from 'react'
 import { useT } from '../../i18n'
 import { onRovingKey } from '../../ui/roving'
 import { CodeBlock } from './CodeBlock'
-import { detectOs, type StartLine, type StartOs, type StartShell } from './startLines'
+import type { StartLine, StartOs, StartShell } from './startLines'
+import { browserOs } from './winWorker'
 
 let picked: StartOs | null = null
 const listeners = new Set<() => void>()
@@ -20,9 +21,7 @@ function subscribe(fn: () => void): () => void {
 
 /** The computer the lines are for: the person's pick in this tab, else what the browser says it runs on. */
 export function startOs(): StartOs {
-  if (picked) return picked
-  const nav = navigator as Navigator & { userAgentData?: { platform?: string } }
-  return detectOs(nav.userAgentData?.platform, nav.userAgent)
+  return picked ?? browserOs()
 }
 
 export function setStartOs(os: StartOs): void {
@@ -36,7 +35,7 @@ export function useStartOs(): StartOs {
 
 const OPTIONS: StartOs[] = ['windows', 'posix']
 
-/** Windows | macOS · Linux — a radiogroup with roving focus (arrows, Home, End). */
+/** Windows | macOS · Linux — a radiogroup with roving focus (all four arrows, as every radio group; Home, End). */
 export function OsSwitch() {
   const t = useT()
   const os = useStartOs()
@@ -46,7 +45,7 @@ export function OsSwitch() {
       <span className="label cw-os__k" id={id}>
         {t('features.coding.os.label')}
       </span>
-      <div className="cn-seg cw-os__seg" role="radiogroup" aria-labelledby={id} onKeyDown={(e) => onRovingKey(e, '[role="radio"]', { axis: 'horizontal' })} data-testid="coding-os">
+      <div className="cn-seg cw-os__seg" role="radiogroup" aria-labelledby={id} onKeyDown={(e) => onRovingKey(e, '[role="radio"]')} data-testid="coding-os">
         {OPTIONS.map((o) => (
           <button key={o} type="button" role="radio" aria-checked={os === o} tabIndex={os === o ? 0 : -1} className="cn-seg__opt cw-os__opt" onClick={() => setStartOs(o)} data-testid={`coding-os-${o}`}>
             {t(`features.coding.os.${o}`)}

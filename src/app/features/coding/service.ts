@@ -46,6 +46,7 @@ import { startTrustWatch } from './trust'
 import { openCloudLink, openLocalLink, type LinkHandle, type LinkHandlers } from './transport'
 import { cloudContextOk, listCloudWorkers, relayAvailable } from './cloudWorkers'
 import { cloudKey, dropCloudKeys, keepCloudKey } from './cloudKeys'
+import { browserOs, workerOldOnWindows } from './winWorker'
 import type { SessionKey } from './relayBox'
 import { CloudError, useCloud } from '../../cloud'
 import { SYSTEM, withWriter, type Writer } from '../../store/writer'
@@ -68,6 +69,14 @@ function patchSettings(patch: Partial<CodingSettings>) {
  */
 export function viaFor(ws: { id: string; kind: string } | null): 'local' | 'cloud' {
   return !!ws && ws.kind === 'team' && useCloud.getState().active.kind === 'cloud' && get().via[ws.id] === 'cloud' && cloudContextOk() ? 'cloud' : 'local'
+}
+
+/**
+ * The connected worker (by the version it names) is older than 1.9.0 and runs on this Windows computer: a Local link
+ * from a browser on Windows (winWorker.ts) — it can start a program a repository brought along. Never through Cloud.
+ */
+export function workerOldHere(version: string | null | undefined): boolean {
+  return workerOldOnWindows(version, viaFor(workspaceInfo()), browserOs())
 }
 
 /** "Where the worker runs" (Settings → Coding worker): Local | Cloud for this team workspace on this device. */

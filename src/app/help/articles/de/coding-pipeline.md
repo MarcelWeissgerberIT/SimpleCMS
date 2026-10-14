@@ -19,9 +19,10 @@ node ~/Downloads/one-worker.mjs
 ```
 Windows — in PowerShell (erste Zeile) oder der Eingabeaufforderung (zweite Zeile); die Anführungszeichen halten einen Benutzerordner mit Leerzeichen zusammen:
 ```
-node "$HOME\Downloads\one-worker.mjs"
+node "$env:USERPROFILE\Downloads\one-worker.mjs"
 node "%USERPROFILE%\Downloads\one-worker.mjs"
 ```
+Die Zeilen erwarten den üblichen Downloads-Ordner. Hat dein Browser die Datei woanders gespeichert (oder liegt Downloads woanders, z. B. in OneDrive)? `node` und ein Leerzeichen tippen, den Pfad der Datei einfügen — im Explorer: Umschalt + Rechtsklick auf die Datei → **Als Pfad kopieren** — und Enter drücken.
 3. **Hak deine Repositories auf der Seite an, die sich öffnet.** Der Worker findet die Git-Repositories auf deinem Rechner und öffnet eine Seite in deinem Browser: Hak die an, in denen One arbeiten darf, prüf Basis-Branch und Testbefehl (z. B. `npm test`), dann **Speichern & starten**. Die Karte zeigt *Verbunden · laptop · 2 Repos*, und die **WORKER**-LED in der Statusleiste wird grün.
 
 Business-Analyse und QA haben eigene Pipelines – siehe [Business-Analyse- und QA-Pipelines](help:pipelines). Erwähne Seiten in einer Aufgabe mit **@**: Ihr Text geht mit an Claude Code.
@@ -52,15 +53,15 @@ Die Karte zeigt dann *Verbunden · build-box · 1 Repo · über Cloud*. Alles an
 In einem lokalen Arbeitsbereich, für Leser und auf einem Server ohne Worker-Relay ist Cloud ausgegraut – mit dem Grund daneben.
 
 ## Windows
-Der Worker läuft ab Version **1.9.0** direkt unter Windows 10 und 11 — WSL2 geht auch. **Unter Windows Worker 1.9.0 oder neuer nehmen**: Ältere Worker konnten ein Programm namens `git.exe`, `claude.exe` oder `npm.exe` aus dem Hauptordner eines geklonten oder importierten Repositorys starten. Ist deiner älter: **Erneut herunterladen** und die neue Datei starten.
+Der Worker läuft ab Version **1.9.0** direkt unter Windows 10 und 11 — WSL2 geht auch. **Unter Windows Worker 1.9.0 oder neuer nehmen**: Ältere Worker konnten ein Programm namens `git.exe`, `claude.exe` oder `npm.exe` aus dem Hauptordner eines geklonten oder importierten Repositorys starten. Ist deiner älter: **Erneut herunterladen** und die neue Datei starten. Läuft der Worker auf diesem Rechner (**Lokal**), sagen **#/coding** und die Einrichtungskarte das selbst, mit der Download-Taste (nicht für einen Worker in WSL).
 
 - **Installieren**: Node.js 22 oder neuer, **Git for Windows** (Claude Code braucht dessen Git Bash) und Claude Code — mit dem eigenen Installer oder `npm i -g @anthropic-ai/claude-code` —, einmal mit `claude` angemeldet. `node one-worker.mjs check` zeigt, was der Worker gefunden hat.
 - **Windows Terminal** ist der beste Ort dafür: Im alten Konsolenfenster hält der Worker an, sobald du Text markierst, bis du <kbd>Esc</kbd> drückst.
 - **Repositories auf einem lokalen Laufwerk** ablegen, z. B. `C:\code`. Ein Repository in **OneDrive** (Dokumente und Desktop liegen oft dort) geht, aber OneDrive sperrt Dateien beim Synchronisieren — das Log warnt, und die Worktrees der Aufgaben landen in `.one-worktrees` in deinem Benutzerordner.
 - **Lange Pfade**: Das git des Workers kommt damit klar. Für dein git und deine Werkzeuge einmal `git config --global core.longpaths true` ausführen.
-- **Einmal anmelden**: git fragt nie, solange der Worker es ausführt. Leg deinen SSH-Schlüssel in den Dienst **OpenSSH Authentication Agent** (`ssh-add`), oder führ für HTTPS einmal `git fetch` im Terminal aus — der Git Credential Manager merkt sich die Anmeldung. Das Log sagt, was fehlt.
-- **Programme**: Der Worker sucht git, Claude Code und deinen Testbefehl nur im `PATH` — nie im Repository. Ein Programm im Repository braucht seinen Pfad, z. B. `.\gradlew.bat test`. Nichts, was One schickt, läuft je über `cmd.exe`.
-- **Die Cloud-Datei** ist ein Schlüssel: `icacls "$HOME\one-worker-cloud.mjs" /inheritance:r /grant:r "${env:USERNAME}:F"` (PowerShell) macht sie nur für dich lesbar. Für den Autostart die Aufgabenplanung — das Rezept steht in `docs/CODING.md`.
+- **Einmal anmelden**: git fragt nie, solange der Worker es ausführt. **SSH**: Das ssh, das mit Git kommt, sieht den Windows-Dienst **OpenSSH Authentication Agent** nicht. Entweder in der Eingabeaufforderung `start-ssh-agent` ausführen (der Agent von Git — er fragt einmal nach der Passphrase) und den Worker in diesem Fenster starten, oder einmal `git config --global core.sshCommand C:/Windows/System32/OpenSSH/ssh.exe` ausführen und deinen Schlüssel in diesen Dienst legen (`ssh-add`). Ein Schlüssel ohne Passphrase braucht keins von beiden. **HTTPS**: einmal `git fetch` im Terminal ausführen — der Git Credential Manager merkt sich die Anmeldung. Das Log sagt, was fehlt.
+- **Programme**: Der Worker sucht git, Claude Code und deinen Testbefehl nur im `PATH` — nie im Repository. Ein Programm im Repository braucht seinen Pfad, z. B. `.\gradlew.bat test`. Eine Stufe startet nicht, solange ganz oben im Repository eine Datei liegt, die wie ein Programm heißt, das Werkzeuge über seinen Namen starten (`git.exe`, `node.exe`, `npm.cmd` …) — das Log nennt sie: verschieben oder umbenennen, dann **Erneut versuchen**. Nichts, was One schickt, läuft je über `cmd.exe`.
+- **Die Cloud-Datei** ist ein Schlüssel: `icacls "$env:USERPROFILE\one-worker-cloud.mjs" /inheritance:r /grant:r "${env:USERNAME}:F"` (PowerShell) macht sie nur für dich lesbar. Für den Autostart die Aufgabenplanung — das Rezept steht in `docs/CODING.md`.
 - **Port abgelehnt?** Hyper-V, WSL oder Docker können Port-Bereiche reservieren. Das Terminal des Workers sagt es — wähl vor dem Download in **Einstellungen → Coding-Worker** einen anderen Port.
 
 ## Freigaben – oder einfach machen

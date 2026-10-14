@@ -7,13 +7,20 @@
  * worker is played by the test: a WebSocket server on 127.0.0.1 speaking the protocol of features/coding/protocol.ts —
  * nothing else runs. A worker with the ZIP-import gap (1.3.1 up to 1.8.0 — `workerUnsafe`, read from the version its
  * welcome names) is named with its version and the download, wherever the connected worker shows; that notice wins
- * over the capability text.
+ * over the capability text. A worker older than 1.9.0 reached over Local from a browser on Windows (winWorker.ts — it
+ * runs on this computer and can start a git.exe a repository brought along) gets a security notice of its own; the
+ * browser's platform decides it, so these tests run as a browser on Linux unless they say Windows.
  */
 import type { Page } from '@playwright/test'
 import { test, expect, openApp, wsEval } from './fixtures'
 import { WORKER_CAN, WORKER_SAFE, WORKER_SUBPROTOCOL, workerUnsafe, type WorkerInfo } from '../../src/app/features/coding/protocol'
 
 const PORT = 47391
+const LINUX_UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36'
+const WINDOWS_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36'
+
+// the device profile says Windows; the Windows notice has its own test below
+test.use({ userAgent: LINUX_UA })
 
 // one fake worker on a fixed port
 test.describe.configure({ mode: 'serial' })
@@ -106,6 +113,15 @@ async function startFakeWorker(port: number, info: WorkerInfo): Promise<FakeWork
     })
   })
   return fake
+}
+
+/** The connected worker as if its welcome had named another version (the coding store through the Preflight seam, ?e2e). */
+async function nameVersion(page: Page, version: string) {
+  await page.evaluate((version) => {
+    type Store = { getState: () => { worker: Record<string, unknown> | null }; setState: (p: unknown) => void }
+    const coding = (window as unknown as { __onePreflight: { stores: { coding: Store } } }).__onePreflight.stores.coding
+    coding.setState({ worker: { ...coding.getState().worker, worker: version } })
+  }, version)
 }
 
 /** Settings → Coding worker: the test port, switch on, connected. */
@@ -371,7 +387,7 @@ test('a worker with the ZIP-import gap (1.8.0, every capability) is named with i
   }
 })
 
-test('a worker without the gap (1.8.1) gets no notice; the same version naming older capabilities gets the capability text, never the security one', async ({ page, errors }) => {
+test('a worker without the gap (1.8.1) gets no notice on macOS / Linux; the same version naming older capabilities gets the capability text, never the security one', async ({ page, errors }) => {
   errors.allow(/WebSocket connection to 'ws:\/\/127\.0\.0\.1/)
   const fake = await startFakeWorker(PORT, { worker: '1.8.1', name: 'safe-box', repos: [{ name: 'website', baseBranch: 'main', mcp: [] }], parallel: 1, busy: [], spentToday: 0, dayLimit: null, claude: { found: true, version: '2.0.0' }, setup: true, mcp: [] })
   fake.can = [...WORKER_CAN]
@@ -394,6 +410,62 @@ test('a worker without the gap (1.8.1) gets no notice; the same version naming o
   } finally {
     await fake.close()
   }
+})
+
+test.describe('a browser on Windows', () => {
+  test.use({ userAgent: WINDOWS_UA })
+
+  test('a worker older than 1.9.0 reached over Local gets a security notice of its own — the #/coding plate, the setup card, the download, German; the ZIP-import notice still wins', async ({ page, errors }) => {
+    errors.allow(/WebSocket connection to 'ws:\/\/127\.0\.0\.1/)
+    const fake = await startFakeWorker(PORT, { worker: '1.8.1', name: 'win-box', repos: [{ name: 'website', baseBranch: 'main', mcp: [] }], parallel: 1, busy: [], spentToday: 0, dayLimit: null, claude: { found: true, version: '2.0.0' }, setup: true, mcp: [] })
+    fake.can = [...WORKER_CAN]
+    try {
+      await openApp(page)
+      await connect(page, 'win-box')
+      await page.evaluate(() => (window.location.hash = '#/coding'))
+      const plate = page.getByTestId('coding-worker')
+      await expect(plate).toContainText('win-box')
+      await expect.poll(() => fake.asked.filter((a) => a.answer).length).toBeGreaterThan(0)
+      // every capability, no ZIP-import gap — yet on Windows it looks for git / Claude Code in the repository first
+      const win = plate.getByTestId('coding-worker-windows')
+      await expect(win).toHaveAttribute('role', 'status')
+      await expect(win).toHaveAttribute('data-kind', 'security')
+      await expect(win.locator('.cv-plate__sec')).toHaveText('Security')
+      await expect(win).toContainText('On Windows, this worker (1.8.1) can start a program named git.exe or claude.exe that a cloned or imported repository brings along — download the new one, stop the old one (Ctrl+C) and start the new file. Running it in WSL? Then this does not apply.')
+      await expect(page.getByTestId('coding-worker-unsafe')).toHaveCount(0)
+      await expect(page.getByTestId('coding-worker-outdated')).toHaveCount(0)
+      const [download] = await Promise.all([page.waitForEvent('download'), win.getByTestId('coding-download-again').click()])
+      expect(download.suggestedFilename()).toBe('one-worker.mjs')
+
+      // Settings → Coding worker: the setup card shows the security notices alone — this one too
+      await page.evaluate(() => (window as unknown as { __one: { ui: { getState: () => { openModal: (m: unknown) => void } } } }).__one.ui.getState().openModal({ type: 'settings' }))
+      await page.getByRole('tab', { name: /Coding worker|Coding-Worker/ }).click()
+      const card = page.getByTestId('coding-setup-card')
+      await expect(card.getByTestId('coding-worker-windows')).toContainText('On Windows, this worker (1.8.1)')
+      await expect(card.getByTestId('coding-worker-windows').getByTestId('coding-download-again')).toHaveText('Download again')
+      await page.keyboard.press('Escape')
+
+      // German
+      await wsEval(page, (s) => s.updateSettings({ language: 'de' }))
+      await expect(win.locator('.cv-plate__sec')).toHaveText('Sicherheit')
+      await expect(win).toContainText('Unter Windows kann dieser Worker (1.8.1) ein Programm namens git.exe oder claude.exe starten, das ein geklontes oder importiertes Repository mitbringt')
+      await expect(win).toContainText('Läuft er in WSL? Dann betrifft es ihn nicht.')
+      await wsEval(page, (s) => s.updateSettings({ language: 'en' }))
+
+      // older still, with the ZIP-import gap (1.8.0): that notice wins, as everywhere
+      await nameVersion(page, '1.8.0')
+      await expect(plate.getByTestId('coding-worker-unsafe')).toContainText('This worker (1.8.0) has a security gap in ZIP import')
+      await expect(page.getByTestId('coding-worker-windows')).toHaveCount(0)
+      // 1.9.0: nothing to say
+      await nameVersion(page, '1.9.0')
+      await expect(plate).toContainText('win-box')
+      await expect(page.getByTestId('coding-worker-windows')).toHaveCount(0)
+      await expect(page.getByTestId('coding-worker-unsafe')).toHaveCount(0)
+      await expect(page.getByTestId('coding-worker-outdated')).toHaveCount(0)
+    } finally {
+      await fake.close()
+    }
+  })
 })
 
 test('the task panel names Claude Code\'s own MCP servers for the task; a task that mentions one Claude Code may not use says so, with the setup page one click away', async ({ page, errors }) => {

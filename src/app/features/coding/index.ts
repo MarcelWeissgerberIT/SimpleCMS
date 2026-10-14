@@ -16,6 +16,8 @@ export { CodingRoute, CodingTaskSlot } from './slot'
 export { WorkerTab as CodingWorkerTab } from './WorkerTab'
 export { CodingStatusCell } from './WorkerStatus'
 export { openCodingSettings, consumeCodingSettingsRequest } from './open'
+/** a worker older than 1.9.0 on this Windows computer (Local link) — the #/coding plate and the Preflight lamp name it */
+export { workerOldHere } from './service'
 export { useCoding } from './state'
 export { codingDbId } from './schema'
 /** the worker link's state in words (Settings → Coding worker, the workspace page's Automation section) */

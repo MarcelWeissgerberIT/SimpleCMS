@@ -18,7 +18,7 @@ import { useLang, useT } from '../../i18n'
 import { workspaceInfo } from '../mcp/identity'
 import { WORKER_FILE, downloadWorker, startLines } from './download'
 import { workerOutdated, workerUnsafe } from './protocol'
-import { openWorkerSetup, viaFor } from './service'
+import { openWorkerSetup, viaFor, workerOldHere } from './service'
 import { openCodingSettings } from './open'
 import { CloudSetupCard } from './CloudSetupCard'
 import { useCoding } from './state'
@@ -117,7 +117,9 @@ async function downloadWithToast(t: ReturnType<typeof useT>): Promise<void> {
 /**
  * A worker older than the download on the site (it does not name everything One hands out): say so, offer the file.
  * A worker with the ZIP-import gap (`workerUnsafe` — the version its welcome names) gets the security notice instead:
- * it wins over the capability text, since 1.8.0 names every capability. `only="security"`: the setup cards (Settings →
+ * it wins over the capability text, since 1.8.0 names every capability. Next a worker older than 1.9.0 on this
+ * Windows computer (`workerOldHere`: a Local link from a browser on Windows — it can start a program a repository
+ * brought along): a security notice of its own, never on macOS / Linux or through Cloud. `only="security"`: the setup cards (Settings →
  * Coding worker, #/coding before a repo is ticked) show that one alone. `download`: the card's own download (the
  * cloud card asks before it replaces a worker); without one the local file — through the relay the key opens
  * Settings → Coding worker instead, where the cloud card's download is (never the local file for a cloud worker).
@@ -130,7 +132,8 @@ export function OutdatedWorker({ only, download, busy: cardBusy }: { only?: 'sec
   useCloud((x) => x.active)
   const [busy, setBusy] = useState(false)
   const unsafe = workerUnsafe(version)
-  if (!unsafe && (only === 'security' || !workerOutdated(can))) return null
+  const windows = !unsafe && workerOldHere(version)
+  if (!unsafe && !windows && (only === 'security' || !workerOutdated(can))) return null
   const viaCloud = !download && viaFor(workspaceInfo()) === 'cloud'
   const pending = cardBusy ?? busy
   const press = async () => {
@@ -141,11 +144,11 @@ export function OutdatedWorker({ only, download, busy: cardBusy }: { only?: 'sec
     setBusy(false)
   }
   return (
-    <p className="cv-plate__old" data-kind={unsafe ? 'security' : 'outdated'} role="status" data-testid={unsafe ? 'coding-worker-unsafe' : 'coding-worker-outdated'}>
+    <p className="cv-plate__old" data-kind={unsafe || windows ? 'security' : 'outdated'} role="status" data-testid={unsafe ? 'coding-worker-unsafe' : windows ? 'coding-worker-windows' : 'coding-worker-outdated'}>
       <Led state="on" />
-      {unsafe ? (
+      {unsafe || windows ? (
         <span>
-          <span className="label cv-plate__sec">{t('features.coding.worker.unsafeLabel')}</span> {t('features.coding.worker.unsafe', { version: String(version).trim() })}
+          <span className="label cv-plate__sec">{t('features.coding.worker.unsafeLabel')}</span> {t(unsafe ? 'features.coding.worker.unsafe' : 'features.coding.worker.windows', { version: String(version).trim() })}
         </span>
       ) : (
         <span>{t('features.coding.worker.outdated')}</span>
@@ -218,7 +221,14 @@ function LocalSetupCard({ code }: { code: string }) {
           <p className="cs-hint">{t('features.coding.card.step2Hint')}</p>
           <OsSwitch />
           <StartBlock make={(os) => [startLines(WORKER_FILE, { os })]} label={t('features.coding.card.startLabel')} testId="coding-start-command" />
-          {os === 'windows' && <p className="cs-hint">{t('features.coding.card.windows')}</p>}
+          {os === 'windows' && (
+            <>
+              <p className="cs-hint">{t('features.coding.card.windows')}</p>
+              <p className="cs-hint" data-testid="coding-start-folder">
+                {t('features.coding.card.windowsFolder')}
+              </p>
+            </>
+          )}
           <NeedsLine />
         </Step>
         <Step n={3} state={state(2)} title={t('features.coding.card.step3')} action={<ChangeReposButton />}>

@@ -1,8 +1,10 @@
 /**
  * The worker's start and download lines per computer — pure, no imports (scripts/worker-smoke.mjs imports it
  * under Node). Windows gets a PowerShell and a Command Prompt line, the file always quoted (user folders have
- * spaces; `~` reaches node.exe unexpanded in both shells, `%HOMEPATH%` has no drive); macOS and Linux one sh line
- * as before. Inputs are One's own constants, fixed verbs and a checked workspace id — never anything typed.
+ * spaces; `~` reaches node.exe unexpanded in both shells, `%HOMEPATH%` has no drive) and the home folder spelled as
+ * USERPROFILE in both — where the browser's Downloads folder is. Never PowerShell's `$HOME`: Windows PowerShell 5.1
+ * takes it from HOMEDRIVE + HOMEPATH, a network home (H:\) on many company PCs. macOS and Linux one sh line as
+ * before. Inputs are One's own constants, fixed verbs and a checked workspace id — never anything typed.
  */
 export type StartOs = 'windows' | 'posix'
 export type StartShell = 'powershell' | 'cmd' | 'sh'
@@ -27,7 +29,7 @@ const FILE = /^[A-Za-z0-9_.-]+$/
 
 function where(shell: StartShell, dir: 'downloads' | 'home', file: string): string {
   if (shell === 'sh') return dir === 'home' ? `~/${file}` : `~/Downloads/${file}`
-  const home = shell === 'powershell' ? '$HOME' : '%USERPROFILE%'
+  const home = shell === 'powershell' ? '$env:USERPROFILE' : '%USERPROFILE%'
   return `"${home}\\${dir === 'home' ? '' : 'Downloads\\'}${file}"`
 }
 
@@ -52,7 +54,7 @@ export function downloadLines(url: string, file: string, os: StartOs): StartLine
       shell === 'sh'
         ? `curl -fsSL ${url} -o ~/${file}`
         : shell === 'powershell'
-          ? `Invoke-WebRequest -UseBasicParsing "${url}" -OutFile "$HOME\\${file}"`
+          ? `Invoke-WebRequest -UseBasicParsing "${url}" -OutFile "$env:USERPROFILE\\${file}"`
           : `curl.exe -fsSL "${url}" -o "%USERPROFILE%\\${file}"`,
   }))
 }

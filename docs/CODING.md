@@ -41,11 +41,16 @@ diffs, logs, test output and cost — nothing else. One can never send a command
    needed for the connection: workspace, accepted origin and port come from the preset. The card shows the line
    for the computer — a switch **Windows | macOS · Linux** (one choice per tab, the default from the browser's
    platform; `startLines.ts`, pure): on Windows a PowerShell and a Command Prompt line, the file quoted (user folders
-   have spaces; neither shell hands `~` to node.exe expanded):
+   have spaces; neither shell hands `~` to node.exe expanded), both from USERPROFILE — whose Downloads folder the
+   browser uses by default:
    ```powershell
-   node "$HOME\Downloads\one-worker.mjs"                 # PowerShell
+   node "$env:USERPROFILE\Downloads\one-worker.mjs"      # PowerShell
    node "%USERPROFILE%\Downloads\one-worker.mjs"         # Command Prompt (cmd)
    ```
+   Never PowerShell's `$HOME`: Windows PowerShell 5.1 takes it from HOMEDRIVE + HOMEPATH, a network home (`H:\`) on
+   many company PCs. The browser saves where it saves: a download folder of its own, or Downloads moved (e.g. into
+   OneDrive) — then the file is started from there, `node` and its path (Explorer: Shift + right-click → *Copy as
+   path*); the card says so under the Windows lines.
 3. **Tick your repositories in the page that opens.** With no repositories configured yet (or with
    `node one-worker.mjs setup`) the worker looks for git repositories on the computer and opens its **setup
    page** in the default browser: the repos found, a tick each, and per ticked repo the base branch, the test
@@ -195,10 +200,10 @@ On Windows (PowerShell — PowerShell 5.1's `curl` is `Invoke-WebRequest`, so it
 `curl.exe -fsSL "<url>" -o "%USERPROFILE%\one-worker.mjs"` and `"%USERPROFILE%\one-worker.mjs"`):
 
 ```powershell
-Invoke-WebRequest -UseBasicParsing "https://getonecms.com/mcp/one-worker.mjs" -OutFile "$HOME\one-worker.mjs"
-node "$HOME\one-worker.mjs" init --workspace local:abc123
-node "$HOME\one-worker.mjs" check
-$env:ONE_WORKER_PORT = '47400'; node "$HOME\one-worker.mjs"   # a port of its own (cmd: set "ONE_WORKER_PORT=47400" && node …)
+Invoke-WebRequest -UseBasicParsing "https://getonecms.com/mcp/one-worker.mjs" -OutFile "$env:USERPROFILE\one-worker.mjs"
+node "$env:USERPROFILE\one-worker.mjs" init --workspace local:abc123
+node "$env:USERPROFILE\one-worker.mjs" check
+$env:ONE_WORKER_PORT = '47400'; node "$env:USERPROFILE\one-worker.mjs"   # a port of its own (cmd: set "ONE_WORKER_PORT=47400" && node …)
 ```
 
 Then *Connect to a coding worker on this computer*. A worker without a preset never asks for a pairing secret
@@ -209,9 +214,13 @@ Then *Connect to a coding worker on this computer*. A worker without a preset ne
 Native from worker **1.9.0**, on Windows 10 and 11. **On Windows, use worker 1.9.0 or newer:** older workers could
 start a program named `git.exe`, `claude.exe` or `npm.exe` from the root of a cloned or imported repository —
 Windows looks for a program in the folder it starts in before `PATH`, and the worker runs git and Claude Code inside
-the repository. Download the worker again (*Download again*). One's notice for workers older than 1.8.1 covers the
-ZIP import only; One cannot tell which system a worker runs on (the protocol carries no such field), so it does not
-flag a 1.8.x worker on Windows — this paragraph does.
+the repository. Download the worker again (*Download again*). One names such a worker where it can tell: the welcome
+carries no system (protocol.ts has no such field), but a worker reached over **Local** listens on 127.0.0.1 — it runs
+on the browser's own computer. So a worker older than 1.9.0 over Local from a browser on Windows (its platform, not
+the start-line switch) gets a security notice with *Download again* on the #/coding plate and the setup card, and the
+Preflight worker lamp turns amber (`features/coding/winWorker.ts`; the ZIP-import notice for 1.3.1 – 1.8.0 wins where
+both apply). A worker reached through **Cloud** runs on another computer and is never flagged; one running in WSL on
+this computer is a Linux one — the notice says it does not apply then. macOS and Linux never get it.
 
 **Install** (once):
 
@@ -225,8 +234,9 @@ flag a 1.8.x worker on Windows — this paragraph does.
   the Command Prompt). In the old console window, selecting text (QuickEdit) pauses the worker until Esc. Ctrl+C,
   Ctrl+Break or closing the window stops it.
 
-**Start lines** quote the file — user folders have spaces, and neither shell hands `~` to node.exe expanded:
-`node "$HOME\Downloads\one-worker.mjs"` (PowerShell), `node "%USERPROFILE%\Downloads\one-worker.mjs"` (cmd); a port
+**Start lines** quote the file — user folders have spaces, and neither shell hands `~` to node.exe expanded — and
+spell the home folder as USERPROFILE in both (never PowerShell's `$HOME`, § Set up):
+`node "$env:USERPROFILE\Downloads\one-worker.mjs"` (PowerShell), `node "%USERPROFILE%\Downloads\one-worker.mjs"` (cmd); a port
 of its own: `$env:ONE_WORKER_PORT = '47400'; node …` / `set "ONE_WORKER_PORT=47400" && node …`.
 
 **What the worker does differently on Windows**:
@@ -236,6 +246,13 @@ of its own: `$env:ONE_WORKER_PORT = '47400'; node …` / `set "ONE_WORKER_PORT=4
   tools (`cmd.exe`, `taskkill`, PowerShell for the folder dialog) by their System32 path. git runs only as
   `git.exe`. An npm / pnpm / scoop `.cmd` shim (Claude Code installed with npm, `npx`, `pnpm`) is **read, not run**:
   the worker starts what it points to (Node with the script, or the `.exe`).
+- **What the programs start** — every child gets `NoDefaultCurrentDirectoryInExePath=1`, so what it starts by a bare
+  name (cmd.exe's commands, a Node child's own spawn) is not looked up in its working folder either. Some lookups
+  ignore that variable — node-which in cross-spawn / execa (Claude Code's own `git` among them) and Bun's own — so a
+  stage **does not start** while the top of its folder (the task's worktree, or the repository) holds a program such
+  a lookup would take: `git.exe`, `claude.exe`, `node.exe`, `npm.cmd`, `bash.exe`, `ssh.exe`, `python.exe` … (the
+  names tools start, with any extension Windows runs). The log says `plantedProgram` and names the file; move or
+  rename it in the repository, then **Retry**.
 - **cmd.exe** — only the person's own `testCommand` / `analyzeCommand` (worker.json, the setup page) and the
   `ONE_WORKER_BROWSER` / `ONE_WORKER_PICKER` programs may run through `cmd.exe`, and only when they name a `.cmd` /
   `.bat` the reader cannot read (`.\gradlew.bat`, a script of your own) — escaped for cmd (`/d /v:off /s /c`, every
@@ -257,11 +274,21 @@ of its own: `$env:ONE_WORKER_PORT = '47400'; node …` / `set "ONE_WORKER_PORT=4
   `%USERPROFILE%\.one-worktrees\<name>` unless `worktreeDir` is set, and the clone folder is never inside OneDrive
   (nor iCloud Drive or `~/Library/CloudStorage` on a Mac — `cloudStorage`). Keep repositories on a local disk
   (`C:\code`), not on a network drive.
-- **SSH and HTTPS sign-in** — git never asks while the worker runs it (§ Git). Use the OpenSSH Authentication Agent
-  service for your key (as an administrator once: `Get-Service ssh-agent | Set-Service -StartupType Automatic;
-  Start-Service ssh-agent`, then `ssh-add`); an unknown host key or a key that needs its passphrase fails at once
-  with `sshHostKey` / `sshKey`. HTTPS: sign in once in a terminal (`git fetch` in the repo) — Git Credential Manager
-  keeps the login; the worker never opens its window (`gitSignIn`).
+- **SSH and HTTPS sign-in** — git never asks while the worker runs it (§ Git): an unknown host key or a key that
+  needs its passphrase fails at once with `sshHostKey` / `sshKey`. Git for Windows runs **its own ssh**, which does
+  not see Windows' *OpenSSH Authentication Agent* service — a key added there with Windows' `ssh-add` does not help
+  it. What works:
+  - a key without a passphrase (nothing else to do);
+  - **Git's own agent**: in the Command Prompt run `start-ssh-agent` (it comes with Git for Windows and asks for the
+    passphrase once), then start the worker in that same window — it inherits the agent (`SSH_AUTH_SOCK`). In Git
+    Bash: `eval "$(ssh-agent -s)"` and `ssh-add`, then start the worker there;
+  - **Windows' agent**: `git config --global core.sshCommand C:/Windows/System32/OpenSSH/ssh.exe` once, the service
+    running (as an administrator once: `Get-Service ssh-agent | Set-Service -StartupType Automatic;
+    Start-Service ssh-agent`) and your key in it (`ssh-add`). With `core.sshCommand` set the worker adds no
+    BatchMode (§ Git).
+
+  HTTPS: sign in once in a terminal (`git fetch` in the repo) — Git Credential Manager keeps the login; the worker
+  never opens its window (`gitSignIn`).
 - **Files held open** — Defender, the search indexer or an editor can hold a file for a moment: the worker retries
   renames and folder removals; a worktree folder still held is left for the next time (`folderBusy`). A repo
   copied from another user account: `dubiousOwnership` (`git config --global --add safe.directory <folder>`, the
@@ -273,23 +300,23 @@ of its own: `$env:ONE_WORKER_PORT = '47400'; node …` / `set "ONE_WORKER_PORT=4
   "another worker" (`netsh int ipv4 show excludedportrange protocol=tcp` lists them): start it with
   `ONE_WORKER_PORT` set to a free port and set the same port in One (*before* the download). It listens on 127.0.0.1
   only — no firewall dialog.
-- **Private files** — `icacls` instead of `chmod 600` (the worker's `--help` and its warning name your account):
+- **Private files** — `icacls` instead of `chmod 600` (the worker's `--help` names your account):
   ```powershell
-  icacls "$HOME\one-worker-cloud.mjs" /inheritance:r /grant:r "${env:USERNAME}:F"     # PowerShell
+  icacls "$env:USERPROFILE\one-worker-cloud.mjs" /inheritance:r /grant:r "${env:USERNAME}:F"   # PowerShell
   icacls "%USERPROFILE%\one-worker-cloud.mjs" /inheritance:r /grant:r "%USERNAME%:F"   # cmd
   ```
 - **Autostart** — Task Scheduler with a PowerShell loop that restarts after a crash but never after exit code 2
   (revoked, replaced, removed …), like systemd's `RestartPreventExitStatus=2` (§ Cloud worker):
   ```powershell
-  # $HOME\one-worker-cloud.ps1
+  # %USERPROFILE%\one-worker-cloud.ps1
   do {
-    node "$HOME\one-worker-cloud.mjs" --no-browser
+    node "$env:USERPROFILE\one-worker-cloud.mjs" --no-browser
     $code = $LASTEXITCODE
     if ($code -ne 0 -and $code -ne 2) { Start-Sleep -Seconds 10 }
   } while ($code -ne 0 -and $code -ne 2)
   ```
   ```powershell
-  $ps1 = Join-Path $HOME 'one-worker-cloud.ps1'
+  $ps1 = Join-Path $env:USERPROFILE 'one-worker-cloud.ps1'
   $run = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$ps1`""
   Register-ScheduledTask -TaskName 'one-worker-cloud' -Trigger (New-ScheduledTaskTrigger -AtLogOn) -Action $run
   ```
@@ -523,11 +550,17 @@ hooks and your git config apply as usual. On Windows every git call gets `-c cor
   main checkout's working tree is never touched. `git worktree prune` runs on start.
 - **No terminal for git**: git runs in its own session without a terminal (`GIT_TERMINAL_PROMPT=0`,
   `GCM_INTERACTIVE=never`), so a password, SSH passphrase or host-key question fails at once with git's message instead
-  of waiting. Use an SSH agent / keychain or a credential helper. When you set nothing for SSH (`GIT_SSH_COMMAND`,
-  `GIT_SSH`, `core.sshCommand` — in the repo, global or system config), the worker adds
-  `GIT_SSH_COMMAND='ssh -o BatchMode=yes'` (every system; on Windows ssh would otherwise ask on the worker's own
-  console); setting `core.sshCommand` — plain `ssh` too — opts out. After git's error line the log adds a hint in
-  your language: `sshHostKey`, `sshKey`, `gitSignIn`, `dubiousOwnership`, `gitLock`, `longpaths`. A fetch for a new task that fails or takes over 60 s
+  of waiting (on macOS / Linux an SSH askpass program you set up — `SSH_ASKPASS` with a display — may still ask, as
+  before). Use an SSH agent / keychain or a credential helper.
+- **SSH BatchMode — Windows only**: when you set nothing for SSH (`GIT_SSH_COMMAND` / `GIT_SSH` in the environment,
+  `core.sshCommand` in the repo's, global or system config), the worker on Windows adds
+  `GIT_SSH_COMMAND='ssh -o BatchMode=yes'` — ssh would otherwise ask on the worker's own console window, where nobody
+  answers. A clone has no config of its own yet, so a conditional include cannot be checked before it exists: any
+  `includeIf` section in your global or system config counts as set (it may set `core.sshCommand` for the new
+  repository) and the worker adds nothing for that clone — its terminal says so. Setting `core.sshCommand` yourself
+  — plain `ssh` too — opts out. **macOS and Linux: nothing is added**, as before 1.9.0.
+- **Hints**: after git's error line the log adds a hint in your language: `sshHostKey`, `sshKey`, `gitSignIn`,
+  `dubiousOwnership`, `gitLock`, `longpaths`. A fetch for a new task that fails or takes over 60 s
   (`ONE_WORKER_FETCH_MS`) is logged and the task goes on from the local refs.
 - **iCloud Drive (macOS)**: a repo under iCloud Drive (or ~/Documents / ~/Desktop when they sync) gets a warning in
   the log — git waits whenever a file is only in the cloud. Its worktrees go to `~/.one-worktrees/<name>` (outside
@@ -693,7 +726,9 @@ A browser for reviews: the person's own Claude Code MCP server (e.g. `claude mcp
   commands are never sent; an error names a command by its program name only.
 - **No program from the repository by name.** Every program the worker starts goes through `mcp/src/worker/exec.ts`
   — an argument list, never `shell: true`. On Windows a bare name is looked up in `PATH` only, never in the repo or
-  worktree it runs in; `.cmd` shims are read, not run; only your own worker.json commands and `ONE_WORKER_BROWSER` /
+  worktree it runs in; `.cmd` shims are read, not run; every child looks nothing up in its working folder either
+  (`NoDefaultCurrentDirectoryInExePath`), and a stage does not start while its folder holds a program named like one
+  a tool starts (`plantedProgram`); only your own worker.json commands and `ONE_WORKER_BROWSER` /
   `ONE_WORKER_PICKER` may run through cmd.exe, never anything One sends or a repository holds (§ Windows).
 - **One cannot command.** It sends task data and the fixed verbs (`stop`, the git verbs above) for repos in the
   config. Unknown verbs, unknown repos and malformed tasks are refused; tasks of a `gate` / `queue` / `done` stage
@@ -820,7 +855,7 @@ and cannot inject, change, replay or reorder a frame. It can **delay or drop** f
 | **A stolen session cookie** | Open a tab link as you — the relay would pair it with your worker | Without this device's pairing secret its boxes do not open: the worker refuses it (`pair`). Signing out closes that session's relay links at once; `revoke-sessions` on the server within a minute (the relay re-checks sessions) |
 | **A stolen worker token** (the file was copied) | Connect as your worker — the newest connection wins (the old one gets 4001 and stops) | With the file it also has the pairing secret: treat the file like a key (`chmod 600`; Windows: `icacls`, § Windows). **Revoke** in Settings ends it at once (`node dist/cli.js revoke-workers <email>` on the server: within a minute); your tab shows which worker connected (name, repos) |
 | **A malicious tab** (injected script, another site) | — | The relay accepts tabs only from the server's own origin with a session cookie; a tab without the pairing secret is refused by the worker. Task text stays data: Claude Code's permissions, the stage rules and trust are unchanged |
-| **A cloned or imported repository** (any worker, local or cloud) | Carry a program named `git.exe`, `claude.exe` or `npm.exe` at its root, for Windows to start in place of the real one | Worker 1.9.0 looks programs up in `PATH` only, never in the folder it runs in, and reads `.cmd` shims instead of running them (§ Windows). **Older workers on Windows could start such a program** — use 1.9.0 or newer there. macOS / Linux never searched the working folder |
+| **A cloned or imported repository** (any worker, local or cloud) | Carry a program named `git.exe`, `claude.exe` or `npm.exe` at its root, for Windows to start in place of the real one | Worker 1.9.0 looks programs up in `PATH` only, never in the folder it runs in, reads `.cmd` shims instead of running them, keeps its children from looking there (`NoDefaultCurrentDirectoryInExePath`) and starts no stage while the folder's top holds such a program (`plantedProgram` — for the lookups that ignore that variable, Claude Code's own among them; § Windows). **Older workers on Windows could start such a program** — use 1.9.0 or newer there; One names one it can see (Local, a browser on Windows). macOS / Linux never searched the working folder |
 | **Removed member / now a viewer** | — | Removal or a role change to viewer closes their relay links at once and revokes their tokens (removal); the worker exits (removed) or waits (viewer) |
 
 ## Protocol
@@ -889,8 +924,9 @@ state: pending | active, online }` — what `node one-worker-cloud.mjs check` pr
   was downloaded before One could hand out this kind of stage (document stages of Business analysis / QA, Static
   analysis, Post review, Merge, a stage with a model — worker 1.5 or newer). **Download again** (#/coding, or Settings → Coding worker), stop the old worker
   (Ctrl+C), start the new file — the browser may have saved it as `one-worker (1).mjs` — then **Retry** on the task.
-- **Claude Code was not found** — install it, sign in once interactively, or set `CLAUDE_BIN`. `node one-worker.mjs
-  check` shows what the worker sees (on Windows also how it starts Claude Code and which Git Bash it found). A
+- **Claude Code was not found** — install it and sign in once interactively, then **Retry** on the task: the worker
+  looks for Claude Code again. A Claude Code outside `PATH`: set `CLAUDE_BIN` and start the worker again (it reads
+  the variable at start). `node one-worker.mjs check` shows what the worker sees (on Windows also how it starts Claude Code and which Git Bash it found). A
   Claude Code `.cmd` the worker cannot read is refused (`claudeCmdRefused`): the native installer, or `CLAUDE_BIN`
   set to `claude.exe` / its `cli.js`.
 - **Windows: cannot listen on 127.0.0.1:<port> — Windows keeps the port for itself** — Hyper-V, WSL or Docker reserve
@@ -901,9 +937,11 @@ state: pending | active, online }` — what `node one-worker-cloud.mjs check` pr
 - **Windows: Filename too long** — `git config --global core.longpaths true` and long paths in Windows, or a short
   `worktreeDir` (§ Windows).
 - **A fetch or push fails at once with an SSH message** — `sshHostKey`: run `ssh -T git@<host>` once in a terminal
-  and read what ssh says; `sshKey`: add the key to your SSH agent (`ssh-add`; on Windows the OpenSSH Authentication
-  Agent service). To let ssh ask anyway, set `core.sshCommand` yourself (the worker then adds nothing — but nobody
-  can answer while it runs).
+  and read what ssh says; `sshKey`: add the key to your SSH agent (`ssh-add`). On Windows Git's own ssh does not see
+  the OpenSSH Authentication Agent service: `start-ssh-agent` in the Command Prompt and the worker started in that
+  window, or `core.sshCommand` set to `C:/Windows/System32/OpenSSH/ssh.exe` (§ Windows). Setting `core.sshCommand`
+  yourself also drops the worker's BatchMode on Windows; ssh still has no console to ask on there. On macOS / Linux
+  the worker adds nothing: an askpass program may ask, as before.
 - **A stage fails right away with a permission problem** — headless runs cannot ask: allow the tools in
   `claude.allowedTools` (`"Bash(npm test:*)"`), or use `acceptEdits` for implement stages.
 - **The branch is checked out in the main checkout** — switch the main checkout to another branch, or clear the

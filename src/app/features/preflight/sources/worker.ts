@@ -1,12 +1,13 @@
 /**
  * Lamp "Worker offline" (fitted where coding is switched on): red while the worker link is refused / blocked /
  * replaced / off, or still connecting a minute after it began; amber while the connected worker is older than the
- * download — with the ZIP-import gap (`workerUnsafe`, by the version it names: 1.8.0 names every capability) or
- * without a capability One hands out (`workerOutdated`); the gap wins, as on the #/coding plate.
- * Ids: worker:<conn> · worker:unsafe@<version> · worker:outdated@<version>.
+ * download — with the ZIP-import gap (`workerUnsafe`, by the version it names: 1.8.0 names every capability), older
+ * than 1.9.0 on this Windows computer (`workerOldHere`: a Local link from a browser on Windows) or without a capability
+ * One hands out (`workerOutdated`); in that order, as on the #/coding plate.
+ * Ids: worker:<conn> · worker:unsafe@<version> · worker:windows@<version> · worker:outdated@<version>.
  */
 import { t } from '../../../i18n'
-import { openCodingSettings, useCoding } from '../../coding'
+import { openCodingSettings, useCoding, workerOldHere } from '../../coding'
 import { workerOutdated, workerUnsafe } from '../../coding/protocol'
 import type { LampReading, LampSourceDef } from '../registry'
 import { fmtTime } from '../format'
@@ -50,6 +51,7 @@ export const workerLamp: LampSourceDef = {
     if (s.conn === 'connected') {
       const version = s.worker?.worker ?? ''
       if (workerUnsafe(version)) return { state: 'ok', count: 1, ids: [`worker:unsafe@${version.trim()}`], level: 'amber', second: t('features.preflight.lamp.worker.second.unsafe') }
+      if (workerOldHere(version)) return { state: 'ok', count: 1, ids: [`worker:windows@${version.trim()}`], level: 'amber', second: t('features.preflight.lamp.worker.second.unsafe') }
       if (workerOutdated(s.can)) return { state: 'ok', count: 1, ids: [`worker:outdated@${version}`], level: 'amber', second: t('features.preflight.lamp.worker.second.outdated') }
       return { state: 'ok', count: 0, ids: [], second: version ? t('features.preflight.lamp.worker.second.ok', { version }) : '' }
     }
@@ -65,7 +67,9 @@ export const workerLamp: LampSourceDef = {
         tag: t('features.preflight.lamp.worker.short'),
         title: id.startsWith('worker:unsafe@')
           ? t('features.preflight.fix.worker.unsafe', { version: id.slice('worker:unsafe@'.length) })
-          : t(id.startsWith('worker:outdated') ? 'features.preflight.fix.worker.outdated' : 'features.preflight.fix.worker.down'),
+          : id.startsWith('worker:windows@')
+            ? t('features.preflight.fix.worker.windows', { version: id.slice('worker:windows@'.length) })
+            : t(id.startsWith('worker:outdated') ? 'features.preflight.fix.worker.outdated' : 'features.preflight.fix.worker.down'),
         detail: r.second ?? '',
       }))
     },

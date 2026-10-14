@@ -579,9 +579,11 @@ the public APIs stable — other areas are built against them in parallel.
   absolute path, git only as git.exe, `.cmd` shims read, not run): Claude Code, git, gh and glab never run through
   cmd.exe — only the person's own worker.json `testCommand` / `analyzeCommand` and `ONE_WORKER_BROWSER` /
   `ONE_WORKER_PICKER` may, and nothing One sends or a repo holds ever reaches a cmd.exe line; on Windows every git call
-  gets `-c core.longpaths=true` and worktree folders a short safe name, `ssh -o BatchMode=yes` only when no SSH command
-  is set (every OS), a repo in a synced folder (iCloud, CloudStorage, OneDrive) keeps its worktrees in ~/.one-worktrees;
-  the worker needs Node 22+ (Windows from 1.9.0; start lines per shell: coding/startLines.ts). Team: the worker takes only tasks whose version (SHA-256) was written or confirmed on this device. Version =
+  gets `-c core.longpaths=true` and worktree folders a short safe name, `ssh -o BatchMode=yes` only on Windows and only
+  when no SSH command is set (a clone: any `includeIf` in the global / system config counts as set; macOS / Linux add
+  nothing, as 1.8), a repo in a synced folder (iCloud, CloudStorage, OneDrive) keeps its worktrees in ~/.one-worktrees;
+  the worker needs Node 22+ (Windows from 1.9.0; start lines per shell: coding/startLines.ts — PowerShell spells the
+  home `$env:USERPROFILE`, never `$HOME`). Team: the worker takes only tasks whose version (SHA-256) was written or confirmed on this device. Version =
   title + page + Repo / Branch / Stage + the pipeline (names, kinds, Auto, mode, turns, git action, next, instructions);
   trust carries only for changes made in this tab (never `isApplyingRemote` / `isAgentWriting`); locally a task an agent
   created or changed last (`agent:`) waits for Confirm too; nothing is written for an unconfirmed task. Prompt data blocks
@@ -651,7 +653,9 @@ the public APIs stable — other areas are built against them in parallel.
   implies 'doc') go only to a worker that names them — never to an older one (the task fails with err.oldWorker; the #/coding
   plate shows `OutdatedWorker` from `useCoding.can`; a worker whose welcome names a version with the ZIP-import gap —
   `workerUnsafe`: `WORKER_IMPORT_SINCE` ≤ v < `WORKER_SAFE`, protocol.ts; an unreadable version never — gets the security
-  notice instead, also in the setup cards; through the relay its key opens Settings → Coding worker, never the local file). The worker reports a task it cannot read back as 'refused' (`taskIds`),
+  notice instead, also in the setup cards; through the relay its key opens Settings → Coding worker, never the local file;
+  next a worker < 1.9.0 over Local from a browser on Windows — `workerOldHere` / winWorker.ts: the browser's platform,
+  never the start-line switch, never Cloud — gets a Windows security notice, also as the Preflight lamp `worker:windows@`). The worker reports a task it cannot read back as 'refused' (`taskIds`),
   never drops it silently; bump mcp/package.json for every worker change (the site's download = the newest version).
   Models: `PipelineStage.model` only on stages that run Claude Code (plan · implement · doc; `claudeRuns()`) — an alias
   ('opus' · 'sonnet' · 'haiku'), a full id or an own name; per task per device `TaskLocal.model` (never synced, never hashed).

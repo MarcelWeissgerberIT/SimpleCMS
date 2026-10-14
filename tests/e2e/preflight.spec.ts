@@ -128,10 +128,10 @@ test.describe('Preflight — the lamps (T-P1-2)', () => {
     await expect.poll(async () => (await readings(page)).worker).toMatchObject({ count: 1, level: 'red', ids: ['worker:refused'] })
     const worker = (version: string) => ({ worker: version, name: 'Werkbank', repos: [], parallel: 1, busy: [], spentToday: 0, dayLimit: null, claude: { found: true, version: '2.0.0' } })
     const every = ['analyze', 'git:comment', 'git:merge', 'doc', 'model', 'mcp-list']
-    await pf(page, (p, w) => p.stores.coding.setState({ conn: 'connected', worker: w, can: [] }), worker('1.8.1'))
-    await expect.poll(async () => (await readings(page)).worker).toMatchObject({ count: 1, level: 'amber', ids: ['worker:outdated@1.8.1'], second: 'outdated' })
+    await pf(page, (p, w) => p.stores.coding.setState({ conn: 'connected', worker: w, can: [] }), worker('1.9.0'))
+    await expect.poll(async () => (await readings(page)).worker).toMatchObject({ count: 1, level: 'amber', ids: ['worker:outdated@1.9.0'], second: 'outdated' })
     await pf(page, (p, can) => p.stores.coding.setState({ can }), every)
-    await expect.poll(async () => (await readings(page)).worker).toMatchObject({ count: 0, second: 'v1.8.1 · ok' })
+    await expect.poll(async () => (await readings(page)).worker).toMatchObject({ count: 0, second: 'v1.9.0 · ok' })
     // 1.8.0 names every capability but has the ZIP-import gap: amber with the security line (it wins over "outdated")
     await pf(page, (p, w) => p.stores.coding.setState({ worker: w }), worker('1.8.0'))
     await expect.poll(async () => (await readings(page)).worker).toMatchObject({ count: 1, level: 'amber', ids: ['worker:unsafe@1.8.0'], second: 'security gap' })
@@ -139,9 +139,13 @@ test.describe('Preflight — the lamps (T-P1-2)', () => {
     expect((await pf(page, (p) => p.contract())).worker).toMatchObject({ count: 1, same: true, ending: true, n: 1 })
     await pf(page, (p) => p.stores.coding.setState({ can: [] }))
     await expect.poll(async () => (await readings(page)).worker).toMatchObject({ count: 1, ids: ['worker:unsafe@1.8.0'] })
-    // before the ZIP import (1.1.0) there is no gap: only the capability text
+    // older than 1.9.0 over Local from a browser on Windows (the device profile): it runs on this computer and can start
+    // a program a repository brought along — amber with the security line, over "outdated"; 1.1.0 (before the ZIP import) too
+    await pf(page, (p, w) => p.stores.coding.setState({ worker: w }), worker('1.8.1'))
+    await expect.poll(async () => (await readings(page)).worker).toMatchObject({ count: 1, level: 'amber', ids: ['worker:windows@1.8.1'], second: 'security gap' })
+    expect((await pf(page, (p) => p.contract())).worker).toMatchObject({ count: 1, same: true, ending: true, n: 1 })
     await pf(page, (p, w) => p.stores.coding.setState({ worker: w }), worker('1.1.0'))
-    await expect.poll(async () => (await readings(page)).worker).toMatchObject({ count: 1, ids: ['worker:outdated@1.1.0'] })
+    await expect.poll(async () => (await readings(page)).worker).toMatchObject({ count: 1, ids: ['worker:windows@1.1.0'] })
     await pf(page, (p) => p.stores.coding.setState({ enabled: false, conn: 'off' }))
   })
 
