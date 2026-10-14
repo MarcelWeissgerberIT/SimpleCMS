@@ -5,10 +5,12 @@
 //   node build.mjs            (npm run build:mcp at the repo root)
 import { build } from 'esbuild'
 import { chmodSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 
 const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'))
-const outfile = new URL('../public/mcp/one-mcp.mjs', import.meta.url).pathname
-const mcpbFile = new URL('../public/mcp/one.mcpb', import.meta.url).pathname
+// file paths, not URL pathnames: on Windows a pathname is /D:/… (and %20 for a space)
+const outfile = fileURLToPath(new URL('../public/mcp/one-mcp.mjs', import.meta.url))
+const mcpbFile = fileURLToPath(new URL('../public/mcp/one.mcpb', import.meta.url))
 
 await build({
   entryPoints: ['src/index.ts'],
@@ -45,7 +47,7 @@ async function importTs(entry) {
 }
 
 // The coding worker (docs/CODING.md): one more file next to the bridge, public/mcp/one-worker.mjs
-const workerFile = new URL('../public/mcp/one-worker.mjs', import.meta.url).pathname
+const workerFile = fileURLToPath(new URL('../public/mcp/one-worker.mjs', import.meta.url))
 await build({
   entryPoints: ['src/worker/index.ts'],
   outfile: workerFile,
