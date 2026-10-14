@@ -149,7 +149,9 @@ export async function cloneInto(target: CloneUrl, base: string, onProgress: (p: 
     const entries = readdirSync(dir)
     if (entries.length) {
       const origin = existsSync(join(dir, '.git')) ? (await git(dir, ['remote', 'get-url', 'origin'], 10_000)).stdout.trim() : ''
-      if (origin && origin.replace(/\.git$/, '') === target.url.replace(/\.git$/, '')) {
+      const bare = (u: string) => u.replace(/\.git$/, '')
+      // a local path (the test seam): as a path — Git for Windows keeps C:\…\x.git as C:/…/x.git
+      if (origin && (target.kind === 'local' ? samePath(bare(origin), bare(target.url)) : bare(origin) === bare(target.url))) {
         // an older worker's clone carries no mark yet — but only the default clone folder is surely the worker's: a
         // checkout of the person's own elsewhere (~/code) stays unmarked
         if (inFolder(dir, defaultCloneDir(opts.home))) markSource(dir, 'clone')

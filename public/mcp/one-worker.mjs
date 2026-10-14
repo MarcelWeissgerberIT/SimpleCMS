@@ -13844,7 +13844,8 @@ async function cloneInto(target, base, onProgress, opts = {}) {
     const entries = readdirSync(dir);
     if (entries.length) {
       const origin = existsSync6(join7(dir, ".git")) ? (await git(dir, ["remote", "get-url", "origin"], 1e4)).stdout.trim() : "";
-      if (origin && origin.replace(/\.git$/, "") === target.url.replace(/\.git$/, "")) {
+      const bare = (u) => u.replace(/\.git$/, "");
+      if (origin && (target.kind === "local" ? samePath(bare(origin), bare(target.url)) : bare(origin) === bare(target.url))) {
         if (inFolder(dir, defaultCloneDir(opts.home))) markSource(dir, "clone");
         return { dir, already: true };
       }
