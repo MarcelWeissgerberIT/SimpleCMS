@@ -855,6 +855,10 @@ const shots = {
       await save(page, 'worker-windows', { x: Math.round(head.x) - 12, y: Math.round(head.y) - 12, width: Math.round(head.width) + 24, height: Math.round(step2.y + step2.height - head.y) + 12 })
     } finally {
       await ctx.close()
+    }
+  },
+
+  /**
    * MCP · Connections (#/mcp): four servers of this device (nordlicht OK, signed in, codeword nl:, every AI call;
    * tessera token refused; archiv test failed; polar off), the agents "Daily digest" (nordlicht, 2 tools) and "Triage"
    * (names "tracker", which this device does not have), the profile "Item tracker"; the repository's own bridge driven
