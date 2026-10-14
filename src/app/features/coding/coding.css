@@ -1563,10 +1563,10 @@ dd:has(> .cw-port) {
 .cs-body .cw-start .cw-code {
   margin: 0;
 }
-/* a quoted Windows path is long: wrapped at any character rather than scrolled behind the copy key */
+/* a quoted Windows path is long: wrapped (filling each row, never at a flag's hyphen) rather than scrolled behind the copy key */
 .cw-start .cw-code pre {
   white-space: pre-wrap;
-  overflow-wrap: anywhere;
+  word-break: break-all;
 }
 .cw-start__shell {
   display: grid;
