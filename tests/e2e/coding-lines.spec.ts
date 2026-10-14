@@ -119,4 +119,10 @@ test('every worker log code has its EN and DE line; the 1.9.0 codes render in bo
   // Windows' backslashes reach the line as one
   expect(en('features.coding.log.c.commandMissing', WIN_CODES.commandMissing!)).toContain('`.\\gradlew.bat`')
   expect(de('features.coding.log.c.onedrive', WIN_CODES.onedrive!)).toContain('C:\\code')
+  // where the worktrees are is said only as it is: a cloud worker or an own worktreeDir keeps them elsewhere
+  for (const code of ['onedrive', 'cloudStorage'])
+    for (const line of [en(`features.coding.log.c.${code}`, WIN_CODES[code]!), de(`features.coding.log.c.${code}`, WIN_CODES[code]!)]) {
+      expect(line, code).toContain('worktreeDir')
+      expect(line, code).toMatch(/cloud worker|Cloud-Worker/)
+    }
 })

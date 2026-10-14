@@ -933,7 +933,8 @@ state: pending | active, online }` — what `node one-worker-cloud.mjs check` pr
   that range (`netsh int ipv4 show excludedportrange protocol=tcp`). Pick a port outside it in One (Settings → Coding
   worker, then download again) or start with `ONE_WORKER_PORT` (§ Windows).
 - **Windows: a repo in OneDrive is slow or a step fails with a locked file** — move it to a local folder (`C:\code`)
-  and tick that one; until then its worktrees live in `%USERPROFILE%\.one-worktrees`.
+  and tick that one; until then its worktrees live in `%USERPROFILE%\.one-worktrees` (a cloud worker: in its config
+  folder; an own `worktreeDir` wins).
 - **Windows: Filename too long** — `git config --global core.longpaths true` and long paths in Windows, or a short
   `worktreeDir` (§ Windows).
 - **Windows: a stage does not start — "holds a program named git.exe at its top level"** (`plantedProgram`) — the
