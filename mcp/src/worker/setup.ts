@@ -17,9 +17,8 @@
  * that is in worker.json already, or that the person typed into the page.
  */
 import { randomBytes } from 'node:crypto'
-import { execFile } from 'node:child_process'
 import { homedir } from 'node:os'
-import { isAbsolute, join, resolve, sep } from 'node:path'
+import { isAbsolute, join, resolve } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { REPO_NAME, type OpenSetupResult, type WorkerPreset } from '../../../src/app/features/coding/protocol.ts'
 import { MCP_NAME, inFolder, marksSeen, saveRepos, sourceOf, splitArgs, unseenMarks, type RepoChoice, type SourceWhy, type WorkerConfig } from './config.ts'
@@ -28,9 +27,11 @@ import { pickFolder, type PickResult } from './picker.ts'
 import { sameSecret } from './preset.ts'
 import { openUrl } from './opener.ts'
 import { SETUP_CSS, SETUP_HTML, SETUP_JS } from './setup-page.ts'
-import { cloneBase, cloneInto, folderName, listProjects, parseCloneUrl, runCli, type CliRun, type RemoteProject } from './clone.ts'
+import { cloneBase, cloneInto, folderName, listProjects, parseCloneUrl, runCli, unquote, type CliRun, type RemoteProject } from './clone.ts'
 import { ZIP_MAX, importZip } from './zipimport.ts'
 import { checkPublish, publishRepo, suggestName } from './publish.ts'
+import { execFileSafe } from './exec.ts'
+import { inSyncedFolder, pathId, samePath, type Synced } from './paths.ts'
 import { createWriteStream, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 
@@ -100,6 +101,8 @@ export interface PageRepo extends FoundRepo {
   ownSettings: boolean
   /** why it counts as code from elsewhere — its own settings off by default (config.ts sourceOf); null: the person's own */
   source: SourceWhy | null
+  /** the synced folder it lies in (iCloud Drive, ~/Library/CloudStorage, OneDrive): the page says what that costs */
+  synced: Synced | null
 }
 
 const MAX_BODY = 256 * 1024
@@ -107,20 +110,27 @@ const HEADERS = { 'cache-control': 'no-store', 'x-content-type-options': 'nosnif
 const CSP = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 
-/** argv → one line people can edit ("npm run test" · 'a b' quoted). */
-export function joinArgs(argv: string[] | null): string {
-  return (argv ?? []).map((a) => (a === '' ? "''" : /[\s'"\\]/.test(a) ? `"${a.replace(/(["\\])/g, '\\$1')}"` : a)).join(' ')
+/**
+ * argv → one line people can edit, read back by splitArgs on the same OS ("npm run test" · "a b" quoted). Windows: a
+ * backslash stays as it is (`.\gradlew.bat`); an argument with a " or a trailing \ goes into single quotes.
+ */
+export function joinArgs(argv: string[] | null, platform: NodeJS.Platform = process.platform): string {
+  const win = platform === 'win32'
+  return (argv ?? [])
+    .map((a) => {
+      if (a === '') return win ? '""' : "''"
+      if (!win) return /[\s'"\\]/.test(a) ? `"${a.replace(/(["\\])/g, '\\$1')}"` : a
+      if (!/[\s'"]/.test(a)) return a
+      if (!a.includes('"') && !a.endsWith('\\')) return `"${a}"`
+      if (!a.includes("'")) return `'${a}'`
+      return `"${a.replace(/"/g, '\\"')}"`
+    })
+    .join(' ')
 }
 
-/** Is a command-line tool (gh, glab) installed? */
-function installed(cmd: 'gh' | 'glab'): Promise<boolean> {
-  return new Promise((done) => {
-    try {
-      execFile(cmd, ['--version'], { timeout: 5000, windowsHide: true }, (err) => done(!err))
-    } catch {
-      done(false)
-    }
-  })
+/** Is a command-line tool (gh, glab) installed? (an .exe or a shim the reader reads — exec.ts) */
+async function installed(cmd: 'gh' | 'glab'): Promise<boolean> {
+  return (await execFileSafe(cmd, ['--version'], { timeoutMs: 5000, allow: 'shim' })).code === 0
 }
 
 /** How long the facts of the found repos may take before the rest are listed without them. */
@@ -178,20 +188,22 @@ export class SetupServer {
             this.progress.dirs = dirs
             if (path) {
               this.progress.found++
-              if (!this.found.has(path)) this.found.set(path, bareRepo(path, bareNames, this.home))
+              if (!this.found.has(pathId(path))) this.found.set(pathId(path), bareRepo(path, bareNames, this.home))
             }
           },
         })
         const taken = new Set(configured.map((r) => r.name.toLowerCase()))
-        const paths = [...new Set([...configured.map((r) => r.path), ...found.paths])]
+        // one row per folder (without case on Windows / macOS: worker.json may spell it otherwise than the search)
+        const ids = new Set<string>()
+        const paths = [...configured.map((r) => r.path), ...found.paths].filter((p) => !ids.has(pathId(p)) && !!ids.add(pathId(p)))
         this.progress.phase = 'facts'
         const facts = await factsOf(paths, taken, this.home, 6, FACTS_MS, (r) => {
           this.progress.facts++
-          this.found.set(r.path, r)
+          this.found.set(pathId(r.path), r)
         })
         // what was added by hand stays on the list
-        const added = [...this.found.values()].filter((r) => !paths.includes(r.path))
-        this.found = new Map([...facts, ...added].map((r) => [r.path, r]))
+        const added = [...this.found.values()].filter((r) => !ids.has(pathId(r.path)))
+        this.found = new Map([...facts, ...added].map((r) => [pathId(r.path), r]))
         this.scanned = { capped: found.capped, blocked: found.blocked, dirs: found.dirs, ms: found.ms, at: Date.now() }
       } finally {
         this.scanning = null
@@ -214,8 +226,8 @@ export class SetupServer {
     const out: PageRepo[] = []
     const seen = new Set<string>()
     for (const r of config.repos) {
-      const f = this.found.get(r.path)
-      seen.add(r.path)
+      const f = this.found.get(pathId(r.path))
+      seen.add(pathId(r.path))
       const source = this.sourceNow(r.path)
       out.push({
         ...(f ?? { path: r.path, short: shortPath(r.path, this.home), branch: null, branches: [r.baseBranch], remote: r.remote, host: null, dirty: null, lastCommit: null, test: null }),
@@ -233,12 +245,13 @@ export class SetupServer {
         analyzeLine: joinArgs(r.analyzeCommand),
         ownSettings: r.claude.projectSettingsSet ? r.claude.projectSettings : source === null,
         source,
+        synced: inSyncedFolder(r.path, { home: this.home }),
       })
     }
-    const rest = [...this.found.values()].filter((f) => !seen.has(f.path)).sort((a, b) => (b.lastCommit ?? 0) - (a.lastCommit ?? 0))
+    const rest = [...this.found.values()].filter((f) => !seen.has(pathId(f.path))).sort((a, b) => (b.lastCommit ?? 0) - (a.lastCommit ?? 0))
     for (const f of rest) {
       const source = this.sourceNow(f.path)
-      out.push({ ...f, ticked: false, configured: false, push: !!f.remote, pr: 'gh', maxUsdPerTask: null, testLine: joinArgs(f.test), mcp: '', analyzeLine: joinArgs(f.analyze ?? null), ownSettings: source === null, source })
+      out.push({ ...f, ticked: false, configured: false, push: !!f.remote, pr: 'gh', maxUsdPerTask: null, testLine: joinArgs(f.test), mcp: '', analyzeLine: joinArgs(f.analyze ?? null), ownSettings: source === null, source, synced: inSyncedFolder(f.path, { home: this.home }) })
     }
     return out
   }
@@ -252,7 +265,7 @@ export class SetupServer {
     return {
       v: 1,
       workspace: { name: this.host.preset?.name ?? null, id: config.workspace, paired: !!this.host.preset },
-      worker: { name: config.name, version: this.host.version, port: config.port, config: shortPath(this.host.configFile, this.home) },
+      worker: { name: config.name, version: this.host.version, port: config.port, config: shortPath(this.host.configFile, this.home), os: process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'macos' : 'linux' },
       gh: await this.gh,
       glab: await this.glab,
       cloneDir: shortPath(this.cloneDir ?? config.cloneDir, this.home),
@@ -267,27 +280,30 @@ export class SetupServer {
     }
   }
 
-  /** "Add a folder…": a main checkout inside the home folder (relative or ~/…), or an absolute path typed here. */
+  /**
+   * "Add a folder…": a main checkout inside the home folder (relative or ~/…), or an absolute path typed here — one pair
+   * of quotes around it is taken off (Explorer's "Copy as path").
+   */
   async add(typed: unknown): Promise<{ ok: true; path: string } | { ok: false; error: string }> {
-    const raw = typeof typed === 'string' ? typed.trim() : ''
+    const raw = typeof typed === 'string' ? unquote(typed) : ''
     if (!raw || raw.length > 1000 || /[\u0000-\u001f]/.test(raw)) return { ok: false, error: 'Type the folder of a git repository.' }
     let dir: string
     if (raw === '~' || raw.startsWith('~/') || raw.startsWith('~\\')) dir = join(this.home, raw.slice(2))
     else if (isAbsolute(raw)) dir = resolve(raw)
     else {
       dir = resolve(this.home, raw)
-      if (dir !== this.home && !dir.startsWith(this.home + sep)) return { ok: false, error: 'A relative folder must stay inside your home folder.' }
+      if (!inFolder(dir, this.home)) return { ok: false, error: 'A relative folder must stay inside your home folder.' }
     }
     const real = await realpathTimed(dir)
     if (!real) return { ok: false, error: 'That folder does not exist (or did not answer — an iCloud folder may still be downloading).' }
     dir = real
     if (!(await isMainCheckoutAsync(dir))) return { ok: false, error: 'That folder is not the main checkout of a git repository (no .git folder in it).' }
-    if (!this.found.has(dir)) {
+    if (!this.found.has(pathId(dir))) {
       const taken = new Set([...this.host.config().repos.map((r) => r.name.toLowerCase()), ...[...this.found.values()].map((r) => r.name.toLowerCase())])
       // read first, then set (here and below): a search that ends meanwhile replaces this.found — `this.found.set(…,
       // await …)` would put the repo into the map it replaced
       const facts = await repoFacts(dir, taken, this.home)
-      this.found.set(dir, facts)
+      this.found.set(pathId(dir), facts)
     }
     return { ok: true, path: dir }
   }
@@ -300,7 +316,7 @@ export class SetupServer {
     if ('error' in target) return { ok: false, status: 400, error: target.error }
     const base = cloneBase(typeof b.dir === 'string' && b.dir.trim() ? b.dir : (this.cloneDir ?? this.host.config().cloneDir), this.home)
     if (typeof base !== 'string') return { ok: false, status: 400, error: base.error }
-    if (base !== this.host.config().cloneDir) this.cloneDir = base
+    if (!samePath(base, this.host.config().cloneDir)) this.cloneDir = base
     const job: CloneJob = { id: ++this.cloneSeq, kind: 'clone', url: target.url, name: target.name, running: true, line: '', percent: null, done: null, error: null }
     this.clone = job
     this.host.log(`setup page: cloning ${target.url} into ${base}`)
@@ -310,9 +326,9 @@ export class SetupServer {
     }, { local: target.kind === 'local', home: this.home })
       .then(async ({ dir, already }) => {
         const taken = new Set([...this.host.config().repos.map((r) => r.name.toLowerCase()), ...[...this.found.values()].map((r) => r.name.toLowerCase())])
-        if (!this.found.has(dir)) {
+        if (!this.found.has(pathId(dir))) {
           const facts = await repoFacts(dir, taken, this.home)
-          this.found.set(dir, facts)
+          this.found.set(pathId(dir), facts)
         }
         job.done = dir
         job.line = already ? 'Already cloned — added.' : 'Cloned.'
@@ -356,7 +372,7 @@ export class SetupServer {
       rmSync(tmp, { force: true })
       return { ok: false, status: 413, error: (e as Error).message }
     }
-    if (base !== this.host.config().cloneDir) this.cloneDir = base
+    if (!samePath(base, this.host.config().cloneDir)) this.cloneDir = base
     const name = folderName(file.replace(/\.zip$/i, ''))
     const job: CloneJob = { id: ++this.cloneSeq, kind: 'import', url: file, name, running: true, line: '', percent: null, done: null, error: null }
     this.clone = job
@@ -367,7 +383,7 @@ export class SetupServer {
       .then(async ({ dir, files }) => {
         const taken = new Set([...this.host.config().repos.map((r) => r.name.toLowerCase()), ...[...this.found.values()].map((r) => r.name.toLowerCase())])
         const facts = await repoFacts(dir, taken, this.home)
-        this.found.set(dir, facts)
+        this.found.set(pathId(dir), facts)
         job.suggest = suggestName(dir, name)
         job.done = dir
         job.line = `${files} files`
@@ -392,7 +408,7 @@ export class SetupServer {
   startPublish(body: unknown): { ok: true } | { ok: false; status: number; error: string } {
     if (this.clone?.running) return { ok: false, status: 409, error: 'A clone, import or publish is running — wait until it is done.' }
     const b = isObj(body) ? body : {}
-    const repo = typeof b.path === 'string' ? this.repos().find((r) => r.path === b.path) : undefined
+    const repo = typeof b.path === 'string' ? this.repos().find((r) => samePath(r.path, b.path as string)) : undefined
     if (!repo) return { ok: false, status: 400, error: 'That repository is not on the list.' }
     if (repo.remote) return { ok: false, status: 400, error: 'This repository has a remote already.' }
     const target = checkPublish(b)
@@ -402,9 +418,9 @@ export class SetupServer {
     this.host.log(`setup page: creating ${job.url} for ${repo.path}`)
     void publishRepo(repo.path, target, this.host.cli ?? runCli, (line) => (job.line = line), process.env.ONE_WORKER_CLONE_LOCAL === '1')
       .then(async ({ web }) => {
-        const taken = new Set([...this.host.config().repos.map((r) => r.name.toLowerCase()), ...[...this.found.values()].filter((r) => r.path !== repo.path).map((r) => r.name.toLowerCase())])
+        const taken = new Set([...this.host.config().repos.map((r) => r.name.toLowerCase()), ...[...this.found.values()].filter((r) => !samePath(r.path, repo.path)).map((r) => r.name.toLowerCase())])
         const facts = await repoFacts(repo.path, taken, this.home)
-        this.found.set(repo.path, facts)
+        this.found.set(pathId(repo.path), facts)
         job.web = web
         job.done = repo.path
         job.line = web
@@ -431,12 +447,12 @@ export class SetupServer {
   async save(body: unknown): Promise<string[]> {
     const list = isObj(body) && Array.isArray(body.repos) ? body.repos : null
     if (!list || list.length > 100) return ['Nothing to save.']
-    const known = new Map(this.repos().map((r) => [r.path, r]))
+    const known = new Map(this.repos().map((r) => [pathId(r.path), r]))
     const choices: RepoChoice[] = []
     const names = new Set<string>()
     for (const item of list) {
       if (!isObj(item) || typeof item.path !== 'string') return ['A repository could not be read.']
-      const repo = known.get(item.path)
+      const repo = known.get(pathId(item.path))
       if (!repo) return [`${item.path} is not on the list — rescan, or add the folder first.`]
       const name = typeof item.name === 'string' ? item.name.trim() : repo.name
       if (!REPO_NAME.test(name)) return [`"${name}": a name needs letters, digits, ".", "_" or "-" (at most 64).`]

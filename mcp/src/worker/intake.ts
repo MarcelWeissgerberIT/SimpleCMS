@@ -21,6 +21,7 @@ import { ZIP_MAX, importZip } from './zipimport.ts'
 import { suggestName } from './publish.ts'
 import { repoFacts } from './scan.ts'
 import { saveRepos, type RepoChoice, type WorkerConfig } from './config.ts'
+import { samePath } from './paths.ts'
 
 export interface IntakeHost {
   config: () => WorkerConfig
@@ -167,7 +168,7 @@ export class Intake {
   /** The new folder joins worker.json (everything else stays as it is), then One learns its name. */
   private async adopt(taskId: string, source: IntakeState['source'], label: string, dir: string, line: string, suggest?: string) {
     const cfg = this.host.config()
-    const known = cfg.repos.find((r) => r.path === dir)
+    const known = cfg.repos.find((r) => samePath(r.path, dir))
     let name = known?.name
     if (!known) {
       const facts = await repoFacts(dir, new Set(cfg.repos.map((r) => r.name.toLowerCase())))

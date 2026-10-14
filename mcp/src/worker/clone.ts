@@ -1,14 +1,15 @@
 /**
  * one-worker — clone a repository from GitLab, GitHub or any git host into the clone folder (default
- * ~/one-repos: outside iCloud Drive and other synced folders), only on the person's click on the LOCAL setup
+ * ~/one-repos: outside iCloud Drive, OneDrive and other synced folders), only on the person's click on the LOCAL setup
  * page — One can never ask for a clone. Then the page ticks it like a folder added by hand.
  *
  *  - parseCloneUrl: https://host/group/project(.git) · ssh://[user@]host[:port]/… · user@host:group/project — no
  *    user name or token inside an https address (it would be kept in .git/config: git asks the credential
  *    helper instead), no option-like or ext:: / file:: addresses, no "..".
  *  - cloneInto: `git -c protocol.ext.allow=never -c protocol.file.allow=never clone --progress -- <url> <dir>`
- *    without a terminal (git.ts: a password / passphrase question fails at once with a hint); progress per line;
- *    up to 30 min (ONE_WORKER_CLONE_MS); a failed clone removes the folder it made; a new clone is marked as the
+ *    without a terminal and with ssh in BatchMode unless the person set their own (gitenv.ts: a password / passphrase
+ *    question fails at once with a hint); progress per line; up to 30 min (ONE_WORKER_CLONE_MS); a failed clone
+ *    removes the folder it made (git and what it started ended first); a new clone is marked as the
  *    worker's (SOURCE_MARK): Claude Code runs on it without the repo's own settings (config.ts). A folder that is
  *    already a clone of the same address is added again — marked only in the default clone folder (~/one-repos), where
  *    an older worker's clone carries no mark yet; elsewhere it may be the person's own checkout, and the clone folder
@@ -16,12 +17,14 @@
  *  - listProjects: the person's projects from the glab / gh command-line tools when they are installed and
  *    signed in (names and clone addresses only; nothing is stored).
  */
-import { execFile, spawn } from 'node:child_process'
-import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { isAbsolute, join, resolve, sep } from 'node:path'
-import { SOURCE_MARK, folderName, inFolder, inICloud, markSource } from './config.ts'
+import { isAbsolute, join, posix, win32 } from 'node:path'
+import { SOURCE_MARK, folderName, markSource } from './config.ts'
+import { execFileSafe, killTree, spawnSafe } from './exec.ts'
 import { git } from './git.ts'
+import { gitArgs, gitEnv } from './gitenv.ts'
+import { inFolder, inSyncedFolder, rmRetry, samePath } from './paths.ts'
 
 export interface CloneUrl {
   url: string
@@ -88,15 +91,28 @@ export function parseCloneUrl(raw: unknown, local = false): CloneUrl | { error: 
   return { error: 'That is not a clone address — copy it from the project page (Clone → HTTPS or SSH).' }
 }
 
-/** Where clones go: an absolute folder (~/… allowed), never inside iCloud Drive. */
-export function cloneBase(raw: unknown, home = homedir(), platform: NodeJS.Platform = process.platform): string | { error: string } {
-  const text = typeof raw === 'string' ? raw.trim() : ''
+/** A typed folder: trimmed, one pair of surrounding quotes off ("C:\\x y" from Explorer's "Copy as path"). */
+export const unquote = (raw: string): string => {
+  const t = raw.trim()
+  return (/^"(.*)"$/s.exec(t)?.[1] ?? /^'(.*)'$/s.exec(t)?.[1] ?? t).trim()
+}
+
+/**
+ * Where clones go: an absolute folder (~/… allowed — ~\… on Windows too; one pair of quotes around it, as Explorer's
+ * "Copy as path" gives it, is taken off), never inside a synced folder (iCloud Drive, ~/Library/CloudStorage, OneDrive).
+ */
+export function cloneBase(raw: unknown, home = homedir(), platform: NodeJS.Platform = process.platform, env: NodeJS.ProcessEnv = process.env): string | { error: string } {
+  const text = unquote(typeof raw === 'string' ? raw : '')
   if (!text || text.length > 1000 || /[\u0000-\u001f]/.test(text)) return { error: 'Type the folder the clones go into.' }
+  const P = platform === 'win32' ? win32 : posix
   let dir: string
-  if (text === '~' || text.startsWith('~/')) dir = join(home, text.slice(2))
-  else if (isAbsolute(text)) dir = resolve(text)
-  else return { error: 'Type a full folder path (~/one-repos or /…).' }
-  if (inICloud(dir, home, platform)) return { error: 'That folder lies in iCloud Drive — git would wait for files from the cloud. Pick one that is not synced, like ~/one-repos.' }
+  if (text === '~' || text.startsWith('~/') || text.startsWith('~\\')) dir = P.join(home, text.slice(2))
+  else if (P.isAbsolute(text) && (platform !== 'win32' || /^(?:[A-Za-z]:[\\/]|[\\/]{2}[^\\/])/.test(text))) dir = P.resolve(text)
+  else return { error: platform === 'win32' ? 'Type a full folder path (~\\one-repos or C:\\…).' : 'Type a full folder path (~/one-repos or /…).' }
+  const synced = inSyncedFolder(dir, { platform, home, env })
+  if (synced === 'icloud') return { error: 'That folder lies in iCloud Drive — git would wait for files from the cloud. Pick one that is not synced, like ~/one-repos.' }
+  if (synced === 'onedrive') return { error: 'That folder lies in OneDrive — git would wait for files from the cloud, and OneDrive locks files while it syncs. Pick one that is not synced, like ~\\one-repos or C:\\code.' }
+  if (synced === 'cloudStorage') return { error: 'That folder lies in a synced cloud folder (~/Library/CloudStorage — OneDrive, Google Drive, Dropbox …) — git would wait for files from the cloud. Pick one that is not synced, like ~/one-repos.' }
   return dir
 }
 
@@ -126,7 +142,7 @@ export interface CloneProgress {
  */
 export async function cloneInto(target: CloneUrl, base: string, onProgress: (p: CloneProgress) => void, opts: { timeoutMs?: number; local?: boolean; home?: string } = {}): Promise<{ dir: string; already: boolean }> {
   const dir = join(base, target.name)
-  if (!dir.startsWith(base + sep)) throw new Error('That folder name is not allowed.')
+  if (!inFolder(dir, base) || samePath(dir, base)) throw new Error('That folder name is not allowed.')
   if (existsSync(dir)) {
     const entries = readdirSync(dir)
     if (entries.length) {
@@ -143,19 +159,18 @@ export async function cloneInto(target: CloneUrl, base: string, onProgress: (p: 
   mkdirSync(base, { recursive: true })
   const made = !existsSync(dir)
   const timeoutMs = opts.timeoutMs ?? (Number(process.env.ONE_WORKER_CLONE_MS) || 30 * 60_000)
-  const args = ['-c', 'protocol.ext.allow=never', '-c', `protocol.file.allow=${opts.local ? 'always' : 'never'}`, 'clone', '--progress', '--', target.url, dir]
+  const args = gitArgs(['-c', 'protocol.ext.allow=never', '-c', `protocol.file.allow=${opts.local ? 'always' : 'never'}`, 'clone', '--progress', '--', target.url, dir])
+  const env = await gitEnv(null, process.env)
   const res = await new Promise<{ code: number; stderr: string; timedOut: boolean }>((done) => {
-    const child = spawn('git', args, { cwd: base, env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never', LC_ALL: 'C' }, stdio: ['ignore', 'ignore', 'pipe'], detached: process.platform !== 'win32', windowsHide: true })
+    const s = spawnSafe('git', args, { cwd: base, env, stdio: ['ignore', 'ignore', 'pipe'], detached: process.platform !== 'win32', windowsHide: true, allow: 'exe' })
+    if (!s.ok) return done({ code: 127, stderr: s.error, timedOut: false })
+    const child = s.child
     let err = ''
     let timedOut = false
     const timer = setTimeout(() => {
       timedOut = true
-      try {
-        if (process.platform !== 'win32' && child.pid) process.kill(-child.pid, 'SIGKILL')
-        else child.kill('SIGKILL')
-      } catch {
-        /* gone */
-      }
+      // the whole tree (Windows: ssh / git-remote-https under git too): close follows once it is gone
+      void killTree(child)
     }, timeoutMs)
     child.stderr!.on('data', (d: Buffer) => {
       const text = d.toString()
@@ -173,8 +188,10 @@ export async function cloneInto(target: CloneUrl, base: string, onProgress: (p: 
     })
   })
   if (res.code !== 0) {
-    if (made) rmSync(dir, { recursive: true, force: true })
-    throw new Error(res.timedOut ? `The clone did not finish within ${Math.round(timeoutMs / 60_000)} min.` : cloneHint(res.stderr))
+    const failed = new Error(res.timedOut ? `The clone did not finish within ${Math.round(timeoutMs / 60_000)} min.` : cloneHint(res.stderr))
+    // never hides git's message: a folder Windows still holds stays (a new clone into it is refused, it says so)
+    if (made) await rmRetry(dir)
+    throw failed
   }
   // code from elsewhere: Claude Code runs on it without the repo's own settings until the person trusts it (config.ts)
   writeFileSync(join(dir, '.git', SOURCE_MARK), 'clone\n')
@@ -195,17 +212,11 @@ export interface RemoteProject {
 
 export type CliRun = (cmd: string, args: string[]) => Promise<{ code: number; stdout: string; stderr: string }>
 
-export const runCli: CliRun = (cmd, args) =>
-  new Promise((done) => {
-    try {
-      execFile(cmd, args, { timeout: 20_000, maxBuffer: 8 * 1024 * 1024, env: { ...process.env, GH_PROMPT_DISABLED: '1', NO_PROMPT: '1', NO_COLOR: '1' }, windowsHide: true }, (err, stdout, stderr) => {
-        const code = err ? (typeof (err as { code?: unknown }).code === 'number' ? (err as { code: number }).code : 127) : 0
-        done({ code, stdout: String(stdout), stderr: String(stderr) })
-      })
-    } catch (e) {
-      done({ code: 127, stdout: '', stderr: (e as Error).message })
-    }
-  })
+/** glab / gh (publish: git too) — an .exe or a shim the reader reads (exec.ts); git only as an .exe. Never rejects. */
+export const runCli: CliRun = async (cmd, args) => {
+  const r = await execFileSafe(cmd, args, { timeoutMs: 20_000, maxBuffer: 8 * 1024 * 1024, env: { ...process.env, GH_PROMPT_DISABLED: '1', NO_PROMPT: '1', NO_COLOR: '1' }, allow: cmd === 'git' ? 'exe' : 'shim' })
+  return { code: r.code, stdout: r.stdout, stderr: r.stderr || r.error || '' }
+}
 
 const time = (v: unknown) => (typeof v === 'string' && !Number.isNaN(Date.parse(v)) ? Date.parse(v) : null)
 const str = (v: unknown) => (typeof v === 'string' ? v : '')

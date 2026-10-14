@@ -5,7 +5,7 @@
  * fake glab / gh (nothing leaves the machine: git's ssh is `false`).
  */
 import assert from 'node:assert/strict'
-import { chmodSync, existsSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { after, afterEach, describe, test } from 'node:test'
@@ -14,7 +14,7 @@ import type { RepoConfig } from '../src/worker/config.ts'
 import { buildPrompt } from '../src/worker/run.ts'
 import type { TaskPayload } from '../../src/app/features/coding/protocol.ts'
 import { waitFor } from './helpers.ts'
-import { FakeTab, WS_LOCAL, cleanupAll, makeRepo, plainRepo, repoEntry, sh, startWorker, task, tempDir, writeConfig, type StartedWorker, type TempRepo } from './worker-helpers.ts'
+import { FakeTab, WS_LOCAL, cleanupAll, fakeBin, makeRepo, pathWith, plainRepo, repoEntry, sh, startWorker, task, tempDir, writeConfig, type StartedWorker, type TempRepo } from './worker-helpers.ts'
 
 const PORT = 47389
 let worker: StartedWorker | null = null
@@ -178,7 +178,7 @@ describe('reviews', () => {
   test('a git "comment" stage posts the review One sends with the task to the pull request (Review & merge: Post review after the gate)', async () => {
     const r = makeRepo()
     const host = fakeHosts()
-    const tab = await boot(r, { pr: 'gh' }, { PATH: `${host.bin}:${process.env.PATH}`, GIT_SSH_COMMAND: 'false', ONE_WORKER_FETCH_MS: '5000' })
+    const tab = await boot(r, { pr: 'gh' }, { ...pathWith(host.bin), GIT_SSH_COMMAND: 'false', ONE_WORKER_FETCH_MS: '5000' })
     const impl = await tab.run(task({ kind: 'implement' }, { id: 'rev4abcd' }))
     assert.equal(impl.status, 'ok', JSON.stringify(impl))
     // a GitHub repository now (fake gh; git's ssh is `false` — nothing leaves the machine)
@@ -189,9 +189,11 @@ describe('reviews', () => {
     assert.equal(posted.url, 'https://github.com/me/demo/pull/3')
     assert.match(posted.summary!, /Review posted to the pull request/)
     const calls = host.calls()
-    assert.ok(calls.some((c) => c === `gh pr comment ${impl.branch!} --body ## Review`), calls.join('\n'))
-    assert.ok(calls.includes('**Approve** — nit: a name.'), calls.join('\n'))
-    assert.ok(calls.includes('— Review from One (coding pipeline).'), calls.join('\n'))
+    // the review goes in on stdin (any length — never on the command line, which Windows limits to 32,767 characters)
+    assert.ok(calls.some((c) => c === `gh pr comment ${impl.branch!} --body-file -`), calls.join('\n'))
+    assert.ok(calls.includes('stdin: ## Review'), calls.join('\n'))
+    assert.ok(calls.includes('stdin: **Approve** — nit: a name.'), calls.join('\n'))
+    assert.ok(calls.includes('stdin: — Review from One (coding pipeline).'), calls.join('\n'))
     const lines = tab.messages.flatMap((m) => (m.type === 'event' && m.kind === 'log' ? m.lines : []))
     assert.ok(lines.some((l) => l.c === 'reviewPosted' && l.v?.url === 'https://github.com/me/demo/pull/3'), JSON.stringify(lines.map((l) => l.c ?? l.s)))
     assertNoPaths(tab, r)
@@ -214,35 +216,49 @@ describe('reviews', () => {
   })
 })
 
-/** Fake glab / gh: `mr|pr view` knows the request, note / comment / merge are logged; gh refuses merge commits. */
+/**
+ * Fake glab / gh (JavaScript, started as this OS starts an installed CLI — fakeBin): `mr|pr view` knows the request,
+ * note / comment / merge are logged with their arguments (as `$*` would: newlines in an argument stay), a `--body-file -`
+ * body line by line as "stdin: …"; gh refuses merge commits.
+ */
 function fakeHosts(): { bin: string; calls: () => string[] } {
   const bin = tempDir('hostbin')
   const log = join(bin, 'calls.txt')
-  const glab = `#!/bin/sh
-echo "glab $*" >> "${log}"
-case "$1 $2" in
-  "--version ") echo "glab 1.99"; exit 0 ;;
-  "mr view") echo '{"iid":7,"web_url":"https://gitlab.example.com/acme/demo/-/merge_requests/7"}'; exit 0 ;;
-  "mr note") exit 0 ;;
-  "mr merge") echo "Merged!"; exit 0 ;;
-esac
-exit 1
+  const head = (tool: string) => `import { appendFileSync, readFileSync } from 'node:fs'
+const LOG = ${JSON.stringify(log)}
+const a = process.argv.slice(2)
+appendFileSync(LOG, ${JSON.stringify(tool)} + ' ' + a.join(' ') + '\\n')
+const i = a.indexOf('--body-file')
+if (i >= 0 && a[i + 1] === '-') for (const line of readFileSync(0, 'utf8').split('\\n')) appendFileSync(LOG, 'stdin: ' + line + '\\n')
+const say = (s, code = 0) => {
+  process.stdout.write(s + '\\n')
+  process.exit(code)
+}
+const two = a[0] + ' ' + (a[1] ?? '')
 `
-  const gh = `#!/bin/sh
-echo "gh $*" >> "${log}"
-case "$1 $2" in
-  "--version ") echo "gh 9.9"; exit 0 ;;
-  "pr view") echo "https://github.com/me/demo/pull/3"; exit 0 ;;
-  "pr comment") echo "https://github.com/me/demo/pull/3#issuecomment-1"; exit 0 ;;
-  "pr merge") case "$4" in --merge) echo "GraphQL: Merge commits are not allowed on this repository" >&2; exit 1 ;; *) exit 0 ;; esac ;;
-esac
-exit 1
+  const glab = `${head('glab')}
+if (two === '--version ') say('glab 1.99')
+if (two === 'mr view') say('{"iid":7,"web_url":"https://gitlab.example.com/acme/demo/-/merge_requests/7"}')
+if (two === 'mr note') process.exit(0)
+if (two === 'mr merge') say('Merged!')
+process.exit(1)
 `
-  writeFileSync(join(bin, 'glab'), glab)
-  writeFileSync(join(bin, 'gh'), gh)
-  chmodSync(join(bin, 'glab'), 0o755)
-  chmodSync(join(bin, 'gh'), 0o755)
-  return { bin, calls: () => (existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n') : []) }
+  const gh = `${head('gh')}
+if (two === '--version ') say('gh 9.9')
+if (two === 'pr view') say('https://github.com/me/demo/pull/3')
+if (two === 'pr comment') say('https://github.com/me/demo/pull/3#issuecomment-1')
+if (two === 'pr merge') {
+  if (a[3] === '--merge') {
+    process.stderr.write('GraphQL: Merge commits are not allowed on this repository\\n')
+    process.exit(1)
+  }
+  process.exit(0)
+}
+process.exit(1)
+`
+  fakeBin(bin, 'glab', glab)
+  fakeBin(bin, 'gh', gh)
+  return { bin, calls: () => (existsSync(log) ? readFileSync(log, 'utf8').trim().split(/\r?\n/) : []) }
 }
 
 describe('merge requests with the person\'s glab / gh', () => {
@@ -261,7 +277,7 @@ describe('merge requests with the person\'s glab / gh', () => {
     const dir = plainRepo(join(tempDir('glmr'), 'demo'), { 'README.md': '# d\n' }, 'git@gitlab.example.com:acme/demo.git')
     const repo = { path: dir, remote: 'origin', baseBranch: 'main', pr: 'gh' } as RepoConfig
     const host = fakeHosts()
-    await withEnv({ PATH: `${host.bin}:${process.env.PATH}`, GIT_SSH_COMMAND: 'false', ONE_WORKER_FETCH_MS: '5000' }, async () => {
+    await withEnv({ ...pathWith(host.bin), GIT_SSH_COMMAND: 'false', ONE_WORKER_FETCH_MS: '5000' }, async () => {
       assert.deepEqual(await commentPr(repo, dir, 'one/fix-1', '**Approve**\n\n- nit: a name'), { via: 'glab', url: 'https://gitlab.example.com/acme/demo/-/merge_requests/7' })
       assert.deepEqual(await mergePr(repo, dir, 'one/fix-1'), { via: 'glab', url: 'https://gitlab.example.com/acme/demo/-/merge_requests/7' })
       await assert.rejects(commentPr({ ...repo, pr: 'none' }, dir, 'one/fix-1', 'x'), /requests are off/)
@@ -276,12 +292,14 @@ describe('merge requests with the person\'s glab / gh', () => {
     const dir = plainRepo(join(tempDir('ghpr'), 'demo'), { 'README.md': '# d\n' }, 'git@github.com:me/demo.git')
     const repo = { path: dir, remote: 'origin', baseBranch: 'main', pr: 'gh' } as RepoConfig
     const host = fakeHosts()
-    await withEnv({ PATH: `${host.bin}:${process.env.PATH}`, GIT_SSH_COMMAND: 'false', ONE_WORKER_FETCH_MS: '5000' }, async () => {
+    await withEnv({ ...pathWith(host.bin), GIT_SSH_COMMAND: 'false', ONE_WORKER_FETCH_MS: '5000' }, async () => {
       assert.deepEqual(await commentPr(repo, dir, 'one/fix-2', 'Looks good.'), { via: 'gh', url: 'https://github.com/me/demo/pull/3' })
       assert.deepEqual(await mergePr(repo, dir, 'one/fix-2'), { via: 'gh', url: 'https://github.com/me/demo/pull/3' })
     })
     const calls = host.calls()
-    assert.ok(calls.includes('gh pr comment one/fix-2 --body Looks good.'), calls.join('\n'))
+    assert.ok(calls.includes('gh pr comment one/fix-2 --body-file -'), calls.join('\n'))
+    assert.ok(calls.includes('stdin: Looks good.'), calls.join('\n'))
+    assert.ok(!calls.some((c) => c.startsWith('gh ') && c.includes('Looks good.')), 'the body never on the command line')
     assert.ok(calls.includes('gh pr merge one/fix-2 --merge'))
     assert.ok(calls.includes('gh pr merge one/fix-2 --squash'))
     assert.ok(!calls.includes('gh pr merge one/fix-2 --rebase'))

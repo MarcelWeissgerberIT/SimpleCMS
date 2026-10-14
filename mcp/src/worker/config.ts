@@ -5,11 +5,16 @@
  * tools and limits. One learns repo NAMES (and base branches) — never a path or a command. A repo that is
  * not in this file does not exist for the worker; One cannot add one.
  */
-import { execFileSync } from 'node:child_process'
-import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir, hostname } from 'node:os'
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import { PARALLEL_MAX, PERMISSION_MODES, REPO_NAME, cleanModel, WORKER_DEFAULT_PORT, WORKSPACE_ID, type PermissionMode, type WorkerPreset } from '../../../src/app/features/coding/protocol.ts'
+import { execFileSyncSafe } from './exec.ts'
+import { GIT_ENV, gitArgs } from './gitenv.ts'
+import { inFolder, inICloud, inSyncedFolder, pathId, renameRetry, samePath } from './paths.ts'
+
+/** Where paths are compared and synced folders found (paths.ts) — kept here too, where the worker's other modules ask. */
+export { inFolder, inICloud, inSyncedFolder }
 
 export interface ClaudeConfig {
   /** a model name Claude Code accepts (null = its default) */
@@ -214,31 +219,6 @@ export function markSource(path: string, kind: 'clone' | 'zip' | 'folder'): bool
   }
 }
 
-/** `p` as the disk resolves it: every link followed (a tail that does not exist yet kept as written). */
-function onDisk(p: string): string {
-  const abs = resolve(p)
-  try {
-    return realpathSync.native(abs)
-  } catch {
-    const up = dirname(abs)
-    return up === abs ? abs : join(onDisk(up), basename(abs))
-  }
-}
-
-/**
- * `path` lies in `folder` (or is it) — compared as written and as the disk resolves both (a link to the clone folder,
- * a link in it), and without case where disks usually ignore it (macOS, Windows: ~/One-Repos/x lies in ~/one-repos).
- * Wider rather than narrower: it decides that a repo's own settings stay out.
- */
-export function inFolder(path: string, folder: string, platform: NodeJS.Platform = process.platform): boolean {
-  const fold = (s: string) => (platform === 'darwin' || platform === 'win32' ? s.toLowerCase() : s)
-  const within = (p: string, f: string) => {
-    const rel = relative(fold(f), fold(p))
-    return rel === '' || (!isAbsolute(rel) && rel.split(/[\\/]/)[0] !== '..')
-  }
-  return within(resolve(path), resolve(folder)) || within(onDisk(path), onDisk(folder))
-}
-
 /** Why `path` counts as code from elsewhere: its mark first, else the clone folder — null: the person's own repo. */
 export function sourceOf(path: string, cloneDir: string, platform: NodeJS.Platform = process.platform): SourceWhy | null {
   return markOf(path) ?? (inFolder(path, cloneDir, platform) ? 'cloneDir' : null)
@@ -263,10 +243,11 @@ export function folderName(path: string): string {
 function gitOut(path: string, args: string[]): string | null {
   try {
     if (!lstatSync(join(path, '.git'), { throwIfNoEntry: false })?.isDirectory()) return null
-    return execFileSync('git', ['-c', 'core.fsmonitor=false', ...args], { cwd: path, encoding: 'utf8', timeout: 10_000, maxBuffer: 8 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'], env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0', LC_ALL: 'C' }, windowsHide: true })
   } catch {
     return null
   }
+  const r = execFileSyncSafe('git', gitArgs(['-c', 'core.fsmonitor=false', ...args]), { cwd: path, env: { ...process.env, ...GIT_ENV }, timeoutMs: 10_000, maxBuffer: 8 * 1024 * 1024, allow: 'exe' })
+  return r.code === 0 ? r.stdout : null
 }
 
 /**
@@ -279,7 +260,7 @@ function gitOut(path: string, args: string[]): string | null {
 export function olderImport(path: string, defaultDir: string, platform: NodeJS.Platform = process.platform): boolean {
   const out = gitOut(path, ['rev-list', '--max-parents=0', '--format=%s', 'HEAD'])
   if (!out) return false
-  const files = out.split('\n').map((l) => /^Import (.+\.zip)$/i.exec(l.trim())?.[1]).filter((f): f is string => !!f)
+  const files = out.split(/\r?\n/).map((l) => /^Import (.+\.zip)$/i.exec(l.trim())?.[1]).filter((f): f is string => !!f)
   if (!files.length) return false
   if (inFolder(path, defaultDir, platform)) return true
   const fold = (s: string) => (platform === 'darwin' || platform === 'win32' ? s.toLowerCase() : s)
@@ -354,20 +335,6 @@ export function marksSeen(file: string): void {
   } catch {
     /* nothing recorded: nothing to show */
   }
-}
-
-/**
- * macOS: a folder iCloud Drive syncs — its files can be "in the cloud only", and git then waits for each download.
- * iCloud Drive itself, and ~/Documents · ~/Desktop when "Desktop & Documents Folders" is on (they then appear in it).
- */
-export function inICloud(path: string, home: string = homedir(), platform: NodeJS.Platform = process.platform): boolean {
-  if (platform !== 'darwin') return false
-  const p = resolve(path)
-  const under = (dir: string) => p === dir || p.startsWith(dir + sep)
-  const mobile = join(home, 'Library', 'Mobile Documents')
-  if (under(mobile)) return true
-  const drive = join(mobile, 'com~apple~CloudDocs')
-  return ['Documents', 'Desktop'].some((f) => under(join(home, f)) && existsSync(join(drive, f)))
 }
 
 function expandHome(p: string): string {
@@ -454,14 +421,15 @@ function repoConfig(raw: unknown, index: number, configDir: string, problems: st
     problems.push(`${at}: "branchPrefix" ${JSON.stringify(branchPrefix)} is not allowed`)
     return null
   }
-  // default: next to the repo — but never inside iCloud Drive (a checkout there waits for every file and syncs back up);
-  // a cloud worker: in its own folder (a local worker on the same repo keeps its own)
+  // default: next to the repo — but never inside a synced folder (iCloud Drive, ~/Library/CloudStorage, OneDrive: a
+  // checkout there waits for every file, is locked while it syncs and syncs back up); a cloud worker: in its own folder
+  // (a local worker on the same repo keeps its own)
   const worktreeDir =
     typeof raw.worktreeDir === 'string' && raw.worktreeDir.trim()
       ? resolve(configDir, expandHome(raw.worktreeDir.trim()))
       : opts.cloud
         ? join(configDir, 'worktrees', name)
-        : inICloud(path)
+        : inSyncedFolder(path)
           ? join(homedir(), '.one-worktrees', name)
           : join(dirname(path), '.one-worktrees', name)
   let testCommand: string[] | null = null
@@ -700,11 +668,13 @@ export function cloudOf(config: WorkerConfig): { origin: string; token: string }
 /* ------------------------------------------------------------------ the setup page's writes */
 
 /**
- * "npm run test -- --ci" → ["npm", "run", "test", "--", "--ci"]. Quotes group ('a b', "a b"), a backslash
- * escapes inside double quotes and outside quotes. Nothing else is special: no variables, no globs, no
- * pipes — the result runs without a shell, so "&&" or "|" are plain arguments.
+ * "npm run test -- --ci" → ["npm", "run", "test", "--", "--ci"]. Quotes group ('a b', "a b"). macOS / Linux: a
+ * backslash escapes inside double quotes and outside quotes. Windows: a backslash is a plain character (paths:
+ * `.\gradlew.bat`, `"C:\Program Files\x\y.exe"`) — only \" inside double quotes is a quote. Nothing else is special: no
+ * variables, no globs, no pipes — the result runs without a shell, so "&&" or "|" are plain arguments.
  */
-export function splitArgs(line: string): string[] {
+export function splitArgs(line: string, platform: NodeJS.Platform = process.platform): string[] {
+  const win = platform === 'win32'
   const out: string[] = []
   let cur = ''
   let has = false
@@ -716,12 +686,12 @@ export function splitArgs(line: string): string[] {
       else cur += c
     } else if (quote === '"') {
       if (c === '"') quote = null
-      else if (c === '\\' && i + 1 < line.length && (line[i + 1] === '"' || line[i + 1] === '\\')) cur += line[++i]
+      else if (c === '\\' && i + 1 < line.length && (line[i + 1] === '"' || (!win && line[i + 1] === '\\'))) cur += line[++i]
       else cur += c
     } else if (c === '"' || c === "'") {
       quote = c
       has = true
-    } else if (c === '\\' && i + 1 < line.length) {
+    } else if (c === '\\' && !win && i + 1 < line.length) {
       cur += line[++i]
       has = true
     } else if (/\s/.test(c)) {
@@ -757,10 +727,10 @@ export interface RepoChoice {
 
 const HEADER = '// one-worker — written by its setup page'
 
-/** "~/code/x" for a path inside the home folder (worker.json reads ~ back), else the path. */
+/** "~/code/x" for a path inside the home folder (without case on Windows / macOS; worker.json reads ~ back), else the path. */
 function homeRelative(path: string): string {
-  const home = homedir()
-  if (path.startsWith(home + sep)) return `~/${path.slice(home.length + 1).replace(/\\/g, '/')}`
+  const home = resolve(homedir()).replace(/[\\/]+$/, '')
+  if (pathId(path).startsWith(pathId(home) + sep) && path.length > home.length + 1) return `~/${path.slice(home.length + 1).replace(/\\/g, '/')}`
   return path
 }
 
@@ -787,7 +757,7 @@ export function saveRepos(file: string, choices: RepoChoice[], workspace: string
   const before = Array.isArray(raw.repos) ? raw.repos.filter(isObj) : []
   const pathOf = (r: Record<string, unknown>) => (typeof r.path === 'string' && r.path.trim() ? resolve(configDir, expandHome(r.path.trim())) : null)
   const repos = choices.map((c) => {
-    const old = before.find((r) => pathOf(r) === resolve(c.path)) ?? {}
+    const old = before.find((r) => pathOf(r) !== null && samePath(pathOf(r)!, c.path)) ?? {}
     const entry: Record<string, unknown> = { ...old, name: c.name, path: homeRelative(resolve(c.path)), baseBranch: c.baseBranch }
     if (c.remote && c.remote !== 'origin') entry.remote = c.remote
     if (c.testCommand?.length) entry.testCommand = c.testCommand
@@ -851,6 +821,7 @@ ${JSON.stringify(next, null, 2)}
   const tmp = `${file}.${process.pid}.tmp`
   writeFileSync(tmp, body, { mode: 0o600 })
   chmodSync(tmp, 0o600)
-  renameSync(tmp, file)
+  // Windows: Defender or an editor may hold worker.json a moment
+  renameRetry(tmp, file)
   return []
 }

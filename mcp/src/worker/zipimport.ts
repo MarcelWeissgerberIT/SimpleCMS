@@ -7,8 +7,8 @@
  *  - left out first (never written, so their names cannot matter): every name some file system reads as ".git"
  *    (isDotGit — its hooks and config could run commands), __MACOSX, .DS_Store and Finder's "Icon\r"
  *  - every other path must stay inside the new folder: an absolute path, a drive letter or a ".." anywhere refuses
- *    the whole ZIP, and so does a control character; on Windows also ":" and a device name (entryPath); links are
- *    written as plain files (the streaming reader never makes a link)
+ *    the whole ZIP, and so does a control character; on Windows also ":", < > " | ? *, a name ending in a dot or a
+ *    space, and a device name (entryPath); links are written as plain files (the streaming reader never makes a link)
  *  - caps: the upload (500 MB, ONE_WORKER_ZIP_MAX), unpacked bytes (2 GB) and files (100,000)
  *  - one folder at the top (project-main/…) becomes the repository itself
  * Then, only while the new folder holds no git folder — no ".git" in any spelling and no folder git would take for
@@ -20,11 +20,12 @@
  * Nothing is pushed: the repo has no remote until the person adds one.
  */
 import { Unzip, UnzipInflate } from 'fflate'
-import { closeSync, createReadStream, existsSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from 'node:fs'
+import { closeSync, createReadStream, existsSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync, writeSync } from 'node:fs'
 import { randomBytes } from 'node:crypto'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { SOURCE_MARK } from './config.ts'
 import { git } from './git.ts'
+import { renameRetry } from './paths.ts'
 
 export const ZIP_MAX = () => Number(process.env.ONE_WORKER_ZIP_MAX) || 500 * 1024 * 1024
 const UNPACKED_MAX = 2 * 1024 * 1024 * 1024
@@ -40,6 +41,8 @@ const OUTSIDE: Unsafe = { unsafe: 'a path outside its folder' }
 const CONTROL: Unsafe = { unsafe: 'a name with a control character' }
 const COLON: Unsafe = { unsafe: 'a name with ":", which Windows reads as a hidden data stream' }
 const DEVICE: Unsafe = { unsafe: 'a name Windows keeps for a device like CON, NUL, AUX, COM1 or LPT1' }
+const RESERVED: Unsafe = { unsafe: 'a name with < > " | ? or *, which Windows does not allow in a file name' }
+const TRAILING: Unsafe = { unsafe: 'a name ending in a dot or a space, which Windows drops (two names could become one)' }
 
 /** Code points HFS+ leaves out when it compares names (git's next_hfs_char, utf8.c). */
 const HFS_IGNORABLE = /[‌-‏‪-‮⁪-⁯﻿]/g
@@ -92,6 +95,9 @@ export function entryPath(name: string, platform: NodeJS.Platform = process.plat
   if (platform === 'win32') {
     // ":" — on NTFS "name:stream" writes into a data stream of "name" and "C:name" is relative to drive C
     if (parts.some((p) => p.includes(':'))) return COLON
+    if (parts.some((p) => /[<>"|?*]/.test(p))) return RESERVED
+    // "a." and "a " are written as "a": two entries would land in one file, and Explorer cannot delete such a name
+    if (parts.some((p) => /[. ]$/.test(p))) return TRAILING
     if (parts.some(isDevice)) return DEVICE
   }
   if (!parts.length || n.endsWith('/')) return null
@@ -240,7 +246,8 @@ export async function importZip(zipFile: string, base: string, name: string, lab
     const root = top.length === 1 && statSync(join(tmp, top[0]!)).isDirectory() ? join(tmp, top[0]!) : tmp
     let dir = join(base, name)
     for (let i = 2; existsSync(dir); i++) dir = join(base, `${name}-${i}`)
-    renameSync(root, dir)
+    // Windows: Defender may still read a file just written
+    renameRetry(root, dir)
     if (root !== tmp) rmSync(tmp, { recursive: true, force: true })
     await finishImport(dir, label)
     return { dir, files }
@@ -311,7 +318,7 @@ export async function commitImport(dir: string, label: string): Promise<void> {
     await run(dir, [...identity, ...repo, 'commit', '-q', '--no-verify', '--allow-empty', '-m', `Import ${label.slice(0, 200)}`], 10 * 60_000)
     writeFileSync(join(gitDir, SOURCE_MARK), 'zip\n')
     refusePlanted(dir)
-    renameSync(gitDir, join(dir, '.git'))
+    renameRetry(gitDir, join(dir, '.git'))
   } finally {
     rmSync(holder, { recursive: true, force: true })
   }

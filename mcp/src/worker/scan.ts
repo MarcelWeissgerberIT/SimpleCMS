@@ -2,7 +2,8 @@
  * one-worker — finds the git repositories on this computer for the setup page (and the terminal checklist).
  *
  * Where: the usual places first (~/code, ~/projects, ~/dev, ~/src, ~/repos, ~/git, ~/GitHub,
- * ~/Documents/GitHub, ~/Developer, ~/workspace, ~/Documents, ~/Desktop), then the whole home folder — at most 4 levels
+ * ~/Documents/GitHub, ~/Developer, ~/workspace, ~/Documents, ~/Desktop; on Windows also ~/source/repos — Visual
+ * Studio's — and OneDrive's Documents / Desktop), then the whole home folder — at most 4 levels
  * below it. Never: symbolic links (not followed), hidden folders, node_modules, caches, Library / AppData,
  * the trash, vendor folders, virtual envs, build outputs. A folder whose `.git` is a folder is a repo (its
  * inside is not searched further); a `.git` FILE is a linked worktree or a submodule — skipped. Caps: ~30 s,
@@ -20,11 +21,30 @@ import type { Dirent } from 'node:fs'
 import { lstatSync, readFileSync } from 'node:fs'
 import { lstat, readFile, readdir, realpath } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, join, sep } from 'node:path'
+import { basename, join, relative, sep } from 'node:path'
 import { REPO_NAME } from '../../../src/app/features/coding/protocol.ts'
+import { envGet } from './exec.ts'
 import { git } from './git.ts'
 
 export const USUAL_PLACES = ['code', 'projects', 'dev', 'src', 'repos', 'git', 'GitHub', 'Documents/GitHub', 'Developer', 'workspace', 'Documents', 'Desktop']
+
+/**
+ * Where the search starts (before the whole home folder), with each place's depth below home. Windows adds Visual
+ * Studio's ~/source/repos and — when OneDrive keeps them — OneDrive's Documents and Desktop.
+ */
+export function usualPlaces(home: string, platform: NodeJS.Platform = process.platform, env: NodeJS.ProcessEnv = process.env): Array<{ path: string; depth: number }> {
+  const out = USUAL_PLACES.map((place) => ({ path: join(home, ...place.split('/')), depth: place.split('/').length }))
+  if (platform !== 'win32') return out
+  out.splice(out.length - 2, 0, { path: join(home, 'source', 'repos'), depth: 2 })
+  const one = envGet(env, 'OneDrive', 'win32')?.trim()
+  if (one) {
+    const rel = relative(home, one)
+    // inside the home folder: its own depth; elsewhere (another drive) as if one level below
+    const depth = rel && !rel.startsWith('..') && !/^[A-Za-z]:/.test(rel) ? rel.split(/[\\/]/).length : 1
+    for (const f of ['Documents', 'Desktop']) out.push({ path: join(one, f), depth: depth + 1 })
+  }
+  return out
+}
 
 /** Folder names never searched (hidden folders — a leading dot — are skipped as well). */
 export const SKIP_DIRS = new Set([
@@ -60,6 +80,9 @@ export interface ScanOptions {
   folderMs?: number
   /** tests: replaces the folder read */
   readdir?: (path: string) => Promise<Dirent[]>
+  /** whose usual places (default: this computer's) */
+  platform?: NodeJS.Platform
+  env?: NodeJS.ProcessEnv
   /** after each folder: how many were looked into, and each repo the moment it is found */
   onProgress?: (dirs: number, found: string | null) => void
 }
@@ -107,7 +130,8 @@ export async function findRepos(opts: ScanOptions = {}): Promise<FindResult> {
 
   const key = async (p: string): Promise<string | null> => {
     try {
-      const st = await timed(lstat(p), limit())
+      // 64-bit numbers: NTFS file ids do not fit a double (two folders could share a key and one be skipped)
+      const st = await timed(lstat(p, { bigint: true }), limit())
       if (st === TIMEOUT) {
         blocked.push(shortPath(p, home))
         return null
@@ -120,7 +144,7 @@ export async function findRepos(opts: ScanOptions = {}): Promise<FindResult> {
   }
 
   const queue: Array<{ path: string; depth: number }> = []
-  for (const place of USUAL_PLACES) queue.push({ path: join(home, ...place.split('/')), depth: place.split('/').length })
+  queue.push(...usualPlaces(home, opts.platform, opts.env))
   queue.push({ path: home, depth: 0 })
 
   while (queue.length) {

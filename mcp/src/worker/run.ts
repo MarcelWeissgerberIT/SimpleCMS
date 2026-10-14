@@ -8,16 +8,19 @@
  * worker's own instructions; Claude Code's permission rules stay on (no bypassing flag, ever).
  */
 import { randomBytes } from 'node:crypto'
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { basename, join } from 'node:path'
+import { join } from 'node:path'
 import type { GitInfo, LogLine, StageOutcome, TaskPayload, TaskProgress, TestResult, ToolEdit } from '../../../src/app/features/coding/protocol.ts'
-import { inICloud, type RepoConfig, type SourceWhy } from './config.ts'
+import type { RepoConfig, SourceWhy } from './config.ts'
 import type { WorkerState } from './state.ts'
-import { runClaude, type ClaudeCaps } from './claude.ts'
+import { claudeMissingError, runClaude, type ClaudeCaps } from './claude.ts'
+import { commandName } from './exec.ts'
 import { GitError, branchDiff, commentPr, commitAll, ensureWorktree, git, info, isDirty, mergePr, openPr, push, updateFromBase, worktreeOf, type TaskWorktree } from './git.ts'
+import { FOLDER_BUSY, gitHint, hintLine, hintTerminal } from './gitenv.ts'
+import { inSyncedFolder, rmRetry, type Synced } from './paths.ts'
 import { repoScrubber, type Scrubber } from './scrub.ts'
-import { runAnalysis, runTests } from './testrun.ts'
+import { runAnalysis, runTests, type RunResult } from './testrun.ts'
 
 export interface StageContext {
   repo: RepoConfig
@@ -39,6 +42,8 @@ export interface StageContext {
   question: () => string | null
   /** worktree known (for the task tools' scrubber) */
   onWorktree?: (wt: TaskWorktree, scrub: Scrubber) => void
+  /** a line for this computer's terminal only (never One): what a hint must not send — a folder, a lock file's path */
+  terminal?: (msg: string) => void
 }
 
 const SUMMARY_MAX = 6000
@@ -123,12 +128,39 @@ export function dataBlock(label: string, body: string, code: string): string[] {
   return [`<<<${label} ${code}`, body, `${label} ${code}>>>`]
 }
 
-/** The task tools as Claude Code's --mcp-config (a temp file, mode 0600, removed after the run). */
+/** The task tools as Claude Code's --mcp-config (a temp file, mode 0600, removed after the run — waiting out a held file). */
 function writeMcpConfig(taskMcp: NonNullable<StageContext['taskMcp']>): { file: string; dispose: () => void } {
   const dir = mkdtempSync(join(tmpdir(), 'one-worker-'))
   const file = join(dir, 'mcp.json')
   writeFileSync(file, JSON.stringify({ mcpServers: { 'one-task': { type: 'stdio', command: taskMcp.command, args: taskMcp.args, env: taskMcp.env } } }, null, 2), { mode: 0o600 })
-  return { file, dispose: () => rmSync(dir, { recursive: true, force: true }) }
+  return { file, dispose: () => void rmRetry(dir) }
+}
+
+/** Claude Code missing (or a .cmd the worker cannot read): the log line by its code, the stage's error — never its path. */
+function claudeMissing(caps: ClaudeCaps, log: Log): string {
+  const error = claudeMissingError(caps.missing)
+  log('error', error, caps.missing === 'cmd-refused' ? 'claudeCmdRefused' : 'claudeMissing', {})
+  return error
+}
+
+/** A synced folder's warning, by its kind (iCloud Drive · ~/Library/CloudStorage · OneDrive). */
+const SYNCED: Record<Synced, (repo: string) => string> = {
+  icloud: (repo) => `${repo} lies in iCloud Drive: git waits whenever a file is only in the cloud, so steps can take minutes. Faster: keep the folder downloaded (Finder → right-click → Keep Downloaded), or clone it again with "Clone from GitLab / GitHub…" on the worker's setup page (into ~/one-repos, not synced) and tick that one.`,
+  cloudStorage: (repo) => `${repo} lies in a synced cloud folder (~/Library/CloudStorage — OneDrive, Google Drive, Dropbox …): files may be downloaded on demand and locked while they sync, so git steps can stall. The worker keeps this repo’s task worktrees in ~/.one-worktrees. Faster: a clone outside it (~/one-repos).`,
+  onedrive: (repo) => `${repo} lies in OneDrive: OneDrive downloads online-only files first and locks files while it syncs, so git steps can stall or fail. The worker keeps this repo’s task worktrees in .one-worktrees in your user folder. Faster: move the repo out of OneDrive (e.g. to C:\\code) and tick that folder.`,
+}
+
+/**
+ * After a git error: what it means for the person, as its own line (the error line before it stays as git said it) —
+ * and in this computer's terminal what One must not get (the folder for safe.directory, the lock file's path).
+ */
+export function noteGitHint(text: string, repo: RepoConfig, log: Log, terminal?: (msg: string) => void, platform: NodeJS.Platform = process.platform): void {
+  const code = gitHint(text, platform)
+  if (!code) return
+  const h = hintLine(code, { repo: repo.name, remote: repo.remote })
+  log('warn', h.s, h.c, h.v)
+  const local = hintTerminal(code, text)
+  if (local) terminal?.(`repo "${repo.name}": ${local}`)
 }
 
 /**
@@ -238,14 +270,19 @@ export async function runStage(ctx: StageContext): Promise<StageOutcome> {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       log('error', msg)
+      noteGitHint(msg, repo, log, ctx.terminal)
       return { status: 'failed', error: scrub.text(msg) }
     }
   }
   try {
     log('info', `Stage "${task.stage.name}" (${kind}) on ${repo.name}`, 'stage', { stage: task.stage.name, kind, repo: repo.name })
-    if (inICloud(repo.path))
-      log('warn', `${repo.name} lies in iCloud Drive: git waits whenever a file is only in the cloud, so steps can take minutes. Faster: keep the folder downloaded (Finder → right-click → Keep Downloaded), or clone it again with "Clone from GitLab / GitHub…" on the worker's setup page (into ~/one-repos, not synced) and tick that one.`, 'icloud', { repo: repo.name })
-    const wt = await ensureWorktree(repo, ctx.state, task, task.branch, (k, s, c, v) => log(k, s, c, v))
+    const synced = inSyncedFolder(repo.path)
+    if (synced) log('warn', SYNCED[synced](repo.name), synced, { repo: repo.name })
+    const wt = await ensureWorktree(repo, ctx.state, task, task.branch, (k, s, c, v) => {
+      log(k, s, c, v)
+      // a fetch that failed: what git's message means (sign in, a host key …)
+      if (c === 'fetchFailed' && typeof v?.why === 'string') noteGitHint(v.why, repo, log, ctx.terminal)
+    })
     scrub = repoScrubber(repo, wt.dir)
     ctx.onWorktree?.(wt, scrub)
     log('git', `${wt.created ? 'Branch' : 'Reusing branch'} ${wt.branch}`, wt.created ? 'branch' : 'reuse', { branch: wt.branch })
@@ -255,13 +292,15 @@ export async function runStage(ctx: StageContext): Promise<StageOutcome> {
   } catch (e) {
     const msg = e instanceof GitError ? `git: ${e.message}` : e instanceof Error ? e.message : String(e)
     log('error', msg)
+    if (e instanceof GitError && e.code === 'folderBusy') log('warn', FOLDER_BUSY, 'folderBusy', {})
+    else noteGitHint(msg, repo, log, ctx.terminal)
     return { status: 'failed', error: scrub.text(msg) }
   }
 }
 
 async function claudeStage(ctx: StageContext, wt: TaskWorktree, scrub: Scrubber, log: Log): Promise<StageOutcome> {
   const { repo, task, caps } = ctx
-  if (!caps.found) return { status: 'failed', branch: wt.branch, error: `Claude Code was not found on this computer ("${ctx.bin}"). Install it and sign in, or set CLAUDE_BIN.` }
+  if (!caps.found) return { status: 'failed', branch: wt.branch, error: claudeMissing(caps, log) }
   const lim = limits(ctx)
   if (lim.refuse) {
     log('warn', lim.refuse)
@@ -331,7 +370,7 @@ export const DOC_DENIED = ['Edit', 'MultiEdit', 'Write', 'NotebookEdit', 'Bash']
  */
 async function docStage(ctx: StageContext, scrub: Scrubber, log: Log, branch: string | null, dir: string | null): Promise<StageOutcome> {
   const { repo, task, caps } = ctx
-  if (!caps.found) return { status: 'failed', error: `Claude Code was not found on this computer ("${ctx.bin}"). Install it and sign in, or set CLAUDE_BIN.` }
+  if (!caps.found) return { status: 'failed', error: claudeMissing(caps, log) }
   const lim = limits(ctx)
   if (lim.refuse) {
     log('warn', lim.refuse)
@@ -404,16 +443,18 @@ async function analyzeStage(ctx: StageContext, scrub: Scrubber, log: Log, dir: s
     return { status: 'ok', summary: 'No static analysis configured.', plan: '_No static analysis command is set for this repository — the worker\'s setup page (Change repositories → the repository → Static analysis) takes one, e.g. `npx eslint .`, `dotnet build`, `go vet ./...`._' }
   }
   // the program's name, not where it lives on this machine
-  const shown = clip(scrub.text([basename(argv[0]!), ...argv.slice(1)].join(' ')), 160)
+  const name = commandName(argv[0]!)
+  const shown = clip(scrub.text([name, ...argv.slice(1)].join(' ')), 160)
   log('test', `Running the static analysis: ${shown}`, 'analyzeRun', { cmd: shown })
   let lines = 0
   const res = await runAnalysis(repo, dir ?? repo.path, ctx.signal, (line) => {
     if (lines++ < 200) log('test', line)
   })
   if (ctx.signal.aborted) return { status: 'stopped', error: 'Stopped in One.' }
+  if (res.notStarted) notStartedLine(res.notStarted, name, log)
   const output = scrub.text(res.output).trim()
   if (res.code === null || res.code < 0) {
-    const why = res.code !== null && res.code < 0 ? `the command could not start (${argv[0]} — is it installed?)` : 'it ran too long and was stopped'
+    const why = res.code !== null && res.code < 0 ? `the command could not start (${name} — is it installed?)` : 'it ran too long and was stopped'
     log('warn', `Static analysis failed: ${why}`)
     return { status: 'failed', error: `Static analysis failed: ${why}.`, summary: clip(output, 2000) || undefined }
   }
@@ -453,6 +494,12 @@ function liveDiff(ctx: StageContext, wt: TaskWorktree, scrub: Scrubber): { stop:
   return { stop: () => clearInterval(timer) }
 }
 
+/** A test / analysis command that never started: why, by its code (the program's name only). */
+function notStartedLine(why: NonNullable<RunResult['notStarted']>, name: string, log: Log): void {
+  if (why === 'missing') log('error', `${name} was not found — the worker looks in PATH only, never in the repository. A program inside the repository needs its path (\`./gradlew\`, \`.\\gradlew.bat\`). Change the command on the worker’s setup page (Change repositories → the repo).`, 'commandMissing', { cmd: name })
+  else log('error', `${name} runs through cmd.exe, which cannot pass an argument with a line break — change the command on the worker’s setup page.`, 'commandRefused', { cmd: name })
+}
+
 /** Claude Code's environment: this process's, without the worker's own variables. */
 function claudeEnv(): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {}
@@ -468,11 +515,16 @@ async function testStage(ctx: StageContext, wt: TaskWorktree, scrub: Scrubber, l
   }
   log('test', 'Running the tests…', 'testsRun')
   let lines = 0
-  const res = await runTests(ctx.repo, wt.dir, ctx.signal, (line) => {
+  const { notStarted, ...res } = await runTests(ctx.repo, wt.dir, ctx.signal, (line) => {
     // the first lines live; the whole tail comes with the result
     if (lines++ < 200) log('test', line)
   })
   const test: TestResult = { ...res, output: scrub.text(res.output) }
+  if (notStarted) {
+    const name = commandName(ctx.repo.testCommand[0]!)
+    notStartedLine(notStarted, name, log)
+    return { status: 'failed', branch: wt.branch, test, git: await gitSnapshot(ctx, wt, scrub), error: `The test command could not start (${scrub.text(name)} — see the log).` }
+  }
   log(res.ok ? 'test' : 'warn', res.ok ? `Tests passed (${Math.round(res.ms / 100) / 10} s)` : `Tests failed (exit code ${res.code ?? '—'})`, res.ok ? 'testsPass' : 'testsFail', { s: Math.round(res.ms / 100) / 10, code: res.code ?? '—' })
   const git = await gitSnapshot(ctx, wt, scrub)
   if (ctx.signal.aborted) return { status: 'stopped', branch: wt.branch, test, git, error: 'Stopped in One.' }

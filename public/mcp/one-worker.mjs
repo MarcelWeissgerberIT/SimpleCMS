@@ -2282,7 +2282,7 @@ var require_websocket = __commonJS({
     var http = __require("http");
     var net = __require("net");
     var tls = __require("tls");
-    var { randomBytes: randomBytes7, createHash: createHash2 } = __require("crypto");
+    var { randomBytes: randomBytes7, createHash: createHash3 } = __require("crypto");
     var { Duplex, Readable } = __require("stream");
     var { URL: URL2 } = __require("url");
     var PerMessageDeflate2 = require_permessage_deflate();
@@ -2963,7 +2963,7 @@ var require_websocket = __commonJS({
           abortHandshake(websocket, socket, "Invalid Upgrade header");
           return;
         }
-        const digest = createHash2("sha1").update(key + GUID).digest("base64");
+        const digest = createHash3("sha1").update(key + GUID).digest("base64");
         if (res.headers["sec-websocket-accept"] !== digest) {
           abortHandshake(websocket, socket, "Invalid Sec-WebSocket-Accept header");
           return;
@@ -3332,7 +3332,7 @@ var require_websocket_server = __commonJS({
     var EventEmitter = __require("events");
     var http = __require("http");
     var { Duplex } = __require("stream");
-    var { createHash: createHash2 } = __require("crypto");
+    var { createHash: createHash3 } = __require("crypto");
     var extension2 = require_extension();
     var PerMessageDeflate2 = require_permessage_deflate();
     var subprotocol2 = require_subprotocol();
@@ -3639,7 +3639,7 @@ var require_websocket_server = __commonJS({
           );
         }
         if (this._state > RUNNING) return abortHandshake(socket, 503);
-        const digest = createHash2("sha1").update(key + GUID).digest("base64");
+        const digest = createHash3("sha1").update(key + GUID).digest("base64");
         const headers = [
           "HTTP/1.1 101 Switching Protocols",
           "Upgrade: websocket",
@@ -10894,8 +10894,8 @@ var require_dist = __commonJS({
 
 // src/worker/index.ts
 import { fileURLToPath } from "node:url";
-import { existsSync as existsSync8, statSync as statSync4 } from "node:fs";
-import { homedir as homedir8, userInfo } from "node:os";
+import { existsSync as existsSync9, statSync as statSync4 } from "node:fs";
+import { homedir as homedir10, userInfo } from "node:os";
 import { resolve as resolve6 } from "node:path";
 
 // ../src/app/features/coding/protocol.ts
@@ -10944,599 +10944,9 @@ var RELAY_CLOSE_AUTH = 4401;
 var RELAY_CLOSE_FORBIDDEN = 4403;
 
 // src/worker/config.ts
-import { execFileSync } from "node:child_process";
-import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
-import { homedir, hostname } from "node:os";
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-function defaultConfigFile() {
-  return join(homedir(), ".config", "one", "worker.json");
-}
-function cloudConfigFile(workspace) {
-  return join(homedir(), ".config", "one", "cloud", workspace.replace(/[^A-Za-z0-9_-]/g, "-").slice(0, 80), "worker.json");
-}
-function parseJsonc(text2) {
-  let out = "";
-  let i2 = 0;
-  const n = text2.length;
-  while (i2 < n) {
-    const c = text2[i2];
-    if (c === '"') {
-      let j = i2 + 1;
-      while (j < n && text2[j] !== '"') j += text2[j] === "\\" ? 2 : 1;
-      out += text2.slice(i2, j + 1);
-      i2 = j + 1;
-    } else if (c === "/" && text2[i2 + 1] === "/") {
-      while (i2 < n && text2[i2] !== "\n") i2++;
-    } else if (c === "/" && text2[i2 + 1] === "*") {
-      const end = text2.indexOf("*/", i2 + 2);
-      i2 = end < 0 ? n : end + 2;
-    } else {
-      out += c;
-      i2++;
-    }
-  }
-  let clean = "";
-  for (let k = 0; k < out.length; k++) {
-    const c = out[k];
-    if (c === '"') {
-      let j = k + 1;
-      while (j < out.length && out[j] !== '"') j += out[j] === "\\" ? 2 : 1;
-      clean += out.slice(k, j + 1);
-      k = j;
-      continue;
-    }
-    if (c === ",") {
-      let j = k + 1;
-      while (j < out.length && /\s/.test(out[j])) j++;
-      if (out[j] === "}" || out[j] === "]") continue;
-    }
-    clean += c;
-  }
-  return JSON.parse(clean);
-}
-var isObj = (v) => !!v && typeof v === "object" && !Array.isArray(v);
-var REF_PART = /^(?!-)(?!.*\.\.)(?!.*\/\/)(?!.*@\{)(?!.*\.lock(\/|$))[A-Za-z0-9._/-]{1,120}(?<![/.])$/;
-var REMOTE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
-var PREFIX = /^(?!-)[A-Za-z0-9._/-]{0,40}$/;
-var SOURCE_MARK = "one-worker-source";
-function markOf(path) {
-  const file = join(path, ".git", SOURCE_MARK);
-  try {
-    if (!lstatSync(file, { throwIfNoEntry: false })) return null;
-  } catch {
-    return null;
-  }
-  try {
-    const kind = readFileSync(file, "utf8").trim();
-    return kind === "clone" ? "cloned" : kind === "zip" ? "imported" : "marked";
-  } catch {
-    return "marked";
-  }
-}
-function markSource(path, kind) {
-  if (markOf(path)) return false;
-  try {
-    if (!lstatSync(join(path, ".git")).isDirectory()) return false;
-    writeFileSync(join(path, ".git", SOURCE_MARK), `${kind}
-`, { flag: "wx" });
-    return true;
-  } catch {
-    return false;
-  }
-}
-function onDisk(p) {
-  const abs = resolve(p);
-  try {
-    return realpathSync.native(abs);
-  } catch {
-    const up = dirname(abs);
-    return up === abs ? abs : join(onDisk(up), basename(abs));
-  }
-}
-function inFolder(path, folder, platform = process.platform) {
-  const fold = (s) => platform === "darwin" || platform === "win32" ? s.toLowerCase() : s;
-  const within = (p, f) => {
-    const rel = relative(fold(f), fold(p));
-    return rel === "" || !isAbsolute(rel) && rel.split(/[\\/]/)[0] !== "..";
-  };
-  return within(resolve(path), resolve(folder)) || within(onDisk(path), onDisk(folder));
-}
-function sourceOf(path, cloneDir, platform = process.platform) {
-  return markOf(path) ?? (inFolder(path, cloneDir, platform) ? "cloneDir" : null);
-}
-var SOURCE_WORDS = { cloned: "cloned by the worker", imported: "imported by the worker", marked: "marked as code from elsewhere", cloneDir: "in the clone folder" };
-var MARKS_DONE = "worker-marks.json";
-function folderName(path) {
-  const last = path.split("/").pop() ?? "";
-  return last.replace(/\.git$/, "").replace(/[^A-Za-z0-9._-]/g, "-").replace(/^[.-]+/, "").slice(0, 64) || "repo";
-}
-function gitOut(path, args) {
-  try {
-    if (!lstatSync(join(path, ".git"), { throwIfNoEntry: false })?.isDirectory()) return null;
-    return execFileSync("git", ["-c", "core.fsmonitor=false", ...args], { cwd: path, encoding: "utf8", timeout: 1e4, maxBuffer: 8 * 1024 * 1024, stdio: ["ignore", "pipe", "ignore"], env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_OPTIONAL_LOCKS: "0", LC_ALL: "C" }, windowsHide: true });
-  } catch {
-    return null;
-  }
-}
-function olderImport(path, defaultDir, platform = process.platform) {
-  const out = gitOut(path, ["rev-list", "--max-parents=0", "--format=%s", "HEAD"]);
-  if (!out) return false;
-  const files = out.split("\n").map((l) => /^Import (.+\.zip)$/i.exec(l.trim())?.[1]).filter((f) => !!f);
-  if (!files.length) return false;
-  if (inFolder(path, defaultDir, platform)) return true;
-  const fold = (s) => platform === "darwin" || platform === "win32" ? s.toLowerCase() : s;
-  const folder = fold(basename(resolve(path)));
-  return files.some((f) => {
-    const name = fold(folderName(f.replace(/\.zip$/i, "")));
-    return folder === name || folder.startsWith(`${name}-`) && /^(?:[2-9]|[1-9]\d+)$/.test(folder.slice(name.length + 1));
-  });
-}
-function clonedLike(path, platform) {
-  const origin = gitOut(path, ["config", "--get", "remote.origin.url"])?.trim();
-  if (!origin) return false;
-  const fold = (s) => platform === "darwin" || platform === "win32" ? s.toLowerCase() : s;
-  return fold(folderName(origin.replace(/[\\/]+$/, ""))) === fold(basename(path));
-}
-function markOlderSources(raw, file, platform = process.platform, home = homedir()) {
-  const configDir = dirname(file);
-  const record2 = join(configDir, MARKS_DONE);
-  if (existsSync(record2)) return [];
-  const r = isObj(raw) ? raw : {};
-  const defaultDir = join(home, "one-repos");
-  const marked = [];
-  for (const entry2 of Array.isArray(r.repos) ? r.repos : []) {
-    if (!isObj(entry2) || typeof entry2.path !== "string" || !entry2.path.trim()) continue;
-    if (isObj(entry2.claude) && typeof entry2.claude.projectSettings === "boolean") continue;
-    const path = resolve(configDir, expandHome(entry2.path.trim()));
-    if (markOf(path)) continue;
-    const kind = olderImport(path, defaultDir, platform) ? "zip" : inFolder(path, defaultDir, platform) && clonedLike(path, platform) ? "folder" : null;
-    if (kind && markSource(path, kind)) marked.push(typeof entry2.name === "string" ? entry2.name.slice(0, 64) : basename(path));
-  }
-  try {
-    mkdirSync(configDir, { recursive: true, mode: 448 });
-    writeFileSync(record2, `${JSON.stringify({ v: 1, at: (/* @__PURE__ */ new Date()).toISOString(), marked }, null, 2)}
-`, { mode: 384 });
-  } catch {
-  }
-  return marked;
-}
-function unseenMarks(file) {
-  try {
-    const r = JSON.parse(readFileSync(join(dirname(file), MARKS_DONE), "utf8"));
-    if (!isObj(r) || r.seen || !Array.isArray(r.marked)) return [];
-    return r.marked.filter((n) => typeof n === "string").map((n) => n.slice(0, 64)).slice(0, 200);
-  } catch {
-    return [];
-  }
-}
-function marksSeen(file) {
-  const record2 = join(dirname(file), MARKS_DONE);
-  try {
-    const r = JSON.parse(readFileSync(record2, "utf8"));
-    if (isObj(r)) writeFileSync(record2, `${JSON.stringify({ ...r, seen: (/* @__PURE__ */ new Date()).toISOString() }, null, 2)}
-`, { mode: 384 });
-  } catch {
-  }
-}
-function inICloud(path, home = homedir(), platform = process.platform) {
-  if (platform !== "darwin") return false;
-  const p = resolve(path);
-  const under = (dir) => p === dir || p.startsWith(dir + sep);
-  const mobile = join(home, "Library", "Mobile Documents");
-  if (under(mobile)) return true;
-  const drive = join(mobile, "com~apple~CloudDocs");
-  return ["Documents", "Desktop"].some((f) => under(join(home, f)) && existsSync(join(drive, f)));
-}
-function expandHome(p) {
-  if (p === "~") return homedir();
-  if (p.startsWith("~/") || p.startsWith("~\\")) return join(homedir(), p.slice(2));
-  return p;
-}
-var num = (v, def, min, max2) => typeof v === "number" && Number.isFinite(v) && v >= min && v <= max2 ? v : def;
-var usd = (v) => typeof v === "number" && Number.isFinite(v) && v > 0 ? Math.round(v * 100) / 100 : null;
-var strings = (v, max2 = 100) => Array.isArray(v) ? v.filter((s) => typeof s === "string" && !!s.trim()).map((s) => s.trim().slice(0, 300)).slice(0, max2) : [];
-function claudeConfig(raw, where, problems, trusted) {
-  const c = isObj(raw) ? raw : {};
-  const modes = {};
-  if (isObj(c.permissionMode)) {
-    for (const [kind, mode] of Object.entries(c.permissionMode)) {
-      if (kind !== "implement") {
-        problems.push(`${where}: claude.permissionMode.${kind} is ignored (only "implement": plan stages always run in plan mode)`);
-        continue;
-      }
-      if (PERMISSION_MODES.includes(String(mode))) modes[kind] = mode;
-      else problems.push(`${where}: claude.permissionMode.${kind} ${JSON.stringify(mode)} is not allowed (${PERMISSION_MODES.join(", ")} \u2014 never one that skips permissions)`);
-    }
-  }
-  const model = cleanModel(c.model);
-  const set = typeof c.projectSettings === "boolean";
-  if (c.projectSettings !== void 0 && !set) problems.push(`${where}: claude.projectSettings must be true or false \u2014 ${trusted ? "true" : "false"} is used`);
-  return {
-    model,
-    maxTurns: Math.floor(num(c.maxTurns, 30, 1, 200)),
-    permissionMode: modes,
-    allowedTools: strings(c.allowedTools),
-    disallowedTools: strings(c.disallowedTools),
-    strictMcp: c.strictMcp !== false,
-    mcpServers: mcpNames(c.mcpServers, where, problems),
-    projectSettings: set ? c.projectSettings : trusted,
-    projectSettingsSet: set
-  };
-}
-var MCP_NAME = /^[A-Za-z0-9_-]{1,64}$/;
-function mcpNames(raw, where, problems) {
-  const out = [];
-  for (const n of strings(raw, 20)) {
-    if (MCP_NAME.test(n) && n !== "one-task") out.push(n);
-    else problems.push(`${where}: claude.mcpServers ${JSON.stringify(n)} is not an MCP server name \u2014 left out`);
-  }
-  return [...new Set(out)];
-}
-function repoConfig(raw, index, configDir, problems, opts, cloneDir) {
-  const where = `repos[${index}]`;
-  if (!isObj(raw)) {
-    problems.push(`${where} is not an object`);
-    return null;
-  }
-  const name = typeof raw.name === "string" ? raw.name.trim() : "";
-  if (!REPO_NAME.test(name)) {
-    problems.push(`${where}: "name" must be 1\u201364 letters, digits, ".", "_" or "-" (it is what One shows)`);
-    return null;
-  }
-  const at = `${where} (${name})`;
-  const rawPath = typeof raw.path === "string" ? expandHome(raw.path.trim()) : "";
-  if (!rawPath) {
-    problems.push(`${at}: "path" is missing`);
-    return null;
-  }
-  const path = resolve(configDir, rawPath);
-  const baseBranch = typeof raw.baseBranch === "string" && raw.baseBranch.trim() ? raw.baseBranch.trim() : "main";
-  if (!REF_PART.test(baseBranch)) {
-    problems.push(`${at}: "baseBranch" ${JSON.stringify(baseBranch)} is not a branch name`);
-    return null;
-  }
-  const remote = typeof raw.remote === "string" && raw.remote.trim() ? raw.remote.trim() : "origin";
-  if (!REMOTE.test(remote)) {
-    problems.push(`${at}: "remote" ${JSON.stringify(remote)} is not a remote name`);
-    return null;
-  }
-  const branchPrefix = typeof raw.branchPrefix === "string" ? raw.branchPrefix.trim() : "one/";
-  if (!PREFIX.test(branchPrefix)) {
-    problems.push(`${at}: "branchPrefix" ${JSON.stringify(branchPrefix)} is not allowed`);
-    return null;
-  }
-  const worktreeDir = typeof raw.worktreeDir === "string" && raw.worktreeDir.trim() ? resolve(configDir, expandHome(raw.worktreeDir.trim())) : opts.cloud ? join(configDir, "worktrees", name) : inICloud(path) ? join(homedir(), ".one-worktrees", name) : join(dirname(path), ".one-worktrees", name);
-  let testCommand = null;
-  if (raw.testCommand !== void 0 && raw.testCommand !== null) {
-    if (typeof raw.testCommand === "string") problems.push(`${at}: "testCommand" must be a list (argv), e.g. ["npm", "test"] \u2014 a command line is never run through a shell`);
-    else {
-      const argv2 = strings(raw.testCommand, 50);
-      if (argv2.length) testCommand = argv2;
-      else problems.push(`${at}: "testCommand" is empty`);
-    }
-  }
-  let analyzeCommand = null;
-  if (raw.analyzeCommand !== void 0 && raw.analyzeCommand !== null) {
-    if (typeof raw.analyzeCommand === "string") problems.push(`${at}: "analyzeCommand" must be a list (argv), e.g. ["npx", "eslint", "."] \u2014 a command line is never run through a shell`);
-    else {
-      const argv2 = strings(raw.analyzeCommand, 50);
-      if (argv2.length) analyzeCommand = argv2;
-      else problems.push(`${at}: "analyzeCommand" is empty`);
-    }
-  }
-  const pr = raw.pr === "none" ? "none" : "gh";
-  const source = sourceOf(path, cloneDir, opts.platform);
-  return {
-    name,
-    path,
-    baseBranch,
-    remote,
-    branchPrefix,
-    worktreeDir,
-    testCommand,
-    testTimeoutSec: Math.floor(num(raw.testTimeoutSec, 600, 5, 7200)),
-    analyzeCommand,
-    analyzeTimeoutSec: Math.floor(num(raw.analyzeTimeoutSec, 900, 5, 7200)),
-    push: raw.push !== false,
-    pr,
-    claude: claudeConfig(raw.claude, at, problems, source === null),
-    maxUsdPerTask: usd(raw.maxUsdPerTask),
-    maxUsdPerDay: usd(raw.maxUsdPerDay),
-    source
-  };
-}
-function loadConfig(file, env = process.env, opts = {}) {
-  if (!existsSync(file)) throw new Error(`No config file at ${file}. Create one with: node one-worker.mjs init${file === defaultConfigFile() ? "" : ` --config ${file}`}`);
-  let raw;
-  try {
-    raw = parseJsonc(readFileSync(file, "utf8"));
-  } catch (e) {
-    throw new Error(`${file} is not valid JSON: ${e instanceof Error ? e.message : String(e)}`);
-  }
-  const marked = markOlderSources(raw, file, opts.platform, opts.home);
-  const loaded = sanitizeConfig(raw, file, env, opts);
-  if (marked.length) loaded.notes = [`marked ${marked.length} repo(s) an older worker cloned or imported as code from elsewhere (${marked.join(", ")}) \u2014 Claude Code runs on them without their own settings; the setup page can switch that per repo`];
-  return loaded;
-}
-function sanitizeConfig(raw, file, env = process.env, opts = {}) {
-  const problems = [];
-  const r = isObj(raw) ? raw : {};
-  const configDir = dirname(file);
-  let workspace = null;
-  if (typeof r.workspace === "string" && r.workspace.trim()) {
-    if (WORKSPACE_ID.test(r.workspace.trim())) workspace = r.workspace.trim();
-    else problems.push(`"workspace" ${JSON.stringify(r.workspace)} is not a workspace id (One shows it in Settings \u2192 Coding worker, e.g. "local:abc123")`);
-  }
-  const cloneDir = cloneDirOf(env.ONE_WORKER_CLONE_DIR ?? r.cloneDir, configDir, problems);
-  const repos = [];
-  const list = Array.isArray(r.repos) ? r.repos : [];
-  if (!Array.isArray(r.repos)) problems.push('"repos" is missing: list the repositories this worker may work in');
-  list.forEach((entry2, i2) => {
-    const repo = repoConfig(entry2, i2, configDir, problems, opts, cloneDir);
-    if (!repo) return;
-    if (repos.some((x2) => x2.name === repo.name)) problems.push(`repos[${i2}]: the name "${repo.name}" is used twice \u2014 the second one is ignored`);
-    else repos.push(repo);
-  });
-  const envPort = Number(env.ONE_WORKER_PORT);
-  const port = Number.isInteger(envPort) && envPort >= 1024 && envPort <= 65535 ? envPort : Math.floor(num(r.port, WORKER_DEFAULT_PORT, 1024, 65535));
-  const name = (typeof r.name === "string" && r.name.trim() ? r.name : hostname()).replace(/[^\p{L}\p{N} ._-]/gu, "").trim().slice(0, 40) || "worker";
-  return {
-    config: {
-      file,
-      workspace,
-      name,
-      port,
-      parallel: Math.floor(num(r.parallel, PARALLEL_MAX, 1, PARALLEL_MAX)),
-      pollSec: Math.floor(num(r.pollSec, 15, 2, 600)),
-      origins: strings(r.origins, 20),
-      repos,
-      cloneDir,
-      mcpServers: mcpNames(r.mcpServers, "worker", problems),
-      intake: r.intake !== false,
-      preset: null
-    },
-    problems
-  };
-}
-function cloneDirOf(raw, configDir, problems) {
-  if (raw === void 0 || raw === null || raw === "") return join(homedir(), "one-repos");
-  if (typeof raw !== "string" || raw.length > 1e3 || /[\u0000-\u001f]/.test(raw)) {
-    problems.push('"cloneDir" is not a folder \u2014 using ~/one-repos');
-    return join(homedir(), "one-repos");
-  }
-  return resolve(configDir, expandHome(raw.trim()));
-}
-function scratchRepo(config2, taskId) {
-  const dir = join(dirname(config2.file), "scratch", taskId.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 64) || "task");
-  mkdirSync(dir, { recursive: true, mode: 448 });
-  return {
-    name: "(no repository)",
-    path: dir,
-    baseBranch: "main",
-    remote: "origin",
-    branchPrefix: "one/",
-    worktreeDir: dir,
-    testCommand: null,
-    testTimeoutSec: 600,
-    analyzeCommand: null,
-    analyzeTimeoutSec: 900,
-    push: false,
-    pr: "none",
-    claude: { model: null, maxTurns: 40, permissionMode: {}, allowedTools: [], disallowedTools: [], strictMcp: true, mcpServers: config2.mcpServers, projectSettings: false, projectSettingsSet: false },
-    maxUsdPerTask: null,
-    maxUsdPerDay: null,
-    source: null
-  };
-}
-function exampleConfig(workspace) {
-  const home = homedir().replace(/\\/g, "/");
-  return `// one-worker \u2014 runs coding tasks from One with Claude Code on this computer.
-// Docs: https://github.com/MarcelWeissgerberIT/SimpleCMS/blob/main/docs/CODING.md
-// Paths and commands in this file never leave this computer: One only learns repo names.
-{
-  // The One workspace this worker serves \u2014 One shows its id in Settings \u2192 Coding worker.
-  // The worker refuses tabs of every other workspace.
-  "workspace": ${workspace ? JSON.stringify(workspace) : "null"},
-
-  // How One shows this worker (default: this computer's name).
-  // "name": "laptop",
-
-  // WebSocket port on 127.0.0.1 (set the same port in One; ONE_WORKER_PORT overrides it).
-  "port": ${WORKER_DEFAULT_PORT},
-
-  // Tasks at once across repos (1\u2013${PARALLEL_MAX}; always one per repo).
-  "parallel": ${PARALLEL_MAX},
-
-  "repos": [
-    {
-      // The name One shows (letters, digits, . _ -).
-      "name": "website",
-      // The main checkout. The worker never changes its working tree: every task gets its own worktree.
-      "path": "${home}/code/website",
-      "baseBranch": "main",
-      "remote": "origin",
-      // New task branches: <prefix><title>-<id>
-      "branchPrefix": "one/",
-      // Where task worktrees go (default: next to the repo, in .one-worktrees/<name>).
-      // "worktreeDir": "${home}/code/.one-worktrees/website",
-
-      // The Test stage runs this in the worktree \u2014 an argv list, never a shell line. Leave it out: no tests.
-      "testCommand": ["npm", "test"],
-      "testTimeoutSec": 600,
-      // The Static analysis stage runs this (a report: its findings go into the task page). Leave it out: none.
-      // "analyzeCommand": ["npx", "eslint", "."],
-
-      // Push task branches to the remote (Ship stage, Push key in One).
-      "push": true,
-      // "gh": open pull requests with the GitHub CLI (when installed and signed in) \xB7 "none": only a compare link.
-      "pr": "gh",
-
-      "claude": {
-        // A model name Claude Code accepts; null = Claude Code's default.
-        "model": null,
-        // Most turns per stage.
-        "maxTurns": 30,
-        // Claude Code's permission mode for implement stages: "acceptEdits" (default) or "default".
-        // Plan stages always run in "plan" mode. A mode that skips permissions is never used.
-        // "permissionMode": { "implement": "acceptEdits" },
-        // Tools Claude Code may use without asking (headless runs cannot ask) \u2014 Claude Code's own syntax.
-        "allowedTools": ["Read", "Grep", "Glob", "Edit", "Write", "Bash(npm test:*)", "Bash(npm run lint:*)"],
-        "disallowedTools": ["Bash(git push:*)", "Bash(rm -rf:*)"]
-      },
-
-      // Cost limits in US dollars (Claude Code's own accounting). A stage stops at the limit.
-      "maxUsdPerTask": 5,
-      "maxUsdPerDay": 25
-    }
-  ]
-}
-`;
-}
-function initConfig(file, workspace, force = false) {
-  if (workspace !== null && !WORKSPACE_ID.test(workspace)) throw new Error(`${JSON.stringify(workspace)} is not a workspace id (e.g. "local:abc123" \u2014 One shows it in Settings \u2192 Coding worker)`);
-  if (existsSync(file) && !force) throw new Error(`${file} already exists. Edit it, or run init with --force to replace it.`);
-  if (!isAbsolute(file)) file = resolve(file);
-  mkdirSync(dirname(file), { recursive: true, mode: 448 });
-  writeFileSync(file, exampleConfig(workspace), { mode: 384 });
-  return file;
-}
-function withPreset(config2, preset2, env = process.env) {
-  if (!preset2) return config2;
-  const envPort = Number(env.ONE_WORKER_PORT);
-  const port = Number.isInteger(envPort) && envPort >= 1024 && envPort <= 65535 ? envPort : preset2.port;
-  return { ...config2, workspace: preset2.workspace, port, preset: preset2 };
-}
-function emptyConfig(file, env = process.env) {
-  return sanitizeConfig({ repos: [] }, file, env).config;
-}
-function cloudOf(config2) {
-  const p = config2.preset;
-  return p?.cloud ? { origin: p.origin, token: p.cloud.token } : null;
-}
-function splitArgs(line) {
-  const out = [];
-  let cur = "";
-  let has = false;
-  let quote = null;
-  for (let i2 = 0; i2 < line.length; i2++) {
-    const c = line[i2];
-    if (quote === "'") {
-      if (c === "'") quote = null;
-      else cur += c;
-    } else if (quote === '"') {
-      if (c === '"') quote = null;
-      else if (c === "\\" && i2 + 1 < line.length && (line[i2 + 1] === '"' || line[i2 + 1] === "\\")) cur += line[++i2];
-      else cur += c;
-    } else if (c === '"' || c === "'") {
-      quote = c;
-      has = true;
-    } else if (c === "\\" && i2 + 1 < line.length) {
-      cur += line[++i2];
-      has = true;
-    } else if (/\s/.test(c)) {
-      if (has || cur) out.push(cur);
-      cur = "";
-      has = false;
-    } else {
-      cur += c;
-      has = true;
-    }
-  }
-  if (has || cur) out.push(cur);
-  return out.filter((a) => a.length <= 300).slice(0, 50);
-}
-var HEADER = "// one-worker \u2014 written by its setup page";
-function homeRelative(path) {
-  const home = homedir();
-  if (path.startsWith(home + sep)) return `~/${path.slice(home.length + 1).replace(/\\/g, "/")}`;
-  return path;
-}
-function saveRepos(file, choices, workspace, env = process.env, extra = {}) {
-  const configDir = dirname(file);
-  let text2 = null;
-  let raw = {};
-  if (existsSync(file)) {
-    text2 = readFileSync(file, "utf8");
-    try {
-      const parsed = parseJsonc(text2);
-      if (isObj(parsed)) raw = parsed;
-    } catch {
-      return [`${file} is not valid JSON \u2014 fix or remove it first`];
-    }
-  }
-  const before = Array.isArray(raw.repos) ? raw.repos.filter(isObj) : [];
-  const pathOf = (r) => typeof r.path === "string" && r.path.trim() ? resolve(configDir, expandHome(r.path.trim())) : null;
-  const repos = choices.map((c) => {
-    const old = before.find((r) => pathOf(r) === resolve(c.path)) ?? {};
-    const entry2 = { ...old, name: c.name, path: homeRelative(resolve(c.path)), baseBranch: c.baseBranch };
-    if (c.remote && c.remote !== "origin") entry2.remote = c.remote;
-    if (c.testCommand?.length) entry2.testCommand = c.testCommand;
-    else delete entry2.testCommand;
-    if (c.analyzeCommand !== void 0) {
-      if (c.analyzeCommand?.length) entry2.analyzeCommand = c.analyzeCommand;
-      else delete entry2.analyzeCommand;
-    }
-    entry2.push = c.push;
-    entry2.pr = c.pr;
-    if (c.maxUsdPerTask) entry2.maxUsdPerTask = c.maxUsdPerTask;
-    else delete entry2.maxUsdPerTask;
-    if (c.mcpServers) {
-      const claude = isObj(entry2.claude) ? { ...entry2.claude } : {};
-      if (c.mcpServers.length) claude.mcpServers = c.mcpServers;
-      else delete claude.mcpServers;
-      if (Object.keys(claude).length) entry2.claude = claude;
-      else delete entry2.claude;
-    }
-    return entry2;
-  });
-  const next = { ...raw };
-  if (workspace) next.workspace = workspace;
-  if (extra.cloneDir) next.cloneDir = homeRelative(resolve(extra.cloneDir));
-  if (extra.mcpServers) {
-    if (extra.mcpServers.length) next.mcpServers = extra.mcpServers;
-    else delete next.mcpServers;
-  }
-  next.repos = repos;
-  const nextCloneDir = cloneDirOf(env.ONE_WORKER_CLONE_DIR ?? next.cloneDir, configDir, []);
-  choices.forEach((c, i2) => {
-    if (c.projectSettings === void 0) return;
-    const entry2 = repos[i2];
-    const path = resolve(c.path);
-    const mark = markOf(path);
-    const byDefault = !mark && !inFolder(path, nextCloneDir);
-    const claude = isObj(entry2.claude) ? { ...entry2.claude } : {};
-    if (typeof claude.projectSettings !== "boolean" && c.projectSettings === byDefault && c.projectSettings === !mark) return;
-    claude.projectSettings = c.projectSettings;
-    entry2.claude = claude;
-  });
-  const check = sanitizeConfig(next, file, env);
-  const dropped = check.problems.filter((p) => p.startsWith("repos["));
-  if (dropped.length || check.config.repos.length !== choices.length) return dropped.length ? dropped : ["a repository could not be saved"];
-  mkdirSync(configDir, { recursive: true, mode: 448 });
-  if (text2 !== null && !text2.startsWith(HEADER) && /\/\/|\/\*/.test(text2.replace(/"(?:[^"\\]|\\.)*"/g, '""'))) {
-    const bak = `${file}.bak`;
-    if (!existsSync(bak)) {
-      copyFileSync(file, bak);
-      chmodSync(bak, 384);
-    }
-  }
-  const body = `${HEADER} (node one-worker.mjs setup) \u2014 edit it by hand if you like.
-// Paths and commands in this file never leave this computer: One only learns repo names.
-// Every key: https://github.com/MarcelWeissgerberIT/SimpleCMS/blob/main/docs/CODING.md#workerjson
-${JSON.stringify(next, null, 2)}
-`;
-  const tmp = `${file}.${process.pid}.tmp`;
-  writeFileSync(tmp, body, { mode: 384 });
-  chmodSync(tmp, 384);
-  renameSync(tmp, file);
-  return [];
-}
-
-// src/worker/claude.ts
-import { createInterface } from "node:readline";
-import { readFileSync as readFileSync2, realpathSync as realpathSync2, statSync as statSync2 } from "node:fs";
-import { homedir as homedir2 } from "node:os";
-import { join as join2, win32 as win323 } from "node:path";
+import { chmodSync, copyFileSync, existsSync as existsSync2, lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir as homedir3, hostname } from "node:os";
+import { basename, dirname, isAbsolute, join as join2, resolve as resolve2, sep as sep2 } from "node:path";
 
 // src/worker/exec.ts
 import { spawn, spawnSync } from "node:child_process";
@@ -11870,6 +11280,36 @@ function execFileSafe(cmd, args, opts) {
     }
   });
 }
+function execFileSyncSafe(cmd, args, opts) {
+  const env = opts.env ?? process.env;
+  const c = fullCtx({ ...opts.ctx, env, cwd: opts.cwd ?? opts.ctx?.cwd ?? process.cwd() });
+  const r = resolveCommand(cmd, args, c, opts.allow ?? "shim");
+  if (!r.ok) return { code: 127, stdout: "", stderr: "", why: r.why };
+  try {
+    const res = spawnSync(r.file, r.args, {
+      cwd: opts.cwd,
+      env: r.env ? { ...env, ...r.env } : opts.env,
+      encoding: "utf8",
+      timeout: opts.timeoutMs,
+      maxBuffer: opts.maxBuffer ?? 8 * 1024 * 1024,
+      stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
+      windowsVerbatimArguments: r.verbatim,
+      shell: false
+    });
+    const stdout = res.stdout ?? "";
+    const stderr = res.stderr ?? "";
+    if (res.error) {
+      const code = errCode(res.error);
+      if (code === "ETIMEDOUT") return { code: 124, stdout, stderr, timedOut: true };
+      if (code === "ENOBUFS") return { code: 1, stdout, stderr };
+      return { code: 127, stdout, stderr, why: code === "ENOENT" ? "missing" : "failed" };
+    }
+    return { code: typeof res.status === "number" ? res.status : 1, stdout, stderr };
+  } catch {
+    return { code: 127, stdout: "", stderr: "", why: "failed" };
+  }
+}
 function killTree(child, platform = process.platform) {
   if (child.exitCode !== null || child.pid === void 0) return Promise.resolve();
   const pid = child.pid;
@@ -11915,11 +11355,18 @@ function killTree(child, platform = process.platform) {
   });
 }
 
+// src/worker/gitenv.ts
+import { homedir as homedir2 } from "node:os";
+
 // src/worker/paths.ts
-import { posix as posix2, win32 as win322 } from "node:path";
+import { existsSync, realpathSync, renameSync } from "node:fs";
+import { rm } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join, posix as posix2, resolve, sep, win32 as win322 } from "node:path";
 var folds = (platform) => platform === "win32" || platform === "darwin";
+var pathOf = (platform) => platform === "win32" ? win322 : posix2;
 function pathId(p, platform = process.platform) {
-  const P = platform === "win32" ? win322 : posix2;
+  const P = pathOf(platform);
   let s = P.resolve(p);
   const root = P.parse(s).root;
   while (s.length > root.length && /[\\/]$/.test(s)) s = s.slice(0, -1);
@@ -11928,6 +11375,741 @@ function pathId(p, platform = process.platform) {
 function samePath(a, b, platform = process.platform) {
   return pathId(a, platform) === pathId(b, platform);
 }
+function onDisk(p, P) {
+  const abs = P.resolve(p);
+  try {
+    return realpathSync.native(abs);
+  } catch {
+    const up = P.dirname(abs);
+    return up === abs ? abs : P.join(onDisk(up, P), P.basename(abs));
+  }
+}
+function inFolder(path, folder, platform = process.platform) {
+  const P = platform === "win32" || process.platform === "win32" ? win322 : posix2;
+  const fold = (s) => folds(platform) ? s.toLowerCase() : s;
+  const within = (p, f) => {
+    const rel = P.relative(fold(f), fold(p));
+    return rel === "" || !P.isAbsolute(rel) && rel.split(/[\\/]/)[0] !== "..";
+  };
+  if (within(P.resolve(path), P.resolve(folder))) return true;
+  const disk = platform === "win32" === (process.platform === "win32");
+  return disk && within(onDisk(path, P), onDisk(folder, P));
+}
+function inICloud(path, home = homedir(), platform = process.platform) {
+  if (platform !== "darwin") return false;
+  const p = resolve(path);
+  const under = (dir) => p === dir || p.startsWith(dir + sep);
+  const mobile = join(home, "Library", "Mobile Documents");
+  if (under(mobile)) return true;
+  const drive = join(mobile, "com~apple~CloudDocs");
+  return ["Documents", "Desktop"].some((f) => under(join(home, f)) && existsSync(join(drive, f)));
+}
+var ONEDRIVE_VARS = ["OneDrive", "OneDriveConsumer", "OneDriveCommercial"];
+function inSyncedFolder(path, opts = {}) {
+  const platform = opts.platform ?? process.platform;
+  const home = opts.home ?? homedir();
+  if (platform === "darwin") {
+    if (inICloud(path, home, "darwin")) return "icloud";
+    return inFolder(path, join(home, "Library", "CloudStorage"), "darwin") ? "cloudStorage" : null;
+  }
+  if (platform !== "win32") return null;
+  const env = opts.env ?? process.env;
+  for (const key of ONEDRIVE_VARS) {
+    const dir = envGet(env, key, "win32")?.trim().replace(/^"(.*)"$/, "$1");
+    if (dir && /^(?:[A-Za-z]:[\\/]|[\\/]{2}[^\\/])/.test(dir) && inFolder(path, dir, "win32")) return "onedrive";
+  }
+  return null;
+}
+var HELD = /* @__PURE__ */ new Set(["EPERM", "EBUSY", "EACCES"]);
+var sleepSync = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+function renameRetry(from, to, opts = {}) {
+  const rename = opts.rename ?? renameSync;
+  const tries = (opts.platform ?? process.platform) === "win32" ? opts.tries ?? 10 : 0;
+  let first = null;
+  for (let i2 = 0; ; i2++) {
+    try {
+      rename(from, to);
+      return;
+    } catch (e) {
+      first ??= e;
+      if (i2 >= tries || !HELD.has(String(e?.code))) throw first;
+      (opts.wait ?? sleepSync)(opts.delayMs ?? 100);
+    }
+  }
+}
+async function rmRetry(path) {
+  try {
+    await rm(path, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// src/worker/gitenv.ts
+var GIT_ENV = { GIT_TERMINAL_PROMPT: "0", GIT_OPTIONAL_LOCKS: "0", LC_ALL: "C", GCM_INTERACTIVE: "never" };
+var BATCH_SSH = "ssh -o BatchMode=yes";
+function gitArgs(args, platform = process.platform) {
+  return platform === "win32" ? ["-c", "core.longpaths=true", ...args] : args;
+}
+var sshConfig = /* @__PURE__ */ new Map();
+function forgetGitEnv() {
+  sshConfig.clear();
+}
+var isSet = (env, key, platform) => !!envGet(env, key, platform)?.trim();
+async function gitEnv(cwd, base = process.env, opts = {}) {
+  const platform = opts.platform ?? process.platform;
+  const env = { ...base, ...GIT_ENV };
+  if (isSet(base, "GIT_SSH_COMMAND", platform) || isSet(base, "GIT_SSH", platform)) return env;
+  const key = cwd === null ? "" : pathId(cwd, platform);
+  let set = sshConfig.get(key);
+  if (set === void 0) {
+    const ms = Math.min(opts.timeoutMs ?? 1e4, 1e4);
+    const read2 = (where, dir) => configGet(["config", ...where, "--get", "core.sshCommand"], dir, env, ms, platform);
+    let found;
+    if (cwd !== null) found = await read2([], cwd);
+    else {
+      found = await read2(["--global"], homedir2());
+      if (found === false) found = await read2(["--system"], homedir2());
+    }
+    if (found === null) return env;
+    set = found;
+    sshConfig.set(key, set);
+  }
+  if (!set) env.GIT_SSH_COMMAND = BATCH_SSH;
+  return env;
+}
+function configGet(args, cwd, env, timeoutMs, platform) {
+  const s = spawnSafe("git", gitArgs(args, platform), { cwd, env, stdio: ["ignore", "pipe", "ignore"], detached: process.platform !== "win32", windowsHide: true, allow: "exe" });
+  if (!s.ok) return Promise.resolve(null);
+  const child = s.child;
+  return new Promise((done) => {
+    let out = "";
+    let settled = false;
+    const finish = (v) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      done(v);
+    };
+    const timer = setTimeout(() => {
+      void killTree(child);
+      finish(null);
+    }, timeoutMs);
+    child.stdout?.on("data", (d) => {
+      out = (out + d.toString()).slice(0, 4096);
+    });
+    child.on("error", () => finish(null));
+    child.on("close", (code) => finish(code === 0 ? !!out.trim() : code === 1 ? false : null));
+  });
+}
+function gitHint(text2, platform = process.platform) {
+  const s = text2.replace(/\r/g, "\n");
+  if (/detected dubious ownership/i.test(s)) return "dubiousOwnership";
+  if (/index\.lock'?: File exists/i.test(s)) return "gitLock";
+  if (/Host key verification failed|HOST IDENTIFICATION HAS CHANGED/i.test(s)) return "sshHostKey";
+  if (/Permission denied \(publickey|Load key .*passphrase/i.test(s)) return "sshKey";
+  if (/could not read (?:Username|Password)|terminal prompts disabled|Authentication failed/i.test(s)) return "gitSignIn";
+  if (platform === "win32" && /Filename too long/i.test(s)) return "longpaths";
+  return null;
+}
+function hintLine(code, at) {
+  const { repo, remote } = at;
+  switch (code) {
+    case "longpaths":
+      return { c: code, v: {}, s: "A path is longer than Windows allows by default (260 characters). The worker\u2019s own git already uses long paths; for your git and other tools run `git config --global core.longpaths true` once and switch on long paths in Windows (LongPathsEnabled) \u2014 or set a shorter worktreeDir in worker.json (e.g. C:\\w)." };
+    case "sshHostKey":
+      return { c: code, v: { remote }, s: `${remote}: this computer does not know (or no longer trusts) the host\u2019s SSH key, and the worker never answers that question. In a terminal run \`ssh -T git@<host>\` once and read what ssh says, then press Retry.` };
+    case "sshKey":
+      return { c: code, v: { remote }, s: `${remote}: the SSH key was refused or needs its passphrase, which the worker cannot type. Add the key to your SSH agent (\`ssh-add\`; on Windows the \u201COpenSSH Authentication Agent\u201D service) and to your account on the host \u2014 or use the HTTPS address.` };
+    case "gitSignIn":
+      return { c: code, v: { remote }, s: `${remote} wants a sign-in, and git may not ask while the worker runs it. Sign in once in a terminal (\`git fetch\` in that repo \u2014 Git Credential Manager keeps the login; or \`gh auth setup-git\` / \`glab auth login\`), then press Retry.` };
+    case "dubiousOwnership":
+      return { c: code, v: { repo }, s: `git refuses ${repo}: the folder belongs to another user account (git calls it \u201Cdubious ownership\u201D). If it is yours, mark it as safe with \`git config --global --add safe.directory\` and the folder \u2014 the worker\u2019s terminal shows the exact line. The worker never sets this itself.` };
+    case "gitLock":
+      return { c: code, v: { repo }, s: `git in ${repo} is blocked by a lock file (index.lock) that a stopped git left behind. When no git runs there, delete the file the worker\u2019s terminal names, then press Retry.` };
+  }
+}
+function hintTerminal(code, text2) {
+  const s = text2.replace(/\r/g, "\n");
+  if (code === "dubiousOwnership") {
+    const line = /git config --global --add safe\.directory\s+(\S.*)$/m.exec(s)?.[1]?.trim();
+    return line ? `git refuses a folder of another user account \u2014 if it is yours: git config --global --add safe.directory ${line}` : null;
+  }
+  if (code === "gitLock") {
+    const file = /'([^'\n]+index\.lock)'/.exec(s)?.[1];
+    return file ? `a stopped git left ${file} behind \u2014 delete it when no git runs there` : null;
+  }
+  return null;
+}
+var FOLDER_BUSY = "Windows still holds files in the worktree folder (an editor, the search indexer or antivirus), so it could not be removed yet. Close what has it open; the worker tries again next time.";
+
+// src/worker/config.ts
+function defaultConfigFile() {
+  return join2(homedir3(), ".config", "one", "worker.json");
+}
+function cloudConfigFile(workspace) {
+  return join2(homedir3(), ".config", "one", "cloud", workspace.replace(/[^A-Za-z0-9_-]/g, "-").slice(0, 80), "worker.json");
+}
+function parseJsonc(text2) {
+  let out = "";
+  let i2 = 0;
+  const n = text2.length;
+  while (i2 < n) {
+    const c = text2[i2];
+    if (c === '"') {
+      let j = i2 + 1;
+      while (j < n && text2[j] !== '"') j += text2[j] === "\\" ? 2 : 1;
+      out += text2.slice(i2, j + 1);
+      i2 = j + 1;
+    } else if (c === "/" && text2[i2 + 1] === "/") {
+      while (i2 < n && text2[i2] !== "\n") i2++;
+    } else if (c === "/" && text2[i2 + 1] === "*") {
+      const end = text2.indexOf("*/", i2 + 2);
+      i2 = end < 0 ? n : end + 2;
+    } else {
+      out += c;
+      i2++;
+    }
+  }
+  let clean = "";
+  for (let k = 0; k < out.length; k++) {
+    const c = out[k];
+    if (c === '"') {
+      let j = k + 1;
+      while (j < out.length && out[j] !== '"') j += out[j] === "\\" ? 2 : 1;
+      clean += out.slice(k, j + 1);
+      k = j;
+      continue;
+    }
+    if (c === ",") {
+      let j = k + 1;
+      while (j < out.length && /\s/.test(out[j])) j++;
+      if (out[j] === "}" || out[j] === "]") continue;
+    }
+    clean += c;
+  }
+  return JSON.parse(clean);
+}
+var isObj = (v) => !!v && typeof v === "object" && !Array.isArray(v);
+var REF_PART = /^(?!-)(?!.*\.\.)(?!.*\/\/)(?!.*@\{)(?!.*\.lock(\/|$))[A-Za-z0-9._/-]{1,120}(?<![/.])$/;
+var REMOTE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+var PREFIX = /^(?!-)[A-Za-z0-9._/-]{0,40}$/;
+var SOURCE_MARK = "one-worker-source";
+function markOf(path) {
+  const file = join2(path, ".git", SOURCE_MARK);
+  try {
+    if (!lstatSync(file, { throwIfNoEntry: false })) return null;
+  } catch {
+    return null;
+  }
+  try {
+    const kind = readFileSync(file, "utf8").trim();
+    return kind === "clone" ? "cloned" : kind === "zip" ? "imported" : "marked";
+  } catch {
+    return "marked";
+  }
+}
+function markSource(path, kind) {
+  if (markOf(path)) return false;
+  try {
+    if (!lstatSync(join2(path, ".git")).isDirectory()) return false;
+    writeFileSync(join2(path, ".git", SOURCE_MARK), `${kind}
+`, { flag: "wx" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+function sourceOf(path, cloneDir, platform = process.platform) {
+  return markOf(path) ?? (inFolder(path, cloneDir, platform) ? "cloneDir" : null);
+}
+var SOURCE_WORDS = { cloned: "cloned by the worker", imported: "imported by the worker", marked: "marked as code from elsewhere", cloneDir: "in the clone folder" };
+var MARKS_DONE = "worker-marks.json";
+function folderName(path) {
+  const last = path.split("/").pop() ?? "";
+  return last.replace(/\.git$/, "").replace(/[^A-Za-z0-9._-]/g, "-").replace(/^[.-]+/, "").slice(0, 64) || "repo";
+}
+function gitOut(path, args) {
+  try {
+    if (!lstatSync(join2(path, ".git"), { throwIfNoEntry: false })?.isDirectory()) return null;
+  } catch {
+    return null;
+  }
+  const r = execFileSyncSafe("git", gitArgs(["-c", "core.fsmonitor=false", ...args]), { cwd: path, env: { ...process.env, ...GIT_ENV }, timeoutMs: 1e4, maxBuffer: 8 * 1024 * 1024, allow: "exe" });
+  return r.code === 0 ? r.stdout : null;
+}
+function olderImport(path, defaultDir, platform = process.platform) {
+  const out = gitOut(path, ["rev-list", "--max-parents=0", "--format=%s", "HEAD"]);
+  if (!out) return false;
+  const files = out.split(/\r?\n/).map((l) => /^Import (.+\.zip)$/i.exec(l.trim())?.[1]).filter((f) => !!f);
+  if (!files.length) return false;
+  if (inFolder(path, defaultDir, platform)) return true;
+  const fold = (s) => platform === "darwin" || platform === "win32" ? s.toLowerCase() : s;
+  const folder = fold(basename(resolve2(path)));
+  return files.some((f) => {
+    const name = fold(folderName(f.replace(/\.zip$/i, "")));
+    return folder === name || folder.startsWith(`${name}-`) && /^(?:[2-9]|[1-9]\d+)$/.test(folder.slice(name.length + 1));
+  });
+}
+function clonedLike(path, platform) {
+  const origin = gitOut(path, ["config", "--get", "remote.origin.url"])?.trim();
+  if (!origin) return false;
+  const fold = (s) => platform === "darwin" || platform === "win32" ? s.toLowerCase() : s;
+  return fold(folderName(origin.replace(/[\\/]+$/, ""))) === fold(basename(path));
+}
+function markOlderSources(raw, file, platform = process.platform, home = homedir3()) {
+  const configDir = dirname(file);
+  const record2 = join2(configDir, MARKS_DONE);
+  if (existsSync2(record2)) return [];
+  const r = isObj(raw) ? raw : {};
+  const defaultDir = join2(home, "one-repos");
+  const marked = [];
+  for (const entry2 of Array.isArray(r.repos) ? r.repos : []) {
+    if (!isObj(entry2) || typeof entry2.path !== "string" || !entry2.path.trim()) continue;
+    if (isObj(entry2.claude) && typeof entry2.claude.projectSettings === "boolean") continue;
+    const path = resolve2(configDir, expandHome(entry2.path.trim()));
+    if (markOf(path)) continue;
+    const kind = olderImport(path, defaultDir, platform) ? "zip" : inFolder(path, defaultDir, platform) && clonedLike(path, platform) ? "folder" : null;
+    if (kind && markSource(path, kind)) marked.push(typeof entry2.name === "string" ? entry2.name.slice(0, 64) : basename(path));
+  }
+  try {
+    mkdirSync(configDir, { recursive: true, mode: 448 });
+    writeFileSync(record2, `${JSON.stringify({ v: 1, at: (/* @__PURE__ */ new Date()).toISOString(), marked }, null, 2)}
+`, { mode: 384 });
+  } catch {
+  }
+  return marked;
+}
+function unseenMarks(file) {
+  try {
+    const r = JSON.parse(readFileSync(join2(dirname(file), MARKS_DONE), "utf8"));
+    if (!isObj(r) || r.seen || !Array.isArray(r.marked)) return [];
+    return r.marked.filter((n) => typeof n === "string").map((n) => n.slice(0, 64)).slice(0, 200);
+  } catch {
+    return [];
+  }
+}
+function marksSeen(file) {
+  const record2 = join2(dirname(file), MARKS_DONE);
+  try {
+    const r = JSON.parse(readFileSync(record2, "utf8"));
+    if (isObj(r)) writeFileSync(record2, `${JSON.stringify({ ...r, seen: (/* @__PURE__ */ new Date()).toISOString() }, null, 2)}
+`, { mode: 384 });
+  } catch {
+  }
+}
+function expandHome(p) {
+  if (p === "~") return homedir3();
+  if (p.startsWith("~/") || p.startsWith("~\\")) return join2(homedir3(), p.slice(2));
+  return p;
+}
+var num = (v, def, min, max2) => typeof v === "number" && Number.isFinite(v) && v >= min && v <= max2 ? v : def;
+var usd = (v) => typeof v === "number" && Number.isFinite(v) && v > 0 ? Math.round(v * 100) / 100 : null;
+var strings = (v, max2 = 100) => Array.isArray(v) ? v.filter((s) => typeof s === "string" && !!s.trim()).map((s) => s.trim().slice(0, 300)).slice(0, max2) : [];
+function claudeConfig(raw, where, problems, trusted) {
+  const c = isObj(raw) ? raw : {};
+  const modes = {};
+  if (isObj(c.permissionMode)) {
+    for (const [kind, mode] of Object.entries(c.permissionMode)) {
+      if (kind !== "implement") {
+        problems.push(`${where}: claude.permissionMode.${kind} is ignored (only "implement": plan stages always run in plan mode)`);
+        continue;
+      }
+      if (PERMISSION_MODES.includes(String(mode))) modes[kind] = mode;
+      else problems.push(`${where}: claude.permissionMode.${kind} ${JSON.stringify(mode)} is not allowed (${PERMISSION_MODES.join(", ")} \u2014 never one that skips permissions)`);
+    }
+  }
+  const model = cleanModel(c.model);
+  const set = typeof c.projectSettings === "boolean";
+  if (c.projectSettings !== void 0 && !set) problems.push(`${where}: claude.projectSettings must be true or false \u2014 ${trusted ? "true" : "false"} is used`);
+  return {
+    model,
+    maxTurns: Math.floor(num(c.maxTurns, 30, 1, 200)),
+    permissionMode: modes,
+    allowedTools: strings(c.allowedTools),
+    disallowedTools: strings(c.disallowedTools),
+    strictMcp: c.strictMcp !== false,
+    mcpServers: mcpNames(c.mcpServers, where, problems),
+    projectSettings: set ? c.projectSettings : trusted,
+    projectSettingsSet: set
+  };
+}
+var MCP_NAME = /^[A-Za-z0-9_-]{1,64}$/;
+function mcpNames(raw, where, problems) {
+  const out = [];
+  for (const n of strings(raw, 20)) {
+    if (MCP_NAME.test(n) && n !== "one-task") out.push(n);
+    else problems.push(`${where}: claude.mcpServers ${JSON.stringify(n)} is not an MCP server name \u2014 left out`);
+  }
+  return [...new Set(out)];
+}
+function repoConfig(raw, index, configDir, problems, opts, cloneDir) {
+  const where = `repos[${index}]`;
+  if (!isObj(raw)) {
+    problems.push(`${where} is not an object`);
+    return null;
+  }
+  const name = typeof raw.name === "string" ? raw.name.trim() : "";
+  if (!REPO_NAME.test(name)) {
+    problems.push(`${where}: "name" must be 1\u201364 letters, digits, ".", "_" or "-" (it is what One shows)`);
+    return null;
+  }
+  const at = `${where} (${name})`;
+  const rawPath = typeof raw.path === "string" ? expandHome(raw.path.trim()) : "";
+  if (!rawPath) {
+    problems.push(`${at}: "path" is missing`);
+    return null;
+  }
+  const path = resolve2(configDir, rawPath);
+  const baseBranch = typeof raw.baseBranch === "string" && raw.baseBranch.trim() ? raw.baseBranch.trim() : "main";
+  if (!REF_PART.test(baseBranch)) {
+    problems.push(`${at}: "baseBranch" ${JSON.stringify(baseBranch)} is not a branch name`);
+    return null;
+  }
+  const remote = typeof raw.remote === "string" && raw.remote.trim() ? raw.remote.trim() : "origin";
+  if (!REMOTE.test(remote)) {
+    problems.push(`${at}: "remote" ${JSON.stringify(remote)} is not a remote name`);
+    return null;
+  }
+  const branchPrefix = typeof raw.branchPrefix === "string" ? raw.branchPrefix.trim() : "one/";
+  if (!PREFIX.test(branchPrefix)) {
+    problems.push(`${at}: "branchPrefix" ${JSON.stringify(branchPrefix)} is not allowed`);
+    return null;
+  }
+  const worktreeDir = typeof raw.worktreeDir === "string" && raw.worktreeDir.trim() ? resolve2(configDir, expandHome(raw.worktreeDir.trim())) : opts.cloud ? join2(configDir, "worktrees", name) : inSyncedFolder(path) ? join2(homedir3(), ".one-worktrees", name) : join2(dirname(path), ".one-worktrees", name);
+  let testCommand = null;
+  if (raw.testCommand !== void 0 && raw.testCommand !== null) {
+    if (typeof raw.testCommand === "string") problems.push(`${at}: "testCommand" must be a list (argv), e.g. ["npm", "test"] \u2014 a command line is never run through a shell`);
+    else {
+      const argv2 = strings(raw.testCommand, 50);
+      if (argv2.length) testCommand = argv2;
+      else problems.push(`${at}: "testCommand" is empty`);
+    }
+  }
+  let analyzeCommand = null;
+  if (raw.analyzeCommand !== void 0 && raw.analyzeCommand !== null) {
+    if (typeof raw.analyzeCommand === "string") problems.push(`${at}: "analyzeCommand" must be a list (argv), e.g. ["npx", "eslint", "."] \u2014 a command line is never run through a shell`);
+    else {
+      const argv2 = strings(raw.analyzeCommand, 50);
+      if (argv2.length) analyzeCommand = argv2;
+      else problems.push(`${at}: "analyzeCommand" is empty`);
+    }
+  }
+  const pr = raw.pr === "none" ? "none" : "gh";
+  const source = sourceOf(path, cloneDir, opts.platform);
+  return {
+    name,
+    path,
+    baseBranch,
+    remote,
+    branchPrefix,
+    worktreeDir,
+    testCommand,
+    testTimeoutSec: Math.floor(num(raw.testTimeoutSec, 600, 5, 7200)),
+    analyzeCommand,
+    analyzeTimeoutSec: Math.floor(num(raw.analyzeTimeoutSec, 900, 5, 7200)),
+    push: raw.push !== false,
+    pr,
+    claude: claudeConfig(raw.claude, at, problems, source === null),
+    maxUsdPerTask: usd(raw.maxUsdPerTask),
+    maxUsdPerDay: usd(raw.maxUsdPerDay),
+    source
+  };
+}
+function loadConfig(file, env = process.env, opts = {}) {
+  if (!existsSync2(file)) throw new Error(`No config file at ${file}. Create one with: node one-worker.mjs init${file === defaultConfigFile() ? "" : ` --config ${file}`}`);
+  let raw;
+  try {
+    raw = parseJsonc(readFileSync(file, "utf8"));
+  } catch (e) {
+    throw new Error(`${file} is not valid JSON: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  const marked = markOlderSources(raw, file, opts.platform, opts.home);
+  const loaded = sanitizeConfig(raw, file, env, opts);
+  if (marked.length) loaded.notes = [`marked ${marked.length} repo(s) an older worker cloned or imported as code from elsewhere (${marked.join(", ")}) \u2014 Claude Code runs on them without their own settings; the setup page can switch that per repo`];
+  return loaded;
+}
+function sanitizeConfig(raw, file, env = process.env, opts = {}) {
+  const problems = [];
+  const r = isObj(raw) ? raw : {};
+  const configDir = dirname(file);
+  let workspace = null;
+  if (typeof r.workspace === "string" && r.workspace.trim()) {
+    if (WORKSPACE_ID.test(r.workspace.trim())) workspace = r.workspace.trim();
+    else problems.push(`"workspace" ${JSON.stringify(r.workspace)} is not a workspace id (One shows it in Settings \u2192 Coding worker, e.g. "local:abc123")`);
+  }
+  const cloneDir = cloneDirOf(env.ONE_WORKER_CLONE_DIR ?? r.cloneDir, configDir, problems);
+  const repos = [];
+  const list = Array.isArray(r.repos) ? r.repos : [];
+  if (!Array.isArray(r.repos)) problems.push('"repos" is missing: list the repositories this worker may work in');
+  list.forEach((entry2, i2) => {
+    const repo = repoConfig(entry2, i2, configDir, problems, opts, cloneDir);
+    if (!repo) return;
+    if (repos.some((x2) => x2.name === repo.name)) problems.push(`repos[${i2}]: the name "${repo.name}" is used twice \u2014 the second one is ignored`);
+    else repos.push(repo);
+  });
+  const envPort = Number(env.ONE_WORKER_PORT);
+  const port = Number.isInteger(envPort) && envPort >= 1024 && envPort <= 65535 ? envPort : Math.floor(num(r.port, WORKER_DEFAULT_PORT, 1024, 65535));
+  const name = (typeof r.name === "string" && r.name.trim() ? r.name : hostname()).replace(/[^\p{L}\p{N} ._-]/gu, "").trim().slice(0, 40) || "worker";
+  return {
+    config: {
+      file,
+      workspace,
+      name,
+      port,
+      parallel: Math.floor(num(r.parallel, PARALLEL_MAX, 1, PARALLEL_MAX)),
+      pollSec: Math.floor(num(r.pollSec, 15, 2, 600)),
+      origins: strings(r.origins, 20),
+      repos,
+      cloneDir,
+      mcpServers: mcpNames(r.mcpServers, "worker", problems),
+      intake: r.intake !== false,
+      preset: null
+    },
+    problems
+  };
+}
+function cloneDirOf(raw, configDir, problems) {
+  if (raw === void 0 || raw === null || raw === "") return join2(homedir3(), "one-repos");
+  if (typeof raw !== "string" || raw.length > 1e3 || /[\u0000-\u001f]/.test(raw)) {
+    problems.push('"cloneDir" is not a folder \u2014 using ~/one-repos');
+    return join2(homedir3(), "one-repos");
+  }
+  return resolve2(configDir, expandHome(raw.trim()));
+}
+function scratchRepo(config2, taskId) {
+  const dir = join2(dirname(config2.file), "scratch", taskId.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 64) || "task");
+  mkdirSync(dir, { recursive: true, mode: 448 });
+  return {
+    name: "(no repository)",
+    path: dir,
+    baseBranch: "main",
+    remote: "origin",
+    branchPrefix: "one/",
+    worktreeDir: dir,
+    testCommand: null,
+    testTimeoutSec: 600,
+    analyzeCommand: null,
+    analyzeTimeoutSec: 900,
+    push: false,
+    pr: "none",
+    claude: { model: null, maxTurns: 40, permissionMode: {}, allowedTools: [], disallowedTools: [], strictMcp: true, mcpServers: config2.mcpServers, projectSettings: false, projectSettingsSet: false },
+    maxUsdPerTask: null,
+    maxUsdPerDay: null,
+    source: null
+  };
+}
+function exampleConfig(workspace) {
+  const home = homedir3().replace(/\\/g, "/");
+  return `// one-worker \u2014 runs coding tasks from One with Claude Code on this computer.
+// Docs: https://github.com/MarcelWeissgerberIT/SimpleCMS/blob/main/docs/CODING.md
+// Paths and commands in this file never leave this computer: One only learns repo names.
+{
+  // The One workspace this worker serves \u2014 One shows its id in Settings \u2192 Coding worker.
+  // The worker refuses tabs of every other workspace.
+  "workspace": ${workspace ? JSON.stringify(workspace) : "null"},
+
+  // How One shows this worker (default: this computer's name).
+  // "name": "laptop",
+
+  // WebSocket port on 127.0.0.1 (set the same port in One; ONE_WORKER_PORT overrides it).
+  "port": ${WORKER_DEFAULT_PORT},
+
+  // Tasks at once across repos (1\u2013${PARALLEL_MAX}; always one per repo).
+  "parallel": ${PARALLEL_MAX},
+
+  "repos": [
+    {
+      // The name One shows (letters, digits, . _ -).
+      "name": "website",
+      // The main checkout. The worker never changes its working tree: every task gets its own worktree.
+      "path": "${home}/code/website",
+      "baseBranch": "main",
+      "remote": "origin",
+      // New task branches: <prefix><title>-<id>
+      "branchPrefix": "one/",
+      // Where task worktrees go (default: next to the repo, in .one-worktrees/<name>).
+      // "worktreeDir": "${home}/code/.one-worktrees/website",
+
+      // The Test stage runs this in the worktree \u2014 an argv list, never a shell line. Leave it out: no tests.
+      "testCommand": ["npm", "test"],
+      "testTimeoutSec": 600,
+      // The Static analysis stage runs this (a report: its findings go into the task page). Leave it out: none.
+      // "analyzeCommand": ["npx", "eslint", "."],
+
+      // Push task branches to the remote (Ship stage, Push key in One).
+      "push": true,
+      // "gh": open pull requests with the GitHub CLI (when installed and signed in) \xB7 "none": only a compare link.
+      "pr": "gh",
+
+      "claude": {
+        // A model name Claude Code accepts; null = Claude Code's default.
+        "model": null,
+        // Most turns per stage.
+        "maxTurns": 30,
+        // Claude Code's permission mode for implement stages: "acceptEdits" (default) or "default".
+        // Plan stages always run in "plan" mode. A mode that skips permissions is never used.
+        // "permissionMode": { "implement": "acceptEdits" },
+        // Tools Claude Code may use without asking (headless runs cannot ask) \u2014 Claude Code's own syntax.
+        "allowedTools": ["Read", "Grep", "Glob", "Edit", "Write", "Bash(npm test:*)", "Bash(npm run lint:*)"],
+        "disallowedTools": ["Bash(git push:*)", "Bash(rm -rf:*)"]
+      },
+
+      // Cost limits in US dollars (Claude Code's own accounting). A stage stops at the limit.
+      "maxUsdPerTask": 5,
+      "maxUsdPerDay": 25
+    }
+  ]
+}
+`;
+}
+function initConfig(file, workspace, force = false) {
+  if (workspace !== null && !WORKSPACE_ID.test(workspace)) throw new Error(`${JSON.stringify(workspace)} is not a workspace id (e.g. "local:abc123" \u2014 One shows it in Settings \u2192 Coding worker)`);
+  if (existsSync2(file) && !force) throw new Error(`${file} already exists. Edit it, or run init with --force to replace it.`);
+  if (!isAbsolute(file)) file = resolve2(file);
+  mkdirSync(dirname(file), { recursive: true, mode: 448 });
+  writeFileSync(file, exampleConfig(workspace), { mode: 384 });
+  return file;
+}
+function withPreset(config2, preset2, env = process.env) {
+  if (!preset2) return config2;
+  const envPort = Number(env.ONE_WORKER_PORT);
+  const port = Number.isInteger(envPort) && envPort >= 1024 && envPort <= 65535 ? envPort : preset2.port;
+  return { ...config2, workspace: preset2.workspace, port, preset: preset2 };
+}
+function emptyConfig(file, env = process.env) {
+  return sanitizeConfig({ repos: [] }, file, env).config;
+}
+function cloudOf(config2) {
+  const p = config2.preset;
+  return p?.cloud ? { origin: p.origin, token: p.cloud.token } : null;
+}
+function splitArgs(line, platform = process.platform) {
+  const win2 = platform === "win32";
+  const out = [];
+  let cur = "";
+  let has = false;
+  let quote = null;
+  for (let i2 = 0; i2 < line.length; i2++) {
+    const c = line[i2];
+    if (quote === "'") {
+      if (c === "'") quote = null;
+      else cur += c;
+    } else if (quote === '"') {
+      if (c === '"') quote = null;
+      else if (c === "\\" && i2 + 1 < line.length && (line[i2 + 1] === '"' || !win2 && line[i2 + 1] === "\\")) cur += line[++i2];
+      else cur += c;
+    } else if (c === '"' || c === "'") {
+      quote = c;
+      has = true;
+    } else if (c === "\\" && !win2 && i2 + 1 < line.length) {
+      cur += line[++i2];
+      has = true;
+    } else if (/\s/.test(c)) {
+      if (has || cur) out.push(cur);
+      cur = "";
+      has = false;
+    } else {
+      cur += c;
+      has = true;
+    }
+  }
+  if (has || cur) out.push(cur);
+  return out.filter((a) => a.length <= 300).slice(0, 50);
+}
+var HEADER = "// one-worker \u2014 written by its setup page";
+function homeRelative(path) {
+  const home = resolve2(homedir3()).replace(/[\\/]+$/, "");
+  if (pathId(path).startsWith(pathId(home) + sep2) && path.length > home.length + 1) return `~/${path.slice(home.length + 1).replace(/\\/g, "/")}`;
+  return path;
+}
+function saveRepos(file, choices, workspace, env = process.env, extra = {}) {
+  const configDir = dirname(file);
+  let text2 = null;
+  let raw = {};
+  if (existsSync2(file)) {
+    text2 = readFileSync(file, "utf8");
+    try {
+      const parsed = parseJsonc(text2);
+      if (isObj(parsed)) raw = parsed;
+    } catch {
+      return [`${file} is not valid JSON \u2014 fix or remove it first`];
+    }
+  }
+  const before = Array.isArray(raw.repos) ? raw.repos.filter(isObj) : [];
+  const pathOf2 = (r) => typeof r.path === "string" && r.path.trim() ? resolve2(configDir, expandHome(r.path.trim())) : null;
+  const repos = choices.map((c) => {
+    const old = before.find((r) => pathOf2(r) !== null && samePath(pathOf2(r), c.path)) ?? {};
+    const entry2 = { ...old, name: c.name, path: homeRelative(resolve2(c.path)), baseBranch: c.baseBranch };
+    if (c.remote && c.remote !== "origin") entry2.remote = c.remote;
+    if (c.testCommand?.length) entry2.testCommand = c.testCommand;
+    else delete entry2.testCommand;
+    if (c.analyzeCommand !== void 0) {
+      if (c.analyzeCommand?.length) entry2.analyzeCommand = c.analyzeCommand;
+      else delete entry2.analyzeCommand;
+    }
+    entry2.push = c.push;
+    entry2.pr = c.pr;
+    if (c.maxUsdPerTask) entry2.maxUsdPerTask = c.maxUsdPerTask;
+    else delete entry2.maxUsdPerTask;
+    if (c.mcpServers) {
+      const claude = isObj(entry2.claude) ? { ...entry2.claude } : {};
+      if (c.mcpServers.length) claude.mcpServers = c.mcpServers;
+      else delete claude.mcpServers;
+      if (Object.keys(claude).length) entry2.claude = claude;
+      else delete entry2.claude;
+    }
+    return entry2;
+  });
+  const next = { ...raw };
+  if (workspace) next.workspace = workspace;
+  if (extra.cloneDir) next.cloneDir = homeRelative(resolve2(extra.cloneDir));
+  if (extra.mcpServers) {
+    if (extra.mcpServers.length) next.mcpServers = extra.mcpServers;
+    else delete next.mcpServers;
+  }
+  next.repos = repos;
+  const nextCloneDir = cloneDirOf(env.ONE_WORKER_CLONE_DIR ?? next.cloneDir, configDir, []);
+  choices.forEach((c, i2) => {
+    if (c.projectSettings === void 0) return;
+    const entry2 = repos[i2];
+    const path = resolve2(c.path);
+    const mark = markOf(path);
+    const byDefault = !mark && !inFolder(path, nextCloneDir);
+    const claude = isObj(entry2.claude) ? { ...entry2.claude } : {};
+    if (typeof claude.projectSettings !== "boolean" && c.projectSettings === byDefault && c.projectSettings === !mark) return;
+    claude.projectSettings = c.projectSettings;
+    entry2.claude = claude;
+  });
+  const check = sanitizeConfig(next, file, env);
+  const dropped = check.problems.filter((p) => p.startsWith("repos["));
+  if (dropped.length || check.config.repos.length !== choices.length) return dropped.length ? dropped : ["a repository could not be saved"];
+  mkdirSync(configDir, { recursive: true, mode: 448 });
+  if (text2 !== null && !text2.startsWith(HEADER) && /\/\/|\/\*/.test(text2.replace(/"(?:[^"\\]|\\.)*"/g, '""'))) {
+    const bak = `${file}.bak`;
+    if (!existsSync2(bak)) {
+      copyFileSync(file, bak);
+      chmodSync(bak, 384);
+    }
+  }
+  const body = `${HEADER} (node one-worker.mjs setup) \u2014 edit it by hand if you like.
+// Paths and commands in this file never leave this computer: One only learns repo names.
+// Every key: https://github.com/MarcelWeissgerberIT/SimpleCMS/blob/main/docs/CODING.md#workerjson
+${JSON.stringify(next, null, 2)}
+`;
+  const tmp = `${file}.${process.pid}.tmp`;
+  writeFileSync(tmp, body, { mode: 384 });
+  chmodSync(tmp, 384);
+  renameRetry(tmp, file);
+  return [];
+}
+
+// src/worker/claude.ts
+import { createInterface } from "node:readline";
+import { readFileSync as readFileSync2, realpathSync as realpathSync2, statSync as statSync2 } from "node:fs";
+import { homedir as homedir4 } from "node:os";
+import { join as join3, win32 as win323 } from "node:path";
 
 // src/worker/price.ts
 var PRICES = [
@@ -12015,10 +12197,10 @@ function cliMode(mode, caps) {
 var SIGNED_OUT = /Failed to authenticate|OAuth (session|token)[^.]*(expired|invalid|revoked)|Invalid API key|authentication_error|Please run \/login|not logged in|Not authenticated/i;
 var AUTH_HINT = "Claude Code is not signed in on this computer (its login expired). In a terminal: run `claude`, type /login and sign in, then press Retry in One \u2014 the worker uses the same login.";
 var PLAN_FILE = /[\\/]\.claude[\\/]plans[\\/][^\\/]+\.md$/;
-function readPlanFile(path, home = homedir2()) {
+function readPlanFile(path, home = homedir4()) {
   try {
-    const dir = realpathSync2(join2(home, ".claude", "plans"));
-    const real = realpathSync2(path.startsWith("~/") || path.startsWith("~\\") ? join2(home, path.slice(2)) : path);
+    const dir = realpathSync2(join3(home, ".claude", "plans"));
+    const real = realpathSync2(path.startsWith("~/") || path.startsWith("~\\") ? join3(home, path.slice(2)) : path);
     if (!inFolder(real, dir) || samePath(real, dir) || !/\.md$/i.test(real)) return null;
     if (statSync2(real).size > 200 * 1024) return null;
     const text2 = readFileSync2(real, "utf8").trim();
@@ -12207,48 +12389,52 @@ Claude Code could not start (${e.code ?? e.name})`;
 }
 
 // src/worker/git.ts
-import { execFile, spawn as spawn2 } from "node:child_process";
-import { existsSync as existsSync2, lstatSync as lstatSync2, mkdirSync as mkdirSync2, readFileSync as readFileSync3, readlinkSync, rmSync } from "node:fs";
-import { dirname as dirname2, join as join3, resolve as resolve2, sep as sep2 } from "node:path";
+import { createHash } from "node:crypto";
+import { existsSync as existsSync3, lstatSync as lstatSync2, mkdirSync as mkdirSync2, readFileSync as readFileSync3, readlinkSync } from "node:fs";
+import { dirname as dirname2, join as join4, resolve as resolve3 } from "node:path";
 var GitError = class extends Error {
+  /** a log code that says more (folderBusy: Windows still holds files in a folder the worker removes) */
+  code;
+  constructor(message, code) {
+    super(message);
+    if (code) this.code = code;
+  }
 };
 var DIFF_FILE_MAX = 12e4;
 var DIFF_TOTAL_MAX = 15e5;
 var DIFF_FILES_MAX = 200;
-var ENV = { GIT_TERMINAL_PROMPT: "0", GIT_OPTIONAL_LOCKS: "0", LC_ALL: "C", GCM_INTERACTIVE: "never" };
 var OUT_MAX = 32 * 1024 * 1024;
-function git(cwd, args, timeoutMs = 12e4) {
+async function git(cwd, args, timeoutMs = 12e4) {
+  const env = await gitEnv(cwd, process.env, { timeoutMs });
   return new Promise((done) => {
     const out = [];
     const err2 = [];
     let size = 0;
     let why2 = null;
     let settled = false;
+    let ended;
     const finish = (code, extra = "") => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       const stderr = Buffer.concat(err2).toString();
-      done({ code, stdout: Buffer.concat(out).toString(), stderr: why2 ?? (stderr || extra), timedOut: why2 !== null && why2.includes("did not finish") });
+      done({ code, stdout: Buffer.concat(out).toString(), stderr: why2 ?? (stderr || extra), timedOut: why2 !== null && why2.includes("did not finish"), ...ended ? { ended } : {} });
     };
-    const child = spawn2("git", args, { cwd, env: { ...process.env, ...ENV }, stdio: ["ignore", "pipe", "pipe"], detached: process.platform !== "win32", windowsHide: true });
-    const stop = () => {
-      try {
-        if (process.platform !== "win32" && child.pid) process.kill(-child.pid, "SIGKILL");
-        else child.kill("SIGKILL");
-      } catch {
-      }
-    };
+    const s = spawnSafe("git", gitArgs(args), { cwd, env, stdio: ["ignore", "pipe", "pipe"], detached: process.platform !== "win32", windowsHide: true, allow: "exe" });
     const timer = setTimeout(() => {
       why2 = `git ${args[0]} did not finish within ${Math.round(timeoutMs / 1e3)} s \u2014 no network, files still coming from iCloud Drive, or it waits for a password or an SSH key passphrase (the worker cannot type one: use an SSH agent or a credential helper)`;
-      stop();
+      if (s.ok) ended = killTree(s.child);
       finish(1);
     }, timeoutMs);
+    if (!s.ok) return finish(127, s.error);
+    const child = s.child;
     const take = (into) => (d) => {
       size += d.length;
       if (size > OUT_MAX) {
-        why2 = `git ${args[0]}: output too large`;
-        stop();
+        if (!why2) {
+          why2 = `git ${args[0]}: output too large`;
+          ended = killTree(child);
+        }
         return;
       }
       into.push(d);
@@ -12264,12 +12450,9 @@ async function gitOk(cwd, args, timeoutMs) {
   if (r.code !== 0) throw new GitError((r.stderr || r.stdout).trim().split("\n").slice(-6).join("\n") || `git ${args[0]} failed`);
   return r.stdout;
 }
-var same = (a, b) => {
-  const norm = (p) => resolve2(p).replace(/[\\/]+$/, "");
-  return process.platform === "win32" ? norm(a).toLowerCase() === norm(b).toLowerCase() : norm(a) === norm(b);
-};
+var same = (a, b) => samePath(a, b);
 async function checkRepo(repo) {
-  if (!existsSync2(repo.path)) throw new GitError(`the folder does not exist`);
+  if (!existsSync3(repo.path)) throw new GitError(`the folder does not exist`);
   const top = (await gitOk(repo.path, ["rev-parse", "--show-toplevel"], 3e4)).trim();
   if (!top) throw new GitError("not a git checkout");
   return top;
@@ -12281,7 +12464,7 @@ async function listWorktrees(repo) {
   const out = await gitOk(repo.path, ["worktree", "list", "--porcelain"]);
   const list = [];
   let cur = null;
-  for (const line of out.split("\n")) {
+  for (const line of out.split(/\r?\n/)) {
     if (line.startsWith("worktree ")) {
       cur = { path: line.slice(9), branch: null, head: null, bare: false };
       list.push(cur);
@@ -12295,7 +12478,7 @@ var BRANCHES_MAX = 100;
 async function localBranches(repo, timeoutMs = 5e3) {
   const r = await git(repo.path, ["for-each-ref", "--sort=-committerdate", `--count=${BRANCHES_MAX}`, "--format=%(refname:short)", "refs/heads"], timeoutMs);
   if (r.code !== 0) return [];
-  return r.stdout.split("\n").map((b) => b.trim()).filter((b) => b && b.length <= 200);
+  return r.stdout.split(/\r?\n/).map((b) => b.trim()).filter((b) => b && b.length <= 200);
 }
 async function prune(repo) {
   await git(repo.path, ["worktree", "prune"], 3e4);
@@ -12334,13 +12517,33 @@ function slug(title, max2 = 40) {
   return s || "task";
 }
 var shortId = (taskId) => taskId.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 6) || "task";
+var DEVICE = /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³]|conin\$|conout\$)$/i;
+function worktreeFolder(branch, platform = process.platform) {
+  const plain = branch.replace(/[\\/]+/g, "-");
+  if (platform !== "win32") return plain;
+  let s = plain.replace(/[<>:"|?*\u0000-\u001f]/g, "_").replace(/[. ]+$/, "");
+  if (DEVICE.test(s.split(".")[0].replace(/ +$/, ""))) s = `_${s}`;
+  if (s === plain && s.length <= 32) return s;
+  const cut = s.slice(0, 32).replace(/[. ]+$/, "") || "_";
+  return `${cut}-${createHash("sha1").update(branch).digest("hex").slice(0, 6)}`;
+}
+var leftovers = /* @__PURE__ */ new Set();
+async function freeFolder(repo, dir, branch) {
+  if (!existsSync3(dir)) return;
+  if (leftovers.has(pathId(dir)) && insideWorktrees(repo, dir) && await rmRetry(dir)) {
+    leftovers.delete(pathId(dir));
+    await prune(repo);
+    return;
+  }
+  throw new GitError(`the worktree folder for ${branch} already exists and is not a worktree of this repo \u2014 move it away first`);
+}
 async function ensureWorktree(repo, state, task, wanted, note) {
   const top = await checkRepo(repo);
   const known = state.taskAt(task.id);
   const trees = await listWorktrees(repo);
   if (known && known.repo === repo.name && (!wanted || wanted === known.branch)) {
     const tree = trees.find((w) => w.branch === known.branch && same(w.path, known.worktree));
-    if (tree && existsSync2(tree.path)) return { dir: tree.path, branch: known.branch, created: !!state.created(repo.name, known.branch)?.branchCreated };
+    if (tree && existsSync3(tree.path)) return { dir: tree.path, branch: known.branch, created: !!state.created(repo.name, known.branch)?.branchCreated };
   }
   if (wanted) return reuse(repo, state, task, wanted, top, trees, note);
   await tryFetch(repo, note);
@@ -12349,8 +12552,8 @@ async function ensureWorktree(repo, state, task, wanted, note) {
   let branch = `${repo.branchPrefix}${slug(task.title)}-${shortId(task.id)}`;
   for (let n = 2; await branchExists(repo, branch) && n < 50; n++) branch = `${repo.branchPrefix}${slug(task.title)}-${shortId(task.id)}-${n}`;
   if (!await validBranch(repo, branch)) throw new GitError(`"${branch}" is not a valid branch name (check branchPrefix in worker.json)`);
-  const dir = join3(repo.worktreeDir, branch.replace(/[\\/]+/g, "-"));
-  if (existsSync2(dir)) throw new GitError(`the worktree folder for ${branch} already exists and is not a worktree of this repo \u2014 move it away first`);
+  const dir = join4(repo.worktreeDir, worktreeFolder(branch));
+  await freeFolder(repo, dir, branch);
   mkdirSync2(dirname2(dir), { recursive: true });
   note?.("git", `New branch ${branch} from ${base} in its own worktree\u2026`, "newBranch", { branch, base });
   await addWorktree(repo, ["-b", branch, dir, base], dir, branch, note);
@@ -12370,13 +12573,21 @@ async function addWorktree(repo, args, dir, newBranch, note) {
   try {
     const r = await git(repo.path, ["worktree", "add", ...args], checkoutMs());
     if (r.code === 0) return;
-    if (insideWorktrees(repo, dir)) {
-      await git(repo.path, ["worktree", "remove", "--force", dir]);
-      rmSync(dir, { recursive: true, force: true });
+    const failed = new GitError((r.stderr || r.stdout).trim().split(/\r?\n/).slice(-6).join("\n") || "git worktree add failed");
+    await r.ended;
+    try {
+      if (insideWorktrees(repo, dir)) {
+        await git(repo.path, ["worktree", "remove", "--force", dir]);
+        if (!await rmRetry(dir)) {
+          leftovers.add(pathId(dir));
+          note?.("warn", FOLDER_BUSY, "folderBusy", {});
+        }
+      }
+      await prune(repo);
+      if (newBranch && await branchExists(repo, newBranch)) await git(repo.path, ["branch", "-D", newBranch]);
+    } catch {
     }
-    await prune(repo);
-    if (newBranch && await branchExists(repo, newBranch)) await git(repo.path, ["branch", "-D", newBranch]);
-    throw new GitError((r.stderr || r.stdout).trim().split("\n").slice(-6).join("\n") || "git worktree add failed");
+    throw failed;
   } finally {
     clearInterval(beat);
   }
@@ -12391,8 +12602,8 @@ async function reuse(repo, state, task, branch, top, trees, note) {
     state.setTask(task.id, { repo: repo.name, branch, worktree: tree.path });
     return { dir: tree.path, branch, created: !!own2?.branchCreated };
   }
-  const dir = join3(repo.worktreeDir, branch.replace(/[\\/]+/g, "-"));
-  if (existsSync2(dir)) throw new GitError(`the worktree folder for ${branch} already exists and is not a worktree of this repo \u2014 move it away first`);
+  const dir = join4(repo.worktreeDir, worktreeFolder(branch));
+  await freeFolder(repo, dir, branch);
   mkdirSync2(dirname2(dir), { recursive: true });
   if (await branchExists(repo, branch)) {
     await addWorktree(repo, [dir, branch], dir, null, note);
@@ -12408,7 +12619,7 @@ async function reuse(repo, state, task, branch, top, trees, note) {
 async function worktreeOf(repo, branch) {
   const top = await checkRepo(repo);
   const tree = (await listWorktrees(repo)).find((w) => w.branch === branch);
-  return tree && !same(tree.path, top) && existsSync2(tree.path) ? tree.path : null;
+  return tree && !same(tree.path, top) && existsSync3(tree.path) ? tree.path : null;
 }
 async function branchDiff(repo, branch, dir, max2 = 8e4) {
   if (!dir && !await branchExists(repo, branch)) return null;
@@ -12423,8 +12634,8 @@ async function branchDiff(repo, branch, dir, max2 = 8e4) {
   if (!mb) return null;
   const range = dir ? [mb] : [mb, branch];
   const stat = (await git(cwd, ["diff", "--stat=120", "-M", ...range])).stdout.trimEnd();
-  const files = (await git(cwd, ["diff", "--name-only", "-M", ...range])).stdout.split("\n").filter(Boolean).length;
-  const fresh = dir ? (await git(cwd, ["ls-files", "--others", "--exclude-standard"])).stdout.split("\n").filter(Boolean).slice(0, 100) : [];
+  const files = (await git(cwd, ["diff", "--name-only", "-M", ...range])).stdout.split(/\r?\n/).filter(Boolean).length;
+  const fresh = dir ? (await git(cwd, ["ls-files", "--others", "--exclude-standard"])).stdout.split(/\r?\n/).filter(Boolean).slice(0, 100) : [];
   let diff = (await git(cwd, ["diff", "--no-ext-diff", "-M", ...range], 12e4)).stdout;
   if (!diff.trim() && !fresh.length) return null;
   let clipped = false;
@@ -12458,7 +12669,7 @@ function hasMarkers(path) {
   }
 }
 function unresolved(dir, status) {
-  return status.filter((e) => CONFLICT.has(e.xy) && (!(e.xy === "UU" || e.xy === "AA") || hasMarkers(join3(dir, e.path)))).map((e) => e.path);
+  return status.filter((e) => CONFLICT.has(e.xy) && (!(e.xy === "UU" || e.xy === "AA") || hasMarkers(join4(dir, e.path)))).map((e) => e.path);
 }
 async function conflictsOf(dir) {
   return unresolved(dir, await statusOf(dir));
@@ -12554,7 +12765,7 @@ async function diffFiles(dir, base, status) {
   }
   for (const e of status) {
     if (e.xy !== "??" || files.length >= DIFF_FILES_MAX) continue;
-    const abs = join3(dir, e.path);
+    const abs = join4(dir, e.path);
     let size = 0;
     try {
       const st = lstatSync2(abs);
@@ -12595,7 +12806,7 @@ ${body}`);
   return files;
 }
 async function commitAll(dir, message) {
-  const merging = existsSync2(join3(await gitDir(dir), "MERGE_HEAD"));
+  const merging = existsSync3(join4(await gitDir(dir), "MERGE_HEAD"));
   if (!await isDirty(dir) && !merging) return null;
   const conflicts = await conflictsOf(dir);
   if (conflicts.length) throw new GitError(`conflicts in ${conflicts.length} file(s) are not resolved: ${conflicts.slice(0, 5).join(", ")}`);
@@ -12605,7 +12816,7 @@ async function commitAll(dir, message) {
 }
 async function gitDir(dir) {
   const d = (await gitOk(dir, ["rev-parse", "--git-dir"])).trim();
-  return resolve2(dir, d);
+  return resolve3(dir, d);
 }
 async function push(repo, dir, branch, force = false) {
   if (!await hasRemote(repo)) throw new GitError(`the repo has no remote "${repo.remote}"`);
@@ -12638,21 +12849,20 @@ function compareUrl(remoteUrl, base, branch) {
   const enc = (s) => s.split("/").map(encodeURIComponent).join("/");
   return w.kind === "github" ? `https://${w.host}/${w.path}/compare/${enc(base)}...${enc(branch)}?expand=1` : `https://${w.host}/${w.path}/-/merge_requests/new?merge_request%5Bsource_branch%5D=${encodeURIComponent(branch)}&merge_request%5Btarget_branch%5D=${encodeURIComponent(base)}`;
 }
-function run(cmd, args, cwd, timeoutMs = 12e4) {
-  return new Promise((done) => {
-    execFile(cmd, args, { cwd, timeout: timeoutMs, maxBuffer: 8 * 1024 * 1024, env: { ...process.env, GH_PROMPT_DISABLED: "1", NO_COLOR: "1" }, windowsHide: true }, (err2, stdout, stderr) => {
-      const code = err2 ? typeof err2.code === "number" ? err2.code : 127 : 0;
-      done({ code, stdout: String(stdout), stderr: String(stderr || (err2 && code === 127 ? err2.message : "")) });
-    });
-  });
+async function run(cmd, args, cwd, timeoutMs = 12e4, input) {
+  const r = await execFileSafe(cmd, args, { cwd, env: { ...process.env, GH_PROMPT_DISABLED: "1", NO_COLOR: "1" }, timeoutMs, maxBuffer: 8 * 1024 * 1024, allow: "shim", ...input !== void 0 ? { input } : {} });
+  return { code: r.code, stdout: r.stdout, stderr: r.stderr || r.error || "" };
 }
+var BODY_MAX = 6e4;
+var GLAB_TEXT_MAX_WIN = 15e3;
+var glabText = (text2, platform = process.platform) => text2.slice(0, platform === "win32" ? GLAB_TEXT_MAX_WIN : BODY_MAX);
 async function openPr(repo, dir, branch, title, body) {
   const remoteUrl = (await git(repo.path, ["remote", "get-url", repo.remote])).stdout.trim();
   const web = webBase(remoteUrl);
   if (repo.pr === "gh" && web?.kind === "github") {
     const gh = await run("gh", ["--version"], dir, 1e4);
     if (gh.code === 0) {
-      const made = await run("gh", ["pr", "create", "--base", repo.baseBranch, "--head", branch, "--title", title.slice(0, 250), "--body", body.slice(0, 6e4)], dir);
+      const made = await run("gh", ["pr", "create", "--base", repo.baseBranch, "--head", branch, "--title", title.slice(0, 250), "--body-file", "-"], dir, 12e4, body.slice(0, BODY_MAX));
       const url2 = /https?:\/\/\S+/.exec(made.stdout)?.[0] ?? /https?:\/\/\S+\/pull\/\d+/.exec(made.stderr)?.[0];
       if (made.code === 0 && url2) return { url: url2, via: "gh" };
       if (/already exists/i.test(made.stderr)) {
@@ -12665,7 +12875,7 @@ async function openPr(repo, dir, branch, title, body) {
   if (repo.pr === "gh" && web?.kind === "gitlab") {
     const glab = await run("glab", ["--version"], dir, 1e4);
     if (glab.code === 0) {
-      const made = await run("glab", ["mr", "create", "--source-branch", branch, "--target-branch", repo.baseBranch, "--title", title.slice(0, 250), "--description", body.slice(0, 6e4), "--yes"], dir);
+      const made = await run("glab", ["mr", "create", "--source-branch", branch, "--target-branch", repo.baseBranch, "--title", title.slice(0, 250), "--description", glabText(body), "--yes"], dir);
       const url2 = /https?:\/\/\S+\/-\/merge_requests\/\d+/.exec(`${made.stdout}
 ${made.stderr}`)?.[0];
       if (url2) return { url: url2, via: "glab" };
@@ -12699,10 +12909,10 @@ async function requestUrl(tool, dir, branch) {
   }
 }
 async function commentPr(repo, dir, branch, body) {
-  const text2 = body.trim().slice(0, 6e4);
+  const text2 = body.trim().slice(0, BODY_MAX);
   if (!text2) throw new GitError("there is nothing to post");
   const { tool } = await hostCli(repo, dir);
-  const made = tool === "gh" ? await run("gh", ["pr", "comment", branch, "--body", text2], dir) : await run("glab", ["mr", "note", branch, "--message", text2], dir);
+  const made = tool === "gh" ? await run("gh", ["pr", "comment", branch, "--body-file", "-"], dir, 12e4, text2) : await run("glab", ["mr", "note", branch, "--message", glabText(text2)], dir);
   if (made.code !== 0) throw new GitError(`${tool === "gh" ? "gh pr comment" : "glab mr note"} failed: ${lastLines(made)}`);
   return { via: tool, url: await requestUrl(tool, dir, branch) ?? /https?:\/\/\S+/.exec(made.stdout)?.[0] ?? null };
 }
@@ -12754,7 +12964,13 @@ async function discard(repo, state, branch) {
   const tree = (await listWorktrees(repo)).find((w) => w.branch === branch);
   let removedTree = false;
   if (tree && !same(tree.path, top) && own2.worktree && same(tree.path, own2.worktree)) {
-    await gitOk(repo.path, ["worktree", "remove", "--force", tree.path]);
+    const r = await git(repo.path, ["worktree", "remove", "--force", tree.path]);
+    if (r.code !== 0) {
+      const failed = (r.stderr || r.stdout).trim().split(/\r?\n/).slice(-6).join("\n") || "git worktree remove failed";
+      if (!insideWorktrees(repo, tree.path)) throw new GitError(failed);
+      if (!await rmRetry(tree.path)) throw new GitError(failed, "folderBusy");
+      await prune(repo);
+    }
     removedTree = true;
   }
   let removedBranch = false;
@@ -12784,22 +13000,43 @@ async function cleanup(repo, state, branch) {
   state.forget(repo.name, branch);
   return { worktree: !!dir, branch: removedBranch };
 }
+function ownLocks(repo, state) {
+  const out = [];
+  for (const entry2 of Object.values(state.data.created[repo.name] ?? {})) {
+    if (!entry2.worktree) continue;
+    try {
+      const link = readFileSync3(join4(entry2.worktree, ".git"), "utf8");
+      const gitdir = /^gitdir:\s*(.+)$/m.exec(link)?.[1]?.trim();
+      if (!gitdir) continue;
+      const lock = join4(resolve3(entry2.worktree, gitdir), "index.lock");
+      if (existsSync3(lock)) out.push(lock);
+    } catch {
+    }
+  }
+  return out;
+}
 function insideWorktrees(repo, dir) {
-  const root = resolve2(repo.worktreeDir) + sep2;
-  return resolve2(dir).startsWith(root);
+  return inFolder(dir, repo.worktreeDir) && !samePath(dir, repo.worktreeDir) && !samePath(dir, repo.path);
 }
 
 // src/worker/run.ts
 import { randomBytes } from "node:crypto";
-import { existsSync as existsSync3, mkdtempSync, rmSync as rmSync2, writeFileSync as writeFileSync2 } from "node:fs";
+import { existsSync as existsSync4, mkdtempSync, writeFileSync as writeFileSync2 } from "node:fs";
 import { tmpdir as tmpdir2 } from "node:os";
-import { basename as basename2, join as join4 } from "node:path";
+import { join as join5 } from "node:path";
 
 // src/worker/scrub.ts
-import { homedir as homedir3, tmpdir } from "node:os";
+import { homedir as homedir5, tmpdir } from "node:os";
 import { realpathSync as realpathSync3 } from "node:fs";
 var escape2 = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-function variants(p) {
+var diskPath = (native) => (p) => {
+  try {
+    return native ? realpathSync3.native(p) : realpathSync3(p);
+  } catch {
+    return null;
+  }
+};
+function variants(p, realpath2) {
   const out = /* @__PURE__ */ new Set();
   const add = (x2) => {
     if (!x2 || x2 === "/" || x2.length < 2) return;
@@ -12807,20 +13044,104 @@ function variants(p) {
     if (x2.includes("\\")) out.add(x2.replace(/\\/g, "/").replace(/\/+$/, ""));
   };
   add(p);
-  try {
-    add(realpathSync3(p));
-  } catch {
+  const real = realpath2(p);
+  if (real) add(real);
+  return [...out];
+}
+var winNorm = (p) => {
+  const s = p.replace(/\//g, "\\");
+  return /^[A-Za-z]:\\$/.test(s) ? s : s.replace(/\\+$/, "");
+};
+function winForms(pathSource, literal2) {
+  const sep5 = "\\\\";
+  const out = /* @__PURE__ */ new Set();
+  out.add(pathSource);
+  const fwd = pathSource.split(sep5).join("/");
+  out.add(fwd);
+  out.add(pathSource.split(sep5).join(`${sep5}${sep5}`));
+  const drive = /^([A-Za-z]):/.exec(pathSource)?.[1]?.toLowerCase();
+  if (drive) {
+    const rest = fwd.slice(2);
+    for (const pre of [`/${drive}`, `/cygdrive/${drive}`, `/mnt/${drive}`]) out.add(`${escape2(pre)}${rest}`);
+  }
+  if (literal2 !== null) {
+    const plain = literal2.replace(/\\/g, "/");
+    const enc = encodeURI(plain);
+    if (enc !== plain) out.add(escape2(enc));
   }
   return [...out];
 }
+function shortHomes(home, env, realpath2) {
+  const out = /* @__PURE__ */ new Set();
+  const h = winNorm(home).toLowerCase();
+  for (const key of ["TEMP", "TMP", "LOCALAPPDATA"]) {
+    const raw = envGet(env, key, "win32")?.trim();
+    if (!raw || !raw.includes("~")) continue;
+    const short = winNorm(raw);
+    const long = realpath2(short);
+    if (!long) continue;
+    const l = winNorm(long);
+    if (!l.toLowerCase().startsWith(`${h}\\`) && l.toLowerCase() !== h) continue;
+    const tail = l.slice(h.length);
+    if (!short.toLowerCase().endsWith(tail.toLowerCase())) continue;
+    const s = short.slice(0, short.length - tail.length);
+    if (s.length >= 3 && s.toLowerCase() !== h) out.add(s);
+  }
+  return [...out];
+}
+function shortPattern(home) {
+  const h = winNorm(home);
+  const cut = h.lastIndexOf("\\");
+  if (cut < 2) return null;
+  const name = h.slice(cut + 1);
+  if (/^[A-Za-z0-9_-]{1,8}$/.test(name)) return null;
+  const head = name.replace(/[^A-Za-z0-9]/g, "").slice(0, 6).toUpperCase();
+  if (!head) return null;
+  return `${escape2(h.slice(0, cut))}\\\\${escape2(head)}~\\d{1,6}`;
+}
 var Scrubber = class {
   rules = [];
-  constructor(pairs = []) {
-    const base = [...pairs, [tmpdir(), "<tmp>"], [homedir3(), "~"]];
+  constructor(pairs = [], opts = {}) {
+    const platform = opts.platform ?? process.platform;
+    const base = [...pairs, [opts.tmp ?? tmpdir(), "<tmp>"], [opts.home ?? homedir5(), "~"]];
     const list = [];
-    for (const [p, to] of base) if (p) for (const v of variants(p)) list.push({ from: v, to });
-    list.sort((a, b) => b.from.length - a.from.length);
-    this.rules = list.map(({ from, to }) => ({ re: new RegExp(escape2(from), "g"), to }));
+    if (platform !== "win32") {
+      const realpath3 = opts.realpath ?? diskPath(false);
+      for (const [p, to] of base) if (p) for (const v of variants(p, realpath3)) list.push({ source: escape2(v), len: v.length, to });
+      list.sort((a, b) => b.len - a.len);
+      this.rules = list.map(({ source, to }) => ({ re: new RegExp(source, "g"), to }));
+      return;
+    }
+    const realpath2 = opts.realpath ?? diskPath(true);
+    const env = opts.env ?? process.env;
+    const home = winNorm(opts.home ?? homedir5());
+    const homeKey = home.toLowerCase();
+    const shorts = shortHomes(home, env, realpath2);
+    const pattern = shortPattern(home);
+    const seen = /* @__PURE__ */ new Set();
+    const push2 = (source, len, to) => {
+      const key = `${source.toLowerCase()}\0${to}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      list.push({ source, len, to });
+    };
+    for (const [p, to] of base) {
+      if (!p) continue;
+      const longs = /* @__PURE__ */ new Set([winNorm(p)]);
+      const real = realpath2(p);
+      if (real) longs.add(winNorm(real));
+      for (const long of longs) {
+        if (long.length < 3) continue;
+        for (const f of winForms(escape2(long), long)) push2(f, long.length, to);
+        const inHome = long.toLowerCase() === homeKey || long.toLowerCase().startsWith(`${homeKey}\\`);
+        if (!inHome) continue;
+        const rest = long.slice(home.length);
+        for (const s of shorts) for (const f of winForms(escape2(s + rest), s + rest)) push2(f, long.length, to);
+        if (pattern) for (const f of winForms(`${pattern}${escape2(rest)}`, null)) push2(f, long.length, to);
+      }
+    }
+    list.sort((a, b) => b.len - a.len || b.source.length - a.source.length);
+    this.rules = list.map(({ source, to }) => ({ re: new RegExp(source, "gi"), to }));
   }
   text(s) {
     let out = s;
@@ -12828,12 +13149,15 @@ var Scrubber = class {
     return out;
   }
 };
-function repoScrubber(repo, worktree) {
-  return new Scrubber([
-    [worktree ?? null, "."],
-    [repo.worktreeDir, "<worktrees>"],
-    [repo.path, "<repo>"]
-  ]);
+function repoScrubber(repo, worktree, opts = {}) {
+  return new Scrubber(
+    [
+      [worktree ?? null, "."],
+      [repo.worktreeDir, "<worktrees>"],
+      [repo.path, "<repo>"]
+    ],
+    opts
+  );
 }
 
 // src/worker/testrun.ts
@@ -12953,10 +13277,28 @@ function dataBlock(label, body, code) {
   return [`<<<${label} ${code}`, body, `${label} ${code}>>>`];
 }
 function writeMcpConfig(taskMcp) {
-  const dir = mkdtempSync(join4(tmpdir2(), "one-worker-"));
-  const file = join4(dir, "mcp.json");
+  const dir = mkdtempSync(join5(tmpdir2(), "one-worker-"));
+  const file = join5(dir, "mcp.json");
   writeFileSync2(file, JSON.stringify({ mcpServers: { "one-task": { type: "stdio", command: taskMcp.command, args: taskMcp.args, env: taskMcp.env } } }, null, 2), { mode: 384 });
-  return { file, dispose: () => rmSync2(dir, { recursive: true, force: true }) };
+  return { file, dispose: () => void rmRetry(dir) };
+}
+function claudeMissing(caps, log2) {
+  const error2 = claudeMissingError(caps.missing);
+  log2("error", error2, caps.missing === "cmd-refused" ? "claudeCmdRefused" : "claudeMissing", {});
+  return error2;
+}
+var SYNCED = {
+  icloud: (repo) => `${repo} lies in iCloud Drive: git waits whenever a file is only in the cloud, so steps can take minutes. Faster: keep the folder downloaded (Finder \u2192 right-click \u2192 Keep Downloaded), or clone it again with "Clone from GitLab / GitHub\u2026" on the worker's setup page (into ~/one-repos, not synced) and tick that one.`,
+  cloudStorage: (repo) => `${repo} lies in a synced cloud folder (~/Library/CloudStorage \u2014 OneDrive, Google Drive, Dropbox \u2026): files may be downloaded on demand and locked while they sync, so git steps can stall. The worker keeps this repo\u2019s task worktrees in ~/.one-worktrees. Faster: a clone outside it (~/one-repos).`,
+  onedrive: (repo) => `${repo} lies in OneDrive: OneDrive downloads online-only files first and locks files while it syncs, so git steps can stall or fail. The worker keeps this repo\u2019s task worktrees in .one-worktrees in your user folder. Faster: move the repo out of OneDrive (e.g. to C:\\code) and tick that folder.`
+};
+function noteGitHint(text2, repo, log2, terminal, platform = process.platform) {
+  const code = gitHint(text2, platform);
+  if (!code) return;
+  const h = hintLine(code, { repo: repo.name, remote: repo.remote });
+  log2("warn", h.s, h.c, h.v);
+  const local = hintTerminal(code, text2);
+  if (local) terminal?.(`repo "${repo.name}": ${local}`);
 }
 function stageModel(task, repo) {
   if (task.stage.model) return { model: task.stage.model, from: "one" };
@@ -12983,7 +13325,7 @@ function ownSettings(ctx, cwd, log2) {
     const names = repo.claude.mcpServers.join(", ");
     log2("info", `${repo.name}: only your user-scope MCP servers reach Claude Code here \u2014 add ${names} with "claude mcp add -s user \u2026"; a server added in the default (local) scope stays out while the repo's own settings are off.`, "mcpUserScope", { repo: repo.name, names });
   }
-  const has = OWN_SETTINGS.filter((n) => existsSync3(join4(cwd, n)));
+  const has = OWN_SETTINGS.filter((n) => existsSync4(join5(cwd, n)));
   if (!has.length) return null;
   const off = repo.source ? OFF[repo.source] : null;
   const files = has.join(", ");
@@ -13037,14 +13379,18 @@ async function runStage(ctx) {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       log2("error", msg);
+      noteGitHint(msg, repo, log2, ctx.terminal);
       return { status: "failed", error: scrub.text(msg) };
     }
   }
   try {
     log2("info", `Stage "${task.stage.name}" (${kind}) on ${repo.name}`, "stage", { stage: task.stage.name, kind, repo: repo.name });
-    if (inICloud(repo.path))
-      log2("warn", `${repo.name} lies in iCloud Drive: git waits whenever a file is only in the cloud, so steps can take minutes. Faster: keep the folder downloaded (Finder \u2192 right-click \u2192 Keep Downloaded), or clone it again with "Clone from GitLab / GitHub\u2026" on the worker's setup page (into ~/one-repos, not synced) and tick that one.`, "icloud", { repo: repo.name });
-    const wt = await ensureWorktree(repo, ctx.state, task, task.branch, (k, s, c, v) => log2(k, s, c, v));
+    const synced = inSyncedFolder(repo.path);
+    if (synced) log2("warn", SYNCED[synced](repo.name), synced, { repo: repo.name });
+    const wt = await ensureWorktree(repo, ctx.state, task, task.branch, (k, s, c, v) => {
+      log2(k, s, c, v);
+      if (c === "fetchFailed" && typeof v?.why === "string") noteGitHint(v.why, repo, log2, ctx.terminal);
+    });
     scrub = repoScrubber(repo, wt.dir);
     ctx.onWorktree?.(wt, scrub);
     log2("git", `${wt.created ? "Branch" : "Reusing branch"} ${wt.branch}`, wt.created ? "branch" : "reuse", { branch: wt.branch });
@@ -13054,12 +13400,14 @@ async function runStage(ctx) {
   } catch (e) {
     const msg = e instanceof GitError ? `git: ${e.message}` : e instanceof Error ? e.message : String(e);
     log2("error", msg);
+    if (e instanceof GitError && e.code === "folderBusy") log2("warn", FOLDER_BUSY, "folderBusy", {});
+    else noteGitHint(msg, repo, log2, ctx.terminal);
     return { status: "failed", error: scrub.text(msg) };
   }
 }
 async function claudeStage(ctx, wt, scrub, log2) {
   const { repo, task, caps } = ctx;
-  if (!caps.found) return { status: "failed", branch: wt.branch, error: `Claude Code was not found on this computer ("${ctx.bin}"). Install it and sign in, or set CLAUDE_BIN.` };
+  if (!caps.found) return { status: "failed", branch: wt.branch, error: claudeMissing(caps, log2) };
   const lim = limits(ctx);
   if (lim.refuse) {
     log2("warn", lim.refuse);
@@ -13121,7 +13469,7 @@ var DOC_TOOLS = ["Read", "Grep", "Glob", "LS"];
 var DOC_DENIED = ["Edit", "MultiEdit", "Write", "NotebookEdit", "Bash"];
 async function docStage(ctx, scrub, log2, branch, dir) {
   const { repo, task, caps } = ctx;
-  if (!caps.found) return { status: "failed", error: `Claude Code was not found on this computer ("${ctx.bin}"). Install it and sign in, or set CLAUDE_BIN.` };
+  if (!caps.found) return { status: "failed", error: claudeMissing(caps, log2) };
   const lim = limits(ctx);
   if (lim.refuse) {
     log2("warn", lim.refuse);
@@ -13183,16 +13531,18 @@ async function analyzeStage(ctx, scrub, log2, dir) {
     log2("info", `No analysis command for ${repo.name} \u2014 the stage passes. Set one on the worker's setup page (Change repositories \u2192 the repo \u2192 Static analysis).`, "analyzeNone", { repo: repo.name });
     return { status: "ok", summary: "No static analysis configured.", plan: "_No static analysis command is set for this repository \u2014 the worker's setup page (Change repositories \u2192 the repository \u2192 Static analysis) takes one, e.g. `npx eslint .`, `dotnet build`, `go vet ./...`._" };
   }
-  const shown2 = clip2(scrub.text([basename2(argv2[0]), ...argv2.slice(1)].join(" ")), 160);
+  const name = commandName(argv2[0]);
+  const shown2 = clip2(scrub.text([name, ...argv2.slice(1)].join(" ")), 160);
   log2("test", `Running the static analysis: ${shown2}`, "analyzeRun", { cmd: shown2 });
   let lines = 0;
   const res = await runAnalysis(repo, dir ?? repo.path, ctx.signal, (line) => {
     if (lines++ < 200) log2("test", line);
   });
   if (ctx.signal.aborted) return { status: "stopped", error: "Stopped in One." };
+  if (res.notStarted) notStartedLine(res.notStarted, name, log2);
   const output = scrub.text(res.output).trim();
   if (res.code === null || res.code < 0) {
-    const why2 = res.code !== null && res.code < 0 ? `the command could not start (${argv2[0]} \u2014 is it installed?)` : "it ran too long and was stopped";
+    const why2 = res.code !== null && res.code < 0 ? `the command could not start (${name} \u2014 is it installed?)` : "it ran too long and was stopped";
     log2("warn", `Static analysis failed: ${why2}`);
     return { status: "failed", error: `Static analysis failed: ${why2}.`, summary: clip2(output, 2e3) || void 0 };
   }
@@ -13227,6 +13577,10 @@ function liveDiff(ctx, wt, scrub) {
   timer.unref();
   return { stop: () => clearInterval(timer) };
 }
+function notStartedLine(why2, name, log2) {
+  if (why2 === "missing") log2("error", `${name} was not found \u2014 the worker looks in PATH only, never in the repository. A program inside the repository needs its path (\`./gradlew\`, \`.\\gradlew.bat\`). Change the command on the worker\u2019s setup page (Change repositories \u2192 the repo).`, "commandMissing", { cmd: name });
+  else log2("error", `${name} runs through cmd.exe, which cannot pass an argument with a line break \u2014 change the command on the worker\u2019s setup page.`, "commandRefused", { cmd: name });
+}
 function claudeEnv() {
   const env = {};
   for (const [k, v] of Object.entries(process.env)) if (!k.startsWith("ONE_WORKER_")) env[k] = v;
@@ -13240,10 +13594,15 @@ async function testStage(ctx, wt, scrub, log2) {
   }
   log2("test", "Running the tests\u2026", "testsRun");
   let lines = 0;
-  const res = await runTests(ctx.repo, wt.dir, ctx.signal, (line) => {
+  const { notStarted: notStarted2, ...res } = await runTests(ctx.repo, wt.dir, ctx.signal, (line) => {
     if (lines++ < 200) log2("test", line);
   });
   const test = { ...res, output: scrub.text(res.output) };
+  if (notStarted2) {
+    const name = commandName(ctx.repo.testCommand[0]);
+    notStartedLine(notStarted2, name, log2);
+    return { status: "failed", branch: wt.branch, test, git: await gitSnapshot(ctx, wt, scrub), error: `The test command could not start (${scrub.text(name)} \u2014 see the log).` };
+  }
   log2(res.ok ? "test" : "warn", res.ok ? `Tests passed (${Math.round(res.ms / 100) / 10} s)` : `Tests failed (exit code ${res.code ?? "\u2014"})`, res.ok ? "testsPass" : "testsFail", { s: Math.round(res.ms / 100) / 10, code: res.code ?? "\u2014" });
   const git2 = await gitSnapshot(ctx, wt, scrub);
   if (ctx.signal.aborted) return { status: "stopped", branch: wt.branch, test, git: git2, error: "Stopped in One." };
@@ -13318,8 +13677,8 @@ async function gitStage(ctx, wt, scrub, log2) {
 import { randomBytes as randomBytes5 } from "node:crypto";
 
 // src/worker/state.ts
-import { existsSync as existsSync4, readFileSync as readFileSync4, renameSync as renameSync2, writeFileSync as writeFileSync3 } from "node:fs";
-import { dirname as dirname3, join as join5 } from "node:path";
+import { existsSync as existsSync5, readFileSync as readFileSync4, writeFileSync as writeFileSync3 } from "node:fs";
+import { dirname as dirname3, join as join6 } from "node:path";
 var empty = () => ({ v: 1, created: {}, tasks: {}, spent: {}, taskSpent: {} });
 var today = (d = /* @__PURE__ */ new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 var isObj2 = (v) => !!v && typeof v === "object" && !Array.isArray(v);
@@ -13327,10 +13686,10 @@ var WorkerState = class {
   file;
   data;
   constructor(configFile2) {
-    this.file = join5(dirname3(configFile2), "worker-state.json");
+    this.file = join6(dirname3(configFile2), "worker-state.json");
     this.data = empty();
     try {
-      if (existsSync4(this.file)) {
+      if (existsSync5(this.file)) {
         const raw = JSON.parse(readFileSync4(this.file, "utf8"));
         if (isObj2(raw) && raw.v === 1) {
           this.data = {
@@ -13348,7 +13707,7 @@ var WorkerState = class {
   save() {
     const tmp = `${this.file}.tmp`;
     writeFileSync3(tmp, JSON.stringify(this.data, null, 2), { mode: 384 });
-    renameSync2(tmp, this.file);
+    renameRetry(tmp, this.file);
   }
   created(repo, branch) {
     return this.data.created[repo]?.[branch] ?? null;
@@ -13388,16 +13747,15 @@ var WorkerState = class {
 };
 
 // src/worker/intake.ts
-import { createWriteStream, rmSync as rmSync5 } from "node:fs";
-import { homedir as homedir6, tmpdir as tmpdir3 } from "node:os";
-import { join as join10 } from "node:path";
+import { createWriteStream, rmSync as rmSync2 } from "node:fs";
+import { homedir as homedir8, tmpdir as tmpdir3 } from "node:os";
+import { join as join11 } from "node:path";
 import { randomBytes as randomBytes3 } from "node:crypto";
 
 // src/worker/clone.ts
-import { execFile as execFile2, spawn as spawn3 } from "node:child_process";
-import { existsSync as existsSync5, mkdirSync as mkdirSync3, readdirSync, rmSync as rmSync3, writeFileSync as writeFileSync4 } from "node:fs";
-import { homedir as homedir4 } from "node:os";
-import { isAbsolute as isAbsolute2, join as join6, resolve as resolve3, sep as sep3 } from "node:path";
+import { existsSync as existsSync6, mkdirSync as mkdirSync3, readdirSync, writeFileSync as writeFileSync4 } from "node:fs";
+import { homedir as homedir6 } from "node:os";
+import { isAbsolute as isAbsolute2, join as join7, posix as posix3, win32 as win324 } from "node:path";
 var HOST = /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/;
 var SEGMENT = /^[A-Za-z0-9_~][A-Za-z0-9_.~+-]{0,99}$/;
 var USER = /^[A-Za-z0-9._-]{1,64}$/;
@@ -13445,17 +13803,25 @@ function parseCloneUrl(raw, local = false) {
   }
   return { error: "That is not a clone address \u2014 copy it from the project page (Clone \u2192 HTTPS or SSH)." };
 }
-function cloneBase(raw, home = homedir4(), platform = process.platform) {
-  const text2 = typeof raw === "string" ? raw.trim() : "";
+var unquote = (raw) => {
+  const t = raw.trim();
+  return (/^"(.*)"$/s.exec(t)?.[1] ?? /^'(.*)'$/s.exec(t)?.[1] ?? t).trim();
+};
+function cloneBase(raw, home = homedir6(), platform = process.platform, env = process.env) {
+  const text2 = unquote(typeof raw === "string" ? raw : "");
   if (!text2 || text2.length > 1e3 || /[\u0000-\u001f]/.test(text2)) return { error: "Type the folder the clones go into." };
+  const P = platform === "win32" ? win324 : posix3;
   let dir;
-  if (text2 === "~" || text2.startsWith("~/")) dir = join6(home, text2.slice(2));
-  else if (isAbsolute2(text2)) dir = resolve3(text2);
-  else return { error: "Type a full folder path (~/one-repos or /\u2026)." };
-  if (inICloud(dir, home, platform)) return { error: "That folder lies in iCloud Drive \u2014 git would wait for files from the cloud. Pick one that is not synced, like ~/one-repos." };
+  if (text2 === "~" || text2.startsWith("~/") || text2.startsWith("~\\")) dir = P.join(home, text2.slice(2));
+  else if (P.isAbsolute(text2) && (platform !== "win32" || /^(?:[A-Za-z]:[\\/]|[\\/]{2}[^\\/])/.test(text2))) dir = P.resolve(text2);
+  else return { error: platform === "win32" ? "Type a full folder path (~\\one-repos or C:\\\u2026)." : "Type a full folder path (~/one-repos or /\u2026)." };
+  const synced = inSyncedFolder(dir, { platform, home, env });
+  if (synced === "icloud") return { error: "That folder lies in iCloud Drive \u2014 git would wait for files from the cloud. Pick one that is not synced, like ~/one-repos." };
+  if (synced === "onedrive") return { error: "That folder lies in OneDrive \u2014 git would wait for files from the cloud, and OneDrive locks files while it syncs. Pick one that is not synced, like ~\\one-repos or C:\\code." };
+  if (synced === "cloudStorage") return { error: "That folder lies in a synced cloud folder (~/Library/CloudStorage \u2014 OneDrive, Google Drive, Dropbox \u2026) \u2014 git would wait for files from the cloud. Pick one that is not synced, like ~/one-repos." };
   return dir;
 }
-var defaultCloneDir = (home = homedir4()) => join6(home, "one-repos");
+var defaultCloneDir = (home = homedir6()) => join7(home, "one-repos");
 function cloneHint(stderr) {
   const s = stderr.replace(/\r/g, "\n");
   if (/Permission denied \(publickey/i.test(s)) return "The SSH key was refused: add your key to the SSH agent (ssh-add) and to your account on the host \u2014 or use the HTTPS address.";
@@ -13468,12 +13834,12 @@ function cloneHint(stderr) {
   return last.slice(0, 300) || "git clone failed.";
 }
 async function cloneInto(target, base, onProgress, opts = {}) {
-  const dir = join6(base, target.name);
-  if (!dir.startsWith(base + sep3)) throw new Error("That folder name is not allowed.");
-  if (existsSync5(dir)) {
+  const dir = join7(base, target.name);
+  if (!inFolder(dir, base) || samePath(dir, base)) throw new Error("That folder name is not allowed.");
+  if (existsSync6(dir)) {
     const entries = readdirSync(dir);
     if (entries.length) {
-      const origin = existsSync5(join6(dir, ".git")) ? (await git(dir, ["remote", "get-url", "origin"], 1e4)).stdout.trim() : "";
+      const origin = existsSync6(join7(dir, ".git")) ? (await git(dir, ["remote", "get-url", "origin"], 1e4)).stdout.trim() : "";
       if (origin && origin.replace(/\.git$/, "") === target.url.replace(/\.git$/, "")) {
         if (inFolder(dir, defaultCloneDir(opts.home))) markSource(dir, "clone");
         return { dir, already: true };
@@ -13482,20 +13848,19 @@ async function cloneInto(target, base, onProgress, opts = {}) {
     }
   }
   mkdirSync3(base, { recursive: true });
-  const made = !existsSync5(dir);
+  const made = !existsSync6(dir);
   const timeoutMs = opts.timeoutMs ?? (Number(process.env.ONE_WORKER_CLONE_MS) || 30 * 6e4);
-  const args = ["-c", "protocol.ext.allow=never", "-c", `protocol.file.allow=${opts.local ? "always" : "never"}`, "clone", "--progress", "--", target.url, dir];
+  const args = gitArgs(["-c", "protocol.ext.allow=never", "-c", `protocol.file.allow=${opts.local ? "always" : "never"}`, "clone", "--progress", "--", target.url, dir]);
+  const env = await gitEnv(null, process.env);
   const res = await new Promise((done) => {
-    const child = spawn3("git", args, { cwd: base, env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "never", LC_ALL: "C" }, stdio: ["ignore", "ignore", "pipe"], detached: process.platform !== "win32", windowsHide: true });
+    const s = spawnSafe("git", args, { cwd: base, env, stdio: ["ignore", "ignore", "pipe"], detached: process.platform !== "win32", windowsHide: true, allow: "exe" });
+    if (!s.ok) return done({ code: 127, stderr: s.error, timedOut: false });
+    const child = s.child;
     let err2 = "";
     let timedOut = false;
     const timer = setTimeout(() => {
       timedOut = true;
-      try {
-        if (process.platform !== "win32" && child.pid) process.kill(-child.pid, "SIGKILL");
-        else child.kill("SIGKILL");
-      } catch {
-      }
+      void killTree(child);
     }, timeoutMs);
     child.stderr.on("data", (d) => {
       const text2 = d.toString();
@@ -13513,22 +13878,17 @@ async function cloneInto(target, base, onProgress, opts = {}) {
     });
   });
   if (res.code !== 0) {
-    if (made) rmSync3(dir, { recursive: true, force: true });
-    throw new Error(res.timedOut ? `The clone did not finish within ${Math.round(timeoutMs / 6e4)} min.` : cloneHint(res.stderr));
+    const failed = new Error(res.timedOut ? `The clone did not finish within ${Math.round(timeoutMs / 6e4)} min.` : cloneHint(res.stderr));
+    if (made) await rmRetry(dir);
+    throw failed;
   }
-  writeFileSync4(join6(dir, ".git", SOURCE_MARK), "clone\n");
+  writeFileSync4(join7(dir, ".git", SOURCE_MARK), "clone\n");
   return { dir, already: false };
 }
-var runCli = (cmd, args) => new Promise((done) => {
-  try {
-    execFile2(cmd, args, { timeout: 2e4, maxBuffer: 8 * 1024 * 1024, env: { ...process.env, GH_PROMPT_DISABLED: "1", NO_PROMPT: "1", NO_COLOR: "1" }, windowsHide: true }, (err2, stdout, stderr) => {
-      const code = err2 ? typeof err2.code === "number" ? err2.code : 127 : 0;
-      done({ code, stdout: String(stdout), stderr: String(stderr) });
-    });
-  } catch (e) {
-    done({ code: 127, stdout: "", stderr: e.message });
-  }
-});
+var runCli = async (cmd, args) => {
+  const r = await execFileSafe(cmd, args, { timeoutMs: 2e4, maxBuffer: 8 * 1024 * 1024, env: { ...process.env, GH_PROMPT_DISABLED: "1", NO_PROMPT: "1", NO_COLOR: "1" }, allow: cmd === "git" ? "exe" : "shim" });
+  return { code: r.code, stdout: r.stdout, stderr: r.stderr || r.error || "" };
+};
 var time = (v) => typeof v === "string" && !Number.isNaN(Date.parse(v)) ? Date.parse(v) : null;
 var str = (v) => typeof v === "string" ? v : "";
 async function listProjects(run2 = runCli) {
@@ -14200,9 +14560,9 @@ var Unzip = /* @__PURE__ */ (function() {
 })();
 
 // src/worker/zipimport.ts
-import { closeSync as closeSync2, createReadStream, existsSync as existsSync6, lstatSync as lstatSync3, mkdirSync as mkdirSync4, openSync as openSync2, readFileSync as readFileSync5, readdirSync as readdirSync2, renameSync as renameSync3, rmSync as rmSync4, statSync as statSync3, writeFileSync as writeFileSync5, writeSync } from "node:fs";
+import { closeSync as closeSync2, createReadStream, existsSync as existsSync7, lstatSync as lstatSync3, mkdirSync as mkdirSync4, openSync as openSync2, readFileSync as readFileSync5, readdirSync as readdirSync2, rmSync, statSync as statSync3, writeFileSync as writeFileSync5, writeSync } from "node:fs";
 import { randomBytes as randomBytes2 } from "node:crypto";
-import { dirname as dirname4, join as join7, relative as relative2, resolve as resolve4, sep as sep4 } from "node:path";
+import { dirname as dirname4, join as join8, relative, resolve as resolve4, sep as sep3 } from "node:path";
 var ZIP_MAX = () => Number(process.env.ONE_WORKER_ZIP_MAX) || 500 * 1024 * 1024;
 var UNPACKED_MAX = 2 * 1024 * 1024 * 1024;
 var FILES_MAX = 1e5;
@@ -14210,7 +14570,9 @@ var PUSH_PIECE = 16 * 1024;
 var OUTSIDE = { unsafe: "a path outside its folder" };
 var CONTROL = { unsafe: "a name with a control character" };
 var COLON = { unsafe: 'a name with ":", which Windows reads as a hidden data stream' };
-var DEVICE = { unsafe: "a name Windows keeps for a device like CON, NUL, AUX, COM1 or LPT1" };
+var DEVICE2 = { unsafe: "a name Windows keeps for a device like CON, NUL, AUX, COM1 or LPT1" };
+var RESERVED = { unsafe: 'a name with < > " | ? or *, which Windows does not allow in a file name' };
+var TRAILING = { unsafe: "a name ending in a dot or a space, which Windows drops (two names could become one)" };
 var HFS_IGNORABLE = /[‌-‏‪-‮⁪-⁯﻿]/g;
 function isDotGit(part) {
   const s = part.replace(HFS_IGNORABLE, "").toLowerCase().split(":")[0].replace(/[. ]+$/, "");
@@ -14228,7 +14590,9 @@ function entryPath(name, platform = process.platform) {
   if (parts.some((p) => /^[. ]*$/.test(p.replace(HFS_IGNORABLE, "")))) return OUTSIDE;
   if (platform === "win32") {
     if (parts.some((p) => p.includes(":"))) return COLON;
-    if (parts.some(isDevice)) return DEVICE;
+    if (parts.some((p) => /[<>"|?*]/.test(p))) return RESERVED;
+    if (parts.some((p) => /[. ]$/.test(p))) return TRAILING;
+    if (parts.some(isDevice)) return DEVICE2;
   }
   if (!parts.length || n.endsWith("/")) return null;
   if (parts.some((p) => p.length > 255)) return null;
@@ -14238,20 +14602,20 @@ var isUnsafe = (v) => typeof v === "object" && v !== null && "unsafe" in v;
 var shown = (name) => name.replace(/[\u0000-\u001f\u007f]/g, "?").slice(0, 120);
 var entry = (path) => lstatSync3(path, { throwIfNoEntry: false });
 function isRepoDir(d) {
-  const head = entry(join7(d, "HEAD"));
+  const head = entry(join8(d, "HEAD"));
   if (!head || head.isDirectory()) return false;
-  if (entry(join7(d, "commondir"))) return true;
-  return !!entry(join7(d, "objects")) && !!entry(join7(d, "refs"));
+  if (entry(join8(d, "commondir"))) return true;
+  return !!entry(join8(d, "objects")) && !!entry(join8(d, "refs"));
 }
 function gitDirIn(dir) {
   const todo = [dir];
   while (todo.length) {
     const d = todo.pop();
-    if (entry(join7(d, ".git"))) return { path: join7(d, ".git"), kind: "dotgit" };
+    if (entry(join8(d, ".git"))) return { path: join8(d, ".git"), kind: "dotgit" };
     if (isRepoDir(d)) return { path: d, kind: "repo" };
     for (const e of readdirSync2(d, { withFileTypes: true })) {
-      if (isDotGit(e.name)) return { path: join7(d, e.name), kind: "dotgit" };
-      if (e.isDirectory()) todo.push(join7(d, e.name));
+      if (isDotGit(e.name)) return { path: join8(d, e.name), kind: "dotgit" };
+      if (e.isDirectory()) todo.push(join8(d, e.name));
     }
   }
   return null;
@@ -14259,7 +14623,7 @@ function gitDirIn(dir) {
 function refusePlanted(dir) {
   const planted = gitDirIn(dir);
   if (!planted) return;
-  const at = shown(relative2(dir, planted.path) || ".");
+  const at = shown(relative(dir, planted.path) || ".");
   if (planted.kind === "dotgit") throw new Error(`the ZIP holds a git folder under another spelling (${at}) \u2014 nothing was imported`);
   if (planted.path === dir) throw new Error("the ZIP is a git repository itself (HEAD, objects, refs \u2014 a bare one, or the inside of a .git folder), not the code: clone it and zip the checkout, or clone it here \u2014 nothing was imported");
   throw new Error(`the ZIP holds a git repository in ${at} (HEAD, objects, refs) \u2014 git would use it, and its config, for every git command run in that folder. Leave it out (a test fixture too) and zip again \u2014 nothing was imported`);
@@ -14267,7 +14631,7 @@ function refusePlanted(dir) {
 async function importZip(zipFile, base, name, label, onProgress = () => {
 }) {
   mkdirSync4(base, { recursive: true });
-  const tmp = join7(base, `.one-import-${randomBytes2(6).toString("hex")}`);
+  const tmp = join8(base, `.one-import-${randomBytes2(6).toString("hex")}`);
   mkdirSync4(tmp);
   let files = 0;
   let bytes = 0;
@@ -14287,7 +14651,7 @@ async function importZip(zipFile, base, name, label, onProgress = () => {
         return;
       }
       const dest = resolve4(tmp, rel);
-      if (!dest.startsWith(tmp + sep4)) {
+      if (!dest.startsWith(tmp + sep3)) {
         fail = `the ZIP has a path outside its folder (${shown(file.name)})`;
         return;
       }
@@ -14336,15 +14700,15 @@ async function importZip(zipFile, base, name, label, onProgress = () => {
     if (!fail && files === 0) fail = "the ZIP has no files";
     if (fail) throw new Error(fail);
     const top = readdirSync2(tmp);
-    const root = top.length === 1 && statSync3(join7(tmp, top[0])).isDirectory() ? join7(tmp, top[0]) : tmp;
-    let dir = join7(base, name);
-    for (let i2 = 2; existsSync6(dir); i2++) dir = join7(base, `${name}-${i2}`);
-    renameSync3(root, dir);
-    if (root !== tmp) rmSync4(tmp, { recursive: true, force: true });
+    const root = top.length === 1 && statSync3(join8(tmp, top[0])).isDirectory() ? join8(tmp, top[0]) : tmp;
+    let dir = join8(base, name);
+    for (let i2 = 2; existsSync7(dir); i2++) dir = join8(base, `${name}-${i2}`);
+    renameRetry(root, dir);
+    if (root !== tmp) rmSync(tmp, { recursive: true, force: true });
     await finishImport(dir, label);
     return { dir, files };
   } finally {
-    if (existsSync6(tmp)) rmSync4(tmp, { recursive: true, force: true });
+    if (existsSync7(tmp)) rmSync(tmp, { recursive: true, force: true });
   }
 }
 async function finishImport(dir, label) {
@@ -14352,16 +14716,16 @@ async function finishImport(dir, label) {
     refusePlanted(dir);
     await commitImport(dir, label);
   } catch (e) {
-    rmSync4(dir, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true });
     throw e;
   }
 }
 var NO_DRIVERS = "* -filter !diff merge\n";
 var NO_DRIVERS_NOTE = "# one-worker: this repository was imported from a ZIP, so no git filter, diff or merge driver runs in it (yours\n# neither: nbstripout, Git LFS \u2026) and its files stay as they were committed. Remove the next line to allow them.\n";
 async function commitImport(dir, label) {
-  const holder = join7(dirname4(dir), `.one-import-git-${randomBytes2(6).toString("hex")}`);
-  const gitDir2 = join7(holder, ".git");
-  const hooks = join7(holder, "no-hooks");
+  const holder = join8(dirname4(dir), `.one-import-git-${randomBytes2(6).toString("hex")}`);
+  const gitDir2 = join8(holder, ".git");
+  const hooks = join8(holder, "no-hooks");
   mkdirSync4(hooks, { recursive: true });
   const safe = ["-c", "core.fsmonitor=false", "-c", `core.hooksPath=${hooks}`, "-c", "gc.auto=0", "-c", "maintenance.auto=false"];
   const repo = [`--git-dir=${gitDir2}`, `--work-tree=${dir}`];
@@ -14372,10 +14736,10 @@ async function commitImport(dir, label) {
   };
   try {
     await run2(holder, ["init", "-q"]);
-    const attributes = join7(gitDir2, "info", "attributes");
+    const attributes = join8(gitDir2, "info", "attributes");
     const was = statSync3(attributes, { throwIfNoEntry: false });
     const theirs = was?.isFile() && was.size <= 1024 * 1024 ? readFileSync5(attributes, "utf8") : "";
-    rmSync4(attributes, { force: true });
+    rmSync(attributes, { force: true });
     mkdirSync4(dirname4(attributes), { recursive: true });
     writeFileSync5(attributes, `${theirs && !theirs.endsWith("\n") ? `${theirs}
 ` : theirs}${NO_DRIVERS_NOTE}${NO_DRIVERS}`);
@@ -14384,23 +14748,23 @@ async function commitImport(dir, label) {
     const who = (await git(dir, [...safe, ...repo, "config", "user.email"])).stdout.trim();
     const identity = who ? [] : ["-c", "user.name=One worker", "-c", "user.email=one-worker@localhost"];
     await run2(dir, [...identity, ...repo, "commit", "-q", "--no-verify", "--allow-empty", "-m", `Import ${label.slice(0, 200)}`], 10 * 6e4);
-    writeFileSync5(join7(gitDir2, SOURCE_MARK), "zip\n");
+    writeFileSync5(join8(gitDir2, SOURCE_MARK), "zip\n");
     refusePlanted(dir);
-    renameSync3(gitDir2, join7(dir, ".git"));
+    renameRetry(gitDir2, join8(dir, ".git"));
   } finally {
-    rmSync4(holder, { recursive: true, force: true });
+    rmSync(holder, { recursive: true, force: true });
   }
 }
 
 // src/worker/publish.ts
-import { existsSync as existsSync7, readFileSync as readFileSync6, readdirSync as readdirSync3 } from "node:fs";
-import { join as join8 } from "node:path";
+import { existsSync as existsSync8, readFileSync as readFileSync6, readdirSync as readdirSync3 } from "node:fs";
+import { join as join9 } from "node:path";
 var NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
 var OWNER = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}(\/[A-Za-z0-9][A-Za-z0-9._-]{0,99}){0,5}$/;
 function read(dir, file, max2 = 256 * 1024) {
   try {
-    const p = join8(dir, file);
-    if (!existsSync7(p)) return null;
+    const p = join9(dir, file);
+    if (!existsSync8(p)) return null;
     const text2 = readFileSync6(p, "utf8");
     return text2.length > max2 ? text2.slice(0, max2) : text2;
   } catch {
@@ -14510,9 +14874,21 @@ async function publishRepo(dir, t, run2, onLine = () => {
 
 // src/worker/scan.ts
 import { lstat, readFile, readdir, realpath } from "node:fs/promises";
-import { homedir as homedir5 } from "node:os";
-import { basename as basename3, join as join9, sep as sep5 } from "node:path";
+import { homedir as homedir7 } from "node:os";
+import { basename as basename2, join as join10, relative as relative2, sep as sep4 } from "node:path";
 var USUAL_PLACES = ["code", "projects", "dev", "src", "repos", "git", "GitHub", "Documents/GitHub", "Developer", "workspace", "Documents", "Desktop"];
+function usualPlaces(home, platform = process.platform, env = process.env) {
+  const out = USUAL_PLACES.map((place) => ({ path: join10(home, ...place.split("/")), depth: place.split("/").length }));
+  if (platform !== "win32") return out;
+  out.splice(out.length - 2, 0, { path: join10(home, "source", "repos"), depth: 2 });
+  const one = envGet(env, "OneDrive", "win32")?.trim();
+  if (one) {
+    const rel = relative2(home, one);
+    const depth = rel && !rel.startsWith("..") && !/^[A-Za-z]:/.test(rel) ? rel.split(/[\\/]/).length : 1;
+    for (const f of ["Documents", "Desktop"]) out.push({ path: join10(one, f), depth: depth + 1 });
+  }
+  return out;
+}
 var SKIP_DIRS = /* @__PURE__ */ new Set([
   "node_modules",
   "bower_components",
@@ -14542,7 +14918,7 @@ function timed(p, ms) {
   return Promise.race([p, late2]).finally(() => clearTimeout(timer));
 }
 async function findRepos(opts = {}) {
-  const home = opts.home ?? homedir5();
+  const home = opts.home ?? homedir7();
   const maxDepth = opts.maxDepth ?? 4;
   const maxRepos = opts.maxRepos ?? 300;
   const maxDirs = opts.maxDirs ?? 5e4;
@@ -14558,7 +14934,7 @@ async function findRepos(opts = {}) {
   const limit = () => Math.max(50, Math.min(folderMs, deadline - Date.now()));
   const key = async (p) => {
     try {
-      const st = await timed(lstat(p), limit());
+      const st = await timed(lstat(p, { bigint: true }), limit());
       if (st === TIMEOUT) {
         blocked.push(shortPath(p, home));
         return null;
@@ -14569,7 +14945,7 @@ async function findRepos(opts = {}) {
     }
   };
   const queue = [];
-  for (const place of USUAL_PLACES) queue.push({ path: join9(home, ...place.split("/")), depth: place.split("/").length });
+  queue.push(...usualPlaces(home, opts.platform, opts.env));
   queue.push({ path: home, depth: 0 });
   while (queue.length) {
     if (Date.now() > deadline) {
@@ -14612,20 +14988,20 @@ async function findRepos(opts = {}) {
     if (depth >= maxDepth) continue;
     for (const e of entries) {
       if (!e.isDirectory() || e.name.startsWith(".") || SKIP_DIRS.has(e.name)) continue;
-      queue.push({ path: join9(path, e.name), depth: depth + 1 });
+      queue.push({ path: join10(path, e.name), depth: depth + 1 });
     }
   }
   return { paths, capped, blocked, dirs, ms: Date.now() - start };
 }
 var GIT_MS = 3e3;
-function shortPath(path, home = homedir5()) {
+function shortPath(path, home = homedir7()) {
   const h = home.replace(/[\\/]+$/, "");
   if (path === h) return "~";
-  if (path.startsWith(h + sep5) || path.startsWith(`${h}/`)) return `~/${path.slice(h.length + 1).replace(/\\/g, "/")}`;
+  if (path.startsWith(h + sep4) || path.startsWith(`${h}/`)) return `~/${path.slice(h.length + 1).replace(/\\/g, "/")}`;
   return path.replace(/\\/g, "/");
 }
 function suggestName2(path, taken) {
-  const raw = basename3(path).normalize("NFKD").replace(/[\u0300-\u036f]/g, "");
+  const raw = basename2(path).normalize("NFKD").replace(/[\u0300-\u036f]/g, "");
   let base = raw.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^[^A-Za-z0-9]+/, "").replace(/-+$/, "").slice(0, 58);
   if (!REPO_NAME.test(base)) base = "repo";
   let name = base;
@@ -14656,7 +15032,7 @@ function remoteHost(url) {
 var FILE_MS = 1500;
 async function topFileAsync(dir, name, max2 = 256 * 1024) {
   try {
-    const p = join9(dir, name);
+    const p = join10(dir, name);
     const st = await timed(lstat(p), FILE_MS);
     if (st === TIMEOUT || !st.isFile() || st.size > max2) return null;
     const text2 = await timed(readFile(p, "utf8"), FILE_MS);
@@ -14667,7 +15043,7 @@ async function topFileAsync(dir, name, max2 = 256 * 1024) {
 }
 var hasAsync = async (dir, name) => {
   try {
-    const st = await timed(lstat(join9(dir, name)), FILE_MS);
+    const st = await timed(lstat(join10(dir, name)), FILE_MS);
     return st !== TIMEOUT && st.isFile();
   } catch {
     return false;
@@ -14732,7 +15108,7 @@ function guessFrom(pkg, mk, present) {
   if (mk !== null && /^test\s*:(?!=)/m.test(mk)) return ["make", "test"];
   return null;
 }
-async function repoFacts(path, taken, home = homedir5()) {
+async function repoFacts(path, taken, home = homedir7()) {
   const name = suggestName2(path, taken);
   const out = async (args) => {
     const r = await git(path, args, GIT_MS);
@@ -14778,10 +15154,10 @@ async function repoFacts(path, taken, home = homedir5()) {
     analyze: await guessAnalyzeAsync(path)
   };
 }
-function bareRepo(path, taken, home = homedir5()) {
+function bareRepo(path, taken, home = homedir7()) {
   return { path, short: shortPath(path, home), name: suggestName2(path, taken), branch: null, base: "main", branches: ["main"], remote: null, host: null, dirty: null, lastCommit: null, test: null };
 }
-async function factsOf(paths, taken, home = homedir5(), parallel = 6, deadlineMs = Infinity, onRepo) {
+async function factsOf(paths, taken, home = homedir7(), parallel = 6, deadlineMs = Infinity, onRepo) {
   const out = new Array(paths.length);
   const until = Date.now() + deadlineMs;
   let next = 0;
@@ -14799,7 +15175,7 @@ async function isMainCheckoutAsync(dir) {
   try {
     const st = await timed(lstat(dir), FILE_MS * 2);
     if (st === TIMEOUT || !st.isDirectory()) return false;
-    const git2 = await timed(lstat(join9(dir, ".git")), FILE_MS * 2);
+    const git2 = await timed(lstat(join10(dir, ".git")), FILE_MS * 2);
     return git2 !== TIMEOUT && git2.isDirectory();
   } catch {
     return false;
@@ -14833,7 +15209,7 @@ var Intake = class {
     return taskId;
   }
   base() {
-    const base = cloneBase(this.host.config().cloneDir, homedir6());
+    const base = cloneBase(this.host.config().cloneDir, homedir8());
     if (typeof base !== "string") throw new Error(base.error);
     return base;
   }
@@ -14847,7 +15223,7 @@ var Intake = class {
     if (declared <= 0) throw new Error("The ZIP is empty.");
     if (declared > max2) throw new Error(`The ZIP is larger than ${Math.round(max2 / 1024 / 1024)} MB.`);
     this.base();
-    const tmp = join10(tmpdir3(), `one-intake-${randomBytes3(8).toString("hex")}.zip`);
+    const tmp = join11(tmpdir3(), `one-intake-${randomBytes3(8).toString("hex")}.zip`);
     const upload = { id: randomBytes3(12).toString("hex"), taskId: id, file, tmp, out: createWriteStream(tmp, { mode: 384 }), size: 0, declared, timer: setTimeout(() => this.drop("the upload stopped"), IDLE_MS), error: null };
     upload.timer.unref?.();
     upload.out.on("error", (e) => {
@@ -14886,7 +15262,7 @@ var Intake = class {
     this.upload = null;
     await new Promise((done, fail) => u.out.end((e) => e || u.error ? fail(e ?? u.error) : done()));
     if (u.size !== u.declared) {
-      rmSync5(u.tmp, { force: true });
+      rmSync2(u.tmp, { force: true });
       this.host.event(u.taskId, { state: "failed", source: "zip", label: u.file, line: "", percent: null, error: "The upload was cut off \u2014 try again." });
       throw new Error("The upload was cut off.");
     }
@@ -14896,7 +15272,7 @@ var Intake = class {
     this.host.log(`import for task ${u.taskId}: unpacking ${u.file} into ${base}`);
     void importZip(u.tmp, base, name, u.file, (p) => this.host.event(u.taskId, { state: "running", source: "zip", label: u.file, line: `${p.files} files \xB7 ${(p.bytes / 1024 / 1024).toFixed(1)} MB`, percent: 60 })).then(async ({ dir, files }) => this.adopt(u.taskId, "zip", u.file, dir, `${files} files`, suggestName(dir, name))).catch((e) => this.fail(u.taskId, "zip", u.file, e)).finally(() => {
       this.running = null;
-      rmSync5(u.tmp, { force: true });
+      rmSync2(u.tmp, { force: true });
     });
     return { ok: true };
   }
@@ -14917,7 +15293,7 @@ var Intake = class {
   /** The new folder joins worker.json (everything else stays as it is), then One learns its name. */
   async adopt(taskId, source, label, dir, line, suggest) {
     const cfg = this.host.config();
-    const known = cfg.repos.find((r) => r.path === dir);
+    const known = cfg.repos.find((r) => samePath(r.path, dir));
     let name = known?.name;
     if (!known) {
       const facts = await repoFacts(dir, new Set(cfg.repos.map((r) => r.name.toLowerCase())));
@@ -14943,7 +15319,7 @@ var Intake = class {
     clearTimeout(u.timer);
     this.upload = null;
     u.out.destroy();
-    rmSync5(u.tmp, { force: true });
+    rmSync2(u.tmp, { force: true });
     this.host.log(`import for task ${u.taskId}: dropped (${why2})`);
     if (!quiet2) this.host.event(u.taskId, { state: "failed", source: "zip", label: u.file, line: "", percent: null, error: `The upload stopped (${why2}).` });
   }
@@ -15238,7 +15614,7 @@ var CloudDial = class {
 };
 
 // src/worker/preset.ts
-import { timingSafeEqual, createHash } from "node:crypto";
+import { timingSafeEqual, createHash as createHash2 } from "node:crypto";
 var isObj4 = (v) => !!v && typeof v === "object" && !Array.isArray(v);
 var DEV_ORIGINS = ["http://localhost:*", "http://127.0.0.1:*"];
 function readPreset(raw) {
@@ -15286,8 +15662,8 @@ function workerOrigins(preset2, extra, warn = () => {
 }
 function sameSecret(expected, given) {
   if (typeof given !== "string" || given.length > 200) return false;
-  const a = createHash("sha256").update(expected).digest();
-  const b = createHash("sha256").update(given).digest();
+  const a = createHash2("sha256").update(expected).digest();
+  const b = createHash2("sha256").update(given).digest();
   return timingSafeEqual(a, b);
 }
 
@@ -15815,6 +16191,11 @@ var isObj6 = (v) => !!v && typeof v === "object" && !Array.isArray(v);
 var INTAKE_EVENT_MS = 250;
 var str3 = (v, max2) => typeof v === "string" ? v.slice(0, max2) : "";
 var oneLine2 = (s) => s.replace(/[\u0000-\u001f\u007f\u2028\u2029]/g, " ").trim();
+function scrubOutcome(o, scrub) {
+  const out = { ...o };
+  for (const k of ["error", "summary", "plan", "question"]) if (typeof out[k] === "string") out[k] = scrub.text(out[k]);
+  return out;
+}
 function taskIds(raw) {
   if (!isObj6(raw) || !isObj6(raw.stage)) return null;
   const id = str3(raw.id, 64);
@@ -15943,9 +16324,10 @@ var Worker2 = class {
    * new task (a running one finishes — or the person stops it in One). The connection stays as it is.
    */
   async reload(next) {
-    const known = new Set(this.config.repos.map((r) => r.path));
+    const known = new Set(this.config.repos.map((r) => pathId(r.path)));
     this.config = { ...next, workspace: this.config.workspace, port: this.config.port, preset: this.config.preset, origins: this.config.origins };
-    for (const repo of this.config.repos.filter((r) => !known.has(r.path))) {
+    forgetGitEnv();
+    for (const repo of this.config.repos.filter((r) => !known.has(pathId(r.path)))) {
       try {
         await checkRepo(repo);
         await prune(repo);
@@ -15965,6 +16347,7 @@ var Worker2 = class {
       try {
         await checkRepo(repo);
         await prune(repo);
+        for (const lock of ownLocks(repo, this.state)) this.opts.log(`repo "${repo.name}": ${lock} is left from a git that stopped \u2014 delete it when no git runs there (else git steps in that task fail)`);
       } catch (e) {
         this.opts.log(`repo "${repo.name}": ${e instanceof Error ? e.message : String(e)}`);
       } finally {
@@ -15993,7 +16376,10 @@ var Worker2 = class {
   }
   async start() {
     this.caps = await detectClaude(this.opts.bin);
-    if (!this.caps.found) this.opts.log(`Claude Code was not found ("${this.opts.bin}") \u2014 plan and implement stages will fail until it is installed (or CLAUDE_BIN is set)`);
+    if (!this.caps.found)
+      this.opts.log(
+        this.caps.missing === "cmd-refused" ? `${claudeMissingError("cmd-refused")} ("${this.opts.bin}") \u2014 plan, implement and document stages fail until then` : `Claude Code was not found ("${this.opts.bin}") \u2014 plan, implement and document stages fail until it is installed. ${claudeInstallHint()}`
+      );
     const up = await this.link.start();
     if (up === "listening") void this.checkRepos();
     if (up === "listening") {
@@ -16084,8 +16470,9 @@ var Worker2 = class {
       question: () => run2.question,
       onWorktree: (_wt, scrub) => {
         run2.scrub = scrub;
-      }
-    }).catch((e) => ({ status: "failed", error: run2.scrub.text(e instanceof Error ? e.message : String(e)) })).then(async (outcome) => {
+      },
+      terminal: (msg) => this.opts.log(msg)
+    }).catch((e) => ({ status: "failed", error: run2.scrub.text(e instanceof Error ? e.message : String(e)) })).then((outcome) => scrubOutcome(outcome, run2.scrub)).then(async (outcome) => {
       this.tokens.delete(token);
       this.runs.delete(task.id);
       this.opts.log(`task ${task.id}: ${outcome.status}${outcome.error ? ` \u2014 ${outcome.error}` : ""}`);
@@ -16291,7 +16678,11 @@ var Worker2 = class {
         }
       }
     } catch (e) {
-      throw new Error(scrub.text(e instanceof GitError ? `git: ${e.message}` : e instanceof Error ? e.message : String(e)));
+      const msg2 = e instanceof GitError ? `git: ${e.message}` : e instanceof Error ? e.message : String(e);
+      const hint = (k, s, c, v) => this.logLine(taskId, { t: Date.now(), k, s: scrub.text(s), ...c ? { c, v } : {} });
+      if (e instanceof GitError && e.code === "folderBusy") hint("warn", FOLDER_BUSY, "folderBusy", {});
+      else noteGitHint(msg2, repo, hint, (line) => this.opts.log(line));
+      throw new Error(scrub.text(msg2));
     }
     throw new Error("unknown git action");
   }
@@ -33274,9 +33665,8 @@ async function serveTaskMcp(version2) {
 
 // src/worker/setup.ts
 import { randomBytes as randomBytes6 } from "node:crypto";
-import { execFile as execFile3 } from "node:child_process";
-import { homedir as homedir7 } from "node:os";
-import { isAbsolute as isAbsolute3, join as join11, resolve as resolve5, sep as sep6 } from "node:path";
+import { homedir as homedir9 } from "node:os";
+import { isAbsolute as isAbsolute3, join as join12, resolve as resolve5 } from "node:path";
 
 // src/worker/picker.ts
 var PROMPT = "One worker \u2014 pick the folder of a git repository";
@@ -34273,23 +34663,25 @@ var SETUP_JS = String.raw`(function () {
 `;
 
 // src/worker/setup.ts
-import { createWriteStream as createWriteStream2, rmSync as rmSync6 } from "node:fs";
+import { createWriteStream as createWriteStream2, rmSync as rmSync3 } from "node:fs";
 import { tmpdir as tmpdir4 } from "node:os";
 var MAX_BODY = 256 * 1024;
 var HEADERS = { "cache-control": "no-store", "x-content-type-options": "nosniff", "referrer-policy": "no-referrer", "x-frame-options": "DENY", "cross-origin-resource-policy": "same-origin" };
 var CSP = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 var isObj7 = (v) => !!v && typeof v === "object" && !Array.isArray(v);
-function joinArgs(argv2) {
-  return (argv2 ?? []).map((a) => a === "" ? "''" : /[\s'"\\]/.test(a) ? `"${a.replace(/(["\\])/g, "\\$1")}"` : a).join(" ");
+function joinArgs(argv2, platform = process.platform) {
+  const win2 = platform === "win32";
+  return (argv2 ?? []).map((a) => {
+    if (a === "") return win2 ? '""' : "''";
+    if (!win2) return /[\s'"\\]/.test(a) ? `"${a.replace(/(["\\])/g, "\\$1")}"` : a;
+    if (!/[\s'"]/.test(a)) return a;
+    if (!a.includes('"') && !a.endsWith("\\")) return `"${a}"`;
+    if (!a.includes("'")) return `'${a}'`;
+    return `"${a.replace(/"/g, '\\"')}"`;
+  }).join(" ");
 }
-function installed(cmd) {
-  return new Promise((done) => {
-    try {
-      execFile3(cmd, ["--version"], { timeout: 5e3, windowsHide: true }, (err2) => done(!err2));
-    } catch {
-      done(false);
-    }
-  });
+async function installed(cmd) {
+  return (await execFileSafe(cmd, ["--version"], { timeoutMs: 5e3, allow: "shim" })).code === 0;
 }
 var FACTS_MS = 15e3;
 var SetupServer = class {
@@ -34311,7 +34703,7 @@ var SetupServer = class {
   projects = null;
   constructor(host) {
     this.host = host;
-    this.home = host.home ?? homedir7();
+    this.home = host.home ?? homedir9();
   }
   url() {
     return `http://127.0.0.1:${this.host.port}/setup#k=${this.token}`;
@@ -34338,19 +34730,20 @@ var SetupServer = class {
             this.progress.dirs = dirs;
             if (path) {
               this.progress.found++;
-              if (!this.found.has(path)) this.found.set(path, bareRepo(path, bareNames, this.home));
+              if (!this.found.has(pathId(path))) this.found.set(pathId(path), bareRepo(path, bareNames, this.home));
             }
           }
         });
         const taken = new Set(configured.map((r) => r.name.toLowerCase()));
-        const paths = [.../* @__PURE__ */ new Set([...configured.map((r) => r.path), ...found.paths])];
+        const ids = /* @__PURE__ */ new Set();
+        const paths = [...configured.map((r) => r.path), ...found.paths].filter((p) => !ids.has(pathId(p)) && !!ids.add(pathId(p)));
         this.progress.phase = "facts";
         const facts = await factsOf(paths, taken, this.home, 6, FACTS_MS, (r) => {
           this.progress.facts++;
-          this.found.set(r.path, r);
+          this.found.set(pathId(r.path), r);
         });
-        const added = [...this.found.values()].filter((r) => !paths.includes(r.path));
-        this.found = new Map([...facts, ...added].map((r) => [r.path, r]));
+        const added = [...this.found.values()].filter((r) => !ids.has(pathId(r.path)));
+        this.found = new Map([...facts, ...added].map((r) => [pathId(r.path), r]));
         this.scanned = { capped: found.capped, blocked: found.blocked, dirs: found.dirs, ms: found.ms, at: Date.now() };
       } finally {
         this.scanning = null;
@@ -34371,8 +34764,8 @@ var SetupServer = class {
     const out = [];
     const seen = /* @__PURE__ */ new Set();
     for (const r of config2.repos) {
-      const f = this.found.get(r.path);
-      seen.add(r.path);
+      const f = this.found.get(pathId(r.path));
+      seen.add(pathId(r.path));
       const source = this.sourceNow(r.path);
       out.push({
         ...f ?? { path: r.path, short: shortPath(r.path, this.home), branch: null, branches: [r.baseBranch], remote: r.remote, host: null, dirty: null, lastCommit: null, test: null },
@@ -34389,13 +34782,14 @@ var SetupServer = class {
         mcp: r.claude.mcpServers.join(", "),
         analyzeLine: joinArgs(r.analyzeCommand),
         ownSettings: r.claude.projectSettingsSet ? r.claude.projectSettings : source === null,
-        source
+        source,
+        synced: inSyncedFolder(r.path, { home: this.home })
       });
     }
-    const rest = [...this.found.values()].filter((f) => !seen.has(f.path)).sort((a, b) => (b.lastCommit ?? 0) - (a.lastCommit ?? 0));
+    const rest = [...this.found.values()].filter((f) => !seen.has(pathId(f.path))).sort((a, b) => (b.lastCommit ?? 0) - (a.lastCommit ?? 0));
     for (const f of rest) {
       const source = this.sourceNow(f.path);
-      out.push({ ...f, ticked: false, configured: false, push: !!f.remote, pr: "gh", maxUsdPerTask: null, testLine: joinArgs(f.test), mcp: "", analyzeLine: joinArgs(f.analyze ?? null), ownSettings: source === null, source });
+      out.push({ ...f, ticked: false, configured: false, push: !!f.remote, pr: "gh", maxUsdPerTask: null, testLine: joinArgs(f.test), mcp: "", analyzeLine: joinArgs(f.analyze ?? null), ownSettings: source === null, source, synced: inSyncedFolder(f.path, { home: this.home }) });
     }
     return out;
   }
@@ -34407,7 +34801,7 @@ var SetupServer = class {
     return {
       v: 1,
       workspace: { name: this.host.preset?.name ?? null, id: config2.workspace, paired: !!this.host.preset },
-      worker: { name: config2.name, version: this.host.version, port: config2.port, config: shortPath(this.host.configFile, this.home) },
+      worker: { name: config2.name, version: this.host.version, port: config2.port, config: shortPath(this.host.configFile, this.home), os: process.platform === "win32" ? "windows" : process.platform === "darwin" ? "macos" : "linux" },
       gh: await this.gh,
       glab: await this.glab,
       cloneDir: shortPath(this.cloneDir ?? config2.cloneDir, this.home),
@@ -34421,25 +34815,28 @@ var SetupServer = class {
       live: this.host.live()
     };
   }
-  /** "Add a folder…": a main checkout inside the home folder (relative or ~/…), or an absolute path typed here. */
+  /**
+   * "Add a folder…": a main checkout inside the home folder (relative or ~/…), or an absolute path typed here — one pair
+   * of quotes around it is taken off (Explorer's "Copy as path").
+   */
   async add(typed) {
-    const raw = typeof typed === "string" ? typed.trim() : "";
+    const raw = typeof typed === "string" ? unquote(typed) : "";
     if (!raw || raw.length > 1e3 || /[\u0000-\u001f]/.test(raw)) return { ok: false, error: "Type the folder of a git repository." };
     let dir;
-    if (raw === "~" || raw.startsWith("~/") || raw.startsWith("~\\")) dir = join11(this.home, raw.slice(2));
+    if (raw === "~" || raw.startsWith("~/") || raw.startsWith("~\\")) dir = join12(this.home, raw.slice(2));
     else if (isAbsolute3(raw)) dir = resolve5(raw);
     else {
       dir = resolve5(this.home, raw);
-      if (dir !== this.home && !dir.startsWith(this.home + sep6)) return { ok: false, error: "A relative folder must stay inside your home folder." };
+      if (!inFolder(dir, this.home)) return { ok: false, error: "A relative folder must stay inside your home folder." };
     }
     const real = await realpathTimed(dir);
     if (!real) return { ok: false, error: "That folder does not exist (or did not answer \u2014 an iCloud folder may still be downloading)." };
     dir = real;
     if (!await isMainCheckoutAsync(dir)) return { ok: false, error: "That folder is not the main checkout of a git repository (no .git folder in it)." };
-    if (!this.found.has(dir)) {
+    if (!this.found.has(pathId(dir))) {
       const taken = /* @__PURE__ */ new Set([...this.host.config().repos.map((r) => r.name.toLowerCase()), ...[...this.found.values()].map((r) => r.name.toLowerCase())]);
       const facts = await repoFacts(dir, taken, this.home);
-      this.found.set(dir, facts);
+      this.found.set(pathId(dir), facts);
     }
     return { ok: true, path: dir };
   }
@@ -34451,7 +34848,7 @@ var SetupServer = class {
     if ("error" in target) return { ok: false, status: 400, error: target.error };
     const base = cloneBase(typeof b.dir === "string" && b.dir.trim() ? b.dir : this.cloneDir ?? this.host.config().cloneDir, this.home);
     if (typeof base !== "string") return { ok: false, status: 400, error: base.error };
-    if (base !== this.host.config().cloneDir) this.cloneDir = base;
+    if (!samePath(base, this.host.config().cloneDir)) this.cloneDir = base;
     const job = { id: ++this.cloneSeq, kind: "clone", url: target.url, name: target.name, running: true, line: "", percent: null, done: null, error: null };
     this.clone = job;
     this.host.log(`setup page: cloning ${target.url} into ${base}`);
@@ -34460,9 +34857,9 @@ var SetupServer = class {
       job.percent = p.percent;
     }, { local: target.kind === "local", home: this.home }).then(async ({ dir, already }) => {
       const taken = /* @__PURE__ */ new Set([...this.host.config().repos.map((r) => r.name.toLowerCase()), ...[...this.found.values()].map((r) => r.name.toLowerCase())]);
-      if (!this.found.has(dir)) {
+      if (!this.found.has(pathId(dir))) {
         const facts = await repoFacts(dir, taken, this.home);
-        this.found.set(dir, facts);
+        this.found.set(pathId(dir), facts);
       }
       job.done = dir;
       job.line = already ? "Already cloned \u2014 added." : "Cloned.";
@@ -34488,7 +34885,7 @@ var SetupServer = class {
     if (typeof base !== "string") return { ok: false, status: 400, error: base.error };
     const max2 = ZIP_MAX();
     if (Number(req.headers["content-length"] ?? 0) > max2) return { ok: false, status: 413, error: `The ZIP is larger than ${Math.round(max2 / 1024 / 1024)} MB.` };
-    const tmp = join11(tmpdir4(), `one-import-${randomBytes6(8).toString("hex")}.zip`);
+    const tmp = join12(tmpdir4(), `one-import-${randomBytes6(8).toString("hex")}.zip`);
     let size = 0;
     const out = createWriteStream2(tmp, { mode: 384 });
     try {
@@ -34500,10 +34897,10 @@ var SetupServer = class {
       await new Promise((done, fail) => out.end((e) => e ? fail(e) : done()));
     } catch (e) {
       out.destroy();
-      rmSync6(tmp, { force: true });
+      rmSync3(tmp, { force: true });
       return { ok: false, status: 413, error: e.message };
     }
-    if (base !== this.host.config().cloneDir) this.cloneDir = base;
+    if (!samePath(base, this.host.config().cloneDir)) this.cloneDir = base;
     const name = folderName(file.replace(/\.zip$/i, ""));
     const job = { id: ++this.cloneSeq, kind: "import", url: file, name, running: true, line: "", percent: null, done: null, error: null };
     this.clone = job;
@@ -34513,7 +34910,7 @@ var SetupServer = class {
     }).then(async ({ dir, files }) => {
       const taken = /* @__PURE__ */ new Set([...this.host.config().repos.map((r) => r.name.toLowerCase()), ...[...this.found.values()].map((r) => r.name.toLowerCase())]);
       const facts = await repoFacts(dir, taken, this.home);
-      this.found.set(dir, facts);
+      this.found.set(pathId(dir), facts);
       job.suggest = suggestName(dir, name);
       job.done = dir;
       job.line = `${files} files`;
@@ -34524,7 +34921,7 @@ var SetupServer = class {
       this.host.log(`setup page: the import of ${file} failed \u2014 ${job.error}`);
     }).finally(() => {
       job.running = false;
-      rmSync6(tmp, { force: true });
+      rmSync3(tmp, { force: true });
     });
     return { ok: true };
   }
@@ -34535,7 +34932,7 @@ var SetupServer = class {
   startPublish(body) {
     if (this.clone?.running) return { ok: false, status: 409, error: "A clone, import or publish is running \u2014 wait until it is done." };
     const b = isObj7(body) ? body : {};
-    const repo = typeof b.path === "string" ? this.repos().find((r) => r.path === b.path) : void 0;
+    const repo = typeof b.path === "string" ? this.repos().find((r) => samePath(r.path, b.path)) : void 0;
     if (!repo) return { ok: false, status: 400, error: "That repository is not on the list." };
     if (repo.remote) return { ok: false, status: 400, error: "This repository has a remote already." };
     const target = checkPublish(b);
@@ -34544,9 +34941,9 @@ var SetupServer = class {
     this.clone = job;
     this.host.log(`setup page: creating ${job.url} for ${repo.path}`);
     void publishRepo(repo.path, target, this.host.cli ?? runCli, (line) => job.line = line, process.env.ONE_WORKER_CLONE_LOCAL === "1").then(async ({ web }) => {
-      const taken = /* @__PURE__ */ new Set([...this.host.config().repos.map((r) => r.name.toLowerCase()), ...[...this.found.values()].filter((r) => r.path !== repo.path).map((r) => r.name.toLowerCase())]);
+      const taken = /* @__PURE__ */ new Set([...this.host.config().repos.map((r) => r.name.toLowerCase()), ...[...this.found.values()].filter((r) => !samePath(r.path, repo.path)).map((r) => r.name.toLowerCase())]);
       const facts = await repoFacts(repo.path, taken, this.home);
-      this.found.set(repo.path, facts);
+      this.found.set(pathId(repo.path), facts);
       job.web = web;
       job.done = repo.path;
       job.line = web;
@@ -34569,12 +34966,12 @@ var SetupServer = class {
   async save(body) {
     const list = isObj7(body) && Array.isArray(body.repos) ? body.repos : null;
     if (!list || list.length > 100) return ["Nothing to save."];
-    const known = new Map(this.repos().map((r) => [r.path, r]));
+    const known = new Map(this.repos().map((r) => [pathId(r.path), r]));
     const choices = [];
     const names = /* @__PURE__ */ new Set();
     for (const item of list) {
       if (!isObj7(item) || typeof item.path !== "string") return ["A repository could not be read."];
-      const repo = known.get(item.path);
+      const repo = known.get(pathId(item.path));
       if (!repo) return [`${item.path} is not on the list \u2014 rescan, or add the folder first.`];
       const name = typeof item.name === "string" ? item.name.trim() : repo.name;
       if (!REPO_NAME.test(name)) return [`"${name}": a name needs letters, digits, ".", "_" or "-" (at most 64).`];
@@ -34851,7 +35248,7 @@ Next: add your repositories to "repos", then run: ${again("check")}
   if (presetProblem) log(`the preset in this file is ignored (${presetProblem}) \u2014 download the worker from One again`);
   let loaded;
   try {
-    loaded = existsSync8(configFile) || !preset ? loadConfig(configFile, process.env, configOpts) : { config: emptyConfig(configFile), problems: [] };
+    loaded = existsSync9(configFile) || !preset ? loadConfig(configFile, process.env, configOpts) : { config: emptyConfig(configFile), problems: [] };
   } catch (e) {
     process.stderr.write(`${e instanceof Error ? e.message : String(e)}
 Or download the worker from One (Settings \u2192 Coding worker): that file comes ready-paired and asks for your repos itself.
@@ -34867,7 +35264,7 @@ Or download the worker from One (Settings \u2192 Coding worker): that file comes
     const bash = win ? gitBash() : null;
     const relay = cloud ? await checkCloud(preset.origin, preset.cloud.token) : null;
     const lines = [
-      `config     ${configFile}${existsSync8(configFile) ? "" : " (not written yet)"}`,
+      `config     ${configFile}${existsSync9(configFile) ? "" : " (not written yet)"}`,
       ...cloud ? [`download   cloud worker for "${preset.name}" \xB7 paired (end-to-end) with the browser that downloaded it`, `cloud      ${relay.line}`] : preset ? [`download   paired with a browser for "${preset.name}" \xB7 accepts ${preset.origin}${preset.dev ? " (+ localhost)" : ""}`] : [],
       `workspace  ${config2.workspace ?? "not set \u2014 every One tab is refused"}`,
       `port       ${config2.port}${cloud ? " (task tools and the setup page only \u2014 One reaches this worker through the team server)" : ""}`,
@@ -34982,7 +35379,7 @@ ${r.opened ? "(opened in your browser)" : "(open it in a browser on this compute
 `);
     if (r.opened || !process.stdin.isTTY) return;
   }
-  const home = homedir8();
+  const home = homedir10();
   process.stdout.write(`
 Looking for git repositories below ${home} \u2026
 `);

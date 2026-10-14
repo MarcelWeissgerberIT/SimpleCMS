@@ -33,15 +33,17 @@ import {
 } from '../../../src/app/features/coding/protocol.ts'
 import type { RepoConfig, WorkerConfig } from './config.ts'
 import { WorkerState } from './state.ts'
-import { detectClaude, type ClaudeCaps } from './claude.ts'
+import { claudeInstallHint, claudeMissingError, detectClaude, type ClaudeCaps } from './claude.ts'
 import { scratchRepo } from './config.ts'
 import { Intake } from './intake.ts'
-import { checkRepo, cleanup, commentPr, commitAll, discard, info, isDirty, localBranches, mergePr, openPr, prune, push, updateFromBase, worktreeOf, GitError } from './git.ts'
+import { checkRepo, cleanup, commentPr, commitAll, discard, info, isDirty, localBranches, mergePr, openPr, ownLocks, prune, push, updateFromBase, worktreeOf, GitError } from './git.ts'
+import { FOLDER_BUSY, forgetGitEnv } from './gitenv.ts'
+import { pathId } from './paths.ts'
 import { WorkerLink } from './link.ts'
 import type { CloudFatal } from './cloud.ts'
 import { cloudOf } from './config.ts'
 import { relayUrl, workerOrigins } from './preset.ts'
-import { dataBlock, markerCode, runStage } from './run.ts'
+import { dataBlock, markerCode, noteGitHint, runStage } from './run.ts'
 import { repoScrubber, type Scrubber } from './scrub.ts'
 import type { SetupLive } from './setup.ts'
 
@@ -84,6 +86,13 @@ const INTAKE_EVENT_MS = 250
 const str = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max) : '')
 /** Control characters and line / paragraph separators → spaces. */
 const oneLine = (s: string) => s.replace(/[\u0000-\u001f\u007f\u2028\u2029]/g, ' ').trim()
+
+/** An outcome's texts through the run's scrubber (again: it is idempotent — the replacements match no rule). */
+export function scrubOutcome(o: StageOutcome, scrub: Scrubber): StageOutcome {
+  const out = { ...o }
+  for (const k of ['error', 'summary', 'plan', 'question'] as const) if (typeof out[k] === 'string') out[k] = scrub.text(out[k])
+  return out
+}
 
 /** The ids of a task the worker could not read — enough to report it back to One. */
 export function taskIds(raw: unknown): { id: string; stageId: string } | null {
@@ -224,9 +233,11 @@ export class Worker {
    * new task (a running one finishes — or the person stops it in One). The connection stays as it is.
    */
   async reload(next: WorkerConfig): Promise<void> {
-    const known = new Set(this.config.repos.map((r) => r.path))
+    const known = new Set(this.config.repos.map((r) => pathId(r.path)))
     this.config = { ...next, workspace: this.config.workspace, port: this.config.port, preset: this.config.preset, origins: this.config.origins }
-    for (const repo of this.config.repos.filter((r) => !known.has(r.path))) {
+    // the person may have set their own core.sshCommand meanwhile
+    forgetGitEnv()
+    for (const repo of this.config.repos.filter((r) => !known.has(pathId(r.path)))) {
       try {
         await checkRepo(repo)
         await prune(repo)
@@ -247,6 +258,8 @@ export class Worker {
       try {
         await checkRepo(repo)
         await prune(repo)
+        // a git the worker's own work stopped (a kill, a crash) may have left its lock: every git step there would fail
+        for (const lock of ownLocks(repo, this.state)) this.opts.log(`repo "${repo.name}": ${lock} is left from a git that stopped — delete it when no git runs there (else git steps in that task fail)`)
       } catch (e) {
         this.opts.log(`repo "${repo.name}": ${e instanceof Error ? e.message : String(e)}`)
       } finally {
@@ -278,7 +291,13 @@ export class Worker {
 
   async start(): Promise<'listening' | 'in-use' | 'refused'> {
     this.caps = await detectClaude(this.opts.bin)
-    if (!this.caps.found) this.opts.log(`Claude Code was not found ("${this.opts.bin}") — plan and implement stages will fail until it is installed (or CLAUDE_BIN is set)`)
+    // this terminal only: the program it looked for may be a path of this computer
+    if (!this.caps.found)
+      this.opts.log(
+        this.caps.missing === 'cmd-refused'
+          ? `${claudeMissingError('cmd-refused')} ("${this.opts.bin}") — plan, implement and document stages fail until then`
+          : `Claude Code was not found ("${this.opts.bin}") — plan, implement and document stages fail until it is installed. ${claudeInstallHint()}`,
+      )
     // ready first: a repo whose git is slow (iCloud Drive fetching files) must not keep One waiting
     const up = await this.link.start()
     if (up === 'listening') void this.checkRepos()
@@ -383,8 +402,11 @@ export class Worker {
       onWorktree: (_wt, scrub) => {
         run.scrub = scrub
       },
+      terminal: (msg) => this.opts.log(msg),
     })
       .catch((e: unknown): StageOutcome => ({ status: 'failed', error: run.scrub.text(e instanceof Error ? e.message : String(e)) }))
+      // defence in depth: run.ts scrubs every text it hands back; once more here (idempotent) catches a site that did not
+      .then((outcome) => scrubOutcome(outcome, run.scrub))
       .then(async (outcome) => {
         this.tokens.delete(token)
         this.runs.delete(task.id)
@@ -605,7 +627,12 @@ export class Worker {
         }
       }
     } catch (e) {
-      throw new Error(scrub.text(e instanceof GitError ? `git: ${e.message}` : e instanceof Error ? e.message : String(e)))
+      const msg = e instanceof GitError ? `git: ${e.message}` : e instanceof Error ? e.message : String(e)
+      // what it means for the person, in the task's log (the error itself goes back to the key they pressed)
+      const hint = (k: LogLine['k'], s: string, c?: string, v?: Record<string, string | number>) => this.logLine(taskId, { t: Date.now(), k, s: scrub.text(s), ...(c ? { c, v } : {}) })
+      if (e instanceof GitError && e.code === 'folderBusy') hint('warn', FOLDER_BUSY, 'folderBusy', {})
+      else noteGitHint(msg, repo, hint, (line) => this.opts.log(line))
+      throw new Error(scrub.text(msg))
     }
     throw new Error('unknown git action')
   }

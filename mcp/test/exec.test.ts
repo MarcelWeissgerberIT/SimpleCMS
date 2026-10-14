@@ -643,7 +643,7 @@ describe('exec in use — crash safety', () => {
 /* ------------------------------------------------------------------ the source guard */
 
 /** Files that still start programs themselves — each one leaves this list when it moves to exec.ts (B's four). */
-const NOT_YET = ['git.ts', 'clone.ts', 'config.ts', 'setup.ts']
+const NOT_YET: string[] = []
 
 describe('exec — source guard', () => {
   test('only exec.ts imports node:child_process (type imports aside); no `shell:` option; cmd.exe only for the person\'s own commands', () => {

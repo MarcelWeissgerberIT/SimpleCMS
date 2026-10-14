@@ -5,8 +5,9 @@
  *  - which worktree a task works in,
  *  - what Claude Code cost per task and per day (the limits in worker.json).
  */
-import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { renameRetry } from './paths.ts'
 
 export interface CreatedEntry {
   task: string
@@ -65,7 +66,8 @@ export class WorkerState {
   save(): void {
     const tmp = `${this.file}.tmp`
     writeFileSync(tmp, JSON.stringify(this.data, null, 2), { mode: 0o600 })
-    renameSync(tmp, this.file)
+    // Windows: Defender or the indexer may hold the file a moment
+    renameRetry(tmp, this.file)
   }
 
   created(repo: string, branch: string): CreatedEntry | null {

@@ -1,8 +1,9 @@
 /**
- * one-worker — git, always as `spawn('git', [args…])` (never a shell line; hooks and the person's git
- * config apply as usual; no terminal, so git never waits for a typed password). The main checkout's working tree is never touched: every task works in its own
- * worktree. Nothing here deletes work the worker did not create, and nothing is force-pushed unless the
- * person picked "Force push" in One (then --force-with-lease).
+ * one-worker — git, always as a program with an argument list (exec.ts: never a shell line; on Windows only a git.exe
+ * from PATH, never one from the repository; hooks and the person's git config apply as usual; no terminal and ssh in
+ * BatchMode unless they set their own, so git never waits for a typed password — gitenv.ts). The main checkout's
+ * working tree is never touched: every task works in its own worktree. Nothing here deletes work the worker did not
+ * create, and nothing is force-pushed unless the person picked "Force push" in One (then --force-with-lease).
  *
  *  - ensureWorktree: a new branch <prefix><slug>-<shortid> from <remote>/<base> (after a fetch — one that fails
  *    or takes over 60 s is noted and the local state is used) in its own
@@ -11,11 +12,14 @@
  *  - commit · push · openPr (gh, else a compare link) · updateFromBase (rebase only if never pushed,
  *    else merge; conflicts reported per file, left for a stage to resolve) · discard · cleanup
  */
-import { execFile, spawn } from 'node:child_process'
-import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, rmSync } from 'node:fs'
-import { dirname, join, resolve, sep } from 'node:path'
+import { createHash } from 'node:crypto'
+import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync } from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
 import type { GitCommit, GitFile, GitInfo } from '../../../src/app/features/coding/protocol.ts'
 import type { RepoConfig } from './config.ts'
+import { execFileSafe, killTree, spawnSafe } from './exec.ts'
+import { FOLDER_BUSY, gitArgs, gitEnv } from './gitenv.ts'
+import { inFolder, pathId, rmRetry, samePath } from './paths.ts'
 import type { WorkerState } from './state.ts'
 
 export interface GitRun {
@@ -24,57 +28,65 @@ export interface GitRun {
   stderr: string
   /** killed at the time limit */
   timedOut?: boolean
+  /** git was ended (time limit, too much output): settles once it is gone — before its folder is removed */
+  ended?: Promise<void>
 }
 
-export class GitError extends Error {}
+export class GitError extends Error {
+  /** a log code that says more (folderBusy: Windows still holds files in a folder the worker removes) */
+  code?: string
+  constructor(message: string, code?: string) {
+    super(message)
+    if (code) this.code = code
+  }
+}
 
 /** Per-file and total diff caps (what goes to One). */
 export const DIFF_FILE_MAX = 120_000
 export const DIFF_TOTAL_MAX = 1_500_000
 export const DIFF_FILES_MAX = 200
 
-const ENV = { GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0', LC_ALL: 'C', GCM_INTERACTIVE: 'never' }
 const OUT_MAX = 32 * 1024 * 1024
 
 /**
  * Run git. Resolves with the exit code — never throws for a non-zero exit. On macOS / Linux git runs in its own
  * session without a terminal: a password, SSH passphrase or host-key question fails at once (git says why)
- * instead of waiting for someone to type into the worker's terminal. An SSH agent or a credential helper still works.
+ * instead of waiting for someone to type into the worker's terminal; on Windows ssh runs in BatchMode for the same
+ * (gitenv.ts). An SSH agent or a credential helper still works. At the time limit it answers at once — git and what it
+ * started are ended behind it (`ended`).
  */
-export function git(cwd: string, args: string[], timeoutMs = 120_000): Promise<GitRun> {
+export async function git(cwd: string, args: string[], timeoutMs = 120_000): Promise<GitRun> {
+  const env = await gitEnv(cwd, process.env, { timeoutMs })
   return new Promise((done) => {
     const out: Buffer[] = []
     const err: Buffer[] = []
     let size = 0
     let why: string | null = null
     let settled = false
+    let ended: Promise<void> | undefined
     const finish = (code: number, extra = '') => {
       if (settled) return
       settled = true
       clearTimeout(timer)
       const stderr = Buffer.concat(err).toString()
-      done({ code, stdout: Buffer.concat(out).toString(), stderr: why ?? (stderr || extra), timedOut: why !== null && why.includes('did not finish') })
+      done({ code, stdout: Buffer.concat(out).toString(), stderr: why ?? (stderr || extra), timedOut: why !== null && why.includes('did not finish'), ...(ended ? { ended } : {}) })
     }
-    const child = spawn('git', args, { cwd, env: { ...process.env, ...ENV }, stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32', windowsHide: true })
-    const stop = () => {
-      try {
-        if (process.platform !== 'win32' && child.pid) process.kill(-child.pid, 'SIGKILL')
-        else child.kill('SIGKILL')
-      } catch {
-        /* gone */
-      }
-    }
+    const s = spawnSafe('git', gitArgs(args), { cwd, env, stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32', windowsHide: true, allow: 'exe' })
     const timer = setTimeout(() => {
       why = `git ${args[0]} did not finish within ${Math.round(timeoutMs / 1000)} s — no network, files still coming from iCloud Drive, or it waits for a password or an SSH key passphrase (the worker cannot type one: use an SSH agent or a credential helper)`
-      stop()
+      if (s.ok) ended = killTree(s.child)
       // a git stuck in the file system (an iCloud file being fetched) may not die at once: give up on it now, never wait
       finish(1)
     }, timeoutMs)
+    if (!s.ok) return finish(127, s.error)
+    const child = s.child
     const take = (into: Buffer[]) => (d: Buffer) => {
       size += d.length
       if (size > OUT_MAX) {
-        why = `git ${args[0]}: output too large`
-        stop()
+        if (!why) {
+          why = `git ${args[0]}: output too large`
+          ended = killTree(child)
+        }
         return
       }
       into.push(d)
@@ -93,10 +105,7 @@ export async function gitOk(cwd: string, args: string[], timeoutMs?: number): Pr
   return r.stdout
 }
 
-const same = (a: string, b: string) => {
-  const norm = (p: string) => resolve(p).replace(/[\\/]+$/, '')
-  return process.platform === 'win32' ? norm(a).toLowerCase() === norm(b).toLowerCase() : norm(a) === norm(b)
-}
+const same = (a: string, b: string) => samePath(a, b)
 
 /* ------------------------------------------------------------------ repo facts */
 
@@ -123,7 +132,7 @@ export async function listWorktrees(repo: RepoConfig): Promise<Worktree[]> {
   const out = await gitOk(repo.path, ['worktree', 'list', '--porcelain'])
   const list: Worktree[] = []
   let cur: Worktree | null = null
-  for (const line of out.split('\n')) {
+  for (const line of out.split(/\r?\n/)) {
     if (line.startsWith('worktree ')) {
       cur = { path: line.slice(9), branch: null, head: null, bare: false }
       list.push(cur)
@@ -141,7 +150,7 @@ export async function localBranches(repo: RepoConfig, timeoutMs = 5000): Promise
   const r = await git(repo.path, ['for-each-ref', '--sort=-committerdate', `--count=${BRANCHES_MAX}`, '--format=%(refname:short)', 'refs/heads'], timeoutMs)
   if (r.code !== 0) return []
   return r.stdout
-    .split('\n')
+    .split(/\r?\n/)
     .map((b) => b.trim())
     .filter((b) => b && b.length <= 200)
 }
@@ -210,6 +219,39 @@ export function slug(title: string, max = 40): string {
 
 export const shortId = (taskId: string) => taskId.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 6) || 'task'
 
+/** A Windows device name (with any extension): such a folder opens the device, never a folder. */
+const DEVICE = /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³]|conin\$|conout\$)$/i
+
+/**
+ * The worktree's folder name for a branch. macOS / Linux: the branch with "/" as "-" (as always). Windows: also no
+ * <>:"|?* or control characters ("_"), no trailing dot or space, no device name, and at most 32 characters + "-" + 6 hex
+ * of the branch's hash whenever a name was changed or cut — distinct per branch, short enough for deep repos under
+ * the 260-character limit. The branch itself keeps its name on every OS.
+ */
+export function worktreeFolder(branch: string, platform: NodeJS.Platform = process.platform): string {
+  const plain = branch.replace(/[\\/]+/g, '-')
+  if (platform !== 'win32') return plain
+  let s = plain.replace(/[<>:"|?*\u0000-\u001f]/g, '_').replace(/[. ]+$/, '')
+  if (DEVICE.test(s.split('.')[0]!.replace(/ +$/, ''))) s = `_${s}`
+  if (s === plain && s.length <= 32) return s
+  const cut = s.slice(0, 32).replace(/[. ]+$/, '') || '_'
+  return `${cut}-${createHash('sha1').update(branch).digest('hex').slice(0, 6)}`
+}
+
+/** Folders of the worker's own a failed checkout could not remove yet (Windows held a file): tried again before reuse. */
+const leftovers = new Set<string>()
+
+/** The task's worktree folder, free: a leftover of the worker's own is removed now (it failed before) — else refused. */
+async function freeFolder(repo: RepoConfig, dir: string, branch: string): Promise<void> {
+  if (!existsSync(dir)) return
+  if (leftovers.has(pathId(dir)) && insideWorktrees(repo, dir) && (await rmRetry(dir))) {
+    leftovers.delete(pathId(dir))
+    await prune(repo)
+    return
+  }
+  throw new GitError(`the worktree folder for ${branch} already exists and is not a worktree of this repo — move it away first`)
+}
+
 export interface TaskWorktree {
   dir: string
   branch: string
@@ -237,8 +279,8 @@ export async function ensureWorktree(repo: RepoConfig, state: WorkerState, task:
   let branch = `${repo.branchPrefix}${slug(task.title)}-${shortId(task.id)}`
   for (let n = 2; (await branchExists(repo, branch)) && n < 50; n++) branch = `${repo.branchPrefix}${slug(task.title)}-${shortId(task.id)}-${n}`
   if (!(await validBranch(repo, branch))) throw new GitError(`"${branch}" is not a valid branch name (check branchPrefix in worker.json)`)
-  const dir = join(repo.worktreeDir, branch.replace(/[\\/]+/g, '-'))
-  if (existsSync(dir)) throw new GitError(`the worktree folder for ${branch} already exists and is not a worktree of this repo — move it away first`)
+  const dir = join(repo.worktreeDir, worktreeFolder(branch))
+  await freeFolder(repo, dir, branch)
   mkdirSync(dirname(dir), { recursive: true })
   note?.('git', `New branch ${branch} from ${base} in its own worktree…`, 'newBranch', { branch, base })
   await addWorktree(repo, ['-b', branch, dir, base], dir, branch, note)
@@ -254,7 +296,8 @@ const clock = (ms: number) => `${Math.floor(ms / 60_000)}:${String(Math.round(ms
 /**
  * `git worktree add …` with a sign of life every 30 s. When it fails or runs out of time nothing half-made stays:
  * the folder (always inside the worker's worktree folder — it did not exist before), its worktree entry and the
- * branch this call created.
+ * branch this call created. git is gone first (its whole tree, on Windows too); a folder Windows still holds is tried
+ * again and named (folderBusy) — git's own error is what the stage reports, whatever the cleanup met.
  */
 async function addWorktree(repo: RepoConfig, args: string[], dir: string, newBranch: string | null, note?: GitNote): Promise<void> {
   const started = Date.now()
@@ -266,13 +309,22 @@ async function addWorktree(repo: RepoConfig, args: string[], dir: string, newBra
   try {
     const r = await git(repo.path, ['worktree', 'add', ...args], checkoutMs())
     if (r.code === 0) return
-    if (insideWorktrees(repo, dir)) {
-      await git(repo.path, ['worktree', 'remove', '--force', dir])
-      rmSync(dir, { recursive: true, force: true })
+    const failed = new GitError((r.stderr || r.stdout).trim().split(/\r?\n/).slice(-6).join('\n') || 'git worktree add failed')
+    await r.ended
+    try {
+      if (insideWorktrees(repo, dir)) {
+        await git(repo.path, ['worktree', 'remove', '--force', dir])
+        if (!(await rmRetry(dir))) {
+          leftovers.add(pathId(dir))
+          note?.('warn', FOLDER_BUSY, 'folderBusy', {})
+        }
+      }
+      await prune(repo)
+      if (newBranch && (await branchExists(repo, newBranch))) await git(repo.path, ['branch', '-D', newBranch])
+    } catch {
+      /* the cleanup's own trouble never hides git's error */
     }
-    await prune(repo)
-    if (newBranch && (await branchExists(repo, newBranch))) await git(repo.path, ['branch', '-D', newBranch])
-    throw new GitError((r.stderr || r.stdout).trim().split('\n').slice(-6).join('\n') || 'git worktree add failed')
+    throw failed
   } finally {
     clearInterval(beat)
   }
@@ -289,8 +341,8 @@ async function reuse(repo: RepoConfig, state: WorkerState, task: { id: string },
     state.setTask(task.id, { repo: repo.name, branch, worktree: tree.path })
     return { dir: tree.path, branch, created: !!own?.branchCreated }
   }
-  const dir = join(repo.worktreeDir, branch.replace(/[\\/]+/g, '-'))
-  if (existsSync(dir)) throw new GitError(`the worktree folder for ${branch} already exists and is not a worktree of this repo — move it away first`)
+  const dir = join(repo.worktreeDir, worktreeFolder(branch))
+  await freeFolder(repo, dir, branch)
   mkdirSync(dirname(dir), { recursive: true })
   if (await branchExists(repo, branch)) {
     await addWorktree(repo, [dir, branch], dir, null, note)
@@ -330,8 +382,8 @@ export async function branchDiff(repo: RepoConfig, branch: string, dir: string |
   if (!mb) return null
   const range = dir ? [mb] : [mb, branch]
   const stat = (await git(cwd, ['diff', '--stat=120', '-M', ...range])).stdout.trimEnd()
-  const files = (await git(cwd, ['diff', '--name-only', '-M', ...range])).stdout.split('\n').filter(Boolean).length
-  const fresh = dir ? (await git(cwd, ['ls-files', '--others', '--exclude-standard'])).stdout.split('\n').filter(Boolean).slice(0, 100) : []
+  const files = (await git(cwd, ['diff', '--name-only', '-M', ...range])).stdout.split(/\r?\n/).filter(Boolean).length
+  const fresh = dir ? (await git(cwd, ['ls-files', '--others', '--exclude-standard'])).stdout.split(/\r?\n/).filter(Boolean).slice(0, 100) : []
   // git's own diff (--no-ext-diff): never the person's diff.external / GIT_EXTERNAL_DIFF, a command that runs in the repo
   let diff = (await git(cwd, ['diff', '--no-ext-diff', '-M', ...range], 120_000)).stdout
   if (!diff.trim() && !fresh.length) return null
@@ -579,14 +631,16 @@ export function compareUrl(remoteUrl: string, base: string, branch: string): str
     : `https://${w.host}/${w.path}/-/merge_requests/new?merge_request%5Bsource_branch%5D=${encodeURIComponent(branch)}&merge_request%5Btarget_branch%5D=${encodeURIComponent(base)}`
 }
 
-function run(cmd: string, args: string[], cwd: string, timeoutMs = 120_000): Promise<GitRun> {
-  return new Promise((done) => {
-    execFile(cmd, args, { cwd, timeout: timeoutMs, maxBuffer: 8 * 1024 * 1024, env: { ...process.env, GH_PROMPT_DISABLED: '1', NO_COLOR: '1' }, windowsHide: true }, (err, stdout, stderr) => {
-      const code = err ? (typeof (err as { code?: unknown }).code === 'number' ? (err as { code: number }).code : 127) : 0
-      done({ code, stdout: String(stdout), stderr: String(stderr || (err && code === 127 ? err.message : '')) })
-    })
-  })
+/** gh / glab: an .exe, or a shim the reader reads (exec.ts — never through cmd.exe). `input` goes to stdin. */
+async function run(cmd: 'gh' | 'glab', args: string[], cwd: string, timeoutMs = 120_000, input?: string): Promise<GitRun> {
+  const r = await execFileSafe(cmd, args, { cwd, env: { ...process.env, GH_PROMPT_DISABLED: '1', NO_COLOR: '1' }, timeoutMs, maxBuffer: 8 * 1024 * 1024, allow: 'shim', ...(input !== undefined ? { input } : {}) })
+  return { code: r.code, stdout: r.stdout, stderr: r.stderr || r.error || '' }
 }
+
+/** What a request's text may hold: gh reads it from stdin (any length); glab takes it as an argument — on Windows a command line holds 32,767 characters, and every " may become \" there. */
+export const BODY_MAX = 60_000
+export const GLAB_TEXT_MAX_WIN = 15_000
+const glabText = (text: string, platform: NodeJS.Platform = process.platform) => text.slice(0, platform === 'win32' ? GLAB_TEXT_MAX_WIN : BODY_MAX)
 
 /**
  * Open a pull request: `gh pr create` when the repo wants it, gh is installed and the remote is a GitHub
@@ -599,7 +653,7 @@ export async function openPr(repo: RepoConfig, dir: string, branch: string, titl
   if (repo.pr === 'gh' && web?.kind === 'github') {
     const gh = await run('gh', ['--version'], dir, 10_000)
     if (gh.code === 0) {
-      const made = await run('gh', ['pr', 'create', '--base', repo.baseBranch, '--head', branch, '--title', title.slice(0, 250), '--body', body.slice(0, 60_000)], dir)
+      const made = await run('gh', ['pr', 'create', '--base', repo.baseBranch, '--head', branch, '--title', title.slice(0, 250), '--body-file', '-'], dir, 120_000, body.slice(0, BODY_MAX))
       const url = /https?:\/\/\S+/.exec(made.stdout)?.[0] ?? /https?:\/\/\S+\/pull\/\d+/.exec(made.stderr)?.[0]
       if (made.code === 0 && url) return { url, via: 'gh' }
       if (/already exists/i.test(made.stderr)) {
@@ -613,7 +667,7 @@ export async function openPr(repo: RepoConfig, dir: string, branch: string, titl
   if (repo.pr === 'gh' && web?.kind === 'gitlab') {
     const glab = await run('glab', ['--version'], dir, 10_000)
     if (glab.code === 0) {
-      const made = await run('glab', ['mr', 'create', '--source-branch', branch, '--target-branch', repo.baseBranch, '--title', title.slice(0, 250), '--description', body.slice(0, 60_000), '--yes'], dir)
+      const made = await run('glab', ['mr', 'create', '--source-branch', branch, '--target-branch', repo.baseBranch, '--title', title.slice(0, 250), '--description', glabText(body), '--yes'], dir)
       const url = /https?:\/\/\S+\/-\/merge_requests\/\d+/.exec(`${made.stdout}\n${made.stderr}`)?.[0]
       if (url) return { url, via: 'glab' }
     }
@@ -653,10 +707,10 @@ async function requestUrl(tool: 'gh' | 'glab', dir: string, branch: string): Pro
 
 /** Post a comment (the review) to the branch's merge / pull request — the person's own gh / glab. */
 export async function commentPr(repo: RepoConfig, dir: string, branch: string, body: string): Promise<{ via: 'gh' | 'glab'; url: string | null }> {
-  const text = body.trim().slice(0, 60_000)
+  const text = body.trim().slice(0, BODY_MAX)
   if (!text) throw new GitError('there is nothing to post')
   const { tool } = await hostCli(repo, dir)
-  const made = tool === 'gh' ? await run('gh', ['pr', 'comment', branch, '--body', text], dir) : await run('glab', ['mr', 'note', branch, '--message', text], dir)
+  const made = tool === 'gh' ? await run('gh', ['pr', 'comment', branch, '--body-file', '-'], dir, 120_000, text) : await run('glab', ['mr', 'note', branch, '--message', glabText(text)], dir)
   if (made.code !== 0) throw new GitError(`${tool === 'gh' ? 'gh pr comment' : 'glab mr note'} failed: ${lastLines(made)}`)
   return { via: tool, url: (await requestUrl(tool, dir, branch)) ?? /https?:\/\/\S+/.exec(made.stdout)?.[0] ?? null }
 }
@@ -735,7 +789,15 @@ export async function discard(repo: RepoConfig, state: WorkerState, branch: stri
   const tree = (await listWorktrees(repo)).find((w) => w.branch === branch)
   let removedTree = false
   if (tree && !same(tree.path, top) && own.worktree && same(tree.path, own.worktree)) {
-    await gitOk(repo.path, ['worktree', 'remove', '--force', tree.path])
+    const r = await git(repo.path, ['worktree', 'remove', '--force', tree.path])
+    if (r.code !== 0) {
+      // Windows: a file someone holds open (an editor, the indexer) — the folder is the worker's own: remove it, then
+      // let git forget it; git's own error when it still cannot go
+      const failed = (r.stderr || r.stdout).trim().split(/\r?\n/).slice(-6).join('\n') || 'git worktree remove failed'
+      if (!insideWorktrees(repo, tree.path)) throw new GitError(failed)
+      if (!(await rmRetry(tree.path))) throw new GitError(failed, 'folderBusy')
+      await prune(repo)
+    }
     removedTree = true
   }
   let removedBranch = false
@@ -768,8 +830,28 @@ export async function cleanup(repo: RepoConfig, state: WorkerState, branch: stri
   return { worktree: !!dir, branch: removedBranch }
 }
 
-/** Is `dir` inside the repo's worktree folder (never the main checkout)? */
+/**
+ * Lock files a stopped git left in the worker's OWN worktrees (index.lock in each one's git folder) — named in the
+ * terminal at start (a killed git on Windows leaves one, and every later git step there fails). Never removed here.
+ */
+export function ownLocks(repo: RepoConfig, state: WorkerState): string[] {
+  const out: string[] = []
+  for (const entry of Object.values(state.data.created[repo.name] ?? {})) {
+    if (!entry.worktree) continue
+    try {
+      const link = readFileSync(join(entry.worktree, '.git'), 'utf8')
+      const gitdir = /^gitdir:\s*(.+)$/m.exec(link)?.[1]?.trim()
+      if (!gitdir) continue
+      const lock = join(resolve(entry.worktree, gitdir), 'index.lock')
+      if (existsSync(lock)) out.push(lock)
+    } catch {
+      /* gone, or not a linked worktree */
+    }
+  }
+  return out
+}
+
+/** Is `dir` inside the repo's worktree folder (not the folder itself — never the main checkout)? */
 export function insideWorktrees(repo: RepoConfig, dir: string): boolean {
-  const root = resolve(repo.worktreeDir) + sep
-  return resolve(dir).startsWith(root)
+  return inFolder(dir, repo.worktreeDir) && !samePath(dir, repo.worktreeDir) && !samePath(dir, repo.path)
 }
