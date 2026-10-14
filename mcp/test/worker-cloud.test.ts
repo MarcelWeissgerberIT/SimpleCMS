@@ -224,10 +224,11 @@ describe('cloud worker', () => {
     for (let off = 0; off < zip.length; off += chunk) assert.equal((await tab.request({ op: 'intake-chunk', uploadId, data: zip.subarray(off, off + chunk).toString('base64') })).ok, true)
     assert.equal((await tab.request({ op: 'intake-end', uploadId })).ok, true)
     const intakes = () => tab.messages.filter((m): m is Extract<WorkerMessage, { kind: 'intake' }> => m.type === 'event' && m.kind === 'intake')
-    // 30 s on every OS: Windows finished it well inside that in CI run 1; run 2 timed out after a scrubber was built for
-    // every file's progress event (Fix2: one scrubber, progress every 200 ms). The worker's terminal names each part's
-    // time (unpacked · guard · commit · added) — printed below, so a CI log gives the measured value before this changes
-    await waitFor(() => intakes().some((m) => m.intake.state !== 'running'), 30_000, () => worker!.stderr())
+    // 30 s on macOS / Linux. Windows: 90 s — its git needs most of the time for the import's one commit of 3,001 files
+    // (CI run 8, Windows Node 22: unpacked 1.3 s · guard 0.0 s · commit 24.2 s · added 0.4 s; runs 7 and 8 on a slower
+    // runner went past 30 s in the commit). The worker's terminal names each part's time (unpacked · guard · commit ·
+    // added) — printed below, so a CI log gives the measured value before this changes
+    await waitFor(() => intakes().some((m) => m.intake.state !== 'running'), process.platform === 'win32' ? 90_000 : 30_000, () => worker!.stderr())
     for (const line of worker!.stderr().split('\n').filter((l) => /import for task zip1abcd: (\d+ files unpacked|added in)/.test(l))) t.diagnostic(line.trim())
     const last = intakes().at(-1)!
     assert.equal(last.intake.state, 'done', JSON.stringify(last))
