@@ -226,11 +226,14 @@ export interface FoundRepo {
 
 const GIT_MS = 3000
 
-/** "~/code/website" (forward slashes) for a path inside the home folder. */
-export function shortPath(path: string, home = homedir()): string {
+/** "~/code/website" (forward slashes) for a path inside the home folder (without case on Windows / macOS). */
+export function shortPath(path: string, home = homedir(), platform: NodeJS.Platform = process.platform): string {
   const h = home.replace(/[\\/]+$/, '')
-  if (path === h) return '~'
-  if (path.startsWith(h + sep) || path.startsWith(`${h}/`)) return `~/${path.slice(h.length + 1).replace(/\\/g, '/')}`
+  const fold = (s: string) => (platform === 'win32' || platform === 'darwin' ? s.toLowerCase() : s)
+  const p = fold(path)
+  const f = fold(h)
+  if (p === f) return '~'
+  if (p.startsWith(f + sep) || p.startsWith(`${f}/`) || (platform === 'win32' && p.startsWith(`${f}\\`))) return `~/${path.slice(h.length + 1).replace(/\\/g, '/')}`
   return path.replace(/\\/g, '/')
 }
 

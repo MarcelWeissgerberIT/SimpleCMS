@@ -18,7 +18,7 @@ import { dirname, join, resolve } from 'node:path'
 import type { GitCommit, GitFile, GitInfo } from '../../../src/app/features/coding/protocol.ts'
 import type { RepoConfig } from './config.ts'
 import { execFileSafe, killTree, spawnSafe } from './exec.ts'
-import { FOLDER_BUSY, gitArgs, gitEnv } from './gitenv.ts'
+import { FOLDER_BUSY, GIT_ENV, gitArgs, gitEnv } from './gitenv.ts'
 import { inFolder, pathId, rmRetry, samePath } from './paths.ts'
 import type { WorkerState } from './state.ts'
 
@@ -53,10 +53,11 @@ const OUT_MAX = 32 * 1024 * 1024
  * session without a terminal: a password, SSH passphrase or host-key question fails at once (git says why)
  * instead of waiting for someone to type into the worker's terminal; on Windows ssh runs in BatchMode for the same
  * (gitenv.ts). An SSH agent or a credential helper still works. At the time limit it answers at once — git and what it
- * started are ended behind it (`ended`).
+ * started are ended behind it (`ended`). `local`: a call that never reaches a remote (the ZIP import) — no config is
+ * read for ssh in `cwd`.
  */
-export async function git(cwd: string, args: string[], timeoutMs = 120_000): Promise<GitRun> {
-  const env = await gitEnv(cwd, process.env, { timeoutMs })
+export async function git(cwd: string, args: string[], timeoutMs = 120_000, opts: { local?: boolean } = {}): Promise<GitRun> {
+  const env = opts.local ? { ...process.env, ...GIT_ENV } : await gitEnv(cwd, process.env, { timeoutMs })
   return new Promise((done) => {
     const out: Buffer[] = []
     const err: Buffer[] = []

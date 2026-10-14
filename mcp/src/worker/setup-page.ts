@@ -185,6 +185,10 @@ export const SETUP_JS = String.raw`(function () {
     noKey: 'This page needs its key. Open it at the address the worker printed in its terminal.',
     unbound: 'This worker is not bound to a workspace. Download it from One (Settings → Coding worker) — that file comes ready-paired.',
     noClaude: 'Claude Code was not found. Install it, sign in once (claude), then restart the worker.',
+    noClaudeWin: 'Claude Code was not found. Install it — its native installer (PowerShell: irm https://claude.ai/install.ps1 | iex; it needs Git for Windows) or npm i -g @anthropic-ai/claude-code —, sign in once (claude), then restart the worker. A .cmd the worker cannot read is never started through cmd.exe: then set CLAUDE_BIN to claude.exe or Claude Code’s cli.js.',
+    syncedicloud: 'In iCloud Drive: git waits for files that are only in the cloud. Faster: a clone outside it (~/one-repos).',
+    syncedcloudStorage: 'In a synced cloud folder (~/Library/CloudStorage): files may be downloaded on demand and locked while they sync. Task worktrees go to ~/.one-worktrees; faster: a clone outside it.',
+    syncedonedrive: 'In OneDrive: online-only files are downloaded first and files are locked while they sync, so git steps can stall. Task worktrees go to .one-worktrees in your user folder; faster: move the repo out of OneDrive (e.g. to C:\\code).',
     found: 'Found {n} repositories in {s} s',
     foundOne: 'Found 1 repository in {s} s',
     capTime: 'stopped after {s} s — add a folder if one is missing',
@@ -210,7 +214,8 @@ export const SETUP_JS = String.raw`(function () {
     nameLabel: 'Name in One',
     baseLabel: 'Base branch',
     testLabel: 'Test command',
-    testHint: 'Runs without a shell — && | > are plain words. Empty: no test stage.',
+    testHint: 'Runs without a shell — && | > are plain words. A program inside the repository needs its path (./gradlew). Empty: no test stage.',
+    testHintWin: 'Runs without a shell — && | > are plain words. A program inside the repository needs its path (.\\gradlew.bat); it is looked up in PATH only, never in the repository. Empty: no test stage.',
     analyzeLabel: 'Static analysis',
     analyzeHint: 'The Static analysis stage runs this (a linter, dotnet build, go vet …) — its findings go into the task page. Empty: none.',
     noTests: 'No test stage',
@@ -237,7 +242,7 @@ export const SETUP_JS = String.raw`(function () {
     clone: 'Clone from GitLab / GitHub…',
     cloneUrl: 'Clone address — on the project page under Clone (HTTPS or SSH)',
     cloneDir: 'Into the folder',
-    cloneDirHint: 'A folder that is not synced (not iCloud, not Dropbox) — git would wait for files from the cloud. Kept with Save & start.',
+    cloneDirHint: 'A folder that is not synced (not iCloud, OneDrive or Dropbox) — git would wait for files from the cloud. Kept with Save & start.',
     cloneGo: 'Clone',
     cloning: 'Cloning {name}… {line}',
     cloned: 'Cloned {name} — ticked below. Save & start to hand it tasks.',
@@ -304,6 +309,10 @@ export const SETUP_JS = String.raw`(function () {
     noKey: 'Diese Seite braucht ihren Schlüssel. Öffne sie unter der Adresse, die der Worker in seinem Terminal zeigt.',
     unbound: 'Dieser Worker ist an keinen Arbeitsbereich gebunden. Lade ihn in One herunter (Einstellungen → Coding-Worker) – diese Datei ist schon gekoppelt.',
     noClaude: 'Claude Code wurde nicht gefunden. Installiere es, melde dich einmal an (claude) und starte den Worker neu.',
+    noClaudeWin: 'Claude Code wurde nicht gefunden. Installiere es – mit dem eigenen Installer (PowerShell: irm https://claude.ai/install.ps1 | iex; er braucht Git for Windows) oder npm i -g @anthropic-ai/claude-code –, melde dich einmal an (claude) und starte den Worker neu. Eine .cmd, die der Worker nicht lesen kann, startet er nie über cmd.exe: dann CLAUDE_BIN auf claude.exe oder die cli.js von Claude Code setzen.',
+    syncedicloud: 'In iCloud Drive: git wartet auf Dateien, die nur in der Cloud liegen. Schneller: ein Klon außerhalb (~/one-repos).',
+    syncedcloudStorage: 'In einem synchronisierten Cloud-Ordner (~/Library/CloudStorage): Dateien werden erst bei Bedarf geladen und beim Synchronisieren gesperrt. Die Worktrees der Aufgaben liegen in ~/.one-worktrees; schneller: ein Klon außerhalb.',
+    syncedonedrive: 'In OneDrive: reine Online-Dateien werden erst heruntergeladen und beim Synchronisieren gesperrt – git-Schritte können hängen. Die Worktrees der Aufgaben liegen in .one-worktrees in deinem Benutzerordner; schneller: das Repo aus OneDrive verschieben (z. B. nach C:\\code).',
     found: '{n} Repositories gefunden in {s} s',
     foundOne: '1 Repository gefunden in {s} s',
     capTime: 'nach {s} s angehalten – füge einen Ordner hinzu, falls eines fehlt',
@@ -329,7 +338,8 @@ export const SETUP_JS = String.raw`(function () {
     nameLabel: 'Name in One',
     baseLabel: 'Basis-Branch',
     testLabel: 'Testbefehl',
-    testHint: 'Läuft ohne Shell – && | > sind normale Wörter. Leer: keine Test-Stufe.',
+    testHint: 'Läuft ohne Shell – && | > sind normale Wörter. Ein Programm im Repository braucht seinen Pfad (./gradlew). Leer: keine Test-Stufe.',
+    testHintWin: 'Läuft ohne Shell – && | > sind normale Wörter. Ein Programm im Repository braucht seinen Pfad (.\\gradlew.bat); gesucht wird nur im PATH, nie im Repository. Leer: keine Test-Stufe.',
     analyzeLabel: 'Statische Analyse',
     analyzeHint: 'Die Stufe „Statische Analyse“ führt das aus (ein Linter, dotnet build, go vet …) – die Befunde kommen in die Aufgabenseite. Leer: keine.',
     noTests: 'Keine Test-Stufe',
@@ -356,7 +366,7 @@ export const SETUP_JS = String.raw`(function () {
     clone: 'Von GitLab / GitHub klonen …',
     cloneUrl: 'Klon-Adresse – auf der Projektseite unter „Clone“ (HTTPS oder SSH)',
     cloneDir: 'In den Ordner',
-    cloneDirHint: 'Ein Ordner, der nicht synchronisiert wird (kein iCloud, kein Dropbox) – sonst wartet git auf Dateien aus der Cloud. Wird mit „Speichern & starten“ gemerkt.',
+    cloneDirHint: 'Ein Ordner, der nicht synchronisiert wird (kein iCloud, OneDrive oder Dropbox) – sonst wartet git auf Dateien aus der Cloud. Wird mit „Speichern & starten“ gemerkt.',
     cloneGo: 'Klonen',
     cloning: 'Klone {name} … {line}',
     cloned: '{name} geklont – unten angehakt. „Speichern & starten“, damit One ihm Aufgaben gibt.',
@@ -449,17 +459,19 @@ export const SETUP_JS = String.raw`(function () {
   }
 
   /* -------------------------------------------------- argv like the worker splits it */
+  // the worker's splitArgs (config.ts): on Windows a backslash is a plain character — only \" inside "…" is a quote
+  function windows() { return !!(state && state.worker && state.worker.os === 'windows') }
   function split(line) {
-    var out = [], cur = '', has = false, q = null
+    var out = [], cur = '', has = false, q = null, win = windows()
     for (var i = 0; i < line.length; i++) {
       var c = line[i]
       if (q === "'") { if (c === "'") q = null; else cur += c }
       else if (q === '"') {
         if (c === '"') q = null
-        else if (c === '\\' && (line[i + 1] === '"' || line[i + 1] === '\\')) cur += line[++i]
+        else if (c === '\\' && (line[i + 1] === '"' || (!win && line[i + 1] === '\\'))) cur += line[++i]
         else cur += c
       } else if (c === '"' || c === "'") { q = c; has = true }
-      else if (c === '\\' && i + 1 < line.length) { cur += line[++i]; has = true }
+      else if (c === '\\' && !win && i + 1 < line.length) { cur += line[++i]; has = true }
       else if (/\s/.test(c)) { if (has || cur) out.push(cur); cur = ''; has = false }
       else { cur += c; has = true }
     }
@@ -551,7 +563,7 @@ export const SETUP_JS = String.raw`(function () {
       : el('span', { className: 'label dirty' }, [el('span', { className: 'led', 'data-s': 'ok' }), t('clean')])
     var main = el('div', { className: 'repo__main', onclick: function (ev) { if (ev.target !== box) { box.checked = !box.checked; box.dispatchEvent(new Event('change')) } } }, [
       box,
-      el('div', { className: 'repo__body' }, [el('div', { className: 'repo__name', text: r.name }), el('div', { className: 'repo__path', text: r.short, title: r.path }), facts]),
+      el('div', { className: 'repo__body' }, [el('div', { className: 'repo__name', text: r.name }), el('div', { className: 'repo__path', text: r.short, title: r.path }), facts].concat(r.synced ? [el('span', { className: 'warn', text: t('synced' + r.synced) })] : [])),
       el('div', { className: 'repo__side' }, [dirty, el('span', { className: 'label', text: ago(r.lastCommit) })])
     ])
     li.appendChild(main)
@@ -592,7 +604,7 @@ export const SETUP_JS = String.raw`(function () {
     return el('div', { className: 'detail' }, [
       el('div', { className: 'field' }, [el('label', { className: 'label', for: id + 'n', text: t('nameLabel') }), el('input', { type: 'text', id: id + 'n', value: e.name, maxlength: 64, spellcheck: 'false', oninput: function (ev) { e.name = ev.target.value } })]),
       el('div', { className: 'field' }, [el('label', { className: 'label', for: id + 'b', text: t('baseLabel') }), base]),
-      el('div', { className: 'field' }, [el('label', { className: 'label', for: id + 't', text: t('testLabel') }), el('input', { type: 'text', id: id + 't', value: e.test, spellcheck: 'false', autocomplete: 'off', oninput: function (ev) { e.test = ev.target.value; drawKeys() } }), keys, el('span', { className: 'hint', text: t('testHint') })]),
+      el('div', { className: 'field' }, [el('label', { className: 'label', for: id + 't', text: t('testLabel') }), el('input', { type: 'text', id: id + 't', value: e.test, spellcheck: 'false', autocomplete: 'off', oninput: function (ev) { e.test = ev.target.value; drawKeys() } }), keys, el('span', { className: 'hint', text: t(windows() ? 'testHintWin' : 'testHint') })]),
       el('div', { className: 'field' }, [el('label', { className: 'label', for: id + 'a', text: t('analyzeLabel') }), el('input', { type: 'text', id: id + 'a', value: e.analyze, spellcheck: 'false', autocomplete: 'off', oninput: function (ev) { e.analyze = ev.target.value } }), el('span', { className: 'hint', text: t('analyzeHint') })]),
       el('div', { className: 'field field--wide' }, [el('div', { className: 'toggles' }, toggles)]),
       el('div', { className: 'field' }, [el('div', { className: 'limit' }, [el('label', { className: 'label', for: id + 'l', text: t('limit') }), el('input', { type: 'number', id: id + 'l', min: '0', step: '0.5', value: e.limit, placeholder: t('noLimit'), inputmode: 'decimal', oninput: function (ev) { e.limit = ev.target.value } })])]),
@@ -612,7 +624,7 @@ export const SETUP_JS = String.raw`(function () {
       return
     }
     if (!state.workspace.id) app.appendChild(el('p', { className: 'msg', text: t('unbound') }))
-    if (state.live && state.live.claude && !state.live.claude.found) app.appendChild(el('p', { className: 'msg', text: t('noClaude') }))
+    if (state.live && state.live.claude && !state.live.claude.found) app.appendChild(el('p', { className: 'msg', text: t(windows() ? 'noClaudeWin' : 'noClaude') }))
     if (state.marked && state.marked.length) app.appendChild(marksNote(state.marked))
     var sc = state.scan
     var meta = ''

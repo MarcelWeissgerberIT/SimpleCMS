@@ -237,8 +237,13 @@ describe('ZIP import: no git folder in any spelling or shape, nothing in the ZIP
     for (const n of devices) assert.match(why(n, 'win32'), /device/, n)
     // macOS and Linux: plain names git keeps — the kernel's aux.c, a stray nul, a WSL Zone.Identifier
     for (const platform of ['linux', 'darwin'] as const) for (const n of [...colon, ...devices]) assert.equal(entryPath(n, platform), n, `${platform} ${n}`)
-    const kept = ['p/.github/workflows/ci.yml', 'p/.gitignore', 'p/.gitattributes', 'p/.gitmodules', 'p/git/notes.txt', 'p/.git-blame-ignore-revs', 'p/console.log', 'p/com10.txt', 'p/lpt.txt', 'p/auxiliary.c', 'p/connect/a.ts', 'p/naïve café.md', 'p/a b/c d.txt', 'p/..foo', 'p/foo..', 'p/x.', 'p/\u0084ber.txt', 'p/Icon', 'p/Icon.png']
+    const kept = ['p/.github/workflows/ci.yml', 'p/.gitignore', 'p/.gitattributes', 'p/.gitmodules', 'p/git/notes.txt', 'p/.git-blame-ignore-revs', 'p/console.log', 'p/com10.txt', 'p/lpt.txt', 'p/auxiliary.c', 'p/connect/a.ts', 'p/naïve café.md', 'p/a b/c d.txt', 'p/..foo', 'p/\u0084ber.txt', 'p/Icon', 'p/Icon.png']
     for (const platform of ['linux', 'darwin', 'win32'] as const) for (const n of kept) assert.equal(entryPath(n, platform), n, `${platform} ${JSON.stringify(n)}`)
+    // a trailing dot: a plain name on macOS / Linux, dropped by Windows (worker 1.9.0 refuses it there — worker-win.test.ts)
+    for (const n of ['p/foo..', 'p/x.']) {
+      for (const platform of ['linux', 'darwin'] as const) assert.equal(entryPath(n, platform), n, `${platform} ${n}`)
+      assert.match(why(n, 'win32'), /dot or a space/, n)
+    }
     assert.equal(entryPath('p\\.GIT\\config'), null)
     assert.equal(entryPath('p\\src\\a.ts'), 'p/src/a.ts')
   })

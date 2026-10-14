@@ -95,10 +95,10 @@ export function entryPath(name: string, platform: NodeJS.Platform = process.plat
   if (platform === 'win32') {
     // ":" — on NTFS "name:stream" writes into a data stream of "name" and "C:name" is relative to drive C
     if (parts.some((p) => p.includes(':'))) return COLON
+    if (parts.some(isDevice)) return DEVICE
     if (parts.some((p) => /[<>"|?*]/.test(p))) return RESERVED
     // "a." and "a " are written as "a": two entries would land in one file, and Explorer cannot delete such a name
     if (parts.some((p) => /[. ]$/.test(p))) return TRAILING
-    if (parts.some(isDevice)) return DEVICE
   }
   if (!parts.length || n.endsWith('/')) return null
   if (parts.some((p) => p.length > 255)) return null
@@ -297,7 +297,8 @@ export async function commitImport(dir: string, label: string): Promise<void> {
   const safe = ['-c', 'core.fsmonitor=false', '-c', `core.hooksPath=${hooks}`, '-c', 'gc.auto=0', '-c', 'maintenance.auto=false']
   const repo = [`--git-dir=${gitDir}`, `--work-tree=${dir}`]
   const run = async (cwd: string, args: string[], timeoutMs = 120_000) => {
-    const r = await git(cwd, [...safe, ...args], timeoutMs)
+    // local only: nothing of the unpacked folder is read for ssh (gitenv.ts), as no config inside it ever is
+    const r = await git(cwd, [...safe, ...args], timeoutMs, { local: true })
     const verb = args.find((a, i) => !a.startsWith('-') && args[i - 1] !== '-c')
     if (r.code !== 0) throw new Error(`git ${verb} failed: ${(r.stderr || r.stdout).trim().split('\n').slice(-2).join(' ')}`)
   }
@@ -313,7 +314,7 @@ export async function commitImport(dir: string, label: string): Promise<void> {
     writeFileSync(attributes, `${theirs && !theirs.endsWith('\n') ? `${theirs}\n` : theirs}${NO_DRIVERS_NOTE}${NO_DRIVERS}`)
     await run(dir, [...repo, 'symbolic-ref', 'HEAD', 'refs/heads/main'])
     await run(dir, [...repo, 'add', '-A'], 10 * 60_000)
-    const who = (await git(dir, [...safe, ...repo, 'config', 'user.email'])).stdout.trim()
+    const who = (await git(dir, [...safe, ...repo, 'config', 'user.email'], 120_000, { local: true })).stdout.trim()
     const identity = who ? [] : ['-c', 'user.name=One worker', '-c', 'user.email=one-worker@localhost']
     await run(dir, [...identity, ...repo, 'commit', '-q', '--no-verify', '--allow-empty', '-m', `Import ${label.slice(0, 200)}`], 10 * 60_000)
     writeFileSync(join(gitDir, SOURCE_MARK), 'zip\n')
