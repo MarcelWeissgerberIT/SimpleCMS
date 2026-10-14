@@ -459,3 +459,9 @@ workspace's meta document. Rows and pages written by the API carry `createdBy` /
 
 Not over the API (yet): deleting or moving pages, changing content after creation, database schemas,
 comments, files (except as URLs in a files property). Dependency loops between rows are not checked.
+
+Never over the API: what only a workspace's owners and admins change in the app — the look, the AI rules, the governor,
+integration profiles and the Patchbay's allowed paths (`fuseSignoffs`, see [`CLOUD.md`](CLOUD.md#meta-document-schema)). The
+server guards those keys against every other writer; which of them a server guards is in `GET /api/config` → `supports`
+(`'ai'` = `workspace.ai`, `'governor'` = `workspace.governor`, `'signoffs'` = the `fuseSignoffs` map) — an app writes such a
+key only on a server that lists it.

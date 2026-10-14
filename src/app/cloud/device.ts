@@ -29,6 +29,11 @@
  *   localStorage one.governor.{today,paused}:cloud:<id>:u:<user>  the Regler's day cache and the autofill rows paused at
  *                                       the red line (+ the workspace's entries in one.governor.scopes); the person's own
  *                                       line one.governor.device stays (it is the browser's, not the workspace's)
+ *   one-patchbay / kv                   the Patchbay's device stores of each member here: the lazy readings, the run tally,
+ *                                       the setup band (cloud:<id>:u:<user>|lazy, …|runs|<day>, …|setup — features/patchbay)
+ *   localStorage one.patchbay.order:cloud:<id>:u:<user>  the Patchbay's stable row order of each member here; the
+ *                                       device's own switches (one.patchbay.seen, one.patchbay.patch) stay; this tab's
+ *                                       return chip (sessionStorage one.patchbay.return) goes with any removed copy
  * The team workspace on the server is never touched, nor is the local workspace or anything it uses
  * (a local workspace copied into a team keeps its page and file ids, so those are checked).
  *
@@ -183,7 +188,8 @@ async function forget(flag: string[]): Promise<void> {
       const m =
         /^one\.(?:shell\.visits|mirror\.reports):cloud:([A-Za-z0-9_-]{1,64})$/.exec(k) ??
         /^one\.preflight\.(?:ack|today|last|hidden):cloud:([A-Za-z0-9_-]{1,64})(?::u:.*)?$/.exec(k) ??
-        /^one\.governor\.(?:today|paused):cloud:([A-Za-z0-9_-]{1,64})(?::u:.*)?$/.exec(k)
+        /^one\.governor\.(?:today|paused):cloud:([A-Za-z0-9_-]{1,64})(?::u:.*)?$/.exec(k) ??
+        /^one\.patchbay\.order:cloud:([A-Za-z0-9_-]{1,64})(?::u:.*)?$/.exec(k)
       if (m && (all || flag.includes(m[1]))) localStorage.removeItem(k)
     }
     // the scopes the Regler's device line reads (features/governor/device.ts): the workspaces' entries go
@@ -212,6 +218,12 @@ async function forget(flag: string[]): Promise<void> {
       if (Object.keys(map).length) localStorage.setItem('one.preflight.lastScope', JSON.stringify(map))
       else localStorage.removeItem('one.preflight.lastScope')
     }
+  } catch {
+    /* blocked storage */
+  }
+  try {
+    // the Patchbay's return chip of this tab (features/patchbay PATCHBAY_RETURN_KEY): a profile's ids that may be theirs
+    sessionStorage.removeItem('one.patchbay.return')
   } catch {
     /* blocked storage */
   }
@@ -434,6 +446,9 @@ async function forget(flag: string[]): Promise<void> {
   // the flight recorder of this device (features/recorder): the journal's records and the pins of scope cloud:<ws>
   // (and of every member's scope of it, cloud:<ws>:u:<account>)
   if (recorder) for (const ws of targets) await recorder.wipeRecorderScope(`cloud:${ws}`).catch(() => {})
+  // the Patchbay's device stores of each member here (features/patchbay/cache.ts): records "cloud:<ws>[:u:<account>]|…"
+  // and the row order in localStorage — the database is only opened when it is there
+  if (recorder && (!dbNames || dbNames.includes(recorder.PATCHBAY_DB))) for (const ws of targets) await recorder.wipePatchbay(`cloud:${ws}`).catch(() => {})
   // this device's sealed secrets for them (lib/vault.ts): the AI key, the GitHub token
   await clearSecrets((scope) => scope.startsWith('cloud:') && (all || targets.has(scope.slice(6)))).catch(() => {})
   for (const id of refs) if (!keep.has(id)) await deleteFile(FILE_PREFIX + id).catch(() => {})

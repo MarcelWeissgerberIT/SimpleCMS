@@ -31,6 +31,7 @@ import { readOnlyFor, watchSchema } from './schemaGate'
 import { SYSTEM, withWriter } from '../store/writer'
 import { setAIRulesGuard, withCleanAISettings } from '../store/ai'
 import { setGovernorGuard } from '../store/governor'
+import { setSignoffGuard } from '../store/fuseSignoffs'
 
 export interface ActiveCloud {
   ws: CloudWorkspace
@@ -85,6 +86,21 @@ function canRuleAI(): boolean {
  */
 function canGovern(): boolean {
   return canRuleAI() && supports('governor')
+}
+
+/**
+ * The Patchbay's allowed paths (Workspace.fuseSignoffs, "Allow this path"): owners and admins, on a server that guards
+ * them (`supports ∋ 'signoffs'` — server/src/collab/fuse-signoffs.ts). Everyone else's store change is put back.
+ */
+function canSignOff(): boolean {
+  return canStyle() && supports('signoffs')
+}
+
+/** The owners' and admins' names of the open workspace (the Patchbay's refusal names them), from the last member list. */
+let adminNames: { ws: string; names: string[] } | null = null
+function noteAdmins(wsId: string, members: Array<{ user: CloudUser; role: Role }>): void {
+  const names = members.filter((m) => m.role === 'owner' || m.role === 'admin').map((m) => displayName(m.user))
+  adminNames = { ws: wsId, names: [...new Set(names.filter(Boolean))].sort((a, b) => a.localeCompare(b)) }
 }
 
 function setStatus(status: 'connecting' | 'online' | 'offline') {
@@ -175,6 +191,8 @@ export async function openCloudWorkspace(ws: CloudWorkspace, user: CloudUser, on
     ...(data.ai ? { ai: data.ai } : {}),
     // the Regler: read (sanitized); written by owners / admins on a server that guards it (canGovern)
     ...(data.governor ? { governor: data.governor } : {}),
+    // the Patchbay's allowed paths: read (sanitized); written by owners / admins on a server that guards them (canSignOff)
+    ...(data.fuseSignoffs ? { fuseSignoffs: data.fuseSignoffs } : {}),
   })
   setLookGuard(canStyle)
   // integration profiles: owners and admins, like the look (the server puts other members' changes back)
@@ -186,6 +204,16 @@ export async function openCloudWorkspace(ws: CloudWorkspace, user: CloudUser, on
   setAIRulesGuard({ rules: canRuleAI, claude: () => supports('providers') })
   // the Regler: the same people, on a server that guards it (the setter says which of the two refused)
   setGovernorGuard({ rights: canStyle, server: () => supports('ai') && supports('governor') })
+  // the Patchbay's allowed paths: the same people, on a server that guards them (the writer says which refused)
+  setSignoffGuard({
+    writable,
+    rights: () => {
+      const role = useCloud.getState().role
+      return role === 'owner' || role === 'admin'
+    },
+    server: () => supports('signoffs'),
+    admins: () => (adminNames?.ws === ws.id ? adminNames.names : []),
+  })
 
   // From here on the store shows the cloud workspace: a failing service must not throw (the
   // caller would fall back to the local workspace while the binding is already live).
@@ -334,6 +362,7 @@ export async function openCloudWorkspace(ws: CloudWorkspace, user: CloudUser, on
       canStyle,
       canRuleAI,
       canGovern,
+      canSignOff,
       isFavorite: (id) => favorites.has(id),
       onRemotePages: (r) => {
         onRemotePages(r)
@@ -444,6 +473,7 @@ export async function openCloudWorkspace(ws: CloudWorkspace, user: CloudUser, on
 /** Members are mirrored as workspace people (person properties, mentions). */
 async function mirrorMembers(wsId: string, user: CloudUser): Promise<void> {
   const members = await getMembers(wsId).catch(() => null)
+  if (members) noteAdmins(wsId, members)
   const list = members?.map((m) => m.user) ?? [user]
   const s = useWorkspace.getState()
   const people: Person[] = [...s.people]
@@ -511,6 +541,10 @@ async function refreshRole(): Promise<void> {
       return
     }
     useCloud.setState({ user: me.user, workspaces: me.workspaces, serverAdmin: me.serverAdmin, role: ws.role, readOnly: readOnlyFor(ws.role) })
+    // who the owners and admins are now (the Patchbay's refusal names them)
+    void getMembers(a.ws.id)
+      .then((members) => noteAdmins(a.ws.id, members))
+      .catch(() => {})
   } catch {
     /* offline: the reconnect authenticates with whatever the server says */
   }

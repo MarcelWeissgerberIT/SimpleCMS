@@ -102,7 +102,7 @@ export async function buildBackup(rootId: ID | null, onProgress?: (done: number,
   const databases = rootId ? Object.fromEntries(Object.entries(scoped.databases).map(([id, db]) => [id, withoutCommandSecrets(withoutWebhookSecrets(db))])) : scoped.databases
   // the workspace look and the integration profiles belong to the whole workspace: full backups carry them, a page
   // backup never does
-  const { look, integrations, ai, governor, ...rest } = snap
+  const { look, integrations, ai, governor, fuseSignoffs, ...rest } = snap
   // this device's AI rules and the other providers' key markers never go into a backup
   const { ai: _deviceAI, aiKeys: _keys, ...settings } = snap.settings
   const workspace: Workspace = {
@@ -114,6 +114,8 @@ export async function buildBackup(rootId: ID | null, onProgress?: (done: number,
     // the Regler: full backups only, never the marker for a newer value this build holds no copy of (a restore keeps
     // this workspace's — applyBackup)
     ...(governor && !rootId && !isGovernorMarker(governor) ? { governor } : {}),
+    // the Patchbay's allowed paths: full backups only, for the record — a restore never takes them (applyBackup)
+    ...(fuseSignoffs && Object.keys(fuseSignoffs).length && !rootId ? { fuseSignoffs } : {}),
     pages: topId && pages[topId] ? { ...pages, [topId]: { ...pages[topId], parentId: null } } : pages,
     databases,
     // never export the API key, nor the MCP servers' token markers
@@ -451,6 +453,8 @@ export async function applyBackup(b: Backup, mode: 'merge' | 'replace', onProgre
         ai: snap.ai,
         // the Regler likewise stays this workspace's (the person takes the backup's through setGovernor above)
         governor: snap.governor,
+        // the Patchbay's allowed paths stay this workspace's: a file never brings wiring together with allowances for it
+        fuseSignoffs: snap.fuseSignoffs,
         // this device's recent pages stay (where they still exist) — an older backup's list is never taken over
         recent: snap.recent.filter((id) => !!pages[id]),
         // a page backup carries no integration profiles: this workspace's stay

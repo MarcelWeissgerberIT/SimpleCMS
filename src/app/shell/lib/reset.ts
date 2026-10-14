@@ -1,7 +1,7 @@
 import { safeLocalGet, safeLocalSet } from '@/shared/brand'
 import { useCloud } from '../../cloud'
 import { forgetLookCache } from '../../lib/look/apply'
-import { RECORDER_DB } from '../../features'
+import { PATCHBAY_DB, PATCHBAY_LS_PREFIX, PATCHBAY_RETURN_KEY, RECORDER_DB } from '../../features'
 
 /** localStorage flag: wipe all IndexedDB data on the next boot (before anything opens a connection). */
 export const RESET_FLAG = 'one.resetPending'
@@ -92,8 +92,9 @@ export async function runPendingReset(onBlocked?: () => void): Promise<boolean> 
   }
   if (!names) {
     // databases() is missing in some browsers: the ones a reset must reach anyway (the recorder's tape, Preflight's Bordbuch,
-    // the agents' runs and per-field trust books, the AI ledger, the Regler's derived data and OpenRouter's catalogue too)
-    const all = new Set<string>(['keyval-store', 'one-files', 'one-vault', RECORDER_DB, 'one-preflight', 'one-agents', 'one-ledger', 'one-governor', 'one-ai-catalog'])
+    // the agents' runs and per-field trust books, the AI ledger, the Regler's derived data, OpenRouter's catalogue and the
+    // Patchbay's device stores too)
+    const all = new Set<string>(['keyval-store', 'one-files', 'one-vault', RECORDER_DB, 'one-preflight', 'one-agents', 'one-ledger', 'one-governor', 'one-ai-catalog', PATCHBAY_DB])
     try {
       const dbs = (await indexedDB.databases?.()) ?? []
       for (const d of dbs) if (d.name) all.add(d.name)
@@ -160,6 +161,10 @@ export async function runPendingReset(onBlocked?: () => void): Promise<boolean> 
       if (keep.length) localStorage.setItem('one.governor.scopes', JSON.stringify(keep))
       else localStorage.removeItem('one.governor.scopes')
     }
+    // the Patchbay's device switches and row orders (features/patchbay/cache.ts: one.patchbay.seen / .patch / .order:<scope>)
+    // and this tab's return chip — its IndexedDB records went with `one-patchbay` above
+    for (const k of Object.keys(localStorage)) if (k.startsWith(PATCHBAY_LS_PREFIX)) localStorage.removeItem(k)
+    sessionStorage.removeItem(PATCHBAY_RETURN_KEY)
     // the local workspace's look cache (team workspaces keep theirs, "standard look here" included)
     forgetLookCache('local')
   } catch {
