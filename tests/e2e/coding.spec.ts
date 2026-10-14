@@ -479,6 +479,52 @@ test('a browser that does not let this page open ws:// at all (Safari): blocked 
   await expect(card.locator('.pf-card__detail')).toHaveText(/^Blocked by the browser: it does not let an https page reach the worker on this computer — use Chrome, Edge or Firefox · since \d\d:\d\d$/)
 })
 
+/**
+ * One as an installed app (display-mode standalone): the window has no address bar, so the texts name its ⋮ menu →
+ * App info. Every other media query as the browser answers it.
+ */
+async function stubAppWindow(page: Page) {
+  await page.addInitScript(() => {
+    const native = window.matchMedia.bind(window)
+    window.matchMedia = ((q: string) =>
+      /\(display-mode:\s*standalone\)/.test(q)
+        ? ({ matches: true, media: q, onchange: null, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {}, dispatchEvent: () => false } as unknown as MediaQueryList)
+        : native(q)) as typeof window.matchMedia
+  })
+}
+
+test('in One’s app window (installed, no address bar) the browser’s block names ⋮ → App info: Settings, the status line, the Preflight card and the MCP bridge', async ({ page, errors }) => {
+  errors.allow(/WebSocket connection to 'ws:\/\/127\.0\.0\.1/)
+  await stubLocalNetwork(page, 'denied', PORT)
+  await stubAppWindow(page)
+  await page.addInitScript(() => localStorage.setItem('one.tour', '{"off":true}'))
+  await openApp(page)
+  await openWorkerSettings(page)
+  const S = page.getByTestId('coding-settings')
+  const port = page.getByLabel('Port', { exact: true })
+  await port.fill(String(PORT))
+  await port.press('Enter')
+  await page.getByRole('switch', { name: 'Connect to a coding worker on this computer' }).click()
+  const blocked = S.getByTestId('coding-blocked')
+  await expect(blocked).toHaveAttribute('data-reason', 'permission')
+  await expect(blocked).toContainText('The browser blocks this page from reaching the worker on this device. Allow it in the app’s settings (in the app window: ⋮ → App info → “Apps on device” / “Local network access”), then retry. One tries again by itself when you come back to this window.')
+  await expect(blocked).not.toContainText('left of the address')
+  await expect(S.getByTestId('coding-card-live')).toContainText('allow it in the app’s settings (in the app window: ⋮ → App info → “Apps on device” / “Local network access”), then retry')
+  // the bridge's block says the same (Settings → Agents · MCP, nothing listening on the port); "⋮ → App info" is held
+  // together by no-break spaces (\s in the patterns)
+  await page.getByRole('tab', { name: /Agents · MCP/ }).click()
+  const mcpPort = page.getByLabel('Port', { exact: true })
+  await mcpPort.fill(String(PORT))
+  await mcpPort.press('Enter')
+  await page.getByRole('switch', { name: 'Allow AI agents on this computer' }).click()
+  await expect(page.locator('.mcp-msg--err')).toHaveText(/^The browser blocks this page from reaching apps on this device\. Allow it in the app’s settings \(in the app window: ⋮\s→\sApp\sinfo → “Apps on device” \/ “Local network access”\), then retry\./)
+  await page.getByRole('switch', { name: 'Allow AI agents on this computer' }).click()
+  await page.keyboard.press('Escape')
+  const card = await workerCard(page)
+  await expect(card).toHaveAttribute('data-id', 'worker:blocked')
+  await expect(card.locator('.pf-card__detail')).toHaveText(/^Blocked by the browser: this page may not reach the worker on this device — allow it in the app’s settings \(in the app window: ⋮\s→\sApp\sinfo → “Apps on device” \/ “Local network access”\), then retry · since \d\d:\d\d$/)
+})
+
 test('the 3 steps: a download comes ready-paired, connects without any switch, its setup page lists the repos, a tick makes One show 1 repo; Change repositories sends open-setup; a newer download retires the old file', async ({ page, errors }) => {
   // the link looks for the worker before it is started: Chrome logs those attempts
   errors.allow(/WebSocket connection to 'ws:\/\/127\.0\.0\.1/)
@@ -632,7 +678,10 @@ test('the 3 steps: a download comes ready-paired, connects without any switch, i
 
   // a newer download replaces the pairing: after a reload the old file refuses this tab and Settings say why
   await openWorkerSettings(page)
-  await Promise.all([page.waitForEvent('download'), S.getByTestId('coding-download').click()])
+  const [again] = await Promise.all([page.waitForEvent('download'), S.getByTestId('coding-download').click()])
+  // the browser keeps both files: the newer one as "one-worker (1).mjs"
+  const newer = join(repo.root, 'Downloads', 'one-worker (1).mjs')
+  await again.saveAs(newer)
   await reloadApp(page)
   await openWorkerSettings(page)
   await expect(page.getByTestId('coding-refused')).toContainText('a newer download replaced it', { timeout: 15_000 })
@@ -643,6 +692,36 @@ test('the 3 steps: a download comes ready-paired, connects without any switch, i
   const card = await workerCard(page)
   await expect(card).toHaveAttribute('data-id', 'worker:refused')
   await expect(card.locator('.pf-card__detail')).toHaveText(/^Refused: an older download is running — stop it \(Ctrl\+C\) and start the file you downloaded last · since \d\d:\d\d$/)
+
+  // the tab comes back while the old file still runs: it asks once more and is refused again — the refusal stays
+  // shown all along (the lamp never flickers to "connecting")
+  await page.evaluate(() => {
+    const w = window as unknown as { __conns: string[]; __onePreflight: { stores: { coding: { subscribe: (fn: (s: { conn: string }) => void) => void } } } }
+    w.__conns = []
+    w.__onePreflight.stores.coding.subscribe((s) => void w.__conns.push(s.conn))
+  })
+  const conns = () => page.evaluate(() => (window as unknown as { __conns: string[] }).__conns)
+  const refusals = () => worker!.log().split("did not bring this download's pairing key").length - 1
+  const before = refusals()
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+  await expect.poll(refusals).toBeGreaterThan(before)
+  await expect.poll(async () => (await conns()).length).toBeGreaterThan(0)
+  expect([...new Set(await conns())]).toEqual(['refused'])
+  await expect(card).toHaveAttribute('data-id', 'worker:refused')
+  // the person does what the card says: stops the old file and starts the newest download — a refused link does not
+  // try by itself; back in One (the window gets focus) it connects and the card goes
+  await worker!.stop()
+  worker = await startDownloadedWorker(newer, home, repo, opener.program)
+  await page.waitForTimeout(2000)
+  expect([...new Set(await conns())]).toEqual(['refused'])
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+  await expect.poll(async () => (await conns()).at(-1), { timeout: 15_000 }).toBe('connected')
+  await expect.poll(() => page.evaluate(async () => {
+    const p = (window as unknown as { __onePreflight: { flush: (id: string) => Promise<void>; readings: () => Record<string, { count: number } | null> } }).__onePreflight
+    await p.flush('worker')
+    return p.readings().worker?.count ?? null
+  })).toBe(0)
+  await expect(page.locator('.pf-q article.pf-card[data-id="worker:refused"]')).toHaveCount(0)
 })
 
 test('the task panel before a run: Repo from the worker, Branch from its branches (default a new one), and where the task is written', async ({ page }) => {

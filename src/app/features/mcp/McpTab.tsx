@@ -11,6 +11,7 @@ import { useWorkspace } from '../../store/store'
 import { useCloud } from '../../cloud'
 import { Led, Switch } from '../../ui/controls'
 import { useLang, useT } from '../../i18n'
+import { inAppWindow } from '../../lib/localNetwork'
 import { MCP_CODEWORD, MCP_DEFAULT_PORT, type McpAgentMode } from './contract'
 import { shortId, workspaceInfo } from './identity'
 import { clearMcpActivity, connectMcpNow, setMcpEnabled, setMcpMode, setMcpPort, undoMcpActivity } from './service'
@@ -196,7 +197,7 @@ function BridgePanel() {
       )}
       {s.enabled && s.conn === 'blocked' && (
         <div className="mcp-msg mcp-msg--err" role="alert">
-          <p>{s.blocked === 'insecure' ? t('features.mcp.msg.insecure') : t('features.mcp.msg.permission')}</p>
+          <p>{s.blocked === 'insecure' ? t('features.mcp.msg.insecure') : t(inAppWindow() ? 'features.mcp.msg.permissionApp' : 'features.mcp.msg.permission')}</p>
           <button type="button" className="btn btn--sm" onClick={connectMcpNow}>
             <RotateCcw size={13} strokeWidth={1.75} /> {t('features.mcp.retry')}
           </button>

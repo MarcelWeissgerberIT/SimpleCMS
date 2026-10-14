@@ -948,11 +948,14 @@ state: pending | active, online }` — what `node one-worker-cloud.mjs check` pr
   asks the permission (`lib/localNetwork.ts`, shared with the MCP bridge) whenever a Local link closes before it ever
   opened. Denied → conn `blocked` / `blocked: 'permission'`, no retries until the permission's `change` event, *Retry
   now* or the tab is looked at again; still to be asked (`lna: 'prompt'`) → the waiting texts say to choose Allow.
-  The fix: the icon left of the address → *Apps on device* / *Local network access* → Allow. A browser that does not
+  The fix: the icon left of the address → *Apps on device* / *Local network access* → Allow; in an installed app's
+  window (no address bar; `inAppWindow()`, display-mode standalone / minimal-ui / window-controls-overlay) the texts
+  name ⋮ → *App info* instead. A browser that does not
   let an https page open `ws://` at all (Safari) → `blocked: 'insecure'`: use Chrome, Edge or Firefox.
 - **Refused: this worker belongs to another download** — the file was downloaded in another browser, or a newer
   download replaced its pairing. Browsers name a second download `one-worker (1).mjs`: start the newest file (or
-  delete the old one and download again).
+  delete the old one and download again). A Local link a worker refused ('pair' · 'workspace' · 'unbound') tries once
+  more when the tab comes back (focus / visible / online) — the refusal stays shown while it tries.
 - **No page opened** — the address is in the worker's terminal (*Tick your repositories: http://127.0.0.1:…*);
   open it in a browser on that computer, or run with `--no-browser` and pick the repos in the terminal.
 - **A repo is missing from the list** — deeper than 4 levels, behind a symbolic link, or in a skipped folder:
