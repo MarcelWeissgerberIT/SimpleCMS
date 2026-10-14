@@ -936,6 +936,9 @@ state: pending | active, online }` — what `node one-worker-cloud.mjs check` pr
   and tick that one; until then its worktrees live in `%USERPROFILE%\.one-worktrees`.
 - **Windows: Filename too long** — `git config --global core.longpaths true` and long paths in Windows, or a short
   `worktreeDir` (§ Windows).
+- **Windows: a stage does not start — "holds a program named git.exe at its top level"** (`plantedProgram`) — the
+  repository carries a file named like a program tools start by name; remove or rename it in the repository (or
+  move it into a subfolder), then **Retry** (§ Windows › What the programs start).
 - **A fetch or push fails at once with an SSH message** — `sshHostKey`: run `ssh -T git@<host>` once in a terminal
   and read what ssh says; `sshKey`: add the key to your SSH agent (`ssh-add`). On Windows Git's own ssh does not see
   the OpenSSH Authentication Agent service: `start-ssh-agent` in the Command Prompt and the worker started in that

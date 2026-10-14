@@ -62,6 +62,8 @@ export const LOG_CODES = new Set([
   'claudeCmdRefused',
   'commandMissing',
   'commandRefused',
+  // a stage that does not start: a program with a tool's name at the top of its folder (Windows)
+  'plantedProgram',
 ])
 
 const CODE = /^[a-zA-Z][a-zA-Z.]{0,40}$/

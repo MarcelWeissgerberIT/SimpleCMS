@@ -93,6 +93,7 @@ const WIN_CODES: Record<string, Record<string, string>> = {
   claudeCmdRefused: {},
   commandMissing: { cmd: 'gradlew' },
   commandRefused: { cmd: 'run-tests.bat' },
+  plantedProgram: { file: 'git.exe' },
 }
 
 test('every worker log code has its EN and DE line; the 1.9.0 codes render in both with their values', () => {
