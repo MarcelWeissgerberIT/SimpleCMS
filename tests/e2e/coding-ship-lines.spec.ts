@@ -165,11 +165,11 @@ test('each request, push and failure reads right — and a commit only on this c
   expect(say({ ...reqFailed, web: GH }, 'de')).toContain('PR konnte nicht geöffnet werden')
   expect(linksOf(reqFailed)).toEqual([`${GL.base}/-/commit/${SHA}`, `${GL.base}/-/tree/${BRANCH}`])
   // nothing new to commit, pushed: the head is named and linked
-  expect(say({ commit: null, head: SHA2 })).toBe(`nothing new to commit · at ${SHA2.slice(0, 7)} · Branch ${BRANCH} · MR !42 · pushed to origin/${BRANCH}`)
-  expect(say({ commit: null, head: SHA2 }, 'de')).toContain(`nichts Neues zu committen · Stand ${SHA2.slice(0, 7)}`)
-  // the Push key: only the head; force-push with lease
-  expect(say({ action: 'push', from: 'key', commit: null, head: SHA2, request: null })).toBe(`at ${SHA2.slice(0, 7)} · Branch ${BRANCH} · pushed to origin/${BRANCH}`)
-  expect(say({ action: 'force-push', from: 'key', commit: null, head: SHA2, request: null, pushed: { remote: 'origin', force: true } })).toBe(`at ${SHA2.slice(0, 7)} · Branch ${BRANCH} · force-pushed with lease to origin/${BRANCH}`)
+  expect(say({ commit: null, head: SHA2 })).toBe(`Nothing new to commit · at ${SHA2.slice(0, 7)} · Branch ${BRANCH} · MR !42 · pushed to origin/${BRANCH}`)
+  expect(say({ commit: null, head: SHA2 }, 'de')).toContain(`Nichts Neues zu committen · Stand ${SHA2.slice(0, 7)}`)
+  // the Push key: only the head (the line starts with a capital); force-push with lease
+  expect(say({ action: 'push', from: 'key', commit: null, head: SHA2, request: null })).toBe(`At ${SHA2.slice(0, 7)} · Branch ${BRANCH} · pushed to origin/${BRANCH}`)
+  expect(say({ action: 'force-push', from: 'key', commit: null, head: SHA2, request: null, pushed: { remote: 'origin', force: true } })).toBe(`At ${SHA2.slice(0, 7)} · Branch ${BRANCH} · force-pushed with lease to origin/${BRANCH}`)
   expect(say({ action: 'force-push', from: 'key', commit: null, head: SHA2, request: null, pushed: { remote: 'origin', force: true } }, 'de')).toContain(`mit Force (with lease) nach origin/${BRANCH} gepusht`)
   // the Commit key: its commit, not pushed — no link
   expect(say({ action: 'commit', from: 'key', head: SHA, pushed: null, request: null })).toBe(`Commit ${SHA.slice(0, 7)} · Branch ${BRANCH}`)

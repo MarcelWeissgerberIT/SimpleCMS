@@ -128,7 +128,7 @@ test('a task ships by itself: the note with links to GitLab, PR / commit = the m
 
   // Push (nothing new): the toast says it in words, a note "Git (by hand)", the request's address stays
   await page.getByTestId('coding-git').getByRole('button', { name: 'Push', exact: true }).click()
-  const line = `at ${sha.slice(0, 7)} · Branch ${branch} · pushed to origin/${branch}`
+  const line = `At ${sha.slice(0, 7)} · Branch ${branch} · pushed to origin/${branch}`
   await expect(page.locator('.toast').filter({ hasText: line })).toBeVisible({ timeout: 30_000 })
   await expect.poll(async () => (await notes(page, id)).at(-1)?.label ?? '').toMatch(/^Git \(by hand\) · /)
   const key = (await notes(page, id)).at(-1)!

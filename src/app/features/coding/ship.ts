@@ -145,7 +145,11 @@ export function shipInline(s: ShipRecord, t: Tr): JSONContent[] {
   if (s.pushed) parts.push([txt(t(s.pushed.force ? 'features.coding.ship.forcePushed' : 'features.coding.ship.pushed', { remote: s.pushed.remote, branch: s.branch }))])
   else if (s.pushOff) parts.push([txt(t('features.coding.ship.pushOff'))])
   else if (s.failed?.step === 'push') parts.push([txt(t(s.failed.code === 'pushRejected' ? 'features.coding.ship.pushRejected' : 'features.coding.ship.pushFailed'))])
-  return joined(parts.flatMap((p, i) => (i ? [txt(' · '), ...p] : p)))
+  const line = joined(parts.flatMap((p, i) => (i ? [txt(' · '), ...p] : p)))
+  // the line starts with a capital ("At a1b2c3d · …", "Nothing new to commit · …") — never inside a linked value
+  const first = line[0]
+  if (first && !first.marks && first.text) line[0] = { ...first, text: first.text.charAt(0).toUpperCase() + first.text.slice(1) }
+  return line
 }
 
 /** The same line as plain text (toasts). */

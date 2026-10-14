@@ -667,7 +667,8 @@ no record.
 
 - **Where**: One checks it again (coding/ship.ts `cleanShip`: the branch, shas, the remote's name, `cleanWeb`, a request
   only on `web.base` + "/", http(s), no credentials, no fragment) and writes ONE grey callout per record that says
-  anything (`shipShows`) at the end of the task page: **"<stage> · <date time>"** (`shipWhen`: "14 Oct 14:32" ·
+  anything (`shipShows`; a record that says nothing — nothing new to commit, nothing pushed — writes none, and never
+  the stage's English summary) at the end of the task page: **"<stage> · <date time>"** (`shipWhen`: "14 Oct 14:32" ·
   "14.10. 14:32") or **"Git (by hand) · …"** for a key, then the line *Commit a1b2c3d · Branch one/… · MR !42 · pushed
   to origin/one/…* in the person's language. A stage's note sits in finishStage's `keepTrust(aiWrite(…))` under the stage
   run's writer (`coding:<task>:<run>`); a key's in gitTask's `keepTrust(…)` under `you~ui` — the task version stays

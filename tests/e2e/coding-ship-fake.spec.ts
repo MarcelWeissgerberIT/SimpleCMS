@@ -172,6 +172,24 @@ test('a failed push in German: the note "Ausliefern · <date>" records the commi
   expect((await notes(page, id)).some((n) => n.text.includes('Fixed the login form.'))).toBe(true)
 })
 
+test('a record that says nothing (nothing new to commit, nothing pushed): no note — never the worker\'s English summary', async ({ page, errors }) => {
+  errors.allow(/WebSocket connection to 'ws:\/\/127\.0\.0\.1/)
+  fake = await startFakeWorker(PORT, welcome())
+  fake.can = [...WORKER_CAN]
+  fake.auto = (task) => okOutcome(task, () => ({ status: 'ok', branch: BRANCH, summary: 'Nothing to commit.', ship: rec({ action: 'commit', commit: null, head: null, pushed: null, request: null }) }))
+  await openApp(page)
+  await page.evaluate(() => localStorage.setItem('one.coding.approvals', 'none'))
+  await connect(page)
+  const id = await newTask(page, 'Nordlicht footer')
+  await expect(page.getByTestId('coding-state')).toContainText('Done', { timeout: 30_000 })
+  const ns = await notes(page, id)
+  // the implement stage's summary is a note as ever; the git stage wrote none
+  expect(ns.some((n) => n.text.includes('Fixed the login form.'))).toBe(true)
+  expect(ns.some((n) => n.label.startsWith('Ship · '))).toBe(false)
+  expect(ns.some((n) => n.text.includes('Nothing to commit.'))).toBe(false)
+  expect(await field(page, id, 'pr')).toBe('')
+})
+
 test('PR / commit never loses a request to a commit link; hostile records are dropped; a Git key whose request failed after the push is an error and a note', async ({ page, errors }) => {
   errors.allow(/WebSocket connection to 'ws:\/\/127\.0\.0\.1/)
   fake = await startFakeWorker(PORT, welcome())
@@ -230,7 +248,7 @@ test('PR / commit never loses a request to a commit link; hostile records are dr
   const json = await pageJson(page, id)
   for (const bad of ['evil.example.com', 'user:pw', '#/p/', 'javascript:']) expect(json).not.toContain(bad)
   // the 39-character sha is no commit
-  expect(note.text).toBe(`nothing new to commit · Branch ${BRANCH} · push failed`)
+  expect(note.text).toBe(`Nothing new to commit · Branch ${BRANCH} · push failed`)
 
   // the Git tab: Push → the ship text as the toast, a note "Git (by hand)"; PR / commit keeps the request
   fake.onGit = (req) =>
@@ -241,20 +259,21 @@ test('PR / commit never loses a request to a commit link; hostile records are dr
         : new Error('not played')
   await page.getByTestId('coding-tab-git').click()
   await page.getByTestId('coding-git').getByRole('button', { name: 'Push', exact: true }).click()
-  await expect(page.locator('.toast').filter({ hasText: `at ${SHA2.slice(0, 7)} · Branch ${BRANCH} · pushed to origin/${BRANCH}` })).toBeVisible()
+  await expect(page.locator('.toast').filter({ hasText: `At ${SHA2.slice(0, 7)} · Branch ${BRANCH} · pushed to origin/${BRANCH}` })).toBeVisible()
   await expect.poll(async () => (await notes(page, id)).at(-1)?.label ?? '').toMatch(/^Git \(by hand\) · \d{1,2} [A-Z][a-z]{2} \d{2}:\d{2}$/)
   note = (await notes(page, id)).at(-1)!
-  expect(note.text).toBe(`at ${SHA2.slice(0, 7)} · Branch ${BRANCH} · pushed to origin/${BRANCH}`)
+  expect(note.text).toBe(`At ${SHA2.slice(0, 7)} · Branch ${BRANCH} · pushed to origin/${BRANCH}`)
   expect(note.links[0]).toEqual([SHA2.slice(0, 7), `${GL.base}/-/commit/${SHA2}`])
   expect(await field(page, id, 'pr')).toBe(MR)
   // Open PR: pushed, the request failed — an error toast, and the push recorded
   const count = (await notes(page, id)).length
   await page.getByTestId('coding-git').getByRole('button', { name: 'Open PR' }).click()
-  await expect(page.locator('.toast').filter({ hasText: 'gh pr create failed: GraphQL: something' })).toBeVisible()
+  // what was shipped in the person's words, then gh's own
+  await expect(page.locator('.toast').filter({ hasText: `PR could not be opened · pushed to origin/${BRANCH} — git: gh pr create failed: GraphQL: something` })).toBeVisible()
   await expect.poll(async () => (await notes(page, id)).length).toBe(count + 1)
   note = (await notes(page, id)).at(-1)!
   expect(note.label).toMatch(/^Git \(by hand\) · /)
-  expect(note.text).toBe(`at ${SHA2.slice(0, 7)} · Branch ${BRANCH} · PR could not be opened · pushed to origin/${BRANCH}`)
+  expect(note.text).toBe(`At ${SHA2.slice(0, 7)} · Branch ${BRANCH} · PR could not be opened · pushed to origin/${BRANCH}`)
   expect(await field(page, id, 'pr')).toBe(MR)
   expect(fake.gitAsked.map((g) => g.verb)).toEqual(['push', 'pr'])
 })

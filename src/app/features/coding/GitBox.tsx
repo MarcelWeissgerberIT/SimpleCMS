@@ -85,9 +85,11 @@ export function GitBox({ taskId, git, branch, connected, running, title, review,
       const res = await gitTask(taskId, verb, message)
       const ship = res.ship ?? null
       const open = res.url ? { action: { label: t('features.coding.git.openLink'), run: () => window.open(res.url, '_blank', 'noopener') } } : {}
-      // 'pr' pushed but the request failed: an error (the push is in the page's note all the same)
-      if (res.error) useUI.getState().toast({ message: res.error, kind: 'error', timeout: 8000, ...open })
-      else useUI.getState().toast({ message: (ship && shipShows(ship) ? shipText(ship, t) : '') || res.message || t('features.coding.git.done'), kind: 'success', ...open })
+      const said = ship && shipShows(ship) ? shipText(ship, t) : ''
+      // 'pr' pushed but the request failed: an error — what was shipped in the person's language, then git's / gh's own
+      // words (the push is in the page's note all the same)
+      if (res.error) useUI.getState().toast({ message: said ? `${said} — ${res.error}` : res.error, kind: 'error', timeout: 8000, ...open })
+      else useUI.getState().toast({ message: said || res.message || t('features.coding.git.done'), kind: 'success', ...open })
     } catch (e) {
       useUI.getState().toast({ message: e instanceof Error ? e.message : String(e), kind: 'error', timeout: 8000 })
     } finally {

@@ -458,9 +458,12 @@ export async function finishStage(taskId: ID, stageId: ID, outcome: StageOutcome
         writePlan(taskId, doc, sectionTitleOf(pipeline, stage), extra)
         wrote = true
       }
-      // the ship note (a failed push / request too: the commit before it stays recorded); an older worker's summary as before
-      if (ship && shipShows(ship)) writeShipNote(taskId, stage!.name, ship)
-      else if (outcome.status === 'ok' && outcome.summary && stage && (stage.kind === 'implement' || stage.kind === 'git'))
+      // the ship note (a failed push / request too: the commit before it stays recorded) — with a record never the
+      // worker's English summary (a record that says nothing, e.g. nothing new to commit: no note; the log has it);
+      // an older worker's summary as before
+      if (ship) {
+        if (shipShows(ship)) writeShipNote(taskId, stage!.name, ship)
+      } else if (outcome.status === 'ok' && outcome.summary && stage && (stage.kind === 'implement' || stage.kind === 'git'))
         appendNote(taskId, KIND_ICON[stage.kind] ?? 'asset:code', 'gray', `${stage.name} · ${stamp()}`, outcome.summary)
       if (moveTo) moveRow(taskId, props, moveTo.id)
     }),
