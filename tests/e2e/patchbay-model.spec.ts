@@ -13,6 +13,13 @@
  *    sign-off reader (B2 reads it, B9 fills it);
  *  - the device stores' wipe: `cloud:<ws>` takes every member's scope of that workspace along (cache.ts, run in a
  *    browser — bundled here with Vite's build API, nothing of the app involved).
+ * B2 (the graph core — model.ts, tools.ts, source.ts, scripts.ts, buttons.ts; fixtures tests/fixtures/patchbay.ts):
+ *  - mock 1 → § 01 4 + 3 idle · § 02 6 · § 03 7, 15 cables · 3 dashed, the net-flag pair, the folded script;
+ *  - wide reach: an everything agent in 40 databases ≤ 4 out cables, a named scope of 9 → 6 cables + "+3";
+ *  - tool groups (heuristic, declared reads with no write word, OUT, untested, fail closed, residual);
+ *  - what this device knows about agents (another member's browser agent, awaiting confirm, off, Unreadable,
+ *    route-blocked, the runtime, webhook triggers); sources, relays and ways out; the script scan and the button index;
+ *  - the wiring signature (typing and bookkeeping rebuild nothing, a renamed watched field once); the seed workspace.
  * Every page and value is fictional.
  */
 import { test, expect, openApp, wsEval } from './fixtures'
@@ -24,6 +31,39 @@ import type { Automation, CustomAgent, Database, DbCommand, ID, OneScript, Page 
 import type { PageFacts } from '../../src/app/features/patchbay/types'
 import { messages as agentMessages } from '../../src/app/features/agents/messages'
 import { build } from 'vite'
+import type { IntegrationProfile, Kit, McpServerConfig } from '../../src/app/store/types'
+import type { Model } from '../../src/app/features/patchbay/types'
+import { buildModel } from '../../src/app/features/patchbay/model'
+import { toolGroups, toolUse } from '../../src/app/features/patchbay/tools'
+import { toModelInput } from '../../src/app/features/patchbay/source'
+import { scanScript } from '../../src/app/features/patchbay/scripts'
+import { ButtonIndex, buttonsIn } from '../../src/app/features/patchbay/buttons'
+import {
+  NODE_ENGINE,
+  TRACKER_TOOLS,
+  agent as pbAgent,
+  automation as pbAutomation,
+  bigPatchbay,
+  buttonNode,
+  database as pbDatabase,
+  dbPage as pbDbPage,
+  docOf,
+  exits,
+  inputOf,
+  memoOf,
+  mock1,
+  modelOf,
+  nodeReaders,
+  page as pbPage,
+  profile,
+  prop,
+  relays,
+  server,
+  sourceOf,
+  wideScope,
+  world,
+  type PbWorld,
+} from '../fixtures/patchbay'
 
 /* ------------------------------------------------------------------ fixtures */
 
@@ -404,5 +444,456 @@ test.describe('device stores — cache.ts', () => {
       return { lazy: await pb.readCache(pb.lazyKey('local:local'), (v): v is unknown => v !== undefined), ls: Object.keys(localStorage).filter((k) => k.startsWith('one.patchbay.')) }
     })
     expect(after).toEqual({ lazy: null, ls: [] })
+  })
+})
+
+/* ================================================================== B2 — the graph core (model.ts, tools.ts, source.ts) */
+
+const keyOf = (ref: Parameters<typeof moduleKey>[0]) => moduleKey(ref)
+const cols = (m: Model) => [1, 2, 3].map((col) => m.modules.filter((x) => x.col === col && !x.idle).length)
+const mods = (m: Model, kind: string) => m.modules.filter((x) => x.kind === kind)
+const edgesFrom = (m: Model, module: string) => m.edges.filter((e) => e.from.startsWith(`${module}.`))
+const edgesInto = (m: Model, module: string) => m.edges.filter((e) => e.to.startsWith(`${module}.`))
+
+test.describe('B2 · the rack of mock 1 — model.ts', () => {
+  test('§ 01 4 + 3 idle · § 02 6 · § 03 7, 15 cables · 3 dashed, the net-flag pair, the folded script', () => {
+    const w = mock1()
+    const { ids } = w
+    const m = modelOf(w)
+    // "MODULES 17 · 3 idle" — Whole workspace added to the mock (§3.13)
+    expect(m.counts).toEqual({ modules: 17, idle: 3, cables: 15, dashed: 3, planned: 0, ghosts: 0 })
+    expect(cols(m)).toEqual([4, 6, 7])
+    expect(m.modules.filter((x) => x.idle).map((x) => x.key)).toEqual([keyOf({ kind: 'server', id: ids.kanal, name: 'kanal' }), keyOf({ kind: 'server', id: ids.bildwerk, name: 'bildwerk' }), keyOf({ kind: 'server', id: ids.wiki, name: 'wiki' })])
+    // dashed: the AI decides — Inbox-Helfer's „Weiterleiten“ and its whole workspace, the pipeline's merge requests
+    const helper = keyOf({ kind: 'agent', id: ids.inboxHelper })
+    const net = `net:${ids.mails}:${ids.forward}`
+    expect(m.edges.filter((e) => e.can).map((e) => e.id).sort()).toEqual(
+      [`${helper}.everything>everything:all.writes`, `${helper}.writes>${net}`, `pipeline:${ids.coding}.out>outbound:git:-:pr.out`].sort(),
+    )
+    // the mirror writes its own database on every run: solid
+    const mirror = keyOf({ kind: 'agent', id: ids.mirror })
+    expect(m.edges.find((e) => e.id === `${mirror}.writes>database:${ids.handoff}.writes`)?.can).toBeUndefined()
+    // the net-flag pair „Mails · Weiterleiten“: Inbox-Helfer → § 03 flag · § 01 flag → An Team-Chat
+    expect(m.nets).toHaveLength(1)
+    const toChat = keyOf({ kind: 'automation', db: ids.mails, id: ids.toChat })
+    expect(m.nets[0]).toEqual({ key: net, place: { db: ids.mails, prop: ids.forward }, writers: [`${helper}.writes>${net}`], listeners: [`${net}>${toChat}.start`] })
+    // the single-use script is folded into „Neue Mail → Kontakt“ and writes Kontakte from there
+    const toContact = keyOf({ kind: 'automation', db: ids.mails, id: ids.toContact })
+    expect(m.modules.find((x) => x.key === toContact)?.folds).toEqual({ script: ids.contact })
+    expect(m.modules.some((x) => x.key === keyOf({ kind: 'script', id: ids.contact }))).toBe(false)
+    expect(edgesFrom(m, toContact).map((e) => e.to)).toEqual([`database:${ids.kontakte}.writes`])
+    // Mails · new row: from outside (hatched) into both listeners; the webhook leaves An Team-Chat
+    const rows = keyOf({ kind: 'rowTrigger', db: ids.mails, event: 'created', prop: null })
+    expect(m.modules.find((x) => x.key === rows)?.tags).toContain('outside')
+    expect(edgesFrom(m, rows).map((e) => [e.to, e.outside])).toEqual([[`${helper}.start`, true], [`${toContact}.start`, true]])
+    expect(edgesFrom(m, toChat).map((e) => e.to)).toEqual(['outbound:webhook:chat.example:POST.out'])
+    expect(m.modules.find((x) => x.key === 'outbound:webhook:chat.example:POST')?.tags).toEqual(['outbound'])
+    expect(m.modules.find((x) => x.key === 'outbound:git:-:pr')?.tags).toEqual(['afterApproval'])
+    // tracker: READ 3 (declared by IN-01: no "?"), WRITE? 4 (guessed), only READ plugged; IN-01 tags it
+    const tracker = m.modules.find((x) => x.key === keyOf({ kind: 'server', id: ids.tracker, name: 'tracker' }))!
+    expect(tracker.outJacks.map((j) => [j.role, j.count, !!j.guessed, j.plugged])).toEqual([
+      ['read', 3, false, true],
+      ['write', 4, true, false],
+    ])
+    expect(tracker.profile).toBe('in-01')
+    // the mirror: 2U (three out jacks), knobs read-only, IN-01's tag on it and its database
+    const mm = m.modules.find((x) => x.key === mirror)!
+    expect([mm.u, mm.knobs, mm.profile, mm.outJacks.map((j) => j.role)]).toEqual([2, { model: null, budgetUsd: 0.4 }, 'in-01', ['writes', 'report', 'notes']])
+    expect(m.modules.find((x) => x.key === `database:${ids.handoff}`)?.profile).toBe('in-01')
+    expect(m.modules.find((x) => x.key === helper)?.u).toBe(1)
+    // "EVERYTHING · 4 DB" — one cable, never one per database
+    expect(m.modules.find((x) => x.key === helper)?.outJacks.find((j) => j.role === 'everything')?.count).toBe(4)
+    // the flow behind the drawing (chains.ts walks it): Inbox-Helfer may write everything; two start on a new mail
+    expect(m.flow?.writes[helper]?.map((x) => x.place)).toContainEqual({ everything: true })
+    expect(m.flow?.listens[`${ids.mails}:+row`]?.map((l) => l.module)).toEqual([helper, toContact])
+    // nothing unknown, no fuse yet (B4)
+    expect([m.unknown, m.fuses, m.chains]).toEqual([[], [], []])
+  })
+
+  test('deterministic: the same world gives the same rack, keys only (no titles in the model)', () => {
+    const a = modelOf(mock1())
+    const b = modelOf(mock1())
+    expect(JSON.stringify(a)).toBe(JSON.stringify(b))
+    for (const t of ['Inbox-Helfer', 'Tessera-Spiegel', 'An Team-Chat', 'Tessera Handoff', 'Wochenbericht', 'Kontakt anlegen', 'Weiterleiten']) expect(JSON.stringify(a)).not.toContain(t)
+  })
+})
+
+test.describe('B2 · wide reach — "Whole workspace" and bus chips (§1.19)', () => {
+  test('an everything agent in 40 databases has ≤ 4 out cables; a named scope of 9 → 6 cables + "+3"', () => {
+    const wide = modelOf(wideScope(40))
+    const agentKey = keyOf({ kind: 'agent', id: 'agNordlicht' })
+    const out = edgesFrom(wide, agentKey)
+    expect(out.length).toBeLessThanOrEqual(4)
+    expect(out.map((e) => e.to)).toEqual(['everything:all.writes', 'net:dbNord01:dbNord01Flag', 'page:pgNordlichtReport.writes'])
+    expect(wide.buses).toEqual([])
+    const named = modelOf(wideScope(40, { named: 9 }))
+    const cables = edgesFrom(named, agentKey).filter((e) => e.to.startsWith('database:'))
+    expect(cables).toHaveLength(9)
+    expect(cables.filter((e) => !e.bundle)).toHaveLength(6)
+    expect(named.buses).toHaveLength(1)
+    expect(named.buses[0]).toMatchObject({ jack: `${agentKey}.writes`, col: 3 })
+    expect(named.buses[0].edges).toEqual(cables.slice(6).map((e) => e.id))
+    // bundled cables still count
+    expect(named.counts.cables).toBe(named.edges.length)
+  })
+})
+
+test.describe('B2 · tool groups — tools.ts (§1.5)', () => {
+  test('heuristic reads, declared reads (neutral names only), OUT subtracted, untested, residual risk', () => {
+    const plain = toolGroups(TRACKER_TOOLS, [])
+    expect([plain.tested, plain.read, plain.write, plain.guessedRead, plain.guessedWrite]).toEqual([true, ['query_issues', 'get_issue', 'whoami'], ['create_issue', 'update_issue', 'add_comment', 'post_status'], true, true])
+    // a wildcard profile declares a write tool and a neutral one as reads: only the neutral name clears
+    const wild = toolGroups(['issue_digest', 'create_issue', 'get_issue'], [], [{ id: 'wild', reads: ['issue_digest', 'create_issue'] }])
+    expect([wild.read, wild.write, wild.declared, wild.guessedRead]).toEqual([['issue_digest', 'get_issue'], ['create_issue'], { create_issue: ['wild'] }, true])
+    const declaredOnly = toolGroups(['issue_digest'], [], [{ id: 'wild', reads: ['issue_digest'] }])
+    expect([declaredOnly.read, declaredOnly.guessedRead]).toEqual([['issue_digest'], false])
+    // OUT is never a read or a write: it is locked
+    const out = toolGroups(TRACKER_TOOLS, ['post_status'])
+    expect([out.write.includes('post_status'), out.out]).toEqual([false, ['post_status']])
+    // never tested: nothing known
+    expect(toolGroups(null, [])).toMatchObject({ tested: false, read: [], write: [] })
+    // read tools that may carry data out
+    expect(toolGroups(['search_web', 'fetch_url', 'get_issue', 'list_items'], []).residual).toEqual(['search_web', 'fetch_url'])
+  })
+
+  test('what a processor may call: no allow-list = every tool, [] = left out, an untested server without a list fails closed', () => {
+    const g = toolGroups(TRACKER_TOOLS, ['post_status'])
+    expect(toolUse(g, undefined)).toEqual({ leftOut: false, read: ['query_issues', 'get_issue', 'whoami'], write: ['create_issue', 'update_issue', 'add_comment'], failClosed: false })
+    expect(toolUse(g, ['get_issue', 'post_status'])).toEqual({ leftOut: false, read: ['get_issue'], write: [], failClosed: false })
+    expect(toolUse(g, []).leftOut).toBe(true)
+    const untested = toolGroups(undefined, [])
+    expect(toolUse(untested, undefined)).toEqual({ leftOut: false, read: null, write: null, failClosed: true })
+    // an allow-list on an untested server is classed by name: only read names keep the write cable away
+    expect(toolUse(untested, ['list_items'])).toEqual({ leftOut: false, read: ['list_items'], write: [], failClosed: false })
+    expect(toolUse(untested, ['list_items', 'create_item']).write).toEqual(['create_item'])
+  })
+
+  test('on the rack: a declared write tool stays WRITE? (marked), an attached untested server without a list is cabled fail-closed', () => {
+    const w = mock1()
+    // a wildcard profile (every *.example server) declares a write tool a read: it stays WRITE?, marked
+    w.ws.integrations = [...(w.ws.integrations ?? []), profile('wild', { match: { host: '*.example' }, reads: ['create_issue'] })]
+    const tracker = modelOf(w).modules.find((x) => x.key === keyOf({ kind: 'server', id: w.ids.tracker, name: 'tracker' }))!
+    expect(tracker.outJacks.find((j) => j.role === 'write')).toMatchObject({ count: 4, declaredRead: ['create_issue'] })
+    const ex = exits()
+    const m = modelOf(ex)
+    const gamma = keyOf({ kind: 'server', id: ex.ids.gamma, name: 'gamma' })
+    const toApply = m.edges.filter((e) => e.from.startsWith(`${gamma}.`))
+    expect(toApply.map((e) => [e.kind, e.to, !!e.failClosed])).toEqual([
+      ['reads', `${keyOf({ kind: 'agent', id: ex.ids.agentApply })}.tools`, false],
+      ['out', `${keyOf({ kind: 'agent', id: ex.ids.agentApply })}.tools`, true],
+    ])
+    expect(m.modules.find((x) => x.key === gamma)?.outJacks.map((j) => [j.role, j.count, j.guessed])).toEqual([
+      ['read', undefined, true],
+      ['write', undefined, true],
+    ])
+    // OUT tools: a third jack, never cabled
+    const alpha = m.modules.find((x) => x.key === keyOf({ kind: 'server', id: ex.ids.alpha, name: 'alpha' }))!
+    expect(alpha.outJacks.find((j) => j.role === 'out')).toMatchObject({ count: 1, plugged: false })
+  })
+})
+
+/** A world with one agent `a` (team or local) and the tracker server set up here. */
+function oneAgent(a: CustomAgent, device: Partial<PbWorld['device']> = {}, lazy: Partial<PbWorld['lazy']> = {}): PbWorld {
+  return world({
+    pages: [pbDbPage('dbTessera', 'Tessera')],
+    databases: [pbDatabase('dbTessera', [prop('pTesseraState', 'Status', 'text')])],
+    agents: [a],
+    servers: [server('srvTracker', 'tracker', { tools: [...TRACKER_TOOLS], checkedAt: 1 })],
+    device,
+    // team hooks are read by owners / admins only: the cases here say they hold none
+    lazy: device.ctx?.team ? { hooks: [], ...lazy } : lazy,
+  })
+}
+const TEAM = (me: string) => ({ ctx: { team: true, me, role: 'member' as const, readOnly: false, supports: ['ai', 'governor'] } })
+
+test.describe('B2 · agents and this device — what is known here (§1.3, §1.21)', () => {
+  const base = pbAgent('agTessera', 'Tessera-Leser', { write: 'apply', scope: { everything: false, pages: [], databases: ['dbTessera'] }, mcpServers: ['tracker'], createdBy: 'acMara', updatedBy: 'acMara' })
+  const key = keyOf({ kind: 'agent', id: 'agTessera' })
+
+  test('another member’s browser agent: its servers are unknown here — an unknown part, no server cable', () => {
+    const m = modelOf(oneAgent(base, TEAM('acNordlicht')))
+    expect(m.unknown).toEqual([{ key: `otherBrowser:${key}`, what: 'otherBrowser', module: key, who: 'acMara' }])
+    expect(edgesInto(m, key).filter((e) => e.kind === 'reads' || e.kind === 'out')).toEqual([])
+    expect(m.modules.find((x) => x.key === key)).toMatchObject({ blocked: 'notHere' })
+    expect(m.modules.find((x) => x.key === key)?.tags).toContain('unknownHere')
+  })
+
+  test('on the creator’s device an agent another member changed is evaluated (and tagged: waits for its creator)', () => {
+    const m = modelOf(oneAgent({ ...base, updatedBy: 'acTessera' }, TEAM('acMara')))
+    expect(m.unknown).toEqual([])
+    expect(m.modules.find((x) => x.key === key)?.tags).toContain('awaitsConfirm')
+    expect(edgesInto(m, key).map((e) => e.kind).sort()).toEqual(['out', 'reads'])
+  })
+
+  test('switched off: no trigger cable, tagged "runs only by hand" — its wiring stays', () => {
+    const m = modelOf(oneAgent({ ...base, enabled: false, trigger: { type: 'row_created', databaseId: 'dbTessera' } }))
+    expect(m.modules.find((x) => x.key === key)?.tags).toEqual(expect.arrayContaining(['disabled', 'handRunOnly']))
+    expect(edgesInto(m, key).some((e) => e.kind === 'starts')).toBe(false)
+    expect(edgesFrom(m, key).length).toBeGreaterThan(0)
+    expect(m.flow?.listens['dbTessera:+row']).toBeUndefined()
+  })
+
+  test('fields this build cannot read → an unknown part; a route it cannot run → blocked', () => {
+    const unreadable = modelOf(oneAgent({ ...base, route: [{ p: 'futurecorp', m: 'x' }] as unknown as CustomAgent['route'] }))
+    expect(unreadable.unknown.map((u) => u.what)).toEqual(['unreadable'])
+    expect(unreadable.modules.find((x) => x.key === key)).toMatchObject({ blocked: 'unreadable' })
+    const blocked = modelOf(oneAgent({ ...base, route: [{ p: 'openrouter', m: 'nordlicht/tessera-mini' }] }))
+    expect(blocked.unknown).toEqual([])
+    expect(blocked.modules.find((x) => x.key === key)).toMatchObject({ blocked: 'route' })
+    expect(blocked.modules.find((x) => x.key === key)?.tags).toContain('blocked')
+  })
+
+  test('a server agent uses the runtime’s servers ("on the server"); a runtime it may not read, or not read yet, is unknown', () => {
+    const srv = { ...base, runner: 'server' as const, createdBy: 'acMara' }
+    const m = modelOf(oneAgent(srv, TEAM('acNordlicht'), { runtime: [{ name: 'tracker', host: 'tracker.example' }] }))
+    const rt = keyOf({ kind: 'server', id: null, name: 'tracker', runtime: true })
+    expect(m.modules.find((x) => x.key === rt)?.tags).toContain('server')
+    // its tools as this device knows them (the server at the same host): READ and WRITE? cables
+    expect(edgesFrom(m, rt).map((e) => e.kind).sort()).toEqual(['out', 'reads'])
+    expect(m.unknown).toEqual([])
+    expect(modelOf(oneAgent(srv, TEAM('acNordlicht'), { runtime: 'forbidden' })).unknown.map((u) => u.what)).toEqual(['runtime'])
+    expect(modelOf(oneAgent(srv, TEAM('acNordlicht'))).unknown.map((u) => u.what)).toEqual(['lazy'])
+  })
+
+  test('a server agent with a webhook trigger: an incoming source, from outside, cabled straight to it', () => {
+    const m = modelOf(oneAgent({ ...base, runner: 'server', trigger: { type: 'webhook' }, mcpServers: [] }, TEAM('acMara'), { hooks: [] }))
+    const src = keyOf({ kind: 'incoming', hook: null, db: null, agent: 'agTessera' })
+    expect(m.modules.find((x) => x.key === src)?.tags).toEqual(['outside', 'server'])
+    expect(edgesFrom(m, src)).toMatchObject([{ kind: 'starts', to: `${key}.start`, outside: true }])
+  })
+})
+
+test.describe('B2 · sources, relays and ways out (§1.4, §1.15)', () => {
+  test('a repeating template clock writes new rows: a `+row` net where something listens, else the database', () => {
+    const repeat = { freq: 'weekly', days: [1], time: '09:00', start: '2026-10-12', title: '{{name}}', dateProperty: null, lastRunAt: 5 } as unknown as NonNullable<NonNullable<Database['templates']>[number]['repeat']>
+    const tpl = [{ id: 'tplWeekly', name: 'Woche', content: null, properties: {}, repeat }] as Database['templates']
+    const listened = world({
+      pages: [pbDbPage('dbLaunch', 'Launch plan')],
+      databases: [pbDatabase('dbLaunch', [], { templates: tpl, automations: [pbAutomation('autNew', 'Neu → Hook', { type: 'row_created' }, [{ type: 'webhook', url: 'https://launch.example/new', method: 'POST' }])] })],
+    })
+    const m = modelOf(listened)
+    const clock = keyOf({ kind: 'clock', schedule: '', agents: [], template: { db: 'dbLaunch', id: 'tplWeekly' } })
+    expect(m.nets.map((n) => n.key)).toEqual(['net:dbLaunch:+row'])
+    expect(edgesFrom(m, clock).map((e) => e.to)).toEqual(['net:dbLaunch:+row'])
+    expect(m.edges.find((e) => e.from === 'net:dbLaunch:+row')?.to).toBe(`${keyOf({ kind: 'automation', db: 'dbLaunch', id: 'autNew' })}.start`)
+    const alone = world({ pages: [pbDbPage('dbLaunch', 'Launch plan')], databases: [pbDatabase('dbLaunch', [], { templates: tpl })] })
+    expect(edgesFrom(modelOf(alone), clock).map((e) => e.to)).toEqual(['database:dbLaunch.writes'])
+  })
+
+  test('autofill listens to any change of its row ((db, *)), a translation only to its source; a kit value relay starts on any change', () => {
+    const m = modelOf(exits())
+    const af = keyOf({ kind: 'autofill', db: 'dbLeads', prop: 'pLeadSummary' })
+    expect(m.flow?.listens['dbLeads:*']?.map((l) => l.module)).toEqual([af])
+    const tr = world({
+      pages: [pbDbPage('dbTessera', 'Tessera')],
+      databases: [pbDatabase('dbTessera', [prop('pTesseraEn', 'English', 'text', { autofill: { preset: 'translate', language: 'English', source: 'pTesseraDe', auto: true } }), prop('pTesseraDe', 'Deutsch', 'text')])],
+    })
+    expect(Object.keys(modelOf(tr).flow?.listens ?? {})).toEqual(['dbTessera:pTesseraDe'])
+    const r = modelOf(relays())
+    const kit = keyOf({ kind: 'kit', db: 'dbTessera', prop: 'pTesseraPunkte', type: 'ptPunkte' })
+    expect(m.modules.length && r.modules.find((x) => x.key === kit)?.col).toBe(2)
+    // the server agent's write (remote everywhere) starts no automation — only the relay, whose write does
+    expect(edgesInto(r, kit)).toMatchObject([{ kind: 'relay', from: 'net:dbTessera:*' }])
+    expect(r.nets.find((n) => n.key === 'net:dbTessera:*')?.writers).toEqual([`${keyOf({ kind: 'agent', id: 'agTesseraServer' })}.writes>net:dbTessera:*`])
+    expect(edgesFrom(r, kit).map((e) => e.to)).toEqual(['net:dbTessera:pTesseraPunkte'])
+    expect(r.edges.find((e) => e.from === 'net:dbTessera:pTesseraPunkte')?.to).toBe(`${keyOf({ kind: 'automation', db: 'dbTessera', id: 'autPunkte' })}.start`)
+    // agent → automation → agent: set_property starts agent B's row trigger; agent A's write never starts B directly
+    const a = keyOf({ kind: 'agent', id: 'agLaunchA' })
+    const b = keyOf({ kind: 'agent', id: 'agLaunchB' })
+    expect(edgesFrom(r, a).some((e) => e.to === 'net:dbLaunch:pLaunchFreigabe')).toBe(false)
+    expect(r.nets.find((n) => n.key === 'net:dbLaunch:pLaunchFreigabe')?.writers).toEqual([`${keyOf({ kind: 'automation', db: 'dbLaunch', id: 'autFreigabe' })}.writes>net:dbLaunch:pLaunchFreigabe`])
+    expect(r.edges.find((e) => e.from === 'net:dbLaunch:pLaunchFreigabe')?.to).toBe(`${b}.start`)
+  })
+
+  test('ways out: the Outbox by hand, git per action (commit stays local), script effects ask first, buttons and commands by hand', () => {
+    const ex = exits()
+    const m = modelOf(ex)
+    const tagsOf = (k: string) => m.modules.find((x) => x.key === k)?.tags
+    expect(tagsOf('outbox:alpha:reply')).toEqual(['byHand'])
+    expect(m.modules.find((x) => x.key === 'outbox:alpha:reply')?.nets).toEqual([{ place: { external: 'alpha' } }])
+    expect(m.modules.some((x) => x.key === 'outbound:git:-:commit')).toBe(false)
+    // approvals "none" on this device: the push is unattended; with approvals it waits; a team always confirms
+    expect(tagsOf('outbound:git:-:push')).toEqual(['outbound'])
+    const review = { ...ex, device: { ...ex.device, worker: { ...ex.device.worker, approvals: 'review' as const } } }
+    expect(modelOf(review).modules.find((x) => x.key === 'outbound:git:-:push')?.tags).toEqual(['afterApproval'])
+    const team = { ...ex, device: { ...ex.device, ctx: { ...ex.device.ctx, team: true, me: 'acMara' }, worker: { ...ex.device.worker, approvals: 'none' as const } }, lazy: { ...ex.lazy, hooks: [] } }
+    expect(modelOf(team).modules.find((x) => x.key === 'outbound:git:-:push')?.tags).toEqual(['afterApproval'])
+    expect(tagsOf('outbound:http:-:POST')).toEqual(['asksFirst'])
+    expect(tagsOf('outbound:mail:-:-')).toEqual(['asksFirst'])
+    expect(tagsOf('outbound:webhook:button.example:POST')).toEqual(['byHand'])
+    expect(tagsOf('outbound:webhook:cmd.example:PUT')).toEqual(['byHand'])
+    // a form posting to a webhook is a note on its database, never a source or a way out
+    expect(inputOf(ex).databases.find((d) => d.id === 'dbLeads')?.formHooks).toBe(1)
+    expect(m.modules.some((x) => x.key.includes('forms.example'))).toBe(false)
+  })
+
+  test('the bridge by its mode, this device’s GitHub sync (source + push), Clippings', () => {
+    const ex = exits()
+    const bridgeKey = keyOf({ kind: 'bridge' })
+    const by = (mode: 'apply' | 'ask' | 'read') => modelOf({ ...ex, device: { ...ex.device, bridge: { enabled: true, mode } } })
+    expect(edgesFrom(by('apply'), bridgeKey).find((e) => e.to === 'everything:all.writes')).toMatchObject({ can: true })
+    expect(edgesFrom(by('ask'), bridgeKey).find((e) => e.to === 'everything:all.writes')).toMatchObject({ can: true, asksFirst: true })
+    expect(edgesFrom(by('read'), bridgeKey)).toEqual([])
+    expect(by('read').modules.find((x) => x.key === bridgeKey)?.tags).toContain('readonly')
+    expect(modelOf({ ...ex, device: { ...ex.device, bridge: { enabled: false, mode: 'apply' } } }).modules.some((x) => x.key === bridgeKey)).toBe(false)
+    const m = modelOf(ex)
+    expect(m.modules.find((x) => x.key === 'sync:github')?.tags).toEqual(['outside', 'thisDevice'])
+    expect(edgesFrom(m, 'sync:github').map((e) => [e.to, !!e.outside])).toEqual([
+      ['everything:all.writes', true],
+      ['outbound:sync:nordlicht%2Fnotes:push.out', false],
+    ])
+    const clip = world({ pages: [pbPage('inbxNordlicht', { title: 'Inbox' })], lazy: { inbox: 'inbxNordlicht' } })
+    const cm = modelOf(clip)
+    expect(cm.modules.find((x) => x.key === 'clippings:inbxNordlicht')?.tags).toEqual(['outside'])
+    expect(cm.edges).toMatchObject([{ from: 'clippings:inbxNordlicht.writes', to: 'page:inbxNordlicht.writes', outside: true }])
+  })
+
+  test('the generators: bigPatchbay(60) is about 60 modules and 120 cables', () => {
+    const big = modelOf(bigPatchbay(60))
+    expect(big.counts.modules + big.counts.idle).toBeGreaterThanOrEqual(55)
+    expect(big.counts.modules + big.counts.idle).toBeLessThanOrEqual(70)
+    expect(big.counts.cables).toBeGreaterThanOrEqual(110)
+    expect(big.counts.cables).toBeLessThanOrEqual(140)
+  })
+})
+
+test.describe('B2 · the script scan and the button index (scripts.ts, buttons.ts)', () => {
+  test('refs become reads, write members writes; page.current is the caller’s place; by-name refs and effects are named', () => {
+    const scan = (code: string) => scanScript({ code, updatedAt: 7 }, NODE_ENGINE)
+    expect(scan('let offen = db(@[Tessera Handoff](p:dbHandoff)).count\n@[Bericht](p:pgBericht).append("x")')).toEqual({ at: 7, reads: [{ page: 'dbHandoff' }], writes: [{ page: 'pgBericht' }], effects: [], byName: false })
+    expect(scan('db(@[Kontakte](p:dbKontakte)).add(page.current.title, Quelle: "Mail")')).toMatchObject({ writes: [{ db: 'dbKontakte', prop: '+row' }], byName: false })
+    expect(scan('page.current.set(Status: "fertig")')).toMatchObject({ writes: [], context: true })
+    expect(scan('for r in db(@[Launch plan](p:dbLaunch)) { r.set(Phase: "2") }')).toMatchObject({ writes: [{ db: 'dbLaunch', prop: '*' }] })
+    expect(scan('let t = db(@[Tessera](p:dbTessera))\nt.add("neu")')).toMatchObject({ writes: [{ db: 'dbTessera', prop: '+row' }] })
+    expect(scan('db("Tessera").add("x")')).toMatchObject({ byName: true, writes: [] })
+    expect(scan('http.post("https://script.example/in", { a: 1 })\nmail.send(to: "mara.lind@nordlicht.example", subject: "x", body: "y")')?.effects).toEqual(['mail', 'http'])
+    expect(scan('let x = (')).toBeNull()
+  })
+
+  test('only buttons that run something count; the index reads a page again only when its contentRev moved', () => {
+    const doc = docOf(
+      buttonNode('b1', 'Run', [{ id: 'a', type: 'run_script', scriptId: 'scWeekly' }, { id: 'b', type: 'message', text: 'hi' }]),
+      buttonNode('b2', 'Log', [{ id: 'c', type: 'insert_blocks', content: [] }]),
+      { type: 'columns', content: [{ type: 'column', content: [buttonNode('b3', 'Ping', [{ id: 'd', type: 'webhook', url: 'https://button.example/x', method: 'PUT' }, { id: 'e', type: 'add_page', databaseId: 'dbLaunch' }])] }] },
+    )
+    expect(buttonsIn('pgNotes', doc)).toEqual([
+      { page: 'pgNotes', block: 'b1', actions: [{ type: 'run_script', scriptId: 'scWeekly' }] },
+      { page: 'pgNotes', block: 'b3', actions: [{ type: 'webhook', host: 'button.example', method: 'PUT' }, { type: 'add_page', target: 'dbLaunch' }] },
+    ])
+    const pages: Record<ID, Page> = { pgNotes: pbPage('pgNotes', { content: doc as Page['content'], contentRev: 1 }), pgPlain: pbPage('pgPlain', { content: docOf() as Page['content'] }) }
+    const idx = new ButtonIndex()
+    idx.begin(Object.keys(pages))
+    expect(idx.list()).toBeNull()
+    expect(idx.step(pages)).toBe(true)
+    const first = idx.list()
+    expect(first).toHaveLength(2)
+    // the same revision: nothing read, the same list
+    expect(idx.update({ ...pages, pgNotes: { ...pages.pgNotes, title: 'Renamed' } }, ['pgNotes'])).toBe(false)
+    expect(idx.list()).toBe(first)
+    // a new revision without buttons: gone
+    expect(idx.update({ ...pages, pgNotes: { ...pages.pgNotes, content: docOf() as Page['content'], contentRev: 2 } }, ['pgNotes'])).toBe(true)
+    expect(idx.list()).toEqual([])
+  })
+})
+
+test.describe('B2 · the wiring signature — source.ts memo (§1.2, §6 A21)', () => {
+  test('typing, an automation’s lastRunAt, autofill fills and a repeating lastRunAt rebuild nothing; a renamed watched field rebuilds once', () => {
+    const w = mock1()
+    const memo = memoOf(w)
+    const src = sourceOf(w)
+    const first = memo.read(src)
+    expect(memo.stats()).toEqual({ builds: 1, pageChecks: 0 })
+    let ws = src.ws
+    const next = (patch: Partial<typeof ws>) => {
+      ws = { ...ws, ...patch }
+      return memo.read({ ...src, ws, now: src.now + 1000 })
+    }
+    // typing in a page nothing references: no page facts read again
+    const scratch = pbPage('pgScratch', { title: 'Notizen' })
+    expect(next({ pages: { ...ws.pages, pgScratch: scratch } })).toBe(first)
+    expect(next({ pages: { ...ws.pages, pgScratch: { ...scratch, content: docOf() as Page['content'], contentRev: 2 } } })).toBe(first)
+    expect(memo.stats()).toEqual({ builds: 1, pageChecks: 0 })
+    // typing in the report page (referenced): its facts are read again — the same facts, the same input
+    const bericht = ws.pages[w.ids.bericht]
+    expect(next({ pages: { ...ws.pages, [w.ids.bericht]: { ...bericht, contentRev: 9, updatedAt: 99 } } })).toBe(first)
+    expect(memo.stats()).toEqual({ builds: 1, pageChecks: 1 })
+    // bookkeeping: an automation's run, a repeating template's run, autofill fills
+    const mails = ws.databases[w.ids.mails]
+    expect(next({ databases: { ...ws.databases, [w.ids.mails]: { ...mails, automations: mails.automations!.map((a) => ({ ...a, lastRunAt: 123, lastStatus: 'ok' as const, lastMessage: '200' })) } } })).toBe(first)
+    const repeat = { freq: 'daily', time: '08:00', start: '2026-10-01', lastRunAt: 1 } as unknown as NonNullable<NonNullable<Database['templates']>[number]['repeat']>
+    const handoff = ws.databases[w.ids.handoff]
+    const withAutofill = { ...handoff, properties: [...handoff.properties, prop('pHandoffSum', 'Kurz', 'text', { autofill: { preset: 'summary', auto: true, fills: {} } })], templates: [{ id: 'tplDaily', name: 'Tag', content: null, properties: {}, repeat }] } as Database
+    const second = next({ databases: { ...ws.databases, [w.ids.handoff]: withAutofill } })
+    expect(second).not.toBe(first)
+    expect(memo.stats().builds).toBe(2)
+    const withFills = { ...withAutofill, properties: withAutofill.properties.map((p) => (p.autofill ? { ...p, autofill: { ...p.autofill, fills: { r1: { at: 5, hash: 'h' } } } } : p)), templates: withAutofill.templates!.map((t) => ({ ...t, repeat: { ...t.repeat!, lastRunAt: 999 } })) }
+    expect(next({ databases: { ...ws.databases, [w.ids.handoff]: withFills } })).toBe(second)
+    expect(memo.stats().builds).toBe(2)
+    // a property rename on a watched field: one rebuild
+    const mails2 = ws.databases[w.ids.mails]
+    const renamed = next({ databases: { ...ws.databases, [w.ids.mails]: { ...mails2, properties: mails2.properties.map((p) => (p.id === w.ids.forward ? { ...p, name: 'Weiterleiten an Team' } : p)) } } })
+    expect(renamed).not.toBe(second)
+    expect(memo.stats().builds).toBe(3)
+    // a referenced page renamed: its facts changed — one rebuild
+    const b2 = ws.pages[w.ids.bericht]
+    expect(next({ pages: { ...ws.pages, [w.ids.bericht]: { ...b2, title: 'Wochenbericht' } } })).not.toBe(renamed)
+    expect(memo.stats().builds).toBe(4)
+    // the row index said nothing referenced moved: the pages are not even looked at
+    const checks = memo.stats().pageChecks
+    expect(memo.read({ ...src, ws: { ...ws, pages: { ...ws.pages, [w.ids.bericht]: { ...ws.pages[w.ids.bericht], updatedAt: 5 } } } }, { pagesMoved: false })).toBe(memo.read({ ...src, ws }, { pagesMoved: false }))
+    expect(memo.stats().pageChecks).toBe(checks)
+  })
+
+  test('this device’s facts and the lazy readings are part of the signature', () => {
+    const w = mock1()
+    const memo = memoOf(w)
+    const src = sourceOf(w)
+    const first = memo.read(src)
+    expect(memo.read({ ...src, device: { ...src.device, bridge: { enabled: false, mode: 'ask' } }, now: src.now + 5 })).toBe(first)
+    expect(memo.read({ ...src, device: { ...src.device, bridge: { enabled: true, mode: 'apply' } } })).not.toBe(first)
+    const third = memo.read({ ...src, device: { ...src.device, bridge: { enabled: true, mode: 'apply' } } })
+    expect(memo.read({ ...src, device: { ...src.device, bridge: { enabled: true, mode: 'apply' } }, lazy: { ...src.lazy, inbox: 'inbxNew' } })).not.toBe(third)
+  })
+
+  test('the input reads the page map by id only — never a walk', () => {
+    const w = mock1()
+    const watch = watched(w.ws.pages)
+    const src = sourceOf(w)
+    const input = toModelInput({ ...src, ws: { ...src.ws, pages: watch.pages } }, nodeReaders(w)).input
+    expect(watch.walks()).toBe(0)
+    expect(input.databases.map((d) => d.id)).toEqual(['dbCoding', 'dbHandoff', 'dbKontakte', 'dbMails'])
+    // the referenced pages only: databases, the report page, the button's page
+    expect(Object.keys(input.pages).sort()).toEqual(['dbCoding', 'dbHandoff', 'dbKontakte', 'dbMails', 'pgBericht'])
+  })
+})
+
+test.describe('B2 · the seed workspace — a small rack without a fuse', () => {
+  test('the seeded workspace: Projects’ automation, the Meetings clock, the "Add a project" button — no fuse, nothing unknown', async ({ page }) => {
+    await openApp(page)
+    const state = await wsEval(page, (s) => ({ pages: s.pages, databases: s.databases, agents: s.agents ?? {}, scripts: s.scripts ?? {}, integrations: s.integrations ?? [], kit: s.kit, mcpServers: s.settings.mcpServers ?? [] }))
+    const pages = state.pages as Record<ID, Page>
+    const buttons = Object.values(pages).flatMap((p) => (p.content && !p.trashed ? buttonsIn(p.id, p.content) : []))
+    const w = world({ pages: Object.values(pages), databases: Object.values(state.databases as Record<ID, Database>), agents: Object.values(state.agents as Record<ID, CustomAgent>), scripts: Object.values(state.scripts as Record<ID, OneScript>), integrations: state.integrations as IntegrationProfile[], kit: state.kit as Kit, servers: state.mcpServers as McpServerConfig[], lazy: { buttons } })
+    const watch = watched(w.ws.pages)
+    const input = toModelInput({ ...sourceOf(w), ws: { ...w.ws, pages: watch.pages } }, nodeReaders(w)).input
+    expect(watch.walks()).toBe(0)
+    const m = buildModel(input)
+    const title = (id: ID) => pages[id]?.title
+    const projects = Object.keys(pages).find((id) => pages[id].kind === 'database' && title(id) === 'Projects')!
+    const meetings = Object.keys(pages).find((id) => pages[id].kind === 'database' && title(id) === 'Meetings')!
+    expect(m.fuses).toEqual([])
+    expect(m.unknown).toEqual([])
+    expect(m.counts.dashed).toBe(0)
+    expect(m.counts.modules).toBeLessThanOrEqual(8)
+    expect(mods(m, 'agent')).toEqual([])
+    // Status → Done: a row trigger (a person's edit) starts the automation; its notify is a toast — no cable out
+    const auto = mods(m, 'automation')
+    expect(auto).toHaveLength(1)
+    expect(edgesInto(m, auto[0].key).map((e) => e.from)).toEqual([expect.stringMatching(new RegExp(`^rowTrigger:${projects}:changed:`))])
+    expect(edgesFrom(m, auto[0].key)).toEqual([])
+    // the Meetings template's clock → Meetings (nobody listens to its new rows)
+    expect(m.edges.find((e) => e.from.startsWith('clock:t:'))?.to).toBe(`database:${meetings}.writes`)
+    // the "Add a project" button adds a row to Projects — by hand
+    expect(m.edges.filter((e) => e.from.startsWith('button:')).map((e) => [e.to, e.byHand])).toEqual([[`database:${projects}.writes`, true]])
   })
 })

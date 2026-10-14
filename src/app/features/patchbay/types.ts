@@ -172,6 +172,11 @@ export interface Edge {
   bundle?: string
   /** the db / field it goes through */
   place?: Place
+  /**
+   * B2: a WRITE? cable of a server whose tool list is unknown here (never tested) to a processor with no allow-list —
+   * counted as a way out all the same (fail closed, §1.3 / §6 A7)
+   */
+  failClosed?: true
 }
 
 export type Place =
@@ -419,6 +424,36 @@ export interface Model {
   unknown: UnknownPart[]
   nearMisses: NearMiss[]
   counts: { modules: number; idle: number; cables: number; dashed: number; planned: number; ghosts: number }
+  /**
+   * B2: the full flow behind the drawing — every place each module may write (also what the rack does not draw as a
+   * cable: an everything-writer's new rows, a write whose net flag another writer already carries) and who starts on
+   * each place. chains.ts (B3) walks THIS, never the drawn edges, so folding a drawing never hides a path (§2.5).
+   */
+  flow?: Flow
+}
+
+/** One place a module may write, and how (B2, model.ts `flow`). */
+export interface FlowWrite {
+  place: Place
+  /** the AI decides at run time (an agent, the bridge, a pipeline's git action) */
+  can?: boolean
+  byHand?: boolean
+  asksFirst?: boolean
+  /** the write carries content from outside (mail sync, a hook, a GitHub pick-up, Clippings) */
+  outside?: boolean
+}
+
+/** Something that starts on a place (B2): an automation / agent row trigger, autofill, a kit relay, mail organise. */
+export interface FlowListen {
+  module: ModuleKey
+  kind: ModuleKind
+  event: RowEvent
+}
+
+/** The flow of a model (B2): writes per module; listeners per place key (placeKey: `<db>:<prop | '*' | '+row' | '-row'>`). */
+export interface Flow {
+  writes: Record<ModuleKey, FlowWrite[]>
+  listens: Record<string, FlowListen[]>
 }
 
 /** The numbers every surface shows (sidebar LED, Preflight lamp, status bar, the readout's FUSE cell) — LED = lamp = readout. */
@@ -478,6 +513,11 @@ export interface ScriptScan {
   effects: Array<'mail' | 'claude' | 'http' | 'trash'>
   /** refs by name (not by id) — shown as "?" */
   byName: boolean
+  /**
+   * B2: writes the page it runs for (`page.current` / `page.here` / `page`): an automation's row, a command's rows, a
+   * button's page — the caller's place
+   */
+  context?: boolean
 }
 
 /** A live database (not trashed, not in a template) with its config fields only (§1.2 — never `fills` / `last*`). */
@@ -494,8 +534,10 @@ export interface DatabaseInput {
   repeating: Array<{ id: ID; every: string; next: number | null }>
   /** form views that post to a webhook (a note only, §1.4) */
   formHooks: number
-  /** Outbox send routes on its rows (outboxCommands) */
-  sends: Array<{ profile: string; route: string; tool: string }>
+  /** Outbox send routes on its rows (outboxCommands) — `server`: the server the route sends through (B2) */
+  sends: Array<{ profile: string; route: string; tool: string; server?: string }>
+  /** B2: the pages above the database, nearest first (a scope page reaches the databases below it) */
+  under?: ID[]
 }
 
 /** Referenced pages only (database pages, report pages, scope pages, the capture Inbox — ≤ a few hundred). */
@@ -554,6 +596,10 @@ export interface MailInput {
   auto: 'open' | 'interval' | 'manual'
   everyMin: number
   organise: boolean
+  /** B2: the properties "Organise with Claude" writes (category · priority · needs reply · summary · project) */
+  organiseProps?: ID[]
+  /** B2: the database organise relates each mail to (its rows' titles are read), null = none */
+  relationDb?: ID | null
 }
 
 export interface PipelineInput {
