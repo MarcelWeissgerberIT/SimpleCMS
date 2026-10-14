@@ -8,7 +8,7 @@
  *
  * (CHANGELOG_DRAFT=1 lets the build pass while a new entry's picture does not exist yet.)
  *
- * Shots: safe-zip-import, regler, agent-precheck, ai-setup, ai-receipts, agent-trust, claude-tasks, flight-recorder-eject, flight-recorder-window, preflight, flight-recorder, tasks, outbox, mirror-again, glass-switches, history-compare, mcp-overview, mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
+ * Shots: worker-windows, safe-zip-import, regler, agent-precheck, ai-setup, ai-receipts, agent-trust, claude-tasks, flight-recorder-eject, flight-recorder-window, preflight, flight-recorder, tasks, outbox, mirror-again, glass-switches, history-compare, mcp-overview, mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
  * custom-agents, gmail, help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
  * workspace in English, light theme, 1440 × 900 at device scale 2; the crop of the relevant area is scaled
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
@@ -834,6 +834,30 @@ function drawVolumeTable(t) {
 const toolResult = (body, id) => (body.messages ?? []).flatMap((m) => (Array.isArray(m.content) ? m.content : [])).find((c) => c.type === 'tool_result' && c.tool_use_id === id)
 
 const shots = {
+  /**
+   * Worker 1.9.0 on Windows: Settings → Coding worker, the card on "Windows" — step 2 with the PowerShell and the
+   * Command Prompt line (each with its copy key), the Windows note and what it needs. No worker runs.
+   */
+  async 'worker-windows'(browser) {
+    const { ctx, page } = await freshPage(browser)
+    try {
+      await page.evaluate(() => window.__one.ui.getState().openModal({ type: 'settings' }))
+      await page.getByRole('tab', { name: 'Coding worker' }).click()
+      const settings = page.getByTestId('coding-settings')
+      await settings.getByTestId('coding-os-windows').first().click()
+      await settings.getByTestId('coding-start-command-cmd').waitFor()
+      const card = settings.getByTestId('coding-setup-card')
+      await scrollToTop(card, 12)
+      await page.mouse.move(0, 0)
+      await rest(page)
+      const head = await card.locator('.cw-panel__head').boundingBox()
+      const step2 = await settings.getByTestId('coding-step-2').boundingBox()
+      await save(page, 'worker-windows', { x: Math.round(head.x) - 12, y: Math.round(head.y) - 12, width: Math.round(head.width) + 24, height: Math.round(step2.y + step2.height - head.y) + 12 })
+    } finally {
+      await ctx.close()
+    }
+  },
+
   /**
    * Worker 1.8.1, its own setup page: "legacy-shop" (a ZIP an older worker imported into ~/one-repos, unmarked) is
    * marked once at the start — the note on top — and its switch is off with the reason, the MCP field saying only
