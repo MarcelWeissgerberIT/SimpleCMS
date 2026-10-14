@@ -3,19 +3,24 @@ id: coding-pipeline
 title: Coding-Pipeline (Claude Code auf deinem Rechner)
 section: ai
 order: 9
-keywords: coding, pipeline, claude code, worker, one-worker, download, einrichten, koppeln, modell, opus, sonnet, haiku, fable, repositories anhaken, git, branch, worktree, pull request, pr, diff, tests, repo, repository, code-review, programmieren, aufgaben, cloud-worker, one-worker-cloud, build-server, vm, relay, anderer rechner, lokal oder cloud
+keywords: coding, pipeline, claude code, worker, one-worker, download, einrichten, windows, powershell, cmd, eingabeaufforderung, wsl, koppeln, modell, opus, sonnet, haiku, fable, repositories anhaken, git, branch, worktree, pull request, pr, diff, tests, repo, repository, code-review, programmieren, aufgaben, cloud-worker, one-worker-cloud, build-server, vm, relay, anderer rechner, lokal oder cloud
 related: pipelines, legacy-modernisation, mcp-bridge, custom-agents, agent
 summary: Gib Programmieraufgaben an Claude Code auf deinem Rechner — planen, freigeben, umsetzen, testen, ausliefern — und verfolge jeden Schritt in One.
 ---
 **#/coding** (⌘K *Coding-Pipeline*). One verwaltet die Aufgaben, die Freigaben, das Log und den Diff; ein kleiner Worker auf **deinem** Rechner führt Git und Claude Code aus. Dein Code verlässt deinen Rechner nie.
 
 ## In drei Schritten einrichten
-Du brauchst Node.js 20+, Git und die **Claude-Code**-CLI, einmal angemeldet (`claude`). Dann **Einstellungen → Coding-Worker** (oder **#/coding**):
+Du brauchst Node.js 22 oder neuer, Git und die **Claude-Code**-CLI, einmal angemeldet (`claude`) — unter macOS, Linux oder Windows 10 / 11 (siehe *Windows* unten). Dann **Einstellungen → Coding-Worker** (oder **#/coding**):
 
 1. **Lade den Worker für diesen Arbeitsbereich herunter.** Die Datei ist schon mit diesem Browser und diesem Arbeitsbereich gekoppelt — nichts einzustellen. One schaltet die Verbindung selbst ein.
-2. **Starte ihn** in einem Terminal und lass ihn laufen:
+2. **Starte ihn** in einem Terminal und lass ihn laufen. Die Karte zeigt die Zeile für deinen Rechner — Schalter **Windows | macOS · Linux**. macOS und Linux:
 ```
 node ~/Downloads/one-worker.mjs
+```
+Windows — in PowerShell (erste Zeile) oder der Eingabeaufforderung (zweite Zeile); die Anführungszeichen halten einen Benutzerordner mit Leerzeichen zusammen:
+```
+node "$HOME\Downloads\one-worker.mjs"
+node "%USERPROFILE%\Downloads\one-worker.mjs"
 ```
 3. **Hak deine Repositories auf der Seite an, die sich öffnet.** Der Worker findet die Git-Repositories auf deinem Rechner und öffnet eine Seite in deinem Browser: Hak die an, in denen One arbeiten darf, prüf Basis-Branch und Testbefehl (z. B. `npm test`), dann **Speichern & starten**. Die Karte zeigt *Verbunden · laptop · 2 Repos*, und die **WORKER**-LED in der Statusleiste wird grün.
 
@@ -33,7 +38,7 @@ Später ändern: **Repositories ändern** — der Worker öffnet seine Seite wie
 In einem **Team-Arbeitsbereich auf einem One-Server** bietet **Einstellungen → Coding-Worker → Wo der Worker läuft** die Wahl **Lokal | Cloud**. Mit **Cloud** läuft der Worker auf einem beliebigen Rechner — Build-Server, VM, der Rechner im Büro — und verbindet sich selbst mit deinem One-Server: kein Port, kein VPN.
 
 1. **one-worker-cloud.mjs herunterladen.** Die Datei enthält einen Worker-Token nur für dich und nur für diesen Arbeitsbereich und einen Schlüssel, den nur dieser Browser hat.
-2. **Auf den Rechner kopieren und dort starten**: `node one-worker-cloud.mjs` (laufen lassen — tmux oder ein Dienst). Die Datei ist der Schlüssel: Behandle sie vertraulich (`chmod 600`).
+2. **Auf den Rechner kopieren und dort starten**: `node one-worker-cloud.mjs` (laufen lassen — tmux oder ein Dienst). Die Datei ist der Schlüssel: Behandle sie vertraulich (`chmod 600`; unter Windows `icacls`, siehe unten).
 3. **Dort die Repositories anhaken** — die Einrichtungsseite öffnet sich auf jenem Rechner, oder `node one-worker-cloud.mjs setup --no-browser` fragt in seinem Terminal.
 
 Die Karte zeigt dann *Verbunden · build-box · 1 Repo · über Cloud*. Alles andere funktioniert wie mit einem lokalen Worker.
@@ -45,6 +50,18 @@ Die Karte zeigt dann *Verbunden · build-box · 1 Repo · über Cloud*. Alles an
 - **Nur https.** Cloud braucht den One-Server unter `https://`; bei reinem `http://` ist die Option mit Begründung ausgegraut.
 
 In einem lokalen Arbeitsbereich, für Leser und auf einem Server ohne Worker-Relay ist Cloud ausgegraut – mit dem Grund daneben.
+
+## Windows
+Der Worker läuft ab Version **1.9.0** direkt unter Windows 10 und 11 — WSL2 geht auch. **Unter Windows Worker 1.9.0 oder neuer nehmen**: Ältere Worker konnten ein Programm namens `git.exe`, `claude.exe` oder `npm.exe` aus dem Hauptordner eines geklonten oder importierten Repositorys starten. Ist deiner älter: **Erneut herunterladen** und die neue Datei starten.
+
+- **Installieren**: Node.js 22 oder neuer, **Git for Windows** (Claude Code braucht dessen Git Bash) und Claude Code — mit dem eigenen Installer oder `npm i -g @anthropic-ai/claude-code` —, einmal mit `claude` angemeldet. `node one-worker.mjs check` zeigt, was der Worker gefunden hat.
+- **Windows Terminal** ist der beste Ort dafür: Im alten Konsolenfenster hält der Worker an, sobald du Text markierst, bis du <kbd>Esc</kbd> drückst.
+- **Repositories auf einem lokalen Laufwerk** ablegen, z. B. `C:\code`. Ein Repository in **OneDrive** (Dokumente und Desktop liegen oft dort) geht, aber OneDrive sperrt Dateien beim Synchronisieren — das Log warnt, und die Worktrees der Aufgaben landen in `.one-worktrees` in deinem Benutzerordner.
+- **Lange Pfade**: Das git des Workers kommt damit klar. Für dein git und deine Werkzeuge einmal `git config --global core.longpaths true` ausführen.
+- **Einmal anmelden**: git fragt nie, solange der Worker es ausführt. Leg deinen SSH-Schlüssel in den Dienst **OpenSSH Authentication Agent** (`ssh-add`), oder führ für HTTPS einmal `git fetch` im Terminal aus — der Git Credential Manager merkt sich die Anmeldung. Das Log sagt, was fehlt.
+- **Programme**: Der Worker sucht git, Claude Code und deinen Testbefehl nur im `PATH` — nie im Repository. Ein Programm im Repository braucht seinen Pfad, z. B. `.\gradlew.bat test`. Nichts, was One schickt, läuft je über `cmd.exe`.
+- **Die Cloud-Datei** ist ein Schlüssel: `icacls "$HOME\one-worker-cloud.mjs" /inheritance:r /grant:r "${env:USERNAME}:F"` (PowerShell) macht sie nur für dich lesbar. Für den Autostart die Aufgabenplanung — das Rezept steht in `docs/CODING.md`.
+- **Port abgelehnt?** Hyper-V, WSL oder Docker können Port-Bereiche reservieren. Das Terminal des Workers sagt es — wähl vor dem Download in **Einstellungen → Coding-Worker** einen anderen Port.
 
 ## Freigaben – oder einfach machen
 Im Coding-Panel wählst du bei **Freigaben**, wo die Aufgabe auf dich wartet: **Plan und Review freigeben** (Standard), **Nur Review – der Plan läuft durch** oder **Keine – einfach machen**: Dann laufen Plan, Umsetzung, Tests und Ausliefern ohne Halt durch; schlagen die Tests zweimal fehl, hält sie trotzdem beim Review. Die Wahl gilt auf diesem Gerät und ist die Vorgabe für neue Aufgaben. Wartet eine Aufgabe schon an einer Freigabe, die du gerade abwählst, geht sie sofort weiter.

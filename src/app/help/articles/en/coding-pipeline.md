@@ -3,19 +3,24 @@ id: coding-pipeline
 title: Coding pipeline (Claude Code on your machine)
 section: ai
 order: 9
-keywords: coding, pipeline, claude code, worker, one-worker, download, setup, pairing, model, opus, sonnet, haiku, fable, tick repositories, git, branch, worktree, pull request, pr, diff, tests, repo, repository, code review, programmieren, aufgaben, cloud worker, one-worker-cloud, build server, vm, relay, remote, another computer, local or cloud
+keywords: coding, pipeline, claude code, worker, one-worker, download, setup, windows, powershell, cmd, wsl, pairing, model, opus, sonnet, haiku, fable, tick repositories, git, branch, worktree, pull request, pr, diff, tests, repo, repository, code review, programmieren, aufgaben, cloud worker, one-worker-cloud, build server, vm, relay, remote, another computer, local or cloud
 related: pipelines, legacy-modernisation, mcp-bridge, custom-agents, agent
 summary: Hand coding tasks to Claude Code on your computer — plan, approve, implement, test, ship — and follow every step in One.
 ---
 **#/coding** (⌘K *Coding pipeline*). One keeps the tasks, the approvals, the log and the diff; a small worker on **your** computer runs git and Claude Code. Your code never leaves your machine.
 
 ## Set up in three steps
-You need Node.js 20+, git and the **Claude Code** CLI, signed in once (`claude`). Then **Settings → Coding worker** (or **#/coding**):
+You need Node.js 22 or newer, git and the **Claude Code** CLI, signed in once (`claude`) — on macOS, Linux or Windows 10 / 11 (see *Windows* below). Then **Settings → Coding worker** (or **#/coding**):
 
 1. **Download the worker for this workspace.** The file comes ready-paired with this browser and this workspace — nothing to configure. One switches the link on by itself.
-2. **Start it** in a terminal and keep it running:
+2. **Start it** in a terminal and keep it running. The card shows the line for your computer — switch **Windows | macOS · Linux**. macOS and Linux:
 ```
 node ~/Downloads/one-worker.mjs
+```
+Windows — in PowerShell (first line) or the Command Prompt (second line); the quotes keep a user folder with a space together:
+```
+node "$HOME\Downloads\one-worker.mjs"
+node "%USERPROFILE%\Downloads\one-worker.mjs"
 ```
 3. **Tick your repositories in the page that opens.** The worker finds the git repositories on your computer and opens a page in your browser: tick the ones One may work in, check the base branch and the test command (e.g. `npm test`), then **Save & start**. The card shows *Connected · laptop · 2 repos* and the **WORKER** LED in the status bar turns green.
 
@@ -33,7 +38,7 @@ To change them later, press **Change repositories** — the worker opens its pag
 In a **team workspace on a One server**, **Settings → Coding worker → Where the worker runs** offers **Local | Cloud**. With **Cloud** the worker runs on any computer — a build server, a VM, the desktop at the office — and connects **out** to your One server: no port to open, no VPN.
 
 1. **Download one-worker-cloud.mjs.** It carries a worker token that is only for you and only for this workspace, and a key that only this browser has.
-2. **Copy it to that computer and start it there**: `node one-worker-cloud.mjs` (keep it running — tmux or a service). The file is the key: keep it private (`chmod 600`).
+2. **Copy it to that computer and start it there**: `node one-worker-cloud.mjs` (keep it running — tmux or a service). The file is the key: keep it private (`chmod 600`; on Windows `icacls`, below).
 3. **Tick the repositories on that computer** — its setup page opens there, or `node one-worker-cloud.mjs setup --no-browser` asks in its terminal.
 
 The card then reads *Connected · build-box · 1 repo · via cloud*. Everything else works as with a local worker.
@@ -45,6 +50,18 @@ The card then reads *Connected · build-box · 1 repo · via cloud*. Everything 
 - **https only.** Cloud needs the One server on `https://`; on plain `http://` the option is greyed out with the reason.
 
 Cloud is greyed out with the reason in a local workspace, for viewers, and on a server without the worker relay.
+
+## Windows
+The worker runs natively on Windows 10 and 11 from version **1.9.0** — WSL2 works too. **On Windows, use worker 1.9.0 or newer**: older workers could start a program named `git.exe`, `claude.exe` or `npm.exe` from the root of a cloned or imported repository. If yours is older, **Download again** and start the new file.
+
+- **Install**: Node.js 22 or newer, **Git for Windows** (Claude Code needs its Git Bash) and Claude Code — its own installer or `npm i -g @anthropic-ai/claude-code` — signed in once with `claude`. `node one-worker.mjs check` shows what the worker found.
+- **Windows Terminal** is the best place to run it: in the old console window, selecting text pauses the worker until you press <kbd>Esc</kbd>.
+- **Keep repositories on a local disk**, e.g. `C:\code`. A repository in **OneDrive** (Documents and Desktop often are) works, but OneDrive locks files while it syncs — the log warns, and the task worktrees go to `.one-worktrees` in your user folder.
+- **Long paths**: the worker's own git handles them. For your git and tools run `git config --global core.longpaths true` once.
+- **Sign in once**: git never asks while the worker runs it. Add your SSH key to the **OpenSSH Authentication Agent** service (`ssh-add`), or for HTTPS run `git fetch` once in a terminal — Git Credential Manager keeps the login. The log says which one is missing.
+- **Programs**: the worker looks for git, Claude Code and your test command in `PATH` only — never in the repository. A program inside the repository needs its path, e.g. `.\gradlew.bat test`. Nothing One sends ever runs through `cmd.exe`.
+- **The cloud file** is a key: `icacls "$HOME\one-worker-cloud.mjs" /inheritance:r /grant:r "${env:USERNAME}:F"` (PowerShell) keeps it yours. For autostart use Task Scheduler — `docs/CODING.md` has the recipe.
+- **Port refused?** Hyper-V, WSL or Docker can reserve a range of ports. The worker's terminal says so — pick another port in **Settings → Coding worker** before you download.
 
 ## Approvals — or just do it
 In the coding panel, **Approvals** sets where the task waits for you: **Approve the plan and the review** (default), **Review only — the plan runs on**, or **None — just do it**: plan, work, tests and shipping then run through without a stop; tests that fail twice still stop at the review. The choice is per device and becomes the default for new tasks. A task already waiting at an approval you just switched off goes on at once.

@@ -574,7 +574,14 @@ the public APIs stable — other areas are built against them in parallel.
   page with origin 'coding'; logs, diffs and trust per device in IndexedDB `one-coding`, never synced. One sends the worker
   only task data and the fixed verbs in GIT_VERBS — never a path or a command; the worker runs git as argument lists,
   only on repos in its own config, creates / cleans only its own branches + worktrees, never skips Claude Code's
-  permissions. Team: the worker takes only tasks whose version (SHA-256) was written or confirmed on this device. Version =
+  permissions. Programs start ONLY through mcp/src/worker/exec.ts (no other worker file value-imports `node:child_process`
+  — guard in exec.test.ts; never `shell: true`; on Windows a bare name from PATH only, never the cwd, system tools by
+  absolute path, git only as git.exe, `.cmd` shims read, not run): Claude Code, git, gh and glab never run through
+  cmd.exe — only the person's own worker.json `testCommand` / `analyzeCommand` and `ONE_WORKER_BROWSER` /
+  `ONE_WORKER_PICKER` may, and nothing One sends or a repo holds ever reaches a cmd.exe line; on Windows every git call
+  gets `-c core.longpaths=true` and worktree folders a short safe name, `ssh -o BatchMode=yes` only when no SSH command
+  is set (every OS), a repo in a synced folder (iCloud, CloudStorage, OneDrive) keeps its worktrees in ~/.one-worktrees;
+  the worker needs Node 22+ (Windows from 1.9.0; start lines per shell: coding/startLines.ts). Team: the worker takes only tasks whose version (SHA-256) was written or confirmed on this device. Version =
   title + page + Repo / Branch / Stage + the pipeline (names, kinds, Auto, mode, turns, git action, next, instructions);
   trust carries only for changes made in this tab (never `isApplyingRemote` / `isAgentWriting`); locally a task an agent
   created or changed last (`agent:`) waits for Confirm too; nothing is written for an unconfirmed task. Prompt data blocks
