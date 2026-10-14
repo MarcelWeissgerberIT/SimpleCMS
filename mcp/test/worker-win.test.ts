@@ -15,9 +15,9 @@ import { basename, dirname, join, posix, win32 } from 'node:path'
 import { strToU8, zipSync } from 'fflate'
 import { pathToFileURL } from 'node:url'
 import { after, afterEach, describe, test } from 'node:test'
-import type { LogLine } from '../../src/app/features/coding/protocol.ts'
+import type { IntakeState, LogLine } from '../../src/app/features/coding/protocol.ts'
 import { editOf, findClaude, mcpLaunchers, nativeNotOnPath, runClaude, toolLine } from '../src/worker/claude.ts'
-import { cloneBase, cloneInto, parseCloneUrl, unquote } from '../src/worker/clone.ts'
+import { cloneBase, cloneHint, cloneInto, parseCloneUrl, unquote } from '../src/worker/clone.ts'
 import { emptyConfig, loadConfig, splitArgs, type RepoConfig } from '../src/worker/config.ts'
 import { GitError, checkRepo, ensureWorktree, folderId, git, gitFailure, gitMessage, gitOk, insideWorktrees, nativePath, ownLocks, parseWorktrees, stillOurs, sweepLeftovers, tryFetch, worktreeFolder } from '../src/worker/git.ts'
 import { BATCH_SSH, INCLUDE_IF_NOTE, folderBusyCode, forgetGitEnv, gitArgs, gitEnv, gitHint, hintLine, hintTerminal, sshCommandInEnv } from '../src/worker/gitenv.ts'
@@ -28,7 +28,8 @@ import { Scrubber, repoScrubber } from '../src/worker/scrub.ts'
 import { joinArgs, syncedRow } from '../src/worker/setup.ts'
 import { SETUP_JS } from '../src/worker/setup-page.ts'
 import { WorkerState } from '../src/worker/state.ts'
-import { Worker } from '../src/worker/worker.ts'
+import { INTAKE_ERROR_MAX, Worker } from '../src/worker/worker.ts'
+import { Intake } from '../src/worker/intake.ts'
 import { entryPath, gitDirIn, importZip, isUnsafe, zipPath, type GuardDisk } from '../src/worker/zipimport.ts'
 import { OutputLines, runTests, safeHead } from '../src/worker/testrun.ts'
 import { waitFor } from './helpers.ts'
@@ -1656,5 +1657,73 @@ describe('Fix3: the scrubber after a letter, cut lines, the planted-program text
     // nothing there: none (and a broken file adds none)
     writeFileSync(join(managed, 'managed-mcp.json'), '{ broken')
     assert.deepEqual(mcpLaunchers({ dirs: [], projectSettings: false, home: tempDir('none'), env: {}, managed: [managed, tempDir('empty')] }), ['drop-in', 'pinned'])
+  })
+})
+
+/* ------------------------------------------------------------------ Fix4 */
+
+describe('Fix4: an import\'s failure is scrubbed before it is cut; plugins of a seed folder', () => {
+  const fragment = (t: string) => /maximilian|mustermann|ilian\.|\.musterm|stermann/.exec(t)?.[0] ?? null
+  const worker = (cloneDir: string) => new Worker({ config: { ...emptyConfig(join(tempDir('cfg'), 'worker.json')), cloneDir }, version: 'test', bin: 'claude', self: 'x', log: () => {} })
+
+  test('cloneHint keeps git\'s last lines whole; the worker scrubs a failure, then cuts it for One (INTAKE_ERROR_MAX)', () => {
+    const home = '/home/maximilian.mustermann'
+    const sc = new Scrubber([], { platform: 'linux', home, tmp: '/tmp', realpath: () => null })
+    // a failure no hint knows; its last line names a folder under the home across column 300 (the old cut)
+    const at = `${home}/one-repos/shop/.git/index.lock`
+    const err = cloneHint(`remote: ${'warning: '.repeat(25)}\nfatal: unable to write new index file in '${at}'\n`)
+    assert.ok(err.indexOf('maximilian') < 300 && err.indexOf('maximilian') + 'maximilian.mustermann'.length > 300, err)
+    assert.ok(err.endsWith(`'${at}'`), err)
+    assert.equal(fragment(sc.text(err)), null, sc.text(err))
+    // the worker: scrubbed first, then cut
+    const raw = `${'y'.repeat(INTAKE_ERROR_MAX - 30)} ${join(homedir(), 'one-repos', 'shop')} ${'z'.repeat(100)}`
+    const st = worker(tempDir('clones')).intakeScrub({ state: 'failed', source: 'clone', label: 'x', line: '', percent: null, error: raw })
+    assert.ok(st.error!.length <= INTAKE_ERROR_MAX && st.error!.endsWith('…'), `${st.error!.length}`)
+    assert.match(st.error!, /~[\\/]one-repos[\\/]shop z/)
+  })
+
+  test('an import\'s failure leaves intake.ts whole — the clone folder\'s path never cut before the scrubber (a home-like name across column 600)', async () => {
+    const root = tempDir('fix4')
+    // the clone folder lies below a FILE: mkdir fails at once and Node's message names the whole folder
+    const file = join(root, 'f')
+    writeFileSync(file, 'x\n')
+    let lead = -1
+    try {
+      mkdirSync(join(file, 'probe'), { recursive: true })
+    } catch (e) {
+      lead = (e as Error).message.indexOf(join(file, 'probe'))
+    }
+    assert.ok(lead > 0, `${lead}`)
+    // padding folders of ≤ 200 characters put the name at column 595
+    const parts: string[] = []
+    let left = 595 - lead - file.length - 1
+    while (left > 201) {
+      parts.push('p'.repeat(200))
+      left -= 201
+    }
+    assert.ok(left >= 2, `${left}`)
+    parts.push('p'.repeat(left - 1))
+    const clones = join(file, ...parts, 'maximilian.mustermann', 'one-repos')
+    const config = { ...emptyConfig(join(tempDir('cfg'), 'worker.json')), cloneDir: clones }
+    const events: IntakeState[] = []
+    const intake = new Intake({ config: () => config, configFile: config.file, reload: async () => {}, log: () => {}, event: (_t, st) => events.push(st) })
+    // no git starts: the folder is refused first (an address nobody can reach anyway)
+    intake.clone('fix4', 'https://git.example.invalid/acme/shop.git')
+    await waitFor(() => events.some((e) => e.state === 'failed'), 5000, () => JSON.stringify(events))
+    const failed = events.find((e) => e.state === 'failed')!
+    assert.equal(failed.error!.indexOf('maximilian'), 595, failed.error)
+    assert.ok(failed.error!.includes(clones), 'whole, as Node wrote it')
+    const sent = worker(clones).intakeScrub(failed)
+    assert.equal(fragment(sent.error!), null, sent.error)
+    assert.match(sent.error!, /<clones>/, sent.error)
+  })
+
+  test('mcpLaunchers reads the installed plugins of each $CLAUDE_CODE_PLUGIN_SEED_DIR folder', () => {
+    const seed = tempDir('seed')
+    const p = join(seed, 'cache', 'mk', 'seeded', '1.0.0')
+    mkdirSync(p, { recursive: true })
+    writeFileSync(join(p, '.mcp.json'), JSON.stringify({ mcpServers: { s: { command: 'seeded-tool' } } }))
+    writeFileSync(join(seed, 'installed_plugins.json'), JSON.stringify({ plugins: { 'seeded@mk': [{ installPath: p }] } }))
+    assert.deepEqual(mcpLaunchers({ dirs: [], projectSettings: false, home: tempDir('none'), env: { CLAUDE_CODE_PLUGIN_SEED_DIR: seed }, managed: [] }), ['seeded-tool'])
   })
 })

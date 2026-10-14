@@ -340,8 +340,10 @@ function pluginServers(configDir: string, env: NodeJS.ProcessEnv, platform: Node
  *  - while the repo's own settings load (`projectSettings`), the local scope of the stage's folder and the repo
  *    (`projects[<folder>]`) and the folder's .mcp.json.
  * A file that cannot be read adds none (plantedProgram still checks PATH and its own list). Not read: a plugin folder
- * given only on Claude Code's command line (the worker passes none) and servers Claude Desktop or claude.ai hand over
- * (no program on this computer starts them by name).
+ * given only on Claude Code's command line (the worker passes none), the organisation's settings in Windows' policy
+ * registry (HKLM / HKCU\SOFTWARE\Policies\ClaudeCode, value "Settings"), Claude Code's copy of remotely managed settings
+ * (<config dir>/remote-settings.json) and servers Claude Desktop or claude.ai hand over (no program on this computer
+ * starts them by name).
  */
 export function mcpLaunchers(opts: { dirs: string[]; projectSettings: boolean; home?: string; env?: NodeJS.ProcessEnv; platform?: NodeJS.Platform; managed?: string[] }): string[] {
   const env = opts.env ?? process.env

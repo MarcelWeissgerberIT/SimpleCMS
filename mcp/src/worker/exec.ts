@@ -28,8 +28,8 @@
  *    or a cmd.exe line. What resolveCommand returns (and `check` shows) stays absolute.
  * Every OS: the programs the worker starts by itself get a PATH of absolute folders only (pathAbsolute) — an empty entry,
  * "." or a relative folder makes a lookup by name search the working folder (macOS / Linux: execvp, also for git's own
- * children and Claude Code's), so neither they nor what they start take a `git` from a repository. The person's own
- * commands keep their PATH as it is.
+ * children and Claude Code's), so neither they nor what they start take a `git` from a repository; `~` / `~/…` become
+ * the home folder there, as bash reads them. The person's own commands keep their PATH as it is.
  * Not covered (the launched program's own hygiene): DLLs a program loads from its own folder or the working folder.
  *
  * spawnSafe / execFileSafe / execFileSyncSafe never throw and never reject: a program that cannot start is code 127
@@ -37,6 +37,7 @@
  */
 import { spawn, spawnSync, type ChildProcess, type SpawnOptions } from 'node:child_process'
 import { closeSync, openSync, readSync, readdirSync, statSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { join, posix, win32 } from 'node:path'
 
 export type Via = 'direct' | 'node-shim' | 'comspec'
@@ -154,19 +155,40 @@ const ABS_WIN = /^(?:[A-Za-z]:[\\/]|[\\/]{2}[^\\/])/
 const absEntry = (d: string, platform: NodeJS.Platform) => (platform === 'win32' ? ABS_WIN.test(d.trim().replace(/^"(.*)"$/, '$1').trim()) : d.startsWith('/'))
 
 /**
+ * macOS / Linux: a PATH entry `~` or `~/…` as bash reads it at lookup — the home folder (the child's HOME, else this
+ * user's) in front; null when that is no absolute folder (a HOME that is empty or relative, one holding a ":", none the
+ * system can name). Any other entry as it is.
+ */
+const homeEntry = (d: string, env: NodeJS.ProcessEnv, home: () => string): string | null => {
+  if (d !== '~' && !d.startsWith('~/')) return d
+  let h = env.HOME
+  if (h === undefined) {
+    // spawnSafe never throws
+    try {
+      h = home()
+    } catch {
+      return null
+    }
+  }
+  return h.startsWith('/') && !h.includes(':') ? h + d.slice(1) : null
+}
+
+/**
  * PATH with its absolute folders only — an empty entry, "." or a relative folder dropped (on Windows under every spelling
  * of the key). macOS / Linux: execvp searches the working folder for such an entry (PATH=":/usr/bin" finds ./git first);
- * Windows: such an entry is read against the working folder. Nothing left: PATH is removed (an empty PATH is itself the
- * working folder on macOS / Linux; without one the system's default folders are searched). Unchanged when every entry is
- * absolute (the same object).
+ * Windows: such an entry is read against the working folder. macOS / Linux: `~` and `~/…` become the home folder (bash
+ * expands them at lookup, execvp would read them against the working folder). Nothing left: PATH is removed (an empty
+ * PATH is itself the working folder on macOS / Linux; without one the system's default folders are searched). Unchanged
+ * when every entry is absolute (the same object).
  */
-export function pathAbsolute(env: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform): NodeJS.ProcessEnv {
+export function pathAbsolute(env: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform, home: () => string = homedir): NodeJS.ProcessEnv {
   const sep = platform === 'win32' ? ';' : ':'
   let out: NodeJS.ProcessEnv = env
   for (const k of Object.keys(env)) {
     const v = env[k]
     if (v === undefined || (platform === 'win32' ? k.toLowerCase() !== 'path' : k !== 'PATH')) continue
-    const kept = v.split(sep).filter((d) => absEntry(d, platform))
+    const entries = platform === 'win32' ? v.split(sep) : v.split(sep).map((d) => homeEntry(d, env, home) ?? '')
+    const kept = entries.filter((d) => absEntry(d, platform))
     if (kept.join(sep) === v) continue
     if (out === env) out = { ...env }
     if (kept.length) out[k] = kept.join(sep)
@@ -303,9 +325,9 @@ function comspec(file: string, args: string[], c: ExecCtx, name: string): Resolv
 /**
  * Programs tools start by their bare name, whatever is installed: Claude Code's own git, a test runner's node / npm /
  * npx, shells, ssh, ripgrep, Python, the host CLIs, the usual MCP server launchers (uv / uvx, bunx, deno, docker,
- * podman, pipx, java, dotnet), Windows' own helpers.
+ * podman, pipx, java, dotnet), Windows' own helpers (Claude Code itself starts reg, rundll32 and explorer by name).
  */
-export const BY_NAME = ['git', 'claude', 'node', 'npm', 'npx', 'pnpm', 'yarn', 'corepack', 'bash', 'sh', 'ssh', 'gh', 'glab', 'rg', 'cmd', 'powershell', 'pwsh', 'where', 'python', 'py', 'uv', 'uvx', 'bunx', 'bun', 'deno', 'docker', 'podman', 'pipx', 'java', 'dotnet', 'git-lfs', 'pnpx', 'python3', 'cygpath', 'taskkill', 'tasklist']
+export const BY_NAME = ['git', 'claude', 'node', 'npm', 'npx', 'pnpm', 'yarn', 'corepack', 'bash', 'sh', 'ssh', 'gh', 'glab', 'rg', 'cmd', 'powershell', 'pwsh', 'where', 'python', 'py', 'uv', 'uvx', 'bunx', 'bun', 'deno', 'docker', 'podman', 'pipx', 'java', 'dotnet', 'git-lfs', 'pnpx', 'python3', 'cygpath', 'taskkill', 'tasklist', 'reg', 'rundll32', 'explorer']
 /** What a lookup by name may run on Windows: Windows' own PATHEXT list, PowerShell scripts — and the person's PATHEXT. */
 const RUNNABLE_WINDOWS = ['.com', '.exe', '.bat', '.cmd', '.ps1', '.vbs', '.vbe', '.js', '.jse', '.wsf', '.wsh', '.msc']
 /** Windows' own PATHEXT (what cmd.exe and node-which use while the variable is not set). */
@@ -368,7 +390,7 @@ export function inSystemRoot(dir: string, env: NodeJS.ProcessEnv): boolean {
  * PATHEXT of `env`, else Windows' own) — `list` reads a folder's files. Windows' own folders (inSystemRoot: System32 and
  * the rest under %SystemRoot%) do not count: their hundreds of names (find, sort, tree, format, help, route …) are
  * everyday file names in a repository; the ones a tool does start by name (cmd, powershell, where, taskkill, tasklist,
- * ssh, bash) are in BY_NAME.
+ * reg, rundll32, explorer, ssh, bash) are in BY_NAME.
  */
 export function programsOnPath(env: NodeJS.ProcessEnv, list: (dir: string) => string[] = topFiles): Set<string> {
   const own = ownPathExt(env)

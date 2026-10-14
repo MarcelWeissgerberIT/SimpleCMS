@@ -927,8 +927,8 @@ describe('Fix3: PATH of absolute folders for the worker\'s own programs (every O
 
   test('plantedProgram rule (a): PATH folders under %SystemRoot% / %windir% (C:\\Windows when neither is set) do not count — find.js, sort.js, format.js, route.js, a Python convert.py stay allowed; BY_NAME (cmd, where, ssh …) and other folders still count', () => {
     const disk: Record<string, string[]> = {
-      [String.raw`c:\windows\system32`]: ['find.exe', 'sort.exe', 'format.com', 'route.exe', 'convert.exe', 'tree.com', 'help.exe', 'where.exe', 'cmd.exe', 'taskkill.exe'],
-      [String.raw`c:\windows`]: ['notepad.exe', 'write.exe'],
+      [String.raw`c:\windows\system32`]: ['find.exe', 'sort.exe', 'format.com', 'route.exe', 'convert.exe', 'tree.com', 'help.exe', 'where.exe', 'cmd.exe', 'taskkill.exe', 'reg.exe', 'rundll32.exe'],
+      [String.raw`c:\windows`]: ['notepad.exe', 'write.exe', 'explorer.exe'],
       [String.raw`c:\windows\system32\openssh`]: ['ssh.exe', 'scp.exe'],
       [String.raw`d:\win\system32`]: ['find.exe'],
       [String.raw`c:\users\max\appdata\roaming\npm`]: ['ng.cmd', 'tsc.cmd'],
@@ -941,8 +941,9 @@ describe('Fix3: PATH of absolute folders for the worker\'s own programs (every O
     for (const env of [{ Path, PATHEXT, SystemRoot: String.raw`C:\Windows` }, { Path, PATHEXT, windir: String.raw`c:\windows` }, { Path, PATHEXT }]) {
       // the flat Node library, color-convert, a Python project with .PY in PATHEXT, notepad.js / write.js beside C:\Windows'
       for (const files of [['index.js', 'find.js', 'format.js', 'sort.js'], ['route.js', 'conversions.js'], ['convert.py', 'tree.py', 'help.py'], ['notepad.js', 'write.vbs'], ['scp.js']]) assert.equal(at(files, env), null, `${files.join(' ')} ${JSON.stringify(env).slice(0, 80)}`)
-      // still refused: BY_NAME (cmd, where, taskkill, ssh, node, dotnet), a program on PATH outside Windows' folders (ng)
-      for (const f of ['cmd.js', 'where.bat', 'taskkill.cmd', 'ssh.exe', 'node.js', 'dotnet.cmd', 'ng.js']) assert.equal(at([f], env), f, f)
+      // still refused: BY_NAME (cmd, where, taskkill, ssh, node, dotnet — and reg, rundll32, explorer, which Claude Code
+      // itself starts by name), a program on PATH outside Windows' folders (ng)
+      for (const f of ['cmd.js', 'where.bat', 'taskkill.cmd', 'ssh.exe', 'node.js', 'dotnet.cmd', 'ng.js', 'reg.js', 'Rundll32.cmd', 'explorer.js', 'REG.exe']) assert.equal(at([f], env), f, f)
     }
     // another Windows folder (D:\Win): its own System32 is Windows', C:\Windows is not special then
     assert.equal(at(['find.js'], { Path: String.raw`D:\Win\System32`, SystemRoot: String.raw`D:\Win` }), null)
@@ -982,5 +983,51 @@ describe('Fix3: PATH of absolute folders for the worker\'s own programs (every O
       const want = folds && ascii !== 'kubectl.exe' ? file : null
       assert.equal(plantedProgram(dir, { platform: 'win32', env: {} }), want, `${file} (the disk folds: ${folds})`)
     }
+  })
+})
+
+/* ------------------------------------------------------------------ Fix4 */
+
+describe('Fix4: "~" in PATH on macOS / Linux', () => {
+  test('pathAbsolute: "~" and "~/…" become the home folder (the child\'s HOME, else this user\'s); dropped when that is no absolute folder; "~user" and Windows as before', () => {
+    assert.deepEqual(pathAbsolute({ PATH: '~/bin:/usr/bin:~:~/.local/bin', HOME: '/home/me' }, 'linux'), { PATH: '/home/me/bin:/usr/bin:/home/me:/home/me/.local/bin', HOME: '/home/me' })
+    // no HOME in the child's environment: this user's
+    assert.deepEqual(pathAbsolute({ PATH: '~/bin:/usr/bin' }, 'darwin', () => '/Users/me'), { PATH: '/Users/me/bin:/usr/bin' })
+    // never relative: a HOME that is relative, empty, holds the separator, or none the system can name
+    assert.deepEqual(pathAbsolute({ PATH: '~/bin:~:/usr/bin', HOME: 'rel' }, 'linux'), { PATH: '/usr/bin', HOME: 'rel' })
+    assert.deepEqual(pathAbsolute({ PATH: '~/bin:~:/usr/bin', HOME: '' }, 'linux'), { PATH: '/usr/bin', HOME: '' })
+    assert.deepEqual(pathAbsolute({ PATH: '~/bin:/usr/bin', HOME: '/a:b' }, 'linux'), { PATH: '/usr/bin', HOME: '/a:b' })
+    const none = () => {
+      throw new Error('no home')
+    }
+    assert.deepEqual(pathAbsolute({ PATH: '~/bin:/usr/bin' }, 'linux', none), { PATH: '/usr/bin' })
+    // another user's home, "~x", "./~/bin": dropped as before
+    assert.deepEqual(pathAbsolute({ PATH: '~root/bin:~x:./~/bin:/usr/bin', HOME: '/h' }, 'linux'), { PATH: '/usr/bin', HOME: '/h' })
+    // Windows: no "~" there — unchanged
+    assert.deepEqual(pathAbsolute({ Path: String.raw`~;~\bin;~/bin;C:\x`, HOME: String.raw`C:\Users\me` }, 'win32', () => String.raw`C:\Users\me`), { Path: String.raw`C:\x`, HOME: String.raw`C:\Users\me` })
+    assert.deepEqual(ownEnv({ PATH: '~/bin:.:/usr/bin', HOME: '/h' }, 'linux'), { PATH: '/h/bin:/usr/bin', HOME: '/h' })
+  })
+
+  test('macOS / Linux: a program reachable only through "~/bin" in PATH — bash started by a program the worker starts finds it (Claude Code\'s Bash tool), and so does a start by name; a "~" folder in the working folder never runs', { skip: process.platform === 'win32' && 'Windows has no "~" PATH entries — the pure test above' }, async () => {
+    const home = tempDir('fix4-home')
+    const dir = tempDir('fix4-cwd')
+    mkdirSync(join(home, 'bin'))
+    mkdirSync(join(dir, '~', 'bin'), { recursive: true })
+    for (const [at, say] of [[join(home, 'bin'), 'HOME-TOOL'], [join(dir, '~', 'bin'), 'PLANTED']] as const) {
+      writeFileSync(join(at, 'one-fix4-tool'), `#!/bin/sh\necho ${say}\n`)
+      chmodSync(join(at, 'one-fix4-tool'), 0o755)
+    }
+    const env: NodeJS.ProcessEnv = { ...process.env, HOME: home, PATH: `~/bin${delimiter}${process.env.PATH}` }
+    const viaBash = await execFileSafe('bash', ['-c', 'one-fix4-tool; printf "%s" "$PATH"'], { cwd: dir, env, timeoutMs: 20_000, allow: 'shim' })
+    assert.equal(viaBash.code, 0, viaBash.stderr)
+    const [said, path] = viaBash.stdout.split('\n')
+    assert.equal(said, 'HOME-TOOL')
+    assert.equal(path!.split(delimiter)[0], join(home, 'bin'))
+    assert.ok(path!.split(delimiter).every((d) => d.startsWith('/')), path)
+    const direct = await execFileSafe('one-fix4-tool', [], { cwd: dir, env, timeoutMs: 20_000, allow: 'shim' })
+    assert.equal(direct.stdout, 'HOME-TOOL\n', `${direct.code} ${direct.error ?? ''}`)
+    // the person's own command: PATH exactly as given
+    const person = await execFileSafe('sh', ['-c', 'printf "%s" "$PATH"'], { cwd: dir, env, timeoutMs: 20_000, allow: 'person' })
+    assert.equal(person.stdout, env.PATH)
   })
 })

@@ -95,6 +95,8 @@ interface Run {
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 /** What of an import's progress line One gets (cut after the scrubber). */
 export const INTAKE_LINE_MAX = 200
+/** What of an import's failure One gets (cut after the scrubber, like the line). */
+export const INTAKE_ERROR_MAX = 600
 const clipLine = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s)
 
 /** an import's progress events: at most one per task in this time (its result is never held back) */
@@ -609,8 +611,8 @@ export class Worker {
     // made once per clone folder: building one reads the disk (realpath, Windows' short names) — never once per event
     if (this.intakeScrubber?.key !== key) this.intakeScrubber = { key, sc: new Scrubber([[key || null, '<clones>']]) }
     const sc = this.intakeScrubber.sc
-    // git's progress line comes whole (clone.ts): scrubbed first, then cut — never a path in halves
-    return { ...st, label: sc.text(st.label), line: clipLine(sc.text(st.line), INTAKE_LINE_MAX), ...(st.error !== undefined ? { error: sc.text(st.error) } : {}) }
+    // git's progress line and a failure come whole (clone.ts, intake.ts): scrubbed first, then cut — never a path in halves
+    return { ...st, label: sc.text(st.label), line: clipLine(sc.text(st.line), INTAKE_LINE_MAX), ...(st.error !== undefined ? { error: clipLine(sc.text(st.error), INTAKE_ERROR_MAX) } : {}) }
   }
   private intakeScrubber: { key: string; sc: Scrubber } | null = null
 

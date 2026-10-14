@@ -10895,7 +10895,7 @@ var require_dist = __commonJS({
 // src/worker/index.ts
 import { fileURLToPath } from "node:url";
 import { existsSync as existsSync9, statSync as statSync5 } from "node:fs";
-import { homedir as homedir10, userInfo } from "node:os";
+import { homedir as homedir11, userInfo } from "node:os";
 import { resolve as resolve7 } from "node:path";
 
 // ../src/app/features/coding/protocol.ts
@@ -10945,12 +10945,13 @@ var RELAY_CLOSE_FORBIDDEN = 4403;
 
 // src/worker/config.ts
 import { chmodSync, copyFileSync, existsSync as existsSync2, lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir as homedir3, hostname } from "node:os";
+import { homedir as homedir4, hostname } from "node:os";
 import { basename, dirname, isAbsolute, join as join3, resolve as resolve2, sep as sep2 } from "node:path";
 
 // src/worker/exec.ts
 import { spawn, spawnSync } from "node:child_process";
 import { closeSync, openSync, readSync, readdirSync, statSync } from "node:fs";
+import { homedir } from "node:os";
 import { join, posix, win32 } from "node:path";
 var READ_MAX = 64 * 1024;
 var PATHEXT_DEFAULT = [".COM", ".EXE", ".BAT", ".CMD"];
@@ -11006,13 +11007,26 @@ function noCwdLookup(env, platform = process.platform) {
 }
 var ABS_WIN = /^(?:[A-Za-z]:[\\/]|[\\/]{2}[^\\/])/;
 var absEntry = (d, platform) => platform === "win32" ? ABS_WIN.test(d.trim().replace(/^"(.*)"$/, "$1").trim()) : d.startsWith("/");
-function pathAbsolute(env, platform = process.platform) {
+var homeEntry = (d, env, home) => {
+  if (d !== "~" && !d.startsWith("~/")) return d;
+  let h = env.HOME;
+  if (h === void 0) {
+    try {
+      h = home();
+    } catch {
+      return null;
+    }
+  }
+  return h.startsWith("/") && !h.includes(":") ? h + d.slice(1) : null;
+};
+function pathAbsolute(env, platform = process.platform, home = homedir) {
   const sep5 = platform === "win32" ? ";" : ":";
   let out = env;
   for (const k of Object.keys(env)) {
     const v = env[k];
     if (v === void 0 || (platform === "win32" ? k.toLowerCase() !== "path" : k !== "PATH")) continue;
-    const kept = v.split(sep5).filter((d) => absEntry(d, platform));
+    const entries = platform === "win32" ? v.split(sep5) : v.split(sep5).map((d) => homeEntry(d, env, home) ?? "");
+    const kept = entries.filter((d) => absEntry(d, platform));
     if (kept.join(sep5) === v) continue;
     if (out === env) out = { ...env };
     if (kept.length) out[k] = kept.join(sep5);
@@ -11100,7 +11114,7 @@ function comspec(file, args, c, name) {
   if (line === null) return { ok: false, code: 127, why: "refused", error: `${name} runs through cmd.exe, which cannot pass an argument with a line break` };
   return { ok: true, file: systemTool("cmd", c.env, "win32", c.exists), args: ["/d", "/v:off", "/s", "/c", `"${line}"`], via: "comspec", verbatim: true, line: { argv: [file, ...args], double } };
 }
-var BY_NAME = ["git", "claude", "node", "npm", "npx", "pnpm", "yarn", "corepack", "bash", "sh", "ssh", "gh", "glab", "rg", "cmd", "powershell", "pwsh", "where", "python", "py", "uv", "uvx", "bunx", "bun", "deno", "docker", "podman", "pipx", "java", "dotnet", "git-lfs", "pnpx", "python3", "cygpath", "taskkill", "tasklist"];
+var BY_NAME = ["git", "claude", "node", "npm", "npx", "pnpm", "yarn", "corepack", "bash", "sh", "ssh", "gh", "glab", "rg", "cmd", "powershell", "pwsh", "where", "python", "py", "uv", "uvx", "bunx", "bun", "deno", "docker", "podman", "pipx", "java", "dotnet", "git-lfs", "pnpx", "python3", "cygpath", "taskkill", "tasklist", "reg", "rundll32", "explorer"];
 var RUNNABLE_WINDOWS = [".com", ".exe", ".bat", ".cmd", ".ps1", ".vbs", ".vbe", ".js", ".jse", ".wsf", ".wsh", ".msc"];
 var PATHEXT_WINDOWS = [".com", ".exe", ".bat", ".cmd", ".vbs", ".vbe", ".js", ".jse", ".wsf", ".wsh", ".msc"];
 var topFiles = (dir) => {
@@ -11470,12 +11484,12 @@ function killTree(child, platform = process.platform) {
 }
 
 // src/worker/gitenv.ts
-import { homedir as homedir2 } from "node:os";
+import { homedir as homedir3 } from "node:os";
 
 // src/worker/paths.ts
 import { existsSync, realpathSync, renameSync } from "node:fs";
 import { rm } from "node:fs/promises";
-import { homedir } from "node:os";
+import { homedir as homedir2 } from "node:os";
 import { join as join2, posix as posix2, resolve, sep, win32 as win322 } from "node:path";
 var folds = (platform) => platform === "win32" || platform === "darwin";
 var pathOf = (platform) => platform === "win32" ? win322 : posix2;
@@ -11509,7 +11523,7 @@ function inFolder(path, folder, platform = process.platform) {
   const disk = platform === "win32" === (process.platform === "win32");
   return disk && within(onDisk(path, P), onDisk(folder, P));
 }
-function inICloud(path, home = homedir(), platform = process.platform) {
+function inICloud(path, home = homedir2(), platform = process.platform) {
   if (platform !== "darwin") return false;
   const p = resolve(path);
   const h = resolve(home);
@@ -11522,7 +11536,7 @@ function inICloud(path, home = homedir(), platform = process.platform) {
 var ONEDRIVE_VARS = ["OneDrive", "OneDriveConsumer", "OneDriveCommercial"];
 function inSyncedFolder(path, opts = {}) {
   const platform = opts.platform ?? process.platform;
-  const home = opts.home ?? homedir();
+  const home = opts.home ?? homedir2();
   if (platform === "darwin") {
     if (inICloud(path, home, "darwin")) return "icloud";
     return inFolder(path, join2(home, "Library", "CloudStorage"), "darwin") ? "cloudStorage" : null;
@@ -11537,7 +11551,7 @@ function inSyncedFolder(path, opts = {}) {
 }
 function worktreesAt(worktreeDir, opts = {}) {
   const platform = opts.platform ?? process.platform;
-  const home = opts.home ?? homedir();
+  const home = opts.home ?? homedir2();
   if (inSyncedFolder(worktreeDir, { ...opts, platform, home })) return "synced";
   return inFolder(worktreeDir, (platform === "win32" ? win322 : posix2).join(home, ".one-worktrees"), platform) ? "home" : "own";
 }
@@ -11616,11 +11630,11 @@ async function gitEnv(cwd, base = process.env, opts = {}) {
     let found;
     if (cwd !== null) found = await get(["--get", "core.sshCommand"], cwd);
     else {
-      found = await get(["--global", "--includes", "--get", "core.sshCommand"], homedir2());
-      if (found === false) found = await get(["--system", "--includes", "--get", "core.sshCommand"], homedir2());
+      found = await get(["--global", "--includes", "--get", "core.sshCommand"], homedir3());
+      if (found === false) found = await get(["--system", "--includes", "--get", "core.sshCommand"], homedir3());
       if (found === false) {
-        let cond = await get(["--global", "--includes", "--get-regexp", "^includeif\\."], homedir2());
-        if (cond === false) cond = await get(["--system", "--includes", "--get-regexp", "^includeif\\."], homedir2());
+        let cond = await get(["--global", "--includes", "--get-regexp", "^includeif\\."], homedir3());
+        if (cond === false) cond = await get(["--system", "--includes", "--get-regexp", "^includeif\\."], homedir3());
         if (cond !== false) {
           if (cond) opts.note?.(INCLUDE_IF_NOTE);
           return env;
@@ -11706,10 +11720,10 @@ var folderBusyCode = (platform = process.platform) => platform === "win32" ? "fo
 
 // src/worker/config.ts
 function defaultConfigFile() {
-  return join3(homedir3(), ".config", "one", "worker.json");
+  return join3(homedir4(), ".config", "one", "worker.json");
 }
 function cloudConfigFile(workspace) {
-  return join3(homedir3(), ".config", "one", "cloud", workspace.replace(/[^A-Za-z0-9_-]/g, "-").slice(0, 80), "worker.json");
+  return join3(homedir4(), ".config", "one", "cloud", workspace.replace(/[^A-Za-z0-9_-]/g, "-").slice(0, 80), "worker.json");
 }
 function parseJsonc(text2) {
   let out = "";
@@ -11818,7 +11832,7 @@ function clonedLike(path, platform) {
   const fold = (s) => platform === "darwin" || platform === "win32" ? s.toLowerCase() : s;
   return fold(folderName(origin.replace(/[\\/]+$/, ""))) === fold(basename(path));
 }
-function markOlderSources(raw, file, platform = process.platform, home = homedir3()) {
+function markOlderSources(raw, file, platform = process.platform, home = homedir4()) {
   const configDir = dirname(file);
   const record2 = join3(configDir, MARKS_DONE);
   if (existsSync2(record2)) return [];
@@ -11860,8 +11874,8 @@ function marksSeen(file) {
   }
 }
 function expandHome(p) {
-  if (p === "~") return homedir3();
-  if (p.startsWith("~/") || p.startsWith("~\\")) return join3(homedir3(), p.slice(2));
+  if (p === "~") return homedir4();
+  if (p.startsWith("~/") || p.startsWith("~\\")) return join3(homedir4(), p.slice(2));
   return p;
 }
 var num = (v, def, min, max2) => typeof v === "number" && Number.isFinite(v) && v >= min && v <= max2 ? v : def;
@@ -11937,7 +11951,7 @@ function repoConfig(raw, index, configDir, problems, opts, cloneDir) {
     problems.push(`${at}: "branchPrefix" ${JSON.stringify(branchPrefix)} is not allowed`);
     return null;
   }
-  const worktreeDir = typeof raw.worktreeDir === "string" && raw.worktreeDir.trim() ? resolve2(configDir, expandHome(raw.worktreeDir.trim())) : opts.cloud ? join3(configDir, "worktrees", name) : inSyncedFolder(path) ? join3(homedir3(), ".one-worktrees", name) : join3(dirname(path), ".one-worktrees", name);
+  const worktreeDir = typeof raw.worktreeDir === "string" && raw.worktreeDir.trim() ? resolve2(configDir, expandHome(raw.worktreeDir.trim())) : opts.cloud ? join3(configDir, "worktrees", name) : inSyncedFolder(path) ? join3(homedir4(), ".one-worktrees", name) : join3(dirname(path), ".one-worktrees", name);
   let testCommand = null;
   if (raw.testCommand !== void 0 && raw.testCommand !== null) {
     if (typeof raw.testCommand === "string") problems.push(`${at}: "testCommand" must be a list (argv), e.g. ["npm", "test"] \u2014 a command line is never run through a shell`);
@@ -12031,10 +12045,10 @@ function sanitizeConfig(raw, file, env = process.env, opts = {}) {
   };
 }
 function cloneDirOf(raw, configDir, problems) {
-  if (raw === void 0 || raw === null || raw === "") return join3(homedir3(), "one-repos");
+  if (raw === void 0 || raw === null || raw === "") return join3(homedir4(), "one-repos");
   if (typeof raw !== "string" || raw.length > 1e3 || /[\u0000-\u001f]/.test(raw)) {
     problems.push('"cloneDir" is not a folder \u2014 using ~/one-repos');
-    return join3(homedir3(), "one-repos");
+    return join3(homedir4(), "one-repos");
   }
   return resolve2(configDir, expandHome(raw.trim()));
 }
@@ -12061,7 +12075,7 @@ function scratchRepo(config2, taskId) {
   };
 }
 function exampleConfig(workspace) {
-  const home = homedir3().replace(/\\/g, "/");
+  const home = homedir4().replace(/\\/g, "/");
   return `// one-worker \u2014 runs coding tasks from One with Claude Code on this computer.
 // Docs: https://github.com/MarcelWeissgerberIT/SimpleCMS/blob/main/docs/CODING.md
 // Paths and commands in this file never leave this computer: One only learns repo names.
@@ -12180,7 +12194,7 @@ function splitArgs(line, platform = process.platform) {
 }
 var HEADER = "// one-worker \u2014 written by its setup page";
 function homeRelative(path) {
-  const home = resolve2(homedir3()).replace(/[\\/]+$/, "");
+  const home = resolve2(homedir4()).replace(/[\\/]+$/, "");
   if (pathId(path).startsWith(pathId(home) + sep2) && path.length > home.length + 1) return `~/${path.slice(home.length + 1).replace(/\\/g, "/")}`;
   return path;
 }
@@ -12268,7 +12282,7 @@ ${JSON.stringify(next, null, 2)}
 // src/worker/claude.ts
 import { createInterface } from "node:readline";
 import { readFileSync as readFileSync2, readdirSync as readdirSync2, realpathSync as realpathSync2, statSync as statSync2 } from "node:fs";
-import { homedir as homedir4 } from "node:os";
+import { homedir as homedir5 } from "node:os";
 import { delimiter, isAbsolute as isAbsolute2, join as join4, posix as posix3, resolve as resolve3, win32 as win323 } from "node:path";
 
 // src/worker/price.ts
@@ -12306,7 +12320,7 @@ function usageOf(raw) {
 function findClaude(env = process.env, opts = {}) {
   const platform = opts.platform ?? process.platform;
   const P = platform === "win32" ? win323 : posix3;
-  const home = opts.home ?? homedir4();
+  const home = opts.home ?? homedir5();
   const raw = (envGet(env, "CLAUDE_BIN", platform) ?? "").trim();
   const set = (/^"(.+)"$/s.exec(raw)?.[1] ?? /^'(.+)'$/s.exec(raw)?.[1] ?? raw).trim();
   if (set) {
@@ -12378,7 +12392,7 @@ function cliMode(mode, caps) {
 var SIGNED_OUT = /Failed to authenticate|OAuth (session|token)[^.]*(expired|invalid|revoked)|Invalid API key|authentication_error|Please run \/login|not logged in|Not authenticated/i;
 var AUTH_HINT = "Claude Code is not signed in on this computer (its login expired). In a terminal: run `claude`, type /login and sign in, then press Retry in One \u2014 the worker uses the same login.";
 var PLAN_FILE = /[\\/]\.claude[\\/]plans[\\/][^\\/]+\.md$/;
-function readPlanFile(path, home = homedir4()) {
+function readPlanFile(path, home = homedir5()) {
   try {
     const dir = realpathSync2(join4(home, ".claude", "plans"));
     const real = realpathSync2(path.startsWith("~/") || path.startsWith("~\\") ? join4(home, path.slice(2)) : path);
@@ -12469,7 +12483,7 @@ function mcpLaunchers(opts) {
   const env = opts.env ?? process.env;
   const platform = opts.platform ?? process.platform;
   const dir = envGet(env, "CLAUDE_CONFIG_DIR", platform)?.trim();
-  const home = opts.home ?? homedir4();
+  const home = opts.home ?? homedir5();
   const config2 = readJson(dir ? join4(dir, ".claude.json") : join4(home, ".claude.json"));
   const names = new Set(launchers(config2?.mcpServers, env));
   for (const servers of managedServers(opts.managed ?? managedDirs(process.platform, env))) for (const n of launchers(servers, env)) names.add(n);
@@ -13401,7 +13415,7 @@ import { tmpdir as tmpdir2 } from "node:os";
 import { join as join6 } from "node:path";
 
 // src/worker/scrub.ts
-import { homedir as homedir5, tmpdir } from "node:os";
+import { homedir as homedir6, tmpdir } from "node:os";
 import { realpathSync as realpathSync3 } from "node:fs";
 var escape2 = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 var tryReal = (f, p) => {
@@ -13514,7 +13528,7 @@ var Scrubber = class {
   rules = [];
   constructor(pairs = [], opts = {}) {
     const platform = opts.platform ?? process.platform;
-    const base = [...pairs, [opts.tmp ?? tmpdir(), "<tmp>"], [opts.home ?? homedir5(), "~"]];
+    const base = [...pairs, [opts.tmp ?? tmpdir(), "<tmp>"], [opts.home ?? homedir6(), "~"]];
     const list = [];
     const seen = /* @__PURE__ */ new Set();
     const push2 = (source, len, to) => {
@@ -13539,7 +13553,7 @@ var Scrubber = class {
     }
     const realpath2 = (p) => opts.realpath ? opts.realpath(p) : tryReal(realpathSync3.native, p);
     const env = opts.env ?? process.env;
-    const home = winNorm(opts.home ?? homedir5());
+    const home = winNorm(opts.home ?? homedir6());
     const homeKey = home.toLowerCase();
     const homeNames = winParts(home)?.names.length ?? 0;
     const shorts = shortHomes(home, env, realpath2);
@@ -14361,13 +14375,13 @@ var WorkerState = class {
 
 // src/worker/intake.ts
 import { createWriteStream, rmSync as rmSync2 } from "node:fs";
-import { homedir as homedir8, tmpdir as tmpdir3 } from "node:os";
+import { homedir as homedir9, tmpdir as tmpdir3 } from "node:os";
 import { join as join12 } from "node:path";
 import { randomBytes as randomBytes3 } from "node:crypto";
 
 // src/worker/clone.ts
 import { existsSync as existsSync6, mkdirSync as mkdirSync3, readdirSync as readdirSync3, writeFileSync as writeFileSync4 } from "node:fs";
-import { homedir as homedir6 } from "node:os";
+import { homedir as homedir7 } from "node:os";
 import { join as join8, posix as posix5, win32 as win325 } from "node:path";
 var HOST = /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/;
 var SEGMENT = /^[A-Za-z0-9_~][A-Za-z0-9_.~+-]{0,99}$/;
@@ -14421,7 +14435,7 @@ var unquote = (raw) => {
   const t = raw.trim();
   return (/^"(.*)"$/s.exec(t)?.[1] ?? /^'(.*)'$/s.exec(t)?.[1] ?? t).trim();
 };
-function cloneBase(raw, home = homedir6(), platform = process.platform, env = process.env) {
+function cloneBase(raw, home = homedir7(), platform = process.platform, env = process.env) {
   const text2 = unquote(typeof raw === "string" ? raw : "");
   if (!text2 || text2.length > 1e3 || /[\u0000-\u001f]/.test(text2)) return { error: "Type the folder the clones go into." };
   const P = platform === "win32" ? win325 : posix5;
@@ -14435,7 +14449,7 @@ function cloneBase(raw, home = homedir6(), platform = process.platform, env = pr
   if (synced === "cloudStorage") return { error: "That folder lies in a synced cloud folder (~/Library/CloudStorage \u2014 OneDrive, Google Drive, Dropbox \u2026) \u2014 git would wait for files from the cloud. Pick one that is not synced, like ~/one-repos." };
   return dir;
 }
-var defaultCloneDir = (home = homedir6()) => join8(home, "one-repos");
+var defaultCloneDir = (home = homedir7()) => join8(home, "one-repos");
 function cloneHint(stderr) {
   const s = stderr.replace(/\r/g, "\n");
   if (/Permission denied \(publickey/i.test(s)) return "The SSH key was refused: add your key to the SSH agent (ssh-add) and to your account on the host \u2014 or use the HTTPS address.";
@@ -14445,7 +14459,7 @@ function cloneHint(stderr) {
   if (/not found|does not exist|Repository not found|could not be found/i.test(s)) return "The host does not know this project, or your account cannot see it.";
   if (/Could not resolve host|unable to access|Connection (timed out|refused)/i.test(s)) return "The host could not be reached \u2014 check the address and the network.";
   const last = s.split("\n").map((l) => l.trim()).filter(Boolean).slice(-2).join(" ");
-  return last.slice(0, 300) || "git clone failed.";
+  return last || "git clone failed.";
 }
 var PROGRESS_LINE_MAX = 16 * 1024;
 async function cloneInto(target, base, onProgress, opts = {}) {
@@ -15532,7 +15546,7 @@ async function publishRepo(dir, t, run2, onLine = () => {
 
 // src/worker/scan.ts
 import { lstat, readFile, readdir, realpath } from "node:fs/promises";
-import { homedir as homedir7 } from "node:os";
+import { homedir as homedir8 } from "node:os";
 import { basename as basename2, join as join11, relative as relative2, sep as sep4 } from "node:path";
 var USUAL_PLACES = ["code", "projects", "dev", "src", "repos", "git", "GitHub", "Documents/GitHub", "Developer", "workspace", "Documents", "Desktop"];
 function usualPlaces(home, platform = process.platform, env = process.env) {
@@ -15576,7 +15590,7 @@ function timed(p, ms) {
   return Promise.race([p, late2]).finally(() => clearTimeout(timer));
 }
 async function findRepos(opts = {}) {
-  const home = opts.home ?? homedir7();
+  const home = opts.home ?? homedir8();
   const maxDepth = opts.maxDepth ?? 4;
   const maxRepos = opts.maxRepos ?? 300;
   const maxDirs = opts.maxDirs ?? 5e4;
@@ -15652,7 +15666,7 @@ async function findRepos(opts = {}) {
   return { paths, capped, blocked, dirs, ms: Date.now() - start };
 }
 var GIT_MS = 3e3;
-function shortPath(path, home = homedir7(), platform = process.platform) {
+function shortPath(path, home = homedir8(), platform = process.platform) {
   const h = home.replace(/[\\/]+$/, "");
   const fold = (s) => platform === "win32" || platform === "darwin" ? s.toLowerCase() : s;
   const p = fold(path);
@@ -15769,7 +15783,7 @@ function guessFrom(pkg, mk, present) {
   if (mk !== null && /^test\s*:(?!=)/m.test(mk)) return ["make", "test"];
   return null;
 }
-async function repoFacts(path, taken, home = homedir7()) {
+async function repoFacts(path, taken, home = homedir8()) {
   const name = suggestName2(path, taken);
   const out = async (args) => {
     const r = await git(path, args, GIT_MS);
@@ -15815,10 +15829,10 @@ async function repoFacts(path, taken, home = homedir7()) {
     analyze: await guessAnalyzeAsync(path)
   };
 }
-function bareRepo(path, taken, home = homedir7()) {
+function bareRepo(path, taken, home = homedir8()) {
   return { path, short: shortPath(path, home), name: suggestName2(path, taken), branch: null, base: "main", branches: ["main"], remote: null, host: null, dirty: null, lastCommit: null, test: null };
 }
-async function factsOf(paths, taken, home = homedir7(), parallel = 6, deadlineMs = Infinity, onRepo) {
+async function factsOf(paths, taken, home = homedir8(), parallel = 6, deadlineMs = Infinity, onRepo) {
   const out = new Array(paths.length);
   const until = Date.now() + deadlineMs;
   let next = 0;
@@ -15871,7 +15885,7 @@ var Intake = class {
     return taskId;
   }
   base() {
-    const base = cloneBase(this.host.config().cloneDir, homedir8());
+    const base = cloneBase(this.host.config().cloneDir, homedir9());
     if (typeof base !== "string") throw new Error(base.error);
     return base;
   }
@@ -15977,8 +15991,9 @@ var Intake = class {
     this.host.log(`import for task ${taskId}: ready as repo "${name}"${source === "zip" ? " \u2014 no git filter, diff or merge driver runs in it, Git LFS files stay plain files (.git/info/attributes)" : ""}`);
     this.host.event(taskId, { state: "done", source, label, line, percent: 100, repo: name, ...suggest ? { suggest } : {} });
   }
+  /** The failure goes on whole: the worker scrubs it, then cuts it (Worker.intakeScrub) — never a path in halves. */
   fail(taskId, source, label, e) {
-    const error2 = (e instanceof Error ? e.message : String(e)).slice(0, 600);
+    const error2 = e instanceof Error ? e.message : String(e);
     this.host.log(`import for task ${taskId} failed \u2014 ${error2}`);
     this.host.event(taskId, { state: "failed", source, label, line: "", percent: null, error: error2 });
   }
@@ -16863,6 +16878,7 @@ var BRANCHES_FIRST_MS = Number(process.env.ONE_WORKER_BRANCHES_MS) || 2e3;
 var lookAgainMs = () => Number(process.env.ONE_WORKER_LOOK_MS) || 5e3;
 var isObj6 = (v) => !!v && typeof v === "object" && !Array.isArray(v);
 var INTAKE_LINE_MAX = 200;
+var INTAKE_ERROR_MAX = 600;
 var clipLine = (s, n) => s.length > n ? `${s.slice(0, n - 1)}\u2026` : s;
 var INTAKE_EVENT_MS = 250;
 var str3 = (v, max2) => typeof v === "string" ? v.slice(0, max2) : "";
@@ -17309,7 +17325,7 @@ var Worker2 = class {
     const key = typeof base === "string" ? base : "";
     if (this.intakeScrubber?.key !== key) this.intakeScrubber = { key, sc: new Scrubber([[key || null, "<clones>"]]) };
     const sc = this.intakeScrubber.sc;
-    return { ...st, label: sc.text(st.label), line: clipLine(sc.text(st.line), INTAKE_LINE_MAX), ...st.error !== void 0 ? { error: sc.text(st.error) } : {} };
+    return { ...st, label: sc.text(st.label), line: clipLine(sc.text(st.line), INTAKE_LINE_MAX), ...st.error !== void 0 ? { error: clipLine(sc.text(st.error), INTAKE_ERROR_MAX) } : {} };
   }
   intakeScrubber = null;
   intakeEvent(taskId, raw) {
@@ -34408,7 +34424,7 @@ async function serveTaskMcp(version2) {
 
 // src/worker/setup.ts
 import { randomBytes as randomBytes6 } from "node:crypto";
-import { homedir as homedir9 } from "node:os";
+import { homedir as homedir10 } from "node:os";
 import { isAbsolute as isAbsolute3, join as join13, resolve as resolve6 } from "node:path";
 
 // src/worker/picker.ts
@@ -35475,7 +35491,7 @@ var SetupServer = class {
   projects = null;
   constructor(host) {
     this.host = host;
-    this.home = host.home ?? homedir9();
+    this.home = host.home ?? homedir10();
   }
   url() {
     return `http://127.0.0.1:${this.host.port}/setup#k=${this.token}`;
@@ -36158,7 +36174,7 @@ ${r.opened ? "(opened in your browser)" : "(open it in a browser on this compute
 `);
     if (r.opened || !process.stdin.isTTY) return;
   }
-  const home = homedir10();
+  const home = homedir11();
   process.stdout.write(`
 Looking for git repositories below ${home} \u2026
 `);

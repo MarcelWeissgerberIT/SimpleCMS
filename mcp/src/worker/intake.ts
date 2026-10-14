@@ -195,8 +195,9 @@ export class Intake {
     this.host.event(taskId, { state: 'done', source, label, line, percent: 100, repo: name, ...(suggest ? { suggest } : {}) })
   }
 
+  /** The failure goes on whole: the worker scrubs it, then cuts it (Worker.intakeScrub) — never a path in halves. */
   private fail(taskId: string, source: IntakeState['source'], label: string, e: unknown) {
-    const error = (e instanceof Error ? e.message : String(e)).slice(0, 600)
+    const error = e instanceof Error ? e.message : String(e)
     this.host.log(`import for task ${taskId} failed — ${error}`)
     this.host.event(taskId, { state: 'failed', source, label, line: '', percent: null, error })
   }

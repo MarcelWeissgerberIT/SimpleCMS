@@ -121,7 +121,10 @@ export function cloneBase(raw: unknown, home = homedir(), platform: NodeJS.Platf
 
 export const defaultCloneDir = (home = homedir()) => join(home, 'one-repos')
 
-/** What git said, made into one line a person can act on. */
+/**
+ * What git said, made into one line a person can act on. git's own last lines are never cut here: whoever sends them on
+ * scrubs them first, then cuts them (Worker.intakeScrub) — a path cut in two would pass the scrubber in halves.
+ */
 export function cloneHint(stderr: string): string {
   const s = stderr.replace(/\r/g, '\n')
   if (/Permission denied \(publickey/i.test(s)) return 'The SSH key was refused: add your key to the SSH agent (ssh-add) and to your account on the host — or use the HTTPS address.'
@@ -131,7 +134,7 @@ export function cloneHint(stderr: string): string {
   if (/not found|does not exist|Repository not found|could not be found/i.test(s)) return 'The host does not know this project, or your account cannot see it.'
   if (/Could not resolve host|unable to access|Connection (timed out|refused)/i.test(s)) return 'The host could not be reached — check the address and the network.'
   const last = s.split('\n').map((l) => l.trim()).filter(Boolean).slice(-2).join(' ')
-  return last.slice(0, 300) || 'git clone failed.'
+  return last || 'git clone failed.'
 }
 
 export interface CloneProgress {

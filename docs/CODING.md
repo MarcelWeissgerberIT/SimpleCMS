@@ -265,19 +265,23 @@ of its own: `$env:ONE_WORKER_PORT = '47400'; node …` / `set "ONE_WORKER_PORT=4
   `command` of the servers in `~/.claude.json`; your organisation's `managed-mcp.json` and the `managedMcpServers` of
   its `managed-settings.json` / `managed-settings.d` in `C:\Program Files\ClaudeCode` — also under `%ProgramFiles%`,
   and `%ProgramData%\ClaudeCode` of older Claude Code versions; every installed Claude Code plugin's servers that
-  start a program by its name — `installed_plugins.json` in `~/.claude/plugins` or `$CLAUDE_CODE_PLUGIN_CACHE_DIR`,
-  the plugin folders in `$CLAUDE_CODE_PLUGIN_DIRS`, each plugin's `.mcp.json` and `.claude-plugin/plugin.json`; with
-  the repo's own Claude Code settings on, also its project entry in `~/.claude.json` and the repo's `.mcp.json`), or
-  one of `git claude node npm npx pnpm yarn corepack bash sh ssh gh glab rg cmd powershell pwsh where python py uv uvx
-  bunx bun deno docker podman pipx java dotnet git-lfs pnpx python3 cygpath taskkill tasklist`. A file the worker
-  cannot read adds no name (`PATH` and that list stay); a plugin folder given only on Claude Code's command line (the
-  worker passes none) is not read. So `gradlew.bat`, `mvnw.cmd` or `build.cmd` pass unless such a program is on your
-  `PATH`. Right after an implement stage the worker looks again (a program Claude Code wrote there ends the stage the
-  same way). The log says `plantedProgram` and names the file (the worker's terminal names the folder). Remove or
-  rename it in the repository **and** on the task's branch — an existing worktree keeps the file: change it there (Git
-  → *Show folder* prints it in the worker's terminal), or commit and push the change on the base branch and press
-  *Update from base* (for a branch the worker made, *Discard worktree* works too once the base branch has the change:
-  the next run branches from it) — then **Retry**. Test and Analyze stages are never refused for it.
+  start a program by its name — `installed_plugins.json` in `~/.claude/plugins` or `$CLAUDE_CODE_PLUGIN_CACHE_DIR` and
+  in each folder of `$CLAUDE_CODE_PLUGIN_SEED_DIR`, the plugin folders in `$CLAUDE_CODE_PLUGIN_DIRS`, each plugin's
+  `.mcp.json` and `.claude-plugin/plugin.json`; with the repo's own Claude Code settings on, also its project entry in
+  `~/.claude.json` and the repo's `.mcp.json`), or one of `git claude node npm npx pnpm yarn corepack bash sh ssh gh
+  glab rg cmd powershell pwsh where python py uv uvx bunx bun deno docker podman pipx java dotnet git-lfs pnpx python3
+  cygpath taskkill tasklist reg rundll32 explorer` (Claude Code itself starts the last three by name). A file the worker
+  cannot read adds no name (`PATH` and that list stay). Not read: a plugin folder given only on Claude Code's command
+  line (the worker passes none), your organisation's settings in the Windows policy registry
+  (`HKLM\SOFTWARE\Policies\ClaudeCode` / `HKCU\SOFTWARE\Policies\ClaudeCode`, value `Settings`) and Claude Code's copy
+  of remotely managed settings (`<config dir>\remote-settings.json`) — a server set only there counts through `PATH` and
+  that list alone. So `gradlew.bat`, `mvnw.cmd` or `build.cmd` pass unless such a program is on your `PATH`. Right after
+  an implement stage the worker looks again (a program Claude Code wrote there ends the stage the same way). The log
+  says `plantedProgram` and names the file (the worker's terminal names the folder). Remove or rename it in the
+  repository **and** on the task's branch — an existing worktree keeps the file: change it there (Git → *Show folder*
+  prints it in the worker's terminal), or commit and push the change on the base branch and press *Update from base*
+  (for a branch the worker made, *Discard worktree* works too once the base branch has the change: the next run branches
+  from it) — then **Retry**. Test and Analyze stages are never refused for it.
 - **cmd.exe** — only the person's own `testCommand` / `analyzeCommand` (worker.json, the setup page) and the
   `ONE_WORKER_BROWSER` / `ONE_WORKER_PICKER` programs may run through `cmd.exe`, and only when they name a `.cmd` /
   `.bat` the reader cannot read (`.\gradlew.bat`, a script of your own) — escaped for cmd (`/d /v:off /s /c`, every
@@ -355,8 +359,8 @@ hygiene (Git for Windows and Node load theirs safely); the worker adds no DLL fo
 changes no search mode. On every OS the programs the worker starts by itself (git, Claude Code, gh, glab, the System32
 tools) get a `PATH` of absolute folders only: an empty, `.` or relative entry — on macOS / Linux the one way the system
 looks in the working folder — is left out for them (and so for what they start: Claude Code's own `git`, its MCP
-servers' launchers). Your own `testCommand` / `analyzeCommand` and `ONE_WORKER_BROWSER` / `ONE_WORKER_PICKER` keep
-`PATH` as it is.
+servers' launchers); on macOS / Linux a `~` or `~/…` entry becomes your home folder, as bash reads it. Your own
+`testCommand` / `analyzeCommand` and `ONE_WORKER_BROWSER` / `ONE_WORKER_PICKER` keep `PATH` as it is.
 
 ## Cloud worker
 
