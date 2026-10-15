@@ -47,6 +47,12 @@
   color: var(--signal-ink);
 }
 
+/* automations a newer build made: kept as they are, never shown or run here */
+.auto-newer {
+  margin: 0 6px 6px;
+  font-size: var(--text-xs);
+}
+
 .auto-rail__head--recipes {
   margin-top: 14px;
   padding-top: 12px;
@@ -247,6 +253,75 @@
 
 .auto-danger:hover {
   color: var(--c-red-text);
+}
+
+/* a locked database (plan §1.14): switching off and removing only — a placard in ink, never orange */
+.auto-lock {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin: 0 0 -12px;
+  padding: 8px 10px;
+  border: 1px solid var(--rule-strong);
+  border-left: 3px solid var(--ink);
+  border-radius: var(--radius-1);
+  background: var(--surface-2);
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+}
+
+.auto-lock svg {
+  flex: none;
+  align-self: center;
+  color: var(--ink);
+}
+
+.auto-lock .label {
+  color: var(--ink);
+}
+
+/* a locked database: what cannot change reads as fixed — no hover, no chevron, dashed fields; the off side of the
+   switch, the removals and "Send test" stay live */
+.auto-ed[data-locked] .auto-seg__btn:disabled,
+.auto-ed[data-locked] .auto-method button:disabled,
+.auto-ed[data-locked] .auto-pick:disabled,
+.auto-ed[data-locked] .auto-ed__name[readonly],
+.auto-ed[data-locked] .input[readonly] {
+  cursor: default;
+}
+
+.auto-ed[data-locked] .auto-seg__btn:disabled:not([aria-checked='true']),
+.auto-ed[data-locked] .auto-seg__btn:disabled:not([aria-checked='true']):hover {
+  background: var(--surface-2);
+  color: var(--ink-3);
+}
+
+.auto-ed[data-locked] .auto-pick:disabled,
+.auto-ed[data-locked] .auto-pick:disabled:hover {
+  border-style: dashed;
+  border-color: var(--rule-strong);
+  background: transparent;
+  color: var(--ink-2);
+}
+
+.auto-ed[data-locked] .auto-pick:disabled > svg {
+  visibility: hidden;
+}
+
+.auto-ed[data-locked] .input[readonly] {
+  border-style: dashed;
+  background: transparent;
+}
+
+.auto-ed .icon-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* the Patchbay's hint line under the head (On fuse F1 — show in the Patchbay) */
+.auto-ed .pb-hint {
+  margin-top: 8px;
 }
 
 .auto-problem {

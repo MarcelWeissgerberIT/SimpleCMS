@@ -430,8 +430,9 @@ test.describe('automation recipes × locked database', () => {
     await page.waitForTimeout(300)
     expect(await propNames()).toEqual(before)
     expect(await autos()).toBe(autosBefore)
-    // the other recipes stay available (automations are allowed on a locked database)
-    await expect(dialog.locator('.auto-recipe', { hasText: 'Notify when Status' })).toBeEnabled()
+    // B15 (plan §1.14, owner question Q2 — default): a locked database takes no new automation at all — every recipe
+    // waits until it is unlocked; switching off and removing stay allowed (tests/e2e/automations.spec.ts)
+    await expect(dialog.locator('.auto-recipe', { hasText: 'Notify when Status' })).toBeDisabled()
   })
 })
 

@@ -892,8 +892,19 @@ export type PatchWrite =
   | { w: 'integration'; profile: IntegrationProfile; replaces?: string }
 
 export type PatchPlan =
-  | { writes: PatchWrite[]; inverse: PatchWrite[]; preview: ModelInput; asks?: MsgRef[] }
-  | { refused: MsgRef; info?: true }
+  | {
+      writes: PatchWrite[]
+      inverse: PatchWrite[]
+      preview: ModelInput
+      /** asked once before the write (the "+F2" fuse it opens, a mirror's tool list, the last start, a webhook trigger) */
+      asks?: MsgRef[]
+      /** B15: said with the write, never asked ("<creator> must confirm the agent afterwards", "server removed …") */
+      notes?: MsgRef[]
+      /** B15: the open fuses the patch adds — path key + its label in the preview ("+F2") */
+      opens?: Array<{ key: string; label: string }>
+    }
+  /** `info`: nothing to do (already so, "Run <agent> now" is there already) · `open` (B15): where it is changed instead (↵) */
+  | { refused: MsgRef; info?: true; open?: OpenTarget }
 
 /* ================================================================== the page */
 

@@ -1,0 +1,59 @@
+/* The Patchbay's hint line where a setting lives (hint.ts FuseHintLine, plan §1.20): "On fuse F1 — show in the
+   Patchbay". A small fuse glyph in the signal colour (a fuse is one of the two things orange means); the words stay
+   ink. Tokens only. */
+.pb-hint {
+  margin: 0;
+  min-width: 0;
+}
+.pb-hint__link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 100%;
+  min-height: calc(24px * var(--text-scale));
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  text-decoration: none;
+  border-radius: var(--radius-1);
+}
+/* a fuse in miniature: a glass body ringed in the signal colour, its wire across (the one orange of the line) */
+.pb-hint__fuse {
+  position: relative;
+  flex: none;
+  width: calc(15px * var(--text-scale));
+  height: calc(8px * var(--text-scale));
+  border: 1.5px solid var(--signal);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+}
+.pb-hint__fuse::after {
+  content: '';
+  position: absolute;
+  left: 1px;
+  right: 1px;
+  top: 50%;
+  height: 1.5px;
+  margin-top: -0.75px;
+  background: var(--signal);
+}
+.pb-hint__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-decoration: underline;
+  text-decoration-color: var(--rule-strong);
+  text-underline-offset: 3px;
+}
+.pb-hint__link:hover .pb-hint__text {
+  color: var(--ink);
+  text-decoration-color: currentColor;
+}
+@media (forced-colors: active) {
+  .pb-hint__fuse {
+    border-color: CanvasText;
+  }
+  .pb-hint__fuse::after {
+    background: CanvasText;
+  }
+}
