@@ -17,6 +17,7 @@
  * PATCHBAY_STORE name the store for a caller that opens it itself.
  */
 import { createStore, del, delMany, get, keys, set, update, type UseStore } from 'idb-keyval'
+import type { HookInput, LazyCache, Place, RuntimeServerInput, ScriptScan } from './types'
 
 export const PATCHBAY_DB = 'one-patchbay'
 export const PATCHBAY_STORE = 'kv'
@@ -148,3 +149,62 @@ export function lsSet(key: string, value: string | null): void {
     /* this tab keeps it in memory, if anything */
   }
 }
+
+/* ------------------------------------------------------------------ the lazy cache (B4, §1.2 / §6 A16) */
+
+/** What the route's lazy readings hold (inputs.ts): `undefined` = not read yet (the cache keeps what it had). */
+export interface LazyReadingsForCache {
+  scans: Record<string, ScriptScan> | null
+  runtime: RuntimeServerInput[] | 'forbidden' | null
+  hooks: HookInput[] | 'forbidden' | null
+  inbox: string | null
+  inboxRead: boolean
+}
+
+const isPlace = (p: unknown): p is Place => !!p && typeof p === 'object'
+
+/** A place with ids only (anything else a scan might carry is left out). */
+function cleanPlace(p: Place): Place | null {
+  if ('db' in p && typeof p.db === 'string') return p.prop ? { db: p.db, prop: p.prop } : { db: p.db }
+  if ('page' in p && typeof p.page === 'string') return { page: p.page }
+  if ('inbox' in p) return { inbox: true }
+  if ('everything' in p) return { everything: true }
+  if ('external' in p && typeof p.external === 'string') return { external: p.external }
+  return null
+}
+
+/** A scan with ids and flags only. */
+function cleanScan(s: ScriptScan): ScriptScan {
+  const places = (list: unknown) => (Array.isArray(list) ? list.filter(isPlace).map(cleanPlace).filter((x): x is Place => !!x) : [])
+  const out: ScriptScan = { at: Number(s.at) || 0, reads: places(s.reads), writes: places(s.writes), effects: (Array.isArray(s.effects) ? s.effects : []).filter((e) => e === 'mail' || e === 'claude' || e === 'http' || e === 'trash'), byName: !!s.byName }
+  if (s.context) out.context = true
+  return out
+}
+
+/**
+ * The lazy cache from what the route read (§1.2): script scans (by id, at their version), the server-agent runtime's
+ * server names + hosts, team hooks' ids + target databases, the capture Inbox's id — ids and hosts only, never a title
+ * or a text. A reading not taken yet keeps the cache's own; 'forbidden' is kept as none (the device may not read it —
+ * the model names an unknown part either way).
+ */
+export function lazyCacheOf(r: LazyReadingsForCache, prev: LazyCache | null, now: number): LazyCache {
+  const scripts: Record<string, ScriptScan> = {}
+  if (r.scans) for (const [id, scan] of Object.entries(r.scans)) scripts[id] = cleanScan(scan)
+  const runtime = r.runtime === null ? (prev?.runtime ?? null) : r.runtime === 'forbidden' ? null : r.runtime.map((x) => ({ name: String(x.name), host: x.host ? String(x.host) : null }))
+  const hooks = r.hooks === null ? (prev?.hooks ?? null) : r.hooks === 'forbidden' ? null : r.hooks.map((h) => ({ id: String(h.id), db: h.db ? String(h.db) : null }))
+  return {
+    v: 1,
+    scripts: r.scans ? scripts : (prev?.scripts ?? {}),
+    hooks,
+    runtime,
+    inbox: r.inboxRead ? r.inbox : (prev?.inbox ?? null),
+    inboxRead: r.inboxRead || !!prev?.inboxRead,
+    at: now,
+  }
+}
+
+/** Is a stored value a lazy cache this build reads? */
+export const isLazyCache = (v: unknown): v is LazyCache => !!v && typeof v === 'object' && (v as LazyCache).v === 1 && !!(v as LazyCache).scripts && typeof (v as LazyCache).scripts === 'object'
+
+/** The same cache content (the time left out) — nothing to write. */
+export const sameLazyCache = (a: LazyCache | null, b: LazyCache | null): boolean => !!a && !!b && JSON.stringify({ ...a, at: 0 }) === JSON.stringify({ ...b, at: 0 })

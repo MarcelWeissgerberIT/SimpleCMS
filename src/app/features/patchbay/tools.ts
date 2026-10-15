@@ -17,6 +17,7 @@
 import { isReadTool, isWriteNamed, toolWords } from '../agents/mcpTools'
 import { hostOf, matchMiss } from '../../store/integrations'
 import type { IntegrationProfile } from '../../store/types'
+import type { ModelInput, ModuleRef } from './types'
 
 /** Words of a READ tool's name that may carry data out through its arguments (§1.5). */
 const LEAKY = new Set(['fetch', 'url', 'http', 'web', 'browse', 'search'])
@@ -151,4 +152,28 @@ export function toolUse(groups: ToolGroups, allow: readonly string[] | undefined
 export function runtimeTools(rt: { name: string; host: string | null }, local: ReadonlyArray<{ name: string; url: string; tools?: string[] }>): string[] | null {
   const own = (rt.host ? local.find((s) => hostOf(s.url) === rt.host) : undefined) ?? local.find((s) => s.name === rt.name)
   return own?.tools?.length ? [...own.tools] : null
+}
+
+/**
+ * A server module's tool groups as the model drew them (B4: the fuses and the signature read them again) — this
+ * device's server by id, or a runtime server by name (its tools as this browser knows them, its OUT tools from this
+ * device's twin). `host` = the server's host, `declaredBy` = the profiles describing it with `reads`.
+ */
+export function serverToolGroups(input: ModelInput, ref: Extract<ModuleRef, { kind: 'server' }>): { groups: ToolGroups; host: string | null; declaredBy: string[]; profiles: DeclaredReads[] } {
+  const profiles = input.profiles.map((p) => p.profile)
+  if (!ref.runtime && ref.id) {
+    const s = input.servers.find((x) => x.server.id === ref.id)
+    if (s) {
+      const declared = declaringProfiles(profiles, { name: s.server.name, url: s.server.url, tools: s.server.tools })
+      return { groups: toolGroups(s.server.tools, s.out, declared), host: hostOf(s.server.url) || null, declaredBy: declared.map((d) => d.id), profiles: declared }
+    }
+  }
+  const rt = Array.isArray(input.runtime) ? input.runtime : (input.lazy?.runtime ?? [])
+  const host = rt.find((r) => r.name === ref.name)?.host ?? null
+  const local = input.servers.map((s) => ({ name: s.server.name, url: s.server.url, tools: s.server.tools }))
+  const tools = runtimeTools({ name: ref.name, host }, local)
+  const twin = input.servers.find((s) => s.server.name === ref.name)
+  const url = twin?.server.url ?? (host ? `https://${host}/` : '')
+  const declared = declaringProfiles(profiles, { name: ref.name, url, tools: tools ?? undefined })
+  return { groups: toolGroups(tools, twin?.out ?? [], declared), host, declaredBy: declared.map((d) => d.id), profiles: declared }
 }

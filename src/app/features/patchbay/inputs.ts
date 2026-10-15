@@ -10,6 +10,9 @@
  *    Inbox (one id-prefix lookup), the button index (idle slices, then kept up to date per page). Each reading that
  *    arrives bumps `onInputs` listeners.
  *  - onInputs(fn): hear a lazy reading arrive (the state slice rebuilds then).
+ * The lazy cache (B4): every fuse-relevant reading that arrives (scans, the runtime, hooks, the Inbox lookup) is written
+ * to IndexedDB `one-patchbay` `<scope>|lazy` in idle (ids and hosts only, cache.ts lazyCacheOf) — the LED and the
+ * Preflight lamp count from the eager inputs plus this cache.
  * The row index tells the memo when the referenced pages may have moved (`structure`, or a changed id it read): typing
  * in a page reads no page facts again and rebuilds nothing.
  */
@@ -36,7 +39,7 @@ import { hostOf } from '../../store/integrations'
 import { createInputMemo, digest, type DeviceFacts, type InputReaders, type InputSource, type LazyReadings } from './source'
 import { ButtonIndex } from './buttons'
 import { ScanCache, type ScanEngine } from './scripts'
-import { lazyKey, readCache } from './cache'
+import { isLazyCache, lazyCacheOf, lazyKey, readCache, sameLazyCache, writeCache } from './cache'
 import { patchbayScope } from './scope'
 import type { ID } from '../../store/types'
 import type { LazyCache, MailInput, ModelInput, PipelineInput } from './types'
@@ -125,7 +128,34 @@ let lazy: LazyReadings = { buttons: null, scans: null, runtime: null, hooks: nul
 const listeners = new Set<() => void>()
 const changed = (patch: Partial<LazyReadings>) => {
   lazy = { ...lazy, ...patch }
+  // a fuse-relevant reading arrived: keep it in the lazy cache (B4) — the LED and Preflight count from it
+  if ('scans' in patch || 'runtime' in patch || 'hooks' in patch || 'inboxRead' in patch) cacheSoon()
   for (const fn of [...listeners]) fn()
+}
+
+/* ------------------------------------------------------------------ the lazy cache (B4, §1.2 / §6 A16) */
+
+/** the cache this tab wrote last (the next write starts from it; null after a reset) */
+let written: LazyCache | null = null
+let cachePending = false
+
+/** Write the lazy cache from the readings, in idle, once per burst (ids and hosts only — cache.ts lazyCacheOf). */
+function cacheSoon(): void {
+  if (cachePending) return
+  cachePending = true
+  idle(() => {
+    cachePending = false
+    void writeLazyCache()
+  })
+}
+
+async function writeLazyCache(): Promise<void> {
+  const scope = patchbayScope()
+  if (!scope) return
+  const base = written ?? lazy.cache
+  const next = lazyCacheOf({ scans: lazy.scans, runtime: lazy.runtime, hooks: lazy.hooks, inbox: lazy.inbox, inboxRead: !!lazy.inboxRead }, base, Date.now())
+  if (sameLazyCache(next, base)) return
+  if (await writeCache(lazyKey(scope), next)) written = next
 }
 
 /** Hear a lazy reading arrive. */
@@ -135,8 +165,6 @@ export function onInputs(fn: () => void): () => void {
     listeners.delete(fn)
   }
 }
-
-const isLazyCache = (v: unknown): v is LazyCache => !!v && typeof v === 'object' && (v as LazyCache).v === 1 && typeof (v as LazyCache).scripts === 'object'
 
 /** Read the lazy cache of this scope (ids and hosts only) — the LED and Preflight count from it (B8). */
 export async function loadLazyCache(): Promise<LazyCache | null> {
@@ -191,7 +219,7 @@ function scanScripts(): void {
 function readInbox(): void {
   const pages = useWorkspace.getState().pages
   const inbox = findInboxIn(pages, (id) => isEffectivelyTrashed(pages, id))
-  if (inbox !== lazy.inbox) changed({ inbox })
+  if (inbox !== lazy.inbox || !lazy.inboxRead) changed({ inbox, inboxRead: true })
 }
 
 function readRuntime(): void {
@@ -267,6 +295,7 @@ export function resetInputs(): void {
   memo.reset()
   pagesMoved = true
   lazy = { buttons: null, scans: null, runtime: null, hooks: null, inbox: null, cache: null }
+  written = null
   opened = false
   for (const stop of openSubs.splice(0)) stop()
   unsubscribeRows?.()

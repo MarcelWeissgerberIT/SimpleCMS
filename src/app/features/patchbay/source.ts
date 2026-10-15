@@ -87,6 +87,8 @@ export interface LazyReadings {
   runtime: RuntimeServerInput[] | 'forbidden' | null
   hooks: HookInput[] | 'forbidden' | null
   inbox: ID | null
+  /** B4: the Inbox lookup ran (`inbox` null then means "none") */
+  inboxRead?: boolean
   cache: LazyCache | null
 }
 
@@ -396,6 +398,7 @@ export function toModelInput(src: InputSource, read: InputReaders): BuiltInput {
     worker: device.worker,
     sync: device.sync,
     inbox,
+    inboxRead: !!(inbox || lazy.inboxRead || lazy.cache?.inboxRead),
     bridge: device.bridge,
     signoffs: sanitizeFuseSignoffs(ws.fuseSignoffs),
     buttons: lazy.buttons,
@@ -411,7 +414,7 @@ export function toModelInput(src: InputSource, read: InputReaders): BuiltInput {
 function refsOf(src: InputSource): unknown[] {
   const { ws, lazy } = src
   const st = ws.settings
-  return [ws.agents, ws.scripts, ws.integrations, ws.kit, ws.ai, ws.governor, ws.fuseSignoffs, st.mcpServers, st.mail, st.memory, st.ai, lazy.buttons, lazy.scans, lazy.runtime, lazy.hooks, lazy.inbox, lazy.cache]
+  return [ws.agents, ws.scripts, ws.integrations, ws.kit, ws.ai, ws.governor, ws.fuseSignoffs, st.mcpServers, st.mail, st.memory, st.ai, lazy.buttons, lazy.scans, lazy.runtime, lazy.hooks, lazy.inbox, !!lazy.inboxRead, lazy.cache]
 }
 
 const deviceSig = (d: DeviceFacts) => stable({ ...d, testing: [...d.testing].sort(), refused: [...d.refused].sort() })

@@ -32,6 +32,7 @@
 import { keyPart, moduleKey, scheduleKey } from './ref'
 import { honoursHandOnly, placeKey, reaches, startable, type WriterKind } from './rules'
 import { withChains } from './chains'
+import { withFuses, type FusedModel } from './fuses'
 import { declaringProfiles, toolGroups, toolUse, runtimeTools, type ToolGroups } from './tools'
 import type { AgentTrigger, ID, IntegrationFeature } from '../../store/types'
 import type {
@@ -378,7 +379,7 @@ function attach(c: Ctx, proc: Module, server: Module, g: ToolGroups, allow: read
   if (use.write === null || use.write.length) edge(c, 'out', jack(c, server, 'out', 'write'), tools, { can: true, ...(use.failClosed ? { failClosed: true } : {}) })
 }
 
-/** This device's servers with scope 'all' (autofill, mail organise and every other non-free request get them). */
+/** This device's servers with scope 'all' (autofill and every other non-free request get them — mail organise never). */
 function attachAllServers(c: Ctx, proc: Module): void {
   for (const s of c.input.servers) {
     if (!s.server.enabled || s.server.scope !== 'all') continue
@@ -614,12 +615,14 @@ function automations(c: Ctx, folded: Map<ID, ModuleKey>): void {
 }
 
 /** Script modules: their writes (the scan; `context` = their callers' places) and effects. */
-function scripts(c: Ctx, folded: Map<ID, ModuleKey>, uses: Map<ID, { automations: ModuleKey[]; other: number }>): void {
+function scripts(c: Ctx, folded: Map<ID, ModuleKey>): void {
   for (const s of c.input.scripts) {
     if (folded.has(s.script.id)) continue
     const m = mod(c, { kind: 'script', id: s.script.id }, { to: 'route', route: { name: 'scripts', id: s.script.id } })
     const scan = scanOf(c, s.script.id)
-    if (!scan && uses.has(s.script.id)) unknownPart(c, 'lazy', m.key)
+    // B4: a script not scanned here (nor in the lazy cache at its version) may copy content from outside anywhere —
+    // used by something or run by hand from its page: an unknown part, never "nothing" (§1.21)
+    if (!scan) unknownPart(c, 'lazy', m.key)
     if (!scan) continue
     for (const p of scan.reads) {
       if ('page' in p && isLiveDb(c, p.page)) m.nets.push({ place: { db: p.page } })
@@ -647,7 +650,9 @@ function autofill(c: Ctx): void {
     for (const p of db.properties) {
       if (!p.autofill?.auto) continue
       const m = mod(c, { kind: 'autofill', db: db.id, prop: p.id }, { to: 'autofill', db: db.id, prop: p.id })
-      tag(m, p.autofill.skipReview ? 'direct' : 'stage', 'thisDevice')
+      // B4: an automatic fill writes straight into the cell whatever "Apply without review" says (watch.ts writes every
+      // answer) — that switch is about runs a person starts
+      tag(m, 'direct', 'thisDevice')
       m.nets.push({ place: { db: db.id } })
       writeDb(c, { m, kind: 'autofill' }, 'writes', db.id, p.id, {})
       attachAllServers(c, m)
@@ -662,7 +667,7 @@ function organise(c: Ctx): void {
   m.nets.push({ place: { db: mail.databaseId } })
   if (isLiveDb(c, mail.relationDb)) m.nets.push({ place: { db: mail.relationDb } })
   for (const prop of mail.organiseProps ?? []) writeDb(c, { m, kind: 'organise' }, 'writes', mail.databaseId, prop, {})
-  attachAllServers(c, m)
+  // B4: no MCP server ever joins an organise request (mail/organise.ts `mcp: false`)
 }
 
 function kits(c: Ctx): void {
@@ -822,6 +827,13 @@ function sync(c: Ctx): void {
 /** Clippings: web pages shared or clipped into the capture Inbox — from outside. */
 function clippings(c: Ctx): void {
   const inbox = c.input.inbox ?? c.input.lazy?.inbox ?? null
+  // B4: the Inbox lookup never ran here (no reading, no cache): Clippings may exist — an unknown part where something
+  // could read them (an everything scope, a scope page, the bridge), never "nothing" (§1.21)
+  if (!inbox && !c.input.inboxRead && !c.input.lazy?.inboxRead) {
+    const reader = c.input.agents.some((a) => a.agent.scope.everything || a.agent.scope.pages.length) || (c.input.bridge.enabled && c.input.bridge.mode !== 'read')
+    if (reader) unknownPart(c, 'lazy', moduleKey({ kind: 'clippings', inbox: '' }))
+    return
+  }
   if (!inbox || !isLivePage(c, inbox)) return
   const m = mod(c, { kind: 'clippings', inbox }, pageOpen(inbox))
   tag(m, 'outside')
@@ -955,8 +967,8 @@ function finish(c: Ctx): Model {
   }
 }
 
-/** The rack of a model input with its chains (pure, deterministic). */
-export function buildModel(input: ModelInput): Model {
+/** The rack of a model input with its chains and fuses (pure, deterministic). */
+export function buildModel(input: ModelInput): FusedModel {
   const c: Ctx = {
     input,
     mods: new Map(),
@@ -1003,7 +1015,7 @@ export function buildModel(input: ModelInput): Model {
       if (au.enabled) for (const act of au.actions) if (act.type === 'run_script' && act.scriptId && !folded.has(act.scriptId)) calls.push({ script: act.scriptId, place: { db: db.id, prop: '*' }, kind: 'autoScript' })
   buttons(c, calls)
   commands(c, calls)
-  scripts(c, folded, uses)
+  scripts(c, folded)
   scriptContexts(c, calls)
   autofill(c)
   organise(c)
@@ -1017,6 +1029,7 @@ export function buildModel(input: ModelInput): Model {
 
   listenerSide(c)
   agentClocks(c)
-  // the chains behind the rack: full reachability, taint, gates, loops (chains.ts, B3)
-  return withChains(finish(c), input)
+  // the chains behind the rack: full reachability, taint, gates, loops (chains.ts, B3); the fuses, near misses and
+  // unknown parts they make, with each fuse's signature and allowance (fuses.ts, sig.ts, B4)
+  return withFuses(withChains(finish(c), input), input)
 }

@@ -365,6 +365,9 @@ export function readRoots(ix: ReachIndex, m: Module): ReadRoots {
     }
     case 'organise': {
       add(r.db, 'row')
+      // B4: one request sorts a batch of mails (organise.ts organiseBatch) — the other mails of the batch go along:
+      // "other rows of Mails" are in reach (the mail database read as a whole, §6 A6)
+      add(r.db, 'scope')
       add(ix.input.mail?.relationDb, 'related')
       return { ...NONE, places, servers }
     }

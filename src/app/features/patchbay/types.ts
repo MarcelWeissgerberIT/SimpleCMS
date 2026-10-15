@@ -347,6 +347,14 @@ export interface FuseKey {
   note?: MsgRef
   /** this device only — other devices keep the path */
   device?: true
+  /** B4: the key's own words (vars: ids — „{prop}“ by hand only, {server}: no longer for autofill) */
+  label?: MsgRef
+  /** B4: the mono "what it changes" line ("Inbox helper: Apply directly → Proposals for review") */
+  what?: MsgRef
+  /** B4: the team note under key 1 / 2b ("<creator> must confirm the agent afterwards") */
+  team?: MsgRef
+  /** B4: asked before the write (a mirror agent's recipe tool list changes) */
+  asks?: MsgRef
 }
 
 export interface Fuse {
@@ -729,6 +737,8 @@ export interface ModelInput {
   sync: SyncInput
   /** the capture Inbox (lib/capture.ts), looked up on open and cached; null = none / not known */
   inbox: ID | null
+  /** B4: the Inbox lookup ran here or the lazy cache holds its answer (else Clippings are an unknown part where read) */
+  inboxRead?: boolean
   bridge: { enabled: boolean; mode: 'ask' | 'apply' | 'read' }
   signoffs: Record<string, SignoffEntry>
   /** lazy readings (null: not read yet): the button index, team hooks */
@@ -753,6 +763,8 @@ export interface LazyCache {
   /** the server-agent runtime's servers */
   runtime: RuntimeServerInput[] | null
   inbox: ID | null
+  /** B4: the Inbox lookup ran (`inbox` null then means "none", not "not read") */
+  inboxRead?: boolean
   at: number
 }
 

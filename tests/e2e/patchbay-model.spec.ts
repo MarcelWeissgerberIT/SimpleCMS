@@ -506,8 +506,9 @@ test.describe('B2 · the rack of mock 1 — model.ts', () => {
     // the flow behind the drawing (chains.ts walks it): Inbox-Helfer may write everything; two start on a new mail
     expect(m.flow?.writes[helper]?.map((x) => x.place)).toContainEqual({ everything: true })
     expect(m.flow?.listens[`${ids.mails}:+row`]?.map((l) => l.module)).toEqual([helper, toContact])
-    // nothing unknown, no fuse yet (B4); the chains behind it are B3's (patchbay-chains.spec)
-    expect([m.unknown, m.fuses]).toEqual([[], []])
+    // nothing unknown; the chains behind it are B3's (patchbay-chains.spec), the one fuse B4's (patchbay-fuses.spec)
+    expect(m.unknown).toEqual([])
+    expect(m.fuses.map((f) => [f.label, f.at])).toEqual([['F1', `${toChat}.out>outbound:webhook:chat.example:POST.out`]])
     expect(m.chains.map((c) => c.exit?.module)).toEqual(['outbound:webhook:chat.example:POST', 'outbound:git:-:pr'])
   })
 

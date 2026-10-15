@@ -15,7 +15,7 @@
  */
 import type { Page as PwPage } from '@playwright/test'
 import type { Automation, CustomAgent, Database, DbCommand, ID, IntegrationProfile, Kit, McpServerConfig, OneScript, Page, PipelineStage, PropertyDef, Settings, View } from '../../src/app/store/types'
-import type { ButtonInput, DatabaseInput, MailInput, Model, ModelInput, ScriptScan } from '../../src/app/features/patchbay/types'
+import type { ButtonInput, DatabaseInput, MailInput, ModelInput, ScriptScan } from '../../src/app/features/patchbay/types'
 import { createInputMemo, toModelInput, type DeviceFacts, type InputReaders, type InputSource, type InputWorkspace, type LazyReadings } from '../../src/app/features/patchbay/source'
 import { buildModel } from '../../src/app/features/patchbay/model'
 import { scanScript, type ScanEngine } from '../../src/app/features/patchbay/scripts'
@@ -26,6 +26,7 @@ import { valuePropsOf } from '../../src/app/features/kit/valueProps'
 import { nextRun } from '../../src/app/features/templates/schedule'
 import { parse, walk } from '../../src/app/features/script/lang'
 import { needsCheck } from '../../src/app/features/script/runtime/check'
+import { findInboxIn } from '../../src/app/lib/capture'
 
 /* ------------------------------------------------------------------ worlds */
 
@@ -94,6 +95,12 @@ export function sourceOf(world: PbWorld, now = NOW): InputSource {
     lazy.scans = scans
   }
   if (!lazy.buttons) lazy.buttons = Object.values(world.ws.pages).flatMap((p): ButtonInput[] => (p.content && !p.trashed ? buttonsIn(p.id, p.content) : []))
+  // the Inbox lookup the route makes on open (B4: unless the world says it never ran — `inboxRead: false`)
+  if (lazy.inboxRead === undefined) {
+    const pages = world.ws.pages
+    lazy.inbox ??= findInboxIn(pages, (id) => !!pages[id]?.trashed)
+    lazy.inboxRead = true
+  }
   return { ws: world.ws, device: world.device, lazy, now }
 }
 
@@ -101,7 +108,7 @@ export function sourceOf(world: PbWorld, now = NOW): InputSource {
 export const inputOf = (world: PbWorld, now = NOW): ModelInput => toModelInput(sourceOf(world, now), nodeReaders(world)).input
 
 /** The rack of a world. */
-export const modelOf = (world: PbWorld, now = NOW): Model => buildModel(inputOf(world, now))
+export const modelOf = (world: PbWorld, now = NOW): ReturnType<typeof buildModel> => buildModel(inputOf(world, now))
 
 /** A memo over a world's readers (the wiring-signature specs). */
 export const memoOf = (world: PbWorld) => createInputMemo(nodeReaders(world))
