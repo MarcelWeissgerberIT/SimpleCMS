@@ -7,10 +7,10 @@
  * (behind the count and a forced line break, so always on a hidden line) and the "+n" key (`.db-more`) names them
  * in its title.
  *
- * Cheap by design: one ResizeObserver for every row on the page and the chips in it, a fit only on mount, a new
- * render of the row, a size change of the row or a change of a chip's width (a file name read later, the web
- * font arriving, the text size or the look's font switched — none of which renders the row again or changes its
- * size). Each batch = one pass of reads (no style queries — offset / box sizes only), then one of writes, and a
+ * Cheap by design: one ResizeObserver for every row on the page and the chips (and the key) in it, a fit only on
+ * mount, a new render of the row, a size change of the row or a change of a chip's width (a file name read later,
+ * a web font arriving, the text size or the look's font switched — none of which renders the row again or changes
+ * its size). Each batch = one pass of reads (no style queries — offset / box sizes only), then one of writes, and a
  * write only where the plan changed. Rows of one chip are never watched (CSS alone keeps them whole).
  */
 import { t } from '../../i18n'
@@ -32,7 +32,7 @@ interface Plan {
 let observer: ResizeObserver | null = null
 /** The size each row was last fitted at: the observer's first report of a row a render just fitted is skipped. */
 const fittedAt = new WeakMap<HTMLElement, string>()
-/** The chips of each watched row that the observer watches too, each one's row, and its width at the last fit. */
+/** The chips (and the key) of each watched row that the observer watches too, each one's row, and its width at the last fit. */
 const rowChips = new WeakMap<HTMLElement, Set<HTMLElement>>()
 const chipRow = new WeakMap<Element, HTMLElement>()
 const chipWidth = new WeakMap<Element, number>()
@@ -79,7 +79,7 @@ export function watchFit(el: HTMLElement): () => void {
   }
 }
 
-/** Watch the row's chips as they are now (after a fit): new ones join, gone ones leave. Writes nothing to the DOM. */
+/** Watch the row's chips and key as they are now (after a fit): new ones join, gone ones leave. Writes nothing to the DOM. */
 function track(el: HTMLElement, chips: HTMLElement[]): void {
   if (!observer) return
   let set = rowChips.get(el)
@@ -119,7 +119,7 @@ function flush(): void {
     const p = plans[i]
     if (!p) return
     apply(el, p)
-    track(el, p.chips)
+    track(el, p.watched)
   })
 }
 
@@ -144,24 +144,25 @@ function natural(chip: HTMLElement): { w: number; fixed: number } {
 const sizeKey = (w: number, h: number) => `${Math.round(w)}x${Math.round(h)}`
 
 /** Reads only. */
-function plan(el: HTMLElement): (Plan & { chips: HTMLElement[] }) | null {
+function plan(el: HTMLElement): (Plan & { watched: HTMLElement[] }) | null {
   fittedAt.set(el, sizeKey(el.offsetWidth, el.offsetHeight))
   const { chips, more } = chipsOf(el)
   const n = chips.length
-  // what the observer compares a chip's later reports with
-  for (const c of chips) chipWidth.set(c, c.getBoundingClientRect().width)
-  if (!more || n < 2) return { k: n, squeeze: 0, chips }
+  // what the observer compares later reports with: each chip, and the key (its mono font may arrive on its own)
+  const watched = more ? [...chips, more] : chips
+  for (const c of watched) chipWidth.set(c, c.getBoundingClientRect().width)
+  if (!more || n < 2) return { k: n, squeeze: 0, watched }
   // nothing below the clip (wrap mode, or every chip fits): all show, no count. Read from the chips, never the
   // row's scroll height — the unseen key (one line high, out of flow) is no chip waiting below
   const clip = el.clientHeight
-  if (chips.every((c) => c.offsetTop < clip)) return { k: n, squeeze: 0, chips }
+  if (chips.every((c) => c.offsetTop < clip)) return { k: n, squeeze: 0, watched }
   const room = el.clientWidth
   const widths = chips.map(natural)
   // whole-pixel reads: a little slack so a chip that "just fits" never drops behind the count
   const slack = (i: number) => 1 + i * 0.5
   let total = 0
   for (let i = 0; i < n; i++) total += widths[i].w + (i ? GAP : 0)
-  if (total <= room - slack(n)) return { k: n, squeeze: 0, chips }
+  if (total <= room - slack(n)) return { k: n, squeeze: 0, watched }
   const count = more.offsetWidth
   let used = 0
   let k = 0
@@ -171,11 +172,11 @@ function plan(el: HTMLElement): (Plan & { chips: HTMLElement[] }) | null {
     used = next
     k = i + 1
   }
-  if (k) return { k, squeeze: 0, chips }
+  if (k) return { k, squeeze: 0, watched }
   // the first chip alone is wider than the room beside the count: it shrinks ("…" in its own border) —
   // unless not even its icon would fit, then the count stands alone
   const squeeze = GAP + count + 1
-  return widths[0].fixed + 12 + squeeze <= room ? { k: 1, squeeze, chips } : { k: 0, squeeze: 0, chips }
+  return widths[0].fixed + 12 + squeeze <= room ? { k: 1, squeeze, watched } : { k: 0, squeeze: 0, watched }
 }
 
 /** Writes only — and only what changed. */
