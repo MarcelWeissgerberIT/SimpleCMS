@@ -87,8 +87,39 @@ export function noteClosed(id: string, row: string): void {
   usePbUI.setState({ closed: cur.includes(id) ? cur : [...cur, id], fuse: row })
 }
 
-/** Say something politely (the page's live region). */
-export const announce = (text: string): void => usePbUI.setState((s) => ({ say: { text, n: s.say.n + 1 } }))
+const say = (text: string): void => usePbUI.setState((s) => ({ say: { text, n: s.say.n + 1 } }))
+
+/**
+ * B17: how long a run's words wait after the page said something for the person (a selection, a fuse, a key, a link
+ * landing) — a run never cuts them off in the live region. The newest run's words wait; older waiting ones are dropped
+ * (the live core already throttles runs).
+ */
+export const RUN_SAY_HOLD_MS = 2000
+let personSaidAt = -Infinity
+let heldRun: number | null = null
+const clock = (): number => (typeof performance !== 'undefined' ? performance.now() : Date.now())
+
+const dropHeldRun = (): void => {
+  if (heldRun !== null) clearTimeout(heldRun)
+  heldRun = null
+}
+
+/** Say something politely (the page's live region) — what the person did or asked for. */
+export const announce = (text: string): void => {
+  personSaidAt = clock()
+  say(text)
+}
+
+/** Say a run's words politely — after the person's own words had their time (RUN_SAY_HOLD_MS). */
+export function announceRun(text: string): void {
+  dropHeldRun()
+  const wait = personSaidAt + RUN_SAY_HOLD_MS - clock()
+  if (wait <= 0) return say(text)
+  heldRun = window.setTimeout(() => {
+    heldRun = null
+    announceRun(text)
+  }, wait)
+}
 
 /**
  * The fuse the rack points at: the one the person selected while it is still on the rack (open or allowed), else the
@@ -102,5 +133,7 @@ export function activeFuse(selected: string | null, all: readonly { key: string 
 /** The page closed: hover, selection, lit flags, fuse, opened folds, the cursor go (the filter stays for this tab). */
 export const resetPbUI = (): void => {
   tightKeys.clear()
+  dropHeldRun()
+  personSaidAt = -Infinity
   usePbUI.setState({ ...FRESH })
 }

@@ -42,6 +42,9 @@ async function openRack(page: Page, w: PbWorld = mock1(), hash = '#/patchbay') {
   await seedPatchbay(page, w)
   await page.evaluate((h) => (window.location.hash = h), hash)
   await expect(page.getByTestId('patchbay-page')).toBeVisible()
+  // B17: the page shows as soon as its chunk is there — the button index (idle slices) may add a module after the first
+  // paint („Wochenbericht“'s button and its cable): the rack's geometry is read once it has
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __onePatchbay: { buttons: () => { ready: boolean } } }).__onePatchbay.buttons().ready)).toBe(true)
 }
 
 /** The model the page built (the `?e2e` seam of state.ts). */
@@ -612,8 +615,6 @@ test.describe('B7 · keyboard, picker, screen readers', () => {
 
   test('"Picture · zoom": the viewer opens as a Schematic; Download SVG gives a file without var( / color-mix( / oklch(', async ({ page }) => {
     await openRack(page)
-    // the whole rack: the button index (idle slices) has read the pages — „Wochenbericht“'s button and its cable
-    await expect.poll(() => page.evaluate(() => (window as unknown as { __onePatchbay: { buttons: () => { ready: boolean } } }).__onePatchbay.buttons().ready)).toBe(true)
     const key = page.getByTestId('pb-picture')
     await expect(key).toHaveAttribute('title', 'Static picture with minimap and SVG download')
     await key.click()

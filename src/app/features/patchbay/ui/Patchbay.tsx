@@ -71,7 +71,7 @@ import { markSeen } from './seen'
 import type { RackCtx } from './RackContext'
 import { Readout } from './Readout'
 import { Plain } from './Plain'
-import { announce, openFold, resetPbUI, selectFuse, selectModule, usePbUI } from './store'
+import { announce, announceRun, openFold, resetPbUI, selectFuse, selectModule, usePbUI } from './store'
 import { Strands } from './Strands'
 import { fuseMarks, useWords, type Words, type WordsExtra } from './words'
 import { useSetupLamps } from '../setup/facts'
@@ -305,7 +305,8 @@ export default function Patchbay(props: PatchbayRouteProps) {
     if (!said || said.id === saidId.current || !model || !words) return
     saidId.current = said.id
     const m = model.modules.find((x) => x.key === said.module)
-    if (m) announce(announcementText(said, words.name(m), t))
+    // B17: after the person's own words had their time (a deep link's "… selected" is never cut off)
+    if (m) announceRun(announcementText(said, words.name(m), t))
   }, [said, model, words, t])
 
   const lit = useMemo(() => {

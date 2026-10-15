@@ -29,7 +29,7 @@ import { Jack } from './Jack'
 import { edgesAt } from './lit'
 import { canOpen, openModule } from './open'
 import { useRack } from './RackContext'
-import { benchPainted, useBenchPainted } from './paintMark'
+import { benchPainted, onBenchPainted, useBenchPainted } from './paintMark'
 import { lampNo } from '../setup/keys'
 import { announce, noteTight, selectModule, setCursor, setHover, usePbUI } from './store'
 import { hasLiveWindow, ledOf, LiveLed, LiveWindow, useModuleLive } from './LiveWin'
@@ -112,13 +112,23 @@ function Knob({ v, ticks, label, value, onOpen, title }: { v: number; ticks: num
   )
 }
 
+/** B17: the module a mouse entered before the bench was painted — it lights once the bench is painted (none at a visit's end). */
+let enteredEarly: ModuleT['key'] | null = null
+onBenchPainted((on) => {
+  const key = enteredEarly
+  enteredEarly = null
+  if (on && key) setHover(key)
+})
+
 /**
  * B17: a module's screen-reader description (its paths, fuses and runs in words) is written once the bench was painted
- * (paintMark.ts) — a frame later, not part of the first rack's work.
+ * (paintMark.ts) — a frame later, not part of the first rack's work; the selected module's at once (a deep link lands
+ * the keyboard on it in the first frames, its description is read then).
  */
-function Describe({ m }: { m: ModuleT }) {
+function Describe({ m, now }: { m: ModuleT; now: boolean }) {
   const { words: w } = useRack()
-  return useBenchPainted() ? <>{w.describe(m)}</> : null
+  const painted = useBenchPainted()
+  return painted || now ? <>{w.describe(m)}</> : null
 }
 
 function ModuleView({ m, row, span, descId }: { m: ModuleT; row: number; span: 1 | 2; descId: string }) {
@@ -187,12 +197,16 @@ function ModuleView({ m, row, span, descId }: { m: ModuleT; row: number; span: 1
   }
   const roleLabel = t(`${P}.a11y.jack`)
   const onEnter = (e: PointerEvent) => {
-    // B17: not before the bench was painted — the rack appearing under a resting mouse is no hover (lighting it re-renders
-    // the whole rack inside the first frame)
-    if (e.pointerType === 'mouse' && benchPainted()) setHover(m.key)
+    if (e.pointerType !== 'mouse') return
+    // B17: not before the bench was painted (lighting it re-renders the whole rack inside the first frame) — the module
+    // the mouse is over then lights once the bench is painted
+    if (benchPainted()) setHover(m.key)
+    else enteredEarly = m.key
   }
   const onLeave = (e: PointerEvent) => {
-    if (e.pointerType === 'mouse' && usePbUI.getState().hover === m.key) setHover(null)
+    if (e.pointerType !== 'mouse') return
+    if (enteredEarly === m.key) enteredEarly = null
+    if (usePbUI.getState().hover === m.key) setHover(null)
   }
 
   // reads without a cable — "everything" is said by the EVERYTHING jack already
@@ -357,7 +371,7 @@ function ModuleView({ m, row, span, descId }: { m: ModuleT; row: number; span: 1
         </button>
       )}
       <span id={descId} className="visually-hidden">
-        <Describe m={m} />
+        <Describe m={m} now={selected} />
       </span>
     </div>
   )

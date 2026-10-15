@@ -30,6 +30,8 @@ const measure = (name: string, start: number): void => {
 const usePainted = create<{ on: boolean }>(() => ({ on: false }))
 export const useBenchPainted = (): boolean => usePainted((s) => s.on)
 export const benchPainted = (): boolean => usePainted.getState().on
+/** Hear the visit's bench painted (true) and the visit end (false). Returns the stop. */
+export const onBenchPainted = (fn: (on: boolean) => void): (() => void) => usePainted.subscribe((s, prev) => s.on !== prev.on && fn(s.on))
 
 /** Run `fn` right after the next frame was painted (a task posted from its animation frame); returns the cancel. */
 function afterPaint(fn: () => void): () => void {

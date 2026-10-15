@@ -11,7 +11,7 @@
  * default, this device's (patching.ts). Hidden for viewers and read-only members, and on the strands view (no jacks to
  * patch there). In the tight head it is an entry of ⋯ that says its state.
  */
-import { forwardRef, useLayoutEffect, useRef, useState, type MouseEvent } from 'react'
+import { forwardRef, useEffect, useLayoutEffect, useRef, useState, type MouseEvent } from 'react'
 import { Cable, Ellipsis, FileJson, List, ListFilter, Maximize2 } from 'lucide-react'
 import { useLang } from '../../../i18n'
 import { focusLost, restoreFocus } from '../../../ui/focus'
@@ -48,14 +48,15 @@ export const Header = forwardRef<HTMLHeadingElement, { t: Translate; input: Mode
   const step = useTextStep()
   useLayoutEffect(() => setTier('full'), [width, lang, step, !!keys.drop, !!keys.picture, !!keys.patch])
   // B17: measured only when something the head shows changed — a read after every page render forced a layout of the
-  // whole rack each time (a hover, a live tick)
+  // whole rack each time (a hover, a live tick); a font arriving late widens the words too
   const filterText = input ? filterLabel(t, filter, input) : ''
+  const fonts = useFontsLoaded()
   useLayoutEffect(() => {
     const el = row.current
     if (!el || el.scrollWidth <= el.clientWidth + 1) return
     const i = TIERS.indexOf(tier)
     if (i < TIERS.length - 1) setTier(TIERS[i + 1])
-  }, [tier, width, lang, step, filterText, profiles.length, hasFuses, !!keys.drop, !!keys.picture, !!keys.patch, keys.patch?.on])
+  }, [tier, width, lang, step, fonts, filterText, profiles.length, hasFuses, !!keys.drop, !!keys.picture, !!keys.patch, keys.patch?.on])
 
   // the filter is a dialog popover (Popover gives the keyboard back only from menus): after a pick or Esc the keyboard
   // goes back to the key it was opened from ("All databases", or ⋯ in the tight head) — a press outside that put it
@@ -119,6 +120,24 @@ export const Header = forwardRef<HTMLHeadingElement, { t: Translate; input: Mode
     </div>
   )
 })
+
+/** B17: counts the font loads done since mount (the head's words may widen when one arrives after its measure). */
+function useFontsLoaded(): number {
+  const [n, setN] = useState(0)
+  useEffect(() => {
+    const fonts = typeof document !== 'undefined' ? document.fonts : undefined
+    if (!fonts) return
+    let alive = true
+    const bump = () => alive && setN((x) => x + 1)
+    void fonts.ready.then(bump)
+    fonts.addEventListener('loadingdone', bump)
+    return () => {
+      alive = false
+      fonts.removeEventListener('loadingdone', bump)
+    }
+  }, [])
+  return n
+}
 
 const MoreKey = forwardRef<HTMLButtonElement, { label: string; open: boolean; onClick: (e: MouseEvent) => void }>(function MoreKey({ label, open, onClick }, ref) {
   return (
