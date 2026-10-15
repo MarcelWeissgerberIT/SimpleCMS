@@ -272,15 +272,27 @@ test.describe('B5 · layout — mock 1 (layout.ts)', () => {
     expect(slotOf(l, flagId(NET, 'in')).row).toBe(rows.get(K.tc))
     // Inbox-Helfer's EVERYTHING jack sits above its writes jack: Whole workspace takes the row, the flag the next one
     expect(slotOf(l, flagId(NET, 'out')).row - rows.get(K.ih)!).toBeLessThanOrEqual(1)
-    // the relays: every flag at the row of what it is cabled to in § 02
+    // the relays: every flag at the row of what it is cabled to in § 02 — never above it, in the order of § 02, and
+    // pushed down only by what its own column holds more than § 02 (merge: B3's relays have „Versandliste“ as a third
+    // database, so § 03 holds 10 items beside § 02's 7 — the packed column moves its last flags down by up to 3)
     const r = modelOf(relays())
     const lr = layoutRack(r)
     const rr = moduleRows(lr)
+    const inCol = (c: number) => lr.slots.filter((x) => x.col === c).length
+    const flags: Array<{ col: number; row: number; at: number }> = []
     for (const s of lr.slots) {
       if (s.kind !== 'flag') continue
       const w = lr.wires.find((x) => x.from === s.id || x.to === s.id)!
       const other = (w.from === s.id ? w.to : w.from).split('.')[0]
-      expect(Math.abs(s.row - rr.get(other)!), `${s.id} beside ${other}`).toBeLessThanOrEqual(2)
+      const at = rr.get(other)!
+      const slack = Math.max(0, inCol(s.col) - inCol(2))
+      expect(s.row, `${s.id} not above ${other}`).toBeGreaterThanOrEqual(at)
+      expect(s.row - at, `${s.id} beside ${other}`).toBeLessThanOrEqual(2 + slack)
+      flags.push({ col: s.col, row: s.row, at })
+    }
+    for (const c of [1, 3]) {
+      const col = flags.filter((f) => f.col === c).sort((a, b) => a.row - b.row)
+      for (let i = 1; i < col.length; i++) expect(col[i].at, `§ 0${c} flags in § 02's order`).toBeGreaterThanOrEqual(col[i - 1].at)
     }
   })
 })
@@ -406,7 +418,11 @@ test.describe('B5 · layout — folds, filters and counts', () => {
   test('switched-off processors fold as "off" — unless a fuse path or a near miss runs through them', () => {
     const m = modelOf(exits())
     const off = moduleKey({ kind: 'agent', id: 'agExOff' })
-    const l = layoutRack(m)
+    // merge: the model brings its own fuses and near misses now (B4) — F14 runs through the switched-off agent, so by
+    // default it keeps its row; without any fuse or near miss it folds
+    expect(m.fuses.some((f) => f.chain.decider === off)).toBe(true)
+    expect(moduleRows(layoutRack(m)).has(off)).toBe(true)
+    const l = layoutRack(m, { fuses: [], nearMisses: [] })
     const fold = slotOf(l, foldId('off', 2))
     expect(fold.kind === 'fold' && fold.modules).toContain(off)
     expect(l.cols[2].off).toBeGreaterThanOrEqual(1)
@@ -414,13 +430,13 @@ test.describe('B5 · layout — folds, filters and counts', () => {
     // on a fuse path it stays in a row (tagged "runs only by hand" by the page)
     const writes = m.edges.find((e) => e.from === `${off}.writes`)!
     const onPath = fuseOf('F1', moduleKey({ kind: 'database', id: 'dbLeads' }), off, [{ from: off, to: { db: 'dbLeads' }, edge: writes }])
-    const l2 = layoutRack(m, { fuses: [onPath] })
+    const l2 = layoutRack(m, { fuses: [onPath], nearMisses: [] })
     expect(moduleRows(l2).has(off)).toBe(true)
     expectComplete(m, l2)
-    const l3 = layoutRack(m, { nearMisses: [{ chain: onPath.chain }] })
+    const l3 = layoutRack(m, { fuses: [], nearMisses: [{ chain: onPath.chain }] })
     expect(moduleRows(l3).has(off)).toBe(true)
     // opened by the person (↵): its modules take rows, the fold stays as the key that closes it
-    const l4 = layoutRack(m, { unfolded: [foldId('off', 2)] })
+    const l4 = layoutRack(m, { fuses: [], nearMisses: [], unfolded: [foldId('off', 2)] })
     expect(moduleRows(l4).has(off)).toBe(true)
     const open = slotOf(l4, foldId('off', 2))
     expect(open.kind === 'fold' && open.open).toBe(true)
@@ -482,7 +498,8 @@ test.describe('B5 · layout — folds, filters and counts', () => {
     const a = moduleKey({ kind: 'agent', id: 'agLaunchA' })
     const fr = moduleKey({ kind: 'automation', db: 'dbLaunch', id: 'autFreigabe' })
     const b = moduleKey({ kind: 'agent', id: 'agLaunchB' })
-    const vs = moduleKey({ kind: 'automation', db: 'dbLaunch', id: 'autVersand' })
+    // B3's relays: „Versand“ lives in its own database „Versandliste“ (agent B is scoped to it)
+    const vs = moduleKey({ kind: 'automation', db: 'dbVersand', id: 'autVersand' })
     const hookE = r.edges.find((e) => e.from === `${vs}.out`)!
     const relay = fuseOf(
       'F1',
@@ -491,7 +508,7 @@ test.describe('B5 · layout — folds, filters and counts', () => {
       [
         { from: a, via: { db: 'dbLaunch', prop: 'pLaunchPhase' }, to: fr, edge: edgeOf(r, `${a}.writes`, 'net:dbLaunch:pLaunchPhase') },
         { from: fr, via: { db: 'dbLaunch', prop: 'pLaunchFreigabe' }, to: b, edge: edgeOf(r, `${fr}.writes`, 'net:dbLaunch:pLaunchFreigabe') },
-        { from: b, via: { db: 'dbLaunch', prop: 'pLaunchVersand' }, to: vs, edge: edgeOf(r, `${b}.writes`, 'net:dbLaunch:pLaunchVersand') },
+        { from: b, via: { db: 'dbVersand', prop: 'pVersandFlag' }, to: vs, edge: edgeOf(r, `${b}.writes`, 'net:dbVersand:pVersandFlag') },
         { from: vs, to: hookE.to.slice(0, hookE.to.lastIndexOf('.')), edge: hookE },
       ],
     )
