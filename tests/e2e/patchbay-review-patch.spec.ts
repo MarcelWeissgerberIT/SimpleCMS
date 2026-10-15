@@ -18,7 +18,18 @@ import { mock1, seedPatchbay, type PbWorld } from '../fixtures/patchbay'
 
 const module = (page: Page, key: string) => page.locator(`.pb-mod[data-key="${key}"]`)
 
-async function openRack(page: Page, w: PbWorld = mock1(), lang: 'en' | 'de' = 'en') {
+/**
+ * Mock 1 without its morning: Tessera-Spiegel's weekday 07:30 slot would run it on open (no key here — B14's live
+ * signal then shows its "! FAILED" window and the kicker line gives its net chip away, rightly); these cases are about
+ * the drawing at rest.
+ */
+const atRest = (): PbWorld => {
+  const w = mock1()
+  w.ws.agents = { ...w.ws.agents, agTessera: { ...w.ws.agents!.agTessera, updatedAt: Date.parse('2031-01-01T00:00:00Z') } }
+  return w
+}
+
+async function openRack(page: Page, w: PbWorld = atRest(), lang: 'en' | 'de' = 'en') {
   await openApp(page)
   await seedPatchbay(page, w)
   if (lang === 'de') await wsEval(page, (s) => s.updateSettings({ language: 'de' }))
@@ -117,7 +128,7 @@ test.describe('review (patch) · the rack and the plate', () => {
 
   for (const lang of ['en', 'de'] as const) {
     test(`the plate's path (${lang}): one row, or the column — never a wrapped row`, async ({ page }) => {
-      await openRack(page, mock1(), lang)
+      await openRack(page, atRest(), lang)
       const path = page.getByTestId('pb-fplate').getByTestId('pb-path')
       await expect(path).toBeVisible()
       const rows = await path.evaluate((ol) => {

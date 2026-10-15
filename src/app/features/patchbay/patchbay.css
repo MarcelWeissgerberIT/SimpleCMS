@@ -3511,6 +3511,151 @@ html[data-pb-noblink] .pb [data-blink] {
   }
 }
 
+/* ---------- B14 — the live signal (plan §1.7, §3.10, §6 U28 / U29): LEDs, windows, the run's dot ---------- */
+/* a run in flight (or a clock that fired, or a module a run writes): the signal LED with its wash ring (the mock's
+   led--hot) — orange here is the run's own signal, the one place besides a fuse */
+.led.pb-led--hot {
+  width: 7px;
+  height: 7px;
+  box-shadow: 0 0 0 1.5px var(--signal-wash-strong);
+}
+/* a failed run: the red lamp (--pb-red keeps ≥ 40° from the signal, lib/look/derive.ts pbLamps) — "! FAILED" beside it */
+.led.pb-led--err {
+  background: var(--pb-red);
+}
+/* held by the Regler: a ring, never red — "HELD" beside it */
+.led.pb-led--held {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--ink-3);
+}
+/* the window as an LCD: dark glass, light figures — a reading, never a frame and never orange */
+.pb-win.pb-win--lcd {
+  background: var(--toggle-window);
+  box-shadow: inset 0 0 0 1px var(--plate-edge);
+  color: color-mix(in srgb, var(--toggle-white) 82%, transparent);
+}
+.pb-win.pb-win--lcd b {
+  color: var(--toggle-white);
+  font-weight: 700;
+}
+.pb-win.pb-win--lcd small {
+  color: color-mix(in srgb, var(--toggle-white) 62%, transparent);
+}
+.pb-win.pb-win--big b {
+  font-size: calc(15px * var(--text-scale));
+  line-height: 1.05;
+}
+.pb-win[data-live] b {
+  font-weight: 700;
+}
+/* "! FAILED": the word in ink, the window's edge in the red lamp's colour */
+.pb-win[data-live='failed'] {
+  box-shadow:
+    inset 0 0 0 1px var(--pb-red),
+    inset 0 1px 2px var(--plate-lo);
+}
+/* the run's dot on the cable it travels: knocked out of the plate, signal — no wash, no glow */
+.pb-comet-knock {
+  fill: var(--plate);
+}
+.pb-comet {
+  fill: var(--signal);
+}
+/* the strands: the head keeps a two-line window's room (a run's LCD never moves a card, §6 U13); the line a run is on
+   carries the run's dot on a short wire in place of its arrow; a database line's "+3" */
+.pb-strand__h {
+  min-height: calc(2 * 1.15 * var(--text-2xs) + 5px);
+}
+.pb-line {
+  grid-auto-flow: column;
+}
+.pb-line__ar[data-run] {
+  position: relative;
+  height: 12px;
+}
+.pb-line__ar[data-run]::before {
+  content: '';
+  position: absolute;
+  top: 5px;
+  right: 1px;
+  left: 1px;
+  height: 2px;
+  background: var(--ink-2);
+}
+.pb-line__dot {
+  position: absolute;
+  top: 1.5px;
+  left: 6.5px;
+  width: 9px;
+  height: 9px;
+  border-radius: var(--radius-led);
+  background: var(--signal);
+  box-shadow: 0 0 0 2px var(--surface);
+}
+.pb-win.pb-win--line {
+  min-height: calc(22px * var(--text-scale));
+}
+/* a run's LED blinks while it is under 5 s old (8 × 0.6 s; the delay resumes it on a remount), then stays lit — never
+   with reduced motion, never after noBlink() (screenshots) */
+@media (prefers-reduced-motion: no-preference) {
+  .pb .led[data-hot] {
+    animation: pb-hot 0.6s steps(2, jump-none) var(--pb-hot-delay, 0ms) 8;
+  }
+  @keyframes pb-hot {
+    0% {
+      opacity: 0.3;
+    }
+    100% {
+      opacity: 1;
+    }
+  }
+}
+html[data-pb-noblink] .pb .led[data-hot] {
+  animation: none;
+}
+/* reduced motion: no dot — the cables of a run in flight carry a static emphasis in ink instead (thicker, never orange) */
+@media (prefers-reduced-motion: reduce) {
+  .pb-wires g[data-hot] > .pb-w {
+    stroke: var(--ink);
+    stroke-width: 3.8;
+  }
+  .pb-wires g[data-hot] > .pb-w-halo {
+    stroke-width: 8.5;
+  }
+}
+@media (forced-colors: active) {
+  .pb-comet-knock {
+    fill: Canvas;
+  }
+  .pb-comet {
+    fill: Highlight;
+  }
+  .pb-win.pb-win--lcd,
+  .pb-win[data-live] {
+    outline: 1px solid CanvasText;
+    outline-offset: -1px;
+  }
+  .pb-line__dot {
+    forced-color-adjust: none;
+    background: Highlight;
+  }
+  .led.pb-led--hot,
+  .led.pb-led--err {
+    forced-color-adjust: none;
+    background: CanvasText;
+  }
+  .led.pb-led--held {
+    forced-color-adjust: none;
+    box-shadow: inset 0 0 0 1.5px CanvasText;
+  }
+}
+@media (forced-colors: active) and (prefers-reduced-motion: reduce) {
+  .pb-wires g[data-hot] > .pb-w {
+    stroke: CanvasText;
+    stroke-width: 4.2;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .pb-mod,
   .pb-w {

@@ -12,11 +12,13 @@
  * planned") whenever its ghosts are drawn; the drop visit's strip (the band) reads SETUP 4/7 in place of RUNS TODAY and
  * the date and time in place of LIVE (mock-2); the phone shows SETUP and FUSE then.
  */
-import { useEffect, useRef, useState } from 'react'
+import { useRef } from 'react'
 import { fmtUsd } from '../../../lib/money'
 import type { Translate } from '@/shared/i18n'
 import type { Model, ModuleCost } from '../types'
 import { useFitTier } from './fit'
+import { clockTime } from './liveWin'
+import { useNow } from './now'
 
 const P = 'features.patchbay'
 
@@ -26,29 +28,10 @@ export interface FuseCount {
   unknown: number
 }
 
-/** The live clock: hh:mm:ss, ticking every second while the tab is visible. */
-const clockOf = (lang: string): string => new Intl.DateTimeFormat(lang === 'de' ? 'de-DE' : 'en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(new Date())
-
+/** The live clock: hh:mm:ss, ticking every second only while the route shows and the tab is visible (ui/now.ts). */
 function useClock(lang: string): string {
-  const [now, setNow] = useState(() => clockOf(lang))
-  useEffect(() => {
-    let id = 0
-    const tick = () => {
-      if (document.visibilityState === 'visible') setNow(clockOf(lang))
-    }
-    const start = () => {
-      window.clearInterval(id)
-      tick()
-      id = window.setInterval(tick, 1000)
-    }
-    start()
-    document.addEventListener('visibilitychange', start)
-    return () => {
-      window.clearInterval(id)
-      document.removeEventListener('visibilitychange', start)
-    }
-  }, [lang])
-  return now
+  const now = useNow(true)
+  return clockTime(now, lang)
 }
 
 /** "Fri 09.10." — the drop visit's date beside the time (mock-2). */

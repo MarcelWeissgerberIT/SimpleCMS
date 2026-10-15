@@ -52,9 +52,14 @@ export interface LiveView extends LiveSnapshot {
   runCosts: Record<string, ModuleCost>
   /** the ledger answered (until then the money reads "—", never $0) */
   costsRead: boolean
+  /**
+   * B14 — the cable label "3 PROPOSALS": open proposals per agent and database they target, keyed
+   * `<agent module key>|<database module key>` (this device's loaded runs and the team server's staged ones)
+   */
+  cables: Record<string, number>
 }
 
-const CLOSED: LiveView = { open: false, day: '', modules: {}, legs: [], hot: [], fired: {}, announce: null, runs: {}, lastRun: {}, costs: {}, runCosts: {}, costsRead: false }
+const CLOSED: LiveView = { open: false, day: '', modules: {}, legs: [], hot: [], fired: {}, announce: null, runs: {}, lastRun: {}, costs: {}, runCosts: {}, costsRead: false, cables: {} }
 
 export const useLive = create<LiveView>(() => CLOSED)
 
@@ -217,7 +222,9 @@ let lastRun: Record<ModuleKey, number> = {}
 let day = ''
 let refs = 0
 
-let published: { snap: LiveSnapshot; runs: object; costs: object; day: string; read: boolean } | null = null
+let published: { snap: LiveSnapshot; runs: object; costs: object; day: string; read: boolean; cables: object } | null = null
+/** open proposals per agent → database (the cable labels) */
+let cables: Record<string, number> = {}
 
 /** The view, once per microtask — only when something in it changed (the core's snapshot is the same object until then). */
 function publish(): void {
@@ -228,9 +235,9 @@ function publish(): void {
     if (!core) return
     const snap = core.snapshot()
     const p = published
-    if (p && p.snap === snap && p.runs === runs && p.costs === costBook && p.day === day && p.read === costsRead) return
-    published = { snap, runs, costs: costBook, day, read: costsRead }
-    useLive.setState({ ...snap, open: true, day, runs, lastRun, costs: costBook.modules, runCosts: costBook.runs, costsRead })
+    if (p && p.snap === snap && p.runs === runs && p.costs === costBook && p.day === day && p.read === costsRead && p.cables === cables) return
+    published = { snap, runs, costs: costBook, day, read: costsRead, cables }
+    useLive.setState({ ...snap, open: true, day, runs, lastRun, costs: costBook.modules, runCosts: costBook.runs, costsRead, cables })
   })
   schedule()
 }
@@ -420,29 +427,41 @@ function onAgentRuns(): void {
       if (lamp) core.lampTo(key, lamp, { run: newest.id })
     }
   }
-  if (reviewChanged) review(byAgent)
+  if (reviewChanged) review()
   publish()
 }
 
 let reviewed: Set<ModuleKey> = new Set()
 
-/** "+3 FOR REVIEW": open proposals per target database (every loaded run that waits for review). */
-function review(byAgent: Record<ID, StoredRun[]>): void {
+/**
+ * "+3 FOR REVIEW" on a database and "3 PROPOSALS" on the cable that carries them: open proposals per target database and
+ * per agent → database — every loaded run of this device that waits for review, and the team server's staged runs of
+ * this member's own server agents (`useServerAgents.open`).
+ */
+function review(): void {
   if (!core) return
   const perDb = new Map<ModuleKey, number>()
-  const dbs = useWorkspace.getState().databases
-  for (const list of Object.values(byAgent))
+  const perCable: Record<string, number> = {}
+  const ws = useWorkspace.getState()
+  const count = (list: readonly StoredRun[]) => {
     for (const run of list)
       for (const c of run.staged ?? []) {
         if (!OPEN.has(c.status)) continue
-        const db = c.databaseId ?? (dbs[c.pageId] ? c.pageId : useWorkspace.getState().pages[c.pageId]?.databaseId)
+        const db = c.databaseId ?? (ws.databases[c.pageId] ? c.pageId : ws.pages[c.pageId]?.databaseId)
         if (!db) continue
         const key = moduleKey({ kind: 'database', id: db })
         perDb.set(key, (perDb.get(key) ?? 0) + 1)
+        const cable = `${moduleKey({ kind: 'agent', id: run.agentId })}|${key}`
+        perCable[cable] = (perCable[cable] ?? 0) + 1
       }
+  }
+  for (const list of Object.values(useAgentRuns.getState().byAgent)) count(list)
+  count(useServerAgents.getState().open ?? [])
   for (const key of reviewed) if (!perDb.has(key)) core.setExtra(key, null)
   for (const [key, n] of perDb) core.setExtra(key, { review: n })
   reviewed = new Set(perDb.keys())
+  const same = Object.keys(perCable).length === Object.keys(cables).length && Object.entries(perCable).every(([k, n]) => cables[k] === n)
+  if (!same) cables = perCable
 }
 
 /** Server agents: what the team server says of their last run ("on the server" — no dot). */
@@ -459,6 +478,7 @@ function onServerAgents(): void {
     if (head.status === 'running') core.lampTo(m.key, 'running', { server: true, since: head.startedAt, run: head.id })
     else core.lampTo(m.key, lampOfStatus(head.status) ?? 'idle', { server: true, since: null, run: head.id })
   }
+  review()
   publish()
 }
 
@@ -531,6 +551,7 @@ export function startLive(): () => void {
   runBook = new RunBook(APP_LOOKUPS)
   seenRuns = {}
   reviewed = new Set()
+  cables = {}
   add(openModel())
   core.setModel(modelNow() ?? safeRefresh())
   add(

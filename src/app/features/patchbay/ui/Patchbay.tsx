@@ -41,6 +41,7 @@ import { useWorkspace } from '../../../store/store'
 import { fuseCounts } from '../fuses'
 import { defaultPreset, layoutRack, loadOrder, saveOrder } from '../layout'
 import { startLive, useLive } from '../live/live'
+import { announcementText } from '../live/announce'
 import { sumRuns } from '../live/runs'
 import { sumCosts } from '../live/costs'
 import type { PatchbayRouteProps } from '../route'
@@ -252,6 +253,18 @@ export default function Patchbay(props: PatchbayRouteProps) {
   }, [layout, model])
 
   // LED = lamp = readout: the counts are published where the model is built (state.ts), the page's and the background's
+
+  // B14 — runs said politely (§1.7, §6 U6): the live core throttles them (one per module per 10 s, one per 3 s overall,
+  // a start and an end per run — never the ticking timer); the page says each new one once in its polite region. What
+  // was said before this page mounted is not said again.
+  const said = useLive((s) => s.announce)
+  const saidId = useRef<number | null>(useLive.getState().announce?.id ?? null)
+  useEffect(() => {
+    if (!said || said.id === saidId.current || !model || !words) return
+    saidId.current = said.id
+    const m = model.modules.find((x) => x.key === said.module)
+    if (m) announce(announcementText(said, words.name(m), t))
+  }, [said, model, words, t])
 
   const lit = useMemo(() => {
     if (!model) return null

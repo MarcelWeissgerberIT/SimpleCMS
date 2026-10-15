@@ -20,6 +20,10 @@
  *
  * Lit (ui/lit.ts): hovered / selected cables thicken in ink (never orange); with a selection or a lit flag the rest
  * dims. Forced colours (patchbay.css): cables CanvasText, fuse paths and glyphs Highlight.
+ *
+ * B14 — the live signal: the run's dot on top of everything (Comet.tsx — the cable carrying each leg's edge); the cables
+ * of a run in flight carry `data-hot` (with reduced motion they take the static ink emphasis instead of the dot — a
+ * thicker cable, never orange, also under forced colours); cable labels "3 PROPOSALS" (Rack.tsx feeds them).
  */
 import { memo, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react'
 import { flushSync } from 'react-dom'
@@ -30,6 +34,9 @@ import { cableLength, cablePath, fuseGroupLabel, fuseGroups, fusePoint, glyphSpo
 import type { Edge, Model } from '../types'
 import type { Lit } from './lit'
 import { blinkOf, blinkStyle } from '../blink'
+import { useShallow } from 'zustand/react/shallow'
+import { useLive } from '../live/live'
+import { Comets, type CableOf } from './Comet'
 
 interface Drawn {
   id: string
@@ -122,9 +129,9 @@ function Backed({ x, y, text, className, pad = 3 }: { x: number; y: number; text
 }
 
 /** One wire: its halo, the cable, the hatched ticks (memo: a hover re-renders only the wires whose look changed). */
-const WireView = memo(function WireView({ id, d, len, cls, outside, dim, path }: { id: string; d: string; len: number; cls: string; outside: boolean; dim: boolean; path: boolean }) {
+const WireView = memo(function WireView({ id, d, len, cls, outside, dim, path, hot }: { id: string; d: string; len: number; cls: string; outside: boolean; dim: boolean; path: boolean; hot: boolean }) {
   return (
-    <g data-wire={id} data-path={path || undefined} data-outside={outside || undefined}>
+    <g data-wire={id} data-path={path || undefined} data-outside={outside || undefined} data-hot={hot || undefined}>
       <path className="pb-w-halo" d={d} />
       <path className={cls} d={d} />
       {outside && <path className={`pb-w-ticks${dim ? ' pb-w--dim' : ''}`} d={d} strokeDasharray={ticksDash(len)} />}
@@ -340,6 +347,21 @@ export function Wires({ bench, layout, model, lit, fuseEdges, fuses, active, onF
   }, [bench, glyphs, active, mounted])
 
   const byId = useMemo(() => new Map(layout.wires.map((w) => [w.id, w])), [layout])
+  // the live signal: each edge's wire (a leg's dot runs along it), the cables of runs in flight
+  const edgeWire = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const w of layout.wires) for (const e of w.edges) if (!m.has(e)) m.set(e, w.id)
+    return m
+  }, [layout])
+  const cableOf = useMemo<CableOf>(() => {
+    const cables = new Map((drawn?.wires ?? []).map((d) => [d.id, d.cable]))
+    return (edgeId) => {
+      const w = edgeWire.get(edgeId)
+      return (w && cables.get(w)) || null
+    }
+  }, [drawn, edgeWire])
+  const hotEdges = useLive(useShallow((s) => s.hot))
+  const hot = useMemo(() => new Set(hotEdges), [hotEdges])
   if (!drawn || drawn.layout !== layout) return null
   const litEdges = lit?.edges ?? new Set<string>()
   const dimming = !!lit && lit.mode !== 'hover'
@@ -366,7 +388,7 @@ export function Wires({ bench, layout, model, lit, fuseEdges, fuses, active, onF
         const text = labels?.get(id)
         if (text) labelled.push({ id, p: labelPoint(d.cable), text })
         const cls = ['pb-w', s.can && 'pb-w--can', s.planned && 'pb-w--planned', s.unknown && 'pb-w--unknown', isLit && 'pb-w--lit', dim && 'pb-w--dim'].filter(Boolean).join(' ')
-        return <WireView key={id} id={id} d={d.cable.d} len={d.len} cls={cls} outside={s.outside} dim={dim} path={onPath} />
+        return <WireView key={id} id={id} d={d.cable.d} len={d.len} cls={cls} outside={s.outside} dim={dim} path={onPath} hot={w.edges.some((e) => hot.has(e))} />
       })}
       <g className="pb-plugs">
         {drawn.wires.flatMap((d) =>
@@ -393,6 +415,7 @@ export function Wires({ bench, layout, model, lit, fuseEdges, fuses, active, onF
       {groups.map((g) => (
         <Glyph key={g.wire} group={g.fuses} c={g.c} at={g.t} active={active} leader={!!leader && g.fuses.some((f) => f.key === active)} t={t} onSelect={onFuse} />
       ))}
+      <Comets cableOf={cableOf} />
     </svg>
   )
 }

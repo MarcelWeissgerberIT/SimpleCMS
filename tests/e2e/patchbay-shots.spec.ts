@@ -19,6 +19,10 @@ async function open(page: Page, scheme: 'light' | 'dark', mock = mock1(), key = 
   await page.emulateMedia({ colorScheme: scheme, reducedMotion: 'no-preference' })
   await page.addInitScript(() => localStorage.setItem('one.tour', '{"off":true}'))
   await openApp(page)
+  // the fixture's weekday 07:30 agent would run on open (no key: B14's live signal then shows its "! FAILED") — these
+  // pictures are of the rack at rest; its running state is patchbay-live.spec.ts' "07:30" picture
+  const tess = mock.ws.agents?.agTessera
+  if (tess) mock.ws.agents = { ...mock.ws.agents, agTessera: { ...tess, updatedAt: Date.parse('2031-01-01T00:00:00Z') } }
   await seedPatchbay(page, mock)
   // mock 2's lamp 00 is green: a key on this device
   if (key) await wsEval(page, (s) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key' }))

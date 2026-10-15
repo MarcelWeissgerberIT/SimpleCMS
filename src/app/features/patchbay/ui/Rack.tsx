@@ -35,6 +35,10 @@ import { lightNet, selectModule, setCursor, toggleFold, usePbUI } from './store'
 import { activeGlyph, fuseRowsOf } from './fuseRows'
 import { Wires, type GlyphFuse } from './Wires'
 import { fuseNo } from './words'
+import { useLive } from '../live/live'
+import { cableLabels } from './liveWin'
+
+
 
 const P = 'features.patchbay'
 const COLS: Column[] = [1, 2, 3]
@@ -160,6 +164,8 @@ export function Rack({ ctx, layout, onFuse, band }: { ctx: RackCtx; layout: Layo
   // the glyph carrying the leader / stub: the fuse list's selected row when it is a fuse (an almost-open path or an
   // unknown part selected: none)
   const active = activeGlyph(fuseRowsOf(ctx.model), selectedFuse)
+  const cables = useLive((s) => s.cables)
+  const labels = useMemo(() => cableLabels(ctx.model, layout, cables, t), [ctx.model, layout, cables, t])
   // arrow keys: the roving stop moves (a jack's arrows go on from its module); never a scroll of the page
   const onKeyDown = (e: KeyboardEvent<HTMLElement>) => {
     if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return
@@ -262,7 +268,7 @@ export function Rack({ ctx, layout, onFuse, band }: { ctx: RackCtx; layout: Layo
           )}
           {ctx.model.edges.length > 0 && <Legend band={bandMode ? { undo: band!.undo } : null} />}
         </section>
-        <Wires bench={bench} layout={layout} model={ctx.model} lit={ctx.lit} fuseEdges={ctx.marks.edges} fuses={glyphs} active={active} onFuse={onFuse} t={t} />
+        <Wires bench={bench} layout={layout} model={ctx.model} lit={ctx.lit} fuseEdges={ctx.marks.edges} fuses={glyphs} active={active} onFuse={onFuse} labels={labels} t={t} />
       </div>
     </RackContext.Provider>
   )

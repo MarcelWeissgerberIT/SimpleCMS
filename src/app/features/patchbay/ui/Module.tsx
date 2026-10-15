@@ -1,7 +1,9 @@
 /**
  * One module on the rack (plan §3.3 anatomy, §3.9 semantics): `[in jacks] [body] [window] [out jacks]`, a 2U agent with
  * its read-only knobs row. The body is the kind line (LED · mono label · tags · net tags · "F1"), the name and a mono
- * sub-line; the window a plain chip (runs today on this device). Four corner screws.
+ * sub-line; the window a plain chip (runs today on this device) — or, live (B14, LiveWin.tsx), the LCD of a run in
+ * flight ("RUNNING 0:04 · $0.21"), a clock's "07:30:00 FIRED", a database's "+3 FOR REVIEW", "! FAILED" / "HELD" /
+ * "! BUDGET" after a run, with the LED to match (a run's blinks ≤ 5 s). Four corner screws.
  *
  * Semantics: a focusable `role="group"` ("module"), labelled kind + name, described by its strand sentence (plain.ts
  * describe), `aria-keyshortcuts="Enter Space J"`; never a button. Pointer grammar (§6 U5): hover lights its cables in
@@ -29,6 +31,7 @@ import { canOpen, openModule } from './open'
 import { useRack } from './RackContext'
 import { lampNo } from '../setup/keys'
 import { announce, noteTight, selectModule, setCursor, setHover, usePbUI } from './store'
+import { hasLiveWindow, ledOf, LiveLed, LiveWindow, useModuleLive } from './LiveWin'
 
 const P = 'features.patchbay'
 
@@ -132,6 +135,10 @@ function ModuleView({ m, row, span, descId }: { m: ModuleT; row: number; span: 1
   const steps = setup?.chips[m.key] ?? []
   const fields = setup?.fields[m.key]
   const ghostWin = ghost ? (fields !== undefined ? t(fields === 1 ? `${P}.ghost.fields.one` : `${P}.ghost.fields`, { n: fields }) : m.kind === 'agent' ? t(`${P}.tag.ghost`) : null) : null
+  // B14 — the live signal: the LED of a run in flight (blinking ≤ 5 s) or of its end's lamp, the window's reading
+  const live = useModuleLive(m, model)
+  const led = ghost ? null : ledOf(live)
+  const liveWin = !ghost && hasLiveWindow(live, t, w.lang)
 
   // "Whole workspace" and a server known only at run time have no editor here: ↵ says so (and is not offered)
   const open = () => {
@@ -186,7 +193,7 @@ function ModuleView({ m, row, span, descId }: { m: ModuleT; row: number; span: 1
   // the jack labels give way before the rack does (a narrow name box): short, then none
   const bodyRef = useRef<HTMLDivElement>(null)
   const jackLabels = [...m.inJacks, ...m.outJacks].map((j) => w.jack(j, m)).filter(Boolean)
-  const jfit = useJackFit(ref, bodyRef, jackLabels.length ? 2 : 0, `${w.lang}|${jackLabels.join()}|${n}|${worker?.word ?? ''}`, m.key, fit >= 2)
+  const jfit = useJackFit(ref, bodyRef, jackLabels.length ? 2 : 0, `${w.lang}|${jackLabels.join()}|${n}|${worker?.word ?? ''}|${liveWin ? (live.entry?.state ?? 'fired') : ''}`, m.key, fit >= 2)
   const knobs = m.u === 2 && m.knobs
   const model1 = knobs ? w.knobModel(m) : null
   const budget = knobs ? w.knobBudget(m) : null
@@ -213,6 +220,7 @@ function ModuleView({ m, row, span, descId }: { m: ModuleT; row: number; span: 1
       data-unknown={unknown || undefined}
       data-jfit={jfit || undefined}
       data-ghost={ghost || undefined}
+      data-live={led ?? undefined}
       data-testid="pb-module"
       style={{ gridColumn: m.col * 2 - 1, gridRow: `${row + 1} / span ${span}` }}
       onClick={onClick}
@@ -233,7 +241,7 @@ function ModuleView({ m, row, span, descId }: { m: ModuleT; row: number; span: 1
       </div>
       <div className="pb-mod__body" ref={bodyRef}>
         <div className="pb-mod__k" ref={kRef} data-fit={fit || undefined}>
-          <span className={`led${off ? '' : worker?.led === 'warn' ? ' pb-led--warn' : ' pb-led--ok'}`} aria-hidden="true" />
+          {led ? <LiveLed led={led} live={live} /> : <span className={`led${off ? '' : worker?.led === 'warn' ? ' pb-led--warn' : ' pb-led--ok'}`} aria-hidden="true" />}
           <span className="label pb-mod__kind">{kind}</span>
           {steps.map((s) => (
             <span key={s} className="pb-step" data-next={setup?.next === s || undefined} title={t(`${P}.ghost.step`, { n: lampNo(s) })} data-testid="pb-step">
@@ -298,6 +306,8 @@ function ModuleView({ m, row, span, descId }: { m: ModuleT; row: number; span: 1
         <span className="pb-win pb-win--ghost" data-testid="pb-ghost-win">
           {ghostWin}
         </span>
+      ) : liveWin ? (
+        <LiveWindow m={m} live={live} t={t} lang={w.lang} />
       ) : worker ? (
         <span className="pb-win" data-worker={worker.led} title={worker.title} data-testid="pb-worker">
           {worker.word}

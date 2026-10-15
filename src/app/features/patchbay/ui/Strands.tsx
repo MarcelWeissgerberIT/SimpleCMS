@@ -34,6 +34,9 @@ import { canOpen, openModule } from './open'
 import { SLOT, Slotted } from './slot'
 import { lampNo } from '../setup/keys'
 import { usePbUI } from './store'
+import { useShallow } from 'zustand/react/shallow'
+import { useLive } from '../live/live'
+import { hasLiveWindow, ledOf, LiveLed, LiveWindow, useModuleLive } from './LiveWin'
 import type { FuseMarks, Words } from './words'
 
 const P = 'features.patchbay'
@@ -51,6 +54,8 @@ interface Line {
   key?: ModuleKey
   /** a tag after the words: content from outside (hatched), or who stands before a way out */
   tag?: { text: string; outside?: boolean }
+  /** the edges the line stands for (B14: a run in flight on one of them marks the line with its dot) */
+  edges: string[]
 }
 
 /** A field of a place in the language's quotes ("“Weiterleiten”"), else null. */
@@ -67,7 +72,7 @@ function linesOf(model: Model, w: Words, m: Module): Line[] {
   const t = w.t
   const byKey = new Map(model.modules.map((x) => [x.key, x]))
   const out: Line[] = []
-  const seen = new Set<string>()
+  const seen = new Map<string, Line>()
   // the databases its starts come from ("from Mails · new row"): a read of them says nothing new
   const fromDbs = new Set<string>()
   const dir = (side: 'in' | 'out') => t(side === 'in' ? `${P}.strands.from` : `${P}.strands.to`, { name: SLOT })
@@ -84,7 +89,7 @@ function linesOf(model: Model, w: Words, m: Module): Line[] {
             const field = can ? fieldOf(net.place, w) : null
             const name = field ?? w.flag(net)
             const say = !can ? dir(side) : t(field ? `${P}.strands.canSet` : `${P}.strands.canWrite`, { name: SLOT })
-            line = { side, id: `${side}:${other}`, say, name, target: { kind: 'place', place: net.place, label: w.flag(net) } }
+            line = { side, id: `${side}:${other}`, say, name, target: { kind: 'place', place: net.place, label: w.flag(net) }, edges: [e.id] }
           }
         } else {
           const k = moduleOfJack(model, other)
@@ -107,11 +112,16 @@ function linesOf(model: Model, w: Words, m: Module): Line[] {
               } else if (om.kind === 'outbound' || om.kind === 'outbox' || om.kind === 'server') say = t(`${P}.strands.canSend`, { name: SLOT })
               else say = t(`${P}.strands.canWrite`, { name: SLOT })
             }
-            line = { side, id: `${side}:${om.key}`, say, name, key: om.key, target: { kind: 'module', m: om }, ...(tag ? { tag } : {}) }
+            line = { side, id: `${side}:${om.key}`, say, name, key: om.key, target: { kind: 'module', m: om }, edges: [e.id], ...(tag ? { tag } : {}) }
           }
         }
-        if (!line || seen.has(line.id)) continue
-        seen.add(line.id)
+        if (!line) continue
+        const had = seen.get(line.id)
+        if (had) {
+          had.edges.push(e.id)
+          continue
+        }
+        seen.set(line.id, line)
         if (side === 'in' && e.outside) line.tag = { text: t(`${P}.tag.outside`), outside: true }
         if (side === 'in') {
           const src = line.target.kind === 'module' ? line.target.m.ref : null
@@ -131,15 +141,17 @@ function linesOf(model: Model, w: Words, m: Module): Line[] {
     const name = all ? '' : w.net(n, m)
     const id = `net:${all ? 'everything' : name}`
     if (seen.has(id)) continue
-    seen.add(id)
-    reads.push({
+    const read: Line = {
       side: 'in',
       id,
       say: all ? t(`${P}.strands.readsAll`) : t(`${P}.strands.reads`, { name: SLOT }),
       name,
       target: { kind: 'place', place: n.place, label: name },
+      edges: [],
       ...(n.tainted ? { tag: { text: t(`${P}.tag.outside`), outside: true } } : {}),
-    })
+    }
+    seen.set(id, read)
+    reads.push(read)
   }
   return [...out.filter((l) => l.side === 'in'), ...reads, ...out.filter((l) => l.side === 'out')]
 }
@@ -171,10 +183,18 @@ function StrandCard({ m, model, w, fuses, runs, running, steps = [], next = null
     if (opens) openModule(m, nameKey.current)
   }
   const knobs = m.knobs ? { model: w.knobModel(m).label, budget: w.knobBudget(m).label } : null
+  // B14 — the live signal: the card's LED and window as the rack's module; a line a run in flight is on carries the
+  // run's dot in place of its arrow (static with reduced motion); a line to a database with open proposals its "+3"
+  const live = useModuleLive(m, model)
+  const led = ghost ? null : ledOf(live)
+  const liveWin = !ghost && hasLiveWindow(live, t, w.lang)
+  const hot = useLive(useShallow((s) => s.hot))
+  const lineKeys = useMemo(() => lines.map((l) => l.key ?? '').filter(Boolean), [lines])
+  const review = useLive(useShallow((s) => Object.fromEntries(lineKeys.map((k) => [k, s.modules[k]?.review ?? 0]))))
   return (
     <article className="pb-strand" data-path={fuses.length ? '' : undefined} data-live={running || undefined} data-selected={selected || undefined} data-ghost={ghost || undefined} data-key={m.key} data-testid="pb-strand" onClick={onCard}>
       <span className="pb-strand__h">
-        <span className={running ? 'led led--on' : m.tags.includes('disabled') || worker?.led === 'off' ? 'led' : worker?.led === 'warn' ? 'led pb-led--warn' : 'led pb-led--ok'} aria-hidden="true" />
+        {led ? <LiveLed led={led} live={live} /> : <span className={running ? 'led led--on' : m.tags.includes('disabled') || worker?.led === 'off' ? 'led' : worker?.led === 'warn' ? 'led pb-led--warn' : 'led pb-led--ok'} aria-hidden="true" />}
         <span className="label">{ghost ? `${w.kind(m)} · ${t(`${P}.ghost.planned`)}` : w.kind(m)}</span>
         {w.tags(m)
           .slice(0, 2)
@@ -194,12 +214,16 @@ function StrandCard({ m, model, w, fuses, runs, running, steps = [], next = null
             {lampNo(n)}
           </span>
         ))}
-        {worker && (
-          <span className="pb-win" data-worker={worker.led} title={worker.title} data-testid="pb-worker">
-            {worker.word}
-          </span>
+        {liveWin ? (
+          <LiveWindow m={m} live={live} t={t} lang={w.lang} />
+        ) : (
+          worker && (
+            <span className="pb-win" data-worker={worker.led} title={worker.title} data-testid="pb-worker">
+              {worker.word}
+            </span>
+          )
         )}
-        {runs > 0 && (
+        {!liveWin && runs > 0 && (
           <span className="pb-win" title={t(runs === 1 ? `${P}.win.runsTitle.one` : `${P}.win.runsTitle`, { n: runs })}>
             {t(`${P}.win.runs`, { n: runs })}
           </span>
@@ -216,11 +240,11 @@ function StrandCard({ m, model, w, fuses, runs, running, steps = [], next = null
             <li key={l.id}>
               {lineOpens(l) ? (
                 <button type="button" className="pb-line" title={t(`${P}.strands.openLine`, { name: lineName(l, w) })} onClick={(e) => openLine(l, e.currentTarget)} data-key={l.key} data-testid="pb-line">
-                  <LineBody l={l} />
+                  <LineBody l={l} run={l.side === 'out' && l.edges.some((x) => hot.includes(x))} review={l.key ? review[l.key] : 0} t={t} />
                 </button>
               ) : (
                 <span className="pb-line" tabIndex={l.key ? -1 : undefined} data-key={l.key} data-testid="pb-line">
-                  <LineBody l={l} />
+                  <LineBody l={l} run={l.side === 'out' && l.edges.some((x) => hot.includes(x))} review={l.key ? review[l.key] : 0} t={t} />
                 </span>
               )}
             </li>
@@ -241,11 +265,11 @@ function StrandCard({ m, model, w, fuses, runs, running, steps = [], next = null
   )
 }
 
-function LineBody({ l }: { l: Line }) {
+function LineBody({ l, run, review, t }: { l: Line; run: boolean; review?: number; t: Words['t'] }) {
   return (
     <>
-      <span className="pb-line__ar" aria-hidden="true">
-        {l.side === 'in' ? '←' : '→'}
+      <span className="pb-line__ar" data-run={run || undefined} aria-hidden="true">
+        {run ? <i className="pb-line__dot" data-testid="pb-line-run" /> : l.side === 'in' ? '←' : '→'}
       </span>
       <span className="pb-line__t">
         <Slotted text={l.say}>
@@ -255,6 +279,11 @@ function LineBody({ l }: { l: Line }) {
       {l.tag && (
         <span className="pb-tag" data-tag={l.tag.outside ? 'outside' : undefined}>
           {l.tag.text}
+        </span>
+      )}
+      {!!review && review > 0 && (
+        <span className="pb-win pb-win--lcd pb-win--line" title={t(review === 1 ? `${P}.live.reviewTitle.one` : `${P}.live.reviewTitle`, { n: review })} data-testid="pb-line-review">
+          <b>{t(`${P}.live.reviewN`, { n: review })}</b>
         </span>
       )}
     </>
