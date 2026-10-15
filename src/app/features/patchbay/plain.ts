@@ -747,7 +747,8 @@ const MODULE_VARS = new Set(['agent', 'automation', 'module', 'server', 'source'
 
 /**
  * A lamp / fact / key / near-miss MsgRef in words: id vars resolved (db / page / title → titles, prop → the property's
- * name, module keys → names, place → the place, cls → the data class, git → the git action's words), `.one` for n = 1. Other vars stay as given
+ * name, module keys → names, place → the place, cls → the data class, git → the git action's words; a blank `title` /
+ * `parent` text → the untitled word), `.one` for n = 1. Other vars stay as given
  * (host, method, n, repo, member names the UI filled in).
  */
 export function sayMsg(msg: MsgRef, model: Model, input: ModelInput, ctx: PlainCtx): string {
@@ -761,6 +762,8 @@ export function sayMsg(msg: MsgRef, model: Model, input: ModelInput, ctx: PlainC
     else if (k === 'place') out[k] = placeName(w, placeOfKey(s))
     else if (k === 'cls') out[k] = ctx.t(`${P}.cls.${s}`)
     else if (k === 'git') out[k] = gitAction(ctx, s)
+    // a page title given as text (gone.ts' words, the editor's checks): a blank one is "Untitled", never empty quotes
+    else if ((k === 'title' || k === 'parent') && !s.trim()) out[k] = ctx.t(`${P}.untitled`)
     else if (MODULE_VARS.has(k)) out[k] = w.mods.has(s) ? moduleName(w, s) : s
     else out[k] = typeof raw === 'number' ? raw : s
   }

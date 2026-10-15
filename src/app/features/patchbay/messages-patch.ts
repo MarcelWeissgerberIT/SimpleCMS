@@ -5,7 +5,7 @@ import type { Messages } from '@/shared/i18n'
  * "features.patchbay.*"; always add both en and de (German without "AI": "KI"; the words of plan §1.1 / §3.11).
  *
  * B15 (patch.ts): every refusal, info and ask a plan gives. Vars are ids the UI resolves (plain.ts sayMsg): `agent` /
- * `server` = module keys → names; `f` = a fuse label; `n`, `tool`, `names` as given. German names the thing again
+ * `server` = module keys → names; `f` = a fuse label; `n`, `tool`, `names` as given; `member` an account id the UI names. German names the thing again
  * instead of a pronoun (§3.6, U31).
  */
 export const messages: Messages = {
@@ -44,6 +44,10 @@ export const messages: Messages = {
     'features.patchbay.patch.noMatch': 'These two jacks do not connect.',
     'features.patchbay.patch.gone': 'This is not there any more.',
     'features.patchbay.patch.failed': 'Nothing was changed — the setting refused the change.',
+    'features.patchbay.patch.confirmFirst': '{agent} waits for your confirm — {member} changed it. Confirm it in its editor first.',
+    'features.patchbay.patch.limitServers': '{agent} may use at most {n} MCP servers — change the agent in its editor.',
+    'features.patchbay.patch.limitScope': '{agent} may use at most {n} pages and databases — change the agent in its editor.',
+    'features.patchbay.patch.limitTools': '{agent} may use at most {n} tools of one server — change the agent in its editor.',
   },
   de: {
     'features.patchbay.patch.noOut': 'Wege nach außen entstehen in ihrem Editor.',
@@ -80,5 +84,9 @@ export const messages: Messages = {
     'features.patchbay.patch.noMatch': 'Diese zwei Buchsen passen nicht zusammen.',
     'features.patchbay.patch.gone': 'Das gibt es nicht mehr.',
     'features.patchbay.patch.failed': 'Nichts wurde geändert — die Einstellung hat die Änderung abgelehnt.',
+    'features.patchbay.patch.confirmFirst': '{agent} wartet auf deine Bestätigung — {member} hat {agent} geändert. {agent} erst im Editor bestätigen.',
+    'features.patchbay.patch.limitServers': '{agent} darf höchstens {n} MCP-Server nutzen — {agent} im Editor ändern.',
+    'features.patchbay.patch.limitScope': '{agent} darf höchstens {n} Seiten und Datenbanken nutzen — {agent} im Editor ändern.',
+    'features.patchbay.patch.limitTools': '{agent} darf höchstens {n} Werkzeuge eines Servers nutzen — {agent} im Editor ändern.',
   },
 }

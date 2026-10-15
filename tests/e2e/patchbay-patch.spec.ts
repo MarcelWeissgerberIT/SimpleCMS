@@ -16,7 +16,11 @@
  * Every name is fictional (Nordlicht, Tessera, Mara Lind, Launch plan); every host `*.example`.
  */
 import { test, expect } from './fixtures'
-import { acceptsRoles, canConnect, commitWrites, plan, targetsOf, undoPlan } from '../../src/app/features/patchbay/patch'
+import { acceptsRoles, canConnect, commitPlan, commitWrites, plan, targetsOf, undoPlan } from '../../src/app/features/patchbay/patch'
+import { sayMsg } from '../../src/app/features/patchbay/plain'
+import { messages as fuseMessages } from '../../src/app/features/patchbay/messages-fuses'
+import { messages as agentMessages } from '../../src/app/features/agents/messages'
+import { AGENT_LIMITS } from '../../src/app/store/agents'
 import { buildModel } from '../../src/app/features/patchbay/model'
 import { moduleKey, scheduleKey } from '../../src/app/features/patchbay/ref'
 import { messages as patchMessages } from '../../src/app/features/patchbay/messages-patch'
@@ -612,5 +616,161 @@ test.describe('B15 · automations: the reader (sanitizer) and the lock rule (§1
     const t0 = performance.now()
     for (let i = 0; i < 20; i++) ok(plan(plug({ module: TRACKER, role: 'write' }, { module: AG_INBOX, role: 'tools' }), patchCtx(w, { input, model })))
     expect((performance.now() - t0) / 20).toBeLessThan(25)
+  })
+})
+
+/* ------------------------------------------------------------------ Fix (patch): the review findings */
+
+test.describe('Fix (patch) · review findings', () => {
+  const mara = TEAM('acMara', 'member', ['ai', 'governor', 'signoffs'])
+  /** Inbox-Helfer is Mara's; Ben changed it last — it waits for Mara's confirm (agents/confirm.ts). */
+  const waiting = (device: ReturnType<typeof TEAM>) =>
+    mock1With((w) => {
+      w.device = { ...w.device, ...device }
+      w.ws.agents!.agInbox = { ...w.ws.agents!.agInbox, createdBy: 'acMara', updatedBy: 'acBen', instructions: 'Alles weiterleiten.' }
+    })
+
+  test('team: the creator\'s patch on her agent waiting for her confirm is refused (it would confirm the change unseen) — so is such an Undo', () => {
+    const w = waiting(mara)
+    const r = no(planOn(w, plug({ module: MIRROR_CLOCK, role: 'start' }, { module: AG_INBOX, role: 'start' })))
+    expect(r.refused).toEqual({ key: `${PP}.confirmFirst`, vars: { agent: AG_INBOX, member: 'acBen' } })
+    expect(r.open).toEqual({ to: 'route', route: { name: 'agents', id: 'agInbox' } })
+    // an unplug is a save as hers too
+    expect(no(planOn(w, unplugOf({ module: ROWS_MAILS, role: 'start' }, { module: AG_INBOX, role: 'start' }))).refused.key).toBe(`${PP}.confirmFirst`)
+    // a third member may patch it: planned, and it still waits for Mara afterwards
+    const tessa = waiting(TEAM('acTessa', 'member', ['ai', 'governor', 'signoffs']))
+    const p = ok(planOn(tessa, plug({ module: MIRROR_CLOCK, role: 'start' }, { module: AG_INBOX, role: 'start' })))
+    expect(p.notes).toEqual([{ key: `${P}.key.confirmAfter`, vars: { creator: 'acMara' } }])
+    expect(p.preview.agents.find((a) => a.agent.id === 'agInbox')?.awaitsConfirm).toBe(true)
+    // that plan's inverse is Ben's version: written back as Mara's it would run unseen — refused in her hands
+    const after = withWrites(tessa, p.writes, { me: 'acTessa' })
+    after.device = { ...after.device, ...mara }
+    expect(undoPlan(p, patchCtx(after))).toEqual({ refused: { key: `${PP}.confirmFirst`, vars: { agent: AG_INBOX, member: 'acBen' } } })
+    // in Tessa's hands the Undo is hers (the agent keeps waiting)
+    expect(undoPlan(p, patchCtx(withWrites(tessa, p.writes, { me: 'acTessa' })))).toEqual({ writes: p.inverse })
+    // Mara's own agent, not waiting: her patch is planned without a note
+    const mine = mock1With((w) => {
+      w.device = { ...w.device, ...mara }
+      w.ws.agents!.agInbox = { ...w.ws.agents!.agInbox, createdBy: 'acMara', updatedBy: 'acMara' }
+    })
+    expect(ok(planOn(mine, plug({ module: MIRROR_CLOCK, role: 'start' }, { module: AG_INBOX, role: 'start' }))).notes).toBeUndefined()
+  })
+
+  test('commitPlan: a target changed since the plan (while its asks were open) is never written over — "changed since"', () => {
+    const w = mock1()
+    const p = ok(planOn(w, plug({ module: AG_MIRROR, role: 'writes' }, { module: k({ kind: 'database', id: 'dbKontakte' }), role: 'writes' })))
+    const meanwhile = mock1With((w) => {
+      w.ws.agents!.agTessera = { ...w.ws.agents!.agTessera, instructions: 'NEW instructions typed meanwhile' }
+    })
+    const rec = recordingSink(meanwhile)
+    expect(commitPlan(p, patchCtx(meanwhile), { kind: 'you', via: 'patchbay' }, rec.sink)).toEqual({ ok: false, refused: { key: `${P}.key.changedSince` } })
+    expect(rec.log).toEqual([])
+    expect(rec.agents.agTessera.instructions).toBe('NEW instructions typed meanwhile')
+    // a member narrowed the scope meanwhile: refused too (the safety change stays)
+    const narrowed = mock1With((w) => {
+      w.ws.agents!.agTessera = { ...w.ws.agents!.agTessera, write: 'none' }
+    })
+    expect(commitPlan(p, patchCtx(narrowed), { kind: 'you', via: 'patchbay' }, recordingSink(narrowed).sink)).toMatchObject({ ok: false })
+    // nothing changed: written under the writer frame
+    const fine = recordingSink(w)
+    expect(commitPlan(p, patchCtx(w), { kind: 'you', via: 'patchbay' }, fine.sink)).toEqual({ ok: true })
+    expect(fine.log).toEqual([{ w: 'agent', writer: 'you~patchbay' }])
+    // a database's list: the engine's bookkeeping meanwhile is no change; a rename is
+    const off = ok(planOn(w, unplugOf({ module: TO_CHAT, role: 'out' }, { module: CHAT_HOOK, role: 'out' })))
+    const ran = withWrites(w, [{ w: 'automations', db: 'dbMails', list: readAutomations(w.ws.databases.dbMails.automations).map((a) => ({ ...a, lastRunAt: 5, lastStatus: 'ok' as const })) }])
+    expect(commitPlan(off, patchCtx(ran), { kind: 'you', via: 'patchbay' }, recordingSink(ran).sink)).toEqual({ ok: true })
+    const renamed = withWrites(w, [{ w: 'automations', db: 'dbMails', list: readAutomations(w.ws.databases.dbMails.automations).map((a) => (a.id === 'autToChat' ? { ...a, name: 'An Team-Chat (neu)' } : a)) }])
+    expect(commitPlan(off, patchCtx(renamed), { kind: 'you', via: 'patchbay' }, recordingSink(renamed).sink)).toEqual({ ok: false, refused: { key: `${P}.key.changedSince` } })
+  })
+
+  test('a mirror widened by a whole new server asks first (READ of a server it does not use yet)', () => {
+    const w = mock1With((w) => {
+      w.ws.settings = { ...w.ws.settings, mcpServers: (w.ws.settings.mcpServers ?? []).map((s) => (s.name === 'kanal' ? { ...s, tools: ['list_channels', 'get_message', 'post_message'], checkedAt: 1 } : s)) }
+    })
+    const p = ok(planOn(w, plug({ module: KANAL, role: 'read' }, { module: AG_MIRROR, role: 'tools' })))
+    expect(agentWrite(p)).toMatchObject({ mcpServers: ['tracker', 'kanal'], mcpTools: { tracker: TRACKER_READS, kanal: ['list_channels', 'get_message'] } })
+    expect(p.asks).toContainEqual({ key: `${PP}.mirrorWiden`, vars: { agent: AG_MIRROR } })
+    // an agent that is no mirror: nothing asked (READ only opens no way out)
+    expect(ok(planOn(w, plug({ module: KANAL, role: 'read' }, { module: AG_INBOX, role: 'tools' }))).asks).toBeUndefined()
+  })
+
+  test('the agent\'s limits: a patch past them is refused with the limit; a write the store cut is no write', () => {
+    const servers = Array.from({ length: AGENT_LIMITS.mcpServers }, (_, i) => `s${i}`)
+    const w = mock1With((w) => {
+      w.ws.settings = { ...w.ws.settings, mcpServers: (w.ws.settings.mcpServers ?? []).map((s) => (s.name === 'kanal' ? { ...s, tools: ['list_channels', 'get_message', 'post_message'], checkedAt: 1 } : s)) }
+      w.ws.agents!.agInbox = { ...w.ws.agents!.agInbox, mcpServers: servers }
+    })
+    const r = no(planOn(w, plug({ module: KANAL, role: 'read' }, { module: AG_INBOX, role: 'tools' })))
+    expect(r.refused).toEqual({ key: `${PP}.limitServers`, vars: { agent: AG_INBOX, n: AGENT_LIMITS.mcpServers } })
+    expect(r.open).toEqual({ to: 'route', route: { name: 'agents', id: 'agInbox' } })
+    // a full scope
+    const full = mock1With((w) => {
+      w.ws.agents!.agTessera = { ...w.ws.agents!.agTessera, scope: { everything: false, pages: [], databases: ['dbHandoff', ...Array.from({ length: AGENT_LIMITS.scope - 1 }, (_, i) => `dbX${i}`)] } }
+    })
+    expect(no(planOn(full, plug({ module: AG_MIRROR, role: 'writes' }, { module: k({ kind: 'database', id: 'dbKontakte' }), role: 'writes' }))).refused).toEqual({ key: `${PP}.limitScope`, vars: { agent: AG_MIRROR, n: AGENT_LIMITS.scope } })
+    // commitWrites reads the stored agent back raw: 13 servers stored as 12 is refused, not "ok"
+    const rec = recordingSink(w)
+    const thirteen: PatchWrite = { w: 'agent', agent: { ...w.ws.agents!.agInbox, mcpServers: [...servers, 'kanal'] } }
+    expect(commitWrites([thirteen], { kind: 'you', via: 'patchbay' }, rec.sink)).toEqual({ ok: false, refused: { key: `${PP}.failed` } })
+    expect(rec.agents.agInbox.mcpServers).toEqual(servers)
+  })
+
+  test('a target in the trash without a title is said as "Untitled", never as empty quotes', () => {
+    const w = mock1With((w) => {
+      w.ws.pages.dbKontakte = { ...w.ws.pages.dbKontakte, title: '  ', trashed: true, trashedAt: 1 }
+      w.ws.pages.pgLeer = page('pgLeer', { title: '', trashed: true, trashedAt: 1 })
+      w.ws.pages.dbAlt = dbPage('dbAlt', '', { parentId: 'pgLeer' })
+      w.ws.databases.dbAlt = database('dbAlt', [])
+    })
+    const r = no(planOn(w, plug({ module: AG_MIRROR, role: 'writes' }, { module: k({ kind: 'database', id: 'dbKontakte' }), role: 'writes' })))
+    expect(r.refused).toEqual({ key: 'features.agents.lost.trashed', vars: { title: '' } })
+    const below = no(planOn(w, plug({ module: AG_MIRROR, role: 'writes' }, { module: k({ kind: 'database', id: 'dbAlt' }), role: 'writes' })))
+    expect(below.refused).toEqual({ key: 'features.agents.lost.below', vars: { title: '', parent: '' } })
+    const input = inputOf(w)
+    const m = buildModel(input)
+    const ctx = (lang: 'en' | 'de') => ({
+      lang,
+      t: (key: string, vars?: Record<string, string | number>) => {
+        const s = fuseMessages[lang][key] ?? agentMessages[lang][key] ?? key
+        return vars ? s.replace(/\{(\w+)\}/g, (all, x: string) => (x in vars ? String(vars[x]) : all)) : s
+      },
+    })
+    expect(sayMsg(r.refused, m, input, ctx('en'))).toBe('“Untitled” is in the trash.')
+    expect(sayMsg(r.refused, m, input, ctx('de'))).toBe('„Ohne Titel“ liegt im Papierkorb.')
+    expect(sayMsg(below.refused, m, input, ctx('en'))).toBe('“Untitled” is in “Untitled”, and “Untitled” is in the trash.')
+  })
+
+  test('automations: a host:port address being typed stays; unsafe schemes go; a newer build\'s fields survive every save', () => {
+    expect(webhookUrlOf('localhost:5678/webhook/leads')).toBe('localhost:5678/webhook/leads')
+    expect(webhookUrlOf('flows.example:5678/webhook')).toBe('flows.example:5678/webhook')
+    expect(webhookUrlOf('localhost:')).toBe('localhost:')
+    for (const bad of ['javascript:alert(1)', 'JavaScript:alert(1)', 'data:text/html,x', 'vbscript:x', 'file:///etc/passwd', 'ftp://files.example/x', 'blob:https://a.example/x']) expect(webhookUrlOf(bad), bad).toBe('')
+    expect(webhookUrlOf('https://hooks.example/in')).toBe('https://hooks.example/in')
+    const raw = [
+      {
+        id: 'a1',
+        name: 'Neu',
+        enabled: true,
+        description: 'from a newer build',
+        trigger: { type: 'row_created', debounceMs: 500 },
+        actions: [{ type: 'webhook', url: 'https://hooks.example/in', method: 'POST', timeoutMs: 3000, bodyTemplate: '{title}' }],
+        ['__proto__']: { polluted: true },
+      },
+    ]
+    const parsed = JSON.parse(JSON.stringify(raw)) as unknown[]
+    const list = readAutomations(parsed)
+    expect(list).toHaveLength(1)
+    expect(unreadableAutomations(parsed)).toEqual([])
+    const a = list[0] as unknown as Record<string, unknown>
+    expect(a.description).toBe('from a newer build')
+    expect(a.trigger).toEqual({ type: 'row_created', debounceMs: 500 })
+    expect((a.actions as unknown[])[0]).toEqual({ type: 'webhook', url: 'https://hooks.example/in', method: 'POST', timeoutMs: 3000, bodyTemplate: '{title}' })
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined()
+    // the engine's bookkeeping (what setStatus writes) keeps them: read → last* → read again
+    const again = readAutomations(list.map((x) => ({ ...x, lastRunAt: 9, lastStatus: 'ok' as const })))
+    expect((again[0] as unknown as Record<string, unknown>).description).toBe('from a newer build')
+    expect(again[0].trigger).toEqual({ type: 'row_created', debounceMs: 500 })
+    // never shared with the stored value
+    expect(a.trigger).not.toBe((parsed[0] as Record<string, unknown>).trigger)
   })
 })

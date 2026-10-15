@@ -233,8 +233,9 @@
   color: var(--ink-2);
   white-space: nowrap;
 }
+/* the § number: ink-2 like its name, as the mock draws it — orange stays a fuse's (F tags, path, glyph) */
 .pb-colh .label.pb-colh__n {
-  color: var(--pb-sig);
+  color: var(--ink-2);
   font-weight: 600;
 }
 .pb-colh__name.label {
@@ -338,6 +339,11 @@
 .pb-mod__in:empty {
   width: 0;
 }
+/* § 02 / § 03: a module without an in-jack keeps the jack's room (the mock's jack--none) — its name lines up with its
+   column neighbours'; § 01 starts nothing and keeps none */
+.pb-col:not([data-col='1']) .pb-mod__in:empty {
+  width: 12px;
+}
 .pb-mod__body {
   grid-column: 2;
   min-width: 0;
@@ -368,8 +374,9 @@
   background: var(--lamp-amber);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--toggle-black) 25%, transparent);
 }
-/* a short kind line (ui/fit.ts, measured): 1 = the net chip goes, 2 = the mode tags shorten, 3 = they go too; the
-   kind, "?" and the F tags never give way */
+/* a short kind line (ui/fit.ts, measured): 1 = the net chip goes (also one that cannot show a whole word), 2 = the
+   mode tags shorten — after the jack labels did (Module.tsx useJackFit `squeeze`) —, 3 = they go too; the kind, "?"
+   and the F tags never give way */
 .pb-mod__k .pb-net {
   min-width: 6ch;
 }
@@ -383,6 +390,9 @@
   overflow: hidden;
   line-height: calc(17px * var(--text-scale));
   text-overflow: ellipsis;
+}
+.pb-mod__k[data-fit='2'] .pb-tag[data-tag='outside'] {
+  line-height: calc(17px * var(--text-scale) - 5px);
 }
 .pb-mod__k[data-fit='3'] .pb-tag[data-tag],
 .pb-mod__k[data-fit='4'] .pb-tag[data-tag],
@@ -600,9 +610,12 @@
   color: var(--signal-ink);
   font-weight: 700;
 }
-/* content from outside: hatched, text on a solid backing */
+/* content from outside: a hatched frame, the letters on a solid backing (the content box) — never on the hatch (§6 U28) */
 .pb-tag[data-tag='outside'] {
-  background: repeating-linear-gradient(-45deg, var(--surface) 0 3px, color-mix(in srgb, var(--ink) 16%, var(--surface)) 3px 4.5px);
+  padding: 2.5px 4px;
+  background:
+    linear-gradient(var(--surface), var(--surface)) content-box,
+    repeating-linear-gradient(-45deg, var(--surface) 0 3px, color-mix(in srgb, var(--ink) 16%, var(--surface)) 3px 4.5px) padding-box;
   box-shadow: inset 0 0 0 1px var(--ink-2);
   color: var(--ink);
 }
@@ -635,12 +648,9 @@
   text-transform: uppercase;
   white-space: nowrap;
 }
+/* solid in both themes, tainted or not (as the mock): the reader's taint is on its plate and cables */
 :root[data-theme='dark'] .pb-net {
   background: var(--surface-3);
-}
-.pb-net[data-tainted] {
-  background: repeating-linear-gradient(-45deg, var(--surface-2) 0 3px, color-mix(in srgb, var(--ink) 12%, var(--surface-2)) 3px 4.5px);
-  color: var(--ink);
 }
 .pb-net__t {
   min-width: 0;
@@ -650,6 +660,19 @@
 .pb-net__more {
   flex: none;
   color: var(--ink-3);
+}
+/* its first word + "…" (hidden, measured; drawn as generated content — never in the text): a chip that cannot show one
+   whole word goes (Module.tsx netCut) */
+.pb-net__w {
+  position: absolute;
+  left: 0;
+  top: 0;
+  visibility: hidden;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.pb-net__w::before {
+  content: attr(data-w);
 }
 .pb-win {
   display: inline-flex;
@@ -1085,12 +1108,15 @@
 .pb-fuse--allowed .pb-fuse-stub {
   stroke: var(--ink-3);
 }
-/* the active fuse's leader down to its plate (only while glyph and plate are both in view) */
+/* the active fuse's leader down to its plate (only while glyph and plate are both in view); an allowed fuse's is ink */
 .pb-leader {
   fill: none;
   stroke: var(--signal);
   stroke-width: 1.2;
   stroke-dasharray: 3 3;
+}
+.pb-leader[data-allowed] {
+  stroke: var(--ink-3);
 }
 /* a cable this device does not know: a grey "?" mid-cable */
 .pb-wq rect {
@@ -1312,6 +1338,10 @@
   .pb-fuse--allowed .pb-fuse-lbl-t {
     fill: CanvasText;
   }
+  .pb-fuse--allowed .pb-fuse-stub,
+  .pb-leader[data-allowed] {
+    stroke: CanvasText;
+  }
   .pb-mod[data-path] {
     border-color: Highlight;
   }
@@ -1341,6 +1371,25 @@
   }
   .pb-plain__s[data-on] {
     outline: 1px solid Highlight;
+  }
+  /* the legend says what the drawing shows: a fuse's path and the run's dot in Highlight, the rest in CanvasText */
+  .pb-legend svg {
+    forced-color-adjust: none;
+  }
+  .pb-lg-line,
+  .pb-lg-ticks,
+  .pb-lg-flag {
+    stroke: CanvasText;
+  }
+  .pb-lg-knock,
+  .pb-lg-flag {
+    fill: Canvas;
+  }
+  .pb-lg-path {
+    stroke: Highlight;
+  }
+  .pb-lg-comet {
+    fill: Highlight;
   }
 }
 
@@ -1394,7 +1443,7 @@
   color: var(--ink-2);
 }
 .pb-sh .label.pb-colh__n {
-  color: var(--signal-ink);
+  color: var(--ink-2);
   font-weight: 600;
 }
 .pb-sh .pb-colh__rule {
@@ -1561,15 +1610,25 @@ span.pb-line:focus-visible {
 span.pb-line:focus {
   outline: none;
 }
-/* "running · CNSX-Spiegel ↓": sticky at the top, jumps to the strand that runs (nothing reorders) */
-.pb-jump {
+/*
+ * "running · Tessera-Spiegel ↓" jumps to the strand that runs (nothing reorders). Its slot has no height and sticks to
+ * the foot of the view from page open; the chip floats in it — its coming and going never moves a card (§6 U13).
+ */
+.pb-jumpbar {
   position: sticky;
-  top: 8px;
+  bottom: calc(14px + var(--deck-dock, 0px));
   z-index: 4;
+  height: 0;
+  margin-top: -10px;
+}
+.pb-jump {
+  position: absolute;
+  bottom: 0;
+  left: 0;
   display: inline-flex;
   align-items: center;
-  align-self: flex-start;
   gap: 8px;
+  max-width: calc(100% - 72px);
   min-height: 40px;
   padding: 0 12px;
   border: 1px solid var(--ink);
@@ -1583,6 +1642,12 @@ span.pb-line:focus {
   letter-spacing: 0.06em;
   text-transform: uppercase;
   cursor: pointer;
+}
+.pb-jump__t {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ---------- the fuse list and its plate (§3.5): the only orange plate ---------- */
@@ -1633,6 +1698,20 @@ span.pb-line:focus {
 .pb-ftab[data-state='lapsed'][aria-selected='true'] {
   border-color: var(--signal);
   box-shadow: inset 3px 0 0 var(--signal);
+}
+/* the list's one tab stop shows the keyboard: its selection bar AND the focus ring (never the bar alone — WCAG 2.4.7) */
+.pb-ftab:focus {
+  outline: none;
+}
+.pb-ftab:focus-visible {
+  box-shadow: var(--focus-ring);
+}
+.pb-ftab[aria-selected='true']:focus-visible {
+  box-shadow: inset 3px 0 0 var(--ink), var(--focus-ring);
+}
+.pb-ftab[data-state='open'][aria-selected='true']:focus-visible,
+.pb-ftab[data-state='lapsed'][aria-selected='true']:focus-visible {
+  box-shadow: inset 3px 0 0 var(--signal), var(--focus-ring);
 }
 .pb-ftab[data-kind='near'],
 .pb-ftab[data-kind='unknown'] {
@@ -1879,10 +1958,11 @@ span.pb-line:focus {
   color: var(--ink-3);
 }
 
-/* the path as chips: hatched source → decider → net chip → … → the way out ("CAN SEND") */
+/* the path as chips: hatched source → decider → net chip → … → the way out ("CAN SEND") — one row, never wrapped (an
+   arrow would dangle): a plate too narrow for it shows the column (plateParts.tsx useStacked, `data-stacked`) */
 .pb-path {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 4px;
   margin: 12px 0 0;
@@ -2089,6 +2169,13 @@ span.pb-line:focus {
   min-height: 34px;
   white-space: normal;
 }
+/* a plate too narrow for the row: the column, its chips as wide as their words (not the phone's full-width bars) */
+.pb-path--v[data-stacked] {
+  align-items: flex-start;
+}
+.pb-path--v[data-stacked] .pb-pn {
+  min-height: calc(26px * var(--text-scale));
+}
 .pb-path--v .pb-path__sep,
 .pb-path__via {
   display: flex;
@@ -2289,5 +2376,26 @@ html[data-pb-noblink] .pb [data-blink] {
   .pb-mod,
   .pb-w {
     transition: none;
+  }
+}
+
+/* forced colours: every keyboard stop shows where the keyboard is — the focus ring is a box-shadow, which forced
+   colours drop (§3.4, §6 U28). Last in the file: it beats the `:focus { outline: none }` rules above. */
+@media (forced-colors: active) {
+  .pb-mod:focus-visible,
+  .pb-flag:focus-visible,
+  .pb-fold:focus-visible,
+  .pb-bus:focus-visible,
+  .pb-ftab:focus-visible,
+  .pb-ro__fuse:focus-visible,
+  .pb-fpanel:focus-visible,
+  .pb-fcard:focus-visible,
+  .pb-grey:focus-visible,
+  .pb-strand__open:focus-visible,
+  .pb-strands__restn:focus-visible,
+  span.pb-line:focus-visible,
+  .pb-title:focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
   }
 }

@@ -8,7 +8,7 @@
  * them all); a loop is marked ↺. On the phone the path runs downwards and the decider's first write is said in words
  * between the chips ("sets „Weiterleiten“").
  */
-import { Fragment, useMemo, useState, type ReactNode } from 'react'
+import { Fragment, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
 import {
   ArrowDown,
   ArrowDownToLine,
@@ -200,15 +200,49 @@ function viaLabel(pw: PlateWords, p: Place): string {
 }
 
 /**
- * The path as chips (an ordered list; the arrows are decoration). `hot`: the open fuse's way out in signal ("CAN
- * SEND"); `vertical`: the phone's column, the decider's first write said between the chips.
+ * Does the path fit on one row (measured)? A row never wraps — an arrow would dangle at a line's end: while the chips
+ * overflow the plate's width, the path stands as the phone's column instead. Another width, other chips or another
+ * language measure the row again (before the frame is painted).
  */
-export function FusePath({ chain, pw, hot, vertical }: { chain: Chain; pw: PlateWords; hot: boolean; vertical?: boolean }) {
+function useStacked(ol: RefObject<HTMLOListElement | null>, off: boolean, content: unknown): boolean {
+  const [stacked, setStacked] = useState(false)
+  useLayoutEffect(() => setStacked(false), [content])
+  useLayoutEffect(() => {
+    const el = ol.current
+    if (!el || off) return
+    let w = el.clientWidth
+    const ro = new ResizeObserver(() => {
+      if (el.clientWidth === w) return
+      w = el.clientWidth
+      setStacked(false)
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [ol, off])
+  useLayoutEffect(() => {
+    const el = ol.current
+    if (!el || off || stacked || el.clientWidth === 0) return
+    if (el.scrollWidth > el.clientWidth + 1) setStacked(true)
+  })
+  return stacked
+}
+
+/**
+ * The path as chips (an ordered list; the arrows are decoration). `hot`: the open fuse's way out in signal ("CAN
+ * SEND"); `vertical`: the phone's column, the decider's first write said between the chips. A plate too narrow for the
+ * row stacks the same chips into a column (useStacked: one row, never wrapped — no arrow dangles at a line's end).
+ */
+export function FusePath({ chain, pw, hot, vertical: phone }: { chain: Chain; pw: PlateWords; hot: boolean; vertical?: boolean }) {
   const [all, setAll] = useState(false)
   const nodes = useMemo(() => pathOf(chain, all), [chain, all])
   const t = pw.w.t
   const mods = useMemo(() => new Map(pw.model.modules.map((m) => [m.key, m])), [pw.model])
-  const Arrow = vertical ? ArrowDown : ArrowRight
+  const olRef = useRef<HTMLOListElement>(null)
+  const stacked = useStacked(olRef, !!phone, `${pw.w.lang}|${nodes.length}|${chain.exit?.module ?? ''}|${hot}`)
+  // the phone says a written place in words between its chips and names each chip's kind; a stacked plate keeps the
+  // row's chips — only the arrows turn down
+  const vertical = !!phone
+  const Arrow = vertical || stacked ? ArrowDown : ArrowRight
   const items: ReactNode[] = []
   nodes.forEach((n, i) => {
     const key = `${i}`
@@ -264,7 +298,7 @@ export function FusePath({ chain, pw, hot, vertical }: { chain: Chain; pw: Plate
     }
   })
   return (
-    <ol className={vertical ? 'pb-path pb-path--v' : 'pb-path'} aria-label={t(`${P}.plate.path`)} data-testid="pb-path">
+    <ol ref={olRef} className={vertical || stacked ? 'pb-path pb-path--v' : 'pb-path'} aria-label={t(`${P}.plate.path`)} data-stacked={stacked ? '' : undefined} data-testid="pb-path">
       {items}
     </ol>
   )

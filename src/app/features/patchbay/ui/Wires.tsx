@@ -353,7 +353,7 @@ export function Wires({ bench, layout, model, lit, fuseEdges, fuses, active, onF
   const labelled: Array<{ id: string; p: Pt; text: string }> = []
   return (
     <svg className="pb-wires" width={drawn.w} height={drawn.h} viewBox={`0 0 ${drawn.w} ${drawn.h}`} aria-hidden="true" data-testid="pb-wires" data-leader={leader ? 'on' : 'off'}>
-      {leader && <path className="pb-leader" d={`M${leader.x.toFixed(1)},${leader.y1.toFixed(1)} V${leader.y2.toFixed(1)}`} data-testid="pb-leader" />}
+      {leader && <path className="pb-leader" d={`M${leader.x.toFixed(1)},${leader.y1.toFixed(1)} V${leader.y2.toFixed(1)}`} data-allowed={fuses.find((f) => f.key === active)?.allowed || undefined} data-testid="pb-leader" />}
       {order.map((id) => {
         const d = draws.get(id)
         const w = byId.get(id)

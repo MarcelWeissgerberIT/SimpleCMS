@@ -35,14 +35,18 @@
  * Before any plan: viewers and read-only workspaces are refused; the agent editor's own save checks run on the changed
  * agent for the fields the patch touches (agents/saveChecks.ts — never saving against a page in the trash); a target in
  * the trash is named in gone.ts' words; a mirror agent is never unplugged from its `mirrorOf` database and asks before
- * its tool list changes; a team browser agent another member made says "<creator> must confirm the agent afterwards".
+ * its tool list changes (adding a server it does not use yet widens it too); a team browser agent another member made says
+ * "<creator> must confirm the agent afterwards" — and its creator's own patch on it while it waits for their confirm is
+ * refused (a save as theirs would confirm the other member's change unseen: confirm it in the editor first); a change
+ * past the agent's limits (AGENT_LIMITS: servers, scope, tools per server) is refused with the limit, never cut.
+ * commitPlan() re-reads every target before it writes: one changed since the plan refuses ("changed since").
  *
  * Pure and Node-loadable (the specs plan against fixtures): the agents area through its dependency-free leaves only
  * (saveChecks.ts, gone.ts), the store's pure modules, the automations reader.
  */
 import { agentSaveIssues, type AgentSaveField } from '../agents/saveChecks'
 import { seesAllPagesOf } from '../agents/gone'
-import { sanitizeAgent } from '../../store/agents'
+import { AGENT_LIMITS, sanitizeAgent } from '../../store/agents'
 import { hostOf, sameIntegration, sanitizeIntegration, sanitizeIntegrations, serverMatch, SEND_LIMITS, TOOL_NAME } from '../../store/integrations'
 import { withWriter, type Writer } from '../../store/writer'
 import { automationConfigOf, lockRefusal, readAutomations } from '../automations/read'
@@ -218,13 +222,17 @@ const storedAutomations = (env: Env, db: ID): Automation[] => env.ctx.read.autom
 const storedCommands = (env: Env, db: ID): DbCommand[] => env.ctx.read.commands(env.ctx.src.ws.databases[db]?.commands)
 const liveDb = (env: Env, id: ID) => env.input.databases.find((d) => d.id === id) ?? null
 
-/** A target in the trash or gone, in gone.ts' words (features.agents.lost.*) — null while it is live. */
+/**
+ * A target in the trash or gone, in gone.ts' words (features.agents.lost.*) — null while it is live. The titles go
+ * trimmed; a blank one is said as the untitled word (plain.ts sayMsg: a blank `title` / `parent`), never as empty quotes.
+ */
 function lostRef(env: Env, id: ID, database: boolean): MsgRef | null {
   const f = env.input.pages[id]
   if (!f) return { key: database ? 'features.agents.lost.gone.database' : 'features.agents.lost.gone.page' }
-  if (f.trashed) return { key: 'features.agents.lost.trashed', vars: { title: f.title } }
-  if (f.gone) return f.root ? { key: 'features.agents.lost.below', vars: { title: f.title, parent: f.root.title } } : { key: 'features.agents.lost.trashed', vars: { title: f.title } }
-  return null
+  if (!f.trashed && !f.gone) return null
+  const title = f.title.trim()
+  if (!f.trashed && f.root) return { key: 'features.agents.lost.below', vars: { title, parent: f.root.title.trim() } }
+  return { key: 'features.agents.lost.trashed', vars: { title } }
 }
 
 /** The agent editor's save checks on the changed agent, for the fields the patch touches — the first issue, or null. */
@@ -244,6 +252,26 @@ function agentIssue(env: Env, draft: CustomAgent, fields: AgentSaveField[]): Msg
 function creatorNote(env: Env, a: CustomAgent): MsgRef | null {
   if (!env.team || a.runner !== 'browser' || (a.createdBy && a.createdBy === env.me)) return null
   return { key: `${P}.key.confirmAfter`, vars: { creator: a.createdBy ?? '' } }
+}
+
+/**
+ * Team: the creator's own browser agent waits for their confirm (another member changed it last — agents/confirm.ts). A
+ * patch is a save as the creator (upsertAgent stamps the saver), so it would confirm that change unseen: refused — the
+ * creator confirms the settings they see in the editor first (`open` = the agent). The same holds for an Undo that
+ * would write another member's version back as the creator's.
+ */
+function waitsForMe(team: boolean, me: string | null, a: Pick<CustomAgent, 'runner' | 'createdBy' | 'updatedBy'>): boolean {
+  return team && !!me && a.runner === 'browser' && !!a.createdBy && a.createdBy === me && !!a.updatedBy && a.updatedBy !== a.createdBy
+}
+const confirmFirst = (a: CustomAgent): MsgRef => ({ key: `${PP}.confirmFirst`, vars: { agent: agentKey(a.id), member: a.updatedBy ?? '' } })
+
+/** A change past the agent's limits (the sanitizer would cut it — the plan would read as written while nothing is): refused with the limit. */
+function overLimit(next: CustomAgent): MsgRef | null {
+  const agent = agentKey(next.id)
+  if (next.mcpServers.length > AGENT_LIMITS.mcpServers) return { key: `${PP}.limitServers`, vars: { agent, n: AGENT_LIMITS.mcpServers } }
+  if (next.scope.pages.length + next.scope.databases.length > AGENT_LIMITS.scope) return { key: `${PP}.limitScope`, vars: { agent, n: AGENT_LIMITS.scope } }
+  for (const list of Object.values(next.mcpTools ?? {})) if (list.length > AGENT_LIMITS.mcpTools) return { key: `${PP}.limitTools`, vars: { agent, n: AGENT_LIMITS.mcpTools } }
+  return null
 }
 
 /** The workspace with the writes applied (the preview's source). */
@@ -289,6 +317,9 @@ function done(env: Env, writes: PatchWrite[], inverse: PatchWrite[], extra: { as
 
 /** An agent patch: the changed stored record, the touched fields' save checks, the team note. */
 function agentPatch(env: Env, stored: CustomAgent, next: CustomAgent, fields: AgentSaveField[], extra: { asks?: MsgRef[]; notes?: Array<MsgRef | null> } = {}): PatchPlan {
+  if (waitsForMe(env.team, env.me, stored)) return { refused: confirmFirst(stored), open: agentOpen(stored.id) }
+  const limit = overLimit(next)
+  if (limit) return { refused: limit, open: agentOpen(stored.id) }
   const issue = agentIssue(env, next, fields)
   if (issue) return { refused: issue, open: agentOpen(stored.id) }
   return done(env, [{ w: 'agent', agent: next }], [{ w: 'agent', agent: stored }], { asks: extra.asks, notes: [...(extra.notes ?? []), creatorNote(env, stored)] })
@@ -468,7 +499,8 @@ function toolsToAgent(env: Env, from: End, to: End, group: 'read' | 'write'): Pa
     if (has && (cur === undefined || groups.read.every((t) => cur.includes(t)))) return info(`${PP}.already`)
     const tools = cur ? [...new Set([...cur, ...groups.read])] : [...groups.read]
     next = { ...stored, mcpServers: servers, mcpTools: { ...(stored.mcpTools ?? {}), [name]: tools } }
-    widens = !!cur && tools.some((t) => !cur.includes(t))
+    // a server the agent does not use yet widens it too (the biggest widening: a whole server's reads)
+    widens = !has || (!!cur && tools.some((t) => !cur.includes(t)))
   } else {
     if (has && cur === undefined) return info(`${PP}.already`)
     next = { ...stored, mcpServers: servers, ...withoutTools(stored, name) }
@@ -759,11 +791,19 @@ function agentConfig(a: CustomAgent | null | undefined): string {
   return stable(rest)
 }
 
-/** Write one PatchWrite through the sink (under `writer`) — false when the writer refused it. */
+/** The fields a patch changes that the sanitizer cuts (lists past AGENT_LIMITS, names it does not take) — compared raw. */
+const CUT_FIELDS = ['mcpServers', 'mcpTools', 'scope'] as const
+
+/**
+ * Write one PatchWrite through the sink (under `writer`) — false when the writer refused it. An agent is read back:
+ * its config (sanitized both sides) and, raw, the fields the sanitizer cuts — a write it truncated is no write.
+ */
 function writeOne(w: PatchWrite, writer: Writer, sink: PatchSink): boolean {
   if (w.w === 'agent') {
     withWriter(writer, () => sink.upsertAgent(w.agent))
-    return agentConfig(sink.agent(w.agent.id)) === agentConfig(w.agent)
+    const got = sink.agent(w.agent.id)
+    if (agentConfig(got) !== agentConfig(w.agent)) return false
+    return CUT_FIELDS.every((k) => stable(got?.[k] ?? null) === stable(w.agent[k] ?? null))
   }
   if (w.w === 'automations') return sink.saveAutomations(w.db, w.list, writer)
   if (w.w === 'commands') return withWriter(writer, () => sink.saveDbCommands(w.db, w.list))
@@ -781,6 +821,16 @@ export function commitWrites(writes: PatchWrite[], writer: Writer, sink: PatchSi
     return { ok: false, refused: { key: `${PP}.failed` } }
   }
   return { ok: true }
+}
+
+/**
+ * Commit a plan (§2.9): every target is read again first — one whose config is no longer the plan's starting value (its
+ * inverse: another tab, a member, an edit while the "+F2" popover was open) refuses ("changed since"), nothing is
+ * written and the caller plans again. Then the writes, as commitWrites.
+ */
+export function commitPlan(p: { writes: PatchWrite[]; inverse: PatchWrite[] }, ctx: Pick<PatchCtx, 'src' | 'read'>, writer: Writer, sink: PatchSink): { ok: true } | { ok: false; refused: MsgRef } {
+  for (const w of p.inverse) if (!stillWritten(w, ctx.src, ctx.read)) return { ok: false, refused: { key: `${P}.key.changedSince` } }
+  return commitWrites(p.writes, writer, sink, p.inverse)
 }
 
 /** Does the stored target still hold what `w` wrote (config fields only — bookkeeping and stamps never count)? */
@@ -803,7 +853,10 @@ function stillWritten(w: PatchWrite, src: InputSource, read: InputReaders): bool
  */
 export function undoPlan(done: { writes: PatchWrite[]; inverse: PatchWrite[] }, ctx: Pick<PatchCtx, 'src' | 'read'>): { writes: PatchWrite[] } | { refused: MsgRef } {
   for (const w of done.writes) if (!stillWritten(w, ctx.src, ctx.read)) return { refused: { key: `${P}.key.changedSince` } }
+  const { team, me } = ctx.src.device.ctx
   for (const w of done.inverse) {
+    // the creator never writes another member's version back as their own (it would run unseen — agents/confirm.ts)
+    if (w.w === 'agent' && waitsForMe(team, me, w.agent)) return { refused: confirmFirst(w.agent) }
     if (w.w !== 'automations' && w.w !== 'commands') continue
     const db = ctx.src.ws.databases[w.db]
     if (!db) return { refused: { key: `${PP}.gone` } }

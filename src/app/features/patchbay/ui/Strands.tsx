@@ -5,7 +5,8 @@
  *  - the order is fixed when the page opens (layout.ts strandOrder): the fuse cards (FuseList.tsx FuseCards — then the
  *    grey rows nothing counts), "§ 02 Strands · n" one card per processor by name, then "§ 03 Not processed · n"
  *    naming every other module. Nothing reorders under the finger: a strand that starts running lights IN PLACE and a
- *    sticky chip "running · <name> ↓" at the top jumps to it;
+ *    chip "running · <name> ↓" jumps to it — it floats at the foot of the view (a zero-height sticky slot that is there
+ *    from page open), so its coming and going never moves a card (§6 U13; iOS Safari has no scroll anchoring);
  *  - a strand card: its header (LED, kind, tags, F tags, runs today — a pipeline's worker word when it cannot run), its
  *    name, one line per connection — "from …" / "to …", "can set “…”" / "can open merge requests" where the AI decides
  *    (the rack's dashed cable — the phone has no legend, so the words carry it), "reads …" for every read without a
@@ -263,7 +264,7 @@ export function Strands({ model, input, words: w, marks, runs, running }: { mode
   const byKey = new Map(model.modules.map((m) => [m.key, m]))
   const strands = order.strands.map((k) => byKey.get(k)).filter((m): m is Module => !!m)
   const rest = order.rest.map((k) => byKey.get(k)).filter((m): m is Module => !!m)
-  // the first running strand in list order: the sticky chip jumps there (the list itself never moves)
+  // the first running strand in list order: the floating chip jumps there (the list itself never moves)
   const live = strands.find((m) => running.includes(m.key)) ?? null
   const jump = () => {
     if (!live) return
@@ -275,12 +276,6 @@ export function Strands({ model, input, words: w, marks, runs, running }: { mode
 
   return (
     <div className="pb-strands" role="region" aria-label={t(`${P}.strands.aria`)} data-testid="pb-strands" ref={root}>
-      {live && (
-        <button type="button" className="pb-jump" title={t(`${P}.live.jumpTitle`)} onClick={jump} data-testid="pb-jump">
-          <span className="led led--on" aria-hidden="true" />
-          {t(`${P}.live.jump`, { name: w.name(live) })}
-        </button>
-      )}
       <FuseCards model={model} input={input} words={w} />
       <div className="pb-sh">
         <span className="label pb-colh__n">§ 02</span>
@@ -317,6 +312,15 @@ export function Strands({ model, input, words: w, marks, runs, running }: { mode
           </p>
         </>
       )}
+      {/* the chip's slot: zero height, sticky at the foot of the view, there from page open — the chip floats in it */}
+      <div className="pb-jumpbar" data-testid="pb-jumpbar">
+        {live && (
+          <button type="button" className="pb-jump" title={t(`${P}.live.jumpTitle`)} onClick={jump} data-testid="pb-jump">
+            <span className="led led--on" aria-hidden="true" />
+            <span className="pb-jump__t">{t(`${P}.live.jump`, { name: w.name(live) })}</span>
+          </button>
+        )}
+      </div>
     </div>
   )
 }

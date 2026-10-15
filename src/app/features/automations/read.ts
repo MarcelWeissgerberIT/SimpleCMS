@@ -9,13 +9,17 @@
  *    per database, the first of a repeated id;
  *  - trigger: `row_created` · `row_deleted` · `property_changed` (`propertyId` an id or null = any; `toValue` a plain
  *    value — string, finite number, boolean, null, a list of strings, a date — else dropped);
- *  - actions (≤ AUTOMATION_LIMITS.actions): `webhook` — the URL text kept as typed (≤ 2048, trimmed), but one with a
- *    scheme other than https / http is emptied (javascript:, data:, file: … never reach the engine, which sends only
- *    to http(s) URLs with a host anyway); method POST or PUT (anything else → POST); headers string → string (≤ 20,
+ *  - actions (≤ AUTOMATION_LIMITS.actions): `webhook` — the URL text kept as typed (≤ 2048, trimmed), but one that
+ *    names another scheme is emptied: `<scheme>://…` other than https / http, or a scheme that runs or reads something
+ *    (javascript:, data:, file:, vbscript: … — UNSAFE_SCHEMES). "host:port/path" being typed is kept (the engine sends
+ *    only to http(s) URLs with a host anyway); method POST or PUT (anything else → POST); headers string → string (≤ 20,
  *    names `[!#$%&'*+.^_`|~0-9A-Za-z-]`, values ≤ 1000, no line breaks) · `set_property` (propertyId, a plain value) ·
  *    `notify` (message ≤ 500) · `run_script` (scriptId an id or null);
  *  - bookkeeping kept as it is when it is well formed: `lastRunAt` (finite or null), `lastStatus` ('ok' | 'error' |
- *    null), `lastMessage` (≤ 200 or null).
+ *    null), `lastMessage` (≤ 200 or null);
+ *  - keys this build does not know (a newer build's field on an automation, its trigger or an action) are KEPT as they
+ *    are (a JSON copy; `__proto__` / `constructor` / `prototype` never) — every write goes through this reader (the
+ *    modal, the engine's bookkeeping, the Patchbay), so an older tab never strips what a newer one added.
  * An automation this build cannot read (an unknown trigger or action type — a newer build's, or a broken one) is left
  * out of what every reader sees: it never runs here and is never shown or edited here. saveAutomations keeps such
  * entries as they are (`unreadableAutomations`), so an older tab never deletes what a newer one made.
@@ -32,6 +36,43 @@ const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,100}$/
 const CONTROL = /[\u0000-\u001f\u007f]/g
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
+
+/** Keys never copied from a stored object (they would reach the prototype). */
+const NEVER_COPY = new Set(['__proto__', 'constructor', 'prototype'])
+
+/** A JSON copy of an unknown key's value (undefined: not JSON — left out). */
+function jsonCopy(v: unknown): unknown {
+  if (v === undefined || typeof v === 'function' || typeof v === 'symbol' || typeof v === 'bigint') return undefined
+  try {
+    return JSON.parse(JSON.stringify(v)) as unknown
+  } catch {
+    return undefined
+  }
+}
+
+/** The keys of `raw` this build does not read (`known`), copied — a newer build's fields, kept through every save. */
+function unknownKeys(raw: Record<string, unknown>, known: readonly string[]): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const k of Object.keys(raw)) {
+    if (known.includes(k) || NEVER_COPY.has(k)) continue
+    const v = jsonCopy(raw[k])
+    if (v !== undefined) Object.defineProperty(out, k, { value: v, enumerable: true, writable: true, configurable: true })
+  }
+  return out
+}
+
+/** `clean` (the fields this build reads) with the stored object's other keys kept after it. */
+const withUnknown = <T extends object>(clean: T, raw: Record<string, unknown>, known: readonly string[]): T => Object.assign(clean, unknownKeys(raw, known))
+
+const AUTOMATION_KEYS = ['id', 'name', 'enabled', 'trigger', 'actions', 'lastRunAt', 'lastStatus', 'lastMessage'] as const
+const TRIGGER_KEYS = ['type', 'propertyId', 'toValue'] as const
+const ACTION_KEYS: Record<AutomationAction['type'], readonly string[]> = {
+  webhook: ['type', 'url', 'method', 'headers'],
+  set_property: ['type', 'propertyId', 'value'],
+  notify: ['type', 'message'],
+  run_script: ['type', 'scriptId'],
+}
+
 const own = (o: Record<string, unknown>, k: string): unknown => (Object.prototype.hasOwnProperty.call(o, k) ? o[k] : undefined)
 const idOf = (v: unknown): ID | null => (typeof v === 'string' && ID_RE.test(v) ? v : null)
 const text = (v: unknown, max: number): string => (typeof v === 'string' ? v.replace(CONTROL, ' ').slice(0, max) : '')
@@ -57,12 +98,19 @@ function plainValue(v: unknown): PropertyValue | undefined {
   return undefined
 }
 
-/** The webhook URL as typed — unless it names a scheme other than https / http (then empty: never sent). */
+/** Schemes that run or read something in a browser — a webhook URL naming one is emptied however it goes on. */
+const UNSAFE_SCHEMES = new Set(['javascript', 'vbscript', 'data', 'file', 'blob', 'filesystem', 'about', 'view-source', 'jar'])
+
+/**
+ * The webhook URL as typed — unless it names another scheme (then empty: never sent): `<scheme>://` other than https /
+ * http, or an unsafe scheme (UNSAFE_SCHEMES) with or without slashes. "localhost:5678/hook" — a host and port typed
+ * without a scheme — is no scheme and stays (the editor saves on each key; the engine refuses a URL it cannot send to).
+ */
 export function webhookUrlOf(v: unknown): string {
   const s = typeof v === 'string' ? v.replace(CONTROL, '').trim().slice(0, AUTOMATION_LIMITS.url) : ''
-  const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(s)
-  if (scheme && !/^https?$/i.test(scheme[1])) return ''
-  return s
+  const scheme = /^([a-z][a-z0-9+.-]*):(\/\/)?/i.exec(s)
+  if (!scheme || /^https?$/i.test(scheme[1])) return s
+  return scheme[2] || UNSAFE_SCHEMES.has(scheme[1].toLowerCase()) ? '' : s
 }
 
 function headersOf(v: unknown): Record<string, string> | undefined {
@@ -81,7 +129,7 @@ function headersOf(v: unknown): Record<string, string> | undefined {
 function triggerOf(v: unknown): AutomationTrigger | null {
   if (!isObj(v)) return null
   const type = own(v, 'type')
-  if (type === 'row_created' || type === 'row_deleted') return { type }
+  if (type === 'row_created' || type === 'row_deleted') return withUnknown<AutomationTrigger>({ type }, v, TRIGGER_KEYS)
   if (type !== 'property_changed') return null
   const pid = own(v, 'propertyId')
   const propertyId = pid === null || pid === undefined ? null : idOf(pid)
@@ -91,11 +139,16 @@ function triggerOf(v: unknown): AutomationTrigger | null {
     const to = plainValue(own(v, 'toValue'))
     if (to !== undefined) t.toValue = to
   }
-  return t
+  return withUnknown(t, v, TRIGGER_KEYS)
 }
 
 function actionOf(v: unknown): AutomationAction | null {
   if (!isObj(v)) return null
+  const clean = knownActionOf(v)
+  return clean ? withUnknown(clean, v, ACTION_KEYS[clean.type]) : null
+}
+
+function knownActionOf(v: Record<string, unknown>): AutomationAction | null {
   const type = own(v, 'type')
   if (type === 'webhook') {
     const headers = headersOf(own(v, 'headers'))
@@ -135,7 +188,7 @@ export function sanitizeAutomation(raw: unknown): Automation | null {
   const lastRunAt = own(raw, 'lastRunAt')
   const lastStatus = own(raw, 'lastStatus')
   const lastMessage = own(raw, 'lastMessage')
-  return {
+  const clean: Automation = {
     id,
     name: text(own(raw, 'name'), AUTOMATION_LIMITS.name),
     enabled: own(raw, 'enabled') === true,
@@ -145,6 +198,7 @@ export function sanitizeAutomation(raw: unknown): Automation | null {
     lastStatus: lastStatus === 'ok' || lastStatus === 'error' ? lastStatus : null,
     lastMessage: typeof lastMessage === 'string' ? text(lastMessage, AUTOMATION_LIMITS.lastMessage) : null,
   }
+  return withUnknown(clean, raw, AUTOMATION_KEYS)
 }
 
 const cache = new WeakMap<object, Automation[]>()

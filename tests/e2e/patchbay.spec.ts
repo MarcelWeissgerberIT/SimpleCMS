@@ -955,8 +955,10 @@ test.describe('B8 · 390 px: the strands', () => {
       expect(await page.evaluate(() => { const el = document.querySelector('[data-testid="patchbay-page"]')!; return el.scrollWidth <= el.clientWidth + 1 })).toBe(true)
       for (const h of await page.getByTestId('pb-line').evaluateAll((els) => els.map((e) => e.getBoundingClientRect().height))) expect(h).toBeGreaterThanOrEqual(40)
 
-      // a run starts: the strand lights in place, nothing moves, the sticky chip jumps there
+      // a run starts: the strand lights in place, nothing moves, the floating chip jumps there
       const order = await strands.evaluateAll((els) => els.map((e) => e.getAttribute('data-key')))
+      const tops = () => page.evaluate(() => [...document.querySelectorAll('[data-testid="pb-fcard"], [data-testid="pb-strand"]')].map((e) => Math.round(e.getBoundingClientRect().top + (document.scrollingElement?.scrollTop ?? 0))))
+      const before = await tops()
       await page.evaluate(async () => {
         const rec = (window as unknown as { __oneRecorder: { step: (s: unknown) => Promise<unknown> } }).__oneRecorder
         await rec.step({ writer: { kind: 'agent', id: 'agTessera', run: 'rPhone1' }, note: { seq: 1 }, calls: [] })
@@ -966,6 +968,9 @@ test.describe('B8 · 390 px: the strands', () => {
       expect(await strands.evaluateAll((els) => els.map((e) => e.getAttribute('data-key')))).toEqual(order)
       const jump = page.getByTestId('pb-jump')
       await expect(jump).toHaveText('running · Tessera-Spiegel ↓')
+      // fix (patch): the chip takes no room in the list — no card moved when it came (§6 U13)
+      expect(await tops()).toEqual(before)
+      await expect(jump).toBeInViewport()
       await jump.tap()
       await expect(live.getByTestId('pb-strand-open')).toBeFocused()
 

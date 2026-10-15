@@ -37,11 +37,12 @@ function useButtonLabel(m: ModuleT): string | null {
 
 /**
  * The jack labels' tier (plan §3.3, §6 U14): 0 = full ("EVERYTHING · 4 DB"), 1 = short ("4 DB", "OUT 1"), 2 = none (the
- * jack's title and name keep the words). While the name box is narrower than the page's 12ch probe, the next tier is
- * tried before the frame is painted; a module whose last tier still leaves the name under 12ch is "tight" — the page
+ * jack's title and name keep the words). While the name box is narrower than the page's 12ch probe — or the kind line
+ * would cut a mode tag below its word (`squeeze`: the labels give way before a tag does) — the next tier is tried
+ * before the frame is painted; a module whose last tier still leaves the name under 12ch is "tight" — the page
  * then shows the strands view (noteTight). Another width or other words start again at 0. Measured, never guessed.
  */
-function useJackFit(mod: RefObject<HTMLElement | null>, body: RefObject<HTMLElement | null>, max: number, content: string, key: string): number {
+function useJackFit(mod: RefObject<HTMLElement | null>, body: RefObject<HTMLElement | null>, max: number, content: string, key: string, squeeze: boolean): number {
   const [tier, setTier] = useState(0)
   const width = useRef(0)
   useLayoutEffect(() => setTier(0), [content])
@@ -65,10 +66,19 @@ function useJackFit(mod: RefObject<HTMLElement | null>, body: RefObject<HTMLElem
     if (!b || b.clientWidth === 0) return
     const min = b.closest('.pb')?.querySelector<HTMLElement>('.pb-probe')?.offsetWidth ?? 0
     const narrow = min > 0 && b.clientWidth < min
-    if (narrow && tier < max) setTier(tier + 1)
+    // `squeeze`: the kind line would cut a mode tag below its word — the jack labels give way first
+    if ((narrow || squeeze) && tier < max) setTier(tier + 1)
     else noteTight(key, narrow)
   })
   return tier
+}
+
+/** A net chip the kind line shrank below its first whole word ("MA…"): the fit lets it go (never a stub of a word). */
+function netCut(row: HTMLElement): boolean {
+  const t = row.querySelector<HTMLElement>('.pb-net__t')
+  const word = row.querySelector<HTMLElement>('.pb-net__w')
+  if (!t || !word || t.offsetWidth === 0) return false
+  return t.scrollWidth > t.clientWidth + 1 && t.clientWidth + 1 < word.offsetWidth
 }
 
 function Knob({ v, ticks, label, value, onOpen, title }: { v: number; ticks: number; label: string; value: string; onOpen: () => void; title: string }) {
@@ -163,12 +173,12 @@ function ModuleView({ m, row, span, descId }: { m: ModuleT; row: number; span: 1
   // (the profile's id goes with them) … and last, the F tags fold into one group chip ("F2 · F3 · F4 +1", the glyph's
   // rule), then into the shortest ("F2 +4") — every label stays in the chip's title and in the description, never clipped
   const kRef = useRef<HTMLDivElement>(null)
-  const fit = useFitTier(kRef, fuses.length > 1 ? 5 : 3, `${w.lang}|${kind}|${tags.map((x) => x.text).join()}|${readNets.length}|${fuses.join()}|${m.profile ?? ''}`)
+  const fit = useFitTier(kRef, fuses.length > 1 ? 5 : 3, `${w.lang}|${kind}|${tags.map((x) => x.text).join()}|${readNets.length}|${fuses.join()}|${m.profile ?? ''}`, netCut)
   const fuseTitles = fuses.map((f) => t(`${P}.tag.fuseTitle`, { f })).join(' · ')
   // the jack labels give way before the rack does (a narrow name box): short, then none
   const bodyRef = useRef<HTMLDivElement>(null)
   const jackLabels = [...m.inJacks, ...m.outJacks].map((j) => w.jack(j, m)).filter(Boolean)
-  const jfit = useJackFit(ref, bodyRef, jackLabels.length ? 2 : 0, `${w.lang}|${jackLabels.join()}|${n}|${worker?.word ?? ''}`, m.key)
+  const jfit = useJackFit(ref, bodyRef, jackLabels.length ? 2 : 0, `${w.lang}|${jackLabels.join()}|${n}|${worker?.word ?? ''}`, m.key, fit >= 2)
   const knobs = m.u === 2 && m.knobs
   const model1 = knobs ? w.knobModel(m) : null
   const budget = knobs ? w.knobBudget(m) : null
@@ -247,12 +257,16 @@ function ModuleView({ m, row, span, descId }: { m: ModuleT; row: number; span: 1
               {m.profile.toUpperCase()}
             </span>
           )}
-          {nets.map((x, i) => (
-            <span key={i} className="pb-net" data-tainted={x.tainted || undefined} title={m.nets.map((y) => w.netTitle(y, m)).join(' · ')}>
-              <span className="pb-net__t">{w.net(x, m)}</span>
-              {moreNets > 0 && <span className="pb-net__more">{t(`${P}.net.more`, { n: moreNets })}</span>}
-            </span>
-          ))}
+          {nets.map((x, i) => {
+            const label = w.net(x, m)
+            return (
+              <span key={i} className="pb-net" data-tainted={x.tainted || undefined} title={m.nets.map((y) => w.netTitle(y, m)).join(' · ')}>
+                <span className="pb-net__t">{label}</span>
+                {moreNets > 0 && <span className="pb-net__more">{t(`${P}.net.more`, { n: moreNets })}</span>}
+                <span className="pb-net__w" aria-hidden="true" data-w={`${label.split(/\s+/)[0]}…`} />
+              </span>
+            )
+          })}
         </div>
         <div className="pb-mod__n" title={buttonLabel ?? name}>
           {m.ref.kind === 'button' && buttonLabel !== null ? (

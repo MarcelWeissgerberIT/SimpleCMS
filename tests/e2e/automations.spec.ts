@@ -80,6 +80,24 @@ test.describe('automations (B15): the one reader and writer', () => {
     await expect.poll(() => stored(page, db)).toEqual([expect.objectContaining({ id: 'autChat', name: 'An Team-Chat · Nordlicht', trigger: { type: 'property_changed', propertyId: prop } }), newer])
   })
 
+  test('fix (patch): a host:port address being typed stays in the URL field; a newer build\'s fields on a known automation survive an edit', async ({ page }) => {
+    await openApp(page)
+    const { db, prop } = await seed(page, ({ prop }) => [hook('autChat', 'An Team-Chat', prop, { description: 'from a newer build', trigger: { type: 'property_changed', propertyId: prop, debounceMs: 500 } })])
+    const dialog = await openAutomations(page, db)
+    const url = dialog.getByRole('textbox', { name: 'Webhook URL' })
+    await url.fill('')
+    // the editor saves on each key: "localhost:" is no scheme and must not empty the field
+    await url.pressSequentially('localhost:5678/webhook/leads')
+    await expect(url).toHaveValue('localhost:5678/webhook/leads')
+    await expect.poll(async () => (await stored(page, db))[0]?.actions?.[0]?.url).toBe('localhost:5678/webhook/leads')
+    const a = (await stored(page, db))[0]
+    expect(a.description).toBe('from a newer build')
+    expect(a.trigger).toEqual({ type: 'property_changed', propertyId: prop, debounceMs: 500 })
+    // an unsafe scheme is still emptied
+    await url.fill('javascript:alert(1)')
+    await expect.poll(async () => (await stored(page, db))[0]?.actions?.[0]?.url).toBe('')
+  })
+
   test('a locked database: the automations show with only the off switch and removals — a removal is saved, an add refused', async ({ page }) => {
     await openApp(page)
     const { db } = await seed(page, ({ prop }) => [hook('autChat', 'An Team-Chat', prop), hook('autMara', 'An Mara Lind', prop, { enabled: false })], { locked: true })
