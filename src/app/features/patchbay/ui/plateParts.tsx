@@ -63,23 +63,32 @@ export interface PlateWords {
   member(id: string | null | undefined): string | null
 }
 
+function plateWords(model: Model, input: ModelInput, w: Words, people: Array<{ id: string; name: string }>, me: string | null): PlateWords {
+  const member = (id: string | null | undefined): string | null => {
+    if (!id) return input.ctx.team ? null : w.t(`${P}.plate.you`)
+    if (id === me) return w.t(`${P}.plate.you`)
+    return people.find((p) => p.id === id)?.name.trim() || null
+  }
+  const say = (msg: MsgRef | undefined): string => {
+    if (!msg) return ''
+    const vars = { ...(msg.vars ?? {}) }
+    for (const k of MEMBER_VARS) if (typeof vars[k] === 'string') vars[k] = member(vars[k] as string) ?? w.t(`${P}.plate.someone`)
+    return sayMsg({ key: msg.key, vars }, model, input, w.ctx)
+  }
+  return { w, model, input, say, member }
+}
+
 export function usePlateWords(model: Model, input: ModelInput, w: Words): PlateWords {
   const people = useWorkspace((s) => s.people)
   const me = useCloud((s) => s.user?.id ?? null)
-  return useMemo(() => {
-    const member = (id: string | null | undefined): string | null => {
-      if (!id) return input.ctx.team ? null : w.t(`${P}.plate.you`)
-      if (id === me) return w.t(`${P}.plate.you`)
-      return people.find((p) => p.id === id)?.name.trim() || null
-    }
-    const say = (msg: MsgRef | undefined): string => {
-      if (!msg) return ''
-      const vars = { ...(msg.vars ?? {}) }
-      for (const k of MEMBER_VARS) if (typeof vars[k] === 'string') vars[k] = member(vars[k] as string) ?? w.t(`${P}.plate.someone`)
-      return sayMsg({ key: msg.key, vars }, model, input, w.ctx)
-    }
-    return { w, model, input, say, member }
-  }, [people, me, model, input, w])
+  return useMemo(() => plateWords(model, input, w, people, me), [people, me, model, input, w])
+}
+
+/** The same words before the model is there (null until it is) — the page's patching (B16) holds them from the start. */
+export function usePlateWordsOf(model: Model | null, input: ModelInput | null, w: Words | null): PlateWords | null {
+  const people = useWorkspace((s) => s.people)
+  const me = useCloud((s) => s.user?.id ?? null)
+  return useMemo(() => (model && input && w ? plateWords(model, input, w, people, me) : null), [people, me, model, input, w])
 }
 
 /* ------------------------------------------------------------------ icons */

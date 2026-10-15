@@ -32,6 +32,7 @@ import { useRack } from './RackContext'
 import { lampNo } from '../setup/keys'
 import { announce, noteTight, selectModule, setCursor, setHover, usePbUI } from './store'
 import { hasLiveWindow, ledOf, LiveLed, LiveWindow, useModuleLive } from './LiveWin'
+import { useDragOver, useModuleAccept } from './patchUI'
 
 const P = 'features.patchbay'
 
@@ -111,7 +112,10 @@ function Knob({ v, ticks, label, value, onOpen, title }: { v: number; ticks: num
 }
 
 function ModuleView({ m, row, span, descId }: { m: ModuleT; row: number; span: 1 | 2; descId: string }) {
-  const { model, input, words: w, marks, lit, runs, costs, entry, setup } = useRack()
+  const { model, input, words: w, marks, lit, runs, costs, entry, setup, patching } = useRack()
+  // B16: a drag lights this module when a jack of it it may plug into is not drawn yet (it takes the drop)
+  const accept = useModuleAccept(m.key)
+  const dropOver = useDragOver(m.key, true)
   const t = w.t
   const selected = usePbUI((s) => s.selected === m.key)
   const ref = useRef<HTMLDivElement>(null)
@@ -221,6 +225,8 @@ function ModuleView({ m, row, span, descId }: { m: ModuleT; row: number; span: 1
       data-jfit={jfit || undefined}
       data-ghost={ghost || undefined}
       data-live={led ?? undefined}
+      data-paccept={accept || undefined}
+      data-pover={dropOver || undefined}
       data-testid="pb-module"
       style={{ gridColumn: m.col * 2 - 1, gridRow: `${row + 1} / span ${span}` }}
       onClick={onClick}
@@ -236,7 +242,7 @@ function ModuleView({ m, row, span, descId }: { m: ModuleT; row: number; span: 1
       <i className="pb-sc pb-sc--br" aria-hidden="true" />
       <div className="pb-mod__in">
         {m.inJacks.map((j) => (
-          <Jack key={j.key} jack={j} label={w.jack(j, m, jfit)} title={w.jackTitle(j, m, w.peers(j.key))} roleLabel={roleLabel} keys={jackKeys} lit={!!lit && edgesAt(model, j.key).some((e) => lit.edges.has(e.id))} />
+          <Jack key={j.key} jack={j} label={w.jack(j, m, jfit)} title={w.jackTitle(j, m, w.peers(j.key))} roleLabel={roleLabel} keys={jackKeys} patching={patching} lit={!!lit && edgesAt(model, j.key).some((e) => lit.edges.has(e.id))} />
         ))}
       </div>
       <div className="pb-mod__body" ref={bodyRef}>
@@ -323,7 +329,7 @@ function ModuleView({ m, row, span, descId }: { m: ModuleT; row: number; span: 1
       )}
       <div className="pb-mod__out">
         {m.outJacks.map((j) => (
-          <Jack key={j.key} jack={j} label={w.jack(j, m, jfit)} title={w.jackTitle(j, m, w.peers(j.key))} roleLabel={roleLabel} keys={jackKeys} guessedTitle={t(`${P}.jack.guessed`)} lit={!!lit && edgesAt(model, j.key).some((e) => lit.edges.has(e.id))} />
+          <Jack key={j.key} jack={j} label={w.jack(j, m, jfit)} title={w.jackTitle(j, m, w.peers(j.key))} roleLabel={roleLabel} keys={jackKeys} patching={patching} guessedTitle={t(`${P}.jack.guessed`)} lit={!!lit && edgesAt(model, j.key).some((e) => lit.edges.has(e.id))} />
         ))}
       </div>
       {model1 && budget && (

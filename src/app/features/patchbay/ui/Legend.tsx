@@ -11,7 +11,7 @@ import { useRack } from './RackContext'
 
 const P = 'features.patchbay'
 
-export function Legend({ band }: { band?: { undo: boolean } | null } = {}) {
+export function Legend({ band, patching }: { band?: { undo: boolean } | null; patching?: boolean } = {}) {
   const { model, words: w, marks } = useRack()
   const t = w.t
   if (band) {
@@ -134,6 +134,12 @@ export function Legend({ band }: { band?: { undo: boolean } | null } = {}) {
         )}
         <Kbd>↵</Kbd>
         <span className="label">{t(`${P}.legend.open`)}</span>
+        {patching && (
+          <span className="pb-legend__patch" data-testid="pb-legend-patch">
+            <Kbd>{t(`${P}.legend.delKey`)}</Kbd>
+            <span className="label">{t(`${P}.legend.unplug`)}</span>
+          </span>
+        )}
       </span>
     </div>
   )

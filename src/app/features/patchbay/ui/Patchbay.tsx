@@ -29,6 +29,13 @@
  * ghosts and planned cables (setup/merge.ts), the band and the lamps on the rack (or the card in the strands view), what
  * the profile does not touch folded; later visits show the one-line strip (SetupStrip.tsx) above the normal rack, the
  * ghosts dotted in place. The visit ends when the page closes — unless a setup step left it (the way back is set then).
+ *
+ * B16 — patching (P4, plan §1.13, §2.9, §3.9): the head's Patching switch (this device's; off by default, hidden for
+ * viewers, read-only members and the strands view). On: a press on a jack that moves pulls a cable (PatchDrag.tsx), a
+ * click / tap or J on a jack opens "Connect to …" (ConnectPicker.tsx), Delete / Backspace on a jack unplugs it; each
+ * patch is planned (the editors' checks first), asked once at the target jack where it asks ("+F2" — PatchPop.tsx) and
+ * written with a toast and its Undo (patchRun.ts; Mod+Z on the route takes back the newest key, drop or patch). Off: J
+ * still finds jacks, nothing else patches.
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
@@ -79,6 +86,13 @@ import { DropZone, useDragZone } from './DropZone'
 import { PasteProfile } from './PasteProfile'
 import { BandHead, SetupCard, SetupPlate, type BandInfo } from './SetupBand'
 import { SetupStrip } from './SetupStrip'
+import { usePlateWordsOf } from './plateParts'
+import { lastPatch, setPatching, usePatchSwitch } from '../patching'
+import { resetPatchUI, setPick, usePatchUI } from './patchUI'
+import { pickChoice, runPatchUndo, startPatch, unplugJack } from './patchRun'
+import { ConnectPicker } from './ConnectPicker'
+import { PatchPop } from './PatchPop'
+import type { PatchPointer } from './PatchDrag'
 import '../patchbay.css'
 
 const P = 'features.patchbay'
@@ -89,6 +103,13 @@ const NO_CHIPS: Record<ModuleKey, number[]> = Object.freeze({}) as Record<Module
 const RACK_MIN = 880
 /** Below this (× the text size) the readout keeps RUNS TODAY and FUSE only (§3.8). */
 const PHONE_MAX = 600
+/** B16: the jacks' keys while patching (their description). */
+const PATCH_KEYS = { keysId: 'pb-patch-keys' }
+/** What Mod+Z on the route takes back besides the keys (newest first): the profile drop (B12), a patch (B16). */
+const UNDO_EXTRAS = [
+  { at: dropUndoAt, run: () => void runDropUndo() },
+  { at: () => lastPatch()?.at ?? null, run: (pw: Parameters<typeof runPatchUndo>[0]) => void runPatchUndo(pw) },
+]
 
 /** "Fuse F1 selected — Mails · new row → Inbox-Helfer → …": what F and a `?f=` link say. */
 function fuseSaid(f: FuseState, model: Model, words: Words): string {
@@ -148,7 +169,10 @@ export default function Patchbay(props: PatchbayRouteProps) {
   }, [])
   useEffect(() => {
     markSeen()
-    return () => resetPbUI()
+    return () => {
+      resetPbUI()
+      resetPatchUI()
+    }
   }, [])
 
   // the keyboard lands on the title — only when nobody has it (⌘K, a link, a lamp left it nowhere)
@@ -201,6 +225,7 @@ export default function Patchbay(props: PatchbayRouteProps) {
   const extra = useMemo<WordsExtra | null>(() => (plan ? { names: plan.names, chips: plan.chips } : null), [plan])
   const words = useWords(model, input, extra)
   const marks = useMemo(() => (model ? fuseMarks(model) : null), [model])
+  const pw = usePlateWordsOf(model, input, words)
   const drop = useDrop((s) => s.done)
   // the drop's Undo is over once a lamp that was not green after the drop turns green (§6 U4)
   useEffect(() => {
@@ -237,6 +262,18 @@ export default function Patchbay(props: PatchbayRouteProps) {
   const scale = width ? textScale() : 1
   const narrow = width > 0 && (width < RACK_MIN * scale || (tightAt !== null && width <= tightAt))
   const phone = width > 0 && width < PHONE_MAX * scale
+
+  // B16 — patching: this device's switch, the person's rights (never a viewer or a read-only member), the rack (the
+  // strands view has no jacks)
+  const patchOn = usePatchSwitch((s) => s.on)
+  const canPatch = !!input && !input.ctx.readOnly && input.ctx.role !== 'viewer'
+  const patching = patchOn && canPatch && !narrow
+  const pick = usePatchUI((s) => s.pick)
+  const pop = usePatchUI((s) => s.pop)
+  // switched off (or the rights or the view went): nothing of a patch in flight stays
+  useEffect(() => {
+    if (!patching) resetPatchUI()
+  }, [patching])
 
   const fuses = useMemo(() => (model ? fuseCounts(model as never) : { open: 0, allowed: 0, unknown: 0 }), [model])
   const filter: FilterPreset | null = model ? (ui.filter === 'auto' ? defaultPreset(model, fuses.open) : ui.filter) : null
@@ -432,20 +469,34 @@ export default function Patchbay(props: PatchbayRouteProps) {
     announce(fuseSaid(next, model, words))
   }, [model, marks, words, t, showFuse])
 
-  // J and F (focus in the page, nobody typing, no menu / dialog open over it)
+  // J and F (focus in the page, nobody typing, no menu / dialog open over it); B16 with patching on: J on a jack opens
+  // "Connect to …", Delete / Backspace on a jack unplugs it
+  const patchRef = useRef<{ on: boolean; model: Model | null; input: typeof input; pw: typeof pw }>({ on: false, model: null, input: null, pw: null })
+  patchRef.current = { on: patching, model, input, pw }
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || e.repeat) return
       const k = e.key.toLowerCase()
-      if (k !== 'j' && k !== 'f') return
+      const del = k === 'delete' || k === 'backspace'
+      if (k !== 'j' && k !== 'f' && !del) return
       const page = pageRef.current
       const at = document.activeElement
       if (!page || typing() || !keysHere(page, at)) return
       if (at?.closest('[data-popover], [role="dialog"]')) return
+      const jack = at instanceof HTMLElement && at.matches('.pb-jk[data-jack]') && page.contains(at) ? at : null
+      const pr = patchRef.current
+      if (del) {
+        if (!jack || !pr.on || !pr.model || !pr.input || !pr.pw) return
+        e.preventDefault()
+        unplugJack(jack, pr.model, pr.input, pr.pw)
+        return
+      }
       // J finds a jack on the rack (the strands view has none)
       if (k === 'j' && !page.querySelector('.pb-rack')) return
       e.preventDefault()
       if (k === 'f') nextFuse()
+      // patching: J on a jack connects it
+      else if (jack && pr.on) setPick({ jack: jack.dataset.jack!, anchor: jack })
       // from nowhere the picker hangs at the rack's tab stop (Esc gives the keyboard there), else at the h1
       else setPicker(at instanceof HTMLElement && page.contains(at) ? at : (page.querySelector<HTMLElement>('.pb-rack [data-stop][tabindex="0"]') ?? h1.current))
     }
@@ -486,6 +537,37 @@ export default function Patchbay(props: PatchbayRouteProps) {
     picture: model && words ? (from) => openPicture(model, words, from) : null,
     // the drop chip: hidden while a band is on (and for viewers)
     drop: readOnly || bandOn ? null : (from) => setChipAt(from),
+    patch:
+      canPatch && !narrow
+        ? {
+            on: patchOn,
+            set: (on) => {
+              setPatching(on)
+              announce(t(on ? `${P}.patch.onSay` : `${P}.patch.offSay`))
+            },
+          }
+        : null,
+  }
+  // the rack's pointer while patching: a drop plans the patch at the jack it landed on, a click / tap opens the picker
+  const pointer = useMemo<PatchPointer | null>(
+    () =>
+      patching && model && input && pw
+        ? {
+            model,
+            input,
+            drop: (patch, anchor, source) => startPatch(patch, { anchor, source }, pw),
+            pick: (el) => setPick({ jack: el.dataset.jack!, anchor: el }),
+            say: { start: (jack) => t(`${P}.patch.dragSay`, { jack }), cancelled: t(`${P}.patch.cancelled`) },
+          }
+        : null,
+    [patching, model, input, pw, t],
+  )
+  const closeConnect = (why: 'escape' | 'outside') => {
+    const from = pick?.anchor
+    setPick(null)
+    requestAnimationFrame(() => {
+      if (from?.isConnected && (why === 'escape' || focusLost() || focusIsNowhere())) restoreFocus(from)
+    })
   }
   const closeChip = () => {
     const from = chipAt
@@ -529,7 +611,7 @@ export default function Patchbay(props: PatchbayRouteProps) {
   // the rack's one tab stop: where the keyboard was last, else the selection, else the first module
   const onRack = (id: string | null) => !!id && !!layout?.slots.some((s) => s.id === id)
   const entry = onRack(ui.cursor) ? ui.cursor : onRack(ui.selected) ? ui.selected : (layout?.slots.find((s) => s.kind === 'module')?.id ?? null)
-  const ctx: RackCtx | null = model && input && words && marks ? { model, input, words, marks, lit, runs: live.runs, costs: live.costs, entry, setup: setupFacts } : null
+  const ctx: RackCtx | null = model && input && words && marks ? { model, input, words, marks, lit, runs: live.runs, costs: live.costs, entry, setup: setupFacts, patching: patching ? PATCH_KEYS : null } : null
   const profiles = layout?.profiles ?? []
 
   return (
@@ -570,6 +652,7 @@ export default function Patchbay(props: PatchbayRouteProps) {
               ctx={ctx}
               layout={layout}
               onFuse={showFuse}
+              patching={pointer}
               band={
                 bandOn && info && set && lamps
                   ? {
@@ -590,7 +673,16 @@ export default function Patchbay(props: PatchbayRouteProps) {
       {ctx && layout && !narrow && model!.edges.length > 0 && <FuseArea model={model!} input={input!} words={words!} />}
       {ctx && layout && !narrow && model!.edges.length > 0 && <Plain model={model!} input={input!} words={words!} />}
       {picker && words && <JackPicker anchor={picker} rows={rows} t={words.t} onPick={pickJack} onClose={closePicker} />}
-      {model && input && words && <UndoKeysHost page={pageRef} model={model} input={input} words={words} extra={{ at: dropUndoAt, run: () => void runDropUndo() }} />}
+      {patching && pick && model && input && pw && (
+        <ConnectPicker key={`${pick.jack}|${pick.only ?? ''}`} anchor={pick.anchor} jack={pick.jack} only={pick.only} model={model} input={input} pw={pw} onPick={(c) => pickChoice(c, { el: pick.anchor, key: pick.jack }, pw)} onClose={closeConnect} />
+      )}
+      {patching && pop && pw && <PatchPop pop={pop} pw={pw} />}
+      {patching && (
+        <p id={PATCH_KEYS.keysId} className="visually-hidden">
+          {t(`${P}.patch.jackKeys`)}
+        </p>
+      )}
+      {model && input && words && <UndoKeysHost page={pageRef} model={model} input={input} words={words} extra={UNDO_EXTRAS} />}
       <input
         ref={flow.fileRef}
         type="file"

@@ -463,3 +463,90 @@ test('team keys: an admin sees the grey row of a path only another member’s br
   await member.context().close()
   await viewer.context().close()
 })
+
+/* ------------------------------------------------------------------ B16: patching in a team */
+
+/** This device's tracker server (tested: seven tools), its Patching switch on, the Patchbay open, its idle fold open. */
+async function patchingOn(p: Page): Promise<void> {
+  await wsEval(p, (s) =>
+    s.updateSettings({
+      mcpServers: [{ id: 'srvTracker', name: 'tracker', url: 'https://tracker.example/mcp', token: '', enabled: true, prompt: '', tools: ['query_issues', 'get_issue', 'whoami', 'create_issue', 'update_issue', 'add_comment', 'post_status'], checkedAt: 1 }],
+    }),
+  )
+  await p.evaluate(() => localStorage.setItem('one.patchbay.patch', '1'))
+  await openPatchbayIn(p)
+  const fold = p.getByTestId('pb-fold').filter({ hasText: 'tracker' })
+  if (await fold.count()) await fold.click()
+  await expect(p.locator('.pb-jk[data-jack="server:srvTracker.write"]')).toBeVisible()
+}
+
+test('patching in a team: a member cannot lock a tool (OUT) — the owners and admins named; an admin can; a viewer gets no switch and no drop targets', async ({ page, context }) => {
+  await signIn(page, email('mara'))
+  expect((await api(page, 'PATCH', '/api/me', { name: 'Mara Lind' })).status).toBe(200)
+  const maraId = (await api<{ user: { id: string } }>(page, 'GET', '/api/me')).json.user.id
+  const wsId = await createWorkspace(page, 'Nordlicht Patchen')
+  const member = await newPerson(context)
+  await signIn(member, email('tessera'))
+  expect((await api(member, 'PATCH', '/api/me', { name: 'Tessera Nord' })).status).toBe(200)
+  await join(page, member, wsId, 'member')
+  const admin = await newPerson(context)
+  await signIn(admin, email('nordlicht'))
+  expect((await api(admin, 'PATCH', '/api/me', { name: 'Nordlicht Ops' })).status).toBe(200)
+  await join(page, admin, wsId, 'admin')
+  const viewer = await newPerson(context)
+  await signIn(viewer, email('gast'))
+  await join(page, viewer, wsId, 'viewer')
+  await openApp(page, wsId)
+  await waitOnline(page)
+  await seedTeamF1(page, maraId)
+  // the profile IN-01 matches the tracker server by name (an owner writes it)
+  expect(await wsEval(page, (s) => s.upsertIntegration({ schema: 'one.integration/1', id: 'in-01', name: 'IN-01', match: { name: 'tracker' }, unlocks: [], reads: ['query_issues', 'get_issue', 'whoami'] }))).toBe(true)
+
+  // the member: the OUT lock is listed, refused with the owners and admins named — nothing written
+  await openApp(member, wsId)
+  await waitOnline(member)
+  await expect.poll(() => wsEval(member, (s) => (s.integrations ?? []).length)).toBe(1)
+  await patchingOn(member)
+  await member.locator('.pb-jk[data-jack="server:srvTracker.write"]').click()
+  const lockRow = (p: Page) => p.getByTestId('pb-connect').locator('[data-choice="lock:in-01:create_issue"]')
+  await expect(lockRow(member)).toHaveAttribute('data-state', 'refused')
+  await expect(lockRow(member)).toHaveAttribute('aria-disabled', 'true')
+  await expect(lockRow(member).getByTestId('pb-connect-why')).toContainText('Only owners and admins lock a tool:')
+  await expect(lockRow(member).getByTestId('pb-connect-why')).toContainText('Mara Lind')
+  await expect(lockRow(member).getByTestId('pb-connect-why')).toContainText('Nordlicht Ops')
+  await member.keyboard.press('Escape')
+
+  // an admin: locked — the profile's OUT tools hold it for every member
+  await openApp(admin, wsId)
+  await waitOnline(admin)
+  await expect.poll(() => wsEval(admin, (s) => (s.integrations ?? []).length)).toBe(1)
+  await patchingOn(admin)
+  await admin.locator('.pb-jk[data-jack="server:srvTracker.write"]').click()
+  await expect(lockRow(admin)).toHaveAttribute('data-state', 'ok')
+  await expect(lockRow(admin)).toContainText('create_issue → Outbox · IN-01')
+  await lockRow(admin).click()
+  await expect(admin.locator('.toast').filter({ hasText: 'Locked: create_issue (OUT) · Outbox · IN-01' }).last()).toBeVisible()
+  await expect.poll(() => wsEval(page, (s) => (s.integrations as AnyState[])[0]?.outTools ?? null)).toEqual(['create_issue'])
+  await expect.poll(() => wsEval(member, (s) => (s.integrations as AnyState[])[0]?.outTools ?? null)).toEqual(['create_issue'])
+
+  // the viewer: no switch, the jacks no drop targets, a click opens nothing
+  await openApp(viewer, wsId)
+  await waitOnline(viewer)
+  await viewer.evaluate(() => localStorage.setItem('one.patchbay.patch', '1'))
+  await openPatchbayIn(viewer)
+  await expect(viewer.getByTestId('pb-wires')).toBeVisible()
+  await expect(viewer.getByTestId('pb-patching')).toHaveCount(0)
+  await expect(viewer.getByTestId('pb-bench')).not.toHaveAttribute('data-patching', '')
+  const j = viewer.locator('.pb-jk[data-jack="agent:agInbox.start"]')
+  await j.click()
+  await expect(viewer.getByTestId('pb-connect')).toHaveCount(0)
+  const b = (await j.locator('.pb-jack').boundingBox())!
+  await viewer.mouse.move(b.x + b.width / 2, b.y + b.height / 2)
+  await viewer.mouse.down()
+  await viewer.mouse.move(b.x + 200, b.y + 40, { steps: 6 })
+  await expect(viewer.getByTestId('pb-drag')).toHaveCount(0)
+  await viewer.mouse.up()
+  await member.context().close()
+  await admin.context().close()
+  await viewer.context().close()
+})

@@ -5,15 +5,19 @@
  * "⋯" menu — measured, never guessed from the width (a German head needs more room than an English one):
  *   full: every key · menu: the filter stays, the rest goes into ⋯ · tight: ⋯ alone (the filter opens from it too).
  * The drop chip (B12) opens its menu — Choose a file · Paste — or, for a team member without the rights, who can drop
- * a profile (DropFlow.tsx DropChip); it is hidden while a setup band is on and for viewers. The Patching switch (P4)
- * joins in B16.
+ * a profile (DropFlow.tsx DropChip); it is hidden while a setup band is on and for viewers.
+ *
+ * B16 — the Patching switch (P4, §1.13, §6 U16): a glass rocker "Patching" / "Patchen" first on the right, off by
+ * default, this device's (patching.ts). Hidden for viewers and read-only members, and on the strands view (no jacks to
+ * patch there). In the tight head it is an entry of ⋯ that says its state.
  */
 import { forwardRef, useLayoutEffect, useRef, useState, type MouseEvent } from 'react'
-import { Ellipsis, FileJson, List, ListFilter, Maximize2 } from 'lucide-react'
+import { Cable, Ellipsis, FileJson, List, ListFilter, Maximize2 } from 'lucide-react'
 import { useLang } from '../../../i18n'
 import { focusLost, restoreFocus } from '../../../ui/focus'
 import { resolveAssetUrl } from '../../../lib/files'
 import { Menu, useMenu, type MenuEntry } from '../../../ui/Menu'
+import { Switch } from '../../../ui/controls'
 import type { Translate } from '@/shared/i18n'
 import type { FilterPreset, ModelInput } from '../types'
 import { FilterKey, FilterPanel, filterLabel } from './Filter'
@@ -27,6 +31,8 @@ export interface HeadKeys {
   picture: ((from: HTMLElement | null) => void) | null
   /** the drop chip's menu, opened at the key pressed (the chip, or ⋯ when the head folded it) */
   drop: ((from: HTMLElement | null) => void) | null
+  /** B16: the Patching switch (null: hidden — a viewer, a read-only member, the strands view) */
+  patch: { on: boolean; set: (on: boolean) => void } | null
 }
 
 export const Header = forwardRef<HTMLHeadingElement, { t: Translate; input: ModelInput | null; filter: FilterPreset | null; profiles: string[]; hasFuses: boolean; keys: HeadKeys; width: number }>(function Header({ t, input, filter, profiles, hasFuses, keys, width }, h1) {
@@ -38,7 +44,7 @@ export const Header = forwardRef<HTMLHeadingElement, { t: Translate; input: Mode
   const moreBtn = useRef<HTMLButtonElement>(null)
 
   // another width or language: the widest head that fits is looked for again, before the frame is painted
-  useLayoutEffect(() => setTier('full'), [width, lang, !!keys.drop, !!keys.picture])
+  useLayoutEffect(() => setTier('full'), [width, lang, !!keys.drop, !!keys.picture, !!keys.patch])
   useLayoutEffect(() => {
     const el = row.current
     if (!el || el.scrollWidth <= el.clientWidth + 1) return
@@ -60,6 +66,7 @@ export const Header = forwardRef<HTMLHeadingElement, { t: Translate; input: Mode
   }
 
   const entries: MenuEntry[] = [
+    ...(tier === 'tight' && keys.patch ? [{ label: t(`${P}.patching`), icon: <Cable size={14} />, checked: keys.patch.on, onSelect: () => keys.patch!.set(!keys.patch!.on) }] : []),
     { label: t(`${P}.asList`), icon: <List size={14} />, onSelect: keys.asList },
     ...(tier === 'tight' && input ? [{ label: filterLabel(t, filter, input), icon: <ListFilter size={14} />, onSelect: () => setFilterAt(moreBtn.current) }] : []),
     ...(keys.picture ? [{ label: t(`${P}.picture`), icon: <Maximize2 size={14} />, onSelect: () => keys.picture!(moreBtn.current) }] : []),
@@ -74,6 +81,14 @@ export const Header = forwardRef<HTMLHeadingElement, { t: Translate; input: Mode
       </h1>
       <span className="label pb-head__sub">{t(`${P}.sub`)}</span>
       <span className="pb-head__sp" />
+      {tier !== 'tight' && keys.patch && (
+        <label className="pb-patchsw" title={t(`${P}.patchingTitle`)} data-on={keys.patch.on || undefined} data-testid="pb-patching">
+          <Switch size="sm" checked={keys.patch.on} onChange={keys.patch.set} label={t(`${P}.patching`)} seed="patchbay-patching" />
+          <span className="label pb-patchsw__l" aria-hidden="true">
+            {t(`${P}.patching`)}
+          </span>
+        </label>
+      )}
       {tier === 'full' && (
         <button type="button" className="btn btn--ghost pb-key" title={t(`${P}.asListTitle`)} onClick={keys.asList} data-testid="patchbay-as-list">
           <List size={14} strokeWidth={1.7} aria-hidden="true" />

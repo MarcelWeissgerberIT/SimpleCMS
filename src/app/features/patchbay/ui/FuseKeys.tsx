@@ -317,7 +317,7 @@ export function UndoAllLine({ pw }: { pw: PlateWords }) {
  * (or nowhere), nobody typing, no dialog or popover open and nobody else having taken the key. Nothing to take back:
  * the key is left alone.
  */
-export function PatchbayUndoKeys({ page, pw, extra }: { page: RefObject<HTMLElement | null>; pw: PlateWords; extra?: UndoExtra | null }) {
+export function PatchbayUndoKeys({ page, pw, extra }: { page: RefObject<HTMLElement | null>; pw: PlateWords; extra?: UndoExtra | UndoExtra[] | null }) {
   const latest = useRef(pw)
   latest.current = pw
   const more = useRef(extra)
@@ -331,12 +331,18 @@ export function PatchbayUndoKeys({ page, pw, extra }: { page: RefObject<HTMLElem
       if (!root || typing(at)) return
       if (!(focusIsNowhere(at) || (!!at && root.contains(at)))) return
       if (document.querySelector('[aria-modal="true"]') || at?.closest('[data-popover], [role="dialog"]')) return
-      // B12: a profile drop of this visit is one more thing Mod+Z takes back — the newest of it and the keys goes first
+      // B12: a profile drop of this visit is one more thing Mod+Z takes back, B16 a patch — the newest of them and the
+      // keys goes first
       const key = lastKey()
-      const drop = more.current?.at() ?? null
-      if (!key && drop === null) return
+      const extras = more.current ? (Array.isArray(more.current) ? more.current : [more.current]) : []
+      let best: { at: number; x: UndoExtra } | null = null
+      for (const x of extras) {
+        const at = x.at()
+        if (at !== null && (!best || at > best.at)) best = { at, x }
+      }
+      if (!key && !best) return
       e.preventDefault()
-      if (drop !== null && (!key || drop > key.at)) more.current!.run()
+      if (best && (!key || best.at > key.at)) best.x.run(latest.current)
       else undoNewest(latest.current)
     }
     window.addEventListener('keydown', onKey)
@@ -345,14 +351,14 @@ export function PatchbayUndoKeys({ page, pw, extra }: { page: RefObject<HTMLElem
   return null
 }
 
-/** Something else Mod+Z on the route takes back (B12: the profile drop): when it was done (null: nothing) and its Undo. */
+/** Something else Mod+Z on the route takes back (B12: the profile drop, B16: a patch): when it was done (null: nothing) and its Undo. */
 export interface UndoExtra {
   at: () => number | null
-  run: () => void
+  run: (pw: PlateWords) => void
 }
 
 /** The page's Mod+Z, with the plate's words (mounted once the model is there). */
-export function UndoKeysHost({ page, model, input, words, extra }: { page: RefObject<HTMLElement | null>; model: Model; input: ModelInput; words: Words; extra?: UndoExtra | null }) {
+export function UndoKeysHost({ page, model, input, words, extra }: { page: RefObject<HTMLElement | null>; model: Model; input: ModelInput; words: Words; extra?: UndoExtra | UndoExtra[] | null }) {
   const pw = usePlateWords(model, input, words)
   return <PatchbayUndoKeys page={page} pw={pw} extra={extra} />
 }

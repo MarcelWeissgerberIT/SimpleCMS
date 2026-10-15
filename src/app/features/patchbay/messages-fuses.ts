@@ -275,6 +275,7 @@ export const messages: Messages = {
     'features.patchbay.kind.everything': 'Whole workspace',
     'features.patchbay.kind.outbound': 'Way out',
     'features.patchbay.module.outbox.kind': 'Outbox',
+    'features.patchbay.module.outbox.profile': 'Outbox · {profile}',
     'features.patchbay.exit.webhook': 'Webhook',
     'features.patchbay.exit.git': 'Git',
     // a name in quotes (plain.ts, the plate's chips, the strands): “…” in English, „…“ in German
@@ -692,6 +693,7 @@ export const messages: Messages = {
     'features.patchbay.kind.everything': 'Ganzer Arbeitsbereich',
     'features.patchbay.kind.outbound': 'Weg nach außen',
     'features.patchbay.module.outbox.kind': 'Ausgang',
+    'features.patchbay.module.outbox.profile': 'Ausgang · {profile}',
     'features.patchbay.exit.webhook': 'Webhook',
     'features.patchbay.exit.git': 'Git',
     'features.patchbay.q.open': '„',

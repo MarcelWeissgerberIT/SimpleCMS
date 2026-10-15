@@ -3,7 +3,7 @@
  * cabled to" (fuzzy over the module's name and kind, the jack's label and the names at the other end). P0–P3 only find:
  * ↵ / click puts the keyboard on that jack (a folded module's fold opens first; jacks of targets bundled into a "+n" chip
  * are reached through the chip). Esc closes and gives the keyboard back to where J was pressed (the page does that —
- * Patchbay.tsx). B16 adds "Connect to …" on a focused jack.
+ * Patchbay.tsx). With the Patching switch on (B16), J on a focused jack opens "Connect to …" instead (ConnectPicker.tsx).
  */
 import { useEffect, useMemo, useRef } from 'react'
 import { Command, defaultFilter } from 'cmdk'

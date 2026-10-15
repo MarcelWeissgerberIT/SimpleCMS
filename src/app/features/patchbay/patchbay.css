@@ -3663,6 +3663,333 @@ html[data-pb-noblink] .pb .led[data-hot] {
   }
 }
 
+/* ================================================================== B16 — patching (P4, plan §1.13, §6 U16) */
+
+/* the Patching switch in the head: a glass rocker and its mono word (the word toggles it too) */
+.pb-patchsw {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  padding: 0 6px 0 2px;
+  cursor: pointer;
+  user-select: none;
+}
+.pb-patchsw__l.label {
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.pb-patchsw[data-on] .pb-patchsw__l.label {
+  color: var(--ink);
+}
+
+/* patching on: every jack is a key — a hit area of 24 × 24 px × the text size around the socket (the socket's centre
+   stays where the cables end), a grab hand for the mouse */
+.pb-bench[data-patching] .pb-jk {
+  cursor: grab;
+}
+.pb-bench[data-patching] .pb-jack::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: calc(24px * var(--text-scale));
+  height: calc(24px * var(--text-scale));
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+}
+.pb-bench[data-patching] .pb-jk:hover .pb-jack {
+  box-shadow: 0 0 0 2px var(--screw-head), 0 0 0 3px var(--ink);
+}
+html[data-pb-dragging] {
+  user-select: none;
+}
+html[data-pb-dragging] .pb-bench[data-patching],
+html[data-pb-dragging] .pb-bench[data-patching] * {
+  cursor: grabbing;
+}
+
+/* a cable pulled: the jacks it may plug into lit in ink (never orange), the rest dimmed; the one under the pointer
+   ringed wider; a module whose jack is not drawn yet takes the drop (ink outline) */
+.pb-jk[data-pdrag='no'] {
+  opacity: 0.3;
+}
+.pb-jk[data-pdrag='accept'] .pb-jack,
+.pb-jk[data-pdrag='source'] .pb-jack {
+  box-shadow: 0 0 0 2px var(--screw-head), 0 0 0 4px var(--ink);
+}
+.pb-jk[data-pdrag='accept'] .pb-jk__l {
+  color: var(--ink);
+}
+.pb-jk[data-pdrag='accept'][data-pover] .pb-jack {
+  box-shadow: 0 0 0 2px var(--screw-head), 0 0 0 5px var(--ink), 0 0 0 9px color-mix(in srgb, var(--ink) 16%, transparent);
+}
+.pb-mod[data-paccept] {
+  outline: 1px solid var(--ink);
+  outline-offset: 2px;
+}
+.pb-mod[data-paccept][data-pover] {
+  outline-width: 2px;
+}
+
+/* the live cable: the cable layer's own look, a plug at the pointer, "+F2" on it when the drop would open a fuse (the
+   fuse's tag — the only orange of a drag) */
+.pb-dragw {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+.pb-dragw__halo {
+  fill: none;
+  stroke: var(--pb-halo);
+  stroke-width: 6.5;
+  stroke-linecap: round;
+}
+.pb-dragw__c {
+  fill: none;
+  stroke: var(--pb-cable);
+  stroke-width: 2.6;
+  stroke-linecap: round;
+  stroke-dasharray: 7 5;
+}
+.pb-dragw[data-over] .pb-dragw__c {
+  stroke: var(--ink);
+  stroke-width: 3.2;
+  stroke-dasharray: none;
+}
+.pb-dragw__plug {
+  fill: var(--pb-cable);
+  stroke: var(--plate);
+  stroke-width: 1.5;
+}
+.pb-dragw__f rect {
+  fill: var(--plate);
+  stroke: var(--signal);
+  stroke-width: 1;
+}
+.pb-dragw__f text {
+  fill: var(--pb-sig);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+/* "Connect to …": the jack picker's list with a head, groups and each choice's state */
+.popover.pb-conn-pop {
+  width: calc(440px * var(--text-scale));
+}
+.pb-conn__head {
+  display: grid;
+  gap: 2px;
+  padding: 9px 12px 7px;
+  border-bottom: 1px solid var(--rule);
+}
+.pb-conn__head .label {
+  color: var(--ink-3);
+}
+.pb-conn__jack {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: var(--text-sm);
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pb-conn__group [cmdk-group-heading] {
+  padding: 8px 8px 4px;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.pb-conn__row {
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: 'k st' 'n st';
+  column-gap: 10px;
+  align-items: center;
+}
+.pb-conn__row .pb-pick__k {
+  grid-area: k;
+}
+.pb-conn__row .pb-pick__n {
+  grid-area: n;
+}
+.pb-conn__st {
+  grid-area: st;
+  display: inline-flex;
+  justify-content: flex-end;
+  max-width: calc(190px * var(--text-scale));
+  text-align: right;
+}
+.pb-conn__row[data-disabled='true'] {
+  grid-template-areas: 'k k' 'n n' 'st st';
+  cursor: default;
+}
+.pb-conn__row[data-disabled='true'] .pb-pick__n {
+  color: var(--ink-2);
+}
+.pb-conn__row[data-disabled='true'] .pb-conn__st {
+  justify-content: flex-start;
+  max-width: none;
+  text-align: left;
+}
+.pb-conn__why {
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  line-height: 1.35;
+  white-space: normal;
+}
+.pb-conn__tool {
+  padding: 0 3px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+.pb-conn__reading,
+.pb-conn__asks.label {
+  color: var(--ink-3);
+  font-size: var(--text-2xs);
+  white-space: nowrap;
+}
+.pb-conn__st .pb-tag--f {
+  padding: 1px 5px;
+  border-radius: 2px;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: 0.06em;
+}
+
+/* the popover at the target jack: asked once (the fuse it would open in its own tag), or why it did not connect */
+.popover.pb-ppop {
+  width: calc(330px * var(--text-scale));
+  max-width: calc(100vw - 16px);
+  padding: 0;
+}
+.pb-ppop__in {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px 12px;
+}
+.pb-ppop__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pb-ppop__head .label {
+  color: var(--ink-3);
+}
+.pb-ppop__head .pb-tag--f {
+  padding: 1px 6px;
+  border-radius: 2px;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: 0.06em;
+}
+.pb-ppop__route {
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--text-sm);
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+.pb-ppop__asks {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--ink);
+  font-size: var(--text-sm);
+  line-height: 1.4;
+}
+.pb-ppop__asks li {
+  padding-left: 10px;
+  border-left: 2px solid var(--ink-3);
+}
+.pb-ppop__asks li[data-ask='opensFuse'] {
+  border-left-color: var(--signal);
+}
+.pb-ppop__why {
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--text-sm);
+  line-height: 1.4;
+}
+.pb-ppop__in[data-kind='info'] .pb-ppop__why {
+  color: var(--ink-2);
+}
+.pb-ppop__note {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  line-height: 1.4;
+}
+.pb-ppop__keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 2px;
+}
+.pb-ppop__keys .btn {
+  gap: 6px;
+}
+.pb-ppop__keys .kbd {
+  margin-left: 2px;
+}
+
+/* the legend's patching key (Del · Unplug) */
+.pb-legend__patch {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-left: 6px;
+  padding-left: 9px;
+  border-left: 1px solid var(--rule);
+}
+
+@media (forced-colors: active) {
+  .pb-jk[data-pdrag='accept'] .pb-jack,
+  .pb-jk[data-pdrag='source'] .pb-jack {
+    outline: 3px solid CanvasText;
+  }
+  .pb-jk[data-pdrag='accept'][data-pover] .pb-jack {
+    outline: 4px solid Highlight;
+  }
+  .pb-mod[data-paccept] {
+    outline-color: CanvasText;
+  }
+  .pb-dragw {
+    forced-color-adjust: none;
+  }
+  .pb-dragw__halo {
+    stroke: Canvas;
+  }
+  .pb-dragw__c,
+  .pb-dragw__plug {
+    stroke: CanvasText;
+  }
+  .pb-dragw__plug {
+    fill: CanvasText;
+  }
+  .pb-dragw__f rect {
+    fill: Canvas;
+    stroke: Highlight;
+  }
+  .pb-dragw__f text {
+    fill: Highlight;
+  }
+}
+
 /* forced colours: every keyboard stop shows where the keyboard is — the focus ring is a box-shadow, which forced
    colours drop (§3.4, §6 U28). Last in the file: it beats the `:focus { outline: none }` rules above. */
 @media (forced-colors: active) {

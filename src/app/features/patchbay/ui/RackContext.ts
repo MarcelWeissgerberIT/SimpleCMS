@@ -25,6 +25,8 @@ export interface RackCtx {
    * worked on now (its chip in ink), a ghost database's field count (its window: "24 fields")
    */
   setup?: { chips: Record<ModuleKey, number[]>; next: number | null; fields: Record<ModuleKey, number> } | null
+  /** B16 — patching is on here (the switch, rights, the rack): jacks say their keys (J connect · Delete unplug) */
+  patching?: { keysId: string } | null
 }
 
 export const RackContext = createContext<RackCtx | null>(null)

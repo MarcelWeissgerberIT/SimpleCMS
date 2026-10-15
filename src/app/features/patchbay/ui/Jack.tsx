@@ -6,12 +6,17 @@
  *
  * The keyboard reaches a jack through the jack picker (J, JackPicker.tsx) — it is never a tab stop of its own
  * (`tabIndex -1`, `data-jack`). On a jack: its cables light in ink; ↵ opens its module, Space selects the module, Esc
- * gives the keyboard back to the module, the arrows go on from the module (Rack.tsx). B16's patching makes the socket a
- * drop target and "Connect to …".
+ * gives the keyboard back to the module, the arrows go on from the module (Rack.tsx).
+ *
+ * B16 — patching (the switch on): J on the jack opens "Connect to …", Delete / Backspace unplugs it (the page's keys,
+ * Patchbay.tsx), a click / tap opens the picker and a press that moves pulls a cable (PatchDrag.tsx). During a drag the
+ * jack says what it is to the cable: the source, a jack it may plug into (`data-pdrag="accept"`, lit in ink), or not
+ * (dimmed); `data-pover` while the pointer is on it. Its hit area grows to 24 × 24 px × the text size (patchbay.css).
  */
 import type { KeyboardEvent } from 'react'
 import type { Jack as JackT } from '../types'
 import { setCursor, setJack } from './store'
+import { useDragOver, useJackDrag } from './patchUI'
 
 export interface JackKeys {
   /** ↵ */
@@ -22,7 +27,9 @@ export interface JackKeys {
   back: () => void
 }
 
-export function Jack({ jack, label, title, roleLabel, guessedTitle, lit, keys }: { jack: JackT; label: string; title: string; roleLabel: string; guessedTitle?: string; lit?: boolean; keys: JackKeys }) {
+export function Jack({ jack, label, title, roleLabel, guessedTitle, lit, keys, patching }: { jack: JackT; label: string; title: string; roleLabel: string; guessedTitle?: string; lit?: boolean; keys: JackKeys; patching?: { keysId: string } | null }) {
+  const drag = useJackDrag(jack.key)
+  const over = useDragOver(jack.key)
   const text = label ? (
     <span className="pb-jk__l" title={jack.guessed ? guessedTitle : undefined}>
       {label}
@@ -52,6 +59,10 @@ export function Jack({ jack, label, title, roleLabel, guessedTitle, lit, keys }:
       role="group"
       aria-roledescription={roleLabel}
       aria-label={title}
+      aria-keyshortcuts={patching ? 'Enter Space J Delete' : undefined}
+      aria-describedby={patching ? patching.keysId : undefined}
+      data-pdrag={drag ?? undefined}
+      data-pover={over || undefined}
       tabIndex={-1}
       onKeyDown={onKeyDown}
       onFocus={(e) => {

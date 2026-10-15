@@ -37,6 +37,7 @@ import { Wires, type GlyphFuse } from './Wires'
 import { fuseNo } from './words'
 import { useLive } from '../live/live'
 import { cableLabels } from './liveWin'
+import { DragCable, usePatchPointer, type PatchPointer } from './PatchDrag'
 
 
 
@@ -148,8 +149,10 @@ export interface RackBand {
   undo: boolean
 }
 
-export function Rack({ ctx, layout, onFuse, band }: { ctx: RackCtx; layout: Layout; onFuse: (key: string) => void; band?: RackBand | null }) {
+export function Rack({ ctx, layout, onFuse, band, patching }: { ctx: RackCtx; layout: Layout; onFuse: (key: string) => void; band?: RackBand | null; patching?: PatchPointer | null }) {
   const bench = useRef<HTMLDivElement>(null)
+  // B16 — patching: a press on a jack pulls a cable, a click / tap opens "Connect to …" (PatchDrag.tsx)
+  usePatchPointer(bench, patching ?? null)
   const t = ctx.words.t
   const selectedFuse = usePbUI((s) => s.fuse)
   const stops = useMemo(() => stopsOf(layout), [layout])
@@ -228,7 +231,7 @@ export function Rack({ ctx, layout, onFuse, band }: { ctx: RackCtx; layout: Layo
   const bandRows = Math.max(1, ...inBand.map((x) => x.slot.row + x.slot.span - 1))
   return (
     <RackContext.Provider value={ctx}>
-      <div className="pb-bench" ref={bench} data-testid="pb-bench">
+      <div className="pb-bench" ref={bench} data-testid="pb-bench" data-patching={patching ? '' : undefined}>
         <section className="pb-rack screw-plate" aria-label={t(`${P}.rack.aria`, { m: counts.modules, c: counts.cables })} aria-describedby="pb-rack-hint" onClick={clear} onKeyDown={onKeyDown} data-testid="pb-rack">
           <Screws seed="patchbay-rack" />
           <p id="pb-rack-hint" className="visually-hidden">
@@ -266,9 +269,10 @@ export function Rack({ ctx, layout, onFuse, band }: { ctx: RackCtx; layout: Layo
               {lists(indexed, '', (slot) => slot)}
             </div>
           )}
-          {ctx.model.edges.length > 0 && <Legend band={bandMode ? { undo: band!.undo } : null} />}
+          {ctx.model.edges.length > 0 && <Legend band={bandMode ? { undo: band!.undo } : null} patching={!!patching} />}
         </section>
         <Wires bench={bench} layout={layout} model={ctx.model} lit={ctx.lit} fuseEdges={ctx.marks.edges} fuses={glyphs} active={active} onFuse={onFuse} labels={labels} t={t} />
+        {patching && <DragCable t={t} />}
       </div>
     </RackContext.Provider>
   )
