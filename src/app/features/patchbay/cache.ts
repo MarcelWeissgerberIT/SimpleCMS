@@ -17,7 +17,7 @@
  * PATCHBAY_STORE name the store for a caller that opens it itself.
  */
 import { createStore, del, delMany, get, keys, set, update, type UseStore } from 'idb-keyval'
-import type { HookInput, LazyCache, Place, RuntimeServerInput, ScriptScan } from './types'
+import type { HookInput, LazyCache, Place, RuntimeServerInput, ScriptScan, TokenInput } from './types'
 
 export const PATCHBAY_DB = 'one-patchbay'
 export const PATCHBAY_STORE = 'kv'
@@ -177,6 +177,8 @@ export interface LazyReadingsForCache {
   scans: Record<string, ScriptScan> | null
   runtime: RuntimeServerInput[] | 'forbidden' | null
   hooks: HookInput[] | 'forbidden' | null
+  /** fix (model): team API tokens (absent: not read — the cache keeps what it had) */
+  tokens?: TokenInput[] | 'forbidden' | null
   inbox: string | null
   inboxRead: boolean
 }
@@ -203,8 +205,8 @@ function cleanScan(s: ScriptScan): ScriptScan {
 
 /**
  * The lazy cache from what the route read (§1.2): script scans (by id, at their version), the server-agent runtime's
- * server names + hosts, team hooks' ids + target databases, the capture Inbox's id — ids and hosts only, never a title
- * or a text. A reading not taken yet keeps the cache's own; 'forbidden' is kept as none (the device may not read it —
+ * server names + hosts, team hooks' ids + target databases, team API tokens' ids + write scope, the capture Inbox's id —
+ * ids and hosts only, never a title or a text. A reading not taken yet keeps the cache's own; 'forbidden' is kept as none (the device may not read it —
  * the model names an unknown part either way).
  */
 export function lazyCacheOf(r: LazyReadingsForCache, prev: LazyCache | null, now: number): LazyCache {
@@ -212,10 +214,13 @@ export function lazyCacheOf(r: LazyReadingsForCache, prev: LazyCache | null, now
   if (r.scans) for (const [id, scan] of Object.entries(r.scans)) scripts[id] = cleanScan(scan)
   const runtime = r.runtime === null ? (prev?.runtime ?? null) : r.runtime === 'forbidden' ? null : r.runtime.map((x) => ({ name: String(x.name), host: x.host ? String(x.host) : null }))
   const hooks = r.hooks === null ? (prev?.hooks ?? null) : r.hooks === 'forbidden' ? null : r.hooks.map((h) => ({ id: String(h.id), db: h.db ? String(h.db) : null }))
+  const tokens = r.tokens == null ? (prev?.tokens ?? null) : r.tokens === 'forbidden' ? null : r.tokens.map((t) => ({ id: String(t.id), write: t.write === true }))
   return {
     v: 1,
     scripts: r.scans ? scripts : (prev?.scripts ?? {}),
     hooks,
+    // ids and the write flag only (never a token's name); kept only once read
+    ...(tokens ? { tokens } : {}),
     runtime,
     inbox: r.inboxRead ? r.inbox : (prev?.inbox ?? null),
     inboxRead: r.inboxRead || !!prev?.inboxRead,

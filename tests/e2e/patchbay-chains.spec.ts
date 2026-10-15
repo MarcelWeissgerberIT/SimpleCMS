@@ -282,7 +282,7 @@ test.describe('B3 · the engines’ rules (§1.3)', () => {
         databases: [leads],
         agents: [agent('agLeads', 'Lead-Pfleger', { runner, write: 'apply', scope: { everything: false, pages: [], databases: ['dbLeads'] }, trigger: { type: 'schedule', every: 'day', at: '08:00', tz: 'Europe/Berlin' }, createdBy: 'acMara' })],
         servers: [server('srvBeta', 'beta', { scope: 'all', tools: ['get_record', 'update_record'], checkedAt: 1 })],
-        ...(runner === 'server' ? { device: TEAM('acMara'), lazy: { hooks: [] } } : {}),
+        ...(runner === 'server' ? { device: TEAM('acMara'), lazy: { hooks: [], tokens: [] } } : {}),
       })
     const af = key({ kind: 'autofill', db: 'dbLeads', prop: 'pLeadSum' })
     const local = mk('browser')
@@ -380,7 +380,7 @@ test.describe('B3 · private data, relative to the source and the exit (§1.3 #3
       agents: [agent('agMara', 'Mara-Helfer', { write: 'apply', createdBy: 'acMara', updatedBy: 'acMara', scope: { everything: false, pages: ['pgPrivat'], databases: [] }, output: { pageId: 'pgReport', mode: 'append' }, mcpServers: ['tracker', 'alpha'], mcpTools: { tracker: [...TRACKER_READS], alpha: ['create_item'] } })],
       servers: [TRACKER(), ALPHA()],
       device: TEAM('acMara'),
-      lazy: { hooks: [] },
+      lazy: { hooks: [], tokens: [] },
     })
     const c = chainTo(modelOf(w), agentKey('agMara'), alphaKey)!
     expect(c.why?.private).toEqual([
@@ -424,7 +424,7 @@ test.describe('B3 · data rules (§1.3 #2, §6 A17)', () => {
       agents: [agent('agServer', 'Ticket-Wächter', { runner: 'server', write: 'apply', createdBy: 'acMara', scope: { everything: false, pages: [], databases: ['dbTickets'] }, mcpServers: ['tracker'] })],
       servers: [TRACKER()],
       device: TEAM('acNordlicht'),
-      lazy: { hooks: [], runtime: [{ name: 'tracker', host: 'tracker.example' }] },
+      lazy: { hooks: [], tokens: [], runtime: [{ name: 'tracker', host: 'tracker.example' }] },
     })
     const srv = agentKey('agServer')
     const rt = key({ kind: 'server', id: null, name: 'tracker', runtime: true })
@@ -468,7 +468,7 @@ test.describe('B3 · gates — a person in between (§1.3)', () => {
     expect(chainsOf(m, bridge).every((c) => !!c.gate)).toBe(true)
   })
 
-  test('coding: a team always confirms; locally an agent-written task waits for Confirm, an autofill-written one for the approvals', () => {
+  test('coding: an agent-written task waits for Confirm; otherwise the approvals decide per git stage, a team too (fix model)', () => {
     const stages = [
       { id: 'stQueue', kind: 'queue', auto: true },
       { id: 'stPush', kind: 'git', auto: true, gitAction: 'push' },
@@ -479,7 +479,7 @@ test.describe('B3 · gates — a person in between (§1.3)', () => {
         databases: [database('dbCoding', [prop('pCodingNote', 'Notiz', 'text'), ...(opts.autofill ? [prop('pCodingSum', 'Plan', 'text', { autofill: { preset: 'summary', auto: true } })] : [])], { system: 'coding', pipeline: stages })],
         agents: [agent('agCoder', 'Aufgaben-Schreiber', { write: 'apply', createdBy: 'acMara', scope: { everything: false, pages: [], databases: ['dbCoding'] } })],
         device,
-        lazy: device.ctx?.team ? { hooks: [] } : {},
+        lazy: device.ctx?.team ? { hooks: [], tokens: [] } : {},
       })
     const push = 'outbound:git:-:push'
     const coder = agentKey('agCoder')
@@ -487,16 +487,19 @@ test.describe('B3 · gates — a person in between (§1.3)', () => {
     const local = (approvals: 'all' | 'review' | 'none', autofill = false) => modelOf(mk({ worker: { ...LOCAL_DEVICE.worker, approvals } }, { autofill }))
     // an agent's task waits for Confirm, whatever the approvals say
     expect(chainTo(local('none'), coder, push)?.gate).toBe('confirm')
-    // autofill writes the task: approvals decide — none = unattended, all = after approval
+    // autofill writes the task: the approvals decide per git stage (coding/tasks.ts skipsGate) — none = unattended; this
+    // pipeline has no gate stage before the push at all, so "all" stops nowhere either
     expect(chainTo(local('none', true), af, push)?.gate).toBeUndefined()
     expect(chainTo(local('none', true), af, push)?.lamps?.out.on).toBe(true)
-    expect(chainTo(local('all', true), af, push)?.gate).toBe('afterApproval')
+    expect(chainTo(local('all', true), af, push)?.gate).toBeUndefined()
     // the agent's write starts that autofill, which writes the task last: the agent's path no longer waits (the
     // pipeline's way out depends on who entered it — a Confirm entry never hides an unattended one)
     const relay = chainTo(local('none', true), coder, push)!
     expect([relay.gate, relay.steps.map(stepNode)]).toEqual([undefined, ['@dbCoding:*', af, 'pipeline:dbCoding', push]])
+    // a team: the agent's write never carries trust (isAgentWriting) — and autofill's write on that row after it leaves
+    // it untrusted; autofill writing a trusted task in the worker's tab keeps it trusted (coding/trust.ts): approvals
     const team = modelOf(mk({ ...TEAM('acMara'), worker: { ...LOCAL_DEVICE.worker, approvals: 'none', confirm: 'always' } }, { autofill: true }))
-    expect([chainTo(team, coder, push)?.gate, chainTo(team, af, push)?.gate]).toEqual(['confirm', 'confirm'])
+    expect([chainTo(team, coder, push)?.gate, chainTo(team, af, push)?.gate]).toEqual(['confirm', undefined])
   })
 
   test('a hand start is no gate: a switched-off agent pressed from a command reaches its way out unattended', () => {

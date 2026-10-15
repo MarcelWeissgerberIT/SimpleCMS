@@ -15,12 +15,16 @@
  *          summary, direct props; autofill: preset / auto / skipReview / source / allowNewOptions; organise; bridge)
  *      a…  each automation on the path (trigger + actions, config fields only; a webhook's FULL URL and its header names
  *          and values as digests — nothing readable is kept; `run_script` with the script's updatedAt)
- *      k…  each kit relay (the own type's value code digest, the trust here)
+ *      k…  each kit relay (the own type's value code digest — never this device's trust in it: a sign-off is shared,
+ *          trust is per device; fix model)
  *      f…  each field on the path (type, agentReadOnly)
  *      p…  each other processor on the path (a relay agent, autofill, a script, a pipeline) — B4: a relay's settings
  *          change the path as much as the decider's
  *      s…  each server involved (name, host, READ / WRITE? / OUT tool names, the matching profiles' ids + reads + OUT
  *          tools + sends)
+ *      o   the outside sources the path's decider reads (fix model): kind, source module, place, and for taint its writer
+ *          and where that came from — ids only, withheld ones left out. A new source reaching an allowed path lapses
+ *          the allowance ("changed: <source>"): nobody allowed that path.
  *      x   the way out (webhook: host, method, URL + header digests · GitHub push: repo, includePrivate · git: the
  *          action, this device's approvals, the confirm rule · MCP: the server)
  *    At most 24 parts named `[a-z]\d{0,2}` (the sign-off store's limit): a long group folds its tail into its last part.
@@ -33,6 +37,7 @@
  */
 import { decisionChecks } from '@/shared/ai/route'
 import { keyPart } from './ref'
+import { placeKey } from './rules'
 import { serverToolGroups } from './tools'
 import type { Automation } from '../../store/types'
 import type { AgentInput, Chain, FuseState, Model, ModelInput, Module, ModuleKey, SignoffEntry } from './types'
@@ -285,7 +290,8 @@ function processorPart(m: Module, input: ModelInput): Record<string, unknown> | 
     }
     case 'pipeline': {
       const p = input.pipelines.find((x) => x.db === r.db)
-      return { k: 'pipeline', db: r.db, stages: (p?.stages ?? []).map((s) => ({ id: s.id, kind: s.kind, auto: !!s.auto, git: s.gitAction ?? null, hold: !!s.hold })) }
+      // `next` / `output` only when set (they decide where a task goes and what the worker writes)
+      return { k: 'pipeline', db: r.db, stages: (p?.stages ?? []).map((s) => ({ id: s.id, kind: s.kind, auto: !!s.auto, git: s.gitAction ?? null, hold: !!s.hold, ...(s.next ? { next: s.next } : {}), ...(s.output ? { output: s.output } : {}) })) }
     }
     default:
       return null
@@ -386,7 +392,8 @@ export function sigInputOf(chain: Chain, w: SigWorld): SigInput {
     } else if (m.ref.kind === 'kit') {
       const r = m.ref
       const kit = input.kit.find((x) => x.db === r.db && x.prop === r.prop)
-      k.push({ input: { type: r.type, code: kit?.code ?? null, trusted: kit?.trusted ?? null }, owners: [key] })
+      // the value code only: whether THIS device trusts it is device bookkeeping (a sign-off is shared)
+      k.push({ input: { type: r.type, code: kit?.code ?? null }, owners: [key] })
     } else {
       const part = processorPart(m, input)
       if (part) p.push({ input: part, owners: [key] })
@@ -426,11 +433,18 @@ export function sigInputOf(chain: Chain, w: SigWorld): SigInput {
       { letter: 'p', items: p },
       { letter: 's', items: s },
     ],
-    MAX_PARTS - 2,
+    MAX_PARTS - 3,
   )) {
     parts[part.name] = part.input
     owners[part.name] = part.owners
   }
+  // the outside sources (ids only): a new one reaching the path lapses its allowance
+  const outside = (chain.why?.outside ?? [])
+    .filter((src) => !src.withheld)
+    .map((src) => ({ kind: src.kind, source: src.source, place: src.place ? placeKey(src.place) : null, writer: src.writer ?? null, from: src.from ?? null }))
+    .sort((a, b) => (canon(a) < canon(b) ? -1 : 1))
+  parts.o = outside
+  owners.o = [...new Set(outside.flatMap((src) => [src.source, ...(src.writer ? [src.writer] : [])]))]
   parts.x = exitPart(chain, w, holder)
   owners.x = chain.exit ? [chain.exit.module, ...(holder && holder !== chain.decider && chain.exit.type !== 'mcp' ? [holder] : [])] : []
   return { parts, owners }

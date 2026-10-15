@@ -605,7 +605,7 @@ function oneAgent(a: CustomAgent, device: Partial<PbWorld['device']> = {}, lazy:
     servers: [server('srvTracker', 'tracker', { tools: [...TRACKER_TOOLS], checkedAt: 1 })],
     device,
     // team hooks are read by owners / admins only: the cases here say they hold none
-    lazy: device.ctx?.team ? { hooks: [], ...lazy } : lazy,
+    lazy: device.ctx?.team ? { hooks: [], tokens: [], ...lazy } : lazy,
   })
 }
 const TEAM = (me: string) => ({ ctx: { team: true, me, role: 'member' as const, readOnly: false, supports: ['ai', 'governor'] } })
@@ -660,7 +660,7 @@ test.describe('B2 · agents and this device — what is known here (§1.3, §1.2
   })
 
   test('a server agent with a webhook trigger: an incoming source, from outside, cabled straight to it', () => {
-    const m = modelOf(oneAgent({ ...base, runner: 'server', trigger: { type: 'webhook' }, mcpServers: [] }, TEAM('acMara'), { hooks: [] }))
+    const m = modelOf(oneAgent({ ...base, runner: 'server', trigger: { type: 'webhook' }, mcpServers: [] }, TEAM('acMara'), { hooks: [], tokens: [] }))
     const src = keyOf({ kind: 'incoming', hook: null, db: null, agent: 'agTessera' })
     expect(m.modules.find((x) => x.key === src)?.tags).toEqual(['outside', 'server'])
     expect(edgesFrom(m, src)).toMatchObject([{ kind: 'starts', to: `${key}.start`, outside: true }])
@@ -716,12 +716,17 @@ test.describe('B2 · sources, relays and ways out (§1.4, §1.15)', () => {
     expect(tagsOf('outbox:alpha:reply')).toEqual(['byHand'])
     expect(m.modules.find((x) => x.key === 'outbox:alpha:reply')?.nets).toEqual([{ place: { external: 'alpha' } }])
     expect(m.modules.some((x) => x.key === 'outbound:git:-:commit')).toBe(false)
-    // approvals "none" on this device: the push is unattended; with approvals it waits; a team always confirms
+    // approvals "none" on this device: the push is unattended; a gate the approvals stop at before it: after approval —
+    // the stages decide, not the level alone (fix model: this pipeline has no gate at all, so "review" passes too); a
+    // team's Confirm is the chains' part (who wrote the task), the drawing follows this device's approvals
     expect(tagsOf('outbound:git:-:push')).toEqual(['outbound'])
     const review = { ...ex, device: { ...ex.device, worker: { ...ex.device.worker, approvals: 'review' as const } } }
-    expect(modelOf(review).modules.find((x) => x.key === 'outbound:git:-:push')?.tags).toEqual(['afterApproval'])
-    const team = { ...ex, device: { ...ex.device, ctx: { ...ex.device.ctx, team: true, me: 'acMara' }, worker: { ...ex.device.worker, approvals: 'none' as const } }, lazy: { ...ex.lazy, hooks: [] } }
-    expect(modelOf(team).modules.find((x) => x.key === 'outbound:git:-:push')?.tags).toEqual(['afterApproval'])
+    expect(modelOf(review).modules.find((x) => x.key === 'outbound:git:-:push')?.tags).toEqual(['outbound'])
+    const gated = structuredClone(review)
+    gated.ws.databases.dbExCoding = { ...gated.ws.databases.dbExCoding, pipeline: [{ id: 'exQueue', kind: 'queue', auto: true }, { id: 'exGate', kind: 'gate', auto: false }, { id: 'exPush', kind: 'git', auto: true, gitAction: 'push' }] }
+    expect(modelOf(gated).modules.find((x) => x.key === 'outbound:git:-:push')?.tags).toEqual(['afterApproval'])
+    const team = { ...ex, device: { ...ex.device, ctx: { ...ex.device.ctx, team: true, me: 'acMara' }, worker: { ...ex.device.worker, approvals: 'none' as const } }, lazy: { ...ex.lazy, hooks: [], tokens: [] } }
+    expect(modelOf(team).modules.find((x) => x.key === 'outbound:git:-:push')?.tags).toEqual(['outbound'])
     expect(tagsOf('outbound:http:-:POST')).toEqual(['asksFirst'])
     expect(tagsOf('outbound:mail:-:-')).toEqual(['asksFirst'])
     expect(tagsOf('outbound:webhook:button.example:POST')).toEqual(['byHand'])

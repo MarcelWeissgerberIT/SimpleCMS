@@ -7,7 +7,7 @@
  *    paint, in idle (B8) and by the page (B6) — never at boot.
  *  - openInputs(): the route opened — read the expensive inputs once, in idle: the lazy cache (IndexedDB
  *    `one-patchbay`, `<scope>|lazy`), the script scan (the engine's chunk), the server-agent runtime (team), the team's
- *    incoming webhooks (owners / admins; a member reads 'forbidden'), the capture Inbox (one id-prefix lookup), the
+ *    incoming webhooks and API tokens (owners / admins; a member reads 'forbidden'), the capture Inbox (one id-prefix lookup), the
  *    button index (idle slices, then kept up to date per page). Each reading that
  *    arrives bumps `onInputs` listeners.
  *  - onInputs(fn): hear a lazy reading arrive (the state slice rebuilds then).
@@ -43,7 +43,7 @@ import { ScanCache, type ScanEngine } from './scripts'
 import { isLazyCache, lazyCacheOf, lazyKey, readCache, sameLazyCache, writeCache } from './cache'
 import { patchbayScope } from './scope'
 import type { ID } from '../../store/types'
-import type { HookInput, LazyCache, MailInput, ModelInput, PipelineInput } from './types'
+import type { HookInput, LazyCache, MailInput, ModelInput, PipelineInput, TokenInput } from './types'
 
 /* ------------------------------------------------------------------ the readers */
 
@@ -52,7 +52,7 @@ const MAIL_ORGANISE_ROLES = ['category', 'priority', 'needsReply', 'summary', 'p
 export const APP_READERS: InputReaders = {
   automations: readAutomations,
   commands: readDbCommands,
-  pipeline: (db) => readPipeline(db).map((s) => ({ id: s.id, kind: s.kind, auto: s.auto, ...(s.gitAction ? { gitAction: s.gitAction } : {}), ...(s.hold ? { hold: true } : {}) })),
+  pipeline: (db) => readPipeline(db).map((s) => ({ id: s.id, kind: s.kind, auto: s.auto, ...(s.gitAction ? { gitAction: s.gitAction } : {}), ...(s.hold ? { hold: true } : {}), ...(s.next ? { next: s.next } : {}), ...(s.output ? { output: s.output } : {}) })),
   gitWarnings: (stages) => {
     const repos = useCoding.getState().worker?.repos ?? []
     const out: PipelineInput['warnings'] = { pushOff: [], prOff: [] }
@@ -125,12 +125,12 @@ function kitTrustDigests(ok: Readonly<Record<string, boolean>>): Record<string, 
 
 /* ------------------------------------------------------------------ the lazy readings */
 
-let lazy: LazyReadings = { buttons: null, scans: null, runtime: null, hooks: null, inbox: null, cache: null }
+let lazy: LazyReadings = { buttons: null, scans: null, runtime: null, hooks: null, tokens: null, inbox: null, cache: null }
 const listeners = new Set<() => void>()
 const changed = (patch: Partial<LazyReadings>) => {
   lazy = { ...lazy, ...patch }
   // a fuse-relevant reading arrived: keep it in the lazy cache (B4) — the LED and Preflight count from it
-  if ('scans' in patch || 'runtime' in patch || 'hooks' in patch || 'inboxRead' in patch) cacheSoon()
+  if ('scans' in patch || 'runtime' in patch || 'hooks' in patch || 'tokens' in patch || 'inboxRead' in patch) cacheSoon()
   for (const fn of [...listeners]) fn()
 }
 
@@ -154,7 +154,7 @@ async function writeLazyCache(): Promise<void> {
   const scope = patchbayScope()
   if (!scope) return
   const base = written ?? lazy.cache
-  const next = lazyCacheOf({ scans: lazy.scans, runtime: lazy.runtime, hooks: lazy.hooks, inbox: lazy.inbox, inboxRead: !!lazy.inboxRead }, base, Date.now())
+  const next = lazyCacheOf({ scans: lazy.scans, runtime: lazy.runtime, hooks: lazy.hooks, tokens: lazy.tokens ?? null, inbox: lazy.inbox, inboxRead: !!lazy.inboxRead }, base, Date.now())
   if (sameLazyCache(next, base)) return
   if (await writeCache(lazyKey(scope), next)) written = next
 }
@@ -237,8 +237,9 @@ function readRuntime(): void {
 
 /**
  * The team's incoming webhooks (owners / admins may list them: `GET api/workspaces/<id>/hooks`, the same list Workspace ›
- * API shows) — ids and target databases only. A member, or a 403, reads 'forbidden' (an unknown part, never "none"); a
- * failed request leaves the reading open (unknown 'lazy').
+ * API shows) — ids and target databases only — and its API tokens (`GET api/workspaces/<id>/tokens`, fix model): ids
+ * and whether they may write (scope 'write', not revoked), never a name. A member, or a 403, reads 'forbidden' (an
+ * unknown part, never "none"); a failed request leaves the reading open (unknown 'lazy').
  */
 function readHooks(): void {
   const ws = activeWorkspace()
@@ -247,9 +248,22 @@ function readHooks(): void {
   // the role not known yet (still connecting): the reading stays open
   if (!role) return
   if (role !== 'owner' && role !== 'admin') {
-    if (lazy.hooks !== 'forbidden') changed({ hooks: 'forbidden' })
+    if (lazy.hooks !== 'forbidden' || lazy.tokens !== 'forbidden') changed({ hooks: 'forbidden', tokens: 'forbidden' })
     return
   }
+  void cloudRequest<unknown>('GET', `api/workspaces/${encodeURIComponent(ws.id)}/tokens`)
+    .then((raw) => {
+      if (activeWorkspace().id !== ws.id) return
+      const tokens: TokenInput[] = []
+      for (const t of Array.isArray(raw) ? raw : []) {
+        const row = t as { id?: unknown; scope?: unknown; revoked?: unknown } | null
+        if (typeof row?.id === 'string' && row.id) tokens.push({ id: row.id, write: row.scope === 'write' && row.revoked !== true })
+      }
+      if (JSON.stringify(tokens) !== JSON.stringify(lazy.tokens)) changed({ tokens })
+    })
+    .catch((err: unknown) => {
+      if ((err as { code?: unknown } | null)?.code === 'forbidden' && activeWorkspace().id === ws.id) changed({ tokens: 'forbidden' })
+    })
   void cloudRequest<unknown>('GET', `api/workspaces/${encodeURIComponent(ws.id)}/hooks`)
     .then((raw) => {
       if (activeWorkspace().id !== ws.id) return
@@ -327,7 +341,7 @@ export const inputStats = (): { builds: number; pageChecks: number } => memo.sta
 export function resetInputs(): void {
   memo.reset()
   pagesMoved = true
-  lazy = { buttons: null, scans: null, runtime: null, hooks: null, inbox: null, cache: null }
+  lazy = { buttons: null, scans: null, runtime: null, hooks: null, tokens: null, inbox: null, cache: null }
   written = null
   opened = false
   for (const stop of openSubs.splice(0)) stop()

@@ -30,10 +30,10 @@
  * Cables from one jack to one column bundle from the 7th on into a "+n" bus chip (still counted).
  */
 import { keyPart, moduleKey, scheduleKey } from './ref'
-import { honoursHandOnly, placeKey, reaches, startable, type WriterKind } from './rules'
+import { GIT_OUT, honoursHandOnly, placeKey, reaches, startable, unattendedGit, type WriterKind } from './rules'
 import { withChains } from './chains'
 import { withFuses, type FusedModel } from './fuses'
-import { declaringProfiles, toolGroups, toolUse, runtimeTools, type ToolGroups } from './tools'
+import { declaringProfiles, runtimeOut, toolGroups, toolUse, runtimeTools, type ToolGroups } from './tools'
 import type { AgentTrigger, ID, IntegrationFeature } from '../../store/types'
 import type {
   AgentInput,
@@ -250,7 +250,7 @@ const cableOf = (h: WriteHow): EdgeAttrs => {
  * A write into a database place: a net flag for every listened place it reaches (with a listener it can start), else
  * — or always with `alwaysDb` — a cable to the database. `fields`: flags for listened fields only (an everything-writer).
  */
-function writeDb(c: Ctx, w: { m: Module; kind: WriterKind }, role: JackRole, db: ID, prop: string, given: WriteHow, opts: { alwaysDb?: boolean; fieldsOnly?: boolean } = {}): void {
+function writeDb(c: Ctx, w: { m: Module; kind: WriterKind }, role: JackRole, db: ID, prop: string, given: WriteHow, opts: { alwaysDb?: boolean; fieldsOnly?: boolean; flagsOnly?: boolean } = {}): void {
   const how = howOf(given)
   addFlowWrite(c, w.m, { place: { db, prop: prop as '*' }, ...how })
   const listened = c.listened.get(db)
@@ -270,7 +270,7 @@ function writeDb(c: Ctx, w: { m: Module; kind: WriterKind }, role: JackRole, db:
       flagged = true
     }
   }
-  if (opts.fieldsOnly) return
+  if (opts.fieldsOnly || opts.flagsOnly) return
   if (!flagged || opts.alwaysDb) edge(c, 'writes', jack(c, w.m, 'out', role), jack(c, dbModule(c, db), 'in', 'writes'), { ...cableOf(how), place: { db } })
 }
 
@@ -357,13 +357,13 @@ function runtimeModule(c: Ctx, name: string, host: string | null): { m: Module; 
   const key = `r:${name}`
   let g = c.groups.get(key)
   if (!g) {
+    // fix (model): a list only from this device's server at the same host (never a same-named one elsewhere — fail
+    // closed, §6 A7), OUT from the profiles matching the runtime server's own name and host (as the team server matches)
     const local = c.input.servers.map((s) => ({ name: s.server.name, url: s.server.url, tools: s.server.tools }))
     const tools = runtimeTools({ name, host }, local)
-    const twin = c.input.servers.find((s) => s.server.name === name)
     const profiles = c.input.profiles.map((p) => p.profile)
-    const out = twin?.out ?? []
-    const url = twin?.server.url ?? (host ? `https://${host}/` : '')
-    g = toolGroups(tools, out, declaringProfiles(profiles, { name, url, tools: tools ?? undefined }))
+    const url = host ? `https://${host}/` : ''
+    g = toolGroups(tools, runtimeOut(profiles, { name, host }), declaringProfiles(profiles, { name, url, tools: tools ?? undefined }))
     c.groups.set(key, g)
   }
   jackCounts(c, m, g)
@@ -469,6 +469,10 @@ function agents(c: Ctx): void {
     if (ai.routeBlocked) {
       tag(m, 'blocked')
       m.blocked = 'route'
+    } else if (ai.serverSkip) {
+      // fix (model): the team server skips it with its reason (a Vorprüfer) — it never runs
+      tag(m, 'blocked')
+      m.blocked = 'server'
     }
     if (ai.unreadable.length) {
       tag(m, 'unknownHere')
@@ -496,7 +500,12 @@ function agents(c: Ctx): void {
         else
           for (const name of a.mcpServers) {
             const known = rt.find((r) => r.name === name)
-            if (!known) continue
+            if (!known) {
+              // fix (model): a list from the lazy cache may be days old — a server added since is an unknown part (§1.2),
+              // never "the runtime has none"; a list read in this session says the server skips it
+              if (!input.runtimeFresh) unknownPart(c, 'lazy', m.key)
+              continue
+            }
             const { m: sm, g } = runtimeModule(c, name, known.host)
             const profiles = declaringProfiles(input.profiles.map((p) => p.profile), { name, url: known.host ? `https://${known.host}/` : '' })
             attach(c, m, sm, g, a.mcpTools?.[name], profiles)
@@ -508,8 +517,14 @@ function agents(c: Ctx): void {
       } else
         for (const name of a.mcpServers) {
           const s = input.servers.find((x) => x.server.name === name)
-          // a server switched off on this device (or not set up here) is left out of the agent's runs
-          if (!s || !s.server.enabled) continue
+          // fix (model): not set up on this device — in a team the agent runs in every browser of its creator, another
+          // one may have it (an unknown part, never "nothing"); locally the agent runs here only: left out
+          if (!s) {
+            if (input.ctx.team && a.mcpTools?.[name]?.length !== 0) unknownPart(c, 'elsewhere', m.key)
+            continue
+          }
+          // a server switched off on this device is left out of its runs here (fuses.ts names it: closed on this device)
+          if (!s.server.enabled) continue
           const sm = serverModule(c, s)
           const g = serverGroups(c, s)
           const profiles = declaringProfiles(input.profiles.map((p) => p.profile), { name: s.server.name, url: s.server.url, tools: s.server.tools })
@@ -601,6 +616,8 @@ function automations(c: Ctx, folded: Map<ID, ModuleKey>): void {
             m.folds = { script: act.scriptId }
             const scan = scanOf(c, act.scriptId)
             if (!scan) unknownPart(c, 'lazy', m.key)
+            // fix (model): places named by name — what it reads or writes is not known here (§1.17, §1.21)
+            else if (scan.byName) unknownPart(c, 'byName', m.key)
             for (const p of scan?.writes ?? []) writePlace(c, { m, kind: 'autoScript' }, 'writes', p, {})
             if (scan?.context) writeDb(c, { m, kind: 'autoScript' }, 'writes', db.id, '*', {})
             scriptExits(c, m, scan)
@@ -624,6 +641,8 @@ function scripts(c: Ctx, folded: Map<ID, ModuleKey>): void {
     // used by something or run by hand from its page: an unknown part, never "nothing" (§1.21)
     if (!scan) unknownPart(c, 'lazy', m.key)
     if (!scan) continue
+    // fix (model): places named by name — what it reads or writes is not known here (§1.17, §1.21)
+    if (scan.byName) unknownPart(c, 'byName', m.key)
     for (const p of scan.reads) {
       if ('page' in p && isLiveDb(c, p.page)) m.nets.push({ place: { db: p.page } })
       else if ('page' in p && isLivePage(c, p.page)) m.nets.push({ place: p })
@@ -679,19 +698,28 @@ function kits(c: Ctx): void {
   }
 }
 
-const GIT_OUT = new Set(['push', 'pr', 'comment', 'merge'])
-
 function pipelines(c: Ctx): void {
   const { input } = c
   for (const p of input.pipelines) {
     const m = mod(c, { kind: 'pipeline', db: p.db, pipeline: p.kind }, { to: 'route', route: p.kind === 'coding' ? { name: 'coding' } : { name: 'coding', kind: p.kind } })
     m.nets.push({ place: { db: p.db } })
-    // a person (or Confirm) in between: a team always confirms; locally this device's approvals decide (§1.3)
-    const approved = input.ctx.team || input.worker.approvals !== 'none'
+    // fix (model): a person in between per git stage — a gate this device's approvals stop at between where a task
+    // enters and the stage (rules.ts unattendedGit, coding/tasks.ts skipsGate); who wrote the task (Confirm) is the
+    // chains' part. One edge per action: nobody in front of any stage of it = nobody in front of the action.
+    const free = unattendedGit(p.stages, input.worker.approvals)
     for (const st of p.stages) {
       if (st.kind !== 'git' || !st.gitAction || !GIT_OUT.has(st.gitAction)) continue
-      edge(c, 'out', jack(c, m, 'out', 'out'), jack(c, outbound(c, 'git', null, st.gitAction, m), 'in', 'out'), { can: true, ...(approved ? { afterApproval: true } : {}) })
+      edge(c, 'out', jack(c, m, 'out', 'out'), jack(c, outbound(c, 'git', null, st.gitAction, m), 'in', 'out'), { can: true, ...(free.has(st.gitAction) ? {} : { afterApproval: true }) })
     }
+    // fix (model): the worker writes the task row in its tab (coding/tasks.ts finishStage: Stage moves, plan and
+    // summary into the page, cost / branch / PR fields) and a 'testcases' doc stage new rows of the Test cases
+    // database — automations, agents' row triggers and autofill start on them. Flow first; a cable only where a
+    // listener starts (net flags), so the drawing keeps one cable per job.
+    if (!p.stages.length) continue
+    const w = { m, kind: 'pipeline' as WriterKind }
+    writeDb(c, w, 'writes', p.db, '*', {}, { flagsOnly: true })
+    if (p.stages.some((st) => st.kind === 'doc' && st.output === 'testcases'))
+      for (const db of input.databases) if (db.system === 'testcases') writeDb(c, w, 'writes', db.id, '+row', {}, { flagsOnly: true })
   }
 }
 
@@ -795,17 +823,31 @@ function commandActions(raw: unknown[]): Array<{ type: 'run_script'; scriptId: I
 /** Team incoming webhooks / API tokens (read on open, owners / admins) — rows from outside. */
 function incoming(c: Ctx): void {
   const { input } = c
-  const hooks = input.hooks ?? input.lazy?.hooks ?? null
-  const any = moduleKey({ kind: 'incoming', hook: null, db: null, agent: null })
   if (!input.ctx.team) return
-  if (hooks === 'forbidden') return unknownPart(c, 'hooks', any)
-  if (hooks === null) return unknownPart(c, 'lazy', any)
-  for (const h of hooks) {
-    if (!isLiveDb(c, h.db)) continue
-    const m = mod(c, { kind: 'incoming', hook: h.id, db: h.db, agent: null }, { to: 'route', route: { name: 'workspace', section: 'automation' } })
-    tag(m, 'outside')
-    writeDb(c, { m, kind: 'incoming' }, 'start', h.db, '+row', { outside: true })
-  }
+  const any = moduleKey({ kind: 'incoming', hook: null, db: null, agent: null })
+  const hooks = input.hooks ?? input.lazy?.hooks ?? null
+  if (hooks === 'forbidden') unknownPart(c, 'hooks', any)
+  else if (hooks === null) unknownPart(c, 'lazy', any)
+  else
+    for (const h of hooks) {
+      if (!isLiveDb(c, h.db)) continue
+      const m = mod(c, { kind: 'incoming', hook: h.id, db: h.db, agent: null }, { to: 'route', route: { name: 'workspace', section: 'automation' } })
+      tag(m, 'outside')
+      writeDb(c, { m, kind: 'incoming' }, 'start', h.db, '+row', { outside: true })
+    }
+  // fix (model): API tokens with write scope create and change rows and pages anywhere in the shared workspace (and
+  // drive the team /mcp endpoint) — content from outside everywhere (reach.ts startingOutside: `all`); not read yet:
+  // an unknown part, never "none"
+  const tokens = input.tokens ?? input.lazy?.tokens ?? null
+  if (tokens === 'forbidden') unknownPart(c, 'hooks', any)
+  else if (tokens === null) unknownPart(c, 'lazy', any)
+  else
+    for (const t of tokens) {
+      if (!t.write) continue
+      const m = mod(c, { kind: 'incoming', hook: `api:${t.id}`, db: null, agent: null }, { to: 'route', route: { name: 'workspace', section: 'automation' } })
+      tag(m, 'outside')
+      writePlace(c, { m, kind: 'incoming' }, 'writes', { everything: true }, { outside: true })
+    }
 }
 
 /** This device's folder / GitHub sync: pick-ups (GitHub's from outside) and the GitHub push (a way out). */
@@ -852,6 +894,8 @@ function listenerSide(c: Ctx): void {
       for (const l of ls) {
         const lm = c.mods.get(l.module)
         if (!lm) continue
+        // mail organise starts from the mail sync only (rules.ts): never from a module's write
+        if (l.kind === 'organise' && typeof from === 'string') continue
         const e = edge(c, l.kind === 'kit' ? 'relay' : 'starts', from, jack(c, lm, 'in', 'start'), outside ? { outside: true } : {})
         if (typeof from === 'string' && net && !net.listeners.includes(e.id)) net.listeners.push(e.id)
       }

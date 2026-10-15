@@ -15,8 +15,14 @@
  *     git action, this device's GitHub push (every write it carries), and — by hand — Outbox routes, commands' and
  *     buttons' webhooks, script effects (asked first). A first pass finds what is reached with nobody in between; a
  *     second pass what is reached only through a gate (§1.3): a stage agent's proposals, the bridge or a script asking,
- *     a coding task waiting for Confirm (a team; locally a task an agent wrote) or for this device's approvals, a press
- *     by hand. A hand START is never a gate (the walk starts at the decider).
+ *     a coding task waiting for Confirm, a git stage behind a gate this device's approvals stop at, a press by hand. A
+ *     hand START is never a gate (the walk starts at the decider).
+ *     Coding tasks (fix model, coding/trust.ts): a task waits for Confirm when a custom agent wrote it (locally: created
+ *     it or changed it last), and in a team when nothing carried a trusted version over to it — a remote write (a server
+ *     agent, a team hook or token, another member's tab), a sync / file pick-up, a new row; a change made in the worker's
+ *     tab keeps a trusted task trusted. A same-row relay (autofill, a kit value, an automation's `set_property`) after
+ *     such a write leaves the row as untrusted as it found it. The worker writes the task row as it runs (Stage moves,
+ *     its outputs — model.ts): its moves carry the Confirm gate of how the task was entered.
  *  3. **Loops** (↺): a depth-first pass over the same flow; each (module, place) pair that comes back once.
  *  4. **One chain per (decider, way out)**, its lamps from reach.ts: the outside sources (the primary one is the chain's
  *     source and part of its key — the other sources are named in the lamp), private data relative to the source and
@@ -56,7 +62,7 @@ export const SHOWN_STEPS = 3
 /** A module as the walk enters it: its key and the kind of writer it is then (a script inside `run_script` is paused). */
 interface Node {
   key: ModuleKey
-  kind: WriterKind | 'pipeline' | null
+  kind: WriterKind | null
 }
 
 /** One move of the flow: into a module, through a place, the cables it takes, the gate it passes (if any). */
@@ -65,10 +71,12 @@ interface Move {
   place?: Place
   steps: ChainStep[]
   gate: Gate | null
-  /** pipelines: the gate its git exits take (who wrote the task, §1.3) */
+  /** pipelines: 'confirm' when the task waits for Confirm (who wrote it, §1.3) — else its approvals decide per git stage */
   pipe?: Gate | null
   /** a press by hand (a command / button on a place written) — never a loop */
   byHand?: true
+  /** the place written to reach the listener (`<prop>` · '*' · '+row' · '-row') */
+  wp?: string
 }
 
 /** A way out reached from a module. */
@@ -127,9 +135,9 @@ function kindOf(f: FlowIndex, key: ModuleKey, how: 'root' | 'listen' | 'start' |
   if (!m) return null
   switch (m.ref.kind) {
     case 'agent': {
-      // a route this build can never run: the agent never runs, its writes never happen
+      // a route this build can never run, or one the team server skips: the agent never runs, its writes never happen
       const ai = f.ix.agents.get(m.ref.id)
-      if (!ai || ai.routeBlocked) return null
+      if (!ai || ai.routeBlocked || ai.serverSkip) return null
       return ai.agent.runner === 'server' ? 'serverAgent' : 'agent'
     }
     case 'script':
@@ -162,12 +170,32 @@ function writeCable(f: FlowIndex, m: ModuleKey, place: Place): string {
   return w.get(`${m}|${placeKey(place)}`) ?? w.get(`${m}|everything`) ?? ''
 }
 
-/** Who writes a task into a pipeline decides its gate (§1.3, §6 A9). */
-function pipelineGate(f: FlowIndex, writer: Node): Gate | null {
-  const { input } = f.ix
-  if (input.ctx.team || input.worker.confirm === 'always') return 'confirm'
+const teamTrust = (f: FlowIndex): boolean => f.ix.input.ctx.team || f.ix.input.worker.confirm === 'always'
+
+/**
+ * Who writes a task into a pipeline decides whether it waits for Confirm (§1.3, §6 A9; coding/trust.ts): a custom
+ * agent's write always (isAgentWriting never carries trust; locally `needsConfirm` for an agent's task); in a team also
+ * a remote write (a hook or token), a sync / file pick-up and a new row (no trusted version before it). Anything else
+ * written in the worker's tab keeps a trusted task trusted: null — this device's approvals decide per git stage.
+ */
+function pipelineGate(f: FlowIndex, writer: Node, wp: string): Gate | null {
   if (writer.kind === 'agent' || writer.kind === 'serverAgent') return 'confirm'
-  return input.worker.approvals === 'none' ? null : 'afterApproval'
+  if (teamTrust(f) && (writer.kind === 'incoming' || writer.kind === 'sync' || wp === '+row')) return 'confirm'
+  return null
+}
+
+/** Does this write leave the task row it lands on waiting for Confirm (what a same-row relay after it inherits)? */
+function leavesUntrusted(f: FlowIndex, writer: Node, wp: string): boolean {
+  // locally an agent's change is the person's own again after the next change here (agents/attribution.ts keeper) —
+  // only a task an agent created keeps waiting
+  if (!teamTrust(f)) return (writer.kind === 'agent' || writer.kind === 'serverAgent') && wp === '+row'
+  return pipelineGate(f, writer, wp) === 'confirm'
+}
+
+/** A relay that writes the very row it was started on (autofill, a kit value, an automation without a folded script). */
+function sameRow(f: FlowIndex, n: Node): boolean {
+  if (n.kind === 'autofill' || n.kind === 'kit') return true
+  return n.kind === 'automation' && !f.ix.mods.get(n.key)?.folds?.script
 }
 
 /** Is a write of `place` carried by this device's GitHub push (team: shared pages, private ones with includePrivate)? */
@@ -180,11 +208,15 @@ function pushCarries(f: FlowIndex, place: Place): boolean {
   return !input.pages[id]?.private
 }
 
-/** The moves a module makes once entered (its writes, the scripts it starts, the presses by hand its places offer). */
-function movesOf(f: FlowIndex, at: Node): Move[] {
-  if (!at.kind || at.kind === 'pipeline') return []
+/**
+ * The moves a module makes once entered (its writes, the scripts it starts, the presses by hand its places offer).
+ * `pipe`: a pipeline entered with a task waiting for Confirm writes nothing before the person confirms.
+ */
+function movesOf(f: FlowIndex, at: Node, pipe: Gate | null = null): Move[] {
+  if (!at.kind) return []
   const out: Move[] = []
-  const w = { kind: at.kind as WriterKind, key: at.key }
+  const w = { kind: at.kind, key: at.key }
+  const base: Gate | null = at.kind === 'pipeline' ? pipe : null
   const honours = honoursHandOnly(w.kind)
   const listenMoves = (db: ID, wpFor: (lp: string) => string | null, gate: Gate | null) => {
     const hand = honours ? f.ix.handOnly.get(db) : undefined
@@ -198,6 +230,7 @@ function movesOf(f: FlowIndex, at: Node): Move[] {
           to: { key: l.module, kind: kindOf(f, l.module, 'listen') },
           place,
           gate,
+          wp,
           steps: [
             { from: at.key, to: place, edge: writeCable(f, at.key, place) },
             { from: at.key, via: place, to: l.module, edge: f.ix.listenEdge.get(`${l.module}|${placeKey(place)}`) ?? '' },
@@ -206,30 +239,31 @@ function movesOf(f: FlowIndex, at: Node): Move[] {
       }
     }
   }
-  const pipelineMove = (db: ID, gate: Gate | null) => {
+  const pipelineMove = (db: ID, gate: Gate | null, wp: string) => {
     const p = f.ix.pipelines.get(db)
-    if (!p) return
+    // the worker's own writes into its task rows never enter it again
+    if (!p || p === at.key) return
     const place: Place = { db }
-    out.push({ to: { key: p, kind: 'pipeline' }, place, gate, pipe: pipelineGate(f, at), steps: [{ from: at.key, via: place, to: p, edge: writeCable(f, at.key, place) }] })
+    out.push({ to: { key: p, kind: 'pipeline' }, place, gate, wp, pipe: pipelineGate(f, at, wp), steps: [{ from: at.key, via: place, to: p, edge: writeCable(f, at.key, place) }] })
   }
   const pressMoves = (list: ModuleKey[] | undefined, place: Place) => {
     for (const k of list ?? []) out.push({ to: { key: k, kind: kindOf(f, k, 'byHand') }, place, gate: 'byHand', byHand: true, steps: [{ from: at.key, via: place, to: k, edge: writeCable(f, at.key, place) }] })
   }
   for (const write of f.writes[at.key] ?? []) {
-    const gate = writeGate(write)
+    const gate = base ?? writeGate(write)
     const p = write.place
     if ('db' in p) {
       if (!f.ix.dbs.has(p.db)) continue
       const wp = p.prop ?? '*'
       listenMoves(p.db, () => wp, gate)
-      pipelineMove(p.db, gate)
+      pipelineMove(p.db, gate, wp)
       pressMoves(f.commands.get(p.db), { db: p.db })
     } else if ('page' in p) {
       pressMoves(f.buttons.get(p.page), p)
     } else if ('everything' in p) {
       // every place: every listened field, new rows (deleted rows only through the bridge's tidy tools), every pipeline
       for (const db of f.listens.keys()) listenMoves(db, (lp) => (lp === '+row' ? '+row' : lp === '-row' ? (at.kind === 'bridge' ? '-row' : null) : '*'), gate)
-      for (const db of [...f.ix.pipelines.keys()].sort()) pipelineMove(db, gate)
+      for (const db of [...f.ix.pipelines.keys()].sort()) pipelineMove(db, gate, '*')
       for (const db of [...f.commands.keys()].sort()) pressMoves(f.commands.get(db), { db })
       for (const page of [...f.buttons.keys()].sort()) pressMoves(f.buttons.get(page), { page })
     }
@@ -239,12 +273,15 @@ function movesOf(f: FlowIndex, at: Node): Move[] {
     if (e.kind !== 'starts') continue
     const to = f.ix.jackMod.get(e.to)
     if (!to || f.ix.mods.get(to)?.kind !== 'script') continue
-    out.push({ to: { key: to, kind: kindOf(f, to, at.kind === 'automation' ? 'start' : 'listen') }, gate: null, steps: [{ from: at.key, to, edge: e.id }] })
+    out.push({ to: { key: to, kind: kindOf(f, to, at.kind === 'automation' ? 'start' : 'listen') }, gate: base, steps: [{ from: at.key, to, edge: e.id }] })
   }
   return out
 }
 
-/** The ways out of a module once entered (`pipe`: a pipeline's gate from who wrote the task). */
+/**
+ * The ways out of a module once entered (`pipe`: a pipeline's task waits for Confirm — 'confirm' — or its git stages
+ * go by this device's approvals: the cable's `afterApproval`, model.ts per git action).
+ */
 function outsOf(f: FlowIndex, at: Node, pipe: Gate | null | undefined): Out[] {
   const out: Out[] = []
   const { ix } = f
@@ -253,12 +290,13 @@ function outsOf(f: FlowIndex, at: Node, pipe: Gate | null | undefined): Out[] {
     const to = ix.jackMod.get(e.to)
     const m = to ? ix.mods.get(to) : undefined
     if (!m || (m.kind !== 'outbound' && m.kind !== 'outbox')) continue
-    const gate = at.kind === 'pipeline' ? (pipe ?? null) : e.byHand ? 'byHand' : e.asksFirst ? 'asks' : null
+    const gate = at.kind === 'pipeline' ? (pipe === 'confirm' ? 'confirm' : e.afterApproval ? 'afterApproval' : null) : e.byHand ? 'byHand' : e.asksFirst ? 'asks' : null
     out.push({ exit: { module: m.key, type: m.kind === 'outbox' ? 'outbox' : (m.exit ?? 'webhook'), edge: e.id }, steps: [{ from: at.key, to: m.key, edge: e.id }], gate, failClosed: false, withheld: false })
   }
   // MCP write tools of a decider: they run inside the AI's tool loop — no proposal stops them (§1.3)
   const d = deciderAt(f, at.key)
-  if (d)
+  // (a decider none of whose providers takes MCP servers has none: D-S2-7)
+  if (d?.mcp)
     for (const t of ix.tools.get(at.key) ?? []) {
       if (!t.write) continue
       out.push({ exit: { module: t.server, type: 'mcp', edge: t.write }, steps: [{ from: at.key, to: t.server, edge: t.write }], gate: null, failClosed: t.failClosed, withheld: !allows(ix, d, 'mcp') })
@@ -282,7 +320,13 @@ function outsOf(f: FlowIndex, at: Node, pipe: Gate | null | undefined): Out[] {
 
 /* ------------------------------------------------------------------ taint */
 
-const TAINTERS = new Set(['agent', 'autofill', 'organise', 'bridge', 'automation', 'script', 'kit'])
+const TAINTERS = new Set(['agent', 'autofill', 'organise', 'bridge', 'automation', 'script', 'kit', 'pipeline'])
+
+/** A script (or the automation it is folded into) that names places by name: it may write anywhere (§1.17). */
+function writesByName(ix: ReachIndex, m: Module): boolean {
+  const id = m.ref.kind === 'script' ? m.ref.id : m.ref.kind === 'automation' ? m.folds?.script : undefined
+  return !!id && !!ix.scans.get(id)?.byName
+}
 
 /** The places from outside (§1.3 #2) and the processors fed from outside — the fixpoint (§6 A3). */
 export function taintOf(ix: ReachIndex): { oi: OutsideIndex; fed: Map<ModuleKey, OutsideSource> } {
@@ -291,9 +335,11 @@ export function taintOf(ix: ReachIndex): { oi: OutsideIndex; fed: Map<ModuleKey,
   const writes = ix.model.flow?.writes ?? {}
   const procs: Array<{ m: Module; roots: ReadRoots; d: Decider | null }> = []
   for (const m of ix.model.modules) {
-    if (!TAINTERS.has(m.kind) || !writes[m.key]?.length) continue
-    // a route-blocked agent never runs; an Unreadable one may run on a newer build (no data rule known — none applied)
-    if (m.ref.kind === 'agent' && ix.agents.get(m.ref.id)?.routeBlocked) continue
+    const byName = writesByName(ix, m)
+    if (!TAINTERS.has(m.kind) || (!writes[m.key]?.length && !byName)) continue
+    // a route-blocked agent never runs (nor one the team server skips); an Unreadable one may run on a newer build (no
+    // data rule known — none applied)
+    if (m.ref.kind === 'agent' && (ix.agents.get(m.ref.id)?.routeBlocked || ix.agents.get(m.ref.id)?.serverSkip)) continue
     procs.push({ m, roots: readRoots(ix, m), d: deciderOf(ix, m) })
   }
   procs.sort((a, b) => (a.m.key < b.m.key ? -1 : 1))
@@ -307,11 +353,15 @@ export function taintOf(ix: ReachIndex): { oi: OutsideIndex; fed: Map<ModuleKey,
       fed.set(p.m.key, first)
       changed = true
       const mark = { kind: 'tainted' as const, source: p.m.key, writer: p.m.key, from: first.kind === 'tainted' ? (first.writer ?? first.source) : first.source }
-      for (const w of writes[p.m.key]) {
+      for (const w of writes[p.m.key] ?? []) {
         const place = w.place
+        // the worker's writes into its own task rows: those rows are what fed it — no new place from outside
+        if (p.m.ref.kind === 'pipeline' && 'db' in place && place.db === p.m.ref.db) continue
         if ('db' in place) markOutside(oi, { db: place.db }, mark)
         else if ('page' in place || 'everything' in place) markOutside(oi, place, mark)
       }
+      // fix (model): places named by name may be any place — conservatively everything (its unknown part says so too)
+      if (writesByName(ix, p.m)) markOutside(oi, { everything: true }, mark)
     }
   }
   return { oi, fed }
@@ -363,6 +413,8 @@ interface Hop {
   /** the steps from the parent to here */
   lead: ChainStep[]
   pipe?: Gate | null
+  /** a same-row relay started on a task row of this pipeline database that waits for Confirm (coding/trust.ts) */
+  untrusted?: ID
 }
 
 interface Found {
@@ -382,14 +434,21 @@ function bfs(f: FlowIndex, root: Node, free: boolean, found: Map<string, Found>)
       if (free && gate) continue
       if (!found.has(out.exit.edge)) found.set(out.exit.edge, { out, hop, gate })
     }
-    for (const mv of movesOf(f, hop.node)) {
+    for (const mv of movesOf(f, hop.node, hop.pipe ?? null)) {
       const gate = hop.gate ?? mv.gate
       if (free && gate) continue
-      // a pipeline's ways out depend on who wrote the task: each entry gate is its own visit
-      const k = `${mv.to.key}|${mv.to.kind}${mv.to.kind === 'pipeline' ? `|${mv.pipe ?? ''}` : ''}`
+      const db = mv.place && 'db' in mv.place && f.ix.pipelines.has(mv.place.db) ? mv.place.db : null
+      let pipe = mv.pipe ?? null
+      let untrusted: ID | undefined
+      if (db && mv.to.kind === 'pipeline') {
+        // a same-row relay writing a task row left waiting for Confirm: the task still waits
+        if (pipe !== 'confirm' && hop.untrusted === db && sameRow(f, hop.node)) pipe = 'confirm'
+      } else if (db && sameRow(f, mv.to) && (leavesUntrusted(f, hop.node, mv.wp ?? '*') || (hop.untrusted === db && sameRow(f, hop.node)))) untrusted = db
+      // a pipeline's ways out depend on who wrote the task, a relay's on the row it was started on: each its own visit
+      const k = `${mv.to.key}|${mv.to.kind}${mv.to.kind === 'pipeline' ? `|${pipe ?? ''}` : ''}${untrusted ? `|u:${untrusted}` : ''}`
       if (seen.has(k)) continue
       seen.add(k)
-      queue.push({ node: mv.to, gate, parent: hop, lead: mv.steps, ...(mv.to.kind === 'pipeline' ? { pipe: mv.pipe ?? null } : {}) })
+      queue.push({ node: mv.to, gate, parent: hop, lead: mv.steps, ...(mv.to.kind === 'pipeline' ? { pipe } : {}), ...(untrusted ? { untrusted } : {}) })
     }
   }
 }

@@ -46,6 +46,7 @@ import type {
   ScriptScan,
   ServerInput,
   SyncInput,
+  TokenInput,
   WorkerInput,
 } from './types'
 
@@ -86,6 +87,8 @@ export interface LazyReadings {
   scans: Record<ID, ScriptScan> | null
   runtime: RuntimeServerInput[] | 'forbidden' | null
   hooks: HookInput[] | 'forbidden' | null
+  /** fix (model): team API tokens, read with the hooks (absent / null: not read yet) */
+  tokens?: TokenInput[] | 'forbidden' | null
   inbox: ID | null
   /** B4: the Inbox lookup ran (`inbox` null then means "none") */
   inboxRead?: boolean
@@ -306,14 +309,18 @@ export function toModelInput(src: InputSource, read: InputReaders): BuiltInput {
     .map((agent) => {
       const unreadable = unreadableOf(agent)
       const checks = decisionChecks(agent)
+      const routeBlocked = !unreadable.length && read.routeBlock(agent) === 'route'
+      // the team server skips a server agent with a Vorprüfer (VORPRUEFER_SKIP) until /api/config says it runs them
+      const serverSkip = agent.runner === 'server' && checks !== null && !unreadable.length && !routeBlocked && !device.ctx.supports.includes('vorpruefer')
       return {
         agent,
-        routeBlocked: !unreadable.length && read.routeBlock(agent) === 'route',
+        routeBlocked,
         unreadable,
         awaitsConfirm: team && agent.runner === 'browser' && !!agent.updatedBy && agent.updatedBy !== agent.createdBy,
         creatorHere: agent.runner === 'browser' && (!team || (!!device.ctx.me && agent.createdBy === device.ctx.me)),
         write: agent.write,
         jevGate: agent.write === 'apply' && !!checks && checks !== 'unreadable' && !!checks.gate?.allowAt,
+        ...(serverSkip ? { serverSkip: 'vorpruefer' as const } : {}),
       }
     })
 
@@ -390,6 +397,8 @@ export function toModelInput(src: InputSource, read: InputReaders): BuiltInput {
     kit,
     servers,
     runtime: lazy.runtime ?? lazy.cache?.runtime ?? null,
+    // read in this session (else from the cache: maybe stale — servers it lacks are unknown parts, model.ts)
+    runtimeFresh: lazy.runtime !== null,
     profiles: profileInputs,
     mail,
     memory: { exists: live.some((d) => d.system === 'memory'), on: ws.settings.memory?.enabled !== false },
@@ -403,6 +412,7 @@ export function toModelInput(src: InputSource, read: InputReaders): BuiltInput {
     signoffs: sanitizeFuseSignoffs(ws.fuseSignoffs),
     buttons: lazy.buttons,
     hooks: lazy.hooks ?? lazy.cache?.hooks ?? null,
+    tokens: lazy.tokens ?? lazy.cache?.tokens ?? null,
     lazy: lazy.cache,
   }
   return { input, pageRefs, factsSig: stable(pages) }
@@ -414,7 +424,7 @@ export function toModelInput(src: InputSource, read: InputReaders): BuiltInput {
 function refsOf(src: InputSource): unknown[] {
   const { ws, lazy } = src
   const st = ws.settings
-  return [ws.agents, ws.scripts, ws.integrations, ws.kit, ws.ai, ws.governor, ws.fuseSignoffs, st.mcpServers, st.mail, st.memory, st.ai, lazy.buttons, lazy.scans, lazy.runtime, lazy.hooks, lazy.inbox, !!lazy.inboxRead, lazy.cache]
+  return [ws.agents, ws.scripts, ws.integrations, ws.kit, ws.ai, ws.governor, ws.fuseSignoffs, st.mcpServers, st.mail, st.memory, st.ai, lazy.buttons, lazy.scans, lazy.runtime, lazy.hooks, lazy.tokens ?? null, lazy.inbox, !!lazy.inboxRead, lazy.cache]
 }
 
 const deviceSig = (d: DeviceFacts) => stable({ ...d, testing: [...d.testing].sort(), refused: [...d.refused].sort() })

@@ -95,7 +95,7 @@ export function pipelineWorld(approvals: 'all' | 'review' | 'none'): PbWorld {
 }
 
 /** A server agent with a webhook trigger in a team (§6 A2): the delivery body is its task; the runtime's alpha is attached. */
-export function hookWorld(device: Partial<PbWorld['device']>, lazy: Partial<PbWorld['lazy']> = { hooks: [], runtime: [{ name: 'alpha', host: 'alpha.example' }] }): PbWorld {
+export function hookWorld(device: Partial<PbWorld['device']>, lazy: Partial<PbWorld['lazy']> = { hooks: [], tokens: [], runtime: [{ name: 'alpha', host: 'alpha.example' }] }): PbWorld {
   return world({
     pages: [dbPage('dbTickets', 'Tickets')],
     databases: [database('dbTickets', [prop('pTicketKey', 'Key', 'text', { key: true })])],

@@ -236,16 +236,25 @@ test.describe('B4 · each way out (§1.4)', () => {
     expect(f.keys.map((k) => k.n)).toEqual([1, 3])
   })
 
-  test('a local pipeline whose task autofill writes, approvals "none" → a fuse; approvals "review" → a near miss', () => {
+  test('a local pipeline whose task autofill writes: no gate stage before the push → a fuse whatever the approvals; a gate they stop at → a near miss', () => {
     const af = key({ kind: 'autofill', db: 'dbCoding', prop: 'pCodingPlan' })
     const none = modelOf(pipelineWorld('none'))
     const f = fuseTo(none, af, 'outbound:git:-:push')!
     expect(f.chain.steps.map(stepNode)).toEqual(['pipeline:dbCoding', 'outbound:git:-:push'])
     expect(f.facts.map((x) => x.kind)).toContain('approvals')
     expect(f.facts.find((x) => x.kind === 'approvals')?.say.key).toBe(`${P}.fact.approvalsNone`)
+    // fix (model): approvals decide which gate stages a task stops at (coding/tasks.ts skipsGate) — queue → push has none,
+    // so "review" (and "all") push with nobody in between
     const review = modelOf(pipelineWorld('review'))
-    expect(review.fuses).toEqual([])
-    expect(review.nearMisses.map((n) => [n.why, n.chain.gate])).toEqual([['gate', 'afterApproval']])
+    const r = fuseTo(review, af, 'outbound:git:-:push')!
+    expect(r.facts.find((x) => x.kind === 'approvals')?.say.key).toBe(`${P}.fact.approvalsPass`)
+    expect(modelOf(pipelineWorld('all')).fuses.map((x) => x.chain.exit?.module)).toEqual(['outbound:git:-:push'])
+    // a gate before the push that "review" stops at (not right after a plan stage): a near miss, a person checks first
+    const gated = pipelineWorld('review')
+    gated.ws.databases.dbCoding = { ...gated.ws.databases.dbCoding, pipeline: [{ id: 'stQueue', kind: 'queue', auto: true }, { id: 'stImpl', kind: 'implement', auto: true }, { id: 'stGate', kind: 'gate', auto: false }, { id: 'stPush', kind: 'git', auto: true, gitAction: 'push' }] }
+    const g = modelOf(gated)
+    expect(g.fuses).toEqual([])
+    expect(g.nearMisses.map((n) => [n.why, n.chain.gate])).toEqual([['gate', 'afterApproval']])
   })
 })
 
@@ -324,7 +333,7 @@ test.describe('B4 · declared reads never silence a write tool (§1.5, §6 A4)',
 
 test.describe('B4 · unknown parts — never a fuse, never "nothing" (§1.21, §6 A16 A18)', () => {
   test('another member’s browser agent: its servers are unknown here; the paths it can be seen on stay fuses', () => {
-    const w = mailWorld([inboxHelper({ createdBy: 'acMara', updatedBy: 'acMara', mcpServers: ['alpha'] })], { servers: [ALPHA()], device: TEAM('acNordlicht', 'owner', ['signoffs']), lazy: { hooks: [] } })
+    const w = mailWorld([inboxHelper({ createdBy: 'acMara', updatedBy: 'acMara', mcpServers: ['alpha'] })], { servers: [ALPHA()], device: TEAM('acNordlicht', 'owner', ['signoffs']), lazy: { hooks: [], tokens: [] } })
     const m = modelOf(w)
     expect(m.unknown).toEqual([{ key: `otherBrowser:${agentKey('agInbox')}`, what: 'otherBrowser', module: agentKey('agInbox'), who: 'acMara' }])
     // no MCP fuse is guessed; the webhook path everyone can see is one
@@ -343,9 +352,9 @@ test.describe('B4 · unknown parts — never a fuse, never "nothing" (§1.21, §
   })
 
   test('a runtime the viewer may not read, or not read yet: unknown parts, no fuse', () => {
-    const forbidden = modelOf(hookWorld(TEAM('acNordlicht'), { hooks: [], runtime: 'forbidden' }))
+    const forbidden = modelOf(hookWorld(TEAM('acNordlicht'), { hooks: [], tokens: [], runtime: 'forbidden' }))
     expect([forbidden.fuses, forbidden.unknown.map((u) => u.what)]).toEqual([[], ['runtime']])
-    const notYet = modelOf(hookWorld(TEAM('acNordlicht'), { hooks: [], runtime: null }))
+    const notYet = modelOf(hookWorld(TEAM('acNordlicht'), { hooks: [], tokens: [], runtime: null }))
     expect([notYet.fuses, notYet.unknown.map((u) => u.what)]).toEqual([[], ['lazy']])
   })
 

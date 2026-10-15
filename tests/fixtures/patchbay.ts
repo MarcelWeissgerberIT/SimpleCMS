@@ -61,7 +61,7 @@ export function nodeReaders(world: Pick<PbWorld, 'sends'> = {}): InputReaders {
   return {
     automations: readAutomations,
     commands: (raw) => (Array.isArray(raw) ? (raw as DbCommand[]).filter((c) => c && typeof c === 'object' && typeof c.id === 'string') : []),
-    pipeline: (db) => (Array.isArray(db.pipeline) ? db.pipeline.map((s) => ({ id: s.id, kind: s.kind, auto: s.auto, ...(s.gitAction ? { gitAction: s.gitAction } : {}), ...(s.hold ? { hold: true } : {}) })) : []),
+    pipeline: (db) => (Array.isArray(db.pipeline) ? db.pipeline.map((s) => ({ id: s.id, kind: s.kind, auto: s.auto, ...(s.gitAction ? { gitAction: s.gitAction } : {}), ...(s.hold ? { hold: true } : {}), ...(s.next ? { next: s.next } : {}), ...(s.output ? { output: s.output } : {}) })) : []),
     gitWarnings: () => ({ pushOff: [], prOff: [] }),
     sends: (dbId) => world.sends?.[dbId] ?? [],
     mail: (raw): MailInput | null => {
@@ -233,7 +233,9 @@ export const TRACKER_READS = ['query_issues', 'get_issue', 'whoami']
 const PIPELINE_STAGES: PipelineStage[] = [
   { id: 'stReady', kind: 'queue', auto: true },
   { id: 'stPlan', kind: 'plan', auto: true },
-  { id: 'stReview', kind: 'gate', auto: false },
+  // "Always stop here": the mock's pull requests go out "after approval" whatever this device's approvals say (a gate right
+  // after a plan stage is passed with approvals "review" — coding/tasks.ts skipsGate)
+  { id: 'stReview', kind: 'gate', auto: false, hold: true },
   { id: 'stShip', kind: 'git', auto: true, gitAction: 'pr' },
   { id: 'stDone', kind: 'done', auto: false },
 ]

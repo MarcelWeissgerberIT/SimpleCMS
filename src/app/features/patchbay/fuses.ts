@@ -157,7 +157,8 @@ function factsOf(c: Ctx, chain: Chain, d: Decider): Fact[] {
   }
   if (d.disabled) facts.push({ kind: 'handRunOnly', say: { key: `${P}.fact.handRunOnly` } })
   if (ai?.awaitsConfirm) facts.push({ kind: 'awaitsConfirm', say: { key: `${P}.fact.awaitsConfirm`, vars: { member: ai.agent.updatedBy ?? '' } } })
-  if (exit.type === 'git' && !chain.gate) facts.push({ kind: 'approvals', say: { key: `${P}.fact.approvalsNone` } })
+  // no stop before the git stage: approvals none — or a level whose gates this pipeline's stages pass (fix model)
+  if (exit.type === 'git' && !chain.gate) facts.push({ kind: 'approvals', say: input.worker.approvals === 'none' ? { key: `${P}.fact.approvalsNone` } : { key: `${P}.fact.approvalsPass` } })
   if (d.kind === 'bridge' || d.kind === 'organise' || exit.type === 'sync' || (exit.type === 'mcp' && hm && hm.ref.kind !== 'agent')) facts.push({ kind: 'thisDevice', say: { key: `${P}.fact.thisDevice` } })
   if (exit.type === 'mcp') {
     const tools = toolsOn(c, hm, ix.mods.get(exit.module))
@@ -308,15 +309,20 @@ function key3(c: Ctx, path: string, allowed: FuseState['allowed']): FuseKey {
 
 /* ------------------------------------------------------------------ near misses */
 
-/** One closing reason (§1.21) — or none (a path with two reasons, or no outside content at all, is neither). */
+/**
+ * One closing reason (§1.21) — or none (a path with two reasons, or no outside content at all, is neither). Data rules
+ * are one reason however many lamps they switch off: 'mcp' withheld turns off both the MCP source and the MCP way out.
+ */
 function nearWhy(chain: Chain): NearMiss['why'] | null {
   const L = chain.lamps
   if (!L) return null
   if (chain.gate) return L.outside.on && L.private.on ? 'gate' : null
+  const outsideRule = !L.outside.on && L.outside.say.key === `${P}.lamp.outside.dataRule`
+  const outRule = !L.out.on && chain.withheld === 'mcp'
+  if ((outsideRule || outRule) && L.private.on && (L.outside.on || outsideRule) && (L.out.on || outRule)) return 'dataRule'
   const off = [L.outside.on, L.private.on, L.out.on].filter((on) => !on).length
   if (off !== 1) return null
-  if (!L.outside.on) return L.outside.say.key === `${P}.lamp.outside.dataRule` ? 'dataRule' : null
-  if (!L.out.on) return chain.withheld === 'mcp' ? 'dataRule' : null
+  if (!L.outside.on || !L.out.on) return null
   return 'noPrivate'
 }
 
@@ -333,7 +339,8 @@ function closedHere(c: Ctx, model: Model): NearMiss[] {
   let oi: ReturnType<typeof taintOf>['oi'] | null = null
   for (const m of model.modules) {
     const d = deciderAt(c, m.key)
-    if (!d) continue
+    // a decider none of whose providers takes MCP servers never attaches one, on any device (D-S2-7)
+    if (!d?.mcp) continue
     const ai = agentOf(c, m)
     let candidates = off
     if (ai) {

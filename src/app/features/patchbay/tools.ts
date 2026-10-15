@@ -15,7 +15,7 @@
  * index loads the store, the cloud and CSS, and this module runs in Node specs.
  */
 import { isReadTool, isWriteNamed, toolWords } from '../agents/mcpTools'
-import { hostOf, matchMiss } from '../../store/integrations'
+import { hostOf, matchMiss, outToolsOf } from '../../store/integrations'
 import type { IntegrationProfile } from '../../store/types'
 import type { ModelInput, ModuleRef } from './types'
 
@@ -146,18 +146,27 @@ export function toolUse(groups: ToolGroups, allow: readonly string[] | undefined
 }
 
 /**
- * A runtime server's (the team server's agents) tools as this browser knows them: the server set up here at the same
- * host, else under the same name (agents/mcpTools testedTools' rule, by host) — null = not known here.
+ * A runtime server's (the team server's agents) tools as this browser knows them: only from the server set up here at
+ * the same host (the runtime names name + host only). A same-named server at another host is another server — its list
+ * says nothing about this one (fix model: borrowing it would turn fail closed off, §6 A7) — null = not known here.
  */
 export function runtimeTools(rt: { name: string; host: string | null }, local: ReadonlyArray<{ name: string; url: string; tools?: string[] }>): string[] | null {
-  const own = (rt.host ? local.find((s) => hostOf(s.url) === rt.host) : undefined) ?? local.find((s) => s.name === rt.name)
+  const own = rt.host ? local.find((s) => hostOf(s.url) === rt.host) : undefined
   return own?.tools?.length ? [...own.tools] : null
 }
 
 /**
+ * A runtime server's OUT tools: the profiles matching ITS name and host (the team server's own matching,
+ * server/src/agents/integrations.ts) — never those of a same-named server on this device at another host.
+ */
+export function runtimeOut(profiles: readonly IntegrationProfile[], rt: { name: string; host: string | null }): string[] {
+  return outToolsOf([...profiles], { name: rt.name, url: rt.host ? `https://${rt.host}/` : '' })
+}
+
+/**
  * A server module's tool groups as the model drew them (B4: the fuses and the signature read them again) — this
- * device's server by id, or a runtime server by name (its tools as this browser knows them, its OUT tools from this
- * device's twin). `host` = the server's host, `declaredBy` = the profiles describing it with `reads`.
+ * device's server by id, or a runtime server by name (its tools from this device's server at the same host, its OUT
+ * tools from the profiles matching its own name and host). `host` = the server's host, `declaredBy` = the profiles describing it with `reads`.
  */
 export function serverToolGroups(input: ModelInput, ref: Extract<ModuleRef, { kind: 'server' }>): { groups: ToolGroups; host: string | null; declaredBy: string[]; profiles: DeclaredReads[] } {
   const profiles = input.profiles.map((p) => p.profile)
@@ -172,8 +181,7 @@ export function serverToolGroups(input: ModelInput, ref: Extract<ModuleRef, { ki
   const host = rt.find((r) => r.name === ref.name)?.host ?? null
   const local = input.servers.map((s) => ({ name: s.server.name, url: s.server.url, tools: s.server.tools }))
   const tools = runtimeTools({ name: ref.name, host }, local)
-  const twin = input.servers.find((s) => s.server.name === ref.name)
-  const url = twin?.server.url ?? (host ? `https://${host}/` : '')
+  const url = host ? `https://${host}/` : ''
   const declared = declaringProfiles(profiles, { name: ref.name, url, tools: tools ?? undefined })
-  return { groups: toolGroups(tools, twin?.out ?? [], declared), host, declaredBy: declared.map((d) => d.id), profiles: declared }
+  return { groups: toolGroups(tools, runtimeOut(profiles, { name: ref.name, host }), declared), host, declaredBy: declared.map((d) => d.id), profiles: declared }
 }

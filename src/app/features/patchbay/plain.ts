@@ -170,6 +170,7 @@ export function moduleName(w: World, key: ModuleKey): string {
     }
     case 'incoming':
       if (r.agent) return t(`${P}.name.incomingAgent`, { agent: agentName(w, r.agent) })
+      if (r.hook?.startsWith('api:')) return t(`${P}.name.incomingApi`)
       if (r.hook) return t(`${P}.name.incoming`, { hook: r.hook })
       return t(`${P}.name.incomingAny`)
     case 'sync':

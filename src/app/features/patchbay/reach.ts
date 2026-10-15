@@ -20,18 +20,25 @@
  *    team without `includePrivate`, every shared page (then only private pages, private memory and MCP reads count).
  *  - **Data rules** (§1.3 #2, §6 A17): `classAllowedOn(route, cls, { ws, device })` — device rules only for deciders
  *    running here (local workspaces, the creator's browser, autofill, organise); a class is withheld only when every
- *    provider the decider may use withholds it. 'mail' withheld → mail rows are no source for it; 'mcp' withheld → no
- *    MCP attach at all (no MCP source, no MCP exit — exec.ts `pre.allows('mcp')`); 'memory' / 'private' withheld →
- *    no memory / no private pages in its private reach. The bridge is an outside Claude: no data rule applies to it.
+ *    provider the decider may use withholds it. The providers are every routable pin of the rule that wins for the
+ *    decider's feature class (fix model — ai/core/resolve.ts levels: device.routes[cls] → workspace.routes[cls] →
+ *    device.default → workspace '*' → legacy Claude; the gate tries the pins in order and a pin a data rule refuses
+ *    falls through to the next, so any of them may carry the data): agents 'agents' (an own route or a saver rule's
+ *    pins as well), autofill and organise 'bulk'. 'mail' withheld → mail rows are no source for it; 'mcp' withheld →
+ *    no MCP attach at all (no MCP source, no MCP exit — exec.ts `pre.allows('mcp')`); 'memory' / 'private' withheld →
+ *    no memory / no private pages in its private reach. MCP servers join Claude's requests only (the neutral wire
+ *    carries none, D-S2-7): a decider none of whose providers is Claude gets no MCP at all — no source, no way out.
+ *    The bridge is an outside Claude: no data rule applies to it.
  *
  * Lamps are message refs (`features.patchbay.lamp.*`, strings B4) whose vars hold ids: `db` / `page` = an id, `server`
  * / `writer` / `from` / `via` / `source` = a module key, `place` = a place key — plain.ts and the UI turn them into
  * names. Nothing here reads a store.
  */
 import { classAllowedOn } from '../ai/core/allowed'
+import { routable } from '../ai/core/routable'
 import { readAgentRoute } from '@/shared/ai/route'
 import { isProviderId } from '@/shared/ai/models'
-import type { DataClass, ProviderId } from '@/shared/ai/types'
+import type { DataClass, FeatureClass, ProviderId, RouteRule } from '@/shared/ai/types'
 import { moduleKey } from './ref'
 import { placeKey } from './rules'
 import type { ID } from '../../store/types'
@@ -70,6 +77,8 @@ export interface ReachIndex {
   mailDbs: Set<ID>
   /** database → the team incoming hooks writing its rows */
   hookDbs: Map<ID, ModuleKey[]>
+  /** fix (model): the team API tokens with write scope (they write anywhere) */
+  api: ModuleKey[]
   /** the capture Inbox (Clippings) when it is on the rack */
   clippings: { inbox: ID; module: ModuleKey } | null
   /** this device's GitHub sync is on the rack (its pick-ups are from outside) */
@@ -131,12 +140,14 @@ export function reachIndex(model: Model, input: ModelInput): ReachIndex {
   const dbs = new Map(input.databases.map((d) => [d.id, d]))
   const mailDbs = new Set(input.databases.filter((d) => d.system === 'mails' || (d.system ?? '').startsWith('mail-') || d.id === input.mail?.databaseId).map((d) => d.id))
   const hookDbs = new Map<ID, ModuleKey[]>()
+  const api: ModuleKey[] = []
   const pipelines = new Map<ID, ModuleKey>()
   let clippings: ReachIndex['clippings'] = null
   let github: ModuleKey | null = null
   for (const m of model.modules) {
     const r = m.ref
     if (r.kind === 'incoming' && r.db) hookDbs.set(r.db, [...(hookDbs.get(r.db) ?? []), m.key])
+    else if (r.kind === 'incoming' && r.hook?.startsWith('api:')) api.push(m.key)
     else if (r.kind === 'pipeline') pipelines.set(r.db, m.key)
     else if (r.kind === 'clippings') clippings = { inbox: r.inbox, module: m.key }
     else if (r.kind === 'sync' && r.source === 'github') github = m.key
@@ -198,6 +209,7 @@ export function reachIndex(model: Model, input: ModelInput): ReachIndex {
     tools,
     mailDbs,
     hookDbs,
+    api: api.sort(),
     clippings,
     github,
     autofillProps,
@@ -232,8 +244,10 @@ export interface Decider {
   kind: DeciderKind
   /** runs on this device: device data rules apply to it (§6 A17) */
   here: boolean
-  /** the providers its requests may go to (own pins, a saver rule's, else the agents' route — Claude when none); null: no data rule applies (the bridge) */
+  /** the providers its requests may go to (own pins, a saver rule's, else every routable pin of its class's winning rule — Claude when none); null: no data rule applies (the bridge) */
   providers: ProviderId[] | null
+  /** one of its providers takes MCP servers (Claude): else no MCP at all — no source, no way out (D-S2-7) */
+  mcp: boolean
   /** an agent's (effective) write mode; autofill / organise write directly; the bridge 'apply' or 'ask' */
   write: 'apply' | 'stage' | 'none' | 'ask'
   /** a server agent (runs on the team server, remote everywhere) */
@@ -242,13 +256,35 @@ export interface Decider {
   disabled: boolean
 }
 
-const routeProviders = (ix: ReachIndex): ProviderId[] => [ix.input.ai.route?.p ?? 'anthropic']
+/** Providers whose requests MCP servers join (client.ts: the neutral wire carries no MCP server, D-S2-7). */
+export const MCP_PROVIDERS: readonly ProviderId[] = ['anthropic']
 
-function agentProviders(ix: ReachIndex, a: AgentInput['agent']): ProviderId[] {
+/**
+ * The providers a request of feature class `cls` may go to: every routable pin of the rule that wins (ai/core/resolve.ts
+ * levels without the chip — this device's `routes[cls]`, the workspace's `routes[cls]`, this device's `default`, the
+ * workspace's `'*'`; the first level with a routable pin wins, levels never merge), else the legacy level (Claude).
+ * `here`: the request runs on this device — its rules count; elsewhere only the workspace's. The gate tries the pins in
+ * order and skips one a data rule refuses (filter 4): any pin may carry the request's data, so every one is a provider.
+ */
+export function classProviders(input: ModelInput, cls: FeatureClass, here: boolean): ProviderId[] {
+  const ws = input.ai.workspace
+  const device = here ? input.ai.device : null
+  const levels: Array<RouteRule | null | undefined> = [device?.routes?.[cls], ws?.routes?.[cls], device?.default, ws?.routes?.['*']]
+  for (const rule of levels) {
+    if (!Array.isArray(rule) || !rule.length) continue
+    const pins = rule.filter((r) => !!r && isProviderId(r.p) && routable(r.p, cls))
+    if (pins.length) return [...new Set(pins.map((r) => r.p))].sort()
+  }
+  return ['anthropic']
+}
+
+const carriesMcp = (providers: ProviderId[] | null): boolean => providers === null || providers.some((p) => MCP_PROVIDERS.includes(p))
+
+function agentProviders(ix: ReachIndex, a: AgentInput['agent'], here: boolean): ProviderId[] {
   const out = new Set<ProviderId>()
   const own = readAgentRoute(a.route)
   if (own && own !== 'unreadable') for (const pin of own) out.add(pin.p)
-  else for (const p of routeProviders(ix)) out.add(p)
+  else for (const p of classProviders(ix.input, 'agents', here)) out.add(p)
   // a saver rule moves a run to its cheaper pins: they may carry the run's data too
   const saver = a.saverRule as { to?: unknown } | null | undefined
   if (saver && Array.isArray(saver.to)) for (const pin of saver.to as Array<{ p?: unknown }>) if (pin && isProviderId(pin.p)) out.add(pin.p)
@@ -261,33 +297,35 @@ export function deciderOf(ix: ReachIndex, m: Module): Decider | null {
   const team = ix.input.ctx.team
   if (r.kind === 'agent') {
     const ai = ix.agents.get(r.id)
-    if (!ai || ai.routeBlocked || ai.unreadable.length) return null
+    // route-blocked, skipped by the team server (a Vorprüfer) or Unreadable: not a decider (blocked, or an unknown part)
+    if (!ai || ai.routeBlocked || ai.serverSkip || ai.unreadable.length) return null
     const server = ai.agent.runner === 'server'
-    return {
-      key: m.key,
-      kind: 'agent',
-      here: !team || (!server && ai.creatorHere),
-      providers: agentProviders(ix, ai.agent),
-      write: ai.write,
-      server,
-      disabled: !ai.agent.enabled,
-    }
+    const here = !team || (!server && ai.creatorHere)
+    const providers = agentProviders(ix, ai.agent, here)
+    return { key: m.key, kind: 'agent', here, providers, mcp: carriesMcp(providers), write: ai.write, server, disabled: !ai.agent.enabled }
   }
-  if (r.kind === 'autofill') return { key: m.key, kind: 'autofill', here: true, providers: routeProviders(ix), write: 'apply', server: false, disabled: false }
-  if (r.kind === 'organise') return { key: m.key, kind: 'organise', here: true, providers: routeProviders(ix), write: 'apply', server: false, disabled: false }
+  // autofill (bulk.autofill) and organise (bulk.mail) are class 'bulk' — their own route rules, this device's
+  if (r.kind === 'autofill' || r.kind === 'organise') {
+    const providers = classProviders(ix.input, 'bulk', true)
+    return { key: m.key, kind: r.kind, here: true, providers, mcp: carriesMcp(providers), write: 'apply', server: false, disabled: false }
+  }
   if (r.kind === 'bridge') {
     const mode = ix.input.bridge.mode
     if (!ix.input.bridge.enabled || mode === 'read') return null
-    return { key: m.key, kind: 'bridge', here: true, providers: null, write: mode === 'ask' ? 'ask' : 'apply', server: false, disabled: false }
+    return { key: m.key, kind: 'bridge', here: true, providers: null, mcp: true, write: mode === 'ask' ? 'ask' : 'apply', server: false, disabled: false }
   }
   return null
 }
 
-/** May the decider's requests carry data class `cls` (one of its providers allows it; device rules only when it runs here)? */
+/**
+ * May the decider's requests carry data class `cls` (one of its providers allows it; device rules only when it runs
+ * here)? 'mcp': only providers MCP servers join count (none: no MCP at all — `d.mcp`).
+ */
 export function allows(ix: ReachIndex, d: Decider, cls: DataClass): boolean {
   if (!d.providers) return true
   const o = { ws: ix.input.ai.workspace, device: d.here ? ix.input.ai.device : null }
-  return d.providers.some((p) => classAllowedOn({ p }, cls, o))
+  const providers = cls === 'mcp' ? d.providers.filter((p) => MCP_PROVIDERS.includes(p)) : d.providers
+  return providers.some((p) => classAllowedOn({ p }, cls, o))
 }
 
 /* ------------------------------------------------------------------ read roots */
@@ -376,6 +414,12 @@ export function readRoots(ix: ReachIndex, m: Module): ReadRoots {
     case 'automation':
     case 'kit':
       add(r.db, 'row')
+      // fix (model): a single-use script folded into the automation (§1.15) reads what its scan names
+      if (r.kind === 'automation' && m.folds?.script) for (const p of ix.scans.get(m.folds.script)?.reads ?? []) add('db' in p ? p.db : 'page' in p ? p.page : null, 'scope')
+      return { ...NONE, places }
+    case 'pipeline':
+      // fix (model): the worker reads the task row (the task's page and fields go to Claude Code)
+      add(r.db, 'row')
       return { ...NONE, places }
     case 'script': {
       const scan = ix.scans.get(r.id) ?? null
@@ -402,7 +446,7 @@ export function writeReachCovers(ix: ReachIndex, m: Module, db: ID): boolean {
 
 /** Why a place's content is from outside (the taint index's entries). */
 export interface OutsideMark {
-  kind: 'mail' | 'incoming' | 'clippings' | 'github' | 'tainted'
+  kind: 'mail' | 'incoming' | 'api' | 'clippings' | 'github' | 'tainted'
   source: ModuleKey
   /** taint: the writer (= source) and where its content came from */
   writer?: ModuleKey
@@ -422,11 +466,13 @@ export interface OutsideIndex {
 /** The mail rows' source: the mail database's "new row" trigger (the mail sync) — drawn when something listens to it. */
 export const mailSource = (db: ID): ModuleKey => moduleKey({ kind: 'rowTrigger', db, event: 'created', prop: null })
 
-/** The places from outside before any taint: mail databases, hook databases, Clippings, GitHub pick-ups. */
+/** The places from outside before any taint: mail databases, hook databases, API tokens, Clippings, GitHub pick-ups. */
 export function startingOutside(ix: ReachIndex): OutsideIndex {
   const oi: OutsideIndex = { dbs: new Map(), pages: new Map(), all: [] }
   for (const db of [...ix.mailDbs].sort()) oi.dbs.set(db, [{ kind: 'mail', source: mailSource(db) }])
   for (const [db, hooks] of [...ix.hookDbs].sort((a, b) => (a[0] < b[0] ? -1 : 1))) oi.dbs.set(db, [...(oi.dbs.get(db) ?? []), ...hooks.sort().map((h) => ({ kind: 'incoming' as const, source: h }))])
+  // fix (model): a write token's rows and pages may be anywhere in the shared workspace
+  for (const t of ix.api) oi.all.push({ kind: 'api', source: t })
   if (ix.clippings) oi.pages.set(ix.clippings.inbox, [{ kind: 'clippings', source: ix.clippings.module }])
   if (ix.github) oi.all.push({ kind: 'github', source: ix.github })
   return oi
@@ -473,7 +519,8 @@ function marksUnder(ix: ReachIndex, oi: OutsideIndex, id: ID, subtree: boolean):
     for (const [db, marks] of oi.dbs) if (db !== id && underOf(ix, db).some((u) => roots.has(u))) for (const mark of marks) out.push({ place: { db }, mark })
     for (const [page, marks] of oi.pages) if (page !== id && underOf(ix, page).some((u) => roots.has(u))) for (const mark of marks) out.push({ place: { page }, mark })
   }
-  for (const mark of oi.all) out.push({ place: self, mark })
+  // an API token writes the shared workspace only — never a member's private page
+  for (const mark of oi.all) if (!(mark.kind === 'api' && isPrivate(ix, id))) out.push({ place: self, mark })
   return out
 }
 
@@ -489,7 +536,7 @@ function marksEverywhere(ix: ReachIndex, oi: OutsideIndex, sharedOnly: boolean):
 const cmp = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0)
 
 const VIA_RANK: Record<ReadVia, number> = { webhook: 0, trigger: 1, row: 2, scope: 3, related: 4, tools: 5 }
-const KIND_RANK: Record<OutsideSource['kind'], number> = { hook: 0, mail: 1, incoming: 2, clippings: 3, github: 4, mcp: 5, tainted: 6 }
+const KIND_RANK: Record<OutsideSource['kind'], number> = { hook: 0, mail: 1, incoming: 2, api: 3, clippings: 4, github: 5, mcp: 6, tainted: 7 }
 
 /**
  * The outside sources a processor reads — every one, the primary first: what reaches it (not withheld) before what a
@@ -519,7 +566,8 @@ export function outsideSources(ix: ReachIndex, oi: OutsideIndex, m: Module, root
   if (roots.hook) add({ kind: 'hook', source: roots.hook, via: 'webhook' })
   for (const p of [...roots.places].sort((a, b) => VIA_RANK[a.via] - VIA_RANK[b.via])) for (const { place, mark } of marksUnder(ix, oi, p.id, p.via === 'scope')) fromMark(place, mark, p.via)
   if (roots.everything) for (const { place, mark } of marksEverywhere(ix, oi, roots.sharedOnly)) fromMark(place, mark, 'scope')
-  for (const t of roots.servers) add({ kind: 'mcp', source: t.server, via: 'tools', ...(mcpOk ? {} : { withheld: 'mcp' as const }) })
+  // a decider none of whose providers takes MCP servers gets no MCP at all (no source — not even a withheld one)
+  if (!d || d.mcp) for (const t of roots.servers) add({ kind: 'mcp', source: t.server, via: 'tools', ...(mcpOk ? {} : { withheld: 'mcp' as const }) })
   return out.sort(
     (a, b) =>
       (a.withheld ? 1 : 0) - (b.withheld ? 1 : 0) ||

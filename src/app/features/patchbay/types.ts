@@ -120,7 +120,8 @@ export interface Module {
   folds?: { script?: ID }
   /** read-only; null model = "Standard", null budget = "no budget" */
   knobs?: { model: string | null; budgetUsd: number | null }
-  blocked?: 'route' | 'confirm' | 'notHere' | 'unreadable'
+  /** 'server': a server agent the team server skips (a Vorprüfer — server/src/agents/service.ts VORPRUEFER_SKIP) */
+  blocked?: 'route' | 'confirm' | 'notHere' | 'unreadable' | 'server'
   /** no edge at all → folded "n idle" / "n ruhend" */
   idle: boolean
   /** what "Open" opens (§3.9) */
@@ -260,7 +261,8 @@ export interface ChainExit {
  * written from outside (taint) — the writer.
  */
 export interface OutsideSource {
-  kind: 'mail' | 'hook' | 'incoming' | 'mcp' | 'clippings' | 'github' | 'tainted'
+  /** 'api': written through a team API token with write scope (anywhere — its writes are bound to no database) */
+  kind: 'mail' | 'hook' | 'incoming' | 'api' | 'mcp' | 'clippings' | 'github' | 'tainted'
   source: ModuleKey
   /** the place read (a mail / hook / tainted database or page; Clippings' Inbox; everything for GitHub pick-ups) */
   place?: Place
@@ -384,7 +386,11 @@ export interface FuseState extends Fuse {
 /** Something on a possible path this device cannot see (§1.21) — never a fuse, never read as safe. */
 export interface UnknownPart {
   key: string
-  what: 'otherBrowser' | 'runtime' | 'hooks' | 'unreadable' | 'lazy'
+  /**
+   * … · 'byName': a script that names places by name (§1.17 — what it reads or writes is not known here) ·
+   * 'elsewhere': a browser agent's server not set up on this device (team: the creator's other browsers run it too)
+   */
+  what: 'otherBrowser' | 'runtime' | 'hooks' | 'unreadable' | 'lazy' | 'byName' | 'elsewhere'
   module: ModuleKey
   /** member id who can see it */
   who?: string
@@ -563,6 +569,11 @@ export interface AgentInput {
   creatorHere: boolean
   /** the effective write mode (Regler G2 hook — identity in G1) */
   write: AgentWriteMode
+  /**
+   * a server agent the team server skips with its reason — today one with a Vorprüfer (review v2: `decisionChecks` ≠
+   * null → VORPRUEFER_SKIP) until `/api/config` names 'vorpruefer': never a decider, never a writer (§1.3 #1)
+   */
+  serverSkip?: 'vorpruefer'
   /** Jev with Schreibschranke on an apply-mode agent (a mitigation) */
   jevGate: boolean
 }
@@ -678,7 +689,8 @@ export interface MailInput {
 export interface PipelineInput {
   db: ID
   kind: 'coding' | 'spec' | 'qa'
-  stages: Array<Pick<PipelineStage, 'id' | 'kind' | 'auto' | 'gitAction' | 'hold'>>
+  /** in Stage-option order; `next` (the stage after it, absent = the next one) and a doc stage's `output` (fix model) */
+  stages: Array<Pick<PipelineStage, 'id' | 'kind' | 'auto' | 'gitAction' | 'hold' | 'next' | 'output'>>
   /** worker repos whose push / pr is off (gitStageWarnings) */
   warnings: { pushOff: string[]; prOff: string[] }
 }
@@ -705,10 +717,20 @@ export interface ButtonInput {
   actions: Array<{ type: 'run_script'; scriptId: ID | null } | { type: 'webhook'; host: string | null; method: string } | { type: 'add_page'; target: ID | null }>
 }
 
-/** A team incoming webhook / API token (owners / admins, read on open); 'forbidden' → unknown parts. */
+/** A team incoming webhook (owners / admins, read on open); 'forbidden' → unknown parts. */
 export interface HookInput {
   id: string
   db: ID | null
+}
+
+/**
+ * A team API token (owners / admins, read on open with the hooks: `GET api/workspaces/<id>/tokens`) — its id and
+ * whether it may write (scope 'write', not revoked). A write token creates and changes rows and pages anywhere in the
+ * shared workspace (docs/API.md) and drives the team `/mcp` endpoint: content from outside everywhere.
+ */
+export interface TokenInput {
+  id: string
+  write: boolean
 }
 
 /**
@@ -730,6 +752,11 @@ export interface ModelInput {
   servers: ServerInput[]
   /** the server-agent runtime's servers (on open / lazy cache); 'forbidden' (viewer); null = not read yet */
   runtime: RuntimeServerInput[] | 'forbidden' | null
+  /**
+   * fix (model): the runtime list was read in this session (absent / false: it came from the lazy cache, maybe days old —
+   * a server an agent names that the list lacks is then an unknown part, never "the runtime has none")
+   */
+  runtimeFresh?: boolean
   profiles: ProfileInput[]
   mail: MailInput | null
   memory: { exists: boolean; on: boolean }
@@ -746,6 +773,8 @@ export interface ModelInput {
   /** lazy readings (null: not read yet): the button index, team hooks */
   buttons: ButtonInput[] | null
   hooks: HookInput[] | 'forbidden' | null
+  /** fix (model): team API tokens, read with the hooks (absent / null: not read yet — an unknown part in a team) */
+  tokens?: TokenInput[] | 'forbidden' | null
   /** the lazy cache this device holds (cache.ts) */
   lazy: LazyCache | null
 }
@@ -764,6 +793,8 @@ export interface LazyCache {
   hooks: Array<{ id: string; db: ID | null }> | null
   /** the server-agent runtime's servers */
   runtime: RuntimeServerInput[] | null
+  /** fix (model): team API tokens (id + write scope) — absent / null: not read */
+  tokens?: TokenInput[] | null
   inbox: ID | null
   /** B4: the Inbox lookup ran (`inbox` null then means "none", not "not read") */
   inboxRead?: boolean

@@ -9,9 +9,16 @@
  *  - agents never start agents directly (both runners skip `agent:` writers) — through an automation they do;
  *  - autofill never starts autofill (its own fields are out of `rowHash`), and listens to its row's inputs;
  *  - a field "only by hand" (`agentReadOnly`) is never written by an agent or the MCP bridge (enforced in the agent's
- *    and the bridge's tools, §1.18) — every other writer ignores the flag (autofill, automations, kit, scripts).
+ *    and the bridge's tools, §1.18) — every other writer ignores the flag (autofill, automations, kit, scripts);
+ *  - mail "Organise with Claude" sorts only the mails a sync just created (mail/service.ts `organiseRows(res.created)`,
+ *    "Organise earlier mails" the synced ones): no write of any module starts it — only the mail sync's row trigger;
+ *  - the coding worker writes the task row in its tab (Stage moves, plan and summary, fields — coding/tasks.ts
+ *    finishStage under `codingWriter`, automations not paused): a local writer like any other ('pipeline');
+ *  - a pipeline's git stage runs with nobody in between unless a gate the task's Approvals stop at stands between where
+ *    the task enters and that stage (coding/tasks.ts `skipsGate`: a hold gate always stops; 'all' every gate; 'review'
+ *    every gate but one right after a plan stage; 'none' only hold gates).
  */
-import type { FlowListen, ModuleKey, Place } from './types'
+import type { FlowListen, ModuleKey, PipelineInput, Place } from './types'
 
 /** Who writes — the kind of writer decides what its write can start. */
 export type WriterKind =
@@ -30,6 +37,7 @@ export type WriterKind =
   | 'incoming'
   | 'sync'
   | 'clippings'
+  | 'pipeline'
 
 /** A place's key in the flow: `<db>:<prop | * | +row | -row>` · `page:<id>` · `inbox` · `everything` · `ext:<what>`. */
 export function placeKey(p: Place): string {
@@ -46,6 +54,8 @@ export const honoursHandOnly = (kind: WriterKind): boolean => kind === 'agent' |
 /** Can a write by `w` start listener `l`? */
 export function startable(w: { kind: WriterKind; key: ModuleKey }, l: FlowListen): boolean {
   if (l.module === w.key) return false
+  // mail organise starts only from the mail sync (its row trigger), never from a module's write
+  if (l.kind === 'organise') return false
   switch (w.kind) {
     case 'agent':
       return l.kind !== 'agent'
@@ -73,4 +83,51 @@ export function reaches(wp: string, lp: string, l: FlowListen, autofillProps: Re
   if (lp === '+row' || lp === '-row') return false
   if (wp === '*') return true
   return lp === wp || lp === '*'
+}
+
+/* ------------------------------------------------------------------ pipelines */
+
+type Stage = PipelineInput['stages'][number]
+type Approvals = 'all' | 'review' | 'none'
+
+/** The git actions that send something out of One (`commit` and `update-base` stay local). */
+export const GIT_OUT: ReadonlySet<string> = new Set(['push', 'pr', 'comment', 'merge'])
+
+/** Does a task with these Approvals stop at the gate at index `i`? (coding/tasks.ts `skipsGate`, inverted) */
+export function gateStops(stages: readonly Stage[], i: number, level: Approvals): boolean {
+  const st = stages[i]
+  if (st?.kind !== 'gate') return false
+  if (st.hold) return true
+  if (level === 'none') return false
+  return level === 'all' || stages[i - 1]?.kind !== 'plan'
+}
+
+/** The stage after index `i` (its `next`, else the following one — coding/schema.ts `nextStage`); -1 at the end. */
+function nextIndex(stages: readonly Stage[], i: number): number {
+  const next = stages[i]?.next
+  if (next) return stages.findIndex((s) => s.id === next)
+  return i + 1 < stages.length ? i + 1 : -1
+}
+
+/**
+ * The git actions (push · pr · comment · merge) a task reaches with nobody in between: walked from where a task enters
+ * the pipeline — its first stage (a new row) and every queue stage (the worker takes it on, or a person starts it: a
+ * start by hand is never a check) — along `next`, stopping at a gate the Approvals stop at (or a done stage). A git
+ * stage behind a stopping gate on every walk is "after approval".
+ */
+export function unattendedGit(stages: readonly Stage[], level: Approvals): Set<string> {
+  const out = new Set<string>()
+  const entries = stages.map((s, i) => (i === 0 || s.kind === 'queue' ? i : -1)).filter((i) => i >= 0)
+  for (const start of entries) {
+    const seen = new Set<number>()
+    // a task that starts at a gate waits there for a person
+    for (let i = start; i >= 0 && !seen.has(i); i = nextIndex(stages, i)) {
+      seen.add(i)
+      const st = stages[i]
+      if (st.kind === 'done') break
+      if (st.kind === 'gate' && (i === start || gateStops(stages, i, level))) break
+      if (st.kind === 'git' && st.gitAction && GIT_OUT.has(st.gitAction)) out.add(st.gitAction)
+    }
+  }
+  return out
 }
