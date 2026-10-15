@@ -11,9 +11,11 @@
  *    is no owner / admin (the owners and admins named) and the 51st profile are refused with their reason;
  *  - the band (record.ts): the visit shows the profile's band in full, the record names it (`<scope>|setup`);
  *  - Undo (Mod+Z on the route, the band's key, the toast) — only until the first lamp write (§6 U4): until a lamp that
- *    was not green right after the drop turns green (a step of the setup made something). Then the band's key reads
- *    "Close setup": the profile is removed only in Workspace › Integrations. Undo puts the replaced profile back, or
- *    removes the new one (`you~undo`) — refused when the profile changed since (someone edited it). In a team the
+ *    was not green right after the drop turns green (a step of the setup made something — read again at every Undo, so a
+ *    lamp that went green off the page counts too), and only while the drop's own visit lasts (fix mid: a later visit,
+ *    "Show the whole setup" included, offers none). Then the band's key reads "Close setup": the profile is removed only
+ *    in Workspace › Integrations. Undo puts the replaced profile back, or removes the new one (`you~undo`), and the
+ *    setup record as it was before the drop — refused when the profile changed since (someone edited it). In a team the
  *    toast says it removes the profile for all members.
  */
 import { create } from 'zustand'
@@ -23,11 +25,12 @@ import { withWriter, type Writer } from '../../../store/writer'
 import { INTEGRATION_LIMITS, integrationsAllowed, sameIntegration } from '../../../store/integrations'
 import { signoffAdmins } from '../../../store/fuseSignoffs'
 import type { IntegrationProfile } from '../../../store/types'
+import type { SetupState } from '../types'
 import { useCloud } from '../../../cloud'
 import { validateProfileText } from '../../agents'
 import type { LampSet } from './lamps'
 import { lampsNow } from './facts'
-import { endSetupVisit, markSetupVisit, patchSetupRecord, setupRecord, writeSetupRecord } from './record'
+import { endSetupVisit, markSetupVisit, patchSetupRecord, setupRecord, setupVisit, writeSetupRecord } from './record'
 
 const AS_DROP: Writer = { kind: 'you', via: 'patchbay' }
 const AS_UNDO: Writer = { kind: 'you', via: 'undo' }
@@ -125,6 +128,10 @@ export interface DropDone {
   open: boolean
   /** a team workspace: Undo removes the profile for all members */
   team: boolean
+  /** the visit the drop opened (record.ts `SetupVisit.at`): the Undo lives only while that visit lasts (fix mid) */
+  visit: number | null
+  /** the setup record as it was before the drop (a replace's Undo writes it back — another profile's setup included) */
+  recordBefore: SetupState | null
 }
 
 export const useDrop = create<{ done: DropDone | null }>(() => ({ done: null }))
@@ -145,7 +152,9 @@ export function commitDrop(ready: DropReady): { ok: true; done: DropDone } | Dro
   const wrote = (ws().integrations ?? []).find((p) => p.id === ready.profile.id)
   if (!ok || !wrote) return refuse(integrationsAllowed() ? 'failed' : 'rights', { ...(ready.file ? { file: ready.file } : {}), names: signoffAdmins().filter(Boolean) })
   const recipeId = wrote.recipes?.[0]?.id
+  const recordBefore = setupRecord()
   markSetupVisit(wrote.id, { fresh: true, ...(recipeId ? { recipeId } : {}), ...(ready.file ? { file: ready.file } : {}) })
+  const visit = setupVisit()
   const sets = lampsNow(wrote.id)?.sets ?? []
   const done: DropDone = {
     profileId: wrote.id,
@@ -156,6 +165,8 @@ export function commitDrop(ready: DropReady): { ok: true; done: DropDone } | Dro
     baseline: lampIds(sets, ['ok', 'busy']),
     open: true,
     team: team(),
+    visit: visit?.profileId === wrote.id ? visit.at : null,
+    recordBefore: recordBefore ? { ...recordBefore } : null,
   }
   useDrop.setState({ done })
   return { ok: true, done }
@@ -176,21 +187,59 @@ export function noteLamps(profileId: string, sets: readonly LampSet[]): void {
   }
 }
 
-/** When the drop's Undo is still offered (null: not — no drop, a lamp step made something, the profile is gone). */
-export function dropUndoAt(): number | null {
+/** The lamps read again now (a lamp may have gone green while the page was not shown): the first write closes the Undo. */
+function settle(d: DropDone): DropDone | null {
+  if (d.open) {
+    const now = lampsNow(d.profileId)
+    if (now) noteLamps(d.profileId, now.sets)
+  }
+  return useDrop.getState().done
+}
+
+/** Is this the drop's own visit still (the band it opened — not a later visit, "Show the whole setup" included)? */
+const ownVisit = (d: DropDone): boolean => {
+  const v = setupVisit()
+  return d.visit !== null && !!v && v.profileId === d.profileId && v.at === d.visit
+}
+
+/**
+ * The drop's Undo is over with its visit (the page closed by a way that is no setup step): kept as "over" so a late press
+ * of the toast's Undo says why it does nothing.
+ */
+export function endDrop(): void {
   const d = useDrop.getState().done
-  if (!d || !d.open) return null
+  if (d && d.visit !== null) useDrop.setState({ done: { ...d, visit: null } })
+}
+
+/** Is the drop's Undo offered in the band now (its own visit, no lamp step made anything yet)? Reactive callers pass `d`. */
+export const dropUndoOpen = (d: DropDone | null): boolean => !!d && d.open && ownVisit(d)
+
+/**
+ * When the drop's Undo is still offered (null: not — no drop, a lamp step made something, the visit it opened is over,
+ * the profile is gone).
+ */
+export function dropUndoAt(): number | null {
+  const d0 = useDrop.getState().done
+  if (!d0) return null
+  const d = settle(d0)
+  if (!d || !d.open || !ownVisit(d)) return null
   if (!(ws().integrations ?? []).some((p) => p.id === d.profileId)) return null
   return d.at
 }
 
-export type DropUndo = { ok: true; profileId: string; restored: boolean } | { ok: false; why: 'nothing' | 'started' | 'changed' | 'rights' | 'readOnly' | 'failed'; names?: string[] }
+export type DropUndo = { ok: true; profileId: string; name: string; restored: boolean } | { ok: false; why: 'nothing' | 'started' | 'over' | 'changed' | 'rights' | 'readOnly' | 'failed'; names?: string[] }
 
 /** Take the drop back (`you~undo`): the replaced profile back, or the new one removed — the band and its record go. */
 export function undoDrop(): DropUndo {
-  const d = useDrop.getState().done
+  const d0 = useDrop.getState().done
+  if (!d0) return { ok: false, why: 'nothing' }
+  const d = settle(d0)
   if (!d) return { ok: false, why: 'nothing' }
   if (!d.open) return { ok: false, why: 'started' }
+  if (!ownVisit(d)) {
+    useDrop.setState({ done: null })
+    return { ok: false, why: 'over' }
+  }
   if (readOnly()) return { ok: false, why: 'readOnly' }
   if (!integrationsAllowed()) return { ok: false, why: 'rights', names: signoffAdmins().filter(Boolean) }
   const now = (ws().integrations ?? []).find((p) => p.id === d.profileId)
@@ -202,10 +251,12 @@ export function undoDrop(): DropUndo {
   const ok = withWriter(AS_UNDO, () => (d.before ? ws().upsertIntegration(d.before) : ws().deleteIntegration(d.profileId)))
   if (!ok) return { ok: false, why: integrationsAllowed() ? 'failed' : 'rights' }
   useDrop.setState({ done: null })
+  // the setup record as it was before the drop (a setup in progress — of the replaced profile or another — keeps its strip)
   const rec = setupRecord()
-  if (rec?.profileId === d.profileId) writeSetupRecord(null)
+  if (d.recordBefore) writeSetupRecord(d.recordBefore)
+  else if (rec?.profileId === d.profileId) writeSetupRecord(null)
   endSetupVisit()
-  return { ok: true, profileId: d.profileId, restored: !!d.before }
+  return { ok: true, profileId: d.profileId, name: d.before?.name ?? d.wrote.name, restored: !!d.before }
 }
 
 /**

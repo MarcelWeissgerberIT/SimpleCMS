@@ -12,7 +12,8 @@
  *    no object, reads as one frozen {}. The input is read as data: a caller never changes it afterwards.
  *  - sameSignoffs(a, b): by value (absent = none) — the store and the team binding keep their reference when equal.
  *  - signoffEntry / withSignoff / withoutSignoff: an entry built and checked, a map with one entry more (the newest 500
- *    kept, as the reader keeps them) or one less — what signOffFuse / withdrawSignoff (store.ts) write.
+ *    kept, as the reader keeps them) or one less — what signOffFuse / withdrawSignoff (store.ts) write; restoredEntry:
+ *    an entry put back as it was (restoreSignoff — the Patchbay's Undo of key 3).
  *  - setSignoffGuard / signoffRefusal / signoffsAllowed / signoffAdmins: locally the person; in a team owners and
  *    admins on a server that guards the map (`supports ∋ 'signoffs'`) — cloud/workspace.ts registers the guard.
  *
@@ -216,6 +217,15 @@ export function sameSignoffs(a: Record<string, FuseSignoff> | null | undefined, 
 /** An allowance as stored (null: not one — a signature or a part digest that breaks the rules). */
 export function signoffEntry(input: { sig: unknown; parts: unknown; at: number; updatedBy: string | null }): FuseSignoff | null {
   const e = cleanEntry({ sig: input.sig, parts: input.parts, at: input.at, updatedBy: input.updatedBy })
+  return e ? deepFreeze(e) : null
+}
+
+/**
+ * An allowance put back exactly as it was stored (an Undo of the Patchbay's key 3: `at` and `updatedBy` kept, unknown
+ * fields too while ≤ 1 KB) — null when it is no allowance. A team server stamps `updatedBy` with whoever writes it.
+ */
+export function restoredEntry(raw: unknown): FuseSignoff | null {
+  const e = cleanEntry(raw)
   return e ? deepFreeze(e) : null
 }
 

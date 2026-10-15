@@ -1032,7 +1032,7 @@ export interface Workspace {
   /**
    * The Patchbay's allowed paths ("Allow this path" / "Weg zulassen", features/patchbay §1.10 / §2.8): path key (64 hex)
    * → FuseSignoff. Every reader sanitizes (store/fuseSignoffs.ts sanitizeFuseSignoffs). Written only with signOffFuse /
-   * withdrawSignoff (B9; owners / admins). Team: meta map `fuseSignoffs`, one entry per path key, guarded by the server
+   * withdrawSignoff / restoreSignoff (B9; owners / admins; restoreSignoff = the Patchbay's Undo of key 3). Team: meta map `fuseSignoffs`, one entry per path key, guarded by the server
    * (it stamps `updatedBy`). No stampGen, no schema gate. Assign `undefined`, never `delete`. Full backups carry it (a
    * restore keeps this workspace's), page backups never. An older build may drop it: fuses come back open (fail-safe).
    */

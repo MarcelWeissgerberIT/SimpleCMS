@@ -87,9 +87,13 @@ function RecipeTabs({ t, sets, recipes, current, onPick }: { t: Translate; sets:
       {sets.map((s) => {
         const r = recipes.find((x) => x.recipeId === s.recipe)
         const on = s.recipe === current
+        // fix mid: named by what it makes — the recipe's database (a recipe's own name defaults to its kind's title, so
+        // two mirrors would read the same); the recipe's name as the title when it says something else
+        const label = r?.database.name.trim() || r?.name || s.recipe || ''
+        const title = r?.name && r.name !== label ? r.name : undefined
         return (
-          <button key={s.recipe ?? '-'} type="button" role="tab" className="pb-rtab" aria-selected={on} tabIndex={on ? 0 : -1} onClick={() => s.recipe && onPick(s.recipe)} data-testid="pb-recipe-tab">
-            {r?.name ?? s.recipe}
+          <button key={s.recipe ?? '-'} type="button" role="tab" className="pb-rtab" aria-selected={on} tabIndex={on ? 0 : -1} title={title} onClick={() => s.recipe && onPick(s.recipe)} data-testid="pb-recipe-tab">
+            {label}
             <span className="pb-rtab__n">
               {s.done}/{s.lamps.length}
             </span>

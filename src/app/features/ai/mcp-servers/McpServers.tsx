@@ -42,6 +42,7 @@ import { HelpLink } from '../../../help'
 import { CodeArea, markdownTokenizer } from '../../../ui/code'
 import { McpOverview } from './McpOverview'
 import { AINeedsSetup } from '../setup/AINeedsSetup'
+import { quietSettings } from '../setup/openAISetup'
 import './mcp-servers.css'
 
 type T = ReturnType<typeof useT>
@@ -96,9 +97,10 @@ export function McpServers({ openId, add }: { openId?: string; add?: boolean } =
     requestAnimationFrame(() => document.querySelector<HTMLElement>(`.mcps-card[data-id="${CSS.escape(id)}"]`)?.scrollIntoView({ block: 'nearest' }))
   }
 
-  // a key arrived (or Settings opened with one): servers that were never checked get their check now
+  // a key arrived (or Settings opened with one): servers that were never checked get their check now — not when Settings
+  // was opened quietly (the Patchbay's lamp: a press there never sends a request; a check then runs on its own key)
   useEffect(() => {
-    if (!hasKey) return
+    if (!hasKey || quietSettings()) return
     for (const s of readServers()) if (s.enabled && !s.checkedAt && !s.checkError && !useMcpChecks.getState().running[s.id]) void checkServer(s.id, s.prompt.trim() ? 'test' : 'guide')
   }, [hasKey])
 

@@ -67,11 +67,12 @@ import { fuseMarks, useWords, type Words, type WordsExtra } from './words'
 import { useSetupLamps } from '../setup/facts'
 import { setOf } from '../setup/lamps'
 import { ghostsOf } from '../setup/ghosts'
-import { withGhosts } from '../setup/merge'
+import { withGhosts, withProfileModules } from '../setup/merge'
+import { moduleKey } from '../ref'
 import { lampNo } from '../setup/keys'
 import { readReturn } from '../setup/return'
 import { endSetupVisit, loadSetupRecord, markSetupVisit, pickRecipe, setupVisit, useSetupRecord } from '../setup/record'
-import { closeSetup, dropUndoAt, noteLamps, useDrop } from '../setup/drop'
+import { closeSetup, dropUndoAt, dropUndoOpen, endDrop, noteLamps, useDrop } from '../setup/drop'
 import { DropChip, DropPlate, runDropUndo, useDropFlow } from './DropFlow'
 import { DropZone, useDragZone } from './DropZone'
 import { PasteProfile } from './PasteProfile'
@@ -80,6 +81,9 @@ import { SetupStrip } from './SetupStrip'
 import '../patchbay.css'
 
 const P = 'features.patchbay'
+/** No step chips (a profile without a recipe: nothing to make on the rack). */
+const NO_CHIPS: Record<ModuleKey, number[]> = Object.freeze({}) as Record<ModuleKey, number[]>
+
 /** The rack needs this much width (× the text size); below it the strands view takes over (§6 U14). */
 const RACK_MIN = 880
 /** Below this (× the text size) the readout keeps RUNS TODAY and FUSE only (§3.8). */
@@ -169,7 +173,10 @@ export default function Patchbay(props: PatchbayRouteProps) {
     () => () => {
       const v = setupVisit()
       const back = readReturn()
-      if (v && !(back && back.profileId === v.profileId)) endSetupVisit()
+      if (v && back && back.profileId === v.profileId) return
+      endSetupVisit()
+      // fix mid: the drop's Undo lives only as long as its visit (a later visit never offers it)
+      endDrop()
     },
     [],
   )
@@ -185,7 +192,11 @@ export default function Patchbay(props: PatchbayRouteProps) {
   const set = lamps ? setOf(lamps.sets, visit?.recipeId ?? kept?.recipeId ?? null) : null
   const recipe = lamps && set ? (lamps.profile.recipes.find((r) => r.recipeId === set.recipe) ?? null) : null
   const plan = useMemo(() => (recipe && setupId && base ? ghostsOf(setupId, recipe, { existing, edges: new Set(base.edges.map((e) => e.id)) }) : null), [recipe, setupId, base, existing])
-  const model = useMemo(() => (base ? withGhosts(base, plan) : null), [base, plan])
+  const ghosted = useMemo(() => (base ? withGhosts(base, plan) : null), [base, plan])
+  // fix mid: a profile without a recipe (lamps 00–03, §6 U26) has no ghosts — the servers it matches are its modules in
+  // the band (never folded under "Not touched by the profile")
+  const ownServers = useMemo(() => (bandOn && !plan && lamps ? lamps.facts.servers.map((x) => moduleKey({ kind: 'server', id: x.id, name: x.name })) : null), [bandOn, plan, lamps])
+  const model = useMemo(() => (ghosted && ownServers && setupId ? withProfileModules(ghosted, setupId, ownServers) : ghosted), [ghosted, ownServers, setupId])
   const extra = useMemo<WordsExtra | null>(() => (plan ? { names: plan.names, chips: plan.chips } : null), [plan])
   const words = useWords(model, input, extra)
   const marks = useMemo(() => (model ? fuseMarks(model) : null), [model])
@@ -479,7 +490,8 @@ export default function Patchbay(props: PatchbayRouteProps) {
           profileId: setupId,
           profileName: profile.name,
           ...(visit?.file ? { file: visit.file } : {}),
-          undo: drop && drop.profileId === setupId ? { open: drop.open, team: drop.team, replaced: drop.before?.name ?? null } : null,
+          // the drop's Undo only in the visit the drop opened (never "Show the whole setup" later, never another visit)
+          undo: drop && drop.profileId === setupId && dropUndoOpen(drop) ? { open: drop.open, team: drop.team, replaced: drop.before?.name ?? null } : null,
         }
       : null
   const onCloseSetup = () => {
@@ -489,12 +501,13 @@ export default function Patchbay(props: PatchbayRouteProps) {
     requestAnimationFrame(() => requestAnimationFrame(() => (pageRef.current?.querySelector<HTMLElement>('[data-testid="pb-drop"]') ?? h1.current)?.focus()))
   }
   const onPick = (id: string) => setupId && pickRecipe(setupId, id)
+  // the setup's facts come from the lamps (a profile without a recipe has no plan, but its lamps and card all the same)
   const setupFacts = useMemo(() => {
-    if (!plan || !set) return null
+    if (!set) return null
     const fields: Record<ModuleKey, number> = {}
-    const dbGhost = plan.modules.find((m) => m.kind === 'database' && m.tags.includes('ghost'))
+    const dbGhost = plan?.modules.find((m) => m.kind === 'database' && m.tags.includes('ghost'))
     if (dbGhost && recipe?.database.fields !== undefined) fields[dbGhost.key] = recipe.database.fields
-    return { chips: plan.chips, next: set.next?.n ?? null, fields }
+    return { chips: plan?.chips ?? NO_CHIPS, next: set.next?.n ?? null, fields }
   }, [plan, set, recipe])
   const untouched = layout?.band ? { modules: layout.band.untouched.length, cables: layout.band.cables } : { modules: 0, cables: 0 }
 
@@ -517,7 +530,8 @@ export default function Patchbay(props: PatchbayRouteProps) {
       <div className="pb-benchwrap">
         {ctx &&
           layout &&
-          (model!.edges.length === 0 ? (
+          // the empty rack's sentence — not in a setup's visit: its band (or card) and lamps show on the rack instead
+          (model!.edges.length === 0 && !bandOn ? (
             <Empty model={model!} input={input!} words={words!} layout={layout} drop={keys.drop} />
           ) : narrow ? (
             <Strands

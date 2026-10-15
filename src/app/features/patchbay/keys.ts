@@ -14,7 +14,9 @@
  *  - "Disconnect write tools" → the stored agent's `mcpTools[server]` = its read tools ([] leaves the server out);
  *  - "{server}: no longer for autofill" → `patchServer(id, { scope: 'free' })` (this device).
  * Key 3 — "Allow this path" → `signOffFuse(path, sig, parts)` / "Withdraw" → `withdrawSignoff(path)` (owners / admins in
- * a team; the store answers why it refuses).
+ * a team; the store answers why it refuses). Their Undo puts the entry back as it was (`restoreSignoff`: a lapsed
+ * allowance a new one replaced, a withdrawn one — with its `at` and, locally, its `updatedBy`; a team server stamps the
+ * owner / admin who writes it).
  *
  * Writers: every key writes as the person in the Patchbay (`you~patchbay`), every Undo as `you~undo`.
  *
@@ -55,7 +57,8 @@ export type KeyStep =
   | { t: 'organise'; wrote: string }
   | { t: 'bridge'; was: McpAgentMode }
   | { t: 'server'; id: ID; was: 'all' }
-  | { t: 'allow'; path: string; sig: string }
+  /** `prev`: the allowance this one replaced (a lapsed one — who allowed it and when): an Undo puts it back as it was */
+  | { t: 'allow'; path: string; sig: string; prev?: FuseSignoff }
   | { t: 'withdraw'; path: string; entry: FuseSignoff }
 
 /** One key pressed in this tab session. */
@@ -75,6 +78,9 @@ export interface KeyDone {
   device?: true
   /** the agent a non-creator changed: still waits for its creator after an Undo */
   waits?: { creator: string }
+  /** key 2b: the read tools still connected that may carry data out in their arguments (§1.5, §6 A33 — the closed plate
+   *  keeps naming them) */
+  residual?: string[]
   /** the path as it was (the closed plate shows it) */
   chain: Chain
   lamps: { outside: Why; private: Why; out: Why }
@@ -231,9 +237,10 @@ function allow(f: FuseState, withdraw: boolean): { ok: true; step: KeyStep } | {
     return { ok: true, step: { t: 'withdraw', path, entry } }
   }
   if (!f.sig || !f.parts) return refuse(`${P}.patch.failed`)
+  const prev = ws().fuseSignoffs?.[path]
   const r = withWriter(AS_KEY, () => ws().signOffFuse(path, f.sig!, f.parts!))
   if (!r.ok) return { ok: false, refused: signoffWhy(r.why, r.admins) }
-  return { ok: true, step: { t: 'allow', path, sig: f.sig } }
+  return { ok: true, step: { t: 'allow', path, sig: f.sig, ...(prev && prev.sig !== f.sig ? { prev } : {}) } }
 }
 
 /**
@@ -255,6 +262,7 @@ export function pressKey(f: FuseState, key: FuseKey): KeyResult {
     ...(key.team ? { team: key.team } : {}),
     ...(key.device ? { device: true as const } : {}),
     ...(r.waits ? { waits: r.waits } : {}),
+    ...(key.kind === 'cutTools' && f.residual?.length ? { residual: [...f.residual] } : {}),
     chain: f.chain,
     lamps: f.lamps,
     step: r.step,
@@ -340,11 +348,14 @@ function putBack(step: KeyStep): { ok: true } | { ok: false; refused: MsgRef } {
       withWriter(AS_UNDO, () => patchServer(step.id, { scope: step.was }))
       return readServers().find((x) => x.id === step.id)?.scope === step.was ? { ok: true } : refuse(`${P}.patch.failed`)
     case 'allow': {
-      const r = withWriter(AS_UNDO, () => ws().withdrawSignoff(step.path))
+      // the allowance it replaced comes back as it was (lapsed, its by / at); none: the path is withdrawn again
+      const prev = step.prev
+      const r = withWriter(AS_UNDO, () => (prev ? ws().restoreSignoff(step.path, prev) : ws().withdrawSignoff(step.path)))
       return r.ok ? { ok: true } : { ok: false, refused: signoffWhy(r.why, r.admins) }
     }
     case 'withdraw': {
-      const r = withWriter(AS_UNDO, () => ws().signOffFuse(step.path, step.entry.sig, step.entry.parts))
+      // the withdrawn allowance back as it was — who allowed it and when (a team server stamps the owner / admin writing)
+      const r = withWriter(AS_UNDO, () => ws().restoreSignoff(step.path, step.entry))
       return r.ok ? { ok: true } : { ok: false, refused: signoffWhy(r.why, r.admins) }
     }
   }

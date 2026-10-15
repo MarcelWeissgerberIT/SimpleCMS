@@ -54,15 +54,40 @@ export function openAISetup(o: AISetupOptions = {}): void {
   ui.openModal({ type: 'aiSetup', ...o, step: stepOf(o) })
 }
 
+/** Settings is open quietly (`openAISettings({ quiet: true })`) — until that dialog closes. */
+let quietOpen = false
+let stopQuiet: (() => void) | null = null
+
+/**
+ * Is Settings open quietly (the Patchbay's lamp 01, plan §1.11: a press there never spends anything)? While it is, the
+ * MCP servers' list checks no never-checked server on its own — a check runs on the person's press only. It lasts as
+ * long as that Settings dialog (a list mounted again inside it stays quiet); the next Settings is as usual.
+ */
+export const quietSettings = (): boolean => quietOpen
+
 /**
  * Open Settings › AI (this device) — at its MCP servers or its memory switches when asked. With the MCP servers:
- * `server` = that server's details open, its toggle focused · `add` = the add form open, its URL field focused.
+ * `server` = that server's details open, its toggle focused · `add` = the add form open, its URL field focused ·
+ * `quiet` = no automatic first check of never-checked servers while this dialog is open (quietSettings).
  */
-export function openAISettings(o: { section?: 'mcp' | 'memory' | 'limit'; server?: string; add?: boolean } = {}): void {
+export function openAISettings(o: { section?: 'mcp' | 'memory' | 'limit'; server?: string; add?: boolean; quiet?: boolean } = {}): void {
   const ui = useUI.getState()
+  stopQuiet?.()
+  stopQuiet = null
+  quietOpen = !!o.quiet
   handOver()
   if (ui.paletteOpen) ui.closePalette()
   if (ui.mobileSidebarOpen) ui.setMobileSidebar(false)
   const mcp = o.section === 'mcp' ? { ...(o.server ? { server: o.server } : {}), ...(o.add ? { add: true } : {}) } : {}
   ui.openModal({ type: 'settings', tab: 'ai', ...(o.section ? { section: o.section } : {}), ...mcp })
+  // quiet for as long as this Settings dialog stays open
+  if (quietOpen) {
+    const stop = useUI.subscribe((s) => {
+      if (s.modal?.type === 'settings') return
+      quietOpen = false
+      stop()
+      if (stopQuiet === stop) stopQuiet = null
+    })
+    stopQuiet = stop
+  }
 }

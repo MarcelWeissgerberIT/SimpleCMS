@@ -3098,6 +3098,11 @@ html[data-pb-noblink] .pb [data-blink] {
   align-items: center;
   min-width: 0;
 }
+/* fix mid: in a row of lamps the words keep to their own column (a wide key never widens the sentence into the
+   neighbours' gutters) */
+.pb-lampsbox:not([data-v]) .pb-lamp__body {
+  align-self: stretch;
+}
 .pb-lamp__head {
   display: flex;
   flex-direction: column;
@@ -3159,6 +3164,19 @@ html[data-pb-noblink] .pb [data-blink] {
   max-width: 100%;
   margin-top: 8px;
   white-space: nowrap;
+}
+/* a key wider than its column ("Datenbank anlegen" at 1440): centred over the column's edges as in mock-2 (one line,
+   the sentences stay in their columns); a still wider one (XL text) wraps its label instead of running into a neighbour */
+.pb-lampsbox:not([data-v]) .btn.pb-lamp__key {
+  width: max-content;
+  max-width: calc(100% + 32px);
+  height: auto;
+  min-height: 30px;
+  padding-block: 4px;
+  line-height: 1.25;
+  text-align: center;
+  white-space: normal;
+  text-wrap: balance;
 }
 .btn.pb-lamp__key .kbd.pb-lamp__kbd {
   height: calc(16px * var(--text-scale));

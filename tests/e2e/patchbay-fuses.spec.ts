@@ -49,7 +49,7 @@ import {
   world,
   type PbWorld,
 } from '../fixtures/patchbay'
-import { ALPHA, TEAM, TRACKER, autofillWorld, ctxOf, hookWorld, inboxHelper, mailWorld, organiseWorld, pipelineWorld, pushWorld } from '../fixtures/patchbay-fuses'
+import { ALPHA, TEAM, TRACKER, autofillWorld, ctxOf, hookWorld, inboxHelper, mailWorld, organiseWorld, pipelineWorld, pushReportWorld, pushWorld, relayTriggerWorld } from '../fixtures/patchbay-fuses'
 
 /* ------------------------------------------------------------------ helpers */
 
@@ -814,6 +814,83 @@ test.describe('B4 · the lazy cache (§1.2, §6 A16)', () => {
 })
 
 /* ------------------------------------------------------------------ the budget */
+
+/* ------------------------------------------------------------------ fix mid: a key never offered for a path it leaves open */
+
+test.describe('fix mid · a key that would leave the path open is not offered (the change tried out on the flow)', () => {
+  test('push + report page: "Switch to proposals" is refused — the report page is written in every mode and the push carries it; after the switch the path is still a fuse', () => {
+    const push = 'outbound:sync:nordlicht%2Fnotes:push'
+    const helper = agentKey('agInbox')
+    const w = pushReportWorld()
+    const m = modelOf(w)
+    const input = inputOf(w)
+    const f = fuseTo(m, helper, push)!
+    expect(keyOf(f, 1)).toMatchObject({ kind: 'proposals', offered: false, refusal: { key: `${P}.key.reportPushed`, vars: { page: 'pgReport' } } })
+    expect(sayMsg(keyOf(f, 1)!.refusal!, m, input, ctxOf('en'))).toBe('The report page “Bericht” is written in every mode — the GitHub push still carries it.')
+    expect(sayMsg(keyOf(f, 1)!.refusal!, m, input, ctxOf('de'))).toBe('Die Berichtsseite „Bericht“ wird in jedem Modus geschrieben — der GitHub-Push nimmt sie trotzdem mit.')
+    // the reason holds: with the agent on proposals the same path key is still an open fuse
+    const staged = pushReportWorld()
+    staged.ws.agents.agInbox = { ...staged.ws.agents.agInbox, write: 'stage' }
+    expect(modelOf(staged).fuses.map((x) => x.key)).toContain(f.key)
+    // and that fuse, the agent on proposals already, says why: the report page (never "no proposals to wait for")
+    expect(keyOf(fuseTo(modelOf(staged), helper, push)!, 1)?.refusal).toEqual({ key: `${P}.key.reportPushed`, vars: { page: 'pgReport' } })
+    // the webhook fuse of the same agent closes with key 1 (a proposal stops „Weiterleiten“): still offered there
+    const hookFuse = fuseTo(m, helper, hook('chat.example'))!
+    expect(keyOf(hookFuse, 1)).toMatchObject({ offered: true, note: { key: `${P}.key.proposalsLeft` } })
+    // without the report page the push fuse closes with key 1 — offered, its note says what still happens
+    const plain = fuseTo(modelOf(pushWorld(true)), helper, push)!
+    expect(keyOf(plain, 1)).toMatchObject({ offered: true, note: { key: `${P}.key.proposalsPush` } })
+    expect(sayMsg(keyOf(plain, 1)!.note!, modelOf(pushWorld(true)), inputOf(pushWorld(true)), ctxOf('en'))).toBe('Each proposal waits for you — once applied, the GitHub push still carries it')
+  })
+
+  test('a trigger field autofill writes: "“Kategorie” by hand only" is refused — the autofill sets it off after any other write; with the flag set the same exit is still a fuse', () => {
+    const w = relayTriggerWorld()
+    const m = modelOf(w)
+    const input = inputOf(w)
+    const helper = agentKey('agInbox')
+    const sort = hook('sort.example')
+    const f = fuseTo(m, helper, sort)!
+    expect(keyOf(f, 2)).toMatchObject({ kind: 'handOnly', offered: false, refusal: { key: `${P}.key.handOnlyAutofill`, vars: { db: 'dbMails', prop: 'pMailCat' } } })
+    expect(sayMsg(keyOf(f, 2)!.refusal!, m, input, ctxOf('en'))).toBe('Autofill writes “Kategorie” — agents still set it off through any other change.')
+    expect(sayMsg(keyOf(f, 2)!.refusal!, m, input, ctxOf('de'))).toBe('Autofill schreibt „Kategorie“ — Agenten lösen es mit jeder anderen Änderung trotzdem aus.')
+    // what the key would have left: the field flagged, the same decider still reaches the same webhook (a new path key)
+    const flagged = relayTriggerWorld()
+    flagged.ws.databases.dbMails = { ...flagged.ws.databases.dbMails, properties: flagged.ws.databases.dbMails.properties.map((p) => (p.id === 'pMailCat' ? { ...p, agentReadOnly: true } : p)) }
+    const after = fuseTo(modelOf(flagged), helper, sort)!
+    expect(after.chain.exit?.edge).toBe(f.chain.exit?.edge)
+    expect(after.chain.steps.map(stepNode)).toContain(key({ kind: 'autofill', db: 'dbMails', prop: 'pMailCat' }))
+    // key 1 still closes it (a proposal starts no autofill): offered, its note names the first relay
+    expect(keyOf(f, 1)).toMatchObject({ offered: true, note: { key: `${P}.key.proposalsLeft` } })
+    // mock 1's „Weiterleiten“ (written by agents only): key 2 stays offered
+    expect(keyOf(modelOf(mock1()).fuses[0], 2)?.offered).toBe(true)
+  })
+
+  test('key 1’s note names the first relay after the decider, whatever its kind (§6 U8): exits() F4 — applying a proposal still starts the autofill „Zusammenfassung“', () => {
+    const w = exits()
+    const m = modelOf(w)
+    const input = inputOf(w)
+    const af = key({ kind: 'autofill', db: 'dbLeads', prop: 'pLeadSummary' })
+    const f4 = m.fuses.find((f) => f.chain.decider === agentKey('agExApply') && f.chain.steps.some((s) => s.to === af))!
+    expect(keyOf(f4, 1)).toMatchObject({ offered: true, note: { key: `${P}.key.proposalsStarts`, vars: { module: af } } })
+    expect(sayMsg(keyOf(f4, 1)!.note!, m, input, ctxOf('en'))).toBe('Each proposal waits for you — applying it still starts Autofill · Leads · “Zusammenfassung”')
+    expect(sayMsg(keyOf(f4, 1)!.note!, m, input, ctxOf('de'))).toBe('Jeder Vorschlag wartet auf dich — Anwenden startet trotzdem Autofill · Leads · „Zusammenfassung“')
+    // the switched-off agent's path through the same autofill says the same
+    const f14 = m.fuses.find((f) => f.chain.decider === agentKey('agExOff') && f.chain.steps.some((s) => s.to === af))!
+    expect(keyOf(f14, 1)?.note).toEqual({ key: `${P}.key.proposalsStarts`, vars: { module: af } })
+    // an automation first: "applying it still fires …" as before
+    const f12 = fuseTo(m, agentKey('agExApply'), hook('hooks.example'))!
+    expect(keyOf(f12, 1)?.note?.key).toBe(`${P}.key.proposalsLeft`)
+    // every new key exists in both languages with the same braces
+    for (const k of ['proposalsStarts', 'proposalsPush', 'reportPushed', 'reportStarts', 'proposalsOpen', 'handOnlyAutofill', 'handOnlyRelay', 'handOnlyOpen']) {
+      const en = messages.en[`${P}.key.${k}`]
+      const de = messages.de[`${P}.key.${k}`]
+      expect(en, k).toBeDefined()
+      expect(de, k).toBeDefined()
+      expect((de.match(/\{\w+\}/g) ?? []).sort(), k).toEqual((en.match(/\{\w+\}/g) ?? []).sort())
+    }
+    expect(messages.de[`${P}.keys.stillOpenSay`]).toBeDefined()
+  })
+})
 
 test.describe('B4 · perf', () => {
   test('bigPatchbay(60): model + chains + fuses median ≤ 10 ms', () => {

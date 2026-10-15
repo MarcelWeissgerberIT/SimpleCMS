@@ -99,6 +99,8 @@ interface FlowIndex {
   /** this device's GitHub push (the edge out of the sync module) */
   push: Edge | null
   deciders: Map<ModuleKey, Decider | null>
+  /** fields "only by hand" when a key's change is tried out (`keyCheck`); none: the index's own */
+  hand?: Map<ID, Set<string>>
 }
 
 function flowIndex(ix: ReachIndex): FlowIndex {
@@ -219,7 +221,7 @@ function movesOf(f: FlowIndex, at: Node, pipe: Gate | null = null): Move[] {
   const base: Gate | null = at.kind === 'pipeline' ? pipe : null
   const honours = honoursHandOnly(w.kind)
   const listenMoves = (db: ID, wpFor: (lp: string) => string | null, gate: Gate | null) => {
-    const hand = honours ? f.ix.handOnly.get(db) : undefined
+    const hand = honours ? (f.hand ?? f.ix.handOnly).get(db) : undefined
     for (const { lp, ls } of f.listens.get(db) ?? []) {
       const wp = wpFor(lp)
       if (wp === null || hand?.has(lp)) continue
@@ -605,6 +607,59 @@ export function withChains(model: Model, input: ModelInput): Model {
     return w && a.fed.has(w) ? { ...e, tainted: true } : e
   })
   return { ...model, modules, edges, chains: a.chains, loops: a.loops }
+}
+
+/* ------------------------------------------------------------------ a key's change, tried out (fuses.ts) */
+
+/** A fuse key's change as the flow sees it (fix mid): key 1 on an agent, key 2 "only by hand". */
+export type KeyChange =
+  /** the decider's writes become proposals — but for the places it writes directly in every mode (its report page, notes) */
+  | { kind: 'proposals'; direct: ReadonlySet<string> }
+  /** a field "only by hand": agents and the bridge no longer write it (every other writer ignores the flag) */
+  | { kind: 'handOnly'; db: ID; prop: string }
+
+/** The route a way out is still reached by once a key's change is made, with nobody in between. */
+export interface StillReached {
+  /** the steps from the decider to the way out */
+  steps: ChainStep[]
+  /** the modules entered on the way (the relays), in order */
+  relays: ModuleKey[]
+}
+
+/**
+ * Would way out `exitEdge` still be reached from `decider` with nobody in between once `change` is made (null: no — the
+ * key closes it)? The analysis' own first pass (unattended moves only) on the flow with the change applied, so a key is
+ * never offered as closing a path the engines would still take: another direct write (a report page the push carries),
+ * a relay that ignores "only by hand" (autofill rewriting the trigger field). One flow index per analysis; one walk per
+ * decider and change, O(V + E).
+ */
+export function keyCheck(ix: ReachIndex): (decider: ModuleKey, exitEdge: string, change: KeyChange) => StillReached | null {
+  let base: FlowIndex | null = null
+  // one walk per decider and change (it finds every way out at once): the fuses of one decider share it
+  const walks = new Map<string, Map<string, Found>>()
+  return (decider, exitEdge, change) => {
+    base ??= flowIndex(ix)
+    const id = change.kind === 'proposals' ? `${decider}|p|${[...change.direct].sort().join(',')}` : `${decider}|h|${change.db}|${change.prop}`
+    let found = walks.get(id)
+    if (!found) {
+      let f: FlowIndex
+      if (change.kind === 'proposals') {
+        const writes = (base.writes[decider] ?? []).map((w) => (w.proposal || change.direct.has(placeKey(w.place)) ? w : { ...w, proposal: true }))
+        f = { ...base, writes: { ...base.writes, [decider]: writes } }
+      } else {
+        const hand = new Map(base.hand ?? ix.handOnly)
+        hand.set(change.db, new Set([...(hand.get(change.db) ?? []), change.prop]))
+        f = { ...base, hand }
+      }
+      found = new Map<string, Found>()
+      bfs(f, { key: decider, kind: kindOf(f, decider, 'root') }, true, found)
+      walks.set(id, found)
+    }
+    const hit = found.get(exitEdge)
+    if (!hit) return null
+    const path = pathOf(hit.hop)
+    return { steps: [...path.flatMap((h) => h.lead), ...hit.out.steps], relays: path.slice(1).map((h) => h.node.key) }
+  }
 }
 
 /**

@@ -21,7 +21,8 @@
 import { canBeHandOnly } from '../../store/keys'
 import { moduleKey } from './ref'
 import { deciderOf, outsideSources, outsideWhy, privateItems, privateWhy, reachIndex, readRoots, type Decider, type ReachIndex } from './reach'
-import { taintOf } from './chains'
+import { keyCheck, taintOf, type StillReached } from './chains'
+import { placeKey } from './rules'
 import { allowedState, pathKey, sigInputOf, sigOf, type SigWorld } from './sig'
 import { isLeaky, serverToolGroups, toolUse } from './tools'
 import type { ID } from '../../store/types'
@@ -41,6 +42,7 @@ import type {
   MsgRef,
   NearMiss,
   OutsideSource,
+  Place,
   UnknownPart,
 } from './types'
 
@@ -67,6 +69,8 @@ interface Ctx {
   deciders: Map<ModuleKey, Decider | null>
   /** viewers and read-only workspaces: every key is inert */
   viewer: boolean
+  /** a key's change tried out on the flow (chains.ts keyCheck): the route still unattended afterwards, or null */
+  still: ReturnType<typeof keyCheck>
 }
 
 const deciderAt = (c: Ctx, key: ModuleKey | null): Decider | null => {
@@ -228,6 +232,58 @@ function inert(k: FuseKey, c: Ctx): FuseKey {
   return c.viewer ? { ...k, offered: false, refusal: READ_ONLY } : k
 }
 
+/** The places an agent writes directly in every write mode (its report page — a database page as its database —, notes). */
+function directPlaces(ai: AgentInput | undefined): Set<string> {
+  const out = new Set<string>(['inbox'])
+  const report = ai?.agent.output?.pageId
+  if (report) {
+    out.add(placeKey({ page: report }))
+    out.add(placeKey({ db: report, prop: '*' }))
+  }
+  return out
+}
+
+/** The place a route's first step writes (a net flag's writer half, or the place a push / pipeline / press passes). */
+function firstPlace(r: StillReached): Place | null {
+  const s = r.steps[0]
+  if (!s) return null
+  if (s.via) return s.via
+  return typeof s.to === 'string' ? null : s.to
+}
+
+/** Why key 1 leaves the path open: the report page written in every mode (the push carries it / it sets the path off). */
+function stillOpenByReport(r: StillReached, exit: NonNullable<Chain['exit']>, ai: AgentInput | undefined): MsgRef {
+  const report = ai?.agent.output?.pageId
+  const p = firstPlace(r)
+  const viaReport = !!report && !!p && (placeKey(p) === placeKey({ page: report }) || placeKey(p) === placeKey({ db: report, prop: '*' }))
+  if (viaReport) return { key: `${P}.key.${exit.type === 'sync' ? 'reportPushed' : 'reportStarts'}`, vars: { page: report! } }
+  return { key: `${P}.key.proposalsOpen` }
+}
+
+/** Why key 2 leaves the path open: the relay that still writes the field (autofill / another module), else in general. */
+function stillOpenByRelay(c: Ctx, r: StillReached, decider: ModuleKey, db: ID, prop: string): MsgRef {
+  const writes = r.steps.find((s) => s.from !== decider && typeof s.to !== 'string' && 'db' in s.to && s.to.db === db && (s.to.prop === prop || s.to.prop === '*' || s.to.prop === undefined))
+  const writer = writes ? c.ix.mods.get(writes.from) : undefined
+  if (writer?.kind === 'autofill') return { key: `${P}.key.handOnlyAutofill`, vars: { db, prop } }
+  if (writer) return { key: `${P}.key.handOnlyRelay`, vars: { db, prop, module: writer.key } }
+  return { key: `${P}.key.handOnlyOpen`, vars: { db, prop } }
+}
+
+/**
+ * What still happens once key 1 put the agent on proposals (§6 U8): the first relay after the decider — an automation
+ * still fires, any other relay (autofill, a pipeline, an agent, a kit value, a script) is still started — or, with none,
+ * the push that still carries what is applied; else each proposal simply waits.
+ */
+function proposalsNote(c: Ctx, chain: Chain): MsgRef {
+  const exit = chain.exit!
+  const relay = pathModules(chain).slice(1).find((k) => k !== exit.module)
+  const m = relay ? c.ix.mods.get(relay) : undefined
+  if (m?.kind === 'automation') return { key: `${P}.key.proposalsLeft`, vars: { automation: m.key } }
+  if (m) return { key: `${P}.key.proposalsStarts`, vars: { module: m.key } }
+  if (exit.type === 'sync') return { key: `${P}.key.proposalsPush` }
+  return { key: `${P}.key.proposalsWait` }
+}
+
 function key1(c: Ctx, chain: Chain, d: Decider): FuseKey | null {
   const exit = chain.exit!
   const m = c.ix.mods.get(d.key)
@@ -236,12 +292,21 @@ function key1(c: Ctx, chain: Chain, d: Decider): FuseKey | null {
     const base: FuseKey = { n: 1, kind: 'proposals', target: { agent: m.ref.id }, offered: false, label: { key: `${P}.key.proposals` }, what: { key: `${P}.key.proposalsWhat`, vars: { agent: d.key } } }
     // the decider's own MCP tools run inside the AI's tool loop: no proposal stops them (§6 A29)
     if (exit.type === 'mcp' && holderOf(c.ix, chain) === d.key) return inert({ ...base, refusal: { key: `${P}.key.mcpNoReview` } }, c)
-    if (ai?.write !== 'apply') return inert({ ...base, refusal: { key: `${P}.key.proposalsAlready` } }, c)
+    if (ai?.write !== 'apply') {
+      // already on proposals and still a fuse: what it writes in every mode carries the path (its report page) — said so
+      const why = ai?.write === 'stage' ? c.still(d.key, exit.edge, { kind: 'proposals', direct: directPlaces(ai) }) : null
+      const report = why ? stillOpenByReport(why, exit, ai) : null
+      return inert({ ...base, refusal: report && report.key !== `${P}.key.proposalsOpen` ? report : { key: `${P}.key.proposalsAlready` } }, c)
+    }
     const waits = confirmFirst(c, ai)
     if (waits) return inert({ ...base, refusal: waits }, c)
-    const automation = pathModules(chain).find((k) => c.ix.mods.get(k)?.kind === 'automation')
+    // fix mid: what the agent writes in every mode (its report page, its notes) is no proposal — a path it still takes
+    // with nobody in between is not closed by the key: refused, with the write that keeps it open
+    const direct = directPlaces(ai)
+    const left = c.still(d.key, exit.edge, { kind: 'proposals', direct })
+    if (left) return inert({ ...base, refusal: stillOpenByReport(left, exit, ai) }, c)
     const team = teamNote(c, ai)
-    return inert({ ...base, offered: true, note: automation ? { key: `${P}.key.proposalsLeft`, vars: { automation } } : { key: `${P}.key.proposalsWait` }, ...(team ? { team } : {}) }, c)
+    return inert({ ...base, offered: true, note: proposalsNote(c, chain), ...(team ? { team } : {}) }, c)
   }
   if (m?.ref.kind === 'autofill') {
     const r = m.ref
@@ -308,6 +373,12 @@ function key2(c: Ctx, chain: Chain, d: Decider): { key: FuseKey; residual?: stri
     const def = db?.properties.find((p) => p.id === prop)
     if (!def || !canBeHandOnly(def)) refusal = { key: `${P}.key.noField.title` }
     else if (db?.locked) refusal = { key: `${P}.key.locked` }
+    else {
+      // fix mid: hand-only binds agents and the bridge only — a relay the decider still starts (autofill, a kit value, an
+      // automation's set_property …) may write the field and set the path off all the same: refused, the relay named
+      const left = c.still(d.key, chain.exit!.edge, { kind: 'handOnly', db: place.db, prop })
+      if (left) refusal = stillOpenByRelay(c, left, d.key, place.db, prop)
+    }
   }
   return { key: inert({ ...base, offered: !refusal, ...(refusal ? { refusal } : {}) }, c) }
 }
@@ -432,7 +503,7 @@ export function fusesOf(model: Model, input: ModelInput): FuseAnalysis {
     servers: (k) => (ix.tools.get(k) ?? []).map((t) => t.server),
     exitHolder: (chain) => holderOf(ix, chain),
   }
-  const c: Ctx = { ix, input, w, deciders: new Map(), viewer: input.ctx.readOnly || input.ctx.role === 'viewer' }
+  const c: Ctx = { ix, input, w, deciders: new Map(), viewer: input.ctx.readOnly || input.ctx.role === 'viewer', still: keyCheck(ix) }
   const fuses: FuseState[] = []
   const nearMisses: NearMiss[] = []
   for (const chain of model.chains) {

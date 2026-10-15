@@ -738,9 +738,11 @@ export function layoutRack(model: Model, opts: LayoutOptions = {}): Layout {
   const filter = band ? null : (opts.filter ?? null)
   const keep = filter ? filterKeep(model, filter, adj, fuses, new Set(opts.running ?? [])) : null
   const untouched = new Set(band?.untouched ?? [])
+  // the drop visit: the profile's own modules stay in the band, idle ones too (a profile without a recipe has no cable yet)
+  const inBand = new Set(band?.touched ?? [])
   for (const m of model.modules) {
     if (m.tags.includes('disabled') && m.col === 2 && !onChain.has(m.key)) why.set(m.key, 'off')
-    else if (m.idle) why.set(m.key, 'idle')
+    else if (m.idle && !inBand.has(m.key)) why.set(m.key, 'idle')
     else if (untouched.has(m.key)) why.set(m.key, 'setup')
     else if (keep && !keep.has(m.key)) why.set(m.key, 'filter')
   }

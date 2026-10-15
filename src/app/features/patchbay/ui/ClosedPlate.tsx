@@ -3,7 +3,8 @@
  * "Fuse F1 · closed — Inbox-Helfer: Apply directly → Proposals for review", what still happens ("applying it still fires
  * „An Team-Chat“"), the team note, "this device only" for a device key, the path as it was, and its Undo key (Mod+Z on
  * the route does the same; the toast's Undo from anywhere). Its heading takes the keyboard after the key. An Undo that
- * is refused ("changed since") says why here, with "Open the editor".
+ * is refused ("changed since") says why here, with "Open the editor". After key 2b the read tools still connected that
+ * may carry data out stay named ("still connected: …", fix mid).
  */
 import { useState } from 'react'
 import { Undo2 } from 'lucide-react'
@@ -49,6 +50,11 @@ export function ClosedPlate({ done, pw: now }: { done: KeyDone; pw: PlateWords }
       )}
       {done.team && <p className="pb-fplate__note">{pw.say(done.team)}</p>}
       {done.device && !done.note && <p className="pb-fplate__note">{t(`${P}.key.deviceOnly`)}</p>}
+      {done.residual && done.residual.length > 0 && (
+        <p className="pb-fplate__residual" data-testid="pb-closed-residual">
+          {t(`${P}.stillConnected`, { tools: done.residual.join(', ') })}
+        </p>
+      )}
       <FusePath chain={done.chain} pw={pw} hot={false} />
       <div className="pb-closed__keys">
         <button type="button" className="btn pb-closed__undo" onClick={undo} data-testid="pb-closed-undo">

@@ -35,27 +35,28 @@ const P = 'features.patchbay'
 /** Take the drop back (Mod+Z, the band's key, the toast): said, a toast, the keyboard to the chip (else the title). */
 export function runDropUndo(): boolean {
   const t = tNow
-  const name = (id: string) => useWorkspace.getState().integrations?.find((p) => p.id === id)?.name ?? id
   const r = undoDrop()
   if (!r.ok) {
     if (r.why === 'nothing') return false
     const said =
       r.why === 'started'
         ? t(`${P}.drop.undo.started`)
-        : r.why === 'changed'
-          ? t(`${P}.drop.undo.changed`)
-          : r.why === 'rights'
-            ? r.names?.length
-              ? t(`${P}.drop.fail.rights`, { names: r.names.join(', ') })
-              : t(`${P}.drop.fail.rightsNone`)
-            : r.why === 'readOnly'
-              ? t(`${P}.drop.fail.readOnly`)
-              : t(`${P}.drop.undo.failed`)
+        : r.why === 'over'
+          ? t(`${P}.drop.undo.over`)
+          : r.why === 'changed'
+            ? t(`${P}.drop.undo.changed`)
+            : r.why === 'rights'
+              ? r.names?.length
+                ? t(`${P}.drop.fail.rights`, { names: r.names.join(', ') })
+                : t(`${P}.drop.fail.rightsNone`)
+              : r.why === 'readOnly'
+                ? t(`${P}.drop.fail.readOnly`)
+                : t(`${P}.drop.undo.failed`)
     announce(said)
     useUI.getState().toast({ message: said, kind: 'error' })
     return true
   }
-  const said = r.restored ? t(`${P}.drop.undoneRestored`, { name: name(r.profileId) }) : t(`${P}.drop.undone`, { name: r.profileId })
+  const said = t(r.restored ? `${P}.drop.undoneRestored` : `${P}.drop.undone`, { name: r.name })
   announce(said)
   useUI.getState().toast({ message: said, kind: 'success' })
   requestAnimationFrame(() =>

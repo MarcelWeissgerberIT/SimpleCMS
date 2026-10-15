@@ -290,6 +290,8 @@ export function Strands({ model, input, words: w, marks, runs, running, setup }:
   const rest = order.rest.map((k) => byKey.get(k)).filter((m): m is Module => !!m)
   // the first running strand in list order: the floating chip jumps there (the list itself never moves)
   const live = strands.find((m) => running.includes(m.key)) ?? null
+  // the setup's list: what its recipe makes (none for a profile without a recipe)
+  const made = strands.some((m) => m.tags.includes('ghost'))
   const jump = () => {
     if (!live) return
     const card = root.current?.querySelector<HTMLElement>(`.pb-strand[data-key="${CSS.escape(live.key)}"]`)
@@ -303,22 +305,27 @@ export function Strands({ model, input, words: w, marks, runs, running, setup }:
       {setup?.band ? (
         <>
           {setup.card}
+          {/* what the recipe makes (a profile without a recipe makes nothing on the rack: no such section) */}
+          {made && (
+            <>
+              <div className="pb-sh">
+                <span className="label pb-colh__n">§ 01</span>
+                <span className="label">{t(`${P}.setup.created`)}</span>
+                <span className="pb-colh__rule" aria-hidden="true" />
+              </div>
+              <ul className="pb-strands__list">
+                {strands
+                  .filter((m) => m.tags.includes('ghost'))
+                  .map((m) => (
+                    <li key={m.key}>
+                      <StrandCard m={m} model={model} w={w} fuses={[]} runs={0} running={false} steps={setup.chips[m.key]} next={setup.next} />
+                    </li>
+                  ))}
+              </ul>
+            </>
+          )}
           <div className="pb-sh">
-            <span className="label pb-colh__n">§ 01</span>
-            <span className="label">{t(`${P}.setup.created`)}</span>
-            <span className="pb-colh__rule" aria-hidden="true" />
-          </div>
-          <ul className="pb-strands__list">
-            {strands
-              .filter((m) => m.tags.includes('ghost'))
-              .map((m) => (
-                <li key={m.key}>
-                  <StrandCard m={m} model={model} w={w} fuses={[]} runs={0} running={false} steps={setup.chips[m.key]} next={setup.next} />
-                </li>
-              ))}
-          </ul>
-          <div className="pb-sh">
-            <span className="label pb-colh__n">§ 02</span>
+            <span className="label pb-colh__n">{made ? '§ 02' : '§ 01'}</span>
             <span className="label">{t(setup.band.untouched.length === 1 ? `${P}.setup.untouchedShort.one` : `${P}.setup.untouchedShort`, { m: setup.band.untouched.length })}</span>
             <span className="pb-colh__rule" aria-hidden="true" />
           </div>

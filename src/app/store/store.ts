@@ -27,7 +27,7 @@ import { deviceLine, governorRefusal, restamp, STAMP_KNOWN, stampedDeviceAI, wat
 import type { Unreadable } from '@/shared/ai/route'
 import { policyKnown } from '@/shared/ai/policy'
 import { INTEGRATION_LIMITS, integrationsAllowed, sameIntegration, sanitizeIntegration, sanitizeIntegrations } from './integrations'
-import { isPathKey, sameSignoffs, sanitizeFuseSignoffs, signoffEntry, signoffRefused, withoutSignoff, withSignoff, type SignoffResult } from './fuseSignoffs'
+import { isPathKey, restoredEntry, sameSignoff, sameSignoffs, sanitizeFuseSignoffs, signoffEntry, signoffRefused, withoutSignoff, withSignoff, type SignoffResult } from './fuseSignoffs'
 import { SYSTEM, withWriter } from './writer'
 import { deepFreeze } from './freeze'
 import { rewindAllowed, rewindState, type RewindPatch } from './rewind'
@@ -249,6 +249,12 @@ export interface WorkspaceState extends Workspace {
    */
   signOffFuse: (pathKey: string, sig: string, parts: Record<string, string>) => SignoffResult
   withdrawSignoff: (pathKey: string) => SignoffResult
+  /**
+   * An allowance put back exactly as it was (the Patchbay's Undo of key 3 — a withdrawal, or a lapsed allowance a new one
+   * replaced): its `at` and `updatedBy` kept (a team server stamps `updatedBy` with the owner / admin who writes it).
+   * Refused like signOffFuse; 'invalid' when `entry` is no allowance.
+   */
+  restoreSignoff: (pathKey: string, entry: FuseSignoff) => SignoffResult
 
   // building blocks (features/kit): insert or replace by id (sanitized; updatedAt / updatedBy are set here) · remove.
   // upsertList copies the items into every property bound to the list (PropertyDef.listId); upsertPropType binds
@@ -714,6 +720,20 @@ export const useWorkspace = create<WorkspaceState>()(
       // allowed already, with this signature: no change (who allowed it and when stay)
       if (cur?.[pathKey]?.sig === entry.sig) return { ok: true }
       const next = withSignoff(cur, pathKey, entry)
+      set((s) => {
+        s.fuseSignoffs = next
+      })
+      return { ok: true }
+    },
+
+    restoreSignoff: (pathKey, entry) => {
+      const refused = signoffRefused()
+      if (refused) return refused
+      const e = isPathKey(pathKey) ? restoredEntry(entry) : null
+      if (!e) return { ok: false, why: 'invalid' }
+      const cur = get().fuseSignoffs
+      if (cur?.[pathKey] && sameSignoff(cur[pathKey], e)) return { ok: true }
+      const next = withSignoff(cur, pathKey, e)
       set((s) => {
         s.fuseSignoffs = next
       })

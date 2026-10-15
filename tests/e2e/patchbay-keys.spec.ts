@@ -21,7 +21,7 @@
 import type { Page } from '@playwright/test'
 import { test, expect, openApp, reloadApp, wsEval, MOD } from './fixtures'
 import { agent, mock1, seedPatchbay, server, type PbWorld } from '../fixtures/patchbay'
-import { ALPHA, autofillWorld, inboxHelper, mailWorld, organiseWorld } from '../fixtures/patchbay-fuses'
+import { ALPHA, autofillWorld, inboxHelper, mailWorld, organiseWorld, pushReportWorld, pushWorld, relayTriggerWorld } from '../fixtures/patchbay-fuses'
 import { expectLane, markRec, startRecorder } from './helpers/recorder'
 
 type AnyState = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -225,6 +225,8 @@ test.describe('B10 · key 2b — an MCP fuse: the write tools disconnected', () 
     await keyBtn(page, 2).click()
     await expect.poll(async () => (await agentOf(page, 'agInbox')).mcpTools).toEqual({ alpha: ['list_items', 'search_web'] })
     await expect(panel(page).getByTestId('pb-closed-head')).toHaveText(/^Fuse F\d · closed — Inbox-Helfer · alpha: only the 2 read tools stay$/)
+    // fix mid: the read tool that may still carry data out stays named on the closed plate (§1.5, §6 A33)
+    await expect(panel(page).getByTestId('pb-closed-residual')).toHaveText('Still connected: search_web — may carry data in their arguments')
 
     // the server with write tools only: it goes from the agent
     await selectFuseWith(page, 2, (t) => t.agent === 'agSorter' && t.server === 'gamma')
@@ -363,6 +365,112 @@ test.describe('B10 · key 3 — allow the path', () => {
     // Mod+Z takes the withdrawal back: allowed again
     await page.keyboard.press(`${MOD}+z`)
     await expect(fuseVal(page)).toHaveText('0 open · 1 allowed')
+  })
+})
+
+test.describe('fix mid · a key says what it really did', () => {
+  /** The push fuse (the agent → this device's GitHub push) selected. */
+  /** This device's GitHub sync, pushing on its own (the sync's own test hook; GitHub itself routed — nothing leaves). */
+  async function githubPush(page: Page): Promise<void> {
+    await page.route('https://api.github.com/**', (r) => r.fulfill({ status: 200, headers: { 'content-type': 'application/json' }, body: '{}' }))
+    await page.evaluate(() => (window as unknown as { __oneSync: { github: (p: Record<string, unknown>) => Promise<void> } }).__oneSync.github({ repo: 'nordlicht/notes', token: 'ghp_e2eFixtureToken000000000000000000', auto: true, everyMin: 15 }))
+  }
+
+  async function selectPush(page: Page): Promise<string> {
+    await githubPush(page)
+    let key = ''
+    await expect
+      .poll(async () => {
+        const m = await pbModel(page)
+        key = ((m?.fuses ?? []).find((f) => f.chain.exit?.type === 'sync')?.key as string | undefined) ?? ''
+        return key
+      })
+      .not.toBe('')
+    await page.locator(`[data-pb-fuse-tab="${key}"]`).click()
+    await expect(panel(page).locator(`[data-pb-plate="${key}"]`)).toBeVisible()
+    return key
+  }
+
+  test('push + report page: “Switch to proposals” is refused — the report page is written in every mode and the push carries it; pressed, nothing is written', async ({ page }) => {
+    await openRack(page, pushReportWorld())
+    await selectPush(page)
+    await expect(keyBtn(page, 1)).toHaveAttribute('aria-disabled', 'true')
+    await expect(keyRow(page, 1).getByTestId('pb-fkey-why')).toHaveText('The report page “Bericht” is written in every mode — the GitHub push still carries it.')
+    await keyBtn(page, 1).focus()
+    await page.keyboard.press('Enter')
+    await expect(live(page)).toContainText('Switch to proposals — not possible here: The report page “Bericht” is written in every mode')
+    expect((await agentOf(page, 'agInbox')).write).toBe('apply')
+    await expect(page.locator('.pb-ftab[data-kind="closed"]')).toHaveCount(0)
+  })
+
+  test('a key that leaves its fuse open (the workspace changed under the plate) says "still open" — no closed plate, the open plate keeps the keyboard', async ({ page }) => {
+    await openRack(page, pushWorld(true))
+    const key = await selectPush(page)
+    await expect(keyRow(page, 1)).toContainText('Each proposal waits for you — once applied, the GitHub push still carries it')
+    // the report page is set in the same moment the key is pressed: the plate still offers the key, the push still
+    // carries the report — the rebuilt model says so
+    await wsEval(page, (s) => {
+      s.upsertAgent({ ...s.agents.agInbox, output: { pageId: 'pgReport', mode: 'append' } })
+      ;(document.querySelector('#pb-fuse-panel [data-pb-key="1"]') as HTMLElement).click()
+    })
+    await expect.poll(async () => (await agentOf(page, 'agInbox')).write).toBe('stage')
+    await expect(toast(page, 'is still open')).toContainText('Changed: Inbox-Helfer: Apply directly → Proposals for review — but fuse F1 is still open: GitHub push')
+    await expect(live(page)).toContainText('but fuse F1 is still open')
+    await expect(page.locator('.pb-ftab[data-kind="closed"]')).toHaveCount(0)
+    await expect(panel(page).locator(`[data-pb-plate="${key}"]`)).toBeVisible()
+    await expect(head(page)).toHaveText('Fuse F1 · open path')
+    await expect(head(page)).toBeFocused()
+    // key 1 now says what keeps the path open
+    await expect(keyRow(page, 1).getByTestId('pb-fkey-why')).toHaveText('The report page “Bericht” is written in every mode — the GitHub push still carries it.')
+    // its Undo still takes the change back
+    await toast(page, 'is still open').getByRole('button', { name: 'Undo' }).click()
+    await expect.poll(async () => (await agentOf(page, 'agInbox')).write).toBe('apply')
+  })
+
+  test('a trigger field autofill writes: “Kategorie” by hand only is refused — the autofill sets it off after any other change', async ({ page }) => {
+    await openRack(page, relayTriggerWorld())
+    await expect(keyBtn(page, 2)).toHaveAttribute('aria-disabled', 'true')
+    await expect(keyRow(page, 2).getByTestId('pb-fkey-why')).toHaveText('Autofill writes “Kategorie” — agents still set it off through any other change.')
+    // a refused key is aria-disabled, never disabled: it takes the keyboard and says why
+    await keyBtn(page, 2).focus()
+    await page.keyboard.press('Enter')
+    await expect(live(page)).toContainText('“Kategorie” by hand only — not possible here: Autofill writes “Kategorie”')
+    await page.waitForTimeout(200)
+    expect((await propOf(page, 'dbMails', 'pMailCat'))?.agentReadOnly ?? false).toBe(false)
+    // key 1 closes it (a proposal starts no autofill)
+    await keyBtn(page, 1).click()
+    await expect(panel(page).getByTestId('pb-closed-head')).toHaveText('Fuse F1 · closed — Inbox-Helfer: Apply directly → Proposals for review')
+    await expect(fuseVal(page)).toHaveText('none open')
+  })
+
+  test('key 3’s Undo puts the allowance back as it was: a lapsed one (who, when) after “Allow this path”, a withdrawn one with its date', async ({ page }) => {
+    await openRack(page)
+    const entry = () => wsEval(page, (s) => Object.values((s.fuseSignoffs ?? {}) as Record<string, AnyState>)[0] ?? null)
+    await keyBtn(page, 3).click()
+    await expect(fuseVal(page)).toHaveText('0 open · 1 allowed')
+    // an older allowance: by someone, on another day (the store keeps what it is given)
+    const a = { ...(await entry())!, at: Date.UTC(2026, 9, 12, 9, 30), updatedBy: null }
+    await wsEval(page, (s, e) => s.restoreSignoff(Object.keys(s.fuseSignoffs)[0], e), a)
+    // the webhook changes: lapsed; "Allow this path" again replaces it — its Undo brings the lapsed one back, as it was
+    await wsEval(page, (s) => s.updateDatabase('dbMails', { automations: (s.databases.dbMails.automations as AnyState[]).map((x) => (x.id === 'autToChat' ? { ...x, actions: [{ ...x.actions[0], url: 'https://chat.example/hook-board' }] } : x)) }))
+    await expect(panel(page).getByTestId('pb-fplate')).toHaveAttribute('data-state', 'lapsed')
+    await keyBtn(page, 3).click()
+    await expect(fuseVal(page)).toHaveText('0 open · 1 allowed')
+    expect((await entry())!.sig).not.toBe(a.sig)
+    await page.keyboard.press(`${MOD}+z`)
+    await expect(panel(page).getByTestId('pb-fplate')).toHaveAttribute('data-state', 'lapsed')
+    expect(await entry()).toEqual(a)
+    // allowed again, then withdrawn: the Undo keeps the allowance's own date
+    await keyBtn(page, 3).click()
+    await expect(fuseVal(page)).toHaveText('0 open · 1 allowed')
+    const b = (await entry())!
+    await keyBtn(page, 3).click()
+    await expect(fuseVal(page)).toHaveText('1')
+    expect(await entry()).toBeNull()
+    await page.waitForTimeout(30)
+    await page.keyboard.press(`${MOD}+z`)
+    await expect(fuseVal(page)).toHaveText('0 open · 1 allowed')
+    expect(await entry()).toEqual(b)
   })
 })
 

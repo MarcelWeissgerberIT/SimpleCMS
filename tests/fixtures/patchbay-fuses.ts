@@ -113,3 +113,25 @@ export function pushWorld(reads: boolean): PbWorld {
     device: { sync: { github: { configured: true, auto: true, everyMin: 15, includePrivate: false, repo: 'nordlicht/notes' }, folder: { configured: false } } },
   })
 }
+
+/**
+ * fix mid: pushWorld(true) whose agent has a report page („Bericht“) — written in every write mode, the push carries it:
+ * "Switch to proposals" would leave the path open (key 1 refused, the report page named).
+ */
+export function pushReportWorld(): PbWorld {
+  const w = pushWorld(true)
+  w.ws.agents.agInbox = { ...w.ws.agents.agInbox, output: { pageId: 'pgReport', mode: 'append' } }
+  return w
+}
+
+/**
+ * fix mid: „Kategorie“ is an AI autofill output (auto) AND the trigger of „Kategorie → Hook“ — "only by hand" binds the
+ * agent alone: any other write of the row starts the autofill, which sets the field off all the same (key 2 refused).
+ */
+export function relayTriggerWorld(): PbWorld {
+  const mails = database('dbMails', [prop('pMailCat', 'Kategorie', 'text', { autofill: { preset: 'summary', auto: true } })], {
+    system: 'mails',
+    automations: [automation('autCat', 'Kategorie → Hook', { type: 'property_changed', propertyId: 'pMailCat' }, [{ type: 'webhook', url: 'https://sort.example/in', method: 'POST' }])],
+  })
+  return world({ pages: [dbPage('dbMails', 'Mails')], databases: [mails], agents: [inboxHelper()], mail: mailSettings('dbMails') })
+}

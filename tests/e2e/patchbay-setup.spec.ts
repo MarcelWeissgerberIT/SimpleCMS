@@ -18,7 +18,8 @@
  */
 import type { BrowserContext, Page } from '@playwright/test'
 import { test, expect, openApp, reloadApp, wsEval, MOD } from './fixtures'
-import { mock2, profileFile, seedPatchbay, trackerCnsx } from '../fixtures/patchbay'
+import { mock2, profileFile, seedPatchbay, trackerCnsx, world, type PbWorld } from '../fixtures/patchbay'
+import { TRACKER } from '../fixtures/patchbay-fuses'
 
 type AnyState = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -43,14 +44,14 @@ async function dragFile(page: Page, name: string, text: string, opts: { type?: s
 }
 const dropProfile = (page: Page, p: AnyState = trackerCnsx(), name = FILE) => dragFile(page, name, profileFile(p as never))
 
-async function arrange(page: Page, lang: 'en' | 'de' = 'en') {
+async function arrange(page: Page, lang: 'en' | 'de' = 'en', w: PbWorld = mock2()) {
   await page.addInitScript(() => localStorage.setItem('one.tour', '{"off":true}'))
   await openApp(page)
-  await seedPatchbay(page, mock2())
+  await seedPatchbay(page, w)
   await wsEval(page, (s, lang) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key', language: lang }), lang)
   await page.evaluate(() => (window.location.hash = '#/patchbay'))
   await expect(page.getByTestId('patchbay-page')).toBeVisible()
-  await expect(page.locator('[data-testid="pb-rack"], [data-testid="pb-strands"]').first()).toBeVisible()
+  await expect(page.locator('[data-testid="pb-rack"], [data-testid="pb-strands"], [data-testid="pb-empty"]').first()).toBeVisible()
 }
 
 const lampKey = (page: Page, n: number) => page.locator(`[data-pb-lamp="${n}"][data-pb-profile="${PID}"]`).first()
@@ -167,6 +168,10 @@ test.describe('Patchbay setup — the drop', () => {
     const tabs = page.getByTestId('pb-recipe-tab')
     await expect(tabs).toHaveCount(2)
     await expect(tabs.nth(0)).toHaveAttribute('aria-selected', 'true')
+    // fix mid: each tab named by the database its recipe makes (both recipes are "Mirror a list into a database")
+    await expect(tabs.nth(0)).toContainText('Tessera Handoff')
+    await expect(tabs.nth(1)).toContainText('Tessera Archiv')
+    await expect(tabs.nth(1)).toHaveAttribute('title', 'Mirror a list into a database')
     await tabs.nth(1).click()
     await expect(tabs.nth(1)).toHaveAttribute('aria-selected', 'true')
     await expect(page.locator('[data-testid="pb-band"] [data-testid="pb-module"][data-kind="database"][data-ghost]')).toContainText('Tessera Archiv')
@@ -349,6 +354,175 @@ test.describe('Patchbay setup — Undo, replace, strip', () => {
   })
 })
 
+/* ------------------------------------------------------------------ fix mid */
+
+/** Settings opened quietly / anything else: every request to the Claude API counted (and refused — nothing is answered). */
+async function countClaude(page: Page): Promise<() => number> {
+  let n = 0
+  await page.route('https://api.anthropic.com/**', (route) => {
+    if (route.request().method() === 'POST') n++
+    return route.fulfill({ status: 401, headers: { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*' }, body: '{}' })
+  })
+  return () => n
+}
+const tested = (page: Page, on: boolean) =>
+  wsEval(page, (s, on) => s.updateSettings({ mcpServers: (s.settings.mcpServers as AnyState[]).map((x) => (x.name === 'tracker' ? { ...x, tools: on ? ['query_issues', 'get_issue', 'whoami', 'create_issue', 'update_issue', 'add_comment', 'post_status'] : undefined, checkedAt: on ? Date.now() : undefined } : x)) }), on)
+
+test.describe('Patchbay setup — fix mid: the drop’s Undo, the setup record, lamps without a recipe', () => {
+  test('the drop’s Undo lives only in its visit: after leaving and coming back no Undo key, Mod+Z keeps the profile, “Show the whole setup” offers none; the taken-back toast names the profile', async ({ page }) => {
+    await arrange(page)
+    await dropProfile(page)
+    // taken back right away: the toast and the polite region name the profile, never its id
+    await page.keyboard.press(`${MOD}+z`)
+    await expect(page.locator('.toast').filter({ hasText: 'taken back' }).last()).toHaveText(/Profile “Tessera” taken back/)
+    await expect(page.getByTestId('pb-live')).toHaveText('Profile “Tessera” taken back')
+    expect(await profiles(page)).toEqual([])
+
+    // dropped again; the visit ends (another route); back: the strip, no Undo anywhere
+    await clearToasts(page)
+    await dropProfile(page)
+    await expect(page.getByTestId('pb-band-undo')).toBeVisible()
+    await page.evaluate(() => (window.location.hash = '#/workspace/overview'))
+    await expect(page.getByTestId('patchbay-page')).toHaveCount(0)
+    await page.evaluate(() => (window.location.hash = '#/patchbay'))
+    await expect(page.getByTestId('pb-setup-strip')).toBeVisible()
+    await expect(page.getByTestId('pb-band-undo')).toHaveCount(0)
+    await page.getByRole('heading', { level: 1 }).focus()
+    await page.keyboard.press(`${MOD}+z`)
+    await page.waitForTimeout(300)
+    expect(await profiles(page)).toEqual([`${PID}:Tessera`])
+    await expect(page.getByTestId('pb-legend')).not.toContainText('profile back')
+    // the whole setup again from the strip: the band — its key closes the setup, no Undo
+    await page.getByTestId('pb-strip-open').click()
+    await expect(page.getByTestId('pb-band')).toBeVisible()
+    await expect(page.getByTestId('pb-band-undo')).toHaveCount(0)
+    await expect(page.getByTestId('pb-band-close')).toBeVisible()
+    await page.keyboard.press(`${MOD}+z`)
+    await page.waitForTimeout(300)
+    expect(await profiles(page)).toEqual([`${PID}:Tessera`])
+  })
+
+  test('a lamp that turns green off the page ends the Undo: 02 → #/mcp, the test passes there, the drop toast’s Undo is refused', async ({ page }) => {
+    await arrange(page)
+    await tested(page, false)
+    await dropProfile(page)
+    await expect(lampKey(page, 2)).toBeFocused()
+    await page.keyboard.press('Enter')
+    await expect(page).toHaveURL(/#\/mcp$/)
+    // the connection test's result arrives (as the test writes it): 02 is green — the setup made something
+    await tested(page, true)
+    await expect(page.getByTestId('pb-return-key')).toHaveAccessibleName('Back to setup · 04 next')
+    await page.locator('.toast').filter({ hasText: 'Profile “Tessera” dropped' }).getByRole('button', { name: 'Undo' }).click()
+    await expect(page.locator('.toast').filter({ hasText: 'The setup has begun' })).toBeVisible()
+    expect(await profiles(page)).toEqual([`${PID}:Tessera`])
+  })
+
+  test('a replace taken back keeps the setup record as it was: the strip of the setup in progress comes back', async ({ page }) => {
+    await arrange(page)
+    await wsEval(page, (s, p) => s.upsertIntegration(p), trackerCnsx() as AnyState)
+    // "Set up in the Patchbay" from Integrations, then away and back: the strip
+    await page.evaluate(() => (window.location.hash = '#/workspace/integrations'))
+    await page.locator(`.int-row[data-id="${PID}"]`).getByTestId('int-setup').click()
+    await expect(page.getByTestId('pb-band')).toBeVisible()
+    await page.evaluate(() => (window.location.hash = '#/workspace/overview'))
+    await page.evaluate(() => (window.location.hash = '#/patchbay'))
+    await expect(page.getByTestId('pb-setup-strip')).toHaveCount(1)
+    // a corrected file of the same id: Replace, then Undo — the old profile and its strip back
+    await dropProfile(page, trackerCnsx({ name: 'Tessera neu' }))
+    await page.getByTestId('pb-dropplate').getByTestId('pb-drop-replace').click()
+    await expect(page.getByTestId('pb-band')).toBeVisible()
+    await page.getByTestId('pb-band-undo').click()
+    await expect(page.getByTestId('pb-band')).toHaveCount(0)
+    expect(await profiles(page)).toEqual([`${PID}:Tessera`])
+    await expect(page.getByTestId('pb-setup-strip')).toHaveCount(1)
+  })
+
+  test('a profile without a recipe: the band holds its server and lamps 00–03 (never folded as untouched)', async ({ page }) => {
+    await arrange(page)
+    await dropProfile(page, trackerCnsx({ recipes: [] }))
+    const band = page.getByTestId('pb-band')
+    await expect(band).toBeVisible()
+    await expect(page.getByTestId('pb-lamp')).toHaveCount(4)
+    await expect(band.locator('[data-testid="pb-module"][data-kind="server"]').filter({ hasText: 'tracker' })).toHaveCount(1)
+    await expect(page.locator('[data-testid="pb-band-folds"]')).not.toContainText('tracker')
+  })
+
+  test('a profile without a recipe in an empty workspace: the band and its lamps instead of the empty rack, the keyboard on the next lamp', async ({ page }) => {
+    await arrange(page, 'en', world({ servers: [TRACKER({ enabled: false })] }))
+    await expect(page.getByTestId('pb-empty')).toBeVisible()
+    await dropProfile(page, trackerCnsx({ recipes: [] }))
+    await expect(page.getByTestId('pb-band')).toBeVisible()
+    await expect(page.getByTestId('pb-empty')).toHaveCount(0)
+    await expect(page.getByTestId('pb-lamp')).toHaveCount(4)
+    await expect(lampKey(page, 1)).toBeFocused()
+  })
+
+  test('lamp 01 opens Settings quietly — no server is checked on its own; switched on there, Esc moves the keyboard on to the next lamp', async ({ page }) => {
+    await arrange(page)
+    const claude = await countClaude(page)
+    await wsEval(page, (s) => s.updateSettings({ mcpServers: (s.settings.mcpServers as AnyState[]).map((x) => (x.name === 'tracker' ? { ...x, enabled: false } : x)) }))
+    await dropProfile(page)
+    await expect(lampKey(page, 1)).toBeFocused()
+    await page.keyboard.press('Enter')
+    await expect(page.getByTestId('mcp-servers')).toBeVisible()
+    await page.waitForTimeout(800)
+    expect(claude()).toBe(0)
+    await expect(page.locator('.mcps-check, [data-checking]').filter({ hasText: /checking/i })).toHaveCount(0)
+    // the server switched on in the dialog, then Esc: the keyboard on 04 (no longer on 01's quiet "Open")
+    await page.locator('.mcps-card[data-id="srvTracker"]').getByRole('switch').first().click()
+    await expect.poll(() => wsEval(page, (s) => (s.settings.mcpServers as AnyState[]).find((x) => x.name === 'tracker')?.enabled)).toBe(true)
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('mcp-servers')).toHaveCount(0)
+    await expect(lampKey(page, 4)).toBeFocused()
+    expect(claude()).toBe(0)
+  })
+
+  test('lamp 00 opens the assistant; the key saved there, Esc moves the keyboard on to the next lamp — not back to 00’s quiet “Open”', async ({ page }) => {
+    await arrange(page)
+    await wsEval(page, (s) => s.updateSettings({ aiApiKey: '' }))
+    await dropProfile(page)
+    await expect(lampKey(page, 0)).toBeFocused()
+    await page.keyboard.press('Enter')
+    const dialog = page.getByRole('dialog').first()
+    await expect(dialog).toBeVisible()
+    // the key arrives (as step 02 saves it)
+    await wsEval(page, (s) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key' }))
+    await expect.poll(() => states(page)).toBe('ok ok ok ok next dark dark')
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await expect(lampKey(page, 4)).toBeFocused()
+  })
+
+  test('1440 German: a key wider than its lamp column stays one line, centred over its column (mock-2) — the sentences keep their own columns', async ({ page }) => {
+    await arrange(page, 'de')
+    await dropProfile(page)
+    await expect(lampKey(page, 4)).toContainText('Datenbank anlegen')
+    const boxes = await page.getByTestId('pb-lamp').evaluateAll((els) =>
+      els.map((li) => {
+        const r = li.getBoundingClientRect()
+        const say = li.querySelector('.pb-lamp__say')!.getBoundingClientRect()
+        const key = li.querySelector('[data-pb-lamp]')?.getBoundingClientRect()
+        return { l: r.left, r: r.right, sl: say.left, sr: say.right, kl: key?.left ?? r.left, kr: key?.right ?? r.right, kh: key?.height ?? 0 }
+      }),
+    )
+    for (const b of boxes) {
+      // each sentence in its own column; a key at most a few pixels past it, centred
+      expect(b.sl).toBeGreaterThanOrEqual(b.l - 0.5)
+      expect(b.sr).toBeLessThanOrEqual(b.r + 0.5)
+      expect(b.kl).toBeGreaterThanOrEqual(b.l - 11)
+      expect(b.kr).toBeLessThanOrEqual(b.r + 11)
+      expect(Math.abs(b.kl + b.kr - (b.l + b.r))).toBeLessThanOrEqual(1)
+    }
+    // "Datenbank anlegen" on one line, as in mock-2
+    expect(boxes[4].kh).toBeLessThanOrEqual(34)
+    // clear gaps between neighbouring sentences, and between neighbouring keys
+    for (let i = 1; i < boxes.length; i++) {
+      expect(boxes[i].sl - boxes[i - 1].sr).toBeGreaterThanOrEqual(8)
+      expect(boxes[i].kl - boxes[i - 1].kr).toBeGreaterThanOrEqual(8)
+    }
+  })
+})
+
 test.describe('Patchbay setup — the phone', () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
 
@@ -366,6 +540,17 @@ test.describe('Patchbay setup — the phone', () => {
     await expect(lampKey(page, 4)).toHaveText(/Datenbank anlegen/)
     const box = (await lampKey(page, 4).boundingBox())!
     expect(box.height).toBeGreaterThanOrEqual(40)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
+  })
+
+  test('fix mid · 390 px, a profile without a recipe: the card with lamps 00–03 — no “what gets created”', async ({ page }) => {
+    await arrange(page)
+    await dropProfile(page, trackerCnsx({ recipes: [] }))
+    const card = page.getByTestId('pb-setup-card')
+    await expect(card).toBeVisible()
+    await expect(card.getByTestId('pb-lamp')).toHaveCount(4)
+    await expect(page.getByTestId('pb-ro-setup')).toHaveText('4/4')
+    await expect(page.getByTestId('pb-strands')).not.toContainText('What gets created')
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
   })
 })

@@ -25,6 +25,7 @@ import { openTarget } from './open'
 import { usePlateWords, type PlateWords } from './plateParts'
 import type { Words } from './words'
 import { announce, noteClosed, selectFuse } from './store'
+import { refreshModel } from '../state'
 
 const P = 'features.patchbay'
 
@@ -116,15 +117,31 @@ export function runKey(f: FuseState, k: FuseKey, pw: PlateWords): { refused: Msg
   pressedWith.set(d.id, pw)
   // the session's stack keeps ≤ 20 keys: the words of keys that fell off go too
   for (const id of [...pressedWith.keys()]) if (!useKeyStack.getState().done.some((x) => x.id === id)) pressedWith.delete(id)
-  const said = doneSay(d, pw)
+  // fix mid: "closed" only when the rebuilt model says so — the same path, or the same decider still reaching the same
+  // way out by another route, still open: said as it is, the plate of that fuse keeps the keyboard (no closed plate)
+  const still = d.n !== 3 ? stillOpen(f) : null
+  const said = still ? pw.say({ key: `${P}.keys.stillOpenSay`, vars: { f: d.fuse.label, what: pw.say(d.what), module: f.chain.exit?.module ?? '' } }) : doneSay(d, pw)
   const detail = [d.team ? pw.say(d.team) : '', d.device ? t(`${P}.key.deviceOnly`) : ''].filter(Boolean).join(' · ')
   announce(detail ? `${said} — ${detail}` : said)
-  useUI.getState().toast({ message: said, kind: 'success', ...(detail ? { detail } : {}), action: { label: t('common.undo'), undo: true, run: () => void runUndo(pw, d.id) } })
-  if (d.n !== 3) {
+  useUI.getState().toast({ message: said, kind: still ? 'info' : 'success', ...(detail ? { detail } : {}), action: { label: t('common.undo'), undo: true, run: () => void runUndo(pw, d.id) } })
+  if (still) {
+    selectFuse(still.key)
+    focusHeading(`[data-pb-plate="${CSS.escape(still.key)}"] #pb-fplate-h`)
+  } else if (d.n !== 3) {
     noteClosed(d.id, closedRow(d.fuse.key))
     focusHeading(`[data-pb-closed="${CSS.escape(d.fuse.key)}"] #pb-fplate-h`)
   }
   return null
+}
+
+/**
+ * The fuse a key 1 / 2 left open (null: it closed): the model built again now (the key's write is in the store), the
+ * same path — or the same decider reaching the same way out by another route — still an open fuse.
+ */
+function stillOpen(f: FuseState): FuseState | null {
+  const model = refreshModel() as Model
+  const open = (model.fuses as FuseState[]).filter((x) => x.allowed?.state !== 'allowed')
+  return open.find((x) => x.key === f.key) ?? open.find((x) => x.chain.decider === f.chain.decider && !!x.chain.exit && x.chain.exit.edge === f.chain.exit?.edge) ?? null
 }
 
 const ICON: Record<FuseKey['kind'], typeof Check> = {

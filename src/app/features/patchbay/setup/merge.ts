@@ -10,7 +10,7 @@
  *    — the readout writes "10 + 4 from profile", "7 + 5 planned").
  * The fuses, chains and nets are the model's own (a ghost is in no chain: nothing runs through it yet).
  */
-import type { Jack, Model, Module } from '../types'
+import type { Jack, Model, Module, ModuleKey } from '../types'
 import type { GhostPlan } from './ghosts'
 
 const cache = new WeakMap<Model, WeakMap<GhostPlan, Model>>()
@@ -60,5 +60,26 @@ export function withGhosts<M extends Model>(model: M, plan: GhostPlan | null): M
     },
   }
   byPlan.set(plan, out)
+  return out
+}
+
+const tagged = new WeakMap<Model, Map<string, Model>>()
+
+/**
+ * A profile without a recipe (§6 U26: lamps 00–03 only — no ghosts, no planned cables): the servers it matches on this
+ * device are its modules on the band (fix mid) — tagged `profile` so the band's partition keeps them, idle ones too,
+ * instead of folding them under "Not touched by the profile". A module another profile marked keeps its mark. The same
+ * object for the same inputs; the model itself when nothing changes.
+ */
+export function withProfileModules<M extends Model>(model: M, profile: string, keys: readonly ModuleKey[]): M {
+  const want = new Set(keys.filter((k) => model.modules.some((m) => m.key === k && !m.profile)))
+  if (!want.size) return model
+  const sig = `${profile}|${[...want].sort().join(',')}`
+  const byKeys = tagged.get(model) ?? new Map<string, Model>()
+  tagged.set(model, byKeys)
+  const had = byKeys.get(sig)
+  if (had) return had as M
+  const out = { ...model, modules: model.modules.map((m) => (want.has(m.key) ? { ...m, profile } : m)) }
+  byKeys.set(sig, out)
   return out
 }

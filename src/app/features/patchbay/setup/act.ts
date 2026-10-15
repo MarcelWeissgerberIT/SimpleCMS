@@ -1,7 +1,8 @@
 /**
  * ↵ on a lamp (plan §1.11): each lamp opens exactly its step of the setup that exists — never one of its own:
  *   00 key        openAISetup({ reason: 'patchbay', step: 'key', provider: 'anthropic' }) — the assistant (a dialog)
- *   01 server     openAISettings({ section: 'mcp', server }) or { add: true } — Settings › AI (a dialog)
+ *   01 server     openAISettings({ section: 'mcp', server, quiet: true }) or { add: true } — Settings › AI (a dialog;
+ *                 quiet: no server is checked on its own — a check is a Claude request, only the person's press runs it)
  *   02 test       openMcpConnections({ server, focus: 'test' }) — the page's Test key focused; the lamp never runs a
  *                 test itself (a test is a Claude request: the gate and the Regler decide, on the person's press)
  *   03 profile    openIntegrations(profile) — Workspace › Integrations, that profile focused
@@ -9,16 +10,18 @@
  *   05 agent      openAgentEditor(agent or kept draft) — the editor as a dialog; a lost draft: MirrorSetup again
  *   06 first run  runAgentNow(agent) (it asks for placeholders first; a toast) · the run's review on #/agents/<id>
  * The steps that leave the route (02, 03, 06's review) set the way back (return.ts) first: the topbar's chip leads back.
- * The dialogs give focus back to the lamp's key (`from`); after a create or a save it moves on to the next lamp's key.
+ * The dialogs give focus back to the lamp's key (`from`); after a create or a save it moves on to the next lamp's key —
+ * for 00 / 01 once the dialog closed with its lamp green (moveOnAfterModal).
  */
 import { navigate } from '../../../lib/router'
+import { useUI } from '../../../store/ui'
 import { openAISettings, openAISetup } from '../../ai/setup/openAISetup'
 import { openMcpConnections } from '../../mcp'
 import { openAgentEditor, openIntegrations, openMirrorSetup, runAgentNow, type AgentDialogOutcome } from '../../agents'
 import { useWorkspace } from '../../../store/store'
 import type { LampId, SetupLamp } from '../types'
 import { setReturn } from './return'
-import { focusLampKey } from './focus'
+import { focusLampKey, lampKey } from './focus'
 import { lampsNow } from './facts'
 import { setOf } from './lamps'
 
@@ -41,6 +44,29 @@ function moveOn(ctx: LampContext) {
 }
 
 /**
+ * Lamps 00 / 01 open a dialog with no "after" of its own (the assistant, Settings): once it closes — the dialog gave the
+ * keyboard back to the lamp's key — a lamp the dialog turned green moves it on to the next lamp's key (fix mid), as the
+ * agent dialogs do (moveOn). A lamp that was green already (its quiet "Open") keeps it.
+ */
+function moveOnAfterModal(lamp: SetupLamp, ctx: LampContext): void {
+  if (lamp.state === 'ok' || !useUI.getState().modal) return
+  const from = ctx.from ?? lampKey(lamp.n, lamp.recipe, ctx.profileId)
+  const stop = useUI.subscribe((s) => {
+    if (s.modal) return
+    stop()
+    // two frames: the dialog's own clean-up gives focus back first
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        const now = lampsNow(ctx.profileId)
+        const set = now ? setOf(now.sets, ctx.recipeId) : null
+        if (set?.lamps.find((l) => l.n === lamp.n)?.state !== 'ok' || !set.next) return
+        void focusLampKey(set.next, { from, profile: ctx.profileId })
+      }),
+    )
+  })
+}
+
+/**
  * The way back for a step that leaves the patchbay — `next`: the lamp the setup works on now (the arrival says
  * "02 done" only when THAT one went green; a green lamp opened as a quiet link leaves the next lamp as it is).
  */
@@ -57,9 +83,13 @@ export function runLamp(lamp: SetupLamp, ctx: LampContext): boolean {
   switch (a.kind) {
     case 'aiSetup':
       openAISetup({ reason: 'patchbay', step: 'key', provider: a.provider, feature: 'agents' })
+      moveOnAfterModal(lamp, ctx)
       return true
     case 'mcpSettings':
-      openAISettings({ section: 'mcp', ...(a.server ? { server: a.server } : {}), ...(a.add ? { add: true } : {}) })
+      // quiet: Settings opened from a lamp never checks the never-checked servers on its own (a check is a Claude
+      // request — only the person's press runs one, §1.11)
+      openAISettings({ section: 'mcp', ...(a.server ? { server: a.server } : {}), ...(a.add ? { add: true } : {}), quiet: true })
+      moveOnAfterModal(lamp, ctx)
       return true
     case 'mcpTest':
       leave(ctx, lamp)
