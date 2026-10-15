@@ -242,6 +242,26 @@ function factsOf(get: (id: ID) => Page | undefined, id: ID): (PageFacts & { chai
   }
 }
 
+/**
+ * B17: do two objects of one page give the same facts? Exactly the fields factsOf reads (id, title, kind, trashed,
+ * template, private, the parent / database — keep the two in step): another object with the same fields (typing in
+ * a referenced page, its icon, comments, contentRev) cannot move the input.
+ */
+export function sameFacts(a: Page | undefined, b: Page | undefined): boolean {
+  if (a === b) return true
+  if (!a || !b) return false
+  return (
+    a.id === b.id &&
+    a.title === b.title &&
+    a.kind === b.kind &&
+    !!a.trashed === !!b.trashed &&
+    !!a.template === !!b.template &&
+    !!a.private === !!b.private &&
+    (a.parentId ?? null) === (b.parentId ?? null) &&
+    (a.databaseId ?? null) === (b.databaseId ?? null)
+  )
+}
+
 const PIPELINES = new Set(['coding', 'spec', 'qa'])
 const UNREADABLE_FIELDS = ['route', 'review', 'saverRule', 'applyOn'] as const
 
@@ -452,6 +472,11 @@ export interface InputMemo {
   stats(): { builds: number; pageChecks: number }
   /** the ids the last input read (the referenced set — inputs.ts intersects the row index's changes with it) */
   referenced(): ReadonlySet<ID>
+  /**
+   * B17: may this page object move the input? False when the id is referenced and the object gives the same facts as
+   * the one last read (sameFacts) — typing in a referenced page, say; true for anything the last input did not read.
+   */
+  factsMoved(id: ID, page: Page | undefined): boolean
   reset(): void
 }
 
@@ -482,13 +507,19 @@ export function createInputMemo(read: InputReaders): InputMemo {
         last.databases = src.ws.databases
       }
       if (src.ws.pages !== last.src.ws.pages && hint.pagesMoved !== false) {
-        // only a referenced page whose object changed is read again; its facts decide
+        // only a referenced page whose facts' fields changed is read again (B17: another object with the same fields —
+        // its content, its icon — is only remembered); its facts decide
         let moved = false
-        for (const [id, p] of last.built.pageRefs)
-          if (src.ws.pages[id] !== p) {
+        const refs = last.built.pageRefs
+        for (const [id, p] of refs) {
+          const now = src.ws.pages[id]
+          if (now === p) continue
+          if (!sameFacts(now, p)) {
             moved = true
             break
           }
+          refs.set(id, now)
+        }
         if (moved) {
           pageChecks++
           const again = toModelInput(src, read)
@@ -503,6 +534,10 @@ export function createInputMemo(read: InputReaders): InputMemo {
     },
     stats: () => ({ builds, pageChecks }),
     referenced: () => referenced,
+    factsMoved: (id, page) => {
+      const refs = last?.built.pageRefs
+      return !refs || !refs.has(id) || !sameFacts(page, refs.get(id))
+    },
     reset() {
       last = null
       referenced = new Set()

@@ -45,8 +45,30 @@ export interface DeclaredReads {
   reads: readonly string[]
 }
 
+/**
+ * B17: what a tool's NAME says, once per name (a model build asks it for every server × processor × fuse): reads as a
+ * read (isReadTool), a declaration may confirm it (declaredReadOk), it may carry data out (LEAKY). Pure functions of the
+ * name — kept in a bounded map, dropped whole when it is full.
+ */
+interface NameClass {
+  read: boolean
+  declaredOk: boolean
+  leaky: boolean
+}
+const NAME_MAX = 4096
+const names = new Map<string, NameClass>()
+function nameClass(name: string): NameClass {
+  let c = names.get(name)
+  if (!c) {
+    c = { read: isReadTool(name), declaredOk: declaredReadOk(name), leaky: toolWords(name).some((w) => LEAKY.has(w)) }
+    if (names.size >= NAME_MAX) names.clear()
+    names.set(name, c)
+  }
+  return c
+}
+
 /** May this READ tool carry data out in its arguments? */
-export const isLeaky = (name: string): boolean => toolWords(name).some((w) => LEAKY.has(w))
+export const isLeaky = (name: string): boolean => nameClass(name).leaky
 
 /**
  * The profiles that describe a server: their match would hold for it if it were switched on (a profile's `reads` and
@@ -69,8 +91,9 @@ function classify(name: string, out: ReadonlySet<string>, declared: ReadonlyMap<
   if (out.has(name)) return { group: 'out', guessed: false }
   const by = declared.get(name)
   // fix (rest): a declaration confirms a name that reads as a read (no write word, no send word) — it never makes one
-  if (by && declaredReadOk(name)) return { group: 'read', guessed: false }
-  if (isReadTool(name)) return { group: 'read', guessed: true }
+  const n = nameClass(name)
+  if (by && n.declaredOk) return { group: 'read', guessed: false }
+  if (n.read) return { group: 'read', guessed: true }
   return by ? { group: 'write', guessed: true, declaredBy: by } : { group: 'write', guessed: true }
 }
 
@@ -170,7 +193,27 @@ export function runtimeOut(profiles: readonly IntegrationProfile[], rt: { name: 
  * device's server by id, or a runtime server by name (its tools from this device's server at the same host, its OUT
  * tools from the profiles matching its own name and host). `host` = the server's host, `declaredBy` = the profiles describing it with `reads`.
  */
-export function serverToolGroups(input: ModelInput, ref: Extract<ModuleRef, { kind: 'server' }>): { groups: ToolGroups; host: string | null; declaredBy: string[]; profiles: DeclaredReads[] } {
+export function serverToolGroups(input: ModelInput, ref: Extract<ModuleRef, { kind: 'server' }>): ServerTools {
+  // B17: once per input and server (the model, every fuse, the signature and the plate ask it again) — read only
+  let memo = groupMemo.get(input)
+  if (!memo) groupMemo.set(input, (memo = new Map()))
+  const k = `${ref.runtime ? 'r' : 'l'}|${ref.id ?? ''}|${ref.name}`
+  let out = memo.get(k)
+  if (!out) memo.set(k, (out = serverToolGroupsOf(input, ref)))
+  return out
+}
+
+/** A server module's tool groups (serverToolGroups) — shared between callers: never changed in place. */
+export interface ServerTools {
+  groups: ToolGroups
+  host: string | null
+  declaredBy: string[]
+  profiles: DeclaredReads[]
+}
+
+const groupMemo = new WeakMap<ModelInput, Map<string, ServerTools>>()
+
+function serverToolGroupsOf(input: ModelInput, ref: Extract<ModuleRef, { kind: 'server' }>): ServerTools {
   const profiles = input.profiles.map((p) => p.profile)
   if (!ref.runtime && ref.id) {
     const s = input.servers.find((x) => x.server.id === ref.id)

@@ -4,9 +4,10 @@
  * address, property edits on the page itself) stays on the page. Buttons are pressed by a person: fuses never need the
  * index, so the LED and Preflight never wait for it.
  *
- * Built the first time #/patchbay opens (inputs.ts drives it in idle slices: one key walk, then pages in chunks), then
- * kept up to date per page from `onRowsChanged` (`changed` / `contentOnly`): a page is read again only when its
- * `contentRev` moved. Template pages never count. Team: `page.content` as the store holds it.
+ * Built the first time #/patchbay opens (inputs.ts drives it in idle slices: one key walk, then pages in chunks of at
+ * most SLICE_MS each — B17: by time, not by count, so a slice of long pages never blocks the main thread), then kept up
+ * to date per page from `onRowsChanged` (`changed` / `contentOnly`): a page is read again only when its `contentRev`
+ * moved. Template pages never count. Team: `page.content` as the store holds it.
  */
 import type { ID, Page } from '../../store/types'
 import type { ButtonInput } from './types'
@@ -72,6 +73,11 @@ function underTemplate(pages: Record<ID, Page>, id: ID): boolean {
   return false
 }
 
+/** B17: the time one slice of the build may take (ms) — at least one page is read per slice. */
+export const SLICE_MS = 8
+
+const clock = (): number => (typeof performance !== 'undefined' ? performance.now() : Date.now())
+
 /**
  * The index: page → (its contentRev, its wiring buttons). `ready` turns true once every page was read. `list()` keeps
  * its reference while nothing changed (the model's memo compares it).
@@ -81,6 +87,8 @@ export class ButtonIndex {
   private queue: ID[] | null = null
   private cached: ButtonInput[] | null = null
   ready = false
+  /** B17 (perf seam): the build's slices — how many, the longest (ms), pages read */
+  stats = { slices: 0, maxMs: 0, pages: 0 }
 
   /** Start a build: the page ids to read (one key walk — the caller's, once). */
   begin(ids: readonly ID[]): void {
@@ -88,17 +96,21 @@ export class ButtonIndex {
     this.byPage.clear()
     this.cached = null
     this.ready = false
+    this.stats = { slices: 0, maxMs: 0, pages: 0 }
   }
 
-  /** Read up to `budget` pages of the build; true when the build is done. */
-  step(pages: Record<ID, Page>, budget = 400): boolean {
+  /** Read pages of the build for up to `budgetMs` (at least one); true when the build is done. */
+  step(pages: Record<ID, Page>, budgetMs = SLICE_MS): boolean {
     if (!this.queue) return this.ready
+    const t0 = clock()
     let k = 0
-    while (this.queue.length && k < budget) {
+    while (this.queue.length && (k === 0 || clock() - t0 < budgetMs)) {
       const id = this.queue.pop()!
       this.read(pages, id)
       k++
     }
+    const ms = clock() - t0
+    this.stats = { slices: this.stats.slices + 1, maxMs: Math.max(this.stats.maxMs, ms), pages: this.stats.pages + k }
     if (!this.queue.length) {
       this.queue = null
       this.ready = true

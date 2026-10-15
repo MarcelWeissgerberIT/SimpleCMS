@@ -173,8 +173,20 @@ export function sha256Hex(text: string): string {
   return hex
 }
 
+/**
+ * B17: the canonical text of a part object, once per object — a part (an agent, a server, an automation) is built once
+ * per model input (partOf) and shared by every path through it. Parts are never changed after they are built.
+ */
+const canonOf = new WeakMap<object, string>()
+const canonCached = (v: unknown): string => {
+  if (!v || typeof v !== 'object') return canon(v)
+  let text = canonOf.get(v)
+  if (text === undefined) canonOf.set(v, (text = canon(v)))
+  return text
+}
+
 /** A short digest (16 hex) of a value's canonical text — what a part and a URL / header / code are kept as. */
-export const short = (v: unknown): string => sha256Hex(canon(v)).slice(0, 16)
+export const short = (v: unknown): string => sha256Hex(canonCached(v)).slice(0, 16)
 
 /** A path's identity across sessions: SHA-256 of the ids along it (64 lower hex). */
 export const pathKey = (chainKey: string): string => sha256Hex(canon(['pb1', chainKey]))
@@ -268,7 +280,22 @@ function automationPart(au: Automation, input: ModelInput): Record<string, unkno
   }
 }
 
+/** B17: a module's part, once per model input (every fuse through it asks again) — shared, never changed in place. */
+const partMemo = new WeakMap<ModelInput, Map<string, Record<string, unknown> | null>>()
+function partOf(input: ModelInput, key: string, make: () => Record<string, unknown> | null): Record<string, unknown> | null {
+  let memo = partMemo.get(input)
+  if (!memo) partMemo.set(input, (memo = new Map()))
+  if (memo.has(key)) return memo.get(key)!
+  const part = make()
+  memo.set(key, part)
+  return part
+}
+
 function processorPart(m: Module, input: ModelInput): Record<string, unknown> | null {
+  return partOf(input, `p|${m.key}`, () => processorPartOf(m, input))
+}
+
+function processorPartOf(m: Module, input: ModelInput): Record<string, unknown> | null {
   const r = m.ref
   switch (r.kind) {
     case 'agent': {
@@ -299,6 +326,10 @@ function processorPart(m: Module, input: ModelInput): Record<string, unknown> | 
 }
 
 function serverPart(m: Module, input: ModelInput): Record<string, unknown> | null {
+  return partOf(input, `s|${m.key}`, () => serverPartOf(m, input))
+}
+
+function serverPartOf(m: Module, input: ModelInput): Record<string, unknown> | null {
   if (m.ref.kind !== 'server') return null
   const g = serverToolGroups(input, m.ref)
   const name = m.ref.name
@@ -388,7 +419,7 @@ export function sigInputOf(chain: Chain, w: SigWorld): SigInput {
     if (m.ref.kind === 'automation') {
       const r = m.ref
       const au = input.databases.find((d) => d.id === r.db)?.automations.find((x) => x.id === r.id)
-      a.push({ input: au ? automationPart(au, input) : { gone: key }, owners: [key] })
+      a.push({ input: au ? partOf(input, `a|${key}`, () => automationPart(au, input)) : { gone: key }, owners: [key] })
     } else if (m.ref.kind === 'kit') {
       const r = m.ref
       const kit = input.kit.find((x) => x.db === r.db && x.prop === r.prop)
@@ -442,7 +473,10 @@ export function sigInputOf(chain: Chain, w: SigWorld): SigInput {
   const outside = (chain.why?.outside ?? [])
     .filter((src) => !src.withheld)
     .map((src) => ({ kind: src.kind, source: src.source, place: src.place ? placeKey(src.place) : null, writer: src.writer ?? null, from: src.from ?? null }))
-    .sort((a, b) => (canon(a) < canon(b) ? -1 : 1))
+    // the order of their canonical texts (each spelled once)
+    .map((o) => ({ o, t: canon(o) }))
+    .sort((a, b) => (a.t < b.t ? -1 : 1))
+    .map((x) => x.o)
   parts.o = outside
   owners.o = [...new Set(outside.flatMap((src) => [src.source, ...(src.writer ? [src.writer] : [])]))]
   parts.x = exitPart(chain, w, holder)

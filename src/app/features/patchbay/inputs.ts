@@ -10,14 +10,17 @@
  *    server-agent runtime (team), the team's
  *    incoming webhooks and API tokens (owners / admins; a member reads 'forbidden'), the capture Inbox (one id-prefix lookup), the
  *    button index (idle slices, then kept up to date per page). Each reading that
- *    arrives bumps `onInputs` listeners.
+ *    arrives bumps `onInputs` listeners. B17: it returns the release (counted — the route and the seam may both hold
+ *    it); while nobody holds it the button index only NOTES the pages that changed (O(changed), no content read — typing
+ *    elsewhere reads nothing) and reads them, in idle slices, when the route opens again.
  *  - onInputs(fn): hear a lazy reading arrive (the state slice rebuilds then).
  *  - readSource(): the InputSource now (B15: patch.ts plans a patch on it and builds its preview with the same core).
  * The lazy cache (B4): every fuse-relevant reading that arrives (scans, the runtime, hooks, the Inbox lookup) is written
  * to IndexedDB `one-patchbay` `<scope>|lazy` in idle (ids and hosts only, cache.ts lazyCacheOf) — the LED and the
  * Preflight lamp count from the eager inputs plus this cache.
- * The row index tells the memo when the referenced pages may have moved (`structure`, or a changed id it read): typing
- * in a page reads no page facts again and rebuilds nothing.
+ * The row index tells the memo when the referenced pages may have moved (`structure`, or a changed id it read whose
+ * facts' fields changed — B17: typing in a referenced page moves nothing): typing in a page reads no page facts again
+ * and rebuilds nothing.
  */
 import { useWorkspace } from '../../store/store'
 import { isEffectivelyTrashed } from '../../store/selectors'
@@ -40,11 +43,11 @@ import { routeFor } from '../ai/core'
 import { loadScriptEngine } from '../script'
 import { hostOf } from '../../store/integrations'
 import { createInputMemo, digest, type DeviceFacts, type InputReaders, type InputSource, type LazyReadings } from './source'
-import { ButtonIndex } from './buttons'
+import { ButtonIndex, SLICE_MS } from './buttons'
 import { ScanCache, scanKitCode, type ScanEngine } from './scripts'
 import { isLazyCache, lazyCacheOf, lazyKey, readCache, sameLazyCache, writeCache } from './cache'
 import { patchbayScope } from './scope'
-import type { ID } from '../../store/types'
+import type { ID, Page } from '../../store/types'
 import type { HookInput, KitScan, LazyCache, MailInput, ModelInput, PipelineInput, TokenInput } from './types'
 
 /* ------------------------------------------------------------------ the readers */
@@ -192,10 +195,36 @@ let opened = false
 let unsubscribeRows: (() => void) | null = null
 /** what the open route listens to (dropped by resetInputs) */
 const openSubs: Array<() => void> = []
+/** B17: who holds the inputs open now (the route, the seam) — 0: the button index only notes what changed */
+let holders = 0
+/** B17: pages changed since the button index read them (noted while closed or while the build runs) */
+const dirty = new Set<ID>()
+/** more changed than is worth reading one by one (or another workspace): build the index again */
+let dirtyAll = false
+const DIRTY_MAX = 2000
+let catchingUp = false
+let catchUpQueued = false
+let building = false
+/** B17 (perf seam): the button index's catch-ups — how many, pages read, the longest slice (ms) */
+let catchUps = { runs: 0, pages: 0, maxMs: 0 }
 
-/** The route opened: read the expensive inputs once (each in idle), then keep the button index current. */
-export function openInputs(): void {
-  if (opened) return
+/**
+ * The route opened: read the expensive inputs once (each in idle), then keep the button index current while it is held.
+ * Returns the release (B17: counted; nothing is read again on a later open but what changed meanwhile).
+ */
+export function openInputs(): () => void {
+  holders++
+  let held = true
+  const release = () => {
+    if (!held) return
+    held = false
+    holders = Math.max(0, holders - 1)
+  }
+  if (opened) {
+    // again: the pages that changed while the route was closed
+    if (dirty.size || dirtyAll) catchUpSoon()
+    return release
+  }
   opened = true
   void loadLazyCache()
   idle(scanScripts)
@@ -214,6 +243,7 @@ export function openInputs(): void {
       idle(scanScripts)
     }),
   )
+  return release
 }
 
 function scanScripts(): void {
@@ -315,17 +345,65 @@ function readHooks(): void {
 
 function buildButtons(): void {
   const pages = useWorkspace.getState().pages
+  building = true
+  dirty.clear()
+  dirtyAll = false
   buttonIndex.begin(Object.keys(pages))
   const slice = () => {
     if (!buttonIndex.step(useWorkspace.getState().pages)) return idle(slice)
+    building = false
     changed({ buttons: buttonIndex.list() })
+    // pages that changed while the build ran (a page read early may have changed later)
+    if ((dirty.size || dirtyAll) && holders) catchUpSoon()
   }
   idle(slice)
   ensureRowIndex()
+  // B17: the listener only NOTES what changed (O(changed), no content read); the pages are read in idle while the route
+  // is held, or when it opens again
   unsubscribeRows ??= onRowsChanged((c) => {
-    if (!buttonIndex.ready) return
-    if (buttonIndex.update(useWorkspace.getState().pages, c.changed)) changed({ buttons: buttonIndex.list() })
+    if (c.reset) dirtyAll = true
+    else if (!dirtyAll) for (const id of c.changed) dirty.add(id)
+    if (dirty.size > DIRTY_MAX) {
+      dirty.clear()
+      dirtyAll = true
+    }
+    if (holders && !building) catchUpSoon()
   })
+}
+
+/** One catch-up in idle (however many changes ask for it meanwhile). */
+function catchUpSoon(): void {
+  if (catchUpQueued) return
+  catchUpQueued = true
+  idle(() => {
+    catchUpQueued = false
+    catchUpButtons()
+  })
+}
+
+/** Read the pages the index has not seen since they changed — in idle slices (≤ SLICE_MS each); a flood builds anew. */
+function catchUpButtons(): void {
+  if (catchingUp || building || !buttonIndex.ready || (!dirty.size && !dirtyAll)) return
+  if (dirtyAll) return buildButtons()
+  catchingUp = true
+  catchUps = { ...catchUps, runs: catchUps.runs + 1 }
+  const ids = [...dirty]
+  dirty.clear()
+  let moved = false
+  let i = 0
+  const slice = () => {
+    const pages = useWorkspace.getState().pages
+    const t0 = performance.now()
+    const from = i
+    while (i < ids.length && (i === from || performance.now() - t0 < SLICE_MS)) if (buttonIndex.update(pages, [ids[i++]])) moved = true
+    catchUps = { runs: catchUps.runs, pages: catchUps.pages + (i - from), maxMs: Math.max(catchUps.maxMs, performance.now() - t0) }
+    if (i < ids.length) return idle(slice)
+    catchingUp = false
+    if (moved) changed({ buttons: buttonIndex.list() })
+    // what changed meanwhile
+    if (holders && (dirty.size || dirtyAll)) catchUpSoon()
+  }
+  slice()
 }
 
 /* ------------------------------------------------------------------ the memo */
@@ -348,7 +426,14 @@ function watchPages(): void {
   unsubscribePages = onRowsChanged((c) => {
     if (c.reset || c.structure) return moved()
     const refs = memo.referenced()
-    for (const id of c.changed) if (refs.has(id)) return moved()
+    if (!refs.size) return
+    // B17: a referenced page moves the input only when the fields its facts read changed (typing in it does not)
+    let pages: Record<ID, Page> | null = null
+    for (const id of c.changed) {
+      if (!refs.has(id)) continue
+      pages ??= useWorkspace.getState().pages
+      if (memo.factsMoved(id, pages[id])) return moved()
+    }
   })
 }
 
@@ -380,8 +465,11 @@ export function readInput(): ModelInput {
   return input
 }
 
-/** Perf seams (B17): how often the input was built and the referenced pages read again. */
-export const inputStats = (): { builds: number; pageChecks: number } => memo.stats()
+/** Perf seams (B17): how often the input was built and the referenced pages read again; the button index's work. */
+export const inputStats = (): { builds: number; pageChecks: number; buttons: { ready: boolean; holders: number; dirty: number; build: ButtonIndex['stats']; catchUps: typeof catchUps } } => ({
+  ...memo.stats(),
+  buttons: { ready: buttonIndex.ready, holders, dirty: dirtyAll ? -1 : dirty.size, build: buttonIndex.stats, catchUps },
+})
 
 /** Forget everything read (another workspace): the next read builds afresh, the lazy readings start over. */
 export function resetInputs(): void {
@@ -391,6 +479,8 @@ export function resetInputs(): void {
   kitScanCache.clear()
   written = null
   opened = false
+  dirty.clear()
+  dirtyAll = false
   for (const stop of openSubs.splice(0)) stop()
   unsubscribeRows?.()
   unsubscribeRows = null

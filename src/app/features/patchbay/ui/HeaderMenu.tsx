@@ -16,6 +16,7 @@ import { Cable, Ellipsis, FileJson, List, ListFilter, Maximize2 } from 'lucide-r
 import { useLang } from '../../../i18n'
 import { focusLost, restoreFocus } from '../../../ui/focus'
 import { resolveAssetUrl } from '../../../lib/files'
+import { useTextStep } from '../../../lib/textScale'
 import { Menu, useMenu, type MenuEntry } from '../../../ui/Menu'
 import { Switch } from '../../../ui/controls'
 import type { Translate } from '@/shared/i18n'
@@ -43,14 +44,18 @@ export const Header = forwardRef<HTMLHeadingElement, { t: Translate; input: Mode
   const [filterAt, setFilterAt] = useState<HTMLElement | null>(null)
   const moreBtn = useRef<HTMLButtonElement>(null)
 
-  // another width or language: the widest head that fits is looked for again, before the frame is painted
-  useLayoutEffect(() => setTier('full'), [width, lang, !!keys.drop, !!keys.picture, !!keys.patch])
+  // another width, language or text size: the widest head that fits is looked for again, before the frame is painted
+  const step = useTextStep()
+  useLayoutEffect(() => setTier('full'), [width, lang, step, !!keys.drop, !!keys.picture, !!keys.patch])
+  // B17: measured only when something the head shows changed — a read after every page render forced a layout of the
+  // whole rack each time (a hover, a live tick)
+  const filterText = input ? filterLabel(t, filter, input) : ''
   useLayoutEffect(() => {
     const el = row.current
     if (!el || el.scrollWidth <= el.clientWidth + 1) return
     const i = TIERS.indexOf(tier)
     if (i < TIERS.length - 1) setTier(TIERS[i + 1])
-  })
+  }, [tier, width, lang, step, filterText, profiles.length, hasFuses, !!keys.drop, !!keys.picture, !!keys.patch, keys.patch?.on])
 
   // the filter is a dialog popover (Popover gives the keyboard back only from menus): after a pick or Esc the keyboard
   // goes back to the key it was opened from ("All databases", or ⋯ in the tight head) — a press outside that put it

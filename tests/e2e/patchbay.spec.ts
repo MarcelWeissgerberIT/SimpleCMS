@@ -612,6 +612,8 @@ test.describe('B7 · keyboard, picker, screen readers', () => {
 
   test('"Picture · zoom": the viewer opens as a Schematic; Download SVG gives a file without var( / color-mix( / oklch(', async ({ page }) => {
     await openRack(page)
+    // the whole rack: the button index (idle slices) has read the pages — „Wochenbericht“'s button and its cable
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __onePatchbay: { buttons: () => { ready: boolean } } }).__onePatchbay.buttons().ready)).toBe(true)
     const key = page.getByTestId('pb-picture')
     await expect(key).toHaveAttribute('title', 'Static picture with minimap and SVG download')
     await key.click()

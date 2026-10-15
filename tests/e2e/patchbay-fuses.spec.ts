@@ -897,11 +897,14 @@ test.describe('B4 · perf', () => {
     const input = inputOf(bigPatchbay(60))
     const m = buildModel(input)
     expect(m.fuses.length + m.nearMisses.length).toBeGreaterThan(0)
-    for (let i = 0; i < 5; i++) buildModel(input)
+    // B17: a fresh input object per build, as a wiring change brings one (the sig / tool-group memos are per input); the
+    // code warmed first (a page's model is built several times before it is timed — boot, idle, the lazy inputs)
+    for (let i = 0; i < 15; i++) buildModel({ ...input })
     const times: number[] = []
     for (let i = 0; i < 25; i++) {
+      const fresh = { ...input }
       const t = performance.now()
-      buildModel(input)
+      buildModel(fresh)
       times.push(performance.now() - t)
     }
     times.sort((a, b) => a - b)

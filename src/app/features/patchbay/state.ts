@@ -9,9 +9,13 @@
  * build the same model, so LED = lamp = readout by construction.
  *
  * Seam (DEV / `?e2e`): `window.__onePatchbay` = { builds(), inputBuilds(), pageChecks(), model(), input(), refresh(),
- * open(), noBlink() } — the perf spec counts rebuilds with it (B17); `open()` reads the lazy inputs as the page does;
- * `noBlink()` stops the fuse blink for screenshots (blink.ts). It goes live once something of the app loads this module
- * (the page, B6; the idle fuse computation after first paint, B8).
+ * open(), noBlink(), firstBuildAt(), buildMs(n), buttons() } — the perf spec counts rebuilds with it (B17); `open()`
+ * reads the lazy inputs as the page does (and holds them until `close()`); `noBlink()` stops the fuse blink for
+ * screenshots (blink.ts); `firstBuildAt()` = performance.now() of this tab's first model; `buildMs(n)` times n builds
+ * of the model now (graph + reach + chains + fuses, each on a fresh copy of the input — what a wiring change costs)
+ * without publishing anything; `buttons()` = the
+ * button index's work. It goes live once something of the app loads this module (the page, B6; the idle fuse
+ * computation after first paint, B8).
  */
 import { create } from 'zustand'
 import { buildModel } from './model'
@@ -33,12 +37,16 @@ interface ModelSlice {
 
 export const usePatchbay = create<ModelSlice>(() => ({ input: null, model: null, builds: 0, at: 0 }))
 
+/** performance.now() of this tab's first model (the perf seam: never before the first paint, B17) */
+let firstBuildAt: number | null = null
+
 /** Read the input (memo) and build the model when the input changed — returns the model now. */
 export function refreshModel(): Model {
   const input = readInput()
   const cur = usePatchbay.getState()
   if (cur.model && cur.input === input) return cur.model
   const model = buildModel(input)
+  if (firstBuildAt === null) firstBuildAt = typeof performance !== 'undefined' ? performance.now() : 0
   usePatchbay.setState({ input, model, builds: cur.builds + 1, at: Date.now() })
   publish(model as unknown as FusedModel)
   return model
@@ -55,13 +63,17 @@ function publish(model: FusedModel): void {
   setFuseHints(fuseHints(model))
 }
 
-/** The page opened: read the expensive inputs (idle) and rebuild as each arrives. Returns the stop. */
+/** The page opened: read the expensive inputs (idle) and rebuild as each arrives. Returns the stop (B17: it lets the inputs go too). */
 export function openModel(): () => void {
-  openInputs()
+  const release = openInputs()
   refreshModel()
-  return onInputs(() => {
+  const off = onInputs(() => {
     refreshModel()
   })
+  return () => {
+    off()
+    release()
+  }
 }
 
 /** React: the model (null until the first refreshModel). */
@@ -75,6 +87,8 @@ const seamOn = (() => {
   }
 })()
 
+let seamClose: (() => void) | null = null
+
 if (seamOn && typeof window !== 'undefined') {
   ;(window as unknown as { __onePatchbay?: unknown }).__onePatchbay = {
     builds: () => usePatchbay.getState().builds,
@@ -84,8 +98,26 @@ if (seamOn && typeof window !== 'undefined') {
     input: () => usePatchbay.getState().input,
     refresh: () => refreshModel(),
     open: () => {
-      openModel()
+      seamClose ??= openModel()
+    },
+    close: () => {
+      seamClose?.()
+      seamClose = null
     },
     noBlink: () => noBlink(),
+    firstBuildAt: () => firstBuildAt,
+    buildMs: (n = 9) => {
+      const input = usePatchbay.getState().input ?? readInput()
+      const out: number[] = []
+      for (let i = 0; i < n; i++) {
+        // a new input object each time, as a wiring change brings one: nothing kept per input helps (sig / tools memo)
+        const fresh = { ...input }
+        const t = performance.now()
+        buildModel(fresh)
+        out.push(performance.now() - t)
+      }
+      return out
+    },
+    buttons: () => inputStats().buttons,
   }
 }

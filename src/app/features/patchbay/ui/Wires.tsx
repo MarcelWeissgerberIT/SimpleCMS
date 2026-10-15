@@ -99,25 +99,58 @@ function viewport(clip: readonly HTMLElement[]): { top: number; bottom: number }
   return { top, bottom }
 }
 
+/**
+ * B17: the backings are measured together — where the cable layer's commit ends (its relayout mark), else in a microtask
+ * after the commit (still before the frame is painted): every label is read first, then every rect written. Measured one
+ * by one, each read after the last label's write laid the drawing out again — on a big rack a hundred layouts in the
+ * first frame.
+ */
+const backings = new Map<SVGRectElement, { t: SVGTextElement; pad: number }>()
+let backingsQueued = false
+
+function measureBackings(): void {
+  backingsQueued = false
+  if (!backings.size) return
+  const jobs = [...backings]
+  backings.clear()
+  const boxes = jobs.map(([, { t }]) => {
+    if (!t.isConnected) return null
+    try {
+      return t.getBBox()
+    } catch {
+      return null
+    }
+  })
+  jobs.forEach(([r, { pad }], i) => {
+    const bb = boxes[i]
+    if (!bb || !r.isConnected) return
+    const set = (name: string, v: number) => {
+      const s = String(v)
+      if (r.getAttribute(name) !== s) r.setAttribute(name, s)
+    }
+    set('x', bb.x - pad)
+    set('y', bb.y - 1)
+    set('width', bb.width + pad * 2)
+    set('height', bb.height + 2)
+  })
+}
+
 /** Text on a solid plate backing (a cable's label, a glyph's "F1", the stub): the backing is measured after render. */
-function Backed({ x, y, text, className, pad = 3 }: { x: number; y: number; text: string; className: string; pad?: number }) {
+function Backed({ x, y, text, className, pad = 3, stamp }: { x: number; y: number; text: string; className: string; pad?: number; stamp: unknown }) {
   const bg = useRef<SVGRectElement>(null)
   const tx = useRef<SVGTextElement>(null)
+  // B17: measured when its text or place changed or the cables were drawn again (`stamp`: fonts, text size, a resize) —
+  // not after every render of the cable layer (a hover) — with every other backing of this commit (measureBackings), and
+  // written only where a value moved
   useLayoutEffect(() => {
     const t = tx.current
     const r = bg.current
     if (!t || !r) return
-    let bb: DOMRect
-    try {
-      bb = t.getBBox()
-    } catch {
-      return
-    }
-    r.setAttribute('x', String(bb.x - pad))
-    r.setAttribute('y', String(bb.y - 1))
-    r.setAttribute('width', String(bb.width + pad * 2))
-    r.setAttribute('height', String(bb.height + 2))
-  })
+    backings.set(r, { t, pad })
+    if (backingsQueued) return
+    backingsQueued = true
+    queueMicrotask(measureBackings)
+  }, [x, y, text, pad, className, stamp])
   return (
     <g className={className}>
       <rect ref={bg} className={`${className}-bg`} rx={2} />
@@ -143,7 +176,7 @@ const WireView = memo(function WireView({ id, d, len, cls, outside, dim, path, h
  * One glyph per way out (render.ts fuseGroups: fuses sharing an exit edge share it, its label names them all). A click
  * selects its fuse — the next of its group when one of them is active already.
  */
-function Glyph({ group, c, at: share, active, leader, t, onSelect }: { group: GlyphFuse[]; c: Cable; at: number; active: string | null; leader: boolean; t: Translate; onSelect: (key: string) => void }) {
+function Glyph({ group, c, at: share, active, leader, t, onSelect, stamp }: { group: GlyphFuse[]; c: Cable; at: number; active: string | null; leader: boolean; t: Translate; onSelect: (key: string) => void; stamp: unknown }) {
   const p = fusePoint(c, share)
   const allowed = group.every((f) => f.allowed)
   const label = fuseGroupLabel(group.map((f) => f.label))
@@ -176,8 +209,8 @@ function Glyph({ group, c, at: share, active, leader, t, onSelect }: { group: Gl
         <rect className="pb-fuse-cap" x={12.5} y={-7.5} width={5.5} height={15} rx={1} />
         <path className="pb-fuse-wire" d="M-12.5,0 L-5,0 L-2,-3 L2,3 L5,0 L12.5,0" />
       </g>
-      <Backed x={0} y={-24} text={label} className="pb-fuse-lbl" />
-      {stub && !leader && <Backed x={0} y={RING_Y + STUB + 8} text={t('features.patchbay.glyph.stub', { f: mine.label })} className="pb-fuse-stubl" />}
+      <Backed x={0} y={-24} text={label} className="pb-fuse-lbl" stamp={stamp} />
+      {stub && !leader && <Backed x={0} y={RING_Y + STUB + 8} text={t('features.patchbay.glyph.stub', { f: mine.label })} className="pb-fuse-stubl" stamp={stamp} />}
     </g>
   )
 }
@@ -283,9 +316,11 @@ export function Wires({ bench, layout, model, lit, fuseEdges, fuses, active, onF
     }
   }, [bench, layout, mounted])
 
-  // measure + render + commit of one relayout (the perf budget, §4 B7)
+  // measure + render + commit of one relayout (the perf budget, §4 B7) — the labels' backings of this commit included:
+  // they are measured here, together (the children's effects ran first), not in the microtask after
   useLayoutEffect(() => {
     if (!drawn) return
+    if (backingsQueued) measureBackings()
     try {
       if (performance.getEntriesByName(RELAYOUT_START, 'mark').length) {
         performance.measure(RELAYOUT, RELAYOUT_START)
@@ -410,10 +445,10 @@ export function Wires({ bench, layout, model, lit, fuseEdges, fuses, active, onF
         </g>
       ))}
       {labelled.map(({ id, p, text }) => (
-        <Backed key={`l:${id}`} x={p.x} y={p.y} text={text} className="pb-wlabel" pad={4} />
+        <Backed key={`l:${id}`} x={p.x} y={p.y} text={text} className="pb-wlabel" pad={4} stamp={drawn} />
       ))}
       {groups.map((g) => (
-        <Glyph key={g.wire} group={g.fuses} c={g.c} at={g.t} active={active} leader={!!leader && g.fuses.some((f) => f.key === active)} t={t} onSelect={onFuse} />
+        <Glyph key={g.wire} group={g.fuses} c={g.c} at={g.t} active={active} leader={!!leader && g.fuses.some((f) => f.key === active)} t={t} onSelect={onFuse} stamp={drawn} />
       ))}
       <Comets cableOf={cableOf} />
     </svg>

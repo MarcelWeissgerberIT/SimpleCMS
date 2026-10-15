@@ -29,6 +29,7 @@ import { Jack } from './Jack'
 import { edgesAt } from './lit'
 import { canOpen, openModule } from './open'
 import { useRack } from './RackContext'
+import { benchPainted, useBenchPainted } from './paintMark'
 import { lampNo } from '../setup/keys'
 import { announce, noteTight, selectModule, setCursor, setHover, usePbUI } from './store'
 import { hasLiveWindow, ledOf, LiveLed, LiveWindow, useModuleLive } from './LiveWin'
@@ -111,6 +112,15 @@ function Knob({ v, ticks, label, value, onOpen, title }: { v: number; ticks: num
   )
 }
 
+/**
+ * B17: a module's screen-reader description (its paths, fuses and runs in words) is written once the bench was painted
+ * (paintMark.ts) — a frame later, not part of the first rack's work.
+ */
+function Describe({ m }: { m: ModuleT }) {
+  const { words: w } = useRack()
+  return useBenchPainted() ? <>{w.describe(m)}</> : null
+}
+
 function ModuleView({ m, row, span, descId }: { m: ModuleT; row: number; span: 1 | 2; descId: string }) {
   const { model, input, words: w, marks, lit, runs, costs, entry, setup, patching } = useRack()
   // B16: a drag lights this module when a jack of it it may plug into is not drawn yet (it takes the drop)
@@ -177,7 +187,9 @@ function ModuleView({ m, row, span, descId }: { m: ModuleT; row: number; span: 1
   }
   const roleLabel = t(`${P}.a11y.jack`)
   const onEnter = (e: PointerEvent) => {
-    if (e.pointerType === 'mouse') setHover(m.key)
+    // B17: not before the bench was painted — the rack appearing under a resting mouse is no hover (lighting it re-renders
+    // the whole rack inside the first frame)
+    if (e.pointerType === 'mouse' && benchPainted()) setHover(m.key)
   }
   const onLeave = (e: PointerEvent) => {
     if (e.pointerType === 'mouse' && usePbUI.getState().hover === m.key) setHover(null)
@@ -345,7 +357,7 @@ function ModuleView({ m, row, span, descId }: { m: ModuleT; row: number; span: 1
         </button>
       )}
       <span id={descId} className="visually-hidden">
-        {w.describe(m)}
+        <Describe m={m} />
       </span>
     </div>
   )

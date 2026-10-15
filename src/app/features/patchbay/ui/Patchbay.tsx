@@ -37,6 +37,8 @@
  * written with a toast and its Undo (patchRun.ts; Mod+Z on the route takes back the newest key, drop or patch). Off: J
  * still finds jacks, nothing else patches.
  */
+// B17: first — its module marks the chunk's arrival (the first rack paint is measured from there)
+import { useRackPaint } from './paintMark'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useLang, useT } from '../../../i18n'
@@ -187,6 +189,9 @@ export default function Patchbay(props: PatchbayRouteProps) {
 
   const base = usePatchbay((s) => s.model)
   const input = usePatchbay((s) => s.input)
+  // B17: the first bench painted after the chunk / after this visit's first render (User Timing, the perf spec); what
+  // lies below the bench (the fuse list and plate, "§ In plain words") mounts in the frame after it
+  const painted = useRackPaint(!!base)
   const live = useLive(useShallow((s) => ({ runs: s.runs, costs: s.costs, costsRead: s.costsRead, modules: s.modules })))
   const ui = usePbUI(useShallow((s) => ({ hover: s.hover, selected: s.selected, net: s.net, filter: s.filter, unfolded: s.unfolded, cursor: s.cursor, jack: s.jack, fuse: s.fuse })))
   const readOnly = useCloud((s) => s.readOnly)
@@ -670,8 +675,8 @@ export default function Patchbay(props: PatchbayRouteProps) {
           ))}
         <DropZone t={t} kind={zone} />
       </div>
-      {ctx && layout && !narrow && model!.edges.length > 0 && <FuseArea model={model!} input={input!} words={words!} />}
-      {ctx && layout && !narrow && model!.edges.length > 0 && <Plain model={model!} input={input!} words={words!} />}
+      {painted && ctx && layout && !narrow && model!.edges.length > 0 && <FuseArea model={model!} input={input!} words={words!} />}
+      {painted && ctx && layout && !narrow && model!.edges.length > 0 && <Plain model={model!} input={input!} words={words!} />}
       {picker && words && <JackPicker anchor={picker} rows={rows} t={words.t} onPick={pickJack} onClose={closePicker} />}
       {patching && pick && model && input && pw && (
         <ConnectPicker key={`${pick.jack}|${pick.only ?? ''}`} anchor={pick.anchor} jack={pick.jack} only={pick.only} model={model} input={input} pw={pw} onPick={(c) => pickChoice(c, { el: pick.anchor, key: pick.jack }, pw)} onClose={closeConnect} />

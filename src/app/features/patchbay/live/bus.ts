@@ -6,7 +6,8 @@
  *    without meta (runs.ts RunBook). Stored in IndexedDB `one-patchbay` under `<scope>|runs|<day>` (cache.ts), written
  *    with idb-keyval `update` — one transaction, so two tabs never lose a count (automations fire only in their own tab)
  *    and a run another tab counted already is not counted twice (`seen`). Batched (≤ 250 ms, and when the tab is
- *    hidden); a day's record rolls at local midnight (older days of the scope are dropped on the first write of a day).
+ *    hidden; never before the app's first paint — B17); a day's record rolls at local midnight (older days of the scope
+ *    are dropped on the first write of a day).
  *    Never synced, exported or backed up; wipePatchbay() (cache.ts) removes it with the device copy and the local reset.
  *  - the route: while `#/patchbay` is open the live signal runs (live.ts, loaded then — its own chunk); when the route
  *    closes every live listener goes. Nothing here reads the page map, the ledger or IndexedDB at boot: the store opens
@@ -75,10 +76,36 @@ function onNote(e: RunNote): void {
     const day = dayOf(at)
     pending.push({ scope, day, hit: { module: r.module, at, ...(r.seen ? { seen: r.seen } : {}) } })
     for (const fn of [...listeners]) fn({ scope, day, module: r.module, at })
-    if (!timer) timer = window.setTimeout(() => void flushTally(), FLUSH_MS)
+    flushSoon()
   } catch (err) {
     console.warn('[patchbay] the run bus skipped a note', err)
   }
+}
+
+/**
+ * B17: `one-patchbay` is never opened before the app's first paint — a run noted while the app boots (a repeating
+ * template catching up, a service's first pass) waits in memory until two frames have passed since the bus started
+ * (or the tab is hidden: nothing paints there, and leaving still flushes).
+ */
+let painted = false
+const canFlush = (): boolean => painted || (typeof document !== 'undefined' && document.visibilityState === 'hidden')
+
+function flushSoon(): void {
+  if (!timer && canFlush()) timer = window.setTimeout(() => void flushTally(), FLUSH_MS)
+}
+
+function whenPainted(): void {
+  if (painted) return
+  if (typeof requestAnimationFrame !== 'function') {
+    painted = true
+    return
+  }
+  requestAnimationFrame(() =>
+    requestAnimationFrame(() => {
+      painted = true
+      if (pending.length) flushSoon()
+    }),
+  )
 }
 
 /** Write what waits now (serialised: one flush after another). */
@@ -195,6 +222,7 @@ function onRoute(): void {
 export function startRunBus(): () => void {
   if (started && stopAll) return stopAll
   started = true
+  whenPainted()
   const offNote = onRunNote(onNote)
   const onHide = () => {
     if (document.visibilityState === 'hidden') void flushTally()

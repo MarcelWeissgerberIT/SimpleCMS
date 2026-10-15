@@ -829,10 +829,14 @@ test.describe('B2 · the wiring signature — source.ts memo (§1.2, §6 A21)', 
     expect(next({ pages: { ...ws.pages, pgScratch: scratch } })).toBe(first)
     expect(next({ pages: { ...ws.pages, pgScratch: { ...scratch, content: docOf() as Page['content'], contentRev: 2 } } })).toBe(first)
     expect(memo.stats()).toEqual({ builds: 1, pageChecks: 0 })
-    // typing in the report page (referenced): its facts are read again — the same facts, the same input
+    // typing in the report page (referenced): B17 — the fields its facts read are the same, so nothing is read again (§6 A32)
     const bericht = ws.pages[w.ids.bericht]
     expect(next({ pages: { ...ws.pages, [w.ids.bericht]: { ...bericht, contentRev: 9, updatedAt: 99 } } })).toBe(first)
-    expect(memo.stats()).toEqual({ builds: 1, pageChecks: 1 })
+    expect(next({ pages: { ...ws.pages, [w.ids.bericht]: { ...ws.pages[w.ids.bericht], icon: { type: 'emoji', value: '📝' } } } })).toBe(first)
+    expect(memo.stats()).toEqual({ builds: 1, pageChecks: 0 })
+    expect(memo.factsMoved(w.ids.bericht, ws.pages[w.ids.bericht])).toBe(false)
+    expect(memo.factsMoved(w.ids.bericht, { ...ws.pages[w.ids.bericht], private: true })).toBe(true)
+    expect(memo.factsMoved('pgScratch', ws.pages.pgScratch)).toBe(true)
     // bookkeeping: an automation's run, a repeating template's run, autofill fills
     const mails = ws.databases[w.ids.mails]
     expect(next({ databases: { ...ws.databases, [w.ids.mails]: { ...mails, automations: mails.automations!.map((a) => ({ ...a, lastRunAt: 123, lastStatus: 'ok' as const, lastMessage: '200' })) } } })).toBe(first)
@@ -850,10 +854,10 @@ test.describe('B2 · the wiring signature — source.ts memo (§1.2, §6 A21)', 
     const renamed = next({ databases: { ...ws.databases, [w.ids.mails]: { ...mails2, properties: mails2.properties.map((p) => (p.id === w.ids.forward ? { ...p, name: 'Weiterleiten an Team' } : p)) } } })
     expect(renamed).not.toBe(second)
     expect(memo.stats().builds).toBe(3)
-    // a referenced page renamed: its facts changed — one rebuild
+    // a referenced page renamed: its facts changed — read again, one rebuild
     const b2 = ws.pages[w.ids.bericht]
     expect(next({ pages: { ...ws.pages, [w.ids.bericht]: { ...b2, title: 'Wochenbericht' } } })).not.toBe(renamed)
-    expect(memo.stats().builds).toBe(4)
+    expect(memo.stats()).toEqual({ builds: 4, pageChecks: 1 })
     // the row index said nothing referenced moved: the pages are not even looked at
     const checks = memo.stats().pageChecks
     expect(memo.read({ ...src, ws: { ...ws, pages: { ...ws.pages, [w.ids.bericht]: { ...ws.pages[w.ids.bericht], updatedAt: 5 } } } }, { pagesMoved: false })).toBe(memo.read({ ...src, ws }, { pagesMoved: false }))
