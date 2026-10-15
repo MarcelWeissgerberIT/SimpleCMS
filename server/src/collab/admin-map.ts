@@ -1,7 +1,8 @@
 /**
  * Keys of the shared meta document that only owners and admins change (docs/CLOUD.md § Meta document schema): the
- * workspace look (`workspace.look`, workspace-look.ts), the AI rules (`workspace.ai`, workspace-ai.ts) and the
- * integration profiles (every key of the `integrations` map). The app refuses for everyone else and its binding puts
+ * workspace look (`workspace.look`, workspace-look.ts), the AI rules (`workspace.ai`, workspace-ai.ts), the governor
+ * (`workspace.governor`, workspace-governor.ts), the integration profiles (every key of the `integrations` map) and the
+ * Patchbay's allowed paths (every key of the `fuseSignoffs` map, fuse-signoffs.ts). The app refuses for everyone else and its binding puts
  * their store change back, but a member's client could still write the meta document directly — so the server says
  * what holds:
  *
@@ -132,12 +133,17 @@ export function guardAdminKeys(doc: Y.Doc, opts: AdminKeysOptions): () => void {
     /** what to write back (undefined: remove the key) */
     const fixes: Array<{ key: string; value: unknown }> = []
     let dropWaitingDeletes = false
-    for (const [key, change] of event.changes.keys) {
+    // every key the transaction touched — not `event.changes.keys`, which leaves out a key added and taken away in the
+    // same transaction when nothing was there before (an admin's NEW key that a member's waiting deletes remove at once)
+    for (const key of event.keysChanged) {
       if (!guarded(key)) continue
       try {
         const item = map._map.get(key) ?? null
-        const added = !!item && event.adds(item)
-        const removed = !!item && item.deleted
+        if (!item) continue
+        const added = event.adds(item)
+        const removed = event.deletes(item)
+        // neither added nor removed in this transaction: nothing changed for this key
+        if (!added && !removed) continue
         // the key's current item came out of structs that waited for missing ones
         const released = added && wasPending(tr, item.id)
         // … or was removed by deletes that waited for it
@@ -153,7 +159,7 @@ export function guardAdminKeys(doc: Y.Doc, opts: AdminKeysOptions): () => void {
         if (!allowed) {
           // an admin's new value that only waiting deletes took away comes back as theirs; else the value before
           const keepNew = removed && added && adders.length > 0 && adders.every(mayWrite)
-          fixes.push({ key, value: keepNew ? stamped(lastOf(item), adders) : change.oldValue })
+          fixes.push({ key, value: keepNew ? stamped(lastOf(item), adders) : valueBefore(event, item) })
           // planted deletes would take the put-back value away again with the next update
           if (dropped) dropWaitingDeletes = true
           log.warn(`${what} change put back (only owners and admins change it)`, { workspace: workspaceId, key: key.slice(0, 64), by: writers.map((w) => w.userId.slice(0, 64)).join(',') })
@@ -191,6 +197,18 @@ export function guardAdminKeys(doc: Y.Doc, opts: AdminKeysOptions): () => void {
     doc.off('beforeTransaction', beforeTx)
     doc.off('afterTransaction', afterTx)
   }
+}
+
+/**
+ * The value the key held before the transaction (undefined: none) — what Yjs' `changes.keys` reports as `oldValue`, also
+ * for a key added and taken away in the same transaction.
+ */
+function valueBefore(event: Y.YMapEvent<unknown>, item: Y.Item): unknown {
+  // there before (taken away in this transaction, or not at all)
+  if (!event.adds(item)) return lastOf(item)
+  let prev = item.left
+  while (prev !== null && event.adds(prev)) prev = prev.left
+  return prev !== null && event.deletes(prev) ? lastOf(prev) : undefined
 }
 
 /** The value an item held (its content is still there while the transaction's observers run). */

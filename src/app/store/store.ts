@@ -27,11 +27,13 @@ import { deviceLine, governorRefusal, restamp, STAMP_KNOWN, stampedDeviceAI, wat
 import type { Unreadable } from '@/shared/ai/route'
 import { policyKnown } from '@/shared/ai/policy'
 import { INTEGRATION_LIMITS, integrationsAllowed, sameIntegration, sanitizeIntegration, sanitizeIntegrations } from './integrations'
+import { isPathKey, sameSignoffs, sanitizeFuseSignoffs, signoffEntry, signoffRefused, withoutSignoff, withSignoff, type SignoffResult } from './fuseSignoffs'
 import { SYSTEM, withWriter } from './writer'
 import { deepFreeze } from './freeze'
 import { rewindAllowed, rewindState, type RewindPatch } from './rewind'
 import type {
   CustomAgent,
+  FuseSignoff,
   IntegrationProfile,
   CustomFunction,
   CustomPropType,
@@ -236,6 +238,18 @@ export interface WorkspaceState extends Workspace {
   upsertIntegration: (profile: IntegrationProfile, replaces?: string) => boolean
   deleteIntegration: (id: string) => boolean
 
+  /**
+   * The Patchbay's allowed paths (Workspace.fuseSignoffs — key 3 "Allow this path" / "Weg zulassen", store/fuseSignoffs.ts):
+   * allow one path (its path key → the path's signature and part digests; `at` = now, `updatedBy` = the account here —
+   * a team server stamps it again) · withdraw one. Refused: 'readOnly', 'rights' (a team member who is not an owner or
+   * admin — the server puts such a change back too; the answer names the owners and admins), 'server' (a team server
+   * that does not guard the map, `supports` without 'signoffs'), 'invalid' (not a path key, a signature or part
+   * digests). The same path allowed again with the same signature, or a path withdrawn that was not allowed, is no
+   * change. Callers write under a writer frame (`you~patchbay`; an Undo `you~undo`).
+   */
+  signOffFuse: (pathKey: string, sig: string, parts: Record<string, string>) => SignoffResult
+  withdrawSignoff: (pathKey: string) => SignoffResult
+
   // building blocks (features/kit): insert or replace by id (sanitized; updatedAt / updatedBy are set here) · remove.
   // upsertList copies the items into every property bound to the list (PropertyDef.listId); upsertPropType binds
   // the properties of that type to its list; upsertRecordType brings every database holding the type in step
@@ -299,6 +313,8 @@ export interface CloudPatch {
   governor?: WorkspaceGovernor | Unreadable | null
   /** every integration profile (the whole list; already sanitized) */
   integrations?: IntegrationProfile[]
+  /** the Patchbay's allowed paths, the whole map (`null` = none; already sanitized) */
+  fuseSignoffs?: Record<string, FuseSignoff> | null
 }
 
 const now = () => Date.now()
@@ -504,6 +520,16 @@ function withPage(prev: Record<ID, Page>, page: Page): Record<ID, Page> {
   return next
 }
 
+/**
+ * The Patchbay's allowed paths a bulk write (hydrate, replaceAll) takes in: sanitized; the same value keeps the current
+ * object (subscribers and the team binding compare by reference); none = undefined (never a key left from before).
+ */
+function keptSignoffs(raw: unknown, cur: Record<string, FuseSignoff> | undefined): Record<string, FuseSignoff> | undefined {
+  const next = sanitizeFuseSignoffs(raw)
+  if (sameSignoffs(next, cur)) return cur
+  return Object.keys(next).length ? next : undefined
+}
+
 export const useWorkspace = create<WorkspaceState>()(
   immer((set, get) => ({
     ...emptyWorkspace(),
@@ -529,6 +555,8 @@ export const useWorkspace = create<WorkspaceState>()(
           const governor = sanitizeGovernor(ws.governor)
           const gBefore = get().governor
           s.governor = gBefore !== undefined && sameGovernor(governor, gBefore, { meta: true }) ? gBefore : governor
+          // the Patchbay's allowed paths likewise (none = undefined: a switch never keeps the previous workspace's)
+          s.fuseSignoffs = keptSignoffs(ws.fuseSignoffs, get().fuseSignoffs)
           // the AI generation the stored rules, the governor and this browser's own line need (one stamp, store/governor.ts)
           restamp(s, { before: aiBefore, device: true })
           s.ready = true
@@ -564,6 +592,9 @@ export const useWorkspace = create<WorkspaceState>()(
         // the Regler: the same (a restore hands in this workspace's own; another tab's save its stored value)
         const governor = sanitizeGovernor(ws.governor)
         if (!sameGovernor(governor, s.governor, { meta: true })) s.governor = governor
+        // the Patchbay's allowed paths: the same (a restore hands in this workspace's own — features/io/backup.ts)
+        const signoffs = keptSignoffs(ws.fuseSignoffs, s.fuseSignoffs)
+        if (signoffs !== s.fuseSignoffs) s.fuseSignoffs = signoffs
         // the stamp follows what is stored now — a restore's or another tab's rules never lower a budget's
         restamp(s, { before: get().ai, device: true })
       }),
@@ -672,6 +703,35 @@ export const useWorkspace = create<WorkspaceState>()(
         s.integrations = (s.integrations ?? []).filter((p) => p.id !== id)
       })
       return true
+    },
+
+    signOffFuse: (pathKey, sig, parts) => {
+      const refused = signoffRefused()
+      if (refused) return refused
+      const entry = isPathKey(pathKey) ? signoffEntry({ sig, parts, at: now(), updatedBy: agentEditor() }) : null
+      if (!entry) return { ok: false, why: 'invalid' }
+      const cur = get().fuseSignoffs
+      // allowed already, with this signature: no change (who allowed it and when stay)
+      if (cur?.[pathKey]?.sig === entry.sig) return { ok: true }
+      const next = withSignoff(cur, pathKey, entry)
+      set((s) => {
+        s.fuseSignoffs = next
+      })
+      return { ok: true }
+    },
+
+    withdrawSignoff: (pathKey) => {
+      const refused = signoffRefused()
+      if (refused) return refused
+      if (!isPathKey(pathKey)) return { ok: false, why: 'invalid' }
+      const cur = get().fuseSignoffs
+      if (!cur?.[pathKey]) return { ok: true }
+      const next = withoutSignoff(cur, pathKey)
+      set((s) => {
+        // never `delete s.fuseSignoffs`: zustand merges the next state into the previous one
+        s.fuseSignoffs = next
+      })
+      return { ok: true }
     },
 
     createPage: (input = {}) => {
@@ -1369,6 +1429,7 @@ export const useWorkspace = create<WorkspaceState>()(
         if (patch.ai !== undefined) s.ai = patch.ai ?? undefined
         if (patch.governor !== undefined) s.governor = patch.governor ?? undefined
         if (patch.integrations) s.integrations = patch.integrations
+        if (patch.fuseSignoffs !== undefined) s.fuseSignoffs = patch.fuseSignoffs && Object.keys(patch.fuseSignoffs).length ? patch.fuseSignoffs : undefined
         if (patch.settings) Object.assign(s.settings, withSealedKeys({ ...s.settings, ...patch.settings }, s.settings, s.epoch))
         // a remote frame's rules / governor (or this device's overlay settings): the stamp they need here, in this update
         if (patch.ai !== undefined || patch.governor !== undefined || patch.settings) restamp(s, { before: get().ai, device: !!patch.settings })
@@ -1480,5 +1541,6 @@ export function getWorkspaceSnapshot(): Workspace {
     ...(s.ai ? { ai: s.ai } : {}),
     ...(s.governor ? { governor: s.governor } : {}),
     integrations: s.integrations ?? [],
+    ...(s.fuseSignoffs ? { fuseSignoffs: s.fuseSignoffs } : {}),
   }
 }

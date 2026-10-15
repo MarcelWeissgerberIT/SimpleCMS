@@ -54,6 +54,7 @@ import { sanitizeIntegrations } from './integrations'
 import { sanitizeScripts } from './scripts'
 import { sanitizeKit } from './kit'
 import { sanitizeLook } from './look'
+import { sanitizeFuseSignoffs } from './fuseSignoffs'
 import { readWorkspaceAI, withCleanAISettings } from './ai'
 import { isGovernorMarker, sanitizeGovernorWithReport } from '@/shared/ai/governor'
 import { blockVersions, contentFingerprint, DOC_SCHEMA_VERSION, newerCounts, rewrapNewer } from './generations'
@@ -433,6 +434,11 @@ export function migrateWithReport(raw: unknown): { ws: Workspace; repaired: bool
   const gov = sanitizeGovernorWithReport(src.governor)
   if (gov.value) ws.governor = gov.value
   if (gov.repaired) repaired = true
+  // the Patchbay's allowed paths: the raw value never stays; an entry this build cannot read is left out (its fuse stays
+  // open) — no repair: a later build's entries are not damage
+  delete ws.fuseSignoffs
+  const signoffs = sanitizeFuseSignoffs(src.fuseSignoffs)
+  if (Object.keys(signoffs).length) ws.fuseSignoffs = signoffs
 
   const now = Date.now()
   ws.pages = {}
@@ -520,6 +526,7 @@ let dirtyLook = false
 let dirtyAI = false
 let dirtyGovernor = false
 let dirtyIntegrations = false
+let dirtySignoffs = false
 /** Pages were added or removed: the meta record's page order is rewritten with the next save. */
 let dirtyOrder = false
 /** Being written right now (a sync must not replace them with the older stored copy). */
@@ -536,6 +543,7 @@ let inflightLook = false
 let inflightAI = false
 let inflightGovernor = false
 let inflightIntegrations = false
+let inflightSignoffs = false
 
 /**
  * Per page: the stored copy this tab's current (unsaved) edits descend from. Set when a page
@@ -550,7 +558,7 @@ function trackDirty<T>(next: Record<string, T>, prev: Record<string, T>, into: S
 }
 
 function hasDirty(): boolean {
-  return fullWriteNext || dirtyPages.size > 0 || dirtyDbs.size > 0 || dirtySettings.size > 0 || dirtyPeople || dirtyRecent || dirtyFunctions || dirtyAgents || dirtyScripts || dirtyKit || dirtyLook || dirtyAI || dirtyGovernor || dirtyIntegrations
+  return fullWriteNext || dirtyPages.size > 0 || dirtyDbs.size > 0 || dirtySettings.size > 0 || dirtyPeople || dirtyRecent || dirtyFunctions || dirtyAgents || dirtyScripts || dirtyKit || dirtyLook || dirtyAI || dirtyGovernor || dirtyIntegrations || dirtySignoffs
 }
 
 /* ------------------------------------------------------------------ */
@@ -798,7 +806,7 @@ function governorToStore(ws: Workspace, stored: unknown): unknown {
   return g ?? null
 }
 
-const metaOf = (ws: Workspace, stored?: unknown) => ({ version: ws.version, epoch: ws.epoch, settings: ws.settings, people: ws.people, recent: ws.recent, functions: ws.functions ?? {}, agents: ws.agents ?? {}, scripts: ws.scripts ?? {}, kit: ws.kit, look: ws.look ?? null, ai: ws.ai ?? null, governor: governorToStore(ws, stored), integrations: ws.integrations ?? [], order: Object.keys(ws.pages) })
+const metaOf = (ws: Workspace, stored?: unknown) => ({ version: ws.version, epoch: ws.epoch, settings: ws.settings, people: ws.people, recent: ws.recent, functions: ws.functions ?? {}, agents: ws.agents ?? {}, scripts: ws.scripts ?? {}, kit: ws.kit, look: ws.look ?? null, ai: ws.ai ?? null, governor: governorToStore(ws, stored), integrations: ws.integrations ?? [], fuseSignoffs: ws.fuseSignoffs ?? null, order: Object.keys(ws.pages) })
 
 /** Records (id → value) in the stored page order; ids the order does not know follow by creation time. */
 function inOrder(records: Obj, order: unknown): Obj {
@@ -1042,6 +1050,7 @@ async function readChanged(pageIds: ID[], dbIds: ID[], meta: boolean): Promise<W
     else delete ws.ai
     // assigned, never deleted: the store keeps a missing key (zustand merges)
     ws.governor = m.governor
+    ws.fuseSignoffs = m.fuseSignoffs
   }
   const now = Date.now()
   const orphans: ID[] = []
@@ -1123,6 +1132,8 @@ interface WriteSet {
   governor: boolean
   /** integration profiles (kept in the meta record) */
   integrations: boolean
+  /** the Patchbay's allowed paths (kept in the meta record) */
+  signoffs: boolean
   /** pages were added or removed (the meta record keeps their order) */
   order: boolean
   /** every record (first run, a repair, the conversion from the legacy layout) */
@@ -1214,7 +1225,7 @@ function writeRecords(set: WriteSet, bases: Map<ID, Page>, merged: Map<ID, [Page
         if (db) os.put(db, DB_PREFIX + id)
         else os.delete(DB_PREFIX + id)
       }
-      if (set.settingKeys.length || set.people || set.recent || set.functions || set.agents || set.scripts || set.kit || set.look || set.ai || set.governor || set.integrations || set.order) {
+      if (set.settingKeys.length || set.people || set.recent || set.functions || set.agents || set.scripts || set.kit || set.look || set.ai || set.governor || set.integrations || set.signoffs || set.order) {
         const next: Obj = { ...(meta.result as Obj), version: snap.version }
         if (set.order) next.order = Object.keys(snap.pages)
         if (set.settingKeys.length) {
@@ -1232,6 +1243,7 @@ function writeRecords(set: WriteSet, bases: Map<ID, Page>, merged: Map<ID, [Page
         if (set.ai) next.ai = snap.ai ?? null
         if (set.governor) next.governor = governorToStore(snap, meta.result)
         if (set.integrations) next.integrations = snap.integrations ?? []
+        if (set.signoffs) next.fuseSignoffs = snap.fuseSignoffs ?? null
         os.put(next, META_KEY)
       }
     }
@@ -1272,13 +1284,14 @@ async function writeChanges(): Promise<void> {
   const ai = dirtyAI
   const governor = dirtyGovernor
   const integrations = dirtyIntegrations
+  const signoffs = dirtySignoffs
   const order = dirtyOrder
   const full = fullWriteNext
   const stash = pendingStash
   dirtyPages.clear()
   dirtyDbs.clear()
   dirtySettings.clear()
-  dirtyPeople = dirtyRecent = dirtyFunctions = dirtyAgents = dirtyScripts = dirtyKit = dirtyLook = dirtyAI = dirtyGovernor = dirtyIntegrations = dirtyOrder = fullWriteNext = false
+  dirtyPeople = dirtyRecent = dirtyFunctions = dirtyAgents = dirtyScripts = dirtyKit = dirtyLook = dirtyAI = dirtyGovernor = dirtyIntegrations = dirtySignoffs = dirtyOrder = fullWriteNext = false
   pages.forEach((id) => inflightPages.add(id))
   dbs.forEach((id) => inflightDbs.add(id))
   settingKeys.forEach((k) => inflightSettings.add(k))
@@ -1292,6 +1305,7 @@ async function writeChanges(): Promise<void> {
   inflightAI = ai
   inflightGovernor = governor
   inflightIntegrations = integrations
+  inflightSignoffs = signoffs
   // the stored copies our edits started from: a different stored copy means another tab wrote
   const bases = new Map<ID, Page>()
   for (const id of pages) {
@@ -1302,7 +1316,7 @@ async function writeChanges(): Promise<void> {
   try {
     setStatus('saving')
     // nothing stored yet (first run, seed), a repair or the legacy layout: every record (full)
-    const res = await writeRecords({ pages, dbs, settingKeys, people, recent, functions, agents, scripts, kit, look, ai, governor, integrations, order, full }, bases, merged)
+    const res = await writeRecords({ pages, dbs, settingKeys, people, recent, functions, agents, scripts, kit, look, ai, governor, integrations, signoffs, order, full }, bases, merged)
     const written = res.pages
     // what is stored now is what this tab's pages descend from
     for (const id of pages) {
@@ -1319,7 +1333,7 @@ async function writeChanges(): Promise<void> {
       if (pendingStash === stash) pendingStash = null
     }
     // other tabs read just these records (a full write: everything)
-    const msg: ChangedMessage = { type: 'changed', from: TAB_ID, full: res.full, pages, dbs, meta: settingKeys.length > 0 || people || recent || functions || agents || scripts || kit || look || ai || governor || integrations }
+    const msg: ChangedMessage = { type: 'changed', from: TAB_ID, full: res.full, pages, dbs, meta: settingKeys.length > 0 || people || recent || functions || agents || scripts || kit || look || ai || governor || integrations || signoffs }
     channel?.postMessage(msg)
   } catch (e) {
     console.error('[one] failed to save workspace', e)
@@ -1340,6 +1354,7 @@ async function writeChanges(): Promise<void> {
     dirtyAI ||= ai
     dirtyGovernor ||= governor
     dirtyIntegrations ||= integrations
+    dirtySignoffs ||= signoffs
     dirtyOrder ||= order
     fullWriteNext ||= full
     setStatus('error', e)
@@ -1350,7 +1365,7 @@ async function writeChanges(): Promise<void> {
     inflightPages.clear()
     inflightDbs.clear()
     inflightSettings.clear()
-    inflightPeople = inflightRecent = inflightFunctions = inflightAgents = inflightScripts = inflightKit = inflightLook = inflightAI = inflightGovernor = inflightIntegrations = false
+    inflightPeople = inflightRecent = inflightFunctions = inflightAgents = inflightScripts = inflightKit = inflightLook = inflightAI = inflightGovernor = inflightIntegrations = inflightSignoffs = false
   }
 }
 
@@ -1445,7 +1460,8 @@ export function startPersistence(): () => void {
       state.look === prev.look &&
       state.ai === prev.ai &&
       state.governor === prev.governor &&
-      state.integrations === prev.integrations
+      state.integrations === prev.integrations &&
+      state.fuseSignoffs === prev.fuseSignoffs
     )
       return
     if (state.pages !== prev.pages) {
@@ -1476,6 +1492,7 @@ export function startPersistence(): () => void {
     if (state.ai !== prev.ai) dirtyAI = true
     if (state.governor !== prev.governor) dirtyGovernor = true
     if (state.integrations !== prev.integrations) dirtyIntegrations = true
+    if (state.fuseSignoffs !== prev.fuseSignoffs) dirtySignoffs = true
     scheduleSave(SAVE_DELAY)
   })
 
@@ -1530,6 +1547,7 @@ export function startPersistence(): () => void {
     }
     if (dirtyGovernor || inflightGovernor) ws.governor = local.governor
     if (dirtyIntegrations || inflightIntegrations) ws.integrations = local.integrations
+    if (dirtySignoffs || inflightSignoffs) ws.fuseSignoffs = local.fuseSignoffs
     // pages taken over from storage are in sync again (the next local change sets a new base)
     for (const id of [...syncBase.keys()]) {
       if (!dirtyPages.has(id) && !inflightPages.has(id)) syncBase.delete(id)

@@ -10,7 +10,7 @@
  *    #/patchbay's readout and Workspace › Automation show in the app;
  *  - the pure seams the parallel tracks build on load in Node (agents/saveChecks.ts, store/fuseSignoffs.ts,
  *    patchbay/cache.ts) — the editor's save checks as message refs from page facts (B15's patches run them), the
- *    sign-off reader (B2 reads it, B9 fills it);
+ *    sign-off reader (B2 reads it, B9 filled it);
  *  - the device stores' wipe: `cloud:<ws>` takes every member's scope of that workspace along (cache.ts, run in a
  *    browser — bundled here with Vite's build API, nothing of the app involved).
  * B2 (the graph core — model.ts, tools.ts, source.ts, scripts.ts, buttons.ts; fixtures tests/fixtures/patchbay.ts):
@@ -301,10 +301,12 @@ test.describe('pure seams — they load in Node', () => {
     expect(typeof checks.agentSaveIssues).toBe('function')
     expect(typeof checks.savePagesOf).toBe('function')
     const signoffs = await import('../../src/app/store/fuseSignoffs')
-    // B1: reads none as allowed (every fuse stays open) — the same answer every time, so B2's memo keeps its reference
+    // B9: a clean map reads as itself (the same reference — B2's memo keeps it); nothing reads as one frozen {} every
+    // time (the rules in full: patchbay-signoff-store.spec.ts)
     const stored = { ['a'.repeat(64)]: { sig: 'b'.repeat(64), parts: { a: 'c'.repeat(16) }, at: 1, updatedBy: null } }
-    expect(signoffs.sanitizeFuseSignoffs(stored)).toEqual({})
-    expect(signoffs.sanitizeFuseSignoffs(undefined)).toBe(signoffs.sanitizeFuseSignoffs(stored))
+    expect(signoffs.sanitizeFuseSignoffs(stored)).toBe(stored)
+    expect(signoffs.sanitizeFuseSignoffs(undefined)).toEqual({})
+    expect(signoffs.sanitizeFuseSignoffs(undefined)).toBe(signoffs.sanitizeFuseSignoffs(null))
     const cache = await import('../../src/app/features/patchbay/cache')
     expect([cache.PATCHBAY_DB, cache.PATCHBAY_STORE]).toEqual(['one-patchbay', 'kv'])
   })

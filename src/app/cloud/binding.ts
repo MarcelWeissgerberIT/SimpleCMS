@@ -23,7 +23,7 @@ import * as Y from 'yjs'
 import type { JSONContent } from '@tiptap/core'
 import { useWorkspace, type CloudPatch } from '../store/store'
 import { runAsRemote } from '../store/persistence'
-import type { CustomAgent, CustomFunction, Database, ID, IntegrationProfile, KitEntry, OneScript, Page, Settings, WorkspaceLook } from '../store/types'
+import type { CustomAgent, CustomFunction, Database, FuseSignoff, ID, IntegrationProfile, KitEntry, OneScript, Page, Settings, WorkspaceLook } from '../store/types'
 import { sameAgent, sanitizeAgent } from '../store/agents'
 import { sameScript, sanitizeScript } from '../store/scripts'
 import { emptyKit, KIT_SANITIZERS, sameKitEntry, type KitPart } from '../store/kit'
@@ -33,6 +33,7 @@ import { isReadableGovernor, sameGovernor, sanitizeGovernor, type WorkspaceGover
 import type { Unreadable } from '@/shared/ai/route'
 import type { WorkspaceAI } from '@/shared/ai/types'
 import { INTEGRATION_LIMITS, sameIntegration, sanitizeIntegration } from '../store/integrations'
+import { isPathKey, readSignoff, sameSignoff, sameSignoffs, sanitizeFuseSignoffs } from '../store/fuseSignoffs'
 import { defaultView } from '../store/store'
 import { sharedPlain } from './privacy'
 import { clone, LOCAL, newDatabaseMap, newPageMap, readDatabase, readFunctions, readPage, readPeople, roots, writeDatabase, writeFunctions, writePage, writePeople, type YMap } from './schema'
@@ -149,6 +150,43 @@ function readIntegrations(source: Y.Map<unknown>, cur: IntegrationProfile[] | un
   return same && cur ? cur : out
 }
 
+/* ------------------------------------------------------------------ allowed paths (meta map 'fuseSignoffs') */
+
+/**
+ * The Patchbay's allowed paths from the meta document: every entry read by the store's reader (store/fuseSignoffs.ts —
+ * keys that are no path key never even reach it); `cur` itself when nothing changed, undefined when there are none.
+ */
+function readSignoffs(source: Y.Map<unknown>, cur: Record<string, FuseSignoff> | undefined): Record<string, FuseSignoff> | undefined {
+  const raw: Record<string, unknown> = {}
+  for (const [key, v] of source.entries()) {
+    if (!isPathKey(key)) continue
+    // a copy: the store freezes what it holds, never the document's own values
+    try {
+      raw[key] = JSON.parse(JSON.stringify(v ?? null))
+    } catch {
+      /* not JSON: no allowance */
+    }
+  }
+  const next = sanitizeFuseSignoffs(raw)
+  if (sameSignoffs(next, cur)) return cur
+  return Object.keys(next).length ? next : undefined
+}
+
+/**
+ * Allowed paths (both maps as the reader reads them — nothing else is ever written): one JSON entry per path key — only
+ * the ones that changed (and differ from the document's: a copy of the same allowance is never sent again, the server
+ * would stamp the sender as the one who allowed it); a removed one goes.
+ */
+function writeSignoffs(target: Y.Map<unknown>, cur: Record<string, FuseSignoff>, prev: Record<string, FuseSignoff>): void {
+  for (const [key, entry] of Object.entries(cur)) {
+    if (prev[key] === entry) continue
+    const there = readSignoff(target.get(key))
+    if (there && sameSignoff(there, entry)) continue
+    target.set(key, JSON.parse(JSON.stringify(entry)))
+  }
+  for (const key of Object.keys(prev)) if (!(key in cur) && target.has(key)) target.delete(key)
+}
+
 /* ------------------------------------------------------------------ scripts (meta map 'scripts') */
 
 /** Scripts: one JSON entry per script (only the ones that changed are written). */
@@ -231,6 +269,8 @@ export interface BindingOptions {
   canRuleAI: () => boolean
   /** the Regler (Workspace.governor): owners and admins on a server that guards it (`supports ∋ 'governor'` and 'ai') */
   canGovern: () => boolean
+  /** the Patchbay's allowed paths (Workspace.fuseSignoffs): owners and admins on a server that guards them (`supports ∋ 'signoffs'`) */
+  canSignOff: () => boolean
   isFavorite: (id: ID) => boolean
   /**
    * Remote changes: pages that appeared, pages whose updatedAt moved, pages that are gone, pages that
@@ -316,6 +356,9 @@ export function startBinding(o: BindingOptions): Binding {
   // integration profiles: shared by the whole team, owners and admins write them (never in the private document)
   const integrationsMap = o.doc.getMap<unknown>('integrations')
   let dirtyIntegrations = false
+  // the Patchbay's allowed paths: shared by the whole team, owners and admins write them (never in the private document)
+  const signoffsMap = o.doc.getMap<unknown>('fuseSignoffs')
+  let dirtySignoffs = false
   // building blocks: shared by the whole team (never in the private document)
   const kitMaps: Record<KitPart, Y.Map<unknown>> = { lists: o.doc.getMap<unknown>('lists'), propTypes: o.doc.getMap<unknown>('propTypes'), recordTypes: o.doc.getMap<unknown>('recordTypes') }
   let dirtyKit = false
@@ -357,12 +400,16 @@ export function startBinding(o: BindingOptions): Binding {
   const onKit = (_e: unknown, tr: Y.Transaction) => {
     if (tr.origin !== LOCAL) dirtyKit = true
   }
+  const onSignoffs = (_e: unknown, tr: Y.Transaction) => {
+    if (tr.origin !== LOCAL) dirtySignoffs = true
+  }
   rs.people.observe(onPeople)
   rs.workspace.observe(onWorkspace)
   rs.functions.observe(onFunctions)
   agentsMap.observe(onAgents)
   scriptsMap.observe(onScripts)
   integrationsMap.observe(onIntegrations)
+  signoffsMap.observe(onSignoffs)
   for (const part of KIT_PARTS) kitMaps[part].observe(onKit)
 
   function applyRemote(all = false) {
@@ -374,7 +421,7 @@ export function startBinding(o: BindingOptions): Binding {
       }
       for (const id of Object.keys(s.pages)) dirtyPages.add(id)
       for (const id of Object.keys(s.databases)) dirtyDbs.add(id)
-      dirtyPeople = dirtyWorkspace = dirtyFunctions = dirtyAgents = dirtyScripts = dirtyKit = dirtyIntegrations = true
+      dirtyPeople = dirtyWorkspace = dirtyFunctions = dirtyAgents = dirtyScripts = dirtyKit = dirtyIntegrations = dirtySignoffs = true
     }
     const patch: CloudPatch = {}
     const created: ID[] = []
@@ -480,6 +527,11 @@ export function startBinding(o: BindingOptions): Binding {
       if (list !== s.integrations) patch.integrations = list
       dirtyIntegrations = false
     }
+    if (dirtySignoffs) {
+      const signoffs = readSignoffs(signoffsMap, s.fuseSignoffs)
+      if (signoffs !== s.fuseSignoffs) patch.fuseSignoffs = signoffs ?? null
+      dirtySignoffs = false
+    }
     if (dirtyKit) {
       const kit = s.kit ?? emptyKit()
       const next: Record<string, Record<ID, KitEntry | null>> = {}
@@ -495,14 +547,14 @@ export function startBinding(o: BindingOptions): Binding {
       if (Object.keys(next).length) patch.kit = next as CloudPatch['kit']
       dirtyKit = false
     }
-    if (!patch.pages && !patch.databases && !patch.people && !patch.settings && !patch.functions && !patch.agents && !patch.scripts && !patch.kit && !patch.integrations && patch.look === undefined && patch.ai === undefined && patch.governor === undefined) return
+    if (!patch.pages && !patch.databases && !patch.people && !patch.settings && !patch.functions && !patch.agents && !patch.scripts && !patch.kit && !patch.integrations && patch.look === undefined && patch.ai === undefined && patch.governor === undefined && patch.fuseSignoffs === undefined) return
     applyFromCloud(() => s.cloudPatch(patch))
     if (created.length || touched.length || removed.length || rescoped.length) o.onRemotePages({ created, touched, removed, rescoped })
   }
 
   const afterTx = (tr: Y.Transaction) => {
     if (tr.origin === LOCAL) return
-    if (dirtyPages.size || dirtyDbs.size || dirtyPeople || dirtyWorkspace || dirtyFunctions || dirtyAgents || dirtyScripts || dirtyKit || dirtyIntegrations) {
+    if (dirtyPages.size || dirtyDbs.size || dirtyPeople || dirtyWorkspace || dirtyFunctions || dirtyAgents || dirtyScripts || dirtyKit || dirtyIntegrations || dirtySignoffs) {
       try {
         applyRemote()
       } catch (e) {
@@ -555,8 +607,11 @@ export function startBinding(o: BindingOptions): Binding {
     const aiChanged = state.ai !== prev.ai && !sameWorkspaceAI(state.ai, prev.ai)
     // the Regler likewise (by value, its stamps included)
     const governorChanged = state.governor !== prev.governor && !sameGovernor(state.governor, prev.governor, { meta: true })
+    // the Patchbay's allowed paths likewise (by value, as the reader reads them: a bulk write's copy of the same
+    // allowances is no change)
+    const signoffsChanged = state.fuseSignoffs !== prev.fuseSignoffs && !sameSignoffs(sanitizeFuseSignoffs(state.fuseSignoffs), sanitizeFuseSignoffs(prev.fuseSignoffs))
     if (state.settings !== prev.settings) o.onSettings(state.settings, prev.settings)
-    if (!pagesChanged && !dbsChanged && !peopleChanged && !functionsChanged && !agentsChanged && !scriptsChanged && !kitChanged && !lookChanged && !integrationsChanged && !aiChanged && !governorChanged) return
+    if (!pagesChanged && !dbsChanged && !peopleChanged && !functionsChanged && !agentsChanged && !scriptsChanged && !kitChanged && !lookChanged && !integrationsChanged && !aiChanged && !governorChanged && !signoffsChanged) return
     // a look change by someone who may not style the workspace: the team's look comes back from Y
     if (lookChanged && o.writable() && !o.canStyle()) {
       queueMicrotask(() => withWriter(SYSTEM('refused'), () => applyFromCloud(() => useWorkspace.getState().cloudPatch({ look: sanitizeLook(rs.workspace.get('look')) }))))
@@ -572,6 +627,10 @@ export function startBinding(o: BindingOptions): Binding {
     // integration profiles likewise (owners and admins only)
     if (integrationsChanged && o.writable() && !o.canStyle()) {
       queueMicrotask(() => withWriter(SYSTEM('refused'), () => applyFromCloud(() => useWorkspace.getState().cloudPatch({ integrations: readIntegrations(integrationsMap, undefined) }))))
+    }
+    // the Patchbay's allowed paths likewise (owners and admins on a server that guards them): the team's come back from Y
+    if (signoffsChanged && o.writable() && !o.canSignOff()) {
+      queueMicrotask(() => withWriter(SYSTEM('refused'), () => applyFromCloud(() => useWorkspace.getState().cloudPatch({ fuseSignoffs: readSignoffs(signoffsMap, undefined) ?? null }))))
     }
 
     if (!o.writable()) {
@@ -692,6 +751,8 @@ export function startBinding(o: BindingOptions): Binding {
       if (agentsChanged) writeAgents(agentsMap, state.agents, prev.agents)
       if (scriptsChanged) writeScripts(scriptsMap, state.scripts, prev.scripts)
       if (integrationsChanged && o.canStyle()) writeIntegrations(integrationsMap, state.integrations, prev.integrations)
+      // the Patchbay's allowed paths: shared by the whole team (never in the private document); the server stamps updatedBy
+      if (signoffsChanged && o.canSignOff()) writeSignoffs(signoffsMap, sanitizeFuseSignoffs(state.fuseSignoffs), sanitizeFuseSignoffs(prev.fuseSignoffs))
       if (kitChanged) {
         for (const part of KIT_PARTS) {
           const next = state.kit?.[part] as Record<ID, KitEntry> | undefined
@@ -795,6 +856,7 @@ export function startBinding(o: BindingOptions): Binding {
       agentsMap.unobserve(onAgents)
       scriptsMap.unobserve(onScripts)
       integrationsMap.unobserve(onIntegrations)
+      signoffsMap.unobserve(onSignoffs)
       for (const part of KIT_PARTS) kitMaps[part].unobserve(onKit)
       o.doc.off('afterTransaction', afterTx)
       o.privateDoc?.off('afterTransaction', afterTx)
@@ -810,7 +872,7 @@ export function readAll(
   doc: Y.Doc,
   privateDoc: Y.Doc | null,
   isFavorite: (id: ID) => boolean,
-): Pick<CloudPatch, 'people'> & { pages: Record<ID, Page>; databases: Record<ID, Database>; functions: Record<ID, CustomFunction>; name: string | null; look: WorkspaceLook | null; ai: WorkspaceAI | undefined; governor: WorkspaceGovernor | Unreadable | undefined } {
+): Pick<CloudPatch, 'people'> & { pages: Record<ID, Page>; databases: Record<ID, Database>; functions: Record<ID, CustomFunction>; name: string | null; look: WorkspaceLook | null; ai: WorkspaceAI | undefined; governor: WorkspaceGovernor | Unreadable | undefined; fuseSignoffs: Record<string, FuseSignoff> | undefined } {
   const r = roots(doc)
   const q = privateDoc ? roots(privateDoc) : null
   const pages: Record<ID, Page> = {}
@@ -822,7 +884,7 @@ export function readAll(
   }
   for (const p of Object.values(pages)) if (p.kind === 'database' && !databases[p.id]) databases[p.id] = fallbackDatabase(p.id)
   const name = r.workspace.get('name')
-  return { pages, databases, people: readPeople(r.people, []), functions: readFunctions(r.functions, undefined), name: typeof name === 'string' && name ? name : null, look: sanitizeLook(r.workspace.get('look')), ai: readWorkspaceAI(r.workspace.get('ai')), governor: sanitizeGovernor(r.workspace.get('governor')) }
+  return { pages, databases, people: readPeople(r.people, []), functions: readFunctions(r.functions, undefined), name: typeof name === 'string' && name ? name : null, look: sanitizeLook(r.workspace.get('look')), ai: readWorkspaceAI(r.workspace.get('ai')), governor: sanitizeGovernor(r.workspace.get('governor')), fuseSignoffs: readSignoffs(doc.getMap<unknown>('fuseSignoffs'), undefined) }
 }
 
 /**

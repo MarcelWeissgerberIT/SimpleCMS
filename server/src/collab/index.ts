@@ -12,6 +12,7 @@ import { guardAgentAuthors } from './agent-authors.ts'
 import { guardIntegrations, guardWorkspaceLook } from './workspace-look.ts'
 import { guardWorkspaceAI } from './workspace-ai.ts'
 import { guardWorkspaceGovernor } from './workspace-governor.ts'
+import { guardFuseSignoffs } from './fuse-signoffs.ts'
 import { metaName, parseDocName } from './names.ts'
 import { MIN_CLIENT_SCHEMA, outdatedNotice, schemaAccess } from './schema-gate.ts'
 
@@ -120,6 +121,8 @@ export function createCollab(deps: { config: Config; log: Logger; repo: Repo; se
         document.on('destroy', guardWorkspaceAI(document, { workspaceId: doc.workspaceId, log, roleOf: (userId) => repo.memberRole(doc.workspaceId, userId) }))
         // the governor (budgets, lever, ceiling, saving rules): the same (docs/CLOUD.md § Meta document schema → workspace.governor)
         document.on('destroy', guardWorkspaceGovernor(document, { workspaceId: doc.workspaceId, log, roleOf: (userId) => repo.memberRole(doc.workspaceId, userId) }))
+        // the Patchbay's allowed paths: every key the same (docs/CLOUD.md § Meta document schema → fuseSignoffs)
+        document.on('destroy', guardFuseSignoffs(document, { workspaceId: doc.workspaceId, log, roleOf: (userId) => repo.memberRole(doc.workspaceId, userId) }))
       }
     },
 

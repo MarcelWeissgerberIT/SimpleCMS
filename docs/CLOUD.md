@@ -186,7 +186,7 @@ All mutating requests require `Content-Type: application/json` (CSRF guard toget
 | `GET /api/health` | – | `{ ok: true, version }` |
 | `GET /api/dev/mailbox` | DEV_MODE only | last 50 mails `{ to, subject, text, link }` |
 | `POST /api/auth/verify` | – | *(server addition)* form `token=` (the confirmation page) or JSON `{ token }` → sets cookie, `303` to `redirect` |
-| `GET /api/config` | – | *(server addition)* `{ version, signup: { mode, domains? }, max_upload_mb, dev_mode, source_url, coding_relay, supports }` — `supports` lists what this server understands beyond the base protocol (`['ai', 'governor']`: it guards the meta keys `workspace.ai` and `workspace.governor`, below) |
+| `GET /api/config` | – | *(server addition)* `{ version, signup: { mode, domains? }, max_upload_mb, dev_mode, source_url, coding_relay, supports }` — `supports` lists what this server understands beyond the base protocol (`['ai', 'governor', 'signoffs']`: it guards the meta keys `workspace.ai` and `workspace.governor` and every key of the `fuseSignoffs` map, below) |
 | `GET /api/workspaces/:id/coding/workers` | member | *(coding relay)* cloud coding workers `[{ id, label, state: 'pending'\|'active', user: { id, name, email }, mine, created_at, created_from, activated_at, last_used_at, online, tab, since }]` — a member sees their own, admins and the owner everyone's (*Coding relay*) |
 | `POST /api/workspaces/:id/coding/workers` | member | `{ label? }` → `201` worker **+ `token`** (only here; One writes it into the downloaded file). A new token is **pending**; an older pending one of the member is revoked at once, the active one only when the new one first connects. 20 per member per day |
 | `DELETE /api/workspaces/:id/coding/workers/:workerId` | member (own) / admin | revoke → `204`; its worker is closed at once (`404 worker_not_found` — also for someone else's token, to a member) |
@@ -536,6 +536,13 @@ Y.Map 'integrations' profileId → JSON IntegrationProfile   (integration profil
                      profile needs a non-empty name on both). At most 50 profiles count:
                      the first valid ones by id (plain string order) — the app's binding and the server pick the same
                      ones, whatever order the map holds; the app refuses a 51st; see Agents → Integration profiles)
+Y.Map 'fuseSignoffs' pathKey → JSON FuseSignoff   (the Patchbay's allowed paths, "Allow this path" — key = the path key,
+                     SHA-256 hex of the ids along the path; { sig: 64 hex — the path's signature, parts: { <letter>[n]:
+                     16 hex } — one digest per part of the path (≤ 24), at, updatedBy } + unknown fields of a later build;
+                     OWNERS / ADMINS write it (server/src/collab/fuse-signoffs.ts on admin-map.ts: other members' changes
+                     put back, updatedBy stamped); every reader sanitizes it (src/app/store/fuseSignoffs.ts: a broken entry
+                     is no allowance, ≤ 500 kept, the newest); an allowance whose signature no longer matches the wiring
+                     has lapsed — nothing on the server judges it)
 ```
 
 *(client C1 refinements, backwards compatible on read)*: comment **replies** are entries of their
@@ -596,6 +603,21 @@ waiting deletes count for every member who left them. The app writes the map onl
 a refused local change back from Y. Profiles are workspace data; whether one is ACTIVE is decided per device (the app, against that
 device's MCP servers) or per server runtime (server agents, below). Full backups carry them, page backups never; uploading a local
 workspace takes them along (the uploader is stamped).
+
+The Patchbay's **allowed paths** (`fuseSignoffs`, app: `#/patchbay` key 3 "Allow this path" / "Weg zulassen" — the
+person in charge accepts one way data can leave the workspace unattended; written with `signOffFuse` / `withdrawSignoff`)
+follow the same rules for every key of their map (`server/src/collab/fuse-signoffs.ts`, the integration profiles' guard): a
+member's add, change or withdrawal is put back, an owner's or admin's is stamped `updatedBy` (so "Allowed by Mara Lind"
+cannot be forged), waiting structs and waiting deletes count for every member who left them — also for a key an admin adds
+that a member's waiting deletes would take away in the same transaction. `supports` lists `'signoffs'` on a server that
+guards the map; the app writes it only then (owners and admins — on an older server the Patchbay says "This server does not
+know allowed paths yet") and puts any other local change back from Y. No AI generation stamp and no schema gate: an
+allowance changes no AI policy and is no document node; a build that does not know the map leaves it alone (the fuses stay
+open there). An allowance names the path's signature — when anything on the path changes (an agent's write mode, a
+server's tools, a webhook's address …) it no longer matches and has lapsed; the app shows what changed from the part
+digests. Full backups carry the map for the record, page backups never, and **a restore never takes it** (merge or
+replace keep this workspace's, like the governor): a file can never bring wiring together with ready-made allowances for
+it. Uploading a local workspace takes its allowances along on a server that guards them (the uploader is stamped).
 
 Not synced (per person, per device): `favorite`, `recent`, all `Settings` (theme, language,
 **AI key**, sidebar), `contentRev`, `contentOrigin`. The client keeps them in a small local
@@ -665,7 +687,10 @@ device opened, how often — localStorage `one.shell.visits:cloud:<id>`, never s
   of the copy is left), the version history of their pages (`one-history`: `idx:<page>` + `snap:*`, except pages the local
   workspace has with the same id; read keys first — the values only of the index lists and the versions), this device's
   flight recorder of it (IndexedDB `one-recorder`, every record of scope `cloud:<id>` and of each member's `cloud:<id>:u:<account>`,
-  and its before-images in `one-history` `pin:cloud:<id>…|…`, whose metas name the files they hold) and cached files that nothing else in this browser uses (the local
+  and its before-images in `one-history` `pin:cloud:<id>…|…`, whose metas name the files they hold), the Patchbay's device stores of
+  it (IndexedDB `one-patchbay`, every record of each member's `cloud:<id>:u:<account>|…` — lazy readings, run tally, setup band —
+  and the row orders `one.patchbay.order:cloud:<id>:u:<account>` in localStorage; the tab's return chip, sessionStorage
+  `one.patchbay.return`, goes with any removed copy; the device's own Patchbay switches stay) and cached files that nothing else in this browser uses (the local
   workspace, history of other pages, other scopes' before-images, other workspaces' cached content and pending uploads keep
   theirs).
   The server is not touched. Because an open workspace holds its databases, a removal is a flag

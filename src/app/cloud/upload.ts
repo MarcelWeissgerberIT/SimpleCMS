@@ -12,6 +12,7 @@ import { getWorkspaceSnapshot } from '../store/store'
 import { flushSave, migrate, readStoredWorkspace } from '../store/persistence'
 import { sanitizeLook } from '../store/look'
 import { sanitizeIntegrations } from '../store/integrations'
+import { sanitizeFuseSignoffs } from '../store/fuseSignoffs'
 import { readWorkspaceAI } from '../store/ai'
 import { isReadableGovernor, sanitizeGovernor, stampGen } from '@/shared/ai/governor'
 import { STAMP_KNOWN } from '../store/governor'
@@ -199,6 +200,12 @@ export async function uploadLocalWorkspaceImpl(wsId: string, onProgress?: (p: nu
       // the workspace's AI rules (sanitized again; only on a server that guards them — the uploader saves them). Claude's
       // entry waits for a server whose agents read it (D-S2-30); member classes stay on the device (settings.ai)
       const supports = useCloud.getState().supports ?? []
+      // the Patchbay's allowed paths (sanitized again; only on a server that guards them — `supports ∋ 'signoffs'`): the
+      // uploader allowed them, the server checks they may and stamps who
+      if (supports.includes('signoffs')) {
+        const signoffs = meta.doc.getMap<unknown>('fuseSignoffs')
+        for (const [key, entry] of Object.entries(sanitizeFuseSignoffs(local.fuseSignoffs))) if (!signoffs.has(key)) signoffs.set(key, { ...JSON.parse(JSON.stringify(entry)), updatedBy: userId })
+      }
       const ai = supports.includes('ai') ? readWorkspaceAI(local.ai) : undefined
       // the Regler (sanitized again; only on a server that guards it and the AI rules — its generation stamp travels in
       // `ai`): a value this build can read, never the marker or a newer shape it holds no say over
