@@ -5,7 +5,7 @@
 import { registerTry, type ChangelogTry } from '../../help'
 import { startTour } from './state'
 import { openWorkspaceSettings } from '../workspace/open'
-import { openRecorder, openRegler } from '../../features'
+import { openPatchbay, openRecorder, openRegler } from '../../features'
 
 type Actions = typeof import('./actions')
 
@@ -27,6 +27,7 @@ const SHELL_TRIES: Partial<Record<ChangelogTry, () => void>> = {
   integrations: () => openWorkspaceSettings('integrations'),
   recorder: () => openRecorder(),
   regler: () => openRegler(),
+  patchbay: () => openPatchbay(),
 }
 
 for (const [action, run] of Object.entries(SHELL_TRIES)) registerTry(action as ChangelogTry, run)

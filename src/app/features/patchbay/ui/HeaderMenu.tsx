@@ -1,6 +1,6 @@
 /**
  * The page head (plan §3.3, §6 U14): the automation icon, h1 "Patchbay" / "Schaltplan", the label "WHAT RUNS BY
- * ITSELF", and on the right — As list (ghost) · All databases ▾ (the filter) · Picture · zoom · the dashed "Drop a
+ * ITSELF" and the help key (article `patchbay`, B18 — it stays in every tier), and on the right — As list (ghost) · All databases ▾ (the filter) · Picture · zoom · the dashed "Drop a
  * profile here" chip. The keys never wrap and the h1 never shrinks for them: when they do not fit they collapse into a
  * "⋯" menu — measured, never guessed from the width (a German head needs more room than an English one):
  *   full: every key · menu: the filter stays, the rest goes into ⋯ · tight: ⋯ alone (the filter opens from it too).
@@ -19,6 +19,7 @@ import { resolveAssetUrl } from '../../../lib/files'
 import { useTextStep } from '../../../lib/textScale'
 import { Menu, useMenu, type MenuEntry } from '../../../ui/Menu'
 import { Switch } from '../../../ui/controls'
+import { HelpLink } from '../../../help'
 import type { Translate } from '@/shared/i18n'
 import type { FilterPreset, ModelInput } from '../types'
 import { FilterKey, FilterPanel, filterLabel } from './Filter'
@@ -86,6 +87,7 @@ export const Header = forwardRef<HTMLHeadingElement, { t: Translate; input: Mode
         {t(`${P}.title`)}
       </h1>
       <span className="label pb-head__sub">{t(`${P}.sub`)}</span>
+      <HelpLink id="patchbay" topic={t(`${P}.title`)} className="pb-head__help" />
       <span className="pb-head__sp" />
       {tier !== 'tight' && keys.patch && (
         <label className="pb-patchsw" title={t(`${P}.patchingTitle`)} data-on={keys.patch.on || undefined} data-testid="pb-patching">

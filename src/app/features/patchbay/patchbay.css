@@ -58,6 +58,10 @@
 .pb-head[data-tier='tight'] .pb-head__sub {
   display: none;
 }
+/* the help key (B18): beside the label, on its baseline; it stays in every tier */
+.help-link.pb-head__help {
+  margin: 6px 0 0 -2px;
+}
 .pb-head__sp {
   flex: 1;
 }
@@ -1851,6 +1855,9 @@ span.pb-line:focus {
 }
 .pb-fplate__static.label {
   color: var(--ink-3);
+}
+.help-link.pb-fplate__help {
+  margin-left: 0;
 }
 .pb-fplate__note {
   margin: 8px 0 0;

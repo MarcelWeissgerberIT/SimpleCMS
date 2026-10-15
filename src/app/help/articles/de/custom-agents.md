@@ -4,7 +4,7 @@ title: Eigene Agenten
 section: ai
 order: 4
 keywords: eigene agenten, agenten, zeitplan, wiederkehrend, automatisieren, auslöser, rezept, bericht, server-agent, webhook, budget, aufgaben, wartet auf prüfung, erinnerung, zuweisen, mcp-werkzeuge, nur lesende werkzeuge, zustand, posteingang, notiz, spiegeln, abgleichen, schlüssel, nur von hand, integration, custom agents, mirror
-related: agent, agent-trust, governor, integrations, automations, mcp-servers, properties, mentions-dates, gmail-sync
+related: agent, agent-trust, governor, integrations, automations, mcp-servers, properties, mentions-dates, gmail-sync, patchbay
 summary: Gespeicherte KI-Helfer für wiederkehrende Arbeit — jeder mit Auftrag, Auslöser und Grenzen. Sie laufen selbstständig und berichten.
 ---
 **Agenten** in der Seitenleiste listet deine eigenen Agenten. **Neuer Agent** startet mit einem Rezept — *Tägliche Mail-Sortierung*, *Wochenbericht aus Projekten*, *Neue Formularantworten zusammenfassen*, *Seiten mit der Wissensdatenbank abgleichen* — oder **Leer**. Eine aktive [Integration](help:integrations) bringt eigene Rezepte mit, benannt nach der Integration, etwa einen Spiegel der Liste eines anderen Werkzeugs. Nichts läuft, bevor du speicherst.
@@ -15,6 +15,8 @@ summary: Gespeicherte KI-Helfer für wiederkehrende Arbeit — jeder mit Auftrag
 - **Zugriff** — **Darf nutzen**: alles oder ausgewählte Seiten und Datenbanken. **Änderungen**: **Nur lesen**, **Vorschläge zur Prüfung** oder **Direkt anwenden** (als „Agent · Name“, rückgängig über den Versionsverlauf). **MCP-Server**, die er aufrufen darf, z. B. deine Wissensdatenbank — einer, den du ankreuzt und der auf diesem Gerät ausgeschaltet oder hier nicht eingerichtet ist, wird unter der Liste genannt: Der Agent lässt sich speichern, und seine Läufe lassen diesen Server weg, bis du ihn einschaltest (oder einrichtest).
 - **Bericht** — eine optionale **Berichtsseite**, auf die jeder Lauf schreibt (unten anfügen oder ersetzen). Eine Seite oder Datenbank im Papierkorb (oder unter einer Seite dort — die wird genannt) oder eine endgültig gelöschte wird nie unter **Darf nutzen** oder als Berichtsseite gespeichert — nimm sie heraus oder stell sie zuerst wieder her.
 - **Antrieb** — **Läuft wo**, **Modell**, **Aufwand** und ein **Budget pro Lauf** (mit Komma oder Punkt; „1.000“ heißt tausend und wird als zu hoch abgelehnt): Der Lauf stoppt, wenn seine geschätzten Kosten darüber gehen.
+
+Liegt ein Agent auf dem Weg einer offenen Sicherung, steht es in seiner Zeile **Änderungen** und unter seinen MCP-Servern: *Liegt auf Sicherung F1 — im Schaltplan zeigen* (siehe [Schaltplan](help:patchbay)). Eine Werkzeugliste, die der Agent ohne Freischaltung des Profils behält, verlinkt **Im Schaltplan ändern**.
 
 ## Werkzeuge, Zustand und Notizen
 Diese gibt es mit einer aktiven [Integration](help:integrations), die sie freischaltet — einem Profil, das zu einem deiner MCP-Server passt. Ohne sie werden sie nicht angeboten; eine Werkzeugliste, die ein Agent schon hat, gilt weiter.

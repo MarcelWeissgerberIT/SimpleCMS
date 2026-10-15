@@ -4,7 +4,7 @@ title: Integrations
 section: ai
 order: 14
 keywords: integrations, integration profile, profile, unlock, unlocks, MCP server, match, tools, recipe, mirror, import, export, JSON, schema, one.integration, key, only by hand, upsert, tool list, agent state, inbox notes, Integrationen, Profil, freischalten, Rezept
-related: custom-agents, mcp-servers, outbox, properties, members-roles
+related: custom-agents, mcp-servers, outbox, properties, members-roles, patchbay
 summary: Profiles that unlock agent features — keys, “Only by hand”, upsert_rows, tool lists, the agent state, inbox notes — and bring recipes while one of your MCP servers matches.
 ---
 Some agent features only make sense together with another tool: mirroring its items into a database by a key, keeping your own fields out of reach, limiting an agent to that tool's reading tools. One does not build them in for any particular tool. An **integration profile** says which MCP server they are for and switches them on while that server is there. You set profiles up under **Workspace → Integrations**.
@@ -26,7 +26,9 @@ At least one condition is needed. The list shows an LED per profile and why: **A
 - `notify` — `notify_me`: an agent's notes in your inbox.
 - `sends` — the profile's send routes for the [Outbox](help:outbox): ⌘ → “Reply in the ticket tool” on a mirrored row, drafted without tools, sent by you.
 
-Without an active profile these switches, tools and sections are not offered. What is already set **stays in force**: a property that is the key stays unique, “Only by hand” fields stay closed to every agent (they show as a mark in the property menu), and an agent that already has a tool list keeps it.
+Without an active profile these switches, tools and sections are not offered. What is already set **stays in force**: a property that is the key stays unique, “Only by hand” fields stay closed to every agent, and an agent that already has a tool list keeps it. A field set to “Only by hand” shows its switch in the property menu to everyone, so it can always be switched off there.
+
+The [Patchbay](help:patchbay)'s fuse keys need no unlock: *“Field” by hand only* and *Disconnect write tools* only take capability away. **Set up in the Patchbay** on a profile opens its setup lamps there — every member may, since it only reads.
 
 ## Recipes as configuration
 A profile can bring **recipes**. While it is active, **Agents → New agent** lists them, named by the profile. A recipe of kind `mirror` creates a database for another tool's items, its views, a report page and a scheduled agent — everything in it is data: the database's name, its properties (`role`, `name`, `type`, `options`, `key`, `onlyByHand`, `color`, `description`), its views (`type`, `properties`, `groupBy`, `date`, `filter`, `sort`, `colorRules`, `hiddenGroups`, `hideEmpty`) and the agent (`name`, `schedule`, `write`, `budget`, `model`, `effort`, `tools`, `instructions`). Whatever a recipe leaves out takes the built-in mirror's values, so `{ "kind": "mirror" }` alone is the recipe described in [Custom agents](help:custom-agents).

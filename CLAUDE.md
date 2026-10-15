@@ -78,7 +78,14 @@ src/app/features/workitems/**        tasks outside the editor: the workspace ind
                                      views, writeItems (origin 'items'), the unblock toast, members + reminder audience, the
                                      people / link pickers and cards, settle gate, facts, holds, query (public API
                                      workitems/index.ts, via features/index.ts)
-src/app/help/**                      help centre: panel (?, status bar, ⌘K, workspace menu), 80 articles EN+DE twins
+src/app/features/patchbay/**         the Patchbay (#/patchbay, lazy; DE "Schaltplan"): what runs by itself as a rack (§ 01 sources
+                                     · § 02 processing · § 03 targets) with a fuse on every path where content from outside, private
+                                     data and an unattended way out meet — inputs.ts (the only store reader) → source.ts (pure input +
+                                     memo) → model / tools / reach / chains / fuses / sig / plain (pure), layout / render, keys.ts (fuse
+                                     keys + Undo), setup/ (profile drop, lamps 00–06, return chip), live/ (run bus, tally, live signal),
+                                     patch.ts (pure) + patchApply.ts (patching); hint.ts = the one module other areas may import
+                                     (public API patchbay/index.ts via features/index.ts; docs/PATCHBAY.md)
+src/app/help/**                      help centre: panel (?, status bar, ⌘K, workspace menu), 81 articles EN+DE twins
                                      (help/articles/{en,de}/<id>.md, `help:<id>` links), Ask (Claude over the articles);
                                      link UI to an article with `<HelpLink id="…" />` (public API: help/index.ts)
 src/help-site/**                     build-time public /help pages (prerendered from the same articles, hreflang)
@@ -828,6 +835,11 @@ the public APIs stable — other areas are built against them in parallel.
   registered kind). Write only with `saveDbCommands()` (refuses a locked database — running stays allowed); readers
   sanitize with `readDbCommands()`; page backups empty webhook URLs (`withoutCommandSecrets`). New kinds only via
   `registerCommandKind(def)` from a module loaded at boot; an unknown kind is kept and hidden.
+- Automations (features/automations, public API automations/index.ts): every reader of `Database.automations` goes through
+  `readAutomations(raw)` (automations/read.ts, pure sanitizer: trigger, actions, http(s) URL only, POST / PUT, headers;
+  unknown keys kept), every write through `saveAutomations(dbId, list, writer)` (model.ts; AutomationsModal writes as the
+  person, its delete Undo `you~undo`); on a locked database only switching off and removals are saved — adds and
+  re-wiring are refused (owner decision Q2), the modal says so.
 - Integration profiles (store/integrations.ts, features/agents/integrations, `#/workspace/integrations`): `Workspace.integrations`
   (schema `one.integration/1`: id, name, match { tools · name glob · host glob }, unlocks ⊆ keys | onlyByHand | upsert |
   toolAllowList | agentState | notify, recipes = `RecipeConfig` kind 'mirror' — database / properties / views / agent as data).
@@ -838,6 +850,10 @@ the public APIs stable — other areas are built against them in parallel.
   `useUnlocked(f)` / `unlocked(f)` (features/agents/index.ts). Flags and tool lists already set stay in force without one. A
   recipe without `agent.instructions` gets them composed from its OWN properties (integrations/instructions.ts). One presets,
   names and detects NO external service anywhere (code, UI, prompts, help, tests, worker) — integrations.spec has a source guard.
+  PropertyFlags shows a SET "Only by hand" switch to everyone (switching off always allowed; on stays gated). The Patchbay's
+  keys 2 / 2b ("„Field“ by hand only", "Disconnect write tools") need no `onlyByHand` / `toolAllowList` unlock — they only
+  take capability away (owner decision Q1); the Patchbay is the only ungated way in (patchbay-keys.spec). Workspace ›
+  Integrations "Set up in the Patchbay" opens a profile's setup lamps (it only reads).
 - Outbox lock (features/ai/mcp-servers/lock.ts; the Outbox is features/outbox): a profile's `sends[].tool` are OUT on every
   server the profile matches by name / host (`outToolsOf`, store/integrations.ts — independent of unlocks, the server's
   switch and tested tool lists). Every toolset `toolsetFor` (app) / `toolsetOf` (server runner, `RunInput.out`) builds
@@ -895,6 +911,37 @@ the public APIs stable — other areas are built against them in parallel.
   `one-preflight` (log + opened set: ids, kinds, times, outcomes — labels resolved live, never text), 30 days, never
   synced / exported / backed up, wiped with the device copy and the local reset. Keys only with focus in the plate or
   the queue; Esc is preventDefault-ed; Enter on a button is left to its click.
+- Patchbay (features/patchbay, docs/PATCHBAY.md; help `patchbay`): the model is pure and never stored — `buildModel(input)`
+  over a `ModelInput` that inputs.ts (the only store reader) builds through source.ts and memoises by the wiring
+  signature: config fields only (automations without `last*`, autofill without `fills`, repeating without `lastRunAt`,
+  agents sanitized with Unreadable fields kept), referenced pages by id through the row index — no page-map walk on the
+  hot path, typing rebuilds nothing, the ledger is never read for the LED (only on the route: today's money). ONE
+  publisher (state.ts `refreshModel`, after first paint in idle — compute.ts — or on the route) writes the counts and the
+  hints, so sidebar LED = Preflight lamp `fuses` (`master: false`) = status cell = readout. Expensive readings (script /
+  kit scans, server-agent runtime, team hooks, the capture Inbox, the button index) only when `#/patchbay` opens; the
+  fuse-relevant ones go to the lazy cache (IndexedDB `one-patchbay` `<scope>|lazy`, ids and hosts only) so the LED
+  agrees after a reload — a reading the cache lacks is an UNKNOWN part (never counted, never safe). Fuse = a decider
+  (custom agents whatever `enabled` says, autofill `auto`, mail organise, the bridge in 'apply') ∧ content from outside
+  (mail-class rows, MCP reads, a server agent's webhook body, team hooks / tokens, GitHub pick-ups, Clippings, + the
+  taint fixpoint) ∧ private data relative to the exit ∧ an unattended way out (automation webhook after a direct write,
+  MCP write tools — fail closed for an attached server without an allow-list or a tested list —, autofill's `scope:
+  'all'` servers, this device's GitHub auto-push, an unattended git stage), with full reachability (chains.ts walks the
+  flow, rules.ts = the engines' rules); gates and closed reasons make near misses. Keys write only through
+  `upsertAgent` (the STORED agent spread) / `setHandOnly` / `setAutofillAuto` / `patchServer` / `setMcpMode` /
+  `setOrganise` (the mail organise switch), as `you~patchbay` (`YouVia 'patchbay'`), each Undo `you~undo` (≤ 20 per tab
+  session, refused "changed since" over config fields). `Workspace.fuseSignoffs` (path key → { sig, parts, at,
+  updatedBy }) is read only through `sanitizeFuseSignoffs` and written only with `signOffFuse` / `withdrawSignoff` /
+  `restoreSignoff` (store/fuseSignoffs.ts; local: the person; team: owners / admins on a server with `supports ∋
+  'signoffs'` — meta map `fuseSignoffs`, server guard collab/fuse-signoffs.ts stamps `updatedBy`); a changed sig part =
+  lapsed; no `stampGen`, no schema gate; full backups carry it, a restore NEVER takes it. Patching (P4, switch per device,
+  off by default) writes only through `upsertAgent` / `saveDbCommands` / `saveAutomations` / `upsertIntegration` (patch.ts
+  plans purely, the editors' save checks first — agents/saveChecks.ts; never a new way out; the preview's "+Fn" asks).
+  Device stores — IndexedDB `one-patchbay` (lazy cache, `<scope>|runs|<day>` tally, `<scope>|setup`), localStorage
+  `one.patchbay.*` (seen, patch, order:<scope>), sessionStorage `one.patchbay.return` — never synced / exported / backed
+  up, wiped with the device copy (`wipePatchbay`) and the local reset. `features/patchbay/hint.ts` (FuseHintLine,
+  PatchbayAgentLink) is the one dependency-free module other areas may import directly (agent editor, its MCP tool list,
+  AutomationsModal), like preflight/registry. Words: §1.1 of the plan (no "Vertrauen" / "Prüfschritt" / "abnehmen" /
+  "fremd" / "Trigger" in German, "Ausgang" only for the Outbox module) — patchbay-names.spec guards them.
 - Agent runs are written per change under a lock: applyRun / discardRun / undoChange / undoRunAll / supersedeOlder run
   inside `withRunLock(agentId)` (agents/runs.ts; a Web Lock), re-read the stored run, act only on `pending | failed`
   changes and write with `patchRun` (never `putRun` of a stale copy); both Undos settle through review.ts `settleUndo`
@@ -1062,6 +1109,9 @@ the public APIs stable — other areas are built against them in parallel.
   render `agent:` ids with `agentLabel()` ("Agent · <name>"). Routes `#/agents`, `#/agents/<id>`. Team workspaces: a
   browser agent's "everything" scope is the shared pages; private pages only when named in its scope. Anything an
   agent writes turns web images into links (features/agents/images.ts) — no auto-loading pixels from injected text.
+  `AgentDialogsHost` (a lazy wrapper mounted once in ModalHost — never a static import of AgentEditor / MirrorSetup) opens
+  MirrorSetup / AgentEditor as dialogs over any route through `openMirrorSetup` / `openAgentEditor` (agents/dialogs.ts;
+  the Patchbay's setup lamps use them).
 - Per-field trust (features/agents/trust): verdicts only from the person's decision on ONE proposal seen in full
   (run review row keys, Preflight A / D / 1–4 on one card shown at its current revision; a body the preview cuts
   (`previewCut`, ai/agent/previewCut.ts) only once opened whole — `whole`) and only once it holds (a server run's

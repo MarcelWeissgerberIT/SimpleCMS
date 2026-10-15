@@ -18,6 +18,7 @@
 import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react'
 import { Check } from 'lucide-react'
 import { useLang } from '../../../i18n'
+import { HelpLink } from '../../../help'
 import { blinkOf, blinkStyle } from '../blink'
 import { unknownSay, nearSay } from '../fuses'
 import type { FuseState, ModuleKey, UnknownPart } from '../types'
@@ -109,6 +110,7 @@ function FuseBody({ row, pw }: { row: Extract<FuseRow, { kind: 'fuse' }>; pw: Pl
           </h2>
           <span className="pb-fplate__sp" />
           <span className="label pb-fplate__static">{t(`${P}.fuse.static`)}</span>
+          <PlateHelp t={t} />
         </div>
         {row.state === 'lapsed' && (
           <p className="pb-fplate__note pb-fplate__note--lapsed" data-testid="pb-lapsed">
@@ -154,6 +156,7 @@ function NearBody({ row, pw }: { row: Extract<FuseRow, { kind: 'near' }>; pw: Pl
         </h2>
         <span className="pb-fplate__sp" />
         <span className="label pb-fplate__static">{t(`${P}.fuse.static`)}</span>
+        <PlateHelp t={t} />
       </div>
       <p className="pb-fplate__note" data-testid="pb-near-why">
         {t(`${P}.plate.near.closes`, { why: pw.say(nearSay(n)) })}
@@ -181,6 +184,8 @@ function UnknownBody({ row, pw }: { row: Extract<FuseRow, { kind: 'unknown' }>; 
         <h2 className="label pb-fplate__title" id="pb-fplate-h" tabIndex={-1}>
           {t(`${P}.plate.unknown.head`)}
         </h2>
+        <span className="pb-fplate__sp" />
+        <PlateHelp t={t} />
       </div>
       <p className="pb-fplate__say">{pw.say(say)}</p>
       {onlyVisibleIn(u, pw) && (
@@ -211,6 +216,11 @@ export function onlyVisibleIn(u: UnknownPart, pw: PlateWords): string | null {
   if (u.what !== 'otherBrowser' || !u.who || !ctx.team || (ctx.role !== 'owner' && ctx.role !== 'admin')) return null
   const name = pw.member(u.who)
   return name ? pw.w.t(`${P}.onlyVisibleIn`, { name }) : null
+}
+
+/** The plate's help key (B18): the `patchbay` article — what a fuse is, its keys, what it cannot see. */
+function PlateHelp({ t }: { t: PlateWords['w']['t'] }) {
+  return <HelpLink id="patchbay" topic={t(`${P}.fuse.helpTopic`)} className="pb-fplate__help" />
 }
 
 /** "FUSE F1 · OPEN PATH": the words in ink-2, the label bold — signal ink on an open or lapsed plate, ink when allowed. */

@@ -40,6 +40,7 @@ export const messages: Messages = {
     'features.patchbay.plate.unknown.head': 'Unknown here · not counted',
     'features.patchbay.plate.unknown.never': 'Never read as safe: a way out may run through it.',
     'features.patchbay.plate.unknown.where': 'Where',
+    'features.patchbay.fuse.helpTopic': 'Fuses',
     'features.patchbay.steps.more': '+{n} steps',
     'features.patchbay.steps.more.one': '+1 step',
 
@@ -92,6 +93,8 @@ export const messages: Messages = {
     'features.patchbay.plate.unknown.where': 'Wo',
     'features.patchbay.steps.more': '+{n} Schritte',
     'features.patchbay.steps.more.one': '+1 Schritt',
+
+    'features.patchbay.fuse.helpTopic': 'Sicherungen',
 
     'features.patchbay.live.jump': 'läuft · {name} ↓',
     'features.patchbay.live.jumpTitle': 'Zum laufenden Strang',

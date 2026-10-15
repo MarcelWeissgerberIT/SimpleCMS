@@ -4,7 +4,7 @@ title: Custom agents
 section: ai
 order: 4
 keywords: custom agents, agents, schedule, recurring, automate, trigger, recipe, report, server agent, webhook, budget, tasks, waits for review, reminder, assign, MCP tools, read-only tools, state, inbox note, mirror, sync, key, upsert, only by hand, integration, Eigene Agenten, Agenten, Zeitplan, spiegeln
-related: agent, agent-trust, governor, integrations, automations, mcp-servers, properties, mentions-dates, gmail-sync
+related: agent, agent-trust, governor, integrations, automations, mcp-servers, properties, mentions-dates, gmail-sync, patchbay
 summary: Saved AI helpers for recurring work — each with a job, a trigger and limits. They run on their own and report back.
 ---
 **Agents** in the sidebar lists your custom agents. **New agent** starts from a recipe — *Daily mail triage*, *Weekly report from projects*, *Summarise new form answers*, *Check pages against your knowledge base* — or **Blank**. An active [integration](help:integrations) adds its own recipes, named by the integration, such as a mirror of another tool's list. Nothing runs until you save.
@@ -15,6 +15,8 @@ summary: Saved AI helpers for recurring work — each with a job, a trigger and 
 - **Access** — **May use**: everything, or chosen pages and databases. **Changes**: **Read only**, **Proposals for review** or **Apply directly** (written as “Agent · name”, undoable in the version history). **MCP servers** it may call, e.g. your knowledge base — one you tick that is switched off on this device, or not set up here, is named below the list: the agent can be saved, and its runs leave that server out until you switch it on (or set it up).
 - **Report** — an optional **Report page** each run writes to (added at the end, or replacing it). A page or database in the trash (or below a page there — that page is named) or deleted for good is never saved under **May use** or as the report page — take it out or restore it first.
 - **Engine** — **Runs where**, **Model**, **Effort** and a **Budget per run** (typed with your language's decimal mark, or a dot; “1.000” in German and “1,000” in English mean one thousand and are refused as too high): the run stops when its estimated cost goes over.
+
+An agent on the path of an open fuse says so in its **Changes** row and under its MCP servers: *On fuse F1 — show in the Patchbay* (see [Patchbay](help:patchbay)). A tool list the agent keeps without the profile's unlock links **Change in the Patchbay**.
 
 ## Tools, state and notes
 These come with an active [integration](help:integrations) that unlocks them — a profile that matches one of your MCP servers. Without one they are not offered; a tool list an agent already has stays applied.

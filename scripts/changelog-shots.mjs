@@ -8,7 +8,7 @@
  *
  * (CHANGELOG_DRAFT=1 lets the build pass while a new entry's picture does not exist yet.)
  *
- * Shots: ship-log, mcp-connections, worker-windows, safe-zip-import, regler, agent-precheck, ai-setup, ai-receipts, agent-trust, claude-tasks, flight-recorder-eject, flight-recorder-window, preflight, flight-recorder, tasks, outbox, mirror-again, glass-switches, history-compare, mcp-overview, mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
+ * Shots: patchbay, ship-log, mcp-connections, worker-windows, safe-zip-import, regler, agent-precheck, ai-setup, ai-receipts, agent-trust, claude-tasks, flight-recorder-eject, flight-recorder-window, preflight, flight-recorder, tasks, outbox, mirror-again, glass-switches, history-compare, mcp-overview, mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
  * custom-agents, gmail, help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
  * workspace in English, light theme, 1440 × 900 at device scale 2; the crop of the relevant area is scaled
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
@@ -833,7 +833,109 @@ function drawVolumeTable(t) {
 /** The tool result Claude got back for a tool_use id. */
 const toolResult = (body, id) => (body.messages ?? []).flatMap((m) => (Array.isArray(m.content) ? m.content : [])).find((c) => c.type === 'tool_result' && c.tool_use_id === id)
 
+/* ------------------------------------------------------------------ */
+/* The Patchbay's picture: mock 1 in English (tests/fixtures/patchbay.ts mock1, the same wiring)                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The workspace of the Patchbay's first mock (plan §4), plain data in English: a Mails database (this device's sync
+ * target, checkbox "Forward"); the agent "Inbox helper" (every new mail, applies directly, may use everything); the
+ * automation "To team chat" (Forward → webhook POST to chat.example); "New mail → contact" (runs the script "Create
+ * contact", which writes Contacts); the server "tracker" (tested, 7 tools), profile IN-01 declaring its 3 reads; the
+ * "Tessera mirror" (weekday 07:30, Tessera handoff, its report page "Report", proposals, the tracker's read tools);
+ * the script "Weekly report" with a button on Report; a coding pipeline whose Ship stage opens merge requests after
+ * the review gate; three of the person's own servers nothing uses (kanal, bildwerk, wiki). Fictional names, `*.example`
+ * hosts only — nothing is contacted.
+ */
+function patchbayWorld() {
+  // made an hour ago: a mirror that has not run yet is not stale (Preflight's MASTER CAUTION stays dark — not this picture's subject)
+  const made = Date.now() - 3_600_000
+  const page = (id, over = {}) => ({ id, kind: 'page', title: id, icon: null, cover: null, parentId: null, databaseId: null, properties: {}, content: null, contentRev: 0, contentOrigin: null, favorite: false, trashed: false, trashedAt: null, createdAt: 1, updatedAt: 1, order: 0, settings: {}, ...over })
+  const dbPage = (id, title) => page(id, { kind: 'database', title })
+  const prop = (id, name, type, over = {}) => ({ id, name, type, ...over })
+  const database = (id, properties, over = {}) => ({ id, properties: [prop(`${id}Title`, 'Name', 'title'), ...properties], views: [{ id: `${id}View`, name: 'Table', type: 'table' }], nextUniqueId: 1, ...over })
+  const agent = (id, name, over) => ({ id, name, instructions: `${name}: do the job.`, trigger: { type: 'manual' }, scope: { everything: false, pages: [], databases: [] }, write: 'none', output: null, mcpServers: [], runner: 'browser', model: null, effort: null, maxRunUsd: 0.5, enabled: true, createdBy: null, updatedBy: null, createdAt: made, updatedAt: made, ...over })
+  const automation = (id, name, trigger, actions) => ({ id, name, enabled: true, trigger, actions, lastRunAt: null, lastStatus: null, lastMessage: null })
+  const script = (id, name, code) => ({ id, name, code, kind: 'script', createdBy: null, updatedBy: null, createdAt: 1, updatedAt: 1 })
+  const server = (id, name, over = {}) => ({ id, name, url: `https://${name}.example/mcp`, token: '', enabled: true, prompt: '', ...over })
+  const reads = ['query_issues', 'get_issue', 'whoami']
+  const stages = [
+    { id: 'stReady', kind: 'queue', auto: true },
+    { id: 'stPlan', kind: 'plan', auto: true },
+    { id: 'stReview', kind: 'gate', auto: false, hold: true },
+    { id: 'stShip', kind: 'git', auto: true, gitAction: 'pr' },
+    { id: 'stDone', kind: 'done', auto: false },
+  ]
+  const button = { type: 'button', attrs: { id: 'btnWeekly', label: 'Weekly report', variant: 'signal', actions: [{ id: 'a1', type: 'run_script', scriptId: 'scWeekly' }] } }
+  const pages = [
+    dbPage('dbMails', 'Mails'),
+    dbPage('dbContacts', 'Contacts'),
+    dbPage('dbHandoff', 'Tessera handoff'),
+    dbPage('dbCoding', 'Coding · nordlicht'),
+    page('pgReport', { title: 'Report', content: { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Every Monday.' }] }, button] }, contentRev: 1 }),
+  ]
+  const databases = [
+    database('dbMails', [prop('pMailFwd', 'Forward', 'checkbox'), prop('pMailFrom', 'From', 'text'), prop('pMailDate', 'Date', 'date')], {
+      system: 'mails',
+      automations: [
+        automation('autToChat', 'To team chat', { type: 'property_changed', propertyId: 'pMailFwd' }, [{ type: 'webhook', url: 'https://chat.example/hook', method: 'POST', headers: { 'X-Room': 'team' } }]),
+        automation('autToContact', 'New mail → contact', { type: 'row_created' }, [{ type: 'run_script', scriptId: 'scContact' }]),
+      ],
+    }),
+    database('dbContacts', [prop('pContactSource', 'Source', 'text')]),
+    database('dbHandoff', [prop('pHandoffKey', 'Key', 'text', { key: true }), prop('pHandoffStatus', 'Status', 'text')]),
+    database('dbCoding', [prop('pCodingRepo', 'Repo', 'select', { options: [] }), prop('pCodingStage', 'Stage', 'select', { options: stages.map((st, i) => ({ id: st.id, name: ['Ready', 'Plan', 'Review', 'Ship', 'Done'][i], color: 'gray' })) })], { system: 'coding', pipeline: stages }),
+  ]
+  const agents = [
+    agent('agInbox', 'Inbox helper', { instructions: 'Read every new mail. When the team should see it, tick “Forward”.', trigger: { type: 'row_created', databaseId: 'dbMails' }, scope: { everything: true, pages: [], databases: [] }, write: 'apply', maxRunUsd: 0.2 }),
+    // saved "later": a scheduled agent never runs on a load before its own save time (the picture is of the rack at rest)
+    agent('agTessera', 'Tessera mirror', { instructions: 'Mirror the open items of tracker into Tessera handoff. New comments: notify_me with page_id = the row.', trigger: { type: 'schedule', every: 'weekday', at: '07:30', tz: 'Europe/Berlin' }, scope: { everything: false, pages: [], databases: ['dbHandoff'] }, write: 'stage', output: { pageId: 'pgReport', mode: 'append' }, mcpServers: ['tracker'], mcpTools: { tracker: [...reads] }, mirrorOf: 'dbHandoff', maxRunUsd: 0.4, updatedAt: Date.parse('2031-01-01T00:00:00Z') }),
+  ]
+  const scripts = [
+    script('scWeekly', 'Weekly report', 'let items = db(@[Tessera handoff](p:dbHandoff)).count\n@[Report](p:pgReport).append("## Week\\n{items} open items")'),
+    script('scContact', 'Create contact', 'db(@[Contacts](p:dbContacts)).add(page.current.title, Source: "Mail")'),
+  ]
+  const servers = [server('srvTracker', 'tracker', { tools: ['query_issues', 'get_issue', 'whoami', 'create_issue', 'update_issue', 'add_comment', 'post_status'], checkedAt: 1 }), server('srvKanal', 'kanal'), server('srvBildwerk', 'bildwerk'), server('srvWiki', 'wiki')]
+  const integrations = [{ schema: 'one.integration/1', id: 'in-01', name: 'IN-01', match: { name: 'tracker' }, unlocks: ['notify', 'toolAllowList'], reads: [...reads], recipes: [{ kind: 'mirror', id: 'mirror' }] }]
+  const mail = { clientId: '', from: '2026-10-01', labels: ['INBOX'], excludeSpamTrash: true, maxPerRun: 50, auto: 'interval', everyMin: 15, parentId: null, databaseId: 'dbMails', props: {}, organise: { enabled: false, categories: [], priority: false, needsReply: false, summary: false, relationDatabaseId: null }, people: { enabled: false, freemail: [] }, attachments: 'off' }
+  const byId = (list) => Object.fromEntries(list.map((x) => [x.id, x]))
+  return { pages: byId(pages), databases: byId(databases), agents: byId(agents), scripts: byId(scripts), integrations, servers, mail }
+}
+
+/** Write the world through the ?e2e store hook (one replaceAll, as the e2e fixture's seedPatchbay does). */
+const seedPatchbayWorld = (page, w) =>
+  page.evaluate((w) => {
+    const s = window.__one.workspace.getState()
+    s.replaceAll({ version: s.version, epoch: s.epoch, pages: w.pages, databases: w.databases, people: s.people, settings: { ...s.settings, mcpServers: w.servers, mail: w.mail, startPageId: null, lastPageId: null }, recent: [], functions: s.functions ?? {}, agents: w.agents, scripts: w.scripts, kit: s.kit, integrations: w.integrations, look: s.look, ai: s.ai, governor: s.governor })
+  }, w)
+
 const shots = {
+  /**
+   * The Patchbay (#/patchbay): mock 1 in English — § 01 sources (the Mails row trigger, from outside; the 07:30 clock;
+   * tracker with READ 3 · WRITE? 4 · OUT; Report's button), § 02 processing (Inbox helper, To team chat, Tessera mirror,
+   * Weekly report, the pipeline), § 03 targets with the webhook to chat.example and Whole workspace; the F1 tag on the
+   * path Mails → Inbox helper → “Forward” → To team chat → webhook, the readout (FUSE 1), the legend. The workspace is
+   * written through the ?e2e hook; no AI request is made (the scheduled agent was "saved later", so it does not run).
+   */
+  async patchbay(browser) {
+    const { ctx, page } = await freshPage(browser)
+    try {
+      await seedPatchbayWorld(page, patchbayWorld())
+      await page.evaluate(() => (window.location.hash = '#/patchbay'))
+      await page.getByTestId('patchbay-page').waitFor()
+      await page.waitForFunction(() => !!window.__onePatchbay?.buttons?.().ready, null, { timeout: 20_000 })
+      await page.evaluate(() => window.__onePatchbay.noBlink())
+      await page.getByTestId('pb-glyph').first().waitFor()
+      await page.getByTestId('pb-leader').waitFor({ state: 'attached' })
+      await page.evaluate(() => window.__one.ui.setState({ toasts: [], waitingToasts: [] }))
+      await page.waitForTimeout(800)
+      await rest(page)
+      await save(page, 'patchbay')
+    } finally {
+      await ctx.close()
+    }
+  },
+
   /**
    * The ship log (worker 1.10.0): a task with Approvals "None" ships by itself — left the Git tab (the branch and the
    * commits linked to the GitLab project), right the end of the task page with the implement note and the ship note

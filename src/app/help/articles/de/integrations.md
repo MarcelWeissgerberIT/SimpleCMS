@@ -4,7 +4,7 @@ title: Integrationen
 section: ai
 order: 14
 keywords: Integrationen, Integrationsprofil, Profil, freischalten, MCP-Server, passen, Werkzeuge, Rezept, spiegeln, importieren, exportieren, JSON, Schema, one.integration, Schlüssel, nur von Hand, upsert, Werkzeugliste, Agenten-Zustand, Notizen, integrations, profile, unlock, recipe
-related: custom-agents, mcp-servers, outbox, properties, members-roles
+related: custom-agents, mcp-servers, outbox, properties, members-roles, patchbay
 summary: Profile, die Agenten-Funktionen freischalten — Schlüssel, „Nur von Hand“, upsert_rows, Werkzeuglisten, den Agenten-Zustand, Notizen im Posteingang — und Rezepte mitbringen, solange einer deiner MCP-Server passt.
 ---
 Manche Agenten-Funktionen ergeben nur zusammen mit einem anderen Werkzeug Sinn: dessen Einträge über einen Schlüssel in eine Datenbank spiegeln, die eigenen Felder vor Agenten schützen, einen Agenten auf die lesenden Werkzeuge dieses Werkzeugs begrenzen. One baut sie für kein bestimmtes Werkzeug ein. Ein **Integrationsprofil** sagt, für welchen MCP-Server sie gelten, und schaltet sie frei, solange dieser Server da ist. Profile richtest du unter **Workspace → Integrationen** ein.
@@ -26,7 +26,9 @@ Mindestens eine Bedingung ist nötig. Die Liste zeigt je Profil eine LED und den
 - `notify` — `notify_me`: Notizen eines Agenten in deinem Posteingang.
 - `sends` — die Sendewege des Profils für den [Ausgang](help:outbox): ⌘ → „Im Ticket-Tool antworten“ an einer gespiegelten Zeile, ohne Werkzeuge entworfen, von dir gesendet.
 
-Ohne aktives Profil werden diese Schalter, Werkzeuge und Bereiche nicht angeboten. Was schon gesetzt ist, **gilt weiter**: Eine Schlüssel-Eigenschaft bleibt eindeutig, Felder „Nur von Hand“ bleiben für jeden Agenten zu (im Eigenschaftsmenü als Markierung zu sehen), und ein Agent mit Werkzeugliste behält sie.
+Ohne aktives Profil werden diese Schalter, Werkzeuge und Bereiche nicht angeboten. Was schon gesetzt ist, **gilt weiter**: Eine Schlüssel-Eigenschaft bleibt eindeutig, Felder „Nur von Hand“ bleiben für jeden Agenten zu, und ein Agent mit Werkzeugliste behält sie. Ein Feld auf „Nur von Hand“ zeigt seinen Schalter im Eigenschaftsmenü allen, damit er dort immer wieder ausgeschaltet werden kann.
+
+Die Sicherungstasten im [Schaltplan](help:patchbay) brauchen keine Freischaltung: *„Feld“ nur von Hand* und *Schreib-Werkzeuge abklemmen* nehmen nur Fähigkeiten weg. **Im Schaltplan einrichten** an einem Profil öffnet dort seine Einrichtungs-Lampen — das darf jedes Mitglied, weil es nur liest.
 
 ## Rezepte als Einstellung
 Ein Profil kann **Rezepte** mitbringen. Solange es aktiv ist, stehen sie unter **Agenten → Neuer Agent**, benannt nach dem Profil. Ein Rezept der Art `mirror` legt eine Datenbank für die Einträge eines anderen Werkzeugs an, ihre Ansichten, eine Berichtsseite und einen geplanten Agenten — alles darin sind Daten: der Name der Datenbank, ihre Eigenschaften (`role`, `name`, `type`, `options`, `key`, `onlyByHand`, `color`, `description`), ihre Ansichten (`type`, `properties`, `groupBy`, `date`, `filter`, `sort`, `colorRules`, `hiddenGroups`, `hideEmpty`) und der Agent (`name`, `schedule`, `write`, `budget`, `model`, `effort`, `tools`, `instructions`). Was ein Rezept weglässt, nimmt die Werte des eingebauten Spiegels — `{ "kind": "mirror" }` allein ist also das Rezept aus [Eigene Agenten](help:custom-agents).
