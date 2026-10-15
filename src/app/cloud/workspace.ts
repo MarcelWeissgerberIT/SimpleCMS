@@ -191,8 +191,9 @@ export async function openCloudWorkspace(ws: CloudWorkspace, user: CloudUser, on
     ...(data.ai ? { ai: data.ai } : {}),
     // the Regler: read (sanitized); written by owners / admins on a server that guards it (canGovern)
     ...(data.governor ? { governor: data.governor } : {}),
-    // the Patchbay's allowed paths: read (sanitized); written by owners / admins on a server that guards them (canSignOff)
-    ...(data.fuseSignoffs ? { fuseSignoffs: data.fuseSignoffs } : {}),
+    // the Patchbay's allowed paths: read (sanitized) only from a server that guards them — on an older one any member can
+    // write the map, `updatedBy` included (fix rest); written by owners / admins there (canSignOff)
+    ...(data.fuseSignoffs && supports('signoffs') ? { fuseSignoffs: data.fuseSignoffs } : {}),
   })
   setLookGuard(canStyle)
   // integration profiles: owners and admins, like the look (the server puts other members' changes back)
@@ -363,6 +364,7 @@ export async function openCloudWorkspace(ws: CloudWorkspace, user: CloudUser, on
       canRuleAI,
       canGovern,
       canSignOff,
+      signoffsGuarded: () => supports('signoffs'),
       isFavorite: (id) => favorites.has(id),
       onRemotePages: (r) => {
         onRemotePages(r)
@@ -399,6 +401,16 @@ export async function openCloudWorkspace(ws: CloudWorkspace, user: CloudUser, on
 
     active = { ws, user, doc, provider, privateDoc, privateProvider, binding, writable }
     startPurge(ws.id, [provider, privateProvider], writable)
+    // the allowed paths are read only where the server guards them: the server's answer may come (or change) later — an
+    // offline start, a server updated meanwhile (fix rest)
+    let signoffsGuarded = supports('signoffs')
+    useCloud.subscribe((s, p) => {
+      if (s.supports === p.supports || stopped || active?.binding !== binding) return
+      const now = supports('signoffs')
+      if (now === signoffsGuarded) return
+      signoffsGuarded = now
+      binding.rereadSignoffs()
+    })
 
     /* ---------------- status & close reasons */
 

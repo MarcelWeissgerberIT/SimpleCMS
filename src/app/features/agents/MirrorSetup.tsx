@@ -106,7 +106,7 @@ function sourceState(profile: Pick<IntegrationProfile, 'match'>, picked: McpServ
   return { state: 'mismatch', why: miss && miss.kind !== 'disabled' ? miss.kind : 'other', missing: [] }
 }
 
-export function MirrorSetup({ source, onClose, onCreated }: { source: RecipeSource; onClose: () => void; onCreated: (made: MirrorMade) => void }) {
+export function MirrorSetup({ source, initialName, onClose, onCreated }: { source: RecipeSource; initialName?: string; onClose: () => void; onCreated: (made: MirrorMade) => void }) {
   const t = useT()
   const lang = useLang()
   const uid = useId()
@@ -158,8 +158,9 @@ export function MirrorSetup({ source, onClose, onCreated }: { source: RecipeSour
   const lastSeen = useRef<McpServerConfig | null>(first ?? null)
   // the servers listed before it when it was last seen: a deleted pick keeps its place in the list
   const seenBefore = useRef<string[]>([])
-  const [name, setName] = useState(() => recipe.dbName || (first ? nameFromServer(first.name) : ''))
-  const [named, setNamed] = useState(!!recipe.dbName)
+  // the name it opens with: the one asked for (the Patchbay's lamp 04 — the database it means), else the recipe's, else the server's
+  const [name, setName] = useState(() => initialName?.trim() || recipe.dbName || (first ? nameFromServer(first.name) : ''))
+  const [named, setNamed] = useState(!!initialName?.trim() || !!recipe.dbName)
   const [parentId, setParentId] = useState<ID | null>(null)
   const [tried, setTried] = useState(false)
   const [failed, setFailed] = useState('')

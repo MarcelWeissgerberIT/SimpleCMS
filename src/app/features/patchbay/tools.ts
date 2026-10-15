@@ -2,10 +2,11 @@
  * Server tool groups (plan §1.5) — pure. Per server, in this order:
  *  - OUT    = the send tools of every profile matching it by name / host (`ServerInput.out`, outToolsOf): switched off in
  *             every toolset One builds — never a decider's way out, a third jack "OUT n · BY HAND" with no cable;
- *  - READ   = tools the name heuristic calls a read (agents/mcpTools isReadTool), plus the declared `reads` of the
- *             profiles that describe this server whose names carry NO write word (§6 A4), minus OUT;
- *  - WRITE? = everything else. A write-named tool a profile declares a read stays here, marked "declared read by <id>"
- *             — still a way out.
+ *  - READ   = tools the name heuristic calls a read (agents/mcpTools isReadTool), minus OUT; a profile's declared
+ *             `reads` only confirm such a name (no "?") — and only one with no send word either (declaredReadOk:
+ *             forward / share / notify / email / webhook … — §6 A4, fix rest);
+ *  - WRITE? = everything else. A tool a profile declares a read whose name does not read as one (a write or send word,
+ *             or no read word at all) stays here, marked "declared read by <id>" — still a way out.
  * The "?" shows only where the heuristic placed a tool. A server never tested here has no list: "READ ? · WRITE ?",
  * and a processor that attaches it without an allow-list counts it as a way out (fail closed, §1.3 / §6 A7).
  * READ tools whose names say fetch / url / http / web / browse / search may carry data out in their arguments: they
@@ -14,7 +15,7 @@
  * mcpTools.ts is imported directly (a dependency-free leaf of the agents area, like agents/saveChecks.ts): the agents
  * index loads the store, the cloud and CSS, and this module runs in Node specs.
  */
-import { isReadTool, isWriteNamed, toolWords } from '../agents/mcpTools'
+import { declaredReadOk, isReadTool, toolWords } from '../agents/mcpTools'
 import { hostOf, matchMiss, outToolsOf } from '../../store/integrations'
 import type { IntegrationProfile } from '../../store/types'
 import type { ModelInput, ModuleRef } from './types'
@@ -28,7 +29,7 @@ export interface ToolGroups {
   read: string[]
   write: string[]
   out: string[]
-  /** write-named tools a profile declared as read → the declaring profile ids (they stay WRITE?) */
+  /** tools a profile declared as read whose names do not read as one (declaredReadOk) → the declaring profile ids (they stay WRITE?) */
   declared: Record<string, string[]>
   /** a READ tool placed by the name heuristic alone (not declared by a profile) — the READ jack's "?" */
   guessedRead: boolean
@@ -67,9 +68,10 @@ export function declaringProfiles(profiles: readonly IntegrationProfile[], serve
 function classify(name: string, out: ReadonlySet<string>, declared: ReadonlyMap<string, string[]>): { group: 'read' | 'write' | 'out'; guessed: boolean; declaredBy?: string[] } {
   if (out.has(name)) return { group: 'out', guessed: false }
   const by = declared.get(name)
-  if (by && !isWriteNamed(name)) return { group: 'read', guessed: false }
-  if (by) return { group: 'write', guessed: true, declaredBy: by }
-  return isReadTool(name) ? { group: 'read', guessed: true } : { group: 'write', guessed: true }
+  // fix (rest): a declaration confirms a name that reads as a read (no write word, no send word) — it never makes one
+  if (by && declaredReadOk(name)) return { group: 'read', guessed: false }
+  if (isReadTool(name)) return { group: 'read', guessed: true }
+  return by ? { group: 'write', guessed: true, declaredBy: by } : { group: 'write', guessed: true }
 }
 
 const declaredMap = (profiles: readonly DeclaredReads[]): Map<string, string[]> => {

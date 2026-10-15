@@ -23,7 +23,7 @@ export async function arrive(ret: ReturnRecord): Promise<void> {
   if (!next) sayArrival(t('features.patchbay.setup.arrivedAll'))
   else if (left && left.state === 'ok' && left.n !== next.n) sayArrival(t('features.patchbay.setup.arrived', { done: lampNo(left.n), next: lampNo(next.n) }))
   else sayArrival(t('features.patchbay.setup.arrivedNext', { next: lampNo(next.n) }))
-  const took = next ? await focusLampKey(next) : false
+  const took = next ? await focusLampKey(next, { profile: ret.profileId }) : false
   // no lamp key shown (the band not drawn, every lamp green): the main region, never the body
   if (!took && focusLost()) focusMainRegion()
 }

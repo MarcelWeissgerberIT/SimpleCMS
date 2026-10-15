@@ -73,7 +73,8 @@ export interface RecipeSetup extends RecipeFacts {
     model?: string | null
     budgetUsd?: number | null
   }
-  runs: (NonNullable<RecipeFacts['runs']> & { running?: boolean; failed?: boolean }) | null
+  /** `unreadable` (fix rest): no list could be read (a failed request, an older server) — 06 waits on the agent page */
+  runs: (NonNullable<RecipeFacts['runs']> & { running?: boolean; failed?: boolean; unreadable?: boolean }) | null
 }
 
 export interface ProfileFacts {
@@ -198,7 +199,8 @@ export function createsOf(p: Pick<ProfileFacts, 'id'>, r: RecipeSetup, f: Pick<L
 function databaseLamp(p: ProfileFacts, r: RecipeSetup): Raw {
   const action: LampAction = { kind: 'mirrorSetup', profile: p.id, recipe: r.recipeId }
   const vars = { db: r.database.name, report: r.report.title }
-  if (r.database.id && r.database.trashed) return { ok: false, say: ref('database.trashed', vars), action }
+  // fix (rest): the setup opens on the database the lamp means — by its name now (MirrorSetup finds one in the trash by name)
+  if (r.database.id && r.database.trashed) return { ok: false, say: ref('database.trashed', vars), action: { ...action, name: r.database.name } }
   if (r.database.id) return { ok: true, say: ref(r.report.id ? 'database.ok' : 'database.okNoReport', vars), action }
   return { ok: false, say: ref('database.make', vars), action }
 }
@@ -227,6 +229,7 @@ function firstRunLamp(r: RecipeSetup): Raw {
   const review: LampAction = { kind: 'review', agent: a.id }
   const runs = r.runs
   if (!runs) return { ok: false, busy: true, say: ref('firstRun.reading'), action: review }
+  if (runs.unreadable) return { ok: false, say: ref('firstRun.unreadable', { agent: a.name }), action: review }
   if (runs.running) return { ok: false, busy: true, say: ref('firstRun.running', { agent: a.name }), action: review }
   if (runs.open > 0) return { ok: false, say: count('firstRun.review', runs.open), action: review }
   if (runs.total === 0) return { ok: false, say: ref(proposes(a.write) ? 'firstRun.start' : 'firstRun.startDirect'), action: run }

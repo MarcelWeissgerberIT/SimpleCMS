@@ -36,7 +36,7 @@ function moveOn(ctx: LampContext) {
     if (o.kind === 'closed') return
     const now = lampsNow(ctx.profileId)
     const next = now ? setOf(now.sets, ctx.recipeId)?.next : null
-    if (next) void focusLampKey(next, { from: ctx.from })
+    if (next) void focusLampKey(next, { from: ctx.from, profile: ctx.profileId })
   }
 }
 
@@ -70,7 +70,7 @@ export function runLamp(lamp: SetupLamp, ctx: LampContext): boolean {
       openIntegrations(a.profile)
       return true
     case 'mirrorSetup':
-      openMirrorSetup({ profileId: a.profile, ...(a.recipe ? { recipeId: a.recipe } : {}), from: ctx.from ?? null, after: moveOn(ctx) })
+      openMirrorSetup({ profileId: a.profile, ...(a.recipe ? { recipeId: a.recipe } : {}), ...(a.name ? { name: a.name } : {}), from: ctx.from ?? null, after: moveOn(ctx) })
       return true
     case 'agentEditor':
       openAgentEditor(a.agent, { from: ctx.from ?? null, after: moveOn(ctx) })

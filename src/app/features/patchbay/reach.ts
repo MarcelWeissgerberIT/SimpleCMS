@@ -412,11 +412,19 @@ export function readRoots(ix: ReachIndex, m: Module): ReadRoots {
     case 'bridge':
       return { ...NONE, everything: true }
     case 'automation':
-    case 'kit':
       add(r.db, 'row')
       // fix (model): a single-use script folded into the automation (§1.15) reads what its scan names
-      if (r.kind === 'automation' && m.folds?.script) for (const p of ix.scans.get(m.folds.script)?.reads ?? []) add('db' in p ? p.db : 'page' in p ? p.page : null, 'scope')
+      if (m.folds?.script) for (const p of ix.scans.get(m.folds.script)?.reads ?? []) add('db' in p ? p.db : 'page' in p ? p.page : null, 'scope')
       return { ...NONE, places }
+    case 'kit': {
+      add(r.db, 'row')
+      // fix (rest): the value code runs in query mode — it may read what its scan names, and the rows its row's
+      // relations point to (like autofill); the result lands in its field
+      const k = ix.input.kit.find((x) => x.db === r.db && x.prop === r.prop)
+      for (const p of k?.scan?.reads ?? []) add('db' in p ? p.db : 'page' in p ? p.page : null, 'scope')
+      for (const p of ix.dbs.get(r.db)?.properties ?? []) if (p.type === 'relation' && p.relationDatabaseId) add(p.relationDatabaseId, 'related')
+      return { ...NONE, places }
+    }
     case 'pipeline':
       // fix (model): the worker reads the task row (the task's page and fields go to Claude Code)
       add(r.db, 'row')

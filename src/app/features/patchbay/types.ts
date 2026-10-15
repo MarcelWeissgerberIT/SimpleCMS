@@ -414,7 +414,8 @@ export type LampAction =
   | { kind: 'mcpSettings'; server?: ID; add?: true }
   | { kind: 'mcpTest'; server: ID }
   | { kind: 'integrations'; profile: string }
-  | { kind: 'mirrorSetup'; profile: string; recipe?: string }
+  /** `name` (fix rest): the database the lamp means, by its name now — MirrorSetup opens on it (a renamed one in the trash: Restore · Open) */
+  | { kind: 'mirrorSetup'; profile: string; recipe?: string; name?: string }
   | { kind: 'agentEditor'; agent: ID }
   | { kind: 'runAgent'; agent: ID }
   | { kind: 'review'; agent: ID }
@@ -649,6 +650,20 @@ export interface KitInput {
   /** digest of the value code (never the code) */
   code: string
   trusted: boolean | null
+  /**
+   * fix (rest): what the value code reads beyond its own row (its scan, ids only — a value script runs in query mode
+   * and can read any database or page; its result lands in this field). Absent / null: not scanned here nor in the lazy
+   * cache — an unknown part on the relay where it is drawn.
+   */
+  scan?: KitScan | null
+}
+
+/** fix (rest): a kit value code's reach (scripts.ts scanKitCode) — ids only, cached by the code's digest. */
+export interface KitScan {
+  /** the places it names (`@[…](p:<id>)`, also the ones a write member is called on: query mode refuses the write, never the read) */
+  reads: Place[]
+  /** refs by name (not by id) — what it reads is not known here */
+  byName: boolean
 }
 
 /** One of this device's MCP servers (readServers) with its tool facts. */
@@ -795,6 +810,8 @@ export interface LazyCache {
   runtime: RuntimeServerInput[] | null
   /** fix (model): team API tokens (id + write scope) — absent / null: not read */
   tokens?: TokenInput[] | null
+  /** fix (rest): kit value codes' scans by the code's digest (absent: none kept yet) */
+  kits?: Record<string, KitScan>
   inbox: ID | null
   /** B4: the Inbox lookup ran (`inbox` null then means "none", not "not read") */
   inboxRead?: boolean

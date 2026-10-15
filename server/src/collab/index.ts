@@ -122,7 +122,16 @@ export function createCollab(deps: { config: Config; log: Logger; repo: Repo; se
         // the governor (budgets, lever, ceiling, saving rules): the same (docs/CLOUD.md § Meta document schema → workspace.governor)
         document.on('destroy', guardWorkspaceGovernor(document, { workspaceId: doc.workspaceId, log, roleOf: (userId) => repo.memberRole(doc.workspaceId, userId) }))
         // the Patchbay's allowed paths: every key the same (docs/CLOUD.md § Meta document schema → fuseSignoffs)
-        document.on('destroy', guardFuseSignoffs(document, { workspaceId: doc.workspaceId, log, roleOf: (userId) => repo.memberRole(doc.workspaceId, userId) }))
+        // (the first load under the guard drops what an older, unguarded server let anyone write — repo's marker)
+        document.on(
+          'destroy',
+          guardFuseSignoffs(document, {
+            workspaceId: doc.workspaceId,
+            log,
+            roleOf: (userId) => repo.memberRole(doc.workspaceId, userId),
+            first: { done: () => repo.signoffsGuarded(doc.workspaceId), mark: () => repo.markSignoffsGuarded(doc.workspaceId) },
+          }),
+        )
       }
     },
 

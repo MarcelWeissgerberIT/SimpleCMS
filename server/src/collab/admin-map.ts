@@ -21,9 +21,16 @@
  *    waiting (and the sender). Not allowed → the value is put back — the admin's new value when it was theirs —
  *    and the waiting deletes are dropped (they would hit the put-back again).
  *
- * Every reader sanitizes the values (the app's store/look.ts, store/integrations.ts; the server's
- * agents/integrations.ts); the guard does not judge them. Its own writes are left alone; corrections are never
- * corrected again (no loop).
+ * Values are plain JSON. A nested Yjs type (a Y.Map / Y.Array / Y.Text … or a sub-document) under a guarded key would
+ * escape both the stamp and a shallow observer — a member could re-point it from inside (fix rest):
+ *  - an owner's or admin's nested value is replaced by its plain JSON copy, stamped like any accepted change;
+ *  - anyone else's is put back like any change of theirs (a nested value before it is never put back: no key);
+ *  - a change INSIDE a nested value (observeDeep) counts as a change of its key by the writer: an owner's or admin's
+ *    flattens it (stamped), anyone else's removes the key (a nested value is no reader's value anyway).
+ *
+ * Every reader sanitizes the values (the app's store/look.ts, store/integrations.ts, cloud/binding.ts readSignoffs —
+ * which skips a nested type; the server's agents/integrations.ts); the guard does not judge them. Its own writes are
+ * left alone; corrections are never corrected again (no loop).
  */
 import { isTransactionOrigin, type LocalTransactionOrigin } from '@hocuspocus/server'
 import * as Y from 'yjs'
@@ -53,6 +60,20 @@ function writerOf(origin: unknown): Writer | null {
 }
 
 const admin = (role: unknown) => role === 'owner' || role === 'admin'
+
+/** A nested Yjs value (a shared type or a sub-document) — never a guarded key's value as written (fix rest). */
+const isNested = (v: unknown): boolean => v instanceof Y.AbstractType || v instanceof Y.Doc
+
+/** A nested value as plain JSON (undefined: not representable — a sub-document, a cycle). */
+function plainOf(v: unknown): unknown {
+  if (v instanceof Y.Doc) return undefined
+  if (!(v instanceof Y.AbstractType)) return v
+  try {
+    return JSON.parse(JSON.stringify(v.toJSON())) as unknown
+  } catch {
+    return undefined
+  }
+}
 
 type Struct = { id: Y.ID; length: number }
 type DeleteRanges = Map<number, Array<{ clock: number; len: number }>>
@@ -167,6 +188,12 @@ export function guardAdminKeys(doc: Y.Doc, opts: AdminKeysOptions): () => void {
         }
         if (removed) continue
         const value = map.get(key)
+        // fix (rest): a nested type would escape the stamp and the shallow observer — the plain copy, stamped
+        if (isNested(value)) {
+          fixes.push({ key, value: stamped(value, writers) })
+          log.warn(`${what} written as a nested type: kept as plain JSON`, { workspace: workspaceId, key: key.slice(0, 64) })
+          continue
+        }
         if (!isJsonObject(value)) continue
         const writer = writers.length === 1 ? writers[0]!.userId : UNVERIFIED
         if (value.updatedBy === writer) continue
@@ -189,11 +216,63 @@ export function guardAdminKeys(doc: Y.Doc, opts: AdminKeysOptions): () => void {
     }, origin)
   }
 
+  /**
+   * fix (rest): a change inside a nested value under a guarded key (left there from before this guard — the guard
+   * flattens every nested value it accepts): an owner's or admin's flattens it (stamped); anyone else's removes the key.
+   */
+  const onInner = (keys: Set<string>, tr: Y.Transaction) => {
+    const sender = writerOf(tr.origin)
+    const waiting = pendingAtStart.has(tr) || pendingDsAtStart.has(tr)
+    if (!sender && !waiting) return
+    const writers: Writer[] = [...(sender ? [sender] : []), ...(pendingAtStart.has(tr) ? pendingFrom.values() : []), ...(pendingDsAtStart.has(tr) ? pendingDsFrom.values() : [])]
+    if (!writers.length) writers.push(UNKNOWN)
+    const allowed = writers.every(mayWrite)
+    const fixes: Array<{ key: string; value: unknown }> = []
+    for (const key of keys) {
+      const value = map.get(key)
+      if (!isNested(value)) continue
+      fixes.push({ key, value: allowed ? stamped(value, writers) : undefined })
+      if (allowed) log.debug(`${what} changed inside a nested type: kept as plain JSON`, { workspace: workspaceId, key: key.slice(0, 64) })
+      else log.warn(`${what} change inside a nested type: removed (only owners and admins change it)`, { workspace: workspaceId, key: key.slice(0, 64), by: writers.map((w) => w.userId.slice(0, 64)).join(',') })
+    }
+    if (!fixes.length) return
+    doc.transact(() => {
+      for (const { key, value } of fixes) {
+        if (value === undefined) map.delete(key)
+        else map.set(key, value)
+      }
+    }, origin)
+  }
+
+  const onDeep = (events: Array<Y.YEvent<Y.AbstractType<unknown>>>, tr: Y.Transaction) => {
+    if (tr.origin === origin) return
+    let top: Y.YMapEvent<unknown> | null = null
+    const inner = new Set<string>()
+    for (const e of events) {
+      if (e.target === map) top = e as Y.YMapEvent<unknown>
+      else {
+        const k = e.path[0]
+        if (typeof k === 'string' && guarded(k)) inner.add(k)
+      }
+    }
+    if (top) {
+      for (const k of top.keysChanged) inner.delete(k)
+      onMap(top, tr)
+    }
+    if (inner.size) {
+      try {
+        onInner(inner, tr)
+      } catch (err) {
+        log.error(`${what} guard failed`, { workspace: workspaceId, error: err as Error })
+      }
+    }
+  }
+
   doc.on('beforeTransaction', beforeTx)
   doc.on('afterTransaction', afterTx)
-  map.observe(onMap)
+  map.observeDeep(onDeep)
   return () => {
-    map.unobserve(onMap)
+    map.unobserveDeep(onDeep)
     doc.off('beforeTransaction', beforeTx)
     doc.off('afterTransaction', afterTx)
   }
@@ -201,11 +280,16 @@ export function guardAdminKeys(doc: Y.Doc, opts: AdminKeysOptions): () => void {
 
 /**
  * The value the key held before the transaction (undefined: none) — what Yjs' `changes.keys` reports as `oldValue`, also
- * for a key added and taken away in the same transaction.
+ * for a key added and taken away in the same transaction. A nested type is never put back (no key): it is no reader's
+ * value, and its plain copy would make one of what someone planted (fix rest).
  */
 function valueBefore(event: Y.YMapEvent<unknown>, item: Y.Item): unknown {
   // there before (taken away in this transaction, or not at all)
-  if (!event.adds(item)) return lastOf(item)
+  const before = !event.adds(item) ? lastOf(item) : beforeOf(event, item)
+  return isNested(before) ? undefined : before
+}
+
+function beforeOf(event: Y.YMapEvent<unknown>, item: Y.Item): unknown {
   let prev = item.left
   while (prev !== null && event.adds(prev)) prev = prev.left
   return prev !== null && event.deletes(prev) ? lastOf(prev) : undefined
@@ -217,8 +301,9 @@ function lastOf(item: Y.Item): unknown {
   return content[content.length - 1]
 }
 
-/** `updatedBy` = the one writer (or unverified), as for an accepted change. */
+/** `updatedBy` = the one writer (or unverified), as for an accepted change — a nested value as its plain copy. */
 function stamped(value: unknown, writers: Writer[]): unknown {
-  if (!isJsonObject(value)) return value
-  return { ...value, updatedBy: writers.length === 1 ? writers[0]!.userId : UNVERIFIED }
+  const plain = plainOf(value)
+  if (!isJsonObject(plain)) return plain
+  return { ...plain, updatedBy: writers.length === 1 ? writers[0]!.userId : UNVERIFIED }
 }

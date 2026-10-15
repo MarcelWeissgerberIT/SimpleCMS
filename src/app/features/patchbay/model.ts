@@ -695,6 +695,10 @@ function kits(c: Ctx): void {
     if (!(c.listens.get(`${k.db}:*`) ?? []).some((l) => l.module === key)) continue
     const m = mod(c, { kind: 'kit', db: k.db, prop: k.prop, type: k.type }, { to: 'route', route: { name: 'kit', tab: 'types', id: k.type } })
     writeDb(c, { m, kind: 'kit' }, 'writes', k.db, k.prop, {})
+    // fix (rest): the value code may read any database or page (query mode) — what it reads is its scan; not scanned
+    // here (nor in the lazy cache) or naming places by name: an unknown part, as for a script
+    if (!k.scan) unknownPart(c, 'lazy', m.key)
+    else if (k.scan.byName) unknownPart(c, 'byName', m.key)
   }
 }
 

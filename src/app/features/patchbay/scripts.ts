@@ -14,7 +14,7 @@
  *    `claude`, `http`, `trash`.
  */
 import type { ID, OneScript } from '../../store/types'
-import type { Place, ScriptScan } from './types'
+import type { KitScan, Place, ScriptScan } from './types'
 
 /** The part of One Script's syntax tree the scan reads (lang/ast.ts; kept structural so this file imports no area). */
 type N = { type: string; [k: string]: unknown }
@@ -168,6 +168,22 @@ export function scanScript(script: Pick<OneScript, 'code' | 'updatedAt'>, engine
     byName,
     ...(context ? { context: true } : {}),
   }
+}
+
+/**
+ * fix (rest): a kit value code's reach (null: it does not parse — nothing is known). A value script runs in query mode
+ * (features/kit recompute.ts): writes are refused, never the read — every place it names is a read, also one a write
+ * member is called on; `page` / `row` are its own row.
+ */
+export function scanKitCode(code: string, engine: ScanEngine): KitScan | null {
+  const scan = scanScript({ code, updatedAt: 0 }, engine)
+  if (!scan) return null
+  const reads = new Map<string, Place>()
+  for (const p of [...scan.reads, ...scan.writes]) {
+    const id = 'db' in p ? p.db : 'page' in p ? p.page : null
+    if (id && !reads.has(id)) reads.set(id, { page: id })
+  }
+  return { reads: [...reads.values()], byName: scan.byName }
 }
 
 /** A memory cache of scans by `id + updatedAt` (the lazy cache in IndexedDB keeps the same records — B4). */

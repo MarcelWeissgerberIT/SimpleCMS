@@ -9,6 +9,8 @@
  *    keyboard back to the next lamp's key with the polite message "02 done · 04 next";
  *  - lamp 03 (a quiet link) opens Workspace › Integrations at that profile, its first key focused; coming back by
  *    Back is an arrival too; × on the chip closes the way back without leaving the keyboard on the body.
+ *  - fix (rest): lamp 04 opens the setup on the database it means (a renamed one in the trash: Restore · Open); 06 of
+ *    runs that cannot be read says so; the way back arrives only at its own profile's setup (`data-pb-profile`).
  * The lamps' own UI is B12's: here the lamp keys are stand-ins carrying the lamps' DOM contract (`data-pb-lamp`,
  * `data-pb-recipe`, setup/focus.ts) whose press runs the real lamp action (setup/act.ts through the DEV / ?e2e seam
  * `window.__onePatchbaySetup`). No AI request is sent; every server and name is fictional (tracker, *.example.com).
@@ -31,25 +33,27 @@ const sayOf = (page: Page, n: number) => setup(page, async (s, n) => (await s.la
  * Stand-ins for the lamp keys (B12 draws the real ones): buttons outside the app root carrying the lamps' DOM contract;
  * a press runs that lamp's action with the key as `from` — exactly what the band's keys do.
  */
-async function lampKeys(page: Page): Promise<void> {
-  await page.evaluate(() => {
-    document.getElementById('pb-stand-ins')?.remove()
+async function lampKeys(page: Page, profile = 'tracker'): Promise<void> {
+  await page.evaluate((profile) => {
+    const id = profile === 'tracker' ? 'pb-stand-ins' : `pb-stand-ins-${profile}`
+    document.getElementById(id)?.remove()
     const box = document.createElement('div')
-    box.id = 'pb-stand-ins'
-    box.style.cssText = 'position:fixed;left:8px;bottom:56px;z-index:2;display:flex;gap:4px'
+    box.id = id
+    box.style.cssText = `position:fixed;left:8px;bottom:${profile === 'tracker' ? 56 : 96}px;z-index:2;display:flex;gap:4px`
     for (let n = 0; n <= 6; n++) {
       const b = document.createElement('button')
       b.type = 'button'
-      b.textContent = `Lamp ${n}`
+      b.textContent = `${profile} ${n}`
       b.dataset.pbLamp = String(n)
+      b.dataset.pbProfile = profile
       if (n >= 4) b.dataset.pbRecipe = 'mirror'
-      b.addEventListener('click', () => void (window as unknown as { __onePatchbaySetup: AnyState }).__onePatchbaySetup.act('tracker', 'mirror', n, `[data-pb-lamp="${n}"]`))
+      b.addEventListener('click', () => void (window as unknown as { __onePatchbaySetup: AnyState }).__onePatchbaySetup.act(profile, 'mirror', n, `#${id} [data-pb-lamp="${n}"]`))
       box.append(b)
     }
     document.body.append(box)
-  })
+  }, profile)
 }
-const lampKey = (page: Page, n: number) => page.locator(`#pb-stand-ins [data-pb-lamp="${n}"]`)
+const lampKey = (page: Page, n: number, profile = 'tracker') => page.locator(`#${profile === 'tracker' ? 'pb-stand-ins' : `pb-stand-ins-${profile}`} [data-pb-lamp="${n}"]`)
 
 async function press(page: Page, n: number): Promise<void> {
   await lampKey(page, n).focus()
@@ -224,6 +228,82 @@ test.describe('Patchbay setup — the way back (return chip)', () => {
     await onPatchbay(page)
     await page.waitForTimeout(400)
     await expect(lampKey(page, 4)).not.toBeFocused()
+  })
+})
+
+test.describe('Patchbay setup — fix (rest)', () => {
+  test('lamp 04 of a renamed mirror database in the trash opens the setup on it: Restore and Open, never a second database', async ({ page }) => {
+    await arrange(page)
+    await expect.poll(() => states(page)).toBe('ok ok ok ok next dark dark')
+    const mirror = page.locator('.agx-mir')
+    await press(page, 4)
+    await mirror.getByRole('button', { name: 'Create database and agent' }).click()
+    await expect(mirror).toHaveCount(0)
+    await expect(lampKey(page, 5)).toBeFocused()
+    const kept = (await setup(page, (s) => s.kept('tracker', 'mirror')))!
+    await page.keyboard.press('Enter')
+    const editor = page.locator('.agx-editor')
+    await editor.getByRole('switch', { name: 'Active' }).click()
+    await editor.getByRole('button', { name: 'Create agent', exact: true }).click()
+    await expect(editor).toHaveCount(0)
+    await expect.poll(() => states(page)).toBe('ok ok ok ok ok ok next')
+
+    // renamed, then to the trash: lamp 04 names it by its name now
+    await wsEval(page, (s, id) => s.updatePage(id, { title: 'Tickets' }), kept.dbId)
+    await wsEval(page, (s, id) => s.trashPage(id), kept.dbId)
+    await expect.poll(() => sayOf(page, 4)).toBe('features.patchbay.lamp.database.trashed')
+    await press(page, 4)
+    await expect(mirror).toBeVisible()
+    await expect(mirror.getByRole('button', { name: /^Restore/ })).toBeVisible()
+    await expect(mirror.getByRole('button', { name: /^Open/ })).toBeVisible()
+    // Create waits (a second database of that agent is never made from here)
+    await expect(mirror.getByRole('button', { name: 'Create database and agent' })).toBeDisabled()
+    // Restore brings it back: 04 is green again, nothing new was made
+    await mirror.getByRole('button', { name: /^Restore/ }).click()
+    await expect.poll(() => wsEval(page, (s, id) => !!s.pages[id]?.trashed, kept.dbId)).toBe(false)
+    await page.keyboard.press('Escape')
+    await expect(mirror).toHaveCount(0)
+    await expect.poll(() => sayOf(page, 4)).toBe('features.patchbay.lamp.database.ok')
+    expect(await wsEval(page, (s) => (Object.values(s.pages) as AnyState[]).filter((p) => p.kind === 'database' && !p.trashed && /Tracker|Tickets/.test(p.title)).length)).toBe(1)
+  })
+
+  test('lamp 06 of a server agent in a local workspace: its runs cannot be read here — said, never busy for good', async ({ page }) => {
+    await arrange(page)
+    const dbId = await wsEval(page, (s) => s.createDatabase({ title: 'Tracker' }) as string)
+    await wsEval(page, (s, a) => s.upsertAgent(a), {
+      id: 'agMirror', name: 'Tracker mirror', instructions: 'x', trigger: { type: 'manual' }, scope: { everything: false, pages: [], databases: [dbId] }, write: 'stage', output: null,
+      mcpServers: ['tracker'], runner: 'server', model: null, effort: null, maxRunUsd: 0.5, enabled: false, createdBy: null, updatedBy: null, createdAt: 1, updatedAt: 1, mirrorOf: dbId,
+    })
+    await expect.poll(() => sayOf(page, 6)).toBe('features.patchbay.lamp.firstRun.unreadable')
+    expect(await setup(page, async (s) => (await s.lamps('tracker')).sets[0].lamps[6].state)).not.toBe('busy')
+  })
+
+  test('the way back arrives only at its own setup: another profile’s setup keeps it and never takes the keyboard', async ({ page }) => {
+    await arrange(page, UNTESTED)
+    expect(await addProfile(page, trackerProfile({ id: 'other', name: 'Other', match: { name: 'other' } }))).toBe(true)
+    await expect.poll(() => states(page)).toBe('ok ok next ok dark dark dark')
+    await press(page, 2)
+    await expect(page).toHaveURL(/#\/mcp$/)
+    await expect(page.getByTestId('pb-return-key')).toBeVisible()
+
+    // another profile's setup (e.g. "Set up in the Patchbay" on its row): no arrival — the way back stays
+    await page.evaluate(() => (window.location.hash = '#/patchbay?setup=other'))
+    await expect(page).toHaveURL(/#\/patchbay\?setup=other$/)
+    await lampKeys(page, 'other')
+    await page.waitForTimeout(800)
+    await expect(page.getByTestId('pb-return-live')).toHaveText('')
+    // no lamp key of either band took the keyboard
+    expect(await page.evaluate(() => !!document.activeElement?.closest('[data-pb-lamp]'))).toBe(false)
+    expect(await setup(page, (s) => s.ret())).toMatchObject({ profileId: 'tracker', next: 'test', away: true })
+    await expect(page.getByTestId('pb-return-key')).toBeVisible()
+
+    // its own setup: the arrival — tracker's lamp 02 (still next) has the keyboard, the way back is gone
+    await page.evaluate(() => document.getElementById('pb-stand-ins-other')?.remove())
+    await page.evaluate(() => (window.location.hash = '#/patchbay?setup=tracker'))
+    await onPatchbay(page)
+    await expect(lampKey(page, 2)).toBeFocused()
+    await expect(page.getByTestId('pb-return-live')).toHaveText('02 next')
+    expect(await setup(page, (s) => s.ret())).toBeNull()
   })
 })
 

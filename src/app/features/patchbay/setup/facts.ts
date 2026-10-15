@@ -98,7 +98,8 @@ function start(): void {
   })
   useAgentRuns.subscribe(bump)
   useServerAgents.subscribe((s, p) => {
-    if (s.runs !== p.runs) bump()
+    // a read that ended without a list (error, an older server) or a workspace switch counts too (fix rest)
+    if (s.runs !== p.runs || s.runsState !== p.runsState || s.ws !== p.ws) bump()
   })
   onRefusedChanged(bump)
   onKeptDrafts(bump)
@@ -154,17 +155,41 @@ function serverFacts(s: McpServerConfig, now: number): ServerFacts {
   }
 }
 
-const requested = new Set<string>()
+/**
+ * The run reads this tab asked for, by `<workspace>:<runner>:<agent>` (a workspace switch reads again): `busy` while one
+ * is on its way, else when the last one ended without a list (a failed request, an older server, a server agent in a
+ * local workspace). A failed read is tried again on a later change that counts — never on the change its own failure
+ * made (RETRY_MS), never for an older server (it will not learn the endpoint in this tab).
+ */
+const reads = new Map<string, { busy: boolean; at: number }>()
+const RETRY_MS = 1000
 
-/** This device's runs of a saved agent (its server runs for a server agent): null = not read yet (read now, once). */
+/** No list could be read: lamp 06 says so (not busy) and its key opens the agent page, which reads and polls. */
+const UNREADABLE = { total: 0, open: 0, unreadable: true } as const
+
+const runsListOf = (a: CustomAgent): AgentRun[] | undefined => (a.runner === 'server' ? useServerAgents.getState().runs[a.id] : useAgentRuns.getState().byAgent[a.id])
+
+/** This device's runs of a saved agent (its server runs for a server agent): null = being read (read now). */
 function runsOf(a: CustomAgent): RecipeSetup['runs'] {
-  const list: AgentRun[] | undefined = a.runner === 'server' ? useServerAgents.getState().runs[a.id] : useAgentRuns.getState().byAgent[a.id]
+  const list = runsListOf(a)
   if (!list) {
-    const key = `${a.runner}:${a.id}`
-    if (!requested.has(key)) {
-      requested.add(key)
-      void (a.runner === 'server' ? loadServerRuns(a.id) : loadAgentRuns(a.id)).catch(() => requested.delete(key))
-    }
+    const active = useCloud.getState().active
+    const team = active.kind === 'cloud'
+    // a server agent outside a team workspace has no server runs to read
+    if (a.runner === 'server' && !team) return UNREADABLE
+    if (a.runner === 'server' && useServerAgents.getState().runsState[a.id] === 'unsupported') return UNREADABLE
+    const key = `${team ? active.id : 'local'}:${a.runner}:${a.id}`
+    const r = reads.get(key)
+    if (r?.busy) return null
+    if (r && Date.now() - r.at < RETRY_MS) return UNREADABLE
+    reads.set(key, { busy: true, at: Date.now() })
+    void (a.runner === 'server' ? loadServerRuns(a.id) : loadAgentRuns(a.id))
+      .catch(() => {})
+      .finally(() => {
+        if (runsListOf(a)) reads.delete(key)
+        else reads.set(key, { busy: false, at: Date.now() })
+        bump()
+      })
     return null
   }
   // a skip and a start the Regler held before it began are no runs; a run it stopped keeps its proposals

@@ -72,6 +72,7 @@ function MirrorSetupDialog({ request }: { request: Extract<AgentDialogRequest, {
   return (
     <MirrorSetup
       source={source}
+      {...(req.name ? { initialName: req.name } : {})}
       onClose={() => finish(seq, req, { kind: 'closed' })}
       onCreated={(made) => {
         // the draft waits for lamp 05 (the editor), in this tab

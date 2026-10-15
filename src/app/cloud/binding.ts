@@ -155,11 +155,14 @@ function readIntegrations(source: Y.Map<unknown>, cur: IntegrationProfile[] | un
 /**
  * The Patchbay's allowed paths from the meta document: every entry read by the store's reader (store/fuseSignoffs.ts —
  * keys that are no path key never even reach it); `cur` itself when nothing changed, undefined when there are none.
+ * Only plain JSON is an allowance (fix rest): a nested Yjs type would turn into one through its toJSON while the server's
+ * stamp and observer never judged it — skipped. The caller reads the map only where the server guards it.
  */
 function readSignoffs(source: Y.Map<unknown>, cur: Record<string, FuseSignoff> | undefined): Record<string, FuseSignoff> | undefined {
   const raw: Record<string, unknown> = {}
   for (const [key, v] of source.entries()) {
     if (!isPathKey(key)) continue
+    if (v instanceof Y.AbstractType || v instanceof Y.Doc) continue
     // a copy: the store freezes what it holds, never the document's own values
     try {
       raw[key] = JSON.parse(JSON.stringify(v ?? null))
@@ -271,6 +274,11 @@ export interface BindingOptions {
   canGovern: () => boolean
   /** the Patchbay's allowed paths (Workspace.fuseSignoffs): owners and admins on a server that guards them (`supports ∋ 'signoffs'`) */
   canSignOff: () => boolean
+  /**
+   * fix (rest): does the server guard the allowed paths (`supports ∋ 'signoffs'`)? Only then is the map read at all — on
+   * an older server any member can write it, `updatedBy` forged included: its entries never reach the store.
+   */
+  signoffsGuarded: () => boolean
   isFavorite: (id: ID) => boolean
   /**
    * Remote changes: pages that appeared, pages whose updatedAt moved, pages that are gone, pages that
@@ -339,6 +347,8 @@ export interface Binding {
   stop: () => void
   /** Rebuild everything from Y (viewer revert, after a role change). */
   resync: () => void
+  /** fix (rest): read the allowed paths again (the server's `supports` changed: guarded now, or no longer) */
+  rereadSignoffs: () => void
 }
 
 export function startBinding(o: BindingOptions): Binding {
@@ -528,7 +538,7 @@ export function startBinding(o: BindingOptions): Binding {
       dirtyIntegrations = false
     }
     if (dirtySignoffs) {
-      const signoffs = readSignoffs(signoffsMap, s.fuseSignoffs)
+      const signoffs = o.signoffsGuarded() ? readSignoffs(signoffsMap, s.fuseSignoffs) : undefined
       if (signoffs !== s.fuseSignoffs) patch.fuseSignoffs = signoffs ?? null
       dirtySignoffs = false
     }
@@ -630,7 +640,7 @@ export function startBinding(o: BindingOptions): Binding {
     }
     // the Patchbay's allowed paths likewise (owners and admins on a server that guards them): the team's come back from Y
     if (signoffsChanged && o.writable() && !o.canSignOff()) {
-      queueMicrotask(() => withWriter(SYSTEM('refused'), () => applyFromCloud(() => useWorkspace.getState().cloudPatch({ fuseSignoffs: readSignoffs(signoffsMap, undefined) ?? null }))))
+      queueMicrotask(() => withWriter(SYSTEM('refused'), () => applyFromCloud(() => useWorkspace.getState().cloudPatch({ fuseSignoffs: (o.signoffsGuarded() ? readSignoffs(signoffsMap, undefined) : undefined) ?? null }))))
     }
 
     if (!o.writable()) {
@@ -862,12 +872,23 @@ export function startBinding(o: BindingOptions): Binding {
       o.privateDoc?.off('afterTransaction', afterTx)
     },
     resync: () => applyRemote(true),
+    rereadSignoffs: () => {
+      dirtySignoffs = true
+      try {
+        applyRemote()
+      } catch (e) {
+        console.error('[one] could not read the allowed paths of the cloud workspace', e)
+      }
+    },
   }
 }
 
 /* ------------------------------------------------------------------ hydration */
 
-/** Build the store's workspace parts from the meta document (+ this member's private one) at boot. */
+/**
+ * Build the store's workspace parts from the meta document (+ this member's private one) at boot. `fuseSignoffs` is read
+ * as the document has it — the caller takes it only where the server guards the map (fix rest).
+ */
 export function readAll(
   doc: Y.Doc,
   privateDoc: Y.Doc | null,

@@ -242,7 +242,8 @@ test.describe('setup lamps — lampsOf (§1.11)', () => {
     wellFormed(trashed)
     expect(states(trashed)).toBe('ok ok ok ok next ok dark')
     expect(lamp(trashed, 4).say).toEqual({ key: 'features.patchbay.lamp.database.trashed', vars: { db: 'Tessera Handoff', report: 'Bericht' } })
-    expect(lamp(trashed, 4).action).toEqual({ kind: 'mirrorSetup', profile: 'in-01', recipe: 'mirror' })
+    // fix (rest): the setup opens on that database — by its name now (a renamed one is found in the trash too)
+    expect(lamp(trashed, 4).action).toEqual({ kind: 'mirrorSetup', profile: 'in-01', recipe: 'mirror', name: 'Tessera Handoff' })
     expect(keyLabel(lamp(trashed, 4))).toEqual({ key: 'features.patchbay.setup.key.databaseOpen' })
     // a database in the trash is a ghost again on the rack
     expect(lamp(trashed, 4).creates).toEqual([ghostKey('in-01', 'mirror', 'database')])
@@ -272,7 +273,7 @@ test.describe('setup lamps — lampsOf (§1.11)', () => {
     expect(lamp(saved, 5).creates).toBeUndefined()
   })
 
-  test('06: runs not read yet (busy), none (run by hand), running, proposals open (review), failed, all decided (green)', () => {
+  test('06: runs not read yet (busy), none (run by hand), not readable (next), running, proposals open (review), failed, all decided (green)', () => {
     const reading = one(profile({ recipes: [madeAll(null)] }), facts())
     wellFormed(reading)
     expect(states(reading)).toBe('ok ok ok ok ok ok busy')
@@ -298,6 +299,13 @@ test.describe('setup lamps — lampsOf (§1.11)', () => {
     expect(lamp(staged, 6).action).toEqual({ kind: 'review', agent: 'agTessera' })
     expect(keyLabel(lamp(staged, 6))).toEqual({ key: 'features.patchbay.setup.key.review' })
     expect(lamp(one(profile({ recipes: [madeAll({ total: 1, open: 1 })] }), facts()), 6).say.key).toBe('features.patchbay.lamp.firstRun.review.one')
+
+    // fix (rest): no list could be read (a failed request, an older server) — next, never busy; the key opens the agent
+    const unreadable = one(profile({ recipes: [madeAll({ total: 0, open: 0, unreadable: true })] }), facts())
+    wellFormed(unreadable)
+    expect(states(unreadable)).toBe('ok ok ok ok ok ok next')
+    expect(lamp(unreadable, 6).say).toEqual({ key: 'features.patchbay.lamp.firstRun.unreadable', vars: { agent: 'Tessera-Spiegel' } })
+    expect(lamp(unreadable, 6).action).toEqual({ kind: 'review', agent: 'agTessera' })
 
     const failed = one(profile({ recipes: [madeAll({ total: 1, open: 0, failed: true })] }), facts())
     expect(lamp(failed, 6).state).toBe('next')
@@ -455,7 +463,7 @@ test.describe('words — every sentence and key label a lamp can show exists in 
       { active: false, reason: 'untested', server: 'tracker' },
       { active: false, reason: 'tools', server: 'tracker', missing: ['x'] },
     ]
-    const runs: RecipeSetup['runs'][] = [null, { total: 0, open: 0 }, { total: 1, open: 1 }, { total: 2, open: 3 }, { total: 1, open: 0, running: true }, { total: 1, open: 0, failed: true }, { total: 1, open: 0 }, { total: 2, open: 0 }]
+    const runs: RecipeSetup['runs'][] = [null, { total: 0, open: 0 }, { total: 0, open: 0, unreadable: true }, { total: 1, open: 1 }, { total: 2, open: 3 }, { total: 1, open: 0, running: true }, { total: 1, open: 0, failed: true }, { total: 1, open: 0 }, { total: 2, open: 0 }]
     const recipes: RecipeSetup[][] = [
       [],
       [recipe()],

@@ -23,6 +23,8 @@ export interface MirrorSetupRequest {
   profileId: string
   /** the recipe (none: the profile's first) */
   recipeId?: string
+  /** the database's name the setup opens with (the Patchbay's lamp 04 names a renamed one in the trash: Restore · Open) */
+  name?: string
   /** where focus goes back to when the dialog closes (default: what has focus now) */
   from?: HTMLElement | null
   /** after the dialog closed and gave focus back (the Patchbay moves it on to the next lamp's key) */

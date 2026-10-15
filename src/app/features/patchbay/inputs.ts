@@ -6,7 +6,8 @@
  *  - readInput(): the model input now — the same object while the wiring did not change (the memo); called after first
  *    paint, in idle (B8) and by the page (B6) — never at boot.
  *  - openInputs(): the route opened — read the expensive inputs once, in idle: the lazy cache (IndexedDB
- *    `one-patchbay`, `<scope>|lazy`), the script scan (the engine's chunk), the server-agent runtime (team), the team's
+ *    `one-patchbay`, `<scope>|lazy`), the script scan and the kit value codes' scan (the engine's chunk), the
+ *    server-agent runtime (team), the team's
  *    incoming webhooks and API tokens (owners / admins; a member reads 'forbidden'), the capture Inbox (one id-prefix lookup), the
  *    button index (idle slices, then kept up to date per page). Each reading that
  *    arrives bumps `onInputs` listeners.
@@ -39,11 +40,11 @@ import { loadScriptEngine } from '../script'
 import { hostOf } from '../../store/integrations'
 import { createInputMemo, digest, type DeviceFacts, type InputReaders, type InputSource, type LazyReadings } from './source'
 import { ButtonIndex } from './buttons'
-import { ScanCache, type ScanEngine } from './scripts'
+import { ScanCache, scanKitCode, type ScanEngine } from './scripts'
 import { isLazyCache, lazyCacheOf, lazyKey, readCache, sameLazyCache, writeCache } from './cache'
 import { patchbayScope } from './scope'
 import type { ID } from '../../store/types'
-import type { HookInput, LazyCache, MailInput, ModelInput, PipelineInput, TokenInput } from './types'
+import type { HookInput, KitScan, LazyCache, MailInput, ModelInput, PipelineInput, TokenInput } from './types'
 
 /* ------------------------------------------------------------------ the readers */
 
@@ -125,12 +126,12 @@ function kitTrustDigests(ok: Readonly<Record<string, boolean>>): Record<string, 
 
 /* ------------------------------------------------------------------ the lazy readings */
 
-let lazy: LazyReadings = { buttons: null, scans: null, runtime: null, hooks: null, tokens: null, inbox: null, cache: null }
+let lazy: LazyReadings = { buttons: null, scans: null, kitScans: null, runtime: null, hooks: null, tokens: null, inbox: null, cache: null }
 const listeners = new Set<() => void>()
 const changed = (patch: Partial<LazyReadings>) => {
   lazy = { ...lazy, ...patch }
   // a fuse-relevant reading arrived: keep it in the lazy cache (B4) — the LED and Preflight count from it
-  if ('scans' in patch || 'runtime' in patch || 'hooks' in patch || 'tokens' in patch || 'inboxRead' in patch) cacheSoon()
+  if ('scans' in patch || 'kitScans' in patch || 'runtime' in patch || 'hooks' in patch || 'tokens' in patch || 'inboxRead' in patch) cacheSoon()
   for (const fn of [...listeners]) fn()
 }
 
@@ -154,7 +155,7 @@ async function writeLazyCache(): Promise<void> {
   const scope = patchbayScope()
   if (!scope) return
   const base = written ?? lazy.cache
-  const next = lazyCacheOf({ scans: lazy.scans, runtime: lazy.runtime, hooks: lazy.hooks, tokens: lazy.tokens ?? null, inbox: lazy.inbox, inboxRead: !!lazy.inboxRead }, base, Date.now())
+  const next = lazyCacheOf({ scans: lazy.scans, kits: lazy.kitScans ?? null, runtime: lazy.runtime, hooks: lazy.hooks, tokens: lazy.tokens ?? null, inbox: lazy.inbox, inboxRead: !!lazy.inboxRead }, base, Date.now())
   if (sameLazyCache(next, base)) return
   if (await writeCache(lazyKey(scope), next)) written = next
 }
@@ -184,6 +185,8 @@ const idle = (fn: () => void) => {
 
 const buttonIndex = new ButtonIndex()
 const scanCache = new ScanCache()
+/** fix (rest): kit value codes' scans by the code's digest (null: it does not parse) */
+const kitScanCache = new Map<string, KitScan | null>()
 let opened = false
 let unsubscribeRows: (() => void) | null = null
 /** what the open route listens to (dropped by resetInputs) */
@@ -199,12 +202,14 @@ export function openInputs(): void {
   idle(readRuntime)
   idle(readHooks)
   idle(buildButtons)
-  // later script saves scan again (only what changed — by id + updatedAt)
+  // later script saves (and own types' value codes) scan again (only what changed — by id + updatedAt, by the code's digest)
   let scripts = useWorkspace.getState().scripts
+  let kit = useWorkspace.getState().kit
   openSubs.push(
     useWorkspace.subscribe((s) => {
-      if (s.scripts === scripts) return
+      if (s.scripts === scripts && s.kit === kit) return
       scripts = s.scripts
+      kit = s.kit
       idle(scanScripts)
     }),
   )
@@ -215,7 +220,34 @@ function scanScripts(): void {
     const list = Object.values(useWorkspace.getState().scripts ?? {})
     const fresh = scanCache.fill(list, engine as unknown as ScanEngine)
     if (fresh || !lazy.scans) changed({ scans: scanCache.byId(list) })
+    scanKits(engine as unknown as ScanEngine)
   })
+}
+
+/**
+ * fix (rest): the own types' value codes (they run in query mode and may read any database or page — the result lands
+ * in their field): scanned like scripts, kept by the code's digest (ids only — never the code).
+ */
+function scanKits(engine: ScanEngine): void {
+  const types = useWorkspace.getState().kit?.propTypes ?? {}
+  const out: Record<string, KitScan> = {}
+  const keep = new Set<string>()
+  let fresh = false
+  for (const t of Object.values(types)) {
+    const code = t?.scripts?.value
+    if (typeof code !== 'string' || !code) continue
+    const d = digest(code)
+    keep.add(d)
+    if (!kitScanCache.has(d)) {
+      kitScanCache.set(d, scanKitCode(code, engine))
+      fresh = true
+    }
+    const scan = kitScanCache.get(d)
+    if (scan) out[d] = scan
+  }
+  for (const d of [...kitScanCache.keys()]) if (!keep.has(d)) kitScanCache.delete(d)
+  const gone = Object.keys(lazy.kitScans ?? {}).some((d) => !keep.has(d))
+  if (fresh || gone || !lazy.kitScans) changed({ kitScans: out })
 }
 
 function readInbox(): void {
@@ -341,7 +373,8 @@ export const inputStats = (): { builds: number; pageChecks: number } => memo.sta
 export function resetInputs(): void {
   memo.reset()
   pagesMoved = true
-  lazy = { buttons: null, scans: null, runtime: null, hooks: null, tokens: null, inbox: null, cache: null }
+  lazy = { buttons: null, scans: null, kitScans: null, runtime: null, hooks: null, tokens: null, inbox: null, cache: null }
+  kitScanCache.clear()
   written = null
   opened = false
   for (const stop of openSubs.splice(0)) stop()

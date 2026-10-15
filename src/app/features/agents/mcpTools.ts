@@ -13,6 +13,17 @@ const WRITE_WORDS = new Set([
   'apply', 'import', 'rename', 'attach', 'reply', 'submit', 'approve', 'cancel', 'replace', 'commit', 'push', 'invite', 'log',
 ])
 
+/**
+ * Words that hand data to someone else ("forward_email", "share_document", "notify_channel", "trigger_webhook" …) —
+ * a profile's declaration never confirms a name carrying one (declaredReadOk). Several are nouns in read tools as well
+ * ("get_email"): they decide only about declarations, never the heuristic (isReadTool) — such a name keeps its "?".
+ */
+const SEND_WORDS = new Set([
+  'forward', 'share', 'notify', 'email', 'mail', 'message', 'comment', 'transfer', 'export', 'sync', 'trigger', 'call', 'request',
+  'deploy', 'dispatch', 'broadcast', 'webhook', 'invoke', 'emit', 'enqueue', 'tweet', 'sms', 'escalate', 'relay', 'transmit',
+  'deliver', 'distribute', 'announce',
+])
+
 /** The words of a tool name: snake_case, kebab-case, dotted and camelCase split, lower case. */
 export function toolWords(name: string): string[] {
   return name
@@ -28,6 +39,20 @@ export function toolWords(name: string): string[] {
  */
 export function isWriteNamed(name: string): boolean {
   return toolWords(name).some((w) => WRITE_WORDS.has(w))
+}
+
+/** Carries a word that hands data to someone else (SEND_WORDS: forward, share, notify, email, webhook …). */
+export function isSendNamed(name: string): boolean {
+  return toolWords(name).some((w) => SEND_WORDS.has(w))
+}
+
+/**
+ * May a profile's declaration confirm this tool as a read? Only a name that reads as one (a READ word) and carries no
+ * write word and no send word: a declaration confirms a reading name, it never makes a read of a tool that may carry data
+ * out — the profile can be imported or edited by any owner or admin (the Patchbay, §1.5 / §6 A4).
+ */
+export function declaredReadOk(name: string): boolean {
+  return isReadTool(name) && !isSendNamed(name)
 }
 
 /** Looks like a tool that only reads (get / list / search / query / read / fetch / find / whoami / context, no write verb). */

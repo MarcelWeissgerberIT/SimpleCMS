@@ -404,6 +404,76 @@ test.describe('fix · organise starts from the mail sync only; the signature', (
   })
 })
 
+/* ------------------------------------------------------------------ fix (rest) */
+
+test.describe('fix (rest) · kit value codes read beyond their row; declarations never make a sending tool a read', () => {
+  /** „Letzte Mail“ on Projekte computes from the Mails database; Projekt-Helfer listens to it and may set „Senden“ (→ webhook). */
+  function kitWorld(value: string) {
+    const kit = { lists: {}, propTypes: { ptLast: { id: 'ptLast', name: 'Letzte Mail', base: 'text', scripts: { value }, createdAt: 1, updatedAt: 1 } }, recordTypes: {} }
+    return world({
+      pages: [dbPage('dbMails', 'Mails'), dbPage('dbProj', 'Projekte'), dbPage('dbPrivat', 'Privat')],
+      databases: [
+        database('dbMails', [], { system: 'mails' }),
+        database('dbProj', [prop('pLast', 'Letzte Mail', 'text', { custom: 'ptLast' }), prop('pSend', 'Senden', 'checkbox')], { automations: [automation('autOut', 'Raus', { type: 'property_changed', propertyId: 'pSend' }, [{ type: 'webhook', url: 'https://out.example/in', method: 'POST' }])] }),
+        database('dbPrivat', []),
+      ],
+      kit: kit as never,
+      agents: [agent('agB', 'Projekt-Helfer', { write: 'apply', scope: { everything: false, pages: [], databases: ['dbProj', 'dbPrivat'] }, trigger: { type: 'row_changed', databaseId: 'dbProj', propertyId: 'pLast' } })],
+      mail: mailSettings('dbMails'),
+    })
+  }
+  const kitKey = key({ kind: 'kit', db: 'dbProj', prop: 'pLast', type: 'ptLast' })
+
+  test('a value code that reads Mails taints its database: the agent listening to the field is fed — a fuse to the webhook', () => {
+    const m = modelOf(kitWorld('db(@[Mails](p:dbMails)).first.title'))
+    expect(m.modules.some((x) => x.key === kitKey)).toBe(true)
+    expect(fused(m, agentKey('agB'), hook('out.example'))).toBe(true)
+    const f = m.fuses.find((x) => x.chain.decider === agentKey('agB'))!
+    expect(f.chain.why?.outside.some((s) => s.kind === 'tainted' && s.writer === kitKey)).toBe(true)
+    expect(m.unknown.filter((u) => u.module === kitKey)).toEqual([])
+    // the same value from its own row only: nothing from outside reaches Projekte
+    expect(modelOf(kitWorld('row.Senden ? "ja" : "nein"')).fuses).toEqual([])
+  })
+
+  test('a value code not scanned here (nor in the lazy cache) or naming places by name is an unknown part on the relay', () => {
+    const w = kitWorld('db(@[Mails](p:dbMails)).first.title')
+    w.lazy = { ...w.lazy, kitScans: {} }
+    expect(modelOf(w).unknown.map((u) => u.key)).toContain(`lazy:${kitKey}`)
+    // … the lazy cache's scan (by the code's digest) counts like one made here
+    const code = digest('db(@[Mails](p:dbMails)).first.title')
+    w.lazy = { ...w.lazy, kitScans: null, cache: lazyCacheOf({ scans: null, kits: { [code]: { reads: [{ page: 'dbMails' }], byName: false } }, runtime: null, hooks: null, inbox: null, inboxRead: false }, null, 1) }
+    const cached = modelOf(w)
+    expect(cached.unknown.filter((u) => u.module === kitKey)).toEqual([])
+    expect(fused(cached, agentKey('agB'), hook('out.example'))).toBe(true)
+    // by name
+    expect(modelOf(kitWorld('db("Mails").first.title')).unknown.map((u) => u.key)).toContain(`byName:${kitKey}`)
+  })
+
+  test('the lazy cache keeps kit scans by digest — ids and the flag only', () => {
+    const dirty = lazyCacheOf({ scans: null, kits: { ['a'.repeat(16)]: { reads: [{ page: 'dbMails', title: 'Mara Lind' } as never], byName: 1 as never, extra: 'x' } as never, notADigest: { reads: [], byName: false } }, runtime: null, hooks: null, inbox: null, inboxRead: false }, null, 1)
+    expect(dirty.kits).toEqual({ ['a'.repeat(16)]: { reads: [{ page: 'dbMails' }], byName: true } })
+    // a reading not taken keeps the cache's own
+    expect(lazyCacheOf({ scans: null, runtime: null, hooks: null, inbox: null, inboxRead: false }, dirty, 2).kits).toEqual(dirty.kits)
+  })
+
+  test('a profile declaring forward / share / notify tools reads: they stay ways out (WRITE?, marked)', () => {
+    const mk = (reads: string[]) =>
+      world({
+        pages: [dbPage('dbMails', 'Mails'), dbPage('dbPrivat', 'Privat')],
+        databases: [database('dbMails', [], { system: 'mails' }), database('dbPrivat', [])],
+        agents: [agent('agA', 'Helfer', { write: 'none', scope: { everything: false, pages: [], databases: ['dbMails', 'dbPrivat'] }, trigger: { type: 'row_created', databaseId: 'dbMails' }, mcpServers: ['alpha'] })],
+        servers: [server('srvAlpha', 'alpha', { tools: ['list_items', 'forward_email', 'share_document', 'notify_channel'], checkedAt: 1 })],
+        integrations: [profile('in-02', { match: { name: 'alpha' }, reads })],
+        mail: mailSettings('dbMails'),
+      })
+    const alpha = key({ kind: 'server', id: 'srvAlpha', name: 'alpha' })
+    expect(fused(modelOf(mk(['list_items'])), agentKey('agA'), alpha)).toBe(true)
+    const declared = modelOf(mk(['list_items', 'forward_email', 'share_document', 'notify_channel']))
+    expect(fused(declared, agentKey('agA'), alpha)).toBe(true)
+    expect(declared.modules.find((x) => x.key === alpha)?.outJacks.find((j) => j.role === 'write')).toMatchObject({ count: 3, declaredRead: ['forward_email', 'share_document', 'notify_channel'] })
+  })
+})
+
 test('every new message key in both languages', () => {
   for (const k of ['lamp.outside.api', 'plain.fuse.src.api', 'name.incomingApi', 'unknown.byName', 'unknown.elsewhere', 'fact.approvalsPass']) {
     expect(messages.en[`features.patchbay.${k}`], k).toBeTruthy()

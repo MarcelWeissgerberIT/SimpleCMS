@@ -1,5 +1,6 @@
 /**
- * The lamps' keys in the DOM (plan §3.7, §3.9): every lamp's key carries `data-pb-lamp="<n>"` (0–6) and, for 04–06,
+ * The lamps' keys in the DOM (plan §3.7, §3.9): every lamp's key carries `data-pb-lamp="<n>"` (0–6),
+ * `data-pb-profile="<profile id>"` (fix rest: a band of another profile is never focused) and, for 04–06,
  * `data-pb-recipe="<recipe id>"` — the setup band, the strip and the phone's vertical lamps (B12) render them; the
  * arrival, the dialogs' "after" and the band's own focus moves find a lamp's key by them, and nothing else.
  * Focus lands on a key only while nobody else has the keyboard (the body, the main region, the element it went back to,
@@ -16,25 +17,26 @@ function free(a: Element | null, from: Element | null | undefined): boolean {
   return a instanceof HTMLElement && a.tabIndex < 0 && !a.matches(INTERACTIVE)
 }
 
-/** The selector of a lamp's key. */
-export function lampKeySelector(n: number, recipe?: string | null): string {
+/** The selector of a lamp's key (of that profile's band when `profile` is given). */
+export function lampKeySelector(n: number, recipe?: string | null, profile?: string | null): string {
   const r = n >= 4 && recipe ? `[data-pb-recipe="${CSS.escape(recipe)}"]` : ''
-  return `[data-pb-lamp="${n}"]${r}`
+  const p = profile ? `[data-pb-profile="${CSS.escape(profile)}"]` : ''
+  return `[data-pb-lamp="${n}"]${r}${p}`
 }
 
 /** A lamp's key in the document now (null: not shown). */
-export const lampKey = (n: number, recipe?: string | null): HTMLElement | null => document.querySelector<HTMLElement>(lampKeySelector(n, recipe))
+export const lampKey = (n: number, recipe?: string | null, profile?: string | null): HTMLElement | null => document.querySelector<HTMLElement>(lampKeySelector(n, recipe, profile))
 
 /**
  * Focus a lamp's key once it shows (the band renders a moment after a route change or a store write): ≤ `waitMs`.
  * `from`: the key focus went back to (a dialog's opener) — it gives the keyboard on; focus the person moved anywhere
  * else meanwhile is theirs. True when the key took the focus.
  */
-export function focusLampKey(lamp: Pick<SetupLamp, 'n' | 'recipe'>, opts: { waitMs?: number; from?: Element | null } = {}): Promise<boolean> {
+export function focusLampKey(lamp: Pick<SetupLamp, 'n' | 'recipe'>, opts: { waitMs?: number; from?: Element | null; profile?: string | null } = {}): Promise<boolean> {
   const until = performance.now() + (opts.waitMs ?? 2000)
   return new Promise((resolve) => {
     const tick = () => {
-      const key = lampKey(lamp.n, lamp.recipe)
+      const key = lampKey(lamp.n, lamp.recipe, opts.profile)
       if (!canFocus(key)) {
         if (performance.now() < until) requestAnimationFrame(tick)
         else resolve(false)

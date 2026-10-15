@@ -5,14 +5,18 @@
  * withdraw an entry — the server puts it back; an entry smuggled in as waiting ("pending") structs that the owner's own
  * update releases is still the member's and goes; deletes a member plants for the next clocks of the server or of an
  * admin cannot take an allowance away; a role change applies to open sockets at once. /api/config says the server
- * guards the map (`supports` lists 'signoffs'). Path keys and signatures are made-up hex; the names are fictional.
+ * guards the map (`supports` lists 'signoffs'). Fix (rest): a nested Yjs value is flattened (an admin's, stamped) or put
+ * back, a change inside one from before the guard counts as its key's; the first load under the guard drops what an
+ * older server let in. Path keys and signatures are made-up hex; the names are fictional.
  */
 import assert from 'node:assert/strict'
+import { join } from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { after, before, describe, test } from 'node:test'
 import * as Y from 'yjs'
 import type { Logger } from '../src/log.ts'
 import { guardFuseSignoffs } from '../src/collab/fuse-signoffs.ts'
-import { type Client, type DocClient, flushed, openDoc, signIn, sleep, startServer, type TestServer, waitFor } from './helpers.ts'
+import { Client, type DocClient, flushed, openDoc, signIn, sleep, startServer, type TestServer, waitFor } from './helpers.ts'
 
 type Entry = Record<string, unknown>
 
@@ -262,5 +266,130 @@ describe('the allowed-paths guard reads the role at every change', () => {
     sync(ada, server, from('ada', 'owner'))
     assert.equal(((server.getMap('fuseSignoffs').get(K2) as Entry | undefined)?.sig as string | undefined) ?? null, hex('5'))
     stop()
+  })
+})
+
+describe('fix (rest): nested values and what an older server let in', () => {
+  const quiet: Logger = { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} }
+  const from = (userId: string, role: string) => ({ source: 'connection', connection: { context: { userId, role } } })
+  const sync = (a: Y.Doc, b: Y.Doc, origin: unknown = null) => Y.applyUpdate(b, Y.encodeStateAsUpdate(a, Y.encodeStateVector(b)), origin)
+  const roles = new Map<string, string>([['ada', 'owner'], ['cyd', 'admin'], ['bob', 'member']])
+  /** A nested Y.Map allowance (a raw client's) — `by` is what it claims. */
+  const nested = (sig: string, by: string) => {
+    const m = new Y.Map<unknown>()
+    m.set('sig', hex(sig))
+    m.set('parts', { d: 'd'.repeat(16) })
+    m.set('at', 1)
+    m.set('updatedBy', by)
+    return m
+  }
+  const valueAt = (d: Y.Doc, key: string) => d.getMap('fuseSignoffs').get(key)
+
+  test('an admin’s nested allowance is kept as plain JSON, stamped with the admin — never the owner it claims', () => {
+    const server = new Y.Doc()
+    const stop = guardFuseSignoffs(server, { workspaceId: 'w', log: quiet, roleOf: (u) => roles.get(u) })
+    const cyd = new Y.Doc()
+    cyd.getMap('fuseSignoffs').set(K1, nested('1', 'ada'))
+    sync(cyd, server, from('cyd', 'admin'))
+    const v = valueAt(server, K1)
+    assert.ok(!(v instanceof Y.AbstractType), 'no nested type stays')
+    assert.deepEqual([(v as Entry).sig, (v as Entry).updatedBy], [hex('1'), 'cyd'])
+    // a member's client gets the plain value: nothing inside it to re-point
+    const bob = new Y.Doc()
+    sync(server, bob)
+    assert.ok(!(valueAt(bob, K1) instanceof Y.AbstractType))
+    stop()
+  })
+
+  test('a member’s nested allowance is put back like any change of theirs', () => {
+    const server = new Y.Doc()
+    const stop = guardFuseSignoffs(server, { workspaceId: 'w', log: quiet, roleOf: (u) => roles.get(u) })
+    const bob = new Y.Doc()
+    bob.getMap('fuseSignoffs').set(K2, nested('2', 'ada'))
+    sync(bob, server, from('bob', 'member'))
+    assert.equal(valueAt(server, K2), undefined)
+    stop()
+  })
+
+  test('a nested value from before the guard: a member’s change inside it removes the key, an admin’s flattens it', () => {
+    for (const [who, role] of [['bob', 'member'], ['cyd', 'admin']] as const) {
+      const server = new Y.Doc()
+      // planted while nothing guarded the map (an older server)
+      const old = new Y.Doc()
+      old.getMap('fuseSignoffs').set(K1, nested('1', 'ada'))
+      sync(old, server)
+      const stop = guardFuseSignoffs(server, { workspaceId: 'w', log: quiet, roleOf: (u) => roles.get(u) })
+      const client = new Y.Doc()
+      sync(server, client)
+      ;(valueAt(client, K1) as Y.Map<unknown>).set('sig', hex('2'))
+      sync(client, server, from(who, role))
+      const v = valueAt(server, K1)
+      if (role === 'member') assert.equal(v, undefined, 'a member re-pointed a nested allowance: it goes')
+      else {
+        assert.ok(!(v instanceof Y.AbstractType))
+        assert.deepEqual([(v as Entry).sig, (v as Entry).updatedBy], [hex('2'), 'cyd'])
+      }
+      stop()
+    }
+  })
+
+  test('the first load under the guard drops every entry from before it; later loads keep them', () => {
+    const server = new Y.Doc()
+    server.getMap('fuseSignoffs').set(K1, entry('1', 'ada'))
+    server.getMap('fuseSignoffs').set(K2, entry('2', 'ada'))
+    let done = false
+    const first = { done: () => done, mark: () => (done = true) }
+    let stop = guardFuseSignoffs(server, { workspaceId: 'w', log: quiet, roleOf: (u) => roles.get(u), first })
+    assert.equal(server.getMap('fuseSignoffs').size, 0)
+    assert.equal(done, true)
+    stop()
+    // an owner allows one under the guard; the next load keeps it
+    const ada = new Y.Doc()
+    sync(server, ada)
+    stop = guardFuseSignoffs(server, { workspaceId: 'w', log: quiet, roleOf: (u) => roles.get(u) })
+    ada.getMap('fuseSignoffs').set(K3, entry('3'))
+    sync(ada, server, from('ada', 'owner'))
+    stop()
+    stop = guardFuseSignoffs(server, { workspaceId: 'w', log: quiet, roleOf: (u) => roles.get(u), first })
+    assert.equal((valueAt(server, K3) as Entry).updatedBy, 'ada')
+    stop()
+  })
+
+  test('a real server: an allowance from before the guard (its marker gone) is dropped on the first load — once', async () => {
+    const first = await startServer()
+    const ada = await signIn(first, 'ada@first-guard.test')
+    const wsId = (await ada.post('/api/workspaces', { name: 'Nordlicht Alt' })).body.id as string
+    const d = openDoc(first, ada, `ws:${wsId}`)
+    await d.synced
+    d.doc.getMap('fuseSignoffs').set(K1, entry('1'))
+    await flushed(d)
+    await waitFor(() => (d.doc.getMap('fuseSignoffs').get(K1) as Entry | undefined)?.updatedBy !== null, 5000, 'stamped')
+    assert.equal(await first.stop(), 0)
+    d.destroy()
+    // as if the entry had been written while the server had no guard: the marker is not there
+    const raw = new DatabaseSync(join(first.dataDir, 'one.sqlite'))
+    const gone = raw.prepare('DELETE FROM server_state WHERE key = ?').run(`guard:fuseSignoffs:${wsId}`)
+    raw.close()
+    assert.equal(Number(gone.changes), 1, 'the first load had set the marker')
+
+    const second = await startServer({}, first.dataDir)
+    try {
+      const client = new Client(second.url)
+      for (const [k, v] of ada.cookies) client.cookies.set(k, v)
+      const d2 = openDoc(second, client, `ws:${wsId}`)
+      await d2.synced
+      assert.equal(d2.doc.getMap('fuseSignoffs').get(K1), undefined, 'dropped before any client synced')
+      // allowed again under the guard: it stays across the next load
+      d2.doc.getMap('fuseSignoffs').set(K2, entry('2'))
+      await flushed(d2)
+      await sleep(300)
+      d2.destroy()
+      const d3 = openDoc(second, client, `ws:${wsId}`)
+      await d3.synced
+      assert.equal((d3.doc.getMap('fuseSignoffs').get(K2) as Entry | undefined)?.sig, hex('2'))
+      d3.destroy()
+    } finally {
+      await second.stop()
+    }
   })
 })

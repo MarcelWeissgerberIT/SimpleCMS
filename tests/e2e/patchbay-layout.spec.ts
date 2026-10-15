@@ -444,6 +444,20 @@ test.describe('B5 · layout — folds, filters and counts', () => {
     expectComplete(m, l4)
   })
 
+  test('an off writer’s bus targets fold with it — and opening their fold places them (fix rest)', () => {
+    const w = wideScope(40, { named: 9 })
+    w.ws.agents!['agNordlicht'] = { ...w.ws.agents!['agNordlicht'], enabled: false }
+    const m = modelOf(w)
+    const l = layoutRack(m, { fuses: [], nearMisses: [] })
+    expectComplete(m, l)
+    // no bus chip: the writer is folded, its bundled targets fold with it
+    expect(l.slots.filter((s) => s.kind === 'bus')).toHaveLength(0)
+    const opened = layoutRack(m, { fuses: [], nearMisses: [], unfolded: [foldId('off', 3)] })
+    expectComplete(m, opened)
+    expect(opened.cols[3].off).toBe(0)
+    for (const id of ['dbNord08', 'dbNord09', 'dbNord10']) expect(moduleRows(opened).has(moduleKey({ kind: 'database', id })), id).toBe(true)
+  })
+
   test('"Fuse paths only" opens by itself past 30 modules with an open fuse — and keeps exactly the paths, the rest named', () => {
     const big = modelOf(bigPatchbay(60))
     expect(big.counts.modules).toBeGreaterThanOrEqual(AUTO_FUSES_FROM)

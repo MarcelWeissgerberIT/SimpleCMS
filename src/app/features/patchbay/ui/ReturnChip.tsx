@@ -1,9 +1,10 @@
 /**
  * The topbar's return chip "Back to setup · 05 next ↵" (plan §1.11, §6 U2) — mounted once in the topbar, on every
- * route. While a setup step left the patchbay (setup/return.ts) and the route is not #/patchbay, the chip shows — never
- * shed, also on the phone (there: the arrow and the lamp's number; the words are its name); × clears the way back.
- * Coming back to #/patchbay (by the chip or any other way) is the arrival (setup/arrive.ts): the next lamp's key takes
- * the keyboard and the polite live region here says "04 done · 05 next".
+ * route. While a setup step left the patchbay (setup/return.ts) and the route is not that profile's setup
+ * (#/patchbay?setup=<its id>), the chip shows — never shed, also on the phone (there: the arrow and the lamp's number;
+ * the words are its name); × clears the way back. Coming back to that setup (by the chip or any other way) is the
+ * arrival (setup/arrive.ts): the next lamp's key of ITS band takes the keyboard and the polite live region here says
+ * "04 done · 05 next". Another profile's setup, or the rack without one, is no arrival: the way back stays.
  *
  * Boot code: this wrapper reads only the return record; the chip's body (it reads the lamps) and the arrival load
  * lazily, and only while a way back is set. DEV / `?e2e`: the setup seam `window.__onePatchbaySetup` (lamps, a lamp's
@@ -24,7 +25,9 @@ export function PatchbayReturnChip() {
   const ret = useReturn()
   const route = useRoute()
   const said = useArrivalText()
-  const here = route.name === 'patchbay'
+  // fix (rest): only the setup the record belongs to is "back" — another profile's setup (or the rack without one) keeps
+  // the way back and the chip; arriving there would speak of and focus the wrong band
+  const here = route.name === 'patchbay' && !!ret && route.setup === ret.profileId
   useEffect(() => {
     if (ret && !here && !ret.away) markAway()
   }, [ret, here])

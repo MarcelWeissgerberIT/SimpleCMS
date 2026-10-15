@@ -6,7 +6,9 @@
  *    anyway gets the team's back (the binding's put-back) and the document never sees them; the member's raw write into
  *    the document is put back by the server;
  *  - a server that does not announce 'signoffs' refuses the owner's writer ('server' — the Patchbay says
- *    `features.patchbay.key.serverOld`); positive control: announced again, it writes; a withdrawal reaches the member;
+ *    `features.patchbay.key.serverOld`) and its map is never read (fix rest: any member may have written it, the
+ *    account it names included) — not at the start, not live; positive control: announced again, it is read and the
+ *    owner writes; a withdrawal reaches the member;
  *  - uploading the local workspace takes its allowances along (stamped for the uploader) — only onto a server that
  *    guards them;
  *  - removing a team workspace's copy from this browser takes its Patchbay stores along — every member's records of
@@ -119,22 +121,26 @@ test('an owner’s allowed path reaches a member with the owner’s name; a memb
   expect(await sigsOf(page)).toEqual({ [K1]: hex('1') })
   rawMember.destroy()
 
-  // a server that does not guard the map (its /api/config without 'signoffs'): the owner's writer refuses — 'server'
+  // a server that does not guard the map (its /api/config without 'signoffs'): the owner's writer refuses — 'server' —
+  // and the map is not read at all there (fix rest: any member could have written it): the store holds none
   await page.evaluate(() => {
     const c = (window as unknown as Hook).__one.cloud.useCloud
     c.setState({ supports: (c.getState().supports as string[]).filter((x) => x !== 'signoffs') })
   })
   expect(await signOff(page, K2, hex('4'))).toEqual({ ok: false, why: 'server' })
   expect(await withdraw(page, K1)).toEqual({ ok: false, why: 'server' })
-  expect(await sigsOf(page)).toEqual({ [K1]: hex('1') })
+  await expect.poll(() => sigsOf(page)).toBeNull()
   // … and the owner's own store holding another value then is put back too (the binding writes nothing)
   await page.evaluate(({ k2, parts }) => (window as unknown as Hook).__one.workspace.setState({ fuseSignoffs: { [k2]: { sig: '5'.repeat(64), parts, at: Date.now(), updatedBy: null } } }), { k2: K2, parts: PARTS })
-  await expect.poll(() => sigsOf(page)).toEqual({ [K1]: hex('1') })
-  // positive control: announced again, the owner writes
+  await expect.poll(() => sigsOf(page)).toBeNull()
+  expect((map.get(K1) as AnyState | undefined)?.sig).toBe(hex('1'))
+  expect(map.has(K2)).toBe(false)
+  // positive control: announced again, the map is read again and the owner writes
   await page.evaluate(() => {
     const c = (window as unknown as Hook).__one.cloud.useCloud
     c.setState({ supports: [...(c.getState().supports as string[]), 'signoffs'] })
   })
+  await expect.poll(() => sigsOf(page)).toEqual({ [K1]: hex('1') })
   expect(await signOff(page, K2, hex('6'))).toEqual({ ok: true })
   await expect.poll(() => sigsOf(member)).toEqual({ [K1]: hex('1'), [K2]: hex('6') })
 
@@ -142,6 +148,49 @@ test('an owner’s allowed path reaches a member with the owner’s name; a memb
   expect(await withdraw(page, K1)).toEqual({ ok: true })
   expect(await withdraw(page, K2)).toEqual({ ok: true })
   await expect.poll(() => map.size).toBe(0)
+  await expect.poll(() => sigsOf(member)).toBeNull()
+  raw.destroy()
+  await member.context().close()
+})
+
+test('a server that does not guard the map: no entry reaches the store — at the start or live; announced, it is read (fix rest)', async ({ page, context }) => {
+  await signIn(page, email('mara'))
+  expect((await api(page, 'PATCH', '/api/me', { name: 'Mara Lind' })).status).toBe(200)
+  const maraId = (await api<{ user: { id: string } }>(page, 'GET', '/api/me')).json.user.id
+  const wsId = await createWorkspace(page, 'Nordlicht Alt')
+  const member = await newPerson(context)
+  await signIn(member, email('tessera'))
+  await join(page, member, wsId, 'member')
+  // an entry naming the owner is in the map before the member's app opens (on an older server anyone can write one)
+  const raw = await rawClient(page, `ws:${wsId}`)
+  const map = raw.doc.getMap('fuseSignoffs')
+  map.set(K1, { sig: hex('1'), parts: PARTS, at: Date.now(), updatedBy: maraId })
+  await expect.poll(() => (map.get(K1) as AnyState | undefined)?.updatedBy ?? null).toBe(maraId)
+  // the member's app talks to "an older server": its /api/config does not list 'signoffs'
+  await member.route('**/api/config', async (r) => {
+    const res = await r.fetch()
+    const json = (await res.json()) as AnyState
+    await r.fulfill({ response: res, json: { ...json, supports: ((json.supports ?? []) as string[]).filter((x) => x !== 'signoffs') } })
+  })
+  await openApp(member, wsId)
+  await waitOnline(member)
+  expect(await cloudEval(member, (c) => c.supports ?? [])).not.toContain('signoffs')
+  expect(await wsEval(member, (s, k) => (s.fuseSignoffs as Record<string, AnyState> | undefined)?.[k]?.updatedBy ?? null, K1)).toBeNull()
+  // … nor live
+  map.set(K2, { sig: hex('2'), parts: PARTS, at: Date.now(), updatedBy: maraId })
+  await expect.poll(() => (map.get(K2) as AnyState | undefined)?.updatedBy ?? null).toBe(maraId)
+  await member.waitForTimeout(1500)
+  expect(await sigsOf(member)).toBeNull()
+  // the server announces the guard (an update while the tab is open): the map is read now — and dropped again without it
+  await member.evaluate(() => {
+    const c = (window as unknown as Hook).__one.cloud.useCloud
+    c.setState({ supports: [...(c.getState().supports as string[]), 'signoffs'] })
+  })
+  await expect.poll(() => sigsOf(member)).toEqual({ [K1]: hex('1'), [K2]: hex('2') })
+  await member.evaluate(() => {
+    const c = (window as unknown as Hook).__one.cloud.useCloud
+    c.setState({ supports: (c.getState().supports as string[]).filter((x) => x !== 'signoffs') })
+  })
   await expect.poll(() => sigsOf(member)).toBeNull()
   raw.destroy()
   await member.context().close()

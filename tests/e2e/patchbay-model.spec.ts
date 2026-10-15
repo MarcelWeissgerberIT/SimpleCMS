@@ -546,11 +546,17 @@ test.describe('B2 · tool groups — tools.ts (§1.5)', () => {
   test('heuristic reads, declared reads (neutral names only), OUT subtracted, untested, residual risk', () => {
     const plain = toolGroups(TRACKER_TOOLS, [])
     expect([plain.tested, plain.read, plain.write, plain.guessedRead, plain.guessedWrite]).toEqual([true, ['query_issues', 'get_issue', 'whoami'], ['create_issue', 'update_issue', 'add_comment', 'post_status'], true, true])
-    // a wildcard profile declares a write tool and a neutral one as reads: only the neutral name clears
+    // a wildcard profile declares a write tool and a neutral one as reads: a declaration only confirms a name that reads
+    // as one (fix rest — a READ word, no write or send word); both stay WRITE?, marked
     const wild = toolGroups(['issue_digest', 'create_issue', 'get_issue'], [], [{ id: 'wild', reads: ['issue_digest', 'create_issue'] }])
-    expect([wild.read, wild.write, wild.declared, wild.guessedRead]).toEqual([['issue_digest', 'get_issue'], ['create_issue'], { create_issue: ['wild'] }, true])
-    const declaredOnly = toolGroups(['issue_digest'], [], [{ id: 'wild', reads: ['issue_digest'] }])
-    expect([declaredOnly.read, declaredOnly.guessedRead]).toEqual([['issue_digest'], false])
+    expect([wild.read, wild.write, wild.declared, wild.guessedRead]).toEqual([['get_issue'], ['issue_digest', 'create_issue'], { issue_digest: ['wild'], create_issue: ['wild'] }, true])
+    const declaredOnly = toolGroups(['get_issue'], [], [{ id: 'wild', reads: ['get_issue'] }])
+    expect([declaredOnly.read, declaredOnly.guessedRead]).toEqual([['get_issue'], false])
+    // sending names never become reads by a declaration (forward / share / notify / webhook …)
+    const send = toolGroups(['list_items', 'forward_email', 'share_document', 'notify_channel', 'list_and_forward'], [], [{ id: 'in-02', reads: ['list_items', 'forward_email', 'share_document', 'notify_channel', 'list_and_forward'] }])
+    expect([send.read, send.write, send.declared]).toEqual([['list_items', 'list_and_forward'], ['forward_email', 'share_document', 'notify_channel'], { forward_email: ['in-02'], share_document: ['in-02'], notify_channel: ['in-02'] }])
+    // … a reading name with a send word keeps the heuristic's "?" (the declaration does not confirm it)
+    expect(send.guessedRead).toBe(true)
     // OUT is never a read or a write: it is locked
     const out = toolGroups(TRACKER_TOOLS, ['post_status'])
     expect([out.write.includes('post_status'), out.out]).toEqual([false, ['post_status']])

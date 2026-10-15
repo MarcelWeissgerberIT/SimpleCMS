@@ -13,7 +13,7 @@
  *
  * The memo (createInputMemo) — the same ModelInput object comes back while none of these changed:
  *  - by reference: agents · scripts · integrations · kit · ai · governor · fuseSignoffs · settings.mcpServers / mail /
- *    memory / ai · the lazy readings;
+ *    memory / ai · the lazy readings (incl. the kit value codes' scans);
  *  - by value: this device's facts (cloud role, bridge, sync, worker, servers under test …);
  *  - per database, a config signature cached by object (a bookkeeping write — an automation's `lastRunAt`, an autofill
  *    `fills` record, a repeating template's `lastRunAt` — gives the same signature);
@@ -35,6 +35,7 @@ import type {
   HookInput,
   InputCtx,
   KitInput,
+  KitScan,
   LazyCache,
   MailInput,
   ModelInput,
@@ -89,6 +90,8 @@ export interface LazyReadings {
   hooks: HookInput[] | 'forbidden' | null
   /** fix (model): team API tokens, read with the hooks (absent / null: not read yet) */
   tokens?: TokenInput[] | 'forbidden' | null
+  /** fix (rest): kit value codes' scans by the code's digest (absent / null: not scanned yet — the lazy cache's then) */
+  kitScans?: Record<string, KitScan> | null
   inbox: ID | null
   /** B4: the Inbox lookup ran (`inbox` null then means "none") */
   inboxRead?: boolean
@@ -354,7 +357,10 @@ export function toModelInput(src: InputSource, read: InputReaders): BuiltInput {
   for (const db of live)
     for (const v of read.valueProps(db, ws.kit)) {
       const code = digest(v.code)
-      kit.push({ db: db.id, prop: v.prop.id, type: v.type.id, code, trusted: device.kitTrust === null ? true : (device.kitTrust[code] ?? null) })
+      // fix (rest): what the value code reads (its scan here, else the lazy cache's — by the code's digest)
+      const scan = lazy.kitScans?.[code] ?? lazy.cache?.kits?.[code] ?? null
+      for (const p of scan?.reads ?? []) ref('page' in p ? p.page : 'db' in p ? p.db : null)
+      kit.push({ db: db.id, prop: v.prop.id, type: v.type.id, code, trusted: device.kitTrust === null ? true : (device.kitTrust[code] ?? null), scan })
     }
 
   const serverList = read.servers(ws.settings)
@@ -424,7 +430,7 @@ export function toModelInput(src: InputSource, read: InputReaders): BuiltInput {
 function refsOf(src: InputSource): unknown[] {
   const { ws, lazy } = src
   const st = ws.settings
-  return [ws.agents, ws.scripts, ws.integrations, ws.kit, ws.ai, ws.governor, ws.fuseSignoffs, st.mcpServers, st.mail, st.memory, st.ai, lazy.buttons, lazy.scans, lazy.runtime, lazy.hooks, lazy.tokens ?? null, lazy.inbox, !!lazy.inboxRead, lazy.cache]
+  return [ws.agents, ws.scripts, ws.integrations, ws.kit, ws.ai, ws.governor, ws.fuseSignoffs, st.mcpServers, st.mail, st.memory, st.ai, lazy.buttons, lazy.scans, lazy.kitScans ?? null, lazy.runtime, lazy.hooks, lazy.tokens ?? null, lazy.inbox, !!lazy.inboxRead, lazy.cache]
 }
 
 const deviceSig = (d: DeviceFacts) => stable({ ...d, testing: [...d.testing].sort(), refused: [...d.refused].sort() })

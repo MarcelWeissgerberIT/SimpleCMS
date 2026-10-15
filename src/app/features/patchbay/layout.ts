@@ -777,6 +777,13 @@ export function layoutRack(model: Model, opts: LayoutOptions = {}): Layout {
     wires.push({ id: e.id, from, to, edges: [e.id] })
   }
   wires.push(...busWires.values())
+  // a bus whose writer is folded is not drawn: its targets fold with the writer now — before rows are chosen, so an
+  // opened fold places them like any other module (fix rest)
+  for (const [k, b] of busOf)
+    if (!busWires.has(b)) {
+      why.set(k, keep ? 'filter' : 'off')
+      busOf.delete(k)
+    }
 
   // a module whose every cable leads into a fold folds with it (it would stand in a row without a cable)
   const shown = new Set<ModuleKey>()
@@ -910,11 +917,7 @@ export function layoutRack(model: Model, opts: LayoutOptions = {}): Layout {
       slots.push({ kind: 'bus', id, jack: b.jack, col: b.col, row, span: 1, edges: busWires.get(id)!.edges, modules: [] })
     }
   }
-  for (const [k, b] of busOf) {
-    const s = slots.find((x): x is BusSlot => x.kind === 'bus' && x.id === b)
-    if (s) s.modules.push(k)
-    else why.set(k, keep ? 'filter' : 'off') // its bus is not drawn (the writer is folded): fold it with the writer
-  }
+  for (const [k, b] of busOf) slots.find((x): x is BusSlot => x.kind === 'bus' && x.id === b)?.modules.push(k)
   const pathOf = new Map<ModuleKey, string[]>()
   for (const f of fuses) for (const k of chainModules(f.chain, model)) pathOf.set(k, [...(pathOf.get(k) ?? []), f.key])
   for (const col of [1, 2, 3] as const)

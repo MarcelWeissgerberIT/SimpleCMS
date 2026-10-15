@@ -15,10 +15,10 @@
  */
 import type { Page as PwPage } from '@playwright/test'
 import type { Automation, CustomAgent, Database, DbCommand, ID, IntegrationProfile, Kit, McpServerConfig, OneScript, Page, PipelineStage, PropertyDef, Settings, View } from '../../src/app/store/types'
-import type { ButtonInput, DatabaseInput, MailInput, ModelInput, ScriptScan } from '../../src/app/features/patchbay/types'
-import { createInputMemo, toModelInput, type DeviceFacts, type InputReaders, type InputSource, type InputWorkspace, type LazyReadings } from '../../src/app/features/patchbay/source'
+import type { ButtonInput, DatabaseInput, KitScan, MailInput, ModelInput, ScriptScan } from '../../src/app/features/patchbay/types'
+import { createInputMemo, digest, toModelInput, type DeviceFacts, type InputReaders, type InputSource, type InputWorkspace, type LazyReadings } from '../../src/app/features/patchbay/source'
 import { buildModel } from '../../src/app/features/patchbay/model'
-import { scanScript, type ScanEngine } from '../../src/app/features/patchbay/scripts'
+import { scanKitCode, scanScript, type ScanEngine } from '../../src/app/features/patchbay/scripts'
 import { buttonsIn } from '../../src/app/features/patchbay/buttons'
 import { readAutomations } from '../../src/app/features/automations/read'
 import { routeBlock } from '../../src/app/features/agents/routeBlock'
@@ -93,6 +93,17 @@ export function sourceOf(world: PbWorld, now = NOW): InputSource {
       if (scan) scans[s.id] = scan
     }
     lazy.scans = scans
+  }
+  // the kit value codes' scans (fix rest — inputs.ts scans them with the scripts, by the code's digest)
+  if (lazy.kitScans === undefined) {
+    const kitScans: Record<string, KitScan> = {}
+    for (const t of Object.values(world.ws.kit?.propTypes ?? {})) {
+      const code = t?.scripts?.value
+      if (typeof code !== 'string' || !code) continue
+      const scan = scanKitCode(code, NODE_ENGINE)
+      if (scan) kitScans[digest(code)] = scan
+    }
+    lazy.kitScans = kitScans
   }
   if (!lazy.buttons) lazy.buttons = Object.values(world.ws.pages).flatMap((p): ButtonInput[] => (p.content && !p.trashed ? buttonsIn(p.id, p.content) : []))
   // the Inbox lookup the route makes on open (B4: unless the world says it never ran — `inboxRead: false`)

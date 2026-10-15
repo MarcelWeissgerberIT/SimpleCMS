@@ -164,6 +164,9 @@ export const normalizeEmail = (email: string) => email.trim().toLowerCase()
  * encrypted and decrypted here (documents, file names, idempotency answers — docs/CLOUD.md § Tenancy
  * & encryption at rest), so every caller reads and writes plaintext.
  */
+/** The server_state key that says the workspace's allowed paths are guarded (fix rest). */
+const signoffsGuardKey = (workspaceId: string) => `guard:fuseSignoffs:${workspaceId}`
+
 export class Repo {
   readonly db: Db
   private readonly secret: Buffer
@@ -286,8 +289,22 @@ export class Repo {
     this.db.tx(() => {
       this.keys.shred(id)
       this.db.run('DELETE FROM workspaces WHERE id = ?', id)
+      this.db.run('DELETE FROM server_state WHERE key = ?', signoffsGuardKey(id))
     })
     this.db.checkpoint()
+  }
+
+  /**
+   * fix (rest): has this server guarded the workspace's allowed paths before (collab/fuse-signoffs.ts)? A marker in
+   * `server_state` — the server's own table, never a client's document: what an older server let anyone write into the
+   * map is dropped once, the first time the meta document loads under the guard.
+   */
+  signoffsGuarded(workspaceId: string): boolean {
+    return !!this.db.get('SELECT 1 AS x FROM server_state WHERE key = ?', signoffsGuardKey(workspaceId))
+  }
+
+  markSignoffsGuarded(workspaceId: string): void {
+    this.db.run(`INSERT INTO server_state (key, value, updated_at) VALUES (?, '1', ?) ON CONFLICT(key) DO NOTHING`, signoffsGuardKey(workspaceId), Date.now())
   }
 
   memberRole(workspaceId: string, userId: string): Role | undefined {
