@@ -327,3 +327,139 @@ test('removing a team workspace’s copy takes its Patchbay stores along; the lo
   }))
   expect(ls).toEqual({ keys: ['one.patchbay.order:cloud:' + keep + ':u:' + uid, 'one.patchbay.order:local:local', 'one.patchbay.patch', 'one.patchbay.seen'].sort(), chip: null })
 })
+
+/* ------------------------------------------------------------------ B10: the fuse keys in a team */
+
+/**
+ * Mock 1's core in a team workspace, written by its owner: the Mails database (system 'mails', „Weiterleiten“), the
+ * automation „An Team-Chat“ (webhook chat.example — never fired here) and the owner's browser agent Inbox-Helfer
+ * (apply, everything, new Mails rows) → fuse F1 for every member (a browser agent without MCP servers is no device's own).
+ * `createdBy` is the owner's account, as the agent editor writes it for a new agent (upsertAgent keeps what it is given).
+ */
+async function seedTeamF1(owner: Page, ownerId: string): Promise<void> {
+  await wsEval(owner, (s, ownerId) => {
+    const db = s.createDatabase({ title: 'Mails', properties: [{ id: 'pName', name: 'Name', type: 'title' }, { id: 'pMailFwd', name: 'Weiterleiten', type: 'checkbox' }] }) as string
+    s.updateDatabase(db, {
+      system: 'mails',
+      automations: [{ id: 'autToChat', name: 'An Team-Chat', enabled: true, trigger: { type: 'property_changed', propertyId: 'pMailFwd' }, actions: [{ type: 'webhook', url: 'https://chat.example/hook', method: 'POST' }], lastRunAt: null, lastStatus: null, lastMessage: null }],
+    })
+    const now = Date.now()
+    s.upsertAgent({ id: 'agInbox', name: 'Inbox-Helfer', instructions: 'Lies jede neue Mail. Soll das Team sie sehen, setze „Weiterleiten“.', trigger: { type: 'row_created', databaseId: db }, scope: { everything: true, pages: [], databases: [] }, write: 'apply', output: null, mcpServers: [], runner: 'browser', model: null, effort: null, maxRunUsd: 0.2, enabled: true, createdAt: now, updatedAt: now, createdBy: ownerId })
+  }, ownerId)
+}
+
+const pbPanel = (p: Page) => p.getByTestId('pb-fpanel')
+const pbKey = (p: Page, n: number) => p.locator(`#pb-fuse-panel [data-pb-key="${n}"]`)
+const pbKeyRow = (p: Page, n: number) => p.locator(`#pb-fuse-panel .pb-fkey[data-n="${n}"]`)
+const openPatchbayIn = async (p: Page) => {
+  await p.evaluate(() => (window.location.hash = '#/patchbay'))
+  await expect(p.getByTestId('patchbay-page')).toBeVisible()
+}
+
+test('team keys: a member’s key 1 on the owner’s agent names the confirm before and leaves it waiting after; key 3 is the owners’ (named); the owner sees the waiting agent’s fuse and confirms in the editor first', async ({ page, context }) => {
+  await signIn(page, email('mara'))
+  expect((await api(page, 'PATCH', '/api/me', { name: 'Mara Lind' })).status).toBe(200)
+  const maraId = (await api<{ user: { id: string } }>(page, 'GET', '/api/me')).json.user.id
+  const wsId = await createWorkspace(page, 'Nordlicht Schaltplan')
+  const member = await newPerson(context)
+  await signIn(member, email('tessera'))
+  expect((await api(member, 'PATCH', '/api/me', { name: 'Tessera Nord' })).status).toBe(200)
+  const tesseraId = (await api<{ user: { id: string } }>(member, 'GET', '/api/me')).json.user.id
+  await join(page, member, wsId, 'member')
+  await openApp(page, wsId)
+  await waitOnline(page)
+  await seedTeamF1(page, maraId)
+  await openApp(member, wsId)
+  await waitOnline(member)
+  await expect.poll(() => wsEval(member, (s) => s.agents?.agInbox?.write ?? null)).toBe('apply')
+
+  // the member: F1 with the confirm note before the press; key 3 inert, the owners and admins named, "Copy link" to hand it over
+  await openPatchbayIn(member)
+  await expect(pbPanel(member).getByRole('heading', { level: 2 })).toHaveText('Fuse F1 · open path')
+  await expect(pbKeyRow(member, 1).getByTestId('pb-fkey-team')).toHaveText('Mara Lind must confirm the agent afterwards.')
+  await expect(pbKey(member, 3)).toHaveAttribute('aria-disabled', 'true')
+  await expect(pbKeyRow(member, 3).getByTestId('pb-fkey-why')).toHaveText('Only owners and admins: Mara Lind')
+  await expect(pbPanel(member).getByTestId('pb-fkey-copy')).toBeVisible()
+  await pbKey(member, 3).focus()
+  await member.keyboard.press('Enter')
+  await expect(member.getByTestId('pb-live')).toContainText('Allow this path — not possible here: Only owners and admins: Mara Lind')
+  expect(await wsEval(member, (s) => s.fuseSignoffs ?? null)).toBeNull()
+
+  // key 1: the agent writes proposals now — and waits for its creator (the member saved it)
+  await pbKey(member, 1).click()
+  await expect(pbPanel(member).getByTestId('pb-closed-head')).toHaveText('Fuse F1 · closed — Inbox-Helfer: Apply directly → Proposals for review')
+  await expect(member.locator('.toast').filter({ hasText: 'Fuse F1 closed' }).last()).toContainText('Mara Lind must confirm the agent afterwards.')
+  await expect.poll(() => wsEval(page, (s) => [s.agents.agInbox.write, s.agents.agInbox.updatedBy])).toEqual(['stage', tesseraId])
+
+  // the member's Undo puts "apply" back — the agent still waits for Mara (the member saved it last); the toast says so
+  await pbPanel(member).getByTestId('pb-closed-head').focus()
+  await member.keyboard.press('Control+z')
+  await expect(member.locator('.toast').filter({ hasText: 'Taken back — fuse F1 is open again' }).last()).toContainText('Mara Lind must still confirm the agent.')
+  await expect.poll(() => wsEval(page, (s) => [s.agents.agInbox.write, s.agents.agInbox.updatedBy, s.agents.agInbox.createdBy])).toEqual(['apply', tesseraId, maraId])
+
+  // the owner (the creator) sees the fuse of the agent a member changed, before confirming (§6 A8) — and is sent to the
+  // editor first: a key saved as Mara would run Tessera's version unseen
+  await openPatchbayIn(page)
+  await expect(pbPanel(page).getByRole('heading', { level: 2 })).toHaveText('Fuse F1 · open path')
+  await expect(pbPanel(page).locator('.pb-fact[data-fact="awaitsConfirm"]')).toContainText('waits for your confirm — Tessera Nord changed it')
+  await expect(pbKey(page, 1)).toHaveAttribute('aria-disabled', 'true')
+  await expect(pbKeyRow(page, 1).getByTestId('pb-fkey-why')).toHaveText('Inbox-Helfer waits for your confirm — Tessera Nord changed it. Confirm it in its editor first.')
+  await expect(pbKey(page, 3)).not.toHaveAttribute('aria-disabled', 'true')
+  await member.context().close()
+})
+
+test('team keys: an admin sees the grey row of a path only another member’s browser can see; a viewer gets a neutral LED and no Preflight lamp', async ({ page, context }) => {
+  await signIn(page, email('mara'))
+  expect((await api(page, 'PATCH', '/api/me', { name: 'Mara Lind' })).status).toBe(200)
+  const maraId = (await api<{ user: { id: string } }>(page, 'GET', '/api/me')).json.user.id
+  const wsId = await createWorkspace(page, 'Nordlicht Schaltplan Gast')
+  const member = await newPerson(context)
+  await signIn(member, email('tessera'))
+  expect((await api(member, 'PATCH', '/api/me', { name: 'Tessera Nord' })).status).toBe(200)
+  const tesseraId = (await api<{ user: { id: string } }>(member, 'GET', '/api/me')).json.user.id
+  await join(page, member, wsId, 'member')
+  const viewer = await newPerson(context)
+  await signIn(viewer, email('gast'))
+  await join(page, viewer, wsId, 'viewer')
+  await openApp(page, wsId)
+  await waitOnline(page)
+  await seedTeamF1(page, maraId)
+
+  // the member's own browser agent with a server of the member's browser: only that browser knows its tools
+  await openApp(member, wsId)
+  await waitOnline(member)
+  await expect.poll(() => wsEval(member, (s) => !!s.agents?.agInbox)).toBe(true)
+  await wsEval(member, (s, tesseraId) => {
+    const now = Date.now()
+    s.upsertAgent({ id: 'agTessera', name: 'Tessera-Spiegel', instructions: 'Spiegle die offenen Einträge von tracker.', trigger: { type: 'manual' }, scope: { everything: true, pages: [], databases: [] }, write: 'stage', output: null, mcpServers: ['tracker'], runner: 'browser', model: null, effort: null, maxRunUsd: 0.4, enabled: true, createdAt: now, updatedAt: now, createdBy: tesseraId })
+  }, tesseraId)
+  await expect.poll(() => wsEval(page, (s) => !!s.agents?.agTessera)).toBe(true)
+
+  // the owner: the grey row names the member whose browser alone sees that path
+  await openPatchbayIn(page)
+  const grey = page.locator('.pb-ftab[data-kind="unknown"]').filter({ hasText: 'Tessera Nord' })
+  await expect(grey).toContainText('Fuse visible only in Tessera Nord’s browser — Tessera Nord can close it with key 1 or 2')
+  await grey.click()
+  await expect(pbPanel(page).getByTestId('pb-only-visible')).toHaveText('Fuse visible only in Tessera Nord’s browser — Tessera Nord can close it with key 1 or 2')
+
+  // the viewer: the fuse is there, nothing to press — the LED in neutral ink, no Preflight lamp
+  await openApp(viewer, wsId)
+  await waitOnline(viewer)
+  await expect(viewer.getByTestId('patchbay-nav-led')).toHaveAttribute('data-viewer', 'true')
+  await expect(viewer.getByTestId('patchbay-nav-led').locator('.led')).not.toHaveClass(/led--on/)
+  await expect
+    .poll(() =>
+      viewer.evaluate(async () => {
+        const pf = (window as unknown as { __onePreflight?: { flush: (id?: string) => Promise<void>; state: () => { views: Array<{ id: string }> } } }).__onePreflight
+        if (!pf) return 'no preflight'
+        await pf.flush('fuses')
+        return pf.state().views.some((v) => v.id === 'fuses') ? 'lamp' : 'none'
+      }),
+    )
+    .toBe('none')
+  await openPatchbayIn(viewer)
+  await expect(pbKey(viewer, 1)).toHaveAttribute('aria-disabled', 'true')
+  await expect(pbKeyRow(viewer, 1).getByTestId('pb-fkey-why')).toHaveText('You can only read this workspace.')
+  await member.context().close()
+  await viewer.context().close()
+})

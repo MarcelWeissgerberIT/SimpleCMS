@@ -4,10 +4,12 @@
  * here, at the switch. Not on a locked database (the schema is fixed) — the menu's head says it is locked.
  *
  * Each switch shows only while an active integration profile unlocks it (features: useUnlocked 'keys' / 'onlyByHand').
- * Without one, a flag the property already has is shown as a read-only mark — and still ENFORCED everywhere: data
- * integrity never depends on the gate.
+ * Without one, a key the property already has is shown as a read-only mark — and still ENFORCED everywhere: data
+ * integrity never depends on the gate. "Only by hand" is a safety flag (the Patchbay's key 2 sets it without the unlock,
+ * plan §1.9 / Q1): while it is set the switch shows to everyone, so it can always be switched off where it is shown;
+ * switching it ON stays gated (without the unlock, a switch shown in this menu that was switched off stays, disabled).
  */
-import { useState, type ReactNode } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import { Hand, KeyRound } from 'lucide-react'
 import type { Database, PropertyDef } from '../../store/types'
 import { useWorkspace } from '../../store/store'
@@ -45,7 +47,12 @@ export function PropertyFlags({ db, prop }: { db: Database; prop: PropertyDef })
   const handable = canBeHandOnly(live)
   // a switch only where a profile unlocks it; a flag that is set shows as a mark otherwise
   const keySwitch = keyable && keysOn
-  const handSwitch = handable && handOn
+  // a set hand-only flag always shows its switch (off is always allowed); once shown in this menu it stays — disabled
+  // while off without the unlock (switching on stays gated)
+  const handShown = useRef(false)
+  if (handable && (handOn || live.agentReadOnly === true)) handShown.current = true
+  const handSwitch = handable && handShown.current
+  const handLocked = !handOn && live.agentReadOnly !== true
   const keyMark = !keySwitch && live.key === true
   const handMark = !handSwitch && live.agentReadOnly === true
   if (!keySwitch && !handSwitch && !keyMark && !handMark) return null
@@ -86,11 +93,12 @@ export function PropertyFlags({ db, prop }: { db: Database; prop: PropertyDef })
               {t('database.hand.menuHint')}
             </span>
           </span>
-          <Switch size="sm" seed={`hand-${live.id}`} checked={live.agentReadOnly === true} label={t('database.hand.menu')} describedBy={handId} onChange={toggleHand} />
+          <Switch size="sm" seed={`hand-${live.id}`} checked={live.agentReadOnly === true} label={t('database.hand.menu')} describedBy={handId} onChange={toggleHand} disabled={handLocked} />
         </label>
       )}
       {handMark && <FlagMark icon={<Hand size={14} strokeWidth={1.75} aria-hidden />} label={t('database.hand.menu')} hint={t('database.hand.menuHint')} testId="db-flag-hand-mark" />}
       {(keyMark || handMark) && <p className="db-flags__note db-flags__note--mark">{t('database.flag.gated')}</p>}
+      {handSwitch && handLocked && <p className="db-flags__note db-flags__note--mark">{t('database.hand.gatedOn')}</p>}
       {note && (
         <p className="db-flags__note" data-error={note.error || undefined} role={note.error ? 'alert' : 'status'}>
           {note.text}

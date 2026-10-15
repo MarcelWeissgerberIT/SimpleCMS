@@ -10,6 +10,8 @@
  *  - FuseHintLine { kind, id, onOpen? }: the one line (§1.20) — nothing while the thing sits on no open fuse; a link to
  *    `#/patchbay?f=<path key>` ("On fuse F1 — show in the Patchbay"); `onOpen` runs first (a dialog closes itself —
  *    a route change alone leaves a modal open). B15 draws it for AutomationsModal; B10 places it in the agent editor.
+ *  - PatchbayAgentLink { agent, onOpen? } (B10): "Change in the Patchbay" — the agent editor's kept tool-list line
+ *    (no profile unlocks the list there; the Patchbay's key 2b is the reasoned way, §1.9), `#/patchbay?m=agent:<id>`
  * Seam (DEV / `?e2e`): `window.__onePatchbayHints` = { set(list), of(kind, id) } — specs feed hints before the idle fuse
  * computation exists in their build, or without opening the Patchbay.
  * Ids per kind: 'agent' = agent id · 'agentServer' = `${agentId}:${serverName}` · 'automation' = `${dbId}:${automationId}` ·
@@ -18,6 +20,7 @@
 import { createElement, useSyncExternalStore, type MouseEvent } from 'react'
 import { useT } from '../../i18n'
 import { navigate, routeHref } from '../../lib/router'
+import { moduleKey } from './ref'
 import type { FuseHint, HintKind } from './types'
 import './hint.css'
 
@@ -86,6 +89,22 @@ export function FuseHintLine(props: { kind: HintKind; id: string; onOpen?: () =>
       createElement('span', { className: 'pb-hint__text' }, t('features.patchbay.hint.onFuse', { f: hint.label })),
     ),
   )
+}
+
+/**
+ * "Change in the Patchbay" next to an agent's kept MCP tool list (§1.9 key 2b): a link to the agent's module on the rack.
+ * A plain click runs `onOpen` first (the editor dialog closes) — Mod / Shift + click keep the browser's own meaning.
+ */
+export function PatchbayAgentLink(props: { agent: string; onOpen?: () => void }) {
+  const t = useT()
+  const route = { name: 'patchbay' as const, m: moduleKey({ kind: 'agent', id: props.agent }) }
+  const open = (e: MouseEvent<HTMLAnchorElement>) => {
+    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+    e.preventDefault()
+    props.onOpen?.()
+    navigate(route)
+  }
+  return createElement('a', { className: 'pb-hint__kept', href: routeHref(route), onClick: open, 'data-testid': 'pb-hint-kept' }, t('features.patchbay.hint.kept'))
 }
 
 const seamOn = (() => {

@@ -29,9 +29,11 @@ export interface PbUI {
   say: { text: string; n: number }
   /** modules whose name box stays under 12ch after their own tiers (Module.tsx useJackFit): > 0 → the strands view */
   tight: number
+  /** B10: the fuse keys 1 / 2 pressed in this visit (keys.ts KeyDone ids, oldest first) — their closed plates stay listed */
+  closed: string[]
 }
 
-const FRESH: Omit<PbUI, 'filter' | 'say'> = { hover: null, selected: null, net: null, fuse: null, unfolded: [], cursor: null, jack: null, tight: 0 }
+const FRESH: Omit<PbUI, 'filter' | 'say'> = { hover: null, selected: null, net: null, fuse: null, unfolded: [], cursor: null, jack: null, tight: 0, closed: [] }
 
 export const usePbUI = create<PbUI>(() => ({ ...FRESH, filter: 'auto', say: { text: '', n: 0 } }))
 
@@ -77,6 +79,12 @@ export function noteTight(key: string, on: boolean): void {
   if (on) tightKeys.add(key)
   else tightKeys.delete(key)
   usePbUI.setState({ tight: tightKeys.size })
+}
+
+/** A key 1 / 2 closed a fuse in this visit: its closed plate joins the list (and is selected). */
+export function noteClosed(id: string, row: string): void {
+  const cur = usePbUI.getState().closed
+  usePbUI.setState({ closed: cur.includes(id) ? cur : [...cur, id], fuse: row })
 }
 
 /** Say something politely (the page's live region). */

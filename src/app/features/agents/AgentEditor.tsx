@@ -33,6 +33,8 @@ import { isReadTool, testedTools } from './mcpTools'
 import { placeholdersIn } from './mirror'
 import { useDismissMirrorToasts } from './mirrorToasts'
 import { useServerUnlocked, useUnlocked } from './integrations/status'
+// the Patchbay's one dependency-free module (plan §1.2): "On fuse F1 — show in the Patchbay" where the setting lives
+import { FuseHintLine, PatchbayAgentLink } from '../patchbay/hint'
 import './mirror.css'
 import { AGENT_PLACEHOLDERS, instructionTools, openPlaceholders } from './instructions'
 import { CodeArea, lineColAt, lineStarts, markdownTokenizer, type CodeAreaHandle } from '../../ui/code'
@@ -345,8 +347,9 @@ export function AgentEditor({
                 { v: 'apply', label: t('features.agents.write.apply') },
               ]}
             />
+            {!isNew && <FuseHintLine kind="agent" id={initial.id} onOpen={onClose} />}
           </Field>
-          <McpFields d={d} set={set} />
+          <McpFields d={d} set={set} agentId={isNew ? null : initial.id} onLeave={onClose} />
         </Section>
 
         {/* ---------------------------------------------------------- 04 report */}
@@ -848,7 +851,7 @@ function ScopeFields({ d, set, error, titles }: { d: CustomAgent; set: (p: Parti
  * The MCP servers it may call. A browser agent's ticked server that is switched off on this device, or not set up here
  * at all, is said under the list (its runs leave such a server out, exec.ts) — a hint: saving stays possible.
  */
-function McpFields({ d, set }: { d: CustomAgent; set: (p: Partial<CustomAgent>) => void }) {
+function McpFields({ d, set, agentId, onLeave }: { d: CustomAgent; set: (p: Partial<CustomAgent>) => void; agentId: ID | null; onLeave: () => void }) {
   const t = useT()
   const settings = useWorkspace((s) => s.settings)
   const runtime = useServerAgents((s) => s.runtime)
@@ -866,6 +869,9 @@ function McpFields({ d, set }: { d: CustomAgent; set: (p: Partial<CustomAgent>) 
   const all = [...new Set([...names, ...d.mcpServers])]
   const toggle = (name: string, on: boolean) => set({ mcpServers: on ? [...d.mcpServers, name] : d.mcpServers.filter((x) => x !== name) })
   const off = (name: string) => d.runner !== 'server' && local.some((s) => s.name === name && !s.enabled)
+  // the Patchbay's hint per server (§1.20): inside its tool list, beside its kept line, else under the list of servers
+  const hint = (name: string) => (agentId ? <FuseHintLine kind="agentServer" id={`${agentId}:${name}`} onOpen={onLeave} /> : null)
+  const kept = (name: string) => !allowList && !!d.mcpTools && Object.prototype.hasOwnProperty.call(d.mcpTools, name)
   type Note = { name: string; kind: 'missing' | 'off' }
   const notes = d.runner === 'server' ? [] : d.mcpServers.flatMap((name): Note[] => (!names.includes(name) ? [{ name, kind: 'missing' }] : off(name) ? [{ name, kind: 'off' }] : []))
   return (
@@ -900,15 +906,17 @@ function McpFields({ d, set }: { d: CustomAgent; set: (p: Partial<CustomAgent>) 
         </p>
       ))}
       <p className="agx-field__hint">{t('features.agents.ed.mcpHint')}</p>
-      {!allowList &&
-        d.mcpServers
-          .filter((name) => d.mcpTools && Object.prototype.hasOwnProperty.call(d.mcpTools, name))
-          .map((name) => (
-            <p key={name} className="agx-tools-kept" data-testid="agx-tools-kept">
-              <span className="label">{name.toUpperCase()}</span>
-              <span>{t('features.agents.ed.toolsKept', { n: d.mcpTools![name].length })}</span>
-            </p>
-          ))}
+      {!allowList && d.mcpServers.filter((name) => !kept(name)).map((name) => <span key={name}>{hint(name)}</span>)}
+      {d.mcpServers.filter(kept).map((name) => (
+        <div key={name}>
+          <p className="agx-tools-kept" data-testid="agx-tools-kept">
+            <span className="label">{name.toUpperCase()}</span>
+            <span>{t('features.agents.ed.toolsKept', { n: d.mcpTools![name].length })}</span>
+            {agentId && <PatchbayAgentLink agent={agentId} onOpen={onLeave} />}
+          </p>
+          {hint(name)}
+        </div>
+      ))}
       {allowList && d.mcpServers.map((name) => (
         <McpToolList
           key={name}
@@ -916,6 +924,7 @@ function McpFields({ d, set }: { d: CustomAgent; set: (p: Partial<CustomAgent>) 
           tools={testedTools(name, readServers(settings), d.runner === 'server' ? (runtime?.mcpServers.find((s) => s.name === name) ?? null) : null)}
           allow={d.mcpTools && Object.prototype.hasOwnProperty.call(d.mcpTools, name) ? d.mcpTools[name] : undefined}
           out={outOf(name)}
+          hint={hint(name)}
           onChange={(list) => {
             const next = { ...(d.mcpTools ?? {}) }
             if (list) next[name] = list
@@ -935,7 +944,7 @@ function McpFields({ d, set }: { d: CustomAgent; set: (p: Partial<CustomAgent>) 
  * the server's OUT tools (an integration profile's send routes) — struck through, switched off for every agent
  * whatever is ticked (mcp-servers/lock.ts).
  */
-function McpToolList({ server, tools, allow, out, onChange }: { server: string; tools: string[] | null; allow: string[] | undefined; out: string[]; onChange: (list: string[] | undefined) => void }) {
+function McpToolList({ server, tools, allow, out, hint: fuseHint, onChange }: { server: string; tools: string[] | null; allow: string[] | undefined; out: string[]; hint?: ReactNode; onChange: (list: string[] | undefined) => void }) {
   const t = useT()
   const id = useId()
   const known = tools ?? []
@@ -1006,6 +1015,7 @@ function McpToolList({ server, tools, allow, out, onChange }: { server: string; 
           </button>
         </p>
       )}
+      {fuseHint}
     </div>
   )
 }

@@ -118,9 +118,10 @@ test.describe('Integration profiles', () => {
     await expect(propMenu(page).getByTestId('db-flag-key-mark')).toBeVisible()
     await expect(propMenu(page)).toContainText('Set earlier and still in force. An active integration unlocks the switch.')
     await page.keyboard.press('Escape')
+    // "Only by hand" is a safety flag: set, its switch shows without a profile — off is always allowed (Patchbay B10, Q1)
     await header(page, 'Notes').click()
-    await expect(propMenu(page).getByRole('switch')).toHaveCount(0)
-    await expect(propMenu(page).getByTestId('db-flag-hand-mark')).toBeVisible()
+    await expect(propMenu(page).getByRole('switch', { name: 'Only by hand' })).toHaveAttribute('aria-checked', 'true')
+    await expect(propMenu(page).getByTestId('db-flag-hand-mark')).toHaveCount(0)
     await page.keyboard.press('Escape')
 
     // a custom agent: no upsert_rows, no state, no notes — and the prompt does not name them; its tool list still applies

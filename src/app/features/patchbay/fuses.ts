@@ -214,6 +214,16 @@ function teamNote(c: Ctx, ai: AgentInput | undefined): MsgRef | undefined {
   return { key: `${P}.key.confirmAfter`, vars: { creator: ai.agent.createdBy ?? '' } }
 }
 
+/**
+ * Team: the creator's own browser agent another member changed last waits for the creator's confirm — a key (an
+ * upsertAgent as the creator) would run that member's version unseen: confirm it in its editor first (B10, as patch.ts).
+ */
+function confirmFirst(c: Ctx, ai: AgentInput | undefined): MsgRef | undefined {
+  if (!ai || !c.input.ctx.team || ai.agent.runner !== 'browser' || !ai.awaitsConfirm) return undefined
+  if (!c.input.ctx.me || ai.agent.createdBy !== c.input.ctx.me) return undefined
+  return { key: `${P}.patch.confirmFirst`, vars: { agent: moduleKey({ kind: 'agent', id: ai.agent.id }), member: ai.agent.updatedBy ?? '' } }
+}
+
 function inert(k: FuseKey, c: Ctx): FuseKey {
   return c.viewer ? { ...k, offered: false, refusal: READ_ONLY } : k
 }
@@ -227,6 +237,8 @@ function key1(c: Ctx, chain: Chain, d: Decider): FuseKey | null {
     // the decider's own MCP tools run inside the AI's tool loop: no proposal stops them (§6 A29)
     if (exit.type === 'mcp' && holderOf(c.ix, chain) === d.key) return inert({ ...base, refusal: { key: `${P}.key.mcpNoReview` } }, c)
     if (ai?.write !== 'apply') return inert({ ...base, refusal: { key: `${P}.key.proposalsAlready` } }, c)
+    const waits = confirmFirst(c, ai)
+    if (waits) return inert({ ...base, refusal: waits }, c)
     const automation = pathModules(chain).find((k) => c.ix.mods.get(k)?.kind === 'automation')
     const team = teamNote(c, ai)
     return inert({ ...base, offered: true, note: automation ? { key: `${P}.key.proposalsLeft`, vars: { automation } } : { key: `${P}.key.proposalsWait` }, ...(team ? { team } : {}) }, c)
@@ -255,11 +267,13 @@ function key2(c: Ctx, chain: Chain, d: Decider): { key: FuseKey; residual?: stri
       const tools = toolsOn(c, hm, server)
       const keep = [...(tools?.read ?? [])].sort()
       const team = teamNote(c, ai)
+      const waits = confirmFirst(c, ai)
       const key: FuseKey = {
         n: 2,
         kind: 'cutTools',
         target: { agent: hm.ref.id, server: name, keep },
-        offered: true,
+        offered: !waits,
+        ...(waits ? { refusal: waits } : {}),
         label: { key: `${P}.key.cutTools` },
         what: keep.length ? { key: `${P}.key.cutToolsWhat`, vars: { agent: hm.key, server: exit.module, n: keep.length } } : { key: `${P}.key.cutToolsAll`, vars: { agent: hm.key, server: exit.module } },
         ...(ai?.agent.mirrorOf ? { asks: { key: `${P}.key.mirrorAsk`, vars: { agent: hm.key } } } : {}),

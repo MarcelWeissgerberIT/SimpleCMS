@@ -1885,6 +1885,251 @@ span.pb-line:focus {
   font-size: var(--text-2xs);
 }
 
+/* ---------- B10: the key column (§3.5) — at the plate's right when it is wide, under the body when narrow ---------- */
+.pb-fplate--keys {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  padding: 0;
+}
+.pb-fplate--keys[data-wide] {
+  grid-template-columns: minmax(0, 1fr) calc(288px * var(--text-scale));
+}
+.pb-fplate__body {
+  min-width: 0;
+  padding: 12px 18px 14px;
+  container: pb-fbody / inline-size;
+}
+/* a body narrowed by the key column: "All 3 conditions met" over the three lamps, which keep the whole width */
+@container pb-fbody (max-width: 680px) {
+  .pb-tri {
+    flex-direction: column;
+    gap: 8px;
+  }
+  .pb-tri__k.label {
+    width: auto;
+  }
+  .pb-tri__rows {
+    align-self: stretch;
+  }
+}
+.pb-fkeys {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px 14px 14px;
+  border-top: 1px solid var(--rule);
+  border-radius: 0 0 var(--radius-2) var(--radius-2);
+  background: var(--surface-2);
+}
+.pb-fplate--keys[data-wide] .pb-fkeys {
+  border-top: 0;
+  border-left: 1px solid var(--rule);
+  border-radius: 0 var(--radius-2) var(--radius-2) 0;
+}
+.pb-fkeys__h.label {
+  color: var(--ink-2);
+}
+.pb-fkey {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.pb-fkey__b.btn {
+  justify-content: flex-start;
+  width: 100%;
+  min-height: calc(32px * var(--text-scale));
+  height: auto;
+  gap: 7px;
+  padding: 4px 8px 4px 10px;
+  font-size: calc(12.5px * var(--text-scale));
+  text-align: left;
+}
+.pb-fkey__l {
+  flex: 1;
+  min-width: 0;
+}
+/* the digit only while the list or its plate has the keyboard (§6 U21); never on touch */
+.pb-fkey__kbd.kbd {
+  margin-left: auto;
+  visibility: hidden;
+}
+.pb-fuses:focus-within .pb-fkey__kbd.kbd,
+.pb-fcard:focus-within .pb-fkey__kbd.kbd {
+  visibility: visible;
+}
+@media (hover: none) and (pointer: coarse) {
+  .pb-fkey__kbd.kbd {
+    display: none;
+  }
+}
+/* refused: aria-disabled (never disabled), dashed and quiet — the reason stands under it */
+.pb-fkey__b.btn[aria-disabled='true'] {
+  border: 1px dashed var(--rule-strong);
+  background: transparent;
+  box-shadow: none;
+  color: var(--ink-3);
+  cursor: not-allowed;
+}
+.pb-fkey__b.btn[aria-disabled='true']:active {
+  transform: none;
+}
+.pb-fkey__lines {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding-left: 2px;
+}
+.pb-fkey__lines:empty {
+  display: none;
+}
+.pb-fkey__w {
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.pb-fkey__note,
+.pb-fkey__why {
+  color: var(--ink-2);
+  font-size: calc(12px * var(--text-scale));
+  line-height: 1.35;
+}
+.pb-fkey__why--now {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  padding-left: 2px;
+  color: var(--ink);
+}
+.pb-fkey__open {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.pb-fkey__ask {
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  font-size: calc(12px * var(--text-scale));
+}
+.pb-fkey__askkeys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.pb-fkeys__copy {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  gap: 6px;
+  min-height: calc(28px * var(--text-scale));
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.pb-fkeys__copy:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.pb-fkeys__undo {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 7px;
+  margin: 10px 0 0;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+}
+/* the phone's keys: stacked full width under the sentence (no column, no digits) */
+.pb-fkeys[data-variant='card'] {
+  margin-top: 12px;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+.pb-fkeys[data-variant='card'] .pb-fkey__b.btn {
+  justify-content: center;
+  min-height: calc(44px * var(--text-scale));
+  font-size: calc(14px * var(--text-scale));
+  text-align: center;
+}
+.pb-fkeys[data-variant='card'] .pb-fkey__l {
+  flex: 0 1 auto;
+}
+.pb-fkeys[data-variant='card'] .pb-fkey__kbd.kbd {
+  display: none;
+}
+
+/* the allowed stamp: a check in an ink box — neutral, never amber (§6 U9) */
+.pb-fplate__stamp.label {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+/* the closed plate of this visit: ink, never orange (§6 U8) */
+.pb-fplate[data-state='closed'] {
+  border-color: var(--ink-3);
+}
+.pb-fplate[data-state='closed'] .pb-fplate__tab {
+  background: var(--ink);
+  color: var(--surface);
+}
+.pb-fplate[data-state='closed'] .pb-fhead__f {
+  color: var(--ink);
+}
+.pb-closed__keys {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-top: 12px;
+}
+.pb-closed__undo.btn .kbd {
+  margin-left: 4px;
+}
+@media (hover: none) and (pointer: coarse) {
+  .pb-closed__undo.btn .kbd {
+    display: none;
+  }
+}
+/* the LED stays beside the heading when the heading wraps (a phone, a long "what") */
+.pb-closed .pb-fplate__h {
+  flex-wrap: nowrap;
+  align-items: baseline;
+}
+.pb-closed .pb-fplate__title {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.pb-closed__static.label {
+  margin: 4px 0 0;
+  color: var(--ink-3);
+}
+.pb-fcards .pb-closed {
+  margin-top: 12px;
+}
+
 /* the three lamps: filled = met, ring = not met; signal only on the open plate */
 .pb-tri {
   display: flex;
@@ -2267,6 +2512,12 @@ span.pb-line:focus {
 @media (prefers-reduced-motion: no-preference) {
   .pb [data-blink] {
     animation: pb-blink 0.9s steps(1) var(--pb-blink-delay, 0ms) 3;
+  }
+  /* a key closed a path: its frames fade to ink once (at once with reduced motion, §6 U8) */
+  .pb-mod {
+    transition:
+      opacity var(--dur-2) var(--ease-out),
+      border-color 0.6s var(--ease-out);
   }
   @keyframes pb-blink {
     50% {

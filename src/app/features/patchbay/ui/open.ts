@@ -11,14 +11,18 @@ import { openMcpConnections, openMcpSettings } from '../../mcp'
 import { openSyncSettings } from '../../sync'
 import { openMailSettings } from '../../mail'
 import { openCodingSettings } from '../../coding'
-import type { Module } from '../types'
+import type { Module, OpenTarget } from '../types'
 
 /** Whether ↵ opens something for this module ("Whole workspace" and runtime-only servers have no editor here). */
 export const canOpen = (m: Module): boolean => m.open.to !== 'none'
 
 /** Open a module's editor; `from` = the element the keyboard goes back to when a dialog closes. */
 export function openModule(m: Module, from?: HTMLElement | null): void {
-  const o = m.open
+  openTarget(m.open, from)
+}
+
+/** Open where a setting is changed (a module's editor, a refused key's "Open the editor"). */
+export function openTarget(o: OpenTarget, from?: HTMLElement | null): void {
   if (from) handFocusOver(from)
   switch (o.to) {
     case 'route':

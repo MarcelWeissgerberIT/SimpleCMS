@@ -44,6 +44,7 @@ import { refreshModel, usePatchbay } from '../state'
 import type { FilterPreset, FuseState, Model, ModuleKey } from '../types'
 import { Empty } from './Empty'
 import { FuseArea } from './FuseList'
+import { UndoKeysHost } from './FuseKeys'
 import { activeGlyph, fuseRowsOf } from './fuseRows'
 import { Header, type HeadKeys } from './HeaderMenu'
 import { JackPicker, pickerRows, type PickerRow } from './JackPicker'
@@ -410,6 +411,7 @@ export default function Patchbay(props: PatchbayRouteProps) {
       {ctx && layout && !narrow && model!.edges.length > 0 && <FuseArea model={model!} input={input!} words={words!} />}
       {ctx && layout && !narrow && model!.edges.length > 0 && <Plain model={model!} input={input!} words={words!} />}
       {picker && words && <JackPicker anchor={picker} rows={rows} t={words.t} onPick={pickJack} onClose={closePicker} />}
+      {model && input && words && <UndoKeysHost page={pageRef} model={model} input={input} words={words} />}
       {/* 12 characters of a module's name: the narrowest name box the rack accepts (measured, never guessed) */}
       <span className="pb-probe" aria-hidden="true" />
       <div className="visually-hidden" role="status" aria-live="polite" aria-label={t(`${P}.liveRegion`)} data-testid="pb-live">

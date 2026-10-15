@@ -20,7 +20,7 @@
  */
 import { serverToolGroups, toolUse } from './tools'
 import { placeKey } from './rules'
-import type { Chain, Edge, Fuse, Model, ModelInput, Module, ModuleKey, MsgRef, Place } from './types'
+import type { Chain, Edge, Fuse, Model, ModelInput, Module, ModuleKey, ModuleRef, MsgRef, Place } from './types'
 
 export type Lang = 'en' | 'de'
 
@@ -147,11 +147,21 @@ const propOf = (w: World, db: string, prop: string): string => w.input.databases
 const q = (w: World, name: string): Part[] => [{ t: w.ctx.t(`${P}.q.open`) }, { t: name, b: true }, { t: w.ctx.t(`${P}.q.close`) }]
 
 /** A module's name in plain text (no quotes) — live from the input. */
+/** A row trigger's ref read back from its key (`rowTrigger:<db>:<event>:<prop|->`, ref.ts' spelling); null: not one. */
+function rowTriggerOfKey(key: ModuleKey): Extract<ModuleRef, { kind: 'rowTrigger' }> | null {
+  const parts = key.split(':')
+  if (parts[0] !== 'rowTrigger' || parts.length !== 4) return null
+  const [db, event, prop] = parts.slice(1).map((p) => (p === '-' ? null : decodeURIComponent(p)))
+  if (!db || (event !== 'created' && event !== 'changed' && event !== 'deleted')) return null
+  return { kind: 'rowTrigger', db, event, prop } as Extract<ModuleRef, { kind: 'rowTrigger' }>
+}
+
 export function moduleName(w: World, key: ModuleKey): string {
   const m = w.mods.get(key)
   const t = (k: string, v: Record<string, string> = {}) => sayText(w, k, v)
-  if (!m) return key
-  const r = m.ref
+  // a path's source the rack does not draw (a row trigger only the path names — B10: a closed plate's path as it was)
+  const r = m?.ref ?? rowTriggerOfKey(key)
+  if (!r) return key
   switch (r.kind) {
     case 'server':
       return r.name

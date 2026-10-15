@@ -6,7 +6,11 @@
  * The selected row is one place for the plate (FuseArea), the glyph's leader (Rack → Wires) and F: the row the person
  * picked (store.ts `fuse`: a glyph, the FUSE cell, `?f=`, F, a tab, a module selected on a path) while it is still in
  * the list, else the first row.
+ *
+ * B10: the closed plates of this visit (a key 1 / 2 pressed here and not taken back — `withClosed`) join after the fuses,
+ * before the grey rows; one whose path is open again (taken back elsewhere, opened again by another change) goes.
  */
+import type { KeyDone } from '../keys'
 import type { FuseState, Model, NearMiss, UnknownPart } from '../types'
 import { fuseNo } from './words'
 
@@ -17,6 +21,7 @@ export type FuseRow =
   | { kind: 'fuse'; key: string; fuse: FuseState; state: 'open' | 'lapsed' | 'allowed' }
   | { kind: 'unknown'; key: string; part: UnknownPart }
   | { kind: 'near'; key: string; near: NearMiss }
+  | { kind: 'closed'; key: string; done: KeyDone }
 
 export interface FuseRows {
   rows: FuseRow[]
@@ -45,6 +50,30 @@ export function fuseRowsOf(model: Model): FuseRows {
   }
   const out: FuseRows = { rows, byKey: new Map(rows.map((r) => [r.key, r])), hiddenNear: Math.max(0, seen.size - NEAR_SHOWN) }
   cache.set(model, out)
+  return out
+}
+
+/** A closed plate's row key. */
+export const closedRow = (pathKey: string): string => `c:${pathKey}`
+
+const closedCache = new WeakMap<FuseRows, { closed: readonly KeyDone[]; out: FuseRows }>()
+
+/**
+ * The rows with this visit's closed plates (newest per path), after the fuses and before the grey rows. A closed path
+ * that is a fuse again (open, lapsed or allowed) is no closed plate any more.
+ */
+export function withClosed(r: FuseRows, closed: readonly KeyDone[]): FuseRows {
+  if (!closed.length) return r
+  const had = closedCache.get(r)
+  if (had && had.closed.length === closed.length && had.closed.every((d, i) => d === closed[i])) return had.out
+  const fuses = new Set(r.rows.filter((x) => x.kind === 'fuse').map((x) => x.key))
+  const byPath = new Map<string, KeyDone>()
+  for (const d of closed) if (!fuses.has(d.fuse.key)) byPath.set(d.fuse.key, d)
+  const add: FuseRow[] = [...byPath.values()].map((d) => ({ kind: 'closed', key: closedRow(d.fuse.key), done: d }))
+  const at = r.rows.findIndex((x) => x.kind !== 'fuse')
+  const rows = at < 0 ? [...r.rows, ...add] : [...r.rows.slice(0, at), ...add, ...r.rows.slice(at)]
+  const out: FuseRows = { rows, byKey: new Map(rows.map((x) => [x.key, x])), hiddenNear: r.hiddenNear }
+  closedCache.set(r, { closed, out })
   return out
 }
 

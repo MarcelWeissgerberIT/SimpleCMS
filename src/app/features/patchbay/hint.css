@@ -49,6 +49,19 @@
   color: var(--ink);
   text-decoration-color: currentColor;
 }
+/* "Change in the Patchbay" beside an agent's kept tool list (the agent editor, key 2b) */
+.pb-hint__kept {
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  text-decoration: underline;
+  text-decoration-color: var(--rule-strong);
+  text-underline-offset: 3px;
+  border-radius: var(--radius-1);
+}
+.pb-hint__kept:hover {
+  color: var(--ink);
+  text-decoration-color: currentColor;
+}
 @media (forced-colors: active) {
   .pb-hint__fuse {
     border-color: CanvasText;

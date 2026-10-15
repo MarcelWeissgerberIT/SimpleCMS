@@ -42,7 +42,7 @@ import {
 } from 'lucide-react'
 import { useWorkspace } from '../../../store/store'
 import { useCloud } from '../../../cloud'
-import { fuseSay, sayMsg } from '../plain'
+import { fuseSay, nameOf, sayMsg } from '../plain'
 import type { Chain, Fact, Mitigation, Model, ModelInput, Module, ModuleKey, MsgRef, Place, Why } from '../types'
 import type { Words } from './words'
 
@@ -264,7 +264,8 @@ export function FusePath({ chain, pw, hot, vertical: phone }: { chain: Chain; pw
       )
     if (n.kind === 'module') {
       const m = mods.get(n.key)
-      const name = m ? pw.w.name(m) : n.key
+      // a module the rack does not draw (a closed plate's path as it was, a source only the path names) is named too
+      const name = m ? pw.w.name(m) : nameOf(pw.model, pw.input, n.key, pw.w.ctx)
       const cls = ['pb-pn', n.outside ? 'pb-pn--outside' : '', n.role === 'exit' ? (hot ? 'pb-pn--out pb-pn--hot' : 'pb-pn--out') : ''].filter(Boolean).join(' ')
       const sub = n.outside ? t(`${P}.tag.outside`) : n.role === 'exit' ? t(`${P}.fuse.canSend`) : vertical && m ? [pw.w.kind(m), ...pw.w.tags(m).filter((x) => x.tag === 'direct' || x.tag === 'stage').map((x) => x.text)].join(' · ') : ''
       items.push(
@@ -308,7 +309,7 @@ export function FusePath({ chain, pw, hot, vertical: phone }: { chain: Chain; pw
 export function pathLine(chain: Chain, pw: PlateWords): string {
   const mods = new Map(pw.model.modules.map((m) => [m.key, m]))
   return pathOf(chain, false)
-    .map((n) => (n.kind === 'module' ? (mods.get(n.key) ? pw.w.name(mods.get(n.key)!) : n.key) : n.kind === 'place' ? placeLabel(pw, n.place) : n.kind === 'more' ? pw.w.t(n.n === 1 ? `${P}.steps.more.one` : `${P}.steps.more`, { n: n.n }) : '↺'))
+.map((n) => (n.kind === 'module' ? (mods.get(n.key) ? pw.w.name(mods.get(n.key)!) : nameOf(pw.model, pw.input, n.key, pw.w.ctx)) : n.kind === 'place' ? placeLabel(pw, n.place) : n.kind === 'more' ? pw.w.t(n.n === 1 ? `${P}.steps.more.one` : `${P}.steps.more`, { n: n.n }) : '↺'))
     .join(' → ')
 }
 

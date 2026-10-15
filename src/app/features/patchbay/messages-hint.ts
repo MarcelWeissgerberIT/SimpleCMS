@@ -7,8 +7,10 @@ import type { Messages } from '@/shared/i18n'
 export const messages: Messages = {
   en: {
     'features.patchbay.hint.onFuse': 'On fuse {f} — show in the Patchbay',
+    'features.patchbay.hint.kept': 'Change in the Patchbay',
   },
   de: {
     'features.patchbay.hint.onFuse': 'Liegt auf Sicherung {f} — im Schaltplan zeigen',
+    'features.patchbay.hint.kept': 'Im Schaltplan ändern',
   },
 }
