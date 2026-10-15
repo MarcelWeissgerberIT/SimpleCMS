@@ -3,10 +3,12 @@
  * readAutomations (a newer build's entry is neither shown nor run, and kept by the writer) and writes only through
  * saveAutomations as the person; a LOCKED database shows its automations with only the off switch and removals (a
  * removal is saved; an add — the delete toast's Undo puts one back — is refused with the reason); the Patchbay's hint
- * line ("On fuse F1 — show in the Patchbay") opens `#/patchbay?f=<path key>`.
+ * line ("On fuse F1 — show in the Patchbay") opens `#/patchbay?f=<path key>` — fed by the seam, and (merge B8 × B15)
+ * by the background fuse count before the Patchbay was ever opened.
  * Every name is fictional (Nordlicht, Tessera, Mara Lind); every host `*.example` (never called).
  */
 import { test, expect, openApp, wsEval, uiEval, flush } from './fixtures'
+import { mock1, seedPatchbay } from '../fixtures/patchbay'
 import type { Page } from '@playwright/test'
 
 type Seeded = { db: string; prop: string }
@@ -46,6 +48,23 @@ async function openAutomations(page: Page, db: string) {
 }
 
 const stored = (page: Page, db: string) => wsEval(page, (s, id) => JSON.parse(JSON.stringify(s.databases[id].automations ?? [])), db)
+
+type PbSeam = { builds(): number; refresh(): void; model(): { fuses: Array<{ key: string; label: string }> } | null }
+const pbSeam = (page: Page) => page.evaluate(() => !!(window as unknown as { __onePatchbay?: PbSeam }).__onePatchbay)
+
+/**
+ * The background fuse count (B8, compute.ts — after the first paint, in idle) publishes the hints of the workspace's
+ * own model after every wiring change, replacing whatever the seam fed. Let it build once, then build the model of the
+ * workspace as it is now (a pending idle build then finds the same input and publishes nothing) — only then may the
+ * seam feed a hint.
+ */
+async function settleCount(page: Page) {
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __onePatchbay?: PbSeam }).__onePatchbay?.builds() ?? 0), { timeout: 15_000 }).toBeGreaterThan(0)
+  await page.evaluate(() => (window as unknown as { __onePatchbay: PbSeam }).__onePatchbay.refresh())
+}
+
+const feedHint = (page: Page, db: string, fuse: { key: string; label: string }) =>
+  page.evaluate(({ db, fuse }) => (window as unknown as { __onePatchbayHints: { set: (l: unknown[]) => void } }).__onePatchbayHints.set([{ kind: 'automation', id: `${db}:autChat`, fuse }]), { db, fuse })
 
 test.describe('automations (B15): the one reader and writer', () => {
   test('a newer build\'s automation is neither shown nor run, and an edit here keeps it as it is', async ({ page }) => {
@@ -131,10 +150,8 @@ test.describe('automations (B15): the one reader and writer', () => {
     const { db } = await seed(page, ({ prop }) => [hook('autChat', 'An Team-Chat', prop), hook('autMara', 'An Mara Lind', prop)])
     const key = 'e04746c37db3a1b6612a1de019fcab368b8215e2d9a71f3f30fd105013c5307b'
     const dialog = await openAutomations(page, db)
-    await page.evaluate(
-      ({ db, key }) => (window as unknown as { __onePatchbayHints: { set: (l: unknown[]) => void } }).__onePatchbayHints.set([{ kind: 'automation', id: `${db}:autChat`, fuse: { key, label: 'F1' } }]),
-      { db, key },
-    )
+    await settleCount(page)
+    await feedHint(page, db, { key, label: 'F1' })
     const line = dialog.getByRole('link', { name: /On fuse F1 — show in the Patchbay/ })
     await expect(line).toBeVisible()
     await expect(line).toHaveAttribute('href', `#/patchbay?f=${key}`)
@@ -155,7 +172,35 @@ test.describe('automations (B15): the one reader and writer', () => {
     const dialog = page.getByRole('dialog')
     await expect(dialog.getByRole('note')).toContainText('Gesperrt')
     await expect(dialog.getByRole('note')).toContainText('nur ausschalten oder entfernen')
-    await page.evaluate((db) => (window as unknown as { __onePatchbayHints: { set: (l: unknown[]) => void } }).__onePatchbayHints.set([{ kind: 'automation', id: `${db}:autChat`, fuse: { key: 'a'.repeat(64), label: 'F2' } }]), db)
+    await settleCount(page)
+    await feedHint(page, db, { key: 'a'.repeat(64), label: 'F2' })
     await expect(dialog.getByRole('link', { name: /Liegt auf Sicherung F2 — im Schaltplan zeigen/ })).toBeVisible()
+  })
+
+  test('the hint line from the background fuse count (B8): mock 1\'s „An Team-Chat“ says F1 before the Patchbay was opened; its link opens that fuse', async ({ page }) => {
+    await openApp(page)
+    expect(await page.evaluate(() => window.location.hash)).not.toContain('patchbay')
+    await seedPatchbay(page, mock1())
+    // the count after the first paint builds the workspace's own model: one open fuse, F1
+    await expect.poll(() => pbSeam(page), { timeout: 15_000 }).toBe(true)
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __onePatchbay: PbSeam }).__onePatchbay.model()?.fuses.map((f) => f.label) ?? []), { timeout: 15_000 }).toEqual(['F1'])
+    const key = await page.evaluate(() => (window as unknown as { __onePatchbay: PbSeam }).__onePatchbay.model()!.fuses[0].key)
+    expect(key).toMatch(/^[0-9a-f]{64}$/)
+    await uiEval(page, (s) => s.openModal({ type: 'automations', databaseId: 'dbMails' }))
+    const dialog = page.getByRole('dialog')
+    await expect(dialog).toContainText('Automations · Mails')
+    await dialog.getByRole('option', { name: /An Team-Chat/ }).click()
+    const line = dialog.getByRole('link', { name: /On fuse F1 — show in the Patchbay/ })
+    await expect(line).toBeVisible()
+    await expect(line).toHaveAttribute('href', `#/patchbay?f=${key}`)
+    // „Neue Mail → Kontakt“ writes Kontakte only: on no fuse, no line
+    await dialog.getByRole('option', { name: /Neue Mail → Kontakt/ }).click()
+    await expect(dialog.getByRole('link', { name: /On fuse/ })).toHaveCount(0)
+    await dialog.getByRole('option', { name: /An Team-Chat/ }).click()
+    await dialog.getByRole('link', { name: /On fuse F1/ }).click()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await expect.poll(() => page.evaluate(() => window.location.hash)).toBe(`#/patchbay?f=${key}`)
+    await expect(page.getByTestId('patchbay-page')).toBeVisible()
+    await expect(page.getByTestId('pb-fpanel').getByRole('heading', { level: 2 })).toHaveText('Fuse F1 · open path')
   })
 })
