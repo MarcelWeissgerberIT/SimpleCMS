@@ -51,6 +51,8 @@ export const LOOK_TOKENS = [
   'selection',
   'led-on',
   'led-ok',
+  'pb-ok',
+  'pb-red',
 ] as const
 export type LookToken = (typeof LOOK_TOKENS)[number]
 export type Mode = 'light' | 'dark'
@@ -95,6 +97,48 @@ export function deckText(mode: Mode, f: Record<string, string>): { ink2: string;
 }
 
 const onAll = (c: string, plates: string[], min = 4.5) => plates.every((x) => contrast(c, x) >= min)
+
+/**
+ * The Patchbay (features/patchbay/patchbay.css, tokens.css --pb-* — look-engine.spec keeps the two in step):
+ *  - --pb-sig, the signal as TEXT on the rack's plate (the column heads' "§ 01", "F1" on the plate): the signal ink
+ *    with a quarter of ink mixed in (oklab) — ≥ 4.5 : 1 on the plate (13 / 14 % ink on the surface) and the surface,
+ *    where the plain signal ink is not on the plate (Paper 4.2 : 1);
+ *  - --pb-ok / --pb-red, the module lamps' "fine" and "failed": their hue stays ≥ PB_MIN_HUE from the signal's, so a
+ *    look that makes the signal green or red never makes a lamp read as the signal (`pbLamps` turns a lamp's hue away
+ *    from the signal's, keeping its lightness and chroma; a grey signal or a grey lamp has no hue to keep apart). The
+ *    stock red is the content red turned that way (tokens.css holds the result, PB_STOCK names the inputs). A lamp is
+ *    never the only cue: "!" and a word, a filled dot vs a ring, the dashed frame of a fuse path.
+ */
+export const PB_MIX = { sig: 0.75 } as const
+export const PB_MIN_HUE = 40
+/** The stock inputs of the Patchbay's lamps (tokens.css --led-ok, --c-red-text) and the stock --pb-red they give. */
+export const PB_STOCK: Record<Mode, { ok: string; red: string; pbRed: string }> = {
+  light: { ok: '#2f9e44', red: '#b42318', pbRed: '#ac2166' },
+  dark: { ok: '#2f9e44', red: '#f0766b', pbRed: '#e973a0' },
+}
+
+/** The signal as text on the Patchbay's plate (tokens.css --pb-sig) from a theme's tokens. */
+export const pbSignalText = (f: Record<string, string>): string => mixOklab(f.ink, f['signal-ink'], PB_MIX.sig)
+
+/** The Patchbay's plate (tokens.css --plate: the ink mixed into the surface, 13 % Paper / 14 % Carbon). */
+export const pbPlate = (mode: Mode, f: Record<string, string>): string => mixSrgb(f.ink, f.surface, mode === 'light' ? 0.13 : 0.14)
+
+/** One lamp colour with its hue turned ≥ PB_MIN_HUE away from the signal's (unchanged when it is already, or grey). */
+export function pbLamp(signal: string, lamp: string): string {
+  const s = toOklch(signal)
+  const x = toOklch(lamp)
+  if (s.c < 0.04 || x.c < 0.03 || hueDistance(lamp, signal) >= PB_MIN_HUE) return lamp
+  const side = ((x.h - s.h + 540) % 360) - 180 >= 0 ? 1 : -1
+  let out = lamp
+  for (let off = PB_MIN_HUE + 1; off <= PB_MIN_HUE + 20; off++) {
+    out = fromOklch(x.l, x.c, (s.h + side * off + 360) % 360)
+    if (hueDistance(out, signal) >= PB_MIN_HUE) break
+  }
+  return out
+}
+
+/** The Patchbay's "fine" and "failed" lamps for a signal. */
+export const pbLamps = (signal: string, base: { ok: string; red: string }): { ok: string; red: string } => ({ ok: pbLamp(signal, base.ok), red: pbLamp(signal, base.red) })
 
 /** Paper lightness / chroma limits (OKLCH) per theme. */
 export const PAPER_LIMITS: Record<Mode, { l: [number, number]; c: number }> = {
@@ -244,6 +288,12 @@ export function deriveMode(inputs: LookColors, mode: Mode, labels?: Labels): Der
     }
     // a green signal would make "working" and "fine" LEDs the same colour: "fine" turns ink
     if (hueDistance(s, GREEN) < 35 && toOklch(s).c >= 0.06) sig['led-ok'] = mixOklab(full.ink, full.bg, 0.15)
+    // the Patchbay's lamps keep their hue away from this signal (tokens.css: --pb-ok = the "fine" LED, --pb-red fixed)
+    const stockPb = PB_STOCK[mode]
+    const okBase = sig['led-ok'] ?? stockPb.ok
+    const lamps = pbLamps(s, { ok: okBase, red: stockPb.red })
+    if (lamps.ok !== okBase) sig['pb-ok'] = lamps.ok
+    if (lamps.red !== stockPb.pbRed) sig['pb-red'] = lamps.red
     Object.assign(t, sig)
     Object.assign(full, sig)
   }

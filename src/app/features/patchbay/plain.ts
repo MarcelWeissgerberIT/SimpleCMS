@@ -619,6 +619,14 @@ export function plainOf(model: Model, input: ModelInput, ctx: PlainCtx): Strand[
   return out
 }
 
+/* ------------------------------------------------------------------ names for the page (B6) */
+
+/** A module's name in plain text, live from the input (the rack's name line, the strands, the static picture). */
+export const nameOf = (model: Model, input: ModelInput, key: ModuleKey, ctx: PlainCtx): string => moduleName(worldOf(model, input, ctx), key)
+
+/** A place in plain text ("„Weiterleiten“ in Mails", "Mails", "Whole workspace") — a net tag's words. */
+export const placeNameOf = (model: Model, input: ModelInput, place: Place, ctx: PlainCtx): string => placeName(worldOf(model, input, ctx), place)
+
 /* ------------------------------------------------------------------ module descriptions (aria-describedby) */
 
 /** A module's kind label (the rack's mono label). */

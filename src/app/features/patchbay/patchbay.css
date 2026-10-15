@@ -1,0 +1,1209 @@
+/* ================================================================
+   #/patchbay — the Patchbay ("Schaltplan"), ported from the mock's
+   patchbay.css (killer/8-patchbay): the head, the readout strip, the
+   rack (one grid of 1U / 2U modules, net flags, folds, bus chips),
+   the cable layer, the legend, the empty rack and the strands view.
+   Tokens only (tokens.css; the cables' --pb-*); sizes --text-* or
+   calc(n px * var(--text-scale)); rules that meet a primitive (.btn,
+   .label, .led) carry two classes. Orange only for a fuse's path
+   (dashed frame, "F1" tags, the dashed flag outline), the signal LED
+   and the run's dot — a hovered or selected cable lights in ink.
+   ================================================================ */
+
+.pb {
+  position: relative;
+  padding: 14px 28px 28px;
+  min-width: 0;
+}
+
+/* ---------- head ---------- */
+.pb-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 10px;
+  min-width: 0;
+}
+.pb-head__icon {
+  flex: none;
+  width: calc(34px * var(--text-scale));
+  height: calc(34px * var(--text-scale));
+  margin-left: -4px;
+  object-fit: contain;
+}
+.pb-title.display {
+  flex: none;
+  margin: 0;
+  font-size: calc(30px * var(--text-scale));
+  line-height: 1.1;
+  letter-spacing: -0.025em;
+}
+.pb-title:focus {
+  outline: none;
+}
+.pb-title:focus-visible {
+  outline: none;
+  box-shadow: none;
+  text-decoration: underline 3px var(--signal);
+  text-underline-offset: 7px;
+}
+/* never cut: when the head is short the keys go into ⋯ first, then this label goes (tight) */
+.pb-head__sub.label {
+  flex: none;
+  margin-left: 4px;
+  padding-top: 6px;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.pb-head[data-tier='tight'] .pb-head__sub {
+  display: none;
+}
+.pb-head__sp {
+  flex: 1;
+}
+.btn.pb-key {
+  flex: none;
+  gap: 8px;
+  height: calc(30px * var(--text-scale));
+  padding: 0 10px 0 12px;
+  border-bottom-width: 2px;
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+.btn.pb-key.btn--ghost {
+  border-color: transparent;
+  border-bottom-width: 1px;
+}
+.btn.pb-key--more {
+  width: calc(32px * var(--text-scale));
+  padding: 0;
+}
+.pb-key svg {
+  color: var(--ink-2);
+}
+.pb-drop {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  height: calc(30px * var(--text-scale));
+  padding: 0 12px;
+  border: 1px dashed var(--ink-3);
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.pb-drop:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+/* ---------- the readout strip ---------- */
+/* one line, never wrapped: a short strip sheds (ui/fit.ts, measured) LIVE first, then CABLES, then MODULES — RUNS TODAY
+   and FUSE always stay */
+.pb-ro {
+  display: flex;
+  flex-wrap: nowrap;
+  overflow: hidden;
+  margin-top: 8px;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+}
+.pb-ro__cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: calc(28px * var(--text-scale));
+  padding: 0 12px;
+  white-space: nowrap;
+}
+.pb-ro__cell:first-child {
+  padding-left: 0;
+}
+.pb-ro__cell + .pb-ro__cell {
+  border-left: 1px solid var(--rule);
+}
+.pb-ro__cell .label {
+  color: var(--ink-2);
+}
+.pb-ro__val {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--ink);
+}
+.pb-ro__val--sig {
+  color: var(--signal-ink);
+}
+.pb-ro__val--quiet {
+  color: var(--ink-2);
+  font-weight: 500;
+}
+.pb-ro__dim {
+  color: var(--ink-3);
+  font-weight: 500;
+}
+.pb-ro__fuse {
+  border: 0;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.pb-ro__fuse[aria-disabled='true'] {
+  cursor: default;
+}
+.pb-ro__fuse:not([aria-disabled='true']):hover {
+  background: var(--hover);
+}
+.pb-ro__unknown {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+.pb-ro__sp {
+  flex: 1;
+}
+.pb-ro[data-fit] [data-cell='live'],
+.pb-ro[data-fit] .pb-ro__sp,
+.pb-ro[data-fit='2'] [data-cell='cables'],
+.pb-ro[data-fit='3'] [data-cell='cables'],
+.pb-ro[data-fit='3'] [data-cell='modules'] {
+  display: none;
+}
+.pb-ro__cell--end {
+  padding-right: 0;
+}
+
+/* ---------- the bench and the rack ---------- */
+.pb-bench {
+  position: relative;
+  margin-top: 8px;
+}
+.pb-rack.screw-plate {
+  --screw-inset: 7px;
+  padding: 4px 14px 8px;
+}
+.pb-grid {
+  --pb-chan: 96px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--pb-chan) minmax(0, 1fr) var(--pb-chan) minmax(0, 1fr);
+  align-items: stretch;
+  row-gap: 5px;
+}
+.pb-col,
+.pb-li {
+  display: contents;
+}
+.pb-colh {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: calc(24px * var(--text-scale));
+  padding: 0 2px;
+}
+.pb-colh .label {
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.pb-colh .label.pb-colh__n {
+  color: var(--pb-sig);
+  font-weight: 600;
+}
+.pb-colh__name.label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.pb-colh__rule {
+  flex: 1;
+  min-width: 8px;
+  height: 1px;
+  background: var(--plate-lo);
+  box-shadow: 0 1px 0 var(--plate-hi);
+}
+
+/* ---------- a module (1U; 2U adds the knobs row) ---------- */
+.pb-mod {
+  --mod-bg: var(--surface);
+  --mod-edge: color-mix(in srgb, var(--ink) 26%, transparent);
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  column-gap: 9px;
+  min-width: 0;
+  min-height: calc(52px * var(--text-scale));
+  padding: 5px 11px;
+  border: 1px solid var(--mod-edge);
+  border-radius: var(--radius-1);
+  background: var(--mod-bg);
+  box-shadow: 0 1px 0 var(--plate-lo), inset 0 1px 0 var(--plate-hi);
+  cursor: default;
+  transition: opacity var(--dur-2) var(--ease-out);
+}
+:root[data-theme='dark'] .pb-mod {
+  --mod-bg: color-mix(in srgb, var(--ink) 5%, var(--surface));
+  --mod-edge: color-mix(in srgb, var(--ink) 22%, transparent);
+}
+.pb-mod:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.pb-mod[data-selected] {
+  --mod-edge: var(--ink);
+  box-shadow: 0 0 0 1px var(--ink), 0 1px 0 var(--plate-lo);
+}
+.pb-mod[data-selected]:focus-visible {
+  box-shadow: 0 0 0 1px var(--ink), var(--focus-ring);
+}
+.pb-mod[data-dim],
+.pb-flag[data-dim] {
+  opacity: 0.38;
+}
+.pb-sc {
+  position: absolute;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--screw-head);
+  box-shadow: inset 0 0 0 1px var(--screw-edge);
+  pointer-events: none;
+}
+.pb-sc::after {
+  content: '';
+  position: absolute;
+  left: 1px;
+  right: 1px;
+  top: 2px;
+  height: 1px;
+  background: var(--screw-slot);
+  transform: rotate(var(--r, 35deg));
+}
+.pb-sc--tl {
+  left: 3px;
+  top: 3px;
+}
+.pb-sc--tr {
+  right: 3px;
+  top: 3px;
+  --r: -20deg;
+}
+.pb-sc--bl {
+  left: 3px;
+  bottom: 3px;
+  --r: 70deg;
+}
+.pb-sc--br {
+  right: 3px;
+  bottom: 3px;
+  --r: 10deg;
+}
+.pb-mod__in,
+.pb-mod__out {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.pb-mod__in {
+  grid-column: 1;
+}
+.pb-mod__in:empty {
+  width: 0;
+}
+.pb-mod__body {
+  grid-column: 2;
+  min-width: 0;
+}
+.pb-win {
+  grid-column: 3;
+}
+.pb-mod__out {
+  grid-column: 4;
+  align-items: flex-end;
+}
+.pb-mod__k {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: calc(17px * var(--text-scale));
+  overflow: hidden;
+}
+.pb-mod__k .led {
+  flex: none;
+}
+.led.pb-led--ok {
+  background: var(--pb-ok);
+}
+/* a short kind line (ui/fit.ts, measured): 1 = the net chip goes, 2 = the mode tags shorten, 3 = they go too; the
+   kind, "?" and the F tags never give way */
+.pb-mod__k .pb-net {
+  min-width: 6ch;
+}
+.pb-mod__k[data-fit] .pb-net {
+  display: none;
+}
+.pb-mod__k[data-fit='2'] .pb-tag[data-tag] {
+  display: block;
+  flex: 0 1 auto;
+  min-width: 3ch;
+  overflow: hidden;
+  line-height: calc(17px * var(--text-scale));
+  text-overflow: ellipsis;
+}
+.pb-mod__k[data-fit='3'] .pb-tag[data-tag] {
+  display: none;
+}
+.pb-mod__k .label.pb-mod__kind {
+  flex: none;
+  white-space: nowrap;
+  color: var(--ink-3);
+  letter-spacing: 0.06em;
+}
+.pb-mod__n {
+  overflow: hidden;
+  font-size: calc(13.5px * var(--text-scale));
+  font-weight: 650;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pb-mod__q {
+  color: var(--ink-2);
+  font-weight: 500;
+}
+.pb-mod__s {
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  line-height: 1.35;
+  color: var(--ink-3);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* the narrowest name box the rack accepts (Patchbay.tsx measures it: 12 characters of a name) */
+.pb-probe {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: inline-block;
+  width: 12ch;
+  font-size: calc(13.5px * var(--text-scale));
+  font-weight: 650;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* on an open fuse's path: the dashed signal frame (the only orange frame on the rack) */
+.pb-mod[data-path] {
+  --mod-edge: var(--signal);
+  padding: 4.5px 10.5px;
+  border-width: 1.5px;
+  border-style: dashed;
+}
+.pb-mod[data-path][data-selected] {
+  box-shadow: 0 0 0 1px var(--ink), 0 1px 0 var(--plate-lo);
+}
+/* blocked: the body hatched, the reason in its tag */
+.pb-mod[data-blocked] {
+  background: repeating-linear-gradient(-45deg, var(--mod-bg) 0 4px, color-mix(in srgb, var(--ink) 7%, var(--mod-bg)) 4px 6px);
+}
+.pb-mod[data-blocked] .pb-mod__n {
+  color: var(--ink-2);
+}
+
+/* 2U: the knobs row under the body */
+.pb-mod[data-u='2'] {
+  min-height: 0;
+  row-gap: 6px;
+  padding-bottom: 7px;
+}
+.pb-mod[data-u='2'] .pb-mod__body {
+  align-self: start;
+  padding-top: 2px;
+}
+.pb-mod[data-u='2'] .pb-mod__in,
+.pb-mod[data-u='2'] .pb-mod__out {
+  grid-row: 1 / span 2;
+  align-self: center;
+}
+.pb-mod[data-u='2'] .pb-win {
+  grid-row: 1;
+  align-self: start;
+  margin-top: 3px;
+}
+.pb-knobs {
+  display: flex;
+  grid-column: 2 / span 2;
+  grid-row: 2;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  padding-top: 7px;
+  border-top: 1px solid var(--rule);
+}
+.pb-knob {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.pb-knob svg {
+  flex: none;
+  width: calc(26px * var(--text-scale));
+  height: calc(26px * var(--text-scale));
+  overflow: visible;
+}
+.pb-knob__t {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+.pb-knob__t .label {
+  letter-spacing: 0.03em;
+}
+.pb-knob__t b {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+.pb-k-face {
+  fill: var(--surface-2);
+  stroke: var(--plate-edge);
+  stroke-width: 1;
+}
+:root[data-theme='dark'] .pb-k-face {
+  fill: var(--surface-3);
+}
+.pb-k-cap {
+  fill: var(--mod-bg);
+  stroke: var(--rule-strong);
+}
+.pb-k-ptr {
+  stroke: var(--ink);
+  stroke-width: 1.8;
+  stroke-linecap: round;
+}
+.pb-k-tick {
+  stroke: var(--ink-3);
+  stroke-width: 1;
+}
+.pb-k-tick--on {
+  stroke: var(--ink);
+  stroke-width: 1.6;
+}
+
+/* "Open ↵" on the selected module: a tab on its top edge */
+.pb-mod__open {
+  position: absolute;
+  top: calc(-9px * var(--text-scale));
+  right: 12px;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: calc(18px * var(--text-scale));
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--radius-1);
+  background: var(--ink);
+  color: var(--surface);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+/* ---------- tags, net tags, windows ---------- */
+.pb-tag {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  height: calc(17px * var(--text-scale));
+  padding: 0 5px;
+  border-radius: var(--radius-1);
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--rule-strong);
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+/* "on the path of fuse F1" — the only orange tag */
+.pb-tag--f {
+  box-shadow: inset 0 0 0 1px var(--signal);
+  color: var(--signal-ink);
+  font-weight: 700;
+}
+/* content from outside: hatched, text on a solid backing */
+.pb-tag[data-tag='outside'] {
+  background: repeating-linear-gradient(-45deg, var(--surface) 0 3px, color-mix(in srgb, var(--ink) 16%, var(--surface)) 3px 4.5px);
+  box-shadow: inset 0 0 0 1px var(--ink-2);
+  color: var(--ink);
+}
+.pb-tag--q {
+  justify-content: center;
+  min-width: calc(17px * var(--text-scale));
+  padding: 0 4px;
+  color: var(--ink-3);
+  box-shadow: inset 0 0 0 1px var(--ink-3);
+}
+.pb-net {
+  display: inline-flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  height: calc(17px * var(--text-scale));
+  margin-left: -2px;
+  padding: 0 6px 0 10px;
+  overflow: hidden;
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--rule-strong);
+  clip-path: polygon(7px 0, 100% 0, 100% 100%, 7px 100%, 0 50%);
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+:root[data-theme='dark'] .pb-net {
+  background: var(--surface-3);
+}
+.pb-net[data-tainted] {
+  background: repeating-linear-gradient(-45deg, var(--surface-2) 0 3px, color-mix(in srgb, var(--ink) 12%, var(--surface-2)) 3px 4.5px);
+  color: var(--ink);
+}
+.pb-net__t {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pb-net__more {
+  flex: none;
+  color: var(--ink-3);
+}
+.pb-win {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 1px;
+  min-height: calc(24px * var(--text-scale));
+  padding: 2px 6px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--ink) 5%, var(--surface));
+  box-shadow: inset 0 0 0 1px var(--rule-strong), inset 0 1px 2px var(--plate-lo);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  line-height: 1.15;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.pb-win small {
+  color: var(--ink-3);
+  font-size: var(--text-2xs);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+/* ---------- jacks ---------- */
+.pb-jk {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: calc(15px * var(--text-scale));
+}
+.pb-jk__l {
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.pb-jack {
+  position: relative;
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--toggle-window);
+  box-shadow: 0 0 0 2px var(--screw-head), 0 0 0 3px var(--plate-edge);
+}
+.pb-jack[data-lit] {
+  box-shadow: 0 0 0 2px var(--screw-head), 0 0 0 3px var(--ink);
+}
+
+/* ---------- net flags: the same name at both ends = the same connection ---------- */
+.pb-flag {
+  position: relative;
+  display: inline-flex;
+  align-self: center;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  min-height: calc(30px * var(--text-scale));
+  padding: 0 24px 0 10px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.pb-flag[data-side='out'] {
+  justify-self: start;
+}
+.pb-flag[data-side='in'] {
+  justify-self: end;
+}
+.pb-flag > :not(svg) {
+  position: relative;
+  z-index: 1;
+}
+.pb-flag__t {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pb-flag .pb-tag {
+  background: var(--surface);
+}
+.pb-flag__body {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+.pb-flag__body path {
+  fill: var(--surface);
+  stroke: var(--ink-3);
+  stroke-width: 1;
+}
+:root[data-theme='dark'] .pb-flag__body path {
+  fill: color-mix(in srgb, var(--ink) 5%, var(--surface));
+}
+.pb-flag[data-path] .pb-flag__body path {
+  stroke: var(--signal);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 3;
+}
+.pb-flag[data-lit] .pb-flag__body path {
+  stroke-width: 2;
+}
+.pb-flag[data-lit]:not([data-path]) .pb-flag__body path {
+  stroke: var(--ink);
+}
+.pb-flag__end {
+  position: absolute !important;
+  top: 50%;
+  width: 1px;
+  height: 1px;
+}
+.pb-flag__end--tail {
+  left: 0;
+}
+.pb-flag__end--tip {
+  right: 0;
+}
+
+/* ---------- folds: idle / off / hidden modules, every name listed ---------- */
+.pb-fold {
+  display: flex;
+  align-self: center;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  min-height: calc(32px * var(--text-scale));
+  padding: 4px 10px;
+  border: 1px dashed color-mix(in srgb, var(--ink) 30%, transparent);
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: calc(12.5px * var(--text-scale));
+  line-height: 1.35;
+  text-align: left;
+  cursor: pointer;
+}
+.pb-fold:hover {
+  background: color-mix(in srgb, var(--surface) 35%, transparent);
+}
+.pb-fold .label.pb-fold__label {
+  flex: none;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.pb-fold__leds {
+  display: inline-flex;
+  flex: none;
+  gap: 3px;
+}
+.pb-fold__names {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pb-fold .pb-tag--f {
+  color: var(--pb-sig);
+}
+.pb-fold__sp {
+  flex: 1;
+}
+.pb-fold svg {
+  flex: none;
+  color: var(--ink-3);
+}
+
+/* ---------- bus chips ("+n") ---------- */
+.pb-bus {
+  position: relative;
+  display: inline-flex;
+  align-self: center;
+  justify-self: start;
+  align-items: center;
+  height: calc(22px * var(--text-scale));
+  padding: 0 8px 0 10px;
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--rule-strong);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 700;
+}
+.pb-bus[data-lit] {
+  box-shadow: inset 0 0 0 1px var(--ink);
+}
+.pb-bus__end {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 1px;
+  height: 1px;
+}
+
+/* ---------- the legend ---------- */
+.pb-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 16px;
+  margin-top: 8px;
+  padding: 7px 4px 0;
+  border-top: 1px solid var(--plate-lo);
+  box-shadow: inset 0 1px 0 var(--plate-hi);
+}
+/* the items and the keys share one wrapping row (the keys ride at its right end, as in the mock); explicit roles keep
+   the list a list without its own box */
+.pb-legend__list {
+  display: contents;
+}
+.pb-legend__i {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.pb-legend .label {
+  color: var(--ink-2);
+  letter-spacing: 0.05em;
+}
+.pb-legend svg {
+  flex: none;
+  width: 28px;
+  height: 12px;
+  overflow: visible;
+}
+.pb-legend__q {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  color: var(--ink);
+  font: 700 var(--text-xs) / 1 var(--font-mono);
+}
+.pb-legend__keys {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 7px;
+  margin-left: auto;
+}
+.pb-legend__keys .kbd + .label,
+.pb-legend__keys .label + .kbd {
+  margin-left: 2px;
+}
+.pb-lg-line {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 2.4;
+}
+.pb-lg-line--can {
+  stroke-dasharray: 6 4;
+}
+.pb-lg-ticks {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 9;
+  stroke-dasharray: 1.6 5;
+}
+.pb-lg-knock {
+  fill: var(--plate);
+}
+.pb-lg-comet {
+  fill: var(--signal);
+}
+.pb-lg-flag {
+  fill: var(--surface);
+  stroke: var(--ink-2);
+  stroke-width: 1;
+}
+.pb-lg-path {
+  fill: none;
+  stroke: var(--signal);
+  stroke-width: 1.4;
+  stroke-dasharray: 3 2;
+}
+
+/* ---------- the cable layer ---------- */
+.pb-wires {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 3;
+  overflow: visible;
+  pointer-events: none;
+}
+.pb-w-halo {
+  fill: none;
+  stroke: var(--pb-halo);
+  stroke-width: 6.5;
+  stroke-linecap: round;
+}
+.pb-w {
+  fill: none;
+  stroke: var(--pb-cable);
+  stroke-width: 2.6;
+  stroke-linecap: round;
+  transition:
+    stroke-width var(--dur-1) var(--ease-out),
+    opacity var(--dur-2) var(--ease-out);
+}
+.pb-w--can {
+  stroke-dasharray: 7 5;
+  stroke-linecap: butt;
+}
+.pb-w--planned {
+  stroke: var(--ink-2);
+  stroke-width: 2.2;
+  stroke-dasharray: 0.1 5;
+  stroke-linecap: round;
+}
+.pb-w--unknown {
+  stroke: var(--ink-3);
+}
+/* lit (hover / selection / a lit flag): ink, a little thicker — never orange */
+.pb-w--lit {
+  stroke: var(--ink);
+  stroke-width: 3.2;
+}
+.pb-w--dim {
+  opacity: 0.22;
+}
+.pb-w-ticks {
+  fill: none;
+  stroke: var(--pb-cable);
+  stroke-width: 9;
+  stroke-linecap: butt;
+}
+.pb-plug {
+  fill: var(--pb-cable);
+}
+.pb-plug-ring {
+  fill: none;
+  stroke: var(--pb-plug);
+  stroke-width: 1;
+}
+
+/* ---------- the empty rack ---------- */
+.pb-empty.screw-plate {
+  --screw-inset: 7px;
+  margin-top: 8px;
+  padding: 22px 26px 24px;
+}
+.pb-empty__say {
+  max-width: 62ch;
+  margin: 0;
+  font-size: var(--text-md);
+  line-height: 1.5;
+  color: var(--ink);
+}
+.pb-empty__idle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin: 12px 0 0;
+  color: var(--ink-2);
+  font-size: calc(12.5px * var(--text-scale));
+}
+.pb-empty__idle .label {
+  color: var(--ink-2);
+}
+.pb-empty__keys {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+/* ---------- the strands view (phone; narrow benches) ---------- */
+.pb-strands {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+.pb-sh {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+.pb-sh .label {
+  color: var(--ink-2);
+}
+.pb-sh .label.pb-colh__n {
+  color: var(--signal-ink);
+  font-weight: 600;
+}
+.pb-sh .pb-colh__rule {
+  background: var(--rule);
+  box-shadow: none;
+}
+.pb-strands__list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pb-strand {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-height: 40px;
+  padding: 10px 12px 10px 14px;
+  border: 1px solid color-mix(in srgb, var(--ink) 24%, transparent);
+  border-radius: var(--radius-2);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+:root[data-theme='dark'] .pb-strand {
+  background: color-mix(in srgb, var(--ink) 5%, var(--surface));
+}
+.pb-strand::before {
+  content: '';
+  position: absolute;
+  left: -1px;
+  top: 10px;
+  bottom: 10px;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  background: var(--ink-3);
+}
+.pb-strand[data-path] {
+  border: 1.5px dashed var(--signal);
+}
+.pb-strand__h {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+}
+.pb-strand__sp {
+  flex: 1;
+}
+.pb-strand__n {
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+  font-size: calc(16px * var(--text-scale));
+  font-weight: 700;
+  line-height: 1.25;
+}
+.pb-lines {
+  display: flex;
+  flex-direction: column;
+  margin-top: 8px;
+}
+.pb-line {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  border-top: 1px solid var(--rule);
+  font-size: calc(14px * var(--text-scale));
+}
+.pb-line__ar {
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-weight: 700;
+  text-align: center;
+}
+.pb-line__t {
+  overflow-wrap: anywhere;
+  color: var(--ink-2);
+}
+.pb-line__t b {
+  color: var(--ink);
+  font-weight: 650;
+}
+.pb-strands__rest {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--ink-2);
+  font-size: calc(13.5px * var(--text-scale));
+}
+
+/* ---------- the filter popover ---------- */
+.pb-filter {
+  width: min(320px, calc(100vw - 16px));
+  padding: 8px;
+}
+.pb-filter__h.label {
+  margin: 6px 6px 4px;
+  color: var(--ink-3);
+}
+.pb-filter__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pb-filter__dbs {
+  max-height: 220px;
+  overflow: auto;
+}
+.pb-filter__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: calc(30px * var(--text-scale));
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--text-sm);
+  text-align: left;
+  cursor: pointer;
+}
+.pb-filter__item:hover {
+  background: var(--hover);
+}
+.pb-filter__item[aria-disabled='true'] {
+  color: var(--ink-faint);
+  cursor: default;
+}
+.pb-filter__tick {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 14px;
+  color: var(--ink);
+}
+.pb-filter__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.input.pb-filter__q {
+  width: 100%;
+  margin: 2px 0 4px;
+}
+.pb-filter__none {
+  padding: 6px 8px;
+  color: var(--ink-3);
+  font-size: var(--text-sm);
+}
+.pb-filter__foot.label {
+  margin: 8px 6px 2px;
+  color: var(--ink-3);
+  text-transform: none;
+  letter-spacing: 0.02em;
+}
+
+/* ---------- small screens ---------- */
+@media (max-width: 760px) {
+  .pb {
+    padding: 14px 16px 40px;
+  }
+  .pb-head__icon {
+    width: calc(32px * var(--text-scale));
+    height: calc(32px * var(--text-scale));
+  }
+  .pb-title.display {
+    font-size: calc(24px * var(--text-scale));
+  }
+  .pb-head__sub {
+    display: none;
+  }
+  .btn.pb-key,
+  .pb-drop {
+    min-height: 40px;
+  }
+  .pb-ro__cell {
+    padding: 0 10px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pb-mod,
+  .pb-w {
+    transition: none;
+  }
+}

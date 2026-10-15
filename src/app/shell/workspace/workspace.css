@@ -656,6 +656,11 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.wsp-auto__keys {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
 .wsp-auto__side {
   display: flex;
   flex-direction: column;

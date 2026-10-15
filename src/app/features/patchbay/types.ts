@@ -541,6 +541,8 @@ export interface PatchbayCounts {
   unknown: number
   /** false until the first computation after first paint (then the LED may light) */
   ready: boolean
+  /** B6: the first open fuse's path key in F-order (⌘K "next fuse", the readout's FUSE cell) */
+  first?: string
 }
 
 /* ================================================================== ModelInput (§2.3, inputs.ts → buildModel) */

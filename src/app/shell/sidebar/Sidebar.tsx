@@ -4,7 +4,7 @@ import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { useFavorites, useTrash, useTreeCount, useHasFavorites } from '../../store/selectors'
 import { navigate, useRoute } from '../../lib/router'
-import { openTodayJournal, AgentsNavBadge, OutboxNavBadge, useOutboxVisible, openRecorder, REWIND_SHORTCUT, usePreflightOn, openRegler } from '../../features'
+import { openTodayJournal, AgentsNavBadge, OutboxNavBadge, useOutboxVisible, openRecorder, REWIND_SHORTCUT, usePreflightOn, openRegler, PatchbayNavRow } from '../../features'
 import { Menu, useMenu, type MenuEntry } from '../../ui/Menu'
 import { toggleMenu } from '../lib/menu'
 import { Tooltip } from '../../ui/Tooltip'
@@ -109,6 +109,7 @@ export function Sidebar() {
           <NavRow icon={<Waypoints size={16} />} label={t('shell.nav.graph')} active={route.name === 'graph'} onClick={() => (closeMobileSidebar(), navigate({ name: 'graph' }))} />
           <NavRow icon={<Bot size={16} />} label={t('features.agents.title')} active={route.name === 'agents'} badge={preflightOn ? undefined : <AgentsNavBadge />} onClick={() => (closeMobileSidebar(), navigate({ name: 'agents' }))} />
           <NavRow icon={<SquareCode size={16} />} label={t('features.script.title')} active={route.name === 'scripts'} onClick={() => (closeMobileSidebar(), navigate({ name: 'scripts' }))} />
+          <PatchbayNavRow active={route.name === 'patchbay'} />
           <NavRow icon={<Blocks size={16} />} label={t('features.kit.title')} active={route.name === 'kit'} onClick={() => (closeMobileSidebar(), navigate({ name: 'kit' }))} />
           {!readOnly && (
             <>

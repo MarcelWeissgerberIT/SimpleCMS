@@ -3,11 +3,11 @@
  * and the global keyboard handler.
  */
 import type { LucideIcon } from 'lucide-react'
-import { Bell, CalendarDays, CalendarRange, Copy, Download, FilePlus2, FolderInput, Focus, Keyboard, Languages, LayoutTemplate, Link2, Lock, MessageSquareText, MoveHorizontal, PanelLeft, Presentation, Settings, Share2, SunMoon, Table2, SquareKanban, Trash2, Upload, Waypoints, History, Star, Home, Inbox, Users, Building2, Palette, CloudUpload, Workflow, SquareFunction, CircleHelp, Newspaper, SquareCode, GitBranch, Blocks, Compass, Route, ClipboardCopy, Plug, Send, Rewind, Gauge, CircleGauge } from 'lucide-react'
+import { Bell, CalendarDays, CalendarRange, Copy, Download, FilePlus2, FolderInput, Focus, Keyboard, Languages, LayoutTemplate, Link2, Lock, MessageSquareText, MoveHorizontal, PanelLeft, Presentation, Settings, Share2, SunMoon, Table2, SquareKanban, Trash2, Upload, Waypoints, History, Star, Home, Inbox, Users, Building2, Palette, CloudUpload, Workflow, SquareFunction, CircleHelp, Newspaper, SquareCode, GitBranch, Blocks, Compass, Route, ClipboardCopy, Plug, Send, Rewind, Gauge, CircleGauge, Cable, ShieldAlert } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { navigate } from '../../lib/router'
-import { openTodayJournal, openAgent, AGENT_SHORTCUT, openFunctionBuilder, paletteDbCommands, createScript, openScripts, paletteScripts, openOutbox, openRecorder, REWIND_SHORTCUT, openPreflight, preflightIsOn, openAISetup, openRegler, openMcpConnections } from '../../features'
+import { openTodayJournal, openAgent, AGENT_SHORTCUT, openFunctionBuilder, paletteDbCommands, createScript, openScripts, paletteScripts, openOutbox, openRecorder, REWIND_SHORTCUT, openPreflight, preflightIsOn, openAISetup, openRegler, openMcpConnections, openPatchbay, patchbayCounts } from '../../features'
 import type { ID } from '../../store/types'
 import type { Translate } from '@/shared/i18n'
 import { quickNoteToInbox } from '../capture/inbox'
@@ -70,6 +70,9 @@ export function buildCommands(t: Translate, pageId: ID | null): Command[] {
       : []),
     { id: 'graph', group: 'navigate', label: t('shell.cmd.graph'), icon: Waypoints, keywords: 'map network links karte', run: () => navigate({ name: 'graph' }) },
     { id: 'scripts', group: 'navigate', label: t('features.script.cmd.open'), icon: SquareCode, keywords: 'scripts queries code one script skripte abfragen', run: () => { closeMobileSidebar(); openScripts() } },
+    // the Patchbay (features/patchbay): the rack; "next fuse" only while one is open (the readout's numbers — counts.ts)
+    { id: 'patchbay', group: 'navigate', label: t('features.patchbay.cmd.open'), icon: Cable, keywords: t('features.patchbay.cmd.keywords'), run: () => openPatchbay() },
+    ...nextFuse(t),
     { id: 'kit', group: 'navigate', label: t('features.kit.cmd.open'), icon: Blocks, keywords: 'building blocks kit lists own property types record types shared list bausteine listen eigene typen datensatz', run: () => { closeMobileSidebar(); navigate({ name: 'kit' }) } },
     { id: 'outbox', group: 'navigate', label: t('features.outbox.cmd.open'), icon: Send, keywords: 'outbox send slips receipts reply ticket ausgang senden zettel quittungen antworten', run: () => openOutbox() },
     { id: 'coding', group: 'navigate', label: t('features.coding.cmd.open'), icon: GitBranch, keywords: 'coding pipeline claude code worker branch worktree tasks repo programmieren aufgaben', run: () => { closeMobileSidebar(); navigate({ name: 'coding' }) } },
@@ -174,6 +177,14 @@ export function buildCommands(t: Translate, pageId: ID | null): Command[] {
   // viewers read: nothing that creates, moves or deletes pages
   if (cloud.readOnly) return list.filter((c) => !EDITING.has(c.id))
   return list
+}
+
+/** ⌘K "Patchbay: next fuse" — the first open fuse, selected on the rack. */
+function nextFuse(t: Translate): Command[] {
+  const c = patchbayCounts()
+  if (!c.ready || c.open < 1 || !c.first) return []
+  const f = c.first
+  return [{ id: 'patchbay-next-fuse', group: 'navigate', label: t('features.patchbay.cmd.nextFuse'), icon: ShieldAlert, keywords: t('features.patchbay.cmd.keywords'), run: () => openPatchbay({ f }) }]
 }
 
 /** Commands that write to the workspace (hidden for viewers). */

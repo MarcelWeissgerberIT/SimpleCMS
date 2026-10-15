@@ -8,8 +8,8 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { test, expect } from '@playwright/test'
-import { contrast, mixOklab, mixSrgb, toOklch } from '../../src/app/lib/look/color'
-import { darkInputsFrom, deckPlate, deckText, DECK_MIX, deriveLook, deriveMode, inkPanel, inkWell, lampGlass, LOOK_TOKENS, PAPER_LIMITS, signalFamily, STOCK_TOKENS } from '../../src/app/lib/look/derive'
+import { contrast, hueDistance, mixOklab, mixSrgb, toOklch } from '../../src/app/lib/look/color'
+import { darkInputsFrom, deckPlate, deckText, DECK_MIX, deriveLook, deriveMode, inkPanel, inkWell, lampGlass, LOOK_TOKENS, PAPER_LIMITS, PB_MIN_HUE, PB_MIX, PB_STOCK, pbLamps, pbPlate, pbSignalText, signalFamily, STOCK_TOKENS } from '../../src/app/lib/look/derive'
 import { lookCss } from '../../src/app/lib/look/css'
 import { LOOK_PRESETS, SWATCHES } from '../../src/app/lib/look/presets'
 import { lookMessages } from '../../src/app/shell/workspace/look-messages'
@@ -411,4 +411,57 @@ test('strings: EN and DE hold the same keys, none empty, and every key the Look 
   const wanted = [...new Set([...literal, ...families.flatMap(([f, ids]) => ids.map((id) => `shell.ws.look.${f}.${id}`))])]
   expect(literal.length).toBeGreaterThan(30)
   expect(wanted.filter((k) => !(k in en))).toEqual([])
+})
+
+/* ------------------------------------------------------------------ the Patchbay (features/patchbay, B6) */
+
+test('the patchbay: tokens.css mixes what the engine checks (signal text on the plate, the lamps, the plate itself)', () => {
+  const pct = (p: number) => `${Math.round(p * 100)}%`
+  for (const [mode, table] of [['light', LIGHT], ['dark', DARK]] as const) {
+    expect(table['--pb-sig'], mode).toBe(`color-mix(in oklab, var(--signal-ink) ${pct(PB_MIX.sig)}, var(--ink))`)
+    expect(table['--pb-ok'], mode).toBe('var(--led-ok)')
+    expect(table['--led-ok'], mode).toBe(PB_STOCK[mode].ok)
+    expect(table['--c-red-text'], mode).toBe(PB_STOCK[mode].red)
+    // the stock "failed" lamp is the content red turned away from the stock signal — tokens.css holds the result
+    expect(pbLamps(STOCK_TOKENS[mode].signal, PB_STOCK[mode]).red, mode).toBe(PB_STOCK[mode].pbRed)
+    expect(table['--pb-red'], mode).toBe(PB_STOCK[mode].pbRed)
+    expect(table['--plate'], mode).toBe(`color-mix(in srgb, var(--ink) ${mode === 'light' ? '13%' : '14%'}, var(--surface))`)
+  }
+  // the stock signal leaves the green lamp as it is (no token emitted for the standard look)
+  for (const mode of ['light', 'dark'] as const) expect(pbLamps(STOCK_TOKENS[mode].signal, PB_STOCK[mode]).ok).toBe(PB_STOCK[mode].ok)
+  expect(LOOK_TOKENS).toEqual(expect.arrayContaining(['pb-ok', 'pb-red']))
+})
+
+test('the patchbay: lamps keep ≥ 40° of hue from the signal (≥ 3 : 1 on the surface), the signal text ≥ 4.5 : 1 on the plate — standard look, presets, swatches, 640 random looks, Paper and Carbon', () => {
+  const failures: string[] = []
+  let turned = 0
+  const check = (name: string, f: Record<string, string>, mode: 'light' | 'dark') => {
+    const ok = f['pb-ok'] ?? f['led-ok'] ?? PB_STOCK[mode].ok
+    const red = f['pb-red'] ?? PB_STOCK[mode].pbRed
+    const grey = toOklch(f.signal).c < 0.04
+    for (const [k, lamp] of [['ok', ok], ['red', red]] as const) {
+      if (!grey && toOklch(lamp).c >= 0.03 && hueDistance(lamp, f.signal) < PB_MIN_HUE) failures.push(`${name} ${mode} ${k} ${lamp} near ${f.signal}: ${hueDistance(lamp, f.signal).toFixed(1)}°`)
+      if (!(contrast(lamp, f.surface) >= 3)) failures.push(`${name} ${mode} ${k} ${lamp} on ${f.surface}: ${contrast(lamp, f.surface).toFixed(2)}`)
+    }
+    if (f['pb-ok'] || f['pb-red']) turned++
+    const sig = pbSignalText(f)
+    for (const [where, bg] of [['plate', pbPlate(mode, f)], ['surface', f.surface]] as const) {
+      if (!(contrast(sig, bg) >= 4.5)) failures.push(`${name} ${mode} --pb-sig ${sig} on the ${where} ${bg}: ${contrast(sig, bg).toFixed(2)}`)
+    }
+  }
+  for (const mode of ['light', 'dark'] as const) check('standard', STOCK_TOKENS[mode], mode)
+  const looks: Array<[string, Pick<WorkspaceLook, 'colors'>]> = [
+    ['a green signal', { colors: { ...STOCK_COLORS.light, signal: '#2f9e44' } }],
+    ['a red signal', { colors: { ...STOCK_COLORS.light, signal: '#c8102e' } }],
+    ...Object.entries(LOOK_PRESETS).map(([id, p]) => [id, p] as [string, Pick<WorkspaceLook, 'colors'>]),
+    ...SWATCHES.signal.map((s) => [`swatch ${s.id}`, { colors: { ...STOCK_COLORS.light, signal: s.hex } }] as [string, Pick<WorkspaceLook, 'colors'>]),
+    ...[...EDGE, ...triples(640)].map((colors) => [`${colors.paper} ${colors.ink} ${colors.signal}`, { colors }] as [string, Pick<WorkspaceLook, 'colors'>]),
+  ]
+  for (const [name, l] of looks) {
+    const d = deriveLook(l)
+    for (const mode of ['light', 'dark'] as const) check(name, d[mode].full, mode)
+  }
+  expect(failures.slice(0, 20)).toEqual([])
+  // the rule bites: some signals turn a lamp (the lamp moves, never the signal)
+  expect(turned).toBeGreaterThan(0)
 })

@@ -10,6 +10,7 @@ import type { Locator, Page } from '@playwright/test'
 import { test, expect, openApp, reloadApp, wsEval, mockClaude, createPage, gotoPage, editorOf, doc, para, pageIdByTitle, flush, MOD } from './fixtures'
 import { blockTracker, mirrorWrite, outbox, outboxLoaded, routeRef, seedMirrorDb } from './helpers/outbox'
 import { playStory, rec, startRecorder, storyTime, type Story } from './helpers/recorder'
+import { mock1, seedPatchbay } from '../fixtures/patchbay'
 
 /* ------------------------------------------------------------------ the audit */
 
@@ -462,7 +463,74 @@ test.describe('the biggest text size still fits', () => {
       await fits(page, `One Script editor (XL, ${at})`, '.sc-code')
     }
   })
+
+  test('the patchbay at XL: 1024 and 1280 → the strands view, no name clipped; 1440 → no sideways scroll; the head never wraps — English and German', async ({ page }) => {
+    // the Outbox dock is a database page's column (never beside #/patchbay): the width here is the window's minus the
+    // sidebar — at XL the rack needs 880 × 1.214 px and every name box ≥ 12ch (measured), else the strands view
+    test.slow()
+    await page.addInitScript(() => localStorage.setItem('one.textScale', '4'))
+    await page.setViewportSize({ width: 1280, height: 800 })
+    await openApp(page)
+    await seedPatchbay(page, mock1())
+    await page.evaluate(() => (window.location.hash = '#/patchbay'))
+    await expect(page.getByTestId('patchbay-page')).toBeVisible()
+    for (const lang of ['en', 'de'] as const) {
+      await wsEval(page, (s, l) => s.updateSettings({ language: l }), lang)
+      for (const width of [1024, 1280, 1440]) {
+        const at = `${width} XL ${lang}`
+        await page.setViewportSize({ width, height: 800 })
+        await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth - innerWidth), { message: `sideways scroll ${at}` }).toBeLessThanOrEqual(0)
+        const head = await headRows(page)
+        expect(head.rows, `the head wraps ${at}: ${head.what}`).toBe(1)
+        expect(head.overflow, `the head overflows ${at}`).toBeLessThanOrEqual(1)
+        if (width === 1440) continue
+        await expect(page.getByTestId('patchbay-page'), at).toHaveAttribute('data-view', 'strands')
+        await expect(page.getByTestId('pb-strand').first()).toBeVisible()
+        const clipped = await page.$$eval('.pb-strand__n, .pb-strands__rest', (els) => els.filter((el) => el.scrollWidth > el.clientWidth + 1).map((el) => el.textContent))
+        expect(clipped, `clipped names ${at}`).toEqual([])
+      }
+    }
+  })
+
+  test('the patchbay head: the keys collapse into ⋯ (measured), never wrap — German at 1024, the phone', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await openApp(page)
+    await seedPatchbay(page, mock1())
+    await page.evaluate(() => (window.location.hash = '#/patchbay'))
+    await expect(page.getByTestId('patchbay-as-list')).toBeVisible()
+    await expect(page.getByTestId('pb-more')).toHaveCount(0)
+    await wsEval(page, (s) => s.updateSettings({ language: 'de' }))
+    for (const [width, height] of [[1024, 768], [390, 844]]) {
+      await page.setViewportSize({ width, height })
+      await expect(page.getByTestId('pb-more'), `${width}`).toBeVisible()
+      await expect(page.getByTestId('patchbay-as-list')).toHaveCount(0)
+      const head = await headRows(page)
+      expect(head.rows, `${width}: ${head.what}`).toBe(1)
+      expect(head.overflow).toBeLessThanOrEqual(1)
+      // what went into ⋯ is still there
+      await page.getByTestId('pb-more').click()
+      await expect(page.getByRole('menuitem', { name: 'Als Liste' })).toBeVisible()
+      await page.keyboard.press('Escape')
+      await expect(page.getByTestId('pb-more')).toBeFocused()
+    }
+  })
 })
+
+/** The Patchbay's head: how many rows its parts sit in (one, always) and by how much it overflows. */
+function headRows(page: Page) {
+  return page.evaluate(() => {
+    const head = document.querySelector('.pb-head') as HTMLElement
+    const parts = [...head.children].filter((el) => {
+      const r = el.getBoundingClientRect()
+      return r.width > 0 && r.height > 0 && getComputedStyle(el).position !== 'absolute'
+    })
+    // one row: every part's middle lies inside the tallest part's box (the title)
+    const boxes = parts.map((el) => el.getBoundingClientRect())
+    const tall = boxes.reduce((a, b) => (b.height > a.height ? b : a))
+    const rows = boxes.every((r) => r.top + r.height / 2 >= tall.top - 1 && r.top + r.height / 2 <= tall.bottom + 1) ? 1 : 2
+    return { rows, overflow: head.scrollWidth - head.clientWidth, what: parts.map((el) => `${el.className}@${Math.round(el.getBoundingClientRect().top)}`).join(' ') }
+  })
+}
 
 /* ------------------------------------------------------------------ resize grip */
 

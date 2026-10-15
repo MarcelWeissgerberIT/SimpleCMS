@@ -1,0 +1,32 @@
+/* The sidebar row (eager, tiny): the NEW tag and the badge's viewer / unknown variants (§1.8) — two classes: the sidebar's
+   own badge colour loads after this file in production. */
+.pb-newtag {
+  flex: none;
+  margin-left: -2px;
+  padding: 1px 4px;
+  border-radius: var(--radius-1);
+  background: var(--ink);
+  color: var(--surface);
+  font: 600 var(--text-2xs) / 1.2 var(--font-mono);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+/* NEW sits right after the name (the mock), the badge at the row's end */
+.pb-navrow .sb-navrow__label {
+  flex: 0 1 auto;
+}
+.pb-navrow .sb-navrow__badge {
+  margin-left: auto;
+}
+/* a viewer cannot act on it: neutral ink, never signal */
+.sb-navrow__badge.pb-navbadge[data-viewer] {
+  color: var(--ink-2);
+}
+.pb-navbadge[data-viewer] .led {
+  background: var(--ink-2);
+}
+/* parts unknown here, nothing open: a grey "?" — unknown never reads as safe */
+.sb-navrow__badge.pb-navbadge--q {
+  color: var(--ink-3);
+  font-weight: 700;
+}

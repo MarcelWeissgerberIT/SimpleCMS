@@ -143,7 +143,7 @@ export function ticksDash(len: number): string {
 export interface WireStyle {
   /** the AI decides at run time: dashed */
   can: boolean
-  /** content from outside: hatched ticks */
+  /** content from outside (an outside source's cable): hatched ticks */
   outside: boolean
   /** a P2 ghost cable: dotted */
   planned: boolean
@@ -156,7 +156,9 @@ export function wireStyle(wire: Pick<Wire, 'edges'>, edges: ReadonlyMap<string, 
   const list = wire.edges.map((id) => edges.get(id)).filter((e): e is Edge => !!e)
   const all = (k: keyof Edge) => list.length > 0 && list.every((e) => !!e[k])
   const any = (k: keyof Edge) => list.some((e) => !!e[k])
-  return { can: all('can'), outside: any('outside') || any('tainted'), planned: all('planned'), unknown: any('unknown') }
+  // hatched = content from outside on this cable (§2.2 `outside`); a cable that only carries content written from
+  // outside (`tainted`) keeps its plain look — the reader's net tag is hatched instead (the mock draws it so, B6)
+  return { can: all('can'), outside: any('outside'), planned: all('planned'), unknown: any('unknown') }
 }
 
 /**
@@ -315,10 +317,11 @@ const C = {
   ink3: 'var(--ink-3)',
   signal: 'var(--signal)',
   signalInk: 'var(--signal-ink)',
-  cable: 'color-mix(in srgb, var(--ink) 82%, var(--plate))',
-  halo: 'var(--plate)',
-  plug: 'color-mix(in srgb, var(--ink) 82%, var(--plate))',
-  plugRing: 'color-mix(in srgb, var(--plate) 70%, transparent)',
+  // tokens.css --pb-* (B6): the page's wire layer and the picture draw the same cable
+  cable: 'var(--pb-cable)',
+  halo: 'var(--pb-halo)',
+  plug: 'var(--pb-cable)',
+  plugRing: 'var(--pb-plug)',
   jack: 'var(--toggle-window)',
   jackRing: 'var(--screw-head)',
   foldEdge: 'color-mix(in srgb, var(--ink) 30%, transparent)',

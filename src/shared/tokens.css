@@ -183,6 +183,20 @@
      housing in Paper, the ink ring in Carbon */
   --lamp-cursor: 0 0 0 2px var(--surface), 0 0 0 4px var(--ink);
   /*
+   * The Patchbay (features/patchbay/patchbay.css): cables are ink on the rack's plate, each over a halo of the plate
+   * (crossings read as over / under), plugs ringed with the plate. --pb-sig is the signal as TEXT on the plate (the
+   * column heads' § numbers, "F1" there — the plain signal ink is under 4.5 : 1 on the plate). --pb-ok / --pb-red are
+   * the module lamps' "fine" and "failed": their hue stays ≥ 40° from the signal's (lib/look/derive.ts pbLamps — the
+   * stock red is the content red turned away from the orange; a look that brings them too close emits its own). The
+   * look engine and look-engine.spec keep these values in step. A lamp is never the only cue ("!" and a word).
+   */
+  --pb-cable: color-mix(in srgb, var(--ink) 82%, var(--plate));
+  --pb-halo: var(--plate);
+  --pb-plug: color-mix(in srgb, var(--plate) 70%, transparent);
+  --pb-sig: color-mix(in oklab, var(--signal-ink) 75%, var(--ink));
+  --pb-ok: var(--led-ok);
+  --pb-red: #ac2166;
+  /*
    * switch sizes (ui.css .switch / .switch--sm; the 120 : 64 rocker of the design, about the old 52 × 26 area), in
    * step with the text size; a column that lines up with switches takes the same width
    */
@@ -318,6 +332,7 @@
   --c-purple-text: #a98ad8;          --c-purple-bg: #2b2338;
   --c-pink-text: #e07aa8;            --c-pink-bg: #38212d;
   --c-red-text: #f0766b;             --c-red-bg: #3d1f1c;
+  --pb-red: #e973a0;                 /* the Patchbay's "failed" lamp (see Paper above) */
 
   /* syntax on Carbon (see Paper above): lighter steps, keys lighter than strings */
   --syn-kw: #ff7a3d;

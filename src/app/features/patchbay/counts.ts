@@ -19,7 +19,7 @@ export function patchbayCounts(): PatchbayCounts {
 
 /** Write the counts (B8's computation only); the same numbers keep the same object — nobody re-renders. */
 export function setPatchbayCounts(next: PatchbayCounts): void {
-  if (next.open === counts.open && next.allowed === counts.allowed && next.unknown === counts.unknown && next.ready === counts.ready) return
+  if (next.open === counts.open && next.allowed === counts.allowed && next.unknown === counts.unknown && next.ready === counts.ready && next.first === counts.first) return
   counts = next
   for (const fn of [...listeners]) fn()
 }

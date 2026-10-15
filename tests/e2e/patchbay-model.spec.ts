@@ -249,13 +249,14 @@ test.describe('wiring inventory — the seed workspace', () => {
     await expect(page.getByTestId('patchbay-page')).toBeVisible()
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Patchbay')
     await expect(page).toHaveTitle(/^Patchbay — /)
-    const ro = (k: string) => page.getByTestId(`patchbay-ro-${k}`)
-    await expect(ro('agents')).toHaveText(String(inv.agents.length))
-    await expect(ro('scripts')).toHaveText(String(inv.scripts.length))
-    await expect(ro('automations')).toHaveText(String(inv.automations.length))
-    await expect(ro('commands')).toHaveText(String(inv.commands.length))
-    await expect(ro('repeating')).toHaveText(String(inv.repeating.length))
-    await expect(ro('databases')).toHaveText(String(inv.databases.length))
+    // B6: the rack draws what runs by itself — Projects' automation and the Meetings template's clock, by their `?m=`
+    // keys (inventoryKeys) — and the readout counts the modules on it; no fuse in the seed
+    const mod = (key: string) => page.locator(`[data-testid="pb-module"][data-key="${key}"]`)
+    await expect(mod(inventoryKeys.automation(inv.automations[0].dbId, inv.automations[0].automation.id))).toBeVisible()
+    await expect(mod(inventoryKeys.repeating(inv.repeating[0].dbId, inv.repeating[0].template.id))).toBeVisible()
+    const drawn = await page.getByTestId('pb-module').count()
+    await expect(page.getByTestId('pb-ro-modules')).toHaveText(new RegExp(`^${drawn}\\b`))
+    await expect(page.getByTestId('pb-ro-fuse-val')).toHaveText('none open')
 
     // Workspace › Automation counts the same, plus own functions and own templates (they do not run by themselves)
     await page.getByTestId('patchbay-as-list').click()

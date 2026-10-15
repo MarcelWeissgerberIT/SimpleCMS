@@ -5,14 +5,14 @@
  * the way to each. Team workspaces: API tokens and webhooks (owners and admins manage them) at the end.
  */
 import { useEffect, type ReactNode } from 'react'
-import { Bot, CalendarClock, Command, GitBranch, LayoutTemplate, SquareCode, SquareFunction, Workflow, type LucideIcon } from 'lucide-react'
+import { Bot, Cable, CalendarClock, Command, GitBranch, LayoutTemplate, SquareCode, SquareFunction, Workflow, type LucideIcon } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import type { Automation as DbAutomation, ID } from '../../store/types'
 import { activeWorkspace } from '../../cloud'
 import { navigate } from '../../lib/router'
-import { agentTriggerText, codingWorkerStateText, formatRun, loadAgentRuns, loadScriptRuns, nextRun, openCodingSettings, templateName, useAgentRuns, useCoding, useScriptRuns, codingDbId, CodingCloudWorkers } from '../../features'
+import { agentTriggerText, codingWorkerStateText, formatRun, loadAgentRuns, loadScriptRuns, nextRun, openCodingSettings, templateName, useAgentRuns, useCoding, useScriptRuns, codingDbId, CodingCloudWorkers, inventoryKeys, openPatchbay } from '../../features'
 import { Led } from '../../ui/controls'
 import { useLang, useT } from '../../i18n'
 import type { Translate } from '@/shared/i18n'
@@ -34,6 +34,8 @@ interface Item {
   last?: string | null
   open: () => void
   openLabel: string
+  /** its module on the Patchbay (`#/patchbay?m=`) — what runs by itself has one */
+  pb?: string
 }
 
 export function AutomationSection({ team }: { team: TeamData }) {
@@ -81,6 +83,7 @@ export function AutomationSection({ team }: { team: TeamData }) {
           last: run ? `${ago(run.startedAt)} · ${run.status === 'held' ? t('features.governor.status.heldLower') : t(`shell.ws.auto.agentRun.${run.status}`)}` : null,
           open: () => navigate({ name: 'agents', id: a.id }),
           openLabel: t('shell.ws.auto.open'),
+          pb: inventoryKeys.agent(a.id),
         }
       }),
     },
@@ -100,6 +103,7 @@ export function AutomationSection({ team }: { team: TeamData }) {
           last: run ? `${ago(run.at)} · ${t(`shell.ws.auto.scriptRun.${run.status}`)}${run.mode === 'dry' ? ` · ${t('shell.ws.auto.dry')}` : ''}` : null,
           open: () => navigate({ name: 'scripts', id: s.id }),
           openLabel: t('shell.ws.auto.open'),
+          pb: inventoryKeys.script(s.id),
         }
       }),
     },
@@ -131,6 +135,7 @@ export function AutomationSection({ team }: { team: TeamData }) {
         last: a.lastRunAt ? `${ago(a.lastRunAt)} · ${a.lastStatus === 'error' ? t('shell.ws.auto.failed') : t('shell.ws.auto.ok')}` : null,
         open: () => ui.openModal({ type: 'automations', databaseId: dbId }),
         openLabel: t('shell.ws.auto.edit'),
+        pb: inventoryKeys.automation(dbId, a.id),
       })),
     },
     {
@@ -145,6 +150,7 @@ export function AutomationSection({ team }: { team: TeamData }) {
         led: c.hidden ? 'off' : null,
         open: () => ui.openModal({ type: 'dbCommands', databaseId: dbId }),
         openLabel: t('shell.ws.auto.edit'),
+        pb: inventoryKeys.command(dbId, c.id),
       })),
     },
     {
@@ -162,6 +168,7 @@ export function AutomationSection({ team }: { team: TeamData }) {
           last: template.repeat?.lastRunAt ? ago(template.repeat.lastRunAt) : null,
           open: () => navigate({ name: 'page', id: dbId }),
           openLabel: t('shell.ws.auto.open'),
+          pb: inventoryKeys.repeating(dbId, template.id),
         }
       }),
     },
@@ -183,7 +190,10 @@ export function AutomationSection({ team }: { team: TeamData }) {
 
   return (
     <>
-      <SectionHead n="05" title={t('shell.ws.sec.automation')} lead={t('shell.ws.auto.lead', { n: inventoryCount(inv) })} />
+      <SectionHead n="05" title={t('shell.ws.sec.automation')} lead={t('shell.ws.auto.lead', { n: inventoryCount(inv) })}>
+        {/* the same inventory drawn as a rack, with its cables and fuses (features/patchbay) */}
+        <GoKey label={t('shell.ws.auto.asPatchbay')} onClick={() => openPatchbay()} testId="ws-auto-as-patchbay" />
+      </SectionHead>
       <CodingPlate />
       <CodingCloudWorkers />
       {groups.map((g) => (
@@ -233,7 +243,10 @@ function Group({ id, icon: Icon, label, items, empty, add }: { id: string; icon:
                 {it.tag && <span className="wsp-auto__tag">{it.tag}</span>}
                 {it.last && <span className="wsp-auto__last">{it.last}</span>}
               </span>
-              <GoKey label={it.openLabel} onClick={it.open} ariaLabel={`${it.openLabel}: ${it.name}`} />
+              <span className="wsp-auto__keys">
+                {it.pb && <PatchbayKey m={it.pb} name={it.name} />}
+                <GoKey label={it.openLabel} onClick={it.open} ariaLabel={`${it.openLabel}: ${it.name}`} />
+              </span>
             </li>
           ))}
           {add && (
@@ -244,6 +257,17 @@ function Group({ id, icon: Icon, label, items, empty, add }: { id: string; icon:
         </ul>
       )}
     </section>
+  )
+}
+
+/** "Show in the patchbay": the rack with this one selected and given the keyboard. */
+function PatchbayKey({ m, name }: { m: string; name: string }) {
+  const t = useT()
+  const label = t('shell.ws.auto.showInPatchbay')
+  return (
+    <button type="button" className="icon-btn icon-btn--sm wsp-auto__pb" title={label} aria-label={`${label}: ${name}`} onClick={() => openPatchbay({ m })} data-testid="ws-auto-show-in-patchbay">
+      <Cable size={14} strokeWidth={1.75} aria-hidden />
+    </button>
   )
 }
 
