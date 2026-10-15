@@ -39,7 +39,7 @@ export const FreeCardBody = memo(function FreeCardBody({ m, row, props, editing,
             <div key={p.id} className="fb-card__field" data-type={p.type}>
               <dt className="label">{p.name}</dt>
               <dd>
-                <ValueView db={m.db} prop={p} row={row} r={m.resolver} v={v} variant="card" interactive={!m.readOnly && (p.type === 'checkbox' || p.type === 'rating')} />
+                <ValueView db={m.db} prop={p} row={row} r={m.resolver} v={v} variant="card" fit interactive={!m.readOnly && (p.type === 'checkbox' || p.type === 'rating')} />
               </dd>
             </div>
           ))}

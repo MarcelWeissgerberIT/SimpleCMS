@@ -5,7 +5,7 @@
  * the name wraps and the chip grows. The same rows in the list view, and a relation chip there still opens the peek.
  */
 import type { Locator, Page } from '@playwright/test'
-import { test, expect, openApp, gotoPage, wsEval, flush } from './fixtures'
+import { test, expect, openApp, gotoPage, wsEval, uiEval, flush, reloadApp } from './fixtures'
 
 const LONG = 'Nordlicht Development Hub Karlsruhe · Launch plan 2026'
 
@@ -76,6 +76,50 @@ async function chipsWhole(c: Locator): Promise<{ shown: number; hidden: number }
 }
 
 const countOf = (c: Locator) => c.locator('.db-more')
+
+interface Audit {
+  rows: number
+  /** Chips cut by an edge, icons / avatars cut inside a shown chip, counts that do not match what is hidden. */
+  problems: string[]
+}
+
+/**
+ * Every chip row under `root`: each chip is shown whole (its icon / avatar whole inside it) or hidden whole below the
+ * clip, and the "+n" key shows exactly the number hidden (none when nothing is). Self-contained (runs in the page).
+ */
+function audit(root: Element): Audit {
+  const within = (a: DOMRect, b: DOMRect) => a.left >= b.left - 0.5 && a.right <= b.right + 0.5 && a.top >= b.top - 0.5 && a.bottom <= b.bottom + 0.5
+  const problems: string[] = []
+  const lists = [...root.querySelectorAll('.db-chips')]
+  for (const list of lists) {
+    const L = list.getBoundingClientRect()
+    const C = list.parentElement!.getBoundingClientRect()
+    let hidden = 0
+    for (const chip of list.children) {
+      if (chip.classList.contains('db-more')) continue
+      const r = chip.getBoundingClientRect()
+      const name = (chip.textContent ?? '').trim()
+      if (r.top >= L.bottom - 0.5) {
+        hidden++
+        continue
+      }
+      if (!within(r, L) || r.right > C.right + 0.5) {
+        problems.push(`cut: "${name}" [${Math.round(r.left)},${Math.round(r.right)}] in [${Math.round(L.left)},${Math.round(Math.min(L.right, C.right))}]`)
+        continue
+      }
+      for (const part of chip.querySelectorAll('.db-avatar, .db-rel__icon, .db-file__icon, .db-status__led')) {
+        const pr = part.getBoundingClientRect()
+        if (!within(pr, r)) problems.push(`part cut: "${name}" ${part.className} [${Math.round(pr.left)},${Math.round(pr.right)}] in chip [${Math.round(r.left)},${Math.round(r.right)}]`)
+      }
+    }
+    const key = list.querySelector<HTMLElement>(':scope > .db-more')
+    const keyShown = !!key && getComputedStyle(key).visibility === 'visible' && getComputedStyle(key).display !== 'none'
+    const count = keyShown ? Number((key!.dataset.count ?? '').replace('+', '')) : 0
+    if (keyShown && !within(key!.getBoundingClientRect(), L)) problems.push(`key cut: ${key!.dataset.count}`)
+    if (count !== hidden) problems.push(`count ${keyShown ? key!.dataset.count : 'none'} but ${hidden} hidden: ${(list.textContent ?? '').slice(0, 60)}`)
+  }
+  return { rows: lists.length, problems }
+}
 
 test.describe('chips in table cells', () => {
   test('a long relation shrinks inside its border, persons that do not fit wait behind +n, wrap shows every name whole', async ({ page }) => {
@@ -257,5 +301,193 @@ test.describe('chips in table cells', () => {
     await expect(countOf(rel2)).toHaveAttribute('title', '1 more: Launch plan')
     await expect(rel2.locator('.db-chips')).not.toHaveAttribute('style', /--more-room/)
     expect(await rel2.locator('.db-rel__name').first().evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
+  })
+
+  test('wrap cells: a person row that fits on one line settles — no count, no flicker', async ({ page }) => {
+    await openApp(page)
+    const { dbId, viewId } = await seed(page)
+    await wsEval(page, (s, a) => {
+      const [jo, ben, eva, carla] = ['Jo', 'Ben', 'Eva Klein', 'Carla Dorn'].map((n) => s.addPerson(n))
+      s.createRow(a.dbId, { title: 'Sync', properties: { pPerson: [jo, ben] } })
+      s.createRow(a.dbId, { title: 'Retro', properties: { pPerson: [jo, ben, eva, carla] } })
+      s.updateView(a.dbId, a.viewId, { propertyWidths: { pName: 160, pPerson: 260, pRel: 150 }, wrapCells: true })
+    }, { dbId, viewId })
+    await flush(page)
+    await gotoPage(page, dbId)
+    await expect(db(page).locator('.dbt')).toHaveAttribute('data-wrap', 'true')
+    const changes = () => db(page).evaluate((el) => new Promise<number>((done) => {
+      let n = 0
+      const mo = new MutationObserver((list) => {
+        n += list.length
+      })
+      mo.observe(el, { subtree: true, attributes: true, attributeFilter: ['data-more', 'data-off', 'data-count', 'style'] })
+      let frames = 0
+      const tick = () => {
+        if (++frames < 20) requestAnimationFrame(tick)
+        else {
+          mo.disconnect()
+          done(n)
+        }
+      }
+      requestAnimationFrame(tick)
+    }))
+    for (const w of [260, 360]) {
+      await wsEval(page, (s, a) => s.updateView(a.dbId, a.viewId, { propertyWidths: { pName: 160, pPerson: a.w, pRel: 150 } }), { dbId, viewId, w })
+      for (const title of ['Kickoff', 'Sync', 'Retro']) {
+        const per = cell(page, title, 'person')
+        await expect.poll(() => chipsWhole(per)).toEqual({ shown: title === 'Sync' ? 2 : title === 'Kickoff' ? 2 : 4, hidden: 0 })
+        await expect(countOf(per)).toBeHidden()
+      }
+      expect(await changes(), `nothing changes once settled (person column ${w} px)`).toBe(0)
+      for (const title of ['Kickoff', 'Sync', 'Retro']) await expect(countOf(cell(page, title, 'person'))).toBeHidden()
+    }
+  })
+
+  test('file names that arrive after the first fit are counted: the hidden file shows in "+1"', async ({ page }) => {
+    await openApp(page)
+    const { dbId, viewId } = await seed(page)
+    const srcs = await page.evaluate(async () => {
+      const one = (window as unknown as { __one: { files: { saveFile: (b: Blob, n: string) => Promise<string> } } }).__one
+      return [
+        await one.files.saveFile(new Blob(['%PDF-1.4 offer'], { type: 'application/pdf' }), 'Angebot Karlsruhe Hub final.pdf'),
+        await one.files.saveFile(new Blob(['%PDF-1.4 minutes'], { type: 'application/pdf' }), 'Protokoll Kickoff Oktober.pdf'),
+      ]
+    })
+    await wsEval(page, (s, a) => {
+      s.addProperty(a.dbId, { id: 'pFiles', name: 'Files', type: 'files' })
+      const id = (Object.values(s.pages) as Array<{ id: string; title: string; databaseId?: string }>).find((p) => p.databaseId === a.dbId && p.title === 'Kickoff')!.id
+      s.setRowProperty(id, 'pFiles', a.srcs)
+      s.updateView(a.dbId, a.viewId, { propertyWidths: { pName: 160, pPerson: 130, pRel: 150, pFiles: 170 } })
+    }, { dbId, viewId, srcs })
+    // a reload: the names are read from IndexedDB again, after the row's first fit
+    await reloadApp(page)
+    await gotoPage(page, dbId)
+    const files = cell(page, 'Kickoff', 'files')
+    await expect(files.locator('.db-file__name')).toHaveText(['Angebot Karlsruhe Hub final.pdf', 'Protokoll Kickoff Oktober.pdf'])
+    await expect(countOf(files)).toBeVisible()
+    await expect(countOf(files)).toHaveAttribute('title', '1 more: Protokoll Kickoff Oktober.pdf')
+    expect(await chipsWhole(files)).toEqual({ shown: 1, hidden: 1 })
+    expect((await db(page).evaluate(audit)).problems).toEqual([])
+  })
+
+  test('a text-size switch with the table open re-fits every row', async ({ page }) => {
+    await openApp(page)
+    const { dbId, viewId } = await seed(page)
+    await wsEval(page, (s, a) => s.updateView(a.dbId, a.viewId, { propertyWidths: { pName: 160, pPerson: 400, pRel: 150 } }), { dbId, viewId })
+    await gotoPage(page, dbId)
+    // the Person column just wide enough for Mara Lind + Tessa Nordlicht at the standard size
+    const per = cell(page, 'Kickoff', 'person')
+    await expect.poll(() => chipsWhole(per)).toEqual({ shown: 2, hidden: 0 })
+    const need = await per.evaluate((el) => {
+      const chips = [...el.querySelectorAll('.db-chips > .db-person')].map((c) => c.getBoundingClientRect())
+      return Math.ceil(chips[chips.length - 1].right - chips[0].left)
+    })
+    await wsEval(page, (s, a) => s.updateView(a.dbId, a.viewId, { propertyWidths: { pName: 160, pPerson: a.w, pRel: 150 } }), { dbId, viewId, w: need + 18 + 6 })
+    await expect.poll(() => chipsWhole(per)).toEqual({ shown: 2, hidden: 0 })
+    await expect(countOf(per)).toBeHidden()
+
+    // Settings → Appearance → Text size → XL, then back to the table (nothing re-renders the rows)
+    await uiEval(page, (u) => u.openModal({ type: 'settings', tab: 'appearance' }))
+    await page.locator('[data-testid="text-size"] .tsize__name', { hasText: 'XL' }).click()
+    await expect(page.locator('[data-testid="text-size"]')).toHaveAttribute('data-step', '4')
+    await page.keyboard.press('Escape')
+    await expect(page.locator('[data-testid="text-size"]')).toHaveCount(0)
+    await expect(countOf(per)).toHaveAttribute('data-count', '+1')
+    await expect(countOf(per)).toBeVisible()
+    await expect.poll(async () => (await db(page).evaluate(audit)).problems).toEqual([])
+    expect(await chipsWhole(per)).toEqual({ shown: 1, hidden: 1 })
+
+    // and back to the standard size: both fit again, the count goes
+    await uiEval(page, (u) => u.openModal({ type: 'settings', tab: 'appearance' }))
+    await page.locator('[data-testid="text-size"] .tsize__name', { hasText: 'Standard' }).click()
+    await page.keyboard.press('Escape')
+    await expect(countOf(per)).toBeHidden()
+    await expect.poll(async () => (await db(page).evaluate(audit)).problems).toEqual([])
+    expect(await chipsWhole(per)).toEqual({ shown: 2, hidden: 0 })
+  })
+
+  test('the web font arriving after the first fit re-fits every row', async ({ page }) => {
+    let release!: () => void
+    const held = new Promise<void>((r) => {
+      release = r
+    })
+    await page.route(/\.woff2(\?|$)/, async (route) => {
+      await held
+      await route.continue()
+    })
+    await openApp(page)
+    const { dbId, viewId } = await seed(page)
+    await wsEval(page, (s, a) => {
+      const target = (Object.values(s.pages) as Array<{ title: string; databaseId?: string }>).find((p) => p.title === 'Tessera')!.databaseId!
+      const ten = Array.from({ length: 10 }, (_, i) => s.createRow(target, { title: `Projekt ${i + 1}` }))
+      s.addProperty(a.dbId, { id: 'pRel2', name: 'Relation 2', type: 'relation', relationDatabaseId: target })
+      s.createRow(a.dbId, { title: 'Ten', properties: { pRel: ten, pRel2: ten } })
+      s.updateView(a.dbId, a.viewId, { propertyWidths: { pName: 160, pPerson: 150, pRel: 240, pRel2: 240 } })
+    }, { dbId, viewId })
+    await gotoPage(page, dbId)
+    const ten = cell(page, 'Ten', 'relation')
+    await expect(ten.first().locator('.db-rel')).toHaveCount(10)
+    expect(await page.evaluate(() => document.fonts.check('12px "Archivo Variable"')), 'the web font is held back').toBe(false)
+    // two columns on either side of the edge for four chips + the count (the fallback font's widths): one where four
+    // just fit, one where a fifth just misses — wider or narrower glyphs move the edge of one of them
+    const needs = (c: Locator) => c.evaluate((el) => {
+      // the room k chips + the count need (chipFit.ts: gap 4, slack 1 + k / 2), from each chip's whole width
+      const list = el.querySelector('.db-chips')!
+      const key = list.querySelector<HTMLElement>('.db-more')!
+      const chips = [...list.children].filter((c) => c !== key) as HTMLElement[]
+      let used = 0
+      const need = chips.map((c, i) => {
+        const name = c.querySelector<HTMLElement>('.db-rel__name')!
+        used += (i ? 4 : 0) + c.offsetWidth + Math.max(0, name.scrollWidth - name.clientWidth)
+        return used + 4 + key.offsetWidth + 1 + (i + 1) * 0.5
+      })
+      const room = (list as HTMLElement).clientWidth
+      const fit = need.findIndex((n) => n > room)
+      return { need, hidden: chips.length - (fit < 0 ? chips.length : fit), count: list.hasAttribute('data-more') ? key.dataset.count : 'none' }
+    })
+    const before = (await needs(ten.first())).need
+    const tight = Math.ceil(before[3]) + 18
+    const miss = Math.ceil(before[4]) - 1 + 18
+    await wsEval(page, (s, a) => s.updateView(a.dbId, a.viewId, { propertyWidths: { pName: 160, pPerson: 150, pRel: a.tight, pRel2: a.miss } }), { dbId, viewId, tight, miss })
+    for (const c of [ten.first(), ten.nth(1)]) await expect(countOf(c)).toHaveAttribute('data-count', '+6')
+    expect((await db(page).evaluate(audit)).problems).toEqual([])
+    release()
+    await page.waitForFunction(() => document.fonts.check('12px "Archivo Variable"'))
+    await expect.poll(async () => (await db(page).evaluate(audit)).problems).toEqual([])
+    // the count is the one the new widths call for (not the fallback font's)
+    for (const c of [ten.first(), ten.nth(1)])
+      await expect.poll(async () => {
+        const n = await needs(c)
+        return n.count === `+${n.hidden}`
+      }).toBe(true)
+    const after = await needs(ten.first())
+    expect(after.need[4], 'the web font changed the chips\' widths').not.toBe(before[4])
+  })
+
+  test('free-board cards: chips stay whole, their icons whole, the rest behind "+n"', async ({ page }) => {
+    await openApp(page)
+    const { dbId } = await seed(page)
+    await wsEval(page, (s, a) => {
+      const names = ['Mara Lind', 'Tessa Nordlicht', 'Jo Berg', 'Ben Haas', 'Eva Klein', 'Carla Dorn', 'Ida Sommer', 'Lukas Brandt', 'Nele Voss', 'Timo Kranz']
+      const people = (s.people as Array<{ id: string; name: string }>)
+      const ids = names.map((n) => people.find((p) => p.name === n)?.id ?? s.addPerson(n))
+      const target = (Object.values(s.pages) as Array<{ title: string; databaseId?: string }>).find((p) => p.title === 'Tessera')!.databaseId!
+      const rels = Array.from({ length: 10 }, (_, i) => s.createRow(target, { title: `Projekt ${i + 1}` }))
+      s.addProperty(a.dbId, { id: 'pTags', name: 'Tags', type: 'multi_select', options: Array.from({ length: 10 }, (_, i) => ({ id: `t${i}`, name: `Thema ${i + 1}`, color: 'orange' })) })
+      s.addProperty(a.dbId, { id: 'pLane', name: 'Lane', type: 'select', options: [{ id: 'l1', name: 'Inbox', color: 'gray' }] })
+      s.createRow(a.dbId, { title: 'Ten', properties: { pPerson: ids, pRel: rels, pTags: Array.from({ length: 10 }, (_, i) => `t${i}`), pLane: 'l1' } })
+      s.addView(a.dbId, { type: 'board', name: 'Free', free: true, groupBy: 'pLane', hiddenGroups: [], visibleProperties: ['pPerson', 'pRel', 'pTags'], typeFields: { __plain__: ['pPerson', 'pRel', 'pTags'] } })
+    }, { dbId })
+    await flush(page)
+    await gotoPage(page, dbId)
+    await page.locator('#main [role="tab"]', { hasText: 'Free' }).click()
+    const card = db(page).locator('.fb-card', { hasText: 'Ten' })
+    await expect(card.locator('.fb-card__field')).toHaveCount(3)
+    await expect.poll(async () => card.evaluate(audit)).toEqual({ rows: 3, problems: [] })
+    for (const type of ['person', 'relation', 'multi_select']) {
+      const field = card.locator(`.fb-card__field[data-type="${type}"]`)
+      await expect(countOf(field)).toBeVisible()
+      await expect(countOf(field)).toHaveAttribute('title', /^\d+ more: /)
+    }
   })
 })

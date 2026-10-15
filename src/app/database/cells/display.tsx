@@ -259,7 +259,7 @@ interface ValueProps {
   variant?: Variant
   /** Allow direct manipulation (checkbox toggle, rating click). */
   interactive?: boolean
-  /** Chips on one line (a "+n" count for those that do not fit): always in table cells ('cell'), list rows ask. */
+  /** Chips on one line (a "+n" count for those that do not fit): always in table cells ('cell'); list rows and free-board card fields ask. */
   fit?: boolean
 }
 
@@ -288,8 +288,8 @@ function FValueView({ v, lang, fit }: { v: FValue; lang: 'en' | 'de'; fit: boole
 
 /**
  * A row of chips. A chip is never cut by the edge: a lone chip shrinks ("…" inside its border), and with `fit`
- * (one-line places: table cells, list rows) chips that do not fit wait whole behind a "+n" count (chipFit.ts).
- * Rows of one chip need no measuring.
+ * (one-line places: table cells, list rows, free-board card fields) chips that do not fit wait whole behind a "+n"
+ * count (chipFit.ts); without it the row wraps. Rows of one chip need no measuring.
  */
 function ChipList({ fit, children }: { fit: boolean; children: ReactNode[] }) {
   const shown = children.filter(Boolean)
