@@ -234,6 +234,55 @@ export interface Chain {
   gate?: Gate
   /** why it reaches: tainted places, kit / automation relays */
   via?: { taint?: Place[]; relay?: ModuleKey[] }
+  /** B3: the way out at the end of the path (its module, its kind, the edge into it — or the WRITE? cable for MCP) */
+  exit?: ChainExit
+  /** B3: every drawn edge of the path in order, the source's lead cable first (the UI lights these) */
+  edges?: string[]
+  /** B3: the three conditions of this path (reach.ts) — B4 decides fuse, near miss or nothing from them */
+  lamps?: { outside: Why; private: Why; out: Why }
+  /** B3: what the lamps say, as data (reach.ts): every outside source of the decider (primary first), the private reach */
+  why?: { outside: OutsideSource[]; private: PrivateItem[] }
+  /** B3: the decider's data rules close this path's MCP exit ('mcp' withheld from its route) */
+  withheld?: 'mcp'
+}
+
+/** B3: the way out a chain ends at (§1.4). `edge` = the cable the fuse glyph sits on (the last unattended edge). */
+export interface ChainExit {
+  /** the outbound / Outbox module — or the server for an MCP exit */
+  module: ModuleKey
+  type: ExitType | 'outbox'
+  edge: string
+}
+
+/**
+ * B3: content from outside a decider reads (§1.3 #2) — ids only. `source` names the module the content comes from: the
+ * mail rows' row trigger (the mail sync), the incoming hook, the server, Clippings, the GitHub sync, or — for a place
+ * written from outside (taint) — the writer.
+ */
+export interface OutsideSource {
+  kind: 'mail' | 'hook' | 'incoming' | 'mcp' | 'clippings' | 'github' | 'tainted'
+  source: ModuleKey
+  /** the place read (a mail / hook / tainted database or page; Clippings' Inbox; everything for GitHub pick-ups) */
+  place?: Place
+  /** how the decider reads it: its trigger's rows, its scope, its MCP tools, a webhook trigger's body, its own row, related rows' titles */
+  via: 'trigger' | 'scope' | 'tools' | 'webhook' | 'row' | 'related'
+  /** taint: who wrote the place, and where that writer's content came from (its own primary source) */
+  writer?: ModuleKey
+  from?: ModuleKey
+  /** a data rule withholds it from the decider's route — then it reaches nothing (§1.3 #2) */
+  withheld?: 'mail' | 'mcp' | 'private'
+}
+
+/** B3: private data in a decider's reach, relative to a path's source and exit (§1.3 #3) — ids only. */
+export interface PrivateItem {
+  kind: 'everything' | 'named' | 'otherRows' | 'trigger' | 'row' | 'related' | 'mcp' | 'memory'
+  place?: Place
+  /** 'mcp': the server whose read tools it may call */
+  server?: ModuleKey
+  /** 'everything': the databases in reach */
+  n?: number
+  /** team: a private page (`Page.private`) — the lamp names "private page" */
+  private?: true
 }
 
 /** A message by key + vars — never text (plain.ts / the UI translate). */
@@ -430,6 +479,17 @@ export interface Model {
    * each place. chains.ts (B3) walks THIS, never the drawn edges, so folding a drawing never hides a path (§2.5).
    */
   flow?: Flow
+  /** B3: the loops of the flow (↺) — each (module, place) pair once, drawn once (chains.ts) */
+  loops?: LoopMark[]
+}
+
+/** B3: a (module, place) pair the flow reaches twice — the loop is drawn once at `module`, marked ↺. */
+export interface LoopMark {
+  /** `<module>@<placeKey>` — the chain's `loop.at` */
+  at: string
+  module: ModuleKey
+  /** the place through which the loop comes back (absent: a start without a place, e.g. run_script) */
+  place?: Place
 }
 
 /** One place a module may write, and how (B2, model.ts `flow`). */
@@ -439,6 +499,8 @@ export interface FlowWrite {
   can?: boolean
   byHand?: boolean
   asksFirst?: boolean
+  /** B3: a proposal the person applies (a stage-mode agent's scope writes — its report page is written directly) */
+  proposal?: boolean
   /** the write carries content from outside (mail sync, a hook, a GitHub pick-up, Clippings) */
   outside?: boolean
 }
@@ -525,7 +587,8 @@ export interface DatabaseInput {
   id: ID
   system: Database['system'] | null
   locked: boolean
-  properties: Array<Pick<PropertyDef, 'id' | 'name' | 'type' | 'agentReadOnly' | 'custom' | 'autofill'>>
+  /** B3: `relationDatabaseId` too (autofill and organise read the titles of related rows, §6 A11) */
+  properties: Array<Pick<PropertyDef, 'id' | 'name' | 'type' | 'agentReadOnly' | 'custom' | 'autofill' | 'relationDatabaseId'>>
   /** readAutomations (config fields; the model ignores lastRunAt / lastStatus / lastMessage) */
   automations: Automation[]
   /** own commands (readDbCommands, kind ≠ 'default') */
@@ -555,6 +618,8 @@ export interface PageFacts {
   root?: { id: ID; title: string } | null
   inTemplate: boolean
   private: boolean
+  /** B3: the pages above it, nearest first (a scope page reaches what lies below it; Clippings are the Inbox's subtree) */
+  under?: ID[]
 }
 
 /** A kit value property (valuePropsOf) and whether this device trusts its code (team: a version saved / confirmed here). */

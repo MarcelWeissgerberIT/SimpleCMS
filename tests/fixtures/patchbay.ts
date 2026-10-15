@@ -352,8 +352,9 @@ export function wideScope(n = 40, opts: { named?: number } = {}): PbWorld {
 /**
  * The relays (§1.3, §6 A12): (1) a server agent writes Tessera; the kit value property „Punkte“ recomputes on any row
  * change (remote ones too) and its write starts the automation „Punkte → Hook“ (webhook relay.example); (2) agent A
- * (apply) writes „Phase“ in Launch plan → the automation „Phase → Freigabe“ sets „Freigabe“ → agent B's row trigger →
- * B writes „Versand“ → the automation „Versand → Hook“ sends the row (webhook launch.example).
+ * (apply, Launch plan only) writes „Phase“ → the automation „Phase → Freigabe“ sets „Freigabe“ → agent B's row trigger
+ * → B (apply, Versandliste only) writes „Versand“ → the automation „Versand → Hook“ sends the row (webhook
+ * launch.example) — A reaches the hook only through the relay.
  */
 export function relays(): PbWorld {
   const kit: Kit = {
@@ -364,21 +365,21 @@ export function relays(): PbWorld {
   const tessera = database('dbTessera', [prop('pTesseraStatus', 'Status', 'text'), prop('pTesseraPunkte', 'Punkte', 'number', { custom: 'ptPunkte' })], {
     automations: [automation('autPunkte', 'Punkte → Hook', { type: 'property_changed', propertyId: 'pTesseraPunkte' }, [{ type: 'webhook', url: 'https://relay.example/in', method: 'POST' }])],
   })
-  const launch = database('dbLaunch', [prop('pLaunchPhase', 'Phase', 'text'), prop('pLaunchFreigabe', 'Freigabe', 'checkbox'), prop('pLaunchVersand', 'Versand', 'checkbox')], {
-    automations: [
-      automation('autFreigabe', 'Phase → Freigabe', { type: 'property_changed', propertyId: 'pLaunchPhase' }, [{ type: 'set_property', propertyId: 'pLaunchFreigabe', value: true }]),
-      automation('autVersand', 'Versand → Hook', { type: 'property_changed', propertyId: 'pLaunchVersand' }, [{ type: 'webhook', url: 'https://launch.example/send', method: 'POST' }]),
-    ],
+  const launch = database('dbLaunch', [prop('pLaunchPhase', 'Phase', 'text'), prop('pLaunchFreigabe', 'Freigabe', 'checkbox')], {
+    automations: [automation('autFreigabe', 'Phase → Freigabe', { type: 'property_changed', propertyId: 'pLaunchPhase' }, [{ type: 'set_property', propertyId: 'pLaunchFreigabe', value: true }])],
+  })
+  const versand = database('dbVersand', [prop('pVersandFlag', 'Versand', 'checkbox')], {
+    automations: [automation('autVersand', 'Versand → Hook', { type: 'property_changed', propertyId: 'pVersandFlag' }, [{ type: 'webhook', url: 'https://launch.example/send', method: 'POST' }])],
   })
   return world({
-    ids: { tessera: 'dbTessera', launch: 'dbLaunch', serverAgent: 'agTesseraServer', agentA: 'agLaunchA', agentB: 'agLaunchB', kitType: 'ptPunkte', punkte: 'pTesseraPunkte' },
-    pages: [dbPage('dbTessera', 'Tessera'), dbPage('dbLaunch', 'Launch plan')],
-    databases: [tessera, launch],
+    ids: { tessera: 'dbTessera', launch: 'dbLaunch', versand: 'dbVersand', serverAgent: 'agTesseraServer', agentA: 'agLaunchA', agentB: 'agLaunchB', kitType: 'ptPunkte', punkte: 'pTesseraPunkte' },
+    pages: [dbPage('dbTessera', 'Tessera'), dbPage('dbLaunch', 'Launch plan'), dbPage('dbVersand', 'Versandliste')],
+    databases: [tessera, launch, versand],
     kit,
     agents: [
       agent('agTesseraServer', 'Tessera-Pflege', { runner: 'server', write: 'apply', scope: { everything: false, pages: [], databases: ['dbTessera'] }, trigger: { type: 'schedule', every: 'hour', at: '00:15', tz: 'Europe/Berlin' } }),
       agent('agLaunchA', 'Launch-Planer', { write: 'apply', scope: { everything: false, pages: [], databases: ['dbLaunch'] }, trigger: { type: 'schedule', every: 'day', at: '08:00', tz: 'Europe/Berlin' } }),
-      agent('agLaunchB', 'Launch-Versand', { write: 'apply', scope: { everything: false, pages: [], databases: ['dbLaunch'] }, trigger: { type: 'row_changed', databaseId: 'dbLaunch', propertyId: 'pLaunchFreigabe' } }),
+      agent('agLaunchB', 'Launch-Versand', { write: 'apply', scope: { everything: false, pages: [], databases: ['dbVersand'] }, trigger: { type: 'row_changed', databaseId: 'dbLaunch', propertyId: 'pLaunchFreigabe' } }),
     ],
   })
 }

@@ -506,8 +506,9 @@ test.describe('B2 · the rack of mock 1 — model.ts', () => {
     // the flow behind the drawing (chains.ts walks it): Inbox-Helfer may write everything; two start on a new mail
     expect(m.flow?.writes[helper]?.map((x) => x.place)).toContainEqual({ everything: true })
     expect(m.flow?.listens[`${ids.mails}:+row`]?.map((l) => l.module)).toEqual([helper, toContact])
-    // nothing unknown, no fuse yet (B4)
-    expect([m.unknown, m.fuses, m.chains]).toEqual([[], [], []])
+    // nothing unknown, no fuse yet (B4); the chains behind it are B3's (patchbay-chains.spec)
+    expect([m.unknown, m.fuses]).toEqual([[], []])
+    expect(m.chains.map((c) => c.exit?.module)).toEqual(['outbound:webhook:chat.example:POST', 'outbound:git:-:pr'])
   })
 
   test('deterministic: the same world gives the same rack, keys only (no titles in the model)', () => {

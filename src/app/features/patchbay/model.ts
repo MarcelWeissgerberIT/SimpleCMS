@@ -2,7 +2,8 @@
  * buildModel(input) → the rack (plan §2.4) — pure, never stored. Modules in three columns (§ 01 sources · § 02
  * processing · § 03 targets), their jacks, the cables between them, net flags, bus chips, unknown parts — and the full
  * flow behind the drawing (`Model.flow`: every place each module may write, who starts on each place) for the chain
- * analysis (B3), which never walks the drawn cables alone.
+ * analysis, which never walks the drawn cables alone: chains.ts (B3) adds `chains` and `loops`, marks the net tags and
+ * cables that carry content from outside (taint), and B4 decides the fuses from the chains' lamps.
  *
  * Sources: this device's MCP servers (READ · WRITE? · OUT jacks from tools.ts) and the runtime servers server agents
  * name ("on the server"); clocks (one per distinct agent schedule, one per repeating template — its new rows go to the
@@ -20,13 +21,17 @@
  * nobody listens to gets no flag: the cable goes to the database. An everything-writer gets a flag for every listened
  * field (not for new rows: the "Whole workspace" cable stands for them; the flow keeps them). The engines' rules decide
  * who a write can start (§1.3): an agent never starts an agent, `set_property` / a script inside `run_script` never
- * start automations, autofill never starts autofill, a server agent's write (remote everywhere) starts only kit relays.
+ * start automations, autofill never starts autofill, a server agent's write (remote everywhere) starts only kit relays,
+ * an agent's or the bridge's write never reaches a field "only by hand" (rules.ts). A stage-mode agent's writes are
+ * proposals in the flow (`FlowWrite.proposal`, a gate for the chains).
  *
  * Dashed (`can`): the AI decides at run time — an agent's writes (its `mirrorOf` database excepted: the mirror writes
  * it on every run), the bridge, a pipeline's git action, a WRITE? cable. Hatched (`outside`): content from outside.
  * Cables from one jack to one column bundle from the 7th on into a "+n" bus chip (still counted).
  */
 import { keyPart, moduleKey, scheduleKey } from './ref'
+import { honoursHandOnly, placeKey, reaches, startable, type WriterKind } from './rules'
+import { withChains } from './chains'
 import { declaringProfiles, toolGroups, toolUse, runtimeTools, type ToolGroups } from './tools'
 import type { AgentTrigger, ID, IntegrationFeature } from '../../store/types'
 import type {
@@ -60,14 +65,8 @@ import type {
 
 /* ------------------------------------------------------------------ keys */
 
-/** A place's key in the flow: `<db>:<prop | * | +row | -row>` · `page:<id>` · `inbox` · `everything` · `ext:<what>`. */
-export function placeKey(p: Place): string {
-  if ('db' in p) return `${p.db}:${p.prop ?? '*'}`
-  if ('page' in p) return `page:${p.page}`
-  if ('inbox' in p) return 'inbox'
-  if ('everything' in p) return 'everything'
-  return `ext:${p.external}`
-}
+/** A place's key in the flow (rules.ts — re-exported: B5 / B6 read it from here). */
+export { placeKey }
 
 /** The net flag's key of a listened place (`net:<db>:<prop | * | +row>`). */
 export const netKey = (db: ID, prop: string): string => `net:${keyPart(db)}:${prop === '*' || prop === '+row' || prop === '-row' ? prop : keyPart(prop)}`
@@ -90,41 +89,6 @@ const COL: Record<ModuleKind, Column> = {
   database: 3, page: 3, inbox: 3, everything: 3, outbound: 3, outbox: 3,
 }
 
-/** Who writes — the engines' rules on what a write can start (§1.3). */
-type WriterKind = 'agent' | 'serverAgent' | 'automation' | 'autoScript' | 'script' | 'autofill' | 'organise' | 'kit' | 'bridge' | 'clock' | 'button' | 'command' | 'incoming' | 'sync' | 'clippings'
-
-/** Can a write by `w` start listener `l`? */
-function startable(w: { kind: WriterKind; key: ModuleKey }, l: FlowListen): boolean {
-  if (l.module === w.key) return false
-  switch (w.kind) {
-    case 'agent':
-      return l.kind !== 'agent'
-    case 'serverAgent':
-      // remote in every tab: no automation, no autofill, no agent (the runners skip agent writers) — kit relays only
-      return l.kind === 'kit'
-    case 'automation':
-    case 'autoScript':
-      return l.kind !== 'automation'
-    case 'autofill':
-      return l.kind !== 'autofill'
-    case 'incoming':
-      // written on the server: automations and autofill never run after a remote write
-      return l.kind !== 'automation' && l.kind !== 'autofill'
-    default:
-      return true
-  }
-}
-
-/** Does a write to `wp` reach a listener of `lp` (same database)? */
-function reaches(wp: string, lp: string, l: FlowListen, autofillProps: ReadonlySet<string>): boolean {
-  if (l.kind === 'autofill' && autofillProps.has(wp)) return false // autofill's own fields never start it (rowHash)
-  if (wp === '+row') return lp === '+row' || (lp === '*' && (l.kind === 'autofill' || l.kind === 'kit'))
-  if (wp === '-row') return lp === '-row'
-  if (lp === '+row' || lp === '-row') return false
-  if (wp === '*') return true
-  return lp === wp || lp === '*'
-}
-
 /* ------------------------------------------------------------------ the builder */
 
 interface Ctx {
@@ -141,6 +105,8 @@ interface Ctx {
   mailDbs: Set<ID>
   /** autofill properties per database */
   autofillProps: Map<ID, Set<string>>
+  /** fields "only by hand" per database (agents and the bridge never write them, §1.18) */
+  handOnly: Map<ID, Set<string>>
   /** the listened places of each database: prop | '*' | '+row' | '-row' */
   listened: Map<ID, Set<string>>
   unlocked: Set<IntegrationFeature>
@@ -241,6 +207,7 @@ function addFlowWrite(c: Ctx, m: Module, w: FlowWrite): void {
     if (w.outside) had.outside = true
     if (!w.byHand) delete had.byHand
     if (!w.asksFirst) delete had.asksFirst
+    if (!w.proposal) delete had.proposal
   } else list.push({ ...w })
   c.writes.set(m.key, list)
 }
@@ -260,13 +227,22 @@ interface WriteHow {
   byHand?: boolean
   asksFirst?: boolean
   outside?: boolean
+  /** a proposal the person applies (a stage-mode agent's scope writes) — the flow keeps it, a cable does not show it */
+  proposal?: boolean
 }
 
 /** Only what holds (no `false` fields in the flow or on a cable). */
 const howOf = (h: WriteHow): WriteHow => {
   const out: WriteHow = {}
-  for (const k of ['can', 'byHand', 'asksFirst', 'outside'] as const) if (h[k]) out[k] = true
+  for (const k of ['can', 'byHand', 'asksFirst', 'outside', 'proposal'] as const) if (h[k]) out[k] = true
   return out
+}
+
+/** A cable's part of a write's how (a proposal is the flow's only). */
+const cableOf = (h: WriteHow): EdgeAttrs => {
+  const { proposal: _p, ...rest } = h
+  void _p
+  return rest
 }
 
 /**
@@ -279,20 +255,22 @@ function writeDb(c: Ctx, w: { m: Module; kind: WriterKind }, role: JackRole, db:
   const listened = c.listened.get(db)
   let flagged = false
   if (listened) {
+    const hand = honoursHandOnly(w.kind) ? c.handOnly.get(db) : undefined
     for (const lp of listened) {
       if (opts.fieldsOnly && (lp === '+row' || lp === '-row')) continue
+      if (hand?.has(lp)) continue
       const ls = c.listens.get(`${db}:${lp}`) ?? []
       if (!ls.some((l) => startable({ kind: w.kind, key: w.m.key }, l) && reaches(prop, lp, l, c.autofillProps.get(db) ?? new Set()))) continue
       const nk = netKey(db, lp)
       let net = c.nets.get(nk)
       if (!net) c.nets.set(nk, (net = { key: nk, place: { db, prop: lp as '*' }, writers: [], listeners: [] }))
-      const e = edge(c, 'writes', jack(c, w.m, 'out', role), nk, { ...how, place: { db, prop: lp as '*' } })
+      const e = edge(c, 'writes', jack(c, w.m, 'out', role), nk, { ...cableOf(how), place: { db, prop: lp as '*' } })
       if (!net.writers.includes(e.id)) net.writers.push(e.id)
       flagged = true
     }
   }
   if (opts.fieldsOnly) return
-  if (!flagged || opts.alwaysDb) edge(c, 'writes', jack(c, w.m, 'out', role), jack(c, dbModule(c, db), 'in', 'writes'), { ...how, place: { db } })
+  if (!flagged || opts.alwaysDb) edge(c, 'writes', jack(c, w.m, 'out', role), jack(c, dbModule(c, db), 'in', 'writes'), { ...cableOf(how), place: { db } })
 }
 
 /** A write into a place of any kind (a page id that is a database writes the database). */
@@ -306,17 +284,17 @@ function writePlace(c: Ctx, w: { m: Module; kind: WriterKind }, role: JackRole, 
     if (isLiveDb(c, place.page)) return writeDb(c, w, role, place.page, '*', how)
     if (!isLivePage(c, place.page)) return
     addFlowWrite(c, w.m, { place, ...how })
-    edge(c, 'writes', jack(c, w.m, 'out', role), jack(c, pageModule(c, place.page), 'in', 'writes'), { ...how, place })
+    edge(c, 'writes', jack(c, w.m, 'out', role), jack(c, pageModule(c, place.page), 'in', 'writes'), { ...cableOf(how), place })
     return
   }
   if ('everything' in place) {
     addFlowWrite(c, w.m, { place, ...how })
-    edge(c, 'writes', jack(c, w.m, 'out', role), jack(c, everything(c), 'in', 'writes'), { ...how, place })
+    edge(c, 'writes', jack(c, w.m, 'out', role), jack(c, everything(c), 'in', 'writes'), { ...cableOf(how), place })
     return
   }
   if ('inbox' in place) {
     addFlowWrite(c, w.m, { place, ...how })
-    edge(c, 'writes', jack(c, w.m, 'out', role), jack(c, inboxModule(c), 'in', 'writes'), { ...how, place })
+    edge(c, 'writes', jack(c, w.m, 'out', role), jack(c, inboxModule(c), 'in', 'writes'), { ...cableOf(how), place })
   }
 }
 
@@ -539,21 +517,23 @@ function agents(c: Ctx): void {
         }
     }
 
-    // writes: the AI decides where (dashed) — a mirror writes its own database on every run
+    // writes: the AI decides where (dashed) — a mirror writes its own database on every run; a stage-mode agent's
+    // writes are proposals the person applies (the flow says so: a gate for the chains, §2.5)
     if (ai.write !== 'none') {
+      const proposal = ai.write === 'stage'
       if (a.scope.everything) {
         const e = jack(c, m, 'out', 'everything')
         e.count = input.databases.length
-        writePlace(c, w, 'everything', { everything: true }, { can: true })
-        writeAllFields(c, w, { can: true })
+        writePlace(c, w, 'everything', { everything: true }, { can: true, proposal })
+        writeAllFields(c, w, { can: true, proposal })
       } else {
         const sc = namedScope(c, a)
         for (const db of sc.dbs) {
-          writeDb(c, w, 'writes', db, '*', { can: db !== a.mirrorOf }, { alwaysDb: true })
-          writeDb(c, w, 'writes', db, '+row', { can: db !== a.mirrorOf }, {})
+          writeDb(c, w, 'writes', db, '*', { can: db !== a.mirrorOf, proposal }, { alwaysDb: true })
+          writeDb(c, w, 'writes', db, '+row', { can: db !== a.mirrorOf, proposal }, {})
           if (a.mirrorOf === db) for (const p of input.profiles) if (p.active && m.profile === p.profile.id) markProfile(dbModule(c, db), p.profile.id)
         }
-        for (const page of sc.pages) writePlace(c, w, 'writes', { page }, { can: true })
+        for (const page of sc.pages) writePlace(c, w, 'writes', { page }, { can: true, proposal })
       }
     }
     // the report page (every write mode: the run's answer goes there)
@@ -975,7 +955,7 @@ function finish(c: Ctx): Model {
   }
 }
 
-/** The rack of a model input (pure, deterministic). */
+/** The rack of a model input with its chains (pure, deterministic). */
 export function buildModel(input: ModelInput): Model {
   const c: Ctx = {
     input,
@@ -989,6 +969,7 @@ export function buildModel(input: ModelInput): Model {
     dbs: new Map(input.databases.map((d) => [d.id, d])),
     mailDbs: new Set(input.databases.filter((d) => d.system === 'mails' || (d.system ?? '').startsWith('mail-') || d.id === input.mail?.databaseId).map((d) => d.id)),
     autofillProps: new Map(),
+    handOnly: new Map(input.databases.map((d) => [d.id, new Set(d.properties.filter((p) => p.agentReadOnly).map((p) => p.id))])),
     listened: new Map(),
     unlocked: new Set(input.profiles.filter((p) => p.active).flatMap((p) => p.profile.unlocks)),
     scans: new Map(),
@@ -1036,5 +1017,6 @@ export function buildModel(input: ModelInput): Model {
 
   listenerSide(c)
   agentClocks(c)
-  return finish(c)
+  // the chains behind the rack: full reachability, taint, gates, loops (chains.ts, B3)
+  return withChains(finish(c), input)
 }

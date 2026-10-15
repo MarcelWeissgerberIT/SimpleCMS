@@ -158,11 +158,12 @@ export function stable(v: unknown): string {
 /** An automation's config fields (no `lastRunAt` / `lastStatus` / `lastMessage`). */
 export const automationConfig = (a: Automation): Automation => ({ id: a.id, name: a.name, enabled: a.enabled, trigger: a.trigger, actions: a.actions })
 
-/** A property as the model reads it (autofill without `fills`). */
+/** A property as the model reads it (autofill without `fills`; a relation's target — its rows' titles are read). */
 export function propertyConfig(p: PropertyDef): DatabaseInput['properties'][number] {
   const out: DatabaseInput['properties'][number] = { id: p.id, name: p.name, type: p.type }
   if (p.agentReadOnly) out.agentReadOnly = true
   if (p.custom) out.custom = p.custom
+  if (p.type === 'relation' && p.relationDatabaseId) out.relationDatabaseId = p.relationDatabaseId
   if (p.autofill) {
     const { fills: _fills, ...rest } = p.autofill
     void _fills
@@ -371,11 +372,11 @@ export function toModelInput(src: InputSource, read: InputReaders): BuiltInput {
     pipelines.push({ db: db.id, kind: db.system as PipelineInput['kind'], stages, warnings: read.gitWarnings(stages) })
   }
 
+  // the facts with the pages above each (B3: a scope page reaches what lies below it, Clippings are a subtree)
   const pages: Record<ID, PageFacts> = {}
   for (const [id, f] of [...facts.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1))) {
-    const { chain: _chain, ...rest } = f
-    void _chain
-    pages[id] = rest
+    const { chain, ...rest } = f
+    pages[id] = { ...rest, under: chain }
   }
 
   const input: ModelInput = {
