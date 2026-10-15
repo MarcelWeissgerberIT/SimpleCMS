@@ -1,19 +1,62 @@
 /**
- * A jack (plan §3.3): the socket the cables plug into — `data-j` is the cable layer's anchor (Wires.tsx measures it) —
- * with its mono label where the mock has one (a server's READ 3 / WRITE? 4 / OUT 2 · BY HAND, a source's START / PRESS,
- * EVERYTHING · 9 DB). Its title names the module, the jack and what it is connected to. B7's jack picker (J) and B16's
- * patching make the socket focusable and a drop target.
+ * A jack (plan §3.3, §3.9): the socket the cables plug into — `data-j` is the cable layer's anchor (Wires.tsx measures
+ * it) — with its mono label where the mock has one (a server's READ 3 / WRITE? 4 / OUT 2 · BY HAND, a source's START /
+ * PRESS, EVERYTHING · 9 DB). Its title (and its name when it has the keyboard) names the module, the jack and what it is
+ * connected to.
+ *
+ * The keyboard reaches a jack through the jack picker (J, JackPicker.tsx) — it is never a tab stop of its own
+ * (`tabIndex -1`, `data-jack`). On a jack: its cables light in ink; ↵ opens its module, Space selects the module, Esc
+ * gives the keyboard back to the module, the arrows go on from the module (Rack.tsx). B16's patching makes the socket a
+ * drop target and "Connect to …".
  */
+import type { KeyboardEvent } from 'react'
 import type { Jack as JackT } from '../types'
+import { setJack } from './store'
 
-export function Jack({ jack, label, title, guessedTitle, lit }: { jack: JackT; label: string; title: string; guessedTitle?: string; lit?: boolean }) {
+export interface JackKeys {
+  /** ↵ */
+  open: () => void
+  /** Space */
+  select: () => void
+  /** Esc: back to the module */
+  back: () => void
+}
+
+export function Jack({ jack, label, title, roleLabel, guessedTitle, lit, keys }: { jack: JackT; label: string; title: string; roleLabel: string; guessedTitle?: string; lit?: boolean; keys: JackKeys }) {
   const text = label ? (
     <span className="pb-jk__l" title={jack.guessed ? guessedTitle : undefined}>
       {label}
     </span>
   ) : null
+  const onKeyDown = (e: KeyboardEvent<HTMLSpanElement>) => {
+    if (e.target !== e.currentTarget || e.altKey || e.ctrlKey || e.metaKey) return
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      keys.open()
+    } else if (e.key === ' ') {
+      e.preventDefault()
+      keys.select()
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      e.stopPropagation()
+      keys.back()
+    }
+  }
   return (
-    <span className="pb-jk" data-side={jack.side} data-role={jack.role} title={title}>
+    <span
+      className="pb-jk"
+      data-side={jack.side}
+      data-role={jack.role}
+      data-jack={jack.key}
+      title={title}
+      role="group"
+      aria-roledescription={roleLabel}
+      aria-label={title}
+      tabIndex={-1}
+      onKeyDown={onKeyDown}
+      onFocus={(e) => e.target === e.currentTarget && setJack(jack.key)}
+      onBlur={(e) => e.target === e.currentTarget && setJack(null)}
+    >
       {jack.side === 'out' && text}
       <span className="pb-jack" data-j={jack.key} data-plugged={jack.plugged || undefined} data-lit={lit || undefined} aria-hidden="true" />
       {jack.side === 'in' && text}

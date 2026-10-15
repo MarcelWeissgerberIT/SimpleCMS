@@ -6,7 +6,8 @@
  * Semantics: a focusable `role="group"` ("module"), labelled kind + name, described by its strand sentence (plain.ts
  * describe), `aria-keyshortcuts="Enter Space J"`; never a button. Pointer grammar (§6 U5): hover lights its cables in
  * ink; a click selects it (its chains light, the rest dims) and shows "Open ↵"; a double-click or that key opens its
- * editor. The keyboard (↵ opens, Space selects without scrolling) is here too; B7 adds the arrow-key roving.
+ * editor. The keyboard: ↵ opens, Space selects without scrolling (its Klartext sentence lights in place), the arrows rove
+ * (Rack.tsx — the module is one stop, `data-stop`, of a single tab stop); its jacks take the keyboard only through J.
  *
  * Variants: `data-path` (on an open fuse's path: the dashed signal frame — the only orange frame), blocked (hatched),
  * unknown here (a grey "?"), 2U (`data-u="2"`), dimmed while another module is selected.
@@ -17,39 +18,27 @@ import { useWorkspace } from '../../../store/store'
 import { fmtUsd as fmt } from '../../../lib/money'
 import { typing } from '../../../ui/keys'
 import type { Module as ModuleT } from '../types'
+import { buttonLabelIn } from './buttonLabel'
 import { useFitTier } from './fit'
 import { Jack } from './Jack'
-import { edgesAt, moduleOfJack } from './lit'
+import { edgesAt } from './lit'
 import { canOpen, openModule } from './open'
 import { useRack } from './RackContext'
-import { selectModule, setHover, usePbUI } from './store'
+import { announce, selectModule, setCursor, setHover, usePbUI } from './store'
 
 const P = 'features.patchbay'
 
 /** A button block's label, read from its page (the model keeps ids only). */
 function useButtonLabel(m: ModuleT): string | null {
   const ref = m.ref.kind === 'button' ? m.ref : null
-  return useWorkspace((s) => {
-    if (!ref) return null
-    const find = (n: unknown): string | null => {
-      if (!n || typeof n !== 'object') return null
-      const node = n as { type?: string; attrs?: { id?: string; label?: string }; content?: unknown[] }
-      if (node.type === 'button' && node.attrs?.id === ref.block) return typeof node.attrs.label === 'string' ? node.attrs.label : null
-      for (const c of node.content ?? []) {
-        const hit = find(c)
-        if (hit !== null) return hit
-      }
-      return null
-    }
-    return find(s.pages[ref.page]?.content) ?? null
-  })
+  return useWorkspace((s) => (ref ? buttonLabelIn(s.pages[ref.page]?.content, ref.block) : null))
 }
 
 function Knob({ v, ticks, label, value, onOpen, title }: { v: number; ticks: number; label: string; value: string; onOpen: () => void; title: string }) {
   const ang = (x: number) => ((-135 + 270 * x) * Math.PI) / 180
   const a = ang(v)
   return (
-    <button type="button" className="pb-knob" onClick={onOpen} title={title}>
+    <button type="button" className="pb-knob" onClick={onOpen} title={title} tabIndex={-1}>
       <svg viewBox="-12 -12 24 24" aria-hidden="true">
         {Array.from({ length: ticks }, (_, i) => {
           const tv = ticks === 1 ? 0.5 : i / (ticks - 1)
@@ -87,18 +76,6 @@ function ModuleView({ m, row, span, descId }: { m: ModuleT; row: number; span: 1
   const n = runs[m.key] ?? 0
   const cost = costs[m.key]
 
-  const toNames = (jack: string): string[] =>
-    edgesAt(model, jack).map((e) => {
-      const other = e.from === jack ? e.to : e.from
-      if (other.startsWith('net:')) {
-        const net = model.nets.find((x) => x.key === other)
-        return net ? w.flag(net) : other
-      }
-      const k = moduleOfJack(model, other)
-      const om = k ? model.modules.find((x) => x.key === k) : null
-      return om ? w.name(om) : other
-    })
-
   const open = () => {
     if (canOpen(m)) openModule(m, ref.current)
   }
@@ -113,11 +90,22 @@ function ModuleView({ m, row, span, descId }: { m: ModuleT; row: number; span: 1
       e.preventDefault()
       open()
     } else if (e.key === ' ') {
-      // Space selects in place — never a scroll
+      // Space selects in place — never a scroll (its Klartext strand lights where it is, Plain.tsx)
       e.preventDefault()
-      selectModule(selected ? null : m.key)
+      toggle()
     }
   }
+  const toggle = () => {
+    const on = usePbUI.getState().selected !== m.key
+    selectModule(on ? m.key : null)
+    if (on) announce(t(`${P}.selected`, { name }))
+  }
+  const jackKeys = {
+    open,
+    select: toggle,
+    back: () => ref.current?.focus(),
+  }
+  const roleLabel = t(`${P}.a11y.jack`)
   const onEnter = (e: PointerEvent) => {
     if (e.pointerType === 'mouse') setHover(m.key)
   }
@@ -147,6 +135,7 @@ function ModuleView({ m, row, span, descId }: { m: ModuleT; row: number; span: 1
       aria-describedby={descId}
       aria-keyshortcuts="Enter Space J"
       tabIndex={entry === m.key ? 0 : -1}
+      data-stop={m.key}
       data-key={m.key}
       data-kind={m.kind}
       data-u={m.u}
@@ -161,6 +150,7 @@ function ModuleView({ m, row, span, descId }: { m: ModuleT; row: number; span: 1
       onClick={onClick}
       onDoubleClick={open}
       onKeyDown={onKeyDown}
+      onFocus={(e) => e.target === e.currentTarget && setCursor(m.key)}
       onPointerEnter={onEnter}
       onPointerLeave={onLeave}
     >
@@ -170,7 +160,7 @@ function ModuleView({ m, row, span, descId }: { m: ModuleT; row: number; span: 1
       <i className="pb-sc pb-sc--br" aria-hidden="true" />
       <div className="pb-mod__in">
         {m.inJacks.map((j) => (
-          <Jack key={j.key} jack={j} label={w.jack(j, m)} title={w.jackTitle(j, m, toNames(j.key))} lit={!!lit && edgesAt(model, j.key).some((e) => lit.edges.has(e.id))} />
+          <Jack key={j.key} jack={j} label={w.jack(j, m)} title={w.jackTitle(j, m, w.peers(j.key))} roleLabel={roleLabel} keys={jackKeys} lit={!!lit && edgesAt(model, j.key).some((e) => lit.edges.has(e.id))} />
         ))}
       </div>
       <div className="pb-mod__body">
@@ -220,7 +210,7 @@ function ModuleView({ m, row, span, descId }: { m: ModuleT; row: number; span: 1
       )}
       <div className="pb-mod__out">
         {m.outJacks.map((j) => (
-          <Jack key={j.key} jack={j} label={w.jack(j, m)} title={w.jackTitle(j, m, toNames(j.key))} guessedTitle={t(`${P}.jack.guessed`)} lit={!!lit && edgesAt(model, j.key).some((e) => lit.edges.has(e.id))} />
+          <Jack key={j.key} jack={j} label={w.jack(j, m)} title={w.jackTitle(j, m, w.peers(j.key))} roleLabel={roleLabel} keys={jackKeys} guessedTitle={t(`${P}.jack.guessed`)} lit={!!lit && edgesAt(model, j.key).some((e) => lit.edges.has(e.id))} />
         ))}
       </div>
       {model1 && budget && (
@@ -230,7 +220,7 @@ function ModuleView({ m, row, span, descId }: { m: ModuleT; row: number; span: 1
         </div>
       )}
       {selected && canOpen(m) && (
-        <button type="button" className="pb-mod__open" onClick={open} title={t(`${P}.openTitle`)} data-testid="pb-open">
+        <button type="button" className="pb-mod__open" onClick={open} title={t(`${P}.openTitle`)} tabIndex={-1} data-testid="pb-open">
           {t(`${P}.open`)}
           <CornerDownLeft size={11} strokeWidth={1.8} aria-hidden="true" />
         </button>

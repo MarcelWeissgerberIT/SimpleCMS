@@ -12,12 +12,20 @@
  *    when nothing is open but parts are unknown here;
  *  - the pointer grammar: hover lights a module's cables in ink (nothing dims), a click selects (the rest dims, "Open ↵"
  *    appears), a double-click / "Open ↵" / ↵ opens its editor; a dialog gives the keyboard back to the module.
+ * B7, the cables and the keys (plan §3.4, §3.9):
+ *  - the SVG holds the readout's cables, dashed / hatched on the model's edges, F1's glyph halfway along „An Team-Chat“ →
+ *    Webhook; the leader only for the selected fuse while glyph and plate are both in view, else "↓ F1"; F and a glyph
+ *    click move it; net flags jump to their twin; a "+n" chip lists its cables;
+ *  - J finds a jack (Esc back), the arrows rove over one tab stop, ↵ opens agent / automations / script, Space lights the
+ *    Klartext sentence without scrolling, the accessibility tree (lists, groups, descriptions, hint);
+ *  - "Picture · zoom" → Schematic + Download SVG without var( / color-mix( / oklch(; forced colours; relayout ≤ 16 ms.
  * Every name is fictional (tests/fixtures/patchbay.ts).
  */
+import { readFileSync } from 'node:fs'
 import type { Page } from '@playwright/test'
 import { test, expect, openApp, wsEval, MOD } from './fixtures'
-import { database, dbPage, mock1, seedPatchbay, server, world, type PbWorld } from '../fixtures/patchbay'
-import type { CustomAgent } from '../../src/app/store/types'
+import { bigPatchbay, database, dbPage, exits, mock1, seedPatchbay, server, wideScope, world, type PbWorld } from '../fixtures/patchbay'
+import type { CustomAgent, Database } from '../../src/app/store/types'
 
 const module = (page: Page, key: string) => page.locator(`[data-testid="pb-module"][data-key="${key}"]`)
 
@@ -294,5 +302,366 @@ test.describe('B6 · the pointer grammar', () => {
     await expect(page.getByTestId('patchbay-page')).toBeVisible()
     await module(page, 'agent:agTessera').locator('.pb-mod__n').dblclick()
     await expect(page).toHaveURL(/#\/agents\/agTessera$/)
+  })
+})
+
+/* ------------------------------------------------------------------ B7 */
+
+/** The element that scrolls the page (the main region). */
+const scroller = (page: Page) =>
+  page.evaluateHandle(() => {
+    let el: HTMLElement | null = document.querySelector('[data-testid="patchbay-page"]')
+    while (el && !(el.scrollHeight > el.clientHeight + 1 && /auto|scroll/.test(getComputedStyle(el).overflowY))) el = el.parentElement
+    return el ?? document.scrollingElement
+  })
+const scrollTop = async (page: Page) => (await scroller(page)).evaluate((el) => (el as HTMLElement).scrollTop)
+const glyph = (page: Page, label = 'F1') => page.locator(`[data-testid="pb-glyph"][data-label="${label}"]`)
+const glyphAt = (page: Page, label = 'F1') =>
+  glyph(page, label).evaluate((g) => {
+    const m = /translate\(([-\d.]+),([-\d.]+)\)/.exec(g.getAttribute('transform') ?? '')
+    return { x: Number(m?.[1]), y: Number(m?.[2]) }
+  })
+const focusedAttr = (page: Page, attr: string) => page.evaluate((a) => document.activeElement?.getAttribute(a) ?? null, attr)
+
+/** A stand-in for B8's fuse plate right under the bench (its tab on top), tall enough to scroll. */
+const standInPlate = (page: Page) =>
+  page.evaluate(() => {
+    const p = document.createElement('div')
+    p.id = 'pb-fuse-plate'
+    p.style.cssText = 'height: 1600px; margin-top: 12px'
+    p.innerHTML = '<span data-pb-plate-tab style="display:block;height:20px"></span>'
+    document.querySelector('[data-testid="pb-bench"]')!.after(p)
+  })
+
+test.describe('B7 · cables, net flags, the fuse glyph', () => {
+  test('the SVG holds the readout\'s cables; dashed and hatched on the right edges; F1\'s glyph halfway along „An Team-Chat“ → Webhook', async ({ page }) => {
+    await openRack(page)
+    await expect(page.getByTestId('pb-ro-cables')).toHaveText('15 · 3 chosen by the AI')
+    const cables = 15
+    await expect(page.locator('[data-wire]')).toHaveCount(cables)
+    const model = (await page.evaluate(() => (window as unknown as { __onePatchbay: { model: () => unknown } }).__onePatchbay.model())) as {
+      edges: Array<{ id: string; can?: boolean; outside?: boolean }>
+      fuses: Array<{ key: string; label: string; at: string }>
+    }
+    const ids = (sel: string) => page.locator(sel).evaluateAll((els) => els.map((e) => e.getAttribute('data-wire')!).sort())
+    // dashed = the AI decides (Inbox-Helfer's two cables, the pipeline's git push); hatched = content from outside (the row trigger's)
+    const can = model.edges.filter((e) => e.can).map((e) => e.id).sort()
+    expect(await ids('[data-wire]:has(.pb-w--can)')).toEqual(can)
+    expect(can.filter((id) => id.startsWith('agent:agInbox.'))).toHaveLength(2)
+    expect(can.filter((id) => id.startsWith('pipeline:'))).toHaveLength(1)
+    const outside = model.edges.filter((e) => e.outside).map((e) => e.id).sort()
+    expect(await ids('[data-wire][data-outside]')).toEqual(outside)
+    expect(outside.every((id) => id.startsWith('rowTrigger:dbMails:created:-.'))).toBe(true)
+    expect(await page.locator('[data-wire][data-outside] .pb-w-ticks').count()).toBe(outside.length)
+
+    // the glyph: one, "F1", on the exit edge of F1, at half the cable's length
+    const f1 = model.fuses[0]
+    expect(f1.at).toBe('automation:dbMails:autToChat.out>outbound:webhook:chat.example:POST.out')
+    await expect(page.getByTestId('pb-glyph')).toHaveCount(1)
+    await expect(glyph(page)).toHaveAttribute('data-fuse', f1.key)
+    const mid = await page.locator(`[data-wire="${f1.at}"] .pb-w`).evaluate((p) => {
+      const path = p as SVGPathElement
+      const pt = path.getPointAtLength(path.getTotalLength() / 2)
+      return { x: pt.x, y: pt.y }
+    })
+    const at = await glyphAt(page)
+    expect(Math.abs(at.x - mid.x)).toBeLessThan(2)
+    expect(Math.abs(at.y - mid.y)).toBeLessThan(2)
+    await expect(glyph(page).locator('.pb-fuse-lbl-t')).toHaveText('F1')
+    // no plate on the page yet: the active fuse carries the "↓ F1" stub, no leader
+    await expect(glyph(page)).toHaveAttribute('data-active', 'true')
+    await expect(glyph(page).locator('.pb-fuse-stubl-t')).toHaveText('↓ F1')
+    await expect(page.getByTestId('pb-leader')).toHaveCount(0)
+
+    // a click on the glyph selects F1 (the plate is brought into view — B8)
+    await standInPlate(page)
+    await glyph(page).click()
+    await expect(page.getByTestId('pb-ro-fuse-val')).toHaveText('1')
+  })
+
+  test('the leader: only for the selected fuse, only while glyph and plate are both in view — else "↓ F1"', async ({ page }) => {
+    await openRack(page)
+    await expect(glyph(page)).toBeVisible()
+    await standInPlate(page)
+    // both in view: the dashed leader runs from under the glyph to the plate's tab, the stub goes
+    const leader = page.getByTestId('pb-leader')
+    await expect(leader).toHaveCount(1)
+    await expect(glyph(page).locator('.pb-fuse-stub')).toHaveCount(0)
+    const at = await glyphAt(page)
+    const d = (await leader.getAttribute('d')) ?? ''
+    const m = /^M([-\d.]+),([-\d.]+) V([-\d.]+)$/.exec(d)
+    expect(m).not.toBeNull()
+    expect(Math.abs(Number(m![1]) - at.x)).toBeLessThan(1)
+    const geo = await page.evaluate(() => {
+      const b = document.querySelector('[data-testid="pb-bench"]')!.getBoundingClientRect()
+      const t = document.querySelector('[data-pb-plate-tab]')!.getBoundingClientRect()
+      return { tab: t.top - b.top }
+    })
+    expect(Math.abs(Number(m![3]) - geo.tab)).toBeLessThan(1.5)
+    // the glyph scrolled out of view (the plate still in it): no leader, the stub again — scrolled by the wheel (the
+    // shell holds a programmatic scroll of the main region until the person scrolls)
+    const el = await scroller(page)
+    const ring = await glyph(page).locator('.pb-fuse-ring').evaluate((g) => g.getBoundingClientRect().bottom)
+    const start = await el.evaluate((s) => (s as HTMLElement).getBoundingClientRect().top)
+    await page.mouse.move(700, 600)
+    await page.mouse.wheel(0, ring - start + 24)
+    await expect.poll(() => scrollTop(page)).toBeGreaterThan(ring - start)
+    await expect(leader).toHaveCount(0)
+    await expect(glyph(page).locator('.pb-fuse-stubl-t')).toHaveText('↓ F1')
+    await page.mouse.wheel(0, -(ring - start + 24))
+    await expect.poll(() => scrollTop(page)).toBe(0)
+    await expect(leader).toHaveCount(1)
+  })
+
+  test('several fuses: the leader / stub only on the selected one; a glyph click and F move it; F cycles in F-order', async ({ page }) => {
+    await openRack(page, exits())
+    const glyphs = page.getByTestId('pb-glyph')
+    await expect.poll(() => glyphs.count()).toBeGreaterThan(2)
+    // nothing selected: F1 is the active fuse (the plate's first tab, B8) — only its glyph carries the stub
+    await expect(page.locator('[data-testid="pb-glyph"][data-active]')).toHaveCount(1)
+    await expect(page.locator('[data-testid="pb-glyph"] .pb-fuse-stub')).toHaveCount(1)
+    const first = page.locator('[data-testid="pb-glyph"][data-active]')
+    await expect(first).toHaveAttribute('data-label', /^F1\b/)
+    // a click on another glyph selects its fuse: the stub moves there
+    const other = page.locator('[data-testid="pb-glyph"]:not([data-active])').first()
+    const otherFuse = (await other.getAttribute('data-fuse'))!
+    await other.click()
+    await expect(page.locator('[data-testid="pb-glyph"][data-active]')).toHaveAttribute('data-fuses', new RegExp(otherFuse))
+    await expect(page.locator('[data-testid="pb-glyph"] .pb-fuse-stub')).toHaveCount(1)
+    // F (focus in the rack): the next open fuse in F-order, announced
+    const model = (await page.evaluate(() => (window as unknown as { __onePatchbay: { model: () => unknown } }).__onePatchbay.model())) as { fuses: Array<{ key: string; label: string }> }
+    const order = [...model.fuses].sort((a, b) => Number(a.label.slice(1)) - Number(b.label.slice(1)))
+    await page.locator('[data-testid="pb-module"]').first().focus()
+    const now = order.findIndex((f) => f.key === otherFuse)
+    await page.keyboard.press('f')
+    const next = order[(now + 1) % order.length]
+    await expect(page.locator('[data-testid="pb-glyph"][data-active]')).toHaveAttribute('data-fuses', new RegExp(next.key))
+    await expect(page.getByTestId('pb-live')).toContainText(`Fuse ${next.label} selected`)
+  })
+
+  test('net flags: a click / ↵ lights both twins and jumps to the other end; the keyboard follows, announced', async ({ page }) => {
+    await openRack(page)
+    const src = page.locator('[data-testid="pb-flag"][data-side="in"]')
+    const dst = page.locator('[data-testid="pb-flag"][data-side="out"]')
+    await expect(src).toHaveAttribute('title', /same name = the same connection/)
+    await src.click()
+    await expect(dst).toBeFocused()
+    await expect(dst).toHaveAttribute('data-arrived', 'true')
+    await expect(src).toHaveAttribute('aria-pressed', 'true')
+    await expect(dst).toHaveAttribute('data-lit', 'true')
+    await expect(page.getByTestId('pb-live')).toHaveText('The other end: Mails · „Weiterleiten“')
+    // the twin's cables light in ink, the rest dims
+    await expect.poll(() => page.locator('.pb-w--lit').count()).toBeGreaterThanOrEqual(2)
+    await expect.poll(() => page.locator('.pb-w--dim').count()).toBeGreaterThan(0)
+    // ↵ on the twin jumps back
+    await page.keyboard.press('Enter')
+    await expect(src).toBeFocused()
+    // Esc clears the lit pair, the keyboard stays
+    await page.keyboard.press('Escape')
+    await expect(src).toHaveAttribute('aria-pressed', 'false')
+    await expect(src).toBeFocused()
+  })
+
+  test('a "+n" bus chip: ↵ / click lists the bundled cables; Esc gives the keyboard back; a folded target opens', async ({ page }) => {
+    // the fixture's views are the model's minimum — complete them, so a database page can open
+    const w = wideScope(40, { named: 9 })
+    const full = (d: Database) => ({ ...d, views: d.views.map((v) => ({ ...v, filter: null, sorts: [], visibleProperties: [] })) })
+    w.ws.databases = Object.fromEntries(Object.entries(w.ws.databases).map(([k, d]) => [k, full(d)]))
+    await openRack(page, w)
+    const bus = page.getByTestId('pb-bus')
+    await expect(bus).toHaveText('+3')
+    await expect(bus).toHaveAccessibleName(/3 more cables: Nordlicht/)
+    await bus.click()
+    const menu = page.locator('[data-popover][role="menu"]')
+    await expect(menu).toContainText('Bundled cables · 3')
+    await expect(menu.getByRole('menuitem')).toHaveCount(3)
+    await page.keyboard.press('Escape')
+    await expect(menu).toHaveCount(0)
+    await expect(bus).toBeFocused()
+    await page.keyboard.press('Enter')
+    await expect(menu).toBeVisible()
+    const name = ((await menu.getByRole('menuitem').first().textContent()) ?? '').replace('folded into the chip', '').trim()
+    await menu.getByRole('menuitem').first().click()
+    await expect(page).toHaveURL(/#\/p\//)
+    await expect(page.getByRole('heading', { level: 1 })).toContainText(name)
+  })
+})
+
+test.describe('B7 · keyboard, picker, screen readers', () => {
+  test('J finds „Inbox-Helfer“ and puts the keyboard on its jack (its cables lit); Esc there → the module; Esc in the picker → back where J was pressed', async ({ page }) => {
+    await openRack(page)
+    const picker = page.getByTestId('pb-jack-picker')
+    await module(page, 'agent:agTessera').focus()
+    await page.keyboard.press('j')
+    await expect(picker).toBeVisible()
+    await expect(picker.getByRole('listbox')).toBeVisible()
+    await expect(picker.getByRole('combobox').or(picker.locator('input'))).toBeFocused()
+    // every row: Module · jack → what it is cabled to
+    await expect(picker.getByRole('option').filter({ hasText: 'Tessera-Spiegel' }).first()).toContainText('→')
+    await page.keyboard.type('Inbox-Helfer')
+    await expect(picker.getByRole('option').first()).toContainText('Inbox-Helfer')
+    await page.keyboard.press('Enter')
+    await expect(picker).toHaveCount(0)
+    await expect.poll(() => focusedAttr(page, 'data-jack')).toMatch(/^agent:agInbox\./)
+    await expect(page.getByTestId('pb-live')).toContainText('the keyboard is on the jack')
+    expect(await focusedAttr(page, 'aria-roledescription')).toBe('jack')
+    await expect.poll(() => page.locator('.pb-w--lit').count()).toBeGreaterThan(0)
+    // Esc on the jack: back to its module
+    await page.keyboard.press('Escape')
+    await expect(module(page, 'agent:agInbox')).toBeFocused()
+    // J, then Esc: the picker closes, the keyboard is where J was pressed
+    await page.keyboard.press('j')
+    await expect(picker).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(picker).toHaveCount(0)
+    await expect(module(page, 'agent:agInbox')).toBeFocused()
+    // a jack of a folded module: its fold opens first
+    await page.keyboard.press('j')
+    await page.keyboard.type('kanal')
+    await expect(picker.getByRole('option').first()).toContainText('folded')
+    await page.keyboard.press('Enter')
+    await expect(page.getByTestId('pb-fold')).toHaveAttribute('aria-expanded', 'true')
+    await expect.poll(() => focusedAttr(page, 'data-jack')).toMatch(/^server:srvKanal\./)
+  })
+
+  test('arrow keys move between modules, flags and folds (one tab stop); Tab leaves the rack; ↵ opens the agent / the automations / the script', async ({ page }) => {
+    await openRack(page)
+    const rack = page.getByTestId('pb-rack')
+    const stops = rack.locator('[data-stop][tabindex="0"]')
+    await expect(stops).toHaveCount(1)
+    await module(page, 'agent:agTessera').focus()
+    // ↓: the next stop in § 02 (the 2U module spans two rows)
+    await page.keyboard.press('ArrowDown')
+    await expect(module(page, 'script:scWeekly')).toBeFocused()
+    await expect(stops).toHaveCount(1)
+    await expect(stops).toHaveAttribute('data-stop', 'script:scWeekly')
+    // →: § 03 at the same row; ←: back; ← again: § 01 at that row
+    await page.keyboard.press('ArrowRight')
+    const right = await focusedAttr(page, 'data-stop')
+    expect(await page.evaluate(() => document.activeElement?.closest('[data-col]')?.getAttribute('data-col'))).toBe('3')
+    await page.keyboard.press('ArrowLeft')
+    await expect(module(page, 'script:scWeekly')).toBeFocused()
+    await page.keyboard.press('ArrowLeft')
+    expect(await page.evaluate(() => document.activeElement?.closest('[data-col]')?.getAttribute('data-col'))).toBe('1')
+    expect(right).not.toBeNull()
+    // the idle fold and the flags are stops too
+    await page.keyboard.press('End')
+    expect(await focusedAttr(page, 'data-testid')).toMatch(/pb-fold|pb-flag/)
+    // Tab leaves the rack; Shift+Tab comes back to the same stop
+    const last = await focusedAttr(page, 'data-stop')
+    await page.keyboard.press('Tab')
+    expect(await page.evaluate(() => !!document.activeElement?.closest('[data-testid="pb-rack"]'))).toBe(false)
+    await page.keyboard.press('Shift+Tab')
+    expect(await focusedAttr(page, 'data-stop')).toBe(last)
+
+    // ↵ opens: the agent editor, the automations dialog (focus comes back), the script
+    await module(page, 'automation:dbMails:autToChat').focus()
+    await page.keyboard.press('Enter')
+    await expect(page.getByRole('dialog')).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await expect(module(page, 'automation:dbMails:autToChat')).toBeFocused()
+    await module(page, 'script:scWeekly').focus()
+    await page.keyboard.press('Enter')
+    await expect(page).toHaveURL(/#\/scripts\/scWeekly$/)
+    await page.goBack()
+    await expect(page.getByTestId('patchbay-page')).toBeVisible()
+    await module(page, 'agent:agInbox').focus()
+    await page.keyboard.press('Enter')
+    await expect(page).toHaveURL(/#\/agents\/agInbox$/)
+  })
+
+  test('Space selects and lights the module\'s Klartext sentence in place, without scrolling', async ({ page }) => {
+    await openRack(page)
+    const plain = page.getByTestId('pb-plain')
+    await expect(page.getByRole('heading', { level: 2, name: '§ In plain words' })).toBeVisible()
+    await expect(plain.locator('[data-strand]').first()).toBeVisible()
+    const contact = module(page, 'automation:dbMails:autToContact')
+    await contact.focus()
+    const before = await scrollTop(page)
+    await page.keyboard.press('Space')
+    await expect(contact).toHaveAttribute('data-selected', 'true')
+    await expect(plain.locator('[data-strand="automation:dbMails:autToContact"]')).toHaveAttribute('data-on', 'true')
+    await expect(plain.locator('[data-on]')).toHaveCount(1)
+    expect(await scrollTop(page)).toBe(before)
+    await expect(contact).toBeFocused()
+    await expect(page.getByTestId('pb-live')).toHaveText('Neue Mail → Kontakt selected — its connections are lit')
+    await page.keyboard.press('Space')
+    await expect(plain.locator('[data-on]')).toHaveCount(0)
+  })
+
+  test('the accessibility tree: three column lists, module groups with their descriptions, the rack\'s hint', async ({ page }) => {
+    await openRack(page)
+    const rack = page.getByRole('region', { name: 'Patchbay: 17 modules, 15 cables' })
+    await expect(rack).toHaveAccessibleDescription('Arrow keys: modules · Enter: open · Space: show connections · J: find a jack · F: next fuse')
+    for (const name of ['§ 01 Sources', '§ 02 Processing', '§ 03 Targets']) await expect(rack.getByRole('list', { name, exact: true })).toBeVisible()
+    const helper = rack.getByRole('list', { name: '§ 02 Processing' }).getByRole('group', { name: 'Agent Inbox-Helfer' })
+    await expect(helper).toHaveAttribute('aria-roledescription', 'module')
+    await expect(helper).toHaveAttribute('aria-keyshortcuts', 'Enter Space J')
+    await expect(helper).toHaveAccessibleDescription(/Inbox-Helfer.*F1/)
+    await expect(rack.getByRole('list', { name: '§ 01 Sources' }).getByRole('listitem')).toHaveCount(await page.locator('[data-col="1"] > [role="listitem"]').count())
+  })
+
+  test('"Picture · zoom": the viewer opens as a Schematic; Download SVG gives a file without var( / color-mix( / oklch(', async ({ page }) => {
+    await openRack(page)
+    const key = page.getByTestId('pb-picture')
+    await expect(key).toHaveAttribute('title', 'Static picture with minimap and SVG download')
+    await key.click()
+    await expect(page.getByTestId('diagram-viewer')).toBeVisible()
+    await expect(page.locator('.dv__content svg')).toBeVisible({ timeout: 20_000 })
+    await expect(page.getByTestId('viewer-plate')).toContainText('Schematic')
+    await expect(page.getByTestId('viewer-plate')).toContainText('Whole rack')
+    const [file] = await Promise.all([page.waitForEvent('download'), page.getByTestId('diagram-viewer').getByRole('button', { name: 'Download SVG' }).click()])
+    expect(file.suggestedFilename()).toBe('patchbay.svg')
+    const svg = readFileSync((await file.path())!, 'utf8')
+    expect(svg).toMatch(/^<\?xml[^>]*>\s*<svg/)
+    for (const bad of ['var(', 'color-mix(', 'oklch(']) expect(svg).not.toContain(bad)
+    expect(svg).toContain('Inbox-Helfer')
+    expect(svg.match(/class="pb-fuse"/g)).toHaveLength(1)
+    expect(svg.match(/class="pb-wire( pb-wire--path)?"/g)?.length).toBe(15)
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('diagram-viewer')).toHaveCount(0)
+    await expect(key).toBeFocused()
+  })
+
+  test('forced colours: cables in CanvasText, the fuse path and its glyph in Highlight', async ({ page }) => {
+    await openRack(page)
+    await page.emulateMedia({ forcedColors: 'active' })
+    const sys = (name: string) =>
+      page.evaluate((n) => {
+        const el = document.createElement('i')
+        el.style.color = n
+        document.body.append(el)
+        const c = getComputedStyle(el).color
+        el.remove()
+        return c
+      }, name)
+    const highlight = await sys('Highlight')
+    const text = await sys('CanvasText')
+    expect(highlight).not.toBe(text)
+    await expect.poll(() => page.locator('[data-wire][data-path] .pb-w').first().evaluate((el) => getComputedStyle(el).stroke)).toBe(highlight)
+    await expect.poll(() => page.locator('[data-wire]:not([data-path]) .pb-w').first().evaluate((el) => getComputedStyle(el).stroke)).toBe(text)
+    await expect.poll(() => glyph(page).locator('.pb-fuse-wire').evaluate((el) => getComputedStyle(el).stroke)).toBe(highlight)
+    await expect.poll(() => glyph(page).locator('.pb-fuse-lbl-t').evaluate((el) => getComputedStyle(el).fill)).toBe(highlight)
+  })
+
+  test('relayout ≤ 16 ms on bigPatchbay(60) (measure + render + commit, median of the resizes)', async ({ page }) => {
+    await openRack(page, bigPatchbay(60))
+    // the whole rack (it opens on "Fuse paths only" past 30 modules)
+    await page.getByTestId('pb-filter').click()
+    await page.getByTestId('pb-filter-preset').filter({ hasText: 'Everything' }).click()
+    await page.keyboard.press('Escape')
+    await expect.poll(() => page.locator('[data-wire]').count()).toBeGreaterThan(100)
+    await page.evaluate(() => performance.clearMeasures('pb-relayout'))
+    for (const w of [1400, 1440, 1380, 1440, 1420, 1440, 1390, 1440]) {
+      await page.setViewportSize({ width: w, height: 900 })
+      await page.waitForTimeout(120)
+    }
+    const times = await page.evaluate(() => performance.getEntriesByName('pb-relayout', 'measure').map((e) => e.duration))
+    expect(times.length).toBeGreaterThanOrEqual(6)
+    const sorted = [...times].sort((a, b) => a - b)
+    const median = sorted[Math.floor(sorted.length / 2)]
+    console.log(`[perf] pb-relayout on bigPatchbay(60): median ${median.toFixed(1)} ms over ${times.length} (${sorted.map((x) => x.toFixed(1)).join(', ')})`)
+    expect(median).toBeLessThanOrEqual(16)
   })
 })

@@ -1,0 +1,51 @@
+import type { Messages } from '@/shared/i18n'
+
+/**
+ * Patchbay strings of B7 — the cables, the fuse glyph, net-flag jumps, bus chips, the jack picker (J), the rack's keys
+ * (arrows, F) and the Klartext's place on the page. Keys "features.patchbay.*"; always both en and de (German "KI",
+ * never "Trigger" or "fremd"). Merged in messages.ts.
+ */
+export const messages: Messages = {
+  en: {
+    'features.patchbay.a11y.jack': 'jack',
+    'features.patchbay.picker.title': 'Find a jack',
+    'features.patchbay.picker.search': 'Module, jack or what it is cabled to',
+    'features.patchbay.picker.empty': 'No jack matches',
+    'features.patchbay.picker.free': 'no cable',
+    'features.patchbay.picker.to': '→ {to}',
+    'features.patchbay.picker.folded': 'folded',
+    'features.patchbay.picker.found': '{jack} — the keyboard is on the jack',
+    'features.patchbay.glyph.title': 'Fuse {f} — show its plate',
+    'features.patchbay.glyph.stub': '↓ {f}',
+    'features.patchbay.glyph.allowed': 'Fuse {f} — allowed',
+    'features.patchbay.fuse.selected': 'Fuse {f} selected — {path}',
+    'features.patchbay.fuse.noneOpen': 'No open fuse',
+    'features.patchbay.flag.jumped': 'The other end: {name}',
+    'features.patchbay.flag.noTwin': '{name} — the other end is folded',
+    'features.patchbay.bus.head': 'Bundled cables · {n}',
+    'features.patchbay.bus.aria': '{n} more cables: {names}',
+    'features.patchbay.bus.folded': 'folded into the chip',
+    'features.patchbay.wire.unknown': 'Unknown here',
+  },
+  de: {
+    'features.patchbay.a11y.jack': 'Buchse',
+    'features.patchbay.picker.title': 'Buchse suchen',
+    'features.patchbay.picker.search': 'Modul, Buchse oder Verbindung',
+    'features.patchbay.picker.empty': 'Keine Buchse passt',
+    'features.patchbay.picker.free': 'kein Kabel',
+    'features.patchbay.picker.to': '→ {to}',
+    'features.patchbay.picker.folded': 'eingeklappt',
+    'features.patchbay.picker.found': '{jack} — die Tastatur ist auf der Buchse',
+    'features.patchbay.glyph.title': 'Sicherung {f} — ihre Platte zeigen',
+    'features.patchbay.glyph.stub': '↓ {f}',
+    'features.patchbay.glyph.allowed': 'Sicherung {f} — zugelassen',
+    'features.patchbay.fuse.selected': 'Sicherung {f} ausgewählt — {path}',
+    'features.patchbay.fuse.noneOpen': 'Keine offene Sicherung',
+    'features.patchbay.flag.jumped': 'Das andere Ende: {name}',
+    'features.patchbay.flag.noTwin': '{name} — das andere Ende ist eingeklappt',
+    'features.patchbay.bus.head': 'Gebündelte Kabel · {n}',
+    'features.patchbay.bus.aria': '{n} weitere Kabel: {names}',
+    'features.patchbay.bus.folded': 'im Chip eingeklappt',
+    'features.patchbay.wire.unknown': 'Hier unbekannt',
+  },
+}

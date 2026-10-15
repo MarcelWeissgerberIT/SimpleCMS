@@ -14,12 +14,12 @@
  *  - ticksDash(len): the hatched ticks over the middle 60 % of a cable.
  *
  * renderStatic(model, layout, theme) returns the whole schematic as one SVG document — modules as plates with their
- * kind and name, jacks, net flags, folds, bus chips, cables with halos and plugs, one fuse glyph per fuse. Colours are
- * written as `var(--…)` and design-token mixes, resolved to one theme's STOCK tokens by `theme.resolve` (charts'
- * resolveVars) and flattened to rgb() / rgba() by `theme.flat` (colors.ts flatColor) — so no `var(`, `color-mix(` or
- * `oklch(` is left in the file (§6 A31). Fonts are named with fallbacks. The words come from `theme.text` (the page's
- * own strings); without it the picture names modules by their ids (Node specs). Used by "Picture · zoom" (the diagram
- * viewer, kind 'schematic') and its "Download SVG".
+ * kind and name, jacks, net flags, folds, bus chips, cables with halos and plugs, one fuse glyph per way out (fuses
+ * sharing an exit share it, fuseGroups). Colours are written as `var(--…)` and design-token mixes, resolved to one
+ * theme's STOCK tokens by `theme.resolve` (charts' resolveVars) and flattened to rgb() / rgba() by `theme.flat`
+ * (colors.ts flatColor) — so no `var(`, `color-mix(` or `oklch(` is left in the file (§6 A31). Fonts are named with
+ * fallbacks. The words come from `theme.text` (the page's own strings); without it the picture names modules by their
+ * ids (Node specs). Used by "Picture · zoom" (the diagram viewer, kind 'schematic') and its "Download SVG".
  */
 import { flattenColors } from './colors'
 import { flagId } from './layout'
@@ -182,6 +182,52 @@ export function paintOrder(wires: readonly Wire[], edges: ReadonlyMap<string, Ed
     .sort((p, q) => p.r - q.r || p.i - q.i)
     .map((x) => x.id)
 }
+
+/**
+ * Fuses grouped by the wire their exit edge runs in (several fuses can share one way out — the same automation's
+ * webhook reached from two sources): ONE glyph per wire, its label naming them all ("F2 · F4 · F14", past three "+n"),
+ * in the order given (F-order). The page (Wires.tsx) and the static picture draw the same groups.
+ */
+export function fuseGroups<F extends Pick<Fuse, 'key' | 'at'>>(fuses: readonly F[], wires: readonly Pick<Wire, 'id' | 'edges'>[]): Array<{ wire: string; fuses: F[] }> {
+  const out = new Map<string, F[]>()
+  for (const f of fuses) {
+    const w = wires.find((x) => x.edges.includes(f.at) || x.id === f.at)
+    if (!w) continue
+    const list = out.get(w.id)
+    if (list) list.push(f)
+    else out.set(w.id, [f])
+  }
+  return [...out].map(([wire, list]) => ({ wire, fuses: list }))
+}
+
+/** Where along its cable a glyph may sit (share of the length), in the order tried: the middle first. */
+const GLYPH_TS = [0.5, 0.62, 0.38, 0.72, 0.28, 0.8, 0.2]
+/** Two glyph centres closer than this collide (the ring is 50 × 30, its label above it, the stub below). */
+const GLYPH_GAP = 56
+
+/**
+ * The share of its cable each glyph sits at: the middle (t = 0.5) unless an earlier glyph sits closer than GLYPH_GAP
+ * there — cables leaving one jack run together for a while — then the next spot along its own cable that keeps the
+ * gap (the middle again when none does). Deterministic: the order given (F-order).
+ */
+export function glyphSpots(cables: readonly Cable[], gap = GLYPH_GAP): number[] {
+  const placed: Pt[] = []
+  return cables.map((c) => {
+    let best = 0.5
+    for (const t of GLYPH_TS) {
+      const p = pointAt(c, t)
+      if (placed.every((q) => Math.hypot(q.x - p.x, q.y - p.y) >= gap)) {
+        best = t
+        break
+      }
+    }
+    placed.push(pointAt(c, best))
+    return best
+  })
+}
+
+/** A glyph's label for its group's labels ("F1"; "F2 · F4 · F14"; "F2 · F4 · F14 +2"). */
+export const fuseGroupLabel = (labels: readonly string[]): string => (labels.length > 3 ? `${labels.slice(0, 3).join(' · ')} +${labels.length - 3}` : labels.join(' · '))
 
 /** The edges on fuse paths (the glyph's edge and every step's), for paintOrder and the frames. */
 export function fuseEdges(fuses: readonly Pick<Fuse, 'at' | 'chain'>[]): Set<string> {
@@ -476,13 +522,14 @@ export function renderStatic(model: Model, layout: Layout, theme: StaticTheme = 
     }
   }
 
-  // one glyph per fuse, on the wire its edge runs in
-  for (const f of fuses) {
-    const w = layout.wires.find((x) => x.edges.includes(f.at) || x.id === f.at)
-    const c = w && cables.get(w.id)
-    if (!c) continue
-    marks.push(fuseGlyph(f, c, tx, (f as FuseState).allowed?.state === 'allowed'))
-  }
+  // one glyph per wire a fuse's exit runs in (fuses sharing a way out share it — fuseGroups); allowed only when all are;
+  // glyphs of cables running together keep apart (glyphSpots)
+  const drawnGroups = fuseGroups(fuses, layout.wires).filter((g) => cables.has(g.wire))
+  const spots = glyphSpots(drawnGroups.map((g) => cables.get(g.wire)!))
+  drawnGroups.forEach((g, i) => {
+    const allowed = g.fuses.every((f) => (f as FuseState).allowed?.state === 'allowed')
+    marks.push(fuseGlyph(fuseGroupLabel(g.fuses.map((f) => tx.fuse(f))), cables.get(g.wire)!, allowed, spots[i]))
+  })
 
   const svg = [
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${f1(width)} ${f1(height)}" width="${f1(width)}" height="${f1(height)}" font-family="${esc(SANS)}">`,
@@ -576,8 +623,8 @@ function flagPlate(n: NetLabel | undefined, s: FlagSlot, b: Box, tx: StaticText,
   )
 }
 
-function fuseGlyph(f: Fuse | FuseState, c: Cable, tx: StaticText, allowed: boolean): string {
-  const p = fusePoint(c)
+function fuseGlyph(label: string, c: Cable, allowed: boolean, t = 0.5): string {
+  const p = fusePoint(c, t)
   const tone = allowed ? C.ink2 : C.signal
   const body = [
     tag('rect', { x: -15, y: -6.5, width: 30, height: 13, rx: 2.5, fill: C.surface, stroke: C.ink, 'stroke-width': 1.2 }),
@@ -585,7 +632,6 @@ function fuseGlyph(f: Fuse | FuseState, c: Cable, tx: StaticText, allowed: boole
     tag('rect', { x: 12.5, y: -7.5, width: 5.5, height: 15, rx: 1, fill: C.plateEdge }),
     tag('path', { d: 'M-12.5,0 L-5,0 L-2,-3 L2,3 L5,0 L12.5,0', fill: 'none', stroke: tone, 'stroke-width': 1.6 }),
   ].join('')
-  const label = tx.fuse(f)
   const lw = textW(label, 10.5, true) + 6
   return tag(
     'g',

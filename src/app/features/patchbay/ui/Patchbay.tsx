@@ -13,12 +13,17 @@
  * `m` (a module key) selects that module — unfolding its fold, or the automation a single-use script is folded into —
  * and gives it the keyboard; `f` (a fuse's path key) selects that fuse (its plate is B8's). Esc or a click on the empty
  * bench clears the selection.
+ *
+ * Keys on the page (§3.9, B7; focus in the page, nobody typing): J opens the jack picker (JackPicker.tsx — ↵ puts the
+ * keyboard on that jack, Esc gives it back to where J was pressed); F selects the next open fuse in F-order, gives the
+ * keyboard to its tab (B8's `[data-pb-fuse-tab]`) and brings it into view. The arrow keys, ↵ and Space live on the rack
+ * (Rack.tsx, Module.tsx); "§ In plain words" sits under the rack (Plain.tsx). Announcements go to one polite region.
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useLang, useT } from '../../../i18n'
 import { navigate } from '../../../lib/router'
-import { focusIsNowhere } from '../../../ui/focus'
+import { focusIsNowhere, focusLost, restoreFocus } from '../../../ui/focus'
 import { typing } from '../../../ui/keys'
 import { useCloud } from '../../../cloud'
 import { useWorkspace } from '../../../store/store'
@@ -35,13 +40,15 @@ import { refreshModel, usePatchbay } from '../state'
 import type { FilterPreset, ModuleKey } from '../types'
 import { Empty } from './Empty'
 import { Header, type HeadKeys } from './HeaderMenu'
-import { litByHover, litByNet, litBySelection } from './lit'
+import { JackPicker, pickerRows, type PickerRow } from './JackPicker'
+import { litByHover, litByJack, litByNet, litBySelection } from './lit'
 import { openPicture } from './picture'
 import { Rack } from './Rack'
 import { markSeen } from './seen'
 import type { RackCtx } from './RackContext'
 import { Readout } from './Readout'
-import { openFold, resetPbUI, selectFuse, selectModule, usePbUI } from './store'
+import { Plain } from './Plain'
+import { announce, openFold, resetPbUI, selectFuse, selectModule, usePbUI } from './store'
 import { Strands } from './Strands'
 import { fuseMarks, useWords } from './words'
 import '../patchbay.css'
@@ -67,7 +74,9 @@ export default function Patchbay(props: PatchbayRouteProps) {
   const pageRef = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(0)
   const [tightAt, setTightAt] = useState<number | null>(null)
-  const [say, setSay] = useState('')
+  const say = usePbUI((s) => s.say)
+  // the jack picker: open at the element J was pressed on (the keyboard goes back there on Esc)
+  const [picker, setPicker] = useState<HTMLElement | null>(null)
 
   // the live signal (B13) holds the model open: the lazy inputs are read and the model rebuilt as they arrive
   useEffect(() => startLive(), [])
@@ -108,7 +117,7 @@ export default function Patchbay(props: PatchbayRouteProps) {
   const input = usePatchbay((s) => s.input)
   const live = useLive(useShallow((s) => ({ runs: s.runs, costs: s.costs, costsRead: s.costsRead, modules: s.modules })))
   const words = useWords(model, input)
-  const ui = usePbUI(useShallow((s) => ({ hover: s.hover, selected: s.selected, net: s.net, filter: s.filter, unfolded: s.unfolded })))
+  const ui = usePbUI(useShallow((s) => ({ hover: s.hover, selected: s.selected, net: s.net, filter: s.filter, unfolded: s.unfolded, cursor: s.cursor, jack: s.jack, fuse: s.fuse })))
   const readOnly = useCloud((s) => s.readOnly)
   const marks = useMemo(() => (model ? fuseMarks(model) : null), [model])
 
@@ -148,9 +157,10 @@ export default function Patchbay(props: PatchbayRouteProps) {
     if (!model) return null
     if (ui.selected && model.modules.some((m) => m.key === ui.selected)) return litBySelection(model, ui.selected)
     if (ui.net) return litByNet(model, ui.net)
+    if (ui.jack) return litByJack(model, ui.jack)
     if (ui.hover) return litByHover(model, ui.hover)
     return null
-  }, [model, ui.selected, ui.net, ui.hover])
+  }, [model, ui.selected, ui.net, ui.jack, ui.hover])
 
   // a module's name box under ~12ch: the rack is not readable here — the strands view takes over at this width and below
   useLayoutEffect(() => {
@@ -183,7 +193,7 @@ export default function Patchbay(props: PatchbayRouteProps) {
     }
     if (!key) {
       handled.current = want
-      setSay(t(`${P}.notOnRack`, { name: want }))
+      announce(t(`${P}.notOnRack`, { name: want }))
       return
     }
     const fold = layout.slots.find((s) => s.kind === 'fold' && !s.open && s.modules.includes(key!))
@@ -200,7 +210,7 @@ export default function Patchbay(props: PatchbayRouteProps) {
       el.scrollIntoView({ block: 'center', behavior: 'auto' })
       el.focus({ preventScroll: true })
       const m = model.modules.find((x) => x.key === target)
-      if (m) setSay(t(`${P}.selected`, { name: words.name(m) }))
+      if (m) announce(t(`${P}.selected`, { name: words.name(m) }))
     })
   }, [props.m, model, layout, words, t])
 
@@ -222,14 +232,86 @@ export default function Patchbay(props: PatchbayRouteProps) {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  const onFuse = useCallback(() => {
-    if (!marks?.open.length) return
-    const first = [...marks.open].sort((a, b) => Number(a.label.slice(1)) - Number(b.label.slice(1)))[0]
-    selectFuse(first.key)
+  /** Select a fuse and bring its plate into view (no plate yet: its glyph). */
+  const showFuse = useCallback((key: string) => {
+    selectFuse(key)
     const plate = document.getElementById('pb-fuse-plate')
     if (plate) plate.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
-    else pageRef.current?.querySelector('.pb-mod[data-path]')?.scrollIntoView({ block: 'nearest' })
-  }, [marks])
+    else pageRef.current?.querySelector(`.pb-fuse[data-fuse="${CSS.escape(key)}"]`)?.scrollIntoView({ block: 'nearest' })
+  }, [])
+  const onFuse = useCallback(() => {
+    if (marks?.open.length) showFuse(marks.open[0].key)
+  }, [marks, showFuse])
+
+  // F: the next open fuse (F-order, wrapping) — its tab takes the keyboard (B8), it comes into view, it is announced
+  const nextFuse = useCallback(() => {
+    if (!model || !marks || !words) return
+    const open = marks.open
+    if (!open.length) {
+      announce(t(`${P}.fuse.noneOpen`))
+      return
+    }
+    const cur = usePbUI.getState().fuse
+    const i = open.findIndex((f) => f.key === cur)
+    const next = open[(i + 1) % open.length]
+    showFuse(next.key)
+    const tab = document.querySelector<HTMLElement>(`[data-pb-fuse-tab="${CSS.escape(next.key)}"]`)
+    if (tab) tab.focus({ preventScroll: true })
+    const path = [next.chain.source, next.chain.decider, ...next.chain.steps.map((x) => x.from)]
+      .filter((k, j, all): k is string => !!k && all.indexOf(k) === j)
+      .map((k) => model.modules.find((m) => m.key === k))
+      .filter((m): m is NonNullable<typeof m> => !!m)
+      .map((m) => words.name(m))
+    announce(t(`${P}.fuse.selected`, { f: next.label, path: path.join(' → ') }))
+  }, [model, marks, words, t, showFuse])
+
+  // J and F (focus in the page, nobody typing, no menu / dialog open over it)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || e.repeat) return
+      const k = e.key.toLowerCase()
+      if (k !== 'j' && k !== 'f') return
+      const page = pageRef.current
+      const at = document.activeElement
+      if (!page || typing() || !(at instanceof HTMLElement) || !page.contains(at)) return
+      if (at.closest('[data-popover], [role="dialog"]')) return
+      // J finds a jack on the rack (the strands view has none)
+      if (k === 'j' && !page.querySelector('.pb-rack')) return
+      e.preventDefault()
+      if (k === 'f') nextFuse()
+      else setPicker(at)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [nextFuse])
+
+  const rows = useMemo(() => (picker && model && layout && words ? pickerRows(model, layout, words) : []), [picker, model, layout, words])
+  const closePicker = (why: 'escape' | 'outside') => {
+    const from = picker
+    setPicker(null)
+    // Esc: the keyboard goes back to where J was pressed; a press outside leaves it where the press put it
+    requestAnimationFrame(() => {
+      if (from?.isConnected && (why === 'escape' || focusLost() || focusIsNowhere())) restoreFocus(from)
+    })
+  }
+  const pickJack = (row: PickerRow) => {
+    setPicker(null)
+    const focusJack = (tries: number) => {
+      const el = pageRef.current?.querySelector<HTMLElement>(`.pb-jk[data-jack="${CSS.escape(row.jack)}"]`)
+      if (el) {
+        el.focus({ preventScroll: true })
+        el.scrollIntoView({ block: 'center', inline: 'nearest' })
+        announce(t(`${P}.picker.found`, { jack: el.getAttribute('aria-label') ?? row.name }))
+        return
+      }
+      if (tries > 0) requestAnimationFrame(() => focusJack(tries - 1))
+    }
+    if (row.folded) {
+      const fold = layout?.slots.find((x) => x.kind === 'fold' && !x.open && x.modules.includes(row.module))
+      if (fold) openFold(fold.id)
+    }
+    requestAnimationFrame(() => focusJack(12))
+  }
 
   const keys: HeadKeys = {
     asList: () => navigate({ name: 'workspace', section: 'automation' }),
@@ -239,7 +321,9 @@ export default function Patchbay(props: PatchbayRouteProps) {
 
   const runs = useMemo(() => (model ? sumRuns({ n: live.runs }, model.modules.map((m) => m.key)) : 0), [model, live.runs])
   const money = useMemo(() => (model ? sumCosts(live.costs, model.modules.map((m) => m.key)) : { usd: 0, estimate: false, unpriced: 0 }), [model, live.costs])
-  const entry = ui.selected ?? (layout?.slots.find((s) => s.kind === 'module')?.id ?? null)
+  // the rack's one tab stop: where the keyboard was last, else the selection, else the first module
+  const onRack = (id: string | null) => !!id && !!layout?.slots.some((s) => s.id === id)
+  const entry = onRack(ui.cursor) ? ui.cursor : onRack(ui.selected) ? ui.selected : (layout?.slots.find((s) => s.kind === 'module')?.id ?? null)
   const ctx: RackCtx | null = model && input && words && marks ? { model, input, words, marks, lit, runs: live.runs, costs: live.costs, entry } : null
   const profiles = layout?.profiles ?? []
 
@@ -249,11 +333,13 @@ export default function Patchbay(props: PatchbayRouteProps) {
       {model && (
         <Readout t={t} lang={lang} model={model} runs={runs} money={money} costsRead={live.costsRead} fuses={fuses} phone={phone} onFuse={onFuse} />
       )}
-      {ctx && layout && (model!.edges.length === 0 ? <Empty model={model!} input={input!} words={words!} layout={layout} drop={keys.drop} /> : narrow ? <Strands model={model!} words={words!} marks={marks!} runs={live.runs} /> : <Rack ctx={ctx} layout={layout} />)}
+      {ctx && layout && (model!.edges.length === 0 ? <Empty model={model!} input={input!} words={words!} layout={layout} drop={keys.drop} /> : narrow ? <Strands model={model!} words={words!} marks={marks!} runs={live.runs} /> : <Rack ctx={ctx} layout={layout} onFuse={showFuse} />)}
+      {ctx && layout && !narrow && model!.edges.length > 0 && <Plain model={model!} input={input!} words={words!} />}
+      {picker && words && <JackPicker anchor={picker} rows={rows} t={words.t} onPick={pickJack} onClose={closePicker} />}
       {/* 12 characters of a module's name: the narrowest name box the rack accepts (measured, never guessed) */}
       <span className="pb-probe" aria-hidden="true" />
       <div className="visually-hidden" role="status" aria-live="polite" aria-label={t(`${P}.liveRegion`)} data-testid="pb-live">
-        {say}
+        <span key={say.n}>{say.text}</span>
       </div>
     </div>
   )

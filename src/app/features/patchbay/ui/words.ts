@@ -10,6 +10,7 @@ import type { Translate } from '@/shared/i18n'
 import { labelOf, MODELS, modelRow, shortOfLabel } from '@/shared/ai/models'
 import { fmtUsd as fmtMoney } from '../../../lib/money'
 import { chainModules, type ColumnCount, type FoldSlot } from '../layout'
+import { edgesAt, moduleOfJack } from './lit'
 import { describe, nameOf, placeNameOf, type PlainCtx } from '../plain'
 import type { Column, FuseState, Jack, Model, ModelInput, Module, ModuleKey, ModuleTag, NetLabel, NetTag } from '../types'
 
@@ -33,12 +34,19 @@ export interface FuseMarks {
 
 const marksCache = new WeakMap<Model, FuseMarks>()
 
+/** A fuse label's number ("F12" → 12; anything else last). */
+export const fuseNo = (label: string): number => {
+  const n = Number(label.replace(/^\D+/, ''))
+  return Number.isFinite(n) && n > 0 ? n : Number.MAX_SAFE_INTEGER
+}
+
 /** Open fuses (not allowed; a lapsed one counts as open) and what their paths run through. */
 export function fuseMarks(model: Model): FuseMarks {
   const had = marksCache.get(model)
   if (had) return had
   const fuses = model.fuses as FuseState[]
-  const open = fuses.filter((f) => f.allowed?.state !== 'allowed')
+  // in F-order (F1, F2 …): the readout's FUSE cell, F, the glyphs and the plate's tabs all count the same way
+  const open = fuses.filter((f) => f.allowed?.state !== 'allowed').sort((a, b) => fuseNo(a.label) - fuseNo(b.label))
   const modules = new Map<ModuleKey, string[]>()
   const nets = new Map<string, string[]>()
   const edges = new Set<string>()
@@ -70,6 +78,8 @@ export interface Words {
   describe(m: Module): string
   jack(j: Jack, m: Module): string
   jackTitle(j: Jack, m: Module, to: string[]): string
+  /** what a jack (or a net flag's key) is cabled to, by name */
+  peers(jack: string): string[]
   net(n: NetTag, m: Module): string
   netTitle(n: NetTag, m: Module): string
   flag(n: NetLabel): string
@@ -146,6 +156,23 @@ export function makeWords(t: Translate, lang: 'en' | 'de', model: Model, input: 
     const head = `${name(m)} · ${label}`
     return to.length ? t(`${P}.jack.to`, { jack: head, to: to.join(', ') }) : t(`${P}.jack.free`, { jack: head })
   }
+  const peers = (key: string): string[] => {
+    const out: string[] = []
+    for (const e of edgesAt(model, key)) {
+      const other = e.from === key ? e.to : e.from
+      let label: string
+      if (other.startsWith('net:')) {
+        const n = model.nets.find((x) => x.key === other)
+        label = n ? flag(n) : other
+      } else {
+        const k = moduleOfJack(model, other)
+        const om = k ? byKey.get(k) : undefined
+        label = om ? name(om) : other
+      }
+      if (!out.includes(label)) out.push(label)
+    }
+    return out
+  }
   const net = (n: NetTag, m: Module) => {
     if (m.ref.kind === 'pipeline' && 'db' in n.place && n.place.db === m.ref.db) return t(`${P}.net.tasks`)
     return placeNameOf(model, input, n.place, ctx)
@@ -205,6 +232,7 @@ export function makeWords(t: Translate, lang: 'en' | 'de', model: Model, input: 
     describe: (m) => describe(model, input, m.key, ctx),
     jack,
     jackTitle,
+    peers,
     net,
     netTitle,
     flag,

@@ -4,12 +4,13 @@ import { messages as setup } from './messages-setup'
 import { messages as live } from './messages-live'
 import { messages as patch } from './messages-patch'
 import { messages as hint } from './messages-hint'
+import { messages as wires } from './messages-wires'
 
 /**
  * Patchbay strings (features/patchbay) — the page frame, the rack, the readout, the sidebar row, ⌘K (B6). Keys
  * "features.patchbay.*"; always add both en and de. UI names: EN "Patchbay", DE "Schaltplan" (plan §1.1: no
  * "Vertrauen", "Prüfschritt", "abnehmen", "fremd", "Trigger"; "Ausgang" only for the real Outbox; German "KI"). The
- * per-batch files (fuses · setup · live · patch · hint) are merged here — the features registry imports only this one.
+ * per-batch files (fuses · setup · live · patch · hint · wires) are merged here — the features registry imports only this one.
  * Module kinds, names, exits and unknown parts are messages-fuses.ts' (B4: plain.ts speaks them too).
  */
 const page: Messages = {
@@ -22,7 +23,7 @@ const page: Messages = {
     'features.patchbay.more': 'More',
     'features.patchbay.picture': 'Picture · zoom',
     'features.patchbay.pictureTitle': 'Static picture with minimap and SVG download',
-    'features.patchbay.picture.type': 'Schematic',
+    'features.patchbay.picture.type': 'Whole rack',
     'features.patchbay.picture.file': 'patchbay.svg',
     'features.patchbay.drop': 'Drop a profile here',
     'features.patchbay.dropTitle': 'Integration profiles — Workspace › Integrations',
@@ -201,7 +202,7 @@ const page: Messages = {
     'features.patchbay.more': 'Mehr',
     'features.patchbay.picture': 'Als Bild · Zoom',
     'features.patchbay.pictureTitle': 'Statisches Bild mit Minikarte und SVG-Download',
-    'features.patchbay.picture.type': 'Schaltplan',
+    'features.patchbay.picture.type': 'Ganzes Rack',
     'features.patchbay.picture.file': 'schaltplan.svg',
     'features.patchbay.drop': 'Profil hier ablegen',
     'features.patchbay.dropTitle': 'Integrationsprofile — Arbeitsbereich › Integrationen',
@@ -373,4 +374,4 @@ const page: Messages = {
   },
 }
 
-export const messages: Messages = mergeMessages(page, fuses, setup, live, patch, hint)
+export const messages: Messages = mergeMessages(page, fuses, setup, live, patch, hint, wires)

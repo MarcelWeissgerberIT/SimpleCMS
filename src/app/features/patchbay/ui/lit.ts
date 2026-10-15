@@ -115,6 +115,13 @@ export function litBySelection(model: Model, key: ModuleKey): Lit {
   return { mode: 'select', ...grow(ix, edges, [key]) }
 }
 
+/** What a jack the keyboard is on lights (its own cables and, through a flag, the twin's) — ink, nothing dims. */
+export function litByJack(model: Model, jack: string): Lit {
+  const ix = indexOf(model)
+  const k = ix.jackMod.get(jack)
+  return { mode: 'hover', ...grow(ix, new Set((ix.at.get(jack) ?? []).map((e) => e.id)), k ? [k] : []) }
+}
+
 /** What a lit net flag lights: both twins and their cables. */
 export function litByNet(model: Model, net: string): Lit {
   const ix = indexOf(model)
