@@ -1,0 +1,109 @@
+/* ================================================================
+   The return chip (topbar, every route but #/patchbay): "← Back to setup · 05 next ↵" and ×.
+   A keycap plate like MASTER CAUTION's (2 px bottom edge, physical press); the lamp's number in an ink chip — the
+   setup's step chip. Never shed: the crumbs give way first (flex: none here); on a phone the words go and the arrow,
+   the number and × stay (the words are the key's name). Every size scales with --text-scale.
+   ================================================================ */
+.pb-ret {
+  display: inline-flex;
+  align-items: stretch;
+  flex: none;
+  height: calc(30px * var(--text-scale));
+  margin-right: 4px;
+  border: 1px solid var(--rule-strong);
+  border-bottom-width: 2px;
+  border-radius: 3px;
+  background: var(--surface);
+}
+.pb-ret__key,
+.pb-ret__x {
+  display: inline-flex;
+  align-items: center;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  transition: background var(--dur-1) var(--ease-out);
+}
+.pb-ret__key {
+  gap: 6px;
+  padding: 0 7px 0 6px;
+  border-radius: 2px 0 0 2px;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.pb-ret__key:hover,
+.pb-ret__x:hover {
+  background: var(--hover);
+}
+.pb-ret__key:active,
+.pb-ret__x:active {
+  transform: translateY(1px);
+}
+.pb-ret__arrow {
+  flex: none;
+  color: var(--ink-2);
+}
+.pb-ret__n {
+  display: inline-grid;
+  place-items: center;
+  min-width: calc(20px * var(--text-scale));
+  height: calc(18px * var(--text-scale));
+  padding: 0 4px;
+  border-radius: var(--radius-1);
+  background: var(--ink);
+  color: var(--ink-inverse);
+  font-size: var(--text-2xs);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+}
+.pb-ret__next {
+  color: var(--ink-2);
+}
+.pb-ret__kbd {
+  margin-left: 2px;
+}
+.pb-ret__x {
+  justify-content: center;
+  width: calc(24px * var(--text-scale));
+  border-left: 1px solid var(--rule);
+  border-radius: 0 2px 2px 0;
+  color: var(--ink-2);
+}
+.pb-ret__x:hover {
+  color: var(--ink);
+}
+
+@media (max-width: 767px) {
+  .pb-ret {
+    height: calc(36px * var(--text-scale));
+  }
+  .pb-ret__text,
+  .pb-ret__next,
+  .pb-ret__kbd {
+    display: none;
+  }
+  .pb-ret__x {
+    width: calc(30px * var(--text-scale));
+  }
+}
+@media (pointer: coarse) {
+  /* a finger's target that still fits the 44 px topbar at every text size */
+  .pb-ret__key,
+  .pb-ret__x {
+    min-width: 40px;
+    min-height: 40px;
+  }
+  .pb-ret {
+    min-height: 40px;
+  }
+}
+@media (forced-colors: active) {
+  .pb-ret__n {
+    border: 1px solid CanvasText;
+  }
+}

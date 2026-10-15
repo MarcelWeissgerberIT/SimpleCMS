@@ -19,7 +19,7 @@ import { restoreFocus } from '../../ui/focus'
 import { Menu, useMenu } from '../../ui/Menu'
 import { PageIcon } from '../../ui/PageIcon'
 import { Switch } from '../../ui/controls'
-import { t as tr, useLang, useT } from '../../i18n'
+import { useLang, useT } from '../../i18n'
 import { localized } from '../../store/integrations'
 import { resolveModel } from '../ai/client'
 import { AINeedsSetup } from '../ai/setup/AINeedsSetup'
@@ -29,9 +29,10 @@ import { TrustPlate } from './trust/ui/TrustPlate'
 import { RECIPES, blankAgent, recipeDraft, type RecipeId } from './recipes'
 import { MirrorSetup, type RecipeSource } from './MirrorSetup'
 import { useRecipeSources } from './integrations/status'
-import { madeKind, restoreMirror, trashMirror, undoMirror, type KeptPage, type MirrorMade } from './mirror'
+import { madeKind, undoMirror, type MirrorMade } from './mirror'
+import { introText, leftBehind, mirrorUndoTitle, trashWithUndo } from './mirrorFlow'
 import { MirrorDiscard, MirrorUndoAsk } from './MirrorDiscard'
-import { mirrorToast, useDismissMirrorToasts } from './mirrorToasts'
+import { useDismissMirrorToasts } from './mirrorToasts'
 import { deleteAgent, runNow, setEnabled } from './actions'
 import { awaitsReview, getAgentState, loadRuns, onRunsChanged, putAgentState, useAgentRuns, type AgentState } from './runs'
 import { loadRuntime, loadServerRuns, teamId, useServerAgents } from './server'
@@ -207,52 +208,6 @@ export default function AgentsView({ agentId }: { agentId?: string }) {
 type RecipePick = RecipeId | RecipeSource
 type Draft = { agent: CustomAgent; mirror?: MirrorMade }
 
-/** "“Tracker” stays — the agent “Digest” uses it." for the pages a saved agent kept out of the trash. */
-function keptText(kept: KeptPage[]): string {
-  if (kept.length === 1) return tr('features.agents.mirror.kept.one', { title: kept[0].title, agent: kept[0].agent })
-  const [a, b] = kept
-  return kept.every((k) => k.agent === a.agent) ? tr('features.agents.mirror.kept.both', { a: a.title, b: b.title, agent: a.agent }) : tr('features.agents.mirror.kept.bothAgents', { a: a.title, b: b.title })
-}
-
-/**
- * What a mirror setup created (only that, and never what a saved agent uses — trashMirror) to the trash; the toast says
- * what went and what stayed, its Undo brings back what went.
- */
-function trashWithUndo(made: MirrorMade, res: ReturnType<typeof trashMirror> = trashMirror(made)) {
-  const { ids, kept } = res
-  if (!ids.length && !kept.length) return
-  const vars = { name: made.name, report: made.reportTitle }
-  const db = ids.includes(made.dbId)
-  const report = ids.includes(made.reportId)
-  const went = db && report ? 'trashed' : report ? 'trashedReport' : db ? 'trashedDb' : 'nothing'
-  const message = [tr(`features.agents.mirror.discard.${went}`, vars), ...(kept.length ? [keptText(kept)] : [])].join(' ')
-  mirrorToast({ message, kind: 'info', ...(kept.length ? { timeout: 8_000 } : {}), ...(ids.length ? { action: { label: tr('common.undo'), run: () => restoreMirror(ids) } } : {}) })
-}
-
-/**
- * The list went while a mirror draft was open and unsaved (a route change: Back, ⌘⌥N, ⌘K …) — no prompt is possible
- * any more: what the setup created stays, and the toast's Undo moves it (only it, and nothing a saved agent uses by
- * then) to the trash. Like every mirror toast, the next agent dialog takes it down (mirrorToasts.ts): its Undo never
- * takes a click meant for that dialog.
- */
-function leftBehind(made: MirrorMade) {
-  const kind = madeKind(made)
-  if (kind === 'none') return
-  mirrorToast({
-    message: tr(kind === 'both' ? 'features.agents.mirror.left' : 'features.agents.mirror.leftReport', { name: made.name, report: made.reportTitle }),
-    kind: 'info',
-    timeout: 10_000,
-    action: { label: tr('common.undo'), run: () => trashWithUndo(made, trashMirror(made, { kind: 'you', via: 'undo' })) },
-  })
-}
-
-/** The editor's note after a setup: what was made (both · only the report page · nothing), then what is left to do. */
-function introText(t: ReturnType<typeof useT>, made: MirrorMade): string {
-  const vars = { name: made.name, report: made.reportTitle, count: made.placeholders }
-  const next = made.placeholders > 1 ? 'other' : made.placeholders === 1 ? 'one' : 'none'
-  return `${t(`features.agents.mirror.made.${madeKind(made)}`, vars)} ${t(`features.agents.mirror.next.${next}`, vars)}`
-}
-
 function useNewAgent() {
   const t = useT()
   const [picking, setPicking] = useState(false)
@@ -347,7 +302,7 @@ function useNewAgent() {
           initial={draft.agent}
           isNew
           intro={made ? introText(t, made) : undefined}
-          introUndo={made && madeHere !== 'none' ? { title: t(madeHere === 'both' ? 'features.agents.mirror.undoTitle' : 'features.agents.mirror.undoTitleReport', { name: made.name, report: made.reportTitle }), run: undo } : undefined}
+          introUndo={made && madeHere !== 'none' ? { title: mirrorUndoTitle(t, made), run: undo } : undefined}
           writeHint={made ? t('features.agents.mirror.writeHint') : undefined}
           onClose={close}
           onSaved={(id) => {
