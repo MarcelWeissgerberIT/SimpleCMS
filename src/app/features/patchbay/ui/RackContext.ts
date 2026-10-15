@@ -20,6 +20,11 @@ export interface RackCtx {
   costs: Record<ModuleKey, ModuleCost>
   /** the module the keyboard lands on when Tab enters the rack (roving tabindex) */
   entry: ModuleKey | null
+  /**
+   * B12 — a profile's setup on the rack: the lamps that make or touch each module (its "04" step chips), the lamp
+   * worked on now (its chip in ink), a ghost database's field count (its window: "24 fields")
+   */
+  setup?: { chips: Record<ModuleKey, number[]>; next: number | null; fields: Record<ModuleKey, number> } | null
 }
 
 export const RackContext = createContext<RackCtx | null>(null)

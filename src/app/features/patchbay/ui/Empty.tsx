@@ -15,7 +15,7 @@ import type { Words } from './words'
 
 const P = 'features.patchbay'
 
-export function Empty({ model, input, words: w, layout, drop }: { model: Model; input: ModelInput; words: Words; layout: Layout; drop: (() => void) | null }) {
+export function Empty({ model, input, words: w, layout, drop }: { model: Model; input: ModelInput; words: Words; layout: Layout; drop: ((from: HTMLElement | null) => void) | null }) {
   const t = w.t
   const menu = useMenu()
   const byKey = new Map(model.modules.map((m) => [m.key, m]))
@@ -58,7 +58,7 @@ export function Empty({ model, input, words: w, layout, drop }: { model: Model; 
         </button>
         <Menu {...menu.props} entries={entries} width={260} />
         {drop && (
-          <button type="button" className="pb-drop" onClick={drop} data-testid="pb-empty-drop">
+          <button type="button" className="pb-drop" aria-haspopup="true" onClick={(e) => drop(e.currentTarget)} data-testid="pb-empty-drop">
             <FileJson size={14} strokeWidth={1.7} aria-hidden="true" />
             {t(`${P}.drop`)}
           </button>

@@ -27,7 +27,7 @@ const page: Messages = {
     'features.patchbay.picture.type': 'Whole rack',
     'features.patchbay.picture.file': 'patchbay.svg',
     'features.patchbay.drop': 'Drop a profile here',
-    'features.patchbay.dropTitle': 'Integration profiles — Workspace › Integrations',
+    'features.patchbay.dropTitle': 'Add an integration profile: a .integration.json file, or paste its text',
     'features.patchbay.liveRegion': 'Patchbay announcements',
 
     'features.patchbay.filter.all': 'All databases',
@@ -218,7 +218,7 @@ const page: Messages = {
     'features.patchbay.picture.type': 'Ganzes Rack',
     'features.patchbay.picture.file': 'schaltplan.svg',
     'features.patchbay.drop': 'Profil hier ablegen',
-    'features.patchbay.dropTitle': 'Integrationsprofile — Arbeitsbereich › Integrationen',
+    'features.patchbay.dropTitle': 'Integrationsprofil hinzufügen: eine .integration.json-Datei oder ihren Text einfügen',
     'features.patchbay.liveRegion': 'Meldungen des Schaltplans',
 
     'features.patchbay.filter.all': 'Alle Datenbanken',

@@ -318,7 +318,7 @@ function recipeSetup(profile: IntegrationProfile, recipe: RecipeConfig, c: Ctx):
     recipeId: r.recipeId,
     name: r.name,
     servers: candidatesOf(profile, readServers()).map((x) => ({ id: x.id, name: x.name })),
-    database: { id: db?.id ?? null, name: dbTitle, ...(db?.trashed ? { trashed: true } : {}) },
+    database: { id: db?.id ?? null, name: dbTitle, ...(db?.trashed ? { trashed: true } : {}), fields: r.properties.length },
     report,
     agent,
     runs: saved ? runsOf(saved) : null,

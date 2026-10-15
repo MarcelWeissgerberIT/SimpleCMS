@@ -12,9 +12,16 @@
  * (roving.ts: ↑ / ↓ in the column, ← / → to the neighbour column at the same row, Home / End), never scrolling the page
  * beyond bringing the stop into view; Tab leaves the rack. The fuses' glyphs (Wires.tsx) get every fuse in F-order and
  * the active one (fuseRows.ts activeGlyph: the fuse list's selected row when it is a fuse — B8).
+ *
+ * The setup band (B12, plan §3.7, mock-2 — the visit where a profile was dropped or "Set up in the Patchbay" pressed):
+ * the column heads count "2 + 1 new · 3 idle"; under them the dashed band holds the profile's modules (layout.ts
+ * bandPartition: real ones, ghosts, what a planned cable reaches — the rows the layout gave them) and the lamps plate;
+ * below it "Not touched by the profile · 8 modules · 7 cables folded" and one fold per column naming every module (F
+ * tags kept) — ↵ on that line unfolds the whole rack inside the band, and folds it again. The legend becomes the
+ * setup's (planned · not created yet · "04" · F1 · ↵ next lamp · Mod+Z profile back).
  */
-import { useMemo, useRef, type KeyboardEvent, type MouseEvent } from 'react'
-import { ChevronDown, ChevronUp } from 'lucide-react'
+import { useMemo, useRef, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
+import { ChevronDown, ChevronUp, CornerDownLeft } from 'lucide-react'
 import { Screws } from '../../../ui/controls'
 import type { FoldSlot, Layout, Slot } from '../layout'
 import type { Column, FuseState } from '../types'
@@ -37,6 +44,39 @@ function Fold({ slot }: { slot: FoldSlot }) {
   const f = w.fold(slot)
   const open = !!slot.open
   const labels = slot.fuses.map((k) => model.fuses.find((x) => x.key === k)?.label).filter((x): x is string => !!x)
+  // what a dropped profile does not touch (the band's fold line, mock-2): the count, every name (wrapped, never cut),
+  // "from outside" and the F tags — the line above the folds unfolds them
+  if (slot.why === 'setup') {
+    const outside = slot.modules.some((k) => model.modules.find((m) => m.key === k)?.tags.includes('outside'))
+    return (
+      <div
+        className="pb-fold pb-fold--setup"
+        data-why="setup"
+        title={f.title}
+        data-testid="pb-fold"
+        data-stop={slot.id}
+        tabIndex={entry === slot.id ? 0 : -1}
+        role="group"
+        aria-label={`${f.label}: ${f.names.join(', ')}`}
+        style={{ gridColumn: slot.col * 2 - 1, gridRow: slot.row + 1 }}
+        onFocus={(e) => e.target === e.currentTarget && setCursor(slot.id)}
+      >
+        <span className="label pb-fold__label">{slot.modules.length}</span>
+        <span className="pb-fold__names">{f.names.join(', ')}</span>
+        <span className="pb-fold__sp" />
+        {outside && (
+          <span className="pb-tag" data-tag="outside">
+            {w.t(`${P}.tag.outside`)}
+          </span>
+        )}
+        {labels.map((l) => (
+          <span key={l} className="pb-tag pb-tag--f">
+            {l}
+          </span>
+        ))}
+      </div>
+    )
+  }
   return (
     <button
       type="button"
@@ -88,7 +128,23 @@ function SlotView({ slot, i }: { slot: Slot; i: number }) {
   return <BusChip slot={slot} />
 }
 
-export function Rack({ ctx, layout, onFuse }: { ctx: RackCtx; layout: Layout; onFuse: (key: string) => void }) {
+/** The setup band on the rack (B12): its head, its lamps plate, the fold line under it. */
+export interface RackBand {
+  /** the band's tab and its Undo / "Close setup" key (SetupBand.tsx BandHead) */
+  head: ReactNode
+  /** § 00 — the lamps (SetupBand.tsx SetupPlate) */
+  plate: ReactNode
+  aria: string
+  /** the untouched part folded below the band (false: unfolded — the whole rack inside the band) */
+  folded: boolean
+  onToggle: () => void
+  /** what the fold line counts ("8 modules · 7 cables") */
+  untouched: { modules: number; cables: number }
+  /** the drop's Undo is still offered (the legend names Mod+Z) */
+  undo: boolean
+}
+
+export function Rack({ ctx, layout, onFuse, band }: { ctx: RackCtx; layout: Layout; onFuse: (key: string) => void; band?: RackBand | null }) {
   const bench = useRef<HTMLDivElement>(null)
   const t = ctx.words.t
   const selectedFuse = usePbUI((s) => s.fuse)
@@ -121,22 +177,49 @@ export function Rack({ ctx, layout, onFuse }: { ctx: RackCtx; layout: Layout; on
     el.focus({ preventScroll: true })
     el.scrollIntoView({ block: 'nearest', inline: 'nearest' })
   }
-  const byCol = useMemo(() => {
-    const out = new Map<Column, Array<{ slot: Slot; i: number }>>()
-    layout.slots.forEach((slot, i) => {
-      const list = out.get(slot.col) ?? []
-      list.push({ slot, i })
-      out.set(slot.col, list)
-    })
-    for (const list of out.values()) list.sort((a, b) => a.slot.row - b.slot.row)
-    return out
-  }, [layout])
   const clear = (e: MouseEvent) => {
     if ((e.target as Element).closest('.pb-mod, .pb-flag, .pb-fold, .pb-bus, button, a')) return
     selectModule(null)
     lightNet(null)
   }
   const counts = ctx.model.counts
+  const bandMode = !!band
+  const partition = bandMode && band!.folded
+  const lists = (slots: Array<{ slot: Slot; i: number }>, key: string, shift: (s: Slot, i: number) => Slot) =>
+    COLS.map((col) => (
+      <div key={`${key}${col}`} className="pb-col" role="list" aria-label={t(`${P}.a11y.column`, { n: col, name: ctx.words.colName(col) })} data-col={col}>
+        {slots
+          .filter((x) => x.slot.col === col)
+          .sort((a, b) => a.slot.row - b.slot.row)
+          .map(({ slot, i }, j) => (
+            <div key={slot.id} className="pb-li" role="listitem">
+              <SlotView slot={shift(slot, j)} i={i} />
+            </div>
+          ))}
+      </div>
+    ))
+  // the column heads during the setup: "2 + 1 new · 3 idle" — every real module of the column (drawn or folded), the
+  // ghosts as new, the idle ones
+  const bandCount = (col: Column) => {
+    const of = ctx.model.modules.filter((m) => m.col === col)
+    const ghosts = of.filter((m) => m.tags.includes('ghost')).length
+    const idle = of.filter((m) => m.idle).length
+    const real = of.length - ghosts - idle
+    return [`${real}${ghosts ? ` ${t(`${P}.band.new`, { n: ghosts })}` : ''}`, ...(idle ? [t(`${P}.col.idle`, { n: idle })] : [])].join(' · ')
+  }
+  const heads = COLS.map((col) => (
+    <div key={`h${col}`} className="pb-colh" style={{ gridColumn: col * 2 - 1, gridRow: 1 }} data-testid={`pb-colh-${col}`}>
+      <span className="label pb-colh__n">§ 0{col}</span>
+      <span className="label pb-colh__name">{ctx.words.colName(col)}</span>
+      <span className="pb-colh__rule" aria-hidden="true" />
+      <span className="label pb-colh__count">{bandMode ? bandCount(col) : ctx.words.colCount(layout.cols[col])}</span>
+    </div>
+  ))
+  const indexed = layout.slots.map((slot, i) => ({ slot, i }))
+  const inBand = partition ? indexed.filter((x) => x.slot.kind !== 'fold') : indexed
+  // each column's folds in the layout's order (what the profile does not touch first)
+  const folds = partition ? indexed.filter((x) => x.slot.kind === 'fold') : []
+  const bandRows = Math.max(1, ...inBand.map((x) => x.slot.row + x.slot.span - 1))
   return (
     <RackContext.Provider value={ctx}>
       <div className="pb-bench" ref={bench} data-testid="pb-bench">
@@ -145,26 +228,39 @@ export function Rack({ ctx, layout, onFuse }: { ctx: RackCtx; layout: Layout; on
           <p id="pb-rack-hint" className="visually-hidden">
             {t(`${P}.rack.hint`)}
           </p>
-          <div className="pb-grid" style={{ gridTemplateRows: `auto repeat(${Math.max(1, layout.rows)}, auto)` }}>
-            {COLS.map((col) => (
-              <div key={`h${col}`} className="pb-colh" style={{ gridColumn: col * 2 - 1, gridRow: 1 }} data-testid={`pb-colh-${col}`}>
-                <span className="label pb-colh__n">§ 0{col}</span>
-                <span className="label pb-colh__name">{ctx.words.colName(col)}</span>
+          {bandMode ? (
+            <>
+              <div className="pb-grid pb-grid--heads">{heads}</div>
+              <div className="pb-band" role="group" aria-label={band!.aria} data-testid="pb-band">
+                {band!.head}
+                {/* the band's rows are the layout's (row 1 = its first content row: the heads sit above the band) */}
+                <div className="pb-grid pb-grid--band" style={{ gridTemplateRows: `repeat(${bandRows}, auto)` }}>
+                  {lists(inBand, 'b', (slot) => ({ ...slot, row: slot.row - 1 }))}
+                </div>
+                {band!.plate}
+              </div>
+              <div className="pb-untouched" data-testid="pb-untouched">
+                <span className="label pb-untouched__t">{t(`${P}.band.untouched`, { m: band!.untouched.modules, c: band!.untouched.cables })}</span>
                 <span className="pb-colh__rule" aria-hidden="true" />
-                <span className="label pb-colh__count">{ctx.words.colCount(layout.cols[col])}</span>
+                <button type="button" className="pb-untouched__key" aria-expanded={!band!.folded} title={t(`${P}.band.foldedTitle`)} onClick={band!.onToggle} data-testid="pb-untouched-key">
+                  <CornerDownLeft size={11} strokeWidth={1.9} aria-hidden="true" />
+                  <span className="label">{t(band!.folded ? `${P}.band.unfold` : `${P}.band.fold`)}</span>
+                </button>
               </div>
-            ))}
-            {COLS.map((col) => (
-              <div key={col} className="pb-col" role="list" aria-label={t(`${P}.a11y.column`, { n: col, name: ctx.words.colName(col) })} data-col={col}>
-                {(byCol.get(col) ?? []).map(({ slot, i }) => (
-                  <div key={slot.id} className="pb-li" role="listitem">
-                    <SlotView slot={slot} i={i} />
-                  </div>
-                ))}
-              </div>
-            ))}
-          </div>
-          {ctx.model.edges.length > 0 && <Legend />}
+              {partition && folds.length > 0 && (
+                <div className="pb-grid pb-grid--folds" data-testid="pb-band-folds">
+                  {/* each column's folds one under the other: what the profile does not touch first */}
+                  {lists(folds, 'f', (slot, j) => ({ ...slot, row: j }))}
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="pb-grid" style={{ gridTemplateRows: `auto repeat(${Math.max(1, layout.rows)}, auto)` }}>
+              {heads}
+              {lists(indexed, '', (slot) => slot)}
+            </div>
+          )}
+          {ctx.model.edges.length > 0 && <Legend band={bandMode ? { undo: band!.undo } : null} />}
         </section>
         <Wires bench={bench} layout={layout} model={ctx.model} lit={ctx.lit} fuseEdges={ctx.marks.edges} fuses={glyphs} active={active} onFuse={onFuse} t={t} />
       </div>

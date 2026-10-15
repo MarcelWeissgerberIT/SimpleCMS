@@ -4,8 +4,9 @@
  * profile here" chip. The keys never wrap and the h1 never shrinks for them: when they do not fit they collapse into a
  * "⋯" menu — measured, never guessed from the width (a German head needs more room than an English one):
  *   full: every key · menu: the filter stays, the rest goes into ⋯ · tight: ⋯ alone (the filter opens from it too).
- * The drop chip (B12 brings the drop and the file picker) opens Workspace › Integrations meanwhile; viewers never see
- * it. The Patching switch (P4) joins in B16.
+ * The drop chip (B12) opens its menu — Choose a file · Paste — or, for a team member without the rights, who can drop
+ * a profile (DropFlow.tsx DropChip); it is hidden while a setup band is on and for viewers. The Patching switch (P4)
+ * joins in B16.
  */
 import { forwardRef, useLayoutEffect, useRef, useState, type MouseEvent } from 'react'
 import { Ellipsis, FileJson, List, ListFilter, Maximize2 } from 'lucide-react'
@@ -24,7 +25,8 @@ type Tier = (typeof TIERS)[number]
 export interface HeadKeys {
   asList: () => void
   picture: ((from: HTMLElement | null) => void) | null
-  drop: (() => void) | null
+  /** the drop chip's menu, opened at the key pressed (the chip, or ⋯ when the head folded it) */
+  drop: ((from: HTMLElement | null) => void) | null
 }
 
 export const Header = forwardRef<HTMLHeadingElement, { t: Translate; input: ModelInput | null; filter: FilterPreset | null; profiles: string[]; hasFuses: boolean; keys: HeadKeys; width: number }>(function Header({ t, input, filter, profiles, hasFuses, keys, width }, h1) {
@@ -61,7 +63,7 @@ export const Header = forwardRef<HTMLHeadingElement, { t: Translate; input: Mode
     { label: t(`${P}.asList`), icon: <List size={14} />, onSelect: keys.asList },
     ...(tier === 'tight' && input ? [{ label: filterLabel(t, filter, input), icon: <ListFilter size={14} />, onSelect: () => setFilterAt(moreBtn.current) }] : []),
     ...(keys.picture ? [{ label: t(`${P}.picture`), icon: <Maximize2 size={14} />, onSelect: () => keys.picture!(moreBtn.current) }] : []),
-    ...(keys.drop ? [{ label: t(`${P}.drop`), icon: <FileJson size={14} />, onSelect: keys.drop }] : []),
+    ...(keys.drop ? [{ label: t(`${P}.drop`), icon: <FileJson size={14} />, onSelect: () => keys.drop!(moreBtn.current) }] : []),
   ]
 
   return (
@@ -86,7 +88,7 @@ export const Header = forwardRef<HTMLHeadingElement, { t: Translate; input: Mode
         </button>
       )}
       {tier === 'full' && keys.drop && (
-        <button type="button" className="pb-drop" title={t(`${P}.dropTitle`)} onClick={keys.drop} data-testid="pb-drop">
+        <button type="button" className="pb-drop" title={t(`${P}.dropTitle`)} aria-haspopup="true" onClick={(e) => keys.drop!(e.currentTarget)} data-testid="pb-drop">
           <FileJson size={14} strokeWidth={1.7} aria-hidden="true" />
           {t(`${P}.drop`)}
         </button>

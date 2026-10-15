@@ -6,7 +6,7 @@
  * Below: what is unlocked on THIS device (it depends on this device's MCP servers).
  */
 import { useMemo, useRef, useState } from 'react'
-import { ChevronDown, Download, FileUp, Pencil, Plus, Trash2 } from 'lucide-react'
+import { Cable, ChevronDown, Download, FileUp, Pencil, Plus, Trash2 } from 'lucide-react'
 import { useWorkspace } from '../../../store/store'
 import { useUI } from '../../../store/ui'
 import { exportIntegration, localized, unlockedBy } from '../../../store/integrations'
@@ -41,7 +41,11 @@ function download(profile: IntegrationProfile) {
   window.setTimeout(() => URL.revokeObjectURL(url), 30_000)
 }
 
-export function IntegrationsPanel() {
+/**
+ * `onSetup` (the shell passes the Patchbay's opener): a "Set up in the Patchbay" key per profile — it opens that
+ * profile's setup lamps (and a setup strip closed with ×); it only reads, so every member has it.
+ */
+export function IntegrationsPanel({ onSetup }: { onSetup?: (profileId: string) => void } = {}) {
   const t = useT()
   const lang = useLang()
   const states = useIntegrationStatuses()
@@ -119,6 +123,11 @@ export function IntegrationsPanel() {
                   <button type="button" className="btn btn--sm btn--ghost" onClick={() => open(canEdit ? 'edit' : 'view', stringify(exportIntegration(p)), p.id)} aria-label={`${t(canEdit ? 'features.integrations.edit' : 'features.integrations.view')}: ${p.name}`}>
                     <Pencil size={13} strokeWidth={1.75} aria-hidden /> {t(canEdit ? 'features.integrations.edit' : 'features.integrations.view')}
                   </button>
+                  {onSetup && (
+                    <button type="button" className="btn btn--sm btn--ghost" onClick={() => onSetup(p.id)} title={t('features.integrations.setUpTitle')} aria-label={`${t('features.integrations.setUp')}: ${p.name}`} data-testid="int-setup">
+                      <Cable size={13} strokeWidth={1.75} aria-hidden /> {t('features.integrations.setUp')}
+                    </button>
+                  )}
                   <button type="button" className="btn btn--sm btn--ghost" onClick={() => download(p)} aria-label={`${t('features.integrations.export')}: ${p.name}`}>
                     <Download size={13} strokeWidth={1.75} aria-hidden /> {t('features.integrations.export')}
                   </button>

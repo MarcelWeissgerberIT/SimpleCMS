@@ -73,6 +73,8 @@ export function buildCommands(t: Translate, pageId: ID | null): Command[] {
     // the Patchbay (features/patchbay): the rack; "next fuse" only while one is open (the readout's numbers — counts.ts)
     { id: 'patchbay', group: 'navigate', label: t('features.patchbay.cmd.open'), icon: Cable, keywords: t('features.patchbay.cmd.keywords'), run: () => openPatchbay() },
     ...nextFuse(t),
+    // a profile's setup lamps in the Patchbay (B12): the band in full — it only reads, so viewers have it too
+    ...(ws.integrations ?? []).map((p) => ({ id: `patchbay-setup:${p.id}`, group: 'navigate' as const, label: t('features.patchbay.cmd.setup', { name: p.name }), icon: Cable, keywords: t('features.patchbay.cmd.setupKeywords'), run: () => openPatchbay({ setup: p.id, band: true }) })),
     { id: 'kit', group: 'navigate', label: t('features.kit.cmd.open'), icon: Blocks, keywords: 'building blocks kit lists own property types record types shared list bausteine listen eigene typen datensatz', run: () => { closeMobileSidebar(); navigate({ name: 'kit' }) } },
     { id: 'outbox', group: 'navigate', label: t('features.outbox.cmd.open'), icon: Send, keywords: 'outbox send slips receipts reply ticket ausgang senden zettel quittungen antworten', run: () => openOutbox() },
     { id: 'coding', group: 'navigate', label: t('features.coding.cmd.open'), icon: GitBranch, keywords: 'coding pipeline claude code worker branch worktree tasks repo programmieren aufgaben', run: () => { closeMobileSidebar(); navigate({ name: 'coding' }) } },

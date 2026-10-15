@@ -10,6 +10,7 @@
 import { navigate, routeHref, type Route } from '../../lib/router'
 import { useUI } from '../../store/ui'
 import { patchbayCounts } from './counts'
+import { markSetupVisit } from './setup/record'
 
 export interface OpenPatchbayOptions {
   /** focus this module (ref.ts moduleKey) */
@@ -20,6 +21,11 @@ export interface OpenPatchbayOptions {
   next?: boolean
   /** open this integration profile's setup */
   setup?: string
+  /**
+   * B12: show that setup's band in full for this visit ("Set up in the Patchbay", ⌘K) — without it the page shows the
+   * one-line strip of a setup it remembers (the way back from a lamp step keeps the band of the visit it left)
+   */
+  band?: true
 }
 
 /** The fuse the open page shows (its fuse list's selected row; null: the page is closed). */
@@ -53,6 +59,7 @@ export function openPatchbay(opts: OpenPatchbayOptions = {}): void {
   if (ui.modal) ui.closeModal()
   if (ui.paletteOpen) ui.closePalette()
   if (ui.mobileSidebarOpen) ui.setMobileSidebar(false)
+  if (opts.setup && opts.band) markSetupVisit(opts.setup)
   const f = opts.next ? nextFuse() : opts.f
   const route: Route = { name: 'patchbay', ...(opts.m ? { m: opts.m } : {}), ...(f ? { f } : {}), ...(opts.setup ? { setup: opts.setup } : {}) }
   if (window.location.hash === routeHref(route) && asks.size) {

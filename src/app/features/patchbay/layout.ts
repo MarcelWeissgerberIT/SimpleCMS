@@ -938,7 +938,8 @@ export function layoutRack(model: Model, opts: LayoutOptions = {}): Layout {
   const pathOf = new Map<ModuleKey, string[]>()
   for (const f of fuses) for (const k of chainModules(f.chain, model)) pathOf.set(k, [...(pathOf.get(k) ?? []), f.key])
   for (const col of [1, 2, 3] as const)
-    for (const w of ['idle', 'off', 'filter', 'setup'] as const) {
+    // what the profile does not touch first (the band's fold line names it first), then idle, off, hidden
+    for (const w of ['setup', 'idle', 'off', 'filter'] as const) {
       const mods = model.modules.filter((m) => m.col === col && why.get(m.key) === w).map((m) => m.key)
       if (!mods.length) continue
       const id = foldId(w, col)

@@ -2599,6 +2599,861 @@ html[data-pb-noblink] .pb [data-blink] {
   letter-spacing: 0.02em;
 }
 
+/* ================================================================
+   B12 — the profile drop and the setup band (plan §1.12, §3.7, mock-2):
+   the drop zone, the error / replace plate, the strip of later visits,
+   the band (its tab, Undo / "Close setup"), ghost modules and their
+   step chips, § 00 the lamps (a row, or one under the other), the fold
+   line of what the profile does not touch, the phone's card, the paste
+   dialog and the popovers. Ink only — the next lamp's key is the page's
+   one primary key; orange stays a fuse's.
+   ================================================================ */
+
+/* ---------- the bench's frame: the drop zone lies over it ---------- */
+.pb-benchwrap {
+  position: relative;
+}
+.pb-dropzone {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  display: grid;
+  place-items: center;
+  min-height: calc(160px * var(--text-scale));
+  border: 2px dashed var(--ink-2);
+  border-radius: var(--radius-2);
+  background: color-mix(in srgb, var(--surface) 82%, transparent);
+  pointer-events: none;
+}
+.pb-dropzone[data-kind='other'] {
+  border-color: var(--ink-3);
+}
+.pb-dropzone__say {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--rule-strong);
+  color: var(--ink);
+  font: 600 var(--text-xs) / 1.2 var(--font-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.pb-dropzone[data-kind='other'] .pb-dropzone__say {
+  color: var(--ink-2);
+}
+
+/* ---------- the plate under the head: a profile that was not added, or the replace question ---------- */
+.pb-dropplate {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 16px;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--rule-strong);
+  border-left: 3px solid var(--ink);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+}
+.pb-dropplate__h {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--text-sm);
+  font-weight: 650;
+}
+.pb-dropplate__h:focus {
+  outline: none;
+}
+.pb-dropplate__line {
+  grid-column: 1;
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}
+.pb-dropplate__list {
+  grid-column: 1;
+  margin: 2px 0 0;
+  padding: 0 0 0 18px;
+  color: var(--ink);
+  font-size: calc(12.5px * var(--text-scale));
+  line-height: 1.45;
+}
+.pb-dropplate__at {
+  margin-right: 8px;
+  color: var(--ink-3);
+  font: 600 var(--text-2xs) / 1 var(--font-mono);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.pb-dropplate__more {
+  list-style: none;
+  color: var(--ink-3);
+}
+.pb-dropplate__keys {
+  grid-column: 2;
+  grid-row: 1 / span 3;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+/* ---------- the strip of later visits: one line above the rack ---------- */
+.pb-sstrip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  margin-top: 8px;
+  padding: 5px 6px 5px 12px;
+  border: 1px dashed var(--ink-2);
+  border-radius: var(--radius-1);
+  background: color-mix(in srgb, var(--surface) 60%, transparent);
+}
+.pb-sstrip__t {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font: 600 var(--text-xs) / 1.3 var(--font-mono);
+  letter-spacing: 0.05em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.btn.pb-sstrip__key {
+  flex: none;
+  gap: 7px;
+}
+.pb-sstrip__no {
+  font: 700 var(--text-2xs) / 1 var(--font-mono);
+  letter-spacing: 0.04em;
+}
+.pb-sstrip__sp {
+  flex: 1;
+}
+.btn.pb-sstrip__open,
+.btn.pb-sstrip__x {
+  flex: none;
+}
+
+/* ---------- the band: the dropped profile on the rack ---------- */
+.pb-grid--heads {
+  grid-template-rows: auto;
+}
+.pb-band {
+  position: relative;
+  margin: 14px -6px 6px;
+  padding: 18px 6px 10px;
+  border: 1.5px dashed var(--ink-2);
+  border-radius: var(--radius-2);
+  background: color-mix(in srgb, var(--surface) 35%, transparent);
+}
+.pb-band__tab {
+  position: absolute;
+  top: calc(-11px * var(--text-scale));
+  left: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100% - 200px);
+  height: calc(21px * var(--text-scale));
+  padding: 0 8px;
+  overflow: hidden;
+  border-radius: var(--radius-1);
+  background: var(--ink);
+  color: var(--surface);
+  font: 600 var(--text-2xs) / 1 var(--font-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.pb-band__tab svg {
+  flex: none;
+}
+.pb-band__tabdim {
+  min-width: 0;
+  overflow: hidden;
+  opacity: 0.78;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-overflow: ellipsis;
+  text-transform: none;
+}
+.pb-band__undo {
+  position: absolute;
+  top: calc(-12px * var(--text-scale));
+  right: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: calc(23px * var(--text-scale));
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--rule-strong);
+  color: var(--ink);
+  font: inherit;
+  font-size: calc(12px * var(--text-scale));
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.pb-band__undo:hover {
+  box-shadow: inset 0 0 0 1px var(--ink-2);
+}
+.pb-band__undo:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--ink), var(--focus-ring);
+}
+.pb-band__undo .kbd {
+  height: calc(17px * var(--text-scale));
+}
+.pb-grid.pb-grid--band {
+  position: relative;
+}
+.pb-grid.pb-grid--folds {
+  row-gap: 5px;
+}
+.pb-grid--folds .pb-fold {
+  align-self: stretch;
+}
+/* "Not touched by the profile · 8 modules · 7 cables folded" — ↵ unfolds */
+.pb-untouched {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 2px 6px;
+}
+.pb-untouched .label.pb-untouched__t {
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.pb-untouched__key {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  min-height: calc(24px * var(--text-scale));
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.pb-untouched__key:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+.pb-untouched__key .label {
+  color: inherit;
+}
+
+/* ---------- ghosts: a module a setup lamp will make — dotted, no screws, its lamps' step chips ---------- */
+.pb-mod[data-ghost] {
+  border: 1.5px dotted var(--ink-3);
+  background: transparent;
+  box-shadow: none;
+}
+.pb-mod[data-ghost] .pb-sc {
+  display: none;
+}
+.pb-mod[data-ghost] .pb-mod__n {
+  color: var(--ink-2);
+}
+.pb-mod[data-ghost] .pb-jack {
+  background: transparent;
+  box-shadow: 0 0 0 1.5px var(--ink-3);
+}
+.pb-mod[data-ghost]:focus-visible {
+  box-shadow: var(--focus-ring);
+}
+.pb-step {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  min-width: calc(22px * var(--text-scale));
+  height: calc(17px * var(--text-scale));
+  padding: 0 3px;
+  border-radius: 2px;
+  box-shadow: inset 0 0 0 1px var(--ink-3);
+  color: var(--ink-2);
+  font: 700 var(--text-2xs) / 1 var(--font-mono);
+  letter-spacing: 0.02em;
+}
+/* the lamp worked on now: an ink chip (never orange) */
+.pb-step[data-next] {
+  background: var(--ink);
+  box-shadow: none;
+  color: var(--surface);
+}
+.pb-win.pb-win--ghost {
+  background: var(--surface);
+  color: var(--ink-2);
+}
+.pb-lg-line--planned {
+  stroke: var(--ink-2);
+  stroke-width: 2.2;
+  stroke-dasharray: 0.1 5;
+  stroke-linecap: round;
+}
+.pb-lg-ghost {
+  fill: none;
+  stroke: var(--ink-3);
+  stroke-width: 1.5;
+  stroke-dasharray: 1.5 2;
+}
+.pb-strand[data-ghost] {
+  border-style: dotted;
+  border-color: var(--ink-3);
+  background: transparent;
+}
+
+/* ---------- § 00 — the lamps ---------- */
+.pb-setup {
+  position: relative;
+  margin-top: 10px;
+  padding: 11px 14px 12px;
+  border: 1px solid color-mix(in srgb, var(--ink) 26%, transparent);
+  border-radius: var(--radius-2);
+  background: var(--surface);
+}
+:root[data-theme='dark'] .pb-setup {
+  background: color-mix(in srgb, var(--ink) 5%, var(--surface));
+}
+.pb-setup__h {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.pb-setup__h .label {
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+/* the § number: ink like the rack's — orange stays a fuse's */
+.pb-setup__h .label.pb-setup__n {
+  color: var(--ink);
+  font-weight: 700;
+}
+.label.pb-setup__title {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pb-setup__h .label.pb-setup__count {
+  color: var(--ink);
+  font-weight: 700;
+}
+.pb-setup__foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px solid var(--rule);
+}
+.pb-setup__foot p {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: calc(13px * var(--text-scale));
+}
+.pb-setup__ficon {
+  flex: none;
+  color: var(--ink-3);
+}
+.pb-setup__sp {
+  flex: 1;
+}
+.btn.pb-setup__what {
+  flex: none;
+  gap: 7px;
+}
+
+/* the recipe tabs (two or more recipes) */
+.pb-rtabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 8px;
+}
+.pb-rtab {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: calc(28px * var(--text-scale));
+  padding: 0 10px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+.pb-rtab[aria-selected='true'] {
+  border-color: var(--ink);
+  box-shadow: inset 0 -2px 0 var(--ink);
+  color: var(--ink);
+}
+.pb-rtab:focus-visible {
+  outline: none;
+  box-shadow: inset 0 -2px 0 var(--ink), var(--focus-ring);
+}
+.pb-rtab__n {
+  color: var(--ink-3);
+  font: 600 var(--text-2xs) / 1 var(--font-mono);
+}
+
+/* the row of lamps: sockets on a line, the green run filled */
+.pb-lampsbox {
+  position: relative;
+  margin-top: 10px;
+}
+.pb-lamps {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(var(--n, 7), minmax(0, 1fr));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pb-lamps__line {
+  position: absolute;
+  left: calc(50% / var(--n, 7));
+  right: calc(50% / var(--n, 7));
+  top: calc(21px * var(--text-scale));
+  height: 2px;
+  background: var(--rule-strong);
+}
+.pb-lamps__line i {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: var(--pb-ok);
+}
+.pb-lamp {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+  padding: 0 6px;
+  text-align: center;
+}
+.pb-lamp__sock {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: calc(44px * var(--text-scale));
+  height: calc(44px * var(--text-scale));
+  border-radius: 50%;
+  background: var(--screw-head);
+  box-shadow: 0 0 0 1px var(--plate-edge), inset 0 1px 0 var(--plate-hi);
+}
+.pb-lamp__sock::before {
+  content: '';
+  width: 59%;
+  height: 59%;
+  border-radius: 50%;
+  background: var(--toggle-window);
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--toggle-white) 10%, transparent);
+}
+.pb-lamp__sock::after {
+  content: '';
+  position: absolute;
+  width: 23%;
+  height: 23%;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--toggle-white) 12%, transparent);
+}
+/* done: a filled dot (shape AND colour — never colour alone) */
+.pb-lamp[data-s='ok'] .pb-lamp__sock::before {
+  background: var(--pb-ok);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--pb-ok) 28%, transparent), inset 0 0 0 2px color-mix(in srgb, var(--toggle-black) 18%, transparent);
+}
+.pb-lamp[data-s='ok'] .pb-lamp__sock::after {
+  background: color-mix(in srgb, var(--toggle-white) 45%, transparent);
+}
+/* the lamp worked on: an ink ring around the socket (orange stays the fuse's) */
+.pb-lamp[data-s='next'] .pb-lamp__sock,
+.pb-lamp[data-s='busy'] .pb-lamp__sock {
+  box-shadow: 0 0 0 1px var(--plate-edge), 0 0 0 4px var(--surface), 0 0 0 6px var(--ink);
+}
+.pb-lamp[data-s='busy'] .pb-lamp__sock::before {
+  background: var(--lamp-amber);
+}
+.pb-lamp__body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+}
+.pb-lamp__head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: 8px;
+}
+.pb-lamp__no {
+  color: var(--ink-3);
+  font: 700 var(--text-2xs) / 1 var(--font-mono);
+  letter-spacing: 0.06em;
+}
+.pb-lamp__name {
+  order: 1;
+  margin-top: 3px;
+  color: var(--ink);
+  font: 700 var(--text-xs) / 1.1 var(--font-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.pb-lamp[data-s='dark'] .pb-lamp__name {
+  color: var(--ink-3);
+}
+/* the state as words (DONE / NEXT / LATER) — small, under the name */
+.pb-lamp__head .label.pb-lamp__st {
+  order: 2;
+  margin-top: 3px;
+  color: var(--ink-3);
+  font-size: var(--text-2xs);
+}
+.pb-lamp[data-s='next'] .label.pb-lamp__st,
+.pb-lamp[data-s='busy'] .label.pb-lamp__st {
+  color: var(--ink);
+  font-weight: 700;
+}
+.pb-lamp__say {
+  min-height: 4.2em;
+  margin-top: 5px;
+  color: var(--ink-2);
+  font-size: calc(12.5px * var(--text-scale));
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.pb-lamp__say b {
+  color: var(--ink);
+  font-weight: 600;
+}
+.pb-lamp__trace {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 2px;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: 0.02em;
+}
+.btn.pb-lamp__key {
+  gap: 7px;
+  max-width: 100%;
+  margin-top: 8px;
+  white-space: nowrap;
+}
+.btn.pb-lamp__key .kbd.pb-lamp__kbd {
+  height: calc(16px * var(--text-scale));
+  min-width: calc(16px * var(--text-scale));
+  padding: 0 3px;
+}
+.btn.pb-lamp__key--later {
+  border-style: dashed;
+  background: transparent;
+  box-shadow: none;
+  color: var(--ink-3);
+  cursor: default;
+}
+/* a green lamp opens its step as a quiet link (no primary, no digit) */
+.pb-lamp__link {
+  margin-top: 4px;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: calc(12px * var(--text-scale));
+  text-decoration: underline 1px color-mix(in srgb, var(--ink) 30%, transparent);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.pb-lamp__link:hover {
+  color: var(--ink);
+}
+.pb-lamp__link:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+/* one under the other (below 960 px × the text size, the phone's card): socket | words, the line runs down */
+.pb-lampsbox[data-v] .pb-lamps {
+  display: flex;
+  flex-direction: column;
+}
+.pb-lampsbox[data-v] .pb-lamps__line {
+  left: calc(17px * var(--text-scale));
+  right: auto;
+  top: calc(18px * var(--text-scale));
+  bottom: calc(30px * var(--text-scale));
+  width: 2px;
+  height: auto;
+}
+.pb-lampsbox[data-v] .pb-lamps__line i {
+  right: 0;
+  bottom: auto;
+}
+.pb-lampsbox[data-v] .pb-lamp {
+  display: grid;
+  grid-template-columns: calc(36px * var(--text-scale)) minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  padding: 6px 0;
+  text-align: left;
+}
+.pb-lampsbox[data-v] .pb-lamp__sock {
+  width: calc(36px * var(--text-scale));
+  height: calc(36px * var(--text-scale));
+}
+.pb-lampsbox[data-v] .pb-lamp__body {
+  align-items: stretch;
+}
+.pb-lampsbox[data-v] .pb-lamp__head {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin-top: 4px;
+}
+.pb-lampsbox[data-v] .pb-lamp__no {
+  display: inline-grid;
+  place-items: center;
+  min-width: calc(22px * var(--text-scale));
+  height: calc(18px * var(--text-scale));
+  padding: 0 3px;
+  border-radius: 2px;
+  box-shadow: inset 0 0 0 1px var(--ink-3);
+  color: var(--ink-2);
+}
+.pb-lampsbox[data-v] .pb-lamp__no[data-next] {
+  background: var(--ink);
+  box-shadow: none;
+  color: var(--surface);
+}
+.pb-lampsbox[data-v] .pb-lamp__name {
+  margin-top: 0;
+}
+.pb-lampsbox[data-v] .pb-lamp__head .label.pb-lamp__st {
+  margin-top: 0;
+}
+.pb-lampsbox[data-v] .pb-lamp__say {
+  min-height: 0;
+  margin-top: 3px;
+  font-size: calc(13.5px * var(--text-scale));
+}
+.pb-lampsbox[data-v] .btn.pb-lamp__key {
+  justify-content: center;
+  width: 100%;
+  min-height: 40px;
+  white-space: normal;
+}
+.pb-lampsbox[data-v] .pb-lamp__link {
+  align-self: flex-start;
+  min-height: 32px;
+}
+@media (hover: none) and (pointer: coarse) {
+  .btn.pb-lamp__key .kbd.pb-lamp__kbd,
+  .pb-band__undo .kbd {
+    display: none;
+  }
+}
+
+/* ---------- popovers: "What does 04 create?", who may drop a profile ---------- */
+.pb-what__in,
+.pb-members__in {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: min(340px, calc(100vw - 32px));
+  max-height: min(60vh, calc(460px * var(--text-scale)));
+  padding: 12px 14px;
+  overflow: auto;
+}
+.pb-what__in p,
+.pb-members__in p {
+  margin: 0;
+}
+.label.pb-what__h,
+.label.pb-what__sub,
+.label.pb-members__sub {
+  color: var(--ink-2);
+}
+.pb-what__line,
+.pb-members__line {
+  color: var(--ink);
+  font-size: var(--text-sm);
+}
+.pb-members__h {
+  color: var(--ink);
+  font-size: var(--text-sm);
+  font-weight: 650;
+}
+.pb-what__list,
+.pb-members__list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pb-what__list li,
+.pb-members__list li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  font-size: calc(12.5px * var(--text-scale));
+}
+.pb-members__list li {
+  align-items: center;
+}
+.pb-what__n,
+.pb-members__name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pb-what__t {
+  flex: none;
+  color: var(--ink-3);
+  font: 600 var(--text-2xs) / 1.2 var(--font-mono);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.pb-what__foot {
+  padding-top: 6px;
+  border-top: 1px solid var(--rule);
+  color: var(--ink-2);
+  font-size: calc(12px * var(--text-scale));
+}
+
+/* ---------- the paste dialog ---------- */
+.pb-paste {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.pb-paste__hint,
+.pb-paste__said,
+.pb-paste__ask {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}
+.pb-paste__said {
+  color: var(--ink);
+}
+.pb-paste__ask b {
+  color: var(--ink);
+}
+
+/* ---------- the phone: the band as a card with the lamps one under the other ---------- */
+.pb-scard {
+  position: relative;
+  margin-top: 18px;
+  padding: 16px 12px 14px;
+  border: 1.5px dashed var(--ink-2);
+  border-radius: var(--radius-2);
+  background: var(--surface);
+}
+.pb-scard__top .pb-band__tab {
+  left: 10px;
+  max-width: calc(100% - 150px);
+}
+.pb-scard__top .pb-band__undo {
+  right: 10px;
+}
+.pb-scard__h {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+.pb-scard__h .label {
+  color: var(--ink-2);
+}
+.label.pb-scard__id {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pb-scard__h .label.pb-scard__count b {
+  color: var(--ink);
+}
+.pb-scard__sp {
+  flex: 1;
+}
+.pb-fold.pb-fold--names .pb-fold__names {
+  white-space: normal;
+}
+/* the band's fold line: what the profile does not touch — the count, every name wrapped (never cut), the tags */
+.pb-fold.pb-fold--setup {
+  align-self: stretch;
+  cursor: default;
+}
+.pb-fold.pb-fold--setup:hover {
+  background: transparent;
+}
+.pb-fold--setup .pb-fold__names {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.pb-fold--setup:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.pb-scard .pb-band__tabdim {
+  display: none;
+}
+
+@media (forced-colors: active) {
+  .pb-lamp[data-s='ok'] .pb-lamp__sock::before {
+    background: CanvasText;
+  }
+  .pb-lamp[data-s='next'] .pb-lamp__sock,
+  .pb-lamp[data-s='busy'] .pb-lamp__sock {
+    outline: 2px solid Highlight;
+    outline-offset: 3px;
+  }
+  .pb-lamps__line i {
+    background: CanvasText;
+  }
+  .pb-mod[data-ghost],
+  .pb-band,
+  .pb-sstrip {
+    border-color: CanvasText;
+  }
+  .pb-step[data-next] {
+    forced-color-adjust: none;
+    background: CanvasText;
+    color: Canvas;
+  }
+}
+
 /* ---------- small screens ---------- */
 @media (max-width: 760px) {
   .pb {
@@ -2620,6 +3475,21 @@ html[data-pb-noblink] .pb [data-blink] {
   }
   .pb-ro__cell {
     padding: 0 10px;
+  }
+  .pb-dropplate {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .pb-dropplate__keys {
+    grid-column: 1;
+    grid-row: auto;
+  }
+  .pb-sstrip {
+    flex-wrap: wrap;
+  }
+  .btn.pb-sstrip__key,
+  .btn.pb-sstrip__open,
+  .btn.pb-sstrip__x {
+    min-height: 40px;
   }
 }
 

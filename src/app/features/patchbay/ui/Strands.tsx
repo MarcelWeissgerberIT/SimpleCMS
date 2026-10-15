@@ -16,8 +16,14 @@
  *    (a place: its page). No patching here; hit targets ≥ 40 px.
  * `?m=` (Patchbay.tsx) lands on the strand's name key and marks the card (`data-selected`, ink); a module without a
  * strand of its own on a line that names it (`data-key`) or its name under "Not processed".
+ *
+ * B12 — a profile's setup (§3.8, mock-2): in the drop visit the list is the setup's — the band's card with the lamps
+ * one under the other, "§ 01 What gets created" (the recipe's planned processors as dotted strands, their lamps' step
+ * chips), "§ 02 Not touched · 8 modules folded" (every name listed; ↵ shows the strands), then the fuse cards. Later
+ * visits keep the normal list; a planned strand stays dotted in place.
  */
-import { useMemo, useRef, type MouseEvent } from 'react'
+import { useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react'
+import { ChevronDown, ChevronUp } from 'lucide-react'
 import { navigate } from '../../../lib/router'
 import { strandOrder } from '../layout'
 import { gitAction } from '../plain'
@@ -26,6 +32,7 @@ import { FuseCards } from './FuseList'
 import { edgesAt, moduleOfJack } from './lit'
 import { canOpen, openModule } from './open'
 import { SLOT, Slotted } from './slot'
+import { lampNo } from '../setup/keys'
 import { usePbUI } from './store'
 import type { FuseMarks, Words } from './words'
 
@@ -150,8 +157,9 @@ function openLine(l: Line, from: HTMLElement): void {
 
 const lineOpens = (l: Line): boolean => (l.target.kind === 'module' ? canOpen(l.target.m) : 'db' in l.target.place || 'page' in l.target.place)
 
-function StrandCard({ m, model, w, fuses, runs, running }: { m: Module; model: Model; w: Words; fuses: string[]; runs: number; running: boolean }) {
+function StrandCard({ m, model, w, fuses, runs, running, steps = [], next = null }: { m: Module; model: Model; w: Words; fuses: string[]; runs: number; running: boolean; steps?: number[]; next?: number | null }) {
   const t = w.t
+  const ghost = m.tags.includes('ghost')
   const nameKey = useRef<HTMLButtonElement>(null)
   const lines = useMemo(() => linesOf(model, w, m), [model, w, m])
   const opens = canOpen(m)
@@ -164,10 +172,10 @@ function StrandCard({ m, model, w, fuses, runs, running }: { m: Module; model: M
   }
   const knobs = m.knobs ? { model: w.knobModel(m).label, budget: w.knobBudget(m).label } : null
   return (
-    <article className="pb-strand" data-path={fuses.length ? '' : undefined} data-live={running || undefined} data-selected={selected || undefined} data-key={m.key} data-testid="pb-strand" onClick={onCard}>
+    <article className="pb-strand" data-path={fuses.length ? '' : undefined} data-live={running || undefined} data-selected={selected || undefined} data-ghost={ghost || undefined} data-key={m.key} data-testid="pb-strand" onClick={onCard}>
       <span className="pb-strand__h">
         <span className={running ? 'led led--on' : m.tags.includes('disabled') || worker?.led === 'off' ? 'led' : worker?.led === 'warn' ? 'led pb-led--warn' : 'led pb-led--ok'} aria-hidden="true" />
-        <span className="label">{w.kind(m)}</span>
+        <span className="label">{ghost ? `${w.kind(m)} · ${t(`${P}.ghost.planned`)}` : w.kind(m)}</span>
         {w.tags(m)
           .slice(0, 2)
           .map((x) => (
@@ -181,6 +189,11 @@ function StrandCard({ m, model, w, fuses, runs, running }: { m: Module; model: M
           </span>
         ))}
         <span className="pb-strand__sp" />
+        {steps.map((n) => (
+          <span key={n} className="pb-step" data-next={next === n || undefined} title={t(`${P}.ghost.step`, { n: lampNo(n) })}>
+            {lampNo(n)}
+          </span>
+        ))}
         {worker && (
           <span className="pb-win" data-worker={worker.led} title={worker.title} data-testid="pb-worker">
             {worker.word}
@@ -248,8 +261,19 @@ function LineBody({ l }: { l: Line }) {
   )
 }
 
-export function Strands({ model, input, words: w, marks, runs, running }: { model: Model; input: ModelInput; words: Words; marks: FuseMarks; runs: Record<ModuleKey, number>; running: readonly ModuleKey[] }) {
+/** The drop visit's list (B12): the band's card, what the recipe makes, what it does not touch. */
+export interface StrandsSetup {
+  card: ReactNode
+  /** the lamps that make or touch each module, and the one worked on */
+  chips: Record<ModuleKey, number[]>
+  next: number | null
+  /** the drop visit: the setup's list (null: later visits — the normal list, planned strands dotted in place) */
+  band: { untouched: ModuleKey[] } | null
+}
+
+export function Strands({ model, input, words: w, marks, runs, running, setup }: { model: Model; input: ModelInput; words: Words; marks: FuseMarks; runs: Record<ModuleKey, number>; running: readonly ModuleKey[]; setup?: StrandsSetup | null }) {
   const t = w.t
+  const [showAll, setShowAll] = useState(false)
   const root = useRef<HTMLDivElement>(null)
   const selectedKey = usePbUI((s) => s.selected)
   // the order is fixed for this visit (a run starting never reorders the list)
@@ -276,6 +300,49 @@ export function Strands({ model, input, words: w, marks, runs, running }: { mode
 
   return (
     <div className="pb-strands" role="region" aria-label={t(`${P}.strands.aria`)} data-testid="pb-strands" ref={root}>
+      {setup?.band ? (
+        <>
+          {setup.card}
+          <div className="pb-sh">
+            <span className="label pb-colh__n">§ 01</span>
+            <span className="label">{t(`${P}.setup.created`)}</span>
+            <span className="pb-colh__rule" aria-hidden="true" />
+          </div>
+          <ul className="pb-strands__list">
+            {strands
+              .filter((m) => m.tags.includes('ghost'))
+              .map((m) => (
+                <li key={m.key}>
+                  <StrandCard m={m} model={model} w={w} fuses={[]} runs={0} running={false} steps={setup.chips[m.key]} next={setup.next} />
+                </li>
+              ))}
+          </ul>
+          <div className="pb-sh">
+            <span className="label pb-colh__n">§ 02</span>
+            <span className="label">{t(setup.band.untouched.length === 1 ? `${P}.setup.untouchedShort.one` : `${P}.setup.untouchedShort`, { m: setup.band.untouched.length })}</span>
+            <span className="pb-colh__rule" aria-hidden="true" />
+          </div>
+          <button type="button" className="pb-fold pb-fold--names" aria-expanded={showAll} title={t(`${P}.band.foldedTitle`)} onClick={() => setShowAll(!showAll)} data-testid="pb-strands-untouched">
+            <span className="pb-fold__names">{setup.band.untouched.map((k) => (byKey.get(k) ? w.name(byKey.get(k)!) : k)).join(', ')}</span>
+            <span className="pb-fold__sp" />
+            <span className="visually-hidden">{t(showAll ? `${P}.band.fold` : `${P}.band.unfold`)}</span>
+            {showAll ? <ChevronUp size={14} strokeWidth={1.75} aria-hidden="true" /> : <ChevronDown size={14} strokeWidth={1.75} aria-hidden="true" />}
+          </button>
+          {showAll && (
+            <ul className="pb-strands__list">
+              {strands
+                .filter((m) => !m.tags.includes('ghost'))
+                .map((m) => (
+                  <li key={m.key}>
+                    <StrandCard m={m} model={model} w={w} fuses={marks.modules.get(m.key) ?? []} runs={runs[m.key] ?? 0} running={running.includes(m.key)} />
+                  </li>
+                ))}
+            </ul>
+          )}
+          <FuseCards model={model} input={input} words={w} />
+        </>
+      ) : (
+        <>
       <FuseCards model={model} input={input} words={w} />
       <div className="pb-sh">
         <span className="label pb-colh__n">§ 02</span>
@@ -287,7 +354,7 @@ export function Strands({ model, input, words: w, marks, runs, running }: { mode
       <ul className="pb-strands__list">
         {strands.map((m) => (
           <li key={m.key}>
-            <StrandCard m={m} model={model} w={w} fuses={marks.modules.get(m.key) ?? []} runs={runs[m.key] ?? 0} running={running.includes(m.key)} />
+            <StrandCard m={m} model={model} w={w} fuses={marks.modules.get(m.key) ?? []} runs={runs[m.key] ?? 0} running={running.includes(m.key)} steps={setup?.chips[m.key]} next={setup?.next ?? null} />
           </li>
         ))}
       </ul>
@@ -310,6 +377,8 @@ export function Strands({ model, input, words: w, marks, runs, running }: { mode
               </span>
             ))}
           </p>
+        </>
+      )}
         </>
       )}
       {/* the chip's slot: zero height, sticky at the foot of the view, there from page open — the chip floats in it */}

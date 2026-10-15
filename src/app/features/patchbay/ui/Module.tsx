@@ -10,7 +10,9 @@
  * (Rack.tsx — the module is one stop, `data-stop`, of a single tab stop); its jacks take the keyboard only through J.
  *
  * Variants: `data-path` (on an open fuse's path: the dashed signal frame — the only orange frame), blocked (hatched),
- * unknown here (a grey "?"), 2U (`data-u="2"`), dimmed while another module is selected.
+ * unknown here (a grey "?"), 2U (`data-u="2"`), dimmed while another module is selected; a ghost (B12, `data-ghost`: a
+ * module a setup lamp will make — dotted ink-3 edge, no screws, its lamps' step chips "04" (the one worked on now in
+ * ink), the window "not created" / a database's "24 fields").
  */
 import { memo, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type PointerEvent, type RefObject } from 'react'
 import { CornerDownLeft } from 'lucide-react'
@@ -25,6 +27,7 @@ import { Jack } from './Jack'
 import { edgesAt } from './lit'
 import { canOpen, openModule } from './open'
 import { useRack } from './RackContext'
+import { lampNo } from '../setup/keys'
 import { announce, noteTight, selectModule, setCursor, setHover, usePbUI } from './store'
 
 const P = 'features.patchbay'
@@ -105,7 +108,7 @@ function Knob({ v, ticks, label, value, onOpen, title }: { v: number; ticks: num
 }
 
 function ModuleView({ m, row, span, descId }: { m: ModuleT; row: number; span: 1 | 2; descId: string }) {
-  const { model, input, words: w, marks, lit, runs, costs, entry } = useRack()
+  const { model, input, words: w, marks, lit, runs, costs, entry, setup } = useRack()
   const t = w.t
   const selected = usePbUI((s) => s.selected === m.key)
   const ref = useRef<HTMLDivElement>(null)
@@ -124,6 +127,11 @@ function ModuleView({ m, row, span, descId }: { m: ModuleT; row: number; span: 1
   const isLit = !!lit && lit.modules.has(m.key)
   const n = runs[m.key] ?? 0
   const cost = costs[m.key]
+  // a profile's setup: the lamps that make or touch it ("01" "02" on its server, "04" on what lamp 04 makes)
+  const ghost = m.tags.includes('ghost')
+  const steps = setup?.chips[m.key] ?? []
+  const fields = setup?.fields[m.key]
+  const ghostWin = ghost ? (fields !== undefined ? t(fields === 1 ? `${P}.ghost.fields.one` : `${P}.ghost.fields`, { n: fields }) : m.kind === 'agent' ? t(`${P}.tag.ghost`) : null) : null
 
   // "Whole workspace" and a server known only at run time have no editor here: ↵ says so (and is not offered)
   const open = () => {
@@ -173,7 +181,7 @@ function ModuleView({ m, row, span, descId }: { m: ModuleT; row: number; span: 1
   // (the profile's id goes with them) … and last, the F tags fold into one group chip ("F2 · F3 · F4 +1", the glyph's
   // rule), then into the shortest ("F2 +4") — every label stays in the chip's title and in the description, never clipped
   const kRef = useRef<HTMLDivElement>(null)
-  const fit = useFitTier(kRef, fuses.length > 1 ? 5 : 3, `${w.lang}|${kind}|${tags.map((x) => x.text).join()}|${readNets.length}|${fuses.join()}|${m.profile ?? ''}`, netCut)
+  const fit = useFitTier(kRef, fuses.length > 1 ? 5 : 3, `${w.lang}|${kind}|${tags.map((x) => x.text).join()}|${readNets.length}|${fuses.join()}|${m.profile ?? ''}|${steps.join()}`, netCut)
   const fuseTitles = fuses.map((f) => t(`${P}.tag.fuseTitle`, { f })).join(' · ')
   // the jack labels give way before the rack does (a narrow name box): short, then none
   const bodyRef = useRef<HTMLDivElement>(null)
@@ -204,6 +212,7 @@ function ModuleView({ m, row, span, descId }: { m: ModuleT; row: number; span: 1
       data-blocked={blocked || undefined}
       data-unknown={unknown || undefined}
       data-jfit={jfit || undefined}
+      data-ghost={ghost || undefined}
       data-testid="pb-module"
       style={{ gridColumn: m.col * 2 - 1, gridRow: `${row + 1} / span ${span}` }}
       onClick={onClick}
@@ -226,6 +235,11 @@ function ModuleView({ m, row, span, descId }: { m: ModuleT; row: number; span: 1
         <div className="pb-mod__k" ref={kRef} data-fit={fit || undefined}>
           <span className={`led${off ? '' : worker?.led === 'warn' ? ' pb-led--warn' : ' pb-led--ok'}`} aria-hidden="true" />
           <span className="label pb-mod__kind">{kind}</span>
+          {steps.map((s) => (
+            <span key={s} className="pb-step" data-next={setup?.next === s || undefined} title={t(`${P}.ghost.step`, { n: lampNo(s) })} data-testid="pb-step">
+              {lampNo(s)}
+            </span>
+          ))}
           {tags.slice(0, 2).map((x) => (
             <span key={x.tag} className="pb-tag" data-tag={x.tag} title={x.text}>
               {x.text}
@@ -251,8 +265,9 @@ function ModuleView({ m, row, span, descId }: { m: ModuleT; row: number; span: 1
               </span>
             </>
           )}
-          {/* the profile's id sits on what it matched (the server); the modules it touches carry it in the filter */}
-          {m.profile && m.kind === 'server' && (
+          {/* the profile's id sits on what it matched (the server); the modules it touches carry it in the filter — in a
+              setup its lamps' chips stand there instead (the band's tab names the profile) */}
+          {m.profile && m.kind === 'server' && steps.length === 0 && (
             <span className="pb-tag" data-tag="profile" title={m.profile.toUpperCase()}>
               {m.profile.toUpperCase()}
             </span>
@@ -279,7 +294,11 @@ function ModuleView({ m, row, span, descId }: { m: ModuleT; row: number; span: 1
         </div>
         {sub && <div className="pb-mod__s">{sub}</div>}
       </div>
-      {worker ? (
+      {ghostWin ? (
+        <span className="pb-win pb-win--ghost" data-testid="pb-ghost-win">
+          {ghostWin}
+        </span>
+      ) : worker ? (
         <span className="pb-win" data-worker={worker.led} title={worker.title} data-testid="pb-worker">
           {worker.word}
           {n > 0 && <small>{t(`${P}.win.runs`, { n })}</small>}

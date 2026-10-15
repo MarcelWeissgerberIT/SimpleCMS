@@ -43,3 +43,12 @@
 .status[data-shed-1] .pb-status {
   display: none;
 }
+
+/* B12: the setup cell "SETUP · 04 NEXT" (SetupCell.tsx) — the step in ink, bold; it sheds first like the fuse cell */
+.status__cell.pb-status--setup .pb-status__step {
+  color: var(--ink);
+  font-weight: 700;
+}
+.status[data-shed-1] .pb-status--setup {
+  display: none;
+}

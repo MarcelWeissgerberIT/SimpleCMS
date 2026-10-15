@@ -73,6 +73,8 @@ export interface RecipeSetup extends RecipeFacts {
     model?: string | null
     budgetUsd?: number | null
   }
+  /** B12: the fields the recipe's database gets (a ghost database's window: "24 fields") */
+  database: RecipeFacts['database'] & { fields?: number }
   /** `unreadable` (fix rest): no list could be read (a failed request, an older server) — 06 waits on the agent page */
   runs: (NonNullable<RecipeFacts['runs']> & { running?: boolean; failed?: boolean; unreadable?: boolean }) | null
 }

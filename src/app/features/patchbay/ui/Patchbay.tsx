@@ -22,6 +22,13 @@
  * keyboard on that jack, Esc gives it back to where J was pressed); F selects the next open fuse in F-order, gives the
  * keyboard to its tab (B8's `[data-pb-fuse-tab]`) and brings it into view. The arrow keys, ↵ and Space live on the rack
  * (Rack.tsx, Module.tsx); "§ In plain words" sits under the rack (Plain.tsx). Announcements go to one polite region.
+ *
+ * B12 — the profile drop and the setup (plan §1.12, §3.7): a `.integration.json` dropped anywhere on the page, the head's
+ * chip (a file, Paste) — DropFlow.tsx; the visit where a profile was dropped or "Set up in the Patchbay" pressed shows
+ * its band (setup/record.ts: the visit, and the record `<scope>|setup` this device keeps): the model with the recipe's
+ * ghosts and planned cables (setup/merge.ts), the band and the lamps on the rack (or the card in the strands view), what
+ * the profile does not touch folded; later visits show the one-line strip (SetupStrip.tsx) above the normal rack, the
+ * ghosts dotted in place. The visit ends when the page closes — unless a setup step left it (the way back is set then).
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
@@ -31,7 +38,6 @@ import { focusIsNowhere, focusLost, restoreFocus } from '../../../ui/focus'
 import { typing } from '../../../ui/keys'
 import { useCloud } from '../../../cloud'
 import { useWorkspace } from '../../../store/store'
-import { openIntegrations } from '../../agents'
 import { fuseCounts } from '../fuses'
 import { defaultPreset, layoutRack, loadOrder, saveOrder } from '../layout'
 import { startLive, useLive } from '../live/live'
@@ -57,7 +63,20 @@ import { Readout } from './Readout'
 import { Plain } from './Plain'
 import { announce, openFold, resetPbUI, selectFuse, selectModule, usePbUI } from './store'
 import { Strands } from './Strands'
-import { fuseMarks, useWords, type Words } from './words'
+import { fuseMarks, useWords, type Words, type WordsExtra } from './words'
+import { useSetupLamps } from '../setup/facts'
+import { setOf } from '../setup/lamps'
+import { ghostsOf } from '../setup/ghosts'
+import { withGhosts } from '../setup/merge'
+import { lampNo } from '../setup/keys'
+import { readReturn } from '../setup/return'
+import { endSetupVisit, loadSetupRecord, markSetupVisit, pickRecipe, setupVisit, useSetupRecord } from '../setup/record'
+import { closeSetup, dropUndoAt, noteLamps, useDrop } from '../setup/drop'
+import { DropChip, DropPlate, runDropUndo, useDropFlow } from './DropFlow'
+import { DropZone, useDragZone } from './DropZone'
+import { PasteProfile } from './PasteProfile'
+import { BandHead, SetupCard, SetupPlate, type BandInfo } from './SetupBand'
+import { SetupStrip } from './SetupStrip'
 import '../patchbay.css'
 
 const P = 'features.patchbay'
@@ -137,13 +156,61 @@ export default function Patchbay(props: PatchbayRouteProps) {
     return () => cancelAnimationFrame(id)
   }, [props.m])
 
-  const model = usePatchbay((s) => s.model)
+  const base = usePatchbay((s) => s.model)
   const input = usePatchbay((s) => s.input)
   const live = useLive(useShallow((s) => ({ runs: s.runs, costs: s.costs, costsRead: s.costsRead, modules: s.modules })))
-  const words = useWords(model, input)
   const ui = usePbUI(useShallow((s) => ({ hover: s.hover, selected: s.selected, net: s.net, filter: s.filter, unfolded: s.unfolded, cursor: s.cursor, jack: s.jack, fuse: s.fuse })))
   const readOnly = useCloud((s) => s.readOnly)
+
+  // ---- B12: the setup — the visit's band (a drop, "Set up in the Patchbay") or the strip of a setup this device keeps
+  useEffect(() => void loadSetupRecord(), [])
+  // the visit ends with the page — unless a setup step left it (the way back names that profile): back, it goes on
+  useEffect(
+    () => () => {
+      const v = setupVisit()
+      const back = readReturn()
+      if (v && !(back && back.profileId === v.profileId)) endSetupVisit()
+    },
+    [],
+  )
+  const setupRec = useSetupRecord()
+  const integrations = useWorkspace((s) => s.integrations)
+  const there = (id: string | undefined | null) => !!id && !!integrations?.some((p) => p.id === id)
+  const visit = setupRec.visit && there(setupRec.visit.profileId) ? setupRec.visit : null
+  const kept = setupRec.rec && !setupRec.rec.closed && there(setupRec.rec.profileId) ? setupRec.rec : null
+  const setupId = visit?.profileId ?? kept?.profileId ?? null
+  const bandOn = !!visit
+  const existing = useMemo(() => (base ? new Set(base.modules.map((m) => m.key)) : undefined), [base])
+  const lamps = useSetupLamps(setupId, existing ? { existing } : {})
+  const set = lamps ? setOf(lamps.sets, visit?.recipeId ?? kept?.recipeId ?? null) : null
+  const recipe = lamps && set ? (lamps.profile.recipes.find((r) => r.recipeId === set.recipe) ?? null) : null
+  const plan = useMemo(() => (recipe && setupId && base ? ghostsOf(setupId, recipe, { existing, edges: new Set(base.edges.map((e) => e.id)) }) : null), [recipe, setupId, base, existing])
+  const model = useMemo(() => (base ? withGhosts(base, plan) : null), [base, plan])
+  const extra = useMemo<WordsExtra | null>(() => (plan ? { names: plan.names, chips: plan.chips } : null), [plan])
+  const words = useWords(model, input, extra)
   const marks = useMemo(() => (model ? fuseMarks(model) : null), [model])
+  const drop = useDrop((s) => s.done)
+  // the drop's Undo is over once a lamp that was not green after the drop turns green (§6 U4)
+  useEffect(() => {
+    if (setupId && lamps) noteLamps(setupId, lamps.sets)
+  }, [setupId, lamps])
+  // a lamp turning green while the page shows it: said politely ("04 done · 05 next")
+  const lastNext = useRef<{ id: string | null; n: number | null }>({ id: null, n: null })
+  useEffect(() => {
+    if (!set || !setupId) return
+    const prev = lastNext.current
+    const now = set.next?.n ?? null
+    lastNext.current = { id: `${setupId}|${set.recipe}`, n: now }
+    if (prev.id !== `${setupId}|${set.recipe}` || prev.n === null || prev.n === now) return
+    const was = set.lamps.find((l) => l.n === prev.n)
+    if (was?.state !== 'ok') return
+    announce(now === null ? t(`${P}.setup.arrivedAll`) : t(`${P}.setup.arrived`, { done: lampNo(prev.n), next: lampNo(now) }))
+  }, [set, setupId, t])
+  const [bandOpen, setBandOpen] = useState(false)
+  useEffect(() => setBandOpen(false), [setupId, bandOn])
+  const flow = useDropFlow(t)
+  const [chipAt, setChipAt] = useState<HTMLElement | null>(null)
+  const zone = useDragZone(pageRef, flow.onFiles, true)
 
   // the width the page has (the strands threshold, the head's tiers)
   useLayoutEffect(() => {
@@ -163,12 +230,15 @@ export default function Patchbay(props: PatchbayRouteProps) {
   const filter: FilterPreset | null = model ? (ui.filter === 'auto' ? defaultPreset(model, fuses.open) : ui.filter) : null
   const running = useMemo(() => Object.entries(live.modules).filter(([, v]) => v.state === 'running').map(([k]) => k as ModuleKey), [live.modules])
   const [prev] = useState(() => loadOrder(patchbayScope()))
-  const layout = useMemo(() => (model ? layoutRack(model, { prev, filter, running, fuses: model.fuses, unfolded: ui.unfolded }) : null), [model, prev, filter, running, ui.unfolded])
+  // the drop visit: the band holds the profile's modules, the rest folds below it (until ↵ unfolds the whole rack)
+  const partition = bandOn && !bandOpen && !!setupId
+  const layout = useMemo(() => (model ? layoutRack(model, { prev, filter, running, fuses: model.fuses, unfolded: ui.unfolded, setup: partition ? { profile: setupId! } : null }) : null), [model, prev, filter, running, ui.unfolded, partition, setupId])
 
-  // the order of a whole rack is this device's for the next visit (a filtered one would put the rest at the bottom)
+  // the order of a whole rack is this device's for the next visit (a filtered one would put the rest at the bottom; a
+  // setup's ghosts are no modules of it yet)
   useEffect(() => {
-    if (layout && !layout.filter && !layout.band) saveOrder(patchbayScope(), layout.order)
-  }, [layout])
+    if (layout && !layout.filter && !layout.band && !model?.counts.ghosts) saveOrder(patchbayScope(), layout.order)
+  }, [layout, model])
 
   // LED = lamp = readout: the counts are published where the model is built (state.ts), the page's and the background's
 
@@ -390,28 +460,125 @@ export default function Patchbay(props: PatchbayRouteProps) {
   const keys: HeadKeys = {
     asList: () => navigate({ name: 'workspace', section: 'automation' }),
     picture: model && words ? (from) => openPicture(model, words, from) : null,
-    drop: readOnly ? null : () => openIntegrations(),
+    // the drop chip: hidden while a band is on (and for viewers)
+    drop: readOnly || bandOn ? null : (from) => setChipAt(from),
   }
+  const closeChip = () => {
+    const from = chipAt
+    setChipAt(null)
+    requestAnimationFrame(() => {
+      if (from?.isConnected && focusLost()) restoreFocus(from)
+    })
+  }
+
+  // the band: its tab, its Undo (until the first lamp write) or "Close setup", the lamps, the fold line
+  const profile = setupId ? integrations?.find((p) => p.id === setupId) : undefined
+  const info: BandInfo | null =
+    setupId && profile
+      ? {
+          profileId: setupId,
+          profileName: profile.name,
+          ...(visit?.file ? { file: visit.file } : {}),
+          undo: drop && drop.profileId === setupId ? { open: drop.open, team: drop.team, replaced: drop.before?.name ?? null } : null,
+        }
+      : null
+  const onCloseSetup = () => {
+    if (!setupId) return
+    closeSetup(setupId)
+    announce(t(`${P}.setup.closedSay`))
+    requestAnimationFrame(() => requestAnimationFrame(() => (pageRef.current?.querySelector<HTMLElement>('[data-testid="pb-drop"]') ?? h1.current)?.focus()))
+  }
+  const onPick = (id: string) => setupId && pickRecipe(setupId, id)
+  const setupFacts = useMemo(() => {
+    if (!plan || !set) return null
+    const fields: Record<ModuleKey, number> = {}
+    const dbGhost = plan.modules.find((m) => m.kind === 'database' && m.tags.includes('ghost'))
+    if (dbGhost && recipe?.database.fields !== undefined) fields[dbGhost.key] = recipe.database.fields
+    return { chips: plan.chips, next: set.next?.n ?? null, fields }
+  }, [plan, set, recipe])
+  const untouched = layout?.band ? { modules: layout.band.untouched.length, cables: layout.band.cables } : { modules: 0, cables: 0 }
 
   const runs = useMemo(() => (model ? sumRuns({ n: live.runs }, model.modules.map((m) => m.key)) : 0), [model, live.runs])
   const money = useMemo(() => (model ? sumCosts(live.costs, model.modules.map((m) => m.key)) : { usd: 0, estimate: false, unpriced: 0 }), [model, live.costs])
   // the rack's one tab stop: where the keyboard was last, else the selection, else the first module
   const onRack = (id: string | null) => !!id && !!layout?.slots.some((s) => s.id === id)
   const entry = onRack(ui.cursor) ? ui.cursor : onRack(ui.selected) ? ui.selected : (layout?.slots.find((s) => s.kind === 'module')?.id ?? null)
-  const ctx: RackCtx | null = model && input && words && marks ? { model, input, words, marks, lit, runs: live.runs, costs: live.costs, entry } : null
+  const ctx: RackCtx | null = model && input && words && marks ? { model, input, words, marks, lit, runs: live.runs, costs: live.costs, entry, setup: setupFacts } : null
   const profiles = layout?.profiles ?? []
 
   return (
     <div className="pb" ref={pageRef} data-testid="patchbay-page" data-view={narrow ? 'strands' : 'rack'}>
       <Header ref={h1} t={t} input={input} filter={filter} profiles={profiles} hasFuses={!!marks?.open.length} keys={keys} width={width} />
       {model && (
-        <Readout t={t} lang={lang} model={model} runs={runs} money={money} costsRead={live.costsRead} fuses={fuses} phone={phone} onFuse={onFuse} />
+        <Readout t={t} lang={lang} model={model} runs={runs} money={money} costsRead={live.costsRead} fuses={fuses} phone={phone} onFuse={onFuse} setup={set && setupId ? { done: set.done, total: set.lamps.length, band: bandOn } : null} />
       )}
-      {ctx && layout && (model!.edges.length === 0 ? <Empty model={model!} input={input!} words={words!} layout={layout} drop={keys.drop} /> : narrow ? <Strands model={model!} input={input!} words={words!} marks={marks!} runs={live.runs} running={running} /> : <Rack ctx={ctx} layout={layout} onFuse={showFuse} />)}
+      <DropPlate t={t} flow={flow} />
+      {setupId && !bandOn && set && <SetupStrip t={t} profileId={setupId} set={set} onOpen={() => markSetupVisit(setupId)} onClose={onCloseSetup} />}
+      <div className="pb-benchwrap">
+        {ctx &&
+          layout &&
+          (model!.edges.length === 0 ? (
+            <Empty model={model!} input={input!} words={words!} layout={layout} drop={keys.drop} />
+          ) : narrow ? (
+            <Strands
+              model={model!}
+              input={input!}
+              words={words!}
+              marks={marks!}
+              runs={live.runs}
+              running={running}
+              setup={
+                setupFacts
+                  ? {
+                      chips: setupFacts.chips,
+                      next: setupFacts.next,
+                      card: bandOn && info && set && lamps ? <SetupCard t={t} lang={lang} info={info} sets={lamps.sets} set={set} recipes={lamps.profile.recipes} onPick={onPick} onUndo={() => void runDropUndo()} onClose={onCloseSetup} /> : null,
+                      band: bandOn && layout.band ? { untouched: layout.band.untouched } : null,
+                    }
+                  : null
+              }
+            />
+          ) : (
+            <Rack
+              ctx={ctx}
+              layout={layout}
+              onFuse={showFuse}
+              band={
+                bandOn && info && set && lamps
+                  ? {
+                      head: <BandHead t={t} info={info} onUndo={() => void runDropUndo()} onClose={onCloseSetup} />,
+                      plate: <SetupPlate t={t} lang={lang} profileId={info.profileId} sets={lamps.sets} set={set} recipes={lamps.profile.recipes} onPick={onPick} />,
+                      aria: t(`${P}.band.aria`, { name: info.profileName, g: model!.counts.ghosts, p: model!.counts.planned }),
+                      folded: !bandOpen,
+                      onToggle: () => setBandOpen(!bandOpen),
+                      untouched,
+                      undo: !!info.undo?.open,
+                    }
+                  : null
+              }
+            />
+          ))}
+        <DropZone t={t} kind={zone} />
+      </div>
       {ctx && layout && !narrow && model!.edges.length > 0 && <FuseArea model={model!} input={input!} words={words!} />}
       {ctx && layout && !narrow && model!.edges.length > 0 && <Plain model={model!} input={input!} words={words!} />}
       {picker && words && <JackPicker anchor={picker} rows={rows} t={words.t} onPick={pickJack} onClose={closePicker} />}
-      {model && input && words && <UndoKeysHost page={pageRef} model={model} input={input} words={words} />}
+      {model && input && words && <UndoKeysHost page={pageRef} model={model} input={input} words={words} extra={{ at: dropUndoAt, run: () => void runDropUndo() }} />}
+      <input
+        ref={flow.fileRef}
+        type="file"
+        accept=".json,application/json"
+        className="visually-hidden"
+        tabIndex={-1}
+        aria-hidden="true"
+        onChange={(e) => {
+          flow.onFiles(e.currentTarget.files)
+          e.currentTarget.value = ''
+        }}
+        data-testid="pb-drop-input"
+      />
+      <DropChip t={t} anchor={chipAt} onClose={closeChip} flow={flow} />
+      <PasteProfile t={t} flow={flow} />
       {/* 12 characters of a module's name: the narrowest name box the rack accepts (measured, never guessed) */}
       <span className="pb-probe" aria-hidden="true" />
       <div className="visually-hidden" role="status" aria-live="polite" aria-label={t(`${P}.liveRegion`)} data-testid="pb-live">

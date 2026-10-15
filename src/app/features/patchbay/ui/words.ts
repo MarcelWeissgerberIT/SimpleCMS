@@ -17,7 +17,7 @@ import type { Column, FuseState, Jack, Model, ModelInput, Module, ModuleKey, Mod
 const P = 'features.patchbay'
 
 /** Tags a module's kind line shows as chips (in this order); the rest live in its description. */
-const SHOWN_TAGS: ModuleTag[] = ['outside', 'direct', 'stage', 'readonly', 'outbound', 'afterApproval', 'asksFirst', 'server', 'blocked', 'awaitsConfirm', 'handRunOnly', 'disabled', 'thisDevice', 'ghost']
+const SHOWN_TAGS: ModuleTag[] = ['outside', 'direct', 'stage', 'readonly', 'outbound', 'afterApproval', 'asksFirst', 'server', 'blocked', 'awaitsConfirm', 'handRunOnly', 'disabled', 'thisDevice']
 /** Kinds whose "by hand" sits in the kind line ("BUTTON · BY HAND", as the mock) rather than as a chip. */
 const HAND_KINDS = new Set(['button', 'command'])
 
@@ -98,12 +98,22 @@ export interface Words {
 /** The models an agent's picker offers (the model knob's ticks after the first, "Standard"). */
 const MODEL_TICKS: string[] = MODELS.filter((r) => r.route.p === 'anthropic' && r.selectable).map((r) => r.route.m)
 
-export function makeWords(t: Translate, lang: 'en' | 'de', model: Model, input: ModelInput): Words {
+/**
+ * What the setup adds to the words (B12): the names of the modules a profile's lamps will make (ghosts — ghostsOf's
+ * names, the very titles the setup gives them) and the lamps that make or touch each module ("04").
+ */
+export interface WordsExtra {
+  names?: Record<ModuleKey, string>
+  chips?: Record<ModuleKey, number[]>
+}
+
+export function makeWords(t: Translate, lang: 'en' | 'de', model: Model, input: ModelInput, extra?: WordsExtra | null): Words {
   const ctx: PlainCtx = { lang, t }
+  const ghostName = (m: Module): string | null => (m.tags.includes('ghost') ? (extra?.names?.[m.key] ?? '') || t(`${P}.kind.${m.kind}`) : null)
   const title = (id: string | null | undefined) => (id ? input.pages[id]?.title.trim() : '') || t(`${P}.untitled`)
   const db = (id: string) => input.databases.find((d) => d.id === id)
   const prop = (dbId: string, id: string) => db(dbId)?.properties.find((p) => p.id === id)?.name.trim() || t(`${P}.untitled`)
-  const name = (m: Module) => nameOf(model, input, m.key, ctx)
+  const name = (m: Module) => ghostName(m) ?? extra?.names?.[m.key] ?? nameOf(model, input, m.key, ctx)
   const kind = (m: Module) => {
     const k = m.kind === 'outbox' ? t(`${P}.module.outbox.kind`) : m.kind === 'outbound' && m.exit ? t(`${P}.exit.${m.exit}`) : t(`${P}.kind.${m.kind}`)
     return HAND_KINDS.has(m.kind) && m.tags.includes('byHand') ? `${k} · ${t(`${P}.tag.byHand`)}` : k
@@ -239,7 +249,12 @@ export function makeWords(t: Translate, lang: 'en' | 'de', model: Model, input: 
     sub,
     worker,
     tags,
-    describe: (m) => describe(model, input, m.key, ctx),
+    describe: (m) => {
+      if (!m.tags.includes('ghost')) return describe(model, input, m.key, ctx)
+      // a ghost: what it will be and which lamp makes it (nothing runs through it yet)
+      const n = extra?.chips?.[m.key]?.[0]
+      return t(`${P}.ghost.describe`, { kind: kind(m), name: name(m), n: n === undefined ? '—' : String(n).padStart(2, '0') })
+    },
     jack,
     jackTitle,
     peers,
@@ -256,8 +271,8 @@ export function makeWords(t: Translate, lang: 'en' | 'de', model: Model, input: 
 }
 
 /** The rack's words for this render (rebuilt when the model, the input or the language changes). */
-export function useWords(model: Model | null, input: ModelInput | null): Words | null {
+export function useWords(model: Model | null, input: ModelInput | null, extra?: WordsExtra | null): Words | null {
   const t = useT()
   const lang = useLang() as 'en' | 'de'
-  return useMemo(() => (model && input ? makeWords(t, lang, model, input) : null), [t, lang, model, input])
+  return useMemo(() => (model && input ? makeWords(t, lang, model, input, extra) : null), [t, lang, model, input, extra])
 }

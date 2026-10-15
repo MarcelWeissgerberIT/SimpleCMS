@@ -341,6 +341,41 @@ export function mock1(): PbWorld {
   })
 }
 
+/* ------------------------------------------------------------------ mock-2 (B12) */
+
+/** The profile mock 2 drops (tracker-cnsx.integration.json): the tracker server by name, its reads, one mirror recipe. */
+export function trackerCnsx(over: Partial<IntegrationProfile> = {}): IntegrationProfile {
+  return {
+    schema: 'one.integration/1',
+    id: 'in-01',
+    name: 'Tessera',
+    match: { name: 'tracker' },
+    unlocks: ['keys', 'onlyByHand', 'upsert', 'toolAllowList', 'agentState', 'notify'],
+    reads: [...TRACKER_READS],
+    recipes: [{ kind: 'mirror', id: 'mirror', database: { name: 'Tessera Handoff' }, agent: { name: 'Tessera-Spiegel', budget: 3, instructions: 'Mirror the open items of {server} into {db}. New comments: notify_me with page_id = the row.' } }],
+    ...over,
+  }
+}
+
+/** The profile's file text, as an export writes it. */
+export const profileFile = (p: IntegrationProfile = trackerCnsx()): string => `${JSON.stringify(p, null, 2)}\n`
+
+/**
+ * Mock 2 (plan §3.7, Fri 16:21): mock 1 before the Tessera mirror — no Tessera Handoff, no report page, no mirror agent,
+ * no Wochenbericht — and no profile yet (the spec drops tracker-cnsx.integration.json). The tracker server is tested.
+ */
+export function mock2(): PbWorld {
+  const w = mock1()
+  const { ids } = w
+  delete w.ws.pages[ids.handoff]
+  delete w.ws.pages[ids.bericht]
+  delete w.ws.databases[ids.handoff]
+  delete w.ws.agents![ids.mirror]
+  delete w.ws.scripts![ids.weekly]
+  w.ws.integrations = []
+  return w
+}
+
 /* ------------------------------------------------------------------ wideScope */
 
 /**

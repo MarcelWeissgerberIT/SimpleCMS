@@ -300,9 +300,11 @@ export function UndoAllLine({ pw }: { pw: PlateWords }) {
  * (or nowhere), nobody typing, no dialog or popover open and nobody else having taken the key. Nothing to take back:
  * the key is left alone.
  */
-export function PatchbayUndoKeys({ page, pw }: { page: RefObject<HTMLElement | null>; pw: PlateWords }) {
+export function PatchbayUndoKeys({ page, pw, extra }: { page: RefObject<HTMLElement | null>; pw: PlateWords; extra?: UndoExtra | null }) {
   const latest = useRef(pw)
   latest.current = pw
+  const more = useRef(extra)
+  more.current = extra
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || e.repeat || e.altKey || e.shiftKey) return
@@ -312,9 +314,13 @@ export function PatchbayUndoKeys({ page, pw }: { page: RefObject<HTMLElement | n
       if (!root || typing(at)) return
       if (!(focusIsNowhere(at) || (!!at && root.contains(at)))) return
       if (document.querySelector('[aria-modal="true"]') || at?.closest('[data-popover], [role="dialog"]')) return
-      if (!lastKey()) return
+      // B12: a profile drop of this visit is one more thing Mod+Z takes back — the newest of it and the keys goes first
+      const key = lastKey()
+      const drop = more.current?.at() ?? null
+      if (!key && drop === null) return
       e.preventDefault()
-      undoNewest(latest.current)
+      if (drop !== null && (!key || drop > key.at)) more.current!.run()
+      else undoNewest(latest.current)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -322,8 +328,14 @@ export function PatchbayUndoKeys({ page, pw }: { page: RefObject<HTMLElement | n
   return null
 }
 
+/** Something else Mod+Z on the route takes back (B12: the profile drop): when it was done (null: nothing) and its Undo. */
+export interface UndoExtra {
+  at: () => number | null
+  run: () => void
+}
+
 /** The page's Mod+Z, with the plate's words (mounted once the model is there). */
-export function UndoKeysHost({ page, model, input, words }: { page: RefObject<HTMLElement | null>; model: Model; input: ModelInput; words: Words }) {
+export function UndoKeysHost({ page, model, input, words, extra }: { page: RefObject<HTMLElement | null>; model: Model; input: ModelInput; words: Words; extra?: UndoExtra | null }) {
   const pw = usePlateWords(model, input, words)
-  return <PatchbayUndoKeys page={page} pw={pw} />
+  return <PatchbayUndoKeys page={page} pw={pw} extra={extra} />
 }
