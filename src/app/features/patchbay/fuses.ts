@@ -146,7 +146,8 @@ function factsOf(c: Ctx, chain: Chain, d: Decider): Fact[] {
   else if (exit.type === 'sync') facts.push({ kind: 'trigger', say: { key: `${P}.fact.trigger.sync`, vars: { n: input.sync.github.everyMin } } })
   else if (exit.type === 'git') {
     const out = ix.mods.get(exit.module)
-    facts.push({ kind: 'trigger', say: { key: `${P}.fact.trigger.git`, vars: { method: out?.ref.kind === 'outbound' ? (out.ref.method ?? '') : '' } } })
+    const method = out?.ref.kind === 'outbound' ? (out.ref.method ?? '') : ''
+    facts.push({ kind: 'trigger', say: { key: `${P}.fact.trigger.git`, vars: { method, git: method } } })
   }
 
   facts.push({ kind: 'chain', say: { key: `${P}.fact.chain`, vars: { n: chain.steps.length } } })

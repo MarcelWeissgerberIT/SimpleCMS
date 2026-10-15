@@ -212,12 +212,16 @@ test.describe('B5 · layout — mock 1 (layout.ts)', () => {
     expect(rows.get(K.mail)).toBe(rows.get(K.auto))
     const idle = slotOf(l, foldId('idle', 1))
     expect(idle.kind === 'fold' && idle.modules).toEqual(['server:srvKanal', 'server:srvBildwerk', 'server:srvWiki'])
-    // § 03: Tessera Handoff at its writer's row, then the report page and the inbox, Kontakte beside its automation,
-    // Whole workspace beside Inbox-Helfer (§3.13), the webhook beside An Team-Chat, git beside the pipeline
-    expect(col(3)).toEqual([K.db, K.page, K.ib, K.con, K.all, flagId(NET, 'out'), K.hook, K.git])
+    // § 03: Tessera Handoff at its writer's row, then the report page and the inbox, Kontakte beside its automation, the
+    // net flag pinned to Inbox-Helfer's row, the webhook beside An Team-Chat, git beside the pipeline — as the mock;
+    // Whole workspace (§3.13) loses its row to the flag and takes the next free one, the bottom
+    expect(col(3)).toEqual([K.db, K.page, K.ib, K.con, flagId(NET, 'out'), K.hook, K.git, K.all])
     expect(rows.get(K.db)).toBe(rows.get(K.cnsx))
     expect(rows.get(K.con)).toBe(rows.get(K.auto))
-    expect(rows.get(K.all)).toBe(rows.get(K.ih))
+    expect(slotOf(l, flagId(NET, 'out')).row).toBe(rows.get(K.ih))
+    expect(rows.get(K.hook)).toBe(rows.get(K.tc))
+    expect(rows.get(K.git)).toBe(rows.get(K.pipe))
+    expect(rows.get(K.all)).toBe(8)
     expect(l.rows).toBe(8)
     expect(l.wires).toHaveLength(15)
     expect(l.cols).toEqual({
@@ -261,17 +265,18 @@ test.describe('B5 · layout — mock 1 (layout.ts)', () => {
     test.info().annotations.push({ type: 'crossings', description: `layout ${mine} · mock ${theirs}` })
     expect(mine).toBe(l.crossings)
     expect(mine).toBeLessThanOrEqual(theirs)
-    // the mock's rows without "Whole workspace" cross once (CNSX-Spiegel's notes over Wochenbericht's report): so do these
-    expect(mine).toBe(1)
+    // the flag pinned to its writer's row puts every slot where the mock has it: the same crossings
+    expect(mine).toBe(theirs)
   })
 
-  test('net flags: § 01 at its listener’s row, § 03 at its writer’s (the row below when the writer’s higher jack holds it)', () => {
+  test('net flags: § 01 pinned to its listener’s row, § 03 to its writer’s (what it pushes out takes the next free row)', () => {
     const m = modelOf(mock1())
     const l = layoutRack(m, { fuses: [f1(m)] })
     const rows = moduleRows(l)
     expect(slotOf(l, flagId(NET, 'in')).row).toBe(rows.get(K.tc))
-    // Inbox-Helfer's EVERYTHING jack sits above its writes jack: Whole workspace takes the row, the flag the next one
-    expect(slotOf(l, flagId(NET, 'out')).row - rows.get(K.ih)!).toBeLessThanOrEqual(1)
+    // Inbox-Helfer's EVERYTHING jack sits above its writes jack, yet the flag keeps the writer's row (§3.4): the F1 glyph
+    // on the next cable sits level; Whole workspace moves down instead
+    expect(slotOf(l, flagId(NET, 'out')).row).toBe(rows.get(K.ih))
     // the relays: every flag at the row of what it is cabled to in § 02 — never above it, in the order of § 02, and
     // pushed down only by what its own column holds more than § 02 (merge: B3's relays have „Versandliste“ as a third
     // database, so § 03 holds 10 items beside § 02's 7 — the packed column moves its last flags down by up to 3)

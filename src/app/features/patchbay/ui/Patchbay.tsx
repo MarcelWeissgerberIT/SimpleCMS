@@ -11,10 +11,14 @@
  * LED and ⌘K (counts.ts; B8 adds the idle computation after first paint, so the LED knows before the first visit).
  *
  * `m` (a module key) selects that module — unfolding its fold, or the automation a single-use script is folded into —
- * and gives it the keyboard; `f` (a fuse's path key) selects that fuse (its plate is B8's). Esc or a click on the empty
- * bench clears the selection.
+ * and gives it the keyboard once it is on the rack (the strands view: its strand's name key, the card marked; a module
+ * without a strand: the line or the "Not processed" name that names it); nothing to land on → the h1 and a word why.
+ * `f` (a fuse's path key) does what F does, once per link: selects that fuse, gives its tab (strands: its card) the
+ * keyboard, brings it into view and says so — a model rebuilt later never snaps the selection back. The same link
+ * opened again while it shows (open.ts onPatchbayAsk) acts again. Esc or a click on the empty bench clears the selection.
  *
- * Keys on the page (§3.9, B7; focus in the page, nobody typing): J opens the jack picker (JackPicker.tsx — ↵ puts the
+ * Keys on the page (§3.9, B7; focus in the page or nowhere — the body, the main region a click on plain text leaves it
+ * on — nobody typing): J opens the jack picker (JackPicker.tsx — ↵ puts the
  * keyboard on that jack, Esc gives it back to where J was pressed); F selects the next open fuse in F-order, gives the
  * keyboard to its tab (B8's `[data-pb-fuse-tab]`) and brings it into view. The arrow keys, ↵ and Space live on the rack
  * (Rack.tsx, Module.tsx); "§ In plain words" sits under the rack (Plain.tsx). Announcements go to one polite region.
@@ -35,10 +39,12 @@ import { sumRuns } from '../live/runs'
 import { sumCosts } from '../live/costs'
 import type { PatchbayRouteProps } from '../route'
 import { patchbayScope } from '../scope'
+import { noteShownFuse, onPatchbayAsk } from '../open'
 import { refreshModel, usePatchbay } from '../state'
-import type { FilterPreset, ModuleKey } from '../types'
+import type { FilterPreset, FuseState, Model, ModuleKey } from '../types'
 import { Empty } from './Empty'
 import { FuseArea } from './FuseList'
+import { activeGlyph, fuseRowsOf } from './fuseRows'
 import { Header, type HeadKeys } from './HeaderMenu'
 import { JackPicker, pickerRows, type PickerRow } from './JackPicker'
 import { litByHover, litByJack, litByNet, litBySelection } from './lit'
@@ -50,7 +56,7 @@ import { Readout } from './Readout'
 import { Plain } from './Plain'
 import { announce, openFold, resetPbUI, selectFuse, selectModule, usePbUI } from './store'
 import { Strands } from './Strands'
-import { fuseMarks, useWords } from './words'
+import { fuseMarks, useWords, type Words } from './words'
 import '../patchbay.css'
 
 const P = 'features.patchbay'
@@ -58,6 +64,19 @@ const P = 'features.patchbay'
 const RACK_MIN = 880
 /** Below this (× the text size) the readout keeps RUNS TODAY and FUSE only (§3.8). */
 const PHONE_MAX = 600
+
+/** "Fuse F1 selected — Mails · new row → Inbox-Helfer → …": what F and a `?f=` link say. */
+function fuseSaid(f: FuseState, model: Model, words: Words): string {
+  const path = [f.chain.source, f.chain.decider, ...f.chain.steps.map((x) => x.from)]
+    .filter((k, j, all): k is string => !!k && all.indexOf(k) === j)
+    .map((k) => model.modules.find((m) => m.key === k))
+    .filter((m): m is NonNullable<typeof m> => !!m)
+    .map((m) => words.name(m))
+  return words.t(`${P}.fuse.selected`, { f: f.label, path: path.join(' → ') })
+}
+
+/** Is the keyboard on the page — in it, or nowhere (the body, the main region a click on plain text leaves it on)? */
+const keysHere = (page: HTMLElement | null, at: Element | null): boolean => !!page && (focusIsNowhere(at) || (!!at && page.contains(at)))
 
 const textScale = (): number => {
   try {
@@ -75,6 +94,10 @@ export default function Patchbay(props: PatchbayRouteProps) {
   const [width, setWidth] = useState(0)
   const [tightAt, setTightAt] = useState<number | null>(null)
   const say = usePbUI((s) => s.say)
+  const tight = usePbUI((s) => s.tight)
+  // a link the page already shows, opened again (the same hash): act again
+  const [ask, setAsk] = useState(0)
+  useEffect(() => onPatchbayAsk(() => setAsk((n) => n + 1)), [])
   // the jack picker: open at the element J was pressed on (the keyboard goes back there on Esc)
   const [picker, setPicker] = useState<HTMLElement | null>(null)
 
@@ -157,62 +180,120 @@ export default function Patchbay(props: PatchbayRouteProps) {
     return null
   }, [model, ui.selected, ui.net, ui.jack, ui.hover])
 
-  // a module's name box under ~12ch: the rack is not readable here — the strands view takes over at this width and below
+  // a module's name box under ~12ch with its own tiers spent (its jack labels short, then gone — Module.tsx): the rack
+  // is not readable here — the strands view takes over at this width and below
   useLayoutEffect(() => {
-    const el = pageRef.current
-    if (!el || narrow || !layout) return
-    const probe = el.querySelector<HTMLElement>('.pb-probe')
-    const min = probe?.offsetWidth ?? 0
-    if (!min) return
-    for (const b of el.querySelectorAll<HTMLElement>('.pb-mod__body')) {
-      if (b.clientWidth > 0 && b.clientWidth < min) {
-        setTightAt(width)
-        return
-      }
-    }
-  }, [width, narrow, layout, words])
+    if (tight > 0 && !narrow && width > 0) setTightAt(width)
+  }, [tight, narrow, width])
   // a wider window: measure again
   useEffect(() => {
     if (tightAt !== null && width > tightAt + 40) setTightAt(null)
   }, [width, tightAt])
 
-  // ?m= — select that module (unfold its fold; a folded script is its automation's) and give it the keyboard
-  const handled = useRef<string | null>(null)
+  // the fuse the page shows (⌘K "next fuse" goes on from it, open.ts)
+  const shownFuse = model ? activeGlyph(fuseRowsOf(model), ui.fuse) : null
+  useEffect(() => noteShownFuse(shownFuse), [shownFuse])
+  useEffect(() => () => noteShownFuse(null), [])
+
+  // ?m= — select that module (unfold its fold; a folded script is its automation's) and give it the keyboard. Done when
+  // the keyboard landed on it — a fold the auto filter closed meanwhile is opened again, the next frame tries again; and
+  // while the link names it, a later "Fuse paths only" of its own (the lazy inputs pass 30 modules) never folds it away
+  // under the person: its fold opens again and, the keyboard lost with it, it takes the keyboard back
+  const landedM = useRef<string | null>(null)
   useEffect(() => {
     const want = props.m
-    if (!want || !model || !layout || !words || handled.current === want) return
+    if (!want || !model || !layout || !words) return
+    const token = `${want}|${ask}`
+    const landed = landedM.current === token
     let key: ModuleKey | null = model.modules.some((x) => x.key === want) ? want : null
     if (!key && want.startsWith('script:')) {
       const id = decodeURIComponent(want.slice('script:'.length))
       key = model.modules.find((x) => x.folds?.script === id)?.key ?? null
     }
-    if (!key) {
-      handled.current = want
-      announce(t(`${P}.notOnRack`, { name: want }))
-      return
+    const nowhere = () => {
+      landedM.current = token
+      if (focusIsNowhere() || pageRef.current?.contains(document.activeElement)) h1.current?.focus({ preventScroll: true })
+      announce(t(`${P}.notOnRack`))
     }
-    const fold = layout.slots.find((s) => s.kind === 'fold' && !s.open && s.modules.includes(key!))
-    if (fold) {
-      openFold(fold.id)
-      return
+    if (!key) return landed ? undefined : nowhere()
+    if (!narrow) {
+      const fold = layout.slots.find((s) => s.kind === 'fold' && !s.open && s.modules.includes(key!))
+      if (fold && (!landed || usePbUI.getState().filter === 'auto')) {
+        openFold(fold.id)
+        return
+      }
     }
-    handled.current = want
-    selectModule(key)
     const target = key
-    requestAnimationFrame(() => {
-      const el = pageRef.current?.querySelector<HTMLElement>(`[data-key="${CSS.escape(target)}"]`)
-      if (!el) return
-      el.scrollIntoView({ block: 'center', behavior: 'auto' })
-      el.focus({ preventScroll: true })
-      const m = model.modules.find((x) => x.key === target)
-      if (m) announce(t(`${P}.selected`, { name: words.name(m) }))
-    })
-  }, [props.m, model, layout, words, t])
+    if (landed) {
+      const back = requestAnimationFrame(() => {
+        const el = narrow ? null : pageRef.current?.querySelector<HTMLElement>(`.pb-mod[data-key="${CSS.escape(target)}"]`)
+        if (el && focusLost()) el.focus({ preventScroll: true })
+      })
+      return () => cancelAnimationFrame(back)
+    }
+    if (usePbUI.getState().selected !== target) selectModule(target)
+    let tries = 0
+    let frame = 0
+    const land = () => {
+      const page = pageRef.current
+      if (!page) return
+      const esc = CSS.escape(target)
+      const el = narrow
+        ? (page.querySelector<HTMLElement>(`.pb-strand[data-key="${esc}"] .pb-strand__open`) ??
+          page.querySelector<HTMLElement>(`.pb-strands__restn[data-key="${esc}"]`) ??
+          page.querySelector<HTMLElement>(`.pb-line[data-key="${esc}"]`))
+        : page.querySelector<HTMLElement>(`.pb-mod[data-key="${esc}"]`)
+      if (el) {
+        el.scrollIntoView({ block: 'center', behavior: 'auto' })
+        el.focus({ preventScroll: true })
+        if (document.activeElement === el) {
+          landedM.current = token
+          const m = model.modules.find((x) => x.key === target)
+          if (m) announce(t(`${P}.selected`, { name: words.name(m) }))
+          return
+        }
+      }
+      if (++tries < 12) frame = requestAnimationFrame(land)
+      else nowhere()
+    }
+    frame = requestAnimationFrame(land)
+    return () => cancelAnimationFrame(frame)
+  }, [props.m, ask, model, layout, words, narrow, t])
 
-  // ?f= — that fuse is selected (its plate: B8)
+  // ?f= — what F does, once per link (a model rebuilt later never snaps the selection back): the fuse selected, its tab
+  // (strands: its card) given the keyboard and brought into view, said
+  const pickedF = useRef<string | null>(null)
+  const landedF = useRef<string | null>(null)
   useEffect(() => {
-    if (props.f && model?.fuses.some((x) => x.key === props.f)) selectFuse(props.f)
-  }, [props.f, model])
+    const f = props.f
+    if (!f || !model || !words) return
+    const token = `${f}|${ask}`
+    if (landedF.current === token) return
+    const fuse = (model.fuses as FuseState[]).find((x) => x.key === f)
+    if (!fuse) return
+    if (pickedF.current !== token) {
+      pickedF.current = token
+      selectFuse(f)
+    }
+    let tries = 0
+    let frame = 0
+    const land = () => {
+      const page = pageRef.current
+      const tab = page?.querySelector<HTMLElement>(`[data-pb-fuse-tab="${CSS.escape(f)}"]`)
+      if (tab) {
+        landedF.current = token
+        const plate = narrow ? tab : (page?.querySelector<HTMLElement>('#pb-fuse-plate') ?? tab)
+        plate.scrollIntoView({ block: 'nearest', behavior: 'auto' })
+        tab.focus({ preventScroll: true })
+        announce(fuseSaid(fuse, model, words))
+        return
+      }
+      if (++tries < 20) frame = requestAnimationFrame(land)
+      else landedF.current = token
+    }
+    frame = requestAnimationFrame(land)
+    return () => cancelAnimationFrame(frame)
+  }, [props.f, ask, model, words, narrow])
 
   // Esc: the selection goes (never the keyboard: focus stays where it is)
   useEffect(() => {
@@ -220,7 +301,8 @@ export default function Patchbay(props: PatchbayRouteProps) {
       if (e.key !== 'Escape' || e.defaultPrevented || typing()) return
       const s = usePbUI.getState()
       if (!s.selected && !s.net) return
-      if (!pageRef.current?.contains(document.activeElement) && document.activeElement !== document.body) return
+      if (!keysHere(pageRef.current, document.activeElement)) return
+      if (document.activeElement?.closest('[data-popover], [role="dialog"]')) return
       selectModule(null)
     }
     window.addEventListener('keydown', onKey)
@@ -252,12 +334,7 @@ export default function Patchbay(props: PatchbayRouteProps) {
     showFuse(next.key)
     const tab = document.querySelector<HTMLElement>(`[data-pb-fuse-tab="${CSS.escape(next.key)}"]`)
     if (tab) tab.focus({ preventScroll: true })
-    const path = [next.chain.source, next.chain.decider, ...next.chain.steps.map((x) => x.from)]
-      .filter((k, j, all): k is string => !!k && all.indexOf(k) === j)
-      .map((k) => model.modules.find((m) => m.key === k))
-      .filter((m): m is NonNullable<typeof m> => !!m)
-      .map((m) => words.name(m))
-    announce(t(`${P}.fuse.selected`, { f: next.label, path: path.join(' → ') }))
+    announce(fuseSaid(next, model, words))
   }, [model, marks, words, t, showFuse])
 
   // J and F (focus in the page, nobody typing, no menu / dialog open over it)
@@ -268,13 +345,14 @@ export default function Patchbay(props: PatchbayRouteProps) {
       if (k !== 'j' && k !== 'f') return
       const page = pageRef.current
       const at = document.activeElement
-      if (!page || typing() || !(at instanceof HTMLElement) || !page.contains(at)) return
-      if (at.closest('[data-popover], [role="dialog"]')) return
+      if (!page || typing() || !keysHere(page, at)) return
+      if (at?.closest('[data-popover], [role="dialog"]')) return
       // J finds a jack on the rack (the strands view has none)
       if (k === 'j' && !page.querySelector('.pb-rack')) return
       e.preventDefault()
       if (k === 'f') nextFuse()
-      else setPicker(at)
+      // from nowhere the picker hangs at the rack's tab stop (Esc gives the keyboard there), else at the h1
+      else setPicker(at instanceof HTMLElement && page.contains(at) ? at : (page.querySelector<HTMLElement>('.pb-rack [data-stop][tabindex="0"]') ?? h1.current))
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)

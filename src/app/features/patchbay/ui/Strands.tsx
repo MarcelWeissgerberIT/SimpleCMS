@@ -6,19 +6,26 @@
  *    grey rows nothing counts), "§ 02 Strands · n" one card per processor by name, then "§ 03 Not processed · n"
  *    naming every other module. Nothing reorders under the finger: a strand that starts running lights IN PLACE and a
  *    sticky chip "running · <name> ↓" at the top jumps to it;
- *  - a strand card: its header (LED, kind, tags, F tags, runs today), its name, one line per connection — "from …" /
- *    "to …" (the arrows are decoration, the words carry the direction), content from outside tagged, a way out with
- *    who stands in between — and the knob line in mono (model · budget per run) for an agent that has one;
+ *  - a strand card: its header (LED, kind, tags, F tags, runs today — a pipeline's worker word when it cannot run), its
+ *    name, one line per connection — "from …" / "to …", "can set “…”" / "can open merge requests" where the AI decides
+ *    (the rack's dashed cable — the phone has no legend, so the words carry it), "reads …" for every read without a
+ *    cable (the rack's net chips); the arrows are decoration, the words carry the direction; content from outside
+ *    tagged, a way out with who stands in between — and the knob line in mono (model · budget per run);
  *  - a tap on a card opens its editor (its name is that key for the keyboard); a tap on a line opens that line's module
  *    (a place: its page). No patching here; hit targets ≥ 40 px.
+ * `?m=` (Patchbay.tsx) lands on the strand's name key and marks the card (`data-selected`, ink); a module without a
+ * strand of its own on a line that names it (`data-key`) or its name under "Not processed".
  */
 import { useMemo, useRef, type MouseEvent } from 'react'
 import { navigate } from '../../../lib/router'
 import { strandOrder } from '../layout'
+import { gitAction } from '../plain'
 import type { Model, ModelInput, Module, ModuleKey, Place } from '../types'
 import { FuseCards } from './FuseList'
 import { edgesAt, moduleOfJack } from './lit'
 import { canOpen, openModule } from './open'
+import { SLOT, Slotted } from './slot'
+import { usePbUI } from './store'
 import type { FuseMarks, Words } from './words'
 
 const P = 'features.patchbay'
@@ -28,25 +35,49 @@ type LineTarget = { kind: 'module'; m: Module } | { kind: 'place'; place: Place;
 interface Line {
   side: 'in' | 'out'
   id: string
+  /** the words, SLOT where the name goes ("from {name}", "kann {name} setzen"; none: the words say it all) */
+  say: string
   name: string
   target: LineTarget
+  /** the module the line names (`?m=` of a module without a strand lands here) */
+  key?: ModuleKey
   /** a tag after the words: content from outside (hatched), or who stands before a way out */
   tag?: { text: string; outside?: boolean }
 }
 
-/** One line per connection of a processor (deduplicated by what it connects to). */
+/** A field of a place in the language's quotes ("“Weiterleiten”"), else null. */
+function fieldOf(p: Place, w: Words): string | null {
+  if (!('db' in p) || !p.prop || p.prop === '*' || p.prop === '+row' || p.prop === '-row') return null
+  return `${w.t(`${P}.q.open`)}${w.fieldName(p.db, p.prop)}${w.t(`${P}.q.close`)}`
+}
+
+/** What a line names, for its key's title. */
+const lineName = (l: Line, w: Words): string => l.name || (l.target.kind === 'module' ? w.name(l.target.m) : l.target.label)
+
+/** One line per connection of a processor (deduplicated by what it connects to), then one per read without a cable. */
 function linesOf(model: Model, w: Words, m: Module): Line[] {
+  const t = w.t
   const byKey = new Map(model.modules.map((x) => [x.key, x]))
   const out: Line[] = []
   const seen = new Set<string>()
+  // the databases its starts come from ("from Mails · new row"): a read of them says nothing new
+  const fromDbs = new Set<string>()
+  const dir = (side: 'in' | 'out') => t(side === 'in' ? `${P}.strands.from` : `${P}.strands.to`, { name: SLOT })
   for (const side of ['in', 'out'] as const) {
     for (const j of side === 'in' ? m.inJacks : m.outJacks) {
       for (const e of edgesAt(model, j.key)) {
         const other = side === 'in' ? e.from : e.to
+        // the AI decides (the rack's dashed cable): said as "can …", never like a fixed write
+        const can = side === 'out' && !!e.can
         let line: Line | null = null
         if (other.startsWith('net:')) {
           const net = model.nets.find((n) => n.key === other)
-          if (net) line = { side, id: `${side}:${other}`, name: w.flag(net), target: { kind: 'place', place: net.place, label: w.flag(net) } }
+          if (net) {
+            const field = can ? fieldOf(net.place, w) : null
+            const name = field ?? w.flag(net)
+            const say = !can ? dir(side) : t(field ? `${P}.strands.canSet` : `${P}.strands.canWrite`, { name: SLOT })
+            line = { side, id: `${side}:${other}`, say, name, target: { kind: 'place', place: net.place, label: w.flag(net) } }
+          }
         } else {
           const k = moduleOfJack(model, other)
           const om = k ? byKey.get(k) : undefined
@@ -54,17 +85,55 @@ function linesOf(model: Model, w: Words, m: Module): Line[] {
             const gate = om.kind === 'outbound' || om.kind === 'outbox' ? w.tags(om).find((x) => ['outbound', 'afterApproval', 'asksFirst', 'byHand'].includes(x.tag)) : undefined
             // a way out says who stands in between; a server touched by a profile carries its id ("IN-01")
             const tag = gate ? { text: gate.text } : om.kind === 'server' && om.profile ? { text: om.profile } : null
-            line = { side, id: `${side}:${om.key}`, name: w.name(om), target: { kind: 'module', m: om }, ...(tag ? { tag } : {}) }
+            let say = dir(side)
+            let name = w.name(om)
+            if (can) {
+              const r = om.ref
+              if (om.kind === 'everything') {
+                say = t(`${P}.strands.canWriteAll`)
+                name = ''
+              } else if (r.kind === 'outbound' && r.exit === 'git' && r.method) {
+                // "can open merge requests" — the Klartext's own words for the git action
+                say = t(`${P}.plain.c.git.${r.method}`) !== `${P}.plain.c.git.${r.method}` ? t(`${P}.plain.c.git.${r.method}`) : t(`${P}.strands.canSend`, { name: SLOT })
+                name = say.includes(SLOT) ? `${t(`${P}.exit.git`)} · ${gitAction(w.ctx, r.method)}` : ''
+              } else if (om.kind === 'outbound' || om.kind === 'outbox' || om.kind === 'server') say = t(`${P}.strands.canSend`, { name: SLOT })
+              else say = t(`${P}.strands.canWrite`, { name: SLOT })
+            }
+            line = { side, id: `${side}:${om.key}`, say, name, key: om.key, target: { kind: 'module', m: om }, ...(tag ? { tag } : {}) }
           }
         }
         if (!line || seen.has(line.id)) continue
         seen.add(line.id)
-        if (side === 'in' && e.outside) line.tag = { text: w.t(`${P}.tag.outside`), outside: true }
+        if (side === 'in' && e.outside) line.tag = { text: t(`${P}.tag.outside`), outside: true }
+        if (side === 'in') {
+          const src = line.target.kind === 'module' ? line.target.m.ref : null
+          if (src?.kind === 'rowTrigger') fromDbs.add(src.db)
+          else if (line.target.kind === 'place' && 'db' in line.target.place) fromDbs.add(line.target.place.db)
+        }
         out.push(line)
       }
     }
   }
-  return out
+  // reads without a cable (the rack's net chips): "reads Tessera Handoff", "reads Tasks" — after the starts, before the
+  // writes
+  const reads: Line[] = []
+  for (const n of m.nets) {
+    const all = 'everything' in n.place
+    if ('db' in n.place && fromDbs.has(n.place.db)) continue
+    const name = all ? '' : w.net(n, m)
+    const id = `net:${all ? 'everything' : name}`
+    if (seen.has(id)) continue
+    seen.add(id)
+    reads.push({
+      side: 'in',
+      id,
+      say: all ? t(`${P}.strands.readsAll`) : t(`${P}.strands.reads`, { name: SLOT }),
+      name,
+      target: { kind: 'place', place: n.place, label: name },
+      ...(n.tainted ? { tag: { text: t(`${P}.tag.outside`), outside: true } } : {}),
+    })
+  }
+  return [...out.filter((l) => l.side === 'in'), ...reads, ...out.filter((l) => l.side === 'out')]
 }
 
 /** Open what a line names: a module's editor, a place's page. */
@@ -85,6 +154,8 @@ function StrandCard({ m, model, w, fuses, runs, running }: { m: Module; model: M
   const nameKey = useRef<HTMLButtonElement>(null)
   const lines = useMemo(() => linesOf(model, w, m), [model, w, m])
   const opens = canOpen(m)
+  const selected = usePbUI((s) => s.selected === m.key)
+  const worker = w.worker(m)
   // a tap anywhere on the card opens its editor (its keys open their own targets)
   const onCard = (e: MouseEvent<HTMLElement>) => {
     if ((e.target as Element).closest('button, a')) return
@@ -92,9 +163,9 @@ function StrandCard({ m, model, w, fuses, runs, running }: { m: Module; model: M
   }
   const knobs = m.knobs ? { model: w.knobModel(m).label, budget: w.knobBudget(m).label } : null
   return (
-    <article className="pb-strand" data-path={fuses.length ? '' : undefined} data-live={running || undefined} data-key={m.key} data-testid="pb-strand" onClick={onCard}>
+    <article className="pb-strand" data-path={fuses.length ? '' : undefined} data-live={running || undefined} data-selected={selected || undefined} data-key={m.key} data-testid="pb-strand" onClick={onCard}>
       <span className="pb-strand__h">
-        <span className={running ? 'led led--on' : m.tags.includes('disabled') ? 'led' : 'led pb-led--ok'} aria-hidden="true" />
+        <span className={running ? 'led led--on' : m.tags.includes('disabled') || worker?.led === 'off' ? 'led' : worker?.led === 'warn' ? 'led pb-led--warn' : 'led pb-led--ok'} aria-hidden="true" />
         <span className="label">{w.kind(m)}</span>
         {w.tags(m)
           .slice(0, 2)
@@ -109,6 +180,11 @@ function StrandCard({ m, model, w, fuses, runs, running }: { m: Module; model: M
           </span>
         ))}
         <span className="pb-strand__sp" />
+        {worker && (
+          <span className="pb-win" data-worker={worker.led} title={worker.title} data-testid="pb-worker">
+            {worker.word}
+          </span>
+        )}
         {runs > 0 && (
           <span className="pb-win" title={t(runs === 1 ? `${P}.win.runsTitle.one` : `${P}.win.runsTitle`, { n: runs })}>
             {t(`${P}.win.runs`, { n: runs })}
@@ -125,12 +201,12 @@ function StrandCard({ m, model, w, fuses, runs, running }: { m: Module; model: M
           {lines.map((l) => (
             <li key={l.id}>
               {lineOpens(l) ? (
-                <button type="button" className="pb-line" title={t(`${P}.strands.openLine`, { name: l.name })} onClick={(e) => openLine(l, e.currentTarget)} data-testid="pb-line">
-                  <LineBody l={l} w={w} />
+                <button type="button" className="pb-line" title={t(`${P}.strands.openLine`, { name: lineName(l, w) })} onClick={(e) => openLine(l, e.currentTarget)} data-key={l.key} data-testid="pb-line">
+                  <LineBody l={l} />
                 </button>
               ) : (
-                <span className="pb-line" data-testid="pb-line">
-                  <LineBody l={l} w={w} />
+                <span className="pb-line" tabIndex={l.key ? -1 : undefined} data-key={l.key} data-testid="pb-line">
+                  <LineBody l={l} />
                 </span>
               )}
             </li>
@@ -151,14 +227,16 @@ function StrandCard({ m, model, w, fuses, runs, running }: { m: Module; model: M
   )
 }
 
-function LineBody({ l, w }: { l: Line; w: Words }) {
+function LineBody({ l }: { l: Line }) {
   return (
     <>
       <span className="pb-line__ar" aria-hidden="true">
         {l.side === 'in' ? '←' : '→'}
       </span>
       <span className="pb-line__t">
-        {w.t(l.side === 'in' ? `${P}.strands.from` : `${P}.strands.to`)} <b>{l.name}</b>
+        <Slotted text={l.say}>
+          <b>{l.name}</b>
+        </Slotted>
       </span>
       {l.tag && (
         <span className="pb-tag" data-tag={l.tag.outside ? 'outside' : undefined}>
@@ -172,6 +250,7 @@ function LineBody({ l, w }: { l: Line; w: Words }) {
 export function Strands({ model, input, words: w, marks, runs, running }: { model: Model; input: ModelInput; words: Words; marks: FuseMarks; runs: Record<ModuleKey, number>; running: readonly ModuleKey[] }) {
   const t = w.t
   const root = useRef<HTMLDivElement>(null)
+  const selectedKey = usePbUI((s) => s.selected)
   // the order is fixed for this visit (a run starting never reorders the list)
   const first = useRef<ReturnType<typeof strandOrder> | null>(null)
   const order = useMemo(() => {
@@ -227,7 +306,14 @@ export function Strands({ model, input, words: w, marks, runs, running }: { mode
             <span className="pb-colh__rule" aria-hidden="true" />
           </div>
           <p className="pb-strands__rest" data-testid="pb-strands-rest">
-            {rest.map((m) => w.name(m)).join(' · ')}
+            {rest.map((m, i) => (
+              <span key={m.key}>
+                {i > 0 && ' · '}
+                <span className="pb-strands__restn" data-key={m.key} data-selected={selectedKey === m.key || undefined} tabIndex={-1}>
+                  {w.name(m)}
+                </span>
+              </span>
+            ))}
           </p>
         </>
       )}

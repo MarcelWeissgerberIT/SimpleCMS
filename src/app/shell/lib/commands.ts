@@ -179,12 +179,11 @@ export function buildCommands(t: Translate, pageId: ID | null): Command[] {
   return list
 }
 
-/** ⌘K "Patchbay: next fuse" — the first open fuse, selected on the rack. */
+/** ⌘K "Patchbay: next fuse" — the open fuse after the one the Patchbay shows (F-order, wrapping; closed: the first). */
 function nextFuse(t: Translate): Command[] {
   const c = patchbayCounts()
   if (!c.ready || c.open < 1 || !c.first) return []
-  const f = c.first
-  return [{ id: 'patchbay-next-fuse', group: 'navigate', label: t('features.patchbay.cmd.nextFuse'), icon: ShieldAlert, keywords: t('features.patchbay.cmd.keywords'), run: () => openPatchbay({ f }) }]
+  return [{ id: 'patchbay-next-fuse', group: 'navigate', label: t('features.patchbay.cmd.nextFuse'), icon: ShieldAlert, keywords: t('features.patchbay.cmd.keywords'), run: () => openPatchbay({ next: true }) }]
 }
 
 /** Commands that write to the workspace (hidden for viewers). */

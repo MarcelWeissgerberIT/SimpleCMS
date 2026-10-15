@@ -27,9 +27,11 @@ export interface PbUI {
   jack: string | null
   /** the page's polite announcement (n: a new one, also with the same words) */
   say: { text: string; n: number }
+  /** modules whose name box stays under 12ch after their own tiers (Module.tsx useJackFit): > 0 → the strands view */
+  tight: number
 }
 
-const FRESH: Omit<PbUI, 'filter' | 'say'> = { hover: null, selected: null, net: null, fuse: null, unfolded: [], cursor: null, jack: null }
+const FRESH: Omit<PbUI, 'filter' | 'say'> = { hover: null, selected: null, net: null, fuse: null, unfolded: [], cursor: null, jack: null, tight: 0 }
 
 export const usePbUI = create<PbUI>(() => ({ ...FRESH, filter: 'auto', say: { text: '', n: 0 } }))
 
@@ -67,6 +69,16 @@ export const setJack = (jack: string | null): void => {
   if (usePbUI.getState().jack !== jack) usePbUI.setState({ jack })
 }
 
+const tightKeys = new Set<string>()
+
+/** A module's name box is (or is no longer) under 12ch with every tier of its own spent. */
+export function noteTight(key: string, on: boolean): void {
+  if (tightKeys.has(key) === on) return
+  if (on) tightKeys.add(key)
+  else tightKeys.delete(key)
+  usePbUI.setState({ tight: tightKeys.size })
+}
+
 /** Say something politely (the page's live region). */
 export const announce = (text: string): void => usePbUI.setState((s) => ({ say: { text, n: s.say.n + 1 } }))
 
@@ -80,4 +92,7 @@ export function activeFuse(selected: string | null, all: readonly { key: string 
 }
 
 /** The page closed: hover, selection, lit flags, fuse, opened folds, the cursor go (the filter stays for this tab). */
-export const resetPbUI = (): void => usePbUI.setState({ ...FRESH })
+export const resetPbUI = (): void => {
+  tightKeys.clear()
+  usePbUI.setState({ ...FRESH })
+}

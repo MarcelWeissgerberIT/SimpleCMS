@@ -4,7 +4,9 @@
  * as folded. The FUSE cell is a button (selects the first open fuse and brings its plate into view) and has four states:
  * open (LED + count in signal ink) · none open (LED off, no signal ink) · all allowed ("0 open · 1 allowed") · unknown
  * parts ("· 2 unknown" + a grey "?" — unknown never reads as safe). The phone shows only RUNS TODAY and FUSE (§3.8);
- * a strip too short for one line (XL text, a narrow window) sheds LIVE, then CABLES, then MODULES — never wraps.
+ * a strip too short for one line (XL text, a narrow window) sheds LIVE, then CABLES, then MODULES — never wraps. The
+ * phone's own tiers: the money leaves RUNS, then RUNS goes, then the FUSE cell wraps to a second line — the unknown
+ * part and its "?" are never cut.
  */
 import { useEffect, useRef, useState } from 'react'
 import { fmtUsd } from '../../../lib/money'
@@ -55,7 +57,7 @@ export function Readout({ t, lang, model, runs, money, costsRead, fuses, phone, 
   const ref = useRef<HTMLDivElement>(null)
   const fit = useFitTier(ref, 3, `${lang}|${phone}|${c.modules}|${c.idle}|${c.cables}|${c.dashed}|${runs}|${moneyText}|${fuseText}|${fuses.unknown}`)
   return (
-    <div className="pb-ro" ref={ref} data-fit={fit || undefined} role="group" aria-label={t(`${P}.ro.aria`)} data-testid="pb-readout">
+    <div className="pb-ro" ref={ref} data-fit={fit || undefined} data-phone={phone || undefined} role="group" aria-label={t(`${P}.ro.aria`)} data-testid="pb-readout">
       {!phone && (
         <>
           <span className="pb-ro__cell" data-cell="modules">
@@ -78,7 +80,7 @@ export function Readout({ t, lang, model, runs, money, costsRead, fuses, phone, 
         <span className="label">{t(`${P}.ro.runs`)}</span>
         <span className="pb-ro__val" data-testid="pb-ro-runs">
           {runs}
-          <span className="pb-ro__dim"> · {moneyText}</span>
+          <span className="pb-ro__dim pb-ro__money"> · {moneyText}</span>
         </span>
       </span>
       <button type="button" className="pb-ro__cell pb-ro__fuse" data-cell="fuse" data-open={open > 0 || undefined} title={open > 0 ? t(`${P}.ro.fuseTitle`) : undefined} onClick={onFuse} aria-disabled={open > 0 ? undefined : 'true'} data-testid="pb-ro-fuse">

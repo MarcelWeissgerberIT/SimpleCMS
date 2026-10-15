@@ -11,7 +11,7 @@
  */
 import type { KeyboardEvent } from 'react'
 import type { Jack as JackT } from '../types'
-import { setJack } from './store'
+import { setCursor, setJack } from './store'
 
 export interface JackKeys {
   /** ↵ */
@@ -54,7 +54,13 @@ export function Jack({ jack, label, title, roleLabel, guessedTitle, lit, keys }:
       aria-label={title}
       tabIndex={-1}
       onKeyDown={onKeyDown}
-      onFocus={(e) => e.target === e.currentTarget && setJack(jack.key)}
+      onFocus={(e) => {
+        if (e.target !== e.currentTarget) return
+        setJack(jack.key)
+        // the rack's tab stop follows to the jack's module (it sits before the jack): Tab from here leaves the rack
+        const stop = e.currentTarget.closest<HTMLElement>('[data-stop]')?.dataset.stop
+        if (stop) setCursor(stop)
+      }}
       onBlur={(e) => e.target === e.currentTarget && setJack(null)}
     >
       {jack.side === 'out' && text}

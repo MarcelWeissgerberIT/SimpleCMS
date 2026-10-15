@@ -715,6 +715,8 @@ function exitVars(ix: ReachIndex, exit: ChainExit): Record<string, string | numb
   if (m?.ref.kind === 'outbound') {
     if (m.ref.host) v.host = m.ref.host
     if (m.ref.method) v.method = m.ref.method
+    // a git action is said in words (plain.ts sayMsg resolves `git`), never as the worker's verb
+    if (m.ref.exit === 'git' && m.ref.method) v.git = m.ref.method
   } else if (m?.ref.kind === 'server') v.server = exit.module
   const e = ix.edge.get(exit.edge)
   const via = e ? ix.jackMod.get(exit.type === 'mcp' ? e.to : e.from) : null

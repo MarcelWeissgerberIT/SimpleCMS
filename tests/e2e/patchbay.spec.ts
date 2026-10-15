@@ -97,7 +97,7 @@ test.describe('B6 · the page frame', () => {
     // the net-flag pair (same name = the same connection), both on F1's path
     const flags = page.getByTestId('pb-flag')
     await expect(flags).toHaveCount(2)
-    for (const f of await flags.all()) await expect(f).toContainText(/Mails · „Weiterleiten“/)
+    for (const f of await flags.all()) await expect(f).toContainText(/Mails · “Weiterleiten”/)
     // F1's path: the row trigger, Inbox-Helfer, „An Team-Chat“, the webhook — the dashed signal frame
     for (const key of ['rowTrigger:dbMails:created:-', 'agent:agInbox', 'automation:dbMails:autToChat', 'outbound:webhook:chat.example:POST']) {
       await expect(module(page, key)).toHaveAttribute('data-path', '')
@@ -457,7 +457,7 @@ test.describe('B7 · cables, net flags, the fuse glyph', () => {
     await expect(dst).toHaveAttribute('data-arrived', 'true')
     await expect(src).toHaveAttribute('aria-pressed', 'true')
     await expect(dst).toHaveAttribute('data-lit', 'true')
-    await expect(page.getByTestId('pb-live')).toHaveText('The other end: Mails · „Weiterleiten“')
+    await expect(page.getByTestId('pb-live')).toHaveText('The other end: Mails · “Weiterleiten”')
     // the twin's cables light in ink, the rest dims
     await expect.poll(() => page.locator('.pb-w--lit').count()).toBeGreaterThanOrEqual(2)
     await expect.poll(() => page.locator('.pb-w--dim').count()).toBeGreaterThan(0)
@@ -698,19 +698,19 @@ test.describe('B8 · the fuse plate and its list', () => {
     await expect(lamps).toContainText('All 3 conditions met')
     await expect(p.locator('[data-lamp][data-on]')).toHaveCount(3)
     await expect(p.locator('[data-lamp="outside"]')).toContainText('Content from outside')
-    await expect(p.locator('[data-lamp="outside"]')).toContainText('Rows of „Mails“ from outside, unchecked')
+    await expect(p.locator('[data-lamp="outside"]')).toContainText('Rows of “Mails” from outside, unchecked')
     await expect(p.locator('[data-lamp="private"]')).toContainText('Access: whole workspace')
     await expect(p.locator('[data-lamp="out"]')).toContainText('Webhook · chat.example (POST)')
     // the path: the outside source (hatched) → the decider → the net chip → the automation → the way out ("can send")
     const chips = p.getByTestId('pb-path').locator('.pb-pn')
-    await expect(chips).toHaveText([/^Mails · new row\s*from outside$/, 'Inbox-Helfer', '„Weiterleiten“', 'An Team-Chat', /^Webhook · chat\.example\s*can send$/])
+    await expect(chips).toHaveText([/^Mails · new row\s*from outside$/, 'Inbox-Helfer', '“Weiterleiten”', 'An Team-Chat', /^Webhook · chat\.example\s*can send$/])
     await expect(chips.first()).toHaveClass(/pb-pn--outside/)
     await expect(chips.last()).toHaveClass(/pb-pn--hot/)
-    await expect(p.getByTestId('pb-say')).toHaveText('If the agent „Inbox-Helfer“ sets „Weiterleiten“ without review, the automation „An Team-Chat“ sends the row out by webhook. A mail with a hidden instruction can get what the agent read sent.')
+    await expect(p.getByTestId('pb-say')).toHaveText('If the agent “Inbox-Helfer” sets “Weiterleiten” without review, the automation “An Team-Chat” sends the row out by webhook. A mail with a hidden instruction can get what the agent read sent.')
     const facts = p.getByTestId('pb-facts').locator('.pb-fact')
     await expect(facts.filter({ hasText: 'Changes' })).toHaveText('Changes Apply directly')
     await expect(facts.filter({ hasText: 'Access' })).toHaveText('Access Everything')
-    await expect(facts.filter({ hasText: 'Trigger' })).toHaveText('Trigger Field „Weiterleiten“ → POST')
+    await expect(facts.filter({ hasText: 'Trigger' })).toHaveText('Trigger Field “Weiterleiten” → POST')
     await expect(facts.filter({ hasText: 'Chain' })).toHaveText('Chain 3 steps')
     await expect(p.getByTestId('pb-mitigations')).toContainText('web images become links')
     // the only orange plate: its frame in the signal colour
@@ -934,7 +934,7 @@ test.describe('B8 · 390 px: the strands', () => {
       await expect(card).toHaveCount(1)
       await expect(card.getByRole('heading', { level: 2 })).toHaveText('Fuse F1 · open path')
       await expect(card.getByTestId('pb-lamps')).toHaveText(/From outside.*Private.*Way out/)
-      await expect(card.locator('.pb-path__via')).toHaveText('sets „Weiterleiten“')
+      await expect(card.locator('.pb-path__via')).toHaveText('sets “Weiterleiten”')
       await expect(card.getByTestId('pb-say')).toContainText('A mail with a hidden instruction')
       expect(await card.evaluate((el) => getComputedStyle(el).borderTopColor)).toBe(await css(page, '--signal'))
       // the order: the fuse card, then the strands, then "Not processed"

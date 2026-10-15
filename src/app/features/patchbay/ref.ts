@@ -80,6 +80,19 @@ export const inventoryKeys = {
   script: (id: ID): ModuleKey => moduleKey({ kind: 'script', id }),
   automation: (db: ID, id: ID): ModuleKey => moduleKey({ kind: 'automation', db, id }),
   command: (db: ID, command: string): ModuleKey => moduleKey({ kind: 'command', db, command }),
+  /**
+   * An own command's key only when the rack draws it (as model.ts `commands()` builds them): an agent command whose
+   * agent exists, a script command whose script exists, an actions command with an action that runs a script, sends
+   * or adds a row. A view command, or one whose agent / script is gone, runs nothing by itself: null — no link.
+   */
+  wiredCommand: (db: ID, cmd: { id: string; kind: string; config?: Record<string, unknown> }, has: { agent: (id: string) => boolean; script: (id: string) => boolean }): ModuleKey | null => {
+    const cfg = cmd.config ?? {}
+    const wired =
+      (cmd.kind === 'agent' && typeof cfg.agentId === 'string' && has.agent(cfg.agentId)) ||
+      (cmd.kind === 'script' && typeof cfg.scriptId === 'string' && has.script(cfg.scriptId)) ||
+      (cmd.kind === 'actions' && Array.isArray(cfg.actions) && cfg.actions.some((a) => !!a && typeof a === 'object' && ['run_script', 'webhook', 'add_page'].includes((a as { type?: unknown }).type as string)))
+    return wired ? moduleKey({ kind: 'command', db, command: cmd.id }) : null
+  },
   repeating: (db: ID, template: ID): ModuleKey => moduleKey({ kind: 'clock', schedule: '', agents: [], template: { db, id: template } }),
 }
 

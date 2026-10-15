@@ -198,6 +198,10 @@ export function Wires({ bench, layout, model, lit, fuseEdges, fuses, active, onF
   const [drawn, setDrawn] = useState<{ layout: Layout; w: number; h: number; wires: Drawn[] } | null>(null)
   // the active fuse's leader: from under its glyph down to its plate's tab (null: no plate, or one of them out of view)
   const [leader, setLeader] = useState<{ x: number; y1: number; y2: number } | null>(null)
+  // React attaches the bench's ref only after this layer's own layout effects ran on a first mount: one more pass once
+  // it is there, so a rack mounted again with an unchanged layout (the strands view and back) draws its cables too
+  const [mounted, setMounted] = useState(false)
+  useLayoutEffect(() => setMounted(true), [])
   const edges = useMemo(() => new Map<string, Edge>(model.edges.map((e) => [e.id, e])), [model])
   const activeRef = useRef(active)
   activeRef.current = active
@@ -270,7 +274,7 @@ export function Wires({ bench, layout, model, lit, fuseEdges, fuses, active, onF
       ro.disconnect()
       window.removeEventListener('resize', soon)
     }
-  }, [bench, layout])
+  }, [bench, layout, mounted])
 
   // measure + render + commit of one relayout (the perf budget, §4 B7)
   useLayoutEffect(() => {
@@ -333,7 +337,7 @@ export function Wires({ bench, layout, model, lit, fuseEdges, fuses, active, onF
       window.removeEventListener('scroll', soon, { capture: true })
       window.removeEventListener('resize', soon)
     }
-  }, [bench, glyphs, active])
+  }, [bench, glyphs, active, mounted])
 
   const byId = useMemo(() => new Map(layout.wires.map((w) => [w.id, w])), [layout])
   if (!drawn || drawn.layout !== layout) return null

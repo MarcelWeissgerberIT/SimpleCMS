@@ -492,6 +492,29 @@ test.describe('the biggest text size still fits', () => {
     }
   })
 
+  test('the patchbay at the standard size: 1366 English and 1280 German stay on the rack — the jack labels give way first', async ({ page }) => {
+    // the review found a laptop width flipped to the strands by one jack label ("EVERYTHING · 4 DB" beside Inbox-Helfer's
+    // name): the labels shorten ("4 DB"), then go, before a name box under 12ch hands the page to the strands view
+    for (const [width, lang] of [[1366, 'en'], [1280, 'de']] as const) {
+      await page.setViewportSize({ width, height: 800 })
+      await openApp(page)
+      await seedPatchbay(page, mock1())
+      await wsEval(page, (s, l) => s.updateSettings({ language: l }), lang)
+      await page.evaluate(() => (window.location.hash = '#/patchbay'))
+      await expect(page.getByTestId('pb-module').first()).toBeVisible()
+      await page.waitForTimeout(500)
+      const at = `${width} ${lang}`
+      await expect(page.getByTestId('patchbay-page'), at).toHaveAttribute('data-view', 'rack')
+      // every name box holds 12 characters (the page's probe) and nothing slides sideways
+      const narrow = await page.evaluate(() => {
+        const min = (document.querySelector('.pb-probe') as HTMLElement).offsetWidth
+        return [...document.querySelectorAll<HTMLElement>('.pb-mod')].filter((m) => (m.querySelector('.pb-mod__body') as HTMLElement).clientWidth < min).map((m) => m.dataset.key)
+      })
+      expect(narrow, at).toEqual([])
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth), at).toBeLessThanOrEqual(0)
+    }
+  })
+
   test('the patchbay head: the keys collapse into ⋯ (measured), never wrap — German at 1024, the phone', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
     await openApp(page)

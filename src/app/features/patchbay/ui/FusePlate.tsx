@@ -20,6 +20,7 @@ import { unknownSay, nearSay } from '../fuses'
 import type { FuseState, ModuleKey } from '../types'
 import type { FuseRow } from './fuseRows'
 import { FuseFacts, FuseLamps, FusePath, FuseSentence, KindIcon, type PlateWords } from './plateParts'
+import { SLOT, Slotted } from './slot'
 import { usePbGlyphs } from './Wires'
 
 const P = 'features.patchbay'
@@ -75,7 +76,7 @@ function FuseBody({ row, pw }: { row: Extract<FuseRow, { kind: 'fuse' }>; pw: Pl
       <div className="pb-fplate__h">
         <span className={open ? 'led led--on pb-fuse-led' : 'led pb-fuse-led'} data-blink={blink.on || undefined} style={blinkStyle(blink) as CSSProperties | undefined} aria-hidden="true" />
         <h2 className="label pb-fplate__title" id="pb-fplate-h" tabIndex={-1}>
-          {open ? t(`${P}.fuse.head`, { f: f.label }) : t(`${P}.plate.headAllowed`, { f: f.label })}
+          <FuseHead text={t(open ? `${P}.fuse.head` : `${P}.plate.headAllowed`, { f: SLOT })} label={f.label} />
         </h2>
         <span className="pb-fplate__sp" />
         <span className="label pb-fplate__static">{t(`${P}.fuse.static`)}</span>
@@ -157,6 +158,15 @@ function UnknownBody({ row, pw }: { row: Extract<FuseRow, { kind: 'unknown' }>; 
       )}
       <p className="pb-fplate__note">{t(`${P}.plate.unknown.never`)}</p>
     </div>
+  )
+}
+
+/** "FUSE F1 · OPEN PATH": the words in ink-2, the label bold — signal ink on an open or lapsed plate, ink when allowed. */
+export function FuseHead({ text, label }: { text: string; label: string }) {
+  return (
+    <Slotted text={text}>
+      <b className="pb-fhead__f">{label}</b>
+    </Slotted>
   )
 }
 

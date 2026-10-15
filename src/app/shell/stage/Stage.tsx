@@ -128,8 +128,10 @@ export function Stage({ route, main, mainTitle }: { route: Route; main: ReactNod
 function MainColumn({ route, folded, active, children }: { route: Route; folded: boolean; active: boolean; children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null)
   const block = route.name === 'page' ? route.block : undefined
-  // a deep link to a block scrolls on purpose; everything else opens at the top
-  useColumnScroll(ref, { folded, hold: !block })
+  // a deep link scrolls on purpose (a block; the Patchbay's module or fuse — features/patchbay brings it into view);
+  // everything else opens at the top
+  const deep = !!block || (route.name === 'patchbay' && !!(route.m || route.f))
+  useColumnScroll(ref, { folded, hold: !deep })
   useEffect(() => {
     if (!block) return
     let tries = 0

@@ -10,6 +10,7 @@
 import { forwardRef, useLayoutEffect, useRef, useState, type MouseEvent } from 'react'
 import { Ellipsis, FileJson, List, ListFilter, Maximize2 } from 'lucide-react'
 import { useLang } from '../../../i18n'
+import { focusLost, restoreFocus } from '../../../ui/focus'
 import { resolveAssetUrl } from '../../../lib/files'
 import { Menu, useMenu, type MenuEntry } from '../../../ui/Menu'
 import type { Translate } from '@/shared/i18n'
@@ -42,6 +43,19 @@ export const Header = forwardRef<HTMLHeadingElement, { t: Translate; input: Mode
     const i = TIERS.indexOf(tier)
     if (i < TIERS.length - 1) setTier(TIERS[i + 1])
   })
+
+  // the filter is a dialog popover (Popover gives the keyboard back only from menus): after a pick or Esc the keyboard
+  // goes back to the key it was opened from ("All databases", or ⋯ in the tight head) — a press outside that put it
+  // somewhere keeps it there (only a keyboard lost with the panel is given back)
+  const closeFilter = () => {
+    const from = filterAt
+    setFilterAt(null)
+    requestAnimationFrame(() => {
+      if (!focusLost()) return
+      const key = from?.isConnected ? from : (row.current?.querySelector<HTMLElement>('[data-testid="pb-filter"], [data-testid="pb-more"]') ?? null)
+      if (key) restoreFocus(key)
+    })
+  }
 
   const entries: MenuEntry[] = [
     { label: t(`${P}.asList`), icon: <List size={14} />, onSelect: keys.asList },
@@ -79,7 +93,7 @@ export const Header = forwardRef<HTMLHeadingElement, { t: Translate; input: Mode
       )}
       {tier !== 'full' && <MoreKey ref={moreBtn} label={t(`${P}.more`)} onClick={more.toggle} open={more.open} />}
       <Menu {...more.props} entries={entries} placement="bottom-end" width={240} />
-      {input && <FilterPanel t={t} input={input} filter={filter} profiles={profiles} hasFuses={hasFuses} anchor={filterAt} onClose={() => setFilterAt(null)} />}
+      {input && <FilterPanel t={t} input={input} filter={filter} profiles={profiles} hasFuses={hasFuses} anchor={filterAt} onClose={closeFilter} />}
     </div>
   )
 })

@@ -150,7 +150,8 @@ export function AutomationSection({ team }: { team: TeamData }) {
         led: c.hidden ? 'off' : null,
         open: () => ui.openModal({ type: 'dbCommands', databaseId: dbId }),
         openLabel: t('shell.ws.auto.edit'),
-        pb: inventoryKeys.command(dbId, c.id),
+        // only a command the rack draws gets "Show in the patchbay" (a view command runs nothing by itself)
+        pb: inventoryKeys.wiredCommand(dbId, c, { agent: (id) => inv.agents.some((a) => a.id === id), script: (id) => inv.scripts.some((x) => x.id === id) }) ?? undefined,
       })),
     },
     {

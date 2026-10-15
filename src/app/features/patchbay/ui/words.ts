@@ -74,12 +74,17 @@ export interface Words {
   name(m: Module): string
   kind(m: Module): string
   sub(m: Module): string | null
+  /** a pipeline's worker when it cannot run as it should (§3.3, §6 U24): the window's word, its title, the LED */
+  worker(m: Module): { word: string; title: string; led: 'off' | 'warn' } | null
   tags(m: Module): Array<{ tag: ModuleTag; text: string }>
   describe(m: Module): string
-  jack(j: Jack, m: Module): string
+  /** a jack's label; `tier` 1 = the short form a narrow module takes ("4 DB", "Out 1"), 2 = none (the title keeps it) */
+  jack(j: Jack, m: Module, tier?: number): string
   jackTitle(j: Jack, m: Module, to: string[]): string
   /** what a jack (or a net flag's key) is cabled to, by name */
   peers(jack: string): string[]
+  /** a property's name (untitled: the word for it) */
+  fieldName(db: string, prop: string): string
   net(n: NetTag, m: Module): string
   netTitle(n: NetTag, m: Module): string
   flag(n: NetLabel): string
@@ -122,11 +127,14 @@ export function makeWords(t: Translate, lang: 'en' | 'de', model: Model, input: 
       if (a.trigger.type === 'row_deleted') return t(`${P}.sub.trigger.deleted`)
       return a.trigger.propertyId ? t(`${P}.sub.trigger.field`, { prop: prop(r.db, a.trigger.propertyId) }) : t(`${P}.sub.trigger.any`)
     }
-    if (r.kind === 'pipeline') {
-      if (input.worker.verdict === 'unsafe') return t(`${P}.worker.unsafe`)
-      if (input.worker.verdict === 'outdated') return t(`${P}.worker.old`)
-      if (!input.worker.online) return t(`${P}.worker.offline`)
-    }
+    return null
+  }
+  // offline: grey; too old or an unsafe version: amber — always with its word in the window, never colour alone
+  const worker = (m: Module) => {
+    if (m.ref.kind !== 'pipeline') return null
+    if (!input.worker.online) return { word: t(`${P}.worker.offline`), title: t(`${P}.worker.offlineTitle`), led: 'off' as const }
+    if (input.worker.verdict === 'unsafe') return { word: t(`${P}.worker.unsafe`), title: t(`${P}.worker.unsafeTitle`), led: 'warn' as const }
+    if (input.worker.verdict === 'outdated') return { word: t(`${P}.worker.old`), title: t(`${P}.worker.oldTitle`), led: 'warn' as const }
     return null
   }
   const tags = (m: Module) => {
@@ -139,13 +147,14 @@ export function makeWords(t: Translate, lang: 'en' | 'de', model: Model, input: 
     }
     return out
   }
-  const jack = (j: Jack, m: Module): string => {
+  const jack = (j: Jack, m: Module, tier = 0): string => {
+    if (tier >= 2) return ''
     if (m.kind === 'server' && (j.role === 'read' || j.role === 'write')) {
       const n = j.count === undefined ? '?' : String(j.count)
       return `${t(`${P}.jack.${j.role}`)}${j.guessed ? '?' : ''} ${n}`
     }
-    if (m.kind === 'server' && j.role === 'out') return t(`${P}.jack.out`, { n: j.count ?? 0 })
-    if (j.role === 'everything') return t(`${P}.jack.everything`, { n: j.count ?? input.databases.length })
+    if (m.kind === 'server' && j.role === 'out') return t(tier ? `${P}.jack.outShort` : `${P}.jack.out`, { n: j.count ?? 0 })
+    if (j.role === 'everything') return t(tier ? `${P}.jack.everythingShort` : `${P}.jack.everything`, { n: j.count ?? input.databases.length })
     // a clock or an incoming hook says START, a button / command PRESS; a row trigger's cables say it themselves
     if (j.side === 'out' && j.role === 'start' && (m.kind === 'clock' || m.kind === 'incoming')) return t(`${P}.jack.start`)
     if (j.side === 'out' && j.role === 'start' && HAND_KINDS.has(m.kind)) return t(`${P}.jack.press`)
@@ -228,11 +237,13 @@ export function makeWords(t: Translate, lang: 'en' | 'de', model: Model, input: 
     name,
     kind,
     sub,
+    worker,
     tags,
     describe: (m) => describe(model, input, m.key, ctx),
     jack,
     jackTitle,
     peers,
+    fieldName: prop,
     net,
     netTitle,
     flag,

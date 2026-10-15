@@ -179,6 +179,27 @@
 .pb-ro__cell--end {
   padding-right: 0;
 }
+/* the phone (RUNS TODAY · FUSE only): 1 = the money goes, 2 = RUNS goes, 3 = the FUSE cell wraps — never clipped */
+.pb-ro[data-phone][data-fit] .pb-ro__money {
+  display: none;
+}
+.pb-ro[data-phone][data-fit='2'] [data-cell='runs'],
+.pb-ro[data-phone][data-fit='3'] [data-cell='runs'] {
+  display: none;
+}
+.pb-ro[data-phone][data-fit='2'] .pb-ro__fuse,
+.pb-ro[data-phone][data-fit='3'] .pb-ro__fuse {
+  padding-left: 0;
+  border-left: 0;
+}
+.pb-ro[data-phone][data-fit='3'] .pb-ro__fuse {
+  flex-wrap: wrap;
+  row-gap: 2px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  white-space: normal;
+  text-align: left;
+}
 
 /* ---------- the bench and the rack ---------- */
 .pb-bench {
@@ -342,6 +363,11 @@
 .led.pb-led--ok {
   background: var(--pb-ok);
 }
+/* a pipeline whose worker is too old or unsafe: amber (the Preflight lamp tone) — its word is in the window */
+.led.pb-led--warn {
+  background: var(--lamp-amber);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--toggle-black) 25%, transparent);
+}
 /* a short kind line (ui/fit.ts, measured): 1 = the net chip goes, 2 = the mode tags shorten, 3 = they go too; the
    kind, "?" and the F tags never give way */
 .pb-mod__k .pb-net {
@@ -358,8 +384,26 @@
   line-height: calc(17px * var(--text-scale));
   text-overflow: ellipsis;
 }
-.pb-mod__k[data-fit='3'] .pb-tag[data-tag] {
+.pb-mod__k[data-fit='3'] .pb-tag[data-tag],
+.pb-mod__k[data-fit='4'] .pb-tag[data-tag],
+.pb-mod__k[data-fit='5'] .pb-tag[data-tag] {
   display: none;
+}
+/* 4 = the F tags fold into one group chip ("F2 · F3 · F4 +1"), 5 = the shortest ("F2 +4") — never clipped; every
+   label is in the chip's title and the module's description */
+.pb-tag.pb-tag--fg {
+  display: none;
+  box-shadow: inset 0 0 0 1px var(--signal);
+  color: var(--signal-ink);
+  font-weight: 700;
+}
+.pb-mod__k[data-fit='4'] .pb-tag--f,
+.pb-mod__k[data-fit='5'] .pb-tag--f {
+  display: none;
+}
+.pb-mod__k[data-fit='4'] .pb-tag.pb-tag--fg[data-fold='group'],
+.pb-mod__k[data-fit='5'] .pb-tag.pb-tag--fg[data-fold='short'] {
+  display: inline-flex;
 }
 .pb-mod__k .label.pb-mod__kind {
   flex: none;
@@ -625,6 +669,12 @@
   line-height: 1.15;
   text-transform: uppercase;
   white-space: nowrap;
+}
+/* a pipeline's worker word ("WORKER / OFFLINE"): it may take two lines, so the name keeps its room */
+.pb-win[data-worker] {
+  max-width: calc(10ch + 12px);
+  white-space: normal;
+  text-align: right;
 }
 .pb-win small {
   color: var(--ink-3);
@@ -1265,7 +1315,8 @@
   .pb-mod[data-path] {
     border-color: Highlight;
   }
-  .pb-tag--f {
+  .pb-tag--f,
+  .pb-tag.pb-tag--fg {
     outline: 1px solid Highlight;
     color: Highlight;
   }
@@ -1390,6 +1441,10 @@
 .pb-strand[data-path] {
   border: 1.5px dashed var(--signal);
 }
+/* `?m=` landed here: the card marked in ink (never orange) */
+.pb-strand[data-selected] {
+  box-shadow: 0 0 0 1px var(--ink);
+}
 .pb-strand__h {
   display: flex;
   align-items: center;
@@ -1487,6 +1542,24 @@ button.pb-line:hover {
   overflow-wrap: anywhere;
   color: var(--ink-2);
   font-size: calc(13.5px * var(--text-scale));
+}
+.pb-strands__restn {
+  border-radius: var(--radius-1);
+}
+.pb-strands__restn[data-selected] {
+  color: var(--ink);
+  text-decoration: underline 1.5px var(--ink);
+  text-underline-offset: 3px;
+}
+.pb-strands__restn:focus {
+  outline: none;
+}
+.pb-strands__restn:focus-visible,
+span.pb-line:focus-visible {
+  box-shadow: var(--focus-ring);
+}
+span.pb-line:focus {
+  outline: none;
 }
 /* "running · CNSX-Spiegel ↓": sticky at the top, jumps to the strand that runs (nothing reorders) */
 .pb-jump {
@@ -1675,8 +1748,17 @@ button.pb-line:hover {
 }
 .pb-fplate__title.label {
   margin: 0;
-  color: var(--ink);
+  color: var(--ink-2);
   font-weight: 600;
+}
+/* "F1" in the heading: bold, signal ink on an open / lapsed plate (the words stay ink-2), ink when allowed */
+.pb-fhead__f {
+  color: var(--signal-ink);
+  font-weight: 700;
+}
+.pb-fplate[data-state='allowed'] .pb-fhead__f,
+.pb-fcard[data-state='allowed'] .pb-fhead__f {
+  color: var(--ink);
 }
 .pb-fplate__title:focus {
   outline: none;
@@ -1952,7 +2034,7 @@ button.pb-line:hover {
 }
 .pb-fcard__title.label {
   margin: 0;
-  color: var(--ink);
+  color: var(--ink-2);
   font-weight: 600;
 }
 .pb-fcard__say {
@@ -2037,6 +2119,12 @@ button.pb-line:hover {
   min-height: 40px;
   padding: 8px 0;
   border-top: 1px dashed var(--rule-strong);
+}
+.pb-grey:focus {
+  outline: none;
+}
+.pb-grey:focus-visible {
+  box-shadow: var(--focus-ring);
 }
 .pb-grey .pb-ring {
   margin: 3px 0 0 4px;

@@ -143,8 +143,8 @@ const sayText = (w: World, key: string, vars: Record<string, Val> = {}): string 
 const titleOf = (w: World, id: string | null | undefined): string => (id ? w.input.pages[id]?.title.trim() : '') || w.ctx.t(`${P}.untitled`)
 const propOf = (w: World, db: string, prop: string): string => w.input.databases.find((d) => d.id === db)?.properties.find((p) => p.id === prop)?.name.trim() || w.ctx.t(`${P}.untitled`)
 
-/** A name as a bold part in „…“. */
-const q = (name: string): Part[] => [{ t: '„' }, { t: name, b: true }, { t: '“' }]
+/** A name as a bold part in quotes — „…“ in German, “…” in English (the pair comes from the language's strings). */
+const q = (w: World, name: string): Part[] => [{ t: w.ctx.t(`${P}.q.open`) }, { t: name, b: true }, { t: w.ctx.t(`${P}.q.close`) }]
 
 /** A module's name in plain text (no quotes) — live from the input. */
 export function moduleName(w: World, key: ModuleKey): string {
@@ -203,10 +203,17 @@ export function moduleName(w: World, key: ModuleKey): string {
     case 'outbound':
       if (r.exit === 'sync') return t(`${P}.name.githubPush`, { host: r.host ?? '' })
       if (r.host) return t(`${P}.name.outbound`, { exit: t(`${P}.exit.${r.exit}`), host: r.host })
-      return r.exit === 'git' && r.method ? t(`${P}.name.outbound`, { exit: t(`${P}.exit.git`), host: r.method }) : t(`${P}.exit.${r.exit}`)
+      return r.exit === 'git' && r.method ? t(`${P}.name.outbound`, { exit: t(`${P}.exit.git`), host: gitAction(w.ctx, r.method) }) : t(`${P}.exit.${r.exit}`)
     case 'outbox':
       return t(`${P}.module.outbox.name`, { route: r.route })
   }
+}
+
+/** A git action in words ("Merge requests" for `pr`) — never the worker's raw verb; an unknown one stays as it is. */
+export function gitAction(ctx: PlainCtx, method: string): string {
+  const k = `${P}.gitAction.${method}`
+  const s = ctx.t(k)
+  return s === k ? method : s
 }
 
 const agentName = (w: World, id: string): string => w.input.agents.find((a) => a.agent.id === id)?.agent.name.trim() || w.ctx.t(`${P}.untitled`)
@@ -260,14 +267,14 @@ function whenOfSchedule(w: World, schedule: string): Part[] {
 }
 
 function whenOfPlace(w: World, p: Place, opts: { outside?: boolean; remote?: boolean } = {}): Part[] {
-  if (!('db' in p)) return say(w, `${P}.plain.when.any`, { db: q(placeName(w, p)) })
-  const db = q(titleOf(w, p.db))
+  if (!('db' in p)) return say(w, `${P}.plain.when.any`, { db: q(w, placeName(w, p)) })
+  const db = q(w, titleOf(w, p.db))
   const prop = p.prop ?? '*'
   let parts: Part[]
   if (prop === '+row') parts = say(w, `${P}.plain.when.created`, { db })
   else if (prop === '-row') parts = say(w, `${P}.plain.when.deleted`, { db })
   else if (prop === '*') parts = say(w, opts.remote ? `${P}.plain.when.anyRemote` : `${P}.plain.when.any`, { db })
-  else parts = say(w, `${P}.plain.when.prop`, { prop: q(propOf(w, p.db, prop)), db })
+  else parts = say(w, `${P}.plain.when.prop`, { prop: q(w, propOf(w, p.db, prop)), db })
   return opts.outside ? say(w, `${P}.plain.when.outside`, { when: parts }) : parts
 }
 
@@ -288,11 +295,11 @@ function startsOf(w: World, key: ModuleKey): Part[][] {
       if (r?.kind === 'rowTrigger') {
         const prop = r.event === 'created' ? '+row' : r.event === 'deleted' ? '-row' : (r.prop ?? '*')
         parts = whenOfPlace(w, { db: r.db, prop: prop as '*' }, { outside: src!.tags.includes('outside'), remote: m?.kind === 'kit' })
-      } else if (r?.kind === 'clock') parts = r.template ? say(w, `${P}.plain.when.repeat`, { db: q(titleOf(w, r.template.db)) }) : whenOfSchedule(w, r.schedule)
-      else if (r?.kind === 'command') parts = say(w, `${P}.plain.when.command`, { name: q(moduleName(w, src!.key)), db: q(titleOf(w, r.db)) })
-      else if (r?.kind === 'button') parts = say(w, `${P}.plain.when.button`, { page: q(titleOf(w, r.page)) })
+      } else if (r?.kind === 'clock') parts = r.template ? say(w, `${P}.plain.when.repeat`, { db: q(w, titleOf(w, r.template.db)) }) : whenOfSchedule(w, r.schedule)
+      else if (r?.kind === 'command') parts = say(w, `${P}.plain.when.command`, { name: q(w, moduleName(w, src!.key)), db: q(w, titleOf(w, r.db)) })
+      else if (r?.kind === 'button') parts = say(w, `${P}.plain.when.button`, { page: q(w, titleOf(w, r.page)) })
       else if (r?.kind === 'incoming') parts = say(w, `${P}.plain.when.hook`)
-      else if (r?.kind === 'automation') parts = say(w, `${P}.plain.when.automation`, { name: q(moduleName(w, src!.key)) })
+      else if (r?.kind === 'automation') parts = say(w, `${P}.plain.when.automation`, { name: q(w, moduleName(w, src!.key)) })
     }
     if (!parts) continue
     const k = text(parts)
@@ -309,7 +316,7 @@ function who(w: World, key: ModuleKey): Part[] {
   const m = w.mods.get(key)
   if (!m) return [{ t: key }]
   const r = m.ref
-  const name = q(moduleName(w, key))
+  const name = q(w, moduleName(w, key))
   switch (r.kind) {
     case 'agent':
     case 'automation':
@@ -318,19 +325,19 @@ function who(w: World, key: ModuleKey): Part[] {
       return say(w, `${P}.plain.who.${r.kind}`, { name })
     case 'autofill':
     case 'kit':
-      return say(w, `${P}.plain.who.${r.kind}`, { prop: q(propOf(w, r.db, r.prop)), db: q(titleOf(w, r.db)) })
+      return say(w, `${P}.plain.who.${r.kind}`, { prop: q(w, propOf(w, r.db, r.prop)), db: q(w, titleOf(w, r.db)) })
     case 'organise':
-      return say(w, `${P}.plain.who.organise`, { db: q(titleOf(w, r.db)) })
+      return say(w, `${P}.plain.who.organise`, { db: q(w, titleOf(w, r.db)) })
     case 'bridge':
       return say(w, `${P}.plain.who.bridge`)
     case 'button':
-      return say(w, `${P}.plain.who.button`, { page: q(titleOf(w, r.page)) })
+      return say(w, `${P}.plain.who.button`, { page: q(w, titleOf(w, r.page)) })
     case 'command':
-      return say(w, `${P}.plain.who.command`, { name, db: q(titleOf(w, r.db)) })
+      return say(w, `${P}.plain.who.command`, { name, db: q(w, titleOf(w, r.db)) })
     case 'clock':
-      return say(w, `${P}.plain.who.clock`, { db: q(titleOf(w, r.template?.db ?? '')) })
+      return say(w, `${P}.plain.who.clock`, { db: q(w, titleOf(w, r.template?.db ?? '')) })
     case 'incoming':
-      return say(w, `${P}.plain.who.incoming`, { name: q(r.hook ?? moduleName(w, key)) })
+      return say(w, `${P}.plain.who.incoming`, { name: q(w, r.hook ?? moduleName(w, key)) })
     case 'sync':
       return say(w, r.source === 'github' ? `${P}.plain.who.syncGithub` : `${P}.plain.who.syncFolder`)
     case 'clippings':
@@ -359,7 +366,7 @@ function serverClauses(w: World, m: Module): { reads: Part[][]; writes: Part[][]
     const s = w.mods.get(w.jackMod.get(e.from) ?? '')
     if (!s) continue
     const counts = toolCounts(w, m, s)
-    const server = q(moduleName(w, s.key))
+    const server = q(w, moduleName(w, s.key))
     if (e.kind === 'reads') reads.push(counts.read === null ? say(w, `${P}.plain.c.readsServerUnknown`, { server }) : say(w, `${P}.plain.c.readsServer`, { server, n: counts.read }))
     else if (e.kind === 'out') writes.push(e.failClosed || counts.write === null ? say(w, `${P}.plain.c.everyTool`, { server }) : say(w, `${P}.plain.c.writeTools`, { server, n: counts.write }))
   }
@@ -377,16 +384,16 @@ function writeTargets(w: World, m: Module): { everything: boolean; fields: Part[
     const k = `${role}|${placeKey(p)}`
     if (seen.has(k)) continue
     seen.add(k)
-    if (role === 'report' && 'page' in p) res.report = q(titleOf(w, p.page))
+    if (role === 'report' && 'page' in p) res.report = q(w, titleOf(w, p.page))
     else if (role === 'notes') res.notes = true
     else if ('everything' in p) res.everything = true
-    else if ('db' in p && p.prop && p.prop !== '*' && p.prop !== '+row' && p.prop !== '-row') res.fields.push([...q(propOf(w, p.db, p.prop)), { t: ' ' }, ...say(w, `${P}.plain.join.in`), ...q(titleOf(w, p.db))])
+    else if ('db' in p && p.prop && p.prop !== '*' && p.prop !== '+row' && p.prop !== '-row') res.fields.push([...q(w, propOf(w, p.db, p.prop)), { t: ' ' }, ...say(w, `${P}.plain.join.in`), ...q(w, titleOf(w, p.db))])
     else {
       const id = 'db' in p ? p.db : 'page' in p ? p.page : ''
       const key = `place|${id}`
       if (seen.has(key)) continue
       seen.add(key)
-      ;(e.can ? res.places : res.solid).push(q(titleOf(w, id)))
+      ;(e.can ? res.places : res.solid).push(q(w, titleOf(w, id)))
     }
   }
   return res
@@ -400,7 +407,7 @@ function agentClauses(w: World, m: Module): Part[][] {
   if (t && (t.type === 'row_created' || t.type === 'row_changed')) startDbs.add(t.databaseId)
   const reads = m.nets.filter((n) => !('db' in n.place && startDbs.has(n.place.db)))
   if (reads.some((n) => 'everything' in n.place)) out.push(say(w, `${P}.plain.c.readsAll`))
-  else if (reads.length) out.push(say(w, `${P}.plain.c.reads`, { places: list(w, reads.map((n) => q(placeName(w, n.place)))) }))
+  else if (reads.length) out.push(say(w, `${P}.plain.c.reads`, { places: list(w, reads.map((n) => q(w, placeName(w, n.place)))) }))
   const tools = serverClauses(w, m)
   out.push(...tools.reads)
   const stage = ai?.write === 'stage'
@@ -432,17 +439,17 @@ function automationClauses(w: World, m: Module): Part[][] {
   const out: Part[][] = []
   for (const act of au?.actions ?? []) {
     if (act.type === 'webhook') out.push(say(w, `${P}.plain.c.webhook`, { host: hostOf(act.url) }))
-    else if (act.type === 'set_property' && act.propertyId) out.push(say(w, `${P}.plain.c.sets`, { fields: q(propOf(w, r.db, act.propertyId)) }))
+    else if (act.type === 'set_property' && act.propertyId) out.push(say(w, `${P}.plain.c.sets`, { fields: q(w, propOf(w, r.db, act.propertyId)) }))
     else if (act.type === 'notify') out.push(say(w, `${P}.plain.c.notify`))
     else if (act.type === 'run_script' && act.scriptId) {
-      const script = q(w.input.scripts.find((s) => s.script.id === act.scriptId)?.script.name.trim() || w.ctx.t(`${P}.untitled`))
+      const script = q(w, w.input.scripts.find((s) => s.script.id === act.scriptId)?.script.name.trim() || w.ctx.t(`${P}.untitled`))
       if (m.folds?.script === act.scriptId) {
         out.push(say(w, `${P}.plain.c.runsScript`, { script }))
         // the folded script's own writes (the automation's set_property places are said above)
         const own = new Set((au?.actions ?? []).flatMap((a) => (a.type === 'set_property' ? [`${r.db}:${a.propertyId}`] : [])))
         const places = (w.model.flow?.writes[m.key] ?? []).filter((x) => !own.has(placeKey(x.place)))
         const names = [...new Set(places.map((x) => ('db' in x.place ? titleOf(w, x.place.db) : placeName(w, x.place))))]
-        if (names.length) out.push(say(w, `${P}.plain.c.writes`, { places: list(w, names.map(q)) }))
+        if (names.length) out.push(say(w, `${P}.plain.c.writes`, { places: list(w, names.map((n) => q(w, n))) }))
       } else out.push(say(w, `${P}.plain.c.startsScript`, { script }))
     }
   }
@@ -478,7 +485,7 @@ function effectClauses(w: World, m: Module): Part[][] {
 function scriptClauses(w: World, m: Module): Part[][] {
   const out: Part[][] = []
   const reads = m.nets
-  if (reads.length) out.push(say(w, `${P}.plain.c.reads`, { places: list(w, reads.map((n) => q(placeName(w, n.place)))) }))
+  if (reads.length) out.push(say(w, `${P}.plain.c.reads`, { places: list(w, reads.map((n) => q(w, placeName(w, n.place)))) }))
   const wt = writeTargets(w, m)
   const places = [...wt.solid, ...wt.places, ...wt.fields]
   if (places.length) out.push(say(w, `${P}.plain.c.writes`, { places: list(w, places) }))
@@ -518,20 +525,20 @@ function clausesOf(w: World, m: Module): Part[][] {
     case 'script':
       return scriptClauses(w, m)
     case 'autofill': {
-      const clauses: Part[][] = [say(w, `${P}.plain.c.fills`, { prop: q(propOf(w, r.db, r.prop)) })]
+      const clauses: Part[][] = [say(w, `${P}.plain.c.fills`, { prop: q(w, propOf(w, r.db, r.prop)) })]
       const related = m.nets.filter((n) => 'db' in n.place && n.place.db !== r.db)
-      if (related.length) clauses.push(say(w, `${P}.plain.c.readsTitles`, { places: list(w, related.map((n) => q(placeName(w, n.place)))) }))
+      if (related.length) clauses.push(say(w, `${P}.plain.c.readsTitles`, { places: list(w, related.map((n) => q(w, placeName(w, n.place)))) }))
       const tools = serverClauses(w, m)
       return [...clauses, ...tools.reads, ...tools.writes]
     }
     case 'organise': {
-      const fields = (w.input.mail?.organiseProps ?? []).map((p) => q(propOf(w, r.db ?? '', p)))
+      const fields = (w.input.mail?.organiseProps ?? []).map((p) => q(w, propOf(w, r.db ?? '', p)))
       const clauses: Part[][] = [fields.length ? say(w, `${P}.plain.c.sorts`, { fields: list(w, fields) }) : say(w, `${P}.plain.c.sortsOnly`)]
-      if (w.input.mail?.relationDb) clauses.push(say(w, `${P}.plain.c.readsTitles`, { places: q(titleOf(w, w.input.mail.relationDb)) }))
+      if (w.input.mail?.relationDb) clauses.push(say(w, `${P}.plain.c.readsTitles`, { places: q(w, titleOf(w, w.input.mail.relationDb)) }))
       return clauses
     }
     case 'kit':
-      return [say(w, `${P}.plain.c.recomputes`, { prop: q(propOf(w, r.db, r.prop)) })]
+      return [say(w, `${P}.plain.c.recomputes`, { prop: q(w, propOf(w, r.db, r.prop)) })]
     case 'pipeline':
       return effectClauses(w, m)
     case 'bridge': {
@@ -548,7 +555,7 @@ function processorStrand(w: World, m: Module): Part[] {
   const out: Part[] = []
   if (m.ref.kind === 'pipeline') {
     const clauses = clausesOf(w, m)
-    out.push(...say(w, `${P}.plain.pipeline`, { who: whoParts, db: q(titleOf(w, m.ref.db)), and: clauses.length ? say(w, `${P}.plain.pipelineAnd`, { clauses: list(w, clauses) }) : '' }))
+    out.push(...say(w, `${P}.plain.pipeline`, { who: whoParts, db: q(w, titleOf(w, m.ref.db)), and: clauses.length ? say(w, `${P}.plain.pipelineAnd`, { clauses: list(w, clauses) }) : '' }))
   } else if (m.ref.kind === 'bridge') out.push(...say(w, `${P}.plain.bridge.${w.input.bridge.mode}`))
   else {
     const starts = startsOf(w, m.key)
@@ -571,16 +578,16 @@ function sourceStrand(w: World, m: Module): Part[] {
   switch (r.kind) {
     case 'clock':
       if (!r.template) return []
-      for (const db of rowDbs) clauses.push(say(w, `${P}.plain.c.newRows`, { db: q(titleOf(w, db)) }))
+      for (const db of rowDbs) clauses.push(say(w, `${P}.plain.c.newRows`, { db: q(w, titleOf(w, db)) }))
       break
     case 'button':
     case 'command':
-      for (const db of rowDbs) clauses.push(say(w, `${P}.plain.c.byHand`, { what: say(w, `${P}.plain.c.addsRow`, { db: q(titleOf(w, db)) }) }))
+      for (const db of rowDbs) clauses.push(say(w, `${P}.plain.c.byHand`, { what: say(w, `${P}.plain.c.addsRow`, { db: q(w, titleOf(w, db)) }) }))
       clauses.push(...effectClauses(w, m))
       break
     case 'incoming':
       if (r.agent) return []
-      for (const db of rowDbs) clauses.push(say(w, `${P}.plain.c.hookRows`, { db: q(titleOf(w, db)) }))
+      for (const db of rowDbs) clauses.push(say(w, `${P}.plain.c.hookRows`, { db: q(w, titleOf(w, db)) }))
       break
     case 'sync':
       if (r.source === 'github') {
@@ -590,7 +597,7 @@ function sourceStrand(w: World, m: Module): Part[] {
       } else clauses.push(say(w, `${P}.plain.c.picksUpFolder`))
       break
     case 'clippings':
-      return merged([...say(w, `${P}.plain.clippings`, { clauses: say(w, `${P}.plain.c.lands`, { page: q(titleOf(w, r.inbox)) }) }), ...fuseLine(w, m.key)])
+      return merged([...say(w, `${P}.plain.clippings`, { clauses: say(w, `${P}.plain.c.lands`, { page: q(w, titleOf(w, r.inbox)) }) }), ...fuseLine(w, m.key)])
     default:
       return []
   }
@@ -643,7 +650,7 @@ export function describe(model: Model, input: ModelInput, key: ModuleKey, ctx: P
   if (!m) return key
   const name = moduleName(w, key)
   // a name of its own reads „quoted“ after the kind; a made-up one (Webhook · host, Autofill · db · „prop“ …) holds it
-  const bits: string[] = [OWN_NAME.has(m.kind) ? `${kindLabel(w, m)} „${name}“` : m.kind === 'clock' || m.kind === 'rowTrigger' ? `${kindLabel(w, m)} · ${name}` : name]
+  const bits: string[] = [OWN_NAME.has(m.kind) ? `${kindLabel(w, m)} ${text(q(w, name))}` : m.kind === 'clock' || m.kind === 'rowTrigger' ? `${kindLabel(w, m)} · ${name}` : name]
   if (PROCESSORS.has(m.kind)) {
     if (m.tags.includes('disabled') && m.kind === 'agent') bits.push(w.ctx.t(`${P}.plain.c.off`))
     for (const s of startsOf(w, key)) bits.push(lowerFirst(text(s)))
@@ -657,12 +664,12 @@ export function describe(model: Model, input: ModelInput, key: ModuleKey, ctx: P
   } else if (m.col === 1) {
     if (m.tags.includes('outside')) bits.push(w.ctx.t(`${P}.plain.desc.outside`))
     const started = [...new Set((w.from.get(key) ?? []).filter((e) => e.kind === 'starts' || e.kind === 'relay').map((e) => w.jackMod.get(e.to)).filter((x): x is ModuleKey => !!x))]
-    if (started.length) bits.push(sayText(w, `${P}.plain.desc.starts`, { who: list(w, started.map((k) => q(moduleName(w, k)))) }))
+    if (started.length) bits.push(sayText(w, `${P}.plain.desc.starts`, { who: list(w, started.map((k) => q(w, moduleName(w, k)))) }))
     const own = text(sourceStrand(w, m))
     if (own) bits.push(lowerFirst(own.replace(/\.\s.*$/, '').replace(/\.$/, '')))
   } else {
     const by = [...new Set((w.into.get(key) ?? []).map((e) => w.jackMod.get(e.from)).filter((x): x is ModuleKey => !!x))]
-    if (by.length) bits.push(sayText(w, m.kind === 'outbound' || m.kind === 'outbox' ? `${P}.plain.desc.sentBy` : `${P}.plain.desc.writtenBy`, { who: list(w, by.map((k) => q(moduleName(w, k)))) }))
+    if (by.length) bits.push(sayText(w, m.kind === 'outbound' || m.kind === 'outbox' ? `${P}.plain.desc.sentBy` : `${P}.plain.desc.writtenBy`, { who: list(w, by.map((k) => q(w, moduleName(w, k)))) }))
   }
   if (m.idle) bits.push(w.ctx.t(`${P}.plain.desc.idle`))
   const fuses = fusesOn(w, key)
@@ -686,7 +693,7 @@ export function fuseSay(fuse: Pick<Fuse, 'chain'>, model: Model, input: ModelInp
     return (exit.type === 'mcp' ? w.jackMod.get(e.to) : w.jackMod.get(e.from)) ?? null
   })()
   const out: Part[] = []
-  const serverName = q(moduleName(w, exit.module))
+  const serverName = q(w, moduleName(w, exit.module))
   if (exit.type === 'mcp' && holderKey === d.key) out.push(...say(w, `${P}.plain.fuse.tools`, { who: dWho, server: serverName }))
   else {
     const first = chain.steps[0]
@@ -701,12 +708,12 @@ export function fuseSay(fuse: Pick<Fuse, 'chain'>, model: Model, input: ModelInp
       else if (prop === '*' || prop === '-row') act = 'any'
       else {
         act = 'set'
-        vars.prop = q(propOf(w, place.db, prop))
+        vars.prop = q(w, propOf(w, place.db, prop))
       }
-      vars.db = q(titleOf(w, place.db))
+      vars.db = q(w, titleOf(w, place.db))
     } else if (place && 'page' in place) {
       act = 'page'
-      vars.page = q(titleOf(w, place.page))
+      vars.page = q(w, titleOf(w, place.page))
     }
     const hWho = holderKey ? who(w, holderKey) : []
     const outRef = w.mods.get(exit.module)?.ref
@@ -726,8 +733,8 @@ export function fuseSay(fuse: Pick<Fuse, 'chain'>, model: Model, input: ModelInp
   const src = chain.why?.outside.find((s) => !s.withheld)
   if (src) {
     const sv: Record<string, Val> = {}
-    if (src.kind === 'mcp') sv.server = q(moduleName(w, src.source))
-    if (src.kind === 'tainted' && src.place) sv.place = q(placeName(w, src.place))
+    if (src.kind === 'mcp') sv.server = q(w, moduleName(w, src.source))
+    if (src.kind === 'tainted' && src.place) sv.place = q(w, placeName(w, src.place))
     const decKind = d.ref.kind === 'agent' || d.ref.kind === 'autofill' || d.ref.kind === 'organise' || d.ref.kind === 'bridge' ? d.ref.kind : 'agent'
     out.push({ t: ' ' }, ...say(w, `${P}.plain.fuse.threat`, { source: say(w, `${P}.plain.fuse.src.${src.kind}`, sv), sent: say(w, `${P}.plain.fuse.sent.${decKind}`).map((p) => ({ ...p, b: true as const })) }))
   }
@@ -740,7 +747,7 @@ const MODULE_VARS = new Set(['agent', 'automation', 'module', 'server', 'source'
 
 /**
  * A lamp / fact / key / near-miss MsgRef in words: id vars resolved (db / page / title → titles, prop → the property's
- * name, module keys → names, place → the place, cls → the data class), `.one` for n = 1. Other vars stay as given
+ * name, module keys → names, place → the place, cls → the data class, git → the git action's words), `.one` for n = 1. Other vars stay as given
  * (host, method, n, repo, member names the UI filled in).
  */
 export function sayMsg(msg: MsgRef, model: Model, input: ModelInput, ctx: PlainCtx): string {
@@ -753,6 +760,7 @@ export function sayMsg(msg: MsgRef, model: Model, input: ModelInput, ctx: PlainC
     else if (k === 'prop') out[k] = typeof v.db === 'string' ? propOf(w, v.db, s) : s
     else if (k === 'place') out[k] = placeName(w, placeOfKey(s))
     else if (k === 'cls') out[k] = ctx.t(`${P}.cls.${s}`)
+    else if (k === 'git') out[k] = gitAction(ctx, s)
     else if (MODULE_VARS.has(k)) out[k] = w.mods.has(s) ? moduleName(w, s) : s
     else out[k] = typeof raw === 'number' ? raw : s
   }

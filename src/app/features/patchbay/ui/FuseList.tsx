@@ -17,10 +17,11 @@ import { chainModules } from '../layout'
 import { blinkOf, blinkStyle } from '../blink'
 import { nearSay, unknownSay } from '../fuses'
 import type { Model, ModelInput } from '../types'
-import { FusePlate } from './FusePlate'
+import { FuseHead, FusePlate } from './FusePlate'
 import { fuseRowsOf, selectedRow, shownRows, type FuseRow } from './fuseRows'
 import { FusePath, FuseSentence, ShortLamps, pathLine, usePlateWords, type PlateWords } from './plateParts'
 import { selectFuse, usePbUI } from './store'
+import { SLOT } from './slot'
 import type { Words } from './words'
 
 const P = 'features.patchbay'
@@ -97,8 +98,13 @@ export function FuseArea({ model, input, words }: { model: Model; input: ModelIn
   const [allNear, setAllNear] = useState(false)
   const list = useRef<HTMLDivElement>(null)
   const rows = fuseRowsOf(model)
-  const shown = shownRows(rows, allNear)
   const sel = selectedRow(rows, picked)
+  // the selected row is always in the list (a near miss past the 12 a module on the rack picked is spliced in after
+  // them): the tablist keeps exactly one tab stop and the panel its label
+  const listed = shownRows(rows, allNear)
+  const spliced = !!sel && !listed.includes(sel)
+  const shown = spliced ? [...listed, sel!] : listed
+  const hiddenNear = allNear ? 0 : rows.hiddenNear - (spliced ? 1 : 0)
 
   // a module selected on the rack: the plate shows its path — the fuse it lies on, else its path almost open (a row
   // already shown that runs through it stays, unless a fuse runs through it too)
@@ -129,6 +135,18 @@ export function FuseArea({ model, input, words }: { model: Model; input: ModelIn
     list.current?.querySelector<HTMLElement>(`#pb-ftab-${next}`)?.focus({ preventScroll: true })
   }
 
+  // "+n more" goes once pressed: the keyboard moves on to the first row it brought (selected, its plate shown)
+  const showAllNear = () => {
+    const first = listed.length
+    setAllNear(true)
+    requestAnimationFrame(() => {
+      const all = shownRows(rows, true)
+      const row = all[first]
+      if (!row) return
+      selectFuse(row.key)
+      list.current?.querySelector<HTMLElement>(`[data-row="${CSS.escape(row.key)}"]`)?.focus({ preventScroll: true })
+    })
+  }
   const firstGrey = shown.findIndex((r) => r.kind !== 'fuse')
   return (
     <section className="pb-fuses" id="pb-fuse-plate" aria-label={t(`${P}.plate.aria`)} data-testid="pb-fuses">
@@ -140,9 +158,9 @@ export function FuseArea({ model, input, words }: { model: Model; input: ModelIn
             </FuseRowSlot>
           ))}
         </div>
-        {rows.hiddenNear > 0 && !allNear && (
-          <button type="button" className="pb-flist__more" title={t(`${P}.plate.near.moreTitle`)} onClick={() => setAllNear(true)} data-testid="pb-flist-more">
-            {t(`${P}.near.more`, { n: rows.hiddenNear })}
+        {hiddenNear > 0 && (
+          <button type="button" className="pb-flist__more" title={t(`${P}.plate.near.moreTitle`)} onClick={showAllNear} data-testid="pb-flist-more">
+            {t(`${P}.near.more`, { n: hiddenNear })}
           </button>
         )}
       </div>
@@ -179,7 +197,7 @@ function FuseCard({ row, pw }: { row: Extract<FuseRow, { kind: 'fuse' }>; pw: Pl
       <div className="pb-fcard__h">
         <span className={open ? 'led led--on pb-fuse-led' : 'led pb-fuse-led'} data-blink={blink.on || undefined} style={blinkStyle(blink) as CSSProperties | undefined} aria-hidden="true" />
         <h2 className="label pb-fcard__title" id={id}>
-          {open ? t(`${P}.fuse.head`, { f: f.label }) : t(`${P}.plate.headAllowed`, { f: f.label })}
+          <FuseHead text={t(open ? `${P}.fuse.head` : `${P}.plate.headAllowed`, { f: SLOT })} label={f.label} />
         </h2>
       </div>
       <ShortLamps lamps={f.lamps} pw={pw} />
@@ -194,21 +212,28 @@ export function FuseCards({ model, input, words }: { model: Model; input: ModelI
   const pw = usePlateWords(model, input, words)
   const t = words.t
   const [allNear, setAllNear] = useState(false)
+  const greyList = useRef<HTMLUListElement>(null)
   const rows = fuseRowsOf(model)
   const shown = shownRows(rows, allNear)
   if (!rows.rows.length) return null
   const grey = shown.filter((r) => r.kind !== 'fuse')
+  // "+n more" goes once pressed: the keyboard moves on to the first grey row it brought
+  const showAllNear = () => {
+    const first = grey.length
+    setAllNear(true)
+    requestAnimationFrame(() => greyList.current?.querySelectorAll<HTMLElement>('.pb-grey')[first]?.focus({ preventScroll: true }))
+  }
   return (
     <section className="pb-fcards" id="pb-fuse-plate" aria-label={t(`${P}.plate.aria`)} data-testid="pb-fcards">
       {shown.map((r) => (r.kind === 'fuse' ? <FuseCard key={r.key} row={r} pw={pw} /> : null))}
       {grey.length > 0 && (
         <div className="pb-greys">
           <span className="label pb-flist__div">{t(`${P}.plate.notCounted`)}</span>
-          <ul className="pb-greys__list">
+          <ul className="pb-greys__list" ref={greyList}>
             {grey.map((r) => {
               const text = rowText(r, pw)
               return (
-                <li key={r.key} className="pb-grey" data-kind={r.kind} data-testid="pb-grey">
+                <li key={r.key} className="pb-grey" data-kind={r.kind} tabIndex={-1} data-testid="pb-grey">
                   {r.kind === 'near' ? (
                     <span className="pb-ring" aria-hidden="true" />
                   ) : (
@@ -225,7 +250,7 @@ export function FuseCards({ model, input, words }: { model: Model; input: ModelI
             })}
           </ul>
           {rows.hiddenNear > 0 && !allNear && (
-            <button type="button" className="pb-flist__more" onClick={() => setAllNear(true)}>
+            <button type="button" className="pb-flist__more" onClick={showAllNear} data-testid="pb-greys-more">
               {t(`${P}.near.more`, { n: rows.hiddenNear })}
             </button>
           )}

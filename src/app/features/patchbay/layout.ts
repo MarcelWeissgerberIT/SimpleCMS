@@ -11,8 +11,9 @@
  *    then adjacent swaps that lower the crossing count, then every fuse path's processors pulled together (§ 02 rows
  *    stay packed, top to bottom);
  *  - § 01 and § 03 items take the row of what they are cabled to in § 02 (the first one), pushed down when it is taken —
- *    a § 03 net flag sits at its writer's row, a § 01 flag at its listener's row; at a tie the item on the higher jack
- *    goes first (no crossing), then flags, then the model's order;
+ *    a § 03 net flag is pinned to its writer's row, a § 01 flag to its listener's row (it goes first at its row; what it
+ *    pushes out takes the next free row once everything else has its own); at a tie the item on the higher jack goes
+ *    first (no crossing), then the model's order;
  *  - **stable** (§6 U15): seeded with the previous order (localStorage `one.patchbay.order:<scope>`, module keys only,
  *    ≤ 200), the known modules keep their order AND their rows. A new § 02 module takes the place with the fewest
  *    crossings among those that move at most 2 others (the bottom always qualifies); a new § 01 / § 03 item takes the
@@ -510,9 +511,13 @@ function assignRows(g: Graph, mid: string[], outer: Record<1 | 3, string[]>, see
       want.set(id, Math.floor(y) + 1)
       at.set(id, y)
     }
-  // the rest of a tie goes by model order — never by a sweep's order, so a seeded layout finds the same rows again
+  // a net flag is pinned to its writer's / listener's row (§3.4): at an equal wanted row it goes first, whatever jack the
+  // others hang on; the rest of a tie goes by model order — never by a sweep's order, so a seeded layout finds the same
+  // rows again
+  const isFlag = (id: string) => g.items.get(id)!.prio === 0
   const cmp = (x: string, y: string) =>
     want.get(x)! - want.get(y)! ||
+    Number(isFlag(y)) - Number(isFlag(x)) ||
     at.get(x)! - at.get(y)! ||
     g.items.get(x)!.prio - g.items.get(y)!.prio ||
     g.items.get(x)!.seq - g.items.get(y)!.seq ||
@@ -521,15 +526,27 @@ function assignRows(g: Graph, mid: string[], outer: Record<1 | 3, string[]>, see
     const a = outer[c].filter((id) => want.has(id))
     const known = seeded ? a.filter((id) => g.items.get(id)!.known) : a
     const fresh = seeded ? a.filter((id) => !g.items.get(id)!.known) : []
-    for (const id of known.sort(cmp)) {
+    // an item whose row a flag holds waits until everything else has its own row, then takes the next free one — so a
+    // way out stays on its automation's row (the fuse glyph level) and "Whole workspace" moves down instead
+    const flagRows = new Set<number>()
+    const late: Array<{ id: string; fresh: boolean }> = []
+    const put = (id: string, isFresh: boolean) => {
       const it = g.items.get(id)!
-      const row = cols[c].first(want.get(id)!, it.span)
+      const w = want.get(id)!
+      if (!isFlag(id) && flagRows.has(w)) {
+        late.push({ id, fresh: isFresh })
+        return
+      }
+      const row = isFresh ? cols[c].nearest(w, it.span) : cols[c].first(w, it.span)
       cols[c].take(row, it.span)
       rows.set(id, row)
+      if (isFlag(id) && row === w) flagRows.add(row)
     }
-    for (const id of fresh.sort(cmp)) {
+    for (const id of known.sort(cmp)) put(id, false)
+    for (const id of fresh.sort(cmp)) put(id, true)
+    for (const { id, fresh: isFresh } of late) {
       const it = g.items.get(id)!
-      const row = cols[c].nearest(want.get(id)!, it.span)
+      const row = isFresh ? cols[c].nearest(want.get(id)!, it.span) : cols[c].first(want.get(id)!, it.span)
       cols[c].take(row, it.span)
       rows.set(id, row)
     }

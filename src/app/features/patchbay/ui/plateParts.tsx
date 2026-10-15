@@ -177,11 +177,11 @@ export function pathOf(chain: Chain, all: boolean): PathNode[] {
   return out
 }
 
-/** A place on a chip ("„Weiterleiten“" — a field in quotes; else the flag's words: "Mails · new row", a page's title). */
+/** A place on a chip ("„Weiterleiten“" — a field in the language's quotes; else the flag's words: "Mails · new row", a page's title). */
 function placeLabel(pw: PlateWords, p: Place): string {
   if ('db' in p && p.prop && p.prop !== '*' && p.prop !== '+row' && p.prop !== '-row') {
     const name = pw.input.databases.find((d) => d.id === p.db)?.properties.find((x) => x.id === p.prop)?.name.trim() || pw.w.t(`${P}.untitled`)
-    return `„${name}“`
+    return `${pw.w.t(`${P}.q.open`)}${name}${pw.w.t(`${P}.q.close`)}`
   }
   return pw.w.flag({ key: '', place: p, writers: [], listeners: [] })
 }
