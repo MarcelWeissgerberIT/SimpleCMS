@@ -5,6 +5,10 @@ import type { Messages } from '@/shared/i18n'
  * "features.patchbay.*"; always add both en and de (German without "AI": "KI"; the words of plan §1.1 / §3.11).
  */
 export const messages: Messages = {
-  en: {},
-  de: {},
+  en: {
+    'features.patchbay.hint.onFuse': 'On fuse {f} — show in the Patchbay',
+  },
+  de: {
+    'features.patchbay.hint.onFuse': 'Liegt auf Sicherung {f} — im Schaltplan zeigen',
+  },
 }

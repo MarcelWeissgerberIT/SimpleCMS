@@ -8,12 +8,12 @@ import { colorText, tagStyle } from '../../lib/colors'
 import type { Database, PropertyDef, PropertyValue } from '../../store/types'
 import { SETTABLE } from './recipes'
 
-export function Picker({ label, entries, placeholder, searchable, ariaLabel, width }: { label: ReactNode; entries: MenuEntry[]; placeholder?: string; searchable?: boolean; ariaLabel: string; width?: number }) {
+export function Picker({ label, entries, placeholder, searchable, ariaLabel, width, disabled }: { label: ReactNode; entries: MenuEntry[]; placeholder?: string; searchable?: boolean; ariaLabel: string; width?: number; disabled?: boolean }) {
   const menu = useMenu()
   const t = useT()
   return (
     <>
-      <button type="button" className="auto-pick" onClick={menu.toggle} aria-haspopup="menu" aria-expanded={menu.open} aria-label={ariaLabel}>
+      <button type="button" className="auto-pick" onClick={menu.toggle} aria-haspopup="menu" aria-expanded={menu.open} aria-label={ariaLabel} disabled={disabled}>
         <span className="auto-pick__label">{label ?? <span className="faint">{placeholder}</span>}</span>
         <ChevronDown size={14} className="faint" />
       </button>
@@ -38,7 +38,7 @@ const TYPE_GLYPH: Partial<Record<PropertyDef['type'], string>> = {
   rating: '★',
 }
 
-export function PropertyPicker({ db, value, onChange, allowAny, settableOnly, ariaLabel }: { db: Database; value: string | null; onChange: (id: string | null) => void; allowAny?: boolean; settableOnly?: boolean; ariaLabel: string }) {
+export function PropertyPicker({ db, value, onChange, allowAny, settableOnly, ariaLabel, disabled }: { db: Database; value: string | null; onChange: (id: string | null) => void; allowAny?: boolean; settableOnly?: boolean; ariaLabel: string; disabled?: boolean }) {
   const t = useT()
   const props = db.properties.filter((p) => SETTABLE.has(p.type) && (!settableOnly || p.type !== 'title'))
   const current = db.properties.find((p) => p.id === value)
@@ -50,6 +50,7 @@ export function PropertyPicker({ db, value, onChange, allowAny, settableOnly, ar
     <Picker
       ariaLabel={ariaLabel}
       entries={entries}
+      disabled={disabled}
       searchable={entries.length > 8}
       label={current ? (
         <>
@@ -93,7 +94,7 @@ export function useValueLabel() {
   }
 }
 
-export function ValuePicker({ prop, value, onChange, allowAny, ariaLabel }: { prop: PropertyDef | undefined; value: PropertyValue | undefined; onChange: (v: PropertyValue | undefined) => void; allowAny?: boolean; ariaLabel: string }) {
+export function ValuePicker({ prop, value, onChange, allowAny, ariaLabel, disabled }: { prop: PropertyDef | undefined; value: PropertyValue | undefined; onChange: (v: PropertyValue | undefined) => void; allowAny?: boolean; ariaLabel: string; disabled?: boolean }) {
   const t = useT()
   const people = useWorkspace((s) => s.people)
   const label = useValueLabel()
@@ -136,7 +137,7 @@ export function ValuePicker({ prop, value, onChange, allowAny, ariaLabel }: { pr
           ]
       break
   }
-  if (entries) return <Picker ariaLabel={ariaLabel} entries={entries} label={label(prop, value)} searchable={entries.length > 10} />
+  if (entries) return <Picker ariaLabel={ariaLabel} entries={entries} label={label(prop, value)} searchable={entries.length > 10} disabled={disabled} />
 
   // free text / number
   const numeric = prop.type === 'number' || prop.type === 'rating'
@@ -145,6 +146,7 @@ export function ValuePicker({ prop, value, onChange, allowAny, ariaLabel }: { pr
       <input
         className="input"
         aria-label={ariaLabel}
+        readOnly={disabled}
         type={numeric ? 'number' : 'text'}
         placeholder={allowAny ? t('features.auto.anyValue') : t('features.auto.valuePlaceholder')}
         value={value === undefined || value === null ? '' : String(value)}

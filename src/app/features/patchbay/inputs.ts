@@ -12,6 +12,7 @@
  *    button index (idle slices, then kept up to date per page). Each reading that
  *    arrives bumps `onInputs` listeners.
  *  - onInputs(fn): hear a lazy reading arrive (the state slice rebuilds then).
+ *  - readSource(): the InputSource now (B15: patch.ts plans a patch on it and builds its preview with the same core).
  * The lazy cache (B4): every fuse-relevant reading that arrives (scans, the runtime, hooks, the Inbox lookup) is written
  * to IndexedDB `one-patchbay` `<scope>|lazy` in idle (ids and hosts only, cache.ts lazyCacheOf) — the LED and the
  * Preflight lamp count from the eager inputs plus this cache.
@@ -359,16 +360,21 @@ export function onPagesMoved(fn: () => void): () => void {
   }
 }
 
-/** The model input now (the same object while the wiring did not change). */
-export function readInput(): ModelInput {
-  watchPages()
+/** The source of the input now: the workspace, this device's facts, the lazy readings (patch.ts plans on it, B15). */
+export function readSource(): InputSource {
   const s = useWorkspace.getState()
-  const src: InputSource = {
+  return {
     ws: { pages: s.pages, databases: s.databases, agents: s.agents, scripts: s.scripts, integrations: s.integrations, kit: s.kit, ai: s.ai, governor: s.governor, fuseSignoffs: s.fuseSignoffs, settings: s.settings },
     device: deviceFacts(),
     lazy,
     now: Date.now(),
   }
+}
+
+/** The model input now (the same object while the wiring did not change). */
+export function readInput(): ModelInput {
+  watchPages()
+  const src = readSource()
   const input = memo.read(src, { pagesMoved })
   pagesMoved = false
   return input

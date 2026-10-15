@@ -1,9 +1,14 @@
 /**
  * Automations for one database: channel list with status LEDs, editor (signal chain),
  * ready-made recipes, JSON payload reference and the live run log.
+ *
+ * Read through readAutomations (sanitized — an automation this build cannot read is neither shown nor run, and kept as
+ * it is), written ONLY through saveAutomations as the person (`you~ui`; the delete toast's Undo `you~undo`). A locked
+ * database shows the lock and offers only switching automations off and removing them (plan §1.14). Each automation on
+ * an open fuse path carries the Patchbay's hint line ("On fuse F1 — show in the Patchbay", §1.20).
  */
 import { useEffect, useMemo, useState } from 'react'
-import { Check, ClipboardCopy, Plus, Workflow, Zap } from 'lucide-react'
+import { Check, ClipboardCopy, Lock, Plus, Workflow, Zap } from 'lucide-react'
 import { Modal } from '../../ui/Modal'
 import { Led } from '../../ui/controls'
 import { useLang, useT } from '../../i18n'
@@ -17,6 +22,8 @@ import { isDatabaseApiLoaded, loadDatabaseApi, samplePayload, useRunLog } from '
 import { blankAutomation, makeRecipe, problemOf, recipeHint, type RecipeId } from './recipes'
 import { onRovingKey } from '../io/roving'
 import { AutomationEditor } from './AutomationEditor'
+import { readAutomations, unreadableAutomations } from './read'
+import { saveAutomations } from './model'
 import { n8nWorkflow } from './n8n'
 import { HelpLink } from '../../help'
 import './automations.css'
@@ -44,7 +51,9 @@ export function AutomationsModal({ databaseId, onClose }: { databaseId: ID; onCl
   const t = useT()
   const db = useDatabase(databaseId)
   const page = usePage(databaseId)
-  const list = useMemo(() => db?.automations ?? [], [db])
+  const list = useMemo(() => readAutomations(db?.automations), [db])
+  const newer = useMemo(() => unreadableAutomations(db?.automations).length, [db])
+  const locked = !!db?.locked
   const [selected, setSelected] = useState<ID | null>(() => list[0]?.id ?? null)
   const ago = useAgo()
   const log = useRunLog().filter((e) => e.databaseId === databaseId)
@@ -62,19 +71,24 @@ export function AutomationsModal({ databaseId, onClose }: { databaseId: ID; onCl
     )
   }
 
-  const save = (next: Automation[]) => useWorkspace.getState().updateDatabase(databaseId, { automations: next })
-  const update = (a: Automation) => save(list.map((x) => (x.id === a.id ? a : x)))
+  /** the stored list now (sanitized) — every write starts from it, not from the render's copy */
+  const stored = () => readAutomations(useWorkspace.getState().databases[databaseId]?.automations)
+  // the one writer, as the person; a locked database takes only switching off and removing (refused otherwise: said)
+  const save = (next: Automation[]) => {
+    const ok = saveAutomations(databaseId, next, { kind: 'you', via: 'ui' })
+    if (!ok) toast({ message: t('features.auto.lockedRefused'), kind: 'error' })
+    return ok
+  }
+  const update = (a: Automation) => save(stored().map((x) => (x.id === a.id ? a : x)))
   const add = (a: Automation | null) => {
-    if (!a) return
-    save([...(useWorkspace.getState().databases[databaseId]?.automations ?? []), a])
-    setSelected(a.id)
+    if (!a || locked) return
+    if (save([...stored(), a])) setSelected(a.id)
   }
   const remove = (id: ID) => {
-    const all = useWorkspace.getState().databases[databaseId]?.automations ?? []
+    const all = stored()
     const index = all.findIndex((x) => x.id === id)
     const removed = all[index]
-    if (!removed) return
-    save(all.filter((x) => x.id !== id))
+    if (!removed || !save(all.filter((x) => x.id !== id))) return
     // deleting loses a webhook URL etc. → offer undo instead of a confirm dialog
     toast({
       message: t('features.auto.deleted', { name: removed.name.trim() || t('features.auto.untitled') }),
@@ -82,11 +96,15 @@ export function AutomationsModal({ databaseId, onClose }: { databaseId: ID; onCl
         label: t('features.auto.undo'),
         undo: true,
         run: () => {
-          const now = useWorkspace.getState().databases[databaseId]?.automations ?? []
+          const now = stored()
           if (now.some((x) => x.id === removed.id)) return
           const next = [...now]
           next.splice(Math.min(index, next.length), 0, removed)
-          useWorkspace.getState().updateDatabase(databaseId, { automations: next })
+          // putting it back adds an automation: a database locked meanwhile refuses that (§1.14)
+          if (!saveAutomations(databaseId, next, { kind: 'you', via: 'undo' })) {
+            toast({ message: t('features.auto.lockedUndo', { name: removed.name.trim() || t('features.auto.untitled') }), kind: 'error' })
+            return
+          }
           setSelected(removed.id)
         },
       },
@@ -116,10 +134,11 @@ export function AutomationsModal({ databaseId, onClose }: { databaseId: ID; onCl
           <div className="auto-rail__head">
             <span className="label">{t('features.auto.channels')}</span>
             <span className="label auto-rail__count">{String(list.length).padStart(2, '0')}</span>
-            <button type="button" className="btn btn--sm" onClick={() => add(blankAutomation(db))}>
+            <button type="button" className="btn btn--sm" disabled={locked} onClick={() => add(blankAutomation(db))}>
               <Plus size={13} /> {t('common.new')}
             </button>
           </div>
+          {newer > 0 && <p className="auto-newer faint">{t(newer === 1 ? 'features.auto.newer.one' : 'features.auto.newer', { n: newer })}</p>}
           {list.length === 0 && (
             <div className="auto-empty">
               <img src={resolveAssetUrl('assets/icons/automation.webp')} alt="" width={72} height={72} draggable={false} />
@@ -161,7 +180,7 @@ export function AutomationsModal({ databaseId, onClose }: { databaseId: ID; onCl
               const hint = recipeHint(db, r)
               return (
                 <li key={r}>
-                  <button type="button" className="auto-recipe" disabled={!!hint} onClick={() => add(makeRecipe(databaseId, r))} title={hint ?? undefined}>
+                  <button type="button" className="auto-recipe" disabled={!!hint || locked} onClick={() => add(makeRecipe(databaseId, r))} title={hint ?? undefined}>
                     <Zap size={13} />
                     <span className="auto-recipe__text">
                       <span className="auto-recipe__name">{t(`features.auto.recipe.${r}`)}</span>
@@ -176,8 +195,13 @@ export function AutomationsModal({ databaseId, onClose }: { databaseId: ID; onCl
 
         {/* ------------ main ------------ */}
         <section className="auto-main">
+          {locked && (
+            <p className="auto-lock" role="note">
+              <Lock size={13} aria-hidden /> <span className="label">{t('features.auto.lockedLabel')}</span> {t('features.auto.locked')}
+            </p>
+          )}
           {current ? (
-            <AutomationEditor key={current.id} db={db} automation={current} onChange={update} onDelete={() => remove(current.id)} onDuplicate={() => duplicate(current)} />
+            <AutomationEditor key={current.id} db={db} automation={current} locked={locked} onChange={update} onDelete={() => remove(current.id)} onDuplicate={() => duplicate(current)} onOpenPatchbay={onClose} />
           ) : (
             <div className="auto-intro">
               <div className="label">{t('features.auto.introLabel')}</div>

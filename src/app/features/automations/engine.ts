@@ -21,6 +21,8 @@ import { aiWrite } from '../history/snapshots'
 import { errorMessage, runScriptById } from '../script'
 import { causeKey, currentWriter, endRun, formatWriterKey, noteRun, SYSTEM, withWriter, type Writer, type WriterKey } from '../../store/writer'
 import { isEjectWriter } from '../recorder/settled'
+import { readAutomations } from './read'
+import { saveAutomations } from './model'
 
 /* The database area is loaded lazily so this always-on service doesn't pull it in statically. */
 type DatabaseApi = typeof import('../../database')
@@ -268,14 +270,14 @@ export async function sendWebhook(url: string, method: 'POST' | 'PUT', payload: 
 let applyingAction = false
 
 function setStatus(dbId: ID, automationId: ID, status: 'ok' | 'error', message: string) {
-  const s = useWorkspace.getState()
-  const db = s.databases[dbId]
-  if (!db?.automations) return
-  // the run's status: bookkeeping, not a change of the database (store/writer.ts)
-  withWriter(SYSTEM('bookkeeping'), () =>
-    s.updateDatabase(dbId, {
-      automations: db.automations!.map((a) => (a.id === automationId ? { ...a, lastRunAt: Date.now(), lastStatus: status, lastMessage: message.slice(0, 200) } : a)),
-    }),
+  const list = readAutomations(useWorkspace.getState().databases[dbId]?.automations)
+  if (!list.some((a) => a.id === automationId)) return
+  // the run's status: bookkeeping, not a change of the database (store/writer.ts) — through the one writer, which keeps
+  // a newer build's entries and lets bookkeeping pass a locked database (no config changes)
+  saveAutomations(
+    dbId,
+    list.map((a) => (a.id === automationId ? { ...a, lastRunAt: Date.now(), lastStatus: status, lastMessage: message.slice(0, 200) } : a)),
+    SYSTEM('bookkeeping'),
   )
 }
 
@@ -295,7 +297,7 @@ async function runAutomation(dbId: ID, automationId: ID, rowSnapshot: Page, even
   await loadDatabaseApi().catch(() => null)
   const state = useWorkspace.getState()
   const db = state.databases[dbId]
-  const automation = db?.automations?.find((a) => a.id === automationId)
+  const automation = readAutomations(db?.automations).find((a) => a.id === automationId)
   if (!db || !automation?.enabled) return
   // one run of the automation (store/writer.ts): its writes, with the write that started it as their cause
   const writer: Writer = { kind: 'automation', db: dbId, id: automationId, run: newId(), cause }
@@ -427,7 +429,7 @@ function flush(key: string) {
   }
   pending.delete(key)
   if (entry.event === 'property_changed') {
-    const trig = state.databases[entry.dbId]?.automations?.find((a) => a.id === entry.automationId)?.trigger
+    const trig = readAutomations(state.databases[entry.dbId]?.automations).find((a) => a.id === entry.automationId)?.trigger
     if (!trig || trig.type !== 'property_changed' || !latest || latest.trashed) return
     let list = [...entry.changes.values()].filter((c) => !sameValue(c.from, c.to))
     if (trig.toValue !== undefined && trig.toValue !== null) list = list.filter((c) => reachesValue(c.from, c.to, trig.toValue!))
@@ -467,11 +469,12 @@ function touchCreated(rowId: ID) {
 function diff(state: ReturnType<typeof useWorkspace.getState>, prev: ReturnType<typeof useWorkspace.getState>) {
   const active = new Map<ID, Database>()
   // databases inside a template (features/templates) are blueprints: their copies run the automations
-  for (const db of Object.values(state.databases)) if (db.automations?.some((a) => a.enabled) && !inTemplate(state.pages, db.id)) active.set(db.id, db)
+  for (const db of Object.values(state.databases)) if (readAutomations(db.automations).some((a) => a.enabled) && !inTemplate(state.pages, db.id)) active.set(db.id, db)
   if (!active.size) return
 
   const fire = (db: Database, row: Page, event: EventType, changes: Change[]) => {
-    for (const a of db.automations ?? []) {
+    // only what this build can read runs (read.ts): a broken entry or a newer build's never does
+    for (const a of readAutomations(db.automations)) {
       if (!a.enabled || a.trigger.type !== event) continue
       if (a.trigger.type === 'property_changed') {
         const pid = a.trigger.propertyId
