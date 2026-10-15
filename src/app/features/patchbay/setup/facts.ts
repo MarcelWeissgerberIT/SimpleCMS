@@ -43,10 +43,10 @@ import {
   sameNamedDb,
   useAgentRuns,
   useServerAgents,
+  keptDraftFor,
+  onKeptDrafts,
   type ResolvedRecipe,
 } from '../../agents'
-// dependency-free (React + types): the mirror drafts this tab keeps — not in the agents index (B1 owns it; merge note)
-import { keptDraftFor, onKeptDrafts } from '../../agents/dialogs'
 import type { AgentRun } from '../../agents/types'
 import type { ModuleKey } from '../types'
 import { lampsOf, type KeyFacts, type LampFacts, type LampSet, type ProfileFacts, type ProfileStatusFacts, type RecipeSetup, type ServerFacts } from './lamps'

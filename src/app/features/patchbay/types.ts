@@ -712,8 +712,10 @@ export interface HookInput {
 }
 
 /**
- * A stored allowance as the model reads it — Workspace.fuseSignoffs' own type (store/types.ts FuseSignoff), read only
- * through store/fuseSignoffs.ts sanitizeFuseSignoffs (B1: reads none; B9 fills it).
+ * A stored allowance as the model reads it — Workspace.fuseSignoffs' own type (store/types.ts FuseSignoff), keyed by
+ * sig.ts `pathKey` and read only through store/fuseSignoffs.ts sanitizeFuseSignoffs: path key and `sig` 64 lower-case
+ * hex, `parts` ≤ 24 keys `[a-z]\d{0,2}` → 16 hex each — exactly the shape sig.ts `sigOf` makes (d · a<n> · k<n> · f<n> ·
+ * p<n> · s<n> · x, a long group's tail folded into its last part). A broken entry is left out: its fuse stays open.
  */
 export type SignoffEntry = FuseSignoff
 

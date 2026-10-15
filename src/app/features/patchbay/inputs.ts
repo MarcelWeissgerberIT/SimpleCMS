@@ -6,8 +6,9 @@
  *  - readInput(): the model input now — the same object while the wiring did not change (the memo); called after first
  *    paint, in idle (B8) and by the page (B6) — never at boot.
  *  - openInputs(): the route opened — read the expensive inputs once, in idle: the lazy cache (IndexedDB
- *    `one-patchbay`, `<scope>|lazy`), the script scan (the engine's chunk), the server-agent runtime (team), the capture
- *    Inbox (one id-prefix lookup), the button index (idle slices, then kept up to date per page). Each reading that
+ *    `one-patchbay`, `<scope>|lazy`), the script scan (the engine's chunk), the server-agent runtime (team), the team's
+ *    incoming webhooks (owners / admins; a member reads 'forbidden'), the capture Inbox (one id-prefix lookup), the
+ *    button index (idle slices, then kept up to date per page). Each reading that
  *    arrives bumps `onInputs` listeners.
  *  - onInputs(fn): hear a lazy reading arrive (the state slice rebuilds then).
  * The lazy cache (B4): every fuse-relevant reading that arrives (scans, the runtime, hooks, the Inbox lookup) is written
@@ -21,7 +22,7 @@ import { isEffectivelyTrashed } from '../../store/selectors'
 import { ensureRowIndex, onRowsChanged } from '../../store/rowIndex'
 import { readDeviceAI, readWorkspaceAI } from '../../store/ai'
 import { findInboxIn } from '../../lib/capture'
-import { activeWorkspace, useCloud } from '../../cloud'
+import { activeWorkspace, cloudRequest, useCloud } from '../../cloud'
 import { readAutomations } from '../automations'
 import { readDbCommands } from '../commands'
 import { approvalsDefault, gitStageWarnings, readPipeline, taskConfirmRule, useCoding, workerCaps, workerOnline, workerVerdict } from '../coding'
@@ -42,7 +43,7 @@ import { ScanCache, type ScanEngine } from './scripts'
 import { isLazyCache, lazyCacheOf, lazyKey, readCache, sameLazyCache, writeCache } from './cache'
 import { patchbayScope } from './scope'
 import type { ID } from '../../store/types'
-import type { LazyCache, MailInput, ModelInput, PipelineInput } from './types'
+import type { HookInput, LazyCache, MailInput, ModelInput, PipelineInput } from './types'
 
 /* ------------------------------------------------------------------ the readers */
 
@@ -196,6 +197,7 @@ export function openInputs(): void {
   idle(scanScripts)
   idle(readInbox)
   idle(readRuntime)
+  idle(readHooks)
   idle(buildButtons)
   // later script saves scan again (only what changed — by id + updatedAt)
   let scripts = useWorkspace.getState().scripts
@@ -231,6 +233,37 @@ function readRuntime(): void {
   }
   openSubs.push(useServerAgents.subscribe(take))
   void loadRuntime().finally(take)
+}
+
+/**
+ * The team's incoming webhooks (owners / admins may list them: `GET api/workspaces/<id>/hooks`, the same list Workspace ›
+ * API shows) — ids and target databases only. A member, or a 403, reads 'forbidden' (an unknown part, never "none"); a
+ * failed request leaves the reading open (unknown 'lazy').
+ */
+function readHooks(): void {
+  const ws = activeWorkspace()
+  if (ws.kind !== 'cloud') return
+  const role = useCloud.getState().role
+  // the role not known yet (still connecting): the reading stays open
+  if (!role) return
+  if (role !== 'owner' && role !== 'admin') {
+    if (lazy.hooks !== 'forbidden') changed({ hooks: 'forbidden' })
+    return
+  }
+  void cloudRequest<unknown>('GET', `api/workspaces/${encodeURIComponent(ws.id)}/hooks`)
+    .then((raw) => {
+      if (activeWorkspace().id !== ws.id) return
+      const hooks: HookInput[] = []
+      for (const h of Array.isArray(raw) ? raw : []) {
+        const id = (h as { id?: unknown } | null)?.id
+        const db = (h as { database?: { id?: unknown } } | null)?.database?.id
+        if (typeof id === 'string' && id) hooks.push({ id, db: typeof db === 'string' && db ? db : null })
+      }
+      if (JSON.stringify(hooks) !== JSON.stringify(lazy.hooks)) changed({ hooks })
+    })
+    .catch((err: unknown) => {
+      if ((err as { code?: unknown } | null)?.code === 'forbidden' && activeWorkspace().id === ws.id) changed({ hooks: 'forbidden' })
+    })
 }
 
 function buildButtons(): void {

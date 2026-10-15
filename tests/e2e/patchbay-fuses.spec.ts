@@ -26,6 +26,7 @@ import { moduleKey } from '../../src/app/features/patchbay/ref'
 import { placeKey } from '../../src/app/features/patchbay/rules'
 import type { Chain, ChainStep, FuseState, Model, ModelInput, MsgRef } from '../../src/app/features/patchbay/types'
 import type { CustomAgent, Database, Kit } from '../../src/app/store/types'
+import { sanitizeFuseSignoffs, signoffEntry } from '../../src/app/store/fuseSignoffs'
 import {
   NO_LAZY,
   TRACKER_READS,
@@ -515,6 +516,30 @@ test.describe('B4 · sig — canonical JSON, path keys, parts, lapse (§2.7, §6
     expect(f.allowed).toEqual({ state: 'lapsed', at: 1760000000000, by: null, changed: [agentKey('agInbox')] })
     expect(keyOf(f, 3)?.kind).toBe('allow')
     expect(fuseCounts(lapsed)).toEqual({ open: 1, allowed: 0, unknown: 0 })
+  })
+
+  test('merge B4 × B9: the sign-off store keeps every allowance sig.ts makes, and the model reads it back as allowed', () => {
+    const worlds = [exits(), bigPatchbay(60), mock1()]
+    let seen = 0
+    for (const w of worlds) {
+      const input = inputOf(w)
+      const m = buildModel(input)
+      const signed: Record<string, unknown> = {}
+      for (const f of m.fuses) {
+        // the writer's own check (store.ts signOffFuse) takes exactly what key 3 passes
+        const entry = signoffEntry({ sig: f.sig, parts: f.parts, at: 1760000000000, updatedBy: null })
+        expect(entry, f.label).not.toBeNull()
+        signed[f.key] = entry
+        seen++
+      }
+      // the reader (persistence, binding, backups) leaves out nothing of it
+      const read = sanitizeFuseSignoffs(signed)
+      expect(Object.keys(read).sort()).toEqual(m.fuses.map((f) => f.key).sort())
+      const again = buildModel({ ...input, signoffs: read })
+      for (const f of again.fuses) expect(f.allowed?.state, f.label).toBe('allowed')
+      expect(fuseCounts(again).open).toBe(0)
+    }
+    expect(seen).toBeGreaterThan(10)
   })
 })
 

@@ -13,7 +13,8 @@
  *    with the first run counted.
  *
  * Public in the area: startRunBus() · readTally(scope?, day?) · onTally(fn) (this tab's counts as they happen) ·
- * flushTally() · forgetTally(scope | null) (a wipe: drop what waits) · TALLY_CHANNEL (other tabs: "read again").
+ * flushTally() · forgetTally(scope | null) (a wipe: drop what waits — every wipePatchbay runs it first, cache.ts
+ * onPatchbayWipe) · TALLY_CHANNEL (other tabs: "read again").
  * Seam (DEV / `?e2e`): `window.__onePatchbayLive` — start, flush, tally, pending, stats (the live listeners: loaded /
  * active / calls — the spy that proves nothing runs while the route is closed), snapshot, legLog, wipe(scope?).
  */
@@ -21,7 +22,7 @@ import { createStore, delMany, keys, type UseStore } from 'idb-keyval'
 import { useWorkspace } from '../../../store/store'
 import { onRunNote, type RunNote } from '../../../store/writer'
 import { parseHash } from '../../../lib/router'
-import { PATCHBAY_DB, PATCHBAY_STORE, readCache, runsKey, updateCache, wipePatchbay } from '../cache'
+import { onPatchbayWipe, PATCHBAY_DB, PATCHBAY_STORE, readCache, runsKey, updateCache, wipePatchbay } from '../cache'
 import { patchbayScope } from '../scope'
 import type { ModuleKey } from '../types'
 import { addToTally, dayOf, EMPTY_TALLY, isTally, RunBook, type TallyHit, type TallyRecord, type WriterLookups } from './runs'
@@ -160,6 +161,9 @@ export function forgetTally(scope: string | null): void {
   book.reset()
 }
 
+// every wipe (cloud/device.ts through wipePatchbay — the device copy of a team workspace) drops what waits first
+onPatchbayWipe(forgetTally)
+
 /* ------------------------------------------------------------------ the route */
 
 type LiveApi = typeof import('./live')
@@ -236,11 +240,9 @@ if (seamOn) {
     stats: () => (live ? live.liveStats() : { loaded: false, active: 0, calls: 0 }),
     snapshot: () => (live ? live.liveView() : null),
     legLog: () => (live ? live.legLog() : []),
-    /** the device-copy wipe as B9 wires it: what waits is dropped, then the stored records go (cache.ts) */
+    /** the device-copy wipe as cloud/device.ts runs it: what waits is dropped (the wipe hook), then the records go */
     wipe: async (scope?: string | null) => {
-      const s = scope === undefined ? patchbayScope() : scope
-      forgetTally(s)
-      await wipePatchbay(s)
+      await wipePatchbay(scope === undefined ? patchbayScope() : scope)
     },
   }
 }

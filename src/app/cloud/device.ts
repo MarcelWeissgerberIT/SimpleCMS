@@ -447,8 +447,12 @@ async function forget(flag: string[]): Promise<void> {
   // (and of every member's scope of it, cloud:<ws>:u:<account>)
   if (recorder) for (const ws of targets) await recorder.wipeRecorderScope(`cloud:${ws}`).catch(() => {})
   // the Patchbay's device stores of each member here (features/patchbay/cache.ts): records "cloud:<ws>[:u:<account>]|…"
-  // and the row order in localStorage — the database is only opened when it is there
-  if (recorder && (!dbNames || dbNames.includes(recorder.PATCHBAY_DB))) for (const ws of targets) await recorder.wipePatchbay(`cloud:${ws}`).catch(() => {})
+  // and the row order in localStorage — the database is only opened when it is there; what this tab still has waiting
+  // to be written for them (the run tally) is dropped either way
+  if (recorder) {
+    const records = !dbNames || dbNames.includes(recorder.PATCHBAY_DB)
+    for (const ws of targets) await recorder.wipePatchbay(`cloud:${ws}`, { records }).catch(() => {})
+  }
   // this device's sealed secrets for them (lib/vault.ts): the AI key, the GitHub token
   await clearSecrets((scope) => scope.startsWith('cloud:') && (all || targets.has(scope.slice(6)))).catch(() => {})
   for (const id of refs) if (!keep.has(id)) await deleteFile(FILE_PREFIX + id).catch(() => {})

@@ -13,8 +13,7 @@ import { lazy, Suspense, useEffect } from 'react'
 import { useRoute } from '../../../lib/router'
 import { clearReturn, markAway, readReturn, useArrivalText, useReturn, type ReturnRecord } from '../setup/return'
 import { openMcpConnections } from '../../mcp'
-import { openIntegrations } from '../../agents'
-import { keptDraftFor } from '../../agents/dialogs'
+import { keptDraftFor, openIntegrations } from '../../agents'
 
 const Body = lazy(() => import('./ReturnChipBody'))
 

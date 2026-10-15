@@ -108,12 +108,31 @@ export function inPatchbayScope(key: string, scope: string | null): boolean {
   return member.length > 0 && !member.includes(':')
 }
 
+/** Run first by every wipe, synchronously (live/bus.ts `forgetTally`: the counts still waiting for that scope are dropped,
+ *  so a batched write never lands after the wipe). A hook that throws stops nothing. */
+const wipeHooks = new Set<(scope: string | null) => void>()
+export function onPatchbayWipe(fn: (scope: string | null) => void): () => void {
+  wipeHooks.add(fn)
+  return () => {
+    wipeHooks.delete(fn)
+  }
+}
+
 /**
  * Remove every record of a scope (the device copy's wipe of a team workspace: `cloud:<ws>` takes each member's scope of
  * it along; `null` = every scope: the local reset) — the IndexedDB records and the scope's row order in localStorage;
- * with `null` also the device's own switches (`one.patchbay.*`) and this tab's return chip.
+ * with `null` also the device's own switches (`one.patchbay.*`) and this tab's return chip. What waits to be written
+ * for the scope goes first (`onPatchbayWipe`). `records: false` leaves IndexedDB unopened (a caller that knows the
+ * database is not there — opening it would create it); the hooks and localStorage still run.
  */
-export async function wipePatchbay(scope: string | null): Promise<void> {
+export async function wipePatchbay(scope: string | null, opts: { records?: boolean } = {}): Promise<void> {
+  for (const fn of wipeHooks) {
+    try {
+      fn(scope)
+    } catch {
+      /* the wipe goes on */
+    }
+  }
   try {
     for (const k of Object.keys(window.localStorage)) {
       if (scope === null ? k.startsWith(LS_PREFIX) : k.startsWith(ORDER_PREFIX) && inPatchbayScope(k.slice(ORDER_PREFIX.length), scope)) window.localStorage.removeItem(k)
@@ -122,6 +141,7 @@ export async function wipePatchbay(scope: string | null): Promise<void> {
   } catch {
     /* no storage here */
   }
+  if (opts.records === false) return
   const st = store()
   if (!st) return
   try {

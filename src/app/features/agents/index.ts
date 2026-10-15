@@ -104,7 +104,8 @@ export { setProposalsShown } from './hold'
  *    through them) — the trash / gone rules of gone.ts; lostPages, lostText, runBlock below
  *  - dialogs over any route (B11 fills them): openMirrorSetup({ profileId, recipeId?, from? }) ·
  *    openAgentEditor(idOrDraft, { from?, section? }) · AgentDialogsHost (mounted once in ModalHost, B11) — a lazy
- *    wrapper that must stay one (AgentDialogsHost.tsx imports no dialog: they load with AgentDialogs.tsx)
+ *    wrapper that must stay one (AgentDialogsHost.tsx imports no dialog: they load with AgentDialogs.tsx) · the mirror
+ *    drafts kept per tab: keepMirrorDraft / keptDraft / keptDraftFor / dropMirrorDraft / onKeptDrafts / useKeptDrafts
  *  - profiles: resolveRecipe(…) · validateProfileText(…) — browser only (store, i18n, CSS): the setup's pure parts
  *    take what they make as data (patchbay types RecipeFacts)
  *  - the team server's agents: loadRuntime() (GET agent-runtime → useServerAgents.state / runtime: 'forbidden' for a
@@ -122,6 +123,12 @@ export { openIntegrations } from './integrations/open'
 export { mirrorAgentOf, sameNamedDb, mirrorTitles, type SameNamed, type MirrorTitles } from './mirror'
 export { lostPages, lostText, runBlock, type LostPage, type LostRole } from './gone'
 export { openMirrorSetup, openAgentEditor, type MirrorSetupRequest, type AgentEditorRequest } from './dialogs'
+/** mirror drafts kept per tab (a setup over the Patchbay stops after the database; lamp 05 opens the kept draft) and
+ *  the outcome a dialog's `after` gets — dialogs.ts imports React + types only, so these stay cheap on the boot path */
+export {
+  keptDraft, keptDraftFor, keepMirrorDraft, dropMirrorDraft, onKeptDrafts, useKeptDrafts,
+  type KeptDraft, type AgentDialogOutcome,
+} from './dialogs'
 export { AgentDialogsHost } from './AgentDialogsHost'
 /** profiles for the setup lamps / the profile drop (B11 / B12): resolveRecipe(profile, recipe, lang) (what a recipe makes) · validateProfileText(text, t, lang) */
 export { resolveRecipe, type ResolvedRecipe } from './integrations/recipe'

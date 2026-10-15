@@ -14,7 +14,9 @@
  *  - moduleKey(ref) / inventoryKeys / scheduleKey(trigger): THE spelling of a module's key (`#/patchbay?m=`)
  *  - PATCHBAY_DB / PATCHBAY_STORE / wipePatchbay(scope | null) / inPatchbayScope(key, scope) / PATCHBAY_LS_PREFIX /
  *    PATCHBAY_RETURN_KEY: the device stores (the device-copy wipe and the local reset, B9) — `wipePatchbay('cloud:<ws>')`
- *    takes every member's scope of that workspace along (`cloud:<ws>:u:<account>`)
+ *    takes every member's scope of that workspace along (`cloud:<ws>:u:<account>`); every wipe first drops the run counts
+ *    still waiting to be written (live/bus.ts forgetTally via cache.ts onPatchbayWipe); `{ records: false }` leaves
+ *    IndexedDB unopened
  */
 export { PatchbayRoute, type PatchbayRouteProps } from './route'
 export { openPatchbay, type OpenPatchbayOptions } from './open'
