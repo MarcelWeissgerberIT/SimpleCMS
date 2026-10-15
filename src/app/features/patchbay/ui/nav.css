@@ -30,3 +30,16 @@
   color: var(--ink-3);
   font-weight: 700;
 }
+
+/* The status bar's cell "PATCHBAY · 1 FUSE" (StatusCells.tsx): the number in signal ink (a viewer's in neutral ink); it
+   sheds first — level 1 of the bar's measured shedding (shell/stage/StatusBar.tsx). */
+.status__cell.pb-status .pb-status__n {
+  color: var(--signal-ink);
+  font-weight: 700;
+}
+.status__cell.pb-status[data-viewer] .pb-status__n {
+  color: var(--ink-2);
+}
+.status[data-shed-1] .pb-status {
+  display: none;
+}

@@ -334,21 +334,29 @@ const memo = createInputMemo(APP_READERS)
 let pagesMoved = true
 let unsubscribePages: (() => void) | null = null
 
+/** who hears the referenced pages move (the background fuse count, compute.ts — it reads the input again in idle) */
+const movedListeners = new Set<() => void>()
+
 function watchPages(): void {
   if (unsubscribePages) return
   ensureRowIndex()
+  const moved = () => {
+    pagesMoved = true
+    for (const fn of [...movedListeners]) fn()
+  }
   unsubscribePages = onRowsChanged((c) => {
-    if (c.reset || c.structure) {
-      pagesMoved = true
-      return
-    }
+    if (c.reset || c.structure) return moved()
     const refs = memo.referenced()
-    for (const id of c.changed)
-      if (refs.has(id)) {
-        pagesMoved = true
-        return
-      }
+    for (const id of c.changed) if (refs.has(id)) return moved()
   })
+}
+
+/** B8: hear the referenced pages move (a page appeared, went, was trashed or restored, or a page the model names changed). */
+export function onPagesMoved(fn: () => void): () => void {
+  movedListeners.add(fn)
+  return () => {
+    movedListeners.delete(fn)
+  }
 }
 
 /** The model input now (the same object while the wiring did not change). */

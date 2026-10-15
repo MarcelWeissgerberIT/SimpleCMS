@@ -11,7 +11,7 @@
  * the first module); modules, net flags, folds and "+n" chips are stops (`data-stop`), the arrows move between them
  * (roving.ts: ↑ / ↓ in the column, ← / → to the neighbour column at the same row, Home / End), never scrolling the page
  * beyond bringing the stop into view; Tab leaves the rack. The fuses' glyphs (Wires.tsx) get every fuse in F-order and
- * the active one (store.ts activeFuse).
+ * the active one (fuseRows.ts activeGlyph: the fuse list's selected row when it is a fuse — B8).
  */
 import { useMemo, useRef, type KeyboardEvent, type MouseEvent } from 'react'
 import { ChevronDown, ChevronUp } from 'lucide-react'
@@ -24,7 +24,8 @@ import { Module } from './Module'
 import { NetFlag } from './NetFlag'
 import { RackContext, useRack, type RackCtx } from './RackContext'
 import { roveKeyOf, nextStop, stopsOf } from './roving'
-import { activeFuse, lightNet, selectModule, setCursor, toggleFold, usePbUI } from './store'
+import { lightNet, selectModule, setCursor, toggleFold, usePbUI } from './store'
+import { activeGlyph, fuseRowsOf } from './fuseRows'
 import { Wires, type GlyphFuse } from './Wires'
 import { fuseNo } from './words'
 
@@ -96,11 +97,13 @@ export function Rack({ ctx, layout, onFuse }: { ctx: RackCtx; layout: Layout; on
   const glyphs = useMemo<GlyphFuse[]>(
     () =>
       (ctx.model.fuses as FuseState[])
-        .map((f) => ({ key: f.key, label: f.label, at: f.at, allowed: f.allowed?.state === 'allowed' }))
+        .map((f) => ({ key: f.key, label: f.label, at: f.at, allowed: f.allowed?.state === 'allowed', sig: f.sig }))
         .sort((a, b) => fuseNo(a.label) - fuseNo(b.label)),
     [ctx.model],
   )
-  const active = activeFuse(selectedFuse, glyphs, ctx.marks.open)
+  // the glyph carrying the leader / stub: the fuse list's selected row when it is a fuse (an almost-open path or an
+  // unknown part selected: none)
+  const active = activeGlyph(fuseRowsOf(ctx.model), selectedFuse)
   // arrow keys: the roving stop moves (a jack's arrows go on from its module); never a scroll of the page
   const onKeyDown = (e: KeyboardEvent<HTMLElement>) => {
     if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return

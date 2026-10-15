@@ -28,7 +28,6 @@ import { typing } from '../../../ui/keys'
 import { useCloud } from '../../../cloud'
 import { useWorkspace } from '../../../store/store'
 import { openIntegrations } from '../../agents'
-import { setPatchbayCounts } from '../counts'
 import { fuseCounts } from '../fuses'
 import { defaultPreset, layoutRack, loadOrder, saveOrder } from '../layout'
 import { startLive, useLive } from '../live/live'
@@ -39,6 +38,7 @@ import { patchbayScope } from '../scope'
 import { refreshModel, usePatchbay } from '../state'
 import type { FilterPreset, ModuleKey } from '../types'
 import { Empty } from './Empty'
+import { FuseArea } from './FuseList'
 import { Header, type HeadKeys } from './HeaderMenu'
 import { JackPicker, pickerRows, type PickerRow } from './JackPicker'
 import { litByHover, litByJack, litByNet, litBySelection } from './lit'
@@ -146,12 +146,7 @@ export default function Patchbay(props: PatchbayRouteProps) {
     if (layout && !layout.filter && !layout.band) saveOrder(patchbayScope(), layout.order)
   }, [layout])
 
-  // LED = readout: the numbers this page computed (B8 computes them in idle before the first visit too)
-  useEffect(() => {
-    if (!model || !marks) return
-    const open = [...marks.open].sort((a, b) => Number(a.label.slice(1)) - Number(b.label.slice(1)))
-    setPatchbayCounts({ ...fuses, ready: true, ...(open[0] ? { first: open[0].key } : {}) })
-  }, [model, marks, fuses])
+  // LED = lamp = readout: the counts are published where the model is built (state.ts), the page's and the background's
 
   const lit = useMemo(() => {
     if (!model) return null
@@ -232,10 +227,10 @@ export default function Patchbay(props: PatchbayRouteProps) {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  /** Select a fuse and bring its plate into view (no plate yet: its glyph). */
+  /** Select a fuse and bring its plate (the strands view: its card) into view (no plate: its glyph). */
   const showFuse = useCallback((key: string) => {
     selectFuse(key)
-    const plate = document.getElementById('pb-fuse-plate')
+    const plate = pageRef.current?.querySelector(`.pb-fcard[data-pb-fuse-tab="${CSS.escape(key)}"]`) ?? document.getElementById('pb-fuse-plate')
     if (plate) plate.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
     else pageRef.current?.querySelector(`.pb-fuse[data-fuse="${CSS.escape(key)}"]`)?.scrollIntoView({ block: 'nearest' })
   }, [])
@@ -333,7 +328,8 @@ export default function Patchbay(props: PatchbayRouteProps) {
       {model && (
         <Readout t={t} lang={lang} model={model} runs={runs} money={money} costsRead={live.costsRead} fuses={fuses} phone={phone} onFuse={onFuse} />
       )}
-      {ctx && layout && (model!.edges.length === 0 ? <Empty model={model!} input={input!} words={words!} layout={layout} drop={keys.drop} /> : narrow ? <Strands model={model!} words={words!} marks={marks!} runs={live.runs} /> : <Rack ctx={ctx} layout={layout} onFuse={showFuse} />)}
+      {ctx && layout && (model!.edges.length === 0 ? <Empty model={model!} input={input!} words={words!} layout={layout} drop={keys.drop} /> : narrow ? <Strands model={model!} input={input!} words={words!} marks={marks!} runs={live.runs} running={running} /> : <Rack ctx={ctx} layout={layout} onFuse={showFuse} />)}
+      {ctx && layout && !narrow && model!.edges.length > 0 && <FuseArea model={model!} input={input!} words={words!} />}
       {ctx && layout && !narrow && model!.edges.length > 0 && <Plain model={model!} input={input!} words={words!} />}
       {picker && words && <JackPicker anchor={picker} rows={rows} t={words.t} onPick={pickJack} onClose={closePicker} />}
       {/* 12 characters of a module's name: the narrowest name box the rack accepts (measured, never guessed) */}

@@ -1362,15 +1362,12 @@
   position: relative;
   display: flex;
   flex-direction: column;
-  width: 100%;
   min-height: 40px;
   padding: 10px 12px 10px 14px;
   border: 1px solid color-mix(in srgb, var(--ink) 24%, transparent);
   border-radius: var(--radius-2);
   background: var(--surface);
   color: var(--ink);
-  font: inherit;
-  text-align: left;
   cursor: pointer;
 }
 :root[data-theme='dark'] .pb-strand {
@@ -1386,6 +1383,10 @@
   border-radius: 0 2px 2px 0;
   background: var(--ink-3);
 }
+/* a strand that runs lights in place (ink — the list never moves under the finger) */
+.pb-strand[data-live]::before {
+  background: var(--ink);
+}
 .pb-strand[data-path] {
   border: 1.5px dashed var(--signal);
 }
@@ -1399,25 +1400,56 @@
   flex: 1;
 }
 .pb-strand__n {
+  display: block;
   margin-top: 2px;
-  overflow-wrap: anywhere;
+}
+.pb-strand__open {
+  display: block;
+  width: 100%;
+  min-height: 32px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
   font-size: calc(16px * var(--text-scale));
   font-weight: 700;
   line-height: 1.25;
+  overflow-wrap: anywhere;
+  text-align: left;
+  cursor: pointer;
+}
+.pb-strand__open[aria-disabled='true'] {
+  cursor: default;
 }
 .pb-lines {
   display: flex;
   flex-direction: column;
-  margin-top: 8px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
 }
 .pb-line {
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr);
+  grid-template-columns: 22px minmax(0, 1fr) auto;
   align-items: center;
   gap: 6px;
-  min-height: 32px;
+  width: 100%;
+  min-height: 40px;
+  padding: 0;
+  border: 0;
   border-top: 1px solid var(--rule);
+  background: transparent;
+  color: inherit;
+  font: inherit;
   font-size: calc(14px * var(--text-scale));
+  text-align: left;
+}
+button.pb-line {
+  cursor: pointer;
+}
+button.pb-line:hover {
+  background: var(--hover);
 }
 .pb-line__ar {
   color: var(--ink-3);
@@ -1426,6 +1458,7 @@
   text-align: center;
 }
 .pb-line__t {
+  min-width: 0;
   overflow-wrap: anywhere;
   color: var(--ink-2);
 }
@@ -1433,11 +1466,641 @@
   color: var(--ink);
   font-weight: 650;
 }
+.pb-line .pb-tag {
+  justify-self: end;
+}
+.pb-knobline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 8px;
+}
+.pb-knobline .label {
+  color: var(--ink-2);
+}
+.pb-knobline .label b {
+  color: var(--ink);
+  font-weight: 600;
+}
 .pb-strands__rest {
   margin: 0;
   overflow-wrap: anywhere;
   color: var(--ink-2);
   font-size: calc(13.5px * var(--text-scale));
+}
+/* "running · CNSX-Spiegel ↓": sticky at the top, jumps to the strand that runs (nothing reorders) */
+.pb-jump {
+  position: sticky;
+  top: 8px;
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--ink);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+/* ---------- the fuse list and its plate (§3.5): the only orange plate ---------- */
+.pb-fuses {
+  display: grid;
+  grid-template-columns: calc(232px * var(--text-scale)) minmax(0, 1fr);
+  gap: 0 14px;
+  align-items: start;
+  margin-top: 26px;
+}
+.pb-flist {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.pb-flist__tabs {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.pb-flist__div.label {
+  margin: 10px 0 2px;
+  color: var(--ink-3);
+}
+.pb-ftab {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  min-height: calc(46px * var(--text-scale));
+  padding: 7px 10px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.pb-ftab:hover {
+  background: var(--hover);
+}
+.pb-ftab[aria-selected='true'] {
+  border-color: var(--ink);
+  box-shadow: inset 3px 0 0 var(--ink);
+}
+.pb-ftab[data-state='open'][aria-selected='true'],
+.pb-ftab[data-state='lapsed'][aria-selected='true'] {
+  border-color: var(--signal);
+  box-shadow: inset 3px 0 0 var(--signal);
+}
+.pb-ftab[data-kind='near'],
+.pb-ftab[data-kind='unknown'] {
+  border-style: dashed;
+  background: transparent;
+  color: var(--ink-2);
+}
+.pb-ftab__h {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+.pb-ftab__state.label,
+.pb-ftab__why.label {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pb-ftab__line {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink-2);
+  font-size: calc(12px * var(--text-scale));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pb-tag.pb-tag--fa {
+  box-shadow: inset 0 0 0 1px var(--ink-2);
+  color: var(--ink);
+  font-weight: 700;
+}
+.pb-flist__more {
+  align-self: flex-start;
+  min-height: 32px;
+  margin-top: 4px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.pb-flist__more:hover {
+  background: var(--hover);
+  color: var(--ink);
+}
+/* a ring: "not met" / a path almost open — the shape says it, not the colour */
+.pb-ring {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: var(--radius-led);
+  box-shadow: inset 0 0 0 1.5px var(--ink-3);
+}
+
+.pb-fpanel {
+  min-width: 0;
+}
+.pb-fpanel:focus {
+  outline: none;
+}
+.pb-fpanel:focus-visible .pb-fplate {
+  box-shadow: var(--focus-ring);
+}
+.pb-fplate {
+  position: relative;
+  padding: 12px 18px 14px;
+  border: 1.5px solid var(--ink-3);
+  border-radius: var(--radius-2);
+  background: var(--surface);
+}
+/* the open plate — the one solid orange plate on the page */
+.pb-fplate[data-state='open'],
+.pb-fplate[data-state='lapsed'] {
+  border-color: var(--signal);
+}
+.pb-fplate[data-state='near'],
+.pb-fplate[data-state='unknown'] {
+  border-style: dashed;
+}
+/* its tab "F1" on the top edge, under the glyph — the leader from the glyph ends here */
+.pb-fplate__tab {
+  position: absolute;
+  top: calc(-11px * var(--text-scale));
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  height: calc(20px * var(--text-scale));
+  padding: 0 7px;
+  border-radius: var(--radius-1);
+  background: var(--signal);
+  color: var(--on-signal);
+  font: 700 var(--text-2xs) / 1 var(--font-mono);
+  letter-spacing: 0.08em;
+}
+.pb-fplate[data-state='allowed'] .pb-fplate__tab {
+  background: var(--ink);
+  color: var(--surface);
+}
+.pb-fplate__h {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+.pb-fplate__title.label {
+  margin: 0;
+  color: var(--ink);
+  font-weight: 600;
+}
+.pb-fplate__title:focus {
+  outline: none;
+}
+.pb-fplate__title:focus-visible {
+  text-decoration: underline 2px var(--signal);
+  text-underline-offset: 4px;
+}
+.pb-fplate__sp {
+  flex: 1;
+}
+.pb-fplate__static.label {
+  color: var(--ink-3);
+}
+.pb-fplate__note {
+  margin: 8px 0 0;
+  color: var(--ink-2);
+  font-size: calc(13px * var(--text-scale));
+}
+.pb-fplate__note--lapsed {
+  color: var(--signal-ink);
+  font-weight: 600;
+}
+.pb-fplate__stamp.label {
+  margin-right: 4px;
+  padding: 1px 5px;
+  border-radius: var(--radius-1);
+  box-shadow: inset 0 0 0 1px var(--ink);
+  color: var(--ink);
+}
+.pb-fplate__say {
+  margin: 10px 0 0;
+  max-width: 110ch;
+  color: var(--ink);
+  font-size: calc(14px * var(--text-scale));
+  line-height: 1.5;
+}
+.pb-fplate__say b {
+  font-weight: 650;
+}
+.pb-fplate__residual {
+  margin: 8px 0 0;
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+}
+
+/* the three lamps: filled = met, ring = not met; signal only on the open plate */
+.pb-tri {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px 22px;
+  margin-top: 10px;
+}
+.pb-tri__k.label {
+  flex: none;
+  width: calc(150px * var(--text-scale));
+  padding-top: 1px;
+  color: var(--ink-2);
+  line-height: 1.3;
+}
+.pb-tri__rows {
+  display: grid;
+  flex: 1;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px 22px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pb-tri__row {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  gap: 7px;
+  align-items: start;
+  min-width: 0;
+}
+.pb-tri__lamp {
+  width: 12px;
+  height: 12px;
+  margin-top: 2px;
+  border-radius: var(--radius-led);
+  box-shadow: inset 0 0 0 1.5px var(--ink-3);
+}
+.pb-tri__row[data-on] .pb-tri__lamp {
+  background: var(--ink-2);
+  box-shadow: inset 0 0 0 1px var(--ink);
+}
+.pb-fplate[data-state='open'] .pb-tri__row[data-on] .pb-tri__lamp,
+.pb-fplate[data-state='lapsed'] .pb-tri__row[data-on] .pb-tri__lamp {
+  background: var(--led-on);
+  box-shadow: inset 0 0 0 1px var(--signal-press);
+}
+.pb-tri__t {
+  min-width: 0;
+}
+.pb-tri__name {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  line-height: 1.3;
+  text-transform: uppercase;
+}
+.pb-tri__row:not([data-on]) .pb-tri__name {
+  color: var(--ink-3);
+}
+.pb-tri__t small {
+  display: block;
+  color: var(--ink-2);
+  font-size: calc(12px * var(--text-scale));
+  font-weight: 500;
+  line-height: 1.35;
+}
+.pb-tri__t small.pb-tri__d {
+  color: var(--ink-3);
+}
+
+/* the path as chips: hatched source → decider → net chip → … → the way out ("CAN SEND") */
+.pb-path {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.pb-path__sep {
+  display: inline-flex;
+  color: var(--ink-3);
+}
+.pb-pn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  min-height: calc(26px * var(--text-scale));
+  padding: 0 7px;
+  border: 1px solid var(--rule-strong);
+  border-bottom-width: 2px;
+  border-radius: 3px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: calc(12.5px * var(--text-scale));
+  font-weight: 650;
+  white-space: nowrap;
+}
+.pb-pn__i {
+  flex: none;
+  color: var(--ink-2);
+}
+.pb-pn__n {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pb-pn__s.label {
+  color: var(--ink-2);
+  letter-spacing: 0.04em;
+}
+/* content from outside: hatched, the words on a solid backing */
+.pb-pn--outside {
+  background: repeating-linear-gradient(-45deg, var(--surface) 0 3px, color-mix(in srgb, var(--ink) 9%, var(--surface)) 3px 4.5px);
+}
+.pb-pn--outside .pb-pn__n,
+.pb-pn--outside .pb-pn__s {
+  padding: 0 2px;
+  background: var(--surface);
+}
+.pb-pn--net {
+  padding: 0 16px 0 9px;
+  border: 0;
+  border-radius: 0;
+  background: var(--surface-3);
+  clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 50%, calc(100% - 10px) 100%, 0 100%);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.pb-pn--out {
+  border-color: var(--ink-2);
+}
+.pb-pn--hot {
+  border-color: var(--signal);
+  color: var(--signal-ink);
+}
+.pb-pn--hot .pb-pn__i,
+.pb-pn--hot .pb-pn__s.label {
+  color: var(--signal-ink);
+}
+.pb-pn--more,
+.pb-pn--loop {
+  padding: 0;
+  border-style: dashed;
+  background: transparent;
+}
+.pb-pn--loop {
+  gap: 4px;
+  padding: 0 7px;
+  color: var(--ink-2);
+}
+.pb-pn__more {
+  min-height: calc(26px * var(--text-scale));
+  padding: 0 8px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.pb-pn__more:hover {
+  color: var(--ink);
+}
+
+/* the facts row (mono) and what is already in place */
+.pb-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin-top: 9px;
+}
+.pb-fact.label {
+  color: var(--ink-2);
+}
+.pb-fact.label b {
+  color: var(--ink);
+  font-weight: 600;
+}
+.pb-facts--m {
+  margin-top: 4px;
+}
+.pb-facts--m .pb-fact.label b {
+  color: var(--ink-2);
+  font-weight: 500;
+}
+
+/* ---------- the phone's fuse cards ---------- */
+.pb-fcards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.pb-fcard {
+  position: relative;
+  padding: 12px;
+  border: 1.5px solid var(--ink-3);
+  border-radius: var(--radius-2);
+  background: var(--surface);
+}
+.pb-fcard[data-state='open'],
+.pb-fcard[data-state='lapsed'] {
+  border-color: var(--signal);
+}
+.pb-fcard:focus {
+  outline: none;
+}
+.pb-fcard:focus-visible {
+  box-shadow: var(--focus-ring);
+}
+.pb-fcard__h {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pb-fcard__title.label {
+  margin: 0;
+  color: var(--ink);
+  font-weight: 600;
+}
+.pb-fcard__say {
+  margin: 10px 0 0;
+  font-size: calc(14px * var(--text-scale));
+  line-height: 1.45;
+}
+.pb-fcard__say b {
+  font-weight: 650;
+}
+.pb-tri3 {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin: 9px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.pb-tri3 li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.pb-tri3 i {
+  width: 9px;
+  height: 9px;
+  border-radius: var(--radius-led);
+  box-shadow: inset 0 0 0 1.5px var(--ink-3);
+}
+.pb-tri3 li[data-on] i {
+  background: var(--ink-2);
+  box-shadow: none;
+}
+.pb-fcard[data-state='open'] .pb-tri3 li[data-on] i,
+.pb-fcard[data-state='lapsed'] .pb-tri3 li[data-on] i {
+  background: var(--led-on);
+}
+.pb-path--v {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 4px;
+  margin-top: 10px;
+}
+.pb-path--v .pb-pn {
+  justify-content: flex-start;
+  min-height: 34px;
+  white-space: normal;
+}
+.pb-path--v .pb-path__sep,
+.pb-path__via {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-left: 12px;
+  color: var(--ink-3);
+}
+.pb-path__via .label {
+  color: var(--ink-2);
+}
+.pb-greys {
+  display: flex;
+  flex-direction: column;
+}
+.pb-greys .pb-flist__div.label {
+  margin-top: 2px;
+}
+.pb-greys__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pb-grey {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-height: 40px;
+  padding: 8px 0;
+  border-top: 1px dashed var(--rule-strong);
+}
+.pb-grey .pb-ring {
+  margin: 3px 0 0 4px;
+}
+.pb-grey__t {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.pb-grey__t .label {
+  color: var(--ink-2);
+}
+.pb-grey__line {
+  overflow-wrap: anywhere;
+  color: var(--ink-2);
+  font-size: calc(13px * var(--text-scale));
+}
+
+/* forced colours: the open plate and its lamps in Highlight, every other frame and lamp in CanvasText (§6 U28) */
+@media (forced-colors: active) {
+  .pb-fplate,
+  .pb-fcard,
+  .pb-ftab,
+  .pb-pn {
+    border-color: CanvasText;
+  }
+  .pb-fplate[data-state='open'],
+  .pb-fplate[data-state='lapsed'],
+  .pb-fcard[data-state='open'],
+  .pb-fcard[data-state='lapsed'],
+  .pb-ftab[aria-selected='true'],
+  .pb-pn--hot {
+    border-color: Highlight;
+  }
+  .pb-tri__lamp,
+  .pb-tri3 i,
+  .pb-ring {
+    forced-color-adjust: none;
+    box-shadow: inset 0 0 0 1.5px CanvasText;
+  }
+  .pb-tri__row[data-on] .pb-tri__lamp,
+  .pb-tri3 li[data-on] i {
+    background: Highlight;
+  }
+  .pb-fplate__tab {
+    forced-color-adjust: none;
+    background: Highlight;
+    color: HighlightText;
+  }
+}
+
+/* ---------- the blink: 3 cycles on a fuse's first appearance, then steady (WCAG 2.2.2) ---------- */
+@media (prefers-reduced-motion: no-preference) {
+  .pb [data-blink] {
+    animation: pb-blink 0.9s steps(1) var(--pb-blink-delay, 0ms) 3;
+  }
+  @keyframes pb-blink {
+    50% {
+      opacity: 0.25;
+    }
+  }
+}
+html[data-pb-noblink] .pb [data-blink] {
+  animation: none;
 }
 
 /* ---------- the filter popover ---------- */

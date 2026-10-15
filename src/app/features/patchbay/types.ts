@@ -543,6 +543,8 @@ export interface PatchbayCounts {
   ready: boolean
   /** B6: the first open fuse's path key in F-order (⌘K "next fuse", the readout's FUSE cell) */
   first?: string
+  /** B8: every open fuse's path key in F-order (the Preflight lamp's ids) */
+  keys?: string[]
 }
 
 /* ================================================================== ModelInput (§2.3, inputs.ts → buildModel) */

@@ -11,14 +11,14 @@ import { toggleTheme } from '../lib/actions'
 import { useStageView } from '../lib/stage'
 import { plural } from '../lib/format'
 import { CloudStatusCells, useCloudReadout } from '../cloud/Sync'
-import { SyncStatusCell, McpStatusCell, AgentStatusCell, CodingStatusCell, OutboxStatusCell, RecorderStatusCell, RewindKey, GovernorStatusCell } from '../../features'
+import { SyncStatusCell, McpStatusCell, AgentStatusCell, CodingStatusCell, OutboxStatusCell, RecorderStatusCell, RewindKey, GovernorStatusCell, PatchbayStatusCells } from '../../features'
 import { toggleHelp, useHelp, HelpNewsLed } from '../../help'
 
 /**
  * How many levels of low-priority parts the status bar sheds when its cells do not fit (measured: its width, its
  * cells' text, the text size): level n sets `data-shed-1` … `data-shed-n` on the bar. 1 the REC cell's days and
- * Vorgänge · 2 the Rewind key's shortcut · 3 its word (the icon stays, the name stays for screen readers) · 4 the
- * theme's name · 5 the commands key's word · 6 the page's word count · 7 the REGLER cell's mini bar · 8 its autonomy
+ * Vorgänge, and the Patchbay's cell ("PATCHBAY · 1 FUSE" — the sidebar row keeps the count) · 2 the Rewind key's
+ * shortcut · 3 its word (the icon stays, the name stays for screen readers) · 4 the theme's name · 5 the commands key's word · 6 the page's word count · 7 the REGLER cell's mini bar · 8 its autonomy
  * word (the lever, G2) — the REGLER amount and its LED never shed.
  */
 const SHED_LEVELS = 8
@@ -100,6 +100,7 @@ export function StatusBar({ route }: { route: Route }) {
       <AgentStatusCell />
       <CodingStatusCell />
       <OutboxStatusCell />
+      <PatchbayStatusCells />
       {pageId && kind === 'page' && (
         <span className="status__cell status__words">
           {t(plural('shell.stats.words', words), { n: fmtNumber(words, lang) })} · {t('shell.stats.read', { n: readingTime(words) })}

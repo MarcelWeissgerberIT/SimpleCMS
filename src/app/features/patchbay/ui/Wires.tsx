@@ -21,7 +21,7 @@
  * Lit (ui/lit.ts): hovered / selected cables thicken in ink (never orange); with a selection or a lit flag the rest
  * dims. Forced colours (patchbay.css): cables CanvasText, fuse paths and glyphs Highlight.
  */
-import { memo, useLayoutEffect, useMemo, useRef, useState, type RefObject } from 'react'
+import { memo, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react'
 import { flushSync } from 'react-dom'
 import { create } from 'zustand'
 import type { Translate } from '@/shared/i18n'
@@ -29,6 +29,7 @@ import type { Layout } from '../layout'
 import { cableLength, cablePath, fuseGroupLabel, fuseGroups, fusePoint, glyphSpots, labelPoint, paintOrder, pointAt, ticksDash, wireStyle, type Cable, type Pt } from '../render'
 import type { Edge, Model } from '../types'
 import type { Lit } from './lit'
+import { blinkOf, blinkStyle } from '../blink'
 
 interface Drawn {
   id: string
@@ -44,6 +45,8 @@ export interface GlyphFuse {
   /** its exit edge (the glyph sits on the wire carrying it) */
   at: string
   allowed: boolean
+  /** its signature (the blink: 3× on a fuse's first appearance per key and signature, blink.ts — B8) */
+  sig?: string
 }
 
 /** The glyphs' centres relative to the bench (the plate's tab sits under its glyph, B8). */
@@ -140,6 +143,9 @@ function Glyph({ group, c, at: share, active, leader, t, onSelect }: { group: Gl
   const at = group.findIndex((f) => f.key === active)
   const mine = at >= 0 ? group[at] : group[0]
   const stub = at >= 0
+  // the ring blinks with the plate's LED (same id and signature → in step), only for an open fuse
+  const open = group.find((f) => !f.allowed)
+  const blink = useMemo(() => (open ? blinkOf(open.key, open.sig ?? open.key) : { on: false, delay: 0 }), [open])
   return (
     <g
       className={allowed ? 'pb-fuse pb-fuse--allowed' : 'pb-fuse'}
@@ -156,7 +162,7 @@ function Glyph({ group, c, at: share, active, leader, t, onSelect }: { group: Gl
     >
       <title>{group.map((f) => t(f.allowed ? 'features.patchbay.glyph.allowed' : 'features.patchbay.glyph.title', { f: f.label })).join(' · ')}</title>
       {stub && !leader && <path className="pb-fuse-stub" d={`M0,${RING_Y} V${RING_Y + STUB}`} />}
-      <ellipse className="pb-fuse-ring" rx={25} ry={RING_Y} />
+      <ellipse className="pb-fuse-ring" rx={25} ry={RING_Y} data-blink={blink.on || undefined} style={blinkStyle(blink) as CSSProperties | undefined} />
       <g transform={`rotate(${p.angle.toFixed(1)})`}>
         <rect className="pb-fuse-glass" x={-15} y={-6.5} width={30} height={13} rx={2.5} />
         <rect className="pb-fuse-cap" x={-18} y={-7.5} width={5.5} height={15} rx={1} />

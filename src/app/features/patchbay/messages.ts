@@ -5,12 +5,13 @@ import { messages as live } from './messages-live'
 import { messages as patch } from './messages-patch'
 import { messages as hint } from './messages-hint'
 import { messages as wires } from './messages-wires'
+import { messages as plate } from './messages-plate'
 
 /**
  * Patchbay strings (features/patchbay) — the page frame, the rack, the readout, the sidebar row, ⌘K (B6). Keys
  * "features.patchbay.*"; always add both en and de. UI names: EN "Patchbay", DE "Schaltplan" (plan §1.1: no
  * "Vertrauen", "Prüfschritt", "abnehmen", "fremd", "Trigger"; "Ausgang" only for the real Outbox; German "KI"). The
- * per-batch files (fuses · setup · live · patch · hint · wires) are merged here — the features registry imports only this one.
+ * per-batch files (fuses · setup · live · patch · hint · wires · plate) are merged here — the features registry imports only this one.
  * Module kinds, names, exits and unknown parts are messages-fuses.ts' (B4: plain.ts speaks them too).
  */
 const page: Messages = {
@@ -374,4 +375,4 @@ const page: Messages = {
   },
 }
 
-export const messages: Messages = mergeMessages(page, fuses, setup, live, patch, hint, wires)
+export const messages: Messages = mergeMessages(page, fuses, setup, live, patch, hint, wires, plate)

@@ -19,11 +19,19 @@
  *  - J finds a jack (Esc back), the arrows rove over one tab stop, ↵ opens agent / automations / script, Space lights the
  *    Klartext sentence without scrolling, the accessibility tree (lists, groups, descriptions, hint);
  *  - "Picture · zoom" → Schematic + Download SVG without var( / color-mix( / oklch(; forced colours; relayout ≤ 16 ms.
+ * B8, the fuse plate, the Preflight lamp and the phone (plan §3.5, §3.8, §1.8) — P0 done:
+ *  - F1's plate in English and German (lamps, path chips, sentence, facts; its tab under the glyph); the fuse list is a
+ *    tablist in F-order (↑ / ↓ / Home / End, F); the grey rows (almost open, unknown here) — never counted; a module on
+ *    a gated path shows its row; the blink 3× then steady, once per fuse and signature, none with reduced motion / noBlink;
+ *  - LED = Preflight lamp = readout before a visit, after it and after a reload (the lazy cache); amber, never MASTER
+ *    CAUTION, "n unknown" as the second line, open() → ?f=, no lamp for a viewer; the status cell sheds first;
+ *  - 390 px: the fuse card first, every counted strand, "Not processed", no sideways scroll, a run lights in place with
+ *    the jump chip, taps open — light and dark.
  * Every name is fictional (tests/fixtures/patchbay.ts).
  */
 import { readFileSync } from 'node:fs'
 import type { Page } from '@playwright/test'
-import { test, expect, openApp, wsEval, MOD } from './fixtures'
+import { test, expect, openApp, reloadApp, wsEval, MOD } from './fixtures'
 import { bigPatchbay, database, dbPage, exits, mock1, seedPatchbay, server, wideScope, world, type PbWorld } from '../fixtures/patchbay'
 import type { CustomAgent, Database } from '../../src/app/store/types'
 
@@ -323,14 +331,13 @@ const glyphAt = (page: Page, label = 'F1') =>
   })
 const focusedAttr = (page: Page, attr: string) => page.evaluate((a) => document.activeElement?.getAttribute(a) ?? null, attr)
 
-/** A stand-in for B8's fuse plate right under the bench (its tab on top), tall enough to scroll. */
-const standInPlate = (page: Page) =>
+/** Room below the page (the fuse plate stays where it is) so the rack can be scrolled out of view. */
+const tallPage = (page: Page) =>
   page.evaluate(() => {
     const p = document.createElement('div')
-    p.id = 'pb-fuse-plate'
-    p.style.cssText = 'height: 1600px; margin-top: 12px'
-    p.innerHTML = '<span data-pb-plate-tab style="display:block;height:20px"></span>'
-    document.querySelector('[data-testid="pb-bench"]')!.after(p)
+    p.style.cssText = 'height: 1600px'
+    p.setAttribute('aria-hidden', 'true')
+    document.querySelector('[data-testid="patchbay-page"]')!.append(p)
   })
 
 test.describe('B7 · cables, net flags, the fuse glyph', () => {
@@ -368,21 +375,21 @@ test.describe('B7 · cables, net flags, the fuse glyph', () => {
     expect(Math.abs(at.x - mid.x)).toBeLessThan(2)
     expect(Math.abs(at.y - mid.y)).toBeLessThan(2)
     await expect(glyph(page).locator('.pb-fuse-lbl-t')).toHaveText('F1')
-    // no plate on the page yet: the active fuse carries the "↓ F1" stub, no leader
+    // the plate under the rack (B8) in view: the active fuse's dashed leader runs to its tab, no "↓ F1" stub
     await expect(glyph(page)).toHaveAttribute('data-active', 'true')
-    await expect(glyph(page).locator('.pb-fuse-stubl-t')).toHaveText('↓ F1')
-    await expect(page.getByTestId('pb-leader')).toHaveCount(0)
+    await expect(page.getByTestId('pb-leader')).toHaveCount(1)
+    await expect(glyph(page).locator('.pb-fuse-stub')).toHaveCount(0)
 
-    // a click on the glyph selects F1 (the plate is brought into view — B8)
-    await standInPlate(page)
+    // a click on the glyph selects F1 and brings its plate into view
     await glyph(page).click()
     await expect(page.getByTestId('pb-ro-fuse-val')).toHaveText('1')
+    await expect(page.locator('[data-pb-fuse-tab][aria-selected="true"]')).toHaveAttribute('data-pb-fuse-tab', f1.key)
   })
 
   test('the leader: only for the selected fuse, only while glyph and plate are both in view — else "↓ F1"', async ({ page }) => {
     await openRack(page)
     await expect(glyph(page)).toBeVisible()
-    await standInPlate(page)
+    await tallPage(page)
     // both in view: the dashed leader runs from under the glyph to the plate's tab, the stub goes
     const leader = page.getByTestId('pb-leader')
     await expect(leader).toHaveCount(1)
@@ -417,9 +424,10 @@ test.describe('B7 · cables, net flags, the fuse glyph', () => {
     await openRack(page, exits())
     const glyphs = page.getByTestId('pb-glyph')
     await expect.poll(() => glyphs.count()).toBeGreaterThan(2)
-    // nothing selected: F1 is the active fuse (the plate's first tab, B8) — only its glyph carries the stub
+    // nothing selected: F1 is the active fuse (the plate's first tab) — only its glyph carries the stub (or the leader
+    // while the plate is in view)
     await expect(page.locator('[data-testid="pb-glyph"][data-active]')).toHaveCount(1)
-    await expect(page.locator('[data-testid="pb-glyph"] .pb-fuse-stub')).toHaveCount(1)
+    await expect.poll(async () => (await page.locator('[data-testid="pb-glyph"] .pb-fuse-stub').count()) + (await page.getByTestId('pb-leader').count())).toBe(1)
     const first = page.locator('[data-testid="pb-glyph"][data-active]')
     await expect(first).toHaveAttribute('data-label', /^F1\b/)
     // a click on another glyph selects its fuse: the stub moves there
@@ -427,7 +435,7 @@ test.describe('B7 · cables, net flags, the fuse glyph', () => {
     const otherFuse = (await other.getAttribute('data-fuse'))!
     await other.click()
     await expect(page.locator('[data-testid="pb-glyph"][data-active]')).toHaveAttribute('data-fuses', new RegExp(otherFuse))
-    await expect(page.locator('[data-testid="pb-glyph"] .pb-fuse-stub')).toHaveCount(1)
+    await expect.poll(async () => (await page.locator('[data-testid="pb-glyph"] .pb-fuse-stub').count()) + (await page.getByTestId('pb-leader').count())).toBe(1)
     // F (focus in the rack): the next open fuse in F-order, announced
     const model = (await page.evaluate(() => (window as unknown as { __onePatchbay: { model: () => unknown } }).__onePatchbay.model())) as { fuses: Array<{ key: string; label: string }> }
     const order = [...model.fuses].sort((a, b) => Number(a.label.slice(1)) - Number(b.label.slice(1)))
@@ -664,4 +672,312 @@ test.describe('B7 · keyboard, picker, screen readers', () => {
     console.log(`[perf] pb-relayout on bigPatchbay(60): median ${median.toFixed(1)} ms over ${times.length} (${sorted.map((x) => x.toFixed(1)).join(', ')})`)
     expect(median).toBeLessThanOrEqual(16)
   })
+})
+
+/* ------------------------------------------------------------------ B8 */
+
+const fpanel = (page: Page) => page.getByTestId('pb-fpanel')
+const ftabs = (page: Page) => page.getByTestId('pb-flist').getByRole('tab')
+/** The Preflight lamp's reading and view, read now. */
+const fuseLamp = (page: Page) =>
+  page.evaluate(async () => {
+    const pf = (window as unknown as { __onePreflight: { flush: (id?: string) => Promise<void>; readings: () => Record<string, { count: number; ids: string[]; second?: string; state: string } | null>; state: () => { views: Array<{ id: string; level: string; count: number; second: string; master: boolean }>; mc: number } } }).__onePreflight
+    await pf.flush('fuses')
+    return { reading: pf.readings().fuses ?? null, view: pf.state().views.find((v) => v.id === 'fuses') ?? null }
+  })
+const pbCounts = (page: Page) => page.evaluate(() => ((window as unknown as { __onePatchbay: { model: () => { unknown: unknown[] } | null } }).__onePatchbay?.model()?.unknown.length ?? null))
+
+test.describe('B8 · the fuse plate and its list', () => {
+  test("F1's plate in English and German: the lamps, the path, the sentence, the facts — its tab under the glyph", async ({ page }) => {
+    await openRack(page)
+    const p = fpanel(page)
+    await expect(p).toHaveAttribute('role', 'tabpanel')
+    await expect(p.getByRole('heading', { level: 2 })).toHaveText('Fuse F1 · open path')
+    await expect(p).toContainText('read from the settings · no guard while it runs')
+    const lamps = p.getByTestId('pb-lamps')
+    await expect(lamps).toContainText('All 3 conditions met')
+    await expect(p.locator('[data-lamp][data-on]')).toHaveCount(3)
+    await expect(p.locator('[data-lamp="outside"]')).toContainText('Content from outside')
+    await expect(p.locator('[data-lamp="outside"]')).toContainText('Rows of „Mails“ from outside, unchecked')
+    await expect(p.locator('[data-lamp="private"]')).toContainText('Access: whole workspace')
+    await expect(p.locator('[data-lamp="out"]')).toContainText('Webhook · chat.example (POST)')
+    // the path: the outside source (hatched) → the decider → the net chip → the automation → the way out ("can send")
+    const chips = p.getByTestId('pb-path').locator('.pb-pn')
+    await expect(chips).toHaveText([/^Mails · new row\s*from outside$/, 'Inbox-Helfer', '„Weiterleiten“', 'An Team-Chat', /^Webhook · chat\.example\s*can send$/])
+    await expect(chips.first()).toHaveClass(/pb-pn--outside/)
+    await expect(chips.last()).toHaveClass(/pb-pn--hot/)
+    await expect(p.getByTestId('pb-say')).toHaveText('If the agent „Inbox-Helfer“ sets „Weiterleiten“ without review, the automation „An Team-Chat“ sends the row out by webhook. A mail with a hidden instruction can get what the agent read sent.')
+    const facts = p.getByTestId('pb-facts').locator('.pb-fact')
+    await expect(facts.filter({ hasText: 'Changes' })).toHaveText('Changes Apply directly')
+    await expect(facts.filter({ hasText: 'Access' })).toHaveText('Access Everything')
+    await expect(facts.filter({ hasText: 'Trigger' })).toHaveText('Trigger Field „Weiterleiten“ → POST')
+    await expect(facts.filter({ hasText: 'Chain' })).toHaveText('Chain 3 steps')
+    await expect(p.getByTestId('pb-mitigations')).toContainText('web images become links')
+    // the only orange plate: its frame in the signal colour
+    expect(await p.locator('.pb-fplate').evaluate((el) => getComputedStyle(el).borderTopColor)).toBe(await css(page, '--signal'))
+    // its tab "F1" sits on the plate's edge right under the glyph; the leader ends there
+    const geo = await page.evaluate(() => {
+      const b = document.querySelector('[data-testid="pb-bench"]')!.getBoundingClientRect()
+      const t = document.querySelector('[data-pb-plate-tab]')!.getBoundingClientRect()
+      const g = document.querySelector('[data-testid="pb-glyph"]')!.getAttribute('transform') ?? ''
+      return { tab: t.left + t.width / 2 - b.left, glyph: Number(/translate\(([-\d.]+)/.exec(g)?.[1]) }
+    })
+    expect(Math.abs(geo.tab - geo.glyph)).toBeLessThan(2)
+    await expect(page.getByTestId('pb-leader')).toHaveCount(1)
+    // the Klartext follows the plate, under its own heading
+    const order = await page.evaluate(() => {
+      const plate = document.getElementById('pb-fuse-plate')!
+      const plain = document.querySelector('[data-testid="pb-plain"]')!
+      return !!(plate.compareDocumentPosition(plain) & Node.DOCUMENT_POSITION_FOLLOWING)
+    })
+    expect(order).toBe(true)
+
+    // German: no pronouns, the words of §1.1
+    await wsEval(page, (s) => s.updateSettings({ language: 'de' }))
+    await expect(p.getByRole('heading', { level: 2 })).toHaveText('Sicherung F1 · offener Weg')
+    await expect(p).toContainText('aus den Einstellungen gelesen · schützt nicht während eines Laufs')
+    await expect(lamps).toContainText('Alle 3 Bedingungen erfüllt')
+    await expect(p.locator('[data-lamp="outside"]')).toContainText('Inhalt von außen')
+    await expect(p.locator('[data-lamp="out"]')).toContainText('Weg nach außen')
+    await expect(p.getByTestId('pb-say')).toHaveText('Setzt der Agent „Inbox-Helfer“ ohne Prüfung „Weiterleiten“, dann schickt die Automation „An Team-Chat“ die Zeile per Webhook hinaus. Eine Mail mit versteckter Anweisung kann so erreichen, dass gesendet wird, was der Agent gelesen hat.')
+    await expect(facts.filter({ hasText: 'Änderungen' })).toHaveText('Änderungen Direkt anwenden')
+    await expect(facts.filter({ hasText: 'Kette' })).toHaveText('Kette 3 Schritte')
+    await expect(chips.last()).toContainText('kann senden')
+    const de = (await page.getByTestId('pb-fuses').textContent()) ?? ''
+    for (const banned of ['Vertrauen', 'vertrauen', 'Prüfschritt', 'fremd', 'Fremd', 'Trigger', 'Ausgang']) expect(de).not.toContain(banned)
+    await expect(ftabs(page).first()).toContainText('offen')
+  })
+
+  test('the fuse list is a tablist in F-order; ↑ / ↓ / Home / End select; F gives a fuse tab the keyboard; the grey rows come last', async ({ page }) => {
+    await openRack(page, exits())
+    const list = page.getByTestId('pb-flist')
+    await expect(list).toHaveAttribute('role', 'tablist')
+    await expect(list).toHaveAttribute('aria-orientation', 'vertical')
+    const kinds = await ftabs(page).evaluateAll((els) => els.map((e) => e.getAttribute('data-kind')))
+    const fuseRows = kinds.filter((k) => k === 'fuse').length
+    expect(fuseRows).toBeGreaterThan(2)
+    // every fuse first (open ones in F-order), then the grey rows
+    expect(kinds.slice(0, fuseRows).every((k) => k === 'fuse')).toBe(true)
+    expect(kinds.slice(fuseRows).every((k) => k === 'near' || k === 'unknown')).toBe(true)
+    const labels = await list.locator('[data-kind="fuse"] .pb-tag').allTextContents()
+    expect(labels).toEqual(labels.map((_, i) => `F${i + 1}`))
+    // one selected tab, one tab stop; the panel follows the keys
+    await expect(list.locator('[aria-selected="true"]')).toHaveCount(1)
+    await expect(list.locator('[tabindex="0"]')).toHaveCount(1)
+    await ftabs(page).first().focus()
+    await expect(fpanel(page).getByRole('heading', { level: 2 })).toHaveText('Fuse F1 · open path')
+    await page.keyboard.press('ArrowDown')
+    await expect(ftabs(page).nth(1)).toBeFocused()
+    await expect(ftabs(page).nth(1)).toHaveAttribute('aria-selected', 'true')
+    await expect(fpanel(page).getByRole('heading', { level: 2 })).toHaveText('Fuse F2 · open path')
+    await expect(fpanel(page)).toHaveAttribute('aria-labelledby', (await ftabs(page).nth(1).getAttribute('id'))!)
+    await page.keyboard.press('End')
+    await expect(ftabs(page).last()).toBeFocused()
+    await expect(fpanel(page).getByRole('heading', { level: 2 })).toHaveText(/not counted/)
+    await page.keyboard.press('Home')
+    await expect(ftabs(page).first()).toBeFocused()
+    await page.keyboard.press('ArrowUp')
+    await expect(ftabs(page).last()).toBeFocused()
+    // F on the rack: the next open fuse's tab takes the keyboard
+    await page.getByTestId('pb-module').first().focus()
+    await page.keyboard.press('f')
+    await expect.poll(() => focusedAttr(page, 'data-pb-fuse-tab')).not.toBeNull()
+    await expect(page.locator('[data-pb-fuse-tab][aria-selected="true"]')).toBeFocused()
+  })
+
+  test('a module on a gated path shows its "almost open" row; an unknown part is a grey row too — never counted', async ({ page }) => {
+    await openRack(page, withUnknown())
+    const near = ftabs(page).and(page.locator('[data-kind="near"]'))
+    await expect(near).toHaveCount(1)
+    await expect(near).toContainText('A person checks first')
+    await expect(page.getByTestId('pb-flist').getByText('Not counted')).toBeVisible()
+    // the pipeline sits on Inbox-Helfer → Coding → Git, closed by the Confirm gate: selecting it shows that path
+    await module(page, 'pipeline:dbCoding').locator('.pb-mod__n').click()
+    await expect(near).toHaveAttribute('aria-selected', 'true')
+    const p = fpanel(page)
+    await expect(p.getByRole('heading', { level: 2 })).toHaveText('Almost open · not counted')
+    await expect(p.getByTestId('pb-near-why')).toHaveText('What closes it: A person checks first')
+    await expect(p.getByTestId('pb-lamps')).toContainText('2 of 3 conditions met')
+    await expect(p.locator('[data-lamp][data-on]')).toHaveCount(2)
+    await expect(p.locator('.pb-fplate')).toHaveAttribute('data-state', 'near')
+    // no leader while a grey row is shown; no glyph lost either
+    await expect(page.getByTestId('pb-leader')).toHaveCount(0)
+    await expect(page.getByTestId('pb-glyph')).toHaveCount(1)
+    // a module on F1 takes the plate back to F1
+    await module(page, 'agent:agInbox').locator('.pb-mod__n').click()
+    await expect(p.getByRole('heading', { level: 2 })).toHaveText('Fuse F1 · open path')
+    // the part this build cannot read: its own grey row, its words, never counted
+    const unknown = ftabs(page).and(page.locator('[data-kind="unknown"]'))
+    await expect(unknown).toHaveCount(1)
+    await unknown.click()
+    await expect(p.getByRole('heading', { level: 2 })).toHaveText('Unknown here · not counted')
+    await expect(p).toContainText('Newer settings — unknown here')
+    await expect(p).toContainText('Tessera-Spiegel')
+    await expect(page.getByTestId('pb-ro-fuse-val')).toHaveText('1')
+  })
+
+  test('the fuse blinks 3× on its first appearance, then stays lit; once per fuse and signature in this tab; never with reduced motion or noBlink', async ({ page }) => {
+    await openRack(page)
+    const led = fpanel(page).locator('.pb-fuse-led')
+    await expect(led).toHaveAttribute('data-blink', 'true')
+    expect(await led.evaluate((el) => { const c = getComputedStyle(el); return [c.animationName, c.animationIterationCount, c.animationDuration] })).toEqual(['pb-blink', '3', '0.9s'])
+    // the glyph's ring and the tab's LED blink in step with it
+    await expect(glyph(page).locator('.pb-fuse-ring')).toHaveAttribute('data-blink', 'true')
+    await expect(ftabs(page).first().locator('.pb-fuse-led')).toHaveAttribute('data-blink', 'true')
+    // a later visit in this tab: steady
+    await page.waitForTimeout(2900)
+    await page.evaluate(() => (window.location.hash = '#/'))
+    await page.evaluate(() => (window.location.hash = '#/patchbay'))
+    await expect(fpanel(page).locator('.pb-fuse-led')).toBeVisible()
+    await expect(fpanel(page).locator('.pb-fuse-led')).not.toHaveAttribute('data-blink', /.*/)
+  })
+
+  test('no blink with reduced motion, nor after noBlink (screenshots)', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    await openRack(page)
+    const led = fpanel(page).locator('.pb-fuse-led')
+    await expect(led).toHaveAttribute('data-blink', 'true')
+    expect(await led.evaluate((el) => getComputedStyle(el).animationName)).toBe('none')
+    await page.emulateMedia({ reducedMotion: 'no-preference' })
+    expect(await led.evaluate((el) => getComputedStyle(el).animationName)).toBe('pb-blink')
+    await page.evaluate(() => (window as unknown as { __onePatchbay: { noBlink: () => void } }).__onePatchbay.noBlink())
+    expect(await led.evaluate((el) => getComputedStyle(el).animationName)).toBe('none')
+  })
+})
+
+test.describe('B8 · the Preflight lamp, the sidebar, the status bar — LED = lamp = readout', () => {
+  test('before any visit, after opening and after a reload: the sidebar LED, the Preflight lamp and the readout count the same; amber, never MASTER CAUTION; open() → ?f=; absent for a viewer', async ({ page }) => {
+    await openApp(page)
+    await seedPatchbay(page, mock1())
+    // before the first visit: the background count after the first paint (eager inputs + the lazy cache)
+    await expect(page.getByTestId('patchbay-nav-led')).toContainText('1')
+    await page.evaluate(() => (window.location.hash = '#/'))
+    await expect.poll(async () => (await fuseLamp(page)).reading?.count).toBe(1)
+    let lamp = await fuseLamp(page)
+    expect(lamp.view).toMatchObject({ level: 'amber', count: 1, master: false })
+    expect(lamp.reading!.ids).toHaveLength(1)
+    expect(lamp.reading!.ids[0]).toMatch(/^[0-9a-f]{64}$/)
+    // the scripts were never read on this device: unknown parts — the lamp's second line says so (never "safe")
+    const unknownBefore = (await pbCounts(page)) ?? 0
+    expect(unknownBefore).toBeGreaterThan(0)
+    expect(lamp.view!.second).toBe(`${unknownBefore} unknown`)
+    await expect(page.locator('.pf-cap[data-lamp="fuses"]')).toHaveAttribute('data-lit', 'amber')
+    // the cap opens the Patchbay at that fuse
+    await page.locator('.pf-cap[data-lamp="fuses"]').click()
+    await expect.poll(() => decodeURIComponent(page.url())).toContain(`#/patchbay?f=${lamp.reading!.ids[0]}`)
+    await expect(page.getByTestId('pb-ro-fuse-val')).toHaveText('1')
+    await expect(page.locator('[data-pb-fuse-tab][aria-selected="true"]')).toHaveAttribute('data-pb-fuse-tab', lamp.reading!.ids[0])
+    // opening read the scripts: the unknown parts are gone everywhere at once
+    await expect.poll(() => pbCounts(page)).toBe(0)
+    await expect(page.getByTestId('pb-ro-unknown')).toHaveCount(0)
+    await expect.poll(async () => (await fuseLamp(page)).view?.second).toBe('')
+    await expect(page.getByTestId('patchbay-nav-led')).toContainText('1')
+
+    // after a reload, before the next visit: the lazy cache keeps the readings — still 1 open, nothing unknown
+    await reloadApp(page)
+    await page.evaluate(() => (window.location.hash = '#/'))
+    await expect(page.getByTestId('patchbay-nav-led')).toContainText('1')
+    await expect.poll(async () => (await fuseLamp(page)).reading?.count).toBe(1)
+    await expect.poll(async () => (await fuseLamp(page)).view?.second).toBe('')
+    expect(await pbCounts(page)).toBe(0)
+    await page.getByTestId('patchbay-nav').click()
+    await expect(page.getByTestId('pb-ro-fuse-val')).toHaveText('1')
+
+    // a viewer: no lamp (nothing to act on), the LED in neutral ink
+    await page.evaluate(() => (window.location.hash = '#/'))
+    await page.evaluate(() => (window as unknown as { __one: { cloud: { useCloud: { setState: (s: unknown) => void } } } }).__one.cloud.useCloud.setState({ readOnly: true }))
+    await expect.poll(async () => (await fuseLamp(page)).view).toBeNull()
+    await expect(page.locator('.pf-cap[data-lamp="fuses"]')).toHaveCount(0)
+    await expect(page.getByTestId('patchbay-nav-led')).toHaveAttribute('data-viewer', 'true')
+  })
+
+  test('the status bar cell "Patchbay · 1 fuse" opens the fuse and sheds first', async ({ page }) => {
+    await openApp(page)
+    await seedPatchbay(page, mock1())
+    const cell = page.getByTestId('patchbay-status')
+    await expect(cell).toHaveText('Patchbay · 1 fuse')
+    expect(await cell.locator('.pb-status__n').evaluate((el) => getComputedStyle(el).color)).toBe(await css(page, '--signal-ink'))
+    // a bar too short for its cells: the cell is the first thing to go (level 1), nothing else of level 2+ yet
+    const bar = page.locator('footer.status')
+    let width = 1440
+    while (width > 800 && (await bar.getAttribute('data-shed-1')) === null) {
+      width -= 10
+      await page.setViewportSize({ width, height: 900 })
+      await page.waitForTimeout(60)
+    }
+    await expect(bar).toHaveAttribute('data-shed-1', '')
+    await expect(bar).not.toHaveAttribute('data-shed-2', /.*/)
+    await expect(cell).toBeHidden()
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await expect(cell).toBeVisible()
+    await cell.click()
+    await expect(page).toHaveURL(/#\/patchbay\?f=[0-9a-f]{64}$/)
+    // German
+    await wsEval(page, (s) => s.updateSettings({ language: 'de' }))
+    await expect(cell).toHaveText('Schaltplan · 1 Sicherung')
+  })
+})
+
+test.describe('B8 · 390 px: the strands', () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
+
+  for (const scheme of ['light', 'dark'] as const) {
+    test(`the strands (${scheme}): the fuse card first, every counted strand, "Not processed" names the rest, no sideways scroll; a run lights in place (order kept) with the jump chip; taps open`, async ({ page }) => {
+      await page.emulateMedia({ colorScheme: scheme })
+      await openRack(page)
+      await expect(page.getByTestId('patchbay-page')).toHaveAttribute('data-view', 'strands')
+      // the readout: runs today and the fuse only
+      await expect(page.getByTestId('pb-ro-fuse-val')).toHaveText('1')
+      await expect(page.getByTestId('pb-ro-modules')).toHaveCount(0)
+      // the fuse card: lamps in a row, the path downwards with the first write in words, the sentence
+      const card = page.getByTestId('pb-fcard')
+      await expect(card).toHaveCount(1)
+      await expect(card.getByRole('heading', { level: 2 })).toHaveText('Fuse F1 · open path')
+      await expect(card.getByTestId('pb-lamps')).toHaveText(/From outside.*Private.*Way out/)
+      await expect(card.locator('.pb-path__via')).toHaveText('sets „Weiterleiten“')
+      await expect(card.getByTestId('pb-say')).toContainText('A mail with a hidden instruction')
+      expect(await card.evaluate((el) => getComputedStyle(el).borderTopColor)).toBe(await css(page, '--signal'))
+      // the order: the fuse card, then the strands, then "Not processed"
+      const firstStrandBelowCard = await page.evaluate(() => {
+        const c = document.querySelector('[data-testid="pb-fcard"]')!.getBoundingClientRect()
+        const s = document.querySelector('[data-testid="pb-strand"]')!.getBoundingClientRect()
+        return s.top > c.bottom
+      })
+      expect(firstStrandBelowCard).toBe(true)
+      // every strand the rack counts (its processors) is here; the rest are named
+      const strands = page.getByTestId('pb-strand')
+      await expect(strands).toHaveCount(6)
+      await expect(page.locator('.pb-sh').first()).toContainText('Strands · 6')
+      await expect(page.getByTestId('pb-strands-rest')).toContainText('kanal')
+      await expect(page.getByTestId('pb-strands-rest')).toContainText('wiki')
+      // no sideways scroll, hit targets ≥ 40 px
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true)
+      expect(await page.evaluate(() => { const el = document.querySelector('[data-testid="patchbay-page"]')!; return el.scrollWidth <= el.clientWidth + 1 })).toBe(true)
+      for (const h of await page.getByTestId('pb-line').evaluateAll((els) => els.map((e) => e.getBoundingClientRect().height))) expect(h).toBeGreaterThanOrEqual(40)
+
+      // a run starts: the strand lights in place, nothing moves, the sticky chip jumps there
+      const order = await strands.evaluateAll((els) => els.map((e) => e.getAttribute('data-key')))
+      await page.evaluate(async () => {
+        const rec = (window as unknown as { __oneRecorder: { step: (s: unknown) => Promise<unknown> } }).__oneRecorder
+        await rec.step({ writer: { kind: 'agent', id: 'agTessera', run: 'rPhone1' }, note: { seq: 1 }, calls: [] })
+      })
+      const live = page.locator('[data-testid="pb-strand"][data-key="agent:agTessera"]')
+      await expect(live).toHaveAttribute('data-live', 'true')
+      expect(await strands.evaluateAll((els) => els.map((e) => e.getAttribute('data-key')))).toEqual(order)
+      const jump = page.getByTestId('pb-jump')
+      await expect(jump).toHaveText('running · Tessera-Spiegel ↓')
+      await jump.tap()
+      await expect(live.getByTestId('pb-strand-open')).toBeFocused()
+
+      // a tap on a line opens that line's module (the webhook → its automation's dialog); on the card, its editor
+      const chat = page.locator('[data-testid="pb-strand"][data-key="automation:dbMails:autToChat"]')
+      await chat.getByTestId('pb-line').filter({ hasText: 'Webhook' }).tap()
+      await expect(page.getByRole('dialog')).toBeVisible()
+      await page.keyboard.press('Escape')
+      await expect(page.getByRole('dialog')).toHaveCount(0)
+      await page.waitForTimeout(500)
+      await page.locator('[data-testid="pb-strand"][data-key="agent:agInbox"]').locator('.pb-strand__h').tap()
+      await expect(page).toHaveURL(/#\/agents\/agInbox$/)
+    })
+  }
 })

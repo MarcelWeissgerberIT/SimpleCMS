@@ -20,7 +20,7 @@ import { applyTextStep } from './lib/textScale'
 import { startSwitchLed } from './lib/switchLed'
 import { applyCachedLook } from './lib/look'
 import { ALL_MESSAGES, t } from './i18n'
-import { installGovernor, startHistory, startRecorder, startAutomations, startRecurringTemplates, startInbox, startSync, startMcp, startCustomFunctions, startMail, startAgents, startCoding, startKit, startOutbox, startPreflight, startItems, seedDemoHistory, demoFunctions } from './features'
+import { installGovernor, startHistory, startRecorder, startAutomations, startRecurringTemplates, startInbox, startSync, startMcp, startCustomFunctions, startMail, startAgents, startCoding, startKit, startOutbox, startPreflight, startItems, startPatchbay, seedDemoHistory, demoFunctions } from './features'
 import { consumeOAuthReturn, oneScriptGrammar } from './features'
 import { registerCodeLanguage, startSyncedBlocks } from './editor'
 import { detectLang, makeTranslator } from '@/shared/i18n'
@@ -99,6 +99,9 @@ async function boot() {
     // flight recorder (features/recorder): right after history — its listener takes history's page diff as a memo hit,
     // the reset above is done (its database never blocks one), and the seed of a fresh workspace is not journaled
     startService('recorder', startRecorder)
+    // the Patchbay (features/patchbay): its Preflight lamp, the run tally, and the fuse count after the first paint (in
+    // idle, from the lazy cache — never the page map or the ledger at boot)
+    startService('patchbay', startPatchbay)
     startService('automations', startAutomations)
     startService('recurring templates', startRecurringTemplates)
     // tasks: the editor's lookup + the creation gate (the index itself is built when something first asks)
