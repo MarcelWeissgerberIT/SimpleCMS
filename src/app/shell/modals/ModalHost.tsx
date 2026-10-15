@@ -1,6 +1,6 @@
 import { useUI, type ModalState } from '../../store/ui'
 import { HistoryModal, ShareModal, ImportModal, ExportModal, AutomationsModal, TemplatesModal, SaveTemplateModal, AgentPanel, FunctionsModal, RecorderHost } from '../../features'
-import { ExampleDialog, CommandsEditor, AISetupModal } from '../../features'
+import { ExampleDialog, CommandsEditor, AISetupModal, AgentDialogsHost } from '../../features'
 import { Suspense } from 'react'
 import { SettingsModal } from '../settings/SettingsModal'
 import { ConfirmModal } from './ConfirmModal'
@@ -9,7 +9,7 @@ import { ShortcutList, ShortcutsModal } from './ShortcutsModal'
 import { HelpHost } from '../../help'
 import './modals.css'
 
-/** Renders the single active modal from useUI.modal (and the docks and side sheets: the AI terminal, the flight recorder, Help). */
+/** Renders the single active modal from useUI.modal (and the docks and side sheets: the AI terminal, the flight recorder, Help; the agents' dialogs over any route). */
 export function ModalHost() {
   const modal = useUI((s) => s.modal)
   const close = useUI((s) => s.closeModal)
@@ -18,6 +18,8 @@ export function ModalHost() {
       <AgentPanel />
       <RecorderHost />
       <HelpHost shortcuts={<ShortcutList />} />
+      {/* MirrorSetup / the agent editor over any route (the Patchbay's setup lamps) — a lazy chunk, only while asked */}
+      <AgentDialogsHost />
       {modal && <ModalSwitch modal={modal} onClose={close} />}
     </>
   )
