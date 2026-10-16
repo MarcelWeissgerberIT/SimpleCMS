@@ -10934,9 +10934,11 @@ var PRESET_GLOBAL = "ONE_WORKER_PRESET";
 var PAIR_SECRET = /^[A-Za-z0-9_-]{43}$/;
 var PERMISSION_WAIT_MS = 15 * 6e4;
 var PERMISSION_VERBS = ["once", "always", "deny"];
-var PERMISSION_WHAT_MAX = 600;
+var PERMISSION_FIELD_MAX = 4e3;
+var PERMISSION_WHAT_MAX = 4500;
 var EDIT_HUNKS = 6;
 var EDIT_CHARS = 4e3;
+var TAB_CAN = ["permission"];
 var RELAY_WORKER_PATH = "/coding/worker";
 var WORKER_TOKEN = /^onew_[A-Za-z0-9_-]{43}$/;
 var LOOPBACK_HOSTS = /* @__PURE__ */ new Set(["localhost", "127.0.0.1", "[::1]"]);
@@ -11492,7 +11494,7 @@ function killTree(child, platform = process.platform) {
     if (gone) finish();
   });
 }
-function taskkillTree(pid) {
+function taskkillTree(pid, opts = {}) {
   return new Promise((resolve9) => {
     const cap = setTimeout(resolve9, 5e3);
     cap.unref();
@@ -11501,7 +11503,7 @@ function taskkillTree(pid) {
       resolve9();
     };
     try {
-      const k = spawn(systemTool("taskkill"), ["/pid", String(pid), "/T", "/F"], { stdio: "ignore", windowsHide: true, env: ownEnv(process.env, "win32") });
+      const k = spawn(systemTool("taskkill"), ["/pid", String(pid), ...opts.tree === false ? [] : ["/T"], "/F"], { stdio: "ignore", windowsHide: true, env: ownEnv(process.env, "win32") });
       k.on("error", done);
       k.on("close", done);
     } catch {
@@ -12284,9 +12286,10 @@ function saveRepos(file, choices, workspace, env = process.env, extra = {}) {
       if (Object.keys(claude).length) entry.claude = claude;
       else delete entry.claude;
     }
-    if (c.allowedTools) {
+    if (c.allowedRemove?.length) {
       const claude = isObj(entry.claude) ? { ...entry.claude } : {};
-      if (c.allowedTools.length) claude.allowedTools = c.allowedTools;
+      const left = strings(claude.allowedTools).filter((rule) => !c.allowedRemove.includes(rule));
+      if (left.length) claude.allowedTools = left;
       else delete claude.allowedTools;
       if (Object.keys(claude).length) entry.claude = claude;
       else delete entry.claude;
@@ -12424,8 +12427,10 @@ function parseStat(text2) {
   const ppid = int(rest[1]);
   const pgid = int(rest[2]);
   if (pid === null || ppid === null) return null;
-  return { pid, ppid, pgid, name: text2.slice(open2 + 1, close) };
+  const born = int(rest[19]);
+  return { pid, ppid, pgid, name: text2.slice(open2 + 1, close), ...born !== null ? { born } : {} };
 }
+var sameProc = (a, b) => !!b && a.pid === b.pid && a.name === b.name && (a.born === void 0 || b.born === void 0 || a.born === b.born);
 function parsePs(out) {
   const list = [];
   for (const line of out.split("\n")) {
@@ -12511,7 +12516,8 @@ function below(list, root, opts = {}) {
       if (win2) {
         if (opts.since !== void 0 && (kid.born ?? 0) < opts.since) continue;
         const up = byPid.get(parent);
-        if (up?.born !== void 0 && kid.born !== void 0 && kid.born < up.born) continue;
+        const upBorn = up?.born ?? (parent === root ? opts.rootBorn : void 0);
+        if (upBorn !== void 0 && kid.born !== void 0 && kid.born < upBorn) continue;
       }
       seen.add(kid.pid);
       out.push(kid);
@@ -12524,8 +12530,15 @@ function leftoversOf(opts) {
   const platform = opts.platform ?? process.platform;
   const alive = new Map(opts.now.map((p) => [p.pid, p]));
   const picked = /* @__PURE__ */ new Set();
-  for (const p of opts.before ? below(opts.before, opts.root, { platform, since: opts.since }) : []) if (alive.get(p.pid)?.name === p.name) picked.add(p.pid);
-  for (const p of below(opts.now, opts.root, { platform, since: opts.since })) picked.add(p.pid);
+  const from = (p) => {
+    const here = alive.get(p.pid);
+    if (here && !sameProc(p, here)) return;
+    if (here) picked.add(p.pid);
+    for (const k of below(opts.now, p.pid, { platform, since: opts.since, rootBorn: p.born })) picked.add(k.pid);
+  };
+  const seen = [...opts.before ? below(opts.before, opts.root, { platform, since: opts.since }) : [], ...opts.sampled ?? []];
+  for (const p of seen) from(p);
+  if (!alive.has(opts.root)) for (const p of below(opts.now, opts.root, { platform, since: opts.since })) picked.add(p.pid);
   for (const pid of opts.marked ?? []) if (alive.has(pid)) picked.add(pid);
   if (platform !== "win32") {
     for (const p of opts.now) if (p.pgid === opts.root) picked.add(p.pid);
@@ -12544,8 +12557,8 @@ var isAlive = (pid) => {
 async function endProcs(procs, opts) {
   const platform = opts.platform ?? process.platform;
   if (platform === "win32") {
-    const ids = new Set(procs.map((p) => p.pid));
-    await Promise.all(procs.filter((p) => !ids.has(p.ppid)).map((p) => taskkillTree(p.pid)));
+    const kill = opts.kill ?? ((pid) => taskkillTree(pid, { tree: false }));
+    await Promise.all(procs.map((p) => kill(p.pid)));
     return;
   }
   const signal = (sig) => {
@@ -12565,29 +12578,59 @@ async function endProcs(procs, opts) {
   while (Date.now() < until && procs.some((p) => isAlive(p.pid))) await new Promise((r) => setTimeout(r, 100));
   if (procs.some((p) => isAlive(p.pid))) signal("SIGKILL");
 }
+var sampleMs = () => Number(process.env.ONE_WORKER_SAMPLE_MS) || 5e3;
 var RunTree = class {
   since;
   root;
   token;
   platform;
   before = null;
+  /** processes seen below Claude Code while it ran (Windows), by id + start time */
+  sampled = /* @__PURE__ */ new Map();
+  sampling = null;
+  lastSample = 0;
+  timer = null;
   constructor(root, token, platform = process.platform) {
     this.root = root;
     this.token = token;
     this.platform = platform;
     this.since = Date.now() - 2e3;
+    if (platform === "win32") {
+      this.timer = setInterval(() => this.sample(), sampleMs());
+      this.timer.unref?.();
+    }
   }
-  /** Read the tree now (Claude Code's result arrived — the shells it started may still run). */
+  /** Windows: read the tree now (a tool's result came; the timer) — one read at a time, at most one a second. */
+  sample() {
+    if (this.platform !== "win32" || this.before || this.sampling || Date.now() - this.lastSample < 1e3) return;
+    this.lastSample = Date.now();
+    this.sampling = listProcs(this.platform).then((list) => {
+      if (list) {
+        for (const p of below(list, this.root, { platform: this.platform, since: this.since })) if (this.sampled.size < 5e3) this.sampled.set(`${p.pid}:${p.born ?? ""}`, p);
+      }
+    }).catch(() => {
+    }).finally(() => {
+      this.sampling = null;
+    });
+  }
+  /** Read the tree now (Claude Code's result arrived — the shells it started may still run); no samples after it. */
   atResult() {
+    this.stopSampling();
     this.before ??= listProcs(this.platform).catch(() => null);
+  }
+  stopSampling() {
+    if (this.timer) clearInterval(this.timer);
+    this.timer = null;
   }
   /** End what the run left running; the count and the program names (≤ 5, no folders). */
   async end() {
+    this.stopSampling();
     try {
+      await this.sampling;
       const before = this.before ? await this.before : null;
       const [now, marked] = await Promise.all([listProcs(this.platform), markedProcs(this.token, this.platform)]);
       if (!now) return { n: 0, names: [] };
-      const left = leftoversOf({ root: this.root, since: this.since, before, now, marked, platform: this.platform });
+      const left = leftoversOf({ root: this.root, since: this.since, before, sampled: [...this.sampled.values()], now, marked, platform: this.platform });
       const group = this.platform !== "win32" && now.some((p) => p.pgid === this.root);
       if (!left.length && !group) return { n: 0, names: [] };
       await endProcs(left, { root: this.root, group, platform: this.platform });
@@ -12856,7 +12899,7 @@ var clock = (ms) => {
   return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
 };
 var PERMISSION_REFUSED = /requires approval|haven't granted it yet|has(?:n't| not) been granted|permission to use \S+ (?:has been|was) denied|was blocked by your permission settings/i;
-var OWN_REFUSAL = /^Not allowed\b/;
+var OWN_REFUSAL = /^(?:Not allowed|Handled by the One worker)\b/;
 var exitGraceMs = () => Number(process.env.ONE_WORKER_EXIT_GRACE_MS) || 1500;
 var resultExitMs = () => Number(process.env.ONE_WORKER_RESULT_EXIT_MS) || 3e4;
 function runClaude(r) {
@@ -12965,6 +13008,7 @@ Claude Code could not start (${e.code ?? e.name})`;
         }
         case "user": {
           const content = ev.message?.content ?? [];
+          if (Array.isArray(content) && content.some((b) => b?.type === "tool_result")) tree?.sample();
           for (const block of Array.isArray(content) ? content : []) {
             if (block.type !== "tool_result" || block.is_error !== true) continue;
             const text2 = typeof block.content === "string" ? block.content : Array.isArray(block.content) ? block.content.map((c) => c.text ?? "").join(" ") : "";
@@ -14225,8 +14269,9 @@ var DEFAULTS = {
   ].join(" "),
   plan: [
     "Read the code that matters for this task and write an implementation plan: the files to change, the approach step by step,",
-    "risks and open questions, and how to test it. Do not change any file. Hand the plan in as Markdown: with ExitPlanMode when you have it, otherwise as your final message",
-    "(the whole plan, not a pointer to a file). If something the task needs is missing (a page, a finding, a decision), ask with one_task_ask instead of guessing."
+    "risks and open questions, and how to test it. Do not change any file. Hand the plan in as Markdown as your final message",
+    "(the whole plan, not a pointer to a file) \u2014 ExitPlanMode, if you call it, only hands the plan to the person in One: this stage never leaves plan mode.",
+    "If something the task needs is missing (a page, a finding, a decision), ask with one_task_ask instead of guessing."
   ].join(" "),
   implement: [
     "Implement the task in this worktree. Follow the approved plan in the task data if there is one. Keep the change focused,",
@@ -14974,11 +15019,16 @@ function kindOf(tool) {
   if (tool.startsWith("mcp__")) return "mcp";
   return "other";
 }
+var HANDLED = {
+  ExitPlanMode: "Handled by the One worker: your plan was received and goes to the person in One, who approves it there. Do not call ExitPlanMode again and do not start implementing \u2014 end your turn now with the whole plan as your final message.",
+  AskUserQuestion: "Handled by the One worker: nobody can answer this here. Ask the person in One with the one_task_ask tool (one question; then end your turn \u2014 the stage runs again with the answer), or decide yourself and say so in your summary.",
+  EnterPlanMode: "Handled by the One worker: this stage keeps the mode it was started in \u2014 go on without plan mode."
+};
 var pathOf2 = (req) => req.input.file_path ?? req.input.notebook_path ?? req.input.path ?? "";
 function subjectOf(req) {
   const kind = kindOf(req.tool);
-  const pick2 = kind === "bash" ? req.input.command : kind === "read" || kind === "edit" ? pathOf2(req) || req.input.pattern : kind === "web" ? req.input.url ?? req.input.query : req.input.description ?? req.input.command ?? req.input.url ?? req.input.file_path ?? req.input.path;
-  return (pick2 ?? "").replace(/\s+/g, " ").trim();
+  const pick2 = kind === "bash" ? req.input.command : kind === "read" || kind === "edit" ? pathOf2(req) || req.input.pattern : kind === "web" ? req.input.url ?? req.input.query : req.input.args ?? req.input.description ?? req.input.command ?? req.input.url ?? req.input.file_path ?? req.input.path;
+  return (pick2 ?? "").replace(/\r\n|\r|\n/g, " \u21B5 ").replace(/[^\S ]+/g, " ").replace(/ {2,}/g, " ").trim();
 }
 function isOutside(req, dirs, cwd) {
   const kind = kindOf(req.tool);
@@ -15027,13 +15077,21 @@ function ruleDecision(req, allowed, disallowed) {
   return null;
 }
 var NEVER_ALWAYS = new Set(
-  "sh bash zsh fish dash ksh csh tcsh pwsh powershell cmd wsl sudo doas su runas env eval exec source command builtin xargs nohup nice timeout time watch setsid script rm rmdir del erase rd dd mkfs shred chmod chown chgrp ln mv cp install truncate find sed awk gawk perl ruby python python3 py node deno bun php lua osascript java curl wget nc ncat netcat ssh scp sftp rsync ftp telnet socat git gh glab kill pkill killall taskkill open xdg-open start explorer launchctl systemctl service crontab at schtasks reg docker podman kubectl".split(" ")
+  // shells, and what runs a command line of its own
+  "sh bash zsh fish dash ksh csh tcsh pwsh powershell cmd wsl busybox sudo doas su runas env eval exec source command builtin xargs nohup nice timeout time watch setsid script parallel cross-env dotenv dotenvx npm-run-all run-p run-s concurrently nodemon entr node nodejs deno bun tsx ts-node esno jiti python python3 py pypy ipython ruby irb perl php lua luajit osascript java jshell npx pnpx bunx uvx pipx dlx rm rmdir del erase rd dd mkfs shred chmod chown chgrp ln mv cp install truncate find tee touch mkdir cat tac head tail less more nl ls dir tree stat file wc du grep egrep fgrep rg ag ack sort diff cmp xxd od hexdump strings base64 tar zip unzip gzip gunzip bzip2 xz 7z unrar sed awk gawk jq yq curl wget nc ncat netcat ssh scp sftp rsync ftp telnet socat git gh glab kill pkill killall taskkill open xdg-open start explorer launchctl systemctl service crontab at schtasks reg docker podman kubectl".split(" ")
 );
-var SUBCOMMAND = new Set("npm pnpm yarn npx pnpx bunx cargo go dotnet make gradle gradlew mvn mvnw composer pip pip3 poetry uv mix rake bundle swift flutter dart tsc jest vitest pytest".split(" "));
-var SCRIPT_RUNNER = /* @__PURE__ */ new Set(["run", "run-script", "exec", "x"]);
+var INTERPRETER = /^(?:python|pypy|node|nodejs|ruby|perl|php|lua|java|deno|bun)[0-9._-]*$/;
+var SUBCOMMAND = new Set(
+  "npm pnpm yarn bun cargo go dotnet make gradle gradlew mvn mvnw composer pip pip3 poetry pdm hatch rye uv mix rake bundle gem swift flutter dart".split(" ")
+);
+var SCRIPTS = /* @__PURE__ */ new Set(["npm", "pnpm", "yarn", "bun"]);
+var SCRIPT_RUNNER = /* @__PURE__ */ new Set(["run", "run-script", "rum", "urn"]);
+var RUNS_OTHERS = new Set(
+  "exec x dlx create init innit node global link ln add install i in ins inst insta instal isnt isntall ci clean-install install-test it install-ci-test cit update up upgrade uninstall remove rm un unlink r publish pack run-script-os shell env eval repl console self self-update tool tools get generate pip plugin plugins patch workspace workspaces import deploy setup store server config set npm require create-project download wheel".split(" ")
+);
 var WORD = /^[A-Za-z0-9][A-Za-z0-9._:@=+-]*$/;
 var PROGRAM = /^(?:\.\/)?[A-Za-z0-9][A-Za-z0-9._+-]*$/;
-var OUTSIDE_ARG = /^(?:[/\\~]|[A-Za-z]:|.*\.\.)/;
+var OUTSIDE_ARG = /(?:^|=)(?:[/\\~]|[A-Za-z]:)|(?:^|[/\\=])\.\.(?:[/\\]|$)/;
 function alwaysRule(req, opts = {}) {
   const kind = kindOf(req.tool);
   if (kind === "mcp") return /^mcp__[A-Za-z0-9_-]+__[A-Za-z0-9_.-]+$/.test(req.tool) && !req.tool.startsWith("mcp__one-task__") ? req.tool : null;
@@ -15044,20 +15102,27 @@ function alwaysRule(req, opts = {}) {
   }
   if (req.tool !== "Bash" || opts.outside) return null;
   const cmd = req.input.command ?? "";
-  if (!simpleCommand(cmd) || /[*?[\]{}$'"\\]/.test(cmd)) return null;
+  if (!simpleCommand(cmd) || /[*?[\]{}$'"\\%!^]/.test(cmd)) return null;
   const words = norm(cmd).split(" ");
   const program = words[0] ?? "";
   if (!PROGRAM.test(program)) return null;
-  const base = program.replace(/^\.\//, "").replace(/\.(exe|cmd|bat)$/i, "").toLowerCase();
-  if (NEVER_ALWAYS.has(base)) return null;
+  const base = program.replace(/^\.\//, "").replace(/\.(exe|cmd|bat|ps1)$/i, "").toLowerCase();
+  if (NEVER_ALWAYS.has(base) || INTERPRETER.test(base)) return null;
   if (words.slice(1).some((w) => OUTSIDE_ARG.test(w))) return null;
-  const prefix = [program];
-  if (SUBCOMMAND.has(base) && words[1] && WORD.test(words[1]) && !words[1].startsWith("-")) {
-    prefix.push(words[1]);
-    if (SCRIPT_RUNNER.has(words[1]) && words[2] && WORD.test(words[2]) && !words[2].startsWith("-")) prefix.push(words[2]);
-    else if (SCRIPT_RUNNER.has(words[1])) return null;
-  } else if (SUBCOMMAND.has(base) && (base === "npx" || base === "pnpx" || base === "bunx")) return null;
-  return `Bash(${prefix.join(" ")}:*)`;
+  const runner = base.replace(/[0-9._-]+$/, "") || base;
+  if (!SUBCOMMAND.has(base) && !SUBCOMMAND.has(runner)) return `Bash(${program}:*)`;
+  const name = SUBCOMMAND.has(base) ? base : runner;
+  const sub = words[1];
+  if (!sub || !WORD.test(sub) || sub.startsWith("-")) return null;
+  const s = sub.toLowerCase();
+  if (RUNS_OTHERS.has(s) || RUNS_OTHERS.has(s.split(":")[0])) return null;
+  if (SCRIPT_RUNNER.has(s)) {
+    if (!SCRIPTS.has(name)) return null;
+    const script = words[2];
+    if (!script || !WORD.test(script) || script.startsWith("-")) return null;
+    return `Bash(${program} ${sub} ${script}:*)`;
+  }
+  return `Bash(${program} ${sub}:*)`;
 }
 
 // src/worker/intake.ts
@@ -17163,6 +17228,11 @@ var WorkerLink = class {
   get connected() {
     return this.tab?.workspace ?? null;
   }
+  /** The connected tab handles `cap` (its hello said so) — false without a tab, or for an older one. */
+  tabCan(cap) {
+    const tab = this.tab;
+    return !!tab?.workspace && tab.isOpen() && tab.can.has(cap);
+  }
   /** Cloud mode: the team server it dials (host), else null. */
   get via() {
     return this.dial?.host ?? (this.opts.cloud ? new URL(this.opts.cloud.url).host : null);
@@ -17315,6 +17385,7 @@ ${text2}`);
       workspace: null,
       alive: true,
       proven: false,
+      can: /* @__PURE__ */ new Set(),
       send: (text2) => ws.send(text2),
       close: (code, reason) => ws.close(code, reason),
       isOpen: () => ws.readyState === import_websocket.default.OPEN
@@ -17390,6 +17461,7 @@ ${text2}`);
       workspace: null,
       alive: true,
       proven: false,
+      can: /* @__PURE__ */ new Set(),
       send: (text2, droppable2) => {
         if (pairing.ended || !pairing.box) return;
         const fit = shrinkForRelay(text2);
@@ -17468,6 +17540,8 @@ ${text2}`);
         if (this.opts.pair && !conn.proven && !sameSecret(this.opts.pair, msg.pair)) return this.refuseTab(conn, "pair", ws);
         if (conn.workspace) return;
         conn.workspace = ws;
+        const can = msg.can;
+        conn.can = new Set(Array.isArray(can) ? can.filter((c) => typeof c === "string" && TAB_CAN.includes(c)).slice(0, 16) : []);
         const old = this.tab;
         if (old && old !== conn) {
           old.close(WORKER_CLOSE_REPLACED, "replaced by a newer tab");
@@ -17568,9 +17642,14 @@ var DENY = {
   rule: "Not allowed: this repository's disallowedTools (the worker's worker.json) refuse it.",
   timeout: (min) => `Not allowed: nobody answered in One within ${min} minutes. Go on without it, or end your turn with a summary of what you need.`,
   stopped: "Not allowed: the stage was stopped.",
-  many: "Not allowed: too many permission requests are waiting already \u2014 wait for the answers."
+  many: "Not allowed: too many permission requests are waiting already \u2014 wait for the answers.",
+  away: "Not allowed: One is not open to ask the person (or is too old to ask). Go on without it, or end your turn with a summary of what you need.",
+  long: (what, n) => `Not allowed: the ${what} is ${n} characters long \u2014 too long for the person to check in One (at most ${PERMISSION_FIELD_MAX}). Split it into shorter steps.`
 };
 var permissionWaitMs = () => Number(process.env.ONE_WORKER_PERMISSION_MS) || PERMISSION_WAIT_MS;
+var awayMs = () => Number(process.env.ONE_WORKER_AWAY_MS) || 6e4;
+var LOG_WHAT_MAX = 300;
+var clipWhat = (s) => s.length > LOG_WHAT_MAX ? `${s.slice(0, LOG_WHAT_MAX - 1)}\u2026` : s;
 var ASKS_MAX = 20;
 var isObj6 = (v) => !!v && typeof v === "object" && !Array.isArray(v);
 var INTAKE_LINE_MAX = 200;
@@ -17649,6 +17728,8 @@ var Worker2 = class {
   lookedAt = 0;
   runs = /* @__PURE__ */ new Map();
   tokens = /* @__PURE__ */ new Map();
+  /** no tab that answers permission requests is connected: the waiting ones are refused when this fires */
+  awayTimer = null;
   workspace = null;
   polling = false;
   again = false;
@@ -17684,10 +17765,12 @@ var Worker2 = class {
         this.workspace = ws;
         void this.flushUnsent().then(() => this.tick());
         void this.refreshBranches();
+        this.checkAway();
       },
       onDisconnect: () => {
         this.workspace = null;
         this.intaker?.drop("One disconnected");
+        this.checkAway();
       },
       onRequest: (msg) => this.onRequest(msg),
       onNudge: () => this.tick(),
@@ -18241,7 +18324,8 @@ A: ${a.a}
   /* ------------------------------------------------------------------ permissions (worker 1.11.0) */
   /** A log line of a run's permission requests (its text and values scrubbed). */
   permLine(run2, k, s, c, v) {
-    this.logLine(run2.task.id, { t: Date.now(), k, s: run2.scrub.text(s), c, v: Object.fromEntries(Object.entries(v).map(([key, x2]) => [key, typeof x2 === "string" ? run2.scrub.text(x2) : x2])) });
+    const vars = Object.fromEntries(Object.entries(v).map(([key, x2]) => [key, typeof x2 === "string" ? key === "what" ? clipWhat(run2.scrub.text(x2)) : run2.scrub.text(x2) : x2]));
+    this.logLine(run2.task.id, { t: Date.now(), k, s: run2.scrub.text(s), c, v: vars });
   }
   /** The first waiting request (or none) to One — as an event and in the busy list. */
   announceAsk(run2, settled) {
@@ -18249,29 +18333,57 @@ A: ${a.a}
     this.sendStatus();
   }
   /**
-   * Claude Code's permission prompt: the repo's own lists decide first, else the person in One — the call is held until
-   * they answer, the time is up or the stage stops. The answer is `{ allow, message? }` (taskmcp.ts makes Claude Code's
-   * form of it, with the input as Claude Code sent it).
+   * Claude Code's permission prompt. Before anyone is asked: a tool that wants the person's interaction (ExitPlanMode,
+   * AskUserQuestion — the worker answers those itself, never on a card) and a request the worker cannot judge whole (a
+   * field longer than PERMISSION_FIELD_MAX: refused, never cut). Then the repo's own lists, else the person in One — the
+   * call is held until they answer, the time is up, the stage stops or no tab that answers is left. Without such a tab
+   * (none connected, or one older than the permission prompt) it is refused at once. The answer is `{ allow, message? }`
+   * (taskmcp.ts makes Claude Code's form of it, with the input exactly as Claude Code sent it).
    */
   async permission(run2, args) {
     const answer = (allow, message) => ({ ok: true, text: JSON.stringify(allow ? { allow: true } : { allow: false, message }) });
-    const tool = typeof args.tool_name === "string" ? args.tool_name.trim().slice(0, 200) : "";
+    const tool = typeof args.tool_name === "string" ? args.tool_name.trim() : "";
     const raw = args.input && typeof args.input === "object" && !Array.isArray(args.input) ? args.input : {};
     const input = {};
-    for (const [k, v] of Object.entries(raw)) if (typeof v === "string") input[k] = v.slice(0, 4e3);
-    const req = { tool: tool || "a tool", input };
-    const what = run2.scrub.text(subjectOf(req)).slice(0, PERMISSION_WHAT_MAX);
+    let long = null;
+    const tooLong2 = (field, n) => {
+      if (!long || n > long.n) long = { field, n };
+    };
+    for (const [k, v] of Object.entries(raw)) {
+      if (typeof v !== "string") continue;
+      input[k] = v;
+      if (v.length > PERMISSION_FIELD_MAX) tooLong2(k, v.length);
+    }
+    if (args.cut && typeof args.cut === "object" && !Array.isArray(args.cut))
+      for (const [k, n] of Object.entries(args.cut)) tooLong2(k, typeof n === "number" && Number.isFinite(n) && n > 0 ? n : PERMISSION_FIELD_MAX + 1);
+    if (tool.length > 120) tooLong2("tool name", tool.length);
+    const req = { tool: (tool || "a tool").slice(0, 120), input };
     if (run2.abort.signal.aborted) return answer(false, DENY.stopped);
+    const handled = HANDLED[req.tool];
+    if (handled) return answer(false, handled);
+    const what = run2.scrub.text(subjectOf(req));
+    if (!long && what.length > PERMISSION_WHAT_MAX) tooLong2(kindOf(req.tool) === "bash" ? "command" : "input", what.length);
+    if (long) {
+      const l = long;
+      run2.counts.refused++;
+      this.permLine(run2, "warn", `Refused: ${req.tool} \u2014 its ${l.field} is ${l.n} characters, too long to check in One`, "permissionDenied", { tool: req.tool, what, how: "long" });
+      return answer(false, DENY.long(l.field === "args" ? "input" : l.field, l.n));
+    }
     const byRule = ruleDecision(req, run2.repo.claude.allowedTools, run2.repo.claude.disallowedTools);
     if (byRule === "allow") {
       run2.counts.allowed++;
-      this.permLine(run2, "info", `Allowed by the repo's allowedTools: ${req.tool}${what ? ` \xB7 ${what}` : ""}`, "permissionAllowed", { tool: req.tool, what, how: "rule" });
+      this.permLine(run2, "info", `Allowed by the repo's allowedTools: ${req.tool}${what ? ` \xB7 ${clipWhat(what)}` : ""}`, "permissionAllowed", { tool: req.tool, what, how: "rule" });
       return answer(true);
     }
     if (byRule === "deny") {
       run2.counts.refused++;
-      this.permLine(run2, "warn", `Refused by the repo's disallowedTools: ${req.tool}${what ? ` \xB7 ${what}` : ""}`, "permissionDenied", { tool: req.tool, what, how: "rule" });
+      this.permLine(run2, "warn", `Refused by the repo's disallowedTools: ${req.tool}${what ? ` \xB7 ${clipWhat(what)}` : ""}`, "permissionDenied", { tool: req.tool, what, how: "rule" });
       return answer(false, DENY.rule);
+    }
+    if (!this.link.tabCan("permission")) {
+      run2.counts.refused++;
+      this.permLine(run2, "warn", `Refused \u2014 One is not open to ask you: ${req.tool}${what ? ` \xB7 ${clipWhat(what)}` : ""}`, "permissionDenied", { tool: req.tool, what, how: "away" });
+      return answer(false, DENY.away);
     }
     if (run2.asks.length >= ASKS_MAX) {
       run2.counts.refused++;
@@ -18283,7 +18395,7 @@ A: ${a.a}
     const wait = permissionWaitMs();
     const ask = {
       id: randomBytes6(12).toString("hex"),
-      tool: req.tool.slice(0, 120),
+      tool: req.tool,
       kind: kindOf(req.tool),
       what,
       ...outside ? { outside: true } : {},
@@ -18295,7 +18407,7 @@ A: ${a.a}
     };
     run2.counts.asked++;
     const minutes = Math.max(1, Math.round(wait / 6e4));
-    this.permLine(run2, "warn", `Claude Code asks for a permission: ${ask.tool}${what ? ` \xB7 ${what}` : ""} \u2014 waiting for you in One (at most ${minutes} min)`, "permissionAsked", { tool: ask.tool, what, min: minutes });
+    this.permLine(run2, "warn", `Claude Code asks for a permission: ${ask.tool}${what ? ` \xB7 ${clipWhat(what)}` : ""} \u2014 waiting for you in One (at most ${minutes} min)`, "permissionAsked", { tool: ask.tool, what, min: minutes });
     return new Promise((resolve9) => {
       const pending = {
         ask,
@@ -18307,6 +18419,24 @@ A: ${a.a}
       this.announceAsk(run2);
     });
   }
+  /**
+   * A tab came or went: while one that answers permission requests is connected, the waiting ones wait; without one,
+   * they are refused after awayMs (a reload or a short drop keeps them) — never after the full PERMISSION_WAIT_MS.
+   */
+  checkAway() {
+    if (this.link.tabCan("permission")) {
+      if (this.awayTimer) clearTimeout(this.awayTimer);
+      this.awayTimer = null;
+      return;
+    }
+    if (this.awayTimer || ![...this.runs.values()].some((r) => r.asks.length)) return;
+    this.awayTimer = setTimeout(() => {
+      this.awayTimer = null;
+      if (this.link.tabCan("permission")) return;
+      for (const run2 of this.runs.values()) for (const p of [...run2.asks]) this.settle(run2, p, false, "away", DENY.away);
+    }, awayMs());
+    this.awayTimer.unref?.();
+  }
   /** End one waiting request: Claude Code's answer, the counts, a log line, One told. */
   settle(run2, p, allow, how, message) {
     const i2 = run2.asks.indexOf(p);
@@ -18315,11 +18445,12 @@ A: ${a.a}
     clearTimeout(p.timer);
     if (allow) {
       run2.counts.allowed++;
-      this.permLine(run2, "info", `Allowed in One (${how === "always" ? "always for this repo" : "once"}): ${p.ask.tool}${p.ask.what ? ` \xB7 ${p.ask.what}` : ""}`, "permissionAllowed", { tool: p.ask.tool, what: p.ask.what, how });
+      this.permLine(run2, "info", `Allowed in One (${how === "always" ? "always for this repo" : "once"}): ${p.ask.tool}${p.ask.what ? ` \xB7 ${clipWhat(p.ask.what)}` : ""}`, "permissionAllowed", { tool: p.ask.tool, what: p.ask.what, how });
     } else {
       run2.counts.refused++;
       const who = how === "deny" ? "you" : how;
-      this.permLine(run2, "warn", `${how === "timeout" ? "Nobody answered in time \u2014 refused" : how === "stopped" ? "The stage stopped \u2014 refused" : "Refused in One"}: ${p.ask.tool}${p.ask.what ? ` \xB7 ${p.ask.what}` : ""}`, "permissionDenied", { tool: p.ask.tool, what: p.ask.what, how: who });
+      const why2 = how === "timeout" ? "Nobody answered in time \u2014 refused" : how === "stopped" ? "The stage stopped \u2014 refused" : how === "away" ? "One was closed \u2014 refused" : "Refused in One";
+      this.permLine(run2, "warn", `${why2}: ${p.ask.tool}${p.ask.what ? ` \xB7 ${clipWhat(p.ask.what)}` : ""}`, "permissionDenied", { tool: p.ask.tool, what: p.ask.what, how: who });
     }
     p.done(allow, message);
     this.announceAsk(run2, { id: p.ask.id, how });
@@ -35264,12 +35395,32 @@ var MCP_TASK_TOOLS = [
 // src/worker/taskmcp.ts
 var text = (s, isError = false) => ({ content: [{ type: "text", text: s }], ...isError ? { isError: true } : {} });
 var BRIEF = ["command", "file_path", "path", "notebook_path", "url", "query", "pattern", "description"];
-function briefInput(input) {
+var OWN_TOOLS = /* @__PURE__ */ new Set(["Bash", "BashOutput", "KillShell", "KillBash", "Read", "Glob", "Grep", "LS", "NotebookRead", "Edit", "MultiEdit", "Write", "NotebookEdit", "WebFetch", "WebSearch"]);
+var TOOL_MAX = 200;
+function briefInput(tool, input) {
   const i2 = input && typeof input === "object" && !Array.isArray(input) ? input : {};
-  const out = {};
-  for (const k of BRIEF) if (typeof i2[k] === "string") out[k] = i2[k].slice(0, 4e3);
+  const out = { input: {}, cut: {} };
+  const put = (k, v) => {
+    if (v.length > PERMISSION_FIELD_MAX) out.cut[k] = v.length;
+    out.input[k] = v.slice(0, PERMISSION_FIELD_MAX);
+  };
+  for (const k of BRIEF) if (typeof i2[k] === "string") put(k, i2[k]);
+  if (!OWN_TOOLS.has(tool) && Object.keys(i2).length) {
+    let json = "";
+    try {
+      json = JSON.stringify(i2);
+    } catch {
+      json = "";
+    }
+    if (json) put("args", json);
+    else out.cut.args = Number.MAX_SAFE_INTEGER;
+  }
   return out;
 }
+var tooLong = (cut) => {
+  const [field, n] = Object.entries(cut).sort((a, b) => b[1] - a[1])[0] ?? ["input", 0];
+  return `Not allowed: the ${field === "args" ? "input" : field} is ${n === Number.MAX_SAFE_INTEGER ? "not readable" : `${n} characters long`} \u2014 too long for the person to check in One (at most ${PERMISSION_FIELD_MAX}). Split it into shorter steps.`;
+};
 function permissionAnswer(worker, input) {
   if (worker?.allow === true) return JSON.stringify({ behavior: "allow", updatedInput: input && typeof input === "object" && !Array.isArray(input) ? input : {} });
   const message = typeof worker?.message === "string" && worker.message.trim() ? worker.message : "Not allowed: the One worker did not allow it.";
@@ -35326,9 +35477,13 @@ async function serveTaskMcp(version2) {
     const args = req.params.arguments ?? {};
     if (name === "one_task_permission") {
       const input = args.input;
-      const toolName = typeof args.tool_name === "string" ? args.tool_name.slice(0, 200) : "";
+      const rawTool = args.tool_name;
+      const toolName = typeof rawTool === "string" ? rawTool : "";
+      if (!toolName.trim() || toolName.length > TOOL_MAX) return text(permissionAnswer({ allow: false, message: "Not allowed: the permission request names no readable tool." }, input));
+      const brief = briefInput(toolName, input);
+      const cut = Object.keys(brief.cut).length > 0;
       try {
-        const res = await post(url, token, { tool: name, args: { tool_name: toolName, input: briefInput(input) } }, PERMISSION_WAIT_MS + 12e4);
+        const res = await post(url, token, { tool: name, args: { tool_name: toolName, input: brief.input, ...cut ? { cut: brief.cut } : {} } }, PERMISSION_WAIT_MS + 12e4);
         let decided = null;
         if (res.body.ok && typeof res.body.text === "string") {
           try {
@@ -35337,9 +35492,10 @@ async function serveTaskMcp(version2) {
             decided = null;
           }
         } else decided = { allow: false, message: `Not allowed: ${String(res.body.error ?? `the One worker answered ${res.status}`)}` };
+        if (cut) decided = { allow: false, message: decided?.allow === false && typeof decided.message === "string" && decided.message ? decided.message : tooLong(brief.cut) };
         return text(permissionAnswer(decided, input));
       } catch (e) {
-        return text(permissionAnswer({ allow: false, message: `Not allowed: the One worker is not reachable (${e instanceof Error ? e.message : String(e)}).` }, input));
+        return text(permissionAnswer({ allow: false, message: cut ? tooLong(brief.cut) : `Not allowed: the One worker is not reachable (${e instanceof Error ? e.message : String(e)}).` }, input));
       }
     }
     try {
@@ -35968,7 +36124,7 @@ var SETUP_JS = String.raw`(function () {
   }
 
   function editOf(r) {
-    if (!edits[r.path]) edits[r.path] = { ticked: r.ticked, name: r.name, base: r.base, test: r.testLine, push: r.push, pr: r.pr, forge: r.forge || 'auto', limit: r.maxUsdPerTask === null ? '' : String(r.maxUsdPerTask), mcp: r.mcp || '', analyze: r.analyzeLine || '', own: r.ownSettings, own0: r.ownSettings, allowed: (r.allowed || []).slice() }
+    if (!edits[r.path]) edits[r.path] = { ticked: r.ticked, name: r.name, base: r.base, test: r.testLine, push: r.push, pr: r.pr, forge: r.forge || 'auto', limit: r.maxUsdPerTask === null ? '' : String(r.maxUsdPerTask), mcp: r.mcp || '', analyze: r.analyzeLine || '', own: r.ownSettings, own0: r.ownSettings, allowed: (r.allowed || []).slice(), allowed0: (r.allowed || []).slice() }
     return edits[r.path]
   }
 
@@ -36075,7 +36231,7 @@ var SETUP_JS = String.raw`(function () {
     }
     // what Claude Code may do here without asking (worker.json allowedTools): each with its remove key — the page only
     // takes rules away; "Always for this repo" in One adds them (the worker writes them)
-    var removed = (r.allowed || []).length - e.allowed.length
+    var removed = e.allowed0.length - e.allowed.length
     var allowed = el('div', { className: 'field allowed', role: 'group', 'aria-labelledby': id + 'al' }, [
       el('span', { className: 'label', id: id + 'al', text: t('allowedLabel') }),
       e.allowed.length
@@ -36412,7 +36568,7 @@ var SETUP_JS = String.raw`(function () {
     var repos = state.repos.filter(function (r) { return editOf(r).ticked }).map(function (r) {
       var e = editOf(r)
       var limit = parseFloat(String(e.limit).replace(',', '.'))
-      return { path: r.path, name: e.name.trim(), baseBranch: e.base, test: e.test, analyze: e.analyze, push: e.push, pr: e.pr, forge: e.forge, maxUsdPerTask: isFinite(limit) && limit > 0 ? limit : null, mcp: e.mcp, projectSettings: e.own, allowed: e.allowed }
+      return { path: r.path, name: e.name.trim(), baseBranch: e.base, test: e.test, analyze: e.analyze, push: e.push, pr: e.pr, forge: e.forge, maxUsdPerTask: isFinite(limit) && limit > 0 ? limit : null, mcp: e.mcp, projectSettings: e.own, allowed: e.allowed, allowedWas: e.allowed0 }
     })
     busy = 'save'
     note = null
@@ -36781,8 +36937,13 @@ var SetupServer = class {
       const analyze = typeof item.analyze === "string" ? splitArgs(item.analyze) : void 0;
       const projectSettings = typeof item.projectSettings === "boolean" ? item.projectSettings : void 0;
       const forge = item.forge === "auto" || item.forge === "github" || item.forge === "gitlab" ? item.forge : void 0;
-      const allowedTools = Array.isArray(item.allowed) ? repo.allowed.filter((rule) => item.allowed.includes(rule)) : void 0;
-      choices.push({ path: repo.path, name, baseBranch, remote: repo.remote, testCommand: test?.length ? test : null, ...analyze !== void 0 ? { analyzeCommand: analyze?.length ? analyze : null } : {}, push: item.push === true, pr: item.pr === "none" ? "none" : "gh", maxUsdPerTask: limit, mcpServers, projectSettings, ...forge !== void 0 ? { forge } : {}, ...allowedTools && allowedTools.length !== repo.allowed.length ? { allowedTools } : {} });
+      let allowedRemove;
+      if (Array.isArray(item.allowed)) {
+        const kept = item.allowed;
+        const was = Array.isArray(item.allowedWas) ? item.allowedWas.filter((x2) => typeof x2 === "string") : repo.allowed;
+        allowedRemove = was.filter((rule) => !kept.includes(rule));
+      }
+      choices.push({ path: repo.path, name, baseBranch, remote: repo.remote, testCommand: test?.length ? test : null, ...analyze !== void 0 ? { analyzeCommand: analyze?.length ? analyze : null } : {}, push: item.push === true, pr: item.pr === "none" ? "none" : "gh", maxUsdPerTask: limit, mcpServers, projectSettings, ...forge !== void 0 ? { forge } : {}, ...allowedRemove?.length ? { allowedRemove } : {} });
     }
     let workerMcp;
     if (isObj7(body) && typeof body.mcpServers === "string") {

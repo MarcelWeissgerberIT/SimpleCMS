@@ -3,7 +3,10 @@
  * A stand-in for the Claude Code CLI (CLAUDE_BIN) for the worker's tests and the e2e spec — it never calls
  * any API. It speaks `-p --output-format stream-json`, reads the prompt from stdin and acts on markers in
  * the task text:
- *   plan mode            → hands in a plan (ExitPlanMode)
+ *   plan mode            → hands in a plan (ExitPlanMode) — with --permission-prompt-tool like the real CLI: ExitPlanMode
+ *                          asks the prompt ("Exit plan mode?"); allowed, it leaves plan mode and implements (writes
+ *                          implemented.txt — what must never happen in a plan stage), refused, the plan is its answer
+ *   FAKE:ASKTOOL         → calls AskUserQuestion (an interaction tool: through the permission prompt, like ExitPlanMode)
  *   implement            → writes feature.txt (the task title; "BROKEN" with FAKE:FAILTEST until a rework
  *                          note exists), reports progress through the task tools (one_task_note)
  *   FAKE:ASK             → asks a question (one_task_ask) until the prompt carries answers
@@ -265,8 +268,21 @@ if (mode === 'plan') {
   say('Reading the repository.')
   tool('Read', { file_path: join(process.cwd(), 'README.md') })
   const plan = `## Steps\n1. Add \`feature.txt\` with the task title.\n2. Run the checks.\n\n## Risks\nNone.`
-  tool('ExitPlanMode', { plan })
+  // the real CLI: without the prompt tool ExitPlanMode is off in -p (the plan is the answer); with it, it asks there
+  if (arg('--permission-prompt-tool')) {
+    const how = await guarded('ExitPlanMode', { plan }, () => writeFileSync(join(process.cwd(), 'implemented.txt'), 'left plan mode\n'))
+    if (how === 'allowed') {
+      result('Left plan mode and implemented it.', 0.05)
+      process.exit(0)
+    }
+  } else tool('ExitPlanMode', { plan })
   result(plan, 0.05)
+  process.exit(0)
+}
+
+if (prompt.includes('FAKE:ASKTOOL')) {
+  const how = await guarded('AskUserQuestion', { questions: [{ question: 'Which colour?', header: 'Colour', options: [{ label: 'Blue' }, { label: 'Red' }], multiSelect: false }] }, () => {})
+  result(`AskUserQuestion: ${how}`, 0.01)
   process.exit(0)
 }
 

@@ -16,7 +16,7 @@ import type { ID } from '../../store/types'
 import { HelpLink } from '../../help'
 import { clearLog, loadTask, useTaskLocal, useTaskLog } from './local'
 import { useCoding } from './state'
-import { approveTask, answerTask, confirmTask, reworkTask, runTaskNow, taskContext, taskHasText } from './tasks'
+import { approveTask, answerTask, confirmTask, reworkTask, runTaskNow, stageSteps, taskContext, taskHasText } from './tasks'
 import { isTrusted } from './trust'
 import { stopTask } from './service'
 import { LogView } from './LogView'
@@ -199,7 +199,7 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
           </div>
         )}
 
-        {waitsForYou && ask && <PermissionCard taskId={pageId} ask={ask} canAct={canAct && connected} />}
+        {waitsForYou && ask && <PermissionCard key={ask.id} taskId={pageId} ask={ask} canAct={canAct && connected} />}
         {state === 'running' && (
           <div className="ctk-keys">
             <button type="button" className="btn btn--sm btn--danger" onClick={act(() => stopTask(pageId))} data-testid="coding-stop">
@@ -289,7 +289,7 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
           </form>
         )}
 
-        {limit && <StepLimitBox taskId={pageId} limit={limit} canAct={canAct} onError={(e) => useUI.getState().toast({ message: e instanceof Error ? e.message : String(e), kind: 'error' })} />}
+        {limit && stage && <StepLimitBox taskId={pageId} limit={limit} steps={stageSteps(stage)} canAct={canAct} onError={(e) => useUI.getState().toast({ message: e instanceof Error ? e.message : String(e), kind: 'error' })} />}
         {(state === 'failed' || state === 'stopped') && !limit && (
           <div className="ctk-box ctk-box--err" role="alert">
             <p>

@@ -701,15 +701,24 @@ the public APIs stable — other areas are built against them in parallel.
   decide first (permissions.ts `ruleDecision`), else the worker holds the call (≤ 15 min `PERMISSION_WAIT_MS`, then
   deny; Stop / run end deny) and sends a `PermissionAsk` (event + `BusyTask.ask`; only to its own tab); the tab answers
   `{ op: 'permission', taskId, ask, verb }` (ONLY the id + a `PERMISSION_VERBS` verb). "always" stores the rule the ask
-  showed in worker.json BY THE WORKER (`addAllowedTool`, ≤ 100; `alwaysRule` never offers shells / interpreters / rm /
-  sed / git / curl …, quotes, globs or outside paths; file tools and reads outside → once only); the setup page lists
-  and removes them (save only removes). Card "Claude wants" (coding/PermissionCard.tsx, `useCoding.asks`), Preflight lamp
+  showed in worker.json BY THE WORKER (`addAllowedTool`, ≤ 100; `alwaysRule` never offers shells / interpreters (any
+  version) / runners of other programs (npx, uvx, `npm exec`, `yarn dlx`, `uv run` …) / installs / a runner without its
+  real subcommand / path readers / rm / sed / git / curl …, quotes, globs or outside paths; file tools and reads outside
+  → once only); the setup page lists and removes them (save removes only what the page removed — `allowedWas`). Never
+  judged on a cut copy: taskmcp sends each judged field whole (an MCP tool's input as JSON `args`, ≤
+  `PERMISSION_FIELD_MAX`) and refuses a longer one whatever the worker says; the card's `what` is never cut
+  (`PERMISSION_WHAT_MAX`; longer → refused, `how: long`); the allow returns Claude Code's input untouched. ExitPlanMode /
+  AskUserQuestion / EnterPlanMode are answered by the worker (permissions.ts `HANDLED`), never a card. The tab's hello
+  says `can: TAB_CAN`; without a connected tab that names 'permission' a request is refused at once (`how: away`), and
+  waiting ones 60 s after the last such tab went. The card is keyed by the ask id and its keys wake after `ARM_MS`. Card "Claude wants" (coding/PermissionCard.tsx, `useCoding.asks`), Preflight lamp
   `permission` (sources/permission.ts, ids `perm:<task>:<ask>`, every key VON HAND, bulk false), a browser notice; log
   codes permissionAsked / Allowed / Denied / Always / AlwaysFailed / Needed; `StageOutcome.permissions` counts. Step limit
   (`can` 'continue'): error_max_turns → `StageOutcome.stepLimit` → `TaskLocal.stepLimit`; Continue (`continueTask`, the
   terminal's task_action `continue`, Preflight failed card A — VON HAND) sets `resume` and pickNext sends
-  `TaskPayload.resume` only to a worker naming 'continue' (`canContinue()`: none connected counts as yes); Start over =
-  `runTaskNow`.
+  `TaskPayload.resume` only to a worker naming 'continue' (`canContinue()`: none connected counts as yes); "+N" =
+  `stageSteps(stage)` (the pipeline's Step limit now — what pickNext sends), never the stopped run's; Start over =
+  `runTaskNow` (same worktree, original instructions). Windows leftovers: identity by pid + creation time, the tree
+  sampled while Claude Code runs (`RunTree.sample`), `taskkill /F` per pid (never /T).
   Ship log (worker 1.10.0, `can` 'ship'): git stages (`StageOutcome.ship`, also a failed outcome after its commit) and
   the git keys (`GitResult.ship`; `GitResult.error` = key 'pr' whose request failed after the push — it resolves, never
   throws) return a `ShipRecord` (protocol.ts: action, from, at, branch, commit, head, pushed, pushOff, request { url,

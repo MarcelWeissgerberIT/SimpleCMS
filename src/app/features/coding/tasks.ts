@@ -295,7 +295,7 @@ export async function pickNext(repos: string[], workerName: string, docs = false
       id: row.id,
       title: fresh.title.trim() || t('common.untitled'),
       repo,
-      stage: { id: stage.id, name: stage.name, kind: stage.kind, instructions: stage.instructions ?? '', permissionMode: stage.kind === 'plan' ? 'plan' : stage.kind === 'doc' ? 'default' : (stage.permissionMode ?? 'acceptEdits'), maxTurns: stage.maxTurns ?? (stage.kind === 'plan' ? 20 : 40), gitAction: stage.gitAction ?? null, model },
+      stage: { id: stage.id, name: stage.name, kind: stage.kind, instructions: stage.instructions ?? '', permissionMode: stage.kind === 'plan' ? 'plan' : stage.kind === 'doc' ? 'default' : (stage.permissionMode ?? 'acceptEdits'), maxTurns: stageSteps(stage), gitAction: stage.gitAction ?? null, model },
       // the task, then the pages it refers to (@ mentions, links — also in answers and rework notes) as read-only text
       text: taskText(row.id, [...(local.answers ?? []).map((a) => a.a), local.rework?.text ?? '']),
       rework: local.rework?.stageId === stage.id ? local.rework.text : null,
@@ -840,7 +840,23 @@ export async function runTaskNow(taskId: ID, opts: ActOpts = {}): Promise<void> 
 }
 
 /**
- * Continue after the step limit (worker 1.11.0): the stage runs once more on its worktree, with as many steps again,
+ * The step limit a stage's next run gets — exactly what pickNext hands the worker (the pipeline's Step limit now, else
+ * 20 for a plan, 40 otherwise; the worker's worker.json may set it lower). Continue's "+N" reads it here, never the
+ * limit of the run that stopped: the person may have raised it in the pipeline editor since.
+ */
+export const stageSteps = (stage: { kind: string; maxTurns?: number | null }): number => stage.maxTurns ?? (stage.kind === 'plan' ? 20 : 40)
+
+/** The steps Continue gives the task's stopped stage now (null: it did not stop at its step limit, or its stage is gone). */
+export function continueSteps(taskId: ID): number | null {
+  const lim = taskLocal(taskId).stepLimit
+  if (!lim) return null
+  const ctx = taskContext(taskId)
+  const stage = ctx?.pipeline.find((st) => st.id === lim.stageId)
+  return stage ? stageSteps(stage) : null
+}
+
+/**
+ * Continue after the step limit (worker 1.11.0): the stage runs once more on its worktree, with as many steps as it allows,
  * and Claude Code is told to go on from where it stopped (TaskPayload.resume). Its cost counts like any run's.
  */
 export async function continueTask(taskId: ID, opts: ActOpts = {}): Promise<void> {

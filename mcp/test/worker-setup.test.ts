@@ -596,7 +596,7 @@ describe('the setup page', () => {
     assert.deepEqual(raw2.repos.map((r: { name: string; claude?: unknown }) => [r.name, r.claude]), [['shop', { projectSettings: true }], ['billing', { projectSettings: false }]])
   })
 
-  test('per repo, "Allowed without asking" (worker 1.11.0): the rules from worker.json, each with its remove key — Save only removes; a rule the page sends that is not there is dropped', async () => {
+  test('per repo, "Allowed without asking" (worker 1.11.0): the rules from worker.json, each with its remove key — Save only removes what the page removed; a rule the page sends that is not there is dropped, one added meanwhile stays', async () => {
     const home = tempDir('home')
     const shop = plainRepo(join(home, 'code', 'shop'))
     const opener = fakeOpener()
@@ -625,6 +625,16 @@ describe('the setup page', () => {
     assert.deepEqual(allowedOf(removed.json()), ['Bash(npm run lint:*)'])
     const claudeOf = () => JSON.parse(readFileSync(file, 'utf8').replace(/^\/\/.*$/gm, '')).repos[0].claude
     assert.deepEqual(claudeOf(), { allowedTools: ['Bash(npm run lint:*)'] })
+    // "Always" in One added a rule while the page was open: Save removes only what the page took away from the list it
+    // loaded (allowedWas) — the new rule stays
+    const raw3 = JSON.parse(readFileSync(file, 'utf8').replace(/^\/\/.*$/gm, ''))
+    raw3.repos[0].claude = { allowedTools: ['Bash(npm run lint:*)', 'Bash(cargo test:*)'] }
+    writeFileSync(file, JSON.stringify(raw3, null, 2))
+    const stale = await save({ ...plain, allowed: [], allowedWas: ['Bash(npm run lint:*)'] })
+    assert.equal(stale.status, 200, stale.text)
+    assert.deepEqual(claudeOf(), { allowedTools: ['Bash(cargo test:*)'] })
+    // the page sends what it loaded with every save
+    assert.match(js, /allowedWas: e\.allowed0/)
     // all removed: the key goes
     assert.equal((await save({ ...plain, allowed: [] })).status, 200)
     assert.equal(claudeOf(), undefined)

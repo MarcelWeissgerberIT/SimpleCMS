@@ -409,7 +409,14 @@ export interface PermissionAsk {
   until: number
 }
 
-export const PERMISSION_WHAT_MAX = 600
+/**
+ * What of a tool's input the worker judges and One shows (its command, file, address — an MCP tool's whole input as
+ * JSON): each field whole up to PERMISSION_FIELD_MAX characters. A longer one is never cut and judged: the request is
+ * refused at once (taskmcp.ts and the worker both), so nothing is allowed that nobody saw whole.
+ */
+export const PERMISSION_FIELD_MAX = 4000
+/** The request's text as One shows it (scrubbed; a little room for the scrubber's names) — longer: refused, never cut. */
+export const PERMISSION_WHAT_MAX = 4500
 
 const ASK_ID = /^[a-f0-9]{24}$/
 const clipText = (v: unknown, n: number) => (typeof v === 'string' ? v.replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, ' ').slice(0, n) : '')
@@ -632,7 +639,8 @@ export interface IntakeState {
 /** tab → worker */
 export type TabMessage =
   /** `pair`: this device's pairing secret for the workspace (a downloaded worker requires it) */
-  | { type: 'hello'; app: 'one'; version: string; workspace: WorkspaceRef; pair?: string }
+  /** `can`: what this tab handles beyond the first protocol (TAB_CAN; older tabs send none) */
+  | { type: 'hello'; app: 'one'; version: string; workspace: WorkspaceRef; pair?: string; can?: string[] }
   | { type: 'status'; workspace: WorkspaceRef }
   /** tasks changed: ask for work now */
   | { type: 'nudge' }
@@ -653,6 +661,16 @@ export type TabMessage =
   | { type: 'req'; id: string; op: 'intake-clone'; taskId: string; url: string }
   /** worker 1.11.0: the person's answer to a permission request — its id and a fixed verb, nothing else */
   | { type: 'req'; id: string; op: 'permission'; taskId: string; ask: string; verb: PermissionVerb }
+
+/**
+ * What a One tab handles beyond the first protocol, sent in its hello (`can`): 'permission' — it shows a PermissionAsk and
+ * answers it. A worker asks the person only while a tab that says so is connected; otherwise it refuses at once (an
+ * older tab never shows the request — the stage would wait for nothing).
+ */
+export const TAB_CAN = ['permission'] as const
+
+/** How a permission request ended: the person's verb · the time limit · Stop / the run's end · One went away (no tab that answers). */
+export type PermissionEnd = PermissionVerb | 'timeout' | 'stopped' | 'away'
 
 /** Why a worker refused a tab: another workspace · not bound to one · a paired worker got no / another pairing secret. */
 export type RefusedReason = 'workspace' | 'unbound' | 'pair'
@@ -773,10 +791,10 @@ export type WorkerMessage =
   | { type: 'event'; taskId: string; kind: 'intake'; intake: IntakeState }
   /**
    * worker 1.11.0: a permission request the stage waits for (`ask`) — or, `ask: null`, none any more; `settled` says how
-   * the last one ended (answered here, by the repo's rule, at the time limit, by Stop). The status's `busy` carries the
+   * the last one ended (answered here, at the time limit, by Stop, or One went away). The status's `busy` carries the
    * open one too (a tab that connects later sees it).
    */
-  | { type: 'event'; taskId: string; kind: 'permission'; ask: PermissionAsk | null; settled?: { id: string; how: PermissionVerb | 'timeout' | 'stopped' } }
+  | { type: 'event'; taskId: string; kind: 'permission'; ask: PermissionAsk | null; settled?: { id: string; how: PermissionEnd } }
   | { type: 'res'; id: string; ok: true; result: unknown }
   | { type: 'res'; id: string; ok: false; error: string }
 

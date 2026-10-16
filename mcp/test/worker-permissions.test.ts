@@ -8,9 +8,13 @@
  *    refusal gets a line of its own); the counts go into the outcome
  *  - the task's scratch folder (--add-dir, named in the prompt, never sent to One, removed with the branch)
  *  - the step limit: the outcome says so; a run with `resume` goes on from the worktree
+ *  - never on a card: a request too long to be seen whole (refused — a repo rule matching its start allows nothing),
+ *    ExitPlanMode / AskUserQuestion (the worker answers them: a plan stage hands in its plan, never implements)
+ *  - nobody to ask: a tab older than the permission prompt (refused at once), the last tab that answers gone (the
+ *    waiting requests refused after a short grace — never after the full wait)
  */
 import assert from 'node:assert/strict'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { after, afterEach, describe, test } from 'node:test'
@@ -18,6 +22,12 @@ import { cleanAsk, type LogLine, type PermissionAsk, type WorkerMessage } from '
 import { parseJsonc } from '../src/worker/config.ts'
 import { waitFor } from './helpers.ts'
 import { FakeTab, WS_LOCAL, cleanupAll, leakIn, makeRepo, repoEntry, startWorker, task, tempDir, writeConfig, type StartedWorker, type TempRepo } from './worker-helpers.ts'
+
+/** Every file named `name` below `dir` (recursive). */
+function findFiles(dir: string, name: string): string[] {
+  if (!existsSync(dir)) return []
+  return (readdirSync(dir, { recursive: true }) as string[]).filter((f) => String(f).split(/[\\/]/).pop() === name)
+}
 
 const PORT = 47395
 let worker: StartedWorker | null = null
@@ -270,5 +280,95 @@ describe('the task\'s scratch folder and the step limit', () => {
     assert.equal(next.stepLimit, undefined)
     assert.match(next.summary!, /Continued from the worktree/)
     assert.deepEqual(logOf(tab, 'max1abcd').find((l) => l.c === 'continueRun')?.v, { turns: 3, max: 3 })
+  })
+})
+
+describe('never on a card: what cannot be seen whole, and what the worker answers itself', () => {
+  test('a command too long to be shown whole is refused before any rule or question — a repo rule matching its start allows nothing (review: `npm test <4100 x> ; echo pwned`)', async () => {
+    const r = makeRepo()
+    await boot(r, { claude: { maxTurns: 10, allowedTools: ['Bash(npm test:*)'] } })
+    const tab = await connect()
+    const cmd = `npm test ${'x'.repeat(4100)} ; echo pwned`
+    const done = await tab.run(task({ kind: 'implement' }, { id: 'long1abc', text: `FAKE:PERMIT[${cmd}]` }), 30_000)
+    assert.equal(done.summary, 'Permission: denied', JSON.stringify(done))
+    assert.equal(asksOf(tab, 'long1abc').length, 0, 'nobody was asked')
+    assert.ok(!done.git?.files.some((f) => f.path === 'permitted.txt'), 'the command never ran')
+    const line = logOf(tab, 'long1abc').find((l) => l.c === 'permissionDenied')
+    assert.equal(line?.v?.how, 'long')
+    assert.ok(String(line?.v?.what).length <= 300, 'the log line carries a clipped what — the card is the only place it is shown, whole')
+    assert.deepEqual(done.permissions, { asked: 0, allowed: 0, refused: 1 })
+    assert.ok(!logOf(tab, 'long1abc').some((l) => l.c === 'permissionAllowed'))
+  })
+
+  test('a long command within the limit reaches the card whole — never cut', async () => {
+    const r = makeRepo()
+    await boot(r)
+    const tab = await connect()
+    const cmd = `echo ${'a'.repeat(1200)} done`
+    const run = tab.run(task({ kind: 'implement' }, { id: 'long2abc', text: `FAKE:PERMIT[${cmd}]` }), 30_000)
+    await waitFor(() => asksOf(tab, 'long2abc').length > 0, 15_000)
+    const ask = asksOf(tab, 'long2abc')[0]!
+    assert.equal(ask.what, cmd)
+    assert.deepEqual(cleanAsk(ask), ask, 'the shared rule keeps it whole')
+    assert.deepEqual(await answer(tab, 'long2abc', ask.id, 'deny'), { ok: true })
+    assert.equal((await run).summary, 'Permission: denied')
+  })
+
+  test('a plan stage: ExitPlanMode through the permission prompt is answered by the worker — no card, the plan is handed in, nothing implemented; AskUserQuestion points to one_task_ask', async () => {
+    const r = makeRepo()
+    const log = join(r.dir, 'claude-args.jsonl')
+    await boot(r, {}, { FAKE_CLAUDE_LOG: log })
+    const tab = await connect()
+    const done = await tab.run(task({ kind: 'plan' }, { id: 'plan9abc' }), 30_000)
+    assert.equal(done.status, 'ok', JSON.stringify(done))
+    assert.match(done.plan ?? '', /## Steps/)
+    const args = (JSON.parse(readFileSync(log, 'utf8').trim().split('\n').pop()!) as { args: string[] }).args
+    assert.equal(args[args.indexOf('--permission-mode') + 1], 'plan')
+    assert.equal(args[args.indexOf('--permission-prompt-tool') + 1], 'mcp__one-task__one_task_permission', 'the run that would ask')
+    assert.equal(asksOf(tab, 'plan9abc').length, 0, 'never on a card')
+    const lines = logOf(tab, 'plan9abc')
+    assert.ok(!lines.some((l) => /^permission(Asked|Denied|Allowed)$/.test(l.c ?? '')), JSON.stringify(lines.map((l) => l.c)))
+    assert.ok(!lines.some((l) => /tool error/.test(l.s)), 'the worker\'s answer is no tool error line')
+    assert.deepEqual(findFiles(r.worktrees, 'implemented.txt'), [], 'plan mode was never left')
+    assert.equal(done.permissions, undefined)
+
+    const q = await tab.run(task({ kind: 'implement' }, { id: 'ask9abcd', text: 'FAKE:ASKTOOL' }), 30_000)
+    assert.equal(q.summary, 'AskUserQuestion: denied')
+    assert.equal(asksOf(tab, 'ask9abcd').length, 0)
+  })
+})
+
+describe('nobody to ask', () => {
+  test('a tab older than the permission prompt (its hello names no `can`): refused at once, never held', async () => {
+    const r = makeRepo()
+    await boot(r)
+    const tab = await FakeTab.connect(PORT)
+    tabs.push(tab)
+    tab.hello(WS_LOCAL, undefined, [])
+    await tab.next('welcome')
+    const t0 = Date.now()
+    const done = await tab.run(task({ kind: 'implement' }, { id: 'old1abcd', text: 'FAKE:PERMIT[npm run lint]' }), 30_000)
+    assert.equal(done.summary, 'Permission: denied')
+    assert.ok(Date.now() - t0 < 15_000, `took ${Date.now() - t0} ms`)
+    assert.equal(asksOf(tab, 'old1abcd').length, 0)
+    assert.equal(logOf(tab, 'old1abcd').find((l) => l.c === 'permissionDenied')?.v?.how, 'away')
+    assert.deepEqual(done.permissions, { asked: 0, allowed: 0, refused: 1 })
+  })
+
+  test('the last tab that answers goes away: the waiting request is refused after the short grace, the outcome reaches the next tab', async () => {
+    const r = makeRepo()
+    await boot(r, {}, { ONE_WORKER_AWAY_MS: '800' })
+    const first = await connect()
+    first.queue.push(task({ kind: 'implement' }, { id: 'away1abc', text: 'FAKE:PERMIT[npm run lint]' }))
+    first.send({ type: 'nudge' })
+    await waitFor(() => asksOf(first, 'away1abc').length > 0, 15_000)
+    first.close()
+    await new Promise((res) => setTimeout(res, 3000))
+    const next = await connect()
+    await waitFor(() => next.outcomes.some((o) => o.taskId === 'away1abc'), 20_000, () => JSON.stringify(next.messages.slice(-4)))
+    const out = next.outcomes.find((o) => o.taskId === 'away1abc')!.outcome
+    assert.equal(out.summary, 'Permission: denied')
+    assert.deepEqual(out.permissions, { asked: 1, allowed: 0, refused: 1 })
+    assert.equal(logOf(next, 'away1abc').find((l) => l.c === 'permissionDenied')?.v?.how, 'away')
   })
 })

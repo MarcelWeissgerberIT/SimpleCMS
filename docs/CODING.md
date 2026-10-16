@@ -753,8 +753,13 @@ notes the process tree under Claude Code; once Claude Code's process has exited 
 (1.5 s for the last output lines) — it never waits for the output pipes to close. Anything Claude Code started and
 left running (a dev server, a watcher holding its output open) is ended: SIGTERM, SIGKILL after 2 s on macOS / Linux
 (found by the tree at the result, the process group and an environment mark `ONE_WORKER_RUN` only the worker's run
-carries — read from `/proc` on Linux, `ps -E` on macOS), `taskkill /T /F` per process on Windows (by its kept parent
-ids and start times); one log line names what was ended (code `claudeLeftovers`). A Claude Code that has not exited
+carries — read from `/proc` on Linux, `ps -E` on macOS); on Windows by the kept parent ids and creation times, with the
+tree also sampled every few seconds and at every tool result while Claude Code runs (a shell that put a server in the
+background and ended is seen while it ran). A process counts as the one seen only with the same id, name and start
+time (Windows creation time, Linux `/proc` start ticks) — a reused id is never followed, nor an ended Claude Code's
+id that another program holds now. Windows ends each process found with `taskkill /F` (never `/T`: the list is the
+tree that was checked). One log line names what was ended (code `claudeLeftovers`). Not caught on Windows: a
+program whose starting shell ended between two samples. A Claude Code that has not exited
 30 s after its result is ended too (`claudeLingered`). **Stop** ends the whole tree as before. The JETZT line and the
 progress clear when the stage ends — also when the link drops.
 
@@ -767,8 +772,11 @@ folder goes with the task's branch / worktree (Discard, Clean up).
 **Step limit** (worker 1.11.0): a stage that ends at `--max-turns` (`error_max_turns`) fails as **Step limit reached
 (n/n)** (`outcome.stepLimit`, log `stepLimit`). **Continue (+N steps)** — in the task panel, Preflight's failed card
 (key A, VON HAND, never in ⇧A) and the AI terminal (`task_action` `continue`) — runs the stage once more on the same
-worktree with as many steps again and a note that it stopped at its limit (`TaskPayload.resume`); its cost counts like
-any run's. **Start over** runs it from the beginning. A worker that does not name 'continue' gets Start over only.
+worktree with the stage's Step limit as it is now (`+N` reads the pipeline, `stageSteps` — what `pickNext` hands the
+worker; never the stopped run's) and a note that it stopped at its limit (`TaskPayload.resume`); its cost counts like
+any run's. **Start over** runs the stage again with its original instructions in the SAME worktree (everything the
+stopped run changed stays; Claude Code is not told about it) — Discard worktree first for a clean start. A worker that
+does not name 'continue' gets Start over only (Preflight's failed card then says so instead of "Continue").
 The pipeline editor's **Step limit** is each stage's `maxTurns` (≤ the repo's `claude.maxTurns`).
 
 ### Permissions
@@ -777,18 +785,34 @@ Worker 1.11.0, every model: Claude Code runs with `--permission-prompt-tool mcp_
 (detected from `--help`, or from version ≥ 1.0.0 — the flag is not listed; an older CLI runs without it and refuses as
 before, log `permissionOff`). When Claude Code needs a permission:
 
+0. Answered by the worker itself, never on a card: `ExitPlanMode` (Claude Code switches it on in headless runs with a
+   permission prompt tool and asks "Exit plan mode?" — "Allow" would leave plan mode and implement inside a plan stage;
+   the worker refuses with "your plan was received" and the plan comes from the call as before), `AskUserQuestion`
+   (pointed to `one_task_ask`), `EnterPlanMode`. And never judged on a cut copy: the worker gets each field it judges
+   whole — the command, the file, the address; an MCP tool's whole input as JSON — up to `PERMISSION_FIELD_MAX` (4,000
+   characters). A longer one is refused at once (`how: long`; taskmcp refuses it whatever the worker answers), as is a
+   text too long for the card (`PERMISSION_WHAT_MAX`). The allow returns Claude Code's input untouched — the fields
+   judged and shown are that input's own. A line break shows as ↵ on the card.
 1. The repo's `claude.allowedTools` / `disallowedTools` decide first (Claude Code's own rules; the worker checks them
    again) — `permissionAllowed` / `permissionDenied` with `how: rule`.
 2. Otherwise the worker HOLDS the tool call and asks One: the task shows **WAITING FOR YOU · PERMISSION**, the card
    **Claude wants** says what (the tool and the worker's scrubbed description: the command, the file, the address) with
    **Allow once** · **Always allow for this repo** · **Refuse**; Preflight's lamp **Claude wants** lights (one VON HAND
-   card per request, never in ⇧A or a swipe), and a browser notification comes while One is in the background. Only
-   the worker's own tab (Local, or the paired tab through the relay) gets and answers it.
+   card per request, never in ⇧A or a swipe), and — with notifications on (Settings → Coding worker) — a browser
+   notification comes while One is in the background. Only the worker's own tab (Local, or the paired tab through the
+   relay) gets and answers it, and only a tab whose hello says `can: ['permission']` (TAB_CAN): with no such tab the
+   request is refused at once (`how: away`); when the last one goes, the waiting ones are refused after 60 s. The card is
+   keyed by the request: the next one is a fresh card whose keys wake after 400 ms (a double-click never answers a
+   request nobody read).
 3. One sends only the request's id and the verb (`once` · `always` · `deny`). **Always** is stored BY THE WORKER in its
    worker.json (`claude.allowedTools`) — the rule the card showed: a program and its subcommand (`Bash(npm test:*)`,
    `Bash(npm run lint:*)`), an MCP tool by its name, a web fetch by its domain. Broad rules are never offered: shells,
-   interpreters, `rm` / `sed` / `mv`…, `git`, `curl`, commands with quotes, globs, pipes or paths outside, file edits;
-   a read outside the repo and the scratch folder is "once" only.
+   interpreters in any version (`python3.12`, `node22`), runners of other programs (`npx`, `uvx`, `pipx`, `cross-env`,
+   `tsx`, `npm exec` / `x`, `yarn dlx`, `uv run`, `go run` …), installs, a runner without its real subcommand
+   (`npm --version` would give `Bash(npm:*)`), tools that read or write files by path (`cat`, `ls`, `grep`, `tar` …),
+   `rm` / `sed` / `mv`…, `git`, `curl`, commands with quotes, globs, pipes or paths outside, file edits; a read outside
+   the repo and the scratch folder is "once" only. The setup page's Save removes only the rules the page removed from
+   the list it loaded (`allowedWas`): a rule "Always" added while it was open stays.
 4. No answer in 15 minutes: refused (`how: timeout`). Stop, or the run ending, refuses what is open (`stopped`).
 
 The stage summary carries `outcome.permissions` { asked, allowed, refused } — the panel's line. Log codes:
@@ -1039,7 +1063,7 @@ JSON text frames, subprotocol `one-worker.v1`, defined in
 
 | Direction | Message |
 |---|---|
-| tab → worker | `{ type: "hello", app: "one", version, workspace: { id, name, kind, readOnly }, pair? }` (`pair`: this device's secret for a downloaded worker) · `status` (same workspace, or the tab is refused) · `nudge` |
+| tab → worker | `{ type: "hello", app: "one", version, workspace: { id, name, kind, readOnly }, pair?, can? }` (`pair`: this device's secret for a downloaded worker; `can`: what the tab handles — `TAB_CAN` = ['permission'], worker 1.11.0) · `status` (same workspace, or the tab is refused) · `nudge` |
 | worker → tab | `welcome` { worker, name, repos: [{ name, baseBranch, branches?, mcp?, push?, pr? }], parallel, busy, spentToday, dayLimit, claude: { found, version }, setup, paired } (sent again when the setup page saves) · `refused` { reason: workspace \| unbound \| pair, paired? } + close 4003 · `status` { busy, spentToday } |
 | worker → tab (req) | `next` { repos, worker, docs?, can? } → `{ task: TaskPayload \| null }` (claimed; `stage.model` = the model Claude Code runs with, or null; `can` = `WORKER_CAN` — 'analyze', 'git:comment', 'git:merge', 'doc', 'model' (a stage whose model is set), 'mcp-list', 'ship' (git stages and keys return a ShipRecord — it gates nothing), 'continue' (`TaskPayload.resume`: a stage that stopped at its step limit runs on — sent only to a worker that names it), 'permission' (permission requests in One; both gate nothing): a stage that needs one goes only to a worker that names it, else the task fails with "needs a newer coding worker" — an older worker ran unknown kinds as git stages or dropped the task as unreadable. Document stages came before `can`, together with `docs: true`: a worker that sends either knows them (`workerCan`), one with neither gets none; a worker that does not name all of `WORKER_CAN` shows "Download again" on #/coding; a worker whose welcome names 1.3.1 up to 1.8.0 — the ZIP import that could plant a `.git`, `workerUnsafe` — shows the security notice with its version instead, on #/coding and in the setup card) · `heartbeat` { taskIds } · `finish` { taskId, stageId, outcome } (`outcome.ship?` — § What One records; worker 1.11.0: `outcome.stepLimit?` { turns, max }, `outcome.permissions?` { asked, allowed, refused }; retried until confirmed; a task the worker cannot read — a stage kind it does not know — comes back at once as `{ status: 'refused' }`, so One does not hand it out again) |
 | worker → tab (event) | `log` { lines } (a tool line of Edit / MultiEdit / Write carries `e`: { path, hunks: [{ old, new }], clipped? } — ≤ 6 changes × 4,000 characters, scrubbed) · `git` { git } (`git.web?`: the repo's web address; `git.commits[].remote?`: that commit is on the remote task branch) · `note` { text } · `question` { text } · `progress` { progress: { turns, maxTurns, cost, model } } · `permission` { ask: PermissionAsk \| null, settled? { id, how } } (worker 1.11.0: the request a stage waits for — { id, tool, kind, what, outside?, rule, repo, at, until }; `status` busy entries carry it as `ask` too) · `intake` { intake: { state, source, label, line, percent, repo?, suggest?, error? } } |

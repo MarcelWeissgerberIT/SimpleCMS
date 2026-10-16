@@ -81,8 +81,9 @@ const DEFAULTS: Record<'plan' | 'implement' | 'doc', string> = {
   ].join(' '),
   plan: [
     'Read the code that matters for this task and write an implementation plan: the files to change, the approach step by step,',
-    'risks and open questions, and how to test it. Do not change any file. Hand the plan in as Markdown: with ExitPlanMode when you have it, otherwise as your final message',
-    '(the whole plan, not a pointer to a file). If something the task needs is missing (a page, a finding, a decision), ask with one_task_ask instead of guessing.',
+    'risks and open questions, and how to test it. Do not change any file. Hand the plan in as Markdown as your final message',
+    '(the whole plan, not a pointer to a file) — ExitPlanMode, if you call it, only hands the plan to the person in One: this stage never leaves plan mode.',
+    'If something the task needs is missing (a page, a finding, a decision), ask with one_task_ask instead of guessing.',
   ].join(' '),
   implement: [
     'Implement the task in this worktree. Follow the approved plan in the task data if there is one. Keep the change focused,',

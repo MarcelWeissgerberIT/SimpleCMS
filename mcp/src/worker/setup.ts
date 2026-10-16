@@ -503,10 +503,16 @@ export class SetupServer {
       const projectSettings = typeof item.projectSettings === 'boolean' ? item.projectSettings : undefined
       // the host type (absent or unknown: leave worker.json as it is)
       const forge = item.forge === 'auto' || item.forge === 'github' || item.forge === 'gitlab' ? item.forge : undefined
-      // what Claude Code may do without asking: the page only REMOVES — a rule that is not in worker.json already is dropped
-      // (absent: leave worker.json as it is)
-      const allowedTools = Array.isArray(item.allowed) ? repo.allowed.filter((rule) => (item.allowed as unknown[]).includes(rule)) : undefined
-      choices.push({ path: repo.path, name, baseBranch, remote: repo.remote, testCommand: test?.length ? test : null, ...(analyze !== undefined ? { analyzeCommand: analyze?.length ? analyze : null } : {}), push: item.push === true, pr: item.pr === 'none' ? 'none' : 'gh', maxUsdPerTask: limit, mcpServers, projectSettings, ...(forge !== undefined ? { forge } : {}), ...(allowedTools && allowedTools.length !== repo.allowed.length ? { allowedTools } : {}) })
+      // what Claude Code may do without asking: the page only REMOVES — what it took away from the list it loaded
+      // (`allowedWas`); a rule One's "Always" added while the page was open stays, and a rule the page sends that is not
+      // in worker.json is never added (absent: leave worker.json as it is)
+      let allowedRemove: string[] | undefined
+      if (Array.isArray(item.allowed)) {
+        const kept = item.allowed as unknown[]
+        const was = Array.isArray(item.allowedWas) ? (item.allowedWas as unknown[]).filter((x): x is string => typeof x === 'string') : repo.allowed
+        allowedRemove = was.filter((rule) => !kept.includes(rule))
+      }
+      choices.push({ path: repo.path, name, baseBranch, remote: repo.remote, testCommand: test?.length ? test : null, ...(analyze !== undefined ? { analyzeCommand: analyze?.length ? analyze : null } : {}), push: item.push === true, pr: item.pr === 'none' ? 'none' : 'gh', maxUsdPerTask: limit, mcpServers, projectSettings, ...(forge !== undefined ? { forge } : {}), ...(allowedRemove?.length ? { allowedRemove } : {}) })
     }
     let workerMcp: string[] | undefined
     if (isObj(body) && typeof body.mcpServers === 'string') {

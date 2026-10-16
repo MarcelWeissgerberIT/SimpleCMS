@@ -107,6 +107,8 @@ function stageLine(t: (k: string, v?: Record<string, string | number>) => string
 function TaskBody({ item, expanded }: { item: QueueItem; expanded: boolean }) {
   const t = useT()
   const lang = useLang()
+  // canContinue(), read live: a connected older worker cannot continue — the card's A starts the stage over then
+  const cont = useCoding((s) => s.can === null || s.can.includes('continue'))
   const p = parseTaskItem(item.id)
   const prep = codingPrep(item.id)
   if (!p) return <Gone />
@@ -179,7 +181,7 @@ function TaskBody({ item, expanded }: { item: QueueItem; expanded: boolean }) {
       )}
       {p.kind === 'failed' && d?.stepLimit && (
         <p className="pf-card__note" data-testid="pf-steplimit">
-          {t('features.coding.limit.body', { max: d.stepLimit.max })}
+          {cont ? t('features.coding.limit.body', { max: d.stepLimit.max }) : t('features.coding.limit.oldWorker')}
         </p>
       )}
       {(p.kind === 'failed' || expanded) && log.length > 0 && (

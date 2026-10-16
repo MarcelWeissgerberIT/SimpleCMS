@@ -487,10 +487,11 @@ const clock = (ms: number) => {
 
 /**
  * Claude Code refused a tool call itself for a permission it does not have (it could not ask: an older CLI, no task
- * tools) — its tool_result says so. The worker's own refusals start "Not allowed" (worker.ts): logged there already.
+ * tools) — its tool_result says so. The worker's own refusals start "Not allowed" (worker.ts: logged there already), its
+ * answers to ExitPlanMode / AskUserQuestion "Handled by the One worker" (permissions.ts HANDLED: no line of their own).
  */
 export const PERMISSION_REFUSED = /requires approval|haven't granted it yet|has(?:n't| not) been granted|permission to use \S+ (?:has been|was) denied|was blocked by your permission settings/i
-export const OWN_REFUSAL = /^Not allowed\b/
+export const OWN_REFUSAL = /^(?:Not allowed|Handled by the One worker)\b/
 
 /** After Claude Code's process exited: this long for the last lines of its output (ONE_WORKER_EXIT_GRACE_MS: tests). */
 const exitGraceMs = () => Number(process.env.ONE_WORKER_EXIT_GRACE_MS) || 1500
@@ -617,6 +618,8 @@ export function runClaude(r: ClaudeRun): Promise<ClaudeResult> {
         }
         case 'user': {
           const content = ((ev.message as { content?: unknown })?.content ?? []) as Array<Record<string, unknown>>
+          // a tool's result: what it started still hangs together now (Windows reads the tree; proctree.ts)
+          if (Array.isArray(content) && content.some((b) => b?.type === 'tool_result')) tree?.sample()
           for (const block of Array.isArray(content) ? content : []) {
             if (block.type !== 'tool_result' || block.is_error !== true) continue
             const text = typeof block.content === 'string' ? block.content : Array.isArray(block.content) ? (block.content as Array<{ text?: string }>).map((c) => c.text ?? '').join(' ') : ''

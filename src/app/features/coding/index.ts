@@ -132,6 +132,8 @@ export { CloudWorkers as CodingCloudWorkers } from './CloudWorkers'
 export { pipelineDbIdsOf, readPipeline, type ResolvedStage } from './schema'
 export { gitStageWarnings, onShipRecord, lastShip, type ShipNote } from './ship'
 export { workerUnsafe, workerOutdated } from './protocol'
+/** The outdated-worker notice in the person's language (what the newer one adds; before 1.11.0 the stage-end fix first). */
+export { outdatedNotice as codingOutdatedNotice } from './outdated'
 export type { ApprovalsLevel } from './state'
 
 /** This device's Approvals for new tasks (localStorage one.coding.approvals). */

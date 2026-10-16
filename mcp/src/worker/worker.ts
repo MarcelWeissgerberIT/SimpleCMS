@@ -21,6 +21,7 @@ import {
   GIT_VERBS,
   HEARTBEAT_MS,
   PERMISSION_MODES,
+  PERMISSION_FIELD_MAX,
   PERMISSION_VERBS,
   PERMISSION_WAIT_MS,
   PERMISSION_WHAT_MAX,
@@ -37,6 +38,7 @@ import {
   type OpenSetupResult,
   type PermissionAsk,
   type PermissionCount,
+  type PermissionEnd,
   type PermissionVerb,
   type ShipRecord,
   type StageOutcome,
@@ -49,7 +51,7 @@ import type { RepoConfig, WorkerConfig } from './config.ts'
 import { WorkerState } from './state.ts'
 import { claudeInstallHint, claudeMissingError, detectClaude, findClaude, nativeNotOnPath, type ClaudeBin, type ClaudeCaps } from './claude.ts'
 import { addAllowedTool, scratchDir, scratchPath, scratchRepo } from './config.ts'
-import { alwaysRule, isOutside, kindOf, ruleDecision, subjectOf, type PermRequest } from './permissions.ts'
+import { HANDLED, alwaysRule, isOutside, kindOf, ruleDecision, subjectOf, type PermRequest } from './permissions.ts'
 import { Intake } from './intake.ts'
 import { checkRepo, cleanup, commentPr, commitAll, discard, headOf, info, isDirty, localBranches, mergePr, openPr, ownLocks, prune, push, sweepLeftovers, updateFromBase, webOf, worktreeOf, GitError } from './git.ts'
 import { FOLDER_BUSY, forgetGitEnv } from './gitenv.ts'
@@ -128,10 +130,17 @@ const DENY = {
   timeout: (min: number) => `Not allowed: nobody answered in One within ${min} minutes. Go on without it, or end your turn with a summary of what you need.`,
   stopped: 'Not allowed: the stage was stopped.',
   many: 'Not allowed: too many permission requests are waiting already — wait for the answers.',
+  away: 'Not allowed: One is not open to ask the person (or is too old to ask). Go on without it, or end your turn with a summary of what you need.',
+  long: (what: string, n: number) => `Not allowed: the ${what} is ${n} characters long — too long for the person to check in One (at most ${PERMISSION_FIELD_MAX}). Split it into shorter steps.`,
 } as const
 
 /** How long a permission request waits for the person (ONE_WORKER_PERMISSION_MS: tests). */
 const permissionWaitMs = () => Number(process.env.ONE_WORKER_PERMISSION_MS) || PERMISSION_WAIT_MS
+/** How long waiting requests outlive the last tab that could answer them (ONE_WORKER_AWAY_MS: tests). */
+const awayMs = () => Number(process.env.ONE_WORKER_AWAY_MS) || 60_000
+/** What of a request's text a log line carries (the card shows it whole). */
+const LOG_WHAT_MAX = 300
+const clipWhat = (s: string) => (s.length > LOG_WHAT_MAX ? `${s.slice(0, LOG_WHAT_MAX - 1)}…` : s)
 /** At most this many requests of one run wait at once. */
 const ASKS_MAX = 20
 
@@ -226,6 +235,8 @@ export class Worker {
   private lookedAt = 0
   private runs = new Map<string, Run>()
   private tokens = new Map<string, Run>()
+  /** no tab that answers permission requests is connected: the waiting ones are refused when this fires */
+  private awayTimer: ReturnType<typeof setTimeout> | null = null
   private workspace: WorkspaceRef | null = null
   private polling = false
   private again = false
@@ -264,11 +275,13 @@ export class Worker {
         this.workspace = ws
         void this.flushUnsent().then(() => this.tick())
         void this.refreshBranches()
+        this.checkAway()
       },
       onDisconnect: () => {
         this.workspace = null
         // a ZIP half-received from that tab will not be finished by it (a retry starts afresh, not "another import runs")
         this.intaker?.drop('One disconnected')
+        this.checkAway()
       },
       onRequest: (msg) => this.onRequest(msg),
       onNudge: () => this.tick(),
@@ -903,40 +916,74 @@ export class Worker {
 
   /** A log line of a run's permission requests (its text and values scrubbed). */
   private permLine(run: Run, k: LogLine['k'], s: string, c: string, v: Record<string, string | number>) {
-    this.logLine(run.task.id, { t: Date.now(), k, s: run.scrub.text(s), c, v: Object.fromEntries(Object.entries(v).map(([key, x]) => [key, typeof x === 'string' ? run.scrub.text(x) : x])) })
+    const vars = Object.fromEntries(Object.entries(v).map(([key, x]) => [key, typeof x === 'string' ? (key === 'what' ? clipWhat(run.scrub.text(x)) : run.scrub.text(x)) : x]))
+    this.logLine(run.task.id, { t: Date.now(), k, s: run.scrub.text(s), c, v: vars })
   }
 
   /** The first waiting request (or none) to One — as an event and in the busy list. */
-  private announceAsk(run: Run, settled?: { id: string; how: PermissionVerb | 'timeout' | 'stopped' }) {
+  private announceAsk(run: Run, settled?: { id: string; how: PermissionEnd }) {
     this.link.send({ type: 'event', taskId: run.task.id, kind: 'permission', ask: run.asks[0]?.ask ?? null, ...(settled ? { settled } : {}) })
     this.sendStatus()
   }
 
   /**
-   * Claude Code's permission prompt: the repo's own lists decide first, else the person in One — the call is held until
-   * they answer, the time is up or the stage stops. The answer is `{ allow, message? }` (taskmcp.ts makes Claude Code's
-   * form of it, with the input as Claude Code sent it).
+   * Claude Code's permission prompt. Before anyone is asked: a tool that wants the person's interaction (ExitPlanMode,
+   * AskUserQuestion — the worker answers those itself, never on a card) and a request the worker cannot judge whole (a
+   * field longer than PERMISSION_FIELD_MAX: refused, never cut). Then the repo's own lists, else the person in One — the
+   * call is held until they answer, the time is up, the stage stops or no tab that answers is left. Without such a tab
+   * (none connected, or one older than the permission prompt) it is refused at once. The answer is `{ allow, message? }`
+   * (taskmcp.ts makes Claude Code's form of it, with the input exactly as Claude Code sent it).
    */
   private async permission(run: Run, args: Record<string, unknown>): Promise<{ ok: true; text: string }> {
     const answer = (allow: boolean, message?: string) => ({ ok: true as const, text: JSON.stringify(allow ? { allow: true } : { allow: false, message }) })
-    const tool = typeof args.tool_name === 'string' ? args.tool_name.trim().slice(0, 200) : ''
+    const tool = typeof args.tool_name === 'string' ? args.tool_name.trim() : ''
     const raw = args.input && typeof args.input === 'object' && !Array.isArray(args.input) ? (args.input as Record<string, unknown>) : {}
+    // never clipped: what is judged and shown is the input itself — a field too long for that refuses the request
     const input: Record<string, string> = {}
-    for (const [k, v] of Object.entries(raw)) if (typeof v === 'string') input[k] = v.slice(0, 4000)
-    const req: PermRequest = { tool: tool || 'a tool', input }
-    const what = run.scrub.text(subjectOf(req)).slice(0, PERMISSION_WHAT_MAX)
+    let long: { field: string; n: number } | null = null
+    const tooLong = (field: string, n: number) => {
+      if (!long || n > long.n) long = { field, n }
+    }
+    for (const [k, v] of Object.entries(raw)) {
+      if (typeof v !== 'string') continue
+      input[k] = v
+      if (v.length > PERMISSION_FIELD_MAX) tooLong(k, v.length)
+    }
+    // taskmcp.ts names the fields it could not send whole
+    if (args.cut && typeof args.cut === 'object' && !Array.isArray(args.cut))
+      for (const [k, n] of Object.entries(args.cut as Record<string, unknown>)) tooLong(k, typeof n === 'number' && Number.isFinite(n) && n > 0 ? n : PERMISSION_FIELD_MAX + 1)
+    if (tool.length > 120) tooLong('tool name', tool.length)
+    const req: PermRequest = { tool: (tool || 'a tool').slice(0, 120), input }
     if (run.abort.signal.aborted) return answer(false, DENY.stopped)
+    // the worker's own answer to a tool that would put a question to the person (never a card: nothing to allow)
+    const handled = HANDLED[req.tool]
+    if (handled) return answer(false, handled)
+    const what = run.scrub.text(subjectOf(req))
+    // what the person would see: never cut — too long to be shown whole is too long to be allowed
+    if (!long && what.length > PERMISSION_WHAT_MAX) tooLong(kindOf(req.tool) === 'bash' ? 'command' : 'input', what.length)
+    if (long) {
+      const l = long as { field: string; n: number }
+      run.counts.refused++
+      this.permLine(run, 'warn', `Refused: ${req.tool} — its ${l.field} is ${l.n} characters, too long to check in One`, 'permissionDenied', { tool: req.tool, what, how: 'long' })
+      return answer(false, DENY.long(l.field === 'args' ? 'input' : l.field, l.n))
+    }
     // the repo's own lists first: no question
     const byRule = ruleDecision(req, run.repo.claude.allowedTools, run.repo.claude.disallowedTools)
     if (byRule === 'allow') {
       run.counts.allowed++
-      this.permLine(run, 'info', `Allowed by the repo's allowedTools: ${req.tool}${what ? ` · ${what}` : ''}`, 'permissionAllowed', { tool: req.tool, what, how: 'rule' })
+      this.permLine(run, 'info', `Allowed by the repo's allowedTools: ${req.tool}${what ? ` · ${clipWhat(what)}` : ''}`, 'permissionAllowed', { tool: req.tool, what, how: 'rule' })
       return answer(true)
     }
     if (byRule === 'deny') {
       run.counts.refused++
-      this.permLine(run, 'warn', `Refused by the repo's disallowedTools: ${req.tool}${what ? ` · ${what}` : ''}`, 'permissionDenied', { tool: req.tool, what, how: 'rule' })
+      this.permLine(run, 'warn', `Refused by the repo's disallowedTools: ${req.tool}${what ? ` · ${clipWhat(what)}` : ''}`, 'permissionDenied', { tool: req.tool, what, how: 'rule' })
       return answer(false, DENY.rule)
+    }
+    // nobody can answer: no tab, or one older than the permission prompt — refused at once (it would wait for nothing)
+    if (!this.link.tabCan('permission')) {
+      run.counts.refused++
+      this.permLine(run, 'warn', `Refused — One is not open to ask you: ${req.tool}${what ? ` · ${clipWhat(what)}` : ''}`, 'permissionDenied', { tool: req.tool, what, how: 'away' })
+      return answer(false, DENY.away)
     }
     if (run.asks.length >= ASKS_MAX) {
       run.counts.refused++
@@ -949,7 +996,7 @@ export class Worker {
     const wait = permissionWaitMs()
     const ask: PermissionAsk = {
       id: randomBytes(12).toString('hex'),
-      tool: req.tool.slice(0, 120),
+      tool: req.tool,
       kind: kindOf(req.tool),
       what,
       ...(outside ? { outside: true } : {}),
@@ -961,7 +1008,7 @@ export class Worker {
     }
     run.counts.asked++
     const minutes = Math.max(1, Math.round(wait / 60_000))
-    this.permLine(run, 'warn', `Claude Code asks for a permission: ${ask.tool}${what ? ` · ${what}` : ''} — waiting for you in One (at most ${minutes} min)`, 'permissionAsked', { tool: ask.tool, what, min: minutes })
+    this.permLine(run, 'warn', `Claude Code asks for a permission: ${ask.tool}${what ? ` · ${clipWhat(what)}` : ''} — waiting for you in One (at most ${minutes} min)`, 'permissionAsked', { tool: ask.tool, what, min: minutes })
     return new Promise((resolve) => {
       const pending: PendingAsk = {
         ask,
@@ -974,19 +1021,39 @@ export class Worker {
     })
   }
 
+  /**
+   * A tab came or went: while one that answers permission requests is connected, the waiting ones wait; without one,
+   * they are refused after awayMs (a reload or a short drop keeps them) — never after the full PERMISSION_WAIT_MS.
+   */
+  private checkAway() {
+    if (this.link.tabCan('permission')) {
+      if (this.awayTimer) clearTimeout(this.awayTimer)
+      this.awayTimer = null
+      return
+    }
+    if (this.awayTimer || ![...this.runs.values()].some((r) => r.asks.length)) return
+    this.awayTimer = setTimeout(() => {
+      this.awayTimer = null
+      if (this.link.tabCan('permission')) return
+      for (const run of this.runs.values()) for (const p of [...run.asks]) this.settle(run, p, false, 'away', DENY.away)
+    }, awayMs())
+    this.awayTimer.unref?.()
+  }
+
   /** End one waiting request: Claude Code's answer, the counts, a log line, One told. */
-  private settle(run: Run, p: PendingAsk, allow: boolean, how: PermissionVerb | 'timeout' | 'stopped', message?: string) {
+  private settle(run: Run, p: PendingAsk, allow: boolean, how: PermissionEnd, message?: string) {
     const i = run.asks.indexOf(p)
     if (i < 0) return
     run.asks.splice(i, 1)
     clearTimeout(p.timer)
     if (allow) {
       run.counts.allowed++
-      this.permLine(run, 'info', `Allowed in One (${how === 'always' ? 'always for this repo' : 'once'}): ${p.ask.tool}${p.ask.what ? ` · ${p.ask.what}` : ''}`, 'permissionAllowed', { tool: p.ask.tool, what: p.ask.what, how })
+      this.permLine(run, 'info', `Allowed in One (${how === 'always' ? 'always for this repo' : 'once'}): ${p.ask.tool}${p.ask.what ? ` · ${clipWhat(p.ask.what)}` : ''}`, 'permissionAllowed', { tool: p.ask.tool, what: p.ask.what, how })
     } else {
       run.counts.refused++
       const who = how === 'deny' ? 'you' : how
-      this.permLine(run, 'warn', `${how === 'timeout' ? 'Nobody answered in time — refused' : how === 'stopped' ? 'The stage stopped — refused' : 'Refused in One'}: ${p.ask.tool}${p.ask.what ? ` · ${p.ask.what}` : ''}`, 'permissionDenied', { tool: p.ask.tool, what: p.ask.what, how: who })
+      const why = how === 'timeout' ? 'Nobody answered in time — refused' : how === 'stopped' ? 'The stage stopped — refused' : how === 'away' ? 'One was closed — refused' : 'Refused in One'
+      this.permLine(run, 'warn', `${why}: ${p.ask.tool}${p.ask.what ? ` · ${clipWhat(p.ask.what)}` : ''}`, 'permissionDenied', { tool: p.ask.tool, what: p.ask.what, how: who })
     }
     p.done(allow, message)
     this.announceAsk(run, { id: p.ask.id, how })

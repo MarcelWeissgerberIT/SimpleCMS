@@ -358,6 +358,12 @@
   color: var(--c-red-text);
   font-size: var(--text-xs);
 }
+.ctk-perm__length {
+  grid-column: 2;
+  grid-row: 3;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
 .ctk-perm__cmd {
   grid-column: 2;
   grid-row: 1;

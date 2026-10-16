@@ -751,10 +751,10 @@ export interface RepoChoice {
   /** the host type (the setup page's "Host type"; 'auto' removes the key) — undefined: leave as it is */
   forge?: ForgeSetting
   /**
-   * worker 1.11.0: the repo's claude.allowedTools as the setup page keeps them (it only removes — setup.ts takes no rule
-   * that is not there already) — undefined: leave as it is
+   * worker 1.11.0: the rules the setup page removed from the repo's claude.allowedTools — taken out of what worker.json
+   * holds when it is written (a rule added meanwhile stays; the page never adds one) — undefined / empty: leave as it is
    */
-  allowedTools?: string[]
+  allowedRemove?: string[]
 }
 
 const HEADER = '// one-worker — written by its setup page'
@@ -815,9 +815,10 @@ export function saveRepos(file: string, choices: RepoChoice[], workspace: string
       if (Object.keys(claude).length) entry.claude = claude
       else delete entry.claude
     }
-    if (c.allowedTools) {
+    if (c.allowedRemove?.length) {
       const claude: Record<string, unknown> = isObj(entry.claude) ? { ...entry.claude } : {}
-      if (c.allowedTools.length) claude.allowedTools = c.allowedTools
+      const left = strings(claude.allowedTools).filter((rule) => !c.allowedRemove!.includes(rule))
+      if (left.length) claude.allowedTools = left
       else delete claude.allowedTools
       if (Object.keys(claude).length) entry.claude = claude
       else delete entry.claude

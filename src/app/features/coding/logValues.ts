@@ -17,7 +17,7 @@ const SYNCED = new Set(['onedrive', 'cloudStorage'])
 const REQ = new Set(['requestOpened', 'requestExisting', 'requestLink'])
 
 /** worker 1.11.0: how a permission request ended — in the person's language (an unknown one: as the worker wrote it). */
-const HOW = new Set(['once', 'always', 'rule', 'you', 'timeout', 'stopped'])
+const HOW = new Set(['once', 'always', 'rule', 'you', 'timeout', 'stopped', 'away', 'long'])
 const PERM = new Set(['permissionAllowed', 'permissionDenied'])
 
 export function logValues(code: string, v: Record<string, string | number>, t: (key: string) => string): Record<string, string | number> {

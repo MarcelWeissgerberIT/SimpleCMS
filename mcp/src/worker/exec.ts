@@ -851,11 +851,12 @@ export function killTree(child: ChildProcess, platform: NodeJS.Platform = proces
 }
 
 /**
- * Windows: `taskkill /T /F` for a process id — it and everything below it (System32's taskkill, never by its name).
- * Resolves when taskkill ended (at the latest after 5 s); never rejects. killTree and the leftovers of a Claude Code run
- * (proctree.ts) both end trees through it.
+ * Windows: `taskkill /T /F` for a process id — it and everything below it (System32's taskkill, never by its name);
+ * `tree: false`: `taskkill /F`, that process only (the leftovers of a Claude Code run, proctree.ts: their list is the
+ * tree that was checked). Resolves when taskkill ended (at the latest after 5 s); never rejects. killTree and proctree
+ * both end processes through it.
  */
-export function taskkillTree(pid: number): Promise<void> {
+export function taskkillTree(pid: number, opts: { tree?: boolean } = {}): Promise<void> {
   return new Promise((resolve) => {
     const cap = setTimeout(resolve, 5000)
     cap.unref()
@@ -864,7 +865,7 @@ export function taskkillTree(pid: number): Promise<void> {
       resolve()
     }
     try {
-      const k = spawn(systemTool('taskkill'), ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true, env: ownEnv(process.env, 'win32') })
+      const k = spawn(systemTool('taskkill'), ['/pid', String(pid), ...(opts.tree === false ? [] : ['/T']), '/F'], { stdio: 'ignore', windowsHide: true, env: ownEnv(process.env, 'win32') })
       k.on('error', done)
       k.on('close', done)
     } catch {

@@ -948,6 +948,8 @@ export const messages: Messages = {
     'features.preflight.card.aria.slip': 'Zettel {i} von {n}',
     'features.preflight.kind.row': 'Zeile',
     'features.preflight.card.aria.row': 'Zeile {i} von {n}',
+    'features.preflight.kind.permission': 'Erlaubnis',
+    'features.preflight.card.aria.permission': 'Erlaubnis-Anfrage {i} von {n}',
     'features.preflight.verb.create_page': 'Neue Seite',
     'features.preflight.verb.append': 'Anhängen',
     'features.preflight.verb.edit': 'Bearbeiten',

@@ -549,7 +549,7 @@ export const SETUP_JS = String.raw`(function () {
   }
 
   function editOf(r) {
-    if (!edits[r.path]) edits[r.path] = { ticked: r.ticked, name: r.name, base: r.base, test: r.testLine, push: r.push, pr: r.pr, forge: r.forge || 'auto', limit: r.maxUsdPerTask === null ? '' : String(r.maxUsdPerTask), mcp: r.mcp || '', analyze: r.analyzeLine || '', own: r.ownSettings, own0: r.ownSettings, allowed: (r.allowed || []).slice() }
+    if (!edits[r.path]) edits[r.path] = { ticked: r.ticked, name: r.name, base: r.base, test: r.testLine, push: r.push, pr: r.pr, forge: r.forge || 'auto', limit: r.maxUsdPerTask === null ? '' : String(r.maxUsdPerTask), mcp: r.mcp || '', analyze: r.analyzeLine || '', own: r.ownSettings, own0: r.ownSettings, allowed: (r.allowed || []).slice(), allowed0: (r.allowed || []).slice() }
     return edits[r.path]
   }
 
@@ -656,7 +656,7 @@ export const SETUP_JS = String.raw`(function () {
     }
     // what Claude Code may do here without asking (worker.json allowedTools): each with its remove key — the page only
     // takes rules away; "Always for this repo" in One adds them (the worker writes them)
-    var removed = (r.allowed || []).length - e.allowed.length
+    var removed = e.allowed0.length - e.allowed.length
     var allowed = el('div', { className: 'field allowed', role: 'group', 'aria-labelledby': id + 'al' }, [
       el('span', { className: 'label', id: id + 'al', text: t('allowedLabel') }),
       e.allowed.length
@@ -993,7 +993,7 @@ export const SETUP_JS = String.raw`(function () {
     var repos = state.repos.filter(function (r) { return editOf(r).ticked }).map(function (r) {
       var e = editOf(r)
       var limit = parseFloat(String(e.limit).replace(',', '.'))
-      return { path: r.path, name: e.name.trim(), baseBranch: e.base, test: e.test, analyze: e.analyze, push: e.push, pr: e.pr, forge: e.forge, maxUsdPerTask: isFinite(limit) && limit > 0 ? limit : null, mcp: e.mcp, projectSettings: e.own, allowed: e.allowed }
+      return { path: r.path, name: e.name.trim(), baseBranch: e.base, test: e.test, analyze: e.analyze, push: e.push, pr: e.pr, forge: e.forge, maxUsdPerTask: isFinite(limit) && limit > 0 ? limit : null, mcp: e.mcp, projectSettings: e.own, allowed: e.allowed, allowedWas: e.allowed0 }
     })
     busy = 'save'
     note = null

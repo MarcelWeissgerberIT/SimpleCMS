@@ -6,9 +6,11 @@
  * worker over http://127.0.0.1:<port>/task with the run's token (ONE_WORKER_TASK_URL / ONE_WORKER_TASK_TOKEN). The
  * token belongs to that one run: nothing else in One is readable or writable through these tools.
  *
- * one_task_permission: the worker gets the tool's name and what it is about (the command, the file, the address —
- * clipped), never more; it may hold the call while One asks the person (≤ PERMISSION_WAIT_MS). The answer goes back to
- * Claude Code in its own form: allow with the input exactly as Claude Code sent it, or deny with the worker's message.
+ * one_task_permission: the worker gets the tool's name and what it judges (the command, the file, the address — an MCP
+ * tool's whole input as JSON), each WHOLE: a field longer than PERMISSION_FIELD_MAX is never cut and judged — the request
+ * is refused, whatever the worker answers (it only logs it). It may hold the call while One asks the person
+ * (≤ PERMISSION_WAIT_MS). The answer goes back to Claude Code in its own form: allow with the input exactly as Claude
+ * Code sent it — the fields the worker judged are that input's own, unclipped — or deny with the worker's message.
  * A worker that cannot be reached is a deny — never an allow.
  */
 import { request } from 'node:http'
@@ -16,17 +18,51 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema, type CallToolResult, type Tool } from '@modelcontextprotocol/sdk/types.js'
 import { MCP_TASK_TOOLS } from '../../../src/app/features/mcp/contract.ts'
-import { PERMISSION_WAIT_MS } from '../../../src/app/features/coding/protocol.ts'
+import { PERMISSION_FIELD_MAX, PERMISSION_WAIT_MS } from '../../../src/app/features/coding/protocol.ts'
 
 const text = (s: string, isError = false): CallToolResult => ({ content: [{ type: 'text', text: s }], ...(isError ? { isError: true } : {}) })
 
-/** What of a tool's input the worker gets for a permission request: these fields, each ≤ 4000 characters (the request stays under the worker's 64 KB). */
+/** The input fields the worker judges for Claude Code's own tools (permissions.ts reads them). */
 const BRIEF = ['command', 'file_path', 'path', 'notebook_path', 'url', 'query', 'pattern', 'description'] as const
-export function briefInput(input: unknown): Record<string, string> {
+/** Claude Code's own tools whose BRIEF fields say what they do; any other tool (MCP …) goes with its whole input. */
+export const OWN_TOOLS = new Set(['Bash', 'BashOutput', 'KillShell', 'KillBash', 'Read', 'Glob', 'Grep', 'LS', 'NotebookRead', 'Edit', 'MultiEdit', 'Write', 'NotebookEdit', 'WebFetch', 'WebSearch'])
+/** A tool name longer than this is refused unread. */
+const TOOL_MAX = 200
+
+export interface Brief {
+  /** each field whole — or, when it was longer than PERMISSION_FIELD_MAX, its start (and `cut` names it) */
+  input: Record<string, string>
+  /** the fields that were too long to send whole: their lengths (the request is refused) */
+  cut: Record<string, number>
+}
+
+/** What of a tool's input the worker gets for a permission request (each field ≤ PERMISSION_FIELD_MAX: the request stays under the worker's 64 KB). */
+export function briefInput(tool: string, input: unknown): Brief {
   const i = input && typeof input === 'object' && !Array.isArray(input) ? (input as Record<string, unknown>) : {}
-  const out: Record<string, string> = {}
-  for (const k of BRIEF) if (typeof i[k] === 'string') out[k] = (i[k] as string).slice(0, 4000)
+  const out: Brief = { input: {}, cut: {} }
+  const put = (k: string, v: string) => {
+    if (v.length > PERMISSION_FIELD_MAX) out.cut[k] = v.length
+    out.input[k] = v.slice(0, PERMISSION_FIELD_MAX)
+  }
+  for (const k of BRIEF) if (typeof i[k] === 'string') put(k, i[k] as string)
+  // an MCP tool (or another one): what it is called with is its whole input — the person sees it as JSON
+  if (!OWN_TOOLS.has(tool) && Object.keys(i).length) {
+    let json = ''
+    try {
+      json = JSON.stringify(i)
+    } catch {
+      json = ''
+    }
+    if (json) put('args', json)
+    else out.cut.args = Number.MAX_SAFE_INTEGER
+  }
   return out
+}
+
+/** Refused before anything is asked: a field too long to be seen whole. */
+export const tooLong = (cut: Record<string, number>): string => {
+  const [field, n] = Object.entries(cut).sort((a, b) => b[1] - a[1])[0] ?? ['input', 0]
+  return `Not allowed: the ${field === 'args' ? 'input' : field} is ${n === Number.MAX_SAFE_INTEGER ? 'not readable' : `${n} characters long`} — too long for the person to check in One (at most ${PERMISSION_FIELD_MAX}). Split it into shorter steps.`
 }
 
 /** Claude Code's answer from the worker's: allow with the input as it came, else deny with a message (its own JSON form). */
@@ -90,9 +126,14 @@ export async function serveTaskMcp(version: string): Promise<void> {
     if (name === 'one_task_permission') {
       // the person may take a while: the worker refuses on its own after PERMISSION_WAIT_MS — a little longer here
       const input = (args as { input?: unknown }).input
-      const toolName = typeof (args as { tool_name?: unknown }).tool_name === 'string' ? ((args as { tool_name: string }).tool_name).slice(0, 200) : ''
+      const rawTool = (args as { tool_name?: unknown }).tool_name
+      const toolName = typeof rawTool === 'string' ? rawTool : ''
+      if (!toolName.trim() || toolName.length > TOOL_MAX) return text(permissionAnswer({ allow: false, message: 'Not allowed: the permission request names no readable tool.' }, input))
+      const brief = briefInput(toolName, input)
+      // a field the worker could not get whole: refused here whatever it answers (it logs the request)
+      const cut = Object.keys(brief.cut).length > 0
       try {
-        const res = await post(url, token, { tool: name, args: { tool_name: toolName, input: briefInput(input) } }, PERMISSION_WAIT_MS + 120_000)
+        const res = await post(url, token, { tool: name, args: { tool_name: toolName, input: brief.input, ...(cut ? { cut: brief.cut } : {}) } }, PERMISSION_WAIT_MS + 120_000)
         let decided: { allow?: unknown; message?: unknown } | null = null
         if (res.body.ok && typeof res.body.text === 'string') {
           try {
@@ -101,9 +142,10 @@ export async function serveTaskMcp(version: string): Promise<void> {
             decided = null
           }
         } else decided = { allow: false, message: `Not allowed: ${String(res.body.error ?? `the One worker answered ${res.status}`)}` }
+        if (cut) decided = { allow: false, message: decided?.allow === false && typeof decided.message === 'string' && decided.message ? decided.message : tooLong(brief.cut) }
         return text(permissionAnswer(decided, input))
       } catch (e) {
-        return text(permissionAnswer({ allow: false, message: `Not allowed: the One worker is not reachable (${e instanceof Error ? e.message : String(e)}).` }, input))
+        return text(permissionAnswer({ allow: false, message: cut ? tooLong(brief.cut) : `Not allowed: the One worker is not reachable (${e instanceof Error ? e.message : String(e)}).` }, input))
       }
     }
     try {

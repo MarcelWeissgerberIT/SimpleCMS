@@ -30,6 +30,7 @@ import {
   WORKER_CLOSE_REFUSED,
   WORKER_CLOSE_REPLACED,
   RELAY_CLOSE_FORBIDDEN,
+  TAB_CAN,
   cleanAsk,
   type BusyTask,
   type GitResult,
@@ -505,7 +506,9 @@ function attach(open: (h: LinkHandlers) => LinkHandle) {
       // this device's pairing with the worker downloaded for this workspace (a worker.json worker ignores it) —
       // through the relay the sealed box itself is the proof: the secret never travels
       const pair = handle!.via === 'local' ? get().pairs[self.id]?.secret : undefined
-      handle!.send({ type: 'hello', app: 'one', version: BRAND.version, workspace: self, ...(pair ? { pair } : {}) })
+      // `can`: this tab shows the worker's permission requests and answers them (an older tab says nothing: the worker
+      // refuses them at once instead of holding the stage for nobody)
+      handle!.send({ type: 'hello', app: 'one', version: BRAND.version, workspace: self, ...(pair ? { pair } : {}), can: [...TAB_CAN] })
     },
     message: (msg) => {
       if (!mine()) return

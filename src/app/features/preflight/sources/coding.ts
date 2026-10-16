@@ -180,7 +180,7 @@ function taskActions(item: QueueItem): CardAction[] {
     if (plan?.op !== 'continue') return [{ key: 'a', label: t('features.preflight.card.retry'), outcome: 'hand', hand: handOf(plan), writes: true, blocked, run: () => apply(plan!) }, open]
     // the step limit: A continues (as many steps again, its cost counts like any run's), R starts the stage over
     return [
-      { key: 'a', label: t('features.coding.limit.continue', { n: plan.steps?.max ?? 0 }), outcome: 'hand', hand: handOf(plan), writes: true, blocked, run: () => apply(plan) },
+      { key: 'a', label: t('features.coding.limit.continue', { n: plan.steps?.next ?? plan.steps?.max ?? 0 }), outcome: 'hand', hand: handOf(plan), writes: true, blocked, run: () => apply(plan) },
       {
         key: 'r',
         label: t('features.coding.limit.restart'),

@@ -34,7 +34,7 @@ import { isAgentWriting } from '../agents/attribution'
 import { ALL_MESSAGES, t } from '../../i18n'
 import { REPO_NAME, type GitAction, type LogLine, type StageKind } from './protocol'
 import { FOLLOW_UPS, KIND_TEMPLATES, codingProps, codingReadOnly, currentProjectId, isPipelineKind, kindOfDb, nextStage, optionByName, optionName, pipelineDbIds, pipelineDbIdsOf, priorityRank, readPipeline, stageNear, templatePipeline, type CodingRole, type PipelineKind, type ResolvedStage } from './schema'
-import { BRANCH_NAME, allTasks, answerTask, approvalsOf, approveTask, canContinue, continueTask, createTask, defaultApprovals, followUpsOf, knownRepos, planSection, reworkTask, runTaskNow, sectionTitleOf, setFollowUps, skipsGate, spawnFollowUp, startStageOf, taskBody, taskContext, textHash, workerBranches, type Approvals } from './tasks'
+import { BRANCH_NAME, allTasks, answerTask, approvalsOf, approveTask, canContinue, continueTask, createTask, defaultApprovals, followUpsOf, knownRepos, planSection, reworkTask, runTaskNow, sectionTitleOf, setFollowUps, skipsGate, spawnFollowUp, stageSteps, startStageOf, taskBody, taskContext, textHash, workerBranches, type Approvals } from './tasks'
 import { loadTask, scope, taskLocal, useCodingLocal, type TaskLocal } from './local'
 import { isTrusted, needsConfirm, versionOf, writeEndsConfirm } from './trust'
 import { isRunning, stopTask } from './service'
@@ -704,8 +704,11 @@ export interface TaskActionPlan {
   toId?: ID | null
   /** run: a retry after a failure or Stop */
   retry?: boolean
-  /** continue (worker 1.11.0): where the stage stopped — it runs on from its worktree with as many steps again */
-  steps?: { turns: number; max: number }
+  /**
+   * continue (worker 1.11.0): where the stage stopped (`turns` of `max`) — it runs on from its worktree with `next` steps
+   * at most: the stage's Step limit now (stageSteps — what pickNext hands the worker), not the stopped run's
+   */
+  steps?: { turns: number; max: number; next: number }
   note?: string
   /** answer: the question it answers (the live one must be the same) */
   question?: string
@@ -867,7 +870,7 @@ export async function planTaskAction(taskId: ID, op: TaskOp, input: { note?: str
       const lim = local.stepLimit
       if (phase !== 'failed' || !stage || !lim || lim.stageId !== stage.id) throw new CodingPlanError(`${where}: continue works only on a stage that stopped at its step limit (otherwise: run).`)
       if (!canContinue()) throw new CodingPlanError(`${where}: the connected coding worker cannot continue a stage (it needs worker 1.11.0) — run starts the stage from the beginning instead.`)
-      return { ...base, to: stage.name, steps: { turns: lim.turns, max: lim.max }, starts: true }
+      return { ...base, to: stage.name, steps: { turns: lim.turns, max: lim.max, next: stageSteps(stage) }, starts: true }
     }
     case 'stop': {
       if (!running) throw new CodingPlanError(`${where}: it is not running on this device's worker.`)

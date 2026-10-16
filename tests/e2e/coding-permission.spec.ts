@@ -107,6 +107,40 @@ test('a permission: the task waits for you, the card says what Claude Code wants
   await expect(page.getByTestId('coding-permission')).toContainText('a file outside the project')
   await expect(page.getByTestId('coding-permission-always')).toHaveCount(0)
   await expect(page.getByTestId('coding-permission-rule')).toContainText('Only once')
+  // this tab said in its hello that it answers permission requests (an older tab does not: the worker refuses at once)
+  expect(fake!.hellos[0]?.can).toEqual(['permission'])
+
+  // a fresh request is a fresh card: a press the moment it shows (the rest of a double-click) answers nothing
+  const quick = 'c1b2c3d4e5f6a7b8c9d0e1f2'
+  await page.evaluate(() => {
+    const w = window as unknown as { __quick?: boolean }
+    const seen = new Set<Element>()
+    for (const el of document.querySelectorAll('[data-testid="coding-permission-once"]')) seen.add(el)
+    const tick = () => {
+      const el = [...document.querySelectorAll<HTMLElement>('[data-testid="coding-permission-once"]')].find((x) => !seen.has(x))
+      if (el) {
+        el.click()
+        w.__quick = true
+      } else requestAnimationFrame(tick)
+    }
+    requestAnimationFrame(tick)
+  })
+  await page.getByTestId('coding-permission-deny').click()
+  await expect.poll(() => fake!.permAsked.length).toBe(2)
+  fake!.askPermission(task, askOf({ id: quick, what: `echo ${'a'.repeat(600)}`, rule: null }))
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __quick?: boolean }).__quick === true)).toBe(true)
+  await page.waitForTimeout(700)
+  expect(fake!.permAsked).toHaveLength(2)
+  // shown whole: a long one scrolls in its box and says its length
+  await expect(page.getByTestId('coding-permission-what')).toHaveText(`echo ${'a'.repeat(600)}`)
+  await expect(page.getByTestId('coding-permission')).toContainText('605 characters — scroll to read it all')
+  await expect(page.getByTestId('coding-permission-what')).toHaveAttribute('tabindex', '0')
+  // awake now: the same key answers
+  await page.getByTestId('coding-permission-once').click()
+  await expect.poll(() => fake!.permAsked.length).toBe(3)
+  expect(fake!.permAsked[2]).toMatchObject({ ask: quick, verb: 'once' })
+  fake!.askPermission(task, askOf({ id: 'd1b2c3d4e5f6a7b8c9d0e1f2' }))
+  await expect(page.getByTestId('coding-permission-what')).toHaveText('npm run lint')
 
   // the link drops: the JETZT line and the request go (a worker that comes back names them again)
   await fake!.close()
@@ -135,6 +169,9 @@ test('Preflight in German: the "Claude möchte" card shows the request in full; 
   await expect(current).toBeFocused()
   await expect(current).toHaveAttribute('data-id', `perm:${id}:${askOf().id}`)
   await expect(current).not.toHaveAttribute('aria-busy', 'true')
+  // German words on the card: its kind chip and its name (review: both were English)
+  await expect(current).toHaveAttribute('aria-label', 'Erlaubnis-Anfrage 1 von 1')
+  await expect(current.locator('.pf-tag--ink').first()).toHaveText('Erlaubnis')
   await expect(current.getByTestId('pf-permission')).toContainText('npm run lint')
   await expect(current.getByTestId('pf-permission')).toContainText('Bash(npm run lint:*)')
   // the card is never taken by ⇧A
@@ -157,16 +194,20 @@ test('the step limit: the card names it; Continue (+N steps) runs the stage agai
   errors.allow(/WebSocket connection to 'ws:\/\/127\.0\.0\.1/)
   const { task } = await begin(page, WORKER_CAN)
   expect(task.resume ?? null).toBeNull()
-  await fake!.finish(task, { status: 'failed', error: 'Claude Code stopped at its step limit.', stepLimit: { turns: 20, max: 20 }, permissions: { asked: 2, allowed: 1, refused: 1 } })
+  // the run stopped at 12/12 (the stage's limit then); the pipeline gives it 20 now — "+N" is what the next run gets
+  expect(task.stage.maxTurns).toBe(20)
+  await fake!.finish(task, { status: 'failed', error: 'Claude Code stopped at its step limit.', stepLimit: { turns: 12, max: 12 }, permissions: { asked: 2, allowed: 1, refused: 1 } })
   const box = page.getByTestId('coding-steplimit')
-  await expect(box).toContainText('Step limit reached (20/20)')
+  await expect(box).toContainText('Step limit reached (12/12)')
+  await expect(box).toContainText('Start over runs it again with its original instructions, in the same worktree')
   await expect(page.getByTestId('coding-permission-summary')).toHaveText('Permissions in the last run: 2 asked · 1 allowed · 1 refused')
   await expect(page.getByTestId('coding-continue')).toHaveText('Continue (+20 steps)')
   await page.getByTestId('coding-continue').click()
   await expect.poll(() => fake!.handed().length, { timeout: 15_000 }).toBe(2)
   const again = fake!.handed()[1]!
   expect(again.stage.id).toBe(task.stage.id)
-  expect(again.resume).toEqual({ turns: 20, max: 20 })
+  expect(again.stage.maxTurns).toBe(20)
+  expect(again.resume).toEqual({ turns: 12, max: 12 })
   // stopped at the limit again: Start over runs it from the beginning (no resume)
   await fake!.finish(again, { status: 'failed', error: 'Claude Code stopped at its step limit.', stepLimit: { turns: 20, max: 20 } })
   await expect(box).toBeVisible()
@@ -185,4 +226,11 @@ test('a worker that does not name "continue": the step-limit card offers Start o
   await page.getByTestId('coding-restart').click()
   await expect.poll(() => fake!.handed().length, { timeout: 15_000 }).toBe(2)
   expect(fake!.handed()[1]!.resume ?? null).toBeNull()
+  // #/coding: a worker older than 1.11.0 — the notice names the fix no capability names first, and does not call the
+  // update optional
+  await page.evaluate(() => (window.location.hash = '#/coding'))
+  const plate = page.getByTestId('coding-worker-outdated')
+  await expect(plate).toContainText('A newer worker is on the site — a stage ends as soon as Claude Code ends — also when it left a dev server running (the worker ends that too); it continues a stage that reached its step limit.')
+  await expect(plate).toContainText('a stage can go on “working” after Claude Code is done')
+  await expect(plate).not.toContainText('runs every stage as before')
 })
