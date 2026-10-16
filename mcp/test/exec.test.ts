@@ -863,8 +863,11 @@ describe('exec — source guard', () => {
       'opener.ts: how.cmd', // cmd.exe from System32, or ONE_WORKER_BROWSER (the person's)
       'picker.ts: how.cmd', // powershell.exe from System32, or ONE_WORKER_PICKER (the person's)
       "proctree.ts: 'ps'", // macOS / Linux without /proc: the system's ps — what Claude Code left running (worker 1.11.0)
+      "proctree.ts: 'ps'", // macOS: the command lines of the leftovers (a server the person's tools share is never ended)
       "proctree.ts: 'ps'", // macOS: `ps -E` for the run's environment mark
       "proctree.ts: systemTool('powershell')", // Windows: powershell.exe from System32 (Win32_Process)
+      "proctree.ts: systemTool('powershell')", // Windows: the leftovers' command lines (one-shot, when the run's session failed)
+      "proctree.ts: systemTool('powershell')", // Windows: the run's one PowerShell session (fixed scripts on its stdin)
       'setup.ts: cmd', // installed(): 'gh' | 'glab'
       'testrun.ts: argv[0]!', // worker.json testCommand / analyzeCommand — the person's, or a fixed guess (scan.ts: bare names)
     ])

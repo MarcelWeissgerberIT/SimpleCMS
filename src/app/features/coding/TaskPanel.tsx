@@ -19,6 +19,7 @@ import { useCoding } from './state'
 import { approveTask, answerTask, confirmTask, reworkTask, runTaskNow, stageSteps, taskContext, taskHasText } from './tasks'
 import { isTrusted } from './trust'
 import { stopTask } from './service'
+import { usePermissionFocus } from './PermissionCard'
 import { LogView } from './LogView'
 import { PlanView } from './PlanView'
 import { DiffView } from './DiffView'
@@ -85,8 +86,10 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
   const conn = useCoding((s) => s.conn)
   const enabled = useCoding((s) => s.enabled)
   const busy = useCoding((s) => s.busy.find((b) => b.taskId === pageId) ?? null)
-  // worker 1.11.0: the permission request the running stage waits for (only on the worker's own tab)
+  // worker 1.11.0: the permission request the running stage waits for (only on the worker's own tab); a card answered
+  // hands the focus on (the state line, then the next request's first key)
   const ask = useCoding((s) => s.asks[pageId] ?? null)
+  const permFocus = usePermissionFocus(ask?.id ?? null)
   const team = useCloud((s) => s.active.kind === 'cloud')
   const viewer = useCloud((s) => s.readOnly)
   const [tab, setTab] = useState<Tab | null>(null)
@@ -178,7 +181,7 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
         <span className="label ctk-code">
           § {coding ? t('features.coding.panel.code') : t(`features.coding.pipe.${kind}.short`)} — {repo ?? t(coding ? 'features.coding.panel.noRepo' : 'features.coding.panel.docsOnly')} · {stage?.name ?? '—'}
         </span>
-        <span className="ctk-state" role="status" data-testid="coding-state">
+        <span ref={permFocus.stateLine} className="ctk-state" role="status" tabIndex={-1} data-testid="coding-state">
           <Led state={ledState} />
           <span className="label">
             {t(waitsForYou ? 'features.coding.state.permission' : `features.coding.state.${state}`)}
@@ -236,7 +239,7 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
           </div>
         )}
 
-        {waitsForYou && ask && <PermissionCard key={ask.id} taskId={pageId} ask={ask} canAct={canAct && connected} />}
+        {waitsForYou && ask && <PermissionCard key={ask.id} taskId={pageId} ask={ask} canAct={canAct && connected} onAnswered={permFocus.onAnswered} />}
         {state === 'running' && (
           <div className="ctk-keys">
             <button type="button" className="btn btn--sm btn--danger" onClick={act(() => stopTask(pageId))} data-testid="coding-stop">

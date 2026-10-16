@@ -231,6 +231,7 @@ export const messages: Messages = {
     'features.coding.needs.gate': 'Approve',
     'features.coding.needs.question': 'Question',
     'features.coding.needs.failed': 'Failed',
+    'features.coding.needs.permission': 'Permission',
 
     'features.coding.conn.off': 'Off',
     'features.coding.conn.connecting': 'Connecting…',
@@ -794,6 +795,7 @@ export const messages: Messages = {
     'features.coding.pipeline.turnsHint': 'At most this many steps per run (the worker’s worker.json may set fewer). Continue after the limit gives as many again.',
     'features.coding.log.c.claudeLeftovers': 'Ended {n} program(s) Claude Code left running: {names}',
     'features.coding.log.c.claudeLingered': 'Claude Code did not end after its result — the worker ended it',
+    'features.coding.log.c.claudeSpared': 'Left {n} program(s) running that Claude Code started and other tools may use: {names}',
     'features.coding.log.c.permissionAsked': 'Claude Code asks for a permission: {tool} · {what} — waiting for you (at most {min} min)',
     'features.coding.log.c.permissionAllowed': 'Allowed ({how}): {tool} · {what}',
     'features.coding.log.c.permissionDenied': 'Refused ({how}): {tool} · {what}',
@@ -1044,6 +1046,7 @@ export const messages: Messages = {
     'features.coding.needs.gate': 'Freigeben',
     'features.coding.needs.question': 'Frage',
     'features.coding.needs.failed': 'Fehlgeschlagen',
+    'features.coding.needs.permission': 'Erlaubnis',
 
     'features.coding.conn.off': 'Aus',
     'features.coding.conn.connecting': 'Verbinde…',
@@ -1605,6 +1608,7 @@ export const messages: Messages = {
     'features.coding.pipeline.turnsHint': 'Höchstens so viele Schritte pro Lauf (die worker.json des Workers kann weniger setzen). „Weitermachen“ nach dem Limit gibt noch einmal so viele.',
     'features.coding.log.c.claudeLeftovers': 'Beendet: {n} Programm(e), die Claude Code laufen ließ: {names}',
     'features.coding.log.c.claudeLingered': 'Claude Code hat sich nach seinem Ergebnis nicht beendet – der Worker hat es beendet',
+    'features.coding.log.c.claudeSpared': 'Laufen gelassen: {n} Programm(e), die Claude Code gestartet hat und die andere Werkzeuge nutzen können: {names}',
     'features.coding.log.c.permissionAsked': 'Claude Code bittet um eine Erlaubnis: {tool} · {what} – wartet auf dich (höchstens {min} Min.)',
     'features.coding.log.c.permissionAllowed': 'Erlaubt ({how}): {tool} · {what}',
     'features.coding.log.c.permissionDenied': 'Abgelehnt ({how}): {tool} · {what}',

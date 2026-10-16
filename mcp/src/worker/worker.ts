@@ -114,7 +114,17 @@ interface Run {
   /** permission requests that wait for the person (the first one is shown) */
   asks: PendingAsk[]
   counts: PermissionCount
+  /** the run is over: its leftovers ended, its outcome handed to One (or kept for the next connect) */
+  done?: Promise<void>
 }
+
+/**
+ * Worker shutdown (Ctrl+C, SIGTERM, a service stop): how long it waits for the runs it stopped to end — Claude Code ended,
+ * what it left running ended (Windows: a reading of every process, then taskkill), the outcome sent. index.ts ends the
+ * process STOP_HARD_MS after the shutdown began whatever happens.
+ */
+export const STOP_WAIT_MS = process.platform === 'win32' ? 12_000 : 8_000
+export const STOP_HARD_MS = STOP_WAIT_MS + 3_000
 
 /** A permission request the worker holds: what One sees, and the answer for Claude Code. */
 interface PendingAsk {
@@ -416,16 +426,19 @@ export class Worker {
     return up
   }
 
-  /** Stop: every run is ended (Claude Code's process tree killed), then the link closes. */
+  /**
+   * Stop: every run is ended (Claude Code's process tree killed, then what it left running), its outcome sent — waited
+   * for up to STOP_WAIT_MS — then the link closes.
+   */
   async stop(): Promise<void> {
     this.stopped = true
     if (this.poller) clearInterval(this.poller)
     if (this.beater) clearInterval(this.beater)
     const running = [...this.runs.values()]
     for (const r of running) r.abort.abort()
-    // give the runs a moment to report "stopped"
-    const end = Date.now() + 4000
-    while (this.runs.size && Date.now() < end) await new Promise((r) => setTimeout(r, 50))
+    let cap: ReturnType<typeof setTimeout> | undefined
+    await Promise.race([Promise.allSettled(running.map((r) => r.done)), new Promise((r) => (cap = setTimeout(r, STOP_WAIT_MS)))])
+    clearTimeout(cap)
     this.flushLogs()
     await this.link.close()
   }
@@ -498,7 +511,7 @@ export class Worker {
     this.tokens.set(token, run)
     this.sendStatus()
     this.opts.log(`task ${task.id} "${task.title}" — ${task.stage.name} (${task.stage.kind}) in ${repo.name}`)
-    void this.claudeForStage(task)
+    run.done = this.claudeForStage(task)
       .then((caps) =>
         runStage({
           repo,
