@@ -750,18 +750,43 @@ else in One is reachable through them; the token dies with the run.
 
 **The run ends with Claude Code** (worker 1.11.0, every model): at its `result` the heartbeat stops and the worker
 notes the process tree under Claude Code; once Claude Code's process has exited the stage ends after a short grace
-(1.5 s for the last output lines) — it never waits for the output pipes to close. Anything Claude Code started and
-left running (a dev server, a watcher holding its output open) is ended: SIGTERM, SIGKILL after 2 s on macOS / Linux
-(found by the tree at the result, the process group and an environment mark `ONE_WORKER_RUN` only the worker's run
-carries — read from `/proc` on Linux, `ps -E` on macOS); on Windows by the kept parent ids and creation times, with the
-tree also sampled every few seconds and at every tool result while Claude Code runs (a shell that put a server in the
-background and ended is seen while it ran). A process counts as the one seen only with the same id, name and start
-time (Windows creation time, Linux `/proc` start ticks) — a reused id is never followed, nor an ended Claude Code's
-id that another program holds now. Windows ends each process found with `taskkill /F` (never `/T`: the list is the
-tree that was checked). One log line names what was ended (code `claudeLeftovers`). Not caught on Windows: a
-program whose starting shell ended between two samples. A Claude Code that has not exited
-30 s after its result is ended too (`claudeLingered`). **Stop** ends the whole tree as before. The JETZT line and the
-progress clear when the stage ends — also when the link drops.
+(1.5 s for the last output lines; none after Stop) — it never waits for the output pipes to close. Anything Claude
+Code started and left running (a dev server, a watcher holding its output open) is ended: SIGTERM, SIGKILL after 2 s
+on macOS / Linux; Windows ends each process found with `taskkill /F` (never `/T`: the list is the tree that was
+checked). Found by (proctree.ts):
+- the tree below Claude Code at its result, and what runs below it now;
+- macOS / Linux: Claude Code's own process group, and the **group of each of its shells** (the Bash tool starts every
+  shell as a child of Claude Code leading its own group) — read while a Bash command runs and after it returns; a
+  group id outlives the shell and is never another group's while a member lives; an emptied group is forgotten at
+  once (checked every second with a signal 0, no program started);
+- macOS / Linux: the environment mark `ONE_WORKER_RUN` only the worker's run carries (`/proc` on Linux, `ps -E` on
+  macOS — which cannot read the environment of a program signed with entitlements, such as the Node and Java builds
+  most people run); a marked process whose group lost its leader takes its whole group along (vite's esbuild gives
+  away vite);
+- Windows: the processes seen below Claude Code while a Bash command ran (and after it), by ParentProcessId and
+  creation time — below one that ended only what was born while it lived (between its creation and the first reading
+  or once-a-second check that missed it), below an ended Claude Code only what was born between its creation and its
+  exit: a later holder of a freed id never lends its children.
+Readings happen only around Bash commands (a first one 300 ms after the command starts, then every 1 s — Windows 5 s —
+doubling up to 15 s / 30 s while nothing new turns up; one after each Bash result; never after Read / Grep / Edit).
+Windows answers every reading of a run from ONE PowerShell (`-Command -`, a fixed script per line on its stdin,
+answered between two marks); one that does not answer within 20 s or ends is replaced by one-shot readings. A process
+counts as the one seen only with the same id, name and start time (Windows creation time, Linux `/proc` start ticks).
+The name is the program's file: Windows' image name, macOS' `comm` (its path), Linux the file `/proc/<pid>/exe` names
+(`exeName`) — never `/proc`'s `comm`, the main thread's name a program changes (Node 24 calls it "MainThread" from its
+start, `process.title` sets its own), which would name a leftover node server "MainThread" in the log.
+**Never ended** — named in one line instead (code `claudeSpared`): a server the person's own tools share (Gradle /
+Kotlin daemon, MSBuild's reused nodes, VBCSCompiler, sccache, watchman, the adb server, an ssh master, gpg-agent —
+`sharedServer`, by program name and command line) and what runs below it; a marked process whose group's own leader
+still runs and is none of Claude Code's shells (a program that made a session of its own: a daemon). Claude Code's
+environment carries `MSBUILDDISABLENODEREUSE=1` and `UseSharedCompilation=false` (unless the person set them), so its
+builds start no shared MSBuild / compiler server at all. One log line names what was ended (code `claudeLeftovers`).
+Not caught: a program whose starting shell ended before any reading saw it, when (macOS) no program of its group shows
+the mark — `nohup node server.js &` with Node from nodejs.org — or (Windows) at all. A Claude Code that has not
+exited 30 s after its result is ended too (`claudeLingered`). **Stop** ends the whole tree as before. A worker that
+shuts down (Ctrl+C, SIGTERM, a service stop) waits up to 8 s (Windows 12 s) for its stopped runs — Claude Code ended,
+its leftovers ended, the outcome sent — and exits 3 s after that at the latest. The JETZT line and the progress clear
+when the stage ends — also when the link drops.
 
 **Scratch folder** (worker 1.11.0): every task gets `<config dir>/scratch/<task id>` (mode 0700), passed with
 `--add-dir` (read from `--help`; an older CLI runs without it, one log line `addDirOff`). The prompt names it for

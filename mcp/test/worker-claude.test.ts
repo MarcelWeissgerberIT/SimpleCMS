@@ -3,19 +3,19 @@
  * stream-json reader (log lines, plan, cost), Stop killing the process — all with the fake CLI.
  */
 import assert from 'node:assert/strict'
-import { execFileSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { execFileSync, spawn } from 'node:child_process'
+import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { after, describe, test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import type { LogLine, TaskProgress } from '../../src/app/features/coding/protocol.ts'
 import { AUTH_HINT, PERMISSION_TOOL, claudeArgs, cliMode, detectClaude, runClaude, toolLine, versionAtLeast, type ClaudeCaps } from '../src/worker/claude.ts'
 import { HANDLED, alwaysRule, isOutside, kindOf, ruleDecision, ruleMatches, simpleCommand, subjectOf } from '../src/worker/permissions.ts'
-import { below, endProcs, leftoversOf, parsePs, parseStat, parseWin, shortName } from '../src/worker/proctree.ts'
+import { LineSession, RunTree, below, endProcs, exeName, leftoversOf, listProcs, parsePs, parseStat, parseWin, sameProc, sharedServer, shortName, type Proc, type Seen } from '../src/worker/proctree.ts'
 import { briefInput, permissionAnswer, tooLong } from '../src/worker/taskmcp.ts'
 import { addAllowedTool, parseJsonc } from '../src/worker/config.ts'
-import { buildPrompt, commitMessage } from '../src/worker/run.ts'
+import { buildPrompt, claudeEnv, commitMessage } from '../src/worker/run.ts'
 import { estimateCost, usageOf } from '../src/worker/price.ts'
 import { SOURCE_MARK, loadConfig, marksSeen, sanitizeConfig, scratchRepo, unseenMarks, type Loaded } from '../src/worker/config.ts'
 import { sanitizeTask } from '../src/worker/worker.ts'
@@ -528,7 +528,44 @@ describe('the process tree of a run (pure)', () => {
     assert.equal(shortName('/usr/local/bin/esbuild'), 'esbuild')
   })
 
-  test('leftovers: below Claude Code (at its result, and now), its own group, its mark — never the worker, its parent, pid 1; Windows: never a process older than the run', () => {
+  test('Linux names a program by its file (/proc/<pid>/exe, " (deleted)" off) — the thread name only when the file cannot be read (CI: ubuntu-latest · Node 24 named a leftover "MainThread")', () => {
+    assert.equal(exeName(4242, 'MainThread', () => '/usr/local/bin/node'), 'node')
+    assert.equal(exeName('4242', 'MainThread', () => '/opt/node v24/bin/node (deleted)'), 'node')
+    assert.equal(exeName(4242, 'npm run dev', () => '/home/max/.nvm/versions/node/v24.0.0/bin/node'), 'node', 'a title the program set (process.title) is no name')
+    assert.equal(exeName(2, 'kworker/0:1', () => { throw Object.assign(new Error('no such file'), { code: 'ENOENT' }) }), 'kworker/0:1')
+    assert.equal(exeName(4242, 'sshd', () => { throw Object.assign(new Error('not permitted'), { code: 'EACCES' }) }), 'sshd', "another user's process")
+    assert.equal(exeName(4242, 'x', () => ''), 'x')
+    // the log gets the file's name only — never a folder
+    assert.equal(shortName(exeName(4242, 'MainThread', () => '/home/max/secret project/bin/dev-server')), 'dev-server')
+  })
+
+  test('Linux, a real program that renames its main thread after it was first seen (Node 24 does at its start; process.title here): the same name and the same process in both readings', { skip: process.platform !== 'linux' && 'Linux only (/proc)' }, async () => {
+    const child = spawn(process.execPath, ['-e', "process.stdin.once('data', () => { process.title = 'MainThread'; process.stdout.write('renamed\\n') }); process.stdout.write('ready\\n')"], { stdio: ['pipe', 'pipe', 'ignore'] })
+    try {
+      let out = ''
+      child.stdout!.setEncoding('utf8').on('data', (d: string) => (out += d))
+      const until = async (word: string) => {
+        const end = Date.now() + 10_000
+        while (!out.includes(word) && Date.now() < end) await new Promise((r) => setTimeout(r, 20))
+        assert.ok(out.includes(word), `the child never said ${word}`)
+      }
+      await until('ready')
+      const first = (await listProcs('linux'))!.find((p) => p.pid === child.pid)!
+      child.stdin!.write('go\n')
+      await until('renamed')
+      assert.equal(readFileSync(`/proc/${child.pid}/comm`, 'utf8').trim(), 'MainThread', 'its thread name changed')
+      const second = (await listProcs('linux'))!.find((p) => p.pid === child.pid)!
+      const file = basename(realpathSync(process.execPath))
+      assert.equal(first.name, file)
+      assert.equal(second.name, file)
+      assert.ok(sameProc(first, second), 'still the process seen before')
+      assert.equal(shortName(second.name), 'node')
+    } finally {
+      child.kill('SIGKILL')
+    }
+  })
+
+  test('leftovers: below Claude Code (at its result, and now), its own group, its shells\' groups, its mark — never the worker, its parent, pid 1; Windows: never a process older than the run', () => {
     const root = 100
     const before = [
       { pid: 100, ppid: 50, pgid: 100, name: 'claude' },
@@ -536,18 +573,20 @@ describe('the process tree of a run (pure)', () => {
       { pid: 111, ppid: 110, pgid: 110, name: 'node' },
       { pid: 120, ppid: 100, pgid: 100, name: 'one-worker' },
     ]
-    // Claude Code and the shell ended: the server was handed to pid 1, a process of another program got id 120 meanwhile
+    // Claude Code and the shell ended: the server was handed to pid 1, a process of another program got id 120 meanwhile;
+    // vite (140) carries the mark in the group of a shell that ended (160)
     const now = [
       { pid: 1, ppid: 0, pgid: 1, name: 'init' },
       { pid: 50, ppid: 1, pgid: 50, name: 'node' },
       { pid: 111, ppid: 1, pgid: 110, name: 'node' },
       { pid: 120, ppid: 1, pgid: 120, name: 'vim' },
       { pid: 130, ppid: 1, pgid: 100, name: 'esbuild' },
-      { pid: 140, ppid: 1, pgid: 140, name: 'vite' },
+      { pid: 140, ppid: 1, pgid: 160, name: 'vite' },
       { pid: 150, ppid: 1, pgid: 150, name: 'mine' },
     ]
     const left = leftoversOf({ root, since: 0, before, now, marked: new Set([140, 50]), self: 50, parent: 1, platform: 'linux' })
-    assert.deepEqual(left.map((p) => p.pid).sort(), [111, 130, 140])
+    assert.deepEqual(left.end.map((p) => p.pid).sort(), [111, 130, 140])
+    assert.deepEqual(left.spared, [])
     // Windows: parent ids stay; a process created before the run is never followed
     const win = [
       { pid: 300, ppid: root, pgid: null, born: 2000, name: 'node.exe' },
@@ -562,37 +601,119 @@ describe('the process tree of a run (pure)', () => {
     // Linux: field 22 is the start time
     assert.deepEqual(parseStat('4242 (node) S 4000 4242 4242 0 -1 4194560 100 0 0 0 1 2 0 0 20 0 1 0 987654 1000 10'), { pid: 4242, ppid: 4000, pgid: 4242, name: 'node', born: 987654 })
     const lin = leftoversOf({ root: 100, since: 0, before: [{ pid: 100, ppid: 50, pgid: 100, name: 'claude', born: 10 }, { pid: 111, ppid: 100, pgid: 110, name: 'node', born: 20 }], now: [{ pid: 111, ppid: 1, pgid: 111, name: 'node', born: 99 }], self: 50, parent: 1, platform: 'linux' })
-    assert.deepEqual(lin, [], 'id 111 belongs to another node by now')
+    assert.deepEqual(lin.end, [], 'id 111 belongs to another node by now')
     // Windows (review probe 1): node.exe 5000 seen below Claude Code at its result; now 5000 is the person's dev server
     const before = [
       { pid: 100, ppid: 50, pgid: null, born: 1000, name: 'claude.exe' },
       { pid: 5000, ppid: 100, pgid: null, born: 1600, name: 'node.exe' },
     ]
-    assert.deepEqual(leftoversOf({ root: 100, since: 0, before, now: [{ pid: 5000, ppid: 4242, pgid: null, born: 9000, name: 'node.exe' }], self: 50, parent: 1, platform: 'win32' }), [])
+    assert.deepEqual(leftoversOf({ root: 100, since: 0, before, now: [{ pid: 5000, ppid: 4242, pgid: null, born: 9000, name: 'node.exe' }], self: 50, parent: 1, platform: 'win32' }).end, [])
     // review probe 2: Claude Code's id 100 is the person's new pwsh — its child is not below Claude Code
     const reused = [
       { pid: 100, ppid: 60, pgid: null, born: 9000, name: 'pwsh.exe' },
       { pid: 700, ppid: 100, pgid: null, born: 9100, name: 'node.exe' },
     ]
-    assert.deepEqual(leftoversOf({ root: 100, since: 0, before: null, now: reused, self: 50, parent: 1, platform: 'win32' }), [])
+    assert.deepEqual(leftoversOf({ root: 100, since: 0, before: null, now: reused, self: 50, parent: 1, platform: 'win32' }).end, [])
     // the same process still (id + name + creation time): taken
-    assert.deepEqual(leftoversOf({ root: 100, since: 0, before, now: [before[1]!], self: 50, parent: 1, platform: 'win32' }).map((p) => p.pid), [5000])
+    assert.deepEqual(leftoversOf({ root: 100, since: 0, before, now: [before[1]!], self: 50, parent: 1, platform: 'win32' }).end.map((p) => p.pid), [5000])
   })
 
   test('Windows: a server whose starting shell ended — found below the shell a sample saw while Claude Code ran; never below an id another process holds now', () => {
     // the Bash tool's bash.exe (300) was seen while it ran; it ended — the server it put in the background names it as parent
-    const sampled = [{ pid: 300, ppid: 100, pgid: null, born: 2000, name: 'bash.exe' }]
+    const sampled = [{ pid: 300, ppid: 100, pgid: null, born: 2000, name: 'bash.exe', goneBy: 3000 }]
     const now = [
       { pid: 400, ppid: 300, pgid: null, born: 2500, name: 'node.exe' },
       { pid: 401, ppid: 400, pgid: null, born: 2600, name: 'esbuild.exe' },
       { pid: 900, ppid: 300, pgid: null, born: 1500, name: 'older.exe' },
     ]
-    assert.deepEqual(leftoversOf({ root: 100, since: 1000, before: null, sampled, now, self: 50, parent: 1, platform: 'win32' }).map((p) => p.pid).sort(), [400, 401])
+    assert.deepEqual(leftoversOf({ root: 100, since: 1000, before: null, sampled, now, self: 50, parent: 1, platform: 'win32' }).end.map((p) => p.pid).sort(), [400, 401])
     // without the sample (review probe): nothing connects it — the case the samples are for
-    assert.deepEqual(leftoversOf({ root: 100, since: 1000, before: [{ pid: 100, ppid: 50, pgid: null, born: 1000, name: 'claude.exe' }, { pid: 400, ppid: 300, pgid: null, born: 2500, name: 'node.exe' }], now: [now[0]!], self: 50, parent: 1, platform: 'win32' }), [])
+    assert.deepEqual(leftoversOf({ root: 100, since: 1000, before: [{ pid: 100, ppid: 50, pgid: null, born: 1000, name: 'claude.exe' }, { pid: 400, ppid: 300, pgid: null, born: 2500, name: 'node.exe' }], now: [now[0]!], self: 50, parent: 1, platform: 'win32' }).end, [])
     // id 300 is another program's by now: nothing below it is taken
     const taken = [{ pid: 300, ppid: 60, pgid: null, born: 8000, name: 'code.exe' }, { pid: 800, ppid: 300, pgid: null, born: 8100, name: 'node.exe' }]
-    assert.deepEqual(leftoversOf({ root: 100, since: 1000, before: null, sampled, now: taken, self: 50, parent: 1, platform: 'win32' }), [])
+    assert.deepEqual(leftoversOf({ root: 100, since: 1000, before: null, sampled, now: taken, self: 50, parent: 1, platform: 'win32' }).end, [])
+  })
+
+  test('Windows (second review): below an ended parent only what was born while it lived — a later holder of its id, gone again, never lends its children', () => {
+    // probe A: a 5 s sample saw bash.exe 300 below Claude Code (a long npm test); bash ended at minute 1 (a reading missed it
+    // at 61 s). At minute 10 the person starts Discord: Squirrel's Update.exe got the freed id 300, started Discord.exe and
+    // ended. The stage ends at minute 15.
+    const sampled = [{ pid: 300, ppid: 100, pgid: null, born: 2000, name: 'bash.exe', goneBy: 61_000 }]
+    const now = [
+      { pid: 4, ppid: 0, pgid: null, born: 0, name: 'System' },
+      { pid: 900, ppid: 300, pgid: null, born: 600_100, name: 'Discord.exe' },
+      { pid: 901, ppid: 900, pgid: null, born: 600_200, name: 'Discord.exe' },
+    ]
+    const before = [{ pid: 100, ppid: 50, pgid: null, born: 1000, name: 'claude.exe' }]
+    assert.deepEqual(leftoversOf({ root: 100, since: 1000, before, sampled, now, nowAt: 900_000, rootBorn: 1000, exitAt: 899_000, self: 50, parent: 1, platform: 'win32' }).end, [])
+    // the same, bash seen at the result only (no sample): the reading of `now` bounds it
+    const seenAtResult = [...before, { pid: 300, ppid: 100, pgid: null, born: 2000, name: 'bash.exe' }]
+    assert.deepEqual(leftoversOf({ root: 100, since: 1000, before: seenAtResult, now: [now[1]!], nowAt: 500_000, rootBorn: 1000, exitAt: 499_000, self: 50, parent: 1, platform: 'win32' }).end, [])
+    // what bash started while it lived is still taken
+    const server = { pid: 400, ppid: 300, pgid: null, born: 30_000, name: 'node.exe' }
+    assert.deepEqual(leftoversOf({ root: 100, since: 1000, before, sampled, now: [...now, server], nowAt: 900_000, rootBorn: 1000, exitAt: 899_000, self: 50, parent: 1, platform: 'win32' }).end.map((p) => p.pid), [400])
+    // probe B2: Claude Code's id 100 belonged to git.exe that ended < 2 s before the spawn and left its fsmonitor daemon
+    // (700, born 1500); Claude Code itself was created at 3000 and has exited
+    const fsmonitor = { pid: 700, ppid: 100, pgid: null, born: 1500, name: 'git.exe' }
+    const before2 = [{ pid: 100, ppid: 50, pgid: null, born: 3000, name: 'claude.exe' }, fsmonitor]
+    assert.deepEqual(leftoversOf({ root: 100, since: 1000, before: before2, now: [fsmonitor], nowAt: 60_000, rootBorn: 3000, exitAt: 50_000, self: 50, parent: 1, platform: 'win32' }).end, [])
+    // a child born after Claude Code exited (its id another program's by then, gone again) is not Claude Code's either
+    const late = { pid: 710, ppid: 100, pgid: null, born: 55_000, name: 'node.exe' }
+    const mine = { pid: 720, ppid: 100, pgid: null, born: 4000, name: 'node.exe' }
+    assert.deepEqual(leftoversOf({ root: 100, since: 1000, before: null, now: [late, mine], nowAt: 60_000, rootBorn: 3000, exitAt: 50_000, self: 50, parent: 1, platform: 'win32' }).end.map((p) => p.pid), [720])
+  })
+
+  test('macOS / Linux: the group of one of Claude Code\'s shells gives away a program that outlived it, without the mark (macOS cannot read the environment of a signed Node); a group of a marked program whose leader ended — all of it', () => {
+    // the Bash tool's shell 210 (a child of Claude Code leading its own group) was seen while `nohup node server.js &` ran
+    const now = [
+      { pid: 211, ppid: 1, pgid: 210, name: '/Users/x/.nvm/versions/node/v22/bin/node' },
+      { pid: 212, ppid: 211, pgid: 210, name: '/Users/x/.nvm/versions/node/v22/bin/node' },
+      { pid: 300, ppid: 1, pgid: 300, name: '/Applications/Mine.app/Contents/MacOS/Mine' },
+    ]
+    assert.deepEqual(leftoversOf({ root: 100, since: 0, before: null, groups: [210], now, self: 50, parent: 1, platform: 'darwin' }).end.map((p) => p.pid).sort(), [211, 212])
+    assert.deepEqual(leftoversOf({ root: 100, since: 0, before: null, now, self: 50, parent: 1, platform: 'darwin' }).end, [], 'no group noted, no mark: nothing')
+    // vite (hardened node, no mark read) with its esbuild (marked) in the group of a shell that ended unseen
+    const vite = [
+      { pid: 400, ppid: 1, pgid: 399, name: '/usr/local/bin/node' },
+      { pid: 401, ppid: 400, pgid: 399, name: '/x/node_modules/@esbuild/darwin-arm64/bin/esbuild' },
+    ]
+    assert.deepEqual(leftoversOf({ root: 100, since: 0, before: null, now: vite, marked: new Set([401]), self: 50, parent: 1, platform: 'darwin' }).end.map((p) => p.pid).sort(), [400, 401])
+  })
+
+  test('shared servers (second review): a Gradle daemon the run started is never ended — nor what runs below it; a program that made its own session is named, not ended', () => {
+    const gradle = 'java -Xmx2g -cp /h/.gradle/wrapper/dists/gradle-8.10/lib/gradle-daemon-main.jar org.gradle.launcher.daemon.bootstrap.GradleDaemon 8.10'
+    // Linux: the daemon (its own session, 500) and its Kotlin daemon carry the mark; a dev server in an ended shell's group too
+    const now = [
+      { pid: 500, ppid: 1, pgid: 500, name: 'java' },
+      { pid: 501, ppid: 500, pgid: 500, name: 'java' },
+      { pid: 600, ppid: 1, pgid: 599, name: 'node' },
+      { pid: 700, ppid: 1, pgid: 700, name: 'ssh' },
+    ]
+    const cmds = new Map([[500, gradle], [501, 'java -cp kotlin-daemon.jar org.jetbrains.kotlin.daemon.KotlinCompileDaemon'], [700, 'ssh: /h/.ssh/cm-git@host:22 [mux]']])
+    const input = { root: 100, since: 0, before: null, now, marked: new Set([500, 501, 600, 700]), cmds, self: 50, parent: 1, platform: 'linux' as const }
+    const left = leftoversOf(input)
+    assert.deepEqual(left.end.map((p) => p.pid), [600])
+    assert.deepEqual(left.spared.map((s) => [s.proc.pid, s.why, s.label]).sort(), [[500, 'shared', 'Gradle daemon'], [501, 'shared', 'Kotlin daemon'], [700, 'shared', 'ssh master']])
+    // a program that made its own session (not one of Claude Code's shells), unknown to the list: named as itself, left running
+    const own = leftoversOf({ ...input, cmds: new Map() })
+    assert.deepEqual(own.end.map((p) => p.pid), [600])
+    assert.deepEqual(own.spared.map((s) => [s.proc.pid, s.why]).sort(), [[500, 'daemon'], [501, 'daemon'], [700, 'daemon']])
+    // in the group of one of Claude Code's shells it is ended — unless it is a server the person's tools share
+    assert.deepEqual(leftoversOf({ ...input, marked: new Set(), groups: [500] }).end, [])
+    assert.deepEqual(leftoversOf({ ...input, marked: new Set(), groups: [500], cmds: new Map() }).end.map((p) => p.pid).sort(), [500, 501])
+    // Windows: a Gradle daemon a sample saw below Claude Code (its client ended): left running, its worker too
+    const sampled = [{ pid: 800, ppid: 300, pgid: null, born: 2000, name: 'java.exe' }]
+    const winNow = [{ ...sampled[0]! }, { pid: 801, ppid: 800, pgid: null, born: 2100, name: 'java.exe' }, { pid: 900, ppid: 100, pgid: null, born: 2200, name: 'node.exe' }]
+    const win = leftoversOf({ root: 100, since: 1000, before: null, sampled, now: winNow, nowAt: 9000, rootBorn: 1000, exitAt: 8000, cmds: new Map([[800, gradle.replace('java', 'java.exe')]]), self: 50, parent: 1, platform: 'win32' })
+    assert.deepEqual(win.end.map((p) => p.pid), [900])
+    assert.deepEqual(win.spared.map((s) => s.proc.pid).sort(), [800, 801])
+    // the list
+    assert.equal(sharedServer('/opt/homebrew/bin/watchman', null), 'watchman')
+    assert.equal(sharedServer('VBCSCompiler.exe', null), 'VBCSCompiler')
+    assert.equal(sharedServer('dotnet.exe', 'dotnet "C:\\sdk\\MSBuild.dll" /nologo /nodemode:1 /nodeReuse:true'), 'MSBuild node')
+    assert.equal(sharedServer('ssh', 'ssh -T git@github.com'), null)
+    assert.equal(sharedServer('java', 'java -jar app.jar'), null)
+    assert.equal(sharedServer('adb', 'adb -L tcp:5037 fork-server server --reply-fd 4'), 'adb server')
   })
 
   test('Windows: each process found is ended by itself (taskkill /F, never /T — a stale parent id is never followed)', async () => {
@@ -602,6 +723,154 @@ describe('the process tree of a run (pure)', () => {
     const exec = readFileSync(fileURLToPath(new URL('../src/worker/exec.ts', import.meta.url)), 'utf8')
     assert.match(exec, /\.\.\.\(opts\.tree === false \? \[\] : \['\/T'\]\)/)
     assert.match(readFileSync(fileURLToPath(new URL('../src/worker/proctree.ts', import.meta.url)), 'utf8'), /taskkillTree\(pid, \{ tree: false \}\)/)
+  })
+})
+
+describe('the process tree of a run: when it is read (second review)', () => {
+  /** A RunTree over a scripted world: `lists` answers each reading, `clock` is moved by hand. */
+  const world = (platform: NodeJS.Platform, procs: () => Proc[]) => {
+    const reads: number[] = []
+    let t = 1_000_000
+    const tree = new RunTree(100, 'tok', {
+      platform,
+      clock: () => t,
+      list: async () => {
+        reads.push(t)
+        return procs()
+      },
+      alive: (pid) => procs().some((p) => p.pid === pid),
+      groupAlive: (g) => procs().some((p) => p.pgid === g),
+    })
+    return { tree, reads, advance: (ms: number) => (t += ms) }
+  }
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+  test('read only while a Bash command runs and after it — never after Read / Grep / Edit, never without a command; less often while nothing changes', async () => {
+    process.env.ONE_WORKER_SAMPLE_MS = '40'
+    try {
+      const procs: Proc[] = [{ pid: 100, ppid: 50, pgid: 100, name: 'claude' }]
+      const w = world('linux', () => procs)
+      await sleep(150)
+      assert.equal(w.reads.length, 0, 'no Bash command: no reading')
+      w.tree.bashEnd('read-1') // a Read's result: not a Bash call
+      await sleep(80)
+      assert.equal(w.reads.length, 0)
+      w.tree.bashStart('bash-1')
+      await sleep(700)
+      const during = w.reads.length
+      assert.ok(during >= 2 && during <= 8, `readings while it ran: ${during} (first after 300 ms, then 40, 80, 160, 320 … — nothing new)`)
+      w.advance(5000)
+      w.tree.bashEnd('bash-1')
+      await sleep(80)
+      assert.equal(w.reads.length, during + 1, 'one reading after it returned')
+      await sleep(300)
+      assert.equal(w.reads.length, during + 1, 'none after that')
+      w.tree.atResult()
+      await sleep(20)
+      assert.equal(w.reads.length, during + 2, 'one at the result')
+      w.tree.bashStart('bash-2')
+      await sleep(400)
+      assert.equal(w.reads.length, during + 2, 'none after the result')
+      w.tree.close()
+    } finally {
+      delete process.env.ONE_WORKER_SAMPLE_MS
+    }
+  })
+
+  test('macOS / Linux: a shell seen while its command ran gives its group away after Claude Code ended; a group with no member left is forgotten (its id may be another group\'s later)', async () => {
+    process.env.ONE_WORKER_SAMPLE_MS = '40'
+    try {
+      let procs: Proc[] = [
+        { pid: 100, ppid: 50, pgid: 100, name: 'claude' },
+        { pid: 210, ppid: 100, pgid: 210, name: 'bash' },
+        { pid: 211, ppid: 210, pgid: 210, name: 'node' },
+        { pid: 220, ppid: 100, pgid: 220, name: 'bash' },
+        // a child of Claude Code in Claude Code's own group, and a daemon a shell started (its own group, not a child)
+        { pid: 230, ppid: 100, pgid: 100, name: 'node' },
+        { pid: 240, ppid: 211, pgid: 240, name: 'java' },
+      ]
+      const w = world('darwin', () => procs)
+      w.tree.bashStart('b1')
+      await sleep(400)
+      assert.deepEqual(w.tree.snapshot().groups.sort(), [210, 220])
+      // the shells ended; the server lives on below pid 1; group 220 emptied — later another program made a group 220
+      procs = [{ pid: 211, ppid: 1, pgid: 210, name: 'node' }]
+      await sleep(1200)
+      procs = [{ pid: 211, ppid: 1, pgid: 210, name: 'node' }, { pid: 220, ppid: 1, pgid: 220, name: 'mine' }, { pid: 221, ppid: 220, pgid: 220, name: 'mine' }]
+      const { groups } = w.tree.snapshot()
+      assert.deepEqual(groups, [210])
+      assert.deepEqual(leftoversOf({ root: 100, since: 0, before: null, groups, now: procs, self: 50, parent: 1, platform: 'darwin' }).end.map((p) => p.pid), [211])
+      w.tree.close()
+    } finally {
+      delete process.env.ONE_WORKER_SAMPLE_MS
+    }
+  })
+
+  test('Windows: the latest a child of an ended shell can have been born is when a check (every second) or a reading first missed it', async () => {
+    process.env.ONE_WORKER_SAMPLE_MS = '40'
+    try {
+      let procs: Proc[] = [
+        { pid: 100, ppid: 50, pgid: null, born: 1_000_000, name: 'claude.exe' },
+        { pid: 300, ppid: 100, pgid: null, born: 1_000_100, name: 'bash.exe' },
+      ]
+      const w = world('win32', () => procs)
+      w.tree.bashStart('b1')
+      await sleep(400)
+      procs = [procs[0]!]
+      w.advance(60_000)
+      await sleep(1200)
+      const snap = w.tree.snapshot()
+      assert.deepEqual(snap.seen.map((s: Seen) => [s.pid, s.goneBy]), [[300, 1_060_000 + 500]])
+      assert.equal(snap.rootBorn, 1_000_000)
+      w.tree.close()
+    } finally {
+      delete process.env.ONE_WORKER_SAMPLE_MS
+    }
+  })
+
+  test('Windows: ONE session answers every reading (a line on its stdin); a session that does not answer, or ends, is not used again', async () => {
+    // a stand-in for PowerShell: echoes the marks of each line, with two processes between them; "hang" answers nothing
+    const script = `
+      const rl = require('node:readline').createInterface({ input: process.stdin })
+      let n = 0
+      rl.on('line', (l) => {
+        n++
+        const [, begin] = /'(ONE-BEGIN-[0-9a-f]+)'/.exec(l) ?? []
+        const [, end] = /'(ONE-END-[0-9a-f]+)'/.exec(l) ?? []
+        if (l.includes('hang')) return
+        if (l.includes('die')) process.exit(3)
+        process.stdout.write('PS> noise\\n' + begin + '\\r\\n10 4 ' + n + ' a.exe\\r\\n11 10 ' + n + ' b.exe\\r\\n' + end + '\\r\\n')
+      })`
+    let started = 0
+    const start = () => {
+      started++
+      return spawn(process.execPath, ['-e', script], { stdio: ['pipe', 'pipe', 'ignore'] })
+    }
+    const s = new LineSession(start, 1500)
+    assert.deepEqual(parseWin((await s.run('list'))!.join('\n')).map((p) => [p.pid, p.born]), [[10, 1], [11, 1]])
+    assert.deepEqual(parseWin((await s.run('list'))!.join('\n')).map((p) => [p.pid, p.born]), [[10, 2], [11, 2]], 'the same process answers again')
+    assert.equal(started, 1)
+    assert.equal(await s.run('hang'), null, 'no answer in time: null')
+    assert.equal(await s.run('list'), null, 'never used again')
+    assert.equal(started, 1)
+    const d = new LineSession(start, 5000)
+    assert.equal(await d.run('die'), null, 'ended: null')
+    assert.equal(await d.run('list'), null)
+    const none = new LineSession(() => null)
+    assert.equal(await none.run('list'), null)
+    s.close()
+    d.close()
+  })
+
+  test('Claude Code\'s environment: MSBuild node reuse and the C# compiler server off — unless the person set them', () => {
+    const env = claudeEnv({ PATH: '/usr/bin', ONE_WORKER_PORT: '1' }, 'linux')
+    assert.equal(env.MSBUILDDISABLENODEREUSE, '1')
+    assert.equal(env.UseSharedCompilation, 'false')
+    assert.equal(env.ONE_WORKER_PORT, undefined)
+    const own = claudeEnv({ Path: 'C:\\Windows', usesharedcompilation: 'true' }, 'win32')
+    assert.equal(own.usesharedcompilation, 'true')
+    assert.equal(own.UseSharedCompilation, undefined)
+    assert.equal(own.MSBUILDDISABLENODEREUSE, '1')
   })
 })
 

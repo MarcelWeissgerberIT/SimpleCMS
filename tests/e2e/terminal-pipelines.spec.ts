@@ -513,10 +513,16 @@ test.describe('AI terminal → coding pipelines (mocked Claude API)', () => {
     // it stopped at 12/12 (the limit then); the Plan stage gives 20 now
     await putLocal(page, `local:local|task|${id}`, { state: 'failed', stageId, error: 'Stopped at the step limit (12/12).', stepLimit: { stageId, turns: 12, max: 12 }, at: 1 })
     await reloadApp(page)
-    await mockAgent(context, [call('toolu_cn', 'task_action', { id, action: 'continue' }), say('Staged the continue.')])
+    const m = await mockAgent(context, [call('toolu_ls', 'list_tasks', { status: 'failed' }), call('toolu_rd', 'read_task', { id }), call('toolu_cn', 'task_action', { id, action: 'continue' }), say('Staged the continue.')])
     await openTerminal(page)
     await run(page, 'Continue the limit task')
     await expect(terminal(page).locator('.term-answer')).toContainText('Staged the continue.')
+    // the model is told it stopped at its step limit — continue goes on, run would start over (second review)
+    const res = (tool: string) => resultText(m.bodies.find((b) => toolResult(b, tool)), tool)
+    for (const r of [res('toolu_ls'), res('toolu_rd')]) {
+      expect(r).toContain('stopped at its step limit (12/12) — task_action continue runs it on from its worktree')
+      expect(r).not.toContain('task_action run retries it')
+    }
     const change = item(page, 1)
     await expect(change).toHaveAttribute('aria-label', /^#1 Continue,/)
     await expect(change).not.toContainText('features.agent')

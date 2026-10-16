@@ -28,7 +28,7 @@ import { inFolder } from './config.ts'
 import { envGet, execFileSafe, isFile, killTree, programName, resolveCommand, spawnSafe, type ExecCtx, type Via } from './exec.ts'
 import { samePath } from './paths.ts'
 import { estimateCost, usageOf, type Usage } from './price.ts'
-import { RUN_MARK, RunTree } from './proctree.ts'
+import { BASH_TOOLS, RUN_MARK, RunTree } from './proctree.ts'
 
 export { killTree } from './exec.ts'
 
@@ -606,6 +606,8 @@ export function runClaude(r: ClaudeRun): Promise<ClaudeResult> {
             if (block.type === 'text' && typeof block.text === 'string' && block.text.trim()) log('claude', clip(scrub(block.text.trim()), 4000))
             else if (block.type === 'tool_use' && typeof block.name === 'string') {
               if (typeof block.id === 'string' && toolNames.size < 5000) toolNames.set(block.id, block.name)
+              // a command that may start programs: the tree is read while it runs (proctree.ts)
+              if (typeof block.id === 'string' && BASH_TOOLS.test(block.name)) tree?.bashStart(block.id)
               // a change to a file carries what changed (the log shows it as a diff)
               const e = editOf(block.name, block.input, scrub)
               r.onLog({ t: Date.now(), k: 'tool', s: toolLine(block.name, block.input, scrub), ...(e ? { e } : {}) })
@@ -618,9 +620,9 @@ export function runClaude(r: ClaudeRun): Promise<ClaudeResult> {
         }
         case 'user': {
           const content = ((ev.message as { content?: unknown })?.content ?? []) as Array<Record<string, unknown>>
-          // a tool's result: what it started still hangs together now (Windows reads the tree; proctree.ts)
-          if (Array.isArray(content) && content.some((b) => b?.type === 'tool_result')) tree?.sample()
           for (const block of Array.isArray(content) ? content : []) {
+            // a Bash command returned: what it started still hangs together now (the tree is read once more; proctree.ts)
+            if (block?.type === 'tool_result' && typeof block.tool_use_id === 'string') tree?.bashEnd(block.tool_use_id)
             if (block.type !== 'tool_result' || block.is_error !== true) continue
             const text = typeof block.content === 'string' ? block.content : Array.isArray(block.content) ? (block.content as Array<{ text?: string }>).map((c) => c.text ?? '').join(' ') : ''
             // the worker's own refusal (one_task_permission): its line is in the log already
@@ -674,11 +676,16 @@ export function runClaude(r: ClaudeRun): Promise<ClaudeResult> {
       clearTimeout(afterExit)
       r.signal.removeEventListener('abort', onAbort)
       // what the run left running (a server it started, a watcher): ended — also what kept its output open
-      const left = tree ? await tree.end() : { n: 0, names: [] }
+      const left = tree ? await tree.end() : { n: 0, names: [], spared: { n: 0, names: [] } }
       if (left.n) {
         result.leftovers = left.n
         const names = left.names.join(', ')
         log('info', `Ended ${left.n} program(s) Claude Code left running${names ? `: ${names}` : ''}`, 'claudeLeftovers', { n: left.n, names })
+      }
+      // a server the person's own tools share (a Gradle daemon …), or a program that made its own session: named, left running
+      if (left.spared.n) {
+        const names = left.spared.names.join(', ')
+        log('info', `Left ${left.spared.n} program(s) running that Claude Code started and other tools may use${names ? `: ${names}` : ''}`, 'claudeSpared', { n: left.spared.n, names })
       }
       lines.close()
       child.stdout?.destroy()
@@ -702,7 +709,10 @@ export function runClaude(r: ClaudeRun): Promise<ClaudeResult> {
     // the process ended: a moment for the last lines, then the run is over — whoever still holds its output
     child.on('exit', (code) => {
       clearInterval(beat)
-      afterExit = setTimeout(() => void finish(code), exitGraceMs())
+      // its id may be another program's from now on (Windows: what was born after this is not its)
+      tree?.exited()
+      // stopped: no lines are needed any more — the leftovers are ended at once (a worker that shuts down waits for it)
+      afterExit = setTimeout(() => void finish(code), result.stopped ? 0 : exitGraceMs())
     })
     child.on('close', (code) => void finish(code))
   })

@@ -153,6 +153,62 @@ test('a permission: the task waits for you, the card says what Claude Code wants
   })).toEqual({ asks: 0, progress: 0 })
 })
 
+test('second review: a request the box cuts says so — measured, on a phone too; answered from the keyboard, focus goes on (never the page body); #/coding lists a task held for a permission', async ({ page, errors }) => {
+  errors.allow(/WebSocket connection to 'ws:\/\/127\.0\.0\.1/)
+  const { id, task } = await begin(page, WORKER_CAN)
+  // 216 characters: whole in the wide panel — cut by the box at 390 px (~27 characters a line), where the end is the part
+  // that matters
+  const cmd = 'npm run lint -- --fix --cache --cache-location .cache/eslint --ext .ts,.tsx,.js --max-warnings 0 --report-unused-disable-directives src tests scripts && git add -A && git commit -m wip && git push origin HEAD --force'
+  fake!.askPermission(task, askOf({ what: cmd, rule: null }))
+  const what = page.getByTestId('coding-permission-what')
+  await expect(what).toHaveText(cmd)
+  const cut = () => what.evaluate((el) => el.scrollHeight > el.clientHeight + 1)
+  expect(await cut()).toBe(false)
+  await expect(page.getByTestId('coding-permission-length')).toHaveCount(0)
+  await expect(what).not.toHaveAttribute('tabindex', '0')
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect.poll(cut).toBe(true)
+  await expect(page.getByTestId('coding-permission-length')).toHaveText(`${cmd.length} characters — scroll to read it all`)
+  await expect(what).toHaveAttribute('tabindex', '0')
+  await expect(what).toHaveAttribute('role', 'region')
+  // scrolled to its end, the end is there
+  await what.evaluate((el) => (el.scrollTop = el.scrollHeight))
+  expect(await what.evaluate((el) => el.scrollTop > 0)).toBe(true)
+
+  // #/coding: the task waits for you — first in the list, and its RUNNING row says so
+  await page.evaluate(() => (window.location.hash = '#/coding'))
+  const needs = page.getByTestId('coding-needs')
+  await expect(needs).toContainText('Waiting for you · 1')
+  await expect(needs.locator('li').first()).toContainText('Permission')
+  await expect(needs.locator('li').first()).toContainText('Fix the login form')
+  await expect(page.getByTestId('coding-running-permission')).toHaveText('Permission')
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0)
+  await page.evaluate((id) => (window.location.hash = `#/p/${id}`), id)
+  await expect(what).toHaveText(cmd)
+
+  // the keyboard: Allow once with Enter — the card goes, focus waits on the state line (never Stop, never the body)
+  await page.waitForTimeout(500)
+  await page.getByTestId('coding-permission-once').focus()
+  await page.keyboard.press('Enter')
+  await expect.poll(() => fake!.permAsked.length).toBe(1)
+  await expect(page.getByTestId('coding-permission')).toHaveCount(0)
+  await expect(page.getByTestId('coding-state')).toBeFocused()
+  expect(await page.evaluate(() => document.activeElement?.tagName)).not.toBe('BODY')
+  // the next request: its first key takes the focus — asleep for a moment (a held Enter answers nothing)
+  fake!.askPermission(task, askOf({ id: 'e1b2c3d4e5f6a7b8c9d0e1f2' }))
+  await expect(page.getByTestId('coding-permission-once')).toBeFocused()
+  await page.keyboard.press('Enter')
+  await page.waitForTimeout(600)
+  expect(fake!.permAsked).toHaveLength(1)
+  await page.keyboard.press('Enter')
+  await expect.poll(() => fake!.permAsked.length).toBe(2)
+  expect(fake!.permAsked[1]).toMatchObject({ ask: 'e1b2c3d4e5f6a7b8c9d0e1f2', verb: 'once' })
+  await expect(page.getByTestId('coding-state')).toBeFocused()
+  // #/coding without a request: nothing waits
+  await page.evaluate(() => (window.location.hash = '#/coding'))
+  await expect(page.getByTestId('coding-needs')).toHaveCount(0)
+})
+
 test('Preflight in German: the "Claude möchte" card shows the request in full; D refuses VON HAND through the confirm row; it is never in a bulk apply', async ({ page, errors }) => {
   errors.allow(/WebSocket connection to 'ws:\/\/127\.0\.0\.1/)
   const { id, task } = await begin(page, WORKER_CAN, 'de')

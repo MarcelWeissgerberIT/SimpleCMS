@@ -2282,7 +2282,7 @@ var require_websocket = __commonJS({
     var http = __require("http");
     var net = __require("net");
     var tls = __require("tls");
-    var { randomBytes: randomBytes8, createHash: createHash3 } = __require("crypto");
+    var { randomBytes: randomBytes9, createHash: createHash3 } = __require("crypto");
     var { Duplex, Readable } = __require("stream");
     var { URL: URL2 } = __require("url");
     var PerMessageDeflate2 = require_permessage_deflate();
@@ -2833,7 +2833,7 @@ var require_websocket = __commonJS({
         }
       }
       const defaultPort = isSecure ? 443 : 80;
-      const key = randomBytes8(16).toString("base64");
+      const key = randomBytes9(16).toString("base64");
       const request2 = isSecure ? https.request : http.request;
       const protocolSet = /* @__PURE__ */ new Set();
       let perMessageDeflate;
@@ -6677,7 +6677,7 @@ var require_compile = __commonJS({
       const schOrFunc = root.refs[ref];
       if (schOrFunc)
         return schOrFunc;
-      let _sch = resolve9.call(this, root, ref);
+      let _sch = resolve8.call(this, root, ref);
       if (_sch === void 0) {
         const schema = (_a4 = root.localRefs) === null || _a4 === void 0 ? void 0 : _a4[ref];
         const { schemaId } = this.opts;
@@ -6704,7 +6704,7 @@ var require_compile = __commonJS({
     function sameSchemaEnv(s1, s2) {
       return s1.schema === s2.schema && s1.root === s2.root && s1.baseId === s2.baseId;
     }
-    function resolve9(root, ref) {
+    function resolve8(root, ref) {
       let sch;
       while (typeof (sch = this.refs[ref]) == "string")
         ref = sch;
@@ -7534,7 +7534,7 @@ var require_fast_uri = __commonJS({
       }
       return uri;
     }
-    function resolve9(baseURI, relativeURI, options) {
+    function resolve8(baseURI, relativeURI, options) {
       const schemelessOptions = options ? Object.assign({ scheme: "null" }, options) : { scheme: "null" };
       const {
         parsed: baseParsed,
@@ -7903,7 +7903,7 @@ var require_fast_uri = __commonJS({
     var fastUri = {
       SCHEMES,
       normalize,
-      resolve: resolve9,
+      resolve: resolve8,
       resolveComponent,
       equal,
       serialize,
@@ -10896,7 +10896,7 @@ var require_dist = __commonJS({
 import { fileURLToPath } from "node:url";
 import { existsSync as existsSync9, statSync as statSync5 } from "node:fs";
 import { homedir as homedir11, userInfo } from "node:os";
-import { resolve as resolve8 } from "node:path";
+import { resolve as resolve7 } from "node:path";
 
 // ../src/app/features/coding/protocol.ts
 var WORKER_DEFAULT_PORT = 47322;
@@ -11457,14 +11457,14 @@ function killTree(child, platform = process.platform) {
   if (child.exitCode !== null || child.pid === void 0) return Promise.resolve();
   const pid = child.pid;
   const gone = child.signalCode !== null;
-  return new Promise((resolve9) => {
+  return new Promise((resolve8) => {
     let done = false;
     const finish = () => {
       if (done) return;
       done = true;
       clearTimeout(cap);
       child.off("close", finish);
-      resolve9();
+      resolve8();
     };
     child.once("close", finish);
     try {
@@ -11495,12 +11495,12 @@ function killTree(child, platform = process.platform) {
   });
 }
 function taskkillTree(pid, opts = {}) {
-  return new Promise((resolve9) => {
-    const cap = setTimeout(resolve9, 5e3);
+  return new Promise((resolve8) => {
+    const cap = setTimeout(resolve8, 5e3);
     cap.unref();
     const done = () => {
       clearTimeout(cap);
-      resolve9();
+      resolve8();
     };
     try {
       const k = spawn(systemTool("taskkill"), ["/pid", String(pid), ...opts.tree === false ? [] : ["/T"], "/F"], { stdio: "ignore", windowsHide: true, env: ownEnv(process.env, "win32") });
@@ -12373,8 +12373,8 @@ function addAllowedTool(file, repoPath, rule, env = process.env) {
 }
 
 // src/worker/claude.ts
-import { randomBytes } from "node:crypto";
-import { createInterface } from "node:readline";
+import { randomBytes as randomBytes2 } from "node:crypto";
+import { createInterface as createInterface2 } from "node:readline";
 import { readFileSync as readFileSync3, readdirSync as readdirSync3, realpathSync as realpathSync2, statSync as statSync2 } from "node:fs";
 import { homedir as homedir5 } from "node:os";
 import { delimiter, isAbsolute as isAbsolute2, join as join4, posix as posix3, resolve as resolve3, win32 as win323 } from "node:path";
@@ -12411,8 +12411,11 @@ function usageOf(raw) {
 }
 
 // src/worker/proctree.ts
-import { readFileSync as readFileSync2, readdirSync as readdirSync2 } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { readFileSync as readFileSync2, readdirSync as readdirSync2, readlinkSync } from "node:fs";
+import { createInterface } from "node:readline";
 var RUN_MARK = "ONE_WORKER_RUN";
+var SKEW_MS = 500;
 var int = (s) => {
   const n = Number(s);
   return s !== void 0 && s.trim() !== "" && Number.isInteger(n) && n >= 0 ? n : null;
@@ -12429,6 +12432,14 @@ function parseStat(text2) {
   if (pid === null || ppid === null) return null;
   const born = int(rest[19]);
   return { pid, ppid, pgid, name: text2.slice(open2 + 1, close), ...born !== null ? { born } : {} };
+}
+function exeName(pid, comm, readlink = (path) => readlinkSync(path)) {
+  try {
+    const name = (readlink(`/proc/${pid}/exe`).split("/").pop() ?? "").replace(/ \(deleted\)$/, "");
+    return name || comm;
+  } catch {
+    return comm;
+  }
 }
 var sameProc = (a, b) => !!b && a.pid === b.pid && a.name === b.name && (a.born === void 0 || b.born === void 0 || a.born === b.born);
 function parsePs(out) {
@@ -12447,6 +12458,16 @@ function parseWin(out) {
   }
   return list;
 }
+var WIN_LIST = "Get-CimInstance Win32_Process | ForEach-Object { $b = 0; if ($_.CreationDate) { $b = ([DateTimeOffset]$_.CreationDate).ToUnixTimeMilliseconds() }; '{0} {1} {2} {3}' -f $_.ProcessId, $_.ParentProcessId, $b, $_.Name }";
+var winCommandLines = (pids) => `Get-CimInstance Win32_Process -Filter '${pids.map((p) => `ProcessId=${Math.trunc(p)}`).join(" OR ")}' | ForEach-Object { '{0} {1}' -f $_.ProcessId, ([string]$_.CommandLine -replace '\\s+', ' ') }`;
+function parsePidLines(out) {
+  const map = /* @__PURE__ */ new Map();
+  for (const line of out.split(/\r?\n/)) {
+    const m = /^\s*(\d+)\s?(.*)$/.exec(line);
+    if (m) map.set(Number(m[1]), m[2].trim());
+  }
+  return map;
+}
 async function listProcs(platform = process.platform) {
   try {
     if (platform === "linux") {
@@ -12455,21 +12476,45 @@ async function listProcs(platform = process.platform) {
         if (!/^\d+$/.test(d)) continue;
         try {
           const p = parseStat(readFileSync2(`/proc/${d}/stat`, "utf8"));
-          if (p) out.push(p);
+          if (p) out.push({ ...p, name: exeName(d, p.name) });
         } catch {
         }
       }
       return out;
     }
     if (platform === "win32") {
-      const script = "Get-CimInstance Win32_Process | ForEach-Object { $b = 0; if ($_.CreationDate) { $b = ([DateTimeOffset]$_.CreationDate).ToUnixTimeMilliseconds() }; '{0} {1} {2} {3}' -f $_.ProcessId, $_.ParentProcessId, $b, $_.Name }";
-      const r2 = await execFileSafe(systemTool("powershell"), ["-NoProfile", "-NonInteractive", "-Command", script], { timeoutMs: 2e4, maxBuffer: 8 * 1024 * 1024, allow: "exe" });
+      const r2 = await execFileSafe(systemTool("powershell"), ["-NoProfile", "-NonInteractive", "-Command", WIN_LIST], { timeoutMs: 2e4, maxBuffer: 8 * 1024 * 1024, allow: "exe" });
       return r2.code === 0 ? parseWin(r2.stdout) : null;
     }
     const r = await execFileSafe("ps", ["-A", "-o", "pid=,ppid=,pgid=,comm="], { timeoutMs: 1e4, maxBuffer: 8 * 1024 * 1024, allow: "exe" });
     return r.code === 0 ? parsePs(r.stdout) : null;
   } catch {
     return null;
+  }
+}
+async function commandLines(pids, platform = process.platform, session) {
+  const list = [...new Set(pids)].filter((p) => Number.isInteger(p) && p > 0).slice(0, 200);
+  if (!list.length) return /* @__PURE__ */ new Map();
+  try {
+    if (platform === "linux") {
+      const map = /* @__PURE__ */ new Map();
+      for (const pid of list)
+        try {
+          map.set(pid, readFileSync2(`/proc/${pid}/cmdline`, "latin1").split("\0").join(" ").trim());
+        } catch {
+        }
+      return map;
+    }
+    if (platform === "win32") {
+      const lines = session ? await session.run(winCommandLines(list)) : null;
+      if (lines) return parsePidLines(lines.join("\n"));
+      const r2 = await execFileSafe(systemTool("powershell"), ["-NoProfile", "-NonInteractive", "-Command", winCommandLines(list)], { timeoutMs: 2e4, maxBuffer: 8 * 1024 * 1024, allow: "exe" });
+      return r2.code === 0 ? parsePidLines(r2.stdout) : /* @__PURE__ */ new Map();
+    }
+    const r = await execFileSafe("ps", ["-ww", "-o", "pid=,command=", "-p", list.join(",")], { timeoutMs: 1e4, maxBuffer: 8 * 1024 * 1024, allow: "exe" });
+    return parsePidLines(r.stdout);
+  } catch {
+    return /* @__PURE__ */ new Map();
   }
 }
 async function markedProcs(token, platform = process.platform) {
@@ -12496,6 +12541,27 @@ async function markedProcs(token, platform = process.platform) {
   }
   return out;
 }
+var SHARED = [
+  { label: "Gradle daemon", cmd: /\borg\.gradle\.launcher\.daemon\.bootstrap\.GradleDaemon\b/ },
+  { label: "Kotlin daemon", cmd: /\bKotlinCompileDaemon\b/ },
+  { label: "MSBuild node", cmd: /[/-]nodeReuse:true\b|[/-]nodemode:\d/i },
+  { label: "VBCSCompiler", name: /^VBCSCompiler(\.exe)?$/i },
+  { label: "VBCSCompiler", cmd: /\bVBCSCompiler\.(dll|exe)\b/i },
+  { label: "sccache", name: /^sccache(\.exe)?$/i },
+  { label: "watchman", name: /^watchman(\.exe)?$/i },
+  { label: "adb server", name: /^adb(\.exe)?$/i, cmd: /\bfork-server\b/ },
+  { label: "ssh master", name: /^ssh(\.exe)?$/i, cmd: /\[mux\]|ControlPersist|ControlMaster/i },
+  { label: "gpg-agent", name: /^(gpg-agent|keyboxd|scdaemon|dirmngr)(\.exe)?$/i }
+];
+function sharedServer(name, cmd) {
+  const base = name.split(/[\\/]/).pop() ?? "";
+  for (const s of SHARED) {
+    if (s.name && !s.name.test(base)) continue;
+    if (s.cmd && !(cmd && s.cmd.test(cmd))) continue;
+    return s.label;
+  }
+  return null;
+}
 function below(list, root, opts = {}) {
   const win2 = (opts.platform ?? process.platform) === "win32";
   const byParent = /* @__PURE__ */ new Map();
@@ -12518,6 +12584,7 @@ function below(list, root, opts = {}) {
         const up = byPid.get(parent);
         const upBorn = up?.born ?? (parent === root ? opts.rootBorn : void 0);
         if (upBorn !== void 0 && kid.born !== void 0 && kid.born < upBorn) continue;
+        if (!up && parent === root && opts.rootUntil !== void 0 && (kid.born === void 0 || kid.born > opts.rootUntil)) continue;
       }
       seen.add(kid.pid);
       out.push(kid);
@@ -12528,23 +12595,67 @@ function below(list, root, opts = {}) {
 }
 function leftoversOf(opts) {
   const platform = opts.platform ?? process.platform;
+  const win2 = platform === "win32";
   const alive = new Map(opts.now.map((p) => [p.pid, p]));
+  const groups = new Set(opts.groups ?? []);
   const picked = /* @__PURE__ */ new Set();
+  const daemons = /* @__PURE__ */ new Set();
   const from = (p) => {
     const here = alive.get(p.pid);
     if (here && !sameProc(p, here)) return;
     if (here) picked.add(p.pid);
-    for (const k of below(opts.now, p.pid, { platform, since: opts.since, rootBorn: p.born })) picked.add(k.pid);
+    const until = here ? void 0 : p.goneBy ?? opts.nowAt;
+    for (const k of below(opts.now, p.pid, { platform, since: opts.since, rootBorn: p.born, rootUntil: until })) picked.add(k.pid);
   };
-  const seen = [...opts.before ? below(opts.before, opts.root, { platform, since: opts.since }) : [], ...opts.sampled ?? []];
-  for (const p of seen) from(p);
-  if (!alive.has(opts.root)) for (const p of below(opts.now, opts.root, { platform, since: opts.since })) picked.add(p.pid);
-  for (const pid of opts.marked ?? []) if (alive.has(pid)) picked.add(pid);
-  if (platform !== "win32") {
-    for (const p of opts.now) if (p.pgid === opts.root) picked.add(p.pid);
+  const key = (p) => `${p.pid}:${p.born ?? ""}`;
+  const sampled = new Set((opts.sampled ?? []).map(key));
+  for (const p of opts.before ? below(opts.before, opts.root, { platform, since: opts.since }) : []) if (!sampled.has(key(p))) from(p);
+  for (const p of opts.sampled ?? []) from(p);
+  if (!alive.has(opts.root)) for (const p of below(opts.now, opts.root, { platform, since: opts.since, rootBorn: opts.rootBorn, rootUntil: opts.exitAt })) picked.add(p.pid);
+  if (!win2) {
+    for (const p of opts.now) if (p.pgid !== null && (p.pgid === opts.root || groups.has(p.pgid))) picked.add(p.pid);
+    for (const pid of opts.marked ?? []) {
+      const p = alive.get(pid);
+      if (!p || picked.has(pid)) continue;
+      const g = p.pgid;
+      const leader = g !== null ? alive.get(g) : void 0;
+      if (leader && !picked.has(leader.pid)) {
+        daemons.add(pid);
+        continue;
+      }
+      picked.add(pid);
+      if (g !== null && g > 1 && !leader) {
+        for (const q of opts.now) if (q.pgid === g) picked.add(q.pid);
+      }
+    }
   }
-  for (const never2 of [0, 1, opts.root, opts.self ?? process.pid, opts.parent ?? process.ppid]) picked.delete(never2);
-  return [...picked].map((pid) => alive.get(pid)).filter(Boolean);
+  for (const never2 of [0, 1, opts.root, opts.self ?? process.pid, opts.parent ?? process.ppid]) {
+    picked.delete(never2);
+    daemons.delete(never2);
+  }
+  const shared = /* @__PURE__ */ new Map();
+  for (const pid of [...picked, ...daemons]) {
+    const p = alive.get(pid);
+    const label = sharedServer(p.name, opts.cmds?.get(pid));
+    if (!label) continue;
+    shared.set(pid, label);
+    for (const k of below(opts.now, pid, { platform, since: opts.since })) if (!shared.has(k.pid)) shared.set(k.pid, label);
+  }
+  const end = [];
+  const spared = [];
+  for (const pid of picked) {
+    const p = alive.get(pid);
+    if (!p) continue;
+    const label = shared.get(pid);
+    if (label) spared.push({ proc: p, why: "shared", label });
+    else end.push(p);
+  }
+  for (const pid of daemons) {
+    const p = alive.get(pid);
+    const label = shared.get(pid);
+    spared.push({ proc: p, why: label ? "shared" : "daemon", label: label ?? (shortName(p.name) || "program") });
+  }
+  return { end, spared };
 }
 var isAlive = (pid) => {
   try {
@@ -12554,6 +12665,7 @@ var isAlive = (pid) => {
     return e.code === "EPERM";
   }
 };
+var groupAlive = (g) => g > 1 && isAlive(-g);
 async function endProcs(procs, opts) {
   const platform = opts.platform ?? process.platform;
   if (platform === "win32") {
@@ -12578,66 +12690,308 @@ async function endProcs(procs, opts) {
   while (Date.now() < until && procs.some((p) => isAlive(p.pid))) await new Promise((r) => setTimeout(r, 100));
   if (procs.some((p) => isAlive(p.pid))) signal("SIGKILL");
 }
-var sampleMs = () => Number(process.env.ONE_WORKER_SAMPLE_MS) || 5e3;
+var LineSession = class {
+  child = null;
+  broken = false;
+  busy = false;
+  onLine = null;
+  onFail = null;
+  start;
+  timeoutMs;
+  constructor(start, timeoutMs = 2e4) {
+    this.start = start;
+    this.timeoutMs = timeoutMs;
+  }
+  /** Run one line of script; its output lines (null: the session failed, or a reading is under way). */
+  run(script) {
+    if (this.broken || this.busy) return Promise.resolve(null);
+    if (!this.child && !this.open()) return Promise.resolve(null);
+    const child = this.child;
+    const tag = randomBytes(6).toString("hex");
+    const begin = `ONE-BEGIN-${tag}`;
+    const end = `ONE-END-${tag}`;
+    this.busy = true;
+    return new Promise((resolve8) => {
+      const lines = [];
+      let inside = false;
+      const done = (out) => {
+        clearTimeout(timer);
+        this.onLine = null;
+        this.onFail = null;
+        this.busy = false;
+        resolve8(out);
+      };
+      const timer = setTimeout(() => {
+        this.fail();
+        done(null);
+      }, this.timeoutMs);
+      timer.unref?.();
+      this.onLine = (line) => {
+        if (line.includes(end)) return done(lines);
+        if (line.includes(begin)) inside = true;
+        else if (inside && lines.length < 1e5) lines.push(line);
+      };
+      this.onFail = () => done(null);
+      try {
+        child.stdin?.write(`'${begin}'; try { ${script} } catch { }; '${end}'
+`);
+      } catch {
+        this.fail();
+      }
+    });
+  }
+  open() {
+    let child = null;
+    try {
+      child = this.start();
+    } catch {
+      child = null;
+    }
+    if (!child?.stdout || !child.stdin) {
+      this.broken = true;
+      return false;
+    }
+    this.child = child;
+    child.stdin.on("error", () => this.fail());
+    child.on("error", () => this.fail());
+    child.on("exit", () => this.fail());
+    createInterface({ input: child.stdout }).on("line", (line) => this.onLine?.(line));
+    return true;
+  }
+  fail() {
+    if (this.broken) return;
+    this.broken = true;
+    this.close();
+    this.onFail?.();
+  }
+  /** End the session (the run is over). */
+  close() {
+    this.broken = true;
+    const child = this.child;
+    this.child = null;
+    if (!child) return;
+    try {
+      child.stdin?.end();
+      if (child.exitCode === null) child.kill();
+    } catch {
+    }
+  }
+};
+var startPowerShell = () => {
+  const s = spawnSafe(systemTool("powershell"), ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", "-"], { stdio: ["pipe", "pipe", "ignore"], allow: "exe", windowsHide: true });
+  return s.ok ? s.child : null;
+};
+var BASH_TOOLS = /^(Bash|PowerShell)$/;
+var sampleBase = (win2) => Number(process.env.ONE_WORKER_SAMPLE_MS) || (win2 ? 5e3 : 1e3);
+var sampleCap = (win2) => win2 ? 3e4 : 15e3;
+var FIRST_MS = 300;
 var RunTree = class {
   since;
+  spawnAt;
   root;
   token;
   platform;
+  win;
+  clock;
+  aliveOf;
+  groupAliveOf;
+  lister;
+  session;
   before = null;
-  /** processes seen below Claude Code while it ran (Windows), by id + start time */
-  sampled = /* @__PURE__ */ new Map();
+  /** Windows: processes seen below Claude Code, by id + creation time */
+  seen = /* @__PURE__ */ new Map();
+  /** macOS / Linux: the groups of Claude Code's own shells */
+  groups = /* @__PURE__ */ new Set();
+  rootBorn;
+  exitAt;
+  inflight = /* @__PURE__ */ new Set();
   sampling = null;
   lastSample = 0;
+  interval;
   timer = null;
-  constructor(root, token, platform = process.platform) {
+  watcher = null;
+  closed = false;
+  constructor(root, token, opts = {}) {
     this.root = root;
     this.token = token;
-    this.platform = platform;
-    this.since = Date.now() - 2e3;
-    if (platform === "win32") {
-      this.timer = setInterval(() => this.sample(), sampleMs());
-      this.timer.unref?.();
-    }
+    this.platform = opts.platform ?? process.platform;
+    this.win = this.platform === "win32";
+    this.clock = opts.clock ?? Date.now;
+    this.aliveOf = opts.alive ?? isAlive;
+    this.groupAliveOf = opts.groupAlive ?? groupAlive;
+    this.session = !opts.list && this.win ? new LineSession(startPowerShell) : null;
+    this.lister = opts.list ?? (() => this.readAll());
+    this.spawnAt = this.clock();
+    this.since = this.spawnAt - 2e3;
+    this.interval = sampleBase(this.win);
   }
-  /** Windows: read the tree now (a tool's result came; the timer) — one read at a time, at most one a second. */
+  async readAll() {
+    if (this.session) {
+      const lines = await this.session.run(WIN_LIST);
+      if (lines) return parseWin(lines.join("\n"));
+    }
+    return listProcs(this.platform);
+  }
+  /** A Bash command starts: the tree is read soon and every few seconds while one runs (less often while nothing changes). */
+  bashStart(id) {
+    if (this.closed || this.before) return;
+    this.inflight.add(id);
+    this.interval = sampleBase(this.win);
+    if (!this.timer) this.schedule(FIRST_MS);
+  }
+  /** A Bash command returned: the tree once more now (what it started still hangs together), at most once a second. */
+  bashEnd(id) {
+    if (this.closed || this.before || !this.inflight.delete(id)) return;
+    this.schedule(Math.max(0, this.lastSample + 1e3 - this.clock()));
+  }
+  schedule(ms) {
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = setTimeout(() => void this.tick(), ms);
+    this.timer.unref?.();
+  }
+  async tick() {
+    this.timer = null;
+    if (this.closed || this.before) return;
+    const fresh = await this.sample();
+    if (this.closed || this.before || !this.inflight.size || this.timer) return;
+    this.interval = fresh > 0 ? sampleBase(this.win) : Math.min(this.interval * 2, sampleCap(this.win));
+    this.schedule(this.interval);
+  }
+  /** One reading (one at a time); how many processes / groups it found that no reading had found before. */
   sample() {
-    if (this.platform !== "win32" || this.before || this.sampling || Date.now() - this.lastSample < 1e3) return;
-    this.lastSample = Date.now();
-    this.sampling = listProcs(this.platform).then((list) => {
-      if (list) {
-        for (const p of below(list, this.root, { platform: this.platform, since: this.since })) if (this.sampled.size < 5e3) this.sampled.set(`${p.pid}:${p.born ?? ""}`, p);
-      }
-    }).catch(() => {
-    }).finally(() => {
+    if (this.sampling) return this.sampling;
+    this.lastSample = this.clock();
+    const started = this.clock();
+    this.sampling = this.lister().then((list) => list ? this.note(list, started, this.clock()) : 0).catch(() => 0).finally(() => {
       this.sampling = null;
     });
+    return this.sampling;
   }
-  /** Read the tree now (Claude Code's result arrived — the shells it started may still run); no samples after it. */
+  /**
+   * Take in a reading begun at `started` and done at `at`: Windows — Claude Code's creation time, the processes below
+   * it, and for each one seen before that this reading misses (or whose id another process holds now) the latest a
+   * child of it can have been born; macOS / Linux — the groups of its shells.
+   */
+  note(list, started, at) {
+    let fresh = 0;
+    const running = this.exitAt === void 0 || started < this.exitAt - SKEW_MS;
+    if (this.win) {
+      const byPid = new Map(list.map((p) => [p.pid, p]));
+      const me = byPid.get(this.root);
+      if (me?.born !== void 0 && this.rootBorn === void 0 && running) this.rootBorn = me.born;
+      for (const s of this.seen.values()) {
+        if (s.goneBy !== void 0) continue;
+        const here = byPid.get(s.pid);
+        if (!here) s.goneBy = at + SKEW_MS;
+        else if (!sameProc(s, here)) s.goneBy = here.born ?? at + SKEW_MS;
+      }
+      const taken = !!me && (me.born === void 0 || this.rootBorn === void 0 || me.born !== this.rootBorn);
+      if (!taken)
+        for (const p of below(list, this.root, { platform: this.platform, since: this.since, rootBorn: this.rootBorn ?? this.spawnAt - SKEW_MS, rootUntil: this.exitAt })) {
+          const key = `${p.pid}:${p.born ?? ""}`;
+          if (this.seen.has(key) || this.seen.size >= 5e3) continue;
+          this.seen.set(key, { ...p });
+          fresh++;
+        }
+    } else if (running && list.some((p) => p.pid === this.root)) {
+      for (const p of list)
+        if (p.ppid === this.root && p.pgid === p.pid && p.pid !== this.root && p.pid > 1 && !this.groups.has(p.pid) && this.groups.size < 5e3) {
+          this.groups.add(p.pid);
+          fresh++;
+        }
+    }
+    if (fresh) this.watch();
+    return fresh;
+  }
+  /**
+   * Every second (no program started): Windows — a process seen that has ended: the latest a child of it can have been
+   * born; macOS / Linux — a group with no member left is forgotten (its id may be another group's later).
+   */
+  watch() {
+    if (this.watcher || this.closed) return;
+    this.watcher = setInterval(() => {
+      const t = this.clock();
+      if (this.win) {
+        for (const s of this.seen.values()) if (s.goneBy === void 0 && !this.aliveOf(s.pid)) s.goneBy = t + SKEW_MS;
+      } else for (const g of [...this.groups]) if (!this.groupAliveOf(g)) this.groups.delete(g);
+    }, 1e3);
+    this.watcher.unref?.();
+  }
+  /** Read the tree now (Claude Code's result arrived — the shells it started may still run); no readings after it. */
   atResult() {
-    this.stopSampling();
-    this.before ??= listProcs(this.platform).catch(() => null);
-  }
-  stopSampling() {
-    if (this.timer) clearInterval(this.timer);
+    if (this.timer) clearTimeout(this.timer);
     this.timer = null;
+    if (this.before) return;
+    const started = this.clock();
+    this.before = (async () => {
+      await this.sampling;
+      const list = await this.lister().catch(() => null);
+      if (list) this.note(list, started, this.clock());
+      return list;
+    })();
   }
-  /** End what the run left running; the count and the program names (≤ 5, no folders). */
+  /** Claude Code's process exited (Windows: its id may be another program's from now on). */
+  exited() {
+    this.exitAt ??= this.clock() + SKEW_MS;
+  }
+  stop() {
+    this.closed = true;
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = null;
+    if (this.watcher) clearInterval(this.watcher);
+    this.watcher = null;
+  }
+  /** No more readings, nothing ended (a run that never started Claude Code; the tests). */
+  close() {
+    this.stop();
+    this.session?.close();
+  }
+  /** What the tree knows so far (the tests). */
+  snapshot() {
+    return { groups: [...this.groups], seen: [...this.seen.values()].map((s) => ({ ...s })), rootBorn: this.rootBorn, exitAt: this.exitAt };
+  }
+  /** End what the run left running; the count and the program names (≤ 5, no folders) — and what was left running. */
   async end() {
-    this.stopSampling();
+    const none = { n: 0, names: [], spared: { n: 0, names: [] } };
+    this.exited();
     try {
       await this.sampling;
       const before = this.before ? await this.before : null;
-      const [now, marked] = await Promise.all([listProcs(this.platform), markedProcs(this.token, this.platform)]);
-      if (!now) return { n: 0, names: [] };
-      const left = leftoversOf({ root: this.root, since: this.since, before, sampled: [...this.sampled.values()], now, marked, platform: this.platform });
-      const group = this.platform !== "win32" && now.some((p) => p.pgid === this.root);
-      if (!left.length && !group) return { n: 0, names: [] };
-      await endProcs(left, { root: this.root, group, platform: this.platform });
-      const names = [...new Set(left.map((p) => shortName(p.name)).filter(Boolean))].slice(0, 5);
-      return { n: left.length, names };
+      if (!this.win) {
+        for (const g of [...this.groups]) if (!this.groupAliveOf(g)) this.groups.delete(g);
+      }
+      const now = await this.lister().catch(() => null);
+      const nowAt = this.clock() + SKEW_MS;
+      this.stop();
+      if (!now) return none;
+      if (this.win) this.note(now, nowAt, nowAt - SKEW_MS);
+      const marked = await markedProcs(this.token, this.platform);
+      const input = {
+        root: this.root,
+        since: this.since,
+        before,
+        sampled: [...this.seen.values()],
+        groups: this.groups,
+        now,
+        nowAt,
+        rootBorn: this.rootBorn ?? this.spawnAt - SKEW_MS,
+        exitAt: this.exitAt,
+        marked,
+        platform: this.platform
+      };
+      const first = leftoversOf(input);
+      const cands = [...first.end, ...first.spared.map((s) => s.proc)].map((p) => p.pid);
+      const cmds = cands.length ? await commandLines(cands, this.platform, this.session) : /* @__PURE__ */ new Map();
+      const { end, spared } = leftoversOf({ ...input, cmds });
+      const group = !this.win && now.some((p) => p.pgid === this.root) && !spared.some((s) => s.proc.pgid === this.root);
+      if (end.length || group) await endProcs(end, { root: this.root, group, platform: this.platform });
+      const names = (list) => [...new Set(list.filter(Boolean))].slice(0, 5);
+      return { n: end.length, names: names(end.map((p) => shortName(p.name))), spared: { n: spared.length, names: names(spared.map((s) => s.label)) } };
     } catch {
-      return { n: 0, names: [] };
+      return none;
+    } finally {
+      this.stop();
+      this.session?.close();
     }
   }
 };
@@ -12905,7 +13259,7 @@ var resultExitMs = () => Number(process.env.ONE_WORKER_RESULT_EXIT_MS) || 3e4;
 function runClaude(r) {
   return new Promise((done) => {
     const result = { ok: false, stopped: false, text: "", plan: null, cost: 0, turns: 0, sessionId: null, subtype: null, refusals: 0, leftovers: 0 };
-    const mark = randomBytes(12).toString("hex");
+    const mark = randomBytes2(12).toString("hex");
     const spawned = spawnSafe(r.bin, claudeArgs(r), { cwd: r.cwd, env: { ...r.env, [RUN_MARK]: mark }, stdio: ["pipe", "pipe", "pipe"], detached: process.platform !== "win32", windowsHide: true, allow: "shim" });
     if (!spawned.ok) {
       done({ ...result, error: spawned.why === "failed" ? `Claude Code could not start: ${spawned.error}` : claudeMissingError(spawned.why === "refused" ? "cmd-refused" : "not-found") });
@@ -12962,7 +13316,7 @@ Claude Code could not start (${e.code ?? e.name})`;
       if (all.length > STDERR_KEEP) stderrCut = true;
       stderr = all.slice(-STDERR_KEEP);
     });
-    const lines = createInterface({ input: child.stdout });
+    const lines = createInterface2({ input: child.stdout });
     lines.on("line", (line) => {
       if (finished) return;
       const s = line.trim();
@@ -12997,6 +13351,7 @@ Claude Code could not start (${e.code ?? e.name})`;
             if (block.type === "text" && typeof block.text === "string" && block.text.trim()) log2("claude", clip(scrub(block.text.trim()), 4e3));
             else if (block.type === "tool_use" && typeof block.name === "string") {
               if (typeof block.id === "string" && toolNames.size < 5e3) toolNames.set(block.id, block.name);
+              if (typeof block.id === "string" && BASH_TOOLS.test(block.name)) tree?.bashStart(block.id);
               const e = editOf(block.name, block.input, scrub);
               r.onLog({ t: Date.now(), k: "tool", s: toolLine(block.name, block.input, scrub), ...e ? { e } : {} });
               const input = block.input;
@@ -13008,8 +13363,8 @@ Claude Code could not start (${e.code ?? e.name})`;
         }
         case "user": {
           const content = ev.message?.content ?? [];
-          if (Array.isArray(content) && content.some((b) => b?.type === "tool_result")) tree?.sample();
           for (const block of Array.isArray(content) ? content : []) {
+            if (block?.type === "tool_result" && typeof block.tool_use_id === "string") tree?.bashEnd(block.tool_use_id);
             if (block.type !== "tool_result" || block.is_error !== true) continue;
             const text2 = typeof block.content === "string" ? block.content : Array.isArray(block.content) ? block.content.map((c) => c.text ?? "").join(" ") : "";
             if (OWN_REFUSAL.test(text2.trim())) continue;
@@ -13057,11 +13412,15 @@ Claude Code could not start (${e.code ?? e.name})`;
       clearTimeout(afterResult);
       clearTimeout(afterExit);
       r.signal.removeEventListener("abort", onAbort);
-      const left = tree ? await tree.end() : { n: 0, names: [] };
+      const left = tree ? await tree.end() : { n: 0, names: [], spared: { n: 0, names: [] } };
       if (left.n) {
         result.leftovers = left.n;
         const names = left.names.join(", ");
         log2("info", `Ended ${left.n} program(s) Claude Code left running${names ? `: ${names}` : ""}`, "claudeLeftovers", { n: left.n, names });
+      }
+      if (left.spared.n) {
+        const names = left.spared.names.join(", ");
+        log2("info", `Left ${left.spared.n} program(s) running that Claude Code started and other tools may use${names ? `: ${names}` : ""}`, "claudeSpared", { n: left.spared.n, names });
       }
       lines.close();
       child.stdout?.destroy();
@@ -13081,7 +13440,8 @@ Claude Code could not start (${e.code ?? e.name})`;
     };
     child.on("exit", (code) => {
       clearInterval(beat);
-      afterExit = setTimeout(() => void finish(code), exitGraceMs());
+      tree?.exited();
+      afterExit = setTimeout(() => void finish(code), result.stopped ? 0 : exitGraceMs());
     });
     child.on("close", (code) => void finish(code));
   });
@@ -13089,7 +13449,7 @@ Claude Code could not start (${e.code ?? e.name})`;
 
 // src/worker/git.ts
 import { createHash } from "node:crypto";
-import { existsSync as existsSync3, lstatSync as lstatSync2, mkdirSync as mkdirSync2, readFileSync as readFileSync4, readlinkSync, statSync as statSync3 } from "node:fs";
+import { existsSync as existsSync3, lstatSync as lstatSync2, mkdirSync as mkdirSync2, readFileSync as readFileSync4, readlinkSync as readlinkSync2, statSync as statSync3 } from "node:fs";
 import { dirname as dirname2, join as join5, posix as posix4, resolve as resolve4, win32 as win324 } from "node:path";
 var GitError = class extends Error {
   /** a log code that says more (folderBusy: Windows still holds files in a folder the worker removes) */
@@ -13478,7 +13838,7 @@ function binaryFile(path) {
 }
 function linkTarget(path) {
   try {
-    return readlinkSync(path);
+    return readlinkSync2(path);
   } catch {
     return "";
   }
@@ -13901,7 +14261,7 @@ function insideWorktrees(repo, dir, platform = process.platform) {
 }
 
 // src/worker/run.ts
-import { randomBytes as randomBytes2 } from "node:crypto";
+import { randomBytes as randomBytes3 } from "node:crypto";
 import { existsSync as existsSync4, mkdtempSync, writeFileSync as writeFileSync2 } from "node:fs";
 import { tmpdir as tmpdir2 } from "node:os";
 import { join as join6 } from "node:path";
@@ -14323,7 +14683,7 @@ A: ${a.a.trim()}
   if (diff) parts.push("", "## Changes on the branch (data)", ...dataBlock("DIFF", diff.text, code));
   return parts.join("\n");
 }
-var markerCode = () => randomBytes2(6).toString("hex");
+var markerCode = () => randomBytes3(6).toString("hex");
 function dataBlock(label, body, code) {
   return [`<<<${label} ${code}`, body, `${label} ${code}>>>`];
 }
@@ -14707,10 +15067,12 @@ function notStartedLine(why2, name, log2) {
   if (why2 === "missing") log2("error", `${name} was not found \u2014 the worker looks in PATH only, never in the repository. A program inside the repository needs its path (\`./gradlew\`, \`.\\gradlew.bat\`). Change the command on the worker\u2019s setup page (Change repositories \u2192 the repo).`, "commandMissing", { cmd: name });
   else log2("error", `${name} runs through cmd.exe, which cannot pass an argument with a line break \u2014 change the command on the worker\u2019s setup page.`, "commandRefused", { cmd: name });
 }
-function claudeEnv() {
+var RUN_ENV = { MSBUILDDISABLENODEREUSE: "1", UseSharedCompilation: "false" };
+function claudeEnv(from = process.env, platform = process.platform) {
   const env = {};
-  for (const [k, v] of Object.entries(process.env)) if (!k.startsWith("ONE_WORKER_")) env[k] = v;
-  return pathAbsolute(env);
+  for (const [k, v] of Object.entries(from)) if (!k.startsWith("ONE_WORKER_")) env[k] = v;
+  for (const [k, v] of Object.entries(RUN_ENV)) if (envGet(env, k, platform) === void 0) env[k] = v;
+  return pathAbsolute(env, platform);
 }
 async function testStage(ctx, wt, scrub, log2) {
   if (!ctx.repo.testCommand) {
@@ -14887,7 +15249,7 @@ async function gitStage(ctx, wt, scrub, log2) {
 }
 
 // src/worker/worker.ts
-import { randomBytes as randomBytes6 } from "node:crypto";
+import { randomBytes as randomBytes7 } from "node:crypto";
 
 // src/worker/state.ts
 import { existsSync as existsSync5, readFileSync as readFileSync5, writeFileSync as writeFileSync3 } from "node:fs";
@@ -15008,7 +15370,7 @@ var WorkerState = class {
 };
 
 // src/worker/permissions.ts
-import { isAbsolute as isAbsolute3, resolve as resolve5 } from "node:path";
+import { posix as posix5, win32 as win325 } from "node:path";
 var READ_TOOLS = /* @__PURE__ */ new Set(["Read", "Glob", "Grep", "LS", "NotebookRead"]);
 var EDIT_TOOLS = /* @__PURE__ */ new Set(["Edit", "MultiEdit", "Write", "NotebookEdit"]);
 function kindOf(tool) {
@@ -15030,13 +15392,14 @@ function subjectOf(req) {
   const pick2 = kind === "bash" ? req.input.command : kind === "read" || kind === "edit" ? pathOf2(req) || req.input.pattern : kind === "web" ? req.input.url ?? req.input.query : req.input.args ?? req.input.description ?? req.input.command ?? req.input.url ?? req.input.file_path ?? req.input.path;
   return (pick2 ?? "").replace(/\r\n|\r|\n/g, " \u21B5 ").replace(/[^\S ]+/g, " ").replace(/ {2,}/g, " ").trim();
 }
-function isOutside(req, dirs, cwd) {
+function isOutside(req, dirs, cwd, platform = process.platform) {
   const kind = kindOf(req.tool);
   if (kind !== "read" && kind !== "edit") return false;
   const p = pathOf2(req);
   if (!p) return false;
-  const full = isAbsolute3(p) ? p : resolve5(cwd, p);
-  return !dirs.some((d) => !!d && inFolder(full, d));
+  const P = platform === "win32" ? win325 : posix5;
+  const full = P.isAbsolute(p) ? p : P.resolve(cwd, p);
+  return !dirs.some((d) => !!d && inFolder(full, d, platform));
 }
 var simpleCommand = (cmd) => !!cmd.trim() && !/[;&|`<>\r\n]|\$\(/.test(cmd);
 var norm = (s) => s.trim().replace(/\s+/g, " ");
@@ -15129,12 +15492,12 @@ function alwaysRule(req, opts = {}) {
 import { createWriteStream, rmSync as rmSync2 } from "node:fs";
 import { homedir as homedir9, tmpdir as tmpdir3 } from "node:os";
 import { join as join12 } from "node:path";
-import { randomBytes as randomBytes4 } from "node:crypto";
+import { randomBytes as randomBytes5 } from "node:crypto";
 
 // src/worker/clone.ts
 import { existsSync as existsSync6, mkdirSync as mkdirSync3, readdirSync as readdirSync4, writeFileSync as writeFileSync4 } from "node:fs";
 import { homedir as homedir7 } from "node:os";
-import { join as join8, posix as posix5, win32 as win325 } from "node:path";
+import { join as join8, posix as posix6, win32 as win326 } from "node:path";
 var HOST = /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/;
 var SEGMENT = /^[A-Za-z0-9_~][A-Za-z0-9_.~+-]{0,99}$/;
 var USER = /^[A-Za-z0-9._-]{1,64}$/;
@@ -15150,7 +15513,7 @@ function parseCloneUrl(raw, local = false, platform = process.platform) {
   const win2 = platform === "win32";
   if (local && (text2.startsWith("/") || text2.startsWith("file://") || win2 && /^[A-Za-z]:[\\/]/.test(text2))) {
     const dir = text2.startsWith("file://") ? decodeURIComponent(text2.slice(7)) : text2;
-    if (!(win2 ? win325 : posix5).isAbsolute(dir) || dir.split(/[\\/]/).includes("..")) return { error: "That is not a clone address." };
+    if (!(win2 ? win326 : posix6).isAbsolute(dir) || dir.split(/[\\/]/).includes("..")) return { error: "That is not a clone address." };
     return { url: dir, host: "local", path: dir.replace(/^\/+/, ""), name: folderName(win2 ? dir.replace(/\\/g, "/") : dir), kind: "local" };
   }
   if (/^[a-z][a-z0-9+.-]*::/i.test(text2)) return { error: "Only HTTPS and SSH addresses can be cloned here." };
@@ -15190,7 +15553,7 @@ var unquote = (raw) => {
 function cloneBase(raw, home = homedir7(), platform = process.platform, env = process.env) {
   const text2 = unquote(typeof raw === "string" ? raw : "");
   if (!text2 || text2.length > 1e3 || /[\u0000-\u001f]/.test(text2)) return { error: "Type the folder the clones go into." };
-  const P = platform === "win32" ? win325 : posix5;
+  const P = platform === "win32" ? win326 : posix6;
   let dir;
   if (text2 === "~" || text2.startsWith("~/") || text2.startsWith("~\\")) dir = P.join(home, text2.slice(2));
   else if (P.isAbsolute(text2) && (platform !== "win32" || /^(?:[A-Za-z]:[\\/]|[\\/]{2}[^\\/])/.test(text2))) dir = P.resolve(text2);
@@ -15955,8 +16318,8 @@ var Unzip = /* @__PURE__ */ (function() {
 
 // src/worker/zipimport.ts
 import { closeSync as closeSync2, createReadStream, existsSync as existsSync7, lstatSync as lstatSync3, mkdirSync as mkdirSync4, openSync as openSync2, readFileSync as readFileSync6, readdirSync as readdirSync5, rmSync, statSync as statSync4, writeFileSync as writeFileSync5, writeSync } from "node:fs";
-import { randomBytes as randomBytes3 } from "node:crypto";
-import { dirname as dirname4, join as join9, relative, resolve as resolve6, sep as sep3 } from "node:path";
+import { randomBytes as randomBytes4 } from "node:crypto";
+import { dirname as dirname4, join as join9, relative, resolve as resolve5, sep as sep3 } from "node:path";
 var ZIP_MAX = () => Number(process.env.ONE_WORKER_ZIP_MAX) || 500 * 1024 * 1024;
 var UNPACKED_MAX = 2 * 1024 * 1024 * 1024;
 var FILES_MAX = 1e5;
@@ -16038,7 +16401,7 @@ async function importZip(zipFile, base, name, label, onProgress = () => {
 }) {
   const started = Date.now();
   mkdirSync4(base, { recursive: true });
-  const tmp = join9(base, `.one-import-${randomBytes3(6).toString("hex")}`);
+  const tmp = join9(base, `.one-import-${randomBytes4(6).toString("hex")}`);
   mkdirSync4(tmp);
   let files = 0;
   let bytes = 0;
@@ -16065,7 +16428,7 @@ async function importZip(zipFile, base, name, label, onProgress = () => {
         fail = `the ZIP has more than ${FILES_MAX.toLocaleString("en")} files`;
         return;
       }
-      const dest = resolve6(tmp, rel);
+      const dest = resolve5(tmp, rel);
       if (!dest.startsWith(tmp + sep3)) {
         fail = `the ZIP has a path outside its folder (${shown(file.name)})`;
         return;
@@ -16147,7 +16510,7 @@ async function finishImport(dir, label) {
 var NO_DRIVERS = "* -filter !diff merge\n";
 var NO_DRIVERS_NOTE = "# one-worker: this repository was imported from a ZIP, so no git filter, diff or merge driver runs in it (yours\n# neither: nbstripout, Git LFS \u2026) and its files stay as they were committed. Remove the next line to allow them.\n";
 async function commitImport(dir, label) {
-  const holder = join9(dirname4(dir), `.one-import-git-${randomBytes3(6).toString("hex")}`);
+  const holder = join9(dirname4(dir), `.one-import-git-${randomBytes4(6).toString("hex")}`);
   const gitDir2 = join9(holder, ".git");
   const hooks = join9(holder, "no-hooks");
   mkdirSync4(hooks, { recursive: true });
@@ -16334,8 +16697,8 @@ var SKIP_DIRS = /* @__PURE__ */ new Set([
 var TIMEOUT = /* @__PURE__ */ Symbol("timeout");
 function timed(p, ms) {
   let timer;
-  const late2 = new Promise((resolve9) => {
-    timer = setTimeout(() => resolve9(TIMEOUT), ms);
+  const late2 = new Promise((resolve8) => {
+    timer = setTimeout(() => resolve8(TIMEOUT), ms);
   });
   p.catch(() => {
   });
@@ -16651,8 +17014,8 @@ var Intake = class {
     if (declared <= 0) throw new Error("The ZIP is empty.");
     if (declared > max2) throw new Error(`The ZIP is larger than ${Math.round(max2 / 1024 / 1024)} MB.`);
     this.base();
-    const tmp = join12(tmpdir3(), `one-intake-${randomBytes4(8).toString("hex")}.zip`);
-    const upload = { id: randomBytes4(12).toString("hex"), taskId: id, file, tmp, out: createWriteStream(tmp, { mode: 384 }), size: 0, declared, timer: setTimeout(() => this.drop("the upload stopped"), IDLE_MS), error: null };
+    const tmp = join12(tmpdir3(), `one-intake-${randomBytes5(8).toString("hex")}.zip`);
+    const upload = { id: randomBytes5(12).toString("hex"), taskId: id, file, tmp, out: createWriteStream(tmp, { mode: 384 }), size: 0, declared, timer: setTimeout(() => this.drop("the upload stopped"), IDLE_MS), error: null };
     upload.timer.unref?.();
     upload.out.on("error", (e) => {
       upload.error ??= e;
@@ -16822,9 +17185,9 @@ function isAllowedHost(host, port) {
 }
 
 // src/worker/box.ts
-import { createCipheriv, createDecipheriv, hkdfSync, randomBytes as randomBytes5 } from "node:crypto";
+import { createCipheriv, createDecipheriv, hkdfSync, randomBytes as randomBytes6 } from "node:crypto";
 var B64 = /^[A-Za-z0-9+/]*={0,2}$/;
-var newNonce = () => randomBytes5(32).toString("base64url");
+var newNonce = () => randomBytes6(32).toString("base64url");
 function sessionKey(pair, tabNonce, workerNonce, info2 = RELAY_BOX_INFO) {
   if (!RELAY_NONCE.test(pair) || !RELAY_NONCE.test(tabNonce) || !RELAY_NONCE.test(workerNonce)) throw new Error("bad key material");
   const salt = Buffer.concat([Buffer.from(tabNonce, "base64url"), Buffer.from(workerNonce, "base64url")]);
@@ -16843,7 +17206,7 @@ var BoxSession = class {
     this.out = side === "tab" ? "tw" : "wt";
     this.into = side === "tab" ? "wt" : "tw";
   }
-  seal(text2, droppable2 = false, iv = randomBytes5(12)) {
+  seal(text2, droppable2 = false, iv = randomBytes6(12)) {
     const seq = ++this.sent;
     const cipher = createCipheriv("aes-256-gcm", this.key, iv);
     cipher.setAAD(Buffer.from(`${this.out}:${this.s}:${seq}`, "utf8"));
@@ -16911,12 +17274,12 @@ var CloudDial = class {
     this.ws = null;
     this.ready = false;
     if (!ws || ws.readyState === wrapper_default.CLOSED) return;
-    await new Promise((resolve9) => {
-      ws.once("close", () => resolve9());
+    await new Promise((resolve8) => {
+      ws.once("close", () => resolve8());
       ws.close(1e3, "worker stopped");
       setTimeout(() => {
         ws.terminate();
-        resolve9();
+        resolve8();
       }, 1500).unref?.();
     });
   }
@@ -17239,12 +17602,12 @@ var WorkerLink = class {
   }
   /** 'in-use': another program holds the port (another one-worker?) · 'refused': the system does not let the worker listen there */
   start() {
-    return new Promise((resolve9) => {
+    return new Promise((resolve8) => {
       const onError = (e) => {
         this.state = "in-use";
         const why2 = listenError(e.code, e.message, this.opts.port, !!this.opts.cloud);
         this.opts.log(why2.line);
-        resolve9(why2.result);
+        resolve8(why2.result);
       };
       this.http.once("error", onError);
       this.http.listen(this.opts.port, this.opts.host ?? "127.0.0.1", () => {
@@ -17252,7 +17615,7 @@ var WorkerLink = class {
         this.state = "listening";
         this.pinger = setInterval(() => this.ping(), this.opts.pingMs ?? 15e3);
         if (this.opts.cloud) this.startDial(this.opts.cloud);
-        resolve9("listening");
+        resolve8("listening");
       });
     });
   }
@@ -17350,12 +17713,12 @@ var WorkerLink = class {
     const tab = this.tab;
     if (!tab?.workspace || !tab.isOpen()) return Promise.reject(new Error("One is not connected"));
     const id = `w${++this.seq}`;
-    return new Promise((resolve9, reject) => {
+    return new Promise((resolve8, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(new Error("One did not answer in time"));
       }, timeoutMs);
-      this.pending.set(id, { resolve: resolve9, reject, timer });
+      this.pending.set(id, { resolve: resolve8, reject, timer });
       tab.send(JSON.stringify({ type: "req", id, ...body }));
     });
   }
@@ -17637,6 +18000,8 @@ ${text2}`);
 // src/worker/worker.ts
 var BRANCHES_FIRST_MS = Number(process.env.ONE_WORKER_BRANCHES_MS) || 2e3;
 var lookAgainMs = () => Number(process.env.ONE_WORKER_LOOK_MS) || 5e3;
+var STOP_WAIT_MS = process.platform === "win32" ? 12e3 : 8e3;
+var STOP_HARD_MS = STOP_WAIT_MS + 3e3;
 var DENY = {
   person: "Not allowed: the person declined this in One. Do not try the same action another way \u2014 go on without it, or explain in your summary what you would need.",
   rule: "Not allowed: this repository's disallowedTools (the worker's worker.json) refuse it.",
@@ -17887,15 +18252,19 @@ var Worker2 = class {
     }
     return up;
   }
-  /** Stop: every run is ended (Claude Code's process tree killed), then the link closes. */
+  /**
+   * Stop: every run is ended (Claude Code's process tree killed, then what it left running), its outcome sent — waited
+   * for up to STOP_WAIT_MS — then the link closes.
+   */
   async stop() {
     this.stopped = true;
     if (this.poller) clearInterval(this.poller);
     if (this.beater) clearInterval(this.beater);
     const running = [...this.runs.values()];
     for (const r of running) r.abort.abort();
-    const end = Date.now() + 4e3;
-    while (this.runs.size && Date.now() < end) await new Promise((r) => setTimeout(r, 50));
+    let cap;
+    await Promise.race([Promise.allSettled(running.map((r) => r.done)), new Promise((r) => cap = setTimeout(r, STOP_WAIT_MS))]);
+    clearTimeout(cap);
     this.flushLogs();
     await this.link.close();
   }
@@ -17943,7 +18312,7 @@ var Worker2 = class {
     if (!repo) return refuse(`the repo "${task.repo}" is not in this worker's config (not ticked) \u2014 One cannot add repos; tick it in the worker's setup page ("Change repositories") or add it to worker.json on the computer that should work on it`);
     if (!noRepo && [...this.runs.values()].some((r) => r.repo.name === repo.name)) return refuse(`another task runs in "${repo.name}" right now`);
     if (this.workspace?.kind === "team" && !task.trusted) return refuse("the task is not confirmed on this device (team workspace)");
-    const token = randomBytes6(24).toString("hex");
+    const token = randomBytes7(24).toString("hex");
     let scratch;
     try {
       scratch = scratchDir(this.config, task.id);
@@ -17956,7 +18325,7 @@ var Worker2 = class {
     this.tokens.set(token, run2);
     this.sendStatus();
     this.opts.log(`task ${task.id} "${task.title}" \u2014 ${task.stage.name} (${task.stage.kind}) in ${repo.name}`);
-    void this.claudeForStage(task).then(
+    run2.done = this.claudeForStage(task).then(
       (caps) => runStage({
         repo,
         state: this.state,
@@ -18056,7 +18425,7 @@ var Worker2 = class {
    * harmless when One applied it but its answer was lost (a dropped relay connection): One answers ok again.
    */
   async finish(taskId, stageId, outcome) {
-    const key = `f${Date.now().toString(36)}${randomBytes6(6).toString("hex")}`;
+    const key = `f${Date.now().toString(36)}${randomBytes7(6).toString("hex")}`;
     this.flushLogs(taskId);
     this.unsent.set(key, { taskId, stageId, outcome });
     try {
@@ -18394,7 +18763,7 @@ A: ${a.a}
     const now = Date.now();
     const wait = permissionWaitMs();
     const ask = {
-      id: randomBytes6(12).toString("hex"),
+      id: randomBytes7(12).toString("hex"),
       tool: req.tool,
       kind: kindOf(req.tool),
       what,
@@ -18408,11 +18777,11 @@ A: ${a.a}
     run2.counts.asked++;
     const minutes = Math.max(1, Math.round(wait / 6e4));
     this.permLine(run2, "warn", `Claude Code asks for a permission: ${ask.tool}${what ? ` \xB7 ${clipWhat(what)}` : ""} \u2014 waiting for you in One (at most ${minutes} min)`, "permissionAsked", { tool: ask.tool, what, min: minutes });
-    return new Promise((resolve9) => {
+    return new Promise((resolve8) => {
       const pending = {
         ask,
         timer: setTimeout(() => this.settle(run2, pending, false, "timeout", DENY.timeout(minutes)), wait),
-        done: (allow, message) => resolve9(answer(allow, message))
+        done: (allow, message) => resolve8(answer(allow, message))
       };
       pending.timer.unref?.();
       run2.asks.push(pending);
@@ -25705,7 +26074,7 @@ var recursive = /* @__PURE__ */ new WeakMap();
 var NONE = 0;
 var ASSUMED = 1;
 var PROVEN = 2;
-function isRecursive(inst, stack, resolve9) {
+function isRecursive(inst, stack, resolve8) {
   const cached2 = recursive.get(inst);
   if (cached2 !== void 0)
     return cached2 ? PROVEN : NONE;
@@ -25715,7 +26084,7 @@ function isRecursive(inst, stack, resolve9) {
   let result = NONE;
   const check = (child) => {
     if (result !== PROVEN && child?._zod) {
-      const answer = isRecursive(child, stack, resolve9);
+      const answer = isRecursive(child, stack, resolve8);
       if (answer > result)
         result = answer;
     }
@@ -25726,7 +26095,7 @@ function isRecursive(inst, stack, resolve9) {
       const desc = Object.getOwnPropertyDescriptor(sh, key);
       if (spread && !desc.enumerable)
         continue;
-      const child = desc.get ? ASSUMED : desc.value?._zod ? isRecursive(desc.value, stack, resolve9) : NONE;
+      const child = desc.get ? ASSUMED : desc.value?._zod ? isRecursive(desc.value, stack, resolve8) : NONE;
       if (child > answer)
         answer = child;
     }
@@ -25790,7 +26159,7 @@ function isRecursive(inst, stack, resolve9) {
       break;
     // `$ZodLazy` caches its inner on the def, so a resolved edge is followed exactly
     case "lazy": {
-      const inner = def._cachedInner ?? (resolve9 ? inst._zod.innerType : void 0);
+      const inner = def._cachedInner ?? (resolve8 ? inst._zod.innerType : void 0);
       merge2(inner ? isRecursive(inner, stack, false) : ASSUMED);
       break;
     }
@@ -32576,7 +32945,7 @@ var Protocol = class {
           return;
         }
         const pollInterval = task2.pollInterval ?? this._options?.defaultTaskPollInterval ?? 1e3;
-        await new Promise((resolve9) => setTimeout(resolve9, pollInterval));
+        await new Promise((resolve8) => setTimeout(resolve8, pollInterval));
         options?.signal?.throwIfAborted();
       }
     } catch (error2) {
@@ -32593,7 +32962,7 @@ var Protocol = class {
    */
   request(request2, resultSchema, options) {
     const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
-    return new Promise((resolve9, reject) => {
+    return new Promise((resolve8, reject) => {
       const earlyReject = (error2) => {
         reject(error2);
       };
@@ -32671,7 +33040,7 @@ var Protocol = class {
           if (!parseResult.success) {
             reject(parseResult.error);
           } else {
-            resolve9(parseResult.data);
+            resolve8(parseResult.data);
           }
         } catch (error2) {
           reject(error2);
@@ -32933,12 +33302,12 @@ var Protocol = class {
       }
     } catch {
     }
-    return new Promise((resolve9, reject) => {
+    return new Promise((resolve8, reject) => {
       if (signal.aborted) {
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
         return;
       }
-      const timeoutId = setTimeout(resolve9, interval);
+      const timeoutId = setTimeout(resolve8, interval);
       signal.addEventListener("abort", () => {
         clearTimeout(timeoutId);
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
@@ -34069,7 +34438,7 @@ var McpServer = class {
     let task = createTaskResult.task;
     const pollInterval = task.pollInterval ?? 5e3;
     while (task.status !== "completed" && task.status !== "failed" && task.status !== "cancelled") {
-      await new Promise((resolve9) => setTimeout(resolve9, pollInterval));
+      await new Promise((resolve8) => setTimeout(resolve8, pollInterval));
       const updatedTask = await extra.taskStore.getTask(taskId);
       if (!updatedTask) {
         throw new McpError(ErrorCode.InternalError, `Task ${taskId} not found during polling`);
@@ -34733,12 +35102,12 @@ var StdioServerTransport = class {
     this.onclose?.();
   }
   send(message) {
-    return new Promise((resolve9) => {
+    return new Promise((resolve8) => {
       const json = serializeMessage(message);
       if (this._stdout.write(json)) {
-        resolve9();
+        resolve8();
       } else {
-        this._stdout.once("drain", resolve9);
+        this._stdout.once("drain", resolve8);
       }
     });
   }
@@ -35427,7 +35796,7 @@ function permissionAnswer(worker, input) {
   return JSON.stringify({ behavior: "deny", message });
 }
 function post(url, token, body, timeoutMs) {
-  return new Promise((resolve9, reject) => {
+  return new Promise((resolve8, reject) => {
     const data = JSON.stringify(body);
     const req = request(url, { method: "POST", headers: { "content-type": "application/json", "content-length": Buffer.byteLength(data), authorization: `Bearer ${token}` } }, (res) => {
       let raw = "";
@@ -35437,9 +35806,9 @@ function post(url, token, body, timeoutMs) {
       });
       res.on("end", () => {
         try {
-          resolve9({ status: res.statusCode ?? 0, body: JSON.parse(raw) });
+          resolve8({ status: res.statusCode ?? 0, body: JSON.parse(raw) });
         } catch {
-          resolve9({ status: res.statusCode ?? 0, body: {} });
+          resolve8({ status: res.statusCode ?? 0, body: {} });
         }
       });
       res.on("error", reject);
@@ -35510,9 +35879,9 @@ async function serveTaskMcp(version2) {
 }
 
 // src/worker/setup.ts
-import { randomBytes as randomBytes7 } from "node:crypto";
+import { randomBytes as randomBytes8 } from "node:crypto";
 import { homedir as homedir10 } from "node:os";
-import { isAbsolute as isAbsolute4, join as join13, resolve as resolve7 } from "node:path";
+import { isAbsolute as isAbsolute3, join as join13, resolve as resolve6 } from "node:path";
 
 // src/worker/picker.ts
 var PROMPT = "One worker \u2014 pick the folder of a git repository";
@@ -35564,12 +35933,12 @@ function openUrl(url, env = process.env) {
   if (!/^http:\/\/127\.0\.0\.1:\d{4,5}\/setup#k=[A-Za-z0-9_-]{43}$/.test(url)) return Promise.resolve(false);
   const how = browserCommand(url, env);
   if (!how) return Promise.resolve(false);
-  return new Promise((resolve9) => {
+  return new Promise((resolve8) => {
     let done = false;
     const finish = (ok) => {
       if (done) return;
       done = true;
-      resolve9(ok);
+      resolve8(ok);
     };
     const s = spawnSafe(how.cmd, how.args, { ...how.opts, detached: process.platform !== "win32", allow: how.allow });
     if (!s.ok) return finish(false);
@@ -36626,7 +36995,7 @@ async function installed(cmd) {
 }
 var FACTS_MS = 15e3;
 var SetupServer = class {
-  token = randomBytes7(32).toString("base64url");
+  token = randomBytes8(32).toString("base64url");
   host;
   home;
   found = /* @__PURE__ */ new Map();
@@ -36771,9 +37140,9 @@ var SetupServer = class {
     if (!raw || raw.length > 1e3 || /[\u0000-\u001f]/.test(raw)) return { ok: false, error: "Type the folder of a git repository." };
     let dir;
     if (raw === "~" || raw.startsWith("~/") || raw.startsWith("~\\")) dir = join13(this.home, raw.slice(2));
-    else if (isAbsolute4(raw)) dir = resolve7(raw);
+    else if (isAbsolute3(raw)) dir = resolve6(raw);
     else {
-      dir = resolve7(this.home, raw);
+      dir = resolve6(this.home, raw);
       if (!inFolder(dir, this.home)) return { ok: false, error: "A relative folder must stay inside your home folder." };
     }
     const real = await realpathTimed(dir);
@@ -36832,7 +37201,7 @@ var SetupServer = class {
     if (typeof base !== "string") return { ok: false, status: 400, error: base.error };
     const max2 = ZIP_MAX();
     if (Number(req.headers["content-length"] ?? 0) > max2) return { ok: false, status: 413, error: `The ZIP is larger than ${Math.round(max2 / 1024 / 1024)} MB.` };
-    const tmp = join13(tmpdir4(), `one-import-${randomBytes7(8).toString("hex")}.zip`);
+    const tmp = join13(tmpdir4(), `one-import-${randomBytes8(8).toString("hex")}.zip`);
     let size = 0;
     const out = createWriteStream2(tmp, { mode: 384 });
     try {
@@ -37057,7 +37426,7 @@ var SetupServer = class {
 };
 
 // src/worker/checklist.ts
-import { createInterface as createInterface2 } from "node:readline";
+import { createInterface as createInterface3 } from "node:readline";
 var pad = (s, n) => s.length >= n ? s : s + " ".repeat(n - s.length);
 function checklistText(repos, ticked) {
   if (!repos.length) return "  (no git repositories found)\n";
@@ -37081,14 +37450,14 @@ Pick the repositories One may hand coding tasks to. Paths stay on this computer.
   write(checklistText(repos, ticked));
   write(`
 ${prompt}`);
-  return new Promise((resolve9) => {
-    const rl = createInterface2({ input: opts.input, terminal: false });
+  return new Promise((resolve8) => {
+    const rl = createInterface3({ input: opts.input, terminal: false });
     let settled = false;
     const end = (v) => {
       if (settled) return;
       settled = true;
       rl.close();
-      resolve9(v);
+      resolve8(v);
     };
     rl.on("line", (raw) => {
       const line = raw.trim().toLowerCase();
@@ -37138,7 +37507,7 @@ var value = (name) => {
 var command = argv.find((a) => !a.startsWith("-") && argv[argv.indexOf(a) - 1] !== "--config" && argv[argv.indexOf(a) - 1] !== "--workspace") ?? "run";
 var { preset, problem: presetProblem } = filePreset();
 var cloud = preset?.cloud ? { origin: preset.origin, host: new URL(preset.origin).host } : null;
-var configFile = resolve8(value("--config") ?? process.env.ONE_WORKER_CONFIG ?? (preset?.cloud ? cloudConfigFile(preset.workspace) : defaultConfigFile()));
+var configFile = resolve7(value("--config") ?? process.env.ONE_WORKER_CONFIG ?? (preset?.cloud ? cloudConfigFile(preset.workspace) : defaultConfigFile()));
 var configOpts = { cloud: !!cloud };
 var self = fileURLToPath(import.meta.url);
 var again = (sub) => `node ${/\s/.test(self) ? `"${self}"` : self} ${sub}`;
@@ -37278,7 +37647,7 @@ ${ok ? "All good." : "Fix the lines above."}
     if (stopping) return;
     stopping = true;
     log("stopping \u2014 ending running tasks");
-    setTimeout(() => process.exit(code), 6e3).unref();
+    setTimeout(() => process.exit(code), STOP_HARD_MS).unref();
     await worker?.stop().catch(() => {
     });
     process.exit(code);

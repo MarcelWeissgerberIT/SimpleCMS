@@ -983,8 +983,9 @@ const shots = {
   /**
    * Worker 1.11.0: left a task whose implement stage waits for a permission (the card "Claude wants · Bash npm run lint"
    * with its three keys and the rule "Always" would keep), right a task whose stage stopped at its step limit
-   * ("Step limit reached (3/3)" with Continue (+3 steps) · Start over). The repository's own worker with the fake
-   * Claude Code CLI (FAKE:PERMIT / FAKE:MAXTURNS, a step limit of 3 for the repo); nothing leaves the machine.
+   * ("Step limit reached (3/3)" with Continue (+40 steps — what the stage's Step limit gives the next run) · Start over).
+   * The repository's own worker with the fake Claude Code CLI (FAKE:PERMIT / FAKE:MAXTURNS, a step limit of 3 for the
+   * repo in worker.json); nothing leaves the machine.
    */
   async 'worker-permissions'(browser) {
     const work = codingRepo()
