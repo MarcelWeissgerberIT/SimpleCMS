@@ -6,11 +6,12 @@
  *  - propertyValueToText: plain-text rendering of a property value (search, export, AI context).
  *  - SharedFormView: the public page of a shared form (route #/f/<payload>; lazy-loaded inside).
  */
-import type { ID, Page, PropertyDef } from '../store/types'
+import type { Database, ID, Page, PropertyDef, View } from '../store/types'
 import { useWorkspace } from '../store/store'
 import { Resolver } from './model/resolve'
 import { workspaceCtx } from './model/ctx'
-import { orderRows } from './model/feed'
+import { orderRows, type ViewOrder } from './model/feed'
+import { isDateType } from './model/schema'
 import { defaultsFromFilter } from './model/query'
 import { resolveMe } from './model/actors'
 import { isDbReadOnly } from './readonly'
@@ -89,7 +90,10 @@ export {
 /**
  * A database's entries outside its views (the sidebar tree, shell/lib/tree.ts):
  *  - entryOrder(dbId, rows): the rows in the order the database's FIRST view shows them (its sorts, a feed's
- *      date order), unfiltered; without sorts: manual order, then created.
+ *      date order), unfiltered; a calendar / timeline without sorts of its own lists by its date property, newest first
+ *      (like a feed — a journal's newest days on top); without sorts: manual order, then created.
+ *  - entryOrderProps(db): the properties that order depends on (sorts, a feed's or a calendar's date) — the sidebar
+ *      re-sorts its memoised entry index only when one of them changes.
  *  - createEntry(dbId, { title?, templateId? }): a new row with the first view's presets (from its filters) — what the
  *      view's "New" button creates; templateId: from that row template. null: view only, or no such database.
  *  - subItemsOf(db) / parentIdOf(pages, pair, row): the sub-items hierarchy ("Parent item" ↔ "Sub-items").
@@ -117,10 +121,26 @@ export function entryOrder(dbId: ID, rows: Page[]): Page[] {
   const view = db?.views[0]
   if (!db || !view) return base
   try {
-    return orderRows(new Resolver(workspaceCtx()), db, view, base, new Map([...db.properties, typeColumn(db, useWorkspace.getState().kit)].map((p) => [p.id, p])))
+    return orderRows(new Resolver(workspaceCtx()), db, entryView(db, view), base, new Map([...db.properties, typeColumn(db, useWorkspace.getState().kit)].map((p) => [p.id, p])))
   } catch {
     return base
   }
+}
+
+/** The first view's order for lists outside it: a calendar / timeline without sorts of its own → its date, newest first. */
+function entryView(db: Database, view: View): ViewOrder {
+  if (view.type !== 'calendar' && view.type !== 'timeline') return view
+  if (Array.isArray(view.sorts) && view.sorts.length) return view
+  const date = view.dateProperty ? db.properties.find((p) => p.id === view.dateProperty) : undefined
+  return date && isDateType(date.type) ? { ...view, sorts: [{ propertyId: date.id, direction: 'desc' }] } : view
+}
+
+export function entryOrderProps(db: Database): ID[] {
+  const view = db.views[0]
+  if (!view) return []
+  const order = entryView(db, view)
+  if (Array.isArray(order.sorts) && order.sorts.length) return order.sorts.map((x) => x.propertyId)
+  return order.type === 'feed' && order.feed?.dateProperty ? [order.feed.dateProperty] : []
 }
 
 export function createEntry(dbId: ID, input: { title?: string; templateId?: ID } = {}): ID | null {

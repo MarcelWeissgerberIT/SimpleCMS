@@ -40,6 +40,44 @@ test.describe('mobile 390 px', () => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0)
   })
 
+  test('app: the drawer — 36 px places, TOOLS folded, rows with ⋯ only, a toast above its foot', async ({ page }) => {
+    await openApp(page)
+    const sb = page.locator('aside.sb')
+    await page.getByRole('button', { name: 'Open sidebar' }).tap()
+    for (const name of [/^Search/, /^Home/, /^Inbox/, /^Today/]) expect(Math.round((await sb.locator('.sb-nav').getByRole('button', { name }).first().boundingBox())!.height)).toBeGreaterThanOrEqual(36)
+    await expect(sb.locator('.sb-tools__fold')).toHaveAttribute('aria-expanded', 'false')
+    // a tree row carries only its ⋯ (the star and "+" are in its menu): titles keep their room
+    const rows = sb.locator('section[aria-label="Pages"] .sb-row')
+    for (const i of [0, 1, 2]) {
+      const shown = await rows.nth(i).locator('.sb-row__actions > button').evaluateAll((els) => els.filter((e) => getComputedStyle(e).display !== 'none').map((e) => e.getAttribute('aria-label')))
+      expect(shown).toEqual(['More'])
+    }
+    // a toast (a reminder) sits above the drawer's foot, never on the trash
+    await page.evaluate(() => (window as unknown as { __one: { ui: { getState: () => { toast: (t: unknown) => void } } } }).__one.ui.getState().toast({ message: 'Reminder · Launch plan', kind: 'info', timeout: 20000 }))
+    const toast = page.locator('.toast').first()
+    await expect(toast).toBeVisible()
+    const foot = (await sb.locator('.sb-foot').boundingBox())!
+    await expect.poll(async () => { const t = (await toast.boundingBox())!; return Math.round(foot.y - (t.y + t.height)) }).toBeGreaterThanOrEqual(0)
+    // the drawer closed: the toast goes back to its own place
+    await page.locator('.sb-scrim').tap({ position: { x: 370, y: 300 } })
+    await expect(sb).toHaveAttribute('data-state', 'drawer')
+    expect(await page.evaluate(() => document.documentElement.style.getPropertyValue('--sb-foot'))).toBe('')
+    await expect.poll(async () => Math.round(844 - ((await toast.boundingBox())!.y + (await toast.boundingBox())!.height))).toBeLessThan(foot.height)
+  })
+
+  test('app: a row’s ⋯ on touch starts with "Add a page inside", then the star', async ({ page }) => {
+    await openApp(page)
+    await page.getByRole('button', { name: 'Open sidebar' }).tap()
+    const row = page.locator('aside.sb section[aria-label="Pages"] .sb-row', { has: page.locator('.sb-row__title', { hasText: /^Team wiki$/ }) })
+    await row.getByRole('button', { name: 'More' }).tap()
+    const items = page.getByRole('menuitem')
+    await expect(items.nth(0)).toHaveText(/Add a page inside/)
+    await expect(items.nth(1)).toHaveText(/favorites/)
+    await items.nth(0).tap()
+    await expect(page.locator('aside.sb')).toHaveAttribute('data-state', 'drawer')
+    await expect(page.locator('#main .pv-title')).toBeFocused()
+  })
+
   test('app: a database page is usable at 390 px', async ({ page }) => {
     await openApp(page)
     await page.getByRole('button', { name: 'Open sidebar' }).tap()

@@ -815,7 +815,13 @@ the public APIs stable — other areas are built against them in parallel.
   `toggleStar()` (shell/lib/favorites.ts; removal = toast with Undo to its slot); favourite order per device +
   workspace in localStorage `one.shell.favorder:<kind>:<id>` (written only by `placeFavorite` / `moveFavorite` / the
   Undo; missing favourites join by title; wiped with the team copy), fold `one.shell.sections`, tools mode
-  `one.shell.tools` — never synced / backed up. Drops hit only what shows (collision.ts `visibleWithin`, a live hit test).
+  `one.shell.tools` (`{ mode, phoneOpen }` — the phone drawer folds TOOLS into one row) — never synced / backed up. Drops
+  hit only what shows (collision.ts `visibleWithin`, a live hit test). Entry lists of more than 7 peek (5, then "+N more"
+  unfolding in place to 20 + Show all; `more:<section>:<db>[:<row>]` keys in `one.shell.expanded`, folded by Collapse
+  all); `entryOrder` lists a calendar / timeline first view without sorts by its date, newest first (`entryOrderProps`
+  is what re-sorts the memoised index). RECENT | FREQUENT starts folded where favourites exist (judged once per mount;
+  the person's fold in `one.shell.visited` wins). Touch rows carry only ⋯ (its menu: add inside, then ☆); the open
+  drawer publishes `--sb-foot` so toasts sit above its foot.
 - Mail (features/mail): Gmail → a "Mails" database. Client: One's built-in Google OAuth client (`BUILTIN_CLIENT_ID` /
   `BUILTIN_ORIGINS`, features/mail/builtin.ts; only on those origins; e2e seam `__oneMail.builtin(id)` under `?e2e` only),
   overridden by the person's own client ID (`settings.mail.clientId`, '' = none) — read it only through `effectiveClient()`

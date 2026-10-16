@@ -1,4 +1,4 @@
-import { createContext, memo, useContext, useEffect, useRef, useState, type CSSProperties } from 'react'
+import { createContext, memo, useContext, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react'
 import {
   DndContext,
   DragOverlay,
@@ -13,7 +13,7 @@ import {
   type DragStartEvent,
   type Modifier,
 } from '@dnd-kit/core'
-import { ArrowDown, ArrowUp, ChevronRight, ClipboardCopy, Copy, FolderInput, Link2, Lock, MoreHorizontal, PanelRight, PencilLine, Plus, Star, StarOff, Trash2, PanelRightOpen, Users } from 'lucide-react'
+import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, ClipboardCopy, Copy, FolderInput, Link2, Lock, MoreHorizontal, PanelRight, PencilLine, Plus, Star, StarOff, Trash2, PanelRightOpen, Users } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
@@ -24,7 +24,7 @@ import { Menu, useMenu, type MenuEntry } from '../../ui/Menu'
 import { toggleMenu } from '../lib/menu'
 import { t, useLang, useT } from '../../i18n'
 import type { ID } from '../../store/types'
-import { ENTRY_LIMIT, childIds, treeKey, useChildIds, useEntryCount, useEntryIds, useTreeState } from '../lib/tree'
+import { ENTRY_LIMIT, PEEK_OVER, childIds, moreKey, treeKey, useChildIds, useEntryCount, useEntryIds, useTreeState } from '../lib/tree'
 import { closeMobileSidebar, copyPageForAI, copyPageLink, createPageAndOpen, duplicateAndOpen, goToPage, trashWithUndo } from '../lib/actions'
 import { moveFavorite, placeFavorite, shownFavorites, toggleStar, useFavFold, useFavOrder } from '../lib/favorites'
 import { liveRect, visibleWithin } from './collision'
@@ -32,6 +32,7 @@ import { canLeaveFor, createEntryAndOpen, dropOptions, nodeKind, requestLeaveDat
 import { AIRunLed, DbCommandKey, DbCommandsMenu, OutboxTreeCount, type CommandHost } from '../../features'
 import { useIsTouch } from '../lib/hooks'
 import { ALT } from '../../ui/controls'
+import { titleIfClipped } from '../../ui/clip'
 import { useReadOnly } from '../cloud/state'
 import { peerNamesOn, usePeerOnPage } from '../cloud/Presence'
 import { usePrivateMode } from '../../cloud'
@@ -343,18 +344,87 @@ const TreeNode = memo(function TreeNode({ id, depth, section, draggable }: { id:
   )
 })
 
-/** A database's entries (parentRow null) or a row's sub-items: the first ENTRY_LIMIT, then a "show all" key. */
+/**
+ * A database's entries (parentRow null) or a row's sub-items. Up to PEEK_OVER show whole; a longer list peeks: its first
+ * ENTRY_PEEK (in the list's order — a journal's newest days first), then "+N MORE", which unfolds it in place to the
+ * first ENTRY_LIMIT and "SHOW ALL · N" (remembered per section and list: `more:` keys of the expanded state; Collapse
+ * all folds it again). The open page's own entry always shows.
+ */
 function EntryList({ dbId, parentRow, depth, section, draggable }: { dbId: ID; parentRow: ID | null; depth: number; section: string; draggable: boolean }) {
   const route = useRoute()
-  const ids = useEntryIds(dbId, parentRow, route.name === 'page' ? route.id : null)
+  const more = moreKey(section, dbId, parentRow)
+  const unfolded = useTreeState((s) => !!s.expanded[more])
+  const ids = useEntryIds(dbId, parentRow, route.name === 'page' ? route.id : null, unfolded)
   const total = useEntryCount(dbId, parentRow)
   return (
     <>
       {ids.map((id) => (
         <TreeNode key={id} id={id} depth={depth} section={section} draggable={draggable} />
       ))}
-      {total > ENTRY_LIMIT && <ShowAllKey dbId={dbId} depth={depth} total={total} />}
+      {unfolded && total > ENTRY_LIMIT && <ShowAllKey dbId={dbId} depth={depth} total={total} />}
+      {total > PEEK_OVER && <PeekKey dbId={dbId} depth={depth} rest={total - ids.length} unfolded={unfolded} moreKey={more} />}
     </>
+  )
+}
+
+/**
+ * The end of a long entry list: "+N MORE" (a treeitem key, aria-expanded; Enter / → unfold it in place) — unfolded
+ * (after today's "SHOW ALL · N" past ENTRY_LIMIT) "SHOW FEWER": Enter / ← fold it; the key stays where it was, the rows
+ * above it go.
+ */
+function PeekKey({ dbId, depth, rest, unfolded, moreKey: key }: { dbId: ID; depth: number; rest: number; unfolded: boolean; moreKey: string }) {
+  const t = useT()
+  const lang = useLang()
+  const db = useWorkspace((s) => s.pages[dbId]?.title.trim() || '') || t('common.untitled')
+  const ref = useRef<HTMLButtonElement>(null)
+  const anchor = useRef<{ top: number; box: HTMLElement } | null>(null)
+  const n = Math.max(0, rest).toLocaleString(lang === 'de' ? 'de-DE' : 'en-US')
+  // folding back: the rows above the key go — its scroller follows, so the key stays under the pointer / the focus
+  useLayoutEffect(() => {
+    const a = anchor.current
+    anchor.current = null
+    if (!a || !ref.current) return
+    a.box.scrollTop += ref.current.getBoundingClientRect().top - a.top
+    requestAnimationFrame(() => a.box.style.removeProperty('overflow-anchor'))
+  }, [unfolded])
+  const toggle = () => {
+    const box = ref.current?.closest<HTMLElement>('.sb-scroll, .sb-favs__list')
+    if (unfolded && ref.current && box) {
+      // the browser's own scroll anchoring stays out of it: one adjustment, ours
+      box.style.setProperty('overflow-anchor', 'none')
+      anchor.current = { top: ref.current.getBoundingClientRect().top, box }
+    }
+    useTreeState.getState().toggle(key)
+  }
+  const onKeyDown = (e: KeyboardEvent<HTMLButtonElement>) => {
+    if (e.altKey || e.metaKey || e.ctrlKey || e.shiftKey) return
+    if ((e.key === 'ArrowRight' && !unfolded) || (e.key === 'ArrowLeft' && unfolded)) {
+      e.preventDefault()
+      e.stopPropagation()
+      toggle()
+    }
+  }
+  return (
+    <div className="sb-row sb-more" style={{ '--depth': depth } as CSSProperties}>
+      <button
+        ref={ref}
+        type="button"
+        className="sb-row__link sb-more__link sb-more__peek"
+        role="treeitem"
+        aria-level={depth + 1}
+        aria-expanded={unfolded}
+        aria-label={unfolded ? t('shell.sidebar.entriesLessLabel', { db }) : t('shell.sidebar.entriesMoreLabel', { n, db })}
+        data-tree-key={key}
+        data-testid="tree-peek"
+        onClick={toggle}
+        onKeyDown={onKeyDown}
+      >
+        <span className="sb-more__label">
+          {unfolded ? t('shell.sidebar.entriesLess') : t('shell.sidebar.entriesMore', { n })}
+          <ChevronDown size={12} strokeWidth={2} className="sb-more__chev" aria-hidden />
+        </span>
+      </button>
+    </div>
   )
 }
 
@@ -375,13 +445,16 @@ function ShowAllKey({ dbId, depth, total }: { dbId: ID; depth: number; total: nu
         aria-level={depth + 1}
         aria-label={t('shell.sidebar.showAllLabel', { n, db: db || t('common.untitled') })}
         data-testid="tree-show-all"
+        onMouseEnter={(e) => titleIfClipped(e, '.sb-more__text')}
         onClick={(e) => {
           if (e.metaKey || e.ctrlKey || e.shiftKey) return
           e.preventDefault()
           goToPage(dbId)
         }}
       >
-        <span className="sb-more__label">{t('shell.sidebar.showAll', { n })}</span>
+        <span className="sb-more__label">
+          <span className="sb-more__text">{t('shell.sidebar.showAll', { n })}</span>
+        </span>
       </a>
     </div>
   )
@@ -455,13 +528,13 @@ function TreeRow({ id, depth, section, draggable, expanded }: { id: ID; depth: n
       createEntryAndOpen(id, templateId)
     },
   }
-  const entries: MenuEntry[] = [
-    ...(edit
-      ? ([
-          { label: t('common.rename'), icon: <PencilLine size={15} />, onSelect: () => setRenaming(true) },
-          { label: t('common.duplicate'), icon: <Copy size={15} />, onSelect: () => duplicateAndOpen(id) },
-        ] as MenuEntry[])
-      : []),
+  const editEntries: MenuEntry[] = edit
+    ? [
+        { label: t('common.rename'), icon: <PencilLine size={15} />, onSelect: () => setRenaming(true) },
+        { label: t('common.duplicate'), icon: <Copy size={15} />, onSelect: () => duplicateAndOpen(id) },
+      ]
+    : []
+  const starEntries: MenuEntry[] = [
     page.favorite
       ? { label: t('shell.menu.unfavorite'), icon: <StarOff size={15} />, onSelect: () => toggleStar(id) }
       : { label: t('shell.menu.favorite'), icon: <Star size={15} />, onSelect: () => toggleStar(id) },
@@ -472,6 +545,13 @@ function TreeRow({ id, depth, section, draggable, expanded }: { id: ID; depth: n
           { label: t('shell.fav.moveDown'), icon: <ArrowDown size={15} />, hint: touch ? undefined : 'Alt+↓', disabled: favAt < 0 || favAt >= favCount - 1, onSelect: () => moveAndSay(id, 1) },
         ] as MenuEntry[])
       : []),
+  ]
+  const entries: MenuEntry[] = [
+    // touch: the row carries only its ⋯ key — the menu starts with what its "+" and ☆ do (a database's starts with its
+    // commands: New entry first)
+    ...(touch
+      ? [...(edit && !isDb ? ([{ label: t('shell.sidebar.addInside'), icon: <Plus size={15} />, onSelect: addInside }] as MenuEntry[]) : []), ...starEntries, ...editEntries]
+      : [...editEntries, ...starEntries]),
     { label: t('common.copyLink'), icon: <Link2 size={15} />, onSelect: () => void copyPageLink(id) },
     { label: t('shell.ai.copy'), icon: <ClipboardCopy size={15} />, onSelect: () => void copyPageForAI(id) },
     // database rows belong to their database: no "Move to"
@@ -644,7 +724,8 @@ function TreeRow({ id, depth, section, draggable, expanded }: { id: ID; depth: n
             <MoreHorizontal size={15} />
           </button>
           {isDb && <DbCommandKey dbId={id} variant="sidebar" host={cmdHost} onOpenChange={setCmdOpen} />}
-          {edit && (
+          {/* touch: no "+" (titles keep their room) — the ⋯ menu starts with it */}
+          {edit && !touch && (
             <button
               type="button"
               className="sb-row__btn"

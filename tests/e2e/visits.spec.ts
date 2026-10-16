@@ -17,6 +17,14 @@ const stored = (page: Page) =>
   }, KEY)
 
 test.describe('recent and frequent pages', () => {
+  // the demo stars two pages, so the section starts folded (sidebar-tree.spec): these tests read it unfolded — the
+  // person's own choice, kept on this device
+  test.beforeEach(async ({ page }) => {
+    await page.addInitScript(() => {
+      if (!localStorage.getItem('one.shell.visited')) localStorage.setItem('one.shell.visited', JSON.stringify({ tab: 'recent', open: true }))
+    })
+  })
+
   test('RECENT lists where you were (newest first, the open page left out) and survives a reload', async ({ page }) => {
     await openApp(page)
     const a = await createPage(page, { title: 'Visit A' })

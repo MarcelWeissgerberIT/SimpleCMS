@@ -120,7 +120,7 @@ export function Sidebar() {
             <PrivateSection n={no.priv} />
           </div>
         </DraggableTree>
-        <SidebarFooter n={no.trash} />
+        <SidebarFooter n={no.trash} lift={state === 'drawer-open'} />
         {!mobile && (
           <ResizeHandle
             width={w}
@@ -486,8 +486,11 @@ function PrivateSection({ n }: { n: number }) {
  * The foot, one row: "04 TRASH 03 ······ WHAT CAN ONE DO? →". Where both do not fit (a narrow sidebar, big text, a long
  * word) "What can One do?" sheds, measured: first its arrow (`data-shed="1"`), then its words for the compass
  * (`data-shed="2"`; its name and tooltip stay).
+ *
+ * `lift` (the phone drawer is open): its height above the screen's bottom goes on <html> as `--sb-foot`, so toasts (a
+ * reminder) sit above it and never cover the trash — as the flight recorder's deck does with `--deck-dock`.
  */
-function SidebarFooter({ n }: { n: number }) {
+function SidebarFooter({ n, lift }: { n: number; lift: boolean }) {
   const t = useT()
   const trash = useTrash()
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
@@ -513,6 +516,21 @@ function SidebarFooter({ n }: { n: number }) {
     if (btn.current) ro.observe(btn.current)
     return () => ro.disconnect()
   }, [label, trashLabel, trash.length > 99])
+  useLayoutEffect(() => {
+    const el = foot.current
+    const sb = el?.closest<HTMLElement>('.sb')
+    if (!lift || !el || !sb) return
+    const root = document.documentElement
+    const publish = () => root.style.setProperty('--sb-foot', `${Math.max(0, Math.round(sb.getBoundingClientRect().bottom - el.getBoundingClientRect().top))}px`)
+    publish()
+    const ro = new ResizeObserver(publish)
+    ro.observe(el)
+    ro.observe(sb)
+    return () => {
+      ro.disconnect()
+      root.style.removeProperty('--sb-foot')
+    }
+  }, [lift])
   return (
     <div className="sb-foot" ref={foot}>
       <button

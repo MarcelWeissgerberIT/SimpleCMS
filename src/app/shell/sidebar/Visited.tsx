@@ -1,7 +1,8 @@
-import { useRef, type KeyboardEvent } from 'react'
+import { useRef, useState, type KeyboardEvent } from 'react'
 import { ChevronDown, Eraser, MoreHorizontal } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
+import { useHasFavorites } from '../../store/selectors'
 import type { ID } from '../../store/types'
 import { useRoute } from '../../lib/router'
 import { Menu, useMenu, type MenuEntry } from '../../ui/Menu'
@@ -28,22 +29,27 @@ export function useVisited(): { recent: ID[]; frequent: ID[]; shown: boolean } {
   return { recent, frequent, shown: recent.length > 0 || frequent.length > 0 }
 }
 
-/** The tab and fold of the section (per device, `one.shell.visited`): anything odd reads as the default. */
-function readPref(v: unknown, mobile: boolean): Pref {
+/** The tab and fold of the section (per device, `one.shell.visited`): anything odd reads as the default (`open`). */
+function readPref(v: unknown, open: boolean): Pref {
   const p = (v && typeof v === 'object' ? v : {}) as Partial<Record<keyof Pref, unknown>>
-  return { tab: p.tab === 'frequent' ? 'frequent' : 'recent', open: typeof p.open === 'boolean' ? p.open : !mobile }
+  return { tab: p.tab === 'frequent' ? 'frequent' : 'recent', open: typeof p.open === 'boolean' ? p.open : open }
 }
 
 /**
  * RECENT | FREQUENT — one compact section above the page tree with a two-position switch. Both lists
  * are this device's own (never synced); the head's ⋯ key (or a right-click) clears them.
+ *
+ * Until the person folds or unfolds it (then `one.shell.visited` keeps that), it starts folded on a phone (the drawer is
+ * short) and wherever FAVORITES has entries — a page there, here and in the tree would show three times. "Starts":
+ * judged once, when the section appears; a first star later never folds it under the pointer.
  */
 export function VisitedSection({ n, recent, frequent }: { n: number; recent: ID[]; frequent: ID[] }) {
   const t = useT()
   const mobile = useIsMobile()
-  // phones start folded: the drawer is short
-  const [raw, setRaw] = useLocalPref<unknown>('one.shell.visited', { tab: 'recent', open: !mobile })
-  const pref = readPref(raw, mobile)
+  const hasFavs = useHasFavorites()
+  const [favsAtStart] = useState(hasFavs)
+  const [raw, setRaw] = useLocalPref<unknown>('one.shell.visited', null)
+  const pref = readPref(raw, !mobile && !favsAtStart)
   const set = (patch: Partial<Pref>) => setRaw({ ...pref, ...patch })
   const menu = useMenu()
   const tabs = useRef<Record<Tab, HTMLButtonElement | null>>({ recent: null, frequent: null })

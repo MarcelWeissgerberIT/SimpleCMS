@@ -12,15 +12,19 @@
  * NAMES (aria-pressed) turns the strip into today's labelled rows — per device, localStorage `one.shell.tools` =
  * { mode: 'keys' | 'list', phoneOpen }. A coarse pointer (iPad docked, a phone) shows the keys as a labelled 4 × 2 grid
  * of ≥ 44 px keys (no hover there) — sidebar.css.
+ *
+ * In the phone drawer TOOLS starts as ONE folded 36 px row: its name, an LED with the sum of what waits (open fuses +
+ * the agents' proposals; NEW when only the Patchbay's is new) — never a count of the tools it hides. A tap unfolds the
+ * grid (aria-expanded); the choice is `phoneOpen`.
  */
 import { useRef, useState, type FocusEvent, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react'
-import { Bot, CalendarClock, LayoutTemplate, Shapes, SquareCode, Upload, Waypoints } from 'lucide-react'
+import { Bot, CalendarClock, ChevronDown, LayoutTemplate, Shapes, SquareCode, Upload, Waypoints } from 'lucide-react'
 import { useUI } from '../../store/ui'
 import { navigate, useRoute } from '../../lib/router'
 import { AgentsNavBadge, PatchbayNavRow, useAgentsAttention, usePatchbayCounts, usePatchbaySeen, usePreflightOn } from '../../features'
 import { useT } from '../../i18n'
 import { closeMobileSidebar } from '../lib/actions'
-import { useLocalPref } from '../lib/hooks'
+import { useIsMobile, useLocalPref } from '../lib/hooks'
 import { useReadOnly } from '../cloud/state'
 import { NavRow } from './NavRow'
 
@@ -66,6 +70,7 @@ export function ToolStrip() {
   const unknown = pb.ready ? pb.unknown : 0
   const [raw, setRaw] = useLocalPref<unknown>('one.shell.tools', { mode: 'keys', phoneOpen: false })
   const pref = readTools(raw)
+  const phone = useIsMobile()
   const go = (fn: () => void) => () => {
     closeMobileSidebar()
     fn()
@@ -147,11 +152,47 @@ export function ToolStrip() {
     </div>
   )
 
+  // the phone drawer: one folded row until a tap opens it (what waits: an LED and its sum, viewers' fuses in neutral ink)
+  const waiting = fuses + agents
+  const lit = (readOnly ? 0 : fuses) + agents
+  const fold = phone && (
+    <button
+      type="button"
+      className="sb-tools__fold"
+      aria-expanded={pref.phoneOpen}
+      aria-controls={pref.phoneOpen ? 'sb-tools-body' : undefined}
+      aria-label={[t('shell.tools.title'), waiting ? t(waiting === 1 ? 'shell.tools.waiting.one' : 'shell.tools.waiting', { n: waiting }) : !seen ? t(`${P}.new`) : ''].filter(Boolean).join(', ')}
+      onClick={() => setRaw({ ...pref, phoneOpen: !pref.phoneOpen })}
+    >
+      <span className="sb-tools__readout">{t('shell.tools.title')}</span>
+      <span className="sb-sect__leader" aria-hidden />
+      {waiting > 0 ? (
+        <span className="sb-navrow__badge sb-tools__sum" data-viewer={lit ? undefined : ''} aria-hidden>
+          <span className={lit ? 'led led--on' : 'led'} />
+          {waiting > 99 ? '99+' : String(waiting).padStart(2, '0')}
+        </span>
+      ) : (
+        !seen && (
+          <span className="sb-tools__newtag" aria-hidden>
+            {t(`${P}.new`)}
+          </span>
+        )
+      )}
+      <ChevronDown size={14} className="sb-tools__chev" aria-hidden />
+    </button>
+  )
+  if (phone && !pref.phoneOpen)
+    return (
+      <div className="sb-tools" data-mode={pref.mode} data-phone="folded">
+        {fold}
+      </div>
+    )
+
   if (pref.mode === 'list')
     return (
-      <div className="sb-tools" data-mode="list">
-        {head}
-        <div className="sb-tools__list" role="group" aria-label={t('shell.tools.title')}>
+      <div className="sb-tools" data-mode="list" data-phone={phone ? 'open' : undefined}>
+        {fold || head}
+        <div className="sb-tools__list" id="sb-tools-body" role="group" aria-label={t('shell.tools.title')}>
           {tools.map((x) => (x.id === 'patchbay' ? <PatchbayNavRow key={x.id} active={x.active} /> : <NavRow key={x.id} icon={x.icon} label={x.label} active={x.active} badge={x.badge} onClick={x.onClick} />))}
         </div>
         {names}
@@ -159,9 +200,10 @@ export function ToolStrip() {
     )
 
   return (
-    <div className="sb-tools" data-mode="keys">
-      {head}
+    <div className="sb-tools" data-mode="keys" data-phone={phone ? 'open' : undefined}>
+      {fold || head}
       <div
+        id="sb-tools-body"
         className="sb-tools__keys"
         role="toolbar"
         aria-label={t('shell.tools.title')}

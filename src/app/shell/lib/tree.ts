@@ -8,7 +8,7 @@ import { create } from 'zustand'
 import { useShallow } from 'zustand/react/shallow'
 import { pageChanges, useWorkspace } from '../../store/store'
 import type { Database, ID, Page } from '../../store/types'
-import { entryOrder, parentIdOf, subItemsOf } from '../../database'
+import { entryOrder, entryOrderProps, parentIdOf, subItemsOf } from '../../database'
 import { safeLocalGet, safeLocalSet } from '@/shared/brand'
 
 const ROOT = '__root__'
@@ -64,8 +64,14 @@ export function useChildIds(parentId: ID | null): ID[] {
 
 /* ---------------- database entries (rows) ---------------- */
 
-/** Entries a list shows before its "show all" key (the open page's own entry is shown on top of these). */
+/** Entries an unfolded list shows before its "show all" key (the open page's own entry is shown on top of these). */
 export const ENTRY_LIMIT = 20
+/**
+ * The peek: a list of more than PEEK_OVER entries first shows ENTRY_PEEK of them (in the list's order — a journal's
+ * newest days first) and a "+N more" key that unfolds it in place; a list of up to PEEK_OVER shows whole.
+ */
+export const ENTRY_PEEK = 5
+export const PEEK_OVER = 7
 
 interface EntryIndex {
   /** top-level entries (with sub-items on: rows without a parent row), in the first view's order */
@@ -93,10 +99,7 @@ const isEntry = (p: Page | undefined, dbId: ID): p is Page => !!p && p.databaseI
  * by something computed — formula, rollup, last edited).
  */
 function sensitivity(db: Database): 'order' | 'values' | 'all' {
-  const view = db.views[0]
-  const sorts = view && Array.isArray(view.sorts) ? view.sorts : []
-  const keys = sorts.length ? sorts.map((x) => x.propertyId) : view?.type === 'feed' && view.feed?.dateProperty ? [view.feed.dateProperty] : []
-  const types = keys.map((id) => db.properties.find((p) => p.id === id)?.type)
+  const types = entryOrderProps(db).map((id) => db.properties.find((p) => p.id === id)?.type)
   if (types.some((t) => t === 'formula' || t === 'rollup' || t === 'last_edited_time' || t === 'last_edited_by')) return 'all'
   return types.some(Boolean) || subItemsOf(db) ? 'values' : 'order'
 }
@@ -204,19 +207,24 @@ export function treeAncestors(s: TreeSlice, id: ID): Page[] {
   return out
 }
 
+/** How many entries a list shows first: all of a short one, ENTRY_PEEK of a long one folded, ENTRY_LIMIT unfolded. */
+export const entryLimit = (total: number, unfolded: boolean) => (total <= PEEK_OVER ? total : unfolded ? ENTRY_LIMIT : ENTRY_PEEK)
+
 /**
- * The entries a list shows: the first ENTRY_LIMIT, plus — further down the list — the entry that holds
- * the open page (so the open page stays visible in the tree). Computed only while the list is mounted.
+ * The entries a list shows: the first `entryLimit` (folded: ENTRY_PEEK of a long list; unfolded — "+N more" —
+ * ENTRY_LIMIT), plus — further down the list — the entry that holds the open page (so the open page stays visible in the
+ * tree). Computed only while the list is mounted.
  */
-export function useEntryIds(dbId: ID, parentRow: ID | null, openId: ID | null): ID[] {
+export function useEntryIds(dbId: ID, parentRow: ID | null, openId: ID | null, unfolded = false): ID[] {
   return useWorkspace(
     useShallow((s) => {
       const all = entryList(s, dbId, parentRow)
-      if (all.length <= ENTRY_LIMIT) return all
-      const shown = all.slice(0, ENTRY_LIMIT)
+      const limit = entryLimit(all.length, unfolded)
+      if (all.length <= limit) return all
+      const shown = all.slice(0, limit)
       if (openId && s.pages[openId]) {
         const chain = new Set([openId, ...treeAncestors(s, openId).map((p) => p.id)])
-        for (let i = ENTRY_LIMIT; i < all.length; i++) if (chain.has(all[i])) shown.push(all[i])
+        for (let i = limit; i < all.length; i++) if (chain.has(all[i])) shown.push(all[i])
       }
       return shown
     }),
@@ -250,8 +258,9 @@ interface TreeState {
   expand: (keys: string[]) => void
   collapse: (key: string) => void
   /**
-   * Fold every node of these sections (`<section>:` key prefixes) but the `keep` keys — the open page's ancestors and
-   * its own expansion ("Collapse all" in the PAGES head). Other sections' keys (favourites, recent) stay.
+   * Fold every node of these sections (`<section>:` key prefixes) and every unfolded entry list in them (`more:<section>:`)
+   * but the `keep` keys — the open page's ancestors and its own expansion ("Collapse all" in the PAGES head). Other
+   * sections' keys (favourites, recent) stay.
    */
   collapseAll: (sections: string[], keep: string[]) => void
 }
@@ -301,8 +310,10 @@ export const useTreeState = create<TreeState>()((set, get) => {
 export function foldedBut(expanded: Record<string, true>, sections: string[], keep: string[]): Record<string, true> {
   const kept = new Set(keep)
   const next: Record<string, true> = {}
-  for (const k of Object.keys(expanded)) if (kept.has(k) || !sections.some((sec) => k.startsWith(`${sec}:`))) next[k] = true
+  for (const k of Object.keys(expanded)) if (kept.has(k) || !sections.some((sec) => k.startsWith(`${sec}:`) || k.startsWith(`more:${sec}:`))) next[k] = true
   return next
 }
 
 export const treeKey = (section: string, id: ID) => `${section}:${id}`
+/** A long entry list unfolded past its peek ("+N more"), kept with the expanded state: `more:<section>:<db>[:<row>]`. */
+export const moreKey = (section: string, dbId: ID, parentRow: ID | null) => `more:${section}:${dbId}${parentRow ? `:${parentRow}` : ''}`

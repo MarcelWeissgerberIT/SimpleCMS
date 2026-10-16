@@ -298,6 +298,7 @@
 /* ---------- WERKZEUGE / TOOLS (Tools.tsx): one strip of keycaps; the head is a readout ---------- */
 /* DOM: readout · keys · NAMES (the keys come first for Tab), drawn as "readout ··· NAMES" over the keys */
 .sb-tools {
+  container: tools / inline-size;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   grid-template-areas:
@@ -486,6 +487,56 @@
   margin: 0;
   padding: 0;
   border-radius: var(--radius-led);
+}
+/* the phone drawer: TOOLS is one folded row — its name, the LED with the sum of what waits (or NEW), a chevron; a tap
+   unfolds the labelled grid below it */
+.sb-tools__fold {
+  grid-area: head;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  height: 36px;
+  padding: 0 8px 0 10px;
+  border: 0;
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tracking-label);
+  text-align: left;
+  text-transform: uppercase;
+}
+.sb-tools[data-phone='folded'] {
+  grid-template-areas: 'head head';
+}
+.sb-tools__fold:active {
+  transform: translateY(1px);
+}
+.sb-tools__fold .sb-sect__leader {
+  min-width: 8px;
+}
+.sb-tools__chev {
+  flex: none;
+  transition: transform var(--dur-1) var(--ease-out);
+}
+.sb-tools__fold[aria-expanded='false'] .sb-tools__chev {
+  transform: rotate(-90deg);
+}
+/* what waits, summed: signal like the inbox's count; a viewer's (fuses only) in neutral ink */
+.sb-navrow__badge.sb-tools__sum[data-viewer] {
+  color: var(--ink-2);
+}
+.sb-tools__newtag {
+  flex: none;
+  padding: 1px 4px;
+  border-radius: var(--radius-1);
+  background: var(--ink);
+  color: var(--surface);
+  font-weight: 600;
+  letter-spacing: 0.04em;
 }
 
 /* ---------- 01 FAVORITES (Favorites.tsx): in the fixed block, the seam below it ---------- */
@@ -1057,9 +1108,13 @@ body[data-dragging] .sb-children::before {
 .sb-children[data-kind='database']:has(.sb-row[data-active])::before {
   background: repeating-linear-gradient(to bottom, var(--ink-3) 0 2px, transparent 2px 4px);
 }
-/* "SHOW ALL · 143": a mono key at the end of a long database (opens the database) */
+/* the end of a long entry list: "+3 MORE" (unfolds in place) — unfolded, "SHOW ALL · 143" (opens the database) after the
+   entries and "SHOW FEWER" last; mono keys, the focus ring on the key itself */
 .sb-more {
   height: 24px;
+}
+.sb-more .sb-row__link {
+  flex: none;
 }
 /* lined up with the entries' titles (touch: chevron and icon sit side by side) */
 .sb-more__link {
@@ -1070,9 +1125,28 @@ body[data-dragging] .sb-children::before {
     padding-left: 50px;
   }
 }
+.sb-more .sb-more__all {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.sb-more__link:focus-visible {
+  box-shadow: none;
+}
+.sb-more__link:focus-visible .sb-more__label {
+  outline: 2px solid var(--signal);
+  outline-offset: 1px;
+}
+.sb-more__peek {
+  border: 0;
+  background: transparent;
+  font: inherit;
+}
 .sb-more__label {
   display: inline-flex;
   align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  min-width: 0;
   height: 18px;
   padding: 0 6px;
   border: 1px solid var(--rule-strong);
@@ -1088,15 +1162,28 @@ body[data-dragging] .sb-children::before {
     color var(--dur-1),
     border-color var(--dur-1);
 }
+.sb-more__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sb-more__chev {
+  flex: none;
+  margin-right: -2px;
+  transition: transform var(--dur-1) var(--ease-out);
+}
+.sb-more__peek[aria-expanded='true'] .sb-more__chev {
+  transform: rotate(180deg);
+}
 .sb-more:hover {
   background: transparent;
 }
-.sb-more:hover .sb-more__label,
+.sb-more__link:hover .sb-more__label,
 .sb-more__link:focus-visible .sb-more__label {
   border-color: var(--ink-3);
   color: var(--ink);
 }
-.sb-more:active .sb-more__label {
+.sb-more__link:active .sb-more__label {
   transform: translateY(1px);
 }
 
@@ -1412,6 +1499,10 @@ body[data-dragging] .sb-row__toggle {
   .sb-row {
     height: 32px;
   }
+  /* the places of every day: 36 px rows to tap */
+  .sb-navrow {
+    height: 36px;
+  }
   /* no hover here: the tools as a labelled 4 × 2 grid of ≥ 44 px keys */
   .sb-tools__keys {
     display: grid;
@@ -1445,6 +1536,13 @@ body[data-dragging] .sb-row__toggle {
     color: var(--ink-2);
     font-size: calc(10.5px * var(--text-scale));
     font-weight: 520;
+  }
+  /* a docked sidebar at its usual 264 px (iPad): the names set narrower on Archivo's width axis — "Importieren" whole */
+  @container tools (max-width: 270px) {
+    .sb-tool__label {
+      font-stretch: 87.5%;
+      font-variation-settings: 'wdth' 87.5;
+    }
   }
   .sb-tools__head {
     height: 28px;
@@ -1498,6 +1596,8 @@ body[data-dragging] .sb-row__toggle {
 @media (prefers-reduced-motion: reduce) {
   .sb-switch__tab,
   .sb-sect__fold svg,
+  .sb-more__chev,
+  .sb-tools__chev,
   .sb-tool,
   .sb-tools__names,
   .sb-favs__slot {

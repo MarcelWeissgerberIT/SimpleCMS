@@ -2,7 +2,8 @@
  * WERKZEUGE / TOOLS — the sidebar's tool strip (shell/sidebar/Tools.tsx): one Tab stop and ← / → / Home / End along the
  * keycaps (WAI-ARIA toolbar), the readout at rest (Patchbay NEW, open fuses, proposals) and under the pointer / the focus,
  * the keys' accessible names, NAMES (today's labelled rows) kept on this device, viewers (no Templates / Import, the
- * Patchbay LED in neutral ink), Preflight taking the Agents count, and the labelled grid on a coarse pointer.
+ * Patchbay LED in neutral ink), Preflight taking the Agents count, the labelled grid on a coarse pointer, and the phone
+ * drawer's folded TOOLS row (the LED sum of what waits, a tap unfolds the grid, kept on this device).
  */
 import type { Page } from '@playwright/test'
 import { test, expect, openApp, reloadApp, preflightOff } from './fixtures'
@@ -122,5 +123,47 @@ test.describe('the tool strip on a coarse pointer', () => {
     expect(new Set(boxes.map((b) => b.top)).size).toBe(2)
     await expect(strip(page).locator('.sb-tool__label').first()).toBeVisible()
     await expect(strip(page).locator('.sb-tool__label').first()).toHaveText('Agenda')
+  })
+})
+
+test.describe('the tool strip in the phone drawer', () => {
+  test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 })
+
+  test('TOOLS is one folded 36 px row with the LED sum of what waits — never a count of the tools; a tap unfolds the labelled grid, kept on this device', async ({ page }) => {
+    await openApp(page)
+    await page.getByRole('button', { name: 'Open sidebar' }).tap()
+    const fold = page.locator('.sb .sb-tools__fold')
+    await expect(fold).toHaveAttribute('aria-expanded', 'false')
+    expect(Math.round((await fold.boundingBox())!.height)).toBe(36)
+    // nothing waits, the Patchbay is new: NEW
+    await expect(fold).toHaveAccessibleName('Tools, New')
+    await expect(fold.locator('.sb-tools__newtag')).toHaveText('New')
+    await expect(strip(page)).toHaveCount(0)
+    await expect(page.getByTestId('patchbay-nav')).toHaveCount(0)
+    // an open fuse: the LED and its sum
+    await seedPatchbay(page, mock1())
+    if ((await page.locator('aside.sb').getAttribute('data-state')) !== 'drawer-open') await page.getByRole('button', { name: 'Open sidebar' }).tap()
+    await expect(fold).toHaveAccessibleName('Tools, 1 waiting')
+    await expect(fold.locator('.sb-tools__sum')).toHaveText('01')
+    await expect(fold.locator('.sb-tools__sum .led')).toHaveClass(/led--on/)
+    // a viewer cannot act on a fuse: neutral ink
+    await page.evaluate(() => (window as unknown as { __one: { cloud: { useCloud: { setState: (s: unknown) => void } } } }).__one.cloud.useCloud.setState({ readOnly: true }))
+    await expect(fold.locator('.sb-tools__sum')).toHaveAttribute('data-viewer', '')
+    await expect(fold.locator('.sb-tools__sum .led')).not.toHaveClass(/led--on/)
+    await page.evaluate(() => (window as unknown as { __one: { cloud: { useCloud: { setState: (s: unknown) => void } } } }).__one.cloud.useCloud.setState({ readOnly: false }))
+    // a tap: the labelled grid, the Patchbay key with its LED
+    await fold.tap()
+    await expect(fold).toHaveAttribute('aria-expanded', 'true')
+    await expect(fold).toHaveAttribute('aria-controls', 'sb-tools-body')
+    await expect(strip(page).getByRole('button')).toHaveCount(8)
+    await expect(strip(page).locator('.sb-tool__label').first()).toBeVisible()
+    await expect(page.getByTestId('patchbay-nav-led')).toContainText('1')
+    expect(await page.evaluate(() => JSON.parse(localStorage.getItem('one.shell.tools') ?? '{}'))).toMatchObject({ mode: 'keys', phoneOpen: true })
+    await reloadApp(page)
+    await page.getByRole('button', { name: 'Open sidebar' }).tap()
+    await expect(strip(page).getByRole('button')).toHaveCount(8)
+    await page.locator('.sb .sb-tools__fold').tap()
+    await expect(strip(page)).toHaveCount(0)
+    expect(await page.evaluate(() => JSON.parse(localStorage.getItem('one.shell.tools') ?? '{}'))).toMatchObject({ phoneOpen: false })
   })
 })

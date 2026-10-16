@@ -575,7 +575,8 @@
 }
 @media (max-width: 767px) {
   .toasts {
-    bottom: max(calc(16px + env(safe-area-inset-bottom)), calc(var(--term-dock, -100px) + 36px), calc(var(--deck-dock, -100px) + 16px));
+    /* …and above the sidebar drawer's foot while the drawer is open (--sb-foot): a reminder never covers the trash */
+    bottom: max(calc(16px + env(safe-area-inset-bottom)), calc(var(--term-dock, -100px) + 36px), calc(var(--deck-dock, -100px) + 16px), calc(var(--sb-foot, -100px) + 8px));
   }
   /* several keys: the message on its own line, the keys below it */
   .toast[data-more] {

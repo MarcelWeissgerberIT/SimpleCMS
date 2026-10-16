@@ -1,7 +1,7 @@
 /**
- * Databases in the sidebar tree: a database expands to its entries (ordered like its first view, at
- * most 20 + a "show all" key), entries expand to their sub-items and sub-pages, "+" on a database makes
- * a new entry, and drag & drop crosses the database edge (a page becomes an entry, an entry a page).
+ * Databases in the sidebar tree: a database expands to its entries (ordered like its first view; a long list peeks —
+ * 5 + "+N more", unfolded at most 20 + a "show all" key), entries expand to their sub-items and sub-pages, "+" on a
+ * database makes a new entry, and drag & drop crosses the database edge (a page becomes an entry, an entry a page).
  */
 import type { Locator, Page } from '@playwright/test'
 import { test, expect, openApp, gotoPage, createPage, wsEval, pageById, pageIdByTitle, escapeRe, flush } from './fixtures'
@@ -138,7 +138,7 @@ test.describe('databases in the sidebar', () => {
     await expect.poll(() => wsEval(page, (s, id) => Object.values(s.pages).filter((x) => (x as { databaseId: string }).databaseId === id).length, p.id)).toBe(before + 2)
   })
 
-  test('a long database lists 20 entries, then "show all" opens it', async ({ page }) => {
+  test('a long database peeks (5 + "+20 more"), unfolds to 20 entries, then "show all" opens it', async ({ page }) => {
     await openApp(page)
     const dbId = await wsEval(page, (s) => {
       const id = s.createDatabase({ title: 'Long list' })
@@ -148,6 +148,11 @@ test.describe('databases in the sidebar', () => {
     await flush(page)
     await expand(page, 'Long list')
     const r = row(page, 'Long list')
+    expect(await childTitles(r)).toHaveLength(5)
+    const peek = tree(page).getByTestId('tree-peek')
+    await expect(peek).toHaveText('+20 more')
+    await expect(tree(page).getByTestId('tree-show-all')).toHaveCount(0)
+    await peek.click()
     expect(await childTitles(r)).toHaveLength(20)
     const more = tree(page).getByTestId('tree-show-all')
     await expect(more).toHaveText('Show all · 25')
@@ -302,7 +307,7 @@ test.describe('databases in the sidebar', () => {
     await expect(page.locator('#main section.db')).toBeVisible()
   })
 
-  test('5,000 entries: expanding renders fast and shows 20 + "show all"', async ({ page }) => {
+  test('5,000 entries: expanding renders fast and peeks; unfolded 20 + "show all"', async ({ page }) => {
     test.setTimeout(120_000)
     await openApp(page)
     await wsEval(page, (s) => {
@@ -324,7 +329,7 @@ test.describe('databases in the sidebar', () => {
         const t = performance.now()
         toggle.click()
         await new Promise<void>((resolve) => {
-          const check = () => (document.querySelector('[data-testid="tree-show-all"]') ? requestAnimationFrame(() => resolve()) : requestAnimationFrame(check))
+          const check = () => (document.querySelector('[data-testid="tree-peek"]') ? requestAnimationFrame(() => resolve()) : requestAnimationFrame(check))
           check()
         })
         const ms = performance.now() - t
@@ -346,6 +351,9 @@ test.describe('databases in the sidebar', () => {
       expect(sorted, 'expanding a sorted 5,000-row database').toBeLessThan(200)
     }
     await expand(page, 'Huge log')
+    expect(await childTitles(row(page, 'Huge log'))).toHaveLength(5)
+    await expect(tree(page).getByTestId('tree-peek')).toHaveText('+4,995 more')
+    await tree(page).getByTestId('tree-peek').click()
     const titles = await childTitles(row(page, 'Huge log'))
     expect(titles).toHaveLength(20)
     if (view) expect(titles[0]).toBe('Row 4999')
@@ -356,7 +364,7 @@ test.describe('databases in the sidebar', () => {
 test.describe('databases in the sidebar at 390 px', () => {
   test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 })
 
-  test('the drawer expands a database, "+" adds an entry, an entry opens and the drawer closes', async ({ page }) => {
+  test('the drawer expands a database, ⋯ › New entry adds one (rows carry only ⋯), an entry opens and the drawer closes', async ({ page }) => {
     await openApp(page)
     const sb = page.locator('aside.sb')
     await page.getByRole('button', { name: 'Open sidebar' }).tap()
@@ -367,7 +375,10 @@ test.describe('databases in the sidebar at 390 px', () => {
     await expect(sb).toHaveAttribute('data-state', 'drawer')
     await expect(page.locator('#main .pv-title')).toHaveValue('Brand refresh')
     await page.getByRole('button', { name: 'Open sidebar' }).tap()
-    await row(page, 'Projects').getByRole('button', { name: 'New entry' }).tap()
+    // touch: no "+" in the row — titles keep their room; the ⋯ menu starts with the database's New entry
+    await expect(row(page, 'Projects').getByRole('button', { name: 'New entry' })).toHaveCount(0)
+    await row(page, 'Projects').getByRole('button', { name: 'More' }).tap()
+    await page.getByRole('menuitem', { name: 'New entry' }).first().tap()
     await expect(sb).toHaveAttribute('data-state', 'drawer')
     await expect(page.locator('#main .pv-title')).toHaveValue('')
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
