@@ -137,7 +137,8 @@ the public APIs stable — other areas are built against them in parallel.
   page this device lacks resolve `pagesAt()`: a permalink, `#/p/<id>`, the bare id in any case, or the spec plate's
   short ID "ABCD·1234" (the id's first 8 characters; several matches are all listed, never guessed); ⌘K never offers
   "Create page" for an address. A pasted permalink of a live page becomes a page mention (editor paste), "@Title" (AI
-  terminal, coding fields); a link to the app's own permalink opens in place.
+  terminal, coding fields); a link to the app's own permalink opens in place. A block link (`?b=<block>`, "Copy link to
+  block") is never cut down to its page: pasted it stays a link, clicked / ⌘K it opens at the block (`PageAddress.block`).
 - Computed, never stored: property types `created_time`, `last_edited_time`, `created_by`, `last_edited_by`
   (from `page.createdBy` / `updatedBy` — account ids in team workspaces, `api:<id>` / `hook:<id>` for the public
   API; absent locally), `formula`, `rollup` (`unique_id` is assigned once and stored). Filter value token `'@me'` = the
@@ -723,14 +724,19 @@ the public APIs stable — other areas are built against them in parallel.
   takes it as Repo (`intakeDone`). Pages a task mentions (@ / links / a pasted One address, also in answers and rework
   notes) and the pages linked in THOSE (one level deeper) go to the worker as read-only text (coding/refs.ts `refPlan`:
   the turn's answer / rework note first, then the task's readable part, then the nested ones; ≤ 8 in all, context marks
-  per page; what Claude sees named but does not get is listed under them, `left`); the version hashes every live page
-  within two links of the task's whole content (`refIdsOf`, ≤ 64) and only pages of the checked version go along
-  (`within`). Coding text fields (answer, rework note, new-task goal / criteria) are `RefField` (coding/RefField.tsx):
+  per page; one level deeper only each page's first 8 links (`deeperOf`) and never a page kept back — mail / memory /
+  a row of a `Database.system` database, a private page for a shared task; what Claude sees named but does not get is
+  listed under them, `left`, ≤ 20 names, a page outside the version by its id only); the version hashes every live page
+  the task's whole content points to (no cap) and `deeperOf` each of those (`refIdsOf`) — ONE list with the hand-out,
+  whatever its order — and only pages of the checked version go along (`within`; "Goes along" and "Give the page" use
+  the same plan, `nextPlan`). A Markdown link's label is never an address (`idsInText`; a link-marked text node counts
+  by its href only). Coding text fields (answer, rework note, new-task goal / criteria) are `RefField` (coding/RefField.tsx):
   "@" / "one:" = the editor's page search (editor/lib/pageSearch.ts `mentionPages` / `refPages`, shared with
   MentionMenu / RefMenu), a pick shows "@Title" and is sent as `[@Title](#/p/<id>)` (refDraft.ts `draftText`; taskBody
   turns it into a page mention), private pages (team) only for a private task (`privateAllowed`); "Give the page" chips
   under Claude's question (GivePages.tsx, pagePick.ts `suggestPages`: quoted names = exact live titles, ambiguous →
-  every candidate with its path; never sent by themselves); "Goes along" (RefsLine) is live with the draft. "Copy for AI
+  every candidate with its path; never sent by themselves); "Goes along" (RefsLine) is live with the draft, opens a page
+  in the peek, and unsent answers / rework notes are kept per task + stage in this tab (TaskPanel `drafts`). "Copy for AI
   context" (shell/lib/aiContext.ts `pageForAI`, page menu / sidebar row menu / ⌘K) = a page as Markdown on the clipboard. The task tools are read-only for Claude Code (plan mode may ask);
   without ExitPlanMode the plan file (`~/.claude/plans`) is the plan.
 - Claude's Markdown goes into or is shown in a page only through `claudeDoc` / `claudeBlocks` (features/ai/claudeDoc.ts):

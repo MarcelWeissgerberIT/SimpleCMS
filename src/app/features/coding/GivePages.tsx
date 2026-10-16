@@ -11,15 +11,18 @@ import type { ID } from '../../store/types'
 import { useT } from '../../i18n'
 import { suggestPages } from './pagePick'
 import { livePicks, type RefDraft } from './refDraft'
-import { refPlan } from './refs'
+import { nextPlan } from './refs'
+import { useTaskLocal } from './local'
+import { taskContext } from './tasks'
 import type { RefFieldHandle } from './RefField'
 
 export function GivePages({ question, taskId, draft, allowPrivate, field }: { question: string; taskId: ID; draft: RefDraft; allowPrivate: boolean; field: RefObject<RefFieldHandle | null> }) {
   const t = useT()
   const pages = useWorkspace((s) => s.pages)
   const list = useMemo(() => suggestPages(question, taskId, allowPrivate), [question, taskId, allowPrivate, pages]) // eslint-disable-line react-hooks/exhaustive-deps
-  // what goes along anyway (the task's own pages and those linked in them)
-  const along = useMemo(() => (list.length ? new Set(refPlan(taskId).pages.map((p) => p.id)) : new Set<ID>()), [list, taskId, pages]) // eslint-disable-line react-hooks/exhaustive-deps
+  const local = useTaskLocal(taskId)
+  // what goes along anyway — the next hand-out without the answer being written ("Goes along" without its new pages)
+  const along = useMemo(() => (list.length ? new Set(nextPlan(taskId, local, taskContext(taskId)?.stage?.id).pages.map((p) => p.id)) : new Set<ID>()), [list, taskId, pages, local]) // eslint-disable-line react-hooks/exhaustive-deps
   const picked = new Set(livePicks(draft).map((p) => p.id))
   if (!list.length) return null
 

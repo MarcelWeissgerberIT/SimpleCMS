@@ -1833,9 +1833,10 @@ function Prompt({ disabled, onReview }: { disabled: boolean; onReview: () => boo
           spellCheck={false}
           autoComplete="off"
           onPaste={(e) => {
-            // a page's permalink (or `#/p/<id>`) of a page here: "@Title" pointing at it, like an @ completion
+            // a page's permalink (or `#/p/<id>`) of a page here: "@Title" pointing at it, like an @ completion — a link
+            // to a block of it (`?b=`) stays the pasted address
             const form = parsePageAddress(e.clipboardData.getData('text/plain'))
-            if (form?.kind !== 'address' || halted) return
+            if (form?.kind !== 'address' || form.block || halted) return
             const { pages } = useWorkspace.getState()
             const p = pages[form.id]
             if (!p || isEffectivelyTrashed(pages, p.id) || inTemplate(pages, p.id)) return

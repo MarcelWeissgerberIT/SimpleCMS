@@ -375,6 +375,10 @@
     justify-self: start;
   }
 }
+/* Claude's question: one column that can shrink — a long page title in "Give the page" is cut, never widens the panel */
+.ctk-box--ask {
+  grid-template-columns: minmax(0, 1fr);
+}
 .ctk-question {
   color: var(--ink) !important;
   font-size: var(--text-md) !important;
@@ -2211,6 +2215,7 @@ dd:has(> .cw-port) {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  min-width: 0;
   max-width: 100%;
   min-height: 28px;
   padding: 0 9px;
@@ -2262,6 +2267,20 @@ dd:has(> .cw-port) {
 }
 .ctk-give__state {
   flex: none;
+}
+/* narrow screens: where the page lives and its state go under the title (the chip grows down, never wider) */
+@media (max-width: 560px) {
+  .ctk-give__chip {
+    display: inline-grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    column-gap: 5px;
+    padding-block: 3px;
+    text-align: start;
+  }
+  .ctk-give__path,
+  .ctk-give__state {
+    grid-column: 2;
+  }
 }
 
 /* a coding field that points at pages (RefField.tsx): the picked pages are drawn over the text, in the signal colour */

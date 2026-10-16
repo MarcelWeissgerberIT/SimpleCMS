@@ -17,8 +17,8 @@ export function permalink(id: ID): string {
 /** "ABCD·1234": the spec plate's short, readable form of a page id. */
 export const shortPageId = (id: string): string => `${id.slice(0, 4).toUpperCase()}·${id.slice(4, 8).toUpperCase()}`
 
-const HASH = /#\/p\/([A-Za-z0-9_-]{4,64})/
-const PATH = /^\/?p\/([A-Za-z0-9_-]{4,64})(?:[?#].*)?$/
+const HASH = /#\/p\/([A-Za-z0-9_-]{4,64})(?:\?([^#\s]*))?/
+const PATH = /^\/?p\/([A-Za-z0-9_-]{4,64})(?:\?([^#\s]*))?(?:#.*)?$/
 const BARE = /^[A-Za-z0-9_-]{8,64}$/
 /** "ID ABCD·1234", "abcd1234", "ABCD-1234", "abcd 1234" */
 const SHORT = /^(?:id\s*:?\s*)?([a-z0-9]{4})\s*[·.\-\s•]?\s*([a-z0-9]{4})$/i
@@ -31,8 +31,23 @@ function decoded(s: string): string {
   }
 }
 
-/** What a typed or pasted text names, by its form alone (no lookup): an address with `#/p/<id>`, a bare id, a short form. */
-export type PageAddress = { kind: 'address'; id: string } | { kind: 'id'; id: string } | { kind: 'short'; prefix: string }
+/**
+ * What a typed or pasted text names, by its form alone (no lookup): an address with `#/p/<id>` (with `block`: a link to
+ * a block of the page — "Copy link to block", `?b=<block>`), a bare id, a short form.
+ */
+export type PageAddress = { kind: 'address'; id: string; block?: string } | { kind: 'id'; id: string } | { kind: 'short'; prefix: string }
+
+/** The `b` (block) of an address's query part. */
+const blockOf = (query: string | undefined): string | undefined => {
+  if (!query) return undefined
+  const b = new URLSearchParams(query).get('b')
+  return b && /^[A-Za-z0-9_-]{1,64}$/.test(b) ? b : undefined
+}
+
+const address = (id: string, query: string | undefined): PageAddress => {
+  const block = blockOf(query)
+  return block ? { kind: 'address', id, block } : { kind: 'address', id }
+}
 
 export function parsePageAddress(input: string): PageAddress | null {
   const text = decoded(input.trim())
@@ -41,9 +56,9 @@ export function parsePageAddress(input: string): PageAddress | null {
   if (short) return { kind: 'short', prefix: `${short[1]}${short[2]}`.toLowerCase() }
   if (/\s/.test(text)) return null
   const hash = HASH.exec(text)
-  if (hash) return { kind: 'address', id: hash[1]! }
+  if (hash) return address(hash[1]!, hash[2])
   const path = PATH.exec(text)
-  if (path) return { kind: 'address', id: path[1]! }
+  if (path) return address(path[1]!, path[2])
   if (BARE.test(text)) return { kind: 'id', id: text }
   return null
 }
@@ -67,8 +82,11 @@ export function pagesAt(input: string, pages: Record<ID, Page>): ID[] {
   return out.slice(0, 8)
 }
 
-/** The page id of a URL that is this app's own permalink (same origin and path, `#/p/<id>`); null for anything else. */
-export function ownPermalinkId(url: string): string | null {
+/**
+ * The page (and block, `?b=`) a URL names when it is this app's own permalink (same origin and path, `#/p/<id>`); null
+ * for anything else.
+ */
+export function ownPermalink(url: string): { id: string; block?: string } | null {
   let u: URL
   try {
     u = new URL(url.trim())
@@ -76,5 +94,8 @@ export function ownPermalinkId(url: string): string | null {
     return null
   }
   if (u.origin !== window.location.origin || u.pathname !== window.location.pathname) return null
-  return HASH.exec(u.hash)?.[1] ?? null
+  const m = HASH.exec(u.hash)
+  if (!m) return null
+  const block = blockOf(m[2])
+  return block ? { id: m[1]!, block } : { id: m[1]! }
 }

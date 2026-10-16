@@ -159,10 +159,11 @@ export const RefField = forwardRef<RefFieldHandle, RefFieldProps>(function RefFi
   }
 
   const onPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    // a One address of a page here (a permalink, `#/p/<id>`): in as "@Title" like a pick
+    // a One address of a page here (a permalink, `#/p/<id>`): in as "@Title" like a pick — a link to a block of it
+    // (`?b=`) stays the pasted address (its page goes along all the same: coding/refs.ts reads it)
     const text = e.clipboardData.getData('text/plain').trim()
     const form = text ? parsePageAddress(text) : null
-    if (form?.kind !== 'address') return
+    if (form?.kind !== 'address' || form.block) return
     const { pages } = useWorkspace.getState()
     const page = pages[form.id]
     if (!page || page.id === near || isEffectivelyTrashed(pages, page.id) || inTemplate(pages, page.id) || (page.private && !allowPrivate)) return

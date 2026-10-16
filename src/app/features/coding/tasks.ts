@@ -31,7 +31,7 @@ import { parseStories, splitSections, type DocSection, type Story } from './outp
 import { createPrivatePage } from '../../cloud'
 import { addTrusted, appendLog, loadTask, patchTask, stampApprovals, taskLocal, type TaskLocal } from './local'
 import { isTrusted, keepTrust, trustTask, versionOf } from './trust'
-import { refIdsOf, taskText } from './refs'
+import { refIdsOf, splitTurn, taskText } from './refs'
 import { APPROVALS_KEY, approvalsAt, defaultApprovals, noteApprovalsChange, useCoding, type ApprovalsLevel } from './state'
 import { cleanShip, noteShip, prFieldNext, shipNote, shipShows } from './ship'
 import { notifyAway } from './notify'
@@ -288,10 +288,7 @@ export async function pickNext(repos: string[], workerName: string, docs = false
     })
     const repo = optionName(db, props.repo, fresh.properties[props.repo!]) ?? ''
     // the turn: this stage's answers and rework note — their pages go first (coding/refs.ts); older ones after the task's
-    const ofStage = (x: { stageId: ID }) => x.stageId === stage!.id
-    const answers = local.answers ?? []
-    const turn = [...answers.filter(ofStage).map((a) => a.a), ...(local.rework && ofStage(local.rework) ? [local.rework.text] : [])]
-    const older = [...answers.filter((a) => !ofStage(a)).map((a) => a.a), ...(local.rework && !ofStage(local.rework) ? [local.rework.text] : [])]
+    const { turn, older } = splitTurn(local, stage.id)
     // only pages of the version that was checked go along (refIdsOf: what a team task's Confirm covers)
     const withRefs = taskText(row.id, older, { turn, within: refIdsOf(fresh) })
     await patchTask(row.id, { state: 'running', stageId: stage.id, run, error: null, runNow: false })

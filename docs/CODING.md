@@ -792,15 +792,22 @@ Three more stage kinds:
 pages linked in the readable part of THOSE pages (one level deeper) — are appended to the task text as read-only
 Markdown (a row with its filled fields, a database with its entries' titles; coding/refs.ts `refPlan`), ≤ 8 in all:
 the pages of the stage's own answers and rework note first (they are the turn's), then the task's, then the nested
-ones (each says *Linked in “…”*). Pages Claude sees named but does not get — over the limit, or linked deeper — are
-listed after them with how to ask for them. The task version hashes every live page within two links of the task's
-whole content (`refIdsOf`, ≤ 64: id, title, fields, content); only pages of the version that was checked go along.
+ones (each says *Linked in “…”*). One level deeper only each page's first 8 linked pages count (`deeperOf`), and never
+a page the person did not give: a mail (or a mail directory), a memory, a row of One's own databases (pipelines, test
+cases …), or — for a shared task in a team — a private page. Pages Claude sees named but does not get — over the
+limit, linked deeper, kept back — are listed after them with how to ask for them (≤ 20 names, the rest counted; a page
+outside the version only by its id). The task version hashes every live page the task's whole content points to and
+the first 8 each of those points to (`refIdsOf`: id, title, fields, content) — the same list the hand-out takes from,
+whatever its order; only pages of the version that was checked go along. A Markdown link's label is no address: a page
+titled `Kit #/p/…` names nothing but itself.
 
 The person's text fields that go to Claude Code (the answer, the rework note, the new task's goal and criteria) are
 `RefField`s: "@" / "one:" open the editor's page search; a pick shows as *@Title* and is sent as `[@Title](#/p/<id>)`
 (a new task's page turns it into a page mention). "Give the page" offers the pages Claude's question names in quotes
 (exact live titles; several of one name with their paths). Every page's permalink (`lib/permalink.ts`) — or a bare
-`#/p/<id>` — pasted there becomes *@Title* too.
+`#/p/<id>` — pasted there becomes *@Title* too (a link to a block, `?b=`, stays as pasted; its page goes along all the
+same). "Goes along" opens a page in the side peek, and an unsent answer or rework note is kept per task and stage in
+the tab, so a look at a page never loses what is being written.
 
 ### Templates
 

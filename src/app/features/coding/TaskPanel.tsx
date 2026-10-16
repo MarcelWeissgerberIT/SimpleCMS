@@ -4,7 +4,7 @@
  * device), and the tabs Log · Plan · Diff · Tests · Git with what this device's worker reported. Business analysis /
  * QA tasks (document stages): Log · Document, a repo is optional, and "Then" hands them on to another pipeline.
  */
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Check, CircleStop, Play, RotateCcw, ShieldCheck, Undo2 } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useCloud } from '../../cloud'
@@ -38,6 +38,28 @@ import './coding.css'
 
 type Tab = 'log' | 'plan' | 'diff' | 'tests' | 'git'
 
+/**
+ * Unsent answers and rework notes, per task, stage and field — this tab, in memory: a page opened from the panel, the
+ * browser's Back, another task and back again keep what was being written (and the pages picked into it).
+ */
+const drafts = new Map<string, RefDraft | null>()
+
+/** A draft kept in `drafts` under `key` (a key changing reads the one kept there); `fallback` while none is kept. */
+function useKeptDraft<T extends RefDraft | null>(key: string, fallback: T): [T, (next: T) => void] {
+  const [state, setState] = useState<{ key: string; value: T }>(() => ({ key, value: (drafts.has(key) ? drafts.get(key) : fallback) as T }))
+  const value = state.key === key ? state.value : ((drafts.has(key) ? drafts.get(key) : fallback) as T)
+  const set = useCallback(
+    (next: T) => {
+      // nothing to keep: a closed rework form, an empty answer
+      if (next === null || (fallback !== null && !next.text && !next.picks.length)) drafts.delete(key)
+      else drafts.set(key, next)
+      setState({ key, value: next })
+    },
+    [key, fallback],
+  )
+  return [value, set]
+}
+
 function useElapsed(since: number | null): string {
   const [, tick] = useState(0)
   useEffect(() => {
@@ -65,9 +87,11 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
   const team = useCloud((s) => s.active.kind === 'cloud')
   const viewer = useCloud((s) => s.readOnly)
   const [tab, setTab] = useState<Tab | null>(null)
-  const [rework, setRework] = useState<RefDraft | null>(null)
-  /** the answer being written: its text and the pages picked into it (coding/RefField.tsx) */
-  const [answer, setAnswer] = useState<RefDraft>(EMPTY_DRAFT)
+  const draftAt = `${pageId}|${ctx?.stage?.id ?? ''}`
+  /** the rework note being written (null: closed) — kept per task and stage while the panel is away */
+  const [rework, setRework] = useKeptDraft<RefDraft | null>(`${draftAt}|rework`, null)
+  /** the answer being written: its text and the pages picked into it (coding/RefField.tsx) — kept the same way */
+  const [answer, setAnswer] = useKeptDraft<RefDraft>(`${draftAt}|answer`, EMPTY_DRAFT)
   const answerField = useRef<RefFieldHandle>(null)
   const askForm = useRef<HTMLFormElement>(null)
   const reworkForm = useRef<HTMLFormElement>(null)
@@ -338,7 +362,7 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
 
         {/* context: where the task hands on to, the pages that go along */}
         {!coding && <FollowUps taskId={pageId} kind={kind} done={stage?.kind === 'done'} canAct={canAct} />}
-        {stage?.kind !== 'done' && <RefsLine taskId={pageId} draft={draft} />}
+        {stage?.kind !== 'done' && <RefsLine taskId={pageId} draft={draft} ask={state === 'question' && canAct ? 'answer' : state === 'gate' && canAct && rework ? 'note' : null} />}
       </div>
 
       <div className="ctk-tabs" role="tablist" aria-label={t('features.coding.panel.tabs')}>

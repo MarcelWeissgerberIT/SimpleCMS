@@ -107,13 +107,14 @@ Claude Code liest die Aufgabe — nie den Rest deines Arbeitsbereichs. Was es le
 - **In deiner Antwort, einer Nacharbeit oder einer neuen Aufgabe**: **@** (oder `one:`) und ein paar Buchstaben des Titels tippen — dieselbe Suche wie in einer Seite. <kbd>↑</kbd> <kbd>↓</kbd> wählen, <kbd>Enter</kbd> oder <kbd>Tab</kbd> übernimmt die Seite, <kbd>Esc</kbd> schließt die Liste. Die Seite steht als *@Titel* im Feld und geht schon bei diesem Lauf mit, vor den eigenen Seiten der Aufgabe; **Geht mit** markiert sie beim Schreiben als *neu*. <kbd>Rücktaste</kbd> direkt dahinter nimmt sie ganz heraus.
 - **Seite mitgeben**: Nennt Claudes Frage eine Seite in Anführungszeichen — *„Launch plan“*, *"Launch plan"*, *'Launch plan'* — und hat eine Seite hier genau diesen Titel, setzt eine Taste unter der Frage sie in deine Antwort. Tragen mehrere Seiten den Titel, steht bei jeder, wo sie liegt. Nichts geht weg, bevor du **Antworten** drückst.
 - **Adresse einfügen**: Der Permalink einer Seite (oder `#/p/<id>`), ins Feld eingefügt, wird ebenfalls zu *@Titel*.
-- Eine Seite, die Claude genannt sieht, aber nicht bekommt — über den 8, oder tiefer verlinkt — steht für Claude unter den Seiten, die es bekommt, und für dich unter **Geht mit**: Gib sie mit **@** in deiner Antwort mit.
+- Eine Ebene tiefer bringt eine Seite höchstens ihre ersten 8 verlinkten Seiten mit — und nie eine Mail, einen Eintrag aus dem One-Gedächtnis oder eine Seite aus One-eigenen Datenbanken (Pipelines, Testfälle), in einer geteilten Aufgabe auch keine private Seite. Die gehen nur mit, wenn du sie selbst mitgibst.
+- Eine Seite, die Claude genannt sieht, aber nicht bekommt — über den 8, tiefer verlinkt oder zurückgehalten — steht für Claude unter den Seiten, die es bekommt, und für dich unter **Geht mit**: Gib sie mit **@** in deiner Antwort mit. Eine Seite unter **Geht mit** öffnet sich neben der Aufgabe — was du schreibst, bleibt stehen.
 - Im Team gehören die mitgehenden Seiten zu dem, was du bestätigst: Ändert jemand anderes eine davon, wartet die Aufgabe wieder auf **Auf diesem Gerät bestätigen**.
 
 ## Permalinks
 Jede Seite hat einen Permalink: die Adresse von One mit `#/p/<id>` am Ende. **Permalink kopieren** steht im ⋯-Menü der Seite, im Zeilenmenü der Seitenleiste und in ⌘K; das Typenschild am Ende jeder Seite hat eine Taste **Permalink**, die Seitenvorschau eine Link-Taste neben dem Pfad der Seite. Die Meldung zeigt die Adresse. Sie funktioniert
 - in der Adresszeile des Browsers — die Seite öffnet sich;
-- als Link in jeder Seite — in eine Seite eingefügt, wird sie zur Seitenerwähnung;
+- als Link in jeder Seite — in eine Seite eingefügt, wird sie zur Seitenerwähnung (ein Link auf einen Block, aus **Link zum Block kopieren**, bleibt ein Link und öffnet beim Block);
 - in einer Coding-Antwort, einer Nacharbeit oder einer neuen Aufgabe — die Seite geht mit an Claude Code;
 - im KI-Terminal — sie wird zu *@Titel*;
 - in ⌘K — Permalink, `#/p/<id>`, eine Seiten-ID oder die kurze ID vom Typenschild (*ID ABCD·1234*) einfügen: Die Seite steht oben, <kbd>Enter</kbd> öffnet sie. Die Adresse einer Seite, die es auf diesem Gerät nicht gibt, sagt das — eine neue Seite entsteht daraus nie.

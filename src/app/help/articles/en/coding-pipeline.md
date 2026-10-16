@@ -107,13 +107,14 @@ Claude Code reads the task — never the rest of your workspace. What it may rea
 - **In your answer, a rework note or a new task**: type **@** (or `one:`) and a few letters of the title — the same search as in a page. <kbd>↑</kbd> <kbd>↓</kbd> choose, <kbd>Enter</kbd> or <kbd>Tab</kbd> takes the page, <kbd>Esc</kbd> closes the list. The page shows as *@Title* in the field and goes along with this very run, before the task's own pages; **Goes along** marks it *new* while you write. <kbd>Backspace</kbd> right after it takes it out whole.
 - **Give the page**: when Claude's question names a page in quotes — *“Launch plan”*, *„Launch plan“*, *'Launch plan'* — and a page here has exactly that title, a key under the question puts it into your answer. Several pages with that title: each shows where it lives. Nothing is sent before you press **Answer**.
 - **Paste an address**: a page's permalink (or `#/p/<id>`) pasted into the field becomes *@Title* too.
-- A page Claude sees named but does not get — over the 8, or linked deeper — is listed for Claude under the pages it gets, and under **Goes along** for you: give it with **@** in your answer.
+- One level deeper, a page brings its first 8 linked pages at most — and never a mail, a memory entry or a page of One's own databases (pipelines, test cases), nor, in a shared task, a private page. Those go along only when you give them yourself.
+- A page Claude sees named but does not get — over the 8, linked deeper, or kept back — is listed for Claude under the pages it gets, and under **Goes along** for you: give it with **@** in your answer. A page in **Goes along** opens beside the task — what you are writing stays.
 - In a team, the pages that go along are part of what you confirm: a teammate changing one makes the task wait for **Confirm on this device** again.
 
 ## Permalinks
 Every page has a permalink: One's address with `#/p/<id>` at the end. **Copy permalink** is in the page's ⋯ menu, the sidebar's row menu and ⌘K; the plate at the end of every page has a **Permalink** key, the side peek a link key next to the page's path. The toast shows the address. It works
 - in the browser's address bar — the page opens;
-- as a link in any page — pasted into a page, it becomes a page mention;
+- as a link in any page — pasted into a page, it becomes a page mention (a link to a block, from **Copy link to block**, stays a link and opens at the block);
 - in a coding answer, a rework note or a new task — the page goes along to Claude Code;
 - in the AI terminal — it becomes *@Title*;
 - in ⌘K — paste a permalink, `#/p/<id>`, a page id or the plate's short ID (*ID ABCD·1234*): the page comes first, <kbd>Enter</kbd> opens it. An address of a page this device does not have says so — it never makes a new page.

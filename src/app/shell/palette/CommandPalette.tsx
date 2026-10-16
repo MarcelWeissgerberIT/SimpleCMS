@@ -118,6 +118,11 @@ function Palette() {
     const clear = form.kind === 'address' || (form.kind === 'short' && /·|^id\b/i.test(raw))
     return ids.length || clear ? ids : null
   }, [mode, chips.length, raw, pages])
+  // a link to a block ("Copy link to block", `?b=`): the page opens at that block
+  const addressBlock = useMemo(() => {
+    const form = address?.length ? parsePageAddress(raw) : null
+    return form?.kind === 'address' ? form.block : undefined
+  }, [address, raw])
   const topSugs = sugs.place === 'top' ? sugs.items : []
   const bottomSugs = sugs.place === 'bottom' ? sugs.items : []
   const sugById = useMemo(() => new Map(sugs.items.map((s) => [`sug:${s.id}`, s])), [sugs])
@@ -146,10 +151,10 @@ function Palette() {
       restoreFocusTo(prevFocus.current)
     })
   }
-  const openPageItem = (id: ID, pane = false) => {
+  const openPageItem = (id: ID, pane = false, block?: string) => {
     finish()
     if (pane) useUI.getState().openPane(id)
-    else goToPage(id)
+    else goToPage(id, block)
   }
   const runCmd = (c: Cmd) => {
     if (c.id === 'ask-ai') {
@@ -363,7 +368,7 @@ function Palette() {
                     <Command.Group heading={<GroupHead label={t('shell.palette.address')} n={address.length} />}>
                       {address.length ? (
                         address.map((id) => (
-                          <PageItem key={`addr-${id}`} value={`addr:${id}`} page={pages[id]!} path={isEffectivelyTrashed(pages, id) ? t('shell.palette.addressTrash') : path(pages[id]!)} onSelect={() => openPageItem(id)} />
+                          <PageItem key={`addr-${id}`} value={`addr:${id}`} page={pages[id]!} path={isEffectivelyTrashed(pages, id) ? t('shell.palette.addressTrash') : path(pages[id]!)} onSelect={() => openPageItem(id, false, addressBlock)} />
                         ))
                       ) : (
                         <Command.Item value="addr:none" className="pal-item" disabled>
