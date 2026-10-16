@@ -82,6 +82,7 @@ export const LOG_CODES = new Set([
   // older Claude Code, the step limit and Continue
   'claudeLeftovers',
   'claudeLingered',
+  'claudeSpared',
   'permissionAsked',
   'permissionAllowed',
   'permissionDenied',

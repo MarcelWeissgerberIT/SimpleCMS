@@ -82,6 +82,11 @@ function WorkerPlate() {
                     <a href={`#/p/${b.taskId}`} className="cv-run">
                       {pages[b.taskId]?.title.trim() || t('common.untitled')}
                     </a>
+                    {s.asks[b.taskId] && (
+                      <span className="cv-why label" data-why="permission" data-testid="coding-running-permission">
+                        {t('features.coding.needs.permission')}
+                      </span>
+                    )}
                     <NowLine taskId={b.taskId} />
                   </div>
                 ))
@@ -100,6 +105,8 @@ function NeedsYou() {
   const pages = useWorkspace((s) => s.pages)
   const dbs = useWorkspace((s) => s.databases)
   const local = useCodingLocal((s) => s.tasks)
+  // worker 1.11.0: a running stage held for a permission (refused on its own after 15 min) — first in the list
+  const asks = useCoding((s) => s.asks)
   const tasks = useMemo(() => allTasks(), [pages, dbs]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     for (const x of tasks) void loadTask(x.row.id)
@@ -108,10 +115,11 @@ function NeedsYou() {
   const waiting = tasks
     .map((x) => {
       const st = local[`${sc}|${x.row.id}`]?.state
-      const why = st === 'question' ? 'question' : st === 'failed' ? 'failed' : x.stage?.kind === 'gate' ? 'gate' : x.stage?.kind === 'import' ? 'intake' : null
+      const why = asks[x.row.id] ? 'permission' : st === 'question' ? 'question' : st === 'failed' ? 'failed' : x.stage?.kind === 'gate' ? 'gate' : x.stage?.kind === 'import' ? 'intake' : null
       return why ? { ...x, why } : null
     })
     .filter((x): x is NonNullable<typeof x> => !!x)
+    .sort((a, b) => Number(b.why === 'permission') - Number(a.why === 'permission'))
   if (!waiting.length) return null
   return (
     <section className="cv-needs" aria-labelledby="cv-needs-title" data-testid="coding-needs">

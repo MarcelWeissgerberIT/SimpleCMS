@@ -690,9 +690,14 @@ the public APIs stable — other areas are built against them in parallel.
   'model'; worker `--model` = One's > repo claude.model > none, one argv entry. A stage's model joins the task version
   only when set (old hashes stay valid). Pickers use `MODEL_CHOICES` / `modelLabel()`.
   Run end (worker 1.11.0, every model; claude.ts + proctree.ts): at Claude Code's `result` the heartbeat stops and its
-  process tree is noted (`RunTree`: the tree, the group, the env mark `ONE_WORKER_RUN`); the stage finishes on its
-  process's 'exit' + a short grace (never waits for 'close'), ends what it left running on every OS (one coded line
-  `claudeLeftovers`), kills a Claude Code still alive 30 s after its result (`claudeLingered`); Stop as before. The JETZT
+  process tree is noted (`RunTree`: the tree, its own group, its shells' groups (read only around Bash commands —
+  `bashStart` / `bashEnd`; an emptied group forgotten), the env mark `ONE_WORKER_RUN`; Windows: ONE PowerShell per run
+  answers the readings, below an ended parent only what was born while it lived — `goneBy`, `rootBorn` / exit); the
+  stage finishes on its process's 'exit' + a short grace (none after Stop; never waits for 'close'), ends what it left
+  running on every OS (one coded line `claudeLeftovers`) — never a server the person's tools share (`sharedServer`) or
+  a daemon's own group (named: `claudeSpared`); Claude Code's env gets `RUN_ENV` (no MSBuild node reuse / shared
+  compiler); kills a Claude Code still alive 30 s after its result (`claudeLingered`); Stop as before; a worker shutting
+  down waits `STOP_WAIT_MS` for its stopped runs (index.ts exits after `STOP_HARD_MS`). The JETZT
   line clears with the stage (`setBusy` prunes progress; a dropped link = GONE). Scratch folder per task
   (`scratchPath`, `<config dir>/scratch/<task>`, `--add-dir` from `--help`, else one `addDirOff` line; scrubbed to
   `<scratch>` — the path never goes to One; cleaned with the branch / worktree); the prompt says Edit / Write, never

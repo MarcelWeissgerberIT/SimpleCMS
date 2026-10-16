@@ -23,7 +23,10 @@
  *   FAKE:TOOLS           → lists the task tools' read-only hints (in the plan / document)
  *   FAKE:LEFTOVER        → starts a program that keeps Claude Code's output open (like a dev server a Bash command
  *                          left running; its own process group), prints the result, ends 300 ms later; the program's
- *                          id goes to FAKE_CLAUDE_PIDS (a file) when set. FAKE:LEFTOVERNOW: ends at once (an orphan)
+ *                          id goes to FAKE_CLAUDE_PIDS (a file) when set. FAKE:LEFTOVERNOW: the Bash call runs 1.2 s, then
+ *                          its result, the run's result, and the CLI ends at once (the program an orphan)
+ *   FAKE:SLOWEND         → leaves a dev server that holds its output and ignores SIGTERM, then keeps working until it
+ *                          is ended — and takes 800 ms to end after SIGTERM (a worker shutting down mid-stage)
  *   FAKE:PERMIT[<cmd>]   → wants to run the Bash command <cmd>: asks the permission prompt (--permission-prompt-tool)
  *                          like Claude Code, runs it (writes permitted.txt) when allowed; without the prompt tool its
  *                          tool result is Claude Code's own refusal ("requires approval")
@@ -294,16 +297,42 @@ if (prompt.includes('FAKE:ASK') && !hasAnswers) {
   process.exit(0)
 }
 
+if (prompt.includes('FAKE:SLOWEND')) {
+  // a dev server that holds this output and ignores SIGTERM (a shutdown handler of its own), and a CLI that takes 800 ms
+  // to end after SIGTERM (it saves its session first): it keeps working until it is ended (a worker shutting down)
+  const { spawn } = await import('node:child_process')
+  const id = `tu_${Math.random().toString(36).slice(2)}`
+  out({ type: 'assistant', message: message([{ type: 'tool_use', id, name: 'Bash', input: { command: 'npm run dev &' } }]) })
+  const kid = spawn(process.execPath, ['-e', "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)"], { stdio: ['ignore', 'inherit', 'ignore'], detached: true, windowsHide: true })
+  if (process.env.FAKE_CLAUDE_PIDS) appendFileSync(process.env.FAKE_CLAUDE_PIDS, `${kid.pid}\n`)
+  kid.unref()
+  process.on('SIGTERM', () => setTimeout(() => process.exit(143), 800))
+  await sleep(800)
+  out({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: 'started' }] } })
+  for (let n = 1; ; n++) {
+    say(`working ${n}`)
+    await sleep(500)
+  }
+}
+
 if (prompt.includes('FAKE:LEFTOVER')) {
   // a program Bash left running (its own process group, like Claude Code's shells): it keeps this output open
   const { spawn } = await import('node:child_process')
+  const now = prompt.includes('FAKE:LEFTOVERNOW')
+  const id = `tu_${Math.random().toString(36).slice(2)}`
+  say('Started the dev server for a check.')
+  out({ type: 'assistant', message: message([{ type: 'tool_use', id, name: 'Bash', input: { command: 'npm run dev &' } }]) })
   const kid = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: ['ignore', 'inherit', 'ignore'], detached: true, windowsHide: true })
   if (process.env.FAKE_CLAUDE_PIDS) appendFileSync(process.env.FAKE_CLAUDE_PIDS, `${kid.pid}\n`)
   kid.unref()
-  say('Started the dev server for a check.')
-  tool('Bash', { command: 'npm run dev &' })
+  // FAKE:LEFTOVERNOW: the command runs a moment (the worker reads the tree meanwhile), returns, and Claude Code ends at once
+  // after its result — the program is an orphan by the time the run is over
+  if (now) {
+    await sleep(1200)
+    out({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: 'started' }] } })
+  }
   result('- Checked the page against the dev server', 0.02)
-  if (!prompt.includes('FAKE:LEFTOVERNOW')) await sleep(300)
+  if (!now) await sleep(300)
   process.exit(0)
 }
 

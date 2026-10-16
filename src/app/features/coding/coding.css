@@ -1198,6 +1198,10 @@
   border-color: var(--c-red-text);
   color: var(--c-red-text);
 }
+/* the worker plate's RUNNING row: the stage waits for a permission */
+.cv-busy .cv-why {
+  justify-self: start;
+}
 .cv-needs__title {
   overflow: hidden;
   color: var(--ink);

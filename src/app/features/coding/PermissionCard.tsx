@@ -11,9 +11,10 @@
  *    gets) — the stage runs on from its worktree — and Start over; an older worker gets Start over only, with why.
  *  - the last run's permission count, one line.
  */
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { Check, Play, RotateCcw, ShieldAlert, X } from 'lucide-react'
 import { useT } from '../../i18n'
+import { focusLost, focusMainRegion } from '../../ui/focus'
 import { useUI } from '../../store/ui'
 import type { ID } from '../../store/types'
 import { answerPermission } from './service'
@@ -41,31 +42,102 @@ function useLeft(until: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 }
 
-/** A request this long scrolls in its box (the card says its length, the box takes the keyboard). */
-const LONG_WHAT = 240
+/**
+ * Whether the box cuts its text — measured, never guessed from a length: the width decides (a phone holds ~27 characters
+ * a line, a wide panel ~60), and so do the text size and a rotated screen (watched).
+ */
+function useCut(ref: RefObject<HTMLElement | null>, text: string): boolean {
+  const [cut, setCut] = useState(false)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const check = () => setCut(el.scrollHeight > el.clientHeight + 1 || el.scrollWidth > el.clientWidth + 1)
+    check()
+    if (typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(check)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [ref, text])
+  return cut
+}
 
-/** The request as the card and Preflight's body show it (no keys): always whole — a long one scrolls. */
+/**
+ * The request as the card and Preflight's body show it (no keys): always whole — when the box cuts it, it scrolls, says
+ * its length and takes the keyboard.
+ */
 export function AskWhat({ ask }: { ask: PermissionAsk }) {
   const t = useT()
   const p = askParts(t, ask)
-  const long = p.what.length > LONG_WHAT
+  const box = useRef<HTMLElement>(null)
+  const long = useCut(box, p.what)
   return (
     <div className="ctk-perm__what">
       <span className="label ctk-perm__kind">{p.kind}</span>
       {p.outside && <span className="ctk-perm__outside">{t('features.coding.perm.outside')}</span>}
-      {long && <span className="ctk-perm__length">{t('features.coding.perm.length', { n: p.what.length })}</span>}
-      <code className="ctk-perm__cmd" data-testid="coding-permission-what" {...(long ? { tabIndex: 0, role: 'region', 'aria-label': t('features.coding.perm.whole') } : {})}>
+      {long && (
+        <span className="ctk-perm__length" data-testid="coding-permission-length">
+          {t('features.coding.perm.length', { n: p.what.length })}
+        </span>
+      )}
+      <code ref={box} className="ctk-perm__cmd" data-testid="coding-permission-what" {...(long ? { tabIndex: 0, role: 'region', 'aria-label': t('features.coding.perm.whole') } : {})}>
         {p.what}
       </code>
     </div>
   )
 }
 
+/**
+ * The task panel's focus around its permission cards: a card answered goes once the worker took the answer — focus goes
+ * on to the next request's first key once its card shows (its keys wake ARM_MS later: an early press answers nothing),
+ * meanwhile to the panel's state line (`stateLine`; never Stop: a second Enter must not stop the stage), else the main
+ * region — never the page body. `askId`: the request the panel shows now.
+ */
+export function usePermissionFocus(askId: string | null): { stateLine: RefObject<HTMLSpanElement | null>; onAnswered: () => void } {
+  const stateLine = useRef<HTMLSpanElement>(null)
+  const hand = useRef<'answered' | 'parked' | null>(null)
+  useLayoutEffect(() => {
+    if (!hand.current) return
+    const line = stateLine.current
+    const next = line?.closest('.ctk')?.querySelector<HTMLElement>('[data-testid="coding-permission"] .ctk-keys button') ?? null
+    if (hand.current === 'answered') {
+      // the card still shows (the answer is on its way), or the person took the focus elsewhere: nothing to do (yet)
+      if (!focusLost()) {
+        if (!askId) hand.current = null
+        return
+      }
+      if (next) {
+        next.focus({ preventScroll: true })
+        hand.current = null
+      } else if (line) {
+        line.focus({ preventScroll: true })
+        hand.current = 'parked'
+      } else {
+        focusMainRegion()
+        hand.current = null
+      }
+      return
+    }
+    // parked on the state line: the next card takes it — only while the person left it there
+    if (document.activeElement !== line) hand.current = null
+    else if (next) {
+      next.focus({ preventScroll: true })
+      hand.current = null
+    }
+  }, [askId])
+  const onAnswered = useCallback(() => {
+    hand.current = 'answered'
+  }, [])
+  return { stateLine, onAnswered }
+}
+
 /** How long a fresh request's keys stay asleep (the rest of a double-click, a key held from the one before). */
 export const ARM_MS = 400
 
-/** Mount it with `key={ask.id}`: each request is its own card, its keys awake only ARM_MS after it showed. */
-export function PermissionCard({ taskId, ask, canAct }: { taskId: ID; ask: PermissionAsk; canAct: boolean }) {
+/**
+ * Mount it with `key={ask.id}`: each request is its own card, its keys awake only ARM_MS after it showed. `onAnswered`:
+ * an answer went out (the card goes once the worker took it — the task panel hands the focus on).
+ */
+export function PermissionCard({ taskId, ask, canAct, onAnswered }: { taskId: ID; ask: PermissionAsk; canAct: boolean; onAnswered?: () => void }) {
   const t = useT()
   const [busy, setBusy] = useState(false)
   const [armed, setArmed] = useState(false)
@@ -79,6 +151,7 @@ export function PermissionCard({ taskId, ask, canAct }: { taskId: ID; ask: Permi
     // never disabled (focus stays on the key), but a press before the card woke answers nothing
     if (asleep) return
     setBusy(true)
+    onAnswered?.()
     try {
       const r = await answerPermission(taskId, ask.id, verb)
       if (r === 'gone') useUI.getState().toast({ message: t('features.coding.perm.gone'), kind: 'info' })

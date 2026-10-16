@@ -32,7 +32,7 @@ import { SOURCE_WORDS, cloudConfigFile, defaultConfigFile, emptyConfig, initConf
 import { claudeInstallHint, detectClaude, findClaude, gitBash, nativeNotOnPath } from './claude.ts'
 import { checkRepo, hasRemote } from './git.ts'
 import { TRUST } from './run.ts'
-import { Worker } from './worker.ts'
+import { STOP_HARD_MS, Worker } from './worker.ts'
 import { serveTaskMcp } from './taskmcp.ts'
 import { filePreset } from './preset.ts'
 import { SetupServer } from './setup.ts'
@@ -220,7 +220,8 @@ async function main() {
     if (stopping) return
     stopping = true
     log('stopping — ending running tasks')
-    setTimeout(() => process.exit(code), 6000).unref()
+    // whatever happens: the runs' leftovers and outcomes get STOP_WAIT_MS (worker.ts), then the process ends
+    setTimeout(() => process.exit(code), STOP_HARD_MS).unref()
     await worker?.stop().catch(() => {})
     process.exit(code)
   }

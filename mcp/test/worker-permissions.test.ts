@@ -100,7 +100,7 @@ describe('a stage ends when Claude Code ends', () => {
     await waitFor(() => last()?.busy.length === 0, 5000, () => `busy: ${JSON.stringify(last()?.busy)}`)
   })
 
-  test('a program that outlives Claude Code at once (an orphan in its own session): ended all the same (Linux / Windows; macOS by its environment mark)', async () => {
+  test('a program that outlives Claude Code at once (an orphan in its own session): ended all the same — every OS by what the worker saw while its command ran (its group; Windows: below Claude Code), never by the environment mark alone', async () => {
     const r = makeRepo()
     const pids = join(r.dir, 'orphan.pids')
     await boot(r, {}, { FAKE_CLAUDE_PIDS: pids })
@@ -111,6 +111,31 @@ describe('a stage ends when Claude Code ends', () => {
     assert.ok(Date.now() - t0 < 15_000, `ended after ${Date.now() - t0} ms`)
     const pid = Number(readFileSync(pids, 'utf8').trim())
     await waitFor(() => !alive(pid), 8000, () => `the program ${pid} still runs`)
+  })
+})
+
+describe('a worker that shuts down mid-stage (second review)', () => {
+  // Windows: a console Ctrl+C cannot be sent to a child from a test (child.kill ends it at once) — the same wait holds there
+  test('Ctrl+C / SIGTERM: the stopped run\'s leftovers are ended (one that ignores SIGTERM too) and its outcome reaches One before the worker exits', { skip: process.platform === 'win32' && 'no console Ctrl+C for a child on Windows' }, async () => {
+    const r = makeRepo()
+    const pids = join(r.dir, 'slowend.pids')
+    await boot(r, {}, { FAKE_CLAUDE_PIDS: pids })
+    const tab = await connect()
+    tab.queue.push(task({ kind: 'implement' }, { id: 'shut1abc', text: 'FAKE:SLOWEND' }))
+    tab.send({ type: 'nudge' })
+    await waitFor(() => existsSync(pids) && readFileSync(pids, 'utf8').trim().length > 0, 20_000, () => worker!.stderr())
+    // the command ran and returned (the worker read the tree meanwhile); Claude Code works on
+    await waitFor(() => logOf(tab, 'shut1abc').some((l) => /working 2/.test(l.s)), 15_000, () => JSON.stringify(logOf(tab, 'shut1abc')))
+    const pid = Number(readFileSync(pids, 'utf8').trim())
+    const w = worker!
+    const exited = new Promise<void>((res) => w.child.once('exit', () => res()))
+    w.child.kill('SIGINT')
+    await exited
+    worker = null
+    assert.match(w.stderr(), /task shut1abc: stopped/)
+    const outcome = tab.outcomes.find((o) => o.taskId === 'shut1abc')?.outcome
+    assert.equal(outcome?.status, 'stopped', JSON.stringify(tab.outcomes))
+    await waitFor(() => !alive(pid), 3000, () => `the leftover ${pid} outlived the worker`)
   })
 })
 
