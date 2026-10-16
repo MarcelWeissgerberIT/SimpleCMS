@@ -830,10 +830,43 @@
   color: var(--ink);
 }
 .spec__id {
+  display: inline-flex;
+  align-items: center;
+  gap: 0 0.5em;
   color: var(--ink-3);
   font-weight: 500;
   letter-spacing: 0.08em;
   white-space: nowrap;
+}
+/* the permalink key: copies the page's full address (the toast shows it) */
+.spec__copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 22px;
+  margin: -4px -6px -4px 4px;
+  padding: 0 6px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  color: var(--ink-2);
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: uppercase;
+  cursor: pointer;
+  user-select: none;
+  transition: border-color var(--dur-1), color var(--dur-1);
+}
+.spec__copy:hover {
+  border-color: var(--rule-strong);
+  color: var(--ink);
+}
+.spec__copy:active {
+  transform: translateY(1px);
+}
+.spec__copy:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
 }
 .spec__grid {
   display: grid;

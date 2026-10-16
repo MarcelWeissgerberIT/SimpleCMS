@@ -788,9 +788,19 @@ Three more stage kinds:
   (nothing else changes) and sends `intake` events; on `done` the task takes the repo name as its **Repo** and moves
   to the next stage. One never names a path.
 
-**Pages that go along**: page mentions, `pageLink`s and `#/p/<id>` links in the readable part of a task (≤ 8) are
-appended to the task text as read-only Markdown (a row with its filled fields, a database with its entries'
-titles; coding/refs.ts). Their id, title, fields and content are part of the task version.
+**Pages that go along**: page mentions, `pageLink`s and `#/p/<id>` links in the readable part of a task — and the
+pages linked in the readable part of THOSE pages (one level deeper) — are appended to the task text as read-only
+Markdown (a row with its filled fields, a database with its entries' titles; coding/refs.ts `refPlan`), ≤ 8 in all:
+the pages of the stage's own answers and rework note first (they are the turn's), then the task's, then the nested
+ones (each says *Linked in “…”*). Pages Claude sees named but does not get — over the limit, or linked deeper — are
+listed after them with how to ask for them. The task version hashes every live page within two links of the task's
+whole content (`refIdsOf`, ≤ 64: id, title, fields, content); only pages of the version that was checked go along.
+
+The person's text fields that go to Claude Code (the answer, the rework note, the new task's goal and criteria) are
+`RefField`s: "@" / "one:" open the editor's page search; a pick shows as *@Title* and is sent as `[@Title](#/p/<id>)`
+(a new task's page turns it into a page mention). "Give the page" offers the pages Claude's question names in quotes
+(exact live titles; several of one name with their paths). Every page's permalink (`lib/permalink.ts`) — or a bare
+`#/p/<id>` — pasted there becomes *@Title* too.
 
 ### Templates
 

@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowLeft, ChevronsRight, Maximize2, PanelRight, SquareSplitHorizontal } from 'lucide-react'
+import { ArrowLeft, ChevronsRight, Link2, Maximize2, PanelRight, SquareSplitHorizontal } from 'lucide-react'
 import { useUI } from '../../store/ui'
 import { useWorkspace } from '../../store/store'
 import { Tooltip } from '../../ui/Tooltip'
 import { useT } from '../../i18n'
 import { PageView } from '../page/PageView'
-import { goToPage } from '../lib/actions'
+import { copyPageLink, goToPage } from '../lib/actions'
 import { useColumnScroll, useIsMobile, useLocalPref } from '../lib/hooks'
 import { useBreadcrumbs } from '../../store/selectors'
 import { PageIcon } from '../../ui/PageIcon'
@@ -133,6 +133,12 @@ function PeekPanel({ id }: { id: string }) {
             }}
           >
             <Maximize2 size={14} />
+          </button>
+        </Tooltip>
+        {/* the address bar keeps the page behind the peek: the row's own permalink is here */}
+        <Tooltip label={t('shell.permalink.copy')}>
+          <button type="button" className="icon-btn" onClick={() => void copyPageLink(id)} aria-label={t('shell.permalink.copy')} data-testid="peek-permalink">
+            <Link2 size={14} />
           </button>
         </Tooltip>
         {!mobile && (

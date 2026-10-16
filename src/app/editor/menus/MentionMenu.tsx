@@ -2,20 +2,20 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { Editor, Range } from '@tiptap/core'
 import { useStore } from 'zustand'
-import Fuse from 'fuse.js'
 import { exitSuggestion } from '@tiptap/suggestion'
 import { closeHistory } from '@tiptap/pm/history'
 import { CalendarDays, FilePlus2, UserRound } from 'lucide-react'
 import { Popover } from '../../ui/Popover'
 import { PageIcon } from '../../ui/PageIcon'
 import { useWorkspace } from '../../store/store'
-import { pageTitle, templateScope } from '../../store/selectors'
+import { pageTitle } from '../../store/selectors'
 import { useLang, useT } from '../../i18n'
 import type { Bridge } from '../lib/bridge'
 import { addDays, nextMonday } from 'date-fns'
 import { dateMentionAttrs, dateMentionLabel, parseDateQuery } from '../lib/dates'
 import { SUGGEST_KEYS, type SuggestRun } from '../extensions/suggest'
 import { liveIds } from '../lib/livePages'
+import { mentionPages } from '../lib/pageSearch'
 import { patchItemAttrs, type ItemPatch } from '../workitem/patch'
 import { endUndoStep, startUndoStep } from '../collab'
 import { dueText } from '../workitem/format'
@@ -91,21 +91,8 @@ export function MentionMenu({ editor, bridge, pageId }: { editor: Editor; bridge
     const pageRows: Row[] = []
     const dateRows: Row[] = []
     const out: Row[] = []
-    // pages — template pages (features/templates) only from a page of the same template
-    const scope = templateScope(pages, pageId)
-    const candidates = Object.values(pages).filter((p) => !!live?.has(p.id) && p.id !== pageId && scope(p.id))
-    let matched = candidates
-    if (query) {
-      const fuse = new Fuse(candidates, { keys: ['title'], threshold: 0.38, ignoreLocation: true })
-      matched = fuse.search(query).map((r) => r.item)
-    } else {
-      const recent = useWorkspace.getState().recent
-      matched = [...candidates].sort((a, b) => {
-        const ra = recent.indexOf(a.id)
-        const rb = recent.indexOf(b.id)
-        return (ra < 0 ? 999 : ra) - (rb < 0 ? 999 : rb) || b.updatedAt - a.updatedAt
-      })
-    }
+    // pages — template pages (features/templates) only from a page of the same template (lib/pageSearch.ts)
+    const matched = mentionPages(pages, query ? [] : useWorkspace.getState().recent, { query, near: pageId, live: live ?? new Set() })
     for (const p of matched.slice(0, query ? 6 : 4)) {
       const parent = p.parentId ? pages[p.parentId] : null
       pageRows.push({

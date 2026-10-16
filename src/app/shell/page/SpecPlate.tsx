@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { Link2 } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useLang, useT } from '../../i18n'
 import type { Page } from '../../store/types'
@@ -7,9 +8,8 @@ import { fmtNumber, fmtRelative, fmtStamp, plural, readingTime, wordCount } from
 import { useNow } from '../lib/hooks'
 import { agentLabel } from '../../features'
 import { Screws } from '../../ui/controls'
-
-/** "ABCD·1234": the short, readable form of a page id. */
-const shortId = (id: string) => `${id.slice(0, 4).toUpperCase()}·${id.slice(4, 8).toUpperCase()}`
+import { permalink, shortPageId } from '../../lib/permalink'
+import { copyPageLink } from '../lib/actions'
 
 /** "03 OCT 2026 · 14:05": narrow plates drop the time (CSS), never cut the date. */
 function Stamp({ ts }: { ts: number }) {
@@ -86,8 +86,13 @@ export function SpecPlate({ page }: { page: Page }) {
       <div className="spec__head">
         <span>{isDb ? t('shell.spec.database') : page.databaseId ? t('shell.spec.entry') : t('shell.spec.page')}</span>
         <span className="spec__id">
-          ID {shortId(page.id)}
+          {/* the short form names the page in ⌘K and the address bar too (lib/permalink.ts) */}
+          ID {shortPageId(page.id)}
           {!isDb && <> · REV {String(page.contentRev).padStart(2, '0')}</>}
+          <button type="button" className="spec__copy" onClick={() => void copyPageLink(page.id)} aria-label={t('shell.permalink.copy')} title={t('shell.permalink.hint', { url: permalink(page.id) })} data-testid="spec-permalink">
+            <Link2 size={11} strokeWidth={1.75} aria-hidden />
+            <span>{t('shell.spec.permalink')}</span>
+          </button>
         </span>
       </div>
       <dl className="spec__grid">

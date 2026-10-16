@@ -3,7 +3,7 @@ id: coding-pipeline
 title: Coding-Pipeline (Claude Code auf deinem Rechner)
 section: ai
 order: 9
-keywords: coding, pipeline, claude code, worker, one-worker, download, einrichten, windows, powershell, cmd, eingabeaufforderung, wsl, koppeln, modell, opus, sonnet, haiku, fable, repositories anhaken, git, branch, worktree, pull request, pr, diff, tests, repo, repository, code-review, programmieren, aufgaben, cloud-worker, one-worker-cloud, build-server, vm, relay, anderer rechner, lokal oder cloud, offline, nicht verbunden, Zugriff auf lokales Netzwerk, Apps auf dem Gerät
+keywords: coding, pipeline, claude code, worker, permalink, seitenadresse, link kopieren, seite mitgeben, seite verlinken, seite erwähnen, antwort, nacharbeit, one-worker, download, einrichten, windows, powershell, cmd, eingabeaufforderung, wsl, koppeln, modell, opus, sonnet, haiku, fable, repositories anhaken, git, branch, worktree, pull request, pr, diff, tests, repo, repository, code-review, programmieren, aufgaben, cloud-worker, one-worker-cloud, build-server, vm, relay, anderer rechner, lokal oder cloud, offline, nicht verbunden, Zugriff auf lokales Netzwerk, Apps auf dem Gerät
 related: pipelines, legacy-modernisation, mcp-bridge, custom-agents, agent
 summary: Gib Programmieraufgaben an Claude Code auf deinem Rechner — planen, freigeben, umsetzen, testen, ausliefern — und verfolge jeden Schritt in One.
 ---
@@ -25,7 +25,7 @@ node "%USERPROFILE%\Downloads\one-worker.mjs"
 Die Zeilen erwarten den üblichen Downloads-Ordner. Hat dein Browser die Datei woanders gespeichert (oder liegt Downloads woanders, z. B. in OneDrive)? `node` und ein Leerzeichen tippen, den Pfad der Datei einfügen — im Explorer: Umschalt + Rechtsklick auf die Datei → **Als Pfad kopieren** — und Enter drücken.
 3. **Hak deine Repositories auf der Seite an, die sich öffnet.** Der Worker findet die Git-Repositories auf deinem Rechner und öffnet eine Seite in deinem Browser: Hak die an, in denen One arbeiten darf, prüf Basis-Branch und Testbefehl (z. B. `npm test`), dann **Speichern & starten**. Die Karte zeigt *Verbunden · laptop · 2 Repos*, und die **WORKER**-LED in der Statusleiste wird grün.
 
-Business-Analyse und QA haben eigene Pipelines – siehe [Business-Analyse- und QA-Pipelines](help:pipelines). Erwähne Seiten in einer Aufgabe mit **@**: Ihr Text geht mit an Claude Code.
+Business-Analyse und QA haben eigene Pipelines – siehe [Business-Analyse- und QA-Pipelines](help:pipelines). Erwähne Seiten in einer Aufgabe mit **@**: Ihr Text geht mit an Claude Code — siehe *Claude Code eine Seite mitgeben* unten.
 
 Neuer Code? Dieselbe Seite klont von **GitLab / GitHub** (eine Adresse oder ein Projekt aus deiner Liste mit `glab` / `gh`) oder importiert eine **ZIP** als neues Repository nach `~/one-repos` – siehe [Altsoftware modernisieren](help:legacy-modernisation). Pro Repository kann sie Claude Code auch deine eigenen MCP-Server geben (z. B. eine Wissensbasis), und mit **Eigene Claude-Code-Einstellungen dieses Repos nutzen** entscheidet sie, ob Claude Code `.claude/`, `.mcp.json` und `CLAUDE.md` des Repositorys lädt: an für deine eigenen Repositories, aus – mit dem Grund – für eines, das der Worker geklont oder importiert hat; dessen Hooks liefen sonst auf deinem Rechner, sobald eine Aufgabe startet.
 
@@ -100,6 +100,25 @@ Jede Aufgabe arbeitet auf einem eigenen Branch (`one/<titel>-<id>`) in einem eig
 - **Projekte**: mehrere Coding-Datenbanken nebeneinander – über dem Board wählen, anlegen und löschen ([Projekte](help:pipelines)).
 
 **Repos in iCloud Drive** (z. B. in Dokumente, wenn „Schreibtisch & Dokumente“ synchronisiert wird): git wartet, sobald eine Datei nur in der Cloud liegt — Schritte können dann Minuten dauern, das Log sagt es. Schneller: den Ordner dauerhaft geladen halten, oder es auf der Setup-Seite des Workers mit **Von GitLab / GitHub klonen …** neu klonen (nach `~/one-repos`, nicht synchronisiert) und diesen Klon anhaken. Der Worker startet in jedem Fall sofort und nennt im Log ein Repository, dessen git langsam ist. Die Arbeitskopien des Workers landen nie in iCloud.
+
+## Claude Code eine Seite mitgeben
+Claude Code liest die Aufgabe — nie den Rest deines Arbeitsbereichs. Was es lesen darf, geht als Lesetext mit der Aufgabe mit: die Seiten, die die Aufgabe mit **@** erwähnt oder verlinkt, und die Seiten, die in **diesen** Seiten verlinkt sind (eine Ebene tiefer) — höchstens 8, je bis zu 20.000 Zeichen, und nur, was Claude davon lesen darf (markierte Blöcke). **Geht mit** im Coding-Panel zeigt sie, bevor eine Stufe läuft; ↳ steht vor einer Seite, die in einer anderen verlinkt ist.
+
+- **In deiner Antwort, einer Nacharbeit oder einer neuen Aufgabe**: **@** (oder `one:`) und ein paar Buchstaben des Titels tippen — dieselbe Suche wie in einer Seite. <kbd>↑</kbd> <kbd>↓</kbd> wählen, <kbd>Enter</kbd> oder <kbd>Tab</kbd> übernimmt die Seite, <kbd>Esc</kbd> schließt die Liste. Die Seite steht als *@Titel* im Feld und geht schon bei diesem Lauf mit, vor den eigenen Seiten der Aufgabe; **Geht mit** markiert sie beim Schreiben als *neu*. <kbd>Rücktaste</kbd> direkt dahinter nimmt sie ganz heraus.
+- **Seite mitgeben**: Nennt Claudes Frage eine Seite in Anführungszeichen — *„Launch plan“*, *"Launch plan"*, *'Launch plan'* — und hat eine Seite hier genau diesen Titel, setzt eine Taste unter der Frage sie in deine Antwort. Tragen mehrere Seiten den Titel, steht bei jeder, wo sie liegt. Nichts geht weg, bevor du **Antworten** drückst.
+- **Adresse einfügen**: Der Permalink einer Seite (oder `#/p/<id>`), ins Feld eingefügt, wird ebenfalls zu *@Titel*.
+- Eine Seite, die Claude genannt sieht, aber nicht bekommt — über den 8, oder tiefer verlinkt — steht für Claude unter den Seiten, die es bekommt, und für dich unter **Geht mit**: Gib sie mit **@** in deiner Antwort mit.
+- Im Team gehören die mitgehenden Seiten zu dem, was du bestätigst: Ändert jemand anderes eine davon, wartet die Aufgabe wieder auf **Auf diesem Gerät bestätigen**.
+
+## Permalinks
+Jede Seite hat einen Permalink: die Adresse von One mit `#/p/<id>` am Ende. **Permalink kopieren** steht im ⋯-Menü der Seite, im Zeilenmenü der Seitenleiste und in ⌘K; das Typenschild am Ende jeder Seite hat eine Taste **Permalink**, die Seitenvorschau eine Link-Taste neben dem Pfad der Seite. Die Meldung zeigt die Adresse. Sie funktioniert
+- in der Adresszeile des Browsers — die Seite öffnet sich;
+- als Link in jeder Seite — in eine Seite eingefügt, wird sie zur Seitenerwähnung;
+- in einer Coding-Antwort, einer Nacharbeit oder einer neuen Aufgabe — die Seite geht mit an Claude Code;
+- im KI-Terminal — sie wird zu *@Titel*;
+- in ⌘K — Permalink, `#/p/<id>`, eine Seiten-ID oder die kurze ID vom Typenschild (*ID ABCD·1234*) einfügen: Die Seite steht oben, <kbd>Enter</kbd> öffnet sie. Die Adresse einer Seite, die es auf diesem Gerät nicht gibt, sagt das — eine neue Seite entsteht daraus nie.
+
+Die kurze ID funktioniert auch hinter `#/p/` in der Adresszeile.
 
 ## Was One festhält
 Wenn eine Git-Stufe oder eine Taste im Tab **Git** committet, pusht oder einen Merge / Pull Request öffnet, bekommt die Aufgabenseite eine graue Notiz – zum Beispiel **Ausliefern · 14.10. 14:32** mit der Zeile *Commit a1b2c3d · Branch one/login-reparieren-ab12cd · MR !42 · nach origin/one/login-reparieren-ab12cd gepusht*.

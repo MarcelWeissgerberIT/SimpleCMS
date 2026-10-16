@@ -55,6 +55,8 @@ import { memorySettings } from '../memory/settings'
 import { MediaCards } from '../media/MediaCards'
 import { MediaPreview } from '../media/MediaPreview'
 import { pagePrivate } from '../media/blocks'
+import { parsePageAddress } from '../../../lib/permalink'
+import { inTemplate, isEffectivelyTrashed } from '../../../store/selectors'
 import { PROVIDERS } from '@/shared/ai/providers'
 import '../ai.css'
 import './agent.css'
@@ -1830,6 +1832,20 @@ function Prompt({ disabled, onReview }: { disabled: boolean; onReview: () => boo
           data-halted={halted || undefined}
           spellCheck={false}
           autoComplete="off"
+          onPaste={(e) => {
+            // a page's permalink (or `#/p/<id>`) of a page here: "@Title" pointing at it, like an @ completion
+            const form = parsePageAddress(e.clipboardData.getData('text/plain'))
+            if (form?.kind !== 'address' || halted) return
+            const { pages } = useWorkspace.getState()
+            const p = pages[form.id]
+            if (!p || isEffectivelyTrashed(pages, p.id) || inTemplate(pages, p.id)) return
+            e.preventDefault()
+            const el = e.currentTarget
+            const title = p.title.trim() || t('common.untitled')
+            const insert = `@${title} `
+            useAgent.setState((s) => ({ mentions: [...s.mentions.filter((x) => x.id !== p.id), { id: p.id, title, kind: p.kind === 'database' ? 'database' : 'page' }] }))
+            setDraft(draft.slice(0, el.selectionStart) + insert + draft.slice(el.selectionEnd), el.selectionStart + insert.length)
+          }}
         />
         {running ? (
           <button type="button" className="term-run term-run--stop" onClick={() => stopAgent()} title={`${t('features.agent.stop')} (${shortcutLabel(AGENT_STOP_SHORTCUT)})`}>

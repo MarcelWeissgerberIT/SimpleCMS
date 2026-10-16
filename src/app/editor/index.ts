@@ -81,6 +81,9 @@ export { registerCodeLanguage, codeLanguages, languageLabel as codeLanguageLabel
 export { syncedCopiesOutside } from './synced/state'
 export { iconAssetPaths } from './schema/icon'
 export { detectProvider as detectEmbedProvider } from './lib/embeds'
+/** The page search of "@" and "one:" (live pages, template scope, the menus' ranking) for fields outside the editor (coding answers). */
+export { mentionPages, refPages, type PageSearch, type RefSection } from './lib/pageSearch'
+export { liveIds } from './lib/livePages'
 export {
   MEETING,
   meetingAttrs,

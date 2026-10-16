@@ -2158,6 +2158,160 @@ dd:has(> .cw-port) {
   outline: none;
   box-shadow: var(--focus-ring);
 }
+/* a page linked in a page that goes along (one level deeper) */
+.ctk-refs__page[data-via] {
+  border-style: dashed;
+  color: var(--ink-2);
+}
+/* a page the answer / note being written adds */
+.ctk-refs__page[data-new] {
+  border-color: var(--signal);
+}
+.ctk-refs__page .ctk-refs__new {
+  flex: none;
+  overflow: visible;
+  color: var(--signal-ink);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+.ctk-refs__left {
+  flex-basis: 100%;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+}
+
+/* "Give the page": the pages Claude's question names in quotes (GivePages.tsx) */
+.ctk-give {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+.ctk-give__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+.ctk-give__many {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.ctk-give__name {
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}
+.ctk-give__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  min-height: 28px;
+  padding: 0 9px;
+  border: 1px solid var(--signal);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+  transition: background var(--dur-1), border-color var(--dur-1);
+}
+.ctk-give__chip svg {
+  flex: none;
+  color: var(--signal-ink);
+}
+.ctk-give__chip:hover:not(:disabled) {
+  background: var(--signal-wash);
+}
+.ctk-give__chip:active:not(:disabled) {
+  transform: translateY(1px);
+}
+.ctk-give__chip:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.ctk-give__chip:disabled {
+  border-color: var(--rule);
+  color: var(--ink-2);
+  cursor: default;
+}
+.ctk-give__chip:disabled svg {
+  color: var(--ink-3);
+}
+.ctk-give__title,
+.ctk-give__path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ctk-give__path,
+.ctk-give__state {
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
+.ctk-give__state {
+  flex: none;
+}
+
+/* a coding field that points at pages (RefField.tsx): the picked pages are drawn over the text, in the signal colour */
+.cref {
+  position: relative;
+  min-width: 0;
+}
+.cref .cref__input {
+  display: block;
+  resize: none;
+  overflow-y: hidden;
+}
+.cref__marks {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-style: solid;
+  border-color: transparent;
+  color: transparent;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  pointer-events: none;
+}
+.cref__marks mark {
+  border-radius: 2px;
+  background: var(--signal-wash);
+  box-shadow: inset 0 -1px 0 var(--signal);
+  color: transparent;
+}
+.cref-menu {
+  width: 340px;
+  max-width: calc(100vw - 16px);
+  padding: 4px;
+}
+.cref-menu .menu-item__hint {
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cref-menu__foot {
+  margin-top: 4px;
+  padding: 6px 8px 2px;
+  border-top: 1px solid var(--rule);
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+}
 
 /* projects of a pipeline kind (Projects.tsx): pick · new · delete */
 .cv-board__head {

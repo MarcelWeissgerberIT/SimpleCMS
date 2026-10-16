@@ -10,6 +10,7 @@ import type { ID, Page } from '../../store/types'
 import { revealMain, useStageView } from './stage'
 import { freeBoardSpec } from '../../database'
 import { pageForAI } from './aiContext'
+import { permalink } from '../../lib/permalink'
 
 const ws = () => useWorkspace.getState()
 const ui = () => useUI.getState()
@@ -76,16 +77,19 @@ export function createFreeBoardAndOpen(parentId: ID | null = null) {
   return id
 }
 
+/** A page's permalink (lib/permalink.ts): the app's address with #/p/<id> — address bar, links, coding answers, ⌘K. */
 export function pageLink(id: ID): string {
-  return `${window.location.origin}${window.location.pathname}#/p/${id}`
+  return permalink(id)
 }
 
+/** "Copy permalink" (page ⋯ menu, sidebar row menu, ⌘K, the spec plate, the peek): the toast shows the address. */
 export async function copyPageLink(id: ID) {
+  const url = pageLink(id)
   try {
-    await navigator.clipboard.writeText(pageLink(id))
-    ui().toast({ message: t('common.copied'), kind: 'success' })
+    await navigator.clipboard.writeText(url)
+    ui().toast({ message: t('shell.permalink.copied', { url }), kind: 'success' })
   } catch {
-    ui().toast({ message: pageLink(id) })
+    ui().toast({ message: url })
   }
 }
 

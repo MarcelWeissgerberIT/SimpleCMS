@@ -7,6 +7,7 @@
  *   implement            → writes feature.txt (the task title; "BROKEN" with FAKE:FAILTEST until a rework
  *                          note exists), reports progress through the task tools (one_task_note)
  *   FAKE:ASK             → asks a question (one_task_ask) until the prompt carries answers
+ *   FAKE:ASKPAGE(<title>) → in any stage (plan too): asks for the page “<title>” by name, until the prompt carries answers
  *   FAKE:SLOW            → keeps "working" until it is killed (Stop)
  *   FAKE:QUIET           → says nothing for 20 s (the worker's sign of life), then ends
  *   FAKE:AUTH            → the CLI's expired login (an error result that says "success")
@@ -206,6 +207,16 @@ if (/^## Stage: .* \(doc\)$/m.test(prompt)) {
     process.exit(0)
   }
   result(`## Analysis\n\nThe document for “${title}”.\n\nWorking folder: ${basename(process.cwd())}\n\nReferences: ${refs}${finding ? `\n\nFirst finding: ${finding}` : ''}${diff}${tools}${cases}`, 0.07)
+  process.exit(0)
+}
+
+// a page Claude cannot read, asked for by name in quotes (the coding panel's "Give the page")
+const askPage = /FAKE:ASKPAGE\(([^)\n]+)\)/.exec(prompt)?.[1]
+if (askPage && !hasAnswers) {
+  say('A page is missing.')
+  const answer = await taskTool('one_task_ask', { question: `I can read the task and the pages linked in it, but not “${askPage}”. Please give me that page.` })
+  say(answer ?? '')
+  result(`Waiting for “${askPage}”.`, 0.02)
   process.exit(0)
 }
 

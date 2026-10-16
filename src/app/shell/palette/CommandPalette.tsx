@@ -3,7 +3,7 @@ import { Command } from 'cmdk'
 import { ArrowRight, AtSign, CalendarClock, CircleHelp, Copy, CornerDownLeft, FilePlus2, FileText, LayoutTemplate, ListPlus, Lock, Square, Table2, ToggleLeft, Filter as FilterIcon } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
-import { selectBreadcrumbs } from '../../store/selectors'
+import { inTemplate, isEffectivelyTrashed, selectBreadcrumbs } from '../../store/selectors'
 import { AINeedsSetup, CodewordChip, FixKeys, McpSkippedNote, offersAI, useAIStatus, runAI, templateName, templateRoots, type McpCall } from '../../features'
 import { memoryFor, MemoryNote, noteUse, type MemoryUse } from '../../features'
 import { AIError, RouteChip, aiWriterOf, isRouteKey, precheck, routeFor, routed, shapeOf, withShape, type AIFix, type Receipt, type Route, type RouteChipHandle } from '../../features'
@@ -24,6 +24,7 @@ import { useT } from '../../i18n'
 import type { ID, Page } from '../../store/types'
 import { withWriter, type Writer } from '../../store/writer'
 import { newId } from '../../lib/ids'
+import { pagesAt, parsePageAddress } from '../../lib/permalink'
 import { buildCommands, type Command as Cmd } from '../lib/commands'
 import { contextPageId, createPageAndOpen, goToPage } from '../lib/actions'
 import { useMediaQuery } from '../lib/hooks'
@@ -104,6 +105,19 @@ function Palette() {
   }, [roots, mode, text, filtering])
   // articles of the manual (help area) — after the workspace's own pages
   const helpHits = useHelpHits(mode === 'find' && !filtering ? text : '', lang)
+  /*
+   * A pasted permalink, `#/p/<id>`, a bare page id or the spec plate's "ABCD·1234" (lib/permalink.ts): the page it names
+   * comes first — Enter opens it — and never a "Create page" named after the address. A clear address that names no page
+   * here says so; a word that only looks like an id (no such page) is searched as usual.
+   */
+  const address = useMemo(() => {
+    if (mode !== 'find' || chips.length || !raw) return null
+    const form = parsePageAddress(raw)
+    if (!form) return null
+    const ids = pagesAt(raw, pages).filter((id) => !inTemplate(pages, id))
+    const clear = form.kind === 'address' || (form.kind === 'short' && /·|^id\b/i.test(raw))
+    return ids.length || clear ? ids : null
+  }, [mode, chips.length, raw, pages])
   const topSugs = sugs.place === 'top' ? sugs.items : []
   const bottomSugs = sugs.place === 'bottom' ? sugs.items : []
   const sugById = useMemo(() => new Map(sugs.items.map((s) => [`sug:${s.id}`, s])), [sugs])
@@ -345,6 +359,21 @@ function Palette() {
               )}
               {asking ? (
                 <>
+                  {address && (
+                    <Command.Group heading={<GroupHead label={t('shell.palette.address')} n={address.length} />}>
+                      {address.length ? (
+                        address.map((id) => (
+                          <PageItem key={`addr-${id}`} value={`addr:${id}`} page={pages[id]!} path={isEffectivelyTrashed(pages, id) ? t('shell.palette.addressTrash') : path(pages[id]!)} onSelect={() => openPageItem(id)} />
+                        ))
+                      ) : (
+                        <Command.Item value="addr:none" className="pal-item" disabled>
+                          <span className="pal-item__main">
+                            <span className="pal-item__title">{t('shell.palette.addressNone')}</span>
+                          </span>
+                        </Command.Item>
+                      )}
+                    </Command.Group>
+                  )}
                   {sugGroup(topSugs, `${t('shell.palette.filter')} · ${sugs.head ?? ''}`)}
                   {commandsFirst && commandGroup}
                   {titleHits.length > 0 && (
@@ -398,7 +427,7 @@ function Palette() {
                     </Command.Group>
                   )}
                   {sugGroup(bottomSugs, sugs.head ?? t('shell.palette.filterBy'))}
-                  {!readOnly && !filtering && text && (
+                  {!readOnly && !filtering && text && !address && (
                     <Command.Group className="pal-create">
                       <Command.Item value={`create:${text}`} className="pal-item" onSelect={() => (finish(), createPageAndOpen(null, text))}>
                         <span className="pal-item__icon">
@@ -542,9 +571,12 @@ function PageItem({
   props,
   db,
   onSelect,
+  value,
 }: {
   page: Page
   path: string
+  /** cmdk's value (default `page:<id>`) — another one where the same page may show twice */
+  value?: string
   titleRanges?: Range[]
   snippet?: { text: string; ranges: Range[] } | null
   /** the values a filter looked at */
@@ -557,7 +589,7 @@ function PageItem({
   const title = page.title.trim() || t('common.untitled')
   const hasProps = !!props?.length || !!db
   return (
-    <Command.Item value={`page:${page.id}`} className="pal-item pal-item--page" onSelect={onSelect}>
+    <Command.Item value={value ?? `page:${page.id}`} className="pal-item pal-item--page" onSelect={onSelect}>
       <span className="pal-item__icon">
         <PageIcon icon={page.icon} kind={page.kind} size={18} />
       </span>

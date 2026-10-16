@@ -3,7 +3,7 @@ id: coding-pipeline
 title: Coding pipeline (Claude Code on your machine)
 section: ai
 order: 9
-keywords: coding, pipeline, claude code, worker, one-worker, download, setup, windows, powershell, cmd, wsl, pairing, model, opus, sonnet, haiku, fable, tick repositories, git, branch, worktree, pull request, pr, diff, tests, repo, repository, code review, programmieren, aufgaben, cloud worker, one-worker-cloud, build server, vm, relay, remote, another computer, local or cloud, offline, not connected, local network access, apps on device
+keywords: coding, pipeline, claude code, worker, permalink, page address, copy link, give a page, reference a page, mention a page, answer, rework, one-worker, download, setup, windows, powershell, cmd, wsl, pairing, model, opus, sonnet, haiku, fable, tick repositories, git, branch, worktree, pull request, pr, diff, tests, repo, repository, code review, programmieren, aufgaben, cloud worker, one-worker-cloud, build server, vm, relay, remote, another computer, local or cloud, offline, not connected, local network access, apps on device
 related: pipelines, legacy-modernisation, mcp-bridge, custom-agents, agent
 summary: Hand coding tasks to Claude Code on your computer — plan, approve, implement, test, ship — and follow every step in One.
 ---
@@ -25,7 +25,7 @@ node "%USERPROFILE%\Downloads\one-worker.mjs"
 The lines expect the usual Downloads folder. Did your browser save the file somewhere else (or is Downloads moved, e.g. into OneDrive)? Type `node` and a space, paste the file's path — in Explorer: Shift + right-click the file → **Copy as path** — and press Enter.
 3. **Tick your repositories in the page that opens.** The worker finds the git repositories on your computer and opens a page in your browser: tick the ones One may work in, check the base branch and the test command (e.g. `npm test`), then **Save & start**. The card shows *Connected · laptop · 2 repos* and the **WORKER** LED in the status bar turns green.
 
-Business analysis and QA have pipelines of their own — see [Business analysis and QA pipelines](help:pipelines). Mention pages with **@** in a task: their text goes to Claude Code with it.
+Business analysis and QA have pipelines of their own — see [Business analysis and QA pipelines](help:pipelines). Mention pages with **@** in a task: their text goes to Claude Code with it — see *Give Claude Code a page* below.
 
 New code? The same page clones from **GitLab / GitHub** (an address, or a pick from your projects with `glab` / `gh`) or imports a **ZIP** as a new repository into `~/one-repos` — see [Modernise legacy code](help:legacy-modernisation). Per repository it can also give Claude Code your own MCP servers (e.g. a knowledge base), and it decides with **Use this repo's own Claude Code settings** whether Claude Code loads the repository's `.claude/`, `.mcp.json` and `CLAUDE.md`: on for your own repositories, off — with the reason — for one the worker cloned or imported, whose hooks would otherwise run on your computer as a task starts.
 
@@ -100,6 +100,25 @@ Each task works on its own branch (`one/<title>-<id>`) in its own worktree — y
 - **Projects**: several Coding databases side by side — pick, create and delete them above the board ([Projects](help:pipelines)).
 
 **Repos in iCloud Drive** (e.g. in Documents with "Desktop & Documents Folders" on): git waits whenever a file is only in the cloud, so steps can take minutes — the log says so. Faster: keep the folder downloaded, or clone it again with **Clone from GitLab / GitHub…** on the worker's setup page (into `~/one-repos`, which is not synced) and tick that one. The worker starts at once either way and names a repository whose git is slow in its log. The worker's own working copies never go into iCloud.
+
+## Give Claude Code a page
+Claude Code reads the task — never the rest of your workspace. What it may read goes along with the task as read-only text: the pages the task mentions with **@** or links, and the pages linked in **those** pages (one level deeper) — at most 8, each up to 20,000 characters, and only what Claude may read of it (marked blocks). **Goes along** in the coding panel lists them before a stage runs; ↳ marks a page linked in another one.
+
+- **In your answer, a rework note or a new task**: type **@** (or `one:`) and a few letters of the title — the same search as in a page. <kbd>↑</kbd> <kbd>↓</kbd> choose, <kbd>Enter</kbd> or <kbd>Tab</kbd> takes the page, <kbd>Esc</kbd> closes the list. The page shows as *@Title* in the field and goes along with this very run, before the task's own pages; **Goes along** marks it *new* while you write. <kbd>Backspace</kbd> right after it takes it out whole.
+- **Give the page**: when Claude's question names a page in quotes — *“Launch plan”*, *„Launch plan“*, *'Launch plan'* — and a page here has exactly that title, a key under the question puts it into your answer. Several pages with that title: each shows where it lives. Nothing is sent before you press **Answer**.
+- **Paste an address**: a page's permalink (or `#/p/<id>`) pasted into the field becomes *@Title* too.
+- A page Claude sees named but does not get — over the 8, or linked deeper — is listed for Claude under the pages it gets, and under **Goes along** for you: give it with **@** in your answer.
+- In a team, the pages that go along are part of what you confirm: a teammate changing one makes the task wait for **Confirm on this device** again.
+
+## Permalinks
+Every page has a permalink: One's address with `#/p/<id>` at the end. **Copy permalink** is in the page's ⋯ menu, the sidebar's row menu and ⌘K; the plate at the end of every page has a **Permalink** key, the side peek a link key next to the page's path. The toast shows the address. It works
+- in the browser's address bar — the page opens;
+- as a link in any page — pasted into a page, it becomes a page mention;
+- in a coding answer, a rework note or a new task — the page goes along to Claude Code;
+- in the AI terminal — it becomes *@Title*;
+- in ⌘K — paste a permalink, `#/p/<id>`, a page id or the plate's short ID (*ID ABCD·1234*): the page comes first, <kbd>Enter</kbd> opens it. An address of a page this device does not have says so — it never makes a new page.
+
+The short ID also works after `#/p/` in the address bar.
 
 ## What One records
 When a git stage or a key in the **Git** tab commits, pushes or opens a merge / pull request, the task page gets one grey note — for example **Ship · 14 Oct 14:32** with the line *Commit a1b2c3d · Branch one/fix-login-ab12cd · MR !42 · pushed to origin/one/fix-login-ab12cd*.

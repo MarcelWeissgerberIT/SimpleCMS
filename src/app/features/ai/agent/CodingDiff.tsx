@@ -87,7 +87,8 @@ export function RefsLine({ refs }: { refs: RefPage[] | undefined }) {
   const t = useT()
   const live = useWorkspace((s) => (refs ?? []).map((r) => (s.pages[r.id] ? '1' : '0')).join(''))
   if (!refs?.length) return null
-  const titles = refs.map((r, i) => (r.staged && live[i] !== '1' ? t('features.agent.coding.refStaged', { title: r.title }) : `“${r.title}”`)).join(', ')
+  // a page linked in one that goes along (one level deeper) says where it comes from
+  const titles = refs.map((r, i) => (r.staged && live[i] !== '1' ? t('features.agent.coding.refStaged', { title: r.title }) : r.via ? t('features.agent.coding.refVia', { title: r.title, via: r.via.title }) : `“${r.title}”`)).join(', ')
   return (
     <p className="term-change__hint" data-testid="term-coding-refs">
       {t('features.agent.coding.refs', { titles })}
