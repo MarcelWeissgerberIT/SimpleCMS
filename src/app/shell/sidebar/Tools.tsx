@@ -4,9 +4,11 @@
  * (the two after the hairline open a dialog; viewers get neither).
  *
  * The head is a readout: at rest "TOOLS", or what waits most — open fuses, then the agents' proposals, then the
- * Patchbay's NEW ("PATCHBAY · 1 OPEN FUSE"); under the pointer or the focus, that key's name and state. Each key's
- * accessible name carries the same words (a cut "…" in the readout is only looks). The LEDs and counts sit in the keys'
- * corners (Agents' count — hidden while Preflight is on —, the Patchbay's LED / grey "?" through its own key, test ids
+ * Patchbay's NEW — in short words ("PATCHBAY · 1 OPEN", "AGENTS · 3 TO REVIEW"; NEW only while nothing is counted);
+ * under the pointer or the focus, that key's name and state. Each key's accessible name says it as a sentence. Never
+ * cut: where the widest text it may show does not fit, the head keeps two lines (`useReadoutLines`). The eight keys
+ * share one row at every width. The LEDs and counts ride the keys' top edges, NEW is a dot bottom left — clear of the
+ * glyph (Agents' count — hidden while Preflight is on —, the Patchbay's LED / grey "?" through its own key, test ids
  * kept). One Tab stop (the open tool's key, else the first), ← / → / Home / End move along (WAI-ARIA toolbar).
  *
  * NAMES (aria-pressed) turns the strip into today's labelled rows — per device, localStorage `one.shell.tools` =
@@ -17,7 +19,7 @@
  * the agents' proposals; NEW when only the Patchbay's is new) — never a count of the tools it hides. A tap unfolds the
  * grid (aria-expanded); the choice is `phoneOpen`.
  */
-import { useRef, useState, type FocusEvent, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react'
+import { useLayoutEffect, useRef, useState, type FocusEvent, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react'
 import { Bot, CalendarClock, ChevronDown, LayoutTemplate, Shapes, SquareCode, Upload, Waypoints } from 'lucide-react'
 import { useUI } from '../../store/ui'
 import { navigate, useRoute } from '../../lib/router'
@@ -112,7 +114,8 @@ export function ToolStrip() {
           { id: 'import', icon: <Upload size={16} />, label: t('shell.nav.import'), key: k('import'), active: false, state: [], say: [], dialog: true, onClick: go(() => useUI.getState().openModal({ type: 'import' })) },
         ] as Tool[])),
   ]
-  const said = (x: Tool) => [x.label, ...x.say].join(' · ')
+  // a second line (narrow sidebar, big text) starts after the dot: "SCHALTPLAN ·" / "1 OFFEN"
+  const said = (x: Tool) => [x.label, ...x.say].join('\u00a0· ')
 
   // at rest: what waits most — open fuses, then proposals, then NEW — else the strip's name
   const urgent = fuses > 0 ? said(tools.find((x) => x.id === 'patchbay')!) : agents > 0 ? said(tools.find((x) => x.id === 'agents')!) : !seen ? t('shell.tools.readoutNew', { tool: pbTitle }) : null
@@ -120,6 +123,8 @@ export function ToolStrip() {
   const [focused, setFocused] = useState<number | null>(null)
   const hot = pointed ?? focused
   const readout = pref.mode === 'keys' && hot !== null && tools[hot] ? said(tools[hot]) : (urgent ?? t('shell.tools.title'))
+  // every text the readout may show now: where the widest does not fit one line, the head keeps two lines for good
+  const lines = useReadoutLines([t('shell.tools.title'), ...(urgent ? [urgent] : []), ...(pref.mode === 'keys' ? tools.map(said) : [])])
 
   // roving focus: one Tab stop — the open tool's key, else the first; the arrows move along
   const keys = useRef<(HTMLButtonElement | null)[]>([])
@@ -155,9 +160,17 @@ export function ToolStrip() {
     </button>
   )
   const head = (
-    <div className="sb-tools__head" aria-hidden data-hot={pref.mode === 'keys' && hot !== null ? '' : undefined} data-urgent={hot === null && urgent ? '' : undefined}>
+    <div
+      ref={lines.ref}
+      className="sb-tools__head"
+      aria-hidden
+      data-hot={pref.mode === 'keys' && hot !== null ? '' : undefined}
+      data-urgent={hot === null && urgent ? '' : undefined}
+      data-lines={lines.two ? '2' : undefined}
+    >
       <span className="sb-tools__readout">{readout}</span>
       <span className="sb-sect__leader" />
+      <span className="sb-tools__ruler" />
     </div>
   )
 
@@ -255,4 +268,39 @@ export function ToolStrip() {
       {names}
     </div>
   )
+}
+
+/**
+ * The readout is one line where the widest text it may show fits (the strip's name, what waits, every key's name and
+ * state); else — a narrow sidebar with big text — it keeps two lines, also while it shows a short text, so pointing at the
+ * keys never moves them. Measured with a hidden ruler (the readout's font, set as close as under the pointer) whenever
+ * the head or NAMES changes size (the sidebar's width, the text size, the language) or the texts change.
+ */
+function useReadoutLines(texts: string[]) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [two, setTwo] = useState(false)
+  const key = texts.join('\n')
+  useLayoutEffect(() => {
+    const head = ref.current
+    const ruler = head?.querySelector<HTMLElement>('.sb-tools__ruler')
+    if (!head || !ruler) return
+    const fit = () => {
+      const room = head.clientWidth - (parseFloat(getComputedStyle(head).paddingLeft) || 0)
+      if (room <= 0) return
+      let widest = 0
+      for (const text of key.split('\n')) {
+        ruler.textContent = text
+        widest = Math.max(widest, ruler.getBoundingClientRect().width)
+      }
+      ruler.textContent = ''
+      setTwo(widest > room + 0.5)
+    }
+    fit()
+    const ro = new ResizeObserver(fit)
+    ro.observe(head)
+    const names = head.parentElement?.querySelector('.sb-tools__names')
+    if (names) ro.observe(names)
+    return () => ro.disconnect()
+  }, [key])
+  return { ref, two }
 }

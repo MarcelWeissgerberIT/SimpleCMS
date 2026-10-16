@@ -14,10 +14,11 @@ Die Seitenleiste hat oben einen festen Teil und darunter den Seitenbaum. Eine fe
 
 ## Werkzeuge
 Eine Tastenreihe unter den Orten: **Agenda** · **Graph** · **Agenten** · **Skripte** · **Schaltplan** · **Bausteine**, dann nach einem feinen Strich die zwei, die ein Fenster öffnen: **Vorlagen** · **Importieren** (nicht für Lesende in einem Team-Workspace).
-- Die Zeile über den Tasten sagt, was am meisten wartet: offene Sicherungen (**SCHALTPLAN · 1 OFFENE SICHERUNG**), dann die Vorschläge der Agenten, dann ein **NEU**. Wartet nichts, steht dort **WERKZEUGE**. Zeigst du auf eine Taste — oder steht der Fokus darauf —, nennt die Zeile diese Taste.
-- Eine Taste trägt ihr Lämpchen und ihre Zahl in der Ecke: die Sicherungen des Schaltplans (ein graues **?**, wenn Teile hier unbekannt sind), die Vorschläge der Agenten (solange der [Vorflug-Check](help:preflight) aus ist — ist er an, zählt er sie).
+- Die Zeile über den Tasten sagt kurz, was am meisten wartet: offene Sicherungen (**SCHALTPLAN · 1 OFFEN**), dann die Vorschläge der Agenten (**AGENTEN · 3 PRÜFEN**), dann ein **NEU**. Wartet nichts, steht dort **WERKZEUGE**. Zeigst du auf eine Taste — oder steht der Fokus darauf —, nennt die Zeile diese Taste. Der volle Name einer Taste (für Bildschirmleser, im Tooltip) sagt es in einem ganzen Satz. In einer schmalen Seitenleiste mit großer Schrift nimmt die Zeile zwei Zeilen — abgeschnitten wird sie nie.
+- Eine Taste trägt ihr Lämpchen und ihre Zahl an der oberen Kante: die Sicherungen des Schaltplans (ein graues **?**, wenn Teile hier unbekannt sind), die Vorschläge der Agenten (solange der [Vorflug-Check](help:preflight) aus ist — ist er an, zählt er sie). Ein Punkt unten in der Ecke: Der Schaltplan ist neu für dich.
+- Die Tasten teilen sich eine Reihe, wie breit die Seitenleiste auch ist.
 - **NAMEN** macht aus den Tasten wieder die beschriftete Liste. Das merkt sich dieses Gerät.
-- Auf einem Touch-Bildschirm (iPad, Handy) zeigen die Tasten ihre Namen, in zwei Reihen zu vier.
+- Auf einem Touch-Bildschirm (iPad, Handy) zeigen die Tasten kurze Namen, in zwei Reihen zu vier; mit großer Schrift nimmt ein langer Name zwei Zeilen.
 - Am Handy ist **WERKZEUGE** zuerst eine eingeklappte Zeile: ein Lämpchen mit der Zahl dessen, was wartet (offene Sicherungen und die Vorschläge der Agenten; **NEU**, solange nur der Schaltplan neu ist). Ein Tippen klappt die Tasten auf; das merkt sich dieses Gerät.
 - Tastatur: Die Reihe ist ein einziger <kbd>Tab</kbd>-Halt — die Taste des offenen Werkzeugs, sonst die erste. <kbd>←</kbd> <kbd>→</kbd> <kbd>Pos1</kbd> <kbd>Ende</kbd> wandern, <kbd>Enter</kbd> öffnet.
 
@@ -28,16 +29,16 @@ Jedes Werkzeug findest du auch mit ⌘K.
 
 Einen Favoriten anlegen:
 - Fahr mit der Maus über eine Seite im Baum: Rechts erscheint ein **☆**. Ein Klick darauf, und der Stern ist gefüllt.
-- Oder zieh die Seite in **FAVORITEN** — auf den Kopf, in das leere Feld oder genau zwischen zwei Favoriten (eine Linie zeigt, wohin). Die Seite bleibt an ihrem Platz im Baum; ein Datenbank-Eintrag bleibt in seiner Datenbank.
+- Oder zieh die Seite in **FAVORITEN** — auf den Kopf (sie kommt ans Ende), in das leere Feld oder genau zwischen zwei Favoriten (eine Linie zeigt, wohin). Die Seite bleibt an ihrem Platz im Baum; ein Datenbank-Eintrag bleibt in seiner Datenbank.
 - Oder der **☆** oben rechts auf jeder Seite, **Zu Favoriten hinzufügen** im **•••**-Menü einer Zeile oder im **•••**-Menü der Seite, oder ⌘K **Seite zu Favoriten**.
 - Auf einem Touch-Bildschirm: **•••**-Menü der Zeile → **Zu Favoriten hinzufügen**.
 
 Ordnen und entfernen:
-- Zieh einen Favoriten nach oben oder unten. Oder setz den Fokus darauf und drück <kbd>Alt+↑</kbd> / <kbd>Alt+↓</kbd> — der Fokus bleibt darauf, ein Bildschirmleser hört den neuen Platz. Oder **•••** → **Nach oben** / **Nach unten**.
+- Zieh einen Favoriten nach oben oder unten — über den Kopf kommt er an den Anfang, unter die letzte Zeile ans Ende. Oder setz den Fokus darauf und drück <kbd>Alt+↑</kbd> / <kbd>Alt+↓</kbd> — der Fokus bleibt darauf, ein Bildschirmleser hört den neuen Platz. Oder **•••** → **Nach oben** / **Nach unten**.
 - Die Reihenfolge gehört diesem Gerät und diesem Workspace. Ein Favorit von anderswo (ein anderes Gerät, ein Backup) kommt ans Ende, nach Titel.
-- Ein Klick auf den gefüllten **☆** entfernt einen Favoriten. Eine Meldung sagt es; ihr **Rückgängig** holt ihn an seinen alten Platz zurück.
-- Ein Favorit klappt auf wie jede Seite im Baum — eine Datenbank zu ihren Einträgen. Hinter dem Titel steht, wo er liegt (seine Elternseite).
-- **FAVORITEN** zeigt bis zu fünf Zeilen (vier in einem niedrigen Fenster, drei am Handy); weitere scrollen in der Liste. Der Pfeil im Kopf klappt sie ganz ein; das merkt sich dieses Gerät.
+- Ein Klick auf den gefüllten **☆** entfernt einen Favoriten. Eine Meldung sagt es; ihr **Rückgängig** holt ihn an seinen alten Platz zurück. Entfernst du ihn an seiner eigenen Zeile in **FAVORITEN**, geht der Tastatur-Fokus zum nächsten Favoriten.
+- Ein Favorit klappt auf wie jede Seite im Baum — eine Datenbank zu ihren Einträgen. Hinter dem Titel steht, wo er liegt (seine Elternseite), wenn Platz dafür ist.
+- **FAVORITEN** zeigt bis zu fünf Zeilen (vier in einem niedrigen Fenster, drei am Handy); weitere scrollen in der Liste. Eine kleine Taste unter der Liste zählt die verdeckten Zeilen (**+2 ▾** — darunter; **+2 ▴** — darüber) und scrollt zu ihnen; ein Strich unter dem Kopf zeigt, dass oben Zeilen liegen. Der Pfeil im Kopf klappt sie ganz ein; das merkt sich dieses Gerät.
 
 Ein Favorit in einer Seite, die im Papierkorb liegt, wird nicht gezeigt. Stellst du diese Seite wieder her, ist der Favorit wieder an seinem Platz.
 

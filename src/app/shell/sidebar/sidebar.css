@@ -311,6 +311,7 @@
 }
 .sb-tools__head {
   grid-area: head;
+  position: relative;
   display: flex;
   align-items: center;
   gap: 7px;
@@ -330,8 +331,35 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* the widest text the readout may show does not fit one line (a narrow sidebar with big text — measured, Tools.tsx):
+   the head keeps two lines whatever it shows, so pointing at the keys never moves them */
+.sb-tools__head[data-lines='2'] {
+  height: auto;
+  min-height: 22px;
+  padding-block: 2px;
+}
+.sb-tools__head[data-lines='2'] .sb-tools__readout {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  min-height: 2.5em;
+  align-content: center;
+  line-height: 1.25;
+  white-space: normal;
+}
+/* the measuring copy: the readout's font, set as close as under the pointer; never seen, never in the layout */
+.sb-tools__ruler {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: max-content;
+  visibility: hidden;
+  pointer-events: none;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
 /* a key under the pointer or the focus, or what waits most: the readout speaks in ink, set closer, and takes the
-   leader's room ("SCHALTPLAN · 1 OFFENE SICHERUNG" fits a 264 px sidebar) */
+   leader's room (its short words — "SCHALTPLAN · 12 OFFEN" — fit a 264 px sidebar at every text size) */
 .sb-tools__head[data-hot] .sb-tools__readout,
 .sb-tools__head[data-urgent] .sb-tools__readout {
   flex: 1;
@@ -455,17 +483,20 @@
   clip-path: inset(50%);
   white-space: nowrap;
 }
-/* LED + count in the key's corner */
+/* LED + count: a tab on the keycap's top edge, right (it rides the frame, clear of the 16 px glyph; the labelled grid on
+   a coarse pointer has room for it inside the corner) */
 .sb-tool .sb-navrow__badge {
   position: absolute;
-  top: 1px;
-  right: 1px;
+  top: -6px;
+  right: -2px;
+  z-index: 1;
   gap: 2px;
   padding: 0 2px;
+  border: 1px solid var(--rule);
   border-radius: var(--radius-1);
   background: var(--surface-2);
   font-size: calc(9px * var(--text-scale));
-  line-height: 12px;
+  line-height: 10px;
 }
 .sb-tool:hover .sb-navrow__badge {
   background: var(--hover);
@@ -481,8 +512,8 @@
    labelled grid top left, above the name) — the readout says it in words */
 .sb-tool__new {
   position: absolute;
-  bottom: 2px;
-  left: 2px;
+  bottom: 0;
+  left: 1px;
   width: 5px;
   height: 5px;
   margin: 0;
@@ -854,7 +885,7 @@ body[data-dragging] .sb-favs__list {
   font-size: var(--text-xs);
 }
 /* one line: where it does not fit (a narrow sidebar, big text — measured, Visited.tsx) the leader and the count give way
-   first (data-fit="tight"); only then the keys wrap ("tight wrap") */
+   first (data-fit="tight"), then the switch's keys sit closer ("tight close"); only then the keys wrap ("… wrap") */
 .sb-visited__head {
   gap: 2px 5px;
   height: auto;
@@ -869,6 +900,13 @@ body[data-dragging] .sb-favs__list {
 }
 .sb-visited__head[data-fit~='tight'] .sb-visited__more {
   margin-left: auto;
+}
+.sb-visited__head[data-fit~='close'] {
+  column-gap: 3px;
+}
+.sb-visited__head[data-fit~='close'] .sb-switch__tab {
+  padding: 0 3px;
+  letter-spacing: 0.02em;
 }
 .sb-visited__head[data-fit~='wrap'] {
   flex-wrap: wrap;
@@ -1566,6 +1604,8 @@ body[data-dragging] .sb-row__toggle {
   .sb-tools__keys {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
+    /* a name on two lines grows its row: both rows keep one height, like a keypad */
+    grid-auto-rows: 1fr;
     gap: 3px;
     padding-left: 0;
   }
@@ -1613,8 +1653,26 @@ body[data-dragging] .sb-row__toggle {
     bottom: auto;
     left: 4px;
   }
+  /* the edge key takes a 32 px tap (the list itself scrolls by a swipe too) */
+  .sb-favs__edgekey {
+    position: relative;
+  }
+  .sb-favs__edgekey::before {
+    content: '';
+    position: absolute;
+    inset: -8px -6px;
+  }
+  .sb-tool .sb-navrow__badge {
+    top: 3px;
+    right: 3px;
+    border-color: transparent;
+    line-height: 12px;
+  }
   .sb-tools__head {
     height: 28px;
+  }
+  .sb-tools__head[data-lines='2'] {
+    min-height: 28px;
   }
   .sb-tools__names {
     height: 28px;
@@ -1659,6 +1717,9 @@ body[data-dragging] .sb-row__toggle {
   }
   .sb-switch__tab {
     padding: 0 10px;
+  }
+  .sb-visited__head[data-fit~='close'] .sb-switch__tab {
+    padding: 0 6px;
   }
 }
 

@@ -816,7 +816,10 @@ the public APIs stable — other areas are built against them in parallel.
   workspace in localStorage `one.shell.favorder:<kind>:<id>` (written only by `placeFavorite` / `moveFavorite` / the
   Undo; missing favourites join by title; wiped with the team copy), fold `one.shell.sections`, tools mode
   `one.shell.tools` (`{ mode, phoneOpen }` — the phone drawer folds TOOLS into one row) — never synced / backed up. Drops
-  hit only what shows (collision.ts `visibleWithin`, a live hit test). Entry lists of more than 7 peek (5, then "+N more"
+  hit only what shows (collision.ts `visibleWithin`, a live hit test; the before / inside / after split and auto-scroll
+  read the live pointer it records — `livePointerY()`, never the drag's scroll-shifted `delta`). Whole rows: each
+  section's rows snap under its head's measured height (`--sb-head-h`) and `.sb-scroll__end` makes the end of the range
+  land on a row (Sidebar.tsx `useWholeRows`). Entry lists of more than 7 peek (5, then "+N more"
   unfolding in place to 20 + Show all; `more:<section>:<db>[:<row>]` keys in `one.shell.expanded`, folded by Collapse
   all); `entryOrder` lists a calendar / timeline first view without sorts by its date, newest first (`entryOrderProps`
   is what re-sorts the memoised index). RECENT | FREQUENT starts folded where favourites exist (judged once per mount;

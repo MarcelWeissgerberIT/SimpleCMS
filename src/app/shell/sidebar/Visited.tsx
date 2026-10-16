@@ -158,9 +158,9 @@ export function VisitedSection({ n, recent, frequent }: { n: number; recent: ID[
 
 /**
  * The head stays one line (it sticks over the rows; the rows snap under its measured height): where it does not fit — a
- * narrow sidebar, big text, a long word — the dotted leader and the count go first (`data-fit="tight"`); only if the
- * switch and its two keys still do not fit, it wraps (`"tight wrap"`). Measured whenever the head or the switch changes
- * size (the sidebar's width, the text size, the language).
+ * narrow sidebar, big text, a long word — the dotted leader and the count go first (`data-fit="tight"`), then the switch
+ * sets its two keys closer (`"tight close"`); only if that still does not fit, it wraps (`"tight close wrap"`). Measured
+ * whenever the head or the switch changes size (the sidebar's width, the text size, the language).
  */
 function useFitHead(ref: RefObject<HTMLDivElement | null>) {
   useLayoutEffect(() => {
@@ -171,7 +171,9 @@ function useFitHead(ref: RefObject<HTMLDivElement | null>) {
       delete el.dataset.fit
       if (!el.clientWidth || !over()) return
       el.dataset.fit = 'tight'
-      if (over()) el.dataset.fit = 'tight wrap'
+      if (!over()) return
+      el.dataset.fit = 'tight close'
+      if (over()) el.dataset.fit = 'tight close wrap'
     }
     fit()
     const ro = new ResizeObserver(fit)

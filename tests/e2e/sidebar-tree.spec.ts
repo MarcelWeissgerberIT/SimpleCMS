@@ -4,7 +4,10 @@
  * page's chain, no layout shift when a drag starts, and the visibleWithin drop rule (a row hidden under the fixed block
  * or a stuck head takes no drop). Slice 2: the entry peek (5 + "+N more" unfolding in place, kept, folded by Collapse
  * all, the open entry always shown, the key staying put when the list folds back), a calendar / timeline first view
- * listing newest first, and RECENT | FREQUENT starting folded where favourites exist.
+ * listing newest first, and RECENT | FREQUENT starting folded where favourites exist. Review fixes: a drag reads the live
+ * pointer (auto-scroll keeps going up, the middle of a row means "inside" after the tree scrolled), the end of the tree
+ * rests on whole rows, each section's rows snap under its own head's measured height (36 px on a coarse pointer), a
+ * touch drag start moves no title, the RECENT | FREQUENT head stays one line at 220 px with the biggest text.
  */
 import type { Locator, Page } from '@playwright/test'
 import { test, expect, openApp, reloadApp, gotoPage, createPage, wsEval, sidebarRow, flush } from './fixtures'
@@ -119,6 +122,146 @@ test.describe('the tree under the seam', () => {
     await page.keyboard.press('Escape')
     await page.mouse.up()
     expect(await wsEval(page, (s, id) => [s.pages[id].parentId, s.pages[id].favorite], src)).toEqual([null, false])
+  })
+
+  test('a drag held near the top keeps the tree scrolling up — however far it scrolled already', async ({ page }) => {
+    await openApp(page)
+    await wsEval(page, (s) => {
+      for (let i = 0; i < 80; i++) s.createPage({ title: `Tessera item ${String(i).padStart(2, '0')}`, parentId: null })
+    })
+    await flush(page)
+    const box = scroller(page)
+    await box.evaluate((el) => (el.scrollTop = el.scrollHeight))
+    await page.waitForTimeout(300)
+    const b = (await box.boundingBox())!
+    const start = await box.evaluate((el) => el.scrollTop)
+    const y0 = b.y + b.height * 0.6
+    await page.mouse.move(b.x + 60, y0)
+    await page.mouse.down()
+    await page.mouse.move(b.x + 60, y0 - 10, { steps: 3 })
+    // 40 px under the tree's top edge, held for 2 s (the drag's own delta would stop it after ~40 px)
+    await page.mouse.move(b.x + 60, b.y + 40, { steps: 12 })
+    await page.waitForTimeout(2000)
+    const now = await box.evaluate((el) => el.scrollTop)
+    await page.keyboard.press('Escape')
+    await page.mouse.up()
+    expect(start - now).toBeGreaterThan(200)
+  })
+
+  test('after the tree scrolled during a drag, the middle of a row still means "inside" (and the drop nests)', async ({ page }) => {
+    await openApp(page)
+    await wsEval(page, (s) => {
+      for (let i = 0; i < 60; i++) s.createPage({ title: `Nordlicht item ${String(i).padStart(2, '0')}`, parentId: null })
+    })
+    await flush(page)
+    const src = sidebarRow(page, 'Nordlicht item 00')
+    await src.scrollIntoViewIfNeeded()
+    const b = (await scroller(page).boundingBox())!
+    const a = (await src.boundingBox())!
+    await page.mouse.move(a.x + 60, a.y + a.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(a.x + 60, a.y + a.height / 2 + 8, { steps: 3 })
+    // to the bottom edge: the tree scrolls
+    const before = await scroller(page).evaluate((el) => el.scrollTop)
+    await page.mouse.move(b.x + 60, b.y + b.height - 6, { steps: 10 })
+    await page.waitForTimeout(700)
+    await page.mouse.move(b.x + 60, b.y + b.height * 0.5, { steps: 6 })
+    await page.waitForTimeout(200)
+    expect(await scroller(page).evaluate((el) => el.scrollTop)).toBeGreaterThan(before + 100)
+    // the exact middle of the row under the pointer now
+    const title = await page.evaluate((y) => document.elementFromPoint(120, y)?.closest('.sb-row')?.querySelector('.sb-row__title')?.textContent ?? '', b.y + b.height * 0.5)
+    expect(title).toMatch(/^Nordlicht item/)
+    const target = sidebarRow(page, title)
+    const t = (await target.boundingBox())!
+    await page.mouse.move(b.x + 60, t.y + t.height / 2, { steps: 3 })
+    await page.mouse.move(b.x + 61, t.y + t.height / 2, { steps: 1 })
+    await expect(target).toHaveAttribute('data-drop', 'inside')
+    await page.mouse.up()
+    const parent = await wsEval(page, (s) => {
+      const p = (Object.values(s.pages) as Array<{ title: string; parentId: string | null }>).find((x) => x.title === 'Nordlicht item 00')!
+      return p.parentId ? s.pages[p.parentId].title : null
+    })
+    expect(parent).toBe(title)
+  })
+
+  test('the end of the tree rests on whole rows: the last page opened or scrolled to never sits half under the stuck head', async ({ page }) => {
+    await openApp(page)
+    let last = ''
+    await wsEval(page, (s) => {
+      for (let i = 0; i < 40; i++) s.createPage({ title: `Mara note ${String(i).padStart(2, '0')}`, parentId: null })
+    })
+    last = await createPage(page, { title: 'Nordlicht last' })
+    /** rows cut by the stuck head's foot (or the area's top when no head sticks) */
+    const straddling = () =>
+      scroller(page).evaluate((box) => {
+        const b = box.getBoundingClientRect()
+        const stuck = [...box.querySelectorAll<HTMLElement>(':scope > .sb-section > .sb-sect')].filter((h) => Math.abs(h.getBoundingClientRect().top - b.top) < 1 && h.parentElement!.getBoundingClientRect().top < b.top - 0.5)
+        const line = stuck.length ? stuck[stuck.length - 1].getBoundingClientRect().bottom : b.top
+        return [...box.querySelectorAll<HTMLElement>('.sb-row')].filter((r) => { const q = r.getBoundingClientRect(); return q.height > 0 && q.top < line - 0.5 && q.bottom > line + 0.5 }).map((r) => r.textContent)
+      })
+    const first = await createPage(page, { title: 'Polaris first' })
+    for (const h of [900, 760]) {
+      await page.setViewportSize({ width: 1440, height: h })
+      await gotoPage(page, first)
+      await scroller(page).evaluate((el) => (el.scrollTop = 0))
+      await gotoPage(page, last)
+      await expect(sidebarRow(page, 'Nordlicht last')).toHaveAttribute('data-active', /.*/)
+      await page.waitForTimeout(300)
+      expect(await scroller(page).evaluate((el) => el.scrollHeight - el.clientHeight - el.scrollTop)).toBeLessThan(1)
+      expect(await straddling()).toEqual([])
+      await scroller(page).evaluate((el) => (el.scrollTop = 0))
+      await page.mouse.move(150, 600)
+      await page.mouse.wheel(0, 20000)
+      await page.waitForTimeout(800)
+      expect(await straddling()).toEqual([])
+    }
+  })
+})
+
+test.describe('the tree on a coarse pointer (a docked iPad)', () => {
+  test.use({ viewport: { width: 1024, height: 768 }, isMobile: true, hasTouch: true })
+
+  test('a long press that starts a drag moves no title: the chevron keeps its slot', async ({ page }) => {
+    await openApp(page)
+    await createPage(page, { title: 'Tessera touch' })
+    if ((await page.locator('aside.sb').getAttribute('data-state')) !== 'docked') await page.getByRole('button', { name: 'Open sidebar' }).tap()
+    const titles = () => page.evaluate(() => [...document.querySelectorAll('.sb section[aria-label="Pages"] .sb-row .sb-row__title')].slice(0, 6).map((e) => Math.round(e.getBoundingClientRect().left)))
+    const row = sidebarRow(page, 'Tessera touch')
+    await row.scrollIntoViewIfNeeded()
+    const before = await titles()
+    const r = (await row.boundingBox())!
+    const cdp = await page.context().newCDPSession(page)
+    const x0 = r.x + 80
+    const y0 = r.y + r.height / 2
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: x0, y: y0 }] })
+    await page.waitForTimeout(400)
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: x0, y: y0 - 4 }] })
+    await expect.poll(() => page.evaluate(() => document.body.dataset.dragging ?? null)).toBe('tree')
+    expect(await titles()).toEqual(before)
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchCancel', touchPoints: [] })
+  })
+
+  test('RECENT | FREQUENT (a 36 px head here): the rows snap whole under it', async ({ page }) => {
+    await openApp(page)
+    await wsEval(page, (s) => Object.values(s.pages).forEach((p: { id: string; favorite: boolean }) => p.favorite && s.toggleFavorite(p.id)))
+    const ids: string[] = []
+    for (const t of ['Mara Lind', 'Launch plan', 'Tessera brief', 'Nordlicht notes', 'Polaris']) ids.push(await createPage(page, { title: t }))
+    for (const id of ids) await gotoPage(page, id)
+    await reloadApp(page)
+    if ((await page.locator('aside.sb').getAttribute('data-state')) !== 'docked') await page.getByRole('button', { name: 'Open sidebar' }).tap()
+    const head = page.getByTestId('visited-section').locator('.sb-visited__head')
+    await expect(page.getByTestId('visited-section').getByRole('tabpanel')).toBeVisible()
+    expect(Math.round((await head.boundingBox())!.height)).toBe(36)
+    for (const top of [40, 72, 104]) {
+      await scroller(page).evaluate((el, t) => (el.scrollTop = t), top)
+      await page.waitForTimeout(700)
+      const cut = await scroller(page).evaluate((box) => {
+        const h = box.querySelector<HTMLElement>('.sb-visited__head')!.getBoundingClientRect()
+        if (h.top - box.getBoundingClientRect().top > 1) return []
+        return [...box.querySelectorAll<HTMLElement>('.sb-row')].filter((r) => { const q = r.getBoundingClientRect(); return q.top < h.bottom - 0.5 && q.bottom > h.bottom + 0.5 }).map((r) => r.textContent)
+      })
+      expect(cut, `scrollTop ${top}`).toEqual([])
+    }
   })
 })
 
@@ -277,6 +420,27 @@ test.describe('the entry peek and the journal order', () => {
 
 test.describe('RECENT | FREQUENT with favourites', () => {
   const visited = (page: Page) => page.getByTestId('visited-section')
+
+  test('its head stays one line at 220 px with the biggest text (the leader and count give way, the keys sit closer)', async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem('one.textScale', '4'))
+    await openApp(page)
+    for (const t of ['Mara Lind', 'Launch plan']) await gotoPage(page, await createPage(page, { title: t }))
+    await page.evaluate(() => localStorage.setItem('one.shell.visited', JSON.stringify({ open: true, tab: 'recent' })))
+    await reloadApp(page)
+    await expect(visited(page).getByRole('tabpanel')).toBeVisible()
+    for (const lang of ['en', 'de']) {
+      await wsEval(page, (s, a) => s.updateSettings({ sidebarWidth: 220, language: a }), lang)
+      const head = visited(page).locator('.sb-visited__head')
+      await expect(head).toHaveAttribute('data-fit', /tight/)
+      await expect(head).not.toHaveAttribute('data-fit', /wrap/)
+      expect(Math.round((await head.boundingBox())!.height)).toBe(28)
+      // the fold key on the same line as the switch
+      const sw = (await head.locator('.sb-switch').boundingBox())!
+      const fold = (await head.locator('.sb-sect__fold').boundingBox())!
+      expect(Math.abs(fold.y + fold.height / 2 - (sw.y + sw.height / 2))).toBeLessThan(2)
+    }
+    await wsEval(page, (s) => s.updateSettings({ sidebarWidth: 264, language: 'en' }))
+  })
 
   test('starts folded while favourites exist; unfolded once, it stays so on this device', async ({ page }) => {
     // the demo stars two pages

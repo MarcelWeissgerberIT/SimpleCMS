@@ -14,10 +14,11 @@ The sidebar has a fixed part on top and the page tree below it. A thin line sepa
 
 ## Tools
 One row of keys under the places: **Agenda** · **Graph** · **Agents** · **Scripts** · **Patchbay** · **Building blocks**, then after a thin line the two that open a dialog: **Templates** · **Import** (not for viewers of a team workspace).
-- The line above the keys says what waits most: open fuses (**PATCHBAY · 1 OPEN FUSE**), then the agents' proposals, then a **NEW**. With nothing waiting it reads **TOOLS**. Point at a key — or move the keyboard focus onto it — and the line names that key.
-- A key keeps its LED and count in its corner: the Patchbay's fuses (a grey **?** when parts are unknown here), the agents' proposals (while [Preflight](help:preflight) is off — Preflight counts them while it is on).
+- The line above the keys says what waits most, in short: open fuses (**PATCHBAY · 1 OPEN**), then the agents' proposals (**AGENTS · 3 TO REVIEW**), then a **NEW**. With nothing waiting it reads **TOOLS**. Point at a key — or move the keyboard focus onto it — and the line names that key. A key's full name (a screen reader's, the tooltip's) says it in a whole sentence. In a narrow sidebar with large text the line takes two lines, so it is never cut.
+- A key carries its LED and count on its top edge: the Patchbay's fuses (a grey **?** when parts are unknown here), the agents' proposals (while [Preflight](help:preflight) is off — Preflight counts them while it is on). A dot in the bottom corner: the Patchbay is new to you.
+- The keys share one row at every sidebar width.
 - **NAMES** turns the keys back into labelled rows. This device remembers it.
-- On a touch screen (an iPad, a phone) the keys show their names, two rows of four.
+- On a touch screen (an iPad, a phone) the keys show short names (**Blocks** for Building blocks), two rows of four; with large text a long name takes two lines.
 - On a phone **TOOLS** starts as one folded row: an LED with the number of what waits (open fuses and the agents' proposals; **NEW** while only the Patchbay's is new). One tap unfolds the keys; this device remembers it.
 - Keyboard: the row is one <kbd>Tab</kbd> stop — the open tool's key, else the first. <kbd>←</kbd> <kbd>→</kbd> <kbd>Home</kbd> <kbd>End</kbd> move along, <kbd>Enter</kbd> opens.
 
@@ -28,16 +29,16 @@ Every tool is also in ⌘K.
 
 Make a favourite:
 - Point at a page in the tree: a **☆** appears on the right. Click it; the star fills.
-- Or drag the page into **FAVORITES** — onto its head, its empty box, or between two favourites (a line shows where). The page stays where it is in the tree; a database entry stays in its database.
+- Or drag the page into **FAVORITES** — onto its head (it goes at the end), its empty box, or between two favourites (a line shows where). The page stays where it is in the tree; a database entry stays in its database.
 - Or the **☆** at the top right of every page, **Add to favorites** in a row's **•••** menu or in the page's **•••** menu, or ⌘K **Add page to favorites**.
 - On a touch screen: the row's **•••** menu → **Add to favorites**.
 
 Sort and remove:
-- Drag a favourite up or down. Or focus it and press <kbd>Alt+↑</kbd> / <kbd>Alt+↓</kbd> — the focus stays on it and a screen reader hears its new place. Or **•••** → **Move up** / **Move down**.
+- Drag a favourite up or down — over the head it goes first, below the last row last. Or focus it and press <kbd>Alt+↑</kbd> / <kbd>Alt+↓</kbd> — the focus stays on it and a screen reader hears its new place. Or **•••** → **Move up** / **Move down**.
 - The order belongs to this device and this workspace. A favourite added elsewhere (another device, a backup) joins at the end, by title.
-- Click the filled **☆** again to remove a favourite. A message says so; its **Undo** brings it back to its old place.
-- A favourite expands like any page in the tree — a database to its entries. Its row shows where it lives (its parent page) after the title.
-- **FAVORITES** shows up to five rows (four in a low window, three on a phone); more scroll inside the list. The arrow in its head folds it away; this device remembers.
+- Click the filled **☆** again to remove a favourite. A message says so; its **Undo** brings it back to its old place. Removed from its own row in **FAVORITES**, the keyboard focus moves on to the next favourite.
+- A favourite expands like any page in the tree — a database to its entries. Its row shows where it lives (its parent page) after the title, when there is room for it.
+- **FAVORITES** shows up to five rows (four in a low window, three on a phone); more scroll inside the list. A small key under the list counts the hidden rows (**+2 ▾** — below; **+2 ▴** — above) and scrolls to them; a line under the head says rows lie above. The arrow in its head folds it away; this device remembers.
 
 A favourite inside a page that is in the trash is not shown. Restore that page and the favourite is back in its place.
 
