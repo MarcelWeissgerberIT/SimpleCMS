@@ -772,6 +772,9 @@ doubling up to 15 s / 30 s while nothing new turns up; one after each Bash resul
 Windows answers every reading of a run from ONE PowerShell (`-Command -`, a fixed script per line on its stdin,
 answered between two marks); one that does not answer within 20 s or ends is replaced by one-shot readings. A process
 counts as the one seen only with the same id, name and start time (Windows creation time, Linux `/proc` start ticks).
+The name is the program's file: Windows' image name, macOS' `comm` (its path), Linux the file `/proc/<pid>/exe` names
+(`exeName`) — never `/proc`'s `comm`, the main thread's name a program changes (Node 24 calls it "MainThread" from its
+start, `process.title` sets its own), which would name a leftover node server "MainThread" in the log.
 **Never ended** — named in one line instead (code `claudeSpared`): a server the person's own tools share (Gradle /
 Kotlin daemon, MSBuild's reused nodes, VBCSCompiler, sccache, watchman, the adb server, an ssh master, gpg-agent —
 `sharedServer`, by program name and command line) and what runs below it; a marked process whose group's own leader

@@ -22,7 +22,8 @@
  * watchman, an ssh master, MSBuild's reused nodes …, `sharedServer`) and what runs below it; a marked process whose
  * group's own leader still runs and is none of Claude Code's shells (a program that made its own session: a daemon).
  * A process is the one seen before only with the same id, name and start time (Windows: its creation time; Linux: its
- * start in /proc; macOS: the name — its ids are not reused at once).
+ * start in /proc; macOS: the name — its ids are not reused at once). The name is its program's file (Linux: the one
+ * /proc/<pid>/exe names, `exeName` — never comm, the main thread's name a program changes: Node 24's "MainThread").
  * Never the worker itself or its parent, never pid 0 / 1. macOS / Linux: SIGTERM, SIGKILL after 2 s for what is left;
  * Windows: `taskkill /F` per process found (exec.ts) — never /T: the list is the tree that was checked. The process list:
  * /proc (Linux), `ps` (macOS), PowerShell's Win32_Process (Windows: ONE PowerShell per run answers each reading — a line
@@ -34,7 +35,7 @@
  */
 import type { ChildProcess } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { readFileSync, readdirSync } from 'node:fs'
+import { readFileSync, readdirSync, readlinkSync } from 'node:fs'
 import { createInterface } from 'node:readline'
 import { execFileSafe, spawnSafe, systemTool, taskkillTree } from './exec.ts'
 
@@ -93,6 +94,23 @@ export function parseStat(text: string): Proc | null {
   return { pid, ppid, pgid, name: text.slice(open + 1, close), ...(born !== null ? { born } : {}) }
 }
 
+/**
+ * Linux: a process's program name — the last part of the file /proc/<pid>/exe names (" (deleted)" off: the file was
+ * replaced since it started), else `comm` (another user's process, a kernel thread, one gone meanwhile). Never `comm`
+ * while that file can be read: comm is the main THREAD's name, which a program may change — Node 24 names its main
+ * thread "MainThread" right at its start, `process.title` / setproctitle set their own — so a leftover would be named
+ * "MainThread" and a process seen before its start-up rename would not be the same one after it. Only the file's name,
+ * never its folder (shortName cuts it again for the log).
+ */
+export function exeName(pid: number | string, comm: string, readlink: (path: string) => string = (path) => readlinkSync(path)): string {
+  try {
+    const name = (readlink(`/proc/${pid}/exe`).split('/').pop() ?? '').replace(/ \(deleted\)$/, '')
+    return name || comm
+  } catch {
+    return comm
+  }
+}
+
 /** The same process as one seen before: its id, its name and (where the list has it) its start time. */
 export const sameProc = (a: Proc, b: Proc | undefined): boolean => !!b && a.pid === b.pid && a.name === b.name && (a.born === undefined || b.born === undefined || a.born === b.born)
 
@@ -142,7 +160,7 @@ export async function listProcs(platform: NodeJS.Platform = process.platform): P
         if (!/^\d+$/.test(d)) continue
         try {
           const p = parseStat(readFileSync(`/proc/${d}/stat`, 'utf8'))
-          if (p) out.push(p)
+          if (p) out.push({ ...p, name: exeName(d, p.name) })
         } catch {
           /* gone meanwhile */
         }

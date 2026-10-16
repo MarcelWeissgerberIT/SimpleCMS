@@ -4,15 +4,15 @@
  */
 import assert from 'node:assert/strict'
 import { execFileSync, spawn } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { after, describe, test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import type { LogLine, TaskProgress } from '../../src/app/features/coding/protocol.ts'
 import { AUTH_HINT, PERMISSION_TOOL, claudeArgs, cliMode, detectClaude, runClaude, toolLine, versionAtLeast, type ClaudeCaps } from '../src/worker/claude.ts'
 import { HANDLED, alwaysRule, isOutside, kindOf, ruleDecision, ruleMatches, simpleCommand, subjectOf } from '../src/worker/permissions.ts'
-import { LineSession, RunTree, below, endProcs, leftoversOf, parsePs, parseStat, parseWin, sharedServer, shortName, type Proc, type Seen } from '../src/worker/proctree.ts'
+import { LineSession, RunTree, below, endProcs, exeName, leftoversOf, listProcs, parsePs, parseStat, parseWin, sameProc, sharedServer, shortName, type Proc, type Seen } from '../src/worker/proctree.ts'
 import { briefInput, permissionAnswer, tooLong } from '../src/worker/taskmcp.ts'
 import { addAllowedTool, parseJsonc } from '../src/worker/config.ts'
 import { buildPrompt, claudeEnv, commitMessage } from '../src/worker/run.ts'
@@ -526,6 +526,43 @@ describe('the process tree of a run (pure)', () => {
     assert.deepEqual(parseWin('500 4 1700000000000 node.exe\r\n'), [{ pid: 500, ppid: 4, pgid: null, born: 1700000000000, name: 'node.exe' }])
     assert.equal(shortName('C:\\Program Files\\nodejs\\node.exe'), 'node')
     assert.equal(shortName('/usr/local/bin/esbuild'), 'esbuild')
+  })
+
+  test('Linux names a program by its file (/proc/<pid>/exe, " (deleted)" off) — the thread name only when the file cannot be read (CI: ubuntu-latest · Node 24 named a leftover "MainThread")', () => {
+    assert.equal(exeName(4242, 'MainThread', () => '/usr/local/bin/node'), 'node')
+    assert.equal(exeName('4242', 'MainThread', () => '/opt/node v24/bin/node (deleted)'), 'node')
+    assert.equal(exeName(4242, 'npm run dev', () => '/home/max/.nvm/versions/node/v24.0.0/bin/node'), 'node', 'a title the program set (process.title) is no name')
+    assert.equal(exeName(2, 'kworker/0:1', () => { throw Object.assign(new Error('no such file'), { code: 'ENOENT' }) }), 'kworker/0:1')
+    assert.equal(exeName(4242, 'sshd', () => { throw Object.assign(new Error('not permitted'), { code: 'EACCES' }) }), 'sshd', "another user's process")
+    assert.equal(exeName(4242, 'x', () => ''), 'x')
+    // the log gets the file's name only — never a folder
+    assert.equal(shortName(exeName(4242, 'MainThread', () => '/home/max/secret project/bin/dev-server')), 'dev-server')
+  })
+
+  test('Linux, a real program that renames its main thread after it was first seen (Node 24 does at its start; process.title here): the same name and the same process in both readings', { skip: process.platform !== 'linux' && 'Linux only (/proc)' }, async () => {
+    const child = spawn(process.execPath, ['-e', "process.stdin.once('data', () => { process.title = 'MainThread'; process.stdout.write('renamed\\n') }); process.stdout.write('ready\\n')"], { stdio: ['pipe', 'pipe', 'ignore'] })
+    try {
+      let out = ''
+      child.stdout!.setEncoding('utf8').on('data', (d: string) => (out += d))
+      const until = async (word: string) => {
+        const end = Date.now() + 10_000
+        while (!out.includes(word) && Date.now() < end) await new Promise((r) => setTimeout(r, 20))
+        assert.ok(out.includes(word), `the child never said ${word}`)
+      }
+      await until('ready')
+      const first = (await listProcs('linux'))!.find((p) => p.pid === child.pid)!
+      child.stdin!.write('go\n')
+      await until('renamed')
+      assert.equal(readFileSync(`/proc/${child.pid}/comm`, 'utf8').trim(), 'MainThread', 'its thread name changed')
+      const second = (await listProcs('linux'))!.find((p) => p.pid === child.pid)!
+      const file = basename(realpathSync(process.execPath))
+      assert.equal(first.name, file)
+      assert.equal(second.name, file)
+      assert.ok(sameProc(first, second), 'still the process seen before')
+      assert.equal(shortName(second.name), 'node')
+    } finally {
+      child.kill('SIGKILL')
+    }
   })
 
   test('leftovers: below Claude Code (at its result, and now), its own group, its shells\' groups, its mark — never the worker, its parent, pid 1; Windows: never a process older than the run', () => {
