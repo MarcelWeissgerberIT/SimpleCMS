@@ -77,6 +77,22 @@ export const LOG_CODES = new Set([
   'pushRejected',
   'forcePushed',
   'remoteMerged',
+  // worker 1.11.0: the run ends with Claude Code (what it left running), the permission prompt in One (asked · allowed
+  // · refused · "always" stored · a refusal Claude Code made itself · the count), no prompt / no scratch folder in an
+  // older Claude Code, the step limit and Continue
+  'claudeLeftovers',
+  'claudeLingered',
+  'permissionAsked',
+  'permissionAllowed',
+  'permissionDenied',
+  'permissionAlways',
+  'permissionAlwaysFailed',
+  'permissionNeeded',
+  'permissionSummary',
+  'permissionOff',
+  'addDirOff',
+  'stepLimit',
+  'continueRun',
 ])
 
 const CODE = /^[a-zA-Z][a-zA-Z.]{0,40}$/

@@ -17,7 +17,7 @@ import { Led } from '../../ui/controls'
 import { useLang, useT } from '../../i18n'
 import { workspaceInfo } from '../mcp/identity'
 import { WORKER_FILE, downloadWorker, startLines } from './download'
-import { workerLacksOnlyExtras, workerOutdated, workerUnsafe } from './protocol'
+import { lackingExtras, workerLacksOnlyExtras, workerOutdated, workerUnsafe } from './protocol'
 import { openWorkerSetup, viaFor, workerOldHere } from './service'
 import { openCodingSettings } from './open'
 import { CloudSetupCard } from './CloudSetupCard'
@@ -153,7 +153,7 @@ export function OutdatedWorker({ only, download, busy: cardBusy }: { only?: 'sec
           <span className="label cv-plate__sec">{t('features.coding.worker.unsafeLabel')}</span> {t(unsafe ? 'features.coding.worker.unsafe' : 'features.coding.worker.windows', { version: String(version).trim() })}
         </span>
       ) : (
-        <span>{t(workerLacksOnlyExtras(can) ? 'features.coding.worker.outdatedExtras' : 'features.coding.worker.outdated')}</span>
+        <span>{workerLacksOnlyExtras(can) ? t('features.coding.worker.outdatedExtras', { adds: lackingExtras(can).map((x) => t(`features.coding.worker.adds.${x}`)).join('; ') }) : t('features.coding.worker.outdated')}</span>
       )}
       <button type="button" className="btn btn--sm" onClick={() => void press()} disabled={pending} data-testid="coding-download-again">
         <Download size={13} strokeWidth={1.75} aria-hidden /> {viaCloud ? t('features.coding.worker.toDownload') : pending ? t('features.coding.card.downloading') : t('features.coding.card.downloadAgain')}

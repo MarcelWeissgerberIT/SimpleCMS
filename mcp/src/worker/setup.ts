@@ -107,6 +107,8 @@ export interface PageRepo extends FoundRepo {
   ownSettings: boolean
   /** why it counts as code from elsewhere — its own settings off by default (config.ts sourceOf); null: the person's own */
   source: SourceWhy | null
+  /** worker 1.11.0: what Claude Code may do here without asking (worker.json claude.allowedTools) — the page lists them, each with a remove key */
+  allowed: string[]
   /** the synced folder it lies in (iCloud Drive, ~/Library/CloudStorage, OneDrive): the page says what that costs */
   synced: Synced | null
   /** with `synced`: where its task worktrees are (or will be, once ticked) — the page names only where they really are */
@@ -271,13 +273,14 @@ export class SetupServer {
         analyzeLine: joinArgs(r.analyzeCommand),
         ownSettings: r.claude.projectSettingsSet ? r.claude.projectSettings : source === null,
         source,
+        allowed: [...r.claude.allowedTools],
         ...this.syncedOf(r.path, r.worktreeDir),
       })
     }
     const rest = [...this.found.values()].filter((f) => !seen.has(pathId(f.path))).sort((a, b) => (b.lastCommit ?? 0) - (a.lastCommit ?? 0))
     for (const f of rest) {
       const source = this.sourceNow(f.path)
-      out.push({ ...f, ticked: false, configured: false, push: !!f.remote, pr: 'gh', forge: 'auto', forgeAuto: forgeOfHost(f.host), maxUsdPerTask: null, testLine: joinArgs(f.test), mcp: '', analyzeLine: joinArgs(f.analyze ?? null), ownSettings: source === null, source, ...this.syncedOf(f.path, null) })
+      out.push({ ...f, ticked: false, configured: false, push: !!f.remote, pr: 'gh', forge: 'auto', forgeAuto: forgeOfHost(f.host), maxUsdPerTask: null, testLine: joinArgs(f.test), mcp: '', analyzeLine: joinArgs(f.analyze ?? null), ownSettings: source === null, source, allowed: [], ...this.syncedOf(f.path, null) })
     }
     return out
   }
@@ -500,7 +503,10 @@ export class SetupServer {
       const projectSettings = typeof item.projectSettings === 'boolean' ? item.projectSettings : undefined
       // the host type (absent or unknown: leave worker.json as it is)
       const forge = item.forge === 'auto' || item.forge === 'github' || item.forge === 'gitlab' ? item.forge : undefined
-      choices.push({ path: repo.path, name, baseBranch, remote: repo.remote, testCommand: test?.length ? test : null, ...(analyze !== undefined ? { analyzeCommand: analyze?.length ? analyze : null } : {}), push: item.push === true, pr: item.pr === 'none' ? 'none' : 'gh', maxUsdPerTask: limit, mcpServers, projectSettings, ...(forge !== undefined ? { forge } : {}) })
+      // what Claude Code may do without asking: the page only REMOVES — a rule that is not in worker.json already is dropped
+      // (absent: leave worker.json as it is)
+      const allowedTools = Array.isArray(item.allowed) ? repo.allowed.filter((rule) => (item.allowed as unknown[]).includes(rule)) : undefined
+      choices.push({ path: repo.path, name, baseBranch, remote: repo.remote, testCommand: test?.length ? test : null, ...(analyze !== undefined ? { analyzeCommand: analyze?.length ? analyze : null } : {}), push: item.push === true, pr: item.pr === 'none' ? 'none' : 'gh', maxUsdPerTask: limit, mcpServers, projectSettings, ...(forge !== undefined ? { forge } : {}), ...(allowedTools && allowedTools.length !== repo.allowed.length ? { allowedTools } : {}) })
     }
     let workerMcp: string[] | undefined
     if (isObj(body) && typeof body.mcpServers === 'string') {

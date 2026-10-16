@@ -545,10 +545,25 @@ function cloneDirOf(raw: unknown, configDir: string, problems: string[]): string
   return resolve(configDir, expandHome(raw.trim()))
 }
 
+/**
+ * A task's scratch folder: <config folder>/scratch/<task id> — worker 1.11.0 gives it to every Claude Code stage
+ * (--add-dir: temporary files without asking; never a path One learns), and a task without a repository runs in it.
+ * Removed with the task's branch (Clean up / Discard).
+ */
+export function scratchPath(config: Pick<WorkerConfig, 'file'>, taskId: string): string {
+  return join(dirname(config.file), 'scratch', taskId.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64) || 'task')
+}
+
+/** The task's scratch folder, made (mode 0700) when it is not there. */
+export function scratchDir(config: Pick<WorkerConfig, 'file'>, taskId: string): string {
+  const dir = scratchPath(config, taskId)
+  mkdirSync(dir, { recursive: true, mode: 0o700 })
+  return dir
+}
+
 /** A task without a repository (document stages only): the worker's own scratch folder per task, no git. */
 export function scratchRepo(config: WorkerConfig, taskId: string): RepoConfig {
-  const dir = join(dirname(config.file), 'scratch', taskId.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64) || 'task')
-  mkdirSync(dir, { recursive: true, mode: 0o700 })
+  const dir = scratchDir(config, taskId)
   return {
     name: '(no repository)',
     path: dir,
@@ -735,6 +750,11 @@ export interface RepoChoice {
   projectSettings?: boolean
   /** the host type (the setup page's "Host type"; 'auto' removes the key) — undefined: leave as it is */
   forge?: ForgeSetting
+  /**
+   * worker 1.11.0: the repo's claude.allowedTools as the setup page keeps them (it only removes — setup.ts takes no rule
+   * that is not there already) — undefined: leave as it is
+   */
+  allowedTools?: string[]
 }
 
 const HEADER = '// one-worker — written by its setup page'
@@ -795,6 +815,13 @@ export function saveRepos(file: string, choices: RepoChoice[], workspace: string
       if (Object.keys(claude).length) entry.claude = claude
       else delete entry.claude
     }
+    if (c.allowedTools) {
+      const claude: Record<string, unknown> = isObj(entry.claude) ? { ...entry.claude } : {}
+      if (c.allowedTools.length) claude.allowedTools = c.allowedTools
+      else delete claude.allowedTools
+      if (Object.keys(claude).length) entry.claude = claude
+      else delete entry.claude
+    }
     return entry
   })
   const next: Record<string, unknown> = { ...raw }
@@ -823,7 +850,16 @@ export function saveRepos(file: string, choices: RepoChoice[], workspace: string
   const check = sanitizeConfig(next, file, env)
   const dropped = check.problems.filter((p) => p.startsWith('repos['))
   if (dropped.length || check.config.repos.length !== choices.length) return dropped.length ? dropped : ['a repository could not be saved']
-  mkdirSync(configDir, { recursive: true, mode: 0o700 })
+  writeWorkerJson(file, text, next)
+  return []
+}
+
+/**
+ * worker.json written whole (mode 0600, the folder 0700, through a temp file): a hand-written file (with comments) is
+ * copied to worker.json.bak once before it is rewritten.
+ */
+function writeWorkerJson(file: string, text: string | null, next: Record<string, unknown>): void {
+  mkdirSync(dirname(file), { recursive: true, mode: 0o700 })
   if (text !== null && !text.startsWith(HEADER) && /\/\/|\/\*/.test(text.replace(/"(?:[^"\\]|\\.)*"/g, '""'))) {
     const bak = `${file}.bak`
     if (!existsSync(bak)) {
@@ -841,5 +877,43 @@ ${JSON.stringify(next, null, 2)}
   chmodSync(tmp, 0o600)
   // Windows: Defender or an editor may hold worker.json a moment
   renameRetry(tmp, file)
-  return []
+}
+
+/** At most this many rules per repo in claude.allowedTools (the reader keeps 100). */
+export const ALLOWED_MAX = 100
+
+/**
+ * "Always for this repo" (worker 1.11.0): the worker adds `rule` — the one it showed the person; One sent only the verb —
+ * to claude.allowedTools of the repo at `repoPath` in worker.json, keeping everything else the file says. Returns null
+ * when it is there now (written, or there already), else why not (the person's answer still allows it once).
+ */
+export function addAllowedTool(file: string, repoPath: string, rule: string, env: NodeJS.ProcessEnv = process.env): string | null {
+  if (!rule.trim() || rule.length > 300) return 'not a rule'
+  let text: string
+  let raw: unknown
+  try {
+    text = readFileSync(file, 'utf8')
+    raw = parseJsonc(text)
+  } catch (e) {
+    return `${file} could not be read: ${e instanceof Error ? e.message : String(e)}`
+  }
+  if (!isObj(raw) || !Array.isArray(raw.repos)) return 'worker.json lists no repositories'
+  const configDir = dirname(file)
+  const at = raw.repos.findIndex((r) => isObj(r) && typeof r.path === 'string' && r.path.trim() && samePath(resolve(configDir, expandHome(r.path.trim())), repoPath))
+  if (at < 0) return 'the repository is not in worker.json (any more)'
+  const entry = { ...(raw.repos[at] as Record<string, unknown>) }
+  const claude: Record<string, unknown> = isObj(entry.claude) ? { ...entry.claude } : {}
+  const list = strings(claude.allowedTools)
+  if (list.includes(rule)) return null
+  if (list.length >= ALLOWED_MAX) return `the repository has ${ALLOWED_MAX} allowed tools already — remove some on the setup page`
+  claude.allowedTools = [...list, rule]
+  entry.claude = claude
+  const repos = [...raw.repos]
+  repos[at] = entry
+  const next = { ...raw, repos }
+  // the same checks as loading: nothing a load would drop is written
+  const check = sanitizeConfig(next, file, env)
+  if (check.problems.some((p) => p.startsWith(`repos[${at}]`))) return 'worker.json would not load with it'
+  writeWorkerJson(file, text, next)
+  return null
 }

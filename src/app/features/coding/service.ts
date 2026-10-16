@@ -30,9 +30,13 @@ import {
   WORKER_CLOSE_REFUSED,
   WORKER_CLOSE_REPLACED,
   RELAY_CLOSE_FORBIDDEN,
+  cleanAsk,
+  type BusyTask,
   type GitResult,
   type GitVerb,
   type OpenSetupResult,
+  type PermissionAsk,
+  type PermissionVerb,
   type TabMessage,
   type WorkerMessage,
   type WorkspaceRef,
@@ -52,9 +56,48 @@ import type { SessionKey } from './relayBox'
 import { CloudError, useCloud } from '../../cloud'
 import { SYSTEM, withWriter, type Writer } from '../../store/writer'
 import { localNetworkStatus } from '../../lib/localNetwork'
+import { notifyAway } from './notify'
 
 const set = useCoding.setState
 const get = useCoding.getState
+
+/**
+ * No worker (any more): nothing runs here — the running counters and the permission requests of its tasks go with it
+ * (a worker that comes back names its running tasks and their open request again).
+ */
+const GONE = { worker: null, busy: [] as BusyTask[], can: null, progress: {}, asks: {} }
+
+/** Permission requests One already told the person about (a browser notification once per request). */
+const told = new Set<string>()
+
+/** A new permission request: the browser says it while One is in the background (notify.ts). */
+function tellAsk(taskId: string, ask: PermissionAsk) {
+  if (told.has(ask.id)) return
+  told.add(ask.id)
+  if (told.size > 200) told.delete(told.values().next().value as string)
+  const title = useWorkspace.getState().pages[taskId]?.title.trim() || t('common.untitled')
+  notifyAway(taskId, t('features.coding.notify.permission', { title, tool: ask.tool }))
+}
+
+/**
+ * The worker's running tasks (welcome / status, worker 1.11.0): the progress of a task that no longer runs goes (the
+ * JETZT line has nothing to show then), and each running task's open permission request is taken from the list — the
+ * worker names it there whenever it changes.
+ */
+function setBusy(list: BusyTask[] | undefined, extra: Partial<ReturnType<typeof get>> = {}) {
+  const busy = Array.isArray(list) ? list : []
+  const running = new Set(busy.map((b) => String(b.taskId)))
+  const st = get()
+  const stale = Object.keys(st.progress).filter((id) => !running.has(id))
+  const progress = stale.length ? Object.fromEntries(Object.entries(st.progress).filter(([id]) => running.has(id))) : st.progress
+  const asks: Record<string, PermissionAsk> = {}
+  for (const b of busy) {
+    const a = cleanAsk(b.ask)
+    if (a && ownTask(String(b.taskId))) asks[String(b.taskId)] = a
+  }
+  set({ busy, progress, asks, ...extra })
+  for (const [id, a] of Object.entries(asks)) tellAsk(id, a)
+}
 
 /* ------------------------------------------------------------------ settings */
 
@@ -477,13 +520,13 @@ function attach(open: (h: LinkHandlers) => LinkHandle) {
       if (!mine()) return
       set({ relay: view })
       if (view.online) forgetPrevious(currentWorkspace()?.id ?? '', view.token)
-      if (!view.online && get().conn !== 'refused') set({ conn: 'waiting', worker: null, busy: [], can: null })
+      if (!view.online && get().conn !== 'refused') set({ conn: 'waiting', ...GONE })
     },
     lost: () => {
       if (!mine()) return
       rejectPending()
       helloAs = null
-      set({ worker: null, busy: [], can: null, conn: 'waiting' })
+      set({ ...GONE, conn: 'waiting' })
     },
     untrusted: (why) => {
       if (!mine()) return
@@ -493,10 +536,10 @@ function attach(open: (h: LinkHandlers) => LinkHandle) {
         // device's place) and ask the server whether one of them still works — this device's new download not started
         // yet (wait for it) — or whether this device's worker was just replaced by the other device's newer file
         recheck = true
-        set({ conn: 'connecting', refused: null, pendingHere: false, worker: null, busy: [], can: null })
+        set({ conn: 'connecting', refused: null, pendingHere: false, ...GONE })
       } else {
         refused = true
-        set({ conn: 'refused', refused: why, worker: null, busy: [], can: null })
+        set({ conn: 'refused', refused: why, ...GONE })
       }
       handle!.close(1000, why)
     },
@@ -509,7 +552,7 @@ function attach(open: (h: LinkHandlers) => LinkHandle) {
       link = null
       helloAs = null
       rejectPending()
-      set({ worker: null, busy: [], can: null })
+      set({ ...GONE })
       if (!get().enabled) return set({ conn: 'off' })
       if (recheck) return recheckCloud()
       if (via === 'cloud' && code === RELAY_CLOSE_FORBIDDEN) {
@@ -551,7 +594,7 @@ function disconnect(off = true) {
   helloAs = null
   rejectPending()
   l?.close(1000, off ? 'switched off' : 'reconnecting')
-  set({ conn: off ? 'off' : 'connecting', worker: null, busy: [], can: null, refused: null, refusedPaired: false, pendingHere: false, blocked: null, lna: null })
+  set({ conn: off ? 'off' : 'connecting', ...GONE, refused: null, refusedPaired: false, pendingHere: false, blocked: null, lna: null })
 }
 
 /* ------------------------------------------------------------------ messages */
@@ -570,7 +613,7 @@ async function receive(msg: WorkerMessage) {
       failingSince = 0
       wasCurrent = true
       const { type: _type, ...info } = msg
-      set({ conn: 'connected', refused: null, refusedPaired: false, pendingHere: false, worker: info, busy: info.busy ?? [], spentToday: info.spentToday ?? 0 })
+      setBusy(info.busy, { conn: 'connected', refused: null, refusedPaired: false, pendingHere: false, worker: info, spentToday: info.spentToday ?? 0 })
       // the worker's repos as Repo options: upkeep, nobody's change (flight recorder)
       withWriter(SYSTEM('maintenance'), () => {
         for (const dbId of pipelineDbIds()) addRepoOptions(dbId, (info.repos ?? []).map((r) => r.name))
@@ -580,7 +623,7 @@ async function receive(msg: WorkerMessage) {
       return
     }
     case 'status':
-      set({ busy: msg.busy ?? [], spentToday: msg.spentToday ?? 0 })
+      setBusy(msg.busy, { spentToday: msg.spentToday ?? 0 })
       return
     case 'res': {
       const p = pending.get(msg.id)
@@ -636,6 +679,19 @@ function onEvent(msg: Extract<WorkerMessage, { type: 'event' }>) {
     case 'question':
       void patchTask(taskId, { question: String(msg.text).slice(0, 4000) })
       return
+    case 'permission': {
+      // worker 1.11.0: the request the stage waits for now (null: none any more)
+      const ask = cleanAsk(msg.ask)
+      set((st) => {
+        if (!ask && !st.asks[taskId]) return st
+        const asks = { ...st.asks }
+        if (ask) asks[taskId] = ask
+        else delete asks[taskId]
+        return { asks }
+      })
+      if (ask) tellAsk(taskId, ask)
+      return
+    }
     case 'intake': {
       const i = msg.intake
       if (!i || typeof i !== 'object' || !['running', 'done', 'failed'].includes(i.state)) return
@@ -799,6 +855,28 @@ export async function cloneForTask(taskId: string, url: string): Promise<void> {
 /** Stop the task's running stage (the worker ends Claude Code's whole process tree). */
 export async function stopTask(taskId: string): Promise<void> {
   await request({ op: 'stop', taskId } as never, 15_000)
+}
+
+/**
+ * The person's answer to the permission request a running stage waits for (worker 1.11.0): only the request's id and a
+ * fixed verb go to the worker — "always" stores the rule the worker showed (in its own worker.json). 'gone': it was
+ * answered elsewhere, timed out or the stage ended meanwhile.
+ */
+export async function answerPermission(taskId: string, askId: string, verb: PermissionVerb): Promise<'ok' | 'gone'> {
+  const res = (await request({ op: 'permission', taskId, ask: askId, verb } as never, 20_000)) as { ok?: boolean } | null
+  // answered: off the card at once (the worker's status follows)
+  set((st) => {
+    if (st.asks[taskId]?.id !== askId) return st
+    const asks = { ...st.asks }
+    delete asks[taskId]
+    return { asks }
+  })
+  return res?.ok ? 'ok' : 'gone'
+}
+
+/** The permission request a running task waits for on this device (null: none). */
+export function askOf(taskId: string): PermissionAsk | null {
+  return get().asks[taskId] ?? null
 }
 
 /** A git verb the person asked for in the task panel: its results are theirs (flight recorder). */

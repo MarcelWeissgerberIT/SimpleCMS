@@ -7,6 +7,13 @@
  *
  * The person's git actions in One arrive as fixed verbs (GIT_VERBS) for a repo of THIS config — there is
  * no message that carries a command, a path or a git argument.
+ *
+ * Permissions (worker 1.11.0): Claude Code asks for a permission it does not have through the task tools
+ * (one_task_permission). The repo's own lists decide first (worker.json allowedTools / disallowedTools); otherwise the
+ * worker holds the call and One asks the person (a PermissionAsk in the task's events and its busy entry) — until they
+ * answer with a fixed verb (once · always · deny) and the request's id, PERMISSION_WAIT_MS pass (refused) or the stage
+ * stops. "Always" stores the rule the worker showed — never one One sends — in worker.json for that repo (config.ts
+ * addAllowedTool); a broad or unsafe one is never offered (permissions.ts alwaysRule).
  */
 import { randomBytes } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
@@ -14,6 +21,9 @@ import {
   GIT_VERBS,
   HEARTBEAT_MS,
   PERMISSION_MODES,
+  PERMISSION_VERBS,
+  PERMISSION_WAIT_MS,
+  PERMISSION_WHAT_MAX,
   STAGE_KINDS,
   GIT_ACTIONS,
   WORKER_CAN,
@@ -25,6 +35,9 @@ import {
   type LogLine,
   type NextResult,
   type OpenSetupResult,
+  type PermissionAsk,
+  type PermissionCount,
+  type PermissionVerb,
   type ShipRecord,
   type StageOutcome,
   type TabMessage,
@@ -35,11 +48,12 @@ import {
 import type { RepoConfig, WorkerConfig } from './config.ts'
 import { WorkerState } from './state.ts'
 import { claudeInstallHint, claudeMissingError, detectClaude, findClaude, nativeNotOnPath, type ClaudeBin, type ClaudeCaps } from './claude.ts'
-import { scratchRepo } from './config.ts'
+import { addAllowedTool, scratchDir, scratchPath, scratchRepo } from './config.ts'
+import { alwaysRule, isOutside, kindOf, ruleDecision, subjectOf, type PermRequest } from './permissions.ts'
 import { Intake } from './intake.ts'
 import { checkRepo, cleanup, commentPr, commitAll, discard, headOf, info, isDirty, localBranches, mergePr, openPr, ownLocks, prune, push, sweepLeftovers, updateFromBase, webOf, worktreeOf, GitError } from './git.ts'
 import { FOLDER_BUSY, forgetGitEnv } from './gitenv.ts'
-import { pathId } from './paths.ts'
+import { pathId, rmRetry } from './paths.ts'
 import { WorkerLink } from './link.ts'
 import type { CloudFatal } from './cloud.ts'
 import { cloudOf } from './config.ts'
@@ -91,7 +105,35 @@ interface Run {
   question: string | null
   since: number
   scrub: Scrubber
+  /** worker 1.11.0: the task's scratch folder */
+  scratch: string
+  /** the folder Claude Code runs in (the worktree, once known) */
+  cwd: string | null
+  /** permission requests that wait for the person (the first one is shown) */
+  asks: PendingAsk[]
+  counts: PermissionCount
 }
+
+/** A permission request the worker holds: what One sees, and the answer for Claude Code. */
+interface PendingAsk {
+  ask: PermissionAsk
+  done: (allow: boolean, message?: string) => void
+  timer: ReturnType<typeof setTimeout>
+}
+
+/** What Claude Code is told when a request is refused — always "Not allowed: …" (claude.ts leaves those lines to the worker's own). */
+const DENY = {
+  person: 'Not allowed: the person declined this in One. Do not try the same action another way — go on without it, or explain in your summary what you would need.',
+  rule: "Not allowed: this repository's disallowedTools (the worker's worker.json) refuse it.",
+  timeout: (min: number) => `Not allowed: nobody answered in One within ${min} minutes. Go on without it, or end your turn with a summary of what you need.`,
+  stopped: 'Not allowed: the stage was stopped.',
+  many: 'Not allowed: too many permission requests are waiting already — wait for the answers.',
+} as const
+
+/** How long a permission request waits for the person (ONE_WORKER_PERMISSION_MS: tests). */
+const permissionWaitMs = () => Number(process.env.ONE_WORKER_PERMISSION_MS) || PERMISSION_WAIT_MS
+/** At most this many requests of one run wait at once. */
+const ASKS_MAX = 20
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 /** What of an import's progress line One gets (cut after the scrubber). */
@@ -155,8 +197,19 @@ export function sanitizeTask(raw: unknown): TaskPayload | null {
     summary: typeof raw.summary === 'string' && raw.summary.trim() ? raw.summary.slice(0, 6000) : null,
     // the newest review document — what a git 'comment' stage posts (One keeps up to 60,000 characters of it)
     review: typeof raw.review === 'string' && raw.review.trim() ? raw.review.slice(0, 60_000) : null,
+    // worker 1.11.0: Continue after the step limit (numbers only; the prompt says it in the worker's own words)
+    resume: resumeOf(raw.resume, kind),
     trusted: raw.trusted === true,
   }
+}
+
+/** TaskPayload.resume checked: two whole numbers 1–10,000 — only for a stage that runs Claude Code; else null. */
+export function resumeOf(raw: unknown, kind: string): TaskPayload['resume'] {
+  if (!isObj(raw) || (kind !== 'plan' && kind !== 'implement' && kind !== 'doc')) return null
+  const n = (v: unknown) => (typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= 10_000 ? v : null)
+  const turns = n(raw.turns)
+  const max = n(raw.max)
+  return turns !== null && max !== null ? { turns, max } : null
 }
 
 export class Worker {
@@ -317,7 +370,7 @@ export class Worker {
   }
 
   private busy(): BusyTask[] {
-    return [...this.runs.values()].map((r) => ({ taskId: r.task.id, repo: r.repo.name, stageId: r.task.stage.id, since: r.since }))
+    return [...this.runs.values()].map((r) => ({ taskId: r.task.id, repo: r.repo.name, stageId: r.task.stage.id, since: r.since, ...(r.asks[0] ? { ask: r.asks[0].ask } : {}) }))
   }
 
   async start(): Promise<'listening' | 'in-use' | 'refused'> {
@@ -407,18 +460,27 @@ export class Worker {
   }
 
   private begin(task: TaskPayload) {
-    const scratch = !task.repo && task.stage.kind === 'doc'
-    const repo = scratch ? scratchRepo(this.config, task.id) : this.config.repos.find((r) => r.name === task.repo)
+    const noRepo = !task.repo && task.stage.kind === 'doc'
+    const repo = noRepo ? scratchRepo(this.config, task.id) : this.config.repos.find((r) => r.name === task.repo)
     const refuse = (error: string) => {
       this.opts.log(`refused task ${task.id}: ${error}`)
       void this.finish(task.id, task.stage.id, { status: 'refused', error })
     }
-    if (!task.repo && !scratch) return refuse(`a ${task.stage.kind} stage needs a repository — pick the task's Repo in One (only document stages run without one)`)
+    if (!task.repo && !noRepo) return refuse(`a ${task.stage.kind} stage needs a repository — pick the task's Repo in One (only document stages run without one)`)
     if (!repo) return refuse(`the repo "${task.repo}" is not in this worker's config (not ticked) — One cannot add repos; tick it in the worker's setup page ("Change repositories") or add it to worker.json on the computer that should work on it`)
-    if (!scratch && [...this.runs.values()].some((r) => r.repo.name === repo.name)) return refuse(`another task runs in "${repo.name}" right now`)
+    if (!noRepo && [...this.runs.values()].some((r) => r.repo.name === repo.name)) return refuse(`another task runs in "${repo.name}" right now`)
     if (this.workspace?.kind === 'team' && !task.trusted) return refuse('the task is not confirmed on this device (team workspace)')
     const token = randomBytes(24).toString('hex')
-    const run: Run = { task, repo, abort: new AbortController(), token, question: null, since: Date.now(), scrub: repoScrubber(repo) }
+    // the task's scratch folder (worker 1.11.0): every Claude Code stage may keep temporary files there
+    let scratch: string
+    try {
+      scratch = scratchDir(this.config, task.id)
+    } catch {
+      scratch = scratchPath(this.config, task.id)
+    }
+    const run: Run = { task, repo, abort: new AbortController(), token, question: null, since: Date.now(), scrub: repoScrubber({ ...repo, scratch }), scratch, cwd: null, asks: [], counts: { asked: 0, allowed: 0, refused: 0 } }
+    // Stop: every request that waits for the person is refused at once
+    run.abort.signal.addEventListener('abort', () => this.settleAll(run, 'stopped'), { once: true })
     this.runs.set(task.id, run)
     this.tokens.set(token, run)
     this.sendStatus()
@@ -438,10 +500,14 @@ export class Worker {
           git: (g) => this.link.send({ type: 'event', taskId: task.id, kind: 'git', git: g }),
           progress: (p) => this.link.send({ type: 'event', taskId: task.id, kind: 'progress', progress: p }),
           question: () => run.question,
-          onWorktree: (_wt, scrub) => {
+          onWorktree: (wt, scrub) => {
             run.scrub = scrub
+            run.cwd = wt.dir
           },
           terminal: (msg) => this.opts.log(msg),
+          scratch,
+          waiting: () => run.asks.length > 0,
+          permissions: () => ({ ...run.counts }),
         }),
       )
       .catch((e: unknown): StageOutcome => ({ status: 'failed', error: run.scrub.text(e instanceof Error ? e.message : String(e)) }))
@@ -449,6 +515,8 @@ export class Worker {
       .then((outcome) => scrubOutcome(outcome, run.scrub))
       .then(async (outcome) => {
         this.tokens.delete(token)
+        // Claude Code ended: nothing may wait for an answer any more
+        this.settleAll(run, 'stopped')
         this.runs.delete(task.id)
         this.opts.log(`task ${task.id}: ${outcome.status}${outcome.error ? ` — ${outcome.error}` : ''}`)
         await this.finish(task.id, task.stage.id, outcome)
@@ -572,6 +640,7 @@ export class Worker {
       return { stopped: true }
     }
     if (msg.op === 'git') return this.gitVerb(msg)
+    if (msg.op === 'permission') return this.answerAsk(msg)
     // "Change repositories": the page opens HERE; One gets only whether it opened — never its address or key
     if (msg.op === 'open-setup') return this.opts.setup ? this.opts.setup.open() : ({ opened: false, reason: 'off' } satisfies OpenSetupResult)
     // Import stage: a NEW repository from a ZIP / clone address (the folder is the worker's choice)
@@ -582,7 +651,7 @@ export class Worker {
       if (msg.op === 'intake-end') return intake.end(msg.uploadId)
       return intake.clone(msg.taskId, msg.url)
     }
-    throw new Error(`unknown request ${JSON.stringify((msg as { op?: unknown }).op)} — the worker only knows stop, open-setup, the imports and the git actions`)
+    throw new Error(`unknown request ${JSON.stringify((msg as { op?: unknown }).op)} — the worker only knows stop, open-setup, the imports, the git actions and permission answers`)
   }
 
   private intaker: Intake | null = null
@@ -749,6 +818,8 @@ export class Worker {
         }
         case 'discard': {
           const r = await discard(repo, this.state, branch)
+          // the task's scratch folder goes with its worktree (worker 1.11.0)
+          void rmRetry(scratchPath(this.config, taskId))
           this.logLine(taskId, { t: Date.now(), k: 'git', s: `Discarded: ${r.worktree ? 'worktree removed' : 'no worktree'}, ${r.branch ? 'branch deleted' : 'branch kept'}.` })
           return { message: `Discarded${r.branch ? ` — branch ${branch} deleted` : ''}.`, branchGone: r.branch }
         }
@@ -771,6 +842,7 @@ export class Worker {
         }
         case 'cleanup': {
           const r = await cleanup(repo, this.state, branch)
+          void rmRetry(scratchPath(this.config, taskId))
           this.logLine(taskId, { t: Date.now(), k: 'git', s: `Cleaned up: ${r.worktree ? 'worktree removed' : 'no worktree'}, ${r.branch ? 'branch deleted' : 'branch kept'}.` })
           return { message: 'Cleaned up.', branchGone: r.branch }
         }
@@ -823,6 +895,139 @@ export class Worker {
       this.link.send({ type: 'event', taskId: t.id, kind: 'question', text: s })
       return { ok: true, text: 'Your question was sent to the person in One. End your turn now with a short summary of where you are — this stage runs again with their answer.' }
     }
-    return { ok: false, status: 404, error: `unknown tool ${JSON.stringify(tool)} — the task tools are one_task_read, one_task_note and one_task_ask` }
+    if (tool === 'one_task_permission') return this.permission(run, args)
+    return { ok: false, status: 404, error: `unknown tool ${JSON.stringify(tool)} — the task tools are one_task_read, one_task_note, one_task_ask and one_task_permission` }
   }
+
+  /* ------------------------------------------------------------------ permissions (worker 1.11.0) */
+
+  /** A log line of a run's permission requests (its text and values scrubbed). */
+  private permLine(run: Run, k: LogLine['k'], s: string, c: string, v: Record<string, string | number>) {
+    this.logLine(run.task.id, { t: Date.now(), k, s: run.scrub.text(s), c, v: Object.fromEntries(Object.entries(v).map(([key, x]) => [key, typeof x === 'string' ? run.scrub.text(x) : x])) })
+  }
+
+  /** The first waiting request (or none) to One — as an event and in the busy list. */
+  private announceAsk(run: Run, settled?: { id: string; how: PermissionVerb | 'timeout' | 'stopped' }) {
+    this.link.send({ type: 'event', taskId: run.task.id, kind: 'permission', ask: run.asks[0]?.ask ?? null, ...(settled ? { settled } : {}) })
+    this.sendStatus()
+  }
+
+  /**
+   * Claude Code's permission prompt: the repo's own lists decide first, else the person in One — the call is held until
+   * they answer, the time is up or the stage stops. The answer is `{ allow, message? }` (taskmcp.ts makes Claude Code's
+   * form of it, with the input as Claude Code sent it).
+   */
+  private async permission(run: Run, args: Record<string, unknown>): Promise<{ ok: true; text: string }> {
+    const answer = (allow: boolean, message?: string) => ({ ok: true as const, text: JSON.stringify(allow ? { allow: true } : { allow: false, message }) })
+    const tool = typeof args.tool_name === 'string' ? args.tool_name.trim().slice(0, 200) : ''
+    const raw = args.input && typeof args.input === 'object' && !Array.isArray(args.input) ? (args.input as Record<string, unknown>) : {}
+    const input: Record<string, string> = {}
+    for (const [k, v] of Object.entries(raw)) if (typeof v === 'string') input[k] = v.slice(0, 4000)
+    const req: PermRequest = { tool: tool || 'a tool', input }
+    const what = run.scrub.text(subjectOf(req)).slice(0, PERMISSION_WHAT_MAX)
+    if (run.abort.signal.aborted) return answer(false, DENY.stopped)
+    // the repo's own lists first: no question
+    const byRule = ruleDecision(req, run.repo.claude.allowedTools, run.repo.claude.disallowedTools)
+    if (byRule === 'allow') {
+      run.counts.allowed++
+      this.permLine(run, 'info', `Allowed by the repo's allowedTools: ${req.tool}${what ? ` · ${what}` : ''}`, 'permissionAllowed', { tool: req.tool, what, how: 'rule' })
+      return answer(true)
+    }
+    if (byRule === 'deny') {
+      run.counts.refused++
+      this.permLine(run, 'warn', `Refused by the repo's disallowedTools: ${req.tool}${what ? ` · ${what}` : ''}`, 'permissionDenied', { tool: req.tool, what, how: 'rule' })
+      return answer(false, DENY.rule)
+    }
+    if (run.asks.length >= ASKS_MAX) {
+      run.counts.refused++
+      return answer(false, DENY.many)
+    }
+    // the person decides: held until they answer
+    const configured = this.config.repos.some((r) => r.name === run.repo.name && samePathOf(r.path, run.repo.path))
+    const outside = isOutside(req, [run.cwd, run.repo.path, run.repo.worktreeDir, run.scratch], run.cwd ?? run.repo.path)
+    const now = Date.now()
+    const wait = permissionWaitMs()
+    const ask: PermissionAsk = {
+      id: randomBytes(12).toString('hex'),
+      tool: req.tool.slice(0, 120),
+      kind: kindOf(req.tool),
+      what,
+      ...(outside ? { outside: true } : {}),
+      // "Always" only for a repo of this config, and only a narrow rule
+      rule: configured ? alwaysRule(req, { outside }) : null,
+      repo: run.repo.name,
+      at: now,
+      until: now + wait,
+    }
+    run.counts.asked++
+    const minutes = Math.max(1, Math.round(wait / 60_000))
+    this.permLine(run, 'warn', `Claude Code asks for a permission: ${ask.tool}${what ? ` · ${what}` : ''} — waiting for you in One (at most ${minutes} min)`, 'permissionAsked', { tool: ask.tool, what, min: minutes })
+    return new Promise((resolve) => {
+      const pending: PendingAsk = {
+        ask,
+        timer: setTimeout(() => this.settle(run, pending, false, 'timeout', DENY.timeout(minutes)), wait),
+        done: (allow, message) => resolve(answer(allow, message)),
+      }
+      pending.timer.unref?.()
+      run.asks.push(pending)
+      this.announceAsk(run)
+    })
+  }
+
+  /** End one waiting request: Claude Code's answer, the counts, a log line, One told. */
+  private settle(run: Run, p: PendingAsk, allow: boolean, how: PermissionVerb | 'timeout' | 'stopped', message?: string) {
+    const i = run.asks.indexOf(p)
+    if (i < 0) return
+    run.asks.splice(i, 1)
+    clearTimeout(p.timer)
+    if (allow) {
+      run.counts.allowed++
+      this.permLine(run, 'info', `Allowed in One (${how === 'always' ? 'always for this repo' : 'once'}): ${p.ask.tool}${p.ask.what ? ` · ${p.ask.what}` : ''}`, 'permissionAllowed', { tool: p.ask.tool, what: p.ask.what, how })
+    } else {
+      run.counts.refused++
+      const who = how === 'deny' ? 'you' : how
+      this.permLine(run, 'warn', `${how === 'timeout' ? 'Nobody answered in time — refused' : how === 'stopped' ? 'The stage stopped — refused' : 'Refused in One'}: ${p.ask.tool}${p.ask.what ? ` · ${p.ask.what}` : ''}`, 'permissionDenied', { tool: p.ask.tool, what: p.ask.what, how: who })
+    }
+    p.done(allow, message)
+    this.announceAsk(run, { id: p.ask.id, how })
+  }
+
+  /** Every waiting request of a run refused (Stop, the run ended). */
+  private settleAll(run: Run, how: 'stopped') {
+    for (const p of [...run.asks]) this.settle(run, p, false, how, DENY.stopped)
+  }
+
+  /**
+   * The person's answer from One: the request's id and a fixed verb — nothing else is read. "always" stores the rule
+   * this worker showed for the request (worker.json, that repo's allowedTools); a request without one is allowed once.
+   */
+  private answerAsk(msg: Extract<TabMessage, { op: 'permission' }>): { ok: boolean; gone?: true } {
+    const verb = msg.verb as PermissionVerb
+    if (!(PERMISSION_VERBS as readonly string[]).includes(verb)) throw new Error(`unknown answer ${JSON.stringify(msg.verb)} — once, always or deny`)
+    const run = this.runs.get(String(msg.taskId))
+    const p = run?.asks.find((a) => a.ask.id === String(msg.ask))
+    // answered elsewhere, timed out, or the stage ended meanwhile
+    if (!run || !p) return { ok: false, gone: true }
+    if (verb === 'deny') {
+      this.settle(run, p, false, 'deny', DENY.person)
+      return { ok: true }
+    }
+    let how: PermissionVerb = 'once'
+    if (verb === 'always' && p.ask.rule) {
+      const why = addAllowedTool(this.config.file, run.repo.path, p.ask.rule)
+      if (why === null) {
+        how = 'always'
+        // from now on: this run's decisions, the next stages' --allowedTools
+        for (const r of new Set([run.repo, ...this.config.repos.filter((x) => x.name === run.repo.name)])) if (!r.claude.allowedTools.includes(p.ask.rule)) r.claude.allowedTools.push(p.ask.rule)
+        this.permLine(run, 'info', `Allowed for ${run.repo.name} from now on: ${p.ask.rule} (worker.json)`, 'permissionAlways', { rule: p.ask.rule, repo: run.repo.name })
+      } else this.permLine(run, 'warn', `Could not keep the rule in worker.json (${why}) — allowed once`, 'permissionAlwaysFailed', { why })
+    }
+    this.settle(run, p, true, how)
+    return { ok: true }
+  }
+}
+
+/** The same folder (paths.ts rules) — a repo of this config, not a task's scratch repo. */
+function samePathOf(a: string, b: string): boolean {
+  return pathId(a) === pathId(b)
 }

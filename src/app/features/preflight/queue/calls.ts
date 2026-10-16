@@ -12,7 +12,7 @@ import { applyRun, discardRun, openAgentCheck, runAgentNow, undoChangeEach, type
 import type { AgentRun } from '../../agents/types'
 import type { DiscardReason } from '../../ai/agent/types'
 import type { CustomAgent } from '../../../store/types'
-import { applyTaskAction, confirmTaskVersion, type TaskActionPlan } from '../../coding'
+import { answerPermission, applyTaskAction, confirmTaskVersion, type PermissionVerb, type TaskActionPlan } from '../../coding'
 import { archiveItems, markRead, type InboxItem } from '../../inbox/state'
 import { openInboxItem } from '../../inbox/engine'
 import { signIn } from '../../ai/mcp-servers/oauth'
@@ -136,6 +136,13 @@ export const applyTask = (plan: TaskActionPlan): Promise<{ undo: (() => boolean)
 
 /** Trust exactly the version the card rendered ('changed': it is not that version any more; 'gone'). */
 export const confirmVersion = (taskId: ID, hash: string): Promise<'ok' | 'changed' | 'gone'> => confirmTaskVersion(taskId, hash)
+
+/**
+ * The person's answer to a permission request a running stage waits for (the "Claude möchte" card): only the request's
+ * id and the verb go to the worker; "always" stores the rule the worker showed, in its own worker.json. Writes nothing
+ * in the workspace. 'gone': answered elsewhere, timed out, or the stage ended.
+ */
+export const answerAsk = (taskId: ID, askId: string, verb: PermissionVerb): Promise<'ok' | 'gone'> => answerPermission(taskId, askId, verb)
 
 /* ---------------- inbox (IndexedDB one-inbox) */
 

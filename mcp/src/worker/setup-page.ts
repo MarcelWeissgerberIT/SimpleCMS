@@ -123,6 +123,13 @@ input[type='text']:focus, input[type='number']:focus, select:focus { border-colo
 .wmcp { margin: 14px 0 0; max-width: 640px; }
 .keys { display: flex; flex-wrap: wrap; gap: 4px; min-height: 20px; }
 .kbd { display: inline-block; padding: 1px 6px; border: 1px solid var(--rule-strong); border-bottom-width: 2px; border-radius: 2px; background: var(--surface); color: var(--ink); font: 11px/1.5 var(--mono); }
+.allowed { grid-column: 1 / -1; }
+.rules { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.rule { display: inline-flex; align-items: stretch; border: 1px solid var(--rule-strong); border-bottom-width: 2px; border-radius: 2px; background: var(--surface); }
+.rule code { padding: 2px 7px; color: var(--ink); font: 11.5px/1.6 var(--mono); overflow-wrap: anywhere; }
+.rule button { min-width: 28px; padding: 0 8px; border: 0; border-left: 1px solid var(--rule); background: transparent; color: var(--ink-2); font: 13px var(--sans); cursor: pointer; }
+.rule button:hover { background: var(--hover); color: var(--signal-ink); }
+.rule button:focus-visible { outline: 2px solid var(--signal); outline-offset: -2px; }
 .hint { color: var(--ink-3); font-size: 12px; }
 .warn { padding-left: 8px; border-left: 2px solid var(--signal); color: var(--signal-ink); font-size: 12px; }
 .own { grid-column: 1 / -1; padding-top: 10px; border-top: 1px solid var(--rule); }
@@ -234,6 +241,11 @@ export const SETUP_JS = String.raw`(function () {
     limit: 'Cost limit per task (USD)',
     mcpLabel: 'Own MCP servers for Claude Code',
     mcpHint: 'Names as “claude mcp list” shows them, e.g. kb — this repo\'s stages may use their tools (a knowledge base, a design system). Empty: only One\'s task tools.',
+    allowedLabel: 'Allowed without asking',
+    allowedHint: 'What Claude Code may do in this repo without asking you — added by “Always for this repo” in One (or by hand in worker.json). Remove one and press Save: One asks again next time.',
+    allowedNone: 'Nothing yet — when you allow a command in One with “Always for this repo”, it shows here.',
+    allowedRemove: 'Remove {rule}',
+    allowedRemoved: '{n} removed — press Save',
     ownLabel: 'Use this repo’s own Claude Code settings (.claude/, .mcp.json, CLAUDE.md, local MCP servers)',
     ownMine: 'On for your own repositories. Off: Claude Code starts with your own settings only (--setting-sources user).',
     ownWhy: 'Off by default: {why}. Switch it on only for code you trust.',
@@ -367,6 +379,11 @@ export const SETUP_JS = String.raw`(function () {
     limit: 'Kostengrenze pro Aufgabe (USD)',
     mcpLabel: 'Eigene MCP-Server für Claude Code',
     mcpHint: 'Namen wie in „claude mcp list“, z. B. kb – die Stufen dieses Repos dürfen ihre Tools nutzen (eine Wissensbasis, ein Designsystem). Leer: nur die Aufgaben-Tools von One.',
+    allowedLabel: 'Ohne Nachfrage erlaubt',
+    allowedHint: 'Was Claude Code in diesem Repo ohne Rückfrage darf – hinzugefügt mit „Für dieses Repo immer erlauben“ in One (oder von Hand in worker.json). Entferne eine Regel und drücke Speichern: One fragt beim nächsten Mal wieder.',
+    allowedNone: 'Noch nichts – wenn du in One einen Befehl mit „Für dieses Repo immer erlauben“ freigibst, steht er hier.',
+    allowedRemove: '{rule} entfernen',
+    allowedRemoved: '{n} entfernt – Speichern drücken',
     ownLabel: 'Eigene Claude-Code-Einstellungen dieses Repos nutzen (.claude/, .mcp.json, CLAUDE.md, lokale MCP-Server)',
     ownMine: 'An für deine eigenen Repositories. Aus: Claude Code startet nur mit deinen eigenen Einstellungen (--setting-sources user).',
     ownWhy: 'Standardmäßig aus: {why}. Schalte es nur für Code ein, dem du vertraust.',
@@ -532,7 +549,7 @@ export const SETUP_JS = String.raw`(function () {
   }
 
   function editOf(r) {
-    if (!edits[r.path]) edits[r.path] = { ticked: r.ticked, name: r.name, base: r.base, test: r.testLine, push: r.push, pr: r.pr, forge: r.forge || 'auto', limit: r.maxUsdPerTask === null ? '' : String(r.maxUsdPerTask), mcp: r.mcp || '', analyze: r.analyzeLine || '', own: r.ownSettings, own0: r.ownSettings }
+    if (!edits[r.path]) edits[r.path] = { ticked: r.ticked, name: r.name, base: r.base, test: r.testLine, push: r.push, pr: r.pr, forge: r.forge || 'auto', limit: r.maxUsdPerTask === null ? '' : String(r.maxUsdPerTask), mcp: r.mcp || '', analyze: r.analyzeLine || '', own: r.ownSettings, own0: r.ownSettings, allowed: (r.allowed || []).slice() }
     return edits[r.path]
   }
 
@@ -637,6 +654,27 @@ export const SETUP_JS = String.raw`(function () {
         el('span', { className: 'hint', id: id + 'fh', text: t('forgeHint') })
       ])
     }
+    // what Claude Code may do here without asking (worker.json allowedTools): each with its remove key — the page only
+    // takes rules away; "Always for this repo" in One adds them (the worker writes them)
+    var removed = (r.allowed || []).length - e.allowed.length
+    var allowed = el('div', { className: 'field allowed', role: 'group', 'aria-labelledby': id + 'al' }, [
+      el('span', { className: 'label', id: id + 'al', text: t('allowedLabel') }),
+      e.allowed.length
+        ? el('ul', { className: 'rules' }, e.allowed.map(function (rule, k) {
+            return el('li', { className: 'rule' }, [
+              el('code', { text: rule }),
+              el('button', { type: 'button', id: id + 'x' + k, 'aria-label': t('allowedRemove', { rule: rule }), title: t('allowedRemove', { rule: rule }), text: '×', onclick: function () {
+                e.allowed = e.allowed.filter(function (x, j) { return j !== k })
+                render()
+                // the key after it (or before) keeps the keyboard
+                var next = $(id + 'x' + k) || $(id + 'x' + (k - 1)) || $(id + 'al')
+                if (next && next.focus) next.focus()
+              } })
+            ])
+          }))
+        : el('span', { className: 'hint', text: t('allowedNone') }),
+      el('span', { className: 'hint', text: removed > 0 ? t('allowedRemoved', { n: removed }) : t('allowedHint') })
+    ])
     return el('div', { className: 'detail' }, [
       el('div', { className: 'field' }, [el('label', { className: 'label', for: id + 'n', text: t('nameLabel') }), el('input', { type: 'text', id: id + 'n', value: e.name, maxlength: 64, spellcheck: 'false', oninput: function (ev) { e.name = ev.target.value } })]),
       el('div', { className: 'field' }, [el('label', { className: 'label', for: id + 'b', text: t('baseLabel') }), base]),
@@ -646,6 +684,7 @@ export const SETUP_JS = String.raw`(function () {
       forge,
       el('div', { className: 'field' }, [el('div', { className: 'limit' }, [el('label', { className: 'label', for: id + 'l', text: t('limit') }), el('input', { type: 'number', id: id + 'l', min: '0', step: '0.5', value: e.limit, placeholder: t('noLimit'), inputmode: 'decimal', oninput: function (ev) { e.limit = ev.target.value } })])]),
       el('div', { className: 'field field--wide' }, [el('label', { className: 'label', for: id + 'm', text: t('mcpLabel') }), mcpInput, el('span', { className: 'hint', id: id + 'mh', text: t('mcpHint') }), mcpUser]),
+      allowed,
       own
     ])
   }
@@ -954,7 +993,7 @@ export const SETUP_JS = String.raw`(function () {
     var repos = state.repos.filter(function (r) { return editOf(r).ticked }).map(function (r) {
       var e = editOf(r)
       var limit = parseFloat(String(e.limit).replace(',', '.'))
-      return { path: r.path, name: e.name.trim(), baseBranch: e.base, test: e.test, analyze: e.analyze, push: e.push, pr: e.pr, forge: e.forge, maxUsdPerTask: isFinite(limit) && limit > 0 ? limit : null, mcp: e.mcp, projectSettings: e.own }
+      return { path: r.path, name: e.name.trim(), baseBranch: e.base, test: e.test, analyze: e.analyze, push: e.push, pr: e.pr, forge: e.forge, maxUsdPerTask: isFinite(limit) && limit > 0 ? limit : null, mcp: e.mcp, projectSettings: e.own, allowed: e.allowed }
     })
     busy = 'save'
     note = null

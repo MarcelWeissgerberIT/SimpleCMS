@@ -56,6 +56,12 @@ export interface TaskLocal {
   storiesDb?: ID | null
   /** the worker's finishIds this device applied (the last 20): a retried outcome is answered, not applied twice */
   finished?: string[]
+  /** worker 1.11.0: the stage stopped at its step limit (`turns` of `max`) — Continue runs it on from the worktree */
+  stepLimit?: { stageId: ID; turns: number; max: number } | null
+  /** Continue was pressed: the next run of that stage goes on from the worktree (TaskPayload.resume) */
+  resume?: boolean
+  /** worker 1.11.0: the last Claude Code stage's permission requests (the panel's summary line) */
+  permissions?: { stageId: ID; asked: number; allowed: number; refused: number } | null
   at?: number
 }
 

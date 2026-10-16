@@ -292,12 +292,14 @@ export class Scrubber {
 }
 
 /** A scrubber for one repo (and, while a task runs, its worktree). */
-export function repoScrubber(repo: { path: string; worktreeDir: string }, worktree?: string | null, opts: ScrubOptions = {}): Scrubber {
+export function repoScrubber(repo: { path: string; worktreeDir: string; scratch?: string | null }, worktree?: string | null, opts: ScrubOptions = {}): Scrubber {
   return new Scrubber(
     [
       [worktree ?? null, '.'],
       [repo.worktreeDir, '<worktrees>'],
       [repo.path, '<repo>'],
+      // worker 1.11.0: the task's scratch folder (a task without a repository runs in it: then it is "<repo>" already)
+      [repo.scratch && repo.scratch !== repo.path ? repo.scratch : null, '<scratch>'],
     ],
     opts,
   )

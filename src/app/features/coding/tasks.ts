@@ -287,7 +287,10 @@ export async function pickNext(repos: string[], workerName: string, docs = false
       set(row.id, props.claimed, nowValue())
     })
     const repo = optionName(db, props.repo, fresh.properties[props.repo!]) ?? ''
-    await patchTask(row.id, { state: 'running', stageId: stage.id, run, error: null, runNow: false })
+    // Continue after the step limit (worker 1.11.0 'continue'): this run goes on from the worktree — only once, only
+    // for the stage that stopped there, only to a worker that knows it
+    const resume = local.resume && local.stepLimit && local.stepLimit.stageId === stage.id && caps.has('continue') ? { turns: local.stepLimit.turns, max: local.stepLimit.max } : null
+    await patchTask(row.id, { state: 'running', stageId: stage.id, run, error: null, runNow: false, resume: false })
     return {
       id: row.id,
       title: fresh.title.trim() || t('common.untitled'),
@@ -301,6 +304,7 @@ export async function pickNext(repos: string[], workerName: string, docs = false
       spent: typeof fresh.properties[props.cost ?? ''] === 'number' ? (fresh.properties[props.cost!] as number) : 0,
       summary: local.summary ?? null,
       review: local.review?.text ?? null,
+      ...(resume ? { resume } : {}),
       trusted: true,
     }
   }
@@ -334,7 +338,11 @@ export async function finishStage(taskId: ID, stageId: ID, outcome: StageOutcome
   const w = codingWriter(taskId, local.stageId === stageId && local.run ? local.run : newId())
   noteRun(w)
   const stillThere = !!stage && ctx.stage?.id === stage.id
-  const patch: Partial<TaskLocal> = { state: 'idle', error: null, question: null, stageId }
+  const patch: Partial<TaskLocal> = { state: 'idle', error: null, question: null, stageId, resume: false, stepLimit: null }
+  // worker 1.11.0: the stage's permission requests (the panel's summary line) — the newest run's only
+  const perms = outcome.permissions
+  const count = (n: unknown) => (typeof n === 'number' && Number.isFinite(n) && n >= 0 ? Math.min(Math.round(n), 100_000) : 0)
+  patch.permissions = perms && typeof perms === 'object' ? { stageId, asked: count(perms.asked), allowed: count(perms.allowed), refused: count(perms.refused) } : null
   let moveTo: ResolvedStage | null = null
   let toast: { key: string; kind: 'info' | 'success' | 'error' } | null = null
   // worker 1.10.0: what a git stage did with commits, the push and the request — also on a failed outcome after its commit
@@ -428,6 +436,16 @@ export async function finishStage(taskId: ID, stageId: ID, outcome: StageOutcome
       patch.state = 'failed'
       patch.error = outcome.error ?? t('features.coding.err.failed')
       toast = { key: 'features.coding.toast.failed', kind: 'error' }
+      // the step limit (worker 1.11.0): the task offers Continue — the worktree keeps what was done so far
+      if (outcome.status === 'failed' && outcome.stepLimit && stage && stillThere) {
+        const turns = count(outcome.stepLimit.turns)
+        const max = count(outcome.stepLimit.max)
+        if (max > 0) {
+          patch.stepLimit = { stageId, turns: Math.min(turns || max, max), max }
+          patch.error = t('features.coding.limit.error', { turns: patch.stepLimit.turns, max })
+          toast = { key: 'features.coding.toast.stepLimit', kind: 'info' }
+        }
+      }
       break
   }
 
@@ -817,8 +835,30 @@ export async function answerTask(taskId: ID, answer: string, opts: ActOpts = {})
 /** Run now / Retry: the worker takes the task in its stage once, also when the stage is not automatic. */
 export async function runTaskNow(taskId: ID, opts: ActOpts = {}): Promise<void> {
   if (opts.confirm !== false) await trustTask(taskId)
-  await patchTask(taskId, { state: 'idle', error: null, runNow: true })
+  await patchTask(taskId, { state: 'idle', error: null, runNow: true, resume: false })
   nudge()
+}
+
+/**
+ * Continue after the step limit (worker 1.11.0): the stage runs once more on its worktree, with as many steps again,
+ * and Claude Code is told to go on from where it stopped (TaskPayload.resume). Its cost counts like any run's.
+ */
+export async function continueTask(taskId: ID, opts: ActOpts = {}): Promise<void> {
+  await loadTask(taskId)
+  if (!taskLocal(taskId).stepLimit) return runTaskNow(taskId, opts)
+  if (opts.confirm !== false) await trustTask(taskId)
+  await patchTask(taskId, { state: 'idle', error: null, runNow: true, resume: true })
+  nudge()
+}
+
+/**
+ * Continue after the step limit is offered unless the connected worker is one that cannot (it does not name
+ * 'continue'). With none connected it is offered: the next worker that takes the task continues when it can — an older
+ * one starts the stage over (pickNext sends `resume` only to a worker that names 'continue').
+ */
+export function canContinue(): boolean {
+  const can = useCoding.getState().can
+  return can === null || can.includes('continue')
 }
 
 /** Team workspaces: the person saw the task here — the worker may take it. */

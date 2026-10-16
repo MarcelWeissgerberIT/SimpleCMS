@@ -501,7 +501,7 @@ function namesFrom(file: string, re: RegExp, withLazy = false): string[] {
 }
 
 /** The other areas' action functions only queue/calls.ts may import (§4 of the design). */
-const ACTIONS = ['applyRun', 'discardRun', 'undoChange', 'undoChangeEach', 'applyStaged', 'undoStagedBatch', 'discardStaged', 'undiscardStaged', 'saveProposal', 'undoProposal', 'dismissProposal', 'saveRunMemory', 'restoreRun', 'removeRun', 'applyTaskAction', 'confirmTaskVersion', 'markRead', 'archiveItems', 'openInboxItem', 'resolveMissing', 'resumeFolder', 'signIn', 'syncNow', 'runAgentNow', 'openAutofillPanel', 'checkServer']
+const ACTIONS = ['applyRun', 'discardRun', 'undoChange', 'undoChangeEach', 'applyStaged', 'undoStagedBatch', 'discardStaged', 'undiscardStaged', 'saveProposal', 'undoProposal', 'dismissProposal', 'saveRunMemory', 'restoreRun', 'removeRun', 'applyTaskAction', 'confirmTaskVersion', 'answerPermission', 'continueTask', 'markRead', 'archiveItems', 'openInboxItem', 'resolveMissing', 'resumeFolder', 'signIn', 'syncNow', 'runAgentNow', 'openAutofillPanel', 'checkServer']
 
 test.describe('agents — supersedePlan (pure, T-P2-9)', () => {
   const upd = (id: string, row: string, props: string[], x: Partial<StagedChange> = {}): StagedChange => ({ id, n: Number(id.slice(1)), kind: 'update_row', status: 'pending', pageId: row, databaseId: 'db', props: props.map((p) => ({ propId: p, name: p, type: 'text', before: '', after: 'x' })), ...x }) as StagedChange
@@ -711,7 +711,7 @@ test.describe('static guards (T-P1-6)', () => {
     }
     // every entry point the queue's keys use, each from calls.ts (static or lazy)
     expect(namesFrom(calls, /./, true).filter((n) => ACTIONS.includes(n)).sort()).toEqual(
-      ['resumeFolder', 'resolveMissing', 'applyRun', 'discardRun', 'runAgentNow', 'undoChangeEach', 'applyTaskAction', 'confirmTaskVersion', 'archiveItems', 'markRead', 'openInboxItem', 'signIn', 'syncNow', 'openAutofillPanel', 'applyStaged', 'undoStagedBatch', 'discardStaged', 'undiscardStaged', 'saveProposal', 'undoProposal', 'dismissProposal', 'saveRunMemory', 'removeRun', 'restoreRun', 'checkServer'].sort(),
+      ['resumeFolder', 'resolveMissing', 'applyRun', 'discardRun', 'runAgentNow', 'undoChangeEach', 'applyTaskAction', 'confirmTaskVersion', 'answerPermission', 'archiveItems', 'markRead', 'openInboxItem', 'signIn', 'syncNow', 'openAutofillPanel', 'applyStaged', 'undoStagedBatch', 'discardStaged', 'undiscardStaged', 'saveProposal', 'undoProposal', 'dismissProposal', 'saveRunMemory', 'removeRun', 'restoreRun', 'checkServer'].sort(),
     )
   })
 })

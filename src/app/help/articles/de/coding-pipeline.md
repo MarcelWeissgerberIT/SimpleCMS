@@ -96,8 +96,21 @@ Jede Aufgabe arbeitet auf einem eigenen Branch (`one/<titel>-<id>`) in einem eig
 - **Benachrichtigungen**: in **Einstellungen → Coding-Worker** *Benachrichtigen, solange One im Hintergrund ist* einschalten — der Browser meldet sich, wenn eine Aufgabe wartet, fragt, fehlschlägt oder fertig ist, während der Tab im Hintergrund ist (auf diesem Gerät).
 - **Stopp** beendet Claude Code sofort; **Erneut versuchen** oder **Jetzt ausführen** starten die Stufe wieder.
 - **Git**: Aktualisieren, Committen, Pushen, PR öffnen, Von Basis aktualisieren, Ordner zeigen (der Pfad erscheint nur im Terminal des Workers). **Force-Push** und **Worktree verwerfen** fragen zweimal; **Aufräumen** wartet, bis der Branch gemergt ist. **Merge Request**: **Review posten** und **Mergen** (fragen vorher, mit deinem glab / gh) – siehe [KI-Review und Merge Requests](help:review-merge).
-- **Pipeline** (auf #/coding) ändert die Stufen: Namen, welche von selbst laufen, Modus, Züge, Modell und Anweisungen für Claude Code. Vorlagen: *Standard*, *Altsoftware modernisieren*, *Code erklären* ([eine Seite je Komponente](help:explain-code)), *Review & Merge*. Eine Stufe **Statische Analyse** führt Linter / Compiler des Repositorys aus (auf der Einrichtungsseite des Workers festgelegt) und schreibt die Befunde in die Seite.
+- **Pipeline** (auf #/coding) ändert die Stufen: Namen, welche von selbst laufen, Modus, Schrittlimit, Modell und Anweisungen für Claude Code. Vorlagen: *Standard*, *Altsoftware modernisieren*, *Code erklären* ([eine Seite je Komponente](help:explain-code)), *Review & Merge*. Eine Stufe **Statische Analyse** führt Linter / Compiler des Repositorys aus (auf der Einrichtungsseite des Workers festgelegt) und schreibt die Befunde in die Seite.
 - **Projekte**: mehrere Coding-Datenbanken nebeneinander – über dem Board wählen, anlegen und löschen ([Projekte](help:pipelines)).
+- **Ist Claude Code fertig, ist die Stufe fertig** – mit jedem Modell. Was es gestartet und laufen gelassen hat (ein Dev-Server, ein Watcher), wird beendet, und das Log nennt es. Jede Aufgabe hat einen eigenen Scratch-Ordner für Zwischendateien auf deinem Rechner; er geht mit dem Branch der Aufgabe.
+
+## Wenn Claude Code eine Erlaubnis braucht
+Claude Code fragt, bevor es einen Befehl ausführt oder ein Tool nutzt, das die Regeln deines Repositorys nicht abdecken. Die Aufgabe zeigt dann **WARTET AUF DICH · ERLAUBNIS**, und die Karte **Claude möchte** sagt genau was – zum Beispiel *Bash* `npm run lint`:
+
+- **Einmal erlauben** – nur dieses Mal.
+- **Für dieses Repo immer erlauben** – der Worker trägt die Regel der Karte (z. B. `Bash(npm run lint:*)`) in seine eigene `worker.json` ein; die Einrichtungsseite des Workers listet diese Regeln unter **Ohne Nachfrage erlaubt**, jede mit einer Taste zum Entfernen. Angeboten werden nur enge Regeln: nie eine Shell, `git`, `rm`, `curl` oder eine Datei außerhalb des Projekts – die gibt es nur **einmal**.
+- **Ablehnen** – Claude Code macht ohne weiter.
+
+Die Lampe **Claude möchte** auf Start zeigt jede wartende Anfrage (jede von Hand, nie in einer Sammelübernahme), und der Browser meldet sich, solange One im Hintergrund ist. Ohne Antwort lehnt der Worker nach 15 Minuten ab. Antworten kann nur das Gerät, dessen Worker die Aufgabe ausführt; One schickt dem Worker die Antwort und sonst nichts. Nach dem Lauf zählt eine Zeile, was gefragt, erlaubt und abgelehnt wurde.
+
+## Schrittlimit
+Jede Stufe darf eine bestimmte Zahl von Schritten machen (**Schrittlimit** in der Pipeline). Braucht Claude Code sie alle, zeigt die Aufgabe **Schrittlimit erreicht (40/40)**: **Weitermachen (+40 Schritte)** setzt die Stufe dort fort, wo sie stand – derselbe Worktree, alles Bisherige bleibt, die Kosten zählen wie bei jedem Lauf –, und **Neu starten** führt sie von vorn aus. **Weitermachen** braucht Worker 1.11.0; es steht auch auf der Karte *Task gescheitert* im Vorflug-Check und im KI-Terminal.
 
 **Repos in iCloud Drive** (z. B. in Dokumente, wenn „Schreibtisch & Dokumente“ synchronisiert wird): git wartet, sobald eine Datei nur in der Cloud liegt — Schritte können dann Minuten dauern, das Log sagt es. Schneller: den Ordner dauerhaft geladen halten, oder es auf der Setup-Seite des Workers mit **Von GitLab / GitHub klonen …** neu klonen (nach `~/one-repos`, nicht synchronisiert) und diesen Klon anhaken. Der Worker startet in jedem Fall sofort und nennt im Log ein Repository, dessen git langsam ist. Die Arbeitskopien des Workers landen nie in iCloud.
 

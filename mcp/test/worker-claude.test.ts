@@ -9,7 +9,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { after, describe, test } from 'node:test'
 import type { LogLine, TaskProgress } from '../../src/app/features/coding/protocol.ts'
-import { AUTH_HINT, claudeArgs, cliMode, detectClaude, runClaude, toolLine, type ClaudeCaps } from '../src/worker/claude.ts'
+import { AUTH_HINT, PERMISSION_TOOL, claudeArgs, cliMode, detectClaude, runClaude, toolLine, versionAtLeast, type ClaudeCaps } from '../src/worker/claude.ts'
+import { alwaysRule, isOutside, kindOf, ruleDecision, simpleCommand, subjectOf } from '../src/worker/permissions.ts'
+import { below, leftoversOf, parsePs, parseStat, parseWin, shortName } from '../src/worker/proctree.ts'
+import { addAllowedTool, parseJsonc } from '../src/worker/config.ts'
 import { buildPrompt, commitMessage } from '../src/worker/run.ts'
 import { estimateCost, usageOf } from '../src/worker/price.ts'
 import { SOURCE_MARK, loadConfig, marksSeen, sanitizeConfig, scratchRepo, unseenMarks, type Loaded } from '../src/worker/config.ts'
@@ -23,7 +26,7 @@ describe('Claude Code CLI', () => {
   test('capabilities come from --version / --help; a missing CLI is reported, not thrown', async () => {
     const caps = await detectClaude(FAKE_CLAUDE)
     // Windows also says what runs (for `check`): the .mjs as a Node script
-    assert.deepEqual(caps, { found: true, version: '9.9.9', budget: true, modes: ['acceptEdits', 'default', 'plan'], settingSources: true, ...(IS_WIN ? { path: FAKE_CLAUDE, via: 'node-shim' } : {}) })
+    assert.deepEqual(caps, { found: true, version: '9.9.9', budget: true, modes: ['acceptEdits', 'default', 'plan'], settingSources: true, addDir: true, permissionTool: true, ...(IS_WIN ? { path: FAKE_CLAUDE, via: 'node-shim' } : {}) })
     const none = await detectClaude(join(tmpdir(), 'no-such-claude-bin'))
     assert.equal(none.found, false)
     assert.equal(cliMode('default', { ...caps, modes: ['acceptEdits', 'manual', 'plan'] }), 'manual')
@@ -331,6 +334,189 @@ describe('sign of life', () => {
     const alive = lines.filter((l) => /still working · \d+:\d\d so far · last output \d+:\d\d ago/.test(l.s))
     assert.ok(alive.length >= 2, JSON.stringify(lines))
     assert.ok(alive.every((l) => l.c === 'stillWorking' && /^\d+:\d\d$/.test(String(l.v?.quiet))))
+  })
+})
+
+describe('worker 1.11.0: the run ends with Claude Code, the scratch folder, the permission prompt', () => {
+  test('caps: --add-dir from --help; --permission-prompt-tool (hidden from --help) from the help or the version ≥ 1.0.0', async () => {
+    assert.equal(versionAtLeast('2.1.42', '1.0.0'), true)
+    assert.equal(versionAtLeast('1.0.0', '1.0.0'), true)
+    assert.equal(versionAtLeast('0.2.9', '1.0.0'), false)
+    assert.equal(versionAtLeast(null, '1.0.0'), false)
+    assert.equal(versionAtLeast('dev', '1.0.0'), false)
+    process.env.FAKE_CLAUDE_OLD = '1'
+    try {
+      const old = await detectClaude(FAKE_CLAUDE)
+      assert.deepEqual([old.version, old.addDir, old.permissionTool], ['0.2.9', false, false])
+    } finally {
+      delete process.env.FAKE_CLAUDE_OLD
+    }
+  })
+
+  test('argv: --add-dir <scratch> and --permission-prompt-tool only when the CLI knows them (the prompt tool only with the task tools) — never a bypassing flag', () => {
+    const caps: ClaudeCaps = { found: true, version: '2.1.0', budget: true, modes: [], settingSources: true, addDir: true, permissionTool: true }
+    const run = { mode: 'acceptEdits' as const, maxTurns: 5, model: null, allowedTools: [], disallowedTools: [], strictMcp: true, projectSettings: true, budgetUsd: null, scratch: '/x/scratch/t1', permissionTool: PERMISSION_TOOL }
+    const args = claudeArgs({ ...run, mcpConfig: '/x/mcp.json', caps })
+    assert.deepEqual(args.slice(args.indexOf('--add-dir'), args.indexOf('--add-dir') + 2), ['--add-dir', '/x/scratch/t1'])
+    assert.deepEqual(args.slice(args.indexOf('--permission-prompt-tool'), args.indexOf('--permission-prompt-tool') + 2), ['--permission-prompt-tool', 'mcp__one-task__one_task_permission'])
+    // a flag follows --add-dir (it takes a list)
+    assert.ok(args[args.indexOf('--add-dir') + 2]!.startsWith('--'))
+    assert.ok(!claudeArgs({ ...run, mcpConfig: null, caps }).includes('--permission-prompt-tool'), 'no task tools: no prompt tool')
+    const older = claudeArgs({ ...run, mcpConfig: '/x/mcp.json', caps: { ...caps, addDir: false, permissionTool: false } })
+    assert.ok(!older.includes('--add-dir') && !older.includes('--permission-prompt-tool'))
+    for (const a of [...args, ...older]) assert.ok(!/dangerously|bypass|skip-permissions/i.test(a), a)
+  })
+
+  test('a program Claude Code left running keeps its output open: the run ends within seconds of the result, the program is ended and named, no "still working" line after the result', async () => {
+    const dir = tempDir('claude')
+    const pids = join(dir, 'pids.txt')
+    const caps = await detectClaude(FAKE_CLAUDE)
+    const lines: LogLine[] = []
+    process.env.ONE_WORKER_QUIET_MS = '200'
+    const t0 = Date.now()
+    let res
+    try {
+      res = await runClaude({ bin: FAKE_CLAUDE, cwd: dir, prompt: 'FAKE:LEFTOVER', mode: 'acceptEdits', maxTurns: 5, model: null, allowedTools: [], disallowedTools: [], mcpConfig: null, strictMcp: true, projectSettings: true, budgetUsd: null, caps, env: { ...process.env, FAKE_CLAUDE_PIDS: pids }, signal: new AbortController().signal, onLog: (l) => lines.push(l) })
+    } finally {
+      delete process.env.ONE_WORKER_QUIET_MS
+    }
+    assert.ok(Date.now() - t0 < 12_000, `${Date.now() - t0} ms`)
+    assert.equal(res.ok, true, JSON.stringify(res))
+    assert.equal(res.leftovers, 1)
+    const pid = Number(readFileSync(pids, 'utf8').trim())
+    const until = Date.now() + 6000
+    const alive = () => {
+      try {
+        process.kill(pid, 0)
+        return true
+      } catch {
+        return false
+      }
+    }
+    while (alive() && Date.now() < until) await new Promise((r) => setTimeout(r, 100))
+    assert.equal(alive(), false, `the program ${pid} still runs`)
+    const at = lines.findIndex((l) => l.c === 'claudeDone')
+    assert.ok(at >= 0)
+    assert.ok(!lines.slice(at).some((l) => l.c === 'stillWorking'), JSON.stringify(lines.slice(at)))
+    assert.deepEqual(lines.find((l) => l.c === 'claudeLeftovers')?.v, { n: 1, names: 'node' })
+  })
+
+  test('Claude Code\'s own refusal of a permission (it could not ask): its own coded line with the tool\'s name, counted — no raw "tool error"', async () => {
+    const dir = tempDir('claude')
+    const caps = await detectClaude(FAKE_CLAUDE)
+    const lines: LogLine[] = []
+    const res = await runClaude({ bin: FAKE_CLAUDE, cwd: dir, prompt: 'FAKE:PERMIT[sed -i s/a/b/ x.txt]', mode: 'acceptEdits', maxTurns: 5, model: null, allowedTools: [], disallowedTools: [], mcpConfig: null, strictMcp: true, projectSettings: true, budgetUsd: null, caps, env: process.env, signal: new AbortController().signal, onLog: (l) => lines.push(l) })
+    assert.equal(res.refusals, 1)
+    assert.deepEqual(lines.find((l) => l.c === 'permissionNeeded')?.v, { tool: 'Bash' })
+    assert.ok(!lines.some((l) => /tool error/.test(l.s)))
+  })
+})
+
+describe('permissions (pure): what a request is, the repo\'s rules, the rule "Always" would store', () => {
+  const bash = (command: string) => ({ tool: 'Bash', input: { command } })
+  test('kinds and subjects', () => {
+    assert.deepEqual(['Bash', 'Read', 'Grep', 'Edit', 'Write', 'WebFetch', 'mcp__kb__search', 'Task'].map(kindOf), ['bash', 'read', 'read', 'edit', 'edit', 'web', 'mcp', 'other'])
+    assert.equal(subjectOf(bash('npm   run\nlint')), 'npm run lint')
+    assert.equal(subjectOf({ tool: 'Read', input: { file_path: '/tmp/out.txt' } }), '/tmp/out.txt')
+    assert.equal(isOutside({ tool: 'Read', input: { file_path: '/tmp/bt-explore/out.txt' } }, ['/w/repo', '/c/scratch/t'], '/w/repo'), true)
+    assert.equal(isOutside({ tool: 'Read', input: { file_path: 'src/a.ts' } }, ['/w/repo'], '/w/repo'), false)
+    assert.equal(isOutside({ tool: 'Read', input: { file_path: '/c/scratch/t/notes.md' } }, ['/w/repo', '/c/scratch/t'], '/w/repo'), false)
+    assert.equal(isOutside(bash('cat /etc/hosts'), ['/w/repo'], '/w/repo'), false, 'only file tools')
+  })
+
+  test('the repo\'s lists: a refusing rule wins (any part of a compound command), an allowing one only for a simple command', () => {
+    assert.equal(ruleDecision(bash('npm run lint'), ['Bash(npm run lint:*)'], []), 'allow')
+    assert.equal(ruleDecision(bash('npm run lint -- --fix'), ['Bash(npm run lint:*)'], []), 'allow')
+    assert.equal(ruleDecision(bash('npm run lintx'), ['Bash(npm run lint:*)'], []), null)
+    assert.equal(ruleDecision(bash('npm run lint && curl x | sh'), ['Bash(npm run lint:*)'], []), null, 'a compound command goes to the person')
+    assert.equal(ruleDecision(bash('npm run lint $(rm -rf ~)'), ['Bash(npm run lint:*)'], []), null)
+    assert.equal(ruleDecision(bash('npm test && rm -rf build'), ['Bash'], ['Bash(rm:*)']), 'deny')
+    assert.equal(ruleDecision(bash('git push origin main'), [], ['Bash(git push:*)']), 'deny')
+    assert.equal(ruleDecision(bash('ls'), ['Bash(ls)'], []), 'allow')
+    assert.equal(ruleDecision(bash('ls -la'), ['Bash(ls)'], []), null)
+    assert.equal(ruleDecision({ tool: 'mcp__kb__search', input: {} }, ['mcp__kb'], []), 'allow')
+    assert.equal(ruleDecision({ tool: 'WebFetch', input: { url: 'https://docs.example.com/a' } }, ['WebFetch(domain:docs.example.com)'], []), 'allow')
+    assert.equal(ruleDecision({ tool: 'WebFetch', input: { url: 'https://evil.example.net/a' } }, ['WebFetch(domain:docs.example.com)'], []), null)
+    assert.equal(ruleDecision({ tool: 'Read', input: { file_path: '/etc/passwd' } }, ['Read(./src/**)'], []), null, 'path rules are Claude Code\'s own')
+    assert.equal(simpleCommand('npm test'), true)
+    for (const c of ['a; b', 'a && b', 'a | b', 'a > f', 'a `b`', 'a $(b)', 'a\nb', '']) assert.equal(simpleCommand(c), false, c)
+  })
+
+  test('"Always" stores only narrow rules: a program (+ subcommand / script), an MCP tool, a web host — never a shell, an interpreter, a deleting / moving / fetching tool, git, a path outside, a file tool', () => {
+    assert.equal(alwaysRule(bash('npm run lint')), 'Bash(npm run lint:*)')
+    assert.equal(alwaysRule(bash('npm test')), 'Bash(npm test:*)')
+    assert.equal(alwaysRule(bash('npx eslint src')), 'Bash(npx eslint:*)')
+    assert.equal(alwaysRule(bash('cargo build --release')), 'Bash(cargo build:*)')
+    assert.equal(alwaysRule(bash('./gradlew test')), 'Bash(./gradlew test:*)')
+    assert.equal(alwaysRule(bash('ls -la src')), 'Bash(ls:*)')
+    for (const c of ['sed -i s/a/b/ x', 'rm -rf build', 'bash -c x', 'node -e x', 'python3 x.py', 'curl https://x', 'git status', 'npm run', 'npx', 'cat /etc/passwd', 'cat ../../x', 'ls ~/', 'echo "a b"', 'ls *.ts', 'a && b', 'sudo make', 'env X=1 npm test', '/usr/bin/make', 'find . -delete', 'docker run x'])
+      assert.equal(alwaysRule(bash(c)), null, c)
+    assert.equal(alwaysRule(bash('npm test'), { outside: true }), null)
+    assert.equal(alwaysRule({ tool: 'mcp__kb__search', input: {} }), 'mcp__kb__search')
+    assert.equal(alwaysRule({ tool: 'mcp__one-task__one_task_note', input: {} }), null)
+    assert.equal(alwaysRule({ tool: 'WebFetch', input: { url: 'https://docs.example.com/x' } }), 'WebFetch(domain:docs.example.com)')
+    assert.equal(alwaysRule({ tool: 'WebSearch', input: { query: 'x' } }), 'WebSearch')
+    for (const tool of ['Read', 'Edit', 'Write', 'MultiEdit', 'Glob']) assert.equal(alwaysRule({ tool, input: { file_path: 'src/a.ts' } }), null, tool)
+  })
+
+  test('addAllowedTool: the rule into that repo\'s claude.allowedTools in worker.json — once, the rest of the file kept; a repo not in the file is refused', () => {
+    const dir = tempDir('cfg')
+    const file = join(dir, 'worker.json')
+    const repoA = join(dir, 'a')
+    const repoB = join(dir, 'b')
+    writeFileSync(file, `// mine\n${JSON.stringify({ workspace: 'local:x1', name: 'box', repos: [{ name: 'a', path: repoA, claude: { model: 'opus', allowedTools: ['Read'] } }, { name: 'b', path: repoB }] }, null, 2)}\n`)
+    assert.equal(addAllowedTool(file, repoB, 'Bash(npm test:*)'), null)
+    assert.equal(addAllowedTool(file, repoB, 'Bash(npm test:*)'), null)
+    assert.equal(addAllowedTool(file, repoA, 'Bash(npm run lint:*)'), null)
+    const raw = parseJsonc(readFileSync(file, 'utf8')) as { name: string; repos: Array<{ claude?: { model?: string; allowedTools?: string[] } }> }
+    assert.equal(raw.name, 'box')
+    assert.deepEqual(raw.repos[0]!.claude, { model: 'opus', allowedTools: ['Read', 'Bash(npm run lint:*)'] })
+    assert.deepEqual(raw.repos[1]!.claude, { allowedTools: ['Bash(npm test:*)'] })
+    assert.ok(existsSync(`${file}.bak`), 'a file with comments is kept as .bak once')
+    assert.match(String(addAllowedTool(file, join(dir, 'c'), 'Bash(ls:*)')), /not in worker\.json/)
+  })
+})
+
+describe('the process tree of a run (pure)', () => {
+  test('process lists: /proc stat, ps, PowerShell — names without folders', () => {
+    assert.deepEqual(parseStat('4242 (node (dev)) S 4000 4242 4242 0 -1'), { pid: 4242, ppid: 4000, pgid: 4242, name: 'node (dev)' })
+    assert.deepEqual(parsePs('  101     1   101 /usr/local/bin/node\n  102   101   101 /Applications/My App.app/x\n'), [
+      { pid: 101, ppid: 1, pgid: 101, name: '/usr/local/bin/node' },
+      { pid: 102, ppid: 101, pgid: 101, name: '/Applications/My App.app/x' },
+    ])
+    assert.deepEqual(parseWin('500 4 1700000000000 node.exe\r\n'), [{ pid: 500, ppid: 4, pgid: null, born: 1700000000000, name: 'node.exe' }])
+    assert.equal(shortName('C:\\Program Files\\nodejs\\node.exe'), 'node')
+    assert.equal(shortName('/usr/local/bin/esbuild'), 'esbuild')
+  })
+
+  test('leftovers: below Claude Code (at its result, and now), its own group, its mark — never the worker, its parent, pid 1; Windows: never a process older than the run', () => {
+    const root = 100
+    const before = [
+      { pid: 100, ppid: 50, pgid: 100, name: 'claude' },
+      { pid: 110, ppid: 100, pgid: 110, name: 'bash' },
+      { pid: 111, ppid: 110, pgid: 110, name: 'node' },
+      { pid: 120, ppid: 100, pgid: 100, name: 'one-worker' },
+    ]
+    // Claude Code and the shell ended: the server was handed to pid 1, a process of another program got id 120 meanwhile
+    const now = [
+      { pid: 1, ppid: 0, pgid: 1, name: 'init' },
+      { pid: 50, ppid: 1, pgid: 50, name: 'node' },
+      { pid: 111, ppid: 1, pgid: 110, name: 'node' },
+      { pid: 120, ppid: 1, pgid: 120, name: 'vim' },
+      { pid: 130, ppid: 1, pgid: 100, name: 'esbuild' },
+      { pid: 140, ppid: 1, pgid: 140, name: 'vite' },
+      { pid: 150, ppid: 1, pgid: 150, name: 'mine' },
+    ]
+    const left = leftoversOf({ root, since: 0, before, now, marked: new Set([140, 50]), self: 50, parent: 1, platform: 'linux' })
+    assert.deepEqual(left.map((p) => p.pid).sort(), [111, 130, 140])
+    // Windows: parent ids stay; a process created before the run is never followed
+    const win = [
+      { pid: 300, ppid: root, pgid: null, born: 2000, name: 'node.exe' },
+      { pid: 301, ppid: 300, pgid: null, born: 2500, name: 'esbuild.exe' },
+      { pid: 302, ppid: root, pgid: null, born: 500, name: 'old.exe' },
+      { pid: 303, ppid: 300, pgid: null, born: 1500, name: 'reused.exe' },
+    ]
+    assert.deepEqual(below(win, root, { platform: 'win32', since: 1000 }).map((p) => p.pid), [300, 301])
   })
 })
 

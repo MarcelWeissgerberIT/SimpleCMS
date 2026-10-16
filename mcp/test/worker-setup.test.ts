@@ -596,6 +596,40 @@ describe('the setup page', () => {
     assert.deepEqual(raw2.repos.map((r: { name: string; claude?: unknown }) => [r.name, r.claude]), [['shop', { projectSettings: true }], ['billing', { projectSettings: false }]])
   })
 
+  test('per repo, "Allowed without asking" (worker 1.11.0): the rules from worker.json, each with its remove key — Save only removes; a rule the page sends that is not there is dropped', async () => {
+    const home = tempDir('home')
+    const shop = plainRepo(join(home, 'code', 'shop'))
+    const opener = fakeOpener()
+    worker = await spawnWorker({ bundle: presetBundle(PRESET), home, env: { ONE_WORKER_BROWSER: opener.program } })
+    await waitFor(() => opener.urls().length === 1, 8000, () => worker!.stderr())
+    const token = tokenOf(opener.urls()[0]!)
+    await doneState(token)
+    const js = (await call('/setup/app.js')).text
+    for (const s of ['Allowed without asking', 'Ohne Nachfrage erlaubt', 'Always for this repo', 'Für dieses Repo immer erlauben']) assert.ok(js.includes(s), s)
+    const file = join(home, '.config', 'one', 'worker.json')
+    const plain = { path: shop, name: 'shop', baseBranch: 'main', test: '', push: false, pr: 'none', maxUsdPerTask: null }
+    const save = (repo: Record<string, unknown>) => call('/setup/api/save', { token, origin: SELF, body: { repos: [repo] } })
+    assert.equal((await save(plain)).status, 200)
+    // "Always for this repo" in One wrote two rules (here by hand, as the worker does)
+    const raw = JSON.parse(readFileSync(file, 'utf8').replace(/^\/\/.*$/gm, ''))
+    raw.repos[0].claude = { allowedTools: ['Bash(npm test:*)', 'Bash(npm run lint:*)'] }
+    writeFileSync(file, JSON.stringify(raw, null, 2))
+    // a body without the list leaves it as it is (and the page reads it back)
+    const read = await save(plain)
+    assert.equal(read.status, 200, read.text)
+    const allowedOf = (st: { repos: Array<{ name: string; allowed: string[] }> }) => st.repos.find((r) => r.name === 'shop')!.allowed
+    assert.deepEqual(allowedOf(read.json()), ['Bash(npm test:*)', 'Bash(npm run lint:*)'])
+    // one removed; a rule the page never had is not taken
+    const removed = await save({ ...plain, allowed: ['Bash(npm run lint:*)', 'Bash(rm:*)'] })
+    assert.equal(removed.status, 200, removed.text)
+    assert.deepEqual(allowedOf(removed.json()), ['Bash(npm run lint:*)'])
+    const claudeOf = () => JSON.parse(readFileSync(file, 'utf8').replace(/^\/\/.*$/gm, '')).repos[0].claude
+    assert.deepEqual(claudeOf(), { allowedTools: ['Bash(npm run lint:*)'] })
+    // all removed: the key goes
+    assert.equal((await save({ ...plain, allowed: [] })).status, 200)
+    assert.equal(claudeOf(), undefined)
+  })
+
   test('the one-time marking of an older worker\'s clones is named on the setup page until the person takes note', async () => {
     const home = tempDir('home')
     const billing = plainRepo(join(home, 'one-repos', 'billing'), { 'README.md': '# x\n' }, 'git@gitlab.example.com:acme/billing.git')

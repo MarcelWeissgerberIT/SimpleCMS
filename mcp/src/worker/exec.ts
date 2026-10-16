@@ -820,10 +820,8 @@ export function killTree(child: ChildProcess, platform: NodeJS.Platform = proces
     }
     child.once('close', finish)
     try {
-      if (platform === 'win32') {
-        const k = spawn(systemTool('taskkill'), ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true, env: ownEnv(process.env, 'win32') })
-        k.on('error', () => {})
-      } else process.kill(-pid, 'SIGTERM')
+      if (platform === 'win32') void taskkillTree(pid)
+      else process.kill(-pid, 'SIGTERM')
     } catch {
       try {
         child.kill('SIGTERM')
@@ -849,5 +847,28 @@ export function killTree(child: ChildProcess, platform: NodeJS.Platform = proces
     cap.unref()
     // ended by a signal already: its close may have passed — the group still gets the signals above
     if (gone) finish()
+  })
+}
+
+/**
+ * Windows: `taskkill /T /F` for a process id — it and everything below it (System32's taskkill, never by its name).
+ * Resolves when taskkill ended (at the latest after 5 s); never rejects. killTree and the leftovers of a Claude Code run
+ * (proctree.ts) both end trees through it.
+ */
+export function taskkillTree(pid: number): Promise<void> {
+  return new Promise((resolve) => {
+    const cap = setTimeout(resolve, 5000)
+    cap.unref()
+    const done = () => {
+      clearTimeout(cap)
+      resolve()
+    }
+    try {
+      const k = spawn(systemTool('taskkill'), ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true, env: ownEnv(process.env, 'win32') })
+      k.on('error', done)
+      k.on('close', done)
+    } catch {
+      done()
+    }
   })
 }

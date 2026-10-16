@@ -96,8 +96,21 @@ Each task works on its own branch (`one/<title>-<id>`) in its own worktree — y
 - **Notifications**: in **Settings → Coding worker**, switch on *Notify me while One is in the background* — the browser tells you when a task waits, asks, failed or is done while the tab is in the background (on this device).
 - **Stop** ends Claude Code at once; **Retry** or **Run now** start the stage again.
 - **Git**: Refresh, Commit, Push, Open PR, Update from base, Show folder (the path appears in the worker's terminal only). **Force push** and **Discard worktree** ask twice; **Clean up** waits until the branch is merged. **Merge request**: **Post review** and **Merge** (asked first, with your glab / gh) — see [AI review and merge requests](help:review-merge).
-- **Pipeline** (on #/coding) changes the stages: names, which ones run by themselves, Claude Code's mode, turns, model and instructions. Templates: *Standard*, *Modernise legacy code*, *Explain the code* ([one page per component](help:explain-code)), *Review & merge*. A **Static analysis** stage runs the repository's linter / compiler (set on the worker's setup page) and puts its findings in the page.
+- **Pipeline** (on #/coding) changes the stages: names, which ones run by themselves, Claude Code's mode, step limit, model and instructions. Templates: *Standard*, *Modernise legacy code*, *Explain the code* ([one page per component](help:explain-code)), *Review & merge*. A **Static analysis** stage runs the repository's linter / compiler (set on the worker's setup page) and puts its findings in the page.
 - **Projects**: several Coding databases side by side — pick, create and delete them above the board ([Projects](help:pipelines)).
+- **When Claude Code is done, the stage is done** — with every model. Anything it started and left running (a dev server, a watcher) is ended, and the log names it. Each task has its own scratch folder for temporary files on your computer; it goes with the task's branch.
+
+## When Claude Code needs a permission
+Claude Code asks before it runs a command or uses a tool your repository's rules do not cover. The task then shows **WAITING FOR YOU · PERMISSION** and the card **Claude wants** says exactly what — for example *Bash* `npm run lint`:
+
+- **Allow once** — just this time.
+- **Always allow for this repo** — the worker keeps the rule the card names (e.g. `Bash(npm run lint:*)`) in its own `worker.json`; the worker's setup page lists these rules under **Allowed without asking**, each with a key to remove it. Only narrow rules are offered: never a shell, `git`, `rm`, `curl` or a file outside the project — those are **once** only.
+- **Refuse** — Claude Code goes on without it.
+
+The lamp **Claude wants** on Start shows every waiting request (each one by hand, never in a bulk apply), and the browser tells you while One is in the background. Without an answer the worker refuses after 15 minutes. Only the device whose worker runs the task can answer; One sends the worker the answer and nothing else. After the run, one line counts what was asked, allowed and refused.
+
+## Step limit
+Each stage may take a number of steps (**Step limit** in the pipeline). When Claude Code uses them all, the task shows **Step limit reached (40/40)**: **Continue (+40 steps)** runs the stage on from where it stopped — same worktree, everything so far kept, the cost counted like any run — and **Start over** runs it from the beginning. **Continue** needs worker 1.11.0; it is also in Preflight's *Task failed* card and in the AI terminal.
 
 **Repos in iCloud Drive** (e.g. in Documents with "Desktop & Documents Folders" on): git waits whenever a file is only in the cloud, so steps can take minutes — the log says so. Faster: keep the folder downloaded, or clone it again with **Clone from GitLab / GitHub…** on the worker's setup page (into `~/one-repos`, which is not synced) and tick that one. The worker starts at once either way and names a repository whose git is slow in its log. The worker's own working copies never go into iCloud.
 

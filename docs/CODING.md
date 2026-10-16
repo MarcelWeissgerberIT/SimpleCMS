@@ -503,7 +503,7 @@ Per repo:
 | `claude.model` | Claude Code's default | A model name Claude Code accepts (the same rule as a stage's model, § Model per stage). A model One sends for a stage — the stage's or the task's own — wins over it. |
 | `claude.maxTurns` | `30` | Upper bound per stage (a stage may ask for fewer). |
 | `claude.permissionMode.implement` | the stage's | `acceptEdits` or `default` — overrides what the pipeline asks for. Plan stages always run in `plan` mode. A mode that skips permissions is refused. |
-| `claude.allowedTools` / `disallowedTools` | `[]` | Claude Code's own syntax (`"Bash(npm test:*)"`). Headless runs cannot ask, so whatever needs permission must be allowed here. |
+| `claude.allowedTools` / `disallowedTools` | `[]` | Claude Code's own syntax (`"Bash(npm test:*)"`). They decide first; anything else that needs a permission is asked in One (worker 1.11.0, § Permissions — **Always allow for this repo** adds its rule here, ≤ 100 per repo; the setup page lists them with a remove key). A Claude Code without the permission prompt refuses it, as before. |
 | `claude.strictMcp` | `true` | `--strict-mcp-config`: during a task Claude Code gets only the task tools, not your other MCP servers. |
 | `claude.mcpServers` | `[]` | Your own Claude Code MCP servers this repo may use (e.g. `["kb"]`): their tools are allowed and `--strict-mcp-config` is left out. Set on the setup page. |
 | `claude.projectSettings` | `true`; `false` for code from elsewhere | May Claude Code load the repo's own settings — `.claude/settings.json` / `settings.local.json` (hooks, `apiKeyHelper`, MCP approvals), `.mcp.json`, `CLAUDE.md` — and your **local-scope** MCP servers for that folder (`claude mcp add`'s default scope)? `false`: it runs with `--setting-sources user` — your own `~/.claude` settings and **user-scope** MCP servers only, so a server in `claude.mcpServers` must be added with `claude mcp add -s user …` (the log says so, code `mcpUserScope`). The default is `false` for code from elsewhere, by the first rule that matches (§ Safety, "Nor when Claude Code starts on it"): the worker's mark `.git/one-worker-source`, else a folder inside `cloneDir`. Such settings run commands the moment Claude Code starts, even in a read-only stage. Set `true` once you trust that repo — the setup page's switch **Use this repo's own Claude Code settings** writes it (§ The setup page). A Claude Code without `--setting-sources` refuses the stage while the repo has `.claude/` or `.mcp.json`. |
@@ -569,7 +569,10 @@ renewed every minute; a claim without heartbeat for 10 minutes may be taken over
 ### The task panel
 
 On a task's page, between its properties and its body: the stage timeline; what it waits for (**Approve**,
-**Rework…**, **Answer**, **Stop**, **Retry**, **Run now**, **Confirm on this device**); tabs **Log** (live, the last
+**Rework…**, **Answer**, **Stop**, **Retry**, **Run now**, **Confirm on this device**; worker 1.11.0: **Claude wants**
+— a permission, § Permissions — and **Step limit reached (n/n)** with **Continue (+N steps)** · **Start over**, § Claude
+Code); after a run that asked for permissions, one line "Permissions in the last run: n asked · n allowed · n
+refused"; tabs **Log** (live, the last
 2000 lines per task on this device), **Plan**, **Diff** (per file, unified, syntax colours, big files folded, binary
 files skipped), **Tests** (the output's tail), **Git** (branch, base, ahead / behind, pushed, uncommitted, commits,
 conflicts — and the git actions). The log, plan, diff, tests and git state live in this device's IndexedDB
@@ -741,8 +744,56 @@ text written before cannot close its block and add rules of its own; stage names
 one-worker.mjs task-mcp` with a random 48-hex token for that run only. `one_task_read` (the task again),
 `one_task_note` (a progress line in the log), `one_task_ask` (a question: the run ends, the task waits in One;
 the answer goes into the page and the stage runs again with it). All three are marked read-only for Claude Code
-(they change nothing on the computer), so plan mode allows them too. Nothing else in One is reachable through them;
-the token dies with the run.
+(they change nothing on the computer), so plan mode allows them too. `one_task_permission` (worker 1.11.0) is Claude
+Code's `--permission-prompt-tool` (§ Permissions) — called by Claude Code itself, never meant for the model. Nothing
+else in One is reachable through them; the token dies with the run.
+
+**The run ends with Claude Code** (worker 1.11.0, every model): at its `result` the heartbeat stops and the worker
+notes the process tree under Claude Code; once Claude Code's process has exited the stage ends after a short grace
+(1.5 s for the last output lines) — it never waits for the output pipes to close. Anything Claude Code started and
+left running (a dev server, a watcher holding its output open) is ended: SIGTERM, SIGKILL after 2 s on macOS / Linux
+(found by the tree at the result, the process group and an environment mark `ONE_WORKER_RUN` only the worker's run
+carries — read from `/proc` on Linux, `ps -E` on macOS), `taskkill /T /F` per process on Windows (by its kept parent
+ids and start times); one log line names what was ended (code `claudeLeftovers`). A Claude Code that has not exited
+30 s after its result is ended too (`claudeLingered`). **Stop** ends the whole tree as before. The JETZT line and the
+progress clear when the stage ends — also when the link drops.
+
+**Scratch folder** (worker 1.11.0): every task gets `<config dir>/scratch/<task id>` (mode 0700), passed with
+`--add-dir` (read from `--help`; an older CLI runs without it, one log line `addDirOff`). The prompt names it for
+temporary files (the path stays on the computer — log lines and everything One gets show `<scratch>`) and tells Claude
+Code to edit files with its Edit / Write tools, never `sed -i` or a shell redirection, and to stop what it started. The
+folder goes with the task's branch / worktree (Discard, Clean up).
+
+**Step limit** (worker 1.11.0): a stage that ends at `--max-turns` (`error_max_turns`) fails as **Step limit reached
+(n/n)** (`outcome.stepLimit`, log `stepLimit`). **Continue (+N steps)** — in the task panel, Preflight's failed card
+(key A, VON HAND, never in ⇧A) and the AI terminal (`task_action` `continue`) — runs the stage once more on the same
+worktree with as many steps again and a note that it stopped at its limit (`TaskPayload.resume`); its cost counts like
+any run's. **Start over** runs it from the beginning. A worker that does not name 'continue' gets Start over only.
+The pipeline editor's **Step limit** is each stage's `maxTurns` (≤ the repo's `claude.maxTurns`).
+
+### Permissions
+
+Worker 1.11.0, every model: Claude Code runs with `--permission-prompt-tool mcp__one-task__one_task_permission`
+(detected from `--help`, or from version ≥ 1.0.0 — the flag is not listed; an older CLI runs without it and refuses as
+before, log `permissionOff`). When Claude Code needs a permission:
+
+1. The repo's `claude.allowedTools` / `disallowedTools` decide first (Claude Code's own rules; the worker checks them
+   again) — `permissionAllowed` / `permissionDenied` with `how: rule`.
+2. Otherwise the worker HOLDS the tool call and asks One: the task shows **WAITING FOR YOU · PERMISSION**, the card
+   **Claude wants** says what (the tool and the worker's scrubbed description: the command, the file, the address) with
+   **Allow once** · **Always allow for this repo** · **Refuse**; Preflight's lamp **Claude wants** lights (one VON HAND
+   card per request, never in ⇧A or a swipe), and a browser notification comes while One is in the background. Only
+   the worker's own tab (Local, or the paired tab through the relay) gets and answers it.
+3. One sends only the request's id and the verb (`once` · `always` · `deny`). **Always** is stored BY THE WORKER in its
+   worker.json (`claude.allowedTools`) — the rule the card showed: a program and its subcommand (`Bash(npm test:*)`,
+   `Bash(npm run lint:*)`), an MCP tool by its name, a web fetch by its domain. Broad rules are never offered: shells,
+   interpreters, `rm` / `sed` / `mv`…, `git`, `curl`, commands with quotes, globs, pipes or paths outside, file edits;
+   a read outside the repo and the scratch folder is "once" only.
+4. No answer in 15 minutes: refused (`how: timeout`). Stop, or the run ending, refuses what is open (`stopped`).
+
+The stage summary carries `outcome.permissions` { asked, allowed, refused } — the panel's line. Log codes:
+`permissionAsked`, `permissionAllowed`, `permissionDenied`, `permissionAlways`, `permissionAlwaysFailed`,
+`permissionNeeded` { tool } (a refusal Claude Code reported without asking — instead of its raw warning).
 
 ### Pipelines: Coding · Business analysis · QA
 
@@ -990,9 +1041,9 @@ JSON text frames, subprotocol `one-worker.v1`, defined in
 |---|---|
 | tab → worker | `{ type: "hello", app: "one", version, workspace: { id, name, kind, readOnly }, pair? }` (`pair`: this device's secret for a downloaded worker) · `status` (same workspace, or the tab is refused) · `nudge` |
 | worker → tab | `welcome` { worker, name, repos: [{ name, baseBranch, branches?, mcp?, push?, pr? }], parallel, busy, spentToday, dayLimit, claude: { found, version }, setup, paired } (sent again when the setup page saves) · `refused` { reason: workspace \| unbound \| pair, paired? } + close 4003 · `status` { busy, spentToday } |
-| worker → tab (req) | `next` { repos, worker, docs?, can? } → `{ task: TaskPayload \| null }` (claimed; `stage.model` = the model Claude Code runs with, or null; `can` = `WORKER_CAN` — 'analyze', 'git:comment', 'git:merge', 'doc', 'model' (a stage whose model is set), 'mcp-list', 'ship' (git stages and keys return a ShipRecord — it gates nothing): a stage that needs one goes only to a worker that names it, else the task fails with "needs a newer coding worker" — an older worker ran unknown kinds as git stages or dropped the task as unreadable. Document stages came before `can`, together with `docs: true`: a worker that sends either knows them (`workerCan`), one with neither gets none; a worker that does not name all of `WORKER_CAN` shows "Download again" on #/coding; a worker whose welcome names 1.3.1 up to 1.8.0 — the ZIP import that could plant a `.git`, `workerUnsafe` — shows the security notice with its version instead, on #/coding and in the setup card) · `heartbeat` { taskIds } · `finish` { taskId, stageId, outcome } (`outcome.ship?` — § What One records; retried until confirmed; a task the worker cannot read — a stage kind it does not know — comes back at once as `{ status: 'refused' }`, so One does not hand it out again) |
-| worker → tab (event) | `log` { lines } (a tool line of Edit / MultiEdit / Write carries `e`: { path, hunks: [{ old, new }], clipped? } — ≤ 6 changes × 4,000 characters, scrubbed) · `git` { git } (`git.web?`: the repo's web address; `git.commits[].remote?`: that commit is on the remote task branch) · `note` { text } · `question` { text } · `progress` { progress: { turns, maxTurns, cost, model } } · `intake` { intake: { state, source, label, line, percent, repo?, suggest?, error? } } |
-| tab → worker (req) | `stop` { taskId } · `git` { taskId, verb, repo, branch, title, message? } — verbs: refresh, commit, push, force-push, pr, update-base, discard, cleanup, reveal, comment-pr (`message` = the review), merge-pr → `{ message, url?, git?, branchGone?, ship?, error? }` (`error`: key 'pr' after the push) · `open-setup` → `{ opened, reason?: off \| no-browser }` · `intake-begin` { taskId, name, size } → `{ uploadId, chunk }` · `intake-chunk` { uploadId, data } · `intake-end` { uploadId } · `intake-clone` { taskId, url } |
+| worker → tab (req) | `next` { repos, worker, docs?, can? } → `{ task: TaskPayload \| null }` (claimed; `stage.model` = the model Claude Code runs with, or null; `can` = `WORKER_CAN` — 'analyze', 'git:comment', 'git:merge', 'doc', 'model' (a stage whose model is set), 'mcp-list', 'ship' (git stages and keys return a ShipRecord — it gates nothing), 'continue' (`TaskPayload.resume`: a stage that stopped at its step limit runs on — sent only to a worker that names it), 'permission' (permission requests in One; both gate nothing): a stage that needs one goes only to a worker that names it, else the task fails with "needs a newer coding worker" — an older worker ran unknown kinds as git stages or dropped the task as unreadable. Document stages came before `can`, together with `docs: true`: a worker that sends either knows them (`workerCan`), one with neither gets none; a worker that does not name all of `WORKER_CAN` shows "Download again" on #/coding; a worker whose welcome names 1.3.1 up to 1.8.0 — the ZIP import that could plant a `.git`, `workerUnsafe` — shows the security notice with its version instead, on #/coding and in the setup card) · `heartbeat` { taskIds } · `finish` { taskId, stageId, outcome } (`outcome.ship?` — § What One records; worker 1.11.0: `outcome.stepLimit?` { turns, max }, `outcome.permissions?` { asked, allowed, refused }; retried until confirmed; a task the worker cannot read — a stage kind it does not know — comes back at once as `{ status: 'refused' }`, so One does not hand it out again) |
+| worker → tab (event) | `log` { lines } (a tool line of Edit / MultiEdit / Write carries `e`: { path, hunks: [{ old, new }], clipped? } — ≤ 6 changes × 4,000 characters, scrubbed) · `git` { git } (`git.web?`: the repo's web address; `git.commits[].remote?`: that commit is on the remote task branch) · `note` { text } · `question` { text } · `progress` { progress: { turns, maxTurns, cost, model } } · `permission` { ask: PermissionAsk \| null, settled? { id, how } } (worker 1.11.0: the request a stage waits for — { id, tool, kind, what, outside?, rule, repo, at, until }; `status` busy entries carry it as `ask` too) · `intake` { intake: { state, source, label, line, percent, repo?, suggest?, error? } } |
+| tab → worker (req) | `stop` { taskId } · `git` { taskId, verb, repo, branch, title, message? } — verbs: refresh, commit, push, force-push, pr, update-base, discard, cleanup, reveal, comment-pr (`message` = the review), merge-pr → `{ message, url?, git?, branchGone?, ship?, error? }` (`error`: key 'pr' after the push) · `open-setup` → `{ opened, reason?: off \| no-browser }` · `intake-begin` { taskId, name, size } → `{ uploadId, chunk }` · `intake-chunk` { uploadId, data } · `intake-end` { uploadId } · `intake-clone` { taskId, url } · `permission` { taskId, ask: <request id>, verb: once \| always \| deny } → `{ ok, gone? }` (worker 1.11.0) |
 
 `POST http://127.0.0.1:<port>/task` (`Authorization: Bearer <run token>`, no `Origin`): the task tools.
 `/setup`, `/setup/app.css`, `/setup/app.js`, `/setup/api/state | status` (GET) and `/setup/api/scan | add | save`
