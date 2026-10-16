@@ -30,7 +30,7 @@
  *   FAKE:PERMIT[<cmd>]   → wants to run the Bash command <cmd>: asks the permission prompt (--permission-prompt-tool)
  *                          like Claude Code, runs it (writes permitted.txt) when allowed; without the prompt tool its
  *                          tool result is Claude Code's own refusal ("requires approval")
- *   FAKE:PERMITREAD[<p>] → wants to Read the file <p> (outside the worktree) the same way
+ *   FAKE:PERMITREAD[<p>] → wants to Read the file <p> (outside the worktree) the same way — a Windows path whole
  *   FAKE:MAXTURNS        → stops at the step limit (error_max_turns, one step past --max-turns) — with the continue
  *                          note in the prompt ("stopped at its step limit") it finishes instead
  *   FAKE:SCRATCH         → writes note.txt into the folder --add-dir gives and says whether the prompt names it
@@ -336,9 +336,19 @@ if (prompt.includes('FAKE:LEFTOVER')) {
   process.exit(0)
 }
 
-// the brackets may come escaped (a task page from One goes to Claude Code as Markdown: "FAKE:PERMIT\[cmd\]")
-const permit = /FAKE:PERMIT\\?\[([^\]\\]+)\\?\]/.exec(prompt)?.[1]
-const permitRead = /FAKE:PERMITREAD\\?\[([^\]\\]+)\\?\]/.exec(prompt)?.[1]
+/**
+ * A marker's argument: `FAKE:<name>[<arg>]`, up to the first "]" — a backslash is part of it (a Windows path:
+ * "FAKE:PERMITREAD[C:\Users\…\out.txt]"; up to 1.11.0 the fake stopped at the first backslash, found no marker on
+ * Windows and implemented instead). The brackets may come escaped (a task page from One goes to Claude Code as Markdown:
+ * "FAKE:PERMIT\[cmd\]") — then the argument is Markdown too and its escapes go ("C:\\Users" is C:\Users).
+ */
+const markerArg = (name) => {
+  const m = new RegExp(`FAKE:${name}(\\\\?)\\[([\\s\\S]+?)\\1\\]`).exec(prompt)
+  if (!m) return undefined
+  return m[1] ? m[2].replace(/\\([!-/:-@[-`{-~])/g, '$1') : m[2]
+}
+const permit = markerArg('PERMIT')
+const permitRead = markerArg('PERMITREAD')
 if (permit || permitRead) {
   say('This needs a permission.')
   const how = permit

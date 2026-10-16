@@ -6677,7 +6677,7 @@ var require_compile = __commonJS({
       const schOrFunc = root.refs[ref];
       if (schOrFunc)
         return schOrFunc;
-      let _sch = resolve9.call(this, root, ref);
+      let _sch = resolve8.call(this, root, ref);
       if (_sch === void 0) {
         const schema = (_a4 = root.localRefs) === null || _a4 === void 0 ? void 0 : _a4[ref];
         const { schemaId } = this.opts;
@@ -6704,7 +6704,7 @@ var require_compile = __commonJS({
     function sameSchemaEnv(s1, s2) {
       return s1.schema === s2.schema && s1.root === s2.root && s1.baseId === s2.baseId;
     }
-    function resolve9(root, ref) {
+    function resolve8(root, ref) {
       let sch;
       while (typeof (sch = this.refs[ref]) == "string")
         ref = sch;
@@ -7534,7 +7534,7 @@ var require_fast_uri = __commonJS({
       }
       return uri;
     }
-    function resolve9(baseURI, relativeURI, options) {
+    function resolve8(baseURI, relativeURI, options) {
       const schemelessOptions = options ? Object.assign({ scheme: "null" }, options) : { scheme: "null" };
       const {
         parsed: baseParsed,
@@ -7903,7 +7903,7 @@ var require_fast_uri = __commonJS({
     var fastUri = {
       SCHEMES,
       normalize,
-      resolve: resolve9,
+      resolve: resolve8,
       resolveComponent,
       equal,
       serialize,
@@ -10896,7 +10896,7 @@ var require_dist = __commonJS({
 import { fileURLToPath } from "node:url";
 import { existsSync as existsSync9, statSync as statSync5 } from "node:fs";
 import { homedir as homedir11, userInfo } from "node:os";
-import { resolve as resolve8 } from "node:path";
+import { resolve as resolve7 } from "node:path";
 
 // ../src/app/features/coding/protocol.ts
 var WORKER_DEFAULT_PORT = 47322;
@@ -11457,14 +11457,14 @@ function killTree(child, platform = process.platform) {
   if (child.exitCode !== null || child.pid === void 0) return Promise.resolve();
   const pid = child.pid;
   const gone = child.signalCode !== null;
-  return new Promise((resolve9) => {
+  return new Promise((resolve8) => {
     let done = false;
     const finish = () => {
       if (done) return;
       done = true;
       clearTimeout(cap);
       child.off("close", finish);
-      resolve9();
+      resolve8();
     };
     child.once("close", finish);
     try {
@@ -11495,12 +11495,12 @@ function killTree(child, platform = process.platform) {
   });
 }
 function taskkillTree(pid, opts = {}) {
-  return new Promise((resolve9) => {
-    const cap = setTimeout(resolve9, 5e3);
+  return new Promise((resolve8) => {
+    const cap = setTimeout(resolve8, 5e3);
     cap.unref();
     const done = () => {
       clearTimeout(cap);
-      resolve9();
+      resolve8();
     };
     try {
       const k = spawn(systemTool("taskkill"), ["/pid", String(pid), ...opts.tree === false ? [] : ["/T"], "/F"], { stdio: "ignore", windowsHide: true, env: ownEnv(process.env, "win32") });
@@ -12412,7 +12412,7 @@ function usageOf(raw) {
 
 // src/worker/proctree.ts
 import { randomBytes } from "node:crypto";
-import { readFileSync as readFileSync2, readdirSync as readdirSync2 } from "node:fs";
+import { readFileSync as readFileSync2, readdirSync as readdirSync2, readlinkSync } from "node:fs";
 import { createInterface } from "node:readline";
 var RUN_MARK = "ONE_WORKER_RUN";
 var SKEW_MS = 500;
@@ -12432,6 +12432,14 @@ function parseStat(text2) {
   if (pid === null || ppid === null) return null;
   const born = int(rest[19]);
   return { pid, ppid, pgid, name: text2.slice(open2 + 1, close), ...born !== null ? { born } : {} };
+}
+function exeName(pid, comm, readlink = (path) => readlinkSync(path)) {
+  try {
+    const name = (readlink(`/proc/${pid}/exe`).split("/").pop() ?? "").replace(/ \(deleted\)$/, "");
+    return name || comm;
+  } catch {
+    return comm;
+  }
 }
 var sameProc = (a, b) => !!b && a.pid === b.pid && a.name === b.name && (a.born === void 0 || b.born === void 0 || a.born === b.born);
 function parsePs(out) {
@@ -12468,7 +12476,7 @@ async function listProcs(platform = process.platform) {
         if (!/^\d+$/.test(d)) continue;
         try {
           const p = parseStat(readFileSync2(`/proc/${d}/stat`, "utf8"));
-          if (p) out.push(p);
+          if (p) out.push({ ...p, name: exeName(d, p.name) });
         } catch {
         }
       }
@@ -12703,7 +12711,7 @@ var LineSession = class {
     const begin = `ONE-BEGIN-${tag}`;
     const end = `ONE-END-${tag}`;
     this.busy = true;
-    return new Promise((resolve9) => {
+    return new Promise((resolve8) => {
       const lines = [];
       let inside = false;
       const done = (out) => {
@@ -12711,7 +12719,7 @@ var LineSession = class {
         this.onLine = null;
         this.onFail = null;
         this.busy = false;
-        resolve9(out);
+        resolve8(out);
       };
       const timer = setTimeout(() => {
         this.fail();
@@ -13441,7 +13449,7 @@ Claude Code could not start (${e.code ?? e.name})`;
 
 // src/worker/git.ts
 import { createHash } from "node:crypto";
-import { existsSync as existsSync3, lstatSync as lstatSync2, mkdirSync as mkdirSync2, readFileSync as readFileSync4, readlinkSync, statSync as statSync3 } from "node:fs";
+import { existsSync as existsSync3, lstatSync as lstatSync2, mkdirSync as mkdirSync2, readFileSync as readFileSync4, readlinkSync as readlinkSync2, statSync as statSync3 } from "node:fs";
 import { dirname as dirname2, join as join5, posix as posix4, resolve as resolve4, win32 as win324 } from "node:path";
 var GitError = class extends Error {
   /** a log code that says more (folderBusy: Windows still holds files in a folder the worker removes) */
@@ -13830,7 +13838,7 @@ function binaryFile(path) {
 }
 function linkTarget(path) {
   try {
-    return readlinkSync(path);
+    return readlinkSync2(path);
   } catch {
     return "";
   }
@@ -15362,7 +15370,7 @@ var WorkerState = class {
 };
 
 // src/worker/permissions.ts
-import { isAbsolute as isAbsolute3, resolve as resolve5 } from "node:path";
+import { posix as posix5, win32 as win325 } from "node:path";
 var READ_TOOLS = /* @__PURE__ */ new Set(["Read", "Glob", "Grep", "LS", "NotebookRead"]);
 var EDIT_TOOLS = /* @__PURE__ */ new Set(["Edit", "MultiEdit", "Write", "NotebookEdit"]);
 function kindOf(tool) {
@@ -15384,13 +15392,14 @@ function subjectOf(req) {
   const pick2 = kind === "bash" ? req.input.command : kind === "read" || kind === "edit" ? pathOf2(req) || req.input.pattern : kind === "web" ? req.input.url ?? req.input.query : req.input.args ?? req.input.description ?? req.input.command ?? req.input.url ?? req.input.file_path ?? req.input.path;
   return (pick2 ?? "").replace(/\r\n|\r|\n/g, " \u21B5 ").replace(/[^\S ]+/g, " ").replace(/ {2,}/g, " ").trim();
 }
-function isOutside(req, dirs, cwd) {
+function isOutside(req, dirs, cwd, platform = process.platform) {
   const kind = kindOf(req.tool);
   if (kind !== "read" && kind !== "edit") return false;
   const p = pathOf2(req);
   if (!p) return false;
-  const full = isAbsolute3(p) ? p : resolve5(cwd, p);
-  return !dirs.some((d) => !!d && inFolder(full, d));
+  const P = platform === "win32" ? win325 : posix5;
+  const full = P.isAbsolute(p) ? p : P.resolve(cwd, p);
+  return !dirs.some((d) => !!d && inFolder(full, d, platform));
 }
 var simpleCommand = (cmd) => !!cmd.trim() && !/[;&|`<>\r\n]|\$\(/.test(cmd);
 var norm = (s) => s.trim().replace(/\s+/g, " ");
@@ -15488,7 +15497,7 @@ import { randomBytes as randomBytes5 } from "node:crypto";
 // src/worker/clone.ts
 import { existsSync as existsSync6, mkdirSync as mkdirSync3, readdirSync as readdirSync4, writeFileSync as writeFileSync4 } from "node:fs";
 import { homedir as homedir7 } from "node:os";
-import { join as join8, posix as posix5, win32 as win325 } from "node:path";
+import { join as join8, posix as posix6, win32 as win326 } from "node:path";
 var HOST = /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/;
 var SEGMENT = /^[A-Za-z0-9_~][A-Za-z0-9_.~+-]{0,99}$/;
 var USER = /^[A-Za-z0-9._-]{1,64}$/;
@@ -15504,7 +15513,7 @@ function parseCloneUrl(raw, local = false, platform = process.platform) {
   const win2 = platform === "win32";
   if (local && (text2.startsWith("/") || text2.startsWith("file://") || win2 && /^[A-Za-z]:[\\/]/.test(text2))) {
     const dir = text2.startsWith("file://") ? decodeURIComponent(text2.slice(7)) : text2;
-    if (!(win2 ? win325 : posix5).isAbsolute(dir) || dir.split(/[\\/]/).includes("..")) return { error: "That is not a clone address." };
+    if (!(win2 ? win326 : posix6).isAbsolute(dir) || dir.split(/[\\/]/).includes("..")) return { error: "That is not a clone address." };
     return { url: dir, host: "local", path: dir.replace(/^\/+/, ""), name: folderName(win2 ? dir.replace(/\\/g, "/") : dir), kind: "local" };
   }
   if (/^[a-z][a-z0-9+.-]*::/i.test(text2)) return { error: "Only HTTPS and SSH addresses can be cloned here." };
@@ -15544,7 +15553,7 @@ var unquote = (raw) => {
 function cloneBase(raw, home = homedir7(), platform = process.platform, env = process.env) {
   const text2 = unquote(typeof raw === "string" ? raw : "");
   if (!text2 || text2.length > 1e3 || /[\u0000-\u001f]/.test(text2)) return { error: "Type the folder the clones go into." };
-  const P = platform === "win32" ? win325 : posix5;
+  const P = platform === "win32" ? win326 : posix6;
   let dir;
   if (text2 === "~" || text2.startsWith("~/") || text2.startsWith("~\\")) dir = P.join(home, text2.slice(2));
   else if (P.isAbsolute(text2) && (platform !== "win32" || /^(?:[A-Za-z]:[\\/]|[\\/]{2}[^\\/])/.test(text2))) dir = P.resolve(text2);
@@ -16310,7 +16319,7 @@ var Unzip = /* @__PURE__ */ (function() {
 // src/worker/zipimport.ts
 import { closeSync as closeSync2, createReadStream, existsSync as existsSync7, lstatSync as lstatSync3, mkdirSync as mkdirSync4, openSync as openSync2, readFileSync as readFileSync6, readdirSync as readdirSync5, rmSync, statSync as statSync4, writeFileSync as writeFileSync5, writeSync } from "node:fs";
 import { randomBytes as randomBytes4 } from "node:crypto";
-import { dirname as dirname4, join as join9, relative, resolve as resolve6, sep as sep3 } from "node:path";
+import { dirname as dirname4, join as join9, relative, resolve as resolve5, sep as sep3 } from "node:path";
 var ZIP_MAX = () => Number(process.env.ONE_WORKER_ZIP_MAX) || 500 * 1024 * 1024;
 var UNPACKED_MAX = 2 * 1024 * 1024 * 1024;
 var FILES_MAX = 1e5;
@@ -16419,7 +16428,7 @@ async function importZip(zipFile, base, name, label, onProgress = () => {
         fail = `the ZIP has more than ${FILES_MAX.toLocaleString("en")} files`;
         return;
       }
-      const dest = resolve6(tmp, rel);
+      const dest = resolve5(tmp, rel);
       if (!dest.startsWith(tmp + sep3)) {
         fail = `the ZIP has a path outside its folder (${shown(file.name)})`;
         return;
@@ -16688,8 +16697,8 @@ var SKIP_DIRS = /* @__PURE__ */ new Set([
 var TIMEOUT = /* @__PURE__ */ Symbol("timeout");
 function timed(p, ms) {
   let timer;
-  const late2 = new Promise((resolve9) => {
-    timer = setTimeout(() => resolve9(TIMEOUT), ms);
+  const late2 = new Promise((resolve8) => {
+    timer = setTimeout(() => resolve8(TIMEOUT), ms);
   });
   p.catch(() => {
   });
@@ -17265,12 +17274,12 @@ var CloudDial = class {
     this.ws = null;
     this.ready = false;
     if (!ws || ws.readyState === wrapper_default.CLOSED) return;
-    await new Promise((resolve9) => {
-      ws.once("close", () => resolve9());
+    await new Promise((resolve8) => {
+      ws.once("close", () => resolve8());
       ws.close(1e3, "worker stopped");
       setTimeout(() => {
         ws.terminate();
-        resolve9();
+        resolve8();
       }, 1500).unref?.();
     });
   }
@@ -17593,12 +17602,12 @@ var WorkerLink = class {
   }
   /** 'in-use': another program holds the port (another one-worker?) · 'refused': the system does not let the worker listen there */
   start() {
-    return new Promise((resolve9) => {
+    return new Promise((resolve8) => {
       const onError = (e) => {
         this.state = "in-use";
         const why2 = listenError(e.code, e.message, this.opts.port, !!this.opts.cloud);
         this.opts.log(why2.line);
-        resolve9(why2.result);
+        resolve8(why2.result);
       };
       this.http.once("error", onError);
       this.http.listen(this.opts.port, this.opts.host ?? "127.0.0.1", () => {
@@ -17606,7 +17615,7 @@ var WorkerLink = class {
         this.state = "listening";
         this.pinger = setInterval(() => this.ping(), this.opts.pingMs ?? 15e3);
         if (this.opts.cloud) this.startDial(this.opts.cloud);
-        resolve9("listening");
+        resolve8("listening");
       });
     });
   }
@@ -17704,12 +17713,12 @@ var WorkerLink = class {
     const tab = this.tab;
     if (!tab?.workspace || !tab.isOpen()) return Promise.reject(new Error("One is not connected"));
     const id = `w${++this.seq}`;
-    return new Promise((resolve9, reject) => {
+    return new Promise((resolve8, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(new Error("One did not answer in time"));
       }, timeoutMs);
-      this.pending.set(id, { resolve: resolve9, reject, timer });
+      this.pending.set(id, { resolve: resolve8, reject, timer });
       tab.send(JSON.stringify({ type: "req", id, ...body }));
     });
   }
@@ -18768,11 +18777,11 @@ A: ${a.a}
     run2.counts.asked++;
     const minutes = Math.max(1, Math.round(wait / 6e4));
     this.permLine(run2, "warn", `Claude Code asks for a permission: ${ask.tool}${what ? ` \xB7 ${clipWhat(what)}` : ""} \u2014 waiting for you in One (at most ${minutes} min)`, "permissionAsked", { tool: ask.tool, what, min: minutes });
-    return new Promise((resolve9) => {
+    return new Promise((resolve8) => {
       const pending = {
         ask,
         timer: setTimeout(() => this.settle(run2, pending, false, "timeout", DENY.timeout(minutes)), wait),
-        done: (allow, message) => resolve9(answer(allow, message))
+        done: (allow, message) => resolve8(answer(allow, message))
       };
       pending.timer.unref?.();
       run2.asks.push(pending);
@@ -26065,7 +26074,7 @@ var recursive = /* @__PURE__ */ new WeakMap();
 var NONE = 0;
 var ASSUMED = 1;
 var PROVEN = 2;
-function isRecursive(inst, stack, resolve9) {
+function isRecursive(inst, stack, resolve8) {
   const cached2 = recursive.get(inst);
   if (cached2 !== void 0)
     return cached2 ? PROVEN : NONE;
@@ -26075,7 +26084,7 @@ function isRecursive(inst, stack, resolve9) {
   let result = NONE;
   const check = (child) => {
     if (result !== PROVEN && child?._zod) {
-      const answer = isRecursive(child, stack, resolve9);
+      const answer = isRecursive(child, stack, resolve8);
       if (answer > result)
         result = answer;
     }
@@ -26086,7 +26095,7 @@ function isRecursive(inst, stack, resolve9) {
       const desc = Object.getOwnPropertyDescriptor(sh, key);
       if (spread && !desc.enumerable)
         continue;
-      const child = desc.get ? ASSUMED : desc.value?._zod ? isRecursive(desc.value, stack, resolve9) : NONE;
+      const child = desc.get ? ASSUMED : desc.value?._zod ? isRecursive(desc.value, stack, resolve8) : NONE;
       if (child > answer)
         answer = child;
     }
@@ -26150,7 +26159,7 @@ function isRecursive(inst, stack, resolve9) {
       break;
     // `$ZodLazy` caches its inner on the def, so a resolved edge is followed exactly
     case "lazy": {
-      const inner = def._cachedInner ?? (resolve9 ? inst._zod.innerType : void 0);
+      const inner = def._cachedInner ?? (resolve8 ? inst._zod.innerType : void 0);
       merge2(inner ? isRecursive(inner, stack, false) : ASSUMED);
       break;
     }
@@ -32936,7 +32945,7 @@ var Protocol = class {
           return;
         }
         const pollInterval = task2.pollInterval ?? this._options?.defaultTaskPollInterval ?? 1e3;
-        await new Promise((resolve9) => setTimeout(resolve9, pollInterval));
+        await new Promise((resolve8) => setTimeout(resolve8, pollInterval));
         options?.signal?.throwIfAborted();
       }
     } catch (error2) {
@@ -32953,7 +32962,7 @@ var Protocol = class {
    */
   request(request2, resultSchema, options) {
     const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
-    return new Promise((resolve9, reject) => {
+    return new Promise((resolve8, reject) => {
       const earlyReject = (error2) => {
         reject(error2);
       };
@@ -33031,7 +33040,7 @@ var Protocol = class {
           if (!parseResult.success) {
             reject(parseResult.error);
           } else {
-            resolve9(parseResult.data);
+            resolve8(parseResult.data);
           }
         } catch (error2) {
           reject(error2);
@@ -33293,12 +33302,12 @@ var Protocol = class {
       }
     } catch {
     }
-    return new Promise((resolve9, reject) => {
+    return new Promise((resolve8, reject) => {
       if (signal.aborted) {
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
         return;
       }
-      const timeoutId = setTimeout(resolve9, interval);
+      const timeoutId = setTimeout(resolve8, interval);
       signal.addEventListener("abort", () => {
         clearTimeout(timeoutId);
         reject(new McpError(ErrorCode.InvalidRequest, "Request cancelled"));
@@ -34429,7 +34438,7 @@ var McpServer = class {
     let task = createTaskResult.task;
     const pollInterval = task.pollInterval ?? 5e3;
     while (task.status !== "completed" && task.status !== "failed" && task.status !== "cancelled") {
-      await new Promise((resolve9) => setTimeout(resolve9, pollInterval));
+      await new Promise((resolve8) => setTimeout(resolve8, pollInterval));
       const updatedTask = await extra.taskStore.getTask(taskId);
       if (!updatedTask) {
         throw new McpError(ErrorCode.InternalError, `Task ${taskId} not found during polling`);
@@ -35093,12 +35102,12 @@ var StdioServerTransport = class {
     this.onclose?.();
   }
   send(message) {
-    return new Promise((resolve9) => {
+    return new Promise((resolve8) => {
       const json = serializeMessage(message);
       if (this._stdout.write(json)) {
-        resolve9();
+        resolve8();
       } else {
-        this._stdout.once("drain", resolve9);
+        this._stdout.once("drain", resolve8);
       }
     });
   }
@@ -35787,7 +35796,7 @@ function permissionAnswer(worker, input) {
   return JSON.stringify({ behavior: "deny", message });
 }
 function post(url, token, body, timeoutMs) {
-  return new Promise((resolve9, reject) => {
+  return new Promise((resolve8, reject) => {
     const data = JSON.stringify(body);
     const req = request(url, { method: "POST", headers: { "content-type": "application/json", "content-length": Buffer.byteLength(data), authorization: `Bearer ${token}` } }, (res) => {
       let raw = "";
@@ -35797,9 +35806,9 @@ function post(url, token, body, timeoutMs) {
       });
       res.on("end", () => {
         try {
-          resolve9({ status: res.statusCode ?? 0, body: JSON.parse(raw) });
+          resolve8({ status: res.statusCode ?? 0, body: JSON.parse(raw) });
         } catch {
-          resolve9({ status: res.statusCode ?? 0, body: {} });
+          resolve8({ status: res.statusCode ?? 0, body: {} });
         }
       });
       res.on("error", reject);
@@ -35872,7 +35881,7 @@ async function serveTaskMcp(version2) {
 // src/worker/setup.ts
 import { randomBytes as randomBytes8 } from "node:crypto";
 import { homedir as homedir10 } from "node:os";
-import { isAbsolute as isAbsolute4, join as join13, resolve as resolve7 } from "node:path";
+import { isAbsolute as isAbsolute3, join as join13, resolve as resolve6 } from "node:path";
 
 // src/worker/picker.ts
 var PROMPT = "One worker \u2014 pick the folder of a git repository";
@@ -35924,12 +35933,12 @@ function openUrl(url, env = process.env) {
   if (!/^http:\/\/127\.0\.0\.1:\d{4,5}\/setup#k=[A-Za-z0-9_-]{43}$/.test(url)) return Promise.resolve(false);
   const how = browserCommand(url, env);
   if (!how) return Promise.resolve(false);
-  return new Promise((resolve9) => {
+  return new Promise((resolve8) => {
     let done = false;
     const finish = (ok) => {
       if (done) return;
       done = true;
-      resolve9(ok);
+      resolve8(ok);
     };
     const s = spawnSafe(how.cmd, how.args, { ...how.opts, detached: process.platform !== "win32", allow: how.allow });
     if (!s.ok) return finish(false);
@@ -37131,9 +37140,9 @@ var SetupServer = class {
     if (!raw || raw.length > 1e3 || /[\u0000-\u001f]/.test(raw)) return { ok: false, error: "Type the folder of a git repository." };
     let dir;
     if (raw === "~" || raw.startsWith("~/") || raw.startsWith("~\\")) dir = join13(this.home, raw.slice(2));
-    else if (isAbsolute4(raw)) dir = resolve7(raw);
+    else if (isAbsolute3(raw)) dir = resolve6(raw);
     else {
-      dir = resolve7(this.home, raw);
+      dir = resolve6(this.home, raw);
       if (!inFolder(dir, this.home)) return { ok: false, error: "A relative folder must stay inside your home folder." };
     }
     const real = await realpathTimed(dir);
@@ -37441,14 +37450,14 @@ Pick the repositories One may hand coding tasks to. Paths stay on this computer.
   write(checklistText(repos, ticked));
   write(`
 ${prompt}`);
-  return new Promise((resolve9) => {
+  return new Promise((resolve8) => {
     const rl = createInterface3({ input: opts.input, terminal: false });
     let settled = false;
     const end = (v) => {
       if (settled) return;
       settled = true;
       rl.close();
-      resolve9(v);
+      resolve8(v);
     };
     rl.on("line", (raw) => {
       const line = raw.trim().toLowerCase();
@@ -37498,7 +37507,7 @@ var value = (name) => {
 var command = argv.find((a) => !a.startsWith("-") && argv[argv.indexOf(a) - 1] !== "--config" && argv[argv.indexOf(a) - 1] !== "--workspace") ?? "run";
 var { preset, problem: presetProblem } = filePreset();
 var cloud = preset?.cloud ? { origin: preset.origin, host: new URL(preset.origin).host } : null;
-var configFile = resolve8(value("--config") ?? process.env.ONE_WORKER_CONFIG ?? (preset?.cloud ? cloudConfigFile(preset.workspace) : defaultConfigFile()));
+var configFile = resolve7(value("--config") ?? process.env.ONE_WORKER_CONFIG ?? (preset?.cloud ? cloudConfigFile(preset.workspace) : defaultConfigFile()));
 var configOpts = { cloud: !!cloud };
 var self = fileURLToPath(import.meta.url);
 var again = (sub) => `node ${/\s/.test(self) ? `"${self}"` : self} ${sub}`;

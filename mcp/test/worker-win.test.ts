@@ -32,6 +32,7 @@ import { INTAKE_ERROR_MAX, Worker } from '../src/worker/worker.ts'
 import { Intake } from '../src/worker/intake.ts'
 import { entryPath, gitDirIn, importZip, isUnsafe, zipPath, type GuardDisk } from '../src/worker/zipimport.ts'
 import { OutputLines, runTests, safeHead } from '../src/worker/testrun.ts'
+import { alwaysRule, isOutside, kindOf, ruleDecision, subjectOf } from '../src/worker/permissions.ts'
 import { waitFor } from './helpers.ts'
 import { FAKE_CLAUDE, FakeTab, GIT_ENV, IS_WIN, WS_LOCAL, caseFolds, cleanupAll, fakeBin, gitProgram, leakIn, makeRepo, onPath, plainRepo, repoEntry, sh, slashPath, spawnWorker, task, tempDir, writeConfig, WORKER_BUNDLE, type SpawnedWorker } from './worker-helpers.ts'
 
@@ -1730,5 +1731,90 @@ describe('Fix4: an import\'s failure is scrubbed before it is cut; plugins of a 
     writeFileSync(join(p, '.mcp.json'), JSON.stringify({ mcpServers: { s: { command: 'seeded-tool' } } }))
     writeFileSync(join(seed, 'installed_plugins.json'), JSON.stringify({ plugins: { 'seeded@mk': [{ installPath: p }] } }))
     assert.deepEqual(mcpLaunchers({ dirs: [], projectSettings: false, home: tempDir('none'), env: { CLAUDE_CODE_PLUGIN_SEED_DIR: seed }, managed: [] }), ['seeded-tool'])
+  })
+})
+
+/* ------------------------------------------------------------------ CI fix (worker 1.11.0): a read outside the repo on Windows */
+
+describe('CI windows-latest: the permission path with Windows paths — a read outside the repo, the repo\'s disallowedTools', () => {
+  // the layout of the CI runner: the test folders under the temp folder on C:, the checkout on D:
+  const tmp = 'C:\\Users\\runneradmin\\AppData\\Local\\Temp'
+  const base = `${tmp}\\one-worker-test-AbC123`
+  const repo = `${base}\\case7\\repo`
+  const worktrees = `${base}\\case7\\wt`
+  const wt = `${worktrees}\\one-perm6abc-1`
+  const scratch = `${base}\\case7\\scratch\\perm6abc`
+  const dirs = [wt, repo, worktrees, scratch]
+  const read = (file_path: string, tool = 'Read') => ({ tool, input: { file_path } })
+
+  test('isOutside, the Windows branch: another folder, another drive, a share, a way out, a neighbour — outside; any case, either slash, relative inside — inside', () => {
+    const outside = [
+      `${base}\\outside-Xy12\\out.txt`, // the test's file: a sibling of the case folder
+      'C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\one-worker-test-AbC123\\outside-Xy12\\out.txt', // the 8.3 form (lexical: outside, never inside by accident)
+      'D:\\a\\SimpleCMS\\SimpleCMS\\README.md', // another drive
+      `E:${repo.slice(2)}\\src\\a.ts`, // the same folders on another drive
+      '\\\\server\\share\\repo\\src\\a.ts', // a share
+      `${repo}\\..\\secret.txt`, // a way out of the repo (resolved first)
+      `${repo}-other\\x.txt`, // a neighbour whose name starts like it
+      `${wt}\\..\\..\\..\\outside-Xy12\\out.txt`,
+      '..\\..\\..\\outside-Xy12\\out.txt', // relative, read from the worktree
+    ]
+    for (const p of outside) assert.equal(isOutside(read(p), dirs, wt, 'win32'), true, p)
+    const inside = [
+      `${wt}\\src\\a.ts`,
+      `${wt.toUpperCase()}\\SRC\\A.TS`, // without case, as the disk compares
+      `${wt.replace(/\\/g, '/')}/src/a.ts`, // forward slashes (how Claude Code may write it)
+      `c:${wt.slice(2)}\\src\\a.ts`, // a lower-case drive letter
+      'src\\a.ts',
+      './src/a.ts',
+      `${repo}\\README.md`,
+      `${scratch}\\note.txt`,
+      `${wt}\\`, // the folder itself
+    ]
+    for (const p of inside) assert.equal(isOutside(read(p), dirs, wt, 'win32'), false, p)
+    // every file tool alike; a notebook's own field; a tool without a path or not a file tool is never "outside"
+    assert.equal(isOutside(read(`${base}\\outside-Xy12\\out.txt`, 'Edit'), dirs, wt, 'win32'), true)
+    assert.equal(isOutside({ tool: 'NotebookEdit', input: { notebook_path: 'D:\\n.ipynb' } }, dirs, wt, 'win32'), true)
+    assert.equal(isOutside({ tool: 'Grep', input: { pattern: 'x', path: 'C:\\Windows' } }, dirs, wt, 'win32'), true)
+    assert.equal(isOutside({ tool: 'Grep', input: { pattern: 'x' } }, dirs, wt, 'win32'), false)
+    assert.equal(isOutside({ tool: 'Bash', input: { command: 'type C:\\Windows\\win.ini' } }, dirs, wt, 'win32'), false, 'only file tools')
+    // the same request on macOS / Linux reads a Windows path as a relative name (inside): the branch is the platform's own
+    assert.equal(isOutside(read('/w/outside/out.txt'), ['/w/repo'], '/w/repo', 'linux'), true)
+  })
+
+  test('the request One sees: kind read, outside, no "Always", the path scrubbed — the repo\'s disallowedTools refuse a compound command without asking', () => {
+    const file = `${base}\\outside-Xy12\\out.txt`
+    const req = read(file)
+    assert.equal(kindOf(req.tool), 'read')
+    assert.equal(subjectOf(req), file, 'a backslash path whole (nothing of it read as an escape)')
+    assert.equal(alwaysRule(req, { outside: true }), null)
+    const scrub = repoScrubber({ path: repo, worktreeDir: worktrees, scratch }, wt, { platform: 'win32', home: 'C:\\Users\\runneradmin', tmp: 'C:\\Users\\RUNNER~1\\AppData\\Local\\Temp', env: {}, realpath: () => null })
+    const what = scrub.text(subjectOf(req))
+    assert.ok(!what.includes('C:\\Users') && !what.includes('runneradmin') && !what.includes(`${base}\\outside-Xy12`), what)
+    assert.match(what, /outside-Xy12\\out\.txt$/)
+    // the rules are not about paths: the same on every OS (Claude Code's Bash on Windows is Git Bash)
+    assert.equal(ruleDecision({ tool: 'Bash', input: { command: 'npm test && rm -rf build' } }, [], ['Bash(rm:*)']), 'deny')
+    assert.equal(ruleDecision({ tool: 'Bash', input: { command: 'npm test\r\nrm -rf build' } }, [], ['Bash(rm:*)']), 'deny', 'a CRLF line break splits too')
+    // a Windows path in a command never gets "Always"
+    for (const c of ['type C:\\Windows\\win.ini', 'dir ..\\secrets', 'npm test --prefix=D:\\x', 'more %USERPROFILE%\\x']) assert.equal(alwaysRule({ tool: 'Bash', input: { command: c } }), null, c)
+  })
+
+  test('the fake Claude Code reads a marker\'s Windows path whole (the CI failure: FAKE:PERMITREAD[C:\\…] was no marker for it — it implemented instead and nobody was asked)', () => {
+    const run = (prompt: string) => {
+      const out = execFileSync(process.execPath, [FAKE_CLAUDE, '-p', '--output-format', 'stream-json'], { cwd: tempDir('fakemark'), input: prompt, encoding: 'utf8', env: { ...process.env, FAKE_CLAUDE_LOG: '' } })
+      const events = out.split('\n').filter(Boolean).map((l) => JSON.parse(l) as { type: string; result?: string; message?: { content?: Array<{ type: string; name?: string; input?: Record<string, string> }> } })
+      const uses = events.flatMap((e) => (e.type === 'assistant' ? (e.message?.content ?? []) : [])).filter((c) => c.type === 'tool_use')
+      return { result: events.find((e) => e.type === 'result')?.result, uses }
+    }
+    const file = `${base}\\outside-Xy12\\out.txt`
+    // without --permission-prompt-tool the fake's request is refused at once (Claude Code's own refusal): no worker needed
+    const raw = run(`# Task\n\nFAKE:PERMITREAD[${file}]`)
+    assert.equal(raw.result, 'Permission: unavailable', JSON.stringify(raw))
+    assert.deepEqual(raw.uses.map((u) => [u.name, u.input?.file_path]), [['Read', file]])
+    // a task page as Markdown: escaped brackets, an escaped backslash
+    const md = run(`FAKE:PERMITREAD\\[${file.replace(/\\/g, '\\\\')}\\]`)
+    assert.deepEqual(md.uses.map((u) => u.input?.file_path), [file])
+    assert.deepEqual(run('FAKE:PERMIT\\[npm run lint\\]').uses.map((u) => u.input?.command), ['npm run lint'])
+    assert.deepEqual(run('FAKE:PERMIT[npm test && rm -rf build]').uses.map((u) => u.input?.command), ['npm test && rm -rf build'])
   })
 })
