@@ -1217,9 +1217,12 @@ textarea.fm-input--long {
   gap: 8px;
 }
 
+/* as wide as the question (never as wide as its longest title): a long title ends in "…" before its "×" */
 .fm-rel__chips {
   display: flex;
   flex-wrap: wrap;
+  align-self: stretch;
+  min-width: 0;
   gap: 6px;
 }
 

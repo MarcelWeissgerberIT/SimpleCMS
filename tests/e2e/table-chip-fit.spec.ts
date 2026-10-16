@@ -77,6 +77,13 @@ async function chipsWhole(c: Locator): Promise<{ shown: number; hidden: number }
 
 const countOf = (c: Locator) => c.locator('.db-more')
 
+/** The count's title as the pointer finds it (written when the pointer comes to the key — the names as they are then). */
+async function keyTitle(key: Locator): Promise<string | null> {
+  await key.page().mouse.move(1, 1)
+  await key.hover()
+  return key.getAttribute('title')
+}
+
 interface Audit {
   rows: number
   /** Chips cut by an edge, icons / avatars cut inside a shown chip, counts that do not match what is hidden. */
@@ -156,7 +163,7 @@ test.describe('chips in table cells', () => {
     const more = countOf(per)
     await expect(more).toBeVisible()
     await expect(more).toHaveAttribute('data-count', '+1')
-    await expect(more).toHaveAttribute('title', '1 more: Tessa Nordlicht')
+    await expect.poll(() => keyTitle(more)).toBe('1 more: Tessa Nordlicht')
     expect(await more.evaluate((el) => getComputedStyle(el, '::before').content)).toBe('"+1"')
     const mb = await box(more)
     expect(mb.right, 'the count lies inside the cell').toBeLessThanOrEqual((await box(per)).right - 1)
@@ -168,16 +175,16 @@ test.describe('chips in table cells', () => {
     const rel2 = cell(page, 'Review', 'relation')
     expect(await chipsWhole(rel2)).toEqual({ shown: 1, hidden: 2 })
     await expect(countOf(rel2)).toHaveAttribute('data-count', '+2')
-    await expect(countOf(rel2)).toHaveAttribute('title', '2 more: Tessera, Launch plan')
+    await expect.poll(() => keyTitle(countOf(rel2))).toBe('2 more: Tessera, Launch plan')
     const r2 = await box(rel2)
     expect((await box(countOf(rel2))).right).toBeLessThanOrEqual(r2.right - 1)
     expect((await box(rel2.locator('.db-rel').first())).right).toBeLessThanOrEqual(r2.right - 1)
 
     // ---- German: the count's title in the UI's language
     await wsEval(page, (s) => s.updateSettings({ language: 'de' }))
-    await expect(countOf(per)).toHaveAttribute('title', '1 weitere: Tessa Nordlicht')
+    await expect.poll(() => keyTitle(countOf(per))).toBe('1 weitere: Tessa Nordlicht')
     await wsEval(page, (s) => s.updateSettings({ language: 'en' }))
-    await expect(countOf(per)).toHaveAttribute('title', '1 more: Tessa Nordlicht')
+    await expect.poll(() => keyTitle(countOf(per))).toBe('1 more: Tessa Nordlicht')
 
     // ---- a wider column: the count follows the size (both people fit, no count), the whole title shows
     await wsEval(page, (s, a) => s.updateView(a.dbId, a.viewId, { propertyWidths: { pName: 160, pPerson: 280, pRel: 520 } }), { dbId, viewId })
@@ -287,19 +294,19 @@ test.describe('chips in table cells', () => {
     expect(t1.shown + t1.hidden).toBe(5)
     expect(t1.hidden).toBeGreaterThan(0)
     await expect(countOf(tags)).toHaveAttribute('data-count', `+${t1.hidden}`)
-    await expect(countOf(tags)).toHaveAttribute('title', new RegExp(`^${t1.hidden} more: `))
+    await expect.poll(() => keyTitle(countOf(tags))).toMatch(new RegExp(`^${t1.hidden} more: `))
 
     // the long related page gets a short name: the row's size stays, the render fits it again — two chips show
     const rel2 = cell(page, 'Review', 'relation')
     expect(await chipsWhole(rel2)).toEqual({ shown: 1, hidden: 2 })
-    await expect(rel2.locator('.db-chips')).toHaveAttribute('style', /--more-room/)
+    await expect(rel2.locator('.db-chips > .db-rel').first()).toHaveAttribute('style', /--more-room/)
     await wsEval(page, (s, long) => {
       const p = (Object.values(s.pages) as Array<{ id: string; title: string }>).find((x) => x.title === long)!
       s.updatePage(p.id, { title: 'Hub' })
     }, LONG)
     await expect.poll(() => chipsWhole(rel2)).toEqual({ shown: 2, hidden: 1 })
-    await expect(countOf(rel2)).toHaveAttribute('title', '1 more: Launch plan')
-    await expect(rel2.locator('.db-chips')).not.toHaveAttribute('style', /--more-room/)
+    await expect.poll(() => keyTitle(countOf(rel2))).toBe('1 more: Launch plan')
+    await expect(rel2.locator('.db-chips > .db-rel').first()).not.toHaveAttribute('style', /--more-room/)
     expect(await rel2.locator('.db-rel__name').first().evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true)
   })
 
@@ -320,7 +327,7 @@ test.describe('chips in table cells', () => {
       const mo = new MutationObserver((list) => {
         n += list.length
       })
-      mo.observe(el, { subtree: true, attributes: true, attributeFilter: ['data-more', 'data-off', 'data-count', 'style'] })
+      mo.observe(el, { subtree: true, attributes: true, attributeFilter: ['data-more', 'data-on', 'data-count', 'style'] })
       let frames = 0
       const tick = () => {
         if (++frames < 20) requestAnimationFrame(tick)
@@ -365,7 +372,7 @@ test.describe('chips in table cells', () => {
     const files = cell(page, 'Kickoff', 'files')
     await expect(files.locator('.db-file__name')).toHaveText(['Angebot Karlsruhe Hub final.pdf', 'Protokoll Kickoff Oktober.pdf'])
     await expect(countOf(files)).toBeVisible()
-    await expect(countOf(files)).toHaveAttribute('title', '1 more: Protokoll Kickoff Oktober.pdf')
+    await expect.poll(() => keyTitle(countOf(files))).toBe('1 more: Protokoll Kickoff Oktober.pdf')
     expect(await chipsWhole(files)).toEqual({ shown: 1, hidden: 1 })
     expect((await db(page).evaluate(audit)).problems).toEqual([])
   })
@@ -487,7 +494,262 @@ test.describe('chips in table cells', () => {
     for (const type of ['person', 'relation', 'multi_select']) {
       const field = card.locator(`.fb-card__field[data-type="${type}"]`)
       await expect(countOf(field)).toBeVisible()
-      await expect(countOf(field)).toHaveAttribute('title', /^\d+ more: /)
+      await expect.poll(() => keyTitle(countOf(field))).toMatch(/^\d+ more: /)
     }
+  })
+
+  test('a cell holding many values: only what shows is marked, read and watched', async ({ page }) => {
+    // what the page-wide ResizeObserver watches
+    await page.addInitScript(() => {
+      const RO = window.ResizeObserver
+      const watched = new Set<Element>()
+      ;(window as unknown as { __watched: Set<Element> }).__watched = watched
+      window.ResizeObserver = class extends RO {
+        observe(t: Element, o?: ResizeObserverOptions) {
+          watched.add(t)
+          super.observe(t, o)
+        }
+        unobserve(t: Element) {
+          watched.delete(t)
+          super.unobserve(t)
+        }
+      } as typeof ResizeObserver
+    })
+    await openApp(page)
+    const { dbId, viewId } = await seed(page)
+    await wsEval(page, (s, a) => {
+      const target = (Object.values(s.pages) as Array<{ title: string; databaseId?: string }>).find((p) => p.title === 'Tessera')!.databaseId!
+      const mails = Array.from({ length: 80 }, (_, i) => s.createRow(target, { title: `Re: Angebot ${i + 1}` }))
+      for (const title of ['Many 1', 'Many 2', 'Many 3']) s.createRow(a.dbId, { title, properties: { pRel: mails } })
+      s.updateView(a.dbId, a.viewId, { propertyWidths: { pName: 160, pPerson: 130, pRel: 260 } })
+    }, { dbId, viewId })
+    await flush(page)
+    await gotoPage(page, dbId)
+    for (const title of ['Many 1', 'Many 2', 'Many 3']) await expect(countOf(cell(page, title, 'relation'))).toBeVisible()
+    expect((await db(page).evaluate(audit)).problems).toEqual([])
+    const state = (title: string) =>
+      cell(page, title, 'relation').evaluate((c) => {
+        const list = c.querySelector('.db-chips')!
+        const chips = [...list.children].filter((x) => !x.classList.contains('db-more'))
+        const watched = (window as unknown as { __watched: Set<Element> }).__watched
+        return {
+          chips: chips.length,
+          on: chips.filter((x) => x.hasAttribute('data-on')).length,
+          // a chip that waits keeps what it was mounted with: no mark, no style, no tab stop of the fit's
+          touched: chips.filter((x) => !x.hasAttribute('data-on') && (x.hasAttribute('data-off') || x.hasAttribute('style') || x.hasAttribute('tabindex'))).length,
+          watched: chips.filter((x) => watched.has(x)).length,
+          count: (list.querySelector('.db-more') as HTMLElement).dataset.count,
+        }
+      })
+    for (const title of ['Many 1', 'Many 2', 'Many 3']) {
+      const st = await state(title)
+      expect(st.chips).toBe(80)
+      expect(st.on).toBeGreaterThan(0)
+      expect(st.count).toBe(`+${80 - st.on}`)
+      expect(st.touched).toBe(0)
+      // the shown chips and the first one or two that wait — never the 80
+      expect(st.watched).toBeLessThanOrEqual(st.on + 2)
+    }
+    // a store write renders every row again (the database has a relation): the fit reads, finds its plan, writes nothing
+    const writes = await db(page).evaluate(async (el) => {
+      const n: string[] = []
+      // what the fit writes: chip rows, their chips, their keys
+      const mo = new MutationObserver((list) => {
+        for (const m of list) {
+          const t = m.target as Element
+          if (t.matches('.db-chips') || t.parentElement?.matches('.db-chips')) n.push(`${t.className} ${m.attributeName}`)
+        }
+      })
+      mo.observe(el, { subtree: true, attributes: true, attributeFilter: ['data-on', 'data-more', 'data-count', 'style', 'tabindex', 'title'] })
+      const one = (window as unknown as { __one: { workspace: { getState: () => { pages: Record<string, { id: string; title: string }>; updatePage: (id: string, p: { title: string }) => void } } } }).__one
+      const s = one.workspace.getState()
+      const kickoff = Object.values(s.pages).find((p) => p.title === 'Kickoff')!
+      s.updatePage(kickoff.id, { title: 'Kickoff call' })
+      for (let i = 0; i < 10; i++) await new Promise((r) => requestAnimationFrame(r))
+      mo.disconnect()
+      return n
+    })
+    expect(writes).toEqual([])
+    await expect(row(page, 'Kickoff call')).toHaveCount(1)
+  })
+
+  test('list rows take only what they show; a hidden chip is never scrolled into the line or tabbed to', async ({ page }) => {
+    await openApp(page)
+    const { dbId, viewId } = await seed(page)
+    const srcs = await page.evaluate(async () => {
+      const one = (window as unknown as { __one: { files: { saveFile: (b: Blob, n: string) => Promise<string> } } }).__one
+      return [
+        await one.files.saveFile(new Blob(['%PDF-1.4 offer'], { type: 'application/pdf' }), 'Angebot Karlsruhe Hub final.pdf'),
+        await one.files.saveFile(new Blob(['%PDF-1.4 minutes'], { type: 'application/pdf' }), 'Protokoll Kickoff Oktober.pdf'),
+      ]
+    })
+    const listId = await wsEval(page, (s, a) => {
+      s.addProperty(a.dbId, { id: 'pTags', name: 'Tags', type: 'multi_select', options: [
+        { id: 'a', name: 'Alpha', color: 'orange' }, { id: 'e', name: 'Epsilon long tag name here', color: 'blue' }, { id: 'g', name: 'Gamma', color: 'green' },
+      ] })
+      s.addProperty(a.dbId, { id: 'pStatus', name: 'Stage', type: 'select', options: [{ id: 'ip', name: 'In progress', color: 'yellow' }] })
+      s.addProperty(a.dbId, { id: 'pFiles', name: 'Files', type: 'files' })
+      const id = (Object.values(s.pages) as Array<{ id: string; title: string; databaseId?: string }>).find((p) => p.databaseId === a.dbId && p.title === 'Kickoff')!.id
+      s.setRowProperty(id, 'pTags', ['a', 'e', 'g'])
+      s.setRowProperty(id, 'pStatus', 'ip')
+      s.setRowProperty(id, 'pFiles', a.srcs)
+      s.updateView(a.dbId, a.viewId, { propertyWidths: { pName: 160, pPerson: 130, pRel: 150, pTags: 150, pStatus: 120, pFiles: 170 } })
+      return s.addView(a.dbId, { type: 'list', name: 'List', visibleProperties: ['pTags', 'pStatus'] }) as string
+    }, { dbId, viewId, srcs })
+    await flush(page)
+    await gotoPage(page, dbId)
+
+    // ---- table: the clip is no scroll container — bringing the hidden person into view changes nothing
+    const per = cell(page, 'Kickoff', 'person')
+    await expect(countOf(per)).toHaveAttribute('data-count', '+1')
+    expect(await per.locator('.db-chips').evaluate((el) => getComputedStyle(el).overflowY)).toBe('clip')
+    await per.locator('.db-person', { hasText: 'Tessa Nordlicht' }).evaluate((el) => el.scrollIntoView({ block: 'center', inline: 'center' }))
+    await page.waitForTimeout(300)
+    expect(await per.locator('.db-chips').evaluate((el) => [el.scrollTop, el.scrollLeft])).toEqual([0, 0])
+    expect(await chipsWhole(per)).toEqual({ shown: 1, hidden: 1 })
+    await expect(countOf(per)).toBeVisible()
+
+    // ---- the file that waits behind "+1" is out of the tab order; the shown one is not
+    const files = cell(page, 'Kickoff', 'files')
+    await expect(countOf(files)).toHaveAttribute('data-count', '+1')
+    await expect(files.locator('a.db-file').nth(0)).not.toHaveAttribute('tabindex', /.*/)
+    await expect(files.locator('a.db-file').nth(1)).toHaveAttribute('tabindex', '-1')
+    await files.locator('a.db-file').nth(0).focus()
+    await page.keyboard.press('Tab')
+    expect(await files.locator('a.db-file').nth(1).evaluate((el) => el === document.activeElement)).toBe(false)
+    expect(await files.locator('.db-chips').evaluate((el) => [el.scrollTop, el.scrollLeft])).toEqual([0, 0])
+    // wider: both files show, both are tab stops again
+    await wsEval(page, (s, a) => s.updateView(a.dbId, a.viewId, { propertyWidths: { pName: 160, pPerson: 130, pRel: 150, pTags: 150, pStatus: 120, pFiles: 520 } }), { dbId, viewId })
+    await expect(countOf(files)).toBeHidden()
+    await expect(files.locator('a.db-file[tabindex]')).toHaveCount(0)
+
+    // ---- list: the tags field takes only its shown chips + the count — no gap before the next field
+    await page.locator('#main [role="tab"]', { hasText: 'List' }).click()
+    const line = db(page).locator('.dbl-row', { hasText: 'Kickoff' })
+    const tags = line.locator('.dbl-row__prop[data-type="multi_select"]')
+    await expect(countOf(tags)).toBeVisible()
+    const gap = () => tags.evaluate((prop) => {
+      const list = prop.querySelector('.db-chips')!
+      const L = list.getBoundingClientRect()
+      const shown = [...list.children].filter((c) => c.getBoundingClientRect().top < L.bottom - 0.5)
+      const end = Math.max(...shown.map((c) => c.getBoundingClientRect().right))
+      return Math.round(prop.getBoundingClientRect().right - end)
+    })
+    expect(await gap()).toBeLessThanOrEqual(2)
+    expect((await line.evaluate(audit)).problems).toEqual([])
+    const tagCount = await countOf(tags).getAttribute('data-count')
+    // and it settles: its own new width does not fit it again, nor drop another chip
+    const changes = await db(page).evaluate((el) => new Promise<number>((done) => {
+      let n = 0
+      const mo = new MutationObserver((list) => {
+        n += list.length
+      })
+      mo.observe(el, { subtree: true, attributes: true, attributeFilter: ['data-more', 'data-on', 'data-count', 'style'] })
+      let frames = 0
+      const tick = () => {
+        if (++frames < 20) requestAnimationFrame(tick)
+        else {
+          mo.disconnect()
+          done(n)
+        }
+      }
+      requestAnimationFrame(tick)
+    }))
+    expect(changes).toBe(0)
+    await expect(countOf(tags)).toHaveAttribute('data-count', tagCount!)
+    // a rename that lets every tag fit: the field grows back to its content
+    await wsEval(page, (s, a) => {
+      const prop = (s.databases[a.dbId].properties as Array<{ id: string; options?: Array<{ id: string; name: string }> }>).find((p) => p.id === 'pTags')!
+      s.updateProperty(a.dbId, 'pTags', { options: prop.options!.map((o) => (o.id === 'e' ? { ...o, name: 'Eps' } : o)) })
+    }, { dbId })
+    await expect(countOf(tags)).toBeHidden()
+    await expect.poll(() => tags.evaluate((prop) => [...prop.querySelectorAll('.db-chips > .db-tag')].every((c) => c.getBoundingClientRect().right <= prop.getBoundingClientRect().right + 0.5))).toBe(true)
+    expect(listId).toBeTruthy()
+  })
+
+  test('the editor shows a long name whole (touch has no hover title); RTL names keep their beginning', async ({ page }) => {
+    const RTL = 'مشروع تطوير مركز الشمال كارلسروه'
+    await openApp(page)
+    const { dbId } = await seed(page)
+    await wsEval(page, (s, a) => {
+      const target = (Object.values(s.pages) as Array<{ title: string; databaseId?: string }>).find((p) => p.title === 'Tessera')!.databaseId!
+      const rtl = s.createRow(target, { title: a.rtl })
+      s.createRow(a.dbId, { title: 'Arabic', properties: { pRel: [rtl] } })
+    }, { dbId, rtl: RTL })
+    await flush(page)
+    await gotoPage(page, dbId)
+
+    // RTL: the name runs right to left inside its chip, so "…" falls at its END — its first words stay in view
+    const name = cell(page, 'Arabic', 'relation').locator('.db-rel__name')
+    await expect(name).toHaveText(RTL)
+    const rtl = await name.evaluate((el) => {
+      const text = el.firstChild as Text
+      const range = document.createRange()
+      range.setStart(text, 0)
+      range.setEnd(text, 1)
+      const first = range.getBoundingClientRect()
+      const box = el.getBoundingClientRect()
+      return { dir: getComputedStyle(el).direction, cut: el.scrollWidth > el.clientWidth, firstInView: first.left >= box.left - 0.5 && first.right <= box.right + 0.5 }
+    })
+    expect(rtl).toEqual({ dir: 'rtl', cut: true, firstInView: true })
+
+    // a tap on the cell opens the editor: the chip and the option row show the whole long title, wrapped
+    await cell(page, 'Kickoff', 'relation').click()
+    const pop = page.locator('.db-pop')
+    await expect(pop).toBeVisible()
+    const fieldChip = pop.locator('.db-picker__field .db-rel', { hasText: 'Nordlicht' })
+    const option = pop.locator('.db-opt', { hasText: 'Nordlicht' }).locator('.db-opt__name')
+    for (const el of [fieldChip.locator('.db-rel__name'), option]) {
+      const m = await el.evaluate((n) => ({ whole: n.scrollWidth <= n.clientWidth + 1 && n.scrollHeight <= n.clientHeight + 1, text: (n as HTMLElement).innerText.replace(/\s+/g, ' '), lines: Math.round(n.getBoundingClientRect().height / parseFloat(getComputedStyle(n).lineHeight)) }))
+      expect(m.whole).toBe(true)
+      expect(m.text).toBe(LONG)
+      expect(m.lines).toBeGreaterThan(1)
+    }
+    // the chip grows with its border closed inside the field, its icon and "×" on the first line
+    const f = await box(pop.locator('.db-picker__field'))
+    const c = await box(fieldChip)
+    expect(c.right).toBeLessThanOrEqual(f.right)
+    expect(c.bottom - c.top).toBeGreaterThan(30)
+    expect((await box(fieldChip.locator('.db-rel__icon'))).top - c.top).toBeLessThan(8)
+    expect((await box(fieldChip.locator('.db-tag__x'))).top - c.top).toBeLessThan(8)
+    await page.keyboard.press('Escape')
+  })
+
+  test('form fill at phone width: a long relation title ends in "…" inside the form, its "×" in reach', async ({ page }) => {
+    await openApp(page)
+    const { dbId } = await seed(page)
+    await wsEval(page, (s, id) => {
+      const target = (Object.values(s.pages) as Array<{ title: string; databaseId?: string }>).find((p) => p.title === 'Tessera')!.databaseId!
+      s.createRow(target, { title: 'Donaudampfschifffahrtsgesellschaftskapitänswitwenrentenversicherung' })
+      s.addView(id, { type: 'form', name: 'Intake' })
+    }, dbId)
+    await flush(page)
+    await page.setViewportSize({ width: 390, height: 844 })
+    await gotoPage(page, dbId)
+    await page.locator('#main [role="tab"]', { hasText: 'Intake' }).click()
+    await db(page).getByRole('radio', { name: 'Fill' }).click()
+    const form = db(page).locator('form.fm')
+    await expect(form).toBeVisible()
+    const q = form.locator('.fm-q', { has: page.locator('.fm-rel') })
+    await q.getByRole('button', { name: /Projekte/ }).click()
+    const pop = page.locator('.db-pop')
+    await pop.locator('.db-opt', { hasText: 'Nordlicht' }).click()
+    await pop.locator('.db-opt', { hasText: 'Donaudampf' }).click()
+    await page.keyboard.press('Escape')
+    const chips = q.locator('.fm-rel__chips .db-rel')
+    await expect(chips).toHaveCount(2)
+    const vw = 390
+    const rel = await box(q.locator('.fm-rel'))
+    for (let i = 0; i < 2; i++) {
+      const c = await box(chips.nth(i))
+      expect(c.right, 'the chip ends inside the question').toBeLessThanOrEqual(rel.right + 0.5)
+      const x = await box(chips.nth(i).locator('.db-tag__x'))
+      expect(x.right, 'its "×" is on screen').toBeLessThanOrEqual(Math.min(vw, c.right) + 0.5)
+      expect(await chips.nth(i).locator('.db-rel__name').evaluate((n) => getComputedStyle(n).textOverflow)).toBe('ellipsis')
+    }
+    expect(await chips.nth(1).locator('.db-rel__name').evaluate((n) => n.scrollWidth > n.clientWidth)).toBe(true)
+    // the "×" still removes it
+    await chips.nth(1).locator('.db-tag__x').click()
+    await expect(chips).toHaveCount(1)
   })
 })

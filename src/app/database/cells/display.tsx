@@ -7,7 +7,7 @@ import type { Database, DateValue, ID, Page, Person, PropertyDef, SelectOption }
 import { tagStyle, colorText } from '../../lib/colors'
 import { useFileUrl } from '../../lib/files'
 import { PageIcon } from '../../ui/PageIcon'
-import { useLang, useT } from '../../i18n'
+import { useT } from '../../i18n'
 import { titleIfClipped } from '../../ui/clip'
 import { FormulaError, isDate, toText, type FValue } from '../formula'
 import { formatDateValue, formatNumber, formatTimestamp, isDateValue, numberRatio } from '../model/format'
@@ -17,7 +17,7 @@ import { openRow } from '../model/actions'
 import { KitValue, writeUserValue } from '../../features'
 import { actorKind, localPerson, type ActorKind } from '../model/actors'
 import { useUI } from '../../store/ui'
-import { queueFit, watchFit } from './chipFit'
+import { nameHidden, queueFit, watchFit } from './chipFit'
 
 /* ---------------- atoms ---------------- */
 
@@ -48,7 +48,7 @@ const clipTitle = (e: MouseEvent<HTMLElement>) => titleIfClipped(e, CHIP_NAME)
 export function OptionTag({ option, onRemove }: { option: SelectOption; onRemove?: () => void }) {
   return (
     <span className="tag db-tag" style={tagStyle(option.color)} onMouseEnter={clipTitle}>
-      <span className="db-tag__text">{option.name}</span>
+      <span className="db-tag__text" dir="auto">{option.name}</span>
       {onRemove && <RemoveX onRemove={onRemove} />}
     </span>
   )
@@ -60,7 +60,7 @@ export function StatusTag({ option }: { option: SelectOption }) {
   return (
     <span className="tag db-tag db-status" data-group={g} style={tagStyle(option.color)} onMouseEnter={clipTitle}>
       <span className="db-status__led" aria-hidden />
-      <span className="db-tag__text">{option.name}</span>
+      <span className="db-tag__text" dir="auto">{option.name}</span>
     </span>
   )
 }
@@ -83,7 +83,7 @@ export function PersonChip({ person, onRemove }: { person: Person; onRemove?: ()
   return (
     <span className="db-person" onMouseEnter={clipTitle}>
       <Avatar person={person} />
-      <span className="db-person__name">{person.name}</span>
+      <span className="db-person__name" dir="auto">{person.name}</span>
       {onRemove && <RemoveX onRemove={onRemove} />}
     </span>
   )
@@ -109,7 +109,7 @@ export function ActorChip({ id, r }: { id: string; r: Resolver }) {
   return (
     <span className="db-person" data-actor={kind} onMouseEnter={clipTitle}>
       <ActorAvatar kind={kind as Exclude<ActorKind, 'person'>} name={kind === 'local' ? r.ctx.me.name.trim() : name} />
-      <span className="db-person__name">{name}</span>
+      <span className="db-person__name" dir="auto">{name}</span>
     </span>
   )
 }
@@ -143,7 +143,7 @@ export function RelationChip({ page, onRemove, linkable = true }: { page: Page; 
       <span className="db-rel__icon">
         <PageIcon icon={page.icon} size={14} />
       </span>
-      <span className="db-rel__name">{page.title || t('common.untitled')}</span>
+      <span className="db-rel__name" dir="auto">{page.title || t('common.untitled')}</span>
       {onRemove && <RemoveX onRemove={onRemove} />}
     </span>
   )
@@ -166,7 +166,11 @@ export function FileChip({ src, big }: { src: string; big?: boolean }) {
       download={src.startsWith('onefile:') ? name : undefined}
     >
       {big ? fileIcon : <span className="db-file__icon">{fileIcon}</span>}
-      {!big && <span className="db-file__name">{name}</span>}
+      {!big && (
+        <span className="db-file__name" dir="auto">
+          {name}
+        </span>
+      )}
     </a>
   )
 }
@@ -259,9 +263,14 @@ interface ValueProps {
   variant?: Variant
   /** Allow direct manipulation (checkbox toggle, rating click). */
   interactive?: boolean
-  /** Chips on one line (a "+n" count for those that do not fit): always in table cells ('cell'); list rows and free-board card fields ask. */
-  fit?: boolean
+  /**
+   * Chips on one line (a "+n" count for those that do not fit): table cells ('cell') unless they wrap; list rows and
+   * free-board card fields ask. 'shrink': the row then takes only the width of what it shows (list rows, right-aligned).
+   */
+  fit?: Fit
 }
+
+type Fit = boolean | 'shrink'
 
 function linkHref(prop: PropertyDef, v: string): string {
   if (prop.type === 'email') return `mailto:${v}`
@@ -269,15 +278,15 @@ function linkHref(prop: PropertyDef, v: string): string {
   return /^[a-z]+:/i.test(v) ? v : `https://${v}`
 }
 
-function FValueView({ v, lang, fit }: { v: FValue; lang: 'en' | 'de'; fit: boolean }) {
+function FValueView({ v, lang, fit, col }: { v: FValue; lang: 'en' | 'de'; fit: Fit; col: string }) {
   if (typeof v === 'boolean') return <Checkbox checked={v} readOnly />
   if (typeof v === 'number') return <span className="db-num db-num--end">{toText(v, lang)}</span>
   if (isDate(v)) return <span>{toText(v, lang)}</span>
   if (Array.isArray(v))
     return (
-      <ChipList fit={fit}>
+      <ChipList fit={fit} col={col}>
         {v.map((x, i) => (
-          <span key={i} className="db-chip-plain" onMouseEnter={(e) => titleIfClipped(e)}>
+          <span key={i} className="db-chip-plain" dir="auto" onMouseEnter={(e) => titleIfClipped(e)}>
             {toText(x, lang)}
           </span>
         ))}
@@ -289,32 +298,33 @@ function FValueView({ v, lang, fit }: { v: FValue; lang: 'en' | 'de'; fit: boole
 /**
  * A row of chips. A chip is never cut by the edge: a lone chip shrinks ("…" inside its border), and with `fit`
  * (one-line places: table cells, list rows, free-board card fields) chips that do not fit wait whole behind a "+n"
- * count (chipFit.ts); without it the row wraps. Rows of one chip need no measuring.
+ * count (chipFit.ts); without it the row wraps. Rows of one chip need no measuring. `col` = the property and place:
+ * rows of one column share their room (a row that mounts starts from the widths measured there).
  */
-function ChipList({ fit, children }: { fit: boolean; children: ReactNode[] }) {
+function ChipList({ fit, col, children }: { fit: Fit; col: string; children: ReactNode[] }) {
   const shown = children.filter(Boolean)
-  const measure = fit && shown.length > 1
+  const measure = !!fit && shown.length > 1
   const ref = useRef<HTMLSpanElement>(null)
-  useLang() // the count's title is in the UI's language: a switch renders (and fits) again
+  const where = fit === 'shrink' ? `${col}:shrink` : col
   useLayoutEffect(() => {
     const el = ref.current
-    return measure && el ? watchFit(el) : undefined
-  }, [measure])
+    return measure && el ? watchFit(el, where) : undefined
+  }, [measure, where])
   // a render may change the chips while the row keeps its size (the observer would not see it)
   useLayoutEffect(() => {
     if (measure && ref.current) queueFit(ref.current)
   })
   return (
-    <span ref={ref} className="db-chips" data-fit={measure ? '' : undefined}>
+    <span ref={ref} className="db-chips" data-fit={measure ? (fit === 'shrink' ? 'shrink' : '') : undefined}>
       {shown}
-      {measure && <span className="db-more" aria-hidden />}
+      {measure && <span className="db-more" aria-hidden onMouseEnter={nameHidden} />}
     </span>
   )
 }
 
-function PersonList({ ids, people, fit }: { ids: ID[]; people: Person[]; fit: boolean }) {
+function PersonList({ ids, people, fit, col }: { ids: ID[]; people: Person[]; fit: Fit; col: string }) {
   return (
-    <ChipList fit={fit}>
+    <ChipList fit={fit} col={col}>
       {ids.map((id) => {
         const p = people.find((x) => x.id === id)
         return p ? <PersonChip key={id} person={p} /> : null
@@ -323,9 +333,9 @@ function PersonList({ ids, people, fit }: { ids: ID[]; people: Person[]; fit: bo
   )
 }
 
-function RelationList({ ids, pages, linkable, fit }: { ids: ID[]; pages: Record<ID, Page>; linkable: boolean; fit: boolean }) {
+function RelationList({ ids, pages, linkable, fit, col }: { ids: ID[]; pages: Record<ID, Page>; linkable: boolean; fit: Fit; col: string }) {
   return (
-    <ChipList fit={fit}>
+    <ChipList fit={fit} col={col}>
       {ids.map((id) => {
         const p = pages[id]
         return p && !p.trashed ? <RelationChip key={id} page={p} linkable={linkable} /> : null
@@ -349,6 +359,7 @@ export function ValueView({ db, prop, row, r, v, variant = 'cell', interactive, 
     )
   const { lang, labels } = r.ctx
   const fit = fitProp ?? variant === 'cell'
+  const col = `${prop.id}:${variant}`
   if (v instanceof FormulaError) return <FormulaErrorBadge error={v} />
   switch (prop.type) {
     case 'title':
@@ -374,7 +385,7 @@ export function ValueView({ db, prop, row, r, v, variant = 'cell', interactive, 
       const ids = (v as string[] | null) ?? []
       if (!ids.length) return null
       return (
-        <ChipList fit={fit}>
+        <ChipList fit={fit} col={col}>
           {ids.map((id) => {
             const o = prop.options?.find((x) => x.id === id)
             return o ? <OptionTag key={id} option={o} /> : null
@@ -389,7 +400,7 @@ export function ValueView({ db, prop, row, r, v, variant = 'cell', interactive, 
       return isDate(v) ? <span className="db-date db-date--stamp">{formatTimestamp(v.getTime(), lang)}</span> : null
     case 'person': {
       const ids = (v as string[] | null) ?? []
-      return ids.length ? <PersonList ids={ids} people={r.ctx.people} fit={fit} /> : null
+      return ids.length ? <PersonList ids={ids} people={r.ctx.people} fit={fit} col={col} /> : null
     }
     case 'created_by':
     case 'last_edited_by':
@@ -414,7 +425,7 @@ export function ValueView({ db, prop, row, r, v, variant = 'cell', interactive, 
       const list = (v as string[] | null) ?? []
       if (!list.length) return null
       return (
-        <ChipList fit={fit}>
+        <ChipList fit={fit} col={col}>
           {list.map((src, i) => (
             <FileChip key={src + i} src={src} />
           ))}
@@ -423,13 +434,13 @@ export function ValueView({ db, prop, row, r, v, variant = 'cell', interactive, 
     }
     case 'relation': {
       const ids = (v as string[] | null) ?? []
-      return ids.length ? <RelationList ids={ids} pages={r.ctx.pages} linkable={variant !== 'cell'} fit={fit} /> : null
+      return ids.length ? <RelationList ids={ids} pages={r.ctx.pages} linkable={variant !== 'cell'} fit={fit} col={col} /> : null
     }
     case 'rollup':
     case 'formula': {
       if (v === null || v === undefined || v === '') return null
       if (typeof v === 'number' && prop.type === 'rollup') return <span className="db-num db-num--end">{r.textOf(db, prop, v)}</span>
-      return <FValueView v={v as FValue} lang={lang} fit={fit} />
+      return <FValueView v={v as FValue} lang={lang} fit={fit} col={col} />
     }
     case 'unique_id':
       return typeof v === 'number' ? <span className="db-uid">{prop.idPrefix ? `${prop.idPrefix}-${v}` : v}</span> : null

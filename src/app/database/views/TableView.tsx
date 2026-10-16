@@ -1084,7 +1084,7 @@ const TableRow = memo(function TableRow({ m, row, idx, cols, gutter, height, sel
           ) : isTypeProp(p) ? (
             <TypeCell row={row} kit={m.kit} />
           ) : (
-            <ValueView db={m.db} prop={p} row={row} r={m.resolver} v={m.resolver.value(m.db, p, row)} interactive={!m.readOnly} />
+            <ValueView db={m.db} prop={p} row={row} r={m.resolver} v={m.resolver.value(m.db, p, row)} interactive={!m.readOnly} fit={!m.view.wrapCells} />
           )}
           {c > 0 && !foreign && autofillOf(p) && !m.readOnly && <AutofillCellMark dbId={m.db.id} prop={p} rowId={row.id} />}
         </div>

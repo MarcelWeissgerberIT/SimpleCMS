@@ -615,17 +615,31 @@
 }
 
 /* a chip is never cut by the edge of its row: it shrinks, its name ends in "…" inside its own border
-   (icon and avatar stay whole — they never shrink) */
-.db-chips > :not(.db-more) {
+   (icon and avatar stay whole — they never shrink). Clipped, not a scroll container (a cell may hold hundreds);
+   each chip kind named, so the rule is only matched against chips */
+.db-chips > .db-rel,
+.db-chips > .db-file,
+.db-chips > .db-person,
+.db-chips > .db-tag,
+.db-chips > .db-chip-plain {
   flex: 0 1 auto;
   min-width: 0;
+  overflow: clip;
+}
+
+/* a plain chip holds its own "…" (text-overflow on the chip itself) */
+.db-chips > .db-chip-plain {
   overflow: hidden;
 }
 
 /* … and never to a sliver: outside a counted row (where chipFit decides) a chip keeps its icon / avatar and
    room for a letter, at most the row's width (--chip-fixed = padding + icon / avatar + gap; tags and plain chips:
    their padding) */
-.db-chips:not([data-fit]) > :not(.db-more) {
+.db-chips:not([data-fit]) > .db-rel,
+.db-chips:not([data-fit]) > .db-file,
+.db-chips:not([data-fit]) > .db-person,
+.db-chips:not([data-fit]) > .db-tag,
+.db-chips:not([data-fit]) > .db-chip-plain {
   min-width: min(100%, calc(var(--chip-fixed, 12px) + 1em));
 }
 
@@ -643,8 +657,10 @@
 
 /*
  * One-line rows (table cells, list rows, free-board card fields; chipFit.ts): the row wraps inside a one-line
- * clip, so a chip that does not fit drops whole onto a hidden line. chipFit sorts the ones it counts behind the
- * "+n" key.
+ * clip, so a chip that does not fit drops whole onto a hidden line. When chipFit counts, it marks the chips it shows
+ * (`data-on`): they, the "+n" key and a line break come first; every other chip keeps its place behind them, on a
+ * hidden line. The clip is no scroll container: focus, find-in-page or scrollIntoView never scroll a hidden chip
+ * into the line.
  */
 .db-chips[data-fit] {
   position: relative;
@@ -652,17 +668,15 @@
   align-content: flex-start;
   row-gap: var(--chip-h);
   max-height: var(--chip-h);
+  overflow: clip;
 }
 
 .db-chips[data-fit] > .db-person {
   height: var(--chip-h);
 }
 
-.db-chips[data-fit] > [data-off] {
-  order: 2;
-}
-
-.db-chips[data-fit][data-more] > :first-child {
+.db-chips[data-fit][data-more] > [data-on] {
+  order: -1;
   max-width: calc(100% - var(--more-room, 0px));
 }
 
@@ -697,7 +711,7 @@
 .db-chips[data-fit][data-more] > .db-more {
   position: static;
   visibility: visible;
-  order: 1;
+  order: -1;
 }
 
 .db-chips[data-fit][data-more] > .db-more::before {
@@ -707,7 +721,7 @@
 /* a line break after the count: what it counts never shows beside it, even where a hidden chip would fit */
 .db-chips[data-fit][data-more]::after {
   content: '';
-  order: 1;
+  order: -1;
   flex-basis: 100%;
   height: 0;
 }
@@ -773,8 +787,9 @@
 .db-rel__icon,
 .db-file__icon {
   flex: none;
-  display: inline-grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .db-rel__name {
@@ -1281,6 +1296,55 @@
 
 .db-opt__check {
   color: var(--signal-ink);
+}
+
+/* a long name wraps in a picker: the tap that opens the editor shows the whole name (touch has no hover title) —
+   the chip grows, its border stays closed, its icon / avatar / "×" stay on the first line */
+.db-picker__field :is(.db-rel, .db-tag),
+.db-opt__tag .db-tag {
+  align-items: flex-start;
+  height: auto;
+  min-height: 21px;
+  padding-top: 2px;
+  padding-bottom: 2px;
+  line-height: calc(17px * var(--text-scale));
+  white-space: normal;
+}
+
+.db-picker__field .db-person {
+  align-items: flex-start;
+}
+
+.db-picker__field :is(.db-rel__name, .db-tag__text, .db-person__name),
+.db-opt__tag .db-tag__text,
+.db-opt__name {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.db-picker__field .db-rel__icon {
+  height: calc(17px * var(--text-scale));
+}
+
+.db-picker__field :is(.db-rel, .db-tag) .db-tag__x {
+  margin-top: calc((17px * var(--text-scale) - 14px) / 2);
+}
+
+.db-picker__field .db-person__name {
+  line-height: calc(18px * var(--text-scale));
+}
+
+.db-picker__field .db-person > .db-avatar {
+  margin-top: calc((18px * var(--text-scale) - 18px) / 2);
+}
+
+.db-picker__field .db-person > .db-tag__x {
+  margin-top: calc((18px * var(--text-scale) - 14px) / 2);
+}
+
+.db-picker__field .db-status__led,
+.db-opt__tag .db-status__led {
+  margin-top: calc((17px * var(--text-scale) - 7px) / 2);
 }
 
 .db-opt__more {

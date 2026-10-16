@@ -198,7 +198,7 @@ function ListRow({
       <span className="dbl-row__props">
         {values.map(({ p, v }) => (
           <span key={p.id} className="dbl-row__prop" data-type={p.type} title={p.name}>
-            <ValueView db={m.db} prop={p} row={row} r={m.resolver} v={v} variant="card" fit />
+            <ValueView db={m.db} prop={p} row={row} r={m.resolver} v={v} variant="card" fit="shrink" />
           </span>
         ))}
       </span>
