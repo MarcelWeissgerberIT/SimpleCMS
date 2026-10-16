@@ -19,6 +19,7 @@ import { PresenceStack } from '../cloud/Presence'
 import { useCloudReadout, ViewOnlyTag } from '../cloud/Sync'
 import { useReadOnly } from '../cloud/state'
 import { MasterCautionKey, PatchbayReturnChip } from '../../features'
+import { toggleStar } from '../lib/favorites'
 import './topbar.css'
 
 export function Topbar({ route }: { route: Route }) {
@@ -231,8 +232,9 @@ function PageActions({ page, mobile }: { page: Page; mobile: boolean }) {
           </button>
         </Tooltip>
       )}
+      {/* one name ("Favorite"), its state in aria-pressed; the tooltip says what a click does */}
       <Tooltip label={page.favorite ? t('shell.menu.unfavorite') : t('shell.menu.favorite')}>
-        <button type="button" className="icon-btn tb-star" aria-pressed={page.favorite} onClick={() => useWorkspace.getState().toggleFavorite(page.id)}>
+        <button type="button" className="icon-btn tb-star" aria-label={t('shell.fav.star')} aria-pressed={page.favorite} onClick={() => toggleStar(page.id)}>
           <Star size={16} fill={page.favorite ? 'currentColor' : 'none'} />
         </button>
       </Tooltip>

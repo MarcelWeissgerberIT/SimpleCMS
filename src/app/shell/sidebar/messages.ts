@@ -1,8 +1,29 @@
 import type { Messages } from '@/shared/i18n'
 
-/** Sidebar tree strings for database entries (merged into the shell messages) — always add en and de. */
+/**
+ * Sidebar strings — the places, the tool strip (Tools.tsx), FAVORITES (Favorites.tsx, lib/favorites.ts), the tree's
+ * keys and its database entries (merged into the shell messages) — always add en and de.
+ */
 export const treeMessages: Messages = {
   en: {
+    'shell.nav.label': 'Places',
+    'shell.tools.title': 'Tools',
+    'shell.tools.names': 'Names',
+    'shell.tools.namesAria': 'Show tools with names',
+    'shell.tools.readoutNew': '{tool} · NEW',
+    'shell.fav.empty': 'Drag a page here',
+    'shell.fav.emptyHint': 'or ☆ on any page',
+    'shell.fav.emptyHintTouch': 'or ⋯ › Add to favorites',
+    'shell.fav.drop': 'Release: becomes a favorite',
+    'shell.fav.star': 'Favorite',
+    'shell.fav.pos': 'Favorite {n} of {m}',
+    'shell.fav.keysHint': 'Alt+↑ / ↓ moves it',
+    'shell.fav.removed': '“{title}” is no longer a favorite',
+    'shell.fav.fold': 'Collapse favorites',
+    'shell.fav.unfold': 'Expand favorites',
+    'shell.fav.moveUp': 'Move up',
+    'shell.fav.moveDown': 'Move down',
+    'shell.sidebar.collapseAll': 'Collapse all',
     'shell.sidebar.newEntry': 'New entry',
     'shell.sidebar.noEntries': 'No entries',
     'shell.sidebar.showAll': 'Show all · {n}',
@@ -18,6 +39,24 @@ export const treeMessages: Messages = {
     'shell.entry.left': '“{title}” moved out of {db}',
   },
   de: {
+    'shell.nav.label': 'Orte',
+    'shell.tools.title': 'Werkzeuge',
+    'shell.tools.names': 'Namen',
+    'shell.tools.namesAria': 'Werkzeuge mit Namen zeigen',
+    'shell.tools.readoutNew': '{tool} · NEU',
+    'shell.fav.empty': 'Seite hierher ziehen',
+    'shell.fav.emptyHint': 'oder ☆ an jeder Seite',
+    'shell.fav.emptyHintTouch': 'oder ⋯ › Zu Favoriten',
+    'shell.fav.drop': 'Loslassen: wird Favorit',
+    'shell.fav.star': 'Favorit',
+    'shell.fav.pos': 'Favorit {n} von {m}',
+    'shell.fav.keysHint': 'Alt+↑ / ↓ verschiebt ihn',
+    'shell.fav.removed': '„{title}“ ist kein Favorit mehr',
+    'shell.fav.fold': 'Favoriten einklappen',
+    'shell.fav.unfold': 'Favoriten aufklappen',
+    'shell.fav.moveUp': 'Nach oben',
+    'shell.fav.moveDown': 'Nach unten',
+    'shell.sidebar.collapseAll': 'Alle einklappen',
     'shell.sidebar.newEntry': 'Neuer Eintrag',
     'shell.sidebar.noEntries': 'Keine Einträge',
     'shell.sidebar.showAll': 'Alle anzeigen · {n}',

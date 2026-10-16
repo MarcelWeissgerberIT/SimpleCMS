@@ -9,7 +9,7 @@ summary: Eine Seite zeigt alles, was von allein läuft — Agenten, Automationen
 ---
 Agenten, Automationen, Autofill, Skripte, MCP-Server, das Mail-Sortieren, der Sync und die Coding-Pipeline haben je einen eigenen Editor. Der **Schaltplan** bringt sie auf ein Rack: was was startet, was wo liest und schreibt, und welche Wege aus One hinausführen. Er beantwortet zwei Fragen — *was läuft hier von allein?* und *wo könnte eine Mail mit versteckter Anweisung meine Daten hinausschicken lassen?*
 
-Du öffnest ihn über die Zeile **Schaltplan** in der Seitenleiste (zwischen Skripte und Bausteine), mit ⌘K **Schaltplan**, unter **Workspace-Einstellungen → Automatisierung** (**Als Schaltplan**, oder **Im Schaltplan zeigen** an einer Zeile), über die Zelle **SCHALTPLAN** in der Statusleiste oder die Lampe **SICHERUNG OFFEN** im Vorflug-Check. Das Öffnen sendet nichts an eine KI und ändert nichts.
+Du öffnest ihn über die Taste **Schaltplan** unter **Werkzeuge** in der Seitenleiste (zwischen Skripte und Bausteine), mit ⌘K **Schaltplan**, unter **Workspace-Einstellungen → Automatisierung** (**Als Schaltplan**, oder **Im Schaltplan zeigen** an einer Zeile), über die Zelle **SCHALTPLAN** in der Statusleiste oder die Lampe **SICHERUNG OFFEN** im Vorflug-Check. Das Öffnen sendet nichts an eine KI und ändert nichts.
 
 ## Das Rack lesen
 - **Drei Spalten.** **§ 01 Quellen** — Uhren, Zeilen-Auslöser, MCP-Server, eingehende Webhooks, Sync, abgelegte Webseiten, Knöpfe und Befehle. **§ 02 Verarbeitung** — Agenten, Automationen, Skripte, KI-Autofill, Mail sortieren, die Brücke, Pipelines. **§ 03 Ziele** — Datenbanken und Seiten, der Ausgang und die Wege nach außen (beschriftet mit ihrer Art: WEBHOOK, GIT, HTTP, MCP, SYNC).

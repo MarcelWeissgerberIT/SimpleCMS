@@ -614,7 +614,8 @@ export {
  * The Patchbay ("Schaltplan", features/patchbay — see patchbay/index.ts): what runs by itself as one rack, with a fuse on
  * every path that could carry private data out.
  *  - PatchbayRoute { m?, f?, setup? } (#/patchbay, lazy) · openPatchbay({ m?, f?, setup? }) · startPatchbay() (main.tsx)
- *  - PatchbayNavRow (sidebar) · usePatchbayCounts() / patchbayCounts() · PatchbayStatusCells · PatchbayReturnChip (topbar)
+ *  - PatchbayNavRow (sidebar; `variant: 'key'` = a key of the tool strip) · usePatchbaySeen() (its NEW) ·
+ *    usePatchbayCounts() / patchbayCounts() · PatchbayStatusCells · PatchbayReturnChip (topbar)
  *  - wiringInventory(source, WIRING_READERS) · wiringCount() (Workspace › Automation counts the same) · moduleKey /
  *    inventoryKeys (the `?m=` keys) · fuseHintOf / useFuseHint / FuseHintLine (hint.ts — importable directly)
  *  - PATCHBAY_DB · PATCHBAY_STORE · wipePatchbay(scope | null) (`cloud:<ws>`: every member's scope of it too) ·
@@ -627,6 +628,8 @@ export {
   usePatchbayCounts,
   patchbayCounts,
   PatchbayNavRow,
+  usePatchbaySeen,
+  type PatchbayKeyProps,
   PatchbayStatusCells,
   PatchbayReturnChip,
   fuseHintOf,

@@ -249,6 +249,11 @@ interface TreeState {
   toggle: (key: string) => void
   expand: (keys: string[]) => void
   collapse: (key: string) => void
+  /**
+   * Fold every node of these sections (`<section>:` key prefixes) but the `keep` keys — the open page's ancestors and
+   * its own expansion ("Collapse all" in the PAGES head). Other sections' keys (favourites, recent) stay.
+   */
+  collapseAll: (sections: string[], keep: string[]) => void
 }
 
 export const useTreeState = create<TreeState>()((set, get) => {
@@ -282,7 +287,22 @@ export const useTreeState = create<TreeState>()((set, get) => {
       })
       persist()
     },
+    collapseAll: (sections, keep) => {
+      const before = get().expanded
+      const next = foldedBut(before, sections, keep)
+      if (Object.keys(next).length === Object.keys(before).length) return
+      set({ expanded: next })
+      persist()
+    },
   }
 })
+
+/** The expanded keys with every node of `sections` folded but the `keep` ones (pure: collapseAll, its key's state). */
+export function foldedBut(expanded: Record<string, true>, sections: string[], keep: string[]): Record<string, true> {
+  const kept = new Set(keep)
+  const next: Record<string, true> = {}
+  for (const k of Object.keys(expanded)) if (kept.has(k) || !sections.some((sec) => k.startsWith(`${sec}:`))) next[k] = true
+  return next
+}
 
 export const treeKey = (section: string, id: ID) => `${section}:${id}`

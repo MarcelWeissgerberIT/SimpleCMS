@@ -809,6 +809,13 @@ the public APIs stable — other areas are built against them in parallel.
   orders newest first. Rows in view order come from `orderRows()` (database/model/feed.ts), used by `rowsOfView()` too.
 - Sidebar: a database expands to its entries in first-view order (shell/lib/tree.ts, computed only while open); page ⇄
   entry only via `shell/sidebar/entries.ts` (`parentId` / `databaseId` = the database, properties emptied, with Undo).
+  Fixed block (places, TOOLS strip shell/sidebar/Tools.tsx — a WAI-ARIA toolbar, the Patchbay key = patchbay NavRow
+  `variant: 'key'` —, 01 FAVORITES shell/sidebar/Favorites.tsx) above the seam; the tree scrolls below (sticky heads,
+  reveal = the top-level ancestor under the head, one orange bar: `data-bar-in-favs`). Every star goes through
+  `toggleStar()` (shell/lib/favorites.ts; removal = toast with Undo to its slot); favourite order per device +
+  workspace in localStorage `one.shell.favorder:<kind>:<id>` (written only by `placeFavorite` / `moveFavorite` / the
+  Undo; missing favourites join by title; wiped with the team copy), fold `one.shell.sections`, tools mode
+  `one.shell.tools` — never synced / backed up. Drops hit only what shows (collision.ts `visibleWithin`, a live hit test).
 - Mail (features/mail): Gmail → a "Mails" database. Client: One's built-in Google OAuth client (`BUILTIN_CLIENT_ID` /
   `BUILTIN_ORIGINS`, features/mail/builtin.ts; only on those origins; e2e seam `__oneMail.builtin(id)` under `?e2e` only),
   overridden by the person's own client ID (`settings.mail.clientId`, '' = none) — read it only through `effectiveClient()`

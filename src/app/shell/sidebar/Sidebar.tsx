@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { ArrowRight, Bell, Bot, Building2, CalendarDays, CalendarRange, ChevronsLeft, ChevronDown, Compass, Home, LayoutTemplate, Lock, PenLine, Plus, Search, Trash2, Upload, Waypoints, Settings, Table2, FilePlus2, Users, SquareCode, Blocks, SquareKanban, Send, Rewind, CircleGauge } from 'lucide-react'
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react'
+import { ArrowRight, Bell, Building2, CalendarDays, ChevronsDownUp, ChevronsLeft, ChevronDown, Compass, Home, LayoutTemplate, Lock, PenLine, Plus, Search, Settings, Table2, FilePlus2, Users, SquareKanban, Send, Rewind, CircleGauge } from 'lucide-react'
+import { useShallow } from 'zustand/react/shallow'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
-import { useFavorites, useTrash, useTreeCount, useHasFavorites } from '../../store/selectors'
+import { useTrash, useTreeCount } from '../../store/selectors'
 import { navigate, useRoute } from '../../lib/router'
-import { openTodayJournal, AgentsNavBadge, OutboxNavBadge, useOutboxVisible, openRecorder, REWIND_SHORTCUT, usePreflightOn, openRegler, PatchbayNavRow } from '../../features'
+import { openTodayJournal, OutboxNavBadge, useOutboxVisible, openRecorder, REWIND_SHORTCUT, openRegler } from '../../features'
 import { Menu, useMenu, type MenuEntry } from '../../ui/Menu'
 import { toggleMenu } from '../lib/menu'
 import { Tooltip } from '../../ui/Tooltip'
@@ -12,11 +13,14 @@ import { shortcutLabel } from '../../ui/controls'
 import { useT } from '../../i18n'
 import { logoMarkSvg } from '@/shared/logo'
 import { BRAND } from '@/shared/brand'
-import { DraggableTree, PageList, PageTree, SECTION_DROP, useRootIds, useSectionDrop } from './PageTree'
+import { DraggableTree, PageTree, SECTION_DROP, useRootIds, useSectionDrop } from './PageTree'
+import { FavoritesSection } from './Favorites'
+import { ToolStrip } from './Tools'
+import { NavRow } from './NavRow'
 import { TrashPopover } from './TrashPopover'
 import { useVisited, VisitedSection } from './Visited'
 import { createPrivateDatabaseAndOpen, createPrivatePageAndOpen } from './private'
-import { treeAncestors, treeKey, useTreeState } from '../lib/tree'
+import { foldedBut, treeAncestors, treeKey, useTreeState } from '../lib/tree'
 import { usePrivateMode } from '../../cloud'
 import { closeMobileSidebar, createDatabaseAndOpen, createFreeBoardAndOpen, createPageAndOpen, goHome, toggleSidebar } from '../lib/actions'
 import { useIsMobile, useKbdHint } from '../lib/hooks'
@@ -60,8 +64,6 @@ export function Sidebar() {
 
   const visited = useVisited()
   const no = useSectionNumbers(visited.shown)
-  // Preflight's plate counts the agents' proposals: their own badge goes while it is on
-  const preflightOn = usePreflightOn()
 
   const w = Math.min(MAX_W, Math.max(MIN_W, dragW ?? width))
   const state = mobile ? (mobileOpen ? 'drawer-open' : 'drawer') : focus ? 'hidden' : collapsed ? (hoverReveal ? 'reveal' : 'collapsed') : 'docked'
@@ -89,7 +91,8 @@ export function Sidebar() {
         inert={state === 'collapsed' || state === 'hidden' || state === 'drawer' ? true : undefined}
       >
         <SidebarHeader />
-        <nav className="sb-nav">
+        {/* the fixed block: the places of every day, the tools as one strip of keys, FAVORITES — a hairline below it */}
+        <nav className="sb-nav" aria-label={t('shell.nav.label')}>
           <NavRow icon={<Search size={16} />} label={t('shell.nav.search')} kbd={kbd('Mod+K')} onClick={() => (closeMobileSidebar(), useUI.getState().openPalette())} />
           <NavRow icon={<Home size={16} />} label={t('shell.nav.home')} active={route.name === 'home'} onClick={goHome} />
           <InboxNavRow active={route.name === 'inbox'} />
@@ -105,28 +108,18 @@ export function Sidebar() {
               }}
             />
           )}
-          <NavRow icon={<CalendarRange size={16} />} label={t('shell.nav.agenda')} active={route.name === 'agenda'} onClick={() => (closeMobileSidebar(), navigate({ name: 'agenda' }))} />
-          <NavRow icon={<Waypoints size={16} />} label={t('shell.nav.graph')} active={route.name === 'graph'} onClick={() => (closeMobileSidebar(), navigate({ name: 'graph' }))} />
-          <NavRow icon={<Bot size={16} />} label={t('features.agents.title')} active={route.name === 'agents'} badge={preflightOn ? undefined : <AgentsNavBadge />} onClick={() => (closeMobileSidebar(), navigate({ name: 'agents' }))} />
-          <NavRow icon={<SquareCode size={16} />} label={t('features.script.title')} active={route.name === 'scripts'} onClick={() => (closeMobileSidebar(), navigate({ name: 'scripts' }))} />
-          <PatchbayNavRow active={route.name === 'patchbay'} />
-          <NavRow icon={<Blocks size={16} />} label={t('features.kit.title')} active={route.name === 'kit'} onClick={() => (closeMobileSidebar(), navigate({ name: 'kit' }))} />
-          {!readOnly && (
-            <>
-              <NavRow icon={<LayoutTemplate size={16} />} label={t('shell.nav.templates')} onClick={() => (closeMobileSidebar(), useUI.getState().openModal({ type: 'templates', parentId: null }))} />
-              <NavRow icon={<Upload size={16} />} label={t('shell.nav.import')} onClick={() => (closeMobileSidebar(), useUI.getState().openModal({ type: 'import' }))} />
-            </>
-          )}
+          <ToolStrip />
         </nav>
-        <div className="sb-scroll" onKeyDown={onTreeKeyDown}>
-          <FavoritesSection n={no.fav} />
-          {visited.shown && <VisitedSection n={no.visited} recent={visited.recent} frequent={visited.frequent} />}
-          {/* one drag & drop context: pages move between the workspace's and my private ones too */}
-          <DraggableTree>
+        {/* one drag & drop context: a page into FAVORITES, favourites among themselves, pages between the workspace's
+            and my private ones */}
+        <DraggableTree>
+          <FavoritesSection n={no.fav} onKeyDown={onTreeKeyDown} />
+          <div className="sb-scroll" onKeyDown={onTreeKeyDown} onScroll={onScrollArea}>
+            {visited.shown && <VisitedSection n={no.visited} recent={visited.recent} frequent={visited.frequent} />}
             <PagesSection n={no.pages} />
             <PrivateSection n={no.priv} />
-          </DraggableTree>
-        </div>
+          </div>
+        </DraggableTree>
         <SidebarFooter n={no.trash} />
         {!mobile && (
           <ResizeHandle
@@ -143,11 +136,33 @@ export function Sidebar() {
   )
 }
 
-/** Arrow-key navigation across all visible tree rows (WAI-ARIA tree pattern). */
-function onTreeKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+/**
+ * The scroll area under the fixed block: the section head that sticks at its top gets a hairline below it (data-stuck)
+ * — no fade, no half row (rows snap whole, sidebar.css). ≤ 4 heads per frame.
+ */
+let scrollFrame = 0
+function onScrollArea(e: React.UIEvent<HTMLDivElement>) {
+  const box = e.currentTarget
+  cancelAnimationFrame(scrollFrame)
+  scrollFrame = requestAnimationFrame(() => {
+    const top = box.getBoundingClientRect().top
+    for (const head of box.querySelectorAll<HTMLElement>(':scope > .sb-section > .sb-sect')) {
+      const section = head.parentElement!.getBoundingClientRect()
+      const h = head.getBoundingClientRect()
+      head.toggleAttribute('data-stuck', section.top < top - 0.5 && h.top <= top + 0.5 && section.bottom > h.bottom + 1)
+    }
+  })
+}
+
+/**
+ * Arrow-key navigation across all visible rows — FAVORITES and the scroll area as ONE run (WAI-ARIA tree pattern):
+ * the handler sits on both and walks the sidebar's `.sb-row__link`s in DOM order.
+ */
+function onTreeKeyDown(e: KeyboardEvent<HTMLElement>) {
   const link = (e.target as HTMLElement).closest?.('.sb-row__link') as HTMLElement | null
   if (!link || e.altKey || e.metaKey || e.ctrlKey) return
-  const all = [...e.currentTarget.querySelectorAll<HTMLElement>('.sb-row__link')]
+  const root = e.currentTarget.closest('.sb') ?? e.currentTarget
+  const all = [...root.querySelectorAll<HTMLElement>('.sb-favs .sb-row__link, .sb-scroll .sb-row__link')]
   const i = all.indexOf(link)
   const key = link.dataset.treeKey ?? ''
   const exp = link.getAttribute('aria-expanded')
@@ -285,17 +300,6 @@ function SidebarHeader() {
   )
 }
 
-function NavRow({ icon, label, kbd, active, badge, ariaLabel, onClick }: { icon: ReactNode; label: string; kbd?: string; active?: boolean; badge?: ReactNode; ariaLabel?: string; onClick: () => void }) {
-  return (
-    <button type="button" className="sb-navrow" data-active={active || undefined} aria-label={ariaLabel} onClick={onClick}>
-      <span className="sb-navrow__icon">{icon}</span>
-      <span className="sb-navrow__label">{label}</span>
-      {badge}
-      {kbd && <span className="kbd sb-navrow__kbd">{kbd}</span>}
-    </button>
-  )
-}
-
 /** The Outbox (features/outbox): shown once a send route is active here or a slip exists; "5 OPEN" (red "UNCLEAR 1"). */
 function OutboxNavRow({ active }: { active: boolean }) {
   const t = useT()
@@ -344,32 +348,18 @@ function SectionHead({ n, label, count, icon, drop, children }: { n: string; lab
 }
 
 /**
- * The sections' numbers, counting only those shown: FAVORITES? · RECENT | FREQUENT? · PAGES · PRIVATE? · TRASH.
+ * The sections' numbers, counting only those shown: FAVORITES (always: empty, it says how) · RECENT | FREQUENT? ·
+ * PAGES · PRIVATE? · TRASH.
  */
 function useSectionNumbers(visitedShown: boolean): { fav: number; visited: number; pages: number; priv: number; trash: number } {
-  const hasFavs = useHasFavorites()
   const mode = usePrivateMode()
   const privateShown = useTreeCount(true) > 0
   let n = 0
-  const fav = hasFavs ? ++n : 0
+  const fav = ++n
   const visited = visitedShown ? ++n : 0
   const pages = ++n
   const priv = mode === 'write' || (mode === 'read' && privateShown) ? ++n : 0
   return { fav, visited, pages, priv, trash: ++n }
-}
-
-function FavoritesSection({ n }: { n: number }) {
-  const t = useT()
-  const favs = useFavorites()
-  if (favs.length === 0) return null
-  return (
-    <section className="sb-section" aria-label={t('shell.sidebar.favorites')}>
-      <SectionHead n={sectionNo(n)} label={t('shell.sidebar.favorites')} count={favs.length} />
-      <div role="tree">
-        <PageList ids={favs.map((p) => p.id)} section="fav" />
-      </div>
-    </section>
-  )
 }
 
 const sectionNo = (n: number) => String(n).padStart(2, '0')
@@ -387,6 +377,7 @@ function PagesSection({ n }: { n: number }) {
   return (
     <section className="sb-section" aria-label={t('shell.sidebar.pages')}>
       <SectionHead n={sectionNo(n)} label={t('shell.sidebar.pages')} count={total} drop={drop}>
+        <CollapseAllKey />
         {!readOnly && (
           <button type="button" className="sb-sect__add" aria-label={t('common.newPage')} onClick={toggleMenu(menu)}>
             <Plus size={14} />
@@ -414,6 +405,36 @@ function PagesSection({ n }: { n: number }) {
         </button>
       )}
     </section>
+  )
+}
+
+/** The tree's own sections: what "Collapse all" folds. */
+const TREE_SECTIONS = ['pages', 'private']
+
+/**
+ * "Collapse all" in the PAGES head: folds the tree (PAGES and PRIVATE) back to its top level — the open page's
+ * ancestors and its own expansion stay. Always there (the head never shifts): aria-disabled while nothing would fold.
+ */
+function CollapseAllKey() {
+  const t = useT()
+  const route = useRoute()
+  const openId = route.name === 'page' ? route.id : null
+  const keep = useWorkspace(
+    useShallow((s) => (openId && s.pages[openId] ? [...treeAncestors(s, openId), s.pages[openId]].map((p) => treeKey(p.private ? 'private' : 'pages', p.id)) : [])),
+  )
+  const can = useTreeState((s) => Object.keys(foldedBut(s.expanded, TREE_SECTIONS, keep)).length < Object.keys(s.expanded).length)
+  return (
+    <Tooltip label={t('shell.sidebar.collapseAll')}>
+      <button
+        type="button"
+        className="sb-sect__add sb-sect__collapse"
+        aria-label={t('shell.sidebar.collapseAll')}
+        aria-disabled={!can || undefined}
+        onClick={() => can && useTreeState.getState().collapseAll(TREE_SECTIONS, keep)}
+      >
+        <ChevronsDownUp size={14} />
+      </button>
+    </Tooltip>
   )
 }
 
@@ -461,15 +482,39 @@ function PrivateSection({ n }: { n: number }) {
   )
 }
 
+/**
+ * The foot, one row: "04 TRASH 03 ······ WHAT CAN ONE DO? →". Where both do not fit (a narrow sidebar, big text, a long
+ * word) "What can One do?" sheds, measured: first its arrow (`data-shed="1"`), then its words for the compass
+ * (`data-shed="2"`; its name and tooltip stay).
+ */
 function SidebarFooter({ n }: { n: number }) {
   const t = useT()
   const trash = useTrash()
   const [anchor, setAnchor] = useState<HTMLElement | null>(null)
   const mobile = useIsMobile()
   const btn = useRef<HTMLButtonElement>(null)
+  const foot = useRef<HTMLDivElement>(null)
   const discover = useRoute().name === 'discover'
+  const label = t('shell.discover.nav')
+  const trashLabel = t('shell.sidebar.trash')
+  useLayoutEffect(() => {
+    const el = foot.current
+    if (!el) return
+    const over = () => el.scrollWidth > el.clientWidth + 1
+    const fit = () => {
+      delete el.dataset.shed
+      if (!over()) return
+      el.dataset.shed = '1'
+      if (over()) el.dataset.shed = '2'
+    }
+    fit()
+    const ro = new ResizeObserver(fit)
+    ro.observe(el)
+    if (btn.current) ro.observe(btn.current)
+    return () => ro.disconnect()
+  }, [label, trashLabel, trash.length > 99])
   return (
-    <div className="sb-foot">
+    <div className="sb-foot" ref={foot}>
       <button
         ref={btn}
         type="button"
@@ -479,18 +524,16 @@ function SidebarFooter({ n }: { n: number }) {
         aria-haspopup="dialog"
       >
         <span className="sb-sect__n">{sectionNo(n)}</span>
-        <Trash2 size={14} />
-        <span className="sb-trash__label">{t('shell.sidebar.trash')}</span>
-        <span className="sb-sect__leader" aria-hidden />
+        <span className="sb-trash__label">{trashLabel}</span>
         <span className="sb-sect__count">{String(trash.length).padStart(2, '0')}</span>
       </button>
       <TrashPopover anchor={anchor} onClose={() => setAnchor(null)} placement={mobile ? 'top' : 'right-end'} />
+      <span className="sb-sect__leader sb-foot__leader" aria-hidden />
       {/* getting started: every feature on one page (shell/discover) */}
-      <button type="button" className="sb-discover" data-active={discover || undefined} onClick={() => (closeMobileSidebar(), navigate('#/discover'))}>
-        <Compass size={14} />
-        <span className="sb-discover__label">{t('shell.discover.nav')}</span>
-        <span className="sb-sect__leader" aria-hidden />
-        <ArrowRight size={13} aria-hidden />
+      <button type="button" className="sb-discover" data-active={discover || undefined} aria-current={discover ? 'page' : undefined} title={label} onClick={() => (closeMobileSidebar(), navigate('#/discover'))}>
+        <Compass size={15} className="sb-discover__icon" aria-hidden />
+        <span className="sb-discover__label">{label}</span>
+        <ArrowRight size={13} className="sb-discover__arrow" aria-hidden />
       </button>
     </div>
   )

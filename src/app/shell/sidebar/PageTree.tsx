@@ -4,7 +4,6 @@ import {
   DragOverlay,
   MouseSensor,
   TouchSensor,
-  pointerWithin,
   useDraggable,
   useDroppable,
   useSensor,
@@ -14,7 +13,7 @@ import {
   type DragStartEvent,
   type Modifier,
 } from '@dnd-kit/core'
-import { ChevronRight, ClipboardCopy, Copy, FolderInput, Link2, Lock, MoreHorizontal, PanelRight, PencilLine, Plus, Star, StarOff, Trash2, PanelRightOpen, Users } from 'lucide-react'
+import { ArrowDown, ArrowUp, ChevronRight, ClipboardCopy, Copy, FolderInput, Link2, Lock, MoreHorizontal, PanelRight, PencilLine, Plus, Star, StarOff, Trash2, PanelRightOpen, Users } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
@@ -23,10 +22,12 @@ import { useRoute } from '../../lib/router'
 import { PageIcon } from '../../ui/PageIcon'
 import { Menu, useMenu, type MenuEntry } from '../../ui/Menu'
 import { toggleMenu } from '../lib/menu'
-import { useLang, useT } from '../../i18n'
+import { t, useLang, useT } from '../../i18n'
 import type { ID } from '../../store/types'
 import { ENTRY_LIMIT, childIds, treeKey, useChildIds, useEntryCount, useEntryIds, useTreeState } from '../lib/tree'
 import { closeMobileSidebar, copyPageForAI, copyPageLink, createPageAndOpen, duplicateAndOpen, goToPage, trashWithUndo } from '../lib/actions'
+import { moveFavorite, placeFavorite, shownFavorites, toggleStar, useFavFold, useFavOrder } from '../lib/favorites'
+import { liveRect, visibleWithin } from './collision'
 import { canLeaveFor, createEntryAndOpen, dropOptions, nodeKind, requestLeaveDatabase, requestMakeEntry } from './entries'
 import { AIRunLed, DbCommandKey, DbCommandsMenu, OutboxTreeCount, type CommandHost } from '../../features'
 import { useIsTouch } from '../lib/hooks'
@@ -44,9 +45,27 @@ interface DropState {
 
 const INDENT = 14
 
-/** Droppable section heads ("drop on PRIVATE" = to the end of that section's top level). */
-export const SECTION_DROP = { pages: 'section:pages', private: 'section:private' } as const
+/**
+ * Drop targets that are not rows: the team section heads ("drop on PRIVATE" = to the end of that section's top level),
+ * FAVORITES (its head and box — `fav` — and its empty slot — `favEnd`: the page becomes a favourite at the end).
+ */
+export const SECTION_DROP = { pages: 'section:pages', private: 'section:private', fav: 'section:fav', favEnd: 'section:fav-end' } as const
 const sectionOf = (dropId: string): boolean | null => (dropId === SECTION_DROP.private ? true : dropId === SECTION_DROP.pages ? false : null)
+const favZone = (dropId: string) => dropId === SECTION_DROP.fav || dropId === SECTION_DROP.favEnd
+
+/** A favourite's own drag / drop id (the page is a tree row too): `fav:<id>`. */
+const FAV = 'fav:'
+/**
+ * A row's id in the drag & drop context: the page id in the tree (pages / private); copies elsewhere carry their section
+ * (`fav:<id>` / `recent:<id>` / `frequent:<id>`, deeper rows of a copy `<section>~<depth>:<id>`), so one page shown twice
+ * never takes the other's place.
+ */
+const dndIdOf = (section: string, id: ID, depth: number) => (section === 'pages' || section === 'private' ? id : depth === 0 ? `${section}:${id}` : `${section}~${depth}:${id}`)
+const pageOfDnd = (dndId: string) => {
+  const i = dndId.indexOf(':')
+  return dndId.startsWith('section:') || i < 0 ? dndId : dndId.slice(i + 1)
+}
+const inTree = (section: string) => section === 'pages' || section === 'private'
 
 /** The tree section a page shows in (its expanded state is keyed by it). */
 const sectionFor = (id: ID) => (useWorkspace.getState().pages[id]?.private ? 'private' : 'pages')
@@ -73,8 +92,18 @@ const besideCursor: Modifier = ({ transform, activatorEvent, draggingNodeRect })
 }
 
 /* ------------------------------------------------------------------ */
-/* Drag & drop context for the PAGES section                           */
+/* Drag & drop context: FAVORITES + the scroll area (Sidebar.tsx)       */
 /* ------------------------------------------------------------------ */
+
+/** Where the pointer is now (the drag's start point plus how far it went). */
+function pointerY(e: DragMoveEvent | DragOverEvent): number {
+  const ae = e.activatorEvent as MouseEvent | TouchEvent
+  return ('touches' in ae ? (ae.touches[0]?.clientY ?? 0) : ae.clientY) + e.delta.y
+}
+
+/** The pointer's last height during a drag: over the fixed block (FAVORITES) the tree below never scrolls by itself. */
+let dragY = Number.POSITIVE_INFINITY
+const autoScroll = { canScroll: (el: Element) => !(el.classList.contains('sb-scroll') && dragY < el.getBoundingClientRect().top) }
 
 export function DraggableTree({ children }: { children: React.ReactNode }) {
   const [activeId, setActiveId] = useState<ID | null>(null)
@@ -94,27 +123,36 @@ export function DraggableTree({ children }: { children: React.ReactNode }) {
   }
 
   const onStart = (e: DragStartEvent) => {
+    dragY = Number.POSITIVE_INFINITY
     setActiveId(String(e.active.id))
     document.body.dataset.dragging = 'tree'
   }
 
   const onMove = (e: DragMoveEvent | DragOverEvent) => {
+    dragY = pointerY(e)
     const over = e.over
     if (!over) return setDrop(null)
     const overId = String(over.id)
-    const dragId = String(e.active.id)
+    const raw = String(e.active.id)
+    const dragId = pageOfDnd(raw)
     const pages = useWorkspace.getState().pages
+    const rect = liveRect(e.collisions) ?? over.rect
+    // FAVORITES: its head, box and empty slot = at the end; a favourite's row = before / after it (never inside)
+    if (favZone(overId)) return setDrop((d) => (d?.overId === overId ? d : { overId, pos: 'inside' }))
+    if (overId.startsWith(FAV)) {
+      if (pageOfDnd(overId) === dragId) return setDrop(null)
+      const half: DropPos = (pointerY(e) - rect.top) / rect.height < 0.5 ? 'before' : 'after'
+      return setDrop((d) => (d?.overId === overId && d.pos === half ? d : { overId, pos: half }))
+    }
+    // a favourite only reorders among the favourites: its page never moves in the tree
+    if (raw.startsWith(FAV)) return setDrop(null)
     const section = sectionOf(overId)
     if (section !== null) {
       // an entry dropped on a section head leaves its database for that section's top level
       if (pages[dragId]?.databaseId && !canLeaveFor(pages, dragId, null, section)) return setDrop(null)
       return setDrop((d) => (d?.overId === overId ? d : { overId, pos: 'inside' }))
     }
-    const ae = e.activatorEvent as MouseEvent | TouchEvent
-    const startY = 'touches' in ae ? (ae.touches[0]?.clientY ?? 0) : ae.clientY
-    const y = startY + e.delta.y
-    const rect = over.rect
-    const rel = (y - rect.top) / rect.height
+    const rel = (pointerY(e) - rect.top) / rect.height
     const target = pages[overId]
     if (!target || overId === dragId) return setDrop(null)
     const { inside, beside } = dropOptions(pages, dragId, overId)
@@ -143,10 +181,21 @@ export function DraggableTree({ children }: { children: React.ReactNode }) {
 
   const onEnd = () => {
     delete document.body.dataset.dragging
-    const dragId = activeId
+    const raw = activeId
     const d = drop
     reset()
-    if (!dragId || !d) return
+    if (!raw || !d) return
+    const dragId = pageOfDnd(raw)
+    // into FAVORITES: a favourite where it was dropped (this device's order) — the page stays where it is in the tree;
+    // an entry stays in its database
+    if (favZone(d.overId)) return placeFavorite(dragId, null)
+    if (d.overId.startsWith(FAV)) {
+      const target = pageOfDnd(d.overId)
+      if (d.pos === 'before') return placeFavorite(dragId, target)
+      const rest = shownFavorites().filter((x) => x !== dragId)
+      return placeFavorite(dragId, rest[rest.indexOf(target) + 1] ?? null)
+    }
+    if (raw.startsWith(FAV)) return
     const s = useWorkspace.getState()
     const dragged = s.pages[dragId]
     if (!dragged) return
@@ -186,7 +235,8 @@ export function DraggableTree({ children }: { children: React.ReactNode }) {
   return (
     <DndContext
       sensors={sensors}
-      collisionDetection={pointerWithin}
+      collisionDetection={visibleWithin}
+      autoScroll={autoScroll}
       onDragStart={onStart}
       onDragMove={onMove}
       // `over` settles a render after the move that reached a new row: look again then
@@ -198,7 +248,7 @@ export function DraggableTree({ children }: { children: React.ReactNode }) {
       }}
     >
       <DropContext.Provider value={{ activeId, drop }}>{children}</DropContext.Provider>
-      <DragOverlay dropAnimation={null} modifiers={[besideCursor]}>{activeId ? <DragChip id={activeId} /> : null}</DragOverlay>
+      <DragOverlay dropAnimation={null} modifiers={[besideCursor]}>{activeId ? <DragChip id={pageOfDnd(activeId)} /> : null}</DragOverlay>
     </DndContext>
   )
 }
@@ -210,6 +260,11 @@ export function useSectionDrop(id: (typeof SECTION_DROP)[keyof typeof SECTION_DR
   const { activeId, drop } = useContext(DropContext)
   const zone = useDroppable({ id, disabled: !enabled })
   return { ref: zone.setNodeRef, over: drop?.overId === id, dragging: !!activeId }
+}
+
+/** The row being dragged (its drag id: `fav:<id>` for a favourite), else null. */
+export function useDragActive(): string | null {
+  return useContext(DropContext).activeId
 }
 
 function DragChip({ id }: { id: ID }) {
@@ -240,12 +295,12 @@ export function PageTree({ parentId, depth, section, draggable, roots }: { paren
   )
 }
 
-/** Explicit list of ids (favorites) rendered as tree roots. */
-export function PageList({ ids, section }: { ids: ID[]; section: string }) {
+/** Explicit list of ids (favorites, recent, frequent) rendered as tree roots; `draggable`: the roots reorder (favorites). */
+export function PageList({ ids, section, draggable = false }: { ids: ID[]; section: string; draggable?: boolean }) {
   return (
     <>
       {ids.map((id) => (
-        <TreeNode key={id} id={id} depth={0} section={section} draggable={false} />
+        <TreeNode key={id} id={id} depth={0} section={section} draggable={draggable} />
       ))}
     </>
   )
@@ -267,14 +322,16 @@ const TreeNode = memo(function TreeNode({ id, depth, section, draggable }: { id:
   const rows = useEntryCount(expanded && kind === 'database' ? id : null, null)
   const subs = useEntryCount(expanded && kind === 'entry' ? dbId : null, id)
   const empty = kids.length === 0 && rows === 0 && subs === 0
+  // inside a copy (a favourite's subtree, recent, frequent) nothing drags: only a favourite's own row reorders
+  const inner = inTree(section) ? draggable : false
   return (
     <div className="sb-node">
       <TreeRow id={id} depth={depth} section={section} draggable={draggable} expanded={expanded} />
       {expanded && (
         <div className="sb-children" role="group" data-kind={kind} style={{ '--depth': depth } as CSSProperties}>
-          {rows > 0 && <EntryList dbId={id} parentRow={null} depth={depth + 1} section={section} draggable={draggable} />}
-          {subs > 0 && dbId && <EntryList dbId={dbId} parentRow={id} depth={depth + 1} section={section} draggable={draggable} />}
-          {kids.length > 0 && <PageTree parentId={id} depth={depth + 1} section={section} draggable={draggable} />}
+          {rows > 0 && <EntryList dbId={id} parentRow={null} depth={depth + 1} section={section} draggable={inner} />}
+          {subs > 0 && dbId && <EntryList dbId={dbId} parentRow={id} depth={depth + 1} section={section} draggable={inner} />}
+          {kids.length > 0 && <PageTree parentId={id} depth={depth + 1} section={section} draggable={inner} />}
           {empty && (
             <div className="sb-empty" style={{ paddingLeft: 10 + (depth + 1) * INDENT + 22 }}>
               {kind === 'database' ? t('shell.sidebar.noEntries') : t('shell.sidebar.noPagesInside')}
@@ -343,9 +400,23 @@ function TreeRow({ id, depth, section, draggable, expanded }: { id: ID; depth: n
   const menu = useMenu()
   // the database's command key holds the row open (like its ⋯ menu)
   const [cmdOpen, setCmdOpen] = useState(false)
-  const drag = useDraggable({ id, disabled: !draggable || renaming })
-  const dropZone = useDroppable({ id, disabled: !draggable })
+  const dndId = dndIdOf(section, id, depth)
+  const drag = useDraggable({ id: dndId, disabled: !draggable || renaming })
+  const dropZone = useDroppable({ id: dndId, disabled: !draggable })
   const rowRef = useRef<HTMLDivElement | null>(null)
+  // a favourite's own row (the top of FAVORITES): it reorders (drag, Alt + ↑ / ↓, its menu) and says where it lives
+  const favRoot = section === 'fav' && depth === 0
+  // every other copy (a favourite's subtree, recent, frequent): the active fill, never the orange bar (sidebar.css)
+  const copy = !inTree(section) && !favRoot
+  const flash = useFavOrder((s) => favRoot && s.flash === id)
+  // the open page is a favourite and FAVORITES shows it: its row there carries the orange bar, the tree's keeps the fill
+  const favsOpen = useFavFold((s) => s.open)
+  // where a favourite lives: its parent's title (not for a top-level page)
+  const where = useWorkspace((s) => {
+    if (!favRoot) return null
+    const up = s.pages[id]?.parentId
+    return up && s.pages[up] ? s.pages[up].title.trim() || t('common.untitled') : null
+  })
   const touch = useIsTouch()
   // viewers: no renaming, duplicating, moving or deleting; others on this page show as a dot
   const readOnly = useReadOnly()
@@ -353,18 +424,24 @@ function TreeRow({ id, depth, section, draggable, expanded }: { id: ID; depth: n
   const privateMode = usePrivateMode()
   const wsName = useWorkspace((s) => s.settings.workspaceName.trim() || 'One')
 
+  // the open page comes into view: the tree's own copy (where FAVORITES does not show it), or a favourite in its list
   useEffect(() => {
-    if (active && rowRef.current) revealInScroller(rowRef.current)
-  }, [active])
+    if (!active || !rowRef.current) return
+    if (inTree(section)) revealInScroller(rowRef.current, id)
+    else if (favRoot) revealInList(rowRef.current)
+  }, [active, section, favRoot, id])
 
   if (!page) return null
   const kind = nodeKind(page)
   const isDb = kind === 'database'
   const title = page.title.trim() || t('common.untitled')
-  const dropPos = drop?.overId === id ? drop.pos : undefined
-  const isDragging = activeId === id
+  const dropPos = drop?.overId === dndId ? drop.pos : undefined
+  const isDragging = activeId === dndId
 
   const edit = !readOnly
+  const favShown = favRoot ? shownFavorites() : []
+  const favAt = favShown.indexOf(id)
+  const favCount = favShown.length
   const addInside = () => {
     useTreeState.getState().expand([treeKey(section, id)])
     if (isDb) createEntryAndOpen(id)
@@ -386,8 +463,15 @@ function TreeRow({ id, depth, section, draggable, expanded }: { id: ID; depth: n
         ] as MenuEntry[])
       : []),
     page.favorite
-      ? { label: t('shell.menu.unfavorite'), icon: <StarOff size={15} />, onSelect: () => useWorkspace.getState().toggleFavorite(id) }
-      : { label: t('shell.menu.favorite'), icon: <Star size={15} />, onSelect: () => useWorkspace.getState().toggleFavorite(id) },
+      ? { label: t('shell.menu.unfavorite'), icon: <StarOff size={15} />, onSelect: () => toggleStar(id) }
+      : { label: t('shell.menu.favorite'), icon: <Star size={15} />, onSelect: () => toggleStar(id) },
+    // a favourite's own row: one place up or down (the keys: Alt + ↑ / ↓ on the row)
+    ...(favRoot
+      ? ([
+          { label: t('shell.fav.moveUp'), icon: <ArrowUp size={15} />, hint: touch ? undefined : 'Alt+↑', disabled: favAt <= 0, onSelect: () => moveAndSay(id, -1) },
+          { label: t('shell.fav.moveDown'), icon: <ArrowDown size={15} />, hint: touch ? undefined : 'Alt+↓', disabled: favAt < 0 || favAt >= favCount - 1, onSelect: () => moveAndSay(id, 1) },
+        ] as MenuEntry[])
+      : []),
     { label: t('common.copyLink'), icon: <Link2 size={15} />, onSelect: () => void copyPageLink(id) },
     { label: t('shell.ai.copy'), icon: <ClipboardCopy size={15} />, onSelect: () => void copyPageForAI(id) },
     // database rows belong to their database: no "Move to"
@@ -434,6 +518,10 @@ function TreeRow({ id, depth, section, draggable, expanded }: { id: ID; depth: n
       className="sb-row"
       data-kind={kind}
       data-section={section}
+      data-page={id}
+      data-copy={copy || undefined}
+      data-bar-in-favs={(active && inTree(section) && favsOpen && page.favorite) || undefined}
+      data-flash={flash || undefined}
       data-active={active || undefined}
       data-active-within={activeWithin || undefined}
       data-drop={dropPos}
@@ -491,8 +579,19 @@ function TreeRow({ id, depth, section, draggable, expanded }: { id: ID; depth: n
               e.preventDefault()
               setRenaming(true)
             }
+            // the row's menu from the keyboard, anchored to the row
+            if ((e.key === 'F10' && e.shiftKey) || e.key === 'ContextMenu') {
+              e.preventDefault()
+              if (rowRef.current) menu.openAt(rowRef.current)
+            }
+            if (favRoot && e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+              e.preventDefault()
+              e.stopPropagation()
+              moveAndSay(id, e.key === 'ArrowUp' ? -1 : 1)
+            }
           }}
           aria-current={active ? 'page' : undefined}
+          aria-describedby={favRoot ? [where ? `sb-where-${id}` : '', FAV_KEYS_HINT].filter(Boolean).join(' ') : undefined}
           role="treeitem"
           aria-level={depth + 1}
           aria-expanded={expanded}
@@ -514,10 +613,33 @@ function TreeRow({ id, depth, section, draggable, expanded }: { id: ID; depth: n
           {peer && <span className="sb-row__peer" style={{ '--peer': peer } as CSSProperties} title={t('shell.cloud.presence.viewing', { names: peerNamesOn(id) })} data-testid="tree-peer" />}
           <AIRunLed pageId={id} />
           {isDb && <OutboxTreeCount dbId={id} />}
+          {/* where a favourite lives (hidden while the row shows its keys); read as the link's description */}
+          {where && (
+            <span className="sb-row__where" id={`sb-where-${id}`} aria-hidden>
+              {where}
+            </span>
+          )}
         </a>
       )}
       {!renaming && (
         <span className="sb-row__actions">
+          {/* the star on every row (pointer only: touch has it in ⋯); one name, its state is aria-pressed, the tooltip
+              says what a click does; no Tab stop (the keyboard has the row's menu, the page menu, ⌘K) */}
+          <button
+            type="button"
+            className="sb-row__btn sb-row__star"
+            tabIndex={-1}
+            aria-label={t('shell.fav.star')}
+            aria-pressed={!!page.favorite}
+            title={page.favorite ? t('shell.menu.unfavorite') : t('shell.menu.favorite')}
+            data-on={page.favorite || undefined}
+            onClick={(e) => {
+              e.stopPropagation()
+              toggleStar(id)
+            }}
+          >
+            <Star size={14} strokeWidth={1.75} fill={page.favorite ? 'currentColor' : 'none'} />
+          </button>
           <button type="button" className="sb-row__btn" aria-label={t('common.more')} onClick={toggleMenu(menu)}>
             <MoreHorizontal size={15} />
           </button>
@@ -542,18 +664,63 @@ function TreeRow({ id, depth, section, draggable, expanded }: { id: ID; depth: n
   )
 }
 
+/** The id of the hidden "Alt + ↑ / ↓ moves it" line every favourite's row is described by (Favorites.tsx). */
+export const FAV_KEYS_HINT = 'sb-fav-keys'
+/** The polite live region that says a favourite's new place (Favorites.tsx). */
+export const FAV_LIVE = 'sb-fav-live'
+
+/** One place up / down; the key stays on the favourite and its new place is said ("Favorite 2 of 3"). */
+function moveAndSay(id: ID, delta: -1 | 1) {
+  const moved = moveFavorite(id, delta)
+  if (!moved) return
+  const focused = document.activeElement?.closest?.('.sb-favs') != null
+  requestAnimationFrame(() => {
+    if (focused) document.querySelector<HTMLElement>(`.sb-favs .sb-row__link[data-tree-key="${CSS.escape(`fav:${id}`)}"]`)?.focus({ preventScroll: false })
+    const live = document.getElementById(FAV_LIVE)
+    if (live) live.textContent = t('shell.fav.pos', { n: moved.at + 1, m: moved.of })
+  })
+}
+
 /**
- * Scroll the tree so the row is visible. Done by hand: scrollIntoView() also moves the
- * browser's sequential-focus starting point, which would make the next Tab skip the
- * skip link and land in the sidebar.
+ * The tree's own copy of the open page comes into view. Nothing moves when it shows already — whole, below the
+ * section's stuck head — or when FAVORITES holds it (always in view). Else in whole rows: its top-level ancestor becomes
+ * the first row under the stuck head when the open row then still fits, else its parent, else the row itself. By hand:
+ * scrollIntoView() also moves the browser's sequential-focus starting point (the next Tab would skip the skip link).
  */
-function revealInScroller(row: HTMLElement) {
-  const box = row.closest('.sb-scroll') as HTMLElement | null
+function revealInScroller(row: HTMLElement, id: ID) {
+  const box = row.closest<HTMLElement>('.sb-scroll')
   if (!box) return
-  const r = row.getBoundingClientRect()
+  if (document.querySelector(`.sb-favs .sb-row[data-page="${CSS.escape(id)}"]:not([data-copy])`)) return
   const b = box.getBoundingClientRect()
-  if (r.top < b.top) box.scrollTop -= b.top - r.top + 8
-  else if (r.bottom > b.bottom) box.scrollTop += r.bottom - b.bottom + 8
+  if (!b.height) return
+  const head = row.closest('.sb-section')?.querySelector<HTMLElement>(':scope > .sb-sect')
+  const top = b.top + (head?.offsetHeight ?? 0)
+  const r = row.getBoundingClientRect()
+  if (r.top >= top - 1 && r.bottom <= b.bottom + 1) return
+  // the rows above it on its line: its parent's first, the top-level one's last
+  const ups: HTMLElement[] = []
+  for (let n = row.parentElement?.parentElement?.closest<HTMLElement>('.sb-node'); n && box.contains(n); n = n.parentElement?.closest<HTMLElement>('.sb-node')) {
+    const up = n.querySelector<HTMLElement>(':scope > .sb-row')
+    if (up) ups.push(up)
+  }
+  for (const target of [ups[ups.length - 1], ups[0], row]) {
+    if (!target) continue
+    const delta = target.getBoundingClientRect().top - top
+    if (target === row || r.bottom - delta <= b.bottom + 1) {
+      box.scrollTop += delta
+      return
+    }
+  }
+}
+
+/** A favourite that is open: its row in view inside FAVORITES' own list (past the cap it scrolls). */
+function revealInList(row: HTMLElement) {
+  const list = row.closest<HTMLElement>('.sb-favs__list')
+  if (!list) return
+  const l = list.getBoundingClientRect()
+  const r = row.getBoundingClientRect()
+  if (r.top < l.top) list.scrollTop -= l.top - r.top
+  else if (r.bottom > l.bottom) list.scrollTop += r.bottom - l.bottom
 }
 
 function RenameInput({ initial, onDone }: { initial: string; onDone: (v: string | null, viaKeyboard: boolean) => void }) {

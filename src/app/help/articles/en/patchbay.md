@@ -9,7 +9,7 @@ summary: One page shows everything that runs by itself — agents, automations, 
 ---
 Agents, automations, autofill, scripts, MCP servers, mail sorting, sync and the coding pipeline each have their own editor. The **Patchbay** puts them on one rack: what starts what, what reads and writes where, and which paths lead out of One. It answers two questions — *what runs here by itself?* and *where could a mail with a hidden instruction get my data sent out?*
 
-Open it from the sidebar row **Patchbay** (between Scripts and Building blocks), with ⌘K **Patchbay**, from **Workspace settings → Automation** (**As patchbay**, or **Show in the patchbay** on a row), the status bar's **PATCHBAY** cell or Preflight's **FUSES** lamp. Opening it sends nothing to an AI and changes nothing.
+Open it from the sidebar's **Patchbay** key under **Tools** (between Scripts and Building blocks), with ⌘K **Patchbay**, from **Workspace settings → Automation** (**As patchbay**, or **Show in the patchbay** on a row), the status bar's **PATCHBAY** cell or Preflight's **FUSES** lamp. Opening it sends nothing to an AI and changes nothing.
 
 ## Reading the rack
 - **Three columns.** **§ 01 Sources** — clocks, row triggers, MCP servers, incoming webhooks, sync, clippings, buttons and commands. **§ 02 Processing** — agents, automations, scripts, AI autofill, mail sorting, the bridge, pipelines. **§ 03 Targets** — databases and pages, the Outbox, and the ways out (labelled by their kind: WEBHOOK, GIT, HTTP, MCP, SYNC).

@@ -911,6 +911,50 @@ const seedPatchbayWorld = (page, w) =>
 
 const shots = {
   /**
+   * The sidebar (2026-10-16): the places, the tool strip — its readout at rest (PATCHBAY · NEW) and the keycaps —,
+   * 01 FAVORITES in the fixed block (the two seeded favourites, a database entry with where it lives, a fourth dragged in
+   * between two; the open page's row carries the one orange bar), the seam, 02 RECENT, 03 PAGES with Collapse all, a
+   * tree row under the pointer showing its ☆. Store writes through
+   * the ?e2e hook and one real drag; nothing is sent anywhere.
+   */
+  async sidebar(browser) {
+    const { ctx, page } = await freshPage(browser)
+    try {
+      const entry = await pageIdByTitle(page, 'Website relaunch')
+      await page.evaluate((id) => {
+        const s = window.__one.workspace.getState()
+        if (!s.pages[id].favorite) s.toggleFavorite(id)
+      }, entry)
+      await openPage(page, 'Team wiki')
+      await openPage(page, 'Welcome to One')
+      const favs = page.locator('.sb section[aria-label="Favorites"]')
+      const favRow = (title) => favs.locator('.sb-favs__list > .sb-node > .sb-row', { has: page.locator('.sb-row__title', { hasText: title }) })
+      const treeRow = (title) => page.locator('.sb section[aria-label="Pages"] .sb-row', { has: page.locator('.sb-row__title', { hasText: new RegExp(`^${title}$`) }) })
+      // "Reading list" dragged in between the first two favourites
+      const src = treeRow('Reading list')
+      const a = await src.boundingBox()
+      const b = await favRow('Welcome to One').boundingBox()
+      await page.mouse.move(a.x + 60, a.y + a.height / 2)
+      await page.mouse.down()
+      await page.mouse.move(a.x + 60, a.y + a.height / 2 - 8, { steps: 3 })
+      await page.mouse.move(b.x + 60, b.y + b.height * 0.25, { steps: 15 })
+      await page.mouse.move(b.x + 62, b.y + b.height * 0.25, { steps: 2 })
+      await page.mouse.up()
+      await favRow('Reading list').waitFor()
+      await page.evaluate(() => window.__one.ui.setState({ toasts: [], waitingToasts: [] }))
+      await rest(page)
+      // a tree row under the pointer: its ☆ (and ⋯ +)
+      const hover = treeRow('Launch plan: new pricing page')
+      const h = await hover.boundingBox()
+      await page.mouse.move(h.x + 90, h.y + h.height / 2)
+      await page.waitForTimeout(500)
+      await save(page, 'sidebar', { x: 0, y: 0, width: 1040, height: 650 })
+    } finally {
+      await ctx.close()
+    }
+  },
+
+  /**
    * The Patchbay (#/patchbay): mock 1 in English — § 01 sources (the Mails row trigger, from outside; the 07:30 clock;
    * tracker with READ 3 · WRITE? 4 · OUT; Report's button), § 02 processing (Inbox helper, To team chat, Tessera mirror,
    * Weekly report, the pipeline), § 03 targets with the webhook to chat.example and Whole workspace; the F1 tag on the

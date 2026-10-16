@@ -27,6 +27,7 @@ Die Tasten erscheinen passend zu deinem System — ⌘ auf dem Mac, sonst Strg/C
 - Ein Doppelklick oder doppeltes Tippen auf eine Taste, die einen Dialog oder eine Meldung schließt, wirkt einmal: Der zweite Druck landet nie auf dem, was darunter liegt. Tippst du gleich danach auf eine andere Taste, gilt das — sie wirkt.
 - Doppeltes Tippen auf eine Taste, die einen Dialog öffnet, öffnet ihn einmal: Das zweite Tippen drückt nie, was gerade unter deinem Finger erschienen ist.
 - Die Tasten der Agenda (← → T M W L) wirken auch, wenn eine Taste in der Seitenleiste den Fokus hat — auf einer Seitenzeile bewegen die Pfeile weiter durch den Baum.
+- In der Seitenleiste: <kbd>Shift+F10</kbd> öffnet das Menü einer Zeile, <kbd>Alt+↑</kbd> / <kbd>Alt+↓</kbd> verschieben einen Favoriten; die WERKZEUGE sind ein einziger <kbd>Tab</kbd>-Halt, <kbd>←</kbd> <kbd>→</kbd> wandern durch sie (siehe [Seitenleiste](help:sidebar)).
 
 ## Schreiben
 - `/` — Block einfügen, <kbd>Leertaste</kbd> in einer leeren Zeile — Claude fragen

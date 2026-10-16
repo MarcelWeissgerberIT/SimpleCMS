@@ -16,6 +16,7 @@
  *   one-agents / runs                   custom agents' runs, slots, run numbers and state of the workspace's agents, and
  *                                       the per-field trust books of each member here (trust|cloud:<id>:u:<user>|<agent>…)
  *   localStorage one.shell.visits:cloud:<id>   which pages this device opened, how often (FREQUENT)
+ *   localStorage one.shell.favorder:cloud:<id> the order of this device's favourites (shell/lib/favorites.ts)
  *   localStorage one.mirror.reports:cloud:<id> the report pages this device's mirror setups made (features/agents)
  *   localStorage one.preflight.{ack,today,last,hidden}:cloud:<id>:u:<user>  Preflight's acknowledgements, day, last
  *                                       count and hidden lamps of each member here (+ the workspace's
@@ -180,13 +181,14 @@ async function forget(flag: string[]): Promise<void> {
   // the per-device look cache of those workspaces goes with them (lib/look)
   for (const id of targets) forgetLookCache(id)
   const done = () => writeFlag(readFlag().filter((x) => (x === ALL ? !all : !targets.has(x))))
-  // recent / frequent visits of this device (shell/lib/visits.ts): localStorage "one.shell.visits:cloud:<ws>", and the
+  // recent / frequent visits of this device (shell/lib/visits.ts): localStorage "one.shell.visits:cloud:<ws>", the order of
+  // its favourites (shell/lib/favorites.ts): "one.shell.favorder:cloud:<ws>", and the
   // report pages its mirror setups made (features/agents/mirrorMemory.ts): "one.mirror.reports:cloud:<ws>" — before
   // the early return below (nothing else may be left of a copy, these still are)
   try {
     for (const k of Object.keys(localStorage)) {
       const m =
-        /^one\.(?:shell\.visits|mirror\.reports):cloud:([A-Za-z0-9_-]{1,64})$/.exec(k) ??
+        /^one\.(?:shell\.visits|shell\.favorder|mirror\.reports):cloud:([A-Za-z0-9_-]{1,64})$/.exec(k) ??
         /^one\.preflight\.(?:ack|today|last|hidden):cloud:([A-Za-z0-9_-]{1,64})(?::u:.*)?$/.exec(k) ??
         /^one\.governor\.(?:today|paused):cloud:([A-Za-z0-9_-]{1,64})(?::u:.*)?$/.exec(k) ??
         /^one\.patchbay\.order:cloud:([A-Za-z0-9_-]{1,64})(?::u:.*)?$/.exec(k)

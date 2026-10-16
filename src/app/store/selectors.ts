@@ -262,7 +262,7 @@ export interface PageStats {
   rows: Map<ID, number>
   /** sidebar tree pages (not trashed, rows or hidden): all of them / private ones / the others */
   tree: { all: number; priv: number; shared: number }
-  /** any favourite that is not in the trash itself */
+  /** any favourite FAVORITES shows (not in the trash, nor under a trashed parent, nor in a template) */
   hasFavorites: boolean
   /** favourites (not trashed, nor under a trashed parent), in tree order */
   favorites: Page[]
@@ -309,11 +309,12 @@ export function pageStats(pages: Record<ID, Page>): PageStats {
       else tree.shared++
     }
   }
-  const hasFavorites = favs.length > 0
   if (favs.length) {
     const trashed = trashedLookup(pages)
     favs = sortPages(favs.filter((p) => !trashed(p.id) && !tplOf(p.id)))
   }
+  // counted after the filter: a star under a trashed parent (or inside a template) shows nowhere, so it numbers nothing
+  const hasFavorites = favs.length > 0
   trash.sort((a, b) => (b.trashedAt ?? 0) - (a.trashedAt ?? 0))
   if (sameList(favs, lastStats?.favorites)) favs = lastStats!.favorites
   if (sameList(trash, lastStats?.trash)) trash = lastStats!.trash

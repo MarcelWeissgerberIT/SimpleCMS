@@ -27,6 +27,7 @@ Keys are shown for your system — ⌘ on a Mac, Ctrl elsewhere. The complete li
 - A double-click or double tap on a key that closes a dialog or a message acts once: the second press never lands on what lies underneath. A tap on another key right after is yours and works.
 - A double tap on a key that opens a dialog opens it once: the second tap never presses what just appeared under your finger.
 - The agenda's keys (← → T M W L) work while a key in the sidebar has the focus, too — on a page row the arrows still move through the tree.
+- In the sidebar: <kbd>Shift+F10</kbd> opens a row's menu, <kbd>Alt+↑</kbd> / <kbd>Alt+↓</kbd> move a favourite; the TOOLS keys are one <kbd>Tab</kbd> stop, <kbd>←</kbd> <kbd>→</kbd> move along them (see [Sidebar](help:sidebar)).
 
 ## Writing
 - `/` — insert a block, <kbd>Space</kbd> on an empty line — ask Claude

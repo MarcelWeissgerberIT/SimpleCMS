@@ -18,6 +18,7 @@ import { openCloudDialog } from '../cloud/state'
 import { openWorkspaceSettings } from '../workspace/open'
 import { startTour } from '../tour/state'
 import { clearVisits } from './visits'
+import { toggleStar } from './favorites'
 import {
   copyPageForAI,
   copyPageLink,
@@ -126,7 +127,7 @@ export function buildCommands(t: Translate, pageId: ID | null): Command[] {
       { id: 'present', group: 'page', label: t('shell.cmd.present'), icon: Presentation, keywords: 'slides presentation präsentieren', run: () => ui.present(page.id) },
       { id: 'share', group: 'page', label: t('shell.cmd.share'), icon: Share2, keywords: 'publish link teilen', run: () => ui.openModal({ type: 'share', pageId: page.id }) },
       { id: 'history', group: 'page', label: t('shell.cmd.history'), icon: History, keywords: 'versions restore verlauf', run: () => ui.openModal({ type: 'history', pageId: page.id }) },
-      { id: 'favorite', group: 'page', label: page.favorite ? t('shell.cmd.unfavorite') : t('shell.cmd.favorite'), icon: Star, keywords: 'star pin favorit', run: () => ws.toggleFavorite(page.id) },
+      { id: 'favorite', group: 'page', label: page.favorite ? t('shell.cmd.unfavorite') : t('shell.cmd.favorite'), icon: Star, keywords: 'star pin favorit', run: () => toggleStar(page.id) },
       { id: 'copy-link', group: 'page', label: t('common.copyLink'), icon: Link2, keywords: 'url', run: () => void copyPageLink(page.id) },
       { id: 'copy-ai', group: 'page', label: t('shell.ai.copy'), icon: ClipboardCopy, keywords: 'ai claude context markdown prompt copy ki kontext kopieren', run: () => void copyPageForAI(page.id) },
       { id: 'duplicate', group: 'page', label: t('common.duplicate'), icon: Copy, keywords: 'copy kopie', run: () => duplicateAndOpen(page.id) },
