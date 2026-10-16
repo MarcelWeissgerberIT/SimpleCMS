@@ -74,8 +74,11 @@ function useJackFit(mod: RefObject<HTMLElement | null>, body: RefObject<HTMLElem
     if (!b || b.clientWidth === 0) return
     const min = b.closest('.pb')?.querySelector<HTMLElement>('.pb-probe')?.offsetWidth ?? 0
     const narrow = min > 0 && b.clientWidth < min
+    // the name would be cut ("Every weekday at 0…" beside a FIRED window — fix ui-words): the jack labels give way first
+    const n = b.querySelector<HTMLElement>('.pb-mod__n')
+    const cut = !!n && n.clientWidth > 0 && n.scrollWidth > n.clientWidth + 1
     // `squeeze`: the kind line would cut a mode tag below its word — the jack labels give way first
-    if ((narrow || squeeze) && tier < max) setTier(tier + 1)
+    if ((narrow || squeeze || cut) && tier < max) setTier(tier + 1)
     else noteTight(key, narrow)
   })
   return tier
@@ -147,6 +150,8 @@ function ModuleView({ m, row, span, descId }: { m: ModuleT; row: number; span: 1
   const tags = w.tags(m)
   const unknown = m.tags.includes('unknownHere')
   const blocked = !!m.blocked || m.tags.includes('blocked')
+  // why it cannot run (plan §3.3: "blocked: … + reason line", "unknown here: … the one-line reason")
+  const blockedWhy = m.blocked ? t(`${P}.blocked.${m.blocked}`) : null
   // a pipeline whose worker is offline is off (grey); too old or unsafe: amber — its word in the window
   const worker = w.worker(m)
   const off = m.idle || blocked || unknown || m.tags.includes('disabled') || m.tags.includes('byHand') || m.tags.includes('ghost') || worker?.led === 'off'
@@ -332,7 +337,13 @@ function ModuleView({ m, row, span, descId }: { m: ModuleT; row: number; span: 1
             name
           )}
         </div>
-        {sub && <div className="pb-mod__s">{sub}</div>}
+        {blockedWhy ? (
+          <div className="pb-mod__s pb-mod__s--why" title={blockedWhy} data-testid="pb-blocked-why">
+            {blockedWhy}
+          </div>
+        ) : (
+          sub && <div className="pb-mod__s">{sub}</div>
+        )}
       </div>
       {ghostWin ? (
         <span className="pb-win pb-win--ghost" data-testid="pb-ghost-win">

@@ -167,6 +167,8 @@ test.describe('Patchbay words (plan §1.1)', () => {
       expect(text, name).not.toMatch(/Ausgang\s*·?\s*(Webhook|Git|HTTP|MCP|Sync)/)
       expect(text, name).not.toMatch(/Weg abnehmen|freigegeben/)
       expect(text, name).toMatch(/Weg zulassen/)
+      // "Sicherung" is a fuse here: backups are "Backup" (One's German UI — fix ui-words)
+      expect(text, name).not.toMatch(/Sicherungen enthalten|aus einer Sicherung|Komplett-Sicherung|gesichert\b/)
     }
     for (const [name, text] of Object.entries({ ...deDocs, ...Object.fromEntries(Object.entries(enDocs).map(([k, v]) => [`en ${k}`, v])) })) {
       // article ids in links (help:ai-jev) are no names

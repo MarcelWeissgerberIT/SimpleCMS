@@ -73,13 +73,14 @@ import { Readout } from './Readout'
 import { Plain } from './Plain'
 import { announce, announceRun, openFold, resetPbUI, selectFuse, selectModule, usePbUI } from './store'
 import { Strands } from './Strands'
-import { fuseMarks, useWords, type Words, type WordsExtra } from './words'
+import { countOf, fuseMarks, useWords, type Words, type WordsExtra } from './words'
 import { useSetupLamps } from '../setup/facts'
 import { setOf } from '../setup/lamps'
 import { ghostsOf } from '../setup/ghosts'
 import { withGhosts, withProfileModules } from '../setup/merge'
 import { moduleKey } from '../ref'
 import { lampNo } from '../setup/keys'
+import { focusLampKey } from '../setup/focus'
 import { readReturn } from '../setup/return'
 import { endSetupVisit, loadSetupRecord, markSetupVisit, pickRecipe, setupVisit, useSetupRecord } from '../setup/record'
 import { closeSetup, dropUndoAt, dropUndoOpen, endDrop, noteLamps, useDrop } from '../setup/drop'
@@ -94,6 +95,7 @@ import { resetPatchUI, setPick, usePatchUI } from './patchUI'
 import { pickChoice, runPatchUndo, startPatch, unplugJack } from './patchRun'
 import { ConnectPicker } from './ConnectPicker'
 import { PatchPop } from './PatchPop'
+import { scrollBehavior } from './motion'
 import type { PatchPointer } from './PatchDrag'
 import '../patchbay.css'
 
@@ -408,7 +410,30 @@ export default function Patchbay(props: PatchbayRouteProps) {
     const token = `${f}|${ask}`
     if (landedF.current === token) return
     const fuse = (model.fuses as FuseState[]).find((x) => x.key === f)
-    if (!fuse) return
+    if (!fuse) {
+      // fix ui-words: a link to a fuse this device does not show open (closed or changed meanwhile, or only visible in
+      // another member's browser) is said — once the inputs had a moment (a lazy reading may still bring it). Its path
+      // almost open now: that grey row is selected and its tab takes the keyboard.
+      const near = fuseRowsOf(model).byKey.get(`n:${f}`)
+      const timer = window.setTimeout(() => {
+        landedF.current = token
+        if (near) {
+          selectFuse(near.key)
+          requestAnimationFrame(() => {
+            const tab = pageRef.current?.querySelector<HTMLElement>(`[data-row="${CSS.escape(near.key)}"]`)
+            if (tab) {
+              tab.scrollIntoView({ block: 'nearest', behavior: 'auto' })
+              tab.focus({ preventScroll: true })
+            }
+          })
+          announce(t(`${P}.fuse.nearNow`))
+          return
+        }
+        if (focusIsNowhere() || pageRef.current?.contains(document.activeElement)) h1.current?.focus({ preventScroll: true })
+        announce(t(`${P}.fuse.notHere`))
+      }, 1200)
+      return () => window.clearTimeout(timer)
+    }
     if (pickedF.current !== token) {
       pickedF.current = token
       selectFuse(f)
@@ -431,9 +456,12 @@ export default function Patchbay(props: PatchbayRouteProps) {
     }
     frame = requestAnimationFrame(land)
     return () => cancelAnimationFrame(frame)
-  }, [props.f, ask, model, words, narrow])
+  }, [props.f, ask, model, words, narrow, t])
 
-  // Esc: the selection goes (never the keyboard: focus stays where it is)
+  // Esc: the selection goes (never the keyboard: focus stays where it is). One rung per press (§3.9, fix ui-words): heard
+  // on the document after the page's own keys (a drag, a jack, a popover, an asking key take it first and stop it) and
+  // before the shell's window listener — a press that deselects is taken (preventDefault), so the recorder deck, focus
+  // mode or the side peek do not close with it
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || e.defaultPrevented || typing()) return
@@ -441,17 +469,18 @@ export default function Patchbay(props: PatchbayRouteProps) {
       if (!s.selected && !s.net) return
       if (!keysHere(pageRef.current, document.activeElement)) return
       if (document.activeElement?.closest('[data-popover], [role="dialog"]')) return
+      e.preventDefault()
       selectModule(null)
     }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
   }, [])
 
   /** Select a fuse and bring its plate (the strands view: its card) into view (no plate: its glyph). */
   const showFuse = useCallback((key: string) => {
     selectFuse(key)
     const plate = pageRef.current?.querySelector(`.pb-fcard[data-pb-fuse-tab="${CSS.escape(key)}"]`) ?? document.getElementById('pb-fuse-plate')
-    if (plate) plate.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    if (plate) plate.scrollIntoView({ block: 'nearest', behavior: scrollBehavior() })
     else pageRef.current?.querySelector(`.pb-fuse[data-fuse="${CSS.escape(key)}"]`)?.scrollIntoView({ block: 'nearest' })
   }, [])
   const onFuse = useCallback(() => {
@@ -601,6 +630,18 @@ export default function Patchbay(props: PatchbayRouteProps) {
     announce(t(`${P}.setup.closedSay`))
     requestAnimationFrame(() => requestAnimationFrame(() => (pageRef.current?.querySelector<HTMLElement>('[data-testid="pb-drop"]') ?? h1.current)?.focus()))
   }
+  // "Show the whole setup" (the strip): the strip goes, the band comes — its next lamp's key takes the keyboard (the
+  // page's one primary key), else the h1 (fix ui-words: never the body)
+  const onOpenSetup = () => {
+    if (!setupId) return
+    const next = set?.next ?? null
+    markSetupVisit(setupId)
+    const fallback = () => {
+      if (focusLost() || focusIsNowhere()) h1.current?.focus()
+    }
+    if (next) void focusLampKey(next, { profile: setupId }).then((ok) => !ok && fallback())
+    else requestAnimationFrame(() => requestAnimationFrame(fallback))
+  }
   const onPick = (id: string) => setupId && pickRecipe(setupId, id)
   // the setup's facts come from the lamps (a profile without a recipe has no plan, but its lamps and card all the same)
   const setupFacts = useMemo(() => {
@@ -627,7 +668,7 @@ export default function Patchbay(props: PatchbayRouteProps) {
         <Readout t={t} lang={lang} model={model} runs={runs} money={money} costsRead={live.costsRead} fuses={fuses} phone={phone} onFuse={onFuse} setup={set && setupId ? { done: set.done, total: set.lamps.length, band: bandOn } : null} />
       )}
       <DropPlate t={t} flow={flow} />
-      {setupId && !bandOn && set && <SetupStrip t={t} profileId={setupId} set={set} onOpen={() => markSetupVisit(setupId)} onClose={onCloseSetup} />}
+      {setupId && !bandOn && set && <SetupStrip t={t} profileId={setupId} set={set} onOpen={onOpenSetup} onClose={onCloseSetup} />}
       <div className="pb-benchwrap">
         {ctx &&
           layout &&
@@ -664,7 +705,7 @@ export default function Patchbay(props: PatchbayRouteProps) {
                   ? {
                       head: <BandHead t={t} info={info} onUndo={() => void runDropUndo()} onClose={onCloseSetup} />,
                       plate: <SetupPlate t={t} lang={lang} profileId={info.profileId} sets={lamps.sets} set={set} recipes={lamps.profile.recipes} onPick={onPick} />,
-                      aria: t(`${P}.band.aria`, { name: info.profileName, g: model!.counts.ghosts, p: model!.counts.planned }),
+                      aria: t(`${P}.band.aria`, { name: info.profileName, g: countOf(t, 'ghosts', model!.counts.ghosts), p: countOf(t, 'planned', model!.counts.planned) }),
                       folded: !bandOpen,
                       onToggle: () => setBandOpen(!bandOpen),
                       untouched,

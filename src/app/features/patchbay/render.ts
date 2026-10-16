@@ -226,6 +226,47 @@ export function glyphSpots(cables: readonly Cable[], gap = GLYPH_GAP): number[] 
   })
 }
 
+/** A glyph's ring (half-width, half-height) and where its labels go by default (offsets from its centre, px). */
+const RING_HALF = { x: 25, y: 15 }
+const LABEL_H = 14
+const LABEL_ABOVE = -24
+const STUB_LABEL_BELOW = 32
+
+export interface GlyphLabelIn {
+  x: number
+  y: number
+  /** the glyph's label width (px) */
+  label: number
+  /** the active glyph's stub label width (px); null: no stub label drawn */
+  stub: number | null
+}
+
+/**
+ * Where each glyph's label and the active glyph's "↓ F1" stub label go (offsets from the glyph's centre; fix ui-words —
+ * on a large rack a stub sat on the next glyph's label): every ring is an obstacle; the stub label (the pointer to the
+ * plate) is placed first, below its stub, else beside the stub's end, else above; then each label in the order given
+ * (F-order) above its ring, else below it, else to its right, else to its left — the first place clear of every ring
+ * and every label placed so far (none clear: above). Pure; widths are the caller's estimate.
+ */
+export function glyphLabels(gs: readonly GlyphLabelIn[]): Array<{ label: Pt; stub: Pt | null }> {
+  type Box = { x0: number; y0: number; x1: number; y1: number }
+  const box = (cx: number, cy: number, w: number, h: number): Box => ({ x0: cx - w / 2, y0: cy - h / 2, x1: cx + w / 2, y1: cy + h / 2 })
+  const hits = (a: Box, b: Box) => a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1
+  const taken: Box[] = gs.map((g) => box(g.x, g.y, RING_HALF.x * 2, RING_HALF.y * 2))
+  const place = (g: GlyphLabelIn, w: number, spots: Pt[], own: number): Pt => {
+    const free = (p: Pt) => {
+      const b = box(g.x + p.x, g.y + p.y, w, LABEL_H)
+      return taken.every((t, i) => i === own || !hits(b, t))
+    }
+    const at = spots.find(free) ?? spots[0]
+    taken.push(box(g.x + at.x, g.y + at.y, w, LABEL_H))
+    return at
+  }
+  const side = (w: number) => RING_HALF.x + 6 + w / 2
+  const stubs = gs.map((g, i) => (g.stub === null ? null : place(g, g.stub, [{ x: 0, y: STUB_LABEL_BELOW }, { x: side(g.stub), y: RING_HALF.y + 9 }, { x: -side(g.stub), y: RING_HALF.y + 9 }, { x: 0, y: LABEL_ABOVE - LABEL_H - 2 }], i)))
+  return gs.map((g, i) => ({ label: place(g, g.label, [{ x: 0, y: LABEL_ABOVE }, { x: 0, y: RING_HALF.y + 15 }, { x: side(g.label), y: 0 }, { x: -side(g.label), y: 0 }], i), stub: stubs[i] }))
+}
+
 /** A glyph's label for its group's labels ("F1"; "F2 · F4 · F14"; "F2 · F4 · F14 +2"). */
 export const fuseGroupLabel = (labels: readonly string[]): string => (labels.length > 3 ? `${labels.slice(0, 3).join(' · ')} +${labels.length - 3}` : labels.join(' · '))
 

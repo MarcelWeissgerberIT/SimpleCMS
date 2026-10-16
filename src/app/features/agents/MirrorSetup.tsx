@@ -106,7 +106,7 @@ function sourceState(profile: Pick<IntegrationProfile, 'match'>, picked: McpServ
   return { state: 'mismatch', why: miss && miss.kind !== 'disabled' ? miss.kind : 'other', missing: [] }
 }
 
-export function MirrorSetup({ source, initialName, onClose, onCreated }: { source: RecipeSource; initialName?: string; onClose: () => void; onCreated: (made: MirrorMade) => void }) {
+export function MirrorSetup({ source, initialName, step, onClose, onCreated }: { source: RecipeSource; initialName?: string; step?: boolean; onClose: () => void; onCreated: (made: MirrorMade) => void }) {
   const t = useT()
   const lang = useLang()
   const uid = useId()
@@ -330,7 +330,7 @@ export function MirrorSetup({ source, initialName, onClose, onCreated }: { sourc
             {t('common.cancel')}
           </button>
           <button type="button" className="btn btn--primary" onClick={create} disabled={!servers.length || built.errors > 0 || !!existing || pickBad}>
-            {t('features.agents.mirror.create')}
+            {t(step ? 'features.agents.mirror.createStep' : 'features.agents.mirror.create')}
           </button>
         </div>
       }
@@ -344,6 +344,12 @@ export function MirrorSetup({ source, initialName, onClose, onCreated }: { sourc
         }}
       >
         <p className="agx-lead agx-lead--modal">{recipe.description || t('features.agents.mirror.lead', { yours: yours || '—' })}</p>
+        {step && (
+          <p className="agx-notice agx-mir__step" role="note" data-testid="agx-mir-step">
+            <span className="led led--ok" aria-hidden />
+            <span>{t('features.agents.mirror.stepNote')}</span>
+          </p>
+        )}
         {built.errors > 0 && (
           <p className="agx-notice agx-mir__none" role="alert" data-testid="agx-mir-broken">
             <span className="led agx-led--err" aria-hidden />

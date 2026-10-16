@@ -8,9 +8,13 @@ export const messages: Messages = {
   en: {
     'features.patchbay.hint.onFuse': 'On fuse {f} — show in the Patchbay',
     'features.patchbay.hint.kept': 'Change in the Patchbay',
+    'features.patchbay.hint.onFuseHeld': 'On fuse {f} — save or cancel first to show it in the Patchbay',
+    'features.patchbay.hint.keptHeld': 'Change in the Patchbay — save or cancel first',
   },
   de: {
     'features.patchbay.hint.onFuse': 'Liegt auf Sicherung {f} — im Schaltplan zeigen',
     'features.patchbay.hint.kept': 'Im Schaltplan ändern',
+    'features.patchbay.hint.onFuseHeld': 'Liegt auf Sicherung {f} — erst speichern oder abbrechen, dann im Schaltplan zeigen',
+    'features.patchbay.hint.keptHeld': 'Im Schaltplan ändern — erst speichern oder abbrechen',
   },
 }

@@ -73,6 +73,8 @@ function MirrorSetupDialog({ request }: { request: Extract<AgentDialogRequest, {
     <MirrorSetup
       source={source}
       {...(req.name ? { initialName: req.name } : {})}
+      // a step of the setup (fix ui-words): Create makes the database and its report page — the agent is lamp 05's
+      step
       onClose={() => finish(seq, req, { kind: 'closed' })}
       onCreated={(made) => {
         // the draft waits for lamp 05 (the editor), in this tab

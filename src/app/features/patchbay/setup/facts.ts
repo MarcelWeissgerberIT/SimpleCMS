@@ -11,7 +11,12 @@
  *    live database holding the recipe's key that a setup here made (rememberedReports) or a mirror agent writes, or the
  *    database of the recipe's name (sameNamedDb); names as the setup gives them (mirrorTitles); runs of this device /
  *    the team server (read once on first use).
- * Recomputed when something that counts changes — never on typing (content-only page changes are left out).
+ * Recomputed when something that counts changes — never on typing (content-only page changes are left out), and
+ * (fix ui-words) never for a page change the last read did not name: a row's title or values, an unrelated page's title,
+ * a database's automations bookkeeping or views, a settings field the lamps do not read. What counts: a page appearing,
+ * going, moving or trashed (`structure`), a database page or a page the read named (`watch.ids`), a page taking or
+ * leaving a title the setup plans for a report (`watch.bases` / `watch.holders`), a database added / removed or its
+ * properties, and the stores below. The status bar's setup cell reads on every route while a setup is open.
  *
  * Browser only (a lazy chunk: the patchbay page, the return chip's body, the arrival).
  */
@@ -21,7 +26,7 @@ import { isEffectivelyTrashed } from '../../../store/selectors'
 import { ensureRowIndex, onRowsChanged } from '../../../store/rowIndex'
 import { localTimeZone } from '../../../store/agents'
 import { matchMiss, matchingServers, profileStatus } from '../../../store/integrations'
-import type { AgentTrigger, CustomAgent, ID, IntegrationProfile, McpServerConfig, RecipeConfig } from '../../../store/types'
+import type { AgentTrigger, CustomAgent, Database, ID, IntegrationProfile, McpServerConfig, Page, RecipeConfig, Settings } from '../../../store/types'
 import { markerHint } from '../../../lib/vault'
 import { LANGS, type Lang } from '@/shared/i18n'
 import { currentLang, t, useLang } from '../../../i18n'
@@ -65,9 +70,71 @@ function bump(): void {
   queueMicrotask(() => {
     queued = false
     rev++
+    // what the next reads name (until one has read, every page change counts)
+    watch.fresh = false
+    watch.ids.clear()
+    watch.bases.clear()
+    watch.holders.clear()
     for (const fn of listeners) fn()
   })
 }
+
+/**
+ * What the reads since the last bump named (fix ui-words): the page ids (databases found, report pages, trigger
+ * databases), the folded beginnings of the report titles a setup plans (`bases`: a page whose title starts with one
+ * may take it — the planned title moves on to " (2)"), and the pages holding such a title at the read (`holders`:
+ * renamed, the title is free again). `fresh` false: nothing read since the last bump — every page change counts.
+ */
+const watch = { fresh: false, ids: new Set<ID>(), bases: new Set<string>(), holders: new Set<ID>() }
+
+/** How a title is compared (agents/mirror.ts fold). */
+const fold = (s: string) => s.normalize('NFC').replace(/\s+/g, ' ').trim().toLocaleLowerCase()
+
+/** `{db}`, `{server}` filled in — the rule of agents/integrations/recipe.ts fillTokens (a report name's tokens). */
+const fillNames = (text: string, vars: { db: string; server: string }) => text.replace(/\{(db|server)\}/g, (_all, k: 'db' | 'server') => vars[k])
+
+/** A title's beginning the setup's own variants keep (distinctTitle cuts after 24 characters at the earliest). */
+const BASE_CHARS = 20
+
+const takesBase = (title: string): boolean => {
+  const f = fold(title)
+  for (const b of watch.bases) if (f.startsWith(b)) return true
+  return false
+}
+
+/** May this page change move a lamp? (`id` changed, not its content alone) */
+function pageCounts(id: ID, pages: Record<ID, Page>): boolean {
+  if (!watch.fresh || watch.ids.has(id) || watch.holders.has(id)) return true
+  const p = pages[id]
+  if (!p || p.kind === 'database') return true
+  // a row's title and values: the setup names no row, and rows never take a report's title (mirror.ts pageTitles)
+  if (p.databaseId) return false
+  return takesBase(p.title)
+}
+
+/** The settings fields the lamps read (the key's marker, the AI rules for aiStatus, the MCP servers). */
+const SETTINGS: ReadonlyArray<keyof Settings> = ['aiApiKey', 'aiModel', 'aiKeys', 'ai', 'mcpServers']
+
+/** A database added or removed, or its properties (a recipe's key, a trigger's field) — never automations or views. */
+function dbsMoved(next: Record<ID, Database>, prev: Record<ID, Database>): boolean {
+  if (next === prev) return false
+  let n = 0
+  for (const id in next) {
+    n++
+    const was = prev[id]
+    if (!was || was.properties !== next[id].properties) return true
+  }
+  let m = 0
+  for (const id in prev) {
+    void id
+    m++
+  }
+  return n !== m
+}
+
+/** perf seams (DEV / ?e2e through the setup seam): how often a setup was read */
+let reads_ = 0
+export const setupStats = (): { reads: number; rev: number } => ({ reads: reads_, rev })
 
 /** When a lamp went from busy to green (by server id: its test) — this tab's traces ("● → ● pressed 16:19"). */
 const traces = new Map<ID, number>()
@@ -77,12 +144,16 @@ function start(): void {
   if (started) return
   started = true
   useWorkspace.subscribe((s, p) => {
-    if (s.integrations !== p.integrations || s.settings !== p.settings || s.agents !== p.agents || s.ai !== p.ai || s.databases !== p.databases) bump()
+    if (s.integrations !== p.integrations || s.agents !== p.agents || s.ai !== p.ai) return bump()
+    if (s.settings !== p.settings && SETTINGS.some((k) => s.settings[k] !== p.settings[k])) return bump()
+    if (dbsMoved(s.databases, p.databases)) bump()
   })
   ensureRowIndex()
   onRowsChanged((c) => {
-    // typing changes a page's content only: nothing the lamps read
-    if (c.reset || c.structure || c.dbs.size || c.schema.size || c.changed.some((id) => !c.contentOnly.has(id))) bump()
+    // typing changes a page's content only, a row's cells its values: nothing the lamps read (fix ui-words)
+    if (c.reset || c.structure) return bump()
+    const pages = useWorkspace.getState().pages
+    for (const id of c.changed) if (!c.contentOnly.has(id) && pageCounts(id, pages)) return bump()
   })
   useCloud.subscribe((s, p) => {
     if (s.active !== p.active || s.user !== p.user || s.role !== p.role) bump()
@@ -210,6 +281,8 @@ interface Ctx {
   server: string
   /** databases an earlier recipe of the profile claimed */
   claimed: Set<ID>
+  /** the folded beginnings of the report titles the recipes plan (fix ui-words: watched) */
+  bases: string[]
 }
 
 /** The recipe's key property name in every language (a database set up in the other language still fits). */
@@ -272,6 +345,13 @@ function recipeSetup(profile: IntegrationProfile, recipe: RecipeConfig, c: Ctx):
   const draft = !saved && kept && (!db || kept.made.dbId === db.id) ? kept.made.draft : null
   const titles = mirrorTitles({ recipe: r, server: c.server, name: dbTitle, dbId: db?.id ?? null, reuse: !!db }, { pages, agents: s.agents, team: c.team })
   const livePage = (id: ID | null | undefined): id is ID => !!id && !!pages[id] && !pages[id].trashed && !isEffectivelyTrashed(pages, id)
+  // what this read names (fix ui-words): a change elsewhere moves no lamp of it
+  if (db) watch.ids.add(db.id)
+  if (titles.keptId) watch.ids.add(titles.keptId)
+  if (kept) watch.ids.add(kept.made.reportId).add(kept.made.dbId)
+  if (saved?.output?.pageId) watch.ids.add(saved.output.pageId)
+  const base = fold(fillNames(r.reportName, { db: dbTitle, server: c.server })).slice(0, BASE_CHARS)
+  if (base) c.bases.push(base)
 
   // the report page: the saved agent's, the kept draft's, the one "Use" takes back — else the title it will get
   const reportId = saved ? saved.output?.pageId : draft ? kept!.made.reportId : titles.keptId
@@ -329,7 +409,11 @@ function recipeSetup(profile: IntegrationProfile, recipe: RecipeConfig, c: Ctx):
 export function readSetup(profileId: string, opts: { lang?: Lang; existing?: ReadonlySet<ModuleKey> } = {}): { profile: ProfileFacts; facts: LampFacts } | null {
   const s = useWorkspace.getState()
   const profile = (s.integrations ?? []).find((p) => p.id === profileId)
-  if (!profile) return null
+  if (!profile) {
+    // no such profile: nothing named — an integrations change brings it back
+    watch.fresh = true
+    return null
+  }
   const lang = opts.lang ?? currentLang()
   const now = Date.now()
   const all = readServers(s.settings)
@@ -345,14 +429,35 @@ export function readSetup(profileId: string, opts: { lang?: Lang; existing?: Rea
     sources: matchingServers(profile, device.map((x) => ({ ...x, enabled: true }))),
     server: matchingServers(profile, device)[0] ?? servers[0]?.name ?? '',
     claimed: new Set(),
+    bases: [],
   }
+  reads_++
   const recipes = (profile.recipes ?? []).map((r) => recipeSetup(profile, r, c))
+  noteBases(c.bases, s.pages)
   const picked = servers.find((x) => x.enabled && x.state === 'ok') ?? servers.find((x) => x.enabled) ?? servers[0]
   const trace = picked ? traces.get(picked.id) : undefined
   return {
     profile: { id: profile.id, name: profile.name, status, unlocks: profile.unlocks.length, recipes },
     facts: { key: keyFacts(), servers, ...(trace ? { traces: { test: trace } } : {}), ...(opts.existing ? { existing: opts.existing } : {}) },
   }
+}
+
+/**
+ * Watch the report titles a read planned: the beginnings, and the pages holding one now (one walk, at a read only —
+ * reads follow a change that counts, never typing). The watch is fresh from here until the next bump.
+ */
+function noteBases(bases: string[], pages: Record<ID, Page>): void {
+  const fresh = bases.filter((b) => !watch.bases.has(b))
+  for (const b of fresh) watch.bases.add(b)
+  if (fresh.length) {
+    for (const id in pages) {
+      const p = pages[id]
+      if (p.databaseId || !p.title) continue
+      const f = fold(p.title)
+      if (fresh.some((b) => f.startsWith(b))) watch.holders.add(id)
+    }
+  }
+  watch.fresh = true
 }
 
 /** The lamps of a profile now (outside React: the arrival, the seam). */

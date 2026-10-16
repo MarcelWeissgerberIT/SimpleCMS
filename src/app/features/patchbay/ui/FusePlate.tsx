@@ -163,7 +163,7 @@ function NearBody({ row, pw }: { row: Extract<FuseRow, { kind: 'near' }>; pw: Pl
       </p>
       {lamps && <FuseLamps lamps={lamps} pw={pw} head={t(on === 1 ? `${P}.plate.near.lamps.one` : `${P}.plate.near.lamps`, { n: on })} />}
       <FusePath chain={n.chain} pw={pw} hot={false} />
-      <FuseSentence chain={n.chain} pw={pw} className="pb-fplate__say" />
+      <FuseSentence chain={n.chain} pw={pw} className="pb-fplate__say" near />
     </div>
   )
 }

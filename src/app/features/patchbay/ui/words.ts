@@ -34,6 +34,10 @@ export interface FuseMarks {
 
 const marksCache = new WeakMap<Model, FuseMarks>()
 
+/** "1 module" / "4 modules" — a count said in a sentence (fix ui-words: t() picks no `.one` by itself). */
+export const countOf = (t: (k: string, v?: Record<string, string | number>) => string, what: 'modules' | 'cables' | 'ghosts' | 'planned', n: number): string =>
+  t(n === 1 ? `${P}.n.${what}.one` : `${P}.n.${what}`, { n })
+
 /** A fuse label's number ("F12" → 12; anything else last). */
 export const fuseNo = (label: string): number => {
   const n = Number(label.replace(/^\D+/, ''))
@@ -80,6 +84,7 @@ export interface Words {
   describe(m: Module): string
   /** a jack's label; `tier` 1 = the short form a narrow module takes ("4 DB", "Out 1"), 2 = none (the title keeps it) */
   jack(j: Jack, m: Module, tier?: number): string
+  /** a jack's title / name: where its cables go (an out-jack) or come from (an in-jack) — `to` = its peers */
   jackTitle(j: Jack, m: Module, to: string[]): string
   /** what a jack (or a net flag's key) is cabled to, by name */
   peers(jack: string): string[]
@@ -170,10 +175,15 @@ export function makeWords(t: Translate, lang: 'en' | 'de', model: Model, input: 
     if (j.side === 'out' && j.role === 'start' && HAND_KINDS.has(m.kind)) return t(`${P}.jack.press`)
     return ''
   }
+  // the words carry the direction (§3.9, fix ui-words): an out-jack's cables go "→ to", an in-jack's come "from" — a
+  // database written, a module started, an exit sent to, the Outbox handed a row, in their own words
   const jackTitle = (j: Jack, m: Module, to: string[]) => {
     const label = jack(j, m) || t(`${P}.jack.role.${j.role}`)
     const head = `${name(m)} · ${label}`
-    return to.length ? t(`${P}.jack.to`, { jack: head, to: to.join(', ') }) : t(`${P}.jack.free`, { jack: head })
+    if (!to.length) return t(`${P}.jack.free`, { jack: head })
+    if (j.side !== 'in') return t(`${P}.jack.to`, { jack: head, to: to.join(', ') })
+    const own = j.role === 'writes' || j.role === 'start' || j.role === 'out' || j.role === 'send'
+    return own ? t(`${P}.jack.from.${j.role}`, { module: name(m), from: to.join(', ') }) : t(`${P}.jack.from`, { jack: head, from: to.join(', ') })
   }
   const peers = (key: string): string[] => {
     const out: string[] = []

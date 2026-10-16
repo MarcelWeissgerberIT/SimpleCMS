@@ -38,6 +38,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { useLive } from '../live/live'
 import { hasLiveWindow, ledOf, LiveLed, LiveWindow, useModuleLive } from './LiveWin'
 import type { FuseMarks, Words } from './words'
+import { scrollBehavior } from './motion'
 
 const P = 'features.patchbay'
 
@@ -100,6 +101,11 @@ function linesOf(model: Model, w: Words, m: Module): Line[] {
             const tag = gate ? { text: gate.text } : om.kind === 'server' && om.profile ? { text: om.profile } : null
             let say = dir(side)
             let name = w.name(om)
+            // a clock starts it: its when-phrase, mid-sentence ("every weekday at 07:30" — never "from Every …")
+            if (side === 'in' && om.kind === 'clock') {
+              say = t(`${P}.strands.when`, { name: SLOT })
+              name = name ? name[0].toLocaleLowerCase() + name.slice(1) : name
+            }
             if (can) {
               const r = om.ref
               if (om.kind === 'everything') {
@@ -177,6 +183,9 @@ function StrandCard({ m, model, w, fuses, runs, running, steps = [], next = null
   const opens = canOpen(m)
   const selected = usePbUI((s) => s.selected === m.key)
   const worker = w.worker(m)
+  // the rack's rule (Module.tsx): idle, blocked, unknown here, switched off, by hand, planned, worker offline — grey
+  const blockedWhy = m.blocked ? t(`${P}.blocked.${m.blocked}`) : null
+  const off = m.idle || !!m.blocked || m.tags.includes('blocked') || m.tags.includes('unknownHere') || m.tags.includes('disabled') || m.tags.includes('byHand') || ghost || worker?.led === 'off'
   // a tap anywhere on the card opens its editor (its keys open their own targets)
   const onCard = (e: MouseEvent<HTMLElement>) => {
     if ((e.target as Element).closest('button, a')) return
@@ -194,7 +203,7 @@ function StrandCard({ m, model, w, fuses, runs, running, steps = [], next = null
   return (
     <article className="pb-strand" data-path={fuses.length ? '' : undefined} data-live={running || undefined} data-selected={selected || undefined} data-ghost={ghost || undefined} data-key={m.key} data-testid="pb-strand" onClick={onCard}>
       <span className="pb-strand__h">
-        {led ? <LiveLed led={led} live={live} /> : <span className={running ? 'led led--on' : m.tags.includes('disabled') || worker?.led === 'off' ? 'led' : worker?.led === 'warn' ? 'led pb-led--warn' : 'led pb-led--ok'} aria-hidden="true" />}
+        {led ? <LiveLed led={led} live={live} /> : <span className={running ? 'led led--on' : off ? 'led' : worker?.led === 'warn' ? 'led pb-led--warn' : 'led pb-led--ok'} aria-hidden="true" />}
         <span className="label">{ghost ? `${w.kind(m)} · ${t(`${P}.ghost.planned`)}` : w.kind(m)}</span>
         {w.tags(m)
           .slice(0, 2)
@@ -234,6 +243,11 @@ function StrandCard({ m, model, w, fuses, runs, running, steps = [], next = null
           {w.name(m)}
         </button>
       </span>
+      {blockedWhy && (
+        <p className="pb-strand__why" data-testid="pb-blocked-why">
+          {blockedWhy}
+        </p>
+      )}
       {lines.length > 0 && (
         <ul className="pb-lines">
           {lines.map((l) => (
@@ -325,7 +339,7 @@ export function Strands({ model, input, words: w, marks, runs, running, setup }:
     if (!live) return
     const card = root.current?.querySelector<HTMLElement>(`.pb-strand[data-key="${CSS.escape(live.key)}"]`)
     if (!card) return
-    card.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    card.scrollIntoView({ block: 'center', behavior: scrollBehavior() })
     card.querySelector<HTMLElement>('.pb-strand__open')?.focus({ preventScroll: true })
   }
 

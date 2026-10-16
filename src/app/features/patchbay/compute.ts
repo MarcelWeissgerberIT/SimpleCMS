@@ -10,8 +10,8 @@
  *     counts and the hints are published there);
  *  3. it is read again in idle whenever the wiring may have moved: a workspace field the wiring signature reads (never
  *     `pages` alone — typing rebuilds nothing; the referenced pages come through the row index, inputs.ts
- *     onPagesMoved), this device's facts (the cloud role and account, the bridge, the coding worker, the sync, MCP
- *     tests, kit trust) and a lazy reading arriving. The input memo answers with the same input when nothing it reads
+ *     onPagesMoved), this device's facts (the cloud role and account, the bridge, the coding worker and this device's
+ *     Approvals, the sync, MCP tests, kit trust) and a lazy reading arriving. The input memo answers with the same input when nothing it reads
  *     changed — then nothing is built.
  * Another member scope (a team account becoming known, another workspace): the lazy cache is read again.
  */
@@ -28,6 +28,9 @@ import { patchbayScope } from './scope'
 
 /** The workspace fields the wiring signature reads (source.ts) — `pages` only through the row index. */
 const WIRING = ['databases', 'agents', 'scripts', 'integrations', 'kit', 'ai', 'governor', 'fuseSignoffs', 'settings'] as const
+
+/** The coding fields this device's facts read (inputs.ts deviceFacts — keep in step). */
+const CODING = ['enabled', 'conn', 'can', 'worker', 'approvalsDefault'] as const
 
 const idle = (fn: () => void): void => {
   const ric = (globalThis as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }).requestIdleCallback
@@ -78,8 +81,10 @@ export function startCompute(): () => void {
       }
       if (s.role !== p.role || s.readOnly !== p.readOnly || s.supports !== p.supports || s.user?.id !== p.user?.id || s.active !== p.active) soon()
     }),
+    // every coding field deviceFacts() reads (inputs.ts): the link, the worker's caps and info, and this device's
+    // Approvals for new tasks (rules.ts unattendedGit reads them — "None — just do it" can open a fuse; fix ui-words)
     useCoding.subscribe((s, p) => {
-      if (s.enabled !== p.enabled || s.conn !== p.conn || s.can !== p.can || s.worker !== p.worker) soon()
+      if (CODING.some((k) => s[k] !== p[k])) soon()
     }),
     useMcp.subscribe((s, p) => {
       if (s.enabled !== p.enabled || s.mode !== p.mode) soon()

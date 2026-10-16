@@ -34,7 +34,7 @@ import { roveKeyOf, nextStop, stopsOf } from './roving'
 import { lightNet, selectModule, setCursor, toggleFold, usePbUI } from './store'
 import { activeGlyph, fuseRowsOf } from './fuseRows'
 import { Wires, type GlyphFuse } from './Wires'
-import { fuseNo } from './words'
+import { countOf, fuseNo } from './words'
 import { useLive } from '../live/live'
 import { cableLabels } from './liveWin'
 import { DragCable, usePatchPointer, type PatchPointer } from './PatchDrag'
@@ -44,7 +44,7 @@ import { DragCable, usePatchPointer, type PatchPointer } from './PatchDrag'
 const P = 'features.patchbay'
 const COLS: Column[] = [1, 2, 3]
 
-function Fold({ slot }: { slot: FoldSlot }) {
+function Fold({ slot, unfold }: { slot: FoldSlot; unfold?: (() => void) | undefined }) {
   const { model, words: w, entry } = useRack()
   const f = w.fold(slot)
   const open = !!slot.open
@@ -65,6 +65,17 @@ function Fold({ slot }: { slot: FoldSlot }) {
         aria-label={`${f.label}: ${f.names.join(', ')}`}
         style={{ gridColumn: slot.col * 2 - 1, gridRow: slot.row + 1 }}
         onFocus={(e) => e.target === e.currentTarget && setCursor(slot.id)}
+        // ↵ / Space unfold what the profile does not touch, as the line's "Unfold" key does (§3.9, fix ui-words) — the
+        // keyboard goes on to that key (this fold is gone once unfolded); never a scroll of the page
+        onKeyDown={(e) => {
+          if (e.target !== e.currentTarget || e.altKey || e.ctrlKey || e.metaKey || (e.key !== 'Enter' && e.key !== ' ')) return
+          e.preventDefault()
+          if (!unfold) return
+          const rack = e.currentTarget.closest('.pb-rack')
+          unfold()
+          requestAnimationFrame(() => rack?.querySelector<HTMLElement>('[data-testid="pb-untouched-key"]')?.focus({ preventScroll: true }))
+        }}
+        aria-keyshortcuts="Enter"
       >
         <span className="label pb-fold__label">{slot.modules.length}</span>
         <span className="pb-fold__names">{f.names.join(', ')}</span>
@@ -119,7 +130,7 @@ function Fold({ slot }: { slot: FoldSlot }) {
   )
 }
 
-function SlotView({ slot, i }: { slot: Slot; i: number }) {
+function SlotView({ slot, i, unfold }: { slot: Slot; i: number; unfold?: (() => void) | undefined }) {
   const { model } = useRack()
   if (slot.kind === 'module') {
     const m = model.modules.find((x) => x.key === slot.id)
@@ -129,7 +140,7 @@ function SlotView({ slot, i }: { slot: Slot; i: number }) {
     const net = model.nets.find((n) => n.key === slot.net)
     return net ? <NetFlag slot={slot} net={net} /> : null
   }
-  if (slot.kind === 'fold') return <Fold slot={slot} />
+  if (slot.kind === 'fold') return <Fold slot={slot} unfold={unfold} />
   return <BusChip slot={slot} />
 }
 
@@ -194,7 +205,7 @@ export function Rack({ ctx, layout, onFuse, band, patching }: { ctx: RackCtx; la
   const counts = ctx.model.counts
   const bandMode = !!band
   const partition = bandMode && band!.folded
-  const lists = (slots: Array<{ slot: Slot; i: number }>, key: string, shift: (s: Slot, i: number) => Slot) =>
+  const lists = (slots: Array<{ slot: Slot; i: number }>, key: string, shift: (s: Slot, i: number) => Slot, unfold?: () => void) =>
     COLS.map((col) => (
       <div key={`${key}${col}`} className="pb-col" role="list" aria-label={t(`${P}.a11y.column`, { n: col, name: ctx.words.colName(col) })} data-col={col}>
         {slots
@@ -202,7 +213,7 @@ export function Rack({ ctx, layout, onFuse, band, patching }: { ctx: RackCtx; la
           .sort((a, b) => a.slot.row - b.slot.row)
           .map(({ slot, i }, j) => (
             <div key={slot.id} className="pb-li" role="listitem">
-              <SlotView slot={shift(slot, j)} i={i} />
+              <SlotView slot={shift(slot, j)} i={i} unfold={unfold} />
             </div>
           ))}
       </div>
@@ -232,7 +243,7 @@ export function Rack({ ctx, layout, onFuse, band, patching }: { ctx: RackCtx; la
   return (
     <RackContext.Provider value={ctx}>
       <div className="pb-bench" ref={bench} data-testid="pb-bench" data-patching={patching ? '' : undefined}>
-        <section className="pb-rack screw-plate" aria-label={t(`${P}.rack.aria`, { m: counts.modules, c: counts.cables })} aria-describedby="pb-rack-hint" onClick={clear} onKeyDown={onKeyDown} data-testid="pb-rack">
+        <section className="pb-rack screw-plate" aria-label={t(`${P}.rack.aria`, { m: countOf(t, 'modules', counts.modules), c: countOf(t, 'cables', counts.cables) })} aria-describedby="pb-rack-hint" onClick={clear} onKeyDown={onKeyDown} data-testid="pb-rack">
           <Screws seed="patchbay-rack" />
           <p id="pb-rack-hint" className="visually-hidden">
             {t(`${P}.rack.hint`)}
@@ -249,7 +260,7 @@ export function Rack({ ctx, layout, onFuse, band, patching }: { ctx: RackCtx; la
                 {band!.plate}
               </div>
               <div className="pb-untouched" data-testid="pb-untouched">
-                <span className="label pb-untouched__t">{t(`${P}.band.untouched`, { m: band!.untouched.modules, c: band!.untouched.cables })}</span>
+                <span className="label pb-untouched__t">{t(`${P}.band.untouched`, { m: countOf(t, 'modules', band!.untouched.modules), c: countOf(t, 'cables', band!.untouched.cables) })}</span>
                 <span className="pb-colh__rule" aria-hidden="true" />
                 <button type="button" className="pb-untouched__key" aria-expanded={!band!.folded} title={t(`${P}.band.foldedTitle`)} onClick={band!.onToggle} data-testid="pb-untouched-key">
                   <CornerDownLeft size={11} strokeWidth={1.9} aria-hidden="true" />
@@ -259,7 +270,7 @@ export function Rack({ ctx, layout, onFuse, band, patching }: { ctx: RackCtx; la
               {partition && folds.length > 0 && (
                 <div className="pb-grid pb-grid--folds" data-testid="pb-band-folds">
                   {/* each column's folds one under the other: what the profile does not touch first */}
-                  {lists(folds, 'f', (slot, j) => ({ ...slot, row: j }))}
+                  {lists(folds, 'f', (slot, j) => ({ ...slot, row: j }), band!.onToggle)}
                 </div>
               )}
             </>

@@ -97,7 +97,7 @@ test.describe('Patchbay setup — dialogs over the patchbay (lamps 04 / 05)', ()
     // again → Create: the database and its report page; the dialog closes, 04 is green, the keyboard on lamp 05
     await page.keyboard.press('Enter')
     await expect(mirror).toBeVisible()
-    await mirror.getByRole('button', { name: 'Create database and agent' }).click()
+    await mirror.getByRole('button', { name: 'Create database', exact: true }).click()
     await expect(mirror).toHaveCount(0)
     await onPatchbay(page)
     await expect(lampKey(page, 5)).toBeFocused()
@@ -237,7 +237,7 @@ test.describe('Patchbay setup — fix (rest)', () => {
     await expect.poll(() => states(page)).toBe('ok ok ok ok next dark dark')
     const mirror = page.locator('.agx-mir')
     await press(page, 4)
-    await mirror.getByRole('button', { name: 'Create database and agent' }).click()
+    await mirror.getByRole('button', { name: 'Create database', exact: true }).click()
     await expect(mirror).toHaveCount(0)
     await expect(lampKey(page, 5)).toBeFocused()
     const kept = (await setup(page, (s) => s.kept('tracker', 'mirror')))!
@@ -257,7 +257,7 @@ test.describe('Patchbay setup — fix (rest)', () => {
     await expect(mirror.getByRole('button', { name: /^Restore/ })).toBeVisible()
     await expect(mirror.getByRole('button', { name: /^Open/ })).toBeVisible()
     // Create waits (a second database of that agent is never made from here)
-    await expect(mirror.getByRole('button', { name: 'Create database and agent' })).toBeDisabled()
+    await expect(mirror.getByRole('button', { name: 'Create database', exact: true })).toBeDisabled()
     // Restore brings it back: 04 is green again, nothing new was made
     await mirror.getByRole('button', { name: /^Restore/ }).click()
     await expect.poll(() => wsEval(page, (s, id) => !!s.pages[id]?.trashed, kept.dbId)).toBe(false)

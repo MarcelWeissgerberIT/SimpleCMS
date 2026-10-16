@@ -24,7 +24,7 @@ Open it from the sidebar row **Patchbay** (between Scripts and Building blocks),
 Every number in the head matches what is drawn and folded, and the sidebar badge, the status bar and Preflight show the same fuse count.
 
 ## Fuses
-A **fuse** lights on a path where four things meet:
+A **fuse** lights on a path where an AI decides by itself (1) and three conditions meet (2–4) — the three lamps on the fuse's plate:
 
 1. **An AI decides** with nobody approving each action: a [custom agent](help:custom-agents) (also a switched-off one — *Run now* is one press away), [AI autofill](help:ai-autofill) set to fill automatically, mail sorting after each sync, or the [bridge](help:mcp-bridge) when Claude Desktop / Code may write without asking.
 2. **Content from outside reaches it**: rows of a mail database, read results of an MCP server, the body of a webhook that starts a server agent, rows from an incoming webhook or API token, pages the GitHub sync picks up, clipped web pages — and any place written by something that was itself fed from outside.
@@ -83,7 +83,7 @@ The **Patching** switch in the head (off by default, remembered on this device) 
 <kbd>←</kbd> <kbd>→</kbd> <kbd>↑</kbd> <kbd>↓</kbd> move between modules · <kbd>Enter</kbd> opens a module's editor · <kbd>Space</kbd> shows its connections (and marks its sentence in *In plain words*) · <kbd>J</kbd> finds a jack · <kbd>F</kbd> goes to the next fuse · <kbd>Tab</kbd> leaves the rack for the fuse list · <kbd>Esc</kbd> cancels a drag, then deselects.
 
 ## On a phone
-The rack becomes **strands** — one card per processor with its sources and targets in words, open fuses first, then *Not processed* for everything that runs nothing. A running strand lights in place; a chip at the top jumps to it. Fuse keys and setup lamps work there; patching does not.
+The rack becomes **strands** — one card per processor with its sources and targets in words, open fuses first, then *Not processed* for everything that runs nothing. A running strand lights in place; a chip at the bottom of the screen jumps to it. Fuse keys and setup lamps work there; patching does not.
 
 ## What stays on this device
 The day's run counts, what the Patchbay read on opening (ids only, never text), the setup's progress, the Patching switch and the rack's order stay in this browser — never synced, exported or backed up — and go with the device copy. Allowed paths belong to the workspace: shared in a team, carried by full backups, and never taken from a backup on restore.

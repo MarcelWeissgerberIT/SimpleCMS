@@ -283,7 +283,7 @@ export function DropChip({ t, anchor, onClose, flow }: { t: Translate; anchor: H
       <Popover open={!!anchor} anchor={anchor} onClose={onClose} placement="bottom-end" className="pb-members" role="dialog" aria-label={t(`${P}.drop.members.head`)}>
         <div className="pb-members__in" data-testid="pb-drop-members">
           <p className="pb-members__h">{t(`${P}.drop.members.head`)}</p>
-          <p className="pb-members__line">{names.length ? t(`${P}.drop.members.names`, { names: names.join(', ') }) : t(`${P}.drop.members.none`)}</p>
+          <p className="pb-members__line">{names.length ? t(names.length === 1 ? `${P}.drop.members.names.one` : `${P}.drop.members.names`, { names: names.join(', ') }) : t(`${P}.drop.members.none`)}</p>
           <p className="label pb-members__sub">{profiles.length ? t(`${P}.drop.members.setUp`) : t(`${P}.drop.members.empty`)}</p>
           {profiles.length > 0 && (
             <ul className="pb-members__list">

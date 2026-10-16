@@ -49,6 +49,16 @@
   color: var(--ink);
   text-decoration-color: currentColor;
 }
+/* held (fix ui-words): the host holds unsaved changes — the line is no link until they are saved or cancelled */
+.pb-hint[data-held] .pb-hint__text,
+.pb-hint__kept[data-held] {
+  color: var(--ink-3);
+  text-decoration: none;
+  white-space: normal;
+}
+.pb-hint[data-held] .pb-hint__link {
+  align-items: flex-start;
+}
 /* "Change in the Patchbay" beside an agent's kept tool list (the agent editor, key 2b) */
 .pb-hint__kept {
   color: var(--ink-2);

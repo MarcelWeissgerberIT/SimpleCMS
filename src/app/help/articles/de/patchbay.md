@@ -24,7 +24,7 @@ Du öffnest ihn über die Zeile **Schaltplan** in der Seitenleiste (zwischen Skr
 Jede Zahl im Kopf passt zu dem, was gezeichnet und eingeklappt ist, und Seitenleiste, Statusleiste und Vorflug-Check zeigen dieselbe Zahl offener Sicherungen.
 
 ## Sicherungen
-Eine **Sicherung** leuchtet auf einem Weg, auf dem vier Dinge zusammenkommen:
+Eine **Sicherung** leuchtet auf einem Weg, auf dem eine KI selbst entscheidet (1) und drei Bedingungen zusammenkommen (2–4) — die drei Lampen auf der Platte der Sicherung:
 
 1. **Eine KI entscheidet**, ohne dass ein Mensch jede Aktion freigibt: ein [eigener Agent](help:custom-agents) (auch ein ausgeschalteter — *Jetzt ausführen* ist einen Druck entfernt), [KI-Autofill](help:ai-autofill), das automatisch füllt, das Mail-Sortieren nach jedem Sync, oder die [Brücke](help:mcp-bridge), wenn Claude Desktop / Code ohne Rückfrage schreiben darf.
 2. **Inhalt von außen erreicht sie**: Zeilen einer Mail-Datenbank, Leseergebnisse eines MCP-Servers, der Inhalt eines Webhooks, der einen Server-Agenten startet, Zeilen aus einem eingehenden Webhook oder API-Token, Seiten, die der GitHub-Sync holt, abgelegte Webseiten — und jeder Ort, den etwas schreibt, das selbst von außen gespeist wird.
@@ -83,7 +83,7 @@ Der Schalter **Patchen** im Kopf (aus, bis du ihn einschaltest; dieses Gerät me
 <kbd>←</kbd> <kbd>→</kbd> <kbd>↑</kbd> <kbd>↓</kbd> wechseln zwischen Modulen · <kbd>Enter</kbd> öffnet den Editor eines Moduls · <kbd>Leertaste</kbd> zeigt seine Verbindungen (und markiert seinen Satz im *Klartext*) · <kbd>J</kbd> sucht eine Buchse · <kbd>F</kbd> springt zur nächsten Sicherung · <kbd>Tab</kbd> verlässt das Rack zur Sicherungsliste · <kbd>Esc</kbd> bricht ein Ziehen ab, dann die Auswahl.
 
 ## Auf dem Telefon
-Das Rack wird zu **Strängen** — eine Karte pro Verarbeitung mit ihren Quellen und Zielen in Worten, offene Sicherungen zuerst, dann *Nicht verarbeitet* für alles, was nichts ausführt. Ein laufender Strang leuchtet an seinem Platz; ein Chip oben springt zu ihm. Sicherungstasten und Einrichtungs-Lampen funktionieren dort; Patchen nicht.
+Das Rack wird zu **Strängen** — eine Karte pro Verarbeitung mit ihren Quellen und Zielen in Worten, offene Sicherungen zuerst, dann *Nicht verarbeitet* für alles, was nichts ausführt. Ein laufender Strang leuchtet an seinem Platz; ein Chip unten am Bildschirm springt zu ihm. Sicherungstasten und Einrichtungs-Lampen funktionieren dort; Patchen nicht.
 
 ## Was auf diesem Gerät bleibt
-Die Läufe des Tages, was der Schaltplan beim Öffnen gelesen hat (nur IDs, nie Text), der Stand der Einrichtung, der Schalter Patchen und die Reihenfolge im Rack bleiben in diesem Browser — nie synchronisiert, exportiert oder gesichert — und gehen mit der Gerätekopie. Zugelassene Wege gehören zum Arbeitsbereich: im Team geteilt, in vollständigen Sicherungen enthalten, und beim Wiederherstellen nie aus einer Sicherung übernommen.
+Die Läufe des Tages, was der Schaltplan beim Öffnen gelesen hat (nur IDs, nie Text), der Stand der Einrichtung, der Schalter Patchen und die Reihenfolge im Rack bleiben in diesem Browser — nie synchronisiert, exportiert oder in ein Backup übernommen — und gehen mit der Gerätekopie. Zugelassene Wege gehören zum Arbeitsbereich: im Team geteilt, in vollständigen Backups enthalten und beim Wiederherstellen nie aus einem Backup übernommen.

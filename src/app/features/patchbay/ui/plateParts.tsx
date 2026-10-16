@@ -209,13 +209,22 @@ function viaLabel(pw: PlateWords, p: Place): string {
 }
 
 /**
- * Does the path fit on one row (measured)? A row never wraps — an arrow would dangle at a line's end: while the chips
- * overflow the plate's width, the path stands as the phone's column instead. Another width, other chips or another
- * language measure the row again (before the frame is painted).
+ * How the path fits the plate (measured; fix ui-words — the mock's row first): 0 the whole row; 1 the chips' mono subs
+ * go ("FROM OUTSIDE", "CAN SEND" — the hatching and the signal outline still say it, readers still hear it); 2 two rows
+ * of whole names, broken before an arrow so every arrow stays with the chip after it (`br`: the item the second row
+ * starts with); 3 one row of shortened names (the chip's title keeps the name); 4 two rows of shortened names; 5 the
+ * column (still too wide). A row never wraps on its own — no arrow dangles at a line's end. Another width, other chips
+ * or another language measure again (before paint).
  */
-function useStacked(ol: RefObject<HTMLOListElement | null>, off: boolean, content: unknown): boolean {
-  const [stacked, setStacked] = useState(false)
-  useLayoutEffect(() => setStacked(false), [content])
+interface PathFit {
+  tier: 0 | 1 | 2 | 3 | 4 | 5
+  br: number | null
+}
+const FIT0: PathFit = { tier: 0, br: null }
+
+function usePathFit(ol: RefObject<HTMLOListElement | null>, off: boolean, content: unknown): PathFit {
+  const [fit, setFit] = useState<PathFit>(FIT0)
+  useLayoutEffect(() => setFit(FIT0), [content])
   useLayoutEffect(() => {
     const el = ol.current
     if (!el || off) return
@@ -223,23 +232,46 @@ function useStacked(ol: RefObject<HTMLOListElement | null>, off: boolean, conten
     const ro = new ResizeObserver(() => {
       if (el.clientWidth === w) return
       w = el.clientWidth
-      setStacked(false)
+      setFit(FIT0)
     })
     ro.observe(el)
     return () => ro.disconnect()
   }, [ol, off])
   useLayoutEffect(() => {
     const el = ol.current
-    if (!el || off || stacked || el.clientWidth === 0) return
-    if (el.scrollWidth > el.clientWidth + 1) setStacked(true)
+    if (!el || off || fit.tier === 5 || el.clientWidth === 0) return
+    const width = el.clientWidth
+    if (fit.tier === 2 || fit.tier === 4) {
+      // two rows: each must fit, and only two (a row by its items' middles, a few px apart at most — an arrow is
+      // shorter than a chip, and half pixels round either way)
+      const mids = [...el.children].filter((c) => !c.classList.contains('pb-path__br')).map((c) => (c as HTMLElement).offsetTop + (c as HTMLElement).offsetHeight / 2)
+      const rows = mids.sort((a, b) => a - b).filter((m, i) => i === 0 || m - mids[i - 1] > 4).length
+      if (el.scrollWidth > width + 1 || rows > 2) setFit({ tier: fit.tier === 2 ? 3 : 5, br: null })
+      return
+    }
+    if (el.scrollWidth <= width + 1) return
+    if (fit.tier === 0) return setFit({ tier: 1, br: null })
+    // one row still overflows: break before the last arrow that lets the first row fit, if the rest fits
+    const kids = [...el.children] as HTMLElement[]
+    const left = el.getBoundingClientRect().left
+    const right = (c: HTMLElement) => c.getBoundingClientRect().right - left
+    const end = kids.length ? right(kids[kids.length - 1]) : 0
+    for (let i = kids.length - 1; i > 0; i--) {
+      if (!kids[i].classList.contains('pb-path__sep')) continue
+      const first = right(kids[i - 1])
+      const rest = end - (kids[i].getBoundingClientRect().left - left)
+      if (first <= width + 1 && rest <= width + 1) return setFit({ tier: fit.tier === 1 ? 2 : 4, br: i })
+    }
+    setFit({ tier: fit.tier === 1 ? 3 : 5, br: null })
   })
-  return stacked
+  return fit
 }
 
 /**
  * The path as chips (an ordered list; the arrows are decoration). `hot`: the open fuse's way out in signal ("CAN
  * SEND"); `vertical`: the phone's column, the decider's first write said between the chips. A plate too narrow for the
- * row stacks the same chips into a column (useStacked: one row, never wrapped — no arrow dangles at a line's end).
+ * row steps it down first (usePathFit: no subs, two rows broken before an arrow, shorter names) and stacks the same
+ * chips into a column only when two rows of short names still overflow — no arrow ever dangles at a line's end.
  */
 export function FusePath({ chain, pw, hot, vertical: phone }: { chain: Chain; pw: PlateWords; hot: boolean; vertical?: boolean }) {
   const [all, setAll] = useState(false)
@@ -247,7 +279,8 @@ export function FusePath({ chain, pw, hot, vertical: phone }: { chain: Chain; pw
   const t = pw.w.t
   const mods = useMemo(() => new Map(pw.model.modules.map((m) => [m.key, m])), [pw.model])
   const olRef = useRef<HTMLOListElement>(null)
-  const stacked = useStacked(olRef, !!phone, `${pw.w.lang}|${nodes.length}|${chain.exit?.module ?? ''}|${hot}`)
+  const fit = usePathFit(olRef, !!phone, `${pw.w.lang}|${nodes.length}|${chain.exit?.module ?? ''}|${hot}|${nodes.map((n) => (n.kind === 'module' ? n.key : n.kind)).join()}`)
+  const stacked = fit.tier === 5
   // the phone says a written place in words between its chips and names each chip's kind; a stacked plate keeps the
   // row's chips — only the arrows turn down
   const vertical = !!phone
@@ -278,7 +311,7 @@ export function FusePath({ chain, pw, hot, vertical: phone }: { chain: Chain; pw
       const cls = ['pb-pn', n.outside ? 'pb-pn--outside' : '', n.role === 'exit' ? (hot ? 'pb-pn--out pb-pn--hot' : 'pb-pn--out') : ''].filter(Boolean).join(' ')
       const sub = n.outside ? t(`${P}.tag.outside`) : n.role === 'exit' ? t(`${P}.fuse.canSend`) : vertical && m ? [pw.w.kind(m), ...pw.w.tags(m).filter((x) => x.tag === 'direct' || x.tag === 'stage').map((x) => x.text)].join(' · ') : ''
       items.push(
-        <li key={key} className={cls} data-key={n.key} title={name}>
+        <li key={key} className={cls} data-key={n.key} title={sub ? `${name} · ${sub}` : name}>
           {m && <KindIcon m={m} input={pw.input} />}
           <span className="pb-pn__n">{name}</span>
           {sub && <span className="label pb-pn__s">{sub}</span>}
@@ -307,8 +340,17 @@ export function FusePath({ chain, pw, hot, vertical: phone }: { chain: Chain; pw
       )
     }
   })
+  // two rows: a break before the arrow the second row starts with (the arrow stays with the chip after it)
+  if (!vertical && (fit.tier === 2 || fit.tier === 4) && fit.br !== null && fit.br < items.length) items.splice(fit.br, 0, <li key="br" className="pb-path__br" aria-hidden="true" />)
   return (
-    <ol ref={olRef} className={vertical || stacked ? 'pb-path pb-path--v' : 'pb-path'} aria-label={t(`${P}.plate.path`)} data-stacked={stacked ? '' : undefined} data-testid="pb-path">
+    <ol
+      ref={olRef}
+      className={vertical || stacked ? 'pb-path pb-path--v' : 'pb-path'}
+      aria-label={t(`${P}.plate.path`)}
+      data-stacked={stacked ? '' : undefined}
+      data-fit={!vertical && !stacked && fit.tier > 0 ? String(fit.tier) : undefined}
+      data-testid="pb-path"
+    >
       {items}
     </ol>
   )
@@ -373,8 +415,8 @@ export function ShortLamps({ lamps, pw }: { lamps: { outside: Why; private: Why;
 /* ------------------------------------------------------------------ the sentence and the facts */
 
 /** The plate's sentence (plain.ts fuseSay: no pronouns in German, names bold). */
-export function FuseSentence({ chain, pw, className }: { chain: Chain; pw: PlateWords; className: string }) {
-  const parts = useMemo(() => fuseSay({ chain }, pw.model, pw.input, pw.w.ctx), [chain, pw])
+export function FuseSentence({ chain, pw, className, near }: { chain: Chain; pw: PlateWords; className: string; near?: boolean }) {
+  const parts = useMemo(() => fuseSay({ chain }, pw.model, pw.input, pw.w.ctx, { near: !!near }), [chain, pw, near])
   if (!parts.length) return null
   return (
     <p className={className} data-testid="pb-say">

@@ -12,6 +12,8 @@
  *    a route change alone leaves a modal open). B15 draws it for AutomationsModal; B10 places it in the agent editor.
  *  - PatchbayAgentLink { agent, onOpen? } (B10): "Change in the Patchbay" — the agent editor's kept tool-list line
  *    (no profile unlocks the list there; the Patchbay's key 2b is the reasoned way, §1.9), `#/patchbay?m=agent:<id>`
+ *  - `held` (both, fix ui-words): the host holds unsaved changes — the line says "save first" and is no link (leaving
+ *    would drop the change; the hint speaks of what is stored)
  * Seam (DEV / `?e2e`): `window.__onePatchbayHints` = { set(list), of(kind, id) } — specs feed hints before the idle fuse
  * computation exists in their build, or without opening the Patchbay.
  * Ids per kind: 'agent' = agent id · 'agentServer' = `${agentId}:${serverName}` · 'automation' = `${dbId}:${automationId}` ·
@@ -68,10 +70,21 @@ export function useFuseHint(kind: HintKind, id: string): FuseHint | null {
  * open fuse. A link (Mod / Shift + click keep the browser's own meaning); a plain click runs `onOpen` (the host dialog
  * closes) and opens `#/patchbay?f=<path key>`.
  */
-export function FuseHintLine(props: { kind: HintKind; id: string; onOpen?: () => void }) {
+export function FuseHintLine(props: { kind: HintKind; id: string; onOpen?: () => void; held?: boolean }) {
   const t = useT()
   const hint = useFuseHint(props.kind, props.id)
   if (!hint) return null
+  if (props.held)
+    return createElement(
+      'p',
+      { className: 'pb-hint', 'data-pb-hint': hint.key, 'data-held': '' },
+      createElement(
+        'span',
+        { className: 'pb-hint__link', 'aria-disabled': 'true' },
+        createElement('span', { className: 'pb-hint__fuse', 'aria-hidden': true }),
+        createElement('span', { className: 'pb-hint__text' }, t('features.patchbay.hint.onFuseHeld', { f: hint.label })),
+      ),
+    )
   const route = { name: 'patchbay' as const, f: hint.key }
   const open = (e: MouseEvent<HTMLAnchorElement>) => {
     if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
@@ -95,8 +108,9 @@ export function FuseHintLine(props: { kind: HintKind; id: string; onOpen?: () =>
  * "Change in the Patchbay" next to an agent's kept MCP tool list (§1.9 key 2b): a link to the agent's module on the rack.
  * A plain click runs `onOpen` first (the editor dialog closes) — Mod / Shift + click keep the browser's own meaning.
  */
-export function PatchbayAgentLink(props: { agent: string; onOpen?: () => void }) {
+export function PatchbayAgentLink(props: { agent: string; onOpen?: () => void; held?: boolean }) {
   const t = useT()
+  if (props.held) return createElement('span', { className: 'pb-hint__kept', 'aria-disabled': 'true', 'data-held': '', 'data-testid': 'pb-hint-kept' }, t('features.patchbay.hint.keptHeld'))
   const route = { name: 'patchbay' as const, m: moduleKey({ kind: 'agent', id: props.agent }) }
   const open = (e: MouseEvent<HTMLAnchorElement>) => {
     if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return

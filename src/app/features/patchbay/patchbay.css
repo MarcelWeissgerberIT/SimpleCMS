@@ -446,6 +446,17 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* why a module cannot run here (blocked, unknown here — fix ui-words): one line, the whole reason in its title */
+.pb-mod__s.pb-mod__s--why {
+  color: var(--ink-2);
+}
+.pb-strand__why {
+  margin: 2px 0 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  line-height: 1.4;
+  color: var(--ink-2);
+}
 /* the narrowest name box the rack accepts (Patchbay.tsx measures it: 12 characters of a name) */
 .pb-probe {
   position: absolute;
@@ -2210,8 +2221,8 @@ span.pb-line:focus {
   color: var(--ink-3);
 }
 
-/* the path as chips: hatched source → decider → net chip → … → the way out ("CAN SEND") — one row, never wrapped (an
-   arrow would dangle): a plate too narrow for it shows the column (plateParts.tsx useStacked, `data-stacked`) */
+/* the path as chips: hatched source → decider → net chip → … → the way out ("CAN SEND") — one row, never wrapped by
+   itself (an arrow would dangle): a plate too narrow for it steps the row down, then shows the column (usePathFit) */
 .pb-path {
   display: flex;
   flex-wrap: nowrap;
@@ -2224,6 +2235,31 @@ span.pb-line:focus {
 .pb-path__sep {
   display: inline-flex;
   color: var(--ink-3);
+}
+/* the row steps down before it stacks (plateParts.tsx usePathFit, fix ui-words): 1 the subs go (readers still hear
+   them; the hatching and the signal outline still show them), 2 two rows — broken before an arrow, which starts the
+   second row with its chip, 3 / 4 long names shorten (the chip's title keeps them) in one row, then two */
+.pb-path[data-fit] .pb-pn__s {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.pb-path[data-fit='3'] .pb-pn__n,
+.pb-path[data-fit='4'] .pb-pn__n {
+  max-width: 15ch;
+}
+.pb-path[data-fit='2'],
+.pb-path[data-fit='4'] {
+  flex-wrap: wrap;
+  /* the break is a line of its own (height 0): two gaps of 3 px between the rows */
+  row-gap: 3px;
+}
+.pb-path__br {
+  flex-basis: 100%;
+  height: 0;
 }
 .pb-pn {
   display: inline-flex;
@@ -2505,7 +2541,12 @@ span.pb-line:focus {
     box-shadow: inset 0 0 0 1.5px CanvasText;
   }
   .pb-tri__row[data-on] .pb-tri__lamp,
-  .pb-tri3 li[data-on] i {
+  .pb-tri3 li[data-on] i,
+  /* the open / lapsed plate's and card's lamps too (their signal rules are more specific — fix ui-words) */
+  .pb-fplate[data-state='open'] .pb-tri__row[data-on] .pb-tri__lamp,
+  .pb-fplate[data-state='lapsed'] .pb-tri__row[data-on] .pb-tri__lamp,
+  .pb-fcard[data-state='open'] .pb-tri3 li[data-on] i,
+  .pb-fcard[data-state='lapsed'] .pb-tri3 li[data-on] i {
     background: Highlight;
   }
   .pb-fplate__tab {
@@ -4015,5 +4056,34 @@ html[data-pb-dragging] .pb-bench[data-patching] * {
   .pb-title:focus-visible {
     outline: 2px solid Highlight;
     outline-offset: 2px;
+  }
+}
+
+/* ---------- touch (§3.8, fix ui-words): every key of the phone views is at least 40 px × the text size ---------- */
+@media (hover: none) and (pointer: coarse) {
+  .pb-ro__fuse,
+  .pb-fkeys__copy,
+  .pb-lamp__link,
+  .pb-lampsbox[data-v] .pb-lamp__link {
+    min-width: calc(40px * var(--text-scale));
+    min-height: calc(40px * var(--text-scale));
+  }
+  .pb-lamp__link {
+    display: inline-flex;
+    align-items: center;
+  }
+  .btn.pb-key--more {
+    width: calc(40px * var(--text-scale));
+    height: calc(40px * var(--text-scale));
+  }
+  /* the band's Undo sits on the band's edge as a tab: its look stays, its hit area grows around it */
+  .pb-band__undo::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: max(100%, calc(40px * var(--text-scale)));
+    height: calc(40px * var(--text-scale));
+    transform: translate(-50%, -50%);
   }
 }

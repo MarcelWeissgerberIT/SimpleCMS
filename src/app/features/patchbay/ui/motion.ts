@@ -19,3 +19,6 @@ function subscribe(fn: () => void): () => void {
 const read = (): boolean => !!mql()?.matches
 
 export const useReducedMotion = (): boolean => useSyncExternalStore(subscribe, read, () => false)
+
+/** How the page scrolls a thing into view (fix ui-words): a jump with reduced motion, else smooth. */
+export const scrollBehavior = (): ScrollBehavior => (read() ? 'auto' : 'smooth')

@@ -540,9 +540,12 @@ Y.Map 'fuseSignoffs' pathKey → JSON FuseSignoff   (the Patchbay's allowed path
                      SHA-256 hex of the ids along the path; { sig: 64 hex — the path's signature, parts: { <letter>[n]:
                      16 hex } — one digest per part of the path (≤ 24), at, updatedBy } + unknown fields of a later build;
                      OWNERS / ADMINS write it (server/src/collab/fuse-signoffs.ts on admin-map.ts: other members' changes
-                     put back, updatedBy stamped); every reader sanitizes it (src/app/store/fuseSignoffs.ts: a broken entry
-                     is no allowance, ≤ 500 kept, the newest); an allowance whose signature no longer matches the wiring
-                     has lapsed — nothing on the server judges it)
+                     put back, updatedBy stamped — also on restoreSignoff, the Undo of key 3: the undoer); every reader
+                     sanitizes it (src/app/store/fuseSignoffs.ts: a broken entry is no allowance, ≤ 500 kept, the newest);
+                     the app reads AND writes the map only where /api/config supports ∋ 'signoffs'; the first load of a
+                     workspace under the guard drops every older entry once (server_state marker
+                     guard:fuseSignoffs:<ws>); an allowance whose signature no longer matches the wiring has lapsed —
+                     nothing on the server judges it)
 ```
 
 *(client C1 refinements, backwards compatible on read)*: comment **replies** are entries of their
@@ -605,13 +608,22 @@ device's MCP servers) or per server runtime (server agents, below). Full backups
 workspace takes them along (the uploader is stamped).
 
 The Patchbay's **allowed paths** (`fuseSignoffs`, app: `#/patchbay` key 3 "Allow this path" / "Weg zulassen" — the
-person in charge accepts one way data can leave the workspace unattended; written with `signOffFuse` / `withdrawSignoff`)
+person in charge accepts one way data can leave the workspace unattended; written with `signOffFuse` / `withdrawSignoff`,
+and with `restoreSignoff` — the Undo of key 3 / of its withdrawal puts an entry back as it was)
 follow the same rules for every key of their map (`server/src/collab/fuse-signoffs.ts`, the integration profiles' guard): a
 member's add, change or withdrawal is put back, an owner's or admin's is stamped `updatedBy` (so "Allowed by Mara Lind"
-cannot be forged), waiting structs and waiting deletes count for every member who left them — also for a key an admin adds
-that a member's waiting deletes would take away in the same transaction. `supports` lists `'signoffs'` on a server that
-guards the map; the app writes it only then (owners and admins — on an older server the Patchbay says "This server does not
-know allowed paths yet") and puts any other local change back from Y. No AI generation stamp and no schema gate: an
+cannot be forged — an Undo written back by another owner / admin reads "Allowed by <the undoer>": the server stamps who
+wrote it), waiting structs and waiting deletes count for every member who left them — also for a key an admin adds
+that a member's waiting deletes would take away in the same transaction. A nested value (a Y type inside the map) is never
+an allowance: on every admin-guarded map an owner's / admin's nested value is flattened to its plain JSON copy (stamped),
+anyone else's is put back, and a change inside a nested value left from before the guard is flattened (owner / admin) or
+removed (anyone else). `supports` lists `'signoffs'` on a server that guards the map; the app **reads and writes** it only
+then — on a server without it the store holds no allowance (every fuse stays open) and key 3 says "This server does not
+know allowed paths yet" (owners and admins) — and puts any other local change back from Y. **Upgrading a team server to
+the guard:** the first load of a workspace's meta document under the guard clears the map once, in a server-local
+transaction before any client syncs, and sets the marker `guard:fuseSignoffs:<workspace>` in `server_state` (removed with
+the workspace): entries an older, unguarded server held were never checked, so they are dropped — owners and admins allow
+those paths again. No AI generation stamp and no schema gate: an
 allowance changes no AI policy and is no document node; a build that does not know the map leaves it alone (the fuses stay
 open there). An allowance names the path's signature — when anything on the path changes (an agent's write mode, a
 server's tools, a webhook's address …) it no longer matches and has lapsed; the app shows what changed from the part

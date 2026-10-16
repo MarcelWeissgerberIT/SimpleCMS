@@ -146,12 +146,13 @@ function factsOf(c: Ctx, chain: Chain, d: Decider): Fact[] {
     else if (t?.type === 'row_created') facts.push({ kind: 'trigger', say: { key: `${P}.fact.trigger.row`, vars: { db: r.db, method } } })
     else if (t?.type === 'row_deleted') facts.push({ kind: 'trigger', say: { key: `${P}.fact.trigger.deleted`, vars: { db: r.db, method } } })
     else facts.push({ kind: 'trigger', say: { key: `${P}.fact.trigger.any`, vars: { db: r.db, method } } })
-  } else if (exit.type === 'mcp') facts.push({ kind: 'trigger', say: { key: `${P}.fact.trigger.tools`, vars: { server: exit.module } } })
+    // an MCP or Git exit is the way out itself, not what sets it off (fix ui-words): its own label
+  } else if (exit.type === 'mcp') facts.push({ kind: 'exit', say: { key: `${P}.fact.trigger.tools`, vars: { server: exit.module } } })
   else if (exit.type === 'sync') facts.push({ kind: 'trigger', say: { key: `${P}.fact.trigger.sync`, vars: { n: input.sync.github.everyMin } } })
   else if (exit.type === 'git') {
     const out = ix.mods.get(exit.module)
     const method = out?.ref.kind === 'outbound' ? (out.ref.method ?? '') : ''
-    facts.push({ kind: 'trigger', say: { key: `${P}.fact.trigger.git`, vars: { method, git: method } } })
+    facts.push({ kind: 'exit', say: { key: `${P}.fact.trigger.git`, vars: { method, git: method } } })
   }
 
   facts.push({ kind: 'chain', say: { key: `${P}.fact.chain`, vars: { n: chain.steps.length } } })

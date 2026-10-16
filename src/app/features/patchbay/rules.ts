@@ -114,7 +114,6 @@ function nextIndex(stages: readonly Stage[], i: number): number {
 /** Stage kinds that run Claude Code (coding/protocol.ts `CLAUDE_KINDS` — patchbay-model-fixes keeps them in step). */
 export const CLAUDE_CODE_STAGES: ReadonlySet<string> = new Set(['plan', 'implement', 'doc'])
 
-/**
 /** Stage kinds the worker never takes on its own (pickNext: a gate waits, done ends, an import stage needs the panel). */
 const NOT_TAKEN: ReadonlySet<string> = new Set(['gate', 'done', 'import'])
 

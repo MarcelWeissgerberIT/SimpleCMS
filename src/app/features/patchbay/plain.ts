@@ -52,6 +52,12 @@ export const text = (parts: readonly Part[]): string => parts.map((p) => p.t).jo
 const upperFirst = (s: string): string => (s ? s[0].toLocaleUpperCase() + s.slice(1) : s)
 const lowerFirst = (s: string): string => (s ? s[0].toLocaleLowerCase() + s.slice(1) : s)
 
+/** A phrase that goes on mid-sentence ("… or on every new row", "… oder werktags um 07:30"): its first letter lowered. */
+function lowerParts(parts: Part[]): Part[] {
+  const i = parts.findIndex((p) => !!p.t)
+  return i < 0 ? parts : parts.map((p, j) => (j === i ? { ...p, t: lowerFirst(p.t) } : p))
+}
+
 /** Merge neighbouring runs of the same weight. */
 function merged(parts: Part[]): Part[] {
   const out: Part[] = []
@@ -570,7 +576,8 @@ function processorStrand(w: World, m: Module): Part[] {
   else {
     const starts = startsOf(w, m.key)
     if (m.ref.kind === 'agent' && m.tags.includes('disabled')) out.push(...say(w, `${P}.plain.startOff`, { who: whoParts }))
-    else if (starts.length) out.push(...say(w, `${P}.plain.start`, { when: list(w, starts, 'or'), who: whoParts }))
+    // the phrases after the first go on mid-sentence (fix ui-words): "… (by hand) or on every new row …"
+    else if (starts.length) out.push(...say(w, `${P}.plain.start`, { when: list(w, starts.map((x, i) => (i ? lowerParts(x) : x)), 'or'), who: whoParts }))
     else out.push(...say(w, `${P}.plain.startHand`, { who: whoParts }))
     const does = sentence(w, whoParts, clausesOf(w, m))
     if (does.length) out.push({ t: ' ' }, ...does)
@@ -661,6 +668,8 @@ export function describe(model: Model, input: ModelInput, key: ModuleKey, ctx: P
   const name = moduleName(w, key)
   // a name of its own reads „quoted“ after the kind; a made-up one (Webhook · host, Autofill · db · „prop“ …) holds it
   const bits: string[] = [OWN_NAME.has(m.kind) ? `${kindLabel(w, m)} ${text(q(w, name))}` : m.kind === 'clock' || m.kind === 'rowTrigger' ? `${kindLabel(w, m)} · ${name}` : name]
+  // why it cannot run here (fix ui-words): said right after the name
+  if (m.blocked) bits.push(lowerFirst(w.ctx.t(`${P}.blocked.${m.blocked}`)))
   if (PROCESSORS.has(m.kind)) {
     if (m.tags.includes('disabled') && m.kind === 'agent') bits.push(w.ctx.t(`${P}.plain.c.off`))
     for (const s of startsOf(w, key)) bits.push(lowerFirst(text(s)))
@@ -689,8 +698,13 @@ export function describe(model: Model, input: ModelInput, key: ModuleKey, ctx: P
 
 /* ------------------------------------------------------------------ the fuse's sentence */
 
-/** The plate's sentence of a fuse: what the decider does, what sends it out, what a hidden instruction can get. */
-export function fuseSay(fuse: Pick<Fuse, 'chain'>, model: Model, input: ModelInput, ctx: PlainCtx): Part[] {
+/**
+ * The plate's sentence of a fuse: what the decider does, what sends it out, what a hidden instruction can get. Each way
+ * out has its own words (webhook · git · sync · HTTP · mail · the Outbox · an MCP server's write tools — fix ui-words).
+ * `near` (an almost-open path, fix ui-words): the same path as a plain if-then — no "without review", no "with nobody in
+ * between" and no threat: something closes it (the plate's reason line says what).
+ */
+export function fuseSay(fuse: Pick<Fuse, 'chain'>, model: Model, input: ModelInput, ctx: PlainCtx, opts: { near?: boolean } = {}): Part[] {
   const w = worldOf(model, input, ctx)
   const chain: Chain = fuse.chain
   const d = chain.decider ? w.mods.get(chain.decider) : undefined
@@ -704,7 +718,8 @@ export function fuseSay(fuse: Pick<Fuse, 'chain'>, model: Model, input: ModelInp
   })()
   const out: Part[] = []
   const serverName = q(w, moduleName(w, exit.module))
-  if (exit.type === 'mcp' && holderKey === d.key) out.push(...say(w, `${P}.plain.fuse.tools`, { who: dWho, server: serverName }))
+  const F = opts.near ? `${P}.plain.near` : `${P}.plain.fuse`
+  if (exit.type === 'mcp' && holderKey === d.key) out.push(...say(w, `${F}.tools`, { who: dWho, server: serverName }))
   else {
     const first = chain.steps[0]
     const place = first && typeof first.to !== 'string' ? first.to : first?.via
@@ -729,18 +744,19 @@ export function fuseSay(fuse: Pick<Fuse, 'chain'>, model: Model, input: ModelInp
     const outRef = w.mods.get(exit.module)?.ref
     let exitParts: Part[]
     if (exit.type === 'webhook') exitParts = say(w, `${P}.plain.fuse.exit.webhook`, { who: hWho })
-    else if (exit.type === 'git') exitParts = say(w, `${P}.plain.fuse.exit.git`, { who: hWho, action: say(w, `${P}.plain.fuse.git.${outRef?.kind === 'outbound' ? (outRef.method ?? 'push') : 'push'}`) })
+    else if (exit.type === 'git') exitParts = say(w, `${F}.exit.git`, { who: hWho, action: say(w, `${P}.plain.fuse.git.${outRef?.kind === 'outbound' ? (outRef.method ?? 'push') : 'push'}`) })
     else if (exit.type === 'sync') exitParts = say(w, `${P}.plain.fuse.exit.sync`, { repo: input.sync.github.repo ?? '' })
+    else if (exit.type === 'http' || exit.type === 'mail' || exit.type === 'outbox') exitParts = say(w, `${P}.plain.fuse.exit.${exit.type}`, { who: hWho })
     else exitParts = say(w, `${P}.plain.fuse.exit.mcp`, { who: hWho, server: serverName })
     // the steps between the first write and the hop that sends (net-flag halves count as one hop)
     const hops = chain.steps.filter((s) => typeof s.to === 'string' && s.to !== exit.module).length
     const more = Math.max(0, hops - 1)
     vars.exit = exitParts
     vars.more = more ? say(w, `${P}.plain.fuse.more`, { n: more }) : ''
-    out.push(...say(w, `${P}.plain.fuse.${act}`, vars))
+    out.push(...say(w, `${F}.${act}`, vars))
   }
-  // the threat, from the path's source
-  const src = chain.why?.outside.find((s) => !s.withheld)
+  // the threat, from the path's source (an almost-open path names none: something closes it)
+  const src = opts.near ? undefined : chain.why?.outside.find((s) => !s.withheld)
   if (src) {
     const sv: Record<string, Val> = {}
     if (src.kind === 'mcp') sv.server = q(w, moduleName(w, src.source))

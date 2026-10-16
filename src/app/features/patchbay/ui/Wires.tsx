@@ -30,7 +30,7 @@ import { flushSync } from 'react-dom'
 import { create } from 'zustand'
 import type { Translate } from '@/shared/i18n'
 import type { Layout } from '../layout'
-import { cableLength, cablePath, fuseGroupLabel, fuseGroups, fusePoint, glyphSpots, labelPoint, paintOrder, pointAt, ticksDash, wireStyle, type Cable, type Pt } from '../render'
+import { cableLength, cablePath, fuseGroupLabel, fuseGroups, fusePoint, glyphLabels, glyphSpots, labelPoint, paintOrder, pointAt, ticksDash, wireStyle, type Cable, type Pt } from '../render'
 import type { Edge, Model } from '../types'
 import type { Lit } from './lit'
 import { blinkOf, blinkStyle } from '../blink'
@@ -176,7 +176,7 @@ const WireView = memo(function WireView({ id, d, len, cls, outside, dim, path, h
  * One glyph per way out (render.ts fuseGroups: fuses sharing an exit edge share it, its label names them all). A click
  * selects its fuse — the next of its group when one of them is active already.
  */
-function Glyph({ group, c, at: share, active, leader, t, onSelect, stamp }: { group: GlyphFuse[]; c: Cable; at: number; active: string | null; leader: boolean; t: Translate; onSelect: (key: string) => void; stamp: unknown }) {
+function Glyph({ group, c, at: share, active, leader, t, onSelect, stamp, spots }: { group: GlyphFuse[]; c: Cable; at: number; active: string | null; leader: boolean; t: Translate; onSelect: (key: string) => void; stamp: unknown; spots?: { label: Pt; stub: Pt | null } }) {
   const p = fusePoint(c, share)
   const allowed = group.every((f) => f.allowed)
   const label = fuseGroupLabel(group.map((f) => f.label))
@@ -209,8 +209,8 @@ function Glyph({ group, c, at: share, active, leader, t, onSelect, stamp }: { gr
         <rect className="pb-fuse-cap" x={12.5} y={-7.5} width={5.5} height={15} rx={1} />
         <path className="pb-fuse-wire" d="M-12.5,0 L-5,0 L-2,-3 L2,3 L5,0 L12.5,0" />
       </g>
-      <Backed x={0} y={-24} text={label} className="pb-fuse-lbl" stamp={stamp} />
-      {stub && !leader && <Backed x={0} y={RING_Y + STUB + 8} text={t('features.patchbay.glyph.stub', { f: mine.label })} className="pb-fuse-stubl" stamp={stamp} />}
+      <Backed x={spots?.label.x ?? 0} y={spots?.label.y ?? -24} text={label} className="pb-fuse-lbl" stamp={stamp} />
+      {stub && !leader && <Backed x={spots?.stub?.x ?? 0} y={spots?.stub?.y ?? RING_Y + STUB + 8} text={t('features.patchbay.glyph.stub', { f: mine.label })} className="pb-fuse-stubl" stamp={stamp} />}
     </g>
   )
 }
@@ -395,6 +395,29 @@ export function Wires({ bench, layout, model, lit, fuseEdges, fuses, active, onF
       return (w && cables.get(w)) || null
     }
   }, [drawn, edgeWire])
+  // where the glyphs' labels go: clear of every ring and every other label (fix ui-words — a large rack's "↓ F1" sat on
+  // the next glyph's label); widths estimated from the mono label's characters at this text size
+  const spots = useMemo(() => {
+    if (!groups.length) return []
+    // the step lib/textScale.ts put on <html> (an inline property — read without a style recalc; none = 1)
+    let scale = 1
+    try {
+      scale = parseFloat(document.documentElement.style.getPropertyValue('--text-scale')) || 1
+    } catch {
+      /* no document here */
+    }
+    const charW = 7.4 * scale
+    const width = (text: string) => text.length * charW + 8
+    return glyphLabels(
+      groups.map((g) => {
+        const p = fusePoint(g.c, g.t)
+        const at = g.fuses.findIndex((f) => f.key === active)
+        const mine = at >= 0 ? g.fuses[at] : null
+        const stubbed = !!mine && !(leader && g.fuses.some((f) => f.key === active))
+        return { x: p.x, y: p.y, label: width(fuseGroupLabel(g.fuses.map((f) => f.label))), stub: stubbed ? width(t('features.patchbay.glyph.stub', { f: mine!.label })) : null }
+      }),
+    )
+  }, [groups, active, leader, t])
   const hotEdges = useLive(useShallow((s) => s.hot))
   const hot = useMemo(() => new Set(hotEdges), [hotEdges])
   if (!drawn || drawn.layout !== layout) return null
@@ -447,8 +470,8 @@ export function Wires({ bench, layout, model, lit, fuseEdges, fuses, active, onF
       {labelled.map(({ id, p, text }) => (
         <Backed key={`l:${id}`} x={p.x} y={p.y} text={text} className="pb-wlabel" pad={4} stamp={drawn} />
       ))}
-      {groups.map((g) => (
-        <Glyph key={g.wire} group={g.fuses} c={g.c} at={g.t} active={active} leader={!!leader && g.fuses.some((f) => f.key === active)} t={t} onSelect={onFuse} stamp={drawn} />
+      {groups.map((g, i) => (
+        <Glyph key={g.wire} group={g.fuses} c={g.c} at={g.t} active={active} leader={!!leader && g.fuses.some((f) => f.key === active)} t={t} onSelect={onFuse} stamp={drawn} spots={spots[i]} />
       ))}
       <Comets cableOf={cableOf} />
     </svg>

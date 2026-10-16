@@ -12,7 +12,7 @@
  * Names are taken when the patch is made (the toast and its Undo say them as they were).
  */
 import { useUI } from '../../../store/ui'
-import { canFocus, focusIsNowhere, focusMainRegion } from '../../../ui/focus'
+import { canFocus, focusIsNowhere, focusLost, focusMainRegion } from '../../../ui/focus'
 import { commitOn, planOn, planRefused, undoOn, type PatchDone, type PatchNames, type PlanOk } from '../patching'
 import { choicesOf, jackOf, type Choice } from '../patchPick'
 import { nameOf, placeNameOf } from '../plain'
@@ -146,12 +146,19 @@ export function confirmPop(pw: PlateWords): void {
   commitAndSay(pop.patch, pop.plan, pop.names, pop, pw)
 }
 
-/** Esc / Cancel / Close on the popover: nothing written, the keyboard back on the source jack. */
-export function closePop(): void {
+/**
+ * The popover closes: nothing written. Esc / Cancel / Close give the keyboard back to the source jack; a press outside
+ * (fix ui-words) leaves it where that press put it — a text field, another module — and only a keyboard that went
+ * nowhere comes back to the jack (the page's one-letter keys would otherwise act on a jack nobody chose).
+ */
+export function closePop(why: 'escape' | 'outside' | 'button' = 'button'): void {
   const pop = usePatchUI.getState().pop
   if (!pop) return
   setPop(null)
-  focusJack(pop.source)
+  if (why !== 'outside') return focusJack(pop.source)
+  requestAnimationFrame(() => {
+    if (focusLost() || focusIsNowhere()) focusJack(pop.source)
+  })
 }
 
 function commitAndSay(patch: Patch, plan: PlanOk, names: PatchNames, at: At, pw: PlateWords): void {
@@ -189,6 +196,13 @@ export function runPatchUndo(pw: PlateWords, id?: string): boolean {
   const detail = waits ? t(`${P}.keys.undoneWaits`, { creator: pw.member(String(waits.vars?.creator ?? '')) ?? t(`${P}.plate.someone`) }) : ''
   announce(detail ? `${said} ${detail}` : said)
   toast({ message: said, kind: 'success', ...(detail ? { detail } : {}) })
+  // the jack or module that held the keyboard may have gone with the patch (fix ui-words): never left on the body — the
+  // patch's source jack (else its module, else the main region) once the rack is drawn again
+  requestAnimationFrame(() =>
+    requestAnimationFrame(() => {
+      if (focusLost() || focusIsNowhere()) focusJack(`${d.patch.from.module}.${d.patch.from.role}`)
+    }),
+  )
   return true
 }
 

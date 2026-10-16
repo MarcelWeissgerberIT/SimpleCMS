@@ -9,7 +9,8 @@
  * The mirror drafts this tab holds: MirrorSetup's Create makes the database and its report page and hands over the
  * agent draft (mirror.ts MirrorMade). Over the Patchbay the setup closes then (lamp 04 green) and the draft waits here
  * until lamp 05 opens it in the editor (`openAgentEditor(draftId)`) — saved, discarded or undone, it goes. Per tab, in
- * memory only: a reload loses it, and lamp 05 then has MirrorSetup make it again ("Use …" → reuseMirror).
+ * memory only: a reload loses it (the tab asks before it closes while a kept draft's setup made pages), and lamp 05
+ * then has MirrorSetup make it again ("Use …" → reuseMirror).
  */
 import { useSyncExternalStore } from 'react'
 import type { CustomAgent, ID } from '../../store/types'
@@ -95,7 +96,26 @@ const keptListeners = new Set<() => void>()
 
 function keptChanged(): void {
   keptRev++
+  guardUnload()
   for (const fn of keptListeners) fn()
+}
+
+/**
+ * A kept draft whose setup made pages lives only in this tab's memory (fix ui-words): closing or reloading the tab
+ * asks first, as the editor does while it holds one.
+ */
+const warn = (e: BeforeUnloadEvent) => {
+  e.preventDefault()
+  e.returnValue = ''
+}
+let warning = false
+function guardUnload(): void {
+  if (typeof window === 'undefined') return
+  const need = [...kept.values()].some((k) => k.made.created.length > 0)
+  if (need === warning) return
+  warning = need
+  if (need) window.addEventListener('beforeunload', warn)
+  else window.removeEventListener('beforeunload', warn)
 }
 
 /** Keep the draft a setup made (by its draft id; one per profile recipe — a newer one replaces it). */

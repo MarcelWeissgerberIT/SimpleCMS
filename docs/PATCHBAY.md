@@ -158,6 +158,10 @@ reachability (chains.ts walks the model's flow, not the drawn cables; only the d
   (LED and window only) and server agents' status. Legs 600 ms each, queued; LED blinks ≤ 5 s, off at `endRun` or 10 s
   idle; red only for an error, never for a run the Regler held; reduced motion = no dot, no blink, thicker cables.
   Money: today's ledger on open + `registerMeter`, grouped by `live/costs.ts` (never `consumerOf`).
+  A module's window shows its runs today, a live reading (RUNNING, FIRED, FAILED, BUDGET, HELD, "+n FOR REVIEW") or the
+  worker's word. Readings on targets the mock draws as plain chips ("+1" rows written today, "06:58" a webhook's last
+  send, "!41" a merge request, "2" in the inbox, a script's next start) are not drawn: they need a tally per target the
+  run bus does not keep — an accepted deviation (plan §3.13, fix ui-words).
 - **Patching** (patch.ts, pure: `plan(patch, ctx) → { writes, inverse, preview, asks?, opens? } | { refused }`; the app's
   sink patchApply.ts): a cable means only what `upsertAgent`, `saveDbCommands`, `saveAutomations` or `upsertIntegration`
   can write — clock → agent trigger · row trigger / net flag → agent or automation trigger · database rows → an own

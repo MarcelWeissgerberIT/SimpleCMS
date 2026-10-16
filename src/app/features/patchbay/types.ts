@@ -302,7 +302,7 @@ export interface Why {
 
 /** The facts row of a fuse plate (§2.6) — one per kind at most. */
 export type FactKind =
-  | 'writeMode' | 'reach' | 'trigger' | 'chain' | 'jev' | 'serverAgent' | 'browserAgent' | 'handRunOnly' | 'awaitsConfirm'
+  | 'writeMode' | 'reach' | 'trigger' | 'exit' | 'chain' | 'jev' | 'serverAgent' | 'browserAgent' | 'handRunOnly' | 'awaitsConfirm'
   | 'approvals' | 'thisDevice' | 'declaredRead' | 'bulkCap' | 'failClosed'
 
 export interface Fact {

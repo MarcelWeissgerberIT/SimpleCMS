@@ -66,6 +66,8 @@ if (seamOn && typeof window !== 'undefined') {
   ;(window as unknown as { __onePatchbaySetup?: unknown }).__onePatchbaySetup = {
     /** the lamp sets of a profile now (plain data) */
     lamps: async (profileId: string) => (await import('../setup/facts')).lampsNow(profileId),
+    /** perf (fix ui-words): how often a setup's facts were read, and their revision */
+    stats: async () => (await import('../setup/facts')).setupStats(),
     /** press lamp `n` of a set (`from`: a selector of the element standing for its key) — true when it acted */
     act: async (profileId: string, recipeId: string | null, n: number, from?: string) => {
       const [{ lampsNow }, { runLamp }, { setOf }] = await Promise.all([import('../setup/facts'), import('../setup/act'), import('../setup/lamps')])

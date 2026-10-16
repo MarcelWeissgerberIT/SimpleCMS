@@ -24,6 +24,7 @@ import type { LampSet } from '../setup/lamps'
 import type { RecipeSetup } from '../setup/lamps'
 import { lampNo } from '../setup/keys'
 import { Lamps, useVertical } from './Lamps'
+import { SLOT, Slotted } from './slot'
 
 const P = 'features.patchbay'
 
@@ -229,11 +230,11 @@ export function SetupCard({ t, lang, info, sets, set, recipes, onPick, onUndo, o
           {info.profileName} · {info.profileId.toUpperCase()}
         </h2>
         <span className="pb-scard__sp" />
+        {/* the band's own words (fix ui-words): "4/7 done" — progress is never said by a colour */}
         <span className="label pb-scard__count" data-testid="pb-setup-count">
-          <b>
-            {set.done}/{set.lamps.length}
-          </b>{' '}
-          {t(`${P}.setup.greenWord`)}
+          <Slotted text={t(`${P}.setup.count`, { n: SLOT, m: set.lamps.length })}>
+            <b>{set.done}</b>
+          </Slotted>
         </span>
       </div>
       {sets.length > 1 && <RecipeTabs t={t} sets={sets} recipes={recipes} current={set.recipe} onPick={onPick} />}

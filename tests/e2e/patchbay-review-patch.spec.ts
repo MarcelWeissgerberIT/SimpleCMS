@@ -148,22 +148,41 @@ test.describe('review (patch) · the rack and the plate', () => {
   })
 
   for (const lang of ['en', 'de'] as const) {
-    test(`the plate's path (${lang}): one row, or the column — never a wrapped row`, async ({ page }) => {
+    test(`the plate's path (${lang}): one row, two rows broken before an arrow, or the column — never a wrapped row`, async ({ page }) => {
       await openRack(page, atRest(), lang)
       const path = page.getByTestId('pb-fplate').getByTestId('pb-path')
       await expect(path).toBeVisible()
-      const rows = await path.evaluate((ol) => {
-        const tops = [...ol.children].map((li) => Math.round((li as HTMLElement).getBoundingClientRect().top + (li as HTMLElement).getBoundingClientRect().height / 2))
-        return { stacked: ol.hasAttribute('data-stacked'), rows: new Set(tops).size, overflow: ol.scrollWidth > ol.clientWidth + 1 }
-      })
-      expect(rows.overflow).toBe(false)
-      if (!rows.stacked) expect(rows.rows).toBe(1)
-      // a narrower page (still the rack): the column, never a wrap
+      // fix ui-words: what the row looks like — its rows (by the chips' middles), whether a row ends on an arrow (the
+      // break goes before the arrow: the second row starts with it), overflow
+      const shape = () =>
+        path.evaluate((ol) => {
+          const lis = [...ol.children].filter((li) => !li.classList.contains('pb-path__br')) as HTMLElement[]
+          const mid = (li: HTMLElement) => Math.round(li.getBoundingClientRect().top + li.getBoundingClientRect().height / 2)
+          const rows = [...new Set(lis.map(mid))]
+          const lastOf = rows.map((r) => lis.filter((li) => mid(li) === r).pop()!)
+          return {
+            stacked: ol.hasAttribute('data-stacked'),
+            fit: ol.getAttribute('data-fit'),
+            rows: rows.length,
+            endsOnArrow: lastOf.some((li) => li.classList.contains('pb-path__sep')),
+            overflow: ol.scrollWidth > ol.clientWidth + 1,
+          }
+        })
+      // 1440: the mock's plate holds mock 1's path in a row — never the column
+      await expect.poll(async () => (await shape()).stacked).toBe(false)
+      let s = await shape()
+      expect(s.overflow).toBe(false)
+      expect(s.rows).toBeLessThanOrEqual(s.fit === '2' || s.fit === '4' ? 2 : 1)
+      expect(s.endsOnArrow).toBe(false)
+      // a narrower page (still the rack): the row steps down (two rows at most), else the column — never a wrap
       await page.setViewportSize({ width: 1280, height: 900 })
       await expect(page.getByTestId('patchbay-page')).not.toHaveAttribute('data-view', 'strands')
       await expect.poll(() => path.evaluate((ol) => ol.scrollWidth <= ol.clientWidth + 1)).toBe(true)
-      const narrow = await path.evaluate((ol) => ({ stacked: ol.hasAttribute('data-stacked'), rows: new Set([...ol.children].map((li) => Math.round((li as HTMLElement).getBoundingClientRect().top))).size }))
-      if (!narrow.stacked) expect(narrow.rows).toBe(1)
+      s = await shape()
+      if (!s.stacked) {
+        expect(s.rows).toBeLessThanOrEqual(s.fit === '2' || s.fit === '4' ? 2 : 1)
+        expect(s.endsOnArrow).toBe(false)
+      }
     })
   }
 
