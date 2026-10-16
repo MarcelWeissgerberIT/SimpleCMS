@@ -45,9 +45,13 @@ interface Tool {
   id: string
   icon: ReactNode
   label: string
+  /** the name on the key itself (the labelled grid on a coarse pointer): short, with soft hyphens where it may break */
+  key: string
   active: boolean
-  /** its state in words (a count, NEW) — after the name in the readout and in the key's accessible name */
+  /** its state in words (a count, NEW) — after the name in the key's accessible name */
   state: string[]
+  /** the same, short — after the name in the readout (one state: a count before NEW) */
+  say: string[]
   badge?: ReactNode
   /** opens a dialog (Templates, Import): drawn after the hairline */
   dialog?: true
@@ -80,30 +84,35 @@ export function ToolStrip() {
     fuses > 0 ? t(fuses === 1 ? `${P}.nav.fuses.one` : `${P}.nav.fuses`, { n: fuses }) : unknown > 0 ? t(unknown === 1 ? `${P}.nav.unknown.one` : `${P}.nav.unknown`, { n: unknown }) : '',
     seen ? '' : t(`${P}.new`),
   ].filter(Boolean)
+  // the readout's words: the count, else NEW — "SCHALTPLAN · 2 OFFEN" fits the head, the sentence is the key's name
+  const pbSay = fuses > 0 ? [t('shell.tools.say.fuses', { n: fuses })] : unknown > 0 ? [t('shell.tools.say.unknown', { n: unknown })] : seen ? [] : [t(`${P}.new`)]
+  const k = (id: string) => t(`shell.tools.key.${id}`)
   const tools: Tool[] = [
-    { id: 'agenda', icon: <CalendarClock size={16} />, label: t('shell.nav.agenda'), active: route.name === 'agenda', state: [], onClick: go(() => navigate({ name: 'agenda' })) },
-    { id: 'graph', icon: <Waypoints size={16} />, label: t('shell.nav.graph'), active: route.name === 'graph', state: [], onClick: go(() => navigate({ name: 'graph' })) },
+    { id: 'agenda', icon: <CalendarClock size={16} />, label: t('shell.nav.agenda'), key: k('agenda'), active: route.name === 'agenda', state: [], say: [], onClick: go(() => navigate({ name: 'agenda' })) },
+    { id: 'graph', icon: <Waypoints size={16} />, label: t('shell.nav.graph'), key: k('graph'), active: route.name === 'graph', state: [], say: [], onClick: go(() => navigate({ name: 'graph' })) },
     {
       id: 'agents',
       icon: <Bot size={16} />,
       label: t('features.agents.title'),
+      key: k('agents'),
       active: route.name === 'agents',
-      state: agents ? [t('features.agents.navReview', { n: agents })] : [],
+      state: agents ? [t(agents === 1 ? 'features.agents.navReview.one' : 'features.agents.navReview', { n: agents })] : [],
+      say: agents ? [t('shell.tools.say.review', { n: agents })] : [],
       badge: preflightOn ? undefined : <AgentsNavBadge />,
       onClick: go(() => navigate({ name: 'agents' })),
     },
-    { id: 'scripts', icon: <SquareCode size={16} />, label: t('features.script.title'), active: route.name === 'scripts', state: [], onClick: go(() => navigate({ name: 'scripts' })) },
+    { id: 'scripts', icon: <SquareCode size={16} />, label: t('features.script.title'), key: k('scripts'), active: route.name === 'scripts', state: [], say: [], onClick: go(() => navigate({ name: 'scripts' })) },
     // the Patchbay draws its own key (its LED, "?", NEW and test ids — features/patchbay)
-    { id: 'patchbay', icon: null, label: pbTitle, active: route.name === 'patchbay', state: pbState, onClick: () => {} },
-    { id: 'kit', icon: <Shapes size={16} />, label: t('features.kit.title'), active: route.name === 'kit', state: [], onClick: go(() => navigate({ name: 'kit' })) },
+    { id: 'patchbay', icon: null, label: pbTitle, key: k('patchbay'), active: route.name === 'patchbay', state: pbState, say: pbSay, onClick: () => {} },
+    { id: 'kit', icon: <Shapes size={16} />, label: t('features.kit.title'), key: k('kit'), active: route.name === 'kit', state: [], say: [], onClick: go(() => navigate({ name: 'kit' })) },
     ...(readOnly
       ? []
       : ([
-          { id: 'templates', icon: <LayoutTemplate size={16} />, label: t('shell.nav.templates'), active: false, state: [], dialog: true, onClick: go(() => useUI.getState().openModal({ type: 'templates', parentId: null })) },
-          { id: 'import', icon: <Upload size={16} />, label: t('shell.nav.import'), active: false, state: [], dialog: true, onClick: go(() => useUI.getState().openModal({ type: 'import' })) },
+          { id: 'templates', icon: <LayoutTemplate size={16} />, label: t('shell.nav.templates'), key: k('templates'), active: false, state: [], say: [], dialog: true, onClick: go(() => useUI.getState().openModal({ type: 'templates', parentId: null })) },
+          { id: 'import', icon: <Upload size={16} />, label: t('shell.nav.import'), key: k('import'), active: false, state: [], say: [], dialog: true, onClick: go(() => useUI.getState().openModal({ type: 'import' })) },
         ] as Tool[])),
   ]
-  const said = (x: Tool) => [x.label, ...x.state].join(' · ')
+  const said = (x: Tool) => [x.label, ...x.say].join(' · ')
 
   // at rest: what waits most — open fuses, then proposals, then NEW — else the strip's name
   const urgent = fuses > 0 ? said(tools.find((x) => x.id === 'patchbay')!) : agents > 0 ? said(tools.find((x) => x.id === 'agents')!) : !seen ? t('shell.tools.readoutNew', { tool: pbTitle }) : null
@@ -230,13 +239,13 @@ export function ToolStrip() {
         {tools.map((x, i) => (
           <span key={x.id} className="sb-tools__cell" data-dialog={x.dialog && !tools[i - 1]?.dialog ? 'first' : undefined}>
             {x.id === 'patchbay' ? (
-              <PatchbayNavRow active={x.active} variant="key" keyProps={keyProps(i)} />
+              <PatchbayNavRow active={x.active} variant="key" keyProps={keyProps(i)} keyLabel={x.key} />
             ) : (
               <button type="button" className="sb-tool" data-active={x.active || undefined} aria-current={x.active ? 'page' : undefined} onClick={x.onClick} {...keyProps(i)}>
                 <span className="sb-tool__icon" aria-hidden>
                   {x.icon}
                 </span>
-                <span className="sb-tool__label">{x.label}</span>
+                <span className="sb-tool__label">{x.key}</span>
                 {x.badge}
               </button>
             )}

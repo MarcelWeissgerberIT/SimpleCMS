@@ -1,4 +1,4 @@
-import { useRef, useState, type KeyboardEvent } from 'react'
+import { useLayoutEffect, useRef, useState, type KeyboardEvent, type RefObject } from 'react'
 import { ChevronDown, Eraser, MoreHorizontal } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
@@ -91,9 +91,12 @@ export function VisitedSection({ n, recent, frequent }: { n: number; recent: ID[
   }
 
   const tabId = (tab: Tab) => `sb-visited-tab-${tab}`
+  const head = useRef<HTMLDivElement>(null)
+  useFitHead(head)
   return (
     <section className="sb-section sb-visited" aria-label={t('shell.sidebar.visited')} data-testid="visited-section" data-tab={pref.tab}>
       <div
+        ref={head}
         className="sb-sect sb-visited__head"
         onContextMenu={(e) => {
           e.preventDefault()
@@ -151,4 +154,30 @@ export function VisitedSection({ n, recent, frequent }: { n: number; recent: ID[
       )}
     </section>
   )
+}
+
+/**
+ * The head stays one line (it sticks over the rows; the rows snap under its measured height): where it does not fit — a
+ * narrow sidebar, big text, a long word — the dotted leader and the count go first (`data-fit="tight"`); only if the
+ * switch and its two keys still do not fit, it wraps (`"tight wrap"`). Measured whenever the head or the switch changes
+ * size (the sidebar's width, the text size, the language).
+ */
+function useFitHead(ref: RefObject<HTMLDivElement | null>) {
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const over = () => el.scrollWidth > el.clientWidth + 1
+    const fit = () => {
+      delete el.dataset.fit
+      if (!el.clientWidth || !over()) return
+      el.dataset.fit = 'tight'
+      if (over()) el.dataset.fit = 'tight wrap'
+    }
+    fit()
+    const ro = new ResizeObserver(fit)
+    ro.observe(el)
+    const sw = el.querySelector('.sb-switch')
+    if (sw) ro.observe(sw)
+    return () => ro.disconnect()
+  }, [ref])
 }

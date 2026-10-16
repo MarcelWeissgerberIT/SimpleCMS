@@ -23,11 +23,12 @@ export function AgentsNavBadge() {
   const t = useT()
   const n = useAgentsAttention()
   if (!n) return null
+  const said = t(n === 1 ? 'features.agents.navReview.one' : 'features.agents.navReview', { n })
   return (
-    <span className="sb-navrow__badge" data-testid="agents-review" title={t('features.agents.navReview', { n })}>
+    <span className="sb-navrow__badge" data-testid="agents-review" title={said}>
       <span className="led led--on" aria-hidden />
       {n > 99 ? '99+' : String(n).padStart(2, '0')}
-      <span className="visually-hidden"> {t('features.agents.navReview', { n })}</span>
+      <span className="visually-hidden"> {said}</span>
     </span>
   )
 }

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
 import { ArrowRight, Bell, Building2, CalendarDays, ChevronsDownUp, ChevronsLeft, ChevronDown, Compass, Home, LayoutTemplate, Lock, PenLine, Plus, Search, Settings, Table2, FilePlus2, Users, SquareKanban, Send, Rewind, CircleGauge } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { useWorkspace } from '../../store/store'
@@ -64,6 +64,8 @@ export function Sidebar() {
 
   const visited = useVisited()
   const no = useSectionNumbers(visited.shown)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  useWholeRows(scrollRef)
 
   const w = Math.min(MAX_W, Math.max(MIN_W, dragW ?? width))
   const state = mobile ? (mobileOpen ? 'drawer-open' : 'drawer') : focus ? 'hidden' : collapsed ? (hoverReveal ? 'reveal' : 'collapsed') : 'docked'
@@ -114,10 +116,11 @@ export function Sidebar() {
             and my private ones */}
         <DraggableTree>
           <FavoritesSection n={no.fav} onKeyDown={onTreeKeyDown} />
-          <div className="sb-scroll" onKeyDown={onTreeKeyDown} onScroll={onScrollArea}>
+          <div className="sb-scroll" ref={scrollRef} onKeyDown={onTreeKeyDown} onScroll={onScrollArea}>
             {visited.shown && <VisitedSection n={no.visited} recent={visited.recent} frequent={visited.frequent} />}
             <PagesSection n={no.pages} />
             <PrivateSection n={no.priv} />
+            <div className="sb-scroll__end" aria-hidden />
           </div>
         </DraggableTree>
         <SidebarFooter n={no.trash} lift={state === 'drawer-open'} />
@@ -152,6 +155,88 @@ function onScrollArea(e: React.UIEvent<HTMLDivElement>) {
       head.toggleAttribute('data-stuck', section.top < top - 0.5 && h.top <= top + 0.5 && section.bottom > h.bottom + 1)
     }
   })
+}
+
+/** What the scroll area is made of, line by line: a resting position must never cut one of them under a stuck head. */
+const LINES = '.sb-row, .sb-newpage, .sb-newprivate, .sb-empty, .sb-hint'
+
+/**
+ * Whole rows in the scroll area (brief §3.2), wherever it rests:
+ * - each section publishes its head's height as `--sb-head-h` — its rows snap (and come into view on focus) right under
+ *   it (sidebar.css `scroll-margin-top`), whatever the head measures: 28 px, 36 on a coarse pointer, more at big text;
+ * - the end of the range lands on a line's top: `.sb-scroll__end` takes the room that is missing (0 … one row), so the
+ *   last screenful (the reveal of a page down there, a scroll to the end) never rests with half a row under the head.
+ * Measured when the area, a section or a head changes size — never while scrolling.
+ */
+function useWholeRows(ref: RefObject<HTMLDivElement | null>) {
+  useLayoutEffect(() => {
+    const box = ref.current
+    if (!box) return
+    const ro = new ResizeObserver(() => fitWholeRows(box))
+    const watch = () => {
+      ro.disconnect()
+      ro.observe(box, { box: 'border-box' })
+      for (const s of box.querySelectorAll<HTMLElement>(':scope > .sb-section')) {
+        ro.observe(s)
+        const head = s.querySelector(':scope > .sb-sect')
+        if (head) ro.observe(head)
+      }
+    }
+    watch()
+    fitWholeRows(box)
+    // a section comes or goes (RECENT | FREQUENT, PRIVATE)
+    const mo = new MutationObserver(watch)
+    mo.observe(box, { childList: true })
+    return () => {
+      ro.disconnect()
+      mo.disconnect()
+    }
+  }, [ref])
+}
+
+function fitWholeRows(box: HTMLElement) {
+  const sections = [...box.querySelectorAll<HTMLElement>(':scope > .sb-section')]
+  for (const s of sections) {
+    const h = s.querySelector<HTMLElement>(':scope > .sb-sect')?.offsetHeight
+    const v = h ? `${h}px` : ''
+    if (s.style.getPropertyValue('--sb-head-h') !== v) s.style.setProperty('--sb-head-h', v)
+  }
+  const end = box.querySelector<HTMLElement>(':scope > .sb-scroll__end')
+  if (!end) return
+  const was = end.getBoundingClientRect().height
+  // the furthest the area scrolls without the end's room
+  const max = box.scrollHeight - box.clientHeight - was
+  let room = 0
+  if (max > 0.5 && box.clientHeight > 0) {
+    const b = box.getBoundingClientRect()
+    const at = (y: number) => y - b.top + box.scrollTop
+    // what covers the top there: the head of the section the end's view starts in (it sticks), else nothing
+    let cover = 0
+    for (const s of sections) {
+      const r = s.getBoundingClientRect()
+      if (at(r.top) <= max + 0.5 && at(r.bottom) > max) cover = s.querySelector<HTMLElement>(':scope > .sb-sect')?.offsetHeight ?? 0
+    }
+    const line = max + cover
+    // the last line starting above it (lines are in the area's order, top to bottom)
+    const lines = box.querySelectorAll<HTMLElement>(LINES)
+    let lo = 0
+    let hi = lines.length - 1
+    let found = -1
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1
+      if (at(lines[mid].getBoundingClientRect().top) < line - 0.5) {
+        found = mid
+        lo = mid + 1
+      } else hi = mid - 1
+    }
+    if (found >= 0) {
+      const r = lines[found].getBoundingClientRect()
+      const bottom = at(r.top) + r.height
+      // it straddles the head's foot: room for its next line's top to come up there
+      if (bottom > line + 0.5) room = Math.round((bottom - line) * 100) / 100
+    }
+  }
+  if (Math.abs(room - was) > 0.25) end.style.height = room ? `${room}px` : ''
 }
 
 /**

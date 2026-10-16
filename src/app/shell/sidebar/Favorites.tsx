@@ -9,10 +9,13 @@
  * Rows are the tree's rows (`data-section="fav"`): they expand like the tree. A favourite's own row drags to reorder,
  * Alt + ↑ / ↓ moves it (the key stays on it, a polite live region says its new place) and its menu has Move up / Move
  * down. Past the cap (5 rows from 800 px window height, 4 below, 3 in the phone drawer — sidebar.css) the list scrolls
- * inside, whole rows. Order: this device's (lib/favorites.ts); the fold: localStorage `one.shell.sections` = { fav }.
+ * inside, whole rows; what it hides is marked at its edges: a hairline under the head while rows lie above, and a line
+ * under the list with a mono key ("+2 ▾" — rows below; "+2 ▴" — only above) that scrolls the list by a page. The
+ * keyboard needs no key there (↑ / ↓ walk every row and the list follows). Order: this device's (lib/favorites.ts); the
+ * fold: localStorage `one.shell.sections` = { fav }.
  */
-import type { KeyboardEvent } from 'react'
-import { ChevronDown, Star } from 'lucide-react'
+import { useLayoutEffect, useRef, useState, type KeyboardEvent, type RefObject } from 'react'
+import { ChevronDown, ChevronUp, Star } from 'lucide-react'
 import { useT } from '../../i18n'
 import { useIsTouch } from '../lib/hooks'
 import { setFavFold, useFavFold, useOrderedFavorites } from '../lib/favorites'
@@ -32,6 +35,8 @@ export function FavoritesSection({ n, onKeyDown }: { n: number; onKeyDown: (e: K
   // a tree row on its way here (a favourite being reordered drops on the rows)
   const incoming = !!dragging && !dragging.startsWith('fav:')
   const name = t('shell.sidebar.favorites')
+  const list = useRef<HTMLDivElement>(null)
+  const edge = useHidden(list, open && ids.length > 0)
   return (
     <section
       ref={zone.ref}
@@ -40,6 +45,8 @@ export function FavoritesSection({ n, onKeyDown }: { n: number; onKeyDown: (e: K
       data-empty={ids.length ? undefined : ''}
       data-drop={zone.over || undefined}
       data-incoming={incoming || undefined}
+      data-above={edge.above ? '' : undefined}
+      data-edge={edge.over ? '' : undefined}
       onKeyDown={onKeyDown}
     >
       <div className="sb-sect">
@@ -60,9 +67,12 @@ export function FavoritesSection({ n, onKeyDown }: { n: number; onKeyDown: (e: K
       </div>
       {open &&
         (ids.length > 0 ? (
-          <div id="sb-favs-list" className="sb-favs__list" role="tree" aria-label={name}>
-            <PageList ids={ids} section="fav" draggable />
-          </div>
+          <>
+            <div id="sb-favs-list" ref={list} className="sb-favs__list" role="tree" aria-label={name}>
+              <PageList ids={ids} section="fav" draggable />
+            </div>
+            {edge.over && <EdgeKey list={list} above={edge.above} below={edge.below} />}
+          </>
         ) : (
           // both texts share one cell: the box keeps its size whether it teaches or takes a drop
           <div id="sb-favs-list" ref={slot.ref} className="sb-favs__slot" data-drop={slot.over || zone.over || undefined}>
@@ -83,5 +93,90 @@ export function FavoritesSection({ n, onKeyDown }: { n: number; onKeyDown: (e: K
       </span>
       <span id={FAV_LIVE} className="visually-hidden" aria-live="polite" />
     </section>
+  )
+}
+
+interface Hidden {
+  /** the list holds more than it shows (past the cap) */
+  over: boolean
+  /** rows (a favourite's subtree rows too) wholly or partly above / below what shows */
+  above: number
+  below: number
+}
+const NONE: Hidden = { over: false, above: 0, below: 0 }
+
+/** What the list hides past the cap: measured on its scroll, its size and its rows coming and going. */
+function useHidden(ref: RefObject<HTMLDivElement | null>, shown: boolean): Hidden {
+  const [h, setH] = useState<Hidden>(NONE)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!shown || !el) {
+      setH(NONE)
+      return
+    }
+    let frame = 0
+    const measure = () => {
+      const l = el.getBoundingClientRect()
+      let above = 0
+      let below = 0
+      for (const row of el.querySelectorAll<HTMLElement>('.sb-row')) {
+        const r = row.getBoundingClientRect()
+        if (r.top < l.top - 0.5) above++
+        else if (r.bottom > l.bottom + 0.5) below++
+      }
+      const over = el.scrollHeight > el.clientHeight + 1
+      setH((p) => (p.over === over && p.above === above && p.below === below ? p : { over, above, below }))
+    }
+    const later = () => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(measure)
+    }
+    measure()
+    el.addEventListener('scroll', later, { passive: true })
+    const ro = new ResizeObserver(later)
+    ro.observe(el)
+    const mo = new MutationObserver(later)
+    mo.observe(el, { childList: true, subtree: true })
+    return () => {
+      cancelAnimationFrame(frame)
+      el.removeEventListener('scroll', later)
+      ro.disconnect()
+      mo.disconnect()
+    }
+  }, [ref, shown])
+  return h
+}
+
+/**
+ * "+2 ▾" — rows below what shows (a page down); "+2 ▴" — rows only above (a page up). A pointer's key: no Tab stop and
+ * the focus stays where it is (the keyboard walks the rows with ↑ / ↓, the list follows); its name says what it does.
+ */
+function EdgeKey({ list, above, below }: { list: RefObject<HTMLDivElement | null>; above: number; below: number }) {
+  const t = useT()
+  const down = below > 0
+  const n = down ? below : above
+  if (!n) return <div className="sb-favs__edge" aria-hidden />
+  const name = t(down ? (n === 1 ? 'shell.fav.below.one' : 'shell.fav.below') : n === 1 ? 'shell.fav.above.one' : 'shell.fav.above', { n })
+  return (
+    <div className="sb-favs__edge" data-below={down || undefined}>
+      <button
+        type="button"
+        className="sb-favs__edgekey"
+        tabIndex={-1}
+        aria-label={name}
+        title={name}
+        data-testid="fav-edge"
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => {
+          const el = list.current
+          if (!el) return
+          const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+          el.scrollBy({ top: (down ? 1 : -1) * Math.max(el.clientHeight - 1, 1), behavior: still ? 'auto' : 'smooth' })
+        }}
+      >
+        <span>+{n}</span>
+        {down ? <ChevronDown size={12} strokeWidth={2} aria-hidden /> : <ChevronUp size={12} strokeWidth={2} aria-hidden />}
+      </button>
+    </div>
   )
 }

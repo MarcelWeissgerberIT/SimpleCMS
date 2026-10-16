@@ -27,7 +27,7 @@ import type { ID } from '../../store/types'
 import { ENTRY_LIMIT, PEEK_OVER, childIds, moreKey, treeKey, useChildIds, useEntryCount, useEntryIds, useTreeState } from '../lib/tree'
 import { closeMobileSidebar, copyPageForAI, copyPageLink, createPageAndOpen, duplicateAndOpen, goToPage, trashWithUndo } from '../lib/actions'
 import { moveFavorite, placeFavorite, shownFavorites, toggleStar, useFavFold, useFavOrder } from '../lib/favorites'
-import { liveRect, visibleWithin } from './collision'
+import { forgetPointer, livePointerY, liveRect, visibleWithin } from './collision'
 import { canLeaveFor, createEntryAndOpen, dropOptions, nodeKind, requestLeaveDatabase, requestMakeEntry } from './entries'
 import { AIRunLed, DbCommandKey, DbCommandsMenu, OutboxTreeCount, type CommandHost } from '../../features'
 import { useIsTouch } from '../lib/hooks'
@@ -96,15 +96,29 @@ const besideCursor: Modifier = ({ transform, activatorEvent, draggingNodeRect })
 /* Drag & drop context: FAVORITES + the scroll area (Sidebar.tsx)       */
 /* ------------------------------------------------------------------ */
 
-/** Where the pointer is now (the drag's start point plus how far it went). */
-function pointerY(e: DragMoveEvent | DragOverEvent): number {
-  const ae = e.activatorEvent as MouseEvent | TouchEvent
-  return ('touches' in ae ? (ae.touches[0]?.clientY ?? 0) : ae.clientY) + e.delta.y
-}
+/**
+ * Over the fixed block (FAVORITES) the tree below never scrolls by itself. The pointer's height is the live one the
+ * collision pass read (collision.ts) — a drag's `delta` also counts how far the tree scrolled since it began, and would
+ * stop the tree's own scrolling after a row or two.
+ */
+const autoScroll = { canScroll: (el: Element) => !(el.classList.contains('sb-scroll') && livePointerY() < el.getBoundingClientRect().top) }
 
-/** The pointer's last height during a drag: over the fixed block (FAVORITES) the tree below never scrolls by itself. */
-let dragY = Number.POSITIVE_INFINITY
-const autoScroll = { canScroll: (el: Element) => !(el.classList.contains('sb-scroll') && dragY < el.getBoundingClientRect().top) }
+/**
+ * A favourite being reordered over FAVORITES' head or box (not over a favourite's own row): above the list's first row
+ * = before the first favourite, below its last row = at the end, over a favourite's subtree = nothing (it would only
+ * look like a target). A drop that would leave it where it is shows nothing either.
+ */
+function favEdge(y: number, dragId: ID): DropState | null {
+  const list = document.querySelector<HTMLElement>('.sb .sb-favs__list')
+  const roots = list?.querySelectorAll<HTMLElement>(':scope > .sb-node')
+  const shown = shownFavorites()
+  if (!list || !roots?.length || !shown.length || Number.isNaN(y)) return null
+  const l = list.getBoundingClientRect()
+  const at = (target: ID | undefined, pos: DropPos): DropState | null => (target && target !== dragId ? { overId: `${FAV}${target}`, pos } : null)
+  if (y < Math.max(l.top, roots[0].getBoundingClientRect().top)) return at(shown[0], 'before')
+  if (y >= Math.min(l.bottom, roots[roots.length - 1].getBoundingClientRect().bottom)) return at(shown[shown.length - 1], 'after')
+  return null
+}
 
 export function DraggableTree({ children }: { children: React.ReactNode }) {
   const [activeId, setActiveId] = useState<ID | null>(null)
@@ -124,25 +138,33 @@ export function DraggableTree({ children }: { children: React.ReactNode }) {
   }
 
   const onStart = (e: DragStartEvent) => {
-    dragY = Number.POSITIVE_INFINITY
+    forgetPointer()
     setActiveId(String(e.active.id))
     document.body.dataset.dragging = 'tree'
   }
 
   const onMove = (e: DragMoveEvent | DragOverEvent) => {
-    dragY = pointerY(e)
     const over = e.over
     if (!over) return setDrop(null)
     const overId = String(over.id)
     const raw = String(e.active.id)
     const dragId = pageOfDnd(raw)
     const pages = useWorkspace.getState().pages
+    // the target's live rect and the live pointer: both in the viewport now, however far the tree scrolled meanwhile
     const rect = liveRect(e.collisions) ?? over.rect
-    // FAVORITES: its head, box and empty slot = at the end; a favourite's row = before / after it (never inside)
-    if (favZone(overId)) return setDrop((d) => (d?.overId === overId ? d : { overId, pos: 'inside' }))
+    const y = livePointerY(e.collisions)
+    // FAVORITES: its head, box and empty slot = a tree row coming in goes at the end (a favourite: favEdge); a
+    // favourite's row = before / after it (never inside)
+    if (favZone(overId)) {
+      if (raw.startsWith(FAV)) {
+        const edge = favEdge(y, dragId)
+        return setDrop((d) => (d?.overId === edge?.overId && d?.pos === edge?.pos ? d : edge))
+      }
+      return setDrop((d) => (d?.overId === overId ? d : { overId, pos: 'inside' }))
+    }
     if (overId.startsWith(FAV)) {
       if (pageOfDnd(overId) === dragId) return setDrop(null)
-      const half: DropPos = (pointerY(e) - rect.top) / rect.height < 0.5 ? 'before' : 'after'
+      const half: DropPos = (y - rect.top) / rect.height < 0.5 ? 'before' : 'after'
       return setDrop((d) => (d?.overId === overId && d.pos === half ? d : { overId, pos: half }))
     }
     // a favourite only reorders among the favourites: its page never moves in the tree
@@ -153,7 +175,7 @@ export function DraggableTree({ children }: { children: React.ReactNode }) {
       if (pages[dragId]?.databaseId && !canLeaveFor(pages, dragId, null, section)) return setDrop(null)
       return setDrop((d) => (d?.overId === overId ? d : { overId, pos: 'inside' }))
     }
-    const rel = (pointerY(e) - rect.top) / rect.height
+    const rel = (y - rect.top) / rect.height
     const target = pages[overId]
     if (!target || overId === dragId) return setDrop(null)
     const { inside, beside } = dropOptions(pages, dragId, overId)
@@ -182,6 +204,7 @@ export function DraggableTree({ children }: { children: React.ReactNode }) {
 
   const onEnd = () => {
     delete document.body.dataset.dragging
+    forgetPointer()
     const raw = activeId
     const d = drop
     reset()
@@ -245,6 +268,7 @@ export function DraggableTree({ children }: { children: React.ReactNode }) {
       onDragEnd={onEnd}
       onDragCancel={() => {
         delete document.body.dataset.dragging
+        forgetPointer()
         reset()
       }}
     >
@@ -497,6 +521,12 @@ function TreeRow({ id, depth, section, draggable, expanded }: { id: ID; depth: n
   const privateMode = usePrivateMode()
   const wsName = useWorkspace((s) => s.settings.workspaceName.trim() || 'One')
 
+  // a new place name keeps the width it had: look again whether it fits
+  useLayoutEffect(() => {
+    const el = where ? document.getElementById(`sb-where-${id}`) : null
+    if (el) fitWhere(el)
+  }, [where, id])
+
   // the open page comes into view: the tree's own copy (where FAVORITES does not show it), or a favourite in its list
   useEffect(() => {
     if (!active || !rowRef.current) return
@@ -534,10 +564,16 @@ function TreeRow({ id, depth, section, draggable, expanded }: { id: ID; depth: n
         { label: t('common.duplicate'), icon: <Copy size={15} />, onSelect: () => duplicateAndOpen(id) },
       ]
     : []
+  // the star; on a favourite's own row the row goes with it — the key goes on to the next favourite (fromMenu: its menu
+  // was open, the menu's anchor is gone with the row)
+  const star = (fromMenu: boolean) => {
+    if (favRoot && page.favorite) unstarFavRow(id, fromMenu || !!rowRef.current?.contains(document.activeElement))
+    else toggleStar(id)
+  }
   const starEntries: MenuEntry[] = [
     page.favorite
-      ? { label: t('shell.menu.unfavorite'), icon: <StarOff size={15} />, onSelect: () => toggleStar(id) }
-      : { label: t('shell.menu.favorite'), icon: <Star size={15} />, onSelect: () => toggleStar(id) },
+      ? { label: t('shell.menu.unfavorite'), icon: <StarOff size={15} />, onSelect: () => star(true) }
+      : { label: t('shell.menu.favorite'), icon: <Star size={15} />, onSelect: () => star(true) },
     // a favourite's own row: one place up or down (the keys: Alt + ↑ / ↓ on the row)
     ...(favRoot
       ? ([
@@ -695,7 +731,7 @@ function TreeRow({ id, depth, section, draggable, expanded }: { id: ID; depth: n
           {isDb && <OutboxTreeCount dbId={id} />}
           {/* where a favourite lives (hidden while the row shows its keys); read as the link's description */}
           {where && (
-            <span className="sb-row__where" id={`sb-where-${id}`} aria-hidden>
+            <span className="sb-row__where" id={`sb-where-${id}`} ref={watchWhere} aria-hidden>
               {where}
             </span>
           )}
@@ -715,7 +751,7 @@ function TreeRow({ id, depth, section, draggable, expanded }: { id: ID; depth: n
             data-on={page.favorite || undefined}
             onClick={(e) => {
               e.stopPropagation()
-              toggleStar(id)
+              star(false)
             }}
           >
             <Star size={14} strokeWidth={1.75} fill={page.favorite ? 'currentColor' : 'none'} />
@@ -745,6 +781,23 @@ function TreeRow({ id, depth, section, draggable, expanded }: { id: ID; depth: n
   )
 }
 
+/**
+ * Where a favourite lives (its parent's title, after its own): it takes the room the title leaves. Shown only where that
+ * holds about three characters and "…" — or the whole name —, else hidden (`data-cramped`, visibility: its box keeps
+ * the room, so the next resize is measured too). One observer for every hint.
+ */
+const whereRO = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver((entries) => entries.forEach((e) => fitWhere(e.target as HTMLElement)))
+function fitWhere(el: HTMLElement) {
+  const w = el.clientWidth
+  const fits = w > 0 && (el.scrollWidth <= w + 0.5 || w >= 2.4 * (parseFloat(getComputedStyle(el).fontSize) || 11))
+  el.toggleAttribute('data-cramped', !fits)
+}
+function watchWhere(el: HTMLSpanElement | null) {
+  if (!el || !whereRO) return
+  whereRO.observe(el)
+  return () => whereRO.unobserve(el)
+}
+
 /** The id of the hidden "Alt + ↑ / ↓ moves it" line every favourite's row is described by (Favorites.tsx). */
 export const FAV_KEYS_HINT = 'sb-fav-keys'
 /** The polite live region that says a favourite's new place (Favorites.tsx). */
@@ -759,6 +812,24 @@ function moveAndSay(id: ID, delta: -1 | 1) {
     if (focused) document.querySelector<HTMLElement>(`.sb-favs .sb-row__link[data-tree-key="${CSS.escape(`fav:${id}`)}"]`)?.focus({ preventScroll: false })
     const live = document.getElementById(FAV_LIVE)
     if (live) live.textContent = t('shell.fav.pos', { n: moved.at + 1, m: moved.of })
+  })
+}
+
+/**
+ * A favourite unstarred on its own FAVORITES row: the row goes. When it held the keyboard (`held`: focus in it, or its
+ * menu was open — the menu's anchor goes with the row) the key goes on to the next favourite, else the one before, else
+ * FAVORITES' fold key — never to the page body (ui/focus.ts). Set a frame later, before a closing menu looks for its
+ * anchor (two frames).
+ */
+function unstarFavRow(id: ID, held: boolean) {
+  const shown = shownFavorites()
+  const i = shown.indexOf(id)
+  const next = i < 0 ? null : (shown[i + 1] ?? shown[i - 1] ?? null)
+  toggleStar(id)
+  if (!held) return
+  requestAnimationFrame(() => {
+    const link = next ? document.querySelector<HTMLElement>(`.sb-favs .sb-row__link[data-tree-key="${CSS.escape(`fav:${next}`)}"]`) : null
+    ;(link ?? document.querySelector<HTMLElement>('.sb-favs .sb-sect__fold'))?.focus({ preventScroll: false })
   })
 }
 

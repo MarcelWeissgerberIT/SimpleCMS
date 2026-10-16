@@ -23,9 +23,9 @@ export type PatchbayKeyProps = ButtonHTMLAttributes<HTMLButtonElement> & { ref?:
  * `variant` 'key': one key of the sidebar's tool strip (shell/sidebar/Tools.tsx) — the same LED + count or grey "?" in
  * the key's corner (the viewer's neutral ink too), NEW as a dot (the strip's readout says it in words), the name hidden
  * on a fine pointer (the readout and the accessible name carry it), the same test ids. `keyProps`: the strip's roving
- * tabindex, keys and name.
+ * tabindex, keys and name; `keyLabel`: the name on the key (short, soft hyphens) — its accessible name stays the full one.
  */
-export function PatchbayNavRow({ active, variant = 'row', keyProps }: { active?: boolean; variant?: 'row' | 'key'; keyProps?: PatchbayKeyProps }) {
+export function PatchbayNavRow({ active, variant = 'row', keyProps, keyLabel }: { active?: boolean; variant?: 'row' | 'key'; keyProps?: PatchbayKeyProps; keyLabel?: string }) {
   const t = useT()
   const seen = useSeen()
   const counts = usePatchbayCounts()
@@ -49,7 +49,7 @@ export function PatchbayNavRow({ active, variant = 'row', keyProps }: { active?:
         <span className="sb-tool__icon" aria-hidden>
           <Cable size={16} />
         </span>
-        <span className="sb-tool__label">{title}</span>
+        <span className="sb-tool__label">{keyLabel ?? title}</span>
         {!seen && (
           <span className="pb-newtag sb-tool__new" data-testid="patchbay-nav-new">
             <span className="visually-hidden">{t(`${P}.new`)}</span>

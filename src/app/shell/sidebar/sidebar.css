@@ -385,26 +385,26 @@
   flex-direction: column;
   gap: 1px;
 }
-/* a key is ≥ 28 px wide: a narrow sidebar (or big text) wraps the strip instead of shrinking the keys */
+/* ONE row at every sidebar width (220 … 480 px): the eight keys share it equally — 29 px each at the usual 264, never
+   below 23 px at 220 (with the 2 px gaps every key keeps a 24 px target to itself), 40 px at most (then the keys
+   spread). The cells are content-box: the hairline cell's frame comes on top, its key is as wide as the others */
 .sb-tools__keys {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   justify-content: space-between;
   gap: 3px 2px;
-  padding-left: 2px;
 }
 .sb-tools__cell {
+  box-sizing: content-box;
   display: flex;
   flex: 1 1 0;
-  min-width: 28px;
+  min-width: 0;
   max-width: 40px;
 }
 /* the two dialogs (Templates, Import) after a hairline: they open, they do not go anywhere */
 .sb-tools__cell[data-dialog='first'] {
-  min-width: 35px;
-  max-width: 47px;
-  margin-left: 2px;
-  padding-left: 5px;
+  margin-left: 1px;
+  padding-left: 3px;
   border-left: 1px solid var(--rule);
 }
 /* a keycap: hairline frame, pressed by a pixel; the open tool's key carries the signal bar at its foot */
@@ -477,11 +477,12 @@
   width: 5px;
   height: 5px;
 }
-/* NEW (Patchbay) on its key: an ink dot top left — the readout says it in words */
+/* NEW (Patchbay) on its key: an ink dot in the corner opposite the LED, clear of the glyph (bottom left; on the
+   labelled grid top left, above the name) — the readout says it in words */
 .sb-tool__new {
   position: absolute;
-  top: 4px;
-  left: 4px;
+  bottom: 2px;
+  left: 2px;
   width: 5px;
   height: 5px;
   margin: 0;
@@ -560,6 +561,47 @@
   background: var(--signal-wash);
   box-shadow: inset 0 0 0 1px var(--signal);
   color: var(--ink);
+}
+/* past the cap: rows hidden above → a hairline under the head (like a stuck head in the tree); the edge line below the
+   list carries "+2 ▾" (rows below, a hairline over it) or "+2 ▴" (rows only above) — no fade */
+.sb-favs[data-above]:not([data-drop]) > .sb-sect {
+  box-shadow: inset 0 -1px 0 var(--rule);
+}
+.sb-favs[data-edge] {
+  padding-bottom: 2px;
+}
+.sb-favs__edge {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  height: 20px;
+  padding-right: 4px;
+}
+.sb-favs__edge[data-below] {
+  box-shadow: inset 0 1px 0 var(--rule);
+}
+.sb-favs__edgekey {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 16px;
+  padding: 0 4px 0 5px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: var(--surface-2);
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--tracking-label);
+}
+.sb-favs__edgekey:hover {
+  border-color: var(--ink-3);
+  color: var(--ink);
+}
+.sb-favs__edgekey:active {
+  transform: translateY(1px);
 }
 /* past the cap the list scrolls inside, resting on whole rows */
 .sb-favs__list {
@@ -642,6 +684,10 @@
 .sb-row[data-active] .sb-row__where {
   color: var(--ink-2);
 }
+/* too little room for about three characters and "…": nothing rather than half a glyph (measured, PageTree.tsx) */
+.sb-row__where[data-cramped] {
+  visibility: hidden;
+}
 .sb-row:hover .sb-row__where,
 .sb-row:focus-within .sb-row__where {
   display: none;
@@ -671,13 +717,18 @@
 .sb-scroll > .sb-section:first-child {
   margin-top: 6px;
 }
-/* whole rows: the list rests with a row (not half of one) under the stuck head — off while a row is dragged */
+/* whole rows: the list rests with a row (not half of one) under the stuck head — off while a row is dragged. Each
+   section's rows snap under its own head: `--sb-head-h` is the head's measured height (Sidebar.tsx useWholeRows); the
+   end of the range lands on a row's top through `.sb-scroll__end` */
 .sb-scroll {
   scroll-snap-type: y proximity;
-  scroll-padding-top: 28px;
 }
 .sb-scroll .sb-row {
   scroll-snap-align: start;
+  scroll-margin-top: var(--sb-head-h, 28px);
+}
+.sb-scroll__end {
+  height: 0;
 }
 body[data-dragging] .sb-scroll,
 body[data-dragging] .sb-favs__list {
@@ -802,12 +853,9 @@ body[data-dragging] .sb-favs__list {
 .sb-visited .sb-hint {
   font-size: var(--text-xs);
 }
-/* a narrow sidebar (220 px) or big text: the leader and the count give way first, then the keys wrap */
-.sb-visited {
-  container: visited / inline-size;
-}
+/* one line: where it does not fit (a narrow sidebar, big text — measured, Visited.tsx) the leader and the count give way
+   first (data-fit="tight"); only then the keys wrap ("tight wrap") */
 .sb-visited__head {
-  flex-wrap: wrap;
   gap: 2px 5px;
   height: auto;
   min-height: 28px;
@@ -815,14 +863,15 @@ body[data-dragging] .sb-favs__list {
 .sb-visited__head .sb-sect__leader {
   min-width: 0;
 }
-@container visited (max-width: 250px) {
-  .sb-visited__head .sb-sect__leader,
-  .sb-visited__head .sb-sect__count {
-    display: none;
-  }
-  .sb-visited__more {
-    margin-left: auto;
-  }
+.sb-visited__head[data-fit~='tight'] .sb-sect__leader,
+.sb-visited__head[data-fit~='tight'] .sb-sect__count {
+  display: none;
+}
+.sb-visited__head[data-fit~='tight'] .sb-visited__more {
+  margin-left: auto;
+}
+.sb-visited__head[data-fit~='wrap'] {
+  flex-wrap: wrap;
 }
 
 /* ---------- private section (team workspaces) ---------- */
@@ -1486,9 +1535,19 @@ body[data-resizing] .sb {
   padding: 6px 6px 6px 12px;
   border-top: 1px solid var(--rule);
 }
-body[data-dragging] .sb-row .sb-row__actions,
-body[data-dragging] .sb-row__toggle {
+/* while a row is dragged: no ☆ ⋯ + keys and no chevron — and nothing moves. The chevron goes invisible (on touch it has
+   its own 20 px slot before the icon, which stays); touch rows keep their keys' slot too */
+body[data-dragging] .sb-row .sb-row__actions {
   display: none;
+}
+body[data-dragging] .sb-row__toggle {
+  visibility: hidden;
+}
+@media (hover: none) {
+  body[data-dragging] .sb-row .sb-row__actions {
+    display: flex;
+    visibility: hidden;
+  }
 }
 
 /* ---------- touch: every control is a ≥ 32 × 32 target ---------- */
@@ -1519,30 +1578,40 @@ body[data-dragging] .sb-row__toggle {
     border: 0;
   }
   .sb-tool {
-    height: 44px;
+    height: auto;
+    min-height: 44px;
+    padding: 4px 0;
     grid-template-rows: auto auto;
     align-content: center;
     gap: 3px;
   }
+  /* the keys' own short names (Tools.tsx `key`), set narrower on Archivo's width axis: whole on one line at the usual
+     text size; bigger text breaks a long one at its soft hyphen onto a second line (the key grows) — never "…" */
   .sb-tool__label {
     position: static;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
     width: auto;
     max-width: 100%;
     height: auto;
-    padding: 0 3px;
+    padding: 0 2px;
     overflow: hidden;
     clip-path: none;
-    text-overflow: ellipsis;
+    white-space: normal;
+    hyphens: manual;
+    text-align: center;
     color: var(--ink-2);
     font-size: calc(10.5px * var(--text-scale));
     font-weight: 520;
+    line-height: 1.15;
+    font-stretch: 87.5%;
+    font-variation-settings: 'wdth' 87.5;
   }
-  /* a docked sidebar at its usual 264 px (iPad): the names set narrower on Archivo's width axis — "Importieren" whole */
-  @container tools (max-width: 270px) {
-    .sb-tool__label {
-      font-stretch: 87.5%;
-      font-variation-settings: 'wdth' 87.5;
-    }
+  .sb-tool__new {
+    top: 4px;
+    bottom: auto;
+    left: 4px;
   }
   .sb-tools__head {
     height: 28px;
