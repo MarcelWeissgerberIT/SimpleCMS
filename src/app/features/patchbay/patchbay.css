@@ -274,7 +274,7 @@
   cursor: default;
   transition: opacity var(--dur-2) var(--ease-out);
 }
-:root[data-theme='dark'] .pb-mod {
+:where(:root[data-theme='dark']) .pb-mod {
   --mod-bg: color-mix(in srgb, var(--ink) 5%, var(--surface));
   --mod-edge: color-mix(in srgb, var(--ink) 22%, transparent);
 }
@@ -544,7 +544,7 @@
   stroke: var(--plate-edge);
   stroke-width: 1;
 }
-:root[data-theme='dark'] .pb-k-face {
+:where(:root[data-theme='dark']) .pb-k-face {
   fill: var(--surface-3);
 }
 .pb-k-cap {
@@ -653,7 +653,7 @@
   white-space: nowrap;
 }
 /* solid in both themes, tainted or not (as the mock): the reader's taint is on its plate and cables */
-:root[data-theme='dark'] .pb-net {
+:where(:root[data-theme='dark']) .pb-net {
   background: var(--surface-3);
 }
 .pb-net__t {
@@ -791,7 +791,7 @@
   stroke: var(--ink-3);
   stroke-width: 1;
 }
-:root[data-theme='dark'] .pb-flag__body path {
+:where(:root[data-theme='dark']) .pb-flag__body path {
   fill: color-mix(in srgb, var(--ink) 5%, var(--surface));
 }
 .pb-flag[data-path] .pb-flag__body path {
@@ -1069,7 +1069,7 @@
   stroke: var(--ink);
   stroke-width: 1.2;
 }
-:root[data-theme='dark'] .pb-fuse-glass {
+:where(:root[data-theme='dark']) .pb-fuse-glass {
   fill: var(--surface-3);
 }
 .pb-fuse-cap {
@@ -1474,7 +1474,7 @@
   color: var(--ink);
   cursor: pointer;
 }
-:root[data-theme='dark'] .pb-strand {
+:where(:root[data-theme='dark']) .pb-strand {
   background: color-mix(in srgb, var(--ink) 5%, var(--surface));
 }
 .pb-strand::before {
@@ -2930,7 +2930,7 @@ html[data-pb-noblink] .pb [data-blink] {
   border-radius: var(--radius-2);
   background: var(--surface);
 }
-:root[data-theme='dark'] .pb-setup {
+:where(:root[data-theme='dark']) .pb-setup {
   background: color-mix(in srgb, var(--ink) 5%, var(--surface));
 }
 .pb-setup__h {

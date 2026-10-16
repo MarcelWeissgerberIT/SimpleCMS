@@ -15,7 +15,7 @@
  *  - the automations reader (sanitizer, unreadable entries kept) and the lock rule (§1.14).
  * Every name is fictional (Nordlicht, Tessera, Mara Lind, Launch plan); every host `*.example`.
  */
-import { test, expect } from './fixtures'
+import { test, expect, openApp, wsEval } from './fixtures'
 import { acceptsRoles, canConnect, commitPlan, commitWrites, plan, targetsOf, undoPlan } from '../../src/app/features/patchbay/patch'
 import { sayMsg } from '../../src/app/features/patchbay/plain'
 import { messages as fuseMessages } from '../../src/app/features/patchbay/messages-fuses'
@@ -25,12 +25,12 @@ import { buildModel } from '../../src/app/features/patchbay/model'
 import { moduleKey, scheduleKey } from '../../src/app/features/patchbay/ref'
 import { messages as patchMessages } from '../../src/app/features/patchbay/messages-patch'
 import { messages as hintMessages } from '../../src/app/features/patchbay/messages-hint'
-import { lockRefusal, readAutomations, sanitizeAutomation, unreadableAutomations, webhookUrlOf } from '../../src/app/features/automations/read'
+import { AUTOMATION_LIMITS, AUTOMATION_READ, lockRefusal, readAutomations, sanitizeAutomation, unreadableAutomations, unreadableCounts, webhookUrlOf } from '../../src/app/features/automations/read'
 import { sanitizeAgent } from '../../src/app/store/agents'
 import { sanitizeIntegrations } from '../../src/app/store/integrations'
 import type { Patch, PatchPlan, PatchWrite, MsgRef } from '../../src/app/features/patchbay/types'
 import type { Automation, CustomAgent, DbCommand, IntegrationProfile } from '../../src/app/store/types'
-import { TRACKER_READS, automation, database, dbPage, exits, inputOf, mock1, modelOf, page, profile, prop, server, world, type PbWorld } from '../fixtures/patchbay'
+import { TRACKER_READS, automation, database, dbPage, exits, inputOf, mock1, modelOf, page, profile, prop, seedPatchbay, server, world, type PbWorld } from '../fixtures/patchbay'
 import { TEAM } from '../fixtures/patchbay-fuses'
 import { hasDefaultCommand, patchCtx, recordingSink, withWrites } from '../fixtures/patchbay-patch'
 
@@ -580,6 +580,52 @@ test.describe('B15 · automations: the reader (sanitizer) and the lock rule (§1
     // a newer build's entries: kept by the writer, never read here
     expect(unreadableAutomations(raw).map((x) => x.id)).toEqual(['a3', 'a4'])
     expect(sanitizeAutomation({ id: 'x', trigger: { type: 'row_created' }, actions: 'nope' })).toBeNull()
+  })
+
+  test('fix (safety-data): nothing is ever cut — 26 actions and a long header token stay whole through the bookkeeping save; past the read bounds an automation is kept as it is, unread', () => {
+    const steps = Array.from({ length: 25 }, (_, i): Automation['actions'][number] => ({ type: 'notify', message: `Schritt ${i + 1}` }))
+    const token = `Bearer ${'t'.repeat(1500)}`
+    const many = automation('aMany', 'Viele Schritte', { type: 'row_created' }, [...steps, { type: 'webhook', url: 'https://hooks.example/in', method: 'POST', headers: { Authorization: token } }])
+    const longName = automation('aName', 'N'.repeat(AUTOMATION_READ.name + 1), { type: 'row_created' }, [])
+    const tooMany = automation('aTooMany', 'Zu viele', { type: 'row_created' }, Array.from({ length: AUTOMATION_READ.actions + 1 }, (): Automation['actions'][number] => ({ type: 'notify', message: 'x' })))
+    const odd = automation('aOdd', 'Neuer Wert', { type: 'property_changed', propertyId: 'p1', toValue: { colour: 'red' } as unknown as string }, [])
+    const raw = JSON.parse(JSON.stringify([many, longName, tooMany, odd])) as unknown[]
+    const list = readAutomations(raw)
+    expect(list.map((a) => a.id)).toEqual(['aMany'])
+    expect(list[0].actions).toHaveLength(26)
+    expect(list[0].actions[25]).toEqual({ type: 'webhook', url: 'https://hooks.example/in', method: 'POST', headers: { Authorization: token } })
+    // the engine's bookkeeping save (read → last* → read again) keeps every action and the whole token
+    const after = readAutomations(list.map((a) => ({ ...a, lastRunAt: 9, lastStatus: 'ok' as const, lastMessage: 'POST → 200' })))
+    expect(after[0].actions).toEqual(list[0].actions)
+    // beyond the read bounds: kept as it is by the writer, never read (run or edited) here — named in the modal
+    expect(unreadableAutomations(raw).map((x) => x.id)).toEqual(['aName', 'aTooMany', 'aOdd'])
+    expect(unreadableCounts(raw)).toEqual({ newer: 1, limits: 2 })
+    // a condition this build cannot read is never dropped (it would fire on every change)
+    expect(sanitizeAutomation(odd)).toBeNull()
+    // the editor's cap is below the reader's bound: what the editor makes is always read
+    expect(AUTOMATION_LIMITS.actions).toBeLessThan(AUTOMATION_READ.actions)
+    expect(AUTOMATION_LIMITS.name).toBeLessThan(AUTOMATION_READ.name)
+    expect(AUTOMATION_LIMITS.url).toBeLessThan(AUTOMATION_READ.url)
+    expect(AUTOMATION_LIMITS.message).toBeLessThan(AUTOMATION_READ.message)
+  })
+
+  test('fix (safety-data): an automation with 25 actions keeps them all through the engine\'s bookkeeping save in the app', async ({ page }) => {
+    const w = mock1()
+    // Tessera-Spiegel's 07:30 slot would run it on open — not this case's concern
+    w.ws.agents = { ...w.ws.agents, agTessera: { ...w.ws.agents!.agTessera, updatedAt: Date.parse('2031-01-01T00:00:00Z') } }
+    const db = w.ws.databases.dbMails!
+    const steps = Array.from({ length: 25 }, (_, i): Automation['actions'][number] => ({ type: 'notify', message: `Schritt ${i + 1}` }))
+    w.ws.databases.dbMails = { ...db, automations: [...(db.automations ?? []), automation('autMany', 'Viele Schritte', { type: 'row_created' }, steps)] }
+    await openApp(page)
+    await page.route(/\.example\//, (r) => r.fulfill({ status: 200, body: 'ok' }))
+    await seedPatchbay(page, w)
+    type Stored = { id: string; actions: unknown[]; lastRunAt: number | null }
+    const many = () => wsEval(page, (s) => JSON.parse(JSON.stringify((s.databases.dbMails.automations as unknown as Stored[]).find((a) => a.id === 'autMany') ?? null)) as Stored | null)
+    expect((await many())?.actions).toHaveLength(25)
+    // a new mail row: the automations run here and the engine writes their bookkeeping through saveAutomations
+    await wsEval(page, (s) => s.createPage({ parentId: 'dbMails', databaseId: 'dbMails', title: 'Neue Mail' }))
+    await expect.poll(async () => (await many())?.lastRunAt ?? null, { timeout: 15_000 }).not.toBeNull()
+    expect((await many())?.actions).toEqual(steps)
   })
 
   test('lockRefusal: off, a removed action, a removed automation pass — an add, a rename, a new trigger, switching on, reordering do not', () => {

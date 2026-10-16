@@ -47,7 +47,7 @@
   color: var(--signal-ink);
 }
 
-/* automations a newer build made: kept as they are, never shown or run here */
+/* automations this build does not read (a newer build's, or over its limits): kept as they are, never shown or run here */
 .auto-newer {
   margin: 0 6px 6px;
   font-size: var(--text-xs);

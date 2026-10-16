@@ -32,7 +32,7 @@
  * listener's half from it `{ via: Place, to }`); `edges` lights the whole path, the source's lead cable first.
  */
 import { keyPart } from './ref'
-import { honoursHandOnly, placeKey, reaches, startable, type WriterKind } from './rules'
+import { claudeBeforeGit, honoursHandOnly, placeKey, reaches, startable, type WriterKind } from './rules'
 import {
   allows,
   autofillPropsOf,
@@ -46,13 +46,15 @@ import {
   reachIndex,
   readRoots,
   startingOutside,
+  underOf,
   type Decider,
   type OutsideIndex,
+  type OutsideMark,
   type ReachIndex,
   type ReadRoots,
 } from './reach'
 import type { ID } from '../../store/types'
-import type { Chain, ChainExit, ChainStep, Edge, FlowListen, FlowWrite, Gate, LoopMark, Model, ModelInput, Module, ModuleKey, NetTag, OutsideSource, Place } from './types'
+import type { Chain, ChainExit, ChainStep, Edge, FlowListen, FlowWrite, Gate, LoopMark, Model, ModelInput, Module, ModuleKey, NetTag, OutsideSource, Place, UnknownPart } from './types'
 
 /** Steps drawn in full; the rest fold into "+n steps" (§2.5). */
 export const SHOWN_STEPS = 3
@@ -590,6 +592,7 @@ function taggedOutside(ix: ReachIndex, oi: OutsideIndex, self: ModuleKey, tag: N
 export function withChains(model: Model, input: ModelInput): Model {
   const ix = reachIndex(model, input)
   const a = analyse(ix)
+  const worker = workerUnknown(ix, a.outside)
   const modules = model.modules.map((m) => {
     if (!m.nets.length) return m
     let changed = false
@@ -606,7 +609,33 @@ export function withChains(model: Model, input: ModelInput): Model {
     const w = ix.jackMod.get(e.from)
     return w && a.fed.has(w) ? { ...e, tainted: true } : e
   })
-  return { ...model, modules, edges, chains: a.chains, loops: a.loops }
+  return { ...model, modules, edges, chains: a.chains, loops: a.loops, ...(worker.length ? { unknown: [...model.unknown, ...worker] } : {}) }
+}
+
+/**
+ * Fix (safety-data): Claude Code in the coding worker is no decider of One's (§1.3 — its own tools are outside One), yet
+ * it chooses what a task's git step sends. Where a pipeline's task rows hold content from outside that leaves a task
+ * trusted (no Confirm before the worker takes it — coding/trust.ts: an agent's task always waits; in a team, or with
+ * Confirm "always", a remote write, a pick-up or a new row does too) and a Claude Code stage runs before an outbound git
+ * action with nobody in between (this device's Approvals), the pipeline is an unknown part — never a clean rack.
+ */
+function workerUnknown(ix: ReachIndex, oi: OutsideIndex): UnknownPart[] {
+  const { input } = ix
+  if (!input.pipelines.length) return []
+  const confirmRemote = input.ctx.team || input.worker.confirm === 'always'
+  const trusted = (mk: OutsideMark): boolean => {
+    if (mk.kind === 'tainted') return ix.mods.get(mk.writer ?? mk.source)?.kind !== 'agent'
+    return !confirmRemote
+  }
+  const out: UnknownPart[] = []
+  for (const p of input.pipelines) {
+    const key = ix.pipelines.get(p.db)
+    if (!key || !claudeBeforeGit(p.stages, input.worker.approvals)) continue
+    const marks = [...(oi.dbs.get(p.db) ?? []), ...underOf(ix, p.db).flatMap((u) => oi.pages.get(u) ?? []), ...oi.all.filter((mk) => !(mk.kind === 'api' && input.pages[p.db]?.private))]
+    // the worker's own writes into its task rows are what fed it — never a source of its own
+    if (marks.some((mk) => !(mk.kind === 'tainted' && (mk.writer ?? mk.source) === key) && trusted(mk))) out.push({ key: `worker:${key}`, what: 'worker', module: key })
+  }
+  return out
 }
 
 /* ------------------------------------------------------------------ a key's change, tried out (fuses.ts) */

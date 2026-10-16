@@ -388,9 +388,11 @@ export interface UnknownPart {
   key: string
   /**
    * … · 'byName': a script that names places by name (§1.17 — what it reads or writes is not known here) ·
-   * 'elsewhere': a browser agent's server not set up on this device (team: the creator's other browsers run it too)
+   * 'elsewhere': a browser agent's server not set up on this device (team: the creator's other browsers run it too) ·
+   * 'worker' (fix safety-data): a pipeline whose trusted task rows hold content from outside and whose Claude Code stage
+   * runs before an outbound git step with nobody in between — what the worker's AI writes and sends is not known here
    */
-  what: 'otherBrowser' | 'runtime' | 'hooks' | 'unreadable' | 'lazy' | 'byName' | 'elsewhere'
+  what: 'otherBrowser' | 'runtime' | 'hooks' | 'unreadable' | 'lazy' | 'byName' | 'elsewhere' | 'worker'
   module: ModuleKey
   /** member id who can see it */
   who?: string

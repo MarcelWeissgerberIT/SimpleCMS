@@ -179,12 +179,62 @@ test.describe('B4 · each way out (§1.4)', () => {
     expect(f).toBeDefined()
     // reads its own mail (from outside) and the titles of the related Kontakte (private)
     expect([f.lamps.outside.say.key, f.lamps.private.say]).toEqual([`${P}.lamp.outside.mail`, { key: `${P}.lamp.private.related`, vars: { db: 'dbKontakte' } }])
-    expect(keyOf(f, 1)).toMatchObject({ kind: 'autofillHand', offered: true, target: { db: 'dbMails', prop: 'pMailSum' } })
+    // fix (safety-data): a fill started by hand still carries beta's write tools — key 1 closes nothing here (A29)
+    expect(keyOf(f, 1)).toMatchObject({ kind: 'autofillHand', offered: false, refusal: { key: `${P}.key.autofillMcp`, vars: { server: key({ kind: 'server', id: 'srvBeta', name: 'beta' }) } }, target: { db: 'dbMails', prop: 'pMailSum' } })
     expect(keyOf(f, 2)).toMatchObject({ kind: 'noAutofill', offered: true, device: true, target: { server: 'srvBeta' }, note: { key: `${P}.key.deviceOnly` } })
     expect(f.facts.map((x) => x.kind)).toEqual(expect.arrayContaining(['thisDevice', 'bulkCap']))
-    // a locked database refuses key 1 with the reason (§6 A20)
-    const locked = fuseTo(modelOf(autofillWorld({ locked: true })), af, key({ kind: 'server', id: 'srvBeta', name: 'beta' }))!
+    // a locked database refuses key 1 with the reason (§6 A20) — on the path key 1 can close (the webhook's)
+    const lockedM = modelOf(autofillWorld({ locked: true, hook: true }))
+    const locked = lockedM.fuses.find((x) => x.chain.decider === af && x.chain.exit?.type === 'webhook')!
     expect(keyOf(locked, 1)).toMatchObject({ offered: false, refusal: { key: `${P}.key.locked` } })
+  })
+
+  test('fix (safety-data): a hand-run autofill stays a decider while a fill by hand can take a path — "runs only by hand", sorted last; key 1 only where the review stops the path', () => {
+    const af = key({ kind: 'autofill', db: 'dbMails', prop: 'pMailSum' })
+    const beta = key({ kind: 'server', id: 'srvBeta', name: 'beta' })
+    const set = (w: PbWorld, over: Record<string, unknown>) => {
+      const db = w.ws.databases.dbMails!
+      w.ws.databases.dbMails = { ...db, properties: db.properties.map((p) => (p.id === 'pMailSum' ? { ...p, autofill: { ...p.autofill!, ...over } } : p)) }
+      return w
+    }
+    // auto, review on: key 1 offered on the webhook path (the review then stops it), refused on beta's
+    const auto = modelOf(autofillWorld({ hook: true }))
+    const hookOf = (m: ReturnType<typeof modelOf>) => m.fuses.find((x) => x.chain.decider === af && x.chain.exit?.type === 'webhook')
+    expect(keyOf(hookOf(auto)!, 1)).toMatchObject({ offered: true })
+    // auto off (what key 1 writes), beta still "All AI calls": the MCP path stays a fuse, "runs only by hand", sorted
+    // last; the webhook path waits for the review — a near miss "a person checks first", never nothing
+    const hand = modelOf(set(autofillWorld({ hook: true }), { auto: false }))
+    expect(hand.modules.find((m) => m.key === af)?.tags).toEqual(expect.arrayContaining(['disabled', 'handRunOnly', 'stage']))
+    const mcp = fuseTo(hand, af, beta)!
+    expect(mcp.facts.map((x) => x.kind)).toContain('handRunOnly')
+    expect(mcp.facts.map((x) => x.kind)).not.toContain('bulkCap')
+    expect(mcp.facts.find((x) => x.kind === 'writeMode')?.say.key).toBe(`${P}.fact.write.stage`)
+    expect(keyOf(mcp, 1)).toMatchObject({ offered: false, refusal: { key: `${P}.key.autofillMcp` } })
+    expect(keyOf(mcp, 2)).toMatchObject({ kind: 'noAutofill', offered: true })
+    expect(hookOf(hand)).toBeUndefined()
+    expect(hand.nearMisses.some((n) => n.chain.decider === af && n.chain.exit?.type === 'webhook' && n.why === 'gate')).toBe(true)
+    // "Apply without review": a fill by hand writes straight into the cells — the webhook path stays open; key 1 never
+    // offered there (auto on or off)
+    for (const auto of [true, false]) {
+      const direct = modelOf(set(autofillWorld({ hook: true }), { auto, skipReview: true }))
+      const f = hookOf(direct)!
+      expect(f, `auto ${auto}`).toBeDefined()
+      expect(keyOf(f, 1), `auto ${auto}`).toMatchObject({ offered: false, refusal: { key: `${P}.key.autofillDirect` } })
+      expect(f.facts.some((x) => x.kind === 'handRunOnly')).toBe(!auto)
+    }
+    // by hand, review on, no "All AI calls" server: a person checks every value — nothing to draw
+    const quiet = set(autofillWorld({ hook: true }), { auto: false })
+    quiet.ws.settings = { ...quiet.ws.settings, mcpServers: [] }
+    const qm = modelOf(quiet)
+    expect(qm.modules.some((m) => m.key === af)).toBe(false)
+    expect(qm.fuses).toEqual([])
+    // F-order: a hand-run decider's fuse after the others (A13)
+    const both = set(autofillWorld({ hook: true }), { auto: false })
+    const mails = both.ws.databases.dbMails!
+    both.ws.databases.dbMails = { ...mails, properties: [...mails.properties, prop('pMailTag', 'Stichwort', 'text', { autofill: { preset: 'summary', auto: true } })] }
+    const bm = modelOf(both)
+    expect(bm.fuses.map((f) => f.chain.decider)).toEqual([key({ kind: 'autofill', db: 'dbMails', prop: 'pMailTag' }), af])
+    expect(bm.fuses.map((f) => f.label)).toEqual(['F1', 'F2'])
   })
 
   test('an attached untested server without an allow-list → a fuse "tool list unknown" (fail closed, §6 A7)', () => {
@@ -341,6 +391,14 @@ test.describe('B4 · unknown parts — never a fuse, never "nothing" (§1.21, §
     // a key a non-creator presses makes the agent wait for its creator — the key says so
     expect(keyOf(m.fuses[0], 1)?.team).toEqual({ key: `${P}.key.confirmAfter`, vars: { creator: 'acMara' } })
     expect(fuseCounts(m)).toEqual({ open: 1, allowed: 0, unknown: 1 })
+  })
+
+  test('fix (safety-data): a browser agent another member changed waits for its creator — the creator reads who changed it, everyone else whose confirm it waits for', () => {
+    const agent = inboxHelper({ createdBy: 'acMara', updatedBy: 'acBen' })
+    const fact = (me: string) => modelOf(mailWorld([agent], { device: TEAM(me, 'owner', ['signoffs']), lazy: { hooks: [], tokens: [] } })).fuses[0]?.facts.find((f) => f.kind === 'awaitsConfirm')?.say
+    expect(fact('acMara')).toEqual({ key: `${P}.fact.awaitsConfirm`, vars: { member: 'acBen' } })
+    expect(fact('acBen')).toEqual({ key: `${P}.fact.awaitsConfirmOf`, vars: { creator: 'acMara' } })
+    expect(fact('acNordlicht')).toEqual({ key: `${P}.fact.awaitsConfirmOf`, vars: { creator: 'acMara' } })
   })
 
   test('fields this build cannot read: an unknown part, no chain, no fuse', () => {

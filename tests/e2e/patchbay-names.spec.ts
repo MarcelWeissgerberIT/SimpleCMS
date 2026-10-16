@@ -55,6 +55,21 @@ const OUTSIDE_DE: Record<string, string> = {
 }
 
 test.describe('Patchbay words (plan §1.1)', () => {
+  test('fix (safety-data): a member is said only where "dir" / "einem Mitglied" fit — after "von" in German, never as the subject', () => {
+    // plateWords fills {member} / {creator} with the dative words ("dir", "einem Mitglied") when the member is the viewer
+    // or unknown — a nominative slot would read "dir hat …" / "einem Mitglied muss …"
+    let n = 0
+    for (const [k, v] of Object.entries(patchbay.de))
+      for (const name of ['member', 'creator'])
+        if (v.includes(`{${name}}`)) {
+          n++
+          expect(v.split(`{${name}}`).slice(0, -1).every((before) => /von $/.test(before)), `${k}: ${v}`).toBe(true)
+        }
+    expect(n).toBeGreaterThanOrEqual(5)
+    expect(patchbay.de[`${P}.plate.you`]).toBe('dir')
+    expect(patchbay.de[`${P}.plate.someone`]).toBe('einem Mitglied')
+  })
+
   test('every string in both languages: the same keys, the same placeholders, a plural beside every .one', () => {
     const en = patchbay.en
     const de = patchbay.de

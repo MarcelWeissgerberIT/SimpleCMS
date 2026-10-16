@@ -664,16 +664,27 @@ function scriptContexts(c: Ctx, callers: Array<{ script: ID; place: Place; byHan
   }
 }
 
+/** This device has a switched-on server every AI call gets ("All AI calls") — a fill carries it whoever starts it. */
+const hasAllServer = (c: Ctx): boolean => c.input.servers.some((s) => s.server.enabled && s.server.scope === 'all')
+
 function autofill(c: Ctx): void {
   for (const db of c.input.databases)
     for (const p of db.properties) {
-      if (!p.autofill?.auto) continue
+      const af = p.autofill
+      if (!af) continue
+      // fix (safety-data): a fill a person starts (the panel's Fill, one cell) still decides with Claude, carries every
+      // "All AI calls" server — its write tools run inside the tool loop — and with "Apply without review" writes straight
+      // into the cells. Without `auto` it stays on the rack while it can take a path that way: runs only by hand (§6 A13,
+      // as a switched-off agent); with review on and no such server, a person checks every value — nothing to draw
+      const hand = !af.auto
+      if (hand && !af.skipReview && !hasAllServer(c)) continue
       const m = mod(c, { kind: 'autofill', db: db.id, prop: p.id }, { to: 'autofill', db: db.id, prop: p.id })
       // B4: an automatic fill writes straight into the cell whatever "Apply without review" says (watch.ts writes every
       // answer) — that switch is about runs a person starts
-      tag(m, 'direct', 'thisDevice')
+      if (hand) tag(m, 'disabled', 'handRunOnly', af.skipReview ? 'direct' : 'stage', 'thisDevice')
+      else tag(m, 'direct', 'thisDevice')
       m.nets.push({ place: { db: db.id } })
-      writeDb(c, { m, kind: 'autofill' }, 'writes', db.id, p.id, {})
+      writeDb(c, { m, kind: 'autofill' }, 'writes', db.id, p.id, hand && !af.skipReview ? { proposal: true } : {})
       attachAllServers(c, m)
     }
 }

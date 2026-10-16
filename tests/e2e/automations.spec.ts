@@ -80,6 +80,25 @@ test.describe('automations (B15): the one reader and writer', () => {
     await expect.poll(() => stored(page, db)).toEqual([expect.objectContaining({ id: 'autChat', name: 'An Team-Chat · Nordlicht', trigger: { type: 'property_changed', propertyId: prop } }), newer])
   })
 
+  test('fix (safety-data): 25 actions are shown and saved whole; the editor refuses a further action and says why; one past the read bounds is named and kept', async ({ page }) => {
+    await openApp(page)
+    const steps = Array.from({ length: 25 }, (_, i) => ({ type: 'notify', message: `Schritt ${i + 1}` }))
+    const huge = { ...hook('autRiesig', 'Riesig', 'x'), trigger: { type: 'row_created' }, actions: Array.from({ length: 201 }, () => ({ type: 'notify', message: 'x' })) }
+    const { db } = await seed(page, ({ prop }) => [hook('autMany', 'Viele Schritte', prop, { actions: steps }), huge])
+    const dialog = await openAutomations(page, db)
+    await expect(dialog.getByRole('option')).toHaveCount(1)
+    await expect(dialog.getByTestId('auto-over-limits')).toHaveText('One automation is larger than this version of One reads (too many actions or a very long value). It is kept as it is and does not run here.')
+    await expect(dialog.locator('.auto-chain > .auto-node:not(.auto-node--trigger):not(.auto-node--add)')).toHaveCount(25)
+    await expect(dialog.getByRole('button', { name: 'Add action' })).toBeDisabled()
+    await expect(dialog.getByTestId('auto-actions-full')).toHaveText('At most 20 actions per automation — remove one to add another.')
+    // an edit writes the automation whole — and the one past the bounds stays exactly as it was
+    await dialog.getByRole('textbox', { name: 'Automation name' }).fill('Viele Schritte · Nordlicht')
+    await expect.poll(async () => (await stored(page, db)).find((a: { id: string }) => a.id === 'autMany')?.name).toBe('Viele Schritte · Nordlicht')
+    const after = await stored(page, db)
+    expect(after.find((a: { id: string }) => a.id === 'autMany').actions).toEqual(steps)
+    expect(after.find((a: { id: string }) => a.id === 'autRiesig')).toEqual(huge)
+  })
+
   test('fix (patch): a host:port address being typed stays in the URL field; a newer build\'s fields on a known automation survive an edit', async ({ page }) => {
     await openApp(page)
     const { db, prop } = await seed(page, ({ prop }) => [hook('autChat', 'An Team-Chat', prop, { description: 'from a newer build', trigger: { type: 'property_changed', propertyId: prop, debounceMs: 500 } })])

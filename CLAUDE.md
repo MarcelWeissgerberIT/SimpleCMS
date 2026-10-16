@@ -837,7 +837,8 @@ the public APIs stable — other areas are built against them in parallel.
   `registerCommandKind(def)` from a module loaded at boot; an unknown kind is kept and hidden.
 - Automations (features/automations, public API automations/index.ts): every reader of `Database.automations` goes through
   `readAutomations(raw)` (automations/read.ts, pure sanitizer: trigger, actions, http(s) URL only, POST / PUT, headers;
-  unknown keys kept), every write through `saveAutomations(dbId, list, writer)` (model.ts; AutomationsModal writes as the
+  unknown keys kept; NEVER shortens a value — beyond `AUTOMATION_READ` an automation is unreadable, kept as it is, never
+  run or edited here and counted in the modal; the editor's own caps are `AUTOMATION_LIMITS`), every write through `saveAutomations(dbId, list, writer)` (model.ts; AutomationsModal writes as the
   person, its delete Undo `you~undo`); on a locked database only switching off and removals are saved — adds and
   re-wiring are refused (owner decision Q2), the modal says so.
 - Integration profiles (store/integrations.ts, features/agents/integrations, `#/workspace/integrations`): `Workspace.integrations`

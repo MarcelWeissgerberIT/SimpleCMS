@@ -376,7 +376,7 @@ test('team keys: a member’s key 1 on the owner’s agent names the confirm bef
   // the member: F1 with the confirm note before the press; key 3 inert, the owners and admins named, "Copy link" to hand it over
   await openPatchbayIn(member)
   await expect(pbPanel(member).getByRole('heading', { level: 2 })).toHaveText('Fuse F1 · open path')
-  await expect(pbKeyRow(member, 1).getByTestId('pb-fkey-team')).toHaveText('Mara Lind must confirm the agent afterwards.')
+  await expect(pbKeyRow(member, 1).getByTestId('pb-fkey-team')).toHaveText('The agent then waits for Mara Lind to confirm it.')
   await expect(pbKey(member, 3)).toHaveAttribute('aria-disabled', 'true')
   await expect(pbKeyRow(member, 3).getByTestId('pb-fkey-why')).toHaveText('Only owners and admins: Mara Lind')
   await expect(pbPanel(member).getByTestId('pb-fkey-copy')).toBeVisible()
@@ -388,22 +388,24 @@ test('team keys: a member’s key 1 on the owner’s agent names the confirm bef
   // key 1: the agent writes proposals now — and waits for its creator (the member saved it)
   await pbKey(member, 1).click()
   await expect(pbPanel(member).getByTestId('pb-closed-head')).toHaveText('Fuse F1 · closed — Inbox-Helfer: Apply directly → Proposals for review')
-  await expect(member.locator('.toast').filter({ hasText: 'Fuse F1 closed' }).last()).toContainText('Mara Lind must confirm the agent afterwards.')
+  await expect(member.locator('.toast').filter({ hasText: 'Fuse F1 closed' }).last()).toContainText('The agent then waits for Mara Lind to confirm it.')
   await expect.poll(() => wsEval(page, (s) => [s.agents.agInbox.write, s.agents.agInbox.updatedBy])).toEqual(['stage', tesseraId])
 
   // the member's Undo puts "apply" back — the agent still waits for Mara (the member saved it last); the toast says so
   await pbPanel(member).getByTestId('pb-closed-head').focus()
   await member.keyboard.press('Control+z')
-  await expect(member.locator('.toast').filter({ hasText: 'Taken back — fuse F1 is open again' }).last()).toContainText('Mara Lind must still confirm the agent.')
+  await expect(member.locator('.toast').filter({ hasText: 'Taken back — fuse F1 is open again' }).last()).toContainText('The agent still waits for Mara Lind to confirm it.')
+  // fix (safety-data): the member who changed it reads whose confirm the agent waits for — never "your confirm"
+  await expect(pbPanel(member).locator('.pb-fact[data-fact="awaitsConfirm"]')).toContainText('waits for Mara Lind to confirm it')
   await expect.poll(() => wsEval(page, (s) => [s.agents.agInbox.write, s.agents.agInbox.updatedBy, s.agents.agInbox.createdBy])).toEqual(['apply', tesseraId, maraId])
 
   // the owner (the creator) sees the fuse of the agent a member changed, before confirming (§6 A8) — and is sent to the
   // editor first: a key saved as Mara would run Tessera's version unseen
   await openPatchbayIn(page)
   await expect(pbPanel(page).getByRole('heading', { level: 2 })).toHaveText('Fuse F1 · open path')
-  await expect(pbPanel(page).locator('.pb-fact[data-fact="awaitsConfirm"]')).toContainText('waits for your confirm — Tessera Nord changed it')
+  await expect(pbPanel(page).locator('.pb-fact[data-fact="awaitsConfirm"]')).toContainText('waits for your confirm — changed by Tessera Nord')
   await expect(pbKey(page, 1)).toHaveAttribute('aria-disabled', 'true')
-  await expect(pbKeyRow(page, 1).getByTestId('pb-fkey-why')).toHaveText('Inbox-Helfer waits for your confirm — Tessera Nord changed it. Confirm it in its editor first.')
+  await expect(pbKeyRow(page, 1).getByTestId('pb-fkey-why')).toHaveText('Inbox-Helfer waits for your confirm — changed by Tessera Nord. Confirm it in its editor first.')
   await expect(pbKey(page, 3)).not.toHaveAttribute('aria-disabled', 'true')
   await member.context().close()
 })

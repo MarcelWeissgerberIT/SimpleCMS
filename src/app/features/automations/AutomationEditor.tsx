@@ -14,6 +14,7 @@ import { useT } from '../../i18n'
 import type { Automation, AutomationAction, AutomationTrigger, Database } from '../../store/types'
 import { testWebhook, type WebhookResult } from './engine'
 import { autoName, blankAction, isAutoName, problemOf } from './recipes'
+import { AUTOMATION_LIMITS } from './read'
 import { onRovingKey } from '../io/roving'
 import { PropertyPicker, ValuePicker } from './pickers'
 import { FuseHintLine } from '../patchbay/hint'
@@ -35,11 +36,13 @@ export function AutomationEditor({ db, automation, locked = false, onChange, onD
   const setAction = (i: number, a: AutomationAction) => set({ actions: automation.actions.map((x, j) => (j === i ? a : x)) })
   const trig = automation.trigger
   const watched = trig.type === 'property_changed' ? db.properties.find((p) => p.id === trig.propertyId) : undefined
+  // the editor's cap (the reader never cuts what is stored — an automation with more stays whole; fix safety-data)
+  const full = automation.actions.length >= AUTOMATION_LIMITS.actions
 
   return (
     <div className="auto-ed" data-armed={automation.enabled && !problem ? '' : undefined} data-locked={locked ? '' : undefined}>
       <div className="auto-ed__head">
-        <input className="auto-ed__name" value={automation.name} readOnly={locked} onChange={(e) => set({ name: e.target.value })} aria-label={t('features.auto.name')} placeholder={t('features.auto.untitled')} />
+        <input className="auto-ed__name" value={automation.name} readOnly={locked} maxLength={AUTOMATION_LIMITS.name} onChange={(e) => set({ name: e.target.value })} aria-label={t('features.auto.name')} placeholder={t('features.auto.untitled')} />
         <div className="auto-ed__arm">
           <span className="label">{automation.enabled ? t('features.auto.armed') : t('features.auto.off')}</span>
           {/* locked: switching off only (§1.14) */}
@@ -148,7 +151,7 @@ export function AutomationEditor({ db, automation, locked = false, onChange, onD
                 {a.type === 'run_script' && <ScriptField action={a} locked={locked} onChange={(next) => setAction(i, next)} />}
                 {a.type === 'notify' && (
                   <div className="auto-field">
-                    <input className="input" value={a.message} readOnly={locked} placeholder={t('features.auto.notifyPlaceholder')} aria-label={t('features.auto.act.notify')} onChange={(e) => setAction(i, { ...a, message: e.target.value })} />
+                    <input className="input" value={a.message} readOnly={locked} maxLength={AUTOMATION_LIMITS.message} placeholder={t('features.auto.notifyPlaceholder')} aria-label={t('features.auto.act.notify')} onChange={(e) => setAction(i, { ...a, message: e.target.value })} />
                     <span className="auto-hint faint">{t('features.auto.notifyHint')}</span>
                   </div>
                 )}
@@ -163,15 +166,20 @@ export function AutomationEditor({ db, automation, locked = false, onChange, onD
               <span className="auto-node__port auto-node__port--open" />
             </div>
             <div className="auto-node__body">
-              <button type="button" className="btn btn--sm" onClick={addMenu.toggle}>
+              <button type="button" className="btn btn--sm" onClick={addMenu.toggle} disabled={full} aria-describedby={full ? `auto-full-${automation.id}` : undefined}>
                 <Plus size={14} /> {t('features.auto.addAction')}
               </button>
+              {full && (
+                <span id={`auto-full-${automation.id}`} className="auto-hint faint" role="status" data-testid="auto-actions-full">
+                  {t('features.auto.actionsFull', { n: AUTOMATION_LIMITS.actions })}
+                </span>
+              )}
               <Menu
                 {...addMenu.props}
                 className="auto-menu"
                 entries={(['webhook', 'set_property', 'notify', 'run_script'] as const).map((type) => {
                   const Icon = ACTION_ICON[type]
-                  return { label: t(`features.auto.act.${type}`), icon: <Icon size={14} />, hint: t(`features.auto.actHint.${type}`), onSelect: () => set({ actions: [...automation.actions, blankAction(type, db)] }) }
+                  return { label: t(`features.auto.act.${type}`), icon: <Icon size={14} />, hint: t(`features.auto.actHint.${type}`), onSelect: () => !full && set({ actions: [...automation.actions, blankAction(type, db)] }) }
                 })}
               />
             </div>
@@ -238,6 +246,7 @@ function WebhookFields({ db, automation, action, locked, onChange }: { db: Datab
           placeholder="https://your-n8n.app/webhook/…"
           value={action.url}
           readOnly={locked}
+          maxLength={AUTOMATION_LIMITS.url}
           aria-label={t('features.auto.url')}
           onChange={(e) => {
             setResult(null)

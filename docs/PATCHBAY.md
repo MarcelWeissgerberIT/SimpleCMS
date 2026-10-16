@@ -91,8 +91,12 @@ null)` runs from `cloud/device.ts` (a `cloud:<ws>` wipe takes every member scope
 reachability (chains.ts walks the model's flow, not the drawn cables; only the drawing folds past 3 steps).
 
 - **Deciders** (reach.ts `deciderOf`): custom agents whatever `enabled` says (a switched-off one runs by hand — its fact
-  says so, it sorts last), AI autofill with `auto`, mail "Organise with Claude", the bridge in `'apply'`. Route-blocked
-  agents are not deciders; Unreadable fields make an unknown part.
+  says so, it sorts last), AI autofill with `auto` — and without it while a fill started by hand can take a path (an
+  "All AI calls" server, or "Apply without review"): "runs only by hand", sorted last, its fills proposals unless
+  "Apply without review" —, mail "Organise with Claude", the bridge in `'apply'`. Route-blocked agents are not
+  deciders; Unreadable fields make an unknown part. Key 1 on autofill ("by hand only") is offered only where the review
+  then stops the path: refused on its own MCP way out (a fill by hand carries the server — key 2 takes it off) and
+  with "Apply without review".
 - **Outside**: mail-class rows (`classOfPage`), MCP read results (an untested server counts whole), a server agent's
   webhook body, team hooks / API-token rows, GitHub pick-ups, Clippings — plus **taint**: a fixpoint marks every place
   written by a processor that reads an outside place (each place flips once, the mark keeps writer and origin). Not
@@ -113,7 +117,10 @@ reachability (chains.ts walks the model's flow, not the drawn cables; only the d
 - **Near misses** (≤ 12 shown, never counted): a decider and a way out with one closing reason — a gate, a data rule, no
   private data, or a way out closed on this device. **Unknown parts** (never counted, never safe): another member's
   browser agent, Unreadable fields, a runtime the viewer cannot read, team hooks for a member, a lazy reading the cache
-  lacks, a script naming places by name, a server not set up here.
+  lacks, a script naming places by name, a server not set up here, and (chains.ts `workerUnknown`) a pipeline whose
+  task rows hold content from outside that leaves a task trusted while a Claude Code stage runs before an outbound git
+  step with nobody in between (rules.ts `claudeBeforeGit`) — Claude Code is no decider of One's, but it chooses what
+  the push sends.
 - **Mitigations** are facts, never a clearance: Jev's write gate, `directSplit`, OUT locks, web images → links (and the
   identity hooks `effectiveWrite` / `directProps`, part of the signature so turning them on lapses allowances).
 

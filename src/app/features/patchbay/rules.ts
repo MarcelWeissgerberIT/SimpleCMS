@@ -109,6 +109,30 @@ function nextIndex(stages: readonly Stage[], i: number): number {
   return i + 1 < stages.length ? i + 1 : -1
 }
 
+/** Stage kinds that run Claude Code (coding/protocol.ts `CLAUDE_KINDS` — patchbay-model-fixes keeps them in step). */
+export const CLAUDE_CODE_STAGES: ReadonlySet<string> = new Set(['plan', 'implement', 'doc'])
+
+/**
+ * Fix (safety-data): does a task reach an outbound git action (push · pr · comment · merge) with nobody in between AFTER
+ * a stage that runs Claude Code? Then the worker's AI chose what that step sends — the walk of `unattendedGit`.
+ */
+export function claudeBeforeGit(stages: readonly Stage[], level: Approvals): boolean {
+  const entries = stages.map((s, i) => (i === 0 || s.kind === 'queue' ? i : -1)).filter((i) => i >= 0)
+  for (const start of entries) {
+    const seen = new Set<number>()
+    let claude = false
+    for (let i = start; i >= 0 && !seen.has(i); i = nextIndex(stages, i)) {
+      seen.add(i)
+      const st = stages[i]
+      if (st.kind === 'done') break
+      if (st.kind === 'gate' && (i === start || gateStops(stages, i, level))) break
+      if (CLAUDE_CODE_STAGES.has(st.kind)) claude = true
+      if (claude && st.kind === 'git' && st.gitAction && GIT_OUT.has(st.gitAction)) return true
+    }
+  }
+  return false
+}
+
 /**
  * The git actions (push · pr · comment · merge) a task reaches with nobody in between: walked from where a task enters
  * the pipeline — its first stage (a new row) and every queue stage (the worker takes it on, or a person starts it: a

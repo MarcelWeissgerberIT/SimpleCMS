@@ -4,7 +4,9 @@
  *
  *  - **Who decides** (§1.3 #1): a custom agent (browser or server, whatever `enabled` says — a switched-off one runs by
  *    hand; route-blocked or Unreadable ones are not deciders: blocked, or an unknown part the model already names), AI
- *    autofill with `auto`, mail "Organise with Claude", the local MCP bridge in 'apply' (in 'ask' its writes are asked).
+ *    autofill with `auto` — and without it while a fill a person starts can take a path ("All AI calls" servers, "Apply
+ *    without review"; runs only by hand) —, mail "Organise with Claude", the local MCP bridge in 'apply' (in 'ask' its
+ *    writes are asked).
  *  - **Content from outside** (§1.3 #2): mail-class rows (the AI core's `classOfPage` rule: `system` 'mails' / 'mail-*'
  *    or this device's sync target), MCP read results (a server whose tool list is unknown counts whole), a server
  *    agent's webhook trigger body, team incoming hooks' rows, GitHub pick-ups (everything), Clippings (the capture
@@ -307,7 +309,11 @@ export function deciderOf(ix: ReachIndex, m: Module): Decider | null {
   // autofill (bulk.autofill) and organise (bulk.mail) are class 'bulk' — their own route rules, this device's
   if (r.kind === 'autofill' || r.kind === 'organise') {
     const providers = classProviders(ix.input, 'bulk', true)
-    return { key: m.key, kind: r.kind, here: true, providers, mcp: carriesMcp(providers), write: 'apply', server: false, disabled: false }
+    // fix (safety-data): an autofill without `auto` runs only by hand (§6 A13) — its fills go to the review unless
+    // "Apply without review" is on (model.ts draws it only while it can take a path)
+    const af = r.kind === 'autofill' ? ix.dbs.get(r.db)?.properties.find((p) => p.id === r.prop)?.autofill : undefined
+    const hand = r.kind === 'autofill' && !af?.auto
+    return { key: m.key, kind: r.kind, here: true, providers, mcp: carriesMcp(providers), write: hand && !af?.skipReview ? 'stage' : 'apply', server: false, disabled: hand }
   }
   if (r.kind === 'bridge') {
     const mode = ix.input.bridge.mode

@@ -468,6 +468,8 @@ test.describe('Patchbay eager closure (Node)', () => {
       'messages-fuses.ts',
       'messages-hint.ts',
       'messages-live.ts',
+      // B18: the page's strings, split out of messages.ts (the names guard reads every file in Node)
+      'messages-page.ts',
       'messages-patch.ts',
       'messages-plate.ts',
       'messages-setup.ts',

@@ -19,7 +19,8 @@
 import { test, expect } from './fixtures'
 import { buildModel } from '../../src/app/features/patchbay/model'
 import { moduleKey } from '../../src/app/features/patchbay/ref'
-import { placeKey, unattendedGit } from '../../src/app/features/patchbay/rules'
+import { CLAUDE_CODE_STAGES, claudeBeforeGit, placeKey, unattendedGit } from '../../src/app/features/patchbay/rules'
+import { CLAUDE_KINDS } from '../../src/app/features/coding/protocol'
 import { lazyCacheOf } from '../../src/app/features/patchbay/cache'
 import { digest } from '../../src/app/features/patchbay/source'
 import { messages } from '../../src/app/features/patchbay/messages-fuses'
@@ -168,6 +169,87 @@ test.describe('fix · pipelines: the git gate per stage, Confirm by who wrote th
     const m = modelOf(w)
     expect(chainTo(m, AF, hook('cases.example'))?.steps.map(stepNode)).toEqual(['pipeline:dbCoding', '@dbCases:+row', 'automation:dbCases:autCase', hook('cases.example')])
     expect(fused(m, AF, hook('cases.example'))).toBe(true)
+  })
+})
+
+/* ------------------------------------------------------------------ fix (safety-data): Claude Code in the worker */
+
+/**
+ * The review's probe p1: a local workspace — Mails is the mail sync's target; the automation „Mail → Aufgabe“ (new
+ * mail) runs a script folded into it that adds a task to Coding; Coding runs queue → implement → push. No decider of
+ * One's is on the path, yet Claude Code reads the mail's text in the task and chooses what the push carries.
+ */
+function workerWorld(stages: PipelineStage[], approvals: 'all' | 'review' | 'none', device: Partial<PbWorld['device']> = {}): PbWorld {
+  return world({
+    pages: [dbPage('dbMails', 'Mails'), dbPage('dbCoding', 'Coding · Nordlicht')],
+    databases: [
+      database('dbMails', [], { system: 'mails', automations: [automation('autTask', 'Mail → Aufgabe', { type: 'row_created' }, [{ type: 'run_script', scriptId: 'scTask' }])] }),
+      database('dbCoding', [], { system: 'coding', pipeline: stages }),
+    ],
+    scripts: [script('scTask', 'Mail → Aufgabe', 'db(@[Coding](p:dbCoding)).add(page.current.title)')],
+    mail: mailSettings('dbMails'),
+    device: { ...device, worker: { ...LOCAL_DEVICE.worker, ...device.worker, approvals } },
+  })
+}
+const IMPLEMENT_PUSH: PipelineStage[] = [
+  { id: 'stQueue', kind: 'queue', auto: true },
+  { id: 'stImpl', kind: 'implement', auto: true },
+  { id: 'stPush', kind: 'git', auto: true, gitAction: 'push' },
+]
+const WORKER = key({ kind: 'pipeline', db: 'dbCoding', pipeline: 'coding' })
+
+test.describe('fix (safety-data) · Claude Code in the coding worker', () => {
+  test('outside content in a trusted task + a Claude Code stage before an unattended push: an unknown part on the pipeline — never a clean rack', () => {
+    const m = modelOf(workerWorld(IMPLEMENT_PUSH, 'none'))
+    expect(m.fuses).toEqual([])
+    expect(m.unknown).toEqual([{ key: `worker:${WORKER}`, what: 'worker', module: WORKER }])
+    expect(messages.en['features.patchbay.unknown.worker']).toContain('unknown here')
+    expect(messages.de['features.patchbay.unknown.worker']).toContain('hier unbekannt')
+    // approvals "review" passes no gate here either (there is none) — the push is still unattended
+    expect(modelOf(workerWorld(IMPLEMENT_PUSH, 'review')).unknown.map((u) => u.what)).toEqual(['worker'])
+  })
+
+  test('nothing unknown where a person is in between or nothing comes from outside', () => {
+    // a gate the approvals stop at before the push
+    const gated: PipelineStage[] = [IMPLEMENT_PUSH[0], IMPLEMENT_PUSH[1], { id: 'stGate', kind: 'gate', auto: false }, IMPLEMENT_PUSH[2]]
+    expect(modelOf(workerWorld(gated, 'review')).unknown).toEqual([])
+    expect(modelOf(workerWorld(gated, 'none')).unknown.map((u) => u.what)).toEqual(['worker'])
+    // no Claude Code stage before the push (the worker only pushes what is there)
+    expect(modelOf(workerWorld([IMPLEMENT_PUSH[0], IMPLEMENT_PUSH[2], IMPLEMENT_PUSH[1]], 'none')).unknown).toEqual([])
+    // a commit stays local
+    expect(modelOf(workerWorld([IMPLEMENT_PUSH[0], IMPLEMENT_PUSH[1], { id: 'stCommit', kind: 'git', auto: true, gitAction: 'commit' }], 'none')).unknown).toEqual([])
+    // the task rows hold nothing from outside: the automation runs on another database
+    const own = workerWorld(IMPLEMENT_PUSH, 'none')
+    own.ws.databases.dbMails = { ...own.ws.databases.dbMails, system: undefined }
+    own.ws.settings = { mcpServers: [] }
+    expect(modelOf(own).unknown).toEqual([])
+    // only an agent writes the tasks: each waits for Confirm before the worker takes it (coding/trust.ts)
+    const byAgent = workerWorld(IMPLEMENT_PUSH, 'none')
+    byAgent.ws.databases.dbMails = { ...byAgent.ws.databases.dbMails, automations: [] }
+    byAgent.ws.agents = { agTask: agent('agTask', 'Aufgaben-Schreiber', { write: 'apply', scope: { everything: false, pages: [], databases: ['dbCoding'] }, trigger: { type: 'row_created', databaseId: 'dbMails' } }) }
+    const a = modelOf(byAgent)
+    expect(a.unknown).toEqual([])
+    expect(a.chains.find((c) => c.decider === agentKey('agTask') && c.exit?.module === git('push'))?.gate).toBe('confirm')
+  })
+
+  test('GitHub pick-ups: locally a sync-written task is trusted (unknown part); "Confirm always" or a team makes it wait (none)', () => {
+    const sync = { github: { configured: true, auto: false, everyMin: 15, includePrivate: false, repo: 'nordlicht/notes' }, folder: { configured: false } }
+    const w = workerWorld(IMPLEMENT_PUSH, 'none', { sync } as Partial<PbWorld['device']>)
+    w.ws.databases.dbMails = { ...w.ws.databases.dbMails, system: undefined, automations: [] }
+    w.ws.settings = { mcpServers: [] }
+    expect(modelOf(w).unknown.map((u) => u.what)).toEqual(['worker'])
+    const always = workerWorld(IMPLEMENT_PUSH, 'none', { sync, worker: { ...LOCAL_DEVICE.worker, confirm: 'always' } } as Partial<PbWorld['device']>)
+    always.ws.databases.dbMails = { ...always.ws.databases.dbMails, system: undefined, automations: [] }
+    always.ws.settings = { mcpServers: [] }
+    expect(modelOf(always).unknown).toEqual([])
+  })
+
+  test('claudeBeforeGit: the stage kinds are coding\'s; a Claude Code stage must come before the outbound git step on an unattended walk', () => {
+    expect([...CLAUDE_CODE_STAGES].sort()).toEqual([...CLAUDE_KINDS].sort())
+    expect(claudeBeforeGit(IMPLEMENT_PUSH, 'none')).toBe(true)
+    expect(claudeBeforeGit(REVIEW_MERGE, 'review')).toBe(true)
+    expect(claudeBeforeGit(REVIEW_MERGE, 'all')).toBe(false)
+    expect(claudeBeforeGit([IMPLEMENT_PUSH[0], { id: 'h', kind: 'gate', auto: false, hold: true }, IMPLEMENT_PUSH[1], IMPLEMENT_PUSH[2]], 'none')).toBe(false)
   })
 })
 

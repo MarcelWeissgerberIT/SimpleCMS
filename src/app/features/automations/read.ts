@@ -3,18 +3,23 @@
  * `Database.automations` goes through readAutomations: the engine (what runs), AutomationsModal (what is shown and
  * edited), Workspace › Automation and the Patchbay (what is drawn). Plan §1.14 (B15).
  *
- * The sanitizer (fresh objects only — nothing of the stored value is shared):
- *  - an automation is an object with an id (`[\w.:-]`, ≤ 120), a name (a string, ≤ 200, control characters out), a
- *    switch (`enabled` only when it is `true`), a known trigger and known actions; at most AUTOMATION_LIMITS.automations
- *    per database, the first of a repeated id;
+ * The sanitizer (fresh objects only — nothing of the stored value is shared). It NEVER shortens what a person made:
+ * every writer stores what this reader returns (the modal, the engine's bookkeeping after each run, the Patchbay), so a
+ * cut here would be lost for good. A value beyond AUTOMATION_READ makes the automation unreadable instead — kept as it
+ * is, never run or edited here, counted in the modal (fix safety-data). The editor's own caps are AUTOMATION_LIMITS.
+ *  - an automation is an object with an id (`[\w.:-]`, ≤ 120), a name (a string, control characters → spaces), a
+ *    switch (`enabled` only when it is `true`), a known trigger and known actions; at most AUTOMATION_READ.automations
+ *    per database (the rest kept as they are), the first of a repeated id;
  *  - trigger: `row_created` · `row_deleted` · `property_changed` (`propertyId` an id or null = any; `toValue` a plain
- *    value — string, finite number, boolean, null, a list of strings, a date — else dropped);
- *  - actions (≤ AUTOMATION_LIMITS.actions): `webhook` — the URL text kept as typed (≤ 2048, trimmed), but one that
- *    names another scheme is emptied: `<scheme>://…` other than https / http, or a scheme that runs or reads something
- *    (javascript:, data:, file:, vbscript: … — UNSAFE_SCHEMES). "host:port/path" being typed is kept (the engine sends
- *    only to http(s) URLs with a host anyway); method POST or PUT (anything else → POST); headers string → string (≤ 20,
- *    names `[!#$%&'*+.^_`|~0-9A-Za-z-]`, values ≤ 1000, no line breaks) · `set_property` (propertyId, a plain value) ·
- *    `notify` (message ≤ 500) · `run_script` (scriptId an id or null);
+ *    value — string, finite number, boolean, null, a list of strings, a date; anything else makes it unreadable: a
+ *    dropped condition would fire on every change);
+ *  - actions: `webhook` — the URL text kept as typed (trimmed), but one that names another scheme is emptied:
+ *    `<scheme>://…` other than https / http, or a scheme that runs or reads something (javascript:, data:, file:,
+ *    vbscript: … — UNSAFE_SCHEMES). "host:port/path" being typed is kept (the engine sends only to http(s) URLs with a
+ *    host anyway); method POST or PUT (anything else → POST); headers string → string (names
+ *    `[!#$%&'*+.^_`|~0-9A-Za-z-]`, no line breaks — a header no request could carry is left out) · `set_property`
+ *    (propertyId, a plain value — anything else makes it unreadable) · `notify` (message) · `run_script` (scriptId an
+ *    id or null);
  *  - bookkeeping kept as it is when it is well formed: `lastRunAt` (finite or null), `lastStatus` ('ok' | 'error' |
  *    null), `lastMessage` (≤ 200 or null);
  *  - keys this build does not know (a newer build's field on an automation, its trigger or an action) are KEPT as they
@@ -28,7 +33,18 @@
  */
 import type { Automation, AutomationAction, AutomationTrigger, DateValue, ID, PropertyValue } from '../../store/types'
 
-export const AUTOMATION_LIMITS = { automations: 100, actions: 20, name: 200, url: 2048, headers: 20, headerValue: 1000, message: 500, lastMessage: 200 } as const
+/** What the editor lets a person make: a further action is refused there (with a message), its fields take no more. */
+export const AUTOMATION_LIMITS = { actions: 20, name: 200, url: 2048, message: 500 } as const
+
+/**
+ * What the reader takes — never shortened; an automation beyond one of these is unreadable (kept as it is, never run or
+ * edited here). Wider than the editor's caps on purpose: an automation an earlier editor made without them (more
+ * actions, a long bearer token in a header) keeps running. `lastMessage` is the engine's own status line (cut, not kept).
+ */
+export const AUTOMATION_READ = { automations: 500, actions: 200, name: 2000, url: 16_384, headers: 50, headerValue: 16_384, message: 10_000, value: 10_000, list: 200, item: 1000, lastMessage: 200 } as const
+
+/** Why an automation is not read: a newer build's trigger or action, or a value beyond AUTOMATION_READ. */
+type NotRead = 'newer' | 'limits'
 
 const ID_RE = /^[\w.:-]{1,120}$/
 const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,100}$/
@@ -75,19 +91,42 @@ const ACTION_KEYS: Record<AutomationAction['type'], readonly string[]> = {
 
 const own = (o: Record<string, unknown>, k: string): unknown => (Object.prototype.hasOwnProperty.call(o, k) ? o[k] : undefined)
 const idOf = (v: unknown): ID | null => (typeof v === 'string' && ID_RE.test(v) ? v : null)
-const text = (v: unknown, max: number): string => (typeof v === 'string' ? v.replace(CONTROL, ' ').slice(0, max) : '')
+/** A text field: control characters → spaces; null when it is longer than this build reads (never cut). */
+const text = (v: unknown, max: number): string | null => {
+  if (typeof v !== 'string') return ''
+  return v.length > max ? null : v.replace(CONTROL, ' ')
+}
 
-/** A plain property value (what a set_property action writes / a trigger waits for) — null when it is none. */
-function plainValue(v: unknown): PropertyValue | undefined {
+/** Thrown inside one automation's read: a value beyond AUTOMATION_READ or no plain value — the automation is not read. */
+class Unreadable extends Error {
+  constructor(readonly why: NotRead) {
+    super(why)
+  }
+}
+const limits = (): never => {
+  throw new Unreadable('limits')
+}
+const newer = (): never => {
+  throw new Unreadable('newer')
+}
+
+/** A plain property value (what a set_property action writes / a trigger waits for); anything else is unreadable (thrown). */
+function plainValue(v: unknown): PropertyValue {
   if (v === null) return null
-  if (typeof v === 'string') return v.slice(0, 10_000)
-  if (typeof v === 'number') return Number.isFinite(v) ? v : undefined
+  if (typeof v === 'string') return v.length > AUTOMATION_READ.value ? limits() : v
+  if (typeof v === 'number') return Number.isFinite(v) ? v : newer()
   if (typeof v === 'boolean') return v
-  if (Array.isArray(v)) return v.every((x) => typeof x === 'string') && v.length <= 200 ? (v as string[]).map((x) => x.slice(0, 1000)) : undefined
+  if (Array.isArray(v)) {
+    if (!v.every((x) => typeof x === 'string')) return newer()
+    if (v.length > AUTOMATION_READ.list || v.some((x: string) => x.length > AUTOMATION_READ.item)) return limits()
+    return [...(v as string[])]
+  }
   if (isObj(v) && typeof own(v, 'start') === 'string') {
-    const d: DateValue = { start: String(own(v, 'start')).slice(0, 40) }
+    const start = String(own(v, 'start'))
     const end = own(v, 'end')
-    if (typeof end === 'string') d.end = end.slice(0, 40)
+    if (start.length > 40 || (typeof end === 'string' && end.length > 40)) return limits()
+    const d: DateValue = { start }
+    if (typeof end === 'string') d.end = end
     else if (end === null) d.end = null
     if (typeof own(v, 'includeTime') === 'boolean') d.includeTime = own(v, 'includeTime') as boolean
     const reminder = own(v, 'reminder')
@@ -95,7 +134,8 @@ function plainValue(v: unknown): PropertyValue | undefined {
     else if (reminder === null) d.reminder = null
     return d
   }
-  return undefined
+  // a value of a shape this build does not know (a newer build's)
+  return newer()
 }
 
 /** Schemes that run or read something in a browser — a webhook URL naming one is emptied however it goes on. */
@@ -107,7 +147,7 @@ const UNSAFE_SCHEMES = new Set(['javascript', 'vbscript', 'data', 'file', 'blob'
  * without a scheme — is no scheme and stays (the editor saves on each key; the engine refuses a URL it cannot send to).
  */
 export function webhookUrlOf(v: unknown): string {
-  const s = typeof v === 'string' ? v.replace(CONTROL, '').trim().slice(0, AUTOMATION_LIMITS.url) : ''
+  const s = typeof v === 'string' ? v.replace(CONTROL, '').trim() : ''
   const scheme = /^([a-z][a-z0-9+.-]*):(\/\/)?/i.exec(s)
   if (!scheme || /^https?$/i.test(scheme[1])) return s
   return scheme[2] || UNSAFE_SCHEMES.has(scheme[1].toLowerCase()) ? '' : s
@@ -118,10 +158,10 @@ function headersOf(v: unknown): Record<string, string> | undefined {
   const out: Record<string, string> = {}
   let n = 0
   for (const [k, raw] of Object.entries(v)) {
-    if (n >= AUTOMATION_LIMITS.headers) break
+    // a header no request could carry (no name, a line break) is left out; a long value (a bearer token) is kept whole
     if (!HEADER_NAME.test(k) || typeof raw !== 'string' || /[\r\n]/.test(raw)) continue
-    out[k] = raw.slice(0, AUTOMATION_LIMITS.headerValue)
-    n++
+    if (++n > AUTOMATION_READ.headers || raw.length > AUTOMATION_READ.headerValue) limits()
+    out[k] = raw
   }
   return n ? out : undefined
 }
@@ -135,10 +175,8 @@ function triggerOf(v: unknown): AutomationTrigger | null {
   const propertyId = pid === null || pid === undefined ? null : idOf(pid)
   if (pid !== null && pid !== undefined && !propertyId) return null
   const t: AutomationTrigger = { type, propertyId }
-  if (Object.prototype.hasOwnProperty.call(v, 'toValue')) {
-    const to = plainValue(own(v, 'toValue'))
-    if (to !== undefined) t.toValue = to
-  }
+  // a condition this build cannot read makes the automation unreadable (dropped, it would fire on every change)
+  if (Object.prototype.hasOwnProperty.call(v, 'toValue') && own(v, 'toValue') !== undefined) t.toValue = plainValue(own(v, 'toValue'))
   return withUnknown(t, v, TRIGGER_KEYS)
 }
 
@@ -152,15 +190,20 @@ function knownActionOf(v: Record<string, unknown>): AutomationAction | null {
   const type = own(v, 'type')
   if (type === 'webhook') {
     const headers = headersOf(own(v, 'headers'))
-    return { type, url: webhookUrlOf(own(v, 'url')), method: own(v, 'method') === 'PUT' ? 'PUT' : 'POST', ...(headers ? { headers } : {}) }
+    const url = webhookUrlOf(own(v, 'url'))
+    if (url.length > AUTOMATION_READ.url) limits()
+    return { type, url, method: own(v, 'method') === 'PUT' ? 'PUT' : 'POST', ...(headers ? { headers } : {}) }
   }
   if (type === 'set_property') {
     const propertyId = own(v, 'propertyId')
-    const value = plainValue(own(v, 'value'))
-    // a property not picked yet is '' (the editor's blank action)
-    return { type, propertyId: typeof propertyId === 'string' && (propertyId === '' || ID_RE.test(propertyId)) ? propertyId : '', value: value === undefined ? null : value }
+    const raw = own(v, 'value')
+    // a property not picked yet is '' (the editor's blank action, value null)
+    return { type, propertyId: typeof propertyId === 'string' && (propertyId === '' || ID_RE.test(propertyId)) ? propertyId : '', value: raw === undefined ? null : plainValue(raw) }
   }
-  if (type === 'notify') return { type, message: text(own(v, 'message'), AUTOMATION_LIMITS.message) }
+  if (type === 'notify') {
+    const message = text(own(v, 'message'), AUTOMATION_READ.message)
+    return { type, message: message ?? limits() }
+  }
   if (type === 'run_script') {
     const sid = own(v, 'scriptId')
     return { type, scriptId: sid === null || sid === undefined ? null : idOf(sid) }
@@ -168,37 +211,52 @@ function knownActionOf(v: Record<string, unknown>): AutomationAction | null {
   return null
 }
 
-/** One stored automation → a clean copy, or null when this build cannot read it. */
-export function sanitizeAutomation(raw: unknown): Automation | null {
+/** One stored automation → a clean copy, or why this build does not read it (null: no automation at all — junk). */
+function readOne(raw: unknown): Automation | NotRead | null {
   if (!isObj(raw)) return null
   const id = idOf(own(raw, 'id'))
   if (!id) return null
-  const trigger = triggerOf(own(raw, 'trigger'))
-  if (!trigger) return null
-  const rawActions = own(raw, 'actions')
-  if (rawActions !== undefined && !Array.isArray(rawActions)) return null
-  const actions: AutomationAction[] = []
-  for (const a of (rawActions as unknown[] | undefined) ?? []) {
-    if (actions.length >= AUTOMATION_LIMITS.actions) break
-    const clean = actionOf(a)
-    // an action this build does not know: the automation is a newer build's — kept, never run or edited here
-    if (!clean) return null
-    actions.push(clean)
+  try {
+    const trigger = triggerOf(own(raw, 'trigger'))
+    if (!trigger) return 'newer'
+    const rawActions = own(raw, 'actions')
+    if (rawActions !== undefined && !Array.isArray(rawActions)) return 'newer'
+    const list = (rawActions as unknown[] | undefined) ?? []
+    if (list.length > AUTOMATION_READ.actions) return 'limits'
+    const actions: AutomationAction[] = []
+    for (const a of list) {
+      const clean = actionOf(a)
+      // an action this build does not know: the automation is a newer build's — kept, never run or edited here
+      if (!clean) return 'newer'
+      actions.push(clean)
+    }
+    const name = text(own(raw, 'name'), AUTOMATION_READ.name)
+    if (name === null) return 'limits'
+    const lastRunAt = own(raw, 'lastRunAt')
+    const lastStatus = own(raw, 'lastStatus')
+    const lastMessage = own(raw, 'lastMessage')
+    const clean: Automation = {
+      id,
+      name,
+      enabled: own(raw, 'enabled') === true,
+      trigger,
+      actions,
+      lastRunAt: typeof lastRunAt === 'number' && Number.isFinite(lastRunAt) ? lastRunAt : null,
+      lastStatus: lastStatus === 'ok' || lastStatus === 'error' ? lastStatus : null,
+      // the engine's own status line: cut to its length (it writes it again on the next run)
+      lastMessage: typeof lastMessage === 'string' ? lastMessage.replace(CONTROL, ' ').slice(0, AUTOMATION_READ.lastMessage) : null,
+    }
+    return withUnknown(clean, raw, AUTOMATION_KEYS)
+  } catch (e) {
+    if (e instanceof Unreadable) return e.why
+    throw e
   }
-  const lastRunAt = own(raw, 'lastRunAt')
-  const lastStatus = own(raw, 'lastStatus')
-  const lastMessage = own(raw, 'lastMessage')
-  const clean: Automation = {
-    id,
-    name: text(own(raw, 'name'), AUTOMATION_LIMITS.name),
-    enabled: own(raw, 'enabled') === true,
-    trigger,
-    actions,
-    lastRunAt: typeof lastRunAt === 'number' && Number.isFinite(lastRunAt) ? lastRunAt : null,
-    lastStatus: lastStatus === 'ok' || lastStatus === 'error' ? lastStatus : null,
-    lastMessage: typeof lastMessage === 'string' ? text(lastMessage, AUTOMATION_LIMITS.lastMessage) : null,
-  }
-  return withUnknown(clean, raw, AUTOMATION_KEYS)
+}
+
+/** One stored automation → a clean copy, or null when this build cannot read it. */
+export function sanitizeAutomation(raw: unknown): Automation | null {
+  const r = readOne(raw)
+  return r && typeof r === 'object' ? r : null
 }
 
 const cache = new WeakMap<object, Automation[]>()
@@ -211,7 +269,7 @@ export function readAutomations(raw: unknown): Automation[] {
   const out: Automation[] = []
   const seen = new Set<ID>()
   for (const x of raw) {
-    if (out.length >= AUTOMATION_LIMITS.automations) break
+    if (out.length >= AUTOMATION_READ.automations) break
     const a = sanitizeAutomation(x)
     if (!a || seen.has(a.id)) continue
     seen.add(a.id)
@@ -239,6 +297,16 @@ export function unreadableAutomations(raw: unknown): Array<Record<string, unknow
     seen.add(id)
     out.push(x)
   }
+  return out
+}
+
+/**
+ * How many stored automations this build does not read, by why (the modal names both): a newer build's trigger or
+ * action, or beyond AUTOMATION_READ (a value too long, too many actions, or past the database's count).
+ */
+export function unreadableCounts(raw: unknown): { newer: number; limits: number } {
+  const out = { newer: 0, limits: 0 }
+  for (const x of unreadableAutomations(raw)) out[readOne(x) === 'newer' ? 'newer' : 'limits']++
   return out
 }
 

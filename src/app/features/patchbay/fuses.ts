@@ -119,9 +119,9 @@ function factsOf(c: Ctx, chain: Chain, d: Decider): Fact[] {
   const holder = holderOf(ix, chain)
   const hm = holder ? ix.mods.get(holder) : undefined
 
-  // what the decider changes
+  // what the decider changes (a hand-run autofill with review on: proposals — its fuse is an MCP path)
   if (ai) facts.push({ kind: 'writeMode', say: { key: `${P}.fact.write.${ai.write}` } })
-  else facts.push({ kind: 'writeMode', say: { key: `${P}.fact.write.${d.kind}` } })
+  else facts.push({ kind: 'writeMode', say: { key: `${P}.fact.write.${d.write === 'stage' ? 'stage' : d.kind}` } })
 
   // what it may read beyond the one item (the private lamp's first item)
   const first = chain.why?.private[0]
@@ -161,7 +161,11 @@ function factsOf(c: Ctx, chain: Chain, d: Decider): Fact[] {
     else facts.push({ kind: 'browserAgent', say: { key: `${P}.fact.browserAgent.${input.ctx.team ? 'team' : 'local'}` } })
   }
   if (d.disabled) facts.push({ kind: 'handRunOnly', say: { key: `${P}.fact.handRunOnly` } })
-  if (ai?.awaitsConfirm) facts.push({ kind: 'awaitsConfirm', say: { key: `${P}.fact.awaitsConfirm`, vars: { member: ai.agent.updatedBy ?? '' } } })
+  // fix (safety-data): only the creator confirms — the creator reads who changed it, everyone else whose confirm it waits for
+  if (ai?.awaitsConfirm) {
+    const creator = !!input.ctx.me && ai.agent.createdBy === input.ctx.me
+    facts.push({ kind: 'awaitsConfirm', say: creator ? { key: `${P}.fact.awaitsConfirm`, vars: { member: ai.agent.updatedBy ?? '' } } : { key: `${P}.fact.awaitsConfirmOf`, vars: { creator: ai.agent.createdBy ?? '' } } })
+  }
   // no stop before the git stage: approvals none — or a level whose gates this pipeline's stages pass (fix model)
   if (exit.type === 'git' && !chain.gate) facts.push({ kind: 'approvals', say: input.worker.approvals === 'none' ? { key: `${P}.fact.approvalsNone` } : { key: `${P}.fact.approvalsPass` } })
   if (d.kind === 'bridge' || d.kind === 'organise' || exit.type === 'sync' || (exit.type === 'mcp' && hm && hm.ref.kind !== 'agent')) facts.push({ kind: 'thisDevice', say: { key: `${P}.fact.thisDevice` } })
@@ -172,7 +176,8 @@ function factsOf(c: Ctx, chain: Chain, d: Decider): Fact[] {
       .flatMap(([, by]) => by)
     if (declared.length) facts.push({ kind: 'declaredRead', say: { key: `${P}.fact.declaredRead`, vars: { profiles: [...new Set(declared)].sort().join(', ') } } })
   }
-  if (pathModules(chain).some((k) => ix.mods.get(k)?.kind === 'autofill')) facts.push({ kind: 'bulkCap', say: { key: `${P}.fact.bulkCap` } })
+  // the watch's bulk cap holds for automatic fills only (a hand-run one fills what the person picks)
+  if (pathModules(chain).some((k) => ix.mods.get(k)?.kind === 'autofill' && !deciderAt(c, k)?.disabled)) facts.push({ kind: 'bulkCap', say: { key: `${P}.fact.bulkCap` } })
   if (chain.lamps?.out.say.key === `${P}.lamp.out.failClosed`) facts.push({ kind: 'failClosed', say: { key: `${P}.fact.failClosed`, vars: { server: exit.module } } })
   return facts
 }
@@ -310,8 +315,18 @@ function key1(c: Ctx, chain: Chain, d: Decider): FuseKey | null {
   }
   if (m?.ref.kind === 'autofill') {
     const r = m.ref
-    const locked = !!c.ix.dbs.get(r.db)?.locked
-    return inert({ n: 1, kind: 'autofillHand', target: { db: r.db, prop: r.prop }, offered: !locked, ...(locked ? { refusal: { key: `${P}.key.locked` } } : {}), label: { key: `${P}.key.autofillHand` }, what: { key: `${P}.key.autofillHandWhat`, vars: { db: r.db, prop: r.prop } } }, c)
+    const db = c.ix.dbs.get(r.db)
+    const af = db?.properties.find((p) => p.id === r.prop)?.autofill
+    const base: FuseKey = { n: 1, kind: 'autofillHand', target: { db: r.db, prop: r.prop }, offered: false, label: { key: `${P}.key.autofillHand` }, what: { key: `${P}.key.autofillHandWhat`, vars: { db: r.db, prop: r.prop } } }
+    // fix (safety-data): a fill a person starts still carries the "All AI calls" servers (their write tools run inside
+    // the AI's tool loop — §6 A29 as for agents) and, with "Apply without review", writes straight into the cells: by
+    // hand only closes neither — refused with why (key 2 takes the server off autofill). Offered only where the review
+    // then really stops the path.
+    if (exit.type === 'mcp' && holderOf(c.ix, chain) === d.key) return inert({ ...base, refusal: { key: `${P}.key.autofillMcp`, vars: { server: exit.module } } }, c)
+    if (af?.skipReview) return inert({ ...base, refusal: { key: `${P}.key.autofillDirect` } }, c)
+    if (!af?.auto) return inert({ ...base, refusal: { key: `${P}.key.autofillAlready` } }, c)
+    const locked = !!db?.locked
+    return inert({ ...base, offered: !locked, ...(locked ? { refusal: { key: `${P}.key.locked` } } : {}) }, c)
   }
   if (m?.ref.kind === 'organise') return inert({ n: 1, kind: 'organiseHand', target: { organise: true }, offered: true, device: true, label: { key: `${P}.key.organiseHand` }, what: { key: `${P}.key.organiseHandWhat` }, note: { key: `${P}.key.deviceOnly` } }, c)
   if (m?.ref.kind === 'bridge') return inert({ n: 1, kind: 'bridgeAsk', target: { bridge: true }, offered: true, device: true, label: { key: `${P}.key.bridgeAsk` }, what: { key: `${P}.key.bridgeAskWhat` }, note: { key: `${P}.key.deviceOnly` } }, c)

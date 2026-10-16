@@ -13,6 +13,8 @@ export const messages: Messages = {
     'features.patchbay.plate.state.allowed': 'allowed',
     'features.patchbay.plate.notCounted': 'Not counted',
     'features.patchbay.plate.headAllowed': 'Fuse {f} · allowed',
+    // a member said in an object slot only ("Allowed by you", "changed by a member", "waits for a member to confirm it"):
+    // German dative — "von dir", "von einem Mitglied"; never the subject of a sentence (fix safety-data)
     'features.patchbay.plate.you': 'you',
     'features.patchbay.plate.someone': 'a member',
     'features.patchbay.plate.inPlace': 'In place',

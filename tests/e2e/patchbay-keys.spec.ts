@@ -73,6 +73,21 @@ async function selectFuseWith(page: Page, n: number, match: (target: AnyState) =
   return key
 }
 
+/** Select the fuse whose way out matches (the model seam), via its tab. */
+async function selectFuseTo(page: Page, match: (exit: AnyState) => boolean): Promise<string> {
+  let key = ''
+  await expect
+    .poll(async () => {
+      const m = await pbModel(page)
+      key = (m?.fuses ?? []).find((f) => match(f.chain.exit))?.key ?? ''
+      return key
+    })
+    .not.toBe('')
+  await page.locator(`[data-pb-fuse-tab="${key}"]`).click()
+  await expect(panel(page).locator(`[data-pb-plate="${key}"]`)).toBeVisible()
+  return key
+}
+
 test.describe('B10 · key 1 — the decider off "direct", the closed plate, Undo', () => {
   test('Inbox-Helfer → proposals: the closed plate in ink, what still fires, "A person checks first"; Mod+Z and the toast’s Undo from another route; bookkeeping never blocks it', async ({ page }) => {
     await openRack(page)
@@ -275,9 +290,13 @@ test.describe('B10 · key 2b — an MCP fuse: the write tools disconnected', () 
 })
 
 test.describe('B10 · autofill, mail, the bridge — this device', () => {
-  test('autofill: "no longer for autofill" says "this device only" and lists as closed on this device; Undo; "Autofill by hand only" keeps the fills', async ({ page }) => {
+  test('autofill: "no longer for autofill" says "this device only" and lists as closed on this device; Undo; key 1 refused on its own MCP way out', async ({ page }) => {
     await openRack(page, autofillWorld())
     await expect(keyBtn(page, 1)).toContainText('Autofill by hand only')
+    // fix (safety-data): a fill started by hand still carries beta's write tools (inside the AI's tool loop) — key 1
+    // would close nothing here: refused with why, key 2 named
+    await expect(keyBtn(page, 1)).toHaveAttribute('aria-disabled', 'true')
+    await expect(keyRow(page, 1).getByTestId('pb-fkey-why')).toHaveText('A fill started by hand still carries the write tools of beta — they run inside the AI’s tool loop. Key 2 takes beta off autofill.')
     await expect(keyBtn(page, 2)).toContainText('beta: no longer for autofill')
     await expect(keyRow(page, 2)).toContainText('beta: Every AI call → Agent, own requests, ⌘K')
     await expect(keyRow(page, 2)).toContainText('this device only — other devices keep the path')
@@ -288,16 +307,34 @@ test.describe('B10 · autofill, mail, the bridge — this device', () => {
     await page.keyboard.press(`${MOD}+z`)
     await expect.poll(() => wsEval(page, (s) => (s.settings.mcpServers as AnyState[]).find((x) => x.id === 'srvBeta')?.scope)).toBe('all')
     await expect(fuseVal(page)).toHaveText('1')
-    // key 1: the property re-fills by hand only — its fill records stay
+    await keyBtn(page, 1).focus()
+    await page.keyboard.press('1')
+    await expect(live(page)).toContainText('Autofill by hand only — not possible here: A fill started by hand still carries the write tools of beta')
+    expect((await propOf(page, 'dbMails', 'pMailSum'))?.autofill?.auto).toBe(true)
+  })
+
+  test('fix (safety-data): autofill on its webhook path: "Autofill by hand only" keeps the fills and closes that path — the MCP path stays, "runs only by hand", sorted last; Undo', async ({ page }) => {
+    await openRack(page, autofillWorld({ hook: true }))
+    await expect(fuseVal(page)).toHaveText('2')
+    await selectFuseTo(page, (exit) => exit.type === 'webhook')
+    await expect(keyBtn(page, 1)).not.toHaveAttribute('aria-disabled', 'true')
     await keyBtn(page, 1).click()
     await expect.poll(async () => (await propOf(page, 'dbMails', 'pMailSum'))?.autofill?.auto ?? false).toBe(false)
     expect((await propOf(page, 'dbMails', 'pMailSum'))?.autofill?.fills).toEqual({ r1: { at: 1, hash: 'x' } })
+    // a fill started by hand still carries beta: that path stays open, its decider "runs only by hand"
+    await expect(fuseVal(page)).toHaveText('1')
+    const left = (await pbModel(page))!.fuses
+    expect(left.map((f) => f.chain.exit.type)).toEqual(['mcp'])
+    expect((left[0].facts as AnyState[]).map((x) => x.kind)).toContain('handRunOnly')
+    expect((left[0].facts as AnyState[]).map((x) => x.kind)).not.toContain('bulkCap')
     await page.keyboard.press(`${MOD}+z`)
     await expect.poll(async () => (await propOf(page, 'dbMails', 'pMailSum'))?.autofill?.auto).toBe(true)
+    await expect(fuseVal(page)).toHaveText('2')
   })
 
   test('autofill on a locked database: key 1 refused with the reason (§6 A20)', async ({ page }) => {
-    await openRack(page, autofillWorld({ locked: true }))
+    await openRack(page, autofillWorld({ locked: true, hook: true }))
+    await selectFuseTo(page, (exit) => exit.type === 'webhook')
     await expect(keyBtn(page, 1)).toHaveAttribute('aria-disabled', 'true')
     await expect(keyRow(page, 1).getByTestId('pb-fkey-why')).toHaveText('The database is locked.')
     await keyBtn(page, 1).focus()

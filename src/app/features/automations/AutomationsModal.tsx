@@ -22,7 +22,7 @@ import { isDatabaseApiLoaded, loadDatabaseApi, samplePayload, useRunLog } from '
 import { blankAutomation, makeRecipe, problemOf, recipeHint, type RecipeId } from './recipes'
 import { onRovingKey } from '../io/roving'
 import { AutomationEditor } from './AutomationEditor'
-import { readAutomations, unreadableAutomations } from './read'
+import { readAutomations, unreadableCounts } from './read'
 import { saveAutomations } from './model'
 import { n8nWorkflow } from './n8n'
 import { HelpLink } from '../../help'
@@ -52,7 +52,7 @@ export function AutomationsModal({ databaseId, onClose }: { databaseId: ID; onCl
   const db = useDatabase(databaseId)
   const page = usePage(databaseId)
   const list = useMemo(() => readAutomations(db?.automations), [db])
-  const newer = useMemo(() => unreadableAutomations(db?.automations).length, [db])
+  const unread = useMemo(() => unreadableCounts(db?.automations), [db])
   const locked = !!db?.locked
   const [selected, setSelected] = useState<ID | null>(() => list[0]?.id ?? null)
   const ago = useAgo()
@@ -138,7 +138,12 @@ export function AutomationsModal({ databaseId, onClose }: { databaseId: ID; onCl
               <Plus size={13} /> {t('common.new')}
             </button>
           </div>
-          {newer > 0 && <p className="auto-newer faint">{t(newer === 1 ? 'features.auto.newer.one' : 'features.auto.newer', { n: newer })}</p>}
+          {unread.newer > 0 && <p className="auto-newer faint">{t(unread.newer === 1 ? 'features.auto.newer.one' : 'features.auto.newer', { n: unread.newer })}</p>}
+          {unread.limits > 0 && (
+            <p className="auto-newer faint" data-testid="auto-over-limits">
+              {t(unread.limits === 1 ? 'features.auto.overLimits.one' : 'features.auto.overLimits', { n: unread.limits })}
+            </p>
+          )}
           {list.length === 0 && (
             <div className="auto-empty">
               <img src={resolveAssetUrl('assets/icons/automation.webp')} alt="" width={72} height={72} draggable={false} />

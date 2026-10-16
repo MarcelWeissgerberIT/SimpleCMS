@@ -35,7 +35,7 @@ Each fuse gets a tag (**F1**, **F2** …) on its path and a plate under the rack
 
 **A person in between closes a path**: proposals for review, a script effect that asks, the bridge asking before each write, a coding task that waits for Confirm or an approval, an Outbox send by hand. Such paths, and paths a data rule or a missing lamp closes, show in the fuse list as **Almost open** — never counted, so you see what keeps them shut. Proposals do not stop MCP tools: they run inside the AI's tool loop.
 
-**Unknown here** (a grey **?**) is a part this device cannot see — another member's browser agent and its servers, a server agent runtime only owners and admins may read, newer settings, a script that names places by name. It is never counted as a fuse and never read as safe.
+**Unknown here** (a grey **?**) is a part this device cannot see — another member's browser agent and its servers, a server agent runtime only owners and admins may read, newer settings, a script that names places by name, a coding pipeline whose tasks carry content from outside while Claude Code works on them and the git step goes out with nobody in between. It is never counted as a fuse and never read as safe.
 
 **Tool lists.** A server's tools split into READ, WRITE? and OUT. A server nobody tested here, attached without an allow-list, counts with **all** its tools: *Tool list unknown — test the server or narrow the tools*. An integration profile may declare tools as reads; a tool whose name says it writes stays WRITE? anyway. Read tools whose names suggest the web (fetch, url, search …) stay listed as *still connected* — they may carry data in their arguments.
 
@@ -44,7 +44,7 @@ Each fuse gets a tag (**F1**, **F2** …) on its path and a plate under the rack
 ## The keys on a fuse
 The plate's keys change the **real setting**, through the same writer as its editor:
 
-1. **Take the AI off "direct"** — *Switch to proposals* (the agent), *Autofill by hand only*, *Sort mail by hand only*, or *Bridge: ask before each write*. The line under the key says what still happens ("applying it still fires …").
+1. **Take the AI off "direct"** — *Switch to proposals* (the agent), *Autofill by hand only*, *Sort mail by hand only*, or *Bridge: ask before each write*. The line under the key says what still happens ("applying it still fires …"). A fill you start by hand still carries the "All AI calls" servers and, with "Apply without review", writes straight into the cells — so *Autofill by hand only* is offered only where the review then stops the path; an autofill that already runs by hand only stays on its fuse, marked "runs only by hand".
 2. **Cut the trigger or the tools** — *“Field” by hand only* (agents and the bridge never write that field, so they cannot set off the automation listening to it), *Disconnect write tools* (only the server's read tools stay with the agent), or *Server: no longer for autofill* (**this device only** — other devices keep the path).
 3. **Allow this path** — your name and the date. The path no longer counts while nothing on it changes; any change to a module on it (a new webhook address, another write mode, more tools) ends the allowance: *No longer allowed: … changed*. **Withdraw** takes it back.
 

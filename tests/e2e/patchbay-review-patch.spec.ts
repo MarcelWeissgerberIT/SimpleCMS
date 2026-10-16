@@ -98,6 +98,27 @@ test.describe('review (patch) · the rack and the plate', () => {
     })
   }
 
+  test('Carbon: a module on the fuse path keeps its dashed signal frame, a selected one its ink frame', async ({ page }) => {
+    await page.emulateMedia({ colorScheme: 'dark' })
+    await openRack(page)
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
+    const signal = await colorOf(page, 'var(--signal)')
+    const ink = await colorOf(page, 'var(--ink)')
+    const edge = (key: string) =>
+      module(page, key).evaluate((el) => {
+        const s = getComputedStyle(el)
+        return { color: s.borderTopColor, style: s.borderTopStyle }
+      })
+    await expect(module(page, 'agent:agInbox')).toHaveAttribute('data-path', '')
+    // (frames fade over 0.6 s when they change — read until they settle)
+    await expect.poll(() => edge('agent:agInbox')).toEqual({ color: signal, style: 'dashed' })
+    const tessera = module(page, 'agent:agTessera')
+    await expect(tessera).not.toHaveAttribute('data-path', /.*/)
+    await tessera.locator('.pb-mod__n').click()
+    await expect(tessera).toHaveAttribute('data-selected', 'true')
+    await expect.poll(async () => (await edge('agent:agTessera')).color).toBe(ink)
+  })
+
   test('English at 1440: Inbox-Helfer\'s mode tag is whole — its EVERYTHING label gives way first; no net chip shows a stub of a word', async ({ page }) => {
     await openRack(page)
     const inbox = module(page, 'agent:agInbox')
