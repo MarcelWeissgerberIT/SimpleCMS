@@ -75,6 +75,10 @@ export const PURPOSES = {
   'gate.precheck': p('gate', ['public'], ['structure', 'page', 'rows', 'people', 'workspace', 'private', 'mail', 'memory', 'mcp'], ['decisions']),
   // "Belegt?": a help answer (public only) or an Ask-the-workspace answer with the excerpts it was built from
   'gate.verify': p('gate', ['public'], ['structure', 'page', 'rows', 'people', 'workspace', 'private', 'mail', 'memory'], ['decisions'], { mayBeEmpty: true }),
+  // the work-order planner (features/coding/orders): the request row and the catalogue of pipelines / repos always; the
+  // linked pages, private ones and the picked server only as far as they go along. Class 'terminal' — it already makes
+  // pipeline tasks, so the data-rule matrix gains no column. One structured answer, no tool loop of One's
+  'coding.plan': p('terminal', ['rows', 'structure'], ['page', 'private', 'mcp'], ['structured']),
 } as const satisfies Record<string, PurposeDecl>
 
 export type PurposeId = keyof typeof PURPOSES

@@ -1,0 +1,222 @@
+/**
+ * Work orders (Prüfaufträge, features/coding/orders) — the contract every later part builds on. Pure types and limits
+ * (a Node spec reads them).
+ *
+ *  - OrderPlanV1: the planner's one structured answer (purpose `coding.plan`), read strictly by plan.ts readPlan — every
+ *    field bounded by PLAN_LIMITS; anything else is 'malformed' (one repair round).
+ *  - OrderConfig (store/types.ts, `Database.orders`): read with readOrderConfig (config.ts).
+ *  - OrderRecord: this device's record of a request — IndexedDB `one-coding`, key `<scope>|order|<rowId>`, announced on
+ *    BroadcastChannel `one-coding-orders`; never synced, exported or backed up; wiped with the device copy and the local
+ *    reset; drafts and finished chains dropped after 30 days. `chain.steps` is the authoritative chain on this device —
+ *    the Prüfauftrag relation and the Schritt number on the task rows are for display only.
+ *  - The writer of everything a chain writes: store/writer.ts `{ kind: 'order', row, run, change? }` — key
+ *    `order:<row>:<run>[#c<n> | #a<n> | #s]` (c = created step n, a = advanced step n, s = the request's Status).
+ */
+import type { ID, OrderConfig, OrderKind, OrderStatusKey } from '../../../store/types'
+import type { Writer } from '../../../store/writer'
+import type { Receipt } from '../../ai/core/meter'
+
+export type { OrderConfig, OrderKind, OrderStatusKey }
+
+/* ------------------------------------------------------------------ the plan */
+
+/** The planner's answer: what it understood, the server's context (when one took part), the steps, open points. */
+export interface OrderPlanV1 {
+  v: 1
+  /** ≤ 600 — "Verstanden: …" */
+  summary: string
+  /** what the picked server returned that the planner used (null: no server took part); note ≤ 2000, absolute links only */
+  context: { server: string; note: string; links: string[] } | null
+  /** ≤ 6 steps, ≤ 3 of them coding — BA first when the requirement is unclear, QA last for the coded change */
+  steps: OrderStepPlan[]
+  /** ≤ 5 × 300 — each gets its own answer field; with questions there are no steps */
+  questions: string[]
+  /** ≤ 300 — why the planner made no plan (an unclear or empty request) */
+  refused: string | null
+}
+
+/** One step of a plan — becomes one pipeline task in its kind's project. */
+export interface OrderStepPlan {
+  kind: OrderKind
+  /** ≤ 200 */
+  title: string
+  /** Markdown ≤ 2000 → claudeBlocks (web images become links; a page link outside `refs` becomes its label) */
+  goal: string
+  /** ≤ 10 × 300, each checkable */
+  criteria: string[]
+  /** one of the worker's announced repos (else null + an open point) */
+  repo: string | null
+  /** null = a new branch the worker names; else BRANCH_NAME, announced or new — never the base branch */
+  branch: string | null
+  priority: 'high' | 'medium' | 'low'
+  /** ⊆ the request's linked page ids (≤ 8) — the only pages that go along to Claude Code */
+  refs: ID[]
+  /** ≤ 300 — shown on the station */
+  why: string
+}
+
+/** Every bound of a plan (plan.ts readPlan refuses anything beyond them — §2.7 / §2.11). */
+export const PLAN_LIMITS = {
+  summary: 600,
+  contextNote: 2000,
+  contextLinks: 20,
+  steps: 6,
+  codingSteps: 3,
+  title: 200,
+  goal: 2000,
+  criteria: 10,
+  criterion: 300,
+  why: 300,
+  refs: 8,
+  questions: 5,
+  question: 300,
+  refused: 300,
+} as const
+
+/** Request limits (§2.11): the row's text, the linked pages, the server's calls, what a step page takes along. */
+export const ORDER_LIMITS = {
+  /** the request's readable text (a cut is noted) */
+  requestChars: 40_000,
+  /** linked pages that go to the planner, and the characters of each */
+  linkedPages: 8,
+  linkedChars: 20_000,
+  /** server calls the planner is asked to make at most */
+  serverCalls: 6,
+  /** the request quoted verbatim into every step page ("Auftrag") */
+  quoteChars: 4_000,
+  /** the previous step's result copied in ("Grundlage") */
+  basisChars: 20_000,
+  /** planner runs at once: per row, per tab; rows per "Plan" command */
+  runsPerRow: 1,
+  runsPerTab: 3,
+  rowsPerCommand: 5,
+  /** a press kept while the worker is away (ms) */
+  wantMs: 24 * 3600_000,
+  /** step 01 starts this long after ↵ (the Undo window, ms) */
+  startDelayMs: 10_000,
+  /** records kept (ms) */
+  keepMs: 30 * 24 * 3600_000,
+  /** fewer characters of words than this: the request is empty, nothing is sent */
+  minWords: 40,
+} as const
+
+/* ------------------------------------------------------------------ this device's record */
+
+/** Where a request stands on this device (the chain engine ignores 'creating' / 'interrupted' rows). */
+export type OrderState = 'draft' | 'creating' | 'interrupted' | 'running' | 'halted' | 'done' | 'discarded'
+
+/** Who last wrote a page the planner read, captured at the press (from the write before the attribution keeper ran). */
+export interface OrderProv {
+  createdBy: string | null
+  updatedBy: string | null
+  contentOrigin: string | null
+  contentRev: number
+}
+
+/** One call the planner made on the picked server, as the plate lists it ("<Server> · <tool>(<args>) → 3,2 kB"). */
+export interface OrderCall {
+  tool: string
+  /** the arguments One's request sent, cut for display */
+  args: string
+  /** the size of what came back (bytes of text) */
+  bytes: number
+  /** false: the call failed or returned an error */
+  ok: boolean
+}
+
+/** Why a tool of the picked server is not offered to the planner. */
+export type OrderToolLeft = 'notRead' | 'out' | 'untested'
+
+/** A plan shown on this device and not yet started (Status "Kette bereit"). */
+export interface OrderDraft {
+  plan: OrderPlanV1
+  /** the hash ↵ confirms: the steps as edited, the resolved projects, each step's pipeline line, the Approvals */
+  hash: string
+  at: number
+  /** the planner run (ledger source `order:<row>:<run>`) */
+  run: string
+  receipt: Receipt | null
+  /** the person changed the plan on the plate (R asks before planning again) */
+  edited: boolean
+  source: {
+    /** the request row's contentRev at the press */
+    rev: number
+    /** the row and each linked page: who wrote them, at the press */
+    prov: Record<ID, OrderProv>
+    /** contentRev of every page the planner read, at the press */
+    pins: Record<ID, number>
+    /** the server that took part (its name here), null: none */
+    server: string | null
+    /** its tools the planner could call (read tools only) */
+    tools: string[]
+    /** its tools left out, with the reason */
+    left: Array<{ tool: string; why: OrderToolLeft }>
+    /** every call made */
+    calls: OrderCall[]
+  }
+  /** answers to the planner's questions, written into the row as "Antworten" */
+  answers?: Array<{ q: string; a: string }>
+}
+
+/** One step of a confirmed chain. */
+export interface OrderChainStep {
+  /** the step number (a follow-up chain goes on counting: 4, 5, 6 …) */
+  n: number
+  /** the task row */
+  id: ID
+  kind: OrderKind
+  /** the project (pipeline database) it was created in */
+  project: ID
+  /** its pipeline line at confirm (start: true) — a different one at advance asks first */
+  line: string
+  /** this device's Approvals for it at confirm */
+  approvals: 'all' | 'review' | 'none'
+  /** contentRev of each ref at confirm */
+  refs: Record<ID, number>
+  /** the slot block the Grundlage replaces (null: step 1, which has none) */
+  basisBlock: string | null
+}
+
+/** Evidence of who moved step n to done (written at the move; only `coding` / `you` / `terminal` let it go on). */
+export interface OrderDoneBy {
+  /** the writer kind (store/writer.ts) */
+  kind: Writer['kind']
+  /** you: how ('ui' · 'preflight' …) */
+  via?: string
+  at: number
+  /** the surface that approved it showed step n+1 in full */
+  sawNext?: boolean
+}
+
+/** Why a chain halted (each a plate line and the Preflight card "Kette angehalten"). */
+export type OrderHaltWhy = 'status' | 'trashed' | 'budget' | 'member' | 'outOfOrder' | 'startsAtOnce' | 'statusOption' | 'stopped' | 'ejected'
+
+/** A confirmed chain on this device. */
+export interface OrderChain {
+  run: string
+  confirmedAt: number
+  /** step 1 starts at this time (↵ + 10 s; ↵ again: now) */
+  startAt: number
+  steps: OrderChainStep[]
+  doneBy: Record<number, OrderDoneBy>
+  /** sticky: only resumeChain (VON HAND, on the worker device) leaves it */
+  halted: { at: number; why: OrderHaltWhy; by: string } | null
+  resumedAt?: number
+  /** "Stop after the analysis" as confirmed */
+  checkpoint: boolean
+  budgetUsd?: number
+  /** while creating: step n → the task made so far (a throw trashes them; finishCreates completes them) */
+  made?: Record<number, ID>
+  /** steps skipped (S) — the next one gets no Grundlage from them */
+  skipped?: number[]
+}
+
+/** This device's record of one request. */
+export interface OrderRecord {
+  v: 1
+  state: OrderState
+  /** a press made on this device while the worker was away: plans when it is back (≤ 24 h) */
+  want?: { at: number; mode: 'trigger' }
+  draft?: OrderDraft
+  chain?: OrderChain
+}

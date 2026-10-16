@@ -2,10 +2,11 @@
  * The tracks on the tape: what a lane is called (long name + sub, the phone's short name, the full title), its icon,
  * which lanes show (those with Vorgänge in the span + "Du" + the selected one, minus the filter) and in what order:
  * Du · Undo · members · AI terminal · AI menu · agents · MCP · scripts · sync · automations · import · templates ·
- * others · team · unknown. Names of agents, scripts and automations are read live from the workspace (data).
+ * others · team · unknown. Names of agents, scripts and automations — and a work order's title (never a private page's:
+ * the incident report names no private page) — are read live from the workspace (data).
  */
 import type { LucideIcon } from 'lucide-react'
-import { Blocks, Bot, CircleHelp, Code, FileDown, FolderSync, GitBranch, LayoutTemplate, Mail, MessageSquareText, Plug, ScrollText, Terminal, Undo2, Upload, User, Users, Wand, Webhook, Workflow } from 'lucide-react'
+import { Blocks, Bot, CircleHelp, ClipboardCheck, Code, FileDown, FolderSync, GitBranch, LayoutTemplate, Mail, MessageSquareText, Plug, ScrollText, Terminal, Undo2, Upload, User, Users, Wand, Webhook, Workflow } from 'lucide-react'
 import type { Translate } from '@/shared/i18n'
 import type { Workspace } from '../../../store/types'
 import type { LaneKey } from '../model/types'
@@ -26,7 +27,10 @@ export interface LaneMeta {
   group: number
 }
 
-type WsNames = Pick<Workspace, 'agents' | 'scripts' | 'databases' | 'settings'>
+type WsNames = Pick<Workspace, 'agents' | 'scripts' | 'databases' | 'settings'> & {
+  /** the pages, for a work order's title (`order:<row>` lanes); without them the lane is named by its kind only */
+  pages?: Workspace['pages']
+}
 
 const GROUP: Record<string, number> = { you: 0, undo: 1, member: 2, terminal: 3, ai: 4, agent: 5, mcp: 6, script: 7, sync: 8, automation: 9, import: 10, template: 11, team: 13, unknown: 14 }
 
@@ -72,6 +76,13 @@ export function laneMeta(lane: LaneKey, t: Translate, ws: WsNames): LaneMeta {
       return make(Plug, k('mcp'), id && id !== '-' ? id : undefined)
     case 'sync':
       return make(FolderSync, k('sync'), id === 'github' ? k('syncGitHub') : k('syncFolder'))
+    case 'order': {
+      // "Prüfauftrag · <title>": the request row's live title — none for a private row, "deleted" when it is gone
+      if (!ws.pages) return make(ClipboardCheck, k('order'))
+      const row = ws.pages[id]
+      const title = row && !row.private ? row.title.trim() : ''
+      return make(ClipboardCheck, k('order'), row ? title || undefined : k('gone'))
+    }
     case 'automation': {
       const [db, auto] = id.split('/')
       const a = ws.databases[db]?.automations?.find((x) => x.id === auto)

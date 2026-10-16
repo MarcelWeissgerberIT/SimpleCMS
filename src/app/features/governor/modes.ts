@@ -4,9 +4,10 @@
  * round) and the series its ledger sources belong to (`<series>:<request id>` when the call site names none — never the
  * bare purpose: an allowance or a band keyed by the purpose would cover every later request of it).
  *
- * Five purposes run both ways and must say how (`caller`): a custom agent's run (manual · scheduled · trigger), autofill
+ * Six purposes run both ways and must say how (`caller`): a custom agent's run (manual · scheduled · trigger), autofill
  * (a person's job · the watch), mail organise (during a sync · "Organise now"), a script's `claude()` effect (the person's
- * run · an automation's), Jev's pre-checks of an agent run (that run's mode). DEV / `?e2e`: such a request without `run.mode` throws in prepare(); elsewhere an unknown mode
+ * run · an automation's), Jev's pre-checks of an agent run (that run's mode), the work-order planner ('manual': pressed
+ * here with the worker online · 'trigger': the press kept until the worker came back). DEV / `?e2e`: such a request without `run.mode` throws in prepare(); elsewhere an unknown mode
  * reads as 'trigger' — it never asks. Pure (a Node spec reads it).
  */
 import type { PurposeId } from '../ai/core/purposes'
@@ -58,6 +59,8 @@ export const RUN_MODES: Readonly<Record<PurposeId, ModeRow>> = {
   // answer check (verify.ts)
   'gate.precheck': row('caller', 'structured', 'gate'),
   'gate.verify': row('interactive', 'structured', 'gate'),
+  // the work-order planner: a typed plan (never capped); its source `order:<row>:<run>`
+  'coding.plan': row('caller', 'structured', 'order'),
 }
 
 /** The purposes whose call site must pass run.mode. */

@@ -318,6 +318,19 @@ export function currentSetup(settings: Pick<Settings, 'mcpServers' | 'mcpInstruc
   return { servers: readServers(settings).filter((s) => s.enabled), instructions: instructionsText(settings) }
 }
 
+/**
+ * One server for one structured request, read tools only (the work-order planner's pick, features/coding/orders):
+ * exactly that enabled server — no "All AI calls" server beside it — forced in whatever its scope, offering only
+ * `reads` (its OUT tools stay off: attachMcp). null: no enabled server of that name here. Pass all three to
+ * completeStructured({ setup, forced, allow }).
+ */
+export function onlyServer(name: string, reads: readonly string[], settings: Pick<Settings, 'mcpServers' | 'mcpInstructions'> = useWorkspace.getState().settings): { setup: McpSetup; forced: string[]; allow: McpToolAllow } | null {
+  const setup = currentSetup(settings)
+  const server = setup.servers.find((s) => s.name === name)
+  if (!server) return null
+  return { setup: { servers: [server], instructions: setup.instructions }, forced: [name], allow: { [name]: [...new Set(reads)] } }
+}
+
 /** A stable signature of a setup (what the prompt and the tool list are made of). */
 export function setupKey(setup: McpSetup): string {
   return JSON.stringify([setup.instructions, setup.servers.map((s) => [s.id, s.name, s.url, s.prompt, s.scope ?? 'free', s.codeword ?? '', s.linkBase ?? ''])])
@@ -327,7 +340,8 @@ export function setupKey(setup: McpSetup): string {
  * The attachment for a request (null = no server to attach). Tokens are opened from the vault
  * for this request only; a server whose token is not available in this browser is left out.
  * `forced`: servers the request addressed by codeword (codewordsIn) — they join whatever their
- * scope, and the system prompt says they were addressed.
+ * scope, and the system prompt says they were addressed (`addressed: false`: they join, nothing is said — a server the
+ * person picked in a setting, not in the request: the work-order planner's).
  */
 /*
  * Servers that turned their token down in this tab (an API error named them): left out of requests that do not
@@ -448,7 +462,7 @@ export function mcpNames(setup: McpSetup = currentSetup(), kind: McpRequestKind 
 export async function attachMcp(
   setup: McpSetup = currentSetup(),
   kind: McpRequestKind = 'free',
-  opts: { forced?: string[]; picked?: { server: string; tool: string } | null; allow?: McpToolAllow } = {},
+  opts: { forced?: string[]; picked?: { server: string; tool: string } | null; allow?: McpToolAllow; addressed?: boolean } = {},
 ): Promise<McpAttachment | null> {
   const forced = opts.forced ?? []
   const allow = opts.allow ?? {}
@@ -481,7 +495,7 @@ export async function attachMcp(
     system: mcpSystemText(
       usable.map(({ s }) => s),
       setup.instructions,
-      forced.filter((n) => names.includes(n)),
+      opts.addressed === false ? [] : forced.filter((n) => names.includes(n)),
       picked,
       allow,
       out,

@@ -66,6 +66,11 @@ export type Writer =
   | { kind: 'history'; snap: ID }
   | { kind: 'mail'; run: string }
   | { kind: 'coding'; task: ID; run: string }
+  /**
+   * a work order's chain (features/coding/orders): `row` = the request, `run` = its planner run / chain; `change`: 'c<n>'
+   * created step n, 'a<n>' advanced step n, 's' wrote the request's Status
+   */
+  | { kind: 'order'; row: ID; run: string; change?: string }
   | { kind: 'kit'; type: ID; cause?: WriterKey }
   /** another member (or me on another device) — team workspaces */
   | { kind: 'member'; account: string }
@@ -230,6 +235,8 @@ function rawKey(w: Writer): string {
       return `mail:${id(w.run)}`
     case 'coding':
       return `coding:${id(w.task)}:${id(w.run)}`
+    case 'order':
+      return `order:${id(w.row)}:${id(w.run)}${w.change ? `#${id(w.change)}` : ''}`
     case 'kit':
       return withCause(`kit:${id(w.type)}`, w.cause)
     case 'member':

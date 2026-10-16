@@ -34,6 +34,7 @@ import { isAgentWriting } from '../agents/attribution'
 import { ALL_MESSAGES, t } from '../../i18n'
 import { REPO_NAME, type GitAction, type LogLine, type StageKind } from './protocol'
 import { FOLLOW_UPS, KIND_TEMPLATES, codingProps, codingReadOnly, currentProjectId, isPipelineKind, kindOfDb, nextStage, optionByName, optionName, pipelineDbIds, pipelineDbIdsOf, priorityRank, readPipeline, stageNear, templatePipeline, type CodingRole, type PipelineKind, type ResolvedStage } from './schema'
+import type { ChainRole } from './orders/roles'
 import { BRANCH_NAME, allTasks, answerTask, approvalsOf, approveTask, canContinue, continueTask, createTask, defaultApprovals, followUpsOf, knownRepos, planSection, reworkTask, runTaskNow, sectionTitleOf, setFollowUps, skipsGate, spawnFollowUp, stageSteps, startStageOf, taskBody, taskContext, textHash, workerBranches, type Approvals } from './tasks'
 import { loadTask, scope, taskLocal, useCodingLocal, type TaskLocal } from './local'
 import { isTrusted, needsConfirm, versionOf, writeEndsConfirm } from './trust'
@@ -734,6 +735,12 @@ export interface TaskActionPlan {
   stopsAt?: string | null
   /** approving into done hands on to these pipelines (they start) */
   spawns?: PipelineKind[]
+  /**
+   * approve: approving ends a step of a work order's chain whose next step is parked in this device's record
+   * (features/coding/orders) — that step starts after it: `starts`, VON HAND, never in a bulk apply; the card says
+   * "danach startet Schritt 03 · QA ‹title›". `step`, `taskId`, `title`, `kind`: the step that starts.
+   */
+  chain?: { row: ID; step: number; taskId: ID; title: string; kind: PipelineKind }
   /** pages that go along to the worker with the note / the answer (`staged`: proposed, created on apply) */
   refs?: RefPage[]
   /** applying it starts the worker (as staged; re-checked live) */
@@ -1121,13 +1128,16 @@ export function taskWriteEndsConfirm(taskId: ID): boolean {
   return !!p && !!kindOfDb(p.databaseId) && writeEndsConfirm(p)
 }
 
-/** The coding role of a property of a pipeline database ('title' for its title; null: not a pipeline database / no role). */
-export function codingRoleOf(dbId: ID, propId: ID): CodingRole | 'title' | null {
+/**
+ * The coding role of a property of a pipeline database ('title' for its title; the chain roles 'order' / 'step' of a
+ * work order; null: not a pipeline database / no role).
+ */
+export function codingRoleOf(dbId: ID, propId: ID): CodingRole | ChainRole | 'title' | null {
   if (!kindOfDb(dbId)) return null
   const db = ws().databases[dbId]
   if (!db) return null
   const props = codingProps(db)
-  for (const [role, id] of Object.entries(props)) if (id === propId) return role as CodingRole | 'title'
+  for (const [role, id] of Object.entries(props)) if (id === propId) return role as CodingRole | ChainRole | 'title'
   return null
 }
 

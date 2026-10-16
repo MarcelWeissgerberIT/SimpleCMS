@@ -342,12 +342,17 @@ if (typeof window !== 'undefined' && new URLSearchParams(window.location.search)
     },
     // one request through a facade to the (mocked) host — the brake's cases drive E (run.allowance) and B (a cheaper
     // route as the person's pick) through it; `structured`: completeStructured (never capped); `mcp`: the servers that join
-    // as for that kind of request (default none)
-    ask: (o: { purpose: PurposeId; prompt: string; route?: Route | null; run?: Partial<RunCtx>; structured?: boolean; mcp?: 'fixed' | 'free' }) =>
-      import('../client').then(async (m) => {
-        const base = { purpose: o.purpose, sources: [] as SourceRef[], system: 'Answer briefly.', prompt: o.prompt, mcp: o.mcp ?? (false as const), ...(o.route ? { route: o.route, pinned: 'person' as const } : {}), ...(o.run ? { run: o.run } : {}) }
+    // as for that kind of request (default none — `false` said outright keeps a `pick` out too); `pick` (structured
+    // only): exactly that server with only `reads` on (mcp-servers/config.ts onlyServer — the work-order planner's call);
+    // `sources` / `run` as the call site would pass them
+    ask: (o: { purpose: PurposeId; prompt: string; route?: Route | null; run?: Partial<RunCtx>; structured?: boolean; mcp?: 'fixed' | 'free' | false; pick?: { server: string; reads: string[] }; sources?: SourceRef[] }) =>
+      Promise.all([import('../client'), import('../mcp-servers/config')]).then(async ([m, cfg]) => {
+        const pick = o.pick ? cfg.onlyServer(o.pick.server, o.pick.reads) : null
+        if (o.pick && !pick) return { ok: false, code: 'contract', detail: `no enabled server ${o.pick.server}` }
+        const mcp = o.mcp === false ? false : (o.mcp ?? (pick ? ('fixed' as const) : (false as const)))
+        const base = { purpose: o.purpose, sources: o.sources ?? ([] as SourceRef[]), system: 'Answer briefly.', prompt: o.prompt, mcp, ...(o.route ? { route: o.route, pinned: 'person' as const } : {}), ...(o.run ? { run: o.run } : {}) }
         try {
-          const text = o.structured ? await m.completeStructured({ ...base, schema: { type: 'object', properties: { answer: { type: 'string' } }, required: ['answer'], additionalProperties: false } }) : await m.streamCompletion(base)
+          const text = o.structured ? await m.completeStructured({ ...base, ...(pick ?? {}), schema: { type: 'object', properties: { answer: { type: 'string' } }, required: ['answer'], additionalProperties: false } }) : await m.streamCompletion(base)
           return { ok: true, text }
         } catch (e) {
           return e instanceof AIError ? (JSON.parse(JSON.stringify({ ok: false, code: e.code, detail: e.detail ?? null, fixes: e.fixes ?? [] })) as unknown) : { ok: false, code: 'unknown', detail: String(e) }

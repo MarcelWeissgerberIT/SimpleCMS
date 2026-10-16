@@ -181,7 +181,7 @@ export interface JSegment {
   f: number
 }
 
-export type RunKind = 'agent' | 'terminal' | 'mcp' | 'script' | 'ai' | 'import' | 'sync' | 'automation' | 'autofill' | 'template' | 'mail' | 'coding' | 'eject' | 'rewind'
+export type RunKind = 'agent' | 'terminal' | 'mcp' | 'script' | 'ai' | 'import' | 'sync' | 'automation' | 'autofill' | 'template' | 'mail' | 'coding' | 'order' | 'eject' | 'rewind'
 
 export interface RunPlaces {
   rows: number

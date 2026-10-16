@@ -465,7 +465,9 @@ const usageOfEntry = (e: LedgerEntry | null): StructuredUsage | null =>
   e ? { p: e.served.p, model: e.served.model, input: e.usage.input, output: e.usage.output, cacheRead: e.usage.cacheRead, cacheWrite: e.usage.cacheWrite + e.usage.cacheWrite1h, usd: e.usd } : null
 
 export async function structuredOnce(opts: StructuredOptions, again: boolean, prepared: Prepared, call: MeterCall): Promise<string> {
-  const { system, prompt, schema, maxTokens = 4096, signal, maxRetries = 4, mcp, onUsage } = opts
+  const { system, prompt, schema, maxTokens = 4096, signal, maxRetries = 4, mcp, onUsage, setup, allow } = opts
+  // servers forced in whatever their scope (the work-order planner's pick); none when `mcp: false`
+  const forced = mcp === false ? [] : [...(opts.forced ?? [])]
   const apiKey = await getAIKey('anthropic')
   if (!apiKey) throw new AIError('no_key')
   if (signal?.aborted) throw new AIError('aborted')
@@ -490,8 +492,10 @@ export async function structuredOnce(opts: StructuredOptions, again: boolean, pr
     const promptChars = () => system.length + prompt.length
     let stopReason: string | null
     let blocks: Array<{ type: string; text?: string }>
-    // a route that may not receive MCP (a data rule): no server joins
-    attached = mcp === false || !prepared.allows('mcp') ? null : await attachMcp(undefined, mcp ?? 'fixed')
+    // a route that may not receive MCP (a data rule): no server joins; `setup`: exactly its servers (else the current
+    // setup), `allow`: only those tools of a server (its OUT tools stay off either way — attachMcp). A structured
+    // request has no codewords: a forced server was picked in a setting, never "addressed" in the request
+    attached = mcp === false || !prepared.allows('mcp') ? null : await attachMcp(setup, mcp ?? 'fixed', { forced, addressed: false, ...(allow ? { allow } : {}) })
     if (signal?.aborted) throw new AIError('aborted')
     if (attached && !prepared.classes.includes('mcp')) prepared.classes.push('mcp')
     if (attached) {
@@ -561,7 +565,7 @@ export async function structuredOnce(opts: StructuredOptions, again: boolean, pr
   } catch (e) {
     if (signal?.aborted) throw new AIError('aborted')
     const err = toAIError(e, sdk, attached)
-    if (!again && retryWithout(err, undefined, sawMcp)) return structuredOnce(opts, true, prepared, call)
+    if (!again && retryWithout(err, forced, sawMcp)) return structuredOnce(opts, true, prepared, call)
     throw err
   }
 }

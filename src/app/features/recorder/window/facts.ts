@@ -24,7 +24,7 @@ export async function reportFacts(model: ReadModel, t: Translate): Promise<Repor
   const active = c.active
   const team = active.kind === 'cloud' ? c.workspaces.find((w) => w.id === active.id)?.name : null
   const cloud = sel.scope.startsWith('cloud:')
-  const ws = { agents: s.agents, scripts: s.scripts, databases: s.databases, settings: s.settings }
+  const ws = { agents: s.agents, scripts: s.scripts, databases: s.databases, settings: s.settings, pages: s.pages }
 
   // every writer of the span: Vorgänge, first, last (one read); places from each lane's events (in parallel)
   const lanes = new Map<LaneKey, { ops: number; first: number; last: number }>()

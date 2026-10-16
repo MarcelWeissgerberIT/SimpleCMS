@@ -135,6 +135,14 @@ export { workerUnsafe, workerOutdated } from './protocol'
 /** The outdated-worker notice in the person's language (what the newer one adds; before 1.11.0 the stage-end fix first). */
 export { outdatedNotice as codingOutdatedNotice } from './outdated'
 export type { ApprovalsLevel } from './state'
+/**
+ * Work orders (Prüfaufträge, orders/** — the contract, B1): the config of a `system: 'workorders'` database as every
+ * reader keeps it (readOrderConfig: 'none' · 'unreadable' (a later build's: acts on nothing) · 'ok' + missing Status
+ * options), the planner's typed plan, this device's record of a request, the limits; the chain roles on a project are
+ * codingProps(db).order / .step (display only, never part of a task version).
+ */
+export { readOrderConfig, newOrderConfig, orderCheckpoint, orderConfigUsable, ORDER_KINDS, ORDER_STATUS_KEYS, BUDGET_RANGE, type OrderConfigRead } from './orders/config'
+export { PLAN_LIMITS, ORDER_LIMITS, type OrderPlanV1, type OrderStepPlan, type OrderRecord, type OrderDraft, type OrderChain, type OrderChainStep, type OrderDoneBy, type OrderHaltWhy, type OrderState, type OrderProv, type OrderCall, type OrderToolLeft, type OrderConfig, type OrderKind, type OrderStatusKey } from './orders/types'
 
 /** This device's Approvals for new tasks (localStorage one.coding.approvals). */
 export const approvalsDefault = (): ApprovalsLevel => defaultApprovals()

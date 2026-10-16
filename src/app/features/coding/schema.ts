@@ -20,6 +20,7 @@ import { NONE_KEY } from '../../database'
 import { ALL_MESSAGES, t } from '../../i18n'
 import { GIT_ACTIONS, PERMISSION_MODES, STAGE_KINDS, claudeRuns, cleanModel, type StageKind } from './protocol'
 import { useCoding } from './state'
+import { chainRolesOf, isStepNamed, type ChainRole } from './orders/roles'
 
 export type CodingRole = 'repo' | 'stage' | 'priority' | 'branch' | 'git' | 'pr' | 'cost' | 'worker' | 'claimed' | 'followUps'
 
@@ -48,7 +49,8 @@ export const isPipelineKind = (v: unknown): v is PipelineKind => (PIPELINE_KINDS
 export const FOLLOW_UPS: Record<PipelineKind, PipelineKind[]> = { coding: [], spec: ['coding', 'qa'], qa: ['coding'] }
 export const CODING_ROLES = Object.keys(ROLE_TYPE) as CodingRole[]
 
-export type CodingProps = Partial<Record<CodingRole, ID>> & { title?: ID }
+/** The roles by property id — the chain roles (`order` / `step`, orders/roles.ts) only on a project a work order used. */
+export type CodingProps = Partial<Record<CodingRole | ChainRole, ID>> & { title?: ID }
 
 const ws = () => useWorkspace.getState()
 export const inTeam = () => useCloud.getState().active.kind === 'cloud'
@@ -115,7 +117,11 @@ export function chooseProject(dbId: ID): void {
   useCoding.setState((s) => ({ projectRev: s.projectRev + 1 }))
 }
 
-/** The property ids of the Coding database by role (by name in either language + type, then by type). */
+/**
+ * The property ids of the Coding database by role (by name in either language + type, then by type) — plus the chain
+ * roles (orders/roles.ts: the work-order relation, found only by its target; its Step number only by name). The Cost
+ * role's fallback by type never takes a property named like Step.
+ */
 export function codingProps(db: Database): CodingProps {
   const out: CodingProps = { title: db.properties.find((p) => p.type === 'title')?.id }
   const taken = new Set<ID>()
@@ -126,15 +132,19 @@ export function codingProps(db: Database): CodingProps {
       taken.add(prop.id)
     }
   }
-  // renamed columns: by type, in the order they were made
+  // renamed columns: by type, in the order they were made (a work order's Step number is never the Cost)
+  const stepNames = both('features.coding.prop.step')
   for (const role of CODING_ROLES) {
     if (out[role]) continue
-    const prop = db.properties.find((p) => p.type === ROLE_TYPE[role] && !taken.has(p.id) && !p.custom)
+    const prop = db.properties.find((p) => p.type === ROLE_TYPE[role] && !taken.has(p.id) && !p.custom && !(role === 'cost' && isStepNamed(p, stepNames)))
     if (prop) {
       out[role] = prop.id
       taken.add(prop.id)
     }
   }
+  const chain = chainRolesOf(db.properties, (id) => ws().databases[id]?.system === 'workorders', stepNames)
+  if (chain.order && !taken.has(chain.order)) out.order = chain.order
+  if (chain.step && !taken.has(chain.step)) out.step = chain.step
   return out
 }
 

@@ -98,7 +98,8 @@ export default function Deck() {
     const withOps: LaneKey[] = []
     const src = histLanes ?? ops.lanes
     for (const [l, list] of Object.entries(src)) if (laneCount(histLanes ? undefined : (list as never), histLanes ? (list as never) : undefined, span.t0, span.t1) > 0) withOps.push(l)
-    const ws = { agents, scripts, databases, settings }
+    // a work order's title as it is now (pages are never subscribed here: no re-render per write)
+    const ws = { agents, scripts, databases, settings, pages: useWorkspace.getState().pages }
     const metas = visibleLanes(withOps, bracket?.lane ?? null, filter).map((l) => {
       const m = laneMeta(l, t, ws)
       const old = metaCache.current.get(l)
@@ -114,10 +115,10 @@ export default function Deck() {
     return out
   }, [lanes, histLanes, ops.lanes, span.t0, span.t1])
   const knownAll = useMemo(() => [...new Set(['you', ...known, ...lanes.map((l) => l.lane)])].filter((l) => l !== 'system'), [known, lanes])
-  const bracketMeta = bracket ? (lanes.find((l) => l.lane === bracket.lane) ?? laneMeta(bracket.lane, t, { agents, scripts, databases, settings })) : null
+  const bracketMeta = bracket ? (lanes.find((l) => l.lane === bracket.lane) ?? laneMeta(bracket.lane, t, { agents, scripts, databases, settings, pages: useWorkspace.getState().pages })) : null
   // the track the window's edge keys act on: the focused one, else the window's, else "you"
   const edgeLane = [focusLane, bracket?.lane].find((l): l is string => !!l && lanes.some((m) => m.lane === l)) ?? 'you'
-  const edgeMeta = lanes.find((l) => l.lane === edgeLane) ?? laneMeta(edgeLane, t, { agents, scripts, databases, settings })
+  const edgeMeta = lanes.find((l) => l.lane === edgeLane) ?? laneMeta(edgeLane, t, { agents, scripts, databases, settings, pages: useWorkspace.getState().pages })
 
   const mode = recorderMode()
   const notes: string[] = []

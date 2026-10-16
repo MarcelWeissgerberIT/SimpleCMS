@@ -60,6 +60,12 @@ export interface TaskLocal {
   stepLimit?: { stageId: ID; turns: number; max: number } | null
   /** Continue was pressed: the next run of that stage goes on from the worktree (TaskPayload.resume) */
   resume?: boolean
+  /**
+   * the Claude Code cost this device's worker reported for the task, summed — finishStage adds each report beside the
+   * Cost field (which other writers can change; wired with the chain budget, orders slice B7): a work order's chain
+   * budget counts only this, never the Cost field. Never synced.
+   */
+  spentUsd?: number
   /** worker 1.11.0: the last Claude Code stage's permission requests (the panel's summary line) */
   permissions?: { stageId: ID; asked: number; allowed: number; refused: number } | null
   at?: number

@@ -931,6 +931,12 @@ export interface NewTask {
   followUps?: PipelineKind[]
   /** the project (pipeline database) — default: the one #/coding shows for the kind on this device */
   dbId?: ID
+  /**
+   * a step of a work order's chain (features/coding/orders startChain): the request row, the step number and the chain's
+   * run — written into the project's Prüfauftrag / Schritt roles in the same createRow (display only: never part of the
+   * task's version; the chain itself is this device's record)
+   */
+  order?: { rowId: ID; step: number; run: string }
 }
 
 /**
@@ -1011,6 +1017,9 @@ function createTaskRow(input: NewTask): ID {
     const ids = input.followUps.map((k) => optionByName(db, props.followUps, t(`features.coding.pipe.${k}`))).filter((x): x is ID => !!x)
     if (ids.length) properties[props.followUps] = ids
   }
+  // a chain step: its request and number, in the same write as the row (no moment without them)
+  if (input.order && props.order) properties[props.order] = [input.order.rowId]
+  if (input.order && props.step) properties[props.step] = input.order.step
   const content = taskBody(input)
   return ws().createRow(dbId, { title: input.title.trim(), properties, content: { type: 'doc', content } })
 }

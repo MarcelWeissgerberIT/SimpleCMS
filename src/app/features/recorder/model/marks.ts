@@ -60,7 +60,7 @@ export interface Sel {
 }
 
 /** Kinds that draw a flag at a run's start (sync pick-ups and derived writers stay points). */
-const FLAG_RUNS = new Set(['agent', 'terminal', 'mcp', 'script', 'ai', 'import', 'eject', 'rewind', 'coding', 'mail', 'template'])
+const FLAG_RUNS = new Set(['agent', 'terminal', 'mcp', 'script', 'ai', 'import', 'eject', 'rewind', 'coding', 'order', 'mail', 'template'])
 /** runs whose starts are this close share a flag */
 const FLAG_JOIN_MS = 90_000
 const MERGE_PX = 2

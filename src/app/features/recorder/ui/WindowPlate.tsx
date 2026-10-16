@@ -125,7 +125,8 @@ export function whoName(lane: LaneKey | null, t: Translate, ws: Parameters<typeo
   const up = (s: string) => (cap ? s.charAt(0).toLocaleUpperCase() + s.slice(1) : s)
   if (lane === null) return up(t('features.recorder.who.unrecorded'))
   if (lane === 'you') return up(t('features.recorder.who.you'))
-  const m = laneMeta(lane, t, ws)
+  // a work order's title is read as it is now (never subscribed: the deck does not re-render per write)
+  const m = laneMeta(lane, t, { pages: useWorkspace.getState().pages, ...ws })
   return lane.startsWith('member:') ? m.short : m.title
 }
 

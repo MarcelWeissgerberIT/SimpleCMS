@@ -300,6 +300,8 @@ test.describe('purposes: needs vs may (D-S2-27)', () => {
     expect(t('memory.example').needs).toEqual(['memory'])
     expect(t('setup.test')).toEqual({ needs: [], may: [] })
     expect(t('help.ask')).toEqual({ needs: ['public'], may: [] })
+    // the work-order planner: the request row and the catalogue always; linked / private pages and the picked server may go along
+    expect(t('coding.plan')).toEqual({ needs: ['rows', 'structure'], may: ['page', 'private', 'mcp'] })
     expect(PURPOSES['setup.test'].pageless && PURPOSES['help.ask'].pageless && PURPOSES['write.instructions'].pageless).toBe(true)
     expect(PURPOSES['menu.action'].pageless).toBe(false)
     expect(PURPOSES['palette.ask'].pageless).toBe(true)

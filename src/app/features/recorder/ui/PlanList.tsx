@@ -270,7 +270,7 @@ export function PlanList({ model, pick, onPick, onOpen, phone }: { model: ReadMo
 
 /** The writer's name as the dialog says it ("Agent · Nordlicht-Spiegel", or "Lauf 212"). */
 export function writerName(model: ReadModel, t: ReturnType<typeof useT>, ws: Parameters<typeof laneMeta>[2]): { writer: string; run: string } {
-  const writer = laneMeta(model.sel.lane, t, ws).title
+  const writer = laneMeta(model.sel.lane, t, { pages: useWorkspace.getState().pages, ...ws }).title
   const seq = model.sel.run ? model.data.runs[model.sel.run]?.meta?.seq : undefined
   return { writer, run: seq ? t('features.recorder.win.run', { n: seq }) : writer }
 }

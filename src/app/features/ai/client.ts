@@ -16,7 +16,7 @@ import { meterCall, type MeterCall, type Receipt } from './core/meter'
 import { memoryRef } from './core/refs'
 import type { Need, PurposeId } from './core/purposes'
 import { demoAnswer, streamDemo } from './demo'
-import { codewordsIn, currentSetup, mcpNames, readServers, type Codewords, type McpRequestKind, type McpSetup } from './mcp-servers/config'
+import { codewordsIn, currentSetup, mcpNames, readServers, type Codewords, type McpRequestKind, type McpSetup, type McpToolAllow } from './mcp-servers/config'
 import { skippedCall } from './mcp-servers/activity'
 import { routeFor } from './core/status'
 import { allowedFor } from '@/shared/ai/policy'
@@ -104,7 +104,12 @@ export interface RouteOptions {
 
 /** An addressed MCP server is a hard requirement (D18): the route must connect MCP and may receive `mcp`. */
 function withCodewords(o: RouteOptions, codewords: Codewords | null | undefined): Pick<RouteOptions, 'needs' | 'carries'> {
-  const cw = !!codewords?.forced.length
+  return withForced(o, codewords?.forced)
+}
+
+/** Servers a request forces in (codewords, the work-order planner's pick): MCP is a hard requirement of its route. */
+function withForced(o: RouteOptions, forced: readonly string[] | undefined): Pick<RouteOptions, 'needs' | 'carries'> {
+  const cw = !!forced?.length
   return { needs: [...(o.needs ?? []), ...(cw ? (['mcp'] as const) : [])], carries: [...(o.carries ?? []), ...(cw ? (['mcp'] as const) : [])] }
 }
 
@@ -287,8 +292,17 @@ export interface StructuredOptions extends RouteOptions {
   signal?: AbortSignal
   /** SDK retries for 408/409/429/5xx and connection errors, with backoff (honours retry-after). */
   maxRetries?: number
-  /** MCP servers as for streamCompletion — default 'fixed': only servers set to "All AI calls" */
+  /** MCP servers as for streamCompletion — default 'fixed': only servers set to "All AI calls"; false: none (wins over `setup`) */
   mcp?: McpRequestKind | false
+  /**
+   * exactly these MCP servers instead of the current setup (the work-order planner: the one server the person picked —
+   * mcp-servers/config.ts onlyServer); they join as `mcp` says, `forced` ones whatever their scope
+   */
+  setup?: McpSetup
+  /** servers that join whatever their scope (the picked one): MCP becomes a hard requirement of the route, like a codeword */
+  forced?: readonly string[]
+  /** tool allow-lists per server name (the picked server's read tools): only those tools are on — OUT tools never */
+  allow?: McpToolAllow
   /** what the request cost (tokens, and USD from the one price table) — once per answer that arrived */
   onUsage?: (u: StructuredUsage) => void
   /** the ledger's source id (core/meter.ts); default: the purpose */
@@ -317,9 +331,13 @@ export interface StructuredUsage {
  */
 export async function completeStructured(opts: StructuredOptions): Promise<string> {
   // the gate: nothing is loaded or sent before it (features/ai/core/gate.ts); every response is metered (core/meter.ts)
-  // the servers set to "All AI calls" join a structured request too (structuredOnce): the brake counts their rounds
-  const servers = opts.mcp === false ? 0 : mcpNames(currentSetup(), opts.mcp ?? 'fixed').length
-  const prepared = prepare({ purpose: opts.purpose, sources: opts.sources, typed: opts.typed, size: { promptChars: opts.system.length + opts.prompt.length, maxTokens: opts.maxTokens ?? 4096 }, route: opts.route, applied: opts.applied, needs: opts.needs, carries: opts.carries, ...(opts.run ? { run: opts.run } : {}), ...(opts.pinned ? { pinned: opts.pinned } : {}), answer: 'structured', ...(servers ? { mcp: { servers, rounds: 1 + MAX_RESUMES } } : {}) })
+  // the servers set to "All AI calls" join a structured request too (structuredOnce) — or exactly `setup`'s: the brake
+  // counts their rounds. `mcp: false`: none, whatever else was given
+  const forced = opts.mcp === false ? [] : [...(opts.forced ?? [])]
+  const servers = opts.mcp === false ? 0 : mcpNames(opts.setup ?? currentSetup(), opts.mcp ?? 'fixed', forced).length
+  // a forced server is a hard requirement (D18): the route must connect MCP and may receive it
+  const req = forced.length ? withForced(opts, forced) : { needs: opts.needs, carries: opts.carries }
+  const prepared = prepare({ purpose: opts.purpose, sources: opts.sources, typed: opts.typed, size: { promptChars: opts.system.length + opts.prompt.length, maxTokens: opts.maxTokens ?? 4096 }, route: opts.route, applied: opts.applied, needs: req.needs, carries: req.carries, ...(opts.run ? { run: opts.run } : {}), ...(opts.pinned ? { pinned: opts.pinned } : {}), answer: 'structured', ...(servers ? { mcp: { servers, rounds: 1 + MAX_RESUMES } } : {}) })
   const call = meterCall(prepared, { source: opts.ledgerSource, signal: opts.signal, onRun: opts.onRun })
   try {
     if (prepared.provider !== 'anthropic' && prepared.provider !== 'demo') {

@@ -625,8 +625,10 @@ export interface Database {
    * 'mails' = a database the Gmail sync made (or wrote into): its rows are mail wherever it is — the AI data class
    *   `mail` — also once this device's sync points elsewhere (settings.mail.databaseId). Only that marker: the sync
    *   still writes only into settings.mail.databaseId, and every list that hides system databases keeps it.
+   * 'workorders' = the work orders ("Prüfaufträge", features/coding/orders): one row per request a chain of pipeline tasks
+   *   (Business analysis → Coding → QA) is planned from — its config in `orders`. Team: a private one only.
    */
-  system?: 'memory' | 'memory-log' | 'mail-contacts' | 'mail-companies' | 'mail-conversations' | 'mails' | 'coding' | 'spec' | 'qa' | 'testcases'
+  system?: 'memory' | 'memory-log' | 'mail-contacts' | 'mail-companies' | 'mail-conversations' | 'mails' | 'coding' | 'spec' | 'qa' | 'testcases' | 'workorders'
   /**
    * The coding pipeline (features/coding, only on the 'coding' database): one entry per option of its
    * Stage select, in the options' order. Absent = every stage is a plain queue. Write only with
@@ -645,6 +647,37 @@ export interface Database {
    * `properties` with `fromType`. Write only with attachRecordType / setRecordType / upsertRecordType.
    */
   recordTypes?: ID[]
+  /**
+   * The work orders' config (features/coding/orders), only on a `system: 'workorders'` database — a plain value (the
+   * cloud binding copies it, an older build keeps it). Write only with saveOrderConfig (refused on a `locked` database);
+   * every reader sanitizes (readOrderConfig: unknown keys kept; a `v` above 1 is unreadable — no auto mode, the
+   * checkpoint on, never overwritten). Full backups carry it; this device's auto consent and chain records never live
+   * here (localStorage / IndexedDB one-coding).
+   */
+  orders?: OrderConfig
+}
+
+/** The pipelines a work order plans steps for (features/coding/schema.ts PipelineKind): BA · Coding · QA. */
+export type OrderKind = 'spec' | 'coding' | 'qa'
+
+/** The states of a work order, each one option of its Status select (by id — never matched by its name). */
+export type OrderStatusKey = 'draft' | 'plan' | 'ready' | 'running' | 'halted' | 'done'
+
+/**
+ * A work-orders database's config (Database.orders, features/coding/orders): which Status option is which state, the
+ * optional context server (the person's own pick, by the name they gave it — read tools only; null = without a
+ * server), the pipelines a chain may use and the project pinned per kind (absent: as #/coding shows it; a row's own
+ * Repo / Pipelines fields come first), "Stop after the analysis", the budget per chain (USD, this device's worker cost
+ * reports — TaskLocal.spentUsd).
+ */
+export interface OrderConfig {
+  v: 1
+  status: Record<OrderStatusKey, ID>
+  server: { name: string } | null
+  kinds: OrderKind[]
+  projects?: Partial<Record<OrderKind, ID>>
+  checkpoint: boolean
+  budgetUsd?: number
 }
 
 /**

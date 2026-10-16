@@ -16,6 +16,7 @@
  *   template   = "template:" Id ":" Run
  *   synced     = "synced<" WriterKey
  *   history    = "history:" Id            mail = "mail:" Run         coding = "coding:" Id ":" Run
+ *   order      = "order:" Id ":" Run [ "#" Id ]     (a work order's chain: c<n> create · a<n> advance · s Status)
  *   kit        = "kit:" Id [ "<" WriterKey ]
  *   member     = "member:" Account        api = "api:" Id            hook = "hook:" Id     "team"
  *   eject      = "eject:" Id ">" WriterKey                 rewind = "rewind:" Id
@@ -41,6 +42,7 @@ export type WriterKind =
   | 'history'
   | 'mail'
   | 'coding'
+  | 'order'
   | 'kit'
   | 'member'
   | 'api'
@@ -62,7 +64,10 @@ export interface ParsedKey {
   /** you: how; editor: '+m' mixed */
   via?: string
   ref?: string
-  /** terminal / agent: the staged change (several written in one write joined with '+', '*' too many to name — changeIds) */
+  /**
+   * terminal / agent: the staged change (several written in one write joined with '+', '*' too many to name — changeIds);
+   * order: the chain's part (c<n> · a<n> · s)
+   */
   change?: string
   /** agent: received from elsewhere */
   remote?: boolean
@@ -88,6 +93,7 @@ const KINDS = new Set<WriterKind>([
   'history',
   'mail',
   'coding',
+  'order',
   'kit',
   'member',
   'api',
@@ -133,7 +139,7 @@ export function parseWriterKey(key: string): ParsedKey {
     out.remote = true
     body = body.slice(0, -2)
   }
-  if ((kind === 'agent' || kind === 'terminal') && body.includes('#')) {
+  if ((kind === 'agent' || kind === 'terminal' || kind === 'order') && body.includes('#')) {
     out.change = body.slice(body.indexOf('#') + 1)
     body = body.slice(0, body.indexOf('#'))
   }
@@ -208,6 +214,8 @@ export function laneOf(key: string, clientOf?: ClientOf): LaneKey {
       return p.kind
     case 'agent':
       return `agent:${p.parts[0] ?? '-'}`
+    case 'order':
+      return `order:${p.parts[0] ?? '-'}`
     case 'mcp':
       return `mcp:${clientSlug(clientOf?.(p.parts[0] ?? '') ?? null)}`
     case 'script':
@@ -260,6 +268,8 @@ export function runKeyOf(key: string): string | null {
       return `mail:${a}`
     case 'coding':
       return `coding:${a}:${b}`
+    case 'order':
+      return `order:${a}:${b}`
     case 'eject':
       return `eject:${a}`
     case 'rewind':
@@ -272,7 +282,7 @@ export function runKeyOf(key: string): string | null {
 /** The run kind of a run key. */
 export function runKindOf(runKey: string): RunKind | null {
   const kind = runKey.slice(0, runKey.indexOf(':')) as RunKind
-  const KNOWN: RunKind[] = ['agent', 'terminal', 'mcp', 'script', 'ai', 'import', 'sync', 'automation', 'autofill', 'template', 'mail', 'coding', 'eject', 'rewind']
+  const KNOWN: RunKind[] = ['agent', 'terminal', 'mcp', 'script', 'ai', 'import', 'sync', 'automation', 'autofill', 'template', 'mail', 'coding', 'order', 'eject', 'rewind']
   return KNOWN.includes(kind) ? kind : null
 }
 
@@ -287,6 +297,7 @@ export function runRefOf(runKey: string): string {
     case 'script':
     case 'sync':
     case 'coding':
+    case 'order':
     case 'template':
       return p.parts[1] ?? '-'
     case 'mcp':
