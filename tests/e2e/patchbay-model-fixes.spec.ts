@@ -19,7 +19,7 @@
 import { test, expect } from './fixtures'
 import { buildModel } from '../../src/app/features/patchbay/model'
 import { moduleKey } from '../../src/app/features/patchbay/ref'
-import { CLAUDE_CODE_STAGES, claudeBeforeGit, placeKey, unattendedGit } from '../../src/app/features/patchbay/rules'
+import { CLAUDE_CODE_STAGES, claudeBeforeGit, pipelineEntries, placeKey, unattendedGit } from '../../src/app/features/patchbay/rules'
 import { CLAUDE_KINDS } from '../../src/app/features/coding/protocol'
 import { lazyCacheOf } from '../../src/app/features/patchbay/cache'
 import { digest } from '../../src/app/features/patchbay/source'
@@ -250,6 +250,77 @@ test.describe('fix (safety-data) · Claude Code in the coding worker', () => {
     expect(claudeBeforeGit(REVIEW_MERGE, 'review')).toBe(true)
     expect(claudeBeforeGit(REVIEW_MERGE, 'all')).toBe(false)
     expect(claudeBeforeGit([IMPLEMENT_PUSH[0], { id: 'h', kind: 'gate', auto: false, hold: true }, IMPLEMENT_PUSH[1], IMPLEMENT_PUSH[2]], 'none')).toBe(false)
+  })
+})
+
+/* ------------------------------------------------------------------ fix (ui-words): a write that can set the Stage */
+
+/** The review's probe p4: queue → plan → gate → implement → push, every stage but the gate taken by the worker on its own. */
+const GATED: PipelineStage[] = [
+  { id: 'stQ', kind: 'queue', auto: true },
+  { id: 'stPlan', kind: 'plan', auto: true },
+  { id: 'stGate', kind: 'gate', auto: false },
+  { id: 'stImpl', kind: 'implement', auto: true },
+  { id: 'stPush', kind: 'git', auto: true, gitAction: 'push' },
+]
+const stageField = (stages: PipelineStage[]) => prop('pStage', 'Stage', 'select', { options: stages.map((s) => ({ id: s.id, name: s.id, color: 'gray' })) as NonNullable<Database['properties'][number]['options']> })
+function stageWorld(extra: { props?: Database['properties']; automations?: Database['automations']; device?: Partial<PbWorld['device']> } = {}): PbWorld {
+  return world({
+    pages: [dbPage('dbMails', 'Mails'), dbPage('dbCoding', 'Coding · Nordlicht')],
+    databases: [database('dbMails', [], { system: 'mails' }), database('dbCoding', [stageField(GATED), ...(extra.props ?? [])], { system: 'coding', pipeline: GATED, automations: extra.automations ?? [] })],
+    mail: mailSettings('dbMails'),
+    device: { ...extra.device, worker: { ...LOCAL_DEVICE.worker, approvals: 'all' } },
+  })
+}
+const near = (m: Model) => m.nearMisses.map((n) => `${n.why}:${n.chain.gate ?? ''}:${n.chain.decider} → ${n.chain.exit?.module}`)
+
+test.describe('fix (ui-words) · a write that can set the task\'s Stage enters at any stage the worker takes', () => {
+  test('pipelineEntries: stage 0 and queue stages; with anyStage also every auto stage the worker takes (never a gate / done / import)', () => {
+    expect(pipelineEntries(GATED)).toEqual([0])
+    expect(pipelineEntries(GATED, true)).toEqual([0, 1, 3, 4])
+    expect([...unattendedGit(GATED, 'all')]).toEqual([])
+    expect([...unattendedGit(GATED, 'all', true)]).toEqual(['push'])
+    // a hold gate right before the push stops even a Stage write that lands in front of it — not one that lands behind
+    const held: PipelineStage[] = [GATED[0], GATED[3], { id: 'stHold', kind: 'gate', auto: true, hold: true }, { id: 'stImport', kind: 'import', auto: true }, { id: 'stDone', kind: 'done', auto: true }, GATED[4]]
+    expect(pipelineEntries(held, true)).toEqual([0, 1, 5])
+  })
+
+  test('(a) the bridge in "apply" can set Stage = Implement past the gate: a fuse, no longer the near miss "a person checks first"', () => {
+    const m = modelOf(stageWorld({ device: { bridge: { enabled: true, mode: 'apply' } } }))
+    expect(near(m)).not.toContain('gate:afterApproval:bridge:here → outbound:git:-:push')
+    expect(fused(m, key({ kind: 'bridge' }), git('push'))).toBe(true)
+    const f = m.fuses.find((x) => x.chain.exit?.module === git('push'))!
+    expect(f.chain.steps.map(stepNode)).toEqual([key({ kind: 'pipeline', db: 'dbCoding', pipeline: 'coding' }), git('push')])
+    // "ask first": the bridge asks before each write — a near miss, as before
+    const ask = modelOf(stageWorld({ device: { bridge: { enabled: true, mode: 'ask' } } }))
+    expect(fused(ask, key({ kind: 'bridge' }), git('push'))).toBe(false)
+  })
+
+  test('(b) autofill fed by mails → an automation sets Stage = Implement: a fuse past the gate; a field that is not the Stage keeps the near miss', () => {
+    const props = [prop('pMail', 'Mail', 'relation', { relationDatabaseId: 'dbMails' }), prop('pSum', 'Summary', 'text', { autofill: { preset: 'summary', auto: true } })]
+    const sum = key({ kind: 'autofill', db: 'dbCoding', prop: 'pSum' })
+    const toImpl = stageWorld({ props, automations: [automation('autShip', 'Summary → Ship', { type: 'property_changed', propertyId: 'pSum' }, [{ type: 'set_property', propertyId: 'pStage', value: 'stImpl' }])] })
+    const m = modelOf(toImpl)
+    expect(near(m)).not.toContain(`gate:afterApproval:${sum} → ${git('push')}`)
+    expect(fused(m, sum, git('push'))).toBe(true)
+    expect(m.fuses.find((x) => x.chain.decider === sum)!.chain.steps.map(stepNode)).toContain(key({ kind: 'automation', db: 'dbCoding', id: 'autShip' }))
+    // the autofill alone writes only its own field (Summary): the worker takes the task at the queue — the gate stops it
+    const alone = modelOf(stageWorld({ props }))
+    expect(fused(alone, sum, git('push'))).toBe(false)
+    expect(near(alone)).toContain(`gate:afterApproval:${sum} → ${git('push')}`)
+    // an automation that sets another select (no Stage): the gate still stops the task
+    const other = stageWorld({ props: [...props, prop('pPrio', 'Priorität', 'select', { options: [] })], automations: [automation('autPrio', 'Summary → Prio', { type: 'property_changed', propertyId: 'pSum' }, [{ type: 'set_property', propertyId: 'pPrio', value: 'x' }])] })
+    expect(fused(modelOf(other), sum, git('push'))).toBe(false)
+  })
+
+  test('without a known Stage property every select counts (the safe side); the input names the Stage when its options are the stages', () => {
+    expect(inputOf(stageWorld()).pipelines[0].stageProp).toBe('pStage')
+    const props = [prop('pMail', 'Mail', 'relation', { relationDatabaseId: 'dbMails' }), prop('pSum', 'Summary', 'text', { autofill: { preset: 'summary', auto: true } }), prop('pPrio', 'Priorität', 'select', { options: [] })]
+    const w = stageWorld({ props, automations: [automation('autPrio', 'Summary → Prio', { type: 'property_changed', propertyId: 'pSum' }, [{ type: 'set_property', propertyId: 'pPrio', value: 'x' }])] })
+    // the Stage field's options no longer match the stages (renamed / reordered): not known
+    w.ws.databases.dbCoding = { ...w.ws.databases.dbCoding, properties: w.ws.databases.dbCoding.properties.map((p) => (p.id === 'pStage' ? { ...p, options: [] } : p)) }
+    expect(inputOf(w).pipelines[0].stageProp).toBeNull()
+    expect(fused(modelOf(w), key({ kind: 'autofill', db: 'dbCoding', prop: 'pSum' }), git('push'))).toBe(true)
   })
 })
 

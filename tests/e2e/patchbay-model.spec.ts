@@ -864,6 +864,30 @@ test.describe('B2 · the wiring signature — source.ts memo (§1.2, §6 A21)', 
     expect(memo.stats().pageChecks).toBe(checks)
   })
 
+  test('fix (ui-words): a key property switched off or on and a pipeline\'s stage options rebuild the input (the Outbox routes and the Stage field read them)', () => {
+    const w = mock1()
+    const memo = memoOf(w)
+    const src = sourceOf(w)
+    const first = memo.read(src)
+    let ws = src.ws
+    const next = (patch: Partial<typeof ws>) => {
+      ws = { ...ws, ...patch }
+      return memo.read({ ...src, ws, now: src.now + 1000 })
+    }
+    const handoff = ws.databases[w.ids.handoff]
+    const off = next({ databases: { ...ws.databases, [w.ids.handoff]: { ...handoff, properties: handoff.properties.map((p) => (p.id === 'pHandoffKey' ? { ...p, key: false } : p)) } } })
+    expect(off).not.toBe(first)
+    expect(memo.stats().builds).toBe(2)
+    const on = next({ databases: { ...ws.databases, [w.ids.handoff]: handoff } })
+    expect(on).not.toBe(off)
+    expect(memo.stats().builds).toBe(3)
+    // a stage added to Coding's Stage field (an option, before its config is stored): the stages differ
+    const coding = ws.databases[w.ids.coding]
+    const more = next({ databases: { ...ws.databases, [w.ids.coding]: { ...coding, properties: coding.properties.map((p) => (p.type === 'select' && p.name === 'Stage' ? { ...p, options: [...(p.options ?? []), { id: 'stExtra', name: 'Extra', color: 'gray' }] } : p)) } } })
+    expect(more).not.toBe(on)
+    expect(memo.stats().builds).toBe(4)
+  })
+
   test('this device’s facts and the lazy readings are part of the signature', () => {
     const w = mock1()
     const memo = memoOf(w)

@@ -712,6 +712,11 @@ export interface PipelineInput {
   kind: 'coding' | 'spec' | 'qa'
   /** in Stage-option order; `next` (the stage after it, absent = the next one) and a doc stage's `output` (fix model) */
   stages: Array<Pick<PipelineStage, 'id' | 'kind' | 'auto' | 'gitAction' | 'hold' | 'next' | 'output'>>
+  /**
+   * fix (ui-words): the Stage property (the select whose options are the stages) — a write to it can drop a task into
+   * any stage the worker takes on its own; absent / null: not known, every select property counts as the Stage
+   */
+  stageProp?: ID | null
   /** worker repos whose push / pr is off (gitStageWarnings) */
   warnings: { pushOff: string[]; prOff: string[] }
 }

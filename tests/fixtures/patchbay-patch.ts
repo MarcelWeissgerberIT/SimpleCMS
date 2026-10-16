@@ -50,6 +50,8 @@ export function withWrites(w: PbWorld, writes: PatchWrite[], opts: { me?: string
 export function recordingSink(w: PbWorld, refuse: Partial<Record<'agent' | 'automations' | 'commands' | 'integration', boolean>> = {}) {
   const log: Array<{ w: string; writer: string | null }> = []
   const agents: Record<ID, CustomAgent> = { ...(w.ws.agents ?? {}) }
+  // what the store holds per database (fix ui-words: the sink reads the bookkeeping from here at write time)
+  const automations: Record<ID, unknown> = Object.fromEntries(Object.values(w.ws.databases).map((d) => [d.id, d.automations]))
   const frame = () => {
     const f = currentWriter()
     return f ? formatWriterKey(f) : null
@@ -62,10 +64,13 @@ export function recordingSink(w: PbWorld, refuse: Partial<Record<'agent' | 'auto
       if (clean) agents[clean.id] = clean
     },
     agent: (id) => agents[id],
-    saveAutomations: (_db: ID, _list: Automation[], writer: Writer) => {
+    saveAutomations: (db: ID, list: Automation[], writer: Writer) => {
       log.push({ w: 'automations', writer: formatWriterKey(writer) })
-      return !refuse.automations
+      if (refuse.automations) return false
+      automations[db] = JSON.parse(JSON.stringify(list))
+      return true
     },
+    automations: (db) => automations[db],
     saveDbCommands: (_db: ID, _list: DbCommand[]) => {
       log.push({ w: 'commands', writer: frame() })
       return !refuse.commands
@@ -75,5 +80,5 @@ export function recordingSink(w: PbWorld, refuse: Partial<Record<'agent' | 'auto
       return !refuse.integration
     },
   }
-  return { sink, log, agents }
+  return { sink, log, agents, automations }
 }

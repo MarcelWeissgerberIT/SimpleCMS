@@ -16,7 +16,7 @@
  * Every name is fictional (Nordlicht, Tessera, Mara Lind, Launch plan); every host `*.example`.
  */
 import { test, expect, openApp, wsEval } from './fixtures'
-import { acceptsRoles, canConnect, commitPlan, commitWrites, plan, targetsOf, undoPlan } from '../../src/app/features/patchbay/patch'
+import { acceptsRoles, canConnect, commitPlan, commitWrites, plan, targetsOf, undoPlan, withBookkeeping } from '../../src/app/features/patchbay/patch'
 import { sayMsg } from '../../src/app/features/patchbay/plain'
 import { messages as fuseMessages } from '../../src/app/features/patchbay/messages-fuses'
 import { messages as agentMessages } from '../../src/app/features/agents/messages'
@@ -512,6 +512,24 @@ test.describe('B15 · stored fields, Undo and the commit', () => {
     // the engine's bookkeeping (lastRunAt / lastStatus / lastMessage) changes no config field (§6 A21)
     const kept = withWrites(after, [{ w: 'automations', db: 'dbMails', list: readAutomations(after.ws.databases.dbMails.automations).map((a) => ({ ...a, lastRunAt: 99, lastStatus: 'error' as const, lastMessage: 'POST → 500' })) }])
     expect(undoPlan(p, patchCtx(kept))).toEqual({ writes: p.inverse })
+    // fix (ui-words): … and the Undo writes config only — the bookkeeping written since the patch survives it, for every
+    // automation of the database (not only the patched one)
+    const rec = recordingSink(w)
+    expect(commitWrites(p.writes, { kind: 'you', via: 'patchbay' }, rec.sink, p.inverse)).toEqual({ ok: true })
+    rec.automations.dbMails = readAutomations(rec.automations.dbMails).map((a) => (a.id === 'autToContact' ? { ...a, lastRunAt: 123456789, lastStatus: 'error' as const, lastMessage: 'Script failed' } : a))
+    const undo = undoPlan(p, patchCtx(withWrites(w, [{ w: 'automations', db: 'dbMails', list: rec.automations.dbMails as Automation[] }])))
+    expect('writes' in undo).toBe(true)
+    expect(commitWrites((undo as { writes: PatchWrite[] }).writes, { kind: 'you', via: 'undo' }, rec.sink, p.writes)).toEqual({ ok: true })
+    const back = readAutomations(rec.automations.dbMails)
+    expect(back.find((a) => a.id === 'autToContact')).toMatchObject({ lastRunAt: 123456789, lastStatus: 'error', lastMessage: 'Script failed' })
+    // the patched automation's action is back (the inverse's config)
+    expect(back.find((a) => a.id === 'autToChat')?.actions.map((x) => x.type)).toEqual(['webhook'])
+    // a commit too: bookkeeping since the plan (a run while the popover was open) is not written back
+    const rec2 = recordingSink(w)
+    rec2.automations.dbMails = readAutomations(rec2.automations.dbMails).map((a) => ({ ...a, lastRunAt: 7, lastStatus: 'ok' as const, lastMessage: '200' }))
+    expect(commitWrites(p.writes, { kind: 'you', via: 'patchbay' }, rec2.sink, p.inverse)).toEqual({ ok: true })
+    expect(readAutomations(rec2.automations.dbMails).map((a) => a.lastRunAt)).toEqual([7, 7])
+    expect(withBookkeeping([{ ...readAutomations(w.ws.databases.dbMails.automations)[0], lastRunAt: 5 }], [])[0].lastRunAt).toBeUndefined()
     // someone renamed the automation since
     const edited = withWrites(after, [{ w: 'automations', db: 'dbMails', list: readAutomations(after.ws.databases.dbMails.automations).map((a) => (a.id === 'autToChat' ? { ...a, name: 'An Team-Chat (neu)' } : a)) }])
     expect(undoPlan(p, patchCtx(edited))).toEqual({ refused: { key: `${P}.key.changedSince` } })

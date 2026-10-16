@@ -16,7 +16,9 @@
  *    finishStage under `codingWriter`, automations not paused): a local writer like any other ('pipeline');
  *  - a pipeline's git stage runs with nobody in between unless a gate the task's Approvals stop at stands between where
  *    the task enters and that stage (coding/tasks.ts `skipsGate`: a hold gate always stops; 'all' every gate; 'review'
- *    every gate but one right after a plan stage; 'none' only hold gates).
+ *    every gate but one right after a plan stage; 'none' only hold gates). A write that can set the task's Stage (the
+ *    Stage property itself, every field, a new row) can drop it into any stage the worker takes on its own (`auto`):
+ *    every such stage is an entry then (fix ui-words).
  */
 import type { FlowListen, ModuleKey, PipelineInput, Place } from './types'
 
@@ -113,12 +115,25 @@ function nextIndex(stages: readonly Stage[], i: number): number {
 export const CLAUDE_CODE_STAGES: ReadonlySet<string> = new Set(['plan', 'implement', 'doc'])
 
 /**
+/** Stage kinds the worker never takes on its own (pickNext: a gate waits, done ends, an import stage needs the panel). */
+const NOT_TAKEN: ReadonlySet<string> = new Set(['gate', 'done', 'import'])
+
+/**
+ * Where a task enters a pipeline: its first stage (a new row) and every queue stage (the worker takes it on, or a person
+ * starts it — a start by hand is never a check). `anyStage` (fix ui-words): the write can set the Stage itself (a
+ * set_property on Stage, a write of every field, a new row with its values) — then also every stage the worker takes on
+ * its own (`auto`, coding/tasks.ts pickNext), behind any gate.
+ */
+export function pipelineEntries(stages: readonly Stage[], anyStage = false): number[] {
+  return stages.map((s, i) => (i === 0 || s.kind === 'queue' || (anyStage && s.auto && !NOT_TAKEN.has(s.kind)) ? i : -1)).filter((i) => i >= 0)
+}
+
+/**
  * Fix (safety-data): does a task reach an outbound git action (push · pr · comment · merge) with nobody in between AFTER
  * a stage that runs Claude Code? Then the worker's AI chose what that step sends — the walk of `unattendedGit`.
  */
-export function claudeBeforeGit(stages: readonly Stage[], level: Approvals): boolean {
-  const entries = stages.map((s, i) => (i === 0 || s.kind === 'queue' ? i : -1)).filter((i) => i >= 0)
-  for (const start of entries) {
+export function claudeBeforeGit(stages: readonly Stage[], level: Approvals, anyStage = false): boolean {
+  for (const start of pipelineEntries(stages, anyStage)) {
     const seen = new Set<number>()
     let claude = false
     for (let i = start; i >= 0 && !seen.has(i); i = nextIndex(stages, i)) {
@@ -135,14 +150,12 @@ export function claudeBeforeGit(stages: readonly Stage[], level: Approvals): boo
 
 /**
  * The git actions (push · pr · comment · merge) a task reaches with nobody in between: walked from where a task enters
- * the pipeline — its first stage (a new row) and every queue stage (the worker takes it on, or a person starts it: a
- * start by hand is never a check) — along `next`, stopping at a gate the Approvals stop at (or a done stage). A git
- * stage behind a stopping gate on every walk is "after approval".
+ * the pipeline (`pipelineEntries` — `anyStage` for a write that can set the Stage) along `next`, stopping at a gate the
+ * Approvals stop at (or a done stage). A git stage behind a stopping gate on every walk is "after approval".
  */
-export function unattendedGit(stages: readonly Stage[], level: Approvals): Set<string> {
+export function unattendedGit(stages: readonly Stage[], level: Approvals, anyStage = false): Set<string> {
   const out = new Set<string>()
-  const entries = stages.map((s, i) => (i === 0 || s.kind === 'queue' ? i : -1)).filter((i) => i >= 0)
-  for (const start of entries) {
+  for (const start of pipelineEntries(stages, anyStage)) {
     const seen = new Set<number>()
     // a task that starts at a gate waits there for a person
     for (let i = start; i >= 0 && !seen.has(i); i = nextIndex(stages, i)) {

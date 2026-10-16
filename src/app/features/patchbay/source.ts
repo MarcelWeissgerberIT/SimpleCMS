@@ -106,6 +106,16 @@ export interface InputSource {
   now: number
 }
 
+/**
+ * Fix (ui-words): the Stage property of a pipeline database — the select whose options ARE the stages, in order
+ * (coding/schema.ts readPipeline reads the stages from its options); null when none fits (every select counts then).
+ */
+function stagePropOf(db: Database, stages: PipelineInput['stages']): ID | null {
+  if (!stages.length) return null
+  const p = db.properties.find((x) => x.type === 'select' && x.options?.length === stages.length && x.options.every((o, i) => o.id === stages[i].id))
+  return p?.id ?? null
+}
+
 /** The areas' readers (the app: their index files; Node specs: plain stand-ins). */
 export interface InputReaders {
   /** features/automations readAutomations */
@@ -203,6 +213,10 @@ export function dbConfigSig(db: Database): string {
       db.views.filter((v) => v.type === 'form').map((v) => !!v.form?.webhookUrl),
       db.pipeline ?? null,
       db.recordTypes ?? null,
+      // fix (ui-words): the key property decides the Outbox's send routes (outbox routesFor → keyPropOf); a pipeline's
+      // stages are its Stage field's options (coding readPipeline) and name the Stage property (stagePropOf)
+      db.properties.filter((p) => p.key).map((p) => p.id),
+      db.system && PIPELINES.has(db.system) ? db.properties.filter((p) => p.type === 'select').map((p) => [p.id, (p.options ?? []).map((o) => o.id)]) : null,
     ])
     dbSigs.set(db, s)
   }
@@ -404,7 +418,7 @@ export function toModelInput(src: InputSource, read: InputReaders): BuiltInput {
   for (const db of live) {
     if (!db.system || !PIPELINES.has(db.system)) continue
     const stages = read.pipeline(db)
-    pipelines.push({ db: db.id, kind: db.system as PipelineInput['kind'], stages, warnings: read.gitWarnings(stages) })
+    pipelines.push({ db: db.id, kind: db.system as PipelineInput['kind'], stages, stageProp: stagePropOf(db, stages), warnings: read.gitWarnings(stages) })
   }
 
   // the facts with the pages above each (B3: a scope page reaches what lies below it, Clippings are a subtree)

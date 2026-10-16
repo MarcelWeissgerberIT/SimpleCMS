@@ -21,6 +21,7 @@ const sink: PatchSink = {
   upsertAgent: (agent) => useWorkspace.getState().upsertAgent(agent),
   agent: (id) => useWorkspace.getState().agents?.[id],
   saveAutomations,
+  automations: (db) => useWorkspace.getState().databases[db]?.automations,
   saveDbCommands,
   upsertIntegration: (profile, replaces) => useWorkspace.getState().upsertIntegration(profile, replaces),
 }

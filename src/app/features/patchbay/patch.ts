@@ -775,6 +775,8 @@ export interface PatchSink {
   /** the stored agent after a write (to read upsertAgent's result — it returns nothing) */
   agent(id: ID): CustomAgent | undefined
   saveAutomations(db: ID, list: Automation[], writer: Writer): boolean
+  /** fix (ui-words): a database's stored automations right now (raw) — the engine's bookkeeping is taken from here */
+  automations?(db: ID): unknown
   saveDbCommands(db: ID, list: DbCommand[]): boolean
   upsertIntegration(profile: IntegrationProfile, replaces?: string): boolean
 }
@@ -791,6 +793,27 @@ function agentConfig(a: CustomAgent | null | undefined): string {
   return stable(rest)
 }
 
+const BOOKKEEPING = ['lastRunAt', 'lastStatus', 'lastMessage'] as const
+
+/**
+ * Fix (ui-words): a patch (or its Undo) writes config only — the engine's bookkeeping (`lastRunAt` / `lastStatus` /
+ * `lastMessage`) of every automation is taken from the list stored NOW, so a run since the plan (a failing automation's
+ * red lamp, its last message) is never written back to what the plan saw. An automation not stored any more keeps none.
+ */
+export function withBookkeeping(list: Automation[], storedRaw: unknown): Automation[] {
+  const stored = new Map(readAutomations(storedRaw).map((a) => [a.id, a]))
+  return list.map((a) => {
+    const cur = stored.get(a.id)
+    const out = { ...a } as Automation & Record<string, unknown>
+    for (const k of BOOKKEEPING) {
+      const v = cur?.[k]
+      if (v === undefined) delete out[k]
+      else (out as Record<string, unknown>)[k] = v
+    }
+    return out
+  })
+}
+
 /** The fields a patch changes that the sanitizer cuts (lists past AGENT_LIMITS, names it does not take) — compared raw. */
 const CUT_FIELDS = ['mcpServers', 'mcpTools', 'scope'] as const
 
@@ -805,7 +828,7 @@ function writeOne(w: PatchWrite, writer: Writer, sink: PatchSink): boolean {
     if (agentConfig(got) !== agentConfig(w.agent)) return false
     return CUT_FIELDS.every((k) => stable(got?.[k] ?? null) === stable(w.agent[k] ?? null))
   }
-  if (w.w === 'automations') return sink.saveAutomations(w.db, w.list, writer)
+  if (w.w === 'automations') return sink.saveAutomations(w.db, sink.automations ? withBookkeeping(w.list, sink.automations(w.db)) : w.list, writer)
   if (w.w === 'commands') return withWriter(writer, () => sink.saveDbCommands(w.db, w.list))
   return withWriter(writer, () => sink.upsertIntegration(w.profile, w.replaces))
 }

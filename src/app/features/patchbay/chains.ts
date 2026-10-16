@@ -32,7 +32,7 @@
  * listener's half from it `{ via: Place, to }`); `edges` lights the whole path, the source's lead cable first.
  */
 import { keyPart } from './ref'
-import { claudeBeforeGit, honoursHandOnly, placeKey, reaches, startable, type WriterKind } from './rules'
+import { claudeBeforeGit, honoursHandOnly, placeKey, reaches, startable, unattendedGit, type WriterKind } from './rules'
 import {
   allows,
   autofillPropsOf,
@@ -75,6 +75,8 @@ interface Move {
   gate: Gate | null
   /** pipelines: 'confirm' when the task waits for Confirm (who wrote it, §1.3) — else its approvals decide per git stage */
   pipe?: Gate | null
+  /** pipelines (fix ui-words): the write can set the task's Stage — every stage the worker takes on its own is an entry */
+  anyStage?: true
   /** a press by hand (a command / button on a place written) — never a loop */
   byHand?: true
   /** the place written to reach the listener (`<prop>` · '*' · '+row' · '-row') */
@@ -103,6 +105,8 @@ interface FlowIndex {
   deciders: Map<ModuleKey, Decider | null>
   /** fields "only by hand" when a key's change is tried out (`keyCheck`); none: the index's own */
   hand?: Map<ID, Set<string>>
+  /** fix (ui-words): pipeline → the git actions reached unattended from ANY stage the worker takes (`anyStage`) */
+  anyFree?: Map<ModuleKey, Set<string>>
 }
 
 function flowIndex(ix: ReachIndex): FlowIndex {
@@ -188,6 +192,33 @@ function pipelineGate(f: FlowIndex, writer: Node, wp: string): Gate | null {
   return null
 }
 
+/**
+ * Fix (ui-words): can a write of `wp` into pipeline database `db` set the task's Stage — the Stage property itself (a
+ * set_property, a flagged field, autofill or a kit value on it), every field ('*': the bridge, a script, an agent) or a
+ * new row with its values ('+row': a template, a script)? Then the task can land in any stage the worker takes on its
+ * own, behind every gate. Without a known Stage property every select field counts.
+ */
+function canSetStage(ix: ReachIndex, db: ID, wp: string): boolean {
+  if (wp === '*' || wp === '+row') return true
+  if (wp === '-row') return false
+  const p = ix.input.pipelines.find((x) => x.db === db)
+  if (!p) return false
+  if (p.stageProp) return wp === p.stageProp
+  return ix.dbs.get(db)?.properties.some((x) => x.id === wp && x.type === 'select') ?? false
+}
+
+/** The git actions pipeline `key` reaches unattended from any stage the worker takes on its own (`canSetStage`). */
+function anyStageFree(f: FlowIndex, key: ModuleKey): Set<string> {
+  const cache = (f.anyFree ??= new Map())
+  let out = cache.get(key)
+  if (!out) {
+    const p = f.ix.input.pipelines.find((x) => f.ix.pipelines.get(x.db) === key)
+    out = p ? unattendedGit(p.stages, f.ix.input.worker.approvals, true) : new Set()
+    cache.set(key, out)
+  }
+  return out
+}
+
 /** Does this write leave the task row it lands on waiting for Confirm (what a same-row relay after it inherits)? */
 function leavesUntrusted(f: FlowIndex, writer: Node, wp: string): boolean {
   // locally an agent's change is the person's own again after the next change here (agents/attribution.ts keeper) —
@@ -248,7 +279,8 @@ function movesOf(f: FlowIndex, at: Node, pipe: Gate | null = null): Move[] {
     // the worker's own writes into its task rows never enter it again
     if (!p || p === at.key) return
     const place: Place = { db }
-    out.push({ to: { key: p, kind: 'pipeline' }, place, gate, wp, pipe: pipelineGate(f, at, wp), steps: [{ from: at.key, via: place, to: p, edge: writeCable(f, at.key, place) }] })
+    const anyStage = canSetStage(f.ix, db, wp)
+    out.push({ to: { key: p, kind: 'pipeline' }, place, gate, wp, pipe: pipelineGate(f, at, wp), ...(anyStage ? { anyStage: true as const } : {}), steps: [{ from: at.key, via: place, to: p, edge: writeCable(f, at.key, place) }] })
   }
   const pressMoves = (list: ModuleKey[] | undefined, place: Place) => {
     for (const k of list ?? []) out.push({ to: { key: k, kind: kindOf(f, k, 'byHand') }, place, gate: 'byHand', byHand: true, steps: [{ from: at.key, via: place, to: k, edge: writeCable(f, at.key, place) }] })
@@ -284,9 +316,10 @@ function movesOf(f: FlowIndex, at: Node, pipe: Gate | null = null): Move[] {
 
 /**
  * The ways out of a module once entered (`pipe`: a pipeline's task waits for Confirm — 'confirm' — or its git stages
- * go by this device's approvals: the cable's `afterApproval`, model.ts per git action).
+ * go by this device's approvals: the cable's `afterApproval`, model.ts per git action, from where a task enters;
+ * `anyStage`: the write that entered it can set the Stage — every stage the worker takes is an entry, fix ui-words).
  */
-function outsOf(f: FlowIndex, at: Node, pipe: Gate | null | undefined): Out[] {
+function outsOf(f: FlowIndex, at: Node, pipe: Gate | null | undefined, anyStage = false): Out[] {
   const out: Out[] = []
   const { ix } = f
   for (const e of ix.from.get(at.key) ?? []) {
@@ -294,7 +327,8 @@ function outsOf(f: FlowIndex, at: Node, pipe: Gate | null | undefined): Out[] {
     const to = ix.jackMod.get(e.to)
     const m = to ? ix.mods.get(to) : undefined
     if (!m || (m.kind !== 'outbound' && m.kind !== 'outbox')) continue
-    const gate = at.kind === 'pipeline' ? (pipe === 'confirm' ? 'confirm' : e.afterApproval ? 'afterApproval' : null) : e.byHand ? 'byHand' : e.asksFirst ? 'asks' : null
+    const after = anyStage && m.ref.kind === 'outbound' ? !anyStageFree(f, at.key).has(m.ref.method ?? '') : !!e.afterApproval
+    const gate = at.kind === 'pipeline' ? (pipe === 'confirm' ? 'confirm' : after ? 'afterApproval' : null) : e.byHand ? 'byHand' : e.asksFirst ? 'asks' : null
     out.push({ exit: { module: m.key, type: m.kind === 'outbox' ? 'outbox' : (m.exit ?? 'webhook'), edge: e.id }, steps: [{ from: at.key, to: m.key, edge: e.id }], gate, failClosed: false, withheld: false })
   }
   // MCP write tools of a decider: they run inside the AI's tool loop — no proposal stops them (§1.3)
@@ -417,6 +451,8 @@ interface Hop {
   /** the steps from the parent to here */
   lead: ChainStep[]
   pipe?: Gate | null
+  /** a pipeline entered by a write that can set the task's Stage (fix ui-words) */
+  anyStage?: true
   /** a same-row relay started on a task row of this pipeline database that waits for Confirm (coding/trust.ts) */
   untrusted?: ID
 }
@@ -433,7 +469,7 @@ function bfs(f: FlowIndex, root: Node, free: boolean, found: Map<string, Found>)
   const queue: Hop[] = [{ node: root, gate: null, parent: null, lead: [] }]
   for (let qi = 0; qi < queue.length; qi++) {
     const hop = queue[qi]
-    for (const out of outsOf(f, hop.node, hop.pipe)) {
+    for (const out of outsOf(f, hop.node, hop.pipe, !!hop.anyStage)) {
       const gate = hop.gate ?? out.gate
       if (free && gate) continue
       if (!found.has(out.exit.edge)) found.set(out.exit.edge, { out, hop, gate })
@@ -448,11 +484,13 @@ function bfs(f: FlowIndex, root: Node, free: boolean, found: Map<string, Found>)
         // a same-row relay writing a task row left waiting for Confirm: the task still waits
         if (pipe !== 'confirm' && hop.untrusted === db && sameRow(f, hop.node)) pipe = 'confirm'
       } else if (db && sameRow(f, mv.to) && (leavesUntrusted(f, hop.node, mv.wp ?? '*') || (hop.untrusted === db && sameRow(f, hop.node)))) untrusted = db
-      // a pipeline's ways out depend on who wrote the task, a relay's on the row it was started on: each its own visit
-      const k = `${mv.to.key}|${mv.to.kind}${mv.to.kind === 'pipeline' ? `|${pipe ?? ''}` : ''}${untrusted ? `|u:${untrusted}` : ''}`
+      // a pipeline's ways out depend on who wrote the task (and whether the write can set its Stage), a relay's on the
+      // row it was started on: each its own visit
+      const anyStage = mv.to.kind === 'pipeline' && mv.anyStage ? true : undefined
+      const k = `${mv.to.key}|${mv.to.kind}${mv.to.kind === 'pipeline' ? `|${pipe ?? ''}${anyStage ? '|s' : ''}` : ''}${untrusted ? `|u:${untrusted}` : ''}`
       if (seen.has(k)) continue
       seen.add(k)
-      queue.push({ node: mv.to, gate, parent: hop, lead: mv.steps, ...(mv.to.kind === 'pipeline' ? { pipe } : {}), ...(untrusted ? { untrusted } : {}) })
+      queue.push({ node: mv.to, gate, parent: hop, lead: mv.steps, ...(mv.to.kind === 'pipeline' ? { pipe } : {}), ...(anyStage ? { anyStage } : {}), ...(untrusted ? { untrusted } : {}) })
     }
   }
 }
@@ -627,13 +665,23 @@ function workerUnknown(ix: ReachIndex, oi: OutsideIndex): UnknownPart[] {
     if (mk.kind === 'tainted') return ix.mods.get(mk.writer ?? mk.source)?.kind !== 'agent'
     return !confirmRemote
   }
+  const flowWrites = ix.model.flow?.writes ?? {}
+  // fix (ui-words): a writer that can set the task's Stage drops it into any stage the worker takes, behind every gate —
+  // a relay's own writes decide; an outside source writes whole rows (every field)
+  const setsStage = (mk: OutsideMark, db: ID): boolean => {
+    if (mk.kind !== 'tainted') return true
+    return (flowWrites[mk.writer ?? mk.source] ?? []).some((w) => ('everything' in w.place) || ('db' in w.place && w.place.db === db && canSetStage(ix, db, w.place.prop ?? '*')))
+  }
   const out: UnknownPart[] = []
   for (const p of input.pipelines) {
     const key = ix.pipelines.get(p.db)
-    if (!key || !claudeBeforeGit(p.stages, input.worker.approvals)) continue
+    if (!key) continue
     const marks = [...(oi.dbs.get(p.db) ?? []), ...underOf(ix, p.db).flatMap((u) => oi.pages.get(u) ?? []), ...oi.all.filter((mk) => !(mk.kind === 'api' && input.pages[p.db]?.private))]
     // the worker's own writes into its task rows are what fed it — never a source of its own
-    if (marks.some((mk) => !(mk.kind === 'tainted' && (mk.writer ?? mk.source) === key) && trusted(mk))) out.push({ key: `worker:${key}`, what: 'worker', module: key })
+    const feeding = marks.filter((mk) => !(mk.kind === 'tainted' && (mk.writer ?? mk.source) === key) && trusted(mk))
+    if (!feeding.length) continue
+    const anyStage = feeding.some((mk) => setsStage(mk, p.db))
+    if (claudeBeforeGit(p.stages, input.worker.approvals, anyStage)) out.push({ key: `worker:${key}`, what: 'worker', module: key })
   }
   return out
 }
