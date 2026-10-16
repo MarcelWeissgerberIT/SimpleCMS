@@ -16,7 +16,7 @@
  *    `make -j4`), a file tool (Read / Edit / Write — reads outside the repo stay "Once"), nor anything with a wildcard of
  *    its own: then the person can only allow it once.
  */
-import { isAbsolute, resolve } from 'node:path'
+import { posix, win32 } from 'node:path'
 import type { PermissionKind } from '../../../src/app/features/coding/protocol.ts'
 import { inFolder } from './paths.ts'
 
@@ -77,14 +77,19 @@ export function subjectOf(req: PermRequest): string {
     .trim()
 }
 
-/** A Read / Edit tool's file outside every one of `dirs` (relative paths are read from `cwd`). */
-export function isOutside(req: PermRequest, dirs: Array<string | null | undefined>, cwd: string): boolean {
+/**
+ * A Read / Edit tool's file outside every one of `dirs` (relative paths are read from `cwd`) — compared as paths.ts
+ * `inFolder` does: Windows paths without case, either slash, a drive or a UNC share of their own (another drive is
+ * outside), a way out (`..`) resolved first. `platform`: the kind of paths (tests of the Windows branch elsewhere).
+ */
+export function isOutside(req: PermRequest, dirs: Array<string | null | undefined>, cwd: string, platform: NodeJS.Platform = process.platform): boolean {
   const kind = kindOf(req.tool)
   if (kind !== 'read' && kind !== 'edit') return false
   const p = pathOf(req)
   if (!p) return false
-  const full = isAbsolute(p) ? p : resolve(cwd, p)
-  return !dirs.some((d) => !!d && inFolder(full, d))
+  const P = platform === 'win32' ? win32 : posix
+  const full = P.isAbsolute(p) ? p : P.resolve(cwd, p)
+  return !dirs.some((d) => !!d && inFolder(full, d, platform))
 }
 
 /** A command Claude Code runs as one program: no shell operator, no substitution, no second line. */

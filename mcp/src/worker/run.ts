@@ -22,7 +22,7 @@ import { SHIP_TRAILER, type ForgeWeb, type GitInfo, type LogLine, type Permissio
 import type { RepoConfig, SourceWhy } from './config.ts'
 import type { WorkerState } from './state.ts'
 import { PERMISSION_TOOL, claudeMissingError, mcpLaunchers, runClaude, type ClaudeCaps, type ClaudeResult } from './claude.ts'
-import { commandName, pathAbsolute, plantedProgram } from './exec.ts'
+import { commandName, envGet, pathAbsolute, plantedProgram } from './exec.ts'
 import { BODY_MAX, GLAB_TEXT_MAX_WIN, GitError, branchDiff, commentPr, commitAll, ensureWorktree, git, headOf, info, isDirty, mergePr, openPr, push, updateFromBase, webFromRequest, webOf, worktreeOf, type OpenPr, type TaskWorktree } from './git.ts'
 import { FOLDER_BUSY, forgetGitEnv, gitHint, hintLine, hintTerminal } from './gitenv.ts'
 import { inSyncedFolder, rmRetry, worktreesAt, type Synced, type WorktreesAt } from './paths.ts'
@@ -658,14 +658,22 @@ function notStartedLine(why: NonNullable<RunResult['notStarted']>, name: string,
 }
 
 /**
+ * Build servers a run would otherwise leave running for the person's own builds to reuse — MSBuild's reused nodes, the
+ * C# compiler server (VBCSCompiler) — are not started by Claude Code's builds (worker 1.11.0; what the run leaves running
+ * is ended when it is over, proctree.ts). Set only where the person has not set them.
+ */
+export const RUN_ENV: Readonly<Record<string, string>> = { MSBUILDDISABLENODEREUSE: '1', UseSharedCompilation: 'false' }
+
+/**
  * Claude Code's environment: this process's, without the worker's own variables, PATH of absolute folders only (what
  * Claude Code starts by name — its git, its MCP servers' launchers — is never looked up in the task's folder through an
- * empty or relative PATH entry; spawnSafe does the same for every program the worker starts by itself).
+ * empty or relative PATH entry; spawnSafe does the same for every program the worker starts by itself), plus RUN_ENV.
  */
-function claudeEnv(): NodeJS.ProcessEnv {
+export function claudeEnv(from: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {}
-  for (const [k, v] of Object.entries(process.env)) if (!k.startsWith('ONE_WORKER_')) env[k] = v
-  return pathAbsolute(env)
+  for (const [k, v] of Object.entries(from)) if (!k.startsWith('ONE_WORKER_')) env[k] = v
+  for (const [k, v] of Object.entries(RUN_ENV)) if (envGet(env, k, platform) === undefined) env[k] = v
+  return pathAbsolute(env, platform)
 }
 
 async function testStage(ctx: StageContext, wt: TaskWorktree, scrub: Scrubber, log: Log): Promise<StageOutcome> {
