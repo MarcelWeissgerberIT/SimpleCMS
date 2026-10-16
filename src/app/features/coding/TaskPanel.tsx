@@ -4,7 +4,7 @@
  * device), and the tabs Log · Plan · Diff · Tests · Git with what this device's worker reported. Business analysis /
  * QA tasks (document stages): Log · Document, a repo is optional, and "Then" hands them on to another pipeline.
  */
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Check, CircleStop, Play, RotateCcw, ShieldCheck, Undo2 } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useCloud } from '../../cloud'
@@ -29,10 +29,36 @@ import { NowLine, RunCounters } from './NowLine'
 import { FollowUps } from './FollowUps'
 import { ImportBox } from './ImportBox'
 import { RefsLine } from './RefsLine'
+import { RefField, type RefFieldHandle } from './RefField'
+import { GivePages } from './GivePages'
+import { EMPTY_DRAFT, draftText, type RefDraft } from './refDraft'
+import { privateAllowed } from './pagePick'
 import { taskPhase } from './terminal'
 import './coding.css'
 
 type Tab = 'log' | 'plan' | 'diff' | 'tests' | 'git'
+
+/**
+ * Unsent answers and rework notes, per task, stage and field — this tab, in memory: a page opened from the panel, the
+ * browser's Back, another task and back again keep what was being written (and the pages picked into it).
+ */
+const drafts = new Map<string, RefDraft | null>()
+
+/** A draft kept in `drafts` under `key` (a key changing reads the one kept there); `fallback` while none is kept. */
+function useKeptDraft<T extends RefDraft | null>(key: string, fallback: T): [T, (next: T) => void] {
+  const [state, setState] = useState<{ key: string; value: T }>(() => ({ key, value: (drafts.has(key) ? drafts.get(key) : fallback) as T }))
+  const value = state.key === key ? state.value : ((drafts.has(key) ? drafts.get(key) : fallback) as T)
+  const set = useCallback(
+    (next: T) => {
+      // nothing to keep: a closed rework form, an empty answer
+      if (next === null || (fallback !== null && !next.text && !next.picks.length)) drafts.delete(key)
+      else drafts.set(key, next)
+      setState({ key, value: next })
+    },
+    [key, fallback],
+  )
+  return [value, set]
+}
 
 function useElapsed(since: number | null): string {
   const [, tick] = useState(0)
@@ -61,8 +87,14 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
   const team = useCloud((s) => s.active.kind === 'cloud')
   const viewer = useCloud((s) => s.readOnly)
   const [tab, setTab] = useState<Tab | null>(null)
-  const [rework, setRework] = useState<string | null>(null)
-  const [answer, setAnswer] = useState('')
+  const draftAt = `${pageId}|${ctx?.stage?.id ?? ''}`
+  /** the rework note being written (null: closed) — kept per task and stage while the panel is away */
+  const [rework, setRework] = useKeptDraft<RefDraft | null>(`${draftAt}|rework`, null)
+  /** the answer being written: its text and the pages picked into it (coding/RefField.tsx) — kept the same way */
+  const [answer, setAnswer] = useKeptDraft<RefDraft>(`${draftAt}|answer`, EMPTY_DRAFT)
+  const answerField = useRef<RefFieldHandle>(null)
+  const askForm = useRef<HTMLFormElement>(null)
+  const reworkForm = useRef<HTMLFormElement>(null)
   /** null while checking */
   const [trusted, setTrusted] = useState<boolean | null>(null)
   const elapsed = useElapsed(busy?.since ?? null)
@@ -111,6 +143,11 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
   // before the task runs: where it works (Repo, Branch) and where it is written (the page)
   const intake = stage?.kind === 'import'
   const setup = canAct && !running && !intake && (!stage || stage.kind === 'queue' || (!repo && coding))
+
+  // private pages (team) only where their title may travel: a private task
+  const allowPrivate = privateAllowed(pageId)
+  // what is being written right now goes along too: the "Goes along" row shows it before it is sent
+  const draft = state === 'question' && canAct ? draftText(answer) : state === 'gate' && canAct && rework ? draftText(rework) : ''
 
   const act = (fn: () => Promise<void>) => () => {
     void fn().catch((e: unknown) => useUI.getState().toast({ message: e instanceof Error ? e.message : String(e), kind: 'error' }))
@@ -211,32 +248,35 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
 
         {state === 'question' && canAct && (
           <form
+            ref={askForm}
             className="ctk-box ctk-box--ask"
             onSubmit={(e) => {
               e.preventDefault()
-              const a = answer
-              setAnswer('')
+              const a = draftText(answer)
+              if (!a.trim()) return
+              setAnswer(EMPTY_DRAFT)
               act(() => answerTask(pageId, a))()
             }}
           >
             <span className="label">{t('features.coding.ask.label')}</span>
             <p className="ctk-question" data-testid="coding-question">{local.question}</p>
-            <textarea
+            {/* pages the question names in quotes: one key puts the page into the answer */}
+            {local.question && <GivePages question={local.question} taskId={pageId} draft={answer} allowPrivate={allowPrivate} field={answerField} />}
+            <RefField
+              ref={answerField}
               className="input ctk-text"
               rows={2}
               value={answer}
-              onChange={(e) => setAnswer(e.target.value)}
+              onChange={setAnswer}
+              near={pageId}
+              allowPrivate={allowPrivate}
               placeholder={t('features.coding.ask.placeholder')}
               aria-label={t('features.coding.ask.aria')}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-                  e.preventDefault()
-                  e.currentTarget.form?.requestSubmit()
-                }
-              }}
+              data-testid="coding-answer"
+              onSubmit={() => askForm.current?.requestSubmit()}
             />
             <div className="ctk-keys">
-              <button type="submit" className="btn btn--sm btn--primary" disabled={!answer.trim()}>
+              <button type="submit" className="btn btn--sm btn--primary" disabled={!answer.text.trim()}>
                 {t('features.coding.ask.send')} <Kbd>{MOD}</Kbd>
                 <Kbd>↵</Kbd>
               </button>
@@ -250,7 +290,7 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
               <Check size={14} strokeWidth={1.75} aria-hidden />
               {t('features.coding.act.approve')}
             </button>
-            <button type="button" className="btn btn--sm" onClick={() => setRework('')} data-testid="coding-rework">
+            <button type="button" className="btn btn--sm" onClick={() => setRework(EMPTY_DRAFT)} data-testid="coding-rework">
               <Undo2 size={14} strokeWidth={1.75} aria-hidden />
               {t('features.coding.act.rework')}
             </button>
@@ -259,10 +299,12 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
         )}
         {state === 'gate' && canAct && rework !== null && (
           <form
-            className="ctk-box"
+            ref={reworkForm}
+            className="ctk-box ctk-box--rework"
             onSubmit={(e) => {
               e.preventDefault()
-              const note = rework
+              const note = draftText(rework)
+              if (!note.trim()) return
               setRework(null)
               act(() => reworkTask(pageId, note))()
             }}
@@ -270,9 +312,21 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
             <label className="label" htmlFor={`ctk-rw-${pageId}`}>
               {t('features.coding.rework.label')}
             </label>
-            <textarea id={`ctk-rw-${pageId}`} className="input ctk-text" rows={3} value={rework} onChange={(e) => setRework(e.target.value)} placeholder={t('features.coding.rework.placeholder')} autoFocus />
+            <RefField
+              id={`ctk-rw-${pageId}`}
+              className="input ctk-text"
+              rows={3}
+              value={rework}
+              onChange={setRework}
+              near={pageId}
+              allowPrivate={allowPrivate}
+              placeholder={t('features.coding.rework.placeholder')}
+              autoFocus
+              data-testid="coding-rework-note"
+              onSubmit={() => reworkForm.current?.requestSubmit()}
+            />
             <div className="ctk-keys">
-              <button type="submit" className="btn btn--sm btn--primary" disabled={!rework.trim()}>
+              <button type="submit" className="btn btn--sm btn--primary" disabled={!rework.text.trim()}>
                 {t('features.coding.rework.send')}
               </button>
               <button type="button" className="btn btn--sm btn--ghost" onClick={() => setRework(null)}>
@@ -308,7 +362,7 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
 
         {/* context: where the task hands on to, the pages that go along */}
         {!coding && <FollowUps taskId={pageId} kind={kind} done={stage?.kind === 'done'} canAct={canAct} />}
-        {stage?.kind !== 'done' && <RefsLine taskId={pageId} />}
+        {stage?.kind !== 'done' && <RefsLine taskId={pageId} draft={draft} ask={state === 'question' && canAct ? 'answer' : state === 'gate' && canAct && rework ? 'note' : null} />}
       </div>
 
       <div className="ctk-tabs" role="tablist" aria-label={t('features.coding.panel.tabs')}>

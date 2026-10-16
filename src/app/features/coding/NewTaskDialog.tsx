@@ -14,6 +14,10 @@ import { useCoding } from './state'
 import { FOLLOW_UPS, codingProps, currentProjectId, readPipeline, type PipelineKind } from './schema'
 import { BRANCH_NAME, createTask, workerBranches, type NewTask } from './tasks'
 import { REPO_NAME } from './protocol'
+import { RefField } from './RefField'
+import { EMPTY_DRAFT, draftText, type RefDraft } from './refDraft'
+import { privateAllowed } from './pagePick'
+import { RefPreview } from './RefsLine'
 
 export function NewTaskDialog({ onClose, onCreated, kind = 'coding' }: { onClose: () => void; onCreated: (id: string) => void; kind?: PipelineKind }) {
   const t = useT()
@@ -38,8 +42,11 @@ export function NewTaskDialog({ onClose, onCreated, kind = 'coding' }: { onClose
   const [then, setThen] = useState<PipelineKind[]>([])
   const [title, setTitle] = useState('')
   const [repo, setRepo] = useState(repoOptional ? '' : (known[0] ?? ''))
-  const [goal, setGoal] = useState('')
-  const [criteria, setCriteria] = useState('')
+  // goal and criteria point at pages with @ / one: (coding/RefField.tsx): sent as One addresses, the page gets mentions
+  const [goal, setGoal] = useState<RefDraft>(EMPTY_DRAFT)
+  const [criteria, setCriteria] = useState<RefDraft>(EMPTY_DRAFT)
+  // a new task is shared in a team: no private page's title in it
+  const [allowPrivate] = useState(() => privateAllowed(null))
   const [priority, setPriority] = useState<NewTask['priority']>('medium')
   const [branch, setBranch] = useState('')
   const [start, setStart] = useState(true)
@@ -53,7 +60,7 @@ export function NewTaskDialog({ onClose, onCreated, kind = 'coding' }: { onClose
     if (!ok || saving) return
     setSaving(true)
     try {
-      const id = await createTask({ kind, ...(project ? { dbId: project } : {}), title, repo: repo.trim() || null, goal, criteria: criteria.split('\n'), priority, branch: kind === 'coding' ? branch : '', start, followUps: then })
+      const id = await createTask({ kind, ...(project ? { dbId: project } : {}), title, repo: repo.trim() || null, goal: draftText(goal), criteria: draftText(criteria).split('\n'), priority, branch: kind === 'coding' ? branch : '', start, followUps: then })
       onCreated(id)
     } catch (e) {
       useUI.getState().toast({ message: e instanceof Error && e.message === 'read-only' ? t('features.coding.setup.readOnly') : String(e), kind: 'error' })
@@ -118,14 +125,19 @@ export function NewTaskDialog({ onClose, onCreated, kind = 'coding' }: { onClose
         ) : (
           !known.length && <p className="cn-hint">{t('features.coding.new.noRepos')}</p>
         )}
-        <label className="cn-field">
-          <span className="label">{t('features.coding.new.goal')}</span>
-          <textarea className="input cn-text" rows={4} value={goal} onChange={(e) => setGoal(e.target.value)} placeholder={t('features.coding.new.goalPh')} data-testid="coding-new-goal" />
-        </label>
-        <label className="cn-field">
-          <span className="label">{t('features.coding.page.criteria')}</span>
-          <textarea className="input cn-text" rows={3} value={criteria} onChange={(e) => setCriteria(e.target.value)} placeholder={t('features.coding.new.criteriaPh')} data-testid="coding-new-criteria" />
-        </label>
+        <div className="cn-field">
+          <label className="label" htmlFor={`${uid}-goal`}>
+            {t('features.coding.new.goal')}
+          </label>
+          <RefField id={`${uid}-goal`} className="input cn-text" rows={4} value={goal} onChange={setGoal} near={null} allowPrivate={allowPrivate} placeholder={t('features.coding.new.goalPh')} data-testid="coding-new-goal" onSubmit={() => void submit()} />
+        </div>
+        <div className="cn-field">
+          <label className="label" htmlFor={`${uid}-criteria`}>
+            {t('features.coding.page.criteria')}
+          </label>
+          <RefField id={`${uid}-criteria`} className="input cn-text" rows={3} value={criteria} onChange={setCriteria} near={null} allowPrivate={allowPrivate} placeholder={t('features.coding.new.criteriaPh')} data-testid="coding-new-criteria" onSubmit={() => void submit()} />
+        </div>
+        <RefPreview texts={[draftText(goal), draftText(criteria)]} />
         {FOLLOW_UPS[kind].length > 0 && (
           <fieldset className="cn-field">
             <legend className="label">{t('features.coding.prop.followUps')}</legend>

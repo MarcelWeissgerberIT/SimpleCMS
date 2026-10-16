@@ -20,7 +20,7 @@ import { PageView } from './page/PageView'
 import { Home } from './home/Home'
 import { Agenda } from './agenda/Agenda'
 import { Inbox } from './inbox/Inbox'
-import { NotFound, JournalPending, ClipPending } from './home/NotFound'
+import { NotFound, JournalPending, ClipPending, MissingPage } from './home/NotFound'
 import { CommandPalette } from './palette/CommandPalette'
 import { ModalHost } from './modals/ModalHost'
 import { ErrorBoundary } from './ErrorBoundary'
@@ -178,7 +178,7 @@ function RouteView({ route }: { route: Route }) {
   const exists = useWorkspace((s) => (route.name === 'page' ? !!s.pages[route.id] : true))
   switch (route.name) {
     case 'page':
-      return exists ? <PageView pageId={route.id} variant="main" /> : <NotFound kind="page" />
+      return exists ? <PageView pageId={route.id} variant="main" /> : <MissingPage id={route.id} block={route.block} />
     case 'home':
       return <Home />
     case 'graph':

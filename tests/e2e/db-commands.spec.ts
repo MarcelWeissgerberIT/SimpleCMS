@@ -204,10 +204,11 @@ test.describe('Database commands', () => {
     const m = menu(page)
     await expect(m.locator('.menu-section').first()).toHaveText(/Commands · Reading list/i)
     const all = await labels(m)
-    // the commands first (the row menu keeps its own "Copy link"), then the row's entries
+    // the commands first (the row menu keeps its own "Copy permalink"), then the row's entries
     expect(all.slice(0, 5)).toEqual(['New entry', 'Open view', 'Import CSV…', 'Export CSV', 'Edit commands…'])
     expect(all).toContain('Rename')
-    expect(all.filter((x) => x === 'Copy link')).toHaveLength(1)
+    expect(all.filter((x) => x === 'Copy permalink')).toHaveLength(1)
+    expect(all).not.toContain('Copy link')
     await page.keyboard.press('Escape')
 
     // ⌘K: found by typing

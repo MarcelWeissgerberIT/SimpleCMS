@@ -1,8 +1,11 @@
-/** Paste (Markdown, URLs) and link-click handling. */
+/** Paste (Markdown, URLs; a page's permalink becomes a page mention) and link-click handling. */
 import { Extension } from '@tiptap/core'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
-import { navigate } from '../../lib/router'
+import { navigate, routeHref } from '../../lib/router'
 import { useUI } from '../../store/ui'
+import { useWorkspace } from '../../store/store'
+import { isEffectivelyTrashed, templateScope } from '../../store/selectors'
+import { ownPermalink, parsePageAddress } from '../../lib/permalink'
 import type { Bridge } from '../lib/bridge'
 import { isUrl } from '../lib/embeds'
 import { looksLikeMarkdown, markdownToDoc } from '../convert'
@@ -41,6 +44,16 @@ export function pasteExtension(bridge: Bridge | null) {
               if (isUrl(text)) {
                 if (!state.selection.empty) return false // Link extension turns the selection into a link
                 const url = text.trim()
+                // a page's permalink (lib/permalink.ts; also copied on another device or host) of a live page here: a
+                // page mention, like "@" — a link to a block of it ("Copy link to block", `?b=`) stays a link
+                const address = parsePageAddress(url)
+                const { pages } = useWorkspace.getState()
+                const target = address?.kind === 'address' && !address.block ? pages[address.id] : undefined
+                if (target && !isEffectivelyTrashed(pages, target.id) && templateScope(pages, null)(target.id)) {
+                  // a private page's title never travels inside a mention (docs/CLOUD.md § Private pages)
+                  editor.chain().focus().insertContent([{ type: 'mention', attrs: { id: target.id, label: target.private ? '' : target.title, kind: 'page' } }, { type: 'text', text: ' ' }]).run()
+                  return true
+                }
                 const $from = state.selection.$from
                 const wasEmpty = $from.parent.type.name === 'paragraph' && $from.parent.content.size === 0
                 const from = state.selection.from
@@ -68,7 +81,10 @@ export function pasteExtension(bridge: Bridge | null) {
                 if (!a || !view.dom.contains(a) || event.button !== 0) return false
                 if (a.closest('[data-node-view-wrapper], .node-view')) return false
                 if (!window.getSelection()?.isCollapsed) return false
-                const href = a.getAttribute('href') ?? ''
+                const raw = a.getAttribute('href') ?? ''
+                // this app's own permalink opens here, like a `#/p/<id>` link (never a second tab) — at its block, if it names one
+                const own = /^https?:/i.test(raw) ? ownPermalink(raw) : null
+                const href = own ? routeHref({ name: 'page', id: own.id, block: own.block }) : raw
                 const m = href.match(/^#\/p\/([\w-]+)/)
                 event.preventDefault()
                 if (m) {

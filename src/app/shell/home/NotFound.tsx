@@ -1,5 +1,8 @@
+import { useEffect, useMemo } from 'react'
 import { navigate } from '../../lib/router'
 import { useUI } from '../../store/ui'
+import { useWorkspace } from '../../store/store'
+import { pagesAt } from '../../lib/permalink'
 import { useT } from '../../i18n'
 import { useKbdHint } from '../lib/hooks'
 import './home.css'
@@ -25,6 +28,22 @@ export function NotFound({ kind = 'route' }: { kind?: 'route' | 'page' }) {
       </div>
     </div>
   )
+}
+
+/**
+ * #/p/<x> for a page this device does not have: an address typed in another form — the id in capitals, the spec plate's
+ * "ABCD·1234" (lib/permalink.ts) — opens the one page it names (the address is replaced); anything else is "Nothing here".
+ */
+export function MissingPage({ id, block }: { id: string; block?: string }) {
+  const pages = useWorkspace((s) => s.pages)
+  const hit = useMemo(() => {
+    const ids = pagesAt(id, pages)
+    return ids.length === 1 && ids[0] !== id ? ids[0]! : null
+  }, [id, pages])
+  useEffect(() => {
+    if (hit) navigate({ name: 'page', id: hit, ...(block ? { block } : {}) }, { replace: true })
+  }, [hit, block])
+  return hit ? null : <NotFound kind="page" />
 }
 
 export function JournalPending() {

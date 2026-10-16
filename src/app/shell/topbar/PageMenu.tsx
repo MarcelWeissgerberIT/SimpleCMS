@@ -78,7 +78,7 @@ export function PageMenu({ page, anchor, onClose, mobile }: { page: Page; anchor
   const entries: MenuEntry[] = [
     ...look,
     { kind: 'separator' },
-    { label: t('common.copyLink'), icon: <Link2 size={15} />, onSelect: () => void copyPageLink(page.id) },
+    { label: t('shell.permalink.copy'), icon: <Link2 size={15} />, onSelect: () => void copyPageLink(page.id) },
     { label: t('shell.ai.copy'), icon: <ClipboardCopy size={15} />, onSelect: () => void copyPageForAI(page.id) },
     // the topbar's ☆ by name too: favourites are found where people look (this device's — viewers too)
     page.favorite

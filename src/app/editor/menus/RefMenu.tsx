@@ -6,17 +6,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Editor, Range } from '@tiptap/core'
 import { useStore } from 'zustand'
-import Fuse from 'fuse.js'
 import { exitSuggestion } from '@tiptap/suggestion'
 import { Popover } from '../../ui/Popover'
 import { PageIcon } from '../../ui/PageIcon'
 import { useWorkspace } from '../../store/store'
-import { pageTitle, templateScope } from '../../store/selectors'
+import { pageTitle } from '../../store/selectors'
 import type { Page } from '../../store/types'
 import { useT } from '../../i18n'
 import type { Bridge } from '../lib/bridge'
 import { SUGGEST_KEYS, type SuggestRun } from '../extensions/suggest'
 import { liveIds } from '../lib/livePages'
+import { refPages } from '../lib/pageSearch'
 import { useScrollActive, useSuggestAnchor, useSuggestKeys } from './common'
 
 type Section = 'level' | 'inside' | 'search'
@@ -43,24 +43,14 @@ export function RefMenu({ editor, bridge, pageId }: { editor: Editor; bridge: Br
   const rows = useMemo<Row[]>(() => {
     if (!open) return []
     const { pages } = useWorkspace.getState()
-    const here = pages[pageId]
-    const scope = templateScope(pages, pageId)
-    const candidates = Object.values(pages).filter((p) => !!live?.has(p.id) && p.id !== pageId && scope(p.id))
-    const parentOf = (p: Page) => (p.parentId ? pages[p.parentId] : null)
     const hintOf = (p: Page) => {
-      const parent = parentOf(p)
+      const parent = p.parentId ? pages[p.parentId] : null
       return parent ? pageTitle(parent, t('common.untitled')) : undefined
     }
-    const byTitle = (list: Page[]) => (query ? new Fuse(list, { keys: ['title'], threshold: 0.38, ignoreLocation: true }).search(query).map((r) => r.item) : [...list].sort((a, b) => b.updatedAt - a.updatedAt))
-    const level = byTitle(candidates.filter((p) => !!here && p.parentId === here.parentId)).slice(0, PER_SECTION)
-    const inside = byTitle(candidates.filter((p) => p.parentId === pageId)).slice(0, PER_SECTION)
-    const seen = new Set([...level, ...inside].map((p) => p.id))
-    const search = query ? byTitle(candidates.filter((p) => !seen.has(p.id))).slice(0, PER_SECTION) : []
-    return [
-      ...level.map((page) => ({ key: `l-${page.id}`, section: 'level' as const, page })),
-      ...inside.map((page) => ({ key: `i-${page.id}`, section: 'inside' as const, page })),
-      ...search.map((page) => ({ key: `s-${page.id}`, section: 'search' as const, page, hint: hintOf(page) })),
-    ]
+    // the shared ranking (lib/pageSearch.ts): same level, inside, then a title search
+    return refPages(pages, { query, near: pageId, live: live ?? new Set() }, PER_SECTION).map(({ section, page }) =>
+      section === 'search' ? { key: `s-${page.id}`, section, page, hint: hintOf(page) } : { key: `${section === 'level' ? 'l' : 'i'}-${page.id}`, section, page },
+    )
   }, [open, live, query, pageId, t])
 
   useEffect(() => setActive(0), [rows])

@@ -270,7 +270,7 @@ test.describe('databases in the sidebar', () => {
     await row(page, 'Projects').hover()
     await expect(row(page, 'Projects').getByRole('button', { name: 'New entry' })).toHaveCount(0)
     await row(page, 'Projects').getByRole('button', { name: 'More' }).click()
-    await expect(page.getByRole('menuitem', { name: 'Copy link' })).toBeVisible()
+    await expect(page.getByRole('menuitem', { name: 'Copy permalink' })).toBeVisible()
     await expect(page.getByRole('menuitem', { name: 'New entry' })).toHaveCount(0)
     await page.keyboard.press('Escape')
     await expect(row(page, 'Brand refresh')).toBeVisible()

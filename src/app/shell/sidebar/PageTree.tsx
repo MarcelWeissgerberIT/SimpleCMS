@@ -588,7 +588,7 @@ function TreeRow({ id, depth, section, draggable, expanded }: { id: ID; depth: n
     ...(touch
       ? [...(edit && !isDb ? ([{ label: t('shell.sidebar.addInside'), icon: <Plus size={15} />, onSelect: addInside }] as MenuEntry[]) : []), ...starEntries, ...editEntries]
       : [...editEntries, ...starEntries]),
-    { label: t('common.copyLink'), icon: <Link2 size={15} />, onSelect: () => void copyPageLink(id) },
+    { label: t('shell.permalink.copy'), icon: <Link2 size={15} />, onSelect: () => void copyPageLink(id) },
     { label: t('shell.ai.copy'), icon: <ClipboardCopy size={15} />, onSelect: () => void copyPageForAI(id) },
     // database rows belong to their database: no "Move to"
     ...(page.databaseId || !edit ? [] : ([{ label: t('shell.menu.moveTo'), icon: <FolderInput size={15} />, onSelect: () => useUI.getState().openModal({ type: 'move', pageId: id }) }] as MenuEntry[])),

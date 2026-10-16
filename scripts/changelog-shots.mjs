@@ -8,7 +8,7 @@
  *
  * (CHANGELOG_DRAFT=1 lets the build pass while a new entry's picture does not exist yet.)
  *
- * Shots: patchbay, ship-log, mcp-connections, worker-windows, safe-zip-import, regler, agent-precheck, ai-setup, ai-receipts, agent-trust, claude-tasks, flight-recorder-eject, flight-recorder-window, preflight, flight-recorder, tasks, outbox, mirror-again, glass-switches, history-compare, mcp-overview, mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
+ * Shots: page-refs, patchbay, ship-log, mcp-connections, worker-windows, safe-zip-import, regler, agent-precheck, ai-setup, ai-receipts, agent-trust, claude-tasks, flight-recorder-eject, flight-recorder-window, preflight, flight-recorder, tasks, outbox, mirror-again, glass-switches, history-compare, mcp-overview, mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
  * custom-agents, gmail, help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
  * workspace in English, light theme, 1440 × 900 at device scale 2; the crop of the relevant area is scaled
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
@@ -1054,6 +1054,65 @@ process.exit(1)
       const last = await notes.last().boundingBox()
       await page.screenshot({ path: `${TMP}/ship-log-page.png`, clip: { x: first.x - 16, y: first.y - 12, width: first.width + 32, height: last.y + last.height + 12 - (first.y - 12) } })
       await saveSideBySide('ship-log', [`${TMP}/ship-log-git.png`, `${TMP}/ship-log-page.png`])
+    } finally {
+      worker?.kill('SIGTERM')
+      await ctx.close()
+      rmSync(work.root, { recursive: true, force: true })
+    }
+  },
+
+  /**
+   * Pages for Claude Code (coding/RefField.tsx, GivePages.tsx): a task whose plan stage asks for “Tessera contract” by
+   * name (the fake Claude Code CLI's FAKE:ASKPAGE) — the coding panel with the question, the "Give the page" key under
+   * it, the answer with @Launch plan picked (marked) and the page search open on “@Tes”. The repository's own worker
+   * with the fake Claude Code CLI; the goal's @Launch plan is picked in the new-task dialog by keyboard.
+   */
+  async 'page-refs'(browser) {
+    const work = codingRepo()
+    const { ctx, page } = await freshPage(browser, { viewport: { width: W, height: H + 200 } })
+    let worker = null
+    try {
+      await page.evaluate(() => localStorage.setItem('one.coding.approvals', 'all'))
+      await createPage(page, 'Tessera contract', doc(para('Signed on 3 October. Delivery in two parts; the partner page names both.')), { icon: { type: 'asset', value: 'binder' } })
+      await createPage(page, 'Launch plan', doc(para('Homepage first, the partner page in the second week.')), { icon: { type: 'asset', value: 'megaphone' } })
+      await page.evaluate(() => window.__one.ui.getState().openModal({ type: 'settings' }))
+      await page.getByRole('tab', { name: 'Coding worker' }).click()
+      const init = await page.locator('.cw-code pre').filter({ hasText: 'init --workspace' }).first().textContent()
+      worker = await startCodingWorker(work, /--workspace (\S+)/.exec(init)[1])
+      const port = page.getByLabel('Port', { exact: true })
+      await port.fill(String(WORKER_PORT))
+      await port.press('Enter')
+      await page.getByRole('switch', { name: 'Connect to a coding worker on this computer' }).click()
+      await page.getByTestId('coding-conn').filter({ hasText: 'Connected' }).waitFor({ timeout: 20_000 })
+      await page.keyboard.press('Escape')
+      await page.getByRole('dialog').waitFor({ state: 'detached' })
+      await page.evaluate(() => (window.location.hash = '#/coding'))
+      await page.getByTestId('coding-new').click()
+      await page.getByTestId('coding-new-title').fill('Nordlicht partner page')
+      await page.getByTestId('coding-new-repo').fill('website')
+      await page.getByTestId('coding-new-goal').click()
+      await page.keyboard.type('Build the partner page from @Launch pl')
+      await page.getByRole('listbox', { name: 'Pages' }).waitFor()
+      await page.keyboard.press('Enter')
+      await page.keyboard.type('— the dates are in there. FAKE:ASKPAGE(Tessera contract)')
+      await page.getByTestId('coding-create').click()
+      const panel = page.getByTestId('coding-panel')
+      await panel.waitFor()
+      await page.getByTestId('coding-question').waitFor({ timeout: 90_000 })
+      await page.getByTestId('coding-give').waitFor()
+      await page.getByLabel('Answer to Claude’s question').click()
+      const list = page.getByRole('listbox', { name: 'Pages' })
+      await page.keyboard.type('The dates are in @Launch')
+      await list.waitFor()
+      await page.keyboard.press('Enter')
+      await page.keyboard.type('and the terms in @Tes')
+      await list.waitFor()
+      await scrollToTop(panel, 28)
+      await page.mouse.move(W + 40, H + 40)
+      await page.waitForTimeout(400)
+      const top = await boxOf(panel, 16)
+      const pick = await list.boundingBox()
+      await save(page, 'page-refs', { ...top, height: pick.y + pick.height + 16 - top.y })
     } finally {
       worker?.kill('SIGTERM')
       await ctx.close()

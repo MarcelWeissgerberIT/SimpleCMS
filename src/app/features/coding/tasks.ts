@@ -31,7 +31,7 @@ import { parseStories, splitSections, type DocSection, type Story } from './outp
 import { createPrivatePage } from '../../cloud'
 import { addTrusted, appendLog, loadTask, patchTask, stampApprovals, taskLocal, type TaskLocal } from './local'
 import { isTrusted, keepTrust, trustTask, versionOf } from './trust'
-import { taskText } from './refs'
+import { refIdsOf, splitTurn, taskText } from './refs'
 import { APPROVALS_KEY, approvalsAt, defaultApprovals, noteApprovalsChange, useCoding, type ApprovalsLevel } from './state'
 import { cleanShip, noteShip, prFieldNext, shipNote, shipShows } from './ship'
 import { notifyAway } from './notify'
@@ -287,14 +287,19 @@ export async function pickNext(repos: string[], workerName: string, docs = false
       set(row.id, props.claimed, nowValue())
     })
     const repo = optionName(db, props.repo, fresh.properties[props.repo!]) ?? ''
+    // the turn: this stage's answers and rework note — their pages go first (coding/refs.ts); older ones after the task's
+    const { turn, older } = splitTurn(local, stage.id)
+    // only pages of the version that was checked go along (refIdsOf: what a team task's Confirm covers)
+    const withRefs = taskText(row.id, older, { turn, within: refIdsOf(fresh) })
     await patchTask(row.id, { state: 'running', stageId: stage.id, run, error: null, runNow: false })
     return {
       id: row.id,
       title: fresh.title.trim() || t('common.untitled'),
       repo,
       stage: { id: stage.id, name: stage.name, kind: stage.kind, instructions: stage.instructions ?? '', permissionMode: stage.kind === 'plan' ? 'plan' : stage.kind === 'doc' ? 'default' : (stage.permissionMode ?? 'acceptEdits'), maxTurns: stage.maxTurns ?? (stage.kind === 'plan' ? 20 : 40), gitAction: stage.gitAction ?? null, model },
-      // the task, then the pages it refers to (@ mentions, links — also in answers and rework notes) as read-only text
-      text: taskText(row.id, [...(local.answers ?? []).map((a) => a.a), local.rework?.text ?? '']),
+      // the task, then the pages it refers to (@ mentions, links — also in answers and rework notes, this turn's first)
+      // and the pages linked in those, as read-only text
+      text: withRefs,
       rework: local.rework?.stageId === stage.id ? local.rework.text : null,
       answers: (local.answers ?? []).filter((a) => a.stageId === stage.id).map(({ q, a }) => ({ q, a })),
       branch: text(fresh.properties[props.branch ?? '']).trim() || null,
@@ -789,6 +794,8 @@ export async function reworkTask(taskId: ID, note: string, opts: ActOpts = {}): 
   const back = stageNear(ctx.pipeline, ctx.stage, ['implement', 'plan', 'doc'], -1)
   if (!back) return
   if (opts.confirm !== false) await trustTask(taskId)
+  // the note first: a worker asking for work while the task moves back (an automatic stage) gets the stage with it
+  await patchTask(taskId, { rework: { stageId: back.id, text } })
   await keepTrust([taskId], () =>
     aiWrite(() => {
       appendNote(taskId, 'asset:history', 'orange', `${t('features.coding.page.rework')} · ${ctx.stage!.name} · ${stamp()}`, text)
@@ -881,15 +888,37 @@ export function startStageOf(pipeline: ResolvedStage[], hasRepo: boolean, start:
   return start ? (intake ?? pipeline.find((s) => s.kind === 'queue' && s.auto) ?? first) : first
 }
 
+/** A page picked with @ in a coding field (coding/RefField.tsx): `[@Title](#/p/<id>)`. */
+const PICKED = /\[@((?:\\.|[^\]\\])*)\]\(#\/p\/([A-Za-z0-9_-]{4,64})\)/g
+
+/**
+ * A line the person typed as a paragraph: a page they picked with @ (`[@Title](#/p/<id>)` of a page here) becomes a page
+ * mention, like "@" in the page — a private page's title never travels inside it; anything else stays text (a pasted
+ * One address too: coding/refs.ts reads it).
+ */
+function typedPara(line: string): JSONContent {
+  const content: JSONContent[] = []
+  let at = 0
+  for (const m of line.matchAll(PICKED)) {
+    const page = ws().pages[m[2]!]
+    if (!page) continue
+    if (m.index! > at) content.push({ type: 'text', text: line.slice(at, m.index) })
+    content.push({ type: 'mention', attrs: { id: page.id, label: page.private ? '' : page.title, kind: 'page' } })
+    at = m.index! + m[0].length
+  }
+  if (at < line.length) content.push({ type: 'text', text: line.slice(at) })
+  return content.length ? { type: 'paragraph', content } : { type: 'paragraph' }
+}
+
 /** A new task's page: the goal (its blocks, or its paragraphs), the acceptance criteria as a to-do list, then `extra`. */
 export function taskBody(input: Pick<NewTask, 'goal' | 'goalDoc' | 'criteria' | 'extra'>): JSONContent[] {
   const content: JSONContent[] = []
   if (input.goalDoc) content.push(...input.goalDoc)
-  else for (const line of input.goal.split(/\n{2,}/)) if (line.trim()) content.push(para(line.trim()))
+  else for (const line of input.goal.split(/\n{2,}/)) if (line.trim()) content.push(typedPara(line.trim()))
   const criteria = input.criteria.map((c) => c.trim()).filter(Boolean)
   if (criteria.length) {
     content.push({ type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: t('features.coding.page.criteria') }] })
-    content.push({ type: 'taskList', content: criteria.map((c) => ({ type: 'taskItem', attrs: { checked: false }, content: [para(c)] })) })
+    content.push({ type: 'taskList', content: criteria.map((c) => ({ type: 'taskItem', attrs: { checked: false }, content: [typedPara(c)] })) })
   }
   if (input.extra?.length) content.push(...input.extra)
   return content.length ? content : [para('')]
