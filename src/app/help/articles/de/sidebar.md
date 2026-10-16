@@ -47,7 +47,7 @@ Ein Favorit in einer Seite, die im Papierkorb liegt, wird nicht gezeigt. Stellst
 - Fahr mit der Maus über eine Seite und klick **+** für **Unterseite hinzufügen**. Der Pfeil davor klappt sie auf.
 - Auf einem Touch-Bildschirm trägt eine Zeile nur ihr **•••**, damit Titel ganz lesbar bleiben: Ihr Menü beginnt mit **Unterseite hinzufügen** (bei einer Datenbank **Neuer Eintrag**), dann kommt der Stern.
 - Zieh eine Seite auf eine andere, um sie zu verschachteln, oder zwischen zwei, um sie umzusortieren. **Verschieben nach…** im Menü macht dasselbe per Tastatur.
-- Das **•••**-Menü einer Zeile (oder ein Rechtsklick, oder <kbd>Shift+F10</kbd> auf einer Zeile mit Fokus): umbenennen (<kbd>F2</kbd>), duplizieren, Favoriten, Link kopieren, für KI-Kontext kopieren, verschieben, im Seitenbereich (<kbd>Alt</kbd>-Klick) oder in der Vorschau öffnen, löschen.
+- Das **•••**-Menü einer Zeile (oder ein Rechtsklick, oder <kbd>Shift+F10</kbd> auf einer Zeile mit Fokus): umbenennen (<kbd>F2</kbd>), duplizieren, Favoriten, **Permalink kopieren** ([Permalinks](help:coding-pipeline)), für KI-Kontext kopieren, verschieben, im Seitenbereich (<kbd>Alt</kbd>-Klick) oder in der Vorschau öffnen, löschen.
 - Die Abschnittsköpfe (**02 ZULETZT | HÄUFIG**, **03 SEITEN**, **PRIVAT**) bleiben oben stehen, während ihre Zeilen vorbeiziehen, und die Liste hält auf ganzen Zeilen. Öffnest du eine Seite, zeigt der Baum sie: zuerst ihre oberste Seite direkt unter dem Kopf, wenn die offene Seite dann noch darunter passt, sonst ihre Elternseite. Nichts bewegt sich, wenn die Seite schon zu sehen ist oder in **FAVORITEN** steht.
 - Die orange Marke steht nur an einer Zeile: am Favoriten, wenn die offene Seite einer ist, sonst im Baum.
 

@@ -47,7 +47,7 @@ A favourite inside a page that is in the trash is not shown. Restore that page a
 - Point at a page and click **+** to **Add a page inside**. The arrow in front of it expands it.
 - On a touch screen a row carries only its **•••**, so titles stay whole: its menu starts with **Add a page inside** (on a database: **New entry**), then the star.
 - Drag a page onto another to nest it, or between two to reorder. **Move to…** in its menu does the same from the keyboard.
-- A row's **•••** menu (or a right-click, or <kbd>Shift+F10</kbd> on a focused row): rename (<kbd>F2</kbd>), duplicate, favourites, copy link, copy for the AI, move, open in a side pane (<kbd>Alt</kbd>-click) or in the peek, delete.
+- A row's **•••** menu (or a right-click, or <kbd>Shift+F10</kbd> on a focused row): rename (<kbd>F2</kbd>), duplicate, favourites, **Copy permalink** ([Permalinks](help:coding-pipeline)), copy for the AI, move, open in a side pane (<kbd>Alt</kbd>-click) or in the peek, delete.
 - The section heads (**02 RECENT | FREQUENT**, **03 PAGES**, **PRIVATE**) stay on top while their rows scroll by, and the list rests on whole rows. When you open a page, the tree shows it: its top-level page first under the head when the open page still fits below, else its parent. Nothing moves when the page is in view already, or in **FAVORITES**.
 - The orange mark sits on one row only: the favourite's when the open page is a favourite, else the tree's.
 
