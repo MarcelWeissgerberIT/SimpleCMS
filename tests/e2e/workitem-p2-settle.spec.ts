@@ -861,7 +861,9 @@ test.describe('claudeSettled: the order of the steps (in the app)', () => {
     expect(tasks(r.doc)).toEqual([])
     expect(r.report.created).toEqual([])
     expect(mentionsIn(r.doc)).toEqual([{ id: ids.Alex, label: 'Alex', kind: 'person' }])
-    expect(textOf(r.doc)).toContain('Ask @Oct 17 and [person:' + ids.Alex + '].')
+    // raw HTML outside the file form's own tags stays text as Claude wrote it (MCP B0: claudeDoc's raw-HTML allow-list)
+    expect(textOf(r.doc)).toContain('Ask <span data-type="mention" data-kind="date"')
+    expect(textOf(r.doc)).toContain('>Oct 17</span> and [person:' + ids.Alex + '].')
     expect(hrefsIn(r.doc)).toContain('https://attacker.example/c.png')
     expect(r.report.mentionsAdded).toBe(1)
     // without a context: text

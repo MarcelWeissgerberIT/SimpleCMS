@@ -6,13 +6,16 @@
  */
 import { t, currentLang } from '../../i18n'
 import type { ID } from '../../store/types'
-import { AGENT_TOOLS, ToolInputError, type StageApi } from '../ai/agent/tools'
+import { AGENT_TOOLS, ToolInputError, withToolScope, type AgentTool, type StageApi } from '../ai/agent/tools'
 import { applyChanges } from '../ai/agent/apply'
+import { guardPipelineRows } from '../ai/agent/coding'
+import { inTemplate } from '../../store/selectors'
+import { systemChange, systemGuard, systemRefusal } from './system'
 import { newItemSession } from '../ai/agent/workItems'
 import type { StagedChange, ToolName } from '../ai/agent/types'
 import { factLine, holdText, type HoldReason, type ItemFact } from '../workitems'
 import { HOLD_REASONS } from '../workitems/holds'
-import { McpToolError } from './values'
+import { McpToolError, ws } from './values'
 import type { PlanLine } from './plan'
 import { withWriter, type Writer } from '../../store/writer'
 
@@ -65,12 +68,31 @@ export function callStage(): StageApi & { changes: StagedChange[] } {
   }
 }
 
+/**
+ * The agent tools as MCP runs them: One's own databases refused (system.ts systemGuard — read-only over MCP), the
+ * pipelines' row guard behind it as a backstop (agent/coding.ts guardPipelineRows). Built once, on first use.
+ */
+let mcpTools: AgentTool[] | null = null
+export function mcpStageTool(name: ToolName): AgentTool | undefined {
+  mcpTools ??= AGENT_TOOLS.map((tool) => systemGuard(guardPipelineRows(tool)))
+  return mcpTools.find((x) => x.name === name)
+}
+
+/** Templates are not found over MCP (spec § 3.3): the agent tools' lookups see every page outside them. */
+const outsideTemplates = (id: string) => !inTemplate(ws().pages, id)
+
+/** Refuse a stage holding a change that writes into One's own databases (a folded change staged outside a tool). */
+export function assertStageWritable(changes: readonly StagedChange[]): void {
+  const hit = systemChange(changes)
+  if (hit) throw new McpToolError(systemRefusal(hit))
+}
+
 /** Run one agent tool on the stage; its input errors become MCP errors. */
 export function stageWith(stage: StageApi, name: ToolName, input: Record<string, unknown>) {
-  const tool = AGENT_TOOLS.find((x) => x.name === name)
+  const tool = mcpStageTool(name)
   if (!tool) throw new Error(`agent tool ${name} missing`)
   try {
-    const out = tool.run(input, stage)
+    const out = withToolScope(outsideTemplates, () => tool.run(input, stage))
     // the staging tools answer at once (only run_query / write_script load the script engine)
     if (out instanceof Promise) throw new Error(`agent tool ${name} is not a staging tool`)
     return out
@@ -82,6 +104,8 @@ export function stageWith(stage: StageApi, name: ToolName, input: Record<string,
 
 export async function applyStaged(changes: StagedChange[], writer: Writer): Promise<{ rowIds: Record<string, ID>; undo: () => boolean }> {
   if (!changes.length) return { rowIds: {}, undo: () => true }
+  // the plan was checked; a page that moved into one of One's databases while the card waited is refused all the same
+  assertStageWritable(changes)
   const res = await applyChanges(changes, changes, (id) => id, { writer })
   if (res.failed.length) {
     // the call takes back what it wrote (its own rollback)

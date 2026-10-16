@@ -15,13 +15,16 @@ import { webImagesOf } from '../agents/images'
 import { newId } from '../../lib/ids'
 import { t } from '../../i18n'
 import type { Database, ID, PropertyDef, PropertyType } from '../../store/types'
-import { isEffectivelyTrashed } from '../../store/selectors'
+import { inTemplate, isEffectivelyTrashed } from '../../store/selectors'
 import { aiWrite, contentKey, snapshotNow } from '../history/snapshots'
 import { pagePrivate, registerItems, stageBlocks, type ItemStaging } from '../ai/agent/workItems'
 import type { PropChange } from '../ai/agent/types'
 import { getItemIndex, SettleRefusal, type SettleReport } from '../workitems'
 import { holdsOfReport } from '../workitems/holds'
-import { applyStaged, callStage, itemLine, itemPlan, mcpMessage, stageWith } from './stage'
+import { applyStaged, assertStageWritable, callStage, itemLine, itemPlan, mcpMessage, stageWith } from './stage'
+import { assertNotSystem } from './system'
+import { privateRefsFor, privateScopeRefusal } from '../ai/claudeFiles'
+import { livePage, withPageNodes, type LinkTarget } from '../ai/agent/links'
 import { MCP_PROPERTY_TYPES, type McpToolName } from './contract'
 import { databaseOrThrow, iconText, kindOf, live, McpToolError, pageUrl, pathOf, propertyJson, q, rowProperties, titleOf, TWO_WAY_SUFFIX, ws } from './values'
 import { chars, optionsOf, pageOrThrow, parseIcon, preview, str, type PlanLine, type WritePlan } from './plan'
@@ -39,6 +42,19 @@ import { planUpdateWorkItems } from './workItems'
 
 /** The new tasks of a write, for its result (Claude uses these ids in later calls). */
 const tasksOf = (created: Array<{ id: string; title: string; handle?: string }>) => (created.length ? { tasks: created } : {})
+
+/**
+ * Private files may not go into a shared page (spec § 3.3): a shared write would publish them for the whole workspace.
+ * `private`: the target's privacy (team; locally nothing is private).
+ */
+function checkFileScope(markdown: string, targetPrivate: boolean, target: string): void {
+  if (!markdown.includes('onefile:')) return
+  const refs = privateRefsFor(markdown, targetPrivate)
+  if (refs.length) throw new McpToolError(privateScopeRefusal(refs, target))
+}
+
+/** A page a replace may turn a link into a mention / page link block for: live, never a template's. */
+const linkTarget = (id: ID): LinkTarget | null => (inTemplate(ws().pages, id) ? null : livePage(id))
 
 function propLines(props: PropChange[] | undefined, withBefore: boolean): PlanLine[] {
   return (props ?? []).map((p) => ({ k: 'prop', name: p.name, ...(withBefore ? { before: p.before } : {}), after: p.after, ...(p.newOptions?.length ? { fresh: p.newOptions } : {}) }))
@@ -76,6 +92,7 @@ function planCreatePage(args: Record<string, unknown>): WritePlan {
   stageWith(stage, 'create_page', { title, markdown, ...(parentId ? { parent_id: parentId } : {}) })
   const c = stage.changes[0]
   const parent = c.parentId ? ws().pages[c.parentId] : undefined
+  checkFileScope(markdown, parent ? pagePrivate(parent.id) : false, q(title))
   const where = parent ? titleOf(parent) : t('features.mcp.plan.topLevel')
   const lines: PlanLine[] = [{ k: 'fact', label: t('features.mcp.plan.in'), value: parent ? [pathOf(parent.id), titleOf(parent)].filter(Boolean).join(' / ') : where }]
   if (icon) lines.push({ k: 'fact', label: t('features.mcp.plan.icon'), value: iconText(icon) ?? '' })
@@ -100,6 +117,8 @@ function planCreatePage(args: Record<string, unknown>): WritePlan {
 
 function planUpdatePage(args: Record<string, unknown>): WritePlan {
   const page = pageOrThrow(args.id)
+  // One's own databases (a pipeline task, a memory, a mail …): read-only over MCP — title and icon too
+  assertNotSystem(page.id)
   const mode = args.mode === undefined || args.mode === null || args.mode === '' ? 'append' : args.mode
   if (mode !== 'append' && mode !== 'replace') throw new McpToolError('"mode" must be "append" or "replace".')
   const titleRaw = args.title === undefined || args.title === null ? null : str(args.title, 'title', { max: 300 }).replace(/\s+/g, ' ').trim()
@@ -110,6 +129,7 @@ function planUpdatePage(args: Record<string, unknown>): WritePlan {
   if (markdown !== null && page.kind === 'database') throw new McpToolError(`${q(titleOf(page))} is a database: its content is its rows. Use one_create_row.`)
   if (markdown !== null && page.settings.locked) throw new McpToolError(`${q(titleOf(page))} is locked in One. Ask the person to unlock it first.`)
   if (mode === 'append' && markdown !== null && !markdown.trim()) throw new McpToolError('"markdown" is empty: nothing to append.')
+  if (markdown !== null) checkFileScope(markdown, pagePrivate(page.id), q(titleOf(page)))
 
   const stage = callStage()
   const lines: PlanLine[] = []
@@ -139,7 +159,8 @@ function planUpdatePage(args: Record<string, unknown>): WritePlan {
     const priv = pagePrivate(page.id)
     try {
       const settled = claudeSettled(markdown, webImagesOf(page.content), { source: 'mcp', creates: true, strict: true, known: page.content, pageId: page.id, private: priv, me: true, existing: 'copy', handles: stage.items.handles, staged: stage.items.staged })
-      replaceWith = settled.doc
+      // page links come back as what a person makes (agent/links.ts — as the terminal's and an append's writes)
+      replaceWith = withPageNodes(settled.doc, linkTarget)
       replaced = settled.report
     } catch (e) {
       if (e instanceof SettleRefusal) throw new McpToolError(mcpMessage(`${e.message} Nothing was changed.`))
@@ -156,6 +177,8 @@ function planUpdatePage(args: Record<string, unknown>): WritePlan {
     for (const w of replaced.warnings) if (w.code !== 'fields') lines.push({ k: 'note', value: t(`features.workItems.settle.${w.code}`, { value: w.value ?? '', task: w.task }) })
     // Blocks: onto existing tasks — folded into this call (same card, same approval), applied after the replace
     stageBlocks(stage, { id: '', n: 0, kind: 'append', status: 'pending', pageId: page.id }, staging)
+    // a folded change onto a task that lives in One's own databases: refused like a direct one
+    assertStageWritable(stage.changes)
     lines.push({ k: 'note', value: t('features.mcp.plan.historyNote') })
     changed.push('content')
   }
@@ -228,10 +251,12 @@ function planUpdatePage(args: Record<string, unknown>): WritePlan {
 
 function planCreateRow(args: Record<string, unknown>): WritePlan {
   const { db, page: dbPage } = databaseOrThrow(args.databaseId)
+  assertNotSystem(db.id)
   const split = splitTitle(db, args.properties)
   const title = (str(args.title, 'title', { max: 300 }) || split.title || '').replace(/\s+/g, ' ').trim()
   if (!title) throw new McpToolError('Missing required parameter "title".')
   const markdown = str(args.markdown, 'markdown', { max: 200_000 })
+  checkFileScope(markdown, pagePrivate(db.id), q(title))
   const stage = callStage()
   stageWith(stage, 'create_row', { database_id: db.id, title, ...(split.props ? { properties: split.props } : {}), ...(markdown.trim() ? { markdown } : {}) })
   const c = stage.changes[0]
@@ -262,6 +287,7 @@ function planUpdateRow(args: Record<string, unknown>): WritePlan {
   const row = pageOrThrow(args.id)
   if (!row.databaseId) throw new McpToolError(`${q(titleOf(row))} is a ${kindOf(row)}, not a database row. Use one_update_page for pages.`)
   const { db, page: dbPage } = databaseOrThrow(row.databaseId)
+  assertNotSystem(row.id)
   if (!args.properties || typeof args.properties !== 'object' || Array.isArray(args.properties) || !Object.keys(args.properties).length)
     throw new McpToolError('"properties" must name at least one property to change.')
   const split = splitTitle(db, args.properties)
@@ -362,6 +388,7 @@ function addProperties(dbId: ID, specs: PropSpec[]): () => boolean {
 
 function planCreateProperty(args: Record<string, unknown>): WritePlan {
   const { db, page } = databaseOrThrow(args.databaseId)
+  assertNotSystem(db.id)
   const dbTitle = titleOf(page)
   if (db.locked) throw new McpToolError(`${q(dbTitle)} is locked in One: its properties cannot change. Ask the person to unlock it.`)
   const spec = propertySpec(args, { dbId: db.id, dbTitle, taken: db.properties.map((p) => p.name) }, 'property')
@@ -390,6 +417,8 @@ function planCreateDatabase(args: Record<string, unknown>): WritePlan {
   const parentRaw = str(args.parentId, 'parentId', { max: 80 }).trim()
   const parent = parentRaw ? pageOrThrow(parentRaw, 'parentId') : null
   if (parent?.kind === 'database') throw new McpToolError(`${q(titleOf(parent))} is a database; a database goes under a page.`)
+  // nothing new below a row of One's own databases
+  if (parent) assertNotSystem(parent.id)
   const id = newId()
   const raw = args.properties
   if (raw !== undefined && raw !== null && !Array.isArray(raw)) throw new McpToolError('"properties" must be a list of {name, type, options?, relation?}.')

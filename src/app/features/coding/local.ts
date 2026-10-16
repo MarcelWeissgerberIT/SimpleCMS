@@ -5,12 +5,14 @@
  *   <scope>|task|<taskId>   TaskLocal — run state, the question, answers, rework note, plan, summary, the
  *                           newest diff / git state and test output, "Run now"
  *   <scope>|trust           hashes of task versions written or confirmed here (team workspaces)
+ *   <scope>|mcpTouched|<taskId>  true: an MCP write moved the task's version here (local workspaces; trust.ts
+ *                           needsConfirm — the task waits for Confirm like an agent's; Confirm removes it)
  * <scope> = "local:local" / "cloud:<workspace id>". Without IndexedDB everything stays in memory.
  * A task state written here is announced on BroadcastChannel "one-coding-tasks"; a tab holding that task reads it
  * again (the newer by `at` wins; a state held only as loadTasks' snapshot always loses to what is stored).
  */
 import { create } from 'zustand'
-import { createStore, get, getMany, set as idbSet, update, type UseStore } from 'idb-keyval'
+import { createStore, del, get, getMany, keys, set as idbSet, update, type UseStore } from 'idb-keyval'
 import { activeWorkspace } from '../../cloud'
 import type { ID } from '../../store/types'
 import { LOG_MAX, type GitInfo, type LogLine, type TestResult } from './protocol'
@@ -369,17 +371,27 @@ export async function clearLog(taskId: ID): Promise<void> {
 const MAX_TRUST = 2000
 let trustCache: { scope: string; set: Set<string> } | null = null
 
-/** Another tab of this browser trusted a version: every tab's trust readouts re-check (trustRev). */
-type TrustMessage = { scope: string; hash: string }
+/**
+ * Another tab of this browser trusted a version (`hash`), or marked / cleared a task an MCP write moved (`touched`):
+ * every tab's trust readouts re-check (trustRev).
+ */
+type TrustMessage = { scope: string; hash: string } | { scope: string; touched: ID; on: boolean }
 let trustChan: BroadcastChannel | null | undefined
 
 function trustChannel(): BroadcastChannel | null {
   if (trustChan !== undefined) return trustChan
   trustChan = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('one-coding-trust') : null
   trustChan?.addEventListener('message', (e: MessageEvent) => {
-    const m = e.data as TrustMessage | null
-    if (!m || typeof m.scope !== 'string' || typeof m.hash !== 'string' || m.scope !== scope()) return
-    if (trustCache?.scope === m.scope) trustCache.set.add(m.hash)
+    const m = e.data as Record<string, unknown> | null
+    if (!m || typeof m.scope !== 'string' || m.scope !== scope()) return
+    if (typeof m.hash === 'string') {
+      if (trustCache?.scope === m.scope) trustCache.set.add(m.hash)
+    } else if (typeof m.touched === 'string') {
+      if (touchedCache?.scope === m.scope) {
+        if (m.on === true) touchedCache.set.add(m.touched)
+        else touchedCache.set.delete(m.touched)
+      }
+    } else return
     useCodingLocal.setState((st) => ({ trustRev: st.trustRev + 1 }))
   })
   return trustChan
@@ -429,6 +441,83 @@ export async function addTrusted(hash: string): Promise<void> {
   }
   try {
     trustChannel()?.postMessage({ scope: s, hash } satisfies TrustMessage)
+  } catch {
+    /* closed */
+  }
+}
+
+/* ------------------------------------------------------------------ MCP-touched tasks (local workspaces) */
+
+let touchedCache: { scope: string; set: Set<ID> } | null = null
+let touchedLoad: { scope: string; job: Promise<Set<ID>> } | null = null
+const touchedKey = (s: string, taskId: ID) => `${s}|mcpTouched|${taskId}`
+
+/** The tasks an MCP write moved on this device (read once per workspace; later marks join in memory). */
+export function loadMcpTouched(): Promise<Set<ID>> {
+  trustChannel()
+  const s = scope()
+  if (touchedCache?.scope === s) return Promise.resolve(touchedCache.set)
+  if (touchedLoad?.scope === s) return touchedLoad.job
+  const job = (async () => {
+    const set = new Set<ID>()
+    const store = kv()
+    const prefix = `${s}|mcpTouched|`
+    if (store) {
+      try {
+        for (const k of await keys(store)) if (typeof k === 'string' && k.startsWith(prefix)) set.add(k.slice(prefix.length))
+      } catch {
+        noDb = true
+      }
+    }
+    // marks made while the read went on stay
+    if (touchedCache?.scope === s) for (const id of touchedCache.set) set.add(id)
+    touchedCache = { scope: s, set }
+    return set
+  })()
+  touchedLoad = { scope: s, job }
+  return job
+}
+
+/** Synchronous: did an MCP write move this task here? (false until loadMcpTouched read the device's marks) */
+export function isMcpTouched(taskId: ID): boolean {
+  return touchedCache?.scope === scope() && touchedCache.set.has(taskId)
+}
+
+/** Mark tasks an MCP write moved: they wait for Confirm on this device (trust.ts needsConfirm). */
+export async function markMcpTouched(ids: ID[]): Promise<void> {
+  if (!ids.length) return
+  const s = scope()
+  const set = await loadMcpTouched()
+  const fresh = ids.filter((id) => !set.has(id))
+  if (!fresh.length) return
+  for (const id of fresh) set.add(id)
+  useCodingLocal.setState((st) => ({ trustRev: st.trustRev + 1 }))
+  await Promise.all(fresh.map((id) => write(touchedKey(s, id), true)))
+  for (const id of fresh) {
+    try {
+      trustChannel()?.postMessage({ scope: s, touched: id, on: true } satisfies TrustMessage)
+    } catch {
+      /* closed */
+    }
+  }
+}
+
+/** Confirm on this device: the task no longer counts as moved by MCP. */
+export async function clearMcpTouched(taskId: ID): Promise<void> {
+  const s = scope()
+  const set = await loadMcpTouched()
+  if (!set.delete(taskId)) return
+  useCodingLocal.setState((st) => ({ trustRev: st.trustRev + 1 }))
+  const store = kv()
+  if (store) {
+    try {
+      await del(touchedKey(s, taskId), store)
+    } catch {
+      noDb = true
+    }
+  }
+  try {
+    trustChannel()?.postMessage({ scope: s, touched: taskId, on: false } satisfies TrustMessage)
   } catch {
     /* closed */
   }

@@ -58,6 +58,11 @@ const unprocessable = (errors: ValueError[], code = 'invalid_value') =>
 /** Who writes: `agent` — a server agent or an MCP client, which never writes a property "Only by hand" (keys.ts). */
 export interface WriteOpts {
   agent?: boolean
+  /**
+   * What a files property takes: 'web' (default — the public API: http(s) URLs) or 'onefile' (MCP: only this
+   * workspace's files as `onefile:<id>`; a web address there would load in every viewer's browser).
+   */
+  files?: 'web' | 'onefile'
 }
 
 /** A property by id, else by name (case-insensitive, trimmed). */
@@ -219,7 +224,7 @@ export class WorkspaceModel {
         continue
       }
       try {
-        const v = coerce(prop, raw, ctx)
+        const v = coerce(prop, raw, ctx, { files: opts.files })
         if (prop.type === 'title') title ??= String(v)
         else values[prop.id] = v
       } catch (e) {

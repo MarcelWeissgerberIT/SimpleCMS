@@ -1209,6 +1209,20 @@ the public APIs stable — other areas are built against them in parallel.
 - Team-cloud agents (server/src/agents): agents with `runner: 'server'` run on the server (scheduler, row triggers,
   webhooks) with a per-workspace Claude key + MCP tokens encrypted at rest; their writes carry `agent:<agentId>` as
   createdBy / updatedBy; `AGENTS=off` disables them; the server needs outbound HTTPS to api.anthropic.com.
+- MCP safety (B0, bridge + team server): a template id is not found by any MCP tool (features/mcp/values.ts `live`; the
+  agent tools run under MCP's tool scope, stage.ts). One's own databases (`Database.system`: memory, Mails, mail
+  directories, pipelines, test cases) are read-only over MCP — rows, pages below rows, schema, views, moves, trash
+  (`system_database`; features/mcp/system.ts `systemOf` / `systemGuard`, wrapped around agent/coding.ts
+  `guardPipelineRows` in stage.ts `mcpStageTool`; server/src/mcp/system.ts, MCP-only — server agents keep their rules).
+  MCP writes never carry coding trust (coding/trust.ts); locally a task whose version an MCP write moved is
+  `mcpTouched` (IndexedDB `one-coding` `<scope>|mcpTouched|<taskId>`) and waits for Confirm. claudeDoc, for every caller:
+  raw HTML only as the file form writes it (features/ai/claudeFiles.ts `claudeHtml`; any other tag stays as written, as
+  text — no node, no mention, no link), `data:` sources become text, a
+  `onefile:` ref stays only when it is this workspace's (`StoredFile.ws`, lib/files.ts), a live page the caller may read
+  uses it and it is not private while the target is shared (MCP refuses that: `private_scope`). A files property's web
+  image never loads by itself on a card (database/views/cards.tsx link chip; file chips show no web thumbnail). The team
+  server over MCP refuses a locked page's content, a lossy replace (`lossyIn` pre-filter) and files values other than
+  `onefile:`, checks before it writes and puts the content back from the call's pre-image after a failed meta check.
 - MCP tidy-up tools (trash / restore ≤ 50 ids, move page / row, update database / property, delete property, view
   create / update / delete) live in `features/mcp/{tidy,structure}.ts` and `server/src/mcp/{tidy,structure}.ts` with
   the same rules: never delete for good, locked databases refuse structure changes, no page ⇄ entry or Private ⇄ shared

@@ -20,7 +20,8 @@ import { FILTER_OPS, sortKeys } from './query.ts'
 import { McpReads } from './reads.ts'
 import { McpStructure, TYPE_CHANGES, VIEW_TYPES, type ViewInput } from './structure.ts'
 import { BULK_MAX, McpTidy } from './tidy.ts'
-import { CREATABLE_TYPES, McpWrites, iconIn } from './writes.ts'
+import { CREATABLE_TYPES, MAX_DB_PROPERTIES, McpWrites, iconIn } from './writes.ts'
+import { assertNotSystem } from './system.ts'
 
 const id = idSchema.describe('A page, row or database id')
 const markdown = z.string().max(200_000)
@@ -276,6 +277,8 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
     },
     async (a) =>
       run(a.workspace, async () => {
+        // nothing new below a row of One's own databases (read-only over MCP — system.ts)
+        if (a.parentId) await model.read(ws, (r) => assertNotSystem(r, a.parentId))
         const created = await model.createPage(ws, { title: a.title, parentId: a.parentId ?? null, content: a.markdown, icon: iconIn(a.icon) }, actor)
         return { ...created, title: a.title }
       })(),
@@ -296,7 +299,7 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
       },
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     },
-    async (a) => run(a.workspace, () => writes.updatePage(ws, { id: a.id, title: a.title, icon: a.icon, markdown: a.markdown, mode: a.mode ?? 'append' }, actor))(),
+    async (a) => run(a.workspace, () => writes.updatePage(ws, { id: a.id, title: a.title, icon: a.icon, markdown: a.markdown, mode: a.mode ?? 'append' }, actor, { mcp: true }))(),
   )
 
   server.registerTool(
@@ -310,8 +313,8 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
     async (a) =>
       run(a.workspace, async () => {
         // an MCP client is an agent: properties "Only by hand" are refused (api/keys.ts)
-        const row = await writes.prepareRow(ws, { databaseId: a.databaseId }, { title: a.title, properties: a.properties }, actor, { agent: true })
-        const created = await model.createRow(ws, a.databaseId, { title: row.title ?? a.title, properties: row.properties, content: a.markdown }, actor, { agent: true })
+        const row = await writes.prepareRow(ws, { databaseId: a.databaseId }, { title: a.title, properties: a.properties }, actor, { agent: true, mcp: true, files: 'onefile' })
+        const created = await model.createRow(ws, a.databaseId, { title: row.title ?? a.title, properties: row.properties, content: a.markdown }, actor, { agent: true, files: 'onefile' })
         return { ...created, title: row.title ?? a.title }
       })(),
   )
@@ -326,8 +329,8 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
     },
     async (a) =>
       run(a.workspace, async () => {
-        const row = await writes.prepareRow(ws, { rowId: a.id }, { properties: a.properties }, actor, { agent: true })
-        return model.updateRow(ws, a.id, { title: row.title, properties: row.properties }, actor, { agent: true })
+        const row = await writes.prepareRow(ws, { rowId: a.id }, { properties: a.properties }, actor, { agent: true, mcp: true, files: 'onefile' })
+        return model.updateRow(ws, a.id, { title: row.title, properties: row.properties }, actor, { agent: true, files: 'onefile' })
       })(),
   )
 
@@ -352,7 +355,7 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
         parentId: id.nullable().optional(),
         properties: z
           .array(z.object({ ...propertySpec, type: z.enum(['title', ...CREATABLE_TYPES]) }))
-          .max(50)
+          .max(MAX_DB_PROPERTIES)
           .optional(),
         ...WS,
       },

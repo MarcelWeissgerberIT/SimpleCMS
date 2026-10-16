@@ -14,7 +14,7 @@ import { useUI } from '../../store/ui'
 import { navigate } from '../../lib/router'
 import type { ID } from '../../store/types'
 import { HelpLink } from '../../help'
-import { clearLog, loadTask, useTaskLocal, useTaskLog } from './local'
+import { clearLog, isMcpTouched, loadTask, useCodingLocal, useTaskLocal, useTaskLog } from './local'
 import { useCoding } from './state'
 import { approveTask, answerTask, confirmTask, reworkTask, runTaskNow, stageSteps, taskContext, taskHasText } from './tasks'
 import { isTrusted } from './trust'
@@ -30,6 +30,7 @@ import { NowLine, RunCounters } from './NowLine'
 import { FollowUps } from './FollowUps'
 import { ImportBox } from './ImportBox'
 import { RefsLine } from './RefsLine'
+import { refIdsOf } from './refs'
 import { RefField, type RefFieldHandle } from './RefField'
 import { GivePages } from './GivePages'
 import { EMPTY_DRAFT, draftText, type RefDraft } from './refDraft'
@@ -117,7 +118,15 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
     void loadTask(pageId)
   }, [pageId])
 
-  // team: every task; local: a task a custom agent wrote (trust.ts)
+  // team: every task; local: a task a custom agent wrote, or one an MCP write moved (trust.ts) — trustRev: this device
+  // trusted a version or marked a task (local.ts), also from another tab
+  const trustRev = useCodingLocal((s) => s.trustRev)
+  // the pages the task takes along are part of its version (trust.ts versionOf): a change there — by anyone, over MCP
+  // too — re-checks as well
+  const refsAt = useWorkspace((s) => {
+    const p = s.pages[pageId]
+    return p?.databaseId ? refIdsOf(p).map((id) => `${id}:${s.pages[id]?.updatedAt ?? 0}:${s.pages[id]?.contentRev ?? 0}`).join(' ') : ''
+  })
   useEffect(() => {
     let live = true
     setTrusted(null)
@@ -125,7 +134,7 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
     return () => {
       live = false
     }
-  }, [pageId, team, row, dbs])
+  }, [pageId, team, row, dbs, trustRev, refsAt])
 
   if (!ctx) return null
   const { pipeline, stage, row: task, props, kind } = ctx
@@ -229,7 +238,7 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
         {needsTrust && canAct && (
           <div className="ctk-box ctk-box--trust" role="alert">
             <ShieldCheck size={16} strokeWidth={1.75} aria-hidden />
-            <p>{t(team ? 'features.coding.trust.body' : 'features.coding.trust.agent')}</p>
+            <p>{t(team ? 'features.coding.trust.body' : isMcpTouched(pageId) ? 'features.coding.trust.mcp' : 'features.coding.trust.agent')}</p>
             <button type="button" className="btn btn--sm btn--primary" onClick={act(async () => {
               await confirmTask(pageId)
               setTrusted(true)

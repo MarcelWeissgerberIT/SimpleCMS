@@ -16,6 +16,7 @@ import { workspaceInfo } from './identity'
 import { scriptList } from '../script'
 import { queryTarget, runQuery } from './script'
 import { listWorkItemsMcp } from './workItems'
+import { systemNote } from './system'
 import { comparable, databaseOrThrow, friendlyValue, iconText, iso, kindOf, live, McpToolError, pageUrl, pathOf, propertyJson, q, rowJson, rowProperties, rowsOf, titleOf, ws } from './values'
 
 /** Characters of page Markdown in one answer. */
@@ -145,11 +146,12 @@ export function findPage(args: Record<string, unknown>): { page: Page; others: P
   const title = str(args.title)
   if (!id && !title) throw new McpToolError('Give the page id (or its exact title).')
   if (id) {
+    // a template's page is not found by its id either (live)
     const p = live(id)
     if (p) return { page: p, others: [] }
     if (!title) throw new McpToolError(`No page with id ${q(id)}. Use one_search to find page ids.`)
   }
-  // by title: template pages (features/templates) never answer; by id they still do
+  // by title: template pages (features/templates) never answer, as by id
   const pages = ws().pages
   const all = Object.values(pages).filter((p) => live(p.id) && !inTemplate(pages, p.id))
   const hits = all.filter((p) => p.title.trim().toLowerCase() === title.toLowerCase()).sort((a, b) => b.updatedAt - a.updatedAt)
@@ -185,8 +187,9 @@ function getPage(args: Record<string, unknown>) {
     out.schema = databases[p.id].properties.map((prop) => ({ name: prop.name, type: prop.type, ...(prop.options ? { options: prop.options.map((o) => o.name) } : {}) }))
     out.hint = 'A database: one_query_database lists its rows, one_get_database has the full schema and views.'
   }
+  // sub-pages as the sidebar shows them: never a template's (they read like unknown ids) nor a hidden one
   const children = Object.values(pages)
-    .filter((c) => c.parentId === p.id && !c.databaseId && !c.trashed)
+    .filter((c) => c.parentId === p.id && !c.databaseId && !c.hidden && live(c.id))
     .sort((a, b) => a.order - b.order)
   if (children.length) out.children = children.slice(0, 100).map(ref)
   if (others.length) out.alsoTitled = others.slice(0, 10).map((o) => ({ id: o.id, path: pathOf(o.id) }))
@@ -195,6 +198,7 @@ function getPage(args: Record<string, unknown>) {
   out.markdown = md.length > MARKDOWN_MAX ? `${md.slice(0, MARKDOWN_MAX)}\n[Truncated: ${MARKDOWN_MAX.toLocaleString('en')} of ${md.length.toLocaleString('en')} characters]` : md
   if (md.length > MARKDOWN_MAX) out.truncated = true
   out.backlinks = selectBacklinks(pages, p.id)
+    .filter((b) => live(b.id))
     .slice(0, 50)
     .map((b) => ({ id: b.id, title: titleOf(b), path: pathOf(b.id) }))
   return out
@@ -235,6 +239,7 @@ function getDatabase(args: Record<string, unknown>) {
     rows: rowsOf(db.id).length,
     locked: !!db.locked,
     ...(db.locked ? { lockedNote: 'Locked: rows can be added and changed; properties and options cannot.' } : {}),
+    ...(db.system ? { system: db.system, systemNote: systemNote(db.system) } : {}),
     properties: db.properties.map((p) => propertyJson(db, p)),
     views: db.views.map((v) => ({
       id: v.id,

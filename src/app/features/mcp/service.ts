@@ -33,6 +33,8 @@ import { warmMembers } from '../workitems'
 import { DEFAULT_SETTINGS, loadSettings, MCP_STORAGE_KEY, saveSettings, useMcp, validPort, type ActivityState, type McpActivity, type McpSettings, type Verdict } from './state'
 import { endRun, noteRun, withWriter, type Writer } from '../../store/writer'
 import { localNetworkPermission } from '../../lib/localNetwork'
+import { loadFileStamps } from '../../lib/files'
+import { fileRefsIn } from '../ai/claudeFiles'
 
 const set = useMcp.setState
 const get = useMcp.getState
@@ -431,6 +433,8 @@ async function handleCall(id: string, tool: McpToolName, args: Record<string, un
     if (useCloud.getState().readOnly) return fail(ERR.viewer, 'rejected')
     // team: the member list (owners by email) before the planner runs — staging never waits for it
     await warmMembers()
+    // the workspace stamps of the files the call names (lib/files.ts): claudeDoc's check runs inside the plan, sync
+    await loadFileStamps(fileRefsIn(args))
     const plan = tool === 'one_run_script' ? await planRunScript(args) : planWrite(tool, args)
     logPatch(key, { target: plan.target })
     if (plan.noop) {

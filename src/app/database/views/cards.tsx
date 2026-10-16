@@ -17,6 +17,7 @@ import { subItemCount } from './tree'
 import { plural } from '../parts'
 import { rowProps } from '../model/recordTypes'
 import { itemTitleText } from '../../editor'
+import { Globe } from 'lucide-react'
 
 function firstImage(node: JSONContent | null | undefined): string | null {
   if (!node) return null
@@ -66,8 +67,16 @@ function firstLines(node: JSONContent | null | undefined, max = 4): string[] {
   return out
 }
 
-/** Source for a card's preview area, or null. */
-export function previewSource(m: DbModel, row: Page, preview: View['cardPreview']): { kind: 'img'; src: string; pos?: number } | { kind: 'css'; style: CSSProperties } | { kind: 'text'; lines: string[] } | null {
+/** A source the browser would fetch from the web (http(s) or protocol-relative). */
+const WEB_SRC = /^\s*(https?:)?\/\//i
+
+type PreviewSource = { kind: 'img'; src: string; pos?: number } | { kind: 'web'; src: string } | { kind: 'css'; style: CSSProperties } | { kind: 'text'; lines: string[] }
+
+/**
+ * Source for a card's preview area, or null. A files property's web image is `web`: it never loads by itself (any
+ * writer — the API, MCP, an import — could make every viewer's browser fetch an address); a click loads it.
+ */
+export function previewSource(m: DbModel, row: Page, preview: View['cardPreview']): PreviewSource | null {
   if (!preview || preview === 'none') return null
   if (preview === 'cover') {
     const c = row.cover
@@ -88,7 +97,55 @@ export function previewSource(m: DbModel, row: Page, preview: View['cardPreview'
   const prop = m.propMap.get(preview)
   const files = prop?.type === 'files' ? ((row.properties[prop.id] as string[] | undefined) ?? []) : []
   const img = files.find((f) => guessIsImage(f))
-  return img ? { kind: 'img', src: img } : null
+  if (!img) return null
+  return WEB_SRC.test(img) ? { kind: 'web', src: img } : { kind: 'img', src: img }
+}
+
+/** Web covers the person loaded in this tab (by address). */
+const loadedWeb = new Set<string>()
+
+const hostOf = (src: string) => {
+  try {
+    return new URL(src.trim().replace(/^\/\//, 'https://')).host
+  } catch {
+    return ''
+  }
+}
+
+/** A web image as a card cover: a chip with its host until the person loads it (never a referrer, never by itself). */
+function WebCover({ src }: { src: string }) {
+  const t = useT()
+  const [on, setOn] = useState(() => loadedWeb.has(src))
+  if (on)
+    return (
+      <div className="dbc-cover">
+        <img src={src} alt="" loading="lazy" referrerPolicy="no-referrer" draggable={false} />
+      </div>
+    )
+  const host = hostOf(src) || t('database.cover.web.unknown')
+  const stop = (e: { stopPropagation(): void }) => e.stopPropagation()
+  return (
+    <div className="dbc-cover dbc-cover--web">
+      <button
+        type="button"
+        className="dbc-webchip"
+        title={src}
+        aria-label={t('database.cover.web.load', { host })}
+        onPointerDown={stop}
+        onKeyDown={stop}
+        onClick={(e) => {
+          e.stopPropagation()
+          e.preventDefault()
+          loadedWeb.add(src)
+          setOn(true)
+        }}
+      >
+        <Globe size={14} strokeWidth={1.7} aria-hidden />
+        <span className="dbc-webchip__host">{host}</span>
+        <span className="dbc-webchip__act">{t('database.cover.web.action')}</span>
+      </button>
+    </div>
+  )
 }
 
 function CoverImg({ src, pos }: { src: string; pos?: number }) {
@@ -104,6 +161,7 @@ export function CardPreview({ m, row, preview, reserve }: { m: DbModel; row: Pag
         {row.icon && <PageIcon icon={row.icon} size={44} />}
       </div>
     ) : null
+  if (src.kind === 'web') return <WebCover src={src.src} />
   if (src.kind === 'img')
     return (
       <div className="dbc-cover">

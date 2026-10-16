@@ -42,6 +42,7 @@ import { isApplyingCloud, withWriteActor } from './binding'
 import { acquire, flushRefresh, release } from './content'
 import { uploadLocalWorkspaceImpl } from './upload'
 import { isForgetting } from './device'
+import { isPrivateUpload } from './files'
 import { setPresencePageImpl } from './workspace'
 import { createPrivateDatabaseImpl, createPrivatePageImpl, isPrivate, movePagePrivacyImpl, usePrivateModeImpl } from './private'
 import type { NewDatabaseInput, NewPageInput } from '../store/store'
@@ -97,6 +98,14 @@ export {
  */
 export async function bootCloud(): Promise<'local' | 'cloud' | 'signed-out'> {
   return bootCloudImpl()
+}
+
+/**
+ * Is this file private to the signed-in member (team workspaces)? Uploaded here as private and not published yet. A
+ * file referenced only from private pages counts too (claudeFiles.ts checks the references itself). Local: never.
+ */
+export function isPrivateFile(id: string): boolean {
+  return useCloud.getState().active.kind === 'cloud' && isPrivateUpload(id.startsWith('onefile:') ? id.slice(8) : id)
 }
 
 export function activeWorkspace(): WorkspaceRef {

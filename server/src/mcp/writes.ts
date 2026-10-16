@@ -13,6 +13,7 @@ import { contentDoc, findProperty, metaDoc, type WorkspaceModel, type WriteOpts 
 import { checkKey, handOnlyMessage, isHandOnly } from '../api/keys.ts'
 import { schemaOut, type ValueContext } from '../api/values.ts'
 import { newId } from '../tokens.ts'
+import { assertNotSystem } from './system.ts'
 
 /** Property types an agent may add (formula, rollup and button need settings the tools don't take). */
 export const CREATABLE_TYPES = [
@@ -63,6 +64,35 @@ export const unprocessable = (code: string, message: string) => new ApiError(422
 
 /** The refusal of a Markdown replace of a page holding a task (one_update_page, a server agent's report). */
 export const PAGE_HOLDS_TASKS = 'This page holds tasks; a replace would turn them into plain text. Append instead, or edit the page in One.'
+
+/** Most properties one_create_database takes (the local bridge's limit — spec MCP_LIMITS). */
+export const MAX_DB_PROPERTIES = 40
+
+/**
+ * What the server's Markdown (api/content.ts markdownToNodes) writes: a replace over MCP may only replace a page whose
+ * content is made of these — anything else (columns, callouts, tables, media, a database block, an underline …) would
+ * be lost without a card or an Undo. A pre-filter until the server's own round trip (MCP plan B4s).
+ */
+const REPLACEABLE_NODES = new Set(['paragraph', 'heading', 'bulletList', 'orderedList', 'listItem', 'taskList', 'taskItem', 'blockquote', 'codeBlock', 'horizontalRule', 'hardBreak'])
+const REPLACEABLE_MARKS = new Set(['bold', 'italic', 'strike', 'code', 'link'])
+
+/** The node and mark names in a page's content that a Markdown replace here would lose (≤ 12, document order). */
+export function lossyIn(doc: Y.Doc): string[] {
+  const out = new Set<string>()
+  const stack: Array<Y.XmlFragment | Y.XmlElement | Y.XmlText> = [...doc.getXmlFragment('default').toArray()].reverse() as Array<Y.XmlElement | Y.XmlText>
+  while (stack.length && out.size < 12) {
+    const n = stack.pop()!
+    if (n instanceof Y.XmlText) {
+      for (const d of n.toDelta() as Array<{ attributes?: Record<string, unknown> }>) for (const mark of Object.keys(d.attributes ?? {})) if (!REPLACEABLE_MARKS.has(mark)) out.add(mark)
+      continue
+    }
+    if (n instanceof Y.XmlElement) {
+      if (!REPLACEABLE_NODES.has(n.nodeName)) out.add(n.nodeName)
+      stack.push(...([...n.toArray()].reverse() as Array<Y.XmlElement | Y.XmlText>))
+    }
+  }
+  return [...out]
+}
 
 /** PageIcon JSON from the tools' icon string: an emoji, `asset:<name>` or `lucide:<Name>`; '' clears. */
 export function iconIn(raw: string | null | undefined): unknown {
@@ -159,46 +189,97 @@ export class McpWrites {
 
   /* ---------------------------------------------------------------- pages */
 
-  async updatePage(wsId: string, input: { id: string; title?: string; icon?: string | null; markdown?: string; mode: 'append' | 'replace' }, actor: string) {
+  /**
+   * Title, icon and the content (append / replace). Check, then write (spec § 3.6): every check runs before anything is
+   * written — the page is live, a replace drops no task, and over MCP (`opts.mcp`; server agents keep their rules) the
+   * page is not One's own database, not locked for content, and a replace loses nothing the server's Markdown cannot
+   * write back. The meta check after the content write is only for a race, and a race puts the content back from this
+   * call's pre-image.
+   */
+  async updatePage(wsId: string, input: { id: string; title?: string; icon?: string | null; markdown?: string; mode: 'append' | 'replace' }, actor: string, opts: { mcp?: boolean } = {}) {
     const icon = iconIn(input.icon)
+    const content = input.markdown !== undefined && (input.mode === 'replace' || input.markdown.trim())
     const check = (r: Roots) => {
       const page = livePage(r, input.id)
       if (!page) throw notFound('page_not_found', `No page with id "${input.id}" in this workspace (or it is in the trash)`)
+      if (opts.mcp) assertNotSystem(r, input.id)
       if (input.markdown !== undefined && page.kind === 'database') throw unprocessable('page_is_database', 'A database page has no text to write: add rows with one_create_row')
+      const settings = pageMap(r, input.id)?.get('settings') as { locked?: unknown } | undefined
+      if (opts.mcp && content && settings?.locked === true) throw unprocessable('locked', `locked: ${JSON.stringify(page.title || 'Untitled')} is locked in One: its content cannot change (its title and icon can). Nothing was changed. Ask the person to unlock it.`)
       return page
     }
-    await this.model.read(wsId, check)
+    const before = await this.model.read(wsId, check)
     let plain: string | undefined
-    if (input.markdown !== undefined && (input.mode === 'replace' || input.markdown.trim())) {
-      const nodes = markdownToNodes(input.markdown)
+    /** the call's pre-image: what the content was (replace), or what this call added (append) */
+    let undoContent: ((doc: Y.Doc) => void) | null = null
+    if (content) {
+      const nodes = markdownToNodes(input.markdown!)
       plain = await this.s.collab.write(
         contentDoc(wsId, input.id),
         (doc) => {
           const frag = doc.getXmlFragment('default')
-          // a task block cannot be read or written here yet (server parity, P4): a replace would turn it into paragraphs
-          if (input.mode === 'replace' && holdsWorkItem(doc)) throw unprocessable('page_holds_tasks', PAGE_HOLDS_TASKS)
-          if (input.mode === 'replace' && frag.length) frag.delete(0, frag.length)
+          if (input.mode === 'replace') {
+            // a task block cannot be read or written here yet (server parity, P4): a replace would turn it into paragraphs
+            if (holdsWorkItem(doc)) throw unprocessable('page_holds_tasks', PAGE_HOLDS_TASKS)
+            const lossy = opts.mcp ? lossyIn(doc) : []
+            if (lossy.length)
+              throw unprocessable(
+                'lossy_replace',
+                `lossy_replace: ${JSON.stringify(before.title || 'Untitled')} holds content a replace over the team server cannot write back (${lossy.join(', ')}). Nothing was changed. Append instead, change it in One, or use the local bridge (it asks first).`,
+              )
+            // —— changes from here on ——
+            // detached copies (a copy of a copy would come out empty: Yjs keeps a detached type's children aside)
+            const pre = frag.toArray().map((n) => (n as Y.XmlElement | Y.XmlText).clone())
+            undoContent = (d) => {
+              const f = d.getXmlFragment('default')
+              if (f.length) f.delete(0, f.length)
+              if (pre.length) f.insert(0, pre)
+            }
+            if (frag.length) frag.delete(0, frag.length)
+          }
+          const start = frag.length
           appendBlocks(doc, nodes)
+          if (input.mode === 'append') {
+            const added = frag.toArray().slice(start)
+            undoContent = (d) => {
+              const f = d.getXmlFragment('default')
+              for (const el of added) {
+                const at = f.toArray().indexOf(el)
+                if (at >= 0) f.delete(at, 1)
+              }
+            }
+          }
           return fragmentText(doc, 20_000)
         },
         actor,
       )
     }
-    const page = await this.s.collab.write(
-      metaDoc(wsId),
-      (doc) => {
-        const r = roots(doc)
-        check(r)
-        const yp = pageMap(r, input.id)!
-        if (input.title !== undefined) yp.set('title', input.title)
-        if (icon !== undefined) yp.set('icon', icon)
-        if (plain !== undefined) yp.set('plain', plain)
-        yp.set('updatedAt', Date.now())
-        yp.set('updatedBy', actor)
-        return { id: input.id, title: String(yp.get('title') ?? '') }
-      },
-      actor,
-    )
+    let page: { id: string; title: string }
+    try {
+      page = await this.s.collab.write(
+        metaDoc(wsId),
+        (doc) => {
+          const r = roots(doc)
+          check(r)
+          const yp = pageMap(r, input.id)!
+          if (input.title !== undefined) yp.set('title', input.title)
+          if (icon !== undefined) yp.set('icon', icon)
+          if (plain !== undefined) yp.set('plain', plain)
+          yp.set('updatedAt', Date.now())
+          yp.set('updatedBy', actor)
+          return { id: input.id, title: String(yp.get('title') ?? '') }
+        },
+        actor,
+      )
+    } catch (err) {
+      // a race: the page went (trash, lock, …) while the content was written — the content goes back as it was
+      const restore = undoContent as ((doc: Y.Doc) => void) | null
+      if (restore) {
+        await this.s.collab.write(contentDoc(wsId, input.id), restore, actor).catch((e: unknown) => this.s.log.error('mcp content restore failed', { workspace: wsId, page: input.id, error: e as Error }))
+        this.s.log.info('mcp content restored after a failed meta check', { workspace: wsId, page: input.id, by: actor })
+      }
+      throw err
+    }
     this.s.log.info('mcp page updated', { workspace: wsId, page: input.id, content: input.markdown !== undefined ? input.mode : undefined, by: actor })
     return { ...page, url: this.model.url(wsId, input.id), ...(input.markdown !== undefined ? { content: input.mode } : {}) }
   }
@@ -212,9 +293,11 @@ export class McpWrites {
    * everything else in the input is valid, and never in a locked database. Then the regular
    * create / update path (strict: anything left that doesn't fit is a 422 listing every problem).
    */
-  async prepareRow(wsId: string, target: { databaseId: string } | { rowId: string }, input: { title?: string; properties?: Record<string, unknown> }, actor: string, opts: WriteOpts = {}) {
+  async prepareRow(wsId: string, target: { databaseId: string } | { rowId: string }, input: { title?: string; properties?: Record<string, unknown> }, actor: string, opts: WriteOpts & { mcp?: boolean } = {}) {
     const plan = (r: Roots) => {
       const dbId = 'databaseId' in target ? target.databaseId : (livePage(r, target.rowId)?.databaseId ?? null)
+      // One's own databases are read-only over MCP (system.ts): no row is created or changed there
+      if (opts.mcp) assertNotSystem(r, 'rowId' in target ? target.rowId : dbId)
       const db = dbId ? liveDatabase(r, dbId) : null
       if (!db) return null
       const ctx = this.model.context(wsId, r)
@@ -233,6 +316,8 @@ export class McpWrites {
         }
         // "Only by hand" (api/keys.ts): refused before anything (a new option) is written
         if (opts.agent && isHandOnly(prop)) throw unprocessable('invalid_value', handOnlyMessage(prop))
+        // a files value over MCP: only this workspace's files, never a web address (it would load in every viewer)
+        if (opts.mcp && prop.type === 'files') checkFilesValue(prop.name, raw)
         properties[key] = friendlyIn(r, prop, raw, ctx)
         if (prop.type === 'select' || prop.type === 'multi_select') {
           const fresh = optionNames(prop, raw).filter((n) => !(prop.options ?? []).some((o) => o.id === n || o.name.trim().toLowerCase() === n.toLowerCase()))
@@ -288,7 +373,10 @@ export class McpWrites {
         const parent = livePage(r, parentId)
         if (!parent) throw notFound('parent_not_found', `No parent page with id "${parentId}" in this workspace`)
         if (parent.kind === 'database') throw unprocessable('parent_is_database', 'The parent is a database: a database goes inside a page')
+        // nothing new below a row of One's own databases
+        assertNotSystem(r, parentId)
       }
+      if ((input.properties?.length ?? 0) > MAX_DB_PROPERTIES) throw unprocessable('invalid_property', `At most ${MAX_DB_PROPERTIES} properties in one call (got ${input.properties!.length}).`)
       const specs: PropertyInput[] = input.properties?.length
         ? input.properties
         : [
@@ -348,6 +436,7 @@ export class McpWrites {
     const check = (r: Roots) => {
       const db = liveDatabase(r, input.databaseId)
       if (!db) throw notFound('database_not_found', `No database with id "${input.databaseId}" in this workspace`)
+      assertNotSystem(r, input.databaseId)
       if (db.ydb.get('locked') === true) throw unprocessable('database_locked', `"${db.page.title}" is locked: properties can't be added until it is unlocked in the app`)
       if (input.type === 'title') throw unprocessable('invalid_property', 'A database has exactly one title property already')
       const name = input.name.trim().toLowerCase()
@@ -442,4 +531,16 @@ export function friendlyIn(r: Roots, prop: PropertyDef, raw: unknown, ctx: Value
     return rows.length === 1 ? rows[0]!.id : v
   }
   return Array.isArray(raw) ? raw.map(one) : one(raw)
+}
+
+/** A files value as MCP may write it: `onefile:<id>` refs only (one or a list; null / [] clears). */
+export function checkFilesValue(name: string, raw: unknown): void {
+  if (raw === null || raw === undefined || raw === '') return
+  const items = Array.isArray(raw) ? raw : [raw]
+  const bad = items.find((x) => typeof x !== 'string' || !/^onefile:[A-Za-z0-9_-]{1,64}$/.test(x.trim()))
+  if (bad !== undefined)
+    throw unprocessable(
+      'refused_type',
+      `refused_type: properties.${name}: over MCP a files property takes only this workspace's files (onefile:<id>, as one_get_page / one_query_database show them) — got ${JSON.stringify(typeof bad === 'string' ? bad.slice(0, 120) : bad)}. Nothing was changed. A web address goes into a url property or the page text.`,
+    )
 }

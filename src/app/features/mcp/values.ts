@@ -4,7 +4,7 @@
  * the app shows them — the browser can compute them, the team server's API cannot.
  */
 import { useWorkspace } from '../../store/store'
-import { isEffectivelyTrashed, selectBreadcrumbs } from '../../store/selectors'
+import { inTemplate, isEffectivelyTrashed, selectBreadcrumbs } from '../../store/selectors'
 import type { Database, ID, Page, PageIcon, PropertyDef } from '../../store/types'
 import { propertyValueToText, typeOfRow } from '../../database'
 import { isSettable } from '../ai/agent/props'
@@ -24,12 +24,15 @@ export const q = (s: string) => JSON.stringify(s)
 export const titleOf = (p: Page | undefined) => p?.title.trim() || 'Untitled'
 export const iso = (ms: number) => new Date(ms).toISOString()
 
-/** A page that exists and is not in the trash (nor under a trashed page). */
+/**
+ * A page MCP may use: it exists, is not in the trash (nor under a trashed page) and is not part of a template
+ * (features/templates — over MCP a template id reads exactly like an unknown one, spec § 3.3).
+ */
 export function live(id: ID | undefined | null): Page | null {
   if (!id) return null
   const { pages } = ws()
   const p = pages[id]
-  return p && !p.trashed && !isEffectivelyTrashed(pages, id) ? p : null
+  return p && !p.trashed && !isEffectivelyTrashed(pages, id) && !inTemplate(pages, id) ? p : null
 }
 
 export function kindOf(p: Page): 'page' | 'database' | 'row' {

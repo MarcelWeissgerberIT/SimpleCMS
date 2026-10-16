@@ -45,8 +45,31 @@ function readableText(m: MarkdownManager): MarkdownManager {
   return m
 }
 
+/** The raw-HTML rule of the parse running now (markdownToDoc's `html` option; null: every tag the schema reads). */
+let htmlRule: ((html: string) => boolean) | null = null
+
+type HtmlToken = { text?: string; raw?: string; block?: boolean }
+type HtmlParser = (this: MarkdownManager, token: HtmlToken) => unknown
+
+/**
+ * Raw HTML in Markdown becomes editor nodes through the schema's parseHTML rules (a `<div data-type="…">` makes that
+ * block). While a parse runs with an `html` rule, HTML the rule refuses stays literal text.
+ */
+function gatedHtml(m: MarkdownManager): MarkdownManager {
+  const target = m as unknown as { parseHTMLToken?: HtmlParser; htmlAsLiteralText?: (html: string, block: boolean) => unknown }
+  const original = target.parseHTMLToken
+  const literal = target.htmlAsLiteralText
+  if (typeof original !== 'function' || typeof literal !== 'function') return m
+  target.parseHTMLToken = function (this: MarkdownManager, token) {
+    const html = token.text || token.raw || ''
+    if (htmlRule && html.trim() && !htmlRule(html)) return literal.call(this, html, !!token.block)
+    return original.call(this, token)
+  }
+  return m
+}
+
 function md(): MarkdownManager {
-  manager ??= readableText(new MarkdownManager({ extensions: getExtensions(), indentation: { style: 'space', size: 2 } }))
+  manager ??= gatedHtml(readableText(new MarkdownManager({ extensions: getExtensions(), indentation: { style: 'space', size: 2 } })))
   return manager
 }
 
@@ -253,9 +276,15 @@ export function sanitize(input: JSONContent): JSONContent {
   }
 }
 
-export function markdownToDoc(markdown: string): JSONContent {
+/**
+ * Markdown → a document. `html`: which raw HTML may become nodes (claudeDoc passes an allow-list — Claude's text never
+ * makes a block by HTML that Markdown cannot say); refused HTML stays text. Without it, every tag the schema reads.
+ */
+export function markdownToDoc(markdown: string, opts: { html?: (html: string) => boolean } = {}): JSONContent {
   const src = (markdown ?? '').replace(/\r\n?/g, '\n')
   if (!src.trim()) return EMPTY_DOC
+  const prev = htmlRule
+  htmlRule = opts.html ?? null
   try {
     const parsed = md().parse(src)
     const content = postProcess(parsed.content)
@@ -266,6 +295,8 @@ export function markdownToDoc(markdown: string): JSONContent {
       type: 'doc',
       content: src.split(/\n{2,}/).map((p) => ({ type: 'paragraph', content: p.trim() ? [{ type: 'text', text: p.trim() }] : [] })),
     }
+  } finally {
+    htmlRule = prev
   }
 }
 

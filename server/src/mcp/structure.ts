@@ -13,6 +13,7 @@ import { type PropertyDef, type Roots, type SelectOption, clone, liveDatabase, p
 import { findProperty, metaDoc, type WorkspaceModel } from '../api/model.ts'
 import { schemaOut } from '../api/values.ts'
 import { newId } from '../tokens.ts'
+import { assertNotSystem } from './system.ts'
 import { iconOut } from './reads.ts'
 import { COLORS, iconIn, propsMapOf, unprocessable, type OptionInput } from './writes.ts'
 
@@ -162,6 +163,8 @@ function withoutProperty(v: View, propId: string): View {
 function schemaDb(r: Roots, id: string) {
   const db = liveDatabase(r, id)
   if (!db) throw notFound('database_not_found', `No database with id ${q(id)} in this workspace. Use one_list_databases to get database ids.`)
+  // One's own databases (pipelines, memory, mails …): read-only over MCP
+  assertNotSystem(r, id)
   const title = titleOf(db.page)
   if (db.ydb.get('locked') === true) throw unprocessable('database_locked', `${q(title)} is locked in the app: its properties and views cannot change (rows can). Ask the person to unlock it. Nothing was changed.`)
   return { ...db, title }
@@ -208,6 +211,7 @@ export class McpStructure {
     const check = (r: Roots) => {
       const db = liveDatabase(r, input.id)
       if (!db) throw notFound('database_not_found', `No database with id ${q(input.id)} in this workspace. Use one_list_databases to get database ids.`)
+      assertNotSystem(r, input.id)
       if (input.locked !== undefined)
         throw unprocessable('lock_is_personal', `Locking and unlocking ${q(titleOf(db.page))} is the person's decision in the app (the lock in the database's toolbar), so agents cannot change it. Nothing was changed.`)
       return db
