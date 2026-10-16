@@ -498,6 +498,32 @@ test.describe('AI terminal → coding pipelines (mocked Claude API)', () => {
     expect(limited).not.toContain('SECRET LOG LINE')
   })
 
+  test('continue after the step limit: the change is named "Continue" (never a raw key), its line gives the steps the stage allows NOW — not the stopped run\'s', async ({ page, context }) => {
+    await openApp(page)
+    await setKey(page)
+    await setupCoding(page)
+    const id = await makeTask(page, { title: 'Limit task', stage: 'Plan', repo: 'website' })
+    await flush(page)
+    const stageId = await wsEval(page, (s, id) => {
+      const row = s.pages[id]
+      const db = s.databases[row.databaseId]
+      const stage = db.properties.find((p: AnyState) => p.name === 'Stage')
+      return row.properties[stage.id] as string
+    }, id)
+    // it stopped at 12/12 (the limit then); the Plan stage gives 20 now
+    await putLocal(page, `local:local|task|${id}`, { state: 'failed', stageId, error: 'Stopped at the step limit (12/12).', stepLimit: { stageId, turns: 12, max: 12 }, at: 1 })
+    await reloadApp(page)
+    await mockAgent(context, [call('toolu_cn', 'task_action', { id, action: 'continue' }), say('Staged the continue.')])
+    await openTerminal(page)
+    await run(page, 'Continue the limit task')
+    await expect(terminal(page).locator('.term-answer')).toContainText('Staged the continue.')
+    const change = item(page, 1)
+    await expect(change).toHaveAttribute('aria-label', /^#1 Continue,/)
+    await expect(change).not.toContainText('features.agent')
+    await expect(change).toContainText('after its step limit (12/12)')
+    await expect(change).toContainText('with up to 20 steps more')
+  })
+
   test('/pipelines lists the open tasks with what they wait for; Open goes to the task; German; no horizontal overflow at 390 px', async ({ page }) => {
     await openApp(page)
     await setupCoding(page)

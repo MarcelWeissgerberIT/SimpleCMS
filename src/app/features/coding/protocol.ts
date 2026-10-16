@@ -60,9 +60,12 @@ export type GitAction = (typeof GIT_ACTIONS)[number]
  * Code) and 'mcp-list' (it names each repo's own Claude Code MCP servers, so the task panel can show them). One hands a stage that needs one of them only to a worker that says so — an older worker would run an unknown
  * stage kind as a git stage, drop the task as unreadable (and get it again on every round), or quietly run Claude
  * Code with another model than the one picked. 'ship' (git stages and keys return a ShipRecord — nothing is handed out
- * by it: an older worker's git stages run as before and One writes their summary).
+ * by it: an older worker's git stages run as before and One writes their summary). worker 1.11.0: 'continue' (a stage
+ * that stopped at its step limit runs on from its worktree with TaskPayload.resume — One offers "Continue" only to a
+ * worker that names it) and 'permission' (Claude Code's permission prompts come to One as PermissionAsk; the person
+ * answers with a PermissionVerb).
  */
-export const WORKER_CAN = ['analyze', 'git:comment', 'git:merge', 'doc', 'model', 'mcp-list', 'ship'] as const
+export const WORKER_CAN = ['analyze', 'git:comment', 'git:merge', 'doc', 'model', 'mcp-list', 'ship', 'continue', 'permission'] as const
 /**
  * What a worker runs, read from its `next`. Document stages came before `can`, together with `docs: true`: a worker
  * that sends either knows them, so a `can` without 'doc' (1.3.x) or `docs` without a `can` (1.3.1 before `can`)
@@ -79,8 +82,11 @@ export function workerOutdated(can: readonly string[] | null): boolean {
   const has = workerCan(can)
   return WORKER_CAN.some((c) => !has.has(c))
 }
-/** Capabilities no stage waits for ('ship': the ship note with links) — a worker without them runs every stage as before. */
-export const WORKER_EXTRAS: readonly string[] = ['ship']
+/**
+ * Capabilities no stage waits for ('ship': the ship note with links · 'continue': Continue after the step limit ·
+ * 'permission': permission prompts in One) — a worker without them runs every stage as before.
+ */
+export const WORKER_EXTRAS: readonly string[] = ['ship', 'continue', 'permission']
 /**
  * An outdated worker that lacks only WORKER_EXTRAS (1.9.0 without 'ship'): it skips nothing — the #/coding plate says
  * what the newer one adds instead of "skips stages it does not know".
@@ -90,6 +96,12 @@ export function workerLacksOnlyExtras(can: readonly string[] | null): boolean {
   const has = workerCan(can)
   const lacks = WORKER_CAN.filter((c) => !has.has(c))
   return lacks.length > 0 && lacks.every((c) => WORKER_EXTRAS.includes(c))
+}
+/** The extras an outdated worker does not name (WORKER_EXTRAS order) — what the newer one adds. */
+export function lackingExtras(can: readonly string[] | null): string[] {
+  if (!can) return []
+  const has = workerCan(can)
+  return WORKER_EXTRAS.filter((c) => !has.has(c))
 }
 /**
  * The first worker without the ZIP-import gap: up to 1.8.0 an imported ZIP could plant a `.git` (spelled `.GIT`,
@@ -342,8 +354,94 @@ export interface TaskPayload {
   summary: string | null
   /** the newest review document (a doc stage with output 'review') — what a git 'comment' stage posts; older tabs send none */
   review?: string | null
+  /**
+   * worker 1.11.0 ('continue'): this stage's previous run stopped at its step limit (`turns` of `max`) and the person
+   * pressed Continue — the worker runs it again on the same worktree and tells Claude Code to go on from there. Only
+   * plan / implement / doc stages; null / absent: a run from the start.
+   */
+  resume?: { turns: number; max: number } | null
   /** team workspaces: written / confirmed on this device (local workspaces: always) */
   trusted: boolean
+}
+
+/* ------------------------------------------------------------------ worker 1.11.0: permissions, step limit */
+
+/**
+ * How long the worker holds Claude Code's tool call while One asks the person ('permission'): then it is refused, with a
+ * message to Claude Code. ONE_WORKER_PERMISSION_MS shortens it (tests).
+ */
+export const PERMISSION_WAIT_MS = 15 * 60_000
+
+/**
+ * The person's answer to a permission request — the ONLY thing One sends back (with the request's id): allow once ·
+ * always allow it for this repo (the worker writes the rule it showed into its own worker.json) · refuse. Never a
+ * command, a pattern or a path.
+ */
+export const PERMISSION_VERBS = ['once', 'always', 'deny'] as const
+export type PermissionVerb = (typeof PERMISSION_VERBS)[number]
+
+/** What kind of action Claude Code asks for (One names it in the person's language). */
+export const PERMISSION_KINDS = ['bash', 'read', 'edit', 'web', 'mcp', 'other'] as const
+export type PermissionKind = (typeof PERMISSION_KINDS)[number]
+
+/**
+ * worker 1.11.0 ('permission'): Claude Code needs a permission it does not have (`--permission-prompt-tool` → the task
+ * tools' one_task_permission). The worker decides by the repo's own lists first (worker.json allowedTools /
+ * disallowedTools); otherwise it holds the tool call (≤ PERMISSION_WAIT_MS) and One asks the person on the worker's
+ * tab. Every text is the worker's scrubbed text (no path of this computer), clipped.
+ */
+export interface PermissionAsk {
+  /** the request (24 hex) — One answers with it and a verb */
+  id: string
+  /** Claude Code's tool name ("Bash", "Read", "mcp__kb__search") */
+  tool: string
+  kind: PermissionKind
+  /** what it wants: the command, the file, the address (scrubbed, ≤ PERMISSION_WHAT_MAX) */
+  what: string
+  /** a file outside the repository and the task's scratch folder (Read / Edit tools) */
+  outside?: boolean
+  /** what "Always for this repo" adds to the repo's allowedTools in worker.json — null: only "Once" (a broad or unsafe rule) */
+  rule: string | null
+  /** the repository the rule would be stored for */
+  repo: string
+  /** asked at, and when the worker refuses it on its own (ms) */
+  at: number
+  until: number
+}
+
+/**
+ * What of a tool's input the worker judges and One shows (its command, file, address — an MCP tool's whole input as
+ * JSON): each field whole up to PERMISSION_FIELD_MAX characters. A longer one is never cut and judged: the request is
+ * refused at once (taskmcp.ts and the worker both), so nothing is allowed that nobody saw whole.
+ */
+export const PERMISSION_FIELD_MAX = 4000
+/** The request's text as One shows it (scrubbed; a little room for the scrubber's names) — longer: refused, never cut. */
+export const PERMISSION_WHAT_MAX = 4500
+
+const ASK_ID = /^[a-f0-9]{24}$/
+const clipText = (v: unknown, n: number) => (typeof v === 'string' ? v.replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, ' ').slice(0, n) : '')
+
+/** A PermissionAsk as One and the worker accept it (null: anything else) — the one rule for both sides. */
+export function cleanAsk(raw: unknown): PermissionAsk | null {
+  if (!raw || typeof raw !== 'object') return null
+  const a = raw as Record<string, unknown>
+  if (typeof a.id !== 'string' || !ASK_ID.test(a.id)) return null
+  const tool = clipText(a.tool, 120).trim()
+  if (!tool) return null
+  const kind = (PERMISSION_KINDS as readonly string[]).includes(String(a.kind)) ? (a.kind as PermissionKind) : 'other'
+  const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0)
+  const rule = typeof a.rule === 'string' && a.rule.trim() ? clipText(a.rule, 300).trim() : null
+  return { id: a.id, tool, kind, what: clipText(a.what, PERMISSION_WHAT_MAX), ...(a.outside === true ? { outside: true } : {}), rule, repo: clipText(a.repo, 64), at: num(a.at), until: num(a.until) }
+}
+
+/**
+ * A stage's permission requests: asked (the person was asked) · allowed (by the person or the repo's allowedTools) ·
+ * refused (by the person, the repo's disallowedTools, the time limit, Stop — or Claude Code itself, when it could not ask).
+ */
+export interface PermissionCount {
+  asked: number
+  allowed: number
+  refused: number
 }
 
 export type LogKind = 'info' | 'claude' | 'tool' | 'warn' | 'error' | 'git' | 'test' | 'note'
@@ -463,6 +561,10 @@ export interface StageOutcome {
   git?: GitInfo
   /** worker 1.10.0: git stages (commit · push · pr · comment · merge) — also on a 'failed' outcome after the commit */
   ship?: ShipRecord
+  /** worker 1.11.0: Claude Code stopped at the stage's step limit ('failed' — One offers Continue) */
+  stepLimit?: { turns: number; max: number }
+  /** worker 1.11.0: the stage's permission requests (only when there were any) */
+  permissions?: PermissionCount
 }
 
 export interface BusyTask {
@@ -470,6 +572,8 @@ export interface BusyTask {
   repo: string
   stageId: string
   since: number
+  /** worker 1.11.0: the permission request the stage waits for (the first one; more follow when it is answered) */
+  ask?: PermissionAsk | null
 }
 
 export interface WorkerRepo {
@@ -535,7 +639,8 @@ export interface IntakeState {
 /** tab → worker */
 export type TabMessage =
   /** `pair`: this device's pairing secret for the workspace (a downloaded worker requires it) */
-  | { type: 'hello'; app: 'one'; version: string; workspace: WorkspaceRef; pair?: string }
+  /** `can`: what this tab handles beyond the first protocol (TAB_CAN; older tabs send none) */
+  | { type: 'hello'; app: 'one'; version: string; workspace: WorkspaceRef; pair?: string; can?: string[] }
   | { type: 'status'; workspace: WorkspaceRef }
   /** tasks changed: ask for work now */
   | { type: 'nudge' }
@@ -554,6 +659,18 @@ export type TabMessage =
   | { type: 'req'; id: string; op: 'intake-chunk'; uploadId: string; data: string }
   | { type: 'req'; id: string; op: 'intake-end'; uploadId: string }
   | { type: 'req'; id: string; op: 'intake-clone'; taskId: string; url: string }
+  /** worker 1.11.0: the person's answer to a permission request — its id and a fixed verb, nothing else */
+  | { type: 'req'; id: string; op: 'permission'; taskId: string; ask: string; verb: PermissionVerb }
+
+/**
+ * What a One tab handles beyond the first protocol, sent in its hello (`can`): 'permission' — it shows a PermissionAsk and
+ * answers it. A worker asks the person only while a tab that says so is connected; otherwise it refuses at once (an
+ * older tab never shows the request — the stage would wait for nothing).
+ */
+export const TAB_CAN = ['permission'] as const
+
+/** How a permission request ended: the person's verb · the time limit · Stop / the run's end · One went away (no tab that answers). */
+export type PermissionEnd = PermissionVerb | 'timeout' | 'stopped' | 'away'
 
 /** Why a worker refused a tab: another workspace · not bound to one · a paired worker got no / another pairing secret. */
 export type RefusedReason = 'workspace' | 'unbound' | 'pair'
@@ -672,6 +789,12 @@ export type WorkerMessage =
   | { type: 'event'; taskId: string; kind: 'progress'; progress: TaskProgress }
   | { type: 'event'; taskId: string; kind: 'note' | 'question'; text: string }
   | { type: 'event'; taskId: string; kind: 'intake'; intake: IntakeState }
+  /**
+   * worker 1.11.0: a permission request the stage waits for (`ask`) — or, `ask: null`, none any more; `settled` says how
+   * the last one ended (answered here, at the time limit, by Stop, or One went away). The status's `busy` carries the
+   * open one too (a tab that connects later sees it).
+   */
+  | { type: 'event'; taskId: string; kind: 'permission'; ask: PermissionAsk | null; settled?: { id: string; how: PermissionEnd } }
   | { type: 'res'; id: string; ok: true; result: unknown }
   | { type: 'res'; id: string; ok: false; error: string }
 

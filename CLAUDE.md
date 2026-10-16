@@ -696,6 +696,36 @@ the public APIs stable — other areas are built against them in parallel.
   `claude.model`; payload `stage.model` = task pick ?? stage ?? null (`modelFor`); a stage with a model needs capability
   'model'; worker `--model` = One's > repo claude.model > none, one argv entry. A stage's model joins the task version
   only when set (old hashes stay valid). Pickers use `MODEL_CHOICES` / `modelLabel()`.
+  Run end (worker 1.11.0, every model; claude.ts + proctree.ts): at Claude Code's `result` the heartbeat stops and its
+  process tree is noted (`RunTree`: the tree, the group, the env mark `ONE_WORKER_RUN`); the stage finishes on its
+  process's 'exit' + a short grace (never waits for 'close'), ends what it left running on every OS (one coded line
+  `claudeLeftovers`), kills a Claude Code still alive 30 s after its result (`claudeLingered`); Stop as before. The JETZT
+  line clears with the stage (`setBusy` prunes progress; a dropped link = GONE). Scratch folder per task
+  (`scratchPath`, `<config dir>/scratch/<task>`, `--add-dir` from `--help`, else one `addDirOff` line; scrubbed to
+  `<scratch>` — the path never goes to One; cleaned with the branch / worktree); the prompt says Edit / Write, never
+  `sed -i` or redirection. Permissions (`can` 'permission'): `--permission-prompt-tool mcp__one-task__one_task_permission`
+  (task-mcp over node:http; `--help` or version ≥ `PERMISSION_TOOL_SINCE`) — the repo's allowed / disallowedTools
+  decide first (permissions.ts `ruleDecision`), else the worker holds the call (≤ 15 min `PERMISSION_WAIT_MS`, then
+  deny; Stop / run end deny) and sends a `PermissionAsk` (event + `BusyTask.ask`; only to its own tab); the tab answers
+  `{ op: 'permission', taskId, ask, verb }` (ONLY the id + a `PERMISSION_VERBS` verb). "always" stores the rule the ask
+  showed in worker.json BY THE WORKER (`addAllowedTool`, ≤ 100; `alwaysRule` never offers shells / interpreters (any
+  version) / runners of other programs (npx, uvx, `npm exec`, `yarn dlx`, `uv run` …) / installs / a runner without its
+  real subcommand / path readers / rm / sed / git / curl …, quotes, globs or outside paths; file tools and reads outside
+  → once only); the setup page lists and removes them (save removes only what the page removed — `allowedWas`). Never
+  judged on a cut copy: taskmcp sends each judged field whole (an MCP tool's input as JSON `args`, ≤
+  `PERMISSION_FIELD_MAX`) and refuses a longer one whatever the worker says; the card's `what` is never cut
+  (`PERMISSION_WHAT_MAX`; longer → refused, `how: long`); the allow returns Claude Code's input untouched. ExitPlanMode /
+  AskUserQuestion / EnterPlanMode are answered by the worker (permissions.ts `HANDLED`), never a card. The tab's hello
+  says `can: TAB_CAN`; without a connected tab that names 'permission' a request is refused at once (`how: away`), and
+  waiting ones 60 s after the last such tab went. The card is keyed by the ask id and its keys wake after `ARM_MS`. Card "Claude wants" (coding/PermissionCard.tsx, `useCoding.asks`), Preflight lamp
+  `permission` (sources/permission.ts, ids `perm:<task>:<ask>`, every key VON HAND, bulk false), a browser notice; log
+  codes permissionAsked / Allowed / Denied / Always / AlwaysFailed / Needed; `StageOutcome.permissions` counts. Step limit
+  (`can` 'continue'): error_max_turns → `StageOutcome.stepLimit` → `TaskLocal.stepLimit`; Continue (`continueTask`, the
+  terminal's task_action `continue`, Preflight failed card A — VON HAND) sets `resume` and pickNext sends
+  `TaskPayload.resume` only to a worker naming 'continue' (`canContinue()`: none connected counts as yes); "+N" =
+  `stageSteps(stage)` (the pipeline's Step limit now — what pickNext sends), never the stopped run's; Start over =
+  `runTaskNow` (same worktree, original instructions). Windows leftovers: identity by pid + creation time, the tree
+  sampled while Claude Code runs (`RunTree.sample`), `taskkill /F` per pid (never /T).
   Ship log (worker 1.10.0, `can` 'ship'): git stages (`StageOutcome.ship`, also a failed outcome after its commit) and
   the git keys (`GitResult.ship`; `GitResult.error` = key 'pr' whose request failed after the push — it resolves, never
   throws) return a `ShipRecord` (protocol.ts: action, from, at, branch, commit, head, pushed, pushOff, request { url,
@@ -799,7 +829,7 @@ the public APIs stable — other areas are built against them in parallel.
   / `cloudOriginAllowed()`; its local port `cloudWorkerPort(workspaceId)`. Tasks run only while a paired tab is open.
 - AI terminal ⇄ pipelines (features/ai/agent/coding.ts → coding/terminal.ts via coding/index.ts): list_pipelines /
   list_tasks / read_task read (Claude Code's text inside `<task_output>`); create_task / task_action (approve · rework ·
-  answer · run · stop · then · hand_on) stage ChangeKind 'coding', applied last, only with `applyChanges(…, { terminal: true })`.
+  answer · run · continue · stop · then · hand_on) stage ChangeKind 'coding', applied last, only with `applyChanges(…, { terminal: true })`.
   Apply never confirms a task version: every action but stop is refused while `taskNeedsConfirm()`; every terminal write of
   a task goes through `guardTask` (apply.ts); update_row never sets Stage / Repo / Branch / Then (FREE_ROLES = priority +
   title). What starts the worker (`startsNow`) or goes to Claude Code (append / edit of a task → `StagedChange.refs`, the pages

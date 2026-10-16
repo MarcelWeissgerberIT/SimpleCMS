@@ -16,7 +16,7 @@ import type { ID } from '../../store/types'
 import { HelpLink } from '../../help'
 import { clearLog, loadTask, useTaskLocal, useTaskLog } from './local'
 import { useCoding } from './state'
-import { approveTask, answerTask, confirmTask, reworkTask, runTaskNow, taskContext, taskHasText } from './tasks'
+import { approveTask, answerTask, confirmTask, reworkTask, runTaskNow, stageSteps, taskContext, taskHasText } from './tasks'
 import { isTrusted } from './trust'
 import { stopTask } from './service'
 import { LogView } from './LogView'
@@ -33,6 +33,7 @@ import { RefField, type RefFieldHandle } from './RefField'
 import { GivePages } from './GivePages'
 import { EMPTY_DRAFT, draftText, type RefDraft } from './refDraft'
 import { privateAllowed } from './pagePick'
+import { PermissionCard, PermissionSummary, StepLimitBox } from './PermissionCard'
 import { taskPhase } from './terminal'
 import './coding.css'
 
@@ -84,6 +85,8 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
   const conn = useCoding((s) => s.conn)
   const enabled = useCoding((s) => s.enabled)
   const busy = useCoding((s) => s.busy.find((b) => b.taskId === pageId) ?? null)
+  // worker 1.11.0: the permission request the running stage waits for (only on the worker's own tab)
+  const ask = useCoding((s) => s.asks[pageId] ?? null)
   const team = useCloud((s) => s.active.kind === 'cloud')
   const viewer = useCloud((s) => s.readOnly)
   const [tab, setTab] = useState<Tab | null>(null)
@@ -138,6 +141,9 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
   const money = (n: number) => n.toLocaleString(lang === 'de' ? 'de-DE' : 'en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 })
   const ledState = state === 'running' ? 'on' : state === 'failed' || state === 'stopped' ? 'off' : state === 'done' ? 'ok' : state === 'question' || state === 'gate' || state === 'intake' ? 'on' : 'ok'
   const canAct = !viewer
+  const waitsForYou = state === 'running' && !!ask
+  const limit = state === 'failed' && local.stepLimit && local.stepLimit.stageId === stage?.id ? local.stepLimit : null
+  const perms = !running && local.permissions && (local.permissions.asked > 0 || local.permissions.refused > 0) ? local.permissions : null
   const needsTrust = trusted === false
   const runnable = !!stage && stage.kind !== 'gate' && stage.kind !== 'done' && stage.kind !== 'import'
   // before the task runs: where it works (Repo, Branch) and where it is written (the page)
@@ -167,7 +173,7 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
       ]
 
   return (
-    <section className="ctk" aria-label={t('features.coding.panel.label')} data-state={state} data-trust={trusted === null ? 'checking' : trusted ? 'yes' : 'no'} data-testid="coding-panel">
+    <section className="ctk" aria-label={t('features.coding.panel.label')} data-state={state} data-ask={waitsForYou ? '' : undefined} data-trust={trusted === null ? 'checking' : trusted ? 'yes' : 'no'} data-testid="coding-panel">
       <header className="ctk-head">
         <span className="label ctk-code">
           § {coding ? t('features.coding.panel.code') : t(`features.coding.pipe.${kind}.short`)} — {repo ?? t(coding ? 'features.coding.panel.noRepo' : 'features.coding.panel.docsOnly')} · {stage?.name ?? '—'}
@@ -175,7 +181,7 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
         <span className="ctk-state" role="status" data-testid="coding-state">
           <Led state={ledState} />
           <span className="label">
-            {t(`features.coding.state.${state}`)}
+            {t(waitsForYou ? 'features.coding.state.permission' : `features.coding.state.${state}`)}
             {state === 'running' && elapsed ? ` · ${elapsed}` : ''}
           </span>
           <span className="label ctk-cost" title={t('features.coding.panel.costHint')}>
@@ -230,6 +236,7 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
           </div>
         )}
 
+        {waitsForYou && ask && <PermissionCard key={ask.id} taskId={pageId} ask={ask} canAct={canAct && connected} />}
         {state === 'running' && (
           <div className="ctk-keys">
             <button type="button" className="btn btn--sm btn--danger" onClick={act(() => stopTask(pageId))} data-testid="coding-stop">
@@ -336,7 +343,8 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
           </form>
         )}
 
-        {(state === 'failed' || state === 'stopped') && (
+        {limit && stage && <StepLimitBox taskId={pageId} limit={limit} steps={stageSteps(stage)} canAct={canAct} onError={(e) => useUI.getState().toast({ message: e instanceof Error ? e.message : String(e), kind: 'error' })} />}
+        {(state === 'failed' || state === 'stopped') && !limit && (
           <div className="ctk-box ctk-box--err" role="alert">
             <p>
               <strong>{t(state === 'failed' ? 'features.coding.state.failed' : 'features.coding.state.stopped')}</strong> {local.error}
@@ -359,6 +367,8 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
             <span className="ctk-hint">{stage?.auto ? t('features.coding.act.autoHint') : t('features.coding.act.manualHint')}</span>
           </div>
         )}
+
+        {perms && <PermissionSummary counts={perms} />}
 
         {/* context: where the task hands on to, the pages that go along */}
         {!coding && <FollowUps taskId={pageId} kind={kind} done={stage?.kind === 'done'} canAct={canAct} />}

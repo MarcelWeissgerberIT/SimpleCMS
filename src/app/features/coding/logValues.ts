@@ -16,7 +16,16 @@ const WORKTREES: Record<string, (code: string) => string> = {
 const SYNCED = new Set(['onedrive', 'cloudStorage'])
 const REQ = new Set(['requestOpened', 'requestExisting', 'requestLink'])
 
+/** worker 1.11.0: how a permission request ended — in the person's language (an unknown one: as the worker wrote it). */
+const HOW = new Set(['once', 'always', 'rule', 'you', 'timeout', 'stopped', 'away', 'long'])
+const PERM = new Set(['permissionAllowed', 'permissionDenied'])
+
 export function logValues(code: string, v: Record<string, string | number>, t: (key: string) => string): Record<string, string | number> {
+  if (PERM.has(code)) {
+    const how = typeof v.how === 'string' && HOW.has(v.how) ? t(`features.coding.log.how.${v.how}`) : String(v.how ?? '')
+    return { ...v, how, what: String(v.what ?? '').trim() || '—' }
+  }
+  if (code === 'permissionAsked') return { ...v, what: String(v.what ?? '').trim() || '—' }
   if (REQ.has(code)) {
     const k = v.kind === 'pr' ? 'pr' : 'mr'
     return { ...v, req: t(`features.coding.log.req.${k}`), reqLower: t(`features.coding.log.req.${k}Lower`) }

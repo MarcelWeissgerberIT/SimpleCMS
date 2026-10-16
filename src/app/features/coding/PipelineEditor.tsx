@@ -274,9 +274,9 @@ export function PipelineEditor({ dbId, locked, onClose }: { dbId: string; locked
                         </select>
                       </label>
                       )}
-                      <label>
+                      <label title={t('features.coding.pipeline.turnsHint')}>
                         <span className="label">{t('features.coding.pipeline.turns')}</span>
-                        <input className="input" type="number" min={1} max={200} value={s.maxTurns ?? (s.kind === 'plan' ? 20 : 40)} disabled={ro} onChange={(e) => patch(i, { maxTurns: Math.max(1, Math.min(200, Number(e.target.value) || 1)) })} />
+                        <input className="input" type="number" min={1} max={200} value={s.maxTurns ?? (s.kind === 'plan' ? 20 : 40)} disabled={ro} data-testid="coding-pipeline-turns" onChange={(e) => patch(i, { maxTurns: Math.max(1, Math.min(200, Number(e.target.value) || 1)) })} />
                       </label>
                     </div>
                   )}

@@ -34,7 +34,7 @@ import { isAgentWriting } from '../agents/attribution'
 import { ALL_MESSAGES, t } from '../../i18n'
 import { REPO_NAME, type GitAction, type LogLine, type StageKind } from './protocol'
 import { FOLLOW_UPS, KIND_TEMPLATES, codingProps, codingReadOnly, currentProjectId, isPipelineKind, kindOfDb, nextStage, optionByName, optionName, pipelineDbIds, pipelineDbIdsOf, priorityRank, readPipeline, stageNear, templatePipeline, type CodingRole, type PipelineKind, type ResolvedStage } from './schema'
-import { BRANCH_NAME, allTasks, answerTask, approvalsOf, approveTask, createTask, defaultApprovals, followUpsOf, knownRepos, planSection, reworkTask, runTaskNow, sectionTitleOf, setFollowUps, skipsGate, spawnFollowUp, startStageOf, taskBody, taskContext, textHash, workerBranches, type Approvals } from './tasks'
+import { BRANCH_NAME, allTasks, answerTask, approvalsOf, approveTask, canContinue, continueTask, createTask, defaultApprovals, followUpsOf, knownRepos, planSection, reworkTask, runTaskNow, sectionTitleOf, setFollowUps, skipsGate, spawnFollowUp, stageSteps, startStageOf, taskBody, taskContext, textHash, workerBranches, type Approvals } from './tasks'
 import { loadTask, scope, taskLocal, useCodingLocal, type TaskLocal } from './local'
 import { isTrusted, needsConfirm, versionOf, writeEndsConfirm } from './trust'
 import { isRunning, stopTask } from './service'
@@ -129,6 +129,8 @@ export interface TaskBrief {
   /** Claude Code's open question (this device) — null when there is none or the page's reading is limited */
   question: string | null
   error: string | null
+  /** worker 1.11.0: the failed stage stopped at its step limit (this device) — Continue runs it on */
+  stepLimit: { turns: number; max: number } | null
   updatedAt: number
   createdAt: number
 }
@@ -190,6 +192,7 @@ function briefOf(row: Page, stage: ResolvedStage | null, kind: PipelineKind, lim
     pr,
     question: phase === 'question' && !limited ? (local.question ?? null) : null,
     error: (phase === 'failed' || phase === 'stopped') && !limited ? (local.error ?? null) : null,
+    stepLimit: phase === 'failed' && local.stepLimit && local.stepLimit.stageId === stage?.id ? { turns: local.stepLimit.turns, max: local.stepLimit.max } : null,
     updatedAt: row.updatedAt,
     createdAt: row.createdAt,
   }
@@ -679,7 +682,7 @@ export async function applyNewTask(plan: NewTaskPlan, writer: Writer): Promise<{
   }
 }
 
-export const TASK_OPS = ['approve', 'rework', 'answer', 'run', 'stop', 'then', 'hand_on'] as const
+export const TASK_OPS = ['approve', 'rework', 'answer', 'run', 'continue', 'stop', 'then', 'hand_on'] as const
 export type TaskOp = (typeof TASK_OPS)[number]
 
 export interface TaskActionPlan {
@@ -701,6 +704,11 @@ export interface TaskActionPlan {
   toId?: ID | null
   /** run: a retry after a failure or Stop */
   retry?: boolean
+  /**
+   * continue (worker 1.11.0): where the stage stopped (`turns` of `max`) — it runs on from its worktree with `next` steps
+   * at most: the stage's Step limit now (stageSteps — what pickNext hands the worker), not the stopped run's
+   */
+  steps?: { turns: number; max: number; next: number }
   note?: string
   /** answer: the question it answers (the live one must be the same) */
   question?: string
@@ -857,6 +865,13 @@ export async function planTaskAction(taskId: ID, op: TaskOp, input: { note?: str
       if (!['idle', 'failed', 'stopped'].includes(phase)) throw new CodingPlanError(`${where}: run works on a queued, failed or stopped task.`)
       return { ...base, to: stage.name, retry: phase === 'failed' || phase === 'stopped', starts: true }
     }
+    case 'continue': {
+      if (running) throw new CodingPlanError(`${where}: it is running already.`)
+      const lim = local.stepLimit
+      if (phase !== 'failed' || !stage || !lim || lim.stageId !== stage.id) throw new CodingPlanError(`${where}: continue works only on a stage that stopped at its step limit (otherwise: run).`)
+      if (!canContinue()) throw new CodingPlanError(`${where}: the connected coding worker cannot continue a stage (it needs worker 1.11.0) — run starts the stage from the beginning instead.`)
+      return { ...base, to: stage.name, steps: { turns: lim.turns, max: lim.max, next: stageSteps(stage) }, starts: true }
+    }
     case 'stop': {
       if (!running) throw new CodingPlanError(`${where}: it is not running on this device's worker.`)
       return { ...base, to: null, starts: false }
@@ -964,6 +979,10 @@ export async function applyTaskAction(plan: TaskActionPlan, opts: { steps?: SigS
     case 'run':
       await runTaskNow(id, { confirm: false })
       return { undo: null }
+    case 'continue':
+      if (!local.stepLimit || local.stepLimit.stageId !== plan.stageId) throw moved()
+      await continueTask(id, { confirm: false })
+      return { undo: null }
     case 'hand_on': {
       if (!plan.handOn) throw new Error(t('features.coding.term.err.handOn'))
       const made = await spawnFollowUp(id, plan.handOn, writer)
@@ -992,6 +1011,8 @@ export function actionTook(plan: TaskActionPlan): boolean {
       return !!ctx && local.question !== plan.question
     case 'run':
       return !!ctx && (!!local.runNow || isRunning(plan.taskId))
+    case 'continue':
+      return !!ctx && ((!!local.runNow && !!local.resume) || isRunning(plan.taskId))
     case 'stop':
       return !isRunning(plan.taskId)
     case 'then':

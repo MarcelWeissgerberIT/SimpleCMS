@@ -17,7 +17,7 @@ import type { StagedChange } from './types'
 const isPhone = () => window.matchMedia?.('(max-width: 640px)').matches ?? false
 
 /** the actions a task must be trusted for (stop never needs Confirm) */
-const NEEDS_TRUST = new Set(['approve', 'rework', 'answer', 'run', 'then', 'hand_on'])
+const NEEDS_TRUST = new Set(['approve', 'rework', 'answer', 'run', 'continue', 'then', 'hand_on'])
 
 /**
  * Does the task of a staged action wait for "Confirm on this device" — now (re-checked when the task changes, and when
@@ -222,6 +222,9 @@ export function CodingDiff({ change: c, card = false }: { change: StagedChange; 
         break
       case 'run':
         body = <p className="term-change__line">{t(a.retry ? 'features.agent.coding.retry' : 'features.agent.coding.run', { stage, state: t(`features.coding.state.${a.phase}`) })}</p>
+        break
+      case 'continue':
+        body = <p className="term-change__line">{t('features.agent.coding.continue', { stage, turns: a.steps?.turns ?? 0, max: a.steps?.max ?? 0, next: a.steps?.next ?? a.steps?.max ?? 0 })}</p>
         break
       case 'stop':
         body = <p className="term-change__line">{t('features.agent.coding.stop', { stage })}</p>

@@ -3,7 +3,9 @@
  * features/coding/protocol.ts — nothing else runs (no git, no Claude Code). It says its welcome, asks for work like the
  * real worker (`next` on welcome, on a nudge and every 2 s, one at a time) and — when a test wants it — finishes a
  * handed-out stage with a given outcome (`finish`, or `auto` for every stage) and answers the tab's git keys (`onGit`).
- * Used by coding-old-worker.spec (older workers) and coding-ship-fake.spec (ship records).
+ * worker 1.11.0: a running stage can wait for a permission (`askPermission` — named in `status` and sent as an event,
+ * as the real worker does); the tab's answers are kept (`permAsked`) and settle it.
+ * Used by coding-old-worker.spec (older workers), coding-ship-fake.spec (ship records), coding-permission.spec.
  */
 import { WORKER_SUBPROTOCOL, type WorkerInfo } from '../../../src/app/features/coding/protocol'
 
@@ -35,6 +37,12 @@ export interface FakeWorker {
   gitAsked: Json[]
   /** the answer to a git request: a result, or an Error to refuse it (default: refused) */
   onGit: ((req: Json) => Json | Error) | null
+  /** the open permission request per task id (worker 1.11.0) */
+  asks: Map<string, Json>
+  /** the tab's permission answers (`op: 'permission'`), in order — exactly as sent */
+  permAsked: Json[]
+  /** a running task waits for a permission: named in `status` (busy) and sent as an event */
+  askPermission: (task: Json, ask: Json) => void
   /** send the tab a message of the protocol (an event) */
   send: (msg: Json) => void
   close: () => Promise<void>
@@ -57,13 +65,20 @@ export async function startFakeWorker(port: number, info: WorkerInfo): Promise<F
   const finished = new Set<string>()
   const keyOf = (task: Json) => `${task.id}|${task.stage?.id}`
   const running = () => fake.handed().filter((t) => !finished.has(keyOf(t)))
-  const status = () => tab?.send(JSON.stringify({ type: 'status', busy: running().map((t) => ({ taskId: t.id, repo: t.repo, stageId: t.stage.id, since: Date.now() })), spentToday: 0 }))
+  const status = () => tab?.send(JSON.stringify({ type: 'status', busy: running().map((t) => ({ taskId: t.id, repo: t.repo, stageId: t.stage.id, since: Date.now(), ...(fake.asks.get(t.id) ? { ask: fake.asks.get(t.id) } : {}) })), spentToday: 0 }))
   const fake: FakeWorker = {
     can: null,
     docs: false,
     hellos: [],
     asked: [],
     gitAsked: [],
+    asks: new Map(),
+    permAsked: [],
+    askPermission: (task, ask) => {
+      fake.asks.set(task.id, ask)
+      tab?.send(JSON.stringify({ type: 'event', taskId: task.id, kind: 'permission', ask }))
+      status()
+    },
     auto: null,
     onGit: null,
     open: () => pending.size,
@@ -119,6 +134,16 @@ export async function startFakeWorker(port: number, info: WorkerInfo): Promise<F
         fake.gitAsked.push(m)
         const answer = fake.onGit ? fake.onGit(m) : new Error('git is not played by this fake')
         ws.send(JSON.stringify(answer instanceof Error ? { type: 'res', id: m.id, ok: false, error: answer.message } : { type: 'res', id: m.id, ok: true, result: answer }))
+        return
+      }
+      if (m.type === 'req' && m.op === 'permission') {
+        fake.permAsked.push(m)
+        const open = fake.asks.get(String(m.taskId))
+        if (!open || open.id !== m.ask) return ws.send(JSON.stringify({ type: 'res', id: m.id, ok: true, result: { ok: false, gone: true } }))
+        fake.asks.delete(String(m.taskId))
+        ws.send(JSON.stringify({ type: 'event', taskId: m.taskId, kind: 'permission', ask: null, settled: { id: open.id, how: m.verb } }))
+        status()
+        ws.send(JSON.stringify({ type: 'res', id: m.id, ok: true, result: { ok: true } }))
         return
       }
       if (m.type === 'res') {

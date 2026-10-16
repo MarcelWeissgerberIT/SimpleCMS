@@ -13,7 +13,7 @@
  * downloaded file, the pairing secret only in the file and (non-extractable) on this device.
  */
 import { create } from 'zustand'
-import { PAIR_SECRET, WORKER_DEFAULT_PORT, WORKSPACE_ID, type BusyTask, type IntakeState, type RefusedReason, type TaskProgress, type WorkerInfo } from './protocol'
+import { PAIR_SECRET, WORKER_DEFAULT_PORT, WORKSPACE_ID, type BusyTask, type IntakeState, type PermissionAsk, type RefusedReason, type TaskProgress, type WorkerInfo } from './protocol'
 
 export const CODING_STORAGE_KEY = 'one.coding'
 
@@ -281,8 +281,13 @@ export interface CodingState extends CodingSettings {
   worker: WorkerInfo | null
   busy: BusyTask[]
   spentToday: number
-  /** Claude Code's progress per running task (memory only; gone when its stage ends) */
+  /** Claude Code's progress per running task (memory only; gone when its stage ends — or the link drops) */
   progress: Record<string, TaskProgress & { at: number }>
+  /**
+   * worker 1.11.0: the permission request each running task waits for (memory only — the worker holds it: its busy list
+   * names it again after a reconnect; gone when it is answered, timed out, the stage ends or the link drops)
+   */
+  asks: Record<string, PermissionAsk>
   /** Import stages: the code a task's panel handed the worker (memory only) */
   intake: Record<string, IntakeState & { at: number }>
   /** bumped when this device picks another project (#/coding re-reads its choice) */
@@ -307,6 +312,7 @@ export const useCoding = create<CodingState>()(() => ({
   busy: [],
   spentToday: 0,
   progress: {},
+  asks: {},
   intake: {},
   projectRev: 0,
   can: null,

@@ -8,7 +8,7 @@
  *
  * (CHANGELOG_DRAFT=1 lets the build pass while a new entry's picture does not exist yet.)
  *
- * Shots: page-refs, patchbay, ship-log, mcp-connections, worker-windows, safe-zip-import, regler, agent-precheck, ai-setup, ai-receipts, agent-trust, claude-tasks, flight-recorder-eject, flight-recorder-window, preflight, flight-recorder, tasks, outbox, mirror-again, glass-switches, history-compare, mcp-overview, mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
+ * Shots: worker-permissions, page-refs, sidebar, patchbay, ship-log, mcp-connections, worker-windows, safe-zip-import, regler, agent-precheck, ai-setup, ai-receipts, agent-trust, claude-tasks, flight-recorder-eject, flight-recorder-window, preflight, flight-recorder, tasks, outbox, mirror-again, glass-switches, history-compare, mcp-overview, mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
  * custom-agents, gmail, help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
  * workspace in English, light theme, 1440 × 900 at device scale 2; the crop of the relevant area is scaled
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
@@ -977,6 +977,65 @@ const shots = {
       await save(page, 'patchbay')
     } finally {
       await ctx.close()
+    }
+  },
+
+  /**
+   * Worker 1.11.0: left a task whose implement stage waits for a permission (the card "Claude wants · Bash npm run lint"
+   * with its three keys and the rule "Always" would keep), right a task whose stage stopped at its step limit
+   * ("Step limit reached (3/3)" with Continue (+3 steps) · Start over). The repository's own worker with the fake
+   * Claude Code CLI (FAKE:PERMIT / FAKE:MAXTURNS, a step limit of 3 for the repo); nothing leaves the machine.
+   */
+  async 'worker-permissions'(browser) {
+    const work = codingRepo()
+    const { ctx, page } = await freshPage(browser, { viewport: { width: W, height: H + 200 } })
+    let worker = null
+    try {
+      await page.evaluate(() => localStorage.setItem('one.coding.approvals', 'none'))
+      await page.evaluate(() => window.__one.ui.getState().openModal({ type: 'settings' }))
+      await page.getByRole('tab', { name: 'Coding worker' }).click()
+      const init = await page.locator('.cw-code pre').filter({ hasText: 'init --workspace' }).first().textContent()
+      worker = await startCodingWorker(work, /--workspace (\S+)/.exec(init)[1], {}, { claude: { maxTurns: 3 } })
+      const port = page.getByLabel('Port', { exact: true })
+      await port.fill(String(WORKER_PORT))
+      await port.press('Enter')
+      await page.getByRole('switch', { name: 'Connect to a coding worker on this computer' }).click()
+      await page.getByTestId('coding-conn').filter({ hasText: 'Connected' }).waitFor({ timeout: 20_000 })
+      await page.keyboard.press('Escape')
+      await page.getByRole('dialog').waitFor({ state: 'detached' })
+      const task = async (title, goal) => {
+        await page.evaluate(() => (window.location.hash = '#/coding'))
+        await page.getByTestId('coding-new').click()
+        await page.getByTestId('coding-new-title').fill(title)
+        await page.getByTestId('coding-new-repo').fill('website')
+        await page.getByTestId('coding-new-goal').fill(goal)
+        await page.getByTestId('coding-create').click()
+        await page.getByTestId('coding-panel').waitFor()
+      }
+      const panel = page.getByTestId('coding-panel')
+      // left: the implement stage waits for a permission (the plan stage runs first, Approvals "None" passes its gate)
+      await task('Lint the login form', 'Run the linter over the login form and fix what it finds. FAKE:PERMIT[npm run lint]')
+      await page.getByTestId('coding-permission').waitFor({ timeout: 120_000 })
+      await scrollToTop(panel, 28)
+      await rest(page)
+      const top = await boxOf(panel, 16)
+      const card = await page.getByTestId('coding-permission').boundingBox()
+      await page.screenshot({ path: `${TMP}/worker-permissions-ask.png`, clip: { ...top, height: card.y + card.height + 10 - top.y } })
+      await page.getByTestId('coding-permission-always').click()
+      await page.getByTestId('coding-permission').waitFor({ state: 'detached' })
+      // right: the next task's stage stopped at its step limit
+      await task('Split the login module', 'Split src/login.ts into validation and session. FAKE:MAXTURNS')
+      await page.getByTestId('coding-steplimit').waitFor({ timeout: 180_000 })
+      await scrollToTop(panel, 28)
+      await rest(page)
+      const top2 = await boxOf(panel, 16)
+      const box = await page.getByTestId('coding-steplimit').boundingBox()
+      await page.screenshot({ path: `${TMP}/worker-permissions-limit.png`, clip: { ...top2, height: box.y + box.height + 10 - top2.y } })
+      await saveSideBySide('worker-permissions', [`${TMP}/worker-permissions-ask.png`, `${TMP}/worker-permissions-limit.png`])
+    } finally {
+      worker?.kill('SIGTERM')
+      await ctx.close()
+      rmSync(work.root, { recursive: true, force: true })
     }
   },
 

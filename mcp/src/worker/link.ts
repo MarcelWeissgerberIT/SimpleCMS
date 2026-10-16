@@ -26,6 +26,7 @@ import {
   LOG_MAX,
   RELAY_MAX_PLAIN,
   RELAY_NONCE,
+  TAB_CAN,
   WORKER_CLOSE_REFUSED,
   WORKER_CLOSE_REPLACED,
   WORKER_SUBPROTOCOL,
@@ -89,6 +90,8 @@ interface Conn {
   alive: boolean
   /** a relay pairing whose first box opened with this download's key: the tab holds the pairing secret */
   proven: boolean
+  /** what the tab said it handles in its hello (TAB_CAN; an older tab: nothing) */
+  can: ReadonlySet<string>
   send(text: string, droppable?: boolean): void
   close(code: number, reason: string): void
   isOpen(): boolean
@@ -266,6 +269,12 @@ export class WorkerLink {
     return this.tab?.workspace ?? null
   }
 
+  /** The connected tab handles `cap` (its hello said so) — false without a tab, or for an older one. */
+  tabCan(cap: string): boolean {
+    const tab = this.tab
+    return !!tab?.workspace && tab.isOpen() && tab.can.has(cap)
+  }
+
   /** Cloud mode: the team server it dials (host), else null. */
   get via(): string | null {
     return this.dial?.host ?? (this.opts.cloud ? new URL(this.opts.cloud.url).host : null)
@@ -430,6 +439,7 @@ export class WorkerLink {
       workspace: null,
       alive: true,
       proven: false,
+      can: new Set(),
       send: (text) => ws.send(text),
       close: (code, reason) => ws.close(code, reason),
       isOpen: () => ws.readyState === WebSocket.OPEN,
@@ -509,6 +519,7 @@ export class WorkerLink {
       workspace: null,
       alive: true,
       proven: false,
+      can: new Set(),
       send: (text, droppable) => {
         if (pairing.ended || !pairing.box) return
         const fit = shrinkForRelay(text)
@@ -599,6 +610,9 @@ export class WorkerLink {
         if (this.opts.pair && !conn.proven && !sameSecret(this.opts.pair, (msg as { pair?: unknown }).pair)) return this.refuseTab(conn, 'pair', ws)
         if (conn.workspace) return
         conn.workspace = ws
+        // what the tab handles (TAB_CAN): only names this worker knows, a few
+        const can = (msg as { can?: unknown }).can
+        conn.can = new Set(Array.isArray(can) ? can.filter((c): c is string => typeof c === 'string' && (TAB_CAN as readonly string[]).includes(c)).slice(0, 16) : [])
         const old = this.tab
         if (old && old !== conn) {
           old.close(WORKER_CLOSE_REPLACED, 'replaced by a newer tab')

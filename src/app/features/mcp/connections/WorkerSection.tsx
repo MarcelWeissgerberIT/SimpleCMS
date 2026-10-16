@@ -5,8 +5,8 @@
  * task tools (MCP_TASK_TOOLS).
  */
 import { useT } from '../../../i18n'
-import { CodingChangeReposButton, codingWorkerDownText, codingWorkerStateText, openCodingSettings, useCoding, workerOldHere } from '../../coding'
-import { workerLacksOnlyExtras, workerOutdated, workerUnsafe } from '../../coding/protocol'
+import { CodingChangeReposButton, codingWorkerDownText, codingOutdatedNotice, codingWorkerStateText, openCodingSettings, useCoding, workerOldHere } from '../../coding'
+import { workerOutdated, workerUnsafe } from '../../coding/protocol'
 import { fmtTime } from '../../preflight/format'
 import { MCP_TASK_TOOLS } from '../contract'
 import { alsoOnes, workerPlaces } from './model'
@@ -62,7 +62,7 @@ export function WorkerSection() {
               )}
               {unsafe && <span className="mcpc-why2">{t('features.coding.worker.unsafe', { version })}</span>}
               {oldHere && <span className="mcpc-why2">{t('features.coding.worker.windows', { version })}</span>}
-              {outdated && <span className="mcpc-why2">{t(workerLacksOnlyExtras(can) ? 'features.coding.worker.outdatedExtras' : 'features.coding.worker.outdated')}</span>}
+              {outdated && <span className="mcpc-why2">{codingOutdatedNotice(t, can)}</span>}
             </>
           }
           attrs={{ 'data-state': state, 'data-level': level === 'red' || level === 'amber' ? level : undefined }}

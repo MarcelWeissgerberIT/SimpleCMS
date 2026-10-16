@@ -346,8 +346,9 @@ export class FakeTab {
     this.ws.send(JSON.stringify(msg))
   }
 
-  hello(workspace: WorkspaceRef = WS_LOCAL, pair?: string) {
-    this.send({ type: 'hello', app: 'one', version: 'test', workspace, ...(pair !== undefined ? { pair } : {}) })
+  /** `can`: what the tab handles (TAB_CAN — this One's tab by default; `[]`: a tab older than the permission prompt) */
+  hello(workspace: WorkspaceRef = WS_LOCAL, pair?: string, can: string[] = ['permission']) {
+    this.send({ type: 'hello', app: 'one', version: 'test', workspace, ...(pair !== undefined ? { pair } : {}), can })
   }
 
   private answer(msg: Req) {

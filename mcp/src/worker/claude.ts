@@ -1,16 +1,24 @@
 /**
  * one-worker — Claude Code, headless: `claude -p --output-format stream-json --verbose --permission-mode …
  * --max-turns N [--model …] [--allowedTools …] [--disallowedTools …] [--max-budget-usd …] [--setting-sources user]
- * --mcp-config <task tools> [--strict-mcp-config]` in the task's worktree. The prompt goes in on stdin (task text
- * never shows in the process list). Claude Code keeps its own permission rules: no flag that skips them is ever
- * passed. Stop kills the whole process tree.
+ * [--add-dir <the task's scratch folder>] [--permission-prompt-tool mcp__one-task__one_task_permission] --mcp-config <task
+ * tools> [--strict-mcp-config]` in the task's worktree. The prompt goes in on stdin (task text never shows in the process
+ * list). Claude Code keeps its own permission rules: no flag that skips them is ever passed — what it may not do it asks
+ * through the task tools' one_task_permission (worker 1.11.0: the repo's own lists, else the person in One). Stop kills
+ * the whole process tree.
+ *
+ * A run ends when Claude Code ends (worker 1.11.0): its result stops the sign of life at once; the stage finishes on the
+ * process's exit (a short wait for the last lines of output) — never only when every pipe closed, which a server Claude
+ * Code left running kept open for ever — and what the run left running is ended (proctree.ts).
  *
  * The CLI is `CLAUDE_BIN` or `claude` on PATH — Windows: claude.exe, or the script behind npm's claude.cmd (never
  * through cmd.exe, never from the worktree; exec.ts), else the native installer's one off PATH (findClaude). What it
  * supports is read from its --help (the budget
- * flag, the permission mode names, --setting-sources), so older and newer versions both work.
+ * flag, the permission mode names, --setting-sources, --add-dir), so older and newer versions both work.
+ * --permission-prompt-tool is a hidden option (not in --help): known from the help, else from the version (1.0.0 on).
  */
 import type { ChildProcess } from 'node:child_process'
+import { randomBytes } from 'node:crypto'
 import { createInterface } from 'node:readline'
 import { readFileSync, readdirSync, realpathSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
@@ -20,6 +28,7 @@ import { inFolder } from './config.ts'
 import { envGet, execFileSafe, isFile, killTree, programName, resolveCommand, spawnSafe, type ExecCtx, type Via } from './exec.ts'
 import { samePath } from './paths.ts'
 import { estimateCost, usageOf, type Usage } from './price.ts'
+import { RUN_MARK, RunTree } from './proctree.ts'
 
 export { killTree } from './exec.ts'
 
@@ -32,6 +41,10 @@ export interface ClaudeCaps {
   modes: string[]
   /** --setting-sources is known (a repo's own settings can be left out) */
   settingSources: boolean
+  /** worker 1.11.0: --add-dir is known (the task's scratch folder) — absent in older reads: unknown, not passed */
+  addDir?: boolean
+  /** worker 1.11.0: --permission-prompt-tool works (hidden from --help: the help names it, or the version is 1.0.0 or newer) */
+  permissionTool?: boolean
   /** Windows: the file that runs (`check` prints it — never sent) */
   path?: string
   /** Windows: how it starts (an .exe, or a script behind npm's shim) */
@@ -142,11 +155,39 @@ export async function detectClaude(bin = claudeBin(), ctx?: Partial<ExecCtx>): P
     const help = await capture(bin, ['--help'], ctx)
     const modeLine = /--permission-mode[\s\S]{0,400}?\(choices:([^)]*)\)/.exec(help.out)?.[1] ?? ''
     const modes = [...modeLine.matchAll(/"([A-Za-z]+)"/g)].map((m) => m[1]!)
-    return { found: true, version, budget: /--max-budget-usd/.test(help.out), modes, settingSources: /--setting-sources/.test(help.out), ...where }
+    return {
+      found: true,
+      version,
+      budget: /--max-budget-usd/.test(help.out),
+      modes,
+      settingSources: /--setting-sources/.test(help.out),
+      addDir: /--add-dir\b/.test(help.out),
+      permissionTool: /--permission-prompt-tool\b/.test(help.out) || versionAtLeast(version, PERMISSION_TOOL_SINCE),
+      ...where,
+    }
   } catch {
     return none('not-found')
   }
 }
+
+/** The first Claude Code version with --permission-prompt-tool (a hidden option: its --help never names it). */
+export const PERMISSION_TOOL_SINCE = '1.0.0'
+
+/** "2.1.42" ≥ "1.0.0" (numeric, part by part); an unreadable version: false. */
+export function versionAtLeast(version: string | null, min: string): boolean {
+  const parts = (v: string | null) => (v && /^\d+(\.\d+)*/.exec(v)?.[0].split('.').map(Number)) || null
+  const a = parts(version)
+  const b = parts(min)
+  if (!a || !b) return false
+  for (let i = 0; i < Math.max(a.length, b.length); i++) {
+    const d = (a[i] ?? 0) - (b[i] ?? 0)
+    if (d) return d > 0
+  }
+  return true
+}
+
+/** The task tools' permission prompt as Claude Code names it (--permission-prompt-tool). */
+export const PERMISSION_TOOL = 'mcp__one-task__one_task_permission'
 
 /** Our mode name → the CLI's ('default' is called 'manual' by some versions). Never a bypassing mode. */
 export function cliMode(mode: PermissionMode, caps: ClaudeCaps): string {
@@ -170,6 +211,10 @@ export interface ClaudeRun {
   projectSettings: boolean
   /** $ this run may spend (null = no limit) */
   budgetUsd: number | null
+  /** worker 1.11.0: the task's scratch folder (--add-dir, when the CLI knows it) — null: none */
+  scratch?: string | null
+  /** worker 1.11.0: the MCP tool Claude Code asks for a permission it does not have (--permission-prompt-tool) — null: none */
+  permissionTool?: string | null
   caps: ClaudeCaps
   env: NodeJS.ProcessEnv
   signal: AbortSignal
@@ -181,6 +226,8 @@ export interface ClaudeRun {
    * a path is never cut in two halves no rule can match any more
    */
   scrub?: (s: string) => string
+  /** true while the run waits for the person (a permission request in One): no "still working" line then */
+  waiting?: () => boolean
 }
 
 /** Claude Code's own sign-in is gone (expired login, no API key): the person fixes it with `claude` → /login. */
@@ -203,6 +250,10 @@ export interface ClaudeResult {
   /** the result's subtype (success, error_max_turns, error_max_budget_usd, error_during_execution …) */
   subtype: string | null
   error?: string
+  /** worker 1.11.0: tool calls Claude Code refused itself for a missing permission (it could not ask) */
+  refusals: number
+  /** worker 1.11.0: programs the run left running that the worker ended */
+  leftovers: number
 }
 
 /** Claude Code's own plan files (plan mode writes the plan there). */
@@ -365,7 +416,7 @@ export function mcpLaunchers(opts: { dirs: string[]; projectSettings: boolean; h
 }
 
 /** The argv for a run (exported for the tests: no bypassing flag ever). */
-export function claudeArgs(r: Omit<ClaudeRun, 'bin' | 'cwd' | 'prompt' | 'env' | 'signal' | 'onLog' | 'onProgress' | 'scrub'>): string[] {
+export function claudeArgs(r: Omit<ClaudeRun, 'bin' | 'cwd' | 'prompt' | 'env' | 'signal' | 'onLog' | 'onProgress' | 'scrub' | 'waiting'>): string[] {
   const args = ['-p', '--output-format', 'stream-json', '--verbose', '--permission-mode', cliMode(r.mode, r.caps), '--max-turns', String(r.maxTurns)]
   if (r.model) args.push('--model', r.model)
   if (r.allowedTools.length) args.push('--allowedTools', r.allowedTools.join(','))
@@ -373,6 +424,10 @@ export function claudeArgs(r: Omit<ClaudeRun, 'bin' | 'cwd' | 'prompt' | 'env' |
   if (r.budgetUsd !== null && r.caps.budget) args.push('--max-budget-usd', r.budgetUsd.toFixed(2))
   // the person's own settings only: the repo's hooks, apiKeyHelper, MCP approvals, .mcp.json and CLAUDE.md stay out
   if (!r.projectSettings && r.caps.settingSources) args.push('--setting-sources', 'user')
+  // the task's scratch folder: temporary files without asking (one folder — the flag takes a list: a flag follows it)
+  if (r.scratch && r.caps.addDir) args.push('--add-dir', r.scratch)
+  // what Claude Code may not do yet is asked through the task tools (never skipped): only with the task tools there
+  if (r.permissionTool && r.mcpConfig && r.caps.permissionTool) args.push('--permission-prompt-tool', r.permissionTool)
   if (r.mcpConfig) {
     args.push('--mcp-config', r.mcpConfig)
     if (r.strictMcp) args.push('--strict-mcp-config')
@@ -430,17 +485,37 @@ const clock = (ms: number) => {
   return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`
 }
 
-/** Run Claude Code once; streams log lines; resolves when it exits (or was stopped). */
+/**
+ * Claude Code refused a tool call itself for a permission it does not have (it could not ask: an older CLI, no task
+ * tools) — its tool_result says so. The worker's own refusals start "Not allowed" (worker.ts: logged there already), its
+ * answers to ExitPlanMode / AskUserQuestion "Handled by the One worker" (permissions.ts HANDLED: no line of their own).
+ */
+export const PERMISSION_REFUSED = /requires approval|haven't granted it yet|has(?:n't| not) been granted|permission to use \S+ (?:has been|was) denied|was blocked by your permission settings/i
+export const OWN_REFUSAL = /^(?:Not allowed|Handled by the One worker)\b/
+
+/** After Claude Code's process exited: this long for the last lines of its output (ONE_WORKER_EXIT_GRACE_MS: tests). */
+const exitGraceMs = () => Number(process.env.ONE_WORKER_EXIT_GRACE_MS) || 1500
+/** After its result: this long for Claude Code to end by itself, then the worker ends it (ONE_WORKER_RESULT_EXIT_MS). */
+const resultExitMs = () => Number(process.env.ONE_WORKER_RESULT_EXIT_MS) || 30_000
+
+/**
+ * Run Claude Code once; streams log lines; resolves when its run is over: its process exited (plus a short wait for
+ * the last lines — never for every pipe to close: a program it left running may hold them), or was stopped. Then what
+ * the run left running is ended (proctree.ts) and named in one line.
+ */
 export function runClaude(r: ClaudeRun): Promise<ClaudeResult> {
   return new Promise((done) => {
-    const result: ClaudeResult = { ok: false, stopped: false, text: '', plan: null, cost: 0, turns: 0, sessionId: null, subtype: null }
+    const result: ClaudeResult = { ok: false, stopped: false, text: '', plan: null, cost: 0, turns: 0, sessionId: null, subtype: null, refusals: 0, leftovers: 0 }
+    // every program of this run carries the mark (its leftovers are found by it — Linux / macOS)
+    const mark = randomBytes(12).toString('hex')
     // an .exe or a script behind npm's shim — never through cmd.exe, never from the worktree (exec.ts)
-    const spawned = spawnSafe(r.bin, claudeArgs(r), { cwd: r.cwd, env: r.env, stdio: ['pipe', 'pipe', 'pipe'], detached: process.platform !== 'win32', windowsHide: true, allow: 'shim' })
+    const spawned = spawnSafe(r.bin, claudeArgs(r), { cwd: r.cwd, env: { ...r.env, [RUN_MARK]: mark }, stdio: ['pipe', 'pipe', 'pipe'], detached: process.platform !== 'win32', windowsHide: true, allow: 'shim' })
     if (!spawned.ok) {
       done({ ...result, error: spawned.why === 'failed' ? `Claude Code could not start: ${spawned.error}` : claudeMissingError(spawned.why === 'refused' ? 'cmd-refused' : 'not-found') })
       return
     }
     const child: ChildProcess = spawned.child
+    const tree = child.pid !== undefined ? new RunTree(child.pid, mark) : null
     let stderr = ''
     // the kept stderr lost its beginning (it is only the last STDERR_KEEP characters)
     let stderrCut = false
@@ -454,18 +529,29 @@ export function runClaude(r: ClaudeRun): Promise<ClaudeResult> {
     // the plan file Claude Code wrote in plan mode (its last one)
     let planFile: string | null = null
     const usages = new Map<string, Usage>()
+    // a tool call's name by its id (a refusal in its result names the tool)
+    const toolNames = new Map<string, string>()
     const progress = () => r.onProgress?.({ turns, maxTurns: r.maxTurns, cost: estimateCost(model, usages.values()), model })
-    // a sign of life while Claude Code works quietly (reading, thinking): one line per quiet minute
+    // a sign of life while Claude Code works quietly (reading, thinking): one line per quiet minute — never after its
+    // result, never while the stage waits for the person
     const started = Date.now()
     let heard = started
     const quietMs = Number(process.env.ONE_WORKER_QUIET_MS) || 60_000
     const beat = setInterval(() => {
+      if (r.waiting?.()) {
+        heard = Date.now()
+        return
+      }
       if (Date.now() - heard < quietMs) return
       const total = clock(Date.now() - started)
       const quiet = clock(Date.now() - heard)
       log('info', `Claude Code is still working · ${total} so far · last output ${quiet} ago`, 'stillWorking', { total, quiet })
     }, quietMs)
     beat.unref()
+    let afterResult: ReturnType<typeof setTimeout> | undefined
+    let afterExit: ReturnType<typeof setTimeout> | undefined
+    /** the run is over (finish ran): later lines are not read */
+    let finished = false
     const onAbort = () => {
       result.stopped = true
       log('warn', 'Stopped — Claude Code was ended.', 'stopped')
@@ -487,6 +573,7 @@ export function runClaude(r: ClaudeRun): Promise<ClaudeResult> {
     })
     const lines = createInterface({ input: child.stdout! })
     lines.on('line', (line) => {
+      if (finished) return
       const s = line.trim()
       if (!s) return
       heard = Date.now()
@@ -518,6 +605,7 @@ export function runClaude(r: ClaudeRun): Promise<ClaudeResult> {
           for (const block of Array.isArray(content) ? content : []) {
             if (block.type === 'text' && typeof block.text === 'string' && block.text.trim()) log('claude', clip(scrub(block.text.trim()), 4000))
             else if (block.type === 'tool_use' && typeof block.name === 'string') {
+              if (typeof block.id === 'string' && toolNames.size < 5000) toolNames.set(block.id, block.name)
               // a change to a file carries what changed (the log shows it as a diff)
               const e = editOf(block.name, block.input, scrub)
               r.onLog({ t: Date.now(), k: 'tool', s: toolLine(block.name, block.input, scrub), ...(e ? { e } : {}) })
@@ -530,15 +618,36 @@ export function runClaude(r: ClaudeRun): Promise<ClaudeResult> {
         }
         case 'user': {
           const content = ((ev.message as { content?: unknown })?.content ?? []) as Array<Record<string, unknown>>
+          // a tool's result: what it started still hangs together now (Windows reads the tree; proctree.ts)
+          if (Array.isArray(content) && content.some((b) => b?.type === 'tool_result')) tree?.sample()
           for (const block of Array.isArray(content) ? content : []) {
             if (block.type !== 'tool_result' || block.is_error !== true) continue
             const text = typeof block.content === 'string' ? block.content : Array.isArray(block.content) ? (block.content as Array<{ text?: string }>).map((c) => c.text ?? '').join(' ') : ''
+            // the worker's own refusal (one_task_permission): its line is in the log already
+            if (OWN_REFUSAL.test(text.trim())) continue
+            if (PERMISSION_REFUSED.test(text)) {
+              // a permission Claude Code could not ask for: its own line (the tool's name — never the path or command)
+              result.refusals++
+              const tool = clip((typeof block.tool_use_id === 'string' ? toolNames.get(block.tool_use_id) : undefined) ?? 'a tool', 120)
+              log('warn', `Claude Code may not use ${tool} here without your permission — it was refused`, 'permissionNeeded', { tool })
+              continue
+            }
             log('warn', clip(scrub(`tool error: ${oneLine(text)}`), 500))
           }
           return
         }
         case 'result': {
           gotResult = true
+          // the run is over: no "still working" line after it; the tree as it stands now (its shells may still run)
+          clearInterval(beat)
+          tree?.atResult()
+          // Claude Code ends by itself after its result — if it does not, the worker ends it
+          afterResult = setTimeout(() => {
+            if (child.exitCode !== null || child.signalCode !== null) return
+            log('warn', 'Claude Code did not end after its result — the worker ended it', 'claudeLingered')
+            void killTree(child)
+          }, resultExitMs())
+          afterResult.unref()
           result.subtype = typeof ev.subtype === 'string' ? ev.subtype : null
           result.cost = typeof ev.total_cost_usd === 'number' && Number.isFinite(ev.total_cost_usd) ? ev.total_cost_usd : 0
           result.turns = typeof ev.num_turns === 'number' ? ev.num_turns : 0
@@ -557,9 +666,23 @@ export function runClaude(r: ClaudeRun): Promise<ClaudeResult> {
         }
       }
     })
-    child.on('close', (code) => {
+    const finish = async (code: number | null) => {
+      if (finished) return
+      finished = true
       clearInterval(beat)
+      clearTimeout(afterResult)
+      clearTimeout(afterExit)
       r.signal.removeEventListener('abort', onAbort)
+      // what the run left running (a server it started, a watcher): ended — also what kept its output open
+      const left = tree ? await tree.end() : { n: 0, names: [] }
+      if (left.n) {
+        result.leftovers = left.n
+        const names = left.names.join(', ')
+        log('info', `Ended ${left.n} program(s) Claude Code left running${names ? `: ${names}` : ''}`, 'claudeLeftovers', { n: left.n, names })
+      }
+      lines.close()
+      child.stdout?.destroy()
+      child.stderr?.destroy()
       // no ExitPlanMode, but a plan file: that file is the plan (read once the run is over)
       if (r.mode === 'plan' && !result.plan && planFile) result.plan = readPlanFile(planFile)
       if (!gotResult && !result.stopped) {
@@ -575,6 +698,12 @@ export function runClaude(r: ClaudeRun): Promise<ClaudeResult> {
         }
       }
       done(result)
+    }
+    // the process ended: a moment for the last lines, then the run is over — whoever still holds its output
+    child.on('exit', (code) => {
+      clearInterval(beat)
+      afterExit = setTimeout(() => void finish(code), exitGraceMs())
     })
+    child.on('close', (code) => void finish(code))
   })
 }

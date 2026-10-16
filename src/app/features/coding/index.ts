@@ -103,6 +103,17 @@ export { loadTasks } from './local'
  */
 export { taskVersionView, actionTook, type TaskVersionView } from './terminal'
 export { confirmTaskVersion } from './tasks'
+/**
+ * worker 1.11.0 — Preflight's "Claude möchte" lamp and the step-limit card: the permission requests running stages wait
+ * for on this device are `useCoding.asks` (task id → PermissionAsk; only on the worker's own tab) ·
+ * answerPermission(taskId, askId, verb) — only the request's id and a fixed verb go to the worker ('gone': answered
+ * elsewhere, timed out, the stage ended) · askOf(taskId) · AskWhat (the request as the task panel shows it) ·
+ * canContinue() (no connected worker that lacks 'continue')
+ */
+export { answerPermission, askOf } from './service'
+export { canContinue } from './tasks'
+export { AskWhat } from './PermissionCard'
+export type { PermissionAsk, PermissionVerb } from './protocol'
 /** bumped whenever this device trusts another task version (Confirm …, also in another tab): a trust readout re-checks with it */
 export const useCodingTrustRev = (): number => useCodingLocal((s) => s.trustRev)
 /** admins: every member's cloud worker with Revoke (the workspace page's Automation section; renders nothing otherwise) */
@@ -121,6 +132,8 @@ export { CloudWorkers as CodingCloudWorkers } from './CloudWorkers'
 export { pipelineDbIdsOf, readPipeline, type ResolvedStage } from './schema'
 export { gitStageWarnings, onShipRecord, lastShip, type ShipNote } from './ship'
 export { workerUnsafe, workerOutdated } from './protocol'
+/** The outdated-worker notice in the person's language (what the newer one adds; before 1.11.0 the stage-end fix first). */
+export { outdatedNotice as codingOutdatedNotice } from './outdated'
 export type { ApprovalsLevel } from './state'
 
 /** This device's Approvals for new tasks (localStorage one.coding.approvals). */

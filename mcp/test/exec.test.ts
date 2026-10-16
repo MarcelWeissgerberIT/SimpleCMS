@@ -862,6 +862,9 @@ describe('exec — source guard', () => {
       "gitenv.ts: 'git'",
       'opener.ts: how.cmd', // cmd.exe from System32, or ONE_WORKER_BROWSER (the person's)
       'picker.ts: how.cmd', // powershell.exe from System32, or ONE_WORKER_PICKER (the person's)
+      "proctree.ts: 'ps'", // macOS / Linux without /proc: the system's ps — what Claude Code left running (worker 1.11.0)
+      "proctree.ts: 'ps'", // macOS: `ps -E` for the run's environment mark
+      "proctree.ts: systemTool('powershell')", // Windows: powershell.exe from System32 (Win32_Process)
       'setup.ts: cmd', // installed(): 'gh' | 'glab'
       'testrun.ts: argv[0]!', // worker.json testCommand / analyzeCommand — the person's, or a fixed guess (scan.ts: bare names)
     ])

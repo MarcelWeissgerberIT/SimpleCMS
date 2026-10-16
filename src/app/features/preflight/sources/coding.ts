@@ -9,7 +9,7 @@
 import { useWorkspace } from '../../../store/store'
 import { navigate } from '../../../lib/router'
 import { t } from '../../../i18n'
-import { actionTook, CodingPlanError, hasPipelines, onWaitingChanged, planTaskAction, taskDetail, taskSig, taskVersionView, waitingTasks, type TaskActionPlan, type TaskDetail, type TaskVersionView, type WaitingTask } from '../../coding'
+import { actionTook, canContinue, CodingPlanError, hasPipelines, onWaitingChanged, planTaskAction, taskDetail, taskSig, taskVersionView, waitingTasks, type TaskActionPlan, type TaskDetail, type TaskVersionView, type WaitingTask } from '../../coding'
 import type { CardAction, Done, HandWhy, LampReading, LampSourceDef, QueueItem, QueueSourceDef } from '../registry'
 import { applyTask, confirmVersion } from '../queue/calls'
 import { all, watch } from './util'
@@ -41,7 +41,7 @@ const firstTask = (ids: readonly string[]) => (ids.length ? ids[0].split(':')[1]
 /** What a card needs, loaded when it becomes the current card (keys are inert until then). */
 export interface CodingPrep {
   detail: TaskDetail | null
-  /** approve (gate) · run (failed / stopped) — made by planTaskAction, applied by applyTaskAction */
+  /** approve (gate) · run (failed / stopped) · continue (stopped at its step limit) — made by planTaskAction, applied by applyTaskAction */
   plan?: TaskActionPlan
   /** question: what the answer must still find */
   pin?: { sig: string | null; at: number; stageId: string | null; question: string | null }
@@ -106,7 +106,8 @@ async function prepareTask(item: QueueItem): Promise<void> {
   const prep: CodingPrep = { detail }
   try {
     if (kind === 'gate') prep.plan = await planTaskAction(taskId, 'approve')
-    else if (kind === 'failed') prep.plan = await planTaskAction(taskId, 'run')
+    // a stage that stopped at its step limit continues from its worktree (worker 1.11.0); R starts it over
+    else if (kind === 'failed') prep.plan = await planTaskAction(taskId, detail?.stepLimit && canContinue() ? 'continue' : 'run')
     else if (kind === 'question') prep.pin = { sig: taskSig(taskId), at: item.at, stageId: detail?.stageId ?? null, question: detail?.question ?? null }
   } catch (e) {
     if (!(e instanceof CodingPlanError)) throw e
@@ -175,7 +176,31 @@ function taskActions(item: QueueItem): CardAction[] {
   }
   const plan = prep?.plan
   if (p.kind === 'failed') {
-    return [{ key: 'a', label: t('features.preflight.card.retry'), outcome: 'hand', hand: handOf(plan), writes: true, blocked: loading ?? (plan ? null : { key: 'features.preflight.err.changed' }), run: () => apply(plan!) }, open]
+    const blocked = loading ?? (plan ? null : { key: 'features.preflight.err.changed' })
+    if (plan?.op !== 'continue') return [{ key: 'a', label: t('features.preflight.card.retry'), outcome: 'hand', hand: handOf(plan), writes: true, blocked, run: () => apply(plan!) }, open]
+    // the step limit: A continues (as many steps again, its cost counts like any run's), R starts the stage over
+    return [
+      { key: 'a', label: t('features.coding.limit.continue', { n: plan.steps?.next ?? plan.steps?.max ?? 0 }), outcome: 'hand', hand: handOf(plan), writes: true, blocked, run: () => apply(plan) },
+      {
+        key: 'r',
+        label: t('features.coding.limit.restart'),
+        outcome: 'hand',
+        hand: handOf(plan),
+        writes: true,
+        blocked,
+        run: async () => {
+          let fresh: TaskActionPlan
+          try {
+            fresh = await planTaskAction(taskId, 'run')
+          } catch (e) {
+            return { ok: false, error: e instanceof Error ? e.message : String(e) }
+          }
+          if (!samePin(fresh, plan)) return { ok: false, error: 'features.preflight.err.moved' }
+          return apply(fresh)
+        },
+      },
+      open,
+    ]
   }
   // gate: approve (the plan shown), or send it back with a note
   const edited = !!plan && plan.outputFrom === 'page' && !!plan.edited

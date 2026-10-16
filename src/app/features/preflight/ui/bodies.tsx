@@ -8,7 +8,7 @@ import { lazy, type ReactNode } from 'react'
 import { useLang, useT } from '../../../i18n'
 import { useWorkspace } from '../../../store/store'
 import { useCloudSync } from '../../../cloud'
-import { codingLogText, type TaskVersionView } from '../../coding'
+import { AskWhat, codingLogText, useCoding, type TaskVersionView } from '../../coding'
 import { AgentChangeBody, useAgentRuns, useServerAgents } from '../../agents'
 import { useAgent } from '../../ai/agent/state'
 import { FullText } from '../../ai/agent/CodingDiff'
@@ -18,6 +18,7 @@ import { terminalChangeOf } from '../sources/proposals/terminal'
 import { menuRunDuplicate, menuRunOf, termMemoryOf } from '../sources/proposals/memory'
 import { codingPrep, parseTaskItem } from '../sources/coding'
 import { inboxItemOf } from '../sources/inbox'
+import { parsePermItem } from '../sources/permission'
 import { fmtWhen } from '../format'
 import { tn } from '../sources/util'
 
@@ -106,6 +107,8 @@ function stageLine(t: (k: string, v?: Record<string, string | number>) => string
 function TaskBody({ item, expanded }: { item: QueueItem; expanded: boolean }) {
   const t = useT()
   const lang = useLang()
+  // canContinue(), read live: a connected older worker cannot continue — the card's A starts the stage over then
+  const cont = useCoding((s) => s.can === null || s.can.includes('continue'))
   const p = parseTaskItem(item.id)
   const prep = codingPrep(item.id)
   if (!p) return <Gone />
@@ -176,12 +179,35 @@ function TaskBody({ item, expanded }: { item: QueueItem; expanded: boolean }) {
           <span className="pf-quote">{d.error}</span>
         </Field>
       )}
+      {p.kind === 'failed' && d?.stepLimit && (
+        <p className="pf-card__note" data-testid="pf-steplimit">
+          {cont ? t('features.coding.limit.body', { max: d.stepLimit.max }) : t('features.coding.limit.oldWorker')}
+        </p>
+      )}
       {(p.kind === 'failed' || expanded) && log.length > 0 && (
         <pre className="pf-pre pf-log" aria-label={t('features.preflight.task.log')}>
           {log.map((l) => `${fmtWhen(l.t, Date.now(), lang)}  ${codingLogText(t, l, lang)}`).join('\n')}
         </pre>
       )}
       <p className="pf-card__note">{t('features.preflight.card.final.coding')}</p>
+    </div>
+  )
+}
+
+/** "Claude möchte": what Claude Code wants, in full (the task panel's own AskWhat), and what "Always" would store. */
+function PermissionBody({ item }: { item: QueueItem }) {
+  const t = useT()
+  const ask = useCoding((s) => {
+    const p = parsePermItem(item.id)
+    const a = p ? s.asks[p.taskId] : undefined
+    return a && p && a.id === p.askId ? a : null
+  })
+  if (!ask) return <Gone />
+  return (
+    <div className="pf-fields" data-testid="pf-permission">
+      <AskWhat ask={ask} />
+      <p className="pf-card__note">{ask.rule ? t('features.coding.perm.rule', { rule: ask.rule, repo: ask.repo }) : t('features.coding.perm.onceOnly')}</p>
+      <p className="pf-card__note">{t('features.coding.perm.hint')}</p>
     </div>
   )
 }
@@ -263,6 +289,8 @@ export function builtInBody(kind: string): ((p: { item: QueueItem; expanded: boo
       return TaskBody
     case 'inbox':
       return InboxBody
+    case 'permission':
+      return PermissionBody
     case 'fix':
       return FixBody
     case 'open':

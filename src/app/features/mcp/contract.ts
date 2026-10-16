@@ -755,7 +755,7 @@ export function mcpPromptText(task: string): string {
 /* by the bridge: scoped to the one task the worker claimed.             */
 /* ------------------------------------------------------------------ */
 
-export type McpTaskToolName = 'one_task_read' | 'one_task_note' | 'one_task_ask'
+export type McpTaskToolName = 'one_task_read' | 'one_task_note' | 'one_task_ask' | 'one_task_permission'
 
 export interface McpTaskToolDef extends Omit<McpToolDef, 'name'> {
   name: McpTaskToolName
@@ -784,6 +784,16 @@ export const MCP_TASK_TOOLS: McpTaskToolDef[] = [
     description:
       'Ask the person a question you cannot decide yourself (an unclear requirement, a choice between approaches). The task then waits in One until they answer; after calling this, end your turn with a short summary of where you are — this stage runs again with the answer. One question per run.',
     inputSchema: { type: 'object', properties: { question: { type: 'string', minLength: 1, maxLength: 2000 } }, required: ['question'], additionalProperties: false },
+  },
+  {
+    // worker 1.11.0: Claude Code's permission prompt (--permission-prompt-tool) — Claude Code calls it itself, the model
+    // never sees it; the worker decides by the repo's own lists, else asks the person in One and holds the call
+    name: 'one_task_permission',
+    title: 'Ask for a permission',
+    write: true,
+    description:
+      'Claude Code\'s permission prompt for this run (Claude Code calls it itself when a tool needs a permission it does not have): the worker decides by the repository\'s own rules, else asks the person in One and answers allow or deny.',
+    inputSchema: { type: 'object', properties: { tool_name: { type: 'string' }, input: { type: 'object' }, tool_use_id: { type: 'string' } }, required: ['tool_name', 'input'], additionalProperties: true },
   },
 ]
 

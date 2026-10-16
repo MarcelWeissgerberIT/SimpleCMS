@@ -3,7 +3,10 @@
  * A stand-in for the Claude Code CLI (CLAUDE_BIN) for the worker's tests and the e2e spec — it never calls
  * any API. It speaks `-p --output-format stream-json`, reads the prompt from stdin and acts on markers in
  * the task text:
- *   plan mode            → hands in a plan (ExitPlanMode)
+ *   plan mode            → hands in a plan (ExitPlanMode) — with --permission-prompt-tool like the real CLI: ExitPlanMode
+ *                          asks the prompt ("Exit plan mode?"); allowed, it leaves plan mode and implements (writes
+ *                          implemented.txt — what must never happen in a plan stage), refused, the plan is its answer
+ *   FAKE:ASKTOOL         → calls AskUserQuestion (an interaction tool: through the permission prompt, like ExitPlanMode)
  *   implement            → writes feature.txt (the task title; "BROKEN" with FAKE:FAILTEST until a rework
  *                          note exists), reports progress through the task tools (one_task_note)
  *   FAKE:ASK             → asks a question (one_task_ask) until the prompt carries answers
@@ -19,6 +22,16 @@
  *   FAKE:DEMOLIVE        → the same change at a working pace, ~20 s (the running panel's screenshot)
  *   FAKE:PLANFILE        → plan mode without ExitPlanMode: the plan goes to ~/.claude/plans/fake-plan.md
  *   FAKE:TOOLS           → lists the task tools' read-only hints (in the plan / document)
+ *   FAKE:LEFTOVER        → starts a program that keeps Claude Code's output open (like a dev server a Bash command
+ *                          left running; its own process group), prints the result, ends 300 ms later; the program's
+ *                          id goes to FAKE_CLAUDE_PIDS (a file) when set. FAKE:LEFTOVERNOW: ends at once (an orphan)
+ *   FAKE:PERMIT[<cmd>]   → wants to run the Bash command <cmd>: asks the permission prompt (--permission-prompt-tool)
+ *                          like Claude Code, runs it (writes permitted.txt) when allowed; without the prompt tool its
+ *                          tool result is Claude Code's own refusal ("requires approval")
+ *   FAKE:PERMITREAD[<p>] → wants to Read the file <p> (outside the worktree) the same way
+ *   FAKE:MAXTURNS        → stops at the step limit (error_max_turns, one step past --max-turns) — with the continue
+ *                          note in the prompt ("stopped at its step limit") it finishes instead
+ *   FAKE:SCRATCH         → writes note.txt into the folder --add-dir gives and says whether the prompt names it
  *   document stage       → "## Stage: … (doc)": a document from the task (the working folder's name in it);
  *                          FAKE:CASES adds a json block of two test cases; FAKE:DEMODOC writes a realistic
  *                          analysis / specification (the changelog screenshot); FAKE:PAGES a document with two
@@ -39,13 +52,14 @@ import { basename, join } from 'node:path'
 
 const args = process.argv.slice(2)
 if (args.includes('--version')) {
-  process.stdout.write('9.9.9 (Claude Code)\n')
+  // FAKE_CLAUDE_OLD: a CLI from before --permission-prompt-tool (a hidden option: known by the version)
+  process.stdout.write(process.env.FAKE_CLAUDE_OLD ? '0.2.9 (Claude Code)\n' : '9.9.9 (Claude Code)\n')
   process.exit(0)
 }
 if (args.includes('--help')) {
   process.stdout.write(`Usage: claude [options] [command] [prompt]
   --max-budget-usd <amount>             Maximum dollar amount to spend on API calls (only works with --print)
-${process.env.FAKE_CLAUDE_OLD ? '' : '  --setting-sources <sources>           Comma-separated list of setting sources to load (user, project, local).\n'}  --permission-mode <mode>              Permission mode to use for the session
+${process.env.FAKE_CLAUDE_OLD ? '' : '  --setting-sources <sources>           Comma-separated list of setting sources to load (user, project, local).\n  --add-dir <directories...>            Additional directories to allow tool access to\n'}  --permission-mode <mode>              Permission mode to use for the session
                                         (choices: "acceptEdits", "default", "plan")
 `)
   process.exit(0)
@@ -125,6 +139,47 @@ async function toolHints() {
 }
 
 const result = (text, cost, extra = {}) => out({ type: 'result', subtype: 'success', is_error: false, num_turns: 3, total_cost_usd: cost, result: text, ...extra })
+
+/**
+ * Claude Code's permission prompt: the MCP tool --permission-prompt-tool names (the task tools' server), called with
+ * { tool_name, input, tool_use_id } — its text is JSON { behavior: 'allow', updatedInput } | { behavior: 'deny', message }.
+ * null: no prompt tool (an older CLI, no task tools).
+ */
+async function permissionPrompt(toolName, input, toolUseId) {
+  const name = arg('--permission-prompt-tool')
+  const file = arg('--mcp-config')
+  if (!name || !file || !name.startsWith('mcp__one-task__')) return null
+  const cfg = JSON.parse(readFileSync(file, 'utf8')).mcpServers['one-task']
+  const { Client } = await import('@modelcontextprotocol/sdk/client/index.js')
+  const { StdioClientTransport } = await import('@modelcontextprotocol/sdk/client/stdio.js')
+  const client = new Client({ name: 'fake-claude', version: '9.9.9' })
+  await client.connect(new StdioClientTransport({ command: cfg.command, args: cfg.args, env: { PATH: process.env.PATH ?? '', ...cfg.env } }))
+  try {
+    const res = await client.callTool({ name: name.slice('mcp__one-task__'.length), arguments: { tool_name: toolName, input, tool_use_id: toolUseId } }, undefined, { timeout: 30 * 60_000 })
+    return JSON.parse((res.content ?? []).map((c) => c.text ?? '').join(''))
+  } finally {
+    await client.close()
+  }
+}
+
+/** A tool call that needs a permission, as Claude Code runs it: asked, then done or refused (its tool result). */
+async function guarded(name, input, run) {
+  const id = `tu_${Math.random().toString(36).slice(2)}`
+  out({ type: 'assistant', message: message([{ type: 'tool_use', id, name, input }]) })
+  const answer = await permissionPrompt(name, input, id)
+  const refuse = (text) => out({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, is_error: true, content: text }] } })
+  if (!answer) {
+    refuse(name === 'Bash' ? `This command requires approval (contains potentially dangerous operations)` : `Claude requested permissions to read from ${input.file_path}, but you haven't granted it yet.`)
+    return 'unavailable'
+  }
+  if (answer.behavior !== 'allow') {
+    refuse(answer.message ?? 'denied')
+    return 'denied'
+  }
+  run(answer.updatedInput)
+  out({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: 'ok' }] } })
+  return 'allowed'
+}
 const title = /^# (.+)$/m.exec(prompt.split('<<<TASK')[1] ?? '')?.[1]?.trim() ?? 'task'
 const hasAnswers = prompt.includes('<<<ANSWERS')
 const hasRework = prompt.includes('<<<REWORK')
@@ -224,8 +279,21 @@ if (mode === 'plan') {
   say('Reading the repository.')
   tool('Read', { file_path: join(process.cwd(), 'README.md') })
   const plan = `## Steps\n1. Add \`feature.txt\` with the task title.\n2. Run the checks.\n\n## Risks\nNone.`
-  tool('ExitPlanMode', { plan })
+  // the real CLI: without the prompt tool ExitPlanMode is off in -p (the plan is the answer); with it, it asks there
+  if (arg('--permission-prompt-tool')) {
+    const how = await guarded('ExitPlanMode', { plan }, () => writeFileSync(join(process.cwd(), 'implemented.txt'), 'left plan mode\n'))
+    if (how === 'allowed') {
+      result('Left plan mode and implemented it.', 0.05)
+      process.exit(0)
+    }
+  } else tool('ExitPlanMode', { plan })
   result(plan, 0.05)
+  process.exit(0)
+}
+
+if (prompt.includes('FAKE:ASKTOOL')) {
+  const how = await guarded('AskUserQuestion', { questions: [{ question: 'Which colour?', header: 'Colour', options: [{ label: 'Blue' }, { label: 'Red' }], multiSelect: false }] }, () => {})
+  result(`AskUserQuestion: ${how}`, 0.01)
   process.exit(0)
 }
 
@@ -234,6 +302,52 @@ if (prompt.includes('FAKE:ASK') && !hasAnswers) {
   const answer = await taskTool('one_task_ask', { question: 'Which colour should the button have?' })
   say(answer ?? '')
   result('Waiting for the answer about the colour.', 0.02)
+  process.exit(0)
+}
+
+if (prompt.includes('FAKE:LEFTOVER')) {
+  // a program Bash left running (its own process group, like Claude Code's shells): it keeps this output open
+  const { spawn } = await import('node:child_process')
+  const kid = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: ['ignore', 'inherit', 'ignore'], detached: true, windowsHide: true })
+  if (process.env.FAKE_CLAUDE_PIDS) appendFileSync(process.env.FAKE_CLAUDE_PIDS, `${kid.pid}\n`)
+  kid.unref()
+  say('Started the dev server for a check.')
+  tool('Bash', { command: 'npm run dev &' })
+  result('- Checked the page against the dev server', 0.02)
+  if (!prompt.includes('FAKE:LEFTOVERNOW')) await sleep(300)
+  process.exit(0)
+}
+
+// the brackets may come escaped (a task page from One goes to Claude Code as Markdown: "FAKE:PERMIT\[cmd\]")
+const permit = /FAKE:PERMIT\\?\[([^\]\\]+)\\?\]/.exec(prompt)?.[1]
+const permitRead = /FAKE:PERMITREAD\\?\[([^\]\\]+)\\?\]/.exec(prompt)?.[1]
+if (permit || permitRead) {
+  say('This needs a permission.')
+  const how = permit
+    ? await guarded('Bash', { command: permit, description: 'Run a command' }, (input) => writeFileSync(join(process.cwd(), 'permitted.txt'), `${input.command}\n`))
+    : await guarded('Read', { file_path: permitRead }, () => {})
+  result(`Permission: ${how}`, 0.03)
+  process.exit(0)
+}
+
+if (prompt.includes('FAKE:MAXTURNS')) {
+  const max = Number(arg('--max-turns') ?? '3')
+  if (prompt.includes('stopped at its step limit')) {
+    tool('Write', { file_path: join(process.cwd(), 'feature.txt'), content: 'done\n' })
+    writeFileSync(join(process.cwd(), 'feature.txt'), `${title}\ncontinued\n`)
+    result('- Continued from the worktree and finished feature.txt', 0.04)
+    process.exit(0)
+  }
+  for (let i = 0; i <= max; i++) say(`Step ${i + 1}`)
+  writeFileSync(join(process.cwd(), 'feature.txt'), `${title}\nhalf done\n`)
+  out({ type: 'result', subtype: 'error_max_turns', is_error: true, num_turns: max + 1, total_cost_usd: 0.31, result: '' })
+  process.exit(1)
+}
+
+if (prompt.includes('FAKE:SCRATCH')) {
+  const dir = arg('--add-dir')
+  if (dir) writeFileSync(join(dir, 'note.txt'), 'scratch\n')
+  result(`Scratch: ${dir ? 'given' : 'none'} · named in the prompt: ${dir && prompt.includes(dir) ? 'yes' : 'no'}`, 0.01)
   process.exit(0)
 }
 

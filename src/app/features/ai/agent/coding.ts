@@ -343,6 +343,7 @@ const OP_TEXT: Record<TaskOp, string> = {
   rework: 'send back with a note',
   answer: 'answer the question',
   run: 'run the current stage once',
+  continue: 'continue the stage after its step limit',
   stop: 'stop the running stage',
   then: 'set Then',
   hand_on: 'hand on',
@@ -352,7 +353,7 @@ const taskAction: AgentTool = {
   name: 'task_action',
   write: true,
   description:
-    'Stage an action on a pipeline task for the person to apply. approve: a task waiting at a gate goes on to the next stage · rework: back to the stage that made it, with note · answer: the person’s answer to the task’s open question · run: run its current stage once now (Retry after a failure or stop) · stop: end the running stage · then: set the pipelines it hands on to when done · hand_on: a done task hands on to another pipeline now. One pending action per task: a new one replaces it.',
+    'Stage an action on a pipeline task for the person to apply. approve: a task waiting at a gate goes on to the next stage · rework: back to the stage that made it, with note · answer: the person’s answer to the task’s open question · run: run its current stage once now (Retry after a failure or stop) · continue: a stage that stopped at its step limit runs on from its worktree with as many steps again · stop: end the running stage · then: set the pipelines it hands on to when done · hand_on: a done task hands on to another pipeline now. One pending action per task: a new one replaces it.',
   input_schema: {
     type: 'object',
     properties: {

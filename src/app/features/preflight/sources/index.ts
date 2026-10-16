@@ -16,6 +16,7 @@ import { proposalsOnScreen } from '../queue/state'
 import { registerLampSource } from '../registry'
 import { proposalsLamp } from './proposals'
 import { failedLamp, gateLamp, questionLamp } from './coding'
+import { permissionLamp } from './permission'
 import { inboxLamp } from './inbox'
 import { tokenLamp } from './token'
 import { workerLamp } from './worker'
@@ -24,7 +25,7 @@ import { syncLamp } from './sync'
 import { mailLamp } from './mail'
 import { cloudLamp } from './cloud'
 
-export const BUILT_IN_LAMPS = [proposalsLamp, gateLamp, tokenLamp, questionLamp, failedLamp, inboxLamp, workerLamp, mirrorLamp, missedLamp, syncLamp, mailLamp, cloudLamp]
+export const BUILT_IN_LAMPS = [proposalsLamp, gateLamp, tokenLamp, questionLamp, permissionLamp, failedLamp, inboxLamp, workerLamp, mirrorLamp, missedLamp, syncLamp, mailLamp, cloudLamp]
 
 let registered = false
 
