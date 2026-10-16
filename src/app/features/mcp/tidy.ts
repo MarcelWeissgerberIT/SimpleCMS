@@ -16,6 +16,7 @@ import { chars, clone, idList, itemLines, palette, same, str, tidyPageOrThrow, t
 import { databaseOrThrow, kindOf, live, McpToolError, pageUrl, pathOf, q, rowProperties, rowsOf, titleOf, TWO_WAY_SUFFIX, ws } from './values'
 import { adoptRowType } from '../../database'
 import { withWriter } from '../../store/writer'
+import { assertNotSystem, assertTreeNotSystem } from './system'
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
@@ -87,6 +88,8 @@ function planTrash(args: Record<string, unknown>): WritePlan {
     else problems.push(pages[id] && !inTemplate(pages, id) ? `${q(titleOf(pages[id]))} (${id}) is already in the trash` : `no page with id ${q(id)}`)
   }
   if (problems.length) throw new McpToolError(`Nothing was moved to the trash: ${problems.join('; ')}. Use one_search to find page ids.`)
+  // One's own databases (and a page holding one): never to the trash over MCP
+  for (const p of found) assertTreeNotSystem(p.id)
   // a listed page below another listed one goes along with it
   const below = belowCounter()
   const items: TrashItem[] = found
@@ -177,6 +180,7 @@ function planRestore(args: Record<string, unknown>): WritePlan {
     items.push({ page: p, top, ...(p.kind === 'database' ? { rows: Object.values(pages).filter((r) => r.databaseId === p.id && !r.trashed).length } : {}) })
   }
   if (problems.length) throw new McpToolError(`Nothing was restored: ${problems.join('; ')}.${recentTrash()}`)
+  for (const it of items) assertTreeNotSystem(it.page.id)
   const single = !Array.isArray(args.ids)
   const lines: PlanLine[] = []
   let summary: string
@@ -242,6 +246,7 @@ function planRestore(args: Record<string, unknown>): WritePlan {
 
 function planMovePage(args: Record<string, unknown>): WritePlan {
   const page = tidyPageOrThrow(args.id)
+  assertNotSystem(page.id)
   const { pages } = ws()
   const name = titleOf(page)
   if (page.databaseId)
@@ -250,6 +255,8 @@ function planMovePage(args: Record<string, unknown>): WritePlan {
   if (args.parentId === null || args.parentId === '') parentId = null
   else if (args.parentId !== undefined) {
     const target = tidyPageOrThrow(args.parentId, 'parentId')
+    // nothing moves below a row of One's own databases
+    assertNotSystem(target.id)
     if (target.id === page.id || within(pages, target.id, page.id)) throw new McpToolError(`${q(titleOf(target))} is ${target.id === page.id ? q(name) : `inside ${q(name)}`}: a page cannot move into itself or its own sub-pages.`)
     if (target.kind === 'database')
       throw new McpToolError(`${q(titleOf(target))} is a database: a page moved there would become one of its rows, which is not done over MCP. Use one_create_row for new rows, or ask the person to drop the page on the database in One.`)
@@ -437,6 +444,8 @@ function planMoveRow(args: Record<string, unknown>): WritePlan {
   if (!row.databaseId) throw new McpToolError(`${q(name)} is a ${kindOf(row)}, not a database row. one_move_page moves pages and databases.`)
   const { db: from, page: fromPage } = databaseOrThrow(row.databaseId)
   const { db: to, page: toPage } = databaseOrThrow(args.databaseId)
+  assertNotSystem(from.id)
+  assertNotSystem(to.id)
   const { pages } = ws()
   if (inTemplate(pages, to.id)) throw new McpToolError(`No database with id ${q(String(args.databaseId))}. Use one_list_databases to get database ids.`)
   const fromTitle = titleOf(fromPage)

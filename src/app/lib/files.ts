@@ -4,7 +4,7 @@
  * Use useFileUrl(src) to turn any src (https, data:, asset path, onefile:) into a displayable URL.
  */
 import { useEffect, useState } from 'react'
-import { createStore, get, set, del, keys } from 'idb-keyval'
+import { createStore, get, getMany, set, del, keys } from 'idb-keyval'
 import { newId } from './ids'
 
 const fileStore = typeof indexedDB !== 'undefined' ? createStore('one-files', 'files') : undefined
@@ -15,9 +15,55 @@ export interface StoredFile {
   type: string
   size: number
   createdAt: number
+  /**
+   * The workspace the file belongs to: 'local:<epoch>' (this browser's local workspace) or 'cloud:<id>' (a team
+   * workspace, also for a copy cached from its server). `one-files` is shared by every workspace of this browser, so
+   * readers that hand a file to someone outside (MCP, Claude's text) check it. Absent: saved before stamps existed.
+   */
+  ws?: string
 }
 
 export const FILE_PREFIX = 'onefile:'
+
+/** The workspace new files are stamped with (main.tsx registers it once the workspace is known). */
+let stampOf: () => string | null = () => null
+
+export function setFileWorkspace(fn: () => string | null): void {
+  stampOf = fn
+}
+
+/** The stamp of the workspace this tab shows now (null: not known yet). */
+export const fileWorkspace = (): string | null => stampOf()
+
+/** Stamps of files this tab saved or read: file id → stamp ('' = an unstamped legacy file). */
+const stamps = new Map<string, string>()
+const MAX_STAMPS = 5000
+
+function noteStamp(id: string, rec: Pick<StoredFile, 'ws'> | undefined): void {
+  if (!rec) return
+  if (stamps.size >= MAX_STAMPS) stamps.delete(stamps.keys().next().value as string)
+  stamps.set(id, typeof rec.ws === 'string' ? rec.ws : '')
+}
+
+/**
+ * The stamp of a file this tab knows ('' = stored without one; undefined = not read here yet — loadFileStamps reads
+ * it). Synchronous, for checks inside a write that cannot wait (features/ai/claudeFiles.ts).
+ */
+export function knownFileStamp(ref: string): string | undefined {
+  return ref.startsWith(FILE_PREFIX) ? stamps.get(ref.slice(FILE_PREFIX.length)) : undefined
+}
+
+/** Read the stamps of these files from this device (the record only — nothing is fetched from a server). */
+export async function loadFileStamps(refs: Iterable<string>): Promise<void> {
+  const ids = [...new Set([...refs].filter((r) => r.startsWith(FILE_PREFIX)).map((r) => r.slice(FILE_PREFIX.length)))].filter((id) => !stamps.has(id))
+  if (!ids.length || !fileStore) return
+  try {
+    const recs = await getMany<StoredFile | undefined>(ids, fileStore)
+    ids.forEach((id, i) => noteStamp(id, recs[i]))
+  } catch {
+    /* no IndexedDB: the reference check alone decides */
+  }
+}
 
 /**
  * Team cloud (src/app/cloud registers this in a cloud workspace): files saved here are also
@@ -38,8 +84,10 @@ export function setCloudFileHooks(hooks: CloudFileHooks | null): void {
 
 export async function saveFile(blob: Blob, name = 'file'): Promise<string> {
   const id = newId()
-  const rec: StoredFile = { blob, name, type: blob.type, size: blob.size, createdAt: Date.now() }
+  const ws = stampOf()
+  const rec: StoredFile = { blob, name, type: blob.type, size: blob.size, createdAt: Date.now(), ...(ws ? { ws } : {}) }
   await set(id, rec, fileStore)
+  noteStamp(id, rec)
   cloudHooks?.saved(id, rec)
   return FILE_PREFIX + id
 }
@@ -50,13 +98,17 @@ const fetching = new Map<string, Promise<StoredFile | undefined>>()
 /** The file stored on this device only (no server fallback). */
 export async function getLocalFile(ref: string): Promise<StoredFile | undefined> {
   if (!ref.startsWith(FILE_PREFIX)) return undefined
-  return get<StoredFile>(ref.slice(FILE_PREFIX.length), fileStore)
+  const id = ref.slice(FILE_PREFIX.length)
+  const rec = await get<StoredFile>(id, fileStore)
+  noteStamp(id, rec)
+  return rec
 }
 
 export async function getFile(ref: string): Promise<StoredFile | undefined> {
   if (!ref.startsWith(FILE_PREFIX)) return undefined
   const id = ref.slice(FILE_PREFIX.length)
   const local = await get<StoredFile>(id, fileStore)
+  noteStamp(id, local)
   const hooks = cloudHooks
   if (local || !hooks) return local
   let job = fetching.get(id)
@@ -64,9 +116,13 @@ export async function getFile(ref: string): Promise<StoredFile | undefined> {
     job = hooks
       .fetch(id)
       .then(async (remote) => {
-        // cache on this device (a failed cache write still shows the file)
-        if (remote) await set(id, remote, fileStore).catch(() => {})
-        return remote
+        if (!remote) return remote
+        // cache on this device, stamped with the team workspace it came from (a failed cache write still shows the file)
+        const ws = stampOf()
+        const rec: StoredFile = { ...remote, ...(ws ? { ws } : {}) }
+        await set(id, rec, fileStore).catch(() => {})
+        noteStamp(id, rec)
+        return rec
       })
       .catch(() => undefined)
       .finally(() => fetching.delete(id))

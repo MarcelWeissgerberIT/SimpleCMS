@@ -162,7 +162,9 @@ test('replace loads nothing and pings no one: a web image becomes a link, raw-HT
     `Ask <span data-type="mention" data-kind="person" data-id="${mara}" data-label="Mara Lind">@Mara Lind</span> by <span data-type="mention" data-kind="date" data-id="2031-10-17" data-label="Oct 17" data-reminder="at">Oct 17</span>.`,
   ].join('\n\n')
   json(await call('one_update_page', { id, markdown, mode: 'replace' }))
-  await expect.poll(() => wsEval(page, (s, id) => s.pages[id].plain as string, id)).toContain('Ask @Mara Lind by @Oct 17.')
+  // raw HTML outside the file form's own tags stays text as Claude wrote it (MCP B0: claudeDoc's raw-HTML allow-list)
+  await expect.poll(() => wsEval(page, (s, id) => s.pages[id].plain as string, id)).toContain('Ask <span data-type="mention" data-kind="person"')
+  expect(await wsEval(page, (s, id) => s.pages[id].plain as string, id)).toContain('>@Mara Lind</span> by <span')
   await flush(page)
   const found = await wsEval(
     page,

@@ -149,12 +149,18 @@ export function RelationChip({ page, onRemove, linkable = true }: { page: Page; 
   )
 }
 
+/** A source the browser would fetch from the web (http(s) or protocol-relative). */
+const WEB_SRC = /^\s*(https?:)?\/\//i
+
 export function FileChip({ src, big }: { src: string; big?: boolean }) {
   const meta = useFileMeta(src)
   const url = useFileUrl(src)
   const isImg = guessIsImage(src, meta)
   const name = meta?.name ?? fileLabel(src)
-  const fileIcon = isImg && url ? <img src={url} alt="" loading="lazy" draggable={false} /> : <FileText size={big ? 18 : 13} strokeWidth={1.7} />
+  // a web address never loads by itself (anyone who can write a row could make every viewer fetch it): its icon, and
+  // the link opens it on a click — only this workspace's files and app assets show as thumbnails
+  const thumb = isImg && url && !WEB_SRC.test(src)
+  const fileIcon = thumb ? <img src={url} alt="" loading="lazy" draggable={false} /> : <FileText size={big ? 18 : 13} strokeWidth={1.7} />
   return (
     <a
       className={`db-file${big ? ' db-file--big' : ''}`}

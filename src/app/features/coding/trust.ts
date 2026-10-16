@@ -17,7 +17,11 @@
  *
  * Local workspaces: nothing to confirm — except a task a custom agent created or changed last
  * (`createdBy` / `updatedBy` = `agent:<id>`, stamped on this device), which waits for Confirm like a
- * team task until a version of it is trusted.
+ * team task until a version of it is trusted, and a task whose version an MCP client moved (a page it refers to written
+ * over MCP — local.ts `mcpTouched`, until Confirm here).
+ *
+ * MCP writes never carry trust (spec § 3.3): an MCP client reads text nobody vouches for, and what it writes into a
+ * page a task refers to goes to Claude Code with the task.
  */
 import { useWorkspace, pageChanges, type WorkspaceState } from '../../store/store'
 import { isApplyingRemote } from '../../store/persistence'
@@ -25,7 +29,7 @@ import type { Database, ID, Page } from '../../store/types'
 import { docToMarkdown } from '../../editor'
 import { useCloud } from '../../cloud'
 import { agentIdOf, isAgentWriting } from '../agents/attribution'
-import { addTrusted, trustedHashes } from './local'
+import { addTrusted, clearMcpTouched, isMcpTouched, loadMcpTouched, markMcpTouched, trustedHashes } from './local'
 import { refIdsOf, refsKey } from './refs'
 import { codingProps, optionName, pipelineDbIds, readPipeline } from './schema'
 import { currentWriter, withWriter, type Writer } from '../../store/writer'
@@ -87,10 +91,13 @@ export function versionOf(page: Page, db: Database | undefined): Promise<string>
 /** Local workspaces: a custom agent created the task or changed it last (stamped on this device). */
 const agentTouched = (page: Page) => !!agentIdOf(page.createdBy) || !!agentIdOf(page.updatedBy)
 
-/** Does a task need a trusted version (team: always; local: only one an agent wrote)? */
+/** Does a task need a trusted version (team: always; local: one an agent wrote, or one an MCP write moved)? */
 export function needsConfirm(page: Page): boolean {
-  return inTeam() || agentTouched(page)
+  return inTeam() || agentTouched(page) || isMcpTouched(page.id)
 }
+
+/** A write an MCP client made (or one it caused: a synced copy, an automation, autofill … — the writer's `cause`). */
+const byMcp = (w: Writer | null): boolean => !!w && (w.kind === 'mcp' || ('cause' in w && typeof w.cause === 'string' && w.cause.startsWith('mcp:')))
 
 /**
  * Local workspaces: would a write from this tab end the task's wait for Confirm? The attribution keeper
@@ -108,6 +115,7 @@ let settling: Promise<void> = Promise.resolve()
 /** May the worker on this device run the task as it is now? */
 export async function isTrusted(taskId: ID): Promise<boolean> {
   await settling
+  await loadMcpTouched()
   const s = useWorkspace.getState()
   const page = s.pages[taskId]
   if (!page?.databaseId) return false
@@ -132,6 +140,7 @@ export interface TrustState {
  */
 export async function trustState(taskId: ID): Promise<TrustState | null> {
   await settling
+  await loadMcpTouched()
   const s = useWorkspace.getState()
   const page = s.pages[taskId]
   if (!page?.databaseId) return null
@@ -146,7 +155,10 @@ export async function trustState(taskId: ID): Promise<TrustState | null> {
 export async function trustTask(taskId: ID): Promise<void> {
   const s = useWorkspace.getState()
   const page = s.pages[taskId]
-  if (page?.databaseId) await addTrusted(await versionOf(page, s.databases[page.databaseId]))
+  if (!page?.databaseId) return
+  await addTrusted(await versionOf(page, s.databases[page.databaseId]))
+  // seen and confirmed here: no longer waiting because of an MCP write
+  await clearMcpTouched(taskId)
 }
 
 /**
@@ -178,13 +190,38 @@ let watching = false
 export function startTrustWatch(): void {
   if (watching) return
   watching = true
+  void loadMcpTouched()
   useWorkspace.subscribe((next, prev) => {
     if (next.pages === prev.pages && next.databases === prev.databases) return
     if (isApplyingRemote() || isAgentWriting()) return
+    const writer = currentWriter()
     // an eject (or its Undo) never makes a task trusted: what it put back waits for Confirm where a task needs one
-    if (isEjectWriter(currentWriter())) return
+    if (isEjectWriter(writer)) return
+    // an MCP write never carries trust; locally the tasks whose version it moved wait for Confirm from now on
+    if (byMcp(writer)) {
+      if (!inTeam()) markMoved(next, prev)
+      return
+    }
     for (const dbId of pipelineDbIds()) watchDb(dbId, next, prev)
   })
+}
+
+/**
+ * The tasks whose version a write moved: a task row that changed, every task of a pipeline whose schema / pipeline
+ * changed, every task referring to a changed page (refIdsOf — its text goes to the worker with the task).
+ */
+function markMoved(next: WorkspaceState, prev: WorkspaceState): void {
+  const changed = new Set(next.pages === prev.pages ? [] : pageChanges(next.pages, prev.pages).changed)
+  const moved: ID[] = []
+  for (const dbId of pipelineDbIds()) {
+    const schema = next.databases[dbId] !== prev.databases[dbId]
+    for (const page of Object.values(next.pages)) {
+      if (page.databaseId !== dbId || page.trashed) continue
+      if (schema || changed.has(page.id) || (changed.size && refIdsOf(page).some((id) => changed.has(id)))) moved.push(page.id)
+    }
+  }
+  // isTrusted waits for this (a worker asking right after the write sees the mark)
+  if (moved.length) settling = settling.then(() => markMcpTouched(moved)).catch(() => {})
 }
 
 /** One pipeline database's part of the watch. */

@@ -132,7 +132,7 @@ test.describe('web images in Claude answers become links', () => {
     expect(hits.filter((u) => u.startsWith('https://attacker.example'))).toEqual([])
   })
 
-  test('raw HTML in an answer loads nothing either: images, video, audio, frames, web files and bookmarks become links', async ({ page, context }) => {
+  test('raw HTML in an answer loads nothing either: images, frames, web files, bookmarks and mentions stay text; web video / audio become links', async ({ page, context }) => {
     const hits = await imageHosts(context)
     await context.route(/^https:\/\/attacker\.example\//, (route) => {
       hits.push(route.request().url())
@@ -203,10 +203,19 @@ test.describe('web images in Claude answers become links', () => {
       },
       id,
     )
-    expect(mentions).toEqual(['page:pg_x'])
-    await expect(ed).toContainText('Ask @Mara Lind by @Oct 17, see')
+    // raw HTML outside the file form's own tags stays text as Claude wrote it (MCP B0: claudeDoc's raw-HTML allow-list) —
+    // no node, no mention, no link: the addresses are there to read, nothing loads
+    expect(mentions).toEqual([])
+    await expect(ed).toContainText('Ask <span data-type="mention" data-kind="person"')
+    await expect(ed).toContainText('<img src="https://attacker.example/raw.png">')
+    const stored = await wsEval(page, (s, id) => JSON.stringify(s.pages[id]?.content ?? {}), id)
     const { links } = await media(page, id)
-    for (const url of ['https://attacker.example/raw.png', 'https://attacker.example/v.mp4', 'https://attacker.example/a.mp3', 'https://attacker.example/frame', 'https://attacker.example/x.pdf', 'https://example.com']) expect(links).toContain(url)
+    for (const url of ['https://attacker.example/raw.png', 'https://attacker.example/frame', 'https://attacker.example/x.pdf', 'https://example.com']) {
+      expect(stored).toContain(url)
+      expect(links).not.toContain(url)
+    }
+    // video / audio are the file form's own (its media tokenizer reads them): a web source becomes a link, like a web image
+    for (const url of ['https://attacker.example/v.mp4', 'https://attacker.example/a.mp3']) expect(links).toContain(url)
     // reload: the page as stored loads nothing either
     await reloadApp(page)
     await expect(editorOf(page, id)).toContainText('The end.')

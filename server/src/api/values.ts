@@ -83,7 +83,7 @@ function relationOf(prop: PropertyDef, raw: unknown, ctx: ValueContext): string 
  * Friendly input → the stored value. `null` (or "") clears. Throws ValueError (→ 422) for a value
  * that does not fit, read-only types included.
  */
-export function coerce(prop: PropertyDef, raw: unknown, ctx: ValueContext): unknown {
+export function coerce(prop: PropertyDef, raw: unknown, ctx: ValueContext, opts: { files?: 'web' | 'onefile' } = {}): unknown {
   const t = prop.type
   if (READ_ONLY_TYPES.has(t)) throw new ValueError(prop.name, `${prop.name}: ${t} values are computed and cannot be set`)
   const empty = raw === null || raw === undefined || (typeof raw === 'string' && !raw.trim() && t !== 'text')
@@ -156,6 +156,11 @@ export function coerce(prop: PropertyDef, raw: unknown, ctx: ValueContext): unkn
       if (empty) return []
       return list(raw).map((x) => {
         const url = typeof x === 'string' ? x.trim() : isObj(x) && typeof x.url === 'string' ? x.url.trim() : ''
+        // MCP: this workspace's files only (onefile:<id>); the public API: http(s) URLs (docs/API.md)
+        if (opts.files === 'onefile') {
+          if (!/^onefile:[A-Za-z0-9_-]{1,64}$/.test(url)) throw new ValueError(prop.name, `${prop.name}: over MCP a files property takes only this workspace's files (onefile:<id>)`)
+          return url
+        }
         if (!/^https?:\/\/\S+$/i.test(url)) throw new ValueError(prop.name, `${prop.name}: files are http(s) URLs`)
         return url
       })

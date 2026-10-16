@@ -12,6 +12,7 @@ import { MAX_PAGE_SIZE, contentDoc, findProperty, type WorkspaceModel } from '..
 import { schemaOut } from '../api/values.ts'
 import { iso } from '../tokens.ts'
 import { type Condition, type Field, type FriendlyRow, type SortKey, decodeCursor, encodeCursor, matches, sorter } from './query.ts'
+import { systemKindOf, systemNote } from './system.ts'
 
 /** Pages listed in the overview's tree, at most. */
 const TREE_LIMIT = 150
@@ -313,11 +314,15 @@ export class McpReads {
       return {
         id: dbId,
         title: db.page.title || 'Untitled',
+        // the local bridge's shape: the icon, the locked note, One's own databases named (read-only over MCP)
+        icon: iconOut(pageMap(r, dbId)?.get('icon')),
         path: pathOf(r, dbId),
         url: this.model.url(wsId, dbId),
         parentId: db.page.parentId,
         rows: rowsOf(r, dbId).length,
         locked: db.ydb.get('locked') === true,
+        ...(db.ydb.get('locked') === true ? { lockedNote: 'Locked: rows can be added and changed; properties and options cannot.' } : {}),
+        ...(systemKindOf(r, dbId) ? { system: systemKindOf(r, dbId), systemNote: systemNote(systemKindOf(r, dbId)!) } : {}),
         properties: db.properties.map((p) => {
           const out = schemaOut(p) as ReturnType<typeof schemaOut> & { relationDatabaseTitle?: string }
           if (p.type === 'relation' && p.relationDatabaseId) out.relationDatabaseTitle = liveDatabase(r, p.relationDatabaseId)?.page.title ?? '(not available)'

@@ -15,6 +15,7 @@ import { metaDoc, type WorkspaceModel } from '../api/model.ts'
 import { newId } from '../tokens.ts'
 import { pathOf } from './reads.ts'
 import { COLORS, propsMapOf, unprocessable } from './writes.ts'
+import { assertNotSystem, assertTreeNotSystem } from './system.ts'
 
 /** Most ids one call trashes or restores (MCP_BULK_MAX of the local bridge). */
 export const BULK_MAX = 50
@@ -114,6 +115,8 @@ export class McpTidy {
         else problems.push(pageMap(r, id) && !inTemplate(r, id) ? `${q(titleOf(readPage(id, pageMap(r, id)!)))} (${id}) is already in the trash` : `no page with id ${q(id)}`)
       }
       if (problems.length) throw notFound('page_not_found', `Nothing was moved to the trash: ${problems.join('; ')}. Use one_search to find page ids.`)
+      // One's own databases (and a page holding one): never to the trash over MCP
+      for (const p of found) assertTreeNotSystem(r, p.id)
       // a listed page below another listed one goes along with it
       return found
         .filter((p) => !found.some((o) => o.id !== p.id && within(r, p.id, o.id)))
@@ -175,6 +178,7 @@ export class McpTidy {
         items.push({ page: p, top, ...(p.kind === 'database' ? { rows: rowsOf(r, p.id).length } : {}) })
       }
       if (problems.length) throw notFound('page_not_found', `Nothing was restored: ${problems.join('; ')}.${recentTrash(r)}`)
+      for (const it of items) assertTreeNotSystem(r, it.page.id)
       return items
     }
     await this.model.read(wsId, plan)
@@ -218,6 +222,7 @@ export class McpTidy {
     const plan = (r: Roots) => {
       const page = livePage(r, input.id)
       if (!page) throw notFound('page_not_found', `No page with id ${q(input.id)} in this workspace (or it is in the trash). Use one_search to find page ids.`)
+      assertNotSystem(r, page.id)
       const name = titleOf(page)
       if (page.databaseId) throw unprocessable('page_is_row', `${q(name)} is a row of ${q(titleOf(liveDatabase(r, page.databaseId)?.page))}: rows stay in their database. one_move_row moves it into another database.`)
       let parentId = page.parentId
@@ -225,6 +230,7 @@ export class McpTidy {
       else if (input.parentId !== undefined) {
         const target = livePage(r, input.parentId)
         if (!target) throw notFound('parent_not_found', `No page with id ${q(input.parentId)} in this workspace (or it is in the trash). Use one_search to find page ids.`)
+        assertNotSystem(r, target.id)
         if (target.id === page.id || within(r, target.id, page.id))
           throw unprocessable('move_cycle', `${q(titleOf(target))} is ${target.id === page.id ? q(name) : `inside ${q(name)}`}: a page cannot move into itself or its own sub-pages.`)
         if (target.kind === 'database')
@@ -301,6 +307,8 @@ export class McpTidy {
       const from = liveDatabase(r, row.databaseId)
       const to = liveDatabase(r, input.databaseId)
       if (!from || !to) throw notFound('database_not_found', `No database with id ${q(from ? input.databaseId : row.databaseId)} in this workspace. Use one_list_databases to get database ids.`)
+      assertNotSystem(r, from.page.id)
+      assertNotSystem(r, to.page.id)
       const fromTitle = titleOf(from.page)
       const toTitle = titleOf(to.page)
       if (to.page.id === from.page.id) return { row, from, to, noop: true as const }

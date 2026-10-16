@@ -6,8 +6,12 @@
  *
  * The steps, in this order:
  *  1. web images → links (the Markdown string);
- *  2. markdownToDoc — the global task reader is off: `> [!TODO]` stays a quote, `one:` links stay link marks;
- *  3. withoutWebLoads — what raw HTML made: media, frames, task blocks and person / date mention nodes (text);
+ *  2. markdownToDoc — the global task reader is off: `> [!TODO]` stays a quote, `one:` links stay link marks; raw HTML
+ *     only as the file form writes it (claudeFiles.ts claudeHtml — any other tag stays text);
+ *  3. withoutWebLoads — what raw HTML made: media, frames, task blocks and person / date mention nodes (text); then
+ *     claudeFiles.ts withCheckedFiles — `data:` sources become text, a `onefile:` ref stays only when it is this
+ *     workspace's, a page the caller may read uses it, and (a context names the target) it is not private while the
+ *     target is shared;
  *  4. with a settle context only: the task gate (features/workitems settleDoc — tasks from `> [!TODO]` quotes, known
  *     tasks back by id; it reads the field lines' `one:` links, so it runs before step 5). No context → no new task;
  *  5. `one:` links → mentions (features/io/import/mentions.ts `mentionsFromLinks`): with a context a person link to an
@@ -22,6 +26,8 @@ import { withoutWebImages, withoutWebLoads } from '../agents/images'
 import { mentionsFromLinks, type MentionRules } from '../io/import/mentions'
 import { settleDoc, type SettleContext, type SettleReport, type SettleWorld } from '../workitems/settle'
 import { settleWorld } from '../workitems/world'
+import { claudeHtml, withCheckedFiles } from './claudeFiles'
+import { currentToolScope } from './agent/toolScope'
 
 /**
  * The date / person mentions a document holds (what a write replaces): dates with their reminder; people per block
@@ -68,7 +74,8 @@ export function claudeSettled(markdown: string, keep?: ReadonlySet<string>, ctx?
 export function claudeSettled(markdown: string, keep: ReadonlySet<string> | undefined, ctx: SettleContext): { doc: JSONContent; report: SettleReport }
 export function claudeSettled(markdown: string, keep?: ReadonlySet<string>, ctx?: SettleContext): { doc: JSONContent; report: SettleReport | null }
 export function claudeSettled(markdown: string, keep?: ReadonlySet<string>, ctx?: SettleContext): { doc: JSONContent; report: SettleReport | null } {
-  let doc = withoutWebLoads(markdownToDoc(withoutWebImages(markdown, keep)), keep)
+  let doc = withoutWebLoads(markdownToDoc(withoutWebImages(markdown, keep), { html: claudeHtml }), keep)
+  doc = withCheckedFiles(doc, { ...(ctx ? { private: ctx.private } : {}), visible: ctx?.visible ?? currentToolScope(), mcp: ctx?.source === 'mcp' }).doc
   if (!ctx) return { doc: sanitize(mentionsFromLinks(doc, null).doc), report: null }
   // ONE world per call: its memos (titles, readable tasks per page) live for this call only
   const world = settleWorld()

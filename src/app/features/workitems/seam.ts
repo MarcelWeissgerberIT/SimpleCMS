@@ -10,6 +10,7 @@ import { useWorkspace } from '../../store/store'
 import type { ID } from '../../store/types'
 import { mentionFromLink, mentionsFromLinks } from '../io/import/mentions'
 import { claudeSettled } from '../ai/claudeDoc'
+import { claudeHtml } from '../ai/claudeFiles'
 import { toAIMarkdown } from '../share/markdown'
 import { SettleRefusal, type SettleContext } from './settle'
 import { getItemIndex } from './live'
@@ -55,6 +56,8 @@ if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams
     toAIMarkdown,
     readable: (pageId: ID, form?: 'markdown' | 'file') => readableContent(pageId, form ? { form } : undefined).markdown,
     claudeDoc: (markdown: string, keep?: string[]) => claudeSettled(markdown, keep ? new Set(keep) : undefined).doc,
+    /** markdownToDoc as the editor reads Markdown, or (`claude`) with Claude's raw-HTML allow-list (claudeFiles.ts) */
+    markdownToDoc: (markdown: string, claude?: boolean) => markdownToDoc(markdown, claude ? { html: claudeHtml } : undefined),
     /** claudeSettled with a context (as data) over the live world: { doc, report } or { refused } */
     settled: (markdown: string, data: ContextData, keep?: string[]) => {
       const { visiblePages, readLimits, handles, staged, ...rest } = data

@@ -187,6 +187,12 @@ export async function publishNow(ids: string[]): Promise<void> {
   }
 }
 
+/**
+ * A file this device uploaded (or queued) as private and has not published: it may not go into a workspace page by
+ * anything but the person's own hand (MCP and Claude's text refuse it — features/ai/claudeFiles.ts).
+ */
+export const isPrivateUpload = (id: string): boolean => privateIds.has(id)
+
 /** Workspace pages written here: private uploads of this device they reference are published. */
 export function publishReferenced(pages: Page[]): void {
   if (!privateIds.size) return

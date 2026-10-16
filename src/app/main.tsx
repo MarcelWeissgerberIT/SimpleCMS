@@ -27,7 +27,7 @@ import { detectLang, makeTranslator } from '@/shared/i18n'
 import { STORAGE_KEYS, safeLocalGet } from '@/shared/brand'
 import { registerServiceWorker, watchForUpdates } from '@/shared/sw'
 import * as cloud from './cloud'
-import { getFile, saveFile } from './lib/files'
+import { getFile, saveFile, setFileWorkspace } from './lib/files'
 import { installForeignLinks } from './lib/foreignLinks'
 
 // Apply the remembered theme before first paint to avoid a flash.
@@ -77,6 +77,13 @@ async function boot() {
   // closes (an OpenRouter return no tab takes never boots a workspace here)
   if (await consumeOAuthReturn((what, kind) => (kind === 'mcp' ? (what === 'closing' ? bootT('features.ai.mcp.oauth.closing') : '') : bootT(`features.ai.or.oauth.${what}`))).catch(() => false)) return
   bootStatus(bootT('shell.boot.loading'))
+  // files saved (or cached from a team server) carry the workspace they belong to (lib/files.ts StoredFile.ws)
+  setFileWorkspace(() => {
+    const active = cloud.useCloud.getState().active
+    if (active.kind === 'cloud') return `cloud:${active.id}`
+    const epoch = useWorkspace.getState().epoch
+    return epoch && !epoch.startsWith('cloud:') ? `local:${epoch}` : epoch ? null : 'local:legacy'
+  })
 
   // Team cloud first: which workspace does this tab show? 'cloud' → the store is already filled
   // from the cloud workspace's local copy (it syncs in the background; no seed, no local
