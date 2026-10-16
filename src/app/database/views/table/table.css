@@ -326,8 +326,56 @@ body.db-resizing .dbt-resize:active::after {
   min-height: 36px;
 }
 
+/* a one-line chip row fills its cell and is sized by it alone: fitting it (chipFit.ts) lays out only the row,
+   never the table around it */
+.dbt:not([data-wrap='true']) .dbt-cell > .db-chips[data-fit] {
+  flex: 1 1 0;
+  height: var(--chip-h);
+  contain: strict;
+}
+
+/* wrap: every chip shows, a long name wraps onto more lines — the chip grows, its border stays closed and its
+   icon / avatar / LED stays on the first line */
 .dbt[data-wrap='true'] .dbt-cell .db-chips {
   flex-wrap: wrap;
+  row-gap: 4px;
+  max-height: none;
+}
+
+.dbt[data-wrap='true'] .dbt-cell :is(.db-rel, .db-file, .db-tag, .db-chip-plain) {
+  align-items: flex-start;
+  height: auto;
+  min-height: 21px;
+  padding-top: 2px;
+  padding-bottom: 2px;
+  line-height: calc(17px * var(--text-scale));
+  white-space: normal;
+}
+
+.dbt[data-wrap='true'] .dbt-cell .db-person {
+  align-items: flex-start;
+  height: auto;
+}
+
+.dbt[data-wrap='true'] .dbt-cell :is(.db-rel__name, .db-file__name, .db-tag__text, .db-person__name, .db-chip-plain) {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.dbt[data-wrap='true'] .dbt-cell :is(.db-rel__icon, .db-file__icon) {
+  height: calc(17px * var(--text-scale));
+}
+
+.dbt[data-wrap='true'] .dbt-cell .db-status__led {
+  margin-top: calc((17px * var(--text-scale) - 7px) / 2);
+}
+
+.dbt[data-wrap='true'] .dbt-cell .db-person__name {
+  line-height: calc(18px * var(--text-scale));
+}
+
+.dbt[data-wrap='true'] .dbt-cell .db-person > .db-avatar {
+  margin-top: calc((18px * var(--text-scale) - 18px) / 2);
 }
 
 .dbt[data-wrap='true'] .db-rowtitle__text,

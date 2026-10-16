@@ -1,13 +1,14 @@
 /**
  * Read-only renderers for property values (cells, cards, property panel, chips).
  */
-import { memo, type MouseEvent, type ReactNode } from 'react'
+import { memo, useLayoutEffect, useRef, type MouseEvent, type ReactNode } from 'react'
 import { AlertTriangle, ArrowUpRight, Bot, Check, FileText, KeyRound, Mail, Minus, Phone, Star, UserRound, Webhook } from 'lucide-react'
 import type { Database, DateValue, ID, Page, Person, PropertyDef, SelectOption } from '../../store/types'
 import { tagStyle, colorText } from '../../lib/colors'
 import { useFileUrl } from '../../lib/files'
 import { PageIcon } from '../../ui/PageIcon'
 import { useT } from '../../i18n'
+import { titleIfClipped } from '../../ui/clip'
 import { FormulaError, isDate, toText, type FValue } from '../formula'
 import { formatDateValue, formatNumber, formatTimestamp, isDateValue, numberRatio } from '../model/format'
 import { fileLabel, type Resolver, type Resolved } from '../model/resolve'
@@ -16,6 +17,7 @@ import { openRow } from '../model/actions'
 import { KitValue, writeUserValue } from '../../features'
 import { actorKind, localPerson, type ActorKind } from '../model/actors'
 import { useUI } from '../../store/ui'
+import { nameHidden, queueFit, watchFit } from './chipFit'
 
 /* ---------------- atoms ---------------- */
 
@@ -39,10 +41,14 @@ function RemoveX({ onRemove }: { onRemove: () => void }) {
   )
 }
 
+/** A chip whose name ends in "…" tells the whole name on hover (ui/clip.ts). */
+const CHIP_NAME = '.db-tag__text, .db-person__name, .db-rel__name'
+const clipTitle = (e: MouseEvent<HTMLElement>) => titleIfClipped(e, CHIP_NAME)
+
 export function OptionTag({ option, onRemove }: { option: SelectOption; onRemove?: () => void }) {
   return (
-    <span className="tag db-tag" style={tagStyle(option.color)}>
-      <span className="db-tag__text">{option.name}</span>
+    <span className="tag db-tag" style={tagStyle(option.color)} onMouseEnter={clipTitle}>
+      <span className="db-tag__text" dir="auto">{option.name}</span>
       {onRemove && <RemoveX onRemove={onRemove} />}
     </span>
   )
@@ -52,9 +58,9 @@ export function OptionTag({ option, onRemove }: { option: SelectOption; onRemove
 export function StatusTag({ option }: { option: SelectOption }) {
   const g = option.group ?? 'todo'
   return (
-    <span className="tag db-tag db-status" data-group={g} style={tagStyle(option.color)}>
+    <span className="tag db-tag db-status" data-group={g} style={tagStyle(option.color)} onMouseEnter={clipTitle}>
       <span className="db-status__led" aria-hidden />
-      <span className="db-tag__text">{option.name}</span>
+      <span className="db-tag__text" dir="auto">{option.name}</span>
     </span>
   )
 }
@@ -75,9 +81,9 @@ export function Avatar({ person, size = 18 }: { person: Person; size?: number })
 
 export function PersonChip({ person, onRemove }: { person: Person; onRemove?: () => void }) {
   return (
-    <span className="db-person">
+    <span className="db-person" onMouseEnter={clipTitle}>
       <Avatar person={person} />
-      <span className="db-person__name">{person.name}</span>
+      <span className="db-person__name" dir="auto">{person.name}</span>
       {onRemove && <RemoveX onRemove={onRemove} />}
     </span>
   )
@@ -101,9 +107,9 @@ export function ActorChip({ id, r }: { id: string; r: Resolver }) {
   if (person) return <PersonChip person={person} />
   const name = r.actorName(id)
   return (
-    <span className="db-person" data-actor={kind}>
+    <span className="db-person" data-actor={kind} onMouseEnter={clipTitle}>
       <ActorAvatar kind={kind as Exclude<ActorKind, 'person'>} name={kind === 'local' ? r.ctx.me.name.trim() : name} />
-      <span className="db-person__name">{name}</span>
+      <span className="db-person__name" dir="auto">{name}</span>
     </span>
   )
 }
@@ -132,9 +138,12 @@ export function RelationChip({ page, onRemove, linkable = true }: { page: Page; 
           : undefined
       }
       role={linkable ? 'link' : undefined}
+      onMouseEnter={clipTitle}
     >
-      <PageIcon icon={page.icon} size={14} />
-      <span className="db-rel__name">{page.title || t('common.untitled')}</span>
+      <span className="db-rel__icon">
+        <PageIcon icon={page.icon} size={14} />
+      </span>
+      <span className="db-rel__name" dir="auto">{page.title || t('common.untitled')}</span>
       {onRemove && <RemoveX onRemove={onRemove} />}
     </span>
   )
@@ -145,6 +154,7 @@ export function FileChip({ src, big }: { src: string; big?: boolean }) {
   const url = useFileUrl(src)
   const isImg = guessIsImage(src, meta)
   const name = meta?.name ?? fileLabel(src)
+  const fileIcon = isImg && url ? <img src={url} alt="" loading="lazy" draggable={false} /> : <FileText size={big ? 18 : 13} strokeWidth={1.7} />
   return (
     <a
       className={`db-file${big ? ' db-file--big' : ''}`}
@@ -155,8 +165,12 @@ export function FileChip({ src, big }: { src: string; big?: boolean }) {
       onClick={(e) => e.stopPropagation()}
       download={src.startsWith('onefile:') ? name : undefined}
     >
-      {isImg && url ? <img src={url} alt="" loading="lazy" draggable={false} /> : <FileText size={big ? 18 : 13} strokeWidth={1.7} />}
-      {!big && <span className="db-file__name">{name}</span>}
+      {big ? fileIcon : <span className="db-file__icon">{fileIcon}</span>}
+      {!big && (
+        <span className="db-file__name" dir="auto">
+          {name}
+        </span>
+      )}
     </a>
   )
 }
@@ -249,7 +263,14 @@ interface ValueProps {
   variant?: Variant
   /** Allow direct manipulation (checkbox toggle, rating click). */
   interactive?: boolean
+  /**
+   * Chips on one line (a "+n" count for those that do not fit): table cells ('cell') unless they wrap; list rows and
+   * free-board card fields ask. 'shrink': the row then takes only the width of what it shows (list rows, right-aligned).
+   */
+  fit?: Fit
 }
+
+type Fit = boolean | 'shrink'
 
 function linkHref(prop: PropertyDef, v: string): string {
   if (prop.type === 'email') return `mailto:${v}`
@@ -257,59 +278,88 @@ function linkHref(prop: PropertyDef, v: string): string {
   return /^[a-z]+:/i.test(v) ? v : `https://${v}`
 }
 
-function FValueView({ v, lang }: { v: FValue; lang: 'en' | 'de' }) {
+function FValueView({ v, lang, fit, col }: { v: FValue; lang: 'en' | 'de'; fit: Fit; col: string }) {
   if (typeof v === 'boolean') return <Checkbox checked={v} readOnly />
   if (typeof v === 'number') return <span className="db-num db-num--end">{toText(v, lang)}</span>
   if (isDate(v)) return <span>{toText(v, lang)}</span>
   if (Array.isArray(v))
     return (
-      <span className="db-chips">
+      <ChipList fit={fit} col={col}>
         {v.map((x, i) => (
-          <span key={i} className="db-chip-plain">
+          <span key={i} className="db-chip-plain" dir="auto" onMouseEnter={(e) => titleIfClipped(e)}>
             {toText(x, lang)}
           </span>
         ))}
-      </span>
+      </ChipList>
     )
   return <span className="db-text">{v ?? ''}</span>
 }
 
-function PersonList({ ids, people }: { ids: ID[]; people: Person[] }) {
+/**
+ * A row of chips. A chip is never cut by the edge: a lone chip shrinks ("…" inside its border), and with `fit`
+ * (one-line places: table cells, list rows, free-board card fields) chips that do not fit wait whole behind a "+n"
+ * count (chipFit.ts); without it the row wraps. Rows of one chip need no measuring. `col` = the property and place:
+ * rows of one column share their room (a row that mounts starts from the widths measured there).
+ */
+function ChipList({ fit, col, children }: { fit: Fit; col: string; children: ReactNode[] }) {
+  const shown = children.filter(Boolean)
+  const measure = !!fit && shown.length > 1
+  const ref = useRef<HTMLSpanElement>(null)
+  const where = fit === 'shrink' ? `${col}:shrink` : col
+  useLayoutEffect(() => {
+    const el = ref.current
+    return measure && el ? watchFit(el, where) : undefined
+  }, [measure, where])
+  // a render may change the chips while the row keeps its size (the observer would not see it)
+  useLayoutEffect(() => {
+    if (measure && ref.current) queueFit(ref.current)
+  })
   return (
-    <span className="db-chips">
+    <span ref={ref} className="db-chips" data-fit={measure ? (fit === 'shrink' ? 'shrink' : '') : undefined}>
+      {shown}
+      {measure && <span className="db-more" aria-hidden onMouseEnter={nameHidden} />}
+    </span>
+  )
+}
+
+function PersonList({ ids, people, fit, col }: { ids: ID[]; people: Person[]; fit: Fit; col: string }) {
+  return (
+    <ChipList fit={fit} col={col}>
       {ids.map((id) => {
         const p = people.find((x) => x.id === id)
         return p ? <PersonChip key={id} person={p} /> : null
       })}
-    </span>
+    </ChipList>
   )
 }
 
-function RelationList({ ids, pages, linkable }: { ids: ID[]; pages: Record<ID, Page>; linkable: boolean }) {
+function RelationList({ ids, pages, linkable, fit, col }: { ids: ID[]; pages: Record<ID, Page>; linkable: boolean; fit: Fit; col: string }) {
   return (
-    <span className="db-chips">
+    <ChipList fit={fit} col={col}>
       {ids.map((id) => {
         const p = pages[id]
         return p && !p.trashed ? <RelationChip key={id} page={p} linkable={linkable} /> : null
       })}
-    </span>
+    </ChipList>
   )
 }
 
-export const PropertyValueView = memo(function PropertyValueView({ db, prop, row, r, variant = 'cell', interactive }: ValueProps) {
+export const PropertyValueView = memo(function PropertyValueView({ db, prop, row, r, variant = 'cell', interactive, fit }: ValueProps) {
   const v = r.value(db, prop, row)
-  return <ValueView db={db} prop={prop} row={row} r={r} v={v} variant={variant} interactive={interactive} />
+  return <ValueView db={db} prop={prop} row={row} r={r} v={v} variant={variant} interactive={interactive} fit={fit} />
 })
 
-export function ValueView({ db, prop, row, r, v, variant = 'cell', interactive, bare }: ValueProps & { v: Resolved; bare?: boolean }) {
+export function ValueView({ db, prop, row, r, v, variant = 'cell', interactive, fit: fitProp, bare }: ValueProps & { v: Resolved; bare?: boolean }) {
   // an own property type (features/kit): its display, format script, ƒ / ⚠ marks around the base rendering
   if (prop.custom && !bare)
     return (
       <KitValue db={db} prop={prop} row={row} variant={variant}>
-        <ValueView db={db} prop={prop} row={row} r={r} v={v} variant={variant} interactive={interactive} bare />
+        <ValueView db={db} prop={prop} row={row} r={r} v={v} variant={variant} interactive={interactive} fit={fitProp} bare />
       </KitValue>
     )
   const { lang, labels } = r.ctx
+  const fit = fitProp ?? variant === 'cell'
+  const col = `${prop.id}:${variant}`
   if (v instanceof FormulaError) return <FormulaErrorBadge error={v} />
   switch (prop.type) {
     case 'title':
@@ -335,12 +385,12 @@ export function ValueView({ db, prop, row, r, v, variant = 'cell', interactive, 
       const ids = (v as string[] | null) ?? []
       if (!ids.length) return null
       return (
-        <span className="db-chips">
+        <ChipList fit={fit} col={col}>
           {ids.map((id) => {
             const o = prop.options?.find((x) => x.id === id)
             return o ? <OptionTag key={id} option={o} /> : null
           })}
-        </span>
+        </ChipList>
       )
     }
     case 'date':
@@ -350,7 +400,7 @@ export function ValueView({ db, prop, row, r, v, variant = 'cell', interactive, 
       return isDate(v) ? <span className="db-date db-date--stamp">{formatTimestamp(v.getTime(), lang)}</span> : null
     case 'person': {
       const ids = (v as string[] | null) ?? []
-      return ids.length ? <PersonList ids={ids} people={r.ctx.people} /> : null
+      return ids.length ? <PersonList ids={ids} people={r.ctx.people} fit={fit} col={col} /> : null
     }
     case 'created_by':
     case 'last_edited_by':
@@ -375,22 +425,22 @@ export function ValueView({ db, prop, row, r, v, variant = 'cell', interactive, 
       const list = (v as string[] | null) ?? []
       if (!list.length) return null
       return (
-        <span className="db-chips">
+        <ChipList fit={fit} col={col}>
           {list.map((src, i) => (
             <FileChip key={src + i} src={src} />
           ))}
-        </span>
+        </ChipList>
       )
     }
     case 'relation': {
       const ids = (v as string[] | null) ?? []
-      return ids.length ? <RelationList ids={ids} pages={r.ctx.pages} linkable={variant !== 'cell'} /> : null
+      return ids.length ? <RelationList ids={ids} pages={r.ctx.pages} linkable={variant !== 'cell'} fit={fit} col={col} /> : null
     }
     case 'rollup':
     case 'formula': {
       if (v === null || v === undefined || v === '') return null
       if (typeof v === 'number' && prop.type === 'rollup') return <span className="db-num db-num--end">{r.textOf(db, prop, v)}</span>
-      return <FValueView v={v as FValue} lang={lang} />
+      return <FValueView v={v as FValue} lang={lang} fit={fit} col={col} />
     }
     case 'unique_id':
       return typeof v === 'number' ? <span className="db-uid">{prop.idPrefix ? `${prop.idPrefix}-${v}` : v}</span> : null
