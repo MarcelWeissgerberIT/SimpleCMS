@@ -14,29 +14,10 @@ import { checkKey, handOnlyMessage, isHandOnly } from '../api/keys.ts'
 import { schemaOut, type ValueContext } from '../api/values.ts'
 import { newId } from '../tokens.ts'
 import { assertNotSystem } from './system.ts'
+import { MCP_LIMITS, MCP_PLAIN_MARKS, MCP_PLAIN_NODES, MCP_PROPERTY_TYPES } from '../../../src/shared/mcp/tables.ts'
 
-/** Property types an agent may add (formula, rollup and button need settings the tools don't take). */
-export const CREATABLE_TYPES = [
-  'text',
-  'number',
-  'select',
-  'multi_select',
-  'status',
-  'date',
-  'person',
-  'checkbox',
-  'url',
-  'email',
-  'phone',
-  'files',
-  'relation',
-  'rating',
-  'created_time',
-  'last_edited_time',
-  'created_by',
-  'last_edited_by',
-  'unique_id',
-] as const
+/** Property types an agent may add (the shared table: formula, rollup and button need settings the tools don't take). */
+export const CREATABLE_TYPES = MCP_PROPERTY_TYPES
 
 export type CreatableType = (typeof CREATABLE_TYPES)[number]
 
@@ -65,16 +46,16 @@ export const unprocessable = (code: string, message: string) => new ApiError(422
 /** The refusal of a Markdown replace of a page holding a task (one_update_page, a server agent's report). */
 export const PAGE_HOLDS_TASKS = 'This page holds tasks; a replace would turn them into plain text. Append instead, or edit the page in One.'
 
-/** Most properties one_create_database takes (the local bridge's limit — spec MCP_LIMITS). */
-export const MAX_DB_PROPERTIES = 40
+/** Most properties one_create_database takes (the shared limit). */
+export const MAX_DB_PROPERTIES = MCP_LIMITS.properties
 
 /**
  * What the server's Markdown (api/content.ts markdownToNodes) writes: a replace over MCP may only replace a page whose
  * content is made of these — anything else (columns, callouts, tables, media, a database block, an underline …) would
  * be lost without a card or an Undo. A pre-filter until the server's own round trip (MCP plan B4s).
  */
-const REPLACEABLE_NODES = new Set(['paragraph', 'heading', 'bulletList', 'orderedList', 'listItem', 'taskList', 'taskItem', 'blockquote', 'codeBlock', 'horizontalRule', 'hardBreak'])
-const REPLACEABLE_MARKS = new Set(['bold', 'italic', 'strike', 'code', 'link'])
+const REPLACEABLE_NODES = new Set<string>(MCP_PLAIN_NODES)
+const REPLACEABLE_MARKS = new Set<string>(MCP_PLAIN_MARKS)
 
 /** The node and mark names in a page's content that a Markdown replace here would lose (≤ 12, document order). */
 export function lossyIn(doc: Y.Doc): string[] {

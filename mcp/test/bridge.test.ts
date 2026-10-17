@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { request } from 'node:http'
 import { after, afterEach, describe, test } from 'node:test'
-import { MCP_CLOSE_REPLACED, MCP_NO_APP, MCP_SUBPROTOCOL_V1, MCP_TOOLS, type BridgeMessage } from '../../src/app/features/mcp/contract.ts'
+import { MCP_ARGS_V1, MCP_CLOSE_REPLACED, MCP_NO_APP, MCP_SUBPROTOCOL_V1, MCP_TOOLS, mcpToolArgs, type BridgeMessage } from '../../src/shared/mcp/contract.ts'
+import { MCP_REMEDIES, codeOf } from '../../src/shared/mcp/errors.ts'
 import { connectApp, helloApp, PORT, serve, startBridge, textOf, waitFor, type FakeApp, type Started } from './helpers.ts'
 
 let bridge: Started | null = null
@@ -243,6 +244,76 @@ describe('forwarding', () => {
 })
 
 const from = (res: unknown) => JSON.parse(textOf(res)) as { from?: string; workspace?: { id: string | null; name: string } }
+
+describe('contract 2: strict arguments, what the tab runs, compact results', () => {
+  test('an argument the tool does not declare is refused by the bridge (bad_argument) — nothing reaches the tab', async () => {
+    const { client } = await start()
+    const app = track(await helloApp('Nordlicht', 'apply', { tools: mcpToolArgs() }))
+    const seen: string[] = []
+    serve(app, (tool) => (seen.push(tool), { result: { id: 'p1' } }))
+    const res = await client.callTool({ name: 'one_create_page', arguments: { title: 'Launch plan', private: true } })
+    assert.equal(res.isError, true)
+    const text = textOf(res)
+    assert.equal(codeOf(text), 'bad_argument', text)
+    assert.match(text, /^bad_argument: private: one_create_page takes no argument "private" \(it takes: title, parentId, markdown, icon, workspace\)\. Nothing was changed\./)
+    assert.ok(text.endsWith(MCP_REMEDIES.bad_argument))
+    // the routing argument is the bridge's own: never refused, never forwarded
+    const ok = await client.callTool({ name: 'one_create_page', arguments: { title: 'Launch plan', workspace: 'Nordlicht' } })
+    assert.equal(ok.isError, undefined, textOf(ok))
+    assert.deepEqual(seen, ['one_create_page'])
+  })
+
+  test('a tab that does not announce a tool or an argument gets no call of it: app_outdated, nothing reaches it', async () => {
+    const { client } = await start()
+    const tools = mcpToolArgs()
+    // an older One: no one_run_query yet, and one_create_page without "icon"
+    delete tools.one_run_query
+    tools.one_create_page = tools.one_create_page!.filter((a) => a !== 'icon')
+    const app = track(await helloApp('Tessera', 'apply', { tools }))
+    const seen: Array<[string, unknown]> = []
+    serve(app, (tool, args) => (seen.push([tool, args]), { result: { id: 'p1' } }))
+    const query = await client.callTool({ name: 'one_run_query', arguments: { code: 'db("Tasks").count' } })
+    assert.equal(query.isError, true)
+    assert.match(textOf(query), /^app_outdated: this One tab has no one_run_query yet/)
+    assert.ok(textOf(query).endsWith(MCP_REMEDIES.app_outdated))
+    const icon = await client.callTool({ name: 'one_create_page', arguments: { title: 'Launch plan', icon: '🚀' } })
+    assert.equal(icon.isError, true)
+    assert.match(textOf(icon), /^app_outdated: icon: this One tab does not know "icon" of one_create_page yet/)
+    assert.deepEqual(seen, [])
+    // what it announces still runs
+    const plain = await client.callTool({ name: 'one_create_page', arguments: { title: 'Launch plan' } })
+    assert.equal(plain.isError, undefined, textOf(plain))
+    assert.deepEqual(seen, [['one_create_page', { title: 'Launch plan' }]])
+  })
+
+  test('a tab without "tools" (One before contract 2) is judged against the frozen contract 1', async () => {
+    const { client } = await start()
+    const app = track(await helloApp('Wissensbasis', 'apply'))
+    const seen: Array<[string, unknown]> = []
+    serve(app, (tool, args) => (seen.push([tool, args]), { result: { ok: true } }))
+    // every argument of contract 1 still reaches such a tab
+    for (const [tool, args] of Object.entries(MCP_ARGS_V1)) {
+      if (tool === 'one_list_workspaces') continue
+      const res = await client.callTool({ name: tool, arguments: Object.fromEntries(args.map((a) => [a, a === 'limit' || a === 'index' ? 1 : 'x'])) })
+      assert.equal(res.isError, undefined, `${tool}: ${textOf(res)}`)
+    }
+    assert.equal(seen.length, Object.keys(MCP_ARGS_V1).length - 1)
+    // contract 1 is frozen: today's contract only adds to it (B3 adds e.g. one_create_page { private } — refused for such a tab)
+    const now = mcpToolArgs()
+    for (const [tool, args] of Object.entries(MCP_ARGS_V1)) for (const a of args) assert.ok(now[tool]?.includes(a), `${tool}.${a} is still in the contract`)
+  })
+
+  test('results are compact JSON (no indentation): they count against the client\'s limit by their size', async () => {
+    const { client } = await start()
+    const app = track(await helloApp('Nordlicht'))
+    serve(app, () => ({ result: { pages: [{ id: 'p1', title: 'Launch plan', children: [{ id: 'p2', title: 'Mara Lind' }] }] } }))
+    const res = await client.callTool({ name: 'one_overview', arguments: {} })
+    assert.doesNotMatch(textOf(res), /\n/)
+    assert.equal(JSON.parse(textOf(res)).pages[0].children[0].title, 'Mara Lind')
+    const list = await client.callTool({ name: 'one_list_workspaces', arguments: {} })
+    assert.doesNotMatch(textOf(list), /\n/)
+  })
+})
 
 describe('connections', () => {
   test('a newer tab of the same workspace wins; the older one is told and closed', async () => {

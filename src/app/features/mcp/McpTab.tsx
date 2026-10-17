@@ -12,7 +12,7 @@ import { useCloud } from '../../cloud'
 import { Led, Switch } from '../../ui/controls'
 import { useLang, useT } from '../../i18n'
 import { inAppWindow } from '../../lib/localNetwork'
-import { MCP_CODEWORD, MCP_DEFAULT_PORT, type McpAgentMode } from './contract'
+import { MCP_BRIDGE_CURRENT, MCP_CODEWORD, MCP_DEFAULT_PORT, bridgeOutdated, type McpAgentMode } from './contract'
 import { shortId, workspaceInfo } from './identity'
 import { clearMcpActivity, connectMcpNow, setMcpEnabled, setMcpMode, setMcpPort, undoMcpActivity } from './service'
 import { clientLabel, useMcp, validPort, type McpActivity, type McpConn } from './state'
@@ -177,6 +177,11 @@ function BridgePanel() {
       {connected && s.legacy && (
         <div className="mcp-msg" data-testid="mcp-legacy">
           <p>{t('features.mcp.msg.legacy')}</p>
+        </div>
+      )}
+      {connected && !s.legacy && bridgeOutdated(s.bridge) && (
+        <div className="mcp-msg" data-testid="mcp-outdated">
+          <p>{t('features.mcp.msg.outdated', { v: s.bridge ?? '', need: MCP_BRIDGE_CURRENT })}</p>
         </div>
       )}
       {s.enabled && s.conn === 'waiting' && (

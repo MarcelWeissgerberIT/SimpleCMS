@@ -61,7 +61,7 @@ export const str = (v: unknown, key: string, opts: { required?: boolean; max?: n
 export const pageOrThrow = (id: unknown, key = 'id'): Page => {
   const raw = str(id, key, { required: true, max: 80 }).trim()
   const p = live(raw)
-  if (!p) throw new McpToolError(`No page with id ${q(raw)}. Use one_search to find page ids.`)
+  if (!p) throw new McpToolError(`not_found: No page with id ${q(raw)}. Use one_search to find page ids.`)
   return p
 }
 
@@ -69,7 +69,7 @@ export const pageOrThrow = (id: unknown, key = 'id'): Page => {
 export const tidyPageOrThrow = (id: unknown, key = 'id'): Page => {
   const raw = str(id, key, { required: true, max: 80 }).trim()
   const p = live(raw)
-  if (!p || inTemplate(ws().pages, p.id)) throw new McpToolError(`No page with id ${q(raw)}. Use one_search to find page ids.`)
+  if (!p || inTemplate(ws().pages, p.id)) throw new McpToolError(`not_found: No page with id ${q(raw)}. Use one_search to find page ids.`)
   return p
 }
 

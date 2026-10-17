@@ -375,11 +375,12 @@ Self-hosted builds served from `http://localhost` / `http://127.0.0.1` have none
 ### The tab protocol
 
 For other implementations: JSON text frames, subprotocol `one-mcp.v2`, defined in
-[`src/app/features/mcp/contract.ts`](../src/app/features/mcp/contract.ts) (shared by the bridge and the app).
+[`src/shared/mcp/contract.ts`](../src/shared/mcp/contract.ts) (shared by the bridge, the app and the team server;
+tables, error codes and duplicate keys beside it in `src/shared/mcp/`).
 
 | Direction | Message |
 |---|---|
-| tab → bridge | `{ type: "hello", app: "one", version, workspace: { id, name, kind, readOnly }, mode }` — first message; then `status` with the same fields when they change (another `id` = the tab now shows another workspace) |
+| tab → bridge | `{ type: "hello", app: "one", version, workspace: { id, name, kind, readOnly }, mode, tools?, contract? }` — first message (contract 2: `tools` = each tool the tab runs with its argument names; a bridge refuses anything else with `app_outdated`, a tab without `tools` is judged against contract 1); then `status` with the same fields when they change (another `id` = the tab now shows another workspace) |
 | bridge → tab | `{ type: "welcome", bridge, client: { name, version } \| null }` — the MCP client from its `initialize` (later changes: `client`) |
 | bridge → tab | `{ type: "call", id, tool, args, workspace }` — `workspace` = the id the call is meant for; the tab answers `workspace_mismatch` unless it shows exactly that workspace |
 | tab → bridge | `{ type: "result", id, result }` (an object with `workspace: { id, name }` — checked against the call's) · `{ type: "error", id, error }` · `{ type: "pending", id, timeoutMs }` (waiting for approval: the bridge extends the deadline) |

@@ -1,0 +1,97 @@
+/**
+ * One MCP — the error contract (spec § 2.0), pure: the local bridge, the One tab and the team server word a refusal the
+ * same way, so a model learns one shape:
+ *
+ *   <code>: <argument path>: <what happened>. Nothing was changed. <next step>
+ *
+ * The code is the first word (an agent may branch on it), the path names the argument (`edits[3].ref`,
+ * `rows[12].properties.Status`; empty when the call as a whole is meant), the next step comes from MCP_REMEDIES.
+ */
+
+export const MCP_ERROR_CODES = [
+  'workspace_mismatch',
+  'workspace_required',
+  'workspace_unknown',
+  'workspace_ambiguous',
+  'not_found',
+  'locked',
+  'stale_ref',
+  'page_changed',
+  'lossy_replace',
+  'too_large',
+  'quota',
+  'refused_type',
+  'file_type',
+  'private_scope',
+  'system_database',
+  'local_only',
+  'fetch_refused',
+  'rejected',
+  'approval_timeout',
+  'app_outdated',
+  'bridge_outdated',
+  'bad_argument',
+  'comments_off',
+] as const
+
+export type McpErrorCode = (typeof MCP_ERROR_CODES)[number]
+
+const CODES = new Set<string>(MCP_ERROR_CODES)
+
+/** The next step per code (model-facing English, one sentence each). */
+export const MCP_REMEDIES: Record<McpErrorCode, string> = {
+  workspace_mismatch: 'Ask the person which workspace they mean (one_list_workspaces); never repeat the call in another workspace on your own.',
+  workspace_required: 'Pass "workspace" (an id from one_list_workspaces, or the exact name).',
+  workspace_unknown: 'one_list_workspaces lists what is connected; ask the person which one they mean.',
+  workspace_ambiguous: 'Pass the workspace id instead of its name (one_list_workspaces).',
+  not_found: 'Find the id with one_search, one_overview or one_list_databases (something in the trash: one_restore_page).',
+  locked: 'Ask the person to unlock it in One.',
+  stale_ref: 'Read the page again (one_get_page) and use the refs of that read.',
+  page_changed: 'Read the page again from the start (one_get_page) and call again.',
+  lossy_replace: 'Change single blocks instead, or ask the person.',
+  too_large: 'Split it into smaller calls.',
+  quota: 'Try again tomorrow, or ask the person.',
+  refused_type: 'Use a value of the property\'s type (one_get_database lists them).',
+  file_type: 'Use one of the supported file types.',
+  private_scope: 'Private content stays out of shared pages; ask the person.',
+  system_database: 'Reading it stays allowed; changes there are made in One.',
+  local_only: 'Only the local bridge (One open in the browser) can do this; ask the person.',
+  fetch_refused: 'Ask the person to add the file in One.',
+  rejected: 'Do not retry it; ask the person what they want instead.',
+  approval_timeout: 'The person did not answer within 2 minutes; ask them whether to try again — do not retry on your own.',
+  app_outdated: 'Ask the person to reload One (or update it); do not retry before.',
+  bridge_outdated: 'Ask the person to update the One bridge (download one.mcpb or one-mcp.mjs again).',
+  bad_argument: 'Check the tool\'s arguments (tools/list) and call again.',
+  comments_off: 'Comments are off in One (Settings → Agents · MCP). Ask the person; do not retry.',
+}
+
+export const isMcpErrorCode = (v: unknown): v is McpErrorCode => typeof v === 'string' && CODES.has(v)
+
+/** The code a message starts with (`not_found: …`), or null. */
+export function codeOf(message: string): McpErrorCode | null {
+  const m = /^([a-z_]+):/.exec(message)
+  return m && isMcpErrorCode(m[1]) ? m[1] : null
+}
+
+const sentence = (s: string) => {
+  const t = s.trim()
+  return !t ? '' : /[.!?…]$/.test(t) ? t : `${t}.`
+}
+
+/**
+ * A refusal in the contract's shape. `path` names the argument ('' = the call); `what` says what happened (a sentence,
+ * its full stop added); `next` replaces the code's remedy when the case knows a better next step.
+ */
+export function mcpError(code: McpErrorCode, path: string, what: string, next?: string): string {
+  return `${code}: ${path ? `${path}: ` : ''}${sentence(what)} Nothing was changed. ${next ?? MCP_REMEDIES[code]}`
+}
+
+/**
+ * A message as the agent gets it: one that starts with a code but does not say "Nothing was …" (changed, done, moved,
+ * restored …) gets that and the code's next step; anything else passes as it is (such messages carry their own wording).
+ */
+export function withRemedy(message: string): string {
+  const code = codeOf(message)
+  if (!code || /\b[Nn]othing (was|is) \w+/.test(message)) return message
+  return `${sentence(message)} Nothing was changed. ${MCP_REMEDIES[code]}`
+}

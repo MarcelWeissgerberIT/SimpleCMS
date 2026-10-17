@@ -149,7 +149,7 @@ export function findPage(args: Record<string, unknown>): { page: Page; others: P
     // a template's page is not found by its id either (live)
     const p = live(id)
     if (p) return { page: p, others: [] }
-    if (!title) throw new McpToolError(`No page with id ${q(id)}. Use one_search to find page ids.`)
+    if (!title) throw new McpToolError(`not_found: No page with id ${q(id)}. Use one_search to find page ids.`)
   }
   // by title: template pages (features/templates) never answer, as by id
   const pages = ws().pages
@@ -160,7 +160,7 @@ export function findPage(args: Record<string, unknown>): { page: Page; others: P
       .filter((p) => p.title.toLowerCase().includes(title.toLowerCase()))
       .sort((a, b) => b.updatedAt - a.updatedAt)
       .slice(0, 5)
-    throw new McpToolError(`No page titled ${q(title)}.${near.length ? ` Similar: ${near.map((p) => `${q(titleOf(p))} (${p.id})`).join(', ')}` : ' Try one_search.'}`)
+    throw new McpToolError(`not_found: No page titled ${q(title)}.${near.length ? ` Similar: ${near.map((p) => `${q(titleOf(p))} (${p.id})`).join(', ')}` : ' Try one_search.'}`)
   }
   return { page: hits[0], others: hits.slice(1) }
 }

@@ -127,7 +127,7 @@ function planUpdatePage(args: Record<string, unknown>): WritePlan {
   const icon = parseIcon(args.icon)
   if (titleRaw === null && markdown === null && icon === undefined) throw new McpToolError('Nothing to change: pass "title", "icon" and/or "markdown".')
   if (markdown !== null && page.kind === 'database') throw new McpToolError(`${q(titleOf(page))} is a database: its content is its rows. Use one_create_row.`)
-  if (markdown !== null && page.settings.locked) throw new McpToolError(`${q(titleOf(page))} is locked in One. Ask the person to unlock it first.`)
+  if (markdown !== null && page.settings.locked) throw new McpToolError(`locked: ${q(titleOf(page))} is locked in One: its content cannot change (its title and icon can). Nothing was changed. Ask the person to unlock it.`)
   if (mode === 'append' && markdown !== null && !markdown.trim()) throw new McpToolError('"markdown" is empty: nothing to append.')
   if (markdown !== null) checkFileScope(markdown, pagePrivate(page.id), q(titleOf(page)))
 
@@ -390,7 +390,7 @@ function planCreateProperty(args: Record<string, unknown>): WritePlan {
   const { db, page } = databaseOrThrow(args.databaseId)
   assertNotSystem(db.id)
   const dbTitle = titleOf(page)
-  if (db.locked) throw new McpToolError(`${q(dbTitle)} is locked in One: its properties cannot change. Ask the person to unlock it.`)
+  if (db.locked) throw new McpToolError(`locked: ${q(dbTitle)} is locked in One: its properties cannot change. Nothing was changed. Ask the person to unlock it.`)
   const spec = propertySpec(args, { dbId: db.id, dbTitle, taken: db.properties.map((p) => p.name) }, 'property')
   return {
     tool: 'one_create_property',

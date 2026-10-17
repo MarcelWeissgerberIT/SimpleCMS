@@ -23,7 +23,10 @@ import { useUI } from '../../store/ui'
 import { useCloud } from '../../cloud'
 import { t } from '../../i18n'
 import { BRAND } from '@/shared/brand'
-import { MCP_APPROVAL_MS, MCP_CLOSE_REPLACED, MCP_ERR, MCP_SUBPROTOCOL, MCP_SUBPROTOCOLS, MCP_TOOLS, MCP_WORKSPACE_ID, type AppMessage, type BridgeMessage, type McpAgentMode, type McpToolName } from './contract'
+import { MCP_APPROVAL_MS, MCP_CLOSE_REPLACED, MCP_CONTRACT_REV, MCP_ERR, MCP_SUBPROTOCOL, MCP_SUBPROTOCOLS, MCP_TOOLS, MCP_WORKSPACE_ID, mcpToolArgs, type AppMessage, type BridgeMessage, type McpAgentMode, type McpToolName } from './contract'
+import { mcpError, withRemedy } from '../../../shared/mcp/errors'
+import { createsSomething, duplicateAnswer, duplicateKey, DUPLICATE_MS } from '../../../shared/mcp/duplicates'
+import { MCP_LIMITS } from '../../../shared/mcp/tables'
 import { currentWorkspace, workspaceInfo, type McpIdentity } from './identity'
 import { READ_TOOLS, readTarget } from './read'
 import { McpToolError } from './values'
@@ -44,14 +47,14 @@ const get = useMcp.getState
 /* ------------------------------------------------------------------ */
 
 const ERR = {
-  readOnly: 'One is set to "Agents can only read" (Settings → Agents · MCP). Nothing was changed.',
-  viewer: 'You can only view this team workspace in One, so agents cannot change it either. Nothing was changed.',
-  signedOut: 'One is not signed in to this team workspace. Sign in in the One tab first.',
-  reject: 'The person rejected this change in One. Nothing was changed. Do not retry it; ask them what they want instead.',
-  timeout: `The change was not approved within ${MCP_APPROVAL_MS / 60_000} minutes, so nothing was changed.`,
+  readOnly: mcpError('rejected', '', 'One is set to "Agents can only read" (Settings → Agents · MCP)', 'Ask the person whether they want to allow changes; do not retry on your own.'),
+  viewer: mcpError('rejected', '', 'You can only view this team workspace in One, so agents cannot change it either'),
+  signedOut: mcpError('rejected', '', 'One is not signed in to this team workspace', 'Ask the person to sign in in the One tab first.'),
+  reject: mcpError('rejected', '', 'The person rejected this change in One'),
+  timeout: mcpError('approval_timeout', '', `The change was not approved within ${MCP_APPROVAL_MS / 60_000} minutes`),
   cancel: 'Cancelled. Nothing was changed.',
-  mode: 'Agent changes were switched to read-only in One while this change waited. Nothing was changed.',
-  gone: 'One disconnected while this change waited for approval. Nothing was changed.',
+  mode: mcpError('rejected', '', 'Agent changes were switched to read-only in One while this change waited'),
+  gone: mcpError('approval_timeout', '', 'One disconnected while this change waited for approval', 'Ask the person whether to try again once One is open; do not retry on your own.'),
   workspace: `${MCP_ERR.mismatch}: the One tab switched to another workspace while this change waited for approval, so it was cancelled. Nothing was changed. Ask the person which workspace to use.`,
 } as const
 
@@ -138,8 +141,11 @@ function delay(): number {
   return BACKOFF[Math.min(attempt, BACKOFF.length - 1)]
 }
 
+/** The tools this tab runs, with the arguments each takes (contract 2): a bridge refuses anything else before it gets here. */
+const TOOL_ARGS = mcpToolArgs()
+
 function hello(): AppMessage {
-  return { type: 'hello', app: 'one', version: BRAND.version, workspace: workspaceMsg(), mode: get().mode }
+  return { type: 'hello', app: 'one', version: BRAND.version, workspace: workspaceMsg(), mode: get().mode, tools: TOOL_ARGS, contract: MCP_CONTRACT_REV }
 }
 
 function send(msg: AppMessage) {
@@ -252,7 +258,10 @@ function receive(msg: BridgeMessage) {
     case 'welcome':
       attempt = 0
       failingSince = 0
-      set({ conn: 'connected', blocked: null, prompt: false, client: msg.client ?? null, session: nanoid(10), bridge: msg.bridge ?? null, calls: 0 })
+      set({ conn: 'connected', blocked: null, prompt: false, client: msg.client ?? null, session: nanoid(10), bridge: typeof msg.bridge === 'string' ? msg.bridge.slice(0, 40) : null, calls: 0 })
+      // a new MCP session: repeats are matched within one session only
+      duplicates.clear()
+      owners.clear()
       lastStatus = JSON.stringify({ type: 'status', workspace: workspaceMsg(), mode: get().mode })
       // the workspace may have changed between hello and welcome
       sendStatus()
@@ -355,6 +364,8 @@ const verdicts = new Map<string, (v: Verdict) => void>()
 function settle(id: string, v: Verdict) {
   const done = verdicts.get(id)
   if (!done) return
+  // the client gave up on this call, but a repeat of it joined the card: the card stays and answers the repeat
+  if (v === 'cancel' && (owners.get(id)?.joined.length ?? 0) > 0) return
   verdicts.delete(id)
   set((s) => ({ approvals: s.approvals.filter((a) => a.id !== id) }))
   done(v)
@@ -400,6 +411,43 @@ function boundWorkspace(expected: string | undefined): { ok: true; ws: McpIdenti
   return { ok: true, ws: now }
 }
 
+/* ------------------------------------------------------------------ */
+/* Duplicate calls (spec § 2.0): one map per MCP session                */
+/* ------------------------------------------------------------------ */
+
+type CallOutcome = { ok: true; result: unknown } | { ok: false; error: string; state: ActivityState }
+
+/** A creating call that waits (its repeats join it) or was applied in the window (its repeats get its result). */
+type Duplicate = { key: string; state: 'wait'; joined: Array<(out: CallOutcome) => void> } | { key: string; state: 'done'; at: number; result: unknown; call: string }
+
+/** key = session · workspace · tool + canonical arguments; insertion order = age (≤ MCP_LIMITS.duplicateEntries) */
+const duplicates = new Map<string, Duplicate>()
+/** call id → the waiting entry it opened (a cancel of that call leaves the card to the repeats that joined it) */
+const owners = new Map<string, Extract<Duplicate, { state: 'wait' }>>()
+
+function openDuplicate(key: string, call: string): Duplicate {
+  const entry: Extract<Duplicate, { state: 'wait' }> = { key, state: 'wait', joined: [] }
+  owners.set(call, entry)
+  duplicates.delete(key)
+  duplicates.set(key, entry)
+  // bounded: the oldest finished entries go first, then the oldest of all
+  while (duplicates.size > MCP_LIMITS.duplicateEntries) {
+    const old = [...duplicates.values()].find((d) => d.state === 'done') ?? duplicates.values().next().value!
+    duplicates.delete(old.key)
+  }
+  return entry
+}
+
+/** The waiting call ended: its repeats get the same answer; applied → remembered, anything else forgotten. */
+function closeDuplicate(entry: Duplicate, out: CallOutcome, call: string, remember: boolean) {
+  if (entry.state !== 'wait') return
+  owners.delete(call)
+  for (const join of entry.joined.splice(0)) join(out)
+  if (duplicates.get(entry.key) !== entry) return
+  if (out.ok && remember) duplicates.set(entry.key, { key: entry.key, state: 'done', at: Date.now(), result: out.result, call })
+  else duplicates.delete(entry.key)
+}
+
 async function handleCall(id: string, tool: McpToolName, args: Record<string, unknown>, expected?: string) {
   const def = MCP_TOOLS.find((x) => x.name === tool)
   const started = performance.now()
@@ -412,25 +460,48 @@ async function handleCall(id: string, tool: McpToolName, args: Record<string, un
   }
   const key = logStart(id, tool, !!def?.write, target)
   const ms = () => Math.round(performance.now() - started)
+  /** the waiting entry this call opened: its repeats get its answer */
+  let mine: Duplicate | null = null
   const fail = (message: string, state: ActivityState = 'err') => {
-    send({ type: 'error', id, error: message })
-    logPatch(key, { state, ms: ms(), note: message })
+    const error = withRemedy(message)
+    send({ type: 'error', id, error })
+    logPatch(key, { state, ms: ms(), note: error })
+    if (mine) closeDuplicate(mine, { ok: false, error, state }, id, false)
   }
   try {
     if (!def) return fail(`Unknown tool ${JSON.stringify(tool)}.`)
+    // strict arguments (the tool's schema has additionalProperties: false): nothing undeclared is dropped silently
+    const extra = Object.keys(args).find((k) => k !== 'workspace' && !Object.hasOwn(def.inputSchema.properties, k))
+    if (extra) return fail(mcpError('bad_argument', extra, `${tool} takes no argument ${JSON.stringify(extra)}`), 'rejected')
     if (useCloud.getState().status === 'signed-out') return fail(ERR.signedOut)
     // the boundary: only the workspace the call is meant for, only while this tab shows it
     const at = boundWorkspace(expected)
     if (!at.ok) return fail(at.error, 'rejected')
+    const answer = (result: unknown, state: ActivityState, patch: Partial<McpActivity> = {}) => {
+      send({ type: 'result', id, result: stamped(result, at.ws) })
+      logPatch(key, { state, ms: ms(), ...patch })
+    }
     if (!def.write) {
       if (tool === 'one_list_work_items') await warmMembers()
       const result = await READ_TOOLS[tool]!(args, get().mode)
-      send({ type: 'result', id, result: stamped(result, at.ws) })
-      logPatch(key, { state: 'ok', ms: ms() })
-      return
+      return answer(result, 'ok')
     }
     if (get().mode === 'read') return fail(ERR.readOnly, 'rejected')
     if (useCloud.getState().readOnly) return fail(ERR.viewer, 'rejected')
+    // a repeat of a creating call: joins the one still waiting, or gets the answer of the one applied just now
+    if (createsSomething(tool)) {
+      const dupKey = `${get().session ?? '-'}\n${at.ws.id}\n${duplicateKey(tool, args)}`
+      const hit = duplicates.get(dupKey)
+      if (hit?.state === 'done' && Date.now() - hit.at <= DUPLICATE_MS) return answer(duplicateAnswer(hit.result, hit.at, Date.now()), 'same', { note: t('features.mcp.log.duplicate') })
+      if (hit?.state === 'wait') {
+        send({ type: 'pending', id, timeoutMs: MCP_APPROVAL_MS })
+        logPatch(key, { state: 'wait' })
+        const out = await new Promise<CallOutcome>((resolve) => hit.joined.push(resolve))
+        if (!out.ok) return fail(out.error, out.state)
+        return answer(out.result, 'same', { note: t('features.mcp.log.joined') })
+      }
+      mine = openDuplicate(dupKey, id)
+    }
     // team: the member list (owners by email) before the planner runs — staging never waits for it
     await warmMembers()
     // the workspace stamps of the files the call names (lib/files.ts): claudeDoc's check runs inside the plan, sync
@@ -438,8 +509,8 @@ async function handleCall(id: string, tool: McpToolName, args: Record<string, un
     const plan = tool === 'one_run_script' ? await planRunScript(args) : planWrite(tool, args)
     logPatch(key, { target: plan.target })
     if (plan.noop) {
-      send({ type: 'result', id, result: stamped(plan.noop, at.ws) })
-      logPatch(key, { state: 'same', ms: ms() })
+      answer(plan.noop, 'same')
+      if (mine) closeDuplicate(mine, { ok: true, result: plan.noop }, id, false)
       return
     }
     // a script is always asked (it may send mail, call Claude, trash pages), also in "Apply directly"
@@ -465,8 +536,8 @@ async function handleCall(id: string, tool: McpToolName, args: Record<string, un
     } finally {
       endRun(writer)
     }
-    send({ type: 'result', id, result: stamped(applied.result, at.ws) })
-    logPatch(key, { state: 'ok', ms: ms(), undo: applied.undo })
+    answer(applied.result, 'ok', { undo: applied.undo })
+    if (mine) closeDuplicate(mine, { ok: true, result: applied.result }, id, true)
     // approved by hand: confirm with an undo (Apply directly stays quiet — the log has it)
     if (ask && applied.undo)
       useUI.getState().toast({

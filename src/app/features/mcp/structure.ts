@@ -25,11 +25,11 @@ import { assertNotSystem } from './system'
 /** A database the tools may reshape: live, not a template's, not locked. */
 function schemaDb(id: unknown): { db: Database; page: Page; title: string } {
   const { db, page } = databaseOrThrow(id)
-  if (inTemplate(ws().pages, db.id)) throw new McpToolError(`No database with id ${q(String(id))}. Use one_list_databases to get database ids.`)
+  if (inTemplate(ws().pages, db.id)) throw new McpToolError(`not_found: No database with id ${q(String(id))}. Use one_list_databases to get database ids.`)
   // One's own databases (pipelines, memory, mails …): their schema and views stay as One made them
   assertNotSystem(db.id)
   const title = titleOf(page)
-  if (db.locked) throw new McpToolError(`${q(title)} is locked in One: its properties and views cannot change (rows can). Ask the person to unlock it. Nothing was changed.`)
+  if (db.locked) throw new McpToolError(`locked: ${q(title)} is locked in One: its properties and views cannot change (rows can). Ask the person to unlock it. Nothing was changed.`)
   return { db, page, title }
 }
 
@@ -62,7 +62,7 @@ const isEmpty = (v: PropertyValue | undefined) => v === undefined || v === null 
 
 function planUpdateDatabase(args: Record<string, unknown>): WritePlan {
   const { db, page } = databaseOrThrow(args.id)
-  if (inTemplate(ws().pages, db.id)) throw new McpToolError(`No database with id ${q(String(args.id))}. Use one_list_databases to get database ids.`)
+  if (inTemplate(ws().pages, db.id)) throw new McpToolError(`not_found: No database with id ${q(String(args.id))}. Use one_list_databases to get database ids.`)
   assertNotSystem(db.id)
   const name = titleOf(page)
   if (args.locked !== undefined && args.locked !== null)

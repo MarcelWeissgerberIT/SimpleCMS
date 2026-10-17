@@ -447,7 +447,7 @@ function planMoveRow(args: Record<string, unknown>): WritePlan {
   assertNotSystem(from.id)
   assertNotSystem(to.id)
   const { pages } = ws()
-  if (inTemplate(pages, to.id)) throw new McpToolError(`No database with id ${q(String(args.databaseId))}. Use one_list_databases to get database ids.`)
+  if (inTemplate(pages, to.id)) throw new McpToolError(`not_found: No database with id ${q(String(args.databaseId))}. Use one_list_databases to get database ids.`)
   const fromTitle = titleOf(fromPage)
   const toTitle = titleOf(toPage)
   if (to.id === from.id) {

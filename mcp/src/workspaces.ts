@@ -15,7 +15,7 @@
  * Ids route, names are for people: two workspaces may share a name, so a name only ever resolves when
  * exactly one connected workspace carries it.
  */
-import { MCP_ERR, MCP_WORKSPACE_ID, type McpAgentMode, type McpWorkspaceInfo } from '../../src/app/features/mcp/contract.ts'
+import { MCP_ERR, MCP_WORKSPACE_ID, type McpAgentMode, type McpWorkspaceInfo } from '../../src/shared/mcp/contract.ts'
 
 export interface Candidate {
   info: { workspace: McpWorkspaceInfo; mode: McpAgentMode }

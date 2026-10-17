@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import WebSocket from 'ws'
-import { MCP_SUBPROTOCOL, MCP_SUBPROTOCOL_V1, type AppMessage, type BridgeMessage, type McpWorkspaceInfo } from '../../src/app/features/mcp/contract.ts'
+import { MCP_SUBPROTOCOL, MCP_SUBPROTOCOL_V1, type AppMessage, type BridgeMessage, type McpWorkspaceInfo } from '../../src/shared/mcp/contract.ts'
 
 export const BUNDLE = fileURLToPath(new URL('../../public/mcp/one-mcp.mjs', import.meta.url))
 export const PORT = 47399
@@ -117,6 +117,8 @@ export interface HelloOptions {
   /** an older app: subprotocol one-mcp.v1, no workspace id */
   legacy?: boolean
   origin?: string
+  /** contract 2: the tools the tab runs and their arguments (absent: an older tab, judged against MCP_ARGS_V1) */
+  tools?: Record<string, string[]>
 }
 
 /** Connect and say hello (v2: with a workspace id); resolves with the welcome. */
@@ -125,7 +127,7 @@ export async function helloApp(name = 'Test workspace', mode: 'ask' | 'apply' | 
   const kind = opts.kind ?? 'local'
   const workspace: McpWorkspaceInfo = opts.legacy ? { name, kind, readOnly: !!opts.readOnly } : { id: opts.id ?? idFor(name, kind), name, kind, readOnly: !!opts.readOnly }
   app.workspace = workspace
-  app.send({ type: 'hello', app: 'one', version: '1.0', workspace, mode })
+  app.send({ type: 'hello', app: 'one', version: '1.0', workspace, mode, ...(opts.tools ? { tools: opts.tools, contract: 2 } : {}) })
   await app.next('welcome')
   return app
 }

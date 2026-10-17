@@ -68,7 +68,7 @@ export async function planRunScript(args: Record<string, unknown>): Promise<Writ
   const { script } = found
   const rawPage = str(args.pageId, 'pageId', { max: 80 }).trim()
   const page = rawPage ? live(rawPage) : null
-  if (rawPage && !page) throw new McpToolError(`No page with id ${q(rawPage)}. Use one_search to find page ids.`)
+  if (rawPage && !page) throw new McpToolError(`not_found: No page with id ${q(rawPage)}. Use one_search to find page ids.`)
   const contextPageId = page?.id ?? null
   const base = { tool: 'one_run_script' as const, alwaysAsk: true as const, verb: t('features.mcp.verb.runScript'), target: script.name }
   const scriptInfo = { id: script.id, name: script.name, kind: script.kind }

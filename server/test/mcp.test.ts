@@ -8,6 +8,7 @@ import { Client as McpClient } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import * as Y from 'yjs'
 import { type Client, type DocClient, flushed, openDoc, signIn, sleep, startServer, type TestServer, waitFor } from './helpers.ts'
+import { MCP_LOCAL_ONLY, MCP_SHARED_TOOLS } from '../../src/shared/mcp/contract.ts'
 
 /* ------------------------------------------------------------------ fixtures */
 
@@ -101,25 +102,10 @@ async function fails(client: McpClient, name: string, args: Record<string, unkno
   return res.content[0]!.text
 }
 
-const READ_TOOLS = ['one_get_database', 'one_get_page', 'one_list_databases', 'one_list_workspaces', 'one_overview', 'one_query_database', 'one_search']
-const WRITE_TOOLS = [
-  'one_create_database',
-  'one_create_page',
-  'one_create_property',
-  'one_create_row',
-  'one_create_view',
-  'one_delete_property',
-  'one_delete_view',
-  'one_move_page',
-  'one_move_row',
-  'one_restore_page',
-  'one_trash_page',
-  'one_update_database',
-  'one_update_page',
-  'one_update_property',
-  'one_update_row',
-  'one_update_view',
-]
+/** The tool lists come from the shared contract (the local-only tools left out) — mcp-parity.test.ts checks the rest. */
+const SERVED = MCP_SHARED_TOOLS.filter((t) => !MCP_LOCAL_ONLY.includes(t.name))
+const READ_TOOLS = SERVED.filter((t) => !t.write).map((t) => t.name).sort()
+const WRITE_TOOLS = SERVED.filter((t) => t.write).map((t) => t.name).sort()
 
 /* ------------------------------------------------------------------ suite */
 
@@ -651,13 +637,13 @@ describe('remote MCP', () => {
     const a = await call(writer, 'one_create_page', { title: 'Old A' })
     const b = await call(writer, 'one_create_page', { title: 'Old B', parentId: a.id })
     const c = await call(writer, 'one_create_page', { title: 'Old C' })
-    await fails(writer, 'one_trash_page', { ids: [a.id, 'nope'] }, /^Nothing was moved to the trash: no page with id "nope"/)
+    await fails(writer, 'one_trash_page', { ids: [a.id, 'nope'] }, /^not_found: Nothing was moved to the trash: no page with id "nope"/)
     assert.equal((await call(reader, 'one_get_page', { id: a.id })).title, 'Old A', 'all or nothing')
     await fails(writer, 'one_trash_page', {}, /Missing required parameter "id"/)
     const bulk = await call(writer, 'one_trash_page', { ids: [a.id, b.id, c.id] })
     assert.deepEqual([bulk.count, bulk.alsoTrashed, bulk.trashed.map((x: { title: string }) => x.title)], [2, 1, ['Old A', 'Old C']])
     await fails(writer, 'one_trash_page', { id: a.id }, /is already in the trash/)
-    await fails(writer, 'one_restore_page', { id: 'nope' }, /^Nothing was restored: nothing in the trash has id "nope"\. Recently trashed: "Old (A|C)"/)
+    await fails(writer, 'one_restore_page', { id: 'nope' }, /^not_found: Nothing was restored: nothing in the trash has id "nope"\. Recently trashed: "Old (A|C)"/)
     await fails(writer, 'one_restore_page', { id: b.id }, new RegExp(`is inside "Old A" \\(${a.id}\\), which is in the trash — restore that instead`))
     await fails(writer, 'one_restore_page', { id: 'doc-1' }, /is not in the trash/)
     const both = await call(writer, 'one_restore_page', { ids: [a.id, c.id] })

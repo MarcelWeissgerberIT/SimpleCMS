@@ -43,6 +43,7 @@ export const messages: Messages = {
     'features.mcp.msg.peers.one': 'Also connected in another tab: {names}. Agents name the workspace they mean — a call meant for one workspace never runs in another.',
     'features.mcp.msg.peers.other': 'Also connected in other tabs: {names}. Agents name the workspace they mean — a call meant for one workspace never runs in another.',
     'features.mcp.msg.legacy': 'The bridge on this computer is an older version: one tab at a time, and calls are not bound to a workspace. Update it (download one.mcpb or one-mcp.mjs again) to work with several workspaces safely.',
+    'features.mcp.msg.outdated': 'Bridge {v} — update to {need} for the newest tools: download one.mcpb or one-mcp.mjs again. Until then it keeps working as before.',
     'features.mcp.peer': '“{name}” ({kind})',
     'features.mcp.peer.local': 'local',
     'features.mcp.peer.team': 'team',
@@ -100,6 +101,8 @@ export const messages: Messages = {
     'features.mcp.log.state.timeout': 'Expired',
     'features.mcp.log.state.cancelled': 'Cancelled',
     'features.mcp.log.state.undone': 'Undone',
+    'features.mcp.log.joined': 'Repeat — answered with the result of the call it waited for',
+    'features.mcp.log.duplicate': 'Repeat — already done a moment ago, nothing new was made',
 
     'features.mcp.security.title': 'What leaves this computer',
     'features.mcp.security.body':
@@ -401,6 +404,7 @@ export const messages: Messages = {
     'features.mcp.msg.peers.one': 'Ebenfalls verbunden, in einem anderen Tab: {names}. Agenten nennen den Workspace, den sie meinen — ein Aufruf für einen Workspace läuft nie in einem anderen.',
     'features.mcp.msg.peers.other': 'Ebenfalls verbunden, in anderen Tabs: {names}. Agenten nennen den Workspace, den sie meinen — ein Aufruf für einen Workspace läuft nie in einem anderen.',
     'features.mcp.msg.legacy': 'Die Brücke auf diesem Computer ist eine ältere Version: ein Tab zur Zeit, Aufrufe sind nicht an einen Workspace gebunden. Aktualisiere sie (one.mcpb oder one-mcp.mjs neu herunterladen), um sicher mit mehreren Workspaces zu arbeiten.',
+    'features.mcp.msg.outdated': 'Brücke {v} – aktualisiere auf {need} für die neuesten Werkzeuge: one.mcpb oder one-mcp.mjs neu herunterladen. Bis dahin arbeitet sie wie bisher.',
     'features.mcp.peer': '„{name}“ ({kind})',
     'features.mcp.peer.local': 'lokal',
     'features.mcp.peer.team': 'Team',
@@ -458,6 +462,8 @@ export const messages: Messages = {
     'features.mcp.log.state.timeout': 'Abgelaufen',
     'features.mcp.log.state.cancelled': 'Abgebrochen',
     'features.mcp.log.state.undone': 'Rückgängig',
+    'features.mcp.log.joined': 'Wiederholung — mit dem Ergebnis des Aufrufs beantwortet, auf den sie wartete',
+    'features.mcp.log.duplicate': 'Wiederholung — gerade erst erledigt, nichts Neues angelegt',
 
     'features.mcp.security.title': 'Was diesen Computer verlässt',
     'features.mcp.security.body':

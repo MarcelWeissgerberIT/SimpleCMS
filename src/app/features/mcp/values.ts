@@ -76,7 +76,7 @@ export function databaseOrThrow(id: unknown): { db: Database; page: Page } {
       .filter((p): p is Page => !!p && p.title.trim().toLowerCase() === raw.toLowerCase())
     page = hits.length === 1 ? hits[0] : null
   }
-  if (!page || !databases[page.id]) throw new McpToolError(`No database with id ${q(raw)}. Use one_list_databases to get database ids.`)
+  if (!page || !databases[page.id]) throw new McpToolError(`not_found: No database with id ${q(raw)}. Use one_list_databases to get database ids.`)
   return { db: databases[page.id], page }
 }
 

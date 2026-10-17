@@ -1,8 +1,8 @@
 /**
  * The MCP tools that reshape databases on the team server (docs/MCP.md): rename / re-icon a
  * database, change or delete a property (options, safe type changes), add / change / delete views.
- * The same rules, tables and messages as the local bridge (src/app/features/mcp/structure.ts and
- * MCP_TYPE_CHANGES / MCP_VIEW_TYPES in contract.ts — keep them in step). Views are written the way
+ * The same rules and messages as the local bridge (src/app/features/mcp/structure.ts); the tables are the shared ones
+ * (src/shared/mcp/tables.ts MCP_TYPE_CHANGES / MCP_VIEW_TYPES). Views are written the way
  * the app stores them (docs/CLOUD.md § Meta document schema: `views` = Y.Map id → JSON View with
  * `order`); a locked database refuses all of it, and locking is the person's decision in the app.
  */
@@ -15,23 +15,13 @@ import { schemaOut } from '../api/values.ts'
 import { newId } from '../tokens.ts'
 import { assertNotSystem } from './system.ts'
 import { iconOut } from './reads.ts'
+import { MCP_TYPE_CHANGES, MCP_VIEW_TYPES } from '../../../src/shared/mcp/tables.ts'
 import { COLORS, iconIn, propsMapOf, unprocessable, type OptionInput } from './writes.ts'
 
-/** Layouts an agent can create or switch to (MCP_VIEW_TYPES). */
-export const VIEW_TYPES = ['table', 'board', 'list', 'gallery', 'calendar', 'timeline', 'feed'] as const
+/** Layouts an agent can create or switch to, and the type changes whose values carry over (the shared tables). */
+export const VIEW_TYPES = MCP_VIEW_TYPES
 export type ViewType = (typeof VIEW_TYPES)[number]
-
-/** Type changes whose values carry over (MCP_TYPE_CHANGES of the local bridge). */
-export const TYPE_CHANGES: Record<string, readonly string[]> = {
-  text: ['url', 'email', 'phone', 'select', 'multi_select'],
-  url: ['text', 'email', 'phone'],
-  email: ['text', 'url', 'phone'],
-  phone: ['text', 'url', 'email'],
-  select: ['multi_select', 'status', 'text'],
-  status: ['select', 'multi_select', 'text'],
-  multi_select: ['text'],
-  number: ['text'],
-}
+export const TYPE_CHANGES = MCP_TYPE_CHANGES
 
 interface Filter {
   id: string

@@ -8,7 +8,7 @@
  * checked against the published JSON schema in mcp/mcpb/ and `mcpb validate` of @anthropic-ai/mcpb).
  * Built by build.mjs (npm run build:mcp); tested by test/mcpb.test.ts.
  */
-import { MCP_DEFAULT_PORT, MCP_TOOLS, type McpToolName } from '../../src/app/features/mcp/contract.ts'
+import { MCP_DEFAULT_PORT, MCP_TOOLS, type McpToolName } from '../../src/shared/mcp/contract.ts'
 import { zip } from './zip.ts'
 
 export const MCPB_MANIFEST_VERSION = '0.3'

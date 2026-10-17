@@ -16,9 +16,10 @@ import { newId } from '../tokens.ts'
 import { pathOf } from './reads.ts'
 import { COLORS, propsMapOf, unprocessable } from './writes.ts'
 import { assertNotSystem, assertTreeNotSystem } from './system.ts'
+import { MCP_BULK_MAX } from '../../../src/shared/mcp/tables.ts'
 
-/** Most ids one call trashes or restores (MCP_BULK_MAX of the local bridge). */
-export const BULK_MAX = 50
+/** Most ids one call trashes or restores (the shared table). */
+export const BULK_MAX = MCP_BULK_MAX
 
 const q = (s: string) => JSON.stringify(s)
 const titleOf = (p: { title: string } | null | undefined) => p?.title.trim() || 'Untitled'

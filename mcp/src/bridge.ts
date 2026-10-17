@@ -22,12 +22,13 @@ import type { Duplex } from 'node:stream'
 import { WebSocketServer, WebSocket, type RawData } from 'ws'
 import {
   MCP_APPROVAL_MS,
+  MCP_ARGS_V1,
   MCP_CLOSE_REPLACED,
   MCP_ERR,
   MCP_NO_APP,
   MCP_SUBPROTOCOL,
   MCP_SUBPROTOCOL_V1,
-  MCP_TOOL_NAMES,
+  MCP_TOOLS,
   MCP_WORKSPACE_ID,
   type AppMessage,
   type BridgeMessage,
@@ -36,7 +37,8 @@ import {
   type McpPeer,
   type McpToolName,
   type McpWorkspaceInfo,
-} from '../../src/app/features/mcp/contract.ts'
+} from '../../src/shared/mcp/contract.ts'
+import { mcpError } from '../../src/shared/mcp/errors.ts'
 import { isAllowedHost, isAllowedOrigin } from './policy.ts'
 import { describe, label, resolveWorkspace } from './workspaces.ts'
 
@@ -70,6 +72,13 @@ export interface AppInfo {
   version: string
   workspace: McpWorkspaceInfo
   mode: McpAgentMode
+  /**
+   * The tools the tab runs and the arguments each takes (its hello, contract 2) — null: an older tab, judged against
+   * MCP_ARGS_V1. A call to anything else is refused here (app_outdated) and never reaches the tab.
+   */
+  tools: ReadonlyMap<string, ReadonlySet<string>> | null
+  /** the tab's contract revision (hello), 1 for older tabs */
+  contract: number
 }
 
 interface Conn {
@@ -101,7 +110,10 @@ const MAX_PAYLOAD = 16 * 1024 * 1024
 const HELLO_MS = 5000
 /** a tab may ask for at most this long an approval window */
 const MAX_PENDING_MS = 10 * 60_000
-const TOOLS = new Set<string>(MCP_TOOL_NAMES)
+/** The arguments this bridge's own contract declares per tool (`workspace` included: the bridge's routing argument). */
+const TOOLS = new Map<string, ReadonlySet<string>>(MCP_TOOLS.map((t) => [t.name, new Set(Object.keys(t.inputSchema.properties))]))
+/** Contract 1 (One before T-a): a tab whose hello names no tools takes exactly these. */
+const V1_TOOLS = new Map<string, ReadonlySet<string>>(Object.entries(MCP_ARGS_V1).map(([name, args]) => [name, new Set(args)]))
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 const str = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max) : '')
@@ -121,6 +133,26 @@ function workspaceOf(v: unknown, bound: boolean): McpWorkspaceInfo | null {
 }
 
 const modeOf = (v: unknown): McpAgentMode => (v === 'apply' || v === 'read' ? v : 'ask')
+
+const NAME = /^[a-z][a-z0-9_]{0,63}$/
+const ARG = /^[A-Za-z][A-Za-z0-9_]{0,63}$/
+
+/** A hello's `tools`: tool name → argument names (bounded, names only); null when it names none (an older tab). */
+function toolsOf(v: unknown): Map<string, Set<string>> | null {
+  if (!isObj(v)) return null
+  const out = new Map<string, Set<string>>()
+  for (const [name, args] of Object.entries(v).slice(0, 200)) {
+    if (!NAME.test(name) || !Array.isArray(args)) continue
+    out.set(name, new Set(args.filter((a): a is string => typeof a === 'string' && ARG.test(a)).slice(0, 100)))
+  }
+  return out
+}
+
+/** Arguments a call passes that this bridge's contract does not declare for the tool (`additionalProperties: false`). */
+function undeclared(tool: string, args: Record<string, unknown>): string[] {
+  const known = TOOLS.get(tool)
+  return known ? Object.keys(args).filter((k) => !known.has(k)) : Object.keys(args)
+}
 
 export class Bridge {
   state: 'idle' | 'listening' | 'in-use' | 'closed' = 'idle'
@@ -295,7 +327,7 @@ export class Bridge {
         if (msg.app !== 'one' || !workspace) return void conn.ws.close(1008, 'bad hello')
         clearTimeout(hello)
         if (conn.info) return this.update(conn as Live, workspace, msg.mode)
-        conn.info = { version: str(msg.version, 40), workspace, mode: modeOf(msg.mode) }
+        conn.info = { version: str(msg.version, 40), workspace, mode: modeOf(msg.mode), tools: toolsOf(msg.tools), contract: Number.isInteger(msg.contract) && Number(msg.contract) > 0 ? Number(msg.contract) : 1 }
         conn.seq = ++this.helloSeq
         const live = conn as Live
         // an older app (v1) is the only tab, as it always was; otherwise the same workspace's older tab leaves
@@ -448,6 +480,9 @@ export class Bridge {
   /** Forward one tool call to the tab of the workspace it is meant for. Never throws. */
   async call(tool: McpToolName, args: Record<string, unknown>, opts: CallOptions = {}): Promise<CallOutcome> {
     if (!TOOLS.has(tool)) return { ok: false, error: `Unknown tool ${JSON.stringify(tool)}.` }
+    // strict arguments: what the tool does not declare is refused here, never dropped on the way
+    const extra = undeclared(tool, args)
+    if (extra.length) return { ok: false, error: mcpError('bad_argument', extra[0]!, `${tool} takes no argument ${JSON.stringify(extra[0])} (it takes: ${[...TOOLS.get(tool)!].join(', ')})`) }
     const down = this.ready()
     if (down) return { ok: false, error: down }
     // `workspace` is the bridge's argument: it picks the tab and is never forwarded as a tool argument
@@ -458,6 +493,9 @@ export class Bridge {
     const picked = resolveWorkspace(this.apps, target, this.last)
     if (!picked.ok) return picked
     const conn = picked.target
+    // what the tab runs (its hello; an older tab: contract 1) — anything newer would be dropped or misread there
+    const outdated = this.outdated(conn, tool, rest)
+    if (outdated) return { ok: false, error: outdated }
     const expected = conn.bound ? conn.info.workspace.id! : null
     this.last = conn.info.workspace
     const id = `c${++this.seq}`
@@ -490,6 +528,17 @@ export class Bridge {
       opts.signal?.addEventListener('abort', onAbort, { once: true })
       this.send(conn, expected ? { type: 'call', id, tool, args: rest, workspace: expected } : { type: 'call', id, tool, args: rest })
     })
+  }
+
+  /** A call this tab cannot run as meant (a tool or an argument it does not announce) → app_outdated; null when it can. */
+  private outdated(conn: Live, tool: string, args: Record<string, unknown>): string | null {
+    const tools = conn.info.tools ?? V1_TOOLS
+    const takes = tools.get(tool)
+    const what = conn.info.tools ? 'this One tab' : 'this One tab (an older version)'
+    if (!takes) return mcpError('app_outdated', '', `${what} has no ${tool} yet — the bridge is newer than One there`)
+    const missing = Object.keys(args).find((k) => !takes.has(k))
+    if (missing) return mcpError('app_outdated', missing, `${what} does not know ${JSON.stringify(missing)} of ${tool} yet — the bridge is newer than One there`)
+    return null
   }
 
   private failCalls(conn: Conn, error: string) {
