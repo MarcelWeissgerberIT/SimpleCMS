@@ -3,7 +3,7 @@
  * (the DARF chip — G1 has no lever: what each kind of work does by itself). Names come from the workspace live (agents,
  * databases, properties); the ledger itself holds ids only.
  */
-import { Blocks, Bot, Brain, CircleDot, CircleHelp, Command, Mail, MessagesSquare, Mic, Palette, PenLine, Plug, Send, SquareCode, SquareTerminal, TableProperties, Wand, type LucideIcon } from 'lucide-react'
+import { Blocks, Bot, Brain, CircleDot, CircleHelp, ClipboardCheck, Command, Mail, MessagesSquare, Mic, Palette, PenLine, Plug, Send, SquareCode, SquareTerminal, TableProperties, Wand, type LucideIcon } from 'lucide-react'
 import type { Translate } from '@/shared/i18n'
 import type { CustomAgent, Database, Page } from '../../../store/types'
 import { shortcutLabel } from '../../../ui/controls'
@@ -33,6 +33,7 @@ const ICONS: Record<ConsumerKind, LucideIcon> = {
   mcp: Plug,
   design: Palette,
   writing: PenLine,
+  order: ClipboardCheck,
   other: CircleDot,
 }
 
@@ -82,6 +83,8 @@ export function consumerName(t: Translate, kind: ConsumerKind, id: string | unde
       return t('features.governor.cons.design')
     case 'writing':
       return t('features.ai.prov.class.write')
+    case 'order':
+      return t('features.governor.cons.order')
     default:
       return t('features.governor.cons.other')
   }
@@ -127,6 +130,9 @@ export function mayOf(kind: ConsumerKind, id: string | undefined, w: NameWorld, 
       return 'asks'
     case 'outbox':
       return 'drafts'
+    // a plan: nothing runs before the person starts the chain
+    case 'order':
+      return 'propose'
     case 'mail':
       return 'sorts'
     case 'script':

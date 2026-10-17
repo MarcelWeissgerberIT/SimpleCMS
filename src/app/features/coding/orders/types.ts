@@ -29,7 +29,10 @@ export interface OrderPlanV1 {
   context: { server: string; note: string; links: string[] } | null
   /** ≤ 6 steps, ≤ 3 of them coding — BA first when the requirement is unclear, QA last for the coded change */
   steps: OrderStepPlan[]
-  /** ≤ 5 × 300 — each gets its own answer field; with questions there are no steps */
+  /**
+   * ≤ 5 × 300 — each gets its own answer field ("Antworten"). With no steps (only questions or a refusal) the Status
+   * stays "Planen" (chip "Rückfrage"); beside steps they are the plan's open points (auto mode falls back on them)
+   */
   questions: string[]
   /** ≤ 300 — why the planner made no plan (an unclear or empty request) */
   refused: string | null
@@ -127,6 +130,21 @@ export interface OrderCall {
 /** Why a tool of the picked server is not offered to the planner. */
 export type OrderToolLeft = 'notRead' | 'out' | 'untested'
 
+/** Why the picked server did not take part in a plan (orders/tools.ts serverSkip; 'token': no access in this browser). */
+export type OrderServerSkip = 'missing' | 'off' | 'untested' | 'noReads' | 'refused' | 'rule' | 'route' | 'token'
+
+/**
+ * What reading the planner's answer changed (plan.ts readPlan) — the plate names each. `step`: the step's number
+ * (1 = "01"); null: the plan's own text (summary, questions, refusal, the server's note).
+ */
+export type PlanNote =
+  | { kind: 'repo'; step: number; repo: string }
+  | { kind: 'branch'; step: number; branch: string; why: 'name' | 'base' | 'unknown' | 'kind' }
+  | { kind: 'refs'; step: number; count: number }
+  | { kind: 'links'; step: number | null; count: number }
+  | { kind: 'keys'; step: number | null; count: number }
+  | { kind: 'context'; why: 'noServer' | 'links' }
+
 /** A plan shown on this device and not yet started (Status "Kette bereit"). */
 export interface OrderDraft {
   plan: OrderPlanV1
@@ -153,9 +171,13 @@ export interface OrderDraft {
     left: Array<{ tool: string; why: OrderToolLeft }>
     /** every call made */
     calls: OrderCall[]
+    /** the picked server did not take part, and why (absent: none was picked, or it took part) */
+    skip?: { server: string; why: OrderServerSkip }
   }
   /** answers to the planner's questions, written into the row as "Antworten" */
   answers?: Array<{ q: string; a: string }>
+  /** what reading the answer changed (repos, branches, refs, links, keys) */
+  notes?: PlanNote[]
 }
 
 /** One step of a confirmed chain. */

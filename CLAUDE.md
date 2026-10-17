@@ -1244,6 +1244,18 @@ the public APIs stable — other areas are built against them in parallel.
   worker while the chain's guard holds it (tasks.ts `setParkedGuard`); projects whose first stage starts new tasks are
   unusable (`chainProjectProblem`). A new task's checks are ONE set (draft.ts `checkTaskDraft`; the terminal throws its
   first issue word for word); `pipelineLine` / `startStageOf` / `landsOn` / `runsFrom` live in coding/stages.ts (pure).
+- Work-order planner (Prüfaufträge B5, coding/orders/planner.ts — lazy; B4's entry points call `planOrder(row, { mode
+  'manual' | 'trigger', prov? })` through orders/plan.ts): ONE `completeStructured` (purpose `coding.plan`, run `{ mode,
+  source: 'order:<row>:<run>' }`), never a custom agent. Preconditions first (orders/preconditions.ts, then AI set up,
+  the gate's precheck of the row + linked pages, ≥ 40 characters of words) — nothing read or sent before. The picked
+  server goes as EXACTLY that server with its READ tools (`onlyServer`; a profile's declared reads confirmed by name, else
+  isReadTool; OUT never) — no pick / untested / off / refused / a data rule / a non-Anthropic route → `mcp: false`, the
+  reason kept (`skip`). The answer only through `readPlan` (orders/plan.ts, strict; one repair round without the server;
+  refs ⊆ the request's linked pages, One links outside a step's refs → text, keys scrubbed + noted). The draft lives in
+  this device's record (orders/records.ts: IndexedDB `one-coding` `<scope>|order|<row>`, CAS, channel
+  `one-coding-orders`, a record this build cannot read is never overwritten); Status → Kette bereit only from Entwurf /
+  Planen, by the order writer `#s`. Regler: 'manual' at the line → the brake error for the plate's BrakeSlot,
+  'trigger' → held (one info toast). Answers go under "Antworten" into the row as the person's write (`answerQuestions`).
 - MCP tidy-up tools (trash / restore ≤ 50 ids, move page / row, update database / property, delete property, view
   create / update / delete) live in `features/mcp/{tidy,structure}.ts` and `server/src/mcp/{tidy,structure}.ts` with
   the same rules: never delete for good, locked databases refuse structure changes, no page ⇄ entry or Private ⇄ shared

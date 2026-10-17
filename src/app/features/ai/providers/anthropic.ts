@@ -498,6 +498,8 @@ export async function structuredOnce(opts: StructuredOptions, again: boolean, pr
     attached = mcp === false || !prepared.allows('mcp') ? null : await attachMcp(setup, mcp ?? 'fixed', { forced, addressed: false, ...(allow ? { allow } : {}) })
     if (signal?.aborted) throw new AIError('aborted')
     if (attached && !prepared.classes.includes('mcp')) prepared.classes.push('mcp')
+    // the caller's call list: who joined (none: [])
+    opts.onMcpActivity?.({ attached: attached?.names ?? [], blocks: [] })
     if (attached) {
       // with MCP servers ("All AI calls"): the beta request, a paused turn resumed; the answer is the text after the last tool call
       const turn: BetaMessageParam[] = [{ role: 'user', content: prompt }]
@@ -526,7 +528,10 @@ export async function structuredOnce(opts: StructuredOptions, again: boolean, pr
         )
         msg = got.msg
         used(got.entry)
-        if (msg.content.some(isMcpBlock)) sawMcp = true
+        if (msg.content.some(isMcpBlock)) {
+          sawMcp = true
+          opts.onMcpActivity?.({ attached: mcp.names, blocks: msg.content.filter(isMcpBlock) as unknown as Array<Record<string, unknown>> })
+        }
         if (msg.stop_reason !== 'pause_turn' || resumes >= MAX_RESUMES) break
         turn.push({ role: 'assistant', content: msg.content })
       }

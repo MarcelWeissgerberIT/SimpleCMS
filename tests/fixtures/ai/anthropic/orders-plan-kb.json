@@ -1,0 +1,58 @@
+{
+  "_": "Work orders B5 (orders-planner.spec.ts): the planner's stubbed answer with the fictional server Wissensbasis (kb). {{case}} is the request's linked page, {{other}} a page the request does not link. Fictional data only.",
+  "calls": [
+    {
+      "id": "mcptoolu_kb_01",
+      "server": "wissensbasis",
+      "name": "kb_search",
+      "input": { "query": "Supportfall 4711" },
+      "result": "Supportfall 4711 · Nordlicht · Der Login bricht nach 30 s ab · Ursache vermutlich das Session-Timeout im Gateway (30 s) · gemeldet von Mara Lind"
+    }
+  ],
+  "plan": {
+    "v": 1,
+    "summary": "Der Login von Nordlicht bricht nach 30 Sekunden ab; laut Supportfall 4711 liegt es vermutlich am Session-Timeout im Gateway.",
+    "context": {
+      "server": "wissensbasis",
+      "note": "Supportfall 4711 (Nordlicht): Login bricht nach 30 s ab, vermutlich Session-Timeout im Gateway (30 s). Gemeldet von Mara Lind.",
+      "links": ["https://kb.example.test/r/4711"]
+    },
+    "steps": [
+      {
+        "kind": "spec",
+        "title": "Login-Timeout klären",
+        "goal": "Klären, wo der Abbruch nach 30 s entsteht und welches Verhalten gewünscht ist. Grundlage: [Supportfall 4711](#/p/{{case}}). Nicht: [Tessera intern](#/p/{{other}}).",
+        "criteria": ["Ursache des Abbruchs benannt", "Gewünschte Sitzungsdauer festgelegt"],
+        "repo": null,
+        "branch": null,
+        "priority": "high",
+        "refs": ["{{case}}", "{{other}}"],
+        "why": "Unklar, ob das Gateway oder die App den Login beendet."
+      },
+      {
+        "kind": "coding",
+        "title": "Session-Timeout beheben",
+        "goal": "Das Session-Timeout so ändern, dass der Login nicht mehr nach 30 s abbricht.",
+        "criteria": ["Login bleibt 5 Minuten offen", "Test für den Timeout vorhanden"],
+        "repo": "website",
+        "branch": null,
+        "priority": "high",
+        "refs": [],
+        "why": "Nutzer verlieren beim Login ihre Eingaben."
+      },
+      {
+        "kind": "qa",
+        "title": "Login-Timeout testen",
+        "goal": "Testfälle für Login und Sitzungsdauer.",
+        "criteria": ["Testfall: Login nach 60 s noch aktiv", "Testfall: Abmelden beendet die Sitzung"],
+        "repo": "website",
+        "branch": null,
+        "priority": "medium",
+        "refs": [],
+        "why": "Der geänderte Timeout soll nicht wieder zurückfallen."
+      }
+    ],
+    "questions": [],
+    "refused": null
+  }
+}

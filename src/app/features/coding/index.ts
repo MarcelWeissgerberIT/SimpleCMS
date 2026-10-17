@@ -170,7 +170,24 @@ export { draftWorld, pipelineLine } from './terminal'
 export { startStageOf, runsFrom, type StageApprovals } from './stages'
 export { setParkedGuard, isParkedStep } from './tasks'
 export { ORDER_HALT_WHYS } from './orders/types'
-export { PLAN_LIMITS, ORDER_LIMITS, type OrderPlanV1, type OrderStepPlan, type OrderRecord, type OrderDraft, type OrderChain, type OrderChainStep, type OrderDoneBy, type OrderHaltWhy, type OrderState, type OrderProv, type OrderCall, type OrderToolLeft, type OrderConfig, type OrderKind, type OrderStatusKey } from './orders/types'
+/**
+ * B5 the planner: planOrder(row, { mode: 'manual' | 'trigger', prov?, replace? }) → PlanOutcome (lazy — orders/plan.ts
+ * seam; B4's entry points call it) · readPlan (the strict reader, pure) · this device's records (loadOrderRecord,
+ * patchOrderRecord, useOrderRecord; IndexedDB one-coding `<scope>|order|<row>`, channel one-coding-orders) · the planner's
+ * runs in this tab (usePlannerRun, plannerRun, stopPlanning — ⌘.) · answerQuestions (lazy, through planner.ts) · the
+ * pure parts the plate words: preconditions, the picked server's tools, the call list, the open points (the prompt itself
+ * stays inside the planner's lazy chunk).
+ */
+export { planOrder, readPlan, readStoredPlan, unlinkText, planOpenPoints, orderPlanHash, type PlanRead, type PlanReadCtx, type ResolvedStep } from './orders/plan'
+export { loadOrderRecord, orderRecordNow, patchOrderRecord, useOrderRecord, readDraft, ORDERS_CHANNEL } from './orders/records'
+export { usePlannerRun, plannerRun, stopPlanning, type PlannerRun, type PlannerPhase } from './orders/runs'
+export { checkPreconditions, wordChars, type PlannerBlock, type PlannerFacts, type KindProblem } from './orders/preconditions'
+export { pickedTools, serverSkip, type ServerSkip } from './orders/tools'
+export { foldCalls, callArgs, serverReturnedNothing } from './orders/calls'
+export const answerQuestions = (rowId: string, answers: ReadonlyArray<{ q: string; a: string }>) => import('./orders/planner').then((m) => m.answerQuestions(rowId, answers))
+export type { PlanOutcome } from './orders/planner'
+import './orders/seam'
+export { PLAN_LIMITS, ORDER_LIMITS, type OrderPlanV1, type OrderStepPlan, type OrderRecord, type OrderDraft, type OrderChain, type OrderChainStep, type OrderDoneBy, type OrderHaltWhy, type OrderState, type OrderProv, type OrderCall, type OrderToolLeft, type OrderServerSkip, type PlanNote, type OrderConfig, type OrderKind, type OrderStatusKey } from './orders/types'
 
 /** This device's Approvals for new tasks (localStorage one.coding.approvals). */
 export const approvalsDefault = (): ApprovalsLevel => defaultApprovals()
