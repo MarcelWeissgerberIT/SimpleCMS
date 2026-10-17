@@ -3,7 +3,7 @@ id: mcp-bridge
 title: Claude Desktop & lokales MCP
 section: ai
 order: 7
-keywords: mcp, mcp verbindungen, verbunden, claude desktop, claude code, cursor, brücke, mcpb, erweiterung, agent, lokal, one-mcp, codewort, one:, aufräumen, papierkorb, wiederherstellen, verschieben, aufgaben, one_list_work_items, one_update_work_item, bridge, extension
+keywords: mcp, mcp verbindungen, verbunden, claude desktop, claude code, cursor, brücke, mcpb, erweiterung, agent, lokal, one-mcp, codewort, one:, aufräumen, papierkorb, wiederherstellen, verschieben, aufgaben, one_list_work_items, one_update_work_item, unterseiten, board, zeilen, stapel, upsert, one_list_pages, blöcke, kommentare, bridge, extension, sub-page
 related: mcp-servers, agent, team-cloud
 summary: Lass Claude Desktop, Claude Code oder jeden MCP-Client in deinem offenen One-Tab arbeiten.
 ---
@@ -33,12 +33,25 @@ Andere MCP-Clients starten sie als stdio-Server: Befehl `node`, Argument der Pfa
 - **Direkt anwenden** — Änderungen werden sofort geschrieben und im **Agenten-Protokoll** gelistet, wo sich jede rückgängig machen lässt.
 - **Nur lesen** — jede Änderung wird abgelehnt.
 
-Auch bei **Direkt anwenden** wird eine Änderung auf einer Karte erfragt, wenn sie jemanden zuweist, eine Erinnerung setzt, eine zugewiesene Aufgabe ändert, einer Aufgabe einen Blocker hinzufügt oder Aufgaben entfernt — die Karte sagt warum (**Wird immer gefragt: …**).
+Auch bei **Direkt anwenden** wird eine Änderung auf einer Karte erfragt, wenn sie jemanden zuweist, eine Erinnerung setzt, eine zugewiesene Aufgabe ändert, einer Aufgabe einen Blocker hinzufügt oder Aufgaben entfernt oder wenn 5 oder mehr Zeilen auf einmal bezahlte KI-Arbeit starten oder etwas aus One hinausschicken würden — die Karte sagt warum (**Wird immer gefragt: …**).
+
+## Unterseiten, Boards und Zeilen in einem Zug
+Eine Anfrage, eine Karte: Ein Agent kann einen **Baum aus bis zu 50 Unterseiten** anlegen (auch unter einer Datenbankzeile), ein **Board** mit seinen Spalten und Karten als Unterseite oder im Text einer Seite, oder **bis zu 50 Zeilen** auf einmal ändern — *„Lege unter Projekt Nordlicht eine Unterseite mit einem Board Todo / Doing / Done an und trage diese fünf Aufgaben ein“* ist eine Suche und eine Karte. Die Karte nennt jede Seite und jede Zeile (und was ein Stapel auslösen würde: Autofill, Automationen, Agenten); **Rückgängig** im **Agenten-Protokoll** legt in den Papierkorb, was der Aufruf angelegt hat — außer jemand hat es seitdem geändert. Beim Spiegeln von Einträgen aus anderen Quellen über einen Schlüssel ändert sich nur, was abweicht.
+
+Agenten lesen eine Seite außerdem **vollständig**: jeden Block mit seinen Daten (Datenbanken, Dateien, Tabellen, Diagramme, Besprechungsnotizen), lange Seiten in Teilen. Ein wiederholter Aufruf legt nie etwas doppelt an — der Agent erfährt, dass es schon da ist.
+
+## Kommentare
+Aus, bis du sie einschaltest: **Kommentare** unter **Einstellungen → Agenten · MCP** — **Aus**, **Lesen** oder **Lesen + schreiben**, für dieses Gerät. Mit **Lesen** sehen Agenten die Kommentar-Threads einer Seite, wenn sie danach fragen. Kommentare über MCP schreiben kommt später.
+
+## Was Agenten nicht ändern
+Die eigenen Datenbanken von One — Gedächtnis, Mails und die Mail-Verzeichnisse, die Coding-, Analyse- und QA-Pipelines — lassen sich über MCP lesen, aber nicht ändern. Vorlagen sind für Agenten unsichtbar. Eine Coding-Aufgabe, die eine von einem Agenten geänderte Seite mitnimmt, läuft erst, wenn du sie mit **Auf diesem Gerät bestätigen** freigibst.
 
 ## Aufgaben
 Agenten lesen [Aufgaben](help:tasks) einer Seite als `> [!TODO] Titel {#wi_…}` mit Feldzeile und Erwähnungen als `[@Alex](one:person/…)` — schreiben sie den Text zurück, bleibt beides erhalten. Neue `[!TODO]`-Zitate werden nach denselben Regeln wie in One zu Aufgaben (Verantwortliche nur vorhandene Personen, IDs von One). **one_list_work_items** findet Aufgaben (offen, meine, blockiert, überfällig …); **one_update_work_item** ändert Status, Termin, Erinnerung, Verantwortliche oder Verknüpfungen — jede Aufgabe steht mit ihren Feldern vorher → nachher auf der Freigabekarte. Eine Seite, die sich geändert hat, während ihr Ersetzen auf dein OK wartete, wird nicht ersetzt: Der Agent soll sie neu lesen. Die Aufgaben-Werkzeuge brauchen Brücke 1.8.0 (`one.mcpb` neu herunterladen) und gibt es nur an der lokalen Brücke; der Team-Server bekommt sie später.
 
 ## Aufräumen
 Agenten können auch umorganisieren: Seiten und Datenbanken im Baum verschieben, eine Zeile in eine andere Datenbank mit passenden Eigenschaften verschieben, Datenbanken umbenennen, Eigenschaften (Optionen, sichere Typwechsel) und Ansichten ändern, Eigenschaften und Ansichten löschen, Seiten, Zeilen und ganze Datenbanken in den Papierkorb legen — bis zu 50 auf einmal — und wiederherstellen. Endgültig gelöscht wird nichts. Eine gesperrte Datenbank lehnt Strukturänderungen ab; das Sperren bleibt deine Entscheidung. Jede Änderung zeigt, was geht (*Datenbank „Projects“ mit 8 Zeilen → Papierkorb*), und lässt sich im **Agenten-Protokoll** rückgängig machen. Brücken vor 1.2.0 kennen diese Tools nicht: `one.mcpb` neu herunterladen.
+
+Unterseiten, Boards, Zeilen in einem Zug und das vollständige Lesen brauchen Brücke **1.12.0**: Ist deine älter, sagt es **Einstellungen → Agenten · MCP** — `one.mcpb` (oder `one-mcp.mjs`) neu herunterladen. Nach einem Update von One den Tab einmal neu laden, sonst lehnt die Brücke die neuen Werkzeuge ab („One neu laden“).
 
 Der neueste Tab eines Workspace bekommt die Brücke. Standard-Port ist 47321 (`ONE_MCP_PORT` ändert ihn). Details: `docs/MCP.md` im Repository.

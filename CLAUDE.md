@@ -1223,6 +1223,33 @@ the public APIs stable — other areas are built against them in parallel.
   image never loads by itself on a card (database/views/cards.tsx link chip; file chips show no web thumbnail). The team
   server over MCP refuses a locked page's content, a lossy replace (`lossyIn` pre-filter) and files values other than
   `onefile:`, checks before it writes and puts the content back from the call's pre-image after a failed meta check.
+- MCP contract (train T-a, bridge 1.12.0; docs/MCP.md): ONE tool set for the bridge (B) and the team server (S), pure
+  in `src/shared/mcp/` (tables.ts, contract.ts — features/mcp/contract.ts re-exports it —, errors.ts, refs.ts,
+  pageRead.ts, duplicates.ts, sha256.ts; the bridge bundles them, the server imports them). S serves `MCP_TOOLS` −
+  `MCP_LOCAL_ONLY` and answers `local_only` for `MCP_LOCAL_ONLY_ARGS`; server/test/mcp-parity.test.ts keeps S = shared
+  (names, arguments, required, enums, description + ≤ 1 side-note line), tests/e2e/mcp-contract.spec.ts one meaning
+  per argument name and the budget (tools/list ≤ 55,000, instructions ≤ 3,500 chars). `MCP_ARGS_V1` is frozen. A new
+  tool or argument = contract.ts + `TOOL_SUMMARIES` (mcp/src/mcpb.ts) + the tab's planner + S (or MCP_LOCAL_ONLY*) +
+  the next mcp/package.json minor (shared with one-worker) = `MCP_BRIDGE_CURRENT` + rebuilt bundles. Refusals only
+  through `mcpError` / `withRemedy` (`<code>: <path>: <what>. Nothing was changed. <next step>`). Strict arguments:
+  the bridge refuses undeclared ones (`bad_argument`) and what the tab's hello `tools` did not announce (`app_outdated`;
+  no `tools` = contract 1), the tab refuses undeclared ones again. Creating calls are joined while waiting and answered
+  once within 2 min (`duplicateOf`; B per MCP session in the tab, S the idempotency store). Results compact, lists
+  `urlBase`. Reads: `one_get_page` parts ≤ `MCP_LIMITS.part` serialized, head once, cursor bound to `rev`
+  (`page_changed`), `format: 'blocks'` (block data: features/mcp/pageRead.ts, server/src/mcp/pageRead.ts — S flattens
+  task blocks, sheet values null); refs are stateless (`#<id prefix>~<hash>` / `@<path>~<hash>`, refs.ts — ids never
+  hashed), every MCP Markdown write strips ref labels (`stripRefLabels`, B + S), a ref with a hash must still fit
+  (`stale_ref`); context marks limit MCP reads (`limited`); `class` on single reads. Comments over MCP: B per device
+  (`McpSettings.comments`, localStorage `one.mcp`, default off), S per token (`api_tokens.mcp_comments`); off →
+  `comments_off`. Batches: one call = ONE card (pages ≤ 50 with `$<index>` parents, rows / upsert ≤ 50,
+  `one_create_database` views / inline / rows); MCP's Undo of what it made = trash (`undoCreated: 'trash'`; agents and
+  the terminal keep delete); a row batch ≥ `MCP_LIMITS.rowsAsk` that starts paid AI work or sends out is `alwaysAsk`
+  (features/mcp/rows.ts `sideEffects`); files values over MCP only reachable `onefile:` refs (`withFilesWritable` —
+  agents keep files read-only). S checks every row and page before the first write, takes back a batch that fails
+  mid-way, trashes a database whose block or rows failed, and keeps a pre-image per MCP write (server/src/mcp/
+  preimages.ts, `mcp_preimages`, sealed, 14 days; `GET …/mcp-calls`, `POST …/mcp-calls/:callId/restore`, Workspace →
+  Automation → API § 07). Client text naming a tool that does not exist yet is a bug (T-b brings `one_attach_file`,
+  `one_edit_blocks`, files, `one_comment`, templates).
 - MCP tidy-up tools (trash / restore ≤ 50 ids, move page / row, update database / property, delete property, view
   create / update / delete) live in `features/mcp/{tidy,structure}.ts` and `server/src/mcp/{tidy,structure}.ts` with
   the same rules: never delete for good, locked databases refuse structure changes, no page ⇄ entry or Private ⇄ shared

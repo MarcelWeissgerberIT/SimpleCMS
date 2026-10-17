@@ -175,7 +175,8 @@ export function withCheckedFiles(doc: JSONContent, rules: FileRules & { mcp?: bo
       const src = String(n.attrs?.src ?? '').trim()
       if (DATA.test(src)) {
         report.inline++
-        return [textLine(rules.mcp ? '[inline image removed — use one_attach_file]' : '[inline image removed]')]
+        // MCP: the tool that attaches a file arrives with T-b (one_attach_file); until then the line names no tool
+        return [textLine(rules.mcp ? '[inline image removed — add the picture in One]' : '[inline image removed]')]
       }
       if (src.startsWith(FILE_PREFIX)) {
         const w = why(src)

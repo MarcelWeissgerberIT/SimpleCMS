@@ -1,9 +1,11 @@
 # One MCP — agents in your workspace
 
 One speaks the [Model Context Protocol](https://modelcontextprotocol.io). Claude Desktop, Claude Code or any other
-MCP client can search, read and write your workspace — pages, databases, rows and properties — and tidy it up:
-move, reshape, trash and restore. There are two ways in, with **one tool set** — the same names, arguments and
-result shapes:
+MCP client can search, read and write your workspace — pages, sub-pages, databases, boards, rows and properties — and
+tidy it up: move, reshape, trash and restore. A page reads in full (every block with its data, long pages in parts);
+a tree of sub-pages, a board with its rows or 50 row changes are **one call and one approval card**. There are two
+ways in, with **one tool set** — the same names, arguments, result shapes and error codes (one contract,
+[`src/shared/mcp/`](../src/shared/mcp/)):
 
 | | Local bridge | Team server |
 |---|---|---|
@@ -13,44 +15,215 @@ result shapes:
 | Data path | MCP client ⇄ `one-mcp` (localhost) ⇄ your One tab ⇄ IndexedDB — nothing leaves your computer | MCP client ⇄ your server ⇄ the workspace's live documents |
 | Changes | wait for your approval in the app (*Ask first*, the default) or apply directly; *read only* switch | apply at once; a **read** token only gets the read tools |
 
-Contents: [Tools](#tools) · [Tidying up](#tidying-up) · [One Script](#one-script) · [The codeword "one:"](#the-codeword-one) · [Workspaces](#workspaces) ·
-[Local bridge](#local-bridge) · [Team server](#team-server)
+Contents: [Tools](#tools) · [Results, errors, repeats](#results-errors-repeats) ·
+[Reading a page in full](#reading-a-page-in-full) · [Sub-pages and batches](#sub-pages-and-batches) ·
+[Boards in one call](#boards-in-one-call) · [Comments](#comments) · [What MCP never changes](#what-mcp-never-changes) ·
+[Tidying up](#tidying-up) · [Tasks](#tasks) · [One Script](#one-script) · [The codeword "one:"](#the-codeword-one) ·
+[Workspaces](#workspaces) · [Local bridge](#local-bridge) · [Team server](#team-server)
 
 ## Tools
 
-| Tool | | What it does |
-|---|---|---|
-| `one_overview` | read | workspace name and id, today's date, the page tree, every database with its row count, the people (local bridge: also the saved `scripts`) |
-| `one_list_workspaces` | read | the connected workspaces: id, name, kind (`local` / `team`), access, change mode, which tab connected last — no content ([Workspaces](#workspaces)) |
-| `one_search` | read | `{ query, limit? }` — titles, text and row values; ids, paths and a snippet per hit |
-| `one_get_page` | read | `{ id }` or `{ title }` — title, icon, path, row properties, the content as **Markdown**, sub-pages, backlinks. Local bridge: mentions come as `[@Name](one:person/<id>)` / `[@date](one:date/YYYY-MM-DD)` and task blocks as `> [!TODO] Title {#wi_…}` with their field line — keep both when you write the text back |
-| `one_list_databases` | read | every database: id, title, path, row count, property names and types |
-| `one_get_database` | read | `{ id }` — the schema (types, options, relations, read-only flags — `onlyByHand` properties are read-only for MCP clients, `key` marks the database's key) and the views |
-| `one_query_database` | read | `{ databaseId, filter?, sort?, limit?, cursor? }` — rows with friendly values, filtered and sorted, paginated |
-| `one_create_page` | write | `{ title, parentId?, markdown?, icon? }` |
-| `one_update_page` | write | `{ id, title?, icon?, markdown?, mode: 'append' \| 'replace' }` — a task block of the page written back as it was read (`> [!TODO] … {#wi_…}`) stays that task: its title and notes from the Markdown, its fields as the app has them. Local bridge: new `> [!TODO]` quotes become tasks through the same gate as the app ([Tasks](#tasks)); a replace that removes tasks is always asked; a page that changed while the call waited for approval is not replaced (call again). The team server refuses a `replace` of a page holding a task (`page_holds_tasks`, below) |
-| `one_create_row` | write | `{ databaseId, title, properties?, markdown? }` — a key another row holds and an `onlyByHand` property are refused |
-| `one_update_row` | write | `{ id, properties }` — only what you pass changes, `null` clears; the same refusals |
-| `one_create_property` | write | `{ databaseId, name, type, options?, relation?: { databaseId, twoWay?, reverseName? } }` |
-| `one_update_property` | write · destructive | `{ databaseId, property, name?, description?, type?, options?: { add?, update?: [{ name, newName?, color?, group? }], remove? } }` — removing an option clears it from rows (`cleared`); only [safe type changes](#tidying-up) |
-| `one_delete_property` | write · destructive | `{ databaseId, property }` — the property and its values; not the title (`rowsWithValue`) |
-| `one_create_database` | write | `{ title, parentId?, properties? }` — a database with a table view |
-| `one_update_database` | write | `{ id, title?, icon? }` — `locked` is refused (the person's decision) |
-| `one_create_view` | write | `{ databaseId, type, name?, groupBy?, dateProperty?, filter?, sort?, properties? }` — `table`, `board`, `list`, `gallery`, `calendar`, `timeline`, `feed` |
-| `one_update_view` | write | `{ databaseId, view, …the same }` — only what you pass changes; `null` clears grouping, filter, sorts |
-| `one_delete_view` | write · destructive | `{ databaseId, view }` — not the last one; the rows stay |
-| `one_move_page` | write | `{ id, parentId?, before? \| after? \| index? }` — pages and databases; `parentId: null` = top level |
-| `one_move_row` | write | `{ id, databaseId }` — a row into another database whose properties fit (never onto a key another row holds there, never into an `onlyByHand` property) |
-| `one_trash_page` | write · destructive | `{ id }` or `{ ids: [≤ 50] }` — to the trash (a database with its rows: `rows`), never for good |
-| `one_restore_page` | write | `{ id }` or `{ ids: [≤ 50] }` — back from the trash |
-| `one_run_query` | read | `{ code, limit? }` — a read-only [One Script](#one-script) query: `{ count, columns, rows: [{ id?, <column>: text }] (≤ 100), truncated? }` or `{ value }` — local bridge only |
-| `one_run_script` | write · destructive | `{ script (id or name), pageId?, dryRun? }` — a saved script, [always approved first](#one-script) — local bridge only |
-| `one_list_work_items` | read | `{ status?, person?, pageId?, blocked?, overdue?, dueBefore?, query?, limit? }` — task blocks as JSON ([Tasks](#tasks)) — local bridge only (team server: later) |
-| `one_update_work_item` | write | `{ updates: [{ item, status?, due?, reminder?, people?, blocked_by?, related? }] }` — a task's fields ([Tasks](#tasks)) — local bridge only (team server: later) |
+**B** = the local bridge, **S** = the team server's `/mcp`. ✓ = served; *local only* = the bridge alone (the team server
+does not list the tool, or answers `local_only` for that argument).
+
+| Tool | | B | S | What it does |
+|---|---|---|---|---|
+| `one_overview` | read | ✓ | ✓ | workspace name and id, today's date, the page tree (cut: `tree: { more: true, use: "one_list_pages" }`), every database with its row count, the people (B: also the page open in One and the saved `scripts`) |
+| `one_list_workspaces` | read | ✓ | ✓ | the connected workspaces: id, name, kind (`local` / `team`), access, change mode, which tab connected last — no content ([Workspaces](#workspaces)) |
+| `one_search` | read | ✓ | ✓ | `{ query, limit? }` — titles, text and row values; per hit id, title, kind, path, a row's database, last edit, a snippet; a link is `urlBase` + id |
+| `one_get_page` | read | ✓ | ✓ | `{ id \| title, format?: 'markdown' \| 'blocks', refs?, cursor?, comments?, transcript? }` — a page, row or database page **in full**: the head once (title, icon, cover, path, `rev`, `class`, a row's values, sub-pages, backlinks), then the content as Markdown or as every block with its data, in parts ([Reading a page in full](#reading-a-page-in-full)). B: mentions read `[@Name](one:person/<id>)` / `[@date](one:date/YYYY-MM-DD)`, task blocks `> [!TODO] Title {#wi_…}` with their field line — keep both when you write the text back |
+| `one_list_pages` | read | ✓ | ✓ | `{ parentId?, depth? (1–3), kinds?, cursor?, limit? (≤ 200) }` — pages and databases in sidebar order, at the top level or below a page; rows only with `kinds: ["row"]`; paged |
+| `one_list_databases` | read | ✓ | ✓ | every database: id, title, path, `parentId`, row count, property names and types, `inline` (shown inside a page's text), `system` (One's own: read-only over MCP) |
+| `one_get_database` | read | ✓ | ✓ | `{ id }` — the schema (types, options, relations, read-only flags — `onlyByHand` properties are read-only for MCP clients, `key` marks the database's key) and the views in full (grouping, filters, sorts, visible properties) |
+| `one_query_database` | read | ✓ | ✓ | `{ databaseId, filter?, sort?, limit?, cursor? }` — rows with friendly values, filtered and sorted, paginated |
+| `one_create_page` | write | ✓ | ✓ · `private` local only | `{ title, parentId?, markdown?, icon?, before? \| after? \| index?, private?, linkInParent? }` — a page, or a sub-page under a page **or a row**; or `{ pages: [≤ 50] }` — a whole tree in one call ([Sub-pages and batches](#sub-pages-and-batches)) |
+| `one_update_page` | write | ✓ | ✓ | `{ id, title?, icon?, markdown?, mode: 'append' \| 'replace' }` — a task block of the page written back as it was read (`> [!TODO] … {#wi_…}`) stays that task: its title and notes from the Markdown, its fields as the app has them. B: new `> [!TODO]` quotes become tasks through the same gate as the app ([Tasks](#tasks)); a replace that removes tasks is always asked; a page that changed while the call waited for approval is not replaced (call again); a replace keeps page links as links. S refuses a `replace` of a page holding a task (`page_holds_tasks`), a page whose blocks its Markdown cannot carry (`lossy_replace`) and a locked page's content (`locked`) |
+| `one_create_row` | write | ✓ | ✓ | `{ databaseId, title, properties?, markdown? }` or `{ databaseId, rows: [≤ 50] }` — all or none; a key another row holds and an `onlyByHand` property are refused |
+| `one_update_row` | write | ✓ | ✓ | `{ id, properties }` or `{ rows: [{ id, properties }] ≤ 50 }` — only what you pass changes, `null` clears; all or none; the same refusals |
+| `one_upsert_rows` | write | ✓ | ✓ | `{ databaseId, keyProperty, rows: [{ key, title?, properties?, markdown? }] ≤ 50 }` — keep a database in step with items from elsewhere, by a key: per row `created`, `updated` (only the values that differ) or `unchanged` |
+| `one_create_property` | write | ✓ | ✓ | `{ databaseId, name, type, options?, relation?: { databaseId, twoWay?, reverseName? } }` |
+| `one_update_property` | write · destructive | ✓ | ✓ | `{ databaseId, property, name?, description?, type?, options?: { add?, update?: [{ name, newName?, color?, group? }], remove? } }` — removing an option clears it from rows (`cleared`); only [safe type changes](#tidying-up) |
+| `one_delete_property` | write · destructive | ✓ | ✓ | `{ databaseId, property }` — the property and its values; not the title (`rowsWithValue`) |
+| `one_create_database` | write | ✓ | ✓ | `{ title, parentId? \| inline?: { pageId, afterBlock? }, icon?, properties? (≤ 40), views? (1–5), rows? (≤ 50) }` — a database or a **board** with its views and rows in one call, as a sub-page or inside a page's text ([Boards in one call](#boards-in-one-call)) |
+| `one_update_database` | write | ✓ | ✓ | `{ id, title?, icon? }` — `locked` is refused (the person's decision) |
+| `one_create_view` | write | ✓ | ✓ | `{ databaseId, type, name?, groupBy?, dateProperty?, filter?, sort?, properties? }` — `table`, `board`, `list`, `gallery`, `calendar`, `timeline`, `feed` |
+| `one_update_view` | write | ✓ | ✓ | `{ databaseId, view, …the same }` — only what you pass changes; `null` clears grouping, filter, sorts |
+| `one_delete_view` | write · destructive | ✓ | ✓ | `{ databaseId, view }` — not the last one; the rows stay |
+| `one_move_page` | write | ✓ | ✓ | `{ id, parentId?, before? \| after? \| index? }` — pages and databases; `parentId: null` = top level |
+| `one_move_row` | write | ✓ | ✓ | `{ id, databaseId }` — a row into another database whose properties fit (never onto a key another row holds there, never into an `onlyByHand` property) |
+| `one_trash_page` | write · destructive | ✓ | ✓ | `{ id }` or `{ ids: [≤ 50] }` — to the trash (a database with its rows: `rows`), never for good |
+| `one_restore_page` | write | ✓ | ✓ | `{ id }` or `{ ids: [≤ 50] }` — back from the trash |
+| `one_run_query` | read | ✓ | — | `{ code, limit? }` — a read-only [One Script](#one-script) query: `{ count, columns, rows: [{ id?, <column>: text }] (≤ 100), truncated? }` or `{ value }` |
+| `one_run_script` | write · destructive | ✓ | — | `{ script (id or name), pageId?, dryRun? }` — a saved script, [always approved first](#one-script) |
+| `one_list_work_items` | read | ✓ | — | `{ status?, person?, pageId?, blocked?, overdue?, dueBefore?, query?, limit? }` — task blocks as JSON ([Tasks](#tasks)) — team server: later |
+| `one_update_work_item` | write | ✓ | — | `{ updates: [{ item, status?, due?, reminder?, people?, blocked_by?, related? }] }` — a task's fields ([Tasks](#tasks)) — team server: later |
 
 Every tool but `one_list_workspaces` also takes **`workspace`** (optional): the id (`"local:…"`, `"team:…"`) or the
 exact name of the workspace the call is meant for. Every result names the workspace it came from:
-`"workspace": { "id": "team:…", "name": "Acme" }`.
+`"workspace": { "id": "team:…", "name": "Acme" }`. Arguments mean one thing in every tool (page and row ids `id`,
+`pageId`, `rowId`, `parentId`, `databaseId`; a block ref ends in `Block` — `afterBlock`; paging `cursor` in, `next`
+out), and a tool takes **only** the arguments it declares: anything else is refused (`bad_argument`), never dropped.
+
+## Results, errors, repeats
+
+- **Results** are compact JSON. A single item carries its `url`; lists carry `urlBase` once (a link is `urlBase` +
+  id). Paged answers end with `next` — pass it back as `cursor` (null = the end). Every answer holds what the next call
+  needs: new ids, a database's views and rows, a block's ref.
+- **Errors** are MCP tool errors (`isError: true`) whose first line has one shape on both ways in:
+  `<code>: <argument path>: <what happened>. Nothing was changed. <next step>` — the path names the argument
+  (`rows[12].properties.Status`, `inline.afterBlock`), the next step is the code's remedy
+  ([`src/shared/mcp/errors.ts`](../src/shared/mcp/errors.ts)). Codes in use:
+
+  | Code | When |
+  |---|---|
+  | `workspace_mismatch` · `workspace_required` · `workspace_unknown` · `workspace_ambiguous` | the [workspace boundary](#workspaces) |
+  | `not_found` | an unknown id — also a page in the trash (`one_restore_page`) and every template page, which reads exactly like an unknown id |
+  | `bad_argument` | an argument the tool does not take, or a value of the wrong shape |
+  | `app_outdated` | the One tab is older than the bridge and does not know that tool or argument yet: reload One — nothing reached the tab |
+  | `locked` | a locked database's structure, a locked page's text |
+  | `system_database` | a write into one of [One's own databases](#what-mcp-never-changes) |
+  | `private_scope` | something private would land in a shared page |
+  | `refused_type` | a value of the wrong kind (a web address into a files property) |
+  | `stale_ref` | a block ref whose block changed since the read |
+  | `page_changed` | a page changed between two parts of a read: read again from the start |
+  | `lossy_replace` | S: a replace would lose blocks its Markdown cannot carry |
+  | `local_only` | S: an argument only the local bridge serves (`private`) |
+  | `comments_off` | `comments: true` while comments are off ([Comments](#comments)) |
+  | `rejected` · `approval_timeout` | B: the person rejected the card, or did not answer within 2 minutes — do not retry on your own |
+
+- **Repeats make nothing twice.** A creating call (`one_create_page`, `one_create_database`, `one_create_row`,
+  `one_upsert_rows`) whose tool and arguments equal one that is still **waiting** for approval joins that card — both
+  calls get its answer. One equal to a call **applied in the last 2 minutes** is answered with that result plus
+  `duplicateOf` and the note "already applied N s ago; nothing new was made — to make another, change something (e.g.
+  the title)". Argument order and `workspace` do not matter; rejected and failed calls are not remembered. B keeps a
+  map per MCP session in the tab (≤ 50 entries, forgotten on a reload); S uses its idempotency store per token.
+
+## Reading a page in full
+
+`one_get_page` reads a page, a row (its values and its page) or a database page.
+
+- **Parts.** A long page comes in parts of at most 40,000 characters of serialized JSON (and 400 blocks): the first
+  part carries the head — `id`, `title`, `icon`, `cover`, `path`, `url`, `parentId`, `rev`, `class`, a row's values, a
+  database's schema hint, `children: { items (≤ 50), more }` (the rest: `one_list_pages`), backlinks, comments — the
+  next parts only `{ id, rev, markdown | blocks, next }`. A cursor carries the `rev` it was cut at: a page that changed
+  between two parts answers `page_changed`. A block too big for one part continues in the next (`continued: true`).
+- **`rev`** — the content's revision, an opaque string (B: the page's content counter; S: a hash of its document state).
+- **`format: "blocks"`** — every block nested: `{ ref, type, markdown?, attrs?, data?, children? }`. Leaves carry their
+  own Markdown, containers (quotes, callouts, toggles, columns, tabs, synced blocks, meeting notes) their children;
+  `attrs` is an allow-list (heading level, code language, callout icon / colour, toggle heading, media width / align /
+  alt / caption, to-do checked, list start). `data` per type:
+
+  | Type | `data` |
+  |---|---|
+  | `databaseBlock` | `{ databaseId, viewId, title, viewType, rows }`; a database out of reach → `{ databaseId: null, title: "(No access)" }` |
+  | `pageLink` | `{ pageId, title }` |
+  | `spreadsheet` | `{ title, active, sheets: [{ name, rows, cols, frozenRows, cells: { A1: { input, value } } }] }` — cells count into the part and continue in the next; S: `value: null` (no formula engine on the server) |
+  | `chart` | `{ spec, data }` — S: data only for manual charts |
+  | `button` | `{ label, variant, actions: [{ kind }] }` — the kinds only, never addresses or payloads |
+  | `syncedBlock` | `{ syncId, original, sourcePageId }` + children |
+  | `meetingNotes` | `{ title, status, startedAt, endedAt, duration, language, transcriptLines }`; `transcript: true` adds the lines, paged |
+  | `image` · `video` · `audio` · `fileBlock` | `{ file: { ref, name, mime, size } \| null, url \| null, display }` — nothing is loaded |
+  | `bookmark` · `embed` | `{ url, title?, description?, provider? }` |
+  | `blockMath` · `mermaid` | `{ latex }` · `{ code }` |
+  | `workItem` | B: the task's fields (status, due, people by name, links); S reads it as its title line and notes |
+
+- **Refs.** Every block has a ref computed from the page itself, so it survives reloads and needs no session:
+  `#<id>~<hash>` (the shortest unique prefix, ≥ 6 characters, of the block's id, and 6 hex of a hash over the block's
+  content) or `@<path>~<hash>` for a block without an id (`@3.0.1` = child indexes). `refs: true` labels each block of
+  the Markdown with its ref (`⟦#k3f9a1~2c7e0b⟧` on a line before it); every writing tool drops labels a client copies
+  back. A tool that takes a block (`one_create_database { inline: { afterBlock } }`) refuses a ref whose block changed
+  since the read (`stale_ref`, naming the block's ref now); a ref without its `~hash` part is taken as it is.
+- **`class`** (single reads): `page`, `rows`, `private`, `mail` or `memory` — the last three mark personal data; the
+  instructions tell the agent not to copy it into shared pages or other tools without asking.
+- **Context marks** (B): when the person marked which blocks of a page Claude may read, MCP reads only those —
+  their text, block data, files and comment threads; `limited: { blocks, files, comments, note }` counts what was left
+  out.
+- `one_list_pages` lists pages and databases (and rows on request) in sidebar order — shared before private, never
+  templates or hidden pages; S never lists private pages.
+
+## Sub-pages and batches
+
+- **One page:** `one_create_page { title, parentId?, markdown?, icon? }`. `parentId` may be a page or a database
+  **row** — the new page is a sub-page inside it (a new row: `one_create_row`). `before` / `after` (a sibling's id) or
+  `index` (0 = first) place it; default last.
+- **A tree in one call:** `pages: [{ title, parentId?, markdown?, icon? }]` (≤ 50, ≤ 600,000 characters of Markdown in
+  all). A page's `parentId` may be `"$<index>"` — an earlier page of the same list —, an existing page, or left out
+  (the call's `parentId`). Everything is checked before anything is written; the answer lists
+  `pages: [{ index, id, title, url, parentId }]`.
+- **`linkInParent`:** `"block"` adds a page link block for each new page at the end of its parent's text, `"mention"`
+  a line with a page mention; the same call, the same Undo; refused for a locked parent page.
+- **`private: true`** (B, team workspace): the page goes into the person's *Private* section (top level or under a
+  private page). In a local workspace there is nothing private: the page is made and the answer says so. S answers
+  `local_only`.
+- **Rows in bulk:** `one_create_row { rows }` and `one_update_row { rows }` take up to 50 rows — all or none ("set Status
+  = Done on these 20 cards" is one call). `one_upsert_rows` mirrors items by a key: `keyProperty` names the database's
+  key or a text / number / url property; a row whose key holds `key` gets only the values that differ, no such row →
+  a new one (its `markdown` is written only while its page is empty); any refused row fails the whole call with the list.
+- **One card per call** (B, *Ask first*): *Create 50 pages in “Launch plan”* with a line per page, *Change 20 rows in
+  Cards* with each value before → after. A row batch names what it would start — *Starts: autofill on 5 rows (Summary) ·
+  automation “Notify” · agent “Triage”* — and a batch of **5 or more rows** that starts paid AI work or sends something
+  out of One (autofill that updates by itself, a webhook or script automation, a row-triggered agent) is **always
+  asked**, also in *Apply directly*. **Undo** puts what the call made into the trash while nobody changed it since
+  (changed pages and rows are kept), and sets changed values back unless they were changed again.
+- **Files values** (`files` properties) take only `onefile:` refs of this workspace that a live page uses — never a web
+  address (`refused_type`), never a private file into a shared row (`private_scope`).
+
+## Boards in one call
+
+`one_create_database` makes the database, its properties, its views and its rows in one call — and one card. The
+German walk-through *„Lege unter Projekt Nordlicht eine Unterseite mit einem Board Todo / Doing / Done an und trage
+diese fünf Aufgaben ein“* is two calls — `one_search { query: "Projekt Nordlicht" }`, then:
+
+```json
+{
+  "title": "Board",
+  "parentId": "<the project's id>",
+  "views": [{ "type": "board", "groupBy": "Status" }],
+  "properties": [{ "name": "Status", "type": "status", "options": ["Todo", "Doing", "Done"] }],
+  "rows": [{ "title": "Kick-off mit Mara Lind", "properties": { "Status": "Todo" } }, "… four more"]
+}
+```
+
+→ `{ id, title, url, parentId, properties, views: [{ id, name, type, groupBy }], rows: [{ index, id, title }], note }`.
+
+- **`parentId`** makes a full-page database as a sub-page; **`inline: { pageId, afterBlock? }`** puts it inside that
+  page's text — after the block `afterBlock` names (a ref from `one_get_page`) or at the end. The page must be live,
+  unlocked, not a template, in the same privacy scope and not part of One's own databases.
+- **A board** groups by `groupBy` or the first status / select / multi-select / person / checkbox property; with none,
+  a `Status` property (the app's default options, in the UI's language) is added. A **table view** follows a first
+  view that is not a table, so the rows stay editable in a grid. `note` says what was added.
+- Rows are checked against the new schema before anything is written; the coercion is `one_create_row`'s. A row without
+  a status starts at the property's first option, as in the app.
+- **Undo** (B) puts the database with its rows into the trash (unless rows of others are in it by then). S: when the
+  database block or a row cannot be written, the database it made goes to the trash again and the error stands.
+
+## Comments
+
+**Off unless the person switches them on.** B: *Settings → Agents · MCP → Comments*: **Off** (default) · **Read** ·
+**Read + write**, per device. S: per token, chosen when an owner or admin creates it (*Comments (MCP)*: off · read ·
+read + write; a read token never writes). While on, `one_get_page { comments: true }` adds the threads:
+`[{ id, quote, body, author, createdAt, resolved, ref, replies: [{ id, body, author, createdAt }] }]` — `ref` is the
+block that holds the comment's mark, resolved threads come with `resolved: true`. While off, `comments: true` answers
+`comments_off` (ask the person; do not retry). Writing comments over MCP comes with a later version.
+
+## What MCP never changes
+
+- **One's own databases are read-only over MCP** — the memory and its log, Mails and the mail directories, the coding /
+  business-analysis / QA pipelines and test cases (`Database.system`; `one_list_databases` / `one_get_database` say
+  `system`): no rows created, changed, mirrored, moved or trashed, no sub-pages or text in their rows, no schema or view
+  change, no inline block of one, no trash of a page whose tree holds one — `system_database`. Reading stays allowed
+  (mail and memory rows carry their `class`).
+- **Templates** are invisible: a template page's id is `not_found` for every tool, also as a `parentId`.
+- **Coding tasks** never take trust from an MCP write: a pipeline task whose version an MCP write moved (its row, its
+  pipeline, a page it takes along) waits for *Confirm* in One before the worker runs it.
+- **Text from a client** goes through the same gate as every Claude answer in One: raw HTML only as One's own file form
+  writes it (any other tag stays text), `data:` images become the text "[inline image removed — add the picture in One]" (nothing is decoded),
+  a `onefile:` ref stays only when it is this workspace's file, a page the client may read uses it, and it is not
+  private while the target is shared (else `private_scope`). Web images become links.
+- **Web images in a files property** never load by themselves on gallery or board cards: a chip names the host and the
+  picture loads after a click.
+- Still not offered: deleting for good, locking, settings, members, agents, automations, scripts' code, buttons,
+  synced blocks, embeds, meeting notes, chart and form views, formula and rollup properties, Private ⇄ shared moves.
 
 **Values** are the friendly ones of the public API ([API.md § Property values](API.md#property-values)): option
 names, dates `"YYYY-MM-DD"` / `"YYYY-MM-DDTHH:mm"` (wall-clock time) or `{ start, end }`, people by email or name,
@@ -286,13 +459,15 @@ MCP." (a call waits up to 10 s for the tab first). The switch is **per browser**
 | Mode | Reads | Writes |
 |---|---|---|
 | **Ask first** (default) | answered at once | each one waits for a card in the tab (bottom right): the tool, the target and a diff-like summary — *Create row “Q4 launch” in Projects · Status: In progress*, property values *before → after*, new options, the Markdown that will be written. **Approve** (↵) or **Reject** (Esc). No answer within **2 minutes** = rejected. The agent sees the wait as progress (`notifications/progress`, *Waiting for approval in One…*) |
-| **Apply directly** | answered at once | written right away — except a change that assigns someone, sets a reminder, changes a task someone is assigned to, adds a blocker to an existing task or removes tasks: that one is **always asked** (the card says why: *Always asked: Names a person*) |
+| **Apply directly** | answered at once | written right away — except a change that assigns someone, sets a reminder, changes a task someone is assigned to, adds a blocker to an existing task or removes tasks, and a batch of 5 or more rows that starts paid AI work or sends something out of One: that one is **always asked** (the card says why: *Always asked: Names a person*) |
 | **Read only** | answered at once | refused: *One is set to "Agents can only read"* |
 
-- Every call — read or write, and how it ended (OK, error, refused, expired, cancelled) — is listed in the
-  **Agent activity** log of the settings tab. Applied writes have an **Undo** there (approved ones also get an Undo
-  toast). Undo is careful: a page or row someone edited in the meantime goes to the trash instead of being deleted,
-  values changed since are kept.
+- **One call, one card** — also for a batch: 50 sub-pages, a board with its rows, 20 rows changed at once are one
+  card with a line per page or row, one Approve, one Undo.
+- Every call — read or write, and how it ended (OK, error, refused, expired, cancelled; a repeat answered from an
+  earlier call says so) — is listed in the **Agent activity** log of the settings tab. Applied writes have an **Undo**
+  there (approved ones also get an Undo toast). Undo is careful: what the call made goes to the trash while nobody
+  changed it since (a changed page or row is kept), values changed since are kept.
 - A rejection tells the agent *The person rejected this change in One … Do not retry it*. A call that would change
   nothing (the same title, the same values) is answered without a card.
 - Writes go through the workspace store like any edit: content with origin `ai`, version history snapshots before
@@ -315,8 +490,13 @@ MCP." (a call waits up to 10 s for the tab first). The switch is **per browser**
 - **Updates.** Extension: download `one.mcpb` again (same button) and open it — Claude Desktop updates the installed
   extension in place when the new version is higher. File: download `one-mcp.mjs` again and restart the client.
   `--version` (or the extension's page in Claude Desktop) shows the version you run. The tidy-up tools and the `one`
-  prompt need bridge **1.2.0** or newer, the task tools (`one_list_work_items`, `one_update_work_item`) **1.8.0** — an
-  older bridge lists only the tools it was built with.
+  prompt need bridge **1.2.0** or newer, the task tools (`one_list_work_items`, `one_update_work_item`) **1.8.0**, the
+  T-a contract **1.12.0** — reads in full (`format`, `cursor`, `refs`, `comments`), `one_list_pages`, sub-page trees,
+  boards with views and rows, rows in bulk, `one_upsert_rows`, strict arguments, repeats answered once. An older bridge
+  lists only the tools it was built with; One shows *Bridge 1.x — update to 1.12.0 for the newest tools* in *Settings →
+  Agents · MCP* and on `#/mcp` (it keeps working as before). The other way round — a newer bridge, a One tab not
+  reloaded since an update — the bridge refuses a tool or argument the tab did not announce (`app_outdated`: reload
+  One) instead of sending it to a tab that would drop it.
 - **Two MCP clients** (say Claude Desktop *and* Claude Code) each start a bridge; only the first gets the port. The
   second answers every call with *Another One MCP bridge is already using port 47321 …* and takes the port over when
   the first one quits. Use one client at a time, or give the second one another port (and switch the tab to it).
@@ -345,6 +525,10 @@ The bridge is a door into your workspace, so it only opens for One:
   out. A tab of another site that claims a connected workspace's id does not replace it either: both stay, and
   calls for that id are refused as ambiguous. Plain HTTP gets `426` and nothing else (no CORS headers,
   no information). Messages are capped at 16 MB; dead connections are dropped after a missed ping.
+- **Two layers against version skew.** The bridge refuses an argument its own contract does not declare
+  (`bad_argument`) and anything the tab did not announce in its hello (`app_outdated`; a tab that announces nothing is
+  held to contract 1, so a newer argument such as `private: true` never reaches an older tab, which would ignore it and
+  make a shared page). The tab refuses undeclared arguments once more itself.
 - **The workspace boundary** ([Workspaces](#workspaces)): calls are bound to a workspace id and run only there.
   Tabs learn only the **names** of the other connected workspaces (for the settings note) — never their ids, and
   nothing of their content; ids are random (a hash for local workspaces, the server's id for team workspaces), so a
@@ -407,7 +591,9 @@ with the API tokens of the [public API](API.md#tokens) — no extra setup on the
 ### Connect
 
 1. An owner or admin creates a token in **Workspace settings → Automation → API tokens**: scope **write** lets the agent change
-   things, **read** gives it only the seven read tools (the write tools are not even listed) — and the `one` prompt.
+   things, **read** gives it only the eight read tools (the write tools are not even listed) — and the `one` prompt.
+   **Comments (MCP)** (off · read · read + write — a read token never writes) decides whether
+   `one_get_page { comments: true }` gets the comment threads ([Comments](#comments)); off by default.
 2. Add the server to your MCP client with the token as a bearer header.
 
 **Claude Code**
@@ -465,7 +651,10 @@ curl -s https://team.example.com/mcp \
   to-do lists (nested), quotes, code blocks, dividers, tables, toggles (`<details>`), callouts (`> [!NOTE]`), math,
   Mermaid, images, files, bookmarks, embeds, page links (`[Title](#/p/<id>)`), @-mentions, database blocks, tabs,
   synced blocks and meeting notes (with transcript); a task block (`workItem`) as its title line and notes (its fields
-  stay the app's for now — the team MCP never writes the `> [!TODO]` form). Comments never leave; buttons show their label only.
+  stay the app's for now — the team MCP never writes the `> [!TODO]` form). Comments only with the token's comments
+  flag; buttons show their label only. `format: "blocks"` reads every block with its data and the same refs as the
+  bridge ([Reading a page in full](#reading-a-page-in-full)) — spreadsheet cells come with their input and
+  `value: null` (the server has no formula engine), charts with data only when it is typed in.
   The task tools (`one_list_work_items`, `one_update_work_item`) are local-bridge only until server parity.
 - **Content in** is the API's [markdown-lite](API.md#content-markdown-lite) (headings, paragraphs, lists, to-dos,
   quotes, code, dividers, marks, links); other Markdown stays text. `one_update_page` appends after the last block or,
@@ -479,12 +668,38 @@ curl -s https://team.example.com/mcp \
   select options from `one_create_row` / `one_update_row`, the [tidy-up tools](#tidying-up) (properties, options,
   views, moves) and `one_trash_page` — a **soft delete** exactly like the app's (`trashed: true`, `trashedAt`): the
   page (with everything below it) is in the app's trash and `one_restore_page` (or the app) brings it back. A
-  **locked** database takes rows and values but no new properties, options or views. There is no undo log on the
-  server: give an agent a read token, or the local bridge with *Ask first*, when every change should be checked.
+  **locked** database takes rows and values but no new properties, options or views; a **locked page** keeps its text
+  (title and icon may change). Sub-page trees, boards with views and rows, rows in bulk and `one_upsert_rows` work as on
+  the bridge ([Sub-pages and batches](#sub-pages-and-batches), [Boards in one call](#boards-in-one-call)): every row
+  and page is checked before the first write; a batch that fails mid-way takes back what it wrote, and a database whose
+  block or rows could not be written goes to the trash again.
+- **Checked before it writes.** All checks — locked, template, trash, One's own databases, tasks, a replace its Markdown
+  cannot carry — run before any content is written; a check that fails only after the write (a race) puts the content
+  back from the call's copy. A `replace` of a page holding blocks the server's Markdown cannot write (columns, a
+  database, a callout …) is refused (`lossy_replace`) — use the local bridge with *Ask first* for those.
 - **Backlinks** in `one_get_page` come from the stored content of every page (page links, @-mentions, `#/p/` links,
   database blocks). Content is stored a few seconds after typing stops (at most 10 s), so a link made in that moment
   may be missing.
 - **No approval step**: the token is the permission. Give an agent a **read** token when it should only look.
+
+### What the server does without a card (pre-images, restore)
+
+The team server has no approval card and no Undo of its own, so it keeps, **per MCP call that changes something**,
+what it needs to put that call back — a *pre-image*: the rows it made (with their values), each field it changed
+(before → after), the pages and databases it made, and a page's content right before a `replace` (or before a link was
+appended to it). Pre-images are sealed with the workspace's key, kept **14 days** and deleted with the workspace; REST
+API writes keep none.
+
+**Workspace settings → Automation → API → Recent MCP writes** (owners and admins) lists the last 100 calls — the
+tool in words, the token, what it made and changed, the first titles, its age — each with **Restore**:
+
+- made pages, databases and rows go to the **trash** (rows of a made database go along with it);
+- each changed field goes back **while it still holds what the call wrote** — a field someone changed since is kept and
+  named (*Restore anyway* puts it back too);
+- a page text that changed since the call is refused (`changed_since`) — **Restore anyway** puts the call's copy back
+  and the later changes go (the dialog says so);
+- restoring twice changes nothing. Routes: `GET /api/workspaces/:id/mcp-calls`,
+  `POST /api/workspaces/:id/mcp-calls/:callId/restore { force? }` ([API.md](API.md#recent-mcp-writes)).
 
 ### Protocol
 
@@ -500,5 +715,6 @@ curl -s https://team.example.com/mcp \
 | Limits | shared with `/api/v1`: 120 requests per minute per token (`API_RATE_LIMIT`; every JSON-RPC request counts — a client's start is 2–3 of them), 30 failed authentications per minute per client address, 256 KB per request, 100 rows per query answer |
 | Reverse proxy | nothing to configure (no streaming); Caddy from `docker-compose.yml` works as it is |
 | Logs | tool calls that change something are logged (`mcp page updated` …) with the token id — never the token |
+| Version | `serverInfo.version` = `<server version>+mcp.2`; `GET /api/config` lists `mcp:2` in `supports` while the server serves contract 2 (T-a). The team server and the app update together: an older server keeps its tools as they were |
 
 The static file `/mcp/one-mcp.mjs` (the local bridge, part of the app build) is served next to the endpoint as usual.

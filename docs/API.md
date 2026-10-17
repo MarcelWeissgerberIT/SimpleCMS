@@ -10,12 +10,15 @@ the other half of One's *outgoing* webhooks (database automations, button blocks
   into the workspace's Yjs documents exactly like the app does (see *How writes work* below).
 - Base URL: `https://<your server>/api/v1` — e.g. `https://cloud.example.com/api/v1`.
 - AI agents: the same tokens open the server's **remote MCP endpoint** (`https://<your server>/mcp`) for Claude
-  Code, Claude Desktop and other MCP clients — see [`MCP.md`](MCP.md#team-server).
+  Code, Claude Desktop and other MCP clients — see [`MCP.md`](MCP.md#team-server). MCP reaches more than the REST API
+  (pages in full with every block, sub-page trees, boards with views and rows, rows in bulk, comments with the token's
+  flag); the REST API stays as it is (`/api/v1`). The server keeps a restorable copy of what each MCP call changed
+  ([Recent MCP writes](#recent-mcp-writes)); REST writes keep none.
 
 Contents: [Tokens](#tokens) · [Conventions](#conventions) · [Endpoints](#endpoints) ·
 [Values](#property-values) · [Content](#content-markdown-lite) · [Idempotency](#idempotency) ·
-[Incoming webhooks](#incoming-webhooks) · [Custom agents](#custom-agents) · [Errors](#errors) · [Limits](#limits) ·
-[Recipes](#recipes-n8n-make-zapier) · [How writes work](#how-writes-work)
+[Incoming webhooks](#incoming-webhooks) · [Custom agents](#custom-agents) · [Recent MCP writes](#recent-mcp-writes) ·
+[Errors](#errors) · [Limits](#limits) · [Recipes](#recipes-n8n-make-zapier) · [How writes work](#how-writes-work)
 
 ## Tokens
 
@@ -26,6 +29,10 @@ instead). A token belongs to **one workspace** and has a scope:
 |---|---|
 | `read` | every `GET` endpoint |
 | `write` | everything `read` may, plus creating rows and pages and changing rows |
+
+A token also says whether MCP clients get **comments** (`comments`: `off` — the default —, `read`, or `write` for a
+write token; *Comments (MCP)* in the form). It only decides what `one_get_page { comments: true }` answers on `/mcp`
+([`MCP.md`](MCP.md#comments)); the REST API never returns comments.
 
 The secret looks like `one_` + 43 characters and is shown **once**, when it is created; the server
 keeps only an HMAC fingerprint (keyed with the server's `SECRET`) and can never show it again. Lost
@@ -371,6 +378,19 @@ instruction. 10 deliveries per agent per minute (then `429`), at most 20 runs wa
 (`429 queue_full`). Errors: `404 hook_not_found` (unknown, regenerated or deleted URL — counted like a
 bad token), `409 runtime_not_ready`, `409 agent_unavailable` (switched off, not a webhook agent, gone),
 `413 payload_too_large`, `503 agents_off`.
+
+## Recent MCP writes
+
+The MCP endpoint has no approval step, so the server keeps, per MCP call that changed something, what it needs to put
+the call back (a *pre-image*: rows made, each field changed before → after, pages made, a page's content before a
+replace) — sealed with the workspace's key, kept 14 days, deleted with the workspace. Owners and admins see them in
+**Workspace settings → Automation → API → Recent MCP writes** and restore a call there. Session cookie, admins and
+the owner (like the token routes, not the public API):
+
+| Method & path | Body → Response |
+|---|---|
+| `GET /api/workspaces/:id/mcp-calls` | → `[{ callId, tool, token: { id, name }, at, parts, kinds, made, changed, titles (≤ 3), restoredAt }]` — the newest 100 calls of the last 14 days |
+| `POST /api/workspaces/:id/mcp-calls/:callId/restore` | `{ force?: boolean }` → `{ callId, restored, kept: [{ id, title, fields? }], note? }` — made pages / databases / rows go to the trash; each changed field goes back while it still holds what the call wrote (`kept` names the others); a page text that changed since answers `409 changed_since` unless `force` (then the later changes go). A second restore changes nothing. `404 call_not_found` |
 
 ## Errors
 

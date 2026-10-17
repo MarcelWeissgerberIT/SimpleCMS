@@ -105,7 +105,20 @@ agent_slots(workspace_id, agent_id, last_slot, sig, seen_at, PRIMARY KEY(workspa
 agent_hooks(workspace_id, agent_id, secret_hash UNIQUE, created_by, created_at, last_delivery_at, deliveries)  -- v8
 coding_workers(id, workspace_id, user_id, label, token_hash UNIQUE, created_at, created_ua, activated_at NULL, last_used_at, revoked_at)  -- v9
 agent_state(workspace_id, agent_id, data sealed, run_id, updated_at, PRIMARY KEY(workspace_id, agent_id))  -- v10, an agent's own state
+api_tokens.mcp_comments 'off'|'read'|'write'                                -- v11, comments over MCP per token
+mcp_preimages(id, workspace_id, token_id, call_id, tool, doc, kind, sealed, after_hash, created_at, restored_at)  -- v12
 ```
+
+Migration v12 (*MCP pre-images*, [`MCP.md`](MCP.md#what-the-server-does-without-a-card-pre-images-restore)): the
+team server's `/mcp` has no approval card and no Undo, so every MCP call that changes something keeps, per document it
+touched, what a restore needs — the rows it made (with their values), each field it changed (before → after), the
+pages and databases it made, a content fragment before a replace or an appended link (a Y update of a detached copy)
+and `after_hash`, the content document's state vector right after the call (a restore refuses `changed_since` when it
+moved). `sealed` is AES-256-GCM with the workspace's key (AAD `mcp-preimage\n<workspace>\n<id>`); kept 14 days
+(housekeeping's `purgeExpired`), `ON DELETE CASCADE` from `workspaces`. REST API writes keep none.
+
+Migration v11: an API token's `mcp_comments` — what its MCP client gets from `one_get_page { comments: true }`
+(`off` by default; a `read` token is never `write`), chosen when the token is created.
 
 Migration v10 (*Agents → Runner* below): each server agent's own small state between runs (`agent_state_set`,
 JSON ≤ 4 KB) — sealed with the workspace's key (AAD `agent-state\n<workspace>\n<agent>`), written only when a run
@@ -186,13 +199,15 @@ All mutating requests require `Content-Type: application/json` (CSRF guard toget
 | `GET /api/health` | – | `{ ok: true, version }` |
 | `GET /api/dev/mailbox` | DEV_MODE only | last 50 mails `{ to, subject, text, link }` |
 | `POST /api/auth/verify` | – | *(server addition)* form `token=` (the confirmation page) or JSON `{ token }` → sets cookie, `303` to `redirect` |
-| `GET /api/config` | – | *(server addition)* `{ version, signup: { mode, domains? }, max_upload_mb, dev_mode, source_url, coding_relay, supports }` — `supports` lists what this server understands beyond the base protocol (`['ai', 'governor', 'signoffs']`: it guards the meta keys `workspace.ai` and `workspace.governor` and every key of the `fuseSignoffs` map, below) |
+| `GET /api/config` | – | *(server addition)* `{ version, signup: { mode, domains? }, max_upload_mb, dev_mode, source_url, coding_relay, supports }` — `supports` lists what this server understands beyond the base protocol (`['ai', 'governor', 'signoffs', 'mcp:2']`: it guards the meta keys `workspace.ai` and `workspace.governor` and every key of the `fuseSignoffs` map, below; `mcp:2` = its `/mcp` serves MCP contract 2 — reads in full, sub-page trees, boards with views and rows, rows in bulk, pre-images, [`MCP.md`](MCP.md#team-server)) |
 | `GET /api/workspaces/:id/coding/workers` | member | *(coding relay)* cloud coding workers `[{ id, label, state: 'pending'\|'active', user: { id, name, email }, mine, created_at, created_from, activated_at, last_used_at, online, tab, since }]` — a member sees their own, admins and the owner everyone's (*Coding relay*) |
 | `POST /api/workspaces/:id/coding/workers` | member | `{ label? }` → `201` worker **+ `token`** (only here; One writes it into the downloaded file). A new token is **pending**; an older pending one of the member is revoked at once, the active one only when the new one first connects. 20 per member per day |
 | `DELETE /api/workspaces/:id/coding/workers/:workerId` | member (own) / admin | revoke → `204`; its worker is closed at once (`404 worker_not_found` — also for someone else's token, to a member) |
 | `GET /api/coding/worker` | worker token | *(coding relay)* `Authorization: Bearer onew_…`, no `Origin` → `{ workspace: { id: 'team:<id>', name }, member: { email, name }, state, online }` (`one-worker check`); 401 unknown / revoked, 403 `forbidden` / `viewer` |
-| `GET /api/workspaces/:id/tokens` | admin | *(public API)* active API tokens `[{ id, name, scope, created_at, last_used_at, revoked, created_by: { id, name, email } \| null }]`, newest first |
-| `POST /api/workspaces/:id/tokens` | admin | `{ name (1–80), scope: 'read'\|'write' }` → `201` token **+ `token`** (the secret, only here); `409 too_many_tokens` past 25 |
+| `GET /api/workspaces/:id/tokens` | admin | *(public API)* active API tokens `[{ id, name, scope, comments, created_at, last_used_at, revoked, created_by: { id, name, email } \| null }]`, newest first |
+| `POST /api/workspaces/:id/tokens` | admin | `{ name (1–80), scope: 'read'\|'write', comments?: 'off'\|'read'\|'write' }` → `201` token **+ `token`** (the secret, only here); `409 too_many_tokens` past 25 |
+| `GET /api/workspaces/:id/mcp-calls` | admin | *(MCP pre-images)* the newest 100 MCP calls that changed something (14 days): `[{ callId, tool, token: { id, name }, at, made, changed, titles, restoredAt }]` |
+| `POST /api/workspaces/:id/mcp-calls/:callId/restore` | admin | `{ force? }` → `{ callId, restored, kept, note? }` — puts a call back ([`API.md`](API.md#recent-mcp-writes)); `409 changed_since`, `404 call_not_found` |
 | `DELETE /api/workspaces/:id/tokens/:tokenId` | admin | revoke → `204` (`404 token_not_found`) |
 | `GET /api/workspaces/:id/hooks` | admin | incoming webhooks `[{ id, database: { id, title \| null }, created_at, rotated_at, last_delivery_at, deliveries, created_by }]` (`title: null` = the database is gone) |
 | `POST /api/workspaces/:id/hooks` | admin | `{ databaseId }` → `201` hook **+ `url`** (`${PUBLIC_URL}/api/v1/hooks/<secret>`, only here); `404 database_not_found`, `409 too_many_hooks` past 25 |

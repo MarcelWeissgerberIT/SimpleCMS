@@ -14,6 +14,7 @@ import { useLang, useT } from '../../i18n'
 import { Led } from '../../ui/controls'
 import { cloudApi, type ApiComments, type ApiScope, type ApiToken, type IncomingHook, type McpCallEntry, type McpRestore } from './api'
 import { errorCode, errorText } from './errors'
+import { HelpLink } from '../../help'
 import './api.css'
 
 export const API_DOCS_URL = 'https://github.com/MarcelWeissgerberIT/SimpleCMS/blob/main/docs/API.md'
@@ -284,8 +285,9 @@ function Tokens({ wsId }: { wsId: string }) {
           {creating ? t('shell.cloud.api.creating') : t('shell.cloud.api.create')}
         </button>
       </form>
-      <p className="api-hint" id={`${uid}-comments-h`}>
-        {t('shell.cloud.api.commentsHint')}
+      <p className="api-hint">
+        <span id={`${uid}-comments-h`}>{t('shell.cloud.api.commentsHint')}</span>
+        <HelpLink id="public-api" topic={t('shell.cloud.api.comments')} />
       </p>
       <ErrorLine text={error} />
       {created?.token && <Secret testId="api-token-secret" label={t('shell.cloud.api.secret')} hint={t('shell.cloud.api.secretHint')} value={created.token} example={example(created)} onDone={() => setCreated(null)} />}
@@ -572,7 +574,10 @@ function McpCalls({ wsId }: { wsId: string }) {
   return (
     <>
       <Head n="07" label={t('shell.cloud.mcp.title')} count={calls?.length} icon={<History size={12} />} />
-      <p className="api-lede">{t('shell.cloud.mcp.lede')}</p>
+      <p className="api-lede">
+        {t('shell.cloud.mcp.lede')}
+        <HelpLink id="public-api" topic={t('shell.cloud.mcp.title')} />
+      </p>
       <ErrorLine text={error} />
       {loadError ? (
         <ErrorLine text={loadError} />

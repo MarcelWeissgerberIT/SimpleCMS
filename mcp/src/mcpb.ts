@@ -58,6 +58,7 @@ const LONG_DESCRIPTION = `Claude searches, reads and writes your [One](https://g
 **After installing:** open One and switch on *Settings → Agents · MCP → Allow AI agents on this computer*. The panel's LED turns green. Then ask Claude *"What is in my One workspace?"* — or start a message with the codeword \`one:\`, e.g. *"one: tidy up my Projects database"*.
 
 - **Nothing leaves your computer.** The extension listens on 127.0.0.1 only and accepts One's own pages; your workspace stays in the browser.
+- **Pages, boards, rows in one go.** A tree of up to 50 sub-pages, a board with its lanes and cards, 50 rows changed at once — one call, one approval card, one Undo. Pages read in full: every block with its data, long pages in parts.
 - **Tidy up, safely.** Move pages and rows, reshape databases (properties, options, views), trash whole databases with their rows — nothing is deleted for good, everything can be restored.
 - **You stay in charge.** Each change waits for your approval in One (*Ask first*, the default) — or set *Apply directly* or *Read only* there. Every call is logged and can be undone.
 - **Workspaces stay apart.** Several workspaces can be connected at once (each in its tab); Claude names the one it means, and a call meant for one workspace never runs in another.

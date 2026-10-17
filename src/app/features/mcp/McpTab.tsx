@@ -19,6 +19,7 @@ import { onRovingKey } from '../../ui/roving'
 import { clientLabel, useMcp, validPort, type McpActivity, type McpConn } from './state'
 import { bridgeLed, bridgeStateText } from './stateText'
 import { openMcpConnections } from './connections/open'
+import { HelpLink } from '../../help'
 import './mcp.css'
 
 /** Where the site serves the bridge (respects the app's base: getonecms.com/mcp/one-mcp.mjs). */
@@ -243,9 +244,12 @@ function CommentsRow() {
   const id = useId()
   return (
     <div className="mcp-comments" data-testid="mcp-comments">
-      <span className="label mcp-comments__label" id={`${id}-l`}>
-        {t('features.mcp.comments.label')}
-      </span>
+      <div>
+        <span className="label mcp-comments__label" id={`${id}-l`}>
+          {t('features.mcp.comments.label')}
+        </span>
+        <HelpLink id="mcp-bridge" topic={t('features.mcp.comments.label')} />
+      </div>
       <div className="seg mcp-modes" role="radiogroup" aria-labelledby={`${id}-l`} aria-describedby={`${id}-h`} onKeyDown={(e) => onRovingKey(e)}>
         {MCP_COMMENT_MODES.map((m) => (
           <button key={m} type="button" role="radio" aria-checked={comments === m} tabIndex={comments === m ? 0 : -1} className="seg__btn" onClick={() => setMcpComments(m)} data-comments={m}>
