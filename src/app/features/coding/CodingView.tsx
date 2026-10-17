@@ -26,6 +26,9 @@ import { workerStateText } from './stateText'
 import { ChangeReposButton, OutdatedWorker, SetupCard } from './SetupCard'
 import { NowLine } from './NowLine'
 import { ProjectBar } from './Projects'
+import { ensureOrderDb, openOrderCount, orderDbId } from './orders/db'
+import { newOrderRequest } from './orders/send'
+import { typing } from '../../ui/keys'
 import './coding.css'
 
 function WorkerPlate() {
@@ -147,9 +150,11 @@ function NeedsYou() {
   )
 }
 
-/** Coding · Business analysis · QA — each pipeline on its own board. */
-function KindSwitch({ kind }: { kind: PipelineKind }) {
+/** Coding · Business analysis · QA — each pipeline on its own board; then the work orders (Prüfaufträge · 2 offen). */
+function KindSwitch({ kind, readOnly }: { kind: PipelineKind; readOnly: boolean }) {
   const t = useT()
+  const ordersDb = useWorkspace(() => orderDbId())
+  const open = useWorkspace((s) => (ordersDb ? openOrderCount(s) : 0))
   return (
     <nav className="cv-kinds" aria-label={t('features.coding.pipe.label')}>
       {PIPELINE_KINDS.map((k) => (
@@ -158,6 +163,35 @@ function KindSwitch({ kind }: { kind: PipelineKind }) {
           <span className="cv-kind__name">{t(`features.coding.pipe.${k}`)}</span>
         </a>
       ))}
+      {/* the work orders: their database (made here on first use — never by a viewer) */}
+      {ordersDb ? (
+        <a href={`#/p/${ordersDb}`} className="cv-kind cv-kind--orders" data-testid="coding-orders">
+          <span className="cv-kind__code label">{t('features.coding.order.short')}</span>
+          <span className="cv-kind__name">
+            {t('features.coding.order.key.open')} · <span className="cv-kind__count">{t('features.coding.order.open', { n: open })}</span>
+          </span>
+        </a>
+      ) : (
+        !readOnly && (
+          <button
+            type="button"
+            className="cv-kind cv-kind--orders"
+            onClick={() => {
+              try {
+                const id = ensureOrderDb({ kind: 'you', via: 'ui' }).id
+                useUI.getState().toast({ message: t('features.coding.order.settings.made'), kind: 'success' })
+                navigate({ name: 'page', id })
+              } catch {
+                useUI.getState().toast({ message: t('features.coding.setup.readOnly'), kind: 'error' })
+              }
+            }}
+            data-testid="coding-orders"
+          >
+            <span className="cv-kind__code label">{t('features.coding.order.short')}</span>
+            <span className="cv-kind__name">{t('features.coding.order.key.open')}</span>
+          </button>
+        )
+      )}
     </nav>
   )
 }
@@ -174,6 +208,18 @@ export default function CodingView({ kind = 'coding' }: { kind?: PipelineKind })
   const [pipeline, setPipeline] = useState(false)
   const locked = useWorkspace((s) => (dbId ? !!s.databases[dbId]?.locked : false))
   const sfx = kind === 'coding' ? '' : `.${kind}`
+  // N: a new work order (Prüfauftrag) — never while typing, in a menu or a dialog, never with a modifier or a repeat
+  useEffect(() => {
+    if (readOnly) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.repeat || e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey || (e.key !== 'n' && e.key !== 'N')) return
+      if (typing(document.activeElement) || document.querySelector('[aria-modal="true"]')) return
+      e.preventDefault()
+      newOrderRequest()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [readOnly])
 
   const setUp = (template?: PipelineTemplate) => {
     try {
@@ -217,7 +263,7 @@ export default function CodingView({ kind = 'coding' }: { kind?: PipelineKind })
           )}
         </div>
         <p className="cv-lead">{t(`features.coding.lead${sfx}`)}</p>
-        <KindSwitch kind={kind} />
+        <KindSwitch kind={kind} readOnly={readOnly} />
       </header>
 
       <WorkerPlate />

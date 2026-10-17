@@ -13,7 +13,7 @@
  */
 import type { ID } from '../../../store/types'
 import { BUDGET_RANGE, ORDER_KINDS } from './config'
-import { ORDER_HALT_WHYS, type OrderChain, type OrderChainStep, type OrderDoneBy, type OrderDraft, type OrderHaltWhy, type OrderKind, type OrderRecord, type OrderState } from './types'
+import { ORDER_HALT_WHYS, type OrderChain, type OrderChainStep, type OrderDoneBy, type OrderDraft, type OrderHaltWhy, type OrderKind, type OrderPress, type OrderPressHow, type OrderProv, type OrderRecord, type OrderState } from './types'
 
 const STATES: readonly OrderState[] = ['draft', 'creating', 'interrupted', 'running', 'halted', 'done', 'discarded']
 const ID_RE = /^[A-Za-z0-9_-]{1,64}$/
@@ -116,12 +116,34 @@ export function readOrderChain(v: unknown): OrderChain | null {
   }
 }
 
+const HOWS: readonly OrderPressHow[] = ['status', 'command', 'plate', 'send']
+const MAX_PROV = 9
+const by = (v: unknown): string | null => (typeof v === 'string' && v.length <= 200 ? v : null)
+
+/** A kept press (its run, time, how; provenance of ≤ 9 pages — the row and 8 linked — and their pinned revisions). */
+export function readPress(v: unknown): OrderPress | null {
+  if (!isObj(v) || !isId(v.run) || !isTime(v.at) || !(HOWS as readonly unknown[]).includes(v.how)) return null
+  const prov: Record<ID, OrderProv> = {}
+  if (isObj(v.prov))
+    for (const [id, p] of Object.entries(v.prov).slice(0, MAX_PROV)) {
+      if (!isId(id) || !isObj(p) || typeof p.contentRev !== 'number' || !Number.isInteger(p.contentRev) || p.contentRev < 0) continue
+      prov[id] = { createdBy: by(p.createdBy), updatedBy: by(p.updatedBy), contentOrigin: by(p.contentOrigin), contentRev: p.contentRev }
+    }
+  const pins: Record<ID, number> = {}
+  if (isObj(v.pins))
+    for (const [id, rev] of Object.entries(v.pins).slice(0, MAX_PROV)) if (isId(id) && typeof rev === 'number' && Number.isInteger(rev) && rev >= 0) pins[id] = rev
+  return { run: v.run, at: v.at, how: v.how as OrderPressHow, prov, pins }
+}
+
 /** A record as this build keeps it (null: none, or not one this build can read). */
 export function readOrderRecord(v: unknown): OrderRecord | null {
   if (!isObj(v) || v.v !== 1 || !(STATES as readonly unknown[]).includes(v.state)) return null
   const state = v.state as OrderState
   const out: OrderRecord = { v: 1, state }
-  if (isObj(v.want) && isTime(v.want.at) && v.want.mode === 'trigger') out.want = { at: v.want.at, mode: 'trigger' }
+  if (isObj(v.want) && isTime(v.want.at) && v.want.mode === 'trigger') {
+    const press = readPress(v.want.press)
+    out.want = { at: v.want.at, mode: 'trigger', ...(press ? { press } : {}) }
+  }
   const d = v.draft
   if (isObj(d) && isObj(d.plan) && typeof d.hash === 'string' && d.hash.length <= 128 && isId(d.run) && isTime(d.at)) out.draft = d as unknown as OrderDraft
   if (v.chain !== undefined) {

@@ -224,12 +224,35 @@ export interface OrderChain {
   advanced?: Record<number, number>
 }
 
+/**
+ * How a request was pressed (spec §0 — the fixed allow-list, in this tab only): its Status set to Planen by the person
+ * (via none / 'ui': a board drag, a cell pick) · the database command Planen · ↵ Planen on the plate · Prüfen lassen.
+ */
+export type OrderPressHow = 'status' | 'command' | 'plate' | 'send'
+
+/**
+ * A press, as the planner gets it (orders/planner.ts planOrder): its run (the planner run's id — ledger source
+ * `order:<row>:<run>`), when, how, and the provenance captured synchronously at the press (press.ts pressProv — the row
+ * and each linked page, from the write before the attribution keeper could clear an agent's stamp; `pins` = their
+ * contentRev then).
+ */
+export interface OrderPress {
+  run: string
+  at: number
+  how: OrderPressHow
+  prov: Record<ID, OrderProv>
+  pins: Record<ID, number>
+}
+
 /** This device's record of one request. */
 export interface OrderRecord {
   v: 1
   state: OrderState
-  /** a press made on this device while the worker was away: plans when it is back (≤ 24 h) */
-  want?: { at: number; mode: 'trigger' }
+  /**
+   * a press made on this device while the worker was away or Coding was off: plans when an 'ok' worker is back (5 s
+   * after; ≤ 24 h, then it expires — "abgelaufen — ↵ erneut"); `press` = the press it keeps (its provenance and pins)
+   */
+  want?: { at: number; mode: 'trigger'; press?: OrderPress }
   draft?: OrderDraft
   chain?: OrderChain
 }

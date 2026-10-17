@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { BookMarked, BookmarkPlus, ClipboardCopy, Copy, Download, FolderInput, LayoutTemplate, Link2, Trash2, Upload, Share2, Clock3, Presentation, Zap, Rewind, Star, StarOff } from 'lucide-react'
+import { BookMarked, BookmarkPlus, ClipboardCheck, ClipboardCopy, Copy, Download, FolderInput, LayoutTemplate, Link2, Trash2, Upload, Share2, Clock3, Presentation, Zap, Rewind, Star, StarOff } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { inTemplate } from '../../store/selectors'
@@ -13,7 +13,7 @@ import { fmtNumber, fmtRelative, plural, wordCount } from '../lib/format'
 import { useKbdHint } from '../lib/hooks'
 import { useReadOnly } from '../cloud/state'
 import { SwitchFace } from '../../ui/controls'
-import { openRecorder, REWIND_SHORTCUT } from '../../features'
+import { openRecorder, REWIND_SHORTCUT, canSendToOrders, sendToOrders, sendToOrdersWithNote, useCoding } from '../../features'
 
 const FONTS: Array<{ id: PageFont; key: string }> = [
   { id: 'sans', key: 'shell.font.default' },
@@ -32,6 +32,9 @@ export function PageMenu({ page, anchor, onClose, mobile }: { page: Page; anchor
   const isDb = page.kind === 'database'
   // viewers keep what is theirs alone: focus mode, copy link, export
   const edit = !useReadOnly()
+  // "Prüfen lassen" only while Coding is on on this device (re-renders when it is switched)
+  const codingOn = useCoding((s) => s.enabled)
+  const sendable = edit && codingOn && canSendToOrders(page.id, { menu: true })
 
   const focusRow = <ToggleRow seed="focus" label={t('shell.pageMenu.focus')} hint={kbd('Mod+Shift+F')} checked={focus} onChange={() => toggleFocusMode()} />
   // font and toggles: page settings are shared data, a viewer only gets focus mode
@@ -80,6 +83,11 @@ export function PageMenu({ page, anchor, onClose, mobile }: { page: Page; anchor
     { kind: 'separator' },
     { label: t('shell.permalink.copy'), icon: <Link2 size={15} />, onSelect: () => void copyPageLink(page.id) },
     { label: t('shell.ai.copy'), icon: <ClipboardCopy size={15} />, onSelect: () => void copyPageForAI(page.id) },
+    // work orders: only while Coding is on here (features/coding/orders) — never for viewers
+    ...only(sendable, [
+      { label: t('features.coding.order.cmd.send'), icon: <ClipboardCheck size={15} />, onSelect: () => void sendToOrders(page.id) },
+      { label: t('features.coding.order.cmd.sendNote'), icon: <ClipboardCheck size={15} />, onSelect: () => sendToOrdersWithNote(page.id) },
+    ]),
     // the topbar's ☆ by name too: favourites are found where people look (this device's — viewers too)
     page.favorite
       ? { label: t('shell.menu.unfavorite'), icon: <StarOff size={15} />, onSelect: () => toggleStar(page.id) }

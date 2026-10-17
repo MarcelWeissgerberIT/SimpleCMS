@@ -3,11 +3,11 @@
  * and the global keyboard handler.
  */
 import type { LucideIcon } from 'lucide-react'
-import { Bell, CalendarDays, CalendarRange, Copy, Download, FilePlus2, FolderInput, Focus, Keyboard, Languages, LayoutTemplate, Link2, Lock, MessageSquareText, MoveHorizontal, PanelLeft, Presentation, Settings, Share2, SunMoon, Table2, SquareKanban, Trash2, Upload, Waypoints, History, Star, Home, Inbox, Users, Building2, Palette, CloudUpload, Workflow, SquareFunction, CircleHelp, Newspaper, SquareCode, GitBranch, Blocks, Compass, Route, ClipboardCopy, Plug, Send, Rewind, Gauge, CircleGauge, Cable, ShieldAlert } from 'lucide-react'
+import { Bell, CalendarDays, CalendarRange, Copy, Download, FilePlus2, FolderInput, Focus, Keyboard, Languages, LayoutTemplate, Link2, Lock, MessageSquareText, MoveHorizontal, PanelLeft, Presentation, Settings, Share2, SunMoon, Table2, SquareKanban, Trash2, Upload, Waypoints, History, Star, Home, Inbox, Users, Building2, Palette, CloudUpload, Workflow, SquareFunction, CircleHelp, Newspaper, SquareCode, GitBranch, Blocks, Compass, Route, ClipboardCopy, Plug, Send, Rewind, Gauge, CircleGauge, Cable, ShieldAlert, ClipboardCheck } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { navigate } from '../../lib/router'
-import { openTodayJournal, openAgent, AGENT_SHORTCUT, openFunctionBuilder, paletteDbCommands, createScript, openScripts, paletteScripts, openOutbox, openRecorder, REWIND_SHORTCUT, openPreflight, preflightIsOn, openAISetup, openRegler, openMcpConnections, openPatchbay, patchbayCounts } from '../../features'
+import { openTodayJournal, openAgent, AGENT_SHORTCUT, openFunctionBuilder, paletteDbCommands, createScript, openScripts, paletteScripts, openOutbox, openRecorder, REWIND_SHORTCUT, openPreflight, preflightIsOn, openAISetup, openRegler, openMcpConnections, openPatchbay, patchbayCounts, sendToOrders, sendToOrdersWithNote } from '../../features'
 import type { ID } from '../../store/types'
 import type { Translate } from '@/shared/i18n'
 import { quickNoteToInbox } from '../capture/inbox'
@@ -135,6 +135,13 @@ export function buildCommands(t: Translate, pageId: ID | null): Command[] {
       { id: 'lock', group: 'page', label: page.settings.locked ? t('shell.cmd.unlock') : t('shell.cmd.lock'), icon: Lock, keywords: 'readonly sperren', run: () => ws.updatePageSettings(page.id, { locked: !page.settings.locked }) },
       { id: 'delete', group: 'page', label: t('shell.cmd.delete'), icon: Trash2, keywords: 'trash remove löschen papierkorb', run: () => trashWithUndo(page.id) },
     )
+    // work orders: "Prüfen lassen" (+ "…" with a note) — always found here; with Coding off it says so, with a key to
+    // Settings › Coding worker (features/coding/orders send.ts); not on a database page
+    if (page.kind !== 'database')
+      list.push(
+        { id: 'order-send', group: 'page', label: t('features.coding.order.cmd.send'), icon: ClipboardCheck, keywords: t('features.coding.order.cmd.keywords'), run: () => void sendToOrders(page.id) },
+        { id: 'order-send-note', group: 'page', label: t('features.coding.order.cmd.sendNote'), icon: ClipboardCheck, keywords: t('features.coding.order.cmd.keywords'), run: () => sendToOrdersWithNote(page.id) },
+      )
     // database rows belong to their database: no "Move to"
     if (!page.databaseId)
       list.splice(list.findIndex((c) => c.id === 'duplicate') + 1, 0, { id: 'move', group: 'page', label: t('shell.cmd.move'), icon: FolderInput, keywords: 'parent verschieben', run: () => ui.openModal({ type: 'move', pageId: page.id }) })
@@ -190,4 +197,4 @@ function nextFuse(t: Translate): Command[] {
 }
 
 /** Commands that write to the workspace (hidden for viewers). */
-const EDITING = new Set(['new-page', 'new-subpage', 'new-database', 'new-script', 'quick-note', 'templates', 'journal', 'import', 'duplicate', 'move', 'delete', 'lock', 'full-width'])
+const EDITING = new Set(['order-send', 'order-send-note', 'new-page', 'new-subpage', 'new-database', 'new-script', 'quick-note', 'templates', 'journal', 'import', 'duplicate', 'move', 'delete', 'lock', 'full-width'])

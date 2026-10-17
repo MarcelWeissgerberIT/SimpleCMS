@@ -476,6 +476,12 @@ export {
 export { startCoding, CodingRoute, CodingTaskSlot, CodingWorkerTab, CodingStatusCell, openCodingSettings, consumeCodingSettingsRequest, codingDbId, useCoding } from './coding'
 /* the worker link's state in words — the workspace page's Automation section */
 export { codingWorkerStateText } from './coding'
+/*
+ * Work orders (Prüfaufträge, coding/orders): OrderSlot { pageId } (the plate on a request's page) · OrderDbSlot { dbId }
+ * (the work-orders database's head) · OrderNoteModal (ModalHost 'orderNote') · "Prüfen lassen": sendToOrders(pageId) /
+ * sendToOrdersWithNote(pageId) · canSendToOrders(pageId, { menu }) (page / sidebar menus: only while Coding is on here)
+ */
+export { OrderSlot, OrderDbSlot, OrderNoteModal, sendToOrders, sendToOrdersWithNote, canSendToOrders } from './coding'
 /* admins of a team workspace: the members' cloud workers (docs/CODING.md § Cloud worker) — renders nothing otherwise */
 export { CodingCloudWorkers } from './coding'
 /*

@@ -1,10 +1,29 @@
+import { useEffect, useRef } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import { Modal } from '../../ui/Modal'
 import { useT } from '../../i18n'
 
-export function ConfirmModal({ title, body, danger, confirmLabel, noConfirm, onConfirm, onClose }: { title: string; body?: string; danger?: boolean; confirmLabel?: string; noConfirm?: boolean; onConfirm: () => void; onClose: () => void }) {
+export function ConfirmModal({ title, body, danger, confirmLabel, noConfirm, onConfirm, onCancel, onClose }: { title: string; body?: string; danger?: boolean; confirmLabel?: string; noConfirm?: boolean; onConfirm: () => void; onCancel?: () => void; onClose: () => void }) {
   const t = useT()
+  // `onCancel` once when the dialog goes without its confirm — Cancel, Esc, the scrim, or another dialog in its place
+  const decided = useRef(false)
+  const cancel = useRef(onCancel)
+  cancel.current = onCancel
+  const alive = useRef(false)
+  useEffect(() => {
+    alive.current = true
+    return () => {
+      alive.current = false
+      // after the unmount settled (StrictMode mounts twice in DEV): only a dialog that is really gone cancels
+      setTimeout(() => {
+        if (alive.current || decided.current) return
+        decided.current = true
+        cancel.current?.()
+      }, 0)
+    }
+  }, [])
   const run = () => {
+    decided.current = true
     onClose()
     onConfirm()
   }

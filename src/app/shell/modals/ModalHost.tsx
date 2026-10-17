@@ -1,6 +1,6 @@
 import { useUI, type ModalState } from '../../store/ui'
 import { HistoryModal, ShareModal, ImportModal, ExportModal, AutomationsModal, TemplatesModal, SaveTemplateModal, AgentPanel, FunctionsModal, RecorderHost } from '../../features'
-import { ExampleDialog, CommandsEditor, AISetupModal, AgentDialogsHost } from '../../features'
+import { ExampleDialog, CommandsEditor, AISetupModal, AgentDialogsHost, OrderNoteModal } from '../../features'
 import { Suspense } from 'react'
 import { SettingsModal } from '../settings/SettingsModal'
 import { ConfirmModal } from './ConfirmModal'
@@ -59,6 +59,8 @@ function ModalSwitch({ modal, onClose }: { modal: ModalState; onClose: () => voi
       return <SaveTemplateModal pageId={modal.pageId} onClose={onClose} />
     case 'functions':
       return <FunctionsModal initialId={modal.id} onClose={onClose} />
+    case 'orderNote':
+      return <OrderNoteModal pageId={modal.pageId} onClose={onClose} />
     case 'memoryExample':
       return <ExampleDialog pageId={modal.pageId} tag={modal.tag} blocks={modal.blocks} onClose={onClose} />
     default:

@@ -8,12 +8,12 @@
  *  - a mirrored database with active send routes (the Outbox): one command per route — it opens the draft popover
  *    for the selected rows (the toolbar; none: "Pick a row") or the row on screen; nothing is sent by a command
  */
-import { Bot, Download, FilePlus2, FileText, FileUp, LayoutTemplate, Link2, ListTree, Mail, RefreshCw, Send, Sparkles, Table2 } from 'lucide-react'
+import { Bot, ClipboardCheck, Download, FilePlus2, FileText, FileUp, LayoutTemplate, Link2, ListTree, Mail, RefreshCw, Send, Sparkles, Table2 } from 'lucide-react'
 import { createElement } from 'react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import type { CustomAgent, Database, ID, Page } from '../../store/types'
-import { openPage, pageHref } from '../../lib/router'
+import { openPage, pageHref, parseHash } from '../../lib/router'
 import { createEntry, exportDatabaseCsv, importCsvInto, openDatabaseView } from '../../database'
 import { PageIcon } from '../../ui/PageIcon'
 import { t } from '../../i18n'
@@ -21,6 +21,7 @@ import { isAIConfigured } from '../ai/client'
 import { openMailSettings, organiseEarlier, syncNow, useMail } from '../mail'
 import { runAgentNow } from '../agents'
 import { outboxCommands } from '../outbox'
+import { OrderCommandError, openCodingSettings, orderDbIds, planRows } from '../coding'
 import { CommandFailure } from './failure'
 import { readDbCommands } from './model'
 import type { DefaultSpec, Runner, SubItem } from './types'
@@ -123,6 +124,23 @@ function memoryLog(pages: Record<ID, Page>, databases: Record<ID, Database>): ID
   return logs[0]?.id ?? null
 }
 
+/** The request on screen: the side peek's, else the page's (a command started from the sidebar or ⌘K). */
+function requestHere(): ID | null {
+  const peek = useUI.getState().peekPageId
+  if (peek) return peek
+  const r = parseHash(window.location.hash)
+  return r.name === 'page' ? r.id : null
+}
+
+async function runPlan(dbId: ID, rowIds: ID[]): Promise<string> {
+  try {
+    return await planRows(dbId, rowIds, requestHere())
+  } catch (e) {
+    if (e instanceof OrderCommandError) throw new CommandFailure(e.message, e.fix === 'settings' ? { label: t('features.coding.order.key.settings'), run: () => openCodingSettings() } : null)
+    throw e
+  }
+}
+
 async function copyLink(dbId: ID): Promise<string> {
   const url = `${location.origin}${location.pathname}${pageHref(dbId)}`
   try {
@@ -215,6 +233,11 @@ export function defaultsFor(dbId: ID): DefaultSpec[] {
 
   for (const c of outboxCommands(dbId))
     out.push({ key: c.key, group: 'outbox', label: c.label, icon: Send, writes: true, hint: 'OUT', needsRow: true, run: ({ rowIds, surface }) => c.run({ rowIds, surface }) })
+
+  // a work-orders database (features/coding/orders): Planen — a press of the allow-list for the picked requests (≤ 5),
+  // else the request on screen (the peek, the page)
+  if (db.system === 'workorders' && orderDbIds(s).includes(dbId))
+    out.push({ key: 'orders-plan', group: 'orders', label: t('features.coding.order.cmd.plan'), icon: ClipboardCheck, writes: true, hint: '↵', needsRow: true, run: ({ databaseId, rowIds }) => runPlan(databaseId, rowIds) })
 
   if (db.system === 'memory') {
     const log = memoryLog(s.pages, s.databases)

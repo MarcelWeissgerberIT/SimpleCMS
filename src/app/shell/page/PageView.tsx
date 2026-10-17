@@ -7,7 +7,7 @@ import { useUI } from '../../store/ui'
 import { isEffectivelyTrashed, usePage } from '../../store/selectors'
 import { PageEditor } from '../../editor'
 import { DatabaseView, RowProperties } from '../../database'
-import { TemplateBanner, CodingTaskSlot, OutboxDockSlot, OutboxDbFoot, OutboxReadout, RecorderDbRead, RowSlips } from '../../features'
+import { TemplateBanner, CodingTaskSlot, OrderSlot, OrderDbSlot, OutboxDockSlot, OutboxDbFoot, OutboxReadout, RecorderDbRead, RowSlips } from '../../features'
 import { PageIcon } from '../../ui/PageIcon'
 import { IconPicker } from '../../ui/IconPicker'
 import { Popover } from '../../ui/Popover'
@@ -89,6 +89,8 @@ function PageViewInner({ page, variant }: { page: Page; variant: PageVariant }) 
           {isDb && !trashed && <OutboxReadout dbId={page.id} />}
           {/* right after an eject into this database: ENTRIES · LAST You · 08:05 · Eject (features/recorder) */}
           {isDb && !trashed && <RecorderDbRead dbId={page.id} />}
+          {/* the work-orders database: how many are open, the way back to #/coding (features/coding/orders) */}
+          {isDb && !trashed && <OrderDbSlot dbId={page.id} />}
           {isRow && (
             <div className="pv-props">
               <RowProperties pageId={page.id} />
@@ -96,6 +98,8 @@ function PageViewInner({ page, variant }: { page: Page; variant: PageVariant }) 
           )}
           {/* a task of the coding pipeline: its panel (features/coding; nothing for other rows) */}
           {isRow && <CodingTaskSlot pageId={page.id} />}
+          {/* a work order (Prüfauftrag): its plate (features/coding/orders; nothing for other rows) */}
+          {isRow && <OrderSlot pageId={page.id} />}
           {/* a mirrored row: its open slips and send routes (features/outbox; nothing elsewhere) */}
           {isRow && !trashed && <RowSlips pageId={page.id} />}
         </div>

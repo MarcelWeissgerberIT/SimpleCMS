@@ -16,7 +16,7 @@ import { workerDownText } from './stateText'
 import { workerOutdated, workerUnsafe } from './protocol'
 
 export { startCoding } from './service'
-export { CodingRoute, CodingTaskSlot } from './slot'
+export { CodingRoute, CodingTaskSlot, OrderSlot, OrderDbSlot, OrderNoteModal } from './slot'
 export { WorkerTab as CodingWorkerTab } from './WorkerTab'
 export { CodingStatusCell } from './WorkerStatus'
 export { openCodingSettings, consumeCodingSettingsRequest } from './open'
@@ -190,3 +190,21 @@ export function workerVerdict(s: Pick<CodingState, 'enabled' | 'conn' | 'can' | 
   if (workerUnsafe(s.worker?.worker)) return 'unsafe'
   return workerOutdated(s.can) ? 'outdated' : 'ok'
 }
+/**
+ * Work orders B4 — the database and its entry points (orders/db.ts · send.ts · press.ts · trigger.ts):
+ *  - orderDbId() / ensureOrderDb(writer) (Status options by id in Database.orders.status; team: private) ·
+ *    saveOrderConfig(dbId, fn) (the only writer of Database.orders) · orderStatusKey(row) · orderFields(row) ·
+ *    orderCode(row) ("PA-12") · openOrderCount()
+ *  - "Prüfen lassen": sendToOrders(pageId, { note? }) · sendToOrdersWithNote(pageId) ("Prüfen lassen …") ·
+ *    canSendToOrders(pageId, { menu }) (menus: only while Coding is on here; never for viewers, pipeline tasks,
+ *    databases or templates)
+ *  - the press (pressPlan — the allow-list's one way to the planner, orders/plan.ts planOrder: B5's seam) and the
+ *    database command Planen (planRows); the trigger subscriber + kept presses start with startCoding (startOrders)
+ *  - OrderSlot { pageId } (the plate on a request's page) · OrderDbSlot { dbId } (the database's head) · OrderNoteModal
+ */
+export { ensureOrderDb, orderDbId, orderDbIds, saveOrderConfig, orderStatusKey, orderFields, orderCode, openOrderCount, orderProps, isOrderRow, writeOrderStatus } from './orders/db'
+export { sendToOrders, sendToOrdersWithNote, canSendToOrders, openRequestFor, newOrderRequest } from './orders/send'
+export { pressPlan, pressProv, orderPreNow, type PressResult } from './orders/press'
+export { orderPre, WANT_WHYS, type OrderPreFacts, type OrderPreResult, type OrderPreWhy, type OrderPreKind } from './orders/pre'
+export { planRows, OrderCommandError } from './orders/command'
+export type { OrderPress, OrderPressHow } from './orders/types'

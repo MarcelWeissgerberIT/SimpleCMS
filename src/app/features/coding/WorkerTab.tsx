@@ -24,6 +24,7 @@ import { WORKER_FILE, downloadLines, startLines } from './download'
 import { OsSwitch, StartBlock } from './StartBlock'
 import { workerStateText } from './stateText'
 import { notifyEnabled, notifyPermission, setNotify } from './notify'
+import { ensureOrderDb, orderDbId } from './orders/db'
 import './coding.css'
 
 /** Browser notifications when a task needs the person or is done while One is in the background (this device). */
@@ -357,7 +358,55 @@ export function WorkerTab() {
           )}
         </ul>
       </Panel>
+
+      <OrdersPanel />
     </div>
+  )
+}
+
+/** Einstellungen › Coding-Worker › Prüfaufträge: the database — made here, or opened (viewers: what they may do). */
+function OrdersPanel() {
+  const t = useT()
+  const dbId = useWorkspace(() => orderDbId())
+  const viewer = useCloud((s) => s.readOnly)
+  const open = (id: string) => {
+    useUI.getState().closeModal()
+    navigate({ name: 'page', id })
+  }
+  return (
+    <Panel code={`§ ${t('features.coding.order.short')}`} title={t('features.coding.order.settings.title')}>
+      <p className="cw-switch__hint">{t('features.coding.order.settings.lead')}</p>
+      {viewer ? (
+        <p className="cw-switch__hint" data-testid="coding-orders-viewer">
+          {t('features.coding.setup.readOnly')}
+        </p>
+      ) : (
+        <p className="cw-row">
+          {dbId ? (
+            <button type="button" className="btn btn--sm" onClick={() => open(dbId)} data-testid="coding-orders-open">
+              {t('features.coding.order.settings.open')}
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="btn btn--sm"
+              onClick={() => {
+                try {
+                  const id = ensureOrderDb({ kind: 'you', via: 'ui' }).id
+                  useUI.getState().toast({ message: t('features.coding.order.settings.made'), kind: 'success' })
+                  open(id)
+                } catch {
+                  useUI.getState().toast({ message: t('features.coding.setup.readOnly'), kind: 'error' })
+                }
+              }}
+              data-testid="coding-orders-create"
+            >
+              {t('features.coding.order.settings.create')}
+            </button>
+          )}
+        </p>
+      )}
+    </Panel>
   )
 }
 

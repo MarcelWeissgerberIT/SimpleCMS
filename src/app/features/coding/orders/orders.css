@@ -1,0 +1,215 @@
+/* Work orders (Prüfaufträge) — the plate's skeleton (B4), the database head, the note dialog. Tokens only. */
+
+.orp {
+  width: 100%;
+  margin: 14px 0 4px;
+  padding: 10px 16px 12px;
+  container-type: inline-size;
+}
+.orp-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+  padding: 0 0 8px;
+  border-bottom: 1px solid var(--rule);
+}
+.orp-code {
+  margin: 0;
+  overflow: hidden;
+  min-width: 0;
+  color: var(--ink-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.orp-code:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.orp-status {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+}
+.orp-status .label {
+  color: var(--ink);
+}
+.orp-chip {
+  padding: 1px 6px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  color: var(--ink-2);
+}
+.orp-chip[data-chip='planning'] {
+  border-color: var(--signal);
+  color: var(--signal-ink);
+}
+.orp[data-status='plan'] .orp-status .led--on {
+  animation: orp-blink 1s steps(2, jump-none) infinite;
+}
+@keyframes orp-blink {
+  50% {
+    opacity: 0.25;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .orp[data-status='plan'] .orp-status .led--on {
+    animation: none;
+  }
+}
+
+/* four lamps — one row on a wide plate, 2 × 2 on a narrow one (never overflowing at 390 px) */
+.orp-lamps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px 14px;
+  margin: 10px 0 0;
+}
+@container (max-width: 560px) {
+  .orp-lamps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.orp-lamp {
+  min-width: 0;
+}
+.orp-lamp dt {
+  color: var(--ink-3);
+}
+.orp-lamp dd {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin: 3px 0 0;
+  color: var(--ink);
+  font-size: var(--text-sm);
+}
+.orp-lamp[data-dim] dd {
+  color: var(--ink-3);
+}
+.orp-lamp__text {
+  overflow: hidden;
+  min-width: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* a dim ring: "ohne Server" is a valid end state, never a warning */
+.orp-ring {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border: 1px solid var(--ink-3);
+  border-radius: var(--radius-led);
+}
+
+/* the precondition strip */
+.orp-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin: 12px 0 0;
+  padding: 8px 10px;
+  border: 1px solid var(--rule);
+  border-left: 2px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+}
+.orp-strip[data-why='ok'] {
+  border-left-color: var(--led-ok);
+}
+.orp-strip:not([data-why='ok']):not([data-why='later']):not([data-why='viewer']) {
+  border-left-color: var(--signal);
+}
+.orp-strip__line {
+  flex: 1 1 240px;
+  min-width: 0;
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+.orp-strip__left {
+  color: var(--ink-2);
+}
+.orp-keys {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin: 10px 0 0;
+}
+.orp-keys .kbd {
+  margin-right: 2px;
+}
+
+/* the database head: back to #/coding */
+.ordb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  margin: 8px 0 0;
+}
+.ordb .label {
+  color: var(--ink-2);
+}
+.ordb__count {
+  font-variant-numeric: tabular-nums;
+}
+.ordb__back {
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  text-decoration: underline;
+  text-decoration-color: var(--rule-strong);
+  text-underline-offset: 3px;
+}
+.ordb__back:hover {
+  color: var(--ink);
+}
+.ordb__back:focus-visible {
+  outline: none;
+  border-radius: var(--radius-1);
+  box-shadow: var(--focus-ring);
+}
+
+/* "Prüfen lassen …" */
+.orn {
+  display: grid;
+  gap: 10px;
+}
+.orn__page {
+  overflow: hidden;
+  margin: 0;
+  color: var(--ink-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.orn__field {
+  display: grid;
+  gap: 6px;
+}
+
+/* #/coding: the work orders' key beside Coding · BA · QA */
+.cv-kind--orders {
+  margin-left: auto;
+  border-top: 0;
+  border-right: 0;
+  border-left: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--text-md);
+  cursor: pointer;
+}
+.cv-kind__count {
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 600px) {
+  .cv-kind--orders {
+    margin-left: 0;
+  }
+}

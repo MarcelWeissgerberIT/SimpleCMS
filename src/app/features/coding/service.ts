@@ -46,6 +46,7 @@ import { APPROVALS_KEY, DEFAULT_CODING, CODING_STORAGE_KEY, MAX_CLOUD_KEYS, defa
 import { appendLog, patchTask, flushLogs, loadTask, taskLocal } from './local'
 import { cleanCode, cleanEdit } from './lines'
 import { addRepoOptions, codingProps, pipelineDbIds } from './schema'
+import { startOrders } from './orders/trigger'
 import { finishStage, heartbeat, intakeDone, pickNext, setNudge, startApprovalsWatch, taskContext, gitSummary, writeShipNote } from './tasks'
 import { keepTrust, startTrustWatch } from './trust'
 import { branchHolders } from './guards'
@@ -967,6 +968,8 @@ export function startCoding() {
   started = true
   setNudge(nudgeWorker)
   startTrustWatch()
+  // work orders: the trigger subscriber (the allow-list of presses), kept presses, the requests' Repo options
+  startOrders()
   // rows that become tasks here take this device's Approvals of that moment (switched on or not)
   startApprovalsWatch()
   // an earlier build's plain-text cloud secrets become non-extractable keys before the first cloud link

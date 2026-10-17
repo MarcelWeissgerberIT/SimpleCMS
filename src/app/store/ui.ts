@@ -31,7 +31,10 @@ export type ModalState =
   | { type: 'shortcuts' }
   | { type: 'move'; pageId: ID }
   /** noConfirm: only Cancel (a question with nothing to confirm — the Regler's start dialog when +1 $ would not do) */
-  | { type: 'confirm'; title: string; body?: string; danger?: boolean; confirmLabel?: string; noConfirm?: boolean; onConfirm: () => void }
+  /** onCancel: the dialog went without its confirm (Cancel, Esc, the scrim, another dialog in its place) */
+  | { type: 'confirm'; title: string; body?: string; danger?: boolean; confirmLabel?: string; noConfirm?: boolean; onConfirm: () => void; onCancel?: () => void }
+  /** "Have it checked …" (features/coding/orders): the one-line note, then the work order for the page */
+  | { type: 'orderNote'; pageId: ID }
   /** "Save as example in memory" (features/ai/memory): a page — or `blocks` of it (a selection) — with an optional tag */
   | { type: 'memoryExample'; pageId: ID; tag?: string; blocks?: JSONContent[] | null }
 

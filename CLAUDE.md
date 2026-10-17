@@ -1244,6 +1244,20 @@ the public APIs stable — other areas are built against them in parallel.
   worker while the chain's guard holds it (tasks.ts `setParkedGuard`); projects whose first stage starts new tasks are
   unusable (`chainProjectProblem`). A new task's checks are ONE set (draft.ts `checkTaskDraft`; the terminal throws its
   first issue word for word); `pipelineLine` / `startStageOf` / `landsOn` / `runsFrom` live in coding/stages.ts (pure).
+- Work-order database + entry points (Prüfaufträge B4, coding/orders): the database only through `ensureOrderDb(writer)`
+  (`orderDbId()` = the oldest live one; team: private; Status option ids in `Database.orders.status` — read a Status only
+  by them: `orderStatusKey` / `writeOrderStatus`), `Database.orders` only through `saveOrderConfig`. The ONE way to the
+  planner is `pressPlan(row, how)` (press.ts) from the allow-list in THIS tab: the person's Status → Planen (trigger.ts
+  subscriber: writer `you` via none / 'ui', else a trusted person event — never an Undo, template, automation, script,
+  sync, import, agent, bridge, terminal, cross-tab replay or colleague; a row new in that write is no press), the
+  database command Planen, ↵ Planen on the plate, Prüfen lassen (send.ts). Provenance is taken from `prev` at the press.
+  §2.2 items 1–6 (pre.ts, pure) decide: Coding off / worker away / outdated / unsafe keep the press as the record's
+  `want` (IndexedDB `one-coding` `<scope>|order|<row>`, records.ts, channel `one-coding-orders`) — it plans in mode
+  'trigger' 5 s after an 'ok' worker is online here, ≤ 24 h (a fresh read drops an older one). The planner is reached
+  only through `callPlanner` → `orders/plan.ts planOrder(row, { mode, prov })` (B4 stub → B5); e2e seam of the entry
+  points `window.__oneOrderEntries` (entrySeam.ts: `planned()` = every call into the planner). Lane rules (person writes): put back by the order writer `#s`, Fertig while running asks
+  (ConfirmModal `onCancel`), Entwurf from Kette bereit = D. "Prüfen lassen" in page / sidebar menus only while Coding is
+  on here; ⌘K always (Coding off: says so with the Settings key); never for viewers.
 - MCP tidy-up tools (trash / restore ≤ 50 ids, move page / row, update database / property, delete property, view
   create / update / delete) live in `features/mcp/{tidy,structure}.ts` and `server/src/mcp/{tidy,structure}.ts` with
   the same rules: never delete for good, locked databases refuse structure changes, no page ⇄ entry or Private ⇄ shared

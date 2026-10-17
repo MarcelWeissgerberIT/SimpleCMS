@@ -13,7 +13,7 @@ import {
   type DragStartEvent,
   type Modifier,
 } from '@dnd-kit/core'
-import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, ClipboardCopy, Copy, FolderInput, Link2, Lock, MoreHorizontal, PanelRight, PencilLine, Plus, Star, StarOff, Trash2, PanelRightOpen, Users } from 'lucide-react'
+import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, ClipboardCheck, ClipboardCopy, Copy, FolderInput, Link2, Lock, MoreHorizontal, PanelRight, PencilLine, Plus, Star, StarOff, Trash2, PanelRightOpen, Users } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
@@ -29,7 +29,7 @@ import { closeMobileSidebar, copyPageForAI, copyPageLink, createPageAndOpen, dup
 import { moveFavorite, placeFavorite, shownFavorites, toggleStar, useFavFold, useFavOrder } from '../lib/favorites'
 import { forgetPointer, livePointerY, liveRect, visibleWithin } from './collision'
 import { canLeaveFor, createEntryAndOpen, dropOptions, nodeKind, requestLeaveDatabase, requestMakeEntry } from './entries'
-import { AIRunLed, DbCommandKey, DbCommandsMenu, OutboxTreeCount, type CommandHost } from '../../features'
+import { AIRunLed, DbCommandKey, DbCommandsMenu, OutboxTreeCount, sendToOrders, useCoding, type CommandHost } from '../../features'
 import { useIsTouch } from '../lib/hooks'
 import { ALT } from '../../ui/controls'
 import { titleIfClipped } from '../../ui/clip'
@@ -533,6 +533,8 @@ function TreeRow({ id, depth, section, draggable, expanded }: { id: ID; depth: n
     if (inTree(section)) revealInScroller(rowRef.current, id)
     else if (favRoot) revealInList(rowRef.current)
   }, [active, section, favRoot, id])
+  // "Prüfen lassen" (work orders) only while Coding is on on this device
+  const codingOn = useCoding((s) => s.enabled)
 
   if (!page) return null
   const kind = nodeKind(page)
@@ -590,6 +592,20 @@ function TreeRow({ id, depth, section, draggable, expanded }: { id: ID; depth: n
       : [...editEntries, ...starEntries]),
     { label: t('shell.permalink.copy'), icon: <Link2 size={15} />, onSelect: () => void copyPageLink(id) },
     { label: t('shell.ai.copy'), icon: <ClipboardCopy size={15} />, onSelect: () => void copyPageForAI(id) },
+    // work orders: any page may be sent (a pipeline task is refused there, a request opens its plate) — the cheap check
+    // per row here, the full one on the press (features/coding/orders send.ts)
+    ...(edit && codingOn && !isDb
+      ? ([
+          {
+            label: t('features.coding.order.cmd.send'),
+            icon: <ClipboardCheck size={15} />,
+            onSelect: () => {
+              closeMobileSidebar()
+              void sendToOrders(id)
+            },
+          },
+        ] as MenuEntry[])
+      : []),
     // database rows belong to their database: no "Move to"
     ...(page.databaseId || !edit ? [] : ([{ label: t('shell.menu.moveTo'), icon: <FolderInput size={15} />, onSelect: () => useUI.getState().openModal({ type: 'move', pageId: id }) }] as MenuEntry[])),
     // team workspaces: straight into Private (only me) or out into the workspace (everyone)
