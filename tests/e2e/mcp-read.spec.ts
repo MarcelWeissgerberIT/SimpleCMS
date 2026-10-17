@@ -584,6 +584,90 @@ test('context marks hold for scripts and tasks: one_run_query / one_run_script r
   await page.evaluate((id) => (window as unknown as { __oneMcp: { context: (id: string, ids: string[] | null) => Promise<void> } }).__oneMcp.context(id, null), id)
 })
 
+/** A page with one readable and one excluded block, a page whose task is excluded, a page with a task of the same title. */
+async function writesUnderMarks(page: Page) {
+  await openApp(page)
+  const ids = await wsEval(page, (s) => {
+    const para = (bid: string, text: string) => ({ type: 'paragraph', attrs: { id: bid }, content: [{ type: 'text', text }] })
+    const task = (bid: string, itemId: string, title: string) => ({ type: 'workItem', attrs: { id: bid, itemId, status: 'todo' }, content: [{ type: 'paragraph', content: [{ type: 'text', text: title }] }] })
+    const marked = s.createPage({ title: 'Marked notes' })
+    s.setContent(marked, { type: 'doc', content: [para('keep-0001-rep', 'Public agenda.'), para('hide-0002-rep', 'Salary zebrafish 98000.')] }, 'e2e')
+    const hidden = s.createPage({ title: 'Hidden plans' })
+    s.setContent(hidden, { type: 'doc', content: [para('keep-0001-p4', 'Agenda'), task('hide-0002-p4', 'wi_zebra00001', 'Fire Mara quietly')] }, 'e2e')
+    const other = s.createPage({ title: 'Other' })
+    s.setContent(other, { type: 'doc', content: [task('vis-0001-p4', 'wi_other00001', 'Fire Mara quietly')] }, 'e2e')
+    const board = s.createPage({ title: 'Board' })
+    s.setContent(board, { type: 'doc', content: [para('board-0001-p4', 'Board text')] }, 'e2e')
+    return { marked, hidden, other, board }
+  })
+  await flush(page)
+  await connect(page)
+  const marks = (id: string, keep: string[] | null) => page.evaluate(([id, keep]) => (window as unknown as { __oneMcp: { context: (id: string, ids: string[] | null) => Promise<void> } }).__oneMcp.context(id as string, keep as string[] | null), [id, keep] as const)
+  return { ids, marks }
+}
+
+const SECRET_MARKS = /zebra|Salary|98000|Hidden plans/
+
+test('context marks hold for writes: a replace of a page with marks is refused (it would overwrite what Claude may not read); an append stays allowed', async ({ page }) => {
+  const { ids, marks } = await writesUnderMarks(page)
+  await marks(ids.marked, ['keep-0001-rep'])
+  expect(json(await call('one_get_page', { id: ids.marked })).limited).toMatchObject({ blocks: 1 })
+  const rep = await call('one_update_page', { id: ids.marked, mode: 'replace', markdown: 'Rewritten agenda.' })
+  expect(rep.isError, text(rep)).toBe(true)
+  expect(text(rep)).toMatch(/^rejected: mode: The person limited what you may read on this page \(context marks\); a replace would overwrite blocks you may not read\. Nothing was changed\. Append instead/)
+  expect(text(rep)).not.toMatch(SECRET_MARKS)
+  expect(await wsEval(page, (s, id) => s.pages[id].plain as string, ids.marked)).toContain('Salary zebrafish 98000.')
+  json(await call('one_update_page', { id: ids.marked, mode: 'append', markdown: 'Appended line.' }))
+  const plain = await wsEval(page, (s, id) => s.pages[id].plain as string, ids.marked)
+  expect(plain).toContain('Salary zebrafish 98000.')
+  expect(plain).toContain('Appended line.')
+})
+
+test("context marks hold for writes: a database never goes after a block Claude may not read, and the refusal never says that block's ref now", async ({ page }) => {
+  const { ids, marks } = await writesUnderMarks(page)
+  // the hidden block's ref as a read without marks hands it out: its content hash must never come back once it is excluded
+  const hiddenRef: string = json(await call('one_get_page', { id: ids.marked, format: 'blocks' })).blocks[1].ref
+  const hiddenHash = hiddenRef.split('~')[1]!
+  expect(hiddenHash).toMatch(/^[0-9a-f]{6}$/)
+  await marks(ids.marked, ['keep-0001-rep'])
+  // by index or by ref, with or without a hash (a stale one would get "it is <ref> now" — an oracle for the hidden text)
+  for (const afterBlock of ['@1', '@1~000000', '#hide-0', '#hide-0~000000']) {
+    const r = await call('one_create_database', { title: 'Probe', inline: { pageId: ids.marked, afterBlock } })
+    expect(r.isError, `${afterBlock} → ${text(r)}`).toBe(true)
+    expect(text(r), afterBlock).toMatch(/^rejected: inline\.afterBlock: .* is not readable — the person limited what you may read on this page \(context marks\)/)
+    expect(text(r), afterBlock).not.toContain(hiddenHash)
+    expect(text(r), afterBlock).not.toMatch(/ now\)/)
+  }
+  expect(await wsEval(page, (s, id) => (s.pages[id].content.content as AnyState[]).some((b) => b.type === 'databaseBlock'), ids.marked)).toBe(false)
+  // after the readable block it goes
+  const db = json(await call('one_create_database', { title: 'Probe ok', inline: { pageId: ids.marked, afterBlock: '@0' } }))
+  const order = await wsEval(page, (s, id) => (s.pages[id].content.content as AnyState[]).map((b) => (b.type === 'databaseBlock' ? 'db' : b.attrs?.id)), ids.marked)
+  expect(order).toEqual(['keep-0001-rep', 'db', 'hide-0002-rep'])
+  expect(db.id).toBeTruthy()
+})
+
+test('context marks hold for writes: a replace settles its task links only in what may be read — an excluded task is no link target and never named', async ({ page }) => {
+  const { ids, marks } = await writesUnderMarks(page)
+  await marks(ids.hidden, ['keep-0001-p4'])
+  await expect.poll(async () => json(await call('one_list_work_items', { status: 'any' })).items.map((i: AnyState) => i.id)).toContain('wi_other00001')
+  const md = '> [!TODO] Prep the room\n> Blocked by: Fire Mara quietly'
+  // the replace resolves the title as an append (stageWith) does: only the task that may be read
+  const replaced = await call('one_update_page', { id: ids.board, mode: 'replace', markdown: md })
+  expect(replaced.isError, text(replaced)).toBeFalsy()
+  expect(text(replaced)).not.toMatch(/wi_zebra00001|Hidden plans/)
+  const blockedBy = await wsEval(page, (s, id) => (s.pages[id].content.content as AnyState[]).find((b) => b.type === 'workItem')?.attrs.blockedBy, ids.board)
+  expect(blockedBy).toEqual(['wi_other00001'])
+  // by its id: no link target either, nothing named (a page without tasks: nothing a replace would take away)
+  const byId = await call('one_update_page', { id: ids.marked, mode: 'replace', markdown: '> [!TODO] Second\n> Blocked by: wi_zebra00001' })
+  expect(text(byId)).not.toMatch(/Hidden plans|Fire Mara/)
+  const links = await wsEval(page, (s, id) => (s.pages[id].content.content as AnyState[]).flatMap((b) => (b.type === 'workItem' ? (b.attrs.blockedBy ?? []) : [])), ids.marked)
+  expect(links).not.toContain('wi_zebra00001')
+  // the append, for comparison: the same answer
+  const appended = await call('one_update_page', { id: ids.other, mode: 'append', markdown: md })
+  expect(appended.isError, text(appended)).toBeFalsy()
+  expect(text(appended)).not.toMatch(/wi_zebra00001|Hidden plans/)
+})
+
 test('one_list_pages, urlBase in lists, full views, inline / system / class on reads, tree.more in the overview', async ({ page }) => {
   await openApp(page)
   const ids = await wsEval(page, (s) => {

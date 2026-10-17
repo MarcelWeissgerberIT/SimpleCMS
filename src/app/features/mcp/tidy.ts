@@ -490,12 +490,18 @@ function planMoveRow(args: Record<string, unknown>): WritePlan {
   if (map.carried.length) lines.push({ k: 'fact', label: t('features.mcp.plan.properties'), value: map.carried.join(', ') })
   const freshNames = [...map.fresh.values()].flat().map((o) => o.name)
   if (freshNames.length) lines.push({ k: 'fact', label: t('features.mcp.plan.newOptions'), value: freshNames.join(', ') })
+  // the values land under the target's property ids (and a unique id is numbered there): its "property changed"
+  // automations, row-triggered agents and auto-filling properties see a changed row — named on the card (sideHold)
+  const side = sideEffects(to, 1, { props: new Set([...Object.keys(map.values), ...to.properties.filter((p) => p.type === 'unique_id').map((p) => p.id)]) })
+  const hold = sideHold([side])
+  lines.push(...side.lines, ...hold.lines)
   return {
     tool: 'one_move_row',
     verb: t('features.mcp.verb.moveRow'),
     summary: t('features.mcp.sum.moveRow', { title: name, from: fromTitle, to: toTitle }),
     target: `${fromTitle} → ${toTitle}`,
     lines,
+    ...(hold.alwaysAsk ? { alwaysAsk: true } : {}),
     async apply(writer) {
       // every write of this call under its writer (store/writer.ts) — one synchronous burst
       return withWriter(writer, () => {

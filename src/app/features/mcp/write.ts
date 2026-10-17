@@ -20,6 +20,9 @@ import { pagePrivate, registerItems, stageBlocks, type ItemStaging } from '../ai
 import { getItemIndex, SettleRefusal, type SettleReport } from '../workitems'
 import { holdsOfReport } from '../workitems/holds'
 import { applyStaged, assertStageWritable, callStage, itemLine, itemPlan, mcpMessage, stageWith } from './stage'
+import { mcpReadLimit } from './limits'
+import { currentReadLimit, withReadLimit } from '../ai/agent/tools'
+import { isContextLimited } from '../../editor'
 import { assertNotSystem } from './system'
 import { livePage, withPageNodes, type LinkTarget } from '../ai/agent/links'
 import type { McpToolName } from './contract'
@@ -35,7 +38,7 @@ export type { Applied, PlanLine, WritePlan } from './plan'
 export { mcpMessage } from './stage'
 import { planUpdateWorkItems } from './workItems'
 import { planCreatePage } from './pages'
-import { planCreateRow, planUpdateRow, planUpsertRows } from './rows'
+import { planCreateRow, planUpdateRow, planUpsertRows, sideEffects, sideHold, titlePropId, type SideEffects } from './rows'
 import { planCreateDatabase } from './database'
 import { addProperties, propertySpec } from './schema'
 
@@ -45,6 +48,13 @@ import { addProperties, propertySpec } from './schema'
 
 /** A page a replace may turn a link into a mention / page link block for: live, never a template's. */
 const linkTarget = (id: ID): LinkTarget | null => (inTemplate(ws().pages, id) ? null : livePage(id))
+
+/**
+ * A replace under the person's context marks would overwrite blocks Claude may not read (as the AI terminal's
+ * replace_all, agent/edit.ts): refused — nothing about the hidden blocks is said.
+ */
+const limitedReplace = (path: string) =>
+  mcpError('rejected', path, 'The person limited what you may read on this page (context marks); a replace would overwrite blocks you may not read', 'Append instead (mode "append"), or ask the person.')
 
 /* ------------------------------------------------------------------ */
 /* Pages                                                               */
@@ -64,6 +74,7 @@ function planUpdatePage(args: Record<string, unknown>): WritePlan {
   if (markdown !== null && page.kind === 'database') throw new McpToolError(`${q(titleOf(page))} is a database: its content is its rows. Use one_create_row.`)
   if (markdown !== null && page.settings.locked) throw new McpToolError(`locked: ${q(titleOf(page))} is locked in One: its content cannot change (its title and icon can). Nothing was changed. Ask the person to unlock it.`)
   if (mode === 'append' && markdown !== null && !markdown.trim()) throw new McpToolError('"markdown" is empty: nothing to append.')
+  if (markdown !== null && mode === 'replace' && isContextLimited(page.id)) throw new McpToolError(limitedReplace('mode'))
   if (markdown !== null) checkFileScope(markdown, pagePrivate(page.id), q(titleOf(page)))
 
   const stage = callStage()
@@ -92,15 +103,19 @@ function planUpdatePage(args: Record<string, unknown>): WritePlan {
     // text; the page's tasks written back as `> [!TODO] … {#wi_…}` stay those tasks (fields as they are), new quotes
     // become tasks with ids minted now — what the card shows is what is written
     const priv = pagePrivate(page.id)
-    try {
-      const settled = claudeSettled(markdown, webImagesOf(page.content), { source: 'mcp', creates: true, strict: true, known: page.content, pageId: page.id, private: priv, me: true, existing: 'copy', handles: stage.items.handles, staged: stage.items.staged })
-      // page links come back as what a person makes (agent/links.ts — as the terminal's and an append's writes)
-      replaceWith = withPageNodes(settled.doc, linkTarget)
-      replaced = settled.report
-    } catch (e) {
-      if (e instanceof SettleRefusal) throw new McpToolError(mcpMessage(`${e.message} Nothing was changed.`))
-      throw e
-    }
+    // the settle gate reads other pages' tasks as the person's context marks allow (limits.ts, as append's stageWith): a
+    // task in an excluded block is no link target and never named in a refusal
+    const settled = withReadLimit(mcpReadLimit, () => {
+      try {
+        return claudeSettled(markdown, webImagesOf(page.content), { source: 'mcp', creates: true, strict: true, known: page.content, pageId: page.id, private: priv, me: true, existing: 'copy', handles: stage.items.handles, staged: stage.items.staged, readLimit: currentReadLimit() })
+      } catch (e) {
+        if (e instanceof SettleRefusal) throw new McpToolError(mcpMessage(`${e.message} Nothing was changed.`))
+        throw e
+      }
+    })
+    // page links come back as what a person makes (agent/links.ts — as the terminal's and an append's writes)
+    replaceWith = withPageNodes(settled.doc, linkTarget)
+    replaced = settled.report
     // the replace is no staged change: its new tasks are the call's own (a folded update may link them)
     const staging: ItemStaging = { items: undefined, lines: [], blocks: replaced.blocks, needs: [], report: replaced, target: { pageId: page.id, private: priv } }
     registerItems(stage.items, '', staging)
@@ -111,7 +126,7 @@ function planUpdatePage(args: Record<string, unknown>): WritePlan {
     for (const f of [...replaced.created, ...replaced.kept, ...replaced.removed]) lines.push(itemLine(f, f.tag === 'kept' && ignored.has(f.title) ? t('features.workItems.settle.fields', { task: f.title, value: '' }) : undefined))
     for (const w of replaced.warnings) if (w.code !== 'fields') lines.push({ k: 'note', value: t(`features.workItems.settle.${w.code}`, { value: w.value ?? '', task: w.task }) })
     // Blocks: onto existing tasks — folded into this call (same card, same approval), applied after the replace
-    stageBlocks(stage, { id: '', n: 0, kind: 'append', status: 'pending', pageId: page.id }, staging)
+    withReadLimit(mcpReadLimit, () => stageBlocks(stage, { id: '', n: 0, kind: 'append', status: 'pending', pageId: page.id }, staging))
     // a folded change onto a task that lives in One's own databases: refused like a direct one
     assertStageWritable(stage.changes)
     lines.push({ k: 'note', value: t('features.mcp.plan.historyNote') })
@@ -121,6 +136,17 @@ function planUpdatePage(args: Record<string, unknown>): WritePlan {
   const items = itemPlan(stage.changes, replaced ? holdsOfReport(replaced) : [])
   lines.push(...items.lines)
   const holds = items.holds
+  // a database row: a rename is a change of its title property (automations and agents watching it), a new text fills
+  // its auto-filling properties again — named on the card, as one_update_row does (rows.ts sideEffects, sideHold)
+  const rowDb = page.databaseId ? ws().databases[page.databaseId] : undefined
+  const sides: SideEffects[] = []
+  if (rowDb && changed.includes('title')) {
+    const titleId = titlePropId(rowDb)
+    sides.push(sideEffects(rowDb, 1, { props: new Set(titleId ? [titleId] : []) }))
+  } else if (rowDb && changed.includes('content')) sides.push(sideEffects(rowDb, 1, { text: true, props: new Set() }))
+  const side = sideHold(sides)
+  for (const s of sides) lines.push(...s.lines)
+  lines.push(...side.lines)
   const created = [...(replaced?.created.map((f) => ({ id: f.itemId, title: f.title, ...(f.handle ? { handle: f.handle } : {}) })) ?? []), ...items.created]
   const result = () => ({ id: page.id, title: ws().pages[page.id]?.title ?? page.title, url: pageUrl(page.id), changed, ...(markdown !== null ? { content: mode } : {}), ...tasksOf(created) })
   return {
@@ -129,7 +155,7 @@ function planUpdatePage(args: Record<string, unknown>): WritePlan {
     summary: replaceWith ? t('features.mcp.sum.replacePage', { title: name }) : t('features.mcp.sum.updatePage', { title: name }),
     target: name,
     lines,
-    ...(holds.length ? { alwaysAsk: true } : {}),
+    ...(holds.length || side.alwaysAsk ? { alwaysAsk: true } : {}),
     noop: changed.length ? undefined : { id: page.id, title: page.title, url: pageUrl(page.id), changed: [], note: 'No change: the page already looks like that.' },
     async apply(writer) {
       if (!live(page.id)) throw new McpToolError(mcpError('not_found', 'id', `${q(name)} is gone (deleted or in the trash) since the call was made`))
@@ -139,6 +165,8 @@ function planUpdatePage(args: Record<string, unknown>): WritePlan {
         // now: nothing is replaced — the client reads it again and calls again
         const taken = replaced?.ids.some((id) => getItemIndex().everywhere.has(id))
         if (ws().pages[page.id]?.contentRev !== rev || taken) throw new McpToolError(mcpError('page_changed', 'id', `${q(name)} changed while this call waited`, 'Read it again with one_get_page and call again.'))
+        // the person marked what Claude may read while the card waited
+        if (isContextLimited(page.id)) throw new McpToolError(limitedReplace('mode'))
         // the replace FIRST (its new tasks exist before a folded change links them), then the rest; one rollback
         await snapshotNow(page.id, 'ai')
         const prev = ws().pages[page.id]?.content ?? null

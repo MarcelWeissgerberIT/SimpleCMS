@@ -16,9 +16,15 @@ export const ws = () => useWorkspace.getState()
 /** A tool call the agent has to fix: the message goes back as the tool error. */
 /** A refusal of a tool call: it always starts with a code (shared/mcp/errors.ts withCode — spec § 2.0). */
 export class McpToolError extends Error {
-  constructor(message: string) {
+  /**
+   * The call wrote part of what it meant to before it stopped (a script run that stopped mid-way): its message says what
+   * stays and what to do — no "Nothing was changed … call again" is added to it (service.ts fail, withRemedy).
+   */
+  readonly partial: boolean
+  constructor(message: string, opts: { partial?: boolean } = {}) {
     super(withCode(message))
     this.name = 'McpToolError'
+    this.partial = !!opts.partial
   }
 }
 

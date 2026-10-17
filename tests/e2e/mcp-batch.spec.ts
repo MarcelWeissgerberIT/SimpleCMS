@@ -643,6 +643,138 @@ test("one_create_database's Undo leaves what changed since alone: an edited row 
   expect(await wsEval(page, (s, a: { id: string; projects: string; reverse: string }) => [!!s.pages[a.id]?.trashed, s.databases[a.projects].properties.some((p: AnyState) => p.id === a.reverse)], { id: clean.id, projects, reverse: cleanReverse })).toEqual([true, false])
 })
 
+test('the Undo of rows and pages a call made compares every value: a row the person changed since stays (kept); an untouched one goes', async ({ page }) => {
+  await openApp(page)
+  const { db } = await cards(page, 0)
+  await connect(page, 'Apply directly')
+  const made = json(await call('one_create_row', { databaseId: db, rows: [{ title: 'Neu 1', properties: { Ticket: 'T-101' } }, { title: 'Neu 2', properties: { Ticket: 'T-102' } }] }))
+  const [edited, clean] = [made.rows[0].id as string, made.rows[1].id as string]
+  // the person moves "Neu 1" to Done and fills its empty Owner
+  await wsEval(page, (s, id) => {
+    s.setRowProperty(id, 'c-status', 's-done')
+    s.setRowProperty(id, 'c-owner', 'Mara Lind')
+  }, edited)
+  await flush(page)
+  await undoLast(page, 'one_create_row')
+  await expect(page.getByText('Undone — parts edited since were kept')).toBeVisible()
+  expect(await wsEval(page, (s, a: { edited: string; clean: string }) => [!!s.pages[a.edited]?.trashed, s.pages[a.edited]?.properties['c-owner'], !!s.pages[a.clean]?.trashed], { edited, clean })).toEqual([false, 'Mara Lind', true])
+  // a row one_upsert_rows made: the same
+  const up = json(await call('one_upsert_rows', { databaseId: db, keyProperty: 'Ticket', rows: [{ key: 'T-300', title: 'Neues Ticket', properties: { Status: 'Doing' } }] }))
+  await wsEval(page, (s, id) => s.setRowProperty(id, 'c-owner', 'Tessera'), up.rows[0].id)
+  await flush(page)
+  await undoLast(page, 'one_upsert_rows')
+  expect(await wsEval(page, (s, id) => [!!s.pages[id]?.trashed, s.pages[id]?.properties['c-owner']], up.rows[0].id)).toEqual([false, 'Tessera'])
+  // a row the person moved into another database since: kept where it is
+  const other = await wsEval(page, (s) => s.createDatabase({ title: 'Archiv', properties: [{ id: 'a-title', name: 'Name', type: 'title' }] }))
+  const moved = json(await call('one_create_row', { databaseId: db, title: 'Wandert', properties: { Ticket: 'T-500' } }))
+  await wsEval(page, (s, a: { id: string; to: string }) => s.updatePage(a.id, { databaseId: a.to, parentId: a.to }), { id: moved.id, to: other })
+  await flush(page)
+  await undoLast(page, 'one_create_row')
+  expect(await wsEval(page, (s, id) => !!s.pages[id]?.trashed, moved.id)).toBe(false)
+})
+
+test('a failed call takes back what it made for good: nothing of it waits in the trash ("Nothing was changed" is true)', async ({ page }) => {
+  await openApp(page)
+  const db = await wsEval(page, (s) => s.createDatabase({ title: 'Tickets', properties: [{ id: 't-title', name: 'Name', type: 'title' }, { id: 't-key', name: 'Ticket', type: 'text', key: true }] }))
+  await flush(page)
+  await connect(page, 'Ask first')
+  const pending = call('one_create_row', { databaseId: db, rows: [{ title: 'Neu A', properties: { Ticket: 'T-1' } }, { title: 'Neu B', properties: { Ticket: 'T-2' } }] })
+  const card = page.getByRole('alertdialog')
+  await expect(card).toBeVisible()
+  // while the card waits, the person makes a row with the key T-2
+  await wsEval(page, (a: AnyState, db) => a.createRow(db, { title: 'Hand-made', properties: { 't-key': 'T-2' } }), db)
+  await flush(page)
+  await card.getByRole('button', { name: /Approve/ }).click()
+  const r = await pending
+  expect(r.isError).toBe(true)
+  expect(text(r)).toMatch(/Nothing was changed/)
+  const rows = await wsEval(page, (s, db) => Object.values(s.pages as Record<string, AnyState>).filter((p: AnyState) => p.databaseId === db).map((p: AnyState) => `${p.title}${p.trashed ? ':trash' : ''}`).sort(), db)
+  expect(rows).toEqual(['Hand-made'])
+})
+
+test("the Undo takes back only the call's own block or link from a page the person wrote in since — never a block left pointing into the trash", async ({ page }) => {
+  await openApp(page)
+  const host = await wsEval(page, (s) => {
+    const id = s.createPage({ title: 'Launch plan' })
+    s.setContent(id, { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'lp-0001-intro' }, content: [{ type: 'text', text: 'Intro.' }] }] }, 'e2e')
+    return id
+  })
+  await flush(page)
+  await connect(page, 'Apply directly')
+  const types = async (id: string) => ((await contentOf(page, id))?.content ?? []).map((b) => (b.type === 'databaseBlock' || b.type === 'pageLink' ? `${b.type}:${b.attrs?.databaseId ?? b.attrs?.pageId}` : (b.content ?? []).map((x) => x.text ?? x.type).join('')))
+  // an inline board; the person adds a paragraph to the page; Undo: the board and its block go, the paragraph stays
+  const sprint = json(await call('one_create_database', { title: 'Sprint', inline: { pageId: host }, views: [{ type: 'board' }], rows: [{ title: 'Kick-off' }] }))
+  await wsEval(page, (s, id) => {
+    const c = s.pages[id].content
+    s.setContent(id, { ...c, content: [...c.content, { type: 'paragraph', content: [{ type: 'text', text: 'Typed by Mara.' }] }] }, 'e2e')
+  }, host)
+  await flush(page)
+  expect(await types(host)).toEqual(['Intro.', `databaseBlock:${sprint.id}`, 'Typed by Mara.'])
+  await undoLast(page, 'one_create_database')
+  expect(await wsEval(page, (s, id) => !!s.pages[id]?.trashed, sprint.id)).toBe(true)
+  expect(await types(host)).toEqual(['Intro.', 'Typed by Mara.'])
+  // a sub-page linked in its parent; the person writes in the parent; Undo: the page and its link go, the text stays
+  const sub = json(await call('one_create_page', { title: 'Checkliste', parentId: host, linkInParent: 'block' }))
+  await wsEval(page, (s, id) => {
+    const c = s.pages[id].content
+    s.setContent(id, { ...c, content: [...c.content, { type: 'paragraph', content: [{ type: 'text', text: 'More by Mara.' }] }] }, 'e2e')
+  }, host)
+  await flush(page)
+  expect(await types(host)).toEqual(['Intro.', 'Typed by Mara.', `pageLink:${sub.id}`, 'More by Mara.'])
+  await undoLast(page, 'one_create_page')
+  expect(await wsEval(page, (s, id) => !!s.pages[id]?.trashed, sub.id)).toBe(true)
+  expect(await types(host)).toEqual(['Intro.', 'Typed by Mara.', 'More by Mara.'])
+  // a linked sub-page the person wrote into stays — and so does its link
+  const kept = json(await call('one_create_page', { title: 'Notizen', parentId: host, linkInParent: 'mention' }))
+  await wsEval(page, (s, a: { host: string; kept: string }) => {
+    s.setContent(a.kept, { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Her notes.' }] }] }, 'e2e')
+    const c = s.pages[a.host].content
+    s.setContent(a.host, { ...c, content: [...c.content, { type: 'paragraph', content: [{ type: 'text', text: 'Last line.' }] }] }, 'e2e')
+  }, { host, kept: kept.id })
+  await flush(page)
+  await undoLast(page, 'one_create_page')
+  expect(await wsEval(page, (s, id) => !!s.pages[id]?.trashed, kept.id)).toBe(false)
+  expect(await wsEval(page, (s, a: { host: string; kept: string }) => JSON.stringify(s.pages[a.host].content).includes(a.kept), { host, kept: kept.id })).toBe(true)
+})
+
+test('a moved row and a renamed row name what they start: the target database\'s automations, a watched title', async ({ page }) => {
+  await openApp(page)
+  const ids = await wsEval(page, (s) => {
+    const inbox = s.createDatabase({ title: 'Eingang', properties: [{ id: 'i-title', name: 'Name', type: 'title' }, { id: 'i-owner', name: 'Owner', type: 'text' }] })
+    const archive = s.createDatabase({ title: 'Archiv', properties: [{ id: 'a-title', name: 'Name', type: 'title' }, { id: 'a-owner', name: 'Owner', type: 'text' }, { id: 'a-flag', name: 'Flag', type: 'text' }] })
+    const auto = (id: string, name: string, propertyId: string | null, action: AnyState) => ({ id, name, enabled: true, trigger: { type: 'property_changed', propertyId }, actions: [action], lastRunAt: null, lastStatus: null, lastMessage: null })
+    s.updateDatabase(inbox, { automations: [auto('au-title', 'Flag on rename', 'i-title', { type: 'run_script', scriptId: null })] })
+    s.updateDatabase(archive, { automations: [auto('au-owner', 'Flag on owner', 'a-owner', { type: 'set_property', propertyId: 'a-flag', value: 'fired' })] })
+    const row = s.createRow(inbox, { title: 'Kunde ruft an', properties: { 'i-owner': 'Tessera' } })
+    const row2 = s.createRow(inbox, { title: 'Alter Name' })
+    return { inbox, archive, row, row2 }
+  })
+  await flush(page)
+  await connect(page, 'Ask first')
+  const card = page.getByRole('alertdialog')
+  // a rename through one_update_page: the title's automation, as one_update_row names it
+  let pending = call('one_update_page', { id: ids.row2, title: 'Neuer Name' })
+  await expect(card).toBeVisible()
+  await expect(card.locator('.mcp-line', { hasText: 'Starts' })).toContainText('Flag on rename')
+  await page.keyboard.press('Escape')
+  await pending
+  await expect(card).toHaveCount(0)
+  // a text written into the row starts no property automation
+  pending = call('one_update_page', { id: ids.row2, markdown: 'Notes.' })
+  await expect(card).toBeVisible()
+  await expect(card.locator('.mcp-line', { hasText: 'Starts' })).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await pending
+  await expect(card).toHaveCount(0)
+  // a move into the archive: its owner automation sees the value land
+  pending = call('one_move_row', { id: ids.row, databaseId: ids.archive })
+  await expect(card).toBeVisible()
+  await expect(card.locator('.mcp-line', { hasText: 'Starts' })).toContainText('Flag on owner')
+  await card.getByRole('button', { name: /Approve/ }).click()
+  json(await pending)
+  await expect.poll(() => wsEval(page, (s, id) => s.pages[id].properties['a-flag'] ?? null, ids.row), { timeout: 8000 }).toBe('fired')
+})
+
 test('inline.afterBlock naming a block INSIDE a column: bad_argument with its top-level ref, never a stale_ref loop', async ({ page }) => {
   await openApp(page)
   const host = await wsEval(page, (s) => {

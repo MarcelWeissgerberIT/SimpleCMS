@@ -23,6 +23,8 @@ import { assertNotSystem } from './system'
 import { iconText, live, McpToolError, pageUrl, pathOf, propertyJson, q, titleOf, ws } from './values'
 import { atPath, chars, checkFileScope, cleanName, eachEntry, pageOrThrow, parseIcon, str, tasksOf, type PlanLine, type WritePlan } from './plan'
 import { mcpStatusOptions, propertySpec } from './schema'
+import { mcpReadableTop } from './limits'
+import { withoutNodes } from './undoNodes'
 import { bodyLine, checkFiles, rowFacts, rowNo, splitTitle } from './rows'
 import { layoutName, viewChange } from './structure'
 import { withWriter } from '../../store/writer'
@@ -41,8 +43,15 @@ function blockIndex(page: Page, raw: unknown, path: string): number {
   const ref = parseRef(raw)
   if (!ref) throw new McpToolError(mcpError('bad_argument', path, `${q(String(raw).slice(0, 60))} is no block ref ("#<id>~<hash>" or "@<index>" from one_get_page)`))
   const blocks = page.content?.content ?? []
+  // the person's context marks: a block Claude may not read is no place for a database, and its ref now (its content
+  // hash) is never said — the hash would confirm a guess of the hidden text
+  const readable = mcpReadableTop(page.id, blocks)
+  const readableOrRefuse = (i: number): void => {
+    if (readable && !readable.has(i)) throw new McpToolError(mcpError('rejected', path, `${q(String(raw))} is not readable — the person limited what you may read on this page (context marks)`, 'Pass the ref of a block you read, or ask the person.'))
+  }
   // the block must still hold what the read saw (when the ref carries its content hash)
   const unchanged = (i: number): number => {
+    readableOrRefuse(i)
     if (ref.hash && blockHash(blocks[i] as PMJson) !== ref.hash)
       throw new McpToolError(mcpError('stale_ref', path, `${q(String(raw))} changed since the read (it is ${refNow(page.content, i)} now)`, 'Read the page again (one_get_page { format: "blocks" }) and pass the block\'s ref from there.'))
     return i
@@ -51,6 +60,7 @@ function blockIndex(page: Page, raw: unknown, path: string): number {
   const nested = (): void => {
     const top = nestedTopLevel((page.content ?? { type: 'doc' }) as PMJson, ref)
     if (top === null) return
+    readableOrRefuse(top)
     const outer = refNow(page.content, top)
     throw new McpToolError(mcpError('bad_argument', path, `${q(String(raw))} is a block inside another one (${outer}): a database goes between top-level blocks`, `Pass the ref of its top-level block, ${outer}, to place it after that whole block.`))
   }
@@ -308,6 +318,14 @@ export function planCreateDatabase(args: Record<string, unknown>): WritePlan {
     async apply(writer) {
       if (parent && !live(parent.id)) throw new McpToolError(mcpError('not_found', inline ? 'inline.pageId' : 'parentId', `${q(titleOf(parent))} is gone (deleted or in the trash) since the call was made`))
       if (inline && ws().pages[parent!.id]?.settings.locked) throw new McpToolError(mcpError('locked', 'inline.pageId', `${q(titleOf(parent!))} was locked meanwhile`))
+      // the person marked what Claude may read while the card waited: the block named must still be readable
+      if (inline && inline.at !== null) {
+        const blocksNow = ws().pages[parent!.id]?.content?.content ?? []
+        const anchor = parent!.content?.content?.[inline.at]?.attrs?.id
+        const i = typeof anchor === 'string' && anchor ? blocksNow.findIndex((b) => b.attrs?.id === anchor) : inline.at
+        const readable = mcpReadableTop(parent!.id, blocksNow)
+        if (readable && i >= 0 && !readable.has(i)) throw new McpToolError(mcpError('rejected', 'inline.afterBlock', 'The block named is not readable — the person limited what you may read on this page (context marks)', 'Pass the ref of a block you read, or ask the person.'))
+      }
       // the reverse sides of two-way relations live on the related databases
       const reverses = withWriter(writer, () => {
         ws().createDatabase({ id, title, parentId: parent?.id ?? null, properties: props, ...(views ? { views } : {}), ...(icon ? { icon } : {}), ...(inline ? { inline: true } : {}) })
@@ -332,10 +350,19 @@ export function planCreateDatabase(args: Record<string, unknown>): WritePlan {
         withWriter(writer, () => ws().setContent(pageId, { type: 'doc', content: blocks }, 'ai'))
         const rev = ws().pages[pageId]?.contentRev
         const key = contentKey(ws().pages[pageId]?.content)
+        const ownBlock = blockId
         undos.push(() => {
           const now = ws().pages[pageId]
-          if (!now || (now.contentRev !== rev && contentKey(now.content) !== key)) return false
-          ws().setContent(pageId, prev, 'ai')
+          // the page deleted for good: the block went with it
+          if (!now) return true
+          if (now.contentRev === rev || contentKey(now.content) === key) {
+            ws().setContent(pageId, prev, 'ai')
+            return true
+          }
+          // the person wrote in the page since: only the call's own block goes — their edits stay, and no block is left
+          // pointing at a database in the trash
+          const next = withoutNodes(now.content, (n) => n.type === 'databaseBlock' && n.attrs?.id === ownBlock)
+          if (next) ws().setContent(pageId, next, 'ai')
           return true
         })
       }

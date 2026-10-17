@@ -116,8 +116,11 @@ pages and databases it made, a content fragment before a replace or an appended 
 and `after_hash`, the content document's state vector right after the call (a restore refuses `changed_since` when it
 moved). `sealed` is AES-256-GCM with the workspace's key (AAD `mcp-preimage\n<workspace>\n<id>`); kept 14 days
 (housekeeping's `purgeExpired`), `ON DELETE CASCADE` from `workspaces`. REST API writes keep none. A made page or
-row carries the state hash of its content document right after the call (`hash`): a restore trashes it only while
-that hash, its title, its values and the pages below it are as the call left them — else it is kept and named. Each
+row carries the state hash of its content document right after the call (`hash`) and `mark`, a fingerprint of what
+else people change on it (icon, cover, comment threads; a database's properties and views, taken after its rows): a
+restore trashes it only while that hash, the mark, its title, its whole stored values (a field filled in since that was
+empty counts) and the pages below it are as the call left them — else it is kept and named, and a made page above a
+kept one is kept with it (never trashed with it). Pre-images from before `mark` skip that one check. Each
 part is restored once: a restore that kept something stores (sealed again) which of its things went back (`done`) and
 sets `restored_at` only when the whole part went back; a content part is marked restored as soon as its text is
 written back, so a retry never compares against its own write. A call counts as restored (`mcp-calls.restoredAt`)

@@ -22,6 +22,7 @@ import { atPath, chars, checkFileScope, pageOrThrow, parseIcon, preview, str, ta
 import { withWriter } from '../../store/writer'
 import { bodyLine, rowNo } from './rows'
 import { stripRefLabels } from '../../../shared/mcp/refs'
+import { withoutNodes } from './undoNodes'
 
 type Parent = { kind: 'none' } | { kind: 'page'; page: Page } | { kind: 'batch'; index: number }
 
@@ -230,6 +231,8 @@ export function planCreatePage(args: Record<string, unknown>): WritePlan {
       // every page staged — their tasks settled again, their parents first (applyOrder)
       const { undo: stagedUndo } = await applyStaged(stage.changes, writer)
       const undos: Array<() => boolean> = []
+      /** the links written into each parent's text (linkInParent): the text before, its revision and key after */
+      const links: Array<{ parentId: ID; prev: JSONContent | null | undefined; rev: number | undefined; key: string; kids: ID[] }> = []
       // icons, then the place of a single page (both taken back first by the Undo, so the pages read as made)
       withWriter(writer, () => {
         items.forEach((it, i) => {
@@ -264,12 +267,7 @@ export function planCreatePage(args: Record<string, unknown>): WritePlan {
           withWriter(writer, () => ws().setContent(parentId, { type: 'doc', content: isEmptyDoc(prev) ? add : [...(prev?.content ?? []), ...add] }, 'ai'))
           const rev = ws().pages[parentId]?.contentRev
           const key = contentKey(ws().pages[parentId]?.content)
-          undos.push(() => {
-            const now = ws().pages[parentId]
-            if (!now || (now.contentRev !== rev && contentKey(now.content) !== key)) return false
-            ws().setContent(parentId, prev, 'ai')
-            return true
-          })
+          links.push({ parentId, prev, rev, key, kids: kids.map((i) => ids[i]!) })
         }
       }
       const result = batch
@@ -277,8 +275,36 @@ export function planCreatePage(args: Record<string, unknown>): WritePlan {
         : { id: ids[0]!, title: items[0]!.title, url: pageUrl(ids[0]!), parentId: parentIdOf(0), path: pathOf(ids[0]!), ...(priv[0] ? { private: true } : {}), ...tasksOf(tasks.created) }
       return {
         result: note ? { ...result, note } : result,
-        // links and icons first, then the pages (each to the trash while nobody changed it since — stage.ts)
-        undo: () => [...undos.reverse().map((u) => u()), stagedUndo()].every(Boolean),
+        // icons and the links of a parent nobody wrote in since first (its text as it was), then the pages (each to the
+        // trash while nobody changed it since — stage.ts); in a parent someone wrote in since, only the call's links to
+        // pages that went to the trash go after that — their edits stay, a link to a page kept stays with it
+        undo: () => {
+          const later: typeof links = []
+          const first = links.map((l) => {
+            const now = ws().pages[l.parentId]
+            if (!now) return true
+            if (now.contentRev === l.rev || contentKey(now.content) === l.key) {
+              ws().setContent(l.parentId, l.prev ?? null, 'ai')
+              return true
+            }
+            later.push(l)
+            return true
+          })
+          const ok = [...undos.reverse().map((u) => u()), ...first, stagedUndo()]
+          for (const l of later) {
+            const gone = new Set(l.kids.filter((id) => !live(id)))
+            if (!gone.size) continue
+            // the call's own shapes: a page link block, a line holding only the page's mention
+            const own = (n: JSONContent) => {
+              if (n.type === 'pageLink') return gone.has(n.attrs?.pageId)
+              const only = n.type === 'paragraph' && n.content?.length === 1 ? n.content[0]! : null
+              return !!only && only.type === 'mention' && only.attrs?.kind === 'page' && gone.has(only.attrs?.id)
+            }
+            const next = withoutNodes(ws().pages[l.parentId]?.content, own)
+            if (next) ws().setContent(l.parentId, next, 'ai')
+          }
+          return ok.every(Boolean)
+        },
       }
     },
   }

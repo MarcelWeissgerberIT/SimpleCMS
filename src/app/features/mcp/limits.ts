@@ -6,7 +6,9 @@
  *    in an excluded block is neither listed, nor resolved, nor named.
  *  - mcpPageText(id): what a One Script run started over MCP gets from a page's `.markdown` / `.text` (one_run_query,
  *    one_run_script — RunOptions.textLimit): only the readable blocks.
- * Both are null for a page without marks (all of it).
+ *  - mcpReadableTop(id, blocks): the indexes of the top-level blocks that may be read — a tool that takes a block by its
+ *    ref (one_create_database inline.afterBlock) refuses any other one and never names its ref now.
+ * All are null for a page without marks (all of it).
  */
 import type { JSONContent } from '@tiptap/core'
 import type { ID } from '../../store/types'
@@ -31,4 +33,15 @@ export function mcpPageText(id: ID): { markdown: string; plain: string } | null 
   const blocks = readableBlocks(id)
   if (!blocks.length) return { markdown: '', plain: '' }
   return { markdown: docToMarkdown(stripPrivate({ type: 'doc', content: blocks })).trim(), plain: readableContent(id).plain }
+}
+
+/** The indexes of a page's top-level blocks the person lets Claude read (null: no marks — every block). */
+export function mcpReadableTop(id: ID, blocks: readonly JSONContent[]): Set<number> | null {
+  if (!isContextLimited(id)) return null
+  const ids = new Set(idsOf(readableBlocks(id)))
+  const keep = new Set<number>()
+  blocks.forEach((b, i) => {
+    if (typeof b.attrs?.id === 'string' && ids.has(b.attrs.id)) keep.add(i)
+  })
+  return keep
 }

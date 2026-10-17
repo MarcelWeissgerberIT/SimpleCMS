@@ -51,11 +51,15 @@ export interface HostOptions {
   textLimit?: ((id: ID) => { markdown: string; plain: string } | null) | null
 }
 
-/** What a write of a run touches, for a caller's rule (RunOptions.writeGuard): the page, its database, a new page's parent. */
+/**
+ * What a write of a run touches, for a caller's rule (RunOptions.writeGuard): the page, its database, a new page's parent;
+ * `tree`: the write takes the page's whole subtree along (the trash) — what lies below it counts too.
+ */
 export interface WriteTarget {
   pageId?: ID | null
   dbId?: ID | null
   parentId?: ID | null
+  tree?: boolean
 }
 
 const EFFECT_KIND: Record<EffectName, EffectKind> = { 'mail.send': 'mail', claude: 'claude', 'http.post': 'http' }
@@ -416,7 +420,8 @@ export class Host {
   /** Move a page / row to the trash (asked like an effect in a run; Undo restores it). */
   async trash(page: Page): Promise<boolean> {
     this.guard('trash()')
-    if (!this.isDraft(page.id)) this.check({ pageId: page.id, dbId: page.databaseId })
+    // the trash takes everything below the page along (a database of One's own under it too)
+    if (!this.isDraft(page.id)) this.check({ pageId: page.id, dbId: page.databaseId, tree: true })
     const label = page.title.trim() || '—'
     const allowed = await this.allow('trash', label)
     if (!allowed) {

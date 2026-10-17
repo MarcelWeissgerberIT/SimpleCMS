@@ -162,7 +162,10 @@ out), and a tool takes **only** the arguments it declares: anything else is refu
   read a page's `.markdown` / `.text` only from those blocks; `one_list_work_items` lists no task in an excluded block,
   `one_update_work_item` refuses one as unknown, and a listed task's link to one carries no title) —
   their text, block data, files and comment threads; `limited: { blocks, files, comments, note }` counts what was left
-  out.
+  out. Writes respect them too: `one_update_page { mode: "replace" }` of a page with marks is refused (`rejected` — it
+  would overwrite blocks Claude may not read; an append stays allowed), a replace's task links resolve only in what may
+  be read (an excluded task is no link target and never named), and `one_create_database { inline: { afterBlock } }`
+  refuses a block that may not be read without ever saying its ref (its content hash).
 - `one_list_pages` lists pages and databases (and rows on request) in sidebar order — shared before private, never
   templates or hidden pages; S never lists private pages.
 
@@ -195,9 +198,13 @@ out), and a tool takes **only** the arguments it declares: anything else is refu
   (autofill that updates by itself, a webhook or script automation, a row-triggered agent) add up to **5 or more** —
   new and changed rows together, over every database it touches, a new title counting as a change of the title
   property — is **always asked**, also in *Apply directly*. The card fits the screen: its lines scroll, the summary and
-  the keys stay in view. **Undo** puts what the call made into the trash while nobody changed it since (changed pages
-  and rows are kept), and sets changed values back unless they were changed again; a database the call made stays
-  (with everything in it, its block and any reverse relation) once someone added a row or changed one of its rows.
+  the keys stay in view. **Undo** puts what the call made into the trash while nobody changed it since (a page or row
+  whose text, title, icon, any value — also one filled into an empty field — or place changed, or that got a page
+  below it, is kept), and sets changed values back unless they were changed again; a database the call made stays
+  (with everything in it, its block and any reverse relation) once someone added a row or changed one of its rows. In
+  a page the person wrote in since, the Undo takes out only the call's own database block or page link (never leaving
+  one that points into the trash). A call that fails as a whole takes back what it made for good — nothing of it waits
+  in the trash.
 - **Files values** (`files` properties) take only `onefile:` refs of this workspace that a live page uses — never a web
   address (`refused_type`), never a private file into a shared row (`private_scope`).
 
@@ -316,7 +323,10 @@ The tools that delete, adjust, create and reorganise follow the same rules on bo
 - **Not offered:** turning a page into a database entry or back (the sidebar's drops — they ask the person on the
   way), and, in a team workspace, moving between *Private* and the workspace. Both stay in the app.
 - **What they start.** Rows going to the trash start their *row deleted* automations; a property change or delete that
-  clears values starts *property changed* automations and autofill on those rows. The card names it (*Starts: …*) and
+  clears values starts *property changed* automations and autofill on those rows; a row moved with `one_move_row`
+  starts the target database's *property changed* automations, row-triggered agents and autofill (its values land
+  there), and `one_update_page` on a row names what a rename starts (the title property) and the autofill its text
+  feeds. The card names it (*Starts: …*) and
   5 or more such rows that start paid AI work or send something out of One are **always asked**, also in *Apply
   directly* — as for row batches.
 - **Safety.** The destructive tools (`one_trash_page`, `one_delete_property`, `one_update_property`, `one_delete_view`)
@@ -372,12 +382,15 @@ team server does not have these two tools — its workspace model would need the
   description carries the language reference.
 - **`one_run_script`** runs a saved script (by id or exact name; `one_overview` lists them). The tab dry-runs it
   first (the script's dialogs answer their defaults, nothing happens) and shows the result on the approval card —
-  every change (*Change · Angebot schreiben · Aufgaben — Priorität: Niedrig → Hoch*) and effect (*Mail · to …*). It is
-  **always asked**, also in *Apply directly*; *Read only* refuses it. Approved, it runs with the app's dialogs: the
-  list of effects the card showed is not asked again, anything else (a web request — off unless ticked —, something
-  the dry run did not show, the script's own questions) is asked in the app. The answer lists the changes, effects,
-  printed lines and the result; the activity log has **Undo** (the script's own undo of the run). `dryRun: true`
-  answers the dry run without asking; a saved *query* answers at once.
+  **every** change (*Change · Angebot schreiben · Aufgaben — Priorität: Niedrig → Hoch*) and effect (*Mail · to …*),
+  each an entry of its scroll region (never "+ n more"; beyond 500 of a kind the rest is asked in One's own dialog). It
+  is **always asked**, also in *Apply directly*; *Read only* refuses it. Approved, it runs with the app's dialogs: the
+  effects and trash the card listed are not asked again, anything else (a web request — off unless ticked —, something
+  the dry run did not show, the script's own questions) is asked in the app. A run never trashes a page holding one of
+  One's own databases. The answer lists the changes, effects, printed lines and the result; the activity log has
+  **Undo** (the script's own undo of the run). A run that stops after it changed something says what stays and not to
+  call again (never "Nothing was changed"). `dryRun: true` answers the dry run without asking; a saved *query* answers
+  at once.
 
 ## Coding tasks (one-worker)
 
@@ -743,9 +756,10 @@ API writes keep none.
 tool in words, the token, what it made and changed, the first titles, its age — each with **Restore**:
 
 - made pages, databases and rows go to the **trash** (rows of a made database go along with it) — **only while nobody
-  changed them since**: a made page whose text someone wrote into, or below which someone put a page, a made row
-  changed since, a made database that someone added a row to or whose rows changed is **kept and named** (*Restore
-  anyway* trashes it too);
+  changed them since**: a made page whose text, title, icon, cover or comment threads someone changed, or below which
+  someone put a page, a made row whose title, text or any stored value changed (a field filled in that was empty too),
+  a made database that someone added a row to, whose rows changed or whose properties or views changed, and a made page
+  above one that is kept is **kept and named** (*Restore anyway* trashes it too);
 - each changed field goes back **while it still holds what the call wrote** — a field someone changed since is kept and
   named (*Restore anyway* puts it back too); a two-way relation goes back on both sides (its partner rows are set as
   the app sets them);

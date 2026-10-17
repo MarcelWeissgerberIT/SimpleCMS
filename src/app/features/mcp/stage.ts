@@ -117,8 +117,9 @@ export async function applyStaged(changes: StagedChange[], writer: Writer): Prom
   // the Undo leaves what someone changed since alone and puts what the call made into the trash (spec § 3.2)
   const res = await applyChanges(changes, changes, (id) => id, { writer, undoCreated: 'trash' })
   if (res.failed.length) {
-    // the call takes back what it wrote (its own rollback)
-    withWriter(writer, () => res.undo())
+    // the call takes back what it wrote (its own rollback): what it made is deleted for good, never left in the trash —
+    // the client is told nothing was changed
+    withWriter(writer, () => res.rollback())
     throw new McpToolError(`Nothing was changed: ${res.failed.map((f) => f.error).join('; ')}.`)
   }
   return { rowIds: res.rowIds, undo: () => res.undo().kept.length === 0 }

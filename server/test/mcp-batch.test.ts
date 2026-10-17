@@ -640,6 +640,104 @@ describe('Restore puts back only what nobody changed since — made pages, board
     assert.equal(props('tk-3').get('k-note'), 'Mara wrote this later')
     assert.equal(yp('tk-3').get('title'), 'Ticket 3 (renamed by Mara)')
   })
+
+  /* review 3: what "changed since" covers — every stored value, icon / cover / comments, a database's schema, kept children */
+
+  test('a made row a member filled an EMPTY field of since stays (named in kept); its untouched sibling goes; force takes it too', async () => {
+    const out = await call(writer, 'one_create_row', { databaseId: 'db-keyed', rows: [{ title: 'Card from Claude', properties: { Ticket: 'K-9' } }, { title: 'Untouched card', properties: { Ticket: 'K-10' } }] })
+    const [filled, untouched] = [out.rows[0].id as string, out.rows[1].id as string]
+    await waitFor(() => !!yp(filled) && !!yp(untouched), 5000, 'rows arrived')
+    assert.equal(props(filled).get('k-owner'), undefined, 'Owner is empty right after the call')
+    // Mara fills the field that was empty
+    meta.doc.transact(() => props(filled).set('k-owner', 'Mara Lind'))
+    await flushed(meta)
+    const c = (await calls()).find((x) => x.tool === 'one_create_row' && x.titles.includes('Card from Claude'))!
+    const res = await restore(c.callId)
+    assert.equal(res.status, 200, JSON.stringify(res.body))
+    assert.deepEqual(res.body.kept.map((k: { id: string }) => k.id), [filled], 'the filled row is named in kept')
+    await waitFor(() => yp(untouched).get('trashed') === true, 5000, 'the untouched row goes')
+    await sleep(200)
+    assert.notEqual(yp(filled).get('trashed'), true, "Mara's value stays with its row")
+    assert.equal(props(filled).get('k-owner'), 'Mara Lind')
+    assert.equal((await restore(c.callId, true)).status, 200)
+    await waitFor(() => yp(filled).get('trashed') === true, 5000, 'forced into the trash')
+  })
+
+  test('a made page whose icon or comments a member changed since stays (named in kept)', async () => {
+    const iconPage = await call(writer, 'one_create_page', { title: 'Icon page', parentId: 'wiki' })
+    const talkPage = await call(writer, 'one_create_page', { title: 'Talk page', parentId: 'wiki' })
+    await waitFor(() => !!yp(iconPage.id) && !!yp(talkPage.id), 5000, 'pages arrived')
+    meta.doc.transact(() => {
+      yp(iconPage.id).set('icon', { type: 'emoji', value: '📘' })
+      const thread = new Y.Map<unknown>()
+      thread.set('id', 'th-1')
+      thread.set('resolved', false)
+      ;(yp(talkPage.id).get('comments') as Y.Map<unknown>).set('th-1', thread)
+    })
+    await flushed(meta)
+    for (const [made, title] of [[iconPage.id, 'Icon page'], [talkPage.id, 'Talk page']] as const) {
+      const c = (await calls()).find((x) => x.tool === 'one_create_page' && x.titles.includes(title))!
+      const res = await restore(c.callId)
+      assert.equal(res.status, 200, JSON.stringify(res.body))
+      assert.deepEqual(res.body.kept.map((k: { id: string }) => k.id), [made], `${title} is named in kept`)
+      await sleep(150)
+      assert.notEqual(yp(made).get('trashed'), true, `${title} stays`)
+    }
+  })
+
+  test('nested made pages: a sub-page that stays keeps its made parent (and what is below it) out of the trash', async () => {
+    // someone puts their own page under the made sub-page
+    const made = await call(writer, 'one_create_page', { parentId: 'wiki', pages: [{ title: 'Handbuch' }, { title: 'Kapitel 1', parentId: '$0' }, { title: 'Anhang', parentId: '$0' }] })
+    const [parent, child, sibling] = [made.pages[0].id as string, made.pages[1].id as string, made.pages[2].id as string]
+    await waitFor(() => !!yp(parent) && !!yp(child) && !!yp(sibling), 5000, 'pages arrived')
+    meta.doc.transact(() => pages().set('mara-notes', pageEntry({ title: 'Maras Notizen', parentId: child, order: 1 })))
+    await flushed(meta)
+    const c = (await calls()).find((x) => x.tool === 'one_create_page' && x.titles.includes('Handbuch'))!
+    const res = await restore(c.callId)
+    assert.equal(res.status, 200, JSON.stringify(res.body))
+    assert.deepEqual(res.body.kept.map((k: { id: string }) => k.id).sort(), [child, parent].sort(), 'the sub-page and its made parent are kept')
+    await waitFor(() => yp(sibling).get('trashed') === true, 5000, 'the untouched sibling goes')
+    await sleep(200)
+    assert.notEqual(yp(parent).get('trashed'), true, 'the made parent of a kept page stays')
+    assert.notEqual(yp(child).get('trashed'), true)
+    assert.notEqual(yp('mara-notes').get('trashed'), true, "Mara's page stays where it is")
+    // text typed into a made sub-page keeps its parent as well
+    const made2 = await call(writer, 'one_create_page', { parentId: 'wiki', pages: [{ title: 'Leitfaden' }, { title: 'Teil A', parentId: '$0' }] })
+    const [p2, c2] = [made2.pages[0].id as string, made2.pages[1].id as string]
+    await waitFor(() => !!yp(p2) && !!yp(c2), 5000, 'second tree arrived')
+    const d = await doc(`ws:${wsId}:p:${c2}`)
+    d.doc.transact(() => d.doc.getXmlFragment('default').insert(0, [para('Typed by Tessera into the sub-page.', 'blk-tess-sub')]))
+    await flushed(d)
+    const call2 = (await calls()).find((x) => x.tool === 'one_create_page' && x.titles.includes('Leitfaden'))!
+    const res2 = await restore(call2.callId)
+    assert.deepEqual(res2.body.kept.map((k: { id: string }) => k.id).sort(), [c2, p2].sort())
+    await sleep(200)
+    assert.notEqual(yp(p2).get('trashed'), true)
+  })
+
+  test('a made database whose properties or views the team changed since stays (named in kept); force takes it', async () => {
+    const db = await call(writer, 'one_create_database', { title: 'Team Tracker', parentId: 'wiki', properties: [{ name: 'Name', type: 'title' }, { name: 'Status', type: 'status' }] })
+    await waitFor(() => !!yp(db.id), 5000, 'db arrived')
+    const ydb = meta.doc.getMap('databases').get(db.id) as Y.Map<unknown>
+    meta.doc.transact(() => {
+      ;(ydb.get('properties') as Y.Map<unknown>).set('mara-prop', { id: 'mara-prop', name: 'Budget (Mara)', type: 'number', order: 9 })
+      ;(ydb.get('views') as Y.Map<unknown>).set('mara-view', { id: 'mara-view', name: 'Maras Board', type: 'board', filter: null, sorts: [], visibleProperties: [], order: 9 })
+    })
+    await flushed(meta)
+    const c = (await calls()).find((x) => x.tool === 'one_create_database' && x.titles.includes('Team Tracker'))!
+    const res = await restore(c.callId)
+    assert.equal(res.status, 200, JSON.stringify(res.body))
+    assert.deepEqual(res.body.kept.map((k: { id: string }) => k.id), [db.id])
+    await sleep(200)
+    assert.notEqual(yp(db.id).get('trashed'), true, 'the extended board stays')
+    // an untouched database of the same shape goes (the mark is taken after its rows: no false "changed")
+    const other = await call(writer, 'one_create_database', { title: 'Scratch tracker', parentId: 'wiki', properties: [{ name: 'Name', type: 'title' }, { name: 'Tag', type: 'select' }], rows: [{ title: 'One', properties: { Tag: 'new option' } }] })
+    const c2 = (await calls()).find((x) => x.tool === 'one_create_database' && x.titles.includes('Scratch tracker'))!
+    assert.deepEqual((await restore(c2.callId)).body.kept, [])
+    await waitFor(() => yp(other.id).get('trashed') === true, 5000, 'untouched tracker trashed')
+    assert.equal((await restore(c.callId, true)).status, 200)
+    await waitFor(() => yp(db.id).get('trashed') === true, 5000, 'forced into the trash')
+  })
 })
 
 /* ------------------------------------------------------------------ upsert: all or nothing (in process) */

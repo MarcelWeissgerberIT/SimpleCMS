@@ -153,6 +153,12 @@ export interface ApplyResult {
    * `reverted`: of a kept update_row, the properties that did go back (nobody had changed them)
    */
   undo: () => { kept: string[]; reverted: Record<string, ID[]> }
+  /**
+   * the caller's own rollback when the batch as a whole fails (MCP: "Nothing was changed"): as `undo`, but what this
+   * batch created is deleted for good while untouched — never left in the trash, whatever `undoCreated` says (nobody
+   * could have worked with it yet)
+   */
+  rollback: () => { kept: string[]; reverted: Record<string, ID[]> }
   /** what applying left out of a change (the settle gate's apply-time warnings, UI language), by change id */
   notes?: Record<string, string[]>
   /** the page a change really wrote, by change id ('workItem': the task's page now — attribution stamps it) */
@@ -428,30 +434,66 @@ export async function applyChanges(changes: StagedChange[], all: StagedChange[],
     }
     return { kept, reverted }
   }
-  return { applied, failed, rowIds, final, undo, ...(Object.keys(notes).length ? { notes } : {}), pages }
+  const rollback = () => {
+    const prev = rollingBack
+    rollingBack = true
+    try {
+      return undo()
+    } finally {
+      rollingBack = prev
+    }
+  }
+  return { applied, failed, rowIds, final, undo, rollback, ...(Object.keys(notes).length ? { notes } : {}), pages }
+}
+
+/** Set while a batch's own rollback runs (ApplyResult.rollback): what it created goes for good, never to the trash. */
+let rollingBack = false
+
+/** A row's values as a key: the order of keys and an emptied value (null, '', []) do not count as a change. */
+function valuesKey(props: Record<string, unknown> | undefined): string {
+  const keys = Object.keys(props ?? {}).sort()
+  const out: Array<[string, unknown]> = []
+  for (const k of keys) {
+    const v = props![k]
+    if (v === undefined || v === null || v === '' || (Array.isArray(v) && !v.length)) continue
+    out.push([k, v])
+  }
+  return JSON.stringify(out)
 }
 
 /**
  * Undo of a created page / row: deleted for good while untouched; once someone edited it, put pages under it or put it
  * (or a page above it) in the trash, it goes to the trash instead (recoverable) — one in the trash stays as it is.
- * `mode` 'trash' (MCP): untouched → the trash, touched → left as it is (kept: false).
+ * `mode` 'trash' (MCP): untouched → the trash, touched (text, title, icon, a value, its place, a page under it) → left
+ * as it is (kept: false). The batch's own rollback (ApplyResult.rollback) always takes the 'delete' way.
  */
 function removeCreated(id: ID, mode: ApplyOpts['undoCreated'] = 'delete'): () => boolean {
-  const rev = ws().pages[id]?.contentRev
-  const key = contentKey(ws().pages[id]?.content)
-  const title = ws().pages[id]?.title
-  const icon = JSON.stringify(ws().pages[id]?.icon ?? null)
+  const made = ws().pages[id]
+  const rev = made?.contentRev
+  const key = contentKey(made?.content)
+  const title = made?.title
+  const icon = JSON.stringify(made?.icon ?? null)
+  // a row: its values and its place as written (the person may fill a field or move it since)
+  const values = valuesKey(made?.properties)
+  const place = `${made?.parentId ?? null}|${made?.databaseId ?? null}`
   return () => {
     const { pages } = ws()
     const now = pages[id]
     if (!now || now.trashed) return true
     // content as written (a later change of the same batch undone first writes it back: the same content counts)
     const edited = (now.contentRev !== rev && contentKey(now.content) !== key) || now.title !== title
-    if (mode === 'trash') {
+    if (mode === 'trash' && !rollingBack) {
       // a page above it in the trash already takes it along
       if (isEffectivelyTrashed(pages, id)) return true
-      // changed since (text, title, icon, a live page put under it): left as it is
-      if (edited || JSON.stringify(now.icon ?? null) !== icon || Object.values(pages).some((p) => p.parentId === id && !p.trashed)) return false
+      // changed since (text, title, icon, a value, its place, a live page put under it): left as it is
+      if (
+        edited ||
+        JSON.stringify(now.icon ?? null) !== icon ||
+        valuesKey(now.properties) !== values ||
+        `${now.parentId ?? null}|${now.databaseId ?? null}` !== place ||
+        Object.values(pages).some((p) => p.parentId === id && !p.trashed)
+      )
+        return false
       ws().trashPage(id)
       return true
     }

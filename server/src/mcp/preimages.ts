@@ -22,7 +22,8 @@ import * as Y from 'yjs'
 import type { Services } from '../context.ts'
 import { ApiError, notFound } from '../errors.ts'
 import { fragmentText } from '../api/content.ts'
-import { type Roots, clone, inTrash, liveDatabase, pageMap, propertiesMap, readPage, roots } from '../api/meta.ts'
+import { createHash } from 'node:crypto'
+import { type Roots, clone, databaseMap, inTrash, liveDatabase, pageMap, propertiesMap, readPage, roots } from '../api/meta.ts'
 import { contentDoc, metaDoc, type WorkspaceModel } from '../api/model.ts'
 import { newId } from '../tokens.ts'
 import { docStateHash } from './pageRead.ts'
@@ -31,11 +32,23 @@ import { MCP_LIMITS } from '../../../src/shared/mcp/tables.ts'
 
 type Values = Record<string, unknown>
 
+/**
+ * A page, row or database a call made, as the call left it: its title, its text's state (`hash`) and `mark` — what else
+ * people change on it (markOf: icon, cover, comment threads; a database's properties and views). Pre-images stored
+ * before `mark` existed have none (that check is left out for them).
+ */
+export interface Made {
+  id: string
+  title: string
+  hash?: string
+  mark?: string
+}
+
 export type Preimage =
   /** rows a call made (`created`, with the values it wrote and its text's state then) or changed (`updated`, the fields it wrote: before → after) */
-  | { kind: 'rows'; db: string; created: Array<{ id: string; title: string; values: Values; hash?: string }>; updated: Array<{ id: string; before: { title?: string; values: Values }; after: { title?: string; values: Values } }> }
+  | { kind: 'rows'; db: string; created: Array<Made & { values: Values }>; updated: Array<{ id: string; before: { title?: string; values: Values }; after: { title?: string; values: Values } }> }
   /** pages (or a database) a call made, each with its text's state right after the call */
-  | { kind: 'pages'; created: Array<{ id: string; title: string; hash?: string }> }
+  | { kind: 'pages'; created: Made[] }
   /** a page's content before the call: a Y update of a document holding a copy of its fragment, and its `plain` */
   | { kind: 'content'; page: string; before: string; plain: string }
 
@@ -46,7 +59,7 @@ type Stored = Preimage & { dup?: string; done?: string[] }
 export interface Recorder {
   callId: string
   rows(p: Omit<Extract<Preimage, { kind: 'rows' }>, 'kind'>): void
-  pages(created: Array<{ id: string; title: string; hash?: string }>): void
+  pages(created: Made[]): void
   content(pageId: string, before: string, plain: string, afterHash: string | null): void
 }
 
@@ -94,6 +107,27 @@ export function fragmentSnapshot(doc: Y.Doc): string {
 export const stateHash = (doc: Y.Doc) => docStateHash(doc)
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
+
+/** An emptied value (null, '', [], {}) is no value: a field cleared again is as it was. */
+const emptyValue = (v: unknown) => v === undefined || v === null || v === '' || (Array.isArray(v) && !v.length) || (typeof v === 'object' && !Array.isArray(v) && !Object.keys(v as object).length)
+
+/** JSON with object keys sorted (Y maps keep no order a fingerprint may rely on). */
+function stable(v: unknown): string {
+  const walk = (x: unknown): unknown => (Array.isArray(x) ? x.map(walk) : x && typeof x === 'object' ? Object.fromEntries(Object.keys(x as object).sort().map((k) => [k, walk((x as Record<string, unknown>)[k])])) : x)
+  return JSON.stringify(walk(v) ?? null)
+}
+
+/** A row's whole stored values as the call left them vs now: every field — one filled in since that was empty too. */
+function valuesMoved(then: Values, now: Values): boolean {
+  const keys = new Set([...Object.keys(then), ...Object.keys(now)])
+  for (const k of keys) {
+    const a = then[k]
+    const b = now[k]
+    if (emptyValue(a) && emptyValue(b)) continue
+    if (!same(a, b)) return true
+  }
+  return false
+}
 
 export interface McpCall {
   callId: string
@@ -150,6 +184,26 @@ export class McpPreimages {
     const values: Values = {}
     for (const k of ids ?? Object.keys(page.properties)) values[k] = clone(page.properties[k] ?? null)
     return { title: page.title, values }
+  }
+
+  /**
+   * What people change on a made page / row / database besides its title, values and text, as one fingerprint: its icon,
+   * cover and comment threads — and a database's properties and views (a column or a view the team added since).
+   */
+  static markOf(r: Roots, id: string): string {
+    const yp = pageMap(r, id)
+    if (!yp) return ''
+    const json = (v: unknown): unknown => {
+      const out = v instanceof Y.AbstractType ? (v as Y.Map<unknown>).toJSON() : (v ?? null)
+      return emptyValue(out) ? null : out
+    }
+    const of: Record<string, unknown> = { icon: json(yp.get('icon')), cover: json(yp.get('cover')), comments: json(yp.get('comments')) }
+    if (yp.get('kind') === 'database') {
+      const ydb = databaseMap(r, id)
+      of.properties = json(ydb?.get('properties'))
+      of.views = json(ydb?.get('views'))
+    }
+    return createHash('sha256').update(stable(of)).digest('hex').slice(0, 32)
   }
 
   /** The newest calls (≤ 100, 14 days), each with what it made / changed and the first titles. */
@@ -290,15 +344,25 @@ export class McpPreimages {
             if (!(yp instanceof Y.Map) || yp.get('trashed') === true) continue
             for (const up of new Set([yp.get('parentId'), yp.get('databaseId')])) if (typeof up === 'string' && up && up !== id) below.set(up, [...(below.get(up) ?? []), id])
           }
-          /** something below it that the call did not make (a sub-page someone added, a row the team put in) */
-          const foreign = (id: string) => (below.get(id) ?? []).some((k) => !made.has(k))
-          // each made row: as the call left it? (title, every value it wrote, its text, nothing put below it)
+          /** made things this Restore keeps (changed since): a made page above one stays with it */
+          const keptHere = new Set<string>()
+          /**
+           * something below it that is not the call's to take (a sub-page someone added, a row the team put in) — or a
+           * page the call made that stays (kept below: trashing its made parent would take it, and what is below it, along)
+           */
+          const foreign = (id: string) => (below.get(id) ?? []).some((k) => !made.has(k) || keptHere.has(k))
+          /** its icon, cover, comment threads (a database: its properties and views) moved since the call */
+          const markMoved = (c: Made) => c.mark !== undefined && McpPreimages.markOf(r, c.id) !== c.mark
+          // each made row: as the call left it? (title, its whole stored values — a field filled in since too —, its
+          // text, icon / cover / comments, nothing put below it)
           const rowChanged = new Map<string, boolean>()
           for (const p of meta) {
             if (p.pre.kind !== 'rows') continue
             for (const c of p.pre.created) {
-              const now = McpPreimages.rowState(r, c.id, Object.keys(c.values))
-              rowChanged.set(c.id, !now || now.title !== c.title || Object.entries(c.values).some(([k, v]) => !same(now.values[k], v)) || textMoved.has(c.id) || foreign(c.id))
+              const now = McpPreimages.rowState(r, c.id)
+              const changed = !now || now.title !== c.title || valuesMoved(c.values, now.values) || textMoved.has(c.id) || markMoved(c) || foreign(c.id)
+              rowChanged.set(c.id, changed)
+              if (changed && !force) keptHere.add(c.id)
             }
           }
           const trash = (id: string) => {
@@ -327,9 +391,10 @@ export class McpPreimages {
                 const title = String(yp.get('title') ?? '')
                 const isDb = yp.get('kind') === 'database'
                 const changed =
-                  title !== c.title || textMoved.has(c.id) || foreign(c.id) || (isDb && [...rowChanged].some(([rid, ch]) => ch && pageMap(r, rid)?.get('databaseId') === c.id))
+                  title !== c.title || textMoved.has(c.id) || markMoved(c) || foreign(c.id) || (isDb && [...rowChanged].some(([rid, ch]) => ch && pageMap(r, rid)?.get('databaseId') === c.id))
                 if (changed && !force) {
                   keep.push({ id: c.id, title })
+                  keptHere.add(c.id)
                   if (isDb) keptDbs.add(c.id)
                   continue
                 }

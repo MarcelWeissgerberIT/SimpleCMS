@@ -489,8 +489,9 @@ async function handleCall(id: string, tool: McpToolName, args: Record<string, un
   /** the waiting entry this call opened: its repeats get its answer */
   let mine: Duplicate | null = null
   // every refusal starts with its code (spec § 2.0) — one this tab's code did not name gets the one it means (withCode)
-  const fail = (message: string, state: ActivityState = 'err') => {
-    const error = withRemedy(withCode(message))
+  const fail = (message: string, state: ActivityState = 'err', partial = false) => {
+    // a call that wrote part of it says itself what stays (never "Nothing was changed … call again" after it)
+    const error = partial ? withCode(message) : withRemedy(withCode(message))
     send({ type: 'error', id, error })
     logPatch(key, { state, ms: ms(), note: error })
     if (mine) closeDuplicate(mine, { ok: false, error, state }, id, null)
@@ -581,7 +582,7 @@ async function handleCall(id: string, tool: McpToolName, args: Record<string, un
         timeout: 8000,
       })
   } catch (e) {
-    if (e instanceof McpToolError) return fail(e.message)
+    if (e instanceof McpToolError) return fail(e.message, 'err', e.partial)
     const msg = e instanceof Error ? e.message : String(e)
     console.warn('[one] MCP tool failed', tool, e)
     // a fault of One's own: whether a part was written is not known for sure — the agent reads before it calls again

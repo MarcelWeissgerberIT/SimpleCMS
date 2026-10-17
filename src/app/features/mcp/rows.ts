@@ -89,12 +89,15 @@ export const rowNo = (i: number): string => String(i + 1).padStart(2, '0')
  * What a part of a call does to `rows` rows of a database: new rows (`created`), changed ones (`props`: the property ids
  * it writes — a rename names the title property), rows going to the trash (`deleted`: one_trash_page), or rows losing
  * the values of a property that goes (`dropped`: one_delete_property — no automation or agent sees a property that is gone,
- * an auto-filled property's inputs change all the same).
+ * an auto-filled property's inputs change all the same), or only its text (`text`: one_update_page — autofill fills again on
+ * a row's text; automations and agents watch its properties).
  */
 export interface RowChange {
   created?: boolean
   deleted?: boolean
   dropped?: boolean
+  /** only the row's text changes (one_update_page append / replace): no property — only what fills again on its text */
+  text?: boolean
   props: ReadonlySet<ID>
 }
 
@@ -106,7 +109,7 @@ export function sideEffects(db: Database, rows: number, change: RowChange): Side
   if (!rows) return { lines: [], heavy: 0 }
   const created = !!change.created
   const deleted = !!change.deleted
-  const touches = (propId: ID | null | undefined) => created || (!deleted && !change.dropped && (!propId || change.props.has(propId)))
+  const touches = (propId: ID | null | undefined) => created || (!deleted && !change.dropped && !change.text && (!propId || change.props.has(propId)))
   const parts: string[] = []
   let paid = false
   let out = false

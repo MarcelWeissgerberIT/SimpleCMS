@@ -206,10 +206,22 @@ export class McpBatch {
     return Promise.all(ids.map((id) => this.s.collab.read(contentDoc(wsId, id), (doc) => stateHash(doc))))
   }
 
-  /** Made rows as a pre-image keeps them: title, values, the state of their text. */
+  /** What else people change on made pages / rows / databases, right now (preimages.ts markOf). */
+  private marks(wsId: string, ids: string[]): Promise<string[]> {
+    return this.model.read(wsId, (r) => ids.map((id) => McpPreimages.markOf(r, id)))
+  }
+
+  /** Made rows as a pre-image keeps them: title, every stored value, the state of their text, their mark. */
   async madeRows(wsId: string, ids: string[]) {
-    const [states, hashes] = await Promise.all([this.rowStates(wsId, ids), this.hashes(wsId, ids)])
-    return states.map((st, i) => ({ id: st.id, title: st.title, values: st.values, hash: hashes[i]! }))
+    const [states, hashes, marks] = await Promise.all([this.rowStates(wsId, ids), this.hashes(wsId, ids), this.marks(wsId, ids)])
+    return states.map((st, i) => ({ id: st.id, title: st.title, values: st.values, hash: hashes[i]!, mark: marks[i]! }))
+  }
+
+  /** Made pages (or a database) as a pre-image keeps them: title, the state of their text, their mark. */
+  private async madePages(wsId: string, items: Array<{ id: string; title: string }>) {
+    const ids = items.map((it) => it.id)
+    const [hashes, marks] = await Promise.all([this.hashes(wsId, ids), this.marks(wsId, ids)])
+    return items.map((it, i) => ({ id: it.id, title: it.title, hash: hashes[i]!, mark: marks[i]! }))
   }
 
   /** Rows put back to `values` (rollback of a failed call): stored values and two-way partners as a write puts them. */
@@ -548,8 +560,7 @@ export class McpBatch {
       actor,
     )
     // each made page with the state of its text now: a Restore leaves one that people wrote into since
-    const pageHashes = await this.hashes(wsId, ids)
-    rec.pages(items.map((it, i) => ({ id: ids[i]!, title: it.title, hash: pageHashes[i]! })))
+    rec.pages(await this.madePages(wsId, items.map((it, i) => ({ id: ids[i]!, title: it.title }))))
     // links into existing parents: one write per parent (its pre-image kept)
     if (link !== 'none') {
       const byParent = new Map<string, number[]>()
@@ -701,7 +712,6 @@ export class McpBatch {
       })
     }
     const created = await this.writes.createDatabase(wsId, dbInput, actor)
-    rec.pages([{ id: created.id, title: input.title, hash: (await this.hashes(wsId, [created.id]))[0]! }])
     // the rows (a failure on the way trashes the database again — and the rows with it)
     let rows: Array<{ id: string; title: string }> = []
     try {
@@ -710,6 +720,9 @@ export class McpBatch {
       await this.trash(wsId, [created.id], actor)
       throw err
     }
+    // the database as the call left it — after its rows (they may have added select options): a Restore keeps it once
+    // the team changed its properties or views since
+    rec.pages(await this.madePages(wsId, [{ id: created.id, title: input.title }]))
     if (rows.length) rec.rows({ db: created.id, created: await this.madeRows(wsId, rows.map((r) => r.id)), updated: [] })
     // the database block in the page's text, last; a failed write trashes the new database again (compensating write)
     let block: string | undefined
