@@ -186,6 +186,13 @@ export function openOrderCount(s: Pick<ReturnType<typeof ws>, 'pages' | 'databas
   return n
 }
 
+/** Requests whose Status is Läuft (the "Alle Ketten anhalten" key shows while there is one). */
+export function runningOrderCount(s: Pick<ReturnType<typeof ws>, 'pages' | 'databases'> = ws()): number {
+  let n = 0
+  for (const id of orderRowIds(s)) if (orderStatusKey(id, s) === 'running') n++
+  return n
+}
+
 /* ------------------------------------------------------------------ creating */
 
 interface Made {

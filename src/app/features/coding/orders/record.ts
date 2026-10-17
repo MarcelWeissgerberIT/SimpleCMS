@@ -8,7 +8,8 @@
  *    confirmed pipeline line, Approvals, pinned refs (≤ 8), slot block and own blocks, its title and revision as made
  *    and the sig of what was confirmed for it; who finished which step; the sticky halt; the checkpoint (on unless
  *    stored as false); the budget (clamped like the config's); the steps made while creating, skipped and started; the
- *    older chain it replaced at its start (one level, with the parked steps that went to the trash then). Anything
+ *    older chain it replaced at its start (one level, with the parked steps that went to the trash then); the done step
+ *    of that chain a chain planned again from it takes its Grundlage from (`basis`). Anything
  *    outside these bounds is dropped; a chain without readable steps is no chain.
  *  - The draft is kept only in its outline (plan, hash, run, time); plan.ts readPlan (B5) reads the plan itself.
  */
@@ -112,6 +113,14 @@ export function readOrderChain(v: unknown, nested = false): OrderChain | null {
       if (n !== null && ns.has(n) && isId(id)) made[n] = id
     }
   const skipped = Array.isArray(v.skipped) ? [...new Set(v.skipped.filter((n): n is number => isStepN(n) && ns.has(n)))].sort((a, b) => a - b) : []
+  const seenNext = Array.isArray(v.seenNext) ? [...new Set(v.seenNext.filter((n): n is number => isStepN(n) && ns.has(n)))].sort((a, b) => a - b) : []
+  const passed: Record<number, Array<'evidence' | 'checkpoint'>> = {}
+  if (isObj(v.passed))
+    for (const [k, list] of Object.entries(v.passed)) {
+      const n = stepKey(k)
+      const why = Array.isArray(list) ? [...new Set(list.filter((w): w is 'evidence' | 'checkpoint' => w === 'evidence' || w === 'checkpoint'))] : []
+      if (n !== null && ns.has(n) && why.length) passed[n] = why
+    }
   const advanced = nums(v.advanced)
   // the older chain this one replaced at its start, and the parked steps of it that went to the trash then
   let replaced: OrderChain['replaced']
@@ -119,6 +128,12 @@ export function readOrderChain(v: unknown, nested = false): OrderChain | null {
     const older = readOrderChain(v.replaced.chain, true)
     const trashed = Array.isArray(v.replaced.trashed) ? [...new Set(v.replaced.trashed.filter(isId))].slice(0, MAX_STEPS) : []
     if (older) replaced = { chain: older, trashed }
+  }
+  // a chain planned again from a done step of the chain it replaced: that step, whose result its first step takes along
+  let basis: OrderChain['basis']
+  if (isObj(v.basis) && isStepN(v.basis.n) && isId(v.basis.id) && (ORDER_KINDS as readonly unknown[]).includes(v.basis.kind) && typeof v.basis.title === 'string') {
+    const drop = Array.isArray(v.basis.drop) ? [...new Set(v.basis.drop.filter((b): b is string => typeof b === 'string' && BLOCK_RE.test(b)))].slice(0, MAX_OWN + 1) : []
+    basis = { n: v.basis.n, id: v.basis.id, kind: v.basis.kind as OrderKind, title: v.basis.title.slice(0, MAX_TITLE), drop }
   }
   let budgetUsd: number | undefined
   if (typeof v.budgetUsd === 'number' && Number.isFinite(v.budgetUsd)) budgetUsd = Math.min(BUDGET_RANGE[1], Math.max(BUDGET_RANGE[0], v.budgetUsd))
@@ -135,8 +150,11 @@ export function readOrderChain(v: unknown, nested = false): OrderChain | null {
     ...(budgetUsd !== undefined ? { budgetUsd } : {}),
     ...(Object.keys(made).length ? { made } : {}),
     ...(skipped.length ? { skipped } : {}),
+    ...(seenNext.length ? { seenNext } : {}),
+    ...(Object.keys(passed).length ? { passed } : {}),
     ...(Object.keys(advanced).length ? { advanced } : {}),
     ...(replaced ? { replaced } : {}),
+    ...(basis ? { basis } : {}),
   }
 }
 

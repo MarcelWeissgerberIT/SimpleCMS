@@ -1292,6 +1292,21 @@ the public APIs stable — other areas are built against them in parallel.
   all or nothing, refused once a step was taken or changed; `finishCreates` (start of a tab) completes a 'creating'
   record only while the made steps are untouched, ≤ 10 min and every missing step rebuilds to its `sig` — else
   'interrupted' (VON HAND `discardMade` / `finishRest`). `createRow` takes an optional `id` (throws when taken).
+- Work-order advance (Prüfaufträge B7, coding/orders/chainRun.ts eager + chainKeys.ts lazy): done EVIDENCE is recorded
+  only by chainRun's store subscriber, synchronously at the Stage move of a chain step in THIS tab (`doneBy[n]` = the
+  writer's kind/via; a cross-tab replay or a server change records nothing; an approval with `ActOpts.sawNext` marks
+  `sawNext` / `seenNext`); tasks.ts `setChainHook` (finishStage / approveTask reached done) and a debounced watch run the
+  chain under its Web Lock. The move: write-ahead `advanced`, then under `keepTrust` as `order:<row>:<run>#a<n>` the
+  Grundlage (`placeBasis` into the slot, origin 'order'), a QA step's shared branch, the Stage — never past a Confirm
+  wait (facts' `endsConfirm` = a write would end a wait not yet confirmed; re-checked inside the write). A VON HAND card
+  press passes exactly the reasons it showed (`ChainPress`; evidence / checkpoint kept in `chain.passed`, drift / ref
+  re-pinned). Halts are sticky (only `resumeChain` leaves them; refused at the budget, which counts `TaskLocal.spentUsd`
+  — finishStage adds each worker report — never the Cost field). Keys: advanceChain · confirmAndGo · haltChain (any
+  device) · haltAll · stopNow (worker device) · resumeChain · skipStep · setChainBudget · replanFrom (a draft with
+  `from` beside the running chain; ↵ replaces its parked steps, the first new step takes `chain.basis`). An approve plan
+  whose approval ends a chain step names the parked successor (`TaskActionPlan.chain`, `starts`, `startsNow`, Preflight
+  `handOf` → VON HAND + claudeCode; applyTaskAction refuses when the successor changed). Team: only the worker device
+  advances (`ChainWorld.here`).
 - MCP tidy-up tools (trash / restore ≤ 50 ids, move page / row, update database / property, delete property, view
   create / update / delete) live in `features/mcp/{tidy,structure}.ts` and `server/src/mcp/{tidy,structure}.ts` with
   the same rules: never delete for good, locked databases refuse structure changes, no page ⇄ entry or Private ⇄ shared

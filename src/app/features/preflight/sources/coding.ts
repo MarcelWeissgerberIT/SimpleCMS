@@ -76,7 +76,8 @@ const CLAUDE_KINDS = new Set(['plan', 'implement', 'doc'])
 function handOf(plan: TaskActionPlan | undefined, extra: HandWhy[] = []): HandWhy[] {
   const out: HandWhy[] = [...extra]
   if (!plan || plan.starts) out.push('startsNow')
-  if (!plan || plan.op !== 'approve' || (plan.runs ?? []).some((r) => CLAUDE_KINDS.has(r.kind))) out.push('claudeCode')
+  // a gate whose approval ends a work order's chain step: the parked step after it starts (Claude Code runs it)
+  if (!plan || plan.op !== 'approve' || !!plan.chain || (plan.runs ?? []).some((r) => CLAUDE_KINDS.has(r.kind))) out.push('claudeCode')
   return [...new Set(out)]
 }
 

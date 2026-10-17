@@ -13,9 +13,11 @@
  * (start / now), Z = Undo while it can.
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useShallow } from 'zustand/react/shallow'
+import { HandKey } from './HandKey'
 import { useWorkspace } from '../../../store/store'
 import type { ID } from '../../../store/types'
-import { Led } from '../../../ui/controls'
+import { Led, shortcutLabel } from '../../../ui/controls'
 import { typing } from '../../../ui/keys'
 import { useLang, useT } from '../../../i18n'
 import { useUI } from '../../../store/ui'
@@ -25,13 +27,19 @@ import { startStageOf } from '../stages'
 import { loadTask, useTaskLocal } from '../local'
 import { stepNo } from './words'
 import { discardMade, finishRest, olderParked, planHashNow, startChain, undoChain, type FinishOutcome, type StartRefusal, type UndoOutcome } from './confirm'
-import { startNow } from './chainRun'
+import { chainWorld, startNow, useChainMoves } from './chainRun'
+import { canSkip } from '../chain'
+import ChainCard, { keyWhyText } from './ChainCard'
+import type { ChainKeyOutcome } from './chainKeys'
 import { preWhyText, problemText } from './text'
 import { kindProjects } from './facts'
 import type { OrderPreResult, OrderPreWhy } from './pre'
 import type { OrderChain, OrderChainStep, OrderRecord } from './types'
 
 type Tr = ReturnType<typeof useT>
+
+/** ⌘. on a Mac, Ctrl+. elsewhere — the key that stops the running step */
+const STOP_KEY = shortcutLabel('Mod+.')
 
 /** Why a start (or "Rest anlegen") was refused, in words. */
 export function refusalText(r: StartRefusal | { why: 'taken' }, t: Tr): string {
@@ -62,51 +70,13 @@ export function refusalText(r: StartRefusal | { why: 'taken' }, t: Tr): string {
   }
 }
 
-/** A VON HAND key: acts only on a fresh press ≥ 300 ms after it became ready; `aria-disabled` with its reason. */
-function HandKey({ ready, reason, onPress, children, primary, testId }: { ready: boolean; reason?: string; onPress: () => void; children: ReactNode; primary?: boolean; testId: string }) {
-  const t = useT()
-  const readyAt = useRef(0)
-  const [armed, setArmed] = useState(false)
-  useEffect(() => {
-    if (!ready) {
-      setArmed(false)
-      return
-    }
-    readyAt.current = Date.now()
-    const id = window.setTimeout(() => setArmed(true), 300)
-    return () => window.clearTimeout(id)
-  }, [ready])
-  const live = ready && armed
-  const why = !ready ? reason : !armed ? t('features.coding.order.key.readying') : undefined
-  return (
-    <button
-      type="button"
-      className={`btn btn--sm${primary ? ' btn--primary' : ''}`}
-      aria-disabled={!live || undefined}
-      title={why}
-      data-testid={testId}
-      data-ready={live ? '' : undefined}
-      onKeyDown={(e) => {
-        // a held key never presses it (a repeat began before it was ready)
-        if (e.repeat && (e.key === 'Enter' || e.key === ' ')) e.preventDefault()
-      }}
-      onClick={() => {
-        if (!live || Date.now() - readyAt.current < 300) return
-        onPress()
-      }}
-    >
-      {children}
-    </button>
-  )
-}
-
 /** A goal's Markdown links as their labels (the plate shows the text; B8 draws the goal as its blocks). */
 const MD_LINK = /\[((?:\\.|[^\]\\\n])*)\]\(\s*<?[^)\s>]*>?(?:\s+"[^"\n]*")?\s*\)/g
 const goalText = (md: string): string => md.replace(MD_LINK, (_all, label: string) => label.replace(/\\(.)/g, '$1'))
 
 /** One step's state on this device, as a word beside its LED. */
-type Lane = 'parked' | 'running' | 'waiting' | 'failed' | 'done' | 'trashed' | 'queued'
-const LANE_LED: Record<Lane, 'off' | 'on' | 'ok'> = { parked: 'off', running: 'on', waiting: 'on', failed: 'on', done: 'ok', trashed: 'off', queued: 'off' }
+type Lane = 'parked' | 'running' | 'waiting' | 'failed' | 'stopped' | 'done' | 'trashed' | 'queued'
+const LANE_LED: Record<Lane, 'off' | 'on' | 'ok'> = { parked: 'off', running: 'on', waiting: 'on', failed: 'on', stopped: 'on', done: 'ok', trashed: 'off', queued: 'off' }
 
 function StepRow({ step, chain }: { step: OrderChainStep; chain: OrderChain }) {
   const t = useT()
@@ -127,7 +97,8 @@ function StepRow({ step, chain }: { step: OrderChainStep; chain: OrderChain }) {
     const park = startStageOf(pipeline, !!repo, false)
     if (stage?.kind === 'done') lane = 'done'
     else if (busy || local.state === 'running') lane = 'running'
-    else if (local.state === 'failed' || local.state === 'stopped') lane = 'failed'
+    else if (local.state === 'failed') lane = 'failed'
+    else if (local.state === 'stopped') lane = 'stopped'
     else if (local.state === 'question' || stage?.kind === 'gate') lane = 'waiting'
     else if (chain.advanced?.[step.n] === undefined && stage?.id === park?.id) lane = 'parked'
   }
@@ -182,6 +153,34 @@ export default function ChainPart({ rowId, rec, ready, pre, headId, viewer, asid
   const first = sorted[0]
   const counting = rec.state === 'running' && !!chain && !chain.halted && !!first && chain.advanced?.[first.n] === undefined
   const left = useLeft(counting ? chain!.startAt : null)
+  // B7: the engine's newest move here (a card the chain waits at), the step running on this device's worker, the steps S may skip
+  const view = useChainMoves((s) => s.moves[rowId])
+  const card = rec.state === 'running' && !chain?.halted && view?.move.kind === 'card' ? view.move : null
+  const elsewhere = rec.state === 'running' && view?.move.kind === 'wait' && view.move.why === 'elsewhere'
+  const busyStep = useCoding((s) => chain?.steps.find((st) => s.busy.some((b) => b.taskId === st.id))?.n ?? null)
+  // the steps S may skip (failed, stopped, trashed, ejected) — read again when a step's row, the run on the worker or the
+  // engine's move changes (never on every write of the workspace)
+  const stepPages = useWorkspace(useShallow((s) => (chain?.steps ?? []).map((st) => s.pages[st.id])))
+  const [skippable, setSkippable] = useState<number[]>([])
+  useEffect(() => {
+    let live = true
+    if (!chain || (rec.state !== 'running' && rec.state !== 'halted')) return setSkippable([])
+    void chainWorld(rowId, rec).then((w) => live && setSkippable(chain.steps.filter((st) => canSkip(w, st.n)).map((st) => st.n)))
+    return () => {
+      live = false
+    }
+  }, [rowId, rec, chain, stepPages, busyStep, view])
+  const keyed = (out: ChainKeyOutcome) => {
+    const why = keyWhyText(out, t)
+    setNote(why)
+    if (out.ok) focusHead()
+  }
+  const chainKey = (fn: (m: typeof import('./chainKeys')) => Promise<ChainKeyOutcome>) => () => void import('./chainKeys').then(fn).then(keyed)
+  const haltKey = chainKey((m) => m.haltChain(rowId))
+  const stopKey = chainKey((m) => m.stopNow(rowId))
+  const resumeKey = chainKey((m) => m.resumeChain(rowId))
+  const skip = (n: number) => chainKey((m) => m.skipStep(rowId, n))()
+  const focusKey = (id: string) => root.current?.querySelector<HTMLElement>(`[data-testid="${id}"]`)?.focus()
 
   const start = useCallback(async () => {
     if (!draft || !hash || pending) return
@@ -212,16 +211,62 @@ export default function ChainPart({ rowId, rec, ready, pre, headId, viewer, asid
   const root = useRef<HTMLDivElement>(null)
   const keys = useRef<(e: KeyboardEvent) => void>(() => {})
   keys.current = (e: KeyboardEvent) => {
-    if (e.repeat || e.altKey || e.ctrlKey || e.metaKey || viewer || !counting) return
+    if (e.repeat || e.altKey || viewer) return
     const el = e.target as HTMLElement
     if (typing(el)) return
-    // a focused key acts by itself (Enter clicks it)
-    if (e.key === 'Enter' && !el.closest('button, a, [role="button"]')) {
+    const running = rec.state === 'running' && !!chain && !chain.halted
+    // ⌘. Sofort stoppen: only while a step of the chain runs on this device's worker
+    if (e.key === '.' && (e.metaKey || e.ctrlKey)) {
+      if (!running || busyStep === null) return
       e.preventDefault()
-      now()
-    } else if (e.key === 'z' || e.key === 'Z') {
+      stopKey()
+      return
+    }
+    if (e.ctrlKey || e.metaKey) return
+    const onKey = !!el.closest('button, a, [role="button"], summary')
+    const k = e.key.toLowerCase()
+    if (counting) {
+      // a focused key acts by itself (Enter clicks it)
+      if (e.key === 'Enter' && !onKey) {
+        e.preventDefault()
+        now()
+        return
+      }
+      if (k === 'z') {
+        e.preventDefault()
+        void undo()
+        return
+      }
+    }
+    if (running && k === 'h') {
       e.preventDefault()
-      void undo()
+      haltKey()
+      return
+    }
+    // a card: ↵ goes to its VON HAND key (it presses only itself); E opens the step, R plans again after an analysis
+    if (card) {
+      if (e.key === 'Enter' && !onKey) {
+        e.preventDefault()
+        focusKey('order-card-go')
+      } else if (k === 'e') {
+        e.preventDefault()
+        root.current?.querySelector<HTMLElement>('[data-testid="order-card-adjust"]')?.click()
+      } else if (k === 'r' && card.all.includes('checkpoint')) {
+        e.preventDefault()
+        root.current?.querySelector<HTMLElement>('[data-testid="order-card-replan"]')?.click()
+      }
+      return
+    }
+    // halted: ↵ goes to Fortsetzen, S to the first step that may be skipped (both VON HAND — they press only themselves)
+    if (chain?.halted || rec.state === 'halted') {
+      if (e.key === 'Enter' && !onKey) {
+        e.preventDefault()
+        focusKey('order-resume')
+      }
+    }
+    if (k === 's' && skippable.length) {
+      e.preventDefault()
+      focusKey('order-skip')
     }
   }
 
@@ -313,10 +358,37 @@ export default function ChainPart({ rowId, rec, ready, pre, headId, viewer, asid
             <StepRow key={st.id} step={st} chain={chain} />
           ))}
         </ol>
-        {halt ? (
-          <p className="orc-line orc-line--warn" data-testid="order-chain-halted">
-            {t(`${O}.chain.halted`, { why: t(`${O}.halt.${halt.why}`, { n: halt.step !== undefined ? stepNo(halt.step) : '' }) })}
+        {halt || rec.state === 'halted' ? (
+          <>
+            <p className="orc-line orc-line--warn" data-testid="order-chain-halted">
+              {t(`${O}.chain.halted`, { why: halt ? t(`${O}.halt.${halt.why}`, { n: halt.step !== undefined ? stepNo(halt.step) : '' }) : t(`${O}.halt.status`) })}
+            </p>
+            {!viewer && (
+              <div className="orp-keys">
+                <HandKey ready onPress={resumeKey} primary testId="order-resume">
+                  <span className="kbd" aria-hidden>
+                    ↵
+                  </span>
+                  {t(`${O}.key.resume`)}
+                </HandKey>
+                {skippable.slice(0, 1).map((n) => (
+                  <HandKey key={n} ready onPress={() => skip(n)} testId="order-skip">
+                    <span className="kbd" aria-hidden>
+                      S
+                    </span>
+                    {t(`${O}.key.skip`, { n: stepNo(n) })}
+                  </HandKey>
+                ))}
+              </div>
+            )}
+            {skippable.length > 0 && <p className="orc-line orc-line--quiet">{t(`${O}.skip.note`)}</p>}
+          </>
+        ) : rec.state === 'done' ? (
+          <p className="orc-line" data-testid="order-chain-done">
+            {t(`${O}.chain.done`)}
           </p>
+        ) : card && chain ? (
+          <ChainCard rowId={rowId} chain={chain} move={card} viewer={viewer} onOutcome={keyed} />
         ) : counting ? (
           <div className="orc-count" data-testid="order-countdown">
             <p className="orc-line" aria-live="polite">
@@ -340,9 +412,37 @@ export default function ChainPart({ rowId, rec, ready, pre, headId, viewer, asid
             )}
           </div>
         ) : rec.state === 'running' ? (
-          <p className="orc-line" data-testid="order-chain-taken">
-            {t(`${O}.chain.taken`)}
-          </p>
+          <>
+            <p className="orc-line" data-testid="order-chain-taken">
+              {elsewhere ? t(`${O}.chain.elsewhere`) : t(`${O}.chain.taken`, { stop: STOP_KEY })}
+            </p>
+            {!viewer && (
+              <div className="orp-keys">
+                <button type="button" className="btn btn--sm" onClick={haltKey} data-testid="order-halt">
+                  <span className="kbd" aria-hidden>
+                    H
+                  </span>
+                  {t(`${O}.key.haltAfter`)}
+                </button>
+                {busyStep !== null && (
+                  <button type="button" className="btn btn--sm" onClick={stopKey} data-testid="order-stop-now">
+                    <span className="kbd" aria-hidden>
+                      {STOP_KEY}
+                    </span>
+                    {t(`${O}.key.stopNow`)}
+                  </button>
+                )}
+                {skippable.slice(0, 1).map((n) => (
+                  <HandKey key={n} ready onPress={() => skip(n)} testId="order-skip">
+                    <span className="kbd" aria-hidden>
+                      S
+                    </span>
+                    {t(`${O}.key.skip`, { n: stepNo(n) })}
+                  </HandKey>
+                ))}
+              </div>
+            )}
+          </>
         ) : null}
       </>
     )

@@ -413,10 +413,14 @@ async function startLocked(rowId: ID, hash: string): Promise<StartOutcome> {
   // the steps: ids minted, numbers after the older chain's, each built and checked again
   const older = rec.chain
   const base = older ? Math.max(...older.steps.map((st) => st.n)) : 0
+  // planned again from a done step of the older chain ("Ab hier neu planen"): that step's result is the first step's
+  // Grundlage (its slot "Wartet auf Schritt 01") — only while that chain still waits before its next step
+  const from = draft.from && older && older.run === draft.from.run ? older.steps.find((st) => st.n === draft.from!.n) : undefined
+  if (draft.from && !from) return fail({ why: 'state' })
   const built: BuiltStep[] = []
   for (let i = 0; i < steps.length; i++) {
     const n = base + i + 1
-    const b = await buildStep(rowId, draft, i, { n, after: i ? n - 1 : null, id: newId(), project: projects.get(steps[i]!.kind)!, run, approvals })
+    const b = await buildStep(rowId, draft, i, { n, after: i ? n - 1 : (from?.n ?? null), id: newId(), project: projects.get(steps[i]!.kind)!, run, approvals })
     if (!b.ok) return fail(b.refusal)
     built.push(b.step)
   }
@@ -432,6 +436,7 @@ async function startLocked(rowId: ID, hash: string): Promise<StartOutcome> {
     checkpoint: read.config.checkpoint,
     ...(read.config.budgetUsd !== undefined ? { budgetUsd: read.config.budgetUsd } : {}),
     ...(older ? { replaced: { chain: older, trashed: trash } } : {}),
+    ...(from ? { basis: { n: from.n, id: from.id, kind: from.kind, title: titleOf(from.id), drop: [...(from.basisBlock ? [from.basisBlock] : []), ...(from.own ?? [])] } } : {}),
   }
 
   // phase 2 — write-ahead, then create (all parked)
@@ -518,7 +523,7 @@ async function rebuild(rowId: ID, rec: OrderRecord, chain: OrderChain): Promise<
   const out: BuiltStep[] = []
   for (const { i, step } of missingSteps(chain)) {
     if (!ws().databases[step.project] || kindOfDb(step.project) !== step.kind) return { ok: false, refusal: { why: 'kind', step: step.n, kind: step.kind, problem: 'gone' } }
-    const b = await buildStep(rowId, draft, i, { n: step.n, after: i ? sorted[i - 1]!.n : null, id: step.id, project: step.project, run: chain.run, approvals: step.approvals })
+    const b = await buildStep(rowId, draft, i, { n: step.n, after: i ? sorted[i - 1]!.n : (chain.basis?.n ?? null), id: step.id, project: step.project, run: chain.run, approvals: step.approvals })
     if (!b.ok) return b
     // the record's entry stays as confirmed; the task is built again
     out.push({ plan: b.step.plan, chain: { ...step, sig: b.step.chain.sig } })

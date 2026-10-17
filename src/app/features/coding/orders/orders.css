@@ -398,3 +398,55 @@
   opacity: 0.55;
   cursor: not-allowed;
 }
+.orc-line--quiet {
+  color: var(--ink-3);
+}
+/* B7 — the card the chain waits at (before step n+1): its reasons, what goes along, its keys */
+.orc-card {
+  margin: 10px 0 0;
+  padding: 8px 10px 10px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+}
+.orc-card__why:first-child {
+  margin-top: 0;
+}
+.orc-card__next {
+  margin: 10px 0 0;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+.orc-card__fold {
+  margin: 8px 0 0;
+}
+.orc-card__fold > summary {
+  cursor: pointer;
+  color: var(--ink-2);
+}
+.orc-card__fold > summary:focus-visible {
+  outline: none;
+  border-radius: var(--radius-1);
+  box-shadow: var(--focus-ring);
+}
+.orc-card__text {
+  max-height: 16em;
+  margin: 6px 0 0;
+  padding: 8px;
+  overflow: auto;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-1);
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-doc);
+  font-size: var(--text-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.orc-card .orp-keys {
+  margin-top: 10px;
+}
+.ordb__halt,
+.cv-halt-all {
+  margin-left: auto;
+}

@@ -37,7 +37,7 @@ import { withHalt } from '../chain'
 import { addOrderRepoOptions, isOrderRow, orderCode, orderDbIds, orderProps, orderStatusKey, statusKeyOf, writeOrderStatus } from './db'
 import { callPlanner, dropWant, orderPreNow, pressPlan, pressProv, setPressNote, statusWriter, wantLive, type PressResult } from './press'
 import { loadOrderRecord, ORDERS_CHANNEL, patchOrderRecord, recordRowIds } from './records'
-import { startChains } from './chainRun'
+import { followRecord, startChains } from './chainRun'
 import { preWhyText, untilText } from './text'
 import { ORDER_LIMITS, type OrderPress, type OrderRecord } from './types'
 
@@ -136,9 +136,26 @@ function askFinish(rowId: ID): void {
   })
 }
 
-/** Kette bereit → Entwurf by hand = D: the plan is discarded on this device (Z in the toast brings both back). */
+/**
+ * Kette bereit → Entwurf by hand = D: the plan is discarded on this device (Z in the toast brings both back). A plan
+ * made again from a done step of a chain that still waits ("Ab hier neu planen"): that chain runs on as it was (its card
+ * shows again), the Status goes back to Läuft.
+ */
 async function discardDraft(rowId: ID): Promise<void> {
   const before = asRecord(await loadOrderRecord(rowId, { fresh: true }))
+  const from = before?.state === 'draft' ? before.draft?.from : undefined
+  if (from && before?.chain?.run === from.run) {
+    const out = await patchOrderRecord(rowId, (rec) => {
+      if (rec?.state !== 'draft' || rec.chain?.run !== from.run || !rec.draft?.from) return rec
+      const { draft: _d, ...rest } = rec
+      return { ...rest, state: 'running' }
+    })
+    if (out.rec?.state === 'running') {
+      writeOrderStatus(rowId, 'running', statusWriter(rowId, from.run))
+      followRecord(rowId, out.rec)
+    }
+    return
+  }
   if (before?.state === 'draft' && before.draft) await patchOrderRecord(rowId, (rec) => (rec?.state === 'draft' && rec.draft ? { ...rec, state: 'discarded' } : rec))
   useUI.getState().toast({
     message: t('features.coding.order.toast.discarded', { id: label(rowId) }),

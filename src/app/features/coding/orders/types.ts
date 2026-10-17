@@ -178,6 +178,11 @@ export interface OrderDraft {
   answers?: Array<{ q: string; a: string }>
   /** what reading the answer changed (repos, branches, refs, links, keys) */
   notes?: PlanNote[]
+  /**
+   * "Ab hier neu planen" (replanFrom): planned again after step `n` of the running chain `run` was done — its steps
+   * replace that chain's parked ones on ↵ (startChain), and the first of them takes step `n`'s result as its Grundlage
+   */
+  from?: { n: number; run: string }
 }
 
 /** One step of a confirmed chain. */
@@ -248,6 +253,17 @@ export interface OrderChain {
   /** steps skipped (S) — the next one gets no Grundlage from them */
   skipped?: number[]
   /**
+   * steps whose last gate the person approved on a surface that showed the next step in full (the gate card's fold):
+   * the analysis checkpoint after such a step needs no second press, also when its done move comes later (a stage
+   * after the gate runs first)
+   */
+  seenNext?: number[]
+  /**
+   * the reasons a VON HAND key on a card already passed for step n (no evidence of the done move · the analysis
+   * checkpoint): a reason that appears after them (the Confirm wait) never brings them back — the person saw them
+   */
+  passed?: Record<number, Array<'evidence' | 'checkpoint'>>
+  /**
    * the steps the engine started (step n → when): written BEFORE the move (write-ahead), so a step out of its park
    * stage without one ran out of order, and a step with one still parked is moved again (the move is idempotent)
    */
@@ -257,6 +273,11 @@ export interface OrderChain {
    * the trash (`trashed`, said on the plate before ↵) — undoChain brings them and that chain back
    */
   replaced?: { chain: OrderChain; trashed: ID[] }
+  /**
+   * a chain planned again from a done step of the chain it replaced ("Ab hier neu planen"): that step — its task, kind,
+   * title as confirmed and its own chain blocks — whose result the first step of this chain takes as its Grundlage
+   */
+  basis?: { n: number; id: ID; kind: OrderKind; title: string; drop: string[] }
 }
 
 /**

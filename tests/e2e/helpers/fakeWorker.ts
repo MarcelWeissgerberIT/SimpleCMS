@@ -4,7 +4,8 @@
  * real worker (`next` on welcome, on a nudge and every 2 s, one at a time) and — when a test wants it — finishes a
  * handed-out stage with a given outcome (`finish`, or `auto` for every stage) and answers the tab's git keys (`onGit`).
  * worker 1.11.0: a running stage can wait for a permission (`askPermission` — named in `status` and sent as an event,
- * as the real worker does); the tab's answers are kept (`permAsked`) and settle it.
+ * as the real worker does); the tab's answers are kept (`permAsked`) and settle it. A stop (`op: 'stop'`) is answered and the
+ * running stage finishes as 'stopped' (`stopAsked`).
  * Used by coding-old-worker.spec (older workers), coding-ship-fake.spec (ship records), coding-permission.spec.
  */
 import { WORKER_SUBPROTOCOL, type WorkerInfo } from '../../../src/app/features/coding/protocol'
@@ -41,6 +42,8 @@ export interface FakeWorker {
   asks: Map<string, Json>
   /** the tab's permission answers (`op: 'permission'`), in order — exactly as sent */
   permAsked: Json[]
+  /** the tab's stop requests (`op: 'stop'`), in order — answered, and the running stage finishes as 'stopped' */
+  stopAsked: Json[]
   /** a running task waits for a permission: named in `status` (busy) and sent as an event */
   askPermission: (task: Json, ask: Json) => void
   /** send the tab a message of the protocol (an event) */
@@ -61,10 +64,13 @@ export async function startFakeWorker(port: number, info: WorkerInfo): Promise<F
   let again = false
   const pending = new Map<string, Asked>()
   const finishing = new Map<string, (m: Json) => void>()
-  /** handed-out stages finished since (task id + stage id) */
-  const finished = new Set<string>()
+  /**
+   * hand-outs finished since — each hand-out on its own (a stage handed out again after it finished, a Continue or a
+   * Start over, runs until it finishes too: the real worker names it busy meanwhile)
+   */
+  const finished = new Set<Json>()
   const keyOf = (task: Json) => `${task.id}|${task.stage?.id}`
-  const running = () => fake.handed().filter((t) => !finished.has(keyOf(t)))
+  const running = () => fake.handed().filter((t) => !finished.has(t))
   const status = () => tab?.send(JSON.stringify({ type: 'status', busy: running().map((t) => ({ taskId: t.id, repo: t.repo, stageId: t.stage.id, since: Date.now(), ...(fake.asks.get(t.id) ? { ask: fake.asks.get(t.id) } : {}) })), spentToday: 0 }))
   const fake: FakeWorker = {
     can: null,
@@ -74,6 +80,7 @@ export async function startFakeWorker(port: number, info: WorkerInfo): Promise<F
     gitAsked: [],
     asks: new Map(),
     permAsked: [],
+    stopAsked: [],
     askPermission: (task, ask) => {
       fake.asks.set(task.id, ask)
       tab?.send(JSON.stringify({ type: 'event', taskId: task.id, kind: 'permission', ask }))
@@ -91,7 +98,7 @@ export async function startFakeWorker(port: number, info: WorkerInfo): Promise<F
         tab.send(JSON.stringify({ type: 'req', id, op: 'finish', taskId: task.id, stageId: task.stage.id, outcome, finishId: `fin-${id}` }))
       }).then((m) => {
         // like the real worker: the stage stays busy until One confirmed its outcome — then it is free again and asks
-        finished.add(keyOf(task))
+        for (const t of running()) if (keyOf(t) === keyOf(task)) finished.add(t)
         status()
         setTimeout(ask, 50)
         return m
@@ -134,6 +141,14 @@ export async function startFakeWorker(port: number, info: WorkerInfo): Promise<F
         fake.gitAsked.push(m)
         const answer = fake.onGit ? fake.onGit(m) : new Error('git is not played by this fake')
         ws.send(JSON.stringify(answer instanceof Error ? { type: 'res', id: m.id, ok: false, error: answer.message } : { type: 'res', id: m.id, ok: true, result: answer }))
+        return
+      }
+      if (m.type === 'req' && m.op === 'stop') {
+        // like the real worker: Claude Code's process tree ends, the stage reports 'stopped'
+        fake.stopAsked.push(m)
+        ws.send(JSON.stringify({ type: 'res', id: m.id, ok: true, result: { ok: true } }))
+        const task = running().find((t) => t.id === m.taskId)
+        if (task) setTimeout(() => void fake.finish(task, { status: 'stopped', error: 'Stopped' }).catch(() => {}), 50)
         return
       }
       if (m.type === 'req' && m.op === 'permission') {

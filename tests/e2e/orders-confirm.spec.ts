@@ -409,7 +409,7 @@ test.describe('confirming a work order: startChain', () => {
     await expect(start).toHaveAttribute('data-ready', '')
     await start.click()
     await plate.getByTestId('order-start-now').click()
-    await expect(plate.getByTestId('order-chain-taken')).toHaveText('already running — H halt, ⌘. stop')
+    await expect(plate.getByTestId('order-chain-taken')).toHaveText(/^already running — H halt, (⌘\.|Ctrl\+\.) stop$/)
     await expect(plate.getByTestId('order-undo')).toHaveCount(0)
     await expect(plate.getByTestId('order-chain-row').nth(0)).not.toHaveAttribute('data-lane', 'parked')
     await expect(plate.getByTestId('order-chain-row').nth(1)).toHaveAttribute('data-lane', 'parked')
@@ -475,9 +475,11 @@ test.describe('confirming a work order: startChain', () => {
     await expect.poll(() => fake!.asked.length, { timeout: 10_000 }).toBeGreaterThan(asked + 1)
     expect(fake!.handed()).toEqual([])
     expect(await orders(page).parked(ids[1]!)).toBe(true)
-    // the count ends: the chain halts "out of order" instead of starting anything
-    expect(await orders(page).startNow(row)).toMatchObject({ kind: 'halt', why: 'outOfOrder', step: 2 })
-    expect((await orders(page).record(row)).state).toBe('halted')
+    // the chain halts "out of order" instead of starting anything — at once (B7: a write to a step runs its chain), so
+    // "jetzt" finds nothing left to start
+    await expect.poll(async () => (await orders(page).record(row)).state, { timeout: 10_000 }).toBe('halted')
+    expect((await orders(page).record(row)).chain.halted).toMatchObject({ why: 'outOfOrder', step: 2 })
+    expect(await orders(page).startNow(row)).toBeNull()
     expect(await statusOf(page, row)).toBe(ST.halted)
     await page.waitForTimeout(2500)
     expect(fake!.handed()).toEqual([])

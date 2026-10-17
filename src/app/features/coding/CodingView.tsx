@@ -28,6 +28,7 @@ import { NowLine } from './NowLine'
 import { ProjectBar } from './Projects'
 import { ensureOrderDb, openOrderCount, orderDbId } from './orders/db'
 import { newOrderRequest } from './orders/send'
+import { HaltAllKey, haltAllOnH } from './slot'
 import { typing } from '../../ui/keys'
 import './coding.css'
 
@@ -156,7 +157,7 @@ function KindSwitch({ kind, readOnly }: { kind: PipelineKind; readOnly: boolean 
   const ordersDb = useWorkspace(() => orderDbId())
   const open = useWorkspace((s) => (ordersDb ? openOrderCount(s) : 0))
   return (
-    <nav className="cv-kinds" aria-label={t('features.coding.pipe.label')}>
+    <nav className="cv-kinds" aria-label={t('features.coding.pipe.label')} onKeyDown={haltAllOnH}>
       {PIPELINE_KINDS.map((k) => (
         <a key={k} href={k === 'coding' ? '#/coding' : `#/coding/${k}`} className="cv-kind" aria-current={k === kind ? 'page' : undefined} data-testid={`coding-kind-${k}`}>
           <span className="cv-kind__code label">{t(`features.coding.pipe.${k}.short`)}</span>
@@ -192,6 +193,8 @@ function KindSwitch({ kind, readOnly }: { kind: PipelineKind; readOnly: boolean 
           </button>
         )
       )}
+      {/* "Alle Ketten anhalten" while a work order's chain runs (H with focus on this head) */}
+      <HaltAllKey className="btn btn--sm cv-halt-all" />
     </nav>
   )
 }

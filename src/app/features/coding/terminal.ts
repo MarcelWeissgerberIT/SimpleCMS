@@ -44,6 +44,7 @@ import { refPagesOf, taskRefs, type RefPage } from './refs'
 import { withWriter, type Writer } from '../../store/writer'
 import { landsOn, pipelineLine, runsFrom } from './stages'
 import { checkTaskDraft, type DraftWorld, type NewTaskInput } from './draft'
+import { chainSuccessorNow } from './orders/records'
 
 export { REPO_NAME }
 
@@ -785,7 +786,10 @@ export async function planTaskAction(taskId: ID, op: TaskOp, input: { note?: str
       const next = nextStage(pipeline, stage)
       if (!next) throw new CodingPlanError(`${q(stage.name)} is the last stage: there is nothing to approve it into.`)
       const after = runsFrom(pipeline, next, approvals)
-      const spawns = next.kind === 'done' || after.stop?.kind === 'done' ? followUpsOf(taskId) : []
+      const endsStep = next.kind === 'done' || after.stop?.kind === 'done'
+      const spawns = endsStep ? followUpsOf(taskId) : []
+      // a step of a work order's chain whose next step is parked in this device's record: that step starts after it
+      const chain = endsStep ? chainNext(taskId) : null
       const made = stage.index > 0 ? pipeline[stage.index - 1] : undefined
       const plan = made?.kind === 'plan' || made?.kind === 'doc' || made?.kind === 'analyze'
       return {
@@ -799,7 +803,8 @@ export async function planTaskAction(taskId: ID, op: TaskOp, input: { note?: str
         runs: after.runs.map((s) => ({ name: s.name, kind: s.kind, ...(s.gitAction ? { gitAction: s.gitAction } : {}) })),
         stopsAt: after.stop?.name ?? null,
         spawns,
-        starts: landsOn(pipeline, next) === 'worker' || spawns.length > 0,
+        ...(chain ? { chain } : {}),
+        starts: landsOn(pipeline, next) === 'worker' || spawns.length > 0 || !!chain,
       }
     }
     case 'rework': {
@@ -869,14 +874,24 @@ export function startsNow(c: { op: 'create' | TaskOp; starts: boolean; task?: Ne
   const ctx = taskContext(a.taskId)
   const next = ctx?.stage ? nextStage(ctx.pipeline, ctx.stage) : null
   if (!ctx || !next) return true
-  return landsOn(ctx.pipeline, next) === 'worker' || ((next.kind === 'done' || runsFrom(ctx.pipeline, next, approvalsOf(taskLocal(a.taskId), ctx.row.createdAt)).stop?.kind === 'done') && followUpsOf(a.taskId).length > 0)
+  const endsStep = next.kind === 'done' || runsFrom(ctx.pipeline, next, approvalsOf(taskLocal(a.taskId), ctx.row.createdAt)).stop?.kind === 'done'
+  // a work order's chain step: approving it releases the parked step after it (orders/chainRun.ts) — live, from the records
+  return landsOn(ctx.pipeline, next) === 'worker' || (endsStep && (followUpsOf(a.taskId).length > 0 || !!a.chain || !!chainSuccessorNow(a.taskId)))
+}
+
+/** The parked chain step that starts once `taskId` is done (TaskActionPlan.chain; null: not a chain step, none parked). */
+function chainNext(taskId: ID): TaskActionPlan['chain'] | null {
+  const next = chainSuccessorNow(taskId)
+  if (!next) return null
+  const page = ws().pages[next.taskId]
+  return { row: next.row, step: next.step, taskId: next.taskId, title: page?.title.trim() || t('common.untitled'), kind: next.kind }
 }
 
 /**
  * Apply a planned action (the person applied it). Throws an Error in the person's language. `undo` null: it stays.
  * `steps`: the terminal's own reviewed writes of this task since the action was staged (SigSteps).
  */
-export async function applyTaskAction(plan: TaskActionPlan, opts: { steps?: SigSteps; writer: Writer }): Promise<{ undo: (() => boolean) | null }> {
+export async function applyTaskAction(plan: TaskActionPlan, opts: { steps?: SigSteps; writer: Writer; sawNext?: boolean }): Promise<{ undo: (() => boolean) | null }> {
   const writer = opts.writer
   notFromAgent()
   if (codingReadOnly()) throw new Error(t('features.coding.setup.readOnly'))
@@ -919,12 +934,18 @@ export async function applyTaskAction(plan: TaskActionPlan, opts: { steps?: SigS
   if ((ctx.stage?.id ?? null) !== plan.stageId || phase !== plan.phase || !sigReached(plan.sig, sigOf(ctx), opts.steps) || (local.at ?? 0) !== plan.at) throw moved()
   if (plan.op === 'answer' && local.question !== plan.question) throw moved()
   if (plan.op === 'approve' && (ctx.stage ? nextStage(ctx.pipeline, ctx.stage)?.id : null) !== plan.toId) throw moved()
+  // a work order's chain: the step the review said starts after it must still be the one (none then: none now)
+  if (plan.op === 'approve') {
+    const next = ctx.stage ? nextStage(ctx.pipeline, ctx.stage) : null
+    const endsStep = !!next && (next.kind === 'done' || runsFrom(ctx.pipeline, next, approvalsOf(local, ctx.row.createdAt)).stop?.kind === 'done')
+    if ((endsStep ? (chainSuccessorNow(id)?.taskId ?? null) : null) !== (plan.chain?.taskId ?? null)) throw moved()
+  }
   // the pages that go along with a note / an answer: none the review did not list
   if (plan.op === 'rework' && newRefs(refPagesOf([], [plan.note ?? ''], id), plan.refs)) throw new Error(t('features.coding.term.err.refs'))
   if (plan.op === 'answer' && newRefs(refPagesOf([], [plan.answer ?? ''], id), plan.refs)) throw new Error(t('features.coding.term.err.refs'))
   switch (plan.op) {
     case 'approve':
-      await approveTask(id, { confirm: false, writer })
+      await approveTask(id, { confirm: false, writer, ...(opts.sawNext ? { sawNext: true } : {}) })
       return { undo: null }
     case 'rework':
       await reworkTask(id, plan.note ?? '', { confirm: false, writer })

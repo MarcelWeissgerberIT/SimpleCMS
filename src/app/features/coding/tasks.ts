@@ -383,6 +383,9 @@ export async function finishStage(taskId: ID, stageId: ID, outcome: StageOutcome
   if (ship) noteShip({ taskId, dbId: ctx.db.id, ship })
 
   if (outcome.git) patch.git = outcome.git
+  // this device's worker reports, summed (never the Cost field, which other writers can change): a work order's chain
+  // budget counts only this (orders/chainRun.ts) — the finishId dedupe (service.ts) keeps a retried outcome out
+  if (typeof outcome.cost === 'number' && Number.isFinite(outcome.cost) && outcome.cost > 0) patch.spentUsd = Math.round(((local.spentUsd ?? 0) + outcome.cost) * 10_000) / 10_000
   if (ship) {
     const next = prFieldNext(prNow(), ship)
     if (next) patch.url = next
@@ -533,7 +536,10 @@ export async function finishStage(taskId: ID, stageId: ID, outcome: StageOutcome
   }
   if (held) appendLog(taskId, [{ t: Date.now(), k: 'info', s: t('features.coding.approvals.held', { stage: held }) }])
   dropProgress(taskId)
-  if (moveTo?.kind === 'done') await spawnFollowUps(taskId, w)
+  if (moveTo?.kind === 'done') {
+    await spawnFollowUps(taskId, w)
+    chainHook(taskId)
+  }
   endRun(w)
   if (!toast) return
   const message = t(toast.key, { title: ws().pages[taskId]?.title.trim() || t('common.untitled'), stage: moveTo?.name ?? stage?.name ?? '' })
@@ -793,6 +799,24 @@ async function spawnFollowUps(taskId: ID, writer: Writer): Promise<void> {
   for (const kind of followUpsOf(taskId)) await spawnFollowUp(taskId, kind, writer)
 }
 
+/**
+ * Work orders (orders/chainRun.ts): a task reached done here (the worker's outcome, an approval) — the chain it is a step
+ * of goes on (its done evidence is recorded by the chain's store subscriber at the move itself). Nothing registered:
+ * nothing happens.
+ */
+let chainHook: (taskId: ID) => void = () => {}
+export function setChainHook(fn: ((taskId: ID) => void) | null): void {
+  chainHook = fn ?? (() => {})
+}
+
+/**
+ * Approvals whose surface showed the step that starts after it in full (a gate card's fold — `ActOpts.sawNext`): the
+ * chain's done subscriber reads it at the move (orders/chainRun.ts) — the analysis checkpoint then needs no second press.
+ */
+const sawNext = new Set<ID>()
+/** Did the approval moving this task right now show the next chain step in full? (read once, at the move) */
+export const approvalSawNext = (taskId: ID): boolean => sawNext.has(taskId)
+
 /* ------------------------------------------------------------------ the person's side */
 
 let nudge: () => void = () => {}
@@ -810,6 +834,11 @@ export interface ActOpts {
   confirm?: boolean
   /** who acts (store/writer.ts): the person on the task panel (default), the AI terminal's change */
   writer?: Writer
+  /**
+   * approve: the surface rendered the chain step that starts after this one in full (work orders — the analysis
+   * checkpoint counts this press: no "Analyse fertig" card after it)
+   */
+  sawNext?: boolean
 }
 
 /** The person acting on the task panel (store/writer.ts). */
@@ -825,9 +854,17 @@ export async function approveTask(taskId: ID, opts: ActOpts = {}): Promise<void>
   const n = nextStage(ctx.pipeline, ctx.stage)
   if (!n) return
   if (opts.confirm !== false) await trustTask(taskId)
-  await keepTrust([taskId], () => moveRow(taskId, ctx.props, n.id), opts.writer ?? PANEL)
+  if (opts.sawNext) sawNext.add(taskId)
+  try {
+    await keepTrust([taskId], () => moveRow(taskId, ctx.props, n.id), opts.writer ?? PANEL)
+  } finally {
+    sawNext.delete(taskId)
+  }
   await patchTask(taskId, { state: 'idle', error: null, runNow: false })
-  if (n.kind === 'done') await spawnFollowUps(taskId, opts.writer ?? PANEL)
+  if (n.kind === 'done') {
+    await spawnFollowUps(taskId, opts.writer ?? PANEL)
+    chainHook(taskId)
+  }
   nudge()
 }
 

@@ -225,3 +225,25 @@ export type { StartOutcome, StartRefusal, UndoOutcome, FinishOutcome } from './o
 export { runChain, startNow, chainWorld, taskFacts, parkedOf } from './orders/chainRun'
 export { stepPage, stepBlockIds, requestPlain, type StepPage, type StepPageInput, type StepPageWords } from './orders/stepPage'
 export { stepWords } from './orders/words'
+/**
+ * Work orders B7 — the chain on its own (orders/chainRun.ts eager, chainKeys.ts lazy): the done evidence (a store
+ * subscriber reads who moved a step to done, in this tab, at the move), the catch-up (start, the worker's return, the
+ * hooks beside spawnFollowUps, a debounced watch), the move (Grundlage copy into the slot, QA's shared branch, Stage —
+ * `order:<row>:<run>#a<n>` under keepTrust, never past a Confirm wait), cards (useChainMoves), the end. The person's
+ * keys (VON HAND where they start the worker): advanceChain (↵ Weiter on a card) · confirmAndGo (the Confirm card) ·
+ * haltChain (H, every device) · haltAll · stopNow (⌘., the worker device) · resumeChain (↵ Fortsetzen; refused at the
+ * budget) · skipStep (S) · setChainBudget · replanFrom (R after an analysis). chainSuccessorNow(task) — the parked step
+ * an approval of `task` releases (TaskActionPlan.chain); chainStepOf(task).
+ */
+export const advanceChain = (rowId: string, step: number, passes: readonly import('./chain').ChainPassable[]) => import('./orders/chainKeys').then((m) => m.advanceChain(rowId, step, passes))
+export const confirmAndGo = (rowId: string, step: number, hash: string, passes: readonly import('./chain').ChainPassable[] = []) => import('./orders/chainKeys').then((m) => m.confirmAndGo(rowId, step, hash, passes))
+export const haltChain = (rowId: string) => import('./orders/chainKeys').then((m) => m.haltChain(rowId))
+export const haltAllChains = () => import('./orders/chainKeys').then((m) => m.haltAll())
+export const stopChainNow = (rowId: string) => import('./orders/chainKeys').then((m) => m.stopNow(rowId))
+export const resumeChain = (rowId: string) => import('./orders/chainKeys').then((m) => m.resumeChain(rowId))
+export const skipChainStep = (rowId: string, n: number) => import('./orders/chainKeys').then((m) => m.skipStep(rowId, n))
+export const replanFrom = (rowId: string, n: number) => import('./orders/chainKeys').then((m) => m.replanFrom(rowId, n))
+export type { ChainKeyOutcome, ChainKeyRefusal } from './orders/chainKeys'
+export { useChainMoves, basisPreview, type ChainView } from './orders/chainRun'
+export { chainSuccessorNow, chainStepOf } from './orders/records'
+export { chainSuccessor, withPassed, withSeenNext, withRefs } from './chain'

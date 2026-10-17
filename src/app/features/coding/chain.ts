@@ -99,6 +99,11 @@ export interface ChainWorld {
   tasks: Record<ID, ChainTaskFacts>
   /** per page id the steps take along */
   refs: Record<ID, ChainRefFacts>
+  /**
+   * may this tab move steps (absent: yes) — in a team only the device with the worker link and the chain's record
+   * advances; elsewhere a step that would start waits ('elsewhere'). Halts and cards are this device's own either way.
+   */
+  here?: { advance: boolean }
 }
 
 /* ------------------------------------------------------------------ the outcomes */
@@ -109,7 +114,7 @@ export type ChainCardWhy = 'evidence' | 'checkpoint' | 'drift' | 'ref' | 'confir
 export type ChainPassable = Exclude<ChainCardWhy, 'confirm'>
 export const CARD_ORDER: readonly ChainCardWhy[] = ['evidence', 'checkpoint', 'drift', 'ref', 'confirm']
 
-export type ChainWaitWhy = 'inactive' | 'halted' | 'startAt' | 'running' | 'question' | 'failed' | 'stopped' | 'gate' | 'import' | 'queued'
+export type ChainWaitWhy = 'inactive' | 'halted' | 'startAt' | 'running' | 'question' | 'failed' | 'stopped' | 'gate' | 'import' | 'queued' | 'elsewhere'
 
 export type ChainMove =
   | { kind: 'halt'; why: OrderHaltWhy; step?: number }
@@ -138,7 +143,10 @@ export type ChainMove =
       to: ID
       /** the step whose result goes in (null: the first step) */
       from: number | null
-      /** 'copy': step `from`'s result · 'skipped': the line "step n skipped — no basis" · 'none': the first step */
+      /**
+       * 'copy': step `from`'s result — with `from` null: the result of the older chain's step this chain was planned
+       * again from (`OrderChain.basis`) · 'skipped': the line "step n skipped — no basis" · 'none': the first step
+       */
       basis: 'copy' | 'skipped' | 'none'
       /** a QA step takes the coding step's branch (null: none) */
       branch: string | null
@@ -286,9 +294,11 @@ export function nextMove(world: ChainWorld, press?: ChainPress): ChainMove {
   const prevSkipped = !!prev && skipped.has(prev.n)
   const by = prev && !prevSkipped ? (chain.doneBy[prev.n] ?? null) : null
   const all: ChainCardWhy[] = []
+  // a reason a VON HAND key passed for this step before stays passed (a Confirm wait that came up after it never brings it back)
+  const before = new Set(chain.passed?.[cur.n] ?? [])
   if (prev && !prevSkipped && !again) {
-    if (!givesEvidence(by)) all.push('evidence')
-    if (prev.kind === 'spec' && chain.checkpoint && !by?.sawNext) all.push('checkpoint')
+    if (!givesEvidence(by) && !before.has('evidence')) all.push('evidence')
+    if (prev.kind === 'spec' && chain.checkpoint && !by?.sawNext && !(chain.seenNext ?? []).includes(prev.n) && !before.has('checkpoint')) all.push('checkpoint')
   }
   const drift: Array<'line' | 'approvals'> = []
   if (f.line !== cur.line) drift.push('line')
@@ -322,13 +332,48 @@ export function nextMove(world: ChainWorld, press?: ChainPress): ChainMove {
     const pf = facts(prev)
     if (pf?.branch && pf.repo && pf.repo === f.repo) branch = pf.branch
   }
-  return { kind: 'advance', step: cur.n, to: f.startStage, from: prev?.n ?? null, basis: !prev ? 'none' : prevSkipped ? 'skipped' : 'copy', branch, again }
+  // a team: only the device with the worker link moves a step (the record is this device's either way)
+  if (world.here && !world.here.advance) return { kind: 'wait', why: 'elsewhere', step: cur.n }
+  return { kind: 'advance', step: cur.n, to: f.startStage, from: prev?.n ?? null, basis: !prev ? (chain.basis ? 'copy' : 'none') : prevSkipped ? 'skipped' : 'copy', branch, again }
+}
+
+/**
+ * The step that starts once `taskId` (a step of this chain) is done: the next step not skipped, while the chain has
+ * not started it yet (null: none — the last step, a step already started, not a step of this chain). A gate whose
+ * approval ends step n releases it (coding/terminal.ts planTaskAction: `TaskActionPlan.chain`, VON HAND).
+ */
+export function chainSuccessor(chain: OrderChain | undefined, taskId: ID): OrderChainStep | null {
+  if (!chain) return null
+  const steps = chainSteps(chain)
+  const at = steps.findIndex((s) => s.id === taskId)
+  if (at < 0) return null
+  const skipped = new Set(chain.skipped ?? [])
+  const next = steps.slice(at + 1).find((s) => !skipped.has(s.n))
+  if (!next || chain.advanced?.[next.n] !== undefined) return null
+  return next
 }
 
 /* ------------------------------------------------------------------ the record (what the sink writes) */
 
 /** Step n reached done: who moved it (written at the move — a later move overwrites it). */
 export const withDone = (chain: OrderChain, n: number, by: OrderDoneBy): OrderChain => ({ ...chain, doneBy: { ...chain.doneBy, [n]: by } })
+
+/** Step n's last gate was approved on a surface that showed the next step in full (the analysis checkpoint passes). */
+export const withSeenNext = (chain: OrderChain, n: number): OrderChain => ((chain.seenNext ?? []).includes(n) ? chain : { ...chain, seenNext: [...(chain.seenNext ?? []), n].sort((a, b) => a - b) })
+
+/** The person accepted the pages step n takes along as they are now (the ref card's ↵): their revisions pinned again. */
+export function withRefs(chain: OrderChain, n: number, revs: Record<ID, number>): OrderChain {
+  return { ...chain, steps: chain.steps.map((s) => (s.n === n ? { ...s, refs: Object.fromEntries(Object.keys(s.refs).map((id) => [id, revs[id] ?? s.refs[id]!])) } : s)) }
+}
+
+/** A VON HAND key on a card for step n passed these reasons (kept: a later Confirm wait never brings them back). */
+export function withPassed(chain: OrderChain, n: number, passes: readonly ChainPassable[]): OrderChain {
+  const keep = passes.filter((w): w is 'evidence' | 'checkpoint' => w === 'evidence' || w === 'checkpoint')
+  if (!keep.length) return chain
+  const now = new Set(chain.passed?.[n] ?? [])
+  if (keep.every((w) => now.has(w))) return chain
+  return { ...chain, passed: { ...(chain.passed ?? {}), [n]: [...new Set([...now, ...keep])] } }
+}
 
 /** The engine starts step n (written before the move). */
 export const withAdvance = (chain: OrderChain, n: number, at: number): OrderChain => ({ ...chain, advanced: { ...(chain.advanced ?? {}), [n]: at } })
@@ -344,11 +389,11 @@ export const withResume = (chain: OrderChain, at: number): OrderChain => ({ ...c
 
 /**
  * Skip step n (VON HAND): it leaves the chain — the next step starts without a Grundlage from it. A halt about that step
- * (ejected, trashed / gone) is lifted with it.
+ * (ejected, trashed / gone, stopped with ⌘.) is lifted with it.
  */
 export function withSkip(chain: OrderChain, n: number): OrderChain {
   const skipped = [...new Set([...(chain.skipped ?? []), n])].sort((a, b) => a - b)
-  const lift = chain.halted && chain.halted.step === n && (chain.halted.why === 'member' || chain.halted.why === 'ejected')
+  const lift = chain.halted && chain.halted.step === n && (chain.halted.why === 'member' || chain.halted.why === 'ejected' || chain.halted.why === 'stopped')
   return { ...chain, skipped, ...(lift ? { halted: null } : {}) }
 }
 

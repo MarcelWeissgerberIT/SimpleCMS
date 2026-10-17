@@ -1,7 +1,9 @@
 /**
  * Work orders — the planner's e2e seam (DEV / `?e2e` only; coding/index.ts imports this module for its side effect):
  * `window.__oneOrders` = { plan(row, opts), answer(row, answers), record(row), run(row), stop(row) } and B6's confirming
- * (start, hashNow, undo, undoable, startNow, runChain, finishCreates, finishRest, discardMade, fault, world, parked, countFor). The planner
+ * (start, hashNow, undo, undoable, startNow, runChain, finishCreates, finishRest, discardMade, fault, world, parked, countFor) and
+ * B7's chain (move, advance, confirmAndGo, halt, haltAll, stopNow, resume, skip, replanFrom, successor, agentAppend,
+ * agentStage, approvePlan). The planner
  * and confirm.ts load on the first call (lazy chunks); results are plain JSON (an AIError as { code, detail, fixes }).
  */
 import type { ID } from '../../../store/types'
@@ -51,6 +53,50 @@ if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams
         const out = await r.patchOrderRecord(rowId, (rec) => (rec?.state === 'running' && rec.chain ? { ...rec, chain: { ...rec.chain, startAt: Date.now() + ms } } : rec))
         c.followRecord(rowId, out.rec)
         return out.ok
+      }),
+    // B7 — the chain on its own: the newest move here, the person's keys, the next step an approval releases
+    move: (rowId: ID) => import('./chainRun').then((m) => plain(m.useChainMoves.getState().moves[rowId]?.move ?? null)),
+    advance: (rowId: ID, step: number, passes: string[]) => import('./chainKeys').then((m) => m.advanceChain(rowId, step, passes as never)).then(plain),
+    confirmAndGo: (rowId: ID, step: number, hash: string, passes: string[] = []) => import('./chainKeys').then((m) => m.confirmAndGo(rowId, step, hash, passes as never)).then(plain),
+    halt: (rowId: ID) => import('./chainKeys').then((m) => m.haltChain(rowId)).then(plain),
+    haltAll: () => import('./chainKeys').then((m) => m.haltAll()),
+    stopNow: (rowId: ID) => import('./chainKeys').then((m) => m.stopNow(rowId)).then(plain),
+    resume: (rowId: ID) => import('./chainKeys').then((m) => m.resumeChain(rowId)).then(plain),
+    skip: (rowId: ID, n: number) => import('./chainKeys').then((m) => m.skipStep(rowId, n)).then(plain),
+    replanFrom: (rowId: ID, n: number) => import('./chainKeys').then((m) => m.replanFrom(rowId, n)).then(plain),
+    budget: (rowId: ID, usd: number | null) => import('./chainKeys').then((m) => m.setChainBudget(rowId, usd)).then(plain),
+    successor: (taskId: ID) => import('./records').then((m) => plain(m.chainSuccessorNow(taskId))),
+    // a custom agent's write, as an agent run applies it (asAgent + this device's stamp): text appended / the Stage set
+    agentAppend: (taskId: ID, text: string, agentId = 'agentE2e01') =>
+      Promise.all([import('../../agents/attribution'), import('../../../store/store'), import('../../../store/writer')]).then(async ([a, st, w]) => {
+        const ws = st.useWorkspace.getState()
+        const page = ws.pages[taskId]
+        if (!page) return false
+        await a.asAgent(agentId, () => w.withWriter({ kind: 'agent', id: agentId, run: 'e2e' }, () => ws.setContent(taskId, { type: 'doc', content: [...(page.content?.content ?? []), { type: 'paragraph', content: [{ type: 'text', text }] }] }, 'ai')))
+        a.stampLocal(agentId, [taskId])
+        return true
+      }),
+    agentStage: (taskId: ID, stageName: string, agentId = 'agentE2e01') =>
+      Promise.all([import('../../agents/attribution'), import('../../../store/store'), import('../../../store/writer'), import('../schema')]).then(async ([a, st, w, sc]) => {
+        const ws = st.useWorkspace.getState()
+        const page = ws.pages[taskId]
+        const db = page?.databaseId ? ws.databases[page.databaseId] : undefined
+        const stage = db ? sc.readPipeline(db).find((x) => x.name === stageName) : undefined
+        const prop = db ? sc.codingProps(db).stage : undefined
+        if (!page || !stage || !prop) return false
+        await a.asAgent(agentId, () => w.withWriter({ kind: 'agent', id: agentId, run: 'e2e' }, () => ws.setRowProperty(taskId, prop, stage.id)))
+        a.stampLocal(agentId, [taskId])
+        return true
+      }),
+    // the Preflight / terminal decision for an approval: its plan, whether it starts the worker now, its VON HAND reasons
+    approvePlan: (taskId: ID) =>
+      import('../terminal').then(async (m) => {
+        try {
+          const plan = await m.planTaskAction(taskId, 'approve')
+          return plain({ plan, startsNow: m.startsNow({ op: 'approve', starts: plan.starts, action: plan }) })
+        } catch (e) {
+          return plain({ error: e instanceof Error ? e.message : String(e) })
+        }
       }),
     // what the brake note's E does on the plate (governor BrakeFor): an allowance for exactly this retry, then plan again
     retryWith: (rowId: ID, allowance: string) =>

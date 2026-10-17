@@ -18,6 +18,8 @@ import { Modal } from '../../ui/Modal'
 import { useUI } from '../../store/ui'
 import { useWorkspace } from '../../store/store'
 import { branchHolders } from './guards'
+import { chainStepOf } from './orders/records'
+import { stepNo } from './orders/words'
 import { GIT_SHA, SHIP_TRAILER, branchUrl, cleanWeb, commitUrl, type GitInfo, type GitVerb } from './protocol'
 import { gitTask } from './service'
 import { branchOk, isCommitUrl, shipShows, shipText } from './ship'
@@ -107,7 +109,11 @@ export function GitBox({ taskId, git, branch, connected, running, title, review,
   // another live task holds this branch (same repo, same branch, not done): no discard / clean-up from here (guards.ts)
   const holder = useWorkspace((s) => {
     const h = branchHolders(taskId, s)[0]
-    return h ? h.title || t('common.untitled') : null
+    if (!h) return null
+    // a step of a work order's chain (QA shares the coding step's branch): named by its step — "Schritt 03 · ‹title›"
+    const step = chainStepOf(h.id)
+    const title = h.title || t('common.untitled')
+    return step ? `${t('features.coding.order.stepLabel', { n: stepNo(step.n) })} · ${title}` : title
   })
   const shared = holder ? t('features.coding.git.shared', { branch: branch ?? '', title: holder }) : null
   const sharedId = `cg-shared-${taskId}`

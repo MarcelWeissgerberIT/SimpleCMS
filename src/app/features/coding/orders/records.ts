@@ -18,7 +18,8 @@ import type { ID } from '../../../store/types'
 import { scope } from '../local'
 import { readOrderRecord } from './record'
 import { readStoredPlan } from './plan'
-import { ORDER_LIMITS, type OrderCall, type OrderDraft, type OrderProv, type OrderRecord, type OrderServerSkip, type OrderToolLeft, type PlanNote } from './types'
+import { ORDER_LIMITS, type OrderCall, type OrderChainStep, type OrderDraft, type OrderProv, type OrderRecord, type OrderServerSkip, type OrderToolLeft, type PlanNote } from './types'
+import { chainSuccessor } from '../chain'
 
 export const ORDERS_CHANNEL = 'one-coding-orders'
 
@@ -107,6 +108,7 @@ export function readDraft(v: unknown): OrderDraft | null {
     },
     ...(answers?.length ? { answers } : {}),
     ...(notes.length ? { notes } : {}),
+    ...(isObj(v.from) && typeof v.from.n === 'number' && Number.isInteger(v.from.n) && v.from.n >= 1 && v.from.n <= 999 && ID_RE.test(String(v.from.run)) ? { from: { n: v.from.n, run: String(v.from.run) } } : {}),
   }
 }
 
@@ -241,6 +243,34 @@ export async function recordRowIds(): Promise<ID[]> {
   } catch {
     return []
   }
+}
+
+/* ------------------------------------------------------------------ a chain's next step */
+
+/**
+ * The step a running chain on this device starts once `taskId` (one of its steps) is done (coding/chain.ts
+ * chainSuccessor) — from this tab's copy of the records (every record of this scope is read at start). null: none.
+ */
+export function chainSuccessorNow(taskId: ID): { row: ID; step: number; taskId: ID; kind: OrderChainStep['kind'] } | null {
+  const prefix = `${scope()}|`
+  for (const [key, rec] of Object.entries(useOrderRecords.getState().recs)) {
+    if (!key.startsWith(prefix) || !rec || rec === 'unreadable' || rec.state !== 'running' || !rec.chain || rec.chain.halted) continue
+    if (!rec.chain.steps.some((s) => s.id === taskId)) continue
+    const next = chainSuccessor(rec.chain, taskId)
+    return next ? { row: key.slice(prefix.length), step: next.n, taskId: next.id, kind: next.kind } : null
+  }
+  return null
+}
+
+/** The chain step a task is on this device (a running, halted or finished chain's record), null: none. */
+export function chainStepOf(taskId: ID): { row: ID; n: number } | null {
+  const prefix = `${scope()}|`
+  for (const [key, rec] of Object.entries(useOrderRecords.getState().recs)) {
+    if (!key.startsWith(prefix) || !rec || rec === 'unreadable' || !rec.chain) continue
+    const step = rec.chain.steps.find((s) => s.id === taskId)
+    if (step) return { row: key.slice(prefix.length), n: step.n }
+  }
+  return null
 }
 
 /* ------------------------------------------------------------------ other tabs */

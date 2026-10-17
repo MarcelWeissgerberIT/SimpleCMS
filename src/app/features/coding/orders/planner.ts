@@ -38,7 +38,7 @@ import type { Database, ID, Page } from '../../../store/types'
 import { withWriter, type Writer } from '../../../store/writer'
 import { matchMiss } from '../../../store/integrations'
 import { newId } from '../../../lib/ids'
-import { editAs, liveEditorOf, readableContent } from '../../../editor'
+import { docToMarkdown, editAs, liveEditorOf, readableContent } from '../../../editor'
 import { flushPageContent, useCloud } from '../../../cloud'
 import { propertyValueToText } from '../../../database'
 import { t } from '../../../i18n'
@@ -53,7 +53,7 @@ import { declaredReadOk, isReadTool } from '../../agents/mcpTools'
 import { budgetRefusal } from '../../governor'
 import { useUI } from '../../../store/ui'
 import { useCoding } from '../state'
-import { codingReadOnly, type ResolvedStage } from '../schema'
+import { codingProps, codingReadOnly, readPipeline, stageOfRow, type ResolvedStage } from '../schema'
 import { pipelineLine, pipelineNeedsRepo, runsFrom, startStageOf } from '../stages'
 import { taskRefPlan } from '../refs'
 import { defaultApprovals } from '../state'
@@ -63,13 +63,13 @@ import { orderConfigUsable, readOrderConfig } from './config'
 import { orderStatusProps } from './status'
 import { requestFacts, type KindProject } from './facts'
 import { checkPreconditions, wordChars, type PlannerBlock } from './preconditions'
-import { plannerPrompt, plannerSystem, repairPrompt, PLAN_SCHEMA, type PlannerInput, type PlannerPage, type PlannerPipeline } from './prompt'
+import { plannerPrompt, plannerSystem, repairPrompt, PLAN_SCHEMA, type PlannerDone, type PlannerInput, type PlannerPage, type PlannerPipeline } from './prompt'
 import { orderPlanHash, readPlan, type PlanReadCtx, type ResolvedStep } from './plan'
 import { pickedTools, serverSkip } from './tools'
 import { emptyFold, foldCalls, type CallFold } from './calls'
 import { loadOrderRecord, patchOrderRecord } from './records'
 import { endSignal, patchRun, plannerRun, runSignal, startRun } from './runs'
-import { ORDER_LIMITS, type OrderConfig, type OrderDraft, type OrderPlanV1, type OrderProv, type OrderServerSkip, type OrderStatusKey, type PlanNote } from './types'
+import { ORDER_LIMITS, type OrderConfig, type OrderDraft, type OrderPlanV1, type OrderProv, type OrderRecord, type OrderServerSkip, type OrderStatusKey, type PlanNote } from './types'
 import type { Receipt } from '../../ai/core/meter'
 import type { DataClass } from '@/shared/ai/types'
 
@@ -109,6 +109,12 @@ export interface PlanOpts {
    * (`order:<row>:<run>#s`), the draft and the ledger source `order:<row>:<run>` share it. Absent: a new run.
    */
   run?: string
+  /**
+   * "Ab hier neu planen" (chainKeys.ts replanFrom, R on the analysis card): plan again after step `from` of the running
+   * chain was done — the planner reads the done steps' results (`<done>`) and plans only what comes after them; the
+   * draft stands beside the chain (its parked steps stay held) until ↵ replaces them, or D brings the chain back
+   */
+  from?: number
 }
 
 const ws = () => useWorkspace.getState()
@@ -206,8 +212,43 @@ interface Built {
   read: { chars: number; pages: number; cut: boolean }
 }
 
+/**
+ * "Ab hier neu planen": the done steps of the running chain up to step `n` (each with its result as Markdown — its own
+ * chain blocks left out, ≤ 20 000 characters in all) — null unless the chain runs, step `n` is done and the step after
+ * it has not started.
+ */
+function doneSteps(rec: OrderRecord, n: number): { run: string; steps: PlannerDone[] } | null {
+  const chain = rec.chain
+  if (rec.state !== 'running' || !chain || chain.halted) return null
+  const steps = [...chain.steps].sort((a, b) => a.n - b.n)
+  const at = steps.findIndex((st) => st.n === n)
+  if (at < 0) return null
+  const next = steps.slice(at + 1).find((st) => !(chain.skipped ?? []).includes(st.n))
+  if (!next || chain.advanced?.[next.n] !== undefined) return null
+  const s = ws()
+  const out: PlannerDone[] = []
+  let left = ORDER_LIMITS.basisChars
+  for (const st of steps.slice(0, at + 1)) {
+    if ((chain.skipped ?? []).includes(st.n)) continue
+    const page = s.pages[st.id]
+    const db = page?.databaseId ? s.databases[page.databaseId] : undefined
+    // step `n` itself must be done; an earlier step that is not (trashed, gone …) is left out
+    const stage = page && db ? stageOfRow(readPipeline(db), codingProps(db), page) : null
+    if (!page || stage?.kind !== 'done') {
+      if (st.n === n) return null
+      continue
+    }
+    const drop = new Set([...(st.basisBlock ? [st.basisBlock] : []), ...(st.own ?? [])])
+    const blocks = ((page.content?.content ?? []) as JSONContent[]).filter((b) => !(typeof b.attrs?.id === 'string' && drop.has(b.attrs.id)))
+    const markdown = docToMarkdown({ type: 'doc', content: blocks }).slice(0, Math.max(0, left))
+    left -= markdown.length
+    out.push({ id: st.id, n: st.n, kind: st.kind, title: page.title.trim(), markdown })
+  }
+  return out.length ? { run: chain.run, steps: out } : null
+}
+
 /** The request, its pages and the catalogue as request text for the route (shape). */
-function build(req: Request, kinds: KindProject[], pre: Prepared, server: string | null, approvals: 'all' | 'review' | 'none'): Built {
+function build(req: Request, kinds: KindProject[], pre: Prepared, server: string | null, approvals: 'all' | 'review' | 'none', done: readonly PlannerDone[] = []): Built {
   const shape = shapeOf(pre)
   return withShape(shape, () => {
     const row = req.row
@@ -231,14 +272,15 @@ function build(req: Request, kinds: KindProject[], pre: Prepared, server: string
       repos,
       approvals,
       server,
+      ...(done.length ? { done } : {}),
     }
     const prompt = plannerPrompt(input)
-    const system = plannerSystem({ kinds: kinds.map((k) => k.kind), server })
+    const system = plannerSystem({ kinds: kinds.map((k) => k.kind), server, done: done.length > 0 })
     return {
       input,
       prompt,
       system,
-      sources: [{ row: row.id }, ...pages.map((p): SourceRef => ({ page: p.id }))],
+      sources: [{ row: row.id }, ...pages.map((p): SourceRef => ({ page: p.id })), ...done.map((d): SourceRef => ({ page: d.id }))],
       typed: [row.title, text],
       pages,
       read: { chars: text.length, pages: pages.length, cut: !!cut },
@@ -253,12 +295,15 @@ const statusKeyOf = (req: Request, value: unknown): OrderStatusKey | null => {
   return null
 }
 
-/** Status → Kette bereit (the order writer `#s`) — only from Entwurf / Planen (or none): never over a running chain. */
-function statusToReady(rowId: ID, run: string): void {
+/**
+ * Status → Kette bereit (the order writer `#s`) — only from Entwurf / Planen (or none): never over a running chain;
+ * `replan`: a plan made again from a done step of the running chain — from Läuft too.
+ */
+function statusToReady(rowId: ID, run: string, replan = false): void {
   const req = requestOf(rowId)
   if ('why' in req || !req.statusProp) return
   const now = statusKeyOf(req, req.row.properties?.[req.statusProp])
-  if (now !== null && now !== 'draft' && now !== 'plan') return
+  if (now !== null && now !== 'draft' && now !== 'plan' && !(replan && now === 'running')) return
   const writer: Writer = { kind: 'order', row: rowId, run, change: 's' }
   withWriter(writer, () => ws().setRowProperty(rowId, req.statusProp!, req.config.status.ready))
 }
@@ -314,9 +359,12 @@ async function planRun(rowId: ID, run: string, opts: PlanOpts, signal: AbortSign
   const req = requestOf(rowId)
   if ('why' in req) return end({ kind: 'blocked', block: req })
   // one open chain per request; an edited draft asks first
-  const rec = await loadOrderRecord(rowId)
+  const rec = await loadOrderRecord(rowId, { fresh: true })
   if (rec === 'unreadable') return end({ kind: 'blocked', block: { why: 'config' } })
-  if (rec && (rec.state === 'running' || rec.state === 'creating' || rec.state === 'interrupted')) return end({ kind: 'chain' })
+  // planning again from a done step of the running chain (its next step not started yet): the done steps go along
+  const done = opts.from !== undefined && rec ? doneSteps(rec, opts.from) : null
+  if (opts.from !== undefined && !done) return end({ kind: 'chain' })
+  if (!done && rec && (rec.state === 'running' || rec.state === 'creating' || rec.state === 'interrupted')) return end({ kind: 'chain' })
   if (rec?.state === 'draft' && rec.draft?.edited && !opts.replace) return end({ kind: 'edited' })
 
   // §2.2 items 1–6 — the same facts and rules as the press (facts.ts, preconditions.ts): checked again here, as the
@@ -333,7 +381,7 @@ async function planRun(rowId: ID, run: string, opts: PlanOpts, signal: AbortSign
   if (!offersAI(status)) return end({ kind: 'blocked', block: { why: 'ai', reason: status.reason ?? 'no_key' } })
   const source = `order:${rowId}:${run}`
   const runCtx = { mode: opts.mode, source }
-  const ids = taskRefPlan(rowId).refs.map((r) => r.id)
+  const ids = [...taskRefPlan(rowId).refs.map((r) => r.id), ...(done?.steps ?? []).map((d) => d.id)]
   const sources: SourceRef[] = [{ row: rowId }, ...ids.map((id): SourceRef => ({ page: id }))]
   let pre: Prepared
   try {
@@ -346,7 +394,7 @@ async function planRun(rowId: ID, run: string, opts: PlanOpts, signal: AbortSign
   const server = serverPart(req.config, pre)
   patchRun(rowId, run, { phase: 'reading', server: server.name, skip: server.skip, tools: server.tools, left: server.left })
   const approvals = defaultApprovals()
-  const built = build(req, usable, pre, server.name, approvals)
+  const built = build(req, usable, pre, server.name, approvals, done?.steps ?? [])
   patchRun(rowId, run, { read: built.read })
   // item 8: the request plus its pages hold ≥ 40 characters of words
   const words = wordChars([built.input.request.title, built.input.request.text, ...built.pages.map((p) => p.markdown)].join('\n'))
@@ -412,7 +460,7 @@ async function planRun(rowId: ID, run: string, opts: PlanOpts, signal: AbortSign
     }
     patchRun(rowId, run, { phase: 'writing', notes: read.notes })
     const src = { prov, pins, server: took ? server.name : null, tools: took ? server.tools : [], left: server.left, calls: seen.fold.calls, ...(skip ? { skip } : {}) }
-    return end(await writeDraft(rowId, run, req, read.plan, read.notes, usable, approvals, src, opts))
+    return end(await writeDraft(rowId, run, req, read.plan, read.notes, usable, approvals, src, opts, done ? { n: opts.from!, run: done.run } : undefined))
   } catch (e) {
     if (e instanceof AIError && e.code === 'aborted') return end({ kind: 'stopped', run })
     if (budgetRefusal(e) && e instanceof AIError) {
@@ -443,6 +491,7 @@ async function writeDraft(
   approvals: 'all' | 'review' | 'none',
   src: Omit<OrderDraft['source'], 'rev'>,
   opts: PlanOpts,
+  from?: { n: number; run: string },
 ): Promise<PlanOutcome> {
   const resolved: ResolvedStep[] = plan.steps.map((step) => {
     const p = projects.find((x) => x.kind === step.kind)!
@@ -459,9 +508,18 @@ async function writeDraft(
     source: { ...src, rev: src.prov[rowId]?.contentRev ?? req.row.contentRev },
     ...(opts.answers?.length ? { answers: opts.answers } : {}),
     ...(notes.length ? { notes } : {}),
+    ...(from ? { from } : {}),
   }
   let blocked = false
   const wrote = await patchOrderRecord(rowId, (rec) => {
+    // planned again from a done step: only while that chain still waits before its next step (it stays beside the draft)
+    if (from) {
+      if (!rec || !doneStepsStill(rec, from)) {
+        blocked = true
+        return rec
+      }
+      return { ...rec, state: 'draft', draft }
+    }
     // a chain started meanwhile (another tab): the plan is not written over it
     if (rec && (rec.state === 'running' || rec.state === 'creating' || rec.state === 'interrupted')) {
       blocked = true
@@ -473,9 +531,19 @@ async function writeDraft(
   if (blocked) return { kind: 'chain' }
   if (!wrote.ok) return { kind: 'failed', run, code: 'record' }
   if (!plan.steps.length) return { kind: 'questions', run }
-  statusToReady(rowId, run)
+  statusToReady(rowId, run, !!from)
   notifyAway(rowId, t('features.coding.order.planner.notify.ready', { id: orderLabel(req) }))
   return { kind: 'ready', run, steps: plan.steps.length }
+}
+
+/** The chain a replan was made from still runs and still waits before the step after `from.n`. */
+function doneStepsStill(rec: OrderRecord, from: { n: number; run: string }): boolean {
+  const chain = rec.chain
+  if (rec.state !== 'running' || !chain || chain.run !== from.run || chain.halted) return false
+  const steps = [...chain.steps].sort((a, b) => a.n - b.n)
+  const at = steps.findIndex((st) => st.n === from.n)
+  const next = at < 0 ? undefined : steps.slice(at + 1).find((st) => !(chain.skipped ?? []).includes(st.n))
+  return !!next && chain.advanced?.[next.n] === undefined
 }
 
 /* ------------------------------------------------------------------ answers */
