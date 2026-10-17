@@ -208,3 +208,20 @@ export { pressPlan, pressProv, orderPreNow, type PressResult } from './orders/pr
 export { orderPre, WANT_WHYS, type OrderPreFacts, type OrderPreResult, type OrderPreWhy, type OrderPreKind } from './orders/pre'
 export { planRows, OrderCommandError } from './orders/command'
 export type { OrderPress, OrderPressHow } from './orders/types'
+/**
+ * Work orders B6 — confirming (orders/confirm.ts, lazy; chainRun.ts, stepPage.ts): startChain(row, hash) (↵ Kette starten,
+ * VON HAND — two phases: checks + projects + chain roles, then every step created PARKED under `order:<row>:<run>#c<n>`,
+ * a throw rolls back; 'running' + Status Läuft, step 01 after the 10 s count) · planHashNow(row, draft) (the hash the
+ * plate shows and ↵ confirms) · undoChain(row) (Z, `you~undo`, all or nothing) · finishRest / discardMade (an
+ * interrupted creation's VON HAND keys) · runChain(row) / startNow(row) (the engine's step-01 start and halts, B7 adds
+ * the rest) · chainWorld(row, record) · stepPage(input) (the slot, the request quote, the context callout, the pages)
+ */
+export const startChain = (rowId: string, hash: string) => import('./orders/confirm').then((m) => m.startChain(rowId, hash))
+export const planHashNow = (rowId: string, draft: import('./orders/types').OrderDraft) => import('./orders/confirm').then((m) => m.planHashNow(rowId, draft))
+export const undoChain = (rowId: string) => import('./orders/confirm').then((m) => m.undoChain(rowId))
+export const finishRest = (rowId: string) => import('./orders/confirm').then((m) => m.finishRest(rowId))
+export const discardMade = (rowId: string) => import('./orders/confirm').then((m) => m.discardMade(rowId))
+export type { StartOutcome, StartRefusal, UndoOutcome, FinishOutcome } from './orders/confirm'
+export { runChain, startNow, chainWorld, taskFacts, parkedOf } from './orders/chainRun'
+export { stepPage, stepBlockIds, requestPlain, type StepPage, type StepPageInput, type StepPageWords } from './orders/stepPage'
+export { stepWords } from './orders/words'

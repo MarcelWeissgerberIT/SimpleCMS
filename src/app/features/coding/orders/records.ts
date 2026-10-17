@@ -13,7 +13,7 @@
  */
 import { create } from 'zustand'
 import { useEffect } from 'react'
-import { createStore, del, get, update, type UseStore } from 'idb-keyval'
+import { createStore, del, get, keys, update, type UseStore } from 'idb-keyval'
 import type { ID } from '../../../store/types'
 import { scope } from '../local'
 import { readOrderRecord } from './record'
@@ -225,6 +225,22 @@ export async function patchOrderRecord(rowId: ID, fn: (rec: OrderRecord | null) 
     }
   }
   return out
+}
+
+/** The rows of this scope with a record on this device (IndexedDB keys `<scope>|order|<row>`; without storage: this tab's). */
+export async function recordRowIds(): Promise<ID[]> {
+  const s = scope()
+  const store = kv()
+  if (!store) {
+    const prefix = `${s}|`
+    return Object.keys(useOrderRecords.getState().recs).filter((k) => k.startsWith(prefix)).map((k) => k.slice(prefix.length))
+  }
+  const prefix = `${s}|order|`
+  try {
+    return (await keys(store)).map(String).filter((k) => k.startsWith(prefix)).map((k) => k.slice(prefix.length))
+  } catch {
+    return []
+  }
 }
 
 /* ------------------------------------------------------------------ other tabs */

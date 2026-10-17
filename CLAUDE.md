@@ -1278,6 +1278,20 @@ the public APIs stable — other areas are built against them in parallel.
   build cannot read is never overwritten); Status → Kette bereit only from Entwurf / Planen, by the order writer `#s`.
   Regler: 'manual' at the line → the brake error for the plate's BrakeSlot, 'trigger' → held (one info toast). Answers
   go under "Antworten" into the row as the person's write (`answerQuestions`).
+- Work-order confirm (Prüfaufträge B6, coding/orders/confirm.ts — lazy; chainRun.ts, stepPage.ts): tasks of a chain only
+  through `startChain(row, hash)` (↵ Kette starten, VON HAND — `hash` = `planHashNow`, the plan as it resolves now): the
+  row lock, a 'draft' record; phase 1 checks everything (Kette bereit, §2.2, every step's kind usable, the hash, the
+  shared `checkTaskDraft`, a repo where the pipeline needs one, `chainPropsCheck`) and only then makes missing projects
+  + `ensureChainProps` (writer `order:<row>:<run>`); phase 2 mints the ids, writes 'creating' ahead, trashes the older
+  chain's parked steps (kept as `chain.replaced`), creates every step PARKED with `applyNewTask` under `#c<n>` (NewTask
+  `id` / `lead` / `order`; the page = slot · request quote as plain text · server context in the first step · goal ·
+  criteria · the pages that go along — every block with an id, ending in a paragraph, so opening it writes nothing); a
+  throw trashes what was made and restores the draft. Then 'running', Status Läuft (`#s`), step 01 after 10 s
+  (chainRun.ts: write-ahead `advanced`, Stage → start stage under `keepTrust` as `#a<n>`; the parked-start guard holds
+  every step not started, and every task carrying the relation until the records are read). `undoChain` (`you~undo`) is
+  all or nothing, refused once a step was taken or changed; `finishCreates` (start of a tab) completes a 'creating'
+  record only while the made steps are untouched, ≤ 10 min and every missing step rebuilds to its `sig` — else
+  'interrupted' (VON HAND `discardMade` / `finishRest`). `createRow` takes an optional `id` (throws when taken).
 - MCP tidy-up tools (trash / restore ≤ 50 ids, move page / row, update database / property, delete property, view
   create / update / delete) live in `features/mcp/{tidy,structure}.ts` and `server/src/mcp/{tidy,structure}.ts` with
   the same rules: never delete for good, locked databases refuse structure changes, no page ⇄ entry or Private ⇄ shared

@@ -1,9 +1,11 @@
 /**
- * Work orders — the chain's words that land in step pages (the slot, the Grundlage heading, the skipped line, the cut
- * note), pure: the caller passes its translator (the app: i18n `t` + `currentLang()`; a Node spec: makeTranslator over
- * coding/messages.ts). Step numbers are two digits ("01"), counts in the UI's number format.
+ * Work orders — the chain's words that land in step pages (the slot, the request quote, the context callout, the pages
+ * line, the Grundlage heading, the skipped line, the cut note), pure: the caller passes its translator (the app: i18n
+ * `t` + `currentLang()`; a Node spec: makeTranslator over coding/messages.ts). Step numbers are two digits ("01"),
+ * counts in the UI's number format.
  */
 import type { Lang, Translate } from '@/shared/i18n'
+import type { StepPageWords } from './stepPage'
 import type { OrderKind } from './types'
 
 /** A step number as the chain shows it: 1 → "01". */
@@ -31,5 +33,17 @@ export function chainWords(tr: Translate, lang: Lang): ChainWords {
     skipped: (n) => tr('features.coding.order.chain.skipped', { n: stepNo(n) }),
     waits: (n) => tr('features.coding.order.chain.waitsStep', { n: stepNo(n) }),
     cutNote: (n) => (shown, total) => tr('features.coding.order.chain.basisCut', { shown: num.format(shown), total: num.format(total), n: stepNo(n) }),
+  }
+}
+
+/** The words a step page holds (orders/stepPage.ts): the slot, the request quote, the server's context, the pages line. */
+export function stepWords(tr: Translate, lang: Lang): StepPageWords {
+  const num = new Intl.NumberFormat(lang === 'de' ? 'de-DE' : 'en-US')
+  return {
+    waits: (n) => tr('features.coding.order.chain.waitsStep', { n: stepNo(n) }),
+    request: (code) => tr('features.coding.order.chain.request', { id: code }),
+    requestCut: (shown, total) => tr('features.coding.order.chain.requestCut', { shown: num.format(shown), total: num.format(total) }),
+    context: (server) => tr('features.coding.order.chain.context', { server }),
+    refs: tr('features.coding.order.chain.refs'),
   }
 }

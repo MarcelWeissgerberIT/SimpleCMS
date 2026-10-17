@@ -202,6 +202,14 @@ export interface OrderChainStep {
    * never copied on into the next step's Grundlage (orders/basis.ts)
    */
   own?: string[]
+  /** its title and contentRev right after it was created (undoChain / finishCreates: "untouched" means still these) */
+  title?: string
+  rev?: number
+  /**
+   * SHA-256 of what was confirmed for its page (title, project, fields, text — orders/confirm.ts stepSig): a step still
+   * to be made after an interruption is made without asking only while it is still exactly this
+   */
+  sig?: string
 }
 
 /** Evidence of who moved step n to done (written at the move; only `coding` / `you` / `terminal` let it go on). */
@@ -244,6 +252,11 @@ export interface OrderChain {
    * stage without one ran out of order, and a step with one still parked is moved again (the move is idempotent)
    */
   advanced?: Record<number, number>
+  /**
+   * the request's older chain this one replaced when it started (a follow-up chain): its steps still parked then went to
+   * the trash (`trashed`, said on the plate before ↵) — undoChain brings them and that chain back
+   */
+  replaced?: { chain: OrderChain; trashed: ID[] }
 }
 
 /**

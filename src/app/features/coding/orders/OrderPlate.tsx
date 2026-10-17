@@ -12,6 +12,9 @@
  *    the request stands in Planen, how the planner's last run here ended when it made no plan (its own words —
  *    text.ts outcomeText: AI not set up, an empty request, the gate's refusal, the Regler …)
  *  - ↵ Planen (a press of the allow-list, how 'plate'); viewers see no key
+ *  - B6, ChainPart.tsx: in Kette bereit the plan's steps and ↵ Kette starten (VON HAND; "Planen" becomes the plain key
+ *    "Erneut planen" beside it), a creation, an interrupted one with its two keys, the Laufleiste with the count before
+ *    step 01 (↵ jetzt · Z) — the strip's "Bereit zum Planen" goes once a plan or a chain stands here
  */
 import { useId } from 'react'
 import { ArrowRight, Settings2 } from 'lucide-react'
@@ -31,6 +34,7 @@ import { orderPreNow, pressPlan, usePressNotes, wantLive } from './press'
 import { useOrderRecord } from './records'
 import { usePlannerRun } from './runs'
 import { outcomeText, preWhyText, problemText, untilText } from './text'
+import ChainPart from './ChainPart'
 import { ORDER_LIMITS } from './types'
 import type { OrderPreWhy } from './pre'
 import './orders.css'
@@ -171,6 +175,27 @@ export default function OrderPlate({ rowId }: { rowId: ID }) {
   const left = pre.ok && pre.left.length ? t('features.coding.order.pre.left', { list: pre.left.map((k) => `${t(`features.coding.pipe.${k.kind}`)}: ${problemText(k.problem)}`).join(' · ') }) : ''
   const running = status === 'running'
   const fix = !pre.ok && why !== 'viewer' && why !== 'unreadable' ? pre.why : null
+  // the chain's part (ChainPart.tsx): the plan to confirm in Kette bereit, a creation, the Laufleiste
+  const ready = status === 'ready'
+  const chainState = rec?.state
+  const chainShown =
+    !!rec && ((chainState === 'draft' && ready && !!rec.draft?.plan.steps.length) || chainState === 'creating' || chainState === 'interrupted' || (!!rec.chain && (chainState === 'running' || chainState === 'halted' || chainState === 'done')))
+  // the strip's "ready to plan" says nothing once a plan or a chain stands here
+  const strip = !(chainShown && why === 'ok' && !ended)
+  // planning again is a plain key beside the plan; nothing plans over a chain being made or running
+  const planKey = !chainShown || chainState === 'draft' || chainState === 'halted' || chainState === 'done'
+
+  // ↵ Planen — beside the plan once one stands here ("Erneut planen", a plain key: ↵ is Kette starten then)
+  const planButton = (
+    <button type="button" className={`btn btn--sm${chainShown ? '' : ' btn--primary'}`} disabled={running} title={running ? t('features.coding.order.why.running') : undefined} onClick={() => void pressPlan(rowId, 'plate')} data-testid="order-plan">
+      {!chainShown && (
+        <span className="kbd" aria-hidden>
+          ↵
+        </span>
+      )}
+      {t(why === 'expired' || chainShown ? 'features.coding.order.key.planAgain' : 'features.coding.order.key.plan')}
+    </button>
+  )
 
   return (
     <section className="screw-plate orp" aria-labelledby={hid} data-status={status ?? undefined} data-testid="order-plate">
@@ -200,28 +225,22 @@ export default function OrderPlate({ rowId }: { rowId: ID }) {
         <Lamp name={t('features.coding.order.lamp.context')} led="ok" dim={!server} text={server ? t('features.coding.order.lamp.context.read', { server }) : t('features.coding.order.lamp.context.none')} testId="order-lamp-context" />
         <Lamp name={t('features.coding.order.lamp.planner')} led={planner.led} text={planner.text} testId="order-lamp-planner" />
       </dl>
-      <div className="orp-strip" data-why={why} data-ended={ended ? '' : undefined} data-testid="order-pre">
-        <p className="orp-strip__line">
-          {line}
-          {left && <span className="orp-strip__left"> {left}</span>}
-        </p>
-        {ended && (
-          <p className="orp-strip__line orp-strip__ended" data-outcome={outcome?.kind} data-testid="order-outcome">
-            {ended}
+      {strip && (
+        <div className="orp-strip" data-why={why} data-ended={ended ? '' : undefined} data-testid="order-pre">
+          <p className="orp-strip__line">
+            {line}
+            {left && <span className="orp-strip__left"> {left}</span>}
           </p>
-        )}
-        {fix && <FixKey why={fix} />}
-      </div>
-      {!viewer && (
-        <div className="orp-keys">
-          <button type="button" className="btn btn--primary btn--sm" disabled={running} title={running ? t('features.coding.order.why.running') : undefined} onClick={() => void pressPlan(rowId, 'plate')} data-testid="order-plan">
-            <span className="kbd" aria-hidden>
-              ↵
-            </span>
-            {t(why === 'expired' ? 'features.coding.order.key.planAgain' : 'features.coding.order.key.plan')}
-          </button>
+          {ended && (
+            <p className="orp-strip__line orp-strip__ended" data-outcome={outcome?.kind} data-testid="order-outcome">
+              {ended}
+            </p>
+          )}
+          {fix && <FixKey why={fix} />}
         </div>
       )}
+      {chainShown && rec && <ChainPart rowId={rowId} rec={rec} ready={ready} pre={pre} headId={hid} viewer={viewer} aside={!viewer && planKey && chainState === 'draft' ? planButton : null} />}
+      {!viewer && planKey && !(chainShown && chainState === 'draft') && <div className="orp-keys">{planButton}</div>}
     </section>
   )
 }

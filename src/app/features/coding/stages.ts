@@ -114,3 +114,10 @@ export function pipelineLine(pipeline: ResolvedStage[], repo: boolean, start: bo
     pipeline.filter((s) => s.kind === 'git').map((s) => [s.name, s.gitAction ?? 'pr']),
   ])
 }
+
+/**
+ * Does a task of this pipeline need a repository? Claude Code stages that read or write code (plan · implement · test ·
+ * git · analyze) — never document stages, never a pipeline that imports its code (an Import stage brings it).
+ */
+export const pipelineNeedsRepo = (pipeline: readonly ResolvedStage[]): boolean =>
+  !pipeline.some((s) => s.kind === 'import') && pipeline.some((s) => s.kind === 'plan' || s.kind === 'implement' || s.kind === 'test' || s.kind === 'git' || s.kind === 'analyze')

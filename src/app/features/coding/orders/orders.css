@@ -220,3 +220,181 @@
     margin-left: 0;
   }
 }
+
+/* the chain part (ChainPart.tsx, B6): the plan's steps, the start key, the Laufleiste, the count before step 01 */
+.orc {
+  margin: 12px 0 0;
+  padding: 10px 0 0;
+  border-top: 1px solid var(--rule);
+}
+.orc-title {
+  margin: 0 0 8px;
+  color: var(--ink-2);
+}
+.orc-steps,
+.orc-lane {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.orc-step {
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+}
+.orc-step__head {
+  display: flex;
+  margin: 0;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+}
+.orc-step__n {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.orc-step__title {
+  flex: 1 1 160px;
+  min-width: 0;
+  font-size: var(--text-md);
+  overflow-wrap: anywhere;
+}
+.orc-step__meta {
+  margin: 4px 0 0;
+  color: var(--ink-3);
+  overflow-wrap: anywhere;
+}
+.orc-step__why {
+  margin: 6px 0 0;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}
+.orc-step__goal {
+  margin: 6px 0 0;
+  color: var(--ink);
+  font-size: var(--text-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.orc-step__criteria {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  color: var(--ink);
+  font-size: var(--text-sm);
+}
+.orc-foreign {
+  padding: 0 4px;
+  border: 1px solid var(--signal-ink);
+  border-radius: var(--radius-1);
+  color: var(--signal-ink);
+}
+.orc-line {
+  margin: 10px 0 0;
+  color: var(--ink);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+.orc-line--warn {
+  padding-left: 8px;
+  border-left: 2px solid var(--signal);
+}
+/* the Laufleiste: LED + state word + number + title + stage — the word always beside the LED */
+.orc-row {
+  display: grid;
+  grid-template-columns: minmax(7.5em, auto) auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 10px;
+  min-width: 0;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--rule);
+}
+.orc-row:last-child {
+  border-bottom: 0;
+}
+.orc-row__state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-2);
+}
+.orc-row[data-lane='running'] .orc-row__state .led--on {
+  animation: orp-blink 1s steps(2, jump-none) infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .orc-row[data-lane='running'] .orc-row__state .led--on {
+    animation: none;
+  }
+}
+.orc-row__n {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.orc-row__title {
+  overflow: hidden;
+  min-width: 0;
+  color: var(--ink);
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.orc-row__title:hover {
+  text-decoration: underline;
+  text-decoration-color: var(--rule-strong);
+}
+.orc-row__title:focus-visible {
+  outline: none;
+  border-radius: var(--radius-1);
+  box-shadow: var(--focus-ring);
+}
+.orc-row__stage {
+  color: var(--ink-3);
+}
+@container (max-width: 560px) {
+  .orc-row {
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas: 'state stage' 'n title';
+  }
+  .orc-row__state {
+    grid-area: state;
+  }
+  .orc-row__stage {
+    grid-area: stage;
+    justify-self: end;
+  }
+  .orc-row__n {
+    grid-area: n;
+  }
+  .orc-row__title {
+    grid-area: title;
+  }
+}
+.orc-count {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin: 10px 0 0;
+}
+.orc-count .orc-line {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+.orc-count__keys {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.orc-count__keys .kbd,
+.orc .orp-keys .kbd {
+  margin-right: 2px;
+}
+.orc button[aria-disabled='true'] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}

@@ -35,7 +35,7 @@ import { ALL_MESSAGES, t } from '../../i18n'
 import { REPO_NAME, type GitAction, type LogLine, type StageKind } from './protocol'
 import { FOLLOW_UPS, KIND_TEMPLATES, codingProps, codingReadOnly, currentProjectId, isPipelineKind, kindOfDb, nextStage, optionByName, optionName, pipelineDbIds, pipelineDbIdsOf, priorityRank, readPipeline, stageNear, templatePipeline, type CodingRole, type PipelineKind, type ResolvedStage } from './schema'
 import type { ChainRole } from './orders/roles'
-import { allTasks, answerTask, approvalsOf, approveTask, canContinue, continueTask, createTask, defaultApprovals, followUpsOf, knownRepos, planSection, reworkTask, runTaskNow, sectionTitleOf, setFollowUps, spawnFollowUp, stageSteps, startStageOf, taskBody, taskContext, textHash, workerBranches, type Approvals } from './tasks'
+import { allTasks, answerTask, approvalsOf, approveTask, canContinue, continueTask, createTask, defaultApprovals, followUpsOf, knownRepos, planSection, reworkTask, runTaskNow, sectionTitleOf, setFollowUps, spawnFollowUp, stageSteps, startStageOf, taskBody, taskContext, textHash, workerBranches, type Approvals, type NewTask } from './tasks'
 import { loadTask, scope, taskLocal, useCodingLocal, type TaskLocal } from './local'
 import { isTrusted, needsConfirm, versionOf, writeEndsConfirm } from './trust'
 import { isRunning, stopTask } from './service'
@@ -441,6 +441,15 @@ export interface NewTaskPlan {
   stopsAt: string | null
   /** git stages of the pipeline (name + action): what they do once reached */
   git: Array<{ name: string; action: GitAction }>
+  /**
+   * a work order's chain step (orders/confirm.ts startChain): the row's id minted beforehand, its request + number +
+   * chain run (the Prüfauftrag / Schritt roles), the blocks before the goal (slot, request quote, context) and after the
+   * criteria (the pages that go along) — the review's `refs` / `text` include them
+   */
+  id?: ID
+  order?: NewTask['order']
+  lead?: JSONContent[]
+  extra?: JSONContent[]
 }
 
 /** A pipeline of a kind for planning: the project's, or the kind's default template (a project made on apply). */
@@ -583,8 +592,12 @@ export async function applyNewTask(plan: NewTaskPlan, writer: Writer): Promise<{
   const shown = JSON.stringify([plan.startStage, plan.startKind, plan.starts, plan.stopsAt, plan.git.map((g) => [g.name, g.action])])
   if (pipelineLine(pipeline, !!plan.repo, plan.start, defaultApprovals()) !== shown) throw new Error(t('features.coding.term.err.pipelineChanged'))
   // the pages that go along: none the review did not list (a staged page it listed may exist by now)
-  if (newRefs(refPagesOf(taskBody({ goal: '', goalDoc: plan.goalDoc, criteria: plan.criteria, extra: [] })), plan.refs)) throw new Error(t('features.coding.term.err.refs'))
+  if (newRefs(refPagesOf(taskBody({ goal: '', goalDoc: plan.goalDoc, criteria: plan.criteria, lead: plan.lead, extra: plan.extra ?? [] })), plan.refs)) throw new Error(t('features.coding.term.err.refs'))
   const id = await createTask({
+    ...(plan.id ? { id: plan.id } : {}),
+    ...(plan.order ? { order: plan.order } : {}),
+    ...(plan.lead?.length ? { lead: plan.lead } : {}),
+    ...(plan.extra?.length ? { extra: plan.extra } : {}),
     kind: plan.kind,
     ...(dbId ? { dbId } : {}),
     title: plan.title,

@@ -182,7 +182,11 @@ export interface WorkspaceState extends Workspace {
   updateView: (dbId: ID, viewId: ID, patch: Partial<View>) => void
   deleteView: (dbId: ID, viewId: ID) => void
   duplicateView: (dbId: ID, viewId: ID) => ID | null
-  createRow: (dbId: ID, input?: { title?: string; properties?: Record<ID, PropertyValue>; content?: JSONContent | null; index?: number; icon?: Page['icon']; contentOrigin?: string | null }) => ID
+  /**
+   * a new row of `dbId` → its id. `id`: the id to give it (a caller that records the id before the row exists — a work
+   * order's chain step, features/coding/orders; throws when a page holds it already)
+   */
+  createRow: (dbId: ID, input?: { id?: ID; title?: string; properties?: Record<ID, PropertyValue>; content?: JSONContent | null; index?: number; icon?: Page['icon']; contentOrigin?: string | null }) => ID
   setRowProperty: (rowId: ID, propId: ID, value: PropertyValue) => void
 
   // people & settings
@@ -1089,13 +1093,14 @@ export const useWorkspace = create<WorkspaceState>()(
 
     createRow: (dbId, input = {}) => {
       const state = get()
+      if (input.id !== undefined && state.pages[input.id]) throw new Error('page id taken')
       const db = state.databases[dbId]
       const properties: Record<ID, PropertyValue> = { ...(input.properties ?? {}) }
       if (db) {
         for (const p of db.properties) if (p.type === 'unique_id' && properties[p.id] === undefined) properties[p.id] = db.nextUniqueId
       }
       const page = makePage(
-        { parentId: dbId, databaseId: dbId, title: input.title ?? '', properties, content: input.content ?? null, index: input.index, icon: input.icon, contentOrigin: input.contentOrigin },
+        { id: input.id, parentId: dbId, databaseId: dbId, title: input.title ?? '', properties, content: input.content ?? null, index: input.index, icon: input.icon, contentOrigin: input.contentOrigin },
         state.pages,
       )
       set((s) => {

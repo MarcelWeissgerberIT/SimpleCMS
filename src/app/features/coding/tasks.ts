@@ -18,7 +18,7 @@ import { pageChanges, useWorkspace } from '../../store/store'
 import { selectRows } from '../../store/selectors'
 import { useUI } from '../../store/ui'
 import type { Database, DateValue, ID, Page, PropertyValue } from '../../store/types'
-import { docToMarkdown, readableContent, unwrapItemsIn } from '../../editor'
+import { docToMarkdown, readableContent, unwrapItemsIn, withBlockIds } from '../../editor'
 import { outermostItems, remintItems } from '../../lib/itemIds'
 import { canCreateItems } from '../workitems'
 import { claudeDoc } from '../ai/claudeDoc'
@@ -964,6 +964,13 @@ export interface NewTask {
    * task's version; the chain itself is this device's record)
    */
   order?: { rowId: ID; step: number; run: string }
+  /** the row's id, minted by the caller (a chain step: recorded before the row exists — orders/confirm.ts) */
+  id?: ID
+  /**
+   * blocks before the goal — a chain step's slot ("Waits for step 01"), its "Request" quote and, in step 01, the
+   * server's context (orders/stepPage.ts)
+   */
+  lead?: JSONContent[]
 }
 
 /** Where a new task starts (stages.ts): the first stage (parked), or with `start` the first one the worker takes. */
@@ -991,9 +998,10 @@ function typedPara(line: string): JSONContent {
   return content.length ? { type: 'paragraph', content } : { type: 'paragraph' }
 }
 
-/** A new task's page: the goal (its blocks, or its paragraphs), the acceptance criteria as a to-do list, then `extra`. */
-export function taskBody(input: Pick<NewTask, 'goal' | 'goalDoc' | 'criteria' | 'extra'>): JSONContent[] {
+/** A new task's page: `lead` (a chain step's own blocks), the goal (its blocks, or its paragraphs), the acceptance criteria as a to-do list, then `extra`. */
+export function taskBody(input: Pick<NewTask, 'goal' | 'goalDoc' | 'criteria' | 'extra' | 'lead'>): JSONContent[] {
   const content: JSONContent[] = []
+  if (input.lead?.length) content.push(...input.lead)
   if (input.goalDoc) content.push(...input.goalDoc)
   else for (const line of input.goal.split(/\n{2,}/)) if (line.trim()) content.push(typedPara(line.trim()))
   const criteria = input.criteria.map((c) => c.trim()).filter(Boolean)
@@ -1039,8 +1047,12 @@ function createTaskRow(input: NewTask): ID {
   // a chain step: its request and number, in the same write as the row (no moment without them)
   if (input.order && props.order) properties[props.order] = [input.order.rowId]
   if (input.order && props.step) properties[props.step] = input.order.step
-  const content = taskBody(input)
-  return ws().createRow(dbId, { title: input.title.trim(), properties, content: { type: 'doc', content } })
+  const blocks = taskBody(input)
+  // a chain step: every block carries its id from the start and the page ends with a paragraph (the editor's trailing
+  // node) — an editor opening it writes nothing, so "untouched" stays true (orders/confirm.ts)
+  if (input.order && blocks[blocks.length - 1]?.type !== 'paragraph') blocks.push({ type: 'paragraph' })
+  const doc: JSONContent = { type: 'doc', content: blocks }
+  return ws().createRow(dbId, { ...(input.id ? { id: input.id } : {}), title: input.title.trim(), properties, content: input.order ? withBlockIds(doc).doc : doc })
 }
 
 /** Every task of every pipeline database (or of one kind), with its stage — for #/coding. */

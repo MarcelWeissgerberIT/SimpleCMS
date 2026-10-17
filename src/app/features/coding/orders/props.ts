@@ -28,7 +28,11 @@ export function hasChainProps(projectId: ID, ordersDb: ID): boolean {
   return !!rel && rel.relationDatabaseId === ordersDb && !!roles.step
 }
 
-export function ensureChainProps(projectId: ID, ordersDb: ID, writer: Writer): ChainPropsResult {
+/**
+ * What ensureChainProps would do, without writing: 'ok' (both there) · 'add' (it would add them) · 'locked' · 'other' ·
+ * 'gone' — startChain's phase 1 asks before anything is made.
+ */
+export function chainPropsCheck(projectId: ID, ordersDb: ID): Exclude<ChainPropsResult, 'added'> | 'add' {
   const s = ws()
   const db = s.databases[projectId]
   if (!db || !kindOfDb(projectId) || s.databases[ordersDb]?.system !== 'workorders') return 'gone'
@@ -36,7 +40,14 @@ export function ensureChainProps(projectId: ID, ordersDb: ID, writer: Writer): C
   const rel = roles.order ? db.properties.find((p) => p.id === roles.order) : undefined
   if (rel && rel.relationDatabaseId !== ordersDb) return 'other'
   if (rel && roles.step) return 'ok'
-  if (db.locked) return 'locked'
+  return db.locked ? 'locked' : 'add'
+}
+
+export function ensureChainProps(projectId: ID, ordersDb: ID, writer: Writer): ChainPropsResult {
+  const check = chainPropsCheck(projectId, ordersDb)
+  if (check !== 'add') return check
+  const db = ws().databases[projectId]!
+  const rel = codingProps(db).order ? db.properties.find((p) => p.id === codingProps(db).order) : undefined
   return withWriter(writer, () => {
     const added: ID[] = []
     if (!rel) added.push(ws().addProperty(projectId, { type: 'relation', name: t('features.coding.prop.order'), relationDatabaseId: ordersDb }))

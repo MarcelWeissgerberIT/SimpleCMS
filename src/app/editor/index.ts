@@ -65,7 +65,7 @@ export { startUndoStep, endUndoStep } from './collab'
 export { editAs, dispatchAs, NORMALISE_META as EDITOR_NORMALISE_META, PERSON_META as EDITOR_PERSON_META } from './lib/editAs'
 /* spaceOpensAI($pos): a line where a Space typed on it, empty, opens the AI menu (the Space shortcut's own test) */
 export { spaceOpensAI } from './lib/typedAt'
-export { getExtensions, markdownToDoc, docToMarkdown, docToHTML, stripPrivate, stripPrivate as stripButtonActions, docSchema, prepareCollabContent } from './convert'
+export { getExtensions, markdownToDoc, docToMarkdown, docToHTML, stripPrivate, stripPrivate as stripButtonActions, docSchema, prepareCollabContent, withBlockIds } from './convert'
 /**
  * docToFileMarkdown(doc): docToMarkdown with date / person mentions as `one:` links (`[@Oct 17](one:date/2026-10-17?r=-1d)`,
  * `[@Alex](one:person/<id>)`) — the form of Markdown files One reads back and of the AI reads Claude writes back (opt-in:

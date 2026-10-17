@@ -36,9 +36,8 @@ import { workerVerdict } from '../link'
 import { withHalt } from '../chain'
 import { addOrderRepoOptions, isOrderRow, orderCode, orderDbIds, orderProps, orderStatusKey, statusKeyOf, writeOrderStatus } from './db'
 import { callPlanner, dropWant, orderPreNow, pressPlan, pressProv, setPressNote, statusWriter, wantLive, type PressResult } from './press'
-import { loadOrderRecord, ORDERS_CHANNEL, patchOrderRecord } from './records'
-import { scope } from '../local'
-import { createStore, keys, type UseStore } from 'idb-keyval'
+import { loadOrderRecord, ORDERS_CHANNEL, patchOrderRecord, recordRowIds } from './records'
+import { startChains } from './chainRun'
 import { preWhyText, untilText } from './text'
 import { ORDER_LIMITS, type OrderPress, type OrderRecord } from './types'
 
@@ -208,17 +207,8 @@ function onPages(state: ReturnType<typeof ws>, prev: ReturnType<typeof ws>): voi
 /** A record this build can act on (a later build's — 'unreadable' — is no record here). */
 const asRecord = (r: OrderRecord | null | 'unreadable' | undefined): OrderRecord | null => (r && r !== 'unreadable' ? r : null)
 
-let idb: UseStore | null = null
-/** The rows of this scope with a record on this device (IndexedDB keys `<scope>|order|<row>`). */
-async function recordRows(): Promise<ID[]> {
-  if (typeof indexedDB === 'undefined') return []
-  const prefix = `${scope()}|order|`
-  try {
-    return (await keys((idb ??= createStore('one-coding', 'kv')))).map(String).filter((k) => k.startsWith(prefix)).map((k) => k.slice(prefix.length))
-  } catch {
-    return []
-  }
-}
+/** The rows of this scope with a record on this device (records.ts). */
+const recordRows = (): Promise<ID[]> => recordRowIds()
 
 /** The worker link's verdict (coding/link.ts — the one the preconditions read). */
 const verdictOf = (s: CodingState): 'ok' | 'outdated' | 'unsafe' | null => workerVerdict(s)
@@ -293,6 +283,8 @@ export function startOrders(): void {
   if (started || typeof window === 'undefined') return
   started = true
   useWorkspace.subscribe(onPages)
+  // the chains on this device: the parked-start guard, step 01's count, creations a closed tab left (chainRun.ts)
+  startChains()
   useCoding.subscribe((s, prev) => {
     const v = verdictOf(s)
     if (v === 'ok' && verdictOf(prev) !== 'ok') {

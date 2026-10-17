@@ -5,10 +5,11 @@
  *
  *  - `v` must be 1 (a later build's record is unreadable: null, never overwritten by this build — the sink checks).
  *  - The chain: a run id, its times, 1–24 steps with unique numbers (1–999) and task ids, each with its kind, project,
- *    confirmed pipeline line, Approvals, pinned refs (≤ 8), slot block and own blocks; who finished which step; the
- *    sticky halt; the checkpoint (on unless stored as false); the budget (clamped like the config's); the steps made
- *    while creating, skipped and started. Anything outside these bounds is dropped; a chain without readable steps is
- *    no chain.
+ *    confirmed pipeline line, Approvals, pinned refs (≤ 8), slot block and own blocks, its title and revision as made
+ *    and the sig of what was confirmed for it; who finished which step; the sticky halt; the checkpoint (on unless
+ *    stored as false); the budget (clamped like the config's); the steps made while creating, skipped and started; the
+ *    older chain it replaced at its start (one level, with the parked steps that went to the trash then). Anything
+ *    outside these bounds is dropped; a chain without readable steps is no chain.
  *  - The draft is kept only in its outline (plan, hash, run, time); plan.ts readPlan (B5) reads the plan itself.
  */
 import type { ID } from '../../../store/types'
@@ -23,6 +24,8 @@ const MAX_STEPS = 24
 const MAX_REFS = 8
 const MAX_OWN = 8
 const MAX_LINE = 4000
+const MAX_TITLE = 200
+const SIG_RE = /^[0-9a-f]{64}$/
 
 type Obj = Record<string, unknown>
 const isObj = (v: unknown): v is Obj => !!v && typeof v === 'object' && !Array.isArray(v)
@@ -41,7 +44,20 @@ function readStep(v: unknown): OrderChainStep | null {
     for (const [id, rev] of Object.entries(v.refs).slice(0, MAX_REFS)) if (isId(id) && typeof rev === 'number' && Number.isInteger(rev) && rev >= 0) refs[id] = rev
   const basisBlock = typeof v.basisBlock === 'string' && BLOCK_RE.test(v.basisBlock) ? v.basisBlock : null
   const own = Array.isArray(v.own) ? [...new Set(v.own.filter((b): b is string => typeof b === 'string' && BLOCK_RE.test(b)))].slice(0, MAX_OWN) : []
-  return { n: v.n, id: v.id, kind: v.kind as OrderKind, project: v.project, line: v.line, approvals: v.approvals, refs, basisBlock, ...(own.length ? { own } : {}) }
+  return {
+    n: v.n,
+    id: v.id,
+    kind: v.kind as OrderKind,
+    project: v.project,
+    line: v.line,
+    approvals: v.approvals,
+    refs,
+    basisBlock,
+    ...(own.length ? { own } : {}),
+    ...(typeof v.title === 'string' && v.title.length <= MAX_TITLE ? { title: v.title } : {}),
+    ...(typeof v.rev === 'number' && Number.isInteger(v.rev) && v.rev >= 0 ? { rev: v.rev } : {}),
+    ...(typeof v.sig === 'string' && SIG_RE.test(v.sig) ? { sig: v.sig } : {}),
+  }
 }
 
 function readDoneBy(v: unknown): OrderDoneBy | null {
@@ -54,8 +70,8 @@ function readDoneBy(v: unknown): OrderDoneBy | null {
   }
 }
 
-/** A chain as the engine acts on it (null: no readable chain). */
-export function readOrderChain(v: unknown): OrderChain | null {
+/** A chain as the engine acts on it (null: no readable chain). `nested`: the older chain one replaced (never one more level). */
+export function readOrderChain(v: unknown, nested = false): OrderChain | null {
   if (!isObj(v) || !isId(v.run) || !isTime(v.confirmedAt) || !isTime(v.startAt) || !Array.isArray(v.steps)) return null
   const steps: OrderChainStep[] = []
   for (const raw of v.steps.slice(0, MAX_STEPS)) {
@@ -97,6 +113,13 @@ export function readOrderChain(v: unknown): OrderChain | null {
     }
   const skipped = Array.isArray(v.skipped) ? [...new Set(v.skipped.filter((n): n is number => isStepN(n) && ns.has(n)))].sort((a, b) => a - b) : []
   const advanced = nums(v.advanced)
+  // the older chain this one replaced at its start, and the parked steps of it that went to the trash then
+  let replaced: OrderChain['replaced']
+  if (!nested && isObj(v.replaced)) {
+    const older = readOrderChain(v.replaced.chain, true)
+    const trashed = Array.isArray(v.replaced.trashed) ? [...new Set(v.replaced.trashed.filter(isId))].slice(0, MAX_STEPS) : []
+    if (older) replaced = { chain: older, trashed }
+  }
   let budgetUsd: number | undefined
   if (typeof v.budgetUsd === 'number' && Number.isFinite(v.budgetUsd)) budgetUsd = Math.min(BUDGET_RANGE[1], Math.max(BUDGET_RANGE[0], v.budgetUsd))
   return {
@@ -113,6 +136,7 @@ export function readOrderChain(v: unknown): OrderChain | null {
     ...(Object.keys(made).length ? { made } : {}),
     ...(skipped.length ? { skipped } : {}),
     ...(Object.keys(advanced).length ? { advanced } : {}),
+    ...(replaced ? { replaced } : {}),
   }
 }
 

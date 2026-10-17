@@ -54,7 +54,7 @@ import { budgetRefusal } from '../../governor'
 import { useUI } from '../../../store/ui'
 import { useCoding } from '../state'
 import { codingReadOnly, type ResolvedStage } from '../schema'
-import { pipelineLine, runsFrom, startStageOf } from '../stages'
+import { pipelineLine, pipelineNeedsRepo, runsFrom, startStageOf } from '../stages'
 import { taskRefPlan } from '../refs'
 import { defaultApprovals } from '../state'
 import { notifyAway } from '../notify'
@@ -143,7 +143,7 @@ function requestOf(rowId: ID): Request | PlannerBlock {
 /* ------------------------------------------------------------------ projects */
 
 /** Claude Code stages that need a repository (not document stages, not a pipeline that imports its code). */
-const needsRepo = (pipeline: readonly ResolvedStage[]): boolean => !pipeline.some((s) => s.kind === 'import') && pipeline.some((s) => s.kind === 'plan' || s.kind === 'implement' || s.kind === 'test' || s.kind === 'git' || s.kind === 'analyze')
+const needsRepo = pipelineNeedsRepo
 
 function pipelineFor(p: KindProject, approvals: 'all' | 'review' | 'none'): PlannerPipeline {
   const start = startStageOf(p.pipeline, true, true) ?? null
