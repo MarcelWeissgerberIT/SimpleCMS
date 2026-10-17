@@ -2788,6 +2788,68 @@ html[data-pb-noblink] .pb [data-blink] {
   flex: none;
 }
 
+/* ---------- Orders B10: the planner's lamps (CODING · WORKER · KONTEXT optional) ---------- */
+.pb-mod__s.pb-plamps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.pb-plamp {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+.pb-plamp[data-on] {
+  color: var(--ink-2);
+}
+.pb-plamp small {
+  color: var(--ink-3);
+  font-size: inherit;
+  text-transform: lowercase;
+}
+
+/* ---------- Orders B10: the work orders' band "§ PRÜFAUFTRÄGE" (ui/OrdersBand.tsx) ---------- */
+.pb-orders {
+  margin-top: 10px;
+  padding: 10px 12px 12px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-2);
+  background: var(--surface);
+}
+.pb-orders__head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.label.pb-orders__h {
+  margin: 0;
+  color: var(--ink);
+  font-weight: 700;
+}
+.label.pb-orders__count {
+  color: var(--ink-3);
+}
+/* an optional step (05 KONTEXT): dim, never red — leaving it out is a valid end */
+.pb-lamp[data-optional] .pb-lamp__body {
+  opacity: 0.78;
+}
+.pb-lamp[data-optional][data-s='next'] .pb-lamp__body {
+  opacity: 1;
+}
+.label.pb-lamp__opt {
+  order: 3;
+  margin-top: 3px;
+  color: var(--ink-3);
+  font-size: var(--text-2xs);
+}
+
 /* ---------- the band: the dropped profile on the rack ---------- */
 .pb-grid--heads {
   grid-template-rows: auto;

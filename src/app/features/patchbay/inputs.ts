@@ -30,7 +30,7 @@ import { findInboxIn } from '../../lib/capture'
 import { activeWorkspace, cloudRequest, useCloud } from '../../cloud'
 import { readAutomations } from '../automations'
 import { readDbCommands } from '../commands'
-import { approvalsDefault, gitStageWarnings, readPipeline, taskConfirmRule, useCoding, workerCaps, workerOnline, workerVerdict } from '../coding'
+import { approvalsDefault, currentProjectId, gitStageWarnings, orderDbIds, orderStatusProps, readOrderAuto, readOrderConfig, readPipeline, taskConfirmRule, useCoding, workerCaps, workerOnline, workerVerdict } from '../coding'
 import { routesFor } from '../outbox'
 import { readMail } from '../mail'
 import { readServers, refusedHere, useMcpChecks } from '../ai/mcp-servers'
@@ -42,7 +42,7 @@ import { nextRun } from '../templates'
 import { routeFor } from '../ai/core'
 import { loadScriptEngine } from '../script'
 import { hostOf } from '../../store/integrations'
-import { createInputMemo, digest, type DeviceFacts, type InputReaders, type InputSource, type LazyReadings } from './source'
+import { createInputMemo, digest, orderConfigView, type DeviceFacts, type InputReaders, type InputSource, type LazyReadings } from './source'
 import { ButtonIndex, SLICE_MS } from './buttons'
 import { ScanCache, scanKitCode, type ScanEngine } from './scripts'
 import { isLazyCache, lazyCacheOf, lazyKey, readCache, sameLazyCache, writeCache } from './cache'
@@ -89,6 +89,24 @@ export const APP_READERS: InputReaders = {
       return null
     }
   },
+  orders: (db) => ({ config: orderConfigView(readOrderConfig(db)), statusProps: orderStatusProps(db).map((p) => p.id) }),
+}
+
+/** Orders B10: this device's work-orders facts (Coding on, #/coding's project per kind, the consent per database). */
+let ordersSeen: { key: string; out: NonNullable<DeviceFacts['orders']> } | null = null
+function ordersFacts(team: boolean, enabled: boolean): NonNullable<DeviceFacts['orders']> {
+  const projects = { spec: currentProjectId('spec'), coding: currentProjectId('coding'), qa: currentProjectId('qa') }
+  const auto: Record<string, { sig: string; at: number }> = {}
+  if (!team) for (const db of orderDbIds()) {
+    const a = readOrderAuto(db)
+    if (a) auto[db] = a
+  }
+  const out = { codingOn: enabled, projects, auto }
+  // the same object while nothing changed (the memo compares device facts by value anyway)
+  const key = JSON.stringify(out)
+  if (ordersSeen?.key === key) return ordersSeen.out
+  ordersSeen = { key, out }
+  return out
 }
 
 /* ------------------------------------------------------------------ this device's facts */
@@ -115,6 +133,7 @@ function deviceFacts(): DeviceFacts {
     testing: Object.keys(useMcpChecks.getState().running),
     refused: servers.filter((s) => refusedHere(s)).map((s) => s.id),
     kitTrust: team ? kitTrustDigests(useKitTrust.getState().ok) : null,
+    orders: ordersFacts(team, coding.enabled),
   }
 }
 

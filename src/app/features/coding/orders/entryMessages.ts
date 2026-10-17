@@ -126,6 +126,7 @@ export const messages: Messages = {
     'features.coding.order.settings.lead': 'Write down what should be checked — One plans a chain of pipeline tasks from it: Business analysis, then Coding, then QA.',
     'features.coding.order.settings.create': 'Create the database',
     'features.coding.order.settings.open': 'Open',
+    'features.coding.order.settings.patchbay': 'Set up in the Patchbay',
     'features.coding.order.settings.made': 'Work orders created.',
   },
   de: {
@@ -246,6 +247,7 @@ export const messages: Messages = {
     'features.coding.order.settings.lead': 'Schreib auf, was geprüft werden soll — One plant daraus eine Kette von Pipeline-Aufgaben: erst Business-Analyse, dann Coding, dann QA.',
     'features.coding.order.settings.create': 'Datenbank anlegen',
     'features.coding.order.settings.open': 'Öffnen',
+    'features.coding.order.settings.patchbay': 'Im Schaltplan einrichten',
     'features.coding.order.settings.made': 'Prüfaufträge angelegt.',
   },
 }

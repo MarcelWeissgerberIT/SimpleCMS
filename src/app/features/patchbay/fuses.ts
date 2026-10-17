@@ -148,6 +148,7 @@ function factsOf(c: Ctx, chain: Chain, d: Decider): Fact[] {
     else facts.push({ kind: 'trigger', say: { key: `${P}.fact.trigger.any`, vars: { db: r.db, method } } })
     // an MCP or Git exit is the way out itself, not what sets it off (fix ui-words): its own label
   } else if (exit.type === 'mcp') facts.push({ kind: 'exit', say: { key: `${P}.fact.trigger.tools`, vars: { server: exit.module } } })
+  else if (exit.type === 'exec') facts.push({ kind: 'exit', say: { key: `${P}.fact.trigger.exec` } })
   else if (exit.type === 'sync') facts.push({ kind: 'trigger', say: { key: `${P}.fact.trigger.sync`, vars: { n: input.sync.github.everyMin } } })
   else if (exit.type === 'git') {
     const out = ix.mods.get(exit.module)
@@ -168,8 +169,9 @@ function factsOf(c: Ctx, chain: Chain, d: Decider): Fact[] {
     facts.push({ kind: 'awaitsConfirm', say: creator ? { key: `${P}.fact.awaitsConfirm`, vars: { member: ai.agent.updatedBy ?? '' } } : { key: `${P}.fact.awaitsConfirmOf`, vars: { creator: ai.agent.createdBy ?? '' } } })
   }
   // no stop before the git stage: approvals none — or a level whose gates this pipeline's stages pass (fix model)
-  if (exit.type === 'git' && !chain.gate) facts.push({ kind: 'approvals', say: input.worker.approvals === 'none' ? { key: `${P}.fact.approvalsNone` } : { key: `${P}.fact.approvalsPass` } })
-  if (d.kind === 'bridge' || d.kind === 'organise' || exit.type === 'sync' || (exit.type === 'mcp' && hm && hm.ref.kind !== 'agent')) facts.push({ kind: 'thisDevice', say: { key: `${P}.fact.thisDevice` } })
+  if ((exit.type === 'git' || exit.type === 'exec') && !chain.gate) facts.push({ kind: 'approvals', say: input.worker.approvals === 'none' ? { key: `${P}.fact.approvalsNone` } : { key: `${P}.fact.approvalsPass` } })
+  // Orders B10: the planner's consent is this device's ("Ohne Bestätigung starten" — other devices confirm by hand)
+  if (d.kind === 'bridge' || d.kind === 'organise' || d.kind === 'planner' || exit.type === 'sync' || (exit.type === 'mcp' && hm && hm.ref.kind !== 'agent')) facts.push({ kind: 'thisDevice', say: { key: `${P}.fact.thisDevice` } })
   if (exit.type === 'mcp') {
     const tools = toolsOn(c, hm, ix.mods.get(exit.module))
     const declared = Object.entries(tools?.groups.declared ?? {})
@@ -329,6 +331,13 @@ function key1(c: Ctx, chain: Chain, d: Decider): FuseKey | null {
     const locked = !!db?.locked
     return inert({ ...base, offered: !locked, ...(locked ? { refusal: { key: `${P}.key.locked` } } : {}) }, c)
   }
+  // Orders B10: the planner — back to "Kette bestätigen" on this device (its consent dropped; Undo puts it back)
+  if (m?.ref.kind === 'planner') {
+    const db = m.ref.db
+    const base: FuseKey = { n: 1, kind: 'autoOff', target: { orders: db }, offered: false, device: true, label: { key: `${P}.key.autoOff` }, what: { key: `${P}.key.autoOffWhat`, vars: { db } }, note: { key: `${P}.key.deviceOnly` } }
+    if (!c.input.orders?.find((o) => o.db === db)?.auto) return inert({ ...base, refusal: { key: `${P}.key.autoOffAlready` } }, c)
+    return inert({ ...base, offered: true }, c)
+  }
   if (m?.ref.kind === 'organise') return inert({ n: 1, kind: 'organiseHand', target: { organise: true }, offered: true, device: true, label: { key: `${P}.key.organiseHand` }, what: { key: `${P}.key.organiseHandWhat` }, note: { key: `${P}.key.deviceOnly` } }, c)
   if (m?.ref.kind === 'bridge') return inert({ n: 1, kind: 'bridgeAsk', target: { bridge: true }, offered: true, device: true, label: { key: `${P}.key.bridgeAsk` }, what: { key: `${P}.key.bridgeAskWhat` }, note: { key: `${P}.key.deviceOnly` } }, c)
   return null
@@ -337,6 +346,17 @@ function key1(c: Ctx, chain: Chain, d: Decider): FuseKey | null {
 function key2(c: Ctx, chain: Chain, d: Decider): { key: FuseKey; residual?: string[] } | null {
   const { ix } = c
   const exit = chain.exit!
+  // Orders B10: the planner's server — its read tools only, already so (never a write tool); untested: test it first
+  if (d.kind === 'planner') {
+    const src = chain.why?.outside.find((x) => x.kind === 'mcp' && !x.withheld)
+    const sm = src ? ix.mods.get(src.source) : undefined
+    if (!src || sm?.ref.kind !== 'server') return null
+    const g = serverToolGroups(c.input, sm.ref)
+    const base: FuseKey = { n: 2, kind: 'readTools', target: { server: sm.ref.id ?? '' }, offered: false, label: { key: `${P}.key.readTools` }, what: { key: `${P}.key.readToolsWhat`, vars: { server: src.source } } }
+    if (!g.groups.tested && sm.ref.id) return { key: inert({ ...base, refusal: { key: `${P}.key.readToolsUntested`, vars: { server: src.source } }, open: { to: 'mcp', server: sm.ref.id } }, c) }
+    const residual = g.groups.read.filter(isLeaky)
+    return { key: inert({ ...base, refusal: { key: `${P}.key.readToolsAlready`, vars: { server: src.source } } }, c), ...(residual.length ? { residual } : {}) }
+  }
   if (exit.type === 'mcp') {
     const holder = holderOf(ix, chain)
     const hm = holder ? ix.mods.get(holder) : undefined
@@ -426,6 +446,22 @@ function nearWhy(chain: Chain): NearMiss['why'] | null {
   if (off !== 1) return null
   if (!L.outside.on || !L.out.on) return null
   return 'noPrivate'
+}
+
+/**
+ * Orders B10 — the planner's near misses, each with its own sentence (spec §4): (c) a data rule withholds 'mcp' — the
+ * server's content never reaches the planner; (a) confirm mode — only "Kette starten ↵" stands between the server's
+ * content and a git step that goes out with nobody in between; (b) auto mode — only an approval stands before the
+ * worker's AI writes code. Null: not one of these (the general reasons apply).
+ */
+function plannerNear(c: Ctx, chain: Chain, d: Decider): { why: NearMiss['why']; say: MsgRef } | null {
+  const L = chain.lamps
+  if (d.kind !== 'planner' || !L || !chain.exit) return null
+  if (!L.outside.on && L.outside.say.key === `${P}.lamp.outside.dataRule` && L.outside.say.vars?.cls === 'mcp') return { why: 'dataRule', say: { key: `${P}.near.plannerRule` } }
+  if (!L.outside.on || !L.private.on) return null
+  if (chain.gate === 'byHand' && chain.exit.type === 'git' && !c.ix.edge.get(chain.exit.edge)?.afterApproval) return { why: 'gate', say: { key: `${P}.near.plannerHand` } }
+  if (chain.gate === 'afterApproval' && chain.exit.type === 'exec') return { why: 'gate', say: { key: `${P}.near.plannerApprove` } }
+  return null
 }
 
 /**
@@ -527,8 +563,9 @@ export function fusesOf(model: Model, input: ModelInput): FuseAnalysis {
     if (!d || !chain.lamps || !chain.exit) continue
     const L = chain.lamps
     if (chain.gate || !L.outside.on || !L.private.on || !L.out.on) {
-      const why = nearWhy(chain)
-      if (why) nearMisses.push({ key: pathKey(chain.key), chain, why })
+      const own = plannerNear(c, chain, d)
+      const why = own?.why ?? nearWhy(chain)
+      if (why) nearMisses.push({ key: pathKey(chain.key), chain, why, ...(own ? { say: own.say } : {}) })
       continue
     }
     const key = pathKey(chain.key)
@@ -575,7 +612,7 @@ export const unknownSay = (u: UnknownPart): MsgRef =>
   u.who ? { key: `${P}.unknown.${u.what}`, vars: { who: u.who } } : { key: u.what === 'otherBrowser' ? `${P}.unknown.otherBrowserAnyone` : `${P}.unknown.${u.what}` }
 
 /** A near miss's closing reason in words. */
-export const nearSay = (n: NearMiss): MsgRef => ({ key: `${P}.near.${n.why}` })
+export const nearSay = (n: NearMiss): MsgRef => n.say ?? { key: `${P}.near.${n.why}` }
 
 /** LED = Preflight lamp = readout: open (a lapsed allowance counts open), allowed, unknown parts. */
 export function fuseCounts(model: Pick<FusedModel, 'fuses' | 'unknown'>): { open: number; allowed: number; unknown: number } {

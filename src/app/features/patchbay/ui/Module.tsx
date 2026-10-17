@@ -21,7 +21,8 @@ import { CornerDownLeft } from 'lucide-react'
 import { useWorkspace } from '../../../store/store'
 import { fmtUsd as fmt } from '../../../lib/money'
 import { typing } from '../../../ui/keys'
-import type { Module as ModuleT } from '../types'
+import type { Module as ModuleT, ModelInput } from '../types'
+import { runningOrderCount } from '../../coding'
 import { buttonLabelIn } from './buttonLabel'
 import { fuseGroupLabel } from '../render'
 import { useFitTier } from './fit'
@@ -341,6 +342,8 @@ function ModuleView({ m, row, span, descId }: { m: ModuleT; row: number; span: 1
           <div className="pb-mod__s pb-mod__s--why" title={blockedWhy} data-testid="pb-blocked-why">
             {blockedWhy}
           </div>
+        ) : m.ref.kind === 'planner' ? (
+          <PlannerLamps input={input} db={m.ref.db} t={t} />
         ) : (
           sub && <div className="pb-mod__s">{sub}</div>
         )}
@@ -351,6 +354,8 @@ function ModuleView({ m, row, span, descId }: { m: ModuleT; row: number; span: 1
         </span>
       ) : liveWin ? (
         <LiveWindow m={m} live={live} t={t} lang={w.lang} />
+      ) : m.kind === 'planner' ? (
+        <PlannerWin n={n} t={t} />
       ) : worker ? (
         <span className="pb-win" data-worker={worker.led} title={worker.title} data-testid="pb-worker">
           {worker.word}
@@ -389,3 +394,42 @@ function ModuleView({ m, row, span, descId }: { m: ModuleT; row: number; span: 1
 }
 
 export const Module = memo(ModuleView)
+
+/**
+ * Orders B10 — the planner's three lamps: CODING (on here) · WORKER (online, up to date) · KONTEXT (OPTIONAL: the
+ * server the person picked, tested — none is a valid state: dark, never red). Each says its state in its title.
+ */
+function PlannerLamps({ input, db, t }: { input: ModelInput; db: string; t: (k: string, v?: Record<string, string | number>) => string }) {
+  const o = input.orders?.find((x) => x.db === db)
+  const name = o?.config?.server ?? null
+  const s = name ? input.servers.find((x) => x.server.name === name) : undefined
+  const coding = input.codingOn !== false
+  const worker = input.worker.online && input.worker.verdict !== 'unsafe' && input.worker.verdict !== 'outdated'
+  const ctx: 'ok' | 'warn' | 'none' = !name ? 'none' : s?.server.enabled && s.state === 'ok' ? 'ok' : 'warn'
+  const lamp = (on: boolean, warn: boolean, label: string, state: string, extra?: string) => (
+    <span className="pb-plamp" title={`${label} · ${state}`} data-on={on || undefined}>
+      <span className={`led${on ? ' pb-led--ok' : warn ? ' pb-led--warn' : ''}`} aria-hidden="true" />
+      {label}
+      {extra && <small>{extra}</small>}
+    </span>
+  )
+  return (
+    <div className="pb-mod__s pb-plamps" data-testid="pb-planner-lamps">
+      {lamp(coding, false, t(`${P}.planner.coding`), t(`${P}.planner.${coding ? 'on' : 'off'}`))}
+      {lamp(worker, input.worker.online, t(`${P}.planner.worker`), t(`${P}.planner.${worker ? 'on' : input.worker.online ? 'old' : 'off'}`))}
+      {lamp(ctx === 'ok', ctx === 'warn', t(`${P}.planner.context`), t(`${P}.planner.${ctx === 'ok' ? 'tested' : ctx === 'warn' ? 'untested' : 'none'}`), t(`${P}.planner.optional`))}
+    </div>
+  )
+}
+
+/** Orders B10 — the planner's window: the chains running now ("2 Ketten laufen"), else its runs today. */
+function PlannerWin({ n, t }: { n: number; t: (k: string, v?: Record<string, string | number>) => string }) {
+  const chains = useWorkspace((s) => runningOrderCount(s))
+  if (!chains && !n) return null
+  return (
+    <span className="pb-win" data-testid="pb-planner-win">
+      {chains ? t(chains === 1 ? `${P}.win.chains.one` : `${P}.win.chains`, { n: chains }) : t(`${P}.win.runs`, { n })}
+      {chains > 0 && n > 0 && <small>{t(`${P}.win.runs`, { n })}</small>}
+    </span>
+  )
+}

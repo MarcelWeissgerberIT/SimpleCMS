@@ -13,6 +13,7 @@ import { signoffAdmins } from '../../store/fuseSignoffs'
 import { newId } from '../../lib/ids'
 import { saveAutomations } from '../automations'
 import { hasDefaultCommand, saveDbCommands } from '../commands'
+import { saveOrderConfig } from '../coding'
 import { APP_READERS, readSource } from './inputs'
 import { commitPlan, commitWrites, plan, undoPlan, type PatchSink } from './patch'
 import type { Model, ModelInput, MsgRef, Patch, PatchPlan, PatchWrite } from './types'
@@ -24,6 +25,8 @@ const sink: PatchSink = {
   automations: (db) => useWorkspace.getState().databases[db]?.automations,
   saveDbCommands,
   upsertIntegration: (profile, replaces) => useWorkspace.getState().upsertIntegration(profile, replaces),
+  // Orders B10: the planner's server — through the work orders' own writer, as the person in the Patchbay / their Undo
+  saveOrderServer: (db, server, writer) => saveOrderConfig(db, (c) => ({ ...c, server: server ? { name: server } : null }), writer),
 }
 
 /** Plan a patch on the workspace as it is now. */

@@ -114,7 +114,7 @@ export function Lamps({ set, profileId, t, lang, vertical }: { set: LampSet; pro
           const name = t(`${P}.lamp.${l.id}`)
           const current = l.state === 'next' || l.state === 'busy'
           return (
-            <li key={l.n} className="pb-lamp" data-s={l.state} data-n={l.n} aria-current={current ? 'step' : undefined} data-testid="pb-lamp">
+            <li key={l.n} className="pb-lamp" data-s={l.state} data-n={l.n} data-optional={l.optional || undefined} aria-current={current ? 'step' : undefined} data-testid="pb-lamp">
               <span className="pb-lamp__sock" aria-hidden="true" />
               <span className="pb-lamp__body">
                 <span className="pb-lamp__head">
@@ -122,6 +122,8 @@ export function Lamps({ set, profileId, t, lang, vertical }: { set: LampSet; pro
                     {lampNo(l.n)}
                   </span>
                   <span className="pb-lamp__name">{name}</span>
+                  {/* Orders B10: an optional step (05 KONTEXT) — dim, never red; leaving it out is a valid end */}
+                  {l.optional && <span className="label pb-lamp__opt">{t(`${P}.setup.optional`)}</span>}
                   <span className="label pb-lamp__st" data-testid="pb-lamp-state">
                     {t(`${P}.setup.state.${stateWord(l)}`)}
                   </span>

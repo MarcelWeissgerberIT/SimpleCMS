@@ -284,6 +284,21 @@ export function chainStepOf(taskId: ID): { row: ID; n: number } | null {
   return null
 }
 
+/**
+ * Orders B10 — the Patchbay's live leg of a move: the request a chain step belongs to and the step before it (its task
+ * id; null for the first step — the planner's cable). From this tab's copy of the records; null: no chain step.
+ */
+export function chainLegOf(taskId: ID): { row: ID; prev: ID | null } | null {
+  const prefix = `${scope()}|`
+  for (const [key, rec] of Object.entries(useOrderRecords.getState().recs)) {
+    if (!key.startsWith(prefix) || !rec || rec === 'unreadable' || !rec.chain) continue
+    const steps = [...rec.chain.steps].sort((a, b) => a.n - b.n)
+    const i = steps.findIndex((s) => s.id === taskId)
+    if (i >= 0) return { row: key.slice(prefix.length), prev: i > 0 ? steps[i - 1].id : null }
+  }
+  return null
+}
+
 /* ------------------------------------------------------------------ other tabs */
 
 let ch: BroadcastChannel | null | undefined

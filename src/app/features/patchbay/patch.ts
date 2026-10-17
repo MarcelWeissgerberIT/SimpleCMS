@@ -109,6 +109,8 @@ export const PATCH_MATRIX: ReadonlyArray<{ from: [ModuleKind | 'net', JackRole];
   { from: ['agent', 'everything'], to: ['database', 'writes'] },
   { from: ['agent', 'report'], to: ['page', 'writes'] },
   { from: ['automation', 'out'], to: ['script', 'start'] },
+  // Orders B10: the person's server for the planner — its READ tools only (never a write tool, never the "All AI calls" set)
+  { from: ['server', 'read'], to: ['planner', 'tools'] },
 ]
 
 const kindOfEnd = (e: PatchEnd): ModuleKind | 'net' | null => (e.module.startsWith('net:') ? 'net' : kindOfKey(e.module))
@@ -286,6 +288,11 @@ function applied(env: Env, writes: PatchWrite[]): InputSource {
     } else if (w.w === 'automations' || w.w === 'commands') {
       const db = ws.databases[w.db]
       if (db) ws.databases = { ...ws.databases, [w.db]: { ...db, [w.w]: w.list } }
+    } else if (w.w === 'orders') {
+      // Orders B10: the planner's server (the rest of the work orders' config as stored)
+      const db = ws.databases[w.db]
+      const cfg = db?.orders
+      if (db && cfg && typeof cfg === 'object') ws.databases = { ...ws.databases, [w.db]: { ...db, orders: { ...cfg, server: w.server ? { name: w.server } : null } } }
     } else {
       const list = sanitizeIntegrations(ws.integrations).integrations
       const at = list.findIndex((p) => p.id === (w.replaces ?? w.profile.id))
@@ -387,8 +394,38 @@ function plug(env: Env, from: End, to: End): PatchPlan {
       return reportTo(env, from, to)
     case 'automation.out>script.start':
       return runScriptAdd(env, from, to)
+    case 'server.read>planner.tools':
+      return serverToPlanner(env, from, to)
   }
   return refuse(`${PP}.noMatch`)
+}
+
+/**
+ * Orders B10: the planner's server (`Database.orders.server`, saveOrderConfig — the work orders' own writer): the
+ * person's server by its name; its read tools only reach the planner (planner.ts). One server at a time: plugging
+ * another replaces it; unplugging leaves none ("without a server" — a valid state).
+ */
+function plannerOf(env: Env, e: End): { db: ID; server: string | null } | null {
+  const db = e.at === 'module' && e.ref?.kind === 'planner' ? e.ref.db : null
+  const o = db ? env.input.orders?.find((x) => x.db === db) : undefined
+  return db && o?.config ? { db, server: o.config.server } : null
+}
+
+function serverToPlanner(env: Env, from: End, to: End): PatchPlan {
+  const server = from.at === 'module' && from.ref?.kind === 'server' ? from.ref : null
+  const pl = plannerOf(env, to)
+  if (!server || server.runtime || !server.id || !pl) return refuse(`${PP}.gone`)
+  if (env.ctx.src.ws.databases[pl.db]?.locked) return refuse(`${P}.key.locked`)
+  if (pl.server === server.name) return info(`${PP}.already`)
+  return done(env, [{ w: 'orders', db: pl.db, server: server.name }], [{ w: 'orders', db: pl.db, server: pl.server }])
+}
+
+function plannerServerOff(env: Env, from: End, to: End): PatchPlan {
+  const server = from.at === 'module' && from.ref?.kind === 'server' ? from.ref : null
+  const pl = plannerOf(env, to)
+  if (!server || !pl || pl.server !== server.name) return refuse(`${PP}.gone`)
+  if (env.ctx.src.ws.databases[pl.db]?.locked) return refuse(`${P}.key.locked`)
+  return done(env, [{ w: 'orders', db: pl.db, server: null }], [{ w: 'orders', db: pl.db, server: pl.server }])
 }
 
 const agentOf = (e: End): ID | null => (e.at === 'module' && e.ref?.kind === 'agent' ? e.ref.id : null)
@@ -633,6 +670,7 @@ function unplug(env: Env, patch: Patch, from: End, to: End): PatchPlan {
   if (fk === 'command') return commandOff(env, from, to)
   if (fk === 'automation') return automationAction(env, from, to, edge.place ?? null) ?? inEditor()
   if (fk === 'server' && tk === 'agent') return toolsOff(env, from, to)
+  if (fk === 'server' && tk === 'planner') return plannerServerOff(env, from, to)
   if (fk === 'server') return refuse(`${PP}.inSettings`, undefined, { open: { to: 'mcp', ...(from.at === 'module' && from.ref?.kind === 'server' && from.ref.id ? { server: from.ref.id } : {}) } })
   if (fk === 'agent' && from.role === 'writes') return scopeRemove(env, from, edge.place ?? null, to)
   if (fk === 'agent' && from.role === 'report') return reportOff(env, from)
@@ -779,6 +817,8 @@ export interface PatchSink {
   automations?(db: ID): unknown
   saveDbCommands(db: ID, list: DbCommand[]): boolean
   upsertIntegration(profile: IntegrationProfile, replaces?: string): boolean
+  /** Orders B10: the planner's server of a work-orders database (coding saveOrderConfig — false: refused) */
+  saveOrderServer?(db: ID, server: string | null, writer: Writer): boolean
 }
 
 /** An agent's config (what Undo compares): every field but the stamps the store sets. */
@@ -830,6 +870,7 @@ function writeOne(w: PatchWrite, writer: Writer, sink: PatchSink): boolean {
   }
   if (w.w === 'automations') return sink.saveAutomations(w.db, sink.automations ? withBookkeeping(w.list, sink.automations(w.db)) : w.list, writer)
   if (w.w === 'commands') return withWriter(writer, () => sink.saveDbCommands(w.db, w.list))
+  if (w.w === 'orders') return sink.saveOrderServer?.(w.db, w.server, writer) ?? false
   return withWriter(writer, () => sink.upsertIntegration(w.profile, w.replaces))
 }
 
@@ -865,6 +906,11 @@ function stillWritten(w: PatchWrite, src: InputSource, read: InputReaders): bool
   }
   if (w.w === 'automations') return stable(read.automations(ws.databases[w.db]?.automations).map(automationConfigOf)) === stable(readAutomations(w.list).map(automationConfigOf))
   if (w.w === 'commands') return stable(read.commands(ws.databases[w.db]?.commands)) === stable(read.commands(w.list))
+  if (w.w === 'orders') {
+    const db = ws.databases[w.db]
+    const cfg = db && read.orders ? read.orders(db).config : null
+    return !!cfg && cfg !== 'unreadable' && cfg.server === w.server
+  }
   const cur = sanitizeIntegrations(ws.integrations).integrations.find((p) => p.id === w.profile.id)
   return sameIntegration(cur, sanitizeIntegration(w.profile))
 }
@@ -880,6 +926,10 @@ export function undoPlan(done: { writes: PatchWrite[]; inverse: PatchWrite[] }, 
   for (const w of done.inverse) {
     // the creator never writes another member's version back as their own (it would run unseen — agents/confirm.ts)
     if (w.w === 'agent' && waitsForMe(team, me, w.agent)) return { refused: confirmFirst(w.agent) }
+    if (w.w === 'orders') {
+      if (ctx.src.ws.databases[w.db]?.locked) return { refused: { key: `${P}.key.locked` } }
+      continue
+    }
     if (w.w !== 'automations' && w.w !== 'commands') continue
     const db = ctx.src.ws.databases[w.db]
     if (!db) return { refused: { key: `${PP}.gone` } }

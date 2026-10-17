@@ -19,7 +19,7 @@
  * liest …", never "Er liest …"; names always in „…“.
  */
 import { serverToolGroups, toolUse } from './tools'
-import { placeKey } from './rules'
+import { LINKED, ORDERS_PLAN, placeKey } from './rules'
 import type { Chain, Edge, Fuse, Model, ModelInput, Module, ModuleKey, ModuleRef, MsgRef, Place } from './types'
 
 export type Lang = 'en' | 'de'
@@ -181,6 +181,8 @@ export function moduleName(w: World, key: ModuleKey): string {
       return t(`${P}.name.button`, { page: titleOf(w, r.page) })
     case 'command': {
       if (r.command.startsWith('send:')) return t(`${P}.module.outbox.name`, { route: r.command.split(':').slice(2).join(':') })
+      // Orders B10: the work orders' built-in "Planen" (a default command — never stored)
+      if (r.command === ORDERS_PLAN) return t(`${P}.name.ordersPlan`)
       const cmd = w.input.databases.find((d) => d.id === r.db)?.commands.find((c) => c.id === r.command)
       return cmd?.label?.trim() || w.ctx.t(`${P}.untitled`)
     }
@@ -204,6 +206,7 @@ export function moduleName(w: World, key: ModuleKey): string {
     case 'organise':
       return t(`${P}.name.organise`)
     case 'pipeline':
+    case 'planner':
       return titleOf(w, r.db)
     case 'bridge':
       return t(`${P}.name.bridge`)
@@ -245,6 +248,8 @@ function placeName(w: World, p: Place): string {
   if ('page' in p) return titleOf(w, p.page)
   if ('inbox' in p) return w.ctx.t(`${P}.name.inbox`)
   if ('everything' in p) return w.ctx.t(`${P}.name.everything`)
+  // Orders B10: the pages a work order links (any page — the planner reads them)
+  if (p.external === LINKED) return w.ctx.t(`${P}.net.linked`)
   return p.external
 }
 
@@ -338,6 +343,7 @@ function who(w: World, key: ModuleKey): Part[] {
     case 'automation':
     case 'script':
     case 'pipeline':
+    case 'planner':
       return say(w, `${P}.plain.who.${r.kind}`, { name })
     case 'autofill':
     case 'kit':
@@ -489,9 +495,11 @@ function effectClauses(w: World, m: Module): Part[][] {
     if (r.exit === 'http') what = say(w, `${P}.plain.c.http`)
     else if (r.exit === 'mail') what = say(w, `${P}.plain.c.mail`)
     else if (r.exit === 'git') what = say(w, `${P}.plain.c.git.${r.method ?? 'push'}`)
+    // Orders B10: the worker's AI writes code / the repo's code runs (implement · test · analyze)
+    else if (r.exit === 'exec') what = say(w, `${P}.plain.c.exec`)
     else if (r.exit === 'webhook' && m.kind !== 'automation') what = say(w, `${P}.plain.c.webhook`, { host: r.host ?? '' })
     if (!what) continue
-    if (r.exit === 'git') what = say(w, e.afterApproval ? `${P}.plain.c.afterApproval` : `${P}.plain.c.outbound`, { what })
+    if (r.exit === 'git' || r.exit === 'exec') what = say(w, e.afterApproval ? `${P}.plain.c.afterApproval` : `${P}.plain.c.outbound`, { what })
     else if (e.byHand) what = say(w, `${P}.plain.c.byHand`, { what })
     out.push(what)
   }
@@ -556,7 +564,9 @@ function clausesOf(w: World, m: Module): Part[][] {
     case 'kit':
       return [say(w, `${P}.plain.c.recomputes`, { prop: q(w, propOf(w, r.db, r.prop)) })]
     case 'pipeline':
-      return effectClauses(w, m)
+      return [...effectClauses(w, m), ...handOnClauses(w, m)]
+    case 'planner':
+      return plannerClauses(w, m)
     case 'bridge': {
       const mode = w.input.bridge.mode
       return [say(w, `${P}.plain.c.readsAll`), ...(mode === 'apply' ? [say(w, `${P}.plain.c.writesAll`)] : mode === 'ask' ? [say(w, `${P}.plain.c.asksFirst`)] : [])]
@@ -564,6 +574,44 @@ function clausesOf(w: World, m: Module): Part[][] {
     default:
       return []
   }
+}
+
+/** Orders B10: a pipeline's hand-ons ("hands a done task on to „Coding“ — after approval"). */
+function handOnClauses(w: World, m: Module): Part[][] {
+  const out: Part[][] = []
+  const seen = new Set<string>()
+  for (const e of w.from.get(m.key) ?? []) {
+    if (e.kind !== 'chain') continue
+    const to = w.jackMod.get(e.to)
+    if (!to || seen.has(to)) continue
+    seen.add(to)
+    const what = say(w, `${P}.plain.c.handsOn`, { to: q(w, moduleName(w, to)) })
+    out.push(e.byHand ? say(w, `${P}.plain.c.byHand`, { what }) : e.afterApproval ? say(w, `${P}.plain.c.afterApproval`, { what }) : what)
+  }
+  return out
+}
+
+/**
+ * Orders B10: the planner — reads the work order and the pages it links (and the server's read tools the person picked),
+ * puts a task per step into the projects: after "Kette starten ↵" or, with this device's consent, at once.
+ */
+function plannerClauses(w: World, m: Module): Part[][] {
+  if (m.ref.kind !== 'planner') return []
+  const out: Part[][] = [say(w, `${P}.plain.c.readsOrder`, { db: q(w, titleOf(w, m.ref.db)) })]
+  out.push(...serverClauses(w, m).reads)
+  const hand: Part[][] = []
+  const auto: Part[][] = []
+  const seen = new Set<string>()
+  for (const e of w.from.get(m.key) ?? []) {
+    if (e.kind !== 'writes') continue
+    const to = w.jackMod.get(e.to)
+    if (!to || seen.has(to) || w.mods.get(to)?.kind !== 'pipeline') continue
+    seen.add(to)
+    ;(e.byHand ? hand : auto).push(q(w, moduleName(w, to)))
+  }
+  if (hand.length) out.push(say(w, `${P}.plain.c.chainHand`, { projects: list(w, hand) }))
+  if (auto.length) out.push(say(w, `${P}.plain.c.chainAuto`, { projects: list(w, auto) }))
+  return out
 }
 
 function processorStrand(w: World, m: Module): Part[] {
@@ -622,9 +670,9 @@ function sourceStrand(w: World, m: Module): Part[] {
   return merged([...sentence(w, whoParts, clauses), ...fuseLine(w, m.key)])
 }
 
-const PROCESSORS = new Set(['agent', 'automation', 'script', 'autofill', 'organise', 'kit', 'pipeline', 'bridge'])
+const PROCESSORS = new Set(['agent', 'automation', 'script', 'autofill', 'organise', 'kit', 'pipeline', 'bridge', 'planner'])
 /** Kinds whose modules carry a name of their own (the rest are named after what they are). */
-const OWN_NAME = new Set(['server', 'agent', 'automation', 'script', 'pipeline', 'database', 'page', 'command'])
+const OWN_NAME = new Set(['server', 'agent', 'automation', 'script', 'pipeline', 'database', 'page', 'command', 'planner'])
 
 /** "§ In plain words": one strand per drawn processor, then the sources that act on their own (in rack order). */
 export function plainOf(model: Model, input: ModelInput, ctx: PlainCtx): Strand[] {
@@ -745,6 +793,7 @@ export function fuseSay(fuse: Pick<Fuse, 'chain'>, model: Model, input: ModelInp
     let exitParts: Part[]
     if (exit.type === 'webhook') exitParts = say(w, `${P}.plain.fuse.exit.webhook`, { who: hWho })
     else if (exit.type === 'git') exitParts = say(w, `${F}.exit.git`, { who: hWho, action: say(w, `${P}.plain.fuse.git.${outRef?.kind === 'outbound' ? (outRef.method ?? 'push') : 'push'}`) })
+    else if (exit.type === 'exec') exitParts = say(w, `${F}.exit.exec`, { who: hWho })
     else if (exit.type === 'sync') exitParts = say(w, `${P}.plain.fuse.exit.sync`, { repo: input.sync.github.repo ?? '' })
     else if (exit.type === 'http' || exit.type === 'mail' || exit.type === 'outbox') exitParts = say(w, `${P}.plain.fuse.exit.${exit.type}`, { who: hWho })
     else exitParts = say(w, `${P}.plain.fuse.exit.mcp`, { who: hWho, server: serverName })
@@ -761,7 +810,7 @@ export function fuseSay(fuse: Pick<Fuse, 'chain'>, model: Model, input: ModelInp
     const sv: Record<string, Val> = {}
     if (src.kind === 'mcp') sv.server = q(w, moduleName(w, src.source))
     if (src.kind === 'tainted' && src.place) sv.place = q(w, placeName(w, src.place))
-    const decKind = d.ref.kind === 'agent' || d.ref.kind === 'autofill' || d.ref.kind === 'organise' || d.ref.kind === 'bridge' ? d.ref.kind : 'agent'
+    const decKind = d.ref.kind === 'agent' || d.ref.kind === 'autofill' || d.ref.kind === 'organise' || d.ref.kind === 'bridge' || d.ref.kind === 'planner' ? d.ref.kind : 'agent'
     out.push({ t: ' ' }, ...say(w, `${P}.plain.fuse.threat`, { source: say(w, `${P}.plain.fuse.src.${src.kind}`, sv), sent: say(w, `${P}.plain.fuse.sent.${decKind}`).map((p) => ({ ...p, b: true as const })) }))
   }
   return merged(out)

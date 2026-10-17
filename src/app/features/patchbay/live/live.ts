@@ -25,7 +25,7 @@ import { pageChanges, useWorkspace } from '../../../store/store'
 import { currentWriter, onRunNote, type RunNote, type Writer } from '../../../store/writer'
 import type { AgentTrigger, ID, Page } from '../../../store/types'
 import { onAutomationAction, type AutomationActionNote } from '../../automations'
-import { onShipRecord, type ShipNote } from '../../coding'
+import { chainLegOf, onShipRecord, type ShipNote } from '../../coding'
 import { loadAgentRuns, onRunsChanged, useAgentRuns, useServerAgents } from '../../agents'
 import { ledgerEntries, onLedgerDelta, registerMeter } from '../../governor'
 import { openModel, refreshModel, usePatchbay } from '../state'
@@ -205,7 +205,7 @@ function refOf(w: Writer, at: { db?: ID | null } = {}): { module: ModuleKey; run
 }
 
 /** Writers whose writes may light a cable (a quick check before any diff). */
-const MODULE_WRITERS = new Set<Writer['kind']>(['agent', 'automation', 'script', 'autofill', 'ai', 'kit', 'coding', 'sync', 'mcp', 'template'])
+const MODULE_WRITERS = new Set<Writer['kind']>(['agent', 'automation', 'script', 'autofill', 'ai', 'kit', 'coding', 'sync', 'mcp', 'template', 'order'])
 
 /* ------------------------------------------------------------------ the session */
 
@@ -335,7 +335,20 @@ function onStore(state: State, prev: State): void {
   const ref = refOf(w, { db })
   if (!ref || !onRack(ref.module)) return
   core.write(ref.module, ref.run, places, Date.now(), core.running(ref.module, ref.run) ? {} : howOf(w))
+  // Orders B10: the chain advancing — a task of its next step written: a leg on the hand-on cable (step before → this)
+  if (w.kind === 'order') for (let i = 0; i < n; i++) chainLeg(state, c.changed[i])
   publish()
+}
+
+/** A chain's task written: its leg from the project of the step before (records.ts chainLegOf) — none for the first. */
+function chainLeg(state: State, id: ID): void {
+  const db = state.pages[id]?.databaseId
+  if (!core || !db) return
+  const leg = chainLegOf(id)
+  const from = leg?.prev ? state.pages[leg.prev]?.databaseId : null
+  if (!from || from === db) return
+  const pipe = (d: ID) => moduleKey({ kind: 'pipeline', db: d, pipeline: 'coding' })
+  if (onRack(pipe(from)) && onRack(pipe(db))) core.exit(pipe(from), null, pipe(db), Date.now())
 }
 
 /** What a changed page means for the rack: a row's database and its fields (a new row: `+row`), or a page. */

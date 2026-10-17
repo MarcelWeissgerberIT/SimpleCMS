@@ -30,7 +30,7 @@
  * Cables from one jack to one column bundle from the 7th on into a "+n" bus chip (still counted).
  */
 import { keyPart, moduleKey, scheduleKey } from './ref'
-import { GIT_OUT, honoursHandOnly, placeKey, reaches, startable, unattendedGit, type WriterKind } from './rules'
+import { EXEC_STAGES, GIT_OUT, LINKED, ORDERS_PLAN, THEN_KINDS, honoursHandOnly, placeKey, reaches, reachesDone, reachesStories, startable, unattendedExec, unattendedGit, type WriterKind } from './rules'
 import { withChains } from './chains'
 import { withFuses, type FusedModel } from './fuses'
 import { declaringProfiles, runtimeOut, toolGroups, toolUse, runtimeTools, type ToolGroups } from './tools'
@@ -57,6 +57,8 @@ import type {
   ModuleTag,
   NetLabel,
   OpenTarget,
+  OrdersInput,
+  PipelineInput,
   Place,
   RowEvent,
   ScriptScan,
@@ -80,13 +82,13 @@ export const BUS_FROM = 7
 
 const KIND_RANK: Record<ModuleKind, number> = {
   server: 0, clock: 1, button: 2, command: 3, incoming: 4, sync: 5, clippings: 6, rowTrigger: 7,
-  agent: 0, automation: 1, script: 2, autofill: 3, organise: 4, kit: 5, pipeline: 6, bridge: 7,
+  agent: 0, automation: 1, script: 2, autofill: 3, organise: 4, kit: 5, pipeline: 6, bridge: 7, planner: 8,
   database: 0, page: 1, inbox: 2, everything: 3, outbound: 4, outbox: 5,
 }
 
 const COL: Record<ModuleKind, Column> = {
   server: 1, clock: 1, rowTrigger: 1, button: 1, command: 1, incoming: 1, sync: 1, clippings: 1,
-  agent: 2, automation: 2, script: 2, autofill: 2, organise: 2, pipeline: 2, bridge: 2, kit: 2,
+  agent: 2, automation: 2, script: 2, autofill: 2, organise: 2, pipeline: 2, bridge: 2, kit: 2, planner: 2,
   database: 3, page: 3, inbox: 3, everything: 3, outbound: 3, outbox: 3,
 }
 
@@ -144,7 +146,7 @@ function tag(m: Module, ...tags: ModuleTag[]): void {
   for (const t of tags) if (!m.tags.includes(t)) m.tags.push(t)
 }
 
-type EdgeAttrs = Partial<Pick<Edge, 'can' | 'outside' | 'byHand' | 'afterApproval' | 'asksFirst' | 'failClosed' | 'place'>>
+type EdgeAttrs = Partial<Pick<Edge, 'can' | 'outside' | 'byHand' | 'afterApproval' | 'asksFirst' | 'failClosed' | 'place' | 'tag'>>
 
 function edge(c: Ctx, kind: EdgeKind, from: Jack | string, to: Jack | string, attrs: EdgeAttrs = {}): Edge {
   const f = typeof from === 'string' ? from : from.key
@@ -157,14 +159,21 @@ function edge(c: Ctx, kind: EdgeKind, from: Jack | string, to: Jack | string, at
     if (attrs.can) had.can = true
     if (attrs.outside) had.outside = true
     if (attrs.failClosed) had.failClosed = true
+    // Orders B10: by hand for one reason, after approval for the other — a person stands in between either way
+    const personBoth = (!!had.byHand || !!had.afterApproval) && (!!attrs.byHand || !!attrs.afterApproval)
     if (!attrs.byHand) delete had.byHand
     if (!attrs.asksFirst) delete had.asksFirst
-    if (!attrs.afterApproval) delete had.afterApproval
+    if (personBoth && !had.byHand) had.afterApproval = true
+    else if (!attrs.afterApproval) delete had.afterApproval
+    // the cable's own words (Orders B10): the hand start's "KETTE ↵" only while every reason says so
+    if (had.tag === 'chainHand' && attrs.tag !== 'chainHand') delete had.tag
+    if (!had.tag && attrs.tag === 'next') had.tag = 'next'
     return had
   }
   const e: Edge = { id, kind, from: f, to: t }
   for (const k of ['can', 'outside', 'byHand', 'afterApproval', 'asksFirst', 'failClosed'] as const) if (attrs[k]) e[k] = true
   if (attrs.place) e.place = attrs.place
+  if (attrs.tag) e.tag = attrs.tag
   c.edges.set(id, e)
   return e
 }
@@ -206,9 +215,15 @@ function addFlowWrite(c: Ctx, m: Module, w: FlowWrite): void {
   if (had) {
     if (w.can) had.can = true
     if (w.outside) had.outside = true
+    // Orders B10: a hand-on waits for a person only while every reason does — by hand (the chain's ↵, the checkpoint)
+    // and after approval (a stopping gate before done) both count; a chain write stays one (trusted tasks)
+    const personBoth = (!!had.byHand || !!had.afterApproval) && (!!w.byHand || !!w.afterApproval)
     if (!w.byHand) delete had.byHand
     if (!w.asksFirst) delete had.asksFirst
     if (!w.proposal) delete had.proposal
+    if (personBoth && !had.byHand) had.afterApproval = true
+    else if (!w.afterApproval) delete had.afterApproval
+    if (w.chain) had.chain = true
   } else list.push({ ...w })
   c.writes.set(m.key, list)
 }
@@ -230,19 +245,24 @@ interface WriteHow {
   outside?: boolean
   /** a proposal the person applies (a stage-mode agent's scope writes) — the flow keeps it, a cable does not show it */
   proposal?: boolean
+  /** Orders B10: a person's approval stands before the hand-on */
+  afterApproval?: boolean
+  /** Orders B10: a trusted task handed on / made by the planner (the flow's only) */
+  chain?: boolean
 }
 
 /** Only what holds (no `false` fields in the flow or on a cable). */
 const howOf = (h: WriteHow): WriteHow => {
   const out: WriteHow = {}
-  for (const k of ['can', 'byHand', 'asksFirst', 'outside', 'proposal'] as const) if (h[k]) out[k] = true
+  for (const k of ['can', 'byHand', 'asksFirst', 'outside', 'proposal', 'afterApproval', 'chain'] as const) if (h[k]) out[k] = true
   return out
 }
 
-/** A cable's part of a write's how (a proposal is the flow's only). */
+/** A cable's part of a write's how (a proposal and a chain write are the flow's only). */
 const cableOf = (h: WriteHow): EdgeAttrs => {
-  const { proposal: _p, ...rest } = h
+  const { proposal: _p, chain: _c, ...rest } = h
   void _p
+  void _c
   return rest
 }
 
@@ -752,6 +772,145 @@ function bridge(c: Ctx): void {
   writeAllFields(c, w, how)
 }
 
+/* ------------------------------------------------------------------ work orders (Orders B10) */
+
+export { ORDERS_PLAN, LINKED }
+
+const pipeKey = (p: PipelineInput): ModuleKey => moduleKey({ kind: 'pipeline', db: p.db, pipeline: p.kind })
+
+/** The project #/coding shows for a kind on this device (else the first live one of the kind). */
+function currentOf(c: Ctx, kind: PipelineInput['kind']): PipelineInput | null {
+  const all = c.input.pipelines.filter((p) => p.kind === kind)
+  return all.find((p) => p.current) ?? all[0] ?? null
+}
+
+/** A planner's projects, in its kinds' order (BA → Coding → QA): a pinned live one, else #/coding's — each once. */
+function plannerProjects(c: Ctx, o: OrdersInput): PipelineInput[] {
+  const out: PipelineInput[] = []
+  for (const k of o.config?.kinds ?? []) {
+    const pinned = o.config?.projects[k]
+    const p = (pinned ? c.input.pipelines.find((x) => x.db === pinned && x.kind === k) : undefined) ?? currentOf(c, k)
+    if (p && !out.includes(p)) out.push(p)
+  }
+  return out
+}
+
+/** This device holds the planner's consent "Ohne Bestätigung starten" (local workspaces only). */
+const autoHere = (c: Ctx, o: OrdersInput): boolean => !!o.auto && !c.input.ctx.team
+
+/**
+ * The planner of each work-orders database (spec §4): started by hand only (the database's "Planen" — the Status,
+ * ↵ and "Prüfen lassen" are the same cable), its TOOLS jack always drawn (OPTIONAL) with a READ cable from the server
+ * the person picked (read tools only — never a write tool), the request rows and the linked pages as net tags; it
+ * writes the request's Status and a task per step into each kind's project — confirmed by hand ("KETTE ↵") unless this
+ * device holds the consent.
+ */
+function planners(c: Ctx): void {
+  for (const o of c.input.orders ?? []) {
+    if (!isLiveDb(c, o.db)) continue
+    const m = mod(c, { kind: 'planner', db: o.db }, pageOpen(o.db))
+    const auto = autoHere(c, o)
+    tag(m, auto ? 'direct' : 'asksFirst', 'thisDevice')
+    const tools = jack(c, m, 'in', 'tools')
+    tools.optional = true
+    m.nets.push({ place: { db: o.db } }, { place: { external: LINKED } })
+    if (!o.config) {
+      // a later build's config: the planner acts on nothing here — never read as safe either
+      tag(m, 'blocked', 'unknownHere')
+      m.blocked = 'unreadable'
+      unknownPart(c, 'unreadable', m.key)
+      continue
+    }
+    const cmd = mod(c, { kind: 'command', db: o.db, command: ORDERS_PLAN }, { to: 'modal', modal: 'dbCommands', databaseId: o.db })
+    tag(cmd, 'byHand')
+    edge(c, 'starts', jack(c, cmd, 'out', 'start'), jack(c, m, 'in', 'start'), { byHand: true })
+    const name = o.config.server
+    const s = name ? c.input.servers.find((x) => x.server.name === name) : undefined
+    if (s?.server.enabled) {
+      const sm = serverModule(c, s)
+      const g = serverGroups(c, s)
+      // never tested here: its read results count whole (§4 — what it may return is not known)
+      if (!g.tested || g.read.length) edge(c, 'reads', jack(c, sm, 'out', 'read'), tools)
+      for (const p of c.input.profiles) if (p.active && p.servers.includes(s.server.name)) markProfile(m, p.profile.id)
+    }
+    const w = { m, kind: 'planner' as WriterKind }
+    writeDb(c, w, 'writes', o.db, o.statusProp ?? '*', {})
+    for (const p of plannerProjects(c, o)) {
+      const how: WriteHow = auto ? { chain: true } : { chain: true, byHand: true }
+      writeDb(c, w, 'writes', p.db, '+row', how, { flagsOnly: true })
+      const pm = c.mods.get(pipeKey(p))
+      if (pm) edge(c, 'writes', jack(c, m, 'out', 'writes'), jack(c, pm, 'in', 'start'), { ...(auto ? {} : { byHand: true, tag: 'chainHand' as const }), place: { db: p.db, prop: '+row' } })
+    }
+  }
+}
+
+/**
+ * The hand-ons between pipelines (`chain` edges, spec §4 — a deliberate change: Then and stories are drawn too): a
+ * work order's next step (its kinds in order; "Nach der Analyse anhalten" puts a person after a BA step), a done task's
+ * "Then" (FOLLOW_UPS, into the project #/coding shows), a BA stage's stories (a coding project like #/coding's). After
+ * approval when a stopping gate stands before the hand-on. Taint flows along them (chains.ts).
+ */
+function chainEdges(c: Ctx): void {
+  const level = c.input.worker.approvals
+  const add = (from: PipelineInput, to: PipelineInput, how: { byHand?: boolean; afterApproval?: boolean }) => {
+    if (from.db === to.db) return
+    const fm = c.mods.get(pipeKey(from))
+    const tm = c.mods.get(pipeKey(to))
+    if (!fm || !tm) return
+    const h: WriteHow = { chain: true, ...(how.byHand ? { byHand: true } : {}), ...(how.afterApproval ? { afterApproval: true } : {}) }
+    writeDb(c, { m: fm, kind: 'pipeline' }, 'next', to.db, '+row', h, { flagsOnly: true })
+    edge(c, 'chain', jack(c, fm, 'out', 'next'), jack(c, tm, 'in', 'start'), { ...cableOf(h), tag: 'next', place: { db: to.db, prop: '+row' } })
+  }
+  for (const o of c.input.orders ?? []) {
+    if (!o.config || !isLiveDb(c, o.db)) continue
+    const list = plannerProjects(c, o)
+    for (let i = 0; i + 1 < list.length; i++) {
+      const from = list[i]
+      add(from, list[i + 1], o.config.checkpoint && from.kind === 'spec' ? { byHand: true } : { afterApproval: !reachesDone(from.stages, level) })
+    }
+  }
+  for (const p of c.input.pipelines) {
+    for (const k of THEN_KINDS[p.kind]) {
+      const to = currentOf(c, k)
+      if (to) add(p, to, { afterApproval: !reachesDone(p.stages, level) })
+    }
+    if (p.kind === 'spec' && p.stages.some((st) => st.kind === 'doc' && st.output === 'stories')) {
+      const to = currentOf(c, 'coding')
+      if (to) add(p, to, { afterApproval: !reachesStories(p.stages, level) })
+    }
+  }
+}
+
+/**
+ * The exec way out (spec §4 `unattendedExec`) — on the planner's auto paths only: every pipeline a planner with this
+ * device's consent reaches (its projects, then along `chain` edges) that writes code or runs it (implement · test ·
+ * analyze) gets a cable to EXEC — after approval when a stopping gate stands before every such stage. chains.ts counts
+ * it only on walks from such a planner.
+ */
+function execEdges(c: Ctx): void {
+  const level = c.input.worker.approvals
+  const reach = new Set<ID>()
+  for (const o of c.input.orders ?? []) if (o.config && autoHere(c, o) && isLiveDb(c, o.db)) for (const p of plannerProjects(c, o)) reach.add(p.db)
+  if (!reach.size) return
+  const byDb = new Map(c.input.pipelines.map((p) => [p.db, p]))
+  const queue = [...reach]
+  while (queue.length) {
+    const p = byDb.get(queue.shift()!)
+    for (const w of (p && c.writes.get(pipeKey(p))) ?? []) {
+      if (!w.chain || !('db' in w.place) || reach.has(w.place.db) || !byDb.has(w.place.db)) continue
+      reach.add(w.place.db)
+      queue.push(w.place.db)
+    }
+  }
+  for (const db of [...reach].sort()) {
+    const p = byDb.get(db)
+    const pm = p ? c.mods.get(pipeKey(p)) : undefined
+    if (!p || !pm || !p.stages.some((st) => EXEC_STAGES.has(st.kind))) continue
+    const free = unattendedExec(p.stages, level)
+    edge(c, 'out', jack(c, pm, 'out', 'out'), jack(c, outbound(c, 'exec', null, 'code', pm), 'in', 'out'), { can: true, ...(free.size ? {} : { afterApproval: true }) })
+  }
+}
+
 /** Repeating templates: a clock per template, its new rows into the database's `+row` place. */
 function templateClocks(c: Ctx): void {
   for (const db of c.input.databases)
@@ -1080,6 +1239,9 @@ export function buildModel(input: ModelInput): FusedModel {
   organise(c)
   kits(c)
   pipelines(c)
+  planners(c)
+  chainEdges(c)
+  execEdges(c)
   bridge(c)
   templateClocks(c)
   incoming(c)

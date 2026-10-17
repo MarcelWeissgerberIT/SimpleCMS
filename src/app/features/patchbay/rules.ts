@@ -19,6 +19,11 @@
  *    every gate but one right after a plan stage; 'none' only hold gates). A write that can set the task's Stage (the
  *    Stage property itself, every field, a new row) can drop it into any stage the worker takes on its own (`auto`):
  *    every such stage is an entry then (fix ui-words).
+ *  - Orders B10: a pipeline hands a task on to the next one (`chain` edges) — a work order's next step, a done task's
+ *    "Then" field (FOLLOW_UPS), a BA stage's stories — only once the task got there with nobody in between (a stopping
+ *    gate before it = after approval); such a task is created trusted (createTask) and enters where a new task starts.
+ *    The worker's AI writing code (implement) or the repo's code running (test · analyze) is a way out of its own on the
+ *    planner's auto paths only (`unattendedExec`, spec §4).
  */
 import type { FlowListen, ModuleKey, PipelineInput, Place } from './types'
 
@@ -40,6 +45,8 @@ export type WriterKind =
   | 'sync'
   | 'clippings'
   | 'pipeline'
+  /** Orders B10: the work orders' planner (its Status writes, the chain's tasks) */
+  | 'planner'
 
 /** A place's key in the flow: `<db>:<prop | * | +row | -row>` · `page:<id>` · `inbox` · `everything` · `ext:<what>`. */
 export function placeKey(p: Place): string {
@@ -166,4 +173,59 @@ export function unattendedGit(stages: readonly Stage[], level: Approvals, anySta
     }
   }
   return out
+}
+
+/* ------------------------------------------------------------------ hand-ons (Orders B10) */
+
+/** The work orders' built-in database command "Planen" (features/commands defaults.ts — group 'orders'). */
+export const ORDERS_PLAN = 'orders-plan'
+
+/** The net tag of the pages a work order links (any page — the planner reads them; private data on its paths). */
+export const LINKED: string = '~linked'
+
+type Kind = 'coding' | 'spec' | 'qa'
+
+/** What a done task of a kind hands on to ("Then") — coding/stages.ts FOLLOW_UPS (patchbay-orders keeps them in step). */
+export const THEN_KINDS: Readonly<Record<Kind, readonly Kind[]>> = { coding: [], spec: ['coding', 'qa'], qa: ['coding'] }
+
+/** Stage kinds that act on the machine: the worker's AI writes code (implement), the repo's code runs (test · analyze). */
+export const EXEC_STAGES: ReadonlySet<string> = new Set(['implement', 'test', 'analyze'])
+
+/** Every stage a task reaches with nobody in between, from where it enters (the walk of `unattendedGit`). */
+function freeStages(stages: readonly Stage[], level: Approvals, anyStage: boolean): { seen: Set<number>; done: boolean } {
+  const seen = new Set<number>()
+  let done = false
+  for (const start of pipelineEntries(stages, anyStage)) {
+    const walked = new Set<number>()
+    let i = start
+    for (; i >= 0 && !walked.has(i); i = nextIndex(stages, i)) {
+      walked.add(i)
+      const st = stages[i]
+      if (st.kind === 'done') {
+        done = true
+        break
+      }
+      if (st.kind === 'gate' && (i === start || gateStops(stages, i, level))) break
+      seen.add(i)
+    }
+    // the last stage left without a done stage after it: the task is done there too
+    if (i < 0) done = true
+  }
+  return { seen, done }
+}
+
+/** The stage kinds (implement · test · analyze) a task reaches with nobody in between (§4 `unattendedExec`). */
+export function unattendedExec(stages: readonly Stage[], level: Approvals, anyStage = false): Set<string> {
+  const out = new Set<string>()
+  for (const i of freeStages(stages, level, anyStage).seen) if (EXEC_STAGES.has(stages[i].kind)) out.add(stages[i].kind)
+  return out
+}
+
+/** Does a task get done with nobody in between (a hand-on — Then, the chain's next step — follows at once)? */
+export const reachesDone = (stages: readonly Stage[], level: Approvals, anyStage = false): boolean => freeStages(stages, level, anyStage).done
+
+/** Does a task reach a stage making stories (a doc stage with output 'stories') with nobody in between? */
+export function reachesStories(stages: readonly Stage[], level: Approvals): boolean {
+  for (const i of freeStages(stages, level, false).seen) if (stages[i].kind === 'doc' && stages[i].output === 'stories') return true
+  return false
 }

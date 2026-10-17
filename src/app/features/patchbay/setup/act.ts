@@ -10,10 +10,14 @@
  *   05 agent      openAgentEditor(agent or kept draft) — the editor as a dialog; a lost draft: MirrorSetup again
  *   06 first run  runAgentNow(agent) (it asks for placeholders first; a toast) · the run's review on #/agents/<id>
  * The steps that leave the route (02, 03, 06's review) set the way back (return.ts) first: the topbar's chip leads back.
+ * Orders B10 — the work orders' band (setup/orders.ts): 01 / 02 openCodingSettings() (Settings › Coding worker) · 03
+ * #/coding · 04 ensureOrderDb() as the person in the Patchbay (then its page) · 05 the server's test or Settings ·
+ * 06 the work orders' page (a chain starts by hand there — ↵ on its plate, never from here).
  * The dialogs give focus back to the lamp's key (`from`); after a create or a save it moves on to the next lamp's key —
  * for 00 / 01 once the dialog closed with its lamp green (moveOnAfterModal).
  */
 import { navigate } from '../../../lib/router'
+import { ensureOrderDb, openCodingSettings } from '../../coding'
 import { useUI } from '../../../store/ui'
 import { openAISettings, openAISetup } from '../../ai/setup/openAISetup'
 import { openMcpConnections } from '../../mcp'
@@ -24,6 +28,7 @@ import { setReturn } from './return'
 import { focusLampKey, lampKey } from './focus'
 import { lampsNow } from './facts'
 import { setOf } from './lamps'
+import { ORDERS_BAND } from './orders'
 
 export interface LampContext {
   profileId: string
@@ -89,10 +94,11 @@ export function runLamp(lamp: SetupLamp, ctx: LampContext): boolean {
       // quiet: Settings opened from a lamp never checks the never-checked servers on its own (a check is a Claude
       // request — only the person's press runs one, §1.11)
       openAISettings({ section: 'mcp', ...(a.server ? { server: a.server } : {}), ...(a.add ? { add: true } : {}), quiet: true })
-      moveOnAfterModal(lamp, ctx)
+      if (ctx.profileId !== ORDERS_BAND) moveOnAfterModal(lamp, ctx)
       return true
     case 'mcpTest':
-      leave(ctx, lamp)
+      // the work orders' band has no profile to come back to (the way back is the Patchbay itself)
+      if (ctx.profileId !== ORDERS_BAND) leave(ctx, lamp)
       openMcpConnections({ server: a.server, focus: 'test' })
       return true
     case 'integrations':
@@ -114,6 +120,20 @@ export function runLamp(lamp: SetupLamp, ctx: LampContext): boolean {
     case 'review':
       leave(ctx, lamp)
       navigate({ name: 'agents', id: a.agent })
+      return true
+    case 'codingSettings':
+      openCodingSettings()
+      return true
+    case 'coding':
+      navigate({ name: 'coding' })
+      return true
+    case 'ordersDb': {
+      const made = ensureOrderDb({ kind: 'you', via: 'patchbay' })
+      navigate({ name: 'page', id: made.id })
+      return true
+    }
+    case 'page':
+      navigate({ name: 'page', id: a.id })
       return true
   }
 }

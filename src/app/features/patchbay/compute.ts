@@ -17,7 +17,7 @@
  */
 import { useWorkspace } from '../../store/store'
 import { useCloud } from '../../cloud'
-import { useCoding } from '../coding'
+import { onOrderAuto, useCoding } from '../coding'
 import { useMcp } from '../mcp'
 import { onSyncState } from '../sync'
 import { useMcpChecks } from '../ai/mcp-servers'
@@ -30,7 +30,7 @@ import { patchbayScope } from './scope'
 const WIRING = ['databases', 'agents', 'scripts', 'integrations', 'kit', 'ai', 'governor', 'fuseSignoffs', 'settings'] as const
 
 /** The coding fields this device's facts read (inputs.ts deviceFacts — keep in step). */
-const CODING = ['enabled', 'conn', 'can', 'worker', 'approvalsDefault'] as const
+const CODING = ['enabled', 'conn', 'can', 'worker', 'approvalsDefault', 'projectRev'] as const
 
 const idle = (fn: () => void): void => {
   const ric = (globalThis as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }).requestIdleCallback
@@ -96,6 +96,8 @@ export function startCompute(): () => void {
       if (s.ok !== p.ok) soon()
     }),
     onSyncState(() => soon()),
+    // Orders B10: this device's consent "Ohne Bestätigung starten" (the planner's gate) — this tab's and another's
+    onOrderAuto(soon),
     onPagesMoved(soon),
     onInputs(soon),
   ]

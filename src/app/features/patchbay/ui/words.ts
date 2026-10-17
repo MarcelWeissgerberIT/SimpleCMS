@@ -173,6 +173,8 @@ export function makeWords(t: Translate, lang: 'en' | 'de', model: Model, input: 
     // a clock or an incoming hook says START, a button / command PRESS; a row trigger's cables say it themselves
     if (j.side === 'out' && j.role === 'start' && (m.kind === 'clock' || m.kind === 'incoming')) return t(`${P}.jack.start`)
     if (j.side === 'out' && j.role === 'start' && HAND_KINDS.has(m.kind)) return t(`${P}.jack.press`)
+    // Orders B10: the planner's TOOLS jack is drawn without a server too — "no server" is a valid state
+    if (m.kind === 'planner' && j.role === 'tools') return t(tier ? `${P}.jack.toolsOptionalShort` : `${P}.jack.toolsOptional`)
     return ''
   }
   // the words carry the direction (§3.9, fix ui-words): an out-jack's cables go "→ to", an in-jack's come "from" — a

@@ -193,6 +193,16 @@ export function runningOrderCount(s: Pick<ReturnType<typeof ws>, 'pages' | 'data
   return n
 }
 
+/** Work orders whose chain was started at least once — running, halted or done (the Patchbay's band, lamp 06). */
+export function startedOrderCount(s: Pick<ReturnType<typeof ws>, 'pages' | 'databases'> = ws()): number {
+  let n = 0
+  for (const id of orderRowIds(s)) {
+    const k = orderStatusKey(id, s)
+    if (k === 'running' || k === 'halted' || k === 'done') n++
+  }
+  return n
+}
+
 /* ------------------------------------------------------------------ creating */
 
 interface Made {

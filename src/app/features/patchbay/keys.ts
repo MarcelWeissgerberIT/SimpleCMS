@@ -8,11 +8,15 @@
  *    Unreadable fields stay as they are; read back — a write the sanitizer refused counts as refused);
  *  - autofill → "Autofill by hand only": `setAutofillAuto(db, prop, false)` (refused on a locked / read-only database);
  *  - organise → "Sort mail by hand only": `setOrganise({ enabled: false })` (this device's mail settings);
- *  - bridge → "Bridge: ask before each write": `setMcpMode('ask')` (this browser).
+ *  - bridge → "Bridge: ask before each write": `setMcpMode('ask')` (this browser);
+ *  - planner (Orders B10) → "Confirm each chain": this device's consent "Ohne Bestätigung starten" dropped
+ *    (`dropOrderAuto`); its Undo puts the same consent back (`restoreOrderAuto` — only while none is stored).
  * Key 2 — the trigger or the tools:
  *  - "„<field>“ by hand only" → `setHandOnly(db, prop, true)` (no profile unlock needed — Q1, §6 A19; refused locked);
  *  - "Disconnect write tools" → the stored agent's `mcpTools[server]` = its read tools ([] leaves the server out);
- *  - "{server}: no longer for autofill" → `patchServer(id, { scope: 'free' })` (this device).
+ *  - "{server}: no longer for autofill" → `patchServer(id, { scope: 'free' })` (this device);
+ *  - the planner's server, read tools only (Orders B10): already so — never offered; an untested server's key sends the
+ *    person to its connection test ("Server testen", the key's `open`).
  * Key 3 — "Allow this path" → `signOffFuse(path, sig, parts)` / "Withdraw" → `withdrawSignoff(path)` (owners / admins in
  * a team; the store answers why it refuses). Their Undo puts the entry back as it was (`restoreSignoff`: a lapsed
  * allowance a new one replaced, a withdrawn one — with its `at` and, locally, its `updatedBy`; a team server stamps the
@@ -36,6 +40,7 @@ import { setAutofillAuto, setHandOnly } from '../../database'
 import { readMail, setOrganise } from '../mail'
 import { mcpSettings, setMcpMode, type McpAgentMode } from '../mcp'
 import { patchServer, readServers } from '../ai/mcp-servers'
+import { dropOrderAuto, readOrderAuto, restoreOrderAuto, type OrderAuto } from '../coding'
 import { signoffAdmins } from '../../store/fuseSignoffs'
 import { stable } from './source'
 import { moduleKey } from './ref'
@@ -57,6 +62,8 @@ export type KeyStep =
   | { t: 'organise'; wrote: string }
   | { t: 'bridge'; was: McpAgentMode }
   | { t: 'server'; id: ID; was: 'all' }
+  /** Orders B10: the planner's consent this device held (an Undo puts the same one back) */
+  | { t: 'auto'; db: ID; was: OrderAuto }
   /** `prev`: the allowance this one replaced (a lapsed one — who allowed it and when): an Undo puts it back as it was */
   | { t: 'allow'; path: string; sig: string; prev?: FuseSignoff }
   | { t: 'withdraw'; path: string; entry: FuseSignoff }
@@ -210,6 +217,15 @@ function write(key: FuseKey): { ok: true; step: KeyStep; waits?: { creator: stri
       if (readServers().find((x) => x.id === id)?.scope === 'all') return refuse(`${P}.patch.failed`)
       return { ok: true, step: { t: 'server', id, was: 'all' } }
     }
+    case 'autoOff': {
+      const db = tg.orders as ID
+      if (!readOrderAuto(db)) return refuse(`${P}.key.autoOffAlready`)
+      const was = withWriter(AS_KEY, () => dropOrderAuto(db))
+      if (!was || readOrderAuto(db)) return refuse(`${P}.patch.failed`)
+      return { ok: true, step: { t: 'auto', db, was } }
+    }
+    case 'readTools':
+      return refuse(key.refusal?.key ?? `${P}.patch.failed`, key.refusal?.vars, key.open)
     case 'allow':
     case 'withdraw':
       return refuse(`${P}.patch.failed`)
@@ -248,7 +264,7 @@ function allow(f: FuseState, withdraw: boolean): { ok: true; step: KeyStep } | {
  * model refuses (`offered` false) is never written; its reason comes back as the refusal.
  */
 export function pressKey(f: FuseState, key: FuseKey): KeyResult {
-  if (!key.offered) return { ok: false, refused: key.refusal ?? { key: `${P}.key.readOnly` } }
+  if (!key.offered) return { ok: false, refused: key.refusal ?? { key: `${P}.key.readOnly` }, ...(key.open ? { open: key.open } : {}) }
   if (readOnly()) return refuse(`${P}.key.readOnly`)
   const r: { ok: true; step: KeyStep; waits?: { creator: string } } | { ok: false; refused: MsgRef; open?: OpenTarget } = key.kind === 'allow' || key.kind === 'withdraw' ? allow(f, key.kind === 'withdraw') : write(key)
   if (!r.ok) return r
@@ -297,6 +313,9 @@ function stillWritten(step: KeyStep): boolean {
       return ws().fuseSignoffs?.[step.path]?.sig === step.sig
     case 'withdraw':
       return !ws().fuseSignoffs?.[step.path]
+    case 'auto':
+      // dropped and not given again since (B11's switch writes a new one)
+      return readOrderAuto(step.db) === null
   }
 }
 
@@ -317,6 +336,8 @@ function editorOf(step: KeyStep): OpenTarget | undefined {
       return { to: 'settings', tab: 'mcp' }
     case 'server':
       return { to: 'mcp', server: step.id }
+    case 'auto':
+      return { to: 'route', route: { name: 'page', id: step.db } }
     default:
       return undefined
   }
@@ -353,6 +374,8 @@ function putBack(step: KeyStep): { ok: true } | { ok: false; refused: MsgRef } {
       const r = withWriter(AS_UNDO, () => (prev ? ws().restoreSignoff(step.path, prev) : ws().withdrawSignoff(step.path)))
       return r.ok ? { ok: true } : { ok: false, refused: signoffWhy(r.why, r.admins) }
     }
+    case 'auto':
+      return withWriter(AS_UNDO, () => restoreOrderAuto(step.db, step.was)) ? { ok: true } : refuse(`${P}.patch.failed`)
     case 'withdraw': {
       // the withdrawn allowance back as it was — who allowed it and when (a team server stamps the owner / admin writing)
       const r = withWriter(AS_UNDO, () => ws().restoreSignoff(step.path, step.entry))

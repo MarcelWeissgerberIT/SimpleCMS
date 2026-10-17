@@ -103,6 +103,8 @@ function openOf(d: PatchDone): OpenTarget | null {
   if (w.w === 'agent') return { to: 'route', route: { name: 'agents', id: w.agent.id } }
   if (w.w === 'automations') return { to: 'modal', modal: 'automations', databaseId: w.db }
   if (w.w === 'commands') return { to: 'modal', modal: 'dbCommands', databaseId: w.db }
+  // Orders B10: the work orders' settings live on their database
+  if (w.w === 'orders') return { to: 'route', route: { name: 'page', id: w.db } }
   return { to: 'route', route: { name: 'workspace', section: 'integrations' } }
 }
 

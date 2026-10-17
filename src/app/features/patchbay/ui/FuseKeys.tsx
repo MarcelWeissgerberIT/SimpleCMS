@@ -152,6 +152,8 @@ const ICON: Record<FuseKey['kind'], typeof Check> = {
   handOnly: Hand,
   cutTools: Unplug,
   noAutofill: Unplug,
+  autoOff: ShieldCheck,
+  readTools: Unplug,
   allow: Check,
   withdraw: Undo2,
 }
@@ -166,7 +168,19 @@ function KeyRow({ f, k, pw, primary, onPress, state }: { f: FuseState; k: FuseKe
   if (k.what) lines.push(<span key="w" className="pb-fkey__w">{pw.say(k.what)}</span>)
   if (k.note) lines.push(<span key="n" className="pb-fkey__note">{pw.say(k.note)}</span>)
   if (k.team && k.offered) lines.push(<span key="t" className="pb-fkey__note pb-fkey__note--team" data-testid="pb-fkey-team">{pw.say(k.team)}</span>)
-  if (refusal) lines.push(<span key="r" className="pb-fkey__why" data-testid="pb-fkey-why">{pw.say(refusal)}</span>)
+  // Orders B10: a refused key with a place to take the step instead (the planner's untested server → its test)
+  const openLabel = (o: OpenTarget) => t(k.kind === 'readTools' && o.to === 'mcp' ? `${P}.key.testServer` : `${P}.keys.openEditor`)
+  if (refusal)
+    lines.push(
+      <span key="r" className="pb-fkey__why" data-testid="pb-fkey-why">
+        {pw.say(refusal)}
+        {k.open && !state.refused && (
+          <button type="button" className="pb-fkey__open" onClick={() => openTarget(k.open!)} data-testid="pb-fkey-open">
+            {openLabel(k.open)}
+          </button>
+        )}
+      </span>,
+    )
   const cls = k.n === 3 ? 'btn btn--ghost pb-fkey__b' : primary ? 'btn btn--primary pb-fkey__b' : 'btn pb-fkey__b'
   return (
     <div className="pb-fkey" data-n={k.n} data-kind={k.kind} data-offered={k.offered || undefined} data-testid="pb-fkey">
@@ -206,7 +220,7 @@ function KeyRow({ f, k, pw, primary, onPress, state }: { f: FuseState; k: FuseKe
           {pw.say(state.refused.refused)}
           {state.refused.open && (
             <button type="button" className="pb-fkey__open" onClick={() => openTarget(state.refused!.open!)}>
-              {t(`${P}.keys.openEditor`)}
+              {openLabel(state.refused.open)}
             </button>
           )}
         </span>

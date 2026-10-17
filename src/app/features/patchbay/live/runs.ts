@@ -3,7 +3,7 @@
  *
  *  - moduleOfWriter(w, look) / moduleOfKey(key, look): which rack module a writer (or a writer key — an automation's
  *    `cause`) is — agent · automation · script · autofill · mail organise · kit relay · pipeline · sync · the bridge ·
- *    a repeating template's clock; null for everything else (the person, an editor, the AI menu, the terminal …).
+ *    a repeating template's clock · a work order's planner (Orders B10); null for everything else (the person, an editor, the AI menu, the terminal …).
  *  - runOfWriter(w): the run id a writer carries (null: a writer without runs — autofill's watch, a kit relay).
  *  - RunBook: what a run note means. `noteRun` is no start event (§6 A24): it also means "tells more about itself"
  *    (runMeta.ts aiWriterOf, mail/writer.ts, autofill writeProposal). A run starts ONCE per (writer kind, run id) — a
@@ -50,6 +50,7 @@ export function runOfWriter(w: Writer): string | null {
     case 'mail':
     case 'terminal':
     case 'import':
+    case 'order':
       return w.run || null
     case 'autofill':
       return w.run ?? null
@@ -81,6 +82,11 @@ export function moduleOfWriter(w: Writer, look: WriterLookups, at: WriteAt = {})
     case 'coding': {
       const db = look.taskDb(w.task)
       return db ? moduleKey({ kind: 'pipeline', db, pipeline: 'coding' }) : null
+    }
+    case 'order': {
+      // Orders B10: a work order's run (planning, the chain's writes) is its database's planner
+      const db = look.taskDb(w.row)
+      return db ? moduleKey({ kind: 'planner', db }) : null
     }
     case 'sync':
       return moduleKey({ kind: 'sync', source: w.source === 'github' ? 'github' : 'folder' })
@@ -119,6 +125,8 @@ export function writerOfKey(key: WriterKey | null | undefined): Writer | null {
       return { kind: 'mcp', session: id(parts[1]), call: id(parts[2]), tool: parts[3] ?? '' }
     case 'coding':
       return id(parts[1]) ? { kind: 'coding', task: id(parts[1]), run: id(parts[2]) } : null
+    case 'order':
+      return id(parts[1]) ? { kind: 'order', row: id(parts[1]), run: id(parts[2]) } : null
     case 'sync':
       return { kind: 'sync', source: parts[1] === 'github' ? 'github' : 'folder', run: id(parts[2]) }
     case 'ai':

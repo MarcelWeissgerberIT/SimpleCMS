@@ -120,7 +120,7 @@ export { CloudWorkers as CodingCloudWorkers } from './CloudWorkers'
  *  - worker state: workerOnline(s) · workerCaps(s) (what the connected worker runs; null: not known) ·
  *    workerVerdict(s) ('ok' | 'outdated' | 'unsafe' | null offline) · workerUnsafe(version) · workerOutdated(can)
  */
-export { pipelineDbIdsOf, readPipeline, type ResolvedStage } from './schema'
+export { pipelineDbIdsOf, readPipeline, currentProjectId, type ResolvedStage } from './schema'
 export { gitStageWarnings, onShipRecord, lastShip, type ShipNote } from './ship'
 export { workerUnsafe, workerOutdated } from './protocol'
 /** The outdated-worker notice in the person's language (what the newer one adds; before 1.11.0 the stage-end fix first). */
@@ -252,7 +252,14 @@ export const skipChainStep = (rowId: string, n: number) => import('./orders/chai
 export const replanFrom = (rowId: string, n: number) => import('./orders/chainKeys').then((m) => m.replanFrom(rowId, n))
 export type { ChainKeyOutcome, ChainKeyRefusal } from './orders/chainKeys'
 export { useChainMoves, basisPreview, type ChainView } from './orders/chainRun'
-export { chainSuccessorNow, chainStepOf } from './orders/records'
+export { chainSuccessorNow, chainStepOf, chainLegOf } from './orders/records'
+/**
+ * Orders B10 — this device's consent "Ohne Bestätigung starten" (orders/auto.ts, localStorage
+ * `one.orders.auto:<scope>:<db>`, local only — B11 switches it on): readOrderAuto(db) · dropOrderAuto(db) (the
+ * Patchbay's key 1) · restoreOrderAuto(db, v) (its Undo) · onOrderAuto(fn); runningOrderCount() (the planner's window).
+ */
+export { readOrderAuto, dropOrderAuto, restoreOrderAuto, onOrderAuto, type OrderAuto } from './orders/auto'
+export { runningOrderCount, startedOrderCount } from './orders/db'
 export { chainSuccessor, withPassed, withSeenNext, withRefs } from './chain'
 /**
  * Work orders B9 — Preflight's cards (orders/lamp.ts · cardPrep.ts eager; the body lazy). orderCards() — what waits on

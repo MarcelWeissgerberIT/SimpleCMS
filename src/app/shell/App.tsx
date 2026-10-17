@@ -204,7 +204,7 @@ function RouteView({ route }: { route: Route }) {
     case 'mcp':
       return <McpConnectionsRoute />
     case 'patchbay':
-      return <PatchbayRoute m={route.m} f={route.f} setup={route.setup} />
+      return <PatchbayRoute m={route.m} f={route.f} setup={route.setup} orders={route.orders} />
     case 'workspace':
       return <WorkspacePage section={route.section} />
     case 'journal':

@@ -39,6 +39,7 @@ import type {
   LazyCache,
   MailInput,
   ModelInput,
+  OrdersInput,
   PageFacts,
   PipelineInput,
   ProfileInput,
@@ -79,6 +80,16 @@ export interface DeviceFacts {
   refused: readonly ID[]
   /** the kit codes this device trusts, by digest(code) (team; useKitTrust's answers) — null: a local workspace (every code runs) */
   kitTrust: Readonly<Record<string, boolean>> | null
+  /**
+   * Orders B10: this device's work-orders facts — Coding on here, the project #/coding shows per kind, and the consent
+   * "Ohne Bestätigung starten" per work-orders database (local only). Absent: Coding read as on, the first live project of
+   * each kind, no consent.
+   */
+  orders?: {
+    codingOn: boolean
+    projects: Partial<Record<'coding' | 'spec' | 'qa', ID | null>>
+    auto: Readonly<Record<ID, { sig: string; at: number }>>
+  }
 }
 
 /** The lazy readings (read on route open, or from the lazy cache) — compared by reference. */
@@ -116,6 +127,21 @@ function stagePropOf(db: Database, stages: PipelineInput['stages']): ID | null {
   return p?.id ?? null
 }
 
+/**
+ * Orders B10 — a work-orders config as the planner module reads it, from the coding area's reader (readOrderConfig's
+ * answer): a later build's is 'unreadable'; none stored reads as a new database's (every kind, no server, the
+ * checkpoint on — what the planner would then do, never less).
+ */
+export function orderConfigView(r: { kind: 'none' } | { kind: 'unreadable' } | { kind: 'ok'; config: { server: { name: string } | null; kinds: readonly string[]; projects?: Partial<Record<string, ID>>; checkpoint: boolean; budgetUsd?: number } }): OrdersInput['config'] | 'unreadable' {
+  if (r.kind === 'unreadable') return 'unreadable'
+  const KINDS = ['spec', 'coding', 'qa'] as const
+  if (r.kind === 'none') return { server: null, kinds: [...KINDS], projects: {}, checkpoint: true, budgetUsd: null }
+  const c = r.config
+  const projects: Partial<Record<'spec' | 'coding' | 'qa', ID>> = {}
+  for (const k of KINDS) if (c.projects?.[k]) projects[k] = c.projects[k]
+  return { server: c.server?.name ?? null, kinds: KINDS.filter((k) => c.kinds.includes(k)), projects, checkpoint: c.checkpoint, budgetUsd: c.budgetUsd ?? null }
+}
+
 /** The areas' readers (the app: their index files; Node specs: plain stand-ins). */
 export interface InputReaders {
   /** features/automations readAutomations */
@@ -144,6 +170,11 @@ export interface InputReaders {
   wsAI(raw: Workspace['ai']): WorkspaceAI | null
   deviceAI(raw: Settings['ai']): DeviceAI | null
   route(): AIRoute | null
+  /**
+   * Orders B10 — features/coding readOrderConfig + orderStatusProps: a work-orders database's config as every reader
+   * keeps it (null: none or a later build's — `unreadable`) and its Status properties. Absent: no work orders are read.
+   */
+  orders?(db: Database): { config: OrdersInput['config'] | 'unreadable'; statusProps: ID[] }
 }
 
 /* ------------------------------------------------------------------ helpers */
@@ -217,6 +248,8 @@ export function dbConfigSig(db: Database): string {
       // stages are its Stage field's options (coding readPipeline) and name the Stage property (stagePropOf)
       db.properties.filter((p) => p.key).map((p) => p.id),
       db.system && PIPELINES.has(db.system) ? db.properties.filter((p) => p.type === 'select').map((p) => [p.id, (p.options ?? []).map((o) => o.id)]) : null,
+      // Orders B10: a work-orders database's config (the planner's server, kinds, projects, checkpoint) and its Status options
+      db.system === 'workorders' ? [db.orders ?? null, db.properties.filter((p) => p.type === 'select' || p.type === 'status').map((p) => [p.id, (p.options ?? []).map((o) => o.id)])] : null,
     ])
     dbSigs.set(db, s)
   }
@@ -415,11 +448,23 @@ export function toModelInput(src: InputSource, read: InputReaders): BuiltInput {
   ref(mail?.relationDb)
 
   const pipelines: PipelineInput[] = []
+  const projects = device.orders?.projects
   for (const db of live) {
     if (!db.system || !PIPELINES.has(db.system)) continue
     const stages = read.pipeline(db)
-    pipelines.push({ db: db.id, kind: db.system as PipelineInput['kind'], stages, stageProp: stagePropOf(db, stages), warnings: read.gitWarnings(stages) })
+    const kind = db.system as PipelineInput['kind']
+    pipelines.push({ db: db.id, kind, stages, stageProp: stagePropOf(db, stages), warnings: read.gitWarnings(stages), ...(projects?.[kind] === db.id ? { current: true } : {}) })
   }
+
+  // Orders B10: the work-orders databases — the config as its reader keeps it, the Status property, this device's consent
+  const orders: OrdersInput[] = []
+  if (read.orders)
+    for (const db of live) {
+      if (db.system !== 'workorders') continue
+      const r = read.orders(db)
+      const auto = !device.ctx.team ? (device.orders?.auto[db.id] ?? null) : null
+      orders.push({ db: db.id, config: r.config === 'unreadable' ? null : r.config, statusProp: r.statusProps[0] ?? null, auto: auto ? { sig: auto.sig, at: auto.at } : null })
+    }
 
   // the facts with the pages above each (B3: a scope page reaches what lies below it, Clippings are a subtree)
   const pages: Record<ID, PageFacts> = {}
@@ -454,6 +499,8 @@ export function toModelInput(src: InputSource, read: InputReaders): BuiltInput {
     hooks: lazy.hooks ?? lazy.cache?.hooks ?? null,
     tokens: lazy.tokens ?? lazy.cache?.tokens ?? null,
     lazy: lazy.cache,
+    ...(orders.length ? { orders } : {}),
+    ...(device.orders ? { codingOn: device.orders.codingOn } : {}),
   }
   return { input, pageRefs, factsSig: stable(pages) }
 }

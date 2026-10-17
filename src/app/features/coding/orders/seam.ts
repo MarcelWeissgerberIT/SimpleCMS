@@ -17,6 +17,9 @@ if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams
     plan: (rowId: ID, o: { mode: 'manual' | 'trigger'; replace?: boolean }) => import('./planner').then((m) => m.planOrder(rowId, o)).then(plain),
     answer: (rowId: ID, answers: Array<{ q: string; a: string }>) => import('./planner').then((m) => m.answerQuestions(rowId, answers)).then(plain),
     record: (rowId: ID) => import('./records').then((m) => m.loadOrderRecord(rowId, { fresh: true })).then(plain),
+    // B10 — this device's consent "Ohne Bestätigung starten" (B11 builds the switch; the Patchbay reads it)
+    setAuto: (db: ID, v: { sig: string; at: number } | null) => import('./auto').then((m) => m.setOrderAutoForTest(db, v)),
+    auto: (db: ID) => import('./auto').then((m) => plain(m.readOrderAuto(db))),
     run: (rowId: ID) => import('./runs').then((m) => plain(m.plannerRun(rowId) ?? null)),
     stop: (rowId: ID) => import('./runs').then((m) => m.stopPlanning(rowId)),
     // B6 — confirming: ↵ Kette starten (the shown hash), Z, ↵ jetzt, a creation left half done, the e2e fault

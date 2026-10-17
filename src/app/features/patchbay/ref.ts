@@ -57,6 +57,8 @@ export function moduleKey(ref: ModuleRef): ModuleKey {
       return join('pipeline', ref.db)
     case 'bridge':
       return join('bridge', 'here')
+    case 'planner':
+      return join('planner', ref.db)
     case 'kit':
       return join('kit', ref.db, ref.prop)
     case 'database':

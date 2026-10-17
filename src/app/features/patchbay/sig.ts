@@ -315,6 +315,21 @@ function processorPartOf(m: Module, input: ModelInput): Record<string, unknown> 
       const s = input.scripts.find((x) => x.script.id === r.id)
       return { k: 'script', id: r.id, at: s?.script.updatedAt ?? null }
     }
+    case 'planner': {
+      // Orders B10 (spec §4 sig parts): the database, this device's consent, the kinds, the checkpoint, the server by
+      // name + address + tested tools and the profiles matching it — a change lapses an allowance (and, B11, the consent)
+      const o = input.orders?.find((x) => x.db === r.db)
+      const name = o?.config?.server ?? null
+      const s = name ? input.servers.find((x) => x.server.name === name) : undefined
+      return {
+        k: 'planner',
+        db: r.db,
+        auto: o?.auto && !input.ctx.team ? o.auto.sig : null,
+        kinds: o?.config ? [...o.config.kinds] : null,
+        checkpoint: o?.config ? o.config.checkpoint : null,
+        server: name ? { name, url: s?.server.url ? short(s.server.url) : null, tools: s?.server.tools ? sorted(s.server.tools) : null, profiles: input.profiles.filter((p) => p.servers.includes(name)).map((p) => p.profile.id).sort() } : null,
+      }
+    }
     case 'pipeline': {
       const p = input.pipelines.find((x) => x.db === r.db)
       // `next` / `output` only when set (they decide where a task goes and what the worker writes)
@@ -366,6 +381,9 @@ function exitPart(chain: Chain, w: SigWorld, holder: ModuleKey | null): Record<s
     }
     case 'mcp':
       return { t: 'mcp', server: m?.ref.kind === 'server' ? m.ref.name : exit.module }
+    case 'exec':
+      // Orders B10: the worker's AI writing code / the repo's code running — gated by this device's approvals
+      return { t: 'exec', approvals: input.worker.approvals, confirm: input.worker.confirm, team: input.ctx.team }
     default:
       return { t: exit.type, module: exit.module }
   }

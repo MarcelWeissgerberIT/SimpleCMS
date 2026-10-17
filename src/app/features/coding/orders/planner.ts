@@ -35,7 +35,7 @@ import type { JSONContent } from '@tiptap/core'
 import { useWorkspace } from '../../../store/store'
 import { inTemplate, isEffectivelyTrashed } from '../../../store/selectors'
 import type { Database, ID, Page } from '../../../store/types'
-import { withWriter, type Writer } from '../../../store/writer'
+import { endRun, noteRun, withWriter, type Writer } from '../../../store/writer'
 import { newId } from '../../../lib/ids'
 import { docToMarkdown, editAs, liveEditorOf, readableContent } from '../../../editor'
 import { flushPageContent, useCloud } from '../../../cloud'
@@ -341,10 +341,14 @@ async function planLocked(rowId: ID, opts: PlanOpts): Promise<PlanOutcome> {
   startRun(rowId, run, opts.mode)
   // ⌘. stops the run from its first moment (nothing is created either way)
   const signal = runSignal(rowId, run)
+  // Orders B10: the one run bus — the Patchbay's planner module blinks while it plans (writer `order:<row>:<run>`)
+  const busWriter: Writer = { kind: 'order', row: rowId, run }
+  noteRun(busWriter)
   try {
     return await planRun(rowId, run, opts, signal)
   } finally {
     endSignal(rowId, run)
+    endRun(busWriter)
   }
 }
 

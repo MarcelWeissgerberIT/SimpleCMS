@@ -238,7 +238,8 @@ export const within = (ix: ReachIndex, id: ID, roots: ReadonlySet<ID>): boolean 
 
 /* ------------------------------------------------------------------ deciders and data rules */
 
-export type DeciderKind = 'agent' | 'autofill' | 'organise' | 'bridge'
+/** Orders B10: 'planner' — the work orders' planner (one structured request per request; it chooses the chain's steps). */
+export type DeciderKind = 'agent' | 'autofill' | 'organise' | 'bridge' | 'planner'
 
 /** An AI processor that chooses what to write or call while nobody approves each action (§1.3 #1). */
 export interface Decider {
@@ -319,6 +320,16 @@ export function deciderOf(ix: ReachIndex, m: Module): Decider | null {
     const mode = ix.input.bridge.mode
     if (!ix.input.bridge.enabled || mode === 'read') return null
     return { key: m.key, kind: 'bridge', here: true, providers: null, mcp: true, write: mode === 'ask' ? 'ask' : 'apply', server: false, disabled: false }
+  }
+  // Orders B10: the planner (purpose coding.plan, class 'terminal', this device's rules) — it chooses the chain's steps;
+  // a person confirms them with ↵ unless this device holds the consent (then it writes as 'apply'). A config of a later
+  // build: it acts on nothing (an unknown part).
+  if (r.kind === 'planner') {
+    const o = ix.input.orders?.find((x) => x.db === r.db)
+    if (!o?.config) return null
+    const providers = classProviders(ix.input, 'terminal', true)
+    const auto = !!o.auto && !team
+    return { key: m.key, kind: 'planner', here: true, providers, mcp: carriesMcp(providers), write: auto ? 'apply' : 'ask', server: false, disabled: false }
   }
   return null
 }
@@ -435,6 +446,11 @@ export function readRoots(ix: ReachIndex, m: Module): ReadRoots {
       // fix (model): the worker reads the task row (the task's page and fields go to Claude Code)
       add(r.db, 'row')
       return { ...NONE, places }
+    case 'planner':
+      // Orders B10: the request row (its own database's rows — from outside when an outside-reading writer wrote them),
+      // the picked server's read results; the pages it links are private data (privateItems: 'linked')
+      add(r.db, 'row')
+      return { ...NONE, places, servers }
     case 'script': {
       const scan = ix.scans.get(r.id) ?? null
       for (const p of scan?.reads ?? []) add('db' in p ? p.db : 'page' in p ? p.page : null, 'scope')
@@ -634,11 +650,14 @@ export function privateItems(ix: ReachIndex, m: Module, d: Decider, roots: ReadR
       } else add({ kind: 'named', place })
     } else if (p.via === 'trigger' || p.via === 'row') {
       // the row that started it: the outside row itself, or private when the outside content came from elsewhere
-      if (p.id !== srcId && !outsideRows.has(p.id) && !scope.has(p.id) && !roots.everything) add({ kind: p.via === 'trigger' ? 'trigger' : 'row', place })
+      // (the planner's request row is what it plans from — never private data of its own, Orders B10)
+      if (p.id !== srcId && !outsideRows.has(p.id) && !scope.has(p.id) && !roots.everything && m.ref.kind !== 'planner') add({ kind: p.via === 'trigger' ? 'trigger' : 'row', place })
     } else if (p.via === 'related') add({ kind: 'related', place })
   }
   // the outside database's other rows go out when the exit sends a row the decider may choose (an automation on it)
   if (exit.type === 'webhook' && srcId && ix.dbs.has(srcId) && exitDb(ix, exit) === srcId && writeReachCovers(ix, m, srcId)) add({ kind: 'otherRows', place: { db: srcId } })
+  // Orders B10: the pages a work order links go to the planner (and, as refs, along to the worker) — any page
+  if (m.ref.kind === 'planner') add({ kind: 'linked' })
   if (allows(ix, d, 'mcp')) for (const t of roots.servers) if (!(exit.type === 'mcp' && exit.module === t.server)) add({ kind: 'mcp', server: t.server })
   if (roots.memory && allows(ix, d, 'memory')) add({ kind: 'memory', ...(team ? { private: true as const } : {}) })
 

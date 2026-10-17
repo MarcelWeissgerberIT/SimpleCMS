@@ -89,6 +89,7 @@ import { DropZone, useDragZone } from './DropZone'
 import { PasteProfile } from './PasteProfile'
 import { BandHead, SetupCard, SetupPlate, type BandInfo } from './SetupBand'
 import { SetupStrip } from './SetupStrip'
+import { OrdersBand } from './OrdersBand'
 import { usePlateWordsOf } from './plateParts'
 import { lastPatch, setPatching, usePatchSwitch } from '../patching'
 import { resetPatchUI, setPick, usePatchUI } from './patchUI'
@@ -669,6 +670,8 @@ export default function Patchbay(props: PatchbayRouteProps) {
       )}
       <DropPlate t={t} flow={flow} />
       {setupId && !bandOn && set && <SetupStrip t={t} profileId={setupId} set={set} onOpen={onOpenSetup} onClose={onCloseSetup} />}
+      {/* Orders B10: the work orders' band — while a work-orders database exists, or opened from Settings › Coding worker */}
+      {input && (props.orders || !!input.orders?.length) && <OrdersBand input={input} t={t} lang={lang} />}
       <div className="pb-benchwrap">
         {ctx &&
           layout &&

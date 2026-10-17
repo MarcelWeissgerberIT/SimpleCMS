@@ -309,5 +309,14 @@ export function keyLabel(lamp: SetupLamp): MsgRef | null {
       return k('firstRun')
     case 'review':
       return k('review')
+    // Orders B10: the work orders' band
+    case 'codingSettings':
+      return k(a.orders ? 'workerSettings' : 'codingOn')
+    case 'coding':
+      return k('projects')
+    case 'ordersDb':
+      return k('ordersDb')
+    case 'page':
+      return k(lamp.id === 'firstChain' ? 'firstChain' : 'open')
   }
 }

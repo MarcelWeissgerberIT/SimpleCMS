@@ -107,6 +107,8 @@ interface FlowIndex {
   hand?: Map<ID, Set<string>>
   /** fix (ui-words): pipeline → the git actions reached unattended from ANY stage the worker takes (`anyStage`) */
   anyFree?: Map<ModuleKey, Set<string>>
+  /** Orders B10: `<from module>|<pipeline db>` → the cable a task enters that pipeline by (a `chain` edge, the planner's) */
+  into: Map<string, string>
 }
 
 function flowIndex(ix: ReachIndex): FlowIndex {
@@ -126,7 +128,14 @@ function flowIndex(ix: ReachIndex): FlowIndex {
     else if (m.ref.kind === 'button') buttons.set(m.ref.page, [...(buttons.get(m.ref.page) ?? []), m.key])
   }
   const push = ix.github && ix.input.sync.github.auto ? ((ix.from.get(ix.github) ?? []).find((e) => e.kind === 'out') ?? null) : null
-  return { ix, listens, writes: flow.writes, commands, buttons, push, deciders: new Map() }
+  // Orders B10: the cables into a pipeline's start jack (a hand-on, the planner's tasks) by writer and pipeline
+  const into = new Map<string, string>()
+  for (const [db, key] of ix.pipelines)
+    for (const e of ix.into.get(key) ?? []) {
+      const from = e.to === `${key}.start` ? ix.jackMod.get(e.from) : undefined
+      if (from && !into.has(`${from}|${db}`)) into.set(`${from}|${db}`, e.id)
+    }
+  return { ix, listens, writes: flow.writes, commands, buttons, push, deciders: new Map(), into }
 }
 
 const deciderAt = (f: FlowIndex, key: ModuleKey): Decider | null => {
@@ -152,6 +161,8 @@ function kindOf(f: FlowIndex, key: ModuleKey, how: 'root' | 'listen' | 'start' |
       return how === 'start' ? 'autoScript' : 'script'
     case 'pipeline':
       return 'pipeline'
+    case 'planner':
+      return 'planner'
     case 'automation':
     case 'autofill':
     case 'organise':
@@ -169,7 +180,14 @@ function kindOf(f: FlowIndex, key: ModuleKey, how: 'root' | 'listen' | 'start' |
   }
 }
 
-const writeGate = (w: FlowWrite): Gate | null => (w.proposal ? 'proposals' : w.asksFirst ? 'asks' : w.byHand ? 'byHand' : null)
+const writeGate = (w: FlowWrite): Gate | null => (w.proposal ? 'proposals' : w.asksFirst ? 'asks' : w.byHand ? 'byHand' : w.afterApproval ? 'afterApproval' : null)
+
+/** Orders B10: does this device hold the consent of the planner `key` ("Ohne Bestätigung starten", local only)? */
+export function plannerAuto(ix: ReachIndex, key: ModuleKey): boolean {
+  const r = ix.mods.get(key)?.ref
+  if (r?.kind !== 'planner' || ix.input.ctx.team) return false
+  return !!ix.input.orders?.find((o) => o.db === r.db)?.auto
+}
 
 /** The cable that draws module `m`'s write reaching place (db, lp) — the net flag, else the database, else Whole workspace. */
 function writeCable(f: FlowIndex, m: ModuleKey, place: Place): string {
@@ -186,7 +204,12 @@ const teamTrust = (f: FlowIndex): boolean => f.ix.input.ctx.team || f.ix.input.w
  * a remote write (a hook or token), a sync / file pick-up and a new row (no trusted version before it). Anything else
  * written in the worker's tab keeps a trusted task trusted: null — this device's approvals decide per git stage.
  */
-function pipelineGate(f: FlowIndex, writer: Node, wp: string): Gate | null {
+function pipelineGate(f: FlowIndex, writer: Node, wp: string, chain = false): Gate | null {
+  // Orders B10 — pipelineGate('order'): the planner's tasks wait for the person's ↵ unless this device holds the consent
+  // (then they are created trusted; in a team a new row waits for Confirm as ever — no consent exists there)
+  if (writer.kind === 'planner') return plannerAuto(f.ix, writer.key) ? (f.ix.input.ctx.team && wp === '+row' ? 'confirm' : null) : 'byHand'
+  // a hand-on (Then, the chain's next step, stories): createTask trusts the task it makes on this device
+  if (chain) return null
   if (writer.kind === 'agent' || writer.kind === 'serverAgent') return 'confirm'
   if (teamTrust(f) && (writer.kind === 'incoming' || writer.kind === 'sync' || wp === '+row')) return 'confirm'
   return null
@@ -274,13 +297,15 @@ function movesOf(f: FlowIndex, at: Node, pipe: Gate | null = null): Move[] {
       }
     }
   }
-  const pipelineMove = (db: ID, gate: Gate | null, wp: string) => {
+  const pipelineMove = (db: ID, gate: Gate | null, wp: string, chain = false) => {
     const p = f.ix.pipelines.get(db)
     // the worker's own writes into its task rows never enter it again
     if (!p || p === at.key) return
     const place: Place = { db }
-    const anyStage = canSetStage(f.ix, db, wp)
-    out.push({ to: { key: p, kind: 'pipeline' }, place, gate, wp, pipe: pipelineGate(f, at, wp), ...(anyStage ? { anyStage: true as const } : {}), steps: [{ from: at.key, via: place, to: p, edge: writeCable(f, at.key, place) }] })
+    // Orders B10: a trusted task made where new tasks start (a hand-on, the planner's) never lands in any stage
+    const anyStage = !chain && canSetStage(f.ix, db, wp)
+    const cable = (chain ? f.into.get(`${at.key}|${db}`) : undefined) ?? writeCable(f, at.key, place)
+    out.push({ to: { key: p, kind: 'pipeline' }, place, gate, wp, pipe: pipelineGate(f, at, wp, chain), ...(anyStage ? { anyStage: true as const } : {}), steps: [{ from: at.key, via: place, to: p, edge: cable }] })
   }
   const pressMoves = (list: ModuleKey[] | undefined, place: Place) => {
     for (const k of list ?? []) out.push({ to: { key: k, kind: kindOf(f, k, 'byHand') }, place, gate: 'byHand', byHand: true, steps: [{ from: at.key, via: place, to: k, edge: writeCable(f, at.key, place) }] })
@@ -292,7 +317,7 @@ function movesOf(f: FlowIndex, at: Node, pipe: Gate | null = null): Move[] {
       if (!f.ix.dbs.has(p.db)) continue
       const wp = p.prop ?? '*'
       listenMoves(p.db, () => wp, gate)
-      pipelineMove(p.db, gate, wp)
+      pipelineMove(p.db, gate, wp, !!write.chain)
       pressMoves(f.commands.get(p.db), { db: p.db })
     } else if ('page' in p) {
       pressMoves(f.buttons.get(p.page), p)
@@ -319,7 +344,7 @@ function movesOf(f: FlowIndex, at: Node, pipe: Gate | null = null): Move[] {
  * go by this device's approvals: the cable's `afterApproval`, model.ts per git action, from where a task enters;
  * `anyStage`: the write that entered it can set the Stage — every stage the worker takes is an entry, fix ui-words).
  */
-function outsOf(f: FlowIndex, at: Node, pipe: Gate | null | undefined, anyStage = false): Out[] {
+function outsOf(f: FlowIndex, at: Node, pipe: Gate | null | undefined, anyStage = false, exec = false): Out[] {
   const out: Out[] = []
   const { ix } = f
   for (const e of ix.from.get(at.key) ?? []) {
@@ -327,8 +352,11 @@ function outsOf(f: FlowIndex, at: Node, pipe: Gate | null | undefined, anyStage 
     const to = ix.jackMod.get(e.to)
     const m = to ? ix.mods.get(to) : undefined
     if (!m || (m.kind !== 'outbound' && m.kind !== 'outbox')) continue
-    const after = anyStage && m.ref.kind === 'outbound' ? !anyStageFree(f, at.key).has(m.ref.method ?? '') : !!e.afterApproval
-    const gate = at.kind === 'pipeline' ? (pipe === 'confirm' ? 'confirm' : after ? 'afterApproval' : null) : e.byHand ? 'byHand' : e.asksFirst ? 'asks' : null
+    // Orders B10: the worker's AI writing code / the repo's code running is a way out on the planner's auto paths only
+    const isExec = m.ref.kind === 'outbound' && m.ref.exit === 'exec'
+    if (isExec && !exec) continue
+    const after = anyStage && !isExec && m.ref.kind === 'outbound' ? !anyStageFree(f, at.key).has(m.ref.method ?? '') : !!e.afterApproval
+    const gate = at.kind === 'pipeline' ? (pipe === 'confirm' || pipe === 'byHand' ? pipe : after ? 'afterApproval' : null) : e.byHand ? 'byHand' : e.asksFirst ? 'asks' : null
     out.push({ exit: { module: m.key, type: m.kind === 'outbox' ? 'outbox' : (m.exit ?? 'webhook'), edge: e.id }, steps: [{ from: at.key, to: m.key, edge: e.id }], gate, failClosed: false, withheld: false })
   }
   // MCP write tools of a decider: they run inside the AI's tool loop — no proposal stops them (§1.3)
@@ -358,7 +386,7 @@ function outsOf(f: FlowIndex, at: Node, pipe: Gate | null | undefined, anyStage 
 
 /* ------------------------------------------------------------------ taint */
 
-const TAINTERS = new Set(['agent', 'autofill', 'organise', 'bridge', 'automation', 'script', 'kit', 'pipeline'])
+const TAINTERS = new Set(['agent', 'autofill', 'organise', 'bridge', 'automation', 'script', 'kit', 'pipeline', 'planner'])
 
 /** A script (or the automation it is folded into) that names places by name: it may write anywhere (§1.17). */
 function writesByName(ix: ReachIndex, m: Module): boolean {
@@ -463,13 +491,16 @@ interface Found {
   gate: Gate | null
 }
 
-/** Breadth first from the decider: `free` = only moves nobody stands in (pass 1), else any (pass 2: the first gate holds). */
-function bfs(f: FlowIndex, root: Node, free: boolean, found: Map<string, Found>): void {
+/**
+ * Breadth first from the decider: `free` = only moves nobody stands in (pass 1), else any (pass 2: the first gate holds).
+ * `exec` (Orders B10): the walk starts at a planner with this device's consent — EXEC ways out count.
+ */
+function bfs(f: FlowIndex, root: Node, free: boolean, found: Map<string, Found>, exec = false): void {
   const seen = new Set<string>([`${root.key}|${root.kind}`])
   const queue: Hop[] = [{ node: root, gate: null, parent: null, lead: [] }]
   for (let qi = 0; qi < queue.length; qi++) {
     const hop = queue[qi]
-    for (const out of outsOf(f, hop.node, hop.pipe, !!hop.anyStage)) {
+    for (const out of outsOf(f, hop.node, hop.pipe, !!hop.anyStage, exec)) {
       const gate = hop.gate ?? out.gate
       if (free && gate) continue
       if (!found.has(out.exit.edge)) found.set(out.exit.edge, { out, hop, gate })
@@ -498,10 +529,11 @@ function bfs(f: FlowIndex, root: Node, free: boolean, found: Map<string, Found>)
 /** Every way out of a decider: those reached with nobody in between, then those reached only through a gate. */
 function exitsOf(f: FlowIndex, d: Decider): Found[] {
   const root: Node = { key: d.key, kind: kindOf(f, d.key, 'root') }
+  const exec = d.kind === 'planner' && plannerAuto(f.ix, d.key)
   const free = new Map<string, Found>()
-  bfs(f, root, true, free)
+  bfs(f, root, true, free, exec)
   const any = new Map<string, Found>()
-  bfs(f, root, false, any)
+  bfs(f, root, false, any, exec)
   for (const [k, v] of any) if (!free.has(k)) free.set(k, v)
   return [...free.values()].sort((a, b) => (a.out.exit.edge < b.out.exit.edge ? -1 : 1))
 }
@@ -661,16 +693,25 @@ function workerUnknown(ix: ReachIndex, oi: OutsideIndex): UnknownPart[] {
   const { input } = ix
   if (!input.pipelines.length) return []
   const confirmRemote = input.ctx.team || input.worker.confirm === 'always'
-  const trusted = (mk: OutsideMark): boolean => {
-    if (mk.kind === 'tainted') return ix.mods.get(mk.writer ?? mk.source)?.kind !== 'agent'
+  const flowWrites = ix.model.flow?.writes ?? {}
+  const trusted = (mk: OutsideMark, db: ID): boolean => {
+    if (mk.kind === 'tainted') {
+      const writer = mk.writer ?? mk.source
+      if (ix.mods.get(writer)?.kind === 'agent') return false
+      // Orders B10: a person saw every word before the task started — each write of that writer into this project is a
+      // chain write confirmed by hand (the planner without this device's consent, a BA step behind "stop after the analysis")
+      const into = (flowWrites[writer] ?? []).filter((w) => 'db' in w.place && w.place.db === db)
+      if (into.length && into.every((w) => w.chain && w.byHand)) return false
+      return true
+    }
     return !confirmRemote
   }
-  const flowWrites = ix.model.flow?.writes ?? {}
   // fix (ui-words): a writer that can set the task's Stage drops it into any stage the worker takes, behind every gate —
   // a relay's own writes decide; an outside source writes whole rows (every field)
   const setsStage = (mk: OutsideMark, db: ID): boolean => {
     if (mk.kind !== 'tainted') return true
-    return (flowWrites[mk.writer ?? mk.source] ?? []).some((w) => ('everything' in w.place) || ('db' in w.place && w.place.db === db && canSetStage(ix, db, w.place.prop ?? '*')))
+    // a hand-on / the planner's task starts where new tasks start (Orders B10): never in any stage
+    return (flowWrites[mk.writer ?? mk.source] ?? []).some((w) => ('everything' in w.place) || ('db' in w.place && w.place.db === db && !w.chain && canSetStage(ix, db, w.place.prop ?? '*')))
   }
   const out: UnknownPart[] = []
   for (const p of input.pipelines) {
@@ -678,7 +719,7 @@ function workerUnknown(ix: ReachIndex, oi: OutsideIndex): UnknownPart[] {
     if (!key) continue
     const marks = [...(oi.dbs.get(p.db) ?? []), ...underOf(ix, p.db).flatMap((u) => oi.pages.get(u) ?? []), ...oi.all.filter((mk) => !(mk.kind === 'api' && input.pages[p.db]?.private))]
     // the worker's own writes into its task rows are what fed it — never a source of its own
-    const feeding = marks.filter((mk) => !(mk.kind === 'tainted' && (mk.writer ?? mk.source) === key) && trusted(mk))
+    const feeding = marks.filter((mk) => !(mk.kind === 'tainted' && (mk.writer ?? mk.source) === key) && trusted(mk, p.db))
     if (!feeding.length) continue
     const anyStage = feeding.some((mk) => setsStage(mk, p.db))
     if (claudeBeforeGit(p.stages, input.worker.approvals, anyStage)) out.push({ key: `worker:${key}`, what: 'worker', module: key })
@@ -729,7 +770,7 @@ export function keyCheck(ix: ReachIndex): (decider: ModuleKey, exitEdge: string,
         f = { ...base, hand }
       }
       found = new Map<string, Found>()
-      bfs(f, { key: decider, kind: kindOf(f, decider, 'root') }, true, found)
+      bfs(f, { key: decider, kind: kindOf(f, decider, 'root') }, true, found, deciderAt(f, decider)?.kind === 'planner' && plannerAuto(f.ix, decider))
       walks.set(id, found)
     }
     const hit = found.get(exitEdge)

@@ -16,7 +16,9 @@
 import type { Page as PwPage } from '@playwright/test'
 import type { Automation, CustomAgent, Database, DbCommand, ID, IntegrationProfile, Kit, McpServerConfig, OneScript, Page, PipelineStage, PropertyDef, Settings, View } from '../../src/app/store/types'
 import type { ButtonInput, DatabaseInput, KitScan, MailInput, ModelInput, ScriptScan } from '../../src/app/features/patchbay/types'
-import { createInputMemo, digest, toModelInput, type DeviceFacts, type InputReaders, type InputSource, type InputWorkspace, type LazyReadings } from '../../src/app/features/patchbay/source'
+import { createInputMemo, digest, orderConfigView, toModelInput, type DeviceFacts, type InputReaders, type InputSource, type InputWorkspace, type LazyReadings } from '../../src/app/features/patchbay/source'
+import { readOrderConfig } from '../../src/app/features/coding/orders/config'
+import { orderStatusProps } from '../../src/app/features/coding/orders/status'
 import { buildModel } from '../../src/app/features/patchbay/model'
 import { scanKitCode, scanScript, type ScanEngine } from '../../src/app/features/patchbay/scripts'
 import { buttonsIn } from '../../src/app/features/patchbay/buttons'
@@ -78,6 +80,7 @@ export function nodeReaders(world: Pick<PbWorld, 'sends'> = {}): InputReaders {
     wsAI: () => null,
     deviceAI: () => null,
     route: () => null,
+    orders: (db) => ({ config: orderConfigView(readOrderConfig(db)), statusProps: orderStatusProps(db).map((p) => p.id) }),
   }
 }
 
@@ -519,6 +522,88 @@ export function exits(): PbWorld {
       ctx: { ...LOCAL_DEVICE.ctx },
     },
     lazy: { runtime: [{ name: 'alpha', host: 'alpha.example' }] },
+  })
+}
+
+/* ------------------------------------------------------------------ work orders (Orders B10) */
+
+export interface OrdersWorldOpts {
+  /** this device holds the consent "Ohne Bestätigung starten" */
+  auto?: boolean
+  /** the planner's server "kb" (the person's own name for it — the fixture "Wissensbasis"): tested, untested or none */
+  server?: 'tested' | 'untested' | null
+  approvals?: 'all' | 'review' | 'none'
+  /** "Nach der Analyse anhalten" (default on) */
+  checkpoint?: boolean
+  /** an agent reading mails writes request rows (the work orders' rows carry content from outside) */
+  mailRows?: boolean
+  /** the BA project makes stories */
+  stories?: boolean
+}
+
+/**
+ * A work-orders world (spec §4): the database "Prüfaufträge" (its Status options by id), a BA, a Coding and a QA project
+ * (#/coding's on this device), the person's own server "kb" for the planner (read tools list_articles · get_article,
+ * a write tool update_article it never gets). Coding: queue → plan → gate → implement → test → gate → push → merge
+ * request → done — with Approvals 'review' the plan gate is passed (implement and test run, the review gate stops git).
+ */
+export function ordersWorld(o: OrdersWorldOpts = {}): PbWorld {
+  const ids = { orders: 'dbOrders', ba: 'dbOrdBA', code: 'dbOrdCode', qa: 'dbOrdQA', mails: 'dbOrdMails', kb: 'srvKb', mailAgent: 'agOrdMail', status: 'pOrdStatus' }
+  const status = { draft: 'oDraft', plan: 'oPlan', ready: 'oReady', running: 'oRunning', halted: 'oHalted', done: 'oDone' }
+  const stageProp = (pid: string, stages: PipelineStage[]) => prop(pid, 'Stage', 'select', { options: stages.map((st) => ({ id: st.id, name: st.id, color: 'gray' as const })) })
+  const ba: PipelineStage[] = [
+    { id: 'baQ', kind: 'queue', auto: true },
+    { id: 'baDoc', kind: 'doc', auto: true },
+    ...(o.stories ? [{ id: 'baStories', kind: 'doc' as const, auto: true, output: 'stories' as const }] : []),
+    { id: 'baGate', kind: 'gate', auto: false },
+    { id: 'baDone', kind: 'done', auto: false },
+  ]
+  const code: PipelineStage[] = [
+    { id: 'cQ', kind: 'queue', auto: true },
+    { id: 'cPlan', kind: 'plan', auto: true },
+    { id: 'cPlanGate', kind: 'gate', auto: false },
+    { id: 'cImpl', kind: 'implement', auto: true },
+    { id: 'cTest', kind: 'test', auto: true },
+    { id: 'cReview', kind: 'gate', auto: false },
+    { id: 'cPush', kind: 'git', auto: true, gitAction: 'push' },
+    { id: 'cPr', kind: 'git', auto: true, gitAction: 'pr' },
+    { id: 'cDone', kind: 'done', auto: false },
+  ]
+  const qa: PipelineStage[] = [
+    { id: 'qQ', kind: 'queue', auto: true },
+    { id: 'qDoc', kind: 'doc', auto: true, output: 'testcases' },
+    { id: 'qGate', kind: 'gate', auto: false },
+    { id: 'qDone', kind: 'done', auto: false },
+  ]
+  const orders = database(ids.orders, [prop('pOrdName', 'Name', 'title'), prop(ids.status, 'Status', 'select', { options: Object.values(status).map((id) => ({ id, name: id, color: 'gray' as const })) })], {
+    system: 'workorders',
+    orders: { v: 1, status, server: o.server ? { name: 'kb' } : null, kinds: ['spec', 'coding', 'qa'], checkpoint: o.checkpoint !== false },
+  })
+  const dbs: Database[] = [
+    orders,
+    database(ids.ba, [prop('pBAName', 'Name', 'title'), stageProp('pBAStage', ba), prop('pBAThen', 'Then', 'multi_select', { options: [] })], { system: 'spec', pipeline: ba }),
+    database(ids.code, [prop('pCodeName', 'Name', 'title'), stageProp('pCodeStage', code)], { system: 'coding', pipeline: code }),
+    database(ids.qa, [prop('pQAName', 'Name', 'title'), stageProp('pQAStage', qa)], { system: 'qa', pipeline: qa }),
+  ]
+  const pages: Page[] = [dbPage(ids.orders, 'Prüfaufträge'), dbPage(ids.ba, 'Analyse · Nordlicht'), dbPage(ids.code, 'Coding · Nordlicht'), dbPage(ids.qa, 'QA · Nordlicht')]
+  const agents: CustomAgent[] = []
+  if (o.mailRows) {
+    dbs.push(database(ids.mails, [prop('pOrdMailSubject', 'Betreff', 'title')], { system: 'mails' }))
+    pages.push(dbPage(ids.mails, 'Mails'))
+    agents.push(agent(ids.mailAgent, 'Auftrags-Sammler', { write: 'apply', trigger: { type: 'row_created', databaseId: ids.mails }, scope: { everything: false, pages: [], databases: [ids.orders] } }))
+  }
+  const servers = o.server ? [server(ids.kb, 'kb', o.server === 'tested' ? { url: 'https://kb.example/mcp', tools: ['list_articles', 'get_article', 'update_article'], checkedAt: 1 } : { url: 'https://kb.example/mcp' })] : []
+  return world({
+    ids,
+    pages,
+    databases: dbs,
+    agents,
+    servers,
+    ...(o.mailRows ? { mail: mailSettings(ids.mails) } : {}),
+    device: {
+      worker: { ...LOCAL_DEVICE.worker, online: true, verdict: 'ok', approvals: o.approvals ?? 'review' },
+      orders: { codingOn: true, projects: { spec: ids.ba, coding: ids.code, qa: ids.qa }, auto: o.auto ? { [ids.orders]: { sig: 'a'.repeat(64), at: 1 } } : {} },
+    },
   })
 }
 

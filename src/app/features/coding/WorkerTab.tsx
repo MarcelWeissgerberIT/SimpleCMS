@@ -409,6 +409,19 @@ function OrdersPanel() {
               {t('features.coding.order.settings.create')}
             </button>
           )}
+          {/* Orders B10: the work orders' setup band on the Patchbay (its lamps: Coding · worker · projects · database ·
+              the optional server · the first chain) — also before the database exists */}
+          <button
+            type="button"
+            className="btn btn--sm btn--ghost"
+            onClick={() => {
+              useUI.getState().closeModal()
+              navigate({ name: 'patchbay', orders: true })
+            }}
+            data-testid="coding-orders-patchbay"
+          >
+            {t('features.coding.order.settings.patchbay')}
+          </button>
         </p>
       )}
     </Panel>

@@ -16,6 +16,8 @@ export interface PatchbayRouteProps {
   f?: string
   /** an integration profile's id whose setup opens */
   setup?: string
+  /** Orders B10: show the work orders' band (opened from Settings › Coding worker) */
+  orders?: true
 }
 
 type PageComponent = ComponentType<PatchbayRouteProps>

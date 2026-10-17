@@ -26,11 +26,15 @@ export type ModuleKey = string
 
 export type ModuleKind =
   | 'server' | 'clock' | 'rowTrigger' | 'button' | 'command' | 'incoming' | 'sync' | 'clippings' // § 01
-  | 'agent' | 'automation' | 'script' | 'autofill' | 'organise' | 'pipeline' | 'bridge' | 'kit' // § 02
+  | 'agent' | 'automation' | 'script' | 'autofill' | 'organise' | 'pipeline' | 'bridge' | 'kit' | 'planner' // § 02
   | 'database' | 'page' | 'inbox' | 'everything' | 'outbound' | 'outbox' // § 03
 
-/** The kind label of an outbound module (WEBHOOK · GIT · HTTP · MAIL · MCP · SYNC) — §1.1, §1.4 */
-export type ExitType = 'webhook' | 'git' | 'http' | 'mail' | 'mcp' | 'sync'
+/**
+ * The kind label of an outbound module (WEBHOOK · GIT · HTTP · MAIL · MCP · SYNC) — §1.1, §1.4. Orders B10: EXEC — the
+ * coding worker's AI writes code (an implement stage) or the repo's code runs (a test / analyze stage) with nobody in
+ * between; a way out only on the planner's auto paths (work orders "Ohne Bestätigung starten", spec §4).
+ */
+export type ExitType = 'webhook' | 'git' | 'http' | 'mail' | 'mcp' | 'sync' | 'exec'
 
 /** A row trigger's event (agents: created / changed; automations: created / changed / deleted). */
 export type RowEvent = 'created' | 'changed' | 'deleted'
@@ -61,6 +65,8 @@ export type ModuleRef =
   | { kind: 'organise'; db: ID | null }
   | { kind: 'pipeline'; db: ID; pipeline: 'coding' | 'spec' | 'qa' }
   | { kind: 'bridge' }
+  /** Orders B10: the planner of a work-orders database (`Database.system 'workorders'`) — one per database */
+  | { kind: 'planner'; db: ID }
   /** a kit value property someone listens to (`type` = the own property type) */
   | { kind: 'kit'; db: ID; prop: ID; type: ID }
   | { kind: 'database'; id: ID }
@@ -129,7 +135,8 @@ export interface Module {
   // names, sub-lines and windows are resolved live by the UI from ref + Live state — never stored
 }
 
-export type JackRole = 'start' | 'tools' | 'read' | 'write' | 'out' | 'writes' | 'everything' | 'report' | 'notes' | 'rows' | 'send' | 'event'
+/** Orders B10: 'next' — a pipeline's hand-on to the next one (a `chain` edge: the chain's next step, Then, stories). */
+export type JackRole = 'start' | 'tools' | 'read' | 'write' | 'out' | 'writes' | 'everything' | 'report' | 'notes' | 'rows' | 'send' | 'event' | 'next'
 
 export interface Jack {
   /** `${module}.${role}[.${n}]` */
@@ -146,9 +153,15 @@ export interface Jack {
   plugged: boolean
   /** P4: roles it accepts (from patch.ts) */
   patch?: JackRole[]
+  /** Orders B10: drawn even when nothing is plugged — the planner's TOOLS jack (OPTIONAL: no server is a valid state) */
+  optional?: true
 }
 
-export type EdgeKind = 'reads' | 'writes' | 'starts' | 'out' | 'outsideIn' | 'relay'
+/**
+ * Orders B10: `chain` — pipeline → pipeline, a task handed on to the next pipeline: a work order's next step (BA →
+ * Coding → QA in the planner's kind order), a task's "Then" field (FOLLOW_UPS) and a BA stage's stories.
+ */
+export type EdgeKind = 'reads' | 'writes' | 'starts' | 'out' | 'outsideIn' | 'relay' | 'chain'
 
 export interface Edge {
   id: string
@@ -178,6 +191,11 @@ export interface Edge {
    * counted as a way out all the same (fail closed, §1.3 / §6 A7)
    */
   failClosed?: true
+  /**
+   * Orders B10: the cable's own words on the rack — 'chainHand': the planner's tasks start only with a person's ↵ ("KETTE
+   * ↵"); 'next': a pipeline's `chain` edge ("nächster Schritt" / "next step")
+   */
+  tag?: 'chainHand' | 'next'
 }
 
 export type Place =
@@ -277,7 +295,8 @@ export interface OutsideSource {
 
 /** B3: private data in a decider's reach, relative to a path's source and exit (§1.3 #3) — ids only. */
 export interface PrivateItem {
-  kind: 'everything' | 'named' | 'otherRows' | 'trigger' | 'row' | 'related' | 'mcp' | 'memory'
+  /** Orders B10: 'linked' — the pages a work order links (the planner reads them; any page may be linked) */
+  kind: 'everything' | 'named' | 'otherRows' | 'trigger' | 'row' | 'related' | 'mcp' | 'memory' | 'linked'
   place?: Place
   /** 'mcp': the server whose read tools it may call */
   server?: ModuleKey
@@ -320,10 +339,10 @@ export interface Mitigation {
 
 /** What a fuse key changes (§1.9) — the writer each kind uses is fixed in keys.ts (B10). */
 export type FuseKeyKind =
-  /** key 1 */
-  | 'proposals' | 'autofillHand' | 'organiseHand' | 'bridgeAsk'
-  /** key 2 / 2b */
-  | 'handOnly' | 'cutTools' | 'noAutofill'
+  /** key 1 — Orders B10 'autoOff': drop this device's "Ohne Bestätigung starten" (back to "Kette bestätigen") */
+  | 'proposals' | 'autofillHand' | 'organiseHand' | 'bridgeAsk' | 'autoOff'
+  /** key 2 / 2b — Orders B10 'readTools': the planner's server, read tools only (already so — or test it first) */
+  | 'handOnly' | 'cutTools' | 'noAutofill' | 'readTools'
   /** key 3 */
   | 'allow' | 'withdraw'
 
@@ -336,6 +355,8 @@ export type FuseKeyTarget =
   | { organise: true }
   | { bridge: true }
   | { path: string }
+  /** Orders B10: a work-orders database (the planner's consent on this device) */
+  | { orders: ID }
 
 export interface FuseKey {
   n: 1 | 2 | 3
@@ -357,6 +378,8 @@ export interface FuseKey {
   team?: MsgRef
   /** B4: asked before the write (a mirror agent's recipe tool list changes) */
   asks?: MsgRef
+  /** Orders B10: where a refused key's step is taken instead (the planner's untested server: its connection test) */
+  open?: OpenTarget
 }
 
 export interface Fuse {
@@ -403,12 +426,21 @@ export interface NearMiss {
   key: string
   chain: Chain
   why: 'gate' | 'dataRule' | 'noPrivate' | 'closedHere'
+  /**
+   * Orders B10: the near miss's own sentence (the planner's: "Nur ‚Kette starten ↵' trennt Server-Inhalt von git push" ·
+   * "Nur ‚Plan freigeben' …" · "Server-Inhalt erreicht den Planer nicht") — absent: the reason's words
+   */
+  say?: MsgRef
 }
 
 /* ================================================================== setup lamps (P2, §1.11) */
 
 export type LampState = 'ok' | 'next' | 'dark' | 'busy'
-export type LampId = 'key' | 'server' | 'test' | 'profile' | 'database' | 'agent' | 'firstRun'
+/**
+ * Orders B10: the work orders' band (setup/orders.ts, "PRÜFAUFTRÄGE"): 01 coding · 02 worker · 03 projects · 04 the
+ * database · 05 context (OPTIONAL — "without a server" is a valid end) · 06 the first chain
+ */
+export type LampId = 'key' | 'server' | 'test' | 'profile' | 'database' | 'agent' | 'firstRun' | 'coding' | 'worker' | 'projects' | 'ordersDb' | 'context' | 'firstChain'
 
 /** What a lamp's key opens (§1.11) — the openers of each area; ids only. */
 export type LampAction =
@@ -421,6 +453,14 @@ export type LampAction =
   | { kind: 'agentEditor'; agent: ID }
   | { kind: 'runAgent'; agent: ID }
   | { kind: 'review'; agent: ID }
+  /** Orders B10: Settings › Coding worker (its work orders panel with `orders`) */
+  | { kind: 'codingSettings'; orders?: true }
+  /** Orders B10: #/coding (the projects of each pipeline) */
+  | { kind: 'coding' }
+  /** Orders B10: make the work-orders database (ensureOrderDb — the person's act) */
+  | { kind: 'ordersDb' }
+  /** Orders B10: open a page (the work-orders database, its board) */
+  | { kind: 'page'; id: ID }
 
 /**
  * One recipe of a profile as the setup reads it (§1.11, §3.7): what it makes and what of it is there. setup/lamps.ts
@@ -476,6 +516,8 @@ export interface SetupLamp {
   action?: LampAction
   /** ghosts that turn real with it ("04" chips) */
   creates?: ModuleKey[]
+  /** Orders B10: an optional step — green while left out ("without a server"), drawn dim, never red */
+  optional?: true
 }
 
 /* ================================================================== the model */
@@ -520,6 +562,14 @@ export interface FlowWrite {
   proposal?: boolean
   /** the write carries content from outside (mail sync, a hook, a GitHub pick-up, Clippings) */
   outside?: boolean
+  /** Orders B10: a person's approval stands between (a pipeline hands a task on only once it is done past a stopping gate) */
+  afterApproval?: boolean
+  /**
+   * Orders B10: a task handed on to another pipeline (a `chain` edge — the chain's next step, Then, stories) or made by
+   * the planner: a trusted task (createTask trusts it on this device), entered where such a task starts — never a write
+   * that could set its Stage anywhere
+   */
+  chain?: boolean
 }
 
 /** Something that starts on a place (B2): an automation / agent row trigger, autofill, a kit relay, mail organise. */
@@ -710,6 +760,11 @@ export interface MailInput {
 export interface PipelineInput {
   db: ID
   kind: 'coding' | 'spec' | 'qa'
+  /**
+   * Orders B10: the project #/coding shows for its kind on this device (coding currentProjectId) — where a Then
+   * follow-up, a story and an unpinned chain step go; absent: the first live one of its kind (id order)
+   */
+  current?: boolean
   /** in Stage-option order; `next` (the stage after it, absent = the next one) and a doc stage's `output` (fix model) */
   stages: Array<Pick<PipelineStage, 'id' | 'kind' | 'auto' | 'gitAction' | 'hold' | 'next' | 'output'>>
   /**
@@ -719,6 +774,27 @@ export interface PipelineInput {
   stageProp?: ID | null
   /** worker repos whose push / pr is off (gitStageWarnings) */
   warnings: { pushOff: string[]; prOff: string[] }
+}
+
+/**
+ * Orders B10: a work-orders database as the planner module reads it — its config (readOrderConfig; null: a later
+ * build's config, unreadable — the planner acts on nothing) and this device's consent "Ohne Bestätigung starten"
+ * (localStorage `one.orders.auto:<scope>:<db>`, local workspaces only; never in a backup).
+ */
+export interface OrdersInput {
+  db: ID
+  config: {
+    /** the person's own server for the planner (a name of this device's servers) — null: without a server */
+    server: string | null
+    kinds: Array<'spec' | 'coding' | 'qa'>
+    projects: Partial<Record<'spec' | 'coding' | 'qa', ID>>
+    checkpoint: boolean
+    budgetUsd: number | null
+  } | null
+  /** the Status property (the select holding the config's Status option ids) — null: none found */
+  statusProp: ID | null
+  /** this device holds the consent (auto mode) — its signature and when it was given; null: every chain is confirmed by hand */
+  auto: { sig: string; at: number } | null
 }
 
 export interface WorkerInput {
@@ -803,6 +879,10 @@ export interface ModelInput {
   tokens?: TokenInput[] | 'forbidden' | null
   /** the lazy cache this device holds (cache.ts) */
   lazy: LazyCache | null
+  /** Orders B10: the work-orders databases (absent / []: none) */
+  orders?: OrdersInput[]
+  /** Orders B10: Coding is on on this device (the planner's CODING lamp; absent: not known — read as on) */
+  codingOn?: boolean
 }
 
 /* ================================================================== device stores (cache.ts) */
@@ -901,6 +981,8 @@ export type PatchWrite =
   | { w: 'automations'; db: ID; list: Automation[] }
   | { w: 'commands'; db: ID; list: DbCommand[] }
   | { w: 'integration'; profile: IntegrationProfile; replaces?: string }
+  /** Orders B10: the planner's server (the TOOLS jack) — saveOrderConfig({ server }); null = "Ohne Server" */
+  | { w: 'orders'; db: ID; server: string | null }
 
 export type PatchPlan =
   | {

@@ -29,7 +29,7 @@ import { fileURLToPath } from 'node:url'
 import type { Page } from '@playwright/test'
 import { test, expect, openApp, flush, waitForApp, wsEval } from './fixtures'
 import { BIG_DEFAULTS, generateBigWorkspace, type BigInfo } from './helpers/bigWorkspace'
-import { bigPatchbay, type PbWorld } from '../fixtures/patchbay'
+import { bigPatchbay, ordersWorld, type PbWorld } from '../fixtures/patchbay'
 
 // no trace: its DOM snapshots of the big workspace are main-thread work the budgets would count
 test.use({ trace: 'off' })
@@ -46,6 +46,11 @@ function perfWorld(): PbWorld {
   const db = w.ws.databases.dbBig1
   // nothing due at boot (its last run in the future); the test moves it back a day, then the service ticks
   w.ws.databases.dbBig1 = { ...db, templates: [{ id: 'tplBigDaily', name: 'Tagesnotiz', content: null, properties: {}, repeat: { freq: 'daily', time: '06:00', start: '2026-01-01', lastRunAt: Date.now() + 3 * DAY } }] }
+  // Orders B10: the work orders and a BA, a Coding and a QA project on the same rack — the planner, its cables to the
+  // projects, the chain edges (the next step, Then: BA → Coding / QA, QA → Coding); the budget is unchanged
+  const o = ordersWorld({ server: null })
+  Object.assign(w.ws.databases, o.ws.databases)
+  Object.assign(w.ws.pages, o.ws.pages)
   return w
 }
 

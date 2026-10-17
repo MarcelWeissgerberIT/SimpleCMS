@@ -66,7 +66,8 @@ null)` runs from `cloud/device.ts` (a `cloud:<ws>` wipe takes every member scope
 
 - **Modules** (`ModuleKind`): § 01 `server` · `clock` · `rowTrigger` · `button` · `command` · `incoming` · `sync` ·
   `clippings`; § 02 `agent` · `automation` · `script` · `autofill` · `organise` · `pipeline` · `bridge` · `kit`; § 03
-  `database` · `page` · `inbox` · `everything` · `outbound` (exit types `webhook` · `git` · `http` · `mail` · `mcp` · `sync`)
+  `database` · `page` · `inbox` · `everything` · `outbound` (exit types `webhook` · `git` · `exec` · `http` · `mail` · `mcp` ·
+  `sync`); § 02 also `planner` (Orders B10, §4.1)
   · `outbox`. Keys are `kind:part:part` (ref.ts `moduleKey` — the only spelling, also for `?m=`).
 - **Edges** (`EdgeKind`): `starts` (clock / trigger / incoming / command / button → a processor's START), `reads` (a
   server's READ jack → a processor's TOOLS; database / page reads are net tags, no cable), `writes`, `out` (a way out),
@@ -123,6 +124,55 @@ reachability (chains.ts walks the model's flow, not the drawn cables; only the d
   the push sends.
 - **Mitigations** are facts, never a clearance: Jev's write gate, `directSplit`, OUT locks, web images → links (and the
   identity hooks `effectiveWrite` / `directProps`, part of the signature so turning them on lapses allowances).
+
+### 4.1 Work orders — the planner and the chain (Orders B10)
+
+- **The planner** (`ModuleKind 'planner'`, one per work-orders database, `Database.system 'workorders'`): started by
+  hand only — the database's "Planen" (`command:<db>:orders-plan`; the Status, ↵ and "Prüfen lassen" are the same
+  cable) —, net tags for the request rows and `~linked` (the pages a work order links: always private data on its
+  paths). Its **TOOLS jack is always drawn, OPTIONAL**: with no server picked it stays empty ("without a server" is a
+  valid state); with the person's server (`OrderConfig.server`, by the name they gave it — never named, preset or
+  detected by One) a READ cable — an untested server counts whole. Tags: `asksFirst` without this device's consent,
+  `direct` with it; always `thisDevice`.
+- **pipelineGate('order')**: without the consent "Ohne Bestätigung starten" (localStorage `one.orders.auto:<scope>:<db>`,
+  local workspaces only — coding/orders/auto.ts) every chain waits for the person's ↵: gate `byHand` ("KETTE ↵" on the
+  planner → project cables). With it: no gate (team: `confirm` on new rows — never reached, a team has no consent).
+- **Decider**: the planner is one (`deciderOf`: write `apply` with the consent, `ask` without; the terminal's providers).
+  Its outside sources are the server's read results and the request rows (an agent filing mails into the work orders
+  taints them); its private data the linked pages.
+- **Chain edges** (`EdgeKind 'chain'`, tag `next` — "nächster Schritt"): the work order's next step (its kinds in
+  order; "Nach der Analyse anhalten" puts a person after a BA step: `byHand`), a done task's **Then** (`THEN_KINDS` =
+  coding's FOLLOW_UPS, into the project #/coding shows) and a BA stage's **stories** (into the coding project) — after
+  approval when a stopping gate stands before done / the stories stage. A chain write enters the next pipeline at its
+  start, as a trusted task (never "any stage"); taint flows along it. `workerUnknown` does not count taint that reaches
+  a pipeline only through hand-confirmed chain writes.
+- **The exec way out** (`ExitType 'exec'`, `outbound:exec:-:code`): drawn only for pipelines a planner with this
+  device's consent reaches (its projects, then along chain edges) that have an implement / test / analyze stage —
+  after approval when a stopping gate stands before each (`unattendedExec`). Counted only on walks from such a planner.
+- **Fuses and near misses**: confirm mode is never a fuse; near misses with their own sentence — (a) only "Kette
+  starten ↵" stands between the server's content and a git step nobody else stops, (b) with the consent only an approval
+  stands before the worker's AI writes code, (c) a data rule withholds `mcp`.
+- **Keys**: 1 `autoOff` — drop this device's consent (`dropOrderAuto`; Undo `restoreOrderAuto` as `you~undo`, only while
+  none is stored); 2 `readTools` — the planner gets the server's read tools only already: refused with why, an untested
+  server's key opens its connection test ("Server testen"); 3 "Weg zulassen".
+- **Sig parts**: `d` = the planner (database, consent sig, kinds, checkpoint, server name + address digest + tested
+  tools + matching profiles); the server's own part `s…`; `x` for git and exec carries Approvals.
+- **Setup band "§ PRÜFAUFTRÄGE"** (setup/orders.ts, ui/OrdersBand.tsx): 01 CODING · 02 WORKER · 03 PROJEKTE · 04
+  DATENBANK · 05 KONTEXT (OPTIONAL: dim, green without a server, never red) · 06 ERSTE KETTE — shown while a
+  work-orders database exists or when Settings › Coding worker opens `#/patchbay?orders=1`. Openers:
+  `openCodingSettings()`, #/coding, `ensureOrderDb()` (as `you~patchbay`), `openMcpConnections({ server, focus: 'test' })`
+  / Settings › AI, the work orders' page (a chain starts by hand on its plate, never from the band).
+- **Live**: a planning run posts `noteRun` / `endRun` with writer `order:<row>:<run>` (the planner's LED blinks, its
+  window counts runs today or "n Ketten laufen"); a chain's task written under that writer draws a leg on the chain
+  cable from the step before (records.ts `chainLegOf`); `onShipRecord` lights GIT as before.
+- **Patching**: server READ → planner TOOLS writes `Database.orders.server` through `saveOrderConfig` (one server at a
+  time; unplugging leaves none).
+
+**Migration note (B10).** Racks drawn before B10 had no cable between pipelines. From B10 on, Then and stories hand-ons
+are drawn as `chain` edges between projects — also in workspaces without work orders — and taint now flows along them:
+a BA project whose tasks carry content from outside makes its follow-up Coding / QA tasks carry it too. A path through
+such a hand-on is a new path: an allowance ("Weg zulassen") given before B10 does not cover it (its path key differs),
+and the fuse list may show a near miss or fuse it did not show before. Nothing is written by the upgrade.
 
 ## 5. Signatures and allowances
 
@@ -188,5 +238,7 @@ input builds, 0 page rechecks · `one-patchbay` never opened before first paint,
 Node: `patchbay-model` · `-chains` · `-fuses` · `-layout` · `-live-core` · `-patch` · `-setup-model` · `-model-fixes` ·
 `-names` (the words of the plan's §1.1). Browser: `patchbay` · `-keys` · `-signoff-store` · `-setup` · `-setup-dialogs` ·
 `-live` · `-patch-ui` · `-review-ui` · `-review-patch` · `-perf` · `-shots`; cloud: `tests/e2e-cloud/patchbay*.spec.ts`.
-Fixtures: `tests/fixtures/patchbay.ts` (`mock1`, `mock2`, `bigPatchbay`, `wideScope`, `relays`, `exits`) — fictional
-names, `*.example` hosts only.
+Fixtures: `tests/fixtures/patchbay.ts` (`mock1`, `mock2`, `bigPatchbay`, `wideScope`, `relays`, `exits`,
+`ordersWorld` — Orders B10) — fictional names, `*.example` hosts only. Work orders: `patchbay-orders` (Node model cases
++ one UI case); `patchbay-perf`'s world carries the work orders and three projects (chain edges, Then) under the same
+budgets.

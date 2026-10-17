@@ -56,9 +56,10 @@ export type Route =
   | { name: 'mcp' }
   /**
    * #/patchbay → the Patchbay (see features/patchbay): `m` = a module key to focus, `f` = a fuse's path key (64 hex) to
-   * select, `setup` = an integration profile's id whose setup lamps open
+   * select, `setup` = an integration profile's id whose setup lamps open, `orders` = the work orders' band (Orders B10 —
+   * opened from Settings › Coding worker before a work-orders database exists)
    */
-  | { name: 'patchbay'; m?: string; f?: string; setup?: string }
+  | { name: 'patchbay'; m?: string; f?: string; setup?: string; orders?: true }
   /** #/workspace → workspace settings · #/workspace/<section> → one section (see shell/workspace) */
   | { name: 'workspace'; section?: string }
   | { name: 'share'; payload: string }
@@ -133,6 +134,7 @@ function patchbayRoute(params: URLSearchParams): Route {
     ...(m && PB_MODULE.test(m) ? { m } : {}),
     ...(f && PB_FUSE.test(f) ? { f } : {}),
     ...(setup && PB_PROFILE.test(setup) ? { setup } : {}),
+    ...(params.get('orders') === '1' ? { orders: true as const } : {}),
   }
 }
 
@@ -169,6 +171,7 @@ export function routeHref(r: Route): string {
     case 'patchbay': {
       const q = new URLSearchParams()
       for (const k of ['m', 'f', 'setup'] as const) if (r[k]) q.set(k, r[k]!)
+      if (r.orders) q.set('orders', '1')
       const qs = q.toString()
       return `#/patchbay${qs ? `?${qs}` : ''}`
     }
