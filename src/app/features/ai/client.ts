@@ -303,12 +303,26 @@ export interface StructuredOptions extends RouteOptions {
   forced?: readonly string[]
   /** tool allow-lists per server name (the picked server's read tools): only those tools are on — OUT tools never */
   allow?: McpToolAllow
+  /**
+   * The MCP side of the request as it happens (the work-order planner's call list): once the servers are attached (the
+   * names that really joined — [] when none could: switched off, no token in this browser, a data rule), then after every
+   * response its `mcp_tool_use` / `mcp_tool_result` blocks as the API returned them. Never called on the neutral wire.
+   */
+  onMcpActivity?: (a: StructuredMcpActivity) => void
   /** what the request cost (tokens, and USD from the one price table) — once per answer that arrived */
   onUsage?: (u: StructuredUsage) => void
   /** the ledger's source id (core/meter.ts); default: the purpose */
   ledgerSource?: string
   /** what the request cost so far (the receipt), after every response */
   onRun?: (receipt: Receipt) => void
+}
+
+/** The MCP activity of a structured request (StructuredOptions.onMcpActivity). */
+export interface StructuredMcpActivity {
+  /** the servers that joined the request (their names) */
+  attached: readonly string[]
+  /** this response's `mcp_tool_use` / `mcp_tool_result` blocks, as returned ([] for the attach report) */
+  blocks: ReadonlyArray<Record<string, unknown>>
 }
 
 /** What one structured answer cost — from its ledger entry (priced by the one table at the model that answered). */

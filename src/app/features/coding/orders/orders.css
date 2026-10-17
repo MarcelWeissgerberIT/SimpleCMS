@@ -136,6 +136,13 @@
 .orp-strip__left {
   color: var(--ink-2);
 }
+/* how the planner's last run here ended when it made no plan: its own line, the strip marked */
+.orp-strip[data-ended] {
+  border-left-color: var(--signal);
+}
+.orp-strip__ended {
+  flex-basis: 100%;
+}
 .orp-keys {
   display: flex;
   flex-wrap: wrap;

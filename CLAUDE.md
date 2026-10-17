@@ -1245,19 +1245,39 @@ the public APIs stable — other areas are built against them in parallel.
   unusable (`chainProjectProblem`). A new task's checks are ONE set (draft.ts `checkTaskDraft`; the terminal throws its
   first issue word for word); `pipelineLine` / `startStageOf` / `landsOn` / `runsFrom` live in coding/stages.ts (pure).
 - Work-order database + entry points (Prüfaufträge B4, coding/orders): the database only through `ensureOrderDb(writer)`
-  (`orderDbId()` = the oldest live one; team: private; Status option ids in `Database.orders.status` — read a Status only
-  by them: `orderStatusKey` / `writeOrderStatus`), `Database.orders` only through `saveOrderConfig`. The ONE way to the
-  planner is `pressPlan(row, how)` (press.ts) from the allow-list in THIS tab: the person's Status → Planen (trigger.ts
-  subscriber: writer `you` via none / 'ui', else a trusted person event — never an Undo, template, automation, script,
-  sync, import, agent, bridge, terminal, cross-tab replay or colleague; a row new in that write is no press), the
-  database command Planen, ↵ Planen on the plate, Prüfen lassen (send.ts). Provenance is taken from `prev` at the press.
-  §2.2 items 1–6 (pre.ts, pure) decide: Coding off / worker away / outdated / unsafe keep the press as the record's
-  `want` (IndexedDB `one-coding` `<scope>|order|<row>`, records.ts, channel `one-coding-orders`) — it plans in mode
-  'trigger' 5 s after an 'ok' worker is online here, ≤ 24 h (a fresh read drops an older one). The planner is reached
-  only through `callPlanner` → `orders/plan.ts planOrder(row, { mode, prov })` (B4 stub → B5); e2e seam of the entry
-  points `window.__oneOrderEntries` (entrySeam.ts: `planned()` = every call into the planner). Lane rules (person writes): put back by the order writer `#s`, Fertig while running asks
-  (ConfirmModal `onCancel`), Entwurf from Kette bereit = D. "Prüfen lassen" in page / sidebar menus only while Coding is
-  on here; ⌘K always (Coding off: says so with the Settings key); never for viewers.
+  (`orderDbId()` = the oldest live one; team: private; Status option ids in `Database.orders.status` — read a Status
+  only by them: `orderStatusKey` / `writeOrderStatus`), `Database.orders` only through `saveOrderConfig`. The ONE way to
+  the planner is `pressPlan(row, how)` (press.ts) from the allow-list in THIS tab: the person's Status → Planen
+  (trigger.ts subscriber: writer `you` via none / 'ui', else a trusted person event — never an Undo, template,
+  automation, script, sync, import, agent, bridge, terminal, cross-tab replay or colleague; a row new in that write is
+  no press), the database command Planen, ↵ Planen on the plate, Prüfen lassen (send.ts). Provenance is taken from
+  `prev` at the press. §2.2 items 1–6 decide — ONE rule set (preconditions.ts `checkPreconditions`) over ONE reading
+  (facts.ts `requestFacts`: the kinds = the row's Pipelines, else the settings'; each kind's project = the pinned one
+  ('gone' when it is no live project of that kind), else #/coding's, else the kind's template), the press through pre.ts
+  `orderPre`, the planner again at plan time: Coding off / worker away / outdated / unsafe keep the press as the
+  record's `want` (IndexedDB `one-coding` `<scope>|order|<row>`, records.ts, channel `one-coding-orders`) — it plans in
+  mode 'trigger' 5 s after an 'ok' worker is online here, ≤ 24 h (a fresh read drops an older one); one the planner held
+  (the Regler) or refused is put back and tried again only on the worker's next return (trigger.ts `parked` — never a
+  loop on the records' own channel message). The planner is reached only through `callPlanner` → `orders/plan.ts
+  planOrder(row, { mode, prov, run })` (lazy → planner.ts; `run` = the press's run: its Planen write, the planner's
+  Status write and the ledger source `order:<row>:<run>` share it; the plate reads the run from runs.ts `usePlannerRun`
+  once it started); e2e seam of the entry points `window.__oneOrderEntries` (entrySeam.ts: `planned()` = every call into
+  the planner). Lane rules (person writes): put back by the order writer `#s`, Fertig while running asks (ConfirmModal
+  `onCancel`), Entwurf from Kette bereit = D. "Prüfen lassen" in page / sidebar menus only while Coding is on here; ⌘K
+  always (Coding off: says so with the Settings key); never for viewers.
+- Work-order planner (Prüfaufträge B5, coding/orders/planner.ts — lazy; the entry points call `planOrder(row, { mode
+  'manual' | 'trigger', prov?, run? })` through press.ts callPlanner → orders/plan.ts): ONE `completeStructured`
+  (purpose `coding.plan`, run `{ mode, source: 'order:<row>:<run>' }`), never a custom agent. Preconditions first
+  (orders/preconditions.ts over facts.ts — the press's own reading, again; then AI set up, the gate's precheck of the
+  row + linked pages, ≥ 40 characters of words) — nothing read or sent before. The picked server goes as EXACTLY that
+  server with its READ tools (`onlyServer`; a profile's declared reads confirmed by name, else isReadTool; OUT never) —
+  no pick / untested / off / refused / a data rule / a non-Anthropic route → `mcp: false`, the reason kept (`skip`). The
+  answer only through `readPlan` (orders/plan.ts, strict; one repair round without the server; refs ⊆ the request's
+  linked pages, One links outside a step's refs → text, keys scrubbed + noted). The draft lives in this device's record
+  (orders/records.ts: IndexedDB `one-coding` `<scope>|order|<row>`, CAS, channel `one-coding-orders`, a record this
+  build cannot read is never overwritten); Status → Kette bereit only from Entwurf / Planen, by the order writer `#s`.
+  Regler: 'manual' at the line → the brake error for the plate's BrakeSlot, 'trigger' → held (one info toast). Answers
+  go under "Antworten" into the row as the person's write (`answerQuestions`).
 - MCP tidy-up tools (trash / restore ≤ 50 ids, move page / row, update database / property, delete property, view
   create / update / delete) live in `features/mcp/{tidy,structure}.ts` and `server/src/mcp/{tidy,structure}.ts` with
   the same rules: never delete for good, locked databases refuse structure changes, no page ⇄ entry or Private ⇄ shared

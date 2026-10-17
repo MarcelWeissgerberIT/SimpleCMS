@@ -2,11 +2,15 @@
  * The plate on a request's page (spec §1.4 — B4 SKELETON; B8 builds the plan's stations, the Laufleiste, the keys):
  * "§ PRÜFAUFTRAG · PA-12 · PLANER", screwed, between the row's properties and its body.
  *
- *  - the Status (a word beside its LED) and, in Planen, its sub-state chip: plant ◐ · wartet auf Worker · abgelaufen
- *    (only while this tab still holds a press that aged past 24 h — a fresh read drops it, records.ts)
+ *  - the Status (a word beside its LED) and, in Planen, its sub-state chip: plant ◐ (the planner's run in this tab,
+ *    runs.ts — from the press until it ends) · Rückfrage (the draft holds questions only) · Regler hält (the last run
+ *    stopped at the Regler's line) · wartet auf Worker · abgelaufen (only while this tab still holds a press that aged
+ *    past 24 h — a fresh read drops it, records.ts)
  *  - four lamps, 2×2 at phone width: CODING · WORKER · KONTEXT (dim "ohne Server" without one — never red) · PLANER
  *  - the precondition strip (§2.2 items 1–6, pre.ts): the first that fails, with its fix key — or the kept press
- *    ("Plant, sobald der Worker zurück ist (bis …)"), or "Bereit zum Planen" with the kinds not offered named
+ *    ("Plant, sobald der Worker zurück ist (bis …)"), or "Bereit zum Planen" with the kinds not offered named; while
+ *    the request stands in Planen, how the planner's last run here ended when it made no plan (its own words —
+ *    text.ts outcomeText: AI not set up, an empty request, the gate's refusal, the Regler …)
  *  - ↵ Planen (a press of the allow-list, how 'plate'); viewers see no key
  */
 import { useId } from 'react'
@@ -18,18 +22,20 @@ import { Led, Screws } from '../../../ui/controls'
 import { useLang, useT } from '../../../i18n'
 import { navigate } from '../../../lib/router'
 import { useCoding } from '../state'
+import { workerVerdict } from '../link'
 import { openCodingSettings } from '../open'
 import { ChangeReposButton } from '../SetupCard'
 import { readOrderConfig } from './config'
 import { orderCode, orderStatusKey } from './db'
 import { orderPreNow, pressPlan, usePressNotes, wantLive } from './press'
 import { useOrderRecord } from './records'
-import { preWhyText, problemText, untilText } from './text'
+import { usePlannerRun } from './runs'
+import { outcomeText, preWhyText, problemText, untilText } from './text'
 import { ORDER_LIMITS } from './types'
 import type { OrderPreWhy } from './pre'
 import './orders.css'
 
-type Chip = 'planning' | 'worker' | 'expired' | null
+type Chip = 'planning' | 'question' | 'regler' | 'worker' | 'expired' | null
 type LedState = 'off' | 'on' | 'ok'
 
 const STATUS_LED: Record<OrderStatusKey, LedState> = { draft: 'off', plan: 'on', ready: 'on', running: 'on', halted: 'off', done: 'ok' }
@@ -98,7 +104,30 @@ export default function OrderPlate({ rowId }: { rowId: ID }) {
   const pre = orderPreNow(rowId)
   const want = rec?.want
   const live = wantLive(want)
-  const chip: Chip = status !== 'plan' ? null : note?.why === 'planning' ? 'planning' : want ? (live ? 'worker' : 'expired') : null
+  // the planner's newest run in this tab: in flight from its start, its outcome once it ended
+  const run = usePlannerRun(rowId)
+  const outcome = run?.phase === 'done' ? run.outcome : undefined
+  const planningNow = note?.why === 'planning' || (!!run && run.phase !== 'done')
+  const asks = rec?.state === 'draft' && !!rec.draft && !rec.draft.plan.steps.length
+  // a kept press waits for the worker only while no 'ok' one is online here (else it plans in 5 s, or the planner held /
+  // refused it and it waits for the worker's next return — trigger.ts `parked`)
+  const ok = workerVerdict(coding) === 'ok'
+  const waiting = !!want && live && !ok
+  const chip: Chip =
+    status !== 'plan'
+      ? null
+      : planningNow
+        ? 'planning'
+        : (outcome?.kind === 'held' || outcome?.kind === 'brake') && !waiting
+          ? 'regler'
+          : want && !live
+            ? 'expired'
+            : waiting
+              ? 'worker'
+              : asks
+                ? 'question'
+                : null
+  const ended = status === 'plan' && !planningNow && outcome ? outcomeText(outcome, code) : null
   const online = coding.enabled && coding.conn === 'connected'
   const elsewhere = !pre.ok && pre.why === 'elsewhere'
 
@@ -109,9 +138,13 @@ export default function OrderPlate({ rowId }: { rowId: ID }) {
         ? { led: 'off', text: t('features.coding.order.lamp.planner.waiting') }
         : chip === 'expired'
           ? { led: 'off', text: t('features.coding.order.lamp.planner.expired') }
-          : pre.ok
-            ? { led: 'ok', text: t('features.coding.order.lamp.planner.idle') }
-            : { led: 'off', text: t('features.coding.order.lamp.planner.blocked') }
+          : chip === 'regler' || chip === 'question'
+            ? { led: 'on', text: t(`features.coding.order.chip.${chip}`) }
+            : ended
+              ? { led: 'off', text: t('features.coding.order.lamp.planner.blocked') }
+              : pre.ok
+                ? { led: 'ok', text: t('features.coding.order.lamp.planner.idle') }
+                : { led: 'off', text: t('features.coding.order.lamp.planner.blocked') }
 
   // the strip: a viewer · a kept press · an expired one · the first failing precondition · ready
   let line: string
@@ -122,10 +155,10 @@ export default function OrderPlate({ rowId }: { rowId: ID }) {
   } else if (unreadable) {
     why = 'unreadable'
     line = t('features.coding.order.why.unreadable')
-  } else if (status === 'plan' && want && live) {
+  } else if (status === 'plan' && waiting) {
     why = 'later'
     line = `${t('features.coding.order.why.later', { time: untilText(want.at + ORDER_LIMITS.wantMs) })}${pre.ok ? '' : ` · ${preWhyText(pre.why, pre.left)}`}`
-  } else if (status === 'plan' && want) {
+  } else if (status === 'plan' && want && !live) {
     why = 'expired'
     line = t('features.coding.order.why.expired')
   } else if (!pre.ok) {
@@ -167,11 +200,16 @@ export default function OrderPlate({ rowId }: { rowId: ID }) {
         <Lamp name={t('features.coding.order.lamp.context')} led="ok" dim={!server} text={server ? t('features.coding.order.lamp.context.read', { server }) : t('features.coding.order.lamp.context.none')} testId="order-lamp-context" />
         <Lamp name={t('features.coding.order.lamp.planner')} led={planner.led} text={planner.text} testId="order-lamp-planner" />
       </dl>
-      <div className="orp-strip" data-why={why} data-testid="order-pre">
+      <div className="orp-strip" data-why={why} data-ended={ended ? '' : undefined} data-testid="order-pre">
         <p className="orp-strip__line">
           {line}
           {left && <span className="orp-strip__left"> {left}</span>}
         </p>
+        {ended && (
+          <p className="orp-strip__line orp-strip__ended" data-outcome={outcome?.kind} data-testid="order-outcome">
+            {ended}
+          </p>
+        )}
         {fix && <FixKey why={fix} />}
       </div>
       {!viewer && (

@@ -95,6 +95,7 @@ export const messages: Messages = {
     'features.coding.order.problem.startsAtOnce': 'project starts new tasks at once — not for chains',
     'features.coding.order.problem.noStart': 'project has no stage to start a step in',
     'features.coding.order.problem.needs': 'the worker cannot run every stage of this project',
+    'features.coding.order.problem.gone': 'the project pinned in the settings is gone',
 
     'features.coding.order.key.plan': 'Plan',
     'features.coding.order.key.planAgain': 'Plan again',
@@ -214,6 +215,7 @@ export const messages: Messages = {
     'features.coding.order.problem.startsAtOnce': 'Projekt startet neue Aufgaben sofort — für Ketten ungeeignet',
     'features.coding.order.problem.noStart': 'Projekt hat keine Stufe, in der ein Schritt starten kann',
     'features.coding.order.problem.needs': 'der Worker kann nicht jede Stufe dieses Projekts',
+    'features.coding.order.problem.gone': 'das in den Einstellungen festgelegte Projekt gibt es nicht mehr',
 
     'features.coding.order.key.plan': 'Planen',
     'features.coding.order.key.planAgain': 'Erneut planen',

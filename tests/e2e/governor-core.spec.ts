@@ -1510,6 +1510,8 @@ test.describe('#/regler tables (features/governor/consumers.ts, B10)', () => {
     expect(consumerOf({ source: 'ai:r1:improve' }).kind).toBe('menu')
     expect(consumerOf({ source: 'mcp-setup:x1' }).kind).toBe('mcp')
     expect(consumerOf({ source: 'script-draft:x1' }).kind).toBe('writing')
+    // the work-order planner (Prüfaufträge B5): one consumer for every request's runs
+    expect(consumerOf({ source: 'order:rowPA0000012:or1' })).toEqual({ kind: 'order', key: 'order' })
     // a source this build does not know is "other", never dropped
     expect(consumerOf({ source: 'later-slice:x1' })).toEqual({ kind: 'other', key: 'other' })
   })

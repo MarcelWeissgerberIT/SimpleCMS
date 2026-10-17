@@ -6,8 +6,9 @@
  *  1. The provenance is captured synchronously at the press (`pressProv`: the row and its first 8 linked pages — who
  *     made / last changed them, their content origin and revision), from the state BEFORE the write that pressed
  *     (trigger.ts passes `prev`: the attribution keeper may clear an agent's stamp right after it).
- *  2. §2.2 items 1–6 (pre.ts) decide:
- *     - ok → the Status moves to Planen (order writer `#s`) and the planner runs (plan.ts planOrder — B5's, mode 'manual');
+ *  2. §2.2 items 1–6 (pre.ts over preconditions.ts, from facts.ts — the planner re-checks the same) decide:
+ *     - ok → the Status moves to Planen (order writer `#s`) and the planner runs (plan.ts planOrder → planner.ts, mode
+ *       'manual', with the press's run and provenance — callPlanner);
  *     - Coding off / the worker away / outdated / unsafe → the press is KEPT on this device (the record's `want`, with
  *       its provenance); the Status moves to Planen; it plans 5 s after an 'ok' worker is online here (trigger.ts), in
  *       mode 'trigger', within 24 h — then it expires ("abgelaufen — ↵ erneut");
@@ -18,23 +19,18 @@
 import { create } from 'zustand'
 import { useWorkspace } from '../../../store/store'
 import { inTemplate, isEffectivelyTrashed } from '../../../store/selectors'
-import type { ID, OrderKind, Page } from '../../../store/types'
+import type { ID, Page } from '../../../store/types'
 import type { Writer } from '../../../store/writer'
 import { newId } from '../../../lib/ids'
-import { useCloud } from '../../../cloud'
 import { useUI } from '../../../store/ui'
 import { t } from '../../../i18n'
-import { useCoding } from '../state'
-import { currentProjectId, inTeam, pipelineDbIdsOf, readPipeline } from '../schema'
-import { workerCan, workerUnsafe, workerOutdated } from '../protocol'
-import { chainProjectProblem } from '../chain'
 import { refIdsIn } from '../refs'
-import { readOrderConfig } from './config'
-import { hasChainProps } from './props'
-import { orderFields, orderStatusKey, writeOrderStatus } from './db'
+import { orderStatusKey, writeOrderStatus } from './db'
+import { kindProjects, requestFacts } from './facts'
 import { orderPre, type OrderPreFacts, type OrderPreKind, type OrderPreResult, type OrderPreWhy } from './pre'
 import { patchOrderRecord } from './records'
 import { planOrder } from './plan'
+import type { PlanOutcome } from './planner'
 import { ORDER_LIMITS, type OrderPress, type OrderPressHow, type OrderProv } from './types'
 
 const ws = () => useWorkspace.getState()
@@ -68,47 +64,13 @@ export function pressProv(pages: Record<ID, Page>, rowId: ID): { prov: Record<ID
 
 /* ------------------------------------------------------------------ the preconditions here */
 
-/** The kinds a request may use: its Pipelines field, else its database's config — each with its project and problem. */
-export function preKinds(rowId: ID): OrderPreKind[] {
-  const s = ws()
-  const row = s.pages[rowId]
-  const ordersDb = row?.databaseId ?? null
-  const db = ordersDb ? s.databases[ordersDb] : undefined
-  const read = readOrderConfig(db)
-  const config = read.kind === 'ok' ? read.config : null
-  const kinds: OrderKind[] = orderFields(rowId).kinds ?? config?.kinds ?? ['spec', 'coding', 'qa']
-  const c = useCoding.getState()
-  const caps = c.can ? workerCan(c.can) : null
-  return kinds.map((kind) => {
-    const pinned = config?.projects?.[kind]
-    const project = pinned && pipelineDbIdsOf(kind).includes(pinned) ? pinned : currentProjectId(kind)
-    if (!project) {
-      // none yet: one is made at confirm from the kind's default template — BA / QA need doc stages
-      return { kind, project: null, problem: kind !== 'coding' && caps && !caps.has('doc') ? 'needs' : null }
-    }
-    const pdb = s.databases[project]
-    const problem = pdb ? chainProjectProblem({ kind, pipeline: readPipeline(pdb), locked: !!pdb.locked, hasRoles: !!ordersDb && hasChainProps(project, ordersDb), repo: true, caps }) : 'empty'
-    return { kind, project, problem }
-  })
-}
+/** The kinds a request may use, each with its project and problem (facts.ts — the planner reads the same). */
+export const preKinds = (rowId: ID): OrderPreKind[] => kindProjects(rowId).map(({ kind, project, problem }) => ({ kind, project, problem }))
 
-/** §2.2 items 1–6 as this tab sees them now. */
+/** §2.2 items 1–6 as this tab sees them now (facts.ts requestFacts — the planner's re-check reads the same facts). */
 export function orderPreFacts(rowId: ID): OrderPreFacts {
-  const c = useCoding.getState()
-  const online = c.enabled && c.conn === 'connected'
-  const verdict: OrderPreFacts['verdict'] = !online ? null : workerUnsafe(c.worker?.worker) ? 'unsafe' : workerOutdated(c.can) ? 'outdated' : 'ok'
-  const caps = c.can ? workerCan(c.can) : null
-  return {
-    enabled: c.enabled,
-    readOnly: useCloud.getState().readOnly,
-    online,
-    // a team member's cloud worker on another device (the relay refused this one, or says it is online elsewhere)
-    elsewhere: inTeam() && c.conn !== 'connected' && (c.refused === 'other-device' || !!c.relay?.online),
-    verdict,
-    repos: c.worker?.repos.length ?? 0,
-    docs: !!caps?.has('doc'),
-    kinds: preKinds(rowId),
-  }
+  const f = requestFacts(rowId)
+  return { ...f, kinds: f.kinds.map(({ kind, project, problem }) => ({ kind, project, problem })) }
 }
 
 export const orderPreNow = (rowId: ID): OrderPreResult => orderPre(orderPreFacts(rowId))
@@ -184,20 +146,28 @@ export async function pressPlan(rowId: ID, how: OrderPressHow, opts: { captured?
 
 /**
  * Every call this tab makes into the planner (DEV / `?e2e`: the entries' seam reads it — orders/entrySeam.ts), then the
- * planner (orders/plan.ts planOrder — B5's). "plant schon" when it plans this request already.
+ * planner (orders/plan.ts planOrder → planner.ts, lazy). "plant schon" when it plans this request already.
  */
 export const pressLog: Array<{ rowId: ID; mode: 'manual' | 'trigger'; how: OrderPressHow; run: string; at: number; prov: string[] }> = []
 
-/** Resolves the planner's outcome kind (null: it threw). */
-export function callPlanner(rowId: ID, mode: 'manual' | 'trigger', press: OrderPress): Promise<string | null> {
+/**
+ * The press into the planner: its run (the Planen write's run — the planner's Status write and its ledger source
+ * `order:<row>:<run>` carry the same) and the provenance captured at the press. Once the planner has returned, the
+ * press's "planning" note goes — the plate reads the run itself from then on (runs.ts usePlannerRun: its phase, how it
+ * ended). Resolves the outcome's kind (null: it threw).
+ */
+export function callPlanner(rowId: ID, mode: 'manual' | 'trigger', press: OrderPress): Promise<PlanOutcome['kind'] | null> {
   pressLog.push({ rowId, mode, how: press.how, run: press.run, at: Date.now(), prov: Object.keys(press.prov) })
   if (pressLog.length > 200) pressLog.splice(0, pressLog.length - 200)
-  return planOrder(rowId, { mode, prov: press.prov })
-    .then((out) => {
-      if (out?.kind === 'busy') useUI.getState().toast({ message: t('features.coding.order.why.busy'), kind: 'info' })
-      return out?.kind ?? null
+  return planOrder(rowId, { mode, prov: press.prov, run: press.run })
+    .then((out): PlanOutcome['kind'] => {
+      if (out.kind === 'busy') useUI.getState().toast({ message: t('features.coding.order.why.busy'), kind: 'info' })
+      return out.kind
     })
     .catch(() => null)
+    .finally(() => {
+      if (usePressNotes.getState().notes[rowId]?.why === 'planning') setPressNote(rowId, null)
+    })
 }
 
 /** The record without its want (a record that held nothing else is removed). */

@@ -127,6 +127,23 @@ export function writeOrderStatus(rowId: ID, key: OrderStatusKey, writer: Writer)
   return true
 }
 
+/** Other words a Pipelines option may carry for a kind (EN / DE), beside the kinds' own names in either language. */
+const KIND_WORDS: Readonly<Record<string, OrderKind>> = {
+  spec: 'spec',
+  ba: 'spec',
+  analysis: 'spec',
+  analyse: 'spec',
+  'business analysis': 'spec',
+  'business-analyse': 'spec',
+  'business-analysis': 'spec',
+  'business analyse': 'spec',
+  coding: 'coding',
+  code: 'coding',
+  qa: 'qa',
+  test: 'qa',
+  tests: 'qa',
+}
+
 /** What the row says about where to plan: its Repo, its Pipelines (null: none picked — the settings' kinds), Priorität. */
 export function orderFields(rowId: ID): { repo: string | null; kinds: OrderKind[] | null; priority: 'high' | 'medium' | 'low' | null } {
   const s = ws()
@@ -138,7 +155,7 @@ export function orderFields(rowId: ID): { repo: string | null; kinds: OrderKind[
   const repo = props.repo ? optionName(props.repo, row.properties[props.repo]) : null
   const picked = props.pipelines ? row.properties[props.pipelines] : null
   const names = Array.isArray(picked) ? picked.map((v) => optionName(props.pipelines, v)?.toLowerCase()).filter((n): n is string => !!n) : []
-  const kinds = ORDER_KINDS.filter((k) => both(`features.coding.pipe.${k}`).some((n) => names.includes(n)))
+  const kinds = ORDER_KINDS.filter((k) => names.some((n) => KIND_WORDS[n] === k || both(`features.coding.pipe.${k}`).includes(n)))
   const pri = props.priority ? optionName(props.priority, row.properties[props.priority])?.toLowerCase() : null
   const priority = (['high', 'medium', 'low'] as const).find((p) => both(`features.coding.priority.${p}`).includes(pri ?? '')) ?? null
   return { repo, kinds: kinds.length ? kinds : null, priority }

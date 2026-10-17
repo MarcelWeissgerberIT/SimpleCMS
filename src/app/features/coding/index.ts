@@ -8,12 +8,9 @@
  *  - openCodingSettings() / consumeCodingSettingsRequest(): open Settings on that tab
  *  - codingDbId(): the Coding database (Database.system 'coding') · useCoding: the worker link's state
  */
-import { t } from '../../i18n'
 import { inTeam, pipelineDbIds } from './schema'
 import { useCodingLocal } from './local'
-import { defaultApprovals, useCoding, type ApprovalsLevel, type CodingState } from './state'
-import { workerDownText } from './stateText'
-import { workerOutdated, workerUnsafe } from './protocol'
+import { defaultApprovals, type ApprovalsLevel } from './state'
 
 export { startCoding } from './service'
 export { CodingRoute, CodingTaskSlot, OrderSlot, OrderDbSlot, OrderNoteModal } from './slot'
@@ -28,15 +25,8 @@ export { codingDbId } from './schema'
 export { workerStateText as codingWorkerStateText } from './stateText'
 /** why the link is down, as Preflight's worker card says it (a Local link that waits: is the worker running) — MCP · Connections */
 export { workerDownText as codingWorkerDownText } from './stateText'
-/**
- * Why the worker link is down, in words, now (Preflight's worker card): the state text Settings → Coding worker shows —
- * a refusal, the browser's block — and for a Local link that waits, what to check (is the worker running in a terminal;
- * the browser's question). '' while connected or switched off.
- */
-export function codingConnText(): string {
-  const s = useCoding.getState()
-  return s.enabled && s.conn !== 'connected' && s.conn !== 'off' ? workerDownText(t, s) : ''
-}
+/** why the link is down, in words, now (Preflight's worker card) — '' while connected or switched off (coding/link.ts) */
+export { codingConnText } from './link'
 /** "Change repositories": the connected worker opens its setup page (renders only while it has one) — MCP · Connections */
 export { ChangeReposButton as CodingChangeReposButton } from './SetupCard'
 /** the AI terminal (features/ai/agent/coding.ts): reading the pipelines, planning + applying task changes the person reviewed */
@@ -170,7 +160,27 @@ export { draftWorld, pipelineLine } from './terminal'
 export { startStageOf, runsFrom, type StageApprovals } from './stages'
 export { setParkedGuard, isParkedStep } from './tasks'
 export { ORDER_HALT_WHYS } from './orders/types'
-export { PLAN_LIMITS, ORDER_LIMITS, type OrderPlanV1, type OrderStepPlan, type OrderRecord, type OrderDraft, type OrderChain, type OrderChainStep, type OrderDoneBy, type OrderHaltWhy, type OrderState, type OrderProv, type OrderCall, type OrderToolLeft, type OrderConfig, type OrderKind, type OrderStatusKey } from './orders/types'
+/**
+ * B5 the planner: planOrder(row, { mode: 'manual' | 'trigger', prov?, run?, replace? }) → PlanOutcome (lazy — orders/plan.ts
+ * seam; the entry points reach it only through press.ts callPlanner, with the press's run + provenance) · what a press
+ * and the planner both read (orders/facts.ts: requestKinds, kindProjects, requestFacts — one reading of §2.2 items 1–6) ·
+ * readPlan (the strict reader, pure) · this device's records (loadOrderRecord,
+ * patchOrderRecord, useOrderRecord; IndexedDB one-coding `<scope>|order|<row>`, channel one-coding-orders) · the planner's
+ * runs in this tab (usePlannerRun, plannerRun, stopPlanning — ⌘.) · answerQuestions (lazy, through planner.ts) · the
+ * pure parts the plate words: preconditions, the picked server's tools, the call list, the open points (the prompt itself
+ * stays inside the planner's lazy chunk).
+ */
+export { planOrder, readPlan, readStoredPlan, unlinkText, planOpenPoints, orderPlanHash, type PlanRead, type PlanReadCtx, type ResolvedStep } from './orders/plan'
+export { loadOrderRecord, orderRecordNow, patchOrderRecord, useOrderRecord, readDraft, ORDERS_CHANNEL } from './orders/records'
+export { usePlannerRun, plannerRun, stopPlanning, type PlannerRun, type PlannerPhase } from './orders/runs'
+export { checkPreconditions, wordChars, type PlannerBlock, type PlannerFacts, type KindProblem } from './orders/preconditions'
+export { requestKinds, kindProjects, requestFacts, type KindProject } from './orders/facts'
+export { pickedTools, serverSkip, type ServerSkip } from './orders/tools'
+export { foldCalls, callArgs, serverReturnedNothing } from './orders/calls'
+export const answerQuestions = (rowId: string, answers: ReadonlyArray<{ q: string; a: string }>) => import('./orders/planner').then((m) => m.answerQuestions(rowId, answers))
+export type { PlanOutcome, PlanOpts } from './orders/planner'
+import './orders/seam'
+export { PLAN_LIMITS, ORDER_LIMITS, type OrderPlanV1, type OrderStepPlan, type OrderRecord, type OrderDraft, type OrderChain, type OrderChainStep, type OrderDoneBy, type OrderHaltWhy, type OrderState, type OrderProv, type OrderCall, type OrderToolLeft, type OrderServerSkip, type PlanNote, type OrderConfig, type OrderKind, type OrderStatusKey } from './orders/types'
 
 /** This device's Approvals for new tasks (localStorage one.coding.approvals). */
 export const approvalsDefault = (): ApprovalsLevel => defaultApprovals()
@@ -178,18 +188,8 @@ export const approvalsDefault = (): ApprovalsLevel => defaultApprovals()
 /** Who waits for a confirmed task version before the worker runs it: every task in a team, local tasks an agent wrote. */
 export const taskConfirmRule = (): 'always' | 'agent' => (inTeam() ? 'always' : 'agent')
 
-/** The worker link is up (switched on here and connected). */
-export const workerOnline = (s: Pick<CodingState, 'enabled' | 'conn'> = useCoding.getState()): boolean => s.enabled && s.conn === 'connected'
-
-/** What the connected worker runs, from its last `next` (null: offline, or it has not asked yet). */
-export const workerCaps = (s: Pick<CodingState, 'enabled' | 'conn' | 'can'> = useCoding.getState()): readonly string[] | null => (workerOnline(s) ? s.can : null)
-
-/** The connected worker's verdict: 'unsafe' (the ZIP-import gap — the security notice), 'outdated' (a stage it cannot run), 'ok'; null while offline. */
-export function workerVerdict(s: Pick<CodingState, 'enabled' | 'conn' | 'can' | 'worker'> = useCoding.getState()): 'ok' | 'outdated' | 'unsafe' | null {
-  if (!workerOnline(s)) return null
-  if (workerUnsafe(s.worker?.worker)) return 'unsafe'
-  return workerOutdated(s.can) ? 'outdated' : 'ok'
-}
+/** the worker link: up (workerOnline) · what it runs (workerCaps) · its verdict 'ok' | 'outdated' | 'unsafe' (workerVerdict) — coding/link.ts */
+export { workerOnline, workerCaps, workerVerdict } from './link'
 /**
  * Work orders B4 — the database and its entry points (orders/db.ts · send.ts · press.ts · trigger.ts):
  *  - orderDbId() / ensureOrderDb(writer) (Status options by id in Database.orders.status; team: private) ·
@@ -198,7 +198,7 @@ export function workerVerdict(s: Pick<CodingState, 'enabled' | 'conn' | 'can' | 
  *  - "Prüfen lassen": sendToOrders(pageId, { note? }) · sendToOrdersWithNote(pageId) ("Prüfen lassen …") ·
  *    canSendToOrders(pageId, { menu }) (menus: only while Coding is on here; never for viewers, pipeline tasks,
  *    databases or templates)
- *  - the press (pressPlan — the allow-list's one way to the planner, orders/plan.ts planOrder: B5's seam) and the
+ *  - the press (pressPlan — the allow-list's one way to the planner: callPlanner → orders/plan.ts planOrder → planner.ts) and the
  *    database command Planen (planRows); the trigger subscriber + kept presses start with startCoding (startOrders)
  *  - OrderSlot { pageId } (the plate on a request's page) · OrderDbSlot { dbId } (the database's head) · OrderNoteModal
  */

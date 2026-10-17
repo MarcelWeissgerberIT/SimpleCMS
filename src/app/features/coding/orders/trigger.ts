@@ -19,7 +19,9 @@
  * The kept presses (wants): 5 s after an 'ok' worker is online in this tab, every live want of this device's scope
  * plans in mode 'trigger' — only while its row still stands in Planen; one that is 24 h old has expired (a fresh read
  * drops it, records.ts; the plate says "abgelaufen" only while this tab still holds it). Spent (compare-and-set) before
- * it plans, so a second tab or pass never plans it again; the planner only through press.ts `callPlanner`.
+ * it plans, so a second tab or pass never plans it again; the planner only through press.ts `callPlanner`. One the
+ * planner held (the Regler's line) or refused (its own check) is put back, and tried again only once the worker next
+ * comes online here (`parked`).
  */
 import { pageChanges, useWorkspace } from '../../../store/store'
 import { isApplyingRemote } from '../../../store/persistence'
@@ -30,7 +32,7 @@ import { isApplyingCloudChange } from '../../../cloud'
 import { newId } from '../../../lib/ids'
 import { t } from '../../../i18n'
 import { useCoding, type CodingState } from '../state'
-import { workerOutdated, workerUnsafe } from '../protocol'
+import { workerVerdict } from '../link'
 import { withHalt } from '../chain'
 import { addOrderRepoOptions, isOrderRow, orderCode, orderDbIds, orderProps, orderStatusKey, statusKeyOf, writeOrderStatus } from './db'
 import { callPlanner, dropWant, orderPreNow, pressPlan, pressProv, setPressNote, statusWriter, wantLive, type PressResult } from './press'
@@ -218,11 +220,17 @@ async function recordRows(): Promise<ID[]> {
   }
 }
 
-type VerdictIn = Pick<CodingState, 'enabled' | 'conn' | 'can' | 'worker'>
-const verdictOf = (s: VerdictIn): 'ok' | 'outdated' | 'unsafe' | null => (!s.enabled || s.conn !== 'connected' ? null : workerUnsafe(s.worker?.worker) ? 'unsafe' : workerOutdated(s.can) ? 'outdated' : 'ok')
+/** The worker link's verdict (coding/link.ts — the one the preconditions read). */
+const verdictOf = (s: CodingState): 'ok' | 'outdated' | 'unsafe' | null => workerVerdict(s)
 
 let wantTimer: ReturnType<typeof setTimeout> | null = null
 let firing: Promise<void> | null = null
+/**
+ * Kept presses this tab put back after the planner held them (the Regler's line) or refused them (its own check): row →
+ * the want's time. Not fired again until the worker next comes online here — putting a want back writes the record,
+ * whose channel message would otherwise start the next pass, and that one the next (a loop every 5 s).
+ */
+const parked = new Map<ID, number>()
 
 function scheduleWants(delay = WANT_DELAY_MS): void {
   if (wantTimer) clearTimeout(wantTimer)
@@ -241,6 +249,7 @@ export function fireWants(): Promise<void> {
       const rec = asRecord(await loadOrderRecord(rowId, { fresh: true }))
       if (!rec?.want || !wantLive(rec.want)) continue
       const at = rec.want.at
+      if (parked.get(rowId) === at) continue
       // the request left Planen (or is gone) since: its press is spent
       if (!isOrderRow(rowId) || orderStatusKey(rowId) !== 'plan') {
         await patchOrderRecord(rowId, (r) => (r?.want ? dropWant(r) : r))
@@ -264,7 +273,9 @@ export function fireWants(): Promise<void> {
       const kept = rec.want
       // the Regler held it, or the planner's own check refused it: the press stays kept (B5 — "the want stays")
       void callPlanner(rowId, 'trigger', press).then((kind) => {
-        if (kind === 'held' || kind === 'blocked') void patchOrderRecord(rowId, (r) => (!r ? { v: 1, state: 'draft', want: kept } : !r.want && r.state === 'draft' ? { ...r, want: kept } : r))
+        if (kind !== 'held' && kind !== 'blocked') return
+        parked.set(rowId, kept.at)
+        void patchOrderRecord(rowId, (r) => (!r ? { v: 1, state: 'draft', want: kept } : !r.want && r.state === 'draft' ? { ...r, want: kept } : r))
       })
     }
   })().finally(() => {
@@ -284,7 +295,11 @@ export function startOrders(): void {
   useWorkspace.subscribe(onPages)
   useCoding.subscribe((s, prev) => {
     const v = verdictOf(s)
-    if (v === 'ok' && verdictOf(prev) !== 'ok') scheduleWants()
+    if (v === 'ok' && verdictOf(prev) !== 'ok') {
+      // the worker is back: what the planner held or refused before may plan now
+      parked.clear()
+      scheduleWants()
+    }
     if (v !== 'ok' && wantTimer) {
       clearTimeout(wantTimer)
       wantTimer = null

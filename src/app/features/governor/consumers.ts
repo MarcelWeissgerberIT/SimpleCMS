@@ -3,7 +3,8 @@
  * the receipt roll grouped by run ("02 Receipts") and the last 30 days by day. Only ids, sources, models and amounts
  * go in (the ledger holds nothing else); names are resolved live by the page. A source's grammar is the ledger's
  * (`<series>:<ids…>`, modes.ts): `ai:<run>:<what>` · `terminal:<conv>:<task>` · `agent:<id>:<run>` ·
- * `autofill:<db>:<prop>:<job>` · `mail:<run>` · `outbox:<id>` · `script:<id>:<run>` · `palette:<n>` · `help:<n>` …
+ * `autofill:<db>:<prop>:<job>` · `mail:<run>` · `outbox:<id>` · `script:<id>:<run>` · `palette:<n>` · `help:<n>` ·
+ * `order:<row>:<run>` (the work-order planner) …
  */
 import type { LedgerEntry, ProviderId } from '@/shared/ai/types'
 
@@ -25,6 +26,8 @@ export type ConsumerKind =
   | 'mcp'
   | 'design'
   | 'writing'
+  /** the work-order planner (features/coding/orders) */
+  | 'order'
   | 'other'
 
 /** The fields a table reads of an entry. */
@@ -49,6 +52,7 @@ const SERIES: Readonly<Record<string, ConsumerKind>> = {
   design: 'design',
   instructions: 'writing',
   'script-draft': 'writing',
+  order: 'order',
 }
 
 /** Who a ledger entry counts for: the kind, and the agent / database it names (an agent's id, autofill's database). */

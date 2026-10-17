@@ -1,6 +1,7 @@
 /**
  * Work orders (Prüfaufträge) B4 — the database and its entry points (spec §1.1–§1.3, §1.10, §2.2 items 1–6, §2.3,
- * §3.1). The planner is B5's: here the seam orders/planner.ts planOrder is a stub that notes its calls
+ * §3.1). The planner is the real one (orders/planner.ts, B5) — this suite sets up no AI, so a press that reaches it ends
+ * at its item 7 ('blocked' · 'ai': nothing read, nothing sent); every call into it is noted by the entry points
  * (`__oneOrderEntries.planned()`), so every case asks "did this plan — how, in which mode — or not".
  *
  *  - Node: the preconditions in their order (which keep the press), the kept press's reader bounds.
@@ -273,8 +274,15 @@ test('worker away: the press is kept on this device and the plate says so — th
   await expect.poll(() => planned(page), { timeout: 20_000 }).toHaveLength(1)
   expect(Date.now() - at).toBeGreaterThan(3000)
   expect((await planned(page))[0]).toMatchObject({ rowId: row, mode: 'trigger', how: 'send', prov: [row, src] })
-  expect(await want(page, row)).toBeNull()
+  // the planner itself (no AI set up in this suite) refuses at item 7 — nothing read or sent; the press is put back
+  // and parked: the next pass (the records' own channel message, or a call) does not plan it again — only the worker's
+  // next return does (no loop every 5 s)
+  await expect.poll(() => page.evaluate((r) => (window as unknown as { __oneOrders: { run(r: string): Promise<AnyState | null> } }).__oneOrders.run(r), row)).toMatchObject({ run: kept!.press.run, outcome: { kind: 'blocked', block: { why: 'ai' } } })
+  await expect.poll(() => want(page, row)).toMatchObject({ at: kept!.at, press: { run: kept!.press.run } })
+  await expect(peek.getByTestId('order-outcome')).toHaveText('AI is not set up for this kind of work on this device')
+  await expect(peek.getByTestId('order-chip')).toHaveCount(0)
   await seam(page, (s) => s.fireWants())
+  await page.waitForTimeout(6_000)
   expect(await planned(page)).toHaveLength(1)
 
   // a second "Have it checked" of the same page opens the open request instead; "New request" makes another
@@ -553,10 +561,17 @@ test('a worker with the security gap (unsafe): the plate names the notice and it
   await expect(page.getByTestId('coding-settings')).toBeVisible()
   await page.keyboard.press('Escape')
   // the new worker takes its place: the kept press plans (trigger), once
+  const kept = await want(page, row)
   await fake.close()
   fake = await startFakeWorker(CODING_PORT, INFO)
   fake.can = [...WORKER_CAN]
   await expect.poll(() => planned(page), { timeout: 40_000 }).toHaveLength(1)
-  expect((await planned(page))[0]).toMatchObject({ rowId: row, mode: 'trigger', how: 'plate' })
-  expect(await want(page, row)).toBeNull()
+  expect((await planned(page))[0]).toMatchObject({ rowId: row, mode: 'trigger', how: 'plate', run: kept!.press.run })
+  // the real planner (no AI set up in this suite) refuses at item 7 — nothing read or sent; the press is put back and
+  // waits for the worker's next return (parked: no second plan from the records' own channel message)
+  await expect.poll(() => page.evaluate((r) => (window as unknown as { __oneOrders: { run(r: string): Promise<AnyState | null> } }).__oneOrders.run(r), row)).toMatchObject({ run: kept!.press.run, outcome: { kind: 'blocked', block: { why: 'ai' } } })
+  await expect.poll(() => want(page, row)).toMatchObject({ at: kept!.at, press: { how: 'plate', run: kept!.press.run } })
+  await expect(peek.getByTestId('order-outcome')).toHaveText('AI is not set up for this kind of work on this device')
+  await page.waitForTimeout(6_000)
+  expect(await planned(page)).toHaveLength(1)
 })
