@@ -1,0 +1,82 @@
+/**
+ * Work orders — "Ohne Bestätigung starten" / "Start without confirming" (Orders B11, spec §3.5): the switch in the work
+ * orders' settings, its refusals (no budget, a fuse — the Patchbay's sentence with "Show in the Patchbay" and "Allow this
+ * path"), the lapse, the fallbacks named on the plate ("Nicht automatisch gestartet: …"), the deferred line, the toasts.
+ * EN + DE; keys `features.coding.order.*` (merged by features/messages.ts as codingAuto). Names: DE "Prüfauftrag",
+ * "Kette", "Planer" — EN "Work order", "Chain", "Planner"; the Patchbay's sign-off is "Weg zulassen" / "Allow this path".
+ * Never "Prüfung", "Plan bereit", "danach", "Freigeben" for the sign-off; the server only by the person's own name.
+ */
+import type { Messages } from '@/shared/i18n'
+
+const O = 'features.coding.order'
+
+export const messages: Messages = {
+  en: {
+    [`${O}.mode.confirm`]: 'Confirm the chain',
+    [`${O}.mode.auto`]: 'Start without confirming',
+    [`${O}.mode.fuse`]: 'Would trip a fuse: {path}',
+    [`${O}.mode.needsBudget`]: 'Set a budget per chain first',
+    [`${O}.mode.hint`]: 'This device only, local workspaces only. A finished plan is created at once and step 01 starts after 10 s — unless something is unclear: then it stays at “Chain ready” and says why. The Patchbay is asked now and at every start.',
+    [`${O}.mode.on`]: 'On: a finished plan starts without ↵ on this device.',
+    [`${O}.mode.checking`]: 'Asking the Patchbay …',
+    [`${O}.mode.showFuse`]: 'Show in the Patchbay',
+    [`${O}.mode.allow`]: 'Allow this path',
+    [`${O}.mode.allowRefused`]: 'Not allowed: {why}',
+    [`${O}.mode.team`]: 'Start without confirming exists in local workspaces only.',
+    [`${O}.auto.fallback`]: 'Not started automatically: {reasons}',
+    [`${O}.auto.lapsed`]: 'Settings changed since you switched it on — switch it on again',
+    [`${O}.auto.why.open.one`]: '1 open point',
+    [`${O}.auto.why.open.other`]: '{n} open points',
+    [`${O}.auto.why.repo`]: 'repo missing at {n}',
+    [`${O}.auto.why.otherRepo`]: 'other repo at {n}',
+    [`${O}.auto.why.branch`]: 'named branch at {n}',
+    [`${O}.auto.why.kind`]: 'step {n}: pipeline not in the settings',
+    [`${O}.auto.why.mail.row`]: 'the request comes from mails',
+    [`${O}.auto.why.mail.page`]: '‹{title}› comes from mails',
+    [`${O}.auto.why.foreign.row`]: 'the request was written from outside',
+    [`${O}.auto.why.foreign.page`]: '‹{title}› was written from outside',
+    [`${O}.auto.why.moved.row`]: 'the request changed since the press',
+    [`${O}.auto.why.moved.page`]: '‹{title}› changed since the press',
+    [`${O}.auto.why.keys.one`]: '1 key removed',
+    [`${O}.auto.why.keys.other`]: '{n} keys removed',
+    [`${O}.auto.why.budget`]: 'no budget per chain',
+    [`${O}.auto.why.fuse`]: 'would trip a fuse ({label}): {path}',
+    [`${O}.auto.toast.started`]: '{id}: chain started without confirming · step 01 in {s} s',
+    [`${O}.auto.toast.fallback`]: '{id}: not started automatically — chain ready',
+    [`${O}.why.laterAuto`]: 'Plans and starts without confirming once the worker is back (until {time})',
+  },
+  de: {
+    [`${O}.mode.confirm`]: 'Kette bestätigen',
+    [`${O}.mode.auto`]: 'Ohne Bestätigung starten',
+    [`${O}.mode.fuse`]: 'Würde eine Sicherung auslösen: {path}',
+    [`${O}.mode.needsBudget`]: 'Erst ein Budget je Kette setzen',
+    [`${O}.mode.hint`]: 'Nur auf diesem Gerät, nur in lokalen Arbeitsbereichen. Ein fertiger Plan wird sofort angelegt, Schritt 01 startet nach 10 s — außer bei jeder Unklarheit: dann bleibt er bei „Kette bereit“ und sagt warum. Der Schaltplan wird jetzt und bei jedem Start gefragt.',
+    [`${O}.mode.on`]: 'An: ein fertiger Plan startet auf diesem Gerät ohne ↵.',
+    [`${O}.mode.checking`]: 'Der Schaltplan wird gefragt …',
+    [`${O}.mode.showFuse`]: 'Im Schaltplan zeigen',
+    [`${O}.mode.allow`]: 'Weg zulassen',
+    [`${O}.mode.allowRefused`]: 'Nicht zugelassen: {why}',
+    [`${O}.mode.team`]: 'Ohne Bestätigung starten gibt es nur in lokalen Arbeitsbereichen.',
+    [`${O}.auto.fallback`]: 'Nicht automatisch gestartet: {reasons}',
+    [`${O}.auto.lapsed`]: 'Einstellungen geändert seit dem Einschalten — erneut einschalten',
+    [`${O}.auto.why.open.one`]: '1 offener Punkt',
+    [`${O}.auto.why.open.other`]: '{n} offene Punkte',
+    [`${O}.auto.why.repo`]: 'Repo fehlt bei {n}',
+    [`${O}.auto.why.otherRepo`]: 'anderes Repo bei {n}',
+    [`${O}.auto.why.branch`]: 'benannter Branch bei {n}',
+    [`${O}.auto.why.kind`]: 'Schritt {n}: Pipeline nicht in den Einstellungen',
+    [`${O}.auto.why.mail.row`]: 'der Auftrag stammt aus Mails',
+    [`${O}.auto.why.mail.page`]: '‹{title}› stammt aus Mails',
+    [`${O}.auto.why.foreign.row`]: 'der Auftrag wurde von außen geschrieben',
+    [`${O}.auto.why.foreign.page`]: '‹{title}› wurde von außen geschrieben',
+    [`${O}.auto.why.moved.row`]: 'der Auftrag hat sich seit dem Drücken geändert',
+    [`${O}.auto.why.moved.page`]: '‹{title}› hat sich seit dem Drücken geändert',
+    [`${O}.auto.why.keys.one`]: '1 Schlüssel entfernt',
+    [`${O}.auto.why.keys.other`]: '{n} Schlüssel entfernt',
+    [`${O}.auto.why.budget`]: 'kein Budget je Kette',
+    [`${O}.auto.why.fuse`]: 'würde eine Sicherung auslösen ({label}): {path}',
+    [`${O}.auto.toast.started`]: '{id}: Kette ohne Bestätigung gestartet · Schritt 01 in {s} s',
+    [`${O}.auto.toast.fallback`]: '{id}: nicht automatisch gestartet — Kette bereit',
+    [`${O}.why.laterAuto`]: 'Plant und startet ohne Bestätigung, sobald der Worker zurück ist (bis {time})',
+  },
+}

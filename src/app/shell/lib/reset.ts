@@ -1,7 +1,7 @@
 import { safeLocalGet, safeLocalSet } from '@/shared/brand'
 import { useCloud } from '../../cloud'
 import { forgetLookCache } from '../../lib/look/apply'
-import { PATCHBAY_DB, PATCHBAY_LS_PREFIX, PATCHBAY_RETURN_KEY, RECORDER_DB } from '../../features'
+import { ORDER_AUTO_KEY_PREFIX, PATCHBAY_DB, PATCHBAY_LS_PREFIX, PATCHBAY_RETURN_KEY, RECORDER_DB } from '../../features'
 
 /** localStorage flag: wipe all IndexedDB data on the next boot (before anything opens a connection). */
 export const RESET_FLAG = 'one.resetPending'
@@ -165,6 +165,8 @@ export async function runPendingReset(onBlocked?: () => void): Promise<boolean> 
     // and this tab's return chip — its IndexedDB records went with `one-patchbay` above
     for (const k of Object.keys(localStorage)) if (k.startsWith(PATCHBAY_LS_PREFIX)) localStorage.removeItem(k)
     sessionStorage.removeItem(PATCHBAY_RETURN_KEY)
+    // Orders B11: this device's "Ohne Bestätigung starten" for the local workspace's work orders (and its lapse notes)
+    for (const k of Object.keys(localStorage)) if (k.startsWith(`${ORDER_AUTO_KEY_PREFIX}local:local:`)) localStorage.removeItem(k)
     // the local workspace's look cache (team workspaces keep theirs, "standard look here" included)
     forgetLookCache('local')
   } catch {

@@ -52,8 +52,12 @@ export function requestKinds(rowId: ID): OrderKind[] {
 
 /** Each kind's project and its problem (see the head of this file). */
 export function kindProjects(rowId: ID, kinds: readonly OrderKind[] = requestKinds(rowId)): KindProject[] {
+  return kindProjectsOf(ws().pages[rowId]?.databaseId ?? null, kinds)
+}
+
+/** Each kind's project and its problem for a work-orders database (B11: the consent's sig reads every kind). */
+export function kindProjectsOf(ordersDb: ID | null, kinds: readonly OrderKind[]): KindProject[] {
   const s = ws()
-  const ordersDb = s.pages[rowId]?.databaseId ?? null
   const read = readOrderConfig(ordersDb ? s.databases[ordersDb] : undefined)
   const pinnedOf = read.kind === 'ok' ? read.config.projects : undefined
   const caps = workerCaps()

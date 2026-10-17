@@ -8,7 +8,9 @@
  *    one never tested offers "Server testen". One names no service — only the person's own server names.
  *  - Pipelines (BA · Coding · QA), Projekte per kind ("wie #/coding" or one pinned project) — "Felder der Zeile gehen vor".
  *  - Nach der Analyse anhalten (glass rocker, on), Budget je Kette (the UI's number format).
- * "Ohne Bestätigung starten" is not here yet (B11: per device, local only, budget required).
+ *  - Ohne Bestätigung starten (B11, glass rocker): this device's consent, local workspaces only (never shown in a team),
+ *    a Budget je Kette required; switching on asks the Patchbay (autoStart.ts switchAutoOn) — a fuse refuses with its
+ *    sentence, "Im Schaltplan zeigen" and "Weg zulassen"; a lapse says "erneut einschalten".
  */
 import { useId, useRef, useState } from 'react'
 import { Settings2 } from 'lucide-react'
@@ -19,13 +21,15 @@ import { Switch } from '../../../ui/controls'
 import { useLang, useT } from '../../../i18n'
 import { navigate } from '../../../lib/router'
 import { fmtAmount, parseAmount } from '../../../lib/money'
-import { useCloud } from '../../../cloud'
+import { activeWorkspace, useCloud } from '../../../cloud'
 import { HelpLink } from '../../../help'
 import { pipelineDbIdsOf } from '../schema'
 import { ORDER_KINDS, readOrderConfig } from './config'
 import { saveOrderConfig } from './db'
 import { serverRows } from './serverTools'
 import type { OrderConfig, OrderKind } from './types'
+import { useOrderAuto, type OrderAuto } from './auto'
+import type { PlannerFuse } from '../../patchbay'
 
 const O = 'features.coding.order'
 const P = 'features.coding.order.planner'
@@ -202,6 +206,123 @@ export function OrderSettingsPanel({ dbId }: { dbId: ID }) {
         </span>
       </label>
       <p className="orc-line orc-line--quiet">{bad ? t(`${O}.budget.bad`) : t(`${O}.settings.budgetHint`)}</p>
+      {activeWorkspace().kind !== 'cloud' && <AutoSection dbId={dbId} budget={config?.budgetUsd !== undefined} disabled={disabled} />}
+    </div>
+  )
+}
+
+type AutoShown = null | { kind: 'fuse'; fuses: PlannerFuse[]; consent: OrderAuto } | { kind: 'text'; text: string }
+
+/**
+ * Orders B11 — "Ohne Bestätigung starten": this device's consent for this database (local workspaces only). Off by
+ * default; on only with a Budget je Kette and once the Patchbay names no fuse on the planner's paths with it (else its
+ * sentence, "Im Schaltplan zeigen", "Weg zulassen"). The settings it covers changed: it lapsed — "erneut einschalten".
+ */
+function AutoSection({ dbId, budget, disabled }: { dbId: ID; budget: boolean; disabled: boolean }) {
+  const t = useT()
+  const uid = useId()
+  const { consent, lapsed } = useOrderAuto(dbId)
+  const [busy, setBusy] = useState(false)
+  const [shown, setShown] = useState<AutoShown>(null)
+  const on = async () => {
+    setBusy(true)
+    setShown(null)
+    try {
+      const m = await import('./autoStart')
+      const r = await m.switchAutoOn(dbId)
+      if (r.ok) return
+      if (r.why === 'fuse') setShown({ kind: 'fuse', fuses: r.fuses, consent: r.consent })
+      else setShown({ kind: 'text', text: t(r.why === 'budget' ? `${O}.mode.needsBudget` : r.why === 'team' ? `${O}.mode.team` : `${P}.why.config`) })
+    } finally {
+      setBusy(false)
+    }
+  }
+  const off = async () => {
+    setShown(null)
+    const m = await import('./autoStart')
+    m.switchAutoOff(dbId)
+  }
+  const allow = async (consentAsked: OrderAuto, key: string) => {
+    setBusy(true)
+    try {
+      const m = await import('./autoStart')
+      const r = await m.allowAndSwitchOn(dbId, consentAsked, key)
+      if (r.ok) setShown(null)
+      else if (r.why === 'allow') setShown({ kind: 'text', text: t(`${O}.mode.allowRefused`, { why: r.refused }) })
+      else if (r.why === 'fuse') setShown({ kind: 'fuse', fuses: r.fuses, consent: r.consent })
+      else setShown({ kind: 'text', text: t(r.why === 'budget' ? `${O}.mode.needsBudget` : `${P}.why.config`) })
+    } finally {
+      setBusy(false)
+    }
+  }
+  const showPlanner = () => void import('../../patchbay').then((pb) => pb.openPatchbay({ m: pb.moduleKey({ kind: 'planner', db: dbId }) }))
+  return (
+    <div className="ors__auto" data-testid="order-auto">
+      <div className="ors__switch">
+        <span id={`${uid}-a`}>{t(`${O}.mode.auto`)}</span>
+        <Switch
+          size="sm"
+          checked={!!consent}
+          disabled={disabled || busy || (!consent && !budget)}
+          seed={`${dbId}-auto`}
+          label={t(`${O}.mode.auto`)}
+          describedBy={`${uid}-ah`}
+          onChange={(v) => void (v ? on() : off())}
+        />
+      </div>
+      <p className="orc-line orc-line--quiet" id={`${uid}-ah`}>
+        {t(`${O}.mode.hint`)}
+      </p>
+      {!consent && !budget && (
+        <p className="orc-line orc-line--warn" data-testid="order-auto-budget">
+          {t(`${O}.mode.needsBudget`)}
+        </p>
+      )}
+      {consent && (
+        <p className="orc-line" data-testid="order-auto-on">
+          {t(`${O}.mode.on`)}
+        </p>
+      )}
+      {!consent && lapsed !== null && !shown && (
+        <p className="orc-line orc-line--warn" data-testid="order-auto-lapsed">
+          {t(`${O}.auto.lapsed`)}
+        </p>
+      )}
+      {busy && (
+        <p className="orc-line orc-line--quiet" role="status">
+          {t(`${O}.mode.checking`)}
+        </p>
+      )}
+      {shown?.kind === 'text' && (
+        <p className="orc-line orc-line--warn" role="alert" data-testid="order-auto-refused">
+          {shown.text}
+        </p>
+      )}
+      {shown?.kind === 'fuse' &&
+        shown.fuses.map((f) => (
+          <div key={f.key} className="ors__fuse" role="alert" data-testid="order-auto-fuse" data-fuse={f.key}>
+            <p className="orc-line orc-line--warn">
+              <span className="label">{f.label}</span> {t(`${O}.mode.fuse`, { path: f.say })}
+            </p>
+            <span className="ors__links">
+              <button type="button" className="btn btn--sm" onClick={showPlanner} data-testid="order-auto-show">
+                {t(`${O}.mode.showFuse`)}
+              </button>
+              <button
+                type="button"
+                className="btn btn--sm"
+                aria-disabled={f.allow !== true || busy || undefined}
+                onClick={() => {
+                  if (f.allow === true && !busy) void allow(shown.consent, f.key)
+                }}
+                data-testid="order-auto-allow"
+              >
+                {t(`${O}.mode.allow`)}
+              </button>
+            </span>
+            {f.allow !== true && <p className="orc-line orc-line--quiet">{t(`${O}.mode.allowRefused`, { why: f.allow })}</p>}
+          </div>
+        ))}
     </div>
   )
 }

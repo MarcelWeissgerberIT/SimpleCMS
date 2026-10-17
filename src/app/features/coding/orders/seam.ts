@@ -20,6 +20,14 @@ if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams
     // B10 — this device's consent "Ohne Bestätigung starten" (B11 builds the switch; the Patchbay reads it)
     setAuto: (db: ID, v: { sig: string; at: number } | null) => import('./auto').then((m) => m.setOrderAutoForTest(db, v)),
     auto: (db: ID) => import('./auto').then((m) => plain(m.readOrderAuto(db))),
+    // B11 — the switch, its sig, the lapse, the auto create after a plan (the Patchbay asked as in the app)
+    autoOn: (db: ID) => import('./autoStart').then((m) => m.switchAutoOn(db)).then(plain),
+    autoAllow: (db: ID, consent: { sig: string; at: number }, key: string) => import('./autoStart').then((m) => m.allowAndSwitchOn(db, consent, key)).then(plain),
+    autoOff: (db: ID) => import('./autoStart').then((m) => m.switchAutoOff(db)),
+    autoSig: (db: ID) => import('./autoSig').then((m) => m.autoSigNow(db)),
+    autoLapse: (db: ID) => import('./auto').then((m) => m.readOrderLapse(db)),
+    autoCheck: () => import('./autoWatch').then((m) => m.checkAutoLapses()),
+    autoAfter: (rowId: ID, run: string) => import('./autoStart').then((m) => m.autoAfterPlan(rowId, run)).then(plain),
     run: (rowId: ID) => import('./runs').then((m) => plain(m.plannerRun(rowId) ?? null)),
     stop: (rowId: ID) => import('./runs').then((m) => m.stopPlanning(rowId)),
     // B6 — confirming: ↵ Kette starten (the shown hash), Z, ↵ jetzt, a creation left half done, the e2e fault

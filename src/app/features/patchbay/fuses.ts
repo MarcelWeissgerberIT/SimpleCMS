@@ -92,7 +92,7 @@ function holderOf(ix: ReachIndex, chain: Chain): ModuleKey | null {
 }
 
 /** The modules along a path (the decider first, then each module a step enters, the exit last). */
-function pathModules(chain: Chain): ModuleKey[] {
+export function pathModules(chain: Chain): ModuleKey[] {
   const out: ModuleKey[] = chain.decider ? [chain.decider] : []
   for (const s of chain.steps) if (typeof s.to === 'string' && !out.includes(s.to)) out.push(s.to)
   return out

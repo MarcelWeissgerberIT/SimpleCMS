@@ -259,6 +259,12 @@ export { chainSuccessorNow, chainStepOf, chainLegOf } from './orders/records'
  * Patchbay's key 1) · restoreOrderAuto(db, v) (its Undo) · onOrderAuto(fn); runningOrderCount() (the planner's window).
  */
 export { readOrderAuto, dropOrderAuto, restoreOrderAuto, onOrderAuto, type OrderAuto } from './orders/auto'
+/**
+ * Orders B11 — "Ohne Bestätigung starten" switched on in the work orders' settings (orders/autoStart.ts, lazy:
+ * switchAutoOn — a budget, the sig, the Patchbay asked — and the auto create after a press); dropOrderAutoAll() = every
+ * consent of this scope (a restored backup never keeps one — features/io/backup.ts); AUTO_KEY_PREFIX (the local reset).
+ */
+export { dropOrderAutoAll, AUTO_KEY_PREFIX as ORDER_AUTO_KEY_PREFIX } from './orders/auto'
 export { runningOrderCount, startedOrderCount } from './orders/db'
 export { chainSuccessor, withPassed, withSeenNext, withRefs } from './chain'
 /**

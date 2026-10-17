@@ -1030,6 +1030,26 @@
 .ors .orc-line {
   margin: 0;
 }
+/* B11: "Ohne Bestätigung starten" — its own block under a hairline; a fuse it would trip in a cut-out */
+.ors__auto {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding-top: 10px;
+  border-top: 1px solid var(--rule);
+}
+.ors__fuse {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--signal-ink);
+  border-radius: var(--radius-1);
+  overflow-wrap: anywhere;
+}
+.ors__fuse .label {
+  color: var(--signal-ink);
+}
 
 /* chips on board cards: a chain step ("PA-12 · 2/3"), a request's sub-state */
 .dbc-chip {

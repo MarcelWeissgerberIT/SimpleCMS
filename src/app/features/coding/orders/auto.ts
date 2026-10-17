@@ -5,12 +5,15 @@
  * team the reader says "none" whatever is stored (auto mode does not exist there).
  *
  * B10 (the Patchbay) reads it — `pipelineGate('order')`: 'byHand' without it, nothing with it — and its key 1 drops it
- * (and puts it back on Undo). Switching it on (budget required, the Patchbay asked, the sig over the settings) is B11's;
- * until then only the e2e seam writes one (`__oneOrders.setAuto`).
+ * (and puts it back on Undo). B11 switches it on (autoStart.ts `switchAutoOn`: a budget required, the Patchbay asked,
+ * the sig over the settings — autoSig.ts) and compares the sig with the settings now (autoWatch.ts, and again at every
+ * auto create): a mismatch LAPSES it — the key then holds `{ lapsed: at }` (reads as no consent; the settings say
+ * "Einstellungen geändert seit dem Einschalten — erneut einschalten"). A restore of a backup drops every consent of
+ * this scope (`dropOrderAutoAll`, features/io/backup.ts), the local reset removes the keys (shell/lib/reset.ts).
  *
- * The sig is kept as it was written (64 hex); B11 compares it with the settings now — a mismatch drops the consent.
- * Readers sanitize: anything else reads as no consent.
+ * The sig is kept as it was written (64 hex). Readers sanitize: anything else reads as no consent.
  */
+import { useSyncExternalStore } from 'react'
 import type { ID } from '../../../store/types'
 import { activeWorkspace } from '../../../cloud'
 import { orderScope } from './records'
@@ -63,6 +66,17 @@ export function onOrderAuto(fn: () => void): () => void {
   }
 }
 
+/** React: this device's consent for a work-orders database and its lapse note (re-read on every change). */
+export function useOrderAuto(db: ID | null | undefined): { consent: OrderAuto | null; lapsed: number | null } {
+  const raw = useSyncExternalStore(
+    onOrderAuto,
+    () => (db ? `${JSON.stringify(readOrderAuto(db))}|${readOrderLapse(db) ?? ''}` : ''),
+    () => '',
+  )
+  const [c, l] = raw.split('|')
+  return { consent: c ? (JSON.parse(c) as OrderAuto | null) : null, lapsed: l ? Number(l) : null }
+}
+
 if (typeof window !== 'undefined')
   window.addEventListener('storage', (e) => {
     if (e.key === null || e.key.startsWith(AUTO_KEY_PREFIX)) announce()
@@ -97,7 +111,66 @@ export function restoreOrderAuto(db: ID, v: OrderAuto): boolean {
   return write(db, ok)
 }
 
-/** The e2e seam's writer (B11 builds the real switch): set or clear a consent as it is. */
+/** The e2e seam's writer: set or clear a consent as it is. */
 export function setOrderAutoForTest(db: ID, v: OrderAuto | null): boolean {
   return write(db, v ? readAutoValue(v) : null)
+}
+
+/** B11: the consent the switch gives (autoStart.ts switchAutoOn only — after the budget, the sig and the Patchbay). */
+export function giveOrderAuto(db: ID, sig: string): OrderAuto | null {
+  const v = readAutoValue({ sig, at: Date.now() })
+  return v && write(db, v) ? v : null
+}
+
+/** When this device's consent lapsed (the settings changed since it was given), null: it did not (or was given again). */
+export function readOrderLapse(db: ID): number | null {
+  if (!local() || !ID_RE.test(db)) return null
+  try {
+    const raw = localStorage.getItem(keyOf(db))
+    const v = raw ? (JSON.parse(raw) as unknown) : null
+    const at = v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>).lapsed : undefined
+    return typeof at === 'number' && Number.isFinite(at) && at >= 0 ? at : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * B11: the consent lapses — only the one given with `sig` (a newer one stays): the key then holds `{ lapsed: at }`, read
+ * as no consent everywhere (the Patchbay draws the planner by hand again). Returns whether it lapsed here.
+ */
+export function lapseOrderAuto(db: ID, sig: string): boolean {
+  if (readOrderAuto(db)?.sig !== sig || !local() || !ID_RE.test(db)) return false
+  try {
+    localStorage.setItem(keyOf(db), JSON.stringify({ lapsed: Date.now() }))
+  } catch {
+    return false
+  }
+  announce()
+  return true
+}
+
+/** Forget a lapse note (the person read it, or switched the consent off). */
+export function clearOrderLapse(db: ID): void {
+  if (readOrderLapse(db) !== null) write(db, null)
+}
+
+/**
+ * B11: every consent of this device for the workspace now (this scope), lapse notes included — a restored backup never
+ * keeps one (the restored wiring is not what was consented to on this device). Returns how many were dropped.
+ */
+export function dropOrderAutoAll(): number {
+  const prefix = `${AUTO_KEY_PREFIX}${orderScope()}:`
+  let n = 0
+  try {
+    for (const k of Object.keys(localStorage))
+      if (k.startsWith(prefix)) {
+        localStorage.removeItem(k)
+        n++
+      }
+  } catch {
+    return 0
+  }
+  if (n) announce()
+  return n
 }

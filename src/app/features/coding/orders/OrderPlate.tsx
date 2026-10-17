@@ -43,6 +43,7 @@ import { takeDiscardUndo } from './trigger'
 import { typing } from '../../../ui/keys'
 import { HelpLink } from '../../../help'
 import { ORDER_LIMITS } from './types'
+import { useOrderAuto } from './auto'
 import type { OrderPreWhy } from './pre'
 import './orders.css'
 
@@ -106,6 +107,8 @@ export default function OrderPlate({ rowId }: { rowId: ID }) {
   useWorkspace((s) => s.databases)
   const coding = useCoding()
   const viewer = useCloud((s) => s.readOnly)
+  // Orders B11: this device's "Ohne Bestätigung starten" for the request's database (the deferred line says it starts)
+  const autoOn = !!useOrderAuto(db?.id).consent
   const stored = useOrderRecord(rowId)
   // a record a later build wrote: never acted on, never overwritten (records.ts) — the strip says so
   const unreadable = stored === 'unreadable'
@@ -217,7 +220,8 @@ export default function OrderPlate({ rowId }: { rowId: ID }) {
     line = t('features.coding.order.why.unreadable')
   } else if (status === 'plan' && waiting) {
     why = 'later'
-    line = `${t('features.coding.order.why.later', { time: untilText(want.at + ORDER_LIMITS.wantMs) })}${pre.ok ? '' : ` · ${preWhyText(pre.why, pre.left)}`}`
+    // Orders B11: with this device's consent the deferred plan starts too — said so
+    line = `${t(autoOn ? 'features.coding.order.why.laterAuto' : 'features.coding.order.why.later', { time: untilText(want.at + ORDER_LIMITS.wantMs) })}${pre.ok ? '' : ` · ${preWhyText(pre.why, pre.left)}`}`
   } else if (status === 'plan' && want && !live) {
     why = 'expired'
     line = t('features.coding.order.why.expired')

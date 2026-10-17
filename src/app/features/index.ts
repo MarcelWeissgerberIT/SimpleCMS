@@ -482,6 +482,8 @@ export { codingWorkerStateText } from './coding'
  * sendToOrdersWithNote(pageId) · canSendToOrders(pageId, { menu }) (page / sidebar menus: only while Coding is on here)
  */
 export { OrderSlot, OrderDbSlot, OrderNoteModal, sendToOrders, sendToOrdersWithNote, canSendToOrders } from './coding'
+/** Orders B11: the key prefix of this device's "Ohne Bestätigung starten" consents (the local reset removes them) */
+export { ORDER_AUTO_KEY_PREFIX } from './coding'
 /* admins of a team workspace: the members' cloud workers (docs/CODING.md § Cloud worker) — renders nothing otherwise */
 export { CodingCloudWorkers } from './coding'
 /*

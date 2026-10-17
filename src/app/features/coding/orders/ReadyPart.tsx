@@ -45,7 +45,8 @@ import { olderParked, planHashNow, startChain } from './confirm'
 import { editStep, moveStep, removeStep, restoreDraft, setDraftBudget, type EditOutcome, type StepPatch } from './edit'
 import { endsAtGate, holdsOf, checkpointAfter, stopsOf, type StopStep } from './stops'
 import { projectAvgCost, COST_SAMPLE } from './costs'
-import { pageShown, requestNow } from './fingerprint'
+import { pageShown, quoteTitleOf, requestNow } from './fingerprint'
+import { autoFallbackText } from './autoWords'
 import { writeOrderStatus } from './db'
 import { preWhyText } from './text'
 import { refusalText } from './ChainPart'
@@ -685,6 +686,12 @@ export default function ReadyPart({ rowId, rec, pre, headId, viewer, elsewhere, 
       <p className="label orc-counter" data-testid="order-counter">
         {counter}
       </p>
+      {/* Orders B11: "Ohne Bestätigung starten" left this plan here — and why */}
+      {!!draft.auto?.reasons.length && (
+        <p className="orc-line orc-line--warn" data-testid="order-auto-fallback">
+          {autoFallbackText(draft.auto.reasons, t, { row: rowId, titleOf: quoteTitleOf })}
+        </p>
+      )}
       {draft.plan.summary && (
         <p className="orc-understood" data-testid="order-understood">
           <span className="label">{t(`${O}.plan.understood`)}</span> {draft.plan.summary}

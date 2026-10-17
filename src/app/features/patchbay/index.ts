@@ -17,6 +17,9 @@
  *    takes every member's scope of that workspace along (`cloud:<ws>:u:<account>`); every wipe first drops the run counts
  *    still waiting to be written (live/bus.ts forgetTally via cache.ts onPatchbayWipe); `{ records: false }` leaves
  *    IndexedDB unopened
+ *  - Orders B11: plannerFuses(db, consent | 'stored') → the open fuses "Ohne Bestätigung starten" adds for a work-orders
+ *    database's planner (its label + sentence; asked at switch-on and at every auto create) · allowPlannerFuse(db,
+ *    consent, key) = key 3 "Weg zulassen" on such a path (orderAsk.ts — both lazy: the model never loads at boot)
  */
 export { PatchbayRoute, type PatchbayRouteProps } from './route'
 export { openPatchbay, type OpenPatchbayOptions } from './open'
@@ -33,3 +36,8 @@ export { WIRING_READERS } from './readers'
 export { moduleKey, inventoryKeys, scheduleKey } from './ref'
 export { PATCHBAY_DB, PATCHBAY_STORE, wipePatchbay, inPatchbayScope, LS_PREFIX as PATCHBAY_LS_PREFIX, SS_RETURN as PATCHBAY_RETURN_KEY } from './cache'
 export type { ModuleKey, ModuleRef, PatchbayCounts, FuseHint, HintKind } from './types'
+export type { PlannerFuse } from './orderAsk'
+/** Orders B11 (orderAsk.ts, lazy): the open fuses this device's consent adds for the planner of `db`. */
+export const plannerFuses = (db: string, consent: { sig: string; at: number } | 'stored'): Promise<import('./orderAsk').PlannerFuse[]> => import('./orderAsk').then((m) => m.plannerFuses(db, consent))
+/** Orders B11 (orderAsk.ts, lazy): "Weg zulassen" (key 3) on a path the consent opens. */
+export const allowPlannerFuse = (db: string, consent: { sig: string; at: number } | 'stored', key: string): Promise<{ ok: true } | { ok: false; refused: string }> => import('./orderAsk').then((m) => m.allowPlannerFuse(db, consent, key))

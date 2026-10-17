@@ -20,7 +20,8 @@ import { activeWorkspace, useCloud } from '../../../cloud'
 import { orderScopeOf, readOrderRecord } from './record'
 import { readStoredPlan } from './plan'
 import { BUDGET_RANGE } from './config'
-import { ORDER_LIMITS, type OrderCall, type OrderChainStep, type OrderDraft, type OrderProv, type OrderRecord, type OrderServerSkip, type OrderToolLeft, type PlanNote } from './types'
+import { readAutoWhy } from './autoCore'
+import { ORDER_LIMITS, type OrderAutoWhy, type OrderCall, type OrderChainStep, type OrderDraft, type OrderProv, type OrderRecord, type OrderServerSkip, type OrderToolLeft, type PlanNote } from './types'
 import { chainSuccessor } from '../chain'
 
 export const ORDERS_CHANNEL = 'one-coding-orders'
@@ -96,6 +97,9 @@ export function readDraft(v: unknown): OrderDraft | null {
     ? src.calls.flatMap((c) => (isObj(c) && typeof c.tool === 'string' ? [{ tool: c.tool.slice(0, 64), args: str(c.args, 200) ?? '', bytes: typeof c.bytes === 'number' && c.bytes >= 0 ? Math.floor(c.bytes) : 0, ok: c.ok === true }] : [])).slice(0, 24)
     : []
   const notes = Array.isArray(v.notes) ? v.notes.slice(0, 64).map(readNote).filter((n): n is PlanNote => !!n) : []
+  const auto = isObj(v.auto) && isTime(v.auto.at) && Array.isArray(v.auto.reasons) ? { at: v.auto.at, reasons: v.auto.reasons.slice(0, 32).map(readAutoWhy).filter((r): r is OrderAutoWhy => !!r) } : null
+  const pressFps: Record<ID, string> = {}
+  if (isObj(v.pressFps)) for (const [id, fp] of Object.entries(v.pressFps).slice(0, 16)) if (ID_RE.test(id) && typeof fp === 'string' && /^[0-9a-f]{64}$/.test(fp)) pressFps[id] = fp
   const answers = Array.isArray(v.answers) ? v.answers.flatMap((a) => (isObj(a) && typeof a.q === 'string' && typeof a.a === 'string' ? [{ q: a.q.slice(0, 300), a: a.a.slice(0, 2000) }] : [])).slice(0, 5) : undefined
   return {
     plan,
@@ -119,6 +123,8 @@ export function readDraft(v: unknown): OrderDraft | null {
     ...(notes.length ? { notes } : {}),
     ...(v.over === 'halted' || v.over === 'done' ? { over: v.over } : {}),
     ...(v.budget === null ? { budget: null } : typeof v.budget === 'number' && Number.isFinite(v.budget) ? { budget: Math.min(BUDGET_RANGE[1], Math.max(BUDGET_RANGE[0], v.budget)) } : {}),
+    ...(auto?.reasons.length ? { auto } : {}),
+    ...(Object.keys(pressFps).length ? { pressFps } : {}),
     ...(isObj(v.from) && typeof v.from.n === 'number' && Number.isInteger(v.from.n) && v.from.n >= 1 && v.from.n <= 999 && ID_RE.test(String(v.from.run)) ? { from: { n: v.from.n, run: String(v.from.run) } } : {}),
   }
 }

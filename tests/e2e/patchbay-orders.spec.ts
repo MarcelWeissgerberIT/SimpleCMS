@@ -363,8 +363,11 @@ test.describe('patchbay × work orders — UI', () => {
     await expect(page.locator('.pb-wlabel-t').filter({ hasText: /Chain ↵|next step/ })).toHaveCount(0)
     // confirm mode: no fuse of the planner
     await expect.poll(async () => ((await pbModel(page))?.fuses ?? []).filter((f) => f.chain.decider === PLANNER).length).toBe(0)
-    // the consent (B11's switch; here the e2e seam) → the exec fuse
-    await page.evaluate(() => (window as unknown as { __oneOrders: { setAuto(db: string, v: unknown): void } }).__oneOrders.setAuto('dbOrders', { sig: 'a'.repeat(64), at: Date.now() }))
+    // the consent (B11's switch; here the e2e seam, with the sig of the settings now — B11 lapses any other) → the exec fuse
+    await page.evaluate(async () => {
+      const o = (window as unknown as { __oneOrders: { setAuto(db: string, v: unknown): Promise<boolean>; autoSig(db: string): Promise<string | null> } }).__oneOrders
+      await o.setAuto('dbOrders', { sig: await o.autoSig('dbOrders'), at: Date.now() })
+    })
     let key = ''
     await expect
       .poll(async () => {

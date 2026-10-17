@@ -36,7 +36,8 @@ import { Edge, keyOf, useSeenBook } from './seen'
 import { preWhyText } from './text'
 import { stepNo } from './words'
 import { orderCode } from './db'
-import { requestNow } from './fingerprint'
+import { quoteTitleOf, requestNow } from './fingerprint'
+import { autoFallbackText } from './autoWords'
 import type { OrderDraft, OrderRecord } from './types'
 
 type Tr = ReturnType<typeof useT>
@@ -112,6 +113,7 @@ function ReadyStations({ id, row, rec, draft, t, lang }: { id: string; row: ID; 
   return (
     <div className="orc-ready ord-ready" data-testid="pf-order-ready">
       <p className="label orc-counter">{counter}</p>
+      {!!draft.auto?.reasons.length && <p className="orc-line orc-line--warn">{autoFallbackText(draft.auto.reasons, t, { row, titleOf: quoteTitleOf })}</p>}
       {draft.plan.summary && (
         <p className="orc-understood">
           <span className="label">{t(`${O}.plan.understood`)}</span> {draft.plan.summary}

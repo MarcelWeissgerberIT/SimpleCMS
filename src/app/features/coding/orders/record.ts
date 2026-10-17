@@ -205,7 +205,9 @@ export function readPress(v: unknown): OrderPress | null {
   const pins: Record<ID, number> = {}
   if (isObj(v.pins))
     for (const [id, rev] of Object.entries(v.pins).slice(0, MAX_PROV)) if (isId(id) && typeof rev === 'number' && Number.isInteger(rev) && rev >= 0) pins[id] = rev
-  return { run: v.run, at: v.at, how: v.how as OrderPressHow, prov, pins }
+  const fps: Record<ID, string> = {}
+  if (isObj(v.fps)) for (const [id, fp] of Object.entries(v.fps).slice(0, MAX_PROV)) if (isId(id) && typeof fp === 'string' && /^[0-9a-f]{64}$/.test(fp)) fps[id] = fp
+  return { run: v.run, at: v.at, how: v.how as OrderPressHow, prov, pins, ...(Object.keys(fps).length ? { fps } : {}) }
 }
 
 /** A record as this build keeps it (null: none, or not one this build can read). */

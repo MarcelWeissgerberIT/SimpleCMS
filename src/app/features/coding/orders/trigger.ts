@@ -42,6 +42,7 @@ import { loadOrderRecord, ORDERS_CHANNEL, patchOrderRecord, recordRowIds } from 
 import { followRecord, holdFinishing, kick, startChains } from './chainRun'
 import { preWhyText, untilText } from './text'
 import { ORDER_LIMITS, type OrderPress, type OrderRecord } from './types'
+import { startAutoWatch } from './autoWatch'
 
 const ws = () => useWorkspace.getState()
 
@@ -390,6 +391,8 @@ export function startOrders(): void {
   useWorkspace.subscribe(onPages)
   // the chains on this device: the parked-start guard, step 01's count, creations a closed tab left (chainRun.ts)
   startChains()
+  // Orders B11: this device's "Ohne Bestätigung starten" lapses once the settings it covers change (autoWatch.ts)
+  startAutoWatch()
   useCoding.subscribe((s, prev) => {
     const v = verdictOf(s)
     if (v === 'ok' && verdictOf(prev) !== 'ok') {

@@ -31,6 +31,7 @@ import { orderPre, type OrderPreFacts, type OrderPreKind, type OrderPreResult, t
 import { patchOrderRecord } from './records'
 import { planOrder } from './plan'
 import type { PlanOutcome } from './planner'
+import { pageShown, requestNow, shownFp, textFp } from './fingerprint'
 import { ORDER_LIMITS, type OrderPress, type OrderPressHow, type OrderProv } from './types'
 
 const ws = () => useWorkspace.getState()
@@ -60,6 +61,27 @@ export function pressProv(pages: Record<ID, Page>, rowId: ID): { prov: Record<ID
     n++
   }
   return { prov, pins }
+}
+
+/**
+ * Orders B11: what the press saw, as fingerprints (orders/fingerprint.ts — the request as every step quotes it, each
+ * linked page as title + text): read NOW, synchronously, hashed afterwards. Auto mode falls back when the planner read
+ * something else ("moved since the press"); a fingerprint ignores block ids, so an editor filling them is no change.
+ */
+function pressShown(rowId: ID, ids: readonly ID[]): () => Promise<Record<ID, string>> {
+  const s = ws()
+  const request = s.pages[rowId] ? requestNow(rowId).text : null
+  const pages = ids.filter((id) => id !== rowId && !!s.pages[id]).map((id) => [id, pageShown(s.pages[id])] as const)
+  return async () => {
+    const out: Record<ID, string> = {}
+    try {
+      if (request !== null) out[rowId] = await textFp(request)
+      for (const [id, shown] of pages) out[id] = await shownFp(shown)
+    } catch {
+      return {}
+    }
+    return out
+  }
 }
 
 /* ------------------------------------------------------------------ the preconditions here */
@@ -118,7 +140,10 @@ function liveRow(rowId: ID): boolean {
 export async function pressPlan(rowId: ID, how: OrderPressHow, opts: { captured?: ReturnType<typeof pressProv> } = {}): Promise<PressResult> {
   const captured = opts.captured ?? pressProv(ws().pages, rowId)
   if (!liveRow(rowId)) return { kind: 'refused', why: 'gone', left: [] }
-  const press: OrderPress = { run: newId(), at: Date.now(), how, ...captured }
+  const shown = pressShown(rowId, Object.keys(captured.prov))
+  const at = Date.now()
+  const fps = await shown()
+  const press: OrderPress = { run: newId(), at, how, ...captured, ...(Object.keys(fps).length ? { fps } : {}) }
   const status = orderStatusKey(rowId)
   // a chain that runs is halted first (H) — never planned over (the drag rules put such a press back, trigger.ts)
   if (status === 'running') {
@@ -159,9 +184,12 @@ export const pressLog: Array<{ rowId: ID; mode: 'manual' | 'trigger'; how: Order
 export function callPlanner(rowId: ID, mode: 'manual' | 'trigger', press: OrderPress): Promise<PlanOutcome['kind'] | null> {
   pressLog.push({ rowId, mode, how: press.how, run: press.run, at: Date.now(), prov: Object.keys(press.prov) })
   if (pressLog.length > 200) pressLog.splice(0, pressLog.length - 200)
-  return planOrder(rowId, { mode, prov: press.prov, run: press.run })
-    .then((out): PlanOutcome['kind'] => {
+  return planOrder(rowId, { mode, prov: press.prov, run: press.run, ...(press.fps ? { pressFps: press.fps } : {}) })
+    .then(async (out): Promise<PlanOutcome['kind']> => {
       if (out.kind === 'busy') useUI.getState().toast({ message: t('features.coding.order.why.busy'), kind: 'info' })
+      // Orders B11: "Ohne Bestätigung starten" on this device — the finished plan starts at once unless anything is
+      // unclear (autoStart.ts; nothing without the consent)
+      if (out.kind === 'ready') await autoAfter(rowId, out.run)
       return out.kind
     })
     .catch(() => null)
@@ -169,6 +197,10 @@ export function callPlanner(rowId: ID, mode: 'manual' | 'trigger', press: OrderP
       if (usePressNotes.getState().notes[rowId]?.why === 'planning') setPressNote(rowId, null)
     })
 }
+
+/** Orders B11: the press's plan in auto mode (lazy — the consent is read there; without one nothing happens). */
+export const autoAfter = (rowId: ID, run: string): Promise<unknown> =>
+  import('./autoStart').then((m) => m.autoAfterPlan(rowId, run)).catch(() => null)
 
 /** The record without its want (a record that held nothing else is removed). */
 export function dropWant<R extends { v: 1; state: string; want?: unknown; draft?: unknown; chain?: unknown }>(rec: R): R | null {

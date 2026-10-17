@@ -199,7 +199,46 @@ export interface OrderDraft {
    * config's BUDGET_RANGE), null = none for this chain; absent = the work orders' settings decide (Database.orders.budgetUsd)
    */
   budget?: number | null
+  /**
+   * Orders B11 — "Ohne Bestätigung starten" on this device did NOT start this plan: why (spec §3.5 fallbacks — open
+   * points, repo / branch doubts, outside content, a moved pin, a scrubbed key, a lapsed consent, a fuse, a refusal of
+   * the start itself). The plate says it above the plan ("Nicht automatisch gestartet: …"); ↵ Kette starten as always.
+   */
+  auto?: { at: number; reasons: OrderAutoWhy[] }
+  /**
+   * Orders B11 — fingerprints of the request and its linked pages taken AT THE PRESS (press.ts; orders/fingerprint.ts,
+   * the same forms as `source.fps`): auto mode falls back when one differs from what the planner read ("moved since the
+   * press" — never the tab-local contentRev, which an editor filling block ids moves)
+   */
+  pressFps?: Record<ID, string>
 }
+
+/**
+ * Orders B11 — why auto mode left a finished plan at "Kette bereit" (spec §3.5; each named on the plate):
+ *  - open: open points or questions (plan.ts planOpenPoints) · repo: a step without a repo whose pipeline needs one ·
+ *    otherRepo: a repo other than the request's Repo field (or, without one, the only announced repo) · branch: a named
+ *    branch (or one the planner asked for and the reader dropped) · kind: a step of a kind the consent does not cover
+ *  - outside: the request or a page that goes along is of an outside class (mail) or was written by someone other than
+ *    the person (an agent, the bridge, the sync / a file, an import, a share, Claude — the captured provenance)
+ *  - moved: the request or a linked page changed between the press and the planner's read
+ *  - keys: a key-shaped string was scrubbed from the plan · budget: no "Budget je Kette" for the chain
+ *  - lapsed: the settings changed since the consent was given (dropped — switch it on again)
+ *  - fuse: the Patchbay says the planner's path would trip a fuse (its sentence, as shown when it was checked)
+ *  - start: startChain itself refused (its refusal in words, as said when it was refused)
+ */
+export type OrderAutoWhy =
+  | { why: 'open'; n: number }
+  | { why: 'repo'; step: number }
+  | { why: 'otherRepo'; step: number }
+  | { why: 'branch'; step: number }
+  | { why: 'kind'; step: number }
+  | { why: 'outside'; page: ID; cls: 'mail' | 'foreign' }
+  | { why: 'moved'; page: ID }
+  | { why: 'keys'; n: number }
+  | { why: 'budget' }
+  | { why: 'lapsed' }
+  | { why: 'fuse'; label: string; path: string }
+  | { why: 'start'; text: string }
 
 /** One step of a confirmed chain. */
 export interface OrderChainStep {
@@ -340,6 +379,8 @@ export interface OrderPress {
   how: OrderPressHow
   prov: Record<ID, OrderProv>
   pins: Record<ID, number>
+  /** Orders B11: fingerprints of the request and its linked pages at the press (auto mode's "moved since the press") */
+  fps?: Record<ID, string>
 }
 
 /** This device's record of one request. */

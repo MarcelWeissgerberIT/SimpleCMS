@@ -1323,6 +1323,26 @@ the public APIs stable — other areas are built against them in parallel.
   follow-up plan over a halted / done chain keeps `draft.over` (D brings that chain back). Records are per member in a
   team (`orderScope()`: `cloud:<ws>:u:<account>`). The attribution keeper never clears an agent's stamp for a `coding`
   or `order` write (a worker's outcome is nobody's edit — the task keeps waiting for Confirm).
+- Work-order auto mode (Prüfaufträge B11, "Ohne Bestätigung starten"; coding/orders/auto.ts · autoSig.ts · autoCore.ts
+  pure · autoWatch.ts eager · autoStart.ts lazy): THIS device's consent per work-orders database, localStorage
+  `one.orders.auto:<scope>:<db>` = { sig, at } — never in `Database.orders`, never synced / exported / backed up; local
+  workspaces only (every reader says none in a team; the settings never offer it). Switched on only in the work orders'
+  settings (`switchAutoOn`): a Budget je Kette required, the sig over the settings now (autoSig.ts: db, kinds, pinned
+  projects, checkpoint, budget, the picked server's name + address + tested tools + matching profiles, per kind the
+  resolved project + its stages, this device's Approvals), the Patchbay asked WITH that consent (patchbay index
+  `plannerFuses` — lazy, orderAsk.ts): an open fuse refuses with its sentence, "Im Schaltplan zeigen" and "Weg zulassen"
+  (`allowPlannerFuse` = the Patchbay's own key 3, `you~patchbay`). A settings change LAPSES it (autoWatch.ts once the
+  workspace is ready, and again at every auto create: the key then holds `{ lapsed }` — "erneut einschalten"); a
+  restore of any backup drops this scope's consents (`dropOrderAutoAll`), the local reset removes the keys. Only a press
+  of the allow-list (press.ts callPlanner, and the answers to the planner's questions) can start a plan without ↵ —
+  never "Neu planen" / "Ohne Server" on the plate or "Ab hier neu planen": `autoAfterPlan` creates it through
+  `startChain` (same writer, same 10 s count, Z) only when autoCore.ts `autoFallbacks` names nothing (open points ·
+  a step without a repo its pipeline needs · a repo other than the request's Repo field or the only announced one · a
+  named branch · a kind the settings do not cover · the request / a page read / a ref of class mail or last written by
+  someone else than the person — the press's provenance · a fingerprint that moved between the press (`OrderPress.fps`
+  → `draft.pressFps`) and the planner's read · a scrubbed key · no budget), the sig still matches and the Patchbay (the
+  cached compute) names no open fuse on the planner's path; else `draft.auto` = the reasons ("Nicht automatisch
+  gestartet: …" on the plate and the Preflight card). The deferred line says "Plant und startet ohne Bestätigung …".
 - MCP tidy-up tools (trash / restore ≤ 50 ids, move page / row, update database / property, delete property, view
   create / update / delete) live in `features/mcp/{tidy,structure}.ts` and `server/src/mcp/{tidy,structure}.ts` with
   the same rules: never delete for good, locked databases refuse structure changes, no page ⇄ entry or Private ⇄ shared

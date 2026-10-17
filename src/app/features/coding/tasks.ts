@@ -1380,5 +1380,7 @@ if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams
     docPages: (taskId: ID, stageName: string, intro: string, sections: DocSection[], known: ID | null = null) =>
       withWriter(codingWriter(taskId, 'e2e'), () => writeDocPages(taskId, { id: 'e2e-doc', name: stageName, kind: 'doc' } as unknown as ResolvedStage, ws().pages[taskId]?.title ?? '', { intro, sections }, known)),
     followUp: (taskId: ID, kind: PipelineKind) => spawnFollowUp(taskId, kind),
+    // work orders B11: this device's Approvals for new tasks, as "Use for new tasks" sets them (the consent's sig reads them)
+    approvals: (level: Approvals) => setDefaultApprovals(level),
   }
 }

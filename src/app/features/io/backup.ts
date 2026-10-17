@@ -14,6 +14,7 @@ import { newId } from '../../lib/ids'
 import { useCloud } from '../../cloud'
 import { t } from '../../i18n'
 import { withoutCommandSecrets } from '../commands'
+import { dropOrderAutoAll } from '../coding'
 import { endRun, noteRun, withWriter, type Writer } from '../../store/writer'
 import { readWorkspaceAI, aiRulesAllowed } from '../../store/ai'
 import { loosens, policyKnown, type LooseItem } from '@/shared/ai/policy'
@@ -431,6 +432,9 @@ export async function applyBackup(b: Backup, mode: 'merge' | 'replace', onProgre
   try {
     return withWriter(writer, () => {
       const result = { ...commitBackup(), ...aiNote }
+      // Orders B11: "Ohne Bestätigung starten" is this device's consent for the wiring it saw — never carried by a file,
+      // and never kept over a restore (the restored work orders are confirmed by hand until switched on again)
+      dropOrderAutoAll()
       // through the setter: its guards, the generation stamp, the team write path
       if (takeAI && rules) useWorkspace.getState().setWorkspaceAI(rules.theirs)
       // the governor likewise (its stamp lands in the same update)

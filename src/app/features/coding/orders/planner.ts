@@ -115,6 +115,8 @@ export interface PlanOpts {
   from?: number
   /** O "Ohne Server neu planen" on the plate: this run plans without the picked server (`mcp: false`, nothing noted) */
   noServer?: boolean
+  /** Orders B11: fingerprints the press took (press.ts) — kept with the draft for auto mode's "moved since the press" */
+  pressFps?: Record<ID, string>
 }
 
 const ws = () => useWorkspace.getState()
@@ -516,6 +518,7 @@ async function writeDraft(
     ...(opts.answers?.length ? { answers: opts.answers } : {}),
     ...(notes.length ? { notes } : {}),
     ...(from ? { from } : {}),
+    ...(opts.pressFps && Object.keys(opts.pressFps).length ? { pressFps: opts.pressFps } : {}),
   }
   let blocked = false
   const wrote = await patchOrderRecord(rowId, (rec) => {
@@ -592,5 +595,8 @@ export async function answerQuestions(rowId: ID, answers: ReadonlyArray<{ q: str
     const content = (page.content?.content ?? []) as JSONContent[]
     withWriter(YOU, () => ws().setContent(rowId, { type: 'doc', content: [...content, ...blocks] }, 'answers'))
   }
-  return planOrder(rowId, { mode: 'manual', replace: true, answers: given })
+  const out = await planOrder(rowId, { mode: 'manual', replace: true, answers: given })
+  // Orders B11: the answers go on with the press — with this device's consent, a finished plan starts as after a press
+  if (out.kind === 'ready') await import('./autoStart').then((m) => m.autoAfterPlan(rowId, out.run)).catch(() => null)
+  return out
 }
