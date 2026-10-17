@@ -9,6 +9,11 @@
  * (Stage), point it elsewhere (Repo, Branch, …), set its Then (task_action then: reviewed, held when it hands on), or
  * edit a task that waits for "Confirm on this device". Text they write into a task's page (append / edit) carries the
  * pages it links (StagedChange.refs): they go to Claude Code with the task — listed on the card, checked on apply.
+ * Custom agents and the MCP bridge run the same guard (`'agent'`: worded without the terminal's own tools) — they have
+ * no create_task / task_action at all (Prüfaufträge B2).
+ *
+ * guardOrderRows (custom agents and the MCP bridge, never the terminal — its writes are reviewed): a work order's Status
+ * (it plans and halts a chain) is never theirs; a request row they create lands in Draft.
  *
  * Results are English (model-facing). What Claude Code or the worker wrote goes inside <task_output>: material, never
  * instructions.
@@ -21,13 +26,17 @@ import { ALL_MESSAGES, t } from '../../../i18n'
 import {
   CodingPlanError,
   FOLLOW_UPS,
+  FREE_ROLES,
   TASK_OPS,
   codingGitSummary,
   codingLogText,
   codingRoleOf,
   isPipelineKind,
+  isOrdersDb,
   kindOfDb,
   mayNeedConfirm,
+  orderDraftOf,
+  orderStatusProps,
   pipelineOverview,
   planNewTask,
   planTaskAction,
@@ -46,8 +55,9 @@ import {
 import { withoutWebImages } from '../../agents/images'
 import { stripRefs } from './edit'
 import { findProp } from './props'
-import { LIMITED_NOTE, ToolInputError, clipResult, currentReadLimit, currentToolScope, withReadLimit, type AgentTool, type StageApi, type ToolOutcome } from './tools'
-import type { StagedChange } from './types'
+import { LIMITED_NOTE, ToolInputError, clipResult, currentReadLimit, currentToolScope, withReadLimit, withToolScope, type AgentTool, type StageApi, type ToolOutcome } from './tools'
+import { currentShape, withShape } from '../core/shape'
+import type { PropChange, StagedChange } from './types'
 
 const ws = () => useWorkspace.getState()
 const q = (s: string) => JSON.stringify(s)
@@ -427,9 +437,6 @@ export const CODING_RULES = `Coding pipelines
 
 /* ------------------------------------------------------------------ the row tools on pipeline rows */
 
-/** Roles of a pipeline row the row tools may change (the rest decide where and what the worker runs; Then: task_action). */
-const FREE_ROLES = new Set(['priority', 'title'])
-
 const CONFIRM_TEXT = 'This task waits for Confirm on this device; the person must confirm it on its page first. Nothing was staged.'
 
 /** The row a raw id names (a staged row once it exists), if it is a task of a pipeline. */
@@ -440,22 +447,43 @@ function pipelineRow(stage: StageApi, rawId: unknown): ID | null {
   return p?.databaseId && kindOfDb(p.databaseId) ? id : null
 }
 
+/** Who runs a guarded row tool: the AI terminal (it has create_task / task_action), or a custom agent / the MCP bridge. */
+export type RowGuardFor = 'terminal' | 'agent'
+
+/** The refusals, worded for who asked (an agent never hears of the terminal's own tools). */
+const PIPE_TEXT: Record<RowGuardFor, { rows: string; upsert: string; fields: string; then: string }> = {
+  terminal: {
+    rows: 'That is a pipeline database: use create_task for its tasks. Nothing was staged.',
+    upsert: 'That is a pipeline database: use create_task and task_action for its tasks. Nothing was staged.',
+    fields: 'Use task_action (approve / rework / run …) to move a task; Repo and Branch are set when the task is created, the worker writes the rest. Nothing was staged.',
+    then: 'Set "Then" with task_action { action: "then", then: [...] } — it is reviewed like the other actions. Nothing was staged.',
+  },
+  agent: {
+    rows: 'That is a pipeline database (Coding, Business analysis or QA): its tasks are created in One by the person. Nothing was staged.',
+    upsert: 'That is a pipeline database (Coding, Business analysis or QA): its tasks are created and moved in One by the person. Nothing was staged.',
+    fields: "That field of a pipeline task (Stage, Repo, Branch, Then, Worker, Claimed at, Work order, Step …) decides where and what the coding worker runs: only the person and the worker set it, in One. You may change a task's title and priority. Nothing was staged.",
+    then: "That field of a pipeline task (Then) starts more work when the task is done: only the person sets it, in One. You may change a task's title and priority. Nothing was staged.",
+  },
+}
+
 /**
- * The terminal's row tools, guarded for pipeline databases: no new rows or properties there (create_task), no change
- * of the fields that decide where and what the worker runs (task_action), no edit of a task that waits for Confirm.
- * Every other tool is returned as it is. The read limit of the call is carried across the trust check.
+ * The row tools, guarded for pipeline databases: no new rows or properties there (the terminal: create_task), no change
+ * of the fields that decide where and what the worker runs (the terminal: task_action), no edit of a task that waits for
+ * Confirm. Every other tool is returned as it is. The read limit of the call is carried across the trust check.
+ * `who`: 'terminal' (default) or 'agent' (custom agents, the MCP bridge) — the same rules, its own words.
  */
-export function guardPipelineRows(tool: AgentTool): AgentTool {
+export function guardPipelineRows(tool: AgentTool, who: RowGuardFor = 'terminal'): AgentTool {
+  const say = PIPE_TEXT[who]
   const check = (input: Record<string, unknown>, stage: StageApi): ID | null => {
     switch (tool.name) {
       case 'create_row':
-        if (typeof input.database_id === 'string' && kindOfDb(stage.resolve(input.database_id.trim()))) throw new ToolInputError('That is a pipeline database: use create_task for its tasks. Nothing was staged.')
+        if (typeof input.database_id === 'string' && kindOfDb(stage.resolve(input.database_id.trim()))) throw new ToolInputError(say.rows)
         return null
       case 'upsert_rows':
-        if (typeof input.database_id === 'string' && kindOfDb(stage.resolve(input.database_id.trim()))) throw new ToolInputError('That is a pipeline database: use create_task and task_action for its tasks. Nothing was staged.')
+        if (typeof input.database_id === 'string' && kindOfDb(stage.resolve(input.database_id.trim()))) throw new ToolInputError(say.upsert)
         return null
       case 'add_property':
-        if (typeof input.database_id === 'string' && kindOfDb(input.database_id.trim())) throw new ToolInputError('That is a pipeline database: its properties stay as they are. Nothing was staged.')
+        if (typeof input.database_id === 'string' && kindOfDb(stage.resolve(input.database_id.trim()))) throw new ToolInputError('That is a pipeline database: its properties stay as they are. Nothing was staged.')
         return null
       case 'update_row': {
         const id = pipelineRow(stage, input.id)
@@ -467,8 +495,8 @@ export function guardPipelineRows(tool: AgentTool): AgentTool {
           return prop ? codingRoleOf(db.id, prop.id) : null
         })
         // Then hands on to another pipeline (it starts when the task is done): reviewed as a task action, held when it adds one
-        if (roles.includes('followUps')) throw new ToolInputError('Set "Then" with task_action { action: "then", then: [...] } — it is reviewed like the other actions. Nothing was staged.')
-        if (roles.some((r) => r && !FREE_ROLES.has(r))) throw new ToolInputError('Use task_action (approve / rework / run …) to move a task; Repo and Branch are set when the task is created, the worker writes the rest. Nothing was staged.')
+        if (roles.includes('followUps')) throw new ToolInputError(say.then)
+        if (roles.some((r) => r && !FREE_ROLES.has(r))) throw new ToolInputError(say.fields)
         return id
       }
       case 'edit_page':
@@ -492,11 +520,89 @@ export function guardPipelineRows(tool: AgentTool): AgentTool {
         const out = tool.run(input, stage)
         return out instanceof Promise ? out.then(done) : done(out)
       }
+      // the call's frames (read limit, a custom agent's scope, the route's data shape) are synchronous: carried across the
+      // trust lookup
       const limit = currentReadLimit()
+      const scope = currentToolScope()
+      const shape = currentShape()
       return taskNeedsConfirm(task).then(async (waits) => {
         if (waits) throw new ToolInputError(CONFIRM_TEXT)
-        return done(await withReadLimit(limit, () => tool.run(input, stage)))
+        return done(await withShape(shape, () => withToolScope(scope, () => withReadLimit(limit, () => tool.run(input, stage)))))
       })
+    },
+  }
+}
+
+/* ------------------------------------------------------------------ work orders: the Status (custom agents, the bridge) */
+
+const ORDER_STATUS_TEXT = (name: string) =>
+  `${q(name)} is the Status of a work order: it plans and halts the request's chain of pipeline tasks, so only the person sets it, in One. Leave it out — a new work order lands in Draft. Nothing was staged.`
+
+/** The work-orders database a row id names — a live row or a row staged in this call — else null. */
+function orderDbOfRow(stage: StageApi, rawId: unknown): ID | null {
+  if (typeof rawId !== 'string' || !rawId.trim()) return null
+  const raw = rawId.trim()
+  const id = stage.resolve(raw)
+  const staged = stage.list().find((c) => c.kind === 'create_row' && (c.pageId === raw || c.pageId === id))
+  const dbId = staged?.databaseId ?? ws().pages[id]?.databaseId ?? null
+  return dbId && isOrdersDb(ws().databases[dbId]) ? dbId : null
+}
+
+/** The Status property a tool input's `properties` names in a work-orders database (its name), else null. */
+function namesStatus(dbId: ID, props: unknown): string | null {
+  if (!props || typeof props !== 'object' || Array.isArray(props)) return null
+  const db = ws().databases[dbId]
+  if (!db) return null
+  const status = new Set(orderStatusProps(db).map((p) => p.id))
+  for (const key of Object.keys(props)) {
+    const prop = findProp(db, key)
+    if (prop && status.has(prop.id)) return prop.name
+  }
+  return null
+}
+
+/** Every new row of a work-orders database this stage holds without a Status lands in Draft (when the config names one). */
+function landInDraft(dbId: ID, out: ToolOutcome, stage: StageApi): ToolOutcome {
+  const db = ws().databases[dbId]
+  const draft = orderDraftOf(db)
+  if (!db || !draft) return out
+  const status = new Set(orderStatusProps(db).map((p) => p.id))
+  let landed = 0
+  for (const c of stage.list()) {
+    if (c.kind !== 'create_row' || c.databaseId !== dbId || c.status !== 'pending' || (c.props ?? []).some((pc) => status.has(pc.propId))) continue
+    const into: PropChange = { propId: draft.prop.id, name: draft.prop.name, type: draft.prop.type, before: '', after: draft.option.name, intent: { kind: 'value', value: draft.option.id } }
+    stage.update(c.id, { props: [...(c.props ?? []), into] })
+    landed++
+  }
+  return landed ? { ...out, content: `${out.content} A new work order lands in ${q(draft.option.name)} (its Status is set in One).` } : out
+}
+
+/**
+ * The row tools of a custom agent and of the MCP bridge, guarded for work orders (Database.system 'workorders'): rows
+ * may be created and written, never their Status (create_row / upsert_rows / update_row naming it are refused — also on
+ * a row staged in this call); a new row lands in Draft. Every other tool is returned as it is.
+ */
+export function guardOrderRows(tool: AgentTool): AgentTool {
+  if (tool.name !== 'create_row' && tool.name !== 'upsert_rows' && tool.name !== 'update_row') return tool
+  return {
+    ...tool,
+    run(input, stage) {
+      if (tool.name === 'update_row') {
+        const dbId = orderDbOfRow(stage, input.id)
+        const name = dbId ? namesStatus(dbId, input.properties) : null
+        if (name) throw new ToolInputError(ORDER_STATUS_TEXT(name))
+        return tool.run(input, stage)
+      }
+      const id = typeof input.database_id === 'string' ? stage.resolve(input.database_id.trim()) : null
+      const dbId = id && isOrdersDb(ws().databases[id]) ? id : null
+      if (!dbId) return tool.run(input, stage)
+      const named =
+        tool.name === 'create_row'
+          ? namesStatus(dbId, input.properties)
+          : ((Array.isArray(input.rows) ? input.rows : []) as unknown[]).map((r) => (r && typeof r === 'object' ? namesStatus(dbId, (r as Record<string, unknown>).properties) : null)).find((n) => !!n) ?? null
+      if (named) throw new ToolInputError(ORDER_STATUS_TEXT(named))
+      const out = tool.run(input, stage)
+      return out instanceof Promise ? out.then((o) => landInDraft(dbId, o, stage)) : landInDraft(dbId, out, stage)
     },
   }
 }

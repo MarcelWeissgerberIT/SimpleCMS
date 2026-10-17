@@ -7,6 +7,8 @@
  *   <scope>|trust           hashes of task versions written or confirmed here (team workspaces)
  *   <scope>|mcpTouched|<taskId>  true: an MCP write moved the task's version here (local workspaces; trust.ts
  *                           needsConfirm — the task waits for Confirm like an agent's; Confirm removes it)
+ *   <scope>|fileTouched|<taskId> true: the folder / GitHub pick-up wrote or made the task here (local workspaces; the
+ *                           same wait; Confirm or the person's own edit in the editor removes it)
  * <scope> = "local:local" / "cloud:<workspace id>". Without IndexedDB everything stays in memory.
  * A task state written here is announced on BroadcastChannel "one-coding-tasks"; a tab holding that task reads it
  * again (the newer by `at` wins; a state held only as loadTasks' snapshot always loses to what is stored).
@@ -372,10 +374,11 @@ const MAX_TRUST = 2000
 let trustCache: { scope: string; set: Set<string> } | null = null
 
 /**
- * Another tab of this browser trusted a version (`hash`), or marked / cleared a task an MCP write moved (`touched`):
+ * Another tab of this browser trusted a version (`hash`), or marked / cleared a task an MCP write moved or the pick-up
+ * wrote (`touched`, `kind` — absent: 'mcp'):
  * every tab's trust readouts re-check (trustRev).
  */
-type TrustMessage = { scope: string; hash: string } | { scope: string; touched: ID; on: boolean }
+type TrustMessage = { scope: string; hash: string } | { scope: string; touched: ID; on: boolean; kind?: TouchKind }
 let trustChan: BroadcastChannel | null | undefined
 
 function trustChannel(): BroadcastChannel | null {
@@ -387,9 +390,11 @@ function trustChannel(): BroadcastChannel | null {
     if (typeof m.hash === 'string') {
       if (trustCache?.scope === m.scope) trustCache.set.add(m.hash)
     } else if (typeof m.touched === 'string') {
-      if (touchedCache?.scope === m.scope) {
-        if (m.on === true) touchedCache.set.add(m.touched)
-        else touchedCache.set.delete(m.touched)
+      // an older tab names no kind: its marks are MCP ones
+      const cache = touched[m.kind === 'file' ? 'file' : 'mcp'].cache
+      if (cache?.scope === m.scope) {
+        if (m.on === true) cache.set.add(m.touched)
+        else cache.set.delete(m.touched)
       }
     } else return
     useCodingLocal.setState((st) => ({ trustRev: st.trustRev + 1 }))
@@ -446,22 +451,32 @@ export async function addTrusted(hash: string): Promise<void> {
   }
 }
 
-/* ------------------------------------------------------------------ MCP-touched tasks (local workspaces) */
+/* ------------------------------------------------------------------ tasks written from outside (local workspaces) */
 
-let touchedCache: { scope: string; set: Set<ID> } | null = null
-let touchedLoad: { scope: string; job: Promise<Set<ID>> } | null = null
-const touchedKey = (s: string, taskId: ID) => `${s}|mcpTouched|${taskId}`
+/**
+ * Why a task waits for Confirm on this device although nobody else shares the workspace: 'mcp' — an MCP write moved its
+ * version (`<scope>|mcpTouched|<id>`); 'file' — the folder / GitHub pick-up wrote it (its text, its title) or made it
+ * (`<scope>|fileTouched|<id>`, Prüfaufträge B2). Confirm removes both; the person's own edit in the editor removes 'file'.
+ */
+export type TouchKind = 'mcp' | 'file'
 
-/** The tasks an MCP write moved on this device (read once per workspace; later marks join in memory). */
-export function loadMcpTouched(): Promise<Set<ID>> {
+const touched: Record<TouchKind, { cache: { scope: string; set: Set<ID> } | null; load: { scope: string; job: Promise<Set<ID>> } | null }> = {
+  mcp: { cache: null, load: null },
+  file: { cache: null, load: null },
+}
+const touchedKey = (kind: TouchKind, s: string, taskId: ID) => `${s}|${kind}Touched|${taskId}`
+
+/** The tasks marked `kind` on this device (read once per workspace; later marks join in memory). */
+function loadTouched(kind: TouchKind): Promise<Set<ID>> {
   trustChannel()
   const s = scope()
-  if (touchedCache?.scope === s) return Promise.resolve(touchedCache.set)
-  if (touchedLoad?.scope === s) return touchedLoad.job
+  const t = touched[kind]
+  if (t.cache?.scope === s) return Promise.resolve(t.cache.set)
+  if (t.load?.scope === s) return t.load.job
   const job = (async () => {
     const set = new Set<ID>()
     const store = kv()
-    const prefix = `${s}|mcpTouched|`
+    const prefix = `${s}|${kind}Touched|`
     if (store) {
       try {
         for (const k of await keys(store)) if (typeof k === 'string' && k.startsWith(prefix)) set.add(k.slice(prefix.length))
@@ -470,55 +485,69 @@ export function loadMcpTouched(): Promise<Set<ID>> {
       }
     }
     // marks made while the read went on stay
-    if (touchedCache?.scope === s) for (const id of touchedCache.set) set.add(id)
-    touchedCache = { scope: s, set }
+    if (t.cache?.scope === s) for (const id of t.cache.set) set.add(id)
+    t.cache = { scope: s, set }
     return set
   })()
-  touchedLoad = { scope: s, job }
+  t.load = { scope: s, job }
   return job
 }
 
-/** Synchronous: did an MCP write move this task here? (false until loadMcpTouched read the device's marks) */
-export function isMcpTouched(taskId: ID): boolean {
-  return touchedCache?.scope === scope() && touchedCache.set.has(taskId)
-}
+/** Synchronous: is this task marked `kind` here? (false until its marks were read) */
+const isTouched = (kind: TouchKind, taskId: ID): boolean => touched[kind].cache?.scope === scope() && !!touched[kind].cache?.set.has(taskId)
 
-/** Mark tasks an MCP write moved: they wait for Confirm on this device (trust.ts needsConfirm). */
-export async function markMcpTouched(ids: ID[]): Promise<void> {
+async function markTouched(kind: TouchKind, ids: ID[]): Promise<void> {
   if (!ids.length) return
   const s = scope()
-  const set = await loadMcpTouched()
+  const set = await loadTouched(kind)
   const fresh = ids.filter((id) => !set.has(id))
   if (!fresh.length) return
   for (const id of fresh) set.add(id)
   useCodingLocal.setState((st) => ({ trustRev: st.trustRev + 1 }))
-  await Promise.all(fresh.map((id) => write(touchedKey(s, id), true)))
+  await Promise.all(fresh.map((id) => write(touchedKey(kind, s, id), true)))
   for (const id of fresh) {
     try {
-      trustChannel()?.postMessage({ scope: s, touched: id, on: true } satisfies TrustMessage)
+      trustChannel()?.postMessage({ scope: s, touched: id, on: true, kind } satisfies TrustMessage)
     } catch {
       /* closed */
     }
   }
 }
 
-/** Confirm on this device: the task no longer counts as moved by MCP. */
-export async function clearMcpTouched(taskId: ID): Promise<void> {
+async function clearTouched(kind: TouchKind, taskId: ID): Promise<void> {
   const s = scope()
-  const set = await loadMcpTouched()
+  const set = await loadTouched(kind)
   if (!set.delete(taskId)) return
   useCodingLocal.setState((st) => ({ trustRev: st.trustRev + 1 }))
   const store = kv()
   if (store) {
     try {
-      await del(touchedKey(s, taskId), store)
+      await del(touchedKey(kind, s, taskId), store)
     } catch {
       noDb = true
     }
   }
   try {
-    trustChannel()?.postMessage({ scope: s, touched: taskId, on: false } satisfies TrustMessage)
+    trustChannel()?.postMessage({ scope: s, touched: taskId, on: false, kind } satisfies TrustMessage)
   } catch {
     /* closed */
   }
 }
+
+/** The tasks an MCP write moved on this device (read once per workspace; later marks join in memory). */
+export const loadMcpTouched = (): Promise<Set<ID>> => loadTouched('mcp')
+/** Synchronous: did an MCP write move this task here? (false until loadMcpTouched read the device's marks) */
+export const isMcpTouched = (taskId: ID): boolean => isTouched('mcp', taskId)
+/** Mark tasks an MCP write moved: they wait for Confirm on this device (trust.ts needsConfirm). */
+export const markMcpTouched = (ids: ID[]): Promise<void> => markTouched('mcp', ids)
+/** Confirm on this device: the task no longer counts as moved by MCP. */
+export const clearMcpTouched = (taskId: ID): Promise<void> => clearTouched('mcp', taskId)
+
+/** The tasks the folder / GitHub pick-up wrote or made on this device (read once per workspace). */
+export const loadFileTouched = (): Promise<Set<ID>> => loadTouched('file')
+/** Synchronous: did the folder / GitHub pick-up write this task here? (false until loadFileTouched read the marks) */
+export const isFileTouched = (taskId: ID): boolean => isTouched('file', taskId)
+/** Mark tasks the pick-up wrote or made: they wait for Confirm on this device (trust.ts needsConfirm). */
+export const markFileTouched = (ids: ID[]): Promise<void> => markTouched('file', ids)
+/** Confirm on this device, or the person's own edit in the editor: the task is theirs again. */
+export const clearFileTouched = (taskId: ID): Promise<void> => clearTouched('file', taskId)

@@ -758,17 +758,20 @@ test.describe('Integration profiles', () => {
     await expect(dialog.getByRole('alert')).toContainText('Not taken: too much text for a profile (at most 400,000 characters).')
     expect(await area.inputValue()).toBe(before)
   })
-  test('One names no service: no server is preset or picked by a brand, in the app, its help, the server or the worker', () => {
+  test('One names no service: no server is preset or picked by a brand, in the app, its help, the server, the worker, the docs, the scripts or the AI fixtures', () => {
     const root = fileURLToPath(new URL('../..', import.meta.url))
     const files: string[] = []
     const walk = (dir: string) => {
       for (const e of readdirSync(dir, { withFileTypes: true })) {
         const p = join(dir, e.name)
         if (e.isDirectory()) walk(p)
-        else if (/\.(ts|tsx|md|css)$/.test(e.name)) files.push(p)
+        else if (/\.(ts|tsx|mts|md|css|mjs|js|json)$/.test(e.name)) files.push(p)
       }
     }
-    for (const dir of ['src/app', 'src/help-site', 'server/src', 'mcp/src']) walk(join(root, dir))
+    // the docs, the screenshot / calibration scripts and the AI fixtures too (Prüfaufträge B2): their mocks and shots
+    // use the fictional "Wissensbasis" / `kb`
+    for (const dir of ['src/app', 'src/help-site', 'server/src', 'mcp/src', 'docs', 'scripts', 'tests/fixtures/ai']) walk(join(root, dir))
+    expect(files.some((f) => f.includes(`${join('tests', 'fixtures', 'ai')}`) && f.endsWith('.json'))).toBe(true)
     // (the import names other tools' export formats on purpose — that is no preset)
     const named = files.filter((f) => /\batlas\b|linear\.app/i.test(readFileSync(f, 'utf8')))
     expect(named.map((f) => relative(root, f))).toEqual([])

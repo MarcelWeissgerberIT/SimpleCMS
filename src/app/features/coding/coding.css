@@ -1005,6 +1005,10 @@
   color: var(--ink-3);
   font-size: var(--text-sm);
 }
+/* a branch another live task holds: why discard / clean-up are off (guards.ts branchHolders) */
+.cg-shared {
+  color: var(--ink-2);
+}
 .cg-confirm {
   margin: 0;
   color: var(--ink-2);

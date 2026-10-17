@@ -15,6 +15,7 @@ import type { CustomAgent, ID, Page } from '../../store/types'
 import { useCloud } from '../../cloud'
 import { AGENT_TOOLS, ToolInputError, withToolScope, type AgentTool, type StageApi } from '../ai/agent/tools'
 import { afterRead } from '../ai/agent/toolScope'
+import { guardOrderRows, guardPipelineRows } from '../ai/agent/coding'
 import { unlocked } from './integrations/status'
 
 /** The ids a tool input can point at (page_id: list_work_items' page filter). */
@@ -66,13 +67,15 @@ const isStagedCreate = (stage: StageApi, id: string) => stage.list().some((c) =>
  * The tools of an agent: the workspace agent's, without get_current_page (nobody has a page open),
  * without the writing ones for read-only agents, without upsert_rows unless an active integration profile unlocks it
  * on this device, each call checked against the scope. `read`: every result a call returned (the run's touched pages —
- * a Vorprüfer's classes, slice SJ).
+ * a Vorprüfer's classes, slice SJ). Pipelines and work orders are guarded (ai/agent/coding.ts, Prüfaufträge B2): no
+ * pipeline rows, no Stage / Repo / Branch / Then / Worker / Claimed / Work order / Step (title and priority stay), never a
+ * work order's Status — a request row the agent creates lands in Draft.
  */
 export function agentTools(agent: Pick<CustomAgent, 'scope' | 'write'>, opts: { upsert?: boolean; read?: (content: string) => void } = {}): AgentTool[] {
   const filter = scopeFilter(agent)
   const upsert = opts.upsert ?? unlocked('upsert')
   const read = opts.read ?? null
-  const base = AGENT_TOOLS.filter((t) => t.name !== 'get_current_page' && (agent.write !== 'none' || !t.write) && (upsert || t.name !== 'upsert_rows'))
+  const base = AGENT_TOOLS.filter((t) => t.name !== 'get_current_page' && (agent.write !== 'none' || !t.write) && (upsert || t.name !== 'upsert_rows')).map((t) => guardOrderRows(guardPipelineRows(t, 'agent')))
   if (!filter) return read ? base.map((tool) => ({ ...tool, run: (input, stage) => afterRead(tool.run(input, stage), read) })) : base
   return base.map((tool) => ({
     ...tool,

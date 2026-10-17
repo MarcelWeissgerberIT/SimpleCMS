@@ -15,6 +15,10 @@
  *    database folder; unknown folders become pages). A file that carries the `id` of a page whose
  *    own file is gone was renamed / moved: the page follows it.
  *  - `_database.md`, `_rows.csv` and `_files/` are read-only; `.trash/` and hidden folders are ignored.
+ *  - A pipeline task's moving fields (Stage, Repo, Branch, Then, Worker, Claimed at, Work order, Step …) and a work
+ *    order's Status are read-only too (coding `pickupKeeps`): a file that changed one is written again as One has it.
+ *    What the pick-up writes into a pipeline task (its text, its title, a new row) waits for "Confirm on this device"
+ *    (coding/trust.ts: writer 'sync', contentOrigin 'file').
  *  - Files that disappeared are reported (`missing`) — pages are never trashed without asking.
  */
 import type { JSONContent } from '@tiptap/core'
@@ -37,6 +41,7 @@ import { isConflictCopy, type SyncPlan } from './engine'
 import { textOf } from './hash'
 import type { Manifest, ManifestEntry } from './types'
 import { withWriter, type Writer } from '../../store/writer'
+import { pickupKeeps } from '../coding'
 
 export interface ExternalFile {
   path: string
@@ -343,7 +348,10 @@ export async function applyPickup(input: PickupInput): Promise<PickupResult> {
     return opt.id
   }
   const norm = (v: YamlValue) => (Array.isArray(v) ? v.join('\u0001') : v === null || v === undefined ? '' : String(v))
-  /** Pages with a file value One could not take (a new option in a locked database): their file is written again. */
+  /**
+   * Pages with a file value One could not take (a new option in a locked database, a field only One's own flows write):
+   * their file is written again.
+   */
   const refused = new Set<ID>()
   const applyProps = (page: Page, data: Map<string, YamlValue>, path: string) => {
     const db = page.databaseId ? ws().databases[page.databaseId] : undefined
@@ -358,6 +366,11 @@ export async function applyPickup(input: PickupInput): Promise<PickupResult> {
       const fileVal = data.get(hit)!
       const cur = ws().pages[page.id]
       if (norm(fileVal) === norm(propYaml(plan.ctx, db, d, cur, path))) continue
+      // a pipeline task's Stage / Repo / Branch / Then …, a work order's Status: never from a file
+      if (pickupKeeps(db.id, d.id)) {
+        refused.add(page.id)
+        continue
+      }
       let value: PropertyValue
       const text = yamlText(fileVal).trim()
       switch (d.type) {

@@ -31,6 +31,7 @@ import { parseStories, splitSections, type DocSection, type Story } from './outp
 import { createPrivatePage } from '../../cloud'
 import { addTrusted, appendLog, loadTask, patchTask, stampApprovals, taskLocal, type TaskLocal } from './local'
 import { isTrusted, keepTrust, trustTask, versionOf } from './trust'
+import { isAgentWriting } from '../agents/attribution'
 import { refIdsOf, splitTurn, taskText } from './refs'
 import { APPROVALS_KEY, approvalsAt, defaultApprovals, noteApprovalsChange, useCoding, type ApprovalsLevel } from './state'
 import { cleanShip, noteShip, prFieldNext, shipNote, shipShows } from './ship'
@@ -277,7 +278,9 @@ export async function pickNext(repos: string[], workerName: string, docs = false
     // the worker gets exactly the version that was checked (row and pipeline): anything that changed
     // meanwhile waits a round
     const fresh = ws().pages[row.id]
-    if (!fresh || fresh.trashed || ws().databases[dbId] !== db || !(await isTrusted(row.id)) || ws().pages[row.id] !== fresh || ws().databases[dbId] !== db) {
+    // a custom agent writing right now: its stamp (and with it the wait for Confirm) comes only when its batch is
+    // written — no task is handed out in between (the stamp race, Prüfaufträge B2)
+    if (!fresh || fresh.trashed || ws().databases[dbId] !== db || !(await isTrusted(row.id)) || ws().pages[row.id] !== fresh || ws().databases[dbId] !== db || isAgentWriting()) {
       skip()
       continue
     }

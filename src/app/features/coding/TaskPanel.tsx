@@ -14,10 +14,10 @@ import { useUI } from '../../store/ui'
 import { navigate } from '../../lib/router'
 import type { ID } from '../../store/types'
 import { HelpLink } from '../../help'
-import { clearLog, isMcpTouched, loadTask, useCodingLocal, useTaskLocal, useTaskLog } from './local'
+import { clearLog, loadTask, useCodingLocal, useTaskLocal, useTaskLog } from './local'
 import { useCoding } from './state'
 import { approveTask, answerTask, confirmTask, reworkTask, runTaskNow, stageSteps, taskContext, taskHasText } from './tasks'
-import { isTrusted } from './trust'
+import { confirmWhy, isTrusted } from './trust'
 import { stopTask } from './service'
 import { usePermissionFocus } from './PermissionCard'
 import { LogView } from './LogView'
@@ -238,7 +238,7 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
         {needsTrust && canAct && (
           <div className="ctk-box ctk-box--trust" role="alert">
             <ShieldCheck size={16} strokeWidth={1.75} aria-hidden />
-            <p>{t(team ? 'features.coding.trust.body' : isMcpTouched(pageId) ? 'features.coding.trust.mcp' : 'features.coding.trust.agent')}</p>
+            <p>{t(team ? 'features.coding.trust.body' : `features.coding.trust.${confirmWhy(task) ?? 'agent'}`)}</p>
             <button type="button" className="btn btn--sm btn--primary" onClick={act(async () => {
               await confirmTask(pageId)
               setTrusted(true)

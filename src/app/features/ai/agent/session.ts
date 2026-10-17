@@ -337,7 +337,7 @@ function prepareTask(task: string): { setup: McpSetup; prompt: string; memTools:
 function terminalSetup(coding: boolean, mem: boolean, upsert: boolean, tasks: boolean): { tools: AgentTool[]; system: string } {
   const own = upsert ? TERMINAL_TOOLS : TERMINAL_TOOLS.filter((x) => x.name !== 'upsert_rows')
   return {
-    tools: [...own.map(guardPipelineRows), ...(coding ? CODING_TOOLS : []), ...(mem ? [recallTool, rememberTool] : [])],
+    tools: [...own.map((t) => guardPipelineRows(t)), ...(coding ? CODING_TOOLS : []), ...(mem ? [recallTool, rememberTool] : [])],
     system: [agentSystemText(upsert), ...(tasks ? [TASK_RULES] : []), ...(coding ? [CODING_RULES] : []), ...(mem ? [MEMORY_RULES] : [])].join('\n\n'),
   }
 }

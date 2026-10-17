@@ -1,6 +1,7 @@
 /**
  * One MCP — One's own databases are read-only over MCP (spec § 3.3): the memory and its log, Mails and the mail
- * directories, the Coding · Business analysis · QA pipelines and the test cases (`Database.system`). A Stage set over
+ * directories, the Coding · Business analysis · QA pipelines, the test cases and the work orders (Prüfaufträge — their
+ * Status plans a chain; `Database.system`). A Stage set over
  * MCP would start the coding worker on the person's computer; a row in the memory becomes `<one_memory>` in every
  * free-form request. So nothing in such a database — the database page, its schema and views, its rows, the pages below
  * its rows — is created, changed, moved or trashed over MCP, and nothing points a new block of one into a page.
@@ -40,6 +41,7 @@ const KIND_TEXT: Record<SystemKind, string> = {
   spec: 'Business analysis pipeline',
   qa: 'QA pipeline',
   testcases: 'test cases',
+  workorders: 'work orders',
 }
 
 /**

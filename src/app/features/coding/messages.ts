@@ -348,6 +348,7 @@ export const messages: Messages = {
     'features.coding.trust.body': 'This task was written or changed on another device. Your worker runs it only after you checked it here.',
     'features.coding.trust.agent': 'A custom agent wrote or changed this task. Your worker runs it only after you checked it here.',
     'features.coding.trust.mcp': 'An MCP client changed this task or a page it takes along. Your worker runs it only after you checked it here.',
+    'features.coding.trust.file': 'The folder / GitHub sync wrote this task (its file was changed outside One). Your worker runs it only after you checked it here — or once you edit it yourself.',
     'features.coding.trust.confirm': 'Confirm on this device',
 
     'features.coding.tab.log': 'Log',
@@ -466,6 +467,8 @@ export const messages: Messages = {
     'features.coding.git.offline': 'The worker is not connected.',
     'features.coding.git.running': 'The task is running — stop it first.',
     'features.coding.git.noBranch': 'The task has no branch yet.',
+    'features.coding.git.shared': 'The branch {branch} also belongs to “{title}” — discard and clean-up stay off while that task holds it.',
+    'features.coding.git.sharedKey': 'Branch belongs to “{title}”',
     'features.coding.git.busy': '{verb}…',
     'features.coding.git.done': 'Done.',
     'features.coding.git.openLink': 'Open',
@@ -1166,6 +1169,7 @@ export const messages: Messages = {
     'features.coding.trust.body': 'Diese Aufgabe wurde auf einem anderen Gerät geschrieben oder geändert. Dein Worker führt sie erst aus, wenn du sie hier geprüft hast.',
     'features.coding.trust.agent': 'Ein eigener Agent hat diese Aufgabe geschrieben oder geändert. Dein Worker führt sie erst aus, wenn du sie hier geprüft hast.',
     'features.coding.trust.mcp': 'Ein MCP-Client hat diese Aufgabe oder eine Seite, die sie mitnimmt, geändert. Dein Worker führt sie erst aus, wenn du sie hier geprüft hast.',
+    'features.coding.trust.file': 'Der Ordner-/GitHub-Sync hat diese Aufgabe geschrieben (ihre Datei wurde außerhalb von One geändert). Dein Worker führt sie erst aus, wenn du sie hier geprüft hast – oder sobald du sie selbst bearbeitest.',
     'features.coding.trust.confirm': 'Auf diesem Gerät bestätigen',
 
     'features.coding.tab.log': 'Log',
@@ -1283,6 +1287,8 @@ export const messages: Messages = {
     'features.coding.git.offline': 'Der Worker ist nicht verbunden.',
     'features.coding.git.running': 'Die Aufgabe läuft – stoppe sie zuerst.',
     'features.coding.git.noBranch': 'Die Aufgabe hat noch keinen Branch.',
+    'features.coding.git.shared': 'Der Branch {branch} gehört auch „{title}“ – Verwerfen und Aufräumen bleiben aus, solange diese Aufgabe ihn hält.',
+    'features.coding.git.sharedKey': 'Branch gehört „{title}“',
     'features.coding.git.busy': '{verb}…',
     'features.coding.git.done': 'Erledigt.',
     'features.coding.git.openLink': 'Öffnen',

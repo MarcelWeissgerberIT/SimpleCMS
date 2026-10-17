@@ -142,6 +142,14 @@ export type { ApprovalsLevel } from './state'
  * codingProps(db).order / .step (display only, never part of a task version).
  */
 export { readOrderConfig, newOrderConfig, orderCheckpoint, orderConfigUsable, ORDER_KINDS, ORDER_STATUS_KEYS, BUDGET_RANGE, type OrderConfigRead } from './orders/config'
+/**
+ * B2 hardening: a work order's Status field (by the config's option ids; never by its name) and the Draft a row an
+ * agent made lands in; the fields only One's own flows write (FREE_ROLES = title + priority — the rest of a pipeline
+ * task's roles never by an agent, the MCP bridge or the folder / GitHub pick-up; `pickupKeeps` adds the Status); the
+ * other live tasks holding a task's branch (no discard / clean-up from One while one does).
+ */
+export { orderStatusProps, isOrderStatusProp, orderDraftOf, isOrdersDb } from './orders/status'
+export { FREE_ROLES, lockedPipelineRole, pickupKeeps, branchHolders, type BranchHolder } from './guards'
 export { PLAN_LIMITS, ORDER_LIMITS, type OrderPlanV1, type OrderStepPlan, type OrderRecord, type OrderDraft, type OrderChain, type OrderChainStep, type OrderDoneBy, type OrderHaltWhy, type OrderState, type OrderProv, type OrderCall, type OrderToolLeft, type OrderConfig, type OrderKind, type OrderStatusKey } from './orders/types'
 
 /** This device's Approvals for new tasks (localStorage one.coding.approvals). */

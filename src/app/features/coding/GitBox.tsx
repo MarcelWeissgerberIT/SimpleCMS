@@ -16,6 +16,8 @@ import { format } from 'date-fns'
 import { useT } from '../../i18n'
 import { Modal } from '../../ui/Modal'
 import { useUI } from '../../store/ui'
+import { useWorkspace } from '../../store/store'
+import { branchHolders } from './guards'
 import { GIT_SHA, SHIP_TRAILER, branchUrl, cleanWeb, commitUrl, type GitInfo, type GitVerb } from './protocol'
 import { gitTask } from './service'
 import { branchOk, isCommitUrl, shipShows, shipText } from './ship'
@@ -48,7 +50,7 @@ function Confirm({ title, body, action, danger, onConfirm, onClose }: { title: s
 }
 
 /** A key that must be pressed twice (armed for 4 s), then a dialog asks once more. */
-function ArmedKey({ label, armedLabel, icon, onConfirmed, disabled, testId }: { label: string; armedLabel: string; icon: ReactNode; onConfirmed: () => void; disabled?: boolean; testId?: string }) {
+function ArmedKey({ label, armedLabel, icon, onConfirmed, disabled, testId, title, describedBy }: { label: string; armedLabel: string; icon: ReactNode; onConfirmed: () => void; disabled?: boolean; testId?: string; title?: string; describedBy?: string }) {
   const [armed, setArmed] = useState(false)
   const timer = useRef(0)
   useEffect(() => () => window.clearTimeout(timer.current), [])
@@ -59,6 +61,8 @@ function ArmedKey({ label, armedLabel, icon, onConfirmed, disabled, testId }: { 
       data-armed={armed || undefined}
       disabled={disabled}
       data-testid={testId}
+      title={title}
+      aria-describedby={describedBy}
       onClick={() => {
         if (!armed) {
           setArmed(true)
@@ -100,6 +104,13 @@ export function GitBox({ taskId, git, branch, connected, running, title, review,
     }
   }
 
+  // another live task holds this branch (same repo, same branch, not done): no discard / clean-up from here (guards.ts)
+  const holder = useWorkspace((s) => {
+    const h = branchHolders(taskId, s)[0]
+    return h ? h.title || t('common.untitled') : null
+  })
+  const shared = holder ? t('features.coding.git.shared', { branch: branch ?? '', title: holder }) : null
+  const sharedId = `cg-shared-${taskId}`
   const off = !connected || running || !!busy || !branch
   // worker 1.10.0: the repo's web address — what is on the remote links to it
   const web = cleanWeb(git?.web)
@@ -241,11 +252,33 @@ export function GitBox({ taskId, git, branch, connected, running, title, review,
       <div className="cg-keys cg-keys--danger" role="group" aria-label={t('features.coding.git.danger')}>
         <span className="label">{t('features.coding.git.danger')}</span>
         <ArmedKey label={t('features.coding.git.forcePush')} armedLabel={t('features.coding.git.again')} icon={<ArrowUpFromLine size={13} strokeWidth={1.75} aria-hidden />} disabled={off || !git?.pushed} onConfirmed={() => setConfirm('force-push')} />
-        <ArmedKey label={t('features.coding.git.discard')} armedLabel={t('features.coding.git.again')} icon={<Trash2 size={13} strokeWidth={1.75} aria-hidden />} disabled={off || !git} onConfirmed={() => setConfirm('discard')} testId="coding-discard" />
-        <button type="button" className="btn btn--sm" disabled={off || !git?.merged} title={git?.merged ? undefined : t('features.coding.git.cleanupHint')} onClick={() => void run('cleanup')}>
+        <ArmedKey
+          label={t('features.coding.git.discard')}
+          armedLabel={t('features.coding.git.again')}
+          icon={<Trash2 size={13} strokeWidth={1.75} aria-hidden />}
+          disabled={off || !git || !!holder}
+          onConfirmed={() => setConfirm('discard')}
+          testId="coding-discard"
+          title={holder ? t('features.coding.git.sharedKey', { title: holder }) : undefined}
+          describedBy={holder ? sharedId : undefined}
+        />
+        <button
+          type="button"
+          className="btn btn--sm"
+          disabled={off || !git?.merged || !!holder}
+          title={holder ? t('features.coding.git.sharedKey', { title: holder }) : git?.merged ? undefined : t('features.coding.git.cleanupHint')}
+          aria-describedby={holder ? sharedId : undefined}
+          onClick={() => void run('cleanup')}
+          data-testid="coding-cleanup"
+        >
           {t('features.coding.git.cleanup')}
         </button>
       </div>
+      {shared && (
+        <p className="cg-why cg-shared" id={sharedId} data-testid="coding-git-shared">
+          {shared}
+        </p>
+      )}
       {why && <p className="cg-why">{why}</p>}
       {busy && (
         <p className="cg-why" role="status">

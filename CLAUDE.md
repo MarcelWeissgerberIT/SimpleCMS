@@ -1223,6 +1223,18 @@ the public APIs stable — other areas are built against them in parallel.
   image never loads by itself on a card (database/views/cards.tsx link chip; file chips show no web thumbnail). The team
   server over MCP refuses a locked page's content, a lossy replace (`lossyIn` pre-filter) and files values other than
   `onefile:`, checks before it writes and puts the content back from the call's pre-image after a failed meta check.
+- Pipeline / work-order hardening (Prüfaufträge B2): custom agents' tools (features/agents/scope.ts `agentTools`) and
+  the MCP stage run `guardPipelineRows(tool, 'agent')` + `guardOrderRows` (ai/agent/coding.ts): no rows or properties in
+  a pipeline project, no field but title / priority of a task (coding/guards.ts `FREE_ROLES` / `lockedPipelineRole`:
+  Stage, Repo, Branch, Then, Worker, Claimed, Work order, Step … stay the person's and the worker's), never a work
+  order's Status (coding/orders/status.ts `orderStatusProps`: by the config's option ids) — a request row an agent creates
+  lands in Draft; the terminal keeps its own guard (reviewed writes). Over MCP the work orders are a system database
+  (read-only, B0). The folder / GitHub pick-up never writes those fields nor the Status (`pickupKeeps`; the file is
+  written again); a pipeline task it wrote or made waits for Confirm locally (writer 'sync' carries no trust;
+  `contentOrigin` 'file' + IndexedDB `one-coding` `<scope>|fileTouched|<taskId>`; Confirm or the person's own edit in
+  the editor ends it — an editor filling in block ids does not). The worker gets no task while an agent batch is being
+  written (tasks.ts, the stamp race). One sends no discard / clean-up verb for a branch another live task holds
+  (`branchHolders`: same repo, same branch, not done; GitBox says whose).
 - MCP tidy-up tools (trash / restore ≤ 50 ids, move page / row, update database / property, delete property, view
   create / update / delete) live in `features/mcp/{tidy,structure}.ts` and `server/src/mcp/{tidy,structure}.ts` with
   the same rules: never delete for good, locked databases refuse structure changes, no page ⇄ entry or Private ⇄ shared

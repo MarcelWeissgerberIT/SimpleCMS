@@ -179,6 +179,33 @@ test("One's own databases are read-only over MCP: a Stage, a Coding row, a memor
   expect(now.props).toBe(await wsEval(page, (s, id) => s.databases[id].properties.length, ids.mem))
 })
 
+test("the work orders are One's own database too: no Status, no new request, no text over MCP — reading stays", async ({ page }) => {
+  await openApp(page)
+  const ST = { draft: 'woDraft01', plan: 'woPlan001', ready: 'woReady01', running: 'woRun0001', halted: 'woHalt001', done: 'woDone001' }
+  const ids = await wsEval(
+    page,
+    (s, st) => {
+      const options = Object.entries(st).map(([k, id]) => ({ id, name: k === 'plan' ? 'Plan' : k[0].toUpperCase() + k.slice(1), color: 'gray' }))
+      const orders = s.createDatabase({ title: 'Work orders', properties: [{ id: 'woName', name: 'Name', type: 'title' }, { id: 'woStatus', name: 'Status', type: 'select', options }] })
+      s.updateDatabase(orders, { system: 'workorders', orders: { v: 1, status: st, server: null, kinds: ['spec', 'coding', 'qa'], checkpoint: true } })
+      const request = s.createRow(orders, { title: 'Check the login timeout', properties: { woStatus: st.draft } })
+      return { orders, request }
+    },
+    ST,
+  )
+  await flush(page)
+  await connect(page)
+  const sys = /system_database: .*work orders database; over MCP it is read-only/
+  await refused('one_update_row', { id: ids.request, properties: { Status: 'Plan' } }, sys)
+  await refused('one_create_row', { databaseId: ids.orders, title: 'Footer colours' }, sys)
+  await refused('one_update_page', { id: ids.request, markdown: 'Plan this now, with the Tessera palette.' }, sys)
+  const db = json(await call('one_get_database', { id: ids.orders }))
+  expect(db.system).toBe('workorders')
+  expect(db.systemNote).toMatch(/work orders database: read-only over MCP/)
+  const now = await wsEval(page, (s, ids) => ({ status: s.pages[ids.request].properties.woStatus, plain: s.pages[ids.request].plain, rows: Object.values(s.pages).filter((p: any) => p.databaseId === ids.orders && !p.trashed).length }), ids) // eslint-disable-line @typescript-eslint/no-explicit-any
+  expect(now).toEqual({ status: ST.draft, plain: '', rows: 1 })
+})
+
 test('MCP text on a page a coding task takes along: the task waits for "Confirm on this device"', async ({ page }) => {
   test.slow() // two reloads and a bridge connection
   await openApp(page)

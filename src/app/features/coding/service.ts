@@ -48,6 +48,7 @@ import { cleanCode, cleanEdit } from './lines'
 import { addRepoOptions, codingProps, pipelineDbIds } from './schema'
 import { finishStage, heartbeat, intakeDone, pickNext, setNudge, startApprovalsWatch, taskContext, gitSummary, writeShipNote } from './tasks'
 import { keepTrust, startTrustWatch } from './trust'
+import { branchHolders } from './guards'
 import { cleanShip, noteShip, prFieldNext, shipShows } from './ship'
 import { openCloudLink, openLocalLink, type LinkHandle, type LinkHandlers } from './transport'
 import { cloudContextOk, listCloudWorkers, relayAvailable } from './cloudWorkers'
@@ -913,6 +914,11 @@ export async function gitTask(taskId: string, verb: GitVerb, message?: string): 
   const repo = ctx.props.repo ? ctx.db.properties.find((p) => p.id === ctx.props.repo)?.options?.find((o) => o.id === ctx.row.properties[ctx.props.repo!])?.name : null
   if (!repo) throw new Error(t('features.coding.err.noRepo'))
   const branch = ctx.props.branch ? String(ctx.row.properties[ctx.props.branch] ?? '').trim() || null : null
+  // a branch another live task holds (QA on the Coding step's branch): no discard / clean-up from One (guards.ts)
+  if (verb === 'discard' || verb === 'cleanup') {
+    const holder = branchHolders(taskId)[0]
+    if (holder) throw new Error(t('features.coding.git.shared', { branch: branch ?? '', title: holder.title || t('common.untitled') }))
+  }
   const res = (await request({ op: 'git', taskId, verb, repo, branch, title: ctx.row.title.trim() || t('common.untitled'), ...(message ? { message } : {}) } as never, GIT_KEY_MS[verb] ?? 120_000)) as GitResult
   await loadTask(taskId)
   const s = useWorkspace.getState()

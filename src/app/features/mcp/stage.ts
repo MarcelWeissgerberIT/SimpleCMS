@@ -8,7 +8,7 @@ import { t, currentLang } from '../../i18n'
 import type { ID } from '../../store/types'
 import { AGENT_TOOLS, ToolInputError, withToolScope, type AgentTool, type StageApi } from '../ai/agent/tools'
 import { applyChanges } from '../ai/agent/apply'
-import { guardPipelineRows } from '../ai/agent/coding'
+import { guardOrderRows, guardPipelineRows } from '../ai/agent/coding'
 import { inTemplate } from '../../store/selectors'
 import { systemChange, systemGuard, systemRefusal } from './system'
 import { newItemSession } from '../ai/agent/workItems'
@@ -69,12 +69,13 @@ export function callStage(): StageApi & { changes: StagedChange[] } {
 }
 
 /**
- * The agent tools as MCP runs them: One's own databases refused (system.ts systemGuard — read-only over MCP), the
- * pipelines' row guard behind it as a backstop (agent/coding.ts guardPipelineRows). Built once, on first use.
+ * The agent tools as MCP runs them: One's own databases refused (system.ts systemGuard — read-only over MCP, the work
+ * orders included), the pipelines' and the work orders' row guards behind it as a backstop (agent/coding.ts
+ * guardPipelineRows in the agents' words, guardOrderRows). Built once, on first use.
  */
 let mcpTools: AgentTool[] | null = null
 export function mcpStageTool(name: ToolName): AgentTool | undefined {
-  mcpTools ??= AGENT_TOOLS.map((tool) => systemGuard(guardPipelineRows(tool)))
+  mcpTools ??= AGENT_TOOLS.map((tool) => systemGuard(guardOrderRows(guardPipelineRows(tool, 'agent'))))
   return mcpTools.find((x) => x.name === name)
 }
 
