@@ -3,16 +3,21 @@
  * backlinks, databases and filtered row queries. Everything is read from the workspace's own meta
  * document (and its pages' content documents) — another member's private pages are never in there.
  */
-import * as Y from 'yjs'
 import type { Services } from '../context.ts'
 import { ApiError, badRequest, notFound } from '../errors.ts'
-import { fragmentLinks, fragmentMarkdown } from '../api/markdown.ts'
-import { type PageInfo, type PropertyDef, type Roots, allPages, liveDatabase, outOfReach, livePage, pageMap, readOrdered, rowsOf } from '../api/meta.ts'
+import { fragmentLinks } from '../api/markdown.ts'
+import { type PageInfo, type PropertyDef, type Roots, allPages, databaseMap, liveDatabase, outOfReach, livePage, pageMap, readOrdered, rowsOf } from '../api/meta.ts'
 import { MAX_PAGE_SIZE, contentDoc, findProperty, type WorkspaceModel } from '../api/model.ts'
 import { schemaOut } from '../api/values.ts'
 import { iso } from '../tokens.ts'
 import { type Condition, type Field, type FriendlyRow, type SortKey, decodeCursor, encodeCursor, matches, sorter } from './query.ts'
-import { systemKindOf, systemNote } from './system.ts'
+import { systemKindOf, systemNote, systemOf } from './system.ts'
+import { viewJson } from './structure.ts'
+import { contentRev, docJson, readThreads, serverReader } from './pageRead.ts'
+import { blockPieces, markdownUnits, PIECE_ROOM, readBlocks, readPart, readPrint, refIndex, sizeOf, type McpBlock, type PMJson, type ReadAnchors } from '../../../src/shared/mcp/pageRead.ts'
+import { MCP_LIMITS, MCP_PAGE_KINDS } from '../../../src/shared/mcp/tables.ts'
+import { mcpError } from '../../../src/shared/mcp/errors.ts'
+import type { ApiComments } from '../repo.ts'
 
 /** Pages listed in the overview's tree, at most. */
 const TREE_LIMIT = 150
@@ -22,6 +27,17 @@ const BACKLINK_SCAN = 3000
 const MAX_BACKLINKS = 50
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
+
+/** An MCP refusal in the contract's shape (src/shared/mcp/errors.ts) as the API error the tools explain. */
+const refuse = (code: Parameters<typeof mcpError>[0], path: string, what: string) => new ApiError(code === 'not_found' ? 404 : 422, code, mcpError(code, path, what))
+
+/** The page's data class for the agent (spec § 3.5): mail, memory, rows or page (the server never reads private pages). */
+function classOf(r: Roots, id: string): string {
+  const hit = systemOf(r, id)
+  if (hit && (hit.kind === 'mails' || hit.kind.startsWith('mail-'))) return 'mail'
+  if (hit && (hit.kind === 'memory' || hit.kind === 'memory-log')) return 'memory'
+  return pageMap(r, id)?.get('databaseId') ? 'rows' : 'page'
+}
 
 /** PageIcon JSON → the tools' icon string: the emoji itself, `asset:<name>` or `lucide:<Name>`. */
 export function iconOut(v: unknown): string | null {
@@ -77,6 +93,11 @@ export class McpReads {
     this.model = model
   }
 
+  /** Where links of this workspace start: a page's link is urlBase + its id (lists carry it once, spec § 2.0). */
+  urlBase(wsId: string): string {
+    return this.model.url(wsId, '')
+  }
+
   /* ---------------------------------------------------------------- overview */
 
   overview(wsId: string, scope: string) {
@@ -119,6 +140,14 @@ export class McpReads {
         return { nodes, more: list.length - nodes.length }
       }
       const top = tree(null, 0)
+      let cut = top.more > 0
+      const walkCut = (nodes: TreeNode[]) => {
+        for (const n of nodes) {
+          if (n.more) cut = true
+          if (n.children) walkCut(n.children)
+        }
+      }
+      walkCut(top.nodes)
       const databases = live
         .filter((p) => p.kind === 'database' && liveDatabase(r, p.id))
         .map((p) => ({ id: p.id, title: p.title || 'Untitled', path: pathOf(r, p.id), rows: rowCount.get(p.id) ?? 0 }))
@@ -134,6 +163,7 @@ export class McpReads {
         counts: { pages: live.filter((p) => !p.databaseId && p.kind === 'page').length, databases: databases.length, rows: live.filter((p) => p.databaseId).length },
         pages: top.nodes,
         ...(top.more ? { morePages: top.more } : {}),
+        ...(cut ? { tree: { more: true, use: 'one_list_pages' } } : {}),
         databases,
         people,
         hint: 'Ids come from here, one_search and one_list_databases. Rows live in databases: use one_query_database to list them.',
@@ -175,6 +205,7 @@ export class McpReads {
       hits.sort((a, b) => b.score - a.score || b.p.updatedAt - a.p.updatedAt)
       return {
         query,
+        urlBase: this.urlBase(wsId),
         results: hits.slice(0, limit).map(({ p, plain }) => ({
           id: p.id,
           kind: kindOf(p),
@@ -182,7 +213,6 @@ export class McpReads {
           path: pathOf(r, p.id),
           ...(p.databaseId ? { databaseId: p.databaseId } : {}),
           snippet: snippet(plain, terms),
-          url: this.model.url(wsId, p.id),
           updatedAt: iso(p.updatedAt),
         })),
         total: hits.length,
@@ -209,51 +239,125 @@ export class McpReads {
     throw notFound('page_not_found', `No page titled "${input.title}".${hint}`)
   }
 
-  async getPage(wsId: string, input: { id?: string; title?: string }) {
-    const head = await this.model.read(wsId, (r) => {
-      const { page, others } = this.resolvePage(r, input)
+  /**
+   * A page in full (spec § 2.1): the head once (with rev, class, settings, sub-pages, backlinks, comments when the token
+   * may read them), then the content as Markdown or Blocks, in parts under MCP_LIMITS.part — `cursor` = the previous
+   * part's `next`; a part of a page that changed since → page_changed.
+   */
+  async getPage(wsId: string, input: { id?: string; title?: string; format?: 'markdown' | 'blocks'; refs?: boolean; cursor?: string; comments?: boolean; transcript?: boolean }, opts: { comments: ApiComments }) {
+    const format = input.format ?? 'markdown'
+    if (input.comments && opts.comments === 'off') throw refuse('comments_off', 'comments', 'Comments over MCP are off for this token (an admin sets it when creating the token)')
+    const pageId = await this.model.read(wsId, (r) => this.resolvePage(r, input).page.id)
+    const content = await this.s.collab.read(contentDoc(wsId, pageId), (doc) => ({ doc: docJson(doc), rev: contentRev(doc) }))
+    const built = await this.model.read(wsId, (r) => {
+      const { page, others } = this.resolvePage(r, { id: pageId })
       const db = page.databaseId ? liveDatabase(r, page.databaseId) : null
-      const titles = new Map<string, string>()
-      for (const [id, yp] of r.pages.entries()) if (yp instanceof Y.Map) titles.set(id, typeof yp.get('title') === 'string' ? (yp.get('title') as string) : '')
+      const yp = pageMap(r, page.id)
+      const titleOf = (id: string): string | null => (livePage(r, id) ? (pageMap(r, id)?.get('title') as string | undefined) || 'Untitled' : null)
+      const reader = serverReader({ s: this.s, wsId, r, title: titleOf, path: () => pathOf(r, page.id).split(' / '), transcript: !!input.transcript })
+      const doc = content.doc
+      const index = refIndex(doc)
+      const anchors: ReadAnchors = { comments: new Map() }
+      const blocks: McpBlock[] | null = format === 'blocks' || input.comments ? readBlocks(doc, reader, index, undefined, anchors) : null
       const kids = allPages(r)
-        .filter((p) => p.parentId === page.id && !p.databaseId && !outOfReach(r, p.id))
+        .filter((p) => p.parentId === page.id && !p.databaseId && !outOfReach(r, p.id) && pageMap(r, p.id)?.get('hidden') !== true)
         .sort(byOrder)
       const rows = page.kind === 'database' ? rowsOf(r, page.id).length : null
-      return {
-        page,
-        titles,
-        out: {
-          id: page.id,
-          kind: kindOf(page),
-          title: page.title,
-          icon: iconOut(pageMap(r, page.id)?.get('icon')),
-          path: pathOf(r, page.id),
-          url: this.model.url(wsId, page.id),
-          parentId: page.parentId,
-          ...(db ? { database: { id: db.page.id, title: db.page.title } } : {}),
-          createdAt: iso(page.createdAt),
-          updatedAt: iso(page.updatedAt),
-          ...(db ? { properties: this.model.rowOut(wsId, db.properties, page, this.model.context(wsId, r)).properties } : {}),
-          ...(rows !== null
-            ? {
-                rows,
-                schema: (liveDatabase(r, page.id)?.properties ?? []).map((p) => ({ name: p.name, type: p.type, ...(p.options ? { options: p.options.map((o) => o.name) } : {}) })),
-                hint: 'A database: one_query_database lists its rows, one_get_database has the full schema and views.',
-              }
-            : {}),
-          ...(kids.length ? { children: kids.slice(0, 100).map((p) => ({ id: p.id, title: p.title || 'Untitled', kind: p.kind })) } : {}),
-          ...(others.length ? { alsoTitled: others.slice(0, 10).map((p) => ({ id: p.id, path: pathOf(r, p.id) })) } : {}),
-        },
-        candidates: allPages(r)
-          .filter((p) => p.id !== page.id && !outOfReach(r, p.id) && p.kind !== 'database')
-          .slice(0, BACKLINK_SCAN)
-          .map((p) => ({ id: p.id, title: p.title || 'Untitled', path: pathOf(r, p.id) })),
+      const settings = isObj(yp?.get('settings')) ? (yp!.get('settings') as Record<string, unknown>) : {}
+      const cover = yp?.get('cover')
+      const head: Record<string, unknown> = {
+        id: page.id,
+        kind: kindOf(page),
+        title: page.title,
+        icon: iconOut(yp?.get('icon')),
+        cover: isObj(cover) && typeof cover.value === 'string' ? { type: String(cover.type ?? 'image'), value: cover.value } : null,
+        path: pathOf(r, page.id),
+        url: this.model.url(wsId, page.id),
+        parentId: page.parentId,
+        rev: content.rev,
+        class: classOf(r, page.id),
+        ...(db ? { database: { id: db.page.id, title: db.page.title } } : {}),
+        createdAt: iso(page.createdAt),
+        updatedAt: iso(page.updatedAt),
+        settings: { fullWidth: settings.fullWidth === true, font: typeof settings.font === 'string' ? settings.font : 'sans', smallText: settings.smallText === true, locked: settings.locked === true },
+        ...(settings.locked === true ? { locked: true } : {}),
+        ...(db ? { properties: this.model.rowOut(wsId, db.properties, page, this.model.context(wsId, r)).properties } : {}),
+        ...(rows !== null
+          ? {
+              rows,
+              schema: (liveDatabase(r, page.id)?.properties ?? []).map((p) => ({ name: p.name, type: p.type, ...(p.options ? { options: p.options.map((o) => o.name) } : {}) })),
+              hint: 'A database: one_query_database lists its rows, one_get_database has the full schema and views.',
+            }
+          : {}),
+        children: { items: kids.slice(0, 50).map((p) => ({ id: p.id, title: p.title || 'Untitled', kind: kindOf(p) })), more: Math.max(0, kids.length - 50) },
+        ...(others.length ? { alsoTitled: others.slice(0, 10).map((p) => ({ id: p.id, path: pathOf(r, p.id) })) } : {}),
+        ...(input.comments ? { comments: readThreads(r, page.id, anchors.comments) } : {}),
       }
+      const top = (doc.content ?? []).map((node: PMJson, i: number) => ({ node, path: [i] }))
+      const units = format === 'blocks' ? blocks!.flatMap((b) => blockPieces(b, PIECE_ROOM)) : markdownUnits(top, reader, input.refs ? index : null)
+      const candidates = allPages(r)
+        .filter((p) => p.id !== page.id && !outOfReach(r, p.id) && p.kind !== 'database')
+        .slice(0, BACKLINK_SCAN)
+        .map((p) => ({ id: p.id, title: p.title || 'Untitled', path: pathOf(r, p.id) }))
+      return { head, units, reader, candidates }
     })
-    const title = (id: string) => (head.titles.has(id) ? head.titles.get(id) || 'Untitled' : null)
-    const { markdown, truncated } = await this.s.collab.read(contentDoc(wsId, head.page.id), (doc) => fragmentMarkdown(doc, { title }))
-    const backlinks = await this.backlinks(wsId, head.page.id, head.candidates)
-    return { ...head.out, markdown, ...(truncated ? { truncated: true } : {}), backlinks }
+    // backlinks only for the first part (the head is sent once)
+    if (!input.cursor) built.head.backlinks = await this.backlinks(wsId, pageId, built.candidates)
+    const print = readPrint({ page: pageId, format, refs: !!input.refs, transcript: !!input.transcript })
+    const part = readPart({ head: built.head, id: pageId, rev: content.rev, cursorRev: content.rev, print, cursor: input.cursor, format, units: built.units, reader: built.reader })
+    if (!part.ok) throw refuse(part.code, 'cursor', part.what)
+    return part.result
+  }
+
+  /* ---------------------------------------------------------------- one_list_pages */
+
+  /** Pages in sidebar order below a page (or the top level), up to 3 levels deep; rows only when asked for. */
+  listPages(wsId: string, input: { parentId?: string | null; depth?: number; kinds?: Array<(typeof MCP_PAGE_KINDS)[number]>; cursor?: string; limit?: number }) {
+    return this.model.read(wsId, (r) => {
+      let parent: PageInfo | null = null
+      if (input.parentId) {
+        parent = livePage(r, input.parentId)
+        if (!parent) throw refuse('not_found', 'parentId', `No page with id "${input.parentId}" in this workspace (or it is in the trash)`)
+      }
+      const depth = input.depth ?? 1
+      const limit = input.limit ?? MCP_LIMITS.listDefault
+      const kinds = [...new Set(input.kinds?.length ? input.kinds : (['page', 'database'] as const))]
+      const rows = kinds.includes('row')
+      const byParent = new Map<string, PageInfo[]>()
+      for (const p of allPages(r)) {
+        if (outOfReach(r, p.id)) continue
+        if (!p.databaseId && pageMap(r, p.id)?.get('hidden') === true) continue
+        const key = p.parentId ?? ''
+        byParent.set(key, [...(byParent.get(key) ?? []), p])
+      }
+      const kidsOf = (id: string) => (byParent.get(id) ?? []).filter((p) => (p.databaseId ? rows && p.databaseId === id : true)).sort(byOrder)
+      const listed = (p: PageInfo) => (kinds as readonly string[]).includes(kindOf(p))
+      const items: Array<Record<string, unknown>> = []
+      const walk = (id: string, level: number) => {
+        for (const p of kidsOf(id)) {
+          const kids = kidsOf(p.id)
+          if (listed(p))
+            items.push({ id: p.id, kind: kindOf(p), title: p.title || 'Untitled', icon: iconOut(pageMap(r, p.id)?.get('icon')), parentId: p.parentId, depth: level, children: kids.filter(listed).length, updatedAt: iso(p.updatedAt) })
+          if (level < depth) walk(p.id, level + 1)
+        }
+      }
+      walk(parent?.id ?? '', 1)
+      const print = readPrint({ list: parent?.id ?? null, depth, kinds: [...kinds].sort() })
+      let offset = 0
+      if (input.cursor) {
+        const m = /^([0-9a-z]{1,8})\.([0-9a-f]{10})$/.exec(input.cursor.trim())
+        if (!m || m[2] !== print) throw refuse('bad_argument', 'cursor', 'This cursor belongs to another listing (other parentId, depth or kinds): start again without it')
+        offset = parseInt(m[1]!, 36)
+      }
+      const slice = items.slice(offset, offset + limit)
+      const out: Record<string, unknown> = { urlBase: this.urlBase(wsId), parentId: parent?.id ?? null, total: items.length, items: slice, next: offset + slice.length < items.length ? `${(offset + slice.length).toString(36)}.${print}` : null }
+      while (sizeOf(out) > MCP_LIMITS.part && (out.items as unknown[]).length > 1) {
+        const kept = (out.items as unknown[]).slice(0, -Math.max(1, Math.floor((out.items as unknown[]).length / 4)))
+        out.items = kept
+        out.next = `${(offset + kept.length).toString(36)}.${print}`
+      }
+      return out
+    })
   }
 
   /**
@@ -278,7 +382,7 @@ export class McpReads {
 
   listDatabases(wsId: string) {
     return this.model.read(wsId, (r) => {
-      const out: Array<{ id: string; title: string; path: string; url: string; rows: number; properties: Array<{ name: string; type: string }> }> = []
+      const out: Array<{ id: string; title: string; path: string; parentId: string | null; rows: number; inline: boolean; system: string | null; properties: Array<{ name: string; type: string }> }> = []
       for (const id of r.databases.keys()) {
         const db = liveDatabase(r, id)
         if (!db) continue
@@ -286,12 +390,14 @@ export class McpReads {
           id,
           title: db.page.title || 'Untitled',
           path: pathOf(r, id),
-          url: this.model.url(wsId, id),
+          parentId: db.page.parentId,
           rows: rowsOf(r, id).length,
+          inline: databaseMap(r, id)?.get('inline') === true,
+          system: systemKindOf(r, id),
           properties: db.properties.map((p) => ({ name: p.name, type: p.type })),
         })
       }
-      return { databases: out.sort((a, b) => a.path.localeCompare(b.path) || (a.id < b.id ? -1 : 1)) }
+      return { urlBase: this.urlBase(wsId), databases: out.sort((a, b) => a.path.localeCompare(b.path) || (a.id < b.id ? -1 : 1)) }
     })
   }
 
@@ -299,16 +405,10 @@ export class McpReads {
     return this.model.read(wsId, (r) => {
       const db = liveDatabase(r, dbId)
       if (!db) throw notFound('database_not_found', `No database with id "${dbId}" in this workspace (one_list_databases lists them)`)
-      const nameOf = (id: unknown) => (typeof id === 'string' ? (db.properties.find((p) => p.id === id)?.name ?? null) : null)
-      const views = readOrdered<Record<string, unknown>>(db.ydb.get('views')).map((v) => ({
-        id: String(v.id),
-        name: typeof v.name === 'string' ? v.name : '',
-        type: typeof v.type === 'string' ? v.type : 'table',
-        ...(nameOf(v.groupBy) ? { groupBy: nameOf(v.groupBy) } : {}),
-        ...(nameOf(v.dateProperty) ? { dateProperty: nameOf(v.dateProperty) } : {}),
-        ...(Array.isArray(v.sorts) && v.sorts.length
-          ? { sorts: (v.sorts as Array<{ propertyId?: unknown; direction?: unknown }>).map((s) => ({ property: nameOf(s.propertyId) ?? String(s.propertyId), direction: s.direction === 'desc' ? 'desc' : 'asc' })) }
-          : {}),
+      // every view in full: its filter as one_create_view takes it, the visible properties in order (spec § 2.1)
+      type StoredView = Parameters<typeof viewJson>[2]
+      const views = readOrdered<StoredView>(db.ydb.get('views')).map((v) => ({
+        ...viewJson(r, db.properties, { ...v, name: typeof v.name === 'string' ? v.name : '', type: typeof v.type === 'string' ? v.type : 'table', sorts: Array.isArray(v.sorts) ? v.sorts : [], visibleProperties: Array.isArray(v.visibleProperties) ? v.visibleProperties : [] }),
         filtered: isObj(v.filter) && Array.isArray(v.filter.items) && v.filter.items.length > 0,
       }))
       return {
@@ -319,6 +419,8 @@ export class McpReads {
         path: pathOf(r, dbId),
         url: this.model.url(wsId, dbId),
         parentId: db.page.parentId,
+        class: classOf(r, dbId),
+        inline: db.ydb.get('inline') === true,
         rows: rowsOf(r, dbId).length,
         locked: db.ydb.get('locked') === true,
         ...(db.ydb.get('locked') === true ? { lockedNote: 'Locked: rows can be added and changed; properties and options cannot.' } : {}),
@@ -355,8 +457,10 @@ export class McpReads {
       const end = offset + page.length
       return {
         database: { id: input.databaseId, title: db.page.title || 'Untitled' },
+        urlBase: this.urlBase(wsId),
         total: hit.length,
-        rows: page,
+        // a list: no link per row (urlBase + id)
+        rows: page.map(({ url: _url, ...row }) => row),
         next: end < hit.length ? encodeCursor(end, fingerprint) : null,
       }
     })

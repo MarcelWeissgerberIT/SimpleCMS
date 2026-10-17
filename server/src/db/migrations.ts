@@ -354,4 +354,12 @@ export const migrations: Migration[] = [
       );
     `,
   },
+  {
+    version: 11,
+    name: 'api tokens: comments over MCP',
+    sql: `
+      -- what the token's MCP client may do with comments (docs/MCP.md): off (default) · read · write; set at creation
+      ALTER TABLE api_tokens ADD COLUMN mcp_comments TEXT NOT NULL DEFAULT 'off' CHECK (mcp_comments IN ('off', 'read', 'write'));
+    `,
+  },
 ]

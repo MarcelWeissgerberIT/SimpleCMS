@@ -261,6 +261,18 @@
   max-width: 460px;
 }
 
+/* comments over MCP: a second row of the changes panel, below a hairline */
+.mcp-comments {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--rule);
+  display: grid;
+  gap: 6px;
+}
+.mcp-comments__label {
+  color: var(--ink-2);
+}
+
 /* ---------- setup ---------- */
 .mcp-steps {
   display: grid;

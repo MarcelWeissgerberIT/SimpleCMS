@@ -55,7 +55,13 @@
   padding: 10px 0 4px;
 }
 .api-form--token {
-  grid-template-columns: minmax(0, 1fr) 160px auto;
+  grid-template-columns: minmax(0, 1fr) 150px 170px auto;
+}
+.api-hint {
+  margin: 2px 0 0;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: 1.5;
 }
 .api-form--hook {
   grid-template-columns: minmax(0, 1fr) auto;
@@ -97,13 +103,16 @@
 }
 .api-row__name {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 4px 8px;
   min-width: 0;
   font-size: calc(13.5px * var(--text-scale));
   font-weight: 620;
 }
 .api-row__name > span:first-child {
+  /* the tags go below a long name (phone width) before the name is cut */
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

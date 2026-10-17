@@ -348,7 +348,7 @@ describe('remote MCP', () => {
     const p = await call(reader, 'one_get_page', { id: 'doc-1' })
     assert.equal(p.kind, 'page')
     assert.equal(p.icon, '📘')
-    assert.deepEqual(p.children, [{ id: 'doc-2', title: 'Onboarding', kind: 'page' }])
+    assert.deepEqual(p.children, { items: [{ id: 'doc-2', title: 'Onboarding', kind: 'page' }], more: 0 })
     const md = p.markdown as string
     assert.match(md, /^# How we work/)
     assert.match(md, /Read \*\*this\*\* and \[the site\]\(https:\/\/example\.com\)\./)
@@ -391,7 +391,7 @@ describe('remote MCP', () => {
     assert.deepEqual(db.properties.find((p: { name: string }) => p.name === 'Status').options.map((o: { name: string }) => o.name), ['Not started', 'In progress', 'Done'])
     const rel = db.properties.find((p: { name: string }) => p.name === 'Project')
     assert.deepEqual([rel.relationDatabaseId, rel.relationDatabaseTitle], ['db-proj', 'Projects'])
-    assert.deepEqual(db.views, [{ id: 'v-1', name: 'Board', type: 'board', groupBy: 'Status', sorts: [{ property: 'Estimate', direction: 'desc' }], filtered: false }])
+    assert.deepEqual(db.views, [{ id: 'v-1', name: 'Board', type: 'board', groupBy: 'Status', sorts: [{ property: 'Estimate', direction: 'desc' }], properties: ['Status', 'Tags', 'Due', 'Estimate', 'Done?', 'Project'], filtered: false }])
     assert.equal(db.rows, 3)
     await fails(reader, 'one_get_database', { id: 'doc-1' }, /No database/)
     await fails(outsider, 'one_get_database', { id: 'db-tasks' }, /No database/)
@@ -661,7 +661,7 @@ describe('remote MCP', () => {
     const b1 = await call(writer, 'one_create_page', { title: 'Box 1', parentId: shelf.id })
     const b2 = await call(writer, 'one_create_page', { title: 'Box 2', parentId: shelf.id })
     const loose = await call(writer, 'one_create_page', { title: 'Loose box' })
-    const kids = async () => ((await call(reader, 'one_get_page', { id: shelf.id })).children as Array<{ title: string }>).map((k) => k.title)
+    const kids = async () => ((await call(reader, 'one_get_page', { id: shelf.id })).children.items as Array<{ title: string }>).map((k) => k.title)
 
     const moved = await call(writer, 'one_move_page', { id: loose.id, parentId: shelf.id, before: b1.id })
     assert.deepEqual([moved.parentId, moved.index, moved.path, moved.kind], [shelf.id, 0, 'Shelf', 'page'])

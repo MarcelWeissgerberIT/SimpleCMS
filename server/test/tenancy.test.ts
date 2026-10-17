@@ -271,6 +271,7 @@ const MCP_TOOLS: Record<string, (x: Foreign) => Record<string, unknown>> = {
   one_search: () => ({ query: MARKER.slice(0, 10) }), // (the answer repeats the query)
   one_list_databases: () => ({}),
   one_get_page: (x) => ({ id: x.page }),
+  one_list_pages: (x) => ({ parentId: x.page }),
   one_get_database: (x) => ({ id: x.db }),
   one_query_database: (x) => ({ databaseId: x.db }),
   one_create_page: (x) => ({ title: 'injected', parentId: x.page }),

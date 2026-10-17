@@ -5,7 +5,7 @@
  */
 import { useMemo } from 'react'
 import { create } from 'zustand'
-import { MCP_DEFAULT_PORT, type McpAgentMode, type McpClientInfo, type McpPeer, type McpToolName } from './contract'
+import { MCP_COMMENT_MODES, MCP_DEFAULT_PORT, type McpAgentMode, type McpClientInfo, type McpCommentMode, type McpPeer, type McpToolName } from './contract'
 import type { WritePlan } from './write'
 
 export const MCP_STORAGE_KEY = 'one.mcp'
@@ -16,9 +16,11 @@ export interface McpSettings {
   /** Agent changes: ask first (default) · apply directly · read only */
   mode: McpAgentMode
   port: number
+  /** Comments over MCP on this device: off (default) · read · read + write (one_get_page { comments }, one_comment) */
+  comments: McpCommentMode
 }
 
-export const DEFAULT_SETTINGS: McpSettings = { enabled: false, mode: 'ask', port: MCP_DEFAULT_PORT }
+export const DEFAULT_SETTINGS: McpSettings = { enabled: false, mode: 'ask', port: MCP_DEFAULT_PORT, comments: 'off' }
 
 export function loadSettings(): McpSettings {
   try {
@@ -28,6 +30,7 @@ export function loadSettings(): McpSettings {
       enabled: raw.enabled === true,
       mode: raw.mode === 'apply' || raw.mode === 'read' ? raw.mode : 'ask',
       port: validPort(raw.port) ?? MCP_DEFAULT_PORT,
+      comments: (MCP_COMMENT_MODES as readonly unknown[]).includes(raw.comments) ? (raw.comments as McpCommentMode) : 'off',
     }
   } catch {
     return { ...DEFAULT_SETTINGS }

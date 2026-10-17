@@ -12,7 +12,7 @@ import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { useLang, useT } from '../../i18n'
 import { Led } from '../../ui/controls'
-import { cloudApi, type ApiScope, type ApiToken, type IncomingHook } from './api'
+import { cloudApi, type ApiComments, type ApiScope, type ApiToken, type IncomingHook } from './api'
 import { errorText } from './errors'
 import './api.css'
 
@@ -171,6 +171,8 @@ function Tokens({ wsId }: { wsId: string }) {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [name, setName] = useState('')
   const [scope, setScope] = useState<ApiScope>('write')
+  // comments over MCP: off unless an admin switches them on for this token (a read token never writes them)
+  const [comments, setComments] = useState<ApiComments>('off')
   const [creating, setCreating] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -196,7 +198,7 @@ function Tokens({ wsId }: { wsId: string }) {
     setCreating(true)
     setError(null)
     try {
-      const tok = await cloudApi.createApiToken(wsId, name.trim(), scope)
+      const tok = await cloudApi.createApiToken(wsId, name.trim(), scope, scope === 'read' && comments === 'write' ? 'read' : comments)
       setCreated(tok)
       setName('')
       setTokens((list) => [tok, ...(list ?? [])])
@@ -250,9 +252,30 @@ function Tokens({ wsId }: { wsId: string }) {
           <label className="label" htmlFor={`${uid}-scope`}>
             {t('shell.cloud.api.scope')}
           </label>
-          <select id={`${uid}-scope`} className="input" value={scope} onChange={(e) => setScope(e.target.value as ApiScope)}>
+          <select
+            id={`${uid}-scope`}
+            className="input"
+            value={scope}
+            onChange={(e) => {
+              const next = e.target.value as ApiScope
+              setScope(next)
+              if (next === 'read' && comments === 'write') setComments('read')
+            }}
+          >
             <option value="write">{t('shell.cloud.api.scope.write')}</option>
             <option value="read">{t('shell.cloud.api.scope.read')}</option>
+          </select>
+        </div>
+        <div className="api-form__field">
+          <label className="label" htmlFor={`${uid}-comments`}>
+            {t('shell.cloud.api.comments')}
+          </label>
+          <select id={`${uid}-comments`} className="input" value={comments} onChange={(e) => setComments(e.target.value as ApiComments)} aria-describedby={`${uid}-comments-h`} data-testid="api-token-comments">
+            <option value="off">{t('shell.cloud.api.comments.off')}</option>
+            <option value="read">{t('shell.cloud.api.comments.read')}</option>
+            <option value="write" disabled={scope === 'read'}>
+              {t('shell.cloud.api.comments.write')}
+            </option>
           </select>
         </div>
         <button type="submit" className="btn btn--ink" disabled={creating || !name.trim()}>
@@ -260,6 +283,9 @@ function Tokens({ wsId }: { wsId: string }) {
           {creating ? t('shell.cloud.api.creating') : t('shell.cloud.api.create')}
         </button>
       </form>
+      <p className="api-hint" id={`${uid}-comments-h`}>
+        {t('shell.cloud.api.commentsHint')}
+      </p>
       <ErrorLine text={error} />
       {created?.token && <Secret testId="api-token-secret" label={t('shell.cloud.api.secret')} hint={t('shell.cloud.api.secretHint')} value={created.token} example={example(created)} onDone={() => setCreated(null)} />}
       {loadError ? (
@@ -283,10 +309,15 @@ function Tokens({ wsId }: { wsId: string }) {
                 </span>
                 <div className="api-row__what">
                   <span className="api-row__name">
-                    <span>{tok.name}</span>
+                    <span title={tok.name}>{tok.name}</span>
                     <span className="api-scope" data-scope={tok.scope}>
                       {t(`shell.cloud.api.tag.${tok.scope}`)}
                     </span>
+                    {tok.comments && tok.comments !== 'off' && (
+                      <span className="api-scope" data-comments={tok.comments} title={t('shell.cloud.api.comments')}>
+                        {t(`shell.cloud.api.tag.comments.${tok.comments}`)}
+                      </span>
+                    )}
                   </span>
                   <span className="api-row__meta">{meta.filter(Boolean).join(' · ')}</span>
                 </div>

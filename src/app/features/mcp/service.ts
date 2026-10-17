@@ -78,7 +78,7 @@ function stamped(result: unknown, ws: McpIdentity): Record<string, unknown> {
 
 function patchSettings(patch: Partial<McpSettings>) {
   const s = get()
-  const next: McpSettings = { enabled: s.enabled, mode: s.mode, port: s.port, ...patch }
+  const next: McpSettings = { enabled: s.enabled, mode: s.mode, port: s.port, comments: s.comments, ...patch }
   saveSettings(next)
   set(next)
 }
@@ -98,6 +98,12 @@ export function setMcpMode(mode: McpAgentMode) {
   // read only: whatever waits for approval is refused now
   if (mode === 'read') for (const a of get().approvals) settle(a.id, 'mode')
   sendStatus()
+}
+
+/** Comments over MCP on this device: off · read · read + write (Settings → Agents · MCP). */
+export function setMcpComments(comments: McpSettings['comments']) {
+  if (comments === get().comments) return
+  patchSettings({ comments })
 }
 
 export function setMcpPort(port: number) {
@@ -604,6 +610,7 @@ export function startMcp() {
       disconnect()
     }
     if (next.port !== cur.port) set({ port: next.port })
+    if (next.comments !== cur.comments) set({ comments: next.comments })
   })
   const onWake = () => {
     if (document.visibilityState === 'visible') wake()
@@ -644,5 +651,12 @@ if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams
     busy: mcpBusy,
     settle: settleMcpCall,
     unsettle: unsettleMcpCall,
+    /** what Claude may read of a page (editor/context): these top-level blocks only, [] = nothing, null = the whole page */
+    context: async (pageId: string, ids: string[] | null) => {
+      const editor = await import('../../editor')
+      if (ids === null) editor.setContextMode(pageId, 'page')
+      else if (ids.length) editor.setContextMarks(pageId, ids)
+      else editor.setContextMode(pageId, 'none')
+    },
   }
 }

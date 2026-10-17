@@ -729,8 +729,8 @@ function viewChange(r: Roots, props: PropertyDef[], input: ViewInput, base: View
   return patch
 }
 
-/** The view as agents see it: names instead of ids (the local bridge's viewJson). */
-function viewJson(r: Roots, props: PropertyDef[], v: View) {
+/** The view as agents see it: names instead of ids (the local bridge's viewJson; one_get_database's views). */
+export function viewJson(r: Roots, props: PropertyDef[], v: View) {
   const nameOf = (id: unknown) => (typeof id === 'string' ? (props.find((p) => p.id === id)?.name ?? null) : null)
   const people = readPeople(r)
   const valueOut = (f: Filter): unknown => {
@@ -756,5 +756,9 @@ function viewJson(r: Roots, props: PropertyDef[], v: View) {
     ...(v.filter?.items?.length ? { filter: flat(v.filter), ...(v.filter.op === 'or' ? { filterMatch: 'any' } : {}) } : {}),
     ...(v.sorts?.length ? { sorts: v.sorts.map((s) => ({ property: nameOf(s.propertyId) ?? s.propertyId, direction: s.direction })) } : {}),
     properties: (v.visibleProperties ?? []).map(nameOf).filter((n): n is string => !!n),
+    // what agents read but set up only in One: a free board, a chart's kind, a form
+    ...(v.free === true ? { free: true } : {}),
+    ...(v.type === 'chart' && isObj(v.chart) && typeof v.chart.kind === 'string' ? { chart: { kind: v.chart.kind } } : {}),
+    ...(v.type === 'form' ? { form: true } : {}),
   }
 }

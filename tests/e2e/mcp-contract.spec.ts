@@ -87,7 +87,10 @@ test.describe('the shared contract (Node)', () => {
 
   test('contract 1 is frozen: every tool and argument of it is still in the contract (never removed)', () => {
     const now = mcpToolArgs()
-    expect(Object.keys(MCP_ARGS_V1).sort()).toEqual(MCP_TOOLS.map((t) => t.name).sort())
+    const names = MCP_TOOLS.map((t) => t.name as string)
+    for (const tool of Object.keys(MCP_ARGS_V1)) expect(names, tool).toContain(tool)
+    // tools after contract 1 are not in it: a tab that announces no tools is never sent them (app_outdated)
+    expect(Object.keys(MCP_ARGS_V1)).not.toContain('one_list_pages')
     for (const [tool, args] of Object.entries(MCP_ARGS_V1)) for (const a of args) expect(now[tool], `${tool}.${a}`).toContain(a)
     expect(Object.isFrozen(MCP_ARGS_V1)).toBe(true)
     expect(MCP_CONTRACT_REV).toBe(2)

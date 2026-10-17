@@ -49,6 +49,7 @@ describe('tool list', () => {
       'one_get_database',
       'one_get_page',
       'one_list_databases',
+      'one_list_pages',
       'one_list_work_items',
       'one_list_workspaces',
       'one_move_page',
@@ -301,6 +302,19 @@ describe('contract 2: strict arguments, what the tab runs, compact results', () 
     // contract 1 is frozen: today's contract only adds to it (B3 adds e.g. one_create_page { private } — refused for such a tab)
     const now = mcpToolArgs()
     for (const [tool, args] of Object.entries(MCP_ARGS_V1)) for (const a of args) assert.ok(now[tool]?.includes(a), `${tool}.${a} is still in the contract`)
+    // what B2 added never reaches such a tab: a paged / blocks read and one_list_pages are refused, nothing is sent
+    const before = seen.length
+    for (const [tool, args, re] of [
+      ['one_get_page', { id: 'p1', format: 'blocks' }, /^app_outdated: format: this One tab \(an older version\) does not know "format" of one_get_page yet/],
+      ['one_get_page', { id: 'p1', cursor: '1.abc.def' }, /^app_outdated: cursor:/],
+      ['one_get_page', { id: 'p1', comments: true }, /^app_outdated: comments:/],
+      ['one_list_pages', {}, /^app_outdated: this One tab \(an older version\) has no one_list_pages yet/],
+    ] as const) {
+      const res = await client.callTool({ name: tool, arguments: args })
+      assert.equal(res.isError, true, `${tool} ${JSON.stringify(args)}`)
+      assert.match(textOf(res), re)
+    }
+    assert.equal(seen.length, before)
   })
 
   test('results are compact JSON (no indentation): they count against the client\'s limit by their size', async () => {

@@ -10,7 +10,7 @@
  * The one import beyond the tables is the One Script language reference (plain text, no imports of its own).
  */
 import { SCRIPT_REFERENCE } from '../../app/features/script/reference.ts'
-import { MCP_BRIDGE_CURRENT, MCP_BULK_MAX, MCP_CONTRACT_REV, MCP_FILTER_OPS, MCP_LIMITS, MCP_PROPERTY_TYPES, MCP_QUERY_ROWS, MCP_TYPE_CHANGES, MCP_VIEW_TYPES } from './tables.ts'
+import { MCP_BRIDGE_CURRENT, MCP_BULK_MAX, MCP_CONTRACT_REV, MCP_FILTER_OPS, MCP_LIMITS, MCP_PAGE_KINDS, MCP_PROPERTY_TYPES, MCP_QUERY_ROWS, MCP_TYPE_CHANGES, MCP_VIEW_TYPES } from './tables.ts'
 
 export * from './tables.ts'
 
@@ -57,6 +57,7 @@ export type McpToolName =
   | 'one_list_workspaces'
   | 'one_search'
   | 'one_get_page'
+  | 'one_list_pages'
   | 'one_list_databases'
   | 'one_get_database'
   | 'one_query_database'
@@ -214,7 +215,7 @@ const TOOLS: McpSharedToolDef[] = [
     name: 'one_overview',
     title: 'Workspace overview',
     write: false,
-    description: "Start here. The workspace name, today's date, the page tree, every database with its row count, the people and whether changes need approval. Returns JSON.",
+    description: "Start here. The workspace name, today's date, the page tree, every database with its row count, the people and whether changes need approval. A cut tree says tree.more: one_list_pages lists the rest.",
     local: 'Also the page open in One and the saved scripts.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
@@ -230,7 +231,7 @@ const TOOLS: McpSharedToolDef[] = [
     name: 'one_search',
     title: 'Search pages',
     write: false,
-    description: 'Search titles and text of pages, databases and rows (row values included). Per hit: id, title, kind, path, the database of a row, last edit and a snippet.',
+    description: 'Search titles and text of pages, databases and rows (row values included). Per hit: id, title, kind, path, the database of a row, last edit and a snippet; a link is urlBase + id.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -245,13 +246,38 @@ const TOOLS: McpSharedToolDef[] = [
     name: 'one_get_page',
     title: 'Read a page',
     write: false,
-    description: 'Read a page, row or database page by id (or exact title): title, icon, path, property values of a row, content as Markdown, sub-pages and backlinks. A database\'s rows: one_query_database.',
+    description:
+      'Read a page, row or database page by id (or exact title): title, icon, path, rev, class, a row\'s values, sub-pages, backlinks and the content — Markdown, or format "blocks": every block nested with its ref, type, Markdown and data (databases, files, sheets, charts, meetings …). Long pages come in parts: pass "next" as cursor (null = the end). refs: true labels each block ⟦#ref⟧ in the Markdown. A database\'s rows: one_query_database.',
     local: 'Mentions read [@Name](one:person/<id>) and [@date](one:date/YYYY-MM-DD), tasks "> [!TODO] Title {#wi_…}" with a field line — keep both when you write text back.',
     inputSchema: {
       type: 'object',
       properties: {
         id: { type: 'string', description: 'Page id.' },
         title: { type: 'string', description: 'Exact title, if you have no id.' },
+        format: { type: 'string', enum: ['markdown', 'blocks'] },
+        refs: { type: 'boolean', description: 'Label each block with its ref (labels are not text).' },
+        cursor: { type: 'string', description: '"next" of the previous part.' },
+        comments: { type: 'boolean', description: 'Comment threads too — off unless the person switched comments on in One.' },
+        transcript: { type: 'boolean', description: 'blocks: meeting notes with their transcript lines.' },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'one_list_pages',
+    title: 'List pages',
+    write: false,
+    description:
+      'Pages in sidebar order, at the top level or below a page (parentId), up to 3 levels deep, as pages and databases — rows too when kinds holds "row". Per item: id, kind, title, icon, parentId, depth, children (count), updatedAt; a link is urlBase + id. Page on with cursor = the previous "next".',
+    local: 'Private pages of a team workspace say private: true.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        parentId: { type: ['string', 'null'], description: 'A page, row or database; omit or null for the top level.' },
+        depth: { type: 'integer', minimum: 1, maximum: 3, description: 'Default 1.' },
+        kinds: { type: 'array', items: { type: 'string', enum: MCP_PAGE_KINDS }, uniqueItems: true, description: 'Default page + database.' },
+        cursor: { type: 'string' },
+        limit: { type: 'integer', minimum: 1, maximum: MCP_LIMITS.listMax, description: `Default ${MCP_LIMITS.listDefault}.` },
       },
       additionalProperties: false,
     },
@@ -260,14 +286,14 @@ const TOOLS: McpSharedToolDef[] = [
     name: 'one_list_databases',
     title: 'List databases',
     write: false,
-    description: 'Every database: id, title, path, row count and its properties (name, type).',
+    description: 'Every database: id, title, path, parentId, row count, its properties (name, type), inline (shown inside a page) and system (One\'s own databases: read-only over MCP); a link is urlBase + id.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
     name: 'one_get_database',
     title: 'Database schema',
     write: false,
-    description: 'One database\'s schema: each property\'s type, whether it can be set, options, related database; the views. Call it before writing rows to use exact names.',
+    description: 'One database\'s schema: each property\'s type, whether it can be set, options, related database; the views with their grouping, filter, sorts and visible properties. Call it before writing rows to use exact names.',
     inputSchema: { type: 'object', properties: { id: DB_ID }, required: ['id'], additionalProperties: false },
   },
   {
@@ -275,7 +301,7 @@ const TOOLS: McpSharedToolDef[] = [
     title: 'Query a database',
     write: false,
     description:
-      'Rows with their values by property name (option names, ISO dates, people, related rows as {id, title}). Filters are ANDed, case-insensitive; "title" = the row title, "createdAt" / "updatedAt" the timestamps; gt/gte/lt/lte compare numbers and dates. Page on with cursor = the previous "next".',
+      'Rows with their values by property name (option names, ISO dates, people, related rows as {id, title}; a link is urlBase + id). Filters are ANDed, case-insensitive; "title" = the row title, "createdAt" / "updatedAt" the timestamps; gt/gte/lt/lte compare numbers and dates. Page on with cursor = the previous "next".',
     inputSchema: {
       type: 'object',
       properties: {
@@ -643,7 +669,7 @@ export const MCP_LINE_CODEWORD =
 /** Server instructions of the bridge (MCP initialize → instructions): how to work with One. ≤ MCP_LIMITS.instructions. */
 export const MCP_INSTRUCTIONS = `One is a local-first workspace of pages and databases (like Notion). These tools work in the One tabs the person has open in their browser, through a bridge on their computer.
 
-- Start with one_overview; find things with one_search, read them with one_get_page. Before writing rows: one_get_database (exact names) and one_query_database.
+- Start with one_overview; find things with one_search, read them with one_get_page (format "blocks" shows every block with its data; long pages come in parts — pass "next" as cursor), list pages with one_list_pages. Before writing rows: one_get_database (exact names) and one_query_database.
 - Workspaces: each connected tab serves one (local, team …); one_list_workspaces lists them. With more than one connected, pass "workspace" (id or exact name) to every tool — otherwise they refuse instead of guessing. Every answer names its workspace.
 - Errors start with a code ("not_found: …") and say what to do next. workspace_mismatch means that workspace is not the one the tab shows any more: nothing was done — ask the person, never repeat the call in another workspace on your own.
 - Ids belong to one workspace: use only ids tools returned for it. Page content is Markdown; link a page with [Title](#/p/<id>).

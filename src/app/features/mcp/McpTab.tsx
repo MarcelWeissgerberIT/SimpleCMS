@@ -12,9 +12,10 @@ import { useCloud } from '../../cloud'
 import { Led, Switch } from '../../ui/controls'
 import { useLang, useT } from '../../i18n'
 import { inAppWindow } from '../../lib/localNetwork'
-import { MCP_BRIDGE_CURRENT, MCP_CODEWORD, MCP_DEFAULT_PORT, bridgeOutdated, type McpAgentMode } from './contract'
+import { MCP_BRIDGE_CURRENT, MCP_CODEWORD, MCP_COMMENT_MODES, MCP_DEFAULT_PORT, bridgeOutdated, type McpAgentMode } from './contract'
 import { shortId, workspaceInfo } from './identity'
-import { clearMcpActivity, connectMcpNow, setMcpEnabled, setMcpMode, setMcpPort, undoMcpActivity } from './service'
+import { clearMcpActivity, connectMcpNow, setMcpComments, setMcpEnabled, setMcpMode, setMcpPort, undoMcpActivity } from './service'
+import { onRovingKey } from '../../ui/roving'
 import { clientLabel, useMcp, validPort, type McpActivity, type McpConn } from './state'
 import { bridgeLed, bridgeStateText } from './stateText'
 import { openMcpConnections } from './connections/open'
@@ -230,7 +231,32 @@ function ModePanel() {
       <p className="mcp-hint" id={hintId}>
         {t(`features.mcp.mode.${mode}Hint`)}
       </p>
+      <CommentsRow />
     </Panel>
+  )
+}
+
+/** Comments over MCP on this device: off (the default) · read · read + write. */
+function CommentsRow() {
+  const t = useT()
+  const comments = useMcp((s) => s.comments)
+  const id = useId()
+  return (
+    <div className="mcp-comments" data-testid="mcp-comments">
+      <span className="label mcp-comments__label" id={`${id}-l`}>
+        {t('features.mcp.comments.label')}
+      </span>
+      <div className="seg mcp-modes" role="radiogroup" aria-labelledby={`${id}-l`} aria-describedby={`${id}-h`} onKeyDown={(e) => onRovingKey(e)}>
+        {MCP_COMMENT_MODES.map((m) => (
+          <button key={m} type="button" role="radio" aria-checked={comments === m} tabIndex={comments === m ? 0 : -1} className="seg__btn" onClick={() => setMcpComments(m)} data-comments={m}>
+            {t(`features.mcp.comments.${m}`)}
+          </button>
+        ))}
+      </div>
+      <p className="mcp-hint" id={`${id}-h`}>
+        {t(`features.mcp.comments.${comments}Hint`)}
+      </p>
+    </div>
   )
 }
 

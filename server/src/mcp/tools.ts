@@ -25,6 +25,11 @@ import { assertNotSystem } from './system.ts'
 import { once } from './duplicates.ts'
 import { MCP_CONTRACT_REV, MCP_LINE_CLASS, MCP_LINE_CODEWORD, MCP_LINE_CONTENT, mcpDescription, type McpToolName } from '../../../src/shared/mcp/contract.ts'
 import { codeOf, isMcpErrorCode, withRemedy, type McpErrorCode } from '../../../src/shared/mcp/errors.ts'
+import { stripRefLabels } from '../../../src/shared/mcp/refs.ts'
+import { MCP_LIMITS, MCP_PAGE_KINDS } from '../../../src/shared/mcp/tables.ts'
+
+/** Markdown a client wrote: ref labels it copied from a read (⟦#…~…⟧) never reach content. */
+const md = (v: string | undefined) => (v === undefined ? undefined : stripRefLabels(v))
 
 const id = idSchema.describe('A page, row or database id')
 const markdown = z.string().max(200_000)
@@ -114,7 +119,7 @@ function instructions(name: string, id: string, write: boolean): string {
   return [
     `SimpleCMS One team workspace "${name}": pages (Markdown content), databases with typed properties, rows (pages inside a database).`,
     `This connection reaches only this workspace (id ${id}); the optional "workspace" argument of every tool is refused when it names another one (workspace_mismatch: nothing was done — ask the person).`,
-    'Start with one_overview (page tree, databases, today\'s date); find things with one_search; read a page with one_get_page.',
+    'Start with one_overview (page tree, databases, today\'s date); find things with one_search; read a page with one_get_page (format "blocks" shows every block with its data; long pages come in parts — pass "next" as cursor); list pages with one_list_pages.',
     'Values are friendly: option names, dates "YYYY-MM-DD" or "YYYY-MM-DDTHH:MM" (wall-clock, no time zone), member emails for people, row ids for relations.',
     'Errors start with a code ("not_found: …") and say what to do next.',
     write
@@ -242,14 +247,41 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
     {
       title: 'Read a page',
       description: desc('one_get_page'),
-      inputSchema: { id: id.optional(), title: z.string().min(1).max(2000).optional().describe('Exact title (case-insensitive) when the id is not known'), ...WS },
+      inputSchema: {
+        id: id.optional(),
+        title: z.string().min(1).max(2000).optional().describe('Exact title (case-insensitive) when the id is not known'),
+        format: z.enum(['markdown', 'blocks']).optional(),
+        refs: z.boolean().optional().describe('Label each block with its ref (labels are not text).'),
+        cursor: z.string().max(200).optional().describe('"next" of the previous part.'),
+        comments: z.boolean().optional().describe('Comment threads too — only when this token may read comments.'),
+        transcript: z.boolean().optional().describe('blocks: meeting notes with their transcript lines.'),
+        ...WS,
+      },
       annotations: READ,
     },
     async (a) =>
       run(a.workspace, async () => {
         if (!a.id && !a.title) throw new ApiError(400, 'invalid_request', 'Give the page id (or its exact title)')
-        return reads.getPage(ws, { id: a.id, title: a.title })
+        return reads.getPage(ws, { id: a.id, title: a.title, format: a.format, refs: a.refs, cursor: a.cursor, comments: a.comments, transcript: a.transcript }, { comments: token.mcp_comments ?? 'off' })
       })(),
+  )
+
+  server.registerTool(
+    'one_list_pages',
+    {
+      title: 'List pages',
+      description: desc('one_list_pages'),
+      inputSchema: {
+        parentId: id.nullable().optional().describe('A page, row or database; omit or null for the top level.'),
+        depth: z.number().int().min(1).max(3).optional().describe('Default 1.'),
+        kinds: z.array(z.enum(MCP_PAGE_KINDS)).min(1).max(3).optional().describe('Default page + database.'),
+        cursor: z.string().max(200).optional(),
+        limit: z.number().int().min(1).max(MCP_LIMITS.listMax).optional().describe(`Default ${MCP_LIMITS.listDefault}.`),
+        ...WS,
+      },
+      annotations: READ,
+    },
+    async (a) => run(a.workspace, () => reads.listPages(ws, { parentId: a.parentId ?? null, depth: a.depth, kinds: a.kinds, cursor: a.cursor, limit: a.limit }))(),
   )
 
   server.registerTool(
@@ -306,7 +338,7 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
         made('one_create_page', a, async () => {
           // nothing new below a row of One's own databases (read-only over MCP — system.ts)
           if (a.parentId) await model.read(ws, (r) => assertNotSystem(r, a.parentId))
-          const created = await model.createPage(ws, { title: a.title, parentId: a.parentId ?? null, content: a.markdown, icon: iconIn(a.icon) }, actor)
+          const created = await model.createPage(ws, { title: a.title, parentId: a.parentId ?? null, content: md(a.markdown), icon: iconIn(a.icon) }, actor)
           return { ...created, title: a.title }
         }),
       )(),
@@ -327,7 +359,7 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
       },
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     },
-    async (a) => run(a.workspace, () => writes.updatePage(ws, { id: a.id, title: a.title, icon: a.icon, markdown: a.markdown, mode: a.mode ?? 'append' }, actor, { mcp: true }))(),
+    async (a) => run(a.workspace, () => writes.updatePage(ws, { id: a.id, title: a.title, icon: a.icon, markdown: md(a.markdown), mode: a.mode ?? 'append' }, actor, { mcp: true }))(),
   )
 
   server.registerTool(
@@ -344,7 +376,7 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
         made('one_create_row', a, async () => {
           // an MCP client is an agent: properties "Only by hand" are refused (api/keys.ts)
           const row = await writes.prepareRow(ws, { databaseId: a.databaseId }, { title: a.title, properties: a.properties }, actor, { agent: true, mcp: true, files: 'onefile' })
-          const created = await model.createRow(ws, a.databaseId, { title: row.title ?? a.title, properties: row.properties, content: a.markdown }, actor, { agent: true, files: 'onefile' })
+          const created = await model.createRow(ws, a.databaseId, { title: row.title ?? a.title, properties: row.properties, content: md(a.markdown) }, actor, { agent: true, files: 'onefile' })
           return { ...created, title: row.title ?? a.title }
         }),
       )(),

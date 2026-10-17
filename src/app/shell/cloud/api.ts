@@ -34,12 +34,16 @@ import {
 /* ------------------------------------------------------------------ API tokens & incoming webhooks (docs/API.md) */
 
 export type ApiScope = 'read' | 'write'
+/** Comments over MCP for the token's client (set at creation): off · read · read + write. */
+export type ApiComments = 'off' | 'read' | 'write'
 type Creator = { id: string; name: string | null; email: string | null } | null
 
 export interface ApiToken {
   id: string
   name: string
   scope: ApiScope
+  /** absent: a server from before comments over MCP (= off) */
+  comments?: ApiComments
   created_at: number
   last_used_at: number | null
   created_by: Creator
@@ -68,7 +72,8 @@ const toToken = (t: Raw<ApiToken>): ApiToken => ({ ...t, created_at: ms(t.create
 const toHook = (h: Raw<IncomingHook>): IncomingHook => ({ ...h, created_at: ms(h.created_at) ?? Date.now(), last_delivery_at: ms(h.last_delivery_at) })
 
 export const listApiTokens = async (wsId: string) => (await cloudRequest<Raw<ApiToken>[]>('GET', wsPath(wsId, 'tokens'))).map(toToken)
-export const createApiToken = async (wsId: string, name: string, scope: ApiScope) => toToken(await cloudRequest<Raw<ApiToken>>('POST', wsPath(wsId, 'tokens'), { name, scope }))
+export const createApiToken = async (wsId: string, name: string, scope: ApiScope, comments: ApiComments = 'off') =>
+  toToken(await cloudRequest<Raw<ApiToken>>('POST', wsPath(wsId, 'tokens'), { name, scope, comments }))
 export const revokeApiToken = (wsId: string, tokenId: string) => cloudRequest<void>('DELETE', wsPath(wsId, `tokens/${encodeURIComponent(tokenId)}`))
 export const listHooks = async (wsId: string) => (await cloudRequest<Raw<IncomingHook>[]>('GET', wsPath(wsId, 'hooks'))).map(toHook)
 export const createHook = async (wsId: string, databaseId: string) => toHook(await cloudRequest<Raw<IncomingHook>>('POST', wsPath(wsId, 'hooks'), { databaseId }))

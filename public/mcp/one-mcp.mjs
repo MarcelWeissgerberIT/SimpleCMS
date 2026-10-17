@@ -19196,6 +19196,7 @@ var MCP_TYPE_CHANGES = {
   multi_select: ["text"],
   number: ["text"]
 };
+var MCP_PAGE_KINDS = ["page", "database", "row"];
 var MCP_BULK_MAX = 50;
 var MCP_QUERY_ROWS = 100;
 var KB = 1024;
@@ -19412,7 +19413,7 @@ var TOOLS = [
     name: "one_overview",
     title: "Workspace overview",
     write: false,
-    description: "Start here. The workspace name, today's date, the page tree, every database with its row count, the people and whether changes need approval. Returns JSON.",
+    description: "Start here. The workspace name, today's date, the page tree, every database with its row count, the people and whether changes need approval. A cut tree says tree.more: one_list_pages lists the rest.",
     local: "Also the page open in One and the saved scripts.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false }
   },
@@ -19428,7 +19429,7 @@ var TOOLS = [
     name: "one_search",
     title: "Search pages",
     write: false,
-    description: "Search titles and text of pages, databases and rows (row values included). Per hit: id, title, kind, path, the database of a row, last edit and a snippet.",
+    description: "Search titles and text of pages, databases and rows (row values included). Per hit: id, title, kind, path, the database of a row, last edit and a snippet; a link is urlBase + id.",
     inputSchema: {
       type: "object",
       properties: {
@@ -19443,13 +19444,36 @@ var TOOLS = [
     name: "one_get_page",
     title: "Read a page",
     write: false,
-    description: "Read a page, row or database page by id (or exact title): title, icon, path, property values of a row, content as Markdown, sub-pages and backlinks. A database's rows: one_query_database.",
+    description: `Read a page, row or database page by id (or exact title): title, icon, path, rev, class, a row's values, sub-pages, backlinks and the content \u2014 Markdown, or format "blocks": every block nested with its ref, type, Markdown and data (databases, files, sheets, charts, meetings \u2026). Long pages come in parts: pass "next" as cursor (null = the end). refs: true labels each block \u27E6#ref\u27E7 in the Markdown. A database's rows: one_query_database.`,
     local: 'Mentions read [@Name](one:person/<id>) and [@date](one:date/YYYY-MM-DD), tasks "> [!TODO] Title {#wi_\u2026}" with a field line \u2014 keep both when you write text back.',
     inputSchema: {
       type: "object",
       properties: {
         id: { type: "string", description: "Page id." },
-        title: { type: "string", description: "Exact title, if you have no id." }
+        title: { type: "string", description: "Exact title, if you have no id." },
+        format: { type: "string", enum: ["markdown", "blocks"] },
+        refs: { type: "boolean", description: "Label each block with its ref (labels are not text)." },
+        cursor: { type: "string", description: '"next" of the previous part.' },
+        comments: { type: "boolean", description: "Comment threads too \u2014 off unless the person switched comments on in One." },
+        transcript: { type: "boolean", description: "blocks: meeting notes with their transcript lines." }
+      },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "one_list_pages",
+    title: "List pages",
+    write: false,
+    description: 'Pages in sidebar order, at the top level or below a page (parentId), up to 3 levels deep, as pages and databases \u2014 rows too when kinds holds "row". Per item: id, kind, title, icon, parentId, depth, children (count), updatedAt; a link is urlBase + id. Page on with cursor = the previous "next".',
+    local: "Private pages of a team workspace say private: true.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        parentId: { type: ["string", "null"], description: "A page, row or database; omit or null for the top level." },
+        depth: { type: "integer", minimum: 1, maximum: 3, description: "Default 1." },
+        kinds: { type: "array", items: { type: "string", enum: MCP_PAGE_KINDS }, uniqueItems: true, description: "Default page + database." },
+        cursor: { type: "string" },
+        limit: { type: "integer", minimum: 1, maximum: MCP_LIMITS.listMax, description: `Default ${MCP_LIMITS.listDefault}.` }
       },
       additionalProperties: false
     }
@@ -19458,21 +19482,21 @@ var TOOLS = [
     name: "one_list_databases",
     title: "List databases",
     write: false,
-    description: "Every database: id, title, path, row count and its properties (name, type).",
+    description: "Every database: id, title, path, parentId, row count, its properties (name, type), inline (shown inside a page) and system (One's own databases: read-only over MCP); a link is urlBase + id.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false }
   },
   {
     name: "one_get_database",
     title: "Database schema",
     write: false,
-    description: "One database's schema: each property's type, whether it can be set, options, related database; the views. Call it before writing rows to use exact names.",
+    description: "One database's schema: each property's type, whether it can be set, options, related database; the views with their grouping, filter, sorts and visible properties. Call it before writing rows to use exact names.",
     inputSchema: { type: "object", properties: { id: DB_ID }, required: ["id"], additionalProperties: false }
   },
   {
     name: "one_query_database",
     title: "Query a database",
     write: false,
-    description: 'Rows with their values by property name (option names, ISO dates, people, related rows as {id, title}). Filters are ANDed, case-insensitive; "title" = the row title, "createdAt" / "updatedAt" the timestamps; gt/gte/lt/lte compare numbers and dates. Page on with cursor = the previous "next".',
+    description: 'Rows with their values by property name (option names, ISO dates, people, related rows as {id, title}; a link is urlBase + id). Filters are ANDed, case-insensitive; "title" = the row title, "createdAt" / "updatedAt" the timestamps; gt/gte/lt/lte compare numbers and dates. Page on with cursor = the previous "next".',
     inputSchema: {
       type: "object",
       properties: {
@@ -19806,7 +19830,7 @@ var MCP_LINE_CLASS = `A result's "class" of mail, memory or private marks person
 var MCP_LINE_CODEWORD = `Codeword: a message that starts with "one:" is meant for the person's One workspace \u2014 use these tools for it, not web search or other connectors. Without it, use them when the person clearly talks about their One pages, databases or notes.`;
 var MCP_INSTRUCTIONS = `One is a local-first workspace of pages and databases (like Notion). These tools work in the One tabs the person has open in their browser, through a bridge on their computer.
 
-- Start with one_overview; find things with one_search, read them with one_get_page. Before writing rows: one_get_database (exact names) and one_query_database.
+- Start with one_overview; find things with one_search, read them with one_get_page (format "blocks" shows every block with its data; long pages come in parts \u2014 pass "next" as cursor), list pages with one_list_pages. Before writing rows: one_get_database (exact names) and one_query_database.
 - Workspaces: each connected tab serves one (local, team \u2026); one_list_workspaces lists them. With more than one connected, pass "workspace" (id or exact name) to every tool \u2014 otherwise they refuse instead of guessing. Every answer names its workspace.
 - Errors start with a code ("not_found: \u2026") and say what to do next. workspace_mismatch means that workspace is not the one the tab shows any more: nothing was done \u2014 ask the person, never repeat the call in another workspace on your own.
 - Ids belong to one workspace: use only ids tools returned for it. Page content is Markdown; link a page with [Title](#/p/<id>).

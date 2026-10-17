@@ -85,6 +85,9 @@ export interface FileRow {
 
 export type ApiScope = 'read' | 'write'
 
+/** Comments over MCP for a token's client: off (the default) · read · read + write. */
+export type ApiComments = 'off' | 'read' | 'write'
+
 export interface ApiTokenRow {
   id: string
   workspace_id: string
@@ -95,6 +98,8 @@ export interface ApiTokenRow {
   created_at: number
   last_used_at: number | null
   revoked_at: number | null
+  /** comments over MCP (migration 11) */
+  mcp_comments: ApiComments
 }
 
 export interface WebhookRow {
@@ -597,7 +602,7 @@ export class Repo {
   // ── API tokens (docs/API.md) ─────────────────────────────────────────
 
   /** The secret is returned once and stored only as HMAC. */
-  createApiToken(input: { workspaceId: string; name: string; scope: ApiScope; createdBy: string }): { token: string; row: ApiTokenRow } {
+  createApiToken(input: { workspaceId: string; name: string; scope: ApiScope; createdBy: string; comments?: ApiComments }): { token: string; row: ApiTokenRow } {
     const token = API_TOKEN_PREFIX + randomToken()
     const row: ApiTokenRow = {
       id: newId(),
@@ -609,10 +614,12 @@ export class Repo {
       created_at: Date.now(),
       last_used_at: null,
       revoked_at: null,
+      // a read token never writes comments, whatever was asked for
+      mcp_comments: input.comments === 'write' && input.scope !== 'write' ? 'read' : (input.comments ?? 'off'),
     }
     this.db.run(
-      'INSERT INTO api_tokens (id, workspace_id, name, scope, token_hash, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      row.id, row.workspace_id, row.name, row.scope, row.token_hash, row.created_by, row.created_at,
+      'INSERT INTO api_tokens (id, workspace_id, name, scope, token_hash, created_by, created_at, mcp_comments) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      row.id, row.workspace_id, row.name, row.scope, row.token_hash, row.created_by, row.created_at, row.mcp_comments,
     )
     return { token, row }
   }

@@ -28,6 +28,7 @@ export function integrationRoutes(s: Services, model: WorkspaceModel) {
     id: t.id,
     name: t.name,
     scope: t.scope,
+    comments: t.mcp_comments ?? 'off',
     created_at: iso(t.created_at),
     last_used_at: iso(t.last_used_at),
     revoked: t.revoked_at !== null,
@@ -45,10 +46,10 @@ export function integrationRoutes(s: Services, model: WorkspaceModel) {
 
   app.post('/:id/tokens', async (c) => {
     const { workspace, auth } = access(s, c, 'admin')
-    const input = await body(c, z.object({ name: z.string().trim().min(1).max(80), scope: z.enum(['read', 'write']).default('read') }))
+    const input = await body(c, z.object({ name: z.string().trim().min(1).max(80), scope: z.enum(['read', 'write']).default('read'), comments: z.enum(['off', 'read', 'write']).default('off') }))
     if (s.repo.countApiTokens(workspace.id) >= MAX_TOKENS) throw conflict('too_many_tokens', `A workspace has at most ${MAX_TOKENS} API tokens — revoke one first`)
-    const { token, row } = s.repo.createApiToken({ workspaceId: workspace.id, name: input.name, scope: input.scope, createdBy: auth.user.id })
-    s.log.info('api token created', { workspace: workspace.id, token: row.id, scope: row.scope, user: auth.user.id })
+    const { token, row } = s.repo.createApiToken({ workspaceId: workspace.id, name: input.name, scope: input.scope, createdBy: auth.user.id, comments: input.comments })
+    s.log.info('api token created', { workspace: workspace.id, token: row.id, scope: row.scope, comments: row.mcp_comments, user: auth.user.id })
     return c.json({ ...tokenJson({ ...row, creator_name: auth.user.name, creator_email: auth.user.email }), token }, 201)
   })
 

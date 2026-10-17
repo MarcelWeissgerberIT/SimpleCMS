@@ -677,7 +677,7 @@ test.describe('tidy up', () => {
     const x = json(await call('one_create_page', { title: 'X page', parentId: home.id }))
     const y = json(await call('one_create_page', { title: 'Y page', parentId: home.id }))
     const z = json(await call('one_create_page', { title: 'Z page' }))
-    const kids = async () => (json(await call('one_get_page', { id: home.id })).children as Json[]).map((k) => k.title)
+    const kids = async () => (json(await call('one_get_page', { id: home.id })).children.items as Json[]).map((k) => k.title)
 
     const moved = json(await call('one_move_page', { id: z.id, parentId: home.id, before: x.id }))
     expect(moved).toMatchObject({ id: z.id, parentId: home.id, path: 'Home base', index: 0 })

@@ -28,6 +28,7 @@ import { livePage, withPageNodes, type LinkTarget } from '../ai/agent/links'
 import { MCP_PROPERTY_TYPES, type McpToolName } from './contract'
 import { databaseOrThrow, iconText, kindOf, live, McpToolError, pageUrl, pathOf, propertyJson, q, rowProperties, titleOf, TWO_WAY_SUFFIX, ws } from './values'
 import { chars, optionsOf, pageOrThrow, parseIcon, preview, str, type PlanLine, type WritePlan } from './plan'
+import { stripRefLabels } from '../../../shared/mcp/refs'
 import { TIDY_PLANNERS } from './tidy'
 import { STRUCTURE_PLANNERS } from './structure'
 import { withWriter, type Writer } from '../../store/writer'
@@ -85,7 +86,7 @@ function splitTitle(db: Database, raw: unknown): { title: string | null; props: 
 
 function planCreatePage(args: Record<string, unknown>): WritePlan {
   const title = str(args.title, 'title', { required: true, max: 300 }).replace(/\s+/g, ' ').trim()
-  const markdown = str(args.markdown, 'markdown', { max: 200_000 })
+  const markdown = stripRefLabels(str(args.markdown, 'markdown', { max: 200_000 }))
   const parentId = str(args.parentId, 'parentId', { max: 80 }).trim()
   const icon = parseIcon(args.icon)
   const stage = callStage()
@@ -123,7 +124,7 @@ function planUpdatePage(args: Record<string, unknown>): WritePlan {
   if (mode !== 'append' && mode !== 'replace') throw new McpToolError('"mode" must be "append" or "replace".')
   const titleRaw = args.title === undefined || args.title === null ? null : str(args.title, 'title', { max: 300 }).replace(/\s+/g, ' ').trim()
   if (titleRaw === '') throw new McpToolError('"title" must not be empty.')
-  const markdown = args.markdown === undefined || args.markdown === null ? null : str(args.markdown, 'markdown', { max: 200_000 })
+  const markdown = args.markdown === undefined || args.markdown === null ? null : stripRefLabels(str(args.markdown, 'markdown', { max: 200_000 }))
   const icon = parseIcon(args.icon)
   if (titleRaw === null && markdown === null && icon === undefined) throw new McpToolError('Nothing to change: pass "title", "icon" and/or "markdown".')
   if (markdown !== null && page.kind === 'database') throw new McpToolError(`${q(titleOf(page))} is a database: its content is its rows. Use one_create_row.`)
@@ -255,7 +256,7 @@ function planCreateRow(args: Record<string, unknown>): WritePlan {
   const split = splitTitle(db, args.properties)
   const title = (str(args.title, 'title', { max: 300 }) || split.title || '').replace(/\s+/g, ' ').trim()
   if (!title) throw new McpToolError('Missing required parameter "title".')
-  const markdown = str(args.markdown, 'markdown', { max: 200_000 })
+  const markdown = stripRefLabels(str(args.markdown, 'markdown', { max: 200_000 }))
   checkFileScope(markdown, pagePrivate(db.id), q(title))
   const stage = callStage()
   stageWith(stage, 'create_row', { database_id: db.id, title, ...(split.props ? { properties: split.props } : {}), ...(markdown.trim() ? { markdown } : {}) })

@@ -5,9 +5,8 @@
  */
 import { format } from 'date-fns'
 import { useUI } from '../../store/ui'
-import { inTemplate, selectBacklinks } from '../../store/selectors'
+import { inTemplate } from '../../store/selectors'
 import type { Database, ID, Page, PropertyDef } from '../../store/types'
-import { docToFileMarkdown } from '../../editor'
 import { parseHash } from '../../lib/router'
 import { t } from '../../i18n'
 import { retrieve, workspaceDocs } from '../ai/workspace'
@@ -17,10 +16,9 @@ import { scriptList } from '../script'
 import { queryTarget, runQuery } from './script'
 import { listWorkItemsMcp } from './workItems'
 import { systemNote } from './system'
-import { comparable, databaseOrThrow, friendlyValue, iconText, iso, kindOf, live, McpToolError, pageUrl, pathOf, propertyJson, q, rowJson, rowProperties, rowsOf, titleOf, ws } from './values'
-
-/** Characters of page Markdown in one answer. */
-export const MARKDOWN_MAX = 60_000
+import { viewJson } from './structure'
+import { classOf, getPage, listPages, urlBase } from './pageRead'
+import { comparable, databaseOrThrow, friendlyValue, iconText, iso, kindOf, live, McpToolError, pageUrl, pathOf, propertyJson, q, rowJson, rowsOf, titleOf, ws } from './values'
 
 const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '')
 
@@ -44,6 +42,8 @@ function overview(mode: McpAgentMode) {
   const { pages, databases, people } = ws()
   const alive = Object.values(pages).filter((p) => live(p.id))
   const childrenOf = (id: ID | null) => alive.filter((p) => p.parentId === id && !p.databaseId && !p.hidden).sort((a, b) => a.order - b.order)
+  /** the tree leaves something out: the answer points to one_list_pages */
+  let cut = false
   const node = (p: Page, depth: number): Record<string, unknown> => {
     const out: Record<string, unknown> = ref(p)
     const icon = iconText(p.icon)
@@ -54,9 +54,11 @@ function overview(mode: McpAgentMode) {
       out.children = kids.slice(0, TREE_CHILDREN).map((c) => node(c, depth + 1))
       if (kids.length > TREE_CHILDREN) out.more = kids.length - TREE_CHILDREN
     } else if (kids.length) out.more = kids.length
+    if (out.more) cut = true
     return out
   }
   const top = childrenOf(null)
+  const tree = top.slice(0, TREE_TOP).map((p) => node(p, 0))
   const route = parseHash(window.location.hash)
   const open = route.name === 'page' ? live(route.id) : null
   const peekId = useUI.getState().peekPageId
@@ -85,8 +87,9 @@ function overview(mode: McpAgentMode) {
       databases: dbs.length,
       rows: alive.filter((p) => !!p.databaseId).length,
     },
-    pages: top.slice(0, TREE_TOP).map((p) => node(p, 0)),
+    pages: tree,
     ...(top.length > TREE_TOP ? { morePages: top.length - TREE_TOP } : {}),
+    ...(cut || top.length > TREE_TOP ? { tree: { more: true, use: 'one_list_pages' } } : {}),
     databases: dbs,
     people: people.map((p) => ({ name: p.name })),
     // One Script: the person's saved scripts and queries (one_run_script runs one, after their OK)
@@ -123,85 +126,17 @@ function search(args: Record<string, unknown>) {
   const hits = retrieve(query, workspaceDocs(), 50)
   return {
     query,
+    urlBase: urlBase(),
     results: hits.slice(0, limit).map((h) => {
       const p = pages[h.id]
       const out: Record<string, unknown> = { id: h.id, kind: p ? kindOf(p) : 'page', title: h.title, path: pathOf(h.id) }
       if (p?.databaseId) out.databaseId = p.databaseId
       out.snippet = snippet(h.text, query)
-      out.url = pageUrl(h.id)
       if (p) out.updatedAt = iso(p.updatedAt)
       return out
     }),
     total: hits.length,
   }
-}
-
-/* ------------------------------------------------------------------ */
-/* one_get_page                                                        */
-/* ------------------------------------------------------------------ */
-
-/** A page by id, or by exact (case-insensitive) title — the most recently edited if several match. */
-export function findPage(args: Record<string, unknown>): { page: Page; others: Page[] } {
-  const id = str(args.id)
-  const title = str(args.title)
-  if (!id && !title) throw new McpToolError('Give the page id (or its exact title).')
-  if (id) {
-    // a template's page is not found by its id either (live)
-    const p = live(id)
-    if (p) return { page: p, others: [] }
-    if (!title) throw new McpToolError(`not_found: No page with id ${q(id)}. Use one_search to find page ids.`)
-  }
-  // by title: template pages (features/templates) never answer, as by id
-  const pages = ws().pages
-  const all = Object.values(pages).filter((p) => live(p.id) && !inTemplate(pages, p.id))
-  const hits = all.filter((p) => p.title.trim().toLowerCase() === title.toLowerCase()).sort((a, b) => b.updatedAt - a.updatedAt)
-  if (!hits.length) {
-    const near = all
-      .filter((p) => p.title.toLowerCase().includes(title.toLowerCase()))
-      .sort((a, b) => b.updatedAt - a.updatedAt)
-      .slice(0, 5)
-    throw new McpToolError(`not_found: No page titled ${q(title)}.${near.length ? ` Similar: ${near.map((p) => `${q(titleOf(p))} (${p.id})`).join(', ')}` : ' Try one_search.'}`)
-  }
-  return { page: hits[0], others: hits.slice(1) }
-}
-
-function getPage(args: Record<string, unknown>) {
-  const { page: p, others } = findPage(args)
-  const { pages, databases } = ws()
-  const out: Record<string, unknown> = {
-    id: p.id,
-    kind: kindOf(p),
-    title: p.title,
-    icon: iconText(p.icon),
-    path: pathOf(p.id),
-    url: pageUrl(p.id),
-    parentId: p.parentId,
-  }
-  if (p.databaseId && databases[p.databaseId]) out.database = { id: p.databaseId, title: titleOf(pages[p.databaseId]) }
-  out.createdAt = iso(p.createdAt)
-  out.updatedAt = iso(p.updatedAt)
-  if (p.settings.locked) out.locked = true
-  if (p.databaseId && databases[p.databaseId]) out.properties = rowProperties(databases[p.databaseId], p)
-  if (p.kind === 'database' && databases[p.id]) {
-    out.rows = rowsOf(p.id).length
-    out.schema = databases[p.id].properties.map((prop) => ({ name: prop.name, type: prop.type, ...(prop.options ? { options: prop.options.map((o) => o.name) } : {}) }))
-    out.hint = 'A database: one_query_database lists its rows, one_get_database has the full schema and views.'
-  }
-  // sub-pages as the sidebar shows them: never a template's (they read like unknown ids) nor a hidden one
-  const children = Object.values(pages)
-    .filter((c) => c.parentId === p.id && !c.databaseId && !c.hidden && live(c.id))
-    .sort((a, b) => a.order - b.order)
-  if (children.length) out.children = children.slice(0, 100).map(ref)
-  if (others.length) out.alsoTitled = others.slice(0, 10).map((o) => ({ id: o.id, path: pathOf(o.id) }))
-  // the file form: dates and people as `one:` links — a replace that copies them keeps them as mentions
-  const md = docToFileMarkdown(p.content).trim()
-  out.markdown = md.length > MARKDOWN_MAX ? `${md.slice(0, MARKDOWN_MAX)}\n[Truncated: ${MARKDOWN_MAX.toLocaleString('en')} of ${md.length.toLocaleString('en')} characters]` : md
-  if (md.length > MARKDOWN_MAX) out.truncated = true
-  out.backlinks = selectBacklinks(pages, p.id)
-    .filter((b) => live(b.id))
-    .slice(0, 50)
-    .map((b) => ({ id: b.id, title: titleOf(b), path: pathOf(b.id) }))
-  return out
 }
 
 /* ------------------------------------------------------------------ */
@@ -211,6 +146,7 @@ function getPage(args: Record<string, unknown>) {
 function listDatabases() {
   const { databases, pages } = ws()
   return {
+    urlBase: urlBase(),
     databases: Object.values(databases)
       .map((d) => ({ d, page: live(d.id) }))
       .filter((x): x is { d: Database; page: Page } => !!x.page && !inTemplate(pages, x.d.id))
@@ -218,8 +154,10 @@ function listDatabases() {
         id: d.id,
         title: titleOf(page),
         path: pathOf(d.id),
-        url: pageUrl(d.id),
+        parentId: page.parentId,
         rows: rowsOf(d.id).length,
+        inline: !!d.inline,
+        system: d.system ?? null,
         properties: d.properties.map((p) => ({ name: p.name, type: p.type })),
       }))
       .sort((a, b) => a.path.localeCompare(b.path) || a.title.localeCompare(b.title)),
@@ -228,7 +166,6 @@ function listDatabases() {
 
 function getDatabase(args: Record<string, unknown>) {
   const { db, page } = databaseOrThrow(args.id)
-  const nameOf = (id: ID | null | undefined) => (id ? (db.properties.find((p) => p.id === id)?.name ?? null) : null)
   return {
     id: db.id,
     title: titleOf(page),
@@ -236,20 +173,15 @@ function getDatabase(args: Record<string, unknown>) {
     path: pathOf(db.id),
     url: pageUrl(db.id),
     parentId: page.parentId,
+    class: classOf(db.id),
+    inline: !!db.inline,
     rows: rowsOf(db.id).length,
     locked: !!db.locked,
     ...(db.locked ? { lockedNote: 'Locked: rows can be added and changed; properties and options cannot.' } : {}),
     ...(db.system ? { system: db.system, systemNote: systemNote(db.system) } : {}),
     properties: db.properties.map((p) => propertyJson(db, p)),
-    views: db.views.map((v) => ({
-      id: v.id,
-      name: v.name,
-      type: v.type,
-      ...(nameOf(v.groupBy) ? { groupBy: nameOf(v.groupBy) } : {}),
-      ...(nameOf(v.dateProperty) ? { dateProperty: nameOf(v.dateProperty) } : {}),
-      ...(v.sorts.length ? { sorts: v.sorts.map((s) => ({ property: nameOf(s.propertyId) ?? s.propertyId, direction: s.direction })) } : {}),
-      filtered: !!v.filter?.items.length,
-    })),
+    // every view in full: its filter as one_create_view takes it, the visible properties in order (spec § 2.1)
+    views: db.views.map((v) => ({ ...viewJson(db, v), filtered: !!v.filter?.items.length })),
   }
 }
 
@@ -404,8 +336,13 @@ function queryDatabase(args: Record<string, unknown>) {
   const end = offset + slice.length
   return {
     database: { id: db.id, title: titleOf(page) },
+    urlBase: urlBase(),
     total: matches.length,
-    rows: slice.map((r) => rowJson(db, r)),
+    // a list: no link per row (urlBase + id)
+    rows: slice.map((r) => {
+      const { url: _url, ...row } = rowJson(db, r)
+      return row
+    }),
     next: end < matches.length ? encodeCursor(end, fingerprint) : null,
   }
 }
@@ -443,6 +380,7 @@ export const READ_TOOLS: Partial<Record<McpToolName, (args: Record<string, unkno
   one_list_workspaces: (_args, mode) => ownWorkspace(mode),
   one_search: search,
   one_get_page: getPage,
+  one_list_pages: listPages,
   one_list_databases: listDatabases,
   one_get_database: getDatabase,
   one_query_database: queryDatabase,
@@ -461,6 +399,8 @@ export function readTarget(tool: McpToolName, args: Record<string, unknown>): st
       return `“${str(args.query)}”`
     case 'one_get_page':
       return str(args.title) || title(args.id)
+    case 'one_list_pages':
+      return args.parentId ? title(args.parentId) : workspaceInfo().name
     case 'one_get_database':
       return title(args.id)
     case 'one_run_query':

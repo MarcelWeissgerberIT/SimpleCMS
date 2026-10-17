@@ -642,8 +642,8 @@ function toSorts(db: Database, raw: unknown, problems: string[]): Sort[] {
   return out
 }
 
-/** The view as agents see it: names instead of ids. */
-function viewJson(db: Database, v: View) {
+/** The view as agents see it: names instead of ids (one_get_database's views, create / update view results). */
+export function viewJson(db: Database, v: View) {
   const nameOf = (id: ID | null | undefined) => (id ? (db.properties.find((p) => p.id === id)?.name ?? null) : null)
   const valueOut = (f: Filter): unknown => {
     const prop = db.properties.find((p) => p.id === f.propertyId)
@@ -668,6 +668,10 @@ function viewJson(db: Database, v: View) {
     ...(v.filter?.items.length ? { filter: flat(v.filter), ...(v.filter.op === 'or' ? { filterMatch: 'any' } : {}) } : {}),
     ...(v.sorts.length ? { sorts: v.sorts.map((s) => ({ property: nameOf(s.propertyId) ?? s.propertyId, direction: s.direction })) } : {}),
     properties: v.visibleProperties.map(nameOf).filter((n): n is string => !!n),
+    // what agents read but set up only in One: a free board, a chart's kind, a form
+    ...(v.free ? { free: true } : {}),
+    ...(v.type === 'chart' && v.chart ? { chart: { kind: v.chart.kind } } : {}),
+    ...(v.type === 'form' ? { form: true } : {}),
   }
 }
 

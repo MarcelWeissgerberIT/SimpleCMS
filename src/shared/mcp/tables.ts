@@ -72,6 +72,13 @@ export const MCP_TYPE_CHANGES: Record<string, readonly string[]> = {
   number: ['text'],
 }
 
+/** What one_list_pages lists: pages, databases and (asked for) rows. */
+export const MCP_PAGE_KINDS = ['page', 'database', 'row'] as const
+
+/** Comments over MCP: off (the default), read, read + write — per device on the bridge, per token on the team server. */
+export const MCP_COMMENT_MODES = ['off', 'read', 'write'] as const
+export type McpCommentMode = (typeof MCP_COMMENT_MODES)[number]
+
 /** Most items one call trashes or restores. */
 export const MCP_BULK_MAX = 50
 
