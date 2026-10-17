@@ -158,7 +158,8 @@ export function makeWords(t: Translate, lang: 'en' | 'de', model: Model, input: 
       if (!m.tags.includes(tag)) continue
       // a switched-off module that only runs by hand says it once
       if (tag === 'disabled' && m.tags.includes('handRunOnly')) continue
-      out.push({ tag, text: t(`${P}.tag.${tag}`) })
+      // Orders B10: the planner asks with the chain's ↵ ("Kette ↵") — every chain starts by the person's hand
+      out.push({ tag, text: m.kind === 'planner' && tag === 'asksFirst' ? t(`${P}.wire.chainHand`) : t(`${P}.tag.${tag}`) })
     }
     return out
   }
@@ -180,7 +181,9 @@ export function makeWords(t: Translate, lang: 'en' | 'de', model: Model, input: 
   // the words carry the direction (§3.9, fix ui-words): an out-jack's cables go "→ to", an in-jack's come "from" — a
   // database written, a module started, an exit sent to, the Outbox handed a row, in their own words
   const jackTitle = (j: Jack, m: Module, to: string[]) => {
-    const label = jack(j, m) || t(`${P}.jack.role.${j.role}`)
+    // Orders B10: the planner's tasks start with the person's ↵ — its cables to the projects say "Kette ↵"
+    const chainHand = m.kind === 'planner' && j.role === 'writes' && m.tags.includes('asksFirst')
+    const label = jack(j, m) || (chainHand ? `${t(`${P}.jack.role.${j.role}`)} · ${t(`${P}.wire.chainHand`)}` : t(`${P}.jack.role.${j.role}`))
     const head = `${name(m)} · ${label}`
     if (!to.length) return t(`${P}.jack.free`, { jack: head })
     if (j.side !== 'in') return t(`${P}.jack.to`, { jack: head, to: to.join(', ') })

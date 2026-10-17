@@ -414,9 +414,14 @@ function plannerOf(env: Env, e: End): { db: ID; server: string | null } | null {
 function serverToPlanner(env: Env, from: End, to: End): PatchPlan {
   const server = from.at === 'module' && from.ref?.kind === 'server' ? from.ref : null
   const pl = plannerOf(env, to)
-  if (!server || server.runtime || !server.id || !pl) return refuse(`${PP}.gone`)
+  if (!server || server.runtime || !server.id || !pl || from.at !== 'module') return refuse(`${PP}.gone`)
   if (env.ctx.src.ws.databases[pl.db]?.locked) return refuse(`${P}.key.locked`)
   if (pl.server === server.name) return info(`${PP}.already`)
+  // the planner takes a server switched on here, and only its read tools (an untested one is drawn whole — §4)
+  const s = env.input.servers.find((x) => x.server.id === server.id)
+  if (!s?.server.enabled) return refuse(`${PP}.serverOff`, { server: from.key }, { open: { to: 'mcp', server: server.id } })
+  const { groups } = serverToolGroups(env.input, server)
+  if (groups.tested && !groups.read.length) return refuse(`${PP}.noRead`, { server: from.key })
   return done(env, [{ w: 'orders', db: pl.db, server: server.name }], [{ w: 'orders', db: pl.db, server: pl.server }])
 }
 

@@ -21,12 +21,17 @@
  * Lit (ui/lit.ts): hovered / selected cables thicken in ink (never orange); with a selection or a lit flag the rest
  * dims. Forced colours (patchbay.css): cables CanvasText, fuse paths and glyphs Highlight.
  *
+ * Orders B10 — the work orders' cables (the planner's to its projects, the pipelines' hand-ons: edges with a `tag`) loop
+ * inside § 02 and would cross the modules' faces: while none of them is lit, on a fuse path or carrying a run, they are
+ * drawn in a second layer UNDER the modules (Rack.tsx's `[data-pb-under]` host, first in the rack plate) — seen in the
+ * gutters, behind the plates; their plugs stay on top.
+ *
  * B14 — the live signal: the run's dot on top of everything (Comet.tsx — the cable carrying each leg's edge); the cables
  * of a run in flight carry `data-hot` (with reduced motion they take the static ink emphasis instead of the dot — a
  * thicker cable, never orange, also under forced colours); cable labels "3 PROPOSALS" (Rack.tsx feeds them).
  */
 import { memo, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react'
-import { flushSync } from 'react-dom'
+import { createPortal, flushSync } from 'react-dom'
 import { create } from 'zustand'
 import type { Translate } from '@/shared/i18n'
 import type { Layout } from '../layout'
@@ -242,6 +247,8 @@ export function Wires({ bench, layout, model, lit, fuseEdges, fuses, active, onF
   // it is there, so a rack mounted again with an unchanged layout (the strands view and back) draws its cables too
   const [mounted, setMounted] = useState(false)
   useLayoutEffect(() => setMounted(true), [])
+  // Orders B10: the host of the layer under the modules and its offset from the bench (the cables' coordinates)
+  const [under, setUnder] = useState<{ host: HTMLElement; x: number; y: number } | null>(null)
   const edges = useMemo(() => new Map<string, Edge>(model.edges.map((e) => [e.id, e])), [model])
   const activeRef = useRef(active)
   activeRef.current = active
@@ -331,6 +338,23 @@ export function Wires({ bench, layout, model, lit, fuseEdges, fuses, active, onF
       /* no user timing here */
     }
   }, [drawn])
+
+  // Orders B10: the under-layer host (Rack.tsx) and where the bench's origin lies in it — measured with every drawing,
+  // only while the model has such cables (a rack without work orders measures nothing more than before)
+  const tagged = useMemo(() => model.edges.some((e) => !!e.tag), [model])
+  useLayoutEffect(() => {
+    const el = bench.current
+    const host = tagged ? (el?.querySelector<HTMLElement>('[data-pb-under]') ?? null) : null
+    if (!el || !host) {
+      setUnder((cur) => (cur ? null : cur))
+      return
+    }
+    const b = el.getBoundingClientRect()
+    const h = host.getBoundingClientRect()
+    const x = Math.round((b.left - h.left) * 10) / 10
+    const y = Math.round((b.top - h.top) * 10) / 10
+    setUnder((cur) => (cur && cur.host === host && cur.x === x && cur.y === y ? cur : { host, x, y }))
+  }, [bench, drawn, mounted, tagged])
 
   // publish the glyphs' centres (only when they moved)
   useLayoutEffect(() => {
@@ -431,23 +455,40 @@ export function Wires({ bench, layout, model, lit, fuseEdges, fuses, active, onF
   const draws = new Map(drawn.wires.map((d) => [d.id, d]))
   const unknown: Array<{ id: string; p: Pt }> = []
   const labelled: Array<{ id: string; p: Pt; text: string }> = []
+  // Orders B10: the work orders' cables at rest go under the modules (a lit one, a fuse path, a run in flight: on top)
+  const goesUnder = (id: string): boolean => {
+    const w = byId.get(id)
+    return !!under && !!w && w.edges.length > 0 && w.edges.every((e) => !!edges.get(e)?.tag && !litEdges.has(e) && !fuseEdges.has(e) && !hot.has(e))
+  }
+  const wireEl = (id: string) => {
+    const d = draws.get(id)
+    const w = byId.get(id)
+    if (!d || !w) return null
+    const s = wireStyle(w, edges)
+    const isLit = w.edges.some((e) => litEdges.has(e))
+    const onPath = w.edges.some((e) => fuseEdges.has(e))
+    const dim = dimming && !isLit
+    if (s.unknown) unknown.push({ id, p: pointAt(d.cable, 0.5) })
+    const text = labels?.get(id)
+    if (text) labelled.push({ id, p: labelPoint(d.cable), text })
+    const cls = ['pb-w', s.can && 'pb-w--can', s.planned && 'pb-w--planned', s.unknown && 'pb-w--unknown', isLit && 'pb-w--lit', dim && 'pb-w--dim'].filter(Boolean).join(' ')
+    return <WireView key={id} id={id} d={d.cable.d} len={d.len} cls={cls} outside={s.outside} dim={dim} path={onPath} hot={w.edges.some((e) => hot.has(e))} />
+  }
+  const below = order.filter(goesUnder)
+  const above = below.length ? order.filter((id) => !below.includes(id)) : order
   return (
-    <svg className="pb-wires" width={drawn.w} height={drawn.h} viewBox={`0 0 ${drawn.w} ${drawn.h}`} aria-hidden="true" data-testid="pb-wires" data-leader={leader ? 'on' : 'off'}>
+    <>
+      {under &&
+        below.length > 0 &&
+        createPortal(
+          <svg className="pb-wires pb-wires--under" style={{ left: under.x, top: under.y }} width={drawn.w} height={drawn.h} viewBox={`0 0 ${drawn.w} ${drawn.h}`} aria-hidden="true" data-testid="pb-wires-under">
+            {below.map(wireEl)}
+          </svg>,
+          under.host,
+        )}
+      <svg className="pb-wires" width={drawn.w} height={drawn.h} viewBox={`0 0 ${drawn.w} ${drawn.h}`} aria-hidden="true" data-testid="pb-wires" data-leader={leader ? 'on' : 'off'}>
       {leader && <path className="pb-leader" d={`M${leader.x.toFixed(1)},${leader.y1.toFixed(1)} V${leader.y2.toFixed(1)}`} data-allowed={fuses.find((f) => f.key === active)?.allowed || undefined} data-testid="pb-leader" />}
-      {order.map((id) => {
-        const d = draws.get(id)
-        const w = byId.get(id)
-        if (!d || !w) return null
-        const s = wireStyle(w, edges)
-        const isLit = w.edges.some((e) => litEdges.has(e))
-        const onPath = w.edges.some((e) => fuseEdges.has(e))
-        const dim = dimming && !isLit
-        if (s.unknown) unknown.push({ id, p: pointAt(d.cable, 0.5) })
-        const text = labels?.get(id)
-        if (text) labelled.push({ id, p: labelPoint(d.cable), text })
-        const cls = ['pb-w', s.can && 'pb-w--can', s.planned && 'pb-w--planned', s.unknown && 'pb-w--unknown', isLit && 'pb-w--lit', dim && 'pb-w--dim'].filter(Boolean).join(' ')
-        return <WireView key={id} id={id} d={d.cable.d} len={d.len} cls={cls} outside={s.outside} dim={dim} path={onPath} hot={w.edges.some((e) => hot.has(e))} />
-      })}
+      {above.map(wireEl)}
       <g className="pb-plugs">
         {drawn.wires.flatMap((d) =>
           d.plugs.map((p, i) => (
@@ -474,6 +515,7 @@ export function Wires({ bench, layout, model, lit, fuseEdges, fuses, active, onF
         <Glyph key={g.wire} group={g.fuses} c={g.c} at={g.t} active={active} leader={!!leader && g.fuses.some((f) => f.key === active)} t={t} onSelect={onFuse} stamp={drawn} spots={spots[i]} />
       ))}
       <Comets cableOf={cableOf} />
-    </svg>
+      </svg>
+    </>
   )
 }

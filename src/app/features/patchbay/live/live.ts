@@ -335,20 +335,25 @@ function onStore(state: State, prev: State): void {
   const ref = refOf(w, { db })
   if (!ref || !onRack(ref.module)) return
   core.write(ref.module, ref.run, places, Date.now(), core.running(ref.module, ref.run) ? {} : howOf(w))
-  // Orders B10: the chain advancing — a task of its next step written: a leg on the hand-on cable (step before → this)
-  if (w.kind === 'order') for (let i = 0; i < n; i++) chainLeg(state, c.changed[i])
+  // Orders B10: the chain advancing (`#a<n>` — never its creation `#c<n>`, never a Status write `#s`): the next step's
+  // task moved on — a leg on the hand-on cable (step before → this)
+  if (w.kind === 'order' && /^a\d+$/.test(w.change ?? '')) for (let i = 0; i < n; i++) chainLeg(state, c.changed[i])
   publish()
 }
 
-/** A chain's task written: its leg from the project of the step before (records.ts chainLegOf) — none for the first. */
+/**
+ * A chain's step moved on: its leg from the project of the step before (records.ts chainLegOf) — the first step's from
+ * the planner (its cable to the project).
+ */
 function chainLeg(state: State, id: ID): void {
   const db = state.pages[id]?.databaseId
-  if (!core || !db) return
-  const leg = chainLegOf(id)
-  const from = leg?.prev ? state.pages[leg.prev]?.databaseId : null
-  if (!from || from === db) return
+  const leg = core && db ? chainLegOf(id) : null
+  if (!core || !db || !leg) return
   const pipe = (d: ID) => moduleKey({ kind: 'pipeline', db: d, pipeline: 'coding' })
-  if (onRack(pipe(from)) && onRack(pipe(db))) core.exit(pipe(from), null, pipe(db), Date.now())
+  const ordersDb = state.pages[leg.row]?.databaseId
+  const from = leg.prev ? state.pages[leg.prev]?.databaseId : null
+  const src = leg.prev ? (from && from !== db ? pipe(from) : null) : ordersDb ? moduleKey({ kind: 'planner', db: ordersDb }) : null
+  if (src && onRack(src) && onRack(pipe(db))) core.exit(src, null, pipe(db), Date.now())
 }
 
 /** What a changed page means for the rack: a row's database and its fields (a new row: `+row`), or a page. */

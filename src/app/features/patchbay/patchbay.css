@@ -2788,6 +2788,18 @@ html[data-pb-noblink] .pb [data-blink] {
   flex: none;
 }
 
+/* ---------- Orders B10: the cables under the modules (the work orders' loops inside § 02, Wires.tsx) ---------- */
+.pb-under {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+/* positioned without a z-index: painted before the modules (later in the plate), above the plate's own face */
+.pb-wires.pb-wires--under {
+  position: absolute;
+  z-index: auto;
+}
+
 /* ---------- Orders B10: the planner's lamps (CODING · WORKER · KONTEXT optional) ---------- */
 .pb-mod__s.pb-plamps {
   display: flex;

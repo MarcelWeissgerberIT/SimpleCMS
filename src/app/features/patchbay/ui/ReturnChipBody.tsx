@@ -17,7 +17,8 @@ import { setOf } from '../setup/lamps'
 import { lampNo } from '../setup/keys'
 import './return-chip.css'
 
-const LAMP_N: Record<LampId, number> = { key: 0, server: 1, test: 2, profile: 3, database: 4, agent: 5, firstRun: 6 }
+// the work orders' band (Orders B10) never sets a way back — its lamps keep their own numbers 01–06
+const LAMP_N: Record<LampId, number> = { key: 0, server: 1, test: 2, profile: 3, database: 4, agent: 5, firstRun: 6, coding: 1, worker: 2, projects: 3, ordersDb: 4, context: 5, firstChain: 6 }
 
 export default function ReturnChipBody({ ret }: { ret: ReturnRecord }) {
   const t = useT()

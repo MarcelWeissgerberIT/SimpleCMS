@@ -65,13 +65,13 @@ null)` runs from `cloud/device.ts` (a `cloud:<ws>` wipe takes every member scope
 ## 3. The graph
 
 - **Modules** (`ModuleKind`): § 01 `server` · `clock` · `rowTrigger` · `button` · `command` · `incoming` · `sync` ·
-  `clippings`; § 02 `agent` · `automation` · `script` · `autofill` · `organise` · `pipeline` · `bridge` · `kit`; § 03
-  `database` · `page` · `inbox` · `everything` · `outbound` (exit types `webhook` · `git` · `exec` · `http` · `mail` · `mcp` ·
-  `sync`); § 02 also `planner` (Orders B10, §4.1)
-  · `outbox`. Keys are `kind:part:part` (ref.ts `moduleKey` — the only spelling, also for `?m=`).
+  `clippings`; § 02 `agent` · `automation` · `script` · `autofill` · `organise` · `pipeline` · `bridge` · `kit` ·
+  `planner` (Orders B10, §4.1); § 03 `database` · `page` · `inbox` · `everything` · `outbound` (exit types `webhook` ·
+  `git` · `exec` · `http` · `mail` · `mcp` · `sync`) · `outbox`. Keys are `kind:part:part` (ref.ts `moduleKey` — the only spelling, also for `?m=`).
 - **Edges** (`EdgeKind`): `starts` (clock / trigger / incoming / command / button → a processor's START), `reads` (a
   server's READ jack → a processor's TOOLS; database / page reads are net tags, no cable), `writes`, `out` (a way out),
-  `outsideIn` (hatched: an outside source to its first consumer), `relay` (a kit value relay's start). `can` (dashed) =
+  `outsideIn` (hatched: an outside source to its first consumer), `relay` (a kit value relay's start), `chain` (a
+  pipeline handing a task on to the next — §4.1). `can` (dashed) =
   the AI decides at run time. Cables count drawn edges, bundled ones included.
 - **Net flags**: a write into a field someone listens to becomes a flag pair `net:<db>:<prop | * | +row>` — no cable
   across the rack. An everything-scope writer gets one dashed cable to "Whole workspace · n databases"; cables from one
@@ -132,8 +132,9 @@ reachability (chains.ts walks the model's flow, not the drawn cables; only the d
   cable) —, net tags for the request rows and `~linked` (the pages a work order links: always private data on its
   paths). Its **TOOLS jack is always drawn, OPTIONAL**: with no server picked it stays empty ("without a server" is a
   valid state); with the person's server (`OrderConfig.server`, by the name they gave it — never named, preset or
-  detected by One) a READ cable — an untested server counts whole. Tags: `asksFirst` without this device's consent,
-  `direct` with it; always `thisDevice`.
+  detected by One) a READ cable — an untested server counts whole. Tags: `asksFirst` without this device's consent
+  (its chip reads "KETTE ↵" / "CHAIN ↵", and so does its write jack's title), `direct` with it; always `thisDevice`.
+  The planner's and the hand-ons' cables loop inside § 02, so they carry no cable label (it would sit on a module).
 - **pipelineGate('order')**: without the consent "Ohne Bestätigung starten" (localStorage `one.orders.auto:<scope>:<db>`,
   local workspaces only — coding/orders/auto.ts) every chain waits for the person's ↵: gate `byHand` ("KETTE ↵" on the
   planner → project cables). With it: no gate (team: `confirm` on new rows — never reached, a team has no consent).
@@ -163,10 +164,12 @@ reachability (chains.ts walks the model's flow, not the drawn cables; only the d
   `openCodingSettings()`, #/coding, `ensureOrderDb()` (as `you~patchbay`), `openMcpConnections({ server, focus: 'test' })`
   / Settings › AI, the work orders' page (a chain starts by hand on its plate, never from the band).
 - **Live**: a planning run posts `noteRun` / `endRun` with writer `order:<row>:<run>` (the planner's LED blinks, its
-  window counts runs today or "n Ketten laufen"); a chain's task written under that writer draws a leg on the chain
-  cable from the step before (records.ts `chainLegOf`); `onShipRecord` lights GIT as before.
+  window counts runs today or "n Ketten laufen"); a chain's step moved on (`#a<n>`, never its creation `#c<n>` or a
+  Status write `#s`) draws a leg on the chain cable from the step before (records.ts `chainLegOf`) — the first step's
+  from the planner; `onShipRecord` lights GIT as before.
 - **Patching**: server READ → planner TOOLS writes `Database.orders.server` through `saveOrderConfig` (one server at a
-  time; unplugging leaves none).
+  time; unplugging leaves none). The picker lists this device's servers by the names the person gave them and
+  preselects none; a server switched off here (`patch.serverOff`) or a tested one without read tools is refused.
 
 **Migration note (B10).** Racks drawn before B10 had no cable between pipelines. From B10 on, Then and stories hand-ons
 are drawn as `chain` edges between projects — also in workspaces without work orders — and taint now flows along them:

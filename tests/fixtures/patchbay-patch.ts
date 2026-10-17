@@ -36,7 +36,11 @@ export function withWrites(w: PbWorld, writes: PatchWrite[], opts: { me?: string
       if (clean) ws.agents[clean.id] = clean
     } else if (x.w === 'automations') ws.databases[x.db] = { ...ws.databases[x.db], automations: JSON.parse(JSON.stringify(x.list)) }
     else if (x.w === 'commands') ws.databases[x.db] = { ...ws.databases[x.db], commands: JSON.parse(JSON.stringify(x.list)) }
-    else {
+    else if (x.w === 'orders') {
+      // Orders B10: the planner's server (the rest of the work orders' config as stored)
+      const db = ws.databases[x.db]
+      if (db?.orders) ws.databases[x.db] = { ...db, orders: { ...db.orders, server: x.server ? { name: x.server } : null } }
+    } else {
       const list = ws.integrations as IntegrationProfile[]
       const at = list.findIndex((p) => p.id === (x.replaces ?? x.profile.id))
       if (at >= 0) list[at] = x.profile

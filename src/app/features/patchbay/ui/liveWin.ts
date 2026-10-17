@@ -151,17 +151,15 @@ export const blinkSince = (e: LiveEntry | null | undefined, fired: number | null
  */
 export function cableLabels(model: Model, layout: Pick<Layout, 'wires'>, cables: Readonly<Record<string, number>>, t: Translate): Map<string, string> {
   const out = new Map<string, string>()
-  // Orders B10: a cable's own words stand without a live count — the planner's "KETTE ↵", a hand-on's "nächster Schritt"
-  const tagged = model.edges.some((e) => e.tag)
-  if (!Object.keys(cables).length && !tagged) return out
+  // Orders B10: the chain's own words ("Kette ↵", "nächster Schritt") are no cable labels — those cables loop inside
+  // § 02 (their middle would sit on a module): the planner's chip and the jacks' titles say them
+  if (!Object.keys(cables).length) return out
   const edges = new Map(model.edges.map((e) => [e.id, e]))
   for (const w of layout.wires) {
     const seen = new Set<string>()
     let n = 0
-    let tag: 'chainHand' | 'next' | null = null
     for (const id of w.edges) {
       const e = edges.get(id)
-      if (e?.tag === 'chainHand' || (e?.tag === 'next' && !tag)) tag = e.tag
       const from = e ? moduleOfJack(e.from) : null
       const to = e ? moduleOfJack(e.to) : null
       if (!from || !to) continue
@@ -171,7 +169,6 @@ export function cableLabels(model: Model, layout: Pick<Layout, 'wires'>, cables:
       n += cables[k] ?? 0
     }
     if (n > 0) out.set(w.id, t(n === 1 ? `${P}.live.proposals.one` : `${P}.live.proposals`, { n }))
-    else if (tag) out.set(w.id, t(`${P}.wire.${tag}`))
   }
   return out
 }

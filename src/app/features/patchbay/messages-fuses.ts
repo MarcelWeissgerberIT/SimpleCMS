@@ -111,6 +111,7 @@ export const messages: Messages = {
     'features.patchbay.fact.reach.related': 'Titles from {title}',
     'features.patchbay.fact.reach.mcp': 'Reads of {server}',
     'features.patchbay.fact.reach.memory': 'One memory',
+    'features.patchbay.fact.reach.linked': 'Pages the work order links',
     'features.patchbay.fact.trigger.field': 'Field “{prop}” → {method}',
     'features.patchbay.fact.trigger.row': 'New row in {db} → {method}',
     'features.patchbay.fact.trigger.any': 'Any change in {db} → {method}',
@@ -456,7 +457,7 @@ export const messages: Messages = {
     'features.patchbay.plain.desc.idle': 'no cable',
 
     // ------------------------------------------------------------------ work orders (Orders B10, spec §4)
-    'features.patchbay.kind.planner': 'Planner · Work orders',
+    'features.patchbay.kind.planner': 'Planner',
     'features.patchbay.exit.exec': 'Runs code',
     'features.patchbay.name.ordersPlan': 'Plan',
     'features.patchbay.lamp.private.linked': 'Pages the work order links',
@@ -582,6 +583,7 @@ export const messages: Messages = {
     'features.patchbay.fact.reach.related': 'Titel aus {title}',
     'features.patchbay.fact.reach.mcp': 'Lesen von {server}',
     'features.patchbay.fact.reach.memory': 'One-Gedächtnis',
+    'features.patchbay.fact.reach.linked': 'Seiten, die der Prüfauftrag verlinkt',
     'features.patchbay.fact.trigger.field': 'Feld „{prop}“ → {method}',
     'features.patchbay.fact.trigger.row': 'Neue Zeile in {db} → {method}',
     'features.patchbay.fact.trigger.any': 'Jede Änderung in {db} → {method}',
@@ -920,7 +922,7 @@ export const messages: Messages = {
     'features.patchbay.plain.desc.idle': 'kein Kabel',
 
     // ------------------------------------------------------------------ Prüfaufträge (Orders B10, Spec §4)
-    'features.patchbay.kind.planner': 'Planer · Prüfaufträge',
+    'features.patchbay.kind.planner': 'Planer',
     'features.patchbay.exit.exec': 'Führt Code aus',
     'features.patchbay.name.ordersPlan': 'Planen',
     'features.patchbay.lamp.private.linked': 'Seiten, die der Prüfauftrag verlinkt',

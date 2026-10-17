@@ -245,6 +245,8 @@ export function Rack({ ctx, layout, onFuse, band, patching }: { ctx: RackCtx; la
       <div className="pb-bench" ref={bench} data-testid="pb-bench" data-patching={patching ? '' : undefined}>
         <section className="pb-rack screw-plate" aria-label={t(`${P}.rack.aria`, { m: countOf(t, 'modules', counts.modules), c: countOf(t, 'cables', counts.cables) })} aria-describedby="pb-rack-hint" onClick={clear} onKeyDown={onKeyDown} data-testid="pb-rack">
           <Screws seed="patchbay-rack" />
+          {/* Orders B10: the cables drawn under the modules (Wires.tsx — the work orders' loops inside § 02) */}
+          <div className="pb-under" data-pb-under="" aria-hidden="true" />
           <p id="pb-rack-hint" className="visually-hidden">
             {t(`${P}.rack.hint`)}
           </p>

@@ -14,11 +14,13 @@ import {
   ArrowDownToLine,
   ArrowRight,
   Bot,
+  ClipboardCheck,
   CloudUpload,
   Command,
   Database,
   FileCode2,
   FileText,
+  FileTerminal,
   GitBranch,
   GitPullRequest,
   Globe,
@@ -110,6 +112,7 @@ const KIND_ICON: Record<Module['kind'], LucideIcon> = {
   pipeline: GitPullRequest,
   bridge: Plug,
   kit: Sigma,
+  planner: ClipboardCheck,
   database: Database,
   page: FileText,
   inbox: Inbox,
@@ -117,7 +120,7 @@ const KIND_ICON: Record<Module['kind'], LucideIcon> = {
   outbound: Globe,
   outbox: Send,
 }
-const EXIT_ICON: Record<NonNullable<Module['exit']>, LucideIcon> = { webhook: Webhook, git: GitBranch, http: Globe, mail: Send, mcp: Server, sync: CloudUpload }
+const EXIT_ICON: Record<NonNullable<Module['exit']>, LucideIcon> = { webhook: Webhook, git: GitBranch, http: Globe, mail: Send, mcp: Server, sync: CloudUpload, exec: FileTerminal }
 
 /** A module's icon (lucide, 14 px): the kind's — a mail row trigger a letter, a way out its exit type's. */
 export function KindIcon({ m, input }: { m: Module; input: ModelInput }) {

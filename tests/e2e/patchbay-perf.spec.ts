@@ -282,11 +282,15 @@ test.describe('Patchbay performance budget (big workspace + bigPatchbay(60))', (
       const ms = await page.evaluate(() => (window as unknown as { __onePatchbay: Seam }).__onePatchbay.buildMs(15))
       const warm = ms.slice(3)
       const m = await page.evaluate(() => {
-        const model = (window as unknown as { __onePatchbay: { model: () => { modules: unknown[]; edges: unknown[]; fuses: unknown[]; chains: unknown[] } } }).__onePatchbay.model()
-        return { modules: model.modules.length, edges: model.edges.length, chains: model.chains.length, fuses: model.fuses.length }
+        const model = (window as unknown as { __onePatchbay: { model: () => { modules: Array<{ key: string }>; edges: Array<{ kind: string }>; fuses: unknown[]; chains: unknown[] } } }).__onePatchbay.model()
+        return { modules: model.modules.length, edges: model.edges.length, chains: model.chains.length, fuses: model.fuses.length, handOns: model.edges.filter((e) => e.kind === 'chain').length, planner: model.modules.some((x) => x.key.startsWith('planner:')) }
       })
       note('model build ms', { median: +median(warm).toFixed(2), runs: ms.map((x) => +x.toFixed(1)), ...m })
       expect(m.modules, 'modules on the rack').toBeGreaterThanOrEqual(55)
+      // Orders B10: the work orders' planner and the hand-ons (the next step, Then: BA → Coding / QA, QA → Coding) are
+      // part of the measured build — under the same budget
+      expect(m.planner, 'the planner on the rack').toBe(true)
+      expect(m.handOns, 'chain edges (the next step, Then)').toBeGreaterThanOrEqual(3)
       expect(median(warm), 'model build, median (ms)').toBeLessThanOrEqual(BUDGET.buildMs)
     })
 

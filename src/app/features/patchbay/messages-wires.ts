@@ -28,9 +28,8 @@ export const messages: Messages = {
     'features.patchbay.bus.aria': '{n} more cables: {names}',
     'features.patchbay.bus.folded': 'folded into the chip',
     'features.patchbay.wire.unknown': 'Unknown here',
-    // Orders B10: the cables' own words — the planner's tasks start with a person's ↵; a pipeline hands a task on
+    // Orders B10: the planner's tasks start with a person's ↵ (its chip, its cables' jack)
     'features.patchbay.wire.chainHand': 'Chain ↵',
-    'features.patchbay.wire.next': 'next step',
   },
   de: {
     'features.patchbay.a11y.jack': 'Buchse',
@@ -55,6 +54,5 @@ export const messages: Messages = {
     'features.patchbay.bus.folded': 'im Chip eingeklappt',
     'features.patchbay.wire.unknown': 'Hier unbekannt',
     'features.patchbay.wire.chainHand': 'Kette ↵',
-    'features.patchbay.wire.next': 'nächster Schritt',
   },
 }

@@ -128,7 +128,14 @@ export function runLamp(lamp: SetupLamp, ctx: LampContext): boolean {
       navigate({ name: 'coding' })
       return true
     case 'ordersDb': {
-      const made = ensureOrderDb({ kind: 'you', via: 'patchbay' })
+      // made as the person in the Patchbay (a viewer's read-only workspace makes nothing: the key says nothing changed)
+      let made: { id: string } | null = null
+      try {
+        made = ensureOrderDb({ kind: 'you', via: 'patchbay' })
+      } catch {
+        made = null
+      }
+      if (!made) return false
       navigate({ name: 'page', id: made.id })
       return true
     }

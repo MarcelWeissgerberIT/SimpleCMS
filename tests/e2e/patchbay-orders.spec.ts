@@ -12,9 +12,21 @@ import { buildModel } from '../../src/app/features/patchbay/model'
 import { moduleKey } from '../../src/app/features/patchbay/ref'
 import { THEN_KINDS, unattendedExec, reachesDone } from '../../src/app/features/patchbay/rules'
 import { FOLLOW_UPS } from '../../src/app/features/coding/stages'
-import type { Chain, Model, ModelInput } from '../../src/app/features/patchbay/types'
+import type { Chain, FuseState, Model, ModelInput } from '../../src/app/features/patchbay/types'
 import type { Database, PipelineStage } from '../../src/app/store/types'
 import { inputOf, modelOf, ordersWorld, profile, seedPatchbay, type OrdersWorldOpts, type PbWorld } from '../fixtures/patchbay'
+import { nearSay } from '../../src/app/features/patchbay/fuses'
+import { ordersBandFacts, ordersLamps } from '../../src/app/features/patchbay/setup/orders'
+import { keyLabel } from '../../src/app/features/patchbay/setup/lamps'
+import type { MsgRef } from '../../src/app/features/patchbay/types'
+import { messages as mPage } from '../../src/app/features/patchbay/messages-page'
+import { messages as mFuses } from '../../src/app/features/patchbay/messages-fuses'
+import { messages as mSetup } from '../../src/app/features/patchbay/messages-setup'
+import { messages as mLive } from '../../src/app/features/patchbay/messages-live'
+import { messages as mPatch } from '../../src/app/features/patchbay/messages-patch'
+import { messages as mHint } from '../../src/app/features/patchbay/messages-hint'
+import { messages as mWires } from '../../src/app/features/patchbay/messages-wires'
+import { messages as mPlate } from '../../src/app/features/patchbay/messages-plate'
 
 /* ------------------------------------------------------------------ helpers */
 
@@ -164,8 +176,15 @@ test.describe('patchbay × work orders — module and cables', () => {
     expect(next(BA, QA)[0]).toMatchObject({ tag: 'next', afterApproval: true })
     // QA → Coding (Then)
     expect(next(QA, CODE)[0]).toMatchObject({ tag: 'next', afterApproval: true })
-    // Coding hands on to nothing
-    expect(m.edges.some((e) => e.kind === 'chain' && ownerOf(m, e.from) === CODE)).toBe(false)
+    // Coding has no "Then" (FOLLOW_UPS coding: []) — only the work order's next step QA, behind Coding's review gate
+    expect(edgesBetween(m, CODE, QA).filter((e) => e.kind === 'chain').map((e) => [e.tag, e.afterApproval, e.byHand])).toEqual([['next', true, undefined]])
+    expect(edgesBetween(m, CODE, BA).filter((e) => e.kind === 'chain')).toEqual([])
+    // without work orders (kinds: none of them) Coding hands on to nothing
+    const w = ordersWorld({ server: 'tested' })
+    w.ws.databases = Object.fromEntries(Object.entries(w.ws.databases).filter(([id]) => id !== 'dbOrders'))
+    const bare = modelOf(w)
+    expect(bare.edges.some((e) => e.kind === 'chain' && ownerOf(bare, e.from) === CODE)).toBe(false)
+    expect(bare.edges.filter((e) => e.kind === 'chain').length).toBe(3)
     // without the checkpoint the next step is a plain hand-on after approval
     const free = orders({ checkpoint: false })
     expect(edgesBetween(free, BA, CODE).filter((e) => e.kind === 'chain')[0]).toMatchObject({ afterApproval: true })
@@ -246,7 +265,7 @@ test.describe('patchbay × work orders — taint and near misses', () => {
 /* ------------------------------------------------------------------ sig parts */
 
 test.describe('patchbay × work orders — sig parts', () => {
-  const dOf = (w: PbWorld) => fuseTo(modelOf(w), PLANNER, EXEC)!.parts!
+  const dOf = (w: PbWorld) => (fuseTo(modelOf(w), PLANNER, EXEC) as FuseState).parts!
   test('d = planner (database, consent, kinds, checkpoint, server name + address + tested tools, profiles); x carries Approvals', () => {
     const base = ordersWorld({ server: 'tested', auto: true })
     const p0 = dOf(base)
@@ -274,6 +293,42 @@ test.describe('patchbay × work orders — sig parts', () => {
   })
 })
 
+/* ------------------------------------------------------------------ words */
+
+test.describe('patchbay × work orders — words', () => {
+  const FILES = [mPage, mFuses, mSetup, mLive, mPatch, mHint, mWires, mPlate]
+  const en = Object.assign({}, ...FILES.map((m) => m.en)) as Record<string, string>
+  const de = Object.assign({}, ...FILES.map((m) => m.de)) as Record<string, string>
+  /** Every message a planner path, its near misses and the band say exists in both languages (none shows its key). */
+  test('every word the planner’s fuses, near misses, lamps and band say exists in English and German', () => {
+    const refs: MsgRef[] = []
+    const add = (r: MsgRef | null | undefined) => r && refs.push(r)
+    const worlds = [orders({ auto: true }), orders({ auto: true, approvals: 'none' }), orders({ auto: true, server: 'untested' }), orders({ approvals: 'none' }), orders({ auto: true, approvals: 'all' }), modelWith(ordersWorld({ server: 'tested', auto: true }), narrow('mcp'))]
+    for (const m of worlds) {
+      for (const c of m.chains.filter((x) => x.decider === PLANNER)) for (const l of c.lamps ? [c.lamps.outside, c.lamps.private, c.lamps.out] : []) add(l.say)
+      for (const f of plannerFuses(m)) {
+        for (const x of f.facts) add(x.say)
+        for (const k of f.keys) [k.label, k.what, k.note, k.refusal, k.team, k.asks].forEach(add)
+      }
+      for (const n of m.nearMisses.filter((x) => x.chain.decider === PLANNER)) add(nearSay(n))
+    }
+    for (const server of ['tested', 'untested', null] as const) {
+      const band = ordersLamps(ordersBandFacts(inputOf(ordersWorld({ server })), 0))
+      for (const l of band.lamps) {
+        add(l.say)
+        add(keyLabel(l))
+        add({ key: `${P}.lamp.${l.id}` })
+      }
+    }
+    for (const k of ['kind.planner', 'exit.exec', 'name.ordersPlan', 'net.linked', 'jack.role.next', 'jack.toolsOptional', 'wire.chainHand', 'planner.none', 'win.chains', 'win.chains.one', 'patch.serverOff']) add({ key: `${P}.${k}` })
+    expect(refs.length).toBeGreaterThan(40)
+    const missing = [...new Set(refs.map((r) => r.key))].filter((k) => !(k in en) || !(k in de))
+    expect(missing).toEqual([])
+    // the person's server is data — never named by One; "Claude" stands nowhere in the planner's words
+    for (const k of new Set(refs.map((r) => r.key))) expect(`${en[k]} ${de[k]}`, k).not.toMatch(/Claude|kb\b/)
+  })
+})
+
 /* ------------------------------------------------------------------ UI (browser) */
 
 type AnyState = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -282,6 +337,8 @@ const consent = (page: Page) => page.evaluate(() => (window as unknown as { __on
 
 test.describe('patchbay × work orders — UI', () => {
   test('the planner on the rack, CHAIN ↵ and the band; the consent opens the exec fuse, key 1 drops it, Undo puts it back', async ({ page }) => {
+    // this device's Approvals "Plan and review" (the plan gate passes: the worker's AI writes code before anyone looks)
+    await page.addInitScript(() => localStorage.setItem('one.coding.approvals', 'review'))
     await openApp(page)
     await page.route(/\.example\//, (r) => r.fulfill({ status: 200, body: 'ok' }))
     await seedPatchbay(page, ordersWorld({ server: 'tested' }))
@@ -289,7 +346,9 @@ test.describe('patchbay × work orders — UI', () => {
     await expect(page.getByTestId('patchbay-page')).toBeVisible()
     const planner = page.locator(`[data-testid="pb-module"][data-key="${PLANNER}"]`)
     await expect(planner).toBeVisible()
-    await expect(planner.locator('.pb-mod__kind')).toHaveText(/Planner · Work orders/i)
+    // "PLANNER" over the work orders' database name ("PLANER · Prüfaufträge" in German)
+    await expect(planner.locator('.pb-mod__kind')).toContainText(/Planner/i)
+    await expect(planner).toContainText('Prüfaufträge')
     await expect(planner.locator('[data-role="tools"]')).toHaveCount(1)
     await expect(planner.getByTestId('pb-planner-lamps')).toContainText(/Context/i)
     // the band: six lamps, 05 optional
@@ -297,8 +356,11 @@ test.describe('patchbay × work orders — UI', () => {
     await expect(band).toBeVisible()
     await expect(band.getByTestId('pb-lamp')).toHaveCount(6)
     await expect(band.locator('[data-testid="pb-lamp"][data-optional]')).toHaveCount(1)
-    // the planner's cables to the projects say CHAIN ↵ (a person's ↵ starts each chain)
-    await expect(page.locator('.pb-wlabel-t').filter({ hasText: /Chain ↵/ }).first()).toBeAttached()
+    // the planner says CHAIN ↵ (a person's ↵ starts each chain) — its chip and its cables' jack; no cable label loops
+    // over a module
+    await expect(planner.locator('.pb-tag').filter({ hasText: /Chain ↵/ })).toHaveCount(1)
+    await expect(planner.locator('[data-role="writes"]')).toHaveAttribute('title', /Chain ↵/)
+    await expect(page.locator('.pb-wlabel-t').filter({ hasText: /Chain ↵|next step/ })).toHaveCount(0)
     // confirm mode: no fuse of the planner
     await expect.poll(async () => ((await pbModel(page))?.fuses ?? []).filter((f) => f.chain.decider === PLANNER).length).toBe(0)
     // the consent (B11's switch; here the e2e seam) → the exec fuse
