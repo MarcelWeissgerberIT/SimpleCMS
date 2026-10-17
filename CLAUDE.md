@@ -1235,6 +1235,15 @@ the public APIs stable — other areas are built against them in parallel.
   the editor ends it — an editor filling in block ids does not). The worker gets no task while an agent batch is being
   written (tasks.ts, the stamp race). One sends no discard / clean-up verb for a branch another live task holds
   (`branchHolders`: same repo, same branch, not done; GitBox says whose).
+- Work-order chain core (Prüfaufträge B3, coding/chain.ts — pure): `nextMove(world, press?)` → halt · card · advance ·
+  done · wait from a `ChainWorld` (this device's record — `OrderChain.steps` is the chain, never the Prüfauftrag /
+  Schritt fields — plus facts the sink reads); the halt is sticky; only `coding` / `you` (none · 'ui' · 'preflight') /
+  `terminal` done moves are evidence; never past a task's Confirm wait (a card, no write); `advanced` is written before
+  a move. The Grundlage (orders/basis.ts) is a COPY in one callout replacing the step's slot block (idempotent; tasks
+  unwrapped, page references outside the step's confirmed refs become text). A parked chain step is never handed to the
+  worker while the chain's guard holds it (tasks.ts `setParkedGuard`); projects whose first stage starts new tasks are
+  unusable (`chainProjectProblem`). A new task's checks are ONE set (draft.ts `checkTaskDraft`; the terminal throws its
+  first issue word for word); `pipelineLine` / `startStageOf` / `landsOn` / `runsFrom` live in coding/stages.ts (pure).
 - MCP tidy-up tools (trash / restore ≤ 50 ids, move page / row, update database / property, delete property, view
   create / update / delete) live in `features/mcp/{tidy,structure}.ts` and `server/src/mcp/{tidy,structure}.ts` with
   the same rules: never delete for good, locked databases refuse structure changes, no page ⇄ entry or Private ⇄ shared

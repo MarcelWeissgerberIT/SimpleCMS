@@ -175,6 +175,11 @@ export interface OrderChainStep {
   refs: Record<ID, number>
   /** the slot block the Grundlage replaces (null: step 1, which has none) */
   basisBlock: string | null
+  /**
+   * the blocks the chain wrote into the step page at creation (the slot, the "Auftrag" quote, the "Kontext" callout) —
+   * never copied on into the next step's Grundlage (orders/basis.ts)
+   */
+  own?: string[]
 }
 
 /** Evidence of who moved step n to done (written at the move; only `coding` / `you` / `terminal` let it go on). */
@@ -189,7 +194,10 @@ export interface OrderDoneBy {
 }
 
 /** Why a chain halted (each a plate line and the Preflight card "Kette angehalten"). */
-export type OrderHaltWhy = 'status' | 'trashed' | 'budget' | 'member' | 'outOfOrder' | 'startsAtOnce' | 'statusOption' | 'stopped' | 'ejected'
+export type OrderHaltWhy = 'status' | 'trashed' | 'budget' | 'member' | 'outOfOrder' | 'startsAtOnce' | 'noStart' | 'statusOption' | 'stopped' | 'ejected'
+
+/** Every halt reason (the record reader keeps only these). */
+export const ORDER_HALT_WHYS: readonly OrderHaltWhy[] = ['status', 'trashed', 'budget', 'member', 'outOfOrder', 'startsAtOnce', 'noStart', 'statusOption', 'stopped', 'ejected']
 
 /** A confirmed chain on this device. */
 export interface OrderChain {
@@ -199,8 +207,8 @@ export interface OrderChain {
   startAt: number
   steps: OrderChainStep[]
   doneBy: Record<number, OrderDoneBy>
-  /** sticky: only resumeChain (VON HAND, on the worker device) leaves it */
-  halted: { at: number; why: OrderHaltWhy; by: string } | null
+  /** sticky: only resumeChain (VON HAND, on the worker device) leaves it — `step`: the step it is about, if any */
+  halted: { at: number; why: OrderHaltWhy; by: string; step?: number } | null
   resumedAt?: number
   /** "Stop after the analysis" as confirmed */
   checkpoint: boolean
@@ -209,6 +217,11 @@ export interface OrderChain {
   made?: Record<number, ID>
   /** steps skipped (S) — the next one gets no Grundlage from them */
   skipped?: number[]
+  /**
+   * the steps the engine started (step n → when): written BEFORE the move (write-ahead), so a step out of its park
+   * stage without one ran out of order, and a step with one still parked is moved again (the move is idempotent)
+   */
+  advanced?: Record<number, number>
 }
 
 /** This device's record of one request. */

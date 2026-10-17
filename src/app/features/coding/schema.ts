@@ -21,6 +21,7 @@ import { ALL_MESSAGES, t } from '../../i18n'
 import { GIT_ACTIONS, PERMISSION_MODES, STAGE_KINDS, claudeRuns, cleanModel, type StageKind } from './protocol'
 import { useCoding } from './state'
 import { chainRolesOf, isStepNamed, type ChainRole } from './orders/roles'
+import { FOLLOW_UPS, PIPELINE_KINDS, isPipelineKind, nextStage, type PipelineKind, type ResolvedStage } from './stages'
 
 export type CodingRole = 'repo' | 'stage' | 'priority' | 'branch' | 'git' | 'pr' | 'cost' | 'worker' | 'claimed' | 'followUps'
 
@@ -42,11 +43,7 @@ const ROLE_TYPE: Record<CodingRole, PropertyDef['type']> = {
  * each found by its `Database.system`, each usable on its own; a task may hand on to another kind when it is done
  * (its "Then" field). Test cases from QA land in the Test cases database (`system: 'testcases'`).
  */
-export const PIPELINE_KINDS = ['coding', 'spec', 'qa'] as const
-export type PipelineKind = (typeof PIPELINE_KINDS)[number]
-export const isPipelineKind = (v: unknown): v is PipelineKind => (PIPELINE_KINDS as readonly unknown[]).includes(v)
-/** what a kind may hand on to when a task is done */
-export const FOLLOW_UPS: Record<PipelineKind, PipelineKind[]> = { coding: [], spec: ['coding', 'qa'], qa: ['coding'] }
+export { PIPELINE_KINDS, isPipelineKind, FOLLOW_UPS, type PipelineKind }
 export const CODING_ROLES = Object.keys(ROLE_TYPE) as CodingRole[]
 
 /** The roles by property id — the chain roles (`order` / `step`, orders/roles.ts) only on a project a work order used. */
@@ -150,12 +147,8 @@ export function codingProps(db: Database): CodingProps {
 
 /* ------------------------------------------------------------------ pipeline */
 
-export interface ResolvedStage extends PipelineStage {
-  name: string
-  color: ColorName
-  /** position in the pipeline */
-  index: number
-}
+export type { ResolvedStage }
+export { nextStage }
 
 const STAGE_COLOR: Record<StageKind, ColorName> = { queue: 'gray', import: 'red', analyze: 'yellow', plan: 'blue', doc: 'pink', gate: 'orange', implement: 'purple', test: 'yellow', git: 'brown', done: 'green' }
 
@@ -336,12 +329,6 @@ export function readPipeline(db: Database | undefined): ResolvedStage[] {
     if (st.next && !ids.has(st.next)) delete st.next
     return { ...st, name: o.name, color: o.color, index }
   })
-}
-
-/** The stage after `stage` (its `next`, else the following option); null at the end. */
-export function nextStage(pipeline: ResolvedStage[], stage: ResolvedStage): ResolvedStage | null {
-  if (stage.next) return pipeline.find((s) => s.id === stage.next) ?? null
-  return pipeline[stage.index + 1] ?? null
 }
 
 /** The nearest stage of one of `kinds` before / after `stage`. */

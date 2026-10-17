@@ -150,6 +150,26 @@ export { readOrderConfig, newOrderConfig, orderCheckpoint, orderConfigUsable, OR
  */
 export { orderStatusProps, isOrderStatusProp, orderDraftOf, isOrdersDb } from './orders/status'
 export { FREE_ROLES, lockedPipelineRole, pickupKeeps, branchHolders, type BranchHolder } from './guards'
+/**
+ * B3 the chain core (pure — coding/chain.ts): nextMove(world, press?) → halt · card · advance · done · wait over a
+ * ChainWorld (this device's record + the facts the sink reads), done evidence (doneEvidence / givesEvidence), the
+ * parked-start guard (parksNewTasks, chainProjectProblem; tasks.ts setParkedGuard keeps the worker off a parked step),
+ * the record transitions (withDone · withAdvance · withHalt · withResume · withSkip · withLine, mayResume, canSkip),
+ * strayRows; the Grundlage (orders/basis.ts: a copy in one callout replacing the slot), the record reader, keys in a
+ * plan (planKeyHits / scrubPlanKeys), the chain roles on a project (ensureChainProps), the chain's words; a new task's
+ * checks shared with the terminal (draft.ts checkTaskDraft over terminal.ts draftWorld()) and its pipeline line.
+ */
+export { nextMove, doneEvidence, givesEvidence, parksNewTasks, chainProjectProblem, chainSteps, strayRows, chainSpent, withDone, withAdvance, withHalt, withResume, withSkip, withLine, mayResume, canSkip, CARD_ORDER, type ChainWorld, type ChainTaskFacts, type ChainRefFacts, type ChainMove, type ChainPress, type ChainCardWhy, type ChainPassable, type ChainWaitWhy, type ChainProjectProblem } from './chain'
+export { basisBlock, skippedBlock, slotBlock, placeBasis, basisText, type BasisInput, type Basis } from './orders/basis'
+export { readOrderRecord, readOrderChain } from './orders/record'
+export { planKeyHits, scrubPlanKeys, type PlanKeyHit, type PlanKeyField } from './orders/keys'
+export { ensureChainProps, hasChainProps, type ChainPropsResult } from './orders/props'
+export { chainWords, stepNo, type ChainWords } from './orders/words'
+export { checkTaskDraft, BRANCH_NAME, DRAFT_LIMITS, type DraftWorld, type DraftIssue, type DraftIssueCode, type TaskDraft } from './draft'
+export { draftWorld, pipelineLine } from './terminal'
+export { startStageOf, runsFrom, type StageApprovals } from './stages'
+export { setParkedGuard, isParkedStep } from './tasks'
+export { ORDER_HALT_WHYS } from './orders/types'
 export { PLAN_LIMITS, ORDER_LIMITS, type OrderPlanV1, type OrderStepPlan, type OrderRecord, type OrderDraft, type OrderChain, type OrderChainStep, type OrderDoneBy, type OrderHaltWhy, type OrderState, type OrderProv, type OrderCall, type OrderToolLeft, type OrderConfig, type OrderKind, type OrderStatusKey } from './orders/types'
 
 /** This device's Approvals for new tasks (localStorage one.coding.approvals). */

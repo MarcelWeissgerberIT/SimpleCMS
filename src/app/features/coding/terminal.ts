@@ -35,13 +35,15 @@ import { ALL_MESSAGES, t } from '../../i18n'
 import { REPO_NAME, type GitAction, type LogLine, type StageKind } from './protocol'
 import { FOLLOW_UPS, KIND_TEMPLATES, codingProps, codingReadOnly, currentProjectId, isPipelineKind, kindOfDb, nextStage, optionByName, optionName, pipelineDbIds, pipelineDbIdsOf, priorityRank, readPipeline, stageNear, templatePipeline, type CodingRole, type PipelineKind, type ResolvedStage } from './schema'
 import type { ChainRole } from './orders/roles'
-import { BRANCH_NAME, allTasks, answerTask, approvalsOf, approveTask, canContinue, continueTask, createTask, defaultApprovals, followUpsOf, knownRepos, planSection, reworkTask, runTaskNow, sectionTitleOf, setFollowUps, skipsGate, spawnFollowUp, stageSteps, startStageOf, taskBody, taskContext, textHash, workerBranches, type Approvals } from './tasks'
+import { allTasks, answerTask, approvalsOf, approveTask, canContinue, continueTask, createTask, defaultApprovals, followUpsOf, knownRepos, planSection, reworkTask, runTaskNow, sectionTitleOf, setFollowUps, spawnFollowUp, stageSteps, startStageOf, taskBody, taskContext, textHash, workerBranches, type Approvals } from './tasks'
 import { loadTask, scope, taskLocal, useCodingLocal, type TaskLocal } from './local'
 import { isTrusted, needsConfirm, versionOf, writeEndsConfirm } from './trust'
 import { isRunning, stopTask } from './service'
 import { useCoding, type CodingConn } from './state'
 import { refPagesOf, taskRefs, type RefPage } from './refs'
 import { withWriter, type Writer } from '../../store/writer'
+import { landsOn, pipelineLine, runsFrom } from './stages'
+import { checkTaskDraft, type DraftWorld, type NewTaskInput } from './draft'
 
 export { REPO_NAME }
 
@@ -64,42 +66,10 @@ export function taskPhase(stage: ResolvedStage | null, local: TaskLocal, running
 }
 
 /**
- * Where a task standing in `stage` ends up (mirrors the worker's pick, tasks.ts pickNext): automatic queues are passed
- * on; 'worker' = an automatic stage the worker runs (or any runnable stage with "Run now"), 'waits' = a manual queue, a
- * gate, an Import, done. Repos are not looked at: a doubt counts as "starts".
+ * Where a task standing in a stage ends up ('worker' | 'waits') and what runs on its own after it enters one — pure,
+ * in stages.ts (the chain engine reads the same).
  */
-export function landsOn(pipeline: ResolvedStage[], stage: ResolvedStage | null | undefined, runNow = false): 'worker' | 'waits' {
-  if (!stage) return 'waits'
-  const go = (st: ResolvedStage) => st.auto || runNow
-  let target = stage
-  for (let hops = 0; target.kind === 'queue' && go(target) && hops < pipeline.length; hops++) {
-    const n = nextStage(pipeline, target)
-    if (!n) break
-    target = n
-  }
-  if (target.kind === 'queue' || target.kind === 'gate' || target.kind === 'done' || target.kind === 'import' || !go(target)) return 'waits'
-  return 'worker'
-}
-
-/**
- * The stages that run on their own after a task enters `from` (gates this device's approvals skip included), and where
- * it stops: the next gate it waits at, a manual stage, or done.
- */
-export function runsFrom(pipeline: ResolvedStage[], from: ResolvedStage | null, approvals: Approvals): { runs: ResolvedStage[]; stop: ResolvedStage | null } {
-  const runs: ResolvedStage[] = []
-  let st = from
-  for (let hops = 0; st && hops <= pipeline.length; hops++) {
-    if (st.kind === 'done') return { runs, stop: st }
-    if (st.kind === 'gate') {
-      if (!skipsGate(approvals, pipeline, st)) return { runs, stop: st }
-    } else if (st.kind === 'queue' || st.kind === 'import') {
-      if (!st.auto || st.kind === 'import') return { runs, stop: st }
-    } else if (!st.auto) return { runs, stop: st }
-    else runs.push(st)
-    st = nextStage(pipeline, st)
-  }
-  return { runs, stop: null }
-}
+export { landsOn, runsFrom }
 
 /* ------------------------------------------------------------------ reading */
 
@@ -437,19 +407,7 @@ const q = (s: string) => JSON.stringify(s)
 /** The read-only refusal (a team viewer). */
 const readOnlyText = 'This workspace is read-only for the person: pipeline tasks cannot be created or changed.'
 
-export interface NewTaskInput {
-  kind?: PipelineKind
-  projectId?: ID | null
-  title: string
-  /** Markdown — Claude's, already without refs and web images (the terminal) */
-  goal: string
-  criteria?: string[]
-  repo?: string | null
-  branch?: string | null
-  priority?: 'high' | 'medium' | 'low'
-  then?: PipelineKind[]
-  start?: boolean
-}
+export type { NewTaskInput }
 
 export interface NewTaskPlan {
   kind: PipelineKind
@@ -491,9 +449,6 @@ function planPipeline(kind: PipelineKind, projectId: ID | null): ResolvedStage[]
   return templatePipeline(KIND_TEMPLATES[kind][0]!).map(({ option, stage }, index) => ({ ...stage, name: option.name, color: option.color, index }))
 }
 
-const MAX_GOAL = 8000
-const MAX_CRITERIA = 30
-
 const kindsOf = (raw: unknown, allowed: PipelineKind[], what: string): PipelineKind[] => {
   if (raw === undefined || raw === null) return []
   if (!Array.isArray(raw)) throw new CodingPlanError(`"${what}" must be a list of pipeline kinds.`)
@@ -508,51 +463,38 @@ const kindsOf = (raw: unknown, allowed: PipelineKind[], what: string): PipelineK
 /** Pages the terminal proposed and did not create yet (id → title): links to them go along once they exist. */
 export type StagedPages = ReadonlyMap<ID, string>
 
+/**
+ * What the checks of a new task read now (draft.ts DraftWorld): the projects, the connected worker, its repos and
+ * branches, the locked projects' repos.
+ */
+export function draftWorld(): DraftWorld {
+  const c = useCoding.getState()
+  const connected = c.conn === 'connected'
+  return {
+    readOnly: codingReadOnly(),
+    projects: (kind) => pipelineDbIdsOf(kind),
+    title: projectTitle,
+    current: (kind) => currentProjectId(kind),
+    pipeline: planPipeline,
+    connected,
+    announced: connected ? (c.worker?.repos ?? []).map((r) => r.name) : [],
+    known: knownRepos(),
+    branches: workerBranches,
+    lockedRepos: (projectId) => {
+      const db = ws().databases[projectId]
+      if (!db?.locked) return null
+      return (db.properties.find((p) => p.id === codingProps(db).repo)?.options ?? []).map((o) => o.name)
+    },
+  }
+}
+
 /** Check a new task (when it is staged). Throws CodingPlanError. `staged`: pages proposed in the same conversation. */
 export function planNewTask(input: NewTaskInput, opts: { staged?: StagedPages } = {}): NewTaskPlan {
-  if (codingReadOnly()) throw new CodingPlanError(readOnlyText)
-  const kind = input.kind ?? 'coding'
-  if (!isPipelineKind(kind)) throw new CodingPlanError('"kind" must be coding, spec or qa.')
-  const projects = pipelineDbIdsOf(kind)
-  let projectId: ID | null = input.projectId ?? null
-  if (projectId && !projects.includes(projectId))
-    throw new CodingPlanError(`No ${kind} project with id ${q(projectId)}. ${projects.length ? `Projects: ${projects.map((id) => `${q(projectTitle(id))} (id: ${id})`).join(', ')}.` : 'There is none yet: omit project_id and one is created when the task is applied.'}`)
-  projectId ??= currentProjectId(kind)
-  const db = projectId ? ws().databases[projectId] : undefined
-  const pipeline = planPipeline(kind, projectId)
-  const title = input.title.replace(/\s+/g, ' ').trim()
-  if (!title) throw new CodingPlanError('"title" must not be empty.')
-  if (title.length > 200) throw new CodingPlanError(`"title" is too long (${title.length} characters, at most 200).`)
-  const goal = input.goal.trim()
-  if (goal.length > MAX_GOAL) throw new CodingPlanError(`"goal" is too long (${goal.length} characters, at most ${MAX_GOAL}). Keep it to what Claude Code needs; link pages for the rest.`)
-  const criteria = (input.criteria ?? []).map((c) => (typeof c === 'string' ? c.replace(/\s+/g, ' ').trim() : '')).filter(Boolean)
-  if (criteria.length > MAX_CRITERIA) throw new CodingPlanError(`Too many criteria (${criteria.length}, at most ${MAX_CRITERIA}).`)
-  const long = criteria.find((c) => c.length > 500)
-  if (long) throw new CodingPlanError(`A criterion is too long (${long.length} characters, at most 500).`)
-  // the repo
-  const intake = pipeline.some((s) => s.kind === 'import')
-  const repo = input.repo?.trim() || null
-  if (repo && !REPO_NAME.test(repo)) throw new CodingPlanError(`${q(repo)} is not a repo name (letters, digits, . _ -; as the worker announces it).`)
-  if (!repo && kind === 'coding' && !intake) throw new CodingPlanError(`A coding task needs "repo" (list_pipelines lists the repos${knownRepos().length ? `: ${knownRepos().join(', ')}` : ''}).`)
-  const c = useCoding.getState()
-  const announced = c.conn === 'connected' ? (c.worker?.repos ?? []).map((r) => r.name) : []
-  if (repo && announced.length && !knownRepos().includes(repo)) throw new CodingPlanError(`The worker does not serve a repo ${q(repo)}. Repos: ${knownRepos().join(', ')}.`)
-  const props = db ? codingProps(db) : {}
-  if (repo && db?.locked && !optionByName(db, props.repo, repo)) throw new CodingPlanError(`The project ${q(projectTitle(db.id))} is locked: only its existing repos can be used (${(db.properties.find((p) => p.id === props.repo)?.options ?? []).map((o) => o.name).join(', ') || 'none'}).`)
-  // the branch: coding only, never the base branch, one of the worker's when it announces them
-  let branch = input.branch?.trim() || null
-  if (kind !== 'coding') branch = null
-  if (branch) {
-    if (!BRANCH_NAME.test(branch)) throw new CodingPlanError(`${q(branch)} is not a branch name.`)
-    const wb = workerBranches(repo)
-    if (wb.base && branch === wb.base) throw new CodingPlanError(`${q(branch)} is the repo's base branch — the worker never works on it. Omit "branch": the worker makes its own.`)
-    if (c.conn === 'connected' && repo && wb.base !== null && !wb.list.includes(branch)) throw new CodingPlanError(`The worker has no branch ${q(branch)} in ${repo}. Its branches: ${wb.list.slice(0, 30).join(', ') || 'none'}. Omit "branch" and the worker makes its own.`)
-  }
-  const priority = input.priority ?? 'medium'
-  if (!PRIORITIES.includes(priority)) throw new CodingPlanError('"priority" must be high, medium or low.')
-  const then = kindsOf(input.then, FOLLOW_UPS[kind], 'then')
-  const start = input.start === true
-  const first = startStageOf(pipeline, !!repo, start)
+  const world = draftWorld()
+  const { draft, issues } = checkTaskDraft(input, world)
+  if (!draft) throw new CodingPlanError(issues[0]?.message ?? 'The task cannot be created.')
+  const { kind, projectId, pipeline, title, goal, criteria, repo, branch, priority, then, start, first } = draft
+  const announced = world.announced
   const goalDoc = (goal ? (claudeDoc(goal).content ?? []) : []).filter(Boolean)
   const body = taskBody({ goal: '', goalDoc, criteria, extra: [] })
   const approvals = defaultApprovals()
@@ -601,17 +543,11 @@ export function newProjectNow(kind: PipelineKind): ID | null {
   return id && currentProjectId(kind) === id ? id : null
 }
 
-/** What a task's review says about its pipeline (where it starts, whether that starts the worker, where it stops, git). */
-function pipelineLine(pipeline: ResolvedStage[], repo: boolean, start: boolean, approvals: Approvals) {
-  const first = startStageOf(pipeline, repo, start)
-  return JSON.stringify([
-    first?.name ?? null,
-    first?.kind ?? null,
-    landsOn(pipeline, first) === 'worker',
-    runsFrom(pipeline, first ?? null, approvals).stop?.name ?? null,
-    pipeline.filter((s) => s.kind === 'git').map((s) => [s.name, s.gitAction ?? 'pr']),
-  ])
-}
+/**
+ * What a task's review says about its pipeline (where it starts, whether that starts the worker, where it stops, git) —
+ * stages.ts; a work order's chain confirms each step's line (start: true) and asks again when it changed.
+ */
+export { pipelineLine }
 
 /** Did the live list of pages that go along gain one the review did not list? */
 const newRefs = (live: RefPage[], shown: RefPage[] | undefined) => live.some((r) => !(shown ?? []).some((x) => x.id === r.id))

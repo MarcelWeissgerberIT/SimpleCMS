@@ -39,6 +39,9 @@ import { notifyAway } from './notify'
 import { currentWriter, endRun, noteRun, SYSTEM, withWriter, type Writer } from '../../store/writer'
 import { isEjectWriter } from '../recorder/settled'
 import { newId } from '../../lib/ids'
+import { skipsGate, startStageOf } from './stages'
+import { BRANCH_NAME } from './draft'
+import { ensureChainProps } from './orders/props'
 
 const ws = () => useWorkspace.getState()
 
@@ -203,6 +206,25 @@ function moveRow(taskId: ID, props: CodingProps, stageId: ID) {
 }
 
 /**
+ * The parked-start guard (work orders, coding/chain.ts): a step of a chain on this device that the chain has not started
+ * yet is never handed to the worker — not from an automatic stage it was moved to by hand, not with "Run now". The chain
+ * engine registers it (its records); without one nothing is held.
+ */
+let parked: (taskId: ID) => boolean = () => false
+export function setParkedGuard(fn: ((taskId: ID) => boolean) | null): void {
+  parked = fn ?? (() => false)
+}
+/** Is this task a chain step that waits for its chain (the guard above)? */
+export const isParkedStep = (taskId: ID): boolean => {
+  try {
+    return parked(taskId)
+  } catch {
+    // a guard that cannot answer holds the task (never a start on a doubt)
+    return true
+  }
+}
+
+/**
  * The next task for the worker (`next`): a task of one of `repos` whose stage the worker takes (auto, or
  * "Run now" on this device), not claimed by another worker in the last 10 minutes, not waiting / failed,
  * confirmed on this device (team) — highest priority first, then the oldest. It is claimed (Worker +
@@ -231,6 +253,8 @@ export async function pickNext(repos: string[], workerName: string, docs = false
   pool.sort((a, b) => priorityRank(a.db, a.props, a.row) - priorityRank(b.db, b.props, b.row) || a.row.createdAt - b.row.createdAt)
   for (const { dbId, db, props, pipeline, row } of pool) {
     if (busy.has(row.id)) continue
+    // a parked chain step: only its chain starts it (nothing is written for it here, not even the queue hop)
+    if (isParkedStep(row.id)) continue
     const owner = text(row.properties[props.worker ?? ''])
     if (owner && owner !== workerName && Date.now() - claimedAt(row.properties[props.claimed ?? '']) < CLAIM_STALE_MS) continue
     await loadTask(row.id)
@@ -280,7 +304,7 @@ export async function pickNext(repos: string[], workerName: string, docs = false
     const fresh = ws().pages[row.id]
     // a custom agent writing right now: its stamp (and with it the wait for Confirm) comes only when its batch is
     // written — no task is handed out in between (the stamp race, Prüfaufträge B2)
-    if (!fresh || fresh.trashed || ws().databases[dbId] !== db || !(await isTrusted(row.id)) || ws().pages[row.id] !== fresh || ws().databases[dbId] !== db || isAgentWriting()) {
+    if (!fresh || fresh.trashed || ws().databases[dbId] !== db || !(await isTrusted(row.id)) || ws().pages[row.id] !== fresh || ws().databases[dbId] !== db || isAgentWriting() || isParkedStep(row.id)) {
       skip()
       continue
     }
@@ -942,16 +966,8 @@ export interface NewTask {
   order?: { rowId: ID; step: number; run: string }
 }
 
-/**
- * Where a new task starts: `start` — the first stage the worker takes (an Import stage when the code has yet to
- * arrive, else the first automatic queue, else the first stage); otherwise the first stage (the backlog).
- */
-export function startStageOf(pipeline: ResolvedStage[], hasRepo: boolean, start: boolean): ResolvedStage | undefined {
-  const first = pipeline[0]
-  // a pipeline that starts with the code (an Import stage): a task without a repo waits there for it
-  const intake = !hasRepo ? pipeline.find((s) => s.kind === 'import') : undefined
-  return start ? (intake ?? pipeline.find((s) => s.kind === 'queue' && s.auto) ?? first) : first
-}
+/** Where a new task starts (stages.ts): the first stage (parked), or with `start` the first one the worker takes. */
+export { startStageOf }
 
 /** A page picked with @ in a coding field (coding/RefField.tsx): `[@Title](#/p/<id>)`. */
 const PICKED = /\[@((?:\\.|[^\]\\])*)\]\(#\/p\/([A-Za-z0-9_-]{4,64})\)/g
@@ -1043,8 +1059,8 @@ export function allTasks(only?: PipelineKind): Array<{ row: Page; stage: Resolve
 
 /* ------------------------------------------------------------------ setup in the task panel */
 
-/** A branch name the Branch field takes (the worker checks it again with git's own rules). */
-export const BRANCH_NAME = /^[A-Za-z0-9._/-]{1,200}$/
+/** A branch name the Branch field takes (draft.ts — the worker checks it again with git's own rules). */
+export { BRANCH_NAME }
 
 /** Repo names to offer: the connected worker's and those already in the Repo select. */
 export function knownRepos(): string[] {
@@ -1219,15 +1235,8 @@ export function startApprovalsWatch(): void {
   })
 }
 
-/**
- * Does a task with these Approvals run past this gate? A gate right after a plan stage approves the plan; every other
- * gate is a review. A gate marked "Always stop here" (hold) is never skipped.
- */
-export function skipsGate(level: Approvals, pipeline: ResolvedStage[], gate: ResolvedStage): boolean {
-  if (gate.hold) return false
-  if (level === 'none') return true
-  return level === 'review' && pipeline[gate.index - 1]?.kind === 'plan'
-}
+/** Does a task with these Approvals run past this gate? (stages.ts — a hold gate always stops) */
+export { skipsGate }
 
 /**
  * A task's Approvals on this device; a task waiting at a gate it now skips goes on (a hold gate it would skip says it
@@ -1313,7 +1322,10 @@ export async function setTaskModel(taskId: ID, model: string | null): Promise<vo
 // added stay — P1 invariant 5; a follow-up's copied tasks are new tasks)
 if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams(window.location.search).has('e2e'))) {
   ;(window as unknown as { __oneCodingWrites?: unknown }).__oneCodingWrites = {
-    create: (title: string, kind: PipelineKind = 'coding') => createTask({ title, repo: null, goal: 'A goal.', criteria: [], priority: 'medium', branch: '', start: false, kind }),
+    create: (title: string, kind: PipelineKind = 'coding', repo: string | null = null) => createTask({ title, repo, goal: 'A goal.', criteria: [], priority: 'medium', branch: '', start: false, kind }),
+    // work orders B3: the parked-start guard over these task ids (null: none) · the chain roles on a project
+    parked: (ids: ID[] | null) => setParkedGuard(ids ? (id) => ids.includes(id) : null),
+    chainProps: (projectId: ID, ordersDb: ID, row: ID) => ensureChainProps(projectId, ordersDb, { kind: 'order', row, run: 'e2e' }),
     // as a stage's outcome would land (store/writer.ts): the coding run's write
     writePlan: (pageId: ID, md: string, title?: string) => withWriter(codingWriter(pageId, 'e2e'), () => writePlan(pageId, md, title)),
     docPages: (taskId: ID, stageName: string, intro: string, sections: DocSection[], known: ID | null = null) =>
