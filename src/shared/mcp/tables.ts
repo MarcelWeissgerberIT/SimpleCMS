@@ -102,6 +102,8 @@ export const MCP_LIMITS = {
   pagesChars: 600_000,
   /** rows per create / update / upsert call */
   rows: 50,
+  /** a row batch of at least this many rows that starts paid AI work or outward automations is always asked */
+  rowsAsk: 5,
   /** one_edit_blocks: edits and their text per call */
   edits: 30,
   editsChars: 200_000,
@@ -188,15 +190,15 @@ export const MCP_LOCAL_ONLY: readonly string[] = ['one_run_query', 'one_run_scri
 
 /**
  * Arguments the team server declares like the bridge but answers `local_only` for (private pages, templates, picked or
- * local files, chart / spreadsheet specs). None yet: B3 adds `private`, B6 `source.pick` / `source.path`, B7 `template`.
+ * local files, chart / spreadsheet specs). B3: `private`; B6 adds `source.pick` / `source.path`, B7 `template`.
  */
-export const MCP_LOCAL_ONLY_ARGS: Readonly<Record<string, readonly string[]>> = {}
+export const MCP_LOCAL_ONLY_ARGS: Readonly<Record<string, readonly string[]>> = { one_create_page: ['private'] }
 
 /**
  * Tools whose calls make something new: a repeat with the same arguments joins the call that is still waiting, or
  * answers the result of the one applied in the last 2 minutes (`duplicateOf`) — never a second copy.
  */
-export const MCP_CREATING_TOOLS: readonly string[] = ['one_create_page', 'one_create_database', 'one_create_row', 'one_attach_file', 'one_comment']
+export const MCP_CREATING_TOOLS: readonly string[] = ['one_create_page', 'one_create_database', 'one_create_row', 'one_upsert_rows', 'one_attach_file', 'one_comment']
 
 /**
  * The tool contract's revision: 1 = what One tabs before it (bridge 1.11.0) answered; 2 = train T-a (hello `tools`,

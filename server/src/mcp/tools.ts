@@ -16,20 +16,26 @@ import { ApiError } from '../errors.ts'
 import { idSchema } from '../http/util.ts'
 import type { ApiTokenRow } from '../repo.ts'
 import type { WorkspaceModel } from '../api/model.ts'
+import { liveDatabase, livePage } from '../api/meta.ts'
 import { FILTER_OPS, sortKeys } from './query.ts'
 import { McpReads } from './reads.ts'
 import { McpStructure, VIEW_TYPES, type ViewInput } from './structure.ts'
 import { BULK_MAX, McpTidy } from './tidy.ts'
-import { CREATABLE_TYPES, MAX_DB_PROPERTIES, McpWrites, iconIn } from './writes.ts'
-import { assertNotSystem } from './system.ts'
+import { CREATABLE_TYPES, MAX_DB_PROPERTIES, McpWrites } from './writes.ts'
 import { once } from './duplicates.ts'
-import { MCP_CONTRACT_REV, MCP_LINE_CLASS, MCP_LINE_CODEWORD, MCP_LINE_CONTENT, mcpDescription, type McpToolName } from '../../../src/shared/mcp/contract.ts'
+import { McpBatch } from './batch.ts'
+import { McpPreimages, fragmentSnapshot, stateHash } from './preimages.ts'
+import { fragmentText } from '../api/content.ts'
+import { contentDoc } from '../api/model.ts'
+import { MCP_CONTRACT_REV, MCP_LIMITS, MCP_LINE_BOARD, MCP_LINE_CLASS, MCP_LINE_CODEWORD, MCP_LINE_CONTENT, mcpDescription, type McpToolName } from '../../../src/shared/mcp/contract.ts'
 import { codeOf, isMcpErrorCode, withRemedy, type McpErrorCode } from '../../../src/shared/mcp/errors.ts'
 import { stripRefLabels } from '../../../src/shared/mcp/refs.ts'
-import { MCP_LIMITS, MCP_PAGE_KINDS } from '../../../src/shared/mcp/tables.ts'
+import { MCP_PAGE_KINDS } from '../../../src/shared/mcp/tables.ts'
 
 /** Markdown a client wrote: ref labels it copied from a read (⟦#…~…⟧) never reach content. */
 const md = (v: string | undefined) => (v === undefined ? undefined : stripRefLabels(v))
+/** The same for every item of a batch (pages, rows) that carries its own Markdown. */
+const mdEach = <T extends { markdown?: string }>(list: T[] | undefined) => list?.map((it) => (it.markdown === undefined ? it : { ...it, markdown: md(it.markdown) }))
 
 const id = idSchema.describe('A page, row or database id')
 const markdown = z.string().max(200_000)
@@ -71,6 +77,8 @@ const viewIn = (a: { name?: string; groupBy?: string | null; dateProperty?: stri
   sort: a.sort === undefined ? undefined : a.sort === null ? null : sortKeys(a.sort).map((k) => ({ property: k.property, desc: k.direction === 'desc' })),
   properties: a.properties,
 })
+/** A new row of a batch (one_create_row / one_create_database `rows`). */
+const rowItem = z.object({ title: z.string().max(2000), properties: z.record(z.string(), z.unknown()).optional(), markdown: markdown.optional() })
 const DESTRUCTIVE = { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false } as const
 const CHANGE = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false } as const
 
@@ -123,7 +131,7 @@ function instructions(name: string, id: string, write: boolean): string {
     'Values are friendly: option names, dates "YYYY-MM-DD" or "YYYY-MM-DDTHH:MM" (wall-clock, no time zone), member emails for people, row ids for relations.',
     'Errors start with a code ("not_found: …") and say what to do next.',
     write
-      ? 'Changes reach everyone who has the workspace open at once; repeating a call that made something does not make a second one (the answer says duplicateOf). A board as its own sub-page: one_create_database { parentId }, then one_create_view { type: "board" }. Tidying up: one_move_page, one_move_row, one_update_database / _property / _view, one_trash_page (nothing is deleted for good: one_restore_page brings things back). Before removing or reorganising several things, say what you plan to do.'
+      ? `Changes reach everyone who has the workspace open at once; repeating a call that made something does not make a second one (the answer says duplicateOf). ${MCP_LINE_BOARD} Tidying up: one_move_page, one_move_row, one_update_database / _property / _view, one_trash_page (nothing is deleted for good: one_restore_page brings things back). Before removing or reorganising several things, say what you plan to do.`
       : 'This token can only read: the write tools are not available.',
     MCP_LINE_CONTENT,
     MCP_LINE_CLASS,
@@ -141,6 +149,10 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
   const writes = new McpWrites(s, model)
   const tidy = new McpTidy(s, model)
   const structure = new McpStructure(s, model)
+  const batch = new McpBatch(s, model, writes)
+  const preimages = new McpPreimages(s, model)
+  /** one recorder per tool call: its pre-images (owners / admins put a call back in Workspace → API) */
+  const recorder = (tool: McpToolName) => preimages.recorder(ws, token.id, tool)
   const name = s.repo.workspaceById(ws)?.name ?? ''
   /** The workspace as MCP names it — the same id the local bridge uses for a team workspace. */
   const self = { id: `team:${ws}`, name }
@@ -327,21 +339,28 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
   server.registerTool(
     'one_create_page',
     {
-      title: 'Create a page',
+      title: 'Create pages',
       description: desc('one_create_page', 'Markdown here: headings, lists, to-dos (- [ ]), quotes, code blocks, dividers, bold / italic / strike / code, links.'),
-      inputSchema: { title: z.string().max(2000), parentId: id.nullable().optional(), markdown: markdown.optional(), icon: icon.optional(), ...WS },
+      inputSchema: {
+        title: z.string().max(2000).optional(),
+        parentId: id.nullable().optional(),
+        markdown: markdown.optional(),
+        icon: icon.optional(),
+        before: id.optional().describe('A sibling id: place it right before'),
+        after: id.optional().describe('A sibling id: place it right after'),
+        index: z.number().int().min(0).optional().describe('0 = first (default last)'),
+        private: z.boolean().optional().describe('Local bridge only: refused here (local_only)'),
+        linkInParent: z.enum(['none', 'block', 'mention']).optional(),
+        pages: z
+          .array(z.object({ title: z.string().min(1).max(2000), parentId: z.string().max(80).optional().describe('A page / row id or "$<index>"'), markdown: markdown.optional(), icon: icon.optional() }))
+          .min(1)
+          .max(MCP_LIMITS.pages)
+          .optional(),
+        ...WS,
+      },
       annotations: CREATE,
     },
-    async (a) =>
-      run(
-        a.workspace,
-        made('one_create_page', a, async () => {
-          // nothing new below a row of One's own databases (read-only over MCP — system.ts)
-          if (a.parentId) await model.read(ws, (r) => assertNotSystem(r, a.parentId))
-          const created = await model.createPage(ws, { title: a.title, parentId: a.parentId ?? null, content: md(a.markdown), icon: iconIn(a.icon) }, actor)
-          return { ...created, title: a.title }
-        }),
-      )(),
+    async (a) => run(a.workspace, made('one_create_page', a, () => batch.createPages(ws, { ...a, markdown: md(a.markdown), pages: mdEach(a.pages) }, actor, recorder('one_create_page'))))(),
   )
 
   server.registerTool(
@@ -359,25 +378,53 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
       },
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     },
-    async (a) => run(a.workspace, () => writes.updatePage(ws, { id: a.id, title: a.title, icon: a.icon, markdown: md(a.markdown), mode: a.mode ?? 'append' }, actor, { mcp: true }))(),
+    async (a) =>
+      run(a.workspace, async () => {
+        // a replace keeps its pre-image (the content before, taken in the write's own transaction)
+        const rec = recorder('one_update_page')
+        let before: { snapshot: string; plain: string } | null = null
+        const out = await writes.updatePage(ws, { id: a.id, title: a.title, icon: a.icon, markdown: md(a.markdown), mode: a.mode ?? 'append' }, actor, {
+          mcp: true,
+          preimage: (doc) => (before = { snapshot: fragmentSnapshot(doc), plain: fragmentText(doc, 20_000) }),
+        })
+        const pre = before as { snapshot: string; plain: string } | null
+        if (pre) rec.content(a.id, pre.snapshot, pre.plain, await s.collab.read(contentDoc(ws, a.id), (doc) => stateHash(doc)))
+        return out
+      })(),
   )
 
   server.registerTool(
     'one_create_row',
     {
-      title: 'Create a row',
+      title: 'Create rows',
       description: desc('one_create_row', "People: a member's email works too."),
-      inputSchema: { databaseId: id, title: z.string().max(2000), properties: z.record(z.string(), z.unknown()).optional().describe('Property name → value'), markdown: markdown.optional(), ...WS },
+      inputSchema: {
+        databaseId: id,
+        title: z.string().max(2000).optional(),
+        properties: z.record(z.string(), z.unknown()).optional().describe('Property name → value'),
+        markdown: markdown.optional(),
+        rows: z.array(rowItem).min(1).max(MCP_LIMITS.rows).optional(),
+        ...WS,
+      },
       annotations: CREATE,
     },
     async (a) =>
       run(
         a.workspace,
         made('one_create_row', a, async () => {
+          const rec = recorder('one_create_row')
+          if (a.rows) {
+            const mixed = (['title', 'properties', 'markdown'] as const).find((k) => a[k] !== undefined)
+            if (mixed) throw new ApiError(422, 'bad_argument', `bad_argument: ${mixed}: pass "rows" or title / properties / markdown, not both`)
+            return batch.createRows(ws, { databaseId: a.databaseId, rows: mdEach(a.rows)! }, actor, rec)
+          }
+          if (!a.title && !a.properties) throw new ApiError(422, 'bad_argument', 'bad_argument: title: a row needs a title (or pass "rows")')
           // an MCP client is an agent: properties "Only by hand" are refused (api/keys.ts)
           const row = await writes.prepareRow(ws, { databaseId: a.databaseId }, { title: a.title, properties: a.properties }, actor, { agent: true, mcp: true, files: 'onefile' })
           const created = await model.createRow(ws, a.databaseId, { title: row.title ?? a.title, properties: row.properties, content: md(a.markdown) }, actor, { agent: true, files: 'onefile' })
-          return { ...created, title: row.title ?? a.title }
+          const state = await model.read(ws, (r) => McpPreimages.rowState(r, created.id))
+          if (state) rec.rows({ db: a.databaseId, created: [{ id: created.id, title: state.title, values: state.values }], updated: [] })
+          return { ...created, title: state?.title ?? row.title ?? a.title ?? '' }
         }),
       )(),
   )
@@ -385,16 +432,53 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
   server.registerTool(
     'one_update_row',
     {
-      title: 'Update a row',
-      description: desc('one_update_row', "People: a member's email works too. Answers the row as it is now."),
-      inputSchema: { id, properties: z.record(z.string(), z.unknown()).describe('Property name → new value'), ...WS },
+      title: 'Update rows',
+      description: desc('one_update_row', "People: a member's email works too. Answers the row as it is now (\"rows\": what changed per row)."),
+      inputSchema: {
+        id: id.optional(),
+        properties: z.record(z.string(), z.unknown()).optional().describe('Property name → new value'),
+        rows: z.array(z.object({ id, properties: z.record(z.string(), z.unknown()) })).min(1).max(MCP_LIMITS.rows).optional(),
+        ...WS,
+      },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async (a) =>
       run(a.workspace, async () => {
-        const row = await writes.prepareRow(ws, { rowId: a.id }, { properties: a.properties }, actor, { agent: true, mcp: true, files: 'onefile' })
-        return model.updateRow(ws, a.id, { title: row.title, properties: row.properties }, actor, { agent: true, files: 'onefile' })
+        const rec = recorder('one_update_row')
+        if (a.rows) {
+          const mixed = (['id', 'properties'] as const).find((k) => a[k] !== undefined)
+          if (mixed) throw new ApiError(422, 'bad_argument', `bad_argument: ${mixed}: pass "rows" or id / properties, not both`)
+          return batch.updateRows(ws, a.rows, actor, rec)
+        }
+        if (!a.id || !a.properties) throw new ApiError(422, 'bad_argument', 'bad_argument: id: pass "id" and "properties" (or "rows")')
+        // one row: the answer is the row as it is now (as before); the pre-image as for a batch
+        await batch.updateRows(ws, [{ id: a.id, properties: a.properties }], actor, rec, true)
+        return model.read(ws, (r) => {
+          const page = livePage(r, a.id!)
+          const db = page?.databaseId ? liveDatabase(r, page.databaseId) : null
+          if (!page || !db) throw new ApiError(404, 'page_not_found', `No row with id "${a.id}"`)
+          return model.rowOut(ws, db.properties, page, model.context(ws, r))
+        })
       })(),
+  )
+
+  server.registerTool(
+    'one_upsert_rows',
+    {
+      title: 'Mirror rows by key',
+      description: desc('one_upsert_rows', "People: a member's email works too."),
+      inputSchema: {
+        databaseId: id,
+        keyProperty: z.string().min(1).max(200),
+        rows: z
+          .array(z.object({ key: z.union([z.string().min(1).max(500), z.number()]), title: z.string().max(2000).optional(), properties: z.record(z.string(), z.unknown()).optional(), markdown: markdown.optional() }))
+          .min(1)
+          .max(MCP_LIMITS.rows),
+        ...WS,
+      },
+      annotations: CREATE,
+    },
+    async (a) => run(a.workspace, made('one_upsert_rows', a, () => batch.upsertRows(ws, { databaseId: a.databaseId, keyProperty: a.keyProperty, rows: mdEach(a.rows)! }, actor, recorder('one_upsert_rows'))))(),
   )
 
   server.registerTool(
@@ -416,15 +500,30 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
       inputSchema: {
         title: z.string().max(2000),
         parentId: id.nullable().optional(),
+        inline: z.object({ pageId: id, afterBlock: z.string().max(200).optional() }).optional(),
+        icon: icon.optional(),
         properties: z
           .array(z.object({ ...propertySpec, type: z.enum(['title', ...CREATABLE_TYPES]) }))
           .max(MAX_DB_PROPERTIES)
           .optional(),
+        views: z.array(z.object({ type: z.enum(VIEW_TYPES), ...viewSettings })).min(1).max(5).optional(),
+        rows: z.array(rowItem).max(MCP_LIMITS.rows).optional(),
         ...WS,
       },
       annotations: CREATE,
     },
-    async (a) => run(a.workspace, made('one_create_database', a, () => writes.createDatabase(ws, { title: a.title, parentId: a.parentId ?? null, properties: a.properties }, actor)))(),
+    async (a) =>
+      run(
+        a.workspace,
+        made('one_create_database', a, () =>
+          batch.createDatabase(
+            ws,
+            { title: a.title, parentId: a.parentId ?? null, inline: a.inline, icon: a.icon, properties: a.properties, views: a.views?.map((v) => ({ type: v.type, ...viewIn(v) })), rows: mdEach(a.rows) },
+            actor,
+            recorder('one_create_database'),
+          ),
+        ),
+      )(),
   )
 
   server.registerTool(

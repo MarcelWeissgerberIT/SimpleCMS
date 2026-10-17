@@ -24,6 +24,24 @@ export const handOnlyError = (p: Pick<PropertyDef, 'name'>) => `"${p.name}" is f
 
 type Result = { ok: true; change: PropChange } | { ok: false; error: string }
 
+/**
+ * Files properties are read-only for agents — except over MCP (spec § 2.3): there they take this workspace's files as
+ * `onefile:<id>` refs, which MCP checked before staging (reachable, this workspace, scope; features/mcp/rows.ts).
+ * Only while `withFilesWritable` runs (MCP's stageWith); no other caller ever sets it.
+ */
+let filesWritable = false
+export function withFilesWritable<T>(fn: () => T): T {
+  const prev = filesWritable
+  filesWritable = true
+  try {
+    return fn()
+  } finally {
+    filesWritable = prev
+  }
+}
+
+const FILE_REF = /^onefile:[A-Za-z0-9_-]{1,64}$/
+
 const MAX_TEXT = 5000
 
 const show = (v: unknown): string => {
@@ -82,6 +100,14 @@ const value = (v: PropertyValue): PropIntent => ({ kind: 'value', value: v })
 /** Validate / coerce one value Claude sent for a property. `row` is null for a new row. */
 export function coerceProperty(db: Database, prop: PropertyDef, raw: unknown, row: Page | null): Result {
   const fail = (msg: string): Result => ({ ok: false, error: `"${prop.name}" (${prop.type}): ${msg}` })
+  if (prop.type === 'files' && filesWritable && !isHandOnly(prop)) {
+    if (raw === null || raw === undefined || raw === '') return ok(db, prop, row, value([]), '')
+    const refs = (Array.isArray(raw) ? raw : [raw]).map((x) => (typeof x === 'string' ? x.trim() : ''))
+    const bad = refs.find((x) => !FILE_REF.test(x))
+    if (bad !== undefined) return fail(`expected this workspace's files as "onefile:<id>", got ${show(bad)}.`)
+    const list = [...new Set(refs)]
+    return ok(db, prop, row, value(list), list.join(', '))
+  }
   if (READ_ONLY.has(prop.type)) return fail('this property is computed and cannot be set.')
   // "Only by hand": agents never write it (store/keys.ts)
   if (isHandOnly(prop)) return { ok: false, error: handOnlyError(prop) }

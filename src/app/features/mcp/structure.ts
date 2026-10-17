@@ -681,7 +681,7 @@ interface ViewChange {
 }
 
 /** The view settings of a create / update call, validated against the database (base = the view now). */
-function viewChange(db: Database, args: Record<string, unknown>, base: View): ViewChange {
+export function viewChange(db: Database, args: Record<string, unknown>, base: View): ViewChange {
   const problems: string[] = []
   const patch: Partial<View> = {}
   const lines: PlanLine[] = []
@@ -780,7 +780,7 @@ function viewChange(db: Database, args: Record<string, unknown>, base: View): Vi
 }
 
 /** A layout as the card names it. */
-const layoutName = (type: string) => ((MCP_VIEW_TYPES as readonly string[]).includes(type) ? t(`features.mcp.viewName.${type}`) : type)
+export const layoutName = (type: string) => ((MCP_VIEW_TYPES as readonly string[]).includes(type) ? t(`features.mcp.viewName.${type}`) : type)
 
 /** A filter operator on the card: comparisons as signs, the rest in words. */
 const OP_SIGNS: Record<string, string> = { is: '=', eq: '=', is_not: '≠', neq: '≠', gt: '>', after: '>', gte: '≥', on_or_after: '≥', lt: '<', before: '<', lte: '≤', on_or_before: '≤' }

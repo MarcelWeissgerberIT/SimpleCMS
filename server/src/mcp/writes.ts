@@ -159,6 +159,16 @@ function showInViews(ydb: Y.Map<unknown>, propId: string) {
   }
 }
 
+/** What createDatabase takes (MCP one_create_database). */
+export interface DatabaseInput {
+  title: string
+  parentId?: string | null
+  properties?: PropertyInput[]
+  icon?: unknown
+  inline?: boolean
+  shape?: (r: Roots, defs: PropertyDef[]) => { defs: PropertyDef[]; views: Array<Record<string, unknown>> | null }
+}
+
 export class McpWrites {
   private readonly s: Services
   private readonly model: WorkspaceModel
@@ -177,7 +187,12 @@ export class McpWrites {
    * write back. The meta check after the content write is only for a race, and a race puts the content back from this
    * call's pre-image.
    */
-  async updatePage(wsId: string, input: { id: string; title?: string; icon?: string | null; markdown?: string; mode: 'append' | 'replace' }, actor: string, opts: { mcp?: boolean } = {}) {
+  async updatePage(
+    wsId: string,
+    input: { id: string; title?: string; icon?: string | null; markdown?: string; mode: 'append' | 'replace' },
+    actor: string,
+    opts: { mcp?: boolean; preimage?: (doc: Y.Doc) => void } = {},
+  ) {
     const icon = iconIn(input.icon)
     const content = input.markdown !== undefined && (input.mode === 'replace' || input.markdown.trim())
     const check = (r: Roots) => {
@@ -208,6 +223,8 @@ export class McpWrites {
                 'lossy_replace',
                 `lossy_replace: ${JSON.stringify(before.title || 'Untitled')} holds content a replace over the team server cannot write back (${lossy.join(', ')}). Nothing was changed. Append instead, change it in One, or use the local bridge (it asks first).`,
               )
+            // the call's pre-image (MCP: what a restore writes back — preimages.ts), taken inside this transaction
+            opts.preimage?.(doc)
             // —— changes from here on ——
             // detached copies (a copy of a copy would come out empty: Yjs keeps a detached type's children aside)
             const pre = frag.toArray().map((n) => (n as Y.XmlElement | Y.XmlText).clone())
@@ -298,7 +315,7 @@ export class McpWrites {
         // "Only by hand" (api/keys.ts): refused before anything (a new option) is written
         if (opts.agent && isHandOnly(prop)) throw unprocessable('invalid_value', handOnlyMessage(prop))
         // a files value over MCP: only this workspace's files, never a web address (it would load in every viewer)
-        if (opts.mcp && prop.type === 'files') checkFilesValue(prop.name, raw)
+        if (opts.mcp && prop.type === 'files') checkFilesValue(prop.name, raw, ctx.files)
         properties[key] = friendlyIn(r, prop, raw, ctx)
         if (prop.type === 'select' || prop.type === 'multi_select') {
           const fresh = optionNames(prop, raw).filter((n) => !(prop.options ?? []).some((o) => o.id === n || o.name.trim().toLowerCase() === n.toLowerCase()))
@@ -346,66 +363,81 @@ export class McpWrites {
 
   /* ---------------------------------------------------------------- databases */
 
-  async createDatabase(wsId: string, input: { title: string; parentId?: string | null; properties?: PropertyInput[] }, actor: string) {
+  /** A new database's schema and views as createDatabase writes them (checked against `r`; nothing written). */
+  planDatabase(r: Roots, input: DatabaseInput, id: string) {
+    const parentId = input.parentId ?? null
+    if (parentId) {
+      const parent = livePage(r, parentId)
+      if (!parent) throw notFound('parent_not_found', `No parent page with id "${parentId}" in this workspace`)
+      if (parent.kind === 'database') throw unprocessable('parent_is_database', 'The parent is a database: a database goes inside a page')
+      // nothing new below a row of One's own databases
+      assertNotSystem(r, parentId)
+    }
+    if ((input.properties?.length ?? 0) > MAX_DB_PROPERTIES) throw unprocessable('invalid_property', `At most ${MAX_DB_PROPERTIES} properties in one call (got ${input.properties!.length}).`)
+    const specs: PropertyInput[] = input.properties?.length
+      ? input.properties
+      : [
+          { name: 'Name', type: 'title' },
+          { name: 'Status', type: 'status' },
+          { name: 'Tags', type: 'multi_select' },
+          { name: 'Date', type: 'date' },
+        ]
+    const titles = specs.filter((p) => p.type === 'title')
+    if (titles.length > 1) throw unprocessable('invalid_property', 'A database has one title property')
+    const names = new Set<string>()
+    for (const p of specs) {
+      const k = p.name.trim().toLowerCase()
+      if (names.has(k)) throw unprocessable('invalid_property', `Property "${p.name}" is listed twice`)
+      names.add(k)
+    }
+    const all = titles.length ? specs : [{ name: names.has('name') ? 'Title' : 'Name', type: 'title' as const }, ...specs]
+    const pairs: Array<{ def: PropertyDef; spec: PropertyInput }> = all.map((spec) => ({ spec, def: definition(r, spec, id) }))
+    const reverse = pairs.filter(({ spec }) => spec.type === 'relation' && spec.relation?.twoWay && spec.relation.databaseId !== id)
+    for (const { spec } of reverse) {
+      const target = liveDatabase(r, spec.relation!.databaseId)!
+      if (target.ydb.get('locked') === true) throw unprocessable('database_locked', `"${target.page.title}" is locked: unlock it in the app to add the two-way relation`)
+    }
+    const shaped = input.shape ? input.shape(r, pairs.map((p) => p.def)) : null
+    return { pairs, reverse, defs: shaped?.defs ?? pairs.map((p) => p.def), views: shaped?.views ?? null }
+  }
+
+  /** The schema and views a createDatabase call would write (for checks before anything is written). */
+  draftDatabase(wsId: string, input: DatabaseInput) {
+    return this.model.read(wsId, (r) => this.planDatabase(r, input, 'draft'))
+  }
+
+  /**
+   * A database (one meta transaction): its page, properties and views. `shape` (MCP one_create_database's views, batch.ts)
+   * turns the properties into the views it asks for — and may add one (a board's Status); without it: one table view.
+   * `inline`: it lives in its parent page's text (the caller writes the database block); `icon` as iconIn makes it.
+   */
+  async createDatabase(wsId: string, input: DatabaseInput, actor: string) {
     const parentId = input.parentId ?? null
     const id = newId()
-    const build = (r: Roots) => {
-      if (parentId) {
-        const parent = livePage(r, parentId)
-        if (!parent) throw notFound('parent_not_found', `No parent page with id "${parentId}" in this workspace`)
-        if (parent.kind === 'database') throw unprocessable('parent_is_database', 'The parent is a database: a database goes inside a page')
-        // nothing new below a row of One's own databases
-        assertNotSystem(r, parentId)
-      }
-      if ((input.properties?.length ?? 0) > MAX_DB_PROPERTIES) throw unprocessable('invalid_property', `At most ${MAX_DB_PROPERTIES} properties in one call (got ${input.properties!.length}).`)
-      const specs: PropertyInput[] = input.properties?.length
-        ? input.properties
-        : [
-            { name: 'Name', type: 'title' },
-            { name: 'Status', type: 'status' },
-            { name: 'Tags', type: 'multi_select' },
-            { name: 'Date', type: 'date' },
-          ]
-      const titles = specs.filter((p) => p.type === 'title')
-      if (titles.length > 1) throw unprocessable('invalid_property', 'A database has one title property')
-      const names = new Set<string>()
-      for (const p of specs) {
-        const k = p.name.trim().toLowerCase()
-        if (names.has(k)) throw unprocessable('invalid_property', `Property "${p.name}" is listed twice`)
-        names.add(k)
-      }
-      const all = titles.length ? specs : [{ name: names.has('name') ? 'Title' : 'Name', type: 'title' as const }, ...specs]
-      const pairs: Array<{ def: PropertyDef; spec: PropertyInput }> = all.map((spec) => ({ spec, def: definition(r, spec, id) }))
-      const reverse = pairs.filter(({ spec }) => spec.type === 'relation' && spec.relation?.twoWay && spec.relation.databaseId !== id)
-      for (const { spec } of reverse) {
-        const target = liveDatabase(r, spec.relation!.databaseId)!
-        if (target.ydb.get('locked') === true) throw unprocessable('database_locked', `"${target.page.title}" is locked: unlock it in the app to add the two-way relation`)
-      }
-      return { pairs, reverse }
-    }
+    const build = (r: Roots) => this.planDatabase(r, input, id)
     await this.model.read(wsId, build)
     const out = await this.s.collab.write(
       metaDoc(wsId),
       (doc) => {
         const r = roots(doc)
-        const { pairs, reverse } = build(r)
-        const defs = pairs.map((p) => p.def)
+        const { reverse, defs, views: shaped } = build(r)
         const at = Date.now()
         // —— changes from here on ——
-        r.pages.set(id, newPageMap({ id, kind: 'database', title: input.title, parentId, databaseId: null, order: nextOrder(r, parentId), properties: {}, plain: '', at }, actor))
+        r.pages.set(id, newPageMap({ id, kind: 'database', title: input.title, icon: input.icon ?? null, parentId, databaseId: null, order: nextOrder(r, parentId), properties: {}, plain: '', at }, actor))
         const ydb = new Y.Map<unknown>()
         const pm = new Y.Map<unknown>()
         defs.forEach((d, i) => pm.set(d.id, { ...d, order: i }))
         ydb.set('properties', pm)
         const views = new Y.Map<unknown>()
-        const viewId = newId()
-        views.set(viewId, { id: viewId, name: 'Table', type: 'table', filter: null, sorts: [], visibleProperties: defs.filter((d) => d.type !== 'title').map((d) => d.id), openIn: 'peek', order: 0 })
+        const list = shaped ?? [{ id: newId(), name: 'Table', type: 'table', filter: null, sorts: [], visibleProperties: defs.filter((d) => d.type !== 'title').map((d) => d.id), openIn: 'peek' }]
+        list.forEach((v, i) => views.set(String(v.id), JSON.parse(JSON.stringify({ ...v, order: i }))))
         ydb.set('views', views)
         ydb.set('nextUniqueId', 1)
-        ydb.set('inline', false)
+        ydb.set('inline', input.inline === true)
         r.databases.set(id, ydb)
         const backs = reverse.map(({ def, spec }) => addReverse(r, id, input.title, def, spec.relation?.reverseName))
-        return { properties: defs.map(schemaOut), reverse: backs }
+        const nameOf = (pid: unknown) => defs.find((d) => d.id === pid)?.name ?? null
+        return { properties: defs.map(schemaOut), views: list.map((v) => ({ id: String(v.id), name: String(v.name), type: String(v.type), groupBy: nameOf(v.groupBy) })), reverse: backs }
       },
       actor,
     )
@@ -515,7 +547,7 @@ export function friendlyIn(r: Roots, prop: PropertyDef, raw: unknown, ctx: Value
 }
 
 /** A files value as MCP may write it: `onefile:<id>` refs only (one or a list; null / [] clears). */
-export function checkFilesValue(name: string, raw: unknown): void {
+export function checkFilesValue(name: string, raw: unknown, files?: ValueContext['files']): void {
   if (raw === null || raw === undefined || raw === '') return
   const items = Array.isArray(raw) ? raw : [raw]
   const bad = items.find((x) => typeof x !== 'string' || !/^onefile:[A-Za-z0-9_-]{1,64}$/.test(x.trim()))
@@ -524,4 +556,12 @@ export function checkFilesValue(name: string, raw: unknown): void {
       'refused_type',
       `refused_type: properties.${name}: over MCP a files property takes only this workspace's files (onefile:<id>, as one_get_page / one_query_database show them) — got ${JSON.stringify(typeof bad === 'string' ? bad.slice(0, 120) : bad)}. Nothing was changed. A web address goes into a url property or the page text.`,
     )
+  if (!files) return
+  // a file of this workspace that everyone may see (a private upload stays its owner's; MCP B3 § 2.3)
+  for (const x of items as string[]) {
+    const ref = x.trim()
+    const state = files(ref.slice('onefile:'.length))
+    if (state === 'missing') throw new ApiError(404, 'not_found', `not_found: properties.${name}: ${ref} is no file of this workspace. Nothing was changed. Use a onefile: ref that one_get_page / one_query_database show.`)
+    if (state === 'private') throw new ApiError(422, 'private_scope', `private_scope: properties.${name}: ${ref} is a private file and this row is seen by the whole workspace. Nothing was changed. Leave the file out, or ask the person to move it by hand.`)
+  }
 }

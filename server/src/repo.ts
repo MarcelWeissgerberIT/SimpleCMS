@@ -2,6 +2,12 @@ import { docContext, fileNameContext, idempotencyContext, isSealedText, open, op
 import type { Keyring } from './crypto/keyring.ts'
 import type { Db } from './db/index.ts'
 import { DAY, hashToken, iso, newId, randomToken } from './tokens.ts'
+import { MCP_LIMITS } from '../../src/shared/mcp/tables.ts'
+
+/** How long the pre-images of MCP writes are kept (days). */
+const PREIMAGE_DAYS = MCP_LIMITS.preimageDays
+/** The AAD of a sealed MCP pre-image: the workspace and the entry. */
+const preimageContext = (workspaceId: string, id: string) => `mcp-preimage\n${workspaceId}\n${id}`
 
 export type Role = 'owner' | 'admin' | 'member' | 'viewer'
 export type InviteRole = Exclude<Role, 'owner'>
@@ -836,6 +842,40 @@ export class Repo {
     )
   }
 
+  // ── MCP pre-images (mcp/preimages.ts) ──────────────────────────────
+
+  /** Keep one pre-image of an MCP call (sealed with the workspace key). */
+  savePreimage(p: { id: string; workspaceId: string; tokenId: string; callId: string; tool: string; doc: string; kind: string; data: string; afterHash: string | null; at: number }) {
+    this.db.run(
+      'INSERT INTO mcp_preimages (id, workspace_id, token_id, call_id, tool, doc, kind, sealed, after_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      p.id, p.workspaceId, p.tokenId, p.callId, p.tool, p.doc, p.kind, sealText(this.keyOf(p.workspaceId).aead, p.data, preimageContext(p.workspaceId, p.id)), p.afterHash, p.at,
+    )
+  }
+
+  /** The newest MCP calls of a workspace that kept pre-images (one entry per call), with the token's name. */
+  mcpCalls(workspaceId: string, since: number, limit = 100) {
+    return this.db.all<{ call_id: string; token_id: string; token_name: string | null; tool: string; at: number; parts: number; kinds: string; restored_at: number | null }>(
+      `SELECT p.call_id, p.token_id, t.name AS token_name, p.tool, MIN(p.created_at) AS at, COUNT(*) AS parts, GROUP_CONCAT(p.kind) AS kinds, MAX(p.restored_at) AS restored_at
+       FROM mcp_preimages p LEFT JOIN api_tokens t ON t.id = p.token_id
+       WHERE p.workspace_id = ? AND p.created_at > ? GROUP BY p.call_id ORDER BY at DESC LIMIT ?`,
+      workspaceId, since, limit,
+    )
+  }
+
+  /** One call's pre-images (opened), in the order they were kept. */
+  preimagesOf(workspaceId: string, callId: string) {
+    return this.db
+      .all<{ id: string; token_id: string; tool: string; doc: string; kind: string; sealed: string; after_hash: string | null; created_at: number; restored_at: number | null }>(
+        'SELECT id, token_id, tool, doc, kind, sealed, after_hash, created_at, restored_at FROM mcp_preimages WHERE workspace_id = ? AND call_id = ? ORDER BY created_at, rowid',
+        workspaceId, callId,
+      )
+      .map(({ sealed, ...row }) => ({ ...row, data: openText(this.keyOf(workspaceId).aead, sealed, preimageContext(workspaceId, row.id)) }))
+  }
+
+  markPreimagesRestored(workspaceId: string, callId: string, at: number) {
+    return this.db.run('UPDATE mcp_preimages SET restored_at = ? WHERE workspace_id = ? AND call_id = ?', at, workspaceId, callId)
+  }
+
   // ── housekeeping ─────────────────────────────────────────────────────
 
   purgeExpired(now = Date.now()) {
@@ -845,6 +885,8 @@ export class Repo {
       invites: this.db.run('DELETE FROM invites WHERE uses = 0 AND expires_at < ?', now - 30 * DAY),
       signupLinks: this.db.run('DELETE FROM signup_links WHERE expires_at < ?', now - 30 * DAY),
       idempotency: this.db.run('DELETE FROM idempotency WHERE created_at < ?', now - DAY),
+      // MCP pre-images: 14 days (MCP_LIMITS.preimageDays)
+      mcpPreimages: this.db.run('DELETE FROM mcp_preimages WHERE created_at < ?', now - PREIMAGE_DAYS * DAY),
       // revoked tokens are kept a while for the audit trail (rows written by `api:<tokenId>`)
       apiTokens: this.db.run('DELETE FROM api_tokens WHERE revoked_at IS NOT NULL AND revoked_at < ?', now - 90 * DAY),
       // cloud worker tokens: revoked ones kept like API tokens; a download never started lapses after a day

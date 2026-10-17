@@ -12,6 +12,8 @@ import { COLOR_NAMES } from '../../store/types'
 import type { McpToolName } from './contract'
 import { live, McpToolError, q, ws } from './values'
 import type { Writer } from '../../store/writer'
+import { privateRefsFor, privateScopeRefusal } from '../ai/claudeFiles'
+import { codeOf } from '../../../shared/mcp/errors'
 
 /** One line of the approval card. */
 export type PlanLine =
@@ -151,4 +153,33 @@ export function optionsOf(type: PropertyType, raw: unknown, key: string, start =
   // status without groups: first = to do, last = done, the rest in progress
   const groupAt = (i: number): StatusGroup => (opts.length === 1 || i === 0 ? 'todo' : i === opts.length - 1 ? 'done' : 'in_progress')
   return opts.map((o, i) => ({ id: newId(), name: o.name, color: o.color ?? palette[(start + i) % palette.length], ...(type === 'status' ? { group: o.group ?? groupAt(i) } : {}) }))
+}
+
+/* ------------------------------------------------------------------ */
+/* Shared by the planners                                               */
+/* ------------------------------------------------------------------ */
+
+/** The new tasks of a write, for its result (Claude uses these ids in later calls). */
+export const tasksOf = (created: Array<{ id: string; title: string; handle?: string }>) => (created.length ? { tasks: created } : {})
+
+/**
+ * Private files may not go into a shared page (spec § 3.3): a shared write would publish them for the whole workspace.
+ * `targetPrivate`: the target's privacy (team; locally nothing is private).
+ */
+export function checkFileScope(markdown: string, targetPrivate: boolean, target: string): void {
+  if (!markdown.includes('onefile:')) return
+  const refs = privateRefsFor(markdown, targetPrivate)
+  if (refs.length) throw new McpToolError(privateScopeRefusal(refs, target))
+}
+
+/**
+ * A planner's refusal for one entry of a batch: the entry's path after the code (`bad_argument: rows[3]: …`), the
+ * code kept when the message has one (not_found, system_database …), else bad_argument. Anything but an McpToolError
+ * passes as it is.
+ */
+export function atPath(e: unknown, path: string): never {
+  if (!(e instanceof McpToolError) || !path) throw e
+  const code = codeOf(e.message)
+  const body = code ? e.message.slice(code.length + 1).trim() : e.message
+  throw new McpToolError(`${code ?? 'bad_argument'}: ${path}: ${body}`)
 }

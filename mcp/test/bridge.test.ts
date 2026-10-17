@@ -67,6 +67,7 @@ describe('tool list', () => {
       'one_update_row',
       'one_update_view',
       'one_update_work_item',
+      'one_upsert_rows',
     ])
     // what removes something says so (clients ask before running these)
     const destructive = ['one_delete_property', 'one_delete_view', 'one_run_script', 'one_trash_page', 'one_update_property']
@@ -252,11 +253,11 @@ describe('contract 2: strict arguments, what the tab runs, compact results', () 
     const app = track(await helloApp('Nordlicht', 'apply', { tools: mcpToolArgs() }))
     const seen: string[] = []
     serve(app, (tool) => (seen.push(tool), { result: { id: 'p1' } }))
-    const res = await client.callTool({ name: 'one_create_page', arguments: { title: 'Launch plan', private: true } })
+    const res = await client.callTool({ name: 'one_create_page', arguments: { title: 'Launch plan', colour: 'orange' } })
     assert.equal(res.isError, true)
     const text = textOf(res)
     assert.equal(codeOf(text), 'bad_argument', text)
-    assert.match(text, /^bad_argument: private: one_create_page takes no argument "private" \(it takes: title, parentId, markdown, icon, workspace\)\. Nothing was changed\./)
+    assert.match(text, /^bad_argument: colour: one_create_page takes no argument "colour" \(it takes: title, parentId, markdown, icon, before, after, index, private, linkInParent, pages, workspace\)\. Nothing was changed\./)
     assert.ok(text.endsWith(MCP_REMEDIES.bad_argument))
     // the routing argument is the bridge's own: never refused, never forwarded
     const ok = await client.callTool({ name: 'one_create_page', arguments: { title: 'Launch plan', workspace: 'Nordlicht' } })
@@ -299,7 +300,19 @@ describe('contract 2: strict arguments, what the tab runs, compact results', () 
       assert.equal(res.isError, undefined, `${tool}: ${textOf(res)}`)
     }
     assert.equal(seen.length, Object.keys(MCP_ARGS_V1).length - 1)
-    // contract 1 is frozen: today's contract only adds to it (B3 adds e.g. one_create_page { private } — refused for such a tab)
+    // what contract 1 did not have never reaches such a tab — never silently made shared, never half done (MCP B3)
+    seen.length = 0
+    const priv = await client.callTool({ name: 'one_create_page', arguments: { title: 'Launch plan', private: true } })
+    assert.equal(priv.isError, true)
+    assert.match(textOf(priv), /^app_outdated: private: this One tab \(an older version\) does not know "private" of one_create_page yet/)
+    const batch = await client.callTool({ name: 'one_create_page', arguments: { pages: [{ title: 'Nordlicht' }, { title: 'Tessera', parentId: '$0' }] } })
+    assert.match(textOf(batch), /^app_outdated: pages: /)
+    const upsert = await client.callTool({ name: 'one_upsert_rows', arguments: { databaseId: 'db1', keyProperty: 'Ticket', rows: [{ key: 'T-1' }] } })
+    assert.match(textOf(upsert), /^app_outdated: this One tab \(an older version\) has no one_upsert_rows yet/)
+    const rows = await client.callTool({ name: 'one_create_row', arguments: { databaseId: 'db1', rows: [{ title: 'Mara Lind' }] } })
+    assert.match(textOf(rows), /^app_outdated: rows: /)
+    assert.deepEqual(seen, [])
+    // contract 1 is frozen: today's contract only adds to it
     const now = mcpToolArgs()
     for (const [tool, args] of Object.entries(MCP_ARGS_V1)) for (const a of args) assert.ok(now[tool]?.includes(a), `${tool}.${a} is still in the contract`)
     // what B2 added never reaches such a tab: a paged / blocks read and one_list_pages are refused, nothing is sent

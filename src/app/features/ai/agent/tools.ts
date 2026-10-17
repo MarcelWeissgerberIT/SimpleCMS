@@ -1049,35 +1049,21 @@ const reasonOf = (error: string) => error.replace(/^Nothing was staged\.[^\n]*\n
 
 const emptyDoc = (doc: JSONContent | null | undefined) => (doc?.content ?? []).every((b) => b.type === 'paragraph' && !(b.content ?? []).length)
 
-const upsertRows: AgentTool = {
-  name: 'upsert_rows',
-  write: true,
-  description: `Mirror items (of another system, a list, a feed …) into a database in ONE call — at most ${MAX_UPSERT_ROWS} rows — by their key: the value of key_property that identifies an item (its number, code or address). Per row: when a row with that key exists (also one staged earlier in this run), only the values that differ are staged as its update (title included); otherwise a new row is staged. key_property: the database's key (list_databases marks it "key: unique per row"), else another text, number or url property. Properties marked "read-only for agents" are filled in only by hand: leave them out (a row that sets one is refused). body: Markdown for the page of a new row (an existing row's page gets it only while empty). Answers per row: key, id, action (created, updated, unchanged or refused) and the reason of a refusal. Every row is its own proposed change.`,
-  input_schema: {
-    type: 'object',
-    properties: {
-      database_id: { type: 'string', description: 'Database id from list_databases.' },
-      key_property: { type: 'string', description: "Exact name of the property that identifies a row (text, number or url) — the database's key when it has one." },
-      rows: {
-        type: 'array',
-        description: `The items, in order (1–${MAX_UPSERT_ROWS}).`,
-        items: {
-          type: 'object',
-          properties: {
-            key: { type: ['string', 'number'], description: 'The value of key_property for this item, e.g. "8215".' },
-            title: { type: 'string', description: 'Row title.' },
-            properties: { type: 'object', description: 'Property name → value, as for create_row (not the key property: that is "key").', additionalProperties: true },
-            body: { type: 'string', description: "Markdown for a new row's page." },
-          },
-          required: ['key'],
-          additionalProperties: false,
-        },
-      },
-    },
-    required: ['database_id', 'key_property', 'rows'],
-    additionalProperties: false,
-  },
-  run(input, stage) {
+/** What one upsert_rows call staged: per row its result (in order), the database, the key, task lines, the first change. */
+export interface UpsertStaged {
+  results: UpsertResult[]
+  dbTitle: string
+  keyName: string
+  itemLines: string[]
+  first: StagedChange | null
+}
+
+/**
+ * The work of upsert_rows (the agent tool and MCP's one_upsert_rows): every row decided on the workspace as it is now
+ * plus what this stage holds, staged in order. Input errors throw (ToolInputError); a row that does not fit is
+ * 'refused' with its reason (the caller decides whether that fails the call).
+ */
+export function stageUpsert(input: Record<string, unknown>, stage: StageApi): UpsertStaged {
     const dbId = str(input, 'database_id', { required: true, max: 80 }).trim()
     const schema = schemaOf(stage, dbId)
     const db = schema.db
@@ -1227,11 +1213,43 @@ const upsertRows: AgentTool = {
       return { key: k, id: row.id, action: 'updated', change: c.n, ...(kept ? { body: 'kept' as const } : {}) }
     }
 
-    const results = items.map(one)
+    return { results: items.map(one), dbTitle: dbTitle(schema), keyName: keyProp.name, itemLines, first: first as StagedChange | null }
+}
+
+const upsertRows: AgentTool = {
+  name: 'upsert_rows',
+  write: true,
+  description: `Mirror items (of another system, a list, a feed …) into a database in ONE call — at most ${MAX_UPSERT_ROWS} rows — by their key: the value of key_property that identifies an item (its number, code or address). Per row: when a row with that key exists (also one staged earlier in this run), only the values that differ are staged as its update (title included); otherwise a new row is staged. key_property: the database's key (list_databases marks it "key: unique per row"), else another text, number or url property. Properties marked "read-only for agents" are filled in only by hand: leave them out (a row that sets one is refused). body: Markdown for the page of a new row (an existing row's page gets it only while empty). Answers per row: key, id, action (created, updated, unchanged or refused) and the reason of a refusal. Every row is its own proposed change.`,
+  input_schema: {
+    type: 'object',
+    properties: {
+      database_id: { type: 'string', description: 'Database id from list_databases.' },
+      key_property: { type: 'string', description: "Exact name of the property that identifies a row (text, number or url) — the database's key when it has one." },
+      rows: {
+        type: 'array',
+        description: `The items, in order (1–${MAX_UPSERT_ROWS}).`,
+        items: {
+          type: 'object',
+          properties: {
+            key: { type: ['string', 'number'], description: 'The value of key_property for this item, e.g. "8215".' },
+            title: { type: 'string', description: 'Row title.' },
+            properties: { type: 'object', description: 'Property name → value, as for create_row (not the key property: that is "key").', additionalProperties: true },
+            body: { type: 'string', description: "Markdown for a new row's page." },
+          },
+          required: ['key'],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ['database_id', 'key_property', 'rows'],
+    additionalProperties: false,
+  },
+  run(input, stage) {
+    const { results, dbTitle: title, keyName, itemLines, first } = stageUpsert(input, stage)
     const count = (a: UpsertAction) => results.filter((r) => r.action === a).length
     const n = { created: count('created'), updated: count('updated'), same: count('unchanged'), refused: count('refused') }
-    const staged = first as StagedChange | null
-    const head = `upsert_rows into ${q(dbTitle(schema))} by ${q(keyProp.name)}: ${n.created} created, ${n.updated} updated, ${n.same} unchanged, ${n.refused} refused.${staged ? ' Nothing is written until the user applies the staged changes (every row is its own proposed change).' : ''}${n.refused ? ' Fix the refused rows and send them again.' : ''}`
+    const staged = first
+    const head = `upsert_rows into ${q(title)} by ${q(keyName)}: ${n.created} created, ${n.updated} updated, ${n.same} unchanged, ${n.refused} refused.${staged ? ' Nothing is written until the user applies the staged changes (every row is its own proposed change).' : ''}${n.refused ? ' Fix the refused rows and send them again.' : ''}`
     return {
       content: clipResult(`${head}\n${results.map((r) => JSON.stringify(r)).join('\n')}${itemsNote(itemLines)}`),
       summary: [t('features.agent.res.upsert', { created: n.created, updated: n.updated, same: n.same }), n.refused ? t('features.agent.res.upsertRefused', { count: n.refused }) : ''].filter(Boolean).join(' · '),

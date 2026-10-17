@@ -225,6 +225,8 @@ export interface StagedChange {
   pageId: ID
   /** create_page: parent page (null = top level); may be a page staged earlier */
   parentId?: ID | null
+  /** create_page at the top of the member's Private section (team; MCP one_create_page `private`) */
+  privateRoot?: boolean
   /** create_row / update_row */
   databaseId?: ID
   /** create_*: title · rename: the new title */

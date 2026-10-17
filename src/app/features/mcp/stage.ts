@@ -7,6 +7,7 @@
 import { t, currentLang } from '../../i18n'
 import type { ID } from '../../store/types'
 import { AGENT_TOOLS, ToolInputError, withToolScope, type AgentTool, type StageApi } from '../ai/agent/tools'
+import { withFilesWritable } from '../ai/agent/props'
 import { applyChanges } from '../ai/agent/apply'
 import { guardPipelineRows } from '../ai/agent/coding'
 import { inTemplate } from '../../store/selectors'
@@ -79,7 +80,7 @@ export function mcpStageTool(name: ToolName): AgentTool | undefined {
 }
 
 /** Templates are not found over MCP (spec § 3.3): the agent tools' lookups see every page outside them. */
-const outsideTemplates = (id: string) => !inTemplate(ws().pages, id)
+export const outsideTemplates = (id: string) => !inTemplate(ws().pages, id)
 
 /** Refuse a stage holding a change that writes into One's own databases (a folded change staged outside a tool). */
 export function assertStageWritable(changes: readonly StagedChange[]): void {
@@ -92,7 +93,8 @@ export function stageWith(stage: StageApi, name: ToolName, input: Record<string,
   const tool = mcpStageTool(name)
   if (!tool) throw new Error(`agent tool ${name} missing`)
   try {
-    const out = withToolScope(outsideTemplates, () => tool.run(input, stage))
+    // files properties take this workspace's files over MCP (checked by the planner first — rows.ts checkFiles)
+    const out = withFilesWritable(() => withToolScope(outsideTemplates, () => tool.run(input, stage)))
     // the staging tools answer at once (only run_query / write_script load the script engine)
     if (out instanceof Promise) throw new Error(`agent tool ${name} is not a staging tool`)
     return out
@@ -106,7 +108,8 @@ export async function applyStaged(changes: StagedChange[], writer: Writer): Prom
   if (!changes.length) return { rowIds: {}, undo: () => true }
   // the plan was checked; a page that moved into one of One's databases while the card waited is refused all the same
   assertStageWritable(changes)
-  const res = await applyChanges(changes, changes, (id) => id, { writer })
+  // the Undo leaves what someone changed since alone and puts what the call made into the trash (spec § 3.2)
+  const res = await applyChanges(changes, changes, (id) => id, { writer, undoCreated: 'trash' })
   if (res.failed.length) {
     // the call takes back what it wrote (its own rollback)
     withWriter(writer, () => res.undo())

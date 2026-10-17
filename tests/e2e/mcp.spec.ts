@@ -235,7 +235,9 @@ test('Ask first: the card shows the change; Approve writes it, Reject tells the 
   const rejected = call('one_update_row', { id: row.id, properties: { Status: 'Done', Project: 'Q4 launch (renamed)' } })
   await expect(card).toBeVisible()
   await expect(card).toContainText('Change row “Q4 launch” in Projects')
-  await expect(card.locator('.mcp-line', { hasText: 'Status' })).toContainText('In progress→Done')
+  await expect(card.locator('.mcp-line').filter({ has: page.locator('dt', { hasText: /^Status$/ }) })).toContainText('In progress→Done')
+  // what the change starts is named on the card (MCP B3): the seeded automation on Status
+  await expect(card.locator('.mcp-line').filter({ has: page.locator('dt', { hasText: /^Starts$/ }) })).toContainText('automation “Notify when Status → Done”')
   await expect(card.locator('.mcp-line', { hasText: 'Project' }).first()).toContainText('Q4 launch (renamed)')
   await page.keyboard.press('Escape')
   const res = await rejected
@@ -248,7 +250,8 @@ test('Ask first: the card shows the change; Approve writes it, Reject tells the 
   await expect(page.locator('.mcp-log__row').nth(0)).toContainText('Refused')
   await expect(page.locator('.mcp-log__row').nth(1)).toContainText('OK')
   await page.locator('.mcp-log__row').nth(1).getByRole('button', { name: 'Undo one_create_row' }).click()
-  await expect.poll(() => wsEval(page, (s, id) => !!s.pages[id], row.id)).toBe(false)
+  // an MCP call's Undo puts what it made into the trash (never deleted for good — MCP plan § 3.2)
+  await expect.poll(() => wsEval(page, (s, id) => s.pages[id]?.trashed === true, row.id)).toBe(true)
   await expect(page.locator('.mcp-log__row').nth(1)).toContainText('Undone')
 })
 

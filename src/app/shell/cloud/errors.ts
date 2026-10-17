@@ -36,6 +36,7 @@ const KEYS: Record<string, string> = {
   database_not_found: 'shell.cloud.err.databaseGone',
   token_not_found: 'shell.cloud.err.invalid',
   hook_not_found: 'shell.cloud.err.invalid',
+  call_not_found: 'shell.cloud.err.notFound',
 }
 
 export function errorCode(e: unknown): string {

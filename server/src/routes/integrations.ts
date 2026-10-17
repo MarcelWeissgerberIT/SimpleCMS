@@ -8,6 +8,7 @@ import { body, idSchema } from '../http/util.ts'
 import type { ApiTokenRow, WebhookRow } from '../repo.ts'
 import { iso } from '../tokens.ts'
 import { access } from './access.ts'
+import { McpPreimages } from '../mcp/preimages.ts'
 
 /** Active API tokens and incoming webhooks per workspace. */
 export const MAX_TOKENS = 25
@@ -59,6 +60,25 @@ export function integrationRoutes(s: Services, model: WorkspaceModel) {
     if (!idSchema.safeParse(tokenId).success || !s.repo.revokeApiToken(workspace.id, tokenId)) throw notFound('token_not_found', 'No such API token')
     s.log.info('api token revoked', { workspace: workspace.id, token: tokenId, user: auth.user.id })
     return c.body(null, 204)
+  })
+
+  // ── recent MCP writes (pre-images, mcp/preimages.ts) ──────────────────
+
+  const preimages = new McpPreimages(s, model)
+
+  /** The newest MCP calls that changed something (≤ 100, 14 days), per token. */
+  app.get('/:id/mcp-calls', async (c) => {
+    const { workspace } = access(s, c, 'admin')
+    return c.json(await preimages.list(workspace.id))
+  })
+
+  /** Put a call back: `force` also when it changed since (the later changes go). */
+  app.post('/:id/mcp-calls/:callId/restore', async (c) => {
+    const { workspace, auth } = access(s, c, 'admin')
+    const callId = c.req.param('callId')
+    if (!idSchema.safeParse(callId).success) throw notFound('call_not_found', 'No MCP call with this id')
+    const input = await body(c, z.object({ force: z.boolean().optional() }))
+    return c.json(await preimages.restore(workspace.id, callId, input.force === true, auth.user.id))
   })
 
   // ── incoming webhooks ────────────────────────────────────────────────

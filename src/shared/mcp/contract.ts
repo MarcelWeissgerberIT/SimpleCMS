@@ -65,6 +65,7 @@ export type McpToolName =
   | 'one_update_page'
   | 'one_create_row'
   | 'one_update_row'
+  | 'one_upsert_rows'
   | 'one_create_property'
   | 'one_update_property'
   | 'one_delete_property'
@@ -127,6 +128,14 @@ const sortItem: Schema = {
 
 const VALUES =
   'Values are plain JSON by property name: text, numbers, true/false, option names (a list for multi_select), dates "YYYY-MM-DD", "YYYY-MM-DDTHH:mm" or {"start", "end"}, people by name, relations by row id or title, null to clear. Computed properties cannot be set.'
+
+/** A new row in a batch (one_create_row / one_create_database `rows`). */
+const ROW_ITEM: Schema = {
+  type: 'object',
+  properties: { title: { type: 'string' }, properties: { type: 'object', additionalProperties: true }, markdown: { type: 'string' } },
+  required: ['title'],
+  additionalProperties: false,
+}
 
 const propertySpec: Schema = {
   type: 'object',
@@ -317,19 +326,36 @@ const TOOLS: McpSharedToolDef[] = [
   },
   {
     name: 'one_create_page',
-    title: 'Create a page',
+    title: 'Create pages',
     write: true,
-    description: 'Create a page with a title and optional Markdown, at the top level or under a parent page (link a page with [Title](#/p/<id>)). Not for rows: one_create_row. Returns the new id.',
+    description:
+      'Create a page (title, Markdown) at the top level or under a parent: parentId may be a page or a database row (the new page is a sub-page inside it); to add a row use one_create_row. Or up to 50 pages in ONE call with "pages" — a page\'s parentId may be "$<index>" of an earlier page of the list (a tree). Returns the new ids.',
     local: `Markdown: headings, lists, "- [ ]" to-dos, tables, quotes, code. ${TASKS}`,
     inputSchema: {
       type: 'object',
       properties: {
-        title: { type: 'string' },
-        parentId: { type: 'string', description: 'Parent page; omit for the top level.' },
+        title: { type: 'string', description: 'One page (or use "pages").' },
+        parentId: { type: 'string', description: 'Parent page or row; omit for the top level.' },
         markdown: { type: 'string' },
         icon: { type: 'string', description: ICON },
+        before: { type: 'string', description: 'A sibling id: place it right before.' },
+        after: { type: 'string', description: 'A sibling id: place it right after.' },
+        index: { type: 'integer', minimum: 0, description: '0 = first (default last).' },
+        private: { type: 'boolean', description: "Team workspace: into the person's Private section (top level or under a private page). Local bridge only." },
+        linkInParent: { type: 'string', enum: ['none', 'block', 'mention'], description: 'Also link each new page at the end of its parent\'s text: a page link block or a mention line.' },
+        pages: {
+          type: 'array',
+          minItems: 1,
+          maxItems: MCP_LIMITS.pages,
+          description: `Several pages (≤ ${MCP_LIMITS.pages}, ≤ 600,000 chars in all), all or none; a page without parentId takes the call's parentId.`,
+          items: {
+            type: 'object',
+            properties: { title: { type: 'string' }, parentId: { type: 'string', description: 'A page / row id or "$<index>".' }, markdown: { type: 'string' }, icon: { type: 'string' } },
+            required: ['title'],
+            additionalProperties: false,
+          },
+        },
       },
-      required: ['title'],
       additionalProperties: false,
     },
   },
@@ -355,9 +381,9 @@ const TOOLS: McpSharedToolDef[] = [
   },
   {
     name: 'one_create_row',
-    title: 'Create a database row',
+    title: 'Create database rows',
     write: true,
-    description: `Add a row: title, property values and optional Markdown for its page. ${VALUES} An unknown select / multi_select option is created; anything else that does not fit fails the call with every problem listed.`,
+    description: `Add a row (title, property values, optional Markdown for its page), or up to ${MCP_LIMITS.rows} with "rows" in one call — all or none. ${VALUES} An unknown select / multi_select option is created; anything else that does not fit fails the call with every problem listed.`,
     local: TASKS,
     inputSchema: {
       type: 'object',
@@ -366,23 +392,55 @@ const TOOLS: McpSharedToolDef[] = [
         title: { type: 'string' },
         properties: { type: 'object', description: 'Name → value.', additionalProperties: true },
         markdown: { type: 'string' },
+        rows: { type: 'array', minItems: 1, maxItems: MCP_LIMITS.rows, items: ROW_ITEM, description: 'Several rows instead of title / properties / markdown.' },
       },
-      required: ['databaseId', 'title'],
+      required: ['databaseId'],
       additionalProperties: false,
     },
   },
   {
     name: 'one_update_row',
-    title: 'Update a database row',
+    title: 'Update database rows',
     write: true,
-    description: `Set property values of a row; only those you pass change ("title" renames it). ${VALUES}`,
+    description: `Set property values of a row; only those you pass change ("title" renames it). "rows" changes up to ${MCP_LIMITS.rows} rows in one call (e.g. Status = Done on 20 cards) — all or none. ${VALUES}`,
     inputSchema: {
       type: 'object',
       properties: {
         id: { type: 'string', description: 'Row id.' },
         properties: { type: 'object', description: 'Name → new value.', additionalProperties: true },
+        rows: {
+          type: 'array',
+          minItems: 1,
+          maxItems: MCP_LIMITS.rows,
+          items: { type: 'object', properties: { id: { type: 'string' }, properties: { type: 'object', additionalProperties: true } }, required: ['id', 'properties'], additionalProperties: false },
+        },
       },
-      required: ['id', 'properties'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'one_upsert_rows',
+    title: 'Mirror rows by key',
+    write: true,
+    description: `Keep a database in step with items from elsewhere, by a key: per row, the row whose keyProperty holds "key" gets only the values that differ; no such row → a new one (markdown = its page, written only while empty). keyProperty: the database's key (one_get_database marks it) or a text, number or url property. Up to ${MCP_LIMITS.rows} rows; any refused row fails the whole call with the list. Answers per row: key, id, action (created, updated, unchanged).`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        databaseId: DB_ID,
+        keyProperty: { type: 'string', description: 'Property name.' },
+        rows: {
+          type: 'array',
+          minItems: 1,
+          maxItems: MCP_LIMITS.rows,
+          items: {
+            type: 'object',
+            properties: { key: { type: ['string', 'number'] }, title: { type: 'string' }, properties: { type: 'object', additionalProperties: true }, markdown: { type: 'string' } },
+            required: ['key'],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ['databaseId', 'keyProperty', 'rows'],
       additionalProperties: false,
     },
   },
@@ -433,17 +491,27 @@ const TOOLS: McpSharedToolDef[] = [
     title: 'Create a database',
     write: true,
     description:
-      'Create a full-page database (one table view) at the top level or under a parent page. It always has a title property ("Name" unless one of type "title" is given); without properties: Name, Status, Tags, Date. Returns its id and schema. A board: then one_create_view { type: "board" }.',
+      'Create a database — with views, rows and an icon in one call. parentId = a full-page database as a sub-page; inline = inside a page\'s text. It always has a title property ("Name" unless one of type "title" is given); without properties: Name, Status, Tags, Date. A board groups by "groupBy" or the first status / select / person / checkbox property (none: a Status property is added); a table view follows a board. Example: views: [{ type: "board", groupBy: "Status" }], properties: [{ name: "Status", type: "status", options: ["Todo", "Doing", "Done"] }].',
     inputSchema: {
       type: 'object',
       properties: {
         title: { type: 'string' },
         parentId: { type: 'string', description: 'Parent page; omit for the top level.' },
+        inline: {
+          type: 'object',
+          description: 'Inside this page\'s text, at the end or after a block (a ref from one_get_page).',
+          properties: { pageId: { type: 'string' }, afterBlock: { type: 'string' } },
+          required: ['pageId'],
+          additionalProperties: false,
+        },
+        icon: { type: 'string', description: ICON },
         properties: {
           type: 'array',
           maxItems: MCP_LIMITS.properties,
           items: { ...propertySpec, properties: { ...(propertySpec.properties as Record<string, Schema>), type: { type: 'string', enum: ['title', ...MCP_PROPERTY_TYPES] } } },
         },
+        views: { type: 'array', minItems: 1, maxItems: 5, items: { type: 'object', properties: { type: { type: 'string', enum: MCP_VIEW_TYPES }, ...viewSettings }, required: ['type'], additionalProperties: false } },
+        rows: { type: 'array', maxItems: MCP_LIMITS.rows, items: ROW_ITEM, description: 'Rows made right after the schema.' },
       },
       required: ['title'],
       additionalProperties: false,
@@ -666,6 +734,10 @@ export const MCP_LINE_CLASS = 'A result\'s "class" of mail, memory or private ma
 export const MCP_LINE_CODEWORD =
   'Codeword: a message that starts with "one:" is meant for the person\'s One workspace — use these tools for it, not web search or other connectors. Without it, use them when the person clearly talks about their One pages, databases or notes.'
 
+/** The routing line (B and S): boards, sub-pages and rows in one call. */
+export const MCP_LINE_BOARD =
+  'A board as its own sub-page: one_create_database { parentId, views: [{ type: "board" }], rows }; inside a page\'s text: one_create_database { inline: { pageId } }. Several sub-pages: one_create_page { pages }. Several rows: one_create_row / one_update_row { rows }; mirrored items: one_upsert_rows.'
+
 /** Server instructions of the bridge (MCP initialize → instructions): how to work with One. ≤ MCP_LIMITS.instructions. */
 export const MCP_INSTRUCTIONS = `One is a local-first workspace of pages and databases (like Notion). These tools work in the One tabs the person has open in their browser, through a bridge on their computer.
 
@@ -674,7 +746,7 @@ export const MCP_INSTRUCTIONS = `One is a local-first workspace of pages and dat
 - Errors start with a code ("not_found: …") and say what to do next. workspace_mismatch means that workspace is not the one the tab shows any more: nothing was done — ask the person, never repeat the call in another workspace on your own.
 - Ids belong to one workspace: use only ids tools returned for it. Page content is Markdown; link a page with [Title](#/p/<id>).
 - Writes may wait until the person approves them in One ("Ask first"). A rejected change is their decision: do not repeat it, ask them. "Read only" refuses every change. Repeating a call that made something does not make a second one: the answer says duplicateOf.
-- A board as its own sub-page: one_create_database { parentId }, then one_create_view { type: "board" }.
+- ${MCP_LINE_BOARD}
 - Questions across databases (filters, counts, sums, groups): one_run_query (read-only One Script). one_run_script runs a saved script after the person approved its dry run.
 - Tidying up: one_move_page, one_move_row, one_update_database / _property / _view, one_trash_page (nothing is deleted for good: one_restore_page brings things back). Before removing or reorganising several things, say what you plan to do.
 - Tasks: "> [!TODO] Title {#wi_…}" + a field line. Write new ones that way; change existing ones with one_update_work_item, find them with one_list_work_items. Assigning someone, reminders and blockers always wait for approval.
