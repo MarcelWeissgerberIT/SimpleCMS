@@ -354,4 +354,30 @@ export const migrations: Migration[] = [
       );
     `,
   },
+  {
+    version: 12,
+    name: 'mcp: pre-images of MCP writes on the team server',
+    sql: `
+      -- what an MCP call over this server's /mcp changed, kept so owners / admins can put it back (docs/MCP.md § What the
+      -- server does without a card; MCP plan § 3.6): per call and document a pre-image — a content fragment as a Y
+      -- update, rows' values before and after, pages it made — sealed with the workspace key (AAD names the workspace
+      -- and the entry). after_hash: the content document's state vector right after the call (a restore refuses
+      -- "changed_since" when it moved). Kept 14 days; deleted with the workspace.
+      CREATE TABLE mcp_preimages (
+        id            TEXT PRIMARY KEY,
+        workspace_id  TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        token_id      TEXT NOT NULL,
+        call_id       TEXT NOT NULL,
+        tool          TEXT NOT NULL,
+        doc           TEXT NOT NULL,
+        kind          TEXT NOT NULL,
+        sealed        TEXT NOT NULL,
+        after_hash    TEXT,
+        created_at    INTEGER NOT NULL,
+        restored_at   INTEGER
+      );
+      CREATE INDEX mcp_preimages_call ON mcp_preimages(workspace_id, call_id);
+      CREATE INDEX mcp_preimages_recent ON mcp_preimages(workspace_id, created_at);
+    `,
+  },
 ]

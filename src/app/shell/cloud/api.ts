@@ -75,6 +75,43 @@ export const createHook = async (wsId: string, databaseId: string) => toHook(awa
 export const regenerateHook = async (wsId: string, hookId: string) => toHook(await cloudRequest<Raw<IncomingHook>>('POST', wsPath(wsId, `hooks/${encodeURIComponent(hookId)}/regenerate`)))
 export const deleteHook = (wsId: string, hookId: string) => cloudRequest<void>('DELETE', wsPath(wsId, `hooks/${encodeURIComponent(hookId)}`))
 
+/* ------------------------------------------------------------------ recent MCP writes (team server pre-images, docs/MCP.md) */
+
+/** One MCP call the team server kept pre-images of (14 days): what it made / changed, put back or not. */
+export interface McpCallEntry {
+  callId: string
+  tool: string
+  token: { id: string; name: string | null }
+  at: number
+  /** pages, databases and rows it made */
+  made: number
+  /** rows it changed, page texts it replaced */
+  changed: number
+  /** the first titles of what it made or changed (≤ 3) */
+  titles: string[]
+  restoredAt: number | null
+}
+
+/** A restore's answer: what went back, what was kept (changed since — `force` puts it back too). */
+export interface McpRestore {
+  restored: number
+  kept: Array<{ id: string; title: string; fields?: string[] }>
+  note?: string
+}
+
+type RawCall = Omit<McpCallEntry, 'at' | 'restoredAt'> & { at: string; restoredAt: string | null }
+
+export const listMcpCalls = async (wsId: string) =>
+  (await cloudRequest<RawCall[]>('GET', wsPath(wsId, 'mcp-calls'))).map((c): McpCallEntry => ({
+    ...c,
+    titles: Array.isArray(c.titles) ? c.titles.filter((x) => typeof x === 'string') : [],
+    made: Number(c.made) || 0,
+    changed: Number(c.changed) || 0,
+    at: ms(c.at) ?? Date.now(),
+    restoredAt: ms(c.restoredAt),
+  }))
+export const restoreMcpCall = (wsId: string, callId: string, force = false) => cloudRequest<McpRestore>('POST', wsPath(wsId, `mcp-calls/${encodeURIComponent(callId)}/restore`), { force })
+
 export const cloudApi = {
   requestSignIn,
   signOut,
@@ -105,6 +142,8 @@ export const cloudApi = {
   createHook,
   regenerateHook,
   deleteHook,
+  listMcpCalls,
+  restoreMcpCall,
 }
 
 export type CloudApi = typeof cloudApi

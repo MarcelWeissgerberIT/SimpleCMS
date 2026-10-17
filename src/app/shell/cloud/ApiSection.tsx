@@ -4,7 +4,7 @@
  * a webhook URL) come from the server once and are shown once, with a curl example.
  */
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
-import { AlertTriangle, ArrowUpRight, Copy, KeyRound, RotateCw, Trash2, Webhook } from 'lucide-react'
+import { AlertTriangle, ArrowUpRight, Copy, History, KeyRound, RotateCw, Trash2, Undo2, Webhook } from 'lucide-react'
 import { format, formatDistanceToNowStrict } from 'date-fns'
 import { de, enUS } from 'date-fns/locale'
 import { useShallow } from 'zustand/react/shallow'
@@ -12,8 +12,8 @@ import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { useLang, useT } from '../../i18n'
 import { Led } from '../../ui/controls'
-import { cloudApi, type ApiScope, type ApiToken, type IncomingHook } from './api'
-import { errorText } from './errors'
+import { cloudApi, type ApiScope, type ApiToken, type IncomingHook, type McpCallEntry, type McpRestore } from './api'
+import { errorCode, errorText } from './errors'
 import './api.css'
 
 export const API_DOCS_URL = 'https://github.com/MarcelWeissgerberIT/SimpleCMS/blob/main/docs/API.md'
@@ -157,6 +157,7 @@ export function ApiSection({ wsId, admin }: { wsId: string; admin: boolean }) {
     <section className="api" aria-label={t('shell.cloud.api.section')}>
       <Tokens wsId={wsId} />
       <Hooks wsId={wsId} />
+      <McpCalls wsId={wsId} />
     </section>
   )
 }
@@ -470,6 +471,142 @@ function Hooks({ wsId }: { wsId: string }) {
                 )}
                 {confirm?.id === h.id && confirm.kind === 'delete' && (
                   <ConfirmBar question={t('shell.cloud.hooks.deleteQ', { name })} action={t('shell.cloud.hooks.delete')} danger busy={busy} onCancel={() => setConfirm(null)} onConfirm={() => void remove(h)} />
+                )}
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </>
+  )
+}
+
+/* ------------------------------------------------------------------ recent MCP writes (team server pre-images) */
+
+type CallConfirm = { id: string; kind: 'restore' | 'force'; names: string } | null
+
+/** Owners / admins: the MCP calls of the last 14 days that wrote something, each with Restore (docs/MCP.md). */
+function McpCalls({ wsId }: { wsId: string }) {
+  const t = useT()
+  const { ago } = useDates()
+  const [calls, setCalls] = useState<McpCallEntry[] | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [busy, setBusy] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [confirm, setConfirm] = useState<CallConfirm>(null)
+  const [kept, setKept] = useState<Record<string, McpRestore['kept']>>({})
+
+  const load = useCallback(async () => {
+    setLoadError(null)
+    try {
+      setCalls(await cloudApi.listMcpCalls(wsId))
+    } catch (e) {
+      setLoadError(errorText(e, t))
+    }
+  }, [wsId, t])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  const quote = (names: string[]) => names.map((n) => `“${n || t('common.untitled')}”`).join(', ')
+
+  const restore = async (call: McpCallEntry, force: boolean) => {
+    setBusy(call.callId)
+    setError(null)
+    try {
+      const out = await cloudApi.restoreMcpCall(wsId, call.callId, force)
+      setConfirm(null)
+      setKept(({ [call.callId]: _, ...rest }) => (out.kept.length ? { ...rest, [call.callId]: out.kept } : rest))
+      if (!out.kept.length) useUI.getState().toast({ message: t('shell.cloud.mcp.done'), kind: 'success' })
+      await load()
+    } catch (e) {
+      // a page text moved since the call: ask again, this time saying what goes
+      if (errorCode(e) === 'changed_since') setConfirm({ id: call.callId, kind: 'force', names: quote(call.titles) })
+      else {
+        setConfirm(null)
+        setError(errorText(e, t))
+      }
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const toolLabel = (tool: string) => {
+    const key = `shell.cloud.mcp.tool.${tool}`
+    const label = t(key)
+    return label === key ? tool : label
+  }
+
+  return (
+    <>
+      <Head n="07" label={t('shell.cloud.mcp.title')} count={calls?.length} icon={<History size={12} />} />
+      <p className="api-lede">{t('shell.cloud.mcp.lede')}</p>
+      <ErrorLine text={error} />
+      {loadError ? (
+        <ErrorLine text={loadError} />
+      ) : !calls ? (
+        <div className="tm-status" role="status">
+          <Led state="on" />
+          {t('shell.cloud.api.loading')}
+        </div>
+      ) : calls.length === 0 ? (
+        <p className="tm-empty" data-testid="mcp-calls-none">
+          {t('shell.cloud.mcp.none')}
+        </p>
+      ) : (
+        <ul className="tm-list api-list" aria-label={t('shell.cloud.mcp.title')}>
+          {calls.map((call) => {
+            const more = call.made + call.changed - call.titles.length
+            const name = call.titles.length ? `${call.titles.map((x) => x || t('common.untitled')).join(', ')}${more > 0 ? ` +${more}` : ''}` : toolLabel(call.tool)
+            const meta = [
+              toolLabel(call.tool),
+              call.token.name ? t('shell.cloud.mcp.token', { name: call.token.name }) : t('shell.cloud.mcp.tokenGone'),
+              ...(call.made ? [t('shell.cloud.mcp.made', { n: call.made })] : []),
+              ...(call.changed ? [t('shell.cloud.mcp.changed', { n: call.changed })] : []),
+              ago(call.at),
+            ]
+            const left = kept[call.callId]
+            return (
+              <li key={call.callId} className="api-row" data-testid="mcp-call" data-restored={call.restoredAt ? '' : undefined}>
+                <span className="api-row__glyph" aria-hidden>
+                  <History size={14} />
+                </span>
+                <div className="api-row__what">
+                  <span className="api-row__name">
+                    <span title={name}>{name}</span>
+                    {call.restoredAt && <span className="api-scope">{t('shell.cloud.mcp.restored')}</span>}
+                  </span>
+                  <span className="api-row__meta">{meta.join(' · ')}</span>
+                </div>
+                <div className="api-row__ctl">
+                  {!call.restoredAt && (
+                    <button type="button" className="btn btn--sm btn--ghost" onClick={() => setConfirm({ id: call.callId, kind: 'restore', names: '' })} disabled={busy !== null} aria-label={`${t('shell.cloud.mcp.restore')}: ${name}`}>
+                      <Undo2 size={13} aria-hidden />
+                      {t('shell.cloud.mcp.restore')}
+                    </button>
+                  )}
+                </div>
+                {left && !call.restoredAt && confirm?.id !== call.callId && (
+                  <div className="api-kept" role="status">
+                    <p className="api-kept__line">{t('shell.cloud.mcp.kept', { names: quote(left.map((k) => (k.fields?.length ? `${k.title} (${k.fields.join(', ')})` : k.title))) })}</p>
+                    <button type="button" className="btn btn--sm btn--ghost" disabled={busy !== null} onClick={() => setConfirm({ id: call.callId, kind: 'force', names: quote(left.map((k) => k.title)) })}>
+                      {t('shell.cloud.mcp.force')}
+                    </button>
+                  </div>
+                )}
+                {confirm?.id === call.callId && confirm.kind === 'restore' && (
+                  <ConfirmBar question={t('shell.cloud.mcp.restoreQ')} action={t('shell.cloud.mcp.restore')} busy={busy !== null} onCancel={() => setConfirm(null)} onConfirm={() => void restore(call, false)} />
+                )}
+                {confirm?.id === call.callId && confirm.kind === 'force' && (
+                  <ConfirmBar
+                    question={`${left ? '' : `${t('shell.cloud.mcp.changedSince', { names: confirm.names })} `}${t('shell.cloud.mcp.forceQ', { names: confirm.names })}`}
+                    action={t('shell.cloud.mcp.force')}
+                    danger
+                    busy={busy !== null}
+                    onCancel={() => setConfirm(null)}
+                    onConfirm={() => void restore(call, true)}
+                  />
                 )}
               </li>
             )

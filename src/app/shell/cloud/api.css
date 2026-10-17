@@ -126,6 +126,25 @@
   gap: 4px;
 }
 
+/* recent MCP writes: what a restore left as it was */
+.api-kept {
+  display: flex;
+  grid-column: 2 / -1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  padding: 6px 8px;
+  border-left: 2px solid var(--signal);
+  background: var(--signal-wash);
+}
+.api-kept__line {
+  flex: 1 1 24ch;
+  margin: 0;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  line-height: 1.4;
+}
+
 /* scope plate: read = hairline, write = signal */
 .api-scope {
   flex: none;

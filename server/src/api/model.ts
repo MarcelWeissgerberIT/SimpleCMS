@@ -84,7 +84,15 @@ export class WorkspaceModel {
   }
 
   context(wsId: string, r: Roots): ValueContext {
-    return { r, members: this.s.repo.members(wsId).map((m) => ({ id: m.id, email: m.email, name: m.name })), people: readPeople(r) }
+    return {
+      r,
+      members: this.s.repo.members(wsId).map((m) => ({ id: m.id, email: m.email, name: m.name })),
+      people: readPeople(r),
+      files: (id) => {
+        const f = this.s.repo.file(wsId, id)
+        return !f ? 'missing' : f.private_to ? 'private' : 'ok'
+      },
+    }
   }
 
   read<T>(wsId: string, fn: (r: Roots, doc: Y.Doc) => T): Promise<T> {

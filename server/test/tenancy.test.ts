@@ -170,6 +170,8 @@ interface Foreign {
   run: string
   /** B's owner's cloud coding worker token (its id). */
   codingWorker: string
+  /** An MCP call into B (its pre-images: Workspace → API "Recent MCP writes"). */
+  mcpCall: string
 }
 
 /**
@@ -237,6 +239,8 @@ const ROUTES: Record<string, Entry> = {
   'POST /api/workspaces/:id/hooks': { scope: 'workspace', req: (ws, x) => ({ method: 'POST', path: `${W(ws)}/hooks`, json: { databaseId: x.db } }), own: 404 },
   'POST /api/workspaces/:id/hooks/:hookId/regenerate': { scope: 'workspace', req: (ws, x) => ({ method: 'POST', path: `${W(ws)}/hooks/${x.hook}/regenerate` }), own: 404 },
   'DELETE /api/workspaces/:id/hooks/:hookId': { scope: 'workspace', req: (ws, x) => ({ method: 'DELETE', path: `${W(ws)}/hooks/${x.hook}` }), own: 404 },
+  'GET /api/workspaces/:id/mcp-calls': { scope: 'workspace', req: (ws) => ({ method: 'GET', path: `${W(ws)}/mcp-calls` }) },
+  'POST /api/workspaces/:id/mcp-calls/:callId/restore': { scope: 'workspace', req: (ws, x) => ({ method: 'POST', path: `${W(ws)}/mcp-calls/${x.mcpCall}/restore`, json: { force: true } }), own: 404 },
   'GET /api/workspaces/:id/agent-runtime': { scope: 'workspace', req: (ws) => ({ method: 'GET', path: `${W(ws)}/agent-runtime` }) },
   'PUT /api/workspaces/:id/agent-runtime': { scope: 'workspace', req: (ws) => ({ method: 'PUT', path: `${W(ws)}/agent-runtime`, json: { enabled: false, claudeKey: null } }) },
   'GET /api/workspaces/:id/agent-runs': { scope: 'workspace', req: (ws, x) => ({ method: 'GET', path: `${W(ws)}/agent-runs?agentId=${x.agent}` }) },
@@ -290,7 +294,18 @@ const MCP_TOOLS: Record<string, (x: Foreign) => Record<string, unknown>> = {
   // A's own page under B's page, A's own row into B's database
   one_move_page: (x) => ({ id: 'page-alpha', parentId: x.page }),
   one_move_row: (x) => ({ id: 'row-alpha', databaseId: x.db }),
+  one_upsert_rows: (x) => ({ databaseId: x.db, keyProperty: 'Name', rows: [{ key: 'injected' }] }),
 }
+
+/** The batch forms (MCP B3) with B's ids: refused the same way. */
+const MCP_BATCH_FORMS: Array<[string, (x: Foreign) => Record<string, unknown>]> = [
+  ['one_create_page', (x) => ({ pages: [{ title: 'injected' }, { title: 'injected', parentId: x.page }] })],
+  ['one_create_page', (x) => ({ title: 'injected', parentId: x.page, linkInParent: 'block' })],
+  ['one_create_row', (x) => ({ databaseId: x.db, rows: [{ title: 'injected' }] })],
+  ['one_update_row', (x) => ({ rows: [{ id: x.row, properties: { Name: 'changed' } }] })],
+  ['one_create_database', (x) => ({ title: 'injected', inline: { pageId: x.page } })],
+  ['one_create_database', (x) => ({ title: 'injected', parentId: x.page, views: [{ type: 'board' }], rows: [{ title: 'injected' }] })],
+]
 
 const MARKER = 'bravo-only-7f3c'
 
@@ -365,7 +380,15 @@ describe('isolation sweep: a member of A against workspace B', () => {
     const codingWorker = (await bob.post(`${W(B)}/coding/workers`, {})).body
     assert.match(codingWorker.token, /^onew_/)
     codingTokenB = codingWorker.token
-    x = { ws: B, owner: bobId, invite: invite.id, token: token.id, hook: hook.id, signupLink: signupLink.id, file: 'file-bravo', page: 'page-bravo', db: 'db-bravo', row: 'row-bravo', agent: 'ag-bravo', run: runId, codingWorker: codingWorker.id }
+    // an MCP write into B with B's own token: a call with pre-images in B's list
+    const bobMcp = new McpClient({ name: 'sweep-b', version: '1.0.0' })
+    await bobMcp.connect(new StreamableHTTPClientTransport(new URL(`${server.url}/mcp`), { requestInit: { headers: { Authorization: `Bearer ${tokenSecretB}` } } }))
+    const made = (await bobMcp.callTool({ name: 'one_create_row', arguments: { databaseId: 'db-bravo', rows: [{ title: `Made ${MARKER}` }] } })) as { isError?: boolean; content: Array<{ text: string }> }
+    assert.ok(!made.isError, made.content[0]?.text)
+    await bobMcp.close()
+    const mcpCall = (await bob.get(`${W(B)}/mcp-calls`)).body[0].callId as string
+    assert.ok(mcpCall)
+    x = { ws: B, owner: bobId, invite: invite.id, token: token.id, hook: hook.id, signupLink: signupLink.id, file: 'file-bravo', page: 'page-bravo', db: 'db-bravo', row: 'row-bravo', agent: 'ag-bravo', run: runId, codingWorker: codingWorker.id, mcpCall }
   })
 
   after(async () => {
@@ -448,6 +471,12 @@ describe('isolation sweep: a member of A against workspace B', () => {
         if (name === 'one_search') assert.equal(JSON.parse(text).total, 0, text)
         else if (name === 'one_list_workspaces') assert.deepEqual(JSON.parse(text).workspaces.map((w: { id: string; name: string }) => [w.id, w.name]), [[`team:${A}`, 'Alpha']])
         else if (!['one_overview', 'one_list_databases'].includes(name)) assert.equal(res.isError, true, `${name} must be refused: ${text}`)
+      }
+      for (const [name, args] of MCP_BATCH_FORMS) {
+        const res = (await client.callTool({ name, arguments: args(x) })) as { isError?: boolean; content: Array<{ text: string }> }
+        const text = res.content.map((c) => c.text).join('\n')
+        assert.equal(res.isError, true, `${name} (batch form) must be refused: ${text}`)
+        assert.ok(!text.includes(MARKER), `${name} must not show B's content: ${text}`)
       }
       // the `workspace` argument naming B (its id, bare or "team:", its name) is refused by every tool — even with A's own ids
       const own: Foreign = { ...x, page: 'page-alpha', db: 'db-alpha', row: 'row-alpha' }
@@ -540,7 +569,9 @@ describe('isolation sweep: a member of A against workspace B', () => {
     assert.match(JSON.stringify(page), new RegExp(`content of B ${MARKER}`))
     const listed = await fetch(`${server.url}/api/v1/databases/${x.db}/rows`, { headers: { authorization: `Bearer ${tokenSecretB}` } })
     const rows = (await listed.json()) as { rows: Array<{ title: string }> }
-    assert.deepEqual(rows.rows.map((r) => r.title), [`Row ${MARKER}`])
+    // (the second row is B's own MCP write; its call is still there, never put back from A)
+    assert.deepEqual(rows.rows.map((r) => r.title), [`Row ${MARKER}`, `Made ${MARKER}`])
+    assert.deepEqual((await bob.get(`${W(x.ws)}/mcp-calls`)).body.map((c: { callId: string; restoredAt: string | null }) => [c.callId, c.restoredAt]), [[x.mcpCall, null]])
     // B's hook still answers
     assert.equal((await fetch(`${server.url}/api/v1/hooks/${hookSecretB}`)).status, 200)
     // B's agent runtime, its run and its webhook URL are as B left them

@@ -29,6 +29,8 @@ export interface ValueContext {
   /** Workspace members (account id = person id in the meta document's `people`). */
   members: Array<{ id: string; email: string; name: string | null }>
   people: Map<string, { id: string; name: string }>
+  /** MCP files values (`onefile:<id>`): is it a file of this workspace, and a shared one? (absent: not checked) */
+  files?: (id: string) => 'ok' | 'missing' | 'private'
 }
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)

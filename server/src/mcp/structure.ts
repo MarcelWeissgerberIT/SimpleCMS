@@ -35,7 +35,7 @@ interface FilterGroup {
   items: Array<Filter | FilterGroup>
 }
 /** A view as the app stores it (src/app/store/types.ts View) — only what these tools touch is typed. */
-interface View {
+export interface View {
   id: string
   name: string
   type: string
@@ -103,7 +103,7 @@ const viewOrder = (ydb: Y.Map<unknown>, id: string): number => {
 }
 
 /** A new view like the app's defaultView (store.ts). */
-function defaultView(type: ViewType, props: PropertyDef[], name?: string): View {
+export function defaultView(type: ViewType, props: PropertyDef[], name?: string): View {
   const firstOf = (...types: string[]) => props.find((p) => types.includes(p.type))?.id ?? null
   const view: View = { id: newId(), name: name ?? VIEW_NAMES[type] ?? type, type, filter: null, sorts: [], visibleProperties: props.filter((p) => p.type !== 'title').map((p) => p.id), openIn: 'peek' }
   if (type === 'board') view.groupBy = firstOf('status', 'select', 'person', 'checkbox')
@@ -654,7 +654,7 @@ function toFilter(r: Roots, props: PropertyDef[], members: Member[], raw: { prop
 const flatKey = (g: FilterGroup | null | undefined): unknown => (g?.items.length ? g.items.map((it) => ('items' in it ? flatKey(it) : [it.propertyId, it.operator, it.value ?? null])) : null)
 
 /** The view settings of a create / update call, validated against the schema; the patch for `base`. */
-function viewChange(r: Roots, props: PropertyDef[], input: ViewInput, base: View, members: Member[]): Partial<View> {
+export function viewChange(r: Roots, props: PropertyDef[], input: ViewInput, base: View, members: Member[]): Partial<View> {
   const problems: string[] = []
   const patch: Partial<View> = {}
   const typeOf = (id: string | null | undefined) => props.find((p) => p.id === id)?.type ?? ''

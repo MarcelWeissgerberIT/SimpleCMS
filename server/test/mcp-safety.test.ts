@@ -209,6 +209,9 @@ describe('MCP safety (team server)', () => {
   test('files values over MCP are onefile: refs only (a web address would load in every viewer)', async () => {
     await fails(writer, 'one_create_row', { databaseId: 'db-tasks', title: 'Cover test', properties: { Attachments: 'https://tracker.example/x.png' } }, /refused_type: properties\.Attachments/)
     await fails(writer, 'one_update_row', { id: 'row-1', properties: { Attachments: ['onefile:abc123', '//tracker.example/y.png'] } }, /refused_type/)
+    // a file of this workspace (MCP B3: the server checks the id against its files)
+    assert.equal((await owner.fetch(`/api/workspaces/${wsId}/files/abc123`, { method: 'PUT', body: 'Tessera', headers: { 'content-type': 'text/plain' } })).status, 201)
+    await fails(writer, 'one_create_row', { databaseId: 'db-tasks', title: 'Unknown file', properties: { Attachments: ['onefile:zzz999'] } }, /^not_found: properties\.Attachments: onefile:zzz999 is no file of this workspace/)
     const row = await call(writer, 'one_create_row', { databaseId: 'db-tasks', title: 'With a file', properties: { Attachments: ['onefile:abc123'] } })
     assert.deepEqual((await call(writer, 'one_get_page', { id: row.id })).properties.Attachments, ['onefile:abc123'])
   })

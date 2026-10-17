@@ -24,6 +24,7 @@ import { mediaNode } from '../media/blocks'
 import { applyNewTask, applyTaskAction, isPipelineTask, taskNeedsConfirm, taskSig, taskWriteEndsConfirm, textRefsGained } from '../../coding'
 import { isHandOnly, keyOwner, keyPropOf, keyText } from '../../../store/keys'
 import { formatWriterKey, withWriter, type Writer } from '../../../store/writer'
+import { createPrivatePage } from '../../../cloud'
 import { isSettled } from '../../recorder/settled'
 import { runKeyOf } from '../../recorder/model/writerKeys'
 
@@ -215,6 +216,12 @@ export interface ApplyOpts {
    * this batch creates a task and no 'workItem' change is applied (a server run's proposals: nobody saw them staged here).
    */
   items?: { visible?: ((id: ID) => boolean) | null; creates?: boolean }
+  /**
+   * How the Undo takes back a page / row this batch created: 'delete' (default) — for good while untouched, to the
+   * trash once someone edited it; 'trash' (MCP, spec § 3.2) — to the trash while untouched, left alone ("kept") once
+   * someone changed it since.
+   */
+  undoCreated?: 'delete' | 'trash'
 }
 
 /** The terminal's writes on a pipeline task wait for the person's Confirm on its page (a version this device trusts). */
@@ -427,17 +434,28 @@ export async function applyChanges(changes: StagedChange[], all: StagedChange[],
 /**
  * Undo of a created page / row: deleted for good while untouched; once someone edited it, put pages under it or put it
  * (or a page above it) in the trash, it goes to the trash instead (recoverable) — one in the trash stays as it is.
+ * `mode` 'trash' (MCP): untouched → the trash, touched → left as it is (kept: false).
  */
-function removeCreated(id: ID): () => boolean {
+function removeCreated(id: ID, mode: ApplyOpts['undoCreated'] = 'delete'): () => boolean {
   const rev = ws().pages[id]?.contentRev
   const key = contentKey(ws().pages[id]?.content)
   const title = ws().pages[id]?.title
+  const icon = JSON.stringify(ws().pages[id]?.icon ?? null)
   return () => {
     const { pages } = ws()
     const now = pages[id]
     if (!now || now.trashed) return true
     // content as written (a later change of the same batch undone first writes it back: the same content counts)
-    const touched = (now.contentRev !== rev && contentKey(now.content) !== key) || now.title !== title || isEffectivelyTrashed(pages, id) || Object.values(pages).some((p) => p.parentId === id)
+    const edited = (now.contentRev !== rev && contentKey(now.content) !== key) || now.title !== title
+    if (mode === 'trash') {
+      // a page above it in the trash already takes it along
+      if (isEffectivelyTrashed(pages, id)) return true
+      // changed since (text, title, icon, a live page put under it): left as it is
+      if (edited || JSON.stringify(now.icon ?? null) !== icon || Object.values(pages).some((p) => p.parentId === id && !p.trashed)) return false
+      ws().trashPage(id)
+      return true
+    }
+    const touched = edited || isEffectivelyTrashed(pages, id) || Object.values(pages).some((p) => p.parentId === id)
     if (touched) ws().trashPage(id)
     else ws().deletePagePermanently(id)
     return true
@@ -502,11 +520,12 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
       // its tasks are settled before anything is written (an id taken by now fails the change, nothing created)
       const doc = c.markdown?.trim() ? toDoc(c.markdown, c, { pageId: c.pageId, private: pagePrivate(c.parentId) }) : null
       const id = as(() => {
-        const made = s.createPage({ id: c.pageId, parentId: c.parentId ?? null, title: c.title ?? '' })
+        // the top of the member's Private section (team, MCP `private`): its own meta document
+        const made = c.privateRoot && !c.parentId ? createPrivatePage({ id: c.pageId, title: c.title ?? '' }) : s.createPage({ id: c.pageId, parentId: c.parentId ?? null, title: c.title ?? '' })
         if (doc) ws().setContent(made, doc, ORIGIN)
         return made
       })
-      return removeCreated(id)
+      return removeCreated(id, opts.undoCreated)
     }
     case 'create_row': {
       const dbId = c.databaseId!
@@ -527,7 +546,7 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
         return row
       })
       rowIds[c.pageId] = id
-      const remove = removeCreated(id)
+      const remove = removeCreated(id, opts.undoCreated)
       return () => {
         const ok = remove()
         dropUnusedOptions(dbId, created)

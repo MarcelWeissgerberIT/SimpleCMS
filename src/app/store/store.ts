@@ -391,7 +391,8 @@ function trashedOrUnderTrash(pages: Record<ID, Page>, id: ID): boolean {
 const isDe = () => useWorkspace.getState().settings.language === 'de'
 const L = (en: string, de: string) => (isDe() ? de : en)
 
-function defaultStatusOptions(): SelectOption[] {
+/** A status property's options when none are given (the workspace language): Not started · In progress · Done. */
+export function defaultStatusOptions(): SelectOption[] {
   return [
     { id: newId(), name: L('Not started', 'Nicht begonnen'), color: 'gray', group: 'todo' },
     { id: newId(), name: L('In progress', 'In Arbeit'), color: 'blue', group: 'in_progress' },
