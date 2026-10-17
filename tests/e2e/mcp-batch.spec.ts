@@ -346,7 +346,7 @@ test('Ask first: 20 cards set to Done in ONE card; a bad row fails the whole cal
   // rows in bulk: one card, then the ids in order
   const made = call('one_create_row', { databaseId: db, rows: [{ title: 'Neu 1', properties: { Ticket: 'T-101' } }, { title: 'Neu 2', properties: { Ticket: 'T-102', Owner: 'Mara Lind' } }] })
   await expect(card).toContainText('Create 2 rows in Cards')
-  await expect(card.locator('.mcp-line', { hasText: '02 · Neu 2' })).toContainText('Owner: Mara Lind')
+  await expect(card.locator('.mcp-line', { hasText: 'Neu 2' })).toContainText('Owner: Mara Lind')
   await page.keyboard.press('Enter')
   const res = json(await made)
   expect(res.rows.map((r: AnyState) => [r.index, r.title])).toEqual([

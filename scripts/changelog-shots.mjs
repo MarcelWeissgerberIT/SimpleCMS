@@ -8,7 +8,7 @@
  *
  * (CHANGELOG_DRAFT=1 lets the build pass while a new entry's picture does not exist yet.)
  *
- * Shots: worker-permissions, page-refs, sidebar, patchbay, ship-log, mcp-connections, worker-windows, safe-zip-import, regler, agent-precheck, ai-setup, ai-receipts, agent-trust, claude-tasks, flight-recorder-eject, flight-recorder-window, preflight, flight-recorder, tasks, outbox, mirror-again, glass-switches, history-compare, mcp-overview, mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
+ * Shots: mcp-boards, worker-permissions, page-refs, sidebar, patchbay, ship-log, mcp-connections, worker-windows, safe-zip-import, regler, agent-precheck, ai-setup, ai-receipts, agent-trust, claude-tasks, flight-recorder-eject, flight-recorder-window, preflight, flight-recorder, tasks, outbox, mirror-again, glass-switches, history-compare, mcp-overview, mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
  * custom-agents, gmail, help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
  * workspace in English, light theme, 1440 × 900 at device scale 2; the crop of the relevant area is scaled
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
@@ -910,6 +910,79 @@ const seedPatchbayWorld = (page, w) =>
   }, w)
 
 const shots = {
+  /**
+   * One MCP call, one card (2026-10-17, MCP train T-a): Claude Code — the repository's own bridge driven over stdio —
+   * finds "Project Nordlicht" (one_search) and asks for a board as its sub-page with lanes Todo / Doing / Done and five
+   * tasks in Todo (one_create_database with views, properties and rows). Left: the approval card (Ask first) naming the
+   * board, its properties and views and every row; right: the board after Approve, under its project in the breadcrumb.
+   * Fictional data; nothing is sent to an AI host.
+   */
+  async 'mcp-boards'(browser) {
+    const bridge = new Bridge(BRIDGE_PORT)
+    const { ctx, page } = await freshPage(browser)
+    try {
+      await bridge.call('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'claude-code', version: '2.0.0' } })
+      bridge.notify('notifications/initialized')
+      const project = await createPage(page, 'Project Nordlicht', doc(para('Launch plan for Nordlicht — contact: Mara Lind.')), { icon: { type: 'emoji', value: '🧭' } })
+      await createPage(page, 'Project Tessera', doc(para('Knowledge base and roll-out.')))
+      await openPage(page, project)
+      await page.evaluate(() => window.__one.ui.getState().openModal({ type: 'settings' }))
+      await page.getByRole('tab', { name: /Agents · MCP/ }).click()
+      const port = page.getByLabel('Port', { exact: true })
+      await port.fill(String(BRIDGE_PORT))
+      await port.press('Enter')
+      await page.getByRole('switch', { name: 'Allow AI agents on this computer' }).click()
+      await page.getByTestId('mcp-state').filter({ hasText: 'Connected' }).waitFor({ timeout: 20_000 })
+      await page.keyboard.press('Escape')
+      await page.getByRole('dialog').waitFor({ state: 'detached' })
+      let workspace = null
+      for (let i = 0; i < 20 && !workspace; i++) {
+        const listed = JSON.parse(bridge.text(await bridge.call('tools/call', { name: 'one_list_workspaces', arguments: {} })) || '{}')
+        workspace = listed.workspaces?.[0]?.id ?? null
+        if (!workspace) await sleep(300)
+      }
+      // call 1: find the project; call 2: the board with its lanes and the five tasks
+      const found = JSON.parse(bridge.text(await bridge.call('tools/call', { name: 'one_search', arguments: { query: 'Project Nordlicht', workspace } })))
+      const parentId = found.results.find((r) => r.title === 'Project Nordlicht').id
+      const tasks = ['Kick-off with Mara Lind', 'Agree on the launch plan', 'Set up the knowledge base', 'Write the press release', 'Plan the retro']
+      const pending = bridge.call('tools/call', {
+        name: 'one_create_database',
+        arguments: {
+          workspace,
+          title: 'Board',
+          parentId,
+          views: [{ type: 'board', groupBy: 'Status' }],
+          properties: [{ name: 'Status', type: 'status', options: ['Todo', 'Doing', 'Done'] }],
+          rows: tasks.map((title) => ({ title, properties: { Status: 'Todo' } })),
+        },
+      })
+      const card = page.getByRole('alertdialog')
+      await card.waitFor({ timeout: 20_000 })
+      await page.waitForTimeout(600)
+      await rest(page)
+      const left = `${TMP}/mcp-boards-card.png`
+      await page.screenshot({ path: left, clip: await boxOf(card, 0) })
+      await card.getByRole('button', { name: 'Approve' }).click()
+      const board = JSON.parse(bridge.text(await pending))
+      await card.waitFor({ state: 'detached' })
+      await page.evaluate((id) => (window.location.hash = `#/p/${id}`), board.id)
+      const lanes = page.locator('#main .dbb-cols')
+      await lanes.locator('.dbb-col[aria-label="Todo"] .dbc').nth(4).waitFor({ timeout: 20_000 })
+      // the "Done …" toast of the approval goes first
+      await page.locator('.toast').first().waitFor({ state: 'detached', timeout: 15_000 }).catch(() => {})
+      await page.waitForTimeout(600)
+      await rest(page)
+      const main = await boxOf(page.locator('#main'))
+      const cols = await boxOf(lanes, 0)
+      const right = `${TMP}/mcp-boards-board.png`
+      await page.screenshot({ path: right, clip: { x: main.x, y: 0, width: Math.min(main.width, cols.x + cols.width + 24 - main.x), height: Math.round(cols.y + cols.height + 24) } })
+      await saveSideBySide('mcp-boards', [left, right])
+    } finally {
+      bridge.close()
+      await ctx.close()
+    }
+  },
+
   /**
    * The sidebar (2026-10-16): the places, the tool strip — its readout at rest (PATCHBAY · NEW) and the keycaps —,
    * 01 FAVORITES in the fixed block (the two seeded favourites, a database entry with where it lives, a fourth dragged in

@@ -9,6 +9,7 @@ import { Check, X } from 'lucide-react'
 import { useT } from '../../i18n'
 import { approveMcp, rejectMcp } from './service'
 import { clientLabel, useMcp, type McpApproval } from './state'
+import { titleIfClipped } from '../../ui/clip'
 import type { PlanLine } from './write'
 import './mcp.css'
 
@@ -73,7 +74,7 @@ function Line({ line }: { line: PlanLine }) {
     case 'fact':
       return (
         <div className="mcp-line">
-          <dt>{line.label}</dt>
+          <dt onMouseEnter={titleIfClipped}>{line.label}</dt>
           <dd>{line.value}</dd>
         </div>
       )

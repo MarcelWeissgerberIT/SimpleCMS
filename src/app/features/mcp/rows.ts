@@ -82,6 +82,9 @@ export interface SideEffects {
   alwaysAsk: boolean
 }
 
+/** A batch card's row number ("01"): the label of a row line, its title starts the value. */
+export const rowNo = (i: number): string => String(i + 1).padStart(2, '0')
+
 /**
  * The autofill properties that fill by themselves, the automations and the row-triggered agents a batch of `rows`
  * new (`created`) or changed rows (`changed`: the property ids it writes) of a database sets off.
@@ -196,7 +199,8 @@ export function planCreateRow(args: Record<string, unknown>): WritePlan {
     if (c.markdown?.trim()) lines.push({ k: 'md', label: t('features.mcp.plan.content', { n: chars(c.markdown.trim().length) }), value: preview(c.markdown) })
   } else {
     lines.push({ k: 'fact', label: t('features.mcp.plan.in'), value: dbName })
-    rows.forEach((c, i) => lines.push({ k: 'fact', label: `${String(i + 1).padStart(2, '0')} · ${c.title ?? ''}`, value: rowFacts(c.props) || '—' }))
+    // the number is the label, the title starts the value: a long title wraps there instead of being cut
+    rows.forEach((c, i) => lines.push({ k: 'fact', label: rowNo(i), value: [c.title ?? '', rowFacts(c.props)].filter(Boolean).join(' — ') || '—' }))
     const fresh = [...new Set(rows.flatMap((c) => (c.props ?? []).flatMap((p) => (p.newOptions ?? []).map((o) => `${p.name}: ${o}`))))]
     if (fresh.length) lines.push({ k: 'fact', label: t('features.mcp.plan.newOptions'), value: fresh.join(', ') })
   }
@@ -303,12 +307,12 @@ export function planUpdateRow(args: Record<string, unknown>): WritePlan {
   })
   assertStageWritable(stage.changes)
   if (batch) {
-    for (const p of plans) {
+    plans.forEach((p, i) => {
       const c = stage.changes.find((x) => x.kind === 'update_row' && x.pageId === p.row.id)
       const renamed = stage.changes.find((x) => x.kind === 'rename' && x.pageId === p.row.id)
       const what = [renamed ? `→ ${renamed.title ?? ''}` : '', (c?.props ?? []).map((x) => `${x.name}: ${x.before || '—'} → ${x.after || '—'}`).join(' · ')].filter(Boolean).join(' · ')
-      lines.push({ k: 'fact', label: titleOf(p.row), value: what || t('features.mcp.plan.unchanged') })
-    }
+      lines.push({ k: 'fact', label: rowNo(i), value: `${titleOf(p.row)} — ${what || t('features.mcp.plan.unchanged')}` })
+    })
   }
   let alwaysAsk = false
   for (const e of byDb.values()) {

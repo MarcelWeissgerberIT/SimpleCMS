@@ -7,8 +7,9 @@
  * Target: 2 calls (one_search, then one_create_database with views + properties + rows), 1 card in Ask first — the
  * calls a model makes from the tool descriptions and the instructions' routing line (MCP_LINE_BOARD). The board is a
  * sub-page of the project, grouped by Status, the five tasks in its Todo lane; one Undo takes the whole board back.
- * A second case records what happens when the model leaves Status out of the rows (they wait in the first lane too —
- * a status property starts every new row at its first option, as the app does).
+ * A second case records what happens when the model leaves Status out of the rows: they wait in the board's
+ * "Kein Wert" lane (a row made in the app's table has no status either), and ONE one_update_row { rows } call — one
+ * card — moves all five into Todo. The tool description's example therefore gives every row its lane.
  *
  * `WALK_OUT=<file>` writes what the client sent and got (for the notes); `WALK_SHOTS=<dir>` takes German screenshots of
  * the card and the board (1440×900 + 390×844, light + dark). Fictional data (Nordlicht, Tessera, Mara Lind, Launch
@@ -28,6 +29,7 @@ const BRIDGE = fileURLToPath(new URL('../../public/mcp/one-mcp.mjs', import.meta
 const PORT = 47370
 
 let client: Client
+let settingsShot = false
 let stderr = ''
 /** every call the "model" made: tool, arguments, answer */
 const transcript: Array<{ tool: string; args: Record<string, unknown>; answer: unknown }> = []
@@ -91,6 +93,12 @@ async function connectGerman(page: Page) {
   if (list.lastUsed && list.lastUsed.id !== list.workspaces[0].id) await setup('one_list_databases', { workspace: list.workspaces[0].id })
   await page.getByRole('radio', { name: 'Erst fragen' }).click()
   await expect(page.getByRole('radio', { name: 'Erst fragen' })).toHaveAttribute('aria-checked', 'true')
+  // the panel as the person sees it (the Comments row with its help link)
+  if (process.env.WALK_SHOTS && !settingsShot) {
+    settingsShot = true
+    await page.getByTestId('mcp-comments').scrollIntoViewIfNeeded()
+    await shots(page, 'walk-settings')
+  }
   await page.keyboard.press('Escape')
   await expect(page.getByRole('dialog')).toHaveCount(0)
 }
@@ -196,7 +204,7 @@ test('„Lege unter Projekt Nordlicht eine Unterseite mit einem Board Todo / Doi
   expect(await wsEval(page, (s, rows: string[]) => rows.every((id) => !s.pages[id] || s.pages[id].trashed || s.pages[s.pages[id].parentId]?.trashed), board.rows.map((r: AnyState) => r.id))).toBe(true)
 })
 
-test('the same request without a Status per row: the rows still land in the first lane (Todo)', async ({ page }) => {
+test('the same request without a Status per row: the rows wait in "Kein Wert"; one one_update_row { rows } call, one card, moves them to Todo', async ({ page }) => {
   await openApp(page)
   const ids = await seed(page)
   await connectGerman(page)
@@ -212,7 +220,20 @@ test('the same request without a Status per row: the rows still land in the firs
   const board = await pending
   transcript.push({ tool: 'one_create_database (rows without Status)', args: { rows: FIVE.map((title) => ({ title })) }, answer: board })
   await gotoPage(page, board.id)
+  await expect(page.locator('.dbb-col[aria-label="Kein Wert"] .dbc')).toHaveCount(5)
+  await expect(page.locator('.dbb-col[aria-label="Todo"] .dbc')).toHaveCount(0)
+
+  // the repair the model makes from the answer's row ids: one call, one card
+  const rows = board.rows.map((r: AnyState) => ({ id: r.id, properties: { Status: 'Todo' } }))
+  const moving = setup('one_update_row', { rows })
+  await expect(card(page)).toBeVisible()
+  await expect(card(page)).toContainText('Todo')
+  await card(page).getByRole('button', { name: 'Freigeben' }).click()
+  const moved = await moving
+  transcript.push({ tool: 'one_update_row (the five rows → Todo)', args: { rows }, answer: moved })
+  expect(moved.rows.map((r: AnyState) => r.changed)).toEqual(FIVE.map(() => ['Status']))
   await expect(page.locator('.dbb-col[aria-label="Todo"] .dbc')).toHaveCount(5)
+  await expect(page.locator('.dbb-col[aria-label="Kein Wert"] .dbc')).toHaveCount(0)
 })
 
 /** German screenshots of what is on screen now: 1440×900 and 390×844, light and dark. */

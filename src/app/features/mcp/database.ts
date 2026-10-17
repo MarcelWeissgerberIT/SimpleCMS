@@ -23,7 +23,7 @@ import { assertNotSystem } from './system'
 import { iconText, live, McpToolError, pageUrl, pathOf, propertyJson, q, titleOf, ws } from './values'
 import { atPath, chars, checkFileScope, cleanName, pageOrThrow, parseIcon, str, tasksOf, type PlanLine, type WritePlan } from './plan'
 import { propertySpec } from './schema'
-import { checkFiles, splitTitle } from './rows'
+import { checkFiles, rowNo, splitTitle } from './rows'
 import { layoutName, viewChange } from './structure'
 import { withWriter } from '../../store/writer'
 
@@ -244,12 +244,17 @@ export function planCreateDatabase(args: Record<string, unknown>): WritePlan {
     rows.forEach((c, i) =>
       lines.push({
         k: 'fact',
-        label: `${String(i + 1).padStart(2, '0')} · ${c.title ?? ''}`,
+        label: rowNo(i),
         value:
-          (c.props ?? [])
-            .slice(0, 3)
-            .map((p) => `${p.name}: ${p.after || '—'}`)
-            .join(' · ') || '—',
+          [
+            c.title ?? '',
+            (c.props ?? [])
+              .slice(0, 3)
+              .map((p) => `${p.name}: ${p.after || '—'}`)
+              .join(' · '),
+          ]
+            .filter(Boolean)
+            .join(' — ') || '—',
       }),
     )
   }

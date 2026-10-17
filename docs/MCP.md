@@ -192,8 +192,10 @@ diese fünf Aufgaben ein“* is two calls — `one_search { query: "Projekt Nord
 - **A board** groups by `groupBy` or the first status / select / multi-select / person / checkbox property; with none,
   a `Status` property (the app's default options, in the UI's language) is added. A **table view** follows a first
   view that is not a table, so the rows stay editable in a grid. `note` says what was added.
-- Rows are checked against the new schema before anything is written; the coercion is `one_create_row`'s. A row without
-  a status starts at the property's first option, as in the app.
+- Rows are checked against the new schema before anything is written; the coercion is `one_create_row`'s. Give each row
+  its lane (`properties: { "Status": "Todo" }`): a row without a value for the grouping property waits in the board's
+  *No value* lane, as a row made in the app's table does (the description's example says so; moving them later is one
+  `one_update_row { rows }` call and one card).
 - **Undo** (B) puts the database with its rows into the trash (unless rows of others are in it by then). S: when the
   database block or a row cannot be written, the database it made goes to the trash again and the error stands.
 

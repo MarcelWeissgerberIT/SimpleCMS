@@ -35669,7 +35669,7 @@ var TOOLS = [
     name: "one_create_database",
     title: "Create a database",
     write: true,
-    description: `Create a database \u2014 with views, rows and an icon in one call. parentId = a full-page database as a sub-page; inline = inside a page's text. It always has a title property ("Name" unless one of type "title" is given); without properties: Name, Status, Tags, Date. A board groups by "groupBy" or the first status / select / person / checkbox property (none: a Status property is added); a table view follows a board. Example: views: [{ type: "board", groupBy: "Status" }], properties: [{ name: "Status", type: "status", options: ["Todo", "Doing", "Done"] }].`,
+    description: `Create a database \u2014 with views, rows and an icon in one call. parentId = a full-page database as a sub-page; inline = inside a page's text. It always has a title property ("Name" unless one of type "title" is given); without properties: Name, Status, Tags, Date. A board groups by "groupBy" or the first status / select / person / checkbox property (none: a Status property is added); a table view follows a board. Example: views: [{ type: "board", groupBy: "Status" }], properties: [{ name: "Status", type: "status", options: ["Todo", "Doing", "Done"] }], rows: [{ title: "Kick-off", properties: { Status: "Todo" } }] \u2014 give each row its lane: a row without a value waits in the board's "no value" lane.`,
     inputSchema: {
       type: "object",
       properties: {
