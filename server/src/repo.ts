@@ -860,7 +860,8 @@ export class Repo {
   /** The newest MCP calls of a workspace that kept pre-images (one entry per call), with the token's name. */
   mcpCalls(workspaceId: string, since: number, limit = 100) {
     return this.db.all<{ call_id: string; token_id: string; token_name: string | null; tool: string; at: number; parts: number; kinds: string; restored_at: number | null }>(
-      `SELECT p.call_id, p.token_id, t.name AS token_name, p.tool, MIN(p.created_at) AS at, COUNT(*) AS parts, GROUP_CONCAT(p.kind) AS kinds, MAX(p.restored_at) AS restored_at
+      `SELECT p.call_id, p.token_id, t.name AS token_name, p.tool, MIN(p.created_at) AS at, COUNT(*) AS parts, GROUP_CONCAT(p.kind) AS kinds,
+              CASE WHEN COUNT(p.restored_at) = COUNT(*) THEN MAX(p.restored_at) END AS restored_at
        FROM mcp_preimages p LEFT JOIN api_tokens t ON t.id = p.token_id
        WHERE p.workspace_id = ? AND p.created_at > ? GROUP BY p.call_id ORDER BY at DESC LIMIT ?`,
       workspaceId, since, limit,
@@ -877,8 +878,13 @@ export class Repo {
       .map(({ sealed, ...row }) => ({ ...row, data: openText(this.keyOf(workspaceId).aead, sealed, preimageContext(workspaceId, row.id)) }))
   }
 
-  markPreimagesRestored(workspaceId: string, callId: string, at: number) {
-    return this.db.run('UPDATE mcp_preimages SET restored_at = ? WHERE workspace_id = ? AND call_id = ?', at, workspaceId, callId)
+  /**
+   * One part of a call after a Restore: `data` = the part again with what that Restore put back noted (sealed anew), or
+   * `restoredAt` = put back whole (a later Restore never writes it again).
+   */
+  updatePreimage(workspaceId: string, id: string, data: string | null, restoredAt: number | null) {
+    if (data !== null) this.db.run('UPDATE mcp_preimages SET sealed = ? WHERE workspace_id = ? AND id = ?', sealText(this.keyOf(workspaceId).aead, data, preimageContext(workspaceId, id)), workspaceId, id)
+    if (restoredAt !== null) this.db.run('UPDATE mcp_preimages SET restored_at = ? WHERE workspace_id = ? AND id = ?', restoredAt, workspaceId, id)
   }
 
   // ── housekeeping ─────────────────────────────────────────────────────

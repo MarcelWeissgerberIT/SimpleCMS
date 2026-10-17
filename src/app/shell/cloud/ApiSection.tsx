@@ -15,6 +15,8 @@ import { Led } from '../../ui/controls'
 import { cloudApi, type ApiComments, type ApiScope, type ApiToken, type IncomingHook, type McpCallEntry, type McpRestore } from './api'
 import { errorCode, errorText } from './errors'
 import { HelpLink } from '../../help'
+import { useCloud } from '../../cloud'
+import { MCP_SERVER_SUPPORTS } from '../../../shared/mcp/tables'
 import { canFocus, restoreFocus } from '../../ui/focus'
 import './api.css'
 
@@ -44,6 +46,13 @@ function useCopy() {
     }
   }
 }
+
+/**
+ * Does this team server serve MCP contract 2 (`supports ∋ 'mcp:2'`): MCP writes kept 14 days with Restore, a token's
+ * Comments? An older server answers neither (its 404 is no "workspace gone", its token form drops `comments`): the
+ * section says in one line that the server needs an update instead.
+ */
+const useMcpServer = () => useCloud((s) => (s.supports ?? []).includes(MCP_SERVER_SUPPORTS))
 
 /** Section heading in the team tab's style: number, mono label, dotted rule, count. */
 function Head({ n, label, count, icon }: { n: string; label: string; count?: number; icon: ReactNode }) {
@@ -182,6 +191,7 @@ function Tokens({ wsId }: { wsId: string }) {
   const [created, setCreated] = useState<ApiToken | null>(null)
   const [confirm, setConfirm] = useState<Confirm>(null)
   const firstDb = useWorkspace((s) => Object.values(s.pages).find((p) => p.kind === 'database' && !p.trashed)?.id ?? null)
+  const mcp2 = useMcpServer()
 
   const load = useCallback(async () => {
     setLoadError(null)
@@ -201,7 +211,8 @@ function Tokens({ wsId }: { wsId: string }) {
     setCreating(true)
     setError(null)
     try {
-      const tok = await cloudApi.createApiToken(wsId, name.trim(), scope, scope === 'read' && comments === 'write' ? 'read' : comments)
+      // an older server drops `comments` without a word: it is not offered there (always 'off')
+      const tok = await cloudApi.createApiToken(wsId, name.trim(), scope, !mcp2 ? 'off' : scope === 'read' && comments === 'write' ? 'read' : comments)
       setCreated(tok)
       setName('')
       setTokens((list) => [tok, ...(list ?? [])])
@@ -269,27 +280,31 @@ function Tokens({ wsId }: { wsId: string }) {
             <option value="read">{t('shell.cloud.api.scope.read')}</option>
           </select>
         </div>
-        <div className="api-form__field">
-          <label className="label" htmlFor={`${uid}-comments`}>
-            {t('shell.cloud.api.comments')}
-          </label>
-          <select id={`${uid}-comments`} className="input" value={comments} onChange={(e) => setComments(e.target.value as ApiComments)} aria-describedby={`${uid}-comments-h`} data-testid="api-token-comments">
-            <option value="off">{t('shell.cloud.api.comments.off')}</option>
-            <option value="read">{t('shell.cloud.api.comments.read')}</option>
-            <option value="write" disabled={scope === 'read'}>
-              {t('shell.cloud.api.comments.write')}
-            </option>
-          </select>
-        </div>
+        {mcp2 && (
+          <div className="api-form__field">
+            <label className="label" htmlFor={`${uid}-comments`}>
+              {t('shell.cloud.api.comments')}
+            </label>
+            <select id={`${uid}-comments`} className="input" value={comments} onChange={(e) => setComments(e.target.value as ApiComments)} aria-describedby={`${uid}-comments-h`} data-testid="api-token-comments">
+              <option value="off">{t('shell.cloud.api.comments.off')}</option>
+              <option value="read">{t('shell.cloud.api.comments.read')}</option>
+              <option value="write" disabled={scope === 'read'}>
+                {t('shell.cloud.api.comments.write')}
+              </option>
+            </select>
+          </div>
+        )}
         <button type="submit" className="btn btn--ink" disabled={creating || !name.trim()}>
           <KeyRound size={14} aria-hidden />
           {creating ? t('shell.cloud.api.creating') : t('shell.cloud.api.create')}
         </button>
       </form>
-      <p className="api-hint">
-        <span id={`${uid}-comments-h`}>{t('shell.cloud.api.commentsHint')}</span>
-        <HelpLink id="public-api" topic={t('shell.cloud.api.comments')} />
-      </p>
+      {mcp2 ? (
+        <p className="api-hint">
+          <span id={`${uid}-comments-h`}>{t('shell.cloud.api.commentsHint')}</span>
+          <HelpLink id="public-api" topic={t('shell.cloud.api.comments')} />
+        </p>
+      ) : null}
       <ErrorLine text={error} />
       {created?.token && <Secret testId="api-token-secret" label={t('shell.cloud.api.secret')} hint={t('shell.cloud.api.secretHint')} value={created.token} example={example(created)} onDone={() => setCreated(null)} />}
       {loadError ? (
@@ -521,6 +536,24 @@ type CallConfirm = { id: string; kind: 'restore' | 'force'; names: string } | nu
 
 /** Owners / admins: the MCP calls of the last 14 days that wrote something, each with Restore (docs/MCP.md). */
 function McpCalls({ wsId }: { wsId: string }) {
+  const mcp2 = useMcpServer()
+  return mcp2 ? <McpCallList wsId={wsId} /> : <McpOlder />
+}
+
+/** § 07 on a team server without contract 2: it keeps no MCP writes — one line that it needs an update, nothing to load. */
+function McpOlder() {
+  const t = useT()
+  return (
+    <div className="api-mcp">
+      <Head n="07" label={t('shell.cloud.mcp.title')} icon={<History size={12} />} />
+      <p className="tm-empty api-note" data-testid="mcp-calls-older">
+        {t('shell.cloud.mcp.older')}
+      </p>
+    </div>
+  )
+}
+
+function McpCallList({ wsId }: { wsId: string }) {
   const t = useT()
   const { ago } = useDates()
   const [calls, setCalls] = useState<McpCallEntry[] | null>(null)
@@ -567,7 +600,9 @@ function McpCalls({ wsId }: { wsId: string }) {
     try {
       setCalls(await cloudApi.listMcpCalls(wsId))
     } catch (e) {
-      setLoadError(errorText(e, t))
+      // the server's generic 404 (an unknown endpoint — a gone workspace says workspace_not_found): a server older than
+      // its `supports` said, never "this workspace no longer exists"
+      setLoadError(errorCode(e) === 'not_found' ? t('shell.cloud.mcp.older') : errorText(e, t))
     }
   }, [wsId, t])
 

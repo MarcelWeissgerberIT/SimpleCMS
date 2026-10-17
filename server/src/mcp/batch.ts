@@ -25,11 +25,11 @@ import { newId } from '../tokens.ts'
 import { assertNotSystem } from './system.ts'
 import { McpWrites, assertNoSystemPartner, checkFilesValue, friendlyIn, iconIn, optionNames, unprocessable, type PropertyInput } from './writes.ts'
 import { defaultView, viewChange, type View, type ViewInput } from './structure.ts'
-import { McpPreimages, fragmentSnapshot, stateHash, type Recorder } from './preimages.ts'
+import { McpPreimages, fragmentSnapshot, putValues, stateHash, type Recorder } from './preimages.ts'
 import { docJson } from './pageRead.ts'
 import { blockHash, parseRef } from '../../../src/shared/mcp/refs.ts'
 import { nestedTopLevel, refIndex } from '../../../src/shared/mcp/pageRead.ts'
-import { MCP_LIMITS, MCP_VIEW_TYPES } from '../../../src/shared/mcp/tables.ts'
+import { MCP_DEFAULT_STATUS, MCP_LIMITS, MCP_VIEW_TYPES } from '../../../src/shared/mcp/tables.ts'
 import { codeOf, mcpError } from '../../../src/shared/mcp/errors.ts'
 
 const q = (s: string) => JSON.stringify(s)
@@ -44,6 +44,16 @@ function atPath(err: unknown, path: string): never {
   const code = codeOf(err.message)
   const body = code ? err.message.slice(code.length + 1).trim() : err.message
   throw new ApiError(err.status, err.code, `${code ?? (err.status === 404 ? 'not_found' : 'bad_argument')}: ${path}: ${body}`, { details: err.details })
+}
+
+/**
+ * A failed call whose compensating write failed too: its error says that part of it stays (never "Nothing was changed" —
+ * the remedy is not added to a message that says what was, shared/mcp/errors.ts withRemedy).
+ */
+function partly(err: unknown): unknown {
+  if (!(err instanceof ApiError)) return err
+  const what = err.message.replace(/\s*Nothing was changed\..*$/s, '').trim()
+  return new ApiError(err.status, err.code, `${what}${/[.!?]$/.test(what) ? '' : '.'} Part of what the call wrote could not be taken back; nothing was retried — read what it touched again before calling again.`, { details: err.details })
 }
 
 /** What a board groups by when the call names nothing (the bridge's rule): the first of these types. */
@@ -99,11 +109,13 @@ export class McpBatch {
   private readonly s: Services
   private readonly model: WorkspaceModel
   private readonly writes: McpWrites
+  private readonly preimages: McpPreimages
 
   constructor(s: Services, model: WorkspaceModel, writes: McpWrites) {
     this.s = s
     this.model = model
     this.writes = writes
+    this.preimages = new McpPreimages(s, model)
   }
 
   /* ---------------------------------------------------------------- rows: checked before anything is written */
@@ -184,9 +196,41 @@ export class McpBatch {
     this.s.log.info('mcp call taken back (compensating trash)', { workspace: wsId, pages: ids.length, by: actor })
   }
 
-  /** Rows' titles and stored values right now (pre-images). */
-  private rowStates(wsId: string, ids: string[]) {
-    return this.model.read(wsId, (r) => ids.map((id) => ({ id, ...(McpPreimages.rowState(r, id) ?? { title: '', values: {} }) })))
+  /** Rows' titles and stored values right now (pre-images): every value, or per row only the properties `props[i]` names. */
+  private rowStates(wsId: string, ids: string[], props?: Array<readonly string[]>) {
+    return this.model.read(wsId, (r) => ids.map((id, i) => ({ id, ...(McpPreimages.rowState(r, id, props?.[i]) ?? { title: '', values: {} }) })))
+  }
+
+  /** The state of each page's (or row's) own text right now: a Restore leaves one whose text moved since (preimages.ts). */
+  private hashes(wsId: string, ids: string[]): Promise<string[]> {
+    return Promise.all(ids.map((id) => this.s.collab.read(contentDoc(wsId, id), (doc) => stateHash(doc))))
+  }
+
+  /** Made rows as a pre-image keeps them: title, values, the state of their text. */
+  async madeRows(wsId: string, ids: string[]) {
+    const [states, hashes] = await Promise.all([this.rowStates(wsId, ids), this.hashes(wsId, ids)])
+    return states.map((st, i) => ({ id: st.id, title: st.title, values: st.values, hash: hashes[i]! }))
+  }
+
+  /** Rows put back to `values` (rollback of a failed call): stored values and two-way partners as a write puts them. */
+  private async putBack(wsId: string, rows: Array<{ id: string; values: Record<string, unknown>; title?: string }>, actor: string) {
+    if (!rows.length) return
+    await this.s.collab.write(
+      metaDoc(wsId),
+      (doc) => {
+        const r = roots(doc)
+        const at = Date.now()
+        for (const row of rows) {
+          const yp = pageMap(r, row.id)
+          if (!yp) continue
+          putValues(this.model, r, row.id, row.values, actor, at)
+          if (row.title !== undefined) yp.set('title', row.title)
+          yp.set('updatedAt', at)
+          yp.set('updatedBy', actor)
+        }
+      },
+      actor,
+    )
   }
 
   /* ---------------------------------------------------------------- one_create_row */
@@ -214,8 +258,7 @@ export class McpBatch {
       })
     })
     const made = await this.insertRows(wsId, input.databaseId, input.rows, actor)
-    const states = await this.rowStates(wsId, made.map((m) => m.id))
-    rec.rows({ db: input.databaseId, created: states.map((s) => ({ id: s.id, title: s.title, values: s.values })), updated: [] })
+    rec.rows({ db: input.databaseId, created: await this.madeRows(wsId, made.map((m) => m.id)), updated: [] })
     this.s.log.info('mcp rows created', { workspace: wsId, database: input.databaseId, rows: made.length, by: actor })
     return { databaseId: input.databaseId, urlBase: this.model.url(wsId, ''), rows: made.map((m, index) => ({ index, id: m.id, title: m.title })) }
   }
@@ -255,25 +298,12 @@ export class McpBatch {
         done.push(i)
       }
     } catch (err) {
-      // the rows already written go back to their values before the call
-      await this.s.collab
-        .write(
-          metaDoc(wsId),
-          (doc) => {
-            const r = roots(doc)
-            for (const i of done) {
-              const yp = pageMap(r, plan[i]!.id)
-              if (!yp) continue
-              const pm = yp.get('properties') as Y.Map<unknown>
-              for (const [k, v] of Object.entries(before[i]!.values)) if (v === null || v === undefined) pm.delete(k)
-              else pm.set(k, JSON.parse(JSON.stringify(v)))
-              if (plan[i]!.title !== undefined) yp.set('title', before[i]!.title)
-            }
-          },
-          actor,
-        )
-        .catch((e: unknown) => this.s.log.error('mcp row rollback failed', { workspace: wsId, error: e as Error }))
-      throw err
+      // the rows already written go back to their values before the call (a relation's partner rows with them)
+      const ok = await this.putBack(wsId, done.map((i) => ({ id: plan[i]!.id, values: before[i]!.values, ...(plan[i]!.title !== undefined ? { title: before[i]!.title } : {}) })), actor).then(
+        () => true,
+        (e: unknown) => (this.s.log.error('mcp row rollback failed', { workspace: wsId, error: e as Error }), false),
+      )
+      throw ok ? err : partly(err)
     }
     const after = await this.model.read(wsId, (r) => plan.map((p) => McpPreimages.rowState(r, p.id, p.ids)!))
     const titled = (p: (typeof plan)[number]) => p.title !== undefined
@@ -302,7 +332,8 @@ export class McpBatch {
 
   async upsertRows(wsId: string, input: UpsertInput, actor: string, rec: Recorder) {
     if (input.rows.length > MCP_LIMITS.rows) throw refuse(413, 'too_large', 'rows', `${input.rows.length} rows (at most ${MCP_LIMITS.rows} per call)`)
-    type Plan = { key: string; action: 'created' | 'updated' | 'unchanged'; id?: string; row: RowItem; changed?: Record<string, unknown>; title?: string; body?: string; kept?: boolean }
+    /** `pids`: the properties an update writes (only what differs) — its pre-image and rollback hold just those */
+    type Plan = { key: string; action: 'created' | 'updated' | 'unchanged'; id?: string; row: RowItem; changed?: Record<string, unknown>; pids?: string[]; title?: string; body?: string; kept?: boolean }
     const decided = await this.model.read(wsId, (r) => {
       const db = liveDatabase(r, input.databaseId)
       if (!db) throw notFound('database_not_found', `No database with id "${input.databaseId}" in this workspace`)
@@ -340,10 +371,12 @@ export class McpBatch {
           const checked = this.checkRow(r, db, { properties: props }, id, ctx)
           // only what differs (stored values compared)
           const changed: Record<string, unknown> = {}
+          const pids: string[] = []
           for (const [pid, v] of Object.entries(checked.values)) {
             if (JSON.stringify(page.properties[pid] ?? null) !== JSON.stringify(v ?? null)) {
               const name = db.properties.find((p) => p.id === pid)?.name ?? pid
               changed[name] = props[Object.keys(props).find((n) => findProperty(db.properties, n)?.id === pid) ?? name]
+              pids.push(pid)
             }
           }
           const title = item.title?.trim() && item.title.trim() !== page.title.trim() ? item.title.trim() : undefined
@@ -351,7 +384,7 @@ export class McpBatch {
           const body = item.markdown?.trim() && empty ? item.markdown : undefined
           const kept = !!item.markdown?.trim() && !empty
           if (!Object.keys(changed).length && !title && !body) return { key: k, action: 'unchanged', id, row: {}, kept }
-          return { key: k, action: 'updated', id, row: {}, changed, title, body, kept }
+          return { key: k, action: 'updated', id, row: {}, changed, pids, title, body, kept }
         } catch (err) {
           if (err instanceof ApiError || err instanceof ValueError) return fail(err.message)
           throw err
@@ -361,64 +394,67 @@ export class McpBatch {
       return { plans, keyName: keyProp.name }
     })
     const { plans, keyName } = decided
-    // the rows this call changes: their values before (pre-image, and the rollback of a failure on the way)
+    // the rows this call changes: only the fields it writes (and the title when it renames), before — the pre-image and
+    // the rollback of a failure on the way; a field the call never wrote is never put back, never named as kept
     const updates = plans.filter((p) => p.action === 'updated')
-    const before = await this.rowStates(wsId, updates.map((p) => p.id!))
+    const before = await this.rowStates(wsId, updates.map((p) => p.id!), updates.map((p) => p.pids ?? []))
     const made: string[] = []
+    /** updates whose values were written (their index in `updates`) and the bodies appended (their snapshot before) */
     const written: number[] = []
+    const bodies: Array<{ id: string; snapshot: string; plain: string; hash: string }> = []
     try {
+      // 1. the new rows first: the step that can fail on a key someone took meanwhile, before anything else is written
       for (const p of plans) {
-        if (p.action === 'created') {
-          const [row] = await this.insertRows(wsId, input.databaseId, [p.row], actor)
-          p.id = row!.id
-          made.push(row!.id)
-        } else if (p.action === 'updated') {
-          if (Object.keys(p.changed ?? {}).length || p.title) {
-            const prepared = await this.writes.prepareRow(wsId, { rowId: p.id! }, { properties: p.changed ?? {} }, actor, MCP_WRITE)
-            await this.model.updateRow(wsId, p.id!, { ...(p.title ? { title: p.title } : {}), properties: prepared.properties }, actor, MCP_WRITE)
-          }
-          if (p.body) {
-            // the row's body before (empty): a restore takes the text this call wrote back out again (spec § 3.6)
-            let pre: { snapshot: string; plain: string } | null = null
-            await this.writes.updatePage(wsId, { id: p.id!, markdown: p.body, mode: 'append' }, actor, {
-              mcp: true,
-              preimageAppend: true,
-              preimage: (doc) => (pre = { snapshot: fragmentSnapshot(doc), plain: fragmentText(doc, 20_000) }),
-            })
-            const got = pre as { snapshot: string; plain: string } | null
-            if (got) rec.content(p.id!, got.snapshot, got.plain, await this.s.collab.read(contentDoc(wsId, p.id!), (doc) => stateHash(doc)))
-          }
-          written.push(updates.indexOf(p))
-        }
+        if (p.action !== 'created') continue
+        const [row] = await this.insertRows(wsId, input.databaseId, [p.row], actor)
+        p.id = row!.id
+        made.push(row!.id)
+      }
+      // 2. the changed values
+      for (const [i, p] of updates.entries()) {
+        if (!Object.keys(p.changed ?? {}).length && !p.title) continue
+        const prepared = await this.writes.prepareRow(wsId, { rowId: p.id! }, { properties: p.changed ?? {} }, actor, MCP_WRITE)
+        await this.model.updateRow(wsId, p.id!, { ...(p.title ? { title: p.title } : {}), properties: prepared.properties }, actor, MCP_WRITE)
+        written.push(i)
+      }
+      // 3. the bodies (into empty rows only): each with its pre-image — a restore takes the text back out (spec § 3.6)
+      for (const p of updates) {
+        if (!p.body) continue
+        let pre: { snapshot: string; plain: string } | null = null
+        await this.writes.updatePage(wsId, { id: p.id!, markdown: p.body, mode: 'append' }, actor, {
+          mcp: true,
+          preimageAppend: true,
+          preimage: (doc) => (pre = { snapshot: fragmentSnapshot(doc), plain: fragmentText(doc, 20_000) }),
+        })
+        const got = pre as { snapshot: string; plain: string } | null
+        // recorded once the whole call stands (a call taken back keeps no pre-image)
+        if (got) bodies.push({ id: p.id!, ...got, hash: await this.s.collab.read(contentDoc(wsId, p.id!), (doc) => stateHash(doc)) })
       }
     } catch (err) {
+      // all or nothing: the new rows to the trash, the values and the bodies back as they were
+      let ok = true
       await this.trash(wsId, made, actor)
-      await this.s.collab
-        .write(
-          metaDoc(wsId),
-          (doc) => {
-            const r = roots(doc)
-            for (const i of written) {
-              const b = before[i]!
-              const yp = pageMap(r, b.id)
-              if (!yp) continue
-              const pm = yp.get('properties') as Y.Map<unknown>
-              for (const [k, v] of Object.entries(b.values)) if (v === null || v === undefined) pm.delete(k)
-              else pm.set(k, JSON.parse(JSON.stringify(v)))
-              yp.set('title', b.title)
-            }
-          },
-          actor,
-        )
-        .catch((e: unknown) => this.s.log.error('mcp upsert rollback failed', { workspace: wsId, error: e as Error }))
-      throw err
+      await this.putBack(wsId, written.map((i) => ({ id: updates[i]!.id!, values: before[i]!.values, ...(updates[i]!.title ? { title: before[i]!.title } : {}) })), actor).catch((e: unknown) => {
+        ok = false
+        this.s.log.error('mcp upsert rollback failed', { workspace: wsId, error: e as Error })
+      })
+      for (const b of bodies)
+        await this.preimages.writeBack(wsId, contentDoc(wsId, b.id), b.id, b.snapshot, actor).catch((e: unknown) => {
+          ok = false
+          this.s.log.error('mcp upsert body rollback failed', { workspace: wsId, error: e as Error })
+        })
+      throw ok ? err : partly(err)
     }
-    const createdStates = await this.rowStates(wsId, made)
-    const after = await this.rowStates(wsId, updates.map((p) => p.id!))
+    for (const b of bodies) rec.content(b.id, b.snapshot, b.plain, b.hash)
+    const createdRows = await this.madeRows(wsId, made)
+    const after = await this.rowStates(wsId, updates.map((p) => p.id!), updates.map((p) => p.pids ?? []))
     rec.rows({
       db: input.databaseId,
-      created: createdStates.map((s) => ({ id: s.id, title: s.title, values: s.values })),
-      updated: updates.map((p, i) => ({ id: p.id!, before: { title: before[i]!.title, values: before[i]!.values }, after: { title: after[i]!.title, values: after[i]!.values } })),
+      created: createdRows,
+      updated: updates
+        .map((p, i) => ({ id: p.id!, before: { values: before[i]!.values, ...(p.title ? { title: before[i]!.title } : {}) }, after: { values: after[i]!.values, ...(p.title ? { title: after[i]!.title } : {}) } }))
+        // a row the call only gave a body to has no field to put back (its text is a content pre-image)
+        .filter((u) => Object.keys(u.after.values).length || u.after.title !== undefined),
     })
     this.s.log.info('mcp rows upserted', { workspace: wsId, database: input.databaseId, created: made.length, updated: updates.length, by: actor })
     return {
@@ -511,7 +547,9 @@ export class McpBatch {
       },
       actor,
     )
-    rec.pages(items.map((it, i) => ({ id: ids[i]!, title: it.title })))
+    // each made page with the state of its text now: a Restore leaves one that people wrote into since
+    const pageHashes = await this.hashes(wsId, ids)
+    rec.pages(items.map((it, i) => ({ id: ids[i]!, title: it.title, hash: pageHashes[i]! })))
     // links into existing parents: one write per parent (its pre-image kept)
     if (link !== 'none') {
       const byParent = new Map<string, number[]>()
@@ -617,8 +655,8 @@ export class McpBatch {
       if (!input.views?.length) return { defs: all, views: null }
       if (input.views.some((v) => v.type === 'board' && !v.groupBy) && !all.some((p) => GROUPABLE.includes(p.type))) {
         const name = all.some((p) => p.name.toLowerCase() === 'status') ? 'Board status' : 'Status'
-        all = [...all, { id: newId(), name, type: 'status', options: [{ id: newId(), name: 'Not started', color: 'gray', group: 'todo' }, { id: newId(), name: 'In progress', color: 'blue', group: 'in_progress' }, { id: newId(), name: 'Done', color: 'green', group: 'done' }] }]
-        notes.push(`A board needs a property to group by: a "${name}" property (status: Not started, In progress, Done) was added.`)
+        all = [...all, { id: newId(), name, type: 'status', options: MCP_DEFAULT_STATUS.map((o) => ({ id: newId(), ...o })) }]
+        notes.push(`A board needs a property to group by: a "${name}" property (status: ${MCP_DEFAULT_STATUS.map((o) => o.name).join(', ')}) was added.`)
       }
       const members = this.model.context(wsId, r).members
       const views: View[] = input.views.map((spec, i) => {
@@ -663,7 +701,7 @@ export class McpBatch {
       })
     }
     const created = await this.writes.createDatabase(wsId, dbInput, actor)
-    rec.pages([{ id: created.id, title: input.title }])
+    rec.pages([{ id: created.id, title: input.title, hash: (await this.hashes(wsId, [created.id]))[0]! }])
     // the rows (a failure on the way trashes the database again — and the rows with it)
     let rows: Array<{ id: string; title: string }> = []
     try {
@@ -672,10 +710,7 @@ export class McpBatch {
       await this.trash(wsId, [created.id], actor)
       throw err
     }
-    if (rows.length) {
-      const states = await this.rowStates(wsId, rows.map((r) => r.id))
-      rec.rows({ db: created.id, created: states.map((s) => ({ id: s.id, title: s.title, values: s.values })), updated: [] })
-    }
+    if (rows.length) rec.rows({ db: created.id, created: await this.madeRows(wsId, rows.map((r) => r.id)), updated: [] })
     // the database block in the page's text, last; a failed write trashes the new database again (compensating write)
     let block: string | undefined
     let blockRef: string | null = null

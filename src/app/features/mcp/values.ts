@@ -9,13 +9,15 @@ import type { Database, ID, Page, PageIcon, PropertyDef } from '../../store/type
 import { propertyValueToText, typeOfRow } from '../../database'
 import { isSettable } from '../ai/agent/props'
 import { isHandOnly, keyPropOf } from '../../store/keys'
+import { withCode } from '../../../shared/mcp/errors'
 
 export const ws = () => useWorkspace.getState()
 
 /** A tool call the agent has to fix: the message goes back as the tool error. */
+/** A refusal of a tool call: it always starts with a code (shared/mcp/errors.ts withCode — spec § 2.0). */
 export class McpToolError extends Error {
   constructor(message: string) {
-    super(message)
+    super(withCode(message))
     this.name = 'McpToolError'
   }
 }

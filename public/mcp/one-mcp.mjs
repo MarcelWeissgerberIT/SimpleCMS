@@ -19268,6 +19268,7 @@ var MCP_LIMITS = {
   instructions: 3500
 };
 var MCP_CONTRACT_REV = 2;
+var MCP_SERVER_SUPPORTS = `mcp:${MCP_CONTRACT_REV}`;
 var MCP_ARGS_V1 = Object.freeze({
   one_overview: [],
   one_list_workspaces: [],
@@ -19315,7 +19316,6 @@ var MCP_ERR = {
 };
 var MCP_APPROVAL_MS = 12e4;
 var MCP_NO_APP = "Open One (https://getonecms.com/app/) and switch on Settings \u2192 Agents \xB7 MCP.";
-var MCP_SERVER_SUPPORTS = `mcp:${MCP_CONTRACT_REV}`;
 var ICON = 'An emoji, "asset:<name>" or "lucide:<IconName>".';
 var COLORS = "gray, brown, orange, yellow, green, blue, purple, pink, red";
 var TASKS = 'Tasks: "> [!TODO] Title" + a field line (Owner: names \xB7 Due: YYYY-MM-DD \xB7 Blocked by: #handle / wi_\u2026 / title); One gives the ids; change existing ones with one_update_work_item.';
@@ -19452,7 +19452,7 @@ var TOOLS = [
     name: "one_get_page",
     title: "Read a page",
     write: false,
-    description: `Read a page, row or database page by id (or exact title): title, icon, path, rev, class, a row's values, sub-pages, backlinks and the content \u2014 Markdown, or format "blocks": every block nested with its ref, type, Markdown and data (databases, files, sheets, charts, meetings \u2026). Long pages come in parts: pass "next" as cursor (null = the end). refs: true labels each block \u27E6#ref\u27E7 in the Markdown. A database's rows: one_query_database.`,
+    description: `Read a page, row or database page by id (or exact title): title, icon, path, rev, class, a row's values, sub-pages, backlinks and the content \u2014 Markdown, or format "blocks": every block nested with its ref, type, Markdown and data (databases, files, sheets, charts, meetings \u2026). Long pages come in parts: pass "next" as cursor (null = the end); join the parts' Markdown with a blank line \u2014 after a part with continues: "line" with one line break, "text" directly (a block, or a line, cut there). refs: true labels each block \u27E6#ref\u27E7 in the Markdown. A database's rows: one_query_database.`,
     local: 'Mentions read [@Name](one:person/<id>) and [@date](one:date/YYYY-MM-DD), tasks "> [!TODO] Title {#wi_\u2026}" with a field line \u2014 keep both when you write text back.',
     inputSchema: {
       type: "object",
@@ -19680,7 +19680,7 @@ var TOOLS = [
     name: "one_create_database",
     title: "Create a database",
     write: true,
-    description: `Create a database \u2014 with views, rows and an icon in one call. parentId = a full-page database as a sub-page; inline = inside a page's text. It always has a title property ("Name" unless one of type "title" is given); without properties: Name, Status, Tags, Date. A board groups by "groupBy" or the first status / select / person / checkbox property (none: a Status property is added); a table view follows a board. Example: views: [{ type: "board", groupBy: "Status" }], properties: [{ name: "Status", type: "status", options: ["Todo", "Doing", "Done"] }], rows: [{ title: "Kick-off", properties: { Status: "Todo" } }] \u2014 give each row its lane: a row without a value waits in the board's "no value" lane.`,
+    description: `Create a database \u2014 with views, rows and an icon in one call. parentId = a full-page database as a sub-page; inline = inside a page's text. It always has a title property ("Name" unless one of type "title" is given); without properties: Name, Status (Not started, In progress, Done), Tags, Date \u2014 these English names in every workspace language; the answer's "properties" lists the names and options made, use those for later calls. A board groups by "groupBy" or the first status / select / person / checkbox property (none: a Status property with those three options is added); a table view follows a board. Example: views: [{ type: "board", groupBy: "Status" }], properties: [{ name: "Status", type: "status", options: ["Todo", "Doing", "Done"] }], rows: [{ title: "Kick-off", properties: { Status: "Todo" } }] \u2014 give each row its lane: a row without a value waits in the board's "no value" lane.`,
     inputSchema: {
       type: "object",
       properties: {
@@ -20064,8 +20064,8 @@ function resolveWorkspace(all, arg, last = null) {
       error: `${MCP_ERR.required}: ${all.length} One workspaces are connected: ${listing(all)}. Pass "workspace" with the id or the name of the one you mean \u2014 if it is not clear which one, ask the person. Nothing was done.`
     };
   }
-  if (typeof arg !== "string") return { ok: false, error: `"workspace" must be a string: the id or the name of a connected workspace (one_list_workspaces). Nothing was done.` };
-  if (arg.length > WORKSPACE_ARG_MAX) return { ok: false, error: `"workspace" is too long: pass the id or the name of a connected workspace (one_list_workspaces). Nothing was done.` };
+  if (typeof arg !== "string") return { ok: false, error: `bad_argument: workspace: "workspace" must be a string: the id or the name of a connected workspace (one_list_workspaces). Nothing was done.` };
+  if (arg.length > WORKSPACE_ARG_MAX) return { ok: false, error: `bad_argument: workspace: "workspace" is too long: pass the id or the name of a connected workspace (one_list_workspaces). Nothing was done.` };
   const want = arg.trim();
   const byId = all.filter((c) => c.info.workspace.id === want);
   if (byId.length === 1) return { ok: true, target: byId[0] };
@@ -20107,6 +20107,7 @@ function describe2(c, newest) {
 }
 
 // src/bridge.ts
+var CANCELLED = mcpError("rejected", "", "The call was cancelled");
 var MAX_PAYLOAD = 16 * 1024 * 1024;
 var HELLO_MS = 5e3;
 var MAX_PENDING_MS = 10 * 6e4;
@@ -20207,7 +20208,7 @@ var Bridge = class {
     this.state = "closed";
     if (this.retry) clearTimeout(this.retry);
     if (this.pinger) clearInterval(this.pinger);
-    for (const f of [...this.inflight.values()]) f.finish({ ok: false, error: "The One bridge stopped." });
+    for (const f of [...this.inflight.values()]) f.finish({ ok: false, error: mcpError("rejected", "", "The One bridge stopped while the call ran", "Ask the person whether to start the bridge again; read before you call again.") });
     for (const w of [...this.waiters]) w(null);
     for (const ws of this.wss.clients) ws.close(1001, "bridge stopped");
     await new Promise((r) => this.wss.close(() => r()));
@@ -20331,7 +20332,7 @@ ${text2}`);
       case "error": {
         const f = this.inflight.get(String(msg.id));
         if (!f || f.conn !== conn) return;
-        if (msg.type === "error") return f.finish({ ok: false, error: str(msg.error, 8e3) || "The call failed in One." });
+        if (msg.type === "error") return f.finish({ ok: false, error: str(msg.error, 8e3) || "rejected: The call failed in One. Nothing was confirmed \u2014 read what the call touches again before you call again." });
         f.finish(this.checked(f, msg.result ?? null));
         return;
       }
@@ -20417,7 +20418,7 @@ ${text2}`);
     const down = this.ready();
     if (down) return { ok: false, error: down };
     await this.waitForApp(this.opts.waitMs, signal);
-    if (signal?.aborted) return { ok: false, error: "Cancelled." };
+    if (signal?.aborted) return { ok: false, error: CANCELLED };
     const newest = this.apps.reduce((m, a) => Math.max(m, a.seq), 0);
     const workspaces = [...this.apps].sort((a, b) => b.seq - a.seq).map((a) => describe2(a, a.seq === newest));
     return {
@@ -20431,14 +20432,14 @@ ${text2}`);
   }
   /** Forward one tool call to the tab of the workspace it is meant for. Never throws. */
   async call(tool, args, opts = {}) {
-    if (!TOOLS2.has(tool)) return { ok: false, error: `Unknown tool ${JSON.stringify(tool)}.` };
+    if (!TOOLS2.has(tool)) return { ok: false, error: mcpError("bad_argument", "", `Unknown tool ${JSON.stringify(tool)}`, "tools/list names the tools there are.") };
     const extra = undeclared(tool, args);
     if (extra.length) return { ok: false, error: mcpError("bad_argument", extra[0], `${tool} takes no argument ${JSON.stringify(extra[0])} (it takes: ${[...TOOLS2.get(tool)].join(", ")})`) };
     const down = this.ready();
     if (down) return { ok: false, error: down };
     const { workspace: target, ...rest } = args;
     const any = await this.waitForApp(this.opts.waitMs, opts.signal);
-    if (opts.signal?.aborted) return { ok: false, error: "Cancelled." };
+    if (opts.signal?.aborted) return { ok: false, error: CANCELLED };
     if (!any) return { ok: false, error: MCP_NO_APP };
     const picked = resolveWorkspace(this.apps, target, this.last);
     if (!picked.ok) return picked;
@@ -20451,7 +20452,7 @@ ${text2}`);
     return new Promise((resolve) => {
       const onAbort = () => {
         this.send(conn, { type: "cancel", id });
-        entry.finish({ ok: false, error: "Cancelled." });
+        entry.finish({ ok: false, error: CANCELLED });
       };
       const entry = {
         conn,
@@ -28583,7 +28584,7 @@ function createMcpServer(bridge2, version2) {
   server2.setRequestHandler(CallToolRequestSchema, async (req, extra) => {
     const name = req.params.name;
     const def = MCP_TOOLS.find((t) => t.name === name);
-    if (!def) return text(`Unknown tool ${JSON.stringify(name)}. Tools: ${MCP_TOOLS.map((t) => t.name).join(", ")}.`, true);
+    if (!def) return text(mcpError("bad_argument", "", `Unknown tool ${JSON.stringify(name)}`, `Tools: ${MCP_TOOLS.map((t) => t.name).join(", ")}.`), true);
     const args = req.params.arguments && typeof req.params.arguments === "object" ? req.params.arguments : {};
     const token = req.params._meta?.progressToken;
     let ticker = null;

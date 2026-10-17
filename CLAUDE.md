@@ -1274,6 +1274,15 @@ the public APIs stable — other areas are built against them in parallel.
   holds (names a person, a reminder, an assigned task, a blocker, a removal) sets `WritePlan.alwaysAsk` — asked even in
   Apply directly; the `one_update_page` replace settles at plan time and refuses at apply when `contentRev` moved.
   Neither the team server's MCP nor its agents learn the `[!TODO]` form before P4 (source guard).
+- MCP refusals: every one starts with a code (`McpToolError` and the tab's `fail()` run shared/mcp/errors.ts
+  `withCode`; prefer `mcpError(code, path, what)`); arguments are strict at every depth (shared/mcp/args.ts
+  `undeclaredIn` on the tab, `z.strictObject` on the server — mcp-parity.test compares nested schemas). Reads through
+  MCP (one_get_page, run_query / run_script text, list / update_work_item) honour context marks (features/mcp/limits.ts
+  `mcpReadLimit` / `mcpPageText`); a run started over MCP never writes One's own databases (script host `writeGuard`)
+  and its writes count as MCP-caused for coding trust (store/writer.ts `mcpCaused`). Markdown parts join by
+  `continues` (shared/mcp/pageRead.ts `wholeMarkdown`); a bridge < MCP_BRIDGE_CURRENT gets the whole page (≤ 60k).
+  The default schema / status options are `MCP_DEFAULT_PROPERTIES` / `MCP_DEFAULT_STATUS` (English, both sides). The
+  app shows team-server MCP features only when `/api/config` `supports ∋ MCP_SERVER_SUPPORTS`.
 
 ## TipTap node names (shared contract — seed, export, share, history all rely on these)
 

@@ -16,6 +16,7 @@ import { MCP_FILTER_OPS, MCP_TYPE_CHANGES, MCP_VIEW_TYPES, type McpToolName } fr
 import { chars, cleanName, clone, colorOf, optionsOf, palette, parseIcon, same, str, type PlanLine, type WritePlan } from './plan'
 import { databaseOrThrow, iconText, McpToolError, pageUrl, propertyJson, q, titleOf, TWO_WAY_SUFFIX, ws } from './values'
 import { withWriter } from '../../store/writer'
+import { sideEffects, sideHold } from './rows'
 import { assertNotSystem } from './system'
 
 /* ------------------------------------------------------------------ */
@@ -236,6 +237,10 @@ function planDeleteProperty(args: Record<string, unknown>): WritePlan {
     { k: 'fact', label: t('features.mcp.plan.values'), value: t(withValue === 1 ? 'features.mcp.plan.valuesGone.one' : 'features.mcp.plan.valuesGone.other', { n: chars(withValue) }) },
   ]
   if (partner) lines.push({ k: 'note', value: t('features.mcp.plan.partnerStays', { name: partner.name, db: titleOf(ws().pages[prop.relationDatabaseId!]) }) })
+  // the rows losing a value: what that sets off (an auto-filled property's inputs change) — named, ≥ rowsAsk always asked
+  const side = sideEffects(db, withValue, { dropped: true, props: new Set([prop.id]) })
+  const hold = sideHold([side])
+  lines.push(...side.lines, ...hold.lines)
   lines.push({ k: 'note', value: t('features.mcp.plan.propGoneNote') })
   return {
     tool: 'one_delete_property',
@@ -243,6 +248,7 @@ function planDeleteProperty(args: Record<string, unknown>): WritePlan {
     summary: t('features.mcp.sum.deleteProperty', { name: prop.name, db: title }),
     target: `${title} / ${prop.name}`,
     lines,
+    ...(hold.alwaysAsk ? { alwaysAsk: true } : {}),
     async apply(writer) {
       // every write of this call under its writer (store/writer.ts) — one synchronous burst
       return withWriter(writer, () => {
@@ -413,6 +419,11 @@ function planUpdateProperty(args: Record<string, unknown>): WritePlan {
   if (toType) lines.push({ k: 'note', value: t(filled === 1 ? 'features.mcp.plan.converts.one' : 'features.mcp.plan.converts.other', { n: chars(filled) }) })
   if (args.name === undefined && args.description === undefined && args.type === undefined && args.options === undefined)
     throw new McpToolError('Nothing to change: pass "name", "description", "type" and/or "options".')
+  // rows whose value changes (a removed option is cleared, a new type converts every filled value): the automations,
+  // auto-filled properties and row-triggered agents watching the property — named, ≥ rowsAsk rows always asked
+  const side = sideEffects(db, toType ? filled : losing.length, { props: new Set([prop.id]) })
+  const hold = sideHold([side])
+  lines.push(...side.lines, ...hold.lines)
   const result = () => {
     const d = ws().databases[db.id]
     const p = d?.properties.find((x) => x.id === prop.id)
@@ -424,6 +435,7 @@ function planUpdateProperty(args: Record<string, unknown>): WritePlan {
     summary: t('features.mcp.sum.updateProperty', { name: prop.name, db: title }),
     target: `${title} / ${prop.name}`,
     lines,
+    ...(hold.alwaysAsk ? { alwaysAsk: true } : {}),
     noop: changed.length ? undefined : { ...result(), note: 'No change: the property already looks like that.' },
     async apply(writer) {
       // every write of this call under its writer (store/writer.ts) — one synchronous burst

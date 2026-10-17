@@ -9,7 +9,7 @@ import type { JSONContent } from '@tiptap/core'
 import { t } from '../../i18n'
 import { newId } from '../../lib/ids'
 import type { Database, ID, Page, PropertyDef, View, ViewType } from '../../store/types'
-import { defaultStatusOptions, defaultView } from '../../store/store'
+import { defaultView } from '../../store/store'
 import { contentKey, snapshotNow } from '../history/snapshots'
 import { coerceProperties, withFilesWritable } from '../ai/agent/props'
 import { ToolInputError, withToolScope } from '../ai/agent/tools'
@@ -17,13 +17,13 @@ import { commitItems, pagePrivate, stageItems } from '../ai/agent/workItems'
 import { blockHash, idsFor, parseRef, stripRefLabels, type PMJson } from '../../../shared/mcp/refs'
 import { nestedTopLevel, refIndex } from '../../../shared/mcp/pageRead'
 import { mcpError } from '../../../shared/mcp/errors'
-import { MCP_LIMITS, MCP_VIEW_TYPES } from '../../../shared/mcp/tables'
+import { MCP_DEFAULT_PROPERTIES, MCP_LIMITS, MCP_VIEW_TYPES } from '../../../shared/mcp/tables'
 import { applyStaged, assertStageWritable, callStage, itemPlan, mcpMessage, outsideTemplates } from './stage'
 import { assertNotSystem } from './system'
 import { iconText, live, McpToolError, pageUrl, pathOf, propertyJson, q, titleOf, ws } from './values'
 import { atPath, chars, checkFileScope, cleanName, eachEntry, pageOrThrow, parseIcon, str, tasksOf, type PlanLine, type WritePlan } from './plan'
-import { propertySpec } from './schema'
-import { checkFiles, rowNo, splitTitle } from './rows'
+import { mcpStatusOptions, propertySpec } from './schema'
+import { bodyLine, checkFiles, rowFacts, rowNo, splitTitle } from './rows'
 import { layoutName, viewChange } from './structure'
 import { withWriter } from '../../store/writer'
 
@@ -119,15 +119,13 @@ function holdsValues(dbId: ID, propId: ID): boolean {
 
 const emptyValue = (v: unknown) => v === undefined || v === null || v === '' || (Array.isArray(v) && !v.length)
 
-/** The properties a database gets when the call gives none (the store's default schema, its words in the UI language). */
+/**
+ * The properties a database gets when the call gives none: the contract's default schema (tables.ts
+ * MCP_DEFAULT_PROPERTIES) — the same English words as on the team server, whatever the workspace language, so a call
+ * that follows the tool's description fits on both sides.
+ */
 function defaultProps(): PropertyDef[] {
-  const de = ws().settings.language === 'de'
-  return [
-    { id: newId(), name: 'Name', type: 'title' },
-    { id: newId(), name: 'Status', type: 'status', options: defaultStatusOptions() },
-    { id: newId(), name: 'Tags', type: 'multi_select', options: [] },
-    { id: newId(), name: de ? 'Datum' : 'Date', type: 'date' },
-  ]
+  return MCP_DEFAULT_PROPERTIES.map((p) => ({ id: newId(), name: p.name, type: p.type, ...(p.type === 'status' ? { options: mcpStatusOptions() } : p.type === 'multi_select' ? { options: [] } : {}) }))
 }
 
 export function planCreateDatabase(args: Record<string, unknown>): WritePlan {
@@ -203,7 +201,7 @@ export function planCreateDatabase(args: Record<string, unknown>): WritePlan {
     })
     if (list.some((v) => v.type === 'board' && (v.groupBy === undefined || v.groupBy === null)) && !props.some((p) => GROUPABLE.includes(p.type))) {
       const name = props.some((p) => p.name.toLowerCase() === 'status') ? 'Board status' : 'Status'
-      const status: PropertyDef = { id: newId(), name, type: 'status', options: defaultStatusOptions() }
+      const status: PropertyDef = { id: newId(), name, type: 'status', options: mcpStatusOptions() }
       props.push(status)
       notes.push(`A board needs a property to group by: a "${name}" property (status: ${status.options!.map((o) => o.name).join(', ')}) was added.`)
       cardNotes.push(t('features.mcp.plan.autoStatus', { name, options: status.options!.map((o) => o.name).join(', ') }))
@@ -291,22 +289,11 @@ export function planCreateDatabase(args: Record<string, unknown>): WritePlan {
   for (const n of cardNotes) lines.push({ k: 'note', value: n })
   if (rows.length) {
     lines.push({ k: 'fact', label: t('features.mcp.plan.rows'), value: t(rows.length === 1 ? 'features.mcp.plan.rowsN.one' : 'features.mcp.plan.rowsN.other', { n: chars(rows.length) }) })
-    rows.forEach((c, i) =>
-      lines.push({
-        k: 'fact',
-        label: rowNo(i),
-        value:
-          [
-            c.title ?? '',
-            (c.props ?? [])
-              .slice(0, 3)
-              .map((p) => `${p.name}: ${p.after || '—'}`)
-              .join(' · '),
-          ]
-            .filter(Boolean)
-            .join(' — ') || '—',
-      }),
-    )
+    // every value and the text of each row (the person approves what they saw — rows.ts rowFacts / bodyLine)
+    rows.forEach((c, i) => {
+      lines.push({ k: 'fact', label: rowNo(i), value: [c.title ?? '', rowFacts(c.props)].filter(Boolean).join(' — ') || '—' })
+      lines.push(...bodyLine(c.title ?? '', c.markdown))
+    })
   }
   const tasks = itemPlan(stage.changes)
   lines.push(...tasks.lines)
@@ -319,7 +306,7 @@ export function planCreateDatabase(args: Record<string, unknown>): WritePlan {
     lines,
     ...(tasks.holds.length ? { alwaysAsk: true } : {}),
     async apply(writer) {
-      if (parent && !live(parent.id)) throw new McpToolError(`${q(titleOf(parent))} is gone. Nothing was changed.`)
+      if (parent && !live(parent.id)) throw new McpToolError(mcpError('not_found', inline ? 'inline.pageId' : 'parentId', `${q(titleOf(parent))} is gone (deleted or in the trash) since the call was made`))
       if (inline && ws().pages[parent!.id]?.settings.locked) throw new McpToolError(mcpError('locked', 'inline.pageId', `${q(titleOf(parent!))} was locked meanwhile`))
       // the reverse sides of two-way relations live on the related databases
       const reverses = withWriter(writer, () => {

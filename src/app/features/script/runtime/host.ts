@@ -13,7 +13,7 @@ import { COLOR_NAMES, type ColorName, type Database, type ID, type Page, type Pr
 import { newId } from '../../../lib/ids'
 import { navigate } from '../../../lib/router'
 import { useCloud } from '../../../cloud'
-import { propertyValueToText, writePropertyValue } from '../../../database'
+import { pairedRelationIn, propertyValueToText, writePropertyValue } from '../../../database'
 import { keepItems, markdownToDoc } from '../../../editor'
 import { snapshotNow } from '../../history/snapshots'
 import { withoutWebImages } from '../../agents/images'
@@ -45,6 +45,17 @@ export interface HostOptions {
   scope?: ((id: ID) => boolean) | null
   /** who writes (store/writer.ts): script:<id>:<run>, with the caller as its cause */
   writer: Writer
+  /** a caller's rule for what the run may change (RunOptions.writeGuard): a name = refused */
+  writeGuard?: ((target: WriteTarget) => string | null) | null
+  /** what the run may read of a page's text (RunOptions.textLimit) */
+  textLimit?: ((id: ID) => { markdown: string; plain: string } | null) | null
+}
+
+/** What a write of a run touches, for a caller's rule (RunOptions.writeGuard): the page, its database, a new page's parent. */
+export interface WriteTarget {
+  pageId?: ID | null
+  dbId?: ID | null
+  parentId?: ID | null
 }
 
 const EFFECT_KIND: Record<EffectName, EffectKind> = { 'mail.send': 'mail', claude: 'claude', 'http.post': 'http' }
@@ -67,6 +78,8 @@ export class Host {
   readonly scope: ((id: ID) => boolean) | null
   /** the run's writer: every store write of the run runs in its frame (one per synchronous burst) */
   readonly writer: Writer
+  private readonly writeGuard: ((target: WriteTarget) => string | null) | null
+  private readonly textLimit: ((id: ID) => { markdown: string; plain: string } | null) | null
   readonly started = Date.now()
   readonly log: LogLine[] = []
   readonly changes: ChangeItem[] = []
@@ -100,6 +113,33 @@ export class Host {
     this.approved = o.approved ?? null
     this.scope = o.scope ?? null
     this.writer = o.writer
+    this.writeGuard = o.writeGuard ?? null
+    this.textLimit = o.textLimit ?? null
+  }
+
+  /** What the run may read of this page's text — a caller's limit (RunOptions.textLimit); null = all of it. */
+  limitedText(id: ID): { markdown: string; plain: string } | null {
+    return this.textLimit && !this.isDraft(id) ? this.textLimit(id) : null
+  }
+
+  /**
+   * A caller's rule for this write (RunOptions.writeGuard), asked before anything of it happens — in every mode that
+   * writes or plans writes, so a dry run stops where the run would.
+   */
+  private check(target: WriteTarget): void {
+    const name = this.writeGuard?.(target)
+    if (name) throw new ScriptError('system_db', { name })
+  }
+
+  /** The databases a relation value also writes into: an explicit two-way partner's rows (writePropertyValue syncs them). */
+  private checkPartners(db: Database, coerced: readonly Coerced[]): void {
+    if (!this.writeGuard) return
+    const dbs = useWorkspace.getState().databases
+    for (const c of coerced) {
+      if (c.prop.type !== 'relation') continue
+      const pair = pairedRelationIn(dbs, db.id, c.prop)
+      if (pair) this.check({ dbId: pair.db.id })
+    }
   }
 
   /**
@@ -218,6 +258,9 @@ export class Host {
       }
       coerced.push(coerceProp(db!, prop, value))
     }
+    // a caller's rule (MCP: One's own databases): the row itself, and a two-way partner's rows a relation writes too
+    if (!this.isDraft(page.id)) this.check({ pageId: page.id, dbId: page.databaseId })
+    if (db) this.checkPartners(db, coerced)
     const diffs: PropDiff[] = []
     if (title !== null) diffs.push({ name: db?.properties.find((p) => p.type === 'title')?.name ?? 'title', before: page.title, after: title })
     for (const c of coerced) diffs.push({ name: c.prop.name, before: this.isDraft(page.id) ? '' : safeText(db!, c.prop, page), after: c.text })
@@ -270,6 +313,7 @@ export class Host {
 
   async writeContent(page: Page, markdown: string, how: 'append' | 'prepend' | 'replace'): Promise<void> {
     this.guard(`${how}()`)
+    if (!this.isDraft(page.id)) this.check({ pageId: page.id, dbId: page.databaseId })
     const md = markdown.slice(0, 500_000)
     const existing = this.changes.find((c) => c.pageId === page.id && c.kind === 'content')
     if (existing) existing.how = how === 'replace' || existing.how === 'replace' ? 'replace' : existing.how
@@ -292,6 +336,7 @@ export class Host {
   /** A new page (under `parentId`; null = the top level) with an optional body. */
   async createPage(input: { title: string; parentId: ID | null; markdown: string }): Promise<ID> {
     this.guard('create.page()')
+    if (input.parentId && !this.isDraft(input.parentId)) this.check({ parentId: input.parentId })
     const title = input.title.replace(/\s*\n\s*/g, ' ').slice(0, 2000)
     if (!this.real) {
       const id = `draft-${++this.draftSeq}`
@@ -333,6 +378,8 @@ export class Host {
       }
       coerced.push(coerceProp(db, prop, v))
     }
+    this.check({ dbId: db.id })
+    this.checkPartners(db, coerced)
     const props: PropDiff[] = coerced.map((c) => ({ name: c.prop.name, before: '', after: c.text }))
     if (!this.real) {
       const id = `draft-${++this.draftSeq}`
@@ -369,6 +416,7 @@ export class Host {
   /** Move a page / row to the trash (asked like an effect in a run; Undo restores it). */
   async trash(page: Page): Promise<boolean> {
     this.guard('trash()')
+    if (!this.isDraft(page.id)) this.check({ pageId: page.id, dbId: page.databaseId })
     const label = page.title.trim() || '—'
     const allowed = await this.allow('trash', label)
     if (!allowed) {

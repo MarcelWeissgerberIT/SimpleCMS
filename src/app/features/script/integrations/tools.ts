@@ -6,7 +6,7 @@
  */
 import { useWorkspace } from '../../../store/store'
 import type { ID, OneScript } from '../../../store/types'
-import type { RunResult } from '../runtime/run'
+import type { RunOptions, RunResult } from '../runtime/run'
 import type { ChangeItem, ConfirmItem, EffectItem, ErrorInfo, LogLine, ResultTable, RunUI } from '../runtime/types'
 
 /** Rows of a query answer (the rest is counted, not sent). */
@@ -61,16 +61,17 @@ export type QueryOutcome = QueryAnswer | { ok: false; error: string }
 
 /**
  * Run code read-only and answer its result as JSON: a table (queries, lists of rows / records) as
- * rows, anything else as its plain value. `scope`: only these pages are reachable (custom agents).
+ * rows, anything else as its plain value. `scope`: only these pages are reachable (custom agents); `textLimit`: what a
+ * page's `.markdown` / `.text` may give (MCP: the person's context marks).
  */
-export async function runQueryForTool(code: string, o: { scope?: ((id: ID) => boolean) | null; maxRows?: number; signal?: AbortSignal; contextPageId?: ID | null } = {}): Promise<QueryOutcome> {
+export async function runQueryForTool(code: string, o: { scope?: ((id: ID) => boolean) | null; maxRows?: number; signal?: AbortSignal; contextPageId?: ID | null; textLimit?: RunOptions['textLimit'] } = {}): Promise<QueryOutcome> {
   const src = code.trim()
   if (!src) return { ok: false, error: 'Empty query: pass One Script code, e.g. db("Tasks").where(Status = "Open").' }
   if (src.length > TOOL_CODE_MAX) return { ok: false, error: `The query is too long (${src.length} characters, at most ${TOOL_CODE_MAX}).` }
   const syntax = await syntaxErrorText(src)
   if (syntax) return { ok: false, error: `Syntax error: ${syntax}` }
   const { runScript } = await import('../runtime/run')
-  const r: RunResult = await runScript({ code: src, mode: 'query', record: false, signal: o.signal, scope: o.scope ?? null, contextPageId: o.contextPageId ?? null, limits: { ms: 15_000 } })
+  const r: RunResult = await runScript({ code: src, mode: 'query', record: false, signal: o.signal, scope: o.scope ?? null, contextPageId: o.contextPageId ?? null, textLimit: o.textLimit ?? null, limits: { ms: 15_000 } })
   if (r.status !== 'ok' || r.error) return { ok: false, error: r.error ? await errorTextOf(r.error) : `The query ended: ${r.status}.` }
   const max = Math.max(1, Math.min(TOOL_ROWS_MAX, o.maxRows ?? TOOL_ROWS_MAX))
   if (r.table) {

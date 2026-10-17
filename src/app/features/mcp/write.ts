@@ -26,6 +26,7 @@ import type { McpToolName } from './contract'
 import { databaseOrThrow, iconText, live, McpToolError, pageUrl, propertyJson, q, titleOf, ws } from './values'
 import { chars, checkFileScope, pageOrThrow, parseIcon, preview, str, tasksOf, type PlanLine, type WritePlan } from './plan'
 import { stripRefLabels } from '../../../shared/mcp/refs'
+import { mcpError } from '../../../shared/mcp/errors'
 import { TIDY_PLANNERS } from './tidy'
 import { STRUCTURE_PLANNERS } from './structure'
 import { withWriter } from '../../store/writer'
@@ -131,13 +132,13 @@ function planUpdatePage(args: Record<string, unknown>): WritePlan {
     ...(holds.length ? { alwaysAsk: true } : {}),
     noop: changed.length ? undefined : { id: page.id, title: page.title, url: pageUrl(page.id), changed: [], note: 'No change: the page already looks like that.' },
     async apply(writer) {
-      if (!live(page.id)) throw new McpToolError(`${q(name)} is gone (deleted or in the trash). Nothing was changed.`)
+      if (!live(page.id)) throw new McpToolError(mcpError('not_found', 'id', `${q(name)} is gone (deleted or in the trash) since the call was made`))
       const undos: Array<() => boolean> = []
       if (replaceWith) {
         // the page changed while the call waited for approval (typed into, synced), or one of its new ids is taken by
         // now: nothing is replaced — the client reads it again and calls again
         const taken = replaced?.ids.some((id) => getItemIndex().everywhere.has(id))
-        if (ws().pages[page.id]?.contentRev !== rev || taken) throw new McpToolError(`${q(name)} changed while this call waited. Nothing was changed. Read it again with one_get_page and call again.`)
+        if (ws().pages[page.id]?.contentRev !== rev || taken) throw new McpToolError(mcpError('page_changed', 'id', `${q(name)} changed while this call waited`, 'Read it again with one_get_page and call again.'))
         // the replace FIRST (its new tasks exist before a folded change links them), then the rest; one rollback
         await snapshotNow(page.id, 'ai')
         const prev = ws().pages[page.id]?.content ?? null
@@ -188,7 +189,7 @@ function planCreateProperty(args: Record<string, unknown>): WritePlan {
   assertNotSystem(db.id)
   const dbTitle = titleOf(page)
   if (db.locked) throw new McpToolError(`locked: ${q(dbTitle)} is locked in One: its properties cannot change. Nothing was changed. Ask the person to unlock it.`)
-  const spec = propertySpec(args, { dbId: db.id, dbTitle, taken: db.properties.map((p) => p.name) }, 'property')
+  const spec = propertySpec(args, { dbId: db.id, dbTitle, taken: db.properties.map((p) => p.name) })
   return {
     tool: 'one_create_property',
     verb: t('features.mcp.verb.createProperty'),

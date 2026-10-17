@@ -23,12 +23,14 @@ import { useUI } from '../../store/ui'
 import { useCloud } from '../../cloud'
 import { t } from '../../i18n'
 import { BRAND } from '@/shared/brand'
-import { MCP_APPROVAL_MS, MCP_CLOSE_REPLACED, MCP_CONTRACT_REV, MCP_ERR, MCP_SUBPROTOCOL, MCP_SUBPROTOCOLS, MCP_TOOLS, MCP_WORKSPACE_ID, mcpToolArgs, type AppMessage, type BridgeMessage, type McpAgentMode, type McpToolName } from './contract'
-import { mcpError, withRemedy } from '../../../shared/mcp/errors'
+import { MCP_APPROVAL_MS, MCP_CLOSE_REPLACED, MCP_CONTRACT_REV, MCP_ERR, MCP_SUBPROTOCOL, MCP_SUBPROTOCOLS, MCP_TOOLS, MCP_WORKSPACE_ID, bridgeOutdated, mcpToolArgs, type AppMessage, type BridgeMessage, type McpAgentMode, type McpToolName } from './contract'
+import { mcpError, withCode, withRemedy } from '../../../shared/mcp/errors'
+import { undeclaredIn, undeclaredText } from '../../../shared/mcp/args'
 import { createsSomething, duplicateAnswer, duplicateKey, DUPLICATE_MS, remembersResult } from '../../../shared/mcp/duplicates'
 import { MCP_LIMITS } from '../../../shared/mcp/tables'
 import { currentWorkspace, workspaceInfo, type McpIdentity } from './identity'
 import { READ_TOOLS, readTarget } from './read'
+import { getPage } from './pageRead'
 import { McpToolError } from './values'
 import { mcpMessage, planWrite, type WritePlan } from './write'
 import { planRunScript } from './script'
@@ -52,7 +54,7 @@ const ERR = {
   signedOut: mcpError('rejected', '', 'One is not signed in to this team workspace', 'Ask the person to sign in in the One tab first.'),
   reject: mcpError('rejected', '', 'The person rejected this change in One'),
   timeout: mcpError('approval_timeout', '', `The change was not approved within ${MCP_APPROVAL_MS / 60_000} minutes`),
-  cancel: 'Cancelled. Nothing was changed.',
+  cancel: mcpError('rejected', '', 'The call was cancelled before it was approved'),
   mode: mcpError('rejected', '', 'Agent changes were switched to read-only in One while this change waited'),
   gone: mcpError('approval_timeout', '', 'One disconnected while this change waited for approval', 'Ask the person whether to try again once One is open; do not retry on your own.'),
   workspace: `${MCP_ERR.mismatch}: the One tab switched to another workspace while this change waited for approval, so it was cancelled. Nothing was changed. Ask the person which workspace to use.`,
@@ -486,17 +488,22 @@ async function handleCall(id: string, tool: McpToolName, args: Record<string, un
   const ms = () => Math.round(performance.now() - started)
   /** the waiting entry this call opened: its repeats get its answer */
   let mine: Duplicate | null = null
+  // every refusal starts with its code (spec § 2.0) — one this tab's code did not name gets the one it means (withCode)
   const fail = (message: string, state: ActivityState = 'err') => {
-    const error = withRemedy(message)
+    const error = withRemedy(withCode(message))
     send({ type: 'error', id, error })
     logPatch(key, { state, ms: ms(), note: error })
     if (mine) closeDuplicate(mine, { ok: false, error, state }, id, null)
   }
   try {
-    if (!def) return fail(`Unknown tool ${JSON.stringify(tool)}.`)
+    if (!def) return fail(mcpError('bad_argument', '', `Unknown tool ${JSON.stringify(tool)}`, 'tools/list names the tools there are.'))
     // strict arguments (the tool's schema has additionalProperties: false): nothing undeclared is dropped silently
     const extra = Object.keys(args).find((k) => k !== 'workspace' && !Object.hasOwn(def.inputSchema.properties, k))
     if (extra) return fail(mcpError('bad_argument', extra, `${tool} takes no argument ${JSON.stringify(extra)}`), 'rejected')
+    // … and at every depth: a key a closed object of the contract does not declare (rows[0].Status, pages[1].content)
+    const { workspace: _workspace, ...declared } = args
+    const nested = undeclaredIn(declared, def.inputSchema)
+    if (nested) return fail(mcpError('bad_argument', nested.path, undeclaredText(tool, nested)), 'rejected')
     if (useCloud.getState().status === 'signed-out') return fail(ERR.signedOut)
     // the boundary: only the workspace the call is meant for, only while this tab shows it
     const at = boundWorkspace(expected)
@@ -507,7 +514,9 @@ async function handleCall(id: string, tool: McpToolName, args: Record<string, un
     }
     if (!def.write) {
       if (tool === 'one_list_work_items') await warmMembers()
-      const result = await READ_TOOLS[tool]!(args, get().mode)
+      // a bridge older than parts (no cursor in its schema, no parts in its description): contract 1's whole-page answer
+      const legacyRead = tool === 'one_get_page' && (!get().bridge || bridgeOutdated(get().bridge))
+      const result = legacyRead ? await getPage(args, { whole: true }) : await READ_TOOLS[tool]!(args, get().mode)
       return answer(result, 'ok')
     }
     if (get().mode === 'read') return fail(ERR.readOnly, 'rejected')
@@ -575,7 +584,8 @@ async function handleCall(id: string, tool: McpToolName, args: Record<string, un
     if (e instanceof McpToolError) return fail(e.message)
     const msg = e instanceof Error ? e.message : String(e)
     console.warn('[one] MCP tool failed', tool, e)
-    fail(`The tool failed in One: ${mcpMessage(msg)}`)
+    // a fault of One's own: whether a part was written is not known for sure — the agent reads before it calls again
+    fail(`rejected: The tool failed in One: ${mcpMessage(msg)}. Nothing was confirmed — read what the call touches again before you call again, and tell the person if it fails again.`)
   } finally {
     set((s) => ({ busy: Math.max(0, s.busy - 1) }))
   }

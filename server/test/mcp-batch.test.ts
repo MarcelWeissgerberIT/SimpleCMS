@@ -473,3 +473,220 @@ describe('one_create_database inline: a failed block write trashes the new datab
     assert.equal((dbs[0]![1] as Y.Map<unknown>).get('trashed'), true)
   })
 })
+
+/* ------------------------------------------------------------------ restore leaves what changed since alone (review 2) */
+
+describe('Restore puts back only what nobody changed since — made pages, boards, partner rows, earlier restores', () => {
+  let server: TestServer
+  let owner: Client
+  let wsId: string
+  let meta: DocClient
+  let writer: McpClient
+  const open: DocClient[] = []
+  const doc = async (name: string) => {
+    const d = openDoc(server, owner, name)
+    open.push(d)
+    await d.synced
+    return d
+  }
+  const pages = () => meta.doc.getMap('pages')
+  const yp = (id: string) => pages().get(id) as Y.Map<unknown>
+  const props = (id: string) => yp(id).get('properties') as Y.Map<unknown>
+  const calls = async () => (await owner.get(`/api/workspaces/${wsId}/mcp-calls`)).body as Array<{ callId: string; tool: string; kinds: string[]; titles: string[]; restoredAt: string | null }>
+  const restore = (callId: string, force = false) => owner.post(`/api/workspaces/${wsId}/mcp-calls/${callId}/restore`, force ? { force: true } : {})
+
+  before(async () => {
+    server = await startServer({ API_RATE_LIMIT: '1000' })
+    owner = await signIn(server, 'mara@polaris.test')
+    wsId = (await owner.post('/api/workspaces', { name: 'Polaris' })).body.id
+    meta = await doc(`ws:${wsId}`)
+    meta.doc.transact(() => pages().set('wiki', pageEntry({ title: 'Wissensbasis', order: 1 })))
+    addDatabase(meta.doc, 'db-tasks', 'Tasks', [{ id: 't-title', name: 'Name', type: 'title' }])
+    addDatabase(meta.doc, 'db-proj', 'Projects', [{ id: 'p-title', name: 'Name', type: 'title' }])
+    addDatabase(meta.doc, 'db-keyed', 'Tickets', [
+      { id: 'k-title', name: 'Name', type: 'title' },
+      { id: 'k-key', name: 'Ticket', type: 'text', key: true },
+      { id: 'k-owner', name: 'Owner', type: 'text' },
+      { id: 'k-note', name: 'Note', type: 'text' },
+    ])
+    meta.doc.transact(() => {
+      pages().set('task-1', pageEntry({ title: 'Task one', parentId: 'db-tasks', databaseId: 'db-tasks', order: 1 }))
+      pages().set('proj-1', pageEntry({ title: 'Apollo', parentId: 'db-proj', databaseId: 'db-proj', order: 1 }))
+      pages().set('tk-3', pageEntry({ title: 'Ticket 3', parentId: 'db-keyed', databaseId: 'db-keyed', order: 3 }, { 'k-key': 'K-3', 'k-note': 'old note' }))
+    })
+    await flushed(meta)
+    const wiki = await doc(`ws:${wsId}:p:wiki`)
+    wiki.doc.transact(() => wiki.doc.getXmlFragment('default').insert(0, [para('Intro of the wiki.', 'blk-intro-001')]))
+    await flushed(wiki)
+    const token = (await owner.post(`/api/workspaces/${wsId}/tokens`, { name: 'Claude', scope: 'write' })).body.token
+    writer = await connect(server.url, token)
+  })
+
+  after(async () => {
+    await writer?.close().catch(() => {})
+    for (const d of open) d.destroy()
+    await server.stop()
+  })
+
+  test('a two-way relation the call wrote goes back on both sides: no one-sided link on the partner row', async () => {
+    await call(writer, 'one_create_property', { databaseId: 'db-tasks', name: 'Project', type: 'relation', relation: { databaseId: 'db-proj', twoWay: true, reverseName: 'Tasks' } })
+    await call(writer, 'one_update_row', { id: 'task-1', properties: { Project: 'proj-1' } })
+    const linked = (id: string, to: string) => [...props(id).entries()].some(([, v]) => Array.isArray(v) && (v as string[]).includes(to))
+    await waitFor(() => linked('task-1', 'proj-1') && linked('proj-1', 'task-1'), 5000, 'both sides linked')
+    const c = (await calls()).find((x) => x.tool === 'one_update_row')!
+    const res = await restore(c.callId)
+    assert.equal(res.status, 200, JSON.stringify(res.body))
+    assert.deepEqual(res.body.kept, [])
+    await waitFor(() => !linked('task-1', 'proj-1'), 5000, 'forward link gone')
+    await waitFor(() => !linked('proj-1', 'task-1'), 5000, 'the partner row no longer links back')
+  })
+
+  test('a made page someone wrote into, or put a sub-page under, stays (named in kept); force puts it into the trash', async () => {
+    const made = await call(writer, 'one_create_page', { title: 'Meeting notes', parentId: 'wiki' })
+    await waitFor(() => !!yp(made.id), 5000, 'page arrived')
+    const d = await doc(`ws:${wsId}:p:${made.id}`)
+    d.doc.transact(() => d.doc.getXmlFragment('default').insert(0, [para('Decisions: ship on Friday. Budget 40k.', 'blk-mara-001')]))
+    await flushed(d)
+    const c = (await calls()).find((x) => x.tool === 'one_create_page' && x.titles.includes('Meeting notes'))!
+    const res = await restore(c.callId)
+    assert.equal(res.status, 200, JSON.stringify(res.body))
+    assert.deepEqual(res.body.kept.map((k: { id: string }) => k.id), [made.id])
+    await sleep(200)
+    assert.notEqual(yp(made.id).get('trashed'), true, 'a page with text typed since stays')
+    assert.equal((await calls()).find((x) => x.callId === c.callId)!.restoredAt, null)
+    // a page with only a sub-page someone added: kept as well
+    const second = await call(writer, 'one_create_page', { title: 'Action items', parentId: 'wiki' })
+    await waitFor(() => !!yp(second.id), 5000, 'second arrived')
+    meta.doc.transact(() => pages().set('mara-sub', pageEntry({ title: 'Her own sub-page', parentId: second.id, order: 1 })))
+    await flushed(meta)
+    const c2 = (await calls()).find((x) => x.tool === 'one_create_page' && x.titles.includes('Action items'))!
+    assert.deepEqual((await restore(c2.callId)).body.kept.map((k: { id: string }) => k.id), [second.id])
+    await sleep(200)
+    assert.notEqual(yp(second.id).get('trashed'), true)
+    // "Restore anyway": to the trash (with what is below it — nothing is deleted)
+    assert.equal((await restore(c.callId, true)).status, 200)
+    await waitFor(() => yp(made.id).get('trashed') === true, 5000, 'forced into the trash')
+    assert.ok((await calls()).find((x) => x.callId === c.callId)!.restoredAt)
+  })
+
+  test('a board the call made that the team filled since stays — with its rows; an untouched one goes', async () => {
+    const db = await call(writer, 'one_create_database', { title: 'Team board', parentId: 'wiki', views: [{ type: 'board' }], rows: [{ title: 'Card by Claude' }] })
+    await waitFor(() => !!yp(db.id), 5000, 'db arrived')
+    meta.doc.transact(() => {
+      for (let i = 1; i <= 3; i++) pages().set(`human-${i}`, pageEntry({ title: `Card typed by Mara ${i}`, parentId: db.id, databaseId: db.id, order: i + 1 }))
+    })
+    await flushed(meta)
+    const c = (await calls()).find((x) => x.tool === 'one_create_database' && x.titles.includes('Team board'))!
+    const res = await restore(c.callId)
+    assert.equal(res.status, 200, JSON.stringify(res.body))
+    assert.deepEqual(res.body.kept.map((k: { id: string }) => k.id), [db.id])
+    await sleep(200)
+    assert.notEqual(yp(db.id).get('trashed'), true)
+    assert.notEqual(yp(db.rows[0].id).get('trashed'), true, "the call's own row stays with its board")
+    // the same call without a person's row: to the trash
+    const other = await call(writer, 'one_create_database', { title: 'Scratch board', parentId: 'wiki', views: [{ type: 'board' }], rows: [{ title: 'Only Claude' }] })
+    const c2 = (await calls()).find((x) => x.tool === 'one_create_database' && x.titles.includes('Scratch board'))!
+    assert.deepEqual((await restore(c2.callId)).body.kept, [])
+    await waitFor(() => yp(other.id).get('trashed') === true, 5000, 'untouched board trashed')
+  })
+
+  test('each part is put back once: a retry and "Restore anyway" never write a content part an earlier restore put back', async () => {
+    const made = await call(writer, 'one_create_page', { title: 'Glossar', parentId: 'wiki', linkInParent: 'block' })
+    const wiki = await doc(`ws:${wsId}:p:wiki`)
+    const links = () => wiki.doc.getXmlFragment('default').toArray().filter((n) => (n as Y.XmlElement).nodeName === 'pageLink').length
+    await waitFor(() => links() === 1, 5000, 'link in the wiki')
+    // the made page is renamed → kept on restore; the wiki's link is taken out
+    meta.doc.transact(() => yp(made.id).set('title', 'Glossary'))
+    await flushed(meta)
+    const c = (await calls()).find((x) => x.tool === 'one_create_page' && x.kinds.includes('content') && x.titles.includes('Glossary'))!
+    const first = await restore(c.callId)
+    assert.equal(first.status, 200, JSON.stringify(first.body))
+    assert.deepEqual(first.body.kept.map((k: { title: string }) => k.title), ['Glossary'])
+    await waitFor(() => links() === 0, 5000, 'link taken back')
+    // someone writes into the wiki after the restore
+    wiki.doc.transact(() => wiki.doc.getXmlFragment('default').insert(wiki.doc.getXmlFragment('default').length, [para('Typed after the restore by Tessera.', 'blk-tess-001')]))
+    await flushed(wiki)
+    // a plain retry: no changed_since from the first restore's own write — the renamed page is still kept, nothing else runs
+    const again = await restore(c.callId)
+    assert.equal(again.status, 200, JSON.stringify(again.body))
+    assert.deepEqual(again.body.kept.map((k: { title: string }) => k.title), ['Glossary'])
+    assert.equal(again.body.restored, 0)
+    // "Restore anyway": only the kept page goes; the wiki keeps Tessera's line
+    const forced = await restore(c.callId, true)
+    assert.equal(forced.status, 200, JSON.stringify(forced.body))
+    await waitFor(() => yp(made.id).get('trashed') === true, 5000, 'kept page trashed')
+    await sleep(300)
+    assert.ok(wiki.doc.getXmlFragment('default').toString().includes('Typed after the restore'), "the wiki's later text stays")
+    assert.match((await restore(c.callId)).body.note, /put back already/)
+  })
+
+  test("an upsert's pre-image holds only the fields it wrote: a field a person changed since is neither named nor put back", async () => {
+    const out = await call(writer, 'one_upsert_rows', { databaseId: 'db-keyed', keyProperty: 'Ticket', rows: [{ key: 'K-3', properties: { Owner: 'Mirror' } }] })
+    assert.equal(out.rows[0].action, 'updated')
+    await waitFor(() => props('tk-3').get('k-owner') === 'Mirror', 5000, 'owner written')
+    meta.doc.transact(() => {
+      props('tk-3').set('k-note', 'Mara wrote this later')
+      yp('tk-3').set('title', 'Ticket 3 (renamed by Mara)')
+    })
+    await flushed(meta)
+    const c = (await calls()).find((x) => x.tool === 'one_upsert_rows')!
+    const res = await restore(c.callId)
+    assert.equal(res.status, 200, JSON.stringify(res.body))
+    assert.deepEqual(res.body.kept, [])
+    await waitFor(() => props('tk-3').get('k-owner') === undefined, 5000, 'owner back')
+    const forced = await restore(c.callId, true)
+    assert.equal(forced.status, 200)
+    await sleep(200)
+    assert.equal(props('tk-3').get('k-note'), 'Mara wrote this later')
+    assert.equal(yp('tk-3').get('title'), 'Ticket 3 (renamed by Mara)')
+  })
+})
+
+/* ------------------------------------------------------------------ upsert: all or nothing (in process) */
+
+describe('one_upsert_rows is all or nothing: a step that fails takes the values AND the bodies back', () => {
+  test('the second body cannot be written → the first body, the changed value and the new row are taken back; no pre-image kept', async () => {
+    const docs = new Map<string, Y.Doc>()
+    const get = (name: string) => docs.get(name) ?? (docs.set(name, new Y.Doc()), docs.get(name)!)
+    const ws = 'w1'
+    const s = {
+      log: { info() {}, warn() {}, error() {}, debug() {} },
+      config: { publicUrl: 'https://one.test' },
+      repo: { members: () => [], file: () => undefined },
+      collab: {
+        write: async <T>(name: string, fn: (doc: Y.Doc) => T): Promise<T> => {
+          if (name === contentDoc(ws, 'tk-2')) throw new Error('disk full')
+          const d = get(name)
+          let out!: T
+          d.transact(() => {
+            out = fn(d)
+          })
+          return out
+        },
+        read: async <T>(name: string, fn: (doc: Y.Doc) => T): Promise<T> => fn(get(name)),
+      },
+    } as unknown as Services
+    const { WorkspaceModel: Model } = await import('../src/api/model.ts')
+    const model = new Model(s)
+    const m = get(metaDoc(ws))
+    addDatabase(m, 'db-keyed', 'Tickets', [{ id: 'k-title', name: 'Name', type: 'title' }, { id: 'k-key', name: 'Ticket', type: 'text', key: true }, { id: 'k-owner', name: 'Owner', type: 'text' }])
+    m.transact(() => {
+      for (let i = 1; i <= 2; i++) m.getMap('pages').set(`tk-${i}`, pageEntry({ title: `Ticket ${i}`, parentId: 'db-keyed', databaseId: 'db-keyed', order: i }, { 'k-key': `K-${i}` }))
+    })
+    const recorded: unknown[] = []
+    const rec: Recorder = { callId: 'c1', rows: (p) => void recorded.push(['rows', p]), pages: (p) => void recorded.push(['pages', p]), content: (id) => void recorded.push(['content', id]) }
+    const batch = new McpBatch(s, model, new McpWrites(s, model))
+    await assert.rejects(
+      () => batch.upsertRows(ws, { databaseId: 'db-keyed', keyProperty: 'Ticket', rows: [{ key: 'K-1', properties: { Owner: 'Mirror' }, markdown: 'Mirror body for ticket 1.' }, { key: 'K-2', markdown: 'Mirror body for ticket 2.' }, { key: 'K-NEW', title: 'Brand new' }] }, 'api:t1', rec),
+      /disk full/,
+    )
+    const tk1 = m.getMap('pages').get('tk-1') as Y.Map<unknown>
+    assert.ok(!get(contentDoc(ws, 'tk-1')).getXmlFragment('default').toString().includes('Mirror body'), 'the first body is taken back')
+    assert.doesNotMatch(String(tk1.get('plain') ?? ''), /Mirror/)
+    assert.equal((tk1.get('properties') as Y.Map<unknown>).get('k-owner'), undefined, 'the changed value is back')
+    const fresh = [...m.getMap('pages').entries()].filter(([, p]) => (p as Y.Map<unknown>).get('title') === 'Brand new')
+    assert.equal(fresh.length, 1)
+    assert.equal((fresh[0]![1] as Y.Map<unknown>).get('trashed'), true, 'the new row goes to the trash')
+    assert.deepEqual(recorded, [], 'a call taken back keeps no pre-image')
+  })
+})

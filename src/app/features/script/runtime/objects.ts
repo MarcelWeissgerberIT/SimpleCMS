@@ -184,10 +184,11 @@ export class PageObj extends HostObject {
         return p.kind === 'database' ? 'database' : p.databaseId ? 'row' : 'page'
       case 'icon':
         return p.icon?.type === 'emoji' ? p.icon.value : p.icon ? `${p.icon.type}:${p.icon.value}` : null
+      // a caller's limit first (MCP: only the blocks the person's context marks let through)
       case 'markdown':
-        return p.content ? docToMarkdown(stripPrivate(p.content)).trim() : ''
+        return this.host.limitedText(this.id)?.markdown ?? (p.content ? docToMarkdown(stripPrivate(p.content)).trim() : '')
       case 'text':
-        return p.plain ?? ''
+        return this.host.limitedText(this.id)?.plain ?? p.plain ?? ''
       case 'props': {
         const db = this.db
         const rec = new SRecord()

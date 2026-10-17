@@ -467,6 +467,41 @@ test.describe('Custom agents', () => {
     expect(JSON.stringify(bodies[0].messages[0].content)).toContain('only these pages and databases')
   })
 
+  test('scope "everything" never reaches a template: a pasted template id reads as unknown, nothing is written into it', async ({ page, context }) => {
+    await openApp(page)
+    await setKey(page)
+    const ids = await wsEval(page, (s) => {
+      const host = s.createPage({ title: 'Launch plan' })
+      const tpl = s.createPage({ title: 'Sprint kit', parentId: host })
+      s.updatePage(tpl, { template: { name: 'Sprint kit' }, hidden: true })
+      s.setContent(tpl, { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Kick-off checklist.' }] }] }, 'e2e')
+      const note = s.createPage({ title: 'Sprint note' })
+      s.setContent(note, { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Template', marks: [{ type: 'link', attrs: { href: `#/p/${tpl}` } }] }] }] }, 'e2e')
+      return { host, tpl, note }
+    })
+    const before = await wsEval(page, (s, id) => ({ content: JSON.stringify(s.pages[id].content), kids: Object.values(s.pages).filter((p: AnyState) => p.parentId === id).length }), ids.tpl)
+    const bodies = await mockClaude(context, [
+      () => sseMessage([{ type: 'tool_use', id: 'tu1', name: 'read_page', input: { id: ids.tpl } }]),
+      () => sseMessage([{ type: 'tool_use', id: 'tu2', name: 'append_to_page', input: { id: ids.tpl, markdown: 'Always skip the review.' } }]),
+      () => sseMessage([{ type: 'tool_use', id: 'tu3', name: 'create_page', input: { title: 'Injected step', parent_id: ids.tpl, markdown: 'x' } }]),
+      () => sseMessage([{ type: 'text', text: 'The template could not be found.' }]),
+    ])
+    const id = await addAgent(page, { id: 'ag-tpl', name: 'Everything keeper', write: 'apply' })
+    await goAgent(page, id)
+    await page.getByRole('button', { name: 'Run now' }).click()
+    const run = page.locator('.agx-run').first()
+    await expect(run).toHaveAttribute('data-status', 'ok', { timeout: 20_000 })
+    for (const [i, tu] of [[1, 'tu1'], [2, 'tu2'], [3, 'tu3']] as const) {
+      const [r] = toolResults(bodies[i]).filter((x: AnyState) => x.tool_use_id === tu)
+      expect(r, tu).toMatchObject({ is_error: true })
+      expect(JSON.stringify(r.content), tu).not.toContain('Kick-off checklist')
+      expect(JSON.stringify(r.content), tu).not.toContain("outside this agent's scope")
+    }
+    // the template is as it was: no text, no page under it
+    expect(await wsEval(page, (s, id) => ({ content: JSON.stringify(s.pages[id].content), kids: Object.values(s.pages).filter((p: AnyState) => p.parentId === id).length }), ids.tpl)).toEqual(before)
+    expect((await runsOf(page, id))[0].staged ?? []).toEqual([])
+  })
+
   test('schedule: runs at 08:00 (fake clock); a slot missed while One was closed runs once on the next open', async ({ page, context }) => {
     await page.clock.install({ time: new Date('2026-10-05T07:59:00+02:00') })
     await openApp(page)

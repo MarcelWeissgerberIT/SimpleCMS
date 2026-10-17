@@ -213,6 +213,29 @@ export const MCP_JOIN_ONLY_TOOLS: readonly string[] = ['one_upsert_rows']
 export const MCP_CONTRACT_REV = 2
 
 /**
+ * The schema one_create_database makes when the call names no properties, and the options of a status property made
+ * without any (create_database, create_property, a board's added Status) — the same English words on the local bridge
+ * and the team server, in every workspace language: a call that follows the tool's description fits both sides. The
+ * answer's `properties` names what was made.
+ */
+export const MCP_DEFAULT_PROPERTIES = [
+  { name: 'Name', type: 'title' },
+  { name: 'Status', type: 'status' },
+  { name: 'Tags', type: 'multi_select' },
+  { name: 'Date', type: 'date' },
+] as const
+export const MCP_DEFAULT_STATUS = [
+  { name: 'Not started', color: 'gray', group: 'todo' },
+  { name: 'In progress', color: 'blue', group: 'in_progress' },
+  { name: 'Done', color: 'green', group: 'done' },
+] as const
+/**
+ * What the team server lists in /api/config `supports` while it serves this contract (T-a). The app reads it before it
+ * shows what only such a server does (Workspace → Automation → API: Recent MCP writes, a token's Comments).
+ */
+export const MCP_SERVER_SUPPORTS = `mcp:${MCP_CONTRACT_REV}`
+
+/**
  * The arguments every tool took in contract 1 (One before T-a), frozen — never edited: a tab that announces no `tools`
  * in its hello is judged against this, so a newer argument sent to an older tab is refused (`app_outdated`) instead of
  * being dropped silently (`one_create_page { private: true }` would otherwise make a shared page). `workspace` is the

@@ -18,6 +18,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js'
 import { MCP_INSTRUCTIONS, MCP_PROMPT, MCP_TOOLS, mcpPromptText, type McpToolDef, type McpToolName } from '../../src/shared/mcp/contract.ts'
 import type { Bridge } from './bridge.ts'
+import { mcpError } from '../../src/shared/mcp/errors.ts'
 
 /** How often a call waiting for approval reports progress (clients that reset timeouts on it keep waiting). */
 const PROGRESS_MS = 10_000
@@ -64,7 +65,7 @@ export function createMcpServer(bridge: Bridge, version: string): McpServer {
   server.setRequestHandler(CallToolRequestSchema, async (req, extra): Promise<CallToolResult> => {
     const name = req.params.name
     const def = MCP_TOOLS.find((t) => t.name === name)
-    if (!def) return text(`Unknown tool ${JSON.stringify(name)}. Tools: ${MCP_TOOLS.map((t) => t.name).join(', ')}.`, true)
+    if (!def) return text(mcpError('bad_argument', '', `Unknown tool ${JSON.stringify(name)}`, `Tools: ${MCP_TOOLS.map((t) => t.name).join(', ')}.`), true)
     const args = req.params.arguments && typeof req.params.arguments === 'object' ? (req.params.arguments as Record<string, unknown>) : {}
     const token = req.params._meta?.progressToken
     let ticker: ReturnType<typeof setInterval> | null = null

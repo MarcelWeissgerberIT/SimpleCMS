@@ -16,6 +16,8 @@ import { MCP_LIMITS, MCP_PAGE_KINDS } from '../../../shared/mcp/tables'
 import {
   blockPieces,
   markdownUnits,
+  wholeMarkdown,
+  type MdUnit,
   PIECE_ROOM,
   readBlocks,
   readPart,
@@ -302,7 +304,16 @@ function readableTop(p: Page, top: PMJson[]): Set<number> | null {
   return keep
 }
 
-export async function getPage(args: Record<string, unknown>): Promise<Record<string, unknown>> {
+/** What a bridge older than parts gets (contract 1): the whole Markdown up to this many characters, then "[Truncated …]". */
+export const LEGACY_MARKDOWN_MAX = 60_000
+
+/**
+ * one_get_page. `whole`: for a bridge older than MCP_BRIDGE_CURRENT (spec § 4.4) — its schema knows no cursor and its
+ * description no parts, so it gets contract 1's answer: the whole Markdown up to LEGACY_MARKDOWN_MAX characters, cut with
+ * a "[Truncated: …]" line and `truncated: true`, never a first part that reads like the whole page.
+ */
+export async function getPage(args: Record<string, unknown>, opts: { whole?: boolean } = {}): Promise<Record<string, unknown>> {
+  if (opts.whole) args = { ...(args.id !== undefined ? { id: args.id } : {}), ...(args.title !== undefined ? { title: args.title } : {}) }
   const format = args.format === undefined || args.format === null || args.format === '' ? 'markdown' : args.format
   if (format !== 'markdown' && format !== 'blocks') throw new McpToolError(mcpError('bad_argument', 'format', '"format" is "markdown" or "blocks"'))
   const refs = flag(args.refs)
@@ -380,6 +391,11 @@ export async function getPage(args: Record<string, unknown>): Promise<Record<str
   }
 
   const units = format === 'blocks' ? blocks!.flatMap((b) => blockPieces(b, PIECE_ROOM)) : markdownUnits(kept, reader, refs ? index : null)
+  if (opts.whole) {
+    const md = wholeMarkdown(units as MdUnit[], reader)
+    const cut = md.length > LEGACY_MARKDOWN_MAX
+    return { ...head, markdown: cut ? `${md.slice(0, LEGACY_MARKDOWN_MAX)}\n[Truncated: ${LEGACY_MARKDOWN_MAX.toLocaleString('en')} of ${md.length.toLocaleString('en')} characters — the rest needs the updated One bridge]` : md, ...(cut ? { truncated: true } : {}) }
+  }
   const part = readPart({ head, id: now.id, rev, cursorRev: `${rev}${limitKey}`, print, cursor: args.cursor, format, units, reader })
   if (!part.ok) throw new McpToolError(mcpError(part.code, 'cursor', part.what))
   return part.result

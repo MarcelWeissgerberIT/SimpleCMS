@@ -115,7 +115,13 @@ touched, what a restore needs — the rows it made (with their values), each fie
 pages and databases it made, a content fragment before a replace or an appended link (a Y update of a detached copy)
 and `after_hash`, the content document's state vector right after the call (a restore refuses `changed_since` when it
 moved). `sealed` is AES-256-GCM with the workspace's key (AAD `mcp-preimage\n<workspace>\n<id>`); kept 14 days
-(housekeeping's `purgeExpired`), `ON DELETE CASCADE` from `workspaces`. REST API writes keep none.
+(housekeeping's `purgeExpired`), `ON DELETE CASCADE` from `workspaces`. REST API writes keep none. A made page or
+row carries the state hash of its content document right after the call (`hash`): a restore trashes it only while
+that hash, its title, its values and the pages below it are as the call left them — else it is kept and named. Each
+part is restored once: a restore that kept something stores (sealed again) which of its things went back (`done`) and
+sets `restored_at` only when the whole part went back; a content part is marked restored as soon as its text is
+written back, so a retry never compares against its own write. A call counts as restored (`mcp-calls.restoredAt`)
+when every part is.
 
 Migration v11: an API token's `mcp_comments` — what its MCP client gets from `one_get_page { comments: true }`
 (`off` by default; a `read` token is never `write`), chosen when the token is created.

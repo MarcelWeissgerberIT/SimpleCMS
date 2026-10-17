@@ -86,25 +86,39 @@ export interface SideEffects {
 export const rowNo = (i: number): string => String(i + 1).padStart(2, '0')
 
 /**
- * The autofill properties that fill by themselves, the automations and the row-triggered agents a batch of `rows`
- * new (`created`) or changed rows (`changed`: the property ids it writes — a rename names the title property) of a
- * database sets off. Whether the call is always asked is decided over the whole call (sideHold).
+ * What a part of a call does to `rows` rows of a database: new rows (`created`), changed ones (`props`: the property ids
+ * it writes — a rename names the title property), rows going to the trash (`deleted`: one_trash_page), or rows losing
+ * the values of a property that goes (`dropped`: one_delete_property — no automation or agent sees a property that is gone,
+ * an auto-filled property's inputs change all the same).
  */
-export function sideEffects(db: Database, rows: number, change: { created: boolean; props: ReadonlySet<ID> }): SideEffects {
+export interface RowChange {
+  created?: boolean
+  deleted?: boolean
+  dropped?: boolean
+  props: ReadonlySet<ID>
+}
+
+/**
+ * The autofill properties that fill by themselves, the automations and the row-triggered agents a part of a call sets
+ * off in a database (RowChange). Whether the call is always asked is decided over the whole call (sideHold).
+ */
+export function sideEffects(db: Database, rows: number, change: RowChange): SideEffects {
   if (!rows) return { lines: [], heavy: 0 }
-  const touches = (propId: ID | null | undefined) => !propId || change.created || change.props.has(propId)
+  const created = !!change.created
+  const deleted = !!change.deleted
+  const touches = (propId: ID | null | undefined) => created || (!deleted && !change.dropped && (!propId || change.props.has(propId)))
   const parts: string[] = []
   let paid = false
   let out = false
   // autofill "update automatically": every new or changed row is filled again (a paid AI call per row and property)
-  const fills = db.properties.filter((p) => autofillOf(p)?.auto)
+  const fills = deleted ? [] : db.properties.filter((p) => autofillOf(p)?.auto)
   if (fills.length) {
     paid = true
     parts.push(t(rows === 1 ? 'features.mcp.plan.startsAutofill.one' : 'features.mcp.plan.startsAutofill.other', { n: chars(rows), props: fills.map((p) => p.name).join(', ') }))
   }
   for (const a of db.automations ?? []) {
     if (!a.enabled) continue
-    const fires = a.trigger.type === 'row_created' ? change.created : a.trigger.type === 'property_changed' ? touches(a.trigger.propertyId) : false
+    const fires = a.trigger.type === 'row_created' ? created : a.trigger.type === 'row_deleted' ? deleted : a.trigger.type === 'property_changed' ? touches(a.trigger.propertyId) : false
     if (!fires) continue
     if (a.actions.some((x) => x.type === 'webhook' || x.type === 'run_script')) out = true
     parts.push(t('features.mcp.plan.startsAutomation', { name: a.name || t('common.untitled') }))
@@ -112,7 +126,7 @@ export function sideEffects(db: Database, rows: number, change: { created: boole
   for (const agent of Object.values(ws().agents ?? {})) {
     if (!agent.enabled) continue
     const tr = agent.trigger
-    const fires = tr.type === 'row_created' ? tr.databaseId === db.id && change.created : tr.type === 'row_changed' ? tr.databaseId === db.id && touches(tr.propertyId) : false
+    const fires = tr.type === 'row_created' ? tr.databaseId === db.id && created : tr.type === 'row_changed' ? tr.databaseId === db.id && touches(tr.propertyId) : false
     if (!fires) continue
     paid = true
     parts.push(t('features.mcp.plan.startsAgent', { name: agent.name || t('common.untitled') }))
@@ -167,12 +181,19 @@ function checkBatchText(texts: string[]): void {
   if (total > MCP_LIMITS.pagesChars) throw new McpToolError(mcpError('too_large', 'rows', `the rows hold ${total.toLocaleString('en')} characters of Markdown in all (at most ${MCP_LIMITS.pagesChars.toLocaleString('en')})`))
 }
 
-/** A row's facts on the card of a batch: its first values. */
-const rowFacts = (props: PropChange[] | undefined) =>
+/**
+ * A row's facts on the card of a batch: EVERY value it writes (the line wraps inside the card's scroll area — the person
+ * approves only what they saw), without `skip` (the key an upsert line names already).
+ */
+export const rowFacts = (props: PropChange[] | undefined, skip?: string) =>
   (props ?? [])
-    .slice(0, 3)
+    .filter((p) => p.name !== skip)
     .map((p) => `${p.name}: ${p.after || '—'}`)
     .join(' · ')
+
+/** The text a batch entry writes into its page, under its line: how long it is and its first lines. */
+export const bodyLine = (title: string, markdown: string | undefined): PlanLine[] =>
+  markdown?.trim() ? [{ k: 'md', label: t('features.mcp.plan.contentOf', { title: title || t('common.untitled'), n: chars(markdown.trim().length) }), value: preview(markdown) }] : []
 
 /* ------------------------------------------------------------------ */
 /* one_create_row                                                      */
@@ -214,7 +235,10 @@ export function planCreateRow(args: Record<string, unknown>): WritePlan {
   } else {
     lines.push({ k: 'fact', label: t('features.mcp.plan.in'), value: dbName })
     // the number is the label, the title starts the value: a long title wraps there instead of being cut
-    rows.forEach((c, i) => lines.push({ k: 'fact', label: rowNo(i), value: [c.title ?? '', rowFacts(c.props)].filter(Boolean).join(' — ') || '—' }))
+    rows.forEach((c, i) => {
+      lines.push({ k: 'fact', label: rowNo(i), value: [c.title ?? '', rowFacts(c.props)].filter(Boolean).join(' — ') || '—' })
+      lines.push(...bodyLine(c.title ?? '', c.markdown))
+    })
     const fresh = [...new Set(rows.flatMap((c) => (c.props ?? []).flatMap((p) => (p.newOptions ?? []).map((o) => `${p.name}: ${o}`))))]
     if (fresh.length) lines.push({ k: 'fact', label: t('features.mcp.plan.newOptions'), value: fresh.join(', ') })
   }
@@ -424,10 +448,29 @@ export function planUpsertRows(args: Record<string, unknown>): WritePlan {
     { k: 'fact', label: t('features.mcp.plan.key'), value: staged.keyName },
     { k: 'fact', label: t('features.mcp.plan.upsertCounts'), value: t('features.mcp.plan.upsertN', { created: chars(n.created), updated: chars(n.updated), same: chars(n.same) }) },
   ]
+  // a line per row that changes, as the other batches show them: the key in the label, then the title and every value
+  // (a new row) or "old → new" for its title and each value (a changed one); the text it gets below the line
   const shown = staged.results.filter((r) => r.action !== 'unchanged')
   for (const r of shown) {
-    const c = stage.changes.find((x) => x.pageId === r.id && (x.kind === 'create_row' || x.kind === 'update_row'))
-    lines.push({ k: 'fact', label: `${t(`features.mcp.plan.upsert.${r.action}`)} · ${r.key}`, value: rowFacts(c?.props) || (r.action === 'updated' ? t('features.mcp.plan.renamed') : '—') })
+    const label = `${t(`features.mcp.plan.upsert.${r.action}`)} · ${r.key}`
+    const mine = stage.changes.filter((x) => x.pageId === r.id)
+    const made = mine.find((x) => x.kind === 'create_row')
+    if (made) {
+      lines.push({ k: 'fact', label, entry: true, value: [made.title ?? '', rowFacts(made.props, staged.keyName)].filter(Boolean).join(' — ') || '—' })
+      lines.push(...bodyLine(made.title ?? '', made.markdown))
+      continue
+    }
+    const now = titleOf(live(r.id ?? '') ?? undefined)
+    const renamed = mine.find((x) => x.kind === 'rename')
+    const values = mine.find((x) => x.kind === 'update_row')
+    const text = mine.find((x) => x.kind === 'append')
+    const head = renamed ? `${renamed.beforeTitle || now} → ${renamed.title ?? ''}` : now
+    const what = (values?.props ?? [])
+      .filter((p) => p.name !== staged.keyName)
+      .map((p) => `${p.name}: ${p.before || '—'} → ${p.after || '—'}`)
+      .join(' · ')
+    lines.push({ k: 'fact', label, entry: true, value: [head, what].filter(Boolean).join(' — ') })
+    lines.push(...bodyLine(renamed?.title ?? now, text?.markdown))
   }
   const created = stage.changes.filter((c) => c.kind === 'create_row').length
   const updatedProps = new Set(stage.changes.filter((c) => c.kind === 'update_row').flatMap((c) => (c.props ?? []).map((p) => p.propId)))

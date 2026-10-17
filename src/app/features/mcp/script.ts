@@ -7,6 +7,8 @@
  *    asked — also in "Apply directly" (`alwaysAsk`). Approved, it runs with the app's dialogs; the list the
  *    card showed is not asked again (a web request or anything the dry run did not show still is).
  *    dryRun: true answers the dry run without asking. A saved query runs read-only, without asking.
+ *  Both: a page's `.markdown` / `.text` give only what the person's context marks let through (limits.ts mcpPageText);
+ *  a run never writes into One's own databases (system_database — its dry run stops there, so nothing runs).
  */
 import { t } from '../../i18n'
 import { appRunUI, findScript, preApprovedUI, plannedItems, runQueryForTool, runReport, runScript, runScriptById, silentRunUI, undoRun, type RunResult } from '../script'
@@ -14,6 +16,8 @@ import { MCP_QUERY_ROWS } from './contract'
 import { chars, str, type PlanLine, type WritePlan } from './plan'
 import { live, McpToolError, q, titleOf, ws } from './values'
 import { formatWriterKey } from '../../store/writer'
+import { mcpPageText } from './limits'
+import { systemOf, systemRefusal, type SystemHit } from './system'
 
 /* ------------------------------------------------------------------ one_run_query */
 
@@ -21,7 +25,8 @@ export async function runQuery(args: Record<string, unknown>): Promise<Record<st
   const code = str(args.code, 'code', { required: true, max: 20_000 })
   const limit = args.limit === undefined || args.limit === null ? MCP_QUERY_ROWS : Number(args.limit)
   if (!Number.isFinite(limit)) throw new McpToolError('"limit" must be a number.')
-  const out = await runQueryForTool(code, { maxRows: Math.max(1, Math.min(MCP_QUERY_ROWS, Math.floor(limit))) })
+  // a page's .markdown / .text give only what the person's context marks let through (as one_get_page / one_search)
+  const out = await runQueryForTool(code, { maxRows: Math.max(1, Math.min(MCP_QUERY_ROWS, Math.floor(limit))), textLimit: mcpPageText })
   if (!out.ok) throw new McpToolError(`${out.error} Nothing was changed.`)
   const { ok: _ok, ...answer } = out
   return answer
@@ -58,6 +63,32 @@ function dryLines(r: RunResult): PlanLine[] {
 }
 
 /**
+ * One's own databases are read-only over MCP (spec § 3.1 / § 3.3): a run started over MCP — its dry run, check pass and
+ * run — asks this rule before every write (RunOptions.writeGuard), so it stops before writing into the Coding / spec / QA
+ * pipelines, the test cases, the memory and its log, Mails or the mail directories (a row, a page below a row, a new
+ * row, the trash, a two-way partner's rows). `hit` keeps the first refusal for the MCP error.
+ */
+function systemWrites(): { guard: (t: { pageId?: string | null; dbId?: string | null; parentId?: string | null }) => string | null; hit: () => SystemHit | null } {
+  let first: SystemHit | null = null
+  return {
+    guard(t) {
+      for (const id of [t.pageId, t.dbId, t.parentId]) {
+        const hit = systemOf(id)
+        if (hit) {
+          first ??= hit
+          return hit.title
+        }
+      }
+      return null
+    },
+    hit: () => first,
+  }
+}
+
+/** The system_database refusal of a run the rule stopped. */
+const scriptRefusal = (hit: SystemHit, name: string) => systemRefusal(hit, 'script', `the script ${q(name)} writes there`)
+
+/**
  * Plan a run of a saved script: a dry run first. Errors of the dry run (and a script that is gone) are
  * the agent's to fix; a saved query or dryRun: true answer at once (noop — nothing to approve).
  */
@@ -75,13 +106,17 @@ export async function planRunScript(args: Record<string, unknown>): Promise<Writ
 
   // a saved query only reads: its answer, nothing to approve
   if (script.kind === 'query') {
-    const out = await runQueryForTool(script.code, { contextPageId, maxRows: MCP_QUERY_ROWS })
+    const out = await runQueryForTool(script.code, { contextPageId, maxRows: MCP_QUERY_ROWS, textLimit: mcpPageText })
     if (!out.ok) throw new McpToolError(`${out.error} Nothing was changed.`)
     const { ok: _ok, ...answer } = out
     return { ...base, summary: script.name, lines: [], noop: { script: scriptInfo, query: true, ...answer }, apply: async () => ({ result: null }) }
   }
 
-  const dry = await runScript({ code: script.code, mode: 'dry', scriptId: script.id, name: script.name, contextPageId, ui: silentRunUI, record: false })
+  const sys = systemWrites()
+  const dry = await runScript({ code: script.code, mode: 'dry', scriptId: script.id, name: script.name, contextPageId, ui: silentRunUI, record: false, writeGuard: sys.guard, textLimit: mcpPageText })
+  // a write into One's own databases: refused before anything ran (the dry run stopped at it)
+  const refused = sys.hit()
+  if (refused) throw new McpToolError(scriptRefusal(refused, script.name))
   if (dry.status !== 'ok') {
     const report = await runReport(dry, 'dry')
     throw new McpToolError(`The dry run of ${q(script.name)} failed: ${String(report.error ?? dry.status)}. Nothing was changed.`)
@@ -101,9 +136,17 @@ export async function planRunScript(args: Record<string, unknown>): Promise<Writ
         throw new McpToolError(`The script ${q(script.name)} was changed after its dry run. Nothing was changed — call one_run_script again to show the person the new plan.`)
       // the approval toast ("Done: …" with Undo) tells the person; the script's own toast would repeat it
       // a script run started by this MCP call (store/writer.ts: script:<id>:<run> with the call as its cause)
-      const r = await runScriptById(script.id, { mode: 'run', contextPageId, ui: preApprovedUI(appRunUI, approved), notify: false, writer: { via: formatWriterKey(writer) } })
+      // the same rule on the run: a run that takes another path than its dry run stops before writing there
+      const guard = systemWrites()
+      const r = await runScriptById(script.id, { mode: 'run', contextPageId, ui: preApprovedUI(appRunUI, approved), notify: false, writer: { via: formatWriterKey(writer) }, writeGuard: guard.guard, textLimit: mcpPageText })
       if (!r) throw new McpToolError(`${q(script.name)} is already running in One. Nothing was changed — try again when it is done.`)
       const report = await runReport(r, 'run')
+      const stopped = guard.hit()
+      if (stopped) {
+        const made = r.changes.filter((c) => !c.skipped).length
+        const msg = scriptRefusal(stopped, script.name)
+        throw new McpToolError(made ? msg.replace('Nothing was changed.', `The run stopped there; the ${made} change(s) it made before stay — the person can undo the run in One (Scripts → run log).`) : msg)
+      }
       if (r.status === 'cancelled') throw new McpToolError(`The person cancelled the run of ${q(script.name)} in One. Nothing was changed. Do not retry it; ask them instead.`)
       const done = r.changes.filter((c) => !c.skipped).length
       if (r.status !== 'ok')

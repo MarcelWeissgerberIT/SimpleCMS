@@ -47,6 +47,8 @@ export type ScriptErrorCode =
   | 'bad_value'
   | 'unknown_prop'
   | 'no_write'
+  // a caller's rule refused the write (MCP: One's own databases are read-only)
+  | 'system_db'
   | 'no_effect'
   | 'refused'
   | 'effect_failed'
@@ -114,6 +116,7 @@ export const ERROR_TEXT_EN: Record<ScriptErrorCode, string> = {
   bad_value: '{name}: {detail}',
   unknown_prop: '{db} has no property {name}.',
   no_write: 'You can view this workspace but not change it.',
+  system_db: '“{name}” is One\'s own database: a run started over MCP cannot change it (nothing of this write happened).',
   no_effect: 'The effect {name} is not available.',
   refused: '{name} was not allowed in this run.',
   effect_failed: '{name} failed: {detail}',

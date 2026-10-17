@@ -10,7 +10,7 @@
  * The one import beyond the tables is the One Script language reference (plain text, no imports of its own).
  */
 import { SCRIPT_REFERENCE } from '../../app/features/script/reference.ts'
-import { MCP_BRIDGE_CURRENT, MCP_BULK_MAX, MCP_CONTRACT_REV, MCP_FILTER_OPS, MCP_LIMITS, MCP_PAGE_KINDS, MCP_PROPERTY_TYPES, MCP_QUERY_ROWS, MCP_TYPE_CHANGES, MCP_VIEW_TYPES } from './tables.ts'
+import { MCP_BRIDGE_CURRENT, MCP_BULK_MAX, MCP_FILTER_OPS, MCP_LIMITS, MCP_PAGE_KINDS, MCP_PROPERTY_TYPES, MCP_QUERY_ROWS, MCP_TYPE_CHANGES, MCP_VIEW_TYPES } from './tables.ts'
 
 export * from './tables.ts'
 
@@ -49,8 +49,6 @@ export const MCP_ERR = {
 export const MCP_APPROVAL_MS = 120_000
 /** Every tool answers this while no One tab is connected. */
 export const MCP_NO_APP = 'Open One (https://getonecms.com/app/) and switch on Settings → Agents · MCP.'
-/** What the team server lists in /api/config `supports` while it serves this contract (T-a). */
-export const MCP_SERVER_SUPPORTS = `mcp:${MCP_CONTRACT_REV}`
 
 export type McpToolName =
   | 'one_overview'
@@ -256,7 +254,7 @@ const TOOLS: McpSharedToolDef[] = [
     title: 'Read a page',
     write: false,
     description:
-      'Read a page, row or database page by id (or exact title): title, icon, path, rev, class, a row\'s values, sub-pages, backlinks and the content — Markdown, or format "blocks": every block nested with its ref, type, Markdown and data (databases, files, sheets, charts, meetings …). Long pages come in parts: pass "next" as cursor (null = the end). refs: true labels each block ⟦#ref⟧ in the Markdown. A database\'s rows: one_query_database.',
+      'Read a page, row or database page by id (or exact title): title, icon, path, rev, class, a row\'s values, sub-pages, backlinks and the content — Markdown, or format "blocks": every block nested with its ref, type, Markdown and data (databases, files, sheets, charts, meetings …). Long pages come in parts: pass "next" as cursor (null = the end); join the parts\' Markdown with a blank line — after a part with continues: "line" with one line break, "text" directly (a block, or a line, cut there). refs: true labels each block ⟦#ref⟧ in the Markdown. A database\'s rows: one_query_database.',
     local: 'Mentions read [@Name](one:person/<id>) and [@date](one:date/YYYY-MM-DD), tasks "> [!TODO] Title {#wi_…}" with a field line — keep both when you write text back.',
     inputSchema: {
       type: 'object',
@@ -491,7 +489,7 @@ const TOOLS: McpSharedToolDef[] = [
     title: 'Create a database',
     write: true,
     description:
-      'Create a database — with views, rows and an icon in one call. parentId = a full-page database as a sub-page; inline = inside a page\'s text. It always has a title property ("Name" unless one of type "title" is given); without properties: Name, Status, Tags, Date. A board groups by "groupBy" or the first status / select / person / checkbox property (none: a Status property is added); a table view follows a board. Example: views: [{ type: "board", groupBy: "Status" }], properties: [{ name: "Status", type: "status", options: ["Todo", "Doing", "Done"] }], rows: [{ title: "Kick-off", properties: { Status: "Todo" } }] — give each row its lane: a row without a value waits in the board\'s "no value" lane.',
+      'Create a database — with views, rows and an icon in one call. parentId = a full-page database as a sub-page; inline = inside a page\'s text. It always has a title property ("Name" unless one of type "title" is given); without properties: Name, Status (Not started, In progress, Done), Tags, Date — these English names in every workspace language; the answer\'s "properties" lists the names and options made, use those for later calls. A board groups by "groupBy" or the first status / select / person / checkbox property (none: a Status property with those three options is added); a table view follows a board. Example: views: [{ type: "board", groupBy: "Status" }], properties: [{ name: "Status", type: "status", options: ["Todo", "Doing", "Done"] }], rows: [{ title: "Kick-off", properties: { Status: "Todo" } }] — give each row its lane: a row without a value waits in the board\'s "no value" lane.',
     inputSchema: {
       type: 'object',
       properties: {

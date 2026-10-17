@@ -14,7 +14,7 @@ import { useWorkspace } from '../../../store/store'
 import type { ID, Page, PropertyValue } from '../../../store/types'
 import { newId } from '../../../lib/ids'
 import { Interpreter, SDate, SRecord, ScriptError, inspect, parse, toPlain, type Limits, type Program, type Value } from '../lang'
-import { Host, SCRIPT_ORIGIN } from './host'
+import { Host, SCRIPT_ORIGIN, type WriteTarget } from './host'
 import { customFunction, globalsFor, objectFor, resolveRef } from './globals'
 import { makers, reachable } from './objects'
 import { readProp } from './props'
@@ -52,6 +52,14 @@ export interface RunOptions {
   table?: boolean
   /** only these pages are reachable (a custom agent's scope); absent = every live page outside templates */
   scope?: ((id: ID) => boolean) | null
+  /**
+   * A caller's rule for what this run may change (MCP: One's own databases are read-only over MCP): asked before every
+   * write — in a dry run and the check pass too, so the dry run already stops there. A name = refused (error
+   * 'system_db', nothing of that write happens); null = allowed.
+   */
+  writeGuard?: ((target: WriteTarget) => string | null) | null
+  /** What the run may read of a page's text (`.markdown` / `.text`; MCP: the person's context marks) — null = all of it. */
+  textLimit?: ((id: ID) => { markdown: string; plain: string } | null) | null
   /**
    * Extra names the code sees (features/kit: `value`, `old`, `row` of an own property type's scripts):
    * a page / row object, a stored value of a row's property read like `row.<Prop>`, or plain JSON.
@@ -139,7 +147,7 @@ interface PassResult {
 
 async function pass(runId: string, program: Program, code: string, mode: RunMode, o: RunOptions, ui: RunUI, signal: AbortSignal, approved: { keys: Set<string>; labels: Map<string, string> } | null, onLog?: (l: LogLine) => void): Promise<PassResult> {
   const lang = useWorkspace.getState().settings.language === 'de' ? 'de' : 'en'
-  const host = new Host({ runId, mode, scriptId: o.scriptId ?? null, scriptName: o.name ?? '', contextPageId: o.contextPageId ?? null, ui, signal, lang, onLog, approved, scope: o.scope ?? null, writer: scriptWriter(o, runId) })
+  const host = new Host({ runId, mode, scriptId: o.scriptId ?? null, scriptName: o.name ?? '', contextPageId: o.contextPageId ?? null, ui, signal, lang, onLog, approved, scope: o.scope ?? null, writeGuard: o.writeGuard ?? null, textLimit: o.textLimit ?? null, writer: scriptWriter(o, runId) })
   const interp = new Interpreter({
     globals: { ...globalsFor(host), ...varsFor(host, o.vars) },
     fallback: customFunction,

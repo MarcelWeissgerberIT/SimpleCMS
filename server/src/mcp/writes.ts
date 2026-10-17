@@ -14,7 +14,7 @@ import { checkKey, handOnlyMessage, isHandOnly } from '../api/keys.ts'
 import { schemaOut, type ValueContext } from '../api/values.ts'
 import { newId } from '../tokens.ts'
 import { assertNotSystem, PARTNER_SYSTEM, TWO_WAY_SYSTEM } from './system.ts'
-import { MCP_LIMITS, MCP_PLAIN_MARKS, MCP_PLAIN_NODES, MCP_PROPERTY_TYPES } from '../../../src/shared/mcp/tables.ts'
+import { MCP_DEFAULT_PROPERTIES, MCP_DEFAULT_STATUS, MCP_LIMITS, MCP_PLAIN_MARKS, MCP_PLAIN_NODES, MCP_PROPERTY_TYPES } from '../../../src/shared/mcp/tables.ts'
 
 /** Property types an agent may add (the shared table: formula, rollup and button need settings the tools don't take). */
 export const CREATABLE_TYPES = MCP_PROPERTY_TYPES
@@ -89,13 +89,8 @@ export function iconIn(raw: string | null | undefined): unknown {
 function options(type: string, input: OptionInput[] | undefined): Option[] | undefined {
   if (type !== 'select' && type !== 'multi_select' && type !== 'status') return undefined
   if (!input?.length) {
-    return type === 'status'
-      ? [
-          { id: newId(), name: 'Not started', color: 'gray', group: 'todo' },
-          { id: newId(), name: 'In progress', color: 'blue', group: 'in_progress' },
-          { id: newId(), name: 'Done', color: 'green', group: 'done' },
-        ]
-      : []
+    // the contract's default status options (the local bridge makes the same — shared/mcp/tables.ts)
+    return type === 'status' ? MCP_DEFAULT_STATUS.map((o) => ({ id: newId(), ...o })) : []
   }
   const seen = new Set<string>()
   return input.map((o, i) => {
@@ -398,12 +393,7 @@ export class McpWrites {
     if ((input.properties?.length ?? 0) > MAX_DB_PROPERTIES) throw unprocessable('invalid_property', `At most ${MAX_DB_PROPERTIES} properties in one call (got ${input.properties!.length}).`)
     const specs: PropertyInput[] = input.properties?.length
       ? input.properties
-      : [
-          { name: 'Name', type: 'title' },
-          { name: 'Status', type: 'status' },
-          { name: 'Tags', type: 'multi_select' },
-          { name: 'Date', type: 'date' },
-        ]
+      : MCP_DEFAULT_PROPERTIES.map((p) => ({ name: p.name, type: p.type }))
     const titles = specs.filter((p) => p.type === 'title')
     if (titles.length > 1) throw unprocessable('invalid_property', 'A database has one title property')
     const names = new Set<string>()

@@ -29,7 +29,13 @@ const MAX_BACKLINKS = 50
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 
 /** An MCP refusal in the contract's shape (src/shared/mcp/errors.ts) as the API error the tools explain. */
-const refuse = (code: Parameters<typeof mcpError>[0], path: string, what: string) => new ApiError(code === 'not_found' ? 404 : 422, code, mcpError(code, path, what))
+const refuse = (code: Parameters<typeof mcpError>[0], path: string, what: string, next?: string) => new ApiError(code === 'not_found' ? 404 : 422, code, mcpError(code, path, what, next))
+
+/**
+ * The team server's next step for comments_off: the flag belongs to the token and is set when it is made (the shared
+ * remedy names the local bridge's device switch, which does nothing for a team token).
+ */
+export const COMMENTS_OFF_NEXT = 'An admin makes a token with comments on (Workspace → Automation → API, Comments: Read) and the person connects with that one; do not retry.'
 
 /** The page's data class for the agent (spec § 3.5): mail, memory, rows or page (the server never reads private pages). */
 function classOf(r: Roots, id: string): string {
@@ -246,7 +252,7 @@ export class McpReads {
    */
   async getPage(wsId: string, input: { id?: string; title?: string; format?: 'markdown' | 'blocks'; refs?: boolean; cursor?: string; comments?: boolean; transcript?: boolean }, opts: { comments: ApiComments }) {
     const format = input.format ?? 'markdown'
-    if (input.comments && opts.comments === 'off') throw refuse('comments_off', 'comments', 'Comments over MCP are off for this token (an admin sets it when creating the token)')
+    if (input.comments && opts.comments === 'off') throw refuse('comments_off', 'comments', 'Comments over MCP are off for this token (the flag is set when a token is made and stays as it is)', COMMENTS_OFF_NEXT)
     const pageId = await this.model.read(wsId, (r) => this.resolvePage(r, input).page.id)
     const content = await this.s.collab.read(contentDoc(wsId, pageId), (doc) => ({ doc: docJson(doc), rev: contentRev(doc) }))
     const built = await this.model.read(wsId, (r) => {

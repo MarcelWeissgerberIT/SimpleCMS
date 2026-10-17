@@ -74,7 +74,7 @@ function Line({ line }: { line: PlanLine }) {
     case 'fact':
       return (
         // a batch's numbered line ("01"): the number takes only its own width, the title gets the rest
-        <div className="mcp-line" data-num={/^\d{1,3}$/.test(line.label) || undefined}>
+        <div className="mcp-line" data-num={numbered(line) || undefined}>
           <dt onMouseEnter={titleIfClipped}>{line.label}</dt>
           <dd>{line.value}</dd>
         </div>
@@ -106,6 +106,12 @@ function Line({ line }: { line: PlanLine }) {
   }
 }
 
+/** A batch's numbered line ("01"): the number takes only its own width, the title gets the rest. */
+const numbered = (l: PlanLine) => l.k === 'fact' && /^\d{1,3}$/.test(l.label)
+
+/** How many of the lines are things the person approves (a batch's rows, pages …) — never its facts, notes or texts. */
+const entriesOf = (lines: readonly PlanLine[]) => lines.filter((l) => numbered(l) || (l.k === 'fact' && l.entry)).length
+
 /**
  * The card's lines: its only scroll area (the card is capped at the viewport — head, workspace, summary, time and the
  * keys always stay in view, however many lines a batch has). Focusable while it scrolls, so the keyboard can read it.
@@ -127,6 +133,7 @@ function Lines({ id, lines }: { id: string; lines: PlanLine[] }) {
       window.removeEventListener('resize', measure)
     }
   }, [lines])
+  const entries = entriesOf(lines)
   return (
     <>
       <div ref={ref} className="mcp-card__scroll" role="region" aria-label={t('features.mcp.card.lines')} tabIndex={scrolls ? 0 : -1} data-scrolls={scrolls || undefined}>
@@ -138,7 +145,8 @@ function Lines({ id, lines }: { id: string; lines: PlanLine[] }) {
       </div>
       {scrolls && (
         <p className="label mcp-card__more" aria-hidden>
-          {t('features.mcp.card.scrollHint', { n: lines.length })}
+          {/* the entries the person approves (the summary's number), else no number at all */}
+          {entries > 1 ? t('features.mcp.card.scrollHint', { n: entries }) : t('features.mcp.card.scrollHintAll')}
         </p>
       )}
     </>

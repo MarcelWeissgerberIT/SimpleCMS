@@ -10,9 +10,10 @@ import { fileURLToPath } from 'node:url'
 import type { Page } from '@playwright/test'
 import { test, expect, openApp, wsEval, flush } from './fixtures'
 import { MCP_ARGS_V1, MCP_BRIDGE_CURRENT, MCP_CONTRACT_REV, MCP_INSTRUCTIONS, MCP_LIMITS, MCP_TOOLS, bridgeOutdated, mcpToolArgs, type McpToolDef } from '../../src/shared/mcp/contract'
-import { MCP_ERROR_CODES, MCP_REMEDIES, codeOf, mcpError, withRemedy } from '../../src/shared/mcp/errors'
+import { MCP_ERROR_CODES, MCP_REMEDIES, codeOf, mcpError, withCode, withRemedy } from '../../src/shared/mcp/errors'
 import { formatRef, idsFor, parseRef, shortestPrefix } from '../../src/shared/mcp/refs'
 import { canonicalJson, duplicateAnswer, duplicateKey } from '../../src/shared/mcp/duplicates'
+import { undeclaredIn } from '../../src/shared/mcp/args'
 
 /** the stand-in bridge's port (47370–47379 are the MCP plan's; 47371 – 47373, 47377 are taken) */
 const PORT = 47374
@@ -113,6 +114,24 @@ test.describe('the shared contract (Node)', () => {
     expect(withRemedy('locked: "Plan" is locked. Nothing was changed. Ask the person.')).toBe('locked: "Plan" is locked. Nothing was changed. Ask the person.')
     expect(withRemedy('not_found: Nothing was moved to the trash: no page with id "x".')).toBe('not_found: Nothing was moved to the trash: no page with id "x".')
     expect(withRemedy('The tool failed in One: boom')).toBe('The tool failed in One: boom')
+    // a refusal without a code gets the one it means (the tab's fail(), McpToolError): the code is always the first word
+    expect(withCode('“Plan” changed while this call waited. Nothing was changed.')).toMatch(/^page_changed: /)
+    expect(withCode('“Plan” is gone. Nothing was changed.')).toMatch(/^not_found: /)
+    expect(withCode('“Tasks” was locked meanwhile. Nothing was changed.')).toMatch(/^locked: /)
+    expect(withCode('Nothing was changed. Fix these values and call again:\n- "Status" (status): unknown status')).toMatch(/^bad_argument: Nothing was changed/)
+    expect(withCode(msg)).toBe(msg)
+  })
+
+  test('strict at every depth: a key a closed object of the contract does not declare is named with its path', () => {
+    const def = (name: string) => MCP_TOOLS.find((t) => t.name === name)!.inputSchema as Record<string, unknown>
+    expect(undeclaredIn({ databaseId: 'd', rows: [{ title: 'Row A', Status: 'Doing' }] }, def('one_create_row'))).toMatchObject({ path: 'rows[0].Status', at: 'rows[0]', key: 'Status' })
+    expect(undeclaredIn({ pages: [{ title: 'P1', content: 'Hallo Welt' }] }, def('one_create_page'))?.path).toBe('pages[0].content')
+    expect(undeclaredIn({ title: 'T', views: [{ type: 'board', group_by: 'Phase' }] }, def('one_create_database'))?.path).toBe('views[0].group_by')
+    expect(undeclaredIn({ title: 'T', inline: { pageId: 'p', afterblock: 'x' } }, def('one_create_database'))?.path).toBe('inline.afterblock')
+    expect(undeclaredIn({ databaseId: 'd', keyProperty: 'K', rows: [{ key: 'T-9', title: 'Nine', Status: 'Done' }] }, def('one_upsert_rows'))?.path).toBe('rows[0].Status')
+    // a row's properties are an open map: any name; values of the wrong type are the tool's own checks
+    expect(undeclaredIn({ databaseId: 'd', rows: [{ title: 'Row A', properties: { Status: 'Doing', 'Any name': 1 } }] }, def('one_create_row'))).toBeNull()
+    expect(undeclaredIn({ databaseId: 'd', rows: 'nope' }, def('one_create_row'))).toBeNull()
   })
 
   test('refs (skeleton): #id~hash and @path~hash, lenient input, the shortest unique prefix', () => {
@@ -229,7 +248,7 @@ test.describe('the One tab (stand-in bridge)', () => {
       expect(hello.tools).toEqual(mcpToolArgs())
       expect(hello.tools.one_create_page).toEqual(['title', 'parentId', 'markdown', 'icon', 'before', 'after', 'index', 'private', 'linkInParent', 'pages'])
       expect(hello.tools.one_upsert_rows).toEqual(['databaseId', 'keyProperty', 'rows'])
-      await expect(page.getByTestId('mcp-outdated')).toHaveText(`Bridge 1.11.0 — update to ${MCP_BRIDGE_CURRENT} for the newest tools: download one.mcpb or one-mcp.mjs again. Until then it keeps working as before.`)
+      await expect(page.getByTestId('mcp-outdated')).toHaveText(`Bridge 1.11.0 — update to ${MCP_BRIDGE_CURRENT}: download one.mcpb or one-mcp.mjs again. Until then the newest tools are missing and a long page reads only its first 60,000 characters (Claude is told where it was cut).`)
       await expect(page.getByTestId('mcp-legacy')).toHaveCount(0)
       await page.keyboard.press('Escape')
       await page.evaluate(() => (window.location.hash = '#/mcp'))
@@ -266,6 +285,51 @@ test.describe('the One tab (stand-in bridge)', () => {
       // the routing argument is never refused
       bridge.call('c2', 'one_search', { query: 'Welcome', workspace: bridge.hello()!.workspace.id })
       expect((await bridge.answer('c2')).type).toBe('result')
+    } finally {
+      await disconnect(page, bridge)
+    }
+  })
+
+  test('every refusal of the tab starts with a code of the contract — values, queries, cursors, types, property specs, ids, unknown tools', async ({ page }) => {
+    const bridge = await standIn(MCP_BRIDGE_CURRENT)
+    try {
+      await openApp(page)
+      const db = await wsEval(page, (s) => s.createDatabase({ title: 'Nordlicht tasks' }))
+      await flush(page)
+      await connect(page, bridge)
+      await page.keyboard.press('Escape')
+      const cases: Array<[string, Record<string, unknown>, RegExp]> = [
+        // a single row's value the agent tool refuses (it had no code before)
+        ['one_create_row', { databaseId: db, title: 'Brief Mara Lind', properties: { Status: 'Erledigt-ish' } }, /^bad_argument: .*Status/s],
+        ['one_query_database', { databaseId: db, filter: [{ property: 'Owner', op: 'equals', value: 'Mara' }] }, /^bad_argument: filter\[0\]\.property: "Nordlicht tasks" has no property "Owner"/],
+        ['one_query_database', { databaseId: db, filter: [{ property: 'Name', op: 'resembles', value: 'x' }] }, /^bad_argument: filter\[0\]\.op: unknown op "resembles"/],
+        ['one_query_database', { databaseId: db, sort: 'Owner' }, /^bad_argument: sort: /],
+        ['one_query_database', { databaseId: db, cursor: 'not-a-cursor' }, /^bad_argument: cursor: /],
+        ['one_create_page', { title: 'x'.repeat(301) }, /^bad_argument: title: too long/],
+        ['one_create_property', { databaseId: db, name: 'Phase', type: 'colour' }, /^bad_argument: (property\.)?type: unknown type "colour"/],
+        ['one_create_property', { databaseId: db, name: 'Status', type: 'text' }, /^bad_argument: (property\.)?name: a property named "Status" already exists/],
+        ['one_get_page', { id: 'nope-0000' }, /^not_found: /],
+        ['one_search', { query: '' }, /^bad_argument: query: missing/],
+        ['one_trash_page', {}, /^bad_argument: id: missing/],
+        ['one_fly_to_the_moon', {}, /^bad_argument: Unknown tool "one_fly_to_the_moon"/],
+        // strict at every depth: never dropped silently (the row would be made without its value)
+        ['one_create_row', { databaseId: db, rows: [{ title: 'Row A', Status: 'Doing' }] }, /^bad_argument: rows\[0\]\.Status: rows\[0\] takes no key "Status" \(it takes: title, properties, markdown\)/],
+        ['one_create_page', { pages: [{ title: 'P1', content: 'Hallo Welt' }] }, /^bad_argument: pages\[0\]\.content: /],
+        ['one_create_database', { title: 'Phasen', views: [{ type: 'board', group_by: 'Phase' }] }, /^bad_argument: views\[0\]\.group_by: /],
+      ]
+      for (const [i, [tool, args, re]] of cases.entries()) {
+        bridge.call(`e${i}`, tool, args)
+        const out = await bridge.answer(`e${i}`)
+        expect(out.type, `${tool} ${JSON.stringify(args)}`).toBe('error')
+        expect(codeOf(out.error), `${tool}: ${out.error}`).not.toBeNull()
+        expect(MCP_ERROR_CODES as readonly string[]).toContain(codeOf(out.error))
+        expect(out.error, tool).toMatch(re)
+      }
+      await expect(page.getByRole('alertdialog')).toHaveCount(0)
+      // nothing of the refused calls was made
+      expect(await titled(page, 'Row A')).toBe(0)
+      expect(await titled(page, 'P1')).toBe(0)
+      expect(await titled(page, 'Phasen')).toBe(0)
     } finally {
       await disconnect(page, bridge)
     }

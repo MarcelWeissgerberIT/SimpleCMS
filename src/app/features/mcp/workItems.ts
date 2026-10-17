@@ -10,7 +10,8 @@
 import { t } from '../../i18n'
 import type { ID } from '../../store/types'
 import { itemScope, listItems } from '../ai/agent/workItems'
-import { ToolInputError } from '../ai/agent/tools'
+import { ToolInputError, withReadLimit } from '../ai/agent/tools'
+import { mcpReadLimit } from './limits'
 import { getItemIndex, isBlocked, isOverdue, peopleResolver, settleWorld, type ItemEntry, type SettleWorld } from '../workitems'
 import { applyStaged, callStage, itemPlan, mcpMessage, stageWith } from './stage'
 import { McpToolError, pageUrl, pathOf, ws } from './values'
@@ -18,8 +19,11 @@ import type { WritePlan } from './plan'
 
 const STATUS: Record<string, string> = { todo: 'todo', in_progress: 'in progress', done: 'done' }
 
-/** A task as JSON (the list's answer, the update's answer). */
-function taskJson(e: ItemEntry, world: SettleWorld, name: (id: string) => string | null, now: number): Record<string, unknown> {
+/**
+ * A task as JSON (the list's answer, the update's answer). `inScope`: what the person lets MCP read (context marks) — a
+ * linked task outside it is named by id only (no title, no status).
+ */
+function taskJson(e: ItemEntry, world: SettleWorld, name: (id: string) => string | null, now: number, inScope: (e: { itemId: string; pageId: ID }) => boolean): Record<string, unknown> {
   const index = getItemIndex()
   const a = e.attrs
   const page = ws().pages[e.pageId]
@@ -34,9 +38,12 @@ function taskJson(e: ItemEntry, world: SettleWorld, name: (id: string) => string
     overdue: isOverdue(e, now),
     blockedBy: a.blockedBy.map((id) => {
       const b = index.byId.get(id)
-      return b ? { id, title: b.title, status: STATUS[b.attrs.status] ?? b.attrs.status } : { id, title: null, status: null }
+      return b && inScope(b) ? { id, title: b.title, status: STATUS[b.attrs.status] ?? b.attrs.status } : { id, title: null, status: null }
     }),
-    related: a.related.map((id) => ({ id, title: world.entry(id)?.title ?? null })),
+    related: a.related.map((id) => {
+      const r = world.entry(id)
+      return { id, title: r && inScope(r) ? r.title : null }
+    }),
     page: { id: e.pageId, title: page?.title.trim() || 'Untitled', path: pathOf(e.pageId) },
     url: `${pageUrl(e.pageId)}${e.blockId ? `?b=${e.blockId}` : ''}`,
   }
@@ -51,29 +58,37 @@ const asMcp = <T>(fn: () => T): T => {
   }
 }
 
-/** one_list_work_items */
+/**
+ * one_list_work_items — under the person's context marks (limits.ts mcpReadLimit, as the terminal's read limit): a task
+ * in a block they excluded is not listed, and a listed task's link to one is named by id only.
+ */
 export function listWorkItemsMcp(args: Record<string, unknown>) {
-  const world = settleWorld()
-  const inScope = itemScope(world)
-  const res = asMcp(() => listItems(args, callStage(), world, inScope))
-  const name = peopleResolver(world, true).name
-  return {
-    count: res.total,
-    items: res.items.map((e) => taskJson(e, world, name, res.now)),
-    ...(res.items.length < res.total ? { truncated: true } : {}),
-    ...(res.loading ? { loading: `${res.index.unloaded} pages are still loading — the list may be incomplete.` } : {}),
-  }
+  return withReadLimit(mcpReadLimit, () => {
+    const world = settleWorld()
+    const inScope = itemScope(world)
+    const res = asMcp(() => listItems(args, callStage(), world, inScope))
+    const name = peopleResolver(world, true).name
+    return {
+      count: res.total,
+      items: res.items.map((e) => taskJson(e, world, name, res.now, inScope)),
+      ...(res.items.length < res.total ? { truncated: true } : {}),
+      ...(res.loading ? { loading: `${res.index.unloaded} pages are still loading — the list may be incomplete.` } : {}),
+    }
+  })
 }
 
-/** The tasks after a change, by id (gone ones left out). */
+/** The tasks after a change, by id (gone ones and ones the context marks exclude left out). */
 function tasksNow(ids: readonly string[]): Array<Record<string, unknown>> {
-  const world = settleWorld()
-  const name = peopleResolver(world, true).name
-  const now = Date.now()
-  const index = getItemIndex()
-  return ids.flatMap((id) => {
-    const e = index.byId.get(id)
-    return e ? [taskJson(e, world, name, now)] : []
+  return withReadLimit(mcpReadLimit, () => {
+    const world = settleWorld()
+    const inScope = itemScope(world)
+    const name = peopleResolver(world, true).name
+    const now = Date.now()
+    const index = getItemIndex()
+    return ids.flatMap((id) => {
+      const e = index.byId.get(id)
+      return e && inScope(e) ? [taskJson(e, world, name, now, inScope)] : []
+    })
   })
 }
 

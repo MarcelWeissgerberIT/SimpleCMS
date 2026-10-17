@@ -142,10 +142,14 @@ test('Ask first: 50 sub-pages as a tree — ONE card, one Approve, one Undo that
     const scroll = card.locator('.mcp-card__scroll')
     expect(await scroll.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true)
     await expect(scroll).toHaveAttribute('tabindex', '0')
-    await expect(card.locator('.mcp-card__more')).toContainText('entries — scroll to see all')
+    // the hint counts the pages the person approves (the summary's 50), not the card's other lines
+    await expect(card.locator('.mcp-card__more')).toHaveText('50 entries — scroll to see all')
   }
   await page.setViewportSize({ width: 1440, height: 900 })
-  await expect(card.locator('.mcp-line--md')).toContainText('Text of chapter 1 for Tessera.')
+  // the text of EVERY page that has one, under its line (not only the first page's)
+  await expect(card.locator('.mcp-line--md')).toHaveCount(3)
+  await expect(card.locator('.mcp-line--md').first()).toContainText('Text of chapter 1 for Tessera.')
+  await expect(card.locator('.mcp-line--md').nth(2)).toContainText('Content of “Kapitel 3”')
   // one card for the whole call, nothing written before the OK
   await expect(page.getByRole('alertdialog')).toHaveCount(1)
   expect(await wsEval(page, (s) => Object.values(s.pages).filter((p: AnyState) => p.title.startsWith('Kapitel')).length)).toBe(0)
@@ -559,6 +563,36 @@ test('≥ 5 rows starting outward work are always asked per CALL: new + changed 
   await expect(card).toHaveCount(0)
 })
 
+test('rows going to the trash or losing a value to a property change start their automations too: named, ≥ 5 always asked', async ({ page }) => {
+  await openApp(page)
+  const { db, rows } = await cards(page, 6)
+  const auto = (id: string, name: string, trigger: AnyState) => ({ id, name, enabled: true, trigger, actions: [{ type: 'run_script', scriptId: null }], lastRunAt: null, lastStatus: null, lastMessage: null })
+  await wsEval(page, (s, a: { db: string; list: AnyState[] }) => s.updateDatabase(a.db, { automations: a.list }), { db, list: [auto('au-del', 'On delete', { type: 'row_deleted' }), auto('au-status', 'On status', { type: 'property_changed', propertyId: 'c-status' })] })
+  await flush(page)
+  await connect(page, 'Apply directly')
+  const card = page.getByRole('alertdialog')
+  const askedThenReject = async (name: string, args: Record<string, unknown>, starts: string, not: string) => {
+    const pending = call(name, args)
+    await expect(card).toBeVisible()
+    await expect(card.locator('.mcp-line', { hasText: 'Starts' })).toContainText(starts)
+    await expect(card.locator('.mcp-line', { hasText: 'Starts' })).not.toContainText(not)
+    await expect(card).toContainText('Always asked: 6 rows start paid AI work or send something out of One.')
+    await page.keyboard.press('Escape')
+    expect(text(await pending)).toContain('The person rejected this change')
+    await expect(card).toHaveCount(0)
+  }
+  // six rows to the trash: their "row deleted" automation → asked although "Apply directly"
+  await askedThenReject('one_trash_page', { ids: rows }, 'On delete', 'On status')
+  expect(await wsEval(page, (s, ids: string[]) => ids.filter((id) => s.pages[id]?.trashed).length, rows)).toBe(0)
+  // an option removed that six rows hold: their "Status changed" automation → asked
+  await askedThenReject('one_update_property', { databaseId: db, property: 'Status', options: { remove: ['Todo'] } }, 'On status', 'On delete')
+  expect(await statusOf(page, rows)).toEqual(rows.map(() => 's-todo'))
+  // below the line: two rows to the trash apply at once
+  json(await call('one_trash_page', { ids: rows.slice(0, 2) }))
+  await expect(card).toHaveCount(0)
+  expect(await wsEval(page, (s, ids: string[]) => ids.filter((id) => s.pages[id]?.trashed).length, rows)).toBe(2)
+})
+
 test("one_create_database's Undo leaves what changed since alone: an edited row keeps the database, and nothing else is touched", async ({ page }) => {
   await openApp(page)
   const projects = await wsEval(page, (s) => {
@@ -632,6 +666,133 @@ test('inline.afterBlock naming a block INSIDE a column: bad_argument with its to
 })
 
 /** `B3_SHOTS=<dir>`: German screenshots of a batch card (1440×900 and 390×844, light and dark) — not part of the suite. */
+test('Ask first: a batch card shows EVERY value and each row\'s text; upsert lines name the title, a rename and before → after; the scroll hint counts entries', async ({ page }) => {
+  await openApp(page)
+  const leads = await wsEval(page, (s) =>
+    s.createDatabase({
+      title: 'Leads',
+      properties: [
+        { id: 'l-title', name: 'Name', type: 'title' },
+        { id: 'l-a', name: 'Alpha', type: 'text' },
+        { id: 'l-b', name: 'Beta', type: 'text' },
+        { id: 'l-c', name: 'Gamma', type: 'text' },
+        { id: 'l-d', name: 'Delta', type: 'text' },
+      ],
+    }),
+  )
+  const { db } = await cards(page, 0)
+  await connect(page, 'Ask first')
+  const card = page.getByRole('alertdialog')
+
+  // create_row { rows }: the fourth value and the body are on the card (they were cut before)
+  const rows = call('one_create_row', {
+    databaseId: leads,
+    rows: [
+      { title: 'Row one', properties: { Alpha: 'a1', Beta: 'b1', Gamma: 'c1', Delta: 'HIDDENVALUE-delta' }, markdown: 'HIDDENBODY wire 5000 EUR to IBAN DE00 1234' },
+      { title: 'Row two', properties: { Alpha: 'a2' } },
+    ],
+  })
+  await expect(card).toContainText('Create 2 rows in Leads')
+  await expect(card.locator('.mcp-line', { has: page.locator('dt', { hasText: /^01$/ }) })).toContainText('Row one — Alpha: a1 · Beta: b1 · Gamma: c1 · Delta: HIDDENVALUE-delta')
+  await expect(card.locator('.mcp-line--md')).toHaveCount(1)
+  await expect(card.locator('.mcp-line--md')).toContainText('Content of “Row one”')
+  await expect(card.locator('.mcp-line--md')).toContainText('HIDDENBODY wire 5000 EUR to IBAN DE00 1234')
+  await page.keyboard.press('Escape')
+  expect(text(await rows)).toMatch(/^rejected: /)
+
+  // create_database { rows }: the same (every value, the text)
+  const made = call('one_create_database', { title: 'Termine', properties: [{ name: 'Name', type: 'title' }, { name: 'Ort', type: 'text' }, { name: 'Raum', type: 'text' }, { name: 'Wer', type: 'text' }, { name: 'Wann', type: 'text' }], rows: [{ title: 'Kick-off', properties: { Ort: 'Köln', Raum: '4.12', Wer: 'Mara Lind', Wann: 'HIDDEN-wann' }, markdown: 'Agenda HIDDENAGENDA' }] })
+  await expect(card.locator('.mcp-line', { has: page.locator('dt', { hasText: /^01$/ }) })).toContainText('Wann: HIDDEN-wann')
+  await expect(card.locator('.mcp-line--md')).toContainText('Agenda HIDDENAGENDA')
+  await page.keyboard.press('Escape')
+  expect(text(await made)).toMatch(/^rejected: /)
+
+  // one_upsert_rows: 30 new rows — each line names its title and values (never the key twice); the hint counts 30
+  await page.setViewportSize({ width: 1440, height: 760 })
+  const fresh = call('one_upsert_rows', { databaseId: db, keyProperty: 'Ticket', rows: Array.from({ length: 30 }, (_, i) => ({ key: `T-${4100 + i}`, title: `Ticket ${4100 + i}: Login-Fehler ${i}`, properties: { Status: 'Todo', Owner: 'Tessera' } })) })
+  await expect(card).toContainText('30 new')
+  const first = card.locator('.mcp-line', { has: page.locator('dt', { hasText: 'New · T-4100' }) })
+  await expect(first).toContainText('Ticket 4100: Login-Fehler 0 — Status: Todo · Owner: Tessera')
+  await expect(first).not.toContainText('Ticket: T-4100')
+  await expect(card.locator('.mcp-card__more')).toHaveText('30 entries — scroll to see all')
+  await page.keyboard.press('Enter')
+  const out = json(await fresh)
+  expect(out.rows.filter((r: AnyState) => r.action === 'created')).toHaveLength(30)
+
+  // a rename with a value change, a value alone, a text into an empty page: old → new, before → after, the text
+  const changed = call('one_upsert_rows', {
+    databaseId: db,
+    keyProperty: 'Ticket',
+    rows: [
+      { key: 'T-4100', title: 'Kunde kündigt', properties: { Status: 'Done' } },
+      { key: 'T-4101', properties: { Owner: 'Mara Lind' } },
+      { key: 'T-4102', markdown: 'Notiz HIDDENNOTE für Nordlicht' },
+    ],
+  })
+  await expect(card.locator('.mcp-line', { has: page.locator('dt', { hasText: 'Changed · T-4100' }) })).toContainText('Ticket 4100: Login-Fehler 0 → Kunde kündigt — Status: Todo → Done')
+  await expect(card.locator('.mcp-line', { has: page.locator('dt', { hasText: 'Changed · T-4101' }) })).toContainText('Ticket 4101: Login-Fehler 1 — Owner: Tessera → Mara Lind')
+  await expect(card.locator('.mcp-line--md')).toContainText('Content of “Ticket 4102: Login-Fehler 2”')
+  await expect(card.locator('.mcp-line--md')).toContainText('Notiz HIDDENNOTE für Nordlicht')
+  await expect(card).not.toContainText('renamed or text added')
+  await page.keyboard.press('Enter')
+  expect(json(await changed).rows.map((r: AnyState) => r.action)).toEqual(['updated', 'updated', 'updated'])
+  await page.setViewportSize({ width: 1440, height: 900 })
+})
+
+test('one default schema: a German workspace makes Name, Status (Not started / In progress / Done), Tags, Date — the call that follows the description fits', async ({ page }) => {
+  await openApp(page)
+  const host = await wsEval(page, (s) => s.createPage({ title: 'Projekt Polaris' }))
+  await flush(page)
+  await connect(page, 'Apply directly')
+  await wsEval(page, (s) => s.updateSettings({ language: 'de' }))
+  // as the description says: Date and the status "Done" exist without naming any property
+  const out = json(await call('one_create_database', { title: 'Termine', parentId: host, views: [{ type: 'board' }], rows: [{ title: 'Kick-off', properties: { Date: '2026-11-02', Status: 'Done' } }] }))
+  expect(out.properties.map((p: AnyState) => p.name)).toEqual(['Name', 'Status', 'Tags', 'Date'])
+  const status = out.properties.find((p: AnyState) => p.name === 'Status')
+  expect(status.options.map((o: AnyState) => o.name ?? o)).toEqual(['Not started', 'In progress', 'Done'])
+  // a status made without options: the same three
+  const prop = json(await call('one_create_property', { databaseId: out.id, name: 'Phase', type: 'status' }))
+  expect(JSON.stringify(prop)).toContain('Not started')
+  await wsEval(page, (s) => s.updateSettings({ language: 'en' }))
+})
+
+/** `FIX2_SHOTS=<dir>`: German screenshots of an upsert card and a rows card with text (1440×900 and 390×844, light and dark). */
+test('screenshots: upsert and rows-with-text cards in German', async ({ page }) => {
+  const dir = process.env.FIX2_SHOTS
+  test.skip(!dir, 'FIX2_SHOTS not set')
+  await openApp(page)
+  const { db } = await cards(page, 2)
+  await connect(page, 'Ask first')
+  await wsEval(page, (s) => s.updateSettings({ language: 'de' }))
+  for (const [w, h, tag] of [
+    [1440, 900, 'desktop'],
+    [390, 844, 'phone'],
+  ] as const) {
+    for (const theme of ['light', 'dark'] as const) {
+      await page.setViewportSize({ width: w, height: h })
+      await page.emulateMedia({ colorScheme: theme })
+      await page.evaluate((th) => document.documentElement.setAttribute('data-theme', th), theme)
+      const card = page.getByRole('alertdialog')
+      const upsert = call('one_upsert_rows', {
+        databaseId: db,
+        keyProperty: 'Ticket',
+        rows: [{ key: 'T-1', title: 'Kunde kündigt', properties: { Status: 'Done' } }, ...Array.from({ length: 30 }, (_, i) => ({ key: `T-${4100 + i}`, title: `Ticket ${4100 + i}: Login-Fehler ${i}`, properties: { Status: 'Todo', Owner: 'Tessera' } }))],
+      })
+      await expect(card).toContainText('30 neu')
+      await page.screenshot({ path: `${dir}/upsert-${tag}-${theme}.png` })
+      await page.keyboard.press('Escape')
+      await upsert
+      const rows = call('one_create_row', { databaseId: db, rows: [{ title: 'Kick-off Nordlicht', properties: { Ticket: 'T-900', Owner: 'Mara Lind', Status: 'Doing' }, markdown: '## Agenda\n- Ziele für Q4\n- Budget mit Tessera\n- Nächste Schritte' }, { title: 'Retro', properties: { Ticket: 'T-901' } }] })
+      await expect(card).toContainText('2 Zeilen')
+      await page.screenshot({ path: `${dir}/rows-text-${tag}-${theme}.png` })
+      await page.keyboard.press('Escape')
+      await rows
+      await expect(card).toHaveCount(0)
+    }
+  }
+  await wsEval(page, (s) => s.updateSettings({ language: 'en' }))
+})
+
 test('screenshots: the batch card in German', async ({ page }) => {
   const dir = process.env.B3_SHOTS
   test.skip(!dir, 'B3_SHOTS not set')

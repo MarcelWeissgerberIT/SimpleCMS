@@ -32,6 +32,28 @@ function enums(schema: unknown, out = new Set<string>()): Set<string> {
   return out
 }
 
+/**
+ * Every object below the top of a schema, by path (`rows[]`, `inline`, `views[].sort[]`): its keys, required list and
+ * whether it is closed (additionalProperties false — an open map like a row's `properties` is open on both sides; zod
+ * writes it as `{}`, the contract as `true`). anyOf / oneOf variants share their path. Sorted, so zod's and the
+ * hand-written contract's shapes compare.
+ */
+function objectsOf(schema: unknown): string[] {
+  const out = new Set<string>()
+  const walk = (s: unknown, path: string) => {
+    if (!s || typeof s !== 'object' || Array.isArray(s)) return
+    const o = s as Record<string, unknown>
+    for (const k of ['anyOf', 'oneOf'] as const) if (Array.isArray(o[k])) for (const v of o[k] as unknown[]) walk(v, path)
+    const props = o.properties && typeof o.properties === 'object' ? (o.properties as Record<string, unknown>) : null
+    const isObject = o.type === 'object' || (Array.isArray(o.type) && (o.type as string[]).includes('object')) || !!props
+    if (isObject && path) out.add(`${path} keys=${Object.keys(props ?? {}).sort().join(',')} required=${[...((o.required as string[]) ?? [])].sort().join(',')} closed=${o.additionalProperties === false}`)
+    for (const [k, v] of Object.entries(props ?? {})) walk(v, path ? `${path}.${k}` : k)
+    if (o.items) walk(o.items, `${path}[]`)
+  }
+  walk(schema, '')
+  return [...out].sort()
+}
+
 const shared = MCP_SHARED_TOOLS.filter((t) => !MCP_LOCAL_ONLY.includes(t.name))
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -105,6 +127,32 @@ describe('MCP parity: the team server serves the shared contract', () => {
     assert.match(read.content[0]!.text, /^bad_argument: limt: one_search takes no argument "limt"/)
     const none = (await reader.callTool({ name: 'one_list_workspaces', arguments: { verbose: true } })) as ToolResult
     assert.equal(codeOf(none.content[0]!.text), 'bad_argument')
+  })
+
+  test('nested schemas: every object inside an argument has the contract\'s keys, required list and closedness; an unknown nested key is refused', async () => {
+    const tools = (await writer.listTools()).tools
+    for (const def of shared) {
+      const got = objectsOf(tools.find((t) => t.name === def.name)!.inputSchema)
+      const want = objectsOf(def.inputSchema)
+      assert.deepEqual(got, want, `${def.name}: nested objects`)
+    }
+    // a key next to "properties" (rows[0].Status), a mistyped nested key (inline.afterblock, rows[0].properites): refused, nothing made
+    const before = (await call(reader, 'one_list_pages', { depth: 1 })).items.length
+    const cases: Array<[string, Record<string, unknown>, RegExp]> = [
+      ['one_create_row', { databaseId: 'x', rows: [{ title: 'Row A', Status: 'Doing' }] }, /^bad_argument: rows\[0\]\.Status: /],
+      ['one_create_row', { databaseId: 'x', rows: [{ title: 'R6 row', properites: { Ticket: 'K-R6' } }] }, /^bad_argument: rows\[0\]\.properites: /],
+      ['one_create_page', { pages: [{ title: 'P1', content: 'Hallo Welt' }] }, /^bad_argument: pages\[0\]\.content: /],
+      ['one_create_database', { title: 'R6 board', inline: { pageId: 'x', afterblock: '#abc' } }, /^bad_argument: inline\.afterblock: /],
+      ['one_create_database', { title: 'Board', views: [{ type: 'board', group_by: 'Phase' }] }, /^bad_argument: views\[0\]\.group_by: /],
+      ['one_upsert_rows', { databaseId: 'x', keyProperty: 'Ticket', rows: [{ key: 'T-9', title: 'Nine', Status: 'Done' }] }, /^bad_argument: rows\[0\]\.Status: /],
+    ]
+    for (const [name, args, pattern] of cases) {
+      const res = (await writer.callTool({ name, arguments: args })) as ToolResult
+      assert.equal(res.isError, true, `${name}: ${res.content[0]?.text}`)
+      assert.match(res.content[0]!.text, pattern)
+      assert.ok(res.content[0]!.text.includes('Nothing was changed.'), res.content[0]!.text)
+    }
+    assert.equal((await call(reader, 'one_list_pages', { depth: 1 })).items.length, before, 'nothing was made')
   })
 
   test('an argument that does not fit its schema is answered in the contract\'s shape (code, path, next step), as the tab answers', async () => {

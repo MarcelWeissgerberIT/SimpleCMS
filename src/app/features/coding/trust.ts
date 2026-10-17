@@ -32,7 +32,7 @@ import { agentIdOf, isAgentWriting } from '../agents/attribution'
 import { addTrusted, clearMcpTouched, isMcpTouched, loadMcpTouched, markMcpTouched, trustedHashes } from './local'
 import { refIdsOf, refsKey } from './refs'
 import { codingProps, optionName, pipelineDbIds, readPipeline } from './schema'
-import { currentWriter, withWriter, type Writer } from '../../store/writer'
+import { currentWriter, mcpCaused, withWriter, type Writer } from '../../store/writer'
 import { isEjectWriter } from '../recorder/settled'
 
 const inTeam = () => useCloud.getState().active.kind === 'cloud'
@@ -96,8 +96,11 @@ export function needsConfirm(page: Page): boolean {
   return inTeam() || agentTouched(page) || isMcpTouched(page.id)
 }
 
-/** A write an MCP client made (or one it caused: a synced copy, an automation, autofill … — the writer's `cause`). */
-const byMcp = (w: Writer | null): boolean => !!w && (w.kind === 'mcp' || ('cause' in w && typeof w.cause === 'string' && w.cause.startsWith('mcp:')))
+/**
+ * A write an MCP client made, or one it caused: a script one_run_script started (its writer names the call as `via`), a
+ * synced copy, an automation, autofill … (their `cause`) — store/writer.ts `mcpCaused`.
+ */
+const byMcp = (w: Writer | null): boolean => mcpCaused(w)
 
 /**
  * Local workspaces: would a write from this tab end the task's wait for Confirm? The attribution keeper

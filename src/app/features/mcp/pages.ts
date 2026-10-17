@@ -20,7 +20,7 @@ import { assertNotSystem } from './system'
 import { iconText, live, McpToolError, pageUrl, pathOf, q, titleOf, ws } from './values'
 import { atPath, chars, checkFileScope, pageOrThrow, parseIcon, preview, str, tasksOf, type PlanLine, type WritePlan } from './plan'
 import { withWriter } from '../../store/writer'
-import { rowNo } from './rows'
+import { bodyLine, rowNo } from './rows'
 import { stripRefLabels } from '../../../shared/mcp/refs'
 
 type Parent = { kind: 'none' } | { kind: 'page'; page: Page } | { kind: 'batch'; index: number }
@@ -201,9 +201,9 @@ export function planCreatePage(args: Record<string, unknown>): WritePlan {
       const own = it.parent.kind === 'batch' || (it.parent.kind === 'page' && it.parent.page.id !== callParent?.id)
       // the number counts from 01 as people count (Claude's "$<index>" stays in its arguments); the parent by title
       lines.push({ k: 'fact', label: rowNo(i), value: `${it.icon ? `${iconText(it.icon)} ` : ''}${it.title}${own ? ` · ${t('features.mcp.plan.under', { title: titleIn(i) })}` : ''}` })
+      // the text of each page under its line (not only the first one's: the person approves what they saw)
+      lines.push(...bodyLine(it.title, it.markdown))
     })
-    const first = items.find((it) => it.markdown.trim())
-    if (first) lines.push({ k: 'md', label: t('features.mcp.plan.contentOf', { title: first.title, n: chars(first.markdown.trim().length) }), value: preview(first.markdown) })
   } else {
     const it = items[0]!
     if (it.icon) lines.push({ k: 'fact', label: t('features.mcp.plan.icon'), value: iconText(it.icon) ?? '' })

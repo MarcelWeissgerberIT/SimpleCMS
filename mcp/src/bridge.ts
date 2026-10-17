@@ -39,6 +39,9 @@ import {
   type McpWorkspaceInfo,
 } from '../../src/shared/mcp/contract.ts'
 import { mcpError } from '../../src/shared/mcp/errors.ts'
+
+/** A call its client cancelled (only that client would read it): every refusal starts with a code (spec § 2.0). */
+const CANCELLED = mcpError('rejected', '', 'The call was cancelled')
 import { isAllowedHost, isAllowedOrigin } from './policy.ts'
 import { describe, label, resolveWorkspace } from './workspaces.ts'
 
@@ -227,7 +230,7 @@ export class Bridge {
     this.state = 'closed'
     if (this.retry) clearTimeout(this.retry)
     if (this.pinger) clearInterval(this.pinger)
-    for (const f of [...this.inflight.values()]) f.finish({ ok: false, error: 'The One bridge stopped.' })
+    for (const f of [...this.inflight.values()]) f.finish({ ok: false, error: mcpError('rejected', '', 'The One bridge stopped while the call ran', 'Ask the person whether to start the bridge again; read before you call again.') })
     for (const w of [...this.waiters]) w(null)
     for (const ws of this.wss.clients) ws.close(1001, 'bridge stopped')
     await new Promise<void>((r) => this.wss.close(() => r()))
@@ -363,7 +366,7 @@ export class Bridge {
       case 'error': {
         const f = this.inflight.get(String(msg.id))
         if (!f || f.conn !== conn) return
-        if (msg.type === 'error') return f.finish({ ok: false, error: str(msg.error, 8000) || 'The call failed in One.' })
+        if (msg.type === 'error') return f.finish({ ok: false, error: str(msg.error, 8000) || 'rejected: The call failed in One. Nothing was confirmed — read what the call touches again before you call again.' })
         f.finish(this.checked(f, msg.result ?? null))
         return
       }
@@ -460,7 +463,7 @@ export class Bridge {
     const down = this.ready()
     if (down) return { ok: false, error: down }
     await this.waitForApp(this.opts.waitMs, signal)
-    if (signal?.aborted) return { ok: false, error: 'Cancelled.' }
+    if (signal?.aborted) return { ok: false, error: CANCELLED }
     const newest = this.apps.reduce((m, a) => Math.max(m, a.seq), 0)
     const workspaces = [...this.apps].sort((a, b) => b.seq - a.seq).map((a) => describe(a, a.seq === newest))
     return {
@@ -479,7 +482,7 @@ export class Bridge {
 
   /** Forward one tool call to the tab of the workspace it is meant for. Never throws. */
   async call(tool: McpToolName, args: Record<string, unknown>, opts: CallOptions = {}): Promise<CallOutcome> {
-    if (!TOOLS.has(tool)) return { ok: false, error: `Unknown tool ${JSON.stringify(tool)}.` }
+    if (!TOOLS.has(tool)) return { ok: false, error: mcpError('bad_argument', '', `Unknown tool ${JSON.stringify(tool)}`, 'tools/list names the tools there are.') }
     // strict arguments: what the tool does not declare is refused here, never dropped on the way
     const extra = undeclared(tool, args)
     if (extra.length) return { ok: false, error: mcpError('bad_argument', extra[0]!, `${tool} takes no argument ${JSON.stringify(extra[0])} (it takes: ${[...TOOLS.get(tool)!].join(', ')})`) }
@@ -488,7 +491,7 @@ export class Bridge {
     // `workspace` is the bridge's argument: it picks the tab and is never forwarded as a tool argument
     const { workspace: target, ...rest } = args
     const any = await this.waitForApp(this.opts.waitMs, opts.signal)
-    if (opts.signal?.aborted) return { ok: false, error: 'Cancelled.' }
+    if (opts.signal?.aborted) return { ok: false, error: CANCELLED }
     if (!any) return { ok: false, error: MCP_NO_APP }
     const picked = resolveWorkspace(this.apps, target, this.last)
     if (!picked.ok) return picked
@@ -502,7 +505,7 @@ export class Bridge {
     return new Promise<CallOutcome>((resolve) => {
       const onAbort = () => {
         this.send(conn, { type: 'cancel', id })
-        entry.finish({ ok: false, error: 'Cancelled.' })
+        entry.finish({ ok: false, error: CANCELLED })
       }
       const entry: InFlight = {
         conn,

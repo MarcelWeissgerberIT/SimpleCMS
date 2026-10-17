@@ -35273,6 +35273,7 @@ var MCP_LIMITS = {
   instructions: 3500
 };
 var MCP_CONTRACT_REV = 2;
+var MCP_SERVER_SUPPORTS = `mcp:${MCP_CONTRACT_REV}`;
 var MCP_ARGS_V1 = Object.freeze({
   one_overview: [],
   one_list_workspaces: [],
@@ -35304,7 +35305,6 @@ var MCP_ARGS_V1 = Object.freeze({
 });
 
 // ../src/shared/mcp/contract.ts
-var MCP_SERVER_SUPPORTS = `mcp:${MCP_CONTRACT_REV}`;
 var ICON = 'An emoji, "asset:<name>" or "lucide:<IconName>".';
 var COLORS = "gray, brown, orange, yellow, green, blue, purple, pink, red";
 var TASKS = 'Tasks: "> [!TODO] Title" + a field line (Owner: names \xB7 Due: YYYY-MM-DD \xB7 Blocked by: #handle / wi_\u2026 / title); One gives the ids; change existing ones with one_update_work_item.';
@@ -35441,7 +35441,7 @@ var TOOLS = [
     name: "one_get_page",
     title: "Read a page",
     write: false,
-    description: `Read a page, row or database page by id (or exact title): title, icon, path, rev, class, a row's values, sub-pages, backlinks and the content \u2014 Markdown, or format "blocks": every block nested with its ref, type, Markdown and data (databases, files, sheets, charts, meetings \u2026). Long pages come in parts: pass "next" as cursor (null = the end). refs: true labels each block \u27E6#ref\u27E7 in the Markdown. A database's rows: one_query_database.`,
+    description: `Read a page, row or database page by id (or exact title): title, icon, path, rev, class, a row's values, sub-pages, backlinks and the content \u2014 Markdown, or format "blocks": every block nested with its ref, type, Markdown and data (databases, files, sheets, charts, meetings \u2026). Long pages come in parts: pass "next" as cursor (null = the end); join the parts' Markdown with a blank line \u2014 after a part with continues: "line" with one line break, "text" directly (a block, or a line, cut there). refs: true labels each block \u27E6#ref\u27E7 in the Markdown. A database's rows: one_query_database.`,
     local: 'Mentions read [@Name](one:person/<id>) and [@date](one:date/YYYY-MM-DD), tasks "> [!TODO] Title {#wi_\u2026}" with a field line \u2014 keep both when you write text back.',
     inputSchema: {
       type: "object",
@@ -35669,7 +35669,7 @@ var TOOLS = [
     name: "one_create_database",
     title: "Create a database",
     write: true,
-    description: `Create a database \u2014 with views, rows and an icon in one call. parentId = a full-page database as a sub-page; inline = inside a page's text. It always has a title property ("Name" unless one of type "title" is given); without properties: Name, Status, Tags, Date. A board groups by "groupBy" or the first status / select / person / checkbox property (none: a Status property is added); a table view follows a board. Example: views: [{ type: "board", groupBy: "Status" }], properties: [{ name: "Status", type: "status", options: ["Todo", "Doing", "Done"] }], rows: [{ title: "Kick-off", properties: { Status: "Todo" } }] \u2014 give each row its lane: a row without a value waits in the board's "no value" lane.`,
+    description: `Create a database \u2014 with views, rows and an icon in one call. parentId = a full-page database as a sub-page; inline = inside a page's text. It always has a title property ("Name" unless one of type "title" is given); without properties: Name, Status (Not started, In progress, Done), Tags, Date \u2014 these English names in every workspace language; the answer's "properties" lists the names and options made, use those for later calls. A board groups by "groupBy" or the first status / select / person / checkbox property (none: a Status property with those three options is added); a table view follows a board. Example: views: [{ type: "board", groupBy: "Status" }], properties: [{ name: "Status", type: "status", options: ["Todo", "Doing", "Done"] }], rows: [{ title: "Kick-off", properties: { Status: "Todo" } }] \u2014 give each row its lane: a row without a value waits in the board's "no value" lane.`,
     inputSchema: {
       type: "object",
       properties: {

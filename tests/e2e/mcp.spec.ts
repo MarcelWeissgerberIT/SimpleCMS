@@ -647,10 +647,10 @@ test.describe('tidy up', () => {
     const c = json(await call('one_create_page', { title: 'Old C' }))
     const trashed = (id: string) => wsEval(page, (s, id) => s.pages[id].trashed, id)
 
-    await fails('one_trash_page', { ids: [a.id, 'nope'] }, 'Nothing was moved to the trash: no page with id "nope"')
+    await fails('one_trash_page', { ids: [a.id, 'nope'] }, 'not_found: Nothing was moved to the trash: no page with id "nope"')
     expect(await trashed(a.id)).toBe(false)
     await fails('one_trash_page', { ids: Array.from({ length: 51 }, (_, i) => `x${i}`) }, 'At most 50 ids')
-    await fails('one_trash_page', {}, 'Missing required parameter "id"')
+    await fails('one_trash_page', {}, 'bad_argument: id: missing — it is required')
 
     const res = json(await call('one_trash_page', { ids: [a.id, b.id, c.id] }))
     // B is inside A: it goes along with it
@@ -660,7 +660,7 @@ test.describe('tidy up', () => {
     expect([await trashed(a.id), await trashed(c.id)]).toEqual([true, true])
     await fails('one_trash_page', { id: a.id }, 'is already in the trash')
 
-    await fails('one_restore_page', { id: 'nope' }, /^Nothing was restored: nothing in the trash has id "nope"\. Recently trashed: .*"Old (A|C)"/)
+    await fails('one_restore_page', { id: 'nope' }, /^not_found: Nothing was restored: nothing in the trash has id "nope"\. Recently trashed: .*"Old (A|C)"/)
     await fails('one_restore_page', { id: b.id }, `is inside "Old A" (${a.id}), which is in the trash — restore that instead`)
     const back = json(await call('one_restore_page', { ids: [a.id, c.id] }))
     expect(back.count).toBe(2)

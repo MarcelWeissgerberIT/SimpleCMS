@@ -188,6 +188,8 @@ test('replace: a page typed into while the card waits is not replaced; a folded 
   const stale = await first
   expect(stale.isError).toBe(true)
   expect(text(stale)).toContain('changed while this call waited. Nothing was changed.')
+  // the code first, as on the team server: an agent branches on page_changed (read again, call again)
+  expect(text(stale)).toMatch(/^page_changed: id: /)
   expect(JSON.stringify(await contentOf(page, id))).not.toContain('Appended over MCP')
   // a new task that blocks the existing one: one card, both written
   const md2 = json(await call('one_get_page', { id })).markdown as string

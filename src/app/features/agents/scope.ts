@@ -36,12 +36,19 @@ function under(pages: Record<ID, Page>, id: ID, roots: Set<ID>): boolean {
 
 const inTeam = () => useCloud.getState().active.kind === 'cloud'
 
-/** The scope check of an agent (null = everything outside templates — the tools exclude those already). */
-export function scopeFilter(agent: Pick<CustomAgent, 'scope'>): ((id: ID) => boolean) | null {
+/**
+ * The scope check of an agent. Templates are never in it — also not for "everything": the workspace agent's tools do not
+ * exclude them on their own (the AI terminal edits a template the person has open), so without this an agent that
+ * reads a pasted `#/p/<template id>` could write into the template and every page made from it later.
+ */
+export function scopeFilter(agent: Pick<CustomAgent, 'scope'>): (id: ID) => boolean {
   if (agent.scope.everything) {
-    if (!inTeam()) return null
-    // the workspace's pages, not the private ones of the person whose browser runs the agent
-    return (id) => !useWorkspace.getState().pages[id]?.private
+    const team = inTeam()
+    return (id) => {
+      const pages = useWorkspace.getState().pages
+      // team: the workspace's pages, not the private ones of the person whose browser runs the agent
+      return !inTemplate(pages, id) && (!team || !pages[id]?.private)
+    }
   }
   const roots = new Set<ID>([...agent.scope.pages, ...agent.scope.databases])
   return (id) => {
@@ -73,7 +80,6 @@ export function agentTools(agent: Pick<CustomAgent, 'scope' | 'write'>, opts: { 
   const upsert = opts.upsert ?? unlocked('upsert')
   const read = opts.read ?? null
   const base = AGENT_TOOLS.filter((t) => t.name !== 'get_current_page' && (agent.write !== 'none' || !t.write) && (upsert || t.name !== 'upsert_rows'))
-  if (!filter) return read ? base.map((tool) => ({ ...tool, run: (input, stage) => afterRead(tool.run(input, stage), read) })) : base
   return base.map((tool) => ({
     ...tool,
     run(input, stage) {
@@ -85,7 +91,8 @@ export function agentTools(agent: Pick<CustomAgent, 'scope' | 'write'>, opts: { 
         if (isStagedCreate(stage, id)) continue
         const real = stage.resolve(id)
         const page = pages[real]
-        if (page && !filter(real)) {
+        // a template reads like an unknown id (the call runs inside the scope: the tools do not find it)
+        if (page && !filter(real) && !inTemplate(pages, real)) {
           throw new ToolInputError(`${JSON.stringify(page.title.trim() || 'Untitled')} (id: ${id}) is outside this agent's scope: refused. It may only use ${scopeText(agent)}.`)
         }
       }

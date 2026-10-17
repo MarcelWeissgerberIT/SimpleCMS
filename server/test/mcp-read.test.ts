@@ -364,7 +364,10 @@ describe('MCP reads in full (team server)', () => {
   })
 
   test('comments only behind the token flag: off → comments_off and no read carries them; read → threads with their ref', async () => {
-    await fails(writer, 'one_get_page', { id: 'review', comments: true }, /^comments_off: comments:/)
+    const off = await fails(writer, 'one_get_page', { id: 'review', comments: true }, /^comments_off: comments:/)
+    // the next step is the server's (a token made with comments on), never the local bridge's device switch
+    assert.match(off, /Nothing was changed\. An admin makes a token with comments on \(Workspace → Automation → API, Comments: Read\)/)
+    assert.doesNotMatch(off, /Settings → Agents · MCP/)
     const plain = await call(writer, 'one_get_page', { id: 'review' })
     assert.equal(plain.comments, undefined)
     assert.ok(!JSON.stringify(plain).includes('40k'))

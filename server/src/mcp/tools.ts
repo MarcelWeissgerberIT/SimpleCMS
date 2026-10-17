@@ -41,9 +41,9 @@ const mdEach = <T extends { markdown?: string }>(list: T[] | undefined) => list?
 const id = idSchema.describe('A page, row or database id')
 const markdown = z.string().max(200_000)
 const icon = z.string().max(80).describe('An emoji, "asset:<name>" or "lucide:<IconName>"')
-const option = z.union([z.string().min(1).max(200), z.object({ name: z.string().min(1).max(200), color: z.string().optional(), group: z.enum(['todo', 'in_progress', 'done']).optional() })])
+const option = z.union([z.string().min(1).max(200), z.strictObject({ name: z.string().min(1).max(200), color: z.string().optional(), group: z.enum(['todo', 'in_progress', 'done']).optional() })])
 const relation = z
-  .object({
+  .strictObject({
     databaseId: idSchema.describe('The related database'),
     twoWay: z.boolean().optional().describe('Also add the reverse relation to the other database'),
     reverseName: z.string().min(1).max(200).optional().describe('Name of the reverse property (two-way only)'),
@@ -54,9 +54,9 @@ const propertySpec = {
   options: z.array(option).max(200).optional().describe('select / multi_select / status: option names (or { name, color, group })'),
   relation: relation.optional(),
 }
-const sortItem = z.object({ property: z.string().min(1), direction: z.enum(['asc', 'desc']).optional() })
+const sortItem = z.strictObject({ property: z.string().min(1), direction: z.enum(['asc', 'desc']).optional() })
 const sortArg = z.union([z.string().max(200), sortItem, z.array(sortItem).max(5)])
-const filterItem = z.object({ property: z.string().min(1).max(200), op: z.enum(FILTER_OPS), value: z.unknown().optional() })
+const filterItem = z.strictObject({ property: z.string().min(1).max(200), op: z.enum(FILTER_OPS), value: z.unknown().optional() })
 const ids = z.array(idSchema).min(1).max(BULK_MAX).describe(`Several ids at once (at most ${BULK_MAX}). All or nothing: one id that does not fit fails the call and nothing changes.`)
 const propertyRef = z.string().min(1).max(200).describe('The property: its exact name (any case) or id')
 const viewRef = z.string().min(1).max(200).describe('The view: its id or exact name (one_get_database lists the views)')
@@ -79,7 +79,7 @@ const viewIn = (a: { name?: string; groupBy?: string | null; dateProperty?: stri
   properties: a.properties,
 })
 /** A new row of a batch (one_create_row / one_create_database `rows`). */
-const rowItem = z.object({ title: z.string().max(2000), properties: z.record(z.string(), z.unknown()).optional(), markdown: markdown.optional() })
+const rowItem = z.strictObject({ title: z.string().max(2000), properties: z.record(z.string(), z.unknown()).optional(), markdown: markdown.optional() })
 const DESTRUCTIVE = { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false } as const
 const CHANGE = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false } as const
 
@@ -364,7 +364,7 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
         desc('one_query_database'),
       inputSchema: {
         databaseId: id,
-        filter: z.array(z.object({ property: z.string().min(1), op: z.enum(FILTER_OPS), value: z.unknown().optional() })).max(20).optional(),
+        filter: z.array(z.strictObject({ property: z.string().min(1), op: z.enum(FILTER_OPS), value: z.unknown().optional() })).max(20).optional(),
         sort: z.union([z.string().max(200), sortItem, z.array(sortItem).max(5)]).optional().describe('A property name, "createdAt", "updatedAt" or "order" (default, the table order); prefix "-" for descending, e.g. "-Due"'),
         limit: z.number().int().min(1).max(100).optional().describe('Rows per answer (default 50)'),
         cursor: z.string().max(2000).optional(),
@@ -395,7 +395,7 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
         private: z.boolean().optional().describe('Local bridge only: refused here (local_only)'),
         linkInParent: z.enum(['none', 'block', 'mention']).optional(),
         pages: z
-          .array(z.object({ title: z.string().min(1).max(2000), parentId: z.string().max(80).optional().describe('A page / row id or "$<index>"'), markdown: markdown.optional(), icon: icon.optional() }))
+          .array(z.strictObject({ title: z.string().min(1).max(2000), parentId: z.string().max(80).optional().describe('A page / row id or "$<index>"'), markdown: markdown.optional(), icon: icon.optional() }))
           .min(1)
           .max(MCP_LIMITS.pages)
           .optional(),
@@ -465,8 +465,9 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
           // an MCP client is an agent: properties "Only by hand" are refused (api/keys.ts)
           const row = await writes.prepareRow(ws, { databaseId: a.databaseId }, { title: a.title, properties: a.properties }, actor, { agent: true, mcp: true, files: 'onefile' })
           const created = await model.createRow(ws, a.databaseId, { title: row.title ?? a.title, properties: row.properties, content: md(a.markdown) }, actor, { agent: true, files: 'onefile' })
-          const state = await model.read(ws, (r) => McpPreimages.rowState(r, created.id))
-          if (state) rec.rows({ db: a.databaseId, created: [{ id: created.id, title: state.title, values: state.values }], updated: [] })
+          // the pre-image: the row as made, with its text's state (a Restore leaves it when someone changed it since)
+          const [state] = await batch.madeRows(ws, [created.id])
+          if (state?.title !== undefined) rec.rows({ db: a.databaseId, created: [state], updated: [] })
           return { ...created, title: state?.title ?? row.title ?? a.title ?? '' }
         }),
       )(),
@@ -480,7 +481,7 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
       inputSchema: {
         id: id.optional(),
         properties: z.record(z.string(), z.unknown()).optional().describe('Property name → new value'),
-        rows: z.array(z.object({ id, properties: z.record(z.string(), z.unknown()) })).min(1).max(MCP_LIMITS.rows).optional(),
+        rows: z.array(z.strictObject({ id, properties: z.record(z.string(), z.unknown()) })).min(1).max(MCP_LIMITS.rows).optional(),
         ...WS,
       },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
@@ -514,7 +515,7 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
         databaseId: id,
         keyProperty: z.string().min(1).max(200),
         rows: z
-          .array(z.object({ key: z.union([z.string().min(1).max(500), z.number()]), title: z.string().max(2000).optional(), properties: z.record(z.string(), z.unknown()).optional(), markdown: markdown.optional() }))
+          .array(z.strictObject({ key: z.union([z.string().min(1).max(500), z.number()]), title: z.string().max(2000).optional(), properties: z.record(z.string(), z.unknown()).optional(), markdown: markdown.optional() }))
           .min(1)
           .max(MCP_LIMITS.rows),
         ...WS,
@@ -543,13 +544,13 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
       inputSchema: {
         title: z.string().max(2000),
         parentId: id.nullable().optional(),
-        inline: z.object({ pageId: id, afterBlock: z.string().max(200).optional() }).optional(),
+        inline: z.strictObject({ pageId: id, afterBlock: z.string().max(200).optional() }).optional(),
         icon: icon.optional(),
         properties: z
-          .array(z.object({ ...propertySpec, type: z.enum(['title', ...CREATABLE_TYPES]) }))
+          .array(z.strictObject({ ...propertySpec, type: z.enum(['title', ...CREATABLE_TYPES]) }))
           .max(MAX_DB_PROPERTIES)
           .optional(),
-        views: z.array(z.object({ type: z.enum(VIEW_TYPES), ...viewSettings })).min(1).max(5).optional(),
+        views: z.array(z.strictObject({ type: z.enum(VIEW_TYPES), ...viewSettings })).min(1).max(5).optional(),
         rows: z.array(rowItem).max(MCP_LIMITS.rows).optional(),
         ...WS,
       },
@@ -581,10 +582,10 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
         description: z.string().max(2000).optional().describe('Tooltip text ("" removes it)'),
         type: z.enum(CREATABLE_TYPES).optional().describe('New type (see the allowed changes above)'),
         options: z
-          .object({
+          .strictObject({
             add: z.array(option).max(100).optional().describe('New options: names, or { name, color, group }'),
             update: z
-              .array(z.object({ name: z.string().min(1).max(200), newName: z.string().max(200).optional(), color: z.string().max(20).optional(), group: z.enum(['todo', 'in_progress', 'done']).optional() }))
+              .array(z.strictObject({ name: z.string().min(1).max(200), newName: z.string().max(200).optional(), color: z.string().max(20).optional(), group: z.enum(['todo', 'in_progress', 'done']).optional() }))
               .max(100)
               .optional()
               .describe('Rename or recolour options (rows keep them)'),

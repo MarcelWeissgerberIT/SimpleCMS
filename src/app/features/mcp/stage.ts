@@ -6,7 +6,8 @@
  */
 import { t, currentLang } from '../../i18n'
 import type { ID } from '../../store/types'
-import { AGENT_TOOLS, ToolInputError, withToolScope, type AgentTool, type StageApi } from '../ai/agent/tools'
+import { AGENT_TOOLS, ToolInputError, withReadLimit, withToolScope, type AgentTool, type StageApi } from '../ai/agent/tools'
+import { mcpReadLimit } from './limits'
 import { withFilesWritable } from '../ai/agent/props'
 import { applyChanges } from '../ai/agent/apply'
 import { guardPipelineRows } from '../ai/agent/coding'
@@ -88,17 +89,22 @@ export function assertStageWritable(changes: readonly StagedChange[]): void {
   if (hit) throw new McpToolError(systemRefusal(hit))
 }
 
-/** Run one agent tool on the stage; its input errors become MCP errors. */
+/**
+ * Run one agent tool on the stage; its input errors become MCP errors. It reads pages as the person's context marks
+ * allow (limits.ts mcpReadLimit — as the terminal's tools do): a task in an excluded block is no link target, is not
+ * resolved by update_work_item and is never named.
+ */
 export function stageWith(stage: StageApi, name: ToolName, input: Record<string, unknown>) {
   const tool = mcpStageTool(name)
   if (!tool) throw new Error(`agent tool ${name} missing`)
   try {
     // files properties take this workspace's files over MCP (checked by the planner first — rows.ts checkFiles)
-    const out = withFilesWritable(() => withToolScope(outsideTemplates, () => tool.run(input, stage)))
+    const out = withReadLimit(mcpReadLimit, () => withFilesWritable(() => withToolScope(outsideTemplates, () => tool.run(input, stage))))
     // the staging tools answer at once (only run_query / write_script load the script engine)
     if (out instanceof Promise) throw new Error(`agent tool ${name} is not a staging tool`)
     return out
   } catch (e) {
+    // an input the agent tool refuses is the arguments' fault: bad_argument (McpToolError; the planner adds the entry's path — atPath)
     if (e instanceof ToolInputError) throw new McpToolError(mcpMessage(e.message))
     throw e
   }

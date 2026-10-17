@@ -18,6 +18,7 @@ import { queryTarget, runQuery } from './script'
 import { listWorkItemsMcp } from './workItems'
 import { systemNote } from './system'
 import { viewJson } from './structure'
+import { mcpError } from '../../../shared/mcp/errors'
 import { classOf, getPage, listPages, urlBase } from './pageRead'
 import { comparable, databaseOrThrow, friendlyValue, iconText, iso, kindOf, live, McpToolError, pageUrl, pathOf, propertyJson, q, rowJson, rowsOf, titleOf, ws } from './values'
 
@@ -26,7 +27,7 @@ const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '')
 function int(v: unknown, def: number, min: number, max: number, key: string): number {
   if (v === undefined || v === null || v === '') return def
   const n = typeof v === 'number' ? v : Number(v)
-  if (!Number.isFinite(n)) throw new McpToolError(`"${key}" must be a number.`)
+  if (!Number.isFinite(n)) throw new McpToolError(mcpError('bad_argument', key, 'a number is expected'))
   return Math.max(min, Math.min(max, Math.floor(n)))
 }
 
@@ -120,8 +121,8 @@ function snippet(text: string, query: string): string {
 
 function search(args: Record<string, unknown>) {
   const query = str(args.query)
-  if (!query) throw new McpToolError('Missing required parameter "query".')
-  if (query.length > 300) throw new McpToolError('"query" is too long (at most 300 characters).')
+  if (!query) throw new McpToolError(mcpError('bad_argument', 'query', 'missing — it is required'))
+  if (query.length > 300) throw new McpToolError(mcpError('bad_argument', 'query', `too long (${query.length} characters, at most 300)`))
   const limit = int(args.limit, 10, 1, 50, 'limit')
   const { pages } = ws()
   // the person's context marks hold for MCP reads (spec § 2.1, Q10): a limited page is searched — and its snippet cut —
@@ -227,7 +228,7 @@ interface Field {
 
 function sortSpecs(raw: unknown): Array<{ property: string; desc: boolean }> {
   if (raw === undefined || raw === null || raw === '') return []
-  const one = (x: unknown): { property: string; desc: boolean } => {
+  const one = (x: unknown, i: number | null): { property: string; desc: boolean } => {
     if (typeof x === 'string') {
       const s = x.trim()
       return s.startsWith('-') ? { property: s.slice(1).trim(), desc: true } : { property: s, desc: false }
@@ -236,9 +237,9 @@ function sortSpecs(raw: unknown): Array<{ property: string; desc: boolean }> {
       const o = x as { property: string; direction?: unknown }
       return { property: o.property.trim(), desc: o.direction === 'desc' }
     }
-    throw new McpToolError('"sort" must be a property name ("-Name" for descending), {property, direction} or a list of those.')
+    throw new McpToolError(mcpError('bad_argument', i === null ? 'sort' : `sort[${i}]`, 'a property name ("-Name" for descending), {property, direction} or a list of those is expected'))
   }
-  const list = Array.isArray(raw) ? raw.slice(0, 5).map(one) : [one(raw)]
+  const list = Array.isArray(raw) ? raw.slice(0, 5).map((x, i) => one(x, i)) : [one(raw, null)]
   return list.filter((s) => s.property && s.property !== 'order')
 }
 
@@ -247,7 +248,7 @@ function queryDatabase(args: Record<string, unknown>) {
   const limit = int(args.limit, 50, 1, 100, 'limit')
   const titleProp = db.properties.find((p) => p.type === 'title')
   const cache = new Map<string, string[]>()
-  const fieldOf = (name: string): Field => {
+  const fieldOf = (name: string, path: string): Field => {
     const n = name.trim().toLowerCase()
     const byProp = (prop: PropertyDef): Field => ({
       key: prop.id,
@@ -273,20 +274,20 @@ function queryDatabase(args: Record<string, unknown>) {
     if (prop) return byProp(prop)
     if (n === 'createdat' || n === 'created') return { key: 'createdAt', checkbox: false, values: (r) => [iso(r.createdAt).toLowerCase()] }
     if (n === 'updatedat' || n === 'updated' || n === 'last edited') return { key: 'updatedAt', checkbox: false, values: (r) => [iso(r.updatedAt).toLowerCase()] }
-    throw new McpToolError(`Unknown property ${q(name)}. Properties: ${db.properties.map((p) => q(p.name)).join(', ')} (or title, createdAt, updatedAt).`)
+    throw new McpToolError(mcpError('bad_argument', path, `${q(titleOf(page))} has no property ${q(name)}. Properties: ${db.properties.map((p) => q(p.name)).join(', ')} (or title, createdAt, updatedAt)`, 'Use one of those names (one_get_database lists them) and call again.'))
   }
 
   const raw = args.filter
-  if (raw !== undefined && raw !== null && !Array.isArray(raw)) throw new McpToolError('"filter" must be a list of {property, op, value}.')
-  if (Array.isArray(raw) && raw.length > 20) throw new McpToolError('At most 20 filter conditions.')
-  const filters = ((raw as unknown[] | undefined) ?? []).map((f) => {
+  if (raw !== undefined && raw !== null && !Array.isArray(raw)) throw new McpToolError(mcpError('bad_argument', 'filter', 'a list of {property, op, value} is expected'))
+  if (Array.isArray(raw) && raw.length > 20) throw new McpToolError(mcpError('bad_argument', 'filter', `${raw.length} conditions (at most 20)`))
+  const filters = ((raw as unknown[] | undefined) ?? []).map((f, i) => {
     const o = (f && typeof f === 'object' ? f : {}) as Record<string, unknown>
-    const field = fieldOf(String(o.property ?? ''))
+    const field = fieldOf(String(o.property ?? ''), `filter[${i}].property`)
     const given = String(o.op ?? '').trim().toLowerCase() as Op
-    if (!MCP_FILTER_OPS.includes(given)) throw new McpToolError(`Unknown op ${q(String(o.op ?? ''))}. Use one of: ${MCP_FILTER_OPS.slice(0, 14).join(', ')}.`)
+    if (!MCP_FILTER_OPS.includes(given)) throw new McpToolError(mcpError('bad_argument', `filter[${i}].op`, `unknown op ${q(String(o.op ?? ''))}`, `Use one of: ${MCP_FILTER_OPS.slice(0, 14).join(', ')}.`))
     return { field, op: ALIAS[given] ?? given, value: needle(o.value, field.checkbox) }
   })
-  const sorts = sortSpecs(args.sort).map((s) => ({ field: fieldOf(s.property), desc: s.desc }))
+  const sorts = sortSpecs(args.sort).map((s, i, all) => ({ field: fieldOf(s.property, all.length > 1 || Array.isArray(args.sort) ? `sort[${i}]` : 'sort'), desc: s.desc }))
 
   const all = rowsOf(db.id)
   const matches = all.filter((row) =>
@@ -369,8 +370,8 @@ const encodeCursor = (offset: number, fp: string) => `${offset.toString(36)}.${f
 function decodeCursor(v: unknown, fp: string): number {
   if (v === undefined || v === null || v === '') return 0
   const m = typeof v === 'string' ? /^([0-9a-z]+)\.([0-9a-z]+)$/.exec(v.trim()) : null
-  if (!m) throw new McpToolError('Invalid "cursor": pass the "next" value of the previous answer.')
-  if (m[2] !== fp) throw new McpToolError('This cursor belongs to another query (other filter or sort). Start again without a cursor.')
+  if (!m) throw new McpToolError(mcpError('bad_argument', 'cursor', 'not a cursor of this tool', 'Pass the "next" value of the previous answer.'))
+  if (m[2] !== fp) throw new McpToolError(mcpError('bad_argument', 'cursor', 'this cursor belongs to another query (other filter or sort)', 'Start again without a cursor.'))
   return parseInt(m[1], 36)
 }
 
@@ -389,7 +390,7 @@ export const READ_TOOLS: Partial<Record<McpToolName, (args: Record<string, unkno
   one_overview: (_args, mode) => overview(mode),
   one_list_workspaces: (_args, mode) => ownWorkspace(mode),
   one_search: search,
-  one_get_page: getPage,
+  one_get_page: (args) => getPage(args),
   one_list_pages: listPages,
   one_list_databases: listDatabases,
   one_get_database: getDatabase,

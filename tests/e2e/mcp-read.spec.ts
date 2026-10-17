@@ -297,7 +297,7 @@ test('a 150k page reads in parts under 40,000 characters each; refs stay across 
   for (const size of md.sizes) expect(size).toBeLessThan(40_000)
   // the head comes once; the later parts carry id + rev
   expect(md.parts[0].title).toBe('Wissensbasis Langfassung')
-  expect(md.parts[1]).toEqual({ id, rev: md.parts[0].rev, markdown: expect.any(String), next: md.parts[1].next, workspace: expect.any(Object) })
+  expect(md.parts[1]).toEqual({ id, rev: md.parts[0].rev, markdown: expect.any(String), truncated: true, next: md.parts[1].next, workspace: expect.any(Object) })
   const text = md.parts.map((p) => p.markdown).join('\n\n')
   expect(text.length).toBeGreaterThan(150_000)
   for (const i of [0, 299, 599]) expect(text.split(`§${i} `).length - 1, `§${i}`).toBe(1)
@@ -321,6 +321,90 @@ test('a 150k page reads in parts under 40,000 characters each; refs stay across 
   await refused('one_get_page', { id, cursor: first.next }, /^page_changed: cursor:/)
   // a cursor of another read is no cursor for this one
   await refused('one_get_page', { id, format: 'blocks', cursor: first.next }, /^bad_argument: cursor:.*another read/)
+})
+
+/** The parts of a markdown read put back together by the description's rule (a blank line; continues: line / text). */
+const joinParts = (parts: AnyState[]) => parts.reduce((out: string, p: AnyState, i: number) => (i === 0 ? p.markdown : `${out}${parts[i - 1].continues === 'line' ? '\n' : parts[i - 1].continues === 'text' ? '' : '\n\n'}${p.markdown}`), '')
+
+test('a page whose blocks are longer than a part reads back whole: a 1,200-row table, a 2,500-line code block, a 600-item list, a 47k paragraph', async ({ page }) => {
+  test.slow()
+  await openApp(page)
+  const ids = await wsEval(page, (s) => {
+    const txt = (text: string) => [{ type: 'text', text }]
+    const cell = (type: string, text: string) => ({ type, content: [{ type: 'paragraph', content: txt(text) }] })
+    const table = { type: 'table', content: [{ type: 'tableRow', content: [cell('tableHeader', 'Nr'), cell('tableHeader', 'Zeile')] }, ...Array.from({ length: 1200 }, (_, i) => ({ type: 'tableRow', content: [cell('tableCell', String(i + 1)), cell('tableCell', `Zeile ${i + 1} · Nordlicht-Tabelle`)] }))] }
+    const code = { type: 'codeBlock', attrs: { language: 'ts' }, content: txt(Array.from({ length: 2500 }, (_, i) => (i % 7 === 3 ? '' : `const z${i} = ${i} // Tessera`)).join('\n')) }
+    const list = { type: 'bulletList', content: Array.from({ length: 600 }, (_, i) => ({ type: 'listItem', content: [{ type: 'paragraph', content: txt(`Punkt ${i + 1}: Mara prüft Teil ${i + 1}`) }] })) }
+    const words = Array.from({ length: 6000 }, (_, i) => `wort${i}`).join(' ')
+    const long = { type: 'paragraph', content: txt(`Anfang ${words} Ende`) }
+    const id = s.createPage({ title: 'Lange Blöcke' })
+    s.setContent(id, { type: 'doc', content: [{ type: 'paragraph', content: txt('Vorwort.') }, table, { type: 'paragraph', content: txt('Zwischen Tabelle und Code.') }, code, list, long, { type: 'paragraph', content: txt('Nachwort.') }] }, 'e2e')
+    const copy = s.createPage({ title: 'Lange Blöcke (Kopie)' })
+    return { id, copy }
+  })
+  await flush(page)
+  await connect(page)
+  const md = await readAll({ id: ids.id })
+  expect(md.parts.length).toBeGreaterThan(4)
+  for (const size of md.sizes) expect(size).toBeLessThan(40_000)
+  // a part that ends inside a block says how the next one attaches; every part but the last says it is cut
+  expect(md.parts.some((p) => p.continues === 'line')).toBe(true)
+  expect(md.parts.some((p) => p.continues === 'text')).toBe(true)
+  for (const p of md.parts.slice(0, -1)) expect(p.truncated).toBe(true)
+  // no part slices a line that fits a part: every line of a part is a whole line of the page (but the 47k paragraph's)
+  const whole = joinParts(md.parts)
+  expect(whole.includes(`Anfang wort0 wort1`) && whole.includes('wort5999 Ende')).toBe(true)
+  // written back into another page (one replace, ≤ 200,000 characters): the same blocks — one table of 1,201 rows,
+  // the code block's 2,500 lines, 600 items
+  expect(whole.length).toBeLessThan(200_000)
+  json(await call('one_update_page', { id: ids.copy, mode: 'replace', markdown: whole }))
+  const shape = (id: string) =>
+    wsEval(
+      page,
+      (s, id) => {
+        const c = s.pages[id].content.content as AnyState[]
+        const text = (n: AnyState): string => (n.text ?? '') + (n.content ?? []).map(text).join('')
+        return {
+          types: c.map((b) => b.type),
+          rows: c.filter((b) => b.type === 'table').map((b) => b.content.length),
+          code: c.filter((b) => b.type === 'codeBlock').map((b) => text(b)),
+          items: c.filter((b) => b.type === 'bulletList').map((b) => b.content.length),
+          long: c.filter((b) => b.type === 'paragraph').map((b) => text(b).length),
+        }
+      },
+      id,
+    )
+  const [orig, copy] = [await shape(ids.id), await shape(ids.copy)]
+  expect(copy.types).toEqual(orig.types)
+  expect(copy.rows).toEqual([1201])
+  expect(copy.code).toEqual(orig.code)
+  expect(copy.items).toEqual([600])
+  expect(copy.long).toEqual(orig.long)
+})
+
+test('a bridge older than parts gets the whole page as before: up to 60,000 characters, a "[Truncated …]" line, truncated: true', async ({ page }) => {
+  await openApp(page)
+  const filler = 'Tessera und Mara Lind schreiben die Wissensbasis für Projekt Nordlicht weiter. '
+  const id = await wsEval(page, (s, f) => {
+    const id = s.createPage({ title: 'Alte Brücke' })
+    s.setContent(id, { type: 'doc', content: Array.from({ length: 900 }, (_, i) => ({ type: 'paragraph', content: [{ type: 'text', text: `§${i} ${f}` }] })) }, 'e2e')
+    return id
+  }, filler)
+  await flush(page)
+  await connect(page)
+  // the tab learns an older bridge version (its welcome): one_get_page answers contract 1's shape
+  await page.evaluate(() => (window as unknown as { __oneMcp: { seed: (p: Record<string, unknown>) => void } }).__oneMcp.seed({ bridge: '1.11.0' }))
+  const old = json(await call('one_get_page', { id }))
+  expect(old.next).toBeUndefined()
+  expect(old.truncated).toBe(true)
+  expect(old.markdown.length).toBeGreaterThan(60_000)
+  expect(old.markdown).toMatch(/\n\[Truncated: 60,000 of [\d,]+ characters — the rest needs the updated One bridge\]$/)
+  // the current bridge: parts, each marked as cut until the last
+  await page.evaluate(() => (window as unknown as { __oneMcp: { seed: (p: Record<string, unknown>) => void } }).__oneMcp.seed({ bridge: '1.12.0' }))
+  const first = json(await call('one_get_page', { id }))
+  expect(first.next).toBeTruthy()
+  expect(first.truncated).toBe(true)
+  expect(first.markdown).not.toContain('[Truncated')
 })
 
 test('context marks limit the read: only the marked blocks, their files and threads; comments are off until switched on', async ({ page }) => {
@@ -438,6 +522,66 @@ test('one_search honours context marks: no hit on excluded text, the snippet onl
   await page.evaluate((id) => (window as unknown as { __oneMcp: { context: (id: string, ids: string[] | null) => Promise<void> } }).__oneMcp.context(id, []), id)
   const titled = json(await call('one_search', { query: 'Tessera board notes' })).results.find((r: AnyState) => r.id === id)
   expect(titled?.snippet ?? '').not.toMatch(/agenda|Salary/)
+})
+
+test('context marks hold for scripts and tasks: one_run_query / one_run_script read only the marked blocks; an excluded task is neither listed, nor updated, nor named', async ({ page }) => {
+  await openApp(page)
+  const id = await wsEval(page, (s) => {
+    const id = s.createPage({ title: 'Tessera board notes' })
+    const para = (bid: string, text: string) => ({ type: 'paragraph', attrs: { id: bid }, content: [{ type: 'text', text }] })
+    const task = (bid: string, attrs: Record<string, unknown>, title: string) => ({ type: 'workItem', attrs: { id: bid, ...attrs }, content: [{ type: 'paragraph', content: [{ type: 'text', text: title }] }] })
+    s.setContent(
+      id,
+      {
+        type: 'doc',
+        content: [
+          para('keep-0001-script', 'Public agenda for the Tessera review.'),
+          task('keep-0002-task', { itemId: 'wi_open000001', status: 'todo', blockedBy: ['wi_zebra00001'] }, 'Book the room'),
+          para('hide-0003-script', 'Salary band for Mara Lind: zebrafish 98000 EUR.'),
+          task('hide-0004-task', { itemId: 'wi_zebra00001', status: 'todo', due: '2031-10-20' }, 'Fire Mara quietly zebrafish'),
+        ],
+      },
+      'e2e',
+    )
+    const now = Date.now()
+    s.upsertScript({ id: 'sc-notes', name: 'Read notes', code: 'print(page("Tessera board notes").markdown)\npage("Tessera board notes").text\n', kind: 'script', createdAt: now, updatedAt: now })
+    s.upsertScript({ id: 'sc-notes-q', name: 'Notes text', code: 'page("Tessera board notes")["text"]', kind: 'query', createdAt: now, updatedAt: now })
+    return id
+  })
+  await flush(page)
+  await connect(page)
+  const SECRET = /zebrafish|Salary|98000|Fire Mara/
+  // the whole page readable: a query reads its text, the task list names both tasks (as before)
+  expect(JSON.stringify(json(await call('one_run_query', { code: 'page("Tessera board notes").text' })))).toContain('zebrafish')
+  await expect.poll(async () => json(await call('one_list_work_items', { status: 'any' })).items.map((i: AnyState) => i.id)).toContain('wi_zebra00001')
+
+  // the person lets Claude read the agenda and the first task only
+  await page.evaluate((id) => (window as unknown as { __oneMcp: { context: (id: string, ids: string[] | null) => Promise<void> } }).__oneMcp.context(id, ['keep-0001-script', 'keep-0002-task']), id)
+  expect(json(await call('one_get_page', { id })).limited).toMatchObject({ blocks: 2 })
+  for (const code of ['page("Tessera board notes").markdown', 'page("Tessera board notes").text', 'page("Tessera board notes")["markdown"]', 'let k = "mark" + "down"\npage("Tessera board notes")[k]']) {
+    const out = JSON.stringify(json(await call('one_run_query', { code })))
+    expect(out, code).toContain('Public agenda')
+    expect(out, code).not.toMatch(SECRET)
+  }
+  // a saved script's dry run (its printed lines and result) and a saved query: the same
+  const dry = JSON.stringify(json(await call('one_run_script', { script: 'Read notes', dryRun: true })))
+  expect(dry).toContain('Public agenda')
+  expect(dry).not.toMatch(SECRET)
+  const saved = JSON.stringify(json(await call('one_run_script', { script: 'Notes text' })))
+  expect(saved).toContain('Public agenda')
+  expect(saved).not.toMatch(SECRET)
+
+  // tasks: the excluded one is not listed; the listed one's blocker is named by id only
+  const listed = json(await call('one_list_work_items', { status: 'any' }))
+  expect(listed.items.map((i: AnyState) => i.id)).toContain('wi_open000001')
+  expect(listed.items.map((i: AnyState) => i.id)).not.toContain('wi_zebra00001')
+  expect(JSON.stringify(listed)).not.toMatch(SECRET)
+  expect(listed.items.find((i: AnyState) => i.id === 'wi_open000001').blockedBy).toEqual([{ id: 'wi_zebra00001', title: null, status: null }])
+  // … and not updatable (as an unknown id), nothing changes
+  await refused('one_update_work_item', { updates: [{ item: 'wi_zebra00001', status: 'done' }] }, /No task wi_zebra00001 here/)
+  const status = await wsEval(page, (s, id) => (s.pages[id].content.content as AnyState[]).find((b) => b.attrs?.itemId === 'wi_zebra00001')?.attrs.status, id)
+  expect(status).toBe('todo')
+  await page.evaluate((id) => (window as unknown as { __oneMcp: { context: (id: string, ids: string[] | null) => Promise<void> } }).__oneMcp.context(id, null), id)
 })
 
 test('one_list_pages, urlBase in lists, full views, inline / system / class on reads, tree.more in the overview', async ({ page }) => {

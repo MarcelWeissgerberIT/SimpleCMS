@@ -125,3 +125,67 @@ test('comments over the team MCP: a token flag set at creation — off by defaul
   }
   expect(errors).toEqual([])
 })
+
+test('a team server without MCP contract 2: § 07 and the token form say "update the team server" — never "workspace gone", no Comments choice dropped silently', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', (e) => errors.push(e.message))
+  await signIn(page, email('tessera'))
+  const wsId = await createWorkspace(page, 'Nordlicht alt')
+  await openApp(page, wsId)
+  await waitOnline(page)
+  const supports = (list: string[] | null) =>
+    page.evaluate((list) => {
+      const st = (window as unknown as { __oneCloud: { state: { getState: () => { supports?: string[] }; setState: (p: Record<string, unknown>) => void } } }).__oneCloud.state
+      const was = st.getState().supports ?? []
+      if (list) st.setState({ supports: list })
+      return was
+    }, list)
+  const now = await supports(null)
+  expect(now).toContain('mcp:2')
+
+  // the server as the train before T-a answered: no 'mcp:2' in api/config
+  await supports(now.filter((x) => x !== 'mcp:2'))
+  let team = await openAutomation(page)
+  await expect(team.getByTestId('mcp-calls-older')).toHaveText('This team server is older: update it to keep MCP writes for 14 days with Restore and to let tokens read or write comments.')
+  await expect(team.getByTestId('api-token-comments')).toHaveCount(0)
+  await expect(team.getByText('no longer exists')).toHaveCount(0)
+  // FIX2_SHOTS=<dir>: the line where § 07 would be (1440 × 900 and 390 × 844, light and dark)
+  const shots = process.env.FIX2_SHOTS
+  if (shots) {
+    for (const [w, h, tag] of [
+      [1440, 900, 'desktop'],
+      [390, 844, 'phone'],
+    ] as const) {
+      await page.setViewportSize({ width: w, height: h })
+      for (const scheme of ['light', 'dark'] as const) {
+        await page.emulateMedia({ colorScheme: scheme })
+        await team.getByTestId('mcp-calls-older').evaluate((el) => el.scrollIntoView({ block: 'center' }))
+        await page.waitForTimeout(250)
+        await page.screenshot({ path: `${shots}/api-older-${tag}-${scheme}.png` })
+      }
+    }
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.emulateMedia({ colorScheme: 'light' })
+  }
+  // a token made there asks for no comments (the older server would drop the field without a word)
+  const made: string[] = []
+  page.on('request', (r) => {
+    if (r.method() === 'POST' && /\/tokens$/.test(r.url())) made.push(r.postData() ?? '')
+  })
+  await team.getByLabel('Token name').fill('Claude — alt')
+  await team.getByRole('button', { name: 'Create token' }).click()
+  await expect(team.getByTestId('api-token-secret')).toBeVisible()
+  expect(JSON.parse(made[0]!).comments ?? 'off').toBe('off')
+  await team.getByRole('button', { name: 'Done' }).click()
+
+  // supports said mcp:2, but GET mcp-calls answers the generic 404 of an unknown endpoint: the same line, in German too
+  await supports(now)
+  await page.route('**/mcp-calls', (r) => r.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: { code: 'not_found', message: 'Unknown API endpoint' } }) }))
+  await wsEval(page, (s) => s.updateSettings({ language: 'de' }))
+  team = await openAutomation(page)
+  await expect(team.getByRole('alert').filter({ hasText: 'Team-Server ist älter' })).toBeVisible()
+  await expect(team.getByText('gibt es nicht mehr')).toHaveCount(0)
+  await page.unroute('**/mcp-calls')
+  await wsEval(page, (s) => s.updateSettings({ language: 'en' }))
+  expect(errors).toEqual([])
+})

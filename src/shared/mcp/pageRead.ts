@@ -26,6 +26,11 @@ export interface McpBlock {
   children?: McpBlock[]
   /** a later part of a block cut across parts: the same ref, the rest of its children / cells / lines / text */
   continued?: true
+  /**
+   * a continued piece of a block's Markdown cut INSIDE a line (a line longer than a part): append it to the piece before
+   * as it is; without it a continued piece's Markdown follows the piece before after a line break
+   */
+  join?: 'text'
 }
 
 /** What a platform brings to a read: its Markdown, its block data and the node types it reads as their children. */
@@ -273,26 +278,56 @@ export const sizeOf = (v: unknown): number => JSON.stringify(v)?.length ?? 0
 /** Room a part keeps for the workspace stamp and the envelope's own keys. */
 export const PART_RESERVE = 600
 
-/** Lines of a long text cut into chunks of at most `room` serialized characters (a line longer than that is cut too). */
-export function textChunks(text: string, room: number): string[] {
+/** A piece of a long text and how it attaches to the piece before it: after a line break, or directly (a line cut inside). */
+export interface TextPiece {
+  text: string
+  join: 'line' | 'text'
+}
+
+/**
+ * A long text cut into pieces of at most `room` serialized characters — at line ends, never inside a line that fits a
+ * piece. A line longer than a piece is cut inside (by half the room: JSON escapes may double a character), after a
+ * space where there is one near the end and never between the halves of a surrogate pair; its later pieces join with
+ * nothing (`join: 'text'`). Put back together exactly: each piece after its predecessor with "\n" (`line`) or "" (`text`).
+ */
+export function textPieces(text: string, room: number): TextPiece[] {
   const max = Math.max(1000, room)
-  const out: string[] = []
-  let cur = ''
-  const push = (s: string) => {
-    if (cur && sizeOf(`${cur}\n${s}`) > max) {
-      out.push(cur)
-      cur = s
-    } else cur = cur ? `${cur}\n${s}` : s
+  const out: TextPiece[] = []
+  let cur: string | null = null
+  let curJoin: TextPiece['join'] = 'line'
+  const flush = () => {
+    if (cur !== null) out.push({ text: cur, join: curJoin })
+    cur = null
   }
   for (const line of text.split('\n')) {
-    if (sizeOf(line) <= max) push(line)
-    else {
-      // JSON escapes may double a character: cut by half the room to stay under it
-      const step = Math.max(500, Math.floor(max / 2))
-      for (let i = 0; i < line.length; i += step) push(line.slice(i, i + step))
+    if (sizeOf(line) <= max) {
+      if (cur !== null && sizeOf(`${cur}\n${line}`) <= max) cur = `${cur}\n${line}`
+      else {
+        flush()
+        cur = line
+        curJoin = 'line'
+      }
+      continue
+    }
+    flush()
+    const step = Math.max(500, Math.floor(max / 2))
+    let at = 0
+    while (at < line.length) {
+      let end = Math.min(line.length, at + step)
+      if (end < line.length) {
+        // after the last space of the piece's last fifth (a word stays whole where it can) …
+        const space = line.lastIndexOf(' ', end - 1)
+        if (space >= at + Math.floor(step * 0.8)) end = space + 1
+        // … and never between the two halves of a character
+        const c = line.charCodeAt(end - 1)
+        if (c >= 0xd800 && c <= 0xdbff) end -= 1
+      }
+      out.push({ text: line.slice(at, end), join: at === 0 ? 'line' : 'text' })
+      at = end
     }
   }
-  if (cur || !out.length) out.push(cur)
+  flush()
+  if (!out.length) out.push({ text: '', join: 'line' })
   return out
 }
 
@@ -370,9 +405,10 @@ function childPieces(b: McpBlock, budget: number): McpBlock[] {
     return groupsOf(kids, room).map((g, i) => (i === 0 ? { ...b, children: g } : { ...cont, children: g }))
   }
   if (b.markdown && b.markdown.length > 1) {
-    const room = budget - sizeOf({ ...b, markdown: '' })
-    const chunks = textChunks(b.markdown, room)
-    if (chunks.length > 1) return chunks.map((md, i) => (i === 0 ? { ...b, markdown: md } : { ref: b.ref, type: b.type, continued: true, markdown: md }))
+    const room = budget - sizeOf({ ...b, markdown: '', join: 'text' })
+    const pieces = textPieces(b.markdown, room)
+    if (pieces.length > 1)
+      return pieces.map((p, i) => (i === 0 ? { ...b, markdown: p.text } : { ref: b.ref, type: b.type, continued: true, markdown: p.text, ...(p.join === 'text' ? { join: 'text' as const } : {}) }))
   }
   return [b]
 }
@@ -489,15 +525,19 @@ export interface McpThread {
   replies: Array<{ id: string; body: string; author: string; createdAt: string }>
 }
 
-/** A unit of Markdown content: a top-level block (rendered with its neighbours when refs are off) or a cut piece of one. */
+/**
+ * A unit of Markdown content: a top-level block (rendered with its neighbours when refs are off) or a piece of one cut
+ * because it is longer than a part — `join` says how it attaches to the piece before it (absent: a block boundary).
+ */
 export interface MdUnit {
   text: string
   node?: PMJson
+  join?: TextPiece['join']
 }
 
 /**
  * The Markdown units of a read: one per top-level block (labelled when `refs`), a block longer than one piece's room cut
- * into chunks at line ends; empty paragraphs are left out of a labelled read.
+ * into pieces at line ends (textPieces); empty paragraphs are left out of a labelled read.
  */
 export function markdownUnits(top: Array<{ node: PMJson; path: number[] }>, reader: BlockReader, refs: RefIndex | null): MdUnit[] {
   const out: MdUnit[] = []
@@ -505,19 +545,31 @@ export function markdownUnits(top: Array<{ node: PMJson; path: number[] }>, read
     if (refs && isBlank(node)) continue
     const text = refs ? labelledMarkdown(node, path, reader, refs) : reader.markdown([node]).trim()
     if (sizeOf(text) <= PIECE_ROOM) out.push(refs ? { text } : { text, node })
-    else for (const chunk of textChunks(text, PIECE_ROOM)) out.push({ text: chunk })
+    else textPieces(text, PIECE_ROOM).forEach((p, i) => out.push(i ? { text: p.text, join: p.join } : { text: p.text }))
   }
   return out
 }
 
-/** Units [from, to) as one text: neighbouring whole blocks through the platform's Markdown at once (as a whole page reads). */
+/** What goes between a unit and the one before it: a blank line between blocks, a line break or nothing inside a cut one. */
+const separator = (u: MdUnit) => (u.join === 'line' ? '\n' : u.join === 'text' ? '' : '\n\n')
+
+/**
+ * Units [from, to) as one text: neighbouring whole blocks through the platform's Markdown at once (as a whole page
+ * reads), the pieces of a cut block put back together exactly as they were (separator) — inside a part a block is never
+ * cut, only at a part's end.
+ */
 function renderUnits(units: MdUnit[], from: number, to: number, reader: BlockReader): string {
-  const parts: string[] = []
+  let out = ''
+  let started = false
   let run: PMJson[] = []
+  const add = (text: string, sep: string) => {
+    out = started ? `${out}${sep}${text}` : text
+    started = true
+  }
   const flush = () => {
     if (!run.length) return
     const md = reader.markdown(run).trim()
-    if (md) parts.push(md)
+    if (md) add(md, '\n\n')
     run = []
   }
   for (let i = from; i < to; i++) {
@@ -525,12 +577,16 @@ function renderUnits(units: MdUnit[], from: number, to: number, reader: BlockRea
     if (u.node) run.push(u.node)
     else {
       flush()
-      if (u.text) parts.push(u.text)
+      // a piece of a cut block keeps its place even when empty (a blank line of a code block)
+      if (u.text || u.join) add(u.text, separator(u))
     }
   }
   flush()
-  return parts.join('\n\n')
+  return out
 }
+
+/** The whole Markdown of a read at once (a bridge older than parts, spec § 4.4): every unit, joined as the parts join. */
+export const wholeMarkdown = (units: MdUnit[], reader: BlockReader): string => renderUnits(units, 0, units.length, reader)
 
 export type PartResult = { ok: true; result: Record<string, unknown> } | { ok: false; code: 'bad_argument' | 'page_changed'; what: string }
 
@@ -568,5 +624,7 @@ export function readPart(o: {
     to--
   }
   const next = to < n ? encodeReadCursor(to, o.cursorRev, o.print) : null
-  return { ok: true, result: { ...shell, [o.format]: content, next } }
+  // markdown cut inside a block: how the next part's text attaches (absent: a blank line, as between blocks)
+  const cont = md && next ? (units[to] as MdUnit).join : undefined
+  return { ok: true, result: { ...shell, [o.format]: content, ...(next ? { truncated: true } : {}), ...(cont ? { continues: cont } : {}), next } }
 }

@@ -72,7 +72,14 @@ out), and a tool takes **only** the arguments it declares: anything else is refu
 - **Errors** are MCP tool errors (`isError: true`) whose first line has one shape on both ways in:
   `<code>: <argument path>: <what happened>. Nothing was changed. <next step>` — the path names the argument
   (`rows[12].properties.Status`, `inline.afterBlock`), the next step is the code's remedy
-  ([`src/shared/mcp/errors.ts`](../src/shared/mcp/errors.ts)). Codes in use:
+  ([`src/shared/mcp/errors.ts`](../src/shared/mcp/errors.ts)). **Every** refusal starts with its code — the tab's own
+  checks too (a value, a filter, a cursor, a property spec): a message that names none gets the one it means
+  (`withCode`: changed while the call waited → `page_changed`, gone meanwhile → `not_found`, locked meanwhile →
+  `locked`, anything about the arguments → `bad_argument`), as the team server's answers do. Arguments are strict at
+  every depth: a key a closed object of the contract does not declare — `rows[0].Status` beside `properties`,
+  `pages[1].content`, `inline.afterblock`, `views[0].group_by` — is `bad_argument` with its path on both ways in (the
+  team server's schemas are strict objects at every depth; its `tools/list` says `additionalProperties: false` there
+  too). Codes in use:
 
   | Code | When |
   |---|---|
@@ -111,6 +118,14 @@ out), and a tool takes **only** the arguments it declares: anything else is refu
   database's schema hint, `children: { items (≤ 50), more }` (the rest: `one_list_pages`), backlinks, comments — the
   next parts only `{ id, rev, markdown | blocks, next }`. A cursor carries the `rev` it was cut at: a page that changed
   between two parts answers `page_changed`. A block too big for one part continues in the next (`continued: true`).
+  Every part but the last says `truncated: true`. **Putting Markdown parts back together:** join them with a blank
+  line — except after a part that says `continues: "line"` (it ended inside a block, at the end of a line: join with
+  one line break) or `continues: "text"` (it ended inside a line — a paragraph longer than a part: join directly). A
+  part never cuts a line that fits in a part, so a table, a code block or a list read in parts is the same block again
+  when the joined Markdown is written back. A bridge older than 1.12.0 (no cursor in its schema) gets contract 1's
+  answer instead: the whole page's Markdown, cut at 60,000 characters with a last line *[Truncated: 60,000 of N
+  characters — the rest needs the updated One bridge]* and `truncated: true`; Settings → Agents · MCP asks for the
+  update.
 - **`rev`** — the content's revision, an opaque string (B: the page's content counter; S: a hash of its document state —
   state vector and delete set, so a member who only deletes moves it too).
 - **`format: "blocks"`** — every block nested: `{ ref, type, markdown?, attrs?, data?, children? }`. Leaves carry their
@@ -143,7 +158,9 @@ out), and a tool takes **only** the arguments it declares: anything else is refu
 - **`class`** (single reads): `page`, `rows`, `private`, `mail` or `memory` — the last three mark personal data; the
   instructions tell the agent not to copy it into shared pages or other tools without asking.
 - **Context marks** (B): when the person marked which blocks of a page Claude may read, MCP reads only those (and
-  `one_search` searches and quotes only those; such a hit says `limited: true`) —
+  `one_search` searches and quotes only those; such a hit says `limited: true`; `one_run_query` / `one_run_script`
+  read a page's `.markdown` / `.text` only from those blocks; `one_list_work_items` lists no task in an excluded block,
+  `one_update_work_item` refuses one as unknown, and a listed task's link to one carries no title) —
   their text, block data, files and comment threads; `limited: { blocks, files, comments, note }` counts what was left
   out.
 - `one_list_pages` lists pages and databases (and rows on request) in sidebar order — shared before private, never
@@ -169,7 +186,11 @@ out), and a tool takes **only** the arguments it declares: anything else is refu
   key or a text / number / url property; a row whose key holds `key` gets only the values that differ, no such row →
   a new one (its `markdown` is written only while its page is empty); any refused row fails the whole call with the list.
 - **One card per call** (B, *Ask first*): *Create 50 pages in “Launch plan”* with a line per page, *Change 20 rows in
-  Cards* with each value before → after. A row batch names what it would start — *Starts: autofill on 5 rows (Summary) ·
+  Cards* with each value before → after. Every line shows **everything** the entry writes — each value (never only the
+  first ones) and, under it, the text it writes into its page (*Content of “Kick-off” · 1,204 chars* with its first
+  lines). An upsert line names the key (*New · T-4100*), then the title and its values, or for a changed row *old title
+  → new title* and each value before → after; the key is not repeated. The scroll hint counts the entries (*30 entries —
+  scroll to see all*), never the card's other lines. A row batch names what it would start — *Starts: autofill on 5 rows (Summary) ·
   automation “Notify” · agent “Triage”* — and a call whose rows that start paid AI work or send something out of One
   (autofill that updates by itself, a webhook or script automation, a row-triggered agent) add up to **5 or more** —
   new and changed rows together, over every database it touches, a new title counting as a change of the title
@@ -182,7 +203,11 @@ out), and a tool takes **only** the arguments it declares: anything else is refu
 
 ## Boards in one call
 
-`one_create_database` makes the database, its properties, its views and its rows in one call — and one card. The
+`one_create_database` makes the database, its properties, its views and its rows in one call — and one card. Without
+`properties` it makes **Name, Status (Not started · In progress · Done), Tags, Date** — these English words in every
+workspace language, on the bridge and the team server alike (`MCP_DEFAULT_PROPERTIES`, `MCP_DEFAULT_STATUS` in
+`src/shared/mcp/tables.ts`); a status property made without options gets the same three. The answer's `properties`
+names what was made. The
 German walk-through *„Lege unter Projekt Nordlicht eine Unterseite mit einem Board Todo / Doing / Done an und trage
 diese fünf Aufgaben ein“* is two calls — `one_search { query: "Projekt Nordlicht" }`, then:
 
@@ -202,7 +227,7 @@ diese fünf Aufgaben ein“* is two calls — `one_search { query: "Projekt Nord
   page's text — after the block `afterBlock` names (a ref from `one_get_page`) or at the end. The page must be live,
   unlocked, not a template, in the same privacy scope and not part of One's own databases.
 - **A board** groups by `groupBy` or the first status / select / multi-select / person / checkbox property; with none,
-  a `Status` property (the app's default options, in the UI's language) is added. A **table view** follows a first
+  a `Status` property (*Not started*, *In progress*, *Done*) is added. A **table view** follows a first
   view that is not a table, so the rows stay editable in a grid. `note` says what was added.
 - Rows are checked against the new schema before anything is written; the coercion is `one_create_row`'s. Give each row
   its lane (`properties: { "Status": "Todo" }`): a row without a value for the grouping property waits in the board's
@@ -218,7 +243,8 @@ diese fünf Aufgaben ein“* is two calls — `one_search { query: "Projekt Nord
 read + write; a read token never writes). While on, `one_get_page { comments: true }` adds the threads:
 `[{ id, quote, body, author, createdAt, resolved, ref, replies: [{ id, body, author, createdAt }] }]` — `ref` is the
 block that holds the comment's mark, resolved threads come with `resolved: true`. While off, `comments: true` answers
-`comments_off` (ask the person; do not retry). Writing comments over MCP comes with a later version.
+`comments_off` (ask the person; do not retry — S: the flag is set when a token is made and stays as it is, so the
+next step there is a token with comments on, made by an owner or admin). Writing comments over MCP comes with a later version.
 
 ## What MCP never changes
 
@@ -228,7 +254,12 @@ block that holds the comment's mark, resolved threads come with `resolved: true`
   change, no inline block of one, no trash of a page whose tree holds one — `system_database`. Reading stays allowed
   (mail and memory rows carry their `class`).
 - **Templates** are invisible: a template page's id is `not_found` for every tool, also as a `parentId`.
-- **Coding tasks** never take trust from an MCP write: a pipeline task whose version an MCP write moved (its row, its
+- **One Script over MCP** (`one_run_script`, its dry run too) never writes into those databases either — a run that
+  would is refused before anything happens (`system_database`; also a value of a two-way relation whose other side is
+  one of them); a run already under way stops at that write, and what it changed before stays (the answer says so).
+- **Private stays private** (B, team workspace): Markdown written into a shared page never links a private page (a
+  `#/p/<id>` link of one is `private_scope`), as a file or a mention would not.
+- **Coding tasks** never take trust from an MCP write (also through a script `one_run_script` ran): a pipeline task whose version an MCP write moved (its row, its
   pipeline, a page it takes along) waits for *Confirm* in One before the worker runs it.
 - **Text from a client** goes through the same gate as every Claude answer in One: raw HTML only as One's own file form
   writes it (any other tag stays text), `data:` images become the text "[inline image removed — add the picture in One]" (nothing is decoded),
@@ -284,6 +315,10 @@ The tools that delete, adjust, create and reorganise follow the same rules on bo
   Otherwise the answer lists what does not fit. Unique ids are numbered anew in the target.
 - **Not offered:** turning a page into a database entry or back (the sidebar's drops — they ask the person on the
   way), and, in a team workspace, moving between *Private* and the workspace. Both stay in the app.
+- **What they start.** Rows going to the trash start their *row deleted* automations; a property change or delete that
+  clears values starts *property changed* automations and autofill on those rows. The card names it (*Starts: …*) and
+  5 or more such rows that start paid AI work or send something out of One are **always asked**, also in *Apply
+  directly* — as for row batches.
 - **Safety.** The destructive tools (`one_trash_page`, `one_delete_property`, `one_update_property`, `one_delete_view`)
   carry `destructiveHint`, so clients ask before running them. Local bridge: *Ask first* shows a card for each —
   *Database “Projects” with 8 rows → trash*, *Delete property “Budget” from Projects* with *Values · 8 rows lose their
@@ -707,12 +742,21 @@ API writes keep none.
 **Workspace settings → Automation → API → Recent MCP writes** (owners and admins) lists the last 100 calls — the
 tool in words, the token, what it made and changed, the first titles, its age — each with **Restore**:
 
-- made pages, databases and rows go to the **trash** (rows of a made database go along with it);
+- made pages, databases and rows go to the **trash** (rows of a made database go along with it) — **only while nobody
+  changed them since**: a made page whose text someone wrote into, or below which someone put a page, a made row
+  changed since, a made database that someone added a row to or whose rows changed is **kept and named** (*Restore
+  anyway* trashes it too);
 - each changed field goes back **while it still holds what the call wrote** — a field someone changed since is kept and
-  named (*Restore anyway* puts it back too);
+  named (*Restore anyway* puts it back too); a two-way relation goes back on both sides (its partner rows are set as
+  the app sets them);
 - a page text that changed since the call — added to or only deleted from — is refused (`changed_since`) — **Restore
   anyway** puts the call's copy back and the later changes go (the dialog says so);
 - a call put back is forgotten for repeats: the same call again makes the thing again;
+- each part goes back once: a Restore that kept something puts back the rest and remembers it — a later *Restore
+  anyway* acts only on what was kept, never again on what went back (a text written since into a page that was put
+  back stays); the row says *Restored* once every part is back;
+- `one_upsert_rows` keeps the pre-image of the fields it wrote only (never the row's other fields), and a call that
+  fails mid-way takes everything back — the rows it made, the values and the texts it wrote;
 - restoring twice changes nothing. Routes: `GET /api/workspaces/:id/mcp-calls`,
   `POST /api/workspaces/:id/mcp-calls/:callId/restore { force? }` ([API.md](API.md#recent-mcp-writes)).
 
@@ -730,6 +774,6 @@ tool in words, the token, what it made and changed, the first titles, its age �
 | Limits | shared with `/api/v1`: 120 requests per minute per token (`API_RATE_LIMIT`; every JSON-RPC request counts — a client's start is 2–3 of them), 30 failed authentications per minute per client address, 256 KB per request, 100 rows per query answer |
 | Reverse proxy | nothing to configure (no streaming); Caddy from `docker-compose.yml` works as it is |
 | Logs | tool calls that change something are logged (`mcp page updated` …) with the token id — never the token |
-| Version | `serverInfo.version` = `<server version>+mcp.2`; `GET /api/config` lists `mcp:2` in `supports` while the server serves contract 2 (T-a). The team server and the app update together: an older server keeps its tools as they were |
+| Version | `serverInfo.version` = `<server version>+mcp.2`; `GET /api/config` lists `mcp:2` in `supports` while the server serves contract 2 (T-a). The team server and the app update together: an older server keeps its tools as they were; the app reads `supports` and, on a server without `mcp:2`, shows no *Recent MCP writes* and no token *Comments* choice, but one line: the team server needs an update |
 
 The static file `/mcp/one-mcp.mjs` (the local bridge, part of the app build) is served next to the endpoint as usual.

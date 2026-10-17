@@ -13,14 +13,17 @@ import type { McpToolName } from './contract'
 import { live, McpToolError, q, ws } from './values'
 import type { Writer } from '../../store/writer'
 import { privateRefsFor, privateScopeRefusal } from '../ai/claudeFiles'
-import { codeOf, MCP_REMEDIES, type McpErrorCode } from '../../../shared/mcp/errors'
+import { codeOf, mcpError, MCP_REMEDIES, type McpErrorCode } from '../../../shared/mcp/errors'
 
 /** One line of the approval card. */
 export type PlanLine =
   /** a property value: before → after (before absent for new rows) */
   | { k: 'prop'; name: string; before?: string; after: string; fresh?: string[] }
-  /** a labelled fact: "In · Team wiki", "Type · number" */
-  | { k: 'fact'; label: string; value: string }
+  /**
+   * a labelled fact: "In · Team wiki", "Type · number". `entry`: one of the things the person approves (a batch's row,
+   * page …) — counted by the card's scroll hint; a numbered label ("01") is one by itself.
+   */
+  | { k: 'fact'; label: string; value: string; entry?: true }
   /** Markdown that gets written (first lines shown) */
   | { k: 'md'; label: string; value: string }
   | { k: 'note'; value: string }
@@ -52,11 +55,11 @@ export interface WritePlan {
 
 export const str = (v: unknown, key: string, opts: { required?: boolean; max?: number } = {}): string => {
   if (v === undefined || v === null || (typeof v === 'string' && !v.trim())) {
-    if (opts.required) throw new McpToolError(`Missing required parameter "${key}".`)
+    if (opts.required) throw new McpToolError(mcpError('bad_argument', key, 'missing — it is required'))
     return ''
   }
-  if (typeof v !== 'string') throw new McpToolError(`"${key}" must be a string.`)
-  if (opts.max && v.length > opts.max) throw new McpToolError(`"${key}" is too long (${v.length} characters, at most ${opts.max}).`)
+  if (typeof v !== 'string') throw new McpToolError(mcpError('bad_argument', key, 'a string is expected'))
+  if (opts.max && v.length > opts.max) throw new McpToolError(mcpError('bad_argument', key, `too long (${v.length} characters, at most ${opts.max})`))
   return v
 }
 
@@ -136,19 +139,19 @@ export const colorOf = (raw: unknown): ColorName | undefined => (typeof raw === 
 /** Options for select / multi_select / status from names or {name, color, group}. */
 export function optionsOf(type: PropertyType, raw: unknown, key: string, start = 0): SelectOption[] | undefined {
   if (raw === undefined || raw === null) return undefined
-  if (type !== 'select' && type !== 'multi_select' && type !== 'status') throw new McpToolError(`${key}: options only apply to select, multi_select and status.`)
-  if (!Array.isArray(raw)) throw new McpToolError(`${key}: "options" must be a list of option names (or {name, color, group}).`)
+  if (type !== 'select' && type !== 'multi_select' && type !== 'status') throw new McpToolError(mcpError('bad_argument', key, 'options only apply to select, multi_select and status'))
+  if (!Array.isArray(raw)) throw new McpToolError(mcpError('bad_argument', key, 'a list of option names (or {name, color, group}) is expected'))
   const opts: Array<{ name: string; color?: ColorName; group?: StatusGroup }> = []
   for (const item of raw as unknown[]) {
     const o = typeof item === 'string' ? { name: item } : item && typeof item === 'object' && !Array.isArray(item) ? (item as Record<string, unknown>) : null
-    if (!o || typeof o.name !== 'string') throw new McpToolError(`${key}: every option is a name or {name, color, group}.`)
+    if (!o || typeof o.name !== 'string') throw new McpToolError(mcpError('bad_argument', key, 'every option is a name or {name, color, group}'))
     const name = o.name.replace(/\s+/g, ' ').trim().slice(0, 60)
     if (!name || opts.some((x) => x.name.toLowerCase() === name.toLowerCase())) continue
     const color = colorOf(o.color)
     const group = o.group === 'todo' || o.group === 'in_progress' || o.group === 'done' ? o.group : undefined
     opts.push({ name, ...(color ? { color } : {}), ...(group ? { group } : {}) })
   }
-  if (opts.length > 100) throw new McpToolError(`${key}: at most 100 options.`)
+  if (opts.length > 100) throw new McpToolError(mcpError('bad_argument', key, `${opts.length} options (at most 100)`))
   if (type === 'status' && !opts.length) return undefined
   // status without groups: first = to do, last = done, the rest in progress
   const groupAt = (i: number): StatusGroup => (opts.length === 1 || i === 0 ? 'todo' : i === opts.length - 1 ? 'done' : 'in_progress')
@@ -167,9 +170,28 @@ export const tasksOf = (created: Array<{ id: string; title: string; handle?: str
  * `targetPrivate`: the target's privacy (team; locally nothing is private).
  */
 export function checkFileScope(markdown: string, targetPrivate: boolean, target: string): void {
+  checkLinkScope(markdown, targetPrivate, target)
   if (!markdown.includes('onefile:')) return
   const refs = privateRefsFor(markdown, targetPrivate)
   if (refs.length) throw new McpToolError(privateScopeRefusal(refs, target))
+}
+
+/** Page ids a Markdown text links: `#/p/<id>` — a Markdown link, a full One address, a bare one. */
+const PAGE_LINKS = /#\/p\/([\w-]+)/g
+
+/**
+ * Nothing points shared → private (spec § 3.3): a link to the member's private page written into a shared page becomes a
+ * page mention or a page link block there (agent/links.ts withPageNodes) — or stays a link to it — and every member gets
+ * it. Refused with private_scope (team; locally nothing is private). `target`: the shared page's name for the message.
+ */
+export function checkLinkScope(markdown: string, targetPrivate: boolean, target: string): void {
+  if (targetPrivate || !markdown.includes('#/p/')) return
+  const { pages } = ws()
+  const ids = [...new Set([...markdown.matchAll(PAGE_LINKS)].map((m) => m[1]!))].filter((id) => !!pages[id]?.private)
+  if (!ids.length) return
+  throw new McpToolError(
+    `private_scope: markdown: ${target} is seen by the whole workspace and the text links ${ids.length === 1 ? 'a private page' : `${ids.length} private pages`} (${ids.slice(0, 5).join(', ')}${ids.length > 5 ? ` +${ids.length - 5}` : ''}). Nothing was changed. Leave the link out — private pages are never linked or mentioned from shared ones; ask the person.`,
+  )
 }
 
 /**

@@ -17,6 +17,7 @@ import { databaseOrThrow, kindOf, live, McpToolError, pageUrl, pathOf, q, rowPro
 import { adoptRowType } from '../../database'
 import { withWriter } from '../../store/writer'
 import { assertNotSystem, assertTreeNotSystem } from './system'
+import { sideEffects, sideHold } from './rows'
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
@@ -115,6 +116,17 @@ function planTrash(args: Record<string, unknown>): WritePlan {
     lines.push(...itemLines(items.map((x) => ({ label: kindLabel(x.page), value: `${titleOf(x.page)}${x.rows !== undefined ? ` · ${rowsLabel(x.rows)}` : ''}` }))))
     if (total) lines.push({ k: 'fact', label: t('features.mcp.plan.below'), value: t('features.mcp.plan.belowN', { n: chars(total) }) })
   }
+  // rows going to the trash set off their databases' "row deleted" automations (a webhook, a script — spec § 2.3):
+  // named on the card, and from MCP_LIMITS.rowsAsk such rows the call is always asked (sideHold, over the whole call)
+  const trashedRows = new Map<ID, number>()
+  for (const x of items) if (x.page.databaseId) trashedRows.set(x.page.databaseId, (trashedRows.get(x.page.databaseId) ?? 0) + 1)
+  const sides = [...trashedRows].flatMap(([dbId, n]) => {
+    const db = ws().databases[dbId]
+    return db ? [sideEffects(db, n, { deleted: true, props: new Set() })] : []
+  })
+  const hold = sideHold(sides)
+  for (const s of sides) lines.push(...s.lines)
+  lines.push(...hold.lines)
   lines.push({ k: 'note', value: t('features.mcp.plan.trashNote') })
   const out = (x: TrashItem) => ({ id: x.page.id, title: x.page.title, kind: kindOf(x.page), ...(x.rows !== undefined ? { rows: x.rows } : {}), alsoTrashed: x.below })
   return {
@@ -123,6 +135,7 @@ function planTrash(args: Record<string, unknown>): WritePlan {
     summary,
     target: single ? titleOf(items[0].page) : summary,
     lines,
+    ...(hold.alwaysAsk ? { alwaysAsk: true } : {}),
     async apply(writer) {
       // every write of this call under its writer (store/writer.ts) — one synchronous burst
       return withWriter(writer, () => {
@@ -179,7 +192,8 @@ function planRestore(args: Record<string, unknown>): WritePlan {
     const top = !!p.parentId && !p.databaseId && !live(p.parentId)
     items.push({ page: p, top, ...(p.kind === 'database' ? { rows: Object.values(pages).filter((r) => r.databaseId === p.id && !r.trashed).length } : {}) })
   }
-  if (problems.length) throw new McpToolError(`Nothing was restored: ${problems.join('; ')}.${recentTrash()}`)
+  // not in the trash (or only inside something that is): the agent looks again at what is there (the list helps)
+  if (problems.length) throw new McpToolError(`not_found: Nothing was restored: ${problems.join('; ')}.${recentTrash()}`)
   for (const it of items) assertTreeNotSystem(it.page.id)
   const single = !Array.isArray(args.ids)
   const lines: PlanLine[] = []

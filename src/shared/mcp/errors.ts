@@ -87,6 +87,26 @@ export function mcpError(code: McpErrorCode, path: string, what: string, next?: 
 }
 
 /**
+ * The code a refusal without one means (spec § 2.0: the code is the first word of EVERY refusal — an agent branches on
+ * it): something that changed while the call waited → page_changed; something gone meanwhile → not_found; locked
+ * meanwhile → locked; the person's own decision → rejected; anything else is about the arguments → bad_argument (as the
+ * team server's explain() does). A message that starts with a code keeps it.
+ */
+export function withCode(message: string): string {
+  if (codeOf(message)) return message
+  const code: McpErrorCode = /changed (while this call waited|meanwhile|after its dry run|since)/i.test(message)
+    ? 'page_changed'
+    : /\b(is|are) gone\b|gone by now|deleted meanwhile|Use one_search to find page ids/i.test(message)
+      ? 'not_found'
+      : /was locked meanwhile/i.test(message)
+        ? 'locked'
+        : /\bcancelled\b|the person's decision/i.test(message)
+          ? 'rejected'
+          : 'bad_argument'
+  return `${code}: ${message}`
+}
+
+/**
  * A message as the agent gets it: one that starts with a code but does not say "Nothing was …" (changed, done, moved,
  * restored …) gets that and the code's next step; anything else passes as it is (such messages carry their own wording).
  */
