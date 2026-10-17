@@ -3,7 +3,8 @@
  * `window.__oneOrders` = { plan(row, opts), answer(row, answers), record(row), run(row), stop(row) } and B6's confirming
  * (start, hashNow, undo, undoable, startNow, runChain, finishCreates, finishRest, discardMade, fault, world, parked, countFor) and
  * B7's chain (move, advance, confirmAndGo, halt, haltAll, stopNow, resume, skip, replanFrom, successor, agentAppend,
- * agentStage, approvePlan; seenNow = what a card would render now, as the fingerprints a press passes). The planner
+ * agentStage, approvePlan; seenNow = what a card would render now, as the fingerprints a press passes) and B9's Preflight
+ * cards (cards, dropRecord, putRecord, trusted). The planner
  * and confirm.ts load on the first call (lazy chunks); results are plain JSON (an AIError as { code, detail, fixes }).
  */
 import type { ID } from '../../../store/types'
@@ -105,6 +106,13 @@ if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams
           return plain({ error: e instanceof Error ? e.message : String(e) })
         }
       }),
+    // B9 — Preflight's cards: what waits here now; this device's record of a request dropped (as when the worker moved to
+    // a device that never held it, or a backup came back); whether a task's version is trusted on this device
+    cards: () => import('./lamp').then((m) => plain(m.orderCards())),
+    dropRecord: (rowId: ID) => import('./records').then((m) => m.patchOrderRecord(rowId, () => null)).then(plain),
+    // this device's record of a request set as given (a record another build or device state would leave here)
+    putRecord: (rowId: ID, rec: unknown) => import('./records').then((m) => m.patchOrderRecord(rowId, () => rec as never)).then(plain),
+    trusted: (taskId: ID) => import('../trust').then((m) => m.isTrusted(taskId)),
     // what the brake note's E does on the plate (governor BrakeFor): an allowance for exactly this retry, then plan again
     retryWith: (rowId: ID, allowance: string) =>
       Promise.all([import('../../ai/core/gate'), import('./planner')]).then(([g, m]) => {

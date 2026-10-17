@@ -52,7 +52,7 @@ import { pipelineLine, pipelineNeedsRepo, startStageOf } from '../stages'
 import { checkTaskDraft, type DraftIssue, type NewTaskInput } from '../draft'
 import { applyNewTask, draftWorld, planNewTask, type NewTaskPlan } from '../terminal'
 import { taskBody } from '../tasks'
-import { loadTask, taskLocal } from '../local'
+import { addTrusted, loadTask, taskLocal } from '../local'
 import { refPagesOf } from '../refs'
 import { defaultApprovals, useCoding } from '../state'
 import { checkPreconditions, type KindProblem, type PlannerBlock } from './preconditions'
@@ -63,8 +63,10 @@ import { orderCode, orderStatusKey, writeOrderStatus } from './db'
 import { orderConfigUsable, readOrderConfig } from './config'
 import { loadOrderRecord, orderScope, patchOrderRecord } from './records'
 import { followRecord, orderWriter, unschedule } from './chainRun'
-import { stepPage } from './stepPage'
+import { stepBlockIds, stepPage } from './stepPage'
 import { stepWords } from './words'
+import { taskVersionView } from '../terminal'
+import { carried, chainCarriers, chainKeyBlock, heldIds } from './lamp'
 import { ORDER_LIMITS, type OrderChain, type OrderChainStep, type OrderDraft, type OrderKind, type OrderRecord } from './types'
 
 const ws = () => useWorkspace.getState()
@@ -514,7 +516,7 @@ async function undoLocked(rowId: ID): Promise<UndoOutcome> {
   const rec = asRecord(await loadOrderRecord(rowId, { fresh: true }))
   const chain = rec?.chain
   if (!rec || rec.state !== 'running' || !chain) return { ok: false, why: 'state' }
-  if (Object.keys(chain.advanced ?? {}).length) return { ok: false, why: 'taken' }
+  if (Object.keys(chain.advanced ?? {}).length || chain.adopted !== undefined) return { ok: false, why: 'taken' }
   const titles = new Map((rec.draft?.plan.steps ?? []).map((st, i) => [chain.steps[i]?.id, st.title.replace(/\s+/g, ' ').trim()]))
   for (const step of chain.steps) {
     if (!live(step.id)) continue
@@ -537,7 +539,7 @@ export async function undoable(rowId: ID): Promise<'ok' | 'taken' | 'changed' | 
   const rec = asRecord(await loadOrderRecord(rowId))
   const chain = rec?.chain
   if (!rec || rec.state !== 'running' || !chain) return 'state'
-  if (Object.keys(chain.advanced ?? {}).length) return 'taken'
+  if (Object.keys(chain.advanced ?? {}).length || chain.adopted !== undefined) return 'taken'
   for (const step of chain.steps) {
     if (!live(step.id)) continue
     const state = await untouched(step, step.title ?? '')
@@ -642,6 +644,115 @@ export async function discardMade(rowId: ID): Promise<FinishOutcome> {
     })
     await patchOrderRecord(rowId, (r) => (r?.chain?.run === chain.run && r.state === 'interrupted' ? backToDraft(r, chain.replaced?.chain) : r))
     return { ok: true, created: -trashed }
+  })
+  return out === 'busy' ? { ok: false, why: 'busy' } : out
+}
+
+/* ------------------------------------------------------------------ Kette bestätigen (a chain made elsewhere) */
+
+export type ConfirmChainOutcome =
+  | { ok: true; steps: number }
+  | {
+      ok: false
+      /** busy: the request's lock is held · state: this device holds a chain of it, or it does not stand in Läuft ·
+       *  changed: a step is not (exactly) the version the card rendered, or the steps are not the ones it listed — nothing
+       *  was trusted, shown again · numbers: the Schritt numbers are missing or doubled · the chain guard's reasons */
+      why: 'busy' | 'state' | 'changed' | 'numbers' | 'record' | 'readOnly' | 'elsewhere' | 'outdated' | 'unsafe'
+    }
+
+/** A chain of at most this many steps can be taken over (the record reader's bound). */
+const ADOPT_MAX = 24
+
+/**
+ * Preflight's "Kette bestätigen" (VON HAND; spec §3.4 / §3.10): a request in Läuft whose chain this device holds no record
+ * of — the worker moved to this device, or the workspace came back from a backup — gets this device's record, built
+ * from exactly the steps the card listed (their Prüfauftrag relation; their Schritt numbers ordered them, the person saw
+ * each step in full). All or nothing: every step must still be exactly the version the card rendered (its hash) — any
+ * other one, a step more or less: nothing is trusted, nothing is written ('changed', the card shows them again). Then each
+ * version is trusted on this device, the record says which tasks are the chain (its pipeline lines and this device's
+ * Approvals now, the pages each takes along pinned at their fingerprints), steps already under way count as started and
+ * done ones as passed by this press; the engine goes on from there (step 01 at once when it still waits). Z never takes
+ * such a chain back (`adopted`). The writer of everything after is the chain's own (`order:<row>:<run>`).
+ */
+export async function confirmChainVersions(rowId: ID, shown: ReadonlyArray<{ id: ID; hash: string }>): Promise<ConfirmChainOutcome> {
+  const block = chainKeyBlock()
+  if (block) return { ok: false, why: block }
+  const out = await withLocks(rowId, async (): Promise<ConfirmChainOutcome> => {
+    const rec = asRecord(await loadOrderRecord(rowId, { fresh: true }))
+    if (carried(rec) || orderStatusKey(rowId) !== 'running' || !live(rowId)) return { ok: false, why: 'state' }
+    const carriers = chainCarriers(rowId, heldIds(rec))
+    if (!carriers.length || carriers.length !== shown.length || carriers.some((c, i) => c.id !== shown[i]!.id)) return { ok: false, why: 'changed' }
+    const ns = carriers.map((c) => c.n)
+    if (carriers.length > ADOPT_MAX || ns.some((n) => n === null) || new Set(ns).size !== ns.length) return { ok: false, why: 'numbers' }
+    // every version exactly as the card rendered it — checked for all before any is trusted
+    const views = []
+    for (let i = 0; i < carriers.length; i++) {
+      const view = await taskVersionView(carriers[i]!.id)
+      if (!view || view.hash !== shown[i]!.hash) return { ok: false, why: 'changed' }
+      views.push(view)
+    }
+    for (const v of views) await addTrusted(v.hash)
+    const s = ws()
+    const row = s.pages[rowId]!
+    const read = readOrderConfig(row.databaseId ? s.databases[row.databaseId] : undefined)
+    const approvals = defaultApprovals()
+    const now = Date.now()
+    const advanced: Record<number, number> = {}
+    const doneBy: OrderChain['doneBy'] = {}
+    const steps: OrderChainStep[] = []
+    for (let i = 0; i < carriers.length; i++) {
+      const c = carriers[i]!
+      const page = s.pages[c.id]!
+      const db = s.databases[c.project]!
+      const props = codingProps(db)
+      const pipeline = readPipeline(db)
+      const repo = props.repo ? page.properties[props.repo] : null
+      const stage = stageOfRow(pipeline, props, page)
+      const n = c.n!
+      // under way (out of its park stage) counts as started; done as passed by this press (it showed the next step whole)
+      if (stage && stage.id !== startStageOf(pipeline, !!repo, false)?.id) advanced[n] = now
+      if (stage?.kind === 'done') doneBy[n] = { kind: 'you', via: 'preflight', at: now, sawNext: true }
+      const ids = stepBlockIds(c.id)
+      const refs: Record<ID, string> = {}
+      for (const r of views[i]!.refs) refs[r.id] = await pageFp(ws().pages[r.id])
+      steps.push({
+        n,
+        id: c.id,
+        kind: c.kind,
+        project: c.project,
+        line: pipelineLine(pipeline, !!repo, true, approvals),
+        approvals,
+        refs,
+        basisBlock: i > 0 ? ids.slot : null,
+        own: [...(i > 0 ? [ids.slot] : []), ids.request, ids.context, ids.refs],
+        title: page.title,
+        rev: page.contentRev,
+      })
+    }
+    const chain: OrderChain = {
+      run: newId(),
+      confirmedAt: now,
+      startAt: now,
+      steps,
+      doneBy,
+      halted: null,
+      checkpoint: read.kind === 'ok' ? read.config.checkpoint : true,
+      ...(read.kind === 'ok' && read.config.budgetUsd !== undefined ? { budgetUsd: read.config.budgetUsd } : {}),
+      ...(Object.keys(advanced).length ? { advanced, moved: { ...advanced } } : {}),
+      adopted: now,
+    }
+    let lost = false
+    const wrote = await patchOrderRecord(rowId, (r) => {
+      if (carried(r)) {
+        lost = true
+        return r
+      }
+      return { v: 1, state: 'running', chain }
+    })
+    if (lost) return { ok: false, why: 'state' }
+    if (!wrote.ok || wrote.rec?.state !== 'running') return { ok: false, why: 'record' }
+    followRecord(rowId, wrote.rec)
+    return { ok: true, steps: steps.length }
   })
   return out === 'busy' ? { ok: false, why: 'busy' } : out
 }

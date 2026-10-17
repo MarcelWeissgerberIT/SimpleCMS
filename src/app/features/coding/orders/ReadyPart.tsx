@@ -214,7 +214,7 @@ function StepEditor({ facts, repos, kinds, onSave, onCancel }: { facts: StationF
   )
 }
 
-function Station({
+export function Station({
   facts,
   index,
   draft,
@@ -430,26 +430,20 @@ function RequestPanel({ rowId, draft }: { rowId: ID; draft: OrderDraft }) {
 
 /* ------------------------------------------------------------------ the part */
 
-export default function ReadyPart({ rowId, rec, pre, headId, viewer, elsewhere, onNote }: { rowId: ID; rec: OrderRecord; pre: OrderPreResult; headId: string; viewer: boolean; elsewhere: boolean; onNote: (n: string | null) => void }) {
-  const t = useT()
-  const lang = useLang()
-  const draft = rec.draft!
-  const root = useRef<HTMLDivElement>(null)
+/**
+ * Every station of a plan as the plate draws it (B9: Preflight's "Kette bereit" card draws the same): its project, where
+ * it stops under this device's Approvals, the next step, a QA branch shared with a coding step, its key in the seen book.
+ */
+export function useStations(rowId: ID, rec: OrderRecord, draft: OrderDraft) {
   const databases = useWorkspace((s) => s.databases)
   const db = useWorkspace((s) => (s.pages[rowId]?.databaseId ? s.databases[s.pages[rowId]!.databaseId!] : undefined))
-  const repos = useCoding((s) => (s.worker?.repos ?? []).map((r) => r.name).join('\n'))
-  const repoList = useMemo(() => (repos ? repos.split('\n') : []), [repos])
   const read = readOrderConfig(db)
   const config = read.kind === 'ok' ? read.config : null
   const checkpoint = config?.checkpoint ?? true
   const approvals = defaultApprovals()
   const projects = useMemo(() => kindProjects(rowId), [rowId, databases]) // eslint-disable-line react-hooks/exhaustive-deps
-  const usableKinds = projects.filter((p) => !p.problem).map((p) => p.kind)
   const base = rec.chain ? Math.max(...rec.chain.steps.map((s) => s.n)) : 0
-  const server = draft.source.server
   const steps = draft.plan.steps
-
-  // every station's facts: project, where it stops, the next step, a QA branch shared with a coding step
   const stations = useMemo(() => {
     const stopSteps: StopStep[] = steps.map((st) => {
       const kp = projects.find((p) => p.kind === st.kind)
@@ -476,6 +470,20 @@ export default function ReadyPart({ rowId, rec, pre, headId, viewer, elsewhere, 
       }),
     }
   }, [steps, projects, approvals, checkpoint, base])
+  return { stations, projects, base, config, databases }
+}
+
+export default function ReadyPart({ rowId, rec, pre, headId, viewer, elsewhere, onNote }: { rowId: ID; rec: OrderRecord; pre: OrderPreResult; headId: string; viewer: boolean; elsewhere: boolean; onNote: (n: string | null) => void }) {
+  const t = useT()
+  const lang = useLang()
+  const draft = rec.draft!
+  const root = useRef<HTMLDivElement>(null)
+  const repos = useCoding((s) => (s.worker?.repos ?? []).map((r) => r.name).join('\n'))
+  const repoList = useMemo(() => (repos ? repos.split('\n') : []), [repos])
+  const { stations, projects, base, config, databases } = useStations(rowId, rec, draft)
+  const usableKinds = projects.filter((p) => !p.problem).map((p) => p.kind)
+  const server = draft.source.server
+  const steps = draft.plan.steps
 
   // what ↵ confirms: the plan as it resolves now
   const [hash, setHash] = useState<string | null>(null)

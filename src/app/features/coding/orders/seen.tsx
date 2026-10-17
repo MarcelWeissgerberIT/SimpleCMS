@@ -48,6 +48,12 @@ function bookOf(scope: string): Set<string> {
   return book
 }
 
+/** Outside React (Preflight's card keys): was `key` seen in `scope` · were both edges of `key` on screen. */
+export const seenHas = (scope: string, key: string): boolean => books.get(scope)?.has(key) ?? false
+export const seenWhole = (scope: string, key: string): boolean => seenHas(scope, `${key}:top`) && seenHas(scope, `${key}:bottom`)
+/** Called whenever something was marked seen (any scope). Returns the unsubscribe. */
+export const onSeen = (fn: () => void): (() => void) => subscribe(fn)
+
 /** The book of what was seen in `scope` (another plan, another version: another scope — nothing seen yet). */
 export function useSeenBook(scope: string): SeenBook {
   useSyncExternalStore(subscribe, getVersion, getVersion)

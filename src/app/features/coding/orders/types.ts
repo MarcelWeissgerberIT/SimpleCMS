@@ -305,6 +305,11 @@ export interface OrderChain {
   /** this device asks "end the chain?" since (the request was set to Fertig while it ran) */
   finishing?: number
   /**
+   * this device took the chain over (Preflight's "Kette bestätigen" — the worker moved here, a restored backup): its steps
+   * were made elsewhere, so Z (undoChain) never takes them back
+   */
+  adopted?: number
+  /**
    * the request's older chain this one replaced when it started (a follow-up chain): its steps still parked then went to
    * the trash (`trashed`, said on the plate before ↵) — undoChain brings them and that chain back
    */
@@ -318,9 +323,10 @@ export interface OrderChain {
 
 /**
  * How a request was pressed (spec §0 — the fixed allow-list, in this tab only): its Status set to Planen by the person
- * (via none / 'ui': a board drag, a cell pick) · the database command Planen · ↵ Planen on the plate · Prüfen lassen.
+ * (via none / 'ui': a board drag, a cell pick) · the database command Planen · ↵ Planen on the plate · Prüfen lassen ·
+ * 'card': ↵ Hier planen on Preflight's card for a request asked for on another device (a team, §3.10 — VON HAND).
  */
-export type OrderPressHow = 'status' | 'command' | 'plate' | 'send'
+export type OrderPressHow = 'status' | 'command' | 'plate' | 'send' | 'card'
 
 /**
  * A press, as the planner gets it (orders/planner.ts planOrder): its run (the planner run's id — ledger source

@@ -13,6 +13,7 @@ import type { AgentRun } from '../../agents/types'
 import type { DiscardReason } from '../../ai/agent/types'
 import type { CustomAgent } from '../../../store/types'
 import { answerPermission, applyTaskAction, confirmTaskVersion, type PermissionVerb, type TaskActionPlan } from '../../coding'
+import { advanceChain, confirmAndGo, confirmChainVersions, discardMade, discardPlan, finishRest, haltChain, planHere, replanFrom, resumeChain, skipChainStep, startChain, undoChain, type ChainKeyOutcome, type ChainPassable, type ConfirmChainOutcome, type FinishOutcome, type PressResult, type StartOutcome, type UndoOutcome } from '../../coding'
 import { archiveItems, markRead, type InboxItem } from '../../inbox/state'
 import { openInboxItem } from '../../inbox/engine'
 import { signIn } from '../../ai/mcp-servers/oauth'
@@ -168,3 +169,36 @@ export const connectMail = (): Promise<void> => syncNow({ connect: true })
 /* ---------------- autofill (its review lives in the database's panel) */
 
 export const openAutofill = (dbId: ID, propId: ID): void => openAutofillPanel(dbId, propId)
+
+/* ---------------- work orders (Prüfaufträge — the orders' own entry points; every start-like key VON HAND on its card) */
+
+/**
+ * ↵ Kette starten on a "Kette bereit" card: the chain of exactly the plan the card rendered (its hash) — all steps made
+ * parked under the chain's own writers, step 01 after the 10 s count. Its Undo: undoChain (all or nothing; refused once
+ * a step was taken).
+ */
+export const startOrderChain = (rowId: ID, hash: string): Promise<StartOutcome> => startChain(rowId, hash)
+export const undoOrderChain = (rowId: ID): Promise<UndoOutcome> => undoChain(rowId)
+/** D on a "Kette bereit" card: the plate's D (Status Entwurf, the plan discarded here) as `you~preflight:<row>`, quietly. */
+export const discardOrderPlan = (rowId: ID): Promise<{ ok: boolean; undo: (() => Promise<void>) | null }> => discardPlan(rowId)
+/**
+ * ↵ Weiter on a "Weiter mit Schritt n?" card: passes exactly the reasons it showed — a changed page / the Grundlage only
+ * as the card rendered them (their fingerprints); for a Confirm wait the version the card rendered is confirmed first.
+ */
+export const advanceOrderChain = (rowId: ID, step: number, passes: readonly ChainPassable[], seen: { refs?: Record<ID, string>; basis?: string }, confirmHash?: string): Promise<ChainKeyOutcome> =>
+  confirmHash !== undefined ? confirmAndGo(rowId, step, confirmHash, passes, seen) : advanceChain(rowId, step, passes, seen)
+/** H "Anhalten" on a card (every device): the Status → Angehalten as the person; this device's record halts at once. */
+export const haltOrderChain = (rowId: ID): Promise<ChainKeyOutcome> => haltChain(rowId)
+/** R "Ab hier neu planen" after an analysis (a planner request: tokens). */
+export const replanOrderFrom = (rowId: ID, n: number): Promise<ChainKeyOutcome> => replanFrom(rowId, n)
+/** ↵ Fortsetzen on a "Kette angehalten" card (only where the chain advances; refused at its budget). */
+export const resumeOrderChain = (rowId: ID): Promise<ChainKeyOutcome> => resumeChain(rowId)
+/** S "Schritt n überspringen" (a failed, stopped, trashed or ejected step; the next one gets no Grundlage from it). */
+export const skipOrderStep = (rowId: ID, n: number): Promise<ChainKeyOutcome> => skipChainStep(rowId, n)
+/** "Rest anlegen" / "Angelegte verwerfen" on an "Unterbrochen" card. */
+export const finishOrderRest = (rowId: ID): Promise<FinishOutcome> => finishRest(rowId)
+export const discardOrderMade = (rowId: ID): Promise<FinishOutcome> => discardMade(rowId)
+/** ↵ "Kette bestätigen": exactly the versions the card rendered, all or nothing — then this device carries the chain. */
+export const confirmOrderChain = (rowId: ID, shown: ReadonlyArray<{ id: ID; hash: string }>): Promise<ConfirmChainOutcome> => confirmChainVersions(rowId, shown)
+/** ↵ "Hier planen" on a request asked for on another device (a team): this device's own press (a planner request). */
+export const planOrderHere = (rowId: ID): Promise<PressResult> => planHere(rowId)

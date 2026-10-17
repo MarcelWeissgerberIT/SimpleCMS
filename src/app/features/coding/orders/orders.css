@@ -1119,3 +1119,65 @@
 .orc-edit {
   scroll-margin-top: calc(48px * var(--text-scale));
 }
+
+/* ---------- Preflight's work-order cards (B9): the plate's own parts inside a card ---------- */
+.ord-card,
+.ord-ready {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding-bottom: 4px;
+}
+.ord-ready .orc-stations {
+  margin-top: 4px;
+}
+/* inside a card the station heads do not stick (the card is no scroller of its own) */
+.ord-ready .orc-station__bar {
+  position: static;
+}
+.ord-step {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding-top: 8px;
+  border-top: 1px dashed var(--rule-strong);
+}
+.ord-step__head {
+  margin: 0;
+  color: var(--ink);
+}
+.ord-sub {
+  margin: 0;
+  color: var(--ink-3);
+}
+.ord-basis,
+.ord-ref,
+.ord-request {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.ord-request > .label {
+  margin: 0;
+  color: var(--ink-2);
+}
+.ord-steps {
+  display: grid;
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ord-stages,
+.ord-list {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding-left: 18px;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+}
+.orc-doc-wrap {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}

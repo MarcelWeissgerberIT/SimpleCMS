@@ -44,6 +44,26 @@ export function byText(by: OrderDoneBy | null | undefined, t: Tr): string {
 /** The refusal of a chain key, in words. */
 export const keyWhyText = (out: ChainKeyOutcome, t: Tr): string | null => (out.ok ? null : t(`${O}.keyWhy.${out.why}`))
 
+/** A card's reasons, one line each (the plate's card and Preflight's "Weiter mit Schritt n?" say the same). */
+export function cardWhyLines(move: Card, step: { kind: string; title: string; refs: ReadonlyArray<{ private?: boolean; title: string } | undefined> }, t: Tr): string[] {
+  return move.all.map((why) => {
+    switch (why) {
+      case 'checkpoint':
+        return t(`${O}.card.checkpoint`, { n: stepNo(move.step), kind: step.kind, title: step.title })
+      case 'evidence':
+        return move.by ? t(`${O}.why.doneBy`, { n: stepNo(move.from ?? move.step - 1), writer: byText(move.by, t) }) : t(`${O}.why.doneByNone`, { n: stepNo(move.from ?? move.step - 1) })
+      case 'drift':
+        return t(`${O}.why.drift`, { what: (move.drift ?? []).map((d) => t(`${O}.drift.${d}`)).join(' · ') })
+      case 'ref':
+        return step.refs.map((p) => t(`${O}.why.refChanged`, { title: !p || p.private ? t('common.untitled') : p.title.trim() || t('common.untitled') })).join(' · ')
+      case 'basis':
+        return t(`${O}.why.basisForeign`, { n: stepNo(move.from ?? move.step - 1) })
+      case 'confirm':
+        return t(`${O}.why.changedBy`, { n: stepNo(move.step), agent: agentLabel(move.agent ?? null) ?? t(`${O}.by.other`) })
+    }
+  })
+}
+
 export default function ChainCard({ rowId, chain, move, viewer, onOutcome }: { rowId: ID; chain: OrderChain; move: Card; viewer: boolean; onOutcome: (o: ChainKeyOutcome) => void }) {
   const t = useT()
   const step = chain.steps.find((s) => s.n === move.step)
@@ -91,22 +111,7 @@ export default function ChainCard({ rowId, chain, move, viewer, onOutcome }: { r
   const passes = move.all.filter((w): w is ChainPassable => w !== 'confirm')
   const text = confirm ? (view?.markdown ?? '') : page ? docToMarkdown(page.content) : ''
 
-  const lines = move.all.map((why) => {
-    switch (why) {
-      case 'checkpoint':
-        return t(`${O}.card.checkpoint`, { n: stepNo(move.step), kind, title })
-      case 'evidence':
-        return move.by ? t(`${O}.why.doneBy`, { n: stepNo(move.from ?? move.step - 1), writer: byText(move.by, t) }) : t(`${O}.why.doneByNone`, { n: stepNo(move.from ?? move.step - 1) })
-      case 'drift':
-        return t(`${O}.why.drift`, { what: (move.drift ?? []).map((d) => t(`${O}.drift.${d}`)).join(' · ') })
-      case 'ref':
-        return refPages.map((p) => t(`${O}.why.refChanged`, { title: !p || p.private ? t('common.untitled') : p.title.trim() || t('common.untitled') })).join(' · ')
-      case 'basis':
-        return t(`${O}.why.basisForeign`, { n: stepNo(move.from ?? move.step - 1) })
-      case 'confirm':
-        return t(`${O}.why.changedBy`, { n: stepNo(move.step), agent: agentLabel(move.agent ?? null) ?? t(`${O}.by.other`) })
-    }
-  })
+  const lines = cardWhyLines(move, { kind, title, refs: refPages }, t)
 
   const run = (fn: () => Promise<ChainKeyOutcome>) => async () => {
     if (pending) return

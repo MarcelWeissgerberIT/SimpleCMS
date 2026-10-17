@@ -8,6 +8,7 @@
  *  - openCodingSettings() / consumeCodingSettingsRequest(): open Settings on that tab
  *  - codingDbId(): the Coding database (Database.system 'coding') · useCoding: the worker link's state
  */
+import { lazy } from 'react'
 import { inTeam, pipelineDbIds } from './schema'
 import { useCodingLocal } from './local'
 import { defaultApprovals, type ApprovalsLevel } from './state'
@@ -241,8 +242,8 @@ export { stepWords } from './orders/words'
  * budget) · skipStep (S) · setChainBudget · replanFrom (R after an analysis). chainSuccessorNow(task) — the parked step
  * an approval of `task` releases (TaskActionPlan.chain); chainStepOf(task).
  */
-export const advanceChain = (rowId: string, step: number, passes: readonly import('./chain').ChainPassable[]) => import('./orders/chainKeys').then((m) => m.advanceChain(rowId, step, passes))
-export const confirmAndGo = (rowId: string, step: number, hash: string, passes: readonly import('./chain').ChainPassable[] = []) => import('./orders/chainKeys').then((m) => m.confirmAndGo(rowId, step, hash, passes))
+export const advanceChain = (rowId: string, step: number, passes: readonly import('./chain').ChainPassable[], seen: import('./orders/chainKeys').ChainSeen = {}) => import('./orders/chainKeys').then((m) => m.advanceChain(rowId, step, passes, seen))
+export const confirmAndGo = (rowId: string, step: number, hash: string, passes: readonly import('./chain').ChainPassable[] = [], seen: import('./orders/chainKeys').ChainSeen = {}) => import('./orders/chainKeys').then((m) => m.confirmAndGo(rowId, step, hash, passes, seen))
 export const haltChain = (rowId: string) => import('./orders/chainKeys').then((m) => m.haltChain(rowId))
 export const haltAllChains = () => import('./orders/chainKeys').then((m) => m.haltAll())
 export const stopChainNow = (rowId: string) => import('./orders/chainKeys').then((m) => m.stopNow(rowId))
@@ -253,3 +254,24 @@ export type { ChainKeyOutcome, ChainKeyRefusal } from './orders/chainKeys'
 export { useChainMoves, basisPreview, type ChainView } from './orders/chainRun'
 export { chainSuccessorNow, chainStepOf } from './orders/records'
 export { chainSuccessor, withPassed, withSeenNext, withRefs } from './chain'
+/**
+ * Work orders B9 — Preflight's cards (orders/lamp.ts · cardPrep.ts eager; the body lazy). orderCards() — what waits on
+ * the person on this device: 'ready' (Kette bereit) · 'next' (the engine's card: Weiter mit Schritt n?) · 'halted' ·
+ * 'interrupted' · 'chainConfirm' (a Läuft request whose chain this device holds no record of — the worker moved, a
+ * restore) · 'request' (a team: Planen asked on another device); onOrderCardsChanged / onOrderSeen; prepareOrderCard /
+ * orderPrep / dropOrderPrep (what a card shows, read when it becomes current — what its ↵ passes) · readyBlock (why ↵
+ * Kette starten cannot act: the plate's own order and seen book) · chainKeyBlock (the guard of every start-like key) ·
+ * chainChipOf (a coding card's "PA-12 · 2/3"). The keys — each VON HAND where it lets the worker start something — are
+ * the orders' own entry points, called only from Preflight's queue/calls.ts: startChain · discardPlan · advanceChain /
+ * confirmAndGo · haltChain · resumeChain · skipChainStep · replanFrom · finishRest · discardMade · confirmChainVersions ·
+ * planHere · undoChain (the start's Undo).
+ */
+export { orderCards, onOrderCardsChanged, onOrderSeen, parseOrderCard, chainChipOf, chainKeyBlock, type OrderCard, type OrderCardKind } from './orders/lamp'
+export { prepareOrderCard, orderPrep, dropOrderPrep, readyBlock, type OrderPrep } from './orders/cardPrep'
+export { refusalText as orderStartRefusalText, preWhyText as orderPreWhyText } from './orders/text'
+export { discardPlan } from './orders/trigger'
+export const OrderCardBody = lazy(() => import('./orders/OrderCard'))
+export const confirmChainVersions = (rowId: string, shown: ReadonlyArray<{ id: string; hash: string }>) => import('./orders/confirm').then((m) => m.confirmChainVersions(rowId, shown))
+export type { ConfirmChainOutcome } from './orders/confirm'
+/** ↵ Hier planen on Preflight's card for a request asked for on another device (a team): this device's press (VON HAND). */
+export const planHere = (rowId: string) => import('./orders/press').then((m) => m.pressPlan(rowId, 'card'))

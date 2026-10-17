@@ -128,6 +128,7 @@ function Row({ item, n, onPick }: { item: QueueItem; n: number; onPick: () => vo
       <span className="pf-qr__no">{pad(n)}</span>
       <span className="pf-tag">{item.tag}</span>
       <span className="pf-qr__t">
+        {item.chip && <span className="pf-qr__chip">{item.chip}</span>}
         {item.keyText && <span className="pf-qr__k">#{item.keyText}</span>}
         {item.detail ? <b>{item.detail}</b> : null}
         {item.detail && item.title ? ' · ' : ''}

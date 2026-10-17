@@ -34,7 +34,7 @@ import { chainWorld, startNow, useChainMoves } from './chainRun'
 import { canSkip } from '../chain'
 import ChainCard, { keyWhyText } from './ChainCard'
 import type { ChainKeyOutcome } from './chainKeys'
-import { preWhyText, problemText } from './text'
+import { preWhyText, refusalText } from './text'
 import type { OrderPreResult, OrderPreWhy } from './pre'
 import type { OrderChain, OrderChainStep, OrderRecord } from './types'
 import { navigate } from '../../../lib/router'
@@ -44,41 +44,7 @@ type Tr = ReturnType<typeof useT>
 /** ⌘. on a Mac, Ctrl+. elsewhere — the key that stops the running step */
 const STOP_KEY = shortcutLabel('Mod+.')
 
-/** Why a start (or "Rest anlegen") was refused, in words. */
-export function refusalText(r: StartRefusal | { why: 'taken' }, t: Tr): string {
-  const O = 'features.coding.order'
-  switch (r.why) {
-    case 'pre': {
-      const b = r.block
-      if (b.why === 'offline') return b.text || preWhyText('offline')
-      if (b.why === 'noProject') return preWhyText('noProject', b.unusable.map((u) => ({ kind: u.kind, project: null, problem: u.problem })))
-      return preWhyText(b.why as OrderPreWhy)
-    }
-    case 'kind':
-      return t(`${O}.start.why.kind`, { n: stepNo(r.step), problem: problemText(r.problem) })
-    case 'draft': {
-      const issue = r.issues[0]
-      return t(`${O}.start.why.draft`, { n: stepNo(r.step), problem: issue ? t(`${O}.draft.${issue.code}`, { repo: '', branch: '', ...(issue.vars ?? {}) }) : '' })
-    }
-    case 'repo':
-      return t(`${O}.start.why.repo`, { n: stepNo(r.step) })
-    case 'props':
-      return t(`${O}.start.why.props.${r.result}`, { n: stepNo(r.step) })
-    case 'failed':
-      return t(`${O}.start.why.failed`, { n: stepNo(r.step), error: r.error })
-    case 'taken':
-      return t(`${O}.undo.taken`)
-    case 'source': {
-      const row = useWorkspace.getState().pages[r.page]
-      if (row?.databaseId && useWorkspace.getState().databases[row.databaseId]?.system === 'workorders') return t(`${O}.start.why.source.row`)
-      return t(`${O}.start.why.source.page`, { title: (!row || row.private ? '' : row.title.trim()) || t('common.untitled') })
-    }
-    case 'unconfirmed':
-      return t(`${O}.start.why.unconfirmed`, { n: stepNo(r.step) })
-    default:
-      return t(`${O}.start.why.${r.why}`)
-  }
-}
+export { refusalText }
 
 /** One step's state on this device, as a word beside its LED. */
 type Lane = 'parked' | 'running' | 'waiting' | 'failed' | 'stopped' | 'done' | 'trashed' | 'queued'

@@ -239,8 +239,20 @@ export function Card({ item, index, total, level }: CardProps) {
   const inputKey = useQueue((s) => (s.input?.id === item.id ? s.input.key : null))
   const confirming = useQueue((s) => s.confirm?.id === item.id)
   const readOnly = useCloud((s) => !!(s.readOnly || s.outdated))
-  // the keys, recomputed with the stores they read (a run patched, a task moved)
+  // the keys, recomputed with the stores they read (a run patched, a task moved) — and when the source says they may
+  // differ while the reading stays (what the body showed in full: a station seen, a fold opened)
   useQueue((s) => s.items[item.lamp])
+  const [, rekey] = useState(0)
+  useEffect(() => {
+    const watch = lampSource(item.lamp)?.queue?.watch
+    if (!watch) return
+    try {
+      return watch(item, () => rekey((n) => n + 1))
+    } catch (e) {
+      console.warn('[one] preflight: a card’s keys could not be watched', e)
+      return
+    }
+  }, [item])
   const actions = tomb ? [] : actionsOf(item)
   const ready = prep === 'ready'
   const Body = builtInBody(item.kind) ?? lampSource(item.lamp)?.queue?.Body ?? null
@@ -326,6 +338,11 @@ export function Card({ item, index, total, level }: CardProps) {
           <span className="pf-tag">
             {KIND_ICON[item.kind] ?? null}
             {sourceTag}
+          </span>
+        )}
+        {item.chip && (
+          <span className="pf-tag pf-tag--chip" data-testid="pf-chip">
+            {item.chip}
           </span>
         )}
         <span className="pf-sp" />

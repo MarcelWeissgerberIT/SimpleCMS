@@ -1389,6 +1389,21 @@ html[data-pf-noblink] .pf-pip[data-flash] {
   font-size: calc(12px * var(--text-scale));
   color: var(--ink-3);
 }
+/* a work order's chain step on a coding card ("PA-12 · 2/3"): a mono mark before the key, never a second tag */
+.pf-qr__chip {
+  margin-right: 6px;
+  padding: 0 4px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  font-family: var(--font-mono);
+  font-size: calc(11px * var(--text-scale));
+  letter-spacing: 0.04em;
+  color: var(--ink-2);
+}
+.pf-tag--chip {
+  font-family: var(--font-mono);
+  letter-spacing: 0.04em;
+}
 .pf-qr__r {
   display: inline-flex;
   align-items: center;
@@ -1642,8 +1657,16 @@ html[data-pf-noblink] .pf-pip[data-flash] {
   .pf-card__row--2 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+  /* a long label wraps inside its key (German "Angelegte verwerfen" in a third of the row), never past its edge */
   .pf-card__keys .btn {
     justify-content: center;
+    min-width: 0;
+    height: auto;
+    min-height: calc(30px * var(--text-scale));
+    padding-block: 4px;
+    line-height: 1.2;
+    white-space: normal;
+    text-align: center;
   }
   .pf-card__keys .kbd,
   .pf-jk,
@@ -1690,6 +1713,7 @@ html[data-pf-noblink] .pf-pip[data-flash] {
 @media (pointer: coarse) {
   .pf-tab,
   .pf-key,
+  .pf-card__keys .btn,
   .pf-undo,
   .pf-qr {
     min-height: calc(40px * var(--text-scale));

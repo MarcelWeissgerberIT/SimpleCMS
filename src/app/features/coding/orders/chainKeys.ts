@@ -23,8 +23,9 @@
  */
 import type { ID } from '../../../store/types'
 import type { Writer } from '../../../store/writer'
-import { workerOnline, workerVerdict } from '../link'
-import { codingReadOnly, inTeam } from '../schema'
+import { workerOnline } from '../link'
+import { codingReadOnly } from '../schema'
+import { chainKeyBlock } from './lamp'
 import { useCoding } from '../state'
 import { confirmTaskVersion } from '../tasks'
 import { stopTask } from '../service'
@@ -67,13 +68,7 @@ export type ChainKeyOutcome = { ok: true; move?: ChainMove | null; plan?: PlanOu
 const no = (why: ChainKeyRefusal): ChainKeyOutcome => ({ ok: false, why })
 
 /** A key that lets the chain start something: a viewer never, a team only on the worker device, never an outdated / unsafe worker. */
-function mayStart(): ChainKeyRefusal | null {
-  if (codingReadOnly()) return 'readOnly'
-  if (inTeam() && !workerOnline()) return 'elsewhere'
-  const v = workerVerdict()
-  if (v === 'outdated' || v === 'unsafe') return v
-  return null
-}
+const mayStart = (): ChainKeyRefusal | null => chainKeyBlock()
 
 /** What a card rendered of the pages and the Grundlage that go along (fingerprints) — only that is passed. */
 export interface ChainSeen {

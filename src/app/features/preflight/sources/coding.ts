@@ -9,7 +9,7 @@
 import { useWorkspace } from '../../../store/store'
 import { navigate } from '../../../lib/router'
 import { t } from '../../../i18n'
-import { actionTook, canContinue, CodingPlanError, hasPipelines, onWaitingChanged, planTaskAction, taskDetail, taskSig, taskVersionView, waitingTasks, type TaskActionPlan, type TaskDetail, type TaskVersionView, type WaitingTask } from '../../coding'
+import { actionTook, canContinue, chainChipOf, CodingPlanError, hasPipelines, onWaitingChanged, planTaskAction, taskDetail, taskSig, taskVersionView, waitingTasks, type TaskActionPlan, type TaskDetail, type TaskVersionView, type WaitingTask } from '../../coding'
 import type { CardAction, Done, HandWhy, LampReading, LampSourceDef, QueueItem, QueueSourceDef } from '../registry'
 import { applyTask, confirmVersion } from '../queue/calls'
 import { all, watch } from './util'
@@ -255,6 +255,7 @@ function taskItems(lampId: 'gate' | 'question' | 'failed', ids: readonly string[
   return ids.map((id) => {
     const p = parseTaskItem(id)!
     const w = byId.get(p.taskId)
+    const chain = chainChipOf(p.taskId)
     const hand: HandWhy[] = p.kind === 'confirm' ? ['confirm'] : p.kind === 'intake' ? ['editor'] : p.kind === 'question' ? ['needsText', 'startsNow', 'claudeCode'] : ['startsNow', 'claudeCode']
     return {
       id,
@@ -269,6 +270,8 @@ function taskItems(lampId: 'gate' | 'question' | 'failed', ids: readonly string[
       ...(p.kind === 'confirm' || p.kind === 'intake' ? { resolveBy: 'reading' as const } : {}),
       title: titleOf(p.taskId) || t('common.untitled'),
       detail: t(`features.preflight.task.${p.kind}`),
+      // a step of a work order's chain on this device: "PA-12 · 2/3" (this device's record, never the row's fields)
+      ...(chain ? { chip: chain } : {}),
     }
   })
 }

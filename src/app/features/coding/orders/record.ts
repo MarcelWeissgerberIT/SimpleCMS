@@ -183,12 +183,13 @@ export function readOrderChain(v: unknown, nested = false): OrderChain | null {
     ...(Object.keys(foreign).length ? { foreign } : {}),
     ...(Object.keys(basisSeen).length ? { basisSeen } : {}),
     ...(isTime(v.finishing) ? { finishing: v.finishing } : {}),
+    ...(isTime(v.adopted) ? { adopted: v.adopted } : {}),
     ...(replaced ? { replaced } : {}),
     ...(basis ? { basis } : {}),
   }
 }
 
-const HOWS: readonly OrderPressHow[] = ['status', 'command', 'plate', 'send']
+const HOWS: readonly OrderPressHow[] = ['status', 'command', 'plate', 'send', 'card']
 const MAX_PROV = 9
 const by = (v: unknown): string | null => (typeof v === 'string' && v.length <= 200 ? v : null)
 

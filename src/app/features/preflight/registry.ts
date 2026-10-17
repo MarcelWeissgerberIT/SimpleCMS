@@ -113,6 +113,8 @@ export interface QueueItem {
   sub?: number
   /** the order inside one batch (an agent run's change number: parents before children) */
   n?: number
+  /** a short live mark beside the source, read by the source (a work order's chain step "PA-12 · 2/3") — never stored */
+  chip?: string
 }
 
 export interface CardAction {
@@ -171,6 +173,11 @@ export interface QueueSourceDef {
   prepare?(item: QueueItem, signal: AbortSignal): Promise<void>
   /** called at render AND again at press time */
   actions(item: QueueItem): CardAction[]
+  /**
+   * While a card is the current one: call changed() when its keys may differ without the reading changing (what its body
+   * showed in full — a station seen, a fold opened). The card renders its keys again. Returns the unsubscribe.
+   */
+  watch?(item: QueueItem, changed: () => void): () => void
   /**
    * The content revision of a card now (what its body shows: a change merged in place gets a new one) — ⇧A takes a card
    * only while the revision it was shown in full at is still its revision. Absent / '' = the content never changes.

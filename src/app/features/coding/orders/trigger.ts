@@ -153,9 +153,10 @@ function askFinish(rowId: ID): void {
 /**
  * Kette bereit → Entwurf by hand = D: the plan is discarded on this device (Z in the toast brings both back). A plan
  * made again from a done step of a chain that still waits ("Ab hier neu planen"): that chain runs on as it was (its card
- * shows again), the Status goes back to Läuft.
+ * shows again), the Status goes back to Läuft. `quiet`: no toast (Preflight's card says it; its Z is the Undo).
+ * Resolves the Undo (null: none — a replan's draft dropped beside its running chain).
  */
-async function discardDraft(rowId: ID): Promise<void> {
+async function discardDraft(rowId: ID, o: { quiet?: boolean } = {}): Promise<(() => Promise<void>) | null> {
   const before = asRecord(await loadOrderRecord(rowId, { fresh: true }))
   const from = before?.state === 'draft' ? before.draft?.from : undefined
   if (from && before?.chain?.run === from.run) {
@@ -168,45 +169,55 @@ async function discardDraft(rowId: ID): Promise<void> {
       writeOrderStatus(rowId, 'running', statusWriter(rowId, from.run))
       followRecord(rowId, out.rec)
     }
-    return
+    return null
   }
   // a follow-up plan over a halted or finished chain: that chain comes back as it was (halted: ↵ Fortsetzen / S again)
   const over = before?.state === 'draft' ? before.draft?.over : undefined
   if (over && before?.chain) {
     const run = before.chain.run
     const out = await patchOrderRecord(rowId, (rec) => (rec?.state === 'draft' && rec.draft?.over === over && rec.chain?.run === run ? { ...rec, state: over } : rec))
-    if (out.rec?.state !== over) return
+    if (out.rec?.state !== over) return null
     writeOrderStatus(rowId, over, statusWriter(rowId, run))
     followRecord(rowId, out.rec)
-    useUI.getState().toast({
-      message: t('features.coding.order.toast.discarded', { id: label(rowId) }),
-      action: {
-        label: t('common.undo'),
-        undo: true,
-        run: () => {
-          void (async () => {
-            const back = await patchOrderRecord(rowId, (rec) => (rec?.state === over && rec.draft?.over === over && rec.chain?.run === run ? { ...rec, state: 'draft' } : rec))
-            if (back.rec?.state === 'draft') writeOrderStatus(rowId, 'ready', { kind: 'you', via: 'undo' })
-          })()
-        },
-      },
-    })
-    return
+    const undoOver = async () => {
+      const back = await patchOrderRecord(rowId, (rec) => (rec?.state === over && rec.draft?.over === over && rec.chain?.run === run ? { ...rec, state: 'draft' } : rec))
+      if (back.rec?.state === 'draft') writeOrderStatus(rowId, 'ready', { kind: 'you', via: 'undo' })
+    }
+    if (!o.quiet)
+      useUI.getState().toast({
+        message: t('features.coding.order.toast.discarded', { id: label(rowId) }),
+        action: { label: t('common.undo'), undo: true, run: () => void undoOver() },
+      })
+    return undoOver
   }
   if (before?.state === 'draft' && before.draft) await patchOrderRecord(rowId, (rec) => (rec?.state === 'draft' && rec.draft ? { ...rec, state: 'discarded' } : rec))
-  const undo = () => {
+  const undo = async () => {
     discardUndos.delete(rowId)
-    void (async () => {
-      await patchOrderRecord(rowId, (rec) => (rec?.state === 'discarded' && rec.draft ? { ...rec, state: 'draft' } : rec))
-      writeOrderStatus(rowId, 'ready', { kind: 'you', via: 'undo' })
-    })()
+    await patchOrderRecord(rowId, (rec) => (rec?.state === 'discarded' && rec.draft ? { ...rec, state: 'draft' } : rec))
+    writeOrderStatus(rowId, 'ready', { kind: 'you', via: 'undo' })
   }
   // Z with focus on the plate takes it back too (as long as the toast could)
-  discardUndos.set(rowId, { run: undo, until: Date.now() + DISCARD_UNDO_MS })
-  useUI.getState().toast({
-    message: t('features.coding.order.toast.discarded', { id: label(rowId) }),
-    action: { label: t('common.undo'), undo: true, kbd: 'Z', run: undo },
-  })
+  discardUndos.set(rowId, { run: () => void undo(), until: Date.now() + DISCARD_UNDO_MS })
+  if (!o.quiet)
+    useUI.getState().toast({
+      message: t('features.coding.order.toast.discarded', { id: label(rowId) }),
+      action: { label: t('common.undo'), undo: true, kbd: 'Z', run: () => void undo() },
+    })
+  return undo
+}
+
+/**
+ * D on Preflight's "Kette bereit" card — what the plate's D does (Kette bereit → Entwurf: the plan discarded on this
+ * device; a follow-up plan brings its halted / finished chain back, a replan its running one), written as the person in
+ * Preflight (`you~preflight:<row>` — the subscriber's lane rules leave that writer alone) and without a toast. Resolves
+ * whether it discarded, and its Undo (null: none).
+ */
+export async function discardPlan(rowId: ID): Promise<{ ok: boolean; undo: (() => Promise<void>) | null }> {
+  if (orderStatusKey(rowId) !== 'ready') return { ok: false, undo: null }
+  const rec = asRecord(await loadOrderRecord(rowId, { fresh: true }))
+  if (rec?.state !== 'draft' || !rec.draft) return { ok: false, undo: null }
+  writeOrderStatus(rowId, 'draft', { kind: 'you', via: 'preflight', ref: rowId })
+  return { ok: true, undo: await discardDraft(rowId, { quiet: true }) }
 }
 
 /** How long D's Undo stays with the plate's Z (about a toast's life). */
