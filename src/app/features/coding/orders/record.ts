@@ -17,6 +17,13 @@ import type { ID } from '../../../store/types'
 import { BUDGET_RANGE, ORDER_KINDS } from './config'
 import { ORDER_HALT_WHYS, type OrderChain, type OrderChainStep, type OrderDoneBy, type OrderDraft, type OrderHaltWhy, type OrderKind, type OrderPress, type OrderPressHow, type OrderProv, type OrderRecord, type OrderState } from './types'
 
+/**
+ * Whose records (records.ts orderScope): 'local:local', or in a team workspace this member's own —
+ * 'cloud:<ws>:u:<account>' (the work-orders rows are private per member; another member signing in on this browser
+ * never reads, follows or halts them). A team account not known yet: '…:u:-' (holds nothing).
+ */
+export const orderScopeOf = (ref: { kind: string; id: string }, uid: string | null | undefined): string => (ref.kind === 'cloud' ? `cloud:${ref.id}:u:${uid || '-'}` : `${ref.kind}:${ref.id}`)
+
 const STATES: readonly OrderState[] = ['draft', 'creating', 'interrupted', 'running', 'halted', 'done', 'discarded']
 const ID_RE = /^[A-Za-z0-9_-]{1,64}$/
 /** a block id (UUIDs, nanoids, ids an import brought) */
@@ -27,6 +34,9 @@ const MAX_OWN = 8
 const MAX_LINE = 4000
 const MAX_TITLE = 200
 const SIG_RE = /^[0-9a-f]{64}$/
+/** a fingerprint (SHA-256 hex) — '' = unknown */
+const isFp = (v: unknown): v is string => typeof v === 'string' && (v === '' || SIG_RE.test(v))
+const MAX_FOREIGN = 48
 
 type Obj = Record<string, unknown>
 const isObj = (v: unknown): v is Obj => !!v && typeof v === 'object' && !Array.isArray(v)
@@ -40,9 +50,13 @@ function readStep(v: unknown): OrderChainStep | null {
   if (!isStepN(v.n) || !isId(v.id) || !(ORDER_KINDS as readonly unknown[]).includes(v.kind) || !isId(v.project)) return null
   if (typeof v.line !== 'string' || v.line.length > MAX_LINE) return null
   if (v.approvals !== 'all' && v.approvals !== 'review' && v.approvals !== 'none') return null
-  const refs: Record<ID, number> = {}
+  // each page it takes along → its pinned fingerprint ('' = unknown: an older record's revision — it asks)
+  const refs: Record<ID, string> = {}
   if (isObj(v.refs))
-    for (const [id, rev] of Object.entries(v.refs).slice(0, MAX_REFS)) if (isId(id) && typeof rev === 'number' && Number.isInteger(rev) && rev >= 0) refs[id] = rev
+    for (const [id, fp] of Object.entries(v.refs).slice(0, MAX_REFS)) if (isId(id)) {
+      if (isFp(fp)) refs[id] = fp
+      else if (typeof fp === 'number' && Number.isInteger(fp) && fp >= 0) refs[id] = ''
+    }
   const basisBlock = typeof v.basisBlock === 'string' && BLOCK_RE.test(v.basisBlock) ? v.basisBlock : null
   const own = Array.isArray(v.own) ? [...new Set(v.own.filter((b): b is string => typeof b === 'string' && BLOCK_RE.test(b)))].slice(0, MAX_OWN) : []
   return {
@@ -122,6 +136,17 @@ export function readOrderChain(v: unknown, nested = false): OrderChain | null {
       if (n !== null && ns.has(n) && why.length) passed[n] = why
     }
   const advanced = nums(v.advanced)
+  const moved = nums(v.moved)
+  const back = nums(v.back)
+  const foreign: Record<ID, number> = {}
+  if (isObj(v.foreign))
+    for (const [id, at] of Object.entries(v.foreign).slice(0, MAX_FOREIGN)) if (isId(id) && isTime(at)) foreign[id] = at
+  const basisSeen: Record<number, string> = {}
+  if (isObj(v.basisSeen))
+    for (const [k, fp] of Object.entries(v.basisSeen)) {
+      const n = stepKey(k)
+      if (n !== null && ns.has(n) && typeof fp === 'string' && SIG_RE.test(fp)) basisSeen[n] = fp
+    }
   // the older chain this one replaced at its start, and the parked steps of it that went to the trash then
   let replaced: OrderChain['replaced']
   if (!nested && isObj(v.replaced)) {
@@ -153,6 +178,11 @@ export function readOrderChain(v: unknown, nested = false): OrderChain | null {
     ...(seenNext.length ? { seenNext } : {}),
     ...(Object.keys(passed).length ? { passed } : {}),
     ...(Object.keys(advanced).length ? { advanced } : {}),
+    ...(Object.keys(moved).length ? { moved } : {}),
+    ...(Object.keys(back).length ? { back } : {}),
+    ...(Object.keys(foreign).length ? { foreign } : {}),
+    ...(Object.keys(basisSeen).length ? { basisSeen } : {}),
+    ...(isTime(v.finishing) ? { finishing: v.finishing } : {}),
     ...(replaced ? { replaced } : {}),
     ...(basis ? { basis } : {}),
   }

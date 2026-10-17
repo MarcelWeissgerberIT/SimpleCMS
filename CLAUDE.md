@@ -1307,6 +1307,22 @@ the public APIs stable — other areas are built against them in parallel.
   whose approval ends a chain step names the parked successor (`TaskActionPlan.chain`, `starts`, `startsNow`, Preflight
   `handOf` → VON HAND + claudeCode; applyTaskAction refuses when the successor changed). Team: only the worker device
   advances (`ChainWorld.here`).
+- Work-order chain rules after the engine review: what goes along is compared by FINGERPRINT (orders/fingerprint.ts:
+  the request as the step quote holds it, a page's title + Markdown — never `contentRev`, which is per tab): the planner
+  pins its read (`draft.source.fps`), ↵ refuses a request or linked page that moved since ('source') or a key in the
+  request ('keys'), "Rest anlegen" refuses a step not matching its `sig`; step refs pin fingerprints and a card press
+  passes a page / Grundlage ONLY as it rendered it (`ChainPress.refs` / `basis`). Decide from the RECORD, never a store
+  that may lag another tab's: `moved[n]` is written under the lock after the move — only `advanced` without it is moved
+  again; a moved step standing parked waits ('settling') or, put back by someone (`back`, or after `SETTLE_MS`), halts
+  'putBack'; a step absent and never seen here while the chain is young is 'arriving', not gone; a Status older than the
+  chain's start / resume settles. chainRun's subscriber records outside writes (anyone but the chain, the person, this
+  device's worker; another device = 'remote') to a started step / a ref / a replan's basis (`chain.foreign` → the
+  'basis' / 'ref' card) and Angehalten by any writer halts the record where it happened (trigger.ts `haltRecord`, also
+  while 'creating' — `toRunning` then comes up halted, never over Angehalten). Fertig not written by the chain's end
+  halts 'finished' (this device waits while it asks, `finishing`); a want is dropped when the Status leaves Planen; a
+  follow-up plan over a halted / done chain keeps `draft.over` (D brings that chain back). Records are per member in a
+  team (`orderScope()`: `cloud:<ws>:u:<account>`). The attribution keeper never clears an agent's stamp for a `coding`
+  or `order` write (a worker's outcome is nobody's edit — the task keeps waiting for Confirm).
 - MCP tidy-up tools (trash / restore ≤ 50 ids, move page / row, update database / property, delete property, view
   create / update / delete) live in `features/mcp/{tidy,structure}.ts` and `server/src/mcp/{tidy,structure}.ts` with
   the same rules: never delete for good, locked databases refuse structure changes, no page ⇄ entry or Private ⇄ shared

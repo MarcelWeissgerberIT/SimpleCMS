@@ -16,7 +16,7 @@ import type { JSONContent } from '@tiptap/core'
 import { test, expect, openApp, wsEval } from './fixtures'
 import { startFakeWorker, type FakeWorker } from './helpers/fakeWorker'
 import { WORKER_CAN } from '../../src/app/features/coding/protocol'
-import { CARD_ORDER, canSkip, chainProjectProblem, doneEvidence, givesEvidence, mayResume, nextMove, parksNewTasks, strayRows, withAdvance, withDone, withHalt, withLine, withResume, withSkip, type ChainTaskFacts, type ChainWorld } from '../../src/app/features/coding/chain'
+import { CARD_ORDER, canSkip, chainProjectProblem, doneEvidence, givesEvidence, mayResume, nextMove, parksNewTasks, strayRows, withAdvance, withDone, withHalt, withLine, withRefs, withResume, withSkip, type ChainTaskFacts, type ChainWorld } from '../../src/app/features/coding/chain'
 import { basisBlock, basisText, placeBasis, skippedBlock, slotBlock } from '../../src/app/features/coding/orders/basis'
 import { readOrderChain, readOrderRecord } from '../../src/app/features/coding/orders/record'
 import { planKeyHits, scrubPlanKeys } from '../../src/app/features/coding/orders/keys'
@@ -221,7 +221,7 @@ node.describe('nextMove — cards (VON HAND; the chain waits, never writes)', ()
     nodeExpect(nextMove(world(c, { task1: finished(), task2: parked({ trusted: false }) }), { step: 2, passes: ['confirm'] as unknown as ['drift'] })).toMatchObject({ kind: 'card', why: 'confirm' })
     // step 01 too, at its start
     nodeExpect(nextMove(world(chainOf([step(1, 'coding')]), { task1: parked({ trusted: false }) }))).toMatchObject({ kind: 'card', why: 'confirm', step: 1, from: null })
-    nodeExpect(CARD_ORDER).toEqual(['evidence', 'checkpoint', 'drift', 'ref', 'confirm'])
+    nodeExpect(CARD_ORDER).toEqual(['evidence', 'checkpoint', 'basis', 'drift', 'ref', 'confirm'])
   })
 
   node('drift: the next step\'s pipeline line or its Approvals changed since confirm → a card saying what; the person\'s ↵ passes it (withLine keeps the new line)', () => {
@@ -241,12 +241,15 @@ node.describe('nextMove — cards (VON HAND; the chain waits, never writes)', ()
   })
 
   node('a page the next step takes along changed since confirm by someone else → a card naming it; the person\'s own edit goes on', () => {
-    const c = withDone(withAdvance(chainOf([step(1, 'coding'), step(2, 'coding', { refs: { pageA: 3, pageB: 7 } })]), 1, T0), 1, by(WORKER))
+    const [A3, A4, B7, B9] = ['a3', 'a4', 'b7', 'b9'].map((x) => x.repeat(32))
+    const c = withDone(withAdvance(chainOf([step(1, 'coding'), step(2, 'coding', { refs: { pageA: A3!, pageB: B7! } })]), 1, T0), 1, by(WORKER))
     const tasks = { task1: finished(), task2: parked() }
-    nodeExpect(nextMove(world(c, tasks, { refs: { pageA: { rev: 3, foreign: true }, pageB: { rev: 7, foreign: false } } })).kind).toBe('advance')
-    nodeExpect(nextMove(world(c, tasks, { refs: { pageA: { rev: 4, foreign: false }, pageB: { rev: 7, foreign: false } } })).kind).toBe('advance')
-    nodeExpect(nextMove(world(c, tasks, { refs: { pageA: { rev: 4, foreign: true }, pageB: { rev: 9, foreign: true } } }))).toEqual({ kind: 'card', why: 'ref', all: ['ref'], step: 2, from: 1, refs: ['pageA', 'pageB'] })
-    nodeExpect(nextMove(world(c, tasks, { refs: { pageA: { rev: 4, foreign: true } } }), { step: 2, passes: ['ref'] }).kind).toBe('advance')
+    nodeExpect(nextMove(world(c, tasks, { refs: { pageA: { fp: A3!, foreign: true }, pageB: { fp: B7!, foreign: false } } })).kind).toBe('advance')
+    nodeExpect(nextMove(world(c, tasks, { refs: { pageA: { fp: A4!, foreign: false }, pageB: { fp: B7!, foreign: false } } })).kind).toBe('advance')
+    nodeExpect(nextMove(world(c, tasks, { refs: { pageA: { fp: A4!, foreign: true }, pageB: { fp: B9!, foreign: true } } }))).toEqual({ kind: 'card', why: 'ref', all: ['ref'], step: 2, from: 1, refs: ['pageA', 'pageB'] })
+    // a press alone never passes a changed page: only its pin moved to what the card rendered does (the sink, withRefs)
+    nodeExpect(nextMove(world(c, tasks, { refs: { pageA: { fp: A4!, foreign: true } } }), { step: 2, passes: ['ref'] })).toMatchObject({ kind: 'card', why: 'ref' })
+    nodeExpect(nextMove(world(withRefs(c, 2, { pageA: A4! }), tasks, { refs: { pageA: { fp: A4!, foreign: true } } }), { step: 2, passes: ['ref'] }).kind).toBe('advance')
   })
 })
 
@@ -258,14 +261,18 @@ node.describe('nextMove — halts (sticky)', () => {
     nodeExpect(nextMove(world(twoSteps(), tasks(), { request: { live: true, status: 'halted', usable: true } }))).toEqual({ kind: 'halt', why: 'status' })
     nodeExpect(nextMove(world(twoSteps(), tasks(), { request: { live: false, status: 'running', usable: true } }))).toEqual({ kind: 'halt', why: 'trashed' })
     nodeExpect(nextMove(world(twoSteps(), tasks(), { request: { live: true, status: null, usable: false } }))).toEqual({ kind: 'halt', why: 'statusOption' })
+    // Fertig by anyone but the chain's own end: the chain ended ('finished') — while this device asks, it waits
+    nodeExpect(nextMove(world(twoSteps(), tasks(), { request: { live: true, status: 'done', usable: true } }))).toEqual({ kind: 'halt', why: 'finished' })
     // any other Status (someone dragged it) is not the engine's business
-    for (const status of ['draft', 'plan', 'ready', 'done', null] as const) nodeExpect(nextMove(world(twoSteps(), tasks(), { request: { live: true, status, usable: true } })).kind, String(status)).toBe('advance')
+    for (const status of ['draft', 'plan', 'ready', null] as const) nodeExpect(nextMove(world(twoSteps(), tasks(), { request: { live: true, status, usable: true } })).kind, String(status)).toBe('advance')
   })
 
   node('a member: ejected, trashed or gone while the chain still needs it — a done step whose successor started is no longer needed', () => {
     nodeExpect(nextMove(world(twoSteps(), { ...tasks(), task3: parked({ trashed: true }) }))).toEqual({ kind: 'halt', why: 'member', step: 3 })
     nodeExpect(nextMove(world(twoSteps(), { task1: finished(), task2: parked() }))).toEqual({ kind: 'halt', why: 'member', step: 3 })
-    nodeExpect(nextMove(world(twoSteps(), { ...tasks(), task3: parked({ exists: false }) }))).toEqual({ kind: 'halt', why: 'member', step: 3 })
+    nodeExpect(nextMove(world(twoSteps(), { ...tasks(), task3: parked({ exists: false, gone: true }) }))).toEqual({ kind: 'halt', why: 'member', step: 3 })
+    // absent, never seen here, the chain young: on its way from the tab that made it — it waits
+    nodeExpect(nextMove(world(twoSteps(), { ...tasks(), task3: parked({ exists: false }) }))).toEqual({ kind: 'wait', why: 'arriving', step: 3 })
     nodeExpect(nextMove(world(twoSteps(), { ...tasks(), task2: parked({ ejected: true, trashed: true }) }))).toEqual({ kind: 'halt', why: 'ejected', step: 2 })
     // step 01 done but its result not copied yet: still needed
     nodeExpect(nextMove(world(twoSteps(), { ...tasks(), task1: finished({ trashed: true }) }))).toEqual({ kind: 'halt', why: 'member', step: 1 })
@@ -385,7 +392,7 @@ node('the parked-start guard: which projects can take chain steps', () => {
 
 node.describe('this device\'s record (readOrderRecord)', () => {
   const full = (): OrderRecord => {
-    let c = chainOf([step(1, 'spec', { own: ['quote1'] }), step(2, 'coding', { refs: { pageA: 3 }, own: ['quote2', 'slot2'] }), step(3, 'qa')], { budgetUsd: 4, made: { 1: 'task1', 2: 'task2', 3: 'task3' } })
+    let c = chainOf([step(1, 'spec', { own: ['quote1'] }), step(2, 'coding', { refs: { pageA: 'a3'.repeat(32) }, own: ['quote2', 'slot2'] }), step(3, 'qa')], { budgetUsd: 4, made: { 1: 'task1', 2: 'task2', 3: 'task3' } })
     c = withHalt(withSkip(withDone(withAdvance(c, 1, T0), 1, by(YOU, true)), 3), { why: 'budget', by: 'order', step: 2 }, T0 + 9)
     return { v: 1, state: 'halted', chain: c }
   }
@@ -425,7 +432,7 @@ node.describe('this device\'s record (readOrderRecord)', () => {
       advanced: { 1: T0, 9: T0, 2: 'soon' },
       skipped: [3, 3, 12, 'x'],
       made: { 1: 'task1', 2: '../x' },
-      steps: [{ ...c.steps[0], refs: { pageA: 1, '../b': 2, pageC: -1, pageD: 1.5 }, basisBlock: 'bad block', own: ['ok-1', 'no way', 5] }, c.steps[1], c.steps[2]],
+      steps: [{ ...c.steps[0], refs: { pageA: 'f0'.repeat(32), '../b': 'f0'.repeat(32), pageC: 'nope', pageD: 1.5, pageE: 2 }, basisBlock: 'bad block', own: ['ok-1', 'no way', 5] }, c.steps[1], c.steps[2]],
     })!
     nodeExpect(read.checkpoint).toBe(true)
     nodeExpect(read.budgetUsd).toBe(10_000)
@@ -434,7 +441,8 @@ node.describe('this device\'s record (readOrderRecord)', () => {
     nodeExpect(read.advanced).toEqual({ 1: T0 })
     nodeExpect(read.skipped).toEqual([3])
     nodeExpect(read.made).toEqual({ 1: 'task1' })
-    nodeExpect(read.steps[0]).toEqual({ ...c.steps[0], refs: { pageA: 1 }, basisBlock: null, own: ['ok-1'] })
+    // a fingerprint kept; an older record's revision number: unknown ('' — it asks); anything else dropped
+    nodeExpect(read.steps[0]).toEqual({ ...c.steps[0], refs: { pageA: 'f0'.repeat(32), pageE: '' }, basisBlock: null, own: ['ok-1'] })
     nodeExpect(readOrderChain({ ...c, checkpoint: false })!.checkpoint).toBe(false)
   })
 

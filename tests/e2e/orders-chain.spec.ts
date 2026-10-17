@@ -301,8 +301,13 @@ test.describe('the chain on its own (fake worker: BA → Coding → QA)', () => 
     expect((await orders(page).record(row)).chain.doneBy['1']).toMatchObject({ kind: 'you', via: 'ui' })
     expect(await orders(page).advance(row, 2, ['checkpoint'])).toMatchObject({ ok: true, move: { kind: 'advance', step: 2, basis: 'copy', again: false } })
     expect(await stageOf(page, ids[1]!)).toBe('Ready')
-    // the person puts it back into the backlog: the chain starts it again — the Grundlage replaced, never appended
+    // the person puts it back into the backlog: the chain halts — it never starts a step over by itself (review fix);
+    // ↵ Fortsetzen moves it again: the Grundlage replaced, never appended
     await setStage(page, ids[1]!, 'Backlog')
+    await expect.poll(async () => (await orders(page).record(row)).chain.halted?.why ?? null, { timeout: 10_000 }).toBe('putBack')
+    await page.waitForTimeout(1000)
+    expect(await stageOf(page, ids[1]!)).toBe('Backlog')
+    expect(await orders(page).resume(row)).toMatchObject({ ok: true })
     await expect.poll(() => stageOf(page, ids[1]!), { timeout: 10_000 }).toBe('Ready')
     const p2 = await pageOf(page, ids[1]!)
     expect(blocksWithId(p2.content, `${ids[1]}-wait`)).toHaveLength(1)
@@ -613,14 +618,15 @@ node.describe('the chain engine — B7 parts (Node)', () => {
     nodeExpect(withSeenNext(chain, 1)).toBe(chain)
   })
 
-  node('a page accepted on the ref card is pinned again (its revision now)', () => {
-    let chain = withAdvance(chainOf([step(1, 'coding'), step(2, 'coding', { refs: { pg1: 3 } })]), 1, T0)
+  node('a page accepted on the ref card is pinned again (its fingerprint as the card rendered it)', () => {
+    const [F3, F5] = ['f3', 'f5'].map((x) => x.repeat(32))
+    let chain = withAdvance(chainOf([step(1, 'coding'), step(2, 'coding', { refs: { pg1: F3! } })]), 1, T0)
     chain = withDone(chain, 1, doneEvidence({ kind: 'coding', task: 'task1', run: 'r' }, T0 + 1))
     const tasks = { task1: facts({ stage: 'done', stageKind: 'done' }), task2: facts() }
-    const refs = { pg1: { rev: 5, foreign: true } }
+    const refs = { pg1: { fp: F5!, foreign: true } }
     nodeExpect(nextMove(world(chain, tasks, { refs }))).toMatchObject({ kind: 'card', why: 'ref', refs: ['pg1'] })
-    const pinned = withRefs(chain, 2, { pg1: 5 })
-    nodeExpect(pinned.steps[1]!.refs).toEqual({ pg1: 5 })
+    const pinned = withRefs(chain, 2, { pg1: F5! })
+    nodeExpect(pinned.steps[1]!.refs).toEqual({ pg1: F5 })
     nodeExpect(nextMove(world(pinned, tasks, { refs }))).toMatchObject({ kind: 'advance', step: 2 })
   })
 

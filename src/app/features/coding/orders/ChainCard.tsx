@@ -2,8 +2,10 @@
  * The chain's card on the plate (spec §1.7, §2.10 outcome 2 — B7; B8 draws the full stations): the chain waits before
  * step n+1 and says why, one line per reason — "Analyse fertig → 02 Coding ‹Titel›" (the analysis checkpoint), "Schritt
  * 01 wurde von ‹Writer› auf Fertig gesetzt — weiter?" (no evidence), "Pipeline geändert seit Bestätigung: …", "Seite …
- * hat sich seit der Bestätigung geändert", "Schritt 02 wurde von ‹Agent› geändert" (the Confirm wait). Before its key
- * it shows what goes along: step n+1's text as it will run, the Grundlage it gets (a fold), the pages that changed.
+ * hat sich seit der Bestätigung geändert", "Schritt 02 wurde von ‹Agent› geändert" (the Confirm wait), "Die Grundlage
+ * aus Schritt 01 enthält Text von ‹…›" (an outside write in the step it copies). Before its key it shows what goes
+ * along: step n+1's text as it will run, the Grundlage it gets, the text of every page that changed. ↵ passes a changed
+ * page or Grundlage only as the card rendered it — their fingerprints go with the press (a newer write asks again).
  *
  * Keys (VON HAND where they let the worker start something — a fresh press ≥ 300 ms after the key became ready, never a
  * plate-wide Enter): ↵ Weiter (passes exactly the reasons shown) · for the Confirm wait ↵ Bestätigen und weiter (the
@@ -21,6 +23,7 @@ import { taskVersionView, type TaskVersionView } from '../terminal'
 import type { ChainMove, ChainPassable } from '../chain'
 import { basisPreview } from './chainRun'
 import { basisText } from './basis'
+import { pageShown, shownFp, textFp } from './fingerprint'
 import { stepNo } from './words'
 import { HandKey } from './HandKey'
 import type { ChainKeyOutcome } from './chainKeys'
@@ -62,6 +65,26 @@ export default function ChainCard({ rowId, chain, move, viewer, onOutcome }: { r
     }
   }, [confirm, step, page])
   const basis = useMemo(() => basisPreview(chain, move.step), [chain, move.step, prevPage]) // eslint-disable-line react-hooks/exhaustive-deps
+  const basisShown = useMemo(() => (basis ? basisText(basis) : ''), [basis])
+  // the changed pages exactly as rendered here — what ↵ pins (their fingerprints)
+  const refKey = (move.refs ?? []).join(' ')
+  const refShown = useMemo(() => (refKey ? refKey.split(' ') : []).map((id, i) => ({ id, ...pageShown(refPages[i]) })), [refKey, refPages])
+  const [seen, setSeen] = useState<{ refs: Record<ID, string>; basis?: string } | null>(null)
+  const wantBasis = move.all.includes('basis')
+  const needsSeen = move.all.includes('ref') || wantBasis
+  useEffect(() => {
+    let live = true
+    setSeen(null)
+    void (async () => {
+      const refs: Record<ID, string> = {}
+      for (const r of refShown) refs[r.id] = await shownFp({ title: r.title, text: r.text })
+      const b = wantBasis ? await textFp(basisShown) : undefined
+      if (live) setSeen({ refs, ...(b !== undefined ? { basis: b } : {}) })
+    })()
+    return () => {
+      live = false
+    }
+  }, [refShown, basisShown, wantBasis])
   if (!step) return null
   const title = page?.title.trim() || step.title || t('common.untitled')
   const kind = t(`${O}.kind.${step.kind}`)
@@ -78,6 +101,8 @@ export default function ChainCard({ rowId, chain, move, viewer, onOutcome }: { r
         return t(`${O}.why.drift`, { what: (move.drift ?? []).map((d) => t(`${O}.drift.${d}`)).join(' · ') })
       case 'ref':
         return refPages.map((p) => t(`${O}.why.refChanged`, { title: !p || p.private ? t('common.untitled') : p.title.trim() || t('common.untitled') })).join(' · ')
+      case 'basis':
+        return t(`${O}.why.basisForeign`, { n: stepNo(move.from ?? move.step - 1) })
       case 'confirm':
         return t(`${O}.why.changedBy`, { n: stepNo(move.step), agent: agentLabel(move.agent ?? null) ?? t(`${O}.by.other`) })
     }
@@ -92,7 +117,8 @@ export default function ChainCard({ rowId, chain, move, viewer, onOutcome }: { r
       setPending(false)
     }
   }
-  const go = run(() => import('./chainKeys').then((m) => (confirm ? m.confirmAndGo(rowId, move.step, view?.hash ?? '', passes) : m.advanceChain(rowId, move.step, passes))))
+  const shown = seen ?? {}
+  const go = run(() => import('./chainKeys').then((m) => (confirm ? m.confirmAndGo(rowId, move.step, view?.hash ?? '', passes, shown) : m.advanceChain(rowId, move.step, passes, shown))))
   const replan = run(() => import('./chainKeys').then((m) => m.replanFrom(rowId, move.from ?? move.step - 1)))
   const halt = run(() => import('./chainKeys').then((m) => m.haltChain(rowId)))
 
@@ -110,14 +136,21 @@ export default function ChainCard({ rowId, chain, move, viewer, onOutcome }: { r
         <pre className="orc-card__text">{text || '—'}</pre>
       </details>
       {basis && (
-        <details className="orc-card__fold" data-testid="order-card-basis">
+        <details className="orc-card__fold" data-testid="order-card-basis" open={move.all.includes('basis') || undefined}>
           <summary className="label">{t(`${O}.card.basis`)}</summary>
-          <pre className="orc-card__text">{basisText(basis)}</pre>
+          <pre className="orc-card__text">{basisShown}</pre>
         </details>
       )}
+      {/* the pages that changed, as they go along — exactly this is what ↵ pins */}
+      {refShown.map((r) => (
+        <details key={r.id} className="orc-card__fold" data-testid="order-card-ref" data-ref={r.id} open>
+          <summary className="label">{t(`${O}.card.ref`, { title: r.title || t('common.untitled') })}</summary>
+          <pre className="orc-card__text">{r.text || '—'}</pre>
+        </details>
+      ))}
       {!viewer && (
         <div className="orp-keys">
-          <HandKey ready={!pending && (!confirm || !!view)} reason={confirm && !view ? t(`${O}.key.readying`) : undefined} onPress={() => void go()} primary testId="order-card-go">
+          <HandKey ready={!pending && (!confirm || !!view) && (!needsSeen || !!seen)} reason={(confirm && !view) || (needsSeen && !seen) ? t(`${O}.key.readying`) : undefined} onPress={() => void go()} primary testId="order-card-go">
             <span className="kbd" aria-hidden>
               ↵
             </span>

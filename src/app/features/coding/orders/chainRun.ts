@@ -4,13 +4,21 @@
  *
  *  - `chainWorld(row, record)`: the facts of every step of this device's record (the store, this device's run state and
  *    trust) — never the Prüfauftrag relation or the Schritt number on the rows. A page a step takes along counts as
- *    changed by someone else when its revision moved and its newest text is not the person's own on this device (an
- *    editor here, the answers they typed) or an agent wrote it last.
+ *    changed when its FINGERPRINT (fingerprint.ts: title + text — never the tab-local contentRev) differs from the
+ *    step's pin, and as changed by someone else when an outside write to it was recorded, an agent's stamp is on it,
+ *    or its newest text is not the person's own on this device. A step absent here that this tab never held, while the
+ *    chain is young (< SETTLE_MS), is arriving from the tab that made it — never "gone". The Grundlage a step would take
+ *    is fingerprinted when its source carries an outside write (`basisForeign`).
  *  - The parked-start guard (tasks.ts setParkedGuard): a step of a chain on this device that the chain has not started
  *    (not in `advanced`, not skipped) — or that the record says started but that still stands in its park stage (the
  *    move did not happen) — is never handed to the worker. Read from this tab's copy of the records (all of this scope's
  *    are read at start, the channel keeps them current); until they are read, every task that carries a work order's
  *    relation is held.
+ *  - Outside writes (the same subscriber, in the tab where they happen — never a replay from another tab): a write by
+ *    someone other than the chain, the person or this device's worker (an agent, the bridge, the sync, an automation, a
+ *    script, another device …) to a started step's text, a page a step takes along or a replan's basis step is recorded
+ *    (`OrderChain.foreign`) — the Grundlage / ref card shows it before it goes on; a moved step put back into its park
+ *    stage by someone other than the chain is recorded (`back`) — the chain halts ('putBack'), never starts it over.
  *  - The done evidence: a store subscriber reads, synchronously inside the write, who moved a chain step into a done
  *    stage in THIS tab (the worker's stage `coding`, an approval `you~ui` / `you~preflight` / `terminal`, a board drag
  *    `you`, an agent, an automation …) and records it as `doneBy[n]` (withDone); an approval whose surface showed the
@@ -24,7 +32,8 @@
  *    world, asks `nextMove` and acts: a halt (sticky: the record's `halted`, Status → Angehalten by the order writer
  *    `#s`), an advance (write-ahead `advanced`, then under `keepTrust` as `order:<row>:<run>#a<n>`: the Grundlage into
  *    the step's slot — a copy, replacing the slot or an earlier copy, never appended —, a QA step's shared branch, the
- *    Stage), the end (record 'done', Status → Fertig), a card (published for the plate; the chain waits), a countdown
+ *    Stage; then `moved` — still under the lock, so no other tab ever moves it again from a lagging store), the end
+ *    (record 'done', Status → Fertig), a card (published for the plate; the chain waits), a countdown
  *    (scheduled). Never a write past a task's wait for Confirm: the engine raises the 'confirm' card, and the move checks
  *    again synchronously right before it writes. A VON HAND key on a card passes the reasons it showed (`press`): an
  *    accepted pipeline change or page revision is pinned again first.
@@ -38,7 +47,7 @@ import { isEffectivelyTrashed } from '../../../store/selectors'
 import { isApplyingRemote } from '../../../store/persistence'
 import type { Database, ID, Page } from '../../../store/types'
 import { currentWriter, inPersonEvent, type Writer } from '../../../store/writer'
-import { isApplyingCloudChange } from '../../../cloud'
+import { isApplyingCloudChange, useCloud } from '../../../cloud'
 import { currentLang, t } from '../../../i18n'
 import { agentIdOf } from '../../agents/attribution'
 import { isEjectWriter } from '../../recorder/settled'
@@ -46,17 +55,18 @@ import { useCoding } from '../state'
 import { workerOnline } from '../link'
 import { codingProps, inTeam, kindOfDb, optionName, readPipeline, stageOfRow } from '../schema'
 import { approvalSawNext, approvalsOf, moveTask, setChainHook, setParkedGuard } from '../tasks'
-import { loadTask, scope, taskLocal } from '../local'
+import { loadTask, taskLocal } from '../local'
 import { isTrusted, keepTrust, writeEndsConfirm } from '../trust'
 import { notifyAway } from '../notify'
 import { pipelineLine, startStageOf } from '../stages'
-import { doneEvidence, nextMove, parksNewTasks, withAdvance, withDone, withHalt, withLine, withPassed, withRefs, withSeenNext, type ChainMove, type ChainPress, type ChainTaskFacts, type ChainWorld } from '../chain'
-import { basisBlock, placeBasis, skippedBlock } from './basis'
+import { doneEvidence, nextMove, parksNewTasks, SETTLE_MS, withAdvance, withBack, withBasisSeen, withDone, withForeign, withHalt, withLine, withMoved, withoutForeign, withPassed, withRefs, withSeenNext, type ChainMove, type ChainPress, type ChainTaskFacts, type ChainWorld } from '../chain'
+import { basisBlock, basisText, placeBasis, skippedBlock } from './basis'
+import { pageFp, textFp } from './fingerprint'
 import { chainWords, stepNo } from './words'
 import { orderConfigUsable, readOrderConfig } from './config'
 import { orderCode, orderStatusKey, writeOrderStatus } from './db'
-import { loadOrderRecord, ORDERS_CHANNEL, patchOrderRecord, recordRowIds, useOrderRecords } from './records'
-import type { OrderChain, OrderChainStep, OrderDoneBy, OrderRecord } from './types'
+import { loadOrderRecord, ORDERS_CHANNEL, orderScope, patchOrderRecord, recordRowIds, useOrderRecords } from './records'
+import { ORDER_LIMITS, type OrderChain, type OrderChainStep, type OrderDoneBy, type OrderRecord } from './types'
 
 const ws = () => useWorkspace.getState()
 const asRecord = (r: OrderRecord | null | 'unreadable' | undefined): OrderRecord | null => (r && r !== 'unreadable' ? r : null)
@@ -72,12 +82,23 @@ const byPerson = (origin: string | null | undefined): boolean => !!origin && (or
 
 const missing: ChainTaskFacts = { exists: false, trashed: false, stage: null, stageKind: null, parkStage: null, startStage: null, startsAtOnce: false, state: 'idle', line: '', approvals: 'all', endsConfirm: false, trusted: false, repo: null, branch: null, spentUsd: 0 }
 
-/** What the engine knows about one task of the chain now. */
-export async function taskFacts(id: ID): Promise<ChainTaskFacts> {
+/**
+ * Chain steps this tab's store has held (a step absent now that was here is gone — deleted, or removed by a replay of
+ * another tab's deletion; one never seen here may still be on its way from the tab that made it).
+ */
+const seenHere = new Set<ID>()
+
+/**
+ * What the engine knows about one task of the chain now. `young`: the chain was confirmed / started so recently that a
+ * step another tab created may not have reached this tab's store yet — absent and never seen here, it is arriving.
+ */
+export async function taskFacts(id: ID, young = false): Promise<ChainTaskFacts> {
   const s = ws()
   const page = s.pages[id]
   const db = page?.databaseId ? s.databases[page.databaseId] : undefined
-  if (!page || !db || !kindOfDb(db.id)) return missing
+  if (!page) return { ...missing, gone: seenHere.has(id) || !young }
+  seenHere.add(id)
+  if (!db || !kindOfDb(db.id)) return { ...missing, gone: true }
   const trashed = page.trashed || isEffectivelyTrashed(s.pages, id)
   const props = codingProps(db)
   const pipeline = readPipeline(db)
@@ -110,29 +131,86 @@ export async function taskFacts(id: ID): Promise<ChainTaskFacts> {
   }
 }
 
+/** The step whose result step `n` takes as its Grundlage (null: none — the first step, or the one before was skipped). */
+export function basisSource(chain: OrderChain, n: number): ID | null {
+  const steps = [...chain.steps].sort((a, b) => a.n - b.n)
+  const i = steps.findIndex((s) => s.n === n)
+  if (i < 0) return null
+  const prev = i > 0 ? steps[i - 1]! : null
+  if (prev) return (chain.skipped ?? []).includes(prev.n) ? null : prev.id
+  return chain.basis?.id ?? null
+}
+
+/** The fingerprint of the Grundlage step `n` would take now — what a card shows of it ('' : none). */
+export async function basisFpNow(chain: OrderChain, n: number): Promise<string> {
+  const block = basisPreview(chain, n)
+  return block ? textFp(basisText(block)) : ''
+}
+
+/**
+ * Per step not started yet: its Grundlage carries an outside write (`OrderChain.foreign` of its source) that no card
+ * showed as it is now (`basisSeen`).
+ */
+async function basisForeignOf(chain: OrderChain | undefined): Promise<Record<number, boolean>> {
+  const out: Record<number, boolean> = {}
+  if (!chain?.foreign) return out
+  for (const st of chain.steps) {
+    if (chain.advanced?.[st.n] !== undefined || (chain.skipped ?? []).includes(st.n)) continue
+    const src = basisSource(chain, st.n)
+    if (!src || chain.foreign[src] === undefined) continue
+    out[st.n] = (await basisFpNow(chain, st.n)) !== chain.basisSeen?.[st.n]
+  }
+  return out
+}
+
+/** Requests this tab asks "end the chain?" about right now (the request was set to Fertig while it ran — trigger.ts). */
+const asking = new Set<ID>()
+export function holdFinishing(rowId: ID, on: boolean): void {
+  if (on) asking.add(rowId)
+  else asking.delete(rowId)
+  kick(rowId)
+}
+
 /** The facts of a request's chain on this device (`record` = this device's record of it). */
 export async function chainWorld(rowId: ID, record: OrderRecord, now = Date.now()): Promise<ChainWorld> {
   const s = ws()
   const row = s.pages[rowId]
   const db = row?.databaseId ? s.databases[row.databaseId] : undefined
+  const chain = record.chain
+  // a step made in another tab reaches this one with that tab's save: absent and never seen here while young, it arrives
+  const young = !!chain && now - Math.max(chain.confirmedAt, chain.startAt - ORDER_LIMITS.startDelayMs) < SETTLE_MS
   const tasks: ChainWorld['tasks'] = {}
   const refs: ChainWorld['refs'] = {}
-  for (const step of record.chain?.steps ?? []) {
-    tasks[step.id] = await taskFacts(step.id)
+  for (const step of chain?.steps ?? []) {
+    tasks[step.id] = await taskFacts(step.id, young)
     for (const id of Object.keys(step.refs)) {
       const p = s.pages[id]
-      if (p) refs[id] = { rev: p.contentRev, foreign: !!agentIdOf(p.updatedBy) || !byPerson(p.contentOrigin) }
+      // foreign: an outside write recorded where it happened, an agent's stamp, or text not from a person's editor here
+      if (p && !refs[id]) refs[id] = { fp: await pageFp(p), foreign: chain?.foreign?.[id] !== undefined || !!agentIdOf(p.updatedBy) || !byPerson(p.contentOrigin) }
     }
   }
   return {
     now,
     record,
-    request: { live: !!row && !row.trashed && !isEffectivelyTrashed(s.pages, rowId), status: orderStatusKey(rowId), usable: orderConfigUsable(readOrderConfig(db)) },
+    request: { live: !!row && !row.trashed && !isEffectivelyTrashed(s.pages, rowId), status: orderStatusKey(rowId), usable: orderConfigUsable(readOrderConfig(db)), ...(row ? { at: row.updatedAt } : {}) },
     tasks,
     refs,
     // a team: only the device with the worker link moves a step
     here: { advance: !inTeam() || workerOnline() },
+    basisForeign: await basisForeignOf(chain),
+    asking: asking.has(rowId),
   }
+}
+
+/**
+ * What a card for step `n` would show now, as fingerprints (the seam's stand-in for a card that rendered it): every page
+ * the step takes along, its Grundlage.
+ */
+export async function shownNow(chain: OrderChain, n: number): Promise<{ refs: Record<ID, string>; basis: string }> {
+  const step = chain.steps.find((s) => s.n === n)
+  const refs: Record<ID, string> = {}
+  for (const id of Object.keys(step?.refs ?? {})) refs[id] = await pageFp(ws().pages[id])
+  return { refs, basis: await basisFpNow(chain, n) }
 }
 
 /* ------------------------------------------------------------------ the steps this tab knows */
@@ -164,6 +242,8 @@ interface Index {
   steps: Map<ID, StepAt>
   /** requests with a running or halted chain here */
   rows: Set<ID>
+  /** pages those chains take along (refs) or copy from (a replan's basis step) → their requests (outside writes recorded) */
+  watch: Map<ID, Array<{ row: ID; run: string }>>
 }
 
 let loaded = false
@@ -172,9 +252,9 @@ let index: Index | null = null
 /** What this tab knows of the records of this scope (cached per records object). */
 function indexNow(): Index {
   const recs = useOrderRecords.getState().recs
-  const sc = scope()
+  const sc = orderScope()
   if (index?.of === recs && index.scope === sc) return index
-  const out: Index = { of: recs, scope: sc, parked: new Set(), started: new Set(), steps: new Map(), rows: new Set() }
+  const out: Index = { of: recs, scope: sc, parked: new Set(), started: new Set(), steps: new Map(), rows: new Set(), watch: new Map() }
   const prefix = `${sc}|`
   for (const [key, rec] of Object.entries(recs)) {
     if (!key.startsWith(prefix) || !rec || rec === 'unreadable') continue
@@ -185,7 +265,9 @@ function indexNow(): Index {
     for (const id of parkedOf(rec.chain?.replaced?.chain)) out.parked.add(id)
     // a chain a replan stands beside (a draft over a running one): its parked steps stay held too
     if (rec.chain && (rec.state === 'running' || rec.state === 'halted' || rec.state === 'draft')) {
-      for (const s of rec.chain.steps) out.steps.set(s.id, { row, n: s.n, run: rec.chain.run })
+      const run = rec.chain.run
+      for (const s of rec.chain.steps) out.steps.set(s.id, { row, n: s.n, run })
+      for (const id of new Set([...rec.chain.steps.flatMap((s) => Object.keys(s.refs)), ...(rec.chain.basis ? [rec.chain.basis.id] : [])])) out.watch.set(id, [...(out.watch.get(id) ?? []), { row, run }])
       if (rec.state !== 'draft') out.rows.add(row)
     }
   }
@@ -222,7 +304,7 @@ function parkedGuard(taskId: ID): boolean {
 
 /* ------------------------------------------------------------------ locks, writers */
 
-const chainLock = (rowId: ID) => `one-order-chain:${scope()}:${rowId}`
+const chainLock = (rowId: ID) => `one-order-chain:${orderScope()}:${rowId}`
 
 async function withChainLock<T>(rowId: ID, fn: () => Promise<T>): Promise<T> {
   const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined
@@ -292,9 +374,9 @@ function writerNow(): Writer | null {
   return inPersonEvent() ? { kind: 'you', via: 'ui' } : { kind: 'unknown' }
 }
 
-/** The kind of the stage a pipeline row stands in (cached per database object). */
+/** The stage a pipeline row stands in, and the stage a new task waits in (cached per database object). */
 const pipelines = new WeakMap<Database, { props: ReturnType<typeof codingProps>; pipeline: ReturnType<typeof readPipeline> }>()
-function stageKindOf(page: Page | undefined, s: Pick<WorkspaceState, 'databases'>): string | null {
+function stageInfo(page: Page | undefined, s: Pick<WorkspaceState, 'databases'>): { id: ID; kind: string; park: ID | null } | null {
   const db = page?.databaseId ? s.databases[page.databaseId] : undefined
   if (!page || !db) return null
   let p = pipelines.get(db)
@@ -302,35 +384,91 @@ function stageKindOf(page: Page | undefined, s: Pick<WorkspaceState, 'databases'
     p = { props: codingProps(db), pipeline: readPipeline(db) }
     pipelines.set(db, p)
   }
-  return stageOfRow(p.pipeline, p.props, page)?.kind ?? null
+  const stage = stageOfRow(p.pipeline, p.props, page)
+  if (!stage) return null
+  const repo = p.props.repo ? page.properties[p.props.repo] : null
+  return { id: stage.id, kind: stage.kind, park: startStageOf(p.pipeline, !!repo, false)?.id ?? null }
 }
 
-/** The store subscriber: who moved a chain step to done (recorded), and a catch-up after any change of a chain. */
+/** Writers whose text may go on to Claude Code without a card: the chain, the person (an editor here), this device's worker … */
+const INSIDE = new Set<Writer['kind']>(['you', 'editor', 'coding', 'order', 'terminal', 'ai', 'system', 'eject', 'rewind'])
+
+/**
+ * Who wrote what happens now, for the outside-write record: null = no one outside (the person, the chain, this device's
+ * worker …) or a replay from another tab of this device (that tab records it); else the outside writer's kind — an
+ * agent, the bridge, the sync, an automation, a script, a change from another device ('remote') …
+ */
+function outsideWriter(): string | null {
+  if (isApplyingRemote()) return null
+  if (isApplyingCloudChange()) return 'remote'
+  const w = currentWriter()
+  if (!w) return inPersonEvent() ? null : 'unknown'
+  if (isEjectWriter(w)) return null
+  return INSIDE.has(w.kind) ? null : w.kind
+}
+
+/** A chain this record holds that the subscriber still records for. */
+const active = (r: OrderRecord | null, run: string): r is OrderRecord & { chain: OrderChain } => !!r?.chain && r.chain.run === run && (r.state === 'running' || r.state === 'halted' || (r.state === 'draft' && !!r.draft?.over))
+
+/**
+ * The store subscriber: who moved a chain step to done (recorded), a moved step put back into its park stage by someone
+ * other than the chain, an outside write to a page the chain copies or takes along (a started step's text, a ref, a
+ * replan's basis step), and a catch-up after any change of a chain.
+ */
 function onStore(state: WorkspaceState, prev: WorkspaceState): void {
   if (state.pages === prev.pages || !state.ready || !prev.ready || state.epoch !== prev.epoch) return
   const idx = indexNow()
-  if (!idx.steps.size && !idx.rows.size) return
+  if (!idx.steps.size && !idx.rows.size && !idx.watch.size) return
   const diff = pageChanges(state.pages, prev.pages)
   let who: Writer | null | undefined
+  let outside: string | null | undefined
+  const outsideNow = () => (outside === undefined ? (outside = outsideWriter()) : outside)
+  const textChanged = (id: ID) => {
+    const now = state.pages[id]
+    const before = prev.pages[id]
+    return !!now && !!before && (now.content !== before.content || now.title !== before.title)
+  }
   for (const id of [...diff.changed, ...diff.removed]) {
     if (idx.rows.has(id)) kick(id)
+    // a page the chain takes along or copies from: an outside write is recorded (the card shows it before it goes on)
+    const watched = idx.watch.get(id)
+    if (watched) {
+      for (const w of watched) kick(w.row)
+      if (textChanged(id) && outsideNow()) {
+        const at = Date.now()
+        for (const w of watched) queueEvidence(w.row, () => patchOrderRecord(w.row, (r) => (active(r, w.run) ? { ...r, chain: withForeign(r.chain, id, at) } : r)))
+      }
+    }
     const at = idx.steps.get(id)
     if (!at) continue
     kick(at.row)
     const now = state.pages[id]
     const before = prev.pages[id]
-    if (!now || !before || now.properties === before.properties) continue
-    const k1 = stageKindOf(now, state)
-    const k0 = stageKindOf(before, prev)
-    if (k1 === k0) continue
+    if (before) seenHere.add(id)
+    if (!now || !before) continue
+    // an outside write to a started step: its result goes on as the next step's Grundlage — recorded
+    if (textChanged(id) && outsideNow()) {
+      const t0 = Date.now()
+      queueEvidence(at.row, () => patchOrderRecord(at.row, (r) => (active(r, at.run) && r.chain.advanced?.[at.n] !== undefined ? { ...r, chain: withForeign(r.chain, id, t0) } : r)))
+    }
+    if (now.properties === before.properties) continue
+    const s1 = stageInfo(now, state)
+    const s0 = stageInfo(before, prev)
+    if (s1?.id === s0?.id) continue
     if (who === undefined) who = writerNow()
     // a replay from another tab / the server: the tab that made the move records it
     if (who === null || isEjectWriter(who)) continue
+    // a moved step put back into its park stage by someone other than this chain: the chain halts (never starts it over)
+    if (s1 && s1.id === s1.park && !(who.kind === 'order' && who.row === at.row)) {
+      const t1 = Date.now()
+      queueEvidence(at.row, () => patchOrderRecord(at.row, (r) => (active(r, at.run) && r.chain.moved?.[at.n] !== undefined ? { ...r, chain: withBack(r.chain, at.n, t1) } : r)))
+    }
+    if (s1?.kind === s0?.kind) continue
     const seen = approvalSawNext(id)
-    if (k1 === 'done') {
+    if (s1?.kind === 'done') {
       const by: OrderDoneBy = doneEvidence(who.kind === 'unknown' ? null : who, Date.now(), seen)
-      queueEvidence(at.row, () => patchOrderRecord(at.row, (r) => (r?.chain?.run === at.run && (r.state === 'running' || r.state === 'halted') ? { ...r, chain: withDone(r.chain, at.n, by) } : r)))
-    } else if (seen) queueEvidence(at.row, () => patchOrderRecord(at.row, (r) => (r?.chain?.run === at.run && (r.state === 'running' || r.state === 'halted') ? { ...r, chain: withSeenNext(r.chain, at.n) } : r)))
+      queueEvidence(at.row, () => patchOrderRecord(at.row, (r) => (active(r, at.run) ? { ...r, chain: withDone(r.chain, at.n, by) } : r)))
+    } else if (seen) queueEvidence(at.row, () => patchOrderRecord(at.row, (r) => (active(r, at.run) ? { ...r, chain: withSeenNext(r.chain, at.n) } : r)))
   }
 }
 
@@ -370,7 +508,8 @@ function onDoneHook(taskId: ID): void {
 /** A halt (sticky): the record's `halted`, the Status Angehalten (`#s`) — unless the Status said it already. */
 async function halt(rowId: ID, chain: OrderChain, move: Extract<ChainMove, { kind: 'halt' }>, by = 'order'): Promise<void> {
   await patchOrderRecord(rowId, (r) => (r?.chain && r.chain.run === chain.run && (r.state === 'running' || r.state === 'halted') ? { ...r, state: 'halted', chain: withHalt(r.chain, { why: move.why, by, ...(move.step !== undefined ? { step: move.step } : {}) }, Date.now()) } : r))
-  if (move.why !== 'status' && move.why !== 'statusOption' && move.why !== 'trashed') writeOrderStatus(rowId, 'halted', orderWriter(rowId, chain.run, 's'))
+  // the Status said it already (Angehalten, Fertig — the person ended the chain), or there is none to write
+  if (move.why !== 'status' && move.why !== 'statusOption' && move.why !== 'trashed' && move.why !== 'finished') writeOrderStatus(rowId, 'halted', orderWriter(rowId, chain.run, 's'))
   tell(`halt|${rowId}|${chain.run}|${move.why}|${move.step ?? ''}`, rowId, t('features.coding.order.notify.halted', { id: codeOf(rowId), why: t(`features.coding.order.halt.${move.why}`, { n: move.step !== undefined ? stepNo(move.step) : '' }) }))
 }
 
@@ -434,9 +573,12 @@ async function advance(rowId: ID, chain: OrderChain, move: Extract<ChainMove, { 
   const page0 = ws().pages[step.id]
   if (!page0 || !(await isTrusted(step.id))) return false
   const checked = ws().pages[step.id]
+  // the Grundlage as it will be placed — with an outside write in its source, only exactly as a card showed it
+  const block = basisFor(chain, step, move)
+  const src = basisSource(chain, step.n)
+  if (block && src && chain.foreign?.[src] !== undefined && (await textFp(basisText(block))) !== chain.basisSeen?.[step.n]) return false
   const ahead = await patchOrderRecord(rowId, (r) => (r?.state === 'running' && r.chain?.run === chain.run && !r.chain.halted ? { ...r, chain: withAdvance(r.chain, step.n, Date.now()) } : r))
   if (!ahead.ok || ahead.rec?.chain?.advanced?.[step.n] === undefined) return false
-  const block = basisFor(chain, step, move)
   let moved = false
   await keepTrust(
     [step.id],
@@ -457,12 +599,16 @@ async function advance(rowId: ID, chain: OrderChain, move: Extract<ChainMove, { 
     },
     orderWriter(rowId, chain.run, `a${step.n}`),
   )
+  // the move landed (still under the chain's lock): only a step without this mark is ever moved again — never one a
+  // lagging store in another tab still shows parked
+  if (moved) await patchOrderRecord(rowId, (r) => (r?.chain?.run === chain.run && r.chain.advanced?.[step.n] !== undefined ? { ...r, chain: withMoved(r.chain, step.n, Date.now()) } : r))
   return moved
 }
 
 /**
- * A VON HAND key on a card: a drift / a changed page it passed is pinned again (the person saw them now); the evidence
- * and checkpoint reasons it passed are kept for that step (a Confirm wait that comes up after them never brings them back).
+ * A VON HAND key on a card: a drift it passed is pinned again; a changed page / Grundlage only as the card rendered it
+ * (`press.refs` / `press.basis` — fingerprints); the evidence and checkpoint reasons it passed are kept for that step (a
+ * Confirm wait that comes up after them never brings them back).
  */
 async function accept(rowId: ID, chain: OrderChain, world: ChainWorld, press: ChainPress): Promise<OrderChain> {
   const step = chain.steps.find((s) => s.n === press.step)
@@ -470,7 +616,15 @@ async function accept(rowId: ID, chain: OrderChain, world: ChainWorld, press: Ch
   let next = chain
   const f = world.tasks[step.id]
   if (press.passes.includes('drift') && f && (f.line !== step.line || f.approvals !== step.approvals)) next = withLine(next, step.n, f.line, f.approvals)
-  if (press.passes.includes('ref')) next = withRefs(next, step.n, Object.fromEntries(Object.keys(step.refs).flatMap((id) => (world.refs[id] ? [[id, world.refs[id]!.rev]] : []))))
+  // the pages exactly as the card rendered them are pinned (a page that moved on since asks again); an outside write
+  // the card showed is no longer pending
+  if (press.passes.includes('ref') && press.refs) {
+    const shown = Object.fromEntries(Object.keys(step.refs).flatMap((id) => (press.refs![id] !== undefined ? [[id, press.refs![id]!]] : [])))
+    next = withRefs(next, step.n, shown)
+    next = withoutForeign(next, Object.keys(shown).filter((id) => world.refs[id]?.fp === shown[id]))
+  }
+  // the Grundlage as the card showed it (advance places it only while it still is exactly that)
+  if (press.passes.includes('basis') && press.basis) next = withBasisSeen(next, step.n, press.basis)
   next = withPassed(next, step.n, press.passes)
   if (next === chain) return chain
   const out = await patchOrderRecord(rowId, (r) => (r?.state === 'running' && r.chain?.run === chain.run ? { ...r, chain: next } : r))
@@ -528,6 +682,9 @@ export function runChain(rowId: ID, press?: ChainPress): Promise<ChainMove | nul
         break
       case 'wait':
         if (move.why === 'startAt' && move.at !== undefined) schedule(rowId, move.at)
+        // a step on its way from another tab, a store lagging behind: looked at again (it settles, or halts once it is late)
+        else if (move.why === 'arriving') kick(rowId, 3000)
+        else if (move.why === 'settling') kick(rowId, Math.min(Math.max(1000, (move.at ?? Date.now() + 5000) - Date.now() + 50), 5000))
         break
     }
     publish(rowId, move)
@@ -619,6 +776,15 @@ export function startChains(): void {
     useChainMoves.setState({ moves: {} })
     void readAll()
   })
+  // another member signed in on this browser (a team): their own records (records.ts orderScope)
+  useCloud.subscribe((c, prev) => {
+    if (c.user?.id === prev.user?.id) return
+    loaded = false
+    index = null
+    for (const id of [...timers.keys()]) unschedule(id)
+    useChainMoves.setState({ moves: {} })
+    void readAll()
+  })
   // the worker came online: the chains go on (what finished meanwhile, a step that waited for it)
   useCoding.subscribe((s, prev) => {
     if (workerOnline(s) && !workerOnline(prev)) void catchUp()
@@ -628,7 +794,7 @@ export function startChains(): void {
     const ch = typeof BroadcastChannel === 'undefined' ? null : new BroadcastChannel(ORDERS_CHANNEL)
     ch?.addEventListener('message', (e: MessageEvent) => {
       const m = e.data as { scope?: unknown; row?: unknown } | null
-      if (!m || typeof m.row !== 'string' || m.scope !== scope()) return
+      if (!m || typeof m.row !== 'string' || m.scope !== orderScope()) return
       const rowId = m.row
       void loadOrderRecord(rowId, { fresh: true }).then((r) => {
         const rec = asRecord(r)

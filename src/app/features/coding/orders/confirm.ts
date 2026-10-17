@@ -34,12 +34,17 @@
  * exactly what was confirmed (its `sig`); otherwise the record becomes 'interrupted' — the plate offers the two VON HAND
  * keys "Angelegte verwerfen" (discardMade) and "Rest anlegen" (finishRest, §2.2 again).
  */
+import type { JSONContent } from '@tiptap/core'
 import { useWorkspace } from '../../../store/store'
+import { flushSave } from '../../../store/persistence'
+import { looksLikeKey } from '@/shared/ai/keys'
 import { isEffectivelyTrashed } from '../../../store/selectors'
 import type { ID } from '../../../store/types'
 import { withWriter, type Writer } from '../../../store/writer'
 import { newId } from '../../../lib/ids'
 import { docToMarkdown, readableBlocks } from '../../../editor'
+import { pageFp, quoteTitleOf, requestNow, textFp } from './fingerprint'
+import { withHalt } from '../chain'
 import { currentLang, t } from '../../../i18n'
 import { canonicalJson } from '../protocol'
 import { codingProps, codingReadOnly, ensurePipelineDb, kindOfDb, readPipeline, stageOfRow } from '../schema'
@@ -47,7 +52,7 @@ import { pipelineLine, pipelineNeedsRepo, startStageOf } from '../stages'
 import { checkTaskDraft, type DraftIssue, type NewTaskInput } from '../draft'
 import { applyNewTask, draftWorld, planNewTask, type NewTaskPlan } from '../terminal'
 import { taskBody } from '../tasks'
-import { loadTask, scope, taskLocal } from '../local'
+import { loadTask, taskLocal } from '../local'
 import { refPagesOf } from '../refs'
 import { defaultApprovals, useCoding } from '../state'
 import { checkPreconditions, type KindProblem, type PlannerBlock } from './preconditions'
@@ -56,7 +61,7 @@ import { orderPlanHash, type ResolvedStep } from './plan'
 import { chainPropsCheck, ensureChainProps, type ChainPropsResult } from './props'
 import { orderCode, orderStatusKey, writeOrderStatus } from './db'
 import { orderConfigUsable, readOrderConfig } from './config'
-import { loadOrderRecord, patchOrderRecord } from './records'
+import { loadOrderRecord, orderScope, patchOrderRecord } from './records'
 import { followRecord, orderWriter, unschedule } from './chainRun'
 import { stepPage } from './stepPage'
 import { stepWords } from './words'
@@ -96,6 +101,15 @@ export type StartRefusal =
   | { why: 'failed'; step: number; error: string }
   /** this device could not keep the record */
   | { why: 'record' }
+  /**
+   * the request (page = the row) or a page a step takes along changed since the planner read it (its fingerprint): what
+   * ↵ would send along is not what was planned — plan again
+   */
+  | { why: 'source'; page: ID }
+  /** the request's text holds a key-shaped string (never quoted into a step) */
+  | { why: 'keys' }
+  /** a step still to make is no longer exactly what was confirmed (its sig): the rest is not made — discard and plan again */
+  | { why: 'unconfirmed'; step: number }
 
 export type StartOutcome = { ok: true; steps: ID[]; startAt: number } | ({ ok: false } & StartRefusal)
 export type UndoOutcome = { ok: true } | { ok: false; why: 'busy' | 'state' | 'taken' | 'changed' }
@@ -103,8 +117,8 @@ export type FinishOutcome = { ok: true; created: number } | ({ ok: false } & (St
 
 /* ------------------------------------------------------------------ locks */
 
-const rowLock = (rowId: ID) => `one-order:${scope()}:${rowId}`
-const chainLock = (rowId: ID) => `one-order-chain:${scope()}:${rowId}`
+const rowLock = (rowId: ID) => `one-order:${orderScope()}:${rowId}`
+const chainLock = (rowId: ID) => `one-order-chain:${orderScope()}:${rowId}`
 /** requests this tab is starting / taking back (without Web Locks: the only guard) */
 const inflight = new Set<ID>()
 
@@ -138,7 +152,7 @@ async function sha256(text: string): Promise<string> {
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('')
 }
 
-const titleOf = (id: ID) => ws().pages[id]?.title.trim() || t('common.untitled')
+const titleOf = quoteTitleOf
 const live = (id: ID) => {
   const s = ws()
   const p = s.pages[id]
@@ -169,7 +183,12 @@ const stepInput = (step: OrderDraft['plan']['steps'][number], projectId: ID | nu
  * One step of a plan as it is created: its task (planNewTask — the shared checks again, against `project` as it is now),
  * its page (stepPage.ts) and its record entry with the `sig` of what is created.
  */
-async function buildStep(rowId: ID, draft: OrderDraft, i: number, o: { n: number; after: number | null; id: ID; project: ID; run: string; approvals: 'all' | 'review' | 'none' }): Promise<{ ok: true; step: BuiltStep } | { ok: false; refusal: StartRefusal }> {
+async function buildStep(
+  rowId: ID,
+  draft: OrderDraft,
+  i: number,
+  o: { n: number; after: number | null; id: ID; project: ID; run: string; approvals: 'all' | 'review' | 'none'; request: readonly JSONContent[] },
+): Promise<{ ok: true; step: BuiltStep } | { ok: false; refusal: StartRefusal }> {
   const step = draft.plan.steps[i]!
   const input = stepInput(step, o.project)
   const { issues } = checkTaskDraft(input, draftWorld())
@@ -185,7 +204,7 @@ async function buildStep(rowId: ID, draft: OrderDraft, i: number, o: { n: number
     taskId: o.id,
     after: o.after,
     code: orderCode(rowId) ?? (ws().pages[rowId]?.title.trim() || t('common.untitled')),
-    request: readableBlocks(rowId),
+    request: o.request,
     context: i === 0 && draft.source.server && draft.plan.context ? draft.plan.context : null,
     refs: refs.map((id) => ({ id, label: ws().pages[id]?.private ? '' : titleOf(id) })),
     titleOf,
@@ -207,7 +226,8 @@ async function buildStep(rowId: ID, draft: OrderDraft, i: number, o: { n: number
         project: o.project,
         line: pipelineLine(pipeline, !!planned.repo, true, o.approvals),
         approvals: o.approvals,
-        refs: Object.fromEntries(refs.map((id) => [id, ws().pages[id]!.contentRev])),
+        // pinned at the planner's read (startChain checked the pages still are exactly that); '' = unknown — asks
+        refs: Object.fromEntries(refs.map((id) => [id, draft.source.fps?.[id] ?? ''])),
         basisBlock: page.basisBlock,
         own: page.own,
         title: planned.title,
@@ -282,16 +302,26 @@ async function createSteps(rowId: ID, run: string, steps: BuiltStep[], offset = 
   return { ok: true }
 }
 
-/** The chain runs: 'running', the 10 s count from now, Status → Läuft (`#s`); this tab follows the count. */
+/**
+ * The chain runs: 'running', the 10 s count from now, Status → Läuft (`#s`); this tab follows the count. Unless the
+ * request was halted meanwhile — Status Angehalten (by anyone), moved away from Kette bereit by hand, trashed, or a halt
+ * the trigger recorded while the steps were being made: then the record goes 'halted' (sticky; ↵ Fortsetzen) and the
+ * Status stays as it is. This tab's save is flushed first, so another open tab holds the new steps before the record
+ * tells it the chain runs.
+ */
 async function toRunning(rowId: ID, run: string): Promise<{ ok: boolean; startAt: number; rec: OrderRecord | null }> {
+  await Promise.race([flushSave().catch(() => undefined), new Promise((r) => setTimeout(r, 2000))])
+  const status = orderStatusKey(rowId)
+  const stop = !live(rowId) ? ('trashed' as const) : status !== 'ready' && status !== 'running' ? ('status' as const) : null
   const startAt = Date.now() + ORDER_LIMITS.startDelayMs
   const done = await patchOrderRecord(rowId, (r) => {
     if (r?.chain?.run !== run || (r.state !== 'creating' && r.state !== 'interrupted')) return r
     const { made: _made, ...chain } = r.chain
+    if (chain.halted || stop) return { ...r, state: 'halted', chain: withHalt({ ...chain, startAt }, { why: stop ?? 'status', by: 'order' }, Date.now()) }
     return { ...r, state: 'running', chain: { ...chain, startAt } }
   })
-  if (!done.ok || done.rec?.state !== 'running') return { ok: false, startAt, rec: done.rec }
-  writeOrderStatus(rowId, 'running', orderWriter(rowId, run, 's'))
+  if (!done.ok || (done.rec?.state !== 'running' && done.rec?.state !== 'halted') || done.rec.chain?.run !== run) return { ok: false, startAt, rec: done.rec }
+  if (done.rec.state === 'running') writeOrderStatus(rowId, 'running', orderWriter(rowId, run, 's'))
   followRecord(rowId, done.rec)
   return { ok: true, startAt, rec: done.rec }
 }
@@ -371,6 +401,14 @@ async function startLocked(rowId: ID, hash: string): Promise<StartOutcome> {
   const approvals = defaultApprovals()
   const resolved = resolveSteps(draft, kp, approvals)
   if ((await orderPlanHash(draft.plan, resolved, approvals)) !== hash) return fail({ why: 'changed' })
+  // what every step quotes and takes along must be exactly what the planner read (fingerprints, never the tab-local
+  // contentRev): a request an agent, the bridge or the sync added to since — or a linked page that moved — is planned
+  // again first; the text read here is the one quoted (no second read below)
+  const request = requestNow(rowId)
+  if (looksLikeKey(request.text) || looksLikeKey(row.title)) return fail({ why: 'keys' })
+  const fps = draft.source.fps ?? {}
+  if (!fps[rowId] || (await textFp(request.text)) !== fps[rowId]) return fail({ why: 'source', page: rowId })
+  for (const id of new Set(steps.flatMap((st) => st.refs.filter(live)))) if (!fps[id] || (await pageFp(ws().pages[id])) !== fps[id]) return fail({ why: 'source', page: id })
 
   // every step against the shared checks and its project's needs (projects not made yet: their template)
   const world = draftWorld()
@@ -420,7 +458,7 @@ async function startLocked(rowId: ID, hash: string): Promise<StartOutcome> {
   const built: BuiltStep[] = []
   for (let i = 0; i < steps.length; i++) {
     const n = base + i + 1
-    const b = await buildStep(rowId, draft, i, { n, after: i ? n - 1 : (from?.n ?? null), id: newId(), project: projects.get(steps[i]!.kind)!, run, approvals })
+    const b = await buildStep(rowId, draft, i, { n, after: i ? n - 1 : (from?.n ?? null), id: newId(), project: projects.get(steps[i]!.kind)!, run, approvals, request: request.blocks })
     if (!b.ok) return fail(b.refusal)
     built.push(b.step)
   }
@@ -523,7 +561,7 @@ async function rebuild(rowId: ID, rec: OrderRecord, chain: OrderChain): Promise<
   const out: BuiltStep[] = []
   for (const { i, step } of missingSteps(chain)) {
     if (!ws().databases[step.project] || kindOfDb(step.project) !== step.kind) return { ok: false, refusal: { why: 'kind', step: step.n, kind: step.kind, problem: 'gone' } }
-    const b = await buildStep(rowId, draft, i, { n: step.n, after: i ? sorted[i - 1]!.n : (chain.basis?.n ?? null), id: step.id, project: step.project, run: chain.run, approvals: step.approvals })
+    const b = await buildStep(rowId, draft, i, { n: step.n, after: i ? sorted[i - 1]!.n : (chain.basis?.n ?? null), id: step.id, project: step.project, run: chain.run, approvals: step.approvals, request: readableBlocks(rowId) })
     if (!b.ok) return b
     // the record's entry stays as confirmed; the task is built again
     out.push({ plan: b.step.plan, chain: { ...step, sig: b.step.chain.sig } })
@@ -571,6 +609,10 @@ export async function finishRest(rowId: ID): Promise<FinishOutcome> {
     if (!pre.ok) return { ok: false, why: 'pre', block: pre.block }
     const built = await rebuild(rowId, rec, chain)
     if (!built.ok) return { ok: false, ...built.refusal }
+    // each step still to make must be exactly what was confirmed (its sig) — the request or a page moved since: not made
+    const confirmed = new Map(chain.steps.map((st) => [st.id, st.sig]))
+    const off = built.steps.find((b) => !b.chain.sig || confirmed.get(b.chain.id) !== b.chain.sig)
+    if (off) return { ok: false, why: 'unconfirmed', step: off.chain.n }
     const made = await createSteps(rowId, chain.run, built.steps, chain.steps.length - built.steps.length)
     if (!made.ok) return { ok: false, why: 'failed', step: made.step, error: made.error }
     const running = await toRunning(rowId, chain.run)

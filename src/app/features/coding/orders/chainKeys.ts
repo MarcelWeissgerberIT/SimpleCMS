@@ -75,17 +75,23 @@ function mayStart(): ChainKeyRefusal | null {
   return null
 }
 
-/** ↵ Weiter on a card for step `step`: passes the reasons the card showed. */
-export async function advanceChain(rowId: ID, step: number, passes: readonly ChainPassable[]): Promise<ChainKeyOutcome> {
+/** What a card rendered of the pages and the Grundlage that go along (fingerprints) — only that is passed. */
+export interface ChainSeen {
+  refs?: Record<ID, string>
+  basis?: string
+}
+
+/** ↵ Weiter on a card for step `step`: passes the reasons the card showed — a page / Grundlage only as it rendered it. */
+export async function advanceChain(rowId: ID, step: number, passes: readonly ChainPassable[], seen: ChainSeen = {}): Promise<ChainKeyOutcome> {
   const why = mayStart()
   if (why) return no(why)
   const rec = asRecord(await loadOrderRecord(rowId, { fresh: true }))
   if (rec?.state !== 'running' || !rec.chain) return no('state')
-  return { ok: true, move: await runChain(rowId, { step, passes }) }
+  return { ok: true, move: await runChain(rowId, { step, passes, ...seen }) }
 }
 
 /** The Confirm card's ↵: exactly the version it rendered (its hash) is confirmed here, then the chain goes on. */
-export async function confirmAndGo(rowId: ID, step: number, hash: string, passes: readonly ChainPassable[] = []): Promise<ChainKeyOutcome> {
+export async function confirmAndGo(rowId: ID, step: number, hash: string, passes: readonly ChainPassable[] = [], seen: ChainSeen = {}): Promise<ChainKeyOutcome> {
   const why = mayStart()
   if (why) return no(why)
   const rec = asRecord(await loadOrderRecord(rowId, { fresh: true }))
@@ -93,17 +99,26 @@ export async function confirmAndGo(rowId: ID, step: number, hash: string, passes
   if (rec?.state !== 'running' || !s) return no('state')
   const res = await confirmTaskVersion(s.id, hash)
   if (res !== 'ok') return no(res === 'changed' ? 'changed' : 'state')
-  return { ok: true, move: await runChain(rowId, { step, passes }) }
+  return { ok: true, move: await runChain(rowId, { step, passes, ...seen }) }
 }
 
-/** H: the Status → Angehalten as the person; this device's record halts at once (sticky). */
+/**
+ * H: the Status → Angehalten as the person; this device's record halts at once (sticky) — also a chain still being
+ * created (it halts instead of running once its steps are made: confirm.ts toRunning).
+ */
 export async function haltChain(rowId: ID): Promise<ChainKeyOutcome> {
   if (codingReadOnly()) return no('readOnly')
   const status = orderStatusKey(rowId)
   const rec = asRecord(await loadOrderRecord(rowId, { fresh: true }))
-  const runs = rec?.state === 'running' && !!rec.chain
+  const runs = !!rec?.chain && (rec.state === 'running' || rec.state === 'creating' || rec.state === 'interrupted')
   if (status !== 'running' && !runs) return no('state')
-  if (runs) await patchOrderRecord(rowId, (r) => (r?.state === 'running' && r.chain ? { ...r, state: 'halted', chain: withHalt(r.chain, { why: 'status', by: 'you~ui' }, Date.now()) } : r))
+  if (runs)
+    await patchOrderRecord(rowId, (r) => {
+      if (!r?.chain) return r
+      if (r.state === 'running') return { ...r, state: 'halted', chain: withHalt(r.chain, { why: 'status', by: 'you~ui' }, Date.now()) }
+      if (r.state === 'creating' || r.state === 'interrupted') return { ...r, chain: withHalt(r.chain, { why: 'status', by: 'you~ui' }, Date.now()) }
+      return r
+    })
   if (status !== 'halted') writeOrderStatus(rowId, 'halted', YOU)
   return { ok: true }
 }
@@ -144,10 +159,16 @@ export async function resumeChain(rowId: ID): Promise<ChainKeyOutcome> {
   if (why) return no(why)
   const rec = asRecord(await loadOrderRecord(rowId, { fresh: true }))
   const chain = rec?.chain
-  if (!rec || !chain || (rec.state !== 'halted' && !(rec.state === 'running' && chain.halted))) return no('state')
+  // a follow-up plan standing over the halted chain counts as halted: resuming drops that plan
+  const underDraft = (r: OrderRecord) => r.state === 'draft' && r.draft?.over === 'halted'
+  if (!rec || !chain || (rec.state !== 'halted' && !(rec.state === 'running' && chain.halted) && !underDraft(rec))) return no('state')
   const world = await chainWorld(rowId, rec)
   if (mayResume(world) === 'budget') return no('budget')
-  const out = await patchOrderRecord(rowId, (r) => (r?.chain?.run === chain.run && (r.state === 'halted' || r.state === 'running') ? { ...r, state: 'running', chain: withResume(r.chain, Date.now()) } : r))
+  const out = await patchOrderRecord(rowId, (r) => {
+    if (r?.chain?.run !== chain.run || !(r.state === 'halted' || r.state === 'running' || underDraft(r))) return r
+    const { draft: _d, ...rest } = r
+    return { ...(underDraft(r) ? rest : r), state: 'running', chain: withResume(r.chain, Date.now()) }
+  })
   if (out.rec?.state !== 'running') return no('state')
   // Läuft again (the order writer): the engine never reads a halt from it now
   writeOrderStatus(rowId, 'running', orderWriter(rowId, chain.run, 's'))
@@ -161,16 +182,20 @@ export async function skipStep(rowId: ID, n: number): Promise<ChainKeyOutcome> {
   if (why) return no(why)
   const rec = asRecord(await loadOrderRecord(rowId, { fresh: true }))
   const chain = rec?.chain
-  if (!rec || !chain || (rec.state !== 'running' && rec.state !== 'halted')) return no('state')
+  // a follow-up plan standing over the halted chain counts as halted (a lifted halt drops that plan)
+  const underDraft = (r: OrderRecord) => r.state === 'draft' && r.draft?.over === 'halted'
+  if (!rec || !chain || (rec.state !== 'running' && rec.state !== 'halted' && !underDraft(rec))) return no('state')
   if (!canSkip(await chainWorld(rowId, rec), n)) return no('skip')
   const out = await patchOrderRecord(rowId, (r) => {
-    if (r?.chain?.run !== chain.run || (r.state !== 'running' && r.state !== 'halted')) return r
+    if (r?.chain?.run !== chain.run || (r.state !== 'running' && r.state !== 'halted' && !underDraft(r))) return r
     const next = withSkip(r.chain, n)
     // the halt was about this step: lifted with it — the chain runs again
-    return { ...r, state: r.state === 'halted' && !next.halted ? 'running' : r.state, chain: next }
+    if (next.halted || r.state === 'running') return { ...r, chain: next }
+    const { draft: _d, ...rest } = r
+    return { ...(underDraft(r) ? rest : r), state: 'running', chain: next }
   })
   if (!out.ok || !out.rec?.chain?.skipped?.includes(n)) return no('state')
-  if (out.rec.state === 'running' && rec.state === 'halted') writeOrderStatus(rowId, 'running', orderWriter(rowId, chain.run, 's'))
+  if (out.rec.state === 'running' && rec.state !== 'running') writeOrderStatus(rowId, 'running', orderWriter(rowId, chain.run, 's'))
   followRecord(rowId, out.rec)
   return { ok: true, move: out.rec.state === 'running' ? await runChain(rowId) : null }
 }

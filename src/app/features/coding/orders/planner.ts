@@ -58,7 +58,6 @@ import { pipelineLine, pipelineNeedsRepo, runsFrom, startStageOf } from '../stag
 import { taskRefPlan } from '../refs'
 import { defaultApprovals } from '../state'
 import { notifyAway } from '../notify'
-import { scope } from '../local'
 import { orderConfigUsable, readOrderConfig } from './config'
 import { orderStatusProps } from './status'
 import { requestFacts, type KindProject } from './facts'
@@ -67,7 +66,8 @@ import { plannerPrompt, plannerSystem, repairPrompt, PLAN_SCHEMA, type PlannerDo
 import { orderPlanHash, readPlan, type PlanReadCtx, type ResolvedStep } from './plan'
 import { pickedTools, serverSkip } from './tools'
 import { emptyFold, foldCalls, type CallFold } from './calls'
-import { loadOrderRecord, patchOrderRecord } from './records'
+import { loadOrderRecord, orderScope, patchOrderRecord } from './records'
+import { pageShown, requestNow, shownFp, textFp } from './fingerprint'
 import { endSignal, patchRun, plannerRun, runSignal, startRun } from './runs'
 import { ORDER_LIMITS, type OrderConfig, type OrderDraft, type OrderPlanV1, type OrderProv, type OrderRecord, type OrderServerSkip, type OrderStatusKey, type PlanNote } from './types'
 import type { Receipt } from '../../ai/core/meter'
@@ -317,7 +317,7 @@ function orderLabel(req: Request): string {
 
 /* ------------------------------------------------------------------ the run */
 
-const lockName = (rowId: ID) => `one-order:${scope()}:${rowId}`
+const lockName = (rowId: ID) => `one-order:${orderScope()}:${rowId}`
 
 async function withRowLock<T>(rowId: ID, fn: () => Promise<T>): Promise<T | 'busy'> {
   const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined
@@ -408,6 +408,11 @@ async function planRun(rowId: ID, run: string, opts: PlanOpts, signal: AbortSign
     if (p) prov[id] = p
   }
   const pins: Record<ID, number> = Object.fromEntries(Object.entries(prov).map(([id, p]) => [id, p.contentRev]))
+  // fingerprints of what the planner reads — the request as every step quotes it, each linked page (fingerprint.ts):
+  // ↵ Kette starten refuses when one moved since (never the tab-local contentRev); the chain pins its pages at these
+  const readNow = { request: requestNow(rowId).text, pages: built.pages.map((p) => [p.id, s.pages[p.id] ? pageShown(s.pages[p.id]) : null] as const) }
+  const fps: Record<ID, string> = { [rowId]: await textFp(readNow.request) }
+  for (const [id, shown] of readNow.pages) if (shown) fps[id] = await shownFp(shown)
 
   // the request (and at most one repair round)
   if (signal.aborted) return end({ kind: 'stopped', run })
@@ -459,7 +464,7 @@ async function planRun(rowId: ID, run: string, opts: PlanOpts, signal: AbortSign
       if (!read.ok) return end({ kind: 'failed', run, code: 'malformed', problems: read.problems })
     }
     patchRun(rowId, run, { phase: 'writing', notes: read.notes })
-    const src = { prov, pins, server: took ? server.name : null, tools: took ? server.tools : [], left: server.left, calls: seen.fold.calls, ...(skip ? { skip } : {}) }
+    const src = { prov, pins, fps, server: took ? server.name : null, tools: took ? server.tools : [], left: server.left, calls: seen.fold.calls, ...(skip ? { skip } : {}) }
     return end(await writeDraft(rowId, run, req, read.plan, read.notes, usable, approvals, src, opts, done ? { n: opts.from!, run: done.run } : undefined))
   } catch (e) {
     if (e instanceof AIError && e.code === 'aborted') return end({ kind: 'stopped', run })
@@ -526,7 +531,9 @@ async function writeDraft(
       return rec
     }
     const { want: _want, ...rest } = rec ?? { v: 1 as const, state: 'draft' as const }
-    return { ...rest, v: 1, state: 'draft', draft }
+    // a follow-up plan over a halted or finished chain: that state is kept with the draft (D brings it back as it was)
+    const over = rec?.chain && (rec.state === 'halted' || rec.state === 'done') ? rec.state : rec?.state === 'draft' ? rec.draft?.over : undefined
+    return { ...rest, v: 1, state: 'draft', draft: over ? { ...draft, over } : draft }
   })
   if (blocked) return { kind: 'chain' }
   if (!wrote.ok) return { kind: 'failed', run, code: 'record' }

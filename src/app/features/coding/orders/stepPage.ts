@@ -5,7 +5,8 @@
  *
  *  1. steps ≥ 2 of a chain: the SLOT — a plain line "Waits for step 01" (no mention). Its id is the step's `basisBlock`:
  *     the chain engine replaces it with the Grundlage when the step before is done (orders/basis.ts placeBasis).
- *  2. every step: "Request (PA-12)" — a quote holding the request's text verbatim as PLAIN text: a page mention, a link
+ *  2. every step: "Request (PA-12)" — a quote holding the request's text verbatim as PLAIN text (key-shaped strings as
+ *     "••••" — startChain refuses a request holding one before anything is made): a page mention, a link
  *     to a page or a pasted One address becomes "@Title" text, never a node or a link — so the request's own pages never
  *     go along to Claude Code with the step (coding/refs.ts reads none of it), and the row's later writes (its Status …)
  *     never change a step's version. ≤ 4 000 characters, a cut is noted.
@@ -20,6 +21,7 @@
  */
 import type { JSONContent } from '@tiptap/core'
 import type { ID } from '../../../store/types'
+import { scrubSecrets } from '@/shared/ai/keys'
 import { ORDER_LIMITS } from './types'
 
 /** The words a step page holds — in the person's language (the app: i18n; a Node spec: makeTranslator). */
@@ -103,6 +105,14 @@ export function requestPlain(n: JSONContent, titleOf: (id: ID) => string): strin
   return kids.map((k) => requestPlain(k, titleOf)).join(inline ? '' : '\n')
 }
 
+/**
+ * The request's whole text as the quote holds it (before the cut; orders/fingerprint.ts pins the planner's read of it,
+ * ↵ Kette starten refuses when it moved since).
+ */
+export function requestText(blocks: readonly JSONContent[], titleOf: (id: ID) => string): string {
+  return blocks.filter(isNode).map((b) => requestPlain(b, titleOf)).join('\n').replace(/\n{3,}/g, '\n\n').trim()
+}
+
 /** The quote's paragraphs: one per line, runs of empty lines kept as one. */
 function paragraphs(body: string): JSONContent[] {
   const out: JSONContent[] = []
@@ -134,8 +144,8 @@ export function stepPage(input: StepPageInput): StepPage {
     own.push(ids.slot)
   }
 
-  // 2. the request, verbatim, as plain text
-  const full = input.request.filter(isNode).map((b) => requestPlain(b, input.titleOf)).join('\n').replace(/\n{3,}/g, '\n\n').trim()
+  // 2. the request, verbatim, as plain text — a key-shaped string never goes along (↵ refuses one before: startChain)
+  const full = scrubSecrets(requestText(input.request, input.titleOf))
   const cut = full.length > max
   const body = cut ? full.slice(0, max) : full
   const quote: JSONContent[] = [{ type: 'paragraph', content: [text(input.words.request(input.code), [{ type: 'bold' }])] }, ...paragraphs(body)]

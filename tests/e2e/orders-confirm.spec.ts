@@ -183,7 +183,8 @@ test.describe('confirming a work order: startChain', () => {
     expect(rec.chain.steps[1].basisBlock).toBe(`${ids[1]}-wait`)
     expect(rec.chain.steps[0].own).toEqual([`${ids[0]}-req`, `${ids[0]}-ctx`])
     expect(rec.chain.steps[2].own).toEqual([`${ids[2]}-wait`, `${ids[2]}-req`])
-    expect(rec.chain.steps[0].refs).toEqual({ [CASE]: 0 })
+    // the page step 01 takes along, pinned at the planner's read (its fingerprint — never a tab's contentRev)
+    expect(rec.chain.steps[0].refs).toEqual({ [CASE]: expect.stringMatching(/^[0-9a-f]{64}$/) })
     for (const s of rec.chain.steps) {
       expect(s.sig).toMatch(/^[0-9a-f]{64}$/)
       expect(s.rev).toBe(0)
@@ -438,8 +439,9 @@ test.describe('confirming a work order: startChain', () => {
 
     // a follow-up chain after a halt: numbers go on (4–6), the older chain's parked steps 02–03 go to the trash
     await wsEval(page, (s, a) => s.setRowProperty(a.row, 'woStatus', a.halted), { row, halted: ST.halted })
-    expect(await orders(page).runChain(row)).toMatchObject({ kind: 'halt', why: 'status' })
-    expect((await orders(page).record(row)).state).toBe('halted')
+    // Angehalten (by any writer) halts this device's record where it was written — at once (trigger.ts haltRecord)
+    await expect.poll(async () => (await orders(page).record(row)).state, { timeout: 10_000 }).toBe('halted')
+    expect((await orders(page).record(row)).chain.halted).toMatchObject({ why: 'status' })
     await statusBy(page, row, 'plan')
     expect(await orders(page).plan(row)).toMatchObject({ kind: 'ready' })
     const old = second.steps as string[]

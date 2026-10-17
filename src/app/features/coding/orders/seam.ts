@@ -3,7 +3,7 @@
  * `window.__oneOrders` = { plan(row, opts), answer(row, answers), record(row), run(row), stop(row) } and B6's confirming
  * (start, hashNow, undo, undoable, startNow, runChain, finishCreates, finishRest, discardMade, fault, world, parked, countFor) and
  * B7's chain (move, advance, confirmAndGo, halt, haltAll, stopNow, resume, skip, replanFrom, successor, agentAppend,
- * agentStage, approvePlan). The planner
+ * agentStage, approvePlan; seenNow = what a card would render now, as the fingerprints a press passes). The planner
  * and confirm.ts load on the first call (lazy chunks); results are plain JSON (an AIError as { code, detail, fixes }).
  */
 import type { ID } from '../../../store/types'
@@ -56,8 +56,15 @@ if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams
       }),
     // B7 — the chain on its own: the newest move here, the person's keys, the next step an approval releases
     move: (rowId: ID) => import('./chainRun').then((m) => plain(m.useChainMoves.getState().moves[rowId]?.move ?? null)),
-    advance: (rowId: ID, step: number, passes: string[]) => import('./chainKeys').then((m) => m.advanceChain(rowId, step, passes as never)).then(plain),
-    confirmAndGo: (rowId: ID, step: number, hash: string, passes: string[] = []) => import('./chainKeys').then((m) => m.confirmAndGo(rowId, step, hash, passes as never)).then(plain),
+    // `seen`: what a card rendered of the changed pages and the Grundlage (fingerprints — seenNow gives them as a card
+    // would render them now)
+    advance: (rowId: ID, step: number, passes: string[], seen?: { refs?: Record<ID, string>; basis?: string }) => import('./chainKeys').then((m) => m.advanceChain(rowId, step, passes as never, seen ?? {})).then(plain),
+    confirmAndGo: (rowId: ID, step: number, hash: string, passes: string[] = [], seen?: { refs?: Record<ID, string>; basis?: string }) => import('./chainKeys').then((m) => m.confirmAndGo(rowId, step, hash, passes as never, seen ?? {})).then(plain),
+    seenNow: (rowId: ID, step: number) =>
+      Promise.all([import('./records'), import('./chainRun')]).then(async ([r, c]) => {
+        const rec = await r.loadOrderRecord(rowId, { fresh: true })
+        return rec && rec !== 'unreadable' && rec.chain ? plain(await c.shownNow(rec.chain, step)) : null
+      }),
     halt: (rowId: ID) => import('./chainKeys').then((m) => m.haltChain(rowId)).then(plain),
     haltAll: () => import('./chainKeys').then((m) => m.haltAll()),
     stopNow: (rowId: ID) => import('./chainKeys').then((m) => m.stopNow(rowId)).then(plain),

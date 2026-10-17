@@ -1,6 +1,7 @@
 /**
  * Work orders — this device's record of each request (types.ts OrderRecord; spec §2.8): IndexedDB `one-coding`, key
- * `<scope>|order|<rowId>` (scope `local:local` · `cloud:<workspace id>`, coding/local.ts scope()), announced on
+ * `<scope>|order|<rowId>` (scope `local:local` · in a team the member's own `cloud:<workspace id>:u:<account>` —
+ * `orderScope()`: another member signing in on this browser never reads, follows or halts these), announced on
  * BroadcastChannel `one-coding-orders` ({ scope, row }) — a tab holding that request reads it again. Never synced,
  * exported or backed up; wiped with the device copy (cloud/device.ts wipes the `one-coding` scopes) and the local reset.
  *
@@ -15,13 +16,17 @@ import { create } from 'zustand'
 import { useEffect } from 'react'
 import { createStore, del, get, keys, update, type UseStore } from 'idb-keyval'
 import type { ID } from '../../../store/types'
-import { scope } from '../local'
-import { readOrderRecord } from './record'
+import { activeWorkspace, useCloud } from '../../../cloud'
+import { orderScopeOf, readOrderRecord } from './record'
 import { readStoredPlan } from './plan'
 import { ORDER_LIMITS, type OrderCall, type OrderChainStep, type OrderDraft, type OrderProv, type OrderRecord, type OrderServerSkip, type OrderToolLeft, type PlanNote } from './types'
 import { chainSuccessor } from '../chain'
 
 export const ORDERS_CHANNEL = 'one-coding-orders'
+
+/** This tab's records scope now (record.ts orderScopeOf; a team account not known yet: `…:u:-`, holding nothing). */
+export const orderScope = (): string => orderScopeOf(activeWorkspace(), useCloud.getState().user?.id)
+const scope = orderScope
 
 const keyOf = (rowId: ID, s = scope()) => `${s}|order|${rowId}`
 
@@ -82,6 +87,8 @@ export function readDraft(v: unknown): OrderDraft | null {
   if (isObj(src.prov)) for (const [id, p] of Object.entries(src.prov).slice(0, 16)) if (ID_RE.test(id)) { const r = readProv(p); if (r) prov[id] = r }
   const pins: Record<ID, number> = {}
   if (isObj(src.pins)) for (const [id, rev] of Object.entries(src.pins).slice(0, 16)) if (ID_RE.test(id) && typeof rev === 'number' && Number.isInteger(rev) && rev >= 0) pins[id] = rev
+  const fps: Record<ID, string> = {}
+  if (isObj(src.fps)) for (const [id, fp] of Object.entries(src.fps).slice(0, 16)) if (ID_RE.test(id) && typeof fp === 'string' && /^[0-9a-f]{64}$/.test(fp)) fps[id] = fp
   const tools = Array.isArray(src.tools) ? src.tools.filter((x): x is string => typeof x === 'string').map((x) => x.slice(0, 64)).slice(0, 64) : []
   const left = Array.isArray(src.left) ? src.left.flatMap((x) => (isObj(x) && typeof x.tool === 'string' && LEFT.includes(x.why as OrderToolLeft) ? [{ tool: x.tool.slice(0, 64), why: x.why as OrderToolLeft }] : [])).slice(0, 64) : []
   const calls: OrderCall[] = Array.isArray(src.calls)
@@ -100,6 +107,7 @@ export function readDraft(v: unknown): OrderDraft | null {
       rev: typeof src.rev === 'number' && Number.isInteger(src.rev) && src.rev >= 0 ? src.rev : 0,
       prov,
       pins,
+      ...(Object.keys(fps).length ? { fps } : {}),
       server: typeof src.server === 'string' && SERVER_RE.test(src.server) ? src.server : null,
       tools,
       left,
@@ -108,6 +116,7 @@ export function readDraft(v: unknown): OrderDraft | null {
     },
     ...(answers?.length ? { answers } : {}),
     ...(notes.length ? { notes } : {}),
+    ...(v.over === 'halted' || v.over === 'done' ? { over: v.over } : {}),
     ...(isObj(v.from) && typeof v.from.n === 'number' && Number.isInteger(v.from.n) && v.from.n >= 1 && v.from.n <= 999 && ID_RE.test(String(v.from.run)) ? { from: { n: v.from.n, run: String(v.from.run) } } : {}),
   }
 }

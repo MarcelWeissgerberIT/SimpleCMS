@@ -163,6 +163,12 @@ export interface OrderDraft {
     prov: Record<ID, OrderProv>
     /** contentRev of every page the planner read, at the press */
     pins: Record<ID, number>
+    /**
+     * fingerprints of what the planner read (orders/fingerprint.ts): the row → its request text as the step quote holds
+     * it (requestFp), each linked page → title + text (pageFp). ↵ refuses when any moved since (contentRev is per tab —
+     * never compared across tabs); the chain pins the pages at these.
+     */
+    fps?: Record<ID, string>
     /** the server that took part (its name here), null: none */
     server: string | null
     /** its tools the planner could call (read tools only) */
@@ -183,6 +189,11 @@ export interface OrderDraft {
    * replace that chain's parked ones on ↵ (startChain), and the first of them takes step `n`'s result as its Grundlage
    */
   from?: { n: number; run: string }
+  /**
+   * a follow-up plan made while the request's chain stood halted or done: the record's state before the draft — D on it
+   * brings that chain back as it was (halted: ↵ Fortsetzen / S again; its parked steps stay held)
+   */
+  over?: 'halted' | 'done'
 }
 
 /** One step of a confirmed chain. */
@@ -198,8 +209,11 @@ export interface OrderChainStep {
   line: string
   /** this device's Approvals for it at confirm */
   approvals: 'all' | 'review' | 'none'
-  /** contentRev of each ref at confirm */
-  refs: Record<ID, number>
+  /**
+   * each page it takes along → its fingerprint as confirmed (the planner's read, checked at ↵; a ref card's ↵ pins what
+   * it rendered) — compared at advance; '' = unknown (asks)
+   */
+  refs: Record<ID, string>
   /** the slot block the Grundlage replaces (null: step 1, which has none) */
   basisBlock: string | null
   /**
@@ -229,10 +243,10 @@ export interface OrderDoneBy {
 }
 
 /** Why a chain halted (each a plate line and the Preflight card "Kette angehalten"). */
-export type OrderHaltWhy = 'status' | 'trashed' | 'budget' | 'member' | 'outOfOrder' | 'startsAtOnce' | 'noStart' | 'statusOption' | 'stopped' | 'ejected'
+export type OrderHaltWhy = 'status' | 'trashed' | 'budget' | 'member' | 'outOfOrder' | 'startsAtOnce' | 'noStart' | 'statusOption' | 'stopped' | 'ejected' | 'finished' | 'putBack'
 
 /** Every halt reason (the record reader keeps only these). */
-export const ORDER_HALT_WHYS: readonly OrderHaltWhy[] = ['status', 'trashed', 'budget', 'member', 'outOfOrder', 'startsAtOnce', 'noStart', 'statusOption', 'stopped', 'ejected']
+export const ORDER_HALT_WHYS: readonly OrderHaltWhy[] = ['status', 'trashed', 'budget', 'member', 'outOfOrder', 'startsAtOnce', 'noStart', 'statusOption', 'stopped', 'ejected', 'finished', 'putBack']
 
 /** A confirmed chain on this device. */
 export interface OrderChain {
@@ -268,6 +282,23 @@ export interface OrderChain {
    * stage without one ran out of order, and a step with one still parked is moved again (the move is idempotent)
    */
   advanced?: Record<number, number>
+  /**
+   * the steps whose move landed in the store (step n → when; written right after it under the chain's lock): only a step
+   * started (`advanced`) WITHOUT this mark is ever moved again — never one a lagging store shows parked
+   */
+  moved?: Record<number, number>
+  /** moved steps someone other than the chain put back into their park stage (step n → when; the tab where it happened) */
+  back?: Record<number, number>
+  /**
+   * pages the chain copies from or takes along (its steps once started, its refs, a replan's basis step) → when someone
+   * other than the chain, the person or this device's worker last wrote them (an agent, the bridge, the sync, an
+   * automation, another device …) — the Grundlage / ref card shows them before they go on
+   */
+  foreign?: Record<ID, number>
+  /** step n → the fingerprint of the Grundlage a card showed and the person passed (its ↵) */
+  basisSeen?: Record<number, string>
+  /** this device asks "end the chain?" since (the request was set to Fertig while it ran) */
+  finishing?: number
   /**
    * the request's older chain this one replaced when it started (a follow-up chain): its steps still parked then went to
    * the trash (`trashed`, said on the plate before ↵) — undoChain brings them and that chain back

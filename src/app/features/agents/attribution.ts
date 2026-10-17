@@ -77,7 +77,11 @@ export function startAttributionKeeper(): () => void {
   const unsub = useWorkspace.subscribe((state, prev) => {
     if (state.pages === prev.pages || writing || !state.ready || !prev.ready || isApplyingRemote() || inCloud()) return
     // an eject carries an agent's stamp back with the text it restores (a pipeline task waits for Confirm, Δ25)
-    if (isEjectWriter(currentWriter())) return
+    const writer = currentWriter()
+    if (isEjectWriter(writer)) return
+    // the coding worker's outcome and a work-order chain's own writes are nobody's edit: an agent's change of a pipeline
+    // task keeps it waiting for Confirm (never laundered by the next stage's write — orders review)
+    if (writer?.kind === 'coding' || writer?.kind === 'order') return
     const clear: ID[] = []
     for (const id of pageChanges(state.pages, prev.pages).changed) {
       const p = state.pages[id]

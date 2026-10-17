@@ -411,11 +411,12 @@ async function forget(flag: string[]): Promise<void> {
     })
     if (govKeys.length) await delMany(govKeys, store).catch(() => {})
   }
-  // coding pipeline of this device (features/coding/local.ts): logs, run states, trusted task versions — keys "cloud:<ws>|…"
+  // coding pipeline of this device (features/coding/local.ts): logs, run states, trusted task versions — keys "cloud:<ws>|…";
+  // the work orders' records of each member here (features/coding/orders/records.ts): "cloud:<ws>:u:<account>|order|…"
   if (!dbNames || dbNames.includes('one-coding')) {
     const store = createStore('one-coding', 'kv')
     const codingKeys = (await keys(store).catch(() => [] as IDBValidKey[])).filter((k) => {
-      const m = /^cloud:([^|]+)\|/.exec(String(k))
+      const m = /^cloud:([^|:]+)(?::u:[^|]+)?\|/.exec(String(k))
       return !!m && targets.has(m[1])
     })
     if (codingKeys.length) await delMany(codingKeys, store).catch(() => {})

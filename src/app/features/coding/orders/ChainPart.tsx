@@ -65,6 +65,13 @@ export function refusalText(r: StartRefusal | { why: 'taken' }, t: Tr): string {
       return t(`${O}.start.why.failed`, { n: stepNo(r.step), error: r.error })
     case 'taken':
       return t(`${O}.undo.taken`)
+    case 'source': {
+      const row = useWorkspace.getState().pages[r.page]
+      if (row?.databaseId && useWorkspace.getState().databases[row.databaseId]?.system === 'workorders') return t(`${O}.start.why.source.row`)
+      return t(`${O}.start.why.source.page`, { title: (!row || row.private ? '' : row.title.trim()) || t('common.untitled') })
+    }
+    case 'unconfirmed':
+      return t(`${O}.start.why.unconfirmed`, { n: stepNo(r.step) })
     default:
       return t(`${O}.start.why.${r.why}`)
   }

@@ -33,11 +33,11 @@ import { newId } from '../../../lib/ids'
 import { t } from '../../../i18n'
 import { useCoding, type CodingState } from '../state'
 import { workerVerdict } from '../link'
-import { withHalt } from '../chain'
+import { withFinishing, withHalt } from '../chain'
 import { addOrderRepoOptions, isOrderRow, orderCode, orderDbIds, orderProps, orderStatusKey, statusKeyOf, writeOrderStatus } from './db'
 import { callPlanner, dropWant, orderPreNow, pressPlan, pressProv, setPressNote, statusWriter, wantLive, type PressResult } from './press'
 import { loadOrderRecord, ORDERS_CHANNEL, patchOrderRecord, recordRowIds } from './records'
-import { followRecord, startChains } from './chainRun'
+import { followRecord, holdFinishing, kick, startChains } from './chainRun'
 import { preWhyText, untilText } from './text'
 import { ORDER_LIMITS, type OrderPress, type OrderRecord } from './types'
 
@@ -123,16 +123,28 @@ function onPersonMove(rowId: ID, prev: OrderStatusKey | null, next: OrderStatusK
   }
 }
 
-/** Into Fertig while a chain runs: "Kette beenden? Der laufende Schritt läuft fertig" — yes: halt + Fertig; no: back. */
+/**
+ * Into Fertig while a chain runs: "Kette beenden? Der laufende Schritt läuft fertig" — yes: halt ('finished') + Fertig;
+ * no: back to Läuft. While the question is open the chain holds (nothing further starts): in this tab at once, in this
+ * device's other tabs through the record (`finishing`). Another device (a team) reads Fertig as the end on its own
+ * (chain.ts: Fertig not written by the chain's own end halts) — a "no" there puts the Status back, the halt stays.
+ */
 function askFinish(rowId: ID): void {
+  holdFinishing(rowId, true)
+  void patchOrderRecord(rowId, (rec) => (rec?.chain && rec.state === 'running' ? { ...rec, chain: withFinishing(rec.chain, Date.now()) } : rec))
   useUI.getState().openModal({
     type: 'confirm',
     title: t('features.coding.order.finish.title', { id: label(rowId) }),
     body: t('features.coding.order.finish.body'),
     confirmLabel: t('features.coding.order.finish.yes'),
     onConfirm: () =>
-      void patchOrderRecord(rowId, (rec) => (rec?.chain ? { ...rec, state: 'halted', chain: withHalt(rec.chain, { why: 'status', by: 'you~ui' }, Date.now()) } : rec)),
-    onCancel: () => void putBack(rowId, 'running'),
+      void patchOrderRecord(rowId, (rec) => (rec?.chain && (rec.state === 'running' || rec.state === 'halted') ? { ...rec, state: 'halted', chain: withHalt(withFinishing(rec.chain, null), { why: 'finished', by: 'you~ui' }, Date.now()) } : rec)).finally(() => holdFinishing(rowId, false)),
+    onCancel: () =>
+      void (async () => {
+        await patchOrderRecord(rowId, (rec) => (rec?.chain?.finishing !== undefined ? { ...rec, chain: withFinishing(rec.chain, null) } : rec))
+        await putBack(rowId, 'running')
+        holdFinishing(rowId, false)
+      })(),
   })
 }
 
@@ -156,6 +168,29 @@ async function discardDraft(rowId: ID): Promise<void> {
     }
     return
   }
+  // a follow-up plan over a halted or finished chain: that chain comes back as it was (halted: ↵ Fortsetzen / S again)
+  const over = before?.state === 'draft' ? before.draft?.over : undefined
+  if (over && before?.chain) {
+    const run = before.chain.run
+    const out = await patchOrderRecord(rowId, (rec) => (rec?.state === 'draft' && rec.draft?.over === over && rec.chain?.run === run ? { ...rec, state: over } : rec))
+    if (out.rec?.state !== over) return
+    writeOrderStatus(rowId, over, statusWriter(rowId, run))
+    followRecord(rowId, out.rec)
+    useUI.getState().toast({
+      message: t('features.coding.order.toast.discarded', { id: label(rowId) }),
+      action: {
+        label: t('common.undo'),
+        undo: true,
+        run: () => {
+          void (async () => {
+            const back = await patchOrderRecord(rowId, (rec) => (rec?.state === over && rec.draft?.over === over && rec.chain?.run === run ? { ...rec, state: 'draft' } : rec))
+            if (back.rec?.state === 'draft') writeOrderStatus(rowId, 'ready', { kind: 'you', via: 'undo' })
+          })()
+        },
+      },
+    })
+    return
+  }
   if (before?.state === 'draft' && before.draft) await patchOrderRecord(rowId, (rec) => (rec?.state === 'draft' && rec.draft ? { ...rec, state: 'discarded' } : rec))
   useUI.getState().toast({
     message: t('features.coding.order.toast.discarded', { id: label(rowId) }),
@@ -170,6 +205,17 @@ async function discardDraft(rowId: ID): Promise<void> {
       },
     },
   })
+}
+
+/** Status Angehalten seen here: this device's record of the request halts (why 'status', sticky). */
+async function haltRecord(rowId: ID, by: string): Promise<void> {
+  const out = await patchOrderRecord(rowId, (r) => {
+    if (!r?.chain || r.chain.halted) return r
+    if (r.state === 'running') return { ...r, state: 'halted', chain: withHalt(r.chain, { why: 'status', by }, Date.now()) }
+    if (r.state === 'creating' || r.state === 'interrupted') return { ...r, chain: withHalt(r.chain, { why: 'status', by }, Date.now()) }
+    return r
+  })
+  if (out.rec?.state === 'halted') kick(rowId)
 }
 
 /** The row's Status field is empty (no option at all — not one of another build's). */
@@ -209,6 +255,17 @@ function onPages(state: ReturnType<typeof ws>, prev: ReturnType<typeof ws>): voi
     const next = statusKeyOf(db, now)
     const was = statusKeyOf(db, before)
     if (!next || next === was) continue
+    const replay = isApplyingRemote()
+    // the request left Planen (whoever wrote it): a press kept for the worker's return is spent — never fired by a later
+    // Planen some other writer sets (an automation, a script, an Undo …)
+    if (was === 'plan' && !replay) queueMicrotask(() => void patchOrderRecord(id, (r) => (r?.want ? dropWant(r) : r)))
+    // Angehalten by anyone (another device's change too): this device's chain halts at once — recorded in the tab where
+    // it happened (sticky); a record still being created halts as soon as it would run (confirm.ts toRunning)
+    if (next === 'halted' && !replay) {
+      const w = currentWriter()
+      const by = w ? formatWriterKey(w) : isApplyingCloudChange() ? 'remote' : inPersonEvent() ? 'you~ui' : 'unknown'
+      queueMicrotask(() => void haltRecord(id, by))
+    }
     if (who === undefined) who = writerNow()
     if (!isPersonStatusWrite(who)) continue
     if (now.trashed || !isOrderRow(id, state)) continue
