@@ -16,7 +16,9 @@
  *    no press.
  *  - the lane rules: put back (Running / Chain ready by hand, Plan or Draft while running), ask on Done while running,
  *    Draft from Chain ready discards the plan (Undo); a real board drag into Plan plans.
- *  - the outdated worker and the command Planen (⌘K, the request in the peek).
+ *  - the outdated worker and the command Planen (⌘K, the request in the peek); the worker with the security gap
+ *    (unsafe): its notice and fix key, the press kept until a safe worker is back.
+ *  (The team cases — a private database, the worker on another device, viewers — are tests/e2e-cloud/orders-team.spec.ts.)
  * Fictional data (Nordlicht, Tessera, Launch plan). The worker is played by the test (helpers/fakeWorker.ts).
  */
 import type { Page } from '@playwright/test'
@@ -143,6 +145,9 @@ async function request(page: Page, title: string, key: string): Promise<string> 
     { title, key },
   )
 }
+
+// every case plays the worker on the same port: one after another, in one worker process (never side by side)
+test.describe.configure({ mode: 'default' })
 
 let fake: FakeWorker | null = null
 test.afterEach(async () => {
@@ -294,7 +299,7 @@ test('the first "Have it checked" makes the database — its toast\'s Undo takes
   await switchOn(page, false)
   const src = await sourcePage(page, 'Tessera onboarding')
   expect(await seam(page, (s, id) => s.send(id), src)).toBe('made')
-  const db = await seam(page, (s) => s.dbId())
+  const db = (await seam(page, (s) => s.dbId()))!
   const toast = page.locator('.toast', { hasText: 'Work orders created · WO-1' })
   await toast.getByRole('button', { name: 'Undo' }).click()
   await expect.poll(() => seam(page, (s) => s.dbId())).toBeNull()
@@ -517,4 +522,41 @@ test('an outdated worker: the press is kept and the plate names the fix; the com
   fake.can = [...WORKER_CAN]
   await expect.poll(() => planned(page), { timeout: 40_000 }).toHaveLength(1)
   expect((await planned(page))[0]).toMatchObject({ rowId: row, mode: 'trigger', how: 'command' })
+})
+
+test('a worker with the security gap (unsafe): the plate names the notice and its fix — ↵ Plan keeps the press; a safe worker plans it (trigger)', async ({ page, errors }) => {
+  errors.allow(/WebSocket connection to 'ws:\/\/127\.0\.0\.1/)
+  // a worker inside the ZIP-import gap (WORKER_IMPORT_SINCE ≤ v < WORKER_SAFE) that runs everything: 'unsafe', not 'outdated'
+  fake = await startFakeWorker(CODING_PORT, { ...INFO, worker: '1.8.0' })
+  fake.can = [...WORKER_CAN]
+  await ready(page)
+  await switchOn(page)
+  const row = await request(page, 'Tessera-Login prüfen', 'draft')
+  await page.evaluate((r) => (window as unknown as { __one: { ui: { getState: () => { openPeek: (id: string) => void } } } }).__one.ui.getState().openPeek(r), row)
+  const peek = page.locator('.peek')
+  await expect(peek.getByTestId('order-pre')).toHaveAttribute('data-why', 'unsafe')
+  await expect(peek.getByTestId('order-pre')).toContainText('This worker (1.8.0) has a security gap in ZIP import')
+  await expect(peek.getByTestId('order-fix')).toHaveText(/Update the worker/)
+  // the worker is there (its name and version), its lamp not green
+  await expect(peek.getByTestId('order-lamp-worker')).toContainText('nordlicht-box · 1.8.0')
+  await expect(peek.getByTestId('order-lamp-worker').locator('.led')).toHaveClass(/led--on/)
+  // ↵ Plan: kept on this device (the Status moves to Plan), nothing planned
+  await peek.getByTestId('order-plan').click()
+  await expect.poll(() => want(page, row)).toMatchObject({ mode: 'trigger', press: { how: 'plate' } })
+  expect(await statusOf(page, row)).toBe('plan')
+  expect(await planned(page)).toEqual([])
+  await expect(peek.getByTestId('order-chip')).toHaveText('waiting for the worker')
+  await expect(peek.getByTestId('order-pre')).toHaveAttribute('data-why', 'later')
+  await expect(peek.getByTestId('order-pre')).toContainText('security gap in ZIP import')
+  // the fix key opens Settings › Coding worker
+  await peek.getByTestId('order-fix').click()
+  await expect(page.getByTestId('coding-settings')).toBeVisible()
+  await page.keyboard.press('Escape')
+  // the new worker takes its place: the kept press plans (trigger), once
+  await fake.close()
+  fake = await startFakeWorker(CODING_PORT, INFO)
+  fake.can = [...WORKER_CAN]
+  await expect.poll(() => planned(page), { timeout: 40_000 }).toHaveLength(1)
+  expect((await planned(page))[0]).toMatchObject({ rowId: row, mode: 'trigger', how: 'plate' })
+  expect(await want(page, row)).toBeNull()
 })
