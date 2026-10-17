@@ -8,7 +8,7 @@
 import type { JSONContent } from '@tiptap/core'
 import { useWorkspace } from '../../../store/store'
 import { isEffectivelyTrashed } from '../../../store/selectors'
-import { COLOR_NAMES, type DateValue, type ID, type PropertyDef, type PropertyValue, type SelectOption, type View } from '../../../store/types'
+import { COLOR_NAMES, type DateValue, type ID, type Page, type PropertyDef, type PropertyValue, type SelectOption, type View } from '../../../store/types'
 import { defaultView } from '../../../store/store'
 import { claudeSettled } from '../claudeDoc'
 import { webImagesOf } from '../../agents/images'
@@ -23,7 +23,7 @@ import { livePage, withPageNodes, type LinkTarget } from './links'
 import { mediaNode } from '../media/blocks'
 import { applyNewTask, applyTaskAction, isPipelineTask, taskNeedsConfirm, taskSig, taskWriteEndsConfirm, textRefsGained } from '../../coding'
 import { isHandOnly, keyOwner, keyPropOf, keyText } from '../../../store/keys'
-import { formatWriterKey, withWriter, type Writer } from '../../../store/writer'
+import { currentWriter, formatWriterKey, withWriter, type Writer, type WriterKey } from '../../../store/writer'
 import { createPrivatePage } from '../../../cloud'
 import { isSettled } from '../../recorder/settled'
 import { runKeyOf } from '../../recorder/model/writerKeys'
@@ -461,35 +461,106 @@ function valuesKey(props: Record<string, unknown> | undefined): string {
   return JSON.stringify(out)
 }
 
+/** What a created page / row held when it was made — the Undo compares against it (removeCreated). */
+interface MadeAs {
+  rev: number | undefined
+  key: string
+  title: string | undefined
+  icon: string
+  props: Record<string, unknown>
+}
+
+const madeAs = (p: Page | undefined): MadeAs => ({ rev: p?.contentRev, key: contentKey(p?.content), title: p?.title, icon: JSON.stringify(p?.icon ?? null), props: { ...(p?.properties ?? {}) } })
+
+/** One value as valuesKey counts it (an emptied value is none). */
+const valueKey = (v: unknown) => (v === undefined || v === null || v === '' || (Array.isArray(v) && !v.length) ? '' : JSON.stringify(v))
+
+/**
+ * The pages an MCP call made (removeCreated 'trash'), by the call's writer key: what the call itself set off since —
+ * a row_created automation, autofill, the kit, a script an automation ran (a derived writer whose `cause` chain names
+ * the call, store/writer.ts) — counts as the page as the call made it, so its Undo still takes it back. Such a write
+ * moves only the parts it changed, and only while they were still as made (an edit of the person's before it stays an
+ * edit); anyone else's write never moves the baseline. One store listener for all, idle unless such a writer writes.
+ */
+const followed = new Map<ID, { call: WriterKey; base: MadeAs }>()
+let unfollow: (() => void) | null = null
+
+/** The writers a derived writer names as its cause chain (its key's causes, its raw cause one level deeper); null: none. */
+function causesOf(w: Writer | null): Set<string> | null {
+  if (!w || w.kind === 'mcp') return null
+  const raw = w.kind === 'script' ? w.via : 'cause' in w ? w.cause : undefined
+  if (typeof raw !== 'string' || !raw) return null
+  return new Set([...formatWriterKey(w).split('<').slice(1), ...raw.split('<')])
+}
+
+/** Move the baseline by what this write changed of a page, part by part, where that part was still as made. */
+function moveBase(b: MadeAs, before: Page, now: Page): void {
+  if (now.contentRev !== before.contentRev && (before.contentRev === b.rev || contentKey(before.content) === b.key)) {
+    b.rev = now.contentRev
+    b.key = contentKey(now.content)
+  }
+  if (now.title !== before.title && before.title === b.title) b.title = now.title
+  const icon = JSON.stringify(now.icon ?? null)
+  if (icon !== JSON.stringify(before.icon ?? null) && JSON.stringify(before.icon ?? null) === b.icon) b.icon = icon
+  if (now.properties !== before.properties) {
+    for (const k of new Set([...Object.keys(before.properties ?? {}), ...Object.keys(now.properties ?? {})])) {
+      const was = valueKey(before.properties?.[k])
+      if (valueKey(now.properties?.[k]) !== was && was === valueKey(b.props[k])) b.props[k] = now.properties?.[k]
+    }
+  }
+}
+
+function follow(id: ID, call: WriterKey, base: MadeAs): void {
+  followed.set(id, { call, base })
+  unfollow ??= useWorkspace.subscribe((s, prev) => {
+    // only a write some other write set off (an automation, autofill, the kit, a script …) can move a baseline
+    const causes = causesOf(currentWriter())
+    if (!causes) return
+    for (const [pid, f] of followed) {
+      const now = s.pages[pid]
+      const before = prev.pages[pid]
+      if (!now) followed.delete(pid)
+      else if (before && now !== before && causes.has(f.call)) moveBase(f.base, before, now)
+    }
+  })
+}
+
 /**
  * Undo of a created page / row: deleted for good while untouched; once someone edited it, put pages under it or put it
  * (or a page above it) in the trash, it goes to the trash instead (recoverable) — one in the trash stays as it is.
  * `mode` 'trash' (MCP): untouched → the trash, touched (text, title, icon, a value, its place, a page under it) → left
- * as it is (kept: false). The batch's own rollback (ApplyResult.rollback) always takes the 'delete' way.
+ * as it is (kept: false) — what the call itself set off since (an automation on the new row, autofill, the kit: follow)
+ * is not a touch. The batch's own rollback (ApplyResult.rollback) always takes the 'delete' way.
  */
-function removeCreated(id: ID, mode: ApplyOpts['undoCreated'] = 'delete'): () => boolean {
+function removeCreated(id: ID, mode: ApplyOpts['undoCreated'] = 'delete', writer?: Writer): () => boolean {
   const made = ws().pages[id]
-  const rev = made?.contentRev
-  const key = contentKey(made?.content)
-  const title = made?.title
-  const icon = JSON.stringify(made?.icon ?? null)
-  // a row: its values and its place as written (the person may fill a field or move it since)
-  const values = valuesKey(made?.properties)
+  const first = madeAs(made)
+  const call = mode === 'trash' && writer ? formatWriterKey(writer) : null
+  if (call && made) follow(id, call, first)
+  // the baseline: as made, or as the call's own follow-ups left it
+  const base = () => followed.get(id)?.base ?? first
+  // a row: its place as written (the person may move it since)
   const place = `${made?.parentId ?? null}|${made?.databaseId ?? null}`
   return () => {
+    const b = base()
+    followed.delete(id)
+    if (!followed.size && unfollow) {
+      unfollow()
+      unfollow = null
+    }
     const { pages } = ws()
     const now = pages[id]
     if (!now || now.trashed) return true
     // content as written (a later change of the same batch undone first writes it back: the same content counts)
-    const edited = (now.contentRev !== rev && contentKey(now.content) !== key) || now.title !== title
+    const edited = (now.contentRev !== b.rev && contentKey(now.content) !== b.key) || now.title !== b.title
     if (mode === 'trash' && !rollingBack) {
       // a page above it in the trash already takes it along
       if (isEffectivelyTrashed(pages, id)) return true
       // changed since (text, title, icon, a value, its place, a live page put under it): left as it is
       if (
         edited ||
-        JSON.stringify(now.icon ?? null) !== icon ||
-        valuesKey(now.properties) !== values ||
+        JSON.stringify(now.icon ?? null) !== b.icon ||
+        valuesKey(now.properties) !== valuesKey(b.props) ||
         `${now.parentId ?? null}|${now.databaseId ?? null}` !== place ||
         Object.values(pages).some((p) => p.parentId === id && !p.trashed)
       )
@@ -567,7 +638,7 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
         if (doc) ws().setContent(made, doc, ORIGIN)
         return made
       })
-      return removeCreated(id, opts.undoCreated)
+      return removeCreated(id, opts.undoCreated, w)
     }
     case 'create_row': {
       const dbId = c.databaseId!
@@ -588,7 +659,7 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
         return row
       })
       rowIds[c.pageId] = id
-      const remove = removeCreated(id, opts.undoCreated)
+      const remove = removeCreated(id, opts.undoCreated, w)
       return () => {
         const ok = remove()
         dropUnusedOptions(dbId, created)

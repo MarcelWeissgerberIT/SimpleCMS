@@ -49,6 +49,8 @@ export type ScriptErrorCode =
   | 'no_write'
   // a caller's rule refused the write (MCP: One's own databases are read-only)
   | 'system_db'
+  // the caller lets the run read only part of the page (MCP: context marks): a replace would overwrite the rest
+  | 'limited_replace'
   | 'no_effect'
   | 'refused'
   | 'effect_failed'
@@ -117,6 +119,7 @@ export const ERROR_TEXT_EN: Record<ScriptErrorCode, string> = {
   unknown_prop: '{db} has no property {name}.',
   no_write: 'You can view this workspace but not change it.',
   system_db: '“{name}” is One\'s own database: a run started over MCP cannot change it (nothing of this write happened).',
+  limited_replace: 'replace() on “{name}”: the person limited what this run may read of the page (context marks) — a replace would overwrite blocks it may not read (nothing of this write happened). Use append() instead.',
   no_effect: 'The effect {name} is not available.',
   refused: '{name} was not allowed in this run.',
   effect_failed: '{name} failed: {detail}',

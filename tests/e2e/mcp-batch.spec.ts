@@ -983,3 +983,177 @@ test('screenshots: a 50-row card in German — capped at the viewport, its lines
     }
   }
 })
+
+/* ------------------------------------------------------------------ review 4 */
+
+test("the Undo of a row the call made takes it back although an automation the call set off filled a value since; the person's edit still keeps it", async ({ page }) => {
+  await openApp(page)
+  const db = await wsEval(page, (s) => {
+    const id = s.createDatabase({
+      title: 'Leads',
+      properties: [
+        { id: 'l-title', name: 'Name', type: 'title' },
+        { id: 'l-stage', name: 'Stage', type: 'select', options: [{ id: 'o-new', name: 'New', color: 'blue' }] },
+        { id: 'l-note', name: 'Note', type: 'text' },
+      ],
+    })
+    s.updateDatabase(id, { automations: [{ id: 'au-new', name: 'Mark new', enabled: true, trigger: { type: 'row_created' }, actions: [{ type: 'set_property', propertyId: 'l-stage', value: 'o-new' }], lastRunAt: null, lastStatus: null, lastMessage: null }] })
+    return id
+  })
+  await flush(page)
+  await connect(page, 'Apply directly')
+  const stage = (id: string) => wsEval(page, (s, id) => s.pages[id]?.properties['l-stage'] ?? null, id)
+  // nobody touches the row: the automation's value is the call's own doing — the Undo takes the row back
+  const made = json(await call('one_create_row', { databaseId: db, title: 'Lead from Claude' }))
+  await expect.poll(() => stage(made.id), { timeout: 10_000 }).toBe('o-new')
+  await flush(page)
+  await undoLast(page, 'one_create_row')
+  expect(await wsEval(page, (s, id) => !!s.pages[id]?.trashed, made.id)).toBe(true)
+  // the person writes a note after the automation ran: kept
+  const second = json(await call('one_create_row', { databaseId: db, title: 'Lead two' }))
+  await expect.poll(() => stage(second.id), { timeout: 10_000 }).toBe('o-new')
+  await wsEval(page, (s, id) => s.setRowProperty(id, 'l-note', 'Mara called back'), second.id)
+  await flush(page)
+  await undoLast(page, 'one_create_row')
+  await expect(page.getByText('Undone — parts edited since were kept')).toBeVisible()
+  expect(await wsEval(page, (s, id) => [!!s.pages[id]?.trashed, s.pages[id]?.properties['l-note']], second.id)).toEqual([false, 'Mara called back'])
+})
+
+test("one_create_property's Undo leaves a property someone filled in since — and its values; an untouched one goes", async ({ page }) => {
+  await openApp(page)
+  const { db, rows } = await cards(page, 2)
+  await connect(page, 'Apply directly')
+  const propId = (name: string) => wsEval(page, (s, a: { db: string; name: string }) => (s.databases[a.db].properties as AnyState[]).find((p) => p.name === a.name)?.id ?? null, { db, name })
+  json(await call('one_create_property', { databaseId: db, name: 'Account owner', type: 'text' }))
+  const owner = (await propId('Account owner'))!
+  expect(owner).toBeTruthy()
+  // the person types into the new column
+  await wsEval(page, (s, a: { row: string; prop: string }) => s.setRowProperty(a.row, a.prop, 'Mara Lind'), { row: rows[0], prop: owner })
+  await flush(page)
+  await undoLast(page, 'one_create_property')
+  await expect(page.getByText('Undone — parts edited since were kept')).toBeVisible()
+  expect(await propId('Account owner')).toBe(owner)
+  expect(await wsEval(page, (s, a: { row: string; prop: string }) => s.pages[a.row]?.properties[a.prop], { row: rows[0], prop: owner })).toBe('Mara Lind')
+  // nobody wrote into this one: it goes
+  json(await call('one_create_property', { databaseId: db, name: 'Spare', type: 'number' }))
+  expect(await propId('Spare')).toBeTruthy()
+  await undoLast(page, 'one_create_property')
+  await expect.poll(() => propId('Spare')).toBe(null)
+})
+
+test("one_restore_page's Undo leaves a page the person changed since out of the trash; an untouched one goes back", async ({ page }) => {
+  await openApp(page)
+  const ids = await wsEval(page, (s) => {
+    const mk = (title: string, text: string) => {
+      const id = s.createPage({ title })
+      s.setContent(id, { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text }] }] }, 'e2e')
+      return id
+    }
+    const worked = mk('Brought back', 'Draft from last week.')
+    const quiet = mk('Left alone', 'Nothing new here.')
+    s.trashPage(worked)
+    s.trashPage(quiet)
+    return { worked, quiet }
+  })
+  await flush(page)
+  await connect(page, 'Apply directly')
+  json(await call('one_restore_page', { id: ids.worked }))
+  // an hour of the person's work on the restored page
+  await wsEval(page, (s, id) => s.setContent(id, { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'An hour of the person’s work.' }] }] }, 'e2e'), ids.worked)
+  await flush(page)
+  await undoLast(page, 'one_restore_page')
+  await expect(page.getByText('Undone — parts edited since were kept')).toBeVisible()
+  expect(await wsEval(page, (s, id) => [!!s.pages[id]?.trashed, s.pages[id]?.plain], ids.worked)).toEqual([false, 'An hour of the person’s work.'])
+  // untouched since: back into the trash
+  json(await call('one_restore_page', { id: ids.quiet }))
+  expect(await wsEval(page, (s, id) => !!s.pages[id]?.trashed, ids.quiet)).toBe(false)
+  await undoLast(page, 'one_restore_page')
+  await expect.poll(() => wsEval(page, (s, id) => !!s.pages[id]?.trashed, ids.quiet)).toBe(true)
+})
+
+/** A database with an auto-filling "Summary" and `n` rows; `task`: each row's text holds one unassigned task. */
+async function autofillRows(page: Page, n: number, task = false) {
+  const ids = await wsEval(
+    page,
+    (s, a: { n: number; task: boolean }) => {
+      const db = s.createDatabase({ title: 'Accounts', properties: [{ id: 'a-title', name: 'Name', type: 'title' }] })
+      s.addProperty(db, { id: 'a-sum', name: 'Summary', type: 'text', autofill: { preset: 'summary', auto: true } })
+      const rows: string[] = []
+      for (let i = 1; i <= a.n; i++) {
+        const row = s.createRow(db, { title: `Account ${i}` })
+        const blocks = [{ type: 'paragraph', attrs: { id: `acc-${i}-p0001` }, content: [{ type: 'text', text: `Notes on account ${i}.` }] }]
+        if (a.task) blocks.push({ type: 'workItem', attrs: { id: `acc-${i}-t0001`, itemId: `wi_acct00000${i}`, status: 'todo' }, content: [{ type: 'paragraph', content: [{ type: 'text', text: `Call account ${i}` }] }] } as never)
+        s.setContent(row, { type: 'doc', content: blocks }, 'e2e')
+        rows.push(row)
+      }
+      return { db, rows }
+    },
+    { n, task },
+  )
+  await flush(page)
+  return ids
+}
+
+test('a link written into 5 ROWS (linkInParent) changes their text: the auto-filling property is named and the call is always asked, also in "Apply directly"', async ({ page }) => {
+  await openApp(page)
+  const { rows } = await autofillRows(page, 5)
+  await connect(page, 'Apply directly')
+  const texts = () => wsEval(page, (s, ids: string[]) => ids.map((id) => JSON.stringify(s.pages[id]?.content)), rows)
+  const before = await texts()
+  const pending = call('one_create_page', { pages: rows.map((id, i) => ({ title: `Notes ${i + 1}`, parentId: id })), linkInParent: 'block' })
+  const card = page.getByRole('alertdialog')
+  await expect(card).toBeVisible()
+  await expect(card.locator('.mcp-line', { hasText: 'Starts' })).toContainText('autofill on 5 rows (Summary)')
+  await expect(card).toContainText('Always asked: 5 rows start paid AI work or send something out of One.')
+  await page.keyboard.press('Escape')
+  expect(text(await pending)).toContain('The person rejected this change')
+  expect(await texts()).toEqual(before)
+  expect(await wsEval(page, (s) => Object.values(s.pages as Record<string, AnyState>).some((p) => /^Notes \d$/.test(p.title) && !p.trashed))).toBe(false)
+})
+
+test('tasks changed in 5 ROWS (one_update_work_item) change their text: the auto-filling property is named and the call is always asked, also in "Apply directly"', async ({ page }) => {
+  await openApp(page)
+  const { rows } = await autofillRows(page, 5, true)
+  await connect(page, 'Apply directly')
+  const items = rows.map((_, i) => `wi_acct00000${i + 1}`)
+  await expect.poll(async () => json(await call('one_list_work_items', { status: 'any' })).items.map((i: AnyState) => i.id).filter((id: string) => items.includes(id)).length).toBe(5)
+  const pending = call('one_update_work_item', { updates: items.map((item) => ({ item, status: 'done' })) })
+  const card = page.getByRole('alertdialog')
+  await expect(card).toBeVisible()
+  await expect(card.locator('.mcp-line', { hasText: 'Starts' })).toContainText('autofill on 5 rows (Summary)')
+  await expect(card).toContainText('Always asked: 5 rows start paid AI work or send something out of One.')
+  await page.keyboard.press('Escape')
+  expect(text(await pending)).toContain('The person rejected this change')
+  const statuses = await wsEval(page, (s, ids: string[]) => ids.map((id) => ((s.pages[id]?.content?.content ?? []) as AnyState[]).find((b) => b.type === 'workItem')?.attrs.status), rows)
+  expect(statuses).toEqual(['todo', 'todo', 'todo', 'todo', 'todo'])
+})
+
+test('one_upsert_rows never writes text into a locked row page — refused at once, and when it was locked while the card waited', async ({ page }) => {
+  await openApp(page)
+  const ids = await wsEval(page, (s) => {
+    const db = s.createDatabase({ title: 'Tickets L', properties: [{ id: 'tl-title', name: 'Name', type: 'title' }, { id: 'tl-key', name: 'Ticket', type: 'text', key: true }] })
+    const row = s.createRow(db, { title: 'Ticket one', properties: { 'tl-key': 'T-1' } })
+    // its text empty, the page locked (s is the state before these writes: the settings written whole)
+    s.updatePage(row, { settings: { fullWidth: false, smallText: false, font: 'sans', locked: true } })
+    return { db, row }
+  })
+  await flush(page)
+  await connect(page, 'Ask first')
+  const plain = () => wsEval(page, (s, id) => (s.pages[id]?.plain as string) ?? '', ids.row)
+  const setLocked = (on: boolean) => wsEval(page, (s, a: { row: string; on: boolean }) => s.updatePage(a.row, { settings: { ...s.pages[a.row].settings, locked: a.on } }), { row: ids.row, on })
+  await refused('one_upsert_rows', { databaseId: ids.db, keyProperty: 'Ticket', rows: [{ key: 'T-1', markdown: 'Written into a locked page.' }] }, /^locked: rows\[0\]\.markdown: "Ticket one" is locked in One: its content cannot change/)
+  await expect(page.getByRole('alertdialog')).toHaveCount(0)
+  expect(await plain()).toBe('')
+  // unlocked: the card comes; locked while it waits → nothing written
+  await setLocked(false)
+  await flush(page)
+  const pending = call('one_upsert_rows', { databaseId: ids.db, keyProperty: 'Ticket', rows: [{ key: 'T-1', markdown: 'Written into a locked page.' }] })
+  const card = page.getByRole('alertdialog')
+  await expect(card).toBeVisible()
+  await setLocked(true)
+  await card.getByRole('button', { name: /Approve/ }).click()
+  const r = await pending
+  expect(r.isError, text(r)).toBe(true)
+  expect(text(r)).toMatch(/^locked: rows\[0\]\.markdown: "Ticket one" was locked meanwhile/)
+  expect(await plain()).toBe('')
+})

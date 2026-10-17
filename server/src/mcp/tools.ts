@@ -25,7 +25,7 @@ import { CREATABLE_TYPES, MAX_DB_PROPERTIES, McpWrites } from './writes.ts'
 import { once } from './duplicates.ts'
 import { dupHash, remembersResult } from '../../../src/shared/mcp/duplicates.ts'
 import { McpBatch } from './batch.ts'
-import { McpPreimages, fragmentSnapshot, stateHash } from './preimages.ts'
+import { McpPreimages, fragmentSnapshot, textHash } from './preimages.ts'
 import { fragmentText } from '../api/content.ts'
 import { contentDoc } from '../api/model.ts'
 import { MCP_CONTRACT_REV, MCP_LIMITS, MCP_LINE_BOARD, MCP_LINE_CLASS, MCP_LINE_CODEWORD, MCP_LINE_CONTENT, mcpDescription, type McpToolName } from '../../../src/shared/mcp/contract.ts'
@@ -431,7 +431,7 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
           preimage: (doc) => (before = { snapshot: fragmentSnapshot(doc), plain: fragmentText(doc, 20_000) }),
         })
         const pre = before as { snapshot: string; plain: string } | null
-        if (pre) rec.content(a.id, pre.snapshot, pre.plain, await s.collab.read(contentDoc(ws, a.id), (doc) => stateHash(doc)))
+        if (pre) rec.content(a.id, pre.snapshot, pre.plain, await s.collab.read(contentDoc(ws, a.id), (doc) => textHash(doc)))
         return out
       })(),
   )

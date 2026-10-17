@@ -738,6 +738,53 @@ describe('Restore puts back only what nobody changed since — made pages, board
     assert.equal((await restore(c.callId, true)).status, 200)
     await waitFor(() => yp(db.id).get('trashed') === true, 5000, 'forced into the trash')
   })
+
+  /* review 4: opening a page is no change — the editor's closing paragraph and the block ids it fills in */
+
+  test("a member who only opens a made page or an inline database's host changed nothing: Restore puts both back", async () => {
+    meta.doc.transact(() => pages().set('host-open', pageEntry({ title: 'Besprechung', parentId: 'wiki', order: 9 })))
+    await flushed(meta)
+    const made = await call(writer, 'one_create_page', { title: 'Notizen', parentId: 'wiki', markdown: 'Text from Claude.\n\n- one\n- two' })
+    const db = await call(writer, 'one_create_database', { title: 'Inline board', inline: { pageId: 'host-open' }, rows: [{ title: 'I1' }] })
+    await waitFor(() => !!yp(made.id) && !!yp(db.id), 5000, 'page and database arrived')
+    // what an editor writes when the member opens the page: the empty paragraph it keeps after a closing list / database
+    // block, an id on a block that has none — and nothing else
+    const opens = async (id: string, closing: string) => {
+      const d = await doc(`ws:${wsId}:p:${id}`)
+      const frag = d.doc.getXmlFragment('default')
+      await waitFor(() => (frag.get(frag.length - 1) as Y.XmlElement | undefined)?.nodeName === closing, 5000, `${id} ends with its ${closing}`)
+      d.doc.transact(() => {
+        frag.toArray().forEach((n, i) => {
+          if (n instanceof Y.XmlElement && !n.getAttribute('id')) n.setAttribute('id', `ed-fill-${i}-0001`)
+        })
+        const trailing = new Y.XmlElement('paragraph')
+        trailing.setAttribute('id', 'ed-trailing-0001')
+        frag.insert(frag.length, [trailing])
+      })
+      await flushed(d)
+      return d
+    }
+    await opens(made.id, 'bulletList')
+    const host = await opens('host-open', 'databaseBlock')
+    const pageCall = (await calls()).find((x) => x.tool === 'one_create_page' && x.titles.includes('Notizen'))!
+    const r1 = await restore(pageCall.callId)
+    assert.equal(r1.status, 200, JSON.stringify(r1.body))
+    assert.deepEqual(r1.body.kept, [], 'an opened page is not "changed since"')
+    await waitFor(() => yp(made.id).get('trashed') === true, 5000, 'the opened page goes to the trash')
+    const dbCall = (await calls()).find((x) => x.tool === 'one_create_database' && x.titles.includes('Inline board'))!
+    const r2 = await restore(dbCall.callId)
+    assert.equal(r2.status, 200, JSON.stringify(r2.body))
+    assert.deepEqual(r2.body.kept, [])
+    await waitFor(() => yp(db.id).get('trashed') === true, 5000, 'the inline database goes to the trash')
+    await waitFor(() => !host.doc.getXmlFragment('default').toArray().some((n) => (n as Y.XmlElement).nodeName === 'databaseBlock'), 5000, "the host's database block is taken back")
+    // a real edit after opening still counts: typed text keeps a made page
+    const typed = await call(writer, 'one_create_page', { title: 'Protokoll', parentId: 'wiki', markdown: '- first' })
+    const d = await opens(typed.id, 'bulletList')
+    d.doc.transact(() => d.doc.getXmlFragment('default').insert(0, [para('Mara typed this.', 'blk-mara-open')]))
+    await flushed(d)
+    const typedCall = (await calls()).find((x) => x.tool === 'one_create_page' && x.titles.includes('Protokoll'))!
+    assert.deepEqual((await restore(typedCall.callId)).body.kept.map((k: { id: string }) => k.id), [typed.id])
+  })
 })
 
 /* ------------------------------------------------------------------ upsert: all or nothing (in process) */

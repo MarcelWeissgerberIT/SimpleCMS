@@ -155,3 +155,53 @@ test('Recent MCP writes: rows field by field (a field changed since is kept, the
     await client.close()
   }
 })
+
+test('a member who only opens a made page and the host of an inline database changed nothing: Restore puts both back', async ({ page }) => {
+  await signIn(page, email('tessera'))
+  const wsId = await createWorkspace(page, 'Polaris')
+  await openApp(page, wsId)
+  await waitOnline(page)
+  const ids = await wsEval(page, (s) => {
+    const wiki = s.createPage({ title: 'Wissensbasis' })
+    const host = s.createPage({ title: 'Besprechung', parentId: wiki })
+    return { wiki, host }
+  })
+  await expect.poll(async () => (await api<AnyState>(page, 'GET', `/api/workspaces/${wsId}/mcp-calls`)).status).toBe(200)
+  const token = (await api<{ token: string }>(page, 'POST', `/api/workspaces/${wsId}/tokens`, { name: 'Claude', scope: 'write' })).json.token
+  const client = new Client({ name: 'claude-code', version: '2.0.0' })
+  await client.connect(new StreamableHTTPClientTransport(new URL('/mcp', new URL(page.url()).origin), { requestInit: { headers: { Authorization: `Bearer ${token}` } } }))
+  const call = (name: string, args: Record<string, unknown>) => client.callTool({ name, arguments: args }) as Promise<ToolResult>
+  try {
+    await expect.poll(async () => !(await call('one_get_page', { id: ids.host })).isError).toBe(true)
+    // text ending in a list, and a database block as the host's last block: the editor keeps a paragraph after each
+    const made = json(await call('one_create_page', { title: 'Notizen', parentId: ids.wiki, markdown: 'Text from Claude.\n\n- one\n- two' }))
+    const inline = json(await call('one_create_database', { title: 'Inline', inline: { pageId: ids.host }, rows: [{ title: 'I1' }] }))
+    const last = (id: string) => wsEval(page, (s, id) => ((s.pages[id]?.content?.content ?? []) as AnyState[]).map((b) => b.type).join(','), id)
+    // the member opens both and changes nothing; their editor writes its closing paragraph into each
+    for (const [id, closing] of [
+      [made.id as string, 'bulletList'],
+      [ids.host, 'databaseBlock'],
+    ] as const) {
+      await page.evaluate((id) => (location.hash = `#/p/${id}`), id)
+      await expect(page.locator('.ProseMirror').first()).toBeVisible()
+      await expect.poll(() => last(id), { timeout: 15_000 }).toMatch(new RegExp(`${closing},paragraph$`))
+      await page.waitForTimeout(800)
+    }
+    await page.evaluate(() => (location.hash = '#/'))
+    await page.waitForTimeout(800)
+    const calls = (await api<AnyState[]>(page, 'GET', `/api/workspaces/${wsId}/mcp-calls`)).json
+    const pageCall = calls.find((c: AnyState) => c.tool === 'one_create_page')!
+    const dbCall = calls.find((c: AnyState) => c.tool === 'one_create_database')!
+    const r1 = await api<AnyState>(page, 'POST', `/api/workspaces/${wsId}/mcp-calls/${pageCall.callId}/restore`, {})
+    expect(r1.status, JSON.stringify(r1.json)).toBe(200)
+    expect(r1.json.kept).toEqual([])
+    const r2 = await api<AnyState>(page, 'POST', `/api/workspaces/${wsId}/mcp-calls/${dbCall.callId}/restore`, {})
+    expect(r2.status, JSON.stringify(r2.json)).toBe(200)
+    expect(r2.json.kept).toEqual([])
+    await expect.poll(() => wsEval(page, (s, a: { made: string; inline: string }) => [!!s.pages[a.made]?.trashed, !!s.pages[a.inline]?.trashed], { made: made.id, inline: inline.id })).toEqual([true, true])
+    // the host's text as the server has it now (this tab left the page: its copy is not live any more)
+    await expect.poll(async () => JSON.stringify(json(await call('one_get_page', { id: ids.host, format: 'blocks' })).blocks)).not.toContain('databaseBlock')
+  } finally {
+    await client.close()
+  }
+})

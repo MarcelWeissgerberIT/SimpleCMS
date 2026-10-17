@@ -113,10 +113,11 @@ Migration v12 (*MCP pre-images*, [`MCP.md`](MCP.md#what-the-server-does-without-
 team server's `/mcp` has no approval card and no Undo, so every MCP call that changes something keeps, per document it
 touched, what a restore needs — the rows it made (with their values), each field it changed (before → after), the
 pages and databases it made, a content fragment before a replace or an appended link (a Y update of a detached copy)
-and `after_hash`, the content document's state vector right after the call (a restore refuses `changed_since` when it
-moved). `sealed` is AES-256-GCM with the workspace's key (AAD `mcp-preimage\n<workspace>\n<id>`); kept 14 days
+and `after_hash`, a fingerprint of the content document's text right after the call (`tx1:` + SHA-256 of its blocks
+as JSON, block ids and the editor's trailing empty paragraphs aside — preimages.ts `textHash`; a restore refuses
+`changed_since` when it moved; rows stored before hold the document's state hash and are compared as such). `sealed` is AES-256-GCM with the workspace's key (AAD `mcp-preimage\n<workspace>\n<id>`); kept 14 days
 (housekeeping's `purgeExpired`), `ON DELETE CASCADE` from `workspaces`. REST API writes keep none. A made page or
-row carries the state hash of its content document right after the call (`hash`) and `mark`, a fingerprint of what
+row carries the text fingerprint of its content document right after the call (`hash`) and `mark`, a fingerprint of what
 else people change on it (icon, cover, comment threads; a database's properties and views, taken after its rows): a
 restore trashes it only while that hash, the mark, its title, its whole stored values (a field filled in since that was
 empty counts) and the pages below it are as the call left them — else it is kept and named, and a made page above a

@@ -9,7 +9,7 @@ import { t } from '../../i18n'
 import type { Database, ID, Page } from '../../store/types'
 import { autofillOf } from '../../database'
 import { findProp } from '../ai/agent/props'
-import { stageUpsert, ToolInputError, withToolScope } from '../ai/agent/tools'
+import { stageUpsert, ToolInputError, withReadLimit, withToolScope } from '../ai/agent/tools'
 import { pagePrivate } from '../ai/agent/workItems'
 import type { PropChange } from '../ai/agent/types'
 import { fileDrop } from '../ai/claudeFiles'
@@ -20,6 +20,7 @@ import { assertNotSystem } from './system'
 import { databaseOrThrow, kindOf, live, McpToolError, pageUrl, q, rowProperties, titleOf, ws } from './values'
 import { atPath, chars, checkFileScope, eachEntry, pageOrThrow, preview, str, tasksOf, type PlanLine, type WritePlan } from './plan'
 import { withFilesWritable } from '../ai/agent/props'
+import { mcpReadLimit } from './limits'
 import { stripRefLabels } from '../../../shared/mcp/refs'
 
 /* ------------------------------------------------------------------ */
@@ -426,7 +427,8 @@ export function planUpsertRows(args: Record<string, unknown>): WritePlan {
   const stage = callStage()
   let staged: ReturnType<typeof stageUpsert>
   try {
-    staged = withFilesWritable(() => withToolScope(outsideTemplates, () => stageUpsert({ database_id: db.id, key_property: keyProperty, rows }, stage)))
+    // the rows' texts settle their task links under the person's context marks, as stageWith's tools do (limits.ts)
+    staged = withReadLimit(mcpReadLimit, () => withFilesWritable(() => withToolScope(outsideTemplates, () => stageUpsert({ database_id: db.id, key_property: keyProperty, rows }, stage))))
   } catch (e) {
     if (e instanceof ToolInputError) throw new McpToolError(mcpError('bad_argument', /key_property|property/i.test(e.message) ? 'keyProperty' : '', mcpMessage(e.message)))
     throw e
@@ -443,6 +445,22 @@ export function planUpsertRows(args: Record<string, unknown>): WritePlan {
       ),
     )
   assertStageWritable(stage.changes)
+  // a locked row page takes no text (spec § 3.3; as one_update_page, and as the team server's upsert refuses it)
+  const textInto = stage.changes
+    .filter((c) => c.kind === 'append')
+    .map((c) => ({ id: c.pageId, path: `rows[${staged.results.findIndex((r) => r.id === c.pageId)}].markdown` }))
+  const lockedText = (meanwhile: boolean) => {
+    for (const x of textInto) {
+      const page = ws().pages[x.id]
+      if (!page?.settings.locked) continue
+      throw new McpToolError(
+        meanwhile
+          ? mcpError('locked', x.path, `${q(titleOf(page))} was locked meanwhile`)
+          : mcpError('locked', x.path, `${q(titleOf(page))} is locked in One: its content cannot change (its title and values can)`, 'Leave its markdown out, or ask the person to unlock it.'),
+      )
+    }
+  }
+  lockedText(false)
   const dbName = titleOf(dbPage)
   const count = (a: string) => staged.results.filter((r) => r.action === a).length
   const n = { created: count('created'), updated: count('updated'), same: count('unchanged') }
@@ -504,6 +522,8 @@ export function planUpsertRows(args: Record<string, unknown>): WritePlan {
     ...(items.holds.length || hold.alwaysAsk ? { alwaysAsk: true } : {}),
     noop: stage.changes.length ? undefined : { ...answer({}), note: 'No change: every row already has these values.' },
     async apply(writer) {
+      // locked while the card waited: nothing written
+      lockedText(true)
       const { rowIds, undo } = await applyStaged(stage.changes, writer)
       return { result: answer(rowIds), undo }
     },

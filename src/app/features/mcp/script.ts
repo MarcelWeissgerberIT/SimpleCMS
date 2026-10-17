@@ -105,6 +105,16 @@ function systemWrites(): { guard: (t: { pageId?: string | null; dbId?: string | 
 const scriptRefusal = (hit: SystemHit, name: string) => systemRefusal(hit, 'script', `the script ${q(name)} writes there`)
 
 /**
+ * A replace of a page the person limited with context marks (the run reads only the marked blocks — limits.ts
+ * mcpPageText): it would overwrite the blocks Claude may not read, as one_update_page's replace would. The host refuses
+ * it in every mode (ScriptError 'limited_replace'); this is its MCP refusal — nothing about the hidden blocks.
+ */
+const limitedRefusal = (r: RunResult, name: string): string | null =>
+  r.error?.code === 'limited_replace'
+    ? `rejected: script: the script ${q(name)} replaces the text of ${q(String(r.error.params.name ?? ''))} — the person limited what you may read on this page (context marks); a replace would overwrite blocks you may not read. Nothing was changed. Append instead (append()), or ask the person.`
+    : null
+
+/**
  * Plan a run of a saved script: a dry run first. Errors of the dry run (and a script that is gone) are
  * the agent's to fix; a saved query or dryRun: true answer at once (noop — nothing to approve).
  */
@@ -133,6 +143,8 @@ export async function planRunScript(args: Record<string, unknown>): Promise<Writ
   // a write into One's own databases: refused before anything ran (the dry run stopped at it)
   const refused = sys.hit()
   if (refused) throw new McpToolError(scriptRefusal(refused, script.name))
+  const limited = limitedRefusal(dry, script.name)
+  if (limited) throw new McpToolError(limited)
   if (dry.status !== 'ok') {
     const report = await runReport(dry, 'dry')
     throw new McpToolError(`The dry run of ${q(script.name)} failed: ${String(report.error ?? dry.status)}. Nothing was changed.`)
@@ -161,9 +173,11 @@ export async function planRunScript(args: Record<string, unknown>): Promise<Writ
       // a run that stopped after it changed something: those changes stay — the answer says so and that calling again
       // would make them twice (partial: no "Nothing was changed … call again" is added to it)
       const stays = (n: number) => `The ${n} change(s) it made before stay — the person can undo the run in One (Scripts → run log). Do not call it again (that would make them twice); tell the person.`
-      if (stopped) {
+      // a replace of a page under context marks the dry run did not reach (marks set while the card waited, another path)
+      const limitedNow = stopped ? null : limitedRefusal(r, script.name)
+      if (stopped || limitedNow) {
         const made = r.changes.filter((c) => !c.skipped).length
-        const msg = scriptRefusal(stopped, script.name)
+        const msg = stopped ? scriptRefusal(stopped, script.name) : limitedNow!
         if (!made) throw new McpToolError(msg)
         // what the refusal says up to its "Nothing was changed." — which is not so here
         const head = msg.slice(0, msg.indexOf(' Nothing was changed.'))

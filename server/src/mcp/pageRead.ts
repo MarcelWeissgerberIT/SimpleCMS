@@ -59,8 +59,9 @@ export function docJson(doc: Y.Doc): PMJson {
 
 /**
  * A content document's state as a SHA-256 (hex): its state vector AND its delete set (a Yjs snapshot). The state vector
- * alone moves only with insertions — a member who only deletes blocks or text would leave it as it was. Both the read's
- * `rev` (a cursor's "changed between parts?") and a pre-image's `after_hash` (a restore's "changed since?") use it.
+ * alone moves only with insertions — a member who only deletes blocks or text would leave it as it was. The read's `rev`
+ * (a cursor's "changed between parts?") uses it; a Restore's "changed since?" reads the text instead (preimages.ts
+ * textHash — opening a page writes into its document), pre-images stored before that kept this hash.
  */
 export const docStateHash = (doc: Y.Doc): string => sha256Hex(Y.encodeSnapshot(Y.snapshot(doc)))
 

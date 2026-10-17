@@ -1249,16 +1249,19 @@ the public APIs stable — other areas are built against them in parallel.
   hashed), every MCP Markdown write strips ref labels (`stripRefLabels`, B + S), a ref with a hash must still fit
   (`stale_ref`; a ref of a nested block where a top-level one is needed is `bad_argument` naming its top-level ref —
   shared pageRead.ts `nestedTopLevel`); context marks limit MCP reads (`limited`) — `one_search` too (only readable
-  text is searched and snippeted) — and writes: a replace of a marked page is refused, settle runs under
-  `withReadLimit(mcpReadLimit)`, a block ref of an unreadable block is refused without its ref now (limits.ts
+  text is searched and snippeted) — and writes: a replace of a marked page is refused (a script's `replace()` too —
+  ScriptError 'limited_replace'), settle runs under `withReadLimit(mcpReadLimit)` (every row text: create_database,
+  upsert), a block ref of an unreadable block is refused without its ref now (limits.ts
   `mcpReadableTop`); `class` on single reads. Comments over MCP: B per device
   (`McpSettings.comments`, localStorage `one.mcp`, default off), S per token (`api_tokens.mcp_comments`); off →
   `comments_off`. Batches: one call = ONE card (pages ≤ 50 with `$<index>` parents, rows / upsert ≤ 50,
   `one_create_database` views / inline / rows; the card is capped at the viewport, its lines scroll); MCP's Undo of what
-  it made = trash (`undoCreated: 'trash'`: kept once its text, title, icon, values or place changed; agents and the
+  it made = trash (`undoCreated: 'trash'`: kept once its text, title, icon, values or place changed — what the call
+  itself set off, a derived writer whose cause names it (automation, autofill, kit), is no change; agents and the
   terminal keep delete; a failed apply's own rollback deletes — `ApplyResult.rollback`; one_create_database's Undo first
   decides whether the database stays — a row of others or a row changed since keeps it and everything else as it is;
-  in a host page written in since only the call's own block / link goes — features/mcp/undoNodes.ts); ≥
+  in a host page written in since only the call's own block / link goes — features/mcp/undoNodes.ts; create_property
+  keeps a column someone filled, restore_page a page changed since); ≥
   `MCP_LIMITS.rowsAsk` rows per CALL (new + changed, every database; a rename counts as a title change) that start paid
   AI work or send out are `alwaysAsk` (features/mcp/rows.ts `sideEffects` + `sideHold`); files values over MCP only reachable `onefile:` refs (`withFilesWritable` —
   agents keep files read-only). S checks every row and page before the first write, takes back a batch that fails

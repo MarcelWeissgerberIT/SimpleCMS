@@ -668,6 +668,76 @@ test('context marks hold for writes: a replace settles its task links only in wh
   expect(text(appended)).not.toMatch(/wi_zebra00001|Hidden plans/)
 })
 
+/* review 4: the row texts of one_create_database and one_upsert_rows settle under the marks too; a script's replace */
+
+test('context marks hold for the row texts of one_create_database and one_upsert_rows: an excluded task is no link target and never named', async ({ page }) => {
+  const { ids, marks } = await writesUnderMarks(page)
+  const db = await wsEval(page, (s) => s.createDatabase({ title: 'Tickets', properties: [{ id: 'tk-title', name: 'Name', type: 'title' }, { id: 'tk-key', name: 'Ticket', type: 'text', key: true }] }))
+  await flush(page)
+  await marks(ids.hidden, ['keep-0001-p4'])
+  await expect.poll(async () => json(await call('one_list_work_items', { status: 'any' })).items.map((i: AnyState) => i.id)).toContain('wi_other00001')
+  const md = '> [!TODO] Prep the room\n> Blocked by: Fire Mara quietly'
+  const taskLinks = (pageId: string) => wsEval(page, (s, id) => ((s.pages[id]?.content?.content ?? []) as AnyState[]).flatMap((b) => (b.type === 'workItem' ? (b.attrs.blockedBy ?? []) : [])), pageId)
+  // by title: only the task that may be read fits (no ambiguity naming the hidden one), as one_create_row resolves it
+  const made = await call('one_create_database', { title: 'Probe rows', parentId: ids.board, rows: [{ title: 'Row one', markdown: md }] })
+  expect(made.isError, text(made)).toBeFalsy()
+  expect(text(made)).not.toMatch(/wi_zebra00001|Hidden plans/)
+  expect(await taskLinks(JSON.parse(text(made)).rows[0].id)).toEqual(['wi_other00001'])
+  const up = await call('one_upsert_rows', { databaseId: db, keyProperty: 'Ticket', rows: [{ key: 'T-1', markdown: md }] })
+  expect(up.isError, text(up)).toBeFalsy()
+  expect(text(up)).not.toMatch(/wi_zebra00001|Hidden plans/)
+  expect(await taskLinks(JSON.parse(text(up)).rows[0].id)).toEqual(['wi_other00001'])
+  // by its id: refused like one_create_row refuses it — no link to the excluded task is written, nothing named
+  const byId = '> [!TODO] Second\n> Blocked by: wi_zebra00001'
+  const viaRow = await call('one_create_row', { databaseId: db, title: 'Via row', properties: { Ticket: 'T-8' }, markdown: byId })
+  expect(viaRow.isError, text(viaRow)).toBe(true)
+  for (const r of [
+    await call('one_create_database', { title: 'Probe ids', parentId: ids.board, rows: [{ title: 'Row two', markdown: byId }] }),
+    await call('one_upsert_rows', { databaseId: db, keyProperty: 'Ticket', rows: [{ key: 'T-2', markdown: byId }] }),
+  ]) {
+    expect(r.isError, text(r)).toBe(true)
+    expect(text(r)).not.toMatch(/Hidden plans|Fire Mara/)
+  }
+  // nowhere a task waiting for the excluded one
+  expect(await wsEval(page, (s) => Object.values(s.pages as Record<string, AnyState>).some((p) => !p.trashed && /"blockedBy":\[[^\]]*"wi_zebra00001"/.test(JSON.stringify(p.content ?? null))))).toBe(false)
+  expect(await wsEval(page, (s) => Object.values(s.pages as Record<string, AnyState>).some((p) => p.title === 'Probe ids' && !p.trashed))).toBe(false)
+})
+
+test("context marks hold for a script's replace: one_run_script refuses a replace of a page with marks (dry run and a run whose marks came while the card waited); the excluded blocks stay", async ({ page }) => {
+  const { ids, marks } = await writesUnderMarks(page)
+  await wsEval(page, (s) => {
+    const now = Date.now()
+    s.upsertScript({ id: 'sc-rewrite', name: 'Rewrite notes', code: 'let p = page("Marked notes")\np.replace(p.markdown + " Added by script.")\n', kind: 'script', createdAt: now, updatedAt: now })
+    s.upsertScript({ id: 'sc-add', name: 'Add a line', code: 'page("Marked notes").append("Added by script.")\n', kind: 'script', createdAt: now, updatedAt: now })
+  })
+  await flush(page)
+  const plain = () => wsEval(page, (s, id) => s.pages[id].plain as string, ids.marked)
+  const REFUSAL = /^rejected: script: the script "Rewrite notes" replaces the text of "Marked notes" — the person limited what you may read on this page \(context marks\); a replace would overwrite blocks you may not read\. Nothing was changed\./
+  // the card waits; the person sets marks meanwhile; the approved run stops before writing
+  const pending = call('one_run_script', { script: 'Rewrite notes' })
+  const card = page.getByRole('alertdialog')
+  await expect(card).toBeVisible()
+  await marks(ids.marked, ['keep-0001-rep'])
+  await card.getByRole('button', { name: /Approve/ }).click()
+  const run = await pending
+  expect(run.isError, text(run)).toBe(true)
+  expect(text(run)).toMatch(REFUSAL)
+  expect(text(run)).not.toMatch(SECRET_MARKS)
+  expect(await plain()).toContain('Salary zebrafish 98000.')
+  // with the marks in place: the dry run stops there, no card
+  for (const args of [{ script: 'Rewrite notes' }, { script: 'Rewrite notes', dryRun: true }]) {
+    const r = await call('one_run_script', args)
+    expect(r.isError, text(r)).toBe(true)
+    expect(text(r)).toMatch(REFUSAL)
+    await expect(page.getByRole('alertdialog')).toHaveCount(0)
+  }
+  expect(await plain()).toContain('Salary zebrafish 98000.')
+  expect(await plain()).not.toContain('Added by script.')
+  // an append stays allowed (its dry run plans the change)
+  const dry = json(await call('one_run_script', { script: 'Add a line', dryRun: true }))
+  expect(JSON.stringify(dry)).not.toMatch(SECRET_MARKS)
+})
+
 test('one_list_pages, urlBase in lists, full views, inline / system / class on reads, tree.more in the overview', async ({ page }) => {
   await openApp(page)
   const ids = await wsEval(page, (s) => {

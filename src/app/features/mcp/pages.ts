@@ -20,7 +20,7 @@ import { assertNotSystem } from './system'
 import { iconText, live, McpToolError, pageUrl, pathOf, q, titleOf, ws } from './values'
 import { atPath, chars, checkFileScope, pageOrThrow, parseIcon, preview, str, tasksOf, type PlanLine, type WritePlan } from './plan'
 import { withWriter } from '../../store/writer'
-import { bodyLine, rowNo } from './rows'
+import { bodyLine, rowNo, sideEffects, sideHold, type SideEffects } from './rows'
 import { stripRefLabels } from '../../../shared/mcp/refs'
 import { withoutNodes } from './undoNodes'
 
@@ -212,10 +212,25 @@ export function planCreatePage(args: Record<string, unknown>): WritePlan {
     if (it.markdown.trim()) lines.push({ k: 'md', label: t('features.mcp.plan.content', { n: chars(it.markdown.trim().length) }), value: preview(it.markdown) })
   }
   if (wantPrivate && team) lines.push({ k: 'fact', label: t('features.mcp.plan.private'), value: t('features.mcp.plan.privateYes') })
+  // a link written into a ROW's text changes that row's text: what fills again on it (autofill on the text, as
+  // one_update_page on a row) is named, and from MCP_LIMITS.rowsAsk such rows the call is always asked (sideHold)
+  const sides: SideEffects[] = []
   if (link !== 'none') {
     const parents = [...new Set(items.map((_, i) => (parentIdOf(i) ? titleIn(i) : '')).filter(Boolean))]
     lines.push({ k: 'fact', label: t('features.mcp.plan.link'), value: t(`features.mcp.plan.link.${link}`, { title: parents.join(', ') }) })
+    const rowsByDb = new Map<ID, Set<ID>>()
+    for (const it of items) {
+      const dbId = it.parent.kind === 'page' ? it.parent.page.databaseId : null
+      if (dbId && it.parent.kind === 'page') rowsByDb.set(dbId, (rowsByDb.get(dbId) ?? new Set()).add(it.parent.page.id))
+    }
+    for (const [dbId, rows] of rowsByDb) {
+      const db = ws().databases[dbId]
+      if (db) sides.push(sideEffects(db, rows.size, { text: true, props: new Set() }))
+    }
+    for (const side of sides) lines.push(...side.lines)
   }
+  const hold = sideHold(sides)
+  lines.push(...hold.lines)
   const tasks = itemPlan(stage.changes)
   lines.push(...tasks.lines)
   const note = wantPrivate && !team ? 'This is a local workspace: it has no Private section, so the pages are normal pages (only on this device anyway).' : undefined
@@ -226,7 +241,7 @@ export function planCreatePage(args: Record<string, unknown>): WritePlan {
     summary: batch ? batchSummary(items) : t('features.mcp.sum.createPage', { title: items[0]!.title, where: items[0]!.parent.kind === 'page' ? titleIn(0) : t('features.mcp.plan.topLevel') }),
     target: batch ? (callParent ? titleOf(callParent) : t('features.mcp.plan.topLevel')) : items[0]!.title,
     lines,
-    ...(tasks.holds.length ? { alwaysAsk: true } : {}),
+    ...(tasks.holds.length || hold.alwaysAsk ? { alwaysAsk: true } : {}),
     async apply(writer) {
       // every page staged — their tasks settled again, their parents first (applyOrder)
       const { undo: stagedUndo } = await applyStaged(stage.changes, writer)

@@ -18,6 +18,7 @@ import { adoptRowType } from '../../database'
 import { withWriter } from '../../store/writer'
 import { assertNotSystem, assertTreeNotSystem } from './system'
 import { sideEffects, sideHold } from './rows'
+import { contentKey } from '../history/snapshots'
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
@@ -163,6 +164,47 @@ function planTrash(args: Record<string, unknown>): WritePlan {
 /* one_restore_page                                                    */
 /* ------------------------------------------------------------------ */
 
+/** A page and every live page / row below it (by parent; rows of a database are below its page). */
+function liveTree(id: ID): Set<ID> {
+  const { pages } = ws()
+  const kids = new Map<ID, ID[]>()
+  for (const p of Object.values(pages)) {
+    if (p.trashed || !p.parentId) continue
+    const list = kids.get(p.parentId)
+    if (list) list.push(p.id)
+    else kids.set(p.parentId, [p.id])
+  }
+  const out = new Set<ID>([id])
+  const stack = [id]
+  while (stack.length) {
+    for (const k of kids.get(stack.pop()!) ?? []) {
+      if (out.has(k)) continue
+      out.add(k)
+      stack.push(k)
+    }
+  }
+  return out
+}
+
+/** A page as one_restore_page brought it back: its text, title, icon, place and values. */
+interface RestoredAs {
+  rev: number
+  key: string
+  rest: string
+}
+
+const nonEmpty = (props: Page['properties'] | undefined) =>
+  Object.entries(props ?? {})
+    .filter(([, v]) => !(v === undefined || v === null || v === '' || (Array.isArray(v) && !v.length)))
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+
+const restOf = (p: Page) => JSON.stringify([p.title, p.icon ?? null, p.parentId ?? null, p.databaseId ?? null, nonEmpty(p.properties)])
+
+const restoredAs = (p: Page | undefined): RestoredAs => ({ rev: p?.contentRev ?? 0, key: contentKey(p?.content), rest: p ? restOf(p) : '' })
+
+/** Changed since it was brought back (text — the same text written back counts as unchanged —, title, icon, place, values). */
+const changedSince = (p: Page | undefined, as: RestoredAs) => !p || (p.contentRev !== as.rev && contentKey(p.content) !== as.key) || restOf(p) !== as.rest
+
 function planRestore(args: Record<string, unknown>): WritePlan {
   const ids = idList(args, MCP_BULK_MAX)
   const { pages } = ws()
@@ -233,6 +275,9 @@ function planRestore(args: Record<string, unknown>): WritePlan {
           // the store looks at the parent only; under a trashed grandparent it would stay out of sight
           if (x.top && ws().pages[x.page.id]?.parentId) ws().updatePage(x.page.id, { parentId: null })
         }
+        // what came back with each page (it, the pages and rows below it) as it is now: the Undo takes back only what
+        // nobody changed since (spec § 3.2)
+        const brought = new Map(items.map((x) => [x.page.id, new Map([...liveTree(x.page.id)].map((id) => [id, restoredAs(ws().pages[id])]))]))
         return {
           result: single ? out(items[0].page.id) : { restored: items.map((x) => out(x.page.id)), count: items.length },
           undo: () => {
@@ -240,6 +285,14 @@ function planRestore(args: Record<string, unknown>): WritePlan {
             for (const b of before) {
               const now = ws().pages[b.id]
               if (!now || now.trashed) {
+                clean = false
+                continue
+              }
+              // changed since (its text, title, icon, place or values, or of a page / row that came back with it), or
+              // holding a live page / row the call did not bring back: left where it is
+              const was = brought.get(b.id)!
+              const tree = liveTree(b.id)
+              if ([...tree].some((id) => !was.has(id)) || [...was].some(([id, as]) => tree.has(id) && changedSince(ws().pages[id], as))) {
                 clean = false
                 continue
               }

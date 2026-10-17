@@ -16,6 +16,7 @@ import { getItemIndex, isBlocked, isOverdue, peopleResolver, settleWorld, type I
 import { applyStaged, callStage, itemPlan, mcpMessage, stageWith } from './stage'
 import { McpToolError, pageUrl, pathOf, ws } from './values'
 import type { WritePlan } from './plan'
+import { sideEffects, sideHold, type SideEffects } from './rows'
 
 const STATUS: Record<string, string> = { todo: 'todo', in_progress: 'in progress', done: 'done' }
 
@@ -100,14 +101,28 @@ export function planUpdateWorkItems(args: Record<string, unknown>): WritePlan {
   const ids: ID[] = changes.map((c) => c.workItem!.itemId)
   const asked = Array.isArray(args.updates) ? (args.updates as Array<Record<string, unknown>>).map((u) => (typeof u?.item === 'string' ? u.item.trim() : '')).filter(Boolean) : []
   const items = itemPlan(stage.changes)
+  // a task lives in a page's text: a task in a ROW changes that row's text, and what fills again on it is named (as
+  // one_update_page on a row); from MCP_LIMITS.rowsAsk such rows the call is always asked (sideHold), task holds as they are
+  const rowsByDb = new Map<ID, Set<ID>>()
+  for (const c of stage.changes) {
+    const dbId = ws().pages[c.pageId]?.databaseId
+    if (dbId) rowsByDb.set(dbId, (rowsByDb.get(dbId) ?? new Set()).add(c.pageId))
+  }
+  const sides: SideEffects[] = []
+  for (const [dbId, rows] of rowsByDb) {
+    const db = ws().databases[dbId]
+    if (db) sides.push(sideEffects(db, rows.size, { text: true, props: new Set() }))
+  }
+  const hold = sideHold(sides)
+  const lines = [...items.lines, ...sides.flatMap((x) => x.lines), ...hold.lines]
   const first = changes[0]
   return {
     tool: 'one_update_work_item',
     verb: t('features.mcp.verb.updateTasks'),
     summary: changes.length === 1 ? t('features.mcp.sum.updateTasksOne', { title: first?.title ?? '' }) : t('features.mcp.sum.updateTasks', { n: changes.length }),
     target: changes.length === 1 ? (first?.title ?? '') : t('features.mcp.sum.updateTasks', { n: changes.length }),
-    lines: items.lines,
-    ...(items.holds.length ? { alwaysAsk: true } : {}),
+    lines,
+    ...(items.holds.length || hold.alwaysAsk ? { alwaysAsk: true } : {}),
     noop: changes.length ? undefined : { tasks: tasksNow(asked), note: 'No change: the tasks already have these values.' },
     async apply(writer) {
       const { undo } = await applyStaged(stage.changes, writer)

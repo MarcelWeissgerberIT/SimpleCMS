@@ -9,11 +9,12 @@
  * Restore (owners / admins, Workspace → API "Recent MCP writes") puts back only what nobody changed since — the bridge's
  * Undo rule (spec § 3.6):
  *  - a made page or row goes to the trash while it is as the call left it: its title (and a row's values), its text
- *    (the state hash), and nothing below it but what the call made (a sub-page someone added, a row the team put into a
+ *    (textHash: its blocks, ids and the editor's trailing empty paragraph aside), and nothing below it but what the call made (a sub-page someone added, a row the team put into a
  *    database the call made, a row of the call that changed). Else it stays and is named in `kept`;
  *  - a changed row gets back each field that still holds what the call wrote (a field someone changed since is kept and
  *    named); relation values go back as a write puts them (two-way partners in step — putValues);
- *  - a content document that moved since the call is refused `changed_since` (nothing is written).
+ *  - a content document whose text moved since the call is refused `changed_since` (nothing is written); a member
+ *    who only opened the page changed nothing.
  * `force` puts back what was kept too (the dialog says the later changes go). Each part — and inside one, each thing — is
  * put back once: a later Restore (with or without force) touches only what is left (`done`), never what an earlier one
  * put back (its own write is no "change since"), and a call whose every part is back is done.
@@ -26,14 +27,15 @@ import { createHash } from 'node:crypto'
 import { type Roots, clone, databaseMap, inTrash, liveDatabase, pageMap, propertiesMap, readPage, roots } from '../api/meta.ts'
 import { contentDoc, metaDoc, type WorkspaceModel } from '../api/model.ts'
 import { newId } from '../tokens.ts'
-import { docStateHash } from './pageRead.ts'
+import { docJson, docStateHash } from './pageRead.ts'
+import type { PMJson } from '../../../src/shared/mcp/pageRead.ts'
 import { forgetCall } from './duplicates.ts'
 import { MCP_LIMITS } from '../../../src/shared/mcp/tables.ts'
 
 type Values = Record<string, unknown>
 
 /**
- * A page, row or database a call made, as the call left it: its title, its text's state (`hash`) and `mark` — what else
+ * A page, row or database a call made, as the call left it: its title, its text (`hash`, textHash) and `mark` — what else
  * people change on it (markOf: icon, cover, comment threads; a database's properties and views). Pre-images stored
  * before `mark` existed have none (that check is left out for them).
  */
@@ -103,9 +105,6 @@ export function fragmentSnapshot(doc: Y.Doc): string {
   return Buffer.from(Y.encodeStateAsUpdate(copy)).toString('base64')
 }
 
-/** The state of a document as a hash (state vector + delete set, pageRead.ts docStateHash): "did it change since?". */
-export const stateHash = (doc: Y.Doc) => docStateHash(doc)
-
 const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
 
 /** An emptied value (null, '', [], {}) is no value: a field cleared again is as it was. */
@@ -116,6 +115,37 @@ function stable(v: unknown): string {
   const walk = (x: unknown): unknown => (Array.isArray(x) ? x.map(walk) : x && typeof x === 'object' ? Object.fromEntries(Object.keys(x as object).sort().map((k) => [k, walk((x as Record<string, unknown>)[k])])) : x)
   return JSON.stringify(walk(v) ?? null)
 }
+
+/** A node of a page's text as its fingerprint reads it: no block ids (each editor fills in its own — a mention's id is its target and stays), no empty attrs. */
+function textNode(n: PMJson): unknown {
+  const a: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(n.attrs ?? {})) if (v !== null && v !== undefined && !(k === 'id' && n.type !== 'mention')) a[k] = v
+  return {
+    t: n.type ?? '',
+    ...(Object.keys(a).length ? { a } : {}),
+    ...(n.text !== undefined ? { x: n.text } : {}),
+    ...(n.marks?.length ? { m: n.marks.map((m) => textNode(m)) } : {}),
+    ...(n.content?.length ? { c: n.content.map(textNode) } : {}),
+  }
+}
+
+/** The version of textHash's fingerprints (older pre-images hold the document's Y state — textMoved reads both). */
+const TEXT_V = 'tx1:'
+
+/**
+ * A content document's TEXT as a fingerprint — "did it change since?" for a Restore. Not its Y state: a member who only
+ * opens the page writes into it (the empty paragraph the editor keeps after a closing list, heading, table, code or
+ * database block; block ids it fills in), and that is no change. So: its blocks as normalized JSON, block ids aside,
+ * empty paragraphs at its end dropped — as the bridge's Undo reads a page (history contentKey).
+ */
+export function textHash(doc: Y.Doc): string {
+  const blocks = [...(docJson(doc).content ?? [])]
+  while (blocks.length && blocks[blocks.length - 1]!.type === 'paragraph' && !blocks[blocks.length - 1]!.content?.length) blocks.pop()
+  return TEXT_V + createHash('sha256').update(stable(blocks.map(textNode))).digest('hex').slice(0, 32)
+}
+
+/** Did the document's text move since `hash` (textHash) was taken? A pre-image stored before holds its Y state hash. */
+export const textMoved = (doc: Y.Doc, hash: string): boolean => (hash.startsWith(TEXT_V) ? textHash(doc) : docStateHash(doc)) !== hash
 
 /** A row's whole stored values as the call left them vs now: every field — one filled in since that was empty too. */
 function valuesMoved(then: Values, now: Values): boolean {
@@ -297,8 +327,8 @@ export class McpPreimages {
     if (!force) {
       const moved: string[] = []
       for (const p of contents) {
-        const now = await this.s.collab.read(p.doc, (doc) => stateHash(doc))
-        if (p.after_hash && now !== p.after_hash) moved.push((p.pre as Extract<Preimage, { kind: 'content' }>).page)
+        const after = p.after_hash
+        if (after && (await this.s.collab.read(p.doc, (doc) => textMoved(doc, after)))) moved.push((p.pre as Extract<Preimage, { kind: 'content' }>).page)
       }
       if (moved.length) {
         const titles = await this.model.read(wsId, (r) => moved.map((id) => String(pageMap(r, id)?.get('title') ?? id)))
@@ -306,13 +336,14 @@ export class McpPreimages {
       }
     }
     // the text of each page and row the call made, now against right after the call (read before the meta write)
-    const textMoved = new Set<string>()
+    const movedText = new Set<string>()
     for (const p of open) {
       if (p.pre.kind !== 'pages' && p.pre.kind !== 'rows') continue
       const d = done.get(p.id)!
       for (const c of p.pre.created) {
-        if (!c.hash || d.has(`${p.pre.kind === 'pages' ? 'p' : 'c'}:${c.id}`)) continue
-        if ((await this.s.collab.read(contentDoc(wsId, c.id), (doc) => stateHash(doc))) !== c.hash) textMoved.add(c.id)
+        const hash = c.hash
+        if (!hash || d.has(`${p.pre.kind === 'pages' ? 'p' : 'c'}:${c.id}`)) continue
+        if (await this.s.collab.read(contentDoc(wsId, c.id), (doc) => textMoved(doc, hash))) movedText.add(c.id)
       }
     }
 
@@ -360,7 +391,7 @@ export class McpPreimages {
             if (p.pre.kind !== 'rows') continue
             for (const c of p.pre.created) {
               const now = McpPreimages.rowState(r, c.id)
-              const changed = !now || now.title !== c.title || valuesMoved(c.values, now.values) || textMoved.has(c.id) || markMoved(c) || foreign(c.id)
+              const changed = !now || now.title !== c.title || valuesMoved(c.values, now.values) || movedText.has(c.id) || markMoved(c) || foreign(c.id)
               rowChanged.set(c.id, changed)
               if (changed && !force) keptHere.add(c.id)
             }
@@ -391,7 +422,7 @@ export class McpPreimages {
                 const title = String(yp.get('title') ?? '')
                 const isDb = yp.get('kind') === 'database'
                 const changed =
-                  title !== c.title || textMoved.has(c.id) || markMoved(c) || foreign(c.id) || (isDb && [...rowChanged].some(([rid, ch]) => ch && pageMap(r, rid)?.get('databaseId') === c.id))
+                  title !== c.title || movedText.has(c.id) || markMoved(c) || foreign(c.id) || (isDb && [...rowChanged].some(([rid, ch]) => ch && pageMap(r, rid)?.get('databaseId') === c.id))
                 if (changed && !force) {
                   keep.push({ id: c.id, title })
                   keptHere.add(c.id)

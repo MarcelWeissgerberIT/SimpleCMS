@@ -62,20 +62,39 @@ export function propertySpec(raw: unknown, ctx: { dbId: ID; dbTitle: string; tak
   return { def, reverse, lines }
 }
 
-/** Add properties (and the reverse sides of two-way relations); returns the undo. */
+const emptyValue = (v: unknown) => v === undefined || v === null || v === '' || (Array.isArray(v) && !v.length)
+
+/** Does any live row of the database hold a value in this property? */
+export function holdsValues(dbId: ID, propId: ID): boolean {
+  return Object.values(ws().pages).some((p) => p.databaseId === dbId && !p.trashed && !emptyValue(p.properties?.[propId]))
+}
+
+/**
+ * Add properties (and the reverse sides of two-way relations); returns the undo. The Undo leaves a property someone
+ * filled in since alone (spec § 3.2) — with its two-way partner, whose links mirror it — and then answers false.
+ */
 export function addProperties(dbId: ID, specs: PropSpec[]): () => boolean {
-  const added: Array<{ dbId: ID; id: ID }> = []
+  const added: Array<Array<{ dbId: ID; id: ID }>> = []
   for (const s of specs) {
+    const pair = [{ dbId, id: s.def.id }]
     ws().addProperty(dbId, s.def)
-    added.push({ dbId, id: s.def.id })
     if (s.reverse && ws().databases[s.reverse.dbId]) {
       ws().addProperty(s.reverse.dbId, s.reverse.def)
-      added.push({ dbId: s.reverse.dbId, id: s.reverse.def.id })
+      pair.push({ dbId: s.reverse.dbId, id: s.reverse.def.id })
     }
+    added.push(pair)
   }
   return () => {
-    for (const a of added.reverse()) if (ws().databases[a.dbId]?.properties.some((p) => p.id === a.id)) ws().deleteProperty(a.dbId, a.id)
-    return true
+    let clean = true
+    for (const pair of added.reverse()) {
+      const there = pair.filter((a) => ws().databases[a.dbId]?.properties.some((p) => p.id === a.id))
+      if (there.some((a) => holdsValues(a.dbId, a.id))) {
+        clean = false
+        continue
+      }
+      for (const a of there.reverse()) ws().deleteProperty(a.dbId, a.id)
+    }
+    return clean
   }
 }
 

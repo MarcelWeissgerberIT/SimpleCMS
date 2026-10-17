@@ -25,7 +25,7 @@ import { newId } from '../tokens.ts'
 import { assertNotSystem } from './system.ts'
 import { McpWrites, assertNoSystemPartner, checkFilesValue, friendlyIn, iconIn, optionNames, unprocessable, type PropertyInput } from './writes.ts'
 import { defaultView, viewChange, type View, type ViewInput } from './structure.ts'
-import { McpPreimages, fragmentSnapshot, putValues, stateHash, type Recorder } from './preimages.ts'
+import { McpPreimages, fragmentSnapshot, putValues, textHash, type Recorder } from './preimages.ts'
 import { docJson } from './pageRead.ts'
 import { blockHash, parseRef } from '../../../src/shared/mcp/refs.ts'
 import { nestedTopLevel, refIndex } from '../../../src/shared/mcp/pageRead.ts'
@@ -203,7 +203,7 @@ export class McpBatch {
 
   /** The state of each page's (or row's) own text right now: a Restore leaves one whose text moved since (preimages.ts). */
   private hashes(wsId: string, ids: string[]): Promise<string[]> {
-    return Promise.all(ids.map((id) => this.s.collab.read(contentDoc(wsId, id), (doc) => stateHash(doc))))
+    return Promise.all(ids.map((id) => this.s.collab.read(contentDoc(wsId, id), (doc) => textHash(doc))))
   }
 
   /** What else people change on made pages / rows / databases, right now (preimages.ts markOf). */
@@ -440,7 +440,7 @@ export class McpBatch {
         })
         const got = pre as { snapshot: string; plain: string } | null
         // recorded once the whole call stands (a call taken back keeps no pre-image)
-        if (got) bodies.push({ id: p.id!, ...got, hash: await this.s.collab.read(contentDoc(wsId, p.id!), (doc) => stateHash(doc)) })
+        if (got) bodies.push({ id: p.id!, ...got, hash: await this.s.collab.read(contentDoc(wsId, p.id!), (doc) => textHash(doc)) })
       }
     } catch (err) {
       // all or nothing: the new rows to the trash, the values and the bodies back as they were
@@ -578,7 +578,7 @@ export class McpBatch {
           },
           actor,
         )
-        const hash = await this.s.collab.read(contentDoc(wsId, parentId), (doc) => stateHash(doc))
+        const hash = await this.s.collab.read(contentDoc(wsId, parentId), (doc) => textHash(doc))
         rec.content(parentId, snapshot, plainBefore, hash)
         await this.s.collab.write(
           metaDoc(wsId),
@@ -749,7 +749,7 @@ export class McpBatch {
         )
         const hash = await this.s.collab.read(contentDoc(wsId, pageId), (doc) => {
           blockRef = refOfId(doc, block!)
-          return stateHash(doc)
+          return textHash(doc)
         })
         rec.content(pageId, snapshot, plain, hash)
       } catch (err) {

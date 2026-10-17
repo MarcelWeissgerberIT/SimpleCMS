@@ -12,7 +12,7 @@ import type { Database, ID, Page, PropertyDef, View, ViewType } from '../../stor
 import { defaultView } from '../../store/store'
 import { contentKey, snapshotNow } from '../history/snapshots'
 import { coerceProperties, withFilesWritable } from '../ai/agent/props'
-import { ToolInputError, withToolScope } from '../ai/agent/tools'
+import { ToolInputError, withReadLimit, withToolScope } from '../ai/agent/tools'
 import { commitItems, pagePrivate, stageItems } from '../ai/agent/workItems'
 import { blockHash, idsFor, parseRef, stripRefLabels, type PMJson } from '../../../shared/mcp/refs'
 import { nestedTopLevel, refIndex } from '../../../shared/mcp/pageRead'
@@ -22,8 +22,8 @@ import { applyStaged, assertStageWritable, callStage, itemPlan, mcpMessage, outs
 import { assertNotSystem } from './system'
 import { iconText, live, McpToolError, pageUrl, pathOf, propertyJson, q, titleOf, ws } from './values'
 import { atPath, chars, checkFileScope, cleanName, eachEntry, pageOrThrow, parseIcon, str, tasksOf, type PlanLine, type WritePlan } from './plan'
-import { mcpStatusOptions, propertySpec } from './schema'
-import { mcpReadableTop } from './limits'
+import { holdsValues, mcpStatusOptions, propertySpec } from './schema'
+import { mcpReadableTop, mcpReadLimit } from './limits'
 import { withoutNodes } from './undoNodes'
 import { bodyLine, checkFiles, rowFacts, rowNo, splitTitle } from './rows'
 import { layoutName, viewChange } from './structure'
@@ -121,13 +121,6 @@ function rowChangedSince(id: ID, mark: RowMark | undefined): boolean {
     Object.values(pages).some((c) => c.parentId === id && !c.trashed)
   )
 }
-
-/** Does any live row of the database hold a value in this property? */
-function holdsValues(dbId: ID, propId: ID): boolean {
-  return Object.values(ws().pages).some((p) => p.databaseId === dbId && !p.trashed && !emptyValue(p.properties?.[propId]))
-}
-
-const emptyValue = (v: unknown) => v === undefined || v === null || v === '' || (Array.isArray(v) && !v.length)
 
 /**
  * The properties a database gets when the call gives none: the contract's default schema (tables.ts
@@ -260,8 +253,11 @@ export function planCreateDatabase(args: Record<string, unknown>): WritePlan {
       if (!res.ok) throw new McpToolError(mcpError('bad_argument', `${path}.properties`, mcpMessage(res.error).replace(/^Nothing was changed\. /, '')))
       const pageId = newId()
       let staging: ReturnType<typeof stageItems> | null = null
+      // a row's text settles its task links as one_create_row's does (stage.ts stageWith): only what the person's context
+      // marks let Claude read (limits.ts mcpReadLimit) — a task in an excluded block is no link target and never named
+      const asRead = <T>(fn: () => T): T => withReadLimit(mcpReadLimit, () => withToolScope(outsideTemplates, fn))
       try {
-        staging = markdown.trim() ? withToolScope(outsideTemplates, () => stageItems(markdown, stage, { pageId, private: dbPriv })) : null
+        staging = markdown.trim() ? asRead(() => stageItems(markdown, stage, { pageId, private: dbPriv })) : null
       } catch (e) {
         if (e instanceof ToolInputError) throw new McpToolError(mcpError('bad_argument', `${path}.markdown`, mcpMessage(e.message)))
         throw e
@@ -276,7 +272,7 @@ export function planCreateDatabase(args: Record<string, unknown>): WritePlan {
         ...(staging?.needs.length ? { needs: staging.needs } : {}),
         ...(staging?.items ? { items: staging.items } : {}),
       })
-      if (staging) commitItems(stage, c, staging)
+      if (staging) asRead(() => commitItems(stage, c, staging!))
     })
     if (chars_ > MCP_LIMITS.pagesChars) throw new McpToolError(mcpError('too_large', 'rows', `the rows hold ${chars_.toLocaleString('en')} characters of Markdown (at most ${MCP_LIMITS.pagesChars.toLocaleString('en')})`))
   }

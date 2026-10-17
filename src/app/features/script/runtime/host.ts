@@ -317,7 +317,12 @@ export class Host {
 
   async writeContent(page: Page, markdown: string, how: 'append' | 'prepend' | 'replace'): Promise<void> {
     this.guard(`${how}()`)
-    if (!this.isDraft(page.id)) this.check({ pageId: page.id, dbId: page.databaseId })
+    if (!this.isDraft(page.id)) {
+      this.check({ pageId: page.id, dbId: page.databaseId })
+      // the caller lets this run read only part of the page (RunOptions.textLimit — MCP: the person's context marks): a
+      // replace rebuilt from what it read would drop the rest — refused in every mode, so a dry run already stops here
+      if (how === 'replace' && this.limitedText(page.id)) throw new ScriptError('limited_replace', { name: page.title.trim() || page.id })
+    }
     const md = markdown.slice(0, 500_000)
     const existing = this.changes.find((c) => c.pageId === page.id && c.kind === 'content')
     if (existing) existing.how = how === 'replace' || existing.how === 'replace' ? 'replace' : existing.how

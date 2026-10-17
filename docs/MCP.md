@@ -163,8 +163,9 @@ out), and a tool takes **only** the arguments it declares: anything else is refu
   `one_update_work_item` refuses one as unknown, and a listed task's link to one carries no title) —
   their text, block data, files and comment threads; `limited: { blocks, files, comments, note }` counts what was left
   out. Writes respect them too: `one_update_page { mode: "replace" }` of a page with marks is refused (`rejected` — it
-  would overwrite blocks Claude may not read; an append stays allowed), a replace's task links resolve only in what may
-  be read (an excluded task is no link target and never named), and `one_create_database { inline: { afterBlock } }`
+  would overwrite blocks Claude may not read; an append stays allowed — a script's `replace()` alike), every text a call
+  writes — a replace, an append, the rows of `one_create_row`, `one_create_database` and `one_upsert_rows` — resolves
+  its task links only in what may be read (an excluded task is no link target and never named), and `one_create_database { inline: { afterBlock } }`
   refuses a block that may not be read without ever saying its ref (its content hash).
 - `one_list_pages` lists pages and databases (and rows on request) in sidebar order — shared before private, never
   templates or hidden pages; S never lists private pages.
@@ -200,11 +201,15 @@ out), and a tool takes **only** the arguments it declares: anything else is refu
   property — is **always asked**, also in *Apply directly*. The card fits the screen: its lines scroll, the summary and
   the keys stay in view. **Undo** puts what the call made into the trash while nobody changed it since (a page or row
   whose text, title, icon, any value — also one filled into an empty field — or place changed, or that got a page
-  below it, is kept), and sets changed values back unless they were changed again; a database the call made stays
+  below it, is kept; what the call itself set off — a *row created* automation, autofill, a value script — is no
+  change), and sets changed values back unless they were changed again; a database the call made stays
   (with everything in it, its block and any reverse relation) once someone added a row or changed one of its rows. In
   a page the person wrote in since, the Undo takes out only the call's own database block or page link (never leaving
   one that points into the trash). A call that fails as a whole takes back what it made for good — nothing of it waits
-  in the trash.
+  in the trash. A link written into a **row's** text (`linkInParent` under rows) and a task changed in a row
+  (`one_update_work_item`) change that row's text: what fills again on it is named, and 5 or more such rows are always
+  asked. `one_upsert_rows` writes no text into a locked row page (`locked`, also when it was locked while the card
+  waited).
 - **Files values** (`files` properties) take only `onefile:` refs of this workspace that a live page uses — never a web
   address (`refused_type`), never a private file into a shared row (`private_scope`).
 
@@ -334,7 +339,9 @@ The tools that delete, adjust, create and reorganise follow the same rules on bo
   *Database “Projects” with 8 rows → trash*, *Delete property “Budget” from Projects* with *Values · 8 rows lose their
   value*, the options a change removes with the rows that lose them; *Apply directly* logs every change with an
   **Undo** (a trashed database comes back with its rows, a moved page goes back, a deleted property comes back with
-  its values and view settings, view changes are reverted — parts edited since are kept); *Read only* refuses them.
+  its values and view settings, view changes are reverted, a restored page goes back into the trash — parts edited
+  since are kept: a new property someone filled in, a restored page someone changed or put a page below); *Read only*
+  refuses them.
   Team server: a **write** token is needed; changes carry `api:<tokenId>` as `updatedBy`.
 
 ## Tasks
@@ -388,7 +395,9 @@ team server does not have these two tools — its workspace model would need the
   effects and trash the card listed are not asked again, anything else (a web request — off unless ticked —, something
   the dry run did not show, the script's own questions) is asked in the app. A run never trashes a page holding one of
   One's own databases. The answer lists the changes, effects, printed lines and the result; the activity log has
-  **Undo** (the script's own undo of the run). A run that stops after it changed something says what stays and not to
+  **Undo** (the script's own undo of the run). On a page with context marks a script reads only the marked blocks, so
+  its `replace()` of that page is refused (`rejected` — it would overwrite what Claude may not read; the dry run stops
+  there, a run whose marks came while the card waited stops before writing); `append()` stays allowed. A run that stops after it changed something says what stays and not to
   call again (never "Nothing was changed"). `dryRun: true` answers the dry run without asking; a saved *query* answers
   at once.
 
@@ -764,7 +773,9 @@ tool in words, the token, what it made and changed, the first titles, its age �
   named (*Restore anyway* puts it back too); a two-way relation goes back on both sides (its partner rows are set as
   the app sets them);
 - a page text that changed since the call — added to or only deleted from — is refused (`changed_since`) — **Restore
-  anyway** puts the call's copy back and the later changes go (the dialog says so);
+  anyway** puts the call's copy back and the later changes go (the dialog says so). "Changed" means the text: a member
+  who only opened the page (the editor's empty paragraph after a closing list, heading, table or database block, the
+  block ids it fills in) changed nothing;
 - a call put back is forgotten for repeats: the same call again makes the thing again;
 - each part goes back once: a Restore that kept something puts back the rest and remembers it — a later *Restore
   anyway* acts only on what was kept, never again on what went back (a text written since into a page that was put
