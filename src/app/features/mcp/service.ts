@@ -25,7 +25,7 @@ import { t } from '../../i18n'
 import { BRAND } from '@/shared/brand'
 import { MCP_APPROVAL_MS, MCP_CLOSE_REPLACED, MCP_CONTRACT_REV, MCP_ERR, MCP_SUBPROTOCOL, MCP_SUBPROTOCOLS, MCP_TOOLS, MCP_WORKSPACE_ID, mcpToolArgs, type AppMessage, type BridgeMessage, type McpAgentMode, type McpToolName } from './contract'
 import { mcpError, withRemedy } from '../../../shared/mcp/errors'
-import { createsSomething, duplicateAnswer, duplicateKey, DUPLICATE_MS } from '../../../shared/mcp/duplicates'
+import { createsSomething, duplicateAnswer, duplicateKey, DUPLICATE_MS, remembersResult } from '../../../shared/mcp/duplicates'
 import { MCP_LIMITS } from '../../../shared/mcp/tables'
 import { currentWorkspace, workspaceInfo, type McpIdentity } from './identity'
 import { READ_TOOLS, readTarget } from './read'
@@ -323,6 +323,8 @@ export function undoMcpActivity(key: string) {
   // the person's Undo of the call (store/writer.ts)
   const clean = withWriter({ kind: 'you', via: 'undo', ref: key.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 64) }, () => a.undo!())
   logPatch(key, { state: 'undone', undo: undefined })
+  // a repeat of the call makes the thing again (it is not answered with what went to the trash)
+  forgetDuplicate((d) => d.activity === key)
   useUI.getState().toast(clean ? t('features.mcp.toast.undone') : t('features.mcp.toast.undoneKept'))
 }
 
@@ -348,6 +350,8 @@ export function settleMcpCall(session: string, call: string, _ejectId: string): 
     if (!settledStates.has(a.id)) settledStates.set(a.id, a.state)
     logPatch(a.id, { state: 'undone', undo: undefined })
   }
+  // what the call made is ejected: its repeat is a new call (an eject's Undo does not bring the entry back)
+  forgetDuplicate((d) => d.session === session && d.call === call)
   return list.length > 0
 }
 
@@ -424,7 +428,10 @@ function boundWorkspace(expected: string | undefined): { ok: true; ws: McpIdenti
 type CallOutcome = { ok: true; result: unknown } | { ok: false; error: string; state: ActivityState }
 
 /** A creating call that waits (its repeats join it) or was applied in the window (its repeats get its result). */
-type Duplicate = { key: string; state: 'wait'; joined: Array<(out: CallOutcome) => void> } | { key: string; state: 'done'; at: number; result: unknown; call: string }
+type Duplicate =
+  | { key: string; state: 'wait'; joined: Array<(out: CallOutcome) => void> }
+  /** `activity`: the call's line in Agent activity (its Undo forgets the entry, as an eject of `session` · `call` does) */
+  | { key: string; state: 'done'; at: number; result: unknown; session: string; call: string; activity: string }
 
 /** key = session · workspace · tool + canonical arguments; insertion order = age (≤ MCP_LIMITS.duplicateEntries) */
 const duplicates = new Map<string, Duplicate>()
@@ -444,14 +451,25 @@ function openDuplicate(key: string, call: string): Duplicate {
   return entry
 }
 
-/** The waiting call ended: its repeats get the same answer; applied → remembered, anything else forgotten. */
-function closeDuplicate(entry: Duplicate, out: CallOutcome, call: string, remember: boolean) {
+/**
+ * The waiting call ended: its repeats get the same answer; applied → remembered (`remember`: its activity line and
+ * session, so an Undo or an eject forgets it again), anything else forgotten.
+ */
+function closeDuplicate(entry: Duplicate, out: CallOutcome, call: string, remember: { session: string; activity: string } | null) {
   if (entry.state !== 'wait') return
   owners.delete(call)
   for (const join of entry.joined.splice(0)) join(out)
   if (duplicates.get(entry.key) !== entry) return
-  if (out.ok && remember) duplicates.set(entry.key, { key: entry.key, state: 'done', at: Date.now(), result: out.result, call })
+  if (out.ok && remember) duplicates.set(entry.key, { key: entry.key, state: 'done', at: Date.now(), result: out.result, call, ...remember })
   else duplicates.delete(entry.key)
+}
+
+/**
+ * A call was taken back (its Undo in Agent activity, an eject): its repeat is a new call again — never answered with
+ * the result of what is in the trash now (spec § 2.0: only APPLIED calls answer their repeats).
+ */
+function forgetDuplicate(match: (d: Extract<Duplicate, { state: 'done' }>) => boolean): void {
+  for (const [key, d] of duplicates) if (d.state === 'done' && match(d)) duplicates.delete(key)
 }
 
 async function handleCall(id: string, tool: McpToolName, args: Record<string, unknown>, expected?: string) {
@@ -472,7 +490,7 @@ async function handleCall(id: string, tool: McpToolName, args: Record<string, un
     const error = withRemedy(message)
     send({ type: 'error', id, error })
     logPatch(key, { state, ms: ms(), note: error })
-    if (mine) closeDuplicate(mine, { ok: false, error, state }, id, false)
+    if (mine) closeDuplicate(mine, { ok: false, error, state }, id, null)
   }
   try {
     if (!def) return fail(`Unknown tool ${JSON.stringify(tool)}.`)
@@ -498,7 +516,8 @@ async function handleCall(id: string, tool: McpToolName, args: Record<string, un
     if (createsSomething(tool)) {
       const dupKey = `${get().session ?? '-'}\n${at.ws.id}\n${duplicateKey(tool, args)}`
       const hit = duplicates.get(dupKey)
-      if (hit?.state === 'done' && Date.now() - hit.at <= DUPLICATE_MS) return answer(duplicateAnswer(hit.result, hit.at, Date.now()), 'same', { note: t('features.mcp.log.duplicate') })
+      // a keyed upsert only joins a waiting call (MCP_JOIN_ONLY_TOOLS): applied, its repeat runs again
+      if (hit?.state === 'done' && remembersResult(tool) && Date.now() - hit.at <= DUPLICATE_MS) return answer(duplicateAnswer(hit.result, hit.at, Date.now()), 'same', { note: t('features.mcp.log.duplicate') })
       if (hit?.state === 'wait') {
         send({ type: 'pending', id, timeoutMs: MCP_APPROVAL_MS })
         logPatch(key, { state: 'wait' })
@@ -516,7 +535,7 @@ async function handleCall(id: string, tool: McpToolName, args: Record<string, un
     logPatch(key, { target: plan.target })
     if (plan.noop) {
       answer(plan.noop, 'same')
-      if (mine) closeDuplicate(mine, { ok: true, result: plan.noop }, id, false)
+      if (mine) closeDuplicate(mine, { ok: true, result: plan.noop }, id, null)
       return
     }
     // a script is always asked (it may send mail, call Claude, trash pages), also in "Apply directly"
@@ -543,7 +562,7 @@ async function handleCall(id: string, tool: McpToolName, args: Record<string, un
       endRun(writer)
     }
     answer(applied.result, 'ok', { undo: applied.undo })
-    if (mine) closeDuplicate(mine, { ok: true, result: applied.result }, id, true)
+    if (mine) closeDuplicate(mine, { ok: true, result: applied.result }, id, remembersResult(tool) ? { session: get().session ?? '-', activity: key } : null)
     // approved by hand: confirm with an undo (Apply directly stays quiet — the log has it)
     if (ask && applied.undo)
       useUI.getState().toast({

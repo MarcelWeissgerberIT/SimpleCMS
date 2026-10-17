@@ -125,7 +125,26 @@ test('Ask first: 50 sub-pages as a tree — ONE card, one Approve, one Undo that
   await expect(card).toBeVisible()
   await expect(card).toContainText('New pages')
   await expect(card).toContainText('Create 50 pages in Launch plan')
-  await expect(card.locator('.mcp-line', { hasText: '$12' })).toContainText('Kapitel 13 · under “Kapitel 5”')
+  // lines count from 01 as people count ("$12" stays Claude's syntax in its arguments)
+  await expect(card.locator('.mcp-line', { has: page.locator('dt', { hasText: /^13$/ }) })).toContainText('Kapitel 13 · under “Kapitel 5”')
+  await expect(card.locator('.mcp-line dt', { hasText: /^\$/ })).toHaveCount(0)
+  // the card fits the viewport: head, workspace, summary and keys in view; the lines scroll (1440×900, then 390×844)
+  for (const [w, h] of [
+    [1440, 900],
+    [390, 844],
+  ] as const) {
+    await page.setViewportSize({ width: w, height: h })
+    for (const part of ['.mcp-card__head', '.mcp-card__ws', '.mcp-card__sum', '.mcp-card__approve']) {
+      const box = (await card.locator(part).boundingBox())!
+      expect(box.y, `${part} top at ${w}×${h}`).toBeGreaterThanOrEqual(0)
+      expect(box.y + box.height, `${part} bottom at ${w}×${h}`).toBeLessThanOrEqual(h)
+    }
+    const scroll = card.locator('.mcp-card__scroll')
+    expect(await scroll.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true)
+    await expect(scroll).toHaveAttribute('tabindex', '0')
+    await expect(card.locator('.mcp-card__more')).toContainText('entries — scroll to see all')
+  }
+  await page.setViewportSize({ width: 1440, height: 900 })
   await expect(card.locator('.mcp-line--md')).toContainText('Text of chapter 1 for Tessera.')
   // one card for the whole call, nothing written before the OK
   await expect(page.getByRole('alertdialog')).toHaveCount(1)
@@ -453,6 +472,165 @@ test('files values: this workspace\'s used files only — never a web address, n
   await refused('one_create_row', { databaseId: ids.db, rows: [{ title: 'Odd', properties: { Files: 'logo.png' } }] }, /^refused_type: .*expected "onefile:<id>"/)
 })
 
+test('Ask first: the summary says where the pages go and counts in the singular too', async ({ page }) => {
+  await openApp(page)
+  const ids = await wsEval(page, (s) => ({ plan: s.createPage({ title: 'Launch plan' }), wiki: s.createPage({ title: 'Wissensbasis' }) }))
+  const { db, rows } = await cards(page, 2)
+  await connect(page, 'Ask first')
+  const card = page.getByRole('alertdialog')
+  const ask = async (name: string, args: Record<string, unknown>, summary: string) => {
+    const pending = call(name, args)
+    await expect(card.locator('.mcp-card__sum')).toHaveText(summary)
+    await page.keyboard.press('Escape')
+    await pending
+    await expect(card).toHaveCount(0)
+  }
+  await ask('one_create_page', { pages: [{ title: 'Kapitel A', parentId: ids.plan }, { title: 'Kapitel B', parentId: ids.wiki }] }, 'Create 2 pages under 2 pages')
+  await ask('one_create_page', { pages: [{ title: 'Kapitel A', parentId: ids.plan }, { title: 'Kapitel B' }] }, 'Create 2 pages in 2 places')
+  await ask('one_create_page', { pages: [{ title: 'Kapitel A', parentId: ids.plan }, { title: 'Kapitel B', parentId: '$0' }] }, 'Create 2 pages in Launch plan')
+  await ask('one_create_page', { pages: [{ title: 'Kapitel A' }, { title: 'Kapitel B' }] }, 'Create 2 pages in the sidebar (top level)')
+  await ask('one_create_page', { parentId: ids.plan, pages: [{ title: 'Only one' }] }, 'Create 1 page in Launch plan')
+  await ask('one_create_row', { databaseId: db, rows: [{ title: 'Neu 1' }] }, 'Create 1 row in Cards')
+  await ask('one_update_row', { rows: [{ id: rows[0], properties: { Owner: 'Tessera' } }] }, 'Change 1 row in Cards')
+})
+
+test('a batch names EVERY row that does not fit in one refusal (create rows, update rows, create_database rows)', async ({ page }) => {
+  await openApp(page)
+  const { db, rows } = await cards(page, 2)
+  await connect(page, 'Apply directly')
+  const n = await wsEval(page, (s) => Object.keys(s.pages).length)
+  const msg = await refused('one_create_row', { databaseId: db, rows: [{ title: 'A', properties: { Status: 'Weird' } }, { title: 'B', properties: { Status: 'Weird2' } }, { title: 'C', properties: { Nope: 1 } }, { title: 'D' }] }, /^bad_argument: rows: 3 of 4 rows do not fit:\n/)
+  expect(msg).toMatch(/- rows\[0\] \("A"\): .*Weird/)
+  expect(msg).toMatch(/- rows\[1\] \("B"\): .*Weird2/)
+  expect(msg).toMatch(/- rows\[2\] \("C"\): .*Nope/)
+  expect(msg).not.toMatch(/rows\[3\]/)
+  expect(msg).toMatch(/\nNothing was changed\. Fix those rows/)
+  const upd = await refused('one_update_row', { rows: [{ id: rows[0], properties: { Status: 'Weird' } }, { id: rows[1], properties: { Status: 'Weird2' } }] }, /^bad_argument: rows: 2 of 2 rows do not fit:/)
+  expect(upd).toMatch(/- rows\[0\] \("Card 1"\): /)
+  expect(upd).toMatch(/- rows\[1\] \("Card 2"\): /)
+  const mk = await refused('one_create_database', { title: 'Broken', properties: [{ name: 'Status', type: 'status', options: ['Todo'] }], rows: [{ title: 'X', properties: { Status: 'Nope' } }, { title: 'Ok' }, { title: 'Y', properties: { Status: 'Nope 2' } }] }, /^bad_argument: rows: 2 of 3 rows do not fit:/)
+  expect(mk).toMatch(/- rows\[0\] \("X"\): /)
+  expect(mk).toMatch(/- rows\[2\] \("Y"\): /)
+  expect(await wsEval(page, (s) => Object.keys(s.pages).length)).toBe(n)
+  expect(await statusOf(page, rows)).toEqual(['s-todo', 's-todo'])
+})
+
+test('≥ 5 rows starting outward work are always asked per CALL: new + changed rows together, several databases, a rename on a watched title', async ({ page }) => {
+  await openApp(page)
+  const { db, rows } = await cards(page, 6)
+  const auto = (trigger: AnyState) => ({ id: `au-${Math.random().toString(36).slice(2, 8)}`, name: 'Send on', enabled: true, trigger, actions: [{ type: 'run_script', scriptId: null }], lastRunAt: null, lastStatus: null, lastMessage: null })
+  const ab = await wsEval(
+    page,
+    (s, a: { db: string; any: AnyState; created: AnyState; title: AnyState }) => {
+      s.updateDatabase(a.db, { automations: [a.any, a.created] })
+      const mk = (title: string) => {
+        const id = s.createDatabase({ title, properties: [{ id: `${title}-t`, name: 'Name', type: 'title' }, { id: `${title}-o`, name: 'Owner', type: 'text' }] })
+        s.updateDatabase(id, { automations: [{ ...a.any, id: `au-${title}` }] })
+        return { id, rows: [1, 2, 3].map((i) => s.createRow(id, { title: `${title} ${i}` })) }
+      }
+      const watched = s.createDatabase({ title: 'Watched', properties: [{ id: 'w-title', name: 'Name', type: 'title' }] })
+      s.updateDatabase(watched, { automations: [{ ...a.title, id: 'au-watch' }] })
+      return { alpha: mk('Alpha'), beta: mk('Beta'), watched: { id: watched, rows: [1, 2, 3, 4, 5].map((i) => s.createRow(watched, { title: `Item ${i}` })) } }
+    },
+    { db, any: auto({ type: 'property_changed', propertyId: null }), created: auto({ type: 'row_created' }), title: auto({ type: 'property_changed', propertyId: 'w-title' }) },
+  )
+  await flush(page)
+  await connect(page, 'Apply directly')
+  const card = page.getByRole('alertdialog')
+  const askedThenReject = async (name: string, args: Record<string, unknown>, n: number) => {
+    const pending = call(name, args)
+    await expect(card).toBeVisible()
+    await expect(card).toContainText(`Always asked: ${n} rows start paid AI work or send something out of One.`)
+    await page.keyboard.press('Escape')
+    expect(text(await pending)).toContain('The person rejected this change')
+    await expect(card).toHaveCount(0)
+  }
+  // 4 changed + 4 new rows of one upsert: 8 rows that start outward work → asked
+  const pages = await wsEval(page, (s) => Object.keys(s.pages).length)
+  await askedThenReject('one_upsert_rows', { databaseId: db, keyProperty: 'Ticket', rows: [1, 2, 3, 4].map((i) => ({ key: `T-${i}`, properties: { Owner: 'Tessera' } })).concat([101, 102, 103, 104].map((i) => ({ key: `T-${i}`, properties: { Owner: 'Mara Lind' } }))) }, 8)
+  expect(await wsEval(page, (s) => Object.keys(s.pages).length)).toBe(pages)
+  expect(await wsEval(page, (s, id) => s.pages[id]?.properties['c-owner'] ?? null, rows[0])).toBeNull()
+  // 3 rows of Alpha + 3 rows of Beta in one call → asked
+  await askedThenReject('one_update_row', { rows: [...ab.alpha.rows, ...ab.beta.rows].map((id) => ({ id, properties: { Owner: 'Tessera' } })) }, 6)
+  // renaming 5 rows whose title an automation watches → asked
+  await askedThenReject('one_update_row', { rows: ab.watched.rows.map((id: string, i: number) => ({ id, properties: { Name: `Renamed ${i}` } })) }, 5)
+  // below the line still applies at once
+  json(await call('one_update_row', { rows: ab.alpha.rows.slice(0, 2).map((id: string) => ({ id, properties: { Owner: 'Tessera' } })) }))
+  await expect(card).toHaveCount(0)
+})
+
+test("one_create_database's Undo leaves what changed since alone: an edited row keeps the database, and nothing else is touched", async ({ page }) => {
+  await openApp(page)
+  const projects = await wsEval(page, (s) => {
+    const db = s.createDatabase({ title: 'Projects', properties: [{ id: 'p-title', name: 'Name', type: 'title' }] })
+    s.createRow(db, { title: 'Nordlicht' })
+    return db
+  })
+  await flush(page)
+  await connect(page, 'Apply directly')
+  // case 1: a two-way relation, rows; the person renames one, adds their own row and links it from the reverse column
+  const notes = json(await call('one_create_database', { title: 'Notes', properties: [{ name: 'Project', type: 'relation', relation: { databaseId: projects, twoWay: true } }], rows: [{ title: 'Kickoff' }, { title: 'Review' }] }))
+  expect(notes.reverse).toHaveLength(1)
+  const reverseId = await wsEval(page, (s, a: { db: string; name: string }) => s.databases[a.db].properties.find((p: AnyState) => p.name === a.name)?.id, { db: projects, name: notes.reverse[0].property })
+  const own = await wsEval(
+    page,
+    (s, a: { notes: string; kick: string; projects: string; reverse: string }) => {
+      s.updatePage(a.kick, { title: 'Kickoff (moved)' })
+      const own = s.createRow(a.notes, { title: 'Mara own note' })
+      const projectRow = Object.values(s.pages).find((p: AnyState) => p.databaseId === a.projects)!.id
+      s.setRowProperty(projectRow, a.reverse, [own])
+      return { own, projectRow }
+    },
+    { notes: notes.id, kick: notes.rows[0].id, projects, reverse: reverseId },
+  )
+  await flush(page)
+  await undoLast(page, 'one_create_database')
+  const after1 = await wsEval(
+    page,
+    (s, a: { id: string; review: string; projects: string; reverse: string; projectRow: string }) => ({
+      dbTrashed: !!s.pages[a.id]?.trashed,
+      reviewTrashed: !!s.pages[a.review]?.trashed,
+      reverseStill: s.databases[a.projects].properties.some((p: AnyState) => p.id === a.reverse),
+      link: s.pages[a.projectRow]?.properties[a.reverse] ?? null,
+    }),
+    { id: notes.id, review: notes.rows[1].id, projects, reverse: reverseId, projectRow: own.projectRow },
+  )
+  expect(after1).toEqual({ dbTrashed: false, reviewTrashed: false, reverseStill: true, link: [own.own] })
+  // case 2: only a row of the call renamed — the database stays, with that row
+  const retro = json(await call('one_create_database', { title: 'Retro', rows: [{ title: 'Went well' }, { title: 'To improve' }] }))
+  await wsEval(page, (s, id) => s.updatePage(id, { title: 'Went really well' }), retro.rows[0].id)
+  await flush(page)
+  await undoLast(page, 'one_create_database')
+  expect(await wsEval(page, (s, a: { id: string; row: string }) => [!!s.pages[a.id]?.trashed, !!s.pages[a.row]?.trashed], { id: retro.id, row: retro.rows[0].id })).toEqual([false, false])
+  // untouched: the Undo takes the database (and an empty reverse column) back
+  const clean = json(await call('one_create_database', { title: 'Clean', properties: [{ name: 'Project', type: 'relation', relation: { databaseId: projects, twoWay: true } }], rows: [{ title: 'One' }] }))
+  const cleanReverse = await wsEval(page, (s, a: { db: string; name: string }) => s.databases[a.db].properties.find((p: AnyState) => p.name === a.name)?.id, { db: projects, name: clean.reverse[0].property })
+  await undoLast(page, 'one_create_database')
+  expect(await wsEval(page, (s, a: { id: string; projects: string; reverse: string }) => [!!s.pages[a.id]?.trashed, s.databases[a.projects].properties.some((p: AnyState) => p.id === a.reverse)], { id: clean.id, projects, reverse: cleanReverse })).toEqual([true, false])
+})
+
+test('inline.afterBlock naming a block INSIDE a column: bad_argument with its top-level ref, never a stale_ref loop', async ({ page }) => {
+  await openApp(page)
+  const host = await wsEval(page, (s) => {
+    const host = s.createPage({ title: 'Spalten' })
+    const p = (id: string, text: string) => ({ type: 'paragraph', attrs: { id }, content: [{ type: 'text', text }] })
+    s.setContent(host, { type: 'doc', content: [{ type: 'columns', attrs: { id: 'cols-outer-01' }, content: [{ type: 'column', attrs: { id: 'colm-left-01' }, content: [p('para-left-01', 'Left side')] }, { type: 'column', attrs: { id: 'colm-right-1' }, content: [p('para-right-1', 'Right side')] }] }, p('para-after-1', 'After the columns.')] }, 'e2e')
+    return host
+  })
+  await flush(page)
+  await connect(page, 'Apply directly')
+  const read = json(await call('one_get_page', { id: host, format: 'blocks' }))
+  const top: string = read.blocks[0].ref
+  const inner: string = read.blocks[0].children[0].children[0].ref
+  const msg = await refused('one_create_database', { title: 'Board', inline: { pageId: host, afterBlock: inner } }, /^bad_argument: inline\.afterBlock: .*a block inside another one/)
+  expect(msg).toContain(top)
+  // the same read again hands out the same nested ref — the remedy is the top-level one, and it works
+  expect(json(await call('one_get_page', { id: host, format: 'blocks' })).blocks[0].children[0].children[0].ref).toBe(inner)
+  const ok = json(await call('one_create_database', { title: 'Board', inline: { pageId: host, afterBlock: top } }))
+  expect(((await contentOf(page, host))?.content ?? []).map((b) => b.type)).toEqual(['columns', 'databaseBlock', 'paragraph'])
+  expect(ok.pageId).toBe(host)
+})
+
 /** `B3_SHOTS=<dir>`: German screenshots of a batch card (1440×900 and 390×844, light and dark) — not part of the suite. */
 test('screenshots: the batch card in German', async ({ page }) => {
   const dir = process.env.B3_SHOTS
@@ -473,6 +651,39 @@ test('screenshots: the batch card in German', async ({ page }) => {
       const card = page.getByRole('alertdialog')
       await expect(card).toContainText('8 Zeilen')
       await page.screenshot({ path: `${dir}/batch-card-${tag}-${theme}.png` })
+      await page.keyboard.press('Escape')
+      await pending
+      await expect(card).toHaveCount(0)
+    }
+  }
+})
+
+/** `FIX_SHOTS=<dir>`: German screenshots of a 50-row card that fits the screen (1440×900 and 390×844, light and dark). */
+test('screenshots: a 50-row card in German — capped at the viewport, its lines scroll', async ({ page }) => {
+  const dir = process.env.FIX_SHOTS
+  test.skip(!dir, 'FIX_SHOTS not set')
+  await openApp(page)
+  const { rows } = await cards(page, 50)
+  await connect(page, 'Ask first')
+  await wsEval(page, (s) => s.updateSettings({ language: 'de' }))
+  for (const [w, h, tag] of [
+    [1440, 900, 'desktop'],
+    [390, 844, 'phone'],
+  ] as const) {
+    for (const theme of ['light', 'dark'] as const) {
+      await page.setViewportSize({ width: w, height: h })
+      await page.emulateMedia({ colorScheme: theme })
+      await page.evaluate((th) => document.documentElement.setAttribute('data-theme', th), theme)
+      const pending = call('one_update_row', { rows: rows.map((id) => ({ id, properties: { Status: 'Done' } })) })
+      const card = page.getByRole('alertdialog')
+      await expect(card).toContainText('50 Zeilen in Cards ändern')
+      await page.screenshot({ path: `${dir}/rows50-${tag}-${theme}.png` })
+      // scrolled to the end with the keyboard: the summary and the keys stay
+      const scroll = card.locator('.mcp-card__scroll')
+      await scroll.focus()
+      await page.keyboard.press('End')
+      await expect.poll(() => scroll.evaluate((el) => Math.ceil(el.scrollTop + el.clientHeight) >= el.scrollHeight)).toBe(true)
+      await page.screenshot({ path: `${dir}/rows50-end-${tag}-${theme}.png` })
       await page.keyboard.press('Escape')
       await pending
       await expect(card).toHaveCount(0)

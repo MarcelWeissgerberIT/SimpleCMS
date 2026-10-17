@@ -201,6 +201,12 @@ export const MCP_LOCAL_ONLY_ARGS: Readonly<Record<string, readonly string[]>> = 
 export const MCP_CREATING_TOOLS: readonly string[] = ['one_create_page', 'one_create_database', 'one_create_row', 'one_upsert_rows', 'one_attach_file', 'one_comment']
 
 /**
+ * Creating tools whose repeat only JOINS a call that still waits (both get its answer) — an applied one is not answered
+ * from memory: a keyed upsert makes no duplicate on its own, so its repeat runs again and brings the rows in step.
+ */
+export const MCP_JOIN_ONLY_TOOLS: readonly string[] = ['one_upsert_rows']
+
+/**
  * The tool contract's revision: 1 = what One tabs before it (bridge 1.11.0) answered; 2 = train T-a (hello `tools`,
  * strict arguments, duplicate joining). A tab says its revision in its hello.
  */

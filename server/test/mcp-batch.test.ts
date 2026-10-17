@@ -332,6 +332,108 @@ describe('MCP B3: sub-pages, boards, rows (team server)', () => {
     const viewer = await signIn(server, 'gast@nordlicht.test')
     assert.ok([403, 404].includes((await viewer.get(`/api/workspaces/${wsId}/mcp-calls`)).status))
   })
+
+  /* ---------------------------------------------------------------- review fixes (T-a) */
+
+  test('upsert: a row body it writes keeps a pre-image — a restore takes the text back out; a later edit → changed_since', async () => {
+    const card8 = await doc(`ws:${wsId}:p:card-8`)
+    const out = await call(writer, 'one_upsert_rows', { databaseId: 'db-cards', keyProperty: 'Ticket', rows: [{ key: 'T-8', properties: { Owner: 'Mirror' }, markdown: 'Injected body text from the mirror.' }] })
+    assert.equal(out.rows[0].action, 'updated')
+    await waitFor(() => card8.doc.getXmlFragment('default').toString().includes('Injected body text'), 5000, 'body written')
+    const call8 = (await calls()).find((c) => c.tool === 'one_upsert_rows' && c.titles.includes('Card 8'))!
+    assert.deepEqual([...call8.kinds].sort(), ['content', 'rows'])
+    // the row is one thing changed (its values and its body)
+    assert.equal(call8.changed, 1)
+    const back = await owner.post(`/api/workspaces/${wsId}/mcp-calls/${call8.callId}/restore`, {})
+    assert.equal(back.status, 200, JSON.stringify(back.body))
+    assert.deepEqual(back.body.kept, [])
+    await waitFor(() => !card8.doc.getXmlFragment('default').toString().includes('Injected body text'), 5000, 'body taken back')
+    await waitFor(() => (yp('card-8').get('properties') as Y.Map<unknown>).get('c-owner') === undefined, 5000, 'owner back')
+    assert.doesNotMatch(String(yp('card-8').get('plain') ?? ''), /Injected/)
+    // a body typed into after the call: the restore refuses (the later text would go)
+    const card9 = await doc(`ws:${wsId}:p:card-9`)
+    await call(writer, 'one_upsert_rows', { databaseId: 'db-cards', keyProperty: 'Ticket', rows: [{ key: 'T-9', markdown: 'Mirror text for card 9.' }] })
+    await waitFor(() => card9.doc.getXmlFragment('default').toString().includes('Mirror text'), 5000, 'body 9 written')
+    card9.doc.transact(() => card9.doc.getXmlFragment('default').insert(card9.doc.getXmlFragment('default').length, [para('Typed by Mara Lind.', 'blk-mara-009')]))
+    await flushed(card9)
+    const call9 = (await calls()).find((c) => c.tool === 'one_upsert_rows' && c.kinds.includes('content') && c.callId !== call8.callId)!
+    const refused = await owner.post(`/api/workspaces/${wsId}/mcp-calls/${call9.callId}/restore`, {})
+    assert.equal(refused.status, 409)
+    assert.equal(refused.body.error?.code ?? refused.body.code, 'changed_since')
+  })
+
+  test('a restore after a later DELETION is refused changed_since (the state hash covers deletions)', async () => {
+    const host = await call(writer, 'one_create_page', { title: 'Host', parentId: 'proj', markdown: 'Alpha line\n\nBeta line\n\nGamma line' })
+    await call(writer, 'one_create_database', { title: 'Inline board', inline: { pageId: host.id }, views: [{ type: 'board' }] })
+    const d = await doc(`ws:${wsId}:p:${host.id}`)
+    await waitFor(() => d.doc.getXmlFragment('default').toArray().some((n) => (n as Y.XmlElement).nodeName === 'databaseBlock'), 5000, 'block')
+    const frag = d.doc.getXmlFragment('default')
+    const beta = frag.toArray().findIndex((n) => n.toString().includes('Beta line'))
+    assert.ok(beta >= 0)
+    // the person removes "Beta line" after the call — a deletion only
+    d.doc.transact(() => frag.delete(beta, 1))
+    await flushed(d)
+    const c = (await calls()).find((x) => x.tool === 'one_create_database' && x.titles.includes('Inline board'))!
+    const res = await owner.post(`/api/workspaces/${wsId}/mcp-calls/${c.callId}/restore`, {})
+    assert.equal(res.status, 409, JSON.stringify(res.body))
+    await sleep(150)
+    assert.ok(!frag.toString().includes('Beta line'), 'the deleted line is not brought back')
+  })
+
+  test('a restored call is forgotten: repeating it makes the thing again (never answered with what went to the trash)', async () => {
+    const args = { title: 'Notizen Nordlicht', parentId: 'proj' }
+    const first = await call(writer, 'one_create_page', args)
+    const repeat = await call(writer, 'one_create_page', args)
+    assert.equal(repeat.duplicateOf, first.id)
+    const made = (await calls()).find((c) => c.tool === 'one_create_page' && c.titles.includes('Notizen Nordlicht'))!
+    assert.equal((await owner.post(`/api/workspaces/${wsId}/mcp-calls/${made.callId}/restore`, {})).status, 200)
+    await waitFor(() => yp(first.id).get('trashed') === true, 5000, 'trashed')
+    const again = await call(writer, 'one_create_page', args)
+    assert.equal(again.duplicateOf, undefined)
+    assert.notEqual(again.id, first.id)
+    await waitFor(() => !!yp(again.id) && yp(again.id).get('trashed') !== true, 5000, 'made again')
+  })
+
+  test('one_upsert_rows only joins: a repeat after it was applied runs again and brings the row back in step', async () => {
+    const args = { databaseId: 'db-cards', keyProperty: 'Ticket', rows: [{ key: 'T-11', properties: { Owner: 'Tessera' } }] }
+    assert.equal((await call(writer, 'one_upsert_rows', args)).rows[0].action, 'updated')
+    await waitFor(() => (yp('card-11').get('properties') as Y.Map<unknown>).get('c-owner') === 'Tessera', 5000, 'owner set')
+    // changed by hand meanwhile
+    meta.doc.transact(() => (yp('card-11').get('properties') as Y.Map<unknown>).set('c-owner', 'Mara Lind'))
+    await flushed(meta)
+    const again = await call(writer, 'one_upsert_rows', args)
+    assert.equal(again.duplicateOf, undefined)
+    assert.deepEqual(again.rows.map((r: { key: string; action: string }) => [r.key, r.action]), [['T-11', 'updated']])
+    await waitFor(() => (yp('card-11').get('properties') as Y.Map<unknown>).get('c-owner') === 'Tessera', 5000, 'in step again')
+  })
+
+  test('inline.afterBlock naming a block INSIDE another one: bad_argument with its top-level ref (not stale_ref)', async () => {
+    const page = await call(writer, 'one_create_page', { title: 'Spalten', parentId: 'proj' })
+    const d = await doc(`ws:${wsId}:p:${page.id}`)
+    d.doc.transact(() => {
+      const cols = new Y.XmlElement('columns')
+      cols.setAttribute('id', 'cols-outer-01')
+      const mk = (id: string, text: string, pid: string) => {
+        const col = new Y.XmlElement('column')
+        col.setAttribute('id', id)
+        col.insert(0, [para(text, pid)])
+        return col
+      }
+      cols.insert(0, [mk('colm-left-01', 'Left side', 'para-left-01'), mk('colm-right-1', 'Right side', 'para-right-1')])
+      d.doc.getXmlFragment('default').insert(0, [cols, para('After the columns.', 'para-after-1')])
+    })
+    await flushed(d)
+    const read = await call(writer, 'one_get_page', { id: page.id, format: 'blocks' })
+    const top: string = read.blocks[0].ref
+    const inner: string = read.blocks[0].children[0].children[0].ref
+    const msg = await fails(writer, 'one_create_database', { title: 'Board', inline: { pageId: page.id, afterBlock: inner } }, /^bad_argument: inline\.afterBlock: .*a block inside another one/)
+    assert.ok(msg.includes(top), msg)
+    // the remedy works: its top-level block
+    const ok = await call(writer, 'one_create_database', { title: 'Board', inline: { pageId: page.id, afterBlock: top } })
+    assert.equal(ok.pageId, page.id)
+    // a block that is gone stays stale_ref
+    await fails(writer, 'one_create_database', { title: 'Board 2', inline: { pageId: page.id, afterBlock: '#qqqqqqqq' } }, /^stale_ref: inline\.afterBlock/)
+  })
 })
 
 /* ------------------------------------------------------------------ compensating trash (in process) */

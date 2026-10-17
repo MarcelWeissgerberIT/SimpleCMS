@@ -23,12 +23,12 @@ import { keyHolders } from '../agents/stage.ts'
 import { ValueError, type ValueContext } from '../api/values.ts'
 import { newId } from '../tokens.ts'
 import { assertNotSystem } from './system.ts'
-import { McpWrites, checkFilesValue, friendlyIn, iconIn, optionNames, unprocessable, type PropertyInput } from './writes.ts'
+import { McpWrites, assertNoSystemPartner, checkFilesValue, friendlyIn, iconIn, optionNames, unprocessable, type PropertyInput } from './writes.ts'
 import { defaultView, viewChange, type View, type ViewInput } from './structure.ts'
 import { McpPreimages, fragmentSnapshot, stateHash, type Recorder } from './preimages.ts'
 import { docJson } from './pageRead.ts'
 import { blockHash, parseRef } from '../../../src/shared/mcp/refs.ts'
-import { refIndex } from '../../../src/shared/mcp/pageRead.ts'
+import { nestedTopLevel, refIndex } from '../../../src/shared/mcp/pageRead.ts'
 import { MCP_LIMITS, MCP_VIEW_TYPES } from '../../../src/shared/mcp/tables.ts'
 import { codeOf, mcpError } from '../../../src/shared/mcp/errors.ts'
 
@@ -128,6 +128,8 @@ export class McpBatch {
       }
       if (isHandOnly(prop)) throw unprocessable('invalid_value', handOnlyMessage(prop))
       if (prop.type === 'files') checkFilesValue(prop.name, raw, ctx.files)
+      // a two-way relation writes its partner rows too: never into One's own databases
+      assertNoSystemPartner(r, db.page.id, prop, `properties.${prop.name}`)
       properties[key] = friendlyIn(r, prop, raw, ctx)
       if (prop.type === 'select' || prop.type === 'multi_select') {
         const fresh = optionNames(prop, raw).filter((n) => !(prop.options ?? []).some((o) => o.id === n || o.name.trim().toLowerCase() === n.toLowerCase()))
@@ -375,7 +377,17 @@ export class McpBatch {
             const prepared = await this.writes.prepareRow(wsId, { rowId: p.id! }, { properties: p.changed ?? {} }, actor, MCP_WRITE)
             await this.model.updateRow(wsId, p.id!, { ...(p.title ? { title: p.title } : {}), properties: prepared.properties }, actor, MCP_WRITE)
           }
-          if (p.body) await this.writes.updatePage(wsId, { id: p.id!, markdown: p.body, mode: 'append' }, actor, { mcp: true })
+          if (p.body) {
+            // the row's body before (empty): a restore takes the text this call wrote back out again (spec § 3.6)
+            let pre: { snapshot: string; plain: string } | null = null
+            await this.writes.updatePage(wsId, { id: p.id!, markdown: p.body, mode: 'append' }, actor, {
+              mcp: true,
+              preimageAppend: true,
+              preimage: (doc) => (pre = { snapshot: fragmentSnapshot(doc), plain: fragmentText(doc, 20_000) }),
+            })
+            const got = pre as { snapshot: string; plain: string } | null
+            if (got) rec.content(p.id!, got.snapshot, got.plain, await this.s.collab.read(contentDoc(wsId, p.id!), (doc) => stateHash(doc)))
+          }
           written.push(updates.indexOf(p))
         }
       }
@@ -729,11 +741,22 @@ function blockIndex(doc: Y.Doc, raw: string): { index: number; id: string | null
       throw refuse(409, 'stale_ref', 'inline.afterBlock', `${q(raw)} changed since the read (it is ${refIndex(json).refOf(node, [e])} now)`, 'Read the page again (one_get_page { format: "blocks" }) and pass the block\'s ref from there.')
     return { index: els[e]!.i, id: (els[e]!.el.getAttribute('id') as string | undefined) ?? null }
   }
+  // a block inside another one (a column, a toggle, a list): the database goes after its top-level block — say which
+  const nested = (): void => {
+    const top = nestedTopLevel(json, ref)
+    if (top === null) return
+    const outer = refIndex(json).refOf(json.content![top]!, [top])
+    throw refuse(422, 'bad_argument', 'inline.afterBlock', `${q(raw)} is a block inside another one (${outer}): a database goes between top-level blocks`, `Pass the ref of its top-level block, ${outer}, to place it after that whole block.`)
+  }
   if (ref.kind === 'path') {
-    if (ref.path.length !== 1 || ref.path[0]! >= els.length) throw refuse(409, 'stale_ref', 'inline.afterBlock', `${q(raw)} is no top-level block of the page now`)
+    if (ref.path.length !== 1 || ref.path[0]! >= els.length) {
+      nested()
+      throw refuse(409, 'stale_ref', 'inline.afterBlock', `${q(raw)} is no top-level block of the page now`)
+    }
     return found(ref.path[0]!)
   }
   const hits = els.flatMap((x, e) => (String(x.el.getAttribute('id') ?? '').startsWith(ref.prefix) && x.el.getAttribute('id') ? [e] : []))
+  if (!hits.length) nested()
   if (hits.length !== 1) throw refuse(409, 'stale_ref', 'inline.afterBlock', hits.length ? `${q(raw)} fits ${hits.length} blocks` : `no top-level block has the id ${q(ref.prefix)} now`)
   return found(hits[0]!)
 }

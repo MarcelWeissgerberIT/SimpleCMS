@@ -179,6 +179,34 @@ test("One's own databases are read-only over MCP: a Stage, a Coding row, a memor
   expect(now.props).toBe(await wsEval(page, (s, id) => s.databases[id].properties.length, ids.mem))
 })
 
+test("a two-way relation never reaches One's own databases: no reverse property on the Coding pipeline or the memory", async ({ page }) => {
+  await openApp(page)
+  const ids = await wsEval(page, (s) => {
+    const coding = s.createDatabase({ title: 'Coding' })
+    s.updateDatabase(coding, { system: 'coding' })
+    const holder = s.createPage({ title: 'Wissensbasis' })
+    const mem = s.createDatabase({ title: 'One memory', parentId: holder })
+    s.updateDatabase(mem, { system: 'memory' })
+    const tasks = s.createDatabase({ title: 'Nordlicht tasks' })
+    return { coding, mem, tasks }
+  })
+  await flush(page)
+  await connect(page)
+  const schema = () => wsEval(page, (s, ids) => ({ coding: s.databases[ids.coding].properties.map((p: { name: string }) => p.name), mem: s.databases[ids.mem].properties.map((p: { name: string }) => p.name), tasks: s.databases[ids.tasks].properties.map((p: { name: string }) => p.name) }), ids)
+  const before = await schema()
+  const sys = /^system_database: .*relation: "(Coding|One memory)" is One's .* database; over MCP it is read-only .*two-way relation would add its reverse property there/
+  await refused('one_create_property', { databaseId: ids.tasks, name: 'Coding task', type: 'relation', relation: { databaseId: ids.coding, twoWay: true } }, sys)
+  const pages = await wsEval(page, (s) => Object.keys(s.pages).length)
+  await refused('one_create_database', { title: 'Notes', properties: [{ name: 'Mem', type: 'relation', relation: { databaseId: ids.mem, twoWay: true } }] }, sys)
+  expect(await schema()).toEqual(before)
+  expect(await wsEval(page, (s) => Object.keys(s.pages).length)).toBe(pages)
+  // a one-way relation to it changes nothing there: allowed
+  json(await call('one_create_property', { databaseId: ids.tasks, name: 'Coding ref', type: 'relation', relation: { databaseId: ids.coding } }))
+  const after = await schema()
+  expect(after.coding).toEqual(before.coding)
+  expect(after.tasks).toContain('Coding ref')
+})
+
 test('MCP text on a page a coding task takes along: the task waits for "Confirm on this device"', async ({ page }) => {
   test.slow() // two reloads and a bridge connection
   await openApp(page)

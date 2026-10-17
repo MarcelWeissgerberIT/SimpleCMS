@@ -13,7 +13,7 @@ import type { McpToolName } from './contract'
 import { live, McpToolError, q, ws } from './values'
 import type { Writer } from '../../store/writer'
 import { privateRefsFor, privateScopeRefusal } from '../ai/claudeFiles'
-import { codeOf } from '../../../shared/mcp/errors'
+import { codeOf, MCP_REMEDIES, type McpErrorCode } from '../../../shared/mcp/errors'
 
 /** One line of the approval card. */
 export type PlanLine =
@@ -182,4 +182,50 @@ export function atPath(e: unknown, path: string): never {
   const code = codeOf(e.message)
   const body = code ? e.message.slice(code.length + 1).trim() : e.message
   throw new McpToolError(`${code ?? 'bad_argument'}: ${path}: ${body}`)
+}
+
+/** How many entries a batch refusal lists (the rest are counted). */
+const ENTRY_LINES = 20
+
+/** An entry's refusal as a line of the batch's list: no code, no "Nothing was changed.", no next step, its path short. */
+function entryText(message: string, path: string): string {
+  let m = message
+  const code = codeOf(m)
+  if (code) m = m.slice(code.length + 1).trim()
+  // the entry's own path (the list names it); a deeper part stays ("properties.Status: …")
+  if (m.startsWith(`${path}.`)) m = m.slice(path.length + 1)
+  else if (m.startsWith(`${path}:`)) m = m.slice(path.length + 1)
+  m = m.replace(/Nothing was (changed|staged)\.\s*/g, '')
+  for (const r of Object.values(MCP_REMEDIES)) m = m.split(r).join('')
+  return m.replace(/\s+/g, ' ').trim()
+}
+
+/**
+ * A batch planned entry by entry — all or nothing, and every entry that does not fit is named in ONE refusal (`rows[i]
+ * ("title"): …` per line, ≤ 20 lines and "and n more"), so a model fixes them in one round. One bad entry keeps its
+ * own refusal as it is. `plan` runs for every entry (a later one is checked although an earlier one failed); `label`
+ * names an entry (its title) in the list.
+ */
+export function eachEntry<T>(items: readonly T[], path: (i: number) => string, label: (item: T, i: number) => string | null, plan: (item: T, i: number) => void): void {
+  const failed: Array<{ i: number; error: McpToolError }> = []
+  items.forEach((item, i) => {
+    try {
+      plan(item, i)
+    } catch (e) {
+      if (!(e instanceof McpToolError)) throw e
+      failed.push({ i, error: e })
+    }
+  })
+  if (!failed.length) return
+  if (failed.length === 1) throw failed[0]!.error
+  const codes = new Set(failed.map((f) => codeOf(f.error.message) ?? 'bad_argument'))
+  const code: McpErrorCode = codes.size === 1 ? [...codes][0]! : 'bad_argument'
+  const listed = failed.slice(0, ENTRY_LINES).map((f) => {
+    const name = label(items[f.i]!, f.i)
+    return `- ${path(f.i)}${name ? ` (${q(name)})` : ''}: ${entryText(f.error.message, path(f.i))}`
+  })
+  if (failed.length > ENTRY_LINES) listed.push(`- and ${failed.length - ENTRY_LINES} more`)
+  const root = path(0).replace(/\[\d+\]$/, '')
+  // the contract's shape over several lines: code and path first, the list, then "Nothing was changed." and the next step
+  throw new McpToolError(`${code}: ${root}: ${failed.length} of ${items.length} ${root} do not fit:\n${listed.join('\n')}\nNothing was changed. Fix those ${root} (or leave them out) and send the call again.`)
 }

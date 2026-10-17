@@ -10,7 +10,6 @@
  * document that moved since the call is refused `changed_since` — unless `force`, which puts everything back and lets
  * the later changes go (the dialog says so). Restoring twice is a no-op.
  */
-import { createHash } from 'node:crypto'
 import * as Y from 'yjs'
 import type { Services } from '../context.ts'
 import { ApiError, notFound } from '../errors.ts'
@@ -18,6 +17,8 @@ import { fragmentText } from '../api/content.ts'
 import { type Roots, clone, inTrash, liveDatabase, pageMap, propertiesMap, readPage, roots } from '../api/meta.ts'
 import { contentDoc, metaDoc, type WorkspaceModel } from '../api/model.ts'
 import { newId } from '../tokens.ts'
+import { docStateHash } from './pageRead.ts'
+import { forgetCall } from './duplicates.ts'
 import { MCP_LIMITS } from '../../../src/shared/mcp/tables.ts'
 
 type Values = Record<string, unknown>
@@ -46,8 +47,8 @@ export function fragmentSnapshot(doc: Y.Doc): string {
   return Buffer.from(Y.encodeStateAsUpdate(copy)).toString('base64')
 }
 
-/** The state of a document (its state vector) as a hash: "did it change since?". */
-export const stateHash = (doc: Y.Doc) => createHash('sha256').update(Y.encodeStateVector(doc)).digest('hex')
+/** The state of a document as a hash (state vector + delete set, pageRead.ts docStateHash): "did it change since?". */
+export const stateHash = (doc: Y.Doc) => docStateHash(doc)
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
 
@@ -76,12 +77,15 @@ export class McpPreimages {
     this.model = model
   }
 
-  /** The recorder of one MCP call (its id is new; nothing is kept until it records). */
-  recorder(wsId: string, tokenId: string, tool: string): Recorder {
+  /**
+   * The recorder of one MCP call (its id is new; nothing is kept until it records). `dup`: the key its answer is kept
+   * under for repeats (duplicates.ts) — a Restore forgets it, so repeating the call makes the thing again.
+   */
+  recorder(wsId: string, tokenId: string, tool: string, dup: string | null = null): Recorder {
     const callId = newId()
     const save = (doc: string, p: Preimage, afterHash: string | null = null) => {
       try {
-        this.s.repo.savePreimage({ id: newId(), workspaceId: wsId, tokenId, callId, tool, doc, kind: p.kind, data: JSON.stringify(p), afterHash, at: Date.now() })
+        this.s.repo.savePreimage({ id: newId(), workspaceId: wsId, tokenId, callId, tool, doc, kind: p.kind, data: JSON.stringify(dup ? { ...p, dup } : p), afterHash, at: Date.now() })
       } catch (err) {
         // the workspace went meanwhile: nothing to put back
         this.s.log.warn('mcp pre-image not stored', { workspace: wsId, error: (err as Error).message })
@@ -111,6 +115,8 @@ export class McpPreimages {
     const calls = this.s.repo.mcpCalls(wsId, since).map((c) => {
       let made = 0
       let changed = 0
+      /** rows and pages the call changed (a row whose values and body it wrote is one) */
+      const touched = new Set<string>()
       const named: Array<{ id: string; title: string }> = []
       for (const part of this.s.repo.preimagesOf(wsId, c.call_id)) {
         const pre = JSON.parse(part.data) as Preimage
@@ -119,14 +125,18 @@ export class McpPreimages {
           named.push(...pre.created)
         } else if (pre.kind === 'rows') {
           made += pre.created.length
-          changed += pre.updated.length
+          for (const u of pre.updated) touched.add(u.id)
           named.push(...pre.created, ...pre.updated.map((u) => ({ id: u.id, title: u.after.title ?? u.before.title ?? '' })))
         } else {
-          changed += 1
-          named.push({ id: pre.page, title: '' })
+          // a page's text (a row's body an upsert wrote counts once, with its row)
+          if (!touched.has(pre.page)) named.push({ id: pre.page, title: '' })
+          touched.add(pre.page)
         }
       }
-      return { c, made, changed, named: named.slice(0, 3) }
+      changed = touched.size
+      // each thing once (a row's body and its values are two parts of one call)
+      const once = [...new Map(named.map((n) => [n.id, n] as const)).values()].map((n) => ({ ...n, title: n.title || named.find((x) => x.id === n.id && x.title)?.title || '' }))
+      return { c, made, changed, named: once.slice(0, 3) }
     })
     const live = await this.model.read(wsId, (r) => new Map(calls.flatMap((x) => x.named).map((n) => [n.id, pageMap(r, n.id)?.get('title')] as const)))
     return calls.map(({ c, made, changed, named }) => ({
@@ -270,6 +280,11 @@ export class McpPreimages {
     }
     // what was kept can still be put back with force; a call put back whole is done
     if (!kept.length) this.s.repo.markPreimagesRestored(wsId, callId, Date.now())
+    // a repeat of the call is no longer answered with what it made (it is in the trash now): it makes it again
+    if (restored) {
+      const dup = items.map((p) => (p.pre as { dup?: unknown }).dup).find((d): d is string => typeof d === 'string')
+      if (dup) forgetCall(this.s, parts[0]!.token_id, dup)
+    }
     this.s.log.info('mcp call restored', { workspace: wsId, call: callId, restored, kept: kept.length, force, by: actor })
     return { callId, restored, kept, ...(kept.length ? { note: 'Some things were changed since this call and were left as they are (restore with force to put them back too).' } : {}) }
   }

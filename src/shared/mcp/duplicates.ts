@@ -3,13 +3,18 @@
  * equal one that still waits for approval joins it (both calls get its result); one equal to a call applied in the last
  * 2 minutes answers that call's result with `duplicateOf` and a note — nothing new is made. No `requestId` argument:
  * the arguments are the key, so a different call is never mistaken for a repeat. Rejected, failed and timed-out calls
- * are not remembered. The tab keeps a map per MCP session (≤ 50 entries); the team server its idempotency store, keyed
- * by token + the key's SHA-256.
+ * are not remembered, nor one taken back (Undo, eject, a server Restore); a keyed upsert only joins
+ * (MCP_JOIN_ONLY_TOOLS). The tab keeps a map per MCP session (≤ 50 entries); the team server its idempotency store,
+ * keyed by token + the key's SHA-256 (dupHash).
  */
-import { MCP_CREATING_TOOLS, MCP_LIMITS } from './tables.ts'
+import { MCP_CREATING_TOOLS, MCP_JOIN_ONLY_TOOLS, MCP_LIMITS } from './tables.ts'
+import { sha256Hex } from './sha256.ts'
 
-/** Is a repeat of this tool's call a duplicate (it makes something new)? */
+/** Is a repeat of this tool's call a duplicate (it makes something new)? Such a repeat joins the call still waiting. */
 export const createsSomething = (tool: string): boolean => MCP_CREATING_TOOLS.includes(tool)
+
+/** Is an APPLIED call of this tool remembered, its repeat within the window answered with its result (`duplicateOf`)? */
+export const remembersResult = (tool: string): boolean => createsSomething(tool) && !MCP_JOIN_ONLY_TOOLS.includes(tool)
 
 /** JSON with sorted object keys at every level (arrays keep their order); `undefined` members are left out. */
 export function canonicalJson(value: unknown): string {
@@ -45,6 +50,9 @@ export function duplicateAnswer(result: unknown, appliedAt: number, now: number)
   const note = duplicateNote((now - appliedAt) / 1000)
   return { ...obj, duplicateOf: made, note: typeof obj.note === 'string' && obj.note ? `${note} · ${obj.note}` : note }
 }
+
+/** The key a server keeps a call under: the SHA-256 (hex) of its duplicate key. */
+export const dupHash = (tool: string, args: Record<string, unknown>): string => sha256Hex(duplicateKey(tool, args))
 
 /** How long an applied call answers its repeats. */
 export const DUPLICATE_MS = MCP_LIMITS.duplicateMs

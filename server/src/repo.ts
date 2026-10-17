@@ -842,6 +842,11 @@ export class Repo {
     )
   }
 
+  /** Forget a kept answer (an MCP call put back: its repeat makes the thing again). */
+  forgetIdempotent(scope: string, key: string): boolean {
+    return this.db.run('DELETE FROM idempotency WHERE scope = ? AND key = ?', scope, key) > 0
+  }
+
   // ── MCP pre-images (mcp/preimages.ts) ──────────────────────────────
 
   /** Keep one pre-image of an MCP call (sealed with the workspace key). */

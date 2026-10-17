@@ -38,7 +38,7 @@ Auch bei **Direkt anwenden** wird eine Änderung auf einer Karte erfragt, wenn s
 ## Unterseiten, Boards und Zeilen in einem Zug
 Eine Anfrage, eine Karte: Ein Agent kann einen **Baum aus bis zu 50 Unterseiten** anlegen (auch unter einer Datenbankzeile), ein **Board** mit seinen Spalten und Karten als Unterseite oder im Text einer Seite, oder **bis zu 50 Zeilen** auf einmal ändern — *„Lege unter Projekt Nordlicht eine Unterseite mit einem Board Todo / Doing / Done an und trage diese fünf Aufgaben ein“* ist eine Suche und eine Karte. Die Karte nennt jede Seite und jede Zeile (und was ein Stapel auslösen würde: Autofill, Automationen, Agenten); **Rückgängig** im **Agenten-Protokoll** legt in den Papierkorb, was der Aufruf angelegt hat — außer jemand hat es seitdem geändert. Beim Spiegeln von Einträgen aus anderen Quellen über einen Schlüssel ändert sich nur, was abweicht.
 
-Agenten lesen eine Seite außerdem **vollständig**: jeden Block mit seinen Daten (Datenbanken, Dateien, Tabellen, Diagramme, Besprechungsnotizen), lange Seiten in Teilen. Ein wiederholter Aufruf legt nie etwas doppelt an — der Agent erfährt, dass es schon da ist.
+Agenten lesen eine Seite außerdem **vollständig**: jeden Block mit seinen Daten (Datenbanken, Dateien, Tabellen, Diagramme, Besprechungsnotizen), lange Seiten in Teilen. Ein Aufruf, der innerhalb von 2 Minuten wiederholt wird, legt nichts doppelt an — der Agent erfährt, dass es schon da ist.
 
 ## Kommentare
 Aus, bis du sie einschaltest: **Kommentare** unter **Einstellungen → Agenten · MCP** — **Aus**, **Lesen** oder **Lesen + schreiben**, für dieses Gerät. Mit **Lesen** sehen Agenten die Kommentar-Threads einer Seite, wenn sie danach fragen. Kommentare über MCP schreiben kommt später.

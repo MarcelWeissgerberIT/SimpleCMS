@@ -351,6 +351,18 @@ describe('MCP reads in full (team server)', () => {
     await fails(writer, 'one_get_page', { id: 'long', cursor: parts[0].next }, /^bad_argument: cursor:.*another read/)
   })
 
+  test('a pure deletion between two parts → page_changed too (rev = state vector + delete set, never a shifted offset)', async () => {
+    const first = await call(writer, 'one_get_page', { id: 'long', format: 'blocks' })
+    assert.ok(first.next)
+    // a member deletes 20 blocks of the part already read — no insertion anywhere
+    const long = await doc(`ws:${wsId}:p:long`)
+    long.doc.transact(() => long.doc.getXmlFragment('default').delete(0, 20))
+    await flushed(long)
+    await fails(writer, 'one_get_page', { id: 'long', format: 'blocks', cursor: first.next }, /^page_changed: cursor:/)
+    // a fresh read has another rev
+    assert.notEqual((await call(writer, 'one_get_page', { id: 'long', format: 'blocks' })).rev, first.rev)
+  })
+
   test('comments only behind the token flag: off → comments_off and no read carries them; read → threads with their ref', async () => {
     await fails(writer, 'one_get_page', { id: 'review', comments: true }, /^comments_off: comments:/)
     const plain = await call(writer, 'one_get_page', { id: 'review' })

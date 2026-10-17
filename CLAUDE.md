@@ -1213,7 +1213,10 @@ the public APIs stable — other areas are built against them in parallel.
   agent tools run under MCP's tool scope, stage.ts). One's own databases (`Database.system`: memory, Mails, mail
   directories, pipelines, test cases) are read-only over MCP — rows, pages below rows, schema, views, moves, trash
   (`system_database`; features/mcp/system.ts `systemOf` / `systemGuard`, wrapped around agent/coding.ts
-  `guardPipelineRows` in stage.ts `mcpStageTool`; server/src/mcp/system.ts, MCP-only — server agents keep their rules).
+  `guardPipelineRows` in stage.ts `mcpStageTool`; server/src/mcp/system.ts, MCP-only — server agents keep their rules);
+  that includes a two-way relation into one (its reverse property; schema.ts `propertySpec`, server writes.ts
+  `definition`) and, on S, a row value whose two-way partner lives in one (the server syncs partners —
+  `assertNoSystemPartner`).
   MCP writes never carry coding trust (coding/trust.ts); locally a task whose version an MCP write moved is
   `mcpTouched` (IndexedDB `one-coding` `<scope>|mcpTouched|<taskId>`) and waits for Confirm. claudeDoc, for every caller:
   raw HTML only as the file form writes it (features/ai/claudeFiles.ts `claudeHtml`; any other tag stays as written, as
@@ -1231,23 +1234,32 @@ the public APIs stable — other areas are built against them in parallel.
   per argument name and the budget (tools/list ≤ 55,000, instructions ≤ 3,500 chars). `MCP_ARGS_V1` is frozen. A new
   tool or argument = contract.ts + `TOOL_SUMMARIES` (mcp/src/mcpb.ts) + the tab's planner + S (or MCP_LOCAL_ONLY*) +
   the next mcp/package.json minor (shared with one-worker) = `MCP_BRIDGE_CURRENT` + rebuilt bundles. Refusals only
-  through `mcpError` / `withRemedy` (`<code>: <path>: <what>. Nothing was changed. <next step>`). Strict arguments:
-  the bridge refuses undeclared ones (`bad_argument`) and what the tab's hello `tools` did not announce (`app_outdated`;
-  no `tools` = contract 1), the tab refuses undeclared ones again. Creating calls are joined while waiting and answered
-  once within 2 min (`duplicateOf`; B per MCP session in the tab, S the idempotency store). Results compact, lists
+  through `mcpError` / `withRemedy` (`<code>: <path>: <what>. Nothing was changed. <next step>`); a batch names every
+  row that does not fit in one refusal (plan.ts `eachEntry`). Strict arguments: the bridge refuses undeclared ones
+  (`bad_argument`) and what the tab's hello `tools` did not announce (`app_outdated`; no `tools` = contract 1), the tab
+  refuses undeclared ones again, and S makes every tool schema a strict object (tools.ts `strictArguments`: tools/list
+  `additionalProperties: false`, undeclared or misfit arguments answered `bad_argument: <path>: …` before the tool
+  runs). Creating calls are joined while waiting and answered once within 2 min (`duplicateOf`; B per MCP session in
+  the tab, S the idempotency store); `MCP_JOIN_ONLY_TOOLS` (one_upsert_rows) only join; a call taken back (B: its Undo or
+  an eject; S: a Restore) is forgotten, so its repeat makes the thing again. Results compact, lists
   `urlBase`. Reads: `one_get_page` parts ≤ `MCP_LIMITS.part` serialized, head once, cursor bound to `rev`
-  (`page_changed`), `format: 'blocks'` (block data: features/mcp/pageRead.ts, server/src/mcp/pageRead.ts — S flattens
+  (`page_changed`; S `rev` / pre-image hashes = state vector + delete set, pageRead.ts `docStateHash` — a pure
+  deletion moves them too), `format: 'blocks'` (block data: features/mcp/pageRead.ts, server/src/mcp/pageRead.ts — S flattens
   task blocks, sheet values null); refs are stateless (`#<id prefix>~<hash>` / `@<path>~<hash>`, refs.ts — ids never
   hashed), every MCP Markdown write strips ref labels (`stripRefLabels`, B + S), a ref with a hash must still fit
-  (`stale_ref`); context marks limit MCP reads (`limited`); `class` on single reads. Comments over MCP: B per device
+  (`stale_ref`; a ref of a nested block where a top-level one is needed is `bad_argument` naming its top-level ref —
+  shared pageRead.ts `nestedTopLevel`); context marks limit MCP reads (`limited`) — `one_search` too (only readable
+  text is searched and snippeted); `class` on single reads. Comments over MCP: B per device
   (`McpSettings.comments`, localStorage `one.mcp`, default off), S per token (`api_tokens.mcp_comments`); off →
   `comments_off`. Batches: one call = ONE card (pages ≤ 50 with `$<index>` parents, rows / upsert ≤ 50,
-  `one_create_database` views / inline / rows); MCP's Undo of what it made = trash (`undoCreated: 'trash'`; agents and
-  the terminal keep delete); a row batch ≥ `MCP_LIMITS.rowsAsk` that starts paid AI work or sends out is `alwaysAsk`
-  (features/mcp/rows.ts `sideEffects`); files values over MCP only reachable `onefile:` refs (`withFilesWritable` —
+  `one_create_database` views / inline / rows; the card is capped at the viewport, its lines scroll); MCP's Undo of what
+  it made = trash (`undoCreated: 'trash'`; agents and the terminal keep delete; one_create_database's Undo first decides
+  whether the database stays — a row of others or a row changed since keeps it and everything else as it is); ≥
+  `MCP_LIMITS.rowsAsk` rows per CALL (new + changed, every database; a rename counts as a title change) that start paid
+  AI work or send out are `alwaysAsk` (features/mcp/rows.ts `sideEffects` + `sideHold`); files values over MCP only reachable `onefile:` refs (`withFilesWritable` —
   agents keep files read-only). S checks every row and page before the first write, takes back a batch that fails
   mid-way, trashes a database whose block or rows failed, and keeps a pre-image per MCP write (server/src/mcp/
-  preimages.ts, `mcp_preimages`, sealed, 14 days; `GET …/mcp-calls`, `POST …/mcp-calls/:callId/restore`, Workspace →
+  preimages.ts, `mcp_preimages`, sealed, 14 days; an upsert's row body too; `GET …/mcp-calls`, `POST …/mcp-calls/:callId/restore`, Workspace →
   Automation → API § 07). Client text naming a tool that does not exist yet is a bug (T-b brings `one_attach_file`,
   `one_edit_blocks`, files, `one_comment`, templates).
 - MCP tidy-up tools (trash / restore ≤ 50 ids, move page / row, update database / property, delete property, view

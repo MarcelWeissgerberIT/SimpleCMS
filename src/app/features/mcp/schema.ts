@@ -8,6 +8,7 @@ import type { ID, PropertyDef, PropertyType } from '../../store/types'
 import { MCP_PROPERTY_TYPES } from './contract'
 import { databaseOrThrow, McpToolError, q, titleOf, TWO_WAY_SUFFIX, ws } from './values'
 import { optionsOf, str, type PlanLine } from './plan'
+import { systemOf, systemRefusal, TWO_WAY_SYSTEM } from './system'
 
 export interface PropSpec {
   def: PropertyDef
@@ -40,6 +41,9 @@ export function propertySpec(raw: unknown, ctx: { dbId: ID; dbTitle: string; tak
     def.relationDatabaseId = targetId
     lines.push({ k: 'fact', label: t('features.mcp.plan.relation'), value: targetTitle })
     if (rel.twoWay === true) {
+      // the reverse side would change the schema of One's own database (read-only over MCP, spec § 3.3)
+      const sys = self ? null : systemOf(targetId)
+      if (sys) throw new McpToolError(systemRefusal(sys, `${key}.relation`, TWO_WAY_SYSTEM))
       if (target?.db.locked) throw new McpToolError(`${key}: ${q(targetTitle)} is locked, so no reverse property can be added there. Create a one-way relation instead.`)
       const reverseName = str(rel.reverseName, `${key}.relation.reverseName`, { max: 100 }).trim() || (self ? t('database.relation.reverseName', { name }) : ctx.dbTitle)
       if (!self && target!.db.properties.some((p) => p.name.toLowerCase() === reverseName.toLowerCase()))

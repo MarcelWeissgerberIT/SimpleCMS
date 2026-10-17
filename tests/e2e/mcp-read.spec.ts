@@ -401,6 +401,45 @@ test('context marks limit the read: only the marked blocks, their files and thre
   expect(none.limited).toMatchObject({ blocks: 4 })
 })
 
+test('one_search honours context marks: no hit on excluded text, the snippet only from what may be read, marked limited', async ({ page }) => {
+  await openApp(page)
+  const id = await wsEval(page, (s) => {
+    const id = s.createPage({ title: 'Tessera board notes' })
+    s.setContent(
+      id,
+      {
+        type: 'doc',
+        content: [
+          { type: 'paragraph', attrs: { id: 'keep-0001-search' }, content: [{ type: 'text', text: 'Public agenda for the Tessera review.' }] },
+          { type: 'paragraph', attrs: { id: 'hide-0002-search' }, content: [{ type: 'text', text: 'Salary band for Mara Lind: zebrafish 98000 EUR.' }] },
+        ],
+      },
+      'e2e',
+    )
+    return id
+  })
+  await flush(page)
+  await connect(page)
+  // the whole page readable: the search finds the second paragraph (as before)
+  const open = json(await call('one_search', { query: 'zebrafish' }))
+  expect(open.results.map((r: AnyState) => r.id)).toContain(id)
+  // the person lets Claude read the first block only
+  await page.evaluate((id) => (window as unknown as { __oneMcp: { context: (id: string, ids: string[] | null) => Promise<void> } }).__oneMcp.context(id, ['keep-0001-search']), id)
+  expect(json(await call('one_get_page', { id })).limited).toMatchObject({ blocks: 1 })
+  const hidden = json(await call('one_search', { query: 'zebrafish' }))
+  expect(hidden.results.map((r: AnyState) => r.id)).not.toContain(id)
+  expect(JSON.stringify(hidden.results)).not.toMatch(/zebrafish|Salary|98000/)
+  const hit = json(await call('one_search', { query: 'Tessera review' })).results.find((r: AnyState) => r.id === id)
+  expect(hit).toBeTruthy()
+  expect(hit.limited).toBe(true)
+  expect(hit.snippet).toContain('Public agenda')
+  expect(hit.snippet).not.toMatch(/Salary|zebrafish|Mara Lind/)
+  // nothing marked: the title may still be found, never a word of the text
+  await page.evaluate((id) => (window as unknown as { __oneMcp: { context: (id: string, ids: string[] | null) => Promise<void> } }).__oneMcp.context(id, []), id)
+  const titled = json(await call('one_search', { query: 'Tessera board notes' })).results.find((r: AnyState) => r.id === id)
+  expect(titled?.snippet ?? '').not.toMatch(/agenda|Salary/)
+})
+
 test('one_list_pages, urlBase in lists, full views, inline / system / class on reads, tree.more in the overview', async ({ page }) => {
   await openApp(page)
   const ids = await wsEval(page, (s) => {

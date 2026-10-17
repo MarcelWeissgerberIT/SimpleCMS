@@ -15,6 +15,7 @@ import { Led } from '../../ui/controls'
 import { cloudApi, type ApiComments, type ApiScope, type ApiToken, type IncomingHook, type McpCallEntry, type McpRestore } from './api'
 import { errorCode, errorText } from './errors'
 import { HelpLink } from '../../help'
+import { canFocus, restoreFocus } from '../../ui/focus'
 import './api.css'
 
 export const API_DOCS_URL = 'https://github.com/MarcelWeissgerberIT/SimpleCMS/blob/main/docs/API.md'
@@ -528,6 +529,38 @@ function McpCalls({ wsId }: { wsId: string }) {
   const [error, setError] = useState<string | null>(null)
   const [confirm, setConfirm] = useState<CallConfirm>(null)
   const [kept, setKept] = useState<Record<string, McpRestore['kept']>>({})
+  const listRef = useRef<HTMLDivElement>(null)
+
+  /**
+   * Focus after a bar or a key goes away (CLAUDE.md: focus never ends on the page body): the call's Restore key, its
+   * "Restore anyway" key, the call's row, else the section — the first of `order` that is there once the list rendered.
+   */
+  const focusCall = useCallback((id: string, order: Array<'restore' | 'force' | 'row'>) => {
+    const tryFocus = () => {
+      const root = listRef.current
+      if (!root) return false
+      const row = Array.from(root.querySelectorAll<HTMLElement>('[data-call]')).find((el) => el.dataset.call === id) ?? null
+      for (const what of order) {
+        const el = what === 'row' ? row : (row?.querySelector<HTMLElement>(`[data-focus="${what}"]`) ?? null)
+        if (canFocus(el)) {
+          restoreFocus(el)
+          return true
+        }
+      }
+      const head = root.querySelector<HTMLElement>('[data-focus="section"]')
+      if (canFocus(head)) restoreFocus(head)
+      return true
+    }
+    // after React put the list in its new state (two frames: the bar's unmount, then the reloaded list)
+    requestAnimationFrame(() => requestAnimationFrame(() => void tryFocus()))
+  }, [])
+
+  /** The confirm bar closes without acting: focus back to the key that opened it. */
+  const cancel = (call: McpCallEntry) => {
+    const was = confirm
+    setConfirm(null)
+    focusCall(call.callId, was?.kind === 'force' ? ['force', 'restore', 'row'] : ['restore', 'force', 'row'])
+  }
 
   const load = useCallback(async () => {
     setLoadError(null)
@@ -553,12 +586,15 @@ function McpCalls({ wsId }: { wsId: string }) {
       setKept(({ [call.callId]: _, ...rest }) => (out.kept.length ? { ...rest, [call.callId]: out.kept } : rest))
       if (!out.kept.length) useUI.getState().toast({ message: t('shell.cloud.mcp.done'), kind: 'success' })
       await load()
+      // the bar and (once put back) the row's Restore key are gone: its "Restore anyway" key when fields were kept, else the row
+      focusCall(call.callId, out.kept.length ? ['force', 'row'] : ['row'])
     } catch (e) {
       // a page text moved since the call: ask again, this time saying what goes
       if (errorCode(e) === 'changed_since') setConfirm({ id: call.callId, kind: 'force', names: quote(call.titles) })
       else {
         setConfirm(null)
         setError(errorText(e, t))
+        focusCall(call.callId, ['restore', 'row'])
       }
     } finally {
       setBusy(null)
@@ -572,8 +608,10 @@ function McpCalls({ wsId }: { wsId: string }) {
   }
 
   return (
-    <>
-      <Head n="07" label={t('shell.cloud.mcp.title')} count={calls?.length} icon={<History size={12} />} />
+    <div ref={listRef} className="api-mcp">
+      <div tabIndex={-1} data-focus="section" className="api-mcp__head">
+        <Head n="07" label={t('shell.cloud.mcp.title')} count={calls?.length} icon={<History size={12} />} />
+      </div>
       <p className="api-lede">
         {t('shell.cloud.mcp.lede')}
         <HelpLink id="public-api" topic={t('shell.cloud.mcp.title')} />
@@ -604,7 +642,7 @@ function McpCalls({ wsId }: { wsId: string }) {
             ]
             const left = kept[call.callId]
             return (
-              <li key={call.callId} className="api-row" data-testid="mcp-call" data-restored={call.restoredAt ? '' : undefined}>
+              <li key={call.callId} className="api-row" data-testid="mcp-call" data-call={call.callId} tabIndex={-1} aria-label={name} data-restored={call.restoredAt ? '' : undefined}>
                 <span className="api-row__glyph" aria-hidden>
                   <History size={14} />
                 </span>
@@ -617,7 +655,7 @@ function McpCalls({ wsId }: { wsId: string }) {
                 </div>
                 <div className="api-row__ctl">
                   {!call.restoredAt && (
-                    <button type="button" className="btn btn--sm btn--ghost" onClick={() => setConfirm({ id: call.callId, kind: 'restore', names: '' })} disabled={busy !== null} aria-label={`${t('shell.cloud.mcp.restore')}: ${name}`}>
+                    <button type="button" className="btn btn--sm btn--ghost" data-focus="restore" onClick={() => setConfirm({ id: call.callId, kind: 'restore', names: '' })} disabled={busy !== null} aria-label={`${t('shell.cloud.mcp.restore')}: ${name}`}>
                       <Undo2 size={13} aria-hidden />
                       {t('shell.cloud.mcp.restore')}
                     </button>
@@ -626,13 +664,13 @@ function McpCalls({ wsId }: { wsId: string }) {
                 {left && !call.restoredAt && confirm?.id !== call.callId && (
                   <div className="api-kept" role="status">
                     <p className="api-kept__line">{t('shell.cloud.mcp.kept', { names: quote(left.map((k) => (k.fields?.length ? `${k.title} (${k.fields.join(', ')})` : k.title))) })}</p>
-                    <button type="button" className="btn btn--sm btn--ghost" disabled={busy !== null} onClick={() => setConfirm({ id: call.callId, kind: 'force', names: quote(left.map((k) => k.title)) })}>
+                    <button type="button" className="btn btn--sm btn--ghost" data-focus="force" disabled={busy !== null} onClick={() => setConfirm({ id: call.callId, kind: 'force', names: quote(left.map((k) => k.title)) })}>
                       {t('shell.cloud.mcp.force')}
                     </button>
                   </div>
                 )}
                 {confirm?.id === call.callId && confirm.kind === 'restore' && (
-                  <ConfirmBar question={t('shell.cloud.mcp.restoreQ')} action={t('shell.cloud.mcp.restore')} busy={busy !== null} onCancel={() => setConfirm(null)} onConfirm={() => void restore(call, false)} />
+                  <ConfirmBar question={t('shell.cloud.mcp.restoreQ')} action={t('shell.cloud.mcp.restore')} busy={busy !== null} onCancel={() => cancel(call)} onConfirm={() => void restore(call, false)} />
                 )}
                 {confirm?.id === call.callId && confirm.kind === 'force' && (
                   <ConfirmBar
@@ -640,7 +678,7 @@ function McpCalls({ wsId }: { wsId: string }) {
                     action={t('shell.cloud.mcp.force')}
                     danger
                     busy={busy !== null}
-                    onCancel={() => setConfirm(null)}
+                    onCancel={() => cancel(call)}
                     onConfirm={() => void restore(call, true)}
                   />
                 )}
@@ -649,6 +687,6 @@ function McpCalls({ wsId }: { wsId: string }) {
           })}
         </ul>
       )}
-    </>
+    </div>
   )
 }

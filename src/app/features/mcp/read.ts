@@ -8,6 +8,7 @@ import { useUI } from '../../store/ui'
 import { inTemplate } from '../../store/selectors'
 import type { Database, ID, Page, PropertyDef } from '../../store/types'
 import { parseHash } from '../../lib/router'
+import { isContextLimited, readableContent } from '../../editor'
 import { t } from '../../i18n'
 import { retrieve, workspaceDocs } from '../ai/workspace'
 import { MCP_FILTER_OPS, type McpAgentMode, type McpToolName } from './contract'
@@ -123,7 +124,15 @@ function search(args: Record<string, unknown>) {
   if (query.length > 300) throw new McpToolError('"query" is too long (at most 300 characters).')
   const limit = int(args.limit, 10, 1, 50, 'limit')
   const { pages } = ws()
-  const hits = retrieve(query, workspaceDocs(), 50)
+  // the person's context marks hold for MCP reads (spec § 2.1, Q10): a limited page is searched — and its snippet cut —
+  // only in the blocks it lets Claude read, so a query cannot pull excluded text out piece by piece
+  const limited = new Set<ID>()
+  const plain = (p: Page): string => {
+    if (!isContextLimited(p.id)) return p.plain ?? ''
+    limited.add(p.id)
+    return readableContent(p.id).plain
+  }
+  const hits = retrieve(query, workspaceDocs(null, { plain }), 50)
   return {
     query,
     urlBase: urlBase(),
@@ -132,6 +141,7 @@ function search(args: Record<string, unknown>) {
       const out: Record<string, unknown> = { id: h.id, kind: p ? kindOf(p) : 'page', title: h.title, path: pathOf(h.id) }
       if (p?.databaseId) out.databaseId = p.databaseId
       out.snippet = snippet(h.text, query)
+      if (limited.has(h.id)) out.limited = true
       if (p) out.updatedAt = iso(p.updatedAt)
       return out
     }),

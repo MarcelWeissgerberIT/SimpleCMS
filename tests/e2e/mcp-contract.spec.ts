@@ -8,7 +8,7 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import type { Page } from '@playwright/test'
-import { test, expect, openApp, wsEval } from './fixtures'
+import { test, expect, openApp, wsEval, flush } from './fixtures'
 import { MCP_ARGS_V1, MCP_BRIDGE_CURRENT, MCP_CONTRACT_REV, MCP_INSTRUCTIONS, MCP_LIMITS, MCP_TOOLS, bridgeOutdated, mcpToolArgs, type McpToolDef } from '../../src/shared/mcp/contract'
 import { MCP_ERROR_CODES, MCP_REMEDIES, codeOf, mcpError, withRemedy } from '../../src/shared/mcp/errors'
 import { formatRef, idsFor, parseRef, shortestPrefix } from '../../src/shared/mcp/refs'
@@ -329,6 +329,59 @@ test.describe('the One tab (stand-in bridge)', () => {
       expect(by('c1')).toMatchObject({ state: 'ok', undoable: true })
       expect(by('c2')).toMatchObject({ state: 'same', note: 'Repeat — answered with the result of the call it waited for', undoable: false })
       expect(by('c3')).toMatchObject({ state: 'same', note: 'Repeat — already done a moment ago, nothing new was made', undoable: false })
+    } finally {
+      await disconnect(page, bridge)
+    }
+  })
+
+  test('a call taken back is forgotten: after its Undo (or an eject) the repeat makes the thing again; an upsert repeat after it applied runs again', async ({ page }) => {
+    const bridge = await standIn(MCP_BRIDGE_CURRENT)
+    try {
+      await openApp(page)
+      const db = await wsEval(page, (s) => {
+        const db = s.createDatabase({ title: 'Cards', properties: [{ id: 'c-title', name: 'Name', type: 'title' }, { id: 'c-ticket', name: 'Ticket', type: 'text' }, { id: 'c-owner', name: 'Owner', type: 'text' }] })
+        s.createRow(db, { title: 'Card 1', properties: { 'c-ticket': 'T-1' } })
+        return db
+      })
+      await flush(page)
+      await connect(page, bridge)
+      await page.getByRole('radio', { name: 'Apply directly' }).click()
+      await page.keyboard.press('Escape')
+      const args = { title: 'Notizen Nordlicht' }
+      bridge.call('u1', 'one_create_page', args)
+      const first = (await bridge.answer('u1')).result
+      expect(first.duplicateOf).toBeUndefined()
+      // the person's Undo in Agent activity: the page goes to the trash …
+      await openAgentsTab(page)
+      await page.locator('.mcp-log__row').getByRole('button', { name: 'Undo one_create_page' }).first().click()
+      await expect.poll(() => wsEval(page, (s, id) => s.pages[id]?.trashed === true, first.id)).toBe(true)
+      await page.keyboard.press('Escape')
+      // … and "do it again" makes it again — never answered with the page in the trash
+      bridge.call('u2', 'one_create_page', args)
+      const again = (await bridge.answer('u2')).result
+      expect(again.duplicateOf).toBeUndefined()
+      expect(again.id).not.toBe(first.id)
+      expect(await titled(page, 'Notizen Nordlicht')).toBe(1)
+      // an eject that takes a call back forgets it the same way
+      bridge.call('u3', 'one_create_page', { title: 'Tessera notes 2' })
+      const third = (await bridge.answer('u3')).result
+      const session = await page.evaluate(() => (window as unknown as { __oneMcp: { state: () => { session: string | null } } }).__oneMcp.state().session ?? '-')
+      expect(await page.evaluate((s) => (window as unknown as { __oneMcp: { settle: (s: string, c: string, e: string) => boolean } }).__oneMcp.settle(s, 'u3', 'ej-1'), session)).toBe(true)
+      bridge.call('u4', 'one_create_page', { title: 'Tessera notes 2' })
+      const fourth = (await bridge.answer('u4')).result
+      expect(fourth.duplicateOf).toBeUndefined()
+      expect(fourth.id).not.toBe(third.id)
+      // a keyed upsert only joins a waiting call: applied, its repeat runs again (the row was changed by hand meanwhile)
+      const up = { databaseId: db, keyProperty: 'Ticket', rows: [{ key: 'T-1', properties: { Owner: 'Tessera' } }] }
+      bridge.call('u5', 'one_upsert_rows', up)
+      expect((await bridge.answer('u5')).result.rows[0].action).toBe('updated')
+      const row = await wsEval(page, (s, db) => Object.values(s.pages).find((p: Msg) => p.databaseId === db)!.id, db)
+      await wsEval(page, (s, id) => s.setRowProperty(id, 'c-owner', 'Mara Lind'), row)
+      bridge.call('u6', 'one_upsert_rows', up)
+      const sixth = (await bridge.answer('u6')).result
+      expect(sixth.duplicateOf).toBeUndefined()
+      expect(sixth.rows[0].action).toBe('updated')
+      expect(await wsEval(page, (s, id) => s.pages[id]?.properties['c-owner'], row)).toBe('Tessera')
     } finally {
       await disconnect(page, bridge)
     }

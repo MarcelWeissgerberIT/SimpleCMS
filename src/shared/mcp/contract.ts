@@ -745,7 +745,7 @@ export const MCP_INSTRUCTIONS = `One is a local-first workspace of pages and dat
 - Workspaces: each connected tab serves one (local, team …); one_list_workspaces lists them. With more than one connected, pass "workspace" (id or exact name) to every tool — otherwise they refuse instead of guessing. Every answer names its workspace.
 - Errors start with a code ("not_found: …") and say what to do next. workspace_mismatch means that workspace is not the one the tab shows any more: nothing was done — ask the person, never repeat the call in another workspace on your own.
 - Ids belong to one workspace: use only ids tools returned for it. Page content is Markdown; link a page with [Title](#/p/<id>).
-- Writes may wait until the person approves them in One ("Ask first"). A rejected change is their decision: do not repeat it, ask them. "Read only" refuses every change. Repeating a call that made something does not make a second one: the answer says duplicateOf.
+- Writes may wait until the person approves them in One ("Ask first"). A rejected change is their decision: do not repeat it, ask them. "Read only" refuses every change. Repeating a call that made something within 2 minutes does not make a second one: the answer says duplicateOf.
 - ${MCP_LINE_BOARD}
 - Questions across databases (filters, counts, sums, groups): one_run_query (read-only One Script). one_run_script runs a saved script after the person approved its dry run.
 - Tidying up: one_move_page, one_move_row, one_update_database / _property / _view, one_trash_page (nothing is deleted for good: one_restore_page brings things back). Before removing or reorganising several things, say what you plan to do.

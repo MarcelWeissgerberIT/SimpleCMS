@@ -15,13 +15,13 @@ import { coerceProperties, withFilesWritable } from '../ai/agent/props'
 import { ToolInputError, withToolScope } from '../ai/agent/tools'
 import { commitItems, pagePrivate, stageItems } from '../ai/agent/workItems'
 import { blockHash, idsFor, parseRef, stripRefLabels, type PMJson } from '../../../shared/mcp/refs'
-import { refIndex } from '../../../shared/mcp/pageRead'
+import { nestedTopLevel, refIndex } from '../../../shared/mcp/pageRead'
 import { mcpError } from '../../../shared/mcp/errors'
 import { MCP_LIMITS, MCP_VIEW_TYPES } from '../../../shared/mcp/tables'
 import { applyStaged, assertStageWritable, callStage, itemPlan, mcpMessage, outsideTemplates } from './stage'
 import { assertNotSystem } from './system'
 import { iconText, live, McpToolError, pageUrl, pathOf, propertyJson, q, titleOf, ws } from './values'
-import { atPath, chars, checkFileScope, cleanName, pageOrThrow, parseIcon, str, tasksOf, type PlanLine, type WritePlan } from './plan'
+import { atPath, chars, checkFileScope, cleanName, eachEntry, pageOrThrow, parseIcon, str, tasksOf, type PlanLine, type WritePlan } from './plan'
 import { propertySpec } from './schema'
 import { checkFiles, rowNo, splitTitle } from './rows'
 import { layoutName, viewChange } from './structure'
@@ -47,12 +47,23 @@ function blockIndex(page: Page, raw: unknown, path: string): number {
       throw new McpToolError(mcpError('stale_ref', path, `${q(String(raw))} changed since the read (it is ${refNow(page.content, i)} now)`, 'Read the page again (one_get_page { format: "blocks" }) and pass the block\'s ref from there.'))
     return i
   }
+  // a block inside another one (a column, a toggle, a list): the database goes after its top-level block — say which
+  const nested = (): void => {
+    const top = nestedTopLevel((page.content ?? { type: 'doc' }) as PMJson, ref)
+    if (top === null) return
+    const outer = refNow(page.content, top)
+    throw new McpToolError(mcpError('bad_argument', path, `${q(String(raw))} is a block inside another one (${outer}): a database goes between top-level blocks`, `Pass the ref of its top-level block, ${outer}, to place it after that whole block.`))
+  }
   if (ref.kind === 'path') {
-    if (ref.path.length !== 1 || ref.path[0]! >= blocks.length) throw new McpToolError(mcpError('stale_ref', path, `${q(String(raw))} is no top-level block of ${q(titleOf(page))} now`))
+    if (ref.path.length !== 1 || ref.path[0]! >= blocks.length) {
+      nested()
+      throw new McpToolError(mcpError('stale_ref', path, `${q(String(raw))} is no top-level block of ${q(titleOf(page))} now`))
+    }
     return unchanged(ref.path[0]!)
   }
   const ids = blocks.map((b) => (typeof b.attrs?.id === 'string' ? b.attrs.id : '')).filter(Boolean)
   const hit = idsFor(ref.prefix, ids)
+  if (!hit.length) nested()
   if (hit.length !== 1) throw new McpToolError(mcpError('stale_ref', path, hit.length ? `${q(String(raw))} fits ${hit.length} blocks` : `no top-level block of ${q(titleOf(page))} has the id ${q(ref.prefix)} now`))
   return unchanged(blocks.findIndex((b) => b.attrs?.id === hit[0]))
 }
@@ -69,6 +80,44 @@ function blockRef(pageId: ID, blockId: string | null): string {
   const i = (doc?.content ?? []).findIndex((b) => b.attrs?.id === blockId)
   return (i >= 0 ? refNow(doc, i) : null) ?? `#${blockId}`
 }
+
+/** A row as the call left it (title, text, icon, values): the Undo compares it with the row now. */
+interface RowMark {
+  title: string
+  rev: number | undefined
+  key: string
+  icon: string
+  props: string
+  place: string
+}
+
+function rowMark(id: ID): RowMark | undefined {
+  const p = ws().pages[id]
+  return p ? { title: p.title, rev: p.contentRev, key: contentKey(p.content), icon: JSON.stringify(p.icon ?? null), props: JSON.stringify(p.properties ?? {}), place: `${p.parentId}|${p.databaseId}` } : undefined
+}
+
+/** Has someone changed this row since the call made it (title, text, icon, a value, its place, a live page put under it)? */
+function rowChangedSince(id: ID, mark: RowMark | undefined): boolean {
+  const { pages } = ws()
+  const p = pages[id]
+  // gone or in the trash: nothing of the person's to keep there
+  if (!p || p.trashed || !mark) return false
+  return (
+    p.title !== mark.title ||
+    (p.contentRev !== mark.rev && contentKey(p.content) !== mark.key) ||
+    JSON.stringify(p.icon ?? null) !== mark.icon ||
+    JSON.stringify(p.properties ?? {}) !== mark.props ||
+    `${p.parentId}|${p.databaseId}` !== mark.place ||
+    Object.values(pages).some((c) => c.parentId === id && !c.trashed)
+  )
+}
+
+/** Does any live row of the database hold a value in this property? */
+function holdsValues(dbId: ID, propId: ID): boolean {
+  return Object.values(ws().pages).some((p) => p.databaseId === dbId && !p.trashed && !emptyValue(p.properties?.[propId]))
+}
+
+const emptyValue = (v: unknown) => v === undefined || v === null || v === '' || (Array.isArray(v) && !v.length)
 
 /** The properties a database gets when the call gives none (the store's default schema, its words in the UI language). */
 function defaultProps(): PropertyDef[] {
@@ -187,7 +236,8 @@ export function planCreateDatabase(args: Record<string, unknown>): WritePlan {
     if (!Array.isArray(rowsRaw)) throw new McpToolError(mcpError('bad_argument', 'rows', 'a list of rows {title, properties?, markdown?} is expected'))
     if (rowsRaw.length > MCP_LIMITS.rows) throw new McpToolError(mcpError('too_large', 'rows', `${rowsRaw.length} rows (at most ${MCP_LIMITS.rows} per call)`, 'Add the rest with one_create_row { rows } afterwards.'))
     let chars_ = 0
-    rowsRaw.forEach((r, i) => {
+    // every row checked (a later one too when an earlier one fails): one refusal names each row that does not fit
+    eachEntry(rowsRaw as unknown[], (i) => `rows[${i}]`, (r) => (r && typeof r === 'object' && typeof (r as { title?: unknown }).title === 'string' ? (r as { title: string }).title : null), (r, i) => {
       const path = `rows[${i}]`
       if (!r || typeof r !== 'object' || Array.isArray(r)) throw new McpToolError(mcpError('bad_argument', path, 'an object {title, properties?, markdown?} is expected'))
       const o = r as Record<string, unknown>
@@ -322,6 +372,8 @@ export function planCreateDatabase(args: Record<string, unknown>): WritePlan {
       const d = ws().databases[id]
       const madeRows = rows.map((c) => rowIds[c.pageId] ?? c.pageId)
       const note = notes.length ? notes.join(' ') : undefined
+      // each row as the call left it: the Undo takes the database back only while nobody changed any of them
+      const asMade = new Map(madeRows.map((rid) => [rid, rowMark(rid)] as const))
       return {
         result: {
           id,
@@ -337,17 +389,29 @@ export function planCreateDatabase(args: Record<string, unknown>): WritePlan {
           ...(note ? { note } : {}),
         },
         undo: () => {
-          // the rows (to the trash while untouched), the block in the page, the reverse properties, then the database
-          const kept = [rowsUndo(), ...undos.reverse().map((u) => u())]
-          for (const r of reverses) if (ws().databases[r.dbId]?.properties.some((p) => p.id === r.def.id)) ws().deleteProperty(r.dbId, r.def.id)
           const { pages } = ws()
           const now = pages[id]
           // in the trash already (the person put it there): it stays there, never deleted for good
-          if (!now || now.trashed) return kept.every(Boolean)
-          // rows someone added since keep the database where it is
-          const others = Object.values(pages).some((p) => p.parentId === id && !p.trashed && !madeRows.includes(p.id))
-          if (others) return false
-          ws().trashPage(id)
+          const gone = !now || now.trashed
+          // first: does the database stay? A row someone added, or a row of the call someone changed since, keeps it —
+          // and then the call leaves everything as it is (rows, the block in the page, the reverse properties)
+          if (!gone) {
+            const others = Object.values(pages).some((p) => p.parentId === id && !p.trashed && !asMade.has(p.id))
+            const changed = madeRows.some((rid) => rowChangedSince(rid, asMade.get(rid)))
+            if (others || changed) return false
+          }
+          // it goes: the rows (to the trash while untouched), the block in the page, the reverse properties, the database
+          const kept = [rowsUndo(), ...[...undos].reverse().map((u) => u())]
+          for (const r of reverses) {
+            if (!ws().databases[r.dbId]?.properties.some((p) => p.id === r.def.id)) continue
+            // a reverse column someone filled in since stays (its links are the person's)
+            if (holdsValues(r.dbId, r.def.id)) {
+              kept.push(false)
+              continue
+            }
+            ws().deleteProperty(r.dbId, r.def.id)
+          }
+          if (!gone) ws().trashPage(id)
           return kept.every(Boolean)
         },
       }

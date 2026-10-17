@@ -10,7 +10,7 @@
  * text is never sent twice). `attrs` is an allow-list per type, `data` what the type holds beyond its text.
  */
 import { MCP_LIMITS } from './tables.ts'
-import { blockHash, formatRef, prefixesFor, refLabel, type PMJson } from './refs.ts'
+import { blockHash, formatRef, prefixesFor, refLabel, type McpRef, type PMJson } from './refs.ts'
 import { sha256Hex } from './sha256.ts'
 import { canonicalJson } from './duplicates.ts'
 
@@ -93,6 +93,32 @@ export function refIndex(doc: PMJson): RefIndex {
       return prefix ? formatRef({ kind: 'id', prefix, hash }) : formatRef({ kind: 'path', path, hash })
     },
   }
+}
+
+/**
+ * The top-level block that holds the NESTED block a ref names: a path ref of more than one step, or an id prefix only a
+ * block inside another one has (exactly one). null: the ref names no nested block of the page (gone, ambiguous, or a
+ * top-level one). Tools that place something between top-level blocks (`inline.afterBlock`) answer such a ref with
+ * the top-level block's ref instead of `stale_ref` — reading again would hand out the same nested ref.
+ */
+export function nestedTopLevel(doc: PMJson, ref: McpRef): number | null {
+  const top = doc.content ?? []
+  if (ref.kind === 'path') return ref.path.length > 1 && ref.path[0]! < top.length ? ref.path[0]! : null
+  let at: number | null = null
+  let hits = 0
+  const walk = (n: PMJson, i: number) => {
+    for (const c of n.content ?? []) {
+      if (INLINE.has(c.type ?? '')) continue
+      const id = c.attrs?.id
+      if (typeof id === 'string' && id.startsWith(ref.prefix)) {
+        hits += 1
+        at = i
+      }
+      walk(c, i)
+    }
+  }
+  top.forEach((n, i) => walk(n, i))
+  return hits === 1 ? at : null
 }
 
 /* ------------------------------------------------------------------ */

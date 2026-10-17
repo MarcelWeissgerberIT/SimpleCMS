@@ -75,18 +75,35 @@ test('Recent MCP writes: rows field by field (a field changed since is kept, the
     await expect(pagesCall).toContainText('Pages created')
     await expect(pagesCall).toContainText('2 new')
 
-    // the rows: Card 1 goes back, Card 2 (changed since) is kept and named
-    await rowsCall.getByRole('button', { name: /^Restore: / }).click()
+    // keyboard: the confirm bar's Cancel gives focus back to the row's Restore key — never to the page body
+    const restoreKey = rowsCall.getByRole('button', { name: /^Restore: / })
+    await restoreKey.focus()
+    await page.keyboard.press('Enter')
     await expect(rowsCall).toContainText('Put this call back?')
-    await rowsCall.getByRole('group').getByRole('button', { name: 'Restore', exact: true }).click()
+    await expect(rowsCall.getByRole('group').getByRole('button', { name: 'Cancel' })).toBeFocused()
+    await page.keyboard.press('Enter')
+    await expect(rowsCall.getByRole('group')).toHaveCount(0)
+    await expect(restoreKey).toBeFocused()
+    // the rows (by keyboard): Card 1 goes back, Card 2 (changed since) is kept and named
+    await page.keyboard.press('Enter')
+    await page.keyboard.press('Tab')
+    await expect(rowsCall.getByRole('group').getByRole('button', { name: 'Restore', exact: true })).toBeFocused()
+    await page.keyboard.press('Enter')
     await expect(rowsCall.getByRole('status')).toContainText('Left as they are — changed since this call: “Card 2 (Status)”')
     await expect.poll(() => wsEval(page, (s, x) => x.rows.slice(0, 2).map((id: string) => s.pages[id]?.properties[x.status]), ids)).toEqual([ids.todo, ids.doing])
+    // the bar went: focus on the row's "Restore anyway" key (fields were kept)
+    await expect(rowsCall.getByRole('button', { name: 'Restore anyway' })).toBeFocused()
     // "Restore anyway": the later change goes too
-    await rowsCall.getByRole('button', { name: 'Restore anyway' }).click()
+    await page.keyboard.press('Enter')
     await expect(rowsCall).toContainText('What was changed since this call in “Card 2” goes.')
-    await rowsCall.getByRole('group').getByRole('button', { name: 'Restore anyway' }).click()
+    await page.keyboard.press('Tab')
+    await expect(rowsCall.getByRole('group').getByRole('button', { name: 'Restore anyway' })).toBeFocused()
+    await page.keyboard.press('Enter')
     await expect(rowsCall).toContainText('Put back')
     await expect(rowsCall.getByRole('button', { name: /^Restore/ })).toHaveCount(0)
+    // its keys are gone: focus on the row itself, never on the page body
+    await expect(rowsCall).toBeFocused()
+    expect(await page.evaluate(() => document.activeElement === document.body)).toBe(false)
     await expect.poll(() => wsEval(page, (s, x) => s.pages[x.rows[1]]?.properties[x.status], ids)).toBe(ids.todo)
 
     // the pages: both to the trash

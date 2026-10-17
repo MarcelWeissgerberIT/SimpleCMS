@@ -542,7 +542,11 @@
   width: 380px;
   max-width: calc(100vw - 32px);
 }
+/* capped at the viewport: head, workspace, summary, time and keys stay in view; the lines scroll (.mcp-card__scroll) */
 .mcp-card {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 56px);
   overflow: hidden;
   border: 1px solid var(--rule-strong);
   border-top: 2px solid var(--signal);
@@ -621,11 +625,33 @@
   line-height: 1.35;
   overflow-wrap: anywhere;
 }
+.mcp-card > :not(.mcp-card__scroll) {
+  flex: none;
+}
+.mcp-card__scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 6px 12px 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  border-top: 1px solid var(--rule);
+}
+.mcp-card__scroll[data-scrolls] {
+  border-bottom: 1px solid var(--rule-strong);
+}
+.mcp-card__scroll:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 4px; /* clear of the number column; inside the card's 12px gutter */
+}
 .mcp-card__lines {
   display: grid;
   gap: 0;
-  margin: 6px 12px 0;
-  border-top: 1px solid var(--rule);
+  margin: 0;
+}
+.mcp-card__more {
+  margin: 0;
+  padding: 4px 12px 0;
+  color: var(--ink-3);
 }
 .mcp-line {
   display: grid;
@@ -651,6 +677,9 @@
   font-size: var(--text-sm);
   line-height: 1.45;
   overflow-wrap: anywhere;
+}
+.mcp-line[data-num] {
+  grid-template-columns: auto minmax(0, 1fr);
 }
 .mcp-line--md {
   grid-template-columns: minmax(0, 1fr);
@@ -802,6 +831,9 @@
     bottom: calc(16px + env(safe-area-inset-bottom));
     width: auto;
     max-width: none;
+  }
+  .mcp-card {
+    max-height: calc(100dvh - 32px - env(safe-area-inset-bottom) - env(safe-area-inset-top));
   }
 }
 

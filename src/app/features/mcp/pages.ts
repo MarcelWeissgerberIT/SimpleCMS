@@ -20,6 +20,7 @@ import { assertNotSystem } from './system'
 import { iconText, live, McpToolError, pageUrl, pathOf, q, titleOf, ws } from './values'
 import { atPath, chars, checkFileScope, pageOrThrow, parseIcon, preview, str, tasksOf, type PlanLine, type WritePlan } from './plan'
 import { withWriter } from '../../store/writer'
+import { rowNo } from './rows'
 import { stripRefLabels } from '../../../shared/mcp/refs'
 
 type Parent = { kind: 'none' } | { kind: 'page'; page: Page } | { kind: 'batch'; index: number }
@@ -83,6 +84,23 @@ function placeOf(args: Record<string, unknown>, parentId: ID | null): { storeInd
       mcpError('not_found', key, `${q(sibId)} is no page next to it under ${parentId ? q(titleOf(pages[parentId])) : 'the top level'}`, `Siblings: ${sibs.slice(0, 12).map((p) => `${q(titleOf(p))} (${p.id})`).join(', ') || 'none'}.`),
     )
   return { storeIndex: storeAt(key === 'before' ? i : i + 1), label: t(`features.mcp.plan.${key}`, { title: titleOf(sibs[i]) }) }
+}
+
+/**
+ * A batch's summary sentence (the one the person reads before Approve): where the pages go, from their own parents —
+ * one parent: its title; several: how many ("under 2 pages", or "in 3 places" when some go to the top level); the top
+ * level only when none has a parent. Pages under an earlier page of the list go where that one goes.
+ */
+function batchSummary(items: Item[]): string {
+  const roots = new Set(items.map((it) => (it.parent.kind === 'page' ? it.parent.page.id : it.parent.kind === 'none' ? '' : null)).filter((x): x is string => x !== null))
+  const n = chars(items.length)
+  const one = items.length === 1
+  if (roots.size === 1) {
+    const [only] = [...roots]
+    const where = only ? titleOf(ws().pages[only]) : t('features.mcp.plan.topLevel')
+    return t(one ? 'features.mcp.sum.createPages.one' : 'features.mcp.sum.createPages.other', { n, where })
+  }
+  return roots.has('') ? t('features.mcp.sum.createPagesPlaces', { n, places: chars(roots.size) }) : t('features.mcp.sum.createPagesUnder', { n, parents: chars(roots.size) })
 }
 
 export function planCreatePage(args: Record<string, unknown>): WritePlan {
@@ -181,7 +199,8 @@ export function planCreatePage(args: Record<string, unknown>): WritePlan {
   if (batch) {
     items.forEach((it, i) => {
       const own = it.parent.kind === 'batch' || (it.parent.kind === 'page' && it.parent.page.id !== callParent?.id)
-      lines.push({ k: 'fact', label: `$${i}`, value: `${it.icon ? `${iconText(it.icon)} ` : ''}${it.title}${own ? ` · ${t('features.mcp.plan.under', { title: titleIn(i) })}` : ''}` })
+      // the number counts from 01 as people count (Claude's "$<index>" stays in its arguments); the parent by title
+      lines.push({ k: 'fact', label: rowNo(i), value: `${it.icon ? `${iconText(it.icon)} ` : ''}${it.title}${own ? ` · ${t('features.mcp.plan.under', { title: titleIn(i) })}` : ''}` })
     })
     const first = items.find((it) => it.markdown.trim())
     if (first) lines.push({ k: 'md', label: t('features.mcp.plan.contentOf', { title: first.title, n: chars(first.markdown.trim().length) }), value: preview(first.markdown) })
@@ -203,7 +222,7 @@ export function planCreatePage(args: Record<string, unknown>): WritePlan {
   return {
     tool: 'one_create_page',
     verb: t(batch ? 'features.mcp.verb.createPages' : 'features.mcp.verb.createPage'),
-    summary: batch ? t('features.mcp.sum.createPages', { n: chars(items.length), where: callParent ? titleOf(callParent) : t('features.mcp.plan.topLevel') }) : t('features.mcp.sum.createPage', { title: items[0]!.title, where: items[0]!.parent.kind === 'page' ? titleIn(0) : t('features.mcp.plan.topLevel') }),
+    summary: batch ? batchSummary(items) : t('features.mcp.sum.createPage', { title: items[0]!.title, where: items[0]!.parent.kind === 'page' ? titleIn(0) : t('features.mcp.plan.topLevel') }),
     target: batch ? (callParent ? titleOf(callParent) : t('features.mcp.plan.topLevel')) : items[0]!.title,
     lines,
     ...(tasks.holds.length ? { alwaysAsk: true } : {}),

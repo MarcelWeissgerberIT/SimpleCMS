@@ -34,6 +34,13 @@ function enums(schema: unknown, out = new Set<string>()): Set<string> {
 
 const shared = MCP_SHARED_TOOLS.filter((t) => !MCP_LOCAL_ONLY.includes(t.name))
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function call<T = any>(client: McpClient, name: string, args: Record<string, unknown> = {}): Promise<T> {
+  const res = (await client.callTool({ name, arguments: args })) as ToolResult
+  assert.ok(!res.isError, `${name} failed: ${res.content[0]?.text}`)
+  return JSON.parse(res.content[0]!.text) as T
+}
+
 describe('MCP parity: the team server serves the shared contract', () => {
   let server: TestServer
   let writer: McpClient, reader: McpClient
@@ -75,6 +82,41 @@ describe('MCP parity: the team server serves the shared contract', () => {
       assert.equal(got.annotations?.readOnlyHint, !def.write, `${def.name}: readOnlyHint`)
       for (const arg of MCP_LOCAL_ONLY_ARGS[def.name] ?? []) assert.ok(arg in (schema.properties ?? {}), `${def.name} declares the local-only ${arg}`)
     }
+  })
+
+  test('strict arguments on both ways in: tools/list says additionalProperties false as the contract does; an undeclared argument is refused, never dropped', async () => {
+    const tools = (await writer.listTools()).tools
+    for (const def of shared) {
+      const got = tools.find((t) => t.name === def.name)!.inputSchema as { additionalProperties?: unknown }
+      assert.equal(got.additionalProperties, def.inputSchema.additionalProperties ?? false, `${def.name}: additionalProperties`)
+    }
+    const before = (await call(reader, 'one_list_pages', { depth: 1 })).items.length
+    // a case typo (parentID) would make the page at the top level; a T-b argument (blocks, cover) would be dropped
+    for (const args of [{ title: 'Unterseite', parentID: 'x' }, { title: 'Strict', blocks: [{ type: 'toc' }], cover: 'assets/covers/dunes.webp' }]) {
+      const res = (await writer.callTool({ name: 'one_create_page', arguments: args })) as ToolResult
+      assert.equal(res.isError, true, res.content[0]?.text)
+      const text = res.content[0]!.text
+      assert.equal(codeOf(text), 'bad_argument', text)
+      assert.match(text, /^bad_argument: (parentID|blocks|cover): one_create_page takes no argument "(parentID|blocks|cover)" \(it takes: .*title.*\)\. Nothing was changed\. /)
+    }
+    assert.equal((await call(reader, 'one_list_pages', { depth: 1 })).items.length, before, 'nothing was made')
+    // a read tool and one without arguments too
+    const read = (await reader.callTool({ name: 'one_search', arguments: { query: 'Nordlicht', limt: 3 } })) as ToolResult
+    assert.match(read.content[0]!.text, /^bad_argument: limt: one_search takes no argument "limt"/)
+    const none = (await reader.callTool({ name: 'one_list_workspaces', arguments: { verbose: true } })) as ToolResult
+    assert.equal(codeOf(none.content[0]!.text), 'bad_argument')
+  })
+
+  test('an argument that does not fit its schema is answered in the contract\'s shape (code, path, next step), as the tab answers', async () => {
+    const res = (await reader.callTool({ name: 'one_list_pages', arguments: { depth: 9 } })) as ToolResult
+    assert.equal(res.isError, true)
+    const text = res.content[0]!.text
+    assert.equal(codeOf(text), 'bad_argument', text)
+    assert.match(text, /^bad_argument: depth: /)
+    assert.ok(text.includes('Nothing was changed.') && text.endsWith(MCP_REMEDIES.bad_argument), text)
+    assert.doesNotMatch(text, /MCP error|-32602|Input validation error/)
+    const nested = (await writer.callTool({ name: 'one_create_row', arguments: { databaseId: 'x', rows: [{ title: 5 }] } })) as ToolResult
+    assert.match(nested.content[0]!.text, /^bad_argument: rows\[0\]\.title: /)
   })
 
   test('descriptions: the shared text plus at most one side-note line; never the task-block form (phase 4)', async () => {

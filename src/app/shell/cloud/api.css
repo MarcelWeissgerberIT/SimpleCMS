@@ -284,3 +284,16 @@
     width: 100%;
   }
 }
+
+/* § 07 Recent MCP writes: focus lands on a call's row (or the section) when its bar or key goes away */
+.api-mcp__head:focus {
+  outline: none;
+}
+.api-mcp__head:focus-visible,
+.api-row[data-call]:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 2px;
+}
+.api-row[data-call]:focus:not(:focus-visible) {
+  outline: none;
+}

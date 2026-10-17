@@ -8,12 +8,12 @@ import * as Y from 'yjs'
 import type { Services } from '../context.ts'
 import { ApiError, notFound } from '../errors.ts'
 import { appendBlocks, fragmentText, holdsWorkItem, markdownToNodes } from '../api/content.ts'
-import { type PropertyDef, type Roots, TWO_WAY_SUFFIX, databaseMap, liveDatabase, livePage, newPageMap, nextOrder, pageMap, propertiesMap, readOrdered, roots, rowsOf } from '../api/meta.ts'
+import { type PropertyDef, type Roots, TWO_WAY_SUFFIX, databaseMap, liveDatabase, livePage, newPageMap, nextOrder, pageMap, pairedRelation, propertiesMap, readOrdered, roots, rowsOf } from '../api/meta.ts'
 import { contentDoc, findProperty, metaDoc, type WorkspaceModel, type WriteOpts } from '../api/model.ts'
 import { checkKey, handOnlyMessage, isHandOnly } from '../api/keys.ts'
 import { schemaOut, type ValueContext } from '../api/values.ts'
 import { newId } from '../tokens.ts'
-import { assertNotSystem } from './system.ts'
+import { assertNotSystem, PARTNER_SYSTEM, TWO_WAY_SYSTEM } from './system.ts'
 import { MCP_LIMITS, MCP_PLAIN_MARKS, MCP_PLAIN_NODES, MCP_PROPERTY_TYPES } from '../../../src/shared/mcp/tables.ts'
 
 /** Property types an agent may add (the shared table: formula, rollup and button need settings the tools don't take). */
@@ -114,6 +114,16 @@ function options(type: string, input: OptionInput[] | undefined): Option[] | und
 }
 
 /** A new property definition (ids fresh); relation targets checked in `r`. */
+/**
+ * A relation whose two-way partner lives in One's own database: a value set over MCP would write the link into that
+ * database's rows too (model.ts syncPartners) — refused as `system_database`, before anything is written.
+ */
+export function assertNoSystemPartner(r: Roots, dbId: string, prop: PropertyDef, path: string): void {
+  if (prop.type !== 'relation') return
+  const pair = pairedRelation(r, dbId, prop)
+  if (pair && pair.dbId !== dbId) assertNotSystem(r, pair.dbId, path, PARTNER_SYSTEM)
+}
+
 function definition(r: Roots, input: PropertyInput, selfId: string | null): PropertyDef {
   const name = input.name.trim()
   if (!name) throw unprocessable('invalid_property', 'A property needs a name')
@@ -125,6 +135,8 @@ function definition(r: Roots, input: PropertyInput, selfId: string | null): Prop
     const target = input.relation?.databaseId
     if (!target) throw unprocessable('invalid_property', `${name}: a relation needs relation.databaseId`)
     if (target !== selfId && !liveDatabase(r, target)) throw notFound('database_not_found', `${name}: no database with id "${target}" in this workspace`)
+    // the reverse side of a two-way relation would change One's own database (read-only over MCP, system.ts)
+    if (input.relation?.twoWay && target !== selfId) assertNotSystem(r, target, `${name}.relation`, TWO_WAY_SYSTEM)
     def.relationDatabaseId = target
   } else if (input.relation) throw unprocessable('invalid_property', `${name}: only relation properties take relation`)
   return def
@@ -191,7 +203,13 @@ export class McpWrites {
     wsId: string,
     input: { id: string; title?: string; icon?: string | null; markdown?: string; mode: 'append' | 'replace' },
     actor: string,
-    opts: { mcp?: boolean; preimage?: (doc: Y.Doc) => void } = {},
+    opts: {
+      mcp?: boolean
+      /** the content before the write (inside its transaction) — a replace's, or with `preimageAppend` an append's too */
+      preimage?: (doc: Y.Doc) => void
+      /** an append keeps a pre-image too (one_upsert_rows writes a row's body this way — preimages.ts) */
+      preimageAppend?: boolean
+    } = {},
   ) {
     const icon = iconIn(input.icon)
     const content = input.markdown !== undefined && (input.mode === 'replace' || input.markdown.trim())
@@ -235,6 +253,8 @@ export class McpWrites {
             }
             if (frag.length) frag.delete(0, frag.length)
           }
+          // an append's pre-image (asked for): the content before, so a restore can take the appended blocks back
+          if (input.mode === 'append' && opts.preimageAppend) opts.preimage?.(doc)
           const start = frag.length
           appendBlocks(doc, nodes)
           if (input.mode === 'append') {
@@ -316,6 +336,8 @@ export class McpWrites {
         if (opts.agent && isHandOnly(prop)) throw unprocessable('invalid_value', handOnlyMessage(prop))
         // a files value over MCP: only this workspace's files, never a web address (it would load in every viewer)
         if (opts.mcp && prop.type === 'files') checkFilesValue(prop.name, raw, ctx.files)
+        // a two-way relation writes its partner rows too (model.ts syncPartners): never into One's own databases
+        if (opts.mcp) assertNoSystemPartner(r, db.page.id, prop, `properties.${prop.name}`)
         properties[key] = friendlyIn(r, prop, raw, ctx)
         if (prop.type === 'select' || prop.type === 'multi_select') {
           const fresh = optionNames(prop, raw).filter((n) => !(prop.options ?? []).some((o) => o.id === n || o.name.trim().toLowerCase() === n.toLowerCase()))

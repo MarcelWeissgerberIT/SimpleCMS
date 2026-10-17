@@ -17,8 +17,8 @@ import { mcpError } from '../../../shared/mcp/errors'
 import { MCP_LIMITS } from '../../../shared/mcp/tables'
 import { applyStaged, assertStageWritable, callStage, itemPlan, mcpMessage, outsideTemplates, stageWith } from './stage'
 import { assertNotSystem } from './system'
-import { databaseOrThrow, kindOf, McpToolError, pageUrl, q, rowProperties, titleOf, ws } from './values'
-import { atPath, chars, checkFileScope, pageOrThrow, preview, str, tasksOf, type PlanLine, type WritePlan } from './plan'
+import { databaseOrThrow, kindOf, live, McpToolError, pageUrl, q, rowProperties, titleOf, ws } from './values'
+import { atPath, chars, checkFileScope, eachEntry, pageOrThrow, preview, str, tasksOf, type PlanLine, type WritePlan } from './plan'
 import { withFilesWritable } from '../ai/agent/props'
 import { stripRefLabels } from '../../../shared/mcp/refs'
 
@@ -78,8 +78,8 @@ export function checkFiles(db: Pick<Database, 'properties'>, raw: Record<string,
 
 export interface SideEffects {
   lines: PlanLine[]
-  /** a batch that starts paid AI work or sends something out of One: always asked from MCP_LIMITS.rowsAsk rows */
-  alwaysAsk: boolean
+  /** rows of this part that start paid AI work or send something out of One (0: none) — summed over the call */
+  heavy: number
 }
 
 /** A batch card's row number ("01"): the label of a row line, its title starts the value. */
@@ -87,10 +87,11 @@ export const rowNo = (i: number): string => String(i + 1).padStart(2, '0')
 
 /**
  * The autofill properties that fill by themselves, the automations and the row-triggered agents a batch of `rows`
- * new (`created`) or changed rows (`changed`: the property ids it writes) of a database sets off.
+ * new (`created`) or changed rows (`changed`: the property ids it writes — a rename names the title property) of a
+ * database sets off. Whether the call is always asked is decided over the whole call (sideHold).
  */
 export function sideEffects(db: Database, rows: number, change: { created: boolean; props: ReadonlySet<ID> }): SideEffects {
-  if (!rows) return { lines: [], alwaysAsk: false }
+  if (!rows) return { lines: [], heavy: 0 }
   const touches = (propId: ID | null | undefined) => !propId || change.created || change.props.has(propId)
   const parts: string[] = []
   let paid = false
@@ -117,10 +118,22 @@ export function sideEffects(db: Database, rows: number, change: { created: boole
     parts.push(t('features.mcp.plan.startsAgent', { name: agent.name || t('common.untitled') }))
   }
   const lines: PlanLine[] = parts.length ? [{ k: 'fact', label: t('features.mcp.plan.starts'), value: parts.join(' · ') }] : []
-  const alwaysAsk = rows >= MCP_LIMITS.rowsAsk && (paid || out)
-  if (alwaysAsk) lines.push({ k: 'note', value: t('features.mcp.plan.startsHold', { n: chars(rows) }) })
-  return { lines, alwaysAsk }
+  return { lines, heavy: paid || out ? rows : 0 }
 }
+
+/**
+ * A call's side effects as a whole (spec § 2.3, C1.25): the rows that start paid AI work or send something out of One,
+ * added up over everything the call does — new and changed rows, every database it touches. From MCP_LIMITS.rowsAsk
+ * such rows the call is always asked, also in "Apply directly" (with a card line saying why).
+ */
+export function sideHold(parts: readonly SideEffects[]): { alwaysAsk: boolean; lines: PlanLine[] } {
+  const n = parts.reduce((sum, p) => sum + p.heavy, 0)
+  if (n < MCP_LIMITS.rowsAsk) return { alwaysAsk: false, lines: [] }
+  return { alwaysAsk: true, lines: [{ k: 'note', value: t('features.mcp.plan.startsHold', { n: chars(n) }) }] }
+}
+
+/** The title property's id (a rename is a change of it for automations and agents watching it). */
+export const titlePropId = (db: Database): ID | null => db.properties.find((p) => p.type === 'title')?.id ?? null
 
 /* ------------------------------------------------------------------ */
 /* Batches                                                              */
@@ -173,7 +186,8 @@ export function planCreateRow(args: Record<string, unknown>): WritePlan {
   const stage = callStage()
   const made: Array<{ title: string; change: string }> = []
   const texts: string[] = []
-  items.forEach((item, i) => {
+  // every row checked (a later one too when an earlier one fails): one refusal names each row that does not fit
+  eachEntry(items, (i) => `rows[${i}]`, (item) => (typeof item.title === 'string' ? item.title : null), (item, i) => {
     const split = splitTitle(db, item.properties, `${item.path}properties`)
     const title = (str(item.title, `${item.path}title`, { max: 300 }) || split.title || '').replace(/\s+/g, ' ').trim()
     if (!title) throw new McpToolError(mcpError('bad_argument', `${item.path}title`, 'a row needs a title'))
@@ -205,7 +219,8 @@ export function planCreateRow(args: Record<string, unknown>): WritePlan {
     if (fresh.length) lines.push({ k: 'fact', label: t('features.mcp.plan.newOptions'), value: fresh.join(', ') })
   }
   const side = sideEffects(db, rows.length, { created: true, props: new Set() })
-  lines.push(...side.lines)
+  const hold = sideHold([side])
+  lines.push(...side.lines, ...hold.lines)
   const items_ = itemPlan(stage.changes)
   lines.push(...items_.lines)
   const first = rows[0]?.props?.[0]
@@ -213,11 +228,11 @@ export function planCreateRow(args: Record<string, unknown>): WritePlan {
     tool: 'one_create_row',
     verb: t(batch ? 'features.mcp.verb.createRows' : 'features.mcp.verb.createRow'),
     summary: batch
-      ? t('features.mcp.sum.createRows', { n: chars(rows.length), db: dbName })
+      ? t(rows.length === 1 ? 'features.mcp.sum.createRows.one' : 'features.mcp.sum.createRows.other', { n: chars(rows.length), db: dbName })
       : `${t('features.mcp.sum.createRow', { title: made[0].title, db: dbName })}${first ? ` · ${first.name}: ${first.after}` : ''}`,
     target: dbName,
     lines,
-    ...(items_.holds.length || side.alwaysAsk ? { alwaysAsk: true } : {}),
+    ...(items_.holds.length || hold.alwaysAsk ? { alwaysAsk: true } : {}),
     async apply(writer) {
       const { rowIds, undo } = await applyStaged(stage.changes, writer)
       const live = ws().databases[db.id]
@@ -261,7 +276,8 @@ export function planUpdateRow(args: Record<string, unknown>): WritePlan {
   /** per row: its id, title, the database, the names it changes */
   const plans: Array<{ row: Page; db: Database; dbName: string; names: string[] }> = []
   const byDb = new Map<ID, { db: Database; rows: number; props: Set<ID> }>()
-  list.forEach((item, i) => {
+  // every row checked (a later one too when an earlier one fails): one refusal names each row that does not fit
+  eachEntry(list, (i) => `rows[${i}]`, (item) => (typeof item.id === 'string' ? (live(item.id) ? titleOf(live(item.id)!) : null) : null), (item, i) => {
     let row: Page
     try {
       row = pageOrThrow(item.id, `${item.path}id`)
@@ -301,7 +317,12 @@ export function planUpdateRow(args: Record<string, unknown>): WritePlan {
     if (names.length) {
       const entry = byDb.get(db.id) ?? { db, rows: 0, props: new Set<ID>() }
       entry.rows += 1
-      for (const c of stage.changes.slice(before)) for (const p of c.props ?? []) entry.props.add(p.propId)
+      for (const c of stage.changes.slice(before)) {
+        for (const p of c.props ?? []) entry.props.add(p.propId)
+        // a new title is a change of the title property (an automation or agent may watch it)
+        const titleId = c.kind === 'rename' ? titlePropId(db) : null
+        if (titleId) entry.props.add(titleId)
+      }
       byDb.set(db.id, entry)
     }
   })
@@ -314,12 +335,12 @@ export function planUpdateRow(args: Record<string, unknown>): WritePlan {
       lines.push({ k: 'fact', label: rowNo(i), value: `${titleOf(p.row)} — ${what || t('features.mcp.plan.unchanged')}` })
     })
   }
-  let alwaysAsk = false
-  for (const e of byDb.values()) {
-    const side = sideEffects(e.db, e.rows, { created: false, props: e.props })
-    lines.push(...side.lines)
-    alwaysAsk ||= side.alwaysAsk
-  }
+  // what each database's rows start; asked always when the whole call starts paid or outward work on enough rows
+  const sides = [...byDb.values()].map((e) => sideEffects(e.db, e.rows, { created: false, props: e.props }))
+  for (const side of sides) lines.push(...side.lines)
+  const hold = sideHold(sides)
+  lines.push(...hold.lines)
+  const alwaysAsk = hold.alwaysAsk
   const items = itemPlan(stage.changes)
   lines.push(...items.lines)
   const changedRows = plans.filter((p) => p.names.length)
@@ -337,7 +358,7 @@ export function planUpdateRow(args: Record<string, unknown>): WritePlan {
   return {
     tool: 'one_update_row',
     verb: t(batch ? 'features.mcp.verb.updateRows' : 'features.mcp.verb.updateRow'),
-    summary: batch ? t('features.mcp.sum.updateRows', { n: chars(changedRows.length), db: dbs.join(', ') }) : t('features.mcp.sum.updateRow', { title: titleOf(first.row), db: first.dbName }),
+    summary: batch ? t(changedRows.length === 1 ? 'features.mcp.sum.updateRows.one' : 'features.mcp.sum.updateRows.other', { n: chars(changedRows.length), db: dbs.join(', ') }) : t('features.mcp.sum.updateRow', { title: titleOf(first.row), db: first.dbName }),
     target: batch ? dbs.join(', ') : `${first.dbName} / ${titleOf(first.row)}`,
     lines,
     ...(items.holds.length || alwaysAsk ? { alwaysAsk: true } : {}),
@@ -410,11 +431,16 @@ export function planUpsertRows(args: Record<string, unknown>): WritePlan {
   }
   const created = stage.changes.filter((c) => c.kind === 'create_row').length
   const updatedProps = new Set(stage.changes.filter((c) => c.kind === 'update_row').flatMap((c) => (c.props ?? []).map((p) => p.propId)))
+  // a renamed row changes the title property (an automation or agent may watch it)
+  const titleId = titlePropId(db)
+  if (titleId && stage.changes.some((c) => c.kind === 'rename')) updatedProps.add(titleId)
   const sideNew = sideEffects(db, created, { created: true, props: new Set() })
   const sideOld = sideEffects(db, n.updated, { created: false, props: updatedProps })
-  // what the new rows start, then what the changed ones start (a line both name is shown once)
+  // what the new rows start, then what the changed ones start (a line both name is shown once); asked always when new
+  // and changed rows together start paid or outward work on enough rows
   const same = (a: PlanLine, b: PlanLine) => JSON.stringify(a) === JSON.stringify(b)
-  lines.push(...sideNew.lines, ...sideOld.lines.filter((l) => !sideNew.lines.some((x) => same(x, l))))
+  const hold = sideHold([sideNew, sideOld])
+  lines.push(...sideNew.lines, ...sideOld.lines.filter((l) => !sideNew.lines.some((x) => same(x, l))), ...hold.lines)
   const items = itemPlan(stage.changes)
   lines.push(...items.lines)
   const answer = (ids: Record<string, ID>) => ({
@@ -429,7 +455,7 @@ export function planUpsertRows(args: Record<string, unknown>): WritePlan {
     summary: t('features.mcp.sum.upsertRows', { db: dbName, created: chars(n.created), updated: chars(n.updated) }),
     target: dbName,
     lines,
-    ...(items.holds.length || sideNew.alwaysAsk || sideOld.alwaysAsk ? { alwaysAsk: true } : {}),
+    ...(items.holds.length || hold.alwaysAsk ? { alwaysAsk: true } : {}),
     noop: stage.changes.length ? undefined : { ...answer({}), note: 'No change: every row already has these values.' },
     async apply(writer) {
       const { rowIds, undo } = await applyStaged(stage.changes, writer)

@@ -16,6 +16,6 @@ try: settings-mcp
 - **Rows in bulk** — create or change up to 50 rows at once, or keep a database in step with items from elsewhere by a key: only what differs changes. A batch of 5 or more rows that would start paid AI work or send something out of One is always asked, also with **Apply directly**.
 - **Reading in full** — every block with its data (databases, files, sheets, charts, meeting notes), long pages in parts. Comments only when you switch them on: **Settings → Agents · MCP → Comments**.
 
-One's own databases (memory, Mails, the pipelines) stay read-only over MCP, templates stay invisible, and a repeated call never makes something twice. This needs bridge **1.12.0**: download `one.mcpb` again, and reload One once after it updated.
+One's own databases (memory, Mails, the pipelines) stay read-only over MCP, templates stay invisible, and a call repeated within 2 minutes does not make something twice. This needs bridge **1.12.0**: download `one.mcpb` again, and reload One once after it updated.
 
 On a team server the same tools work at `/mcp`. It changes without a card, so **Recent MCP writes** under **Workspace settings → Automation → API** lists every MCP call of the last 14 days with **Restore**. More: [Claude Desktop & local MCP](help:mcp-bridge).

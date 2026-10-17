@@ -85,18 +85,27 @@ export function systemBelow(r: Roots, id: string): SystemHit | null {
 
 export const systemNote = (kind: SystemKind): string => `One's ${KIND_TEXT[kind] ?? kind} database: read-only over MCP (rows, properties, views).`
 
-/** The `system_database` refusal (422). */
-export function systemRefusal(hit: SystemHit) {
+/**
+ * The `system_database` refusal (422). `path`: the argument it is about; `why`: what the call would have changed there,
+ * when that is not plain from the call (a two-way relation's reverse side, a partner row).
+ */
+export function systemRefusal(hit: SystemHit, path = '', why = '') {
   return new ApiError(
     422,
     'system_database',
-    `system_database: ${JSON.stringify(hit.title)} is One's ${KIND_TEXT[hit.kind] ?? hit.kind} database; over MCP it is read-only (its rows, the pages below them, its properties and views). Nothing was changed. Reading it stays allowed; changes there are made in One.`,
+    `system_database: ${path ? `${path}: ` : ''}${JSON.stringify(hit.title)} is One's ${KIND_TEXT[hit.kind] ?? hit.kind} database; over MCP it is read-only (its rows, the pages below them, its properties and views)${why ? ` — ${why}` : ''}. Nothing was changed. Reading it stays allowed; changes there are made in One.`,
   )
 }
 
-export function assertNotSystem(r: Roots, id: string | null | undefined): void {
+/** Why a two-way relation into One's own database is refused (the local bridge words it alike). */
+export const TWO_WAY_SYSTEM = 'a two-way relation would add its reverse property there and write into its rows; a one-way relation (twoWay: false) to it is fine'
+
+/** Why a row value is refused whose two-way partner lives in One's own database (the app would write the link there too). */
+export const PARTNER_SYSTEM = 'this relation is two-way, so setting it would also write into the linked rows there'
+
+export function assertNotSystem(r: Roots, id: string | null | undefined, path = '', why = ''): void {
   const hit = systemOf(r, id)
-  if (hit) throw systemRefusal(hit)
+  if (hit) throw systemRefusal(hit, path, why)
 }
 
 export function assertTreeNotSystem(r: Roots, id: string): void {

@@ -23,12 +23,13 @@ import { McpStructure, VIEW_TYPES, type ViewInput } from './structure.ts'
 import { BULK_MAX, McpTidy } from './tidy.ts'
 import { CREATABLE_TYPES, MAX_DB_PROPERTIES, McpWrites } from './writes.ts'
 import { once } from './duplicates.ts'
+import { dupHash, remembersResult } from '../../../src/shared/mcp/duplicates.ts'
 import { McpBatch } from './batch.ts'
 import { McpPreimages, fragmentSnapshot, stateHash } from './preimages.ts'
 import { fragmentText } from '../api/content.ts'
 import { contentDoc } from '../api/model.ts'
 import { MCP_CONTRACT_REV, MCP_LIMITS, MCP_LINE_BOARD, MCP_LINE_CLASS, MCP_LINE_CODEWORD, MCP_LINE_CONTENT, mcpDescription, type McpToolName } from '../../../src/shared/mcp/contract.ts'
-import { codeOf, isMcpErrorCode, withRemedy, type McpErrorCode } from '../../../src/shared/mcp/errors.ts'
+import { codeOf, isMcpErrorCode, mcpError, withRemedy, type McpErrorCode } from '../../../src/shared/mcp/errors.ts'
 import { stripRefLabels } from '../../../src/shared/mcp/refs.ts'
 import { MCP_PAGE_KINDS } from '../../../src/shared/mcp/tables.ts'
 
@@ -123,6 +124,47 @@ function explain(err: ApiError): string {
   return withRemedy(codeOf(message) ? message : `${codeFor(err)}: ${message}`)
 }
 
+/** An argument path as the contract writes it: `rows[3].properties.Status`. */
+const pathText = (path: ReadonlyArray<PropertyKey>): string =>
+  path.reduce<string>((out, seg) => (typeof seg === 'number' ? `${out}[${seg}]` : out ? `${out}.${String(seg)}` : String(seg)), '')
+
+/** A tool's arguments that do not fit its schema, in the contract's shape (`bad_argument: <path>: …` — spec § 2.0). */
+export function argumentError(tool: string, error: z.ZodError, declared: readonly string[]): string {
+  const [first, ...rest] = error.issues
+  if (!first) return mcpError('bad_argument', '', `the arguments of ${tool} do not fit`)
+  if (first.code === 'unrecognized_keys') {
+    const key = first.keys[0] ?? ''
+    const top = !first.path.length
+    return mcpError('bad_argument', pathText([...first.path, key]), `${tool} takes no argument ${JSON.stringify(key)}${top ? ` (it takes: ${declared.join(', ') || 'none'})` : ''}`)
+  }
+  const also = rest.slice(0, 3).map((i) => `${pathText(i.path) || 'the call'}: ${i.message}`)
+  return mcpError('bad_argument', pathText(first.path), `${first.message}${also.length ? ` (also ${also.join('; ')})` : ''}`)
+}
+
+/**
+ * Strict arguments on this server too (spec § 2.0, docs/MCP.md): every tool's schema is a strict object — tools/list says
+ * `additionalProperties: false` and an argument the tool does not declare is refused instead of dropped (a mistyped
+ * `parentID` would otherwise make a page at the top level) — and an argument that does not fit is answered in the
+ * contract's shape (`bad_argument: <path>: … Nothing was changed. …`), before the tool runs, as the local bridge answers.
+ * The SDK checks arguments in its private validateToolInput; this server's instance answers that check itself
+ * (server/test/mcp-parity.test.ts guards it: an SDK that stops calling it fails the undeclared-argument case there).
+ */
+function strictArguments(server: McpServer): void {
+  const register = server.registerTool.bind(server) as (name: string, config: Record<string, unknown>, cb: unknown) => unknown
+  ;(server as unknown as { registerTool: typeof register }).registerTool = (name, config, cb) => {
+    const shape = (config.inputSchema ?? {}) as z.ZodRawShape
+    return register(name, { ...config, inputSchema: z.object(shape).strict() }, cb)
+  }
+  type Checked = { inputSchema?: z.ZodType }
+  ;(server as unknown as { validateToolInput: (tool: Checked, args: unknown, name: string) => Promise<unknown> }).validateToolInput = async (tool, args, name) => {
+    if (!tool.inputSchema) return undefined
+    const res = await tool.inputSchema.safeParseAsync(args ?? {})
+    if (res.success) return res.data
+    const declared = tool.inputSchema instanceof z.ZodObject ? Object.keys(tool.inputSchema.shape) : []
+    throw new Error(argumentError(name, res.error, declared))
+  }
+}
+
 function instructions(name: string, id: string, write: boolean): string {
   return [
     `SimpleCMS One team workspace "${name}": pages (Markdown content), databases with typed properties, rows (pages inside a database).`,
@@ -131,7 +173,7 @@ function instructions(name: string, id: string, write: boolean): string {
     'Values are friendly: option names, dates "YYYY-MM-DD" or "YYYY-MM-DDTHH:MM" (wall-clock, no time zone), member emails for people, row ids for relations.',
     'Errors start with a code ("not_found: …") and say what to do next.',
     write
-      ? `Changes reach everyone who has the workspace open at once; repeating a call that made something does not make a second one (the answer says duplicateOf). ${MCP_LINE_BOARD} Tidying up: one_move_page, one_move_row, one_update_database / _property / _view, one_trash_page (nothing is deleted for good: one_restore_page brings things back). Before removing or reorganising several things, say what you plan to do.`
+      ? `Changes reach everyone who has the workspace open at once; repeating a call that made something within 2 minutes does not make a second one (the answer says duplicateOf). ${MCP_LINE_BOARD} Tidying up: one_move_page, one_move_row, one_update_database / _property / _view, one_trash_page (nothing is deleted for good: one_restore_page brings things back). Before removing or reorganising several things, say what you plan to do.`
       : 'This token can only read: the write tools are not available.',
     MCP_LINE_CONTENT,
     MCP_LINE_CLASS,
@@ -152,12 +194,13 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
   const batch = new McpBatch(s, model, writes)
   const preimages = new McpPreimages(s, model)
   /** one recorder per tool call: its pre-images (owners / admins put a call back in Workspace → API) */
-  const recorder = (tool: McpToolName) => preimages.recorder(ws, token.id, tool)
+  const recorder = (tool: McpToolName, a?: Record<string, unknown>) => preimages.recorder(ws, token.id, tool, a && remembersResult(tool) ? dupHash(tool, a) : null)
   const name = s.repo.workspaceById(ws)?.name ?? ''
   /** The workspace as MCP names it — the same id the local bridge uses for a team workspace. */
   const self = { id: `team:${ws}`, name }
   // serverInfo names the tool contract too (semver build metadata): 0.1.0+mcp.2 = this server with contract 2
   const server = new McpServer({ name: 'one', title: 'SimpleCMS One', version: `${s.config.version}+mcp.${MCP_CONTRACT_REV}` }, { instructions: instructions(name, self.id, write) })
+  strictArguments(server)
 
   /** null when `workspace` is absent or names the token's workspace; else the refusal. */
   const outside = (arg: string | undefined): string | null => {
@@ -360,7 +403,7 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
       },
       annotations: CREATE,
     },
-    async (a) => run(a.workspace, made('one_create_page', a, () => batch.createPages(ws, { ...a, markdown: md(a.markdown), pages: mdEach(a.pages) }, actor, recorder('one_create_page'))))(),
+    async (a) => run(a.workspace, made('one_create_page', a, () => batch.createPages(ws, { ...a, markdown: md(a.markdown), pages: mdEach(a.pages) }, actor, recorder('one_create_page', a))))(),
   )
 
   server.registerTool(
@@ -412,7 +455,7 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
       run(
         a.workspace,
         made('one_create_row', a, async () => {
-          const rec = recorder('one_create_row')
+          const rec = recorder('one_create_row', a)
           if (a.rows) {
             const mixed = (['title', 'properties', 'markdown'] as const).find((k) => a[k] !== undefined)
             if (mixed) throw new ApiError(422, 'bad_argument', `bad_argument: ${mixed}: pass "rows" or title / properties / markdown, not both`)
@@ -520,7 +563,7 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
             ws,
             { title: a.title, parentId: a.parentId ?? null, inline: a.inline, icon: a.icon, properties: a.properties, views: a.views?.map((v) => ({ type: v.type, ...viewIn(v) })), rows: mdEach(a.rows) },
             actor,
-            recorder('one_create_database'),
+            recorder('one_create_database', a),
           ),
         ),
       )(),

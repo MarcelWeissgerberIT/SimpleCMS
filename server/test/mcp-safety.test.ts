@@ -187,6 +187,37 @@ describe('MCP safety (team server)', () => {
     await call(writer, 'one_update_row', { id: 'row-1', properties: { Name: 'Brief v2' } })
   })
 
+  test("a two-way relation never reaches One's own databases: no reverse property, no partner write", async () => {
+    const sys = /^system_database: .*read-only/
+    const propsOf = (dbId: string) => [...((meta.doc.getMap('databases').get(dbId) as Y.Map<unknown>).get('properties') as Y.Map<{ name: string }>).values()].map((p) => p.name).sort()
+    const coding = propsOf('db-coding')
+    const memory = propsOf('db-mem')
+    await fails(writer, 'one_create_property', { databaseId: 'db-tasks', name: 'Coding task', type: 'relation', relation: { databaseId: 'db-coding', twoWay: true } }, sys)
+    await fails(writer, 'one_create_database', { title: 'Notes', properties: [{ name: 'Mem', type: 'relation', relation: { databaseId: 'db-mem', twoWay: true } }] }, sys)
+    await sleep(100)
+    assert.deepEqual(propsOf('db-coding'), coding, 'the Coding schema is unchanged')
+    assert.deepEqual(propsOf('db-mem'), memory, 'the memory schema is unchanged')
+    assert.ok(![...pages().values()].some((p) => (p as Y.Map<unknown>).get('title') === 'Notes'), 'no database was made')
+    // a one-way relation to it changes nothing there: allowed
+    await call(writer, 'one_create_property', { databaseId: 'db-tasks', name: 'Coding ref', type: 'relation', relation: { databaseId: 'db-coding' } })
+    assert.deepEqual(propsOf('db-coding'), coding)
+    // a two-way pair the person made: a value set over MCP would write the link into the Coding task too — refused
+    meta.doc.transact(() => {
+      const props = (id: string) => (meta.doc.getMap('databases').get(id) as Y.Map<unknown>).get('properties') as Y.Map<unknown>
+      props('db-tasks').set('t-code', { id: 't-code', name: 'Linked task', type: 'relation', relationDatabaseId: 'db-coding', order: 9 })
+      props('db-coding').set('t-code.2way', { id: 't-code.2way', name: 'Tasks', type: 'relation', relationDatabaseId: 'db-tasks', order: 9 })
+    })
+    await flushed(meta)
+    const before = { props: JSON.stringify((yp('task-1').get('properties') as Y.Map<unknown>).toJSON()), by: yp('task-1').get('updatedBy') }
+    await fails(writer, 'one_create_row', { databaseId: 'db-tasks', title: 'Linked', properties: { 'Linked task': ['task-1'] } }, sys)
+    await fails(writer, 'one_create_row', { databaseId: 'db-tasks', rows: [{ title: 'Linked A', properties: { 'Linked task': ['task-1'] } }, { title: 'Linked B' }] }, sys)
+    await fails(writer, 'one_update_row', { id: 'row-1', properties: { 'Linked task': ['task-1'] } }, sys)
+    await sleep(100)
+    assert.equal(JSON.stringify((yp('task-1').get('properties') as Y.Map<unknown>).toJSON()), before.props, 'the Coding task holds no new link')
+    assert.equal(yp('task-1').get('updatedBy'), before.by, 'nor was it stamped by the API token')
+    assert.ok(![...pages().values()].some((p) => /^Linked/.test(String((p as Y.Map<unknown>).get('title') ?? ''))), 'no row was made')
+  })
+
   test('a locked page refuses content over MCP; its title stays changeable', async () => {
     await fails(writer, 'one_update_page', { id: 'locked-1', markdown: 'Rewrite.' , mode: 'replace' }, /locked: .*locked in One/)
     await fails(writer, 'one_update_page', { id: 'locked-1', markdown: 'More.' }, /locked/)

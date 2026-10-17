@@ -57,8 +57,15 @@ export function docJson(doc: Y.Doc): PMJson {
   return { type: 'doc', content }
 }
 
-/** The read's `rev`: a hash of the content document's state vector (it moves with every change). */
-export const contentRev = (doc: Y.Doc): string => sha256Hex(Y.encodeStateVector(doc)).slice(0, 16)
+/**
+ * A content document's state as a SHA-256 (hex): its state vector AND its delete set (a Yjs snapshot). The state vector
+ * alone moves only with insertions — a member who only deletes blocks or text would leave it as it was. Both the read's
+ * `rev` (a cursor's "changed between parts?") and a pre-image's `after_hash` (a restore's "changed since?") use it.
+ */
+export const docStateHash = (doc: Y.Doc): string => sha256Hex(Y.encodeSnapshot(Y.snapshot(doc)))
+
+/** The read's `rev`: the document's state (docStateHash) — it moves with every change, a pure deletion too. */
+export const contentRev = (doc: Y.Doc): string => docStateHash(doc).slice(0, 16)
 
 /** The core's JSON back into the server Markdown's nodes. */
 function mdNode(n: PMJson): MdNode {

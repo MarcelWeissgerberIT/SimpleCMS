@@ -91,12 +91,16 @@ out), and a tool takes **only** the arguments it declares: anything else is refu
   | `comments_off` | `comments: true` while comments are off ([Comments](#comments)) |
   | `rejected` · `approval_timeout` | B: the person rejected the card, or did not answer within 2 minutes — do not retry on your own |
 
-- **Repeats make nothing twice.** A creating call (`one_create_page`, `one_create_database`, `one_create_row`,
-  `one_upsert_rows`) whose tool and arguments equal one that is still **waiting** for approval joins that card — both
+- **A repeat within 2 minutes makes nothing twice.** A creating call (`one_create_page`, `one_create_database`,
+  `one_create_row`) whose tool and arguments equal one that is still **waiting** for approval joins that card — both
   calls get its answer. One equal to a call **applied in the last 2 minutes** is answered with that result plus
   `duplicateOf` and the note "already applied N s ago; nothing new was made — to make another, change something (e.g.
-  the title)". Argument order and `workspace` do not matter; rejected and failed calls are not remembered. B keeps a
-  map per MCP session in the tab (≤ 50 entries, forgotten on a reload); S uses its idempotency store per token.
+  the title)". Argument order and `workspace` do not matter; rejected and failed calls are not remembered, and neither
+  is a call taken back (B: its Undo in Agent activity or an eject; S: a Restore in Workspace → API) — repeating it
+  makes the thing again. B keeps a map per MCP session in the tab (≤ 50 entries, forgotten on a reload or a reconnect);
+  S uses its idempotency store per token. Outside that window, or after a reconnect, a repeat is a new call.
+  `one_upsert_rows` only **joins** a waiting call: a keyed upsert makes no duplicate on its own, so a repeat after it
+  was applied runs again and brings the rows in step (answering `updated` / `unchanged` as they are now).
 
 ## Reading a page in full
 
@@ -107,7 +111,8 @@ out), and a tool takes **only** the arguments it declares: anything else is refu
   database's schema hint, `children: { items (≤ 50), more }` (the rest: `one_list_pages`), backlinks, comments — the
   next parts only `{ id, rev, markdown | blocks, next }`. A cursor carries the `rev` it was cut at: a page that changed
   between two parts answers `page_changed`. A block too big for one part continues in the next (`continued: true`).
-- **`rev`** — the content's revision, an opaque string (B: the page's content counter; S: a hash of its document state).
+- **`rev`** — the content's revision, an opaque string (B: the page's content counter; S: a hash of its document state —
+  state vector and delete set, so a member who only deletes moves it too).
 - **`format: "blocks"`** — every block nested: `{ ref, type, markdown?, attrs?, data?, children? }`. Leaves carry their
   own Markdown, containers (quotes, callouts, toggles, columns, tabs, synced blocks, meeting notes) their children;
   `attrs` is an allow-list (heading level, code language, callout icon / colour, toggle heading, media width / align /
@@ -132,10 +137,13 @@ out), and a tool takes **only** the arguments it declares: anything else is refu
   content) or `@<path>~<hash>` for a block without an id (`@3.0.1` = child indexes). `refs: true` labels each block of
   the Markdown with its ref (`⟦#k3f9a1~2c7e0b⟧` on a line before it); every writing tool drops labels a client copies
   back. A tool that takes a block (`one_create_database { inline: { afterBlock } }`) refuses a ref whose block changed
-  since the read (`stale_ref`, naming the block's ref now); a ref without its `~hash` part is taken as it is.
+  since the read (`stale_ref`, naming the block's ref now); a ref without its `~hash` part is taken as it is. A ref of a
+  block inside another one (a column, a toggle, a list item) where a top-level block is needed is `bad_argument`
+  naming the top-level block's ref to pass instead.
 - **`class`** (single reads): `page`, `rows`, `private`, `mail` or `memory` — the last three mark personal data; the
   instructions tell the agent not to copy it into shared pages or other tools without asking.
-- **Context marks** (B): when the person marked which blocks of a page Claude may read, MCP reads only those —
+- **Context marks** (B): when the person marked which blocks of a page Claude may read, MCP reads only those (and
+  `one_search` searches and quotes only those; such a hit says `limited: true`) —
   their text, block data, files and comment threads; `limited: { blocks, files, comments, note }` counts what was left
   out.
 - `one_list_pages` lists pages and databases (and rows on request) in sidebar order — shared before private, never
@@ -156,15 +164,19 @@ out), and a tool takes **only** the arguments it declares: anything else is refu
   private page). In a local workspace there is nothing private: the page is made and the answer says so. S answers
   `local_only`.
 - **Rows in bulk:** `one_create_row { rows }` and `one_update_row { rows }` take up to 50 rows — all or none ("set Status
-  = Done on these 20 cards" is one call). `one_upsert_rows` mirrors items by a key: `keyProperty` names the database's
+  = Done on these 20 cards" is one call); every row that does not fit is named in one refusal (`rows[i] ("title"): …`
+  per line). `one_upsert_rows` mirrors items by a key: `keyProperty` names the database's
   key or a text / number / url property; a row whose key holds `key` gets only the values that differ, no such row →
   a new one (its `markdown` is written only while its page is empty); any refused row fails the whole call with the list.
 - **One card per call** (B, *Ask first*): *Create 50 pages in “Launch plan”* with a line per page, *Change 20 rows in
   Cards* with each value before → after. A row batch names what it would start — *Starts: autofill on 5 rows (Summary) ·
-  automation “Notify” · agent “Triage”* — and a batch of **5 or more rows** that starts paid AI work or sends something
-  out of One (autofill that updates by itself, a webhook or script automation, a row-triggered agent) is **always
-  asked**, also in *Apply directly*. **Undo** puts what the call made into the trash while nobody changed it since
-  (changed pages and rows are kept), and sets changed values back unless they were changed again.
+  automation “Notify” · agent “Triage”* — and a call whose rows that start paid AI work or send something out of One
+  (autofill that updates by itself, a webhook or script automation, a row-triggered agent) add up to **5 or more** —
+  new and changed rows together, over every database it touches, a new title counting as a change of the title
+  property — is **always asked**, also in *Apply directly*. The card fits the screen: its lines scroll, the summary and
+  the keys stay in view. **Undo** puts what the call made into the trash while nobody changed it since (changed pages
+  and rows are kept), and sets changed values back unless they were changed again; a database the call made stays
+  (with everything in it, its block and any reverse relation) once someone added a row or changed one of its rows.
 - **Files values** (`files` properties) take only `onefile:` refs of this workspace that a live page uses — never a web
   address (`refused_type`), never a private file into a shared row (`private_scope`).
 
@@ -689,7 +701,7 @@ curl -s https://team.example.com/mcp \
 The team server has no approval card and no Undo of its own, so it keeps, **per MCP call that changes something**,
 what it needs to put that call back — a *pre-image*: the rows it made (with their values), each field it changed
 (before → after), the pages and databases it made, and a page's content right before a `replace` (or before a link was
-appended to it). Pre-images are sealed with the workspace's key, kept **14 days** and deleted with the workspace; REST
+appended to it, or before `one_upsert_rows` wrote a row's body). Pre-images are sealed with the workspace's key, kept **14 days** and deleted with the workspace; REST
 API writes keep none.
 
 **Workspace settings → Automation → API → Recent MCP writes** (owners and admins) lists the last 100 calls — the
@@ -698,8 +710,9 @@ tool in words, the token, what it made and changed, the first titles, its age �
 - made pages, databases and rows go to the **trash** (rows of a made database go along with it);
 - each changed field goes back **while it still holds what the call wrote** — a field someone changed since is kept and
   named (*Restore anyway* puts it back too);
-- a page text that changed since the call is refused (`changed_since`) — **Restore anyway** puts the call's copy back
-  and the later changes go (the dialog says so);
+- a page text that changed since the call — added to or only deleted from — is refused (`changed_since`) — **Restore
+  anyway** puts the call's copy back and the later changes go (the dialog says so);
+- a call put back is forgotten for repeats: the same call again makes the thing again;
 - restoring twice changes nothing. Routes: `GET /api/workspaces/:id/mcp-calls`,
   `POST /api/workspaces/:id/mcp-calls/:callId/restore { force? }` ([API.md](API.md#recent-mcp-writes)).
 
