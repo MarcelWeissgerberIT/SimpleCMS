@@ -205,6 +205,12 @@ export { workerOnline, workerCaps, workerVerdict } from './link'
 export { ensureOrderDb, orderDbId, orderDbIds, saveOrderConfig, orderStatusKey, orderFields, orderCode, openOrderCount, orderProps, isOrderRow, writeOrderStatus } from './orders/db'
 export { sendToOrders, sendToOrdersWithNote, canSendToOrders, openRequestFor, newOrderRequest } from './orders/send'
 export { pressPlan, pressProv, orderPreNow, type PressResult } from './orders/press'
+/**
+ * B8 — the plate's pieces other areas show: NextStepFold (a gate card whose approval ends a chain step: "Freigeben startet
+ * den nächsten Schritt …" + the step as it will run; `onSeen(true)` once read whole — pass it as the approval's
+ * `sawNext`) · ChainLine (the task panel's "Teil von Prüfauftrag …") · registerCardChip is installed by startOrders.
+ */
+export { NextStepFold, ChainLine, type ChainNext } from './orders/ChainLine'
 export { orderPre, WANT_WHYS, type OrderPreFacts, type OrderPreResult, type OrderPreWhy, type OrderPreKind } from './orders/pre'
 export { planRows, OrderCommandError } from './orders/command'
 export type { OrderPress, OrderPressHow } from './orders/types'

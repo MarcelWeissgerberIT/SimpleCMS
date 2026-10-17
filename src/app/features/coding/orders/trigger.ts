@@ -26,6 +26,8 @@
 import { pageChanges, useWorkspace } from '../../../store/store'
 import { isApplyingRemote } from '../../../store/persistence'
 import type { Database, ID, OrderStatusKey } from '../../../store/types'
+import { installOrderChips } from './chips'
+import { notifyAway } from '../notify'
 import { currentWriter, formatWriterKey, inPersonEvent, SYSTEM, withWriter, type Writer } from '../../../store/writer'
 import { useUI } from '../../../store/ui'
 import { isApplyingCloudChange } from '../../../cloud'
@@ -192,30 +194,46 @@ async function discardDraft(rowId: ID): Promise<void> {
     return
   }
   if (before?.state === 'draft' && before.draft) await patchOrderRecord(rowId, (rec) => (rec?.state === 'draft' && rec.draft ? { ...rec, state: 'discarded' } : rec))
+  const undo = () => {
+    discardUndos.delete(rowId)
+    void (async () => {
+      await patchOrderRecord(rowId, (rec) => (rec?.state === 'discarded' && rec.draft ? { ...rec, state: 'draft' } : rec))
+      writeOrderStatus(rowId, 'ready', { kind: 'you', via: 'undo' })
+    })()
+  }
+  // Z with focus on the plate takes it back too (as long as the toast could)
+  discardUndos.set(rowId, { run: undo, until: Date.now() + DISCARD_UNDO_MS })
   useUI.getState().toast({
     message: t('features.coding.order.toast.discarded', { id: label(rowId) }),
-    action: {
-      label: t('common.undo'),
-      undo: true,
-      run: () => {
-        void (async () => {
-          await patchOrderRecord(rowId, (rec) => (rec?.state === 'discarded' && rec.draft ? { ...rec, state: 'draft' } : rec))
-          writeOrderStatus(rowId, 'ready', { kind: 'you', via: 'undo' })
-        })()
-      },
-    },
+    action: { label: t('common.undo'), undo: true, kbd: 'Z', run: undo },
   })
+}
+
+/** How long D's Undo stays with the plate's Z (about a toast's life). */
+const DISCARD_UNDO_MS = 15_000
+/** D on a plan: its Undo, per request, while it lasts (the plate's Z). */
+const discardUndos = new Map<ID, { run: () => void; until: number }>()
+
+/** The Undo of the plan just discarded here (D) — null: none (any more). Taking it spends it. */
+export function takeDiscardUndo(rowId: ID): (() => void) | null {
+  const u = discardUndos.get(rowId)
+  discardUndos.delete(rowId)
+  return u && u.until > Date.now() ? u.run : null
 }
 
 /** Status Angehalten seen here: this device's record of the request halts (why 'status', sticky). */
 async function haltRecord(rowId: ID, by: string): Promise<void> {
+  let halted = false
   const out = await patchOrderRecord(rowId, (r) => {
     if (!r?.chain || r.chain.halted) return r
+    halted = true
     if (r.state === 'running') return { ...r, state: 'halted', chain: withHalt(r.chain, { why: 'status', by }, Date.now()) }
     if (r.state === 'creating' || r.state === 'interrupted') return { ...r, chain: withHalt(r.chain, { why: 'status', by }, Date.now()) }
     return r
   })
   if (out.rec?.state === 'halted') kick(rowId)
+  // "Kette angehalten" while this tab is in the background (coding/notify.ts — the engine says its own halts)
+  if (halted && out.rec?.chain?.halted) notifyAway(rowId, t('features.coding.order.notify.halted', { id: label(rowId), why: t('features.coding.order.halt.status') }))
 }
 
 /** The row's Status field is empty (no option at all — not one of another build's). */
@@ -356,6 +374,8 @@ let started = false
 export function startOrders(): void {
   if (started || typeof window === 'undefined') return
   started = true
+  // the chips on board cards: a chain step's "PA-12 · 2/3", a request's sub-state (chips.tsx)
+  installOrderChips()
   useWorkspace.subscribe(onPages)
   // the chains on this device: the parked-start guard, step 01's count, creations a closed tab left (chainRun.ts)
   startChains()

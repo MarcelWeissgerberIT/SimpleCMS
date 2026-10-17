@@ -18,6 +18,7 @@ import { plural } from '../parts'
 import { rowProps } from '../model/recordTypes'
 import { itemTitleText } from '../../editor'
 import { Globe } from 'lucide-react'
+import { CardChips } from './cardChips'
 
 function firstImage(node: JSONContent | null | undefined): string | null {
   if (!node) return null
@@ -241,6 +242,7 @@ export const CardBody = memo(function CardBody({ m, row, props, editing, onEditD
           <span aria-hidden>↳</span> {plural(t, 'database.sub.count', subs)}
         </div>
       )}
+      <CardChips db={m.db} row={row} />
     </div>
   )
 })

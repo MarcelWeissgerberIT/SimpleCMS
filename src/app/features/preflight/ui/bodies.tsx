@@ -8,7 +8,7 @@ import { lazy, type ReactNode } from 'react'
 import { useLang, useT } from '../../../i18n'
 import { useWorkspace } from '../../../store/store'
 import { useCloudSync } from '../../../cloud'
-import { AskWhat, codingLogText, useCoding, type TaskVersionView } from '../../coding'
+import { AskWhat, NextStepFold, codingLogText, useCoding, type TaskVersionView } from '../../coding'
 import { AgentChangeBody, useAgentRuns, useServerAgents } from '../../agents'
 import { useAgent } from '../../ai/agent/state'
 import { FullText } from '../../ai/agent/CodingDiff'
@@ -16,7 +16,7 @@ import type { QueueItem } from '../registry'
 import { agentChangeOf } from '../sources/proposals/agents'
 import { terminalChangeOf } from '../sources/proposals/terminal'
 import { menuRunDuplicate, menuRunOf, termMemoryOf } from '../sources/proposals/memory'
-import { codingPrep, parseTaskItem } from '../sources/coding'
+import { codingPrep, noteNextSeen, parseTaskItem } from '../sources/coding'
 import { inboxItemOf } from '../sources/inbox'
 import { parsePermItem } from '../sources/permission'
 import { fmtWhen } from '../format'
@@ -162,6 +162,8 @@ function TaskBody({ item, expanded }: { item: QueueItem; expanded: boolean }) {
           {plan.test ? t(plan.test.ok ? 'features.preflight.task.testOk' : 'features.preflight.task.testFail') : t('features.preflight.task.noTest')} · {tn('features.preflight.task.files', plan.files ?? 0)}
         </Field>
       )}
+      {/* a work order's chain: approving starts its next step — shown in full in a fold (read whole: sawNext) */}
+      {p.kind === 'gate' && plan?.chain && <NextStepFold next={plan.chain} from={p.taskId} onSeen={(seen) => noteNextSeen(item.id, seen)} testId="pf-chain-next" />}
       {p.kind === 'gate' && plan && (
         <Field label={t('features.preflight.task.then')}>
           {plan.runs?.length ? plan.runs.map((r) => r.name).join(' → ') : '—'}

@@ -36,7 +36,6 @@ import { useWorkspace } from '../../../store/store'
 import { inTemplate, isEffectivelyTrashed } from '../../../store/selectors'
 import type { Database, ID, Page } from '../../../store/types'
 import { withWriter, type Writer } from '../../../store/writer'
-import { matchMiss } from '../../../store/integrations'
 import { newId } from '../../../lib/ids'
 import { docToMarkdown, editAs, liveEditorOf, readableContent } from '../../../editor'
 import { flushPageContent, useCloud } from '../../../cloud'
@@ -47,9 +46,7 @@ import { AIError, aiStatus, precheck, type Prepared, type SourceRef } from '../.
 import { routed, shapeOf, withShape } from '../../ai/core/shape'
 import { offersAI } from '../../ai/setup/AINeedsSetup'
 import { rowFactsFor } from '../../ai/rowFacts'
-import { onlyServer, outToolsFor, readServers, refusedHere } from '../../ai/mcp-servers/config'
-// a dependency-free leaf of the agents area (the Patchbay reads it the same way): the tool-name rules
-import { declaredReadOk, isReadTool } from '../../agents/mcpTools'
+import { onlyServer, readServers, refusedHere } from '../../ai/mcp-servers/config'
 import { budgetRefusal } from '../../governor'
 import { useUI } from '../../../store/ui'
 import { useCoding } from '../state'
@@ -64,7 +61,8 @@ import { requestFacts, type KindProject } from './facts'
 import { checkPreconditions, wordChars, type PlannerBlock } from './preconditions'
 import { plannerPrompt, plannerSystem, repairPrompt, PLAN_SCHEMA, type PlannerDone, type PlannerInput, type PlannerPage, type PlannerPipeline } from './prompt'
 import { orderPlanHash, readPlan, type PlanReadCtx, type ResolvedStep } from './plan'
-import { pickedTools, serverSkip } from './tools'
+import { serverSkip } from './tools'
+import { serverReads } from './serverTools'
 import { emptyFold, foldCalls, type CallFold } from './calls'
 import { loadOrderRecord, orderScope, patchOrderRecord } from './records'
 import { pageShown, requestNow, shownFp, textFp } from './fingerprint'
@@ -115,6 +113,8 @@ export interface PlanOpts {
    * draft stands beside the chain (its parked steps stay held) until ↵ replaces them, or D brings the chain back
    */
   from?: number
+  /** O "Ohne Server neu planen" on the plate: this run plans without the picked server (`mcp: false`, nothing noted) */
+  noServer?: boolean
 }
 
 const ws = () => useWorkspace.getState()
@@ -191,9 +191,7 @@ function serverPart(config: OrderConfig, pre: Prepared): ServerPart {
   })
   if (why || !server) return { name: null, skip: { server: name, why: why ?? 'missing' }, tools: [], left: [], call: null }
   // READ tools only: the matching profiles' declared reads (confirmed by name), else the names that read as reads
-  const profiles = ws().integrations ?? []
-  const declared = profiles.filter((p) => p.reads?.length && p.match && (p.match.name || p.match.host || p.match.tools?.length) && !matchMiss(p.match, { name: server.name, url: server.url, enabled: true, tools: server.tools })).flatMap((p) => p.reads ?? [])
-  const picked = pickedTools(server.tools ?? [], outToolsFor(server), declared.length ? declared : null, { isRead: isReadTool, declaredOk: declaredReadOk })
+  const picked = serverReads(server)
   if (!picked.reads.length) return { name: null, skip: { server: name, why: 'noReads' }, tools: [], left: picked.left, call: null }
   const call = onlyServer(name, picked.reads)
   if (!call) return { name: null, skip: { server: name, why: 'off' }, tools: [], left: picked.left, call: null }
@@ -391,7 +389,7 @@ async function planRun(rowId: ID, run: string, opts: PlanOpts, signal: AbortSign
   }
 
   // the server (decided before the text: the system prompt names it)
-  const server = serverPart(req.config, pre)
+  const server: ServerPart = opts.noServer ? { name: null, skip: null, tools: [], left: [], call: null } : serverPart(req.config, pre)
   patchRun(rowId, run, { phase: 'reading', server: server.name, skip: server.skip, tools: server.tools, left: server.left })
   const approvals = defaultApprovals()
   const built = build(req, usable, pre, server.name, approvals, done?.steps ?? [])

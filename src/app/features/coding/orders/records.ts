@@ -19,6 +19,7 @@ import type { ID } from '../../../store/types'
 import { activeWorkspace, useCloud } from '../../../cloud'
 import { orderScopeOf, readOrderRecord } from './record'
 import { readStoredPlan } from './plan'
+import { BUDGET_RANGE } from './config'
 import { ORDER_LIMITS, type OrderCall, type OrderChainStep, type OrderDraft, type OrderProv, type OrderRecord, type OrderServerSkip, type OrderToolLeft, type PlanNote } from './types'
 import { chainSuccessor } from '../chain'
 
@@ -117,6 +118,7 @@ export function readDraft(v: unknown): OrderDraft | null {
     ...(answers?.length ? { answers } : {}),
     ...(notes.length ? { notes } : {}),
     ...(v.over === 'halted' || v.over === 'done' ? { over: v.over } : {}),
+    ...(v.budget === null ? { budget: null } : typeof v.budget === 'number' && Number.isFinite(v.budget) ? { budget: Math.min(BUDGET_RANGE[1], Math.max(BUDGET_RANGE[0], v.budget)) } : {}),
     ...(isObj(v.from) && typeof v.from.n === 'number' && Number.isInteger(v.from.n) && v.from.n >= 1 && v.from.n <= 999 && ID_RE.test(String(v.from.run)) ? { from: { n: v.from.n, run: String(v.from.run) } } : {}),
   }
 }

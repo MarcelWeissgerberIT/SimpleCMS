@@ -5,7 +5,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useT } from '../../../i18n'
 
-export function HandKey({ ready, reason, onPress, children, primary, testId }: { ready: boolean; reason?: string; onPress: () => void; children: ReactNode; primary?: boolean; testId: string }) {
+export function HandKey({ ready, reason, onPress, children, primary, testId, describedBy }: { ready: boolean; reason?: string; onPress: () => void; children: ReactNode; primary?: boolean; testId: string; describedBy?: string }) {
   const t = useT()
   const readyAt = useRef(0)
   const [armed, setArmed] = useState(false)
@@ -25,6 +25,7 @@ export function HandKey({ ready, reason, onPress, children, primary, testId }: {
       type="button"
       className={`btn btn--sm${primary ? ' btn--primary' : ''}`}
       aria-disabled={!live || undefined}
+      aria-describedby={describedBy}
       title={why}
       data-testid={testId}
       data-ready={live ? '' : undefined}

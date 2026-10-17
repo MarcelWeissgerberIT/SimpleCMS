@@ -1,20 +1,23 @@
 /**
- * The plate's chain part (spec §1.5–§1.6, B6 — B8 builds the full stations, edits and phone bar on it):
- *  - Kette bereit: the plan's steps (number · kind · title · project · repo; why, goal, criteria in full), the older
- *    chain's parked steps that go to the trash, why the last start was refused, and ↵ Kette starten — VON HAND: a fresh
- *    press ≥ 300 ms after the key became ready, `aria-disabled` with its reason (never `disabled`), no key repeat;
- *    "· mit Server-Inhalt" when a server took part. It confirms the plan as resolved now (planHashNow).
+ * The plate's chain part (spec §1.5–§1.7):
+ *  - Kette bereit: ReadyPart.tsx (the stations, what goes along, ↵ Kette starten — VON HAND);
  *  - creating: "Kette wird angelegt …"; interrupted: what was made, with the two VON HAND keys "Angelegte verwerfen" ·
- *    "Rest anlegen".
+ *    "Rest anlegen";
  *  - running / halted / done: the Laufleiste — one row per step: LED + state word + stage (the word always beside the
- *    LED); while step 01 counts down: "Schritt 01 startet in 9 s · ↵ jetzt · Z Rückgängig"; once it was taken: "läuft
- *    schon — H anhalten, ⌘. stoppen"; a halt names its reason.
+ *    LED; a parked step reads "wartet auf 01"); while step 01 counts down: "Schritt 01 startet in 9 s · ↵ jetzt · Z
+ *    Rückgängig"; once it was taken: "läuft schon — H anhalten, ⌘. stoppen"; a halt names its reason; the card the chain
+ *    waits at (ChainCard.tsx); at the end each step with its result (MR, test cases, cost) and W "Zusammenfassung
+ *    schreiben" (one callout into the request, the person's write).
  * Keys (focus inside the plate, never while typing, never on a repeat, no modifier but ⇧): ↵ = the part's main key
- * (start / now), Z = Undo while it can.
+ * (now; on a card or a halt it focuses the VON HAND key, which presses only itself), Z = Undo while it can, H = halt,
+ * ⌘. = stop the step on this device's worker, S = the step to skip, E = a parked step's page (with focus on its row),
+ * W = the summary at the end. On a phone the keys row is the bottom bar (orders.css).
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { HandKey } from './HandKey'
+import ReadyPart from './ReadyPart'
+import { resultLine, stepResults, writeSummary, type StepResult } from './summary'
 import { useWorkspace } from '../../../store/store'
 import type { ID } from '../../../store/types'
 import { Led, shortcutLabel } from '../../../ui/controls'
@@ -26,15 +29,15 @@ import { codingProps, readPipeline, stageOfRow } from '../schema'
 import { startStageOf } from '../stages'
 import { loadTask, useTaskLocal } from '../local'
 import { stepNo } from './words'
-import { discardMade, finishRest, olderParked, planHashNow, startChain, undoChain, type FinishOutcome, type StartRefusal, type UndoOutcome } from './confirm'
+import { discardMade, finishRest, undoChain, type FinishOutcome, type StartRefusal, type UndoOutcome } from './confirm'
 import { chainWorld, startNow, useChainMoves } from './chainRun'
 import { canSkip } from '../chain'
 import ChainCard, { keyWhyText } from './ChainCard'
 import type { ChainKeyOutcome } from './chainKeys'
 import { preWhyText, problemText } from './text'
-import { kindProjects } from './facts'
 import type { OrderPreResult, OrderPreWhy } from './pre'
 import type { OrderChain, OrderChainStep, OrderRecord } from './types'
+import { navigate } from '../../../lib/router'
 
 type Tr = ReturnType<typeof useT>
 
@@ -77,15 +80,11 @@ export function refusalText(r: StartRefusal | { why: 'taken' }, t: Tr): string {
   }
 }
 
-/** A goal's Markdown links as their labels (the plate shows the text; B8 draws the goal as its blocks). */
-const MD_LINK = /\[((?:\\.|[^\]\\\n])*)\]\(\s*<?[^)\s>]*>?(?:\s+"[^"\n]*")?\s*\)/g
-const goalText = (md: string): string => md.replace(MD_LINK, (_all, label: string) => label.replace(/\\(.)/g, '$1'))
-
 /** One step's state on this device, as a word beside its LED. */
 type Lane = 'parked' | 'running' | 'waiting' | 'failed' | 'stopped' | 'done' | 'trashed' | 'queued'
 const LANE_LED: Record<Lane, 'off' | 'on' | 'ok'> = { parked: 'off', running: 'on', waiting: 'on', failed: 'on', stopped: 'on', done: 'ok', trashed: 'off', queued: 'off' }
 
-function StepRow({ step, chain }: { step: OrderChainStep; chain: OrderChain }) {
+function StepRow({ step, chain, prev }: { step: OrderChainStep; chain: OrderChain; prev: number | null }) {
   const t = useT()
   const page = useWorkspace((s) => s.pages[step.id])
   const db = useWorkspace((s) => (page?.databaseId ? s.databases[page.databaseId] : undefined))
@@ -110,10 +109,11 @@ function StepRow({ step, chain }: { step: OrderChainStep; chain: OrderChain }) {
     else if (chain.advanced?.[step.n] === undefined && stage?.id === park?.id) lane = 'parked'
   }
   return (
-    <li className="orc-row" data-lane={lane} data-testid="order-chain-row">
+    <li className="orc-row" data-lane={lane} data-step={step.id} data-testid="order-chain-row">
       <span className="orc-row__state">
         {lane === 'parked' || lane === 'trashed' ? <span className="orp-ring" aria-hidden /> : <Led state={LANE_LED[lane]} />}
         <span className="label">{t(`features.coding.order.lane.${lane}`)}</span>
+        {lane === 'parked' && prev !== null && <span className="label orc-row__waits">· {t('features.coding.order.lane.waitsFor', { n: stepNo(prev) })}</span>}
       </span>
       <span className="orc-row__n label">{stepNo(step.n)}</span>
       <a className="orc-row__title" href={`#/p/${step.id}`} title={page?.title}>
@@ -135,24 +135,12 @@ function useLeft(at: number | null): number {
   return at === null ? 0 : Math.max(0, Math.ceil((at - now) / 1000))
 }
 
-export default function ChainPart({ rowId, rec, ready, pre, headId, viewer, aside }: { rowId: ID; rec: OrderRecord; ready: boolean; pre: OrderPreResult; headId: string; viewer: boolean; aside?: ReactNode }) {
+export default function ChainPart({ rowId, rec, ready, pre, headId, viewer, elsewhereHere = false }: { rowId: ID; rec: OrderRecord; ready: boolean; pre: OrderPreResult; headId: string; viewer: boolean; elsewhereHere?: boolean }) {
   const t = useT()
   const lang = useLang()
   const O = 'features.coding.order'
   const [note, setNote] = useState<string | null>(null)
-  const [hash, setHash] = useState<string | null>(null)
-  const [pending, setPending] = useState(false)
-  // the plan as it resolves now (projects, pipelines, this device's Approvals): what ↵ confirms
-  const databases = useWorkspace((s) => s.databases)
   const draft = rec.state === 'draft' && ready ? rec.draft : undefined
-  useEffect(() => {
-    let live = true
-    if (!draft) return setHash(null)
-    void planHashNow(rowId, draft).then((h) => live && setHash(h))
-    return () => {
-      live = false
-    }
-  }, [rowId, draft, databases])
   useEffect(() => setNote(null), [rec.state])
   const focusHead = () => window.setTimeout(() => document.getElementById(headId)?.focus(), 0)
   const chain = rec.chain
@@ -177,6 +165,16 @@ export default function ChainPart({ rowId, rec, ready, pre, headId, viewer, asid
       live = false
     }
   }, [rowId, rec, chain, stepPages, busyStep, view])
+  // the end: each step with its result (read again when a step's row changes)
+  const [results, setResults] = useState<StepResult[] | null>(null)
+  useEffect(() => {
+    let live = true
+    if (!chain || rec.state !== 'done') return setResults(null)
+    void stepResults(chain).then((r) => live && setResults(r))
+    return () => {
+      live = false
+    }
+  }, [chain, rec.state, stepPages])
   const keyed = (out: ChainKeyOutcome) => {
     const why = keyWhyText(out, t)
     setNote(why)
@@ -188,19 +186,16 @@ export default function ChainPart({ rowId, rec, ready, pre, headId, viewer, asid
   const resumeKey = chainKey((m) => m.resumeChain(rowId))
   const skip = (n: number) => chainKey((m) => m.skipStep(rowId, n))()
   const focusKey = (id: string) => root.current?.querySelector<HTMLElement>(`[data-testid="${id}"]`)?.focus()
-
-  const start = useCallback(async () => {
-    if (!draft || !hash || pending) return
-    setPending(true)
-    const out = await startChain(rowId, hash)
-    setPending(false)
-    if (!out.ok) {
-      setNote(refusalText(out, t))
-      if (out.why === 'changed') void planHashNow(rowId, draft).then(setHash)
-      return
+  const summary = async () => {
+    if (!chain || viewer) return
+    const ok = await writeSummary(rowId, chain)
+    setNote(ok ? null : t(`${O}.summary.refused`))
+    if (ok) {
+      useUI.getState().toast({ message: t(`${O}.summary.written`), kind: 'success' })
+      focusHead()
     }
-    focusHead()
-  }, [draft, hash, pending, rowId, t])
+  }
+
   const undo = useCallback(async () => {
     const out: UndoOutcome = await undoChain(rowId)
     if (out.ok) {
@@ -218,7 +213,8 @@ export default function ChainPart({ rowId, rec, ready, pre, headId, viewer, asid
   const root = useRef<HTMLDivElement>(null)
   const keys = useRef<(e: KeyboardEvent) => void>(() => {})
   keys.current = (e: KeyboardEvent) => {
-    if (e.repeat || e.altKey || viewer) return
+    // Kette bereit: ReadyPart has the keys
+    if (e.repeat || e.altKey || viewer || draft?.plan.steps.length) return
     const el = e.target as HTMLElement
     if (typing(el)) return
     const running = rec.state === 'running' && !!chain && !chain.halted
@@ -250,6 +246,21 @@ export default function ChainPart({ rowId, rec, ready, pre, headId, viewer, asid
       haltKey()
       return
     }
+    // E with focus on a parked step's row: its page (parked steps stay editable — the person's own edit)
+    if (k === 'e' && !card) {
+      const row = el.closest<HTMLElement>('[data-lane="parked"][data-step]')
+      if (row?.dataset.step) {
+        e.preventDefault()
+        navigate({ name: 'page', id: row.dataset.step })
+        return
+      }
+    }
+    // W at the end: the summary into the request
+    if (k === 'w' && rec.state === 'done') {
+      e.preventDefault()
+      void summary()
+      return
+    }
     // a card: ↵ goes to its VON HAND key (it presses only itself); E opens the step, R plans again after an analysis
     if (card) {
       if (e.key === 'Enter' && !onKey) {
@@ -279,58 +290,7 @@ export default function ChainPart({ rowId, rec, ready, pre, headId, viewer, asid
 
   let body: ReactNode = null
   if (draft && draft.plan.steps.length) {
-    const projects = kindProjects(rowId)
-    const older = olderParked(rec)
-    const base = rec.chain ? Math.max(...rec.chain.steps.map((s) => s.n)) : 0
-    const foreign = !!draft.source.server
-    body = (
-      <>
-        <ol className="orc-steps" data-testid="order-plan-steps">
-          {draft.plan.steps.map((st, i) => {
-            const kp = projects.find((k) => k.kind === st.kind)
-            const project = { title: kp?.title || t(`features.coding.pipe.${st.kind}`), made: !kp?.project }
-            return (
-              <li key={i} className="orc-step" data-testid="order-plan-step">
-                <p className="orc-step__head">
-                  <span className="label orc-step__n">{stepNo(base + i + 1)}</span>
-                  <span className="label">{t(`features.coding.pipe.${st.kind}`)}</span>
-                  <strong className="orc-step__title">{st.title}</strong>
-                  {foreign && <span className="label orc-foreign">{t(`${O}.plan.foreign`)}</span>}
-                </p>
-                <p className="orc-step__meta label">
-                  {t(project.made ? `${O}.plan.projectNew` : `${O}.plan.project`, { name: project.title })} · {st.repo ? t(`${O}.plan.repo`, { repo: st.repo }) : t(`${O}.plan.noRepo`)}
-                </p>
-                {st.why && <p className="orc-step__why">{st.why}</p>}
-                <p className="orc-step__goal">{goalText(st.goal)}</p>
-                {st.criteria.length > 0 && (
-                  <ul className="orc-step__criteria" aria-label={t(`${O}.plan.criteria`)}>
-                    {st.criteria.map((c, k) => (
-                      <li key={k}>{c}</li>
-                    ))}
-                  </ul>
-                )}
-              </li>
-            )
-          })}
-        </ol>
-        {older.length > 0 && (
-          <p className="orc-line" data-testid="order-plan-older">
-            {t(`${O}.plan.older`, { list: older.length > 1 ? `${stepNo(older[0]!.n)}–${stepNo(older[older.length - 1]!.n)}` : stepNo(older[0]!.n) })}
-          </p>
-        )}
-        {!viewer && (
-          <div className="orp-keys">
-            {aside}
-            <HandKey ready={pre.ok && !!hash && !pending} reason={!pre.ok ? preWhyText(pre.why, pre.left) : undefined} onPress={() => void start()} primary testId="order-start">
-              <span className="kbd" aria-hidden>
-                ↵
-              </span>
-              {t(foreign ? `${O}.key.startForeign` : `${O}.key.start`)}
-            </HandKey>
-          </div>
-        )}
-      </>
-    )
+    body = <ReadyPart rowId={rowId} rec={rec} pre={pre} headId={headId} viewer={viewer} elsewhere={elsewhereHere} onNote={setNote} />
   } else if (rec.state === 'creating') {
     body = (
       <p className="orc-line" role="status" data-testid="order-chain-creating">
@@ -345,7 +305,7 @@ export default function ChainPart({ rowId, rec, ready, pre, headId, viewer, asid
           {t(`${O}.chain.interrupted`, { made, total: chain.steps.length })}
         </p>
         {!viewer && (
-          <div className="orp-keys">
+          <div className="orp-keys" data-bar="">
             <HandKey ready onPress={() => void discardMade(rowId).then(after)} testId="order-discard-made">
               {t(`${O}.key.discardMade`)}
             </HandKey>
@@ -361,8 +321,8 @@ export default function ChainPart({ rowId, rec, ready, pre, headId, viewer, asid
     body = (
       <>
         <ol className="orc-lane" data-testid="order-chain">
-          {sorted.map((st) => (
-            <StepRow key={st.id} step={st} chain={chain} />
+          {sorted.map((st, i) => (
+            <StepRow key={st.id} step={st} chain={chain} prev={i > 0 ? sorted[i - 1]!.n : null} />
           ))}
         </ol>
         {halt || rec.state === 'halted' ? (
@@ -371,7 +331,7 @@ export default function ChainPart({ rowId, rec, ready, pre, headId, viewer, asid
               {t(`${O}.chain.halted`, { why: halt ? t(`${O}.halt.${halt.why}`, { n: halt.step !== undefined ? stepNo(halt.step) : '' }) : t(`${O}.halt.status`) })}
             </p>
             {!viewer && (
-              <div className="orp-keys">
+              <div className="orp-keys" data-bar="">
                 <HandKey ready onPress={resumeKey} primary testId="order-resume">
                   <span className="kbd" aria-hidden>
                     ↵
@@ -391,9 +351,30 @@ export default function ChainPart({ rowId, rec, ready, pre, headId, viewer, asid
             {skippable.length > 0 && <p className="orc-line orc-line--quiet">{t(`${O}.skip.note`)}</p>}
           </>
         ) : rec.state === 'done' ? (
-          <p className="orc-line" data-testid="order-chain-done">
-            {t(`${O}.chain.done`)}
-          </p>
+          <>
+            <p className="orc-line" data-testid="order-chain-done">
+              {t(`${O}.chain.done`)}
+            </p>
+            {results && (
+              <ul className="orc-results" aria-label={t(`${O}.summary.title`)} data-testid="order-results">
+                {results.map((r) => (
+                  <li key={r.id} className="orc-result" data-state={r.state} data-testid="order-result">
+                    {resultLine(r)}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {!viewer && (
+              <div className="orp-keys" data-bar="">
+                <button type="button" className="btn btn--sm btn--primary" onClick={() => void summary()} data-testid="order-summary">
+                  <span className="kbd" aria-hidden>
+                    W
+                  </span>
+                  {t(`${O}.key.write`)}
+                </button>
+              </div>
+            )}
+          </>
         ) : card && chain ? (
           <ChainCard rowId={rowId} chain={chain} move={card} viewer={viewer} onOutcome={keyed} />
         ) : counting ? (
@@ -424,7 +405,7 @@ export default function ChainPart({ rowId, rec, ready, pre, headId, viewer, asid
               {elsewhere ? t(`${O}.chain.elsewhere`) : t(`${O}.chain.taken`, { stop: STOP_KEY })}
             </p>
             {!viewer && (
-              <div className="orp-keys">
+              <div className="orp-keys" data-bar="">
                 <button type="button" className="btn btn--sm" onClick={haltKey} data-testid="order-halt">
                   <span className="kbd" aria-hidden>
                     H

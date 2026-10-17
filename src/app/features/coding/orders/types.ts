@@ -194,6 +194,11 @@ export interface OrderDraft {
    * brings that chain back as it was (halted: ↵ Fortsetzen / S again; its parked steps stay held)
    */
   over?: 'halted' | 'done'
+  /**
+   * "Budget je Kette" set on the plate for this chain (the field above ↵ Kette starten): an amount in $ (within the
+   * config's BUDGET_RANGE), null = none for this chain; absent = the work orders' settings decide (Database.orders.budgetUsd)
+   */
+  budget?: number | null
 }
 
 /** One step of a confirmed chain. */

@@ -472,7 +472,8 @@ async function startLocked(rowId: ID, hash: string): Promise<StartOutcome> {
     doneBy: {},
     halted: null,
     checkpoint: read.config.checkpoint,
-    ...(read.config.budgetUsd !== undefined ? { budgetUsd: read.config.budgetUsd } : {}),
+    // the budget set on the plate for this chain (null: none), else the work orders' settings
+    ...(draft.budget !== undefined ? (draft.budget !== null ? { budgetUsd: draft.budget } : {}) : read.config.budgetUsd !== undefined ? { budgetUsd: read.config.budgetUsd } : {}),
     ...(older ? { replaced: { chain: older, trashed: trash } } : {}),
     ...(from ? { basis: { n: from.n, id: from.id, kind: from.kind, title: titleOf(from.id), drop: [...(from.basisBlock ? [from.basisBlock] : []), ...(from.own ?? [])] } } : {}),
   }

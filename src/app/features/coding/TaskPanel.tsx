@@ -36,7 +36,9 @@ import { GivePages } from './GivePages'
 import { EMPTY_DRAFT, draftText, type RefDraft } from './refDraft'
 import { privateAllowed } from './pagePick'
 import { PermissionCard, PermissionSummary, StepLimitBox } from './PermissionCard'
-import { taskPhase } from './terminal'
+import { planTaskAction, taskPhase } from './terminal'
+import { ChainLine, NextStepFold, type ChainNext } from './orders/ChainLine'
+import { HandKey } from './orders/HandKey'
 import './coding.css'
 
 type Tab = 'log' | 'plan' | 'diff' | 'tests' | 'git'
@@ -105,6 +107,9 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
   /** null while checking */
   const [trusted, setTrusted] = useState<boolean | null>(null)
   const elapsed = useElapsed(busy?.since ?? null)
+  // a gate whose approval ends a work order's chain step: the step it starts, and whether its fold was seen whole
+  const [chainNext, setChainNext] = useState<ChainNext | null>(null)
+  const [nextSeen, setNextSeen] = useState(false)
   const line = useRef<HTMLOListElement>(null)
   const stageId = ctx?.stage?.id
   // phones: the timeline scrolls — keep the current stage in view (the strip only)
@@ -135,6 +140,21 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
       live = false
     }
   }, [pageId, team, row, dbs, trustRev, refsAt])
+
+  // the chain's next step an approval here starts (terminal.ts planTaskAction: TaskActionPlan.chain)
+  // at the gate on this device: the stage moves first, then this device's state follows — asked once both say so
+  const atGate = !!ctx?.stage && taskPhase(ctx.stage, local, !!busy) === 'gate'
+  useEffect(() => {
+    let live = true
+    setNextSeen(false)
+    if (!atGate) return setChainNext(null)
+    void planTaskAction(pageId, 'approve')
+      .then((plan) => live && setChainNext(plan.chain ?? null))
+      .catch(() => live && setChainNext(null))
+    return () => {
+      live = false
+    }
+  }, [pageId, atGate, row, stageId])
 
   if (!ctx) return null
   const { pipeline, stage, row: task, props, kind } = ctx
@@ -203,6 +223,8 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
         </span>
       </header>
 
+      {/* a step of a work order's chain on this device: "Teil von Prüfauftrag PA-12 · Schritt 2 von 3 …" */}
+      <ChainLine taskId={pageId} />
       <ol ref={line} className="ctk-line" aria-label={t('features.coding.panel.timeline')}>
         {pipeline.map((s) => {
           const pos = !stage ? 'next' : s.index < stage.index ? 'done' : s.id === stage.id ? 'now' : 'next'
@@ -303,12 +325,21 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
           </form>
         )}
 
+        {state === 'gate' && chainNext && <NextStepFold next={chainNext} from={pageId} onSeen={setNextSeen} />}
         {state === 'gate' && canAct && rework === null && (
           <div className="ctk-keys">
-            <button type="button" className="btn btn--sm btn--primary" onClick={act(() => approveTask(pageId))} data-testid="coding-approve">
-              <Check size={14} strokeWidth={1.75} aria-hidden />
-              {t('features.coding.act.approve')}
-            </button>
+            {chainNext ? (
+              // the approval starts the chain's next step: VON HAND (a fresh press ≥ 300 ms after it showed)
+              <HandKey ready onPress={act(() => approveTask(pageId, { sawNext: nextSeen }))} primary testId="coding-approve">
+                <Check size={14} strokeWidth={1.75} aria-hidden />
+                {t('features.coding.act.approve')}
+              </HandKey>
+            ) : (
+              <button type="button" className="btn btn--sm btn--primary" onClick={act(() => approveTask(pageId))} data-testid="coding-approve">
+                <Check size={14} strokeWidth={1.75} aria-hidden />
+                {t('features.coding.act.approve')}
+              </button>
+            )}
             <button type="button" className="btn btn--sm" onClick={() => setRework(EMPTY_DRAFT)} data-testid="coding-rework">
               <Undo2 size={14} strokeWidth={1.75} aria-hidden />
               {t('features.coding.act.rework')}

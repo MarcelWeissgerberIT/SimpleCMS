@@ -131,8 +131,8 @@ export async function bringBackMenuRun(run: AIRun): Promise<boolean> {
  * are `you~preflight:<task id>` (store/writer.ts; design §14, brief step 39 — the task's id: a queue item's id holds
  * characters a writer key's ref does not take). Its Undo (a "Then" put back) is the source's own `you~undo`.
  */
-export const applyTask = (plan: TaskActionPlan): Promise<{ undo: (() => boolean) | null }> =>
-  applyTaskAction(plan, { writer: { kind: 'you', via: 'preflight', ref: plan.taskId } })
+export const applyTask = (plan: TaskActionPlan, opts: { sawNext?: boolean } = {}): Promise<{ undo: (() => boolean) | null }> =>
+  applyTaskAction(plan, { writer: { kind: 'you', via: 'preflight', ref: plan.taskId }, ...(opts.sawNext ? { sawNext: true } : {}) })
 
 /** Trust exactly the version the card rendered ('changed': it is not that version any more; 'gone'). */
 export const confirmVersion = (taskId: ID, hash: string): Promise<'ok' | 'changed' | 'gone'> => confirmTaskVersion(taskId, hash)

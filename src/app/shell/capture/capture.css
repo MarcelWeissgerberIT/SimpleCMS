@@ -760,3 +760,9 @@
     transition: none;
   }
 }
+/* a page part holds its own key bar at the bottom of a phone (the work order plate): the key steps aside */
+html[data-bottom-bar] .qcap-fab {
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+}

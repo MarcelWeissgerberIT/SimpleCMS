@@ -450,3 +450,672 @@
 .cv-halt-all {
   margin-left: auto;
 }
+
+/* ------------------------------------------------------------------ B8: the plate proper */
+
+/* Kette bereit: the counter, what was understood, the server's cut-out, the stations, what goes along */
+.orc-ready {
+  container-type: inline-size;
+  margin: 12px 0 0;
+  padding: 10px 0 0;
+  border-top: 1px solid var(--rule);
+}
+.orc-counter {
+  margin: 0;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.orc-understood {
+  margin: 8px 0 0;
+  color: var(--ink);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+.orc-understood .label {
+  margin-right: 4px;
+  color: var(--ink-2);
+}
+.orc-notes,
+.orc-lines,
+.orc-calls,
+.orc-results,
+.orc-context__links {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.orc-notes .orc-line,
+.orc-lines .orc-line {
+  margin: 2px 0 0;
+}
+/* a class tag: PRIVAT · MAIL · FREMD (orange in the text tone of the signal colour — never raw --signal) */
+.orc-tag {
+  display: inline-block;
+  padding: 0 4px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+.orc-tag[data-tag='foreign'] {
+  border-color: var(--signal-ink);
+  color: var(--signal-ink);
+}
+.orc-tag[data-tag='mail'] {
+  border-color: var(--ink-3);
+}
+
+/* the server's part: a cut-out, its call list */
+.orc-context {
+  margin: 10px 0 0;
+  padding: 8px 10px 10px;
+  border: 1px solid var(--rule);
+  border-left: 2px solid var(--signal-ink);
+  border-radius: var(--radius-1);
+  background: var(--surface-2);
+}
+.orc-context__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin: 0;
+}
+.orc-context__head > .label:first-child {
+  color: var(--ink);
+}
+.orc-context__goes {
+  color: var(--ink-3);
+}
+.orc-context__note {
+  margin: 6px 0 0;
+  color: var(--ink);
+  font-family: var(--font-doc);
+  font-size: var(--text-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.orc-context__links a {
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}
+.orc-call {
+  margin: 3px 0 0;
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}
+.orc-call__fail {
+  color: var(--signal-ink);
+}
+.orc-skip .btn {
+  margin-left: 4px;
+}
+
+/* the plan beside the request (a wide plate), the request behind "Auftrag zeigen" (a narrow one) */
+.orc-ready__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  margin: 12px 0 0;
+}
+.orc-request {
+  order: -1;
+  min-width: 0;
+}
+.orc-request__body {
+  display: none;
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-1);
+  background: var(--bg);
+}
+.orc-request[data-open] .orc-request__body {
+  display: block;
+}
+.orc-request__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin: 0;
+  color: var(--ink-2);
+}
+.orc-request__text {
+  max-height: 24em;
+  margin: 6px 0 0;
+  overflow: auto;
+  color: var(--ink);
+  font-family: var(--font-doc);
+  font-size: var(--text-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+@container (min-width: 980px) {
+  .orc-ready__grid {
+    grid-template-columns: minmax(0, 1fr) minmax(220px, 32%);
+    align-items: start;
+  }
+  .orc-request {
+    position: sticky;
+    top: 8px;
+    order: 0;
+  }
+  .orc-request__toggle {
+    display: none;
+  }
+  .orc-request__body {
+    display: block;
+    margin: 0;
+  }
+}
+
+/* the stations: a sticky head over the step in full */
+.orc-stations {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.orc-station {
+  position: relative;
+  min-width: 0;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+}
+.orc-station[data-seen] {
+  border-color: var(--rule-strong);
+}
+.orc-station__bar {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--rule);
+  border-radius: var(--radius-1) var(--radius-1) 0 0;
+  background: var(--surface);
+}
+.orc-station__bar:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.orc-station__seen {
+  margin-left: auto;
+  color: var(--ink-3);
+}
+.orc-station__seen[data-on] {
+  color: var(--ink-2);
+}
+.orc-station > .orc-step__meta,
+.orc-station > .orc-step__why,
+.orc-station > .orc-step__goal,
+.orc-station > .orc-step__criteria,
+.orc-station > .orc-refs,
+.orc-station > .orc-pick,
+.orc-station > .orc-step__foot,
+.orc-station > .orc-edit {
+  margin-right: 10px;
+  margin-left: 10px;
+}
+.orc-station > .orc-step__criteria {
+  margin-left: 28px;
+}
+.orc-station > .orc-step__foot {
+  margin-bottom: 8px;
+}
+.orc-edge {
+  display: block;
+  height: 1px;
+}
+.orc-doc {
+  font-size: var(--text-sm);
+}
+/* the plate's documents (a goal, a page that goes along, a step as it will run) at the UI's reading size — two classes:
+   the editor's `.one-doc` sets its own */
+.one-doc.orc-doc {
+  --doc-size: var(--text-md);
+  --doc-lh: 1.55;
+}
+.orc-doc .doc-content {
+  padding: 0;
+}
+.orc-step__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  margin-top: 8px;
+  color: var(--ink-3);
+}
+.orc-station__edit {
+  margin-left: auto;
+}
+.orc-refs {
+  margin-top: 8px;
+}
+.orc-refs__head {
+  margin: 0 0 4px;
+  color: var(--ink-2);
+}
+.orc-fold {
+  margin: 4px 0 0;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-1);
+  background: var(--bg);
+}
+.orc-fold__sum {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 6px 8px;
+  cursor: pointer;
+  color: var(--ink);
+  font-size: var(--text-sm);
+}
+.orc-fold__sum:focus-visible {
+  outline: none;
+  border-radius: var(--radius-1);
+  box-shadow: var(--focus-ring);
+}
+.orc-fold__title {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.orc-fold__hint {
+  margin-left: auto;
+  color: var(--ink-3);
+}
+.orc-fold[data-seen] .orc-fold__hint {
+  color: var(--ink-2);
+}
+.orc-fold__body {
+  max-height: 24em;
+  padding: 0 8px 8px;
+  overflow: auto;
+}
+.orc-pick {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin-top: 8px;
+  padding: 6px 8px;
+  border-left: 2px solid var(--signal-ink);
+}
+.orc-pick .input {
+  width: auto;
+  min-width: 10em;
+}
+
+/* E: a step in place */
+.orc-edit {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+  margin-bottom: 8px;
+}
+.orc-edit__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+.orc-edit__row > .orc-edit__field {
+  flex: 1 1 9em;
+}
+.orc-edit__field {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.orc-edit__field .label {
+  color: var(--ink-2);
+}
+
+/* open points, the planner's questions */
+.orc-open {
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  border: 1px solid var(--rule);
+  border-left: 2px solid var(--signal);
+  border-radius: var(--radius-1);
+}
+.orc-open > .label {
+  margin: 0;
+  color: var(--ink);
+}
+.orc-open ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  font-size: var(--text-sm);
+}
+.orc-questions {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0 0;
+}
+.orc-question {
+  display: grid;
+  gap: 4px;
+}
+.orc-question__q {
+  color: var(--ink);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+/* the money: Claude Code so far, the budget for this chain */
+.orc-cost {
+  color: var(--ink-2);
+}
+.orc-budget {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin: 10px 0 0;
+}
+.orc-budget > .label {
+  color: var(--ink);
+}
+.orc-budget__field {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.orc-budget__input {
+  width: 7em;
+  font-variant-numeric: tabular-nums;
+}
+.orc-budget__quick {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.orc-budget__quick .btn[aria-pressed='true'] {
+  border-color: var(--ink);
+}
+.orc-budget > .orc-line {
+  flex-basis: 100%;
+  margin: 0;
+}
+.orc-why {
+  margin-top: 4px;
+  text-align: right;
+}
+.orc-keyhint {
+  margin-top: 6px;
+  color: var(--ink-3);
+  font-size: var(--text-xs);
+}
+@media (hover: none) {
+  .orc-keyhint {
+    display: none;
+  }
+}
+
+/* the Laufleiste: a parked step names the one it waits for; the end: each step's result */
+.orc-row__waits {
+  color: var(--ink-3);
+}
+.orc-result {
+  margin: 4px 0 0;
+  color: var(--ink);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+.orc-result[data-state='skipped'],
+.orc-result[data-state='gone'] {
+  color: var(--ink-3);
+}
+
+/* while One plans */
+.orc-planning__server {
+  margin: 8px 0 0;
+}
+.orc-planning__server > .label {
+  margin: 0;
+  color: var(--ink-2);
+}
+.orc-planning[data-phase='asking'] [data-testid='order-planning-phase']::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 6px;
+  border-radius: var(--radius-led);
+  background: var(--signal);
+  vertical-align: middle;
+  animation: orp-blink 1s steps(2, jump-none) infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .orc-planning[data-phase='asking'] [data-testid='order-planning-phase']::before {
+    animation: none;
+  }
+}
+.orc-brake {
+  margin: 10px 0 0;
+}
+
+/* a phone: the plate's main keys row is a bar at the bottom of the screen (above the flight recorder's deck) */
+@media (max-width: 600px) {
+  .orp-keys[data-bar] {
+    position: sticky;
+    bottom: calc(var(--deck-dock, 0px) + env(safe-area-inset-bottom));
+    z-index: var(--z-sticky);
+    justify-content: flex-start;
+    margin-right: -16px;
+    margin-left: -16px;
+    padding: 8px 16px;
+    border-top: 1px solid var(--rule-strong);
+    background: var(--surface);
+  }
+  .orp-keys[data-bar] .btn {
+    flex: 1 1 auto;
+    justify-content: center;
+    min-height: 40px;
+  }
+  .orc-why {
+    text-align: left;
+  }
+}
+
+/* the work orders' settings (a popover from ⚙) */
+.ors-pop {
+  width: min(460px, calc(100vw - 32px));
+}
+.ors {
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px 14px;
+}
+.ors__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--ink-2);
+}
+.ors__group {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.ors__group > legend {
+  margin-bottom: 4px;
+  padding: 0;
+  color: var(--ink);
+}
+.ors__radio {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-1);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+.ors__radio:has(input:checked) {
+  border-color: var(--ink);
+}
+.ors__radio input {
+  margin-top: 3px;
+  accent-color: var(--signal);
+}
+.ors__server {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.ors__name .label {
+  color: var(--ink-3);
+}
+.ors__tools {
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}
+.ors__tools--left {
+  color: var(--ink-3);
+}
+.ors__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.ors__kinds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  font-size: var(--text-sm);
+}
+.ors__check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.ors__check input {
+  accent-color: var(--signal);
+}
+.ors__project {
+  display: grid;
+  grid-template-columns: minmax(7em, auto) minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  font-size: var(--text-sm);
+}
+.ors__switch,
+.ors__budget {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+  font-size: var(--text-sm);
+}
+.ors .orc-line {
+  margin: 0;
+}
+
+/* chips on board cards: a chain step ("PA-12 · 2/3"), a request's sub-state */
+.dbc-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  margin: 6px 0 0;
+  padding: 1px 6px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-1);
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+.dbc-chip[data-parked] {
+  border-style: dashed;
+  color: var(--ink-3);
+}
+.dbc-chip[data-chip='waiting'],
+.dbc-chip[data-chip='next'],
+.dbc-chip[data-chip='planning'] {
+  border-color: var(--signal-ink);
+  color: var(--signal-ink);
+}
+
+/* the task panel: the chain line, a gate's next step */
+.ctk-chain {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin: 6px 0 0;
+}
+.ctk-chain .label {
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+.ctk-chain .ctk-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.ctk-next {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border: 1px solid var(--rule);
+  border-left: 2px solid var(--signal);
+  border-radius: var(--radius-1);
+}
+.ctk-next__line {
+  margin: 0;
+  color: var(--ink);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+.ctk-next__fold {
+  margin-top: 6px;
+}
+.ctk-next__basis {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--rule);
+}
+.ctk-next__basis > .label {
+  margin: 0 0 4px;
+  color: var(--ink-2);
+}
+.ctk-next .orc-line {
+  margin-top: 6px;
+}
+
+/* what takes focus inside a station (an edit's fields, a fold, a key) scrolls into view below the station's sticky head */
+.orc-station input,
+.orc-station select,
+.orc-station textarea,
+.orc-station summary,
+.orc-station button {
+  scroll-margin-top: calc(48px * var(--text-scale));
+}
+/* headings inside the plate's documents stay part of the plate (no page-title sizes inside a station or a fold) */
+.one-doc.orc-doc .doc-content :is(h1, h2, h3, h4) {
+  margin: 12px 0 4px;
+  font-size: var(--text-md);
+  font-stretch: 100%;
+  letter-spacing: 0;
+}
+.orc-edit {
+  scroll-margin-top: calc(48px * var(--text-scale));
+}

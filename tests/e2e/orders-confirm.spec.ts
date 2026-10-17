@@ -13,7 +13,7 @@
  *  - a follow-up chain counts on (4, 5, 6) and trashes the older chain's parked steps — its Undo brings them back;
  *  - parked steps never reach the worker (moved into an automatic stage by hand: held; the chain then halts "out of
  *    order"); a project that starts new tasks at once is refused before anything is created;
- *  - the plate: the plan's steps in Kette bereit, ↵ Kette starten (VON HAND — ready a moment after it shows), the count
+ *  - the plate: the plan's steps in Kette bereit, ↵ Kette starten (VON HAND — ready a moment after the plan was seen in full), the count
  *    with ↵ jetzt and Z (focus in the plate), the Laufleiste's state words, an interrupted creation's keys.
  */
 import { readFileSync } from 'node:fs'
@@ -22,6 +22,7 @@ import type { Page } from '@playwright/test'
 import { test, expect, openApp, wsEval, flush, gotoPage, waitForApp } from './fixtures'
 import { mockClaudeScript, type ClaudeTurn } from './helpers/providers'
 import { startFakeWorker, type FakeWorker } from './helpers/fakeWorker'
+import { readPlan } from './helpers/orders'
 import { test as node, expect as nodeExpect } from '@playwright/test'
 import { WORKER_CAN, type WorkerInfo } from '../../src/app/features/coding/protocol'
 import { stepPage, requestPlain } from '../../src/app/features/coding/orders/stepPage'
@@ -388,9 +389,12 @@ test.describe('confirming a work order: startChain', () => {
     await expect(plate.getByTestId('order-plan-step').nth(1)).toContainText('Login bleibt 5 Minuten offen')
     // ready to plan says nothing more once the plan stands; planning again is the plain key beside it
     await expect(plate.getByTestId('order-pre')).toHaveCount(0)
-    await expect(plate.getByTestId('order-plan')).toHaveText('Plan again')
+    await expect(plate.getByTestId('order-plan')).toHaveText('RPlan again')
     const start = plate.getByTestId('order-start')
     await expect(start).toHaveText('↵Start chain')
+    // ↵ acts once every step was seen in full and the page that goes along was opened (B8 — orders-ui.spec)
+    await expect(start).toHaveAttribute('aria-disabled', 'true')
+    await readPlan(page)
     await expect(start).toHaveAttribute('data-ready', '')
     await expect(start).not.toHaveAttribute('aria-disabled', 'true')
     await start.click()
@@ -406,7 +410,7 @@ test.describe('confirming a work order: startChain', () => {
     await expect(plate.getByTestId('order-plan-step')).toHaveCount(3)
     expect(await chainRows(page, row)).toEqual([])
     expect(await statusOf(page, row)).toBe(ST.ready)
-    // again: ↵ jetzt starts step 01 at once — Z is gone, the line says so
+    // again (what was seen stays seen in this tab): ↵ jetzt starts step 01 at once — Z is gone, the line says so
     await expect(start).toHaveAttribute('data-ready', '')
     await start.click()
     await plate.getByTestId('order-start-now').click()

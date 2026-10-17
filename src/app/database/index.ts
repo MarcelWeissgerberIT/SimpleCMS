@@ -178,3 +178,9 @@ export { importCsvInto } from './create/CsvIntake'
  *  - withTypeColumn(db, props, rows): export columns with "Type" after the title when the database uses record types
  */
 export { freeBoardSpec, addFreeBoard, adoptRowType, TYPE_PROP_ID, withTypeColumn, typeOfRow } from './model/recordTypes'
+/**
+ * Chips on row cards (board / gallery) from other areas: registerCardChip(Component) — once, at boot; the component gets
+ * { db, row }, decides for itself whether the card is its own and renders nothing otherwise (the coding chain's
+ * "PA-12 · 2/3", a work order's waiting chip). A status word, never a key.
+ */
+export { registerCardChip, type CardChip } from './views/cardChips'

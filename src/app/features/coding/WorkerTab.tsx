@@ -4,6 +4,7 @@
  * refusal means), the manual setup for a worker.json of one's own (download, `init --workspace <this id>`,
  * check, run) and the safety notes.
  */
+import { OrderSettingsKey } from './orders/OrderSettings'
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { ChevronRight, Download } from 'lucide-react'
 import { useUI } from '../../store/ui'
@@ -383,9 +384,13 @@ function OrdersPanel() {
       ) : (
         <p className="cw-row">
           {dbId ? (
-            <button type="button" className="btn btn--sm" onClick={() => open(dbId)} data-testid="coding-orders-open">
-              {t('features.coding.order.settings.open')}
-            </button>
+            <>
+              <button type="button" className="btn btn--sm" onClick={() => open(dbId)} data-testid="coding-orders-open">
+                {t('features.coding.order.settings.open')}
+              </button>
+              {/* the work orders' settings: the server pick, pipelines, projects, the checkpoint, the budget */}
+              <OrderSettingsKey dbId={dbId} label />
+            </>
           ) : (
             <button
               type="button"

@@ -1,22 +1,21 @@
 /**
- * The plate on a request's page (spec §1.4 — B4 SKELETON; B8 builds the plan's stations, the Laufleiste, the keys):
- * "§ PRÜFAUFTRAG · PA-12 · PLANER", screwed, between the row's properties and its body.
- *
- *  - the Status (a word beside its LED) and, in Planen, its sub-state chip: plant ◐ (the planner's run in this tab,
- *    runs.ts — from the press until it ends) · Rückfrage (the draft holds questions only) · Regler hält (the last run
- *    stopped at the Regler's line) · wartet auf Worker · abgelaufen (only while this tab still holds a press that aged
- *    past 24 h — a fresh read drops it, records.ts)
- *  - four lamps, 2×2 at phone width: CODING · WORKER · KONTEXT (dim "ohne Server" without one — never red) · PLANER
- *  - the precondition strip (§2.2 items 1–6, pre.ts): the first that fails, with its fix key — or the kept press
- *    ("Plant, sobald der Worker zurück ist (bis …)"), or "Bereit zum Planen" with the kinds not offered named; while
- *    the request stands in Planen, how the planner's last run here ended when it made no plan (its own words —
- *    text.ts outcomeText: AI not set up, an empty request, the gate's refusal, the Regler …)
+ * The plate on a request's page (spec §1.4–§1.9): "§ PRÜFAUFTRAG · PA-12 · PLANER", screwed, between the row's
+ * properties and its body.
+ *  - the Status (a word beside its LED) and, in Planen, its sub-state chip: plant ◐ (the planner's run in this tab) ·
+ *    Rückfrage (the draft holds questions only) · Regler hält · wartet auf Worker · abgelaufen
+ *  - four lamps, 2×2 on a narrow plate (never overflowing at 390 px): CODING · WORKER · KONTEXT (dim "ohne Server" —
+ *    never red) · PLANER; ⚙ the work orders' settings beside the status
+ *  - the precondition strip (§2.2 items 1–6, pre.ts): the first that fails with its fix key — or the kept press, or
+ *    "Bereit zum Planen", or how the planner's last run here ended when it made no plan
+ *  - while One plans: what is read, every server call, the receipt, ⌘. (Planning.tsx); a manual run at the Regler's line:
+ *    the brake note in the plate; questions only: an answer field each (Questions.tsx)
  *  - ↵ Planen (a press of the allow-list, how 'plate'); viewers see no key
- *  - B6, ChainPart.tsx: in Kette bereit the plan's steps and ↵ Kette starten (VON HAND; "Planen" becomes the plain key
- *    "Erneut planen" beside it), a creation, an interrupted one with its two keys, the Laufleiste with the count before
- *    step 01 (↵ jetzt · Z) — the strip's "Bereit zum Planen" goes once a plan or a chain stands here
+ *  - ChainPart.tsx: Kette bereit (ReadyPart.tsx), a creation, an interrupted one, the Laufleiste, the end
+ * Keys with focus in the plate: Esc only leaves (focus to the heading — it never discards), ⌘. stops a planner run, Z
+ * takes back the plan D just discarded. On a phone the plate's main keys row is a bar at the bottom (above the flight
+ * recorder's deck, the floating keys out of the way — `html[data-bottom-bar]`).
  */
-import { useId } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { ArrowRight, Settings2 } from 'lucide-react'
 import { useWorkspace } from '../../../store/store'
 import type { ID, OrderStatusKey } from '../../../store/types'
@@ -25,6 +24,7 @@ import { Led, Screws } from '../../../ui/controls'
 import { useLang, useT } from '../../../i18n'
 import { navigate } from '../../../lib/router'
 import { useCoding } from '../state'
+import { serverRows } from './serverTools'
 import { workerVerdict } from '../link'
 import { openCodingSettings } from '../open'
 import { ChangeReposButton } from '../SetupCard'
@@ -35,6 +35,13 @@ import { useOrderRecord } from './records'
 import { usePlannerRun } from './runs'
 import { outcomeText, preWhyText, problemText, untilText } from './text'
 import ChainPart from './ChainPart'
+import { PlanBrake, PlanningPart } from './Planning'
+import { QuestionsForm } from './Questions'
+import { OrderSettingsKey } from './OrderSettings'
+import { stopPlanning } from './runs'
+import { takeDiscardUndo } from './trigger'
+import { typing } from '../../../ui/keys'
+import { HelpLink } from '../../../help'
 import { ORDER_LIMITS } from './types'
 import type { OrderPreWhy } from './pre'
 import './orders.css'
@@ -90,6 +97,9 @@ export default function OrderPlate({ rowId }: { rowId: ID }) {
   const t = useT()
   useLang()
   const hid = useId()
+  const plateRef = useRef<HTMLElement>(null)
+  // a brake note answered or set aside (the next run shows its own)
+  const [brakeDone, setBrakeDone] = useState(false)
   // re-render on the row, the database and the worker link
   useWorkspace((s) => s.pages[rowId])
   const db = useWorkspace((s) => (s.pages[rowId]?.databaseId ? s.databases[s.pages[rowId]!.databaseId!] : undefined))
@@ -112,6 +122,52 @@ export default function OrderPlate({ rowId }: { rowId: ID }) {
   const run = usePlannerRun(rowId)
   const outcome = run?.phase === 'done' ? run.outcome : undefined
   const planningNow = note?.why === 'planning' || (!!run && run.phase !== 'done')
+  useEffect(() => setBrakeDone(false), [run?.run])
+  // the plate's own keys (focus inside it): Esc only leaves — focus to the heading, nothing discarded · ⌘. stops a
+  // planner run here · Z takes back the plan D just discarded (its toast's Undo)
+  useEffect(() => {
+    const plate = plateRef.current
+    if (!plate) return
+    const on = (e: KeyboardEvent) => {
+      if (e.repeat || e.defaultPrevented) return
+      const el = e.target as HTMLElement
+      if (e.key === '.' && (e.metaKey || e.ctrlKey) && !e.altKey) {
+        if (stopPlanning(rowId)) e.preventDefault()
+        return
+      }
+      if (typing(el) || e.ctrlKey || e.metaKey || e.altKey) return
+      if (e.key === 'Escape') {
+        // a popover / dialog inside handles its own Esc first
+        if (el.closest('[role="dialog"]')) return
+        e.preventDefault()
+        document.getElementById(hid)?.focus()
+        return
+      }
+      if (e.key.toLowerCase() === 'z' && orderStatusKey(rowId) === 'draft') {
+        const undo = takeDiscardUndo(rowId)
+        if (!undo) return
+        e.preventDefault()
+        undo()
+      }
+    }
+    plate.addEventListener('keydown', on)
+    return () => plate.removeEventListener('keydown', on)
+  }, [rowId, hid])
+  // a phone: the plate's main keys row is the bottom bar — the floating keys step aside while the plate is here
+  useEffect(() => {
+    if (viewer || typeof window.matchMedia !== 'function') return
+    const mq = window.matchMedia('(max-width: 600px)')
+    const set = () => {
+      if (mq.matches) document.documentElement.setAttribute('data-bottom-bar', '')
+      else document.documentElement.removeAttribute('data-bottom-bar')
+    }
+    set()
+    mq.addEventListener('change', set)
+    return () => {
+      mq.removeEventListener('change', set)
+      document.documentElement.removeAttribute('data-bottom-bar')
+    }
+  }, [viewer])
   const asks = rec?.state === 'draft' && !!rec.draft && !rec.draft.plan.steps.length
   // a kept press waits for the worker only while no 'ok' one is online here (else it plans in 5 s, or the planner held /
   // refused it and it waits for the worker's next return — trigger.ts `parked`)
@@ -185,20 +241,28 @@ export default function OrderPlate({ rowId }: { rowId: ID }) {
   // planning again is a plain key beside the plan; nothing plans over a chain being made or running
   const planKey = !chainShown || chainState === 'draft' || chainState === 'halted' || chainState === 'done'
 
-  // ↵ Planen — beside the plan once one stands here ("Erneut planen", a plain key: ↵ is Kette starten then)
+  // the planner asked back (or refused): its questions are the plate's main part, their key carries ↵
+  const askOnly = status === 'plan' && rec?.state === 'draft' && !!rec.draft && !rec.draft.plan.steps.length && (rec.draft.plan.questions.length > 0 || !!rec.draft.plan.refused)
+  // ↵ Planen — beside the plan once one stands here ("Erneut planen", a plain key: ↵ is Kette starten then — or the
+  // answers' key while the planner asks)
+  const plain = chainShown || (askOnly && !!rec?.draft?.plan.questions.length)
   const planButton = (
-    <button type="button" className={`btn btn--sm${chainShown ? '' : ' btn--primary'}`} disabled={running} title={running ? t('features.coding.order.why.running') : undefined} onClick={() => void pressPlan(rowId, 'plate')} data-testid="order-plan">
-      {!chainShown && (
+    <button type="button" className={`btn btn--sm${plain ? '' : ' btn--primary'}`} disabled={running} title={running ? t('features.coding.order.why.running') : undefined} onClick={() => void pressPlan(rowId, 'plate')} data-testid="order-plan">
+      {!plain && (
         <span className="kbd" aria-hidden>
           ↵
         </span>
       )}
-      {t(why === 'expired' || chainShown ? 'features.coding.order.key.planAgain' : 'features.coding.order.key.plan')}
+      {t(why === 'expired' || plain ? 'features.coding.order.key.planAgain' : 'features.coding.order.key.plan')}
     </button>
   )
 
+  // the server's lamp: its read tools on this device (a server never tested here: none yet)
+  const serverTools = server ? (serverRows().find((r) => r.name === server)?.reads.length ?? 0) : 0
+  const brake = status === 'plan' && outcome?.kind === 'brake' && !brakeDone ? outcome.error : null
+
   return (
-    <section className="screw-plate orp" aria-labelledby={hid} data-status={status ?? undefined} data-testid="order-plate">
+    <section ref={plateRef} className="screw-plate orp" aria-labelledby={hid} data-status={status ?? undefined} data-testid="order-plate">
       <Screws seed={rowId} />
       <header className="orp-head">
         <h2 id={hid} className="label orp-code" tabIndex={-1}>
@@ -212,6 +276,8 @@ export default function OrderPlate({ rowId }: { rowId: ID }) {
               {t(`features.coding.order.chip.${chip}`)}
             </span>
           )}
+          <HelpLink id="coding-pipeline" />
+          {!viewer && <OrderSettingsKey rowId={rowId} />}
         </span>
       </header>
       <dl className="orp-lamps">
@@ -222,16 +288,22 @@ export default function OrderPlate({ rowId }: { rowId: ID }) {
           text={online ? `${coding.worker?.name ?? ''} · ${coding.worker?.worker ?? ''}` : t(elsewhere ? 'features.coding.order.lamp.worker.elsewhere' : 'features.coding.order.lamp.worker.none')}
           testId="order-lamp-worker"
         />
-        <Lamp name={t('features.coding.order.lamp.context')} led="ok" dim={!server} text={server ? t('features.coding.order.lamp.context.read', { server }) : t('features.coding.order.lamp.context.none')} testId="order-lamp-context" />
+        <Lamp
+          name={t('features.coding.order.lamp.context')}
+          led="ok"
+          dim={!server}
+          text={server ? (serverTools ? t('features.coding.order.lamp.context.tools', { server, n: serverTools }) : t('features.coding.order.lamp.context.read', { server })) : t('features.coding.order.lamp.context.none')}
+          testId="order-lamp-context"
+        />
         <Lamp name={t('features.coding.order.lamp.planner')} led={planner.led} text={planner.text} testId="order-lamp-planner" />
       </dl>
-      {strip && (
-        <div className="orp-strip" data-why={why} data-ended={ended ? '' : undefined} data-testid="order-pre">
+      {strip && !planningNow && (
+        <div className="orp-strip" data-why={why} data-ended={ended && !brake ? '' : undefined} data-testid="order-pre">
           <p className="orp-strip__line">
             {line}
             {left && <span className="orp-strip__left"> {left}</span>}
           </p>
-          {ended && (
+          {ended && !brake && (
             <p className="orp-strip__line orp-strip__ended" data-outcome={outcome?.kind} data-testid="order-outcome">
               {ended}
             </p>
@@ -239,8 +311,33 @@ export default function OrderPlate({ rowId }: { rowId: ID }) {
           {fix && <FixKey why={fix} />}
         </div>
       )}
-      {chainShown && rec && <ChainPart rowId={rowId} rec={rec} ready={ready} pre={pre} headId={hid} viewer={viewer} aside={!viewer && planKey && chainState === 'draft' ? planButton : null} />}
-      {!viewer && planKey && !(chainShown && chainState === 'draft') && <div className="orp-keys">{planButton}</div>}
+      {planningNow && <PlanningPart rowId={rowId} viewer={viewer} />}
+      {brake && !viewer && <PlanBrake rowId={rowId} error={brake} onDone={() => setBrakeDone(true)} />}
+      {askOnly && rec?.draft && !planningNow && (
+        <div className="orc" data-testid="order-ask">
+          <p className="label orc-title">§ {t('features.coding.order.questions.title')}</p>
+          {rec.draft.plan.summary && (
+            <p className="orc-understood">
+              <span className="label">{t('features.coding.order.plan.understood')}</span> {rec.draft.plan.summary}
+            </p>
+          )}
+          {viewer ? (
+            <ul className="orc-open">
+              {rec.draft.plan.questions.map((q, i) => (
+                <li key={i}>{q}</li>
+              ))}
+            </ul>
+          ) : (
+            <QuestionsForm rowId={rowId} draft={rec.draft} />
+          )}
+        </div>
+      )}
+      {chainShown && rec && <ChainPart rowId={rowId} rec={rec} ready={ready} pre={pre} headId={hid} viewer={viewer} elsewhereHere={elsewhere} />}
+      {!viewer && planKey && !(chainShown && chainState === 'draft') && !planningNow && (
+        <div className="orp-keys" data-bar="">
+          {planButton}
+        </div>
+      )}
     </section>
   )
 }

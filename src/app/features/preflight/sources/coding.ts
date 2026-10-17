@@ -81,10 +81,20 @@ function handOf(plan: TaskActionPlan | undefined, extra: HandWhy[] = []): HandWh
   return [...new Set(out)]
 }
 
+/**
+ * Gate cards whose approval ends a work order's chain step and whose fold showed the next step whole (bodies.tsx
+ * NextStepFold): that approval passes the analysis checkpoint (`sawNext`) — read once, at the press.
+ */
+const nextSeen = new Set<string>()
+export function noteNextSeen(itemId: string, seen: boolean): void {
+  if (seen) nextSeen.add(itemId)
+  else nextSeen.delete(itemId)
+}
+
 /** Apply a plan and check it moved the task (an action whose own guard stopped it is not done). */
-async function apply(plan: TaskActionPlan): Promise<Done> {
+async function apply(plan: TaskActionPlan, itemId?: string): Promise<Done> {
   try {
-    await applyTask(plan)
+    await applyTask(plan, { sawNext: !!itemId && !!plan.chain && nextSeen.has(itemId) })
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) }
   }
@@ -213,7 +223,7 @@ function taskActions(item: QueueItem): CardAction[] {
       hand: handOf(plan),
       writes: true,
       blocked: loading ?? (!plan ? { key: 'features.preflight.err.changed' } : edited ? { key: 'features.preflight.why.planEdited' } : null),
-      run: () => apply(plan!),
+      run: () => apply(plan!, item.id),
     },
     {
       key: 'r',
