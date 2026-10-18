@@ -121,14 +121,16 @@ as JSON, block ids and the editor's trailing empty paragraphs aside — preimage
 (housekeeping's `purgeExpired`), `ON DELETE CASCADE` from `workspaces`. REST API writes keep none. A made page or
 row carries the text fingerprint of its content document right after the call (`hash`), `mark`, a fingerprint of what
 else people change on it (icon, cover, comment threads; a database's properties and views, taken after its rows), and
-`place` (its parent and database). A restore is all or nothing: it compares every part — each text's fingerprint, each
-written field, each made thing's title, hash, mark, place, stored values, trash and the live pages below it, a text
+`place` (its parent and database); a changed row (`updated[].place`) and a page whose text the call wrote (`place`) carry
+their place too. A restore is all or nothing: it compares every part — each text's fingerprint, each
+written field, each changed row's and text page's trash and place, each made thing's title, hash, mark, place, stored values, trash and the live pages below it, a text
 page locked since — and refuses `409 changed_since` (writing nothing) when anything moved; else it writes the texts
 first, each checked again in its own write (with `force` only a text the refusal named may have moved), then the meta
 in one transaction, checked again inside it (a page locked meanwhile too). A change that lands while it writes refuses
 the whole restore: the texts it had written are taken back, each only while it is still as the restore left it (one
 typed into right after stays, and the refusal names it — `details.stayed`). `force` puts back the texts and fields only and never
-trashes. `restored_at` is set on every part of the call at once (repo.ts `markCallRestored`); a call counts as restored
+trashes (also when nothing moved by then); it never writes into a changed row or text page that went to the trash or
+moved, and a call that only made things answers `409 nothing_to_force`. `restored_at` is set on every part of the call at once (repo.ts `markCallRestored`); a call counts as restored
 (`mcp-calls.restoredAt`) when every part is.
 
 Migration v11: an API token's `mcp_comments` — what its MCP client gets from `one_get_page { comments: true }`

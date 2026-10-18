@@ -855,7 +855,8 @@ tool in words, the token, what it made and changed, the first titles, its age �
   a link (`linkInParent`) or an inline database's block into — gets its earlier text, and the pages, databases and rows
   it made go to the **trash** (what lies below a made page or database goes along with it, as in One);
 - **anything moved since** → refused `409 changed_since`, and **nothing is written**; the answer and the row name each
-  thing and what moved: a field it wrote (named), a text it wrote into — added to or only deleted from —, a made page's
+  thing and what moved: a field it wrote (named), a text it wrote into — added to or only deleted from —, a row or page
+  it changed going to the trash (or below a trashed page) or moving, a made page's
   or row's title, text, stored values (a field filled in that was empty too), icon, cover or comment threads (a made
   database's properties and views), its place (moved), the trash, a page or row someone put below it, and a page whose
   text would go back that was locked in One since. Whoever changed it counts — a member, the REST API, a server agent.
@@ -865,7 +866,9 @@ tool in words, the token, what it made and changed, the first titles, its age �
 - **Restore anyway** (`force`, offered only when it can help) puts back the texts the call replaced and the fields it
   wrote, whole — what was changed there since goes (the dialog says so) — and **never trashes anything**: what the call
   made stays, with the link or database block it wrote for it, and is listed (`left`) to trash by hand. A call that only
-  made things has nothing it could put back, and a page locked since is never written: both stay refused;
+  made things has nothing it could put back (with nothing moved: `409 nothing_to_force`), and a page locked since — or a
+  row / page it changed that went to the trash or moved since — is never written: they stay refused. Force never trashes,
+  also when nothing moved any more by the time it is confirmed;
 - a call goes back as a whole, once: the row says *Put back*, a second Restore changes nothing; a call put back is
   forgotten for repeats (the same call again makes the thing again);
 - `one_upsert_rows` keeps the pre-image of the fields it wrote only (never the row's other fields), and a call that

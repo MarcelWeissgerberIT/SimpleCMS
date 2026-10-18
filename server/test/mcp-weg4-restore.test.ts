@@ -278,6 +278,90 @@ describe('Weg 4 D3: Restore on the team server is all or nothing', () => {
     await sleep(200)
     assert.ok(d.doc.getXmlFragment('default').toString().includes('Second version.'), 'the locked text is untouched')
   })
+
+  test('W2: "Restore anyway" when nothing moved by then still never trashes — what the call made stays and is listed', async () => {
+    const out = await call(writer, 'one_upsert_rows', { databaseId: 'db-cards', keyProperty: 'Ticket', rows: [{ key: 'T-5', properties: { Owner: 'Mirror' } }, { key: 'K-PROBE', title: 'Probe card' }] })
+    const made = out.rows.find((r: { action: string }) => r.action === 'created').id as string
+    await waitFor(() => props('card-5').get('c-owner') === 'Mirror' && !!yp(made), 5000, 'written')
+    meta.doc.transact(() => props('card-5').set('c-owner', 'Mara Lind'))
+    await flushed(meta)
+    const c = await callOf('one_upsert_rows', 'Card 5')
+    assert.equal(refused(await restore(c.callId)).canForce, true)
+    // Mara puts the value back: nothing has moved any more when the owner confirms "Restore anyway"
+    meta.doc.transact(() => props('card-5').set('c-owner', 'Mirror'))
+    await flushed(meta)
+    const forced = await restore(c.callId, true)
+    assert.equal(forced.status, 200, JSON.stringify(forced.body))
+    assert.deepEqual(forced.body.left, [{ id: made, title: 'Probe card' }], 'what it made stays and is listed')
+    await waitFor(() => props('card-5').get('c-owner') === undefined, 5000, 'the field back')
+    await sleep(200)
+    assert.notEqual(yp(made).get('trashed'), true, 'force never trashes')
+  })
+
+  test('W2: force on a call that only made things, nothing moved: refused — nothing trashed, the call not marked', async () => {
+    const made = await call(writer, 'one_create_page', { parentId: 'plan', title: 'Nur gemacht' })
+    await waitFor(() => !!yp(made.id), 5000, 'made')
+    const c = await callOf('one_create_page', 'Nur gemacht')
+    const res = await restore(c.callId, true)
+    assert.equal(res.status, 409, JSON.stringify(res.body))
+    assert.equal(res.body.error?.code, 'nothing_to_force')
+    await sleep(200)
+    assert.notEqual(yp(made.id).get('trashed'), true)
+    assert.equal((await calls()).find((x) => x.callId === c.callId)!.restoredAt, null)
+  })
+
+  test('W2: a row the call changed, in the trash since: refused (trash), also with force — its values are not written', async () => {
+    await call(writer, 'one_update_row', { rows: [{ id: 'card-6', properties: { Owner: 'Tessera' } }] })
+    await waitFor(() => props('card-6').get('c-owner') === 'Tessera', 5000, 'written')
+    meta.doc.transact(() => {
+      yp('card-6').set('trashed', true)
+      yp('card-6').set('trashedAt', Date.now())
+    })
+    await flushed(meta)
+    const c = await callOf('one_update_row', 'Card 6')
+    const { changed, canForce } = refused(await restore(c.callId))
+    assert.deepEqual(named(changed), [['card-6', ['trash'], []]])
+    assert.equal(canForce, false, 'force never writes into a row in the trash')
+    refused(await restore(c.callId, true))
+    await sleep(200)
+    assert.equal(props('card-6').get('c-owner'), 'Tessera', 'nothing written')
+    assert.equal((await calls()).find((x) => x.callId === c.callId)!.restoredAt, null)
+  })
+
+  test('W2: a row the call changed, moved to another database since: refused (place) — no field id lands there', async () => {
+    addDatabase(meta.doc, 'db-archive', 'Archive', [{ id: 'a-title', name: 'Name', type: 'title' }])
+    await call(writer, 'one_update_row', { rows: [{ id: 'card-7', properties: { Owner: 'Tessera' } }] })
+    await waitFor(() => props('card-7').get('c-owner') === 'Tessera', 5000, 'written')
+    meta.doc.transact(() => {
+      yp('card-7').set('parentId', 'db-archive')
+      yp('card-7').set('databaseId', 'db-archive')
+    })
+    await flushed(meta)
+    const c = await callOf('one_update_row', 'Card 7')
+    const { changed, canForce } = refused(await restore(c.callId))
+    assert.deepEqual(named(changed), [['card-7', ['place'], []]])
+    assert.equal(canForce, false)
+    await sleep(200)
+    assert.equal(props('card-7').get('c-owner'), 'Tessera', 'nothing written')
+  })
+
+  test('W2: a page whose text the call replaced, in the trash since: refused (trash) — its text stays', async () => {
+    const page = await call(writer, 'one_create_page', { title: 'Wochenbericht', parentId: 'plan', markdown: 'Erste Fassung.' })
+    await call(writer, 'one_update_page', { id: page.id, markdown: 'Zweite Fassung.', mode: 'replace' })
+    const d = await doc(`ws:${wsId}:p:${page.id}`)
+    await waitFor(() => d.doc.getXmlFragment('default').toString().includes('Zweite Fassung.'), 5000, 'replaced')
+    meta.doc.transact(() => {
+      yp(page.id).set('trashed', true)
+      yp(page.id).set('trashedAt', Date.now())
+    })
+    await flushed(meta)
+    const c = (await calls()).find((x) => x.tool === 'one_update_page' && x.titles.includes('Wochenbericht'))!
+    const { changed, canForce } = refused(await restore(c.callId))
+    assert.deepEqual(named(changed), [[page.id, ['trash'], []]])
+    assert.equal(canForce, false)
+    await sleep(200)
+    assert.ok(d.doc.getXmlFragment('default').toString().includes('Zweite Fassung.'), 'the text stays')
+  })
 })
 
 /**

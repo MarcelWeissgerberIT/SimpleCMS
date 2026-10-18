@@ -315,7 +315,7 @@ export class McpBatch {
       })
     })
     const made = await this.insertRows(wsId, input.databaseId, input.rows, actor)
-    rec.rows({ db: input.databaseId, created: await this.madeRows(wsId, made.map((m) => m.id)), updated: [] })
+    await rec.rows({ db: input.databaseId, created: await this.madeRows(wsId, made.map((m) => m.id)), updated: [] })
     this.s.log.info('mcp rows created', { workspace: wsId, database: input.databaseId, rows: made.length, by: actor })
     return { databaseId: input.databaseId, urlBase: this.model.url(wsId, ''), rows: made.map((m, index) => ({ index, id: m.id, title: m.title })) }
   }
@@ -364,7 +364,7 @@ export class McpBatch {
     }
     const after = await this.model.read(wsId, (r) => plan.map((p) => McpPreimages.rowState(r, p.id, p.ids)!))
     const titled = (p: (typeof plan)[number]) => p.title !== undefined
-    rec.rows({
+    await rec.rows({
       db: plan[0]?.dbId ?? '',
       created: [],
       updated: plan.map((p, i) => ({
@@ -518,10 +518,10 @@ export class McpBatch {
         })
       throw ok ? err : partly(err)
     }
-    for (const b of bodies) rec.content(b.id, b.snapshot, b.plain, b.hash)
+    for (const b of bodies) await rec.content(b.id, b.snapshot, b.plain, b.hash)
     const createdRows = await this.madeRows(wsId, made)
     const after = await this.rowStates(wsId, updates.map((p) => p.id!), updates.map((p) => p.pids ?? []))
-    rec.rows({
+    await rec.rows({
       db: input.databaseId,
       created: createdRows,
       updated: updates
@@ -643,7 +643,7 @@ export class McpBatch {
         )
         const hash = await this.s.collab.read(contentDoc(wsId, parentId), (doc) => textHash(doc))
         // the call put only its own links there: a forced Restore leaves them with the pages it made (they stay)
-        rec.content(parentId, snapshot, plainBefore, hash, kids.map((i) => ids[i]!))
+        await rec.content(parentId, snapshot, plainBefore, hash, kids.map((i) => ids[i]!))
         await this.s.collab.write(
           metaDoc(wsId),
           (doc) => {
@@ -785,7 +785,7 @@ export class McpBatch {
     // the database as the call left it — after its rows (they may have added select options): a Restore is refused whole
     // once the team changed its properties or views since
     rec.pages(await this.madePages(wsId, [{ id: created.id, title: input.title }]))
-    if (rows.length) rec.rows({ db: created.id, created: await this.madeRows(wsId, rows.map((r) => r.id)), updated: [] })
+    if (rows.length) await rec.rows({ db: created.id, created: await this.madeRows(wsId, rows.map((r) => r.id)), updated: [] })
     // the database block in the page's text, last; a failed write trashes the new database again (compensating write)
     let block: string | undefined
     let blockRef: string | null = null
@@ -814,7 +814,7 @@ export class McpBatch {
           return textHash(doc)
         })
         // the call put only its database block there: a forced Restore leaves it with the database (it stays)
-        rec.content(pageId, snapshot, plain, hash, [created.id])
+        await rec.content(pageId, snapshot, plain, hash, [created.id])
       } catch (err) {
         await this.trash(wsId, [created.id], actor)
         throw err

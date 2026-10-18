@@ -53,7 +53,7 @@ export interface Made {
 
 export type Preimage =
   /** rows a call made (`created`, with the values it wrote and its text's state then) or changed (`updated`, the fields it wrote: before → after) */
-  | { kind: 'rows'; db: string; created: Array<Made & { values: Values }>; updated: Array<{ id: string; before: { title?: string; values: Values }; after: { title?: string; values: Values } }> }
+  | { kind: 'rows'; db: string; created: Array<Made & { values: Values }>; updated: Array<{ id: string; before: { title?: string; values: Values }; after: { title?: string; values: Values }; place?: string }> }
   /** pages (or a database) a call made, each with its text's state right after the call */
   | { kind: 'pages'; created: Made[] }
   /**
@@ -61,7 +61,7 @@ export type Preimage =
    * the call wrote only links / a database block of things it made into it (linkInParent, an inline database), named by
    * the made things' ids (a forced Restore leaves those: what the call made stays, with its link or block)
    */
-  | { kind: 'content'; page: string; before: string; plain: string; own?: unknown[] }
+  | { kind: 'content'; page: string; before: string; plain: string; own?: unknown[]; place?: string }
 
 /** A part as kept, with the repeat key of its call (duplicates.ts). */
 type Stored = Preimage & { dup?: string }
@@ -69,9 +69,11 @@ type Stored = Preimage & { dup?: string }
 /** What a tool records for its call (one recorder per call). */
 export interface Recorder {
   callId: string
-  rows(p: Omit<Extract<Preimage, { kind: 'rows' }>, 'kind'>): void
+  /** a changed row's place (placeOf) is read here, as the call left it */
+  rows(p: Omit<Extract<Preimage, { kind: 'rows' }>, 'kind'>): void | Promise<void>
   pages(created: Made[]): void
-  content(pageId: string, before: string, plain: string, afterHash: string | null, own?: string[]): void
+  /** the page's place (placeOf) is read here, as the call left it */
+  content(pageId: string, before: string, plain: string, afterHash: string | null, own?: string[]): void | Promise<void>
 }
 
 /**
@@ -224,11 +226,23 @@ export class McpPreimages {
         this.s.log.warn('mcp pre-image not stored', { workspace: wsId, error: (err as Error).message })
       }
     }
+    /** where these pages sit now (none when the meta cannot be read: the call wrote already — its answer is never lost to this) */
+    const placesOf = (ids: string[]): Promise<Array<string | undefined>> =>
+      this.model.read(wsId, (r) => ids.map((id) => McpPreimages.placeOf(r, id))).catch(() => ids.map(() => undefined))
     return {
       callId,
-      rows: (p) => (p.created.length || p.updated.length ? save(metaDoc(wsId), { kind: 'rows', ...p }) : undefined),
+      rows: async (p) => {
+        if (!p.created.length && !p.updated.length) return
+        // where each changed row sits as the call left it (a Restore refuses when it moved since)
+        const places = p.updated.length ? await placesOf(p.updated.map((u) => u.id)) : []
+        const updated = p.updated.map((u, i) => (places[i] === undefined ? u : { ...u, place: places[i] }))
+        save(metaDoc(wsId), { kind: 'rows', ...p, updated })
+      },
       pages: (created) => (created.length ? save(metaDoc(wsId), { kind: 'pages', created }) : undefined),
-      content: (pageId, before, plain, afterHash, own) => save(contentDoc(wsId, pageId), { kind: 'content', page: pageId, before, plain, ...(own?.length ? { own } : {}) }, afterHash),
+      content: async (pageId, before, plain, afterHash, own) => {
+        const [place] = await placesOf([pageId])
+        save(contentDoc(wsId, pageId), { kind: 'content', page: pageId, before, plain, ...(own?.length ? { own } : {}), ...(place === undefined ? {} : { place }) }, afterHash)
+      },
     }
   }
 
@@ -432,6 +446,9 @@ export class McpPreimages {
         }
         const defs = liveDatabase(r, typeof yp.get('databaseId') === 'string' ? String(yp.get('databaseId')) : u.db)?.properties ?? []
         const now = McpPreimages.rowState(r, u.id, Object.keys(u.after.values))!
+        // put into the trash (or below a trashed page) or moved since (another database: its field ids would land there)
+        if (inTrash(r, u.id)) note(u.id, now.title, 'trash')
+        if (u.place !== undefined && McpPreimages.placeOf(r, u.id) !== u.place) note(u.id, now.title, 'place')
         // the fields it wrote, named as people see them now
         const fields = Object.entries(u.after.values)
           .filter(([k, v]) => !same(now.values[k], v))
@@ -447,13 +464,21 @@ export class McpPreimages {
         }
         const title = String(yp.get('title') ?? '')
         if (textMovedIds.has(c.page)) note(c.page, title, 'text')
+        if (inTrash(r, c.page)) note(c.page, title, 'trash')
+        if (c.place !== undefined && McpPreimages.placeOf(r, c.page) !== c.place) note(c.page, title, 'place')
         // its text would go back into a page locked in One since (the call could not have written into a locked one)
         if ((yp.get('settings') as { locked?: unknown } | undefined)?.locked === true) note(c.page, title, 'locked')
       }
       return [...out.values()]
     }
-    /** force puts back texts and fields — never into a locked page, and never when the call only made things */
-    const canForce = (changed: Moved[]) => (updated.length > 0 || forced.length > 0) && !changed.some((m) => m.what.includes('locked'))
+    /** the rows and pages whose fields or text force would write */
+    const writes = new Set([...updated.map((u) => u.id), ...forced.map((c) => c.page)])
+    /**
+     * force puts back texts and fields — never into a locked page, never into a row or page the call changed that went to
+     * the trash or was moved since, and never when the call only made things
+     */
+    const canForce = (changed: Moved[]) =>
+      (updated.length > 0 || forced.length > 0) && !changed.some((m) => m.what.includes('locked') || (writes.has(m.id) && (m.what.includes('trash') || m.what.includes('place'))))
     /** the fields it wrote back to their earlier values (relations as a write puts them), its replaced texts' plain text */
     const putFields = (r: Roots, texts: typeof contents, at: number) => {
       let n = 0
@@ -492,7 +517,11 @@ export class McpPreimages {
       })
 
     const changed = await this.model.read(wsId, (r) => changedSince(r))
-    if (changed.length && (!force || !canForce(changed))) throw McpPreimages.refusal(changed, canForce(changed))
+    // force ("Restore anyway") never trashes — also when nothing moved by the time it arrives; with nothing it could put back
+    // it is refused (a plain Restore takes the call back whole)
+    if (force && !changed.length && !canForce(changed))
+      throw new ApiError(409, 'nothing_to_force', 'Nothing changed since this call, and it only made things: force has nothing to put back and never trashes. Restore it without force to move what it made to the trash.')
+    if (force ? !canForce(changed) : changed.length) throw McpPreimages.refusal(changed, canForce(changed))
     if (this.s.config.mcpRestoreGapMs) await new Promise((ok) => setTimeout(ok, this.s.config.mcpRestoreGapMs))
 
     // The texts first, each checked in its own write (a text typed into since the check above is never overwritten:
@@ -500,7 +529,7 @@ export class McpPreimages {
     // checked again in it. Anything that moved meanwhile refuses the whole Restore: the texts written so far are taken
     // back (each only while it is still as this Restore left it) and nothing else is written.
     const gone = new Set(changed.filter((m) => m.what.includes('gone')).map((m) => m.id))
-    const texts = force && changed.length ? forced.filter((c) => !gone.has(c.page)) : contents
+    const texts = force ? forced.filter((c) => !gone.has(c.page)) : contents
     const written: Array<{ doc: string; page: string; was: string; hash: string }> = []
     const takeBack = async (): Promise<string[]> => {
       const stayed: string[] = []
@@ -522,10 +551,11 @@ export class McpPreimages {
       written.push({ doc: c.doc, page: c.page, was: out!.was, hash: out!.hash })
     }
     // a made page's or row's own text, read once more right before the meta is written
-    if (!force || !changed.length) for (const m of made) if (!textMovedIds.has(m.id) && (!m.hash || (await this.s.collab.read(contentDoc(wsId, m.id), (doc) => textMoved(doc, m.hash!))))) textMovedIds.add(m.id)
+    if (!force) for (const m of made) if (!textMovedIds.has(m.id) && (!m.hash || (await this.s.collab.read(contentDoc(wsId, m.id), (doc) => textMoved(doc, m.hash!))))) textMovedIds.add(m.id)
 
-    if (changed.length) {
-      // "Restore anyway": the texts it replaced and the fields it wrote, whole; what it made stays and is listed
+    if (force) {
+      // "Restore anyway": the texts it replaced and the fields it wrote, whole; what it made stays and is listed (also when
+      // nothing moved by now — force never trashes)
       let out: { n: number; left: Array<{ id: string; title: string }> } | Moved[]
       try {
         out = await this.s.collab.write(

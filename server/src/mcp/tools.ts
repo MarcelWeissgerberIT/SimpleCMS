@@ -476,7 +476,7 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
           preimage: (doc) => (before = { snapshot: fragmentSnapshot(doc), plain: fragmentText(doc, 20_000) }),
         })
         const pre = before as { snapshot: string; plain: string } | null
-        if (pre) rec.content(a.id, pre.snapshot, pre.plain, await s.collab.read(contentDoc(ws, a.id), (doc) => textHash(doc)))
+        if (pre) await rec.content(a.id, pre.snapshot, pre.plain, await s.collab.read(contentDoc(ws, a.id), (doc) => textHash(doc)))
         return out
       })(),
   )
@@ -529,7 +529,7 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
           const created = await model.createRow(ws, a.databaseId, { title: row.title ?? given, properties: row.properties, content: md(a.markdown) }, actor, { agent: true, files: 'onefile' })
           // the pre-image: the row as made, with its text's state (a Restore leaves it when someone changed it since)
           const [state] = await batch.madeRows(ws, [created.id])
-          if (state?.title !== undefined) rec.rows({ db: a.databaseId, created: [state], updated: [] })
+          if (state?.title !== undefined) await rec.rows({ db: a.databaseId, created: [state], updated: [] })
           return { ...created, title: state?.title ?? row.title ?? a.title ?? '' }
         }),
       )(),
