@@ -376,7 +376,9 @@ function OrdersPanel() {
   }
   return (
     <Panel code={`§ ${t('features.coding.order.short')}`} title={t('features.coding.order.settings.title')}>
-      <p className="cw-switch__hint">{t('features.coding.order.settings.lead')}</p>
+      <p className="cw-switch__hint">
+        {t('features.coding.order.settings.lead')} <HelpLink id="workorders" topic={t('features.coding.order.db')} />
+      </p>
       {viewer ? (
         <p className="cw-switch__hint" data-testid="coding-orders-viewer">
           {t('features.coding.setup.readOnly')}

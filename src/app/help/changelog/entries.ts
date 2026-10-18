@@ -31,7 +31,8 @@ export const CHANGELOG_LANGS: ChangelogLang[] = ['en', 'de']
  * "What can One do?", the guided tour, and — on the tour's practice page — the slash menu, the AI menu,
  * Transform into; a database, its commands, a spreadsheet, a database's automations; the coding pipeline (#/coding); Building blocks (#/kit); the workspace's Look (#/workspace/look); the flight recorder's deck;
  * Preflight's panel on Start (registered by features/preflight/try.ts); the first agent's section 06 "Check" (features/agents/try.ts);
- * the Governor (#/regler); the Patchbay (#/patchbay, registered by the shell's tour actions).
+ * the Governor (#/regler); the Patchbay (#/patchbay, registered by the shell's tour actions); a sample work order (registered
+ * by coding/orders/try.ts).
  */
 export const CHANGELOG_TRIES = [
   'terminal',
@@ -68,6 +69,7 @@ export const CHANGELOG_TRIES = [
   'regler',
   'mcp',
   'patchbay',
+  'workorders',
 ] as const
 export type ChangelogTry = (typeof CHANGELOG_TRIES)[number]
 

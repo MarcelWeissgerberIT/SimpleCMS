@@ -14,6 +14,7 @@ Eine Lampe steht nur auf der Tafel, wenn sie hier etwas zu beobachten hat (eine 
 
 - **Vorschläge** — offene Vorschläge aus [Agenten](help:custom-agents)-Läufen, dem [AI-Terminal](help:agent), dem Gedächtnis, AI-Menü-Ergebnissen und Autofill-Prüfungen. Terminal- und Autofill-Vorschläge zählen nur in ihrem Tab.
 - **Gate · Plan**, **Rückfrage Coding**, **Task gescheitert** — deine [Pipeline](help:coding-pipeline)-Aufgaben am Gate, mit Rückfrage, gescheitert oder angehalten; Versionen, die dieses Gerät bestätigen muss.
+- **Prüfaufträge** — [Prüfaufträge](help:workorders), die auf diesem Gerät auf dich warten: eine Kette bereit zum Start, der nächste Schritt zum Weitermachen, eine angehaltene oder unterbrochene Kette, eine Kette, die hier zu bestätigen ist, eine auf einem anderen Gerät angeforderte Planung. Jede Taste, die den Worker startet, ist VON HAND; Gate-Karten eines Kettenschritts tragen seinen Chip (*PA-1 · 1/3*).
 - **Eingang** — ungelesene Erinnerungen, Erwähnungen, Antworten und Agentennotizen dieses Geräts.
 - **Token abgelehnt** — [MCP-Server](help:mcp-servers), deren Token abgelehnt wurde oder deren Anmeldung abgelaufen ist.
 - **Ausgang** — [Zettel](help:outbox), die darauf warten, von Hand gesendet zu werden.

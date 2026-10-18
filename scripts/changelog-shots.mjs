@@ -8,7 +8,7 @@
  *
  * (CHANGELOG_DRAFT=1 lets the build pass while a new entry's picture does not exist yet.)
  *
- * Shots: worker-permissions, page-refs, sidebar, patchbay, ship-log, mcp-connections, worker-windows, safe-zip-import, regler, agent-precheck, ai-setup, ai-receipts, agent-trust, claude-tasks, flight-recorder-eject, flight-recorder-window, preflight, flight-recorder, tasks, outbox, mirror-again, glass-switches, history-compare, mcp-overview, mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
+ * Shots: work-orders, worker-permissions, page-refs, sidebar, patchbay, ship-log, mcp-connections, worker-windows, safe-zip-import, regler, agent-precheck, ai-setup, ai-receipts, agent-trust, claude-tasks, flight-recorder-eject, flight-recorder-window, preflight, flight-recorder, tasks, outbox, mirror-again, glass-switches, history-compare, mcp-overview, mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
  * custom-agents, gmail, help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
  * workspace in English, light theme, 1440 × 900 at device scale 2; the crop of the relevant area is scaled
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
@@ -19,7 +19,8 @@
  * (scripts/lib/aiHosts.mjs); api.anthropic.com is mocked (streamed answers, structured JSON, scripted
  * tool-use runs — never a real request), Gmail and Google's sign-in script are in-memory stand-ins, the MCP
  * bridge for the tidy-up shot is the repository's own public/mcp/one-mcp.mjs on a local port, the coding shot runs
- * public/mcp/one-worker.mjs with the fake Claude Code CLI against a temp repo and a local bare remote, the cloud-worker
+ * public/mcp/one-worker.mjs with the fake Claude Code CLI against a temp repo and a local bare remote (the work-orders
+ * shot's context server "Wissensbasis" is a fictional name in the settings — the planner's MCP blocks are canned), the cloud-worker
  * shot runs the repository's own team server (server/, bundled into node_modules/.cache/cl-shots-server; DEV_MODE,
  * a throwaway data folder, localhost:5346 or ONE_SERVER_PORT) serving the app build in ONE_APP_DIR (default
  * node_modules/.cache/cl-shots-dist — set it when the preview serves another folder). Browser errors
@@ -567,7 +568,8 @@ const FEED_POSTS = [
  */
 const WORKER = fileURLToPath(new URL('../public/mcp/one-worker.mjs', import.meta.url))
 const FAKE_CLAUDE = fileURLToPath(new URL('../mcp/test/fixtures/fake-claude.mjs', import.meta.url))
-const WORKER_PORT = 47388
+/** the coding shots' worker port (CODING_SHOT_PORT: a run beside other suites that use the fixed 473xx ports) */
+const WORKER_PORT = Number(process.env.CODING_SHOT_PORT) || 47388
 /** the safe-zip-import shot's worker (its setup page only, no One tab) */
 const ZIP_SHOT_PORT = 47627
 
@@ -909,7 +911,119 @@ const seedPatchbayWorld = (page, w) =>
     s.replaceAll({ version: s.version, epoch: s.epoch, pages: w.pages, databases: w.databases, people: s.people, settings: { ...s.settings, mcpServers: w.servers, mail: w.mail, startPageId: null, lastPageId: null }, recent: [], functions: s.functions ?? {}, agents: w.agents, scripts: w.scripts, kit: s.kit, integrations: w.integrations, look: s.look, ai: s.ai, governor: s.governor })
   }, w)
 
+/*
+ * Work orders (Prüfaufträge, B14): the planner's canned answer — a plan of three steps (analysis, coding, QA) for the
+ * fictional Nordlicht login timeout, with the call the fictional context server "Wissensbasis" (`kb`) answered. Nothing
+ * reaches a server: the call and its result are blocks of the mocked Messages response, as Anthropic would return them.
+ */
+const ORDER_KB = { id: 'srvkbshot01', name: 'wissensbasis', url: 'https://kb.example.test/mcp', token: '', enabled: true, prompt: '**Wissensbasis** holds the support records.', promptSource: 'auto', tools: ['kb_search', 'kb_get', 'kb_update_record'], checkedAt: 1 }
+function orderPlanAnswer(caseId, body) {
+  const plan = {
+    v: 1,
+    summary: 'The login of Nordlicht stops after 30 seconds and what was typed is lost; support case 4711 points at the session timeout in the gateway.',
+    context: { server: 'wissensbasis', note: 'Support case 4711 (Nordlicht): the login stops after 30 s, most likely the gateway’s session timeout (30 s). Reported by Mara Lind.', links: ['https://kb.example.test/r/4711'] },
+    steps: [
+      { kind: 'spec', title: 'Clarify the login timeout', goal: 'Find out where the 30-second stop comes from and how long a login session should stay open.', criteria: ['Cause of the stop named', 'Wanted session length agreed'], repo: null, branch: null, priority: 'high', refs: [caseId], why: 'Unclear whether the gateway or the app ends the login.' },
+      { kind: 'coding', title: 'Fix the session timeout', goal: 'Change the session timeout so the login no longer stops after 30 seconds.', criteria: ['Login stays open for 5 minutes', 'A test covers the timeout'], repo: 'website', branch: null, priority: 'high', refs: [], why: 'People lose what they typed while logging in.' },
+      { kind: 'qa', title: 'Test the login timeout', goal: 'Test cases for the login and the session length.', criteria: ['Test case: still logged in after 60 s', 'Test case: logging out ends the session'], repo: 'website', branch: null, priority: 'medium', refs: [], why: 'The changed timeout must not fall back.' },
+    ],
+    questions: [],
+    refused: null,
+  }
+  return {
+    ...jsonMessage(plan, body.model),
+    content: [
+      { type: 'mcp_tool_use', id: 'mcptoolu_kb_shot', name: 'kb_search', server_name: 'wissensbasis', input: { query: 'Support case 4711' } },
+      { type: 'mcp_tool_result', tool_use_id: 'mcptoolu_kb_shot', is_error: false, content: [{ type: 'text', text: 'Support case 4711 · Nordlicht · the login stops after 30 s · probably the session timeout in the gateway (30 s) · reported by Mara Lind' }] },
+      { type: 'text', text: JSON.stringify(plan) },
+    ],
+    usage: { input_tokens: 3200, output_tokens: 900 },
+  }
+}
+
 const shots = {
+  /**
+   * Work orders (2026-10-18): a request "Check the login timeout" (it mentions @Support case 4711 and names the repo)
+   * planned by ↵ Plan on its plate — the plate in Chain ready: lamps (Coding on, the worker studio-mac, Context
+   * "wissensbasis · read only · 2 tools", Planner), the counter, Understood, the server's context marked OUTSIDE with its
+   * call, and the stations 01 analysis · 02 coding · 03 QA. The repository's own worker with the fake Claude Code CLI
+   * (connected, nothing runs); the three pipeline projects made through the ?e2e write seam; the planner's answer canned
+   * (orderPlanAnswer) — the server "Wissensbasis" is never contacted.
+   */
+  async 'work-orders'(browser) {
+    const work = codingRepo()
+    let caseId = null
+    const { ctx, page } = await freshPage(browser, {
+      viewport: { width: W, height: H + 300 },
+      // the planner's one structured request (with the picked server: the beta endpoint, not streamed)
+      setup: (c) =>
+        c.route('https://api.anthropic.com/**', async (route) => {
+          const req = route.request()
+          let body = {}
+          try {
+            body = JSON.parse(req.postData() || '{}')
+          } catch {}
+          if (req.method() !== 'POST' || body.stream || !body.mcp_servers) return route.fallback()
+          await sleep(600)
+          return route.fulfill({ status: 200, headers: { 'access-control-allow-origin': '*', 'content-type': 'application/json' }, body: JSON.stringify(orderPlanAnswer(caseId, body)) })
+        }),
+    })
+    let worker = null
+    try {
+      await page.evaluate(() => localStorage.setItem('one.coding.approvals', 'all'))
+      await page.evaluate((kb) => window.__one.workspace.getState().updateSettings({ mcpServers: [kb] }), ORDER_KB)
+      await page.evaluate(() => window.__one.ui.getState().openModal({ type: 'settings' }))
+      await page.getByRole('tab', { name: 'Coding worker' }).click()
+      const init = await page.locator('.cw-code pre').filter({ hasText: 'init --workspace' }).first().textContent()
+      worker = await startCodingWorker(work, /--workspace (\S+)/.exec(init)[1])
+      const port = page.getByLabel('Port', { exact: true })
+      await port.fill(String(WORKER_PORT))
+      await port.press('Enter')
+      await page.getByRole('switch', { name: 'Connect to a coding worker on this computer' }).click()
+      await page.getByTestId('coding-conn').filter({ hasText: 'Connected' }).waitFor({ timeout: 20_000 })
+      await page.keyboard.press('Escape')
+      await page.getByRole('dialog').waitFor({ state: 'detached' })
+      // the three pipelines (Business analysis · Coding · QA), as #/coding makes them: a first task, then removed
+      for (const kind of ['spec', 'coding', 'qa']) {
+        const seed = await page.evaluate((k) => window.__oneCodingWrites.create('seed', k), kind)
+        await page.evaluate((id) => window.__one.workspace.getState().deletePagePermanently(id), seed)
+      }
+      // the person's own page (written as from an editor of this device: no OUTSIDE tag on it)
+      caseId = await page.evaluate((content) => {
+        const s = window.__one.workspace.getState()
+        const id = s.createPage({ title: 'Support case 4711', parentId: null, icon: { type: 'asset', value: 'rolodex' } })
+        s.setContent(id, content, 'editor:shot')
+        return id
+      }, doc(para('Customer Tessera: the login stops after 30 seconds and what was typed is lost. Reported by Mara Lind.')))
+      // the work orders database with Wissensbasis picked as its context server (Work order settings › Context)
+      const row = await page.evaluate((caseId) => {
+        const db = window.__oneOrderEntries.ensure()
+        const s = window.__one.workspace.getState()
+        const d = s.databases[db]
+        s.updateDatabase(db, { orders: { ...d.orders, server: { name: 'wissensbasis' } } })
+        const status = d.properties.find((p) => p.name === 'Status')
+        const body = [{ type: 'paragraph', content: [{ type: 'text', text: 'Find out why the Nordlicht login stops after 30 seconds — see ' }, { type: 'mention', attrs: { id: caseId, label: 'Support case 4711', kind: 'page' } }, { type: 'text', text: '. Repo website.' }] }]
+        return s.createRow(db, { title: 'Check the login timeout', properties: { [status.id]: d.orders.status.draft }, content: { type: 'doc', content: body } })
+      }, caseId)
+      await page.evaluate((id) => (window.location.hash = `#/p/${id}`), row)
+      const plate = page.getByTestId('order-plate')
+      await plate.waitFor()
+      await plate.getByTestId('order-plan').click()
+      await plate.getByTestId('order-plan-steps').waitFor({ timeout: 30_000 })
+      await page.evaluate(() => window.__one.ui.setState({ toasts: [], waitingToasts: [] }))
+      await scrollToTop(plate, 24)
+      await rest(page)
+      const top = await boxOf(plate, 16)
+      // down to the head of step 02: the lamps, the summary, the server's context, step 01 whole, step 02's head
+      const second = await plate.getByTestId('order-plan-step').nth(1).locator('.orc-station__bar').boundingBox()
+      await save(page, 'work-orders', { ...top, height: Math.min(H + 300 - top.y, second.y + second.height + 1 - top.y) })
+    } finally {
+      worker?.kill('SIGTERM')
+      await ctx.close()
+      rmSync(work.root, { recursive: true, force: true })
+    }
+  },
+
   /**
    * The sidebar (2026-10-16): the places, the tool strip — its readout at rest (PATCHBAY · NEW) and the keycaps —,
    * 01 FAVORITES in the fixed block (the two seeded favourites, a database entry with where it lives, a fourth dragged in

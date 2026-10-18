@@ -309,7 +309,7 @@ export default function OrderPlate({ rowId }: { rowId: ID }) {
               {t(`features.coding.order.chip.${chip}`)}
             </span>
           )}
-          <HelpLink id="coding-pipeline" />
+          <HelpLink id="workorders" topic={t('features.coding.order.db')} />
           {!viewer && <OrderSettingsKey rowId={rowId} />}
         </span>
       </header>

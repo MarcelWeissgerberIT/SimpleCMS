@@ -4,7 +4,7 @@ title: Folder & GitHub sync
 section: sync
 order: 1
 keywords: sync, folder, github, markdown, git, repository, backup, files, obsidian, token, Ordner, Sync, Repository
-related: export, offline-app, privacy
+related: export, offline-app, privacy, coding-pipeline, workorders
 summary: Keep a live, readable copy of the workspace as Markdown files — in a folder and in a GitHub repository.
 ---
 **Settings → Sync.** One file per page, front matter on top, attachments next to them. These settings belong to this device only.
@@ -24,5 +24,7 @@ Works in Chrome and Edge. Other browsers can't write to a folder — use **Expor
 
 ## Conflicts and deletions
 Edited on both sides? One's version stays; the other is kept as a “(conflict …)” copy. Files deleted outside One never delete pages on their own — One asks: **Move pages to trash** or **Write files again**.
+
+**Pipeline tasks** come back read-only where it matters: a task file edited outside One cannot move its task — Stage, Repo, Branch and the other pipeline fields stay as One has them, as does a [work order](help:workorders)'s Status, and the file is written again. A task whose text came from the file waits for **Confirm on this device** before the [coding worker](help:coding-pipeline) takes it.
 
 > The status bar shows the sync state. Mentions of dates and people are written so that One reads them back exactly.

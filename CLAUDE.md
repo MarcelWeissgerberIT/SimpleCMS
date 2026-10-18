@@ -85,7 +85,7 @@ src/app/features/patchbay/**         the Patchbay (#/patchbay, lazy; DE "Schaltp
                                      keys + Undo), setup/ (profile drop, lamps 00–06, return chip), live/ (run bus, tally, live signal),
                                      patch.ts (pure) + patchApply.ts (patching); hint.ts = the one module other areas may import
                                      (public API patchbay/index.ts via features/index.ts; docs/PATCHBAY.md)
-src/app/help/**                      help centre: panel (?, status bar, ⌘K, workspace menu), 81 articles EN+DE twins
+src/app/help/**                      help centre: panel (?, status bar, ⌘K, workspace menu), 82 articles EN+DE twins
                                      (help/articles/{en,de}/<id>.md, `help:<id>` links), Ask (Claude over the articles);
                                      link UI to an article with `<HelpLink id="…" />` (public API: help/index.ts)
 src/help-site/**                     build-time public /help pages (prerendered from the same articles, hreflang)
@@ -108,6 +108,8 @@ mcp/**                               local MCP bridge (Claude Desktop / Code ⇄
 mcp/src/worker/**                    one-worker (coding pipeline, Claude Code + git on the person's machine), bundled to
                                      public/mcp/one-worker.mjs; src/app/features/coding/** = #/coding, task panel, Settings →
                                      Coding worker (public API coding/index.ts; protocol.ts shared with the worker; docs/CODING.md)
+src/app/features/coding/orders/**    Prüfaufträge / work orders (database, entry points, planner, plate, Preflight lamp, auto
+                                     mode, team; help `workorders`); coding/chain.ts = the chain engine (pure); docs/CODING.md
 public/assets/icons|covers           generated art (OpenArt) + manifest.json
 ```
 
@@ -608,7 +610,8 @@ the public APIs stable — other areas are built against them in parallel.
   home `$env:USERPROFILE`, never `$HOME`). Team: the worker takes only tasks whose version (SHA-256) was written or confirmed on this device. Version =
   title + page + Repo / Branch / Stage + the pipeline (names, kinds, Auto, mode, turns, git action, next, instructions);
   trust carries only for changes made in this tab (never `isApplyingRemote` / `isAgentWriting`); locally a task an agent
-  created or changed last (`agent:`) waits for Confirm too; nothing is written for an unconfirmed task. Prompt data blocks
+  created or changed last (`agent:`) waits for Confirm too, and so does one whose content the folder / GitHub pick-up
+  wrote or made (it never writes the pipeline roles); nothing is written for an unconfirmed task. Prompt data blocks
   end only at markers with a random code; the worker never uses the base branch and never reads through untracked
   symlinks; Claude Code's output goes into the page through `claudeDoc`.
   Worker download (features/coding/download.ts): the site's mcp/one-worker.mjs plus ONE preset line after the shebang
@@ -1223,6 +1226,17 @@ the public APIs stable — other areas are built against them in parallel.
   image never loads by itself on a card (database/views/cards.tsx link chip; file chips show no web thumbnail). The team
   server over MCP refuses a locked page's content, a lossy replace (`lossyIn` pre-filter) and files values other than
   `onefile:`, checks before it writes and puts the content back from the call's pre-image after a failed meta check.
+- Work orders (features/coding/orders; help `workorders`, docs/CODING.md § Work orders): `Database.system
+  'workorders'`; planning only from the allow-list in this tab; purpose `coding.plan` (structured, 'caller' manual /
+  trigger; `mcp: false` without a pick, else exactly that server, READ tools only); tasks only through `startChain` →
+  `applyNewTask` (writer `order:<row>:<run>#c<n>`, all parked, step 01 after 10 s); the chain = this device's record
+  (`one-coding` `<scope>|order|<row>`), never the relation / Schritt fields; advance only with recorded done evidence
+  (`coding`, `you`, `terminal`) and never a write that would end a task's wait for Confirm (`keepTrust`, `#a<n>`);
+  Grundlage is a copy; every start-like key VON HAND; auto consent per device (`one.orders.auto:<scope>:<db>`), local
+  only, budget required, Patchbay asked at every create; team: the worker device plans, confirms and advances;
+  `saveOrderConfig` only. Words: DE "Prüfauftrag", "Kette", "Planer" — EN "Work order", "Chain", "Planner"; never
+  "Intake", "Einwurf", "Plan bereit", "Prüfung", "danach" or "Aufgabe" for the request (tests/e2e/orders-names.spec.ts).
+  The What's new Try key `workorders` opens a sample request in Entwurf (orders/try.ts, registered by `startOrders`).
 - Pipeline / work-order hardening (Prüfaufträge B2): custom agents' tools (features/agents/scope.ts `agentTools`) and
   the MCP stage run `guardPipelineRows(tool, 'agent')` + `guardOrderRows` (ai/agent/coding.ts): no rows or properties in
   a pipeline project, no field but title / priority of a task (coding/guards.ts `FREE_ROLES` / `lockedPipelineRole`:

@@ -2848,6 +2848,10 @@ html[data-pb-noblink] .pb [data-blink] {
 .label.pb-orders__count {
   color: var(--ink-3);
 }
+.help-link.pb-orders__help {
+  margin-left: auto;
+  align-self: center;
+}
 /* an optional step (05 KONTEXT): dim, never red — leaving it out is a valid end */
 .pb-lamp[data-optional] .pb-lamp__body {
   opacity: 0.78;

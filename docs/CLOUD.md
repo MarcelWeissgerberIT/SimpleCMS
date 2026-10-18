@@ -1178,6 +1178,32 @@ the member's tabs (on the device that downloaded the worker) is connected.
 | **Stolen worker token** (a copied file) | The file also carries the pairing secret — it is a key: `chmod 600`, Revoke when lost. The newest connection wins, so a thief displaces your worker (visible in the tab) |
 | **Malicious tab / cross-site page** | Refused at the upgrade (same-origin `Origin` + session); a worker token in a browser is refused (an `Origin` is present) |
 
+### Work orders (Prüfaufträge) in a team
+
+Work orders (docs/CODING.md § Work orders) need nothing new from the server:
+
+- **Plain values.** `Database.orders` (the Status option ids, the picked server's name, kinds, projects, checkpoint,
+  budget) is a plain database value: the binding's `readDatabase` / `writeDatabase` copy it like every non-nested key,
+  and an older build keeps it as it is. The roles `Work order` / `Step` are ordinary properties of the pipeline
+  databases. The server has no planner, no chain engine and no guard of its own for them; its MCP and its agents never
+  plan (server parity later). Planner requests go from the browser like every other AI request.
+- **Private.** The work-orders database is created private (`createPrivateDatabase`) and only private ones count
+  (`isOrderRow`): a work-orders database moved out of Private plans nothing (its plate says so). Pipelines are private
+  already, so a chain's tasks and their roles live in the member's private documents.
+- **The worker device.** Planning, confirming, advancing, resuming, skipping and stopping at once happen only on the
+  device that holds the member's worker link (local, or the paired Cloud relay — the relay's one-tab rule decides which).
+  Another device of the member can ask for a plan (it writes Status Planen; the worker device sees that write arrive
+  from the server and shows a VON HAND card "Hier planen" — the marker is observed, never synced) and halt a chain (a
+  Status write, sticky on the worker device), and displays the chain from the tasks themselves.
+- **Per device, per member.** Chain records (`one-coding` `cloud:<ws>:u:<account>|order|<row>`), drafts, the done
+  evidence and the auto consent stay in the browser that made them — never in a meta map, never on the server. A device
+  without a record (the worker moved) gets one "Kette bestätigen" card and adopts the chain under its own Approvals.
+  "Ohne Bestätigung starten" does not exist in a team.
+- **Data rules** of the workspace apply to the planner like to any request; a member's refusal reads "Regel des
+  Arbeitsbereichs — eine Admin kann sie ändern" (no change key).
+- A team server's CSP (`connect-src 'self' <own ws> https:`) refuses a **Local** worker link (`ws://127.0.0.1:<port>`) in
+  the app it serves — on a self-hosted server a member uses the Cloud worker (pre-existing, not specific to work orders).
+
 ## Security notes
 
 - Magic-link tokens: 15 min, single use, bound to the email; sessions 30 days sliding, revocable.

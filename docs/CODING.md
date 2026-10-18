@@ -938,6 +938,243 @@ A browser for reviews: the person's own Claude Code MCP server (e.g. `claude mcp
 @playwright/mcp@latest` — the user scope, so it reaches every repo, also one whose own settings stay out — then
 `playwright` under the repo's MCP servers on the setup page) — One never reads the person's browser tabs.
 
+## Work orders (Prüfaufträge)
+
+A **work order** is a request written down in One — "find out why the login stops after 30 s, see @Support case 4711" —
+that One plans into a **chain** of pipeline tasks (Business analysis → Coding (→ Coding) → QA), shows in full on one
+plate, and runs one after another once the person presses **↵ Start chain** (*Kette starten*). Code:
+`src/app/features/coding/orders/**` (database, entry points, planner, plate, Preflight cards, auto mode, team) and the
+pure engine `src/app/features/coding/chain.ts`. Names: DE *Prüfauftrag / Prüfaufträge*, *Kette*, *Planer*; EN *Work order
+/ Work orders*, *Chain*, *Planner* (`tests/e2e/orders-names.spec.ts` guards them and the words the feature never uses).
+Help: *Work orders* (`help:workorders`). Everything needs Coding on **this** device and a connected worker; the
+optional context server is whichever MCP server the person picks — One names, presets and detects none.
+
+### The database and its roles
+
+- **Prüfaufträge** = `Database.system: 'workorders'` (`orders/db.ts ensureOrderDb(writer)`: the oldest live one — team:
+  private only, `createPrivateDatabase` — else made): Name · Status (Entwurf · Planen · Kette bereit · Läuft · Angehalten
+  · Fertig) · Repo (select; the worker's announced repos) · Pipelines (multi-select BA · Coding · QA) · Priorität · ID
+  (`unique_id`, PA / WO) · Erstellt; views Board (by Status) + Table. Made on the first **Prüfen lassen**, from #/coding's
+  key, Settings → Coding worker § Work orders, the Try key of What's new (`orders/try.ts`, a sample request in Entwurf).
+- **`Database.orders`** (`OrderConfig`, store/types.ts): `{ v: 1, status: { draft | plan | ready | running | halted |
+  done → option id }, server: { name } | null, kinds, projects?, checkpoint, budgetUsd? }`. The engine matches a Status
+  only by these option ids, never by name. Written only with `saveOrderConfig()` (refused on a locked database and over a
+  later build's config); every reader goes through `readOrderConfig()` (`none` · `unreadable` (v > 1: acts on nothing,
+  checkpoint on, never overwritten) · `ok` + `missing` / `repaired`; unknown keys kept ≤ 4 KB).
+- **Roles on pipeline rows** (`orders/roles.ts`, part of `codingProps`): `order` = the first relation whose
+  `relationDatabaseId` is a work-orders database (never by name or type alone); `step` = a number named Step / Schritt,
+  only next to `order`. Both are **display only**: the chain is this device's record (below); a copied row, a renumbered
+  step or a relation set by hand never starts anything (the plate warns about strays). Neither is part of a task version
+  (`fieldsKey`). `ensureChainProps(project, ordersDb, writer)` adds both, refused on a locked project.
+
+### What plans (the allow-list)
+
+Only the person, in this tab (`orders/press.ts pressPlan(row, how)`): Status → Planen written as `you` via none / `'ui'`
+(the trigger subscriber, `orders/trigger.ts`; a board drag counts), the database command **Planen** (`orders-plan`,
+group 'orders', ≤ 5 rows), **↵ Planen** on the plate, **Prüfen lassen** (+ "…" with a note). Never: undo, restore,
+template, form, automation, script, sync, import, agent, bridge, terminal, a cross-tab replay, a new card made in the
+Planen lane. A press checks §2.2's items before anything is read (`orders/preconditions.ts checkPreconditions`, the plate's
+strip): Coding on · not read-only · this tab holds the worker link · verdict 'ok' · ≥ 1 repo (or doc kinds only) · a usable
+project per kind (`chainProjectProblem`: not locked without roles, no BA project with a `stories` output, no project whose
+first stage hands new tasks to the worker, no stage the worker cannot run) · AI offered for `coding.plan` + the gate's
+`precheck` · ≥ 40 characters of words. A press that fails on Coding off / offline / outdated / unsafe is kept as the
+record's `want` (≤ 24 h; spent by CAS 5 s after an 'ok' worker is online, planned in mode `'trigger'`); other failures
+refuse. Provenance (`createdBy`, `updatedBy`, `contentOrigin` of the row and its first 8 linked pages) and their
+fingerprints are captured at the press from the store's `prev`.
+
+### The planner
+
+`orders/planner.ts planOrder(row, { mode, prov, replace, answers, from, noServer })` (lazy chunk; `orders/plan.ts` is the
+seam): Web Lock `one-order:<scope>:<row>` (a second press is 'busy'), ≤ 3 runs per tab. ONE structured request —
+`completeStructured`, purpose `coding.plan` (class 'terminal', sources rows + structure, needs page / private / mcp;
+`RUN_MODES` 'caller': 'manual' pressed here, 'trigger' the kept press), ledger source `order:<row>:<run>`. Inputs
+(`orders/prompt.ts`, pure, EN): the request (≤ 40 000 characters, context marks respected), ≤ 8 linked pages (≤ 20 000
+each, the coding/refs.ts rules), the catalogue (kinds, projects, `pipelineLine`, the worker's repos + ≤ 20 branch names,
+Claude Code's own MCP names, this device's Approvals), the answers to earlier questions. The server: no pick → `mcp:
+false` (never the `'fixed'` default — no "All AI calls" server either); a pick → `mcp-servers/config.ts onlyServer(name,
+reads)` = exactly that server, `forced`, `allow` = its read tools (a matching profile's declared reads confirmed by
+`declaredReadOk`, else `isReadTool` over the tested tools), OUT tools off; the brake counts `1 + MAX_RESUMES` rounds.
+Missing / off / untested / refused / withheld by a data rule / not on a Claude route → no server and a named skip
+(`orders/tools.ts serverSkip`). The call list comes from the response's `mcp_tool_use` / `mcp_tool_result` blocks
+(`orders/calls.ts`). `orders/plan.ts readPlan` is the strict reader of `OrderPlanV1` (≤ 6 steps, ≤ 3 coding, goal ≤ 2000,
+≤ 10 × 300 criteria, repo ∈ announced, branch announced or null and never the base, refs ⊆ linked pages; One links outside
+a step's refs → text; key-shaped text refused in the repair round, then scrubbed and named) with one repair round
+(without the server). The draft lands in the record (state 'draft'), Status → Kette bereit (`#s`); questions only → the
+Status stays, the plate asks, `answerQuestions` writes *Antworten* into the row as `you~ui` and plans again.
+`orderPlanHash(plan, resolved, approvals)` (SHA-256 over canonical JSON: steps, context, per step project + park / start
+`pipelineLine`, Approvals) is what ↵ confirms.
+
+### The plate, seen in full
+
+`OrderSlot` in PageView (rows of a work-orders database): the screwed plate **§ PRÜFAUFTRAG · PA-12 · PLANER** — lamps
+(Coding · Worker · Kontext (dim "ohne Server" is valid) · Planer), the precondition strip, while planning the run
+(`orders/runs.ts usePlannerRun`: phase, reads, calls, receipt; ⌘. = `stopPlanning`), the BrakeSlot at the Regler's line.
+In Kette bereit (`ReadyPart.tsx`): the counter, *Verstanden*, the Kontext box (FREMD, the calls, liest / nicht dabei,
+Server testen), one station per step (sticky head; goal via `claudeDoc`; the pages that go along in folds tagged PRIVAT /
+MAIL / FREMD), *Offen* + answer fields, the cost line (Ø Claude Code per kind over the last 10 done tasks — display only),
+**Budget je Kette** (`OrderDraft.budget` → `chain.budgetUsd`). **Seen in full** (`seen.tsx`): ↵ Kette starten acts only
+once every station's top and bottom were on screen, every page fold was opened and the Kontext box read to its end — a
+book per tab and plan run that outlives the plate; an edited station is new. Keys only with focus in the plate, never
+while typing, never on a repeat: E edit (the reader checks it), Entf remove (Z), Alt+↑/↓, R (asks after edits), O
+without server, D discard (Status → Entwurf; Z), Esc only leaves. ↵ Kette starten is VON HAND (`HandKey`: a fresh press
+≥ 300 ms after ready, `aria-disabled` with its reason). Phone: 2 × 2 lamps, the keys as a bottom bar above
+`--deck-dock`, floating keys hidden (`html[data-bottom-bar]`). Settings popover `OrderSettings.tsx` (⚙): the server
+radio, pipelines, projects ("wie #/coding"; the row's fields win), *Nach der Analyse anhalten*, the budget, *Ohne
+Bestätigung starten*.
+
+### Confirming: `startChain(row, shownHash)`
+
+`orders/confirm.ts` (lazy), under the row lock + the chain lock + an in-tab set. **Phase 1** (nothing written): the draft,
+a live row in Kette bereit, §2.2 again, the hash resolved now = the hash shown (else 'changed'), the request and its pages
+read ONCE and compared by **fingerprint** with the planner's read (`orders/fingerprint.ts`: SHA-256 over title + Markdown,
+block ids ignored — tab-local `contentRev` never crosses tabs) — moved → "neu planen"; key-shaped text refused; per step
+`checkTaskDraft` + repo need + `chainPropsCheck`. Then the setup: projects made (`ensurePipelineDb`), `ensureChainProps`,
+as `order:<row>:<run>`. **Phase 2**: write-ahead CAS (state 'creating', minted task ids, numbering after an older chain's
+highest n, `replaced`), older parked steps to the trash, each step `applyNewTask(…, { start: false })` under
+`order:<row>:<run>#c<n>` — **parked** (`NewTask.order` writes the roles in the same `createRow`; the parked-start guard
+`setParkedGuard` → `isParkedStep` in `pickNext` holds it), then 'running' with `startAt` = now + 10 s, Status Läuft (`#s`).
+A throw trashes every step this press made and restores the record. The step page (`orders/stepPage.ts`): the slot
+"Wartet auf Schritt 0n" (steps ≥ 2), the request quoted as plain text (≤ 4 000, a cut noted), step 01 only: the server's
+callout "Kontext vom MCP-Server ‹name› (fremd)", then goal / criteria / the refs (fixed block ids, a trailing paragraph:
+opening it writes nothing). `undoChain` (Z, `you~undo`): all or nothing, refused once a step was taken or changed.
+`finishCreates` at boot completes an untouched 'creating' record (≤ 10 min) or marks it 'interrupted' (two VON HAND keys:
+**Rest anlegen** = a new press with §2.2 and the version check, **Angelegte verwerfen**).
+
+### The chain engine
+
+`coding/chain.ts nextMove(world, press?)` is pure over a `ChainWorld`: this device's record (only state 'running' acts),
+the request (Status by option id, live, config usable), per step `ChainTaskFacts` (exists / trashed / ejected, stage,
+park and start stage, run state, `pipelineLine` + Approvals now, `endsConfirm` / `trusted`, changedBy, repo, branch,
+`spentUsd`) and per ref fingerprints + `foreign`. The app sink is `orders/chainRun.ts` (eager; started by
+`startOrders`): every pass under the Web Lock `one-order-chain:<scope>:<row>`, kicked by finishStage / approveTask
+reaching done (`setChainHook`), by a debounced write to a chain step / row / ref, at boot, at worker connect and at
+`startAt`. Outcomes in this order:
+
+1. **halt** (sticky — `withHalt` keeps the first; Status → Angehalten `#s`; only ↵ Fortsetzen = `resumeChain` leaves
+   it, budget checked): Status Angehalten by any writer · request trashed · Status options missing · a member ejected ·
+   trashed / gone while the chain still needs it · a parked step out of its park stage without `advanced` ('outOfOrder') ·
+   a moved step put back into its park stage by someone else or still there after `SETTLE_MS` ('putBack') · a project
+   that now starts new tasks at once · budget reached before the next step · Fertig not written by the chain's own end
+   ('finished') · 'ejectedStatus'.
+2. **card** (VON HAND, the chain waits): step n done without evidence ("— weiter?") · after a BA step with
+   `checkpoint`, unless the gate fold showed step n+1 whole (`doneBy[n].sawNext` / `chain.seenNext`, from the gate card's
+   fold read to its end) · drift of step n+1's start `pipelineLine` or Approvals ("Pipeline geändert seit Bestätigung") ·
+   a ref changed by someone other than the person since confirm (the card renders that page and pins exactly what it
+   rendered) · the Grundlage's source written from outside while it ran ('basis': passed only with the fingerprint of the
+   Grundlage the card rendered) · step n+1 waits for Confirm (`taskWriteEndsConfirm || !isTrusted`: the card renders
+   `taskVersionView`; its ↵ confirms that version and goes on). A press passes exactly the reasons it showed
+   (`ChainPress`; kept in `chain.passed[n]`, drift re-pins the line, refs re-pin their fingerprints).
+3. **advance**: write-ahead `withAdvance`, then inside `keepTrust([id], …, order:<row>:<run>#a<n>)` ONE write: the
+   **Grundlage** (`orders/basis.ts`: a callout replacing the slot — idempotent — holding an H2 "Aus Schritt 01 (Analyse):
+   ‹Titel›" and a COPY of step n's page without its own blocks, tasks unwrapped, references outside step n+1's confirmed
+   refs as text, ≤ 20 000 characters), a QA step's shared branch (the coding step's, same repo), Stage →
+   `startStageOf(pipeline, repo, true)`; then `moved[n]` under the lock (a lagging tab never moves it again; a step the
+   record says moved that this tab shows parked waits 'settling').
+4. **done**: record 'done' + Status Fertig (`#s`), notification, the summary (W writes one callout into the request).
+5. **wait** (countdown, running, question, failed, stopped, gate, import, queued, arriving, settling, finishing,
+   elsewhere).
+
+**Evidence of done** (`doneBy[n]`, recorded synchronously at the Stage move in THIS tab from `currentWriter()`):
+`coding` (this device's worker), `you` via none / 'ui' / 'preflight', `terminal`. Everything else — agent, bridge,
+automation, script, sync, import, template, history, undo, a member, another device, a cross-tab replay — gives none and
+raises the "weiter?" card. **Skip** (`skipStep`, VON HAND) a failed / stopped / trashed / gone / ejected step: the next
+gets "Schritt 0n übersprungen — keine Grundlage". **Halt all** (`haltAll`) on the board head and #/coding. **Stop now**
+(`stopNow`) = stopTask of the busy step, worker device only. **Replan from here** (`replanFrom`): the planner gets the done
+steps as `<done>`; its draft stands beside the running chain (`draft.from`) until ↵, D brings the chain back.
+
+**Budget**: `TaskLocal.spentUsd` (per device, `finishStage` adds each worker cost report, deduped by `finishId`) summed
+over the chain's steps — never the Cost field. It halts only before the next step. The Regler does not limit Claude
+Code on the worker (`worker.governed`, later); the plate says so.
+
+**Trust**: chain tasks are created by the person's confirm (`createTask` trusts each version; `defaultApprovals()`).
+No chain write ever ends a task's wait for Confirm. An approve that ends a chain step with a parked successor carries
+`TaskActionPlan.chain` + `starts` (`startsNow` counts it; Preflight `handOf` adds 'startsNow' + 'claudeCode' → VON HAND,
+never in ⇧A); the gate card says "Freigeben startet den nächsten Schritt: 03 · QA ‹…›" with a fold of that step as it will
+run. The attribution keeper never clears an agent's stamp for a `coding` or `order` write.
+
+### Records (this device)
+
+IndexedDB `one-coding`, key `<scope>|order|<rowId>` (scope `local:local` | `cloud:<ws>:u:<account>` — per member),
+CAS through idb-keyval `update`, announced on BroadcastChannel `one-coding-orders` (`orders/records.ts`; reader
+`orders/record.ts readOrderRecord`, a record a later build wrote is 'unreadable' and never overwritten). `OrderRecord`:
+`state` ('draft' | 'creating' | 'interrupted' | 'running' | 'halted' | 'done' | 'discarded'), `want` (a kept press),
+`draft` (plan, hash, run, receipt, edited, budget, source: prov, pins, fingerprints `fps` / `pressFps`, server, tools,
+left, calls, skip, notes, answers, auto reasons, `from`, `over`), `chain` (run, steps `{ n, id, kind, project, line,
+approvals, refs (fingerprints), basisBlock, own, title, rev, sig }`, `doneBy`, `halted`, `advanced`, `moved`, `back`,
+`passed`, `seenNext`, `basis`, `foreign`, `skipped`, `ejected`, `finishing`, `adopted`, `budgetUsd`, `checkpoint`),
+`asked` / `pressed` (team). Never synced, exported or backed up; drafts, finished and discarded records go after 30
+days, a want after 24 h; wiped with the device copy (cloud/device.ts, also the member scope) and the local reset.
+
+### Writers
+
+`{ kind: 'order', row, run, change? }` → `order:<row>:<run>[#c<n>|#a<n>|#s]` (store/writer.ts; recorder lane
+"Prüfauftrag · <title>"): `#c<n>` creates step n, `#a<n>` advances it (Grundlage + branch + Stage in one write), `#s` a
+Status the chain wrote; without a suffix the setup of a press (projects, chain roles, older parked steps to the trash).
+The Patchbay maps the writer to its module kind 'planner'. Agents and the MCP bridge never write a request's Status
+(`guardOrderRows`; work orders are read-only over MCP as a system database) nor a pipeline row's Stage / Repo / Branch /
+Then / Worker / Claimed / Work order / Step (`guardPipelineRows`). The folder / GitHub pick-up keeps the pipeline roles
+and the request Status (`pickupKeeps` → the file is written again) and marks a task whose content it wrote
+(`fileTouched`): it waits for Confirm until the person confirms or edits it in the editor.
+
+### Preflight
+
+Lamp **Prüfaufträge** (`preflight/sources/orders.ts`, reading `orderCards()`; bodies lazy in `orders/OrderCard.tsx`).
+Cards (every one `bulk: false`, every start-like key VON HAND through `queue/calls.ts`): `ready` (A ↵ Kette starten only
+on the hash the card rendered, once every station was seen in full; Z = undoChain; D) · `next` (the reasons, the step as
+it will run, the Grundlage, every changed page; ↵ Weiter / Bestätigen und weiter; R after an analysis; D = Anhalten) ·
+`halted` (↵ Fortsetzen, 1 skip; refused off the worker device / outdated / unsafe / at the budget) · `interrupted` ·
+`chainConfirm` (no record here — the worker moved or a backup came back: every step's `taskVersionView` under this
+device's Approvals; ↵ `confirmChainVersions` all or nothing; the record is `adopted`, Z never takes it back) · `request`
+(team, ↵ Hier planen). Gate / question / failure cards of a chain step carry the chip "PA-1 · 1/3" (`QueueItem.chip`).
+
+### Ohne Bestätigung starten (auto mode)
+
+Per device and per work-orders database, local workspaces only: localStorage `one.orders.auto:<scope>:<db>` = `{ sig,
+at }` or `{ lapsed }` (`orders/auto.ts`) — never in `Database.orders`, so no backup, restore, duplicate or import carries
+it (a restore drops this scope's consents). Switching on (`orders/autoStart.ts`) requires a Budget je Kette and asks the
+Patchbay with that consent (`plannerFuses`): a fuse refuses with its sentence + **Im Schaltplan zeigen** / **Weg
+zulassen** (the Patchbay's key 3). The sig (`orders/autoSig.ts`, SHA-256 over `AutoSigParts`: database, kinds, pinned
+projects, checkpoint, budget, the server's name + address + tested tools + matching profile ids, per kind the resolved
+project's stages and this device's Approvals) is recomputed in the background (`autoWatch.ts`: a mismatch lapses it) and
+at every auto create. After a press (never after R / O / Ab hier neu planen) a clean draft is started through the same
+`startChain` (10 s, Z); otherwise it stays Kette bereit and names why (`autoCore.ts autoFallbacks`: open points, a
+missing / other repo, a named branch, a kind outside the settings, mail or outside provenance of the request / a page / a
+ref, a fingerprint moved since the press, a scrubbed key, no budget, the lapse, a fuse).
+
+### In a team
+
+The work-orders database and the chain roles live in private documents (`isOrderRow` = the one row test of press,
+trigger, command and kept presses; a database moved out of Private plans nothing). Planning, confirming and advancing
+need the worker link: `ChainWorld.here.advance` is false elsewhere — such a device follows only the request (halt,
+done), never halts or advances from its own record. A press there writes Planen only (`asked`); the worker device
+records the Planen it sees arrive (`OrderRecord.asked`) and shows the VON HAND card "Hier planen". Halting works from any
+device (a Status write, sticky); resume, skip, stop now and start only on the worker device. A device without a record
+gets "Kette bestätigen". No auto mode. `Database.orders` is a plain database value for the server (readDatabase /
+writeDatabase copy it; an older build keeps it). Member wording for a workspace data rule: "Regel des Arbeitsbereichs —
+eine Admin kann sie ändern".
+
+### Work orders × the flight recorder
+
+Eject units (recorder/eject/sources.ts, kind 'order'): `#c<n>`, `#a<n>`, `#s`; the setup writes are no unit.
+`settleEjectedOrder` marks the steps (`chain.ejected`) and halts a running chain ('ejected' / 'ejectedStatus'); its
+Undo drops the marks, the halt stays. An eject never advances a chain (`isEjectWriter`, a 10 s quiet window for
+replays in other tabs, `stepEjected`); the eject waits while a chain of its window is being created ('orderBusy').
+
+### Limits
+
+≤ 6 steps / ≤ 3 coding per plan · goal ≤ 2 000, ≤ 10 criteria × 300 · request ≤ 40 000 characters + ≤ 8 linked pages
+× 20 000 · ≤ 6 server calls asked for · ≤ 1 planner run per row, ≤ 3 per tab, ≤ 5 rows per Planen command · one open
+chain per request (a follow-up chain numbers on: 04, 05 …) · Grundlage ≤ 20 000, the quoted request ≤ 4 000 per step ·
+step 01 after 10 s · a kept press 24 h · records 30 days (`orders/types.ts ORDER_LIMITS`, `PLAN_LIMITS`).
+
+### Tests
+
+`tests/e2e/orders-*.spec.ts` (contract, hardening, chain-core, db, plan, planner, confirm, chain, review, ui, preflight,
+auto, team-rules, names), `recorder-orders.spec.ts`, `patchbay-orders.spec.ts`, `e2e-cloud/orders-*.spec.ts`. The worker
+is `tests/e2e/helpers/fakeWorker.ts` on `CODING_E2E_PORT`; the planner's answers are scripted Messages responses with
+`mcp_tool_use` / `mcp_tool_result` blocks of the fictional server "Wissensbasis" (`tests/fixtures/ai/anthropic/orders-*.json`).
+E2E ports: never 6000 (Chromium refuses it as unsafe).
+
 ## Safety
 
 - **The worker's door is the bridge's door** (docs/MCP.md § Security model): 127.0.0.1 only, Host check against

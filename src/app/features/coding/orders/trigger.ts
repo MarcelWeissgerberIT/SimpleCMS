@@ -49,6 +49,7 @@ import { followRecord, holdFinishing, kick, startChains } from './chainRun'
 import { preWhyText, untilText } from './text'
 import { ORDER_LIMITS, type OrderPress, type OrderRecord } from './types'
 import { startAutoWatch } from './autoWatch'
+import { registerOrdersTry } from './try'
 
 const ws = () => useWorkspace.getState()
 
@@ -444,6 +445,8 @@ export function startOrders(): void {
   startChains()
   // Orders B11: this device's "Ohne Bestätigung starten" lapses once the settings it covers change (autoWatch.ts)
   startAutoWatch()
+  // Orders B14: the What's new entry's "Try it" key — a sample request (try.ts)
+  registerOrdersTry()
   useCoding.subscribe((s, prev) => {
     const v = verdictOf(s)
     if (v === 'ok' && verdictOf(prev) !== 'ok') {

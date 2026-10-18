@@ -128,6 +128,12 @@ export const messages: Messages = {
     'features.coding.order.settings.open': 'Open',
     'features.coding.order.settings.patchbay': 'Set up in the Patchbay',
     'features.coding.order.settings.made': 'Work orders created.',
+
+    // B14 — the What's new entry's "Try it": a sample request (try.ts)
+    'features.coding.order.sample.title': 'Sample: check the login timeout',
+    'features.coding.order.sample.request': 'Find out why the login of Nordlicht stops after 30 seconds — what was typed is lost. See the support case if there is one.',
+    'features.coding.order.sample.repo': 'Repo: website',
+    'features.coding.order.sample.made': 'Sample request in Draft — it plans only when you press ↵ Plan',
   },
   de: {
     'features.coding.order.db': 'Prüfaufträge',
@@ -249,5 +255,10 @@ export const messages: Messages = {
     'features.coding.order.settings.open': 'Öffnen',
     'features.coding.order.settings.patchbay': 'Im Schaltplan einrichten',
     'features.coding.order.settings.made': 'Prüfaufträge angelegt.',
+
+    'features.coding.order.sample.title': 'Beispiel: Login-Timeout prüfen',
+    'features.coding.order.sample.request': 'Prüfe, warum der Login von Nordlicht nach 30 Sekunden abbricht — die Eingaben sind dann weg. Siehe den Supportfall, falls es einen gibt.',
+    'features.coding.order.sample.repo': 'Repo: website',
+    'features.coding.order.sample.made': 'Beispiel-Auftrag als Entwurf — er plant erst, wenn du ↵ Planen drückst',
   },
 }

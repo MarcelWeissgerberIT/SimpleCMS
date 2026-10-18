@@ -4,7 +4,7 @@ title: Business-Analyse- und QA-Pipelines
 section: ai
 order: 11
 keywords: projekt, projekte, neues projekt, projekt löschen, stories, user stories, epic, copy for ai, ai context, clipboard, Für KI-Kontext kopieren, business analysis, ba, spec, specification, sdd, software design document, requirements, analysis, qa, quality assurance, test cases, test design, then, follow-up, chain, pipeline, document stage, import stage, zip, clone, reference, mention, knowledge base, mcp, Business-Analyse, Spezifikation, Anforderungen, Testfälle, Danach, Folgeaufgabe
-related: coding-pipeline, legacy-modernisation, explain-code, review-merge, mcp-servers
+related: coding-pipeline, workorders, legacy-modernisation, explain-code, review-merge, mcp-servers
 summary: Neben Coding: eine Business-Analyse-Pipeline, die Analysen und Spezifikationen schreibt, und eine QA-Pipeline, die Testfälle entwirft – jede für sich oder verkettet.
 ---
 **#/coding** hat drei Pipelines – oben umschalten: **Coding · Business-Analyse · QA**. Jede hat ihre eigene Datenbank, ihr Board und ihre Stufen, und jede funktioniert für sich: Eine reine Business-Analyse braucht kein Repository und keine Coding-Aufgabe. Sie laufen über denselben [Coding-Worker](help:coding-pipeline) mit Claude Code auf deinem Rechner.
@@ -26,6 +26,8 @@ Für Aufgaben ohne Repository nimmt der Worker einen eigenen Arbeitsordner. Dein
 
 ## Verkettet – oder für sich
 **Danach** (in Neue Aufgabe und im Aufgaben-Panel) legt fest, was passiert, wenn eine Aufgabe fertig ist: Business-Analyse → **Coding** und/oder **QA**, QA → **Coding**. One legt die Folgeaufgabe in dieser Pipeline mit der ganzen Seite an (und einer Erwähnung, woher sie kommt); die fertige Aufgabe verlinkt darauf. Nichts angehakt: nichts folgt. Eine fertige Aufgabe lässt sich auch später übergeben (**An … übergeben**).
+
+Ein **Prüfauftrag** plant so eine Kette für dich aus einem Auftrag — Business-Analyse → Coding → QA, jeder Schritt vollständig gezeigt, bevor er startet, das Ergebnis jedes Schritts in den nächsten kopiert: siehe [Prüfaufträge](help:workorders). Seine Schritte lassen **Danach** leer. Im [Schaltplan](help:patchbay) sind Danach- und Stories-Weitergaben als Ketten-Kabel gezeichnet.
 
 ## Seiten, die mitgehen
 Erwähne in einer Aufgabe eine Seite mit **@** oder füge ihren One-Link ein (auch in deine **Antwort** auf eine Rückfrage) – ihr Text geht mit der Aufgabe an Claude Code, nur zum Lesen: bis zu 8 Seiten, eine Datenbankzeile mit ihren Feldern, eine Datenbank mit den Titeln ihrer Einträge. Das Aufgaben-Panel zeigt sie unter **Geht mit**. Im Team wartet eine erwähnte Seite, die sich geändert hat, auf **Auf diesem Gerät bestätigen** – wie eine geänderte Aufgabe.

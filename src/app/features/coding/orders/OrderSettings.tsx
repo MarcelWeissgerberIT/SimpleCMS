@@ -74,7 +74,7 @@ export function OrderSettingsPanel({ dbId }: { dbId: ID }) {
     <div className="ors" data-testid="order-settings">
       <p className="label ors__title">
         § {t(`${O}.settings.title`)}
-        <HelpLink id="coding-pipeline" />
+        <HelpLink id="workorders" topic={t(`${O}.db`)} />
       </p>
       {(viewer || locked || read.kind === 'unreadable') && (
         <p className="orc-line orc-line--warn" data-testid="order-settings-why">

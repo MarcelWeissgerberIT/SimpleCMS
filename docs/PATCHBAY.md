@@ -171,6 +171,18 @@ reachability (chains.ts walks the model's flow, not the drawn cables; only the d
   time; unplugging leaves none). The picker lists this device's servers by the names the person gave them and
   preselects none; a server switched off here (`patch.serverOff`) or a tested one without read tools is refused.
 
+- **Asked by the work orders (B11)**: switching "Ohne Bestätigung starten" on asks `plannerFuses(db, consent)` (patchbay
+  index → lazy `orderAsk.ts`: the model built from `readSource()` with that consent put in, against the rack now) — the
+  open fuses the consent would add, or any open one on the planner's path, with its label, its `fuseSay` sentence and
+  whether key 3 is offered. A fuse refuses the switch ("Würde eine Sicherung auslösen: {path}" + **Im Schaltplan zeigen**
+  · **Weg zulassen** = this page's own key 3 on that path, `you~patchbay`). Every auto create asks again with the stored
+  consent (`plannerFuses(db, 'stored')`, the cached compute); a fuse makes the plan fall back to Kette bereit with its
+  sentence. The consent's sig covers the parts the `d` part names, so a change lapses the consent and the allowance alike.
+- **Help and What's new (B14)**: the help article `workorders` (EN + DE) explains the planner, the chain cables and the
+  auto mode's asking; the band's head carries `<HelpLink id="workorders" />`; the What's new entry of 2026-10-18 says
+  "Weitergaben sind jetzt im Schaltplan sichtbar — neue Sicherungen möglich" / "Hand-ons are now visible in the
+  Patchbay — new fuses possible", and the `patchbay` article's *Chain cables* bullet says the same.
+
 **Migration note (B10).** Racks drawn before B10 had no cable between pipelines. From B10 on, Then and stories hand-ons
 are drawn as `chain` edges between projects — also in workspaces without work orders — and taint now flows along them:
 a BA project whose tasks carry content from outside makes its follow-up Coding / QA tasks carry it too. A path through
@@ -244,4 +256,5 @@ Node: `patchbay-model` · `-chains` · `-fuses` · `-layout` · `-live-core` · 
 Fixtures: `tests/fixtures/patchbay.ts` (`mock1`, `mock2`, `bigPatchbay`, `wideScope`, `relays`, `exits`,
 `ordersWorld` — Orders B10) — fictional names, `*.example` hosts only. Work orders: `patchbay-orders` (Node model cases
 + one UI case); `patchbay-perf`'s world carries the work orders and three projects (chain edges, Then) under the same
-budgets.
+budgets. The planner's own strings (module, lamps, keys, near misses, band, plain words) are checked by `orders-names` too;
+the generic fuse sentences ("… ohne Prüfung …" — without review, the proposals' word) stay the Patchbay's.

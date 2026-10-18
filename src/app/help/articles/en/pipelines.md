@@ -4,7 +4,7 @@ title: Business analysis and QA pipelines
 section: ai
 order: 11
 keywords: project, projects, new project, delete project, stories, user stories, epic, Projekt, Projekt löschen, copy for ai, ai context, clipboard, Für KI-Kontext kopieren, business analysis, ba, spec, specification, sdd, software design document, requirements, analysis, qa, quality assurance, test cases, test design, then, follow-up, chain, pipeline, document stage, import stage, zip, clone, reference, mention, knowledge base, mcp, Business-Analyse, Spezifikation, Anforderungen, Testfälle, Danach, Folgeaufgabe
-related: coding-pipeline, legacy-modernisation, explain-code, review-merge, mcp-servers
+related: coding-pipeline, workorders, legacy-modernisation, explain-code, review-merge, mcp-servers
 summary: Next to Coding: a Business analysis pipeline that writes analyses and specifications, a QA pipeline that designs test cases — each on its own, or chained.
 ---
 **#/coding** has three pipelines — switch at the top: **Coding · Business analysis · QA**. Each has its own database, board and stages, and each works on its own: a pure business analysis needs no repository and no Coding task. They run on the same [coding worker](help:coding-pipeline) with Claude Code on your computer.
@@ -26,6 +26,8 @@ For tasks without a repository the worker uses its own scratch folder. Your know
 
 ## Chained — or on its own
 **Then** (in New task and in the task panel) picks what happens when a task is done: Business analysis → **Coding** and/or **QA**, QA → **Coding**. One creates the follow-up task in that pipeline with the whole page (and a mention of where it came from); the done task links to it. Nothing ticked: nothing follows. A done task can also be handed on later (**Hand on to …**).
+
+A **work order** plans such a chain for you from one request — Business analysis → Coding → QA, every step shown in full before it starts, each step's result copied into the next one: see [Work orders](help:workorders). Its steps leave **Then** empty. In the [Patchbay](help:patchbay), Then and stories hand-ons are drawn as chain cables.
 
 ## Pages that go along
 Mention a page with **@** in a task, or paste its One link (also into your **Answer** to a question) — its text goes to Claude Code with the task, read only: up to 8 pages, a database row with its fields, a database with its entries' titles. The task panel shows them under **Goes along**. In a team, a mentioned page that changed waits for **Confirm on this device** like a changed task.

@@ -8,6 +8,7 @@
 import { useMemo, useRef } from 'react'
 import type { Translate } from '@/shared/i18n'
 import { useWorkspace } from '../../../store/store'
+import { HelpLink } from '../../../help'
 import { startedOrderCount } from '../../coding'
 import type { ModelInput } from '../types'
 import { ORDERS_BAND, ordersBandFacts, ordersLamps } from '../setup/orders'
@@ -27,6 +28,7 @@ export function OrdersBand({ input, t, lang }: { input: ModelInput; t: Translate
           {t(`${P}.orders.head`)}
         </h2>
         <span className="label pb-orders__count">{t(`${P}.orders.count`, { n: set.done, m: set.lamps.length })}</span>
+        <HelpLink id="workorders" topic={t(`${P}.orders.head`)} className="pb-orders__help" />
       </header>
       <Lamps set={set} profileId={ORDERS_BAND} t={t} lang={lang} vertical={vertical} />
     </section>

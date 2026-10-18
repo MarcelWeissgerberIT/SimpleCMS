@@ -103,3 +103,40 @@ sets `JEV_DEFAULTS` / `JEV_CALIBRATED` in one follow-up commit.
 `ai-decide` (pure: wire, QSET hash, state leaks, verify / suggest), `jev-precheck`, `jev-gate`, `jev-editor`, `jev-verify`,
 `jev-calibrate`, `ai-setup` (step 03 / Settings), cloud `jev-team`, server `agents.test.ts`. Every host is mocked
 (`tests/e2e/helpers/providers.ts`, `scripts/lib/aiHosts.mjs`); the real-key checks are the owner's.
+
+## The work orders' planner (`coding.plan`)
+
+The planner of the work orders (`features/coding/orders/planner.ts`, docs/CODING.md § Work orders) is a facade caller
+like any other — no custom agent, no tool loop of One's: ONE structured request per press.
+
+- **Purpose** `coding.plan` (`core/purposes.ts`): `p('terminal', ['rows', 'structure'], ['page', 'private', 'mcp'],
+  ['structured'])` — class `terminal` (it already creates pipeline tasks, so the data-rule matrix gained no column).
+  `RUN_MODES['coding.plan'] = row('caller', 'structured', 'order')`: the caller passes `run.mode` — `'manual'` (pressed in
+  this tab with the worker online: at the Regler's line the plate's BrakeSlot asks, E / B retry the plan) or `'trigger'`
+  (the press kept while the worker was away: at the line it stops, the Status stays Planen with "Regler hält", one info
+  toast per request and day, never a wait for a key). Structured, so never capped. Ledger source `order:<row>:<run>`;
+  #/regler names the consumer "Prüfaufträge · Planer" (consumer kind `order`).
+- **Sources**: the row (`{ row }`) and every linked page that goes along (the gate classifies them: private · mail ·
+  memory · rows · page); `typed` = the request's title + readable text, so a key typed into it is `key_in_text` and nothing
+  is sent. `precheck()` runs before anything is read; pages a data rule withholds are left out by name.
+- **The exact MCP setup** (`completeStructured({ setup, forced, allow })`, client.ts): with no server picked the call is
+  `mcp: false` — `mcp: false` wins over everything, so no server is attached, not even one set to "All AI calls" (the
+  facade's default would be `'fixed'`). With a pick, `mcp-servers/config.ts onlyServer(name, reads)` returns `setup` =
+  that one server, `forced` = [its name] (MCP becomes a hard need of the route: a route without MCP or a data rule
+  withholding `mcp` refuses instead of silently dropping it), `allow` = { [name]: its read tools } (a matching
+  integration profile's declared reads confirmed by `declaredReadOk`, else `isReadTool` over the tested tools); OUT tools
+  stay off through `attachMcp`'s lock; a forced pick is not "addressed" (no codeword note). The brake's band counts the
+  server's rounds (`PrepareInput.mcp.rounds` = 1 + `MAX_RESUMES`). The planner decides `mcp: false` itself first for a
+  server that is missing here, switched off, untested, refused (`noteRefused`), withheld by a data rule, or on a route that
+  is not Claude's — and says why (`orders/tools.ts serverSkip`).
+- **What the server returned** comes from the response's `mcp_tool_use` / `mcp_tool_result` blocks of that server only
+  (`StructuredOptions.onMcpActivity({ attached, blocks })`; `orders/calls.ts foldCalls`): tool, arguments (≤ 160
+  characters), size, ok — shown on the plate as they arrive.
+- **The repair round**: an answer `readPlan` refuses gets one more request without the server (the first answer's context
+  is in the repair prompt); key-shaped text is refused in round 1 and scrubbed + named after the repair.
+- **Jev**: plans are not a checked kind (`CHECKED_KINDS`); confirm mode is by hand, and auto mode does not ask Jev in v1.
+- **Tests**: `orders-contract.spec` (the facade: `mcp: false` sends no server even with an "All AI calls" one; a pick =
+  exactly that server, read tools only, OUT absent — golden `tests/fixtures/ai/anthropic/golden/orders-structured-pick.json`),
+  `orders-planner.spec` (the planner's real body — golden `golden/orders-planner-pick.json`; fixture
+  `orders-plan-kb.json` with the fictional server "Wissensbasis"), `orders-plan.spec` (the strict reader, prompt rules,
+  no service name in the prompt), `governor-core` (the `RUN_MODES` row).

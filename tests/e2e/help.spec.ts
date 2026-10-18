@@ -209,6 +209,30 @@ test.describe('help panel', () => {
     expect(overflow).toBeLessThanOrEqual(0)
   })
 
+  test('work orders (Prüfaufträge B14): the plate\'s "?" opens "Work orders" — the request, the chain, not the pre-check; search finds it in both languages', async ({ page }) => {
+    await openApp(page)
+    const row = await page.evaluate(() => {
+      const w = window as unknown as { __oneOrderEntries: { ensure: () => string }; __one: { workspace: { getState: () => AnyState } } }
+      const db = w.__oneOrderEntries.ensure()
+      return w.__one.workspace.getState().createRow(db, { title: 'Check the login timeout' }) as string
+    })
+    await page.evaluate((id) => (window.location.hash = `#/p/${id}`), row)
+    const plate = page.getByTestId('order-plate')
+    await expect(plate).toBeVisible()
+    await plate.getByRole('button', { name: 'Help: Work orders' }).click()
+    await expect(articleTitle(page)).toHaveText('Work orders: from a request to a running chain')
+    await expect(panel(page).locator('.help-doc')).toContainText('Start chain')
+    await expect(panel(page).locator('.help-doc')).toContainText('pre-check')
+    // its neighbours in the manual point back at it
+    await expect(panel(page).locator('.help-related')).toContainText('Coding pipeline')
+    await page.keyboard.press('Escape')
+    await expect(panel(page)).toHaveCount(0)
+    // the German words find it from an English UI (search runs across languages)
+    await pressHelpKey(page)
+    await searchBox(page).fill('Prüfauftrag')
+    await expect(panel(page).locator('.help-hit').first()).toContainText('Work orders')
+  })
+
   test('the flight recorder\'s spec label is its article\'s number: § 02.<order> on the deck and in the help, in both languages\' strings', async ({ page }) => {
     const md = readFileSync(new URL('../../src/app/help/articles/en/flight-recorder.md', import.meta.url), 'utf8')
     const order = /^order: (\d+)$/m.exec(md)![1]
@@ -266,6 +290,19 @@ test.describe('public help pages (/help/)', () => {
         for (const f of new Set(fonts)) expect((await request.get(new URL(f, `http://x${url}`).pathname)).status(), f).toBe(200)
       }
     }
+  })
+
+  test('the work orders article (B14) is prerendered as twins: hreflang both ways, the German words in German', async () => {
+    const en = readFileSync(`${DIST}/help/workorders/index.html`, 'utf8')
+    expect(en).toContain('<h1 id="art-h" class="art-title">Work orders: from a request to a running chain</h1>')
+    expect(en).toContain('hreflang="de" href="https://getonecms.com/SimpleCMS/help/de/workorders/"')
+    const de = readFileSync(`${DIST}/help/de/workorders/index.html`, 'utf8')
+    expect(de).toContain('<html lang="de"')
+    expect(de).toContain('Prüfaufträge: von der Bitte zur laufenden Kette')
+    expect(de).toContain('hreflang="en" href="https://getonecms.com/SimpleCMS/help/workorders/"')
+    expect(de).toContain('Kette starten')
+    // the coding article links it on the public site too
+    expect(readFileSync(`${DIST}/help/coding-pipeline/index.html`, 'utf8')).toContain('href="/SimpleCMS/help/workorders/"')
   })
 
   test('the index searches, the article page renders, the landing footer links the help', async ({ page }) => {

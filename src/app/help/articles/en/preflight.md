@@ -14,6 +14,7 @@ A lamp is on the panel only when it has something to watch here (a coding lamp o
 
 - **Proposals** — open proposals from [agent](help:custom-agents) runs, the [AI terminal](help:agent), memory, AI-menu results and autofill reviews. Terminal and autofill proposals count only in the tab they belong to.
 - **Gate · Plan**, **Coding question**, **Task failed** — your [pipeline](help:coding-pipeline) tasks waiting at a gate, asking, failed or stopped; task versions this device has to confirm.
+- **Work orders** — [work orders](help:workorders) waiting for you on this device: a chain ready to start, the next step to go on with, a halted or interrupted chain, a chain to confirm here, a plan asked for on another device. Every key that starts the worker is BY HAND; gate cards of a chain step carry its chip (*WO-1 · 1/3*).
 - **Inbox** — unread reminders, mentions, replies and agent notes of this device.
 - **Token refused** — [MCP servers](help:mcp-servers) whose token was refused or whose sign-in ran out.
 - **Outbox** — [slips](help:outbox) waiting to be sent by hand.

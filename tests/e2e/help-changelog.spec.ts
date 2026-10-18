@@ -178,6 +178,46 @@ test.describe('What’s new in the Help panel', () => {
     await expect(panel(page).getByRole('tab', { name: /Ask/ })).toHaveAttribute('aria-selected', 'true')
   })
 
+  test('Try it (work orders): a sample request in Draft opens on its page — once, with Undo; nothing plans', async ({ page }) => {
+    const sample = 'Sample: check the login timeout'
+    // live samples: neither the row nor its database page in the trash
+    const samples = () =>
+      wsEval(page, (s, title) => Object.values(s.pages as Record<string, { id: string; title: string; trashed?: boolean; parentId?: string | null }>).filter((p) => p.title === title && !p.trashed && !(p.parentId && s.pages[p.parentId]?.trashed)).map((p) => p.id), sample)
+    const liveOrderDbs = () => wsEval(page, (s) => Object.values(s.databases as Record<string, { id: string; system?: string }>).filter((d) => d.system === 'workorders' && !s.pages[d.id]?.trashed).length)
+    await openApp(page)
+    const orders = ENTRIES.find((e) => e.try === 'workorders')!
+    expect(orders, 'the work orders entry carries the Try key').toBeTruthy()
+    const tryIt = async () => {
+      await openEntry(page, orders.id)
+      await expect(panel(page).locator('.cl-try__btn')).toHaveText(/Open a sample work order/)
+      await panel(page).locator('.cl-try__btn').click()
+      await expect(panel(page)).toHaveCount(0)
+    }
+    await tryIt()
+    // the request's own page with its plate: in Draft — a Draft never plans by itself
+    const plate = page.getByTestId('order-plate')
+    await expect(plate).toBeVisible()
+    await expect(page.locator('#main .pv-title')).toHaveText(sample)
+    await expect(plate.getByTestId('order-status')).toContainText('Draft')
+    await expect(page.locator('#main .ProseMirror')).toContainText('Nordlicht')
+    expect(await samples()).toHaveLength(1)
+    expect(await liveOrderDbs()).toBe(1)
+    // the toast's Undo takes back what this press made: the database with its sample
+    await page.locator('.toast').filter({ hasText: 'Sample request in Draft' }).getByRole('button', { name: 'Undo' }).click()
+    await expect.poll(samples).toHaveLength(0)
+    expect(await liveOrderDbs()).toBe(0)
+    // again: made anew — and a third press opens that same sample, no second copy
+    await tryIt()
+    await expect(page.locator('#main .pv-title')).toHaveText(sample)
+    const first = await samples()
+    expect(first).toHaveLength(1)
+    await page.evaluate(() => (window.location.hash = '#/coding'))
+    await tryIt()
+    await expect(page.locator('#main .pv-title')).toHaveText(sample)
+    expect(await samples()).toEqual(first)
+    expect(page.url()).toContain(`#/p/${first[0]}`)
+  })
+
   test('the LED on "? Help": lit for an unseen entry, cleared by opening the list, per device; an older seen entry lights it again', async ({ page }) => {
     await openApp(page)
     await expect(led(page)).toBeVisible()
