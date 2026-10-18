@@ -47,6 +47,7 @@ export const messages: Messages = {
     [`${O}.lane.stopped`]: 'stopped',
     [`${O}.lane.done`]: 'done',
     [`${O}.lane.trashed`]: 'in the trash',
+    [`${O}.lane.ejected`]: 'ejected',
     [`${O}.lane.queued`]: 'queued',
     [`${O}.start.why.busy`]: 'The chain is being started already',
     [`${O}.start.why.state`]: 'There is no plan ready to start',
@@ -92,6 +93,7 @@ export const messages: Messages = {
     [`${O}.halt.statusOption`]: 'a Status option is missing — repair it',
     [`${O}.halt.stopped`]: 'stopped',
     [`${O}.halt.ejected`]: 'step {n} ejected',
+    [`${O}.halt.ejectedStatus`]: 'the request’s Status was ejected',
     [`${O}.halt.finished`]: 'set to Done — the chain ended',
     [`${O}.halt.putBack`]: 'step {n} was put back into its first stage',
     // B7 — the chain on its own: cards, halts, the person's keys, notifications
@@ -191,6 +193,7 @@ export const messages: Messages = {
     [`${O}.lane.stopped`]: 'gestoppt',
     [`${O}.lane.done`]: 'fertig',
     [`${O}.lane.trashed`]: 'im Papierkorb',
+    [`${O}.lane.ejected`]: 'ausgeworfen',
     [`${O}.lane.queued`]: 'in der Reihe',
     [`${O}.start.why.busy`]: 'Die Kette wird schon gestartet',
     [`${O}.start.why.state`]: 'Kein Plan steht zum Starten bereit',
@@ -236,6 +239,7 @@ export const messages: Messages = {
     [`${O}.halt.statusOption`]: 'Status-Option fehlt — reparieren',
     [`${O}.halt.stopped`]: 'gestoppt',
     [`${O}.halt.ejected`]: 'Schritt {n} ausgeworfen',
+    [`${O}.halt.ejectedStatus`]: 'der Status des Auftrags wurde ausgeworfen',
     [`${O}.halt.finished`]: 'auf Fertig gesetzt — Kette beendet',
     [`${O}.halt.putBack`]: 'Schritt {n} wurde in die erste Stufe zurückgelegt',
     // B7 — die Kette von allein: Karten, Halte, die Tasten, Benachrichtigungen

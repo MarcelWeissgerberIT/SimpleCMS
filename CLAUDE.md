@@ -1361,6 +1361,18 @@ the public APIs stable — other areas are built against them in parallel.
   "Kette bestätigen" (this device's Approvals). A data rule's refusal of the planner: a member reads "Regel des
   Arbeitsbereichs — eine Admin kann sie ändern" without the change key (`ruleRefusal`). No auto mode in a team.
   `Database.orders` is a plain database value the cloud binding copies (readDatabase / writeDatabase).
+- Work orders × the flight recorder (Prüfaufträge B13; coding/orders/eject.ts lazy · ejectUnits.ts pure): the chain's
+  eject units are `order:<row>:<run>#c<n>` (creation) · `#a<n>` (advance) · `#s` (Status) — recorder/eject/sources.ts
+  `changeMap`; the setup writes (no part) are no unit. The eject's own rules decide the places (a step the worker took
+  carries its writes: held; a pipeline field is never written). Its settle calls `settleEjectedOrder` only: the steps whose
+  creation went back are marked in this device's record (`OrderChain.ejected`, n → eject id; `withEjected` names a
+  'member' halt about them 'ejected') and a running chain halts at once — 'ejected' (its first such step, S decides) or
+  'ejectedStatus' (only a Status the chain wrote went back); the Undo (`unsettleEjectedOrder`) drops that eject's marks,
+  the halt stays. An eject and its Undo never run a chain: chainRun's subscriber ignores `isEjectWriter` writes and, for
+  10 s after an eject was heard of (recorder/settled.ts `ejectHeardWithin`), replays of another tab's writes; a step
+  whose unit an eject settled (`isSettled`) is never moved. The eject waits while a chain of its window is being created
+  ('orderBusy'). Full backups carry `Database.orders`; records and the consent never (a restore keeps this device's
+  records, drops the consent); the local reset deletes `one-coding` (also without `indexedDB.databases()`).
 - MCP tidy-up tools (trash / restore ≤ 50 ids, move page / row, update database / property, delete property, view
   create / update / delete) live in `features/mcp/{tidy,structure}.ts` and `server/src/mcp/{tidy,structure}.ts` with
   the same rules: never delete for good, locked databases refuse structure changes, no page ⇄ entry or Private ⇄ shared

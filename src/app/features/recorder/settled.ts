@@ -30,6 +30,8 @@ const ejects = new Set<string>()
 const listeners = new Set<(n: SettledNote) => void>()
 let channel: BroadcastChannel | null = null
 let hooked = false
+/** when this tab last heard of an eject (its own or another tab's: a mark, a bring-back, an eject or its Undo begun) */
+let lastNote = 0
 
 function chan(): BroadcastChannel | null {
   if (hooked) return channel
@@ -41,7 +43,10 @@ function chan(): BroadcastChannel | null {
       const m = e.data as Msg | null
       // the journal's own kinds (flushed, reset, eject) are the bus's
       if (m?.kind === 'settled' && typeof m.runKey === 'string' && Array.isArray(m.ids)) apply(m.runKey, m.ids.filter((x) => typeof x === 'string'), !!m.on, false, typeof m.ref === 'string' ? m.ref : undefined)
-      else if (m?.kind === 'ejectRef' && typeof m.id === 'string') ejects.add(m.id)
+      else if (m?.kind === 'ejectRef' && typeof m.id === 'string') {
+        ejects.add(m.id)
+        lastNote = Date.now()
+      }
     }
   } catch {
     channel = null
@@ -58,6 +63,7 @@ function post(m: Msg): void {
 }
 
 function apply(runKey: string, ids: string[], on: boolean, local: boolean, ref?: string): void {
+  lastNote = Date.now()
   const cur = settled.get(runKey)
   if (on) {
     if (!ids.length) settled.set(runKey, '*')
@@ -109,8 +115,9 @@ export function onSettled(fn: (n: SettledNote) => void): () => void {
 /** An eject this tab (or another) made: its Undo's writes are the eject's too. */
 export function noteEject(id: string): void {
   chan()
-  if (ejects.has(id)) return
+  lastNote = Date.now()
   ejects.add(id)
+  // said again for its Undo too: the other tabs hear of it before its write reaches them
   post({ kind: 'ejectRef', id })
 }
 
@@ -121,4 +128,14 @@ export function isEjectWriter(w: Writer | null | undefined): boolean {
   if (w.kind !== 'you' || w.via !== 'undo' || !w.ref) return false
   chan()
   return ejects.has(w.ref)
+}
+
+/**
+ * Did this tab hear of an eject (its own or another tab's) within the last `ms`? A replay of another tab's write that
+ * arrives meanwhile may be the eject's own write or its Undo's — derived work that reacts to replays (the work orders'
+ * chain passes) leaves it alone; the tab that wrote it runs its own.
+ */
+export function ejectHeardWithin(ms: number): boolean {
+  chan()
+  return Date.now() - lastNote < ms
 }

@@ -542,6 +542,33 @@ export function withLine(chain: OrderChain, n: number, line: string, approvals: 
   return { ...chain, steps: chain.steps.map((s) => (s.n === n ? { ...s, line, approvals } : s)) }
 }
 
+/**
+ * Orders B13 — the flight recorder's eject took back the creation of steps `ns` (eject `ejectId`): each is marked (the
+ * engine halts on it: 'ejected', S decides). A halt already recorded because one of them went to the trash ('member' —
+ * a pass that came before the eject's settle) names the eject instead; any other halt stays as it was (sticky).
+ */
+export function withEjected(chain: OrderChain, ns: readonly number[], ejectId: string): OrderChain {
+  const known = new Set(chain.steps.map((s) => s.n))
+  const add = ns.filter((n) => known.has(n) && chain.ejected?.[n] !== ejectId)
+  const h = chain.halted
+  const upgrade = !!h && h.why === 'member' && h.step !== undefined && ns.includes(h.step)
+  if (!add.length && !upgrade) return chain
+  const ejected = { ...(chain.ejected ?? {}) }
+  for (const n of add) ejected[n] = ejectId
+  return { ...chain, ejected, ...(upgrade && h ? { halted: { ...h, why: 'ejected' as const } } : {}) }
+}
+
+/**
+ * The eject's Undo brought steps `ns` back: the marks THAT eject set go (another eject's stay). The halt stays — an eject
+ * and its Undo never advance a chain; ↵ Fortsetzen goes on.
+ */
+export function withoutEjected(chain: OrderChain, ns: readonly number[], ejectId: string): OrderChain {
+  if (!chain.ejected || !ns.some((n) => chain.ejected![n] === ejectId)) return chain
+  const ejected = Object.fromEntries(Object.entries(chain.ejected).filter(([k, id]) => !(ns.includes(Number(k)) && id === ejectId)))
+  const { ejected: _e, ...rest } = chain
+  return Object.keys(ejected).length ? { ...rest, ejected } : rest
+}
+
 /** May the chain be resumed now? A halt for the budget stays while the spend is at or above it. */
 export function mayResume(world: Pick<ChainWorld, 'record' | 'tasks'>): 'ok' | 'notHalted' | 'budget' {
   const chain = world.record.chain

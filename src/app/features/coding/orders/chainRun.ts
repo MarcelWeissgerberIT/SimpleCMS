@@ -50,7 +50,7 @@ import { currentWriter, inPersonEvent, type Writer } from '../../../store/writer
 import { isApplyingCloudChange, useCloud } from '../../../cloud'
 import { currentLang, t } from '../../../i18n'
 import { agentIdOf } from '../../agents/attribution'
-import { isEjectWriter } from '../../recorder/settled'
+import { ejectHeardWithin, isEjectWriter, isSettled } from '../../recorder/settled'
 import { useCoding } from '../state'
 import { workerOnline } from '../link'
 import { codingProps, inTeam, kindOfDb, optionName, readPipeline, stageOfRow } from '../schema'
@@ -171,6 +171,17 @@ export function holdFinishing(rowId: ID, on: boolean): void {
   kick(rowId)
 }
 
+/**
+ * Did an eject take step `n`'s creation back (Orders B13)? The record's mark (eject.ts settleEjectedOrder), or the eject's
+ * settled mark on its unit `order:<row>:<run>#c<n>` / `#a<n>` — set in every tab the moment the eject settles, before
+ * the record is written and before the eject's write reaches another tab's store.
+ */
+export function stepEjected(rowId: ID, chain: OrderChain, n: number): boolean {
+  if (chain.ejected?.[n] !== undefined) return true
+  const key = `order:${rowId}:${chain.run}`
+  return isSettled(key, `c${n}`) || isSettled(key, `a${n}`)
+}
+
 /** The facts of a request's chain on this device (`record` = this device's record of it). */
 export async function chainWorld(rowId: ID, record: OrderRecord, now = Date.now()): Promise<ChainWorld> {
   const s = ws()
@@ -183,6 +194,9 @@ export async function chainWorld(rowId: ID, record: OrderRecord, now = Date.now(
   const refs: ChainWorld['refs'] = {}
   for (const step of chain?.steps ?? []) {
     tasks[step.id] = await taskFacts(step.id, young)
+    // Orders B13: an eject took its creation back — the record's mark, or (before the record says so, in this tab or
+    // another) the eject's settled mark on its unit
+    if (chain && stepEjected(rowId, chain, step.n)) tasks[step.id] = { ...tasks[step.id]!, ejected: true }
     for (const id of Object.keys(step.refs)) {
       const p = s.pages[id]
       // foreign: an outside write recorded where it happened, an agent's stamp, or text not from a person's editor here
@@ -306,7 +320,7 @@ function parkedGuard(taskId: ID): boolean {
 
 const chainLock = (rowId: ID) => `one-order-chain:${orderScope()}:${rowId}`
 
-async function withChainLock<T>(rowId: ID, fn: () => Promise<T>): Promise<T> {
+export async function withChainLock<T>(rowId: ID, fn: () => Promise<T>): Promise<T> {
   const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined
   if (!locks?.request) return fn()
   return (await locks.request(chainLock(rowId), fn)) as T
@@ -407,6 +421,9 @@ function outsideWriter(): string | null {
   return INSIDE.has(w.kind) ? null : w.kind
 }
 
+/** After an eject was heard of, replays of another tab's writes run no chain for this long (ms). */
+export const EJECT_QUIET_MS = 10_000
+
 /** A chain this record holds that the subscriber still records for. */
 const active = (r: OrderRecord | null, run: string): r is OrderRecord & { chain: OrderChain } => !!r?.chain && r.chain.run === run && (r.state === 'running' || r.state === 'halted' || (r.state === 'draft' && !!r.draft?.over))
 
@@ -417,6 +434,11 @@ const active = (r: OrderRecord | null, run: string): r is OrderRecord & { chain:
  */
 function onStore(state: WorkspaceState, prev: WorkspaceState): void {
   if (state.pages === prev.pages || !state.ready || !prev.ready || state.epoch !== prev.epoch) return
+  // Orders B13: an eject and its Undo never run a chain (recorder/settled.ts isEjectWriter) — no pass, no evidence, no
+  // outside write; what the eject took back reaches the chain only through its settle (eject.ts: marks, a halt). A
+  // replay of another tab's write right after an eject was heard of may be that eject's (or its Undo's): left alone too
+  // (the tab that wrote it runs its own passes)
+  if (isEjectWriter(currentWriter()) || (isApplyingRemote() && ejectHeardWithin(EJECT_QUIET_MS))) return
   const idx = indexNow()
   if (!idx.steps.size && !idx.rows.size && !idx.watch.size) return
   const diff = pageChanges(state.pages, prev.pages)
@@ -588,6 +610,8 @@ async function advance(rowId: ID, chain: OrderChain, move: Extract<ChainMove, { 
       // the same check, synchronously inside the write: changed since it was found trusted (an agent wrote meanwhile) —
       // nothing of the step is written past its wait for Confirm
       if (!page || !db || page.trashed || (page !== checked && writeEndsConfirm(page))) return
+      // an eject took its creation back (another tab's store may not show the trash yet): never moved
+      if (stepEjected(rowId, chain, step.n)) return
       if (block && step.basisBlock) ws().setContent(step.id, placeBasis(page.content ?? { type: 'doc', content: [] }, step.basisBlock, block), ORDER_ORIGIN)
       const props = codingProps(db)
       if (move.branch && props.branch) {

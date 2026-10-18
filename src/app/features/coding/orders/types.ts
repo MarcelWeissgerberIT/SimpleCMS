@@ -286,11 +286,15 @@ export interface OrderDoneBy {
   sawNext?: boolean
 }
 
-/** Why a chain halted (each a plate line and the Preflight card "Kette angehalten"). */
-export type OrderHaltWhy = 'status' | 'trashed' | 'budget' | 'member' | 'outOfOrder' | 'startsAtOnce' | 'noStart' | 'statusOption' | 'stopped' | 'ejected' | 'finished' | 'putBack'
+/**
+ * Why a chain halted (each a plate line and the Preflight card "Kette angehalten"). 'ejected': the flight recorder's eject
+ * took a step's creation back (its `step`); 'ejectedStatus': an eject took back the Status the chain wrote while it ran
+ * (Orders B13).
+ */
+export type OrderHaltWhy = 'status' | 'trashed' | 'budget' | 'member' | 'outOfOrder' | 'startsAtOnce' | 'noStart' | 'statusOption' | 'stopped' | 'ejected' | 'ejectedStatus' | 'finished' | 'putBack'
 
 /** Every halt reason (the record reader keeps only these). */
-export const ORDER_HALT_WHYS: readonly OrderHaltWhy[] = ['status', 'trashed', 'budget', 'member', 'outOfOrder', 'startsAtOnce', 'noStart', 'statusOption', 'stopped', 'ejected', 'finished', 'putBack']
+export const ORDER_HALT_WHYS: readonly OrderHaltWhy[] = ['status', 'trashed', 'budget', 'member', 'outOfOrder', 'startsAtOnce', 'noStart', 'statusOption', 'stopped', 'ejected', 'ejectedStatus', 'finished', 'putBack']
 
 /** A confirmed chain on this device. */
 export interface OrderChain {
@@ -341,6 +345,12 @@ export interface OrderChain {
   foreign?: Record<ID, number>
   /** step n → the fingerprint of the Grundlage a card showed and the person passed (its ↵) */
   basisSeen?: Record<number, string>
+  /**
+   * Orders B13 — steps whose creation the flight recorder's eject took back (step n → the eject's id; its unit
+   * `order:<row>:<run>#c<n>`): an ejected step halts the chain ('ejected', S decides); the eject's Undo drops its own
+   * marks again (the halt stays — an eject and its Undo never advance a chain)
+   */
+  ejected?: Record<number, string>
   /** this device asks "end the chain?" since (the request was set to Fertig while it ran) */
   finishing?: number
   /**

@@ -48,8 +48,8 @@ const STOP_KEY = shortcutLabel('Mod+.')
 export { refusalText }
 
 /** One step's state on this device, as a word beside its LED. */
-type Lane = 'parked' | 'running' | 'waiting' | 'failed' | 'stopped' | 'done' | 'trashed' | 'queued'
-const LANE_LED: Record<Lane, 'off' | 'on' | 'ok'> = { parked: 'off', running: 'on', waiting: 'on', failed: 'on', stopped: 'on', done: 'ok', trashed: 'off', queued: 'off' }
+type Lane = 'parked' | 'running' | 'waiting' | 'failed' | 'stopped' | 'done' | 'trashed' | 'ejected' | 'queued'
+const LANE_LED: Record<Lane, 'off' | 'on' | 'ok'> = { parked: 'off', running: 'on', waiting: 'on', failed: 'on', stopped: 'on', done: 'ok', trashed: 'off', ejected: 'off', queued: 'off' }
 
 function StepRow({ step, chain, prev }: { step: OrderChainStep; chain: OrderChain; prev: number | null }) {
   const t = useT()
@@ -60,7 +60,9 @@ function StepRow({ step, chain, prev }: { step: OrderChainStep; chain: OrderChai
   useEffect(() => void loadTask(step.id), [step.id])
   let lane: Lane = 'queued'
   let stageName = ''
-  if (!page || page.trashed || !db) lane = 'trashed'
+  // Orders B13: an eject took its creation back (the record's mark — S decides; the eject's Undo brings it back)
+  if (chain.ejected?.[step.n] !== undefined && (!page || page.trashed)) lane = 'ejected'
+  else if (!page || page.trashed || !db) lane = 'trashed'
   else {
     const pipeline = readPipeline(db)
     const props = codingProps(db)
@@ -78,7 +80,7 @@ function StepRow({ step, chain, prev }: { step: OrderChainStep; chain: OrderChai
   return (
     <li className="orc-row" data-lane={lane} data-step={step.id} data-testid="order-chain-row">
       <span className="orc-row__state">
-        {lane === 'parked' || lane === 'trashed' ? <span className="orp-ring" aria-hidden /> : <Led state={LANE_LED[lane]} />}
+        {lane === 'parked' || lane === 'trashed' || lane === 'ejected' ? <span className="orp-ring" aria-hidden /> : <Led state={LANE_LED[lane]} />}
         <span className="label">{t(`features.coding.order.lane.${lane}`)}</span>
         {lane === 'parked' && prev !== null && <span className="label orc-row__waits">· {t('features.coding.order.lane.waitsFor', { n: stepNo(prev) })}</span>}
       </span>

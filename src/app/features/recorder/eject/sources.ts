@@ -6,8 +6,9 @@
  * script runs. Every in-memory Undo of a settled change is told first (settled.ts) and last on the way back.
  *
  * A unit is one staged change of an agent run or a terminal batch (`<runKey>#<change>` — change ids are per run; the
- * changes ONE write carried are a unit each on the same places, so they go or stay together) or a whole MCP call /
- * script run (its run key). A unit is ejected when every place it touched in the window went back (or
+ * changes ONE write carried are a unit each on the same places, so they go or stay together), one part of a work
+ * order's chain (`order:<row>:<run>#c<n>` creation · `#a<n>` advance · `#s` Status — Orders B13; its setup writes carry
+ * no part and are no unit) or a whole MCP call / script run (its run key). A unit is ejected when every place it touched in the window went back (or
  * had gone back already) and at least one went back now; it comes back only when every place it took back came back.
  * Ids, counts and states only — never text.
  */
@@ -46,7 +47,7 @@ export function changeMap(data: Pick<WindowData, 'sel' | 'places'>, plan: Pick<P
     for (const e of w.ownEvents) {
       if (e.at < a || e.at >= b || !e.r) continue
       const kind = runKindOf(e.r)
-      if (kind === 'agent' || kind === 'terminal') {
+      if (kind === 'agent' || kind === 'terminal' || kind === 'order') {
         // '*': a write of more changes than its key could name — the plan holds its place (never a unit)
         for (const c of changeIds(e.c)) if (c !== '*') set.add(`${e.r}#${c}`)
       } else if (kind === 'mcp' || kind === 'script') set.add(e.r)
@@ -121,6 +122,11 @@ export interface EjectFacts {
   codingConfirm: number
   /** the folder / GitHub sync is on and pages go back: their files are written again */
   syncWriteBack: boolean
+  /**
+   * Orders B13: steps of a work order's chain whose creation goes back (to the trash), and chains that halt by the
+   * eject (a step or a Status the chain wrote goes back while it runs)
+   */
+  orders: { steps: number; chains: number }
 }
 
 type Opened = (runId: string, changeId: string) => boolean | null
@@ -137,7 +143,7 @@ export async function facts(planned: { plan: Plan; input: CoreInput }): Promise<
   const { plan, input } = planned
   const data = input.data
   const fates = fatesOfPlan(data, plan)
-  const out: EjectFacts = { agent: null, pending: 0, opened: 0, slips: { always: 0, pending: 0 }, slipsChanged: 0, reviewGone: false, codingConfirm: 0, syncWriteBack: false }
+  const out: EjectFacts = { agent: null, pending: 0, opened: 0, slips: { always: 0, pending: 0 }, slipsChanged: 0, reviewGone: false, codingConfirm: 0, syncWriteBack: false, orders: { steps: 0, chains: 0 } }
   const ejected = byRun(fates.ejected)
   const agentId = agentOf(data.sel)
   const runs = Object.values(data.runs)
@@ -205,6 +211,12 @@ export async function facts(planned: { plan: Plan; input: CoreInput }): Promise<
     for (const x of backRows) out.slipsChanged += getSlips({ rowId: x.p.slice(2) }).filter((s) => !mine.has(s.id) && withdrawable(s.id)).length
   }
   out.codingConfirm = backRows.filter((x) => x.build?.kind === 'page' && !!x.build.stamp).length
+  // a work order's chain: the steps whose creation goes back, the chains that halt by it (Orders B13)
+  const orderUnits = fates.ejected.filter((u) => runKindOf(splitUnit(u).runKey) === 'order')
+  if (orderUnits.length) {
+    const { orderEjectFacts } = await import('../../coding')
+    out.orders = await orderEjectFacts(orderUnits)
+  }
   if (back.some((x) => x.pk === 'page' || x.pk === 'db' || x.pk === 'row')) {
     const { useSync } = await import('../../sync')
     const s = useSync.getState()
@@ -286,7 +298,14 @@ export async function settle(record: Pick<EjectRecord, 'id' | 'at' | 'lane' | 'w
     const { ejectBatch } = await import('../../ai/agent/session')
     for (const key of terminal) ejectBatch(refOf(key), ejected.get(key) ?? [], (held.get(key) ?? []).map((h) => h.id), { id: record.id, at: record.at })
   }
-  // 4. MCP calls and script runs: the whole run
+  // 4. work orders (Orders B13): the chain's record marks the steps whose creation went back, a running chain halts
+  // (S decides) — never a step moved on by it
+  const orderRuns = [...ejected].filter(([runKey]) => runKindOf(runKey) === 'order')
+  if (orderRuns.length) {
+    const { settleEjectedOrder } = await import('../../coding')
+    for (const [runKey, ids] of orderRuns) await settleEjectedOrder(runKey, ids, record.id).catch((e) => console.warn('[recorder] a work order could not settle', e))
+  }
+  // 5. MCP calls and script runs: the whole run
   for (const [runKey] of ejected) {
     const kind = runKindOf(runKey)
     const [, a, b] = runKey.split(':')
@@ -338,6 +357,10 @@ export async function unsettle(record: EjectRecord, back: ReadonlySet<PlaceKey>,
     } else if (kind === 'script' && a && a !== '-') {
       const { unsettleScriptRun } = await import('../../script')
       await unsettleScriptRun(a, b).catch(() => undefined)
+    } else if (kind === 'order') {
+      // the eject's marks go; the chain's halt stays (its Undo never advances a chain — ↵ Fortsetzen does)
+      const { unsettleEjectedOrder } = await import('../../coding')
+      await unsettleEjectedOrder(runKey, ids, record.id).catch(() => undefined)
     }
   }
   // the marks go last: nothing writes old values over the places until the reviews say "applied" again

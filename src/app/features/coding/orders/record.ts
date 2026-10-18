@@ -143,6 +143,13 @@ export function readOrderChain(v: unknown, nested = false): OrderChain | null {
   const foreign: Record<ID, number> = {}
   if (isObj(v.foreign))
     for (const [id, at] of Object.entries(v.foreign).slice(0, MAX_FOREIGN)) if (isId(id) && isTime(at)) foreign[id] = at
+  // Orders B13: the steps an eject took back (step n → the eject's id)
+  const ejected: Record<number, string> = {}
+  if (isObj(v.ejected))
+    for (const [k, id] of Object.entries(v.ejected)) {
+      const n = stepKey(k)
+      if (n !== null && ns.has(n) && isId(id)) ejected[n] = id
+    }
   const basisSeen: Record<number, string> = {}
   if (isObj(v.basisSeen))
     for (const [k, fp] of Object.entries(v.basisSeen)) {
@@ -184,6 +191,7 @@ export function readOrderChain(v: unknown, nested = false): OrderChain | null {
     ...(Object.keys(back).length ? { back } : {}),
     ...(Object.keys(foreign).length ? { foreign } : {}),
     ...(Object.keys(basisSeen).length ? { basisSeen } : {}),
+    ...(Object.keys(ejected).length ? { ejected } : {}),
     ...(isTime(v.finishing) ? { finishing: v.finishing } : {}),
     ...(isTime(v.adopted) ? { adopted: v.adopted } : {}),
     ...(replaced ? { replaced } : {}),

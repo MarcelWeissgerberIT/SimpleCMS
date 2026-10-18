@@ -92,9 +92,9 @@ export async function runPendingReset(onBlocked?: () => void): Promise<boolean> 
   }
   if (!names) {
     // databases() is missing in some browsers: the ones a reset must reach anyway (the recorder's tape, Preflight's Bordbuch,
-    // the agents' runs and per-field trust books, the AI ledger, the Regler's derived data, OpenRouter's catalogue and the
-    // Patchbay's device stores too)
-    const all = new Set<string>(['keyval-store', 'one-files', 'one-vault', RECORDER_DB, 'one-preflight', 'one-agents', 'one-ledger', 'one-governor', 'one-ai-catalog', PATCHBAY_DB])
+    // the agents' runs and per-field trust books, the AI ledger, the Regler's derived data, OpenRouter's catalogue, the
+    // Patchbay's device stores, and the coding pipeline's device state with the work orders' records too)
+    const all = new Set<string>(['keyval-store', 'one-files', 'one-vault', RECORDER_DB, 'one-preflight', 'one-agents', 'one-ledger', 'one-governor', 'one-ai-catalog', PATCHBAY_DB, 'one-coding'])
     try {
       const dbs = (await indexedDB.databases?.()) ?? []
       for (const d of dbs) if (d.name) all.add(d.name)

@@ -1,8 +1,8 @@
 /**
  * May the eject settle a window's sources now (design §6.4 guards; checked before planning and again inside the locks
  * before the sync section)? Not while one of W's agents runs (any tab), its run is running or a change of it applies;
- * not while the terminal applies, one of W's scripts runs in this tab, or one of W's MCP sessions has a call running or
- * waiting for approval.
+ * not while the terminal applies, one of W's scripts runs in this tab, one of W's work orders creates its chain (Orders
+ * B13), or one of W's MCP sessions has a call running or waiting for approval.
  * The sources are imported lazily (the recorder's chunk never loads the agents page for nothing).
  */
 import type { ID } from '../../../store/types'
@@ -39,6 +39,13 @@ export async function busyRefusal(data: Pick<WindowData, 'runs'>): Promise<Eject
     const { useActiveRuns } = await import('../../script')
     const active = useActiveRuns.getState().runs
     if ([...scripts].some((id) => id !== '-' && !!active[id])) return { key: 'scriptBusy' }
+  }
+  // a work order of W whose chain is being created right now (run key order:<row>:<run>; Orders B13): its steps are
+  // still coming
+  const orderRuns = Object.values(data.runs).filter((r) => r.kind === 'order').map((r) => r.key)
+  if (orderRuns.length) {
+    const { orderEjectBusy } = await import('../../coding')
+    if (await orderEjectBusy(orderRuns)) return { key: 'orderBusy' }
   }
   // an MCP session of W with a call running or waiting for approval (run key mcp:<session>:<call>)
   const sessions = new Set(Object.values(data.runs).filter((r) => r.kind === 'mcp').map((r) => r.key.split(':')[1] ?? '-'))

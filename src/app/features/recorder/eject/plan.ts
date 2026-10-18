@@ -36,6 +36,7 @@ export type EjectRefusal =
   | { key: 'terminalBusy' }
   | { key: 'scriptBusy' }
   | { key: 'mcpBusy' }
+  | { key: 'orderBusy' }
 
 /** R3 ejects in the local workspace only (team ejects come later; the store's guard says the same). */
 export const canEject = (scope: Scope): boolean => scope === 'local:local' && rewindAllowed()

@@ -14,7 +14,7 @@
  * the other device's worker is only its token on the server. Fictional data (Nordlicht, Tessera, Launch plan).
  */
 import type { Page } from '@playwright/test'
-import { test, expect, email, signIn, newPerson, openApp, waitOnline, createWorkspace, join, api, wsEval, gotoPage } from './fixtures'
+import { test, expect, email, signIn, newPerson, openApp, waitOnline, createWorkspace, join, api, wsEval, gotoPage, cloudEval, cloudStatus, waitForApp } from './fixtures'
 
 type AnyState = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -187,4 +187,62 @@ test('a viewer: no "Have it checked" in the page menu or ⌘K (Coding on), the S
   await expect(b.getByTestId('order-fix')).toHaveCount(0)
   expect(await entries<Planned[]>(b, (s) => s.planned())).toEqual([])
   await b.close()
+})
+
+/** The keys of IndexedDB "one-coding" that hold work-order records (`<scope>|order|<row>`). */
+const orderKeys = (p: Page) =>
+  p.evaluate(
+    () =>
+      new Promise<string[]>((resolve) => {
+        const open = indexedDB.open('one-coding')
+        open.onerror = () => resolve([])
+        open.onsuccess = () => {
+          const db = open.result
+          if (!db.objectStoreNames.contains('kv')) {
+            db.close()
+            return resolve([])
+          }
+          const q = db.transaction('kv').objectStore('kv').getAllKeys()
+          q.onsuccess = () => {
+            db.close()
+            resolve(q.result.map(String).filter((k) => k.includes('|order|')).sort())
+          }
+          q.onerror = () => resolve([])
+        }
+      }),
+  )
+/** This device's record of a request, written as the work orders write it (records.ts, the scope of the open workspace). */
+const putRecord = (p: Page, row: string) =>
+  p.evaluate(
+    (r) => (window as unknown as { __oneOrders: { putRecord: (row: string, rec: unknown) => Promise<unknown> } }).__oneOrders.putRecord(r, { v: 1, state: 'draft', pressed: Date.now() }),
+    row,
+  )
+
+test('Orders B13 — removing a team workspace’s copy wipes this member’s work-order records there; the local workspace’s stay', async ({ page: a }) => {
+  watch(a, 'mara')
+  await signIn(a, email('mara'))
+  await openApp(a)
+  await a.waitForFunction(() => !!(window as unknown as { __oneOrders?: unknown }).__oneOrders)
+  await putRecord(a, 'woLocalRow01')
+  expect(await orderKeys(a)).toEqual(['local:local|order|woLocalRow01'])
+
+  const wsId = await createWorkspace(a, 'Tessera Team')
+  await openApp(a, wsId)
+  await waitOnline(a)
+  await a.waitForFunction(() => !!(window as unknown as { __oneOrders?: unknown }).__oneOrders)
+  const uid = await cloudEval(a, (c) => c.user.id as string)
+  await putRecord(a, 'woTeamRow001')
+  expect(await orderKeys(a)).toEqual([`cloud:${wsId}:u:${uid}|order|woTeamRow001`, 'local:local|order|woLocalRow01'].sort())
+  await expect.poll(() => a.evaluate(() => (window as any).__one.cloud.useCloudSync.getState().unsynced), { timeout: 15_000 }).toBe(false) // eslint-disable-line @typescript-eslint/no-explicit-any
+
+  // Settings → Data → Remove copy: the tab goes back to the local workspace, the copy (and this member's records) go
+  await a.keyboard.press('Control+,')
+  const settings = a.getByRole('dialog', { name: 'Settings' })
+  await settings.getByRole('tab', { name: /Data/ }).click()
+  await settings.getByTestId('remove-copy').getByRole('button', { name: 'Remove copy' }).click()
+  const confirm = a.getByRole('dialog').filter({ hasText: 'Remove the copy of' })
+  await Promise.all([a.waitForEvent('load'), confirm.getByRole('button', { name: 'Remove copy' }).click()])
+  await waitForApp(a)
+  expect(await cloudStatus(a)).toBe('local')
+  await expect.poll(() => orderKeys(a), { timeout: 15_000 }).toEqual(['local:local|order|woLocalRow01'])
 })

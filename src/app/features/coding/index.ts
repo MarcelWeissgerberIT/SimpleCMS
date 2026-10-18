@@ -288,3 +288,15 @@ export const confirmChainVersions = (rowId: string, shown: ReadonlyArray<{ id: s
 export type { ConfirmChainOutcome } from './orders/confirm'
 /** ↵ Hier planen on Preflight's card for a request asked for on another device (a team): this device's press (VON HAND). */
 export const planHere = (rowId: string) => import('./orders/press').then((m) => m.pressPlan(rowId, 'card'))
+/**
+ * Orders B13 — the flight recorder's eject (orders/eject.ts, lazy; called only from features/recorder/eject/sources.ts):
+ * the chain's eject units `order:<row>:<run>#c<n>` (creation) · `#a<n>` (advance) · `#s` (Status). settleEjectedOrder
+ * marks the steps it took back in this device's record and halts a running chain ('ejected' / 'ejectedStatus' — S
+ * decides); unsettleEjectedOrder (its Undo) drops that eject's marks, the halt stays (an eject never advances a chain);
+ * orderEjectBusy — a chain of the window being created right now; orderEjectFacts — the dialog's line.
+ */
+export const settleEjectedOrder = (runKey: string, ids: readonly string[], ejectId: string) => import('./orders/eject').then((m) => m.settleEjectedOrder(runKey, ids, ejectId))
+export const unsettleEjectedOrder = (runKey: string, ids: readonly string[], ejectId: string) => import('./orders/eject').then((m) => m.unsettleEjectedOrder(runKey, ids, ejectId))
+export const orderEjectBusy = (runKeys: readonly string[]) => import('./orders/eject').then((m) => m.orderEjectBusy(runKeys))
+export const orderEjectFacts = (units: readonly string[]) => import('./orders/eject').then((m) => m.orderEjectFacts(units))
+export { withEjected, withoutEjected } from './chain'
