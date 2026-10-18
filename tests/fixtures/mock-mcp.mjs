@@ -36,6 +36,10 @@ export function freshState() {
       ]),
       10642: item('10642', 'Export filter drops umlauts in the CSV', 'In Development', [{ id: '88190', body: 'Can you confirm the fix is in?', by: 'A. Krüger', at: '2026-10-08T11:05:00Z', kind: 'comment' }]),
       10681: item('10681', 'Comment on the rollout plan for plant south', 'Review', [{ id: '88201', body: 'Plan is in the share: teilen.example/rp — please approve it there.', by: 'T. Brandt', at: '2026-10-09T18:27:00Z', kind: 'comment' }]),
+      // the support case the work orders' acceptance reads through the person's own server "wissensbasis" (orders-acceptance.spec)
+      4711: item('4711', 'Supportfall 4711 (Nordlicht): Login bricht nach 30 s ab', 'Offen', [
+        { id: '88202', body: 'Tessera meldet: nach 30 Sekunden ist die Anmeldung weg, die Eingaben sind verloren. Vermutlich das Session-Timeout im Gateway (30 s).', by: 'Mara Lind', at: '2026-10-12T09:14:00Z', kind: 'comment' },
+      ]),
     },
   }
 }

@@ -105,8 +105,11 @@ export function autoFallbacks(f: AutoFacts): OrderAutoWhy[] {
 
 /**
  * The parts the consent's sig covers (§3.5): the database, its kinds, the pinned projects, the checkpoint, the budget,
- * the picked server (name, address, tested tools, the integration profiles matching it), and per kind the project it
- * resolves to with its pipeline's stages — plus this device's Approvals. Canonical JSON of this is hashed (autoSig.ts).
+ * the picked server (name, address, tested tools, the integration profiles matching it), and per kind the stages of the
+ * pipeline it resolves to (pinned › #/coding's › none yet = the kind's template) — plus this device's Approvals. An
+ * unpinned project's identity is not part of it: a project the chain makes from the template (its first start) or
+ * #/coding showing another project with the same stages changes nothing that runs (the Patchbay is asked at every
+ * create anyway). Canonical JSON of this is hashed (autoSig.ts).
  */
 export interface AutoSigParts {
   v: 1
@@ -116,13 +119,22 @@ export interface AutoSigParts {
   checkpoint: boolean
   budget: number | null
   server: { name: string; url: string | null; tools: string[] | null; profiles: string[] } | null
-  projects: Array<{ kind: OrderKind; project: ID | null; stages: unknown[] }>
+  projects: Array<{ kind: OrderKind; stages: unknown[] }>
   approvals: 'all' | 'review' | 'none'
 }
 
-/** The pipeline's part of the sig: what each stage sends to the worker or decides next (names and colours aside). */
+/**
+ * The pipeline's part of the sig: what each stage sends to the worker or decides next (names and colours aside), by
+ * position — a stage's id says nothing about what it does, and a kind's template mints new ids on every read (the same
+ * stages read twice must give the same part, and a project made from the template must match it). `next` = the
+ * position of the stage it names.
+ */
 export function stagesPart(pipeline: ReadonlyArray<{ id: string; kind: string; auto?: boolean; permissionMode?: string; maxTurns?: number; gitAction?: string; next?: string | null; instructions?: string; output?: string; model?: string | null; hold?: boolean }>): unknown[] {
-  return pipeline.map((s) => [s.id, s.kind, !!s.auto, s.permissionMode ?? null, s.maxTurns ?? null, s.gitAction ?? null, s.next ?? null, s.instructions ?? '', s.output ?? null, s.model ?? null, !!s.hold])
+  const at = (id: string | null | undefined) => {
+    const i = id ? pipeline.findIndex((x) => x.id === id) : -1
+    return i >= 0 ? i : null
+  }
+  return pipeline.map((s, i) => [i, s.kind, !!s.auto, s.permissionMode ?? null, s.maxTurns ?? null, s.gitAction ?? null, at(s.next), s.instructions ?? '', s.output ?? null, s.model ?? null, !!s.hold])
 }
 
 /* ------------------------------------------------------------------ the draft's reasons, read back */

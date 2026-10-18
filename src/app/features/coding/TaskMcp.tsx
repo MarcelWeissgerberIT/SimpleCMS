@@ -5,8 +5,11 @@
  * the line stays away. When the task's text mentions one of One's MCP servers (its name or codeword) — or MCP at
  * all while none is given — that Claude Code may not use here, a note says so with the setup page one click away.
  * One's own MCP servers (Settings → AI) never reach Claude Code: they are for One's Claude only.
+ * A chain step's own context callout (orders/stepPage.ts) names the server its text was READ from — that text is in
+ * the task already, so it is no mention (B15: every chain step planned with a server carried a false note).
  */
-import { useWorkspace } from '../../store/store'
+import type { JSONContent } from '@tiptap/core'
+import { plainText, useWorkspace } from '../../store/store'
 import { Led } from '../../ui/controls'
 import { useT } from '../../i18n'
 import type { ID } from '../../store/types'
@@ -14,6 +17,15 @@ import { readServers } from '../ai/mcp-servers/config'
 import { useCoding } from './state'
 import { ChangeReposButton } from './SetupCard'
 import { mentionedMcp, taskMcpServers } from './tasks'
+import { stepBlockIds } from './orders/stepPage'
+
+/** the task's text without a chain step's own context callout */
+function taskText(taskId: ID, title: string, content: JSONContent | null, plain: string | undefined): string {
+  const ctx = stepBlockIds(taskId).context
+  const blocks = content?.content ?? []
+  if (!blocks.some((b) => b?.attrs?.id === ctx)) return `${title}\n${plain ?? ''}`
+  return `${title}\n${plainText({ ...content, content: blocks.filter((b) => b?.attrs?.id !== ctx) })}`
+}
 
 export function TaskMcp({ taskId, repo }: { taskId: ID; repo: string | null }) {
   const t = useT()
@@ -24,7 +36,7 @@ export function TaskMcp({ taskId, repo }: { taskId: ID; repo: string | null }) {
   if (!connected || !worker || !page) return null
   const list = taskMcpServers(worker, repo)
   if (!list) return null
-  const missing = mentionedMcp(`${page.title}\n${page.plain ?? ''}`, readServers(), list)
+  const missing = mentionedMcp(taskText(taskId, page.title, page.content, page.plain), readServers(), list)
   return (
     <div className="ctk-mcp" data-testid="coding-task-mcp">
       <span className="label">{t('features.coding.mcp.label')}</span>

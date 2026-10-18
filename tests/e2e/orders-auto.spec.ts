@@ -233,6 +233,25 @@ node.describe('orders auto — the fallbacks (Node)', () => {
     nodeExpect(stagesPart([{ id: 's1', kind: 'implement', auto: false }])).not.toEqual(a)
   })
 
+  node('the sig’s pipeline part (B15): by position — a template read twice (new ids each time) and a project made from it read the same; a changed jump does not', () => {
+    const tpl = (ids: string[]) => [
+      { id: ids[0]!, kind: 'queue', auto: false },
+      { id: ids[1]!, kind: 'doc', auto: true, maxTurns: 40, instructions: 'Analyse' },
+      { id: ids[2]!, kind: 'gate', auto: false, next: ids[0] },
+      { id: ids[3]!, kind: 'done', auto: false },
+    ]
+    const first = stagesPart(tpl(['a1', 'a2', 'a3', 'a4']))
+    nodeExpect(stagesPart(tpl(['b1', 'b2', 'b3', 'b4']))).toEqual(first)
+    nodeExpect(stagesPart(tpl(['optBacklog', 'optAnalyse', 'optApprove', 'optDone']))).toEqual(first)
+    const other = tpl(['a1', 'a2', 'a3', 'a4'])
+    other[2]!.next = 'a2'
+    nodeExpect(stagesPart(other)).not.toEqual(first)
+    // a jump to a stage that is not there reads as none
+    const gone = tpl(['a1', 'a2', 'a3', 'a4'])
+    gone[2]!.next = 'zz'
+    nodeExpect((stagesPart(gone)[2] as unknown[])[6]).toBeNull()
+  })
+
   node('the words: EN = DE keys, placeholders kept, never the banned names', () => {
     const en = autoMessages.en as Record<string, string>
     const de = autoMessages.de as Record<string, string>

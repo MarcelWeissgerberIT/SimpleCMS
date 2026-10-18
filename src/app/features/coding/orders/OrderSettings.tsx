@@ -143,34 +143,37 @@ export function OrderSettingsPanel({ dbId }: { dbId: ID }) {
       </fieldset>
       <fieldset className="ors__group" disabled={disabled}>
         <legend className="label">{t(`${O}.settings.projects`)}</legend>
-        {ORDER_KINDS.map((k: OrderKind) => {
-          const ids = pipelineDbIdsOf(k)
-          const pinned = config?.projects?.[k] ?? ''
-          return (
-            <label key={k} className="ors__project">
-              <span>{t(`features.coding.pipe.${k}`)}</span>
-              <select
-                className="input"
-                value={pinned}
-                onChange={(e) =>
-                  save((c) => {
-                    const projects = { ...(c.projects ?? {}) }
-                    if (e.target.value) projects[k] = e.target.value
-                    else delete projects[k]
-                    return { ...c, projects }
-                  })
-                }
-              >
-                <option value="">{t(`${O}.settings.projectLike`)}</option>
-                {ids.map((id) => (
-                  <option key={id} value={id}>
-                    {useWorkspace.getState().pages[id]?.title.trim() || t('common.untitled')}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )
-        })}
+        {/* one grid for the three rows: the selects line up whatever the kind's name */}
+        <div className="ors__projects">
+          {ORDER_KINDS.map((k: OrderKind) => {
+            const ids = pipelineDbIdsOf(k)
+            const pinned = config?.projects?.[k] ?? ''
+            return (
+              <label key={k} className="ors__project">
+                <span>{t(`features.coding.pipe.${k}`)}</span>
+                <select
+                  className="input"
+                  value={pinned}
+                  onChange={(e) =>
+                    save((c) => {
+                      const projects = { ...(c.projects ?? {}) }
+                      if (e.target.value) projects[k] = e.target.value
+                      else delete projects[k]
+                      return { ...c, projects }
+                    })
+                  }
+                >
+                  <option value="">{t(`${O}.settings.projectLike`)}</option>
+                  {ids.map((id) => (
+                    <option key={id} value={id}>
+                      {useWorkspace.getState().pages[id]?.title.trim() || t('common.untitled')}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )
+          })}
+        </div>
         <p className="orc-line orc-line--quiet">{t(`${O}.settings.rowWins`)}</p>
       </fieldset>
       <div className="ors__switch">
@@ -213,6 +216,10 @@ export function OrderSettingsPanel({ dbId }: { dbId: ID }) {
 
 type AutoShown = null | { kind: 'fuse'; fuses: PlannerFuse[]; consent: OrderAuto } | { kind: 'text'; text: string }
 
+/** Why the switch stayed off, in words (a viewer, the settings moved while the Patchbay was asked, an unreadable config). */
+const switchWhy = (why: 'team' | 'readOnly' | 'config' | 'budget' | 'failed'): string =>
+  why === 'budget' ? `${O}.mode.needsBudget` : why === 'team' ? `${O}.mode.team` : why === 'readOnly' ? 'features.coding.setup.readOnly' : why === 'failed' ? `${O}.auto.lapsed` : `${P}.why.config`
+
 /**
  * Orders B11 — "Ohne Bestätigung starten": this device's consent for this database (local workspaces only). Off by
  * default; on only with a Budget je Kette and once the Patchbay names no fuse on the planner's paths with it (else its
@@ -232,7 +239,7 @@ function AutoSection({ dbId, budget, disabled }: { dbId: ID; budget: boolean; di
       const r = await m.switchAutoOn(dbId)
       if (r.ok) return
       if (r.why === 'fuse') setShown({ kind: 'fuse', fuses: r.fuses, consent: r.consent })
-      else setShown({ kind: 'text', text: t(r.why === 'budget' ? `${O}.mode.needsBudget` : r.why === 'team' ? `${O}.mode.team` : `${P}.why.config`) })
+      else setShown({ kind: 'text', text: t(switchWhy(r.why)) })
     } finally {
       setBusy(false)
     }
@@ -250,7 +257,7 @@ function AutoSection({ dbId, budget, disabled }: { dbId: ID; budget: boolean; di
       if (r.ok) setShown(null)
       else if (r.why === 'allow') setShown({ kind: 'text', text: t(`${O}.mode.allowRefused`, { why: r.refused }) })
       else if (r.why === 'fuse') setShown({ kind: 'fuse', fuses: r.fuses, consent: r.consent })
-      else setShown({ kind: 'text', text: t(r.why === 'budget' ? `${O}.mode.needsBudget` : `${P}.why.config`) })
+      else setShown({ kind: 'text', text: t(switchWhy(r.why)) })
     } finally {
       setBusy(false)
     }

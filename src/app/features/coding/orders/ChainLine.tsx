@@ -86,7 +86,10 @@ export function NextStepFold({ next, from, onSeen, testId = 'order-gate-next' }:
   const book = useSeenBook(`${next.taskId}:${view?.hash ?? ''}`)
   const key = `next:${next.taskId}:${view?.hash ?? ''}`
   const seen = book.has(`fold:${key}`) && book.has(`${key}:bottom`)
-  useEffect(() => onSeen(seen), [seen]) // eslint-disable-line react-hooks/exhaustive-deps
+  // said again whenever the host hands a new `next`: the task panel re-reads the approval's plan on every write to the
+  // task and forgets meanwhile what it was told — the fold is what was seen (B15: a write after the fold was read made
+  // the approval count as unseen, and the analysis card came although the note said the approval was the press)
+  useEffect(() => onSeen(seen), [seen, next]) // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div className="ctk-next" data-testid={testId} data-seen={seen ? '' : undefined}>
       <p className="ctk-next__line">{t(`${O}.gate.next`, { n: stepNo(next.step), kind: t(`features.coding.pipe.${next.kind}`), title: next.title })}</p>

@@ -3,8 +3,9 @@
  * switched it on for, read on this device now (autoCore.ts AutoSigParts):
  *  - the work-orders database, its kinds, the pinned projects, "Nach der Analyse anhalten", the Budget je Kette;
  *  - the picked server: its name, address, the tools its connection test listed, the integration profiles matching it;
- *  - per kind (all three — a request's own Pipelines field may ask for any) the project it resolves to (pinned, else the
- *    one #/coding shows here, else none yet: the kind's template) and that pipeline's stages;
+ *  - per kind (all three — a request's own Pipelines field may ask for any) the stages of the pipeline it resolves to
+ *    (pinned, else the one #/coding shows here, else none yet: the kind's template), by position — a project the first
+ *    chain makes from that template reads the same (the pinned projects' identity is in the sig above);
  *  - this device's Approvals.
  * Any change of these makes another sig: the consent lapses (autoWatch.ts) and a plan falls back to "Kette bereit".
  * Null: no consent can be given here (a team workspace, no readable config).
@@ -43,7 +44,7 @@ export function autoSigParts(db: ID): AutoSigParts | null {
     checkpoint: c.checkpoint,
     budget: c.budgetUsd ?? null,
     server: name ? { name, url: srv?.url ?? null, tools: srv?.tools?.length ? [...srv.tools].sort() : null, profiles } : null,
-    projects: kindProjectsOf(db, ORDER_KINDS).map((k) => ({ kind: k.kind, project: k.project, stages: stagesPart(k.pipeline) })),
+    projects: kindProjectsOf(db, ORDER_KINDS).map((k) => ({ kind: k.kind, stages: stagesPart(k.pipeline) })),
     approvals: defaultApprovals(),
   }
 }

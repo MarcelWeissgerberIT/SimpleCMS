@@ -128,7 +128,9 @@ async function switchOn(page: Page, connected = true) {
 const sourcePage = (page: Page, title = 'Launch plan Nordlicht') =>
   wsEval(page, (s, title) => {
     const id = s.createPage({ title, parentId: null }) as string
-    s.setContent(id, { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Tessera rollout: the login stops after 30 s on the staging box; the footer links are dead.' }] }] }, 'import')
+    // the block carries its id: an editor fills in a missing one and writes it once — no change of the page's (B15: that
+    // write raced "the source page is not changed" under load)
+    s.setContent(id, { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'src-p1' }, content: [{ type: 'text', text: 'Tessera rollout: the login stops after 30 s on the staging box; the footer links are dead.' }] }] }, 'import')
     return id
   }, title)
 

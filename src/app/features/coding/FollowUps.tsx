@@ -2,6 +2,8 @@
  * "Then" on a Business analysis / QA task: which pipelines it hands on to when it is done (Business analysis →
  * Coding and / or QA, QA → Coding) — toggled before, and once done: the follow-up tasks it made (links), or a key
  * to hand on now. Every chain also runs on its own: nothing ticked, nothing follows.
+ * A step of a work order's chain on this device hands on by its chain (the chain line above names the next step): no
+ * "Then" keys there — they would make a task outside the chain (spec §3.2) — unless one was ticked or made already.
  */
 import { ArrowRight } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
@@ -11,17 +13,21 @@ import type { ID } from '../../store/types'
 import { useTaskLocal } from './local'
 import { FOLLOW_UPS, type PipelineKind } from './schema'
 import { followUpsOf, setFollowUps, spawnFollowUp } from './tasks'
+import { chainStepOf, useOrderRecords } from './orders/records'
 
 export function FollowUps({ taskId, kind, done, canAct }: { taskId: ID; kind: PipelineKind; done: boolean; canAct: boolean }) {
   const t = useT()
   // re-read the "Then" field when the row changes
   useWorkspace((s) => s.pages[taskId]?.properties)
   const local = useTaskLocal(taskId)
+  // re-read when this device's chain records change
+  useOrderRecords((s) => s.recs)
   const offers = FOLLOW_UPS[kind]
   if (!offers.length) return null
   const picked = followUpsOf(taskId)
   const spawned = local.spawned ?? {}
   const pages = useWorkspace.getState().pages
+  if (chainStepOf(taskId) && !picked.length && !Object.values(spawned).some((id) => id && pages[id] && !pages[id]!.trashed)) return null
 
   const handOn = (k: PipelineKind) => {
     void spawnFollowUp(taskId, k)
