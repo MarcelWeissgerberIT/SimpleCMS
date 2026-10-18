@@ -1,23 +1,22 @@
 /**
  * One MCP — property specs as one_create_property and one_create_database take them: validated for a database that
- * exists or is about to (its id and title known), the reverse side of a two-way relation included; the card's lines.
+ * exists or is about to (its id and title known); the card's lines. A relation is one-way over MCP: `twoWay: true` is
+ * refused (the owner's decision until T-b — shared/mcp/twoWay.ts).
  */
 import { newId } from '../../lib/ids'
 import { t } from '../../i18n'
 import type { FormConfig, ID, PropertyDef, PropertyType, SelectOption } from '../../store/types'
 import { MCP_DEFAULT_STATUS, MCP_PROPERTY_TYPES } from './contract'
-import { databaseOrThrow, McpToolError, q, titleOf, TWO_WAY_SUFFIX, ws } from './values'
+import { databaseOrThrow, McpToolError, q, titleOf, ws } from './values'
 import { mcpError } from '../../../shared/mcp/errors'
 import { optionsOf, str, type PlanLine } from './plan'
-import { systemOf, systemRefusal, TWO_WAY_SYSTEM } from './system'
+import { twoWayArgRefusal } from '../../../shared/mcp/twoWay'
 import { valueKey } from '../ai/agent/follow'
 import { propertyRefs, withoutProperty } from '../../database'
 import { MCP_LIMITS } from '../../../shared/mcp/tables'
 
 export interface PropSpec {
   def: PropertyDef
-  /** two-way relation: the reverse property to add on the target database */
-  reverse?: { dbId: ID; def: PropertyDef }
   lines: PlanLine[]
 }
 
@@ -40,29 +39,19 @@ export function propertySpec(raw: unknown, ctx: { dbId: ID; dbTitle: string; tak
   if (options) def.options = options
   const lines: PlanLine[] = [{ k: 'fact', label: t('features.mcp.plan.type'), value: type }]
   if (options?.length) lines.push({ k: 'fact', label: t('features.mcp.plan.options'), value: options.map((x) => x.name).join(', ') })
-  let reverse: PropSpec['reverse']
   if (type === 'relation') {
     const rel = (o.relation && typeof o.relation === 'object' && !Array.isArray(o.relation) ? o.relation : null) as Record<string, unknown> | null
     if (!rel) throw new McpToolError(mcpError('bad_argument', at('relation'), 'a relation needs "relation": {"databaseId": …}'))
+    // two-way relations stay out of MCP until T-b: the reverse side and the linked rows are set up in One
+    if (rel.twoWay === true) throw new McpToolError(twoWayArgRefusal(at('relation.twoWay')))
     const self = str(rel.databaseId, at('relation.databaseId'), { required: true, max: 80 }).trim() === ctx.dbId
     const target = self ? null : databaseOrThrow(rel.databaseId)
     const targetId = self ? ctx.dbId : target!.db.id
     const targetTitle = self ? ctx.dbTitle : titleOf(target!.page)
     def.relationDatabaseId = targetId
     lines.push({ k: 'fact', label: t('features.mcp.plan.relation'), value: targetTitle })
-    if (rel.twoWay === true) {
-      // the reverse side would change the schema of One's own database (read-only over MCP, spec § 3.3)
-      const sys = self ? null : systemOf(targetId)
-      if (sys) throw new McpToolError(systemRefusal(sys, at('relation'), TWO_WAY_SYSTEM))
-      if (target?.db.locked) throw new McpToolError(mcpError('locked', at('relation.twoWay'), `${q(targetTitle)} is locked, so no reverse property can be added there`, 'Create a one-way relation instead.'))
-      const reverseName = str(rel.reverseName, at('relation.reverseName'), { max: MCP_LIMITS.propertyName }).trim() || (self ? t('database.relation.reverseName', { name }) : ctx.dbTitle)
-      if (!self && target!.db.properties.some((p) => p.name.toLowerCase() === reverseName.toLowerCase()))
-        throw new McpToolError(mcpError('bad_argument', at('relation.reverseName'), `${q(targetTitle)} already has a property named ${q(reverseName)}`, 'Pass another "reverseName".'))
-      reverse = { dbId: targetId, def: { id: def.id + TWO_WAY_SUFFIX, name: reverseName, type: 'relation', relationDatabaseId: ctx.dbId } }
-      lines.push({ k: 'fact', label: t('features.mcp.plan.twoWay'), value: `${targetTitle} · ${reverseName}` })
-    }
   } else if (o.relation !== undefined) throw new McpToolError(mcpError('bad_argument', at('relation'), '"relation" only applies to type "relation"'))
-  return { def, reverse, lines }
+  return { def, lines }
 }
 
 /**
@@ -156,9 +145,8 @@ export function dropProperty(dbId: ID, propId: ID): void {
 }
 
 /**
- * Add properties (and the reverse sides of two-way relations); returns the undo. The Undo leaves a property changed
- * since alone (spec § 3.2; propChangedSince: filled in, renamed or set up, built on, its database locked) — with its
- * two-way partner, whose links mirror it — and then answers false. What the call itself wrote into a new column (a
+ * Add properties; returns the undo. The Undo leaves a property changed since alone (spec § 3.2; propChangedSince: filled
+ * in, renamed or set up, built on, its database locked) and then answers false. What the call itself wrote into a new column (a
  * unique_id column's numbers) is no filling in: such a column goes, and the database's counter goes back while nothing
  * took a number since.
  */
@@ -169,12 +157,7 @@ export function addProperties(dbId: ID, specs: PropSpec[]): () => boolean {
     ws().addProperty(dbId, s.def)
     const after = ws().databases[dbId]?.nextUniqueId
     const counter = s.def.type === 'unique_id' && typeof before === 'number' && typeof after === 'number' && after !== before ? { before, after } : undefined
-    const pair: Array<PropMark & { counter?: { before: number; after: number } }> = [{ ...propMark(dbId, s.def.id), ...(counter ? { counter } : {}) }]
-    if (s.reverse && ws().databases[s.reverse.dbId]) {
-      ws().addProperty(s.reverse.dbId, s.reverse.def)
-      pair.push(propMark(s.reverse.dbId, s.reverse.def.id))
-    }
-    added.push(pair)
+    added.push([{ ...propMark(dbId, s.def.id), ...(counter ? { counter } : {}) }])
   }
   return () => {
     let clean = true

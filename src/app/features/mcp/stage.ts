@@ -12,7 +12,8 @@ import { withFilesWritable } from '../ai/agent/props'
 import { applyChanges } from '../ai/agent/apply'
 import { guardPipelineRows } from '../ai/agent/coding'
 import { inTemplate } from '../../store/selectors'
-import { assertNoSystemPartner, systemChange, systemGuard, systemRefusal } from './system'
+import { systemChange, systemGuard, systemRefusal } from './system'
+import { assertOneWayStage } from './twoWay'
 import { newItemSession } from '../ai/agent/workItems'
 import type { StagedChange, ToolName } from '../ai/agent/types'
 import { factLine, holdText, type HoldReason, type ItemFact } from '../workitems'
@@ -83,12 +84,14 @@ export function mcpStageTool(name: ToolName): AgentTool | undefined {
 /** Templates are not found over MCP (spec § 3.3): the agent tools' lookups see every page outside them. */
 export const outsideTemplates = (id: string) => !inTemplate(ws().pages, id)
 
-/** Refuse a stage holding a change that writes into One's own databases (a folded change staged outside a tool). */
+/**
+ * Refuse a stage holding a change that writes into One's own databases (a folded change staged outside a tool), or a
+ * value of a two-way relation (two-way relations stay out of MCP — also one made two-way while the card waited).
+ */
 export function assertStageWritable(changes: readonly StagedChange[]): void {
   const hit = systemChange(changes)
   if (hit) throw new McpToolError(systemRefusal(hit))
-  // a two-way relation value writes its partner rows too: never into One's own database (as the team server refuses it)
-  assertNoSystemPartner(changes)
+  assertOneWayStage(changes)
 }
 
 /**

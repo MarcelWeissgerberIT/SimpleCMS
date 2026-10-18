@@ -23,7 +23,7 @@ import { applyStaged, assertStageWritable, callStage, itemLine, itemPlan, mcpMes
 import { mcpReadLimit } from './limits'
 import { currentReadLimit, withReadLimit } from '../ai/agent/tools'
 import { isContextLimited } from '../../editor'
-import { assertNotSystem, systemOf, systemRefusal, TWO_WAY_SYSTEM } from './system'
+import { assertNotSystem } from './system'
 import { livePage, withPageNodes, type LinkTarget } from '../ai/agent/links'
 import type { McpToolName } from './contract'
 import { databaseOrThrow, iconText, live, McpToolError, pageUrl, propertyJson, q, titleOf, ws } from './values'
@@ -234,23 +234,14 @@ function planCreateProperty(args: Record<string, unknown>): WritePlan {
     async apply(writer) {
       const now = ws().databases[db.id]
       if (!now || !live(db.id)) throw new McpToolError(`${q(dbTitle)} is gone. Nothing was changed.`)
-      // locked (or moved into One's own databases) while the card waited: its schema takes nothing — nor does a two-way
-      // relation's target: nothing is written
+      // locked (or moved into One's own databases) while the card waited: its schema takes nothing — nothing is written
       assertNotSystem(db.id)
       if (now.locked) throw new McpToolError(`locked: ${q(dbTitle)} was locked meanwhile: its properties cannot change. Nothing was changed. Ask the person to unlock it.`)
-      if (spec.reverse) {
-        const sys = systemOf(spec.reverse.dbId)
-        if (sys) throw new McpToolError(systemRefusal(sys, 'relation', TWO_WAY_SYSTEM))
-        if (ws().databases[spec.reverse.dbId]?.locked)
-          throw new McpToolError(mcpError('locked', 'relation.twoWay', `${q(titleOf(ws().pages[spec.reverse.dbId]))} was locked meanwhile, so no reverse property can be added there`, 'Create a one-way relation instead, or ask the person to unlock it.'))
-      }
       if (now.properties.some((p) => p.name.toLowerCase() === spec.def.name.toLowerCase())) throw new McpToolError(`A property named ${q(spec.def.name)} exists by now. Nothing was changed.`)
       const undo = withWriter(writer, () => addProperties(db.id, [spec]))
       const d = ws().databases[db.id]
       const prop = d.properties.find((p) => p.id === spec.def.id)!
-      const back = spec.reverse && ws().databases[spec.reverse.dbId]
-      const backProp = back ? back.properties.find((p) => p.id === spec.reverse!.def.id) : undefined
-      return { result: { databaseId: db.id, property: propertyJson(d, prop), ...(back && backProp ? { reverse: { databaseId: back.id, property: propertyJson(back, backProp) } } : {}) }, undo }
+      return { result: { databaseId: db.id, property: propertyJson(d, prop) }, undo }
     },
   }
 }

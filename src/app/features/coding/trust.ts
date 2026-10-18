@@ -97,8 +97,8 @@ export function needsConfirm(page: Page): boolean {
 }
 
 /**
- * A write an MCP client made, or one it caused: a script one_run_script started (its writer names the call as `via`), a
- * synced copy, an automation, autofill … (their `cause`) — store/writer.ts `mcpCaused`.
+ * A write an MCP client made, or one it caused: a synced copy, an automation, autofill … (their `cause`), a script such an
+ * automation started (its `via`) — store/writer.ts `mcpCaused`.
  */
 const byMcp = (w: Writer | null): boolean => mcpCaused(w)
 

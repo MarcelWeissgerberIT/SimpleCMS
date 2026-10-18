@@ -335,14 +335,14 @@ export const canUndo = (run: ScriptRun): boolean => run.mode === 'run' && !run.u
  * Undo a run: pages it created go to the trash, every field it changed on other pages (title, icon,
  * content, properties, trash state) goes back to how it was before the run.
  */
-export async function undoRun(run: ScriptRun, opts: UndoRunOpts = {}): Promise<boolean> {
+export async function undoRun(run: ScriptRun): Promise<boolean> {
   // the stored copy decides (a toast's Undo closes over an older object): an eject may have settled the run since
   const stored = (await loadScriptRuns(run.scriptId, run.scope)).find((r) => r.id === run.id)
   if (stored?.undone || isSettled(`script:${run.scriptId}:${run.id}`)) return false
   const undo = undoMemory.get(run.id) ?? run.undo
   if (!undo || run.undone) return false
   // the person's Undo of the run (store/writer.ts) — one synchronous burst
-  withWriter({ kind: 'you', via: 'undo', ref: run.id }, () => undoNow(undo, opts.keep))
+  withWriter({ kind: 'you', via: 'undo', ref: run.id }, () => undoNow(undo))
   undoMemory.delete(run.id)
   await putScriptRun({ ...run, undone: true, undo: null })
   return true
@@ -366,27 +366,14 @@ export async function unsettleScriptRun(scriptId: ID, runId: string, scope?: str
   if (run?.undone) await putScriptRun({ ...run, undone: false, undo: null })
 }
 
-/** How an Undo of a run goes: `keep(id, field)` true = that field (or the page the run made: 'created') stays as it is now. */
-export interface UndoRunOpts {
-  keep?: (id: ID, field: string) => boolean
-}
-
-/** What a run that is still undoable in this tab touched: per page, the fields it changed (UndoData.fields); null: none. */
-export function runTouched(runId: string): Record<ID, string[]> | null {
-  const undo = undoMemory.get(runId)
-  return undo ? { ...undo.fields } : null
-}
-
-function undoNow(undo: UndoData, keep?: UndoRunOpts['keep']): void {
+function undoNow(undo: UndoData): void {
   const s = useWorkspace.getState()
-  for (const [id, all] of Object.entries(undo.fields)) {
+  for (const [id, fields] of Object.entries(undo.fields)) {
     const before = undo.before[id]
     const cur = useWorkspace.getState().pages[id]
     if (!cur) continue
-    // what the caller keeps (changed since the run, mcp/script.ts) stays as it is now
-    const fields = keep ? all.filter((f) => !keep(id, f)) : all
-    if (before === null || all.includes('created')) {
-      if (fields.includes('created') && !cur.trashed) s.trashPage(id)
+    if (before === null || fields.includes('created')) {
+      if (!cur.trashed) s.trashPage(id)
       continue
     }
     if (fields.includes('title') || fields.includes('icon')) s.updatePage(id, { ...(fields.includes('title') ? { title: before.title } : {}), ...(fields.includes('icon') ? { icon: before.icon } : {}) })

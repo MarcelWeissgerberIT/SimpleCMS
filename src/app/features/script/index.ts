@@ -80,17 +80,9 @@ export async function runScript(o: RunOptions): Promise<RunResult> {
   return (await loadScriptEngine()).runScript(o)
 }
 
-/**
- * Undo a run of this device's run log (pages it created go to the trash, everything else back); `opts.keep` leaves a
- * field (or a page the run made) as it is now — an MCP caller's "changed since" (features/mcp/script.ts).
- */
-export async function undoRun(run: ScriptRun, opts?: { keep?: (id: ID, field: string) => boolean }): Promise<boolean> {
-  return (await loadScriptEngine()).undoRun(run, opts)
-}
-
-/** What a run that is still undoable in this tab touched: per page, the fields it changed (title, icon, content, trashed, props:<id>, created). */
-export async function runTouched(runId: string): Promise<Record<ID, string[]> | null> {
-  return (await loadScriptEngine()).runTouched(runId)
+/** Undo a run of this device's run log (pages it created go to the trash, everything else back). */
+export async function undoRun(run: ScriptRun): Promise<boolean> {
+  return (await loadScriptEngine()).undoRun(run)
 }
 
 /** The flight recorder's eject settled a run (its Undo goes) · its Undo gave it back. Busy: the script runs in this tab. */

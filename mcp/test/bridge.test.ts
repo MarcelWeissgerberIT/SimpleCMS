@@ -70,7 +70,7 @@ describe('tool list', () => {
       'one_upsert_rows',
     ])
     // what removes something says so (clients ask before running these)
-    const destructive = ['one_delete_property', 'one_delete_view', 'one_run_script', 'one_trash_page', 'one_update_property']
+    const destructive = ['one_delete_property', 'one_delete_view', 'one_trash_page', 'one_update_property']
     for (const def of MCP_TOOLS) {
       const tool = tools.find((t) => t.name === def.name)!
       assert.deepEqual(tool.inputSchema, def.inputSchema, def.name)
@@ -96,7 +96,7 @@ describe('tool list', () => {
     assert.match(client.getInstructions() ?? '', /one_list_work_items/)
   })
 
-  test('One Script: one_run_query reads (with the language reference), one_run_script writes and is asked first', async () => {
+  test('One Script: one_run_query reads (with the language reference), one_run_script only dry-runs over MCP (Weg 4)', async () => {
     const { client } = await start()
     const { tools } = await client.listTools()
     const query = tools.find((t) => t.name === 'one_run_query')!
@@ -105,11 +105,13 @@ describe('tool list', () => {
     assert.match(query.description ?? '', /One Script/)
     assert.match(query.description ?? '', /db\(@Tasks\)/)
     const run = tools.find((t) => t.name === 'one_run_script')!
+    // Read only still refuses it (a write tool), but it changes nothing: never destructive
     assert.equal(run.annotations?.readOnlyHint, false)
-    assert.equal(run.annotations?.destructiveHint, true)
+    assert.equal(run.annotations?.destructiveHint, false)
     assert.deepEqual(run.inputSchema.required, ['script'])
-    assert.match(run.description ?? '', /dry/)
-    assert.match(run.description ?? '', /approve/)
+    assert.match(run.description ?? '', /Dry-run/)
+    assert.match(run.description ?? '', /ran: false/)
+    assert.match(run.description ?? '', /One → Scripts/)
   })
 
   test('trash and restore take one id or up to 50 ids', async () => {

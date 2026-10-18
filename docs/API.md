@@ -14,7 +14,8 @@ the other half of One's *outgoing* webhooks (database automations, button blocks
   (pages in full with every block, sub-page trees, boards with views and rows, rows in bulk, comments with the token's
   flag); the REST API stays as it is (`/api/v1`). The server keeps a restorable copy of what an MCP call made or overwrote
   (pages, rows, databases, row fields, a replaced page text — [Recent MCP writes](#recent-mcp-writes) names which calls);
-  REST writes keep none.
+  REST writes keep none. Two-way relations (sub-items and dependencies too) are set over REST as before, but not over
+  MCP: an MCP value of one and `twoWay: true` are refused (`refused_type` — [`MCP.md`](MCP.md#two-way-relations)).
 
 Contents: [Tokens](#tokens) · [Conventions](#conventions) · [Endpoints](#endpoints) ·
 [Values](#property-values) · [Content](#content-markdown-lite) · [Idempotency](#idempotency) ·

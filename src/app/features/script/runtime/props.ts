@@ -9,7 +9,6 @@ import type { Database, DateValue, ID, Page, Person, PropertyDef, PropertyValue 
 import { useWorkspace } from '../../../store/store'
 import { propertyFormulaValue } from '../../../database'
 import { HostObject, SDate, ScriptError, parseDate, toText, truthy, typeName, type Value } from '../lang'
-import { listOptionText } from '../../../../shared/mcp/errors'
 
 /** How rows and people become script values (objects.ts provides them). */
 export interface Makers {
@@ -106,12 +105,6 @@ export interface Coerced {
 
 const bad = (prop: PropertyDef, detail: string) => new ScriptError('bad_value', { name: prop.name, detail })
 
-/** Why a select bound to a shared list takes no option of its own (the words agents and MCP use — shared/mcp/errors.ts). */
-export function listOptionDetail(prop: PropertyDef, name: string): string {
-  const list = prop.listId ? useWorkspace.getState().kit?.lists[prop.listId] : undefined
-  return `${listOptionText(name, list?.name ?? '?')} (${(prop.options ?? []).map((o) => o.name).join(', ')})`
-}
-
 const listOf = (v: Value): Value[] => (v === null ? [] : Array.isArray(v) ? v : [v])
 
 function dateValueOf(v: Value, prop: PropertyDef): DateValue | null {
@@ -197,9 +190,8 @@ export function coerceProp(db: Database, prop: PropertyDef, raw: Value): Coerced
         const hit = opts.find((o) => o.name.trim().toLowerCase() === n.toLowerCase())
         if (!hit && prop.type === 'status') throw bad(prop, `no status "${n}" (${opts.map((o) => o.name).join(', ')})`)
         if (!hit && db.locked) throw bad(prop, `no option "${n}" — the database is locked (${opts.map((o) => o.name).join(', ')})`)
-        // bound to a shared list (features/kit): the list owns the options — every list edit writes them into the
-        // property again, so an option on the property alone would vanish and leave its values pointing at nothing
-        if (!hit && prop.listId) throw bad(prop, listOptionDetail(prop, n))
+        // a new option of a select bound to a shared list (features/kit) goes into the list when written (host.ts
+        // ensureOptions — as the option picker adds it there); a dry run reports it (PropDiff.addsToList)
         const name = hit?.name ?? n.slice(0, 100)
         if (names.some((x) => x.toLowerCase() === name.toLowerCase())) continue
         if (!hit) fresh.push(name)

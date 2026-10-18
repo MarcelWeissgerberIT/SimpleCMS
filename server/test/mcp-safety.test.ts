@@ -188,12 +188,14 @@ describe('MCP safety (team server)', () => {
   })
 
   test("a two-way relation never reaches One's own databases: no reverse property, no partner write", async () => {
-    const sys = /^system_database: .*read-only/
+    // two-way relations stay out of MCP altogether (Weg 4): refused_type before anything is looked at there
+    const twoWayArg = /^refused_type: (properties\[0\]\.)?relation\.twoWay: two-way relations are set up in One/
+    const twoWayValue = /^refused_type: .*"Linked task" is two-way/
     const propsOf = (dbId: string) => [...((meta.doc.getMap('databases').get(dbId) as Y.Map<unknown>).get('properties') as Y.Map<{ name: string }>).values()].map((p) => p.name).sort()
     const coding = propsOf('db-coding')
     const memory = propsOf('db-mem')
-    await fails(writer, 'one_create_property', { databaseId: 'db-tasks', name: 'Coding task', type: 'relation', relation: { databaseId: 'db-coding', twoWay: true } }, sys)
-    await fails(writer, 'one_create_database', { title: 'Notes', properties: [{ name: 'Mem', type: 'relation', relation: { databaseId: 'db-mem', twoWay: true } }] }, sys)
+    await fails(writer, 'one_create_property', { databaseId: 'db-tasks', name: 'Coding task', type: 'relation', relation: { databaseId: 'db-coding', twoWay: true } }, twoWayArg)
+    await fails(writer, 'one_create_database', { title: 'Notes', properties: [{ name: 'Mem', type: 'relation', relation: { databaseId: 'db-mem', twoWay: true } }] }, twoWayArg)
     await sleep(100)
     assert.deepEqual(propsOf('db-coding'), coding, 'the Coding schema is unchanged')
     assert.deepEqual(propsOf('db-mem'), memory, 'the memory schema is unchanged')
@@ -209,9 +211,9 @@ describe('MCP safety (team server)', () => {
     })
     await flushed(meta)
     const before = { props: JSON.stringify((yp('task-1').get('properties') as Y.Map<unknown>).toJSON()), by: yp('task-1').get('updatedBy') }
-    await fails(writer, 'one_create_row', { databaseId: 'db-tasks', title: 'Linked', properties: { 'Linked task': ['task-1'] } }, sys)
-    await fails(writer, 'one_create_row', { databaseId: 'db-tasks', rows: [{ title: 'Linked A', properties: { 'Linked task': ['task-1'] } }, { title: 'Linked B' }] }, sys)
-    await fails(writer, 'one_update_row', { id: 'row-1', properties: { 'Linked task': ['task-1'] } }, sys)
+    await fails(writer, 'one_create_row', { databaseId: 'db-tasks', title: 'Linked', properties: { 'Linked task': ['task-1'] } }, twoWayValue)
+    await fails(writer, 'one_create_row', { databaseId: 'db-tasks', rows: [{ title: 'Linked A', properties: { 'Linked task': ['task-1'] } }, { title: 'Linked B' }] }, twoWayValue)
+    await fails(writer, 'one_update_row', { id: 'row-1', properties: { 'Linked task': ['task-1'] } }, twoWayValue)
     await sleep(100)
     assert.equal(JSON.stringify((yp('task-1').get('properties') as Y.Map<unknown>).toJSON()), before.props, 'the Coding task holds no new link')
     assert.equal(yp('task-1').get('updatedBy'), before.by, 'nor was it stamped by the API token')

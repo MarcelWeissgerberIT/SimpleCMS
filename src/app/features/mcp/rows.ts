@@ -6,17 +6,18 @@
  * Staged through the workspace agent's tools (stage.ts), applied as the call.
  */
 import { t } from '../../i18n'
-import type { Database, ID, Page, PropertyDef } from '../../store/types'
-import { autofillOf, pairedRelationIn, subItemsOf } from '../../database'
+import type { Database, ID, Page } from '../../store/types'
+import { autofillOf } from '../../database'
 import { findProp } from '../ai/agent/props'
 import { stageUpsert, ToolInputError, withReadLimit, withToolScope } from '../ai/agent/tools'
 import { pagePrivate } from '../ai/agent/workItems'
-import type { PropChange, StagedChange } from '../ai/agent/types'
+import type { PropChange } from '../ai/agent/types'
 import { fileDrop } from '../ai/claudeFiles'
 import { mcpError } from '../../../shared/mcp/errors'
 import { MCP_LIMITS } from '../../../shared/mcp/tables'
 import { applyStaged, assertStageWritable, callStage, itemPlan, mcpMessage, outsideTemplates, stageWith } from './stage'
-import { assertNoSystemPartner, assertNotSystem, PARTNER_SYSTEM, systemPartner, systemRefusal } from './system'
+import { assertNotSystem } from './system'
+import { assertOneWayInput } from './twoWay'
 import { databaseOrThrow, kindOf, live, McpToolError, pageUrl, q, rowProperties, titleOf, ws } from './values'
 import { atPath, chars, checkFileScope, eachEntry, pageOrThrow, preview, str, tasksOf, type PlanLine, type WritePlan } from './plan'
 import { withFilesWritable } from '../ai/agent/props'
@@ -150,80 +151,6 @@ export function sideHold(parts: readonly SideEffects[]): { alwaysAsk: boolean; l
   return { alwaysAsk: true, lines: [{ k: 'note', value: t('features.mcp.plan.startsHold', { n: chars(n) }) }] }
 }
 
-const idsIn = (v: unknown): ID[] => (Array.isArray(v) ? (v as ID[]) : [])
-
-/**
- * The rows a relation value of `rowId` (null: a new row) writes besides its own — two-way relations as the app, the team
- * server and agent apply.ts syncPartners write them: the rows it links or unlinks get the link in the partner property;
- * on a sub-items pair (one parent per row) a child it takes leaves its old parent's list too, so that old parent's
- * Sub-items change as well. Per database and property, the rows whose value changes (empty: none).
- */
-export function partnerRows(databases: Record<ID, Database>, db: Database, prop: PropertyDef, rowId: ID | null, before: readonly ID[], after: readonly ID[]): Array<{ db: Database; prop: PropertyDef; rows: ID[] }> {
-  const pair = pairedRelationIn(databases, db.id, prop)
-  if (!pair) return []
-  const { pages } = ws()
-  const was = new Set(before)
-  const now = new Set(after)
-  const linked = [...now].filter((id) => !was.has(id))
-  const touched = linked.concat([...was].filter((id) => !now.has(id)))
-  const out: Array<{ db: Database; prop: PropertyDef; rows: ID[] }> = []
-  if (touched.length) out.push({ db: pair.db, prop: pair.prop, rows: touched })
-  if (subItemsOf(pair.db)?.parent.id === pair.prop.id) {
-    const old = new Set<ID>()
-    for (const id of linked) for (const p of idsIn(pages[id]?.properties[pair.prop.id])) if (p !== rowId && idsIn(pages[p]?.properties[prop.id]).includes(id)) old.add(p)
-    if (old.size) out.push({ db, prop, rows: [...old] })
-  }
-  return out
-}
-
-/** The "Links back" lines of the rows a call's relation values write besides their own, with what that starts there. */
-export function linksBack(per: ReadonlyMap<string, { db: Database; propId: ID; name: string; rows: Set<ID> }>): { lines: PlanLine[]; sides: SideEffects[] } {
-  const { pages } = ws()
-  const lines: PlanLine[] = []
-  const sides: SideEffects[] = []
-  for (const e of per.values()) {
-    const titles = [...e.rows].map((id) => q(titleOf(pages[id])))
-    lines.push({ k: 'fact', label: t('features.mcp.plan.linksBack'), value: `${titleOf(pages[e.db.id] ?? undefined)} · ${e.name}: ${titles.slice(0, 20).join(', ')}${titles.length > 20 ? ` ${t('features.mcp.plan.more', { n: chars(titles.length - 20) })}` : ''}` })
-    sides.push(sideEffects(e.db, e.rows.size, { props: new Set([e.propId]) }))
-  }
-  return { lines, sides }
-}
-
-/** Collect partnerRows per partner database and property (linksBack's input). */
-export function addPartnerRows(per: Map<string, { db: Database; propId: ID; name: string; rows: Set<ID> }>, hits: ReadonlyArray<{ db: Database; prop: PropertyDef; rows: ID[] }>): void {
-  for (const h of hits) {
-    const key = `${h.db.id}|${h.prop.id}`
-    const e = per.get(key) ?? { db: h.db, propId: h.prop.id, name: h.prop.name, rows: new Set<ID>() }
-    for (const id of h.rows) e.rows.add(id)
-    per.set(key, e)
-  }
-}
-
-/**
- * Two-way relations: the rows a call's relation values link (or unlink) change too — their partner property links back
- * (agent apply.ts syncPartners, as the app and the team server write them), and a sub-items child's old parent loses it.
- * Named on the card per database and property, with what that change starts there (sideEffects — counted into the
- * call's sideHold).
- */
-export function partnerPlan(changes: readonly StagedChange[], databases: Record<ID, Database> = ws().databases): { lines: PlanLine[]; sides: SideEffects[] } {
-  const { pages } = ws()
-  const per = new Map<string, { db: Database; propId: ID; name: string; rows: Set<ID> }>()
-  for (const c of changes) {
-    if (c.kind !== 'create_row' && c.kind !== 'update_row') continue
-    const rowId = c.kind === 'update_row' ? c.pageId : null
-    const dbId = c.kind === 'create_row' ? c.databaseId : (pages[c.pageId]?.databaseId ?? null)
-    const db = dbId ? databases[dbId] : undefined
-    if (!db) continue
-    for (const pc of c.props ?? []) {
-      if (pc.intent.kind !== 'value') continue
-      const prop = db.properties.find((p) => p.id === pc.propId)
-      if (!prop) continue
-      addPartnerRows(per, partnerRows(databases, db, prop, rowId, rowId ? idsIn(pages[rowId]?.properties[pc.propId]) : [], idsIn(pc.intent.value)))
-    }
-  }
-  return linksBack(per)
-}
-
 /** The title property's id (a rename is a change of it for automations and agents watching it). */
 export const titlePropId = (db: Database): ID | null => db.properties.find((p) => p.type === 'title')?.id ?? null
 
@@ -294,14 +221,14 @@ export function planCreateRow(args: Record<string, unknown>): WritePlan {
     texts.push(markdown)
     checkFileScope(markdown, priv, q(title))
     checkFiles(db, split.props, priv, `${item.path}properties`)
+    // two-way relations stay out of MCP (shared/mcp/twoWay.ts): a one-way relation is fine
+    assertOneWayInput(db, split.props, `${item.path}properties`)
     try {
       stageWith(stage, 'create_row', { database_id: db.id, title, ...(split.props ? { properties: split.props } : {}), ...(markdown.trim() ? { markdown } : {}) })
     } catch (e) {
       atPath(e, batch ? `rows[${i}]` : '')
     }
     const staged = stage.changes.filter((c) => c.kind === 'create_row').at(-1)!
-    // a two-way relation into One's own database would write its rows too (as the team server refuses it)
-    assertNoSystemPartner([staged], item.path)
     made.push({ title, change: staged.id })
   })
   if (batch) checkBatchText(texts)
@@ -324,9 +251,8 @@ export function planCreateRow(args: Record<string, unknown>): WritePlan {
     if (fresh.length) lines.push({ k: 'fact', label: t('features.mcp.plan.newOptions'), value: fresh.join(', ') })
   }
   const side = sideEffects(db, rows.length, { created: true, props: new Set() })
-  const partners = partnerPlan(stage.changes)
-  const hold = sideHold([side, ...partners.sides])
-  lines.push(...partners.lines, ...side.lines, ...partners.sides.flatMap((x) => x.lines), ...hold.lines)
+  const hold = sideHold([side])
+  lines.push(...side.lines, ...hold.lines)
   const items_ = itemPlan(stage.changes)
   lines.push(...items_.lines)
   const first = rows[0]?.props?.[0]
@@ -401,6 +327,8 @@ export function planUpdateRow(args: Record<string, unknown>): WritePlan {
     if (split.title === '') throw new McpToolError(mcpError('bad_argument', `${item.path}properties`, 'the title must not be empty'))
     const priv = pagePrivate(row.id)
     checkFiles(db, split.props, priv, `${item.path}properties`)
+    // two-way relations stay out of MCP (shared/mcp/twoWay.ts): a one-way relation is fine
+    assertOneWayInput(db, split.props, `${item.path}properties`)
     const names: string[] = []
     const before = stage.changes.length
     try {
@@ -418,8 +346,6 @@ export function planUpdateRow(args: Record<string, unknown>): WritePlan {
     } catch (e) {
       atPath(e, batch ? `rows[${i}]` : '')
     }
-    // a two-way relation into One's own database would write its rows too (as the team server refuses it)
-    assertNoSystemPartner(stage.changes.slice(before), item.path)
     const dbName = titleOf(dbPage)
     plans.push({ row, db, dbName, names })
     if (names.length) {
@@ -445,10 +371,6 @@ export function planUpdateRow(args: Record<string, unknown>): WritePlan {
   }
   // what each database's rows start; asked always when the whole call starts paid or outward work on enough rows
   const sides = [...byDb.values()].map((e) => sideEffects(e.db, e.rows, { created: false, props: e.props }))
-  // two-way relations: the linked (or unlinked) rows change too
-  const partners = partnerPlan(stage.changes)
-  lines.push(...partners.lines)
-  sides.push(...partners.sides)
   for (const side of sides) lines.push(...side.lines)
   const hold = sideHold(sides)
   lines.push(...hold.lines)
@@ -495,6 +417,8 @@ export function planUpsertRows(args: Record<string, unknown>): WritePlan {
   if (raw.length > MCP_LIMITS.rows) throw new McpToolError(mcpError('too_large', 'rows', `${raw.length} rows (at most ${MCP_LIMITS.rows} per call)`, `Send the first ${MCP_LIMITS.rows}, then the rest in a second call.`))
   const priv = pagePrivate(db.id)
   const texts: string[] = []
+  // two-way relations stay out of MCP (shared/mcp/twoWay.ts): every row that sets one is named — the team server's words
+  const twoWay: string[] = []
   // the agent's rows: `body` for `markdown`; files values and private files checked first (MCP's own rules)
   const rows = (raw as unknown[]).map((r, i) => {
     if (!r || typeof r !== 'object' || Array.isArray(r)) throw new McpToolError(mcpError('bad_argument', `rows[${i}]`, 'an object {key, …} is expected'))
@@ -504,9 +428,18 @@ export function planUpsertRows(args: Record<string, unknown>): WritePlan {
     const markdown = stripRefLabels(str(o.markdown, `rows[${i}].markdown`, { max: MCP_LIMITS.upsertText }))
     texts.push(markdown)
     checkFileScope(markdown, priv, q(titleOf(dbPage)))
-    if (o.properties && typeof o.properties === 'object' && !Array.isArray(o.properties)) checkFiles(db, o.properties as Record<string, unknown>, priv, `rows[${i}].properties`)
+    if (o.properties && typeof o.properties === 'object' && !Array.isArray(o.properties)) {
+      checkFiles(db, o.properties as Record<string, unknown>, priv, `rows[${i}].properties`)
+      try {
+        assertOneWayInput(db, o.properties as Record<string, unknown>, 'properties')
+      } catch (e) {
+        if (!(e instanceof McpToolError)) throw e
+        twoWay.push(`rows[${i}] (key ${q(String(o.key ?? '').trim())}): ${e.message}`)
+      }
+    }
     return { key: o.key, ...(o.title !== undefined ? { title: o.title } : {}), ...(o.properties !== undefined ? { properties: o.properties } : {}), ...(markdown ? { body: markdown } : {}) }
   })
+  if (twoWay.length) throw new McpToolError(mcpError('bad_argument', 'rows', `${twoWay.length} of ${rows.length} rows do not fit: ${twoWay.join('; ')}`, 'Fix those rows (or leave them out) and send the call again.'))
   checkBatchText(texts)
   const stage = callStage()
   let staged: ReturnType<typeof stageUpsert>
@@ -537,12 +470,6 @@ export function planUpsertRows(args: Record<string, unknown>): WritePlan {
         'Fix those rows (or leave them out) and send the call again.',
       ),
     )
-  // a two-way relation into One's own database would write its rows too (as the team server refuses it): the row named
-  const partner = systemPartner(stage.changes)
-  if (partner) {
-    const at = staged.results.findIndex((r) => r.id === partner.change.pageId)
-    throw new McpToolError(systemRefusal(partner.hit, `${at >= 0 ? `rows[${at}].` : ''}properties.${partner.name}`, PARTNER_SYSTEM))
-  }
   assertStageWritable(stage.changes)
   // a locked row page takes no text (spec § 3.3; as one_update_page, and as the team server's upsert refuses it)
   const textInto = stage.changes
@@ -602,10 +529,8 @@ export function planUpsertRows(args: Record<string, unknown>): WritePlan {
   // what the new rows start, then what the changed ones start (a line both name is shown once); asked always when new
   // and changed rows together start paid or outward work on enough rows
   const same = (a: PlanLine, b: PlanLine) => JSON.stringify(a) === JSON.stringify(b)
-  // two-way relations: the linked (or unlinked) rows change too
-  const partners = partnerPlan(stage.changes)
-  const hold = sideHold([sideNew, sideOld, ...partners.sides])
-  lines.push(...partners.lines, ...sideNew.lines, ...sideOld.lines.filter((l) => !sideNew.lines.some((x) => same(x, l))), ...partners.sides.flatMap((x) => x.lines), ...hold.lines)
+  const hold = sideHold([sideNew, sideOld])
+  lines.push(...sideNew.lines, ...sideOld.lines.filter((l) => !sideNew.lines.some((x) => same(x, l))), ...hold.lines)
   const items = itemPlan(stage.changes)
   lines.push(...items.lines)
   const answer = (ids: Record<string, ID>) => ({

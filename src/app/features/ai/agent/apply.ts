@@ -29,7 +29,6 @@ import { changedSince, followCall, madeAs, textMoved } from './follow'
 import { createPrivatePage } from '../../../cloud'
 import { isSettled } from '../../recorder/settled'
 import { runKeyOf } from '../../recorder/model/writerKeys'
-import { pairedRelationIn, subItemsOf } from '../../../database'
 
 const ws = () => useWorkspace.getState()
 const ORIGIN = 'ai'
@@ -95,91 +94,6 @@ function resolveOptions(dbId: ID, prop: PropertyDef, names: string[], created: M
     created.set(prop.id, [...(created.get(prop.id) ?? []), ...fresh.map((o) => o.id)])
   }
   return ids
-}
-
-/** One write of a partner row's relation value (two-way sync): what it held before and after. */
-interface PartnerWrite {
-  rowId: ID
-  propId: ID
-  before: PropertyValue
-  after: PropertyValue
-  /** the relation of the written row whose value made this write */
-  via: ID
-}
-
-const idsOf = (v: PropertyValue | undefined): ID[] => (Array.isArray(v) ? (v as ID[]) : [])
-
-/**
- * The rules of a sub-items "Parent item" write, as the team server checks them (api/model.ts checkHierarchy): a row
- * has at most one parent, and is never its own. Refused, never trimmed (no toast here: the caller's change fails).
- */
-export function hierarchyProblem(dbId: ID, propId: ID, rowId: ID | null, value: PropertyValue): string | null {
-  const sub = subItemsOf(ws().databases[dbId])
-  if (!sub || sub.parent.id !== propId) return null
-  const ids = idsOf(value)
-  if (ids.length > 1) return `"${sub.parent.name}": a row has at most one parent`
-  if (rowId && ids.includes(rowId)) return `"${sub.parent.name}": a row cannot be its own parent`
-  return null
-}
-
-/**
- * Two-way relations as the app writes them (database writeValue) and the team server (syncPartners): the rows a
- * relation value of `rowId` gained link back to it in the partner property, the ones it lost no longer do — on a
- * sub-items parent side one parent per row (the row leaves its old parent's list). Returns every partner write, so
- * the change's Undo puts them back.
- */
-function syncPartners(dbId: ID, rowId: ID, before: Record<ID, PropertyValue | undefined>, after: Record<ID, PropertyValue>): PartnerWrite[] {
-  const out: PartnerWrite[] = []
-  const db = ws().databases[dbId]
-  if (!db) return out
-  for (const [propId, value] of Object.entries(after)) {
-    const prop = db.properties.find((p) => p.id === propId)
-    if (prop?.type !== 'relation') continue
-    const set = (id: ID, target: ID, next: ID[]) => {
-      const page = ws().pages[id]
-      if (!page) return
-      out.push({ rowId: id, propId: target, before: page.properties[target] ?? null, after: next, via: propId })
-      ws().setRowProperty(id, target, next)
-    }
-    const pair = pairedRelationIn(ws().databases, dbId, prop)
-    if (!pair) continue
-    const single = subItemsOf(pair.db)?.parent.id === pair.prop.id
-    const was = new Set(idsOf(before[propId]))
-    const now = new Set(idsOf(value))
-    for (const id of now) {
-      if (was.has(id) || !ws().pages[id]) continue
-      const cur = idsOf(ws().pages[id]!.properties[pair.prop.id])
-      if (single) {
-        // one parent per row: the row leaves its old parent's list, then points at this row
-        for (const old of cur) {
-          const list = idsOf(ws().pages[old]?.properties[propId])
-          if (old !== rowId && list.includes(id)) set(old, propId, list.filter((x) => x !== id))
-        }
-        if (cur.length !== 1 || cur[0] !== rowId) set(id, pair.prop.id, [rowId])
-      } else if (!cur.includes(rowId)) set(id, pair.prop.id, [...cur, rowId])
-    }
-    for (const id of was) {
-      if (now.has(id) || !ws().pages[id]) continue
-      const cur = idsOf(ws().pages[id]!.properties[pair.prop.id])
-      if (cur.includes(rowId)) set(id, pair.prop.id, cur.filter((x) => x !== rowId))
-    }
-  }
-  return out
-}
-
-/** Put the partner rows back (newest write first) where they still hold what the sync wrote; false: one changed since (kept). */
-function unsyncPartners(writes: readonly PartnerWrite[]): boolean {
-  let clean = true
-  for (const w of [...writes].reverse()) {
-    const page = ws().pages[w.rowId]
-    if (!page) continue
-    if (JSON.stringify(page.properties[w.propId] ?? null) !== JSON.stringify(w.after ?? null)) {
-      clean = false
-      continue
-    }
-    ws().setRowProperty(w.rowId, w.propId, w.before)
-  }
-  return clean
 }
 
 const isDate = (v: unknown): v is DateValue => !!v && typeof v === 'object' && !Array.isArray(v) && typeof (v as DateValue).start === 'string'
@@ -655,36 +569,25 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
       if (!alive(dbId) || !s.databases[dbId]) throw new Error('the database is gone')
       const created = new Map<ID, ID[]>()
       const doc = c.markdown?.trim() ? toDoc(c.markdown, c, { pageId: c.pageId, private: pagePrivate(dbId) }) : null
-      let partners: PartnerWrite[] = []
       const id = as(() => {
         const properties: Record<ID, PropertyValue> = {}
         for (const pc of c.props ?? []) properties[pc.propId] = resolveValue(dbId, pc, created)
         try {
           checkKey(dbId, properties, null)
-          for (const [propId, v] of Object.entries(properties)) {
-            const why = hierarchyProblem(dbId, propId, null, v)
-            if (why) throw new Error(why)
-          }
         } catch (e) {
           dropUnusedOptions(dbId, created)
           throw e
         }
         const row = ws().createRow(dbId, { title: c.title ?? '', properties })
         if (doc) ws().setContent(row, doc, ORIGIN)
-        // two-way relations: the rows it links link back (as the app and the team server write them)
-        partners = syncPartners(dbId, row, {}, properties)
         return row
       })
       rowIds[c.pageId] = id
       const remove = removeCreated(id, opts.undoCreated, w)
       return () => {
         const ok = remove()
-        // the row deleted for good: its links on the other side go too, where nobody changed them since. A row that went to
-        // the trash keeps its relation value and the partner rows keep their link to it — as the app's trash does (and
-        // the team server's Restore) — so restoring it from the trash leaves no one-sided two-way link
-        const back = ok && !ws().pages[id] ? unsyncPartners(partners) : true
         dropUnusedOptions(dbId, created)
-        return ok && back
+        return ok
       }
     }
     case 'update_row': {
@@ -697,7 +600,6 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
       const created = new Map<ID, ID[]>()
       const prev: Record<ID, PropertyValue | undefined> = {}
       const next: Record<ID, PropertyValue> = {}
-      let partners: PartnerWrite[] = []
       as(() => {
         for (const pc of c.props ?? []) {
           prev[pc.propId] = row.properties[pc.propId]
@@ -705,10 +607,6 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
         }
         try {
           checkKey(dbId, next, id)
-          for (const [propId, v] of Object.entries(next)) {
-            const why = hierarchyProblem(dbId, propId, id, v)
-            if (why) throw new Error(why)
-          }
         } catch (e) {
           dropUnusedOptions(dbId, created)
           throw e
@@ -717,8 +615,6 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
         aiWrite(() => {
           for (const [propId, v] of Object.entries(next)) ws().setRowProperty(id, propId, v)
         })
-        // two-way relations: the rows it gained link back, the ones it lost no longer do
-        partners = syncPartners(dbId, id, prev, next)
       })
       let back: ID[] = []
       const undo = () => {
@@ -735,8 +631,6 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
           ws().setRowProperty(id, propId, (prev[propId] ?? null) as PropertyValue)
           back.push(propId)
         }
-        // the partner rows of two-way relations as they were — of the values that went back only (a kept value's links stay)
-        if (!unsyncPartners(partners.filter((p) => back.includes(p.via)))) kept = true
         dropUnusedOptions(dbId, created)
         return !kept
       }

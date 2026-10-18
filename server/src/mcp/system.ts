@@ -97,12 +97,6 @@ export function systemRefusal(hit: SystemHit, path = '', why = '') {
   )
 }
 
-/** Why a two-way relation into One's own database is refused (the local bridge words it alike). */
-export const TWO_WAY_SYSTEM = 'a two-way relation would add its reverse property there and write into its rows; a one-way relation (twoWay: false) to it is fine'
-
-/** Why a row value is refused whose two-way partner lives in One's own database (the app would write the link there too). */
-export const PARTNER_SYSTEM = 'this relation is two-way, so setting it would also write into the linked rows there'
-
 export function assertNotSystem(r: Roots, id: string | null | undefined, path = '', why = ''): void {
   const hit = systemOf(r, id)
   if (hit) throw systemRefusal(hit, path, why)

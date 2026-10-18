@@ -18,7 +18,7 @@ ways in, with **one tool set** — the same names, arguments, result shapes and 
 Contents: [Tools](#tools) · [Results, errors, repeats](#results-errors-repeats) ·
 [Reading a page in full](#reading-a-page-in-full) · [Sub-pages and batches](#sub-pages-and-batches) ·
 [Boards in one call](#boards-in-one-call) · [Comments](#comments) · [What MCP never changes](#what-mcp-never-changes) ·
-[Tidying up](#tidying-up) · [Tasks](#tasks) · [One Script](#one-script) · [The codeword "one:"](#the-codeword-one) ·
+[Two-way relations](#two-way-relations) · [Tidying up](#tidying-up) · [Tasks](#tasks) · [One Script](#one-script) · [The codeword "one:"](#the-codeword-one) ·
 [Workspaces](#workspaces) · [Local bridge](#local-bridge) · [Team server](#team-server)
 
 ## Tools
@@ -41,7 +41,7 @@ does not list the tool, or answers `local_only` for that argument).
 | `one_create_row` | write | ✓ | ✓ | `{ databaseId, title, properties?, markdown? }` or `{ databaseId, rows: [≤ 50] }` — all or none; a key another row holds and an `onlyByHand` property are refused |
 | `one_update_row` | write | ✓ | ✓ | `{ id, properties }` or `{ rows: [{ id, properties }] ≤ 50 }` — only what you pass changes, `null` clears; all or none; the same refusals |
 | `one_upsert_rows` | write | ✓ | ✓ | `{ databaseId, keyProperty, rows: [{ key, title?, properties?, markdown? }] ≤ 50 }` — keep a database in step with items from elsewhere, by a key: per row `created`, `updated` (only the values that differ) or `unchanged` |
-| `one_create_property` | write | ✓ | ✓ | `{ databaseId, name, type, options?, relation?: { databaseId, twoWay?, reverseName? } }` |
+| `one_create_property` | write | ✓ | ✓ | `{ databaseId, name, type, options?, relation?: { databaseId, twoWay?, reverseName? } }` — a relation is one-way: `twoWay: true` is `refused_type` ([two-way relations](#two-way-relations)) |
 | `one_update_property` | write · destructive | ✓ | ✓ | `{ databaseId, property, name?, description?, type?, options?: { add?, update?: [{ name, newName?, color?, group? }], remove? } }` — removing an option clears it from rows (`cleared`); only [safe type changes](#tidying-up) |
 | `one_delete_property` | write · destructive | ✓ | ✓ | `{ databaseId, property }` — the property and its values; not the title (`rowsWithValue`) |
 | `one_create_database` | write | ✓ | ✓ | `{ title, parentId? \| inline?: { pageId, afterBlock? }, icon?, properties? (≤ 40), views? (1–5), rows? (≤ 50) }` — a database or a **board** with its views and rows in one call, as a sub-page or inside a page's text ([Boards in one call](#boards-in-one-call)) |
@@ -54,7 +54,7 @@ does not list the tool, or answers `local_only` for that argument).
 | `one_trash_page` | write · destructive | ✓ | ✓ | `{ id }` or `{ ids: [≤ 50] }` — to the trash (a database with its rows: `rows`), never for good |
 | `one_restore_page` | write | ✓ | ✓ | `{ id }` or `{ ids: [≤ 50] }` — back from the trash |
 | `one_run_query` | read | ✓ | — | `{ code, limit? }` — a read-only [One Script](#one-script) query: `{ count, columns, rows: [{ id?, <column>: text }] (≤ 100), truncated? }` or `{ value }` |
-| `one_run_script` | write · destructive | ✓ | — | `{ script (id or name), pageId?, dryRun? }` — a saved script, [always approved first](#one-script) |
+| `one_run_script` | write | ✓ | — | `{ script (id or name), pageId?, dryRun? }` — a saved script's **dry run** only: `ran: false`, nothing written or sent ([One Script](#one-script)) |
 | `one_list_work_items` | read | ✓ | — | `{ status?, person?, pageId?, blocked?, overdue?, dueBefore?, query?, limit? }` — task blocks as JSON ([Tasks](#tasks)) — team server: later |
 | `one_update_work_item` | write | ✓ | — | `{ updates: [{ item, status?, due?, reminder?, people?, blocked_by?, related? }] }` — a task's fields ([Tasks](#tasks)) — team server: later |
 
@@ -226,7 +226,7 @@ out), and a tool takes **only** the arguments it declares: anything else is refu
   whose text, title, icon, any value — also one filled into an empty field — or place changed, or that got a page
   below it, is kept; what the call itself set off — a *row created* automation, autofill, a value script — is no
   change), and sets changed values back unless they were changed again; a database the call made stays
-  (with everything in it, its block and any reverse relation) once someone added a row or changed one of its rows. In
+  (with everything in it and its block) once someone added a row or changed one of its rows. In
   a page the person wrote in since, the Undo takes out only the call's own database block or page link (never leaving
   one that points into the trash). A call that fails as a whole takes back what it made for good — nothing of it waits
   in the trash. A link written into a **row's** text (`linkInParent` under rows) and a task changed in a row
@@ -289,19 +289,16 @@ next step there is a token with comments on, made by an owner or admin). Writing
   change, no inline block of one, no trash of a page whose tree holds one — `system_database`. Reading stays allowed
   (mail and memory rows carry their `class`).
 - **Templates** are invisible: a template page's id is `not_found` for every tool, also as a `parentId`.
-- **One Script over MCP** (`one_run_script`, its dry run too) never writes into those databases either — a run that
-  would is refused before anything happens (`system_database`; also a value of a two-way relation whose other side is
-  one of them); a run already under way stops at that write, and what it changed before stays (the answer says so).
-- **A two-way relation into one of them** — a pair the person made in One — takes no value over MCP (`one_create_row`,
-  `one_update_row`, `one_upsert_rows`, a row of `one_create_database`): the value would write the link into their rows
-  too. `system_database: properties.<name>: … this relation is two-way, so setting it would also write into the linked
-  rows there` on both ways in; B checks again when the card is approved (a pair that turned into one meanwhile).
+- **One Script over MCP** (`one_run_script`) is a dry run only; one that would write into those databases is refused
+  all the same (`system_database`; also a value of a two-way relation whose other side is one of them).
+- **A two-way relation into one of them** takes no value over MCP — as no two-way relation does
+  ([two-way relations](#two-way-relations)).
 - **Their schema stays** also when another database is reshaped: `one_delete_property` of a property a rollup there
   rolls up is refused (`system_database`; a locked database's rollup `locked`); a template's rollup is not looked at.
   B checks every structure tool (database, property, view) again when the card is approved.
 - **Private stays private** (B, team workspace): Markdown written into a shared page never links a private page (a
   `#/p/<id>` link of one is `private_scope`), as a file or a mention would not.
-- **Coding tasks** never take trust from an MCP write (also through a script `one_run_script` ran): a pipeline task whose version an MCP write moved (its row, its
+- **Coding tasks** never take trust from an MCP write (nor from what it set off — an automation, autofill): a pipeline task whose version an MCP write moved (its row, its
   pipeline, a page it takes along) waits for *Confirm* in One before the worker runs it.
 - **Text from a client** goes through the same gate as every Claude answer in One: raw HTML only as One's own file form
   writes it (any other tag stays text), `data:` images become the text "[inline image removed — add the picture in One]" (nothing is decoded),
@@ -317,21 +314,38 @@ names, dates `"YYYY-MM-DD"` / `"YYYY-MM-DDTHH:mm"` (wall-clock time) or `{ start
 relations by row id or title, `true` / `false`, numbers, `null` to clear. A select or multi-select option that doesn't
 exist yet is added to the property — except on a property that takes its options from a **shared list** (Building
 blocks): there a new option is `bad_argument` naming the list (it is added to the list in One), on rows, in
-`one_update_property { options }`, a row `one_move_row` brings along, a value `one_run_script` sets (its dry run stops
-there) and through agents alike; a type change makes such a property a plain one (as the app's). **Options** a call
+`one_update_property { options }`, a row `one_move_row` brings along and through agents alike; a script the person runs
+in One puts such an option into the list (as the option picker does), and `one_run_script`'s dry run names it
+(`addsToList: { list, options }`); a type change makes such a property a plain one (as the app's). **Options** a call
 names (`one_create_property`, `one_create_database`, `options.add`) are read the same way on both sides
 ([`src/shared/mcp/options.ts`](../src/shared/mcp/options.ts)): a colour is lower-cased (`"Red"` = red), an unknown
 colour, a status group other than todo / in_progress / done, an empty name or a name listed twice is `bad_argument`
 with its path (`options[1].name`); a name longer than 60 characters is cut (also `options.update.newName`). A database
 made over MCP has a title property "Name" unless one of type `title` is given — a property of another type named
 "Name" is then refused (`properties[0].name: "Name" is the name of the title property …`) on both. A value of a
-**two-way relation** links back from the rows it names (B as S: the card names them under *Links back* — a sub-items
-child's old parent too, whose *Sub-items* lose it — the Undo takes them back; a script's card names them as well); a
-database's **sub-items** parent property takes one parent, never the row itself. Everything else that doesn't fit fails the whole call and names every problem (with the allowed values). **Filters** (`one_query_database`) are `[{ property, op, value }]`, all must hold; `op` is
+**two-way relation** is refused ([two-way relations](#two-way-relations)); a one-way relation takes row ids or titles.
+Everything else that doesn't fit fails the whole call and names every problem (with the allowed values). **Filters** (`one_query_database`) are `[{ property, op, value }]`, all must hold; `op` is
 `equals`, `not_equals`, `contains`, `not_contains`, `is_empty`, `is_not_empty`, `gt`, `gte`, `lt`, `lte` (numbers and
 dates). **Sort** is a property name, `createdAt`, `updatedAt` or `order` (the table's order, the default); `-` in
 front sorts descending (`"-Due"`). Results are JSON; failures are MCP tool errors (`isError: true`) with a message an
 agent can act on.
+
+## Two-way relations
+
+Two-way relations stay out of MCP until T-b (the owner's decision), on the local bridge and the team server alike: a
+value of a two-way relation — an explicit pair (the related database has the reverse property), a database's
+**sub-items** pair (*Parent item* / *Sub-items*) or its **dependencies** pair (*Blocked by* / *Blocking*) — would write the
+linked rows as well, so `one_create_row`, `one_update_row`, `one_upsert_rows` and the rows of `one_create_database`
+refuse it before anything is written, clearing it (`null`, `[]`) too:
+
+    refused_type: properties.Parent item: "Parent item" is two-way (or a sub-items / dependencies pair); set it in One.
+    Nothing was changed. A one-way relation is fine; leave this property out, or ask the person to set it in One.
+
+The bridge checks again when the card is approved (a relation made two-way while it waited is refused the same way).
+`twoWay: true` in `one_create_property` or `one_create_database` is refused too (`refused_type: relation.twoWay: …`) —
+a relation made over MCP is one-way; the person makes it two-way in One. A one-way relation (and `twoWay: false`) is
+fine. The words and the rule are shared ([`src/shared/mcp/twoWay.ts`](../src/shared/mcp/twoWay.ts)); reads still say
+`twoWay: true` for a pair (`one_get_database`). The AI terminal and custom agents keep their own rules.
 
 ## Tidying up
 
@@ -358,8 +372,8 @@ The tools that delete, adjust, create and reorganise follow the same rules on bo
   app.
 - **Locked databases** take rows and values but no structure change (properties, options, views). Locking and
   unlocking is the person's decision: `one_update_database` refuses `locked`. B checks again when a card is approved:
-  a database — or a two-way relation's other database — locked while the card waited takes no property and no new
-  option (`one_create_property`, `one_create_database`, `one_move_row`: `locked`); a page that became one of One's own
+  a database locked while the card waited takes no property and no new option (`one_create_property`,
+  `one_move_row`: `locked`); a relation made two-way meanwhile takes no value (`refused_type`); a page that became one of One's own
   databases' meanwhile (moved into the memory) takes no text, title, icon, move or trash (`system_database`).
 - **Reorganising.** `one_move_page` moves pages and databases under another page or to the top level and places them
   `before` / `after` a sibling or at an `index` (0 = first) among the siblings people see. Refused: into itself or its
@@ -435,19 +449,17 @@ team server does not have these two tools — its workspace model would need the
   (a query, a list of rows or records) as `rows` with the row `id` (keep it with `.select(id, …)`), at most 100,
   `count` = how many matched; anything else as `value`. Syntax and run errors say where (`line:col`). The tool
   description carries the language reference.
-- **`one_run_script`** runs a saved script (by id or exact name; `one_overview` lists them). The tab dry-runs it
-  first (the script's dialogs answer their defaults, nothing happens) and shows the result on the approval card —
-  **every** change (*Change · Angebot schreiben · Aufgaben — Priorität: Niedrig → Hoch*) and effect (*Mail · to …*),
-  each an entry of its scroll region (never "+ n more"; beyond 500 of a kind the rest is asked in One's own dialog). It
-  is **always asked**, also in *Apply directly*; *Read only* refuses it. Approved, it runs with the app's dialogs: the
-  effects and trash the card listed are not asked again, anything else (a web request — off unless ticked —, something
-  the dry run did not show, the script's own questions) is asked in the app. A run never trashes a page holding one of
-  One's own databases. The answer lists the changes, effects, printed lines and the result; the activity log has
-  **Undo** (the script's own undo of the run). On a page with context marks a script reads only the marked blocks, so
-  its `replace()` of that page is refused (`rejected` — it would overwrite what Claude may not read; the dry run stops
-  there, a run whose marks came while the card waited stops before writing); `append()` stays allowed. A run that stops after it changed something says what stays and not to
-  call again (never "Nothing was changed"). `dryRun: true` answers the dry run without asking; a saved *query* answers
-  at once.
+- **`one_run_script`** is a **dry run** of a saved script (by id or exact name; `one_overview` lists them) — over MCP
+  a script never runs (the owner's decision until T-b): the script's dialogs answer their defaults, nothing is
+  written, sent, trashed or asked, and no card is shown (also in *Ask first*). The answer is the dry run's report —
+  `{ script, ran: false, mode: "dry", status, changes, effects, printed, result, note }`, every change
+  (*set · Angebot schreiben · Aufgaben — Priorität: Niedrig → Hoch*; a new option of a select bound to a shared list as
+  `addsToList`) and every effect (*mail · to …*) — and `note` tells the agent to ask the person to run it in One →
+  Scripts. Agent activity notes *Dry run only — the person runs it in One → Scripts*. *Read only* refuses it, as every
+  write tool. The dry run stops where a run would write into One's own databases (`system_database`), into the text of
+  a page locked in One (`locked`) or `replace()` a page with context marks (`rejected` — it would overwrite what Claude
+  may not read; `append()` stays allowed); there is no Undo because nothing changed. `dryRun: true` is kept for older
+  clients and answers the same; a saved *query* answers at once (read-only).
 
 ## Coding tasks (one-worker)
 
@@ -586,11 +598,10 @@ MCP." (a call waits up to 10 s for the tab first). The switch is **per browser**
 - Every call — read or write, and how it ended (OK, error, refused, expired, cancelled; a repeat answered from an
   earlier call says so) — is listed in the **Agent activity** log of the settings tab. Applied writes have an **Undo**
   there (approved ones also get an Undo toast). Undo is careful: what the call made goes to the trash while nobody
-  changed it since (a changed page or row is kept), values changed since are kept; a row that goes to the trash keeps
-  its two-way links on both sides (as the app's trash does), so restoring it leaves no one-sided link. A property the
+  changed it since (a changed page or row is kept), values changed since are kept. A property the
   call made stays once it was renamed or set up, holds values, a view groups, filters or sorts by it, a form asks it, it
-  is part of sub-items or dependencies, or its database was locked since (for a two-way pair: either side); a database `one_restore_page` brought back stays in once it was set up again; a page
-  that stays keeps the link `linkInParent` wrote for it; a script run's sub-page goes back with its page. What watches
+  is part of sub-items or dependencies, or its database was locked since; a database `one_restore_page` brought back stays in once it was set up again; a page
+  that stays keeps the link `linkInParent` wrote for it. What watches
   an entry for "changed since" ends with its Undo, a Clear of the log, or when the entry leaves it (100 newest).
 - A rejection tells the agent *The person rejected this change in One … Do not retry it*. A call that would change
   nothing (the same title, the same values) is answered without a card.
@@ -788,7 +799,7 @@ curl -s https://team.example.com/mcp \
   `lossy_replace` (*… holds tasks; a replace over the team server would turn them into plain text*) and changes
   nothing (a server agent's report in replace mode notes it in its run); `append` works as always, until server parity.
 - **Beyond the REST API**: `one_update_page` (content, title, icon), `one_create_database`, `one_create_property`
-  (options, two-way relations, unique ids numbered for the existing rows, the property shown in every view), new
+  (options, one-way relations — `twoWay: true` is refused —, unique ids numbered for the existing rows, the property shown in every view), new
   select options from `one_create_row` / `one_update_row`, the [tidy-up tools](#tidying-up) (properties, options,
   views, moves) and `one_trash_page` — a **soft delete** exactly like the app's (`trashed: true`, `trashedAt`): the
   page (with everything below it) is in the app's trash and `one_restore_page` (or the app) brings it back. A

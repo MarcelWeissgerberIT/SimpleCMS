@@ -6,7 +6,7 @@
  */
 import type { Database, ID, Page, PropertyDef, PropertyType, PropertyValue } from '../../../store/types'
 import { useWorkspace } from '../../../store/store'
-import { propertyValueToText, subItemsOf } from '../../../database'
+import { propertyValueToText } from '../../../database'
 import { t } from '../../../i18n'
 import type { PropChange, PropIntent } from './types'
 import { isHandOnly } from '../../../store/keys'
@@ -245,11 +245,6 @@ export function coerceProperty(db: Database, prop: PropertyDef, raw: unknown, ro
           ids.push(hit.id)
           shown.push(hit.title.trim() || t('common.untitled'))
         }
-      }
-      // sub-items: one parent per row, never itself (the team server refuses the same — api/model.ts checkHierarchy)
-      if (subItemsOf(db)?.parent.id === prop.id) {
-        if (ids.length > 1) return fail(`a row has at most one parent (got ${ids.length}).`)
-        if (row && ids.includes(row.id)) return fail('a row cannot be its own parent.')
       }
       return ok(db, prop, row, value(ids), shown.join(', '))
     }

@@ -513,8 +513,8 @@ the public APIs stable — other areas are built against them in parallel.
   optional `scope`); Claude's language reference is features/script/reference.ts (no imports — the MCP contract bundles
   it). AI terminal `run_query` (read-only; refuses `.markdown` / `.text` while pages have context marks) and
   `write_script` (parsed, staged as change kind 'script', saved on Apply, never run); custom agents get `run_query`
-  inside their scope. MCP `one_run_query` / `one_run_script` (local bridge only): `one_run_script` dry-runs first and is
-  always asked (`WritePlan.alwaysAsk`; Read only refuses); the card's list is pre-approved for that run. `mail.send` via
+  inside their scope. MCP `one_run_query` / `one_run_script` (local bridge only): `one_run_script` is a dry run only (Weg 4
+  D1: `ran: false`, no card, no Undo; the person runs it in One → Scripts; Read only refuses). `mail.send` via
   Gmail (features/mail/scriptMail.ts): asks for `gmail.send` once (incremental consent), RFC 822 + RFC 2047 subject,
   token in memory only; without Gmail a mailto draft.
 - Capture (shell/capture): share target POST → service worker → IndexedDB `one-share` → `#/clip?share=<id>`, always asked
@@ -1214,9 +1214,7 @@ the public APIs stable — other areas are built against them in parallel.
   directories, pipelines, test cases) are read-only over MCP — rows, pages below rows, schema, views, moves, trash
   (`system_database`; features/mcp/system.ts `systemOf` / `systemGuard`, wrapped around agent/coding.ts
   `guardPipelineRows` in stage.ts `mcpStageTool`; server/src/mcp/system.ts, MCP-only — server agents keep their rules);
-  that includes a two-way relation into one (its reverse property; schema.ts `propertySpec`, server writes.ts
-  `definition`) and, on S, a row value whose two-way partner lives in one (the server syncs partners —
-  `assertNoSystemPartner`).
+  two-way relations are refused over MCP altogether (below).
   MCP writes never carry coding trust (coding/trust.ts); locally a task whose version an MCP write moved is
   `mcpTouched` (IndexedDB `one-coding` `<scope>|mcpTouched|<taskId>`) and waits for Confirm. claudeDoc, for every caller:
   raw HTML only as the file form writes it (features/ai/claudeFiles.ts `claudeHtml`; any other tag stays as written, as
@@ -1260,8 +1258,7 @@ the public APIs stable — other areas are built against them in parallel.
   `one_create_database` views / inline / rows; the card is capped at the viewport, its lines scroll); MCP's Undo of what
   it made = trash (`undoCreated: 'trash'`: kept once its text, title, icon, cover, comments, values or place changed —
   what the call itself set off, a derived writer whose cause names it (automation, autofill, kit), is no change; ONE
-  baseline for every such Undo — features/ai/agent/follow.ts `madeAs` / `changedSince` / `followCall`, also one_move_row's
-  and a script run's (`undoRun(run, { keep })` leaves fields changed since); agents and the
+  baseline for every such Undo — features/ai/agent/follow.ts `madeAs` / `changedSince` / `followCall`, also one_move_row's; agents and the
   terminal keep delete; a failed apply's own rollback deletes — `ApplyResult.rollback`; one_create_database's Undo first
   decides whether the database stays — a row of others, a row changed since or the database page itself changed
   (title, icon, cover, schema, views — `databaseMark`) keeps it and everything else as it is;
@@ -1285,11 +1282,14 @@ the public APIs stable — other areas are built against them in parallel.
   `VIEW_TYPES`. The codeword `one:` (instructions line) and the prompt `one` are served by the bridge and by `/mcp`.
   Limits (titles, names, option names, Markdown) and the icon rule come only from src/shared/mcp (`MCP_LIMITS`,
   icon.ts `mcpIcon`) on both ways in; a list-bound select (`PropertyDef.listId`) takes no new option over MCP, agents,
-  scripts (props.ts `coerceProp`, every mode), one_move_row or the server (`listOptionText`) — the list is changed in
-  One; a type change unbinds it. Options a call names go through shared/mcp/options.ts `readOptions` on both sides
-  (colours lower-cased; unknown colour / group, empty or twice-listed name refused). A two-way relation value whose
-  partner lives in One's own database is `system_database` (B: features/mcp/system.ts `systemPartner` at plan and in
-  `assertStageWritable` at apply; S: `assertNoSystemPartner`); one_delete_property refuses to clear a rollup in a locked
+  one_move_row or the server (`listOptionText`) — the list is changed in One; a type change unbinds it. A person's own
+  script run puts a new option into the shared list the way the UI does (script host `ensureOptions` → `upsertList`);
+  a dry run (MCP's one_run_script) reports it as `addsToList`. Options a call names go through shared/mcp/options.ts `readOptions` on both sides
+  (colours lower-cased; unknown colour / group, empty or twice-listed name refused). Two-way relations stay out of MCP
+  (Weg 4 D1; shared rule src/shared/mcp/twoWay.ts `isTwoWay`, code `refused_type`): a value of an explicit pair
+  (`<id>.2way`) or a sub-items / dependencies pair is refused on B (features/mcp/twoWay.ts `assertOneWayInput` at plan,
+  `assertOneWayStage` in `assertStageWritable` at apply) and S (writes.ts `assertOneWay`), and so is `twoWay: true`;
+  one-way relations are fine; MCP never syncs partners. one_delete_property refuses to clear a rollup in a locked
   or One's own database. Every bridge structure tool calls `assertNotSystem` again at apply. S Restore decides made
   keeps before the content parts; a part with `own` nodes (linkInParent links, an inline block) is never refused
   `changed_since`: whole only when all it points at went and nobody wrote there since, else only the nodes of what went.
@@ -1304,8 +1304,8 @@ the public APIs stable — other areas are built against them in parallel.
   `withCode`; prefer `mcpError(code, path, what)`); arguments are strict at every depth (shared/mcp/args.ts
   `undeclaredIn` on the tab, `z.strictObject` on the server — mcp-parity.test compares nested schemas). Reads through
   MCP (one_get_page, run_query / run_script text, list / update_work_item) honour context marks (features/mcp/limits.ts
-  `mcpReadLimit` / `mcpPageText`); a run started over MCP never writes One's own databases (script host `writeGuard`)
-  and its writes count as MCP-caused for coding trust (store/writer.ts `mcpCaused`). Markdown parts join by
+  `mcpReadLimit` / `mcpPageText`); MCP only dry-runs a script (the host's `writeGuard` still refuses One's own databases there);
+  writes an automation started from an MCP write count as MCP-caused for coding trust (store/writer.ts `mcpCaused`). Markdown parts join by
   `continues` (shared/mcp/pageRead.ts `wholeMarkdown`); a bridge < MCP_BRIDGE_CURRENT gets the whole page (≤ 60k).
   The default schema / status options are `MCP_DEFAULT_PROPERTIES` / `MCP_DEFAULT_STATUS` (English, both sides). The
   app shows team-server MCP features only when `/api/config` `supports ∋ MCP_SERVER_SUPPORTS`.

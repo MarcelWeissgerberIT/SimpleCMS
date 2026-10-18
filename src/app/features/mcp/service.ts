@@ -342,33 +342,12 @@ export function undoMcpActivity(key: string) {
   const a = get().activity.find((x) => x.id === key)
   if (!a?.undo || a.state !== 'ok') return
   // the person's Undo of the call (store/writer.ts)
-  // (a script run's Undo resolves later: its frame holds only the synchronous start — undoRun opens its own frame for
-  // its one write burst, script/runtime/run.ts — so the promise is taken out of the frame, never returned through it)
-  let out!: boolean | Promise<boolean>
-  withWriter({ kind: 'you', via: 'undo', ref: key.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 64) }, () => {
-    out = a.undo!()
-  })
+  const clean = withWriter({ kind: 'you', via: 'undo', ref: key.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 64) }, () => a.undo!())
   logPatch(key, { state: 'undone', undo: undefined, release: undefined })
   // a repeat of the call makes the thing again (it is not answered with what went to the trash)
   forgetDuplicate((d) => d.activity === key)
-  const tell = (clean: boolean) => useUI.getState().toast(clean ? t('features.mcp.toast.undone') : t('features.mcp.toast.undoneKept'))
-  // a script run's Undo resolves once its run log answered (features/mcp/script.ts); what it held goes once it ran
-  // (a part it skipped — settled by an eject — keeps no follow either)
-  if (typeof out === 'boolean') {
-    a.release?.()
-    tell(out)
-  } else
-    void out.then(
-      (clean) => {
-        a.release?.()
-        tell(clean)
-      },
-      (err) => {
-        a.release?.()
-        console.error('[mcp] undo failed', err)
-        tell(false)
-      },
-    )
+  a.release?.()
+  useUI.getState().toast(clean ? t('features.mcp.toast.undone') : t('features.mcp.toast.undoneKept'))
 }
 
 /* ------------------------------------------------------------------ */
@@ -587,11 +566,11 @@ async function handleCall(id: string, tool: McpToolName, args: Record<string, un
     const plan = tool === 'one_run_script' ? await planRunScript(args) : planWrite(tool, args)
     logPatch(key, { target: plan.target })
     if (plan.noop) {
-      answer(plan.noop, 'same')
+      answer(plan.noop, 'same', plan.noopNote ? { note: plan.noopNote } : {})
       if (mine) closeDuplicate(mine, { ok: true, result: plan.noop }, id, null)
       return
     }
-    // a script is always asked (it may send mail, call Claude, trash pages), also in "Apply directly"
+    // asked also in "Apply directly" when the plan says so (rows that start paid or outward work, task holds)
     const ask = get().mode === 'ask' || !!plan.alwaysAsk
     if (ask) {
       send({ type: 'pending', id, timeoutMs: MCP_APPROVAL_MS })

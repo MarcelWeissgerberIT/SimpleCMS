@@ -23,7 +23,7 @@ import { keyHolders } from '../agents/stage.ts'
 import { ValueError, type ValueContext } from '../api/values.ts'
 import { newId } from '../tokens.ts'
 import { assertNotSystem } from './system.ts'
-import { McpWrites, assertNoListOption, assertNoSystemPartner, checkFilesValue, cleanRowTitle, cleanTitle, cutOptionNames, friendlyIn, iconIn, optionNames, unprocessable, type PropertyInput } from './writes.ts'
+import { McpWrites, assertNoListOption, assertOneWay, checkFilesValue, cleanRowTitle, cleanTitle, cutOptionNames, friendlyIn, iconIn, optionNames, unprocessable, type PropertyInput } from './writes.ts'
 import { defaultView, viewChange, type View, type ViewInput } from './structure.ts'
 import { McpPreimages, fragmentSnapshot, putValues, textHash, type Recorder } from './preimages.ts'
 import { docJson } from './pageRead.ts'
@@ -184,8 +184,8 @@ export class McpBatch {
       }
       if (isHandOnly(prop)) throw unprocessable('invalid_value', handOnlyMessage(prop))
       if (prop.type === 'files') checkFilesValue(prop.name, raw, ctx.files)
-      // a two-way relation writes its partner rows too: never into One's own databases
-      assertNoSystemPartner(r, db.page.id, prop, `properties.${prop.name}`)
+      // two-way relations stay out of MCP (writes.ts assertOneWay — the bridge refuses the same)
+      assertOneWay(r, db, prop, `properties.${prop.name}`)
       const value = cutOptionNames(prop, raw)
       properties[key] = friendlyIn(r, prop, value, ctx)
       if (prop.type === 'select' || prop.type === 'multi_select') {

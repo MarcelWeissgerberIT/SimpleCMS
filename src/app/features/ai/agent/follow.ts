@@ -1,8 +1,7 @@
 /**
  * What an MCP call left on a page, and what counts as "changed since" for its Undo (spec § 3.2: an Undo leaves anything
  * changed since alone). One baseline shape (`MadeAs`) for every Undo that compares a page with how the call left it — a
- * page / row it made (apply.ts removeCreated), a row it moved (mcp/tidy.ts), a page a script run started over MCP wrote
- * (mcp/script.ts) — and one way to keep that baseline in step with what the call itself set off since (`followCall`).
+ * page / row it made (apply.ts removeCreated), a row it moved (mcp/tidy.ts) — and one way to keep that baseline in step with what the call itself set off since (`followCall`).
  */
 import type { ID, Page } from '../../../store/types'
 import { useWorkspace } from '../../../store/store'

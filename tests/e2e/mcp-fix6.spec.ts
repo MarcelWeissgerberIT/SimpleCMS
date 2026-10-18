@@ -1,16 +1,15 @@
 /**
  * Review 6 of MCP T-a on the local bridge (MCP plan § 3.2 / § 3.3), driven like Claude Code drives it (the built
  * bridge through the MCP SDK's stdio client, its own port). Each test names the rule it guards:
- *  - Undo vs "changed since": a script run's page tree goes back whole; a property the person renamed, set up or built
- *    on — or whose database they locked — stays; a restored database set up again stays; a linked sub-page that stays
- *    keeps its link; the follows of an Undo that goes without running are released;
- *  - locked / One's own databases while the card waited: create_property, a two-way target, a moved row's new options,
- *    a replace or an icon of a page moved into the memory — nothing written;
+ *  - Undo vs "changed since": a property the person renamed, set up or built on — or whose database they locked —
+ *    stays; a restored database set up again stays; a linked sub-page that stays keeps its link; the follows of an Undo
+ *    that goes without running are released;
+ *  - locked / One's own databases while the card waited: create_property, a moved row's new options, a replace or an
+ *    icon of a page moved into the memory — nothing written;
  *  - what a call starts: a database block in a ROW's text names the autofill that fills again;
  *  - templates read as unknown: a template's row linking a row never keeps it from moving;
- *  - building blocks: a select bound to a shared list takes no option of its own (rows, options, type change);
- *  - two-way relations: the linked row links back (as in the app and on the team server), the card names it, the Undo
- *    takes it back; sub-items: one parent per row, never itself.
+ *  - building blocks: a select bound to a shared list takes no option of its own (rows, options, type change).
+ * (Two-way relations and one_run_script runs left MCP with Weg 4: tests/e2e/mcp-weg4.spec.ts.)
  * Fictional data (Nordlicht, Tessera, Mara Lind, Launch plan).
  */
 import { existsSync } from 'node:fs'
@@ -110,30 +109,6 @@ const propNames = (page: Page, db: string) => wsEval(page, (s, db) => ((s.databa
 const setLocked = (page: Page, db: string) => wsEval(page, (s, db: string) => s.updateDatabase(db, { locked: true }), db)
 
 /* ------------------------------------------------------------------ Undo vs changed since */
-
-test('one_run_script Undo of a run that made a page with a sub-page: both go back, nothing is said to be kept', async ({ page }) => {
-  await openApp(page)
-  await connect(page, 'Ask first')
-  await wsEval(page, (s) => {
-    const now = Date.now()
-    s.upsertScript({ id: 'sc-tree', name: 'Make tree', code: 'let p = create.page(title: "Projekt Tessera")\ncreate.page(title: "Kapitel Eins", parent: p)\n', kind: 'script', createdAt: now, updatedAt: now })
-  })
-  await flush(page)
-  const pending = call('one_run_script', { script: 'Make tree' })
-  const card = page.getByRole('alertdialog')
-  await expect(card).toBeVisible()
-  await card.getByRole('button', { name: /Approve/ }).click()
-  json(await pending)
-  const ids = await wsEval(page, (s) => {
-    const all = Object.values(s.pages) as AnyState[]
-    return { parent: all.find((p) => p.title === 'Projekt Tessera')?.id as string, child: all.find((p) => p.title === 'Kapitel Eins')?.id as string }
-  })
-  expect(ids.parent && ids.child).toBeTruthy()
-  await flush(page)
-  await undoLast(page, 'one_run_script')
-  await expect.poll(() => trashed(page, ids.parent)).toBe(true)
-  expect({ child: await trashed(page, ids.child), keptToast: await page.getByText(KEPT).count() }).toEqual({ child: true, keptToast: 0 })
-})
 
 test('one_create_property Undo keeps a property renamed and set up since, one a board groups by, one in a database locked since — an untouched one goes', async ({ page }) => {
   await openApp(page)
@@ -264,7 +239,7 @@ test('the follows of an Undo that goes without running are released: cleared fro
 
 /* ------------------------------------------------------------------ locked / One's own databases while the card waited */
 
-test('one_create_property: a database locked while the card waited takes no property, nor a two-way target locked meanwhile', async ({ page }) => {
+test('one_create_property: a database locked while the card waited takes no property; twoWay is refused before any card (Weg 4)', async ({ page }) => {
   await openApp(page)
   const ids = await wsEval(page, (s) => {
     const a = s.createDatabase({ title: 'Deals', properties: [{ id: 'a-title', name: 'Name', type: 'title' }] })
@@ -279,22 +254,12 @@ test('one_create_property: a database locked while the card waited takes no prop
   expect(await propNames(page, ids.a)).toEqual(['Name'])
   await wsEval(page, (s, a: string) => s.updateDatabase(a, { locked: false }), ids.a)
   await flush(page)
-  const r2 = await approveAfter(page, 'one_create_property', { databaseId: ids.a, name: 'Firma', type: 'relation', relation: { databaseId: ids.b, twoWay: true } }, () => setLocked(page, ids.b))
+  // two-way relations stay out of MCP until T-b: refused at once, nothing on either side
+  const r2 = await call('one_create_property', { databaseId: ids.a, name: 'Firma', type: 'relation', relation: { databaseId: ids.b, twoWay: true } })
   expect(r2.isError, text(r2)).toBe(true)
-  expect(text(r2)).toMatch(/^locked: relation\.twoWay/)
+  expect(text(r2)).toMatch(/^refused_type: relation\.twoWay: /)
+  await expect(page.getByRole('alertdialog')).toHaveCount(0)
   expect({ a: await propNames(page, ids.a), b: await propNames(page, ids.b) }).toEqual({ a: ['Name'], b: ['Name'] })
-})
-
-test('one_create_database: a two-way target locked while the card waited — refused, nothing made', async ({ page }) => {
-  await openApp(page)
-  const b = await wsEval(page, (s) => s.createDatabase({ title: 'Firmen', properties: [{ id: 'b-title', name: 'Name', type: 'title' }] }))
-  await flush(page)
-  await connect(page, 'Ask first')
-  const r = await approveAfter(page, 'one_create_database', { title: 'Projekte', properties: [{ name: 'Firma', type: 'relation', relation: { databaseId: b, twoWay: true } }] }, () => setLocked(page, b))
-  expect(r.isError, text(r)).toBe(true)
-  expect(text(r)).toMatch(/^locked: properties\[0\]\.relation\.twoWay/)
-  expect(await propNames(page, b)).toEqual(['Name'])
-  expect(await wsEval(page, (s) => (Object.values(s.pages) as AnyState[]).some((p) => p.title === 'Projekte'))).toBe(false)
 })
 
 test('one_move_row: a target locked while the card waited takes no new option — refused, the row stays', async ({ page }) => {
@@ -417,54 +382,3 @@ test('a select bound to a shared list takes no option of its own: rows, one_upda
 })
 
 /* ------------------------------------------------------------------ two-way relations and sub-items */
-
-test('two-way relations: a new row links back from its partner row (card names it; its Undo trashes the row and keeps the link, as the app\'s trash); sub-items keep one parent, never itself', async ({ page }) => {
-  await openApp(page)
-  const ids = await wsEval(page, (s) => {
-    const projects = s.createDatabase({ title: 'Projects', properties: [{ id: 'pr-title', name: 'Name', type: 'title' }] })
-    const tasks = s.createDatabase({ title: 'Tasks', properties: [{ id: 'tk-title', name: 'Name', type: 'title' }] })
-    const nordlicht = s.createRow(projects, { title: 'Nordlicht', properties: {} })
-    const tessera = s.createRow(projects, { title: 'Tessera', properties: {} })
-    // sub-items on Projects: "Parent item" ↔ "Sub-items" (a two-way self-relation pair)
-    s.addProperty(projects, { id: 'pr-parent', name: 'Parent item', type: 'relation', relationDatabaseId: projects } as never)
-    s.addProperty(projects, { id: 'pr-parent.2way', name: 'Sub-items', type: 'relation', relationDatabaseId: projects } as never)
-    s.updateDatabase(projects, { subItems: { enabled: true, parentPropertyId: 'pr-parent', childPropertyId: 'pr-parent.2way' } } as never)
-    return { projects, tasks, nordlicht, tessera }
-  })
-  await flush(page)
-  await connect(page, 'Apply directly')
-  json(await call('one_create_property', { databaseId: ids.tasks, name: 'Project', type: 'relation', relation: { databaseId: ids.projects, twoWay: true, reverseName: 'Tasks' } }))
-  const reverse = await wsEval(page, (s, p: string) => ((s.databases[p].properties as AnyState[]).find((x) => x.name === 'Tasks')?.id as string) ?? null, ids.projects)
-  expect(reverse).toBeTruthy()
-  // Ask first: the card names the partner row that links back
-  await openAgentsTab(page)
-  await page.getByRole('radio', { name: 'Ask first' }).click()
-  await closeSettings(page)
-  const card = page.getByRole('alertdialog')
-  const pending = call('one_create_row', { databaseId: ids.tasks, title: 'Kick-off', properties: { Project: ['Nordlicht'] } })
-  await expect(card).toBeVisible()
-  await expect(card.locator('.mcp-line', { hasText: 'Links back' })).toContainText('Nordlicht')
-  await card.getByRole('button', { name: /Approve/ }).click()
-  const made = json(await pending)
-  const backOf = (row: string) => wsEval(page, (s, a: { row: string; prop: string }) => (s.pages[a.row].properties[a.prop] as string[] | undefined) ?? [], { row, prop: reverse! })
-  expect(await backOf(ids.nordlicht)).toEqual([made.id])
-  // the Undo puts the row in the trash; the link stays on both sides, as the app's trash leaves it — so a restore from
-  // the trash leaves no one-sided link (review 7: only a row deleted for good takes its partner links back)
-  await flush(page)
-  await undoLast(page, 'one_create_row')
-  await expect.poll(() => wsEval(page, (s, id: string) => !!s.pages[id]?.trashed, made.id as string)).toBe(true)
-  expect(await backOf(ids.nordlicht)).toEqual([made.id])
-  // sub-items: at most one parent, never itself (the team server refuses the same)
-  await openAgentsTab(page)
-  await page.getByRole('radio', { name: 'Apply directly' }).click()
-  await closeSettings(page)
-  const two = await call('one_update_row', { id: ids.tessera, properties: { 'Parent item': ['Nordlicht', 'Tessera'] } })
-  expect(two.isError, text(two)).toBe(true)
-  expect(text(two)).toContain('at most one parent')
-  const self = await call('one_update_row', { id: ids.tessera, properties: { 'Parent item': ['Tessera'] } })
-  expect(self.isError, text(self)).toBe(true)
-  expect(text(self)).toContain('its own parent')
-  // one parent: the partner side lists the child
-  json(await call('one_update_row', { id: ids.tessera, properties: { 'Parent item': ['Nordlicht'] } }))
-  expect(await wsEval(page, (s, n: string) => s.pages[n].properties['pr-parent.2way'] ?? [], ids.nordlicht)).toEqual([ids.tessera])
-})

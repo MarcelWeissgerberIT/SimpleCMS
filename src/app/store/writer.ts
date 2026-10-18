@@ -269,9 +269,10 @@ export function formatWriterKey(w: Writer): WriterKey {
 const MCP_PART = /(^|<)mcp:/
 
 /**
- * Did an MCP client make this write, or cause it — a script it started (`script:…` with the call as `via`), an
- * automation / autofill / kit / synced copy its write woke (their `cause`), at any depth the keys still hold? Read on the
- * writer's key and on its raw cause, which keeps one level more than the key does.
+ * Did an MCP client make this write, or cause it — an automation / autofill / kit / synced copy its write woke (their
+ * `cause`), a script such an automation started (`script:…` with its caller as `via`), at any depth the keys still hold?
+ * Read on the writer's key and on its raw cause, which keeps one level more than the key does. (MCP itself never runs a
+ * script: one_run_script is a dry run only.)
  */
 export function mcpCaused(w: Writer | null): boolean {
   if (!w) return false

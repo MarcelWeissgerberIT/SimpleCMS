@@ -53,8 +53,8 @@ const option = z.union([z.string().min(1).max(200), z.strictObject({ name: z.str
 const relation = z
   .strictObject({
     databaseId: idSchema.describe('The related database'),
-    twoWay: z.boolean().optional().describe('Also add the reverse relation to the other database'),
-    reverseName: z.string().min(1).max(MCP_LIMITS.propertyName).optional().describe('Name of the reverse property (two-way only)'),
+    twoWay: z.boolean().optional().describe('Over MCP a relation is one-way: true is refused (two-way relations are set up in One)'),
+    reverseName: z.string().min(1).max(MCP_LIMITS.propertyName).optional().describe('Not used over MCP (two-way relations are set up in One)'),
   })
   .describe('relation properties only')
 const propertySpec = {

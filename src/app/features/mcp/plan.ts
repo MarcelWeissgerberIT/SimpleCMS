@@ -35,8 +35,8 @@ export type PlanLine =
 
 export interface Applied {
   result: unknown
-  /** revert (false = parts left alone because they were changed since); a script run's Undo resolves later */
-  undo?: () => boolean | Promise<boolean>
+  /** revert (false = parts left alone because they were changed since) */
+  undo?: () => boolean
 }
 
 export interface WritePlan {
@@ -50,7 +50,9 @@ export interface WritePlan {
   lines: PlanLine[]
   /** nothing would change: answered without asking */
   noop?: unknown
-  /** asked even when changes are applied directly (one_run_script: a script may send mail, call Claude …) */
+  /** the activity log's note of a `noop` answer (one_run_script: a dry run only) — UI language */
+  noopNote?: string
+  /** asked even when changes are applied directly (≥ 5 rows that start paid AI work or send something out of One, task holds) */
   alwaysAsk?: boolean
   /** write it as `writer`'s (store/writer.ts: the MCP call) — every synchronous burst inside its frame */
   apply(writer: Writer): Promise<Applied>

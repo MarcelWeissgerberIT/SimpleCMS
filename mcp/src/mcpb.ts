@@ -48,7 +48,7 @@ const TOOL_SUMMARIES: Record<McpToolName, string> = {
   one_trash_page: 'Move pages, rows or databases (with their rows) to the trash — one or many, restorable.',
   one_restore_page: 'Bring pages, rows or databases back from the trash.',
   one_run_query: 'Answer questions across databases with a read-only One Script query.',
-  one_run_script: 'Run one of your saved scripts — after you approved its dry run in One.',
+  one_run_script: 'Dry-run one of your saved scripts: what it would change — you run it in One (Scripts).',
   one_list_work_items: 'Find task blocks across the workspace: open, mine, blocked, overdue.',
   one_update_work_item: 'Change tasks: status, due date, owners, links — assignments and reminders always asked.',
 }
@@ -62,7 +62,7 @@ const LONG_DESCRIPTION = `Claude searches, reads and writes your [One](https://g
 - **Tidy up, safely.** Move pages and rows, reshape databases (properties, options, views), trash whole databases with their rows — nothing is deleted for good, everything can be restored.
 - **You stay in charge.** Each change waits for your approval in One (*Ask first*, the default) — or set *Apply directly* or *Read only* there. Every call is logged and can be undone.
 - **Workspaces stay apart.** Several workspaces can be connected at once (each in its tab); Claude names the one it means, and a call meant for one workspace never runs in another.
-- **Queries and your scripts:** one_run_query answers questions across databases (read-only One Script); one_run_script runs a script you saved in One — only after you approved its dry run there.
+- **Queries and your scripts:** one_run_query answers questions across databases (read-only One Script); one_run_script dry-runs a script you saved in One and shows what it would change — running it stays with you, in One.
 - **Tasks:** one_list_work_items finds task blocks; one_update_work_item changes their fields — a change that assigns someone, sets a reminder or adds a blocker always waits for your OK.
 - **Same tools everywhere:** the team server of One offers the same tools at \`/mcp\` (except the two One Script tools and the two task tools, which run in your browser).
 

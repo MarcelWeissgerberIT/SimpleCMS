@@ -15,7 +15,6 @@
  */
 import { inTemplate } from '../../store/selectors'
 import type { Database, ID, Page } from '../../store/types'
-import { pairedRelationIn } from '../../database'
 import { ToolInputError, type AgentTool, type StageApi } from '../ai/agent/tools'
 import type { StagedChange } from '../ai/agent/types'
 import { McpToolError, q, titleOf, ws } from './values'
@@ -67,17 +66,11 @@ export const systemNote = (kind: SystemKind): string => `One's ${KIND_TEXT[kind]
 
 /**
  * The `system_database` refusal (spec § 2.0 error shape). `path`: the argument it is about; `why`: what the call would
- * have changed there, when that is not plain from the call (a two-way relation's reverse side, a partner row).
+ * have changed there, when that is not plain from the call (a script's write, a rollup the delete would clear).
  */
 export function systemRefusal(hit: SystemHit, path = '', why = ''): string {
   return `system_database: ${path ? `${path}: ` : ''}${q(hit.title)} is One's ${KIND_TEXT[hit.kind] ?? hit.kind} database; over MCP it is read-only (its rows, the pages below them, its properties and views)${why ? ` — ${why}` : ''}. Nothing was changed. Reading it stays allowed; changes there are made in One.`
 }
-
-/** Why a two-way relation into One's own database is refused (B and S word it alike). */
-export const TWO_WAY_SYSTEM = 'a two-way relation would add its reverse property there and write into its rows; a one-way relation (twoWay: false) to it is fine'
-
-/** Why a row value is refused whose two-way partner lives in One's own database (B and S word it alike). */
-export const PARTNER_SYSTEM = 'this relation is two-way, so setting it would also write into the linked rows there'
 
 /** Refuse a page that belongs to a One database. */
 export function assertNotSystem(id: ID | null | undefined): void {
@@ -135,36 +128,6 @@ export function systemChange(changes: readonly StagedChange[]): SystemHit | null
     }
   }
   return null
-}
-
-/**
- * A row value of `changes` (create_row / update_row) on a two-way relation whose partner lives in One's own database:
- * applying it would write the link into that database's rows too (agent apply.ts syncPartners, as the app and the team
- * server write two-way relations). The first one, with the property's name (null: none). `databases`: the schema to
- * read (one_create_database: as it will be).
- */
-export function systemPartner(changes: readonly StagedChange[], databases: Record<ID, Database> = ws().databases): { hit: SystemHit; name: string; change: StagedChange } | null {
-  const { pages } = ws()
-  for (const c of changes) {
-    if (c.kind !== 'create_row' && c.kind !== 'update_row') continue
-    const dbId = c.databaseId ?? pages[c.pageId]?.databaseId ?? null
-    const db = dbId ? databases[dbId] : undefined
-    if (!db) continue
-    for (const pc of c.props ?? []) {
-      const prop = db.properties.find((p) => p.id === pc.propId)
-      const pair = prop ? pairedRelationIn(databases, db.id, prop) : null
-      if (!pair || pair.db.id === db.id) continue
-      const hit = systemOf(pair.db.id)
-      if (hit) return { hit, name: pc.name, change: c }
-    }
-  }
-  return null
-}
-
-/** Refuse a row value whose two-way partner lives in One's own database (`prefix`: the entry's path, e.g. "rows[2]."). */
-export function assertNoSystemPartner(changes: readonly StagedChange[], prefix = '', databases?: Record<ID, Database>): void {
-  const p = systemPartner(changes, databases)
-  if (p) throw new McpToolError(systemRefusal(p.hit, `${prefix}properties.${p.name}`, PARTNER_SYSTEM))
 }
 
 /**

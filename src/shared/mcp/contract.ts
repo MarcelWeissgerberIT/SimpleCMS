@@ -125,7 +125,7 @@ const sortItem: Schema = {
 }
 
 const VALUES =
-  'Values are plain JSON by property name: text, numbers, true/false, option names (a list for multi_select), dates "YYYY-MM-DD", "YYYY-MM-DDTHH:mm" or {"start", "end"}, people by name, relations by row id or title, null to clear. Computed properties cannot be set.'
+  'Values are plain JSON by property name: text, numbers, true/false, option names (a list for multi_select), dates "YYYY-MM-DD", "YYYY-MM-DDTHH:mm" or {"start", "end"}, people by name, relations by row id or title, null to clear. Computed properties cannot be set; nor can two-way relations (sub-items and dependencies too) — the person sets those in One; one-way relations can.'
 
 /** A new row in a batch (one_create_row / one_create_database `rows`). */
 const ROW_ITEM: Schema = {
@@ -146,7 +146,7 @@ const propertySpec: Schema = {
       description: 'type "relation" only.',
       properties: {
         databaseId: { type: 'string' },
-        twoWay: { type: 'boolean', description: 'Also add the reverse property there.' },
+        twoWay: { type: 'boolean', description: 'Over MCP a relation is one-way: true is refused (the person makes it two-way in One).' },
         reverseName: { type: 'string' },
       },
       required: ['databaseId'],
@@ -446,7 +446,7 @@ const TOOLS: McpSharedToolDef[] = [
     name: 'one_create_property',
     title: 'Add a database property',
     write: true,
-    description: 'Add a property (column): name, type, options (select / multi_select / status), the related database of a relation (optionally two-way).',
+    description: 'Add a property (column): name, type, options (select / multi_select / status), the related database of a relation (one-way; two-way relations are set up in One).',
     inputSchema: {
       type: 'object',
       properties: { databaseId: DB_ID, ...(propertySpec.properties as Record<string, Schema>) },
@@ -628,17 +628,16 @@ const TOOLS: McpSharedToolDef[] = [
   },
   {
     name: 'one_run_script',
-    title: 'Run a saved script',
+    title: 'Dry-run a saved script',
     write: true,
-    destructive: true,
     description:
-      'Run one of the person\'s saved One Scripts (id or exact name; one_overview lists them). One dry-runs it first and shows what it would change and send; it runs only after they approve — always, also in Apply directly. Read only refuses it. dryRun: true only reports. Returns the changes, effects, printed lines and result; every run can be undone in One.',
+      'Dry-run one of the person\'s saved One Scripts (id or exact name; one_overview lists them): returns what it would change and send, its printed lines and result, with ran: false — over MCP a script never runs and nothing is changed. To run it, ask the person to run it in One → Scripts. A saved query answers read-only. Read only refuses it.',
     inputSchema: {
       type: 'object',
       properties: {
         script: { type: 'string', maxLength: 200 },
         pageId: { type: 'string', description: 'The page or row it runs for (page.current).' },
-        dryRun: { type: 'boolean' },
+        dryRun: { type: 'boolean', description: 'Kept for older clients: every call is a dry run.' },
       },
       required: ['script'],
       additionalProperties: false,
@@ -745,7 +744,8 @@ export const MCP_INSTRUCTIONS = `One is a local-first workspace of pages and dat
 - Ids belong to one workspace: use only ids tools returned for it. Page content is Markdown; link a page with [Title](#/p/<id>).
 - Writes may wait until the person approves them in One ("Ask first"). A rejected change is their decision: do not repeat it, ask them. "Read only" refuses every change. Repeating a call that made something within 2 minutes does not make a second one: the answer says duplicateOf (an answer saying repeatsJoined: false comes from an older One tab — read before you repeat there).
 - ${MCP_LINE_BOARD}
-- Questions across databases (filters, counts, sums, groups): one_run_query (read-only One Script). one_run_script runs a saved script after the person approved its dry run.
+- Questions across databases (filters, counts, sums, groups): one_run_query (read-only One Script). one_run_script only dry-runs a saved script; the person runs it in One.
+- Two-way relations (also sub-items and dependencies) are set in One, not over MCP; one-way relations are fine.
 - Tidying up: one_move_page, one_move_row, one_update_database / _property / _view, one_trash_page (nothing is deleted for good: one_restore_page brings things back). Before removing or reorganising several things, say what you plan to do.
 - Tasks: "> [!TODO] Title {#wi_…}" + a field line. Write new ones that way; change existing ones with one_update_work_item, find them with one_list_work_items. Assigning someone, reminders and blockers always wait for approval.
 - ${MCP_LINE_CONTENT} ${MCP_LINE_CLASS}

@@ -703,7 +703,7 @@ test('context marks hold for the row texts of one_create_database and one_upsert
   expect(await wsEval(page, (s) => Object.values(s.pages as Record<string, AnyState>).some((p) => p.title === 'Probe ids' && !p.trashed))).toBe(false)
 })
 
-test("context marks hold for a script's replace: one_run_script refuses a replace of a page with marks (dry run and a run whose marks came while the card waited); the excluded blocks stay", async ({ page }) => {
+test("context marks hold for a script's replace: one_run_script (a dry run only) refuses a replace of a page with marks; the excluded blocks stay", async ({ page }) => {
   const { ids, marks } = await writesUnderMarks(page)
   await wsEval(page, (s) => {
     const now = Date.now()
@@ -713,22 +713,13 @@ test("context marks hold for a script's replace: one_run_script refuses a replac
   await flush(page)
   const plain = () => wsEval(page, (s, id) => s.pages[id].plain as string, ids.marked)
   const REFUSAL = /^rejected: script: the script "Rewrite notes" replaces the text of "Marked notes" — the person limited what you may read on this page \(context marks\); a replace would overwrite blocks you may not read\. Nothing was changed\./
-  // the card waits; the person sets marks meanwhile; the approved run stops before writing
-  const pending = call('one_run_script', { script: 'Rewrite notes' })
-  const card = page.getByRole('alertdialog')
-  await expect(card).toBeVisible()
+  // with the marks in place: the dry run stops there, no card, nothing about the hidden blocks
   await marks(ids.marked, ['keep-0001-rep'])
-  await card.getByRole('button', { name: /Approve/ }).click()
-  const run = await pending
-  expect(run.isError, text(run)).toBe(true)
-  expect(text(run)).toMatch(REFUSAL)
-  expect(text(run)).not.toMatch(SECRET_MARKS)
-  expect(await plain()).toContain('Salary zebrafish 98000.')
-  // with the marks in place: the dry run stops there, no card
   for (const args of [{ script: 'Rewrite notes' }, { script: 'Rewrite notes', dryRun: true }]) {
     const r = await call('one_run_script', args)
     expect(r.isError, text(r)).toBe(true)
     expect(text(r)).toMatch(REFUSAL)
+    expect(text(r)).not.toMatch(SECRET_MARKS)
     await expect(page.getByRole('alertdialog')).toHaveCount(0)
   }
   expect(await plain()).toContain('Salary zebrafish 98000.')

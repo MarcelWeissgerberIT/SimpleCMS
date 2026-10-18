@@ -539,17 +539,20 @@ describe('Restore puts back only what nobody changed since — made pages, board
     await server.stop()
   })
 
-  test('a two-way relation the call wrote goes back on both sides: no one-sided link on the partner row', async () => {
-    await call(writer, 'one_create_property', { databaseId: 'db-tasks', name: 'Project', type: 'relation', relation: { databaseId: 'db-proj', twoWay: true, reverseName: 'Tasks' } })
-    await call(writer, 'one_update_row', { id: 'task-1', properties: { Project: 'proj-1' } })
+  test('a two-way relation value is refused before anything is written (Weg 4): no write, so nothing to put back', async () => {
+    // the person made Project two-way in the app (its reverse side Tasks on Projects): over MCP no value is set there
+    meta.doc.transact(() => {
+      const defsOf = (id: string) => (meta.doc.getMap('databases').get(id) as Y.Map<unknown>).get('properties') as Y.Map<unknown>
+      defsOf('db-tasks').set('t-proj', { id: 't-proj', name: 'Project', type: 'relation', relationDatabaseId: 'db-proj', order: 20 })
+      defsOf('db-proj').set('t-proj.2way', { id: 't-proj.2way', name: 'Tasks', type: 'relation', relationDatabaseId: 'db-tasks', order: 20 })
+    })
+    await flushed(meta)
+    const before = (await calls()).length
+    await fails(writer, 'one_update_row', { id: 'task-1', properties: { Project: 'proj-1' } }, /^refused_type: properties\.Project: "Project" is two-way/)
     const linked = (id: string, to: string) => [...props(id).entries()].some(([, v]) => Array.isArray(v) && (v as string[]).includes(to))
-    await waitFor(() => linked('task-1', 'proj-1') && linked('proj-1', 'task-1'), 5000, 'both sides linked')
-    const c = (await calls()).find((x) => x.tool === 'one_update_row')!
-    const res = await restore(c.callId)
-    assert.equal(res.status, 200, JSON.stringify(res.body))
-    assert.deepEqual(res.body.kept, [])
-    await waitFor(() => !linked('task-1', 'proj-1'), 5000, 'forward link gone')
-    await waitFor(() => !linked('proj-1', 'task-1'), 5000, 'the partner row no longer links back')
+    await sleep(150)
+    assert.ok(!linked('task-1', 'proj-1') && !linked('proj-1', 'task-1'), 'no link on either side')
+    assert.equal((await calls()).length, before, 'no pre-image kept: nothing was written')
   })
 
   test('a made page someone wrote into, or put a sub-page under, stays (named in kept); force puts it into the trash', async () => {

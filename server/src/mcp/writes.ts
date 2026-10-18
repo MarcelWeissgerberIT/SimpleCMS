@@ -8,16 +8,17 @@ import * as Y from 'yjs'
 import type { Services } from '../context.ts'
 import { ApiError, notFound } from '../errors.ts'
 import { appendBlocks, fragmentText, holdsWorkItem, markdownToNodes } from '../api/content.ts'
-import { type PropertyDef, type Roots, TWO_WAY_SUFFIX, databaseMap, listNameOf, liveDatabase, livePage, newPageMap, nextOrder, pageMap, pairedRelation, propertiesMap, readOrdered, roots, rowsOf } from '../api/meta.ts'
+import { type PropertyDef, type Roots, databaseMap, listNameOf, liveDatabase, livePage, newPageMap, nextOrder, pageMap, propertiesMap, readOrdered, readProperties, roots, rowsOf } from '../api/meta.ts'
 import { contentDoc, findProperty, metaDoc, type WorkspaceModel, type WriteOpts } from '../api/model.ts'
 import { checkKey, handOnlyMessage, isHandOnly } from '../api/keys.ts'
 import { schemaOut, type ValueContext } from '../api/values.ts'
 import { newId } from '../tokens.ts'
-import { assertNotSystem, PARTNER_SYSTEM, TWO_WAY_SYSTEM } from './system.ts'
+import { assertNotSystem } from './system.ts'
 import { MCP_DEFAULT_PROPERTIES, MCP_DEFAULT_STATUS, MCP_LIMITS, MCP_PLAIN_MARKS, MCP_PLAIN_NODES, MCP_PROPERTY_TYPES } from '../../../src/shared/mcp/tables.ts'
 import { listOptionText, mcpError } from '../../../src/shared/mcp/errors.ts'
 import { optionPath, readOptions, titleNameTaken } from '../../../src/shared/mcp/options.ts'
 import { isIconError, mcpIcon } from '../../../src/shared/mcp/icon.ts'
+import { isTwoWay, twoWayArgRefusal, twoWayValueRefusal } from '../../../src/shared/mcp/twoWay.ts'
 
 /** Property types an agent may add (the shared table: formula, rollup and button need settings the tools don't take). */
 export const CREATABLE_TYPES = MCP_PROPERTY_TYPES
@@ -160,18 +161,20 @@ function options(type: string, input: OptionInput[] | undefined): Option[] | und
   })
 }
 
-/** A new property definition (ids fresh); relation targets checked in `r`. */
 /**
- * A relation whose two-way partner lives in One's own database: a value set over MCP would write the link into that
- * database's rows too (model.ts syncPartners) — refused as `system_database`, before anything is written.
+ * Two-way relations stay out of MCP until T-b (the owner's decision; the shared rule and words: shared/mcp/twoWay.ts,
+ * the local bridge refuses the same): a value of a two-way relation — an explicit pair (`<id>.2way`), a sub-items or a
+ * dependencies pair — would write the linked rows too (model.ts syncPartners). Refused before anything is written.
  */
-export function assertNoSystemPartner(r: Roots, dbId: string, prop: PropertyDef, path: string): void {
+export function assertOneWay(r: Roots, db: { page: { id: string }; ydb: Y.Map<unknown> }, prop: PropertyDef, path: string): void {
   if (prop.type !== 'relation') return
-  const pair = pairedRelation(r, dbId, prop)
-  if (pair && pair.dbId !== dbId) assertNotSystem(r, pair.dbId, path, PARTNER_SYSTEM)
+  const target = prop.relationDatabaseId ? databaseMap(r, prop.relationDatabaseId) : null
+  const hierarchy = { subItems: db.ydb.get('subItems'), dependencies: db.ydb.get('dependencies') }
+  if (isTwoWay(db.page.id, prop, hierarchy, target ? readProperties(target) : null)) throw unprocessable('refused_type', twoWayValueRefusal(path, prop.name))
 }
 
-function definition(r: Roots, input: PropertyInput, selfId: string | null): PropertyDef {
+/** A new property definition (ids fresh); relation targets checked in `r`. `path`: the spec's argument path ('' = the call). */
+function definition(r: Roots, input: PropertyInput, selfId: string | null, path = ''): PropertyDef {
   const name = input.name.replace(/\s+/g, ' ').trim()
   if (!name) throw unprocessable('invalid_property', 'A property needs a name')
   const def: PropertyDef = { id: newId(), name, type: input.type }
@@ -179,11 +182,11 @@ function definition(r: Roots, input: PropertyInput, selfId: string | null): Prop
   if (opts) def.options = opts
   else if (input.options?.length) throw unprocessable('invalid_property', `${name}: only select, multi_select and status properties take options`)
   if (input.type === 'relation') {
+    // two-way relations stay out of MCP until T-b: the reverse side and the linked rows are set up in the app
+    if (input.relation?.twoWay) throw unprocessable('refused_type', twoWayArgRefusal(`${path ? `${path}.` : ''}relation.twoWay`))
     const target = input.relation?.databaseId
     if (!target) throw unprocessable('invalid_property', `${name}: a relation needs relation.databaseId`)
     if (target !== selfId && !liveDatabase(r, target)) throw notFound('database_not_found', `${name}: no database with id "${target}" in this workspace`)
-    // the reverse side of a two-way relation would change One's own database (read-only over MCP, system.ts)
-    if (input.relation?.twoWay && target !== selfId) assertNotSystem(r, target, `${name}.relation`, TWO_WAY_SYSTEM)
     def.relationDatabaseId = target
   } else if (input.relation) throw unprocessable('invalid_property', `${name}: only relation properties take relation`)
   return def
@@ -415,8 +418,8 @@ export class McpWrites {
         if (opts.agent && isHandOnly(prop)) throw unprocessable('invalid_value', handOnlyMessage(prop))
         // a files value over MCP: only this workspace's files, never a web address (it would load in every viewer)
         if (opts.mcp && prop.type === 'files') checkFilesValue(prop.name, raw, ctx.files)
-        // a two-way relation writes its partner rows too (model.ts syncPartners): never into One's own databases
-        if (opts.mcp) assertNoSystemPartner(r, db.page.id, prop, `properties.${prop.name}`)
+        // two-way relations stay out of MCP (a value would write the linked rows too — model.ts syncPartners)
+        if (opts.mcp) assertOneWay(r, db, prop, `properties.${prop.name}`)
         const value = cutOptionNames(prop, raw)
         properties[key] = friendlyIn(r, prop, value, ctx)
         if (prop.type === 'select' || prop.type === 'multi_select') {
@@ -496,14 +499,13 @@ export class McpWrites {
       if (clash >= 0) throw unprocessable('invalid_property', mcpError('bad_argument', `properties[${clash}].name`, titleNameTaken(specs[clash]!.name.trim())))
     }
     const all = titles.length ? specs : [{ name: 'Name', type: 'title' as const }, ...specs]
-    const pairs: Array<{ def: PropertyDef; spec: PropertyInput }> = all.map((spec) => ({ spec, def: definition(r, spec, id) }))
-    const reverse = pairs.filter(({ spec }) => spec.type === 'relation' && spec.relation?.twoWay && spec.relation.databaseId !== id)
-    for (const { spec } of reverse) {
-      const target = liveDatabase(r, spec.relation!.databaseId)!
-      if (target.ydb.get('locked') === true) throw unprocessable('database_locked', `"${target.page.title}" is locked: unlock it in the app to add the two-way relation`)
+    const at = (spec: PropertyInput) => {
+      const i = specs.indexOf(spec)
+      return i >= 0 && input.properties?.length ? `properties[${i}]` : ''
     }
+    const pairs: Array<{ def: PropertyDef; spec: PropertyInput }> = all.map((spec) => ({ spec, def: definition(r, spec, id, at(spec)) }))
     const shaped = input.shape ? input.shape(r, pairs.map((p) => p.def)) : null
-    return { pairs, reverse, defs: shaped?.defs ?? pairs.map((p) => p.def), views: shaped?.views ?? null }
+    return { pairs, defs: shaped?.defs ?? pairs.map((p) => p.def), views: shaped?.views ?? null }
   }
 
   /** The schema and views a createDatabase call would write (for checks before anything is written). */
@@ -525,7 +527,7 @@ export class McpWrites {
       metaDoc(wsId),
       (doc) => {
         const r = roots(doc)
-        const { reverse, defs, views: shaped } = build(r)
+        const { defs, views: shaped } = build(r)
         const at = Date.now()
         // —— changes from here on ——
         r.pages.set(id, newPageMap({ id, kind: 'database', title: input.title, icon: input.icon ?? null, parentId, databaseId: null, order: nextOrder(r, parentId), properties: {}, plain: '', at }, actor))
@@ -540,9 +542,8 @@ export class McpWrites {
         ydb.set('nextUniqueId', 1)
         ydb.set('inline', input.inline === true)
         r.databases.set(id, ydb)
-        const backs = reverse.map(({ def, spec }) => addReverse(r, id, input.title, def, spec.relation?.reverseName))
         const nameOf = (pid: unknown) => defs.find((d) => d.id === pid)?.name ?? null
-        return { properties: defs.map(schemaOut), views: list.map((v) => ({ id: String(v.id), name: String(v.name), type: String(v.type), groupBy: nameOf(v.groupBy) })), reverse: backs }
+        return { properties: defs.map(schemaOut), views: list.map((v) => ({ id: String(v.id), name: String(v.name), type: String(v.type), groupBy: nameOf(v.groupBy) })) }
       },
       actor,
     )
@@ -560,10 +561,6 @@ export class McpWrites {
       const name = input.name.trim().toLowerCase()
       if (db.properties.some((p) => p.name.trim().toLowerCase() === name)) throw unprocessable('property_exists', `"${db.page.title}" already has a property named "${input.name}"`)
       const def = definition(r, input, input.databaseId)
-      if (input.relation?.twoWay) {
-        const target = liveDatabase(r, input.relation.databaseId)!
-        if (target.ydb.get('locked') === true) throw unprocessable('database_locked', `"${target.page.title}" is locked: unlock it in the app to add the two-way relation`)
-      }
       return { db, def }
     }
     await this.model.read(wsId, check)
@@ -576,29 +573,13 @@ export class McpWrites {
         propsMapOf(db.ydb).set(def.id, { ...def, order: nextPropOrder(db.ydb) })
         showInViews(db.ydb, def.id)
         if (def.type === 'unique_id') backfillUniqueIds(r, db.ydb, input.databaseId, def.id, actor)
-        const reverse = input.relation?.twoWay ? addReverse(r, input.databaseId, db.page.title, def, input.relation.reverseName) : null
-        return { property: schemaOut(def), ...(reverse ? { reverse } : {}) }
+        return { property: schemaOut(def) }
       },
       actor,
     )
     this.s.log.info('mcp property created', { workspace: wsId, database: input.databaseId, type: input.type, by: actor })
     return { databaseId: input.databaseId, ...out }
   }
-}
-
-/**
- * The reverse side of a two-way relation (the app's enableTwoWay): `<id>.2way` on the target,
- * named after the source database (a self-relation: "<name> (reverse)"). New, so nothing to backfill.
- */
-function addReverse(r: Roots, dbId: string, dbTitle: string, def: PropertyDef, reverseName: string | undefined) {
-  const targetId = def.relationDatabaseId!
-  const ydb = databaseMap(r, targetId)
-  if (!ydb) return null
-  const name = reverseName?.trim() || (targetId === dbId ? `${def.name} (reverse)` : dbTitle || 'Untitled')
-  const back: PropertyDef = { id: def.id + TWO_WAY_SUFFIX, name, type: 'relation', relationDatabaseId: dbId }
-  propsMapOf(ydb).set(back.id, { ...back, order: nextPropOrder(ydb) })
-  showInViews(ydb, back.id)
-  return { databaseId: targetId, property: schemaOut(back) }
 }
 
 /** Existing rows get numbers in creation order, like the app's addProperty (trashed rows included). */

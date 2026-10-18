@@ -602,45 +602,32 @@ test("one_create_database's Undo leaves what changed since alone: an edited row 
   })
   await flush(page)
   await connect(page, 'Apply directly')
-  // case 1: a two-way relation, rows; the person renames one, adds their own row and links it from the reverse column
-  const notes = json(await call('one_create_database', { title: 'Notes', properties: [{ name: 'Project', type: 'relation', relation: { databaseId: projects, twoWay: true } }], rows: [{ title: 'Kickoff' }, { title: 'Review' }] }))
-  expect(notes.reverse).toHaveLength(1)
-  const reverseId = await wsEval(page, (s, a: { db: string; name: string }) => s.databases[a.db].properties.find((p: AnyState) => p.name === a.name)?.id, { db: projects, name: notes.reverse[0].property })
-  const own = await wsEval(
+  // case 1: a one-way relation (two-way ones are set up in One — Weg 4), rows; the person renames one and adds their own row
+  const notes = json(await call('one_create_database', { title: 'Notes', properties: [{ name: 'Project', type: 'relation', relation: { databaseId: projects } }], rows: [{ title: 'Kickoff' }, { title: 'Review' }] }))
+  expect(notes.reverse).toBeUndefined()
+  await wsEval(
     page,
-    (s, a: { notes: string; kick: string; projects: string; reverse: string }) => {
+    (s, a: { notes: string; kick: string }) => {
       s.updatePage(a.kick, { title: 'Kickoff (moved)' })
-      const own = s.createRow(a.notes, { title: 'Mara own note' })
-      const projectRow = Object.values(s.pages).find((p: AnyState) => p.databaseId === a.projects)!.id
-      s.setRowProperty(projectRow, a.reverse, [own])
-      return { own, projectRow }
+      s.createRow(a.notes, { title: 'Mara own note' })
     },
-    { notes: notes.id, kick: notes.rows[0].id, projects, reverse: reverseId },
+    { notes: notes.id, kick: notes.rows[0].id },
   )
   await flush(page)
   await undoLast(page, 'one_create_database')
-  const after1 = await wsEval(
-    page,
-    (s, a: { id: string; review: string; projects: string; reverse: string; projectRow: string }) => ({
-      dbTrashed: !!s.pages[a.id]?.trashed,
-      reviewTrashed: !!s.pages[a.review]?.trashed,
-      reverseStill: s.databases[a.projects].properties.some((p: AnyState) => p.id === a.reverse),
-      link: s.pages[a.projectRow]?.properties[a.reverse] ?? null,
-    }),
-    { id: notes.id, review: notes.rows[1].id, projects, reverse: reverseId, projectRow: own.projectRow },
-  )
-  expect(after1).toEqual({ dbTrashed: false, reviewTrashed: false, reverseStill: true, link: [own.own] })
+  const after1 = await wsEval(page, (s, a: { id: string; review: string }) => ({ dbTrashed: !!s.pages[a.id]?.trashed, reviewTrashed: !!s.pages[a.review]?.trashed }), { id: notes.id, review: notes.rows[1].id })
+  expect(after1).toEqual({ dbTrashed: false, reviewTrashed: false })
   // case 2: only a row of the call renamed — the database stays, with that row
   const retro = json(await call('one_create_database', { title: 'Retro', rows: [{ title: 'Went well' }, { title: 'To improve' }] }))
   await wsEval(page, (s, id) => s.updatePage(id, { title: 'Went really well' }), retro.rows[0].id)
   await flush(page)
   await undoLast(page, 'one_create_database')
   expect(await wsEval(page, (s, a: { id: string; row: string }) => [!!s.pages[a.id]?.trashed, !!s.pages[a.row]?.trashed], { id: retro.id, row: retro.rows[0].id })).toEqual([false, false])
-  // untouched: the Undo takes the database (and an empty reverse column) back
-  const clean = json(await call('one_create_database', { title: 'Clean', properties: [{ name: 'Project', type: 'relation', relation: { databaseId: projects, twoWay: true } }], rows: [{ title: 'One' }] }))
-  const cleanReverse = await wsEval(page, (s, a: { db: string; name: string }) => s.databases[a.db].properties.find((p: AnyState) => p.name === a.name)?.id, { db: projects, name: clean.reverse[0].property })
+  // untouched: the Undo takes the database back; the related database was never touched
+  const projectProps = await wsEval(page, (s, db: string) => s.databases[db].properties.length, projects)
+  const clean = json(await call('one_create_database', { title: 'Clean', properties: [{ name: 'Project', type: 'relation', relation: { databaseId: projects } }], rows: [{ title: 'One' }] }))
   await undoLast(page, 'one_create_database')
-  expect(await wsEval(page, (s, a: { id: string; projects: string; reverse: string }) => [!!s.pages[a.id]?.trashed, s.databases[a.projects].properties.some((p: AnyState) => p.id === a.reverse)], { id: clean.id, projects, reverse: cleanReverse })).toEqual([true, false])
+  expect(await wsEval(page, (s, a: { id: string; projects: string }) => [!!s.pages[a.id]?.trashed, s.databases[a.projects].properties.length], { id: clean.id, projects })).toEqual([true, projectProps])
 })
 
 test('the Undo of rows and pages a call made compares every value: a row the person changed since stays (kept); an untouched one goes', async ({ page }) => {

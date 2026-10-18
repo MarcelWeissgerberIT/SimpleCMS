@@ -35,8 +35,8 @@ export interface PropDiff {
   name: string
   before: string
   after: string
-  /** a relation: the linked row ids before and after (a two-way partner's rows change too — what a card names) */
-  links?: { before: ID[]; after: ID[] }
+  /** a select bound to a shared list (features/kit): the new options the value adds to that list (a dry run reports them) */
+  addsToList?: { list: string; options: string[] }
 }
 
 /** A write of a run (done in a run, planned in a dry run). */

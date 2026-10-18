@@ -140,7 +140,7 @@ function changeJson(c: ChangeItem): Record<string, unknown> {
     ...(c.pageId.startsWith('draft-') ? {} : { id: c.pageId }),
     title: c.title.trim() || 'Untitled',
     ...(db ? { database: db } : {}),
-    ...(c.props?.length ? { properties: c.props.map((p) => ({ name: p.name, before: p.before, after: p.after })) } : {}),
+    ...(c.props?.length ? { properties: c.props.map((p) => ({ name: p.name, before: p.before, after: p.after, ...(p.addsToList ? { addsToList: p.addsToList } : {}) })) } : {}),
     ...(c.how ? { content: c.how } : {}),
     ...(c.skipped ? { skipped: true } : {}),
   }

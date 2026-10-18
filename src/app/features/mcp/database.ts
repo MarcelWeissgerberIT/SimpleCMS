@@ -19,14 +19,15 @@ import { nestedTopLevel, refIndex } from '../../../shared/mcp/pageRead'
 import { mcpError } from '../../../shared/mcp/errors'
 import { MCP_DEFAULT_PROPERTIES, MCP_LIMITS, MCP_VIEW_TYPES } from '../../../shared/mcp/tables'
 import { applyStaged, assertStageWritable, callStage, itemPlan, mcpMessage, outsideTemplates } from './stage'
-import { assertNoSystemPartner, assertNotSystem, systemOf, systemRefusal, TWO_WAY_SYSTEM } from './system'
+import { assertNotSystem } from './system'
+import { assertOneWayInput } from './twoWay'
 import { titleNameTaken } from '../../../shared/mcp/options'
 import { iconText, live, McpToolError, pageUrl, pathOf, propertyJson, q, titleOf, ws } from './values'
 import { atPath, chars, checkFileScope, cleanName, eachEntry, pageOrThrow, parseIcon, str, tasksOf, type PlanLine, type WritePlan } from './plan'
-import { dropProperty, mcpStatusOptions, propChangedSince, propMark, propertySpec } from './schema'
+import { mcpStatusOptions, propertySpec } from './schema'
 import { mcpReadableTop, mcpReadLimit } from './limits'
 import { withoutNodes } from './undoNodes'
-import { bodyLine, checkFiles, partnerPlan, rowFacts, rowNo, sideEffects, sideHold, splitTitle } from './rows'
+import { bodyLine, checkFiles, rowFacts, rowNo, sideEffects, sideHold, splitTitle } from './rows'
 import { layoutName, viewChange } from './structure'
 import { withWriter } from '../../store/writer'
 import { changedSince, madeAs, type MadeAs } from '../ai/agent/follow'
@@ -256,6 +257,8 @@ export function planCreateDatabase(args: Record<string, unknown>): WritePlan {
       chars_ += markdown.length
       checkFileScope(markdown, dbPriv, q(rowTitle))
       checkFiles(db, split.props, dbPriv, `${path}.properties`)
+      // two-way relations stay out of MCP (shared/mcp/twoWay.ts; the call's own relations are one-way — twoWay is refused)
+      assertOneWayInput(db, split.props, `${path}.properties`, { ...ws().databases, [id]: db })
       const res = withFilesWritable(() => coerceProperties(db, split.props, null))
       if (!res.ok) throw new McpToolError(mcpError('bad_argument', `${path}.properties`, mcpMessage(res.error).replace(/^Nothing was changed\. /, '')))
       const pageId = newId()
@@ -314,18 +317,6 @@ export function planCreateDatabase(args: Record<string, unknown>): WritePlan {
   // properties) is named, as an append to the row names it (write.ts planUpdatePage) — ≥ rowsAsk always asked
   const hostDb = inline && parent?.databaseId ? ws().databases[parent.databaseId] : undefined
   const sides = hostDb ? [sideEffects(hostDb, 1, { text: true, props: new Set() })] : []
-  // its rows' two-way relations into another database: the linked rows link back (rows.ts partnerPlan)
-  // (the call's own database and the reverse properties it adds, as they will be)
-  const willBe: Record<ID, Database> = { ...ws().databases, [id]: db }
-  for (const sp of specs ?? []) {
-    const target = sp.reverse ? willBe[sp.reverse.dbId] : undefined
-    if (sp.reverse && target) willBe[sp.reverse.dbId] = { ...target, properties: [...target.properties, sp.reverse.def] }
-  }
-  // never into One's own database (a reverse property there is refused above; this is the backstop for the rows)
-  assertNoSystemPartner(stage.changes, '', willBe)
-  const partners = partnerPlan(stage.changes, willBe)
-  lines.push(...partners.lines)
-  sides.push(...partners.sides)
   const side = sideHold(sides)
   for (const x of sides) lines.push(...x.lines)
   lines.push(...side.lines)
@@ -347,15 +338,6 @@ export function planCreateDatabase(args: Record<string, unknown>): WritePlan {
           atPath(e, wherePath)
         }
       }
-      // the reverse sides of two-way relations go onto the related databases: one locked (or moved into One's own
-      // databases) while the card waited takes no schema change — nothing is written
-      for (const [i, sp] of (specs ?? []).entries()) {
-        if (!sp.reverse) continue
-        const sys = systemOf(sp.reverse.dbId)
-        if (sys) throw new McpToolError(systemRefusal(sys, `properties[${i}].relation`, TWO_WAY_SYSTEM))
-        if (ws().databases[sp.reverse.dbId]?.locked)
-          throw new McpToolError(mcpError('locked', `properties[${i}].relation.twoWay`, `${q(titleOf(ws().pages[sp.reverse.dbId]))} was locked meanwhile, so no reverse property can be added there`, 'Create a one-way relation instead, or ask the person to unlock it.'))
-      }
       if (inline && ws().pages[parent!.id]?.settings.locked) throw new McpToolError(mcpError('locked', 'inline.pageId', `${q(titleOf(parent!))} was locked meanwhile`))
       // the person marked what Claude may read while the card waited: the block named must still be readable
       if (inline && inline.at !== null) {
@@ -365,12 +347,8 @@ export function planCreateDatabase(args: Record<string, unknown>): WritePlan {
         const readable = mcpReadableTop(parent!.id, blocksNow)
         if (readable && i >= 0 && !readable.has(i)) throw new McpToolError(mcpError('rejected', 'inline.afterBlock', 'The block named is not readable — the person limited what you may read on this page (context marks)', 'Pass the ref of a block you read, or ask the person.'))
       }
-      // the reverse sides of two-way relations live on the related databases
-      const reverses = withWriter(writer, () => {
+      withWriter(writer, () => {
         ws().createDatabase({ id, title, parentId: parent?.id ?? null, properties: props, ...(views ? { views } : {}), ...(icon ? { icon } : {}), ...(inline ? { inline: true } : {}) })
-        const back = (specs ?? []).flatMap((s) => (s.reverse && ws().databases[s.reverse.dbId] ? [s.reverse] : []))
-        for (const r of back) ws().addProperty(r.dbId, r.def)
-        return back
       })
       const undos: Array<() => boolean> = []
       // the block in the page's text (a version of the page first): at the end, or after the block named
@@ -416,7 +394,6 @@ export function planCreateDatabase(args: Record<string, unknown>): WritePlan {
         } catch (e) {
           withWriter(writer, () => {
             for (const u of undos) u()
-            for (const r of reverses) dropProperty(r.dbId, r.def.id)
             ws().deletePagePermanently(id)
           })
           throw e
@@ -430,9 +407,6 @@ export function planCreateDatabase(args: Record<string, unknown>): WritePlan {
       // the database itself as the call left it: renamed, given another icon / cover, a property or view added, renamed
       // or set up since → it stays (as the team server's Restore keeps it)
       const dbMark = databaseMark(id)
-      // each reverse property as the call left it (after its rows: the links they wrote on the other side are the
-      // call's): the Undo leaves one changed since alone (schema.ts propChangedSince)
-      const reverseMarks = new Map(reverses.map((r) => [r.def.id, propMark(r.dbId, r.def.id)] as const))
       return {
         result: {
           id,
@@ -443,7 +417,6 @@ export function planCreateDatabase(args: Record<string, unknown>): WritePlan {
           properties: d.properties.map((p) => propertyJson(d, p)),
           views: d.views.map((v) => ({ id: v.id, name: v.name, type: v.type, groupBy: v.groupBy ? (d.properties.find((p) => p.id === v.groupBy)?.name ?? null) : null })),
           ...(rows.length ? { rows: rows.map((c, index) => ({ index, id: madeRows[index], title: c.title ?? '' })) } : {}),
-          ...(reverses.length ? { reverse: reverses.map((r) => ({ databaseId: r.dbId, property: r.def.name })) } : {}),
           ...tasksOf(tasks.created),
           ...(note ? { note } : {}),
         },
@@ -453,24 +426,14 @@ export function planCreateDatabase(args: Record<string, unknown>): WritePlan {
           // in the trash already (the person put it there): it stays there, never deleted for good
           const gone = !now || now.trashed
           // first: does the database stay? A row someone added, or a row of the call someone changed since, keeps it —
-          // and then the call leaves everything as it is (rows, the block in the page, the reverse properties)
+          // and then the call leaves everything as it is (rows, the block in the page)
           if (!gone) {
             const others = Object.values(pages).some((p) => p.parentId === id && !p.trashed && !asMade.has(p.id))
             const changed = madeRows.some((rid) => rowChangedSince(rid, asMade.get(rid)))
             if (others || changed || databaseMark(id) !== dbMark) return false
           }
-          // it goes: the rows (to the trash while untouched), the block in the page, the reverse properties, the database
+          // it goes: the rows (to the trash while untouched), the block in the page, the database
           const kept = [rowsUndo(), ...[...undos].reverse().map((u) => u())]
-          for (const r of reverses) {
-            if (!ws().databases[r.dbId]?.properties.some((p) => p.id === r.def.id)) continue
-            // a reverse column changed since stays: filled in (its links are the person's), renamed or set up, built on,
-            // or its database locked since
-            if (propChangedSince(reverseMarks.get(r.def.id)!)) {
-              kept.push(false)
-              continue
-            }
-            dropProperty(r.dbId, r.def.id)
-          }
           if (!gone) ws().trashPage(id)
           return kept.every(Boolean)
         },
