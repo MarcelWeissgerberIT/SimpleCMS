@@ -915,7 +915,7 @@ export const content: Record<Lang, SiteContent> = {
       { name: 'one_create_database', write: true, text: 'A new database with a schema' },
       { name: 'one_trash_page', write: true, text: 'To the trash, restorable' },
     ],
-    extras: ['Built-in help · 81 articles', 'Breadcrumbs', 'Databases as sidebar folders', 'Turn blocks into a page', 'Mark what Claude may read', 'Presentation mode', 'Stacked panes', 'Focus mode', '11 templates', 'Daily journal', '@-mentions', 'Block links', 'Offline after the first visit', 'Light & dark', 'English & German'],
+    extras: ['Built-in help · 82 articles', 'Breadcrumbs', 'Databases as sidebar folders', 'Turn blocks into a page', 'Mark what Claude may read', 'Presentation mode', 'Stacked panes', 'Focus mode', '11 templates', 'Daily journal', '@-mentions', 'Block links', 'Offline after the first visit', 'Light & dark', 'English & German'],
     deep: [
       {
         key: 'database',
@@ -1147,7 +1147,7 @@ export const content: Record<Lang, SiteContent> = {
       { name: 'one_create_database', write: true, text: 'Neue Datenbank mit Schema' },
       { name: 'one_trash_page', write: true, text: 'In den Papierkorb, wiederherstellbar' },
     ],
-    extras: ['Eingebaute Hilfe · 81 Artikel', 'Brotkrumen', 'Datenbanken als Ordner in der Seitenleiste', 'Blöcke zur Seite machen', 'Markieren, was Claude lesen darf', 'Präsentationsmodus', 'Gestapelte Panels', 'Fokusmodus', '11 Vorlagen', 'Tagesjournal', '@-Erwähnungen', 'Block-Links', 'Offline ab dem ersten Besuch', 'Hell & dunkel', 'Deutsch & Englisch'],
+    extras: ['Eingebaute Hilfe · 82 Artikel', 'Brotkrumen', 'Datenbanken als Ordner in der Seitenleiste', 'Blöcke zur Seite machen', 'Markieren, was Claude lesen darf', 'Präsentationsmodus', 'Gestapelte Panels', 'Fokusmodus', '11 Vorlagen', 'Tagesjournal', '@-Erwähnungen', 'Block-Links', 'Offline ab dem ersten Besuch', 'Hell & dunkel', 'Deutsch & Englisch'],
     deep: [
       {
         key: 'database',
