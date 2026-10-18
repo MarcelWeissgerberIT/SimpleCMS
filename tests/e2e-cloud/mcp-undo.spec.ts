@@ -2,7 +2,8 @@
  * MCP T-a, Weg 4 D2 in a team tab: the bridge's Undo is all or nothing there too (the built local bridge driven through
  * the MCP SDK's stdio client, its own port):
  *  - untouched since (after the server confirmed the call's writes): the whole call back in ONE store update — the new
- *    page to the trash, its link out of the parent's text — and the team's documents follow;
+ *    page to the trash, its link out of the parent's text — and the team's documents follow (the text put back is a
+ *    copy: the binding never writes back an object a team document wrote into the store);
  *  - changed since: nothing is written; the toast points to Versions and the trash (no Eject: the flight recorder ejects
  *    in the local workspace only).
  * Fictional data (Nordlicht, Tessera).
@@ -12,7 +13,7 @@ import { fileURLToPath } from 'node:url'
 import type { Page } from '@playwright/test'
 import { Client } from '../../mcp/node_modules/@modelcontextprotocol/sdk/dist/esm/client/index.js'
 import { StdioClientTransport } from '../../mcp/node_modules/@modelcontextprotocol/sdk/dist/esm/client/stdio.js'
-import { test, expect, email, signIn, openApp, wsEval, waitOnline, createWorkspace } from './fixtures'
+import { test, expect, email, signIn, openApp, wsEval, waitOnline, createWorkspace, gotoPage, editorOf } from './fixtures'
 
 type AnyState = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
 type ToolResult = { content?: Array<{ type: string; text?: string }>; isError?: boolean }
@@ -115,11 +116,23 @@ test('team: an untouched call goes back whole in ONE store update; a changed one
   expect(await wsEval(page, (s, id) => !!s.pages[id]?.trashed, made.id)).toBe(true)
   expect(await wsEval(page, (s, a: { host: string; id: string }) => JSON.stringify(s.pages[a.host].content).includes(a.id), { host, id: made.id })).toBe(false)
   expect(await plainOf(page, host)).toBe('Intro of the plan.')
+  // … and in the page's team document too (the text put back is written there, not only into this tab's store): the
+  // editor, bound to that document, shows no link; then back to the start, no editor open
+  await page.waitForTimeout(1000)
+  await gotoPage(page, host)
+  await expect(editorOf(page, host)).toContainText('Intro of the plan.')
+  await expect(editorOf(page, host)).not.toContainText('Glossar')
+  await page.evaluate(() => {
+    window.location.hash = '#/'
+  })
+  await expect(editorOf(page, host)).toHaveCount(0)
 
   // changed since: refused whole — nothing written, the remedy without Eject
   const again = json(await call('one_update_page', { id: host, markdown: 'Phase 2 by Claude.', workspace: ws }))
   expect(again.changed).toEqual(['content'])
   await page.waitForTimeout(1000)
+  // the document's echo of the append brings nothing of the undone call back
+  expect(await wsEval(page, (s, a: { host: string; id: string }) => JSON.stringify(s.pages[a.host].content).includes(a.id), { host, id: made.id })).toBe(false)
   await wsEval(page, (s, id) => s.updatePage(id, { title: 'Launch plan (Nora)' }), host)
   await page.waitForTimeout(500)
   const before = await wsEval(page, (s) => JSON.stringify([s.pages, s.databases]))

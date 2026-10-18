@@ -355,9 +355,11 @@ export function runUndo(u: CallUndo): UndoOutcome {
       if (trash.has(e.id)) patch.pages![e.id] = { ...now, trashed: true }
       continue
     }
-    // changed: as it was (its text written only when it differs — an editor's ids alone are no difference)
+    // changed: as it was (its text written only when it differs — an editor's ids alone are no difference). The text
+    // as a COPY: the object it was may be the one a team document wrote into the store (cloud/binding.ts `fromY`), and
+    // the binding never writes such an object back — the page document would keep the call's text
     const sameText = e.was.content === now.content || contentKey(e.was.content) === contentKey(now.content)
-    patch.pages![e.id] = { ...e.was, content: sameText ? now.content : e.was.content }
+    patch.pages![e.id] = { ...e.was, content: sameText ? now.content : e.was.content && structuredClone(e.was.content) }
   }
   for (const e of u.dbs) {
     const now = databases[e.id]!
