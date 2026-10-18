@@ -354,10 +354,11 @@ function ActivityRow({ a }: { a: McpActivity }) {
       </time>
       <span className="mcp-log__tag">{a.write ? t('features.mcp.log.write') : t('features.mcp.log.read')}</span>
       <span className="mcp-log__tool">{a.tool}</span>
-      <span className="mcp-log__target" title={a.note ?? a.target}>
+      <span className="mcp-log__target" title={a.target}>
         {a.target}
-        {a.note && <span className="mcp-log__note"> — {a.note}</span>}
       </span>
+      {/* the note on its own line, whole: a refused Undo or a dry run says why, also at phone width */}
+      {a.note && <span className="mcp-log__note">{a.note}</span>}
       <span className="mcp-log__state">
         {t(`features.mcp.log.state.${a.state}`)}
         {a.ms !== undefined && a.state !== 'wait' ? ` · ${a.ms} ms` : ''}

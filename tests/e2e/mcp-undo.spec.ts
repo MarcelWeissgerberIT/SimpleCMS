@@ -242,3 +242,56 @@ test('the help says it in English and German: the whole call back, or nothing, w
   expect(read('de')).toContain('gar nichts: Es sagt, was sich geändert hat')
   expect(read('de')).toContain('**Auswerfen** im [Flugschreiber](help:flight-recorder)')
 })
+
+/**
+ * `W4_SHOTS=<dir>`: screenshots of a refused Undo — its toast over Agent activity, the refused row and a dry-run row of
+ * one_run_script beside it (EN + DE, 1440×900 and 390×844, light and dark). Not part of the suite.
+ */
+test('screenshots: a refused Undo — toast and Agent activity rows', async ({ page }) => {
+  const dir = process.env.W4_SHOTS
+  test.skip(!dir, 'W4_SHOTS not set')
+  await openApp(page)
+  await wsEval(page, (s) => {
+    const now = Date.now()
+    const db = s.createDatabase({ title: 'Nordlicht tasks', properties: [{ id: 'n-title', name: 'Name', type: 'title' }, { id: 'n-code', name: 'Code', type: 'text' }] })
+    s.createRow(db, { title: 'Launch plan', properties: { 'n-code': 'LP' } })
+    s.upsertScript({ id: 'sc-raise', name: 'Raise codes', code: 'for t in db("Nordlicht tasks").where(Code = "LP") {\n  t.set(Code: "LP-1")\n}\n', kind: 'script', createdAt: now, updatedAt: now })
+  })
+  await flush(page)
+  await connect(page)
+  for (const lang of ['en', 'de'] as const) {
+    await wsEval(page, (s, l) => s.updateSettings({ language: l }), lang)
+    for (const [w, h, tag] of [
+      [1440, 900, 'desktop'],
+      [390, 844, 'phone'],
+    ] as const) {
+      for (const theme of ['light', 'dark'] as const) {
+        await page.setViewportSize({ width: w, height: h })
+        await page.emulateMedia({ colorScheme: theme })
+        await page.evaluate((th) => document.documentElement.setAttribute('data-theme', th), theme)
+        json(await call('one_run_script', { script: 'Raise codes' }))
+        const made = json(await call('one_create_page', { title: lang === 'de' ? `Wissensbasis ${tag} ${theme}` : `Launch notes ${tag} ${theme}`, markdown: 'Tessera, Mara Lind.' }))
+        await wsEval(page, (s, a: { id: string; t: string }) => s.updatePage(a.id, { title: a.t }), { id: made.id, t: lang === 'de' ? `Wissensbasis (Mara) ${tag} ${theme}` : `Launch notes (Mara) ${tag} ${theme}` })
+        await flush(page)
+        await openAgentsTab(page)
+        const keys = page.locator('.mcp-log__row').getByRole('button', { name: /^(Undo one_create_page|one_create_page rückgängig machen)$/ })
+        await keys.first().click()
+        const toast = page.locator('.toast', { hasText: /Not undone|Nicht rückgängig gemacht/ }).last()
+        await expect(toast).toBeVisible()
+        const row = page.locator('.mcp-log__row', { hasText: /Not undone|Nicht rückgängig gemacht/ }).first()
+        await expect(row).toBeVisible()
+        await row.evaluate((el) => el.closest('.mcp-log')!.scrollIntoView({ block: 'end' }))
+        await page.screenshot({ path: `${dir}/undo-refused-${lang}-${tag}-${theme}.png` })
+        // the rows alone: the toast taken away (the next shot shows its own toast only)
+        await page.evaluate(() => {
+          const ui = (window as unknown as { __one: { ui: { getState: () => { toasts: { id: string }[]; dismissToast: (id: string) => void } } } }).__one.ui.getState()
+          for (const t of ui.toasts) ui.dismissToast(t.id)
+        })
+        await expect(toast).toHaveCount(0)
+        await page.screenshot({ path: `${dir}/activity-rows-${lang}-${tag}-${theme}.png` })
+        await closeSettings(page)
+      }
+    }
+  }
+  await wsEval(page, (s) => s.updateSettings({ language: 'en' }))
+})

@@ -446,7 +446,7 @@
 }
 .mcp-log__row {
   display: grid;
-  grid-template-columns: 8.5ch 6ch 19.5ch minmax(0, 1fr) auto 24px;
+  grid-template-columns: 8.5ch 9.5ch 19.5ch minmax(0, 1fr) auto 24px;
   gap: 10px;
   align-items: center;
   min-height: 26px;
@@ -479,7 +479,13 @@
   white-space: nowrap;
 }
 .mcp-log__note {
+  grid-row: 2;
+  grid-column: 3 / -1;
+  margin-top: -4px;
   color: var(--ink-3);
+  font-size: calc(10.5px * var(--text-scale));
+  line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 .mcp-log__state {
   color: var(--ink-3);
@@ -824,6 +830,9 @@
   .mcp-log__tag,
   .mcp-log__target {
     display: none;
+  }
+  .mcp-log__note {
+    grid-column: 2 / -1;
   }
   .mcp-dock {
     right: 16px;
