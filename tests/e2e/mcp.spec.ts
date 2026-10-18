@@ -326,7 +326,7 @@ test('Undo never deletes for good what the person put in the trash meanwhile: re
   await page.locator('.mcp-log__row').getByRole('button', { name: 'Undo one_create_database' }).click()
   await page.locator('.mcp-log__row').getByRole('button', { name: 'Undo one_create_page' }).click()
   await expect(page.locator('.mcp-log__row', { hasText: 'Not undone:' })).toHaveCount(2)
-  await expect(page.locator('.mcp-log__row', { hasText: 'Undone' })).toHaveCount(0)
+  await expect(page.locator('.mcp-log__row[data-state="undone"]')).toHaveCount(0)
   await expect(page.locator('.toast', { hasText: 'changed since (trash). Nothing was put back.' }).first()).toBeVisible()
   // still in the trash with their trash time — never deleted for good
   const now = await wsEval(page, (s, ids) => ids.map((id: string) => (s.pages[id] ? { trashed: s.pages[id].trashed, at: s.pages[id].trashedAt } : null)), [created.id, db.id])
@@ -587,7 +587,7 @@ test.describe('tidy up', () => {
   /** The newest applied call of a tool: Undo it in the log (Settings → Agents · MCP). */
   async function undoLast(page: Page, tool: string) {
     await openAgentsTab(page)
-    const undone = page.locator('.mcp-log__row', { hasText: tool }).filter({ hasText: 'Undone' })
+    const undone = page.locator('.mcp-log__row[data-state="undone"]', { hasText: tool })
     const before = await undone.count()
     await page.locator('.mcp-log__row').getByRole('button', { name: `Undo ${tool}` }).first().click()
     await expect(undone).toHaveCount(before + 1)

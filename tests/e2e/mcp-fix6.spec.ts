@@ -83,7 +83,7 @@ async function connect(page: Page, mode: 'Ask first' | 'Apply directly') {
 
 async function undoLast(page: Page, tool: string) {
   await openAgentsTab(page)
-  const undone = page.locator('.mcp-log__row', { hasText: tool }).filter({ hasText: 'Undone' })
+  const undone = page.locator('.mcp-log__row[data-state="undone"]', { hasText: tool })
   const before = await undone.count()
   await page.locator('.mcp-log__row').getByRole('button', { name: `Undo ${tool}` }).first().click()
   await expect(undone).toHaveCount(before + 1)

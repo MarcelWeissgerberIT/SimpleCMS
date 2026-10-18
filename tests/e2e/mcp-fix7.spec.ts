@@ -363,7 +363,8 @@ test('one_create_property Undo is refused whole once the person made the propert
     s.updateDatabase(a.db, { subItems: { enabled: true, parentPropertyId: a.p, childPropertyId: `${a.p}.2way` } } as never)
   }, { db: ids.db, p: parentId })
   await flush(page)
-  await undoRefused(page, 'one_create_property', 'properties, settings')
+  // the other side is a new property, the views list it too, the pair is the database's sub-items setting
+  await undoRefused(page, 'one_create_property', 'properties, views, settings')
   expect(await wsEval(page, (s, a: { db: string; p: string }) => (s.databases[a.db].properties as AnyState[]).filter((x) => x.id === a.p || x.id === `${a.p}.2way`).length, { db: ids.db, p: parentId })).toBe(2)
 })
 

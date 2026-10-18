@@ -97,7 +97,7 @@ async function connect(page: Page, mode: 'Ask first' | 'Apply directly') {
 
 async function undoLast(page: Page, tool: string) {
   await openAgentsTab(page)
-  const undone = page.locator('.mcp-log__row', { hasText: tool }).filter({ hasText: 'Undone' })
+  const undone = page.locator('.mcp-log__row[data-state="undone"]', { hasText: tool })
   const before = await undone.count()
   await page.locator('.mcp-log__row').getByRole('button', { name: `Undo ${tool}` }).first().click()
   await expect(undone).toHaveCount(before + 1)
@@ -131,7 +131,7 @@ const chapters = () =>
     ...(i < 3 ? { markdown: `Text of chapter ${i + 1} for Tessera.` } : {}),
   }))
 
-test('Ask first: 50 sub-pages as a tree — ONE card, one Approve, one Undo that puts every page into the trash', async ({ page }) => {
+test('Ask first: 50 sub-pages as a tree — ONE card, one Approve, one Undo that puts the whole tree into the trash', async ({ page }) => {
   await openApp(page)
   const host = await wsEval(page, (s) => s.createPage({ title: 'Launch plan' }))
   await flush(page)
@@ -183,10 +183,24 @@ test('Ask first: 50 sub-pages as a tree — ONE card, one Approve, one Undo that
   expect(tree[1].plain).toContain('Text of chapter 2')
   expect(tree[1].origin).toBe('ai')
 
-  // the Undo: every page of the call to the trash (never deleted for good)
+  // the Undo (all back, Weg 4): the top of the tree to the trash, the 49 pages below go along with it as with
+  // one_trash_page — every page of the call out of sight, none deleted for good, the host untouched
   await undoLast(page, 'one_create_page')
-  const trashed = await wsEval(page, (s, ids: string[]) => ids.map((id) => s.pages[id]?.trashed === true), out.pages.map((p: AnyState) => p.id))
-  expect(trashed.every(Boolean)).toBe(true)
+  const gone = await wsEval(
+    page,
+    (s, ids: string[]) =>
+      ids.map((id) => {
+        let p = s.pages[id]
+        if (!p) return 'deleted'
+        const own = !!p.trashed
+        while (p && !p.trashed) p = p.parentId ? s.pages[p.parentId] : undefined
+        return own ? 'trash' : p ? 'below' : 'live'
+      }),
+    out.pages.map((p: AnyState) => p.id),
+  )
+  expect(gone[0]).toBe('trash')
+  expect(gone.slice(1).every((x: string) => x === 'below')).toBe(true)
+  expect(await wsEval(page, (s, id) => !!s.pages[id]?.trashed, host)).toBe(false)
 })
 
 test('Apply directly: 50 pages in under a second; a sub-page under a ROW; one page placed; links in the parent; private locally is a note', async ({ page }) => {
