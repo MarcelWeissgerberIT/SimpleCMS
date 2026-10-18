@@ -116,6 +116,15 @@ export function withRemedy(message: string): string {
   return `${sentence(message)} Nothing was changed. ${MCP_REMEDIES[code]}`
 }
 
+/**
+ * A new option for a select bound to a shared list (features/kit, PropertyDef.listId): the list owns the options and
+ * every list edit writes them into the property again — an option added to the property alone would vanish and leave
+ * its values pointing at nothing. Agents and MCP never add one there (the local bridge, the AI terminal, custom agents
+ * and the team server word it alike).
+ */
+export const listOptionText = (option: string, list: string): string =>
+  `unknown option ${JSON.stringify(option)} — this property takes its options from the shared list ${JSON.stringify(list)}; a new option is added to that list in One (Building blocks)`
+
 /** The most entries a batch refusal lists (then "and n more"). */
 export const BATCH_REFUSAL_LINES = 20
 

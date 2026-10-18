@@ -75,6 +75,8 @@ export interface McpActivity {
   note?: string
   /** revert an applied write (this tab session) */
   undo?: () => boolean | Promise<boolean>
+  /** let go of what the Undo holds (its follows, ai/agent/follow.ts) — when the Undo goes without running */
+  release?: () => void
 }
 
 /** … 'workspace': the tab switched to another workspace while the change waited */

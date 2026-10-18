@@ -228,7 +228,10 @@ describe('forwarding', () => {
       onprogress: (p) => progress.push(p.message ?? ''),
     })
     assert.equal(res.isError, undefined)
-    assert.deepEqual(JSON.parse(textOf(res)), { id: 'row1', workspace: { id: 'local:test-workspace', name: 'Test workspace' } })
+    // a tab without a contract (One before contract 2) does not join repeats: the bridge says so on what it made (review 6)
+    const out = JSON.parse(textOf(res)) as Record<string, unknown>
+    assert.match(String(out.note), /older version: it does not recognise a repeated call/)
+    assert.deepEqual({ ...out, note: undefined }, { id: 'row1', workspace: { id: 'local:test-workspace', name: 'Test workspace' }, repeatsJoined: false, note: undefined })
     assert.deepEqual(progress, ['Waiting for approval in One…'])
   })
 
@@ -714,5 +717,26 @@ describe('handshake security', () => {
     assert.equal(res.status, 426)
     assert.equal(res.headers['access-control-allow-origin'], undefined)
     assert.match(res.body, /WebSocket only/)
+  })
+})
+
+describe('review 6: repeats are joined only by an up-to-date tab', () => {
+  test('a creating call answered by an older tab (contract 1) says repeats are not joined there; a contract-2 tab\'s answer stays as it is', async () => {
+    const { client } = await start()
+    const old = track(await helloApp('Wissensbasis', 'apply'))
+    serve(old, (tool) => (tool === 'one_create_page' || tool === 'one_get_page' ? { result: { id: 'p1', title: 'Launch plan' } } : null))
+    const made = JSON.parse(textOf(await client.callTool({ name: 'one_create_page', arguments: { title: 'Launch plan' } }))) as { repeatsJoined?: boolean; note?: string }
+    assert.equal(made.repeatsJoined, false)
+    assert.match(made.note ?? '', /older version: it does not recognise a repeated call/)
+    // a read is no creating call: no note
+    const read = JSON.parse(textOf(await client.callTool({ name: 'one_get_page', arguments: { id: 'p1' } }))) as { note?: string }
+    assert.equal(read.note, undefined)
+    old.ws.close()
+    await waitFor(() => !old.ws.readyState || old.ws.readyState >= 2)
+    const now = track(await helloApp('Nordlicht', 'apply', { tools: mcpToolArgs() }))
+    serve(now, () => ({ result: { id: 'p2', title: 'Launch plan' } }))
+    const fresh = JSON.parse(textOf(await client.callTool({ name: 'one_create_page', arguments: { title: 'Launch plan', workspace: 'Nordlicht' } }))) as { repeatsJoined?: boolean; note?: string }
+    assert.equal(fresh.repeatsJoined, undefined)
+    assert.equal(fresh.note, undefined)
   })
 })

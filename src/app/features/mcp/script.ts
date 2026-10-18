@@ -276,6 +276,25 @@ async function sinceUndo(run: ScriptRun, writer: Writer): Promise<() => Promise<
   }
   return async () => {
     let kept = false
+    // a page the run made stays while something below it stays: a live page the run did not make, or one it made that
+    // stays itself — a sub-page the same run made goes with it (memoised: each page is asked once, children first)
+    const stays = new Map<ID, boolean>()
+    const madeStays = (id: ID): boolean => {
+      const known = stays.get(id)
+      if (known !== undefined) return known
+      stays.set(id, false)
+      const m = marks.get(id)
+      const now = ws().pages[id]
+      const out =
+        !!m &&
+        !!now &&
+        !now.trashed &&
+        (changedSince(now, m.follow.base()) ||
+          `${now.parentId ?? null}|${now.databaseId ?? null}` !== m.place ||
+          Object.values(ws().pages).some((c) => c.parentId === id && !c.trashed && !(touched[c.id]?.includes('created') && !madeStays(c.id))))
+      stays.set(id, out)
+      return out
+    }
     const keep = (id: ID, field: string): boolean => {
       const m = marks.get(id)
       const now = ws().pages[id]
@@ -283,7 +302,7 @@ async function sinceUndo(run: ScriptRun, writer: Writer): Promise<() => Promise<
       const b = m.follow.base()
       const moved =
         field === 'created'
-          ? !now.trashed && (changedSince(now, b) || `${now.parentId ?? null}|${now.databaseId ?? null}` !== m.place || Object.values(ws().pages).some((c) => c.parentId === id && !c.trashed))
+          ? madeStays(id)
           : field === 'title'
             ? now.title !== b.title
             : field === 'icon'

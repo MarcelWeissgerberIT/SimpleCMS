@@ -253,10 +253,16 @@ export class McpReads {
   async getPage(wsId: string, input: { id?: string; title?: string; format?: 'markdown' | 'blocks'; refs?: boolean; cursor?: string; comments?: boolean; transcript?: boolean }, opts: { comments: ApiComments }) {
     const format = input.format ?? 'markdown'
     if (input.comments && opts.comments === 'off') throw refuse('comments_off', 'comments', 'Comments over MCP are off for this token (the flag is set when a token is made and stays as it is)', COMMENTS_OFF_NEXT)
-    const pageId = await this.model.read(wsId, (r) => this.resolvePage(r, input).page.id)
+    // resolved once, by id or title: a title several live pages carry names the others (alsoTitled, as the bridge)
+    const first = await this.model.read(wsId, (r) => {
+      const hit = this.resolvePage(r, input)
+      return { id: hit.page.id, others: hit.others.map((p) => p.id) }
+    })
+    const pageId = first.id
     const content = await this.s.collab.read(contentDoc(wsId, pageId), (doc) => ({ doc: docJson(doc), rev: contentRev(doc) }))
     const built = await this.model.read(wsId, (r) => {
-      const { page, others } = this.resolvePage(r, { id: pageId })
+      const { page } = this.resolvePage(r, { id: pageId })
+      const others = first.others.filter((id) => livePage(r, id) && !outOfReach(r, id))
       const db = page.databaseId ? liveDatabase(r, page.databaseId) : null
       const yp = pageMap(r, page.id)
       const titleOf = (id: string): string | null => (livePage(r, id) ? (pageMap(r, id)?.get('title') as string | undefined) || 'Untitled' : null)
@@ -296,7 +302,7 @@ export class McpReads {
             }
           : {}),
         children: { items: kids.slice(0, 50).map((p) => ({ id: p.id, title: p.title || 'Untitled', kind: kindOf(p) })), more: Math.max(0, kids.length - 50) },
-        ...(others.length ? { alsoTitled: others.slice(0, 10).map((p) => ({ id: p.id, path: pathOf(r, p.id) })) } : {}),
+        ...(others.length ? { alsoTitled: others.slice(0, 10).map((id) => ({ id, path: pathOf(r, id) })) } : {}),
         ...(input.comments ? { comments: readThreads(r, page.id, anchors.comments) } : {}),
       }
       const top = (doc.content ?? []).map((node: PMJson, i: number) => ({ node, path: [i] }))

@@ -102,6 +102,16 @@ export const MCP_LIMITS = {
   pagesChars: 600_000,
   /** rows per create / update / upsert call */
   rows: 50,
+  /** a title (page, row, database): at most this many characters, whitespace collapsed — both ways in alike */
+  title: 300,
+  /** a property's name (and a two-way relation's reverse name) */
+  propertyName: 100,
+  /** an option's name: a longer one is cut there */
+  optionName: 60,
+  /** one page's or row's Markdown */
+  text: 200_000,
+  /** one upserted row's Markdown */
+  upsertText: 100_000,
   /** a row batch of at least this many rows that starts paid AI work or outward automations is always asked */
   rowsAsk: 5,
   /** one_edit_blocks: edits and their text per call */

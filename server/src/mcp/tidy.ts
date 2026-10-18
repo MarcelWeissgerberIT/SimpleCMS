@@ -15,6 +15,7 @@ import { metaDoc, type WorkspaceModel } from '../api/model.ts'
 import { newId } from '../tokens.ts'
 import { pathOf } from './reads.ts'
 import { COLORS, propsMapOf, unprocessable } from './writes.ts'
+import { attachRecordType, heldTypes, recordTypeOf } from './recordTypes.ts'
 import { assertNotSystem, assertTreeNotSystem } from './system.ts'
 import { MCP_BULK_MAX } from '../../../src/shared/mcp/tables.ts'
 
@@ -374,12 +375,22 @@ export class McpTidy {
         }
       }
       if (links.length) problems.push(`other rows link to it: ${links.slice(0, 5).join(', ')}${links.length > 5 ? ` and ${links.length - 5} more` : ''}`)
+      // a row of a record type the target does not hold: the type comes along (its properties are added there — the
+      // app's adoptRowType), or the row stays plain when the type is gone; a locked target cannot take it
+      const typeId = (pageMap(r, row.id)?.get('recordType') as string | undefined) || null
+      const adopting = !!typeId && !heldTypes(to.ydb).includes(typeId)
+      const rt = adopting ? recordTypeOf(r, typeId) : null
+      if (adopting && rt && to.ydb.get('locked') === true)
+        throw unprocessable(
+          'locked',
+          `locked: databaseId: ${q(name)} is of the record type ${q(rt.name)}, which ${q(toTitle)} does not hold, and ${q(toTitle)} is locked in One: the type cannot come along (it would add its properties there). Nothing was changed. Move it into a database that holds the type, or ask the person to unlock it.`,
+        )
       if (problems.length)
         throw unprocessable(
           'row_does_not_fit',
           `${q(name)} cannot move from ${q(fromTitle)} to ${q(toTitle)} without losing something, so nothing was changed: ${problems.join('; ')}. A row moves only when every value it has fits a property of the same name and type there. Add or rename properties first (one_create_property, one_update_property), or ask the person.`,
         )
-      return { row, from, to, noop: false as const, values, fresh, carried }
+      return { row, from, to, noop: false as const, values, fresh, carried, adopting, rt }
     }
     const checked = await this.model.read(wsId, plan)
     if (checked.noop) return { id: checked.row.id, title: checked.row.title, databaseId: checked.to.page.id, note: `No change: the row is in ${q(titleOf(checked.to.page))} already.` }
@@ -389,7 +400,7 @@ export class McpTidy {
         const r = roots(doc)
         const p = plan(r)
         if (p.noop) return null
-        const { row, from, to, fresh } = p
+        const { row, from, to, fresh, adopting, rt } = p
         const values = { ...p.values }
         // —— changes from here on ——
         const pm = propsMapOf(to.ydb)
@@ -412,6 +423,10 @@ export class McpTidy {
         yp.set('order', nextOrder(r, to.page.id))
         yp.set('databaseId', to.page.id)
         yp.set('parentId', to.page.id)
+        // its record type: brought along (the target holds it then, with its properties), or gone → a plain row
+        let recordType: { name: string; added: string[] } | null = null
+        if (adopting && rt) recordType = { name: rt.name, added: attachRecordType(r, to.ydb, rt) }
+        else if (adopting) yp.delete('recordType')
         yp.set('updatedAt', Date.now())
         yp.set('updatedBy', actor)
         const ctx = this.model.context(wsId, r)
@@ -422,6 +437,7 @@ export class McpTidy {
           from: { id: from.page.id, title: titleOf(from.page) },
           database: titleOf(to.page),
           ...(added.length ? { addedOptions: added } : {}),
+          ...(recordType ? { recordType: { name: recordType.name, ...(recordType.added.length ? { addedProperties: recordType.added } : {}) } } : adopting ? { note: 'Its record type is gone: the row is a plain row there.' } : {}),
         }
       },
       actor,

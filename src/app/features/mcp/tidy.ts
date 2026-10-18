@@ -7,7 +7,7 @@
  * they ask the person on the way. Moving between Private and the workspace (team) is refused too.
  */
 import { t } from '../../i18n'
-import { inTemplate } from '../../store/selectors'
+import { inTemplate, isEffectivelyTrashed } from '../../store/selectors'
 import type { Database, ID, Page, PropertyDef, PropertyValue, SelectOption } from '../../store/types'
 import { isHandOnly, keyOwner, keyPropOf, keyText } from '../../store/keys'
 import { newId } from '../../lib/ids'
@@ -144,6 +144,8 @@ function planTrash(args: Record<string, unknown>): WritePlan {
       return withWriter(writer, () => {
         const gone = items.filter((x) => !live(x.page.id))
         if (gone.length) throw new McpToolError(`${gone.map((x) => q(titleOf(x.page))).join(', ')} is gone by now. Nothing was changed.`)
+        // one of One's own databases moved into (or below) a listed page while the card waited: refused as at plan time
+        for (const x of items) assertTreeNotSystem(x.page.id)
         for (const x of items) ws().trashPage(x.page.id)
         const note = 'Moved to the trash (nothing is deleted for good): one_restore_page or the trash in One brings it back.'
         return {
@@ -188,7 +190,7 @@ function liveTree(id: ID): Set<ID> {
   return out
 }
 
-/** A page as one_restore_page brought it back: its text, title, icon, cover, comment threads, place and values. */
+/** A page as one_restore_page brought it back: its text, title, icon, cover, comment threads, place and values — a database also its properties and views. */
 interface RestoredAs {
   rev: number
   key: string
@@ -200,7 +202,13 @@ const nonEmpty = (props: Page['properties'] | undefined) =>
     .filter(([, v]) => !(v === undefined || v === null || v === '' || (Array.isArray(v) && !v.length)))
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
 
-const restOf = (p: Page) => JSON.stringify([p.title, p.icon ?? null, p.cover ?? null, p.comments?.length ? p.comments : null, p.parentId ?? null, p.databaseId ?? null, nonEmpty(p.properties)])
+/** …and a database page its schema: a database set up again since (a column, a view) is the person's (as the team server's Restore, markOf). */
+const schemaOf = (id: ID) => {
+  const d = ws().databases[id]
+  return d ? [d.properties, d.views] : null
+}
+
+const restOf = (p: Page) => JSON.stringify([p.title, p.icon ?? null, p.cover ?? null, p.comments?.length ? p.comments : null, p.parentId ?? null, p.databaseId ?? null, nonEmpty(p.properties), schemaOf(p.id)])
 
 const restoredAs = (p: Page | undefined): RestoredAs => ({ rev: p?.contentRev ?? 0, key: contentKey(p?.content), rest: p ? restOf(p) : '' })
 
@@ -272,6 +280,7 @@ function planRestore(args: Record<string, unknown>): WritePlan {
         const before = items.map((x) => ({ id: x.page.id, parentId: ws().pages[x.page.id]?.parentId ?? null }))
         const moved = items.filter((x) => !ws().pages[x.page.id]?.trashed)
         if (moved.length) throw new McpToolError(`${moved.map((x) => q(titleOf(x.page))).join(', ')} is no longer in the trash. Nothing was changed.`)
+        for (const x of items) assertTreeNotSystem(x.page.id)
         for (const x of items) {
           ws().restorePage(x.page.id)
           // the store looks at the parent only; under a trashed grandparent it would stay out of sight
@@ -392,6 +401,9 @@ function planMovePage(args: Record<string, unknown>): WritePlan {
         const now = live(page.id)
         if (!now) throw new McpToolError(`${q(name)} is gone. Nothing was changed.`)
         if (parentId && !live(parentId)) throw new McpToolError(`${q(titleOf(ws().pages[parentId]))} is gone. Nothing was changed.`)
+        // moved into One's own databases while the card waited (the page or its new place): refused as at plan time
+        assertNotSystem(page.id)
+        assertNotSystem(parentId)
         const prev = { parentId: now.parentId, order: now.order }
         ws().movePage(page.id, parentId, storeIndex)
         const moved = ws().pages[page.id]
@@ -491,15 +503,19 @@ function mapRow(row: Page, from: Database, to: Database, toTitle: string): RowMa
   return out
 }
 
-/** Rows (of any database) whose relation values point at this row: they would lose it. */
+/**
+ * Live rows (of any database) whose relation values point at this row: they would lose it. Templates read as unknown
+ * over MCP (spec § 3.3) — a template's database or row is never named (and keeps no move from happening: the team
+ * server's moveRow does not look there either); rows in the trash (or below a page in it) do not count.
+ */
 function incomingLinks(row: Page): string[] {
   const { pages, databases } = ws()
   const hits: string[] = []
   for (const db of Object.values(databases)) {
     const rels = db.properties.filter((p) => p.type === 'relation' && p.relationDatabaseId === row.databaseId)
-    if (!rels.length) continue
+    if (!rels.length || !pages[db.id] || inTemplate(pages, db.id) || isEffectivelyTrashed(pages, db.id) || pages[db.id]!.trashed) continue
     for (const r of Object.values(pages)) {
-      if (r.databaseId !== db.id || r.trashed || r.id === row.id) continue
+      if (r.databaseId !== db.id || r.trashed || r.id === row.id || inTemplate(pages, r.id) || isEffectivelyTrashed(pages, r.id)) continue
       const prop = rels.find((p) => Array.isArray(r.properties[p.id]) && (r.properties[p.id] as string[]).includes(row.id))
       if (prop) hits.push(`${q(titleOf(r))} in ${q(titleOf(pages[db.id]))} (${q(prop.name)})`)
     }
@@ -575,6 +591,14 @@ function planMoveRow(args: Record<string, unknown>): WritePlan {
         const cur = live(row.id)
         const target = ws().databases[to.id]
         if (!cur || cur.databaseId !== from.id || !target || !live(to.id)) throw new McpToolError(`${q(name)} or ${q(toTitle)} changed meanwhile. Nothing was changed.`)
+        // either database moved into One's own databases while the card waited: refused as at plan time
+        assertNotSystem(from.id)
+        assertNotSystem(to.id)
+        // new options there are a schema change: a target locked while the card waited takes none
+        if (map.fresh.size && target.locked)
+          throw new McpToolError(
+            mcpError('locked', 'databaseId', `${q(toTitle)} was locked meanwhile: the option(s) ${[...map.fresh.values()].flat().map((o) => q(o.name)).join(', ')} cannot be added there`, 'Move it into a database that has those options, or ask the person to unlock it.'),
+          )
         // the type that would come along: a target locked while the card waited cannot take it
         if (adopting && rt && !(target.recordTypes ?? []).includes(typeId!) && target.locked) throw new McpToolError(mcpError('locked', 'databaseId', `${q(toTitle)} was locked meanwhile: the record type ${q(rt.name)} of ${q(name)} cannot come along`))
         const before = { properties: clone(cur.properties), order: cur.order, recordType: cur.recordType ?? null }

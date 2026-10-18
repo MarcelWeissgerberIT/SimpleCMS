@@ -39,6 +39,7 @@ import {
   type McpWorkspaceInfo,
 } from '../../src/shared/mcp/contract.ts'
 import { mcpError, withCode } from '../../src/shared/mcp/errors.ts'
+import { createsSomething } from '../../src/shared/mcp/duplicates.ts'
 
 /** A call its client cancelled (only that client would read it): every refusal starts with a code (spec § 2.0). */
 const CANCELLED = mcpError('rejected', '', 'The call was cancelled')
@@ -110,6 +111,8 @@ type Live = Conn & { info: AppInfo }
 
 interface InFlight {
   conn: Conn
+  /** the tool called (an older tab's creating answers carry a note — olderNote) */
+  tool?: McpToolName
   /** the workspace id the call is bound to (v2 tabs) */
   expected: string | null
   timer?: ReturnType<typeof setTimeout>
@@ -117,6 +120,10 @@ interface InFlight {
   arm: (ms: number, why: string) => void
   onPending?: (timeoutMs: number) => void
 }
+
+/** What an older tab's creating answer says (repeats are joined only by up-to-date tabs). */
+export const OLDER_REPEATS =
+  'This One tab is an older version: it does not recognise a repeated call — calling again makes it a second time. If you are unsure whether this call went through, read first (one_search, one_get_page) before you call again.'
 
 const MAX_PAYLOAD = 16 * 1024 * 1024
 const HELLO_MS = 5000
@@ -383,7 +390,7 @@ export class Bridge {
           const said = str(msg.error, 8000)
           return f.finish({ ok: false, error: !said ? 'rejected: The call failed in One. Nothing was confirmed — read what the call touches again before you call again.' : conn.info && conn.info.contract < 2 ? withCode(said) : said })
         }
-        f.finish(this.checked(f, msg.result ?? null))
+        f.finish(this.olderNote(f, this.checked(f, msg.result ?? null)))
         return
       }
     }
@@ -415,6 +422,15 @@ export class Bridge {
    * A tab's result. v2: it must name the workspace it ran in, and that must be the call's — anything
    * else is refused (the result never reaches the agent). v1 tabs can't say: their name is added.
    */
+  /**
+   * A creating call answered by an older One tab (contract 1): repeats are joined only by tabs of contract 2 (the
+   * instructions promise it for an up-to-date tab) — the answer says so, so a model reads before it repeats a call.
+   */
+  private olderNote(f: InFlight, out: CallOutcome): CallOutcome {
+    if (!out.ok || !f.tool || !createsSomething(f.tool) || (f.conn.info?.contract ?? 1) >= 2 || !isObj(out.result)) return out
+    return { ok: true, result: { ...out.result, repeatsJoined: false, note: OLDER_REPEATS } }
+  }
+
   private checked(f: InFlight, result: unknown): CallOutcome {
     const info = f.conn.info
     if (!f.conn.bound) {
@@ -528,6 +544,7 @@ export class Bridge {
       const entry: InFlight = {
         conn,
         expected,
+        tool,
         onPending: opts.onPending,
         arm: (ms, why) => {
           clearTimeout(entry.timer)

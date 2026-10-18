@@ -7,11 +7,11 @@
  */
 import { t } from '../../i18n'
 import type { Database, ID, Page } from '../../store/types'
-import { autofillOf } from '../../database'
+import { autofillOf, pairedRelationIn } from '../../database'
 import { findProp } from '../ai/agent/props'
 import { stageUpsert, ToolInputError, withReadLimit, withToolScope } from '../ai/agent/tools'
 import { pagePrivate } from '../ai/agent/workItems'
-import type { PropChange } from '../ai/agent/types'
+import type { PropChange, StagedChange } from '../ai/agent/types'
 import { fileDrop } from '../ai/claudeFiles'
 import { mcpError } from '../../../shared/mcp/errors'
 import { MCP_LIMITS } from '../../../shared/mcp/tables'
@@ -150,6 +150,45 @@ export function sideHold(parts: readonly SideEffects[]): { alwaysAsk: boolean; l
   return { alwaysAsk: true, lines: [{ k: 'note', value: t('features.mcp.plan.startsHold', { n: chars(n) }) }] }
 }
 
+/**
+ * Two-way relations: the rows a call's relation values link (or unlink) change too — their partner property links back
+ * (agent apply.ts syncPartners, as the app and the team server write them). Named on the card per partner database
+ * and property, with what that change starts there (sideEffects — counted into the call's sideHold).
+ */
+export function partnerPlan(changes: readonly StagedChange[], databases: Record<ID, Database> = ws().databases): { lines: PlanLine[]; sides: SideEffects[] } {
+  const { pages } = ws()
+  const per = new Map<string, { db: Database; propId: ID; name: string; rows: Set<ID> }>()
+  for (const c of changes) {
+    if (c.kind !== 'create_row' && c.kind !== 'update_row') continue
+    const rowId = c.kind === 'update_row' ? c.pageId : null
+    const dbId = c.kind === 'create_row' ? c.databaseId : (pages[c.pageId]?.databaseId ?? null)
+    const db = dbId ? databases[dbId] : undefined
+    if (!db) continue
+    for (const pc of c.props ?? []) {
+      if (pc.intent.kind !== 'value') continue
+      const prop = db.properties.find((p) => p.id === pc.propId)
+      const pair = prop ? pairedRelationIn(databases, db.id, prop) : null
+      if (!pair) continue
+      const before = new Set(rowId && Array.isArray(pages[rowId]?.properties[pc.propId]) ? (pages[rowId]!.properties[pc.propId] as ID[]) : [])
+      const after = new Set(Array.isArray(pc.intent.value) ? (pc.intent.value as ID[]) : [])
+      const touched = [...after].filter((id) => !before.has(id)).concat([...before].filter((id) => !after.has(id)))
+      if (!touched.length) continue
+      const key = `${pair.db.id}|${pair.prop.id}`
+      const e = per.get(key) ?? { db: pair.db, propId: pair.prop.id, name: pair.prop.name, rows: new Set<ID>() }
+      for (const id of touched) e.rows.add(id)
+      per.set(key, e)
+    }
+  }
+  const lines: PlanLine[] = []
+  const sides: SideEffects[] = []
+  for (const e of per.values()) {
+    const titles = [...e.rows].map((id) => q(titleOf(pages[id])))
+    lines.push({ k: 'fact', label: t('features.mcp.plan.linksBack'), value: `${titleOf(pages[e.db.id] ?? undefined)} · ${e.name}: ${titles.slice(0, 20).join(', ')}${titles.length > 20 ? ` ${t('features.mcp.plan.more', { n: chars(titles.length - 20) })}` : ''}` })
+    sides.push(sideEffects(e.db, e.rows.size, { props: new Set([e.propId]) }))
+  }
+  return { lines, sides }
+}
+
 /** The title property's id (a rename is a change of it for automations and agents watching it). */
 export const titlePropId = (db: Database): ID | null => db.properties.find((p) => p.type === 'title')?.id ?? null
 
@@ -214,9 +253,9 @@ export function planCreateRow(args: Record<string, unknown>): WritePlan {
   // every row checked (a later one too when an earlier one fails): one refusal names each row that does not fit
   eachEntry(items, (i) => `rows[${i}]`, (item) => (typeof item.title === 'string' ? item.title : null), (item, i) => {
     const split = splitTitle(db, item.properties, `${item.path}properties`)
-    const title = (str(item.title, `${item.path}title`, { max: 300 }) || split.title || '').replace(/\s+/g, ' ').trim()
+    const title = (str(item.title, `${item.path}title`, { max: MCP_LIMITS.title }) || split.title || '').replace(/\s+/g, ' ').trim()
     if (!title) throw new McpToolError(mcpError('bad_argument', `${item.path}title`, 'a row needs a title'))
-    const markdown = stripRefLabels(str(item.markdown, `${item.path}markdown`, { max: 200_000 }))
+    const markdown = stripRefLabels(str(item.markdown, `${item.path}markdown`, { max: MCP_LIMITS.text }))
     texts.push(markdown)
     checkFileScope(markdown, priv, q(title))
     checkFiles(db, split.props, priv, `${item.path}properties`)
@@ -247,8 +286,9 @@ export function planCreateRow(args: Record<string, unknown>): WritePlan {
     if (fresh.length) lines.push({ k: 'fact', label: t('features.mcp.plan.newOptions'), value: fresh.join(', ') })
   }
   const side = sideEffects(db, rows.length, { created: true, props: new Set() })
-  const hold = sideHold([side])
-  lines.push(...side.lines, ...hold.lines)
+  const partners = partnerPlan(stage.changes)
+  const hold = sideHold([side, ...partners.sides])
+  lines.push(...partners.lines, ...side.lines, ...partners.sides.flatMap((x) => x.lines), ...hold.lines)
   const items_ = itemPlan(stage.changes)
   lines.push(...items_.lines)
   const first = rows[0]?.props?.[0]
@@ -365,6 +405,10 @@ export function planUpdateRow(args: Record<string, unknown>): WritePlan {
   }
   // what each database's rows start; asked always when the whole call starts paid or outward work on enough rows
   const sides = [...byDb.values()].map((e) => sideEffects(e.db, e.rows, { created: false, props: e.props }))
+  // two-way relations: the linked (or unlinked) rows change too
+  const partners = partnerPlan(stage.changes)
+  lines.push(...partners.lines)
+  sides.push(...partners.sides)
   for (const side of sides) lines.push(...side.lines)
   const hold = sideHold(sides)
   lines.push(...hold.lines)
@@ -417,7 +461,7 @@ export function planUpsertRows(args: Record<string, unknown>): WritePlan {
     const o = r as Record<string, unknown>
     const extra = Object.keys(o).find((k) => !['key', 'title', 'properties', 'markdown'].includes(k))
     if (extra) throw new McpToolError(mcpError('bad_argument', `rows[${i}].${extra}`, `a row takes key, title, properties and markdown`))
-    const markdown = stripRefLabels(str(o.markdown, `rows[${i}].markdown`, { max: 100_000 }))
+    const markdown = stripRefLabels(str(o.markdown, `rows[${i}].markdown`, { max: MCP_LIMITS.upsertText }))
     texts.push(markdown)
     checkFileScope(markdown, priv, q(titleOf(dbPage)))
     if (o.properties && typeof o.properties === 'object' && !Array.isArray(o.properties)) checkFiles(db, o.properties as Record<string, unknown>, priv, `rows[${i}].properties`)
@@ -512,8 +556,10 @@ export function planUpsertRows(args: Record<string, unknown>): WritePlan {
   // what the new rows start, then what the changed ones start (a line both name is shown once); asked always when new
   // and changed rows together start paid or outward work on enough rows
   const same = (a: PlanLine, b: PlanLine) => JSON.stringify(a) === JSON.stringify(b)
-  const hold = sideHold([sideNew, sideOld])
-  lines.push(...sideNew.lines, ...sideOld.lines.filter((l) => !sideNew.lines.some((x) => same(x, l))), ...hold.lines)
+  // two-way relations: the linked (or unlinked) rows change too
+  const partners = partnerPlan(stage.changes)
+  const hold = sideHold([sideNew, sideOld, ...partners.sides])
+  lines.push(...partners.lines, ...sideNew.lines, ...sideOld.lines.filter((l) => !sideNew.lines.some((x) => same(x, l))), ...partners.sides.flatMap((x) => x.lines), ...hold.lines)
   const items = itemPlan(stage.changes)
   lines.push(...items.lines)
   const answer = (ids: Record<string, ID>) => ({

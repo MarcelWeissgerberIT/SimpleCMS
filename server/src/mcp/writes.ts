@@ -8,14 +8,15 @@ import * as Y from 'yjs'
 import type { Services } from '../context.ts'
 import { ApiError, notFound } from '../errors.ts'
 import { appendBlocks, fragmentText, holdsWorkItem, markdownToNodes } from '../api/content.ts'
-import { type PropertyDef, type Roots, TWO_WAY_SUFFIX, databaseMap, liveDatabase, livePage, newPageMap, nextOrder, pageMap, pairedRelation, propertiesMap, readOrdered, roots, rowsOf } from '../api/meta.ts'
+import { type PropertyDef, type Roots, TWO_WAY_SUFFIX, databaseMap, listNameOf, liveDatabase, livePage, newPageMap, nextOrder, pageMap, pairedRelation, propertiesMap, readOrdered, roots, rowsOf } from '../api/meta.ts'
 import { contentDoc, findProperty, metaDoc, type WorkspaceModel, type WriteOpts } from '../api/model.ts'
 import { checkKey, handOnlyMessage, isHandOnly } from '../api/keys.ts'
 import { schemaOut, type ValueContext } from '../api/values.ts'
 import { newId } from '../tokens.ts'
 import { assertNotSystem, PARTNER_SYSTEM, TWO_WAY_SYSTEM } from './system.ts'
 import { MCP_DEFAULT_PROPERTIES, MCP_DEFAULT_STATUS, MCP_LIMITS, MCP_PLAIN_MARKS, MCP_PLAIN_NODES, MCP_PROPERTY_TYPES } from '../../../src/shared/mcp/tables.ts'
-import { mcpError } from '../../../src/shared/mcp/errors.ts'
+import { listOptionText, mcpError } from '../../../src/shared/mcp/errors.ts'
+import { isIconError, mcpIcon } from '../../../src/shared/mcp/icon.ts'
 
 /** Property types an agent may add (the shared table: formula, rollup and button need settings the tools don't take). */
 export const CREATABLE_TYPES = MCP_PROPERTY_TYPES
@@ -45,7 +46,7 @@ interface Option {
 export const unprocessable = (code: string, message: string) => new ApiError(422, code, message)
 
 /** The longest title a call may give (the bridge's limit, before its whitespace is collapsed). */
-export const MCP_TITLE_MAX = 300
+export const MCP_TITLE_MAX = MCP_LIMITS.title
 
 /**
  * A title as the bridge takes it over MCP (one_update_page, a row's title through `properties`): whitespace collapsed,
@@ -108,15 +109,37 @@ export function lossyIn(doc: Y.Doc): string[] {
   return [...out]
 }
 
-/** PageIcon JSON from the tools' icon string: an emoji, `asset:<name>` or `lucide:<Name>`; '' clears. */
+/**
+ * PageIcon JSON from the tools' icon string: an emoji, `asset:<name>` or `lucide:<Name>`; '' clears — the local bridge's
+ * rule (shared/mcp/icon.ts): a word is no icon (it would show as one in every member's sidebar).
+ */
 export function iconIn(raw: string | null | undefined): unknown {
-  if (raw === undefined) return undefined
-  const s = (raw ?? '').trim()
-  if (!s) return null
-  const m = /^(asset|lucide):([A-Za-z0-9_-]{1,64})$/.exec(s)
-  if (m) return { type: m[1], value: m[2] }
-  if (s.length > 16 || /[\s<>]/.test(s)) throw unprocessable('invalid_icon', 'icon is one emoji, "asset:<name>" or "lucide:<IconName>" ("" removes it)')
-  return { type: 'emoji', value: s }
+  const icon = mcpIcon(raw)
+  if (isIconError(icon)) throw unprocessable('invalid_icon', `bad_argument: ${icon.error}.`)
+  return icon
+}
+
+/**
+ * Option names a row value gives, as the app's agent takes them (ai/agent/props.ts): a name that is no option of the
+ * property yet is cut to MCP_LIMITS.optionName — the option that is made carries the cut name, and so does the value.
+ */
+export function cutOptionNames(prop: PropertyDef, raw: unknown): unknown {
+  if (prop.type !== 'select' && prop.type !== 'multi_select') return raw
+  const known = (n: string) => (prop.options ?? []).some((o) => o.id === n.trim() || o.name.trim().toLowerCase() === n.trim().toLowerCase())
+  const cut = (n: string) => (known(n) ? n : n.trim().slice(0, MCP_LIMITS.optionName))
+  if (typeof raw === 'string') return prop.type === 'multi_select' && !known(raw) ? raw.split(',').map(cut).join(',') : cut(raw)
+  if (Array.isArray(raw)) return raw.map((x) => (typeof x === 'string' ? cut(x) : x))
+  return raw
+}
+
+/**
+ * A select bound to a shared list (the app's building blocks): its options are the list's — an option added to the
+ * property alone would go with the next list edit and leave its values pointing at nothing. Refused, as the bridge and
+ * the app's agents refuse it.
+ */
+export function assertNoListOption(r: Roots, prop: PropertyDef, fresh: readonly string[]): void {
+  if (!prop.listId || !fresh.length) return
+  throw unprocessable('invalid_value', `"${prop.name}" (${prop.type}): ${listOptionText(fresh[0]!, listNameOf(r, prop.listId))}. Use one of: ${(prop.options ?? []).map((o) => JSON.stringify(o.name)).join(', ')}.`)
 }
 
 function options(type: string, input: OptionInput[] | undefined): Option[] | undefined {
@@ -128,7 +151,8 @@ function options(type: string, input: OptionInput[] | undefined): Option[] | und
   const seen = new Set<string>()
   return input.map((o, i) => {
     const spec = typeof o === 'string' ? { name: o } : o
-    const name = spec.name.trim()
+    // as the bridge takes them (plan.ts optionsOf): whitespace collapsed, cut to MCP_LIMITS.optionName
+    const name = spec.name.replace(/\s+/g, ' ').trim().slice(0, MCP_LIMITS.optionName)
     if (!name) throw unprocessable('invalid_option', 'Option names cannot be empty')
     if (seen.has(name.toLowerCase())) throw unprocessable('invalid_option', `Option "${name}" is listed twice`)
     seen.add(name.toLowerCase())
@@ -153,7 +177,7 @@ export function assertNoSystemPartner(r: Roots, dbId: string, prop: PropertyDef,
 }
 
 function definition(r: Roots, input: PropertyInput, selfId: string | null): PropertyDef {
-  const name = input.name.trim()
+  const name = input.name.replace(/\s+/g, ' ').trim()
   if (!name) throw unprocessable('invalid_property', 'A property needs a name')
   const def: PropertyDef = { id: newId(), name, type: input.type }
   const opts = options(input.type, input.options)
@@ -239,6 +263,12 @@ export class McpWrites {
       preimageAppend?: boolean
     } = {},
   ) {
+    // over MCP, as the bridge answers it: a call that names nothing to change, or an append of nothing, is refused —
+    // never a write that only stamps the page as edited by the token
+    if (opts.mcp && input.title === undefined && input.icon === undefined && input.markdown === undefined)
+      throw unprocessable('invalid_request', mcpError('bad_argument', '', 'Nothing to change: pass "title", "icon" and/or "markdown"'))
+    if (opts.mcp && input.markdown !== undefined && input.mode === 'append' && !input.markdown.trim())
+      throw unprocessable('invalid_request', mcpError('bad_argument', 'markdown', '"markdown" is empty: nothing to append'))
     const icon = iconIn(input.icon)
     const content = input.markdown !== undefined && (input.mode === 'replace' || input.markdown.trim())
     const check = (r: Roots) => {
@@ -251,6 +281,13 @@ export class McpWrites {
       return page
     }
     const before = await this.model.read(wsId, check)
+    // what the call changes (the bridge's `changed`): a title or icon equal to the page's is no change and not written
+    const sameIcon = (now: unknown) => JSON.stringify(now ?? null) === JSON.stringify(icon ?? null)
+    const titleNew = (now: string) => input.title !== undefined && input.title !== now
+    const iconNew = (now: unknown) => icon !== undefined && !sameIcon(now)
+    const head = await this.model.read(wsId, (r) => ({ title: String(pageMap(r, input.id)?.get('title') ?? ''), icon: pageMap(r, input.id)?.get('icon') }))
+    if (opts.mcp && !content && !titleNew(head.title) && !iconNew(head.icon))
+      return { id: input.id, title: before.title, url: this.model.url(wsId, input.id), changed: [] as string[], note: 'No change: the page already looks like that.' }
     let plain: string | undefined
     /** the call's pre-image: what the content was (replace), or what this call added (append) */
     let undoContent: ((doc: Y.Doc) => void) | null = null
@@ -308,7 +345,7 @@ export class McpWrites {
         actor,
       )
     }
-    let page: { id: string; title: string }
+    let page: { id: string; title: string; changed: string[] }
     try {
       page = await this.s.collab.write(
         metaDoc(wsId),
@@ -316,12 +353,22 @@ export class McpWrites {
           const r = roots(doc)
           check(r)
           const yp = pageMap(r, input.id)!
-          if (input.title !== undefined) yp.set('title', input.title)
-          if (icon !== undefined) yp.set('icon', icon)
+          const changed: string[] = []
+          if (titleNew(String(yp.get('title') ?? ''))) {
+            yp.set('title', input.title)
+            changed.push('title')
+          }
+          if (iconNew(yp.get('icon'))) {
+            yp.set('icon', icon)
+            changed.push('icon')
+          }
           if (plain !== undefined) yp.set('plain', plain)
-          yp.set('updatedAt', Date.now())
-          yp.set('updatedBy', actor)
-          return { id: input.id, title: String(yp.get('title') ?? '') }
+          if (content) changed.push('content')
+          if (changed.length || !opts.mcp) {
+            yp.set('updatedAt', Date.now())
+            yp.set('updatedBy', actor)
+          }
+          return { id: input.id, title: String(yp.get('title') ?? ''), changed }
         },
         actor,
       )
@@ -335,7 +382,8 @@ export class McpWrites {
       throw err
     }
     this.s.log.info('mcp page updated', { workspace: wsId, page: input.id, content: input.markdown !== undefined ? input.mode : undefined, by: actor })
-    return { ...page, url: this.model.url(wsId, input.id), ...(input.markdown !== undefined ? { content: input.mode } : {}) }
+    const { changed, ...rest } = page
+    return { ...rest, url: this.model.url(wsId, input.id), ...(opts.mcp ? { changed } : {}), ...(input.markdown !== undefined && (content || !opts.mcp) ? { content: input.mode } : {}) }
   }
 
   /* ---------------------------------------------------------------- rows */
@@ -374,9 +422,12 @@ export class McpWrites {
         if (opts.mcp && prop.type === 'files') checkFilesValue(prop.name, raw, ctx.files)
         // a two-way relation writes its partner rows too (model.ts syncPartners): never into One's own databases
         if (opts.mcp) assertNoSystemPartner(r, db.page.id, prop, `properties.${prop.name}`)
-        properties[key] = friendlyIn(r, prop, raw, ctx)
+        const value = cutOptionNames(prop, raw)
+        properties[key] = friendlyIn(r, prop, value, ctx)
         if (prop.type === 'select' || prop.type === 'multi_select') {
-          const fresh = optionNames(prop, raw).filter((n) => !(prop.options ?? []).some((o) => o.id === n || o.name.trim().toLowerCase() === n.toLowerCase()))
+          const fresh = optionNames(prop, value).filter((n) => !(prop.options ?? []).some((o) => o.id === n || o.name.trim().toLowerCase() === n.toLowerCase()))
+          // a select bound to a shared list takes no option of its own (before anything is written)
+          if (db.ydb.get('locked') !== true) assertNoListOption(r, prop, fresh)
           if (fresh.length) added.set(prop.id, [...new Set(fresh)])
         }
       }

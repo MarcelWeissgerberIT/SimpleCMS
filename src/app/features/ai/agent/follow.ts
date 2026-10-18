@@ -98,14 +98,25 @@ interface Follow {
  * autofill, the kit, a script an automation ran (a derived writer whose `cause` chain names the call, store/writer.ts) —
  * counts as the page as the call left it, so its Undo still takes it back. Such a write moves only the parts it changed,
  * and only while they were still as the call left them (an edit of the person's before it stays an edit); anyone
- * else's write never moves the baseline. One store listener for all, idle unless such a writer writes.
+ * else's write never moves the baseline. One store listener for all, idle unless such a writer writes, and gone when
+ * nothing is followed (a follow ends when its Undo ran, when the Undo went without running — `releaseFollows` — or when
+ * its page is deleted for good).
  */
 const followed = new Set<Follow>()
 let unfollow: (() => void) | null = null
 
+function drop(f: Follow): void {
+  followed.delete(f)
+  if (!followed.size && unfollow) {
+    unfollow()
+    unfollow = null
+  }
+}
+
 /**
  * Follow page `id` from `base` (as the call left it) for the writes `calls` (writer keys: the call's, a script run it
- * started …) set off. `base()` reads the baseline now; `stop()` ends the follow (call it when the Undo ran or went).
+ * started …) set off. `base()` reads the baseline now; `stop()` ends the follow (the Undo ran); an Undo that goes
+ * without running ends every follow of its call with `releaseFollows(call)`.
  */
 export function followCall(id: ID, calls: WriterKey | readonly WriterKey[], base: MadeAs): { base: () => MadeAs; stop: () => void } {
   const f: Follow = { id, calls: new Set(typeof calls === 'string' ? [calls] : calls), base }
@@ -117,18 +128,21 @@ export function followCall(id: ID, calls: WriterKey | readonly WriterKey[], base
     for (const g of followed) {
       const now = s.pages[g.id]
       const before = prev.pages[g.id]
-      if (!now) followed.delete(g)
+      if (!now) drop(g)
       else if (before && now !== before && [...g.calls].some((c) => causes.has(c))) moveBase(g.base, before, now)
     }
   })
-  return {
-    base: () => f.base,
-    stop: () => {
-      followed.delete(f)
-      if (!followed.size && unfollow) {
-        unfollow()
-        unfollow = null
-      }
-    },
-  }
+  return { base: () => f.base, stop: () => drop(f) }
 }
+
+/**
+ * The Undo of `call` (a writer key) went without running — its activity entry left the log (trimmed, cleared), an
+ * eject settled the call, or the Undo ran and skipped parts: every follow of that call ends (nothing reads its baseline
+ * any more), and the store listener goes with the last one.
+ */
+export function releaseFollows(call: WriterKey): void {
+  for (const f of [...followed]) if (f.calls.has(call)) drop(f)
+}
+
+/** How many pages are followed now (DEV / ?e2e seam: a leak shows here). */
+export const followCount = (): number => followed.size

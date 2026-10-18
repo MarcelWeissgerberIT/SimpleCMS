@@ -18,6 +18,8 @@ import { databaseOrThrow, iconText, McpToolError, pageUrl, propertyJson, q, titl
 import { withWriter } from '../../store/writer'
 import { sideEffects, sideHold } from './rows'
 import { assertNotSystem } from './system'
+import { canBeHandOnly, canBeKey } from '../../store/keys'
+import { MCP_LIMITS } from '../../../shared/mcp/tables'
 
 /* ------------------------------------------------------------------ */
 /* Lookups                                                             */
@@ -68,7 +70,7 @@ function planUpdateDatabase(args: Record<string, unknown>): WritePlan {
   const name = titleOf(page)
   if (args.locked !== undefined && args.locked !== null)
     throw new McpToolError(`Locking and unlocking ${q(name)} is the person's decision in One (the lock in the database's toolbar), so agents cannot change it. Nothing was changed.`)
-  const title = args.title === undefined || args.title === null ? null : cleanName(args.title, 'title')
+  const title = args.title === undefined || args.title === null ? null : cleanName(args.title, 'title', MCP_LIMITS.title)
   if (title === '') throw new McpToolError('"title" must not be empty.')
   const icon = parseIcon(args.icon)
   if (title === null && icon === undefined) throw new McpToolError('Nothing to change: pass "title" and/or "icon".')
@@ -298,6 +300,12 @@ interface OptionPlan {
 
 function optionPlan(prop: PropertyDef, raw: unknown): OptionPlan {
   if (!SELECTISH.has(prop.type)) throw new McpToolError(`"options": ${q(prop.name)} is ${prop.type} — options belong to select, multi_select and status.`)
+  // a select bound to a shared list (features/kit): the list owns its options — every list edit writes them into the
+  // property again, so an option changed here alone would vanish (and the values with it); they change in One
+  if (prop.listId)
+    throw new McpToolError(
+      `bad_argument: options: ${q(prop.name)} takes its options from the shared list ${q(ws().kit?.lists[prop.listId]?.name ?? '?')}: they are added, renamed or removed there, in One (Building blocks). Nothing was changed. Ask the person to change the list.`,
+    )
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new McpToolError('"options" must be an object: {add?, update?, remove?}.')
   const o = raw as Record<string, unknown>
   const list = (k: string) => {
@@ -327,7 +335,7 @@ function optionPlan(prop: PropertyDef, raw: unknown): OptionPlan {
     if (removed.has(hit.id)) throw new McpToolError(`options.update: ${q(hit.name)} is also being removed.`)
     const next = { ...hit }
     if (e.newName !== undefined && e.newName !== null) {
-      const nn = cleanName(e.newName, 'options.update.newName', 60)
+      const nn = cleanName(e.newName, 'options.update.newName', MCP_LIMITS.optionName)
       if (!nn) throw new McpToolError('options.update: "newName" must not be empty.')
       if (options.some((x) => x.id !== hit.id && norm(x.name) === norm(nn))) throw new McpToolError(`options.update: ${q(prop.name)} has an option ${q(nn)} already.`)
       if (nn !== hit.name) lines.push({ k: 'fact', label: t('features.mcp.plan.renameOption'), value: `${hit.name} → ${nn}` })
@@ -368,7 +376,7 @@ function planUpdateProperty(args: Record<string, unknown>): WritePlan {
   const patch: Partial<PropertyDef> = {}
   const changed: string[] = []
   if (args.name !== undefined && args.name !== null) {
-    const name = cleanName(args.name, 'name', 100)
+    const name = cleanName(args.name, 'name', MCP_LIMITS.propertyName)
     if (!name) throw new McpToolError('"name" must not be empty.')
     if (db.properties.some((p) => p.id !== prop.id && norm(p.name) === norm(name))) throw new McpToolError(`${q(title)} already has a property named ${q(name)}.`)
     if (name !== prop.name) {
@@ -448,6 +456,11 @@ function planUpdateProperty(args: Record<string, unknown>): WritePlan {
         const full: Partial<PropertyDef> = { ...patch }
         if (toType) {
           full.type = toType
+          // a plain type afterwards, as the app converts one (database/model/actions.ts): no own type, no shared list —
+          // a key stays one only where a type can be a key, "Only by hand" only where values are written
+          Object.assign(full, { custom: undefined, listId: undefined })
+          if (prop.key && !canBeKey({ type: toType })) full.key = undefined
+          if (prop.agentReadOnly && !canBeHandOnly({ type: toType })) full.agentReadOnly = undefined
           let options: SelectOption[] | undefined
           if (SELECTISH.has(toType)) {
             if (SELECTISH.has(prop.type)) options = (prop.options ?? []).map((o) => (toType === 'status' ? { ...o, group: o.group ?? 'todo' } : { id: o.id, name: o.name, color: o.color }))
@@ -457,7 +470,7 @@ function planUpdateProperty(args: Record<string, unknown>): WritePlan {
               for (const r of allRows(db.id)) {
                 const text = typeof r.properties[prop.id] === 'string' ? (r.properties[prop.id] as string) : ''
                 for (const part of toType === 'multi_select' ? text.split(',') : [text]) {
-                  const n = part.replace(/\s+/g, ' ').trim().slice(0, 60)
+                  const n = part.replace(/\s+/g, ' ').trim().slice(0, MCP_LIMITS.optionName)
                   if (n && !options.some((o) => norm(o.name) === norm(n)) && options.length < 200) options.push({ id: newId(), name: n, color: palette[options.length % palette.length] })
                 }
               }

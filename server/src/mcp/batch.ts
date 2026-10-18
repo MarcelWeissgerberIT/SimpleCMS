@@ -23,7 +23,7 @@ import { keyHolders } from '../agents/stage.ts'
 import { ValueError, type ValueContext } from '../api/values.ts'
 import { newId } from '../tokens.ts'
 import { assertNotSystem } from './system.ts'
-import { McpWrites, assertNoSystemPartner, checkFilesValue, cleanRowTitle, friendlyIn, iconIn, optionNames, unprocessable, type PropertyInput } from './writes.ts'
+import { McpWrites, assertNoListOption, assertNoSystemPartner, checkFilesValue, cleanRowTitle, cleanTitle, cutOptionNames, friendlyIn, iconIn, optionNames, unprocessable, type PropertyInput } from './writes.ts'
 import { defaultView, viewChange, type View, type ViewInput } from './structure.ts'
 import { McpPreimages, fragmentSnapshot, putValues, textHash, type Recorder } from './preimages.ts'
 import { docJson } from './pageRead.ts'
@@ -77,10 +77,27 @@ function eachRow<T, R>(items: readonly T[], label: (item: T, i: number) => strin
  * A failed call whose compensating write failed too: its error says that part of it stays (never "Nothing was changed" —
  * the remedy is not added to a message that says what was, shared/mcp/errors.ts withRemedy).
  */
-function partly(err: unknown): unknown {
-  if (!(err instanceof ApiError)) return err
+export function partly(err: unknown): unknown {
+  // a fault of the server's own on the way, and the rollback failed too: what stays is not known
+  if (!(err instanceof ApiError))
+    return new ApiError(500, 'rejected', 'rejected: The tool failed on the team server, and part of what the call wrote could not be taken back; nothing was retried — read what it touched again (one_get_page, one_query_database) before calling again.')
   const what = err.message.replace(/\s*Nothing was changed\..*$/s, '').trim()
   return new ApiError(err.status, err.code, `${what}${/[.!?]$/.test(what) ? '' : '.'} Part of what the call wrote could not be taken back; nothing was retried — read what it touched again before calling again.`, { details: err.details })
+}
+
+/**
+ * A new row's title as the bridge takes it (writes.ts cleanTitle): whitespace collapsed, at most MCP_LIMITS.title — given
+ * as `title` or through its properties (an empty one falls back to the other, and none at all is refused later).
+ */
+function titledRow(props: ReadonlyArray<PropertyDef>, row: RowItem): RowItem {
+  const out: RowItem = { ...row }
+  if (typeof row.title === 'string' && row.title.trim()) out.title = cleanTitle(row.title, 'title', 'the title')
+  if (row.properties) {
+    const titleProp = props.find((p) => p.type === 'title')
+    const filled = Object.fromEntries(Object.entries(row.properties).filter(([k, v]) => !(typeof v === 'string' && !v.trim() && (k.trim().toLowerCase() === 'title' || findProperty(props as PropertyDef[], k)?.id === titleProp?.id))))
+    out.properties = cleanRowTitle(props, filled)
+  }
+  return out
 }
 
 /** What a board groups by when the call names nothing (the bridge's rule): the first of these types. */
@@ -169,9 +186,12 @@ export class McpBatch {
       if (prop.type === 'files') checkFilesValue(prop.name, raw, ctx.files)
       // a two-way relation writes its partner rows too: never into One's own databases
       assertNoSystemPartner(r, db.page.id, prop, `properties.${prop.name}`)
-      properties[key] = friendlyIn(r, prop, raw, ctx)
+      const value = cutOptionNames(prop, raw)
+      properties[key] = friendlyIn(r, prop, value, ctx)
       if (prop.type === 'select' || prop.type === 'multi_select') {
-        const fresh = optionNames(prop, raw).filter((n) => !(prop.options ?? []).some((o) => o.id === n || o.name.trim().toLowerCase() === n.toLowerCase()))
+        const fresh = optionNames(prop, value).filter((n) => !(prop.options ?? []).some((o) => o.id === n || o.name.trim().toLowerCase() === n.toLowerCase()))
+        // a select bound to a shared list takes no option of its own (writes.ts assertNoListOption)
+        if (db.ydb.get('locked') !== true) assertNoListOption(r, prop, fresh)
         if (fresh.length) added.set(prop.id, [...new Set(fresh)])
       }
     }
@@ -284,7 +304,8 @@ export class McpBatch {
       const key = keyPropOf(db.properties)
       const keys = new Map<string, number>()
       // every row checked: one refusal names each row that does not fit (as the bridge)
-      eachRow(input.rows, (row) => row.title?.trim() || null, (row, i) => {
+      eachRow(input.rows, (row) => row.title?.trim() || null, (raw, i) => {
+        const row = (input.rows[i] = titledRow(db.properties, raw))
         const { values, title } = this.checkRow(r, db, row, null, ctx)
         if (!title?.trim()) throw refuse(422, 'bad_argument', 'title', 'a row needs a title')
         // the key stays unique among the rows of the call too
@@ -398,7 +419,7 @@ export class McpBatch {
         if (found.length > 1) return fail(`${found.length} rows have this key — it does not identify one row`)
         try {
           if (!found.length) {
-            const row: RowItem = { title: item.title?.trim() || k, properties: { ...props, [keyProp.name]: item.key }, markdown: item.markdown }
+            const row: RowItem = titledRow(db.properties, { title: item.title?.trim() || k, properties: { ...props, [keyProp.name]: item.key }, markdown: item.markdown })
             this.checkRow(r, db, row, null, ctx)
             return { key: k, action: 'created', row }
           }
@@ -415,7 +436,8 @@ export class McpBatch {
               pids.push(pid)
             }
           }
-          const title = item.title?.trim() && item.title.trim() !== page.title.trim() ? item.title.trim() : undefined
+          const clean = item.title?.trim() ? cleanTitle(item.title, 'title', 'the title') : undefined
+          const title = clean && clean !== page.title.trim() ? clean : undefined
           // its text: whether the page is empty is read from its content below (a picture or a divider is no empty page)
           const md = item.markdown?.trim() ? item.markdown : undefined
           const locked = (pageMap(r, id)?.get('settings') as { locked?: unknown } | undefined)?.locked === true
@@ -525,9 +547,11 @@ export class McpBatch {
       if (mixed) throw refuse(422, 'bad_argument', mixed, 'with "pages" each page carries its own title, markdown and icon; a batch comes in list order')
       if (input.pages!.length > MCP_LIMITS.pages) throw refuse(413, 'too_large', 'pages', `${input.pages!.length} pages (at most ${MCP_LIMITS.pages} per call)`)
     } else if (!input.title?.trim()) throw refuse(422, 'bad_argument', 'title', 'a page needs a title (or pass "pages")')
+    // titles as the bridge takes them (writes.ts cleanTitle): whitespace collapsed, at most MCP_LIMITS.title
+    const titleAt = (raw: string, path: string) => (raw.trim() ? cleanTitle(raw, path) : '')
     const items = batch
-      ? input.pages!.map((p) => ({ title: p.title.replace(/\s+/g, ' ').trim(), parent: p.parentId?.trim() || input.parentId || null, own: !!p.parentId?.trim(), markdown: p.markdown ?? '', icon: p.icon }))
-      : [{ title: input.title!.replace(/\s+/g, ' ').trim(), parent: input.parentId || null, own: false, markdown: input.markdown ?? '', icon: input.icon }]
+      ? input.pages!.map((p, i) => ({ title: titleAt(p.title, `pages[${i}].title`), parent: p.parentId?.trim() || input.parentId || null, own: !!p.parentId?.trim(), markdown: p.markdown ?? '', icon: p.icon }))
+      : [{ title: titleAt(input.title!, 'title'), parent: input.parentId || null, own: false, markdown: input.markdown ?? '', icon: input.icon }]
     const total = items.reduce((n, p) => n + p.markdown.length, 0)
     if (total > MCP_LIMITS.pagesChars) throw refuse(413, 'too_large', 'pages', `the pages hold ${total.toLocaleString('en')} characters in all (at most ${MCP_LIMITS.pagesChars.toLocaleString('en')})`)
     const link = input.linkInParent ?? 'none'
@@ -734,7 +758,8 @@ export class McpBatch {
         const ctx = this.model.context(wsId, r)
         const db = { page: { id: 'draft' } as PageInfo, ydb: new Y.Map<unknown>(), properties: draft.defs }
         // every row checked: one refusal names each row that does not fit (as the bridge)
-        eachRow(input.rows!, (row) => row.title?.trim() || null, (row) => {
+        eachRow(input.rows!, (row) => row.title?.trim() || null, (given, i) => {
+          const row = (input.rows![i] = titledRow(draft.defs, given))
           for (const [key, raw] of Object.entries(row.properties ?? {})) {
             const prop = findProperty(draft.defs, key)
             if (prop && (prop.type === 'select' || prop.type === 'multi_select')) {

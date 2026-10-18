@@ -14,6 +14,8 @@ import { live, McpToolError, q, ws } from './values'
 import type { Writer } from '../../store/writer'
 import { privateRefsFor, privateScopeRefusal } from '../ai/claudeFiles'
 import { batchRefusal, codeOf, mcpError } from '../../../shared/mcp/errors'
+import { MCP_LIMITS } from '../../../shared/mcp/tables'
+import { isIconError, mcpIcon } from '../../../shared/mcp/icon'
 
 /** One line of the approval card. */
 export type PlanLine =
@@ -83,17 +85,10 @@ export const cleanName = (v: unknown, key: string, max = 300) => str(v, key, { m
 
 /** An emoji, "asset:<name>" or "lucide:<Name>" → icon; '' / null → remove; undefined → leave as is. */
 export function parseIcon(raw: unknown): PageIcon | null | undefined {
-  if (raw === undefined) return undefined
-  if (raw === null || raw === '') return null
-  const hint = 'an emoji (e.g. "🚀"), "asset:<name>" or "lucide:<IconName>" ("" removes the icon)'
-  if (typeof raw !== 'string') throw new McpToolError(`"icon" must be ${hint}.`)
-  const s = raw.trim()
-  if (!s) return null
-  const named = /^(asset|lucide):([A-Za-z0-9_-]{1,64})$/.exec(s)
-  if (named) return named[1] === 'asset' ? { type: 'asset', value: named[2] } : { type: 'lucide', value: named[2] }
-  const emoji = s.length <= 16 && !/[A-Za-z\s<>]/.test(s) && /\p{Extended_Pictographic}|\p{Regional_Indicator}|\u{20E3}/u.test(s)
-  if (!emoji) throw new McpToolError(`"icon" must be ${hint} — got ${q(s.slice(0, 40))}.`)
-  return { type: 'emoji', value: s }
+  // the shared rule (shared/mcp/icon.ts): the team server takes the same icons and refuses the same words
+  const icon = mcpIcon(raw)
+  if (isIconError(icon)) throw new McpToolError(`${icon.error}.`)
+  return icon as PageIcon | null | undefined
 }
 
 /** The first lines of Markdown for the card. */
@@ -145,7 +140,7 @@ export function optionsOf(type: PropertyType, raw: unknown, key: string, start =
   for (const item of raw as unknown[]) {
     const o = typeof item === 'string' ? { name: item } : item && typeof item === 'object' && !Array.isArray(item) ? (item as Record<string, unknown>) : null
     if (!o || typeof o.name !== 'string') throw new McpToolError(mcpError('bad_argument', key, 'every option is a name or {name, color, group}'))
-    const name = o.name.replace(/\s+/g, ' ').trim().slice(0, 60)
+    const name = o.name.replace(/\s+/g, ' ').trim().slice(0, MCP_LIMITS.optionName)
     if (!name || opts.some((x) => x.name.toLowerCase() === name.toLowerCase())) continue
     const color = colorOf(o.color)
     const group = o.group === 'todo' || o.group === 'in_progress' || o.group === 'done' ? o.group : undefined

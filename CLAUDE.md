@@ -1283,6 +1283,9 @@ the public APIs stable — other areas are built against them in parallel.
   the same rules: never delete for good, locked databases refuse structure changes, no page ⇄ entry or Private ⇄ shared
   moves; keep `MCP_TYPE_CHANGES` / `MCP_VIEW_TYPES` (contract.ts) in step with the server's `TYPE_CHANGES` /
   `VIEW_TYPES`. The codeword `one:` (instructions line) and the prompt `one` are served by the bridge and by `/mcp`.
+  Limits (titles, names, option names, Markdown) and the icon rule come only from src/shared/mcp (`MCP_LIMITS`,
+  icon.ts `mcpIcon`) on both ways in; a list-bound select (`PropertyDef.listId`) takes no new option over MCP, agents
+  or the server (`listOptionText`) — the list is changed in One; a type change unbinds it.
 - MCP addresses workspaces by id (`local:<hash>` / `team:<id>`, features/mcp/identity.ts; per-browser localStorage
   `one.mcp.device`); every bridge call is bound to that id and refused on a mismatch — never act in another workspace.
 - MCP task tools (local bridge only until server parity, bridge ≥ 1.8.0): `one_list_work_items` (read, JSON) and

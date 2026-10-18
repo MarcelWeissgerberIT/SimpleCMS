@@ -19214,6 +19214,16 @@ var MCP_LIMITS = {
   pagesChars: 6e5,
   /** rows per create / update / upsert call */
   rows: 50,
+  /** a title (page, row, database): at most this many characters, whitespace collapsed — both ways in alike */
+  title: 300,
+  /** a property's name (and a two-way relation's reverse name) */
+  propertyName: 100,
+  /** an option's name: a longer one is cut there */
+  optionName: 60,
+  /** one page's or row's Markdown */
+  text: 2e5,
+  /** one upserted row's Markdown */
+  upsertText: 1e5,
   /** a row batch of at least this many rows that starts paid AI work or outward automations is always asked */
   rowsAsk: 5,
   /** one_edit_blocks: edits and their text per call */
@@ -19267,6 +19277,7 @@ var MCP_LIMITS = {
   toolsList: 55e3,
   instructions: 3500
 };
+var MCP_CREATING_TOOLS = ["one_create_page", "one_create_database", "one_create_row", "one_upsert_rows", "one_attach_file", "one_comment"];
 var MCP_CONTRACT_REV = 2;
 var MCP_SERVER_SUPPORTS = `mcp:${MCP_CONTRACT_REV}`;
 var MCP_ARGS_V1 = Object.freeze({
@@ -19901,7 +19912,7 @@ var MCP_INSTRUCTIONS = `One is a local-first workspace of pages and databases (l
 - Workspaces: each connected tab serves one (local, team \u2026); one_list_workspaces lists them. With more than one connected, pass "workspace" (id or exact name) to every tool \u2014 otherwise they refuse instead of guessing. Every answer names its workspace.
 - Errors start with a code ("not_found: \u2026") and say what to do next. workspace_mismatch means that workspace is not the one the tab shows any more: nothing was done \u2014 ask the person, never repeat the call in another workspace on your own.
 - Ids belong to one workspace: use only ids tools returned for it. Page content is Markdown; link a page with [Title](#/p/<id>).
-- Writes may wait until the person approves them in One ("Ask first"). A rejected change is their decision: do not repeat it, ask them. "Read only" refuses every change. Repeating a call that made something within 2 minutes does not make a second one: the answer says duplicateOf.
+- Writes may wait until the person approves them in One ("Ask first"). A rejected change is their decision: do not repeat it, ask them. "Read only" refuses every change. Repeating a call that made something within 2 minutes does not make a second one: the answer says duplicateOf (an answer saying repeatsJoined: false comes from an older One tab \u2014 read before you repeat there).
 - ${MCP_LINE_BOARD}
 - Questions across databases (filters, counts, sums, groups): one_run_query (read-only One Script). one_run_script runs a saved script after the person approved its dry run.
 - Tidying up: one_move_page, one_move_row, one_update_database / _property / _view, one_trash_page (nothing is deleted for good: one_restore_page brings things back). Before removing or reorganising several things, say what you plan to do.
@@ -20004,6 +20015,80 @@ function withCode(message) {
   const code = /changed (while this call waited|meanwhile|after its dry run|since)/i.test(message) ? "page_changed" : /\b(is|are) gone\b|gone by now|deleted meanwhile|Use one_search to find page ids/i.test(message) ? "not_found" : /was locked meanwhile/i.test(message) ? "locked" : /\bcancelled\b|the person's decision/i.test(message) ? "rejected" : "bad_argument";
   return `${code}: ${message}`;
 }
+
+// ../src/shared/mcp/sha256.ts
+var K = new Uint32Array([
+  1116352408,
+  1899447441,
+  3049323471,
+  3921009573,
+  961987163,
+  1508970993,
+  2453635748,
+  2870763221,
+  3624381080,
+  310598401,
+  607225278,
+  1426881987,
+  1925078388,
+  2162078206,
+  2614888103,
+  3248222580,
+  3835390401,
+  4022224774,
+  264347078,
+  604807628,
+  770255983,
+  1249150122,
+  1555081692,
+  1996064986,
+  2554220882,
+  2821834349,
+  2952996808,
+  3210313671,
+  3336571891,
+  3584528711,
+  113926993,
+  338241895,
+  666307205,
+  773529912,
+  1294757372,
+  1396182291,
+  1695183700,
+  1986661051,
+  2177026350,
+  2456956037,
+  2730485921,
+  2820302411,
+  3259730800,
+  3345764771,
+  3516065817,
+  3600352804,
+  4094571909,
+  275423344,
+  430227734,
+  506948616,
+  659060556,
+  883997877,
+  958139571,
+  1322822218,
+  1537002063,
+  1747873779,
+  1955562222,
+  2024104815,
+  2227730452,
+  2361852424,
+  2428436474,
+  2756734187,
+  3204031479,
+  3329325298
+]);
+var encoder = new TextEncoder();
+var W = new Uint32Array(64);
+
+// ../src/shared/mcp/duplicates.ts
+var createsSomething = (tool) => MCP_CREATING_TOOLS.includes(tool);
+var DUPLICATE_MS = MCP_LIMITS.duplicateMs;
 
 // src/policy.ts
 var DEFAULT_ORIGINS = ["https://getonecms.com", "http://localhost:*", "http://127.0.0.1:*"];
@@ -20122,6 +20207,7 @@ var UNKNOWN = "Whether the call was carried out is not known: read what it touch
 var GONE = `rejected: One was closed or disconnected before it answered. ${UNKNOWN}`;
 var TOOK_OVER = `rejected: Another One tab took over before this one answered. ${UNKNOWN}`;
 var NO_ANSWER = (s) => `rejected: One did not answer within ${s} s (is the tab still open?). ${UNKNOWN}`;
+var OLDER_REPEATS = "This One tab is an older version: it does not recognise a repeated call \u2014 calling again makes it a second time. If you are unsure whether this call went through, read first (one_search, one_get_page) before you call again.";
 var MAX_PAYLOAD = 16 * 1024 * 1024;
 var HELLO_MS = 5e3;
 var MAX_PENDING_MS = 10 * 6e4;
@@ -20351,7 +20437,7 @@ ${text2}`);
           const said = str(msg.error, 8e3);
           return f.finish({ ok: false, error: !said ? "rejected: The call failed in One. Nothing was confirmed \u2014 read what the call touches again before you call again." : conn.info && conn.info.contract < 2 ? withCode(said) : said });
         }
-        f.finish(this.checked(f, msg.result ?? null));
+        f.finish(this.olderNote(f, this.checked(f, msg.result ?? null)));
         return;
       }
     }
@@ -20379,6 +20465,14 @@ ${text2}`);
    * A tab's result. v2: it must name the workspace it ran in, and that must be the call's — anything
    * else is refused (the result never reaches the agent). v1 tabs can't say: their name is added.
    */
+  /**
+   * A creating call answered by an older One tab (contract 1): repeats are joined only by tabs of contract 2 (the
+   * instructions promise it for an up-to-date tab) — the answer says so, so a model reads before it repeats a call.
+   */
+  olderNote(f, out) {
+    if (!out.ok || !f.tool || !createsSomething(f.tool) || (f.conn.info?.contract ?? 1) >= 2 || !isObj(out.result)) return out;
+    return { ok: true, result: { ...out.result, repeatsJoined: false, note: OLDER_REPEATS } };
+  }
   checked(f, result) {
     const info = f.conn.info;
     if (!f.conn.bound) {
@@ -20477,6 +20571,7 @@ ${text2}`);
       const entry = {
         conn,
         expected,
+        tool,
         onPending: opts.onPending,
         arm: (ms, why) => {
           clearTimeout(entry.timer);

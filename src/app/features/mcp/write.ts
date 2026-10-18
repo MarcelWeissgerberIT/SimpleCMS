@@ -23,7 +23,7 @@ import { applyStaged, assertStageWritable, callStage, itemLine, itemPlan, mcpMes
 import { mcpReadLimit } from './limits'
 import { currentReadLimit, withReadLimit } from '../ai/agent/tools'
 import { isContextLimited } from '../../editor'
-import { assertNotSystem } from './system'
+import { assertNotSystem, systemOf, systemRefusal, TWO_WAY_SYSTEM } from './system'
 import { livePage, withPageNodes, type LinkTarget } from '../ai/agent/links'
 import type { McpToolName } from './contract'
 import { databaseOrThrow, iconText, live, McpToolError, pageUrl, propertyJson, q, titleOf, ws } from './values'
@@ -41,6 +41,7 @@ import { planCreatePage } from './pages'
 import { planCreateRow, planUpdateRow, planUpsertRows, sideEffects, sideHold, titlePropId, type SideEffects } from './rows'
 import { planCreateDatabase } from './database'
 import { addProperties, propertySpec } from './schema'
+import { MCP_LIMITS } from '../../../shared/mcp/tables'
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
@@ -66,9 +67,9 @@ function planUpdatePage(args: Record<string, unknown>): WritePlan {
   assertNotSystem(page.id)
   const mode = args.mode === undefined || args.mode === null || args.mode === '' ? 'append' : args.mode
   if (mode !== 'append' && mode !== 'replace') throw new McpToolError('"mode" must be "append" or "replace".')
-  const titleRaw = args.title === undefined || args.title === null ? null : str(args.title, 'title', { max: 300 }).replace(/\s+/g, ' ').trim()
+  const titleRaw = args.title === undefined || args.title === null ? null : str(args.title, 'title', { max: MCP_LIMITS.title }).replace(/\s+/g, ' ').trim()
   if (titleRaw === '') throw new McpToolError('"title" must not be empty.')
-  const markdown = args.markdown === undefined || args.markdown === null ? null : stripRefLabels(str(args.markdown, 'markdown', { max: 200_000 }))
+  const markdown = args.markdown === undefined || args.markdown === null ? null : stripRefLabels(str(args.markdown, 'markdown', { max: MCP_LIMITS.text }))
   const icon = parseIcon(args.icon)
   if (titleRaw === null && markdown === null && icon === undefined) throw new McpToolError('Nothing to change: pass "title", "icon" and/or "markdown".')
   if (markdown !== null && page.kind === 'database') throw new McpToolError(`${q(titleOf(page))} is a database: its content is its rows. Use one_create_row.`)
@@ -159,6 +160,9 @@ function planUpdatePage(args: Record<string, unknown>): WritePlan {
     noop: changed.length ? undefined : { id: page.id, title: page.title, url: pageUrl(page.id), changed: [], note: 'No change: the page already looks like that.' },
     async apply(writer) {
       if (!live(page.id)) throw new McpToolError(mcpError('not_found', 'id', `${q(name)} is gone (deleted or in the trash) since the call was made`))
+      // moved into One's own databases while the card waited (spec § 3.3) — the replace and the icon are written here,
+      // not through applyStaged's check: nothing is written
+      assertNotSystem(page.id)
       // locked while the card waited (locking moves no revision): its content takes nothing — append or replace
       if (markdown !== null && ws().pages[page.id]?.settings.locked)
         throw new McpToolError(mcpError('locked', 'markdown', `${q(name)} was locked meanwhile: its content cannot change (its title and icon can)`, 'Leave "markdown" out, or ask the person to unlock it.'))
@@ -230,6 +234,16 @@ function planCreateProperty(args: Record<string, unknown>): WritePlan {
     async apply(writer) {
       const now = ws().databases[db.id]
       if (!now || !live(db.id)) throw new McpToolError(`${q(dbTitle)} is gone. Nothing was changed.`)
+      // locked (or moved into One's own databases) while the card waited: its schema takes nothing — nor does a two-way
+      // relation's target: nothing is written
+      assertNotSystem(db.id)
+      if (now.locked) throw new McpToolError(`locked: ${q(dbTitle)} was locked meanwhile: its properties cannot change. Nothing was changed. Ask the person to unlock it.`)
+      if (spec.reverse) {
+        const sys = systemOf(spec.reverse.dbId)
+        if (sys) throw new McpToolError(systemRefusal(sys, 'relation', TWO_WAY_SYSTEM))
+        if (ws().databases[spec.reverse.dbId]?.locked)
+          throw new McpToolError(mcpError('locked', 'relation.twoWay', `${q(titleOf(ws().pages[spec.reverse.dbId]))} was locked meanwhile, so no reverse property can be added there`, 'Create a one-way relation instead, or ask the person to unlock it.'))
+      }
       if (now.properties.some((p) => p.name.toLowerCase() === spec.def.name.toLowerCase())) throw new McpToolError(`A property named ${q(spec.def.name)} exists by now. Nothing was changed.`)
       const undo = withWriter(writer, () => addProperties(db.id, [spec]))
       const d = ws().databases[db.id]

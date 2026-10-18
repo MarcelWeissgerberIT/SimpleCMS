@@ -6,10 +6,11 @@
  */
 import type { Database, ID, Page, PropertyDef, PropertyType, PropertyValue } from '../../../store/types'
 import { useWorkspace } from '../../../store/store'
-import { propertyValueToText } from '../../../database'
+import { propertyValueToText, subItemsOf } from '../../../database'
 import { t } from '../../../i18n'
 import type { PropChange, PropIntent } from './types'
 import { isHandOnly } from '../../../store/keys'
+import { listOptionText } from '../../../../shared/mcp/errors'
 
 /** Computed or file properties Claude cannot set. */
 const READ_ONLY = new Set<PropertyType>(['formula', 'rollup', 'created_time', 'last_edited_time', 'created_by', 'last_edited_by', 'unique_id', 'files'])
@@ -96,6 +97,16 @@ function ok(db: Database, prop: PropertyDef, row: Page | null, intent: PropInten
 }
 
 const value = (v: PropertyValue): PropIntent => ({ kind: 'value', value: v })
+
+/**
+ * A new option for a select bound to a shared list (PropertyDef.listId, features/kit): the list owns the options and
+ * every list edit writes them into the property again — an option only on the property would vanish and leave its
+ * values pointing at nothing. So agents and MCP never add one there; the person adds it to the list in One.
+ */
+export function listOptionError(prop: Pick<PropertyDef, 'listId'>, name: string, all: string[]): string {
+  const list = prop.listId ? useWorkspace.getState().kit?.lists[prop.listId] : undefined
+  return `${listOptionText(name, list?.name ?? '?')}. Use one of: ${all.map((n) => JSON.stringify(n)).join(', ')}.`
+}
 
 /** Validate / coerce one value Claude sent for a property. `row` is null for a new row. */
 export function coerceProperty(db: Database, prop: PropertyDef, raw: unknown, row: Page | null): Result {
@@ -194,6 +205,8 @@ export function coerceProperty(db: Database, prop: PropertyDef, raw: unknown, ro
         if (!hit && prop.type === 'status') return fail(`unknown status ${JSON.stringify(name)}. Use one of: ${all.map((n) => JSON.stringify(n)).join(', ')}.`)
         // a locked database keeps its options (database/model/lock.ts): only existing ones can be picked
         if (!hit && db.locked) return fail(`unknown option ${JSON.stringify(name)} — the database is locked, so no new options can be created. Use one of: ${all.map((n) => JSON.stringify(n)).join(', ')}.`)
+        // a select bound to a shared list (features/kit) takes its options from the list: a new one is added there, in One
+        if (!hit && prop.listId) return fail(listOptionError(prop, name, all))
         const n = hit?.name ?? name.slice(0, 60)
         if (final.some((x) => x.toLowerCase() === n.toLowerCase())) continue
         if (!hit) fresh.push(n)
@@ -232,6 +245,11 @@ export function coerceProperty(db: Database, prop: PropertyDef, raw: unknown, ro
           ids.push(hit.id)
           shown.push(hit.title.trim() || t('common.untitled'))
         }
+      }
+      // sub-items: one parent per row, never itself (the team server refuses the same — api/model.ts checkHierarchy)
+      if (subItemsOf(db)?.parent.id === prop.id) {
+        if (ids.length > 1) return fail(`a row has at most one parent (got ${ids.length}).`)
+        if (row && ids.includes(row.id)) return fail('a row cannot be its own parent.')
       }
       return ok(db, prop, row, value(ids), shown.join(', '))
     }

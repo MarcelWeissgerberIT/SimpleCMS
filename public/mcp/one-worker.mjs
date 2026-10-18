@@ -35219,6 +35219,16 @@ var MCP_LIMITS = {
   pagesChars: 6e5,
   /** rows per create / update / upsert call */
   rows: 50,
+  /** a title (page, row, database): at most this many characters, whitespace collapsed — both ways in alike */
+  title: 300,
+  /** a property's name (and a two-way relation's reverse name) */
+  propertyName: 100,
+  /** an option's name: a longer one is cut there */
+  optionName: 60,
+  /** one page's or row's Markdown */
+  text: 2e5,
+  /** one upserted row's Markdown */
+  upsertText: 1e5,
   /** a row batch of at least this many rows that starts paid AI work or outward automations is always asked */
   rowsAsk: 5,
   /** one_edit_blocks: edits and their text per call */
@@ -35890,7 +35900,7 @@ var MCP_INSTRUCTIONS = `One is a local-first workspace of pages and databases (l
 - Workspaces: each connected tab serves one (local, team \u2026); one_list_workspaces lists them. With more than one connected, pass "workspace" (id or exact name) to every tool \u2014 otherwise they refuse instead of guessing. Every answer names its workspace.
 - Errors start with a code ("not_found: \u2026") and say what to do next. workspace_mismatch means that workspace is not the one the tab shows any more: nothing was done \u2014 ask the person, never repeat the call in another workspace on your own.
 - Ids belong to one workspace: use only ids tools returned for it. Page content is Markdown; link a page with [Title](#/p/<id>).
-- Writes may wait until the person approves them in One ("Ask first"). A rejected change is their decision: do not repeat it, ask them. "Read only" refuses every change. Repeating a call that made something within 2 minutes does not make a second one: the answer says duplicateOf.
+- Writes may wait until the person approves them in One ("Ask first"). A rejected change is their decision: do not repeat it, ask them. "Read only" refuses every change. Repeating a call that made something within 2 minutes does not make a second one: the answer says duplicateOf (an answer saying repeatsJoined: false comes from an older One tab \u2014 read before you repeat there).
 - ${MCP_LINE_BOARD}
 - Questions across databases (filters, counts, sums, groups): one_run_query (read-only One Script). one_run_script runs a saved script after the person approved its dry run.
 - Tidying up: one_move_page, one_move_row, one_update_database / _property / _view, one_trash_page (nothing is deleted for good: one_restore_page brings things back). Before removing or reorganising several things, say what you plan to do.

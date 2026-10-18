@@ -9,14 +9,15 @@
 import * as Y from 'yjs'
 import type { Services } from '../context.ts'
 import { notFound } from '../errors.ts'
-import { type PropertyDef, type Roots, type SelectOption, clone, liveDatabase, pageMap, propertiesMap, readOrdered, readPeople, roots } from '../api/meta.ts'
+import { type PropertyDef, type Roots, type SelectOption, clone, listNameOf, liveDatabase, pageMap, propertiesMap, readOrdered, readPeople, roots } from '../api/meta.ts'
+import { canBeKey } from '../api/keys.ts'
 import { findProperty, metaDoc, type WorkspaceModel } from '../api/model.ts'
 import { schemaOut } from '../api/values.ts'
 import { newId } from '../tokens.ts'
 import { assertNotSystem } from './system.ts'
 import { iconOut } from './reads.ts'
-import { MCP_TYPE_CHANGES, MCP_VIEW_TYPES } from '../../../src/shared/mcp/tables.ts'
-import { COLORS, iconIn, propsMapOf, unprocessable, type OptionInput } from './writes.ts'
+import { MCP_LIMITS, MCP_TYPE_CHANGES, MCP_VIEW_TYPES } from '../../../src/shared/mcp/tables.ts'
+import { COLORS, cleanTitle, iconIn, propsMapOf, unprocessable, type OptionInput } from './writes.ts'
 
 /** Layouts an agent can create or switch to, and the type changes whose values carry over (the shared tables). */
 export const VIEW_TYPES = MCP_VIEW_TYPES
@@ -207,8 +208,8 @@ export class McpStructure {
       return db
     }
     await this.model.read(wsId, check)
-    const title = input.title === undefined ? undefined : input.title.replace(/\s+/g, ' ').trim()
-    if (title === '') throw unprocessable('invalid_request', '"title" must not be empty.')
+    // the title as the bridge takes it (writes.ts cleanTitle): whitespace collapsed, never empty, at most MCP_LIMITS.title
+    const title = input.title === undefined ? undefined : cleanTitle(input.title, 'title')
     const icon = iconIn(input.icon)
     if (title === undefined && icon === undefined) throw unprocessable('invalid_request', 'Nothing to change: pass "title" and/or "icon".')
     const out = await this.s.collab.write(
@@ -328,6 +329,13 @@ export class McpStructure {
       let removed = new Set<string>()
       if (input.options !== undefined) {
         if (toType) throw unprocessable('invalid_request', 'Change the type and the options in two calls (first the type).')
+        // a select bound to a shared list (the app's building blocks): its options are the list's — changed there, in
+        // the app (an option changed here alone would go with the next list edit, and the values with it)
+        if (prop.listId)
+          throw unprocessable(
+            'invalid_option',
+            `bad_argument: options: ${q(prop.name)} takes its options from the shared list ${q(listNameOf(r, prop.listId))}: they are added, renamed or removed there, in One (Building blocks). Nothing was changed. Ask the person to change the list.`,
+          )
         const plan = optionPlan(prop, input.options)
         removed = plan.removed
         if (!same(plan.options, prop.options ?? [])) {
@@ -351,6 +359,11 @@ export class McpStructure {
         // —— changes from here on ——
         if (toType) {
           def.type = toType
+          // a plain type afterwards, as the app converts one (database/model/actions.ts): no own type, no shared list —
+          // a key stays one only where a type can be a key ("Only by hand" stays: every type here is written)
+          delete def.listId
+          delete def.custom
+          if (def.key && !canBeKey({ type: toType })) delete def.key
           if (SELECTISH.has(toType)) {
             if (SELECTISH.has(prop.type)) def.options = (prop.options ?? []).map((o) => (toType === 'status' ? { ...o, group: o.group ?? 'todo' } : { id: o.id, name: o.name, ...(o.color ? { color: o.color } : {}) }))
             else {
@@ -494,7 +507,7 @@ function optionPlan(prop: PropertyDef, input: OptionChanges): { options: SelectO
     const hit = find(u.name, 'options.update')
     const next = { ...hit }
     if (u.newName !== undefined) {
-      const nn = u.newName.replace(/\s+/g, ' ').trim().slice(0, 60)
+      const nn = u.newName.replace(/\s+/g, ' ').trim().slice(0, MCP_LIMITS.optionName)
       if (!nn) throw unprocessable('invalid_option', 'options.update: "newName" must not be empty.')
       if (options.some((x) => x.id !== hit.id && norm(x.name) === norm(nn))) throw unprocessable('invalid_option', `options.update: ${q(prop.name)} has an option ${q(nn)} already.`)
       next.name = nn
@@ -513,7 +526,7 @@ function optionPlan(prop: PropertyDef, input: OptionChanges): { options: SelectO
   const addedNames = new Set<string>()
   for (const [i, o] of (input.add ?? []).entries()) {
     const spec = typeof o === 'string' ? { name: o } : o
-    const name = spec.name.replace(/\s+/g, ' ').trim().slice(0, 60)
+    const name = spec.name.replace(/\s+/g, ' ').trim().slice(0, MCP_LIMITS.optionName)
     if (!name || addedNames.has(norm(name))) continue
     if (options.some((x) => norm(x.name) === norm(name))) throw unprocessable('invalid_option', `options.add: ${q(prop.name)} has an option ${q(name)} already.`)
     addedNames.add(norm(name))

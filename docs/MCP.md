@@ -37,7 +37,7 @@ does not list the tool, or answers `local_only` for that argument).
 | `one_get_database` | read | ✓ | ✓ | `{ id }` — the schema (types, options, relations, read-only flags — `onlyByHand` properties are read-only for MCP clients, `key` marks the database's key) and the views in full (grouping, filters, sorts, visible properties) |
 | `one_query_database` | read | ✓ | ✓ | `{ databaseId, filter?, sort?, limit?, cursor? }` — rows with friendly values, filtered and sorted, paginated |
 | `one_create_page` | write | ✓ | ✓ · `private` local only | `{ title, parentId?, markdown?, icon?, before? \| after? \| index?, private?, linkInParent? }` — a page, or a sub-page under a page **or a row**; or `{ pages: [≤ 50] }` — a whole tree in one call ([Sub-pages and batches](#sub-pages-and-batches)) |
-| `one_update_page` | write | ✓ | ✓ | `{ id, title?, icon?, markdown?, mode: 'append' \| 'replace' }` — a task block of the page written back as it was read (`> [!TODO] … {#wi_…}`) stays that task: its title and notes from the Markdown, its fields as the app has them. B: new `> [!TODO]` quotes become tasks through the same gate as the app ([Tasks](#tasks)); a replace that removes tasks is always asked; a page that changed while the call waited for approval is not replaced (call again); a replace keeps page links as links. S refuses a `replace` of a page holding a task or a page whose blocks its Markdown cannot carry (both `lossy_replace`) and a locked page's content (`locked`) |
+| `one_update_page` | write | ✓ | ✓ | `{ id, title?, icon?, markdown?, mode: 'append' \| 'replace' }` — a task block of the page written back as it was read (`> [!TODO] … {#wi_…}`) stays that task: its title and notes from the Markdown, its fields as the app has them. B: new `> [!TODO]` quotes become tasks through the same gate as the app ([Tasks](#tasks)); a replace that removes tasks is always asked; a page that changed while the call waited for approval is not replaced (call again); a replace keeps page links as links. S refuses a `replace` of a page holding a task or a page whose blocks its Markdown cannot carry (both `lossy_replace`) and a locked page's content (`locked`). Both: no `title`, `icon` or `markdown` — or an empty append — is `bad_argument`; a call that changes nothing writes nothing (S answers `changed: []`, B answers without a card) |
 | `one_create_row` | write | ✓ | ✓ | `{ databaseId, title, properties?, markdown? }` or `{ databaseId, rows: [≤ 50] }` — all or none; a key another row holds and an `onlyByHand` property are refused |
 | `one_update_row` | write | ✓ | ✓ | `{ id, properties }` or `{ rows: [{ id, properties }] ≤ 50 }` — only what you pass changes, `null` clears; all or none; the same refusals |
 | `one_upsert_rows` | write | ✓ | ✓ | `{ databaseId, keyProperty, rows: [{ key, title?, properties?, markdown? }] ≤ 50 }` — keep a database in step with items from elsewhere, by a key: per row `created`, `updated` (only the values that differ) or `unchanged` |
@@ -69,6 +69,11 @@ out), and a tool takes **only** the arguments it declares: anything else is refu
 - **Results** are compact JSON. A single item carries its `url`; lists carry `urlBase` once (a link is `urlBase` +
   id). Paged answers end with `next` — pass it back as `cursor` (null = the end). Every answer holds what the next call
   needs: new ids, a database's views and rows, a block's ref.
+- **Limits** are the same on both ways in ([`MCP_LIMITS`](../src/shared/mcp/tables.ts)): a title (page, row,
+  database) at most 300 characters — whitespace collapsed, never empty (a row without a title is refused, also one
+  given only through `properties` that names none) —, a property's or a reverse relation's name at most 100, an option's
+  name cut to 60, one page's or row's Markdown at most 200,000 characters (an upserted row's 100,000). An `icon` is an
+  emoji, `"asset:<name>"` or `"lucide:<Name>"`; a word (`"rocket"`) is `bad_argument`.
 - **Errors** are MCP tool errors (`isError: true`) whose first line has one shape on both ways in:
   `<code>: <argument path>: <what happened>. Nothing was changed. <next step>` — the path names the argument
   (`rows[12].properties.Status`, `inline.afterBlock`), the next step is the code's remedy
@@ -79,7 +84,9 @@ out), and a tool takes **only** the arguments it declares: anything else is refu
   card not approved in time `approval_timeout`, a tab that closed, reloaded or was replaced while a call waited and a tab
   that did not answer `rejected` (*whether the call was carried out is not known: read what it touches before you call
   again* — never "Nothing was changed"), the port in use or the bridge not running `rejected`, and every refusal of an
-  older One tab (contract 1) gets its code from the bridge. `one_list_workspaces` takes no argument: any is refused
+  older One tab (contract 1) gets its code from the bridge; a fault of the team server's own is `rejected` with the
+  same words (a batch may have written part of the call — S never says "not made" there, nor "try again").
+  `one_list_workspaces` takes no argument: any is refused
   (`bad_argument`) on both ways in. Arguments are strict at
   every depth: a key a closed object of the contract does not declare — `rows[0].Status` beside `properties`,
   `pages[1].content`, `inline.afterblock`, `views[0].group_by` — is `bad_argument` with its path on both ways in (the
@@ -110,13 +117,18 @@ out), and a tool takes **only** the arguments it declares: anything else is refu
   the title)". Argument order and `workspace` do not matter; rejected and failed calls are not remembered, and neither
   is a call taken back (B: its Undo in Agent activity or an eject; S: a Restore in Workspace → API) — repeating it
   makes the thing again. B keeps a map per MCP session in the tab (≤ 50 entries, forgotten on a reload or a reconnect);
-  S uses its idempotency store per token. Outside that window, or after a reconnect, a repeat is a new call.
+  S uses its idempotency store per token. Outside that window, or after a reconnect, a repeat is a new call. An
+  **older One tab** (contract 1) joins no repeats: the bridge adds `repeatsJoined: false` and a note to every creating
+  call it answers there — read what the call made before you repeat it.
   `one_upsert_rows` only **joins** a waiting call: a keyed upsert makes no duplicate on its own, so a repeat after it
   was applied runs again and brings the rows in step (answering `updated` / `unchanged` as they are now).
 
 ## Reading a page in full
 
 `one_get_page` reads a page, a row (its values and its page) or a database page.
+
+- **By title.** `{ title }` reads the most recently edited live page of that title; the head names every other one
+  carrying it as `alsoTitled: [{ id, path }]` (≤ 10) — on both ways in — so the next call can take the right `id`.
 
 - **Parts.** A long page comes in parts of at most 40,000 characters of serialized JSON (and 400 blocks): the first
   part carries the head — `id`, `title`, `icon`, `cover`, `path`, `url`, `parentId`, `rev`, `class`, a row's values, a
@@ -293,8 +305,12 @@ next step there is a token with comments on, made by an owner or admin). Writing
 **Values** are the friendly ones of the public API ([API.md § Property values](API.md#property-values)): option
 names, dates `"YYYY-MM-DD"` / `"YYYY-MM-DDTHH:mm"` (wall-clock time) or `{ start, end }`, people by email or name,
 relations by row id or title, `true` / `false`, numbers, `null` to clear. A select or multi-select option that doesn't
-exist yet is added to the property; everything else that doesn't fit fails the whole call and names every problem
-(with the allowed values). **Filters** (`one_query_database`) are `[{ property, op, value }]`, all must hold; `op` is
+exist yet is added to the property — except on a property that takes its options from a **shared list** (Building
+blocks): there a new option is `bad_argument` naming the list (it is added to the list in One), on rows, in
+`one_update_property { options }` and through agents alike; a type change makes such a property a plain one (as the
+app's). A value of a **two-way relation** links back from the rows it names (B as S: the card names them under
+*Links back*, the Undo takes them back); a database's **sub-items** parent property takes one parent, never the row
+itself. Everything else that doesn't fit fails the whole call and names every problem (with the allowed values). **Filters** (`one_query_database`) are `[{ property, op, value }]`, all must hold; `op` is
 `equals`, `not_equals`, `contains`, `not_contains`, `is_empty`, `is_not_empty`, `gt`, `gte`, `lt`, `lte` (numbers and
 dates). **Sort** is a property name, `createdAt`, `updatedAt` or `order` (the table's order, the default); `-` in
 front sorts descending (`"-Due"`). Results are JSON; failures are MCP tool errors (`isError: true`) with a message an
@@ -323,7 +339,10 @@ The tools that delete, adjust, create and reorganise follow the same rules on bo
   people by name or `me`), `sort`, `properties` (the visible ones, in order). Chart and form views are set up in the
   app.
 - **Locked databases** take rows and values but no structure change (properties, options, views). Locking and
-  unlocking is the person's decision: `one_update_database` refuses `locked`.
+  unlocking is the person's decision: `one_update_database` refuses `locked`. B checks again when a card is approved:
+  a database — or a two-way relation's other database — locked while the card waited takes no property and no new
+  option (`one_create_property`, `one_create_database`, `one_move_row`: `locked`); a page that became one of One's own
+  databases' meanwhile (moved into the memory) takes no text, title, icon, move or trash (`system_database`).
 - **Reorganising.** `one_move_page` moves pages and databases under another page or to the top level and places them
   `before` / `after` a sibling or at an `index` (0 = first) among the siblings people see. Refused: into itself or its
   own sub-pages, into a database (a page does not become a row here), template pages. Rows stay in their database:
@@ -332,7 +351,10 @@ The tools that delete, adjust, create and reorganise follow the same rules on bo
   options must exist, relations must point to the same database and not be two-way, and no other row may link to it.
   The target's key stays unique (a row whose key value another row there holds is refused) and its `onlyByHand`
   properties stay the person's (a value that would land in one is refused) — bridge and team server alike.
-  Otherwise the answer lists what does not fit. Unique ids are numbered anew in the target.
+  Otherwise the answer lists what does not fit. Unique ids are numbered anew in the target. A row with a **record
+  type** takes it along: the target gets the type and its properties (the answer says `recordType: { name,
+  addedProperties }`); a locked target refuses that (`locked`), and a type that is gone leaves a plain row — bridge and
+  team server alike.
 - **Not offered:** turning a page into a database entry or back (the sidebar's drops — they ask the person on the
   way), and, in a team workspace, moving between *Private* and the workspace. Both stay in the app.
 - **What they start.** Rows going to the trash start their *row deleted* automations; a property change or delete that
@@ -546,7 +568,11 @@ MCP." (a call waits up to 10 s for the tab first). The switch is **per browser**
 - Every call — read or write, and how it ended (OK, error, refused, expired, cancelled; a repeat answered from an
   earlier call says so) — is listed in the **Agent activity** log of the settings tab. Applied writes have an **Undo**
   there (approved ones also get an Undo toast). Undo is careful: what the call made goes to the trash while nobody
-  changed it since (a changed page or row is kept), values changed since are kept.
+  changed it since (a changed page or row is kept), values changed since are kept. A property the call made stays once
+  it was renamed or set up, holds values, a view groups, filters or sorts by it, or its database was locked since (for
+  a two-way pair: either side); a database `one_restore_page` brought back stays in once it was set up again; a page
+  that stays keeps the link `linkInParent` wrote for it; a script run's sub-page goes back with its page. What watches
+  an entry for "changed since" ends with its Undo, a Clear of the log, or when the entry leaves it (100 newest).
 - A rejection tells the agent *The person rejected this change in One … Do not retry it*. A call that would change
   nothing (the same title, the same values) is answered without a card.
 - Writes go through the workspace store like any edit: content with origin `ai`, version history snapshots before

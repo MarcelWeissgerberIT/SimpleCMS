@@ -19,13 +19,13 @@ import { nestedTopLevel, refIndex } from '../../../shared/mcp/pageRead'
 import { mcpError } from '../../../shared/mcp/errors'
 import { MCP_DEFAULT_PROPERTIES, MCP_LIMITS, MCP_VIEW_TYPES } from '../../../shared/mcp/tables'
 import { applyStaged, assertStageWritable, callStage, itemPlan, mcpMessage, outsideTemplates } from './stage'
-import { assertNotSystem } from './system'
+import { assertNotSystem, systemOf, systemRefusal, TWO_WAY_SYSTEM } from './system'
 import { iconText, live, McpToolError, pageUrl, pathOf, propertyJson, q, titleOf, ws } from './values'
 import { atPath, chars, checkFileScope, cleanName, eachEntry, pageOrThrow, parseIcon, str, tasksOf, type PlanLine, type WritePlan } from './plan'
-import { holdsValues, mcpStatusOptions, propertySpec } from './schema'
+import { dropProperty, mcpStatusOptions, propChangedSince, propMark, propertySpec } from './schema'
 import { mcpReadableTop, mcpReadLimit } from './limits'
 import { withoutNodes } from './undoNodes'
-import { bodyLine, checkFiles, rowFacts, rowNo, splitTitle } from './rows'
+import { bodyLine, checkFiles, partnerPlan, rowFacts, rowNo, sideEffects, sideHold, splitTitle } from './rows'
 import { layoutName, viewChange } from './structure'
 import { withWriter } from '../../store/writer'
 import { changedSince, madeAs, type MadeAs } from '../ai/agent/follow'
@@ -132,7 +132,7 @@ function defaultProps(): PropertyDef[] {
 }
 
 export function planCreateDatabase(args: Record<string, unknown>): WritePlan {
-  const title = str(args.title, 'title', { required: true, max: 300 }).replace(/\s+/g, ' ').trim()
+  const title = str(args.title, 'title', { required: true, max: MCP_LIMITS.title }).replace(/\s+/g, ' ').trim()
   if (!title) throw new McpToolError(mcpError('bad_argument', 'title', 'a database needs a title'))
   const parentRaw = str(args.parentId, 'parentId', { max: 80 }).trim()
   const inlineRaw = args.inline
@@ -176,7 +176,7 @@ export function planCreateDatabase(args: Record<string, unknown>): WritePlan {
   // a { type: "title" } entry names the title property (default "Name")
   const titleSpecs = Array.isArray(raw) ? raw.filter((r) => r && typeof r === 'object' && (r as { type?: unknown }).type === 'title') : []
   if (titleSpecs.length > 1) throw new McpToolError(mcpError('bad_argument', 'properties', 'only one property can be of type "title"'))
-  const titleName = titleSpecs.length ? str((titleSpecs[0] as { name?: unknown }).name, 'properties[title].name', { required: true, max: 100 }).replace(/\s+/g, ' ').trim() : 'Name'
+  const titleName = titleSpecs.length ? str((titleSpecs[0] as { name?: unknown }).name, 'properties[title].name', { required: true, max: MCP_LIMITS.propertyName }).replace(/\s+/g, ' ').trim() : 'Name'
   const taken = [titleName]
   const specs = Array.isArray(raw)
     ? raw
@@ -243,9 +243,9 @@ export function planCreateDatabase(args: Record<string, unknown>): WritePlan {
       if (!r || typeof r !== 'object' || Array.isArray(r)) throw new McpToolError(mcpError('bad_argument', path, 'an object {title, properties?, markdown?} is expected'))
       const o = r as Record<string, unknown>
       const split = splitTitle(db, o.properties, `${path}.properties`)
-      const rowTitle = (str(o.title, `${path}.title`, { max: 300 }) || split.title || '').replace(/\s+/g, ' ').trim()
+      const rowTitle = (str(o.title, `${path}.title`, { max: MCP_LIMITS.title }) || split.title || '').replace(/\s+/g, ' ').trim()
       if (!rowTitle) throw new McpToolError(mcpError('bad_argument', `${path}.title`, 'a row needs a title'))
-      const markdown = stripRefLabels(str(o.markdown, `${path}.markdown`, { max: 200_000 }))
+      const markdown = stripRefLabels(str(o.markdown, `${path}.markdown`, { max: MCP_LIMITS.text }))
       chars_ += markdown.length
       checkFileScope(markdown, dbPriv, q(rowTitle))
       checkFiles(db, split.props, dbPriv, `${path}.properties`)
@@ -303,6 +303,23 @@ export function planCreateDatabase(args: Record<string, unknown>): WritePlan {
   }
   const tasks = itemPlan(stage.changes)
   lines.push(...tasks.lines)
+  // a database block into a ROW's text changes that row's text: what fills again on it (its database's auto-filling
+  // properties) is named, as an append to the row names it (write.ts planUpdatePage) — ≥ rowsAsk always asked
+  const hostDb = inline && parent?.databaseId ? ws().databases[parent.databaseId] : undefined
+  const sides = hostDb ? [sideEffects(hostDb, 1, { text: true, props: new Set() })] : []
+  // its rows' two-way relations into another database: the linked rows link back (rows.ts partnerPlan)
+  // (the call's own database and the reverse properties it adds, as they will be)
+  const willBe: Record<ID, Database> = { ...ws().databases, [id]: db }
+  for (const sp of specs ?? []) {
+    const target = sp.reverse ? willBe[sp.reverse.dbId] : undefined
+    if (sp.reverse && target) willBe[sp.reverse.dbId] = { ...target, properties: [...target.properties, sp.reverse.def] }
+  }
+  const partners = partnerPlan(stage.changes, willBe)
+  lines.push(...partners.lines)
+  sides.push(...partners.sides)
+  const side = sideHold(sides)
+  for (const x of sides) lines.push(...x.lines)
+  lines.push(...side.lines)
 
   return {
     tool: 'one_create_database',
@@ -310,9 +327,26 @@ export function planCreateDatabase(args: Record<string, unknown>): WritePlan {
     summary: inline ? t('features.mcp.sum.createInline', { title, page: titleOf(parent!) }) : t('features.mcp.sum.createDatabase', { title, where: parent ? titleOf(parent) : t('features.mcp.plan.topLevel') }),
     target: title,
     lines,
-    ...(tasks.holds.length ? { alwaysAsk: true } : {}),
+    ...(tasks.holds.length || side.alwaysAsk ? { alwaysAsk: true } : {}),
     async apply(writer) {
       if (parent && !live(parent.id)) throw new McpToolError(mcpError('not_found', inline ? 'inline.pageId' : 'parentId', `${q(titleOf(parent))} is gone (deleted or in the trash) since the call was made`))
+      // moved into One's own databases while the card waited (spec § 3.3): nothing new below it
+      if (parent) {
+        try {
+          assertNotSystem(parent.id)
+        } catch (e) {
+          atPath(e, wherePath)
+        }
+      }
+      // the reverse sides of two-way relations go onto the related databases: one locked (or moved into One's own
+      // databases) while the card waited takes no schema change — nothing is written
+      for (const [i, sp] of (specs ?? []).entries()) {
+        if (!sp.reverse) continue
+        const sys = systemOf(sp.reverse.dbId)
+        if (sys) throw new McpToolError(systemRefusal(sys, `properties[${i}].relation`, TWO_WAY_SYSTEM))
+        if (ws().databases[sp.reverse.dbId]?.locked)
+          throw new McpToolError(mcpError('locked', `properties[${i}].relation.twoWay`, `${q(titleOf(ws().pages[sp.reverse.dbId]))} was locked meanwhile, so no reverse property can be added there`, 'Create a one-way relation instead, or ask the person to unlock it.'))
+      }
       if (inline && ws().pages[parent!.id]?.settings.locked) throw new McpToolError(mcpError('locked', 'inline.pageId', `${q(titleOf(parent!))} was locked meanwhile`))
       // the person marked what Claude may read while the card waited: the block named must still be readable
       if (inline && inline.at !== null) {
@@ -373,7 +407,7 @@ export function planCreateDatabase(args: Record<string, unknown>): WritePlan {
         } catch (e) {
           withWriter(writer, () => {
             for (const u of undos) u()
-            for (const r of reverses) if (ws().databases[r.dbId]?.properties.some((p) => p.id === r.def.id)) ws().deleteProperty(r.dbId, r.def.id)
+            for (const r of reverses) dropProperty(r.dbId, r.def.id)
             ws().deletePagePermanently(id)
           })
           throw e
@@ -387,6 +421,9 @@ export function planCreateDatabase(args: Record<string, unknown>): WritePlan {
       // the database itself as the call left it: renamed, given another icon / cover, a property or view added, renamed
       // or set up since → it stays (as the team server's Restore keeps it)
       const dbMark = databaseMark(id)
+      // each reverse property as the call left it (after its rows: the links they wrote on the other side are the
+      // call's): the Undo leaves one changed since alone (schema.ts propChangedSince)
+      const reverseMarks = new Map(reverses.map((r) => [r.def.id, propMark(r.dbId, r.def.id)] as const))
       return {
         result: {
           id,
@@ -417,12 +454,13 @@ export function planCreateDatabase(args: Record<string, unknown>): WritePlan {
           const kept = [rowsUndo(), ...[...undos].reverse().map((u) => u())]
           for (const r of reverses) {
             if (!ws().databases[r.dbId]?.properties.some((p) => p.id === r.def.id)) continue
-            // a reverse column someone filled in since stays (its links are the person's)
-            if (holdsValues(r.dbId, r.def.id)) {
+            // a reverse column changed since stays: filled in (its links are the person's), renamed or set up, built on,
+            // or its database locked since
+            if (propChangedSince(reverseMarks.get(r.def.id)!)) {
               kept.push(false)
               continue
             }
-            ws().deleteProperty(r.dbId, r.def.id)
+            dropProperty(r.dbId, r.def.id)
           }
           if (!gone) ws().trashPage(id)
           return kept.every(Boolean)

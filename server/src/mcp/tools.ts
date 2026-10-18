@@ -15,13 +15,13 @@ import type { Services } from '../context.ts'
 import { ApiError } from '../errors.ts'
 import { idSchema } from '../http/util.ts'
 import type { ApiTokenRow } from '../repo.ts'
-import type { WorkspaceModel } from '../api/model.ts'
+import { findProperty, type WorkspaceModel } from '../api/model.ts'
 import { liveDatabase, livePage } from '../api/meta.ts'
 import { FILTER_OPS, sortKeys } from './query.ts'
 import { McpReads } from './reads.ts'
 import { McpStructure, VIEW_TYPES, type ViewInput } from './structure.ts'
 import { BULK_MAX, McpTidy } from './tidy.ts'
-import { CREATABLE_TYPES, MAX_DB_PROPERTIES, McpWrites, cleanTitle } from './writes.ts'
+import { CREATABLE_TYPES, MAX_DB_PROPERTIES, McpWrites, cleanRowTitle, cleanTitle } from './writes.ts'
 import { once } from './duplicates.ts'
 import { dupHash, remembersResult } from '../../../src/shared/mcp/duplicates.ts'
 import { McpBatch } from './batch.ts'
@@ -33,24 +33,32 @@ import { codeOf, isMcpErrorCode, mcpError, withRemedy, type McpErrorCode } from 
 import { stripRefLabels } from '../../../src/shared/mcp/refs.ts'
 import { MCP_PAGE_KINDS } from '../../../src/shared/mcp/tables.ts'
 
+/**
+ * The answer to a fault of the server's own (not an ApiError): whether the call — or a part of a batch — was carried out
+ * is not known, so it says neither "not made" nor "try again": the model reads what the call touches first (the bridge
+ * words its own fault alike: "Nothing was confirmed — read what the call touches again").
+ */
+export const MCP_FAULT =
+  'rejected: The tool failed on the team server. Whether the call was carried out is not known: read what it touches (one_get_page, one_query_database) before you call again, and tell the person if it fails again.'
+
 /** Markdown a client wrote: ref labels it copied from a read (⟦#…~…⟧) never reach content. */
 const md = (v: string | undefined) => (v === undefined ? undefined : stripRefLabels(v))
 /** The same for every item of a batch (pages, rows) that carries its own Markdown. */
 const mdEach = <T extends { markdown?: string }>(list: T[] | undefined) => list?.map((it) => (it.markdown === undefined ? it : { ...it, markdown: md(it.markdown) }))
 
 const id = idSchema.describe('A page, row or database id')
-const markdown = z.string().max(200_000)
+const markdown = z.string().max(MCP_LIMITS.text)
 const icon = z.string().max(80).describe('An emoji, "asset:<name>" or "lucide:<IconName>"')
 const option = z.union([z.string().min(1).max(200), z.strictObject({ name: z.string().min(1).max(200), color: z.string().optional(), group: z.enum(['todo', 'in_progress', 'done']).optional() })])
 const relation = z
   .strictObject({
     databaseId: idSchema.describe('The related database'),
     twoWay: z.boolean().optional().describe('Also add the reverse relation to the other database'),
-    reverseName: z.string().min(1).max(200).optional().describe('Name of the reverse property (two-way only)'),
+    reverseName: z.string().min(1).max(MCP_LIMITS.propertyName).optional().describe('Name of the reverse property (two-way only)'),
   })
   .describe('relation properties only')
 const propertySpec = {
-  name: z.string().min(1).max(200),
+  name: z.string().min(1).max(MCP_LIMITS.propertyName),
   options: z.array(option).max(200).optional().describe('select / multi_select / status: option names (or { name, color, group })'),
   relation: relation.optional(),
 }
@@ -233,7 +241,9 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
     } catch (err) {
       if (err instanceof ApiError) throw new Error(explain(err))
       s.log.error('mcp tool failed', { workspace: ws, token: token.id, error: err as Error })
-      throw new Error('Internal error — the change was not made. Try again in a moment.')
+      // a fault of the server's own: whether (a part of) the call was carried out is not known — a batch may have written
+      // some of it — so the model reads before it calls again (the bridge words its own fault alike)
+      throw new Error(MCP_FAULT)
     }
   }
 
@@ -468,10 +478,27 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
             if (mixed) throw new ApiError(422, 'bad_argument', `bad_argument: ${mixed}: pass "rows" or title / properties / markdown, not both`)
             return batch.createRows(ws, { databaseId: a.databaseId, rows: mdEach(a.rows)! }, actor, rec)
           }
-          if (!a.title && !a.properties) throw new ApiError(422, 'bad_argument', 'bad_argument: title: a row needs a title (or pass "rows")')
+          // the title as the bridge takes it: given as "title" or through the properties, whitespace collapsed, never empty,
+          // at most MCP_LIMITS.title (as the batch form and the bridge refuse a row without one)
+          const given = typeof a.title === 'string' && a.title.trim() ? cleanTitle(a.title, 'title') : undefined
+          const props = a.properties
+            ? await model.read(ws, (r) => {
+                const defs = liveDatabase(r, a.databaseId)?.properties ?? []
+                const titleId = defs.find((p) => p.type === 'title')?.id
+                const isTitle = (k: string) => (k.trim().toLowerCase() === 'title' && !findProperty(defs, k)) || (!!titleId && findProperty(defs, k)?.id === titleId)
+                // an empty title among the properties gives way to "title" (as the bridge's splitTitle)
+                return cleanRowTitle(defs, Object.fromEntries(Object.entries(a.properties!).filter(([k, v]) => !(given && isTitle(k) && typeof v === 'string' && !v.trim()))))
+              })
+            : undefined
           // an MCP client is an agent: properties "Only by hand" are refused (api/keys.ts)
-          const row = await writes.prepareRow(ws, { databaseId: a.databaseId }, { title: a.title, properties: a.properties }, actor, { agent: true, mcp: true, files: 'onefile' })
-          const created = await model.createRow(ws, a.databaseId, { title: row.title ?? a.title, properties: row.properties, content: md(a.markdown) }, actor, { agent: true, files: 'onefile' })
+          const row = await writes.prepareRow(ws, { databaseId: a.databaseId }, { title: given, properties: props }, actor, { agent: true, mcp: true, files: 'onefile' })
+          const titled = await model.read(ws, (r) => {
+            const db = liveDatabase(r, a.databaseId)
+            const named = db ? Object.entries(row.properties ?? {}).find(([k]) => k.trim().toLowerCase() === 'title' || findProperty(db.properties, k)?.type === 'title') : undefined
+            return (row.title ?? (typeof named?.[1] === 'string' ? named[1] : '') ?? '').replace(/\s+/g, ' ').trim()
+          })
+          if (!titled) throw new ApiError(422, 'bad_argument', 'bad_argument: title: a row needs a title (or pass "rows")')
+          const created = await model.createRow(ws, a.databaseId, { title: row.title ?? given, properties: row.properties, content: md(a.markdown) }, actor, { agent: true, files: 'onefile' })
           // the pre-image: the row as made, with its text's state (a Restore leaves it when someone changed it since)
           const [state] = await batch.madeRows(ws, [created.id])
           if (state?.title !== undefined) rec.rows({ db: a.databaseId, created: [state], updated: [] })
@@ -522,7 +549,7 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
         databaseId: id,
         keyProperty: z.string().min(1).max(200),
         rows: z
-          .array(z.strictObject({ key: z.union([z.string().min(1).max(500), z.number()]), title: z.string().max(2000).optional(), properties: z.record(z.string(), z.unknown()).optional(), markdown: markdown.optional() }))
+          .array(z.strictObject({ key: z.union([z.string().min(1).max(500), z.number()]), title: z.string().max(2000).optional(), properties: z.record(z.string(), z.unknown()).optional(), markdown: z.string().max(MCP_LIMITS.upsertText).optional() }))
           .min(1)
           .max(MCP_LIMITS.rows),
         ...WS,
@@ -569,7 +596,7 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
         made('one_create_database', a, () =>
           batch.createDatabase(
             ws,
-            { title: a.title, parentId: a.parentId ?? null, inline: a.inline, icon: a.icon, properties: a.properties, views: a.views?.map((v) => ({ type: v.type, ...viewIn(v) })), rows: mdEach(a.rows) },
+            { title: cleanTitle(a.title, 'title'), parentId: a.parentId ?? null, inline: a.inline, icon: a.icon, properties: a.properties, views: a.views?.map((v) => ({ type: v.type, ...viewIn(v) })), rows: mdEach(a.rows) },
             actor,
             recorder('one_create_database', a),
           ),
@@ -585,7 +612,7 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
       inputSchema: {
         databaseId: id,
         property: propertyRef,
-        name: z.string().max(200).optional().describe('New name'),
+        name: z.string().max(MCP_LIMITS.propertyName).optional().describe('New name'),
         description: z.string().max(2000).optional().describe('Tooltip text ("" removes it)'),
         type: z.enum(CREATABLE_TYPES).optional().describe('New type (see the allowed changes above)'),
         options: z

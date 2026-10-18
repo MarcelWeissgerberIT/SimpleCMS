@@ -125,7 +125,7 @@ export function planCreatePage(args: Record<string, unknown>): WritePlan {
       const path = `pages[${i}]`
       if (!r || typeof r !== 'object' || Array.isArray(r)) throw new McpToolError(mcpError('bad_argument', path, 'an object {title, parentId?, markdown?, icon?} is expected'))
       const o = r as Record<string, unknown>
-      const title = str(o.title, `${path}.title`, { max: 300 }).replace(/\s+/g, ' ').trim()
+      const title = str(o.title, `${path}.title`, { max: MCP_LIMITS.title }).replace(/\s+/g, ' ').trim()
       if (!title) throw new McpToolError(mcpError('bad_argument', `${path}.title`, 'a page needs a title'))
       let icon: PageIcon | null | undefined
       try {
@@ -135,14 +135,14 @@ export function planCreatePage(args: Record<string, unknown>): WritePlan {
       }
       const own = str(o.parentId, `${path}.parentId`, { max: 80 }).trim()
       const parentRaw = own || shared
-      return { title, markdown: stripRefLabels(str(o.markdown, `${path}.markdown`, { max: 200_000 })), icon, parent: parentRaw ? parentOf(parentRaw, own ? `${path}.parentId` : 'parentId', i, true) : { kind: 'none' } }
+      return { title, markdown: stripRefLabels(str(o.markdown, `${path}.markdown`, { max: MCP_LIMITS.text })), icon, parent: parentRaw ? parentOf(parentRaw, own ? `${path}.parentId` : 'parentId', i, true) : { kind: 'none' } }
     })
     const total = items.reduce((n, p) => n + p.markdown.length, 0)
     if (total > MCP_LIMITS.pagesChars) throw new McpToolError(mcpError('too_large', 'pages', `the pages hold ${total.toLocaleString('en')} characters in all (at most ${MCP_LIMITS.pagesChars.toLocaleString('en')})`, 'Split them over two calls.'))
   } else {
-    const title = str(args.title, 'title', { required: true, max: 300 }).replace(/\s+/g, ' ').trim()
+    const title = str(args.title, 'title', { required: true, max: MCP_LIMITS.title }).replace(/\s+/g, ' ').trim()
     if (!title) throw new McpToolError(mcpError('bad_argument', 'title', 'a page needs a title (or pass "pages")'))
-    items = [{ title, markdown: stripRefLabels(str(args.markdown, 'markdown', { max: 200_000 })), icon: parseIcon(args.icon), parent: shared ? parentOf(shared, 'parentId', 0, false) : { kind: 'none' } }]
+    items = [{ title, markdown: stripRefLabels(str(args.markdown, 'markdown', { max: MCP_LIMITS.text })), icon: parseIcon(args.icon), parent: shared ? parentOf(shared, 'parentId', 0, false) : { kind: 'none' } }]
   }
 
   // privacy: a page under a private page is private; `private` puts top-level pages into the member's Private section
@@ -295,32 +295,48 @@ export function planCreatePage(args: Record<string, unknown>): WritePlan {
         : { id: ids[0]!, title: items[0]!.title, url: pageUrl(ids[0]!), parentId: parentIdOf(0), path: pathOf(ids[0]!), ...(priv[0] ? { private: true } : {}), ...tasksOf(tasks.created) }
       return {
         result: note ? { ...result, note } : result,
-        // icons and the links of a parent nobody wrote in since first (its text as it was), then the pages (each to the
-        // trash while nobody changed it since — stage.ts); in a parent someone wrote in since, only the call's links to
-        // pages that went to the trash go after that — their edits stay, a link to a page kept stays with it
+        // icons, the text of a parent the call made itself and nobody wrote in since first (its text as it was: it reads
+        // as made, stage.ts), then the pages (each to the trash while nobody changed it since); after that, in every
+        // parent only the call's links to pages that went go — a link to a page kept stays with it, whether or not
+        // someone wrote in the parent since (an untouched parent whose pages all went gets its text back exactly)
         undo: () => {
-          const later: typeof links = []
-          const first = links.map((l) => {
-            const now = ws().pages[l.parentId]
-            if (!now) return true
-            if (now.contentRev === l.rev || contentKey(now.content) === l.key) {
-              ws().setContent(l.parentId, l.prev ?? null, 'ai')
-              return true
-            }
-            later.push(l)
-            return true
-          })
-          const ok = [...undos.reverse().map((u) => u()), ...first, stagedUndo()]
-          for (const l of later) {
-            const gone = new Set(l.kids.filter((id) => !live(id)))
-            if (!gone.size) continue
+          const own = (gone: ReadonlySet<ID>) => (n: JSONContent) => {
             // the call's own shapes: a page link block, a line holding only the page's mention
-            const own = (n: JSONContent) => {
-              if (n.type === 'pageLink') return gone.has(n.attrs?.pageId)
-              const only = n.type === 'paragraph' && n.content?.length === 1 ? n.content[0]! : null
-              return !!only && only.type === 'mention' && only.attrs?.kind === 'page' && gone.has(only.attrs?.id)
+            if (n.type === 'pageLink') return gone.has(n.attrs?.pageId)
+            const only = n.type === 'paragraph' && n.content?.length === 1 ? n.content[0]! : null
+            return !!only && only.type === 'mention' && only.attrs?.kind === 'page' && gone.has(only.attrs?.id)
+          }
+          const untouched = (l: (typeof links)[number]) => {
+            const now = ws().pages[l.parentId]
+            return !!now && (now.contentRev === l.rev || contentKey(now.content) === l.key)
+          }
+          // made parents written back first: the text as the call left it, for the links of pages kept after all
+          const madeFirst = new Map<ID, JSONContent | null | undefined>()
+          for (const l of links) {
+            if (!ids.includes(l.parentId) || !untouched(l)) continue
+            madeFirst.set(l.parentId, ws().pages[l.parentId]!.content)
+            ws().setContent(l.parentId, l.prev ?? null, 'ai')
+          }
+          const ok = [...undos.reverse().map((u) => u()), stagedUndo()]
+          for (const l of links) {
+            const now = ws().pages[l.parentId]
+            if (!now) continue
+            const gone = new Set(l.kids.filter((id) => !live(id)))
+            const all = gone.size === l.kids.length
+            if (madeFirst.has(l.parentId)) {
+              // its text went back already; a page of it kept (and so the parent with it): its link comes back
+              if (!all && live(l.parentId)) {
+                const next = withoutNodes(madeFirst.get(l.parentId), own(gone)) ?? madeFirst.get(l.parentId)
+                ws().setContent(l.parentId, next ?? null, 'ai')
+              }
+              continue
             }
-            const next = withoutNodes(ws().pages[l.parentId]?.content, own)
+            if (all && untouched(l)) {
+              ws().setContent(l.parentId, l.prev ?? null, 'ai')
+              continue
+            }
+            if (!gone.size) continue
+            const next = withoutNodes(now.content, own(gone))
             if (next) ws().setContent(l.parentId, next, 'ai')
           }
           return ok.every(Boolean)

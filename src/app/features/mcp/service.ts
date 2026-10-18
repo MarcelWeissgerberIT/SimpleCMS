@@ -36,7 +36,8 @@ import { mcpMessage, planWrite, type WritePlan } from './write'
 import { planRunScript } from './script'
 import { warmMembers } from '../workitems'
 import { DEFAULT_SETTINGS, loadSettings, MCP_STORAGE_KEY, saveSettings, useMcp, validPort, type ActivityState, type McpActivity, type McpSettings, type Verdict } from './state'
-import { endRun, noteRun, withWriter, type Writer } from '../../store/writer'
+import { endRun, formatWriterKey, noteRun, withWriter, type Writer } from '../../store/writer'
+import { releaseFollows } from '../ai/agent/follow'
 import { localNetworkPermission } from '../../lib/localNetwork'
 import { loadFileStamps } from '../../lib/files'
 import { fileRefsIn } from '../ai/claudeFiles'
@@ -303,7 +304,10 @@ const LOG_MAX = 100
 function logStart(id: string, tool: McpToolName, write: boolean, target: string): string {
   const key = `${id}:${Date.now().toString(36)}`
   const entry: McpActivity = { id: key, at: Date.now(), session: get().session, tool, write, target, state: 'run' }
-  set((s) => ({ activity: [entry, ...s.activity].slice(0, LOG_MAX) }))
+  const all = [entry, ...get().activity]
+  set({ activity: all.slice(0, LOG_MAX) })
+  // an entry the log forgets takes its Undo along: what that Undo held goes too
+  for (const a of all.slice(LOG_MAX)) a.release?.()
   return key
 }
 
@@ -311,8 +315,17 @@ function logPatch(key: string, patch: Partial<McpActivity>) {
   set((s) => ({ activity: s.activity.map((a) => (a.id === key ? { ...a, ...patch } : a)) }))
 }
 
+/** An entry's Undo goes without running (an eject settled the call): what it held goes too. */
+function dropUndo(key: string, patch: Partial<McpActivity>) {
+  const a = get().activity.find((x) => x.id === key)
+  logPatch(key, { ...patch, undo: undefined, release: undefined })
+  a?.release?.()
+}
+
 export function clearMcpActivity() {
+  const gone = get().activity
   set({ activity: [] })
+  for (const a of gone) a.release?.()
 }
 
 /** An MCP client's name as a run note carries it (store/writer.ts RunMeta.client: an identifier, never content). */
@@ -335,17 +348,27 @@ export function undoMcpActivity(key: string) {
   withWriter({ kind: 'you', via: 'undo', ref: key.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 64) }, () => {
     out = a.undo!()
   })
-  logPatch(key, { state: 'undone', undo: undefined })
+  logPatch(key, { state: 'undone', undo: undefined, release: undefined })
   // a repeat of the call makes the thing again (it is not answered with what went to the trash)
   forgetDuplicate((d) => d.activity === key)
   const tell = (clean: boolean) => useUI.getState().toast(clean ? t('features.mcp.toast.undone') : t('features.mcp.toast.undoneKept'))
-  // a script run's Undo resolves once its run log answered (features/mcp/script.ts)
-  if (typeof out === 'boolean') tell(out)
-  else
-    void out.then(tell, (err) => {
-      console.error('[mcp] undo failed', err)
-      tell(false)
-    })
+  // a script run's Undo resolves once its run log answered (features/mcp/script.ts); what it held goes once it ran
+  // (a part it skipped — settled by an eject — keeps no follow either)
+  if (typeof out === 'boolean') {
+    a.release?.()
+    tell(out)
+  } else
+    void out.then(
+      (clean) => {
+        a.release?.()
+        tell(clean)
+      },
+      (err) => {
+        a.release?.()
+        console.error('[mcp] undo failed', err)
+        tell(false)
+      },
+    )
 }
 
 /* ------------------------------------------------------------------ */
@@ -368,7 +391,7 @@ export function settleMcpCall(session: string, call: string, _ejectId: string): 
   const list = callActivities(session, call)
   for (const a of list) {
     if (!settledStates.has(a.id)) settledStates.set(a.id, a.state)
-    logPatch(a.id, { state: 'undone', undo: undefined })
+    dropUndo(a.id, { state: 'undone' })
   }
   // what the call made is ejected: its repeat is a new call (an eject's Undo does not bring the entry back)
   forgetDuplicate((d) => d.session === session && d.call === call)
@@ -588,10 +611,20 @@ async function handleCall(id: string, tool: McpToolName, args: Record<string, un
     let applied: Awaited<ReturnType<WritePlan['apply']>>
     try {
       applied = await plan.apply(writer)
+    } catch (e) {
+      // nothing to undo: no follow of this call stays (a failed call's own rollback ran)
+      releaseFollows(formatWriterKey(writer))
+      throw e
     } finally {
       endRun(writer)
     }
-    answer(applied.result, 'ok', { undo: applied.undo })
+    // the Undo holds the call's follows (ai/agent/follow.ts): released when it goes without running; none: at once
+    const release = () => releaseFollows(formatWriterKey(writer))
+    if (applied.undo) answer(applied.result, 'ok', { undo: applied.undo, release })
+    else {
+      release()
+      answer(applied.result, 'ok')
+    }
     if (mine) closeDuplicate(mine, { ok: true, result: applied.result }, id, remembersResult(tool) ? { session: get().session ?? '-', activity: key } : null)
     // approved by hand: confirm with an undo (Apply directly stays quiet — the log has it)
     if (ask && applied.undo)
@@ -684,7 +717,7 @@ if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams
       const s = get()
       return { conn: s.conn, session: s.session, client: s.client?.name ?? null }
     },
-    activity: () => get().activity.map(({ undo, ...a }) => ({ ...a, undoable: !!undo })),
+    activity: () => get().activity.map(({ undo, release: _release, ...a }) => ({ ...a, undoable: !!undo })),
     /** the flight recorder's eject: an activity as a call leaves it (its Undo counts its presses in `undos`) */
     seedActivity: (a: Omit<McpActivity, 'undo'>, undoable: boolean) => {
       const w = window as unknown as { __oneMcpUndos?: number }

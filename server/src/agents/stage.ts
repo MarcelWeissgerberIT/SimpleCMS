@@ -5,7 +5,8 @@
  * NAMES for select / status / multi-select, stored values for the rest), and written only when someone
  * applies them — in the app (apply.ts) or here (`POST …/agent-runs/:runId/apply`).
  */
-import { type PageInfo, type PropertyDef, type Roots, pageMap, readPage, rowsOf } from '../api/meta.ts'
+import { type PageInfo, type PropertyDef, type Roots, listNameOf, pageMap, readPage, rowsOf } from '../api/meta.ts'
+import { listOptionText } from '../../../src/shared/mcp/errors.ts'
 import { isHandOnly, keyPropOf, keyText } from '../api/keys.ts'
 import { findProperty, type WorkspaceModel } from '../api/model.ts'
 import { READ_ONLY_TYPES, ValueError, coerce, type ValueContext } from '../api/values.ts'
@@ -65,6 +66,8 @@ export function stageProps(r: Roots, db: { properties: PropertyDef[]; locked: bo
         const hit = opts.find((o) => o.id === name || o.name.trim().toLowerCase() === name.toLowerCase())
         if (!hit && prop.type === 'status') throw new ToolInputError(`${q(prop.name)} (status): unknown status ${q(name)}. Use one of: ${all}.`)
         if (!hit && db.locked) throw new ToolInputError(`${q(prop.name)}: unknown option ${q(name)} — the database is locked, so no new options can be created. Use one of: ${all}.`)
+        // a select bound to a shared list (the app's building blocks) takes its options from the list: never one of its own
+        if (!hit && prop.listId) throw new ToolInputError(`${q(prop.name)}: ${listOptionText(name, listNameOf(r, prop.listId))}. Use one of: ${all}.`)
         const n = hit?.name ?? name.slice(0, 60)
         if (final.some((x) => x.toLowerCase() === n.toLowerCase())) continue
         if (!hit) fresh.push(n)
