@@ -5,13 +5,13 @@
  * and says so); a link to each new page at the end of its parent's text (`linkInParent`: a page link block or a mention
  * line, refused into a locked page). Staged through the agent's create_page (each page's text through the settle gate,
  * ids minted now), applied as ONE call: one card, one Undo — which takes back the links and puts every page the call
- * made into the trash while nobody changed it since (spec § 3.2).
+ * made into the trash, all or nothing (undo.ts: refused whole when anything of it changed since).
  */
 import type { JSONContent } from '@tiptap/core'
 import { t } from '../../i18n'
 import type { ID, Page, PageIcon } from '../../store/types'
 import { useCloud } from '../../cloud'
-import { contentKey, snapshotNow } from '../history/snapshots'
+import { snapshotNow } from '../history/snapshots'
 import { pagePrivate } from '../ai/agent/workItems'
 import { mcpError } from '../../../shared/mcp/errors'
 import { MCP_LIMITS } from '../../../shared/mcp/tables'
@@ -22,7 +22,6 @@ import { atPath, chars, checkFileScope, pageOrThrow, parseIcon, preview, str, ta
 import { withWriter } from '../../store/writer'
 import { bodyLine, rowNo, sideEffects, sideHold, type SideEffects } from './rows'
 import { stripRefLabels } from '../../../shared/mcp/refs'
-import { withoutNodes } from './undoNodes'
 
 type Parent = { kind: 'none' } | { kind: 'page'; page: Page } | { kind: 'batch'; index: number }
 
@@ -249,22 +248,11 @@ export function planCreatePage(args: Record<string, unknown>): WritePlan {
           if (it.parent.kind === 'page' && ws().pages[it.parent.page.id]?.settings.locked)
             throw new McpToolError(mcpError('locked', 'linkInParent', `${q(titleOf(it.parent.page))} was locked meanwhile: no link can be added to its text`, 'Leave linkInParent out, or ask the person to unlock it.'))
       // every page staged — their tasks settled again, their parents first (applyOrder)
-      const { undo: stagedUndo } = await applyStaged(stage.changes, writer)
-      const undos: Array<() => boolean> = []
-      /** the links written into each parent's text (linkInParent): the text before, its revision and key after */
-      const links: Array<{ parentId: ID; prev: JSONContent | null | undefined; rev: number | undefined; key: string; kids: ID[] }> = []
-      // icons, then the place of a single page (both taken back first by the Undo, so the pages read as made)
+      await applyStaged(stage.changes, writer)
+      // icons, then the place of a single page
       withWriter(writer, () => {
         items.forEach((it, i) => {
-          if (!it.icon) return
-          const id = ids[i]!
-          ws().updatePage(id, { icon: it.icon })
-          undos.push(() => {
-            const now = ws().pages[id]
-            if (!now || iconText(now.icon) !== iconText(it.icon)) return false
-            ws().updatePage(id, { icon: null })
-            return true
-          })
+          if (it.icon) ws().updatePage(ids[i]!, { icon: it.icon })
         })
         if (place) ws().movePage(ids[0]!, parentIdOf(0), place.storeIndex)
       })
@@ -285,9 +273,6 @@ export function planCreatePage(args: Record<string, unknown>): WritePlan {
             link === 'block' ? { type: 'pageLink', attrs: { pageId: ids[i] } } : { type: 'paragraph', content: [{ type: 'mention', attrs: { id: ids[i], label: priv[i] ? null : items[i]!.title, kind: 'page' } }] },
           )
           withWriter(writer, () => ws().setContent(parentId, { type: 'doc', content: isEmptyDoc(prev) ? add : [...(prev?.content ?? []), ...add] }, 'ai'))
-          const rev = ws().pages[parentId]?.contentRev
-          const key = contentKey(ws().pages[parentId]?.content)
-          links.push({ parentId, prev, rev, key, kids: kids.map((i) => ids[i]!) })
         }
       }
       const result = batch
@@ -295,52 +280,6 @@ export function planCreatePage(args: Record<string, unknown>): WritePlan {
         : { id: ids[0]!, title: items[0]!.title, url: pageUrl(ids[0]!), parentId: parentIdOf(0), path: pathOf(ids[0]!), ...(priv[0] ? { private: true } : {}), ...tasksOf(tasks.created) }
       return {
         result: note ? { ...result, note } : result,
-        // icons, the text of a parent the call made itself and nobody wrote in since first (its text as it was: it reads
-        // as made, stage.ts), then the pages (each to the trash while nobody changed it since); after that, in every
-        // parent only the call's links to pages that went go — a link to a page kept stays with it, whether or not
-        // someone wrote in the parent since (an untouched parent whose pages all went gets its text back exactly)
-        undo: () => {
-          const own = (gone: ReadonlySet<ID>) => (n: JSONContent) => {
-            // the call's own shapes: a page link block, a line holding only the page's mention
-            if (n.type === 'pageLink') return gone.has(n.attrs?.pageId)
-            const only = n.type === 'paragraph' && n.content?.length === 1 ? n.content[0]! : null
-            return !!only && only.type === 'mention' && only.attrs?.kind === 'page' && gone.has(only.attrs?.id)
-          }
-          const untouched = (l: (typeof links)[number]) => {
-            const now = ws().pages[l.parentId]
-            return !!now && (now.contentRev === l.rev || contentKey(now.content) === l.key)
-          }
-          // made parents written back first: the text as the call left it, for the links of pages kept after all
-          const madeFirst = new Map<ID, JSONContent | null | undefined>()
-          for (const l of links) {
-            if (!ids.includes(l.parentId) || !untouched(l)) continue
-            madeFirst.set(l.parentId, ws().pages[l.parentId]!.content)
-            ws().setContent(l.parentId, l.prev ?? null, 'ai')
-          }
-          const ok = [...undos.reverse().map((u) => u()), stagedUndo()]
-          for (const l of links) {
-            const now = ws().pages[l.parentId]
-            if (!now) continue
-            const gone = new Set(l.kids.filter((id) => !live(id)))
-            const all = gone.size === l.kids.length
-            if (madeFirst.has(l.parentId)) {
-              // its text went back already; a page of it kept (and so the parent with it): its link comes back
-              if (!all && live(l.parentId)) {
-                const next = withoutNodes(madeFirst.get(l.parentId), own(gone)) ?? madeFirst.get(l.parentId)
-                ws().setContent(l.parentId, next ?? null, 'ai')
-              }
-              continue
-            }
-            if (all && untouched(l)) {
-              ws().setContent(l.parentId, l.prev ?? null, 'ai')
-              continue
-            }
-            if (!gone.size) continue
-            const next = withoutNodes(now.content, own(gone))
-            if (next) ws().setContent(l.parentId, next, 'ai')
-          }
-          return ok.every(Boolean)
-        },
       }
     },
   }

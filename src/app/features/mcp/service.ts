@@ -36,8 +36,8 @@ import { mcpMessage, planWrite, type WritePlan } from './write'
 import { planRunScript } from './script'
 import { warmMembers } from '../workitems'
 import { DEFAULT_SETTINGS, loadSettings, MCP_STORAGE_KEY, saveSettings, useMcp, validPort, type ActivityState, type McpActivity, type McpSettings, type Verdict } from './state'
-import { endRun, formatWriterKey, noteRun, withWriter, type Writer } from '../../store/writer'
-import { releaseFollows } from '../ai/agent/follow'
+import { endRun, noteRun, withWriter, type Writer } from '../../store/writer'
+import { runUndo, tapeCall } from './undo'
 import { localNetworkPermission } from '../../lib/localNetwork'
 import { loadFileStamps } from '../../lib/files'
 import { fileRefsIn } from '../ai/claudeFiles'
@@ -304,10 +304,7 @@ const LOG_MAX = 100
 function logStart(id: string, tool: McpToolName, write: boolean, target: string): string {
   const key = `${id}:${Date.now().toString(36)}`
   const entry: McpActivity = { id: key, at: Date.now(), session: get().session, tool, write, target, state: 'run' }
-  const all = [entry, ...get().activity]
-  set({ activity: all.slice(0, LOG_MAX) })
-  // an entry the log forgets takes its Undo along: what that Undo held goes too
-  for (const a of all.slice(LOG_MAX)) a.release?.()
+  set({ activity: [entry, ...get().activity].slice(0, LOG_MAX) })
   return key
 }
 
@@ -315,17 +312,8 @@ function logPatch(key: string, patch: Partial<McpActivity>) {
   set((s) => ({ activity: s.activity.map((a) => (a.id === key ? { ...a, ...patch } : a)) }))
 }
 
-/** An entry's Undo goes without running (an eject settled the call): what it held goes too. */
-function dropUndo(key: string, patch: Partial<McpActivity>) {
-  const a = get().activity.find((x) => x.id === key)
-  logPatch(key, { ...patch, undo: undefined, release: undefined })
-  a?.release?.()
-}
-
 export function clearMcpActivity() {
-  const gone = get().activity
   set({ activity: [] })
-  for (const a of gone) a.release?.()
 }
 
 /** An MCP client's name as a run note carries it (store/writer.ts RunMeta.client: an identifier, never content). */
@@ -337,17 +325,24 @@ function legacyOverview(result: unknown): unknown {
   return { ...result, tree: { more: true, note: 'Not every page is listed here: one_search finds the others by title, one_get_page lists a page\'s sub-pages.' } }
 }
 
-/** Undo an applied write from the log. */
+/**
+ * Undo an applied write from the log — all or nothing (undo.ts): changed since, it writes nothing, says what changed and
+ * where to take it back by hand (the entry keeps no Undo key: it would only say the same again).
+ */
 export function undoMcpActivity(key: string) {
   const a = get().activity.find((x) => x.id === key)
   if (!a?.undo || a.state !== 'ok') return
   // the person's Undo of the call (store/writer.ts)
-  const clean = withWriter({ kind: 'you', via: 'undo', ref: key.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 64) }, () => a.undo!())
-  logPatch(key, { state: 'undone', undo: undefined, release: undefined })
+  const out = withWriter({ kind: 'you', via: 'undo', ref: key.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 64) }, () => a.undo!())
+  if (!out.ok) {
+    logPatch(key, { undo: undefined, note: `${out.message} ${out.detail}` })
+    useUI.getState().toast({ message: out.message, detail: out.detail, kind: 'error', timeout: 12_000 })
+    return
+  }
+  logPatch(key, { state: 'undone', undo: undefined })
   // a repeat of the call makes the thing again (it is not answered with what went to the trash)
   forgetDuplicate((d) => d.activity === key)
-  a.release?.()
-  useUI.getState().toast(clean ? t('features.mcp.toast.undone') : t('features.mcp.toast.undoneKept'))
+  useUI.getState().toast(t('features.mcp.toast.undone'))
 }
 
 /* ------------------------------------------------------------------ */
@@ -370,7 +365,7 @@ export function settleMcpCall(session: string, call: string, _ejectId: string): 
   const list = callActivities(session, call)
   for (const a of list) {
     if (!settledStates.has(a.id)) settledStates.set(a.id, a.state)
-    dropUndo(a.id, { state: 'undone' })
+    logPatch(a.id, { state: 'undone', undo: undefined })
   }
   // what the call made is ejected: its repeat is a new call (an eject's Undo does not bring the entry back)
   forgetDuplicate((d) => d.session === session && d.call === call)
@@ -587,26 +582,24 @@ async function handleCall(id: string, tool: McpToolName, args: Record<string, un
     // the call writes as itself (store/writer.ts): mcp:<session>:<call>:<tool>; the recorder learns its client first
     const writer: Writer = { kind: 'mcp', session: get().session ?? '-', call: id, tool }
     noteRun(writer, { tool, ...(get().client?.name ? { client: clientName(get().client!.name) } : {}) })
+    // what the call writes into pages and databases, under its own writer: its Undo (all or nothing, undo.ts)
+    const tape = tapeCall(writer)
     let applied: Awaited<ReturnType<WritePlan['apply']>>
     try {
       applied = await plan.apply(writer)
     } catch (e) {
-      // nothing to undo: no follow of this call stays (a failed call's own rollback ran)
-      releaseFollows(formatWriterKey(writer))
+      // nothing to undo (a failed call's own rollback ran)
+      tape.stop()
       throw e
     } finally {
       endRun(writer)
     }
-    // the Undo holds the call's follows (ai/agent/follow.ts): released when it goes without running; none: at once
-    const release = () => releaseFollows(formatWriterKey(writer))
-    if (applied.undo) answer(applied.result, 'ok', { undo: applied.undo, release })
-    else {
-      release()
-      answer(applied.result, 'ok')
-    }
+    const taken = tape.finish()
+    const undo = taken ? () => runUndo(taken) : undefined
+    answer(applied.result, 'ok', undo ? { undo } : {})
     if (mine) closeDuplicate(mine, { ok: true, result: applied.result }, id, remembersResult(tool) ? { session: get().session ?? '-', activity: key } : null)
     // approved by hand: confirm with an undo (Apply directly stays quiet — the log has it)
-    if (ask && applied.undo)
+    if (ask && undo)
       useUI.getState().toast({
         message: t('features.mcp.toast.applied', { what: plan.summary }),
         kind: 'success',
@@ -696,11 +689,11 @@ if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams
       const s = get()
       return { conn: s.conn, session: s.session, client: s.client?.name ?? null }
     },
-    activity: () => get().activity.map(({ undo, release: _release, ...a }) => ({ ...a, undoable: !!undo })),
+    activity: () => get().activity.map(({ undo, ...a }) => ({ ...a, undoable: !!undo })),
     /** the flight recorder's eject: an activity as a call leaves it (its Undo counts its presses in `undos`) */
     seedActivity: (a: Omit<McpActivity, 'undo'>, undoable: boolean) => {
       const w = window as unknown as { __oneMcpUndos?: number }
-      set((s) => ({ activity: [{ ...a, ...(undoable ? { undo: () => ((w.__oneMcpUndos = (w.__oneMcpUndos ?? 0) + 1), true) } : {}) }, ...s.activity] }))
+      set((s) => ({ activity: [{ ...a, ...(undoable ? { undo: () => ((w.__oneMcpUndos = (w.__oneMcpUndos ?? 0) + 1), { ok: true as const }) } : {}) }, ...s.activity] }))
     },
     undos: () => (window as unknown as { __oneMcpUndos?: number }).__oneMcpUndos ?? 0,
     /** MCP · Connections' bridge row in a given state (never connects, never sends — the state only) */

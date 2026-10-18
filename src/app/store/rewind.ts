@@ -1,6 +1,7 @@
 /**
  * The flight recorder's eject and its Undo (features/recorder eject/commit.ts, eject/undo.ts): planned pages and
- * databases put back in ONE store update — the store's `applyRewind`. Every patched page keeps what is not a part of
+ * databases put back in ONE store update — the store's `applyRewind` (and `putBack`, an MCP call's Undo in Agent
+ * activity: features/mcp/undo.ts, in team workspaces too). Every patched page keeps what is not a part of
  * it from the page as it is now (id, kind, stamps of creation, comments, privacy, template marker, settings, hidden),
  * content written by reference gets a new revision with the writer as its origin, trash and restore follow
  * `trashPage` / `restorePage`. Nothing is created here: a patched id that does not exist now refuses the whole patch,
@@ -60,15 +61,22 @@ function inCycle(pages: Record<ID, Page>, id: ID): boolean {
 
 /**
  * The state after a rewind (null: refused — nothing may change). `origin`: the content origin of rewritten pages;
- * `t`: now.
+ * `t`: now. `lockedPages`: an MCP call's Undo (store `putBack`) writes a page locked before the call back as the call
+ * found it — its caller refused a lock set since (features/mcp/undo.ts).
  */
-export function rewindState(cur: { pages: Record<ID, Page>; databases: Record<ID, Database>; recent: ID[] }, patch: RewindPatch, origin: 'eject' | 'rewind', t: number): RewindNext | null {
+export function rewindState(
+  cur: { pages: Record<ID, Page>; databases: Record<ID, Database>; recent: ID[] },
+  patch: RewindPatch,
+  origin: 'eject' | 'rewind' | 'history',
+  t: number,
+  opts: { lockedPages?: boolean } = {},
+): RewindNext | null {
   const pageIds = Object.keys(patch.pages ?? {})
   const dbIds = Object.keys(patch.databases ?? {})
   for (const id of pageIds) {
     const now = cur.pages[id]
     // never created here; a page locked now is never written (the planner holds it — defence in depth)
-    if (!now || patch.pages![id].id !== id || now.settings?.locked) return null
+    if (!now || patch.pages![id].id !== id || (now.settings?.locked && !opts.lockedPages)) return null
   }
   for (const id of dbIds) {
     const now = cur.databases[id]

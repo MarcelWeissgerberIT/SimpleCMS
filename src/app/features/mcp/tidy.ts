@@ -1,7 +1,7 @@
 /**
  * One MCP — tidying up pages: the trash (one or many, a database with its rows), restoring from
  * it, moving pages and databases in the tree, moving a row into another database. Planned first
- * (nothing written; a card line per fact), applied after approval, undone from the agent log.
+ * (nothing written; a card line per fact), applied after approval, undone from the agent log (undo.ts).
  *
  * Page ⇄ database entry conversions (the sidebar's drops, shell/sidebar/entries.ts) are not offered:
  * they ask the person on the way. Moving between Private and the workspace (team) is refused too.
@@ -15,12 +15,10 @@ import { MCP_BULK_MAX, type McpToolName } from './contract'
 import { chars, clone, idList, itemLines, palette, str, tidyPageOrThrow, type PlanLine, type WritePlan } from './plan'
 import { databaseOrThrow, kindOf, live, McpToolError, pageUrl, pathOf, q, rowProperties, rowsOf, titleOf, TWO_WAY_SUFFIX, ws } from './values'
 import { adoptRowType } from '../../database'
-import { formatWriterKey, withWriter } from '../../store/writer'
-import { followCall, madeAs, valueKey, valuesKey } from '../ai/agent/follow'
+import { withWriter } from '../../store/writer'
 import { listOptionText, mcpError } from '../../../shared/mcp/errors'
 import { assertNotSystem, assertTreeNotSystem } from './system'
 import { sideEffects, sideHold } from './rows'
-import { contentKey } from '../history/snapshots'
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
@@ -150,14 +148,6 @@ function planTrash(args: Record<string, unknown>): WritePlan {
         const note = 'Moved to the trash (nothing is deleted for good): one_restore_page or the trash in One brings it back.'
         return {
           result: single ? { ...out(items[0]), trashed: true, note } : { trashed: items.map(out), count: items.length, alsoTrashed: total, note },
-          undo: () => {
-            let clean = true
-            for (const x of items) {
-              if (ws().pages[x.page.id]?.trashed) ws().restorePage(x.page.id)
-              else clean = false
-            }
-            return clean
-          },
         }
       })
     },
@@ -167,53 +157,6 @@ function planTrash(args: Record<string, unknown>): WritePlan {
 /* ------------------------------------------------------------------ */
 /* one_restore_page                                                    */
 /* ------------------------------------------------------------------ */
-
-/** A page and every live page / row below it (by parent; rows of a database are below its page). */
-function liveTree(id: ID): Set<ID> {
-  const { pages } = ws()
-  const kids = new Map<ID, ID[]>()
-  for (const p of Object.values(pages)) {
-    if (p.trashed || !p.parentId) continue
-    const list = kids.get(p.parentId)
-    if (list) list.push(p.id)
-    else kids.set(p.parentId, [p.id])
-  }
-  const out = new Set<ID>([id])
-  const stack = [id]
-  while (stack.length) {
-    for (const k of kids.get(stack.pop()!) ?? []) {
-      if (out.has(k)) continue
-      out.add(k)
-      stack.push(k)
-    }
-  }
-  return out
-}
-
-/** A page as one_restore_page brought it back: its text, title, icon, cover, comment threads, place and values — a database also its properties and views. */
-interface RestoredAs {
-  rev: number
-  key: string
-  rest: string
-}
-
-const nonEmpty = (props: Page['properties'] | undefined) =>
-  Object.entries(props ?? {})
-    .filter(([, v]) => !(v === undefined || v === null || v === '' || (Array.isArray(v) && !v.length)))
-    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-
-/** …and a database page its schema: a database set up again since (a column, a view) is the person's (as the team server's Restore, markOf). */
-const schemaOf = (id: ID) => {
-  const d = ws().databases[id]
-  return d ? [d.properties, d.views] : null
-}
-
-const restOf = (p: Page) => JSON.stringify([p.title, p.icon ?? null, p.cover ?? null, p.comments?.length ? p.comments : null, p.parentId ?? null, p.databaseId ?? null, nonEmpty(p.properties), schemaOf(p.id)])
-
-const restoredAs = (p: Page | undefined): RestoredAs => ({ rev: p?.contentRev ?? 0, key: contentKey(p?.content), rest: p ? restOf(p) : '' })
-
-/** Changed since it was brought back (text — the same text written back counts as unchanged —, title, icon, cover, comments, place, values). */
-const changedSince = (p: Page | undefined, as: RestoredAs) => !p || (p.contentRev !== as.rev && contentKey(p.content) !== as.key) || restOf(p) !== as.rest
 
 function planRestore(args: Record<string, unknown>): WritePlan {
   const ids = idList(args, MCP_BULK_MAX)
@@ -277,7 +220,6 @@ function planRestore(args: Record<string, unknown>): WritePlan {
     async apply(writer) {
       // every write of this call under its writer (store/writer.ts) — one synchronous burst
       return withWriter(writer, () => {
-        const before = items.map((x) => ({ id: x.page.id, parentId: ws().pages[x.page.id]?.parentId ?? null }))
         const moved = items.filter((x) => !ws().pages[x.page.id]?.trashed)
         if (moved.length) throw new McpToolError(`${moved.map((x) => q(titleOf(x.page))).join(', ')} is no longer in the trash. Nothing was changed.`)
         for (const x of items) assertTreeNotSystem(x.page.id)
@@ -286,32 +228,8 @@ function planRestore(args: Record<string, unknown>): WritePlan {
           // the store looks at the parent only; under a trashed grandparent it would stay out of sight
           if (x.top && ws().pages[x.page.id]?.parentId) ws().updatePage(x.page.id, { parentId: null })
         }
-        // what came back with each page (it, the pages and rows below it) as it is now: the Undo takes back only what
-        // nobody changed since (spec § 3.2)
-        const brought = new Map(items.map((x) => [x.page.id, new Map([...liveTree(x.page.id)].map((id) => [id, restoredAs(ws().pages[id])]))]))
         return {
           result: single ? out(items[0].page.id) : { restored: items.map((x) => out(x.page.id)), count: items.length },
-          undo: () => {
-            let clean = true
-            for (const b of before) {
-              const now = ws().pages[b.id]
-              if (!now || now.trashed) {
-                clean = false
-                continue
-              }
-              // changed since (its text, title, icon, place or values, or of a page / row that came back with it), or
-              // holding a live page / row the call did not bring back: left where it is
-              const was = brought.get(b.id)!
-              const tree = liveTree(b.id)
-              if ([...tree].some((id) => !was.has(id)) || [...was].some(([id, as]) => tree.has(id) && changedSince(ws().pages[id], as))) {
-                clean = false
-                continue
-              }
-              if (now.parentId !== b.parentId) ws().updatePage(b.id, { parentId: b.parentId })
-              ws().trashPage(b.id)
-            }
-            return clean
-          },
         }
       })
     },
@@ -404,24 +322,15 @@ function planMovePage(args: Record<string, unknown>): WritePlan {
         // moved into One's own databases while the card waited (the page or its new place): refused as at plan time
         assertNotSystem(page.id)
         assertNotSystem(parentId)
-        const prev = { parentId: now.parentId, order: now.order }
         ws().movePage(page.id, parentId, storeIndex)
         const moved = ws().pages[page.id]
         if (!moved || moved.parentId !== parentId) throw new McpToolError(`One did not move ${q(name)} there. Nothing was changed.`)
-        const placed = { parentId: moved.parentId, order: moved.order }
         const index = Object.values(ws().pages)
           .filter((p) => p.parentId === parentId && live(p.id) && !p.hidden)
           .sort((a, b) => a.order - b.order)
           .findIndex((p) => p.id === page.id)
         return {
           result: { id: page.id, title: moved.title, kind: kindOf(moved), parentId, path: pathOf(page.id), index, url: pageUrl(page.id) },
-          undo: () => {
-            const cur = ws().pages[page.id]
-            if (!cur || cur.parentId !== placed.parentId || cur.order !== placed.order) return false
-            if (prev.parentId && !live(prev.parentId)) return false
-            ws().updatePage(page.id, { parentId: prev.parentId, order: prev.order })
-            return true
-          },
         }
       })
     },
@@ -608,7 +517,6 @@ function planMoveRow(args: Record<string, unknown>): WritePlan {
         }
         // the type that would come along: a target locked while the card waited cannot take it
         if (adopting && rt && !(target.recordTypes ?? []).includes(typeId!) && target.locked) throw new McpToolError(mcpError('locked', 'databaseId', `${q(toTitle)} was locked meanwhile: the record type ${q(rt.name)} of ${q(name)} cannot come along`))
-        const before = { properties: clone(cur.properties), order: cur.order, recordType: cur.recordType ?? null }
         for (const [propId, opts] of map.fresh) {
           const def = target.properties.find((p) => p.id === propId)
           if (def) ws().updateProperty(to.id, propId, { options: [...(def.options ?? []), ...opts] })
@@ -622,51 +530,13 @@ function planMoveRow(args: Record<string, unknown>): WritePlan {
         }
         const order = Math.max(0, ...Object.values(ws().pages).filter((p) => p.parentId === to.id).map((p) => p.order)) + 1
         ws().updatePage(row.id, { databaseId: to.id, parentId: to.id, properties: values, order })
-        // a row of a record type the target does not hold yet: the type comes along (database/model/recordTypes) — the
-        // properties it adds there are the call's (its Undo takes them back while nobody uses them)
-        const propsBefore = new Set(ws().databases[to.id]?.properties.map((p) => p.id) ?? [])
-        const heldType = typeId ? (ws().databases[to.id]?.recordTypes ?? []).includes(typeId) : true
+        // a row of a record type the target does not hold yet: the type comes along (database/model/recordTypes) and the
+        // properties it adds there are the call's
         adoptRowType(row.id)
-        const attached = typeId && !heldType && (ws().databases[to.id]?.recordTypes ?? []).includes(typeId) ? { typeId, props: (ws().databases[to.id]?.properties ?? []).filter((p) => !propsBefore.has(p.id)).map((p) => p.id) } : null
         const moved = ws().pages[row.id]
         const d = ws().databases[to.id]
-        const typeAfter = moved.recordType ?? null
-        // the row as the call left it: what the move itself set off since (a property_changed automation, autofill on the
-        // target — their writers name this call as their cause) moves this baseline, an edit of anyone else does not (follow.ts)
-        const follow = followCall(row.id, formatWriterKey(writer), madeAs(moved))
         return {
           result: { id: row.id, title: moved.title, from: { id: from.id, title: fromTitle }, databaseId: to.id, database: toTitle, url: pageUrl(row.id), properties: rowProperties(d, moved), ...(freshNames.length ? { addedOptions: freshNames } : {}) },
-          undo: () => {
-            const base = follow.base()
-            follow.stop()
-            const now = ws().pages[row.id]
-            if (!now || now.databaseId !== to.id || valuesKey(now.properties) !== valuesKey(base.props) || (now.recordType ?? null) !== typeAfter || !live(from.id)) return false
-            ws().updatePage(row.id, { databaseId: from.id, parentId: from.id, properties: before.properties, order: before.order })
-            // its record type as it was (a locked target had cleared it)
-            if ((ws().pages[row.id]?.recordType ?? null) !== before.recordType) ws().setRecordType(row.id, before.recordType)
-            let clean = true
-            // options added for it go again when nothing else took them up
-            for (const [propId, opts] of map.fresh) {
-              const def = ws().databases[to.id]?.properties.find((p) => p.id === propId)
-              if (!def) continue
-              const used = new Set(Object.values(ws().pages).flatMap((p) => (p.databaseId === to.id ? [p.properties[propId]].flat() : [])))
-              const drop = new Set(opts.filter((o) => !used.has(o.id)).map((o) => o.id))
-              if (drop.size) ws().updateProperty(to.id, propId, { options: (def.options ?? []).filter((o) => !drop.has(o.id)) })
-            }
-            // the record type it brought along goes again while no other row there carries it and none of its
-            // properties holds a value (the trash included); otherwise it stays — a part someone used since
-            if (attached) {
-              const db = ws().databases[to.id]
-              const usedType = Object.values(ws().pages).some((p) => p.databaseId === to.id && p.recordType === attached.typeId)
-              const filled = attached.props.some((pid) => Object.values(ws().pages).some((p) => p.databaseId === to.id && valueKey(p.properties?.[pid]) !== ''))
-              if (!db || db.locked || usedType || filled || !(db.recordTypes ?? []).includes(attached.typeId)) clean = false
-              else {
-                ws().detachRecordType(to.id, attached.typeId)
-                for (const pid of attached.props) ws().deleteProperty(to.id, pid)
-              }
-            }
-            return clean
-          },
         }
       })
     },

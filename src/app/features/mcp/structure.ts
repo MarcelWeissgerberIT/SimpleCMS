@@ -5,7 +5,7 @@
  *
  * Deleting a property clears what pointed at it the way the app's delete does
  * (database/model/actions.ts): view filters, calculations, chart axes, card previews, colour rules,
- * rollups. Every change has an undo for the agent log that leaves alone what was edited since.
+ * rollups. Every change can be undone from the agent log — all or nothing (undo.ts).
  */
 import { t } from '../../i18n'
 import { newId } from '../../lib/ids'
@@ -113,19 +113,9 @@ function planUpdateDatabase(args: Record<string, unknown>): WritePlan {
         const patch: Partial<Page> = {}
         if (changed.includes('title')) patch.title = title!
         if (changed.includes('icon')) patch.icon = icon ?? null
-        const before = { title: prev.title, icon: prev.icon }
         ws().updatePage(db.id, patch)
         return {
           result: result(),
-          undo: () => {
-            const now = ws().pages[db.id]
-            if (!now) return false
-            const back: Partial<Page> = {}
-            if (patch.title !== undefined && now.title === patch.title) back.title = before.title
-            if (patch.icon !== undefined && iconText(now.icon) === iconText(patch.icon)) back.icon = before.icon
-            if (Object.keys(back).length) ws().updatePage(db.id, back)
-            return Object.keys(back).length === Object.keys(patch).length
-          },
         }
       })
     },
@@ -220,16 +210,9 @@ function assertRollupsWritable(dbId: ID, list: readonly RollupClear[], prop: str
   }
 }
 
-/** Delete a property and clear what pointed at it; returns the undo (definition, values, view settings, rollups). */
-function removeProperty(dbId: ID, propId: ID): () => boolean {
+/** Delete a property and clear what pointed at it: its values, view settings naming it, rollups through it or of it. */
+function removeProperty(dbId: ID, propId: ID): void {
   const st = ws()
-  const fresh = st.databases[dbId]
-  const index = fresh.properties.findIndex((p) => p.id === propId)
-  const def = clone(fresh.properties[index])
-  const viewsBefore = clone(fresh.views)
-  const values = allRows(dbId)
-    .filter((r) => r.properties[propId] !== undefined)
-    .map((r) => [r.id, clone(r.properties[propId])] as const)
   const rollups = rollupsOn(dbId, propId)
   st.deleteProperty(dbId, propId)
   for (const v of ws().databases[dbId].views) {
@@ -237,47 +220,6 @@ function removeProperty(dbId: ID, propId: ID): () => boolean {
     if (patch) st.updateView(dbId, v.id, patch)
   }
   for (const r of rollups) st.updateProperty(r.dbId, r.propId, { rollup: r.after })
-  const viewsAfter = clone(ws().databases[dbId].views)
-
-  return () => {
-    const w = ws()
-    if (!w.databases[dbId] || w.databases[dbId].properties.some((p) => p.id === propId)) return false
-    w.addProperty(dbId, def, index)
-    let clean = true
-    for (const vb of viewsBefore) {
-      const va = viewsAfter.find((x) => x.id === vb.id)
-      const cur = ws().databases[dbId]?.views.find((x) => x.id === vb.id)
-      if (!va || !cur) continue
-      const patch: Record<string, unknown> = {}
-      // addProperty showed it in every view: back to where it was (or hidden), unless the list changed since
-      const shown = cur.visibleProperties.filter((x) => x !== propId)
-      if (same(shown, va.visibleProperties)) patch.visibleProperties = clone(vb.visibleProperties)
-      else {
-        const at = vb.visibleProperties.indexOf(propId)
-        if (at >= 0) shown.splice(Math.min(at, shown.length), 0, propId)
-        patch.visibleProperties = shown
-        clean = false
-      }
-      for (const k of new Set([...Object.keys(vb), ...Object.keys(va)]) as Set<keyof View>) {
-        if (k === 'visibleProperties' || same(vb[k], va[k])) continue
-        if (same(cur[k], va[k])) patch[k] = vb[k] === undefined ? undefined : clone(vb[k])
-        else clean = false
-      }
-      w.updateView(dbId, vb.id, patch as Partial<View>)
-    }
-    for (const r of rollups) {
-      const cur = ws().databases[r.dbId]?.properties.find((p) => p.id === r.propId)
-      if (!cur || !same(cur.rollup, r.after)) continue
-      // another database that is locked or One's own by now keeps its schema as it is (the rollup stays cleared)
-      if (r.dbId !== dbId && (ws().databases[r.dbId]?.locked || systemOf(r.dbId))) {
-        clean = false
-        continue
-      }
-      w.updateProperty(r.dbId, r.propId, { rollup: r.before })
-    }
-    for (const [rowId, v] of values) if (ws().pages[rowId]) w.setRowProperty(rowId, propId, v)
-    return clean
-  }
 }
 
 function planDeleteProperty(args: Record<string, unknown>): WritePlan {
@@ -321,8 +263,8 @@ function planDeleteProperty(args: Record<string, unknown>): WritePlan {
         assertNotSystem(db.id)
         // a rollup that rolls it up in a database locked (or made One's own) while the card waited, or one set up since
         assertRollupsWritable(db.id, rollupsOn(db.id, prop.id), prop.name, true)
-        const undo = removeProperty(db.id, prop.id)
-        return { result: { databaseId: db.id, deleted: { id: prop.id, name: prop.name, type: prop.type }, rowsWithValue: withValue, note: 'Deleted with its values. The person can undo it in One (Agent activity).' }, undo }
+        removeProperty(db.id, prop.id)
+        return { result: { databaseId: db.id, deleted: { id: prop.id, name: prop.name, type: prop.type }, rowsWithValue: withValue, note: 'Deleted with its values. The person can undo it in One (Agent activity).' } }
       })
     },
   }
@@ -519,7 +461,6 @@ function planUpdateProperty(args: Record<string, unknown>): WritePlan {
         if (d.locked) throw new McpToolError(`${q(title)} was locked meanwhile. Nothing was changed.`)
         // moved into One's own databases while the card waited (spec § 3.3): refused as at plan time
         assertNotSystem(db.id)
-        const before = { def: clone(cur), values: new Map(allRows(db.id).map((r) => [r.id, clone(r.properties[prop.id])] as const)) }
         const full: Partial<PropertyDef> = { ...patch }
         if (toType) {
           full.type = toType
@@ -558,28 +499,8 @@ function planUpdateProperty(args: Record<string, unknown>): WritePlan {
             if (typeof v === 'string' && removed.has(v)) ws().setRowProperty(r.id, prop.id, null)
             else if (Array.isArray(v) && v.some((x) => removed.has(x))) ws().setRowProperty(r.id, prop.id, v.filter((x) => !removed.has(x)))
           }
-        const after = { def: clone(ws().databases[db.id].properties.find((p) => p.id === prop.id)!), values: new Map(allRows(db.id).map((r) => [r.id, clone(r.properties[prop.id])] as const)) }
         return {
           result: result(),
-          undo: () => {
-            const now = ws().databases[db.id]?.properties.find((p) => p.id === prop.id)
-            if (!now || !same(now, after.def)) return false
-            // the old definition exactly: fields the change added are cleared
-            const back: Record<string, unknown> = { ...before.def }
-            for (const k of Object.keys(now)) if (!(k in before.def)) back[k] = undefined
-            ws().updateProperty(db.id, prop.id, back as Partial<PropertyDef>)
-            let clean = true
-            for (const [rowId, v] of before.values) {
-              const row = ws().pages[rowId]
-              if (!row) continue
-              if (!same(row.properties[prop.id], after.values.get(rowId))) {
-                clean = false
-                continue
-              }
-              if (!same(v, row.properties[prop.id])) ws().setRowProperty(rowId, prop.id, v ?? null)
-            }
-            return clean
-          },
         }
       })
     },
@@ -908,15 +829,8 @@ function planCreateView(args: Record<string, unknown>): WritePlan {
         assertNotSystem(db.id)
         ws().addView(db.id, view)
         const made = ws().databases[db.id].views.find((v) => v.id === view.id)!
-        const after = clone(made)
         return {
           result: { databaseId: db.id, view: viewJson(ws().databases[db.id], made), url: `${pageUrl(db.id)}` },
-          undo: () => {
-            const now = ws().databases[db.id]?.views.find((v) => v.id === view.id)
-            if (!now || !same(now, after)) return false
-            ws().deleteView(db.id, view.id)
-            return true
-          },
         }
       })
     },
@@ -947,20 +861,9 @@ function planUpdateView(args: Record<string, unknown>): WritePlan {
         if (!d || !cur || d.locked) throw new McpToolError(`${q(view.name)} is gone or ${q(title)} was locked meanwhile. Nothing was changed.`)
         // moved into One's own databases while the card waited (spec § 3.3): refused as at plan time
         assertNotSystem(db.id)
-        const keys = Object.keys(patch) as Array<keyof View>
-        const before = Object.fromEntries(keys.map((k) => [k, clone(cur[k])])) as Partial<View>
         ws().updateView(db.id, view.id, patch)
-        const after = clone(ws().databases[db.id].views.find((v) => v.id === view.id)!)
         return {
           result: result(),
-          undo: () => {
-            const now = ws().databases[db.id]?.views.find((v) => v.id === view.id)
-            if (!now) return false
-            const back: Record<string, unknown> = {}
-            for (const k of keys) if (same(now[k], after[k])) back[k] = before[k]
-            if (Object.keys(back).length) ws().updateView(db.id, view.id, back as Partial<View>)
-            return Object.keys(back).length === keys.length
-          },
         }
       })
     },
@@ -988,18 +891,9 @@ function planDeleteView(args: Record<string, unknown>): WritePlan {
         if (!d || index < 0 || d.locked || d.views.length <= 1) throw new McpToolError(`${q(view.name)} is gone, the last view or ${q(title)} was locked meanwhile. Nothing was changed.`)
         // moved into One's own databases while the card waited (spec § 3.3): refused as at plan time
         assertNotSystem(db.id)
-        const copy = clone(d.views[index])
         ws().deleteView(db.id, view.id)
         return {
           result: { databaseId: db.id, deleted: { id: view.id, name: view.name, type: view.type }, views: ws().databases[db.id].views.map((v) => ({ id: v.id, name: v.name, type: v.type })) },
-          undo: () => {
-            const now = ws().databases[db.id]
-            if (!now || now.views.some((v) => v.id === view.id)) return false
-            const views = [...now.views]
-            views.splice(Math.min(index, views.length), 0, copy)
-            ws().updateDatabase(db.id, { views })
-            return true
-          },
         }
       })
     },

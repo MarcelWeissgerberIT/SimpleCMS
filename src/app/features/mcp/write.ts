@@ -5,7 +5,7 @@
  *
  * Pages, rows, appends and renames reuse the workspace agent: its tools validate and coerce the
  * input into a StagedChange (on a private, per-call stage) and its applyChanges() writes it —
- * one implementation of property coercion, option creation, content origin 'ai' and undo. Icons,
+ * one implementation of property coercion, option creation and content origin 'ai'. Icons,
  * content replacement, new properties and databases are applied here; the tidy-up tools live in
  * tidy.ts (trash, restore, moves) and structure.ts (database, property and view changes).
  */
@@ -15,7 +15,7 @@ import { webImagesOf } from '../agents/images'
 import { t } from '../../i18n'
 import type { ID } from '../../store/types'
 import { inTemplate } from '../../store/selectors'
-import { aiWrite, contentKey, snapshotNow } from '../history/snapshots'
+import { aiWrite, snapshotNow } from '../history/snapshots'
 import { pagePrivate, registerItems, stageBlocks, type ItemStaging } from '../ai/agent/workItems'
 import { getItemIndex, SettleRefusal, type SettleReport } from '../workitems'
 import { holdsOfReport } from '../workitems/holds'
@@ -166,7 +166,6 @@ function planUpdatePage(args: Record<string, unknown>): WritePlan {
       // locked while the card waited (locking moves no revision): its content takes nothing — append or replace
       if (markdown !== null && ws().pages[page.id]?.settings.locked)
         throw new McpToolError(mcpError('locked', 'markdown', `${q(name)} was locked meanwhile: its content cannot change (its title and icon can)`, 'Leave "markdown" out, or ask the person to unlock it.'))
-      const undos: Array<() => boolean> = []
       if (replaceWith) {
         // the page changed while the call waited for approval (typed into, synced), or one of its new ids is taken by
         // now: nothing is replaced — the client reads it again and calls again
@@ -178,39 +177,16 @@ function planUpdatePage(args: Record<string, unknown>): WritePlan {
         await snapshotNow(page.id, 'ai')
         const prev = ws().pages[page.id]?.content ?? null
         withWriter(writer, () => ws().setContent(page.id, replaceWith!, 'ai'))
-        const after = ws().pages[page.id]?.contentRev
-        const afterKey = contentKey(ws().pages[page.id]?.content)
-        undos.push(() => {
-          const now = ws().pages[page.id]
-          // untouched since: the same revision, or the same content (a folded task change of this page undone first
-          // writes it back — a new revision of the replaced text)
-          if (!now || (now.contentRev !== after && contentKey(now.content) !== afterKey)) return false
-          ws().setContent(page.id, prev, 'ai')
-          return true
-        })
         try {
-          const staged = await applyStaged(stage.changes, writer)
-          undos.push(staged.undo)
+          await applyStaged(stage.changes, writer)
         } catch (e) {
           withWriter(writer, () => ws().setContent(page.id, prev, 'ai'))
           throw e
         }
-      } else {
-        const staged = await applyStaged(stage.changes, writer)
-        undos.push(staged.undo)
-      }
-      if (iconChanged) {
-        const prev = ws().pages[page.id]?.icon ?? null
-        // the page as it was is kept as an "AI" version first (features/history)
-        withWriter(writer, () => aiWrite(() => ws().updatePage(page.id, { icon: icon ?? null })))
-        undos.push(() => {
-          const now = ws().pages[page.id]
-          if (!now || iconText(now.icon) !== iconText(icon)) return false
-          ws().updatePage(page.id, { icon: prev })
-          return true
-        })
-      }
-      return { result: result(), undo: () => undos.reverse().map((u) => u()).every(Boolean) }
+      } else await applyStaged(stage.changes, writer)
+      // the page as it was is kept as an "AI" version first (features/history)
+      if (iconChanged) withWriter(writer, () => aiWrite(() => ws().updatePage(page.id, { icon: icon ?? null })))
+      return { result: result() }
     },
   }
 }
@@ -238,10 +214,10 @@ function planCreateProperty(args: Record<string, unknown>): WritePlan {
       assertNotSystem(db.id)
       if (now.locked) throw new McpToolError(`locked: ${q(dbTitle)} was locked meanwhile: its properties cannot change. Nothing was changed. Ask the person to unlock it.`)
       if (now.properties.some((p) => p.name.toLowerCase() === spec.def.name.toLowerCase())) throw new McpToolError(`A property named ${q(spec.def.name)} exists by now. Nothing was changed.`)
-      const undo = withWriter(writer, () => addProperties(db.id, [spec]))
+      withWriter(writer, () => addProperties(db.id, [spec]))
       const d = ws().databases[db.id]
       const prop = d.properties.find((p) => p.id === spec.def.id)!
-      return { result: { databaseId: db.id, property: propertyJson(d, prop) }, undo }
+      return { result: { databaseId: db.id, property: propertyJson(d, prop) } }
     },
   }
 }

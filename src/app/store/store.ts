@@ -290,6 +290,12 @@ export interface WorkspaceState extends Workspace {
    * does not exist now, a locked database whose schema would change, a page locked now.
    */
   applyRewind: (patch: RewindPatch, origin: 'eject' | 'rewind') => boolean
+  /**
+   * An MCP call's Undo only (features/mcp/undo.ts — Agent activity): what the call made or changed put back in ONE
+   * update (store/rewind.ts, content origin 'history'), in team workspaces too. Its caller checked that nothing changed
+   * since. False when refused: a patched id that does not exist now, a locked database whose schema would change.
+   */
+  putBack: (patch: RewindPatch) => boolean
 
   /**
    * Cloud binding only (src/app/cloud): apply a batch of changes that came from the server.
@@ -899,6 +905,19 @@ export const useWorkspace = create<WorkspaceState>()(
       if (!next) return false
       if (next.pages === s.pages && next.databases === s.databases) return true
       // every subscriber's pageChanges() gets the patched ids without a scan of the map
+      if (next.pages !== s.pages) {
+        const n = Object.keys(s.pages).length
+        rememberChanges(next.pages, s.pages, { changed: next.changed, added: [], removed: [] }, n, n)
+      }
+      set({ pages: next.pages, databases: next.databases, recent: next.recent })
+      return true
+    },
+
+    putBack: (patch) => {
+      const s = get()
+      const next = rewindState(s, patch, 'history', now(), { lockedPages: true })
+      if (!next) return false
+      if (next.pages === s.pages && next.databases === s.databases) return true
       if (next.pages !== s.pages) {
         const n = Object.keys(s.pages).length
         rememberChanges(next.pages, s.pages, { changed: next.changed, added: [], removed: [] }, n, n)

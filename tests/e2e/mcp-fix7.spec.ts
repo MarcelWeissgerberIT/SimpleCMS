@@ -8,7 +8,7 @@
  *  - building blocks: a select bound to a shared list takes no option of its own from one_move_row; one_run_script's
  *    dry run names the option it would add to the list;
  *  - Undo vs "changed since": the AI terminal's Undo never deletes for good a row the person filled in; a property the
- *    person made a form question (or a sub-items pair) stays;
+ *    person made a form question (or a sub-items pair) refuses the MCP call's Undo whole (Weg 4 D2);
  *  - one rule and one code on both sides: colours, duplicates, an unknown property, the lock, a "Name" property.
  * Fictional data (Nordlicht, Tessera, Mara Lind, Alpha).
  */
@@ -93,13 +93,18 @@ async function setMode(page: Page, mode: 'Ask first' | 'Apply directly') {
   await closeSettings(page)
 }
 
-async function undoLast(page: Page, tool: string) {
+/** The newest Undo of a tool, refused whole (Weg 4 D2 — all or nothing): the toast names what changed; nothing is written. */
+async function undoRefused(page: Page, tool: string, what: string) {
+  const before = await wsEval(page, (s) => JSON.stringify([s.pages, s.databases]))
   await openAgentsTab(page)
-  const undone = page.locator('.mcp-log__row', { hasText: tool }).filter({ hasText: 'Undone' })
-  const before = await undone.count()
-  await page.locator('.mcp-log__row').getByRole('button', { name: `Undo ${tool}` }).first().click()
-  await expect(undone).toHaveCount(before + 1)
+  const keys = page.locator('.mcp-log__row').getByRole('button', { name: `Undo ${tool}` })
+  const n = await keys.count()
+  await keys.first().click()
+  await expect(keys).toHaveCount(n - 1)
+  // the parts it names (any order around `what`): "… changed since (title, values). Nothing was put back."
+  await expect(page.locator('.toast', { hasText: 'Not undone:' }).last()).toContainText(new RegExp(`changed since \\([^)]*${what}[^)]*\\)\\. Nothing was put back\\.`))
   await closeSettings(page)
+  expect(await wsEval(page, (s) => JSON.stringify([s.pages, s.databases])), 'a refused Undo writes nothing').toBe(before)
 }
 
 /** Ask first: the card shows, `meanwhile` runs while it waits, then Approve; the call's answer. */
@@ -336,7 +341,7 @@ test("the AI terminal's Undo never deletes for good a row the person filled in s
   expect(after).toEqual({ trashed: true, comments: 1 })
 })
 
-test('one_create_property Undo keeps a property the person made a form question since (and a sub-items pair they set up)', async ({ page }) => {
+test('one_create_property Undo is refused whole once the person made the property a form question (or a sub-items pair) — Weg 4', async ({ page }) => {
   await openApp(page)
   const ids = await wsEval(page, (s) => ({ db: s.createDatabase({ title: 'Anfragen', properties: [{ id: 'a-title', name: 'Name', type: 'title' }] }) }))
   await flush(page)
@@ -348,10 +353,9 @@ test('one_create_property Undo keeps a property the person made a form question 
     s.updateView(a.db, vid, { form: { title: 'Anfrage', questions: { [a.prop]: { required: true, help: 'Your budget in EUR' } } } })
   }, { db: ids.db, prop: propId })
   await flush(page)
-  await undoLast(page, 'one_create_property')
-  await expect(page.getByText('Undone — parts edited since were kept')).toBeVisible()
+  await undoRefused(page, 'one_create_property', 'views')
   expect(await wsEval(page, (s, a: { db: string; prop: string }) => s.databases[a.db].properties.some((p: AnyState) => p.id === a.prop), { db: ids.db, prop: propId })).toBe(true)
-  // a self-relation the person turned into a sub-items pair since (its other side added in One): kept too
+  // a self-relation the person turned into a sub-items pair since (its other side added in One): refused whole too
   const pair = json(await call('one_create_property', { databaseId: ids.db, name: 'Parent', type: 'relation', relation: { databaseId: ids.db } }))
   const parentId = pair.property.id as string
   await wsEval(page, (s, a: { db: string; p: string }) => {
@@ -359,7 +363,7 @@ test('one_create_property Undo keeps a property the person made a form question 
     s.updateDatabase(a.db, { subItems: { enabled: true, parentPropertyId: a.p, childPropertyId: `${a.p}.2way` } } as never)
   }, { db: ids.db, p: parentId })
   await flush(page)
-  await undoLast(page, 'one_create_property')
+  await undoRefused(page, 'one_create_property', 'properties, settings')
   expect(await wsEval(page, (s, a: { db: string; p: string }) => (s.databases[a.db].properties as AnyState[]).filter((x) => x.id === a.p || x.id === `${a.p}.2way`).length, { db: ids.db, p: parentId })).toBe(2)
 })
 

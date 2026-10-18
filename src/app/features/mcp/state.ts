@@ -7,6 +7,7 @@ import { useMemo } from 'react'
 import { create } from 'zustand'
 import { MCP_COMMENT_MODES, MCP_DEFAULT_PORT, type McpAgentMode, type McpClientInfo, type McpCommentMode, type McpPeer, type McpToolName } from './contract'
 import type { WritePlan } from './write'
+import type { UndoOutcome } from './undo'
 
 export const MCP_STORAGE_KEY = 'one.mcp'
 
@@ -73,10 +74,8 @@ export interface McpActivity {
   ms?: number
   /** error message (as the agent got it) */
   note?: string
-  /** revert an applied write (this tab session) */
-  undo?: () => boolean
-  /** let go of what the Undo holds (its follows, ai/agent/follow.ts) — when the Undo goes without running */
-  release?: () => void
+  /** take an applied write back, all or nothing (this tab session; undo.ts): refused with the words why */
+  undo?: () => UndoOutcome
 }
 
 /** … 'workspace': the tab switched to another workspace while the change waited */

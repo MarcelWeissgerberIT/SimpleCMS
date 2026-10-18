@@ -1,7 +1,8 @@
 /**
  * One MCP — writing through the workspace agent's tools: a private stage per call (callStage), one agent tool run on it
  * (stageWith — its input errors become MCP errors, in MCP words: mcpMessage), the staged changes applied as the call
- * (applyStaged — one rollback when any fails), and what they do to task blocks as approval-card lines (itemPlan).
+ * (applyStaged — one rollback when any fails; the call's Undo is undo.ts'), and what they do to task blocks as
+ * approval-card lines (itemPlan).
  * write.ts (pages, rows) and workItems.ts (one_update_work_item) build on these.
  */
 import { t, currentLang } from '../../i18n'
@@ -115,19 +116,18 @@ export function stageWith(stage: StageApi, name: ToolName, input: Record<string,
   }
 }
 
-export async function applyStaged(changes: StagedChange[], writer: Writer): Promise<{ rowIds: Record<string, ID>; undo: () => boolean }> {
-  if (!changes.length) return { rowIds: {}, undo: () => true }
+export async function applyStaged(changes: StagedChange[], writer: Writer): Promise<{ rowIds: Record<string, ID> }> {
+  if (!changes.length) return { rowIds: {} }
   // the plan was checked; a page that moved into one of One's databases while the card waited is refused all the same
   assertStageWritable(changes)
-  // the Undo leaves what someone changed since alone and puts what the call made into the trash (spec § 3.2)
-  const res = await applyChanges(changes, changes, (id) => id, { writer, undoCreated: 'trash' })
+  const res = await applyChanges(changes, changes, (id) => id, { writer })
   if (res.failed.length) {
     // the call takes back what it wrote (its own rollback): what it made is deleted for good, never left in the trash —
     // the client is told nothing was changed
     withWriter(writer, () => res.rollback())
     throw new McpToolError(`Nothing was changed: ${res.failed.map((f) => f.error).join('; ')}.`)
   }
-  return { rowIds: res.rowIds, undo: () => res.undo().kept.length === 0 }
+  return { rowIds: res.rowIds }
 }
 
 /* ------------------------------------------------------------------ */

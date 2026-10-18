@@ -125,8 +125,8 @@ export function planUpdateWorkItems(args: Record<string, unknown>): WritePlan {
     ...(items.holds.length || hold.alwaysAsk ? { alwaysAsk: true } : {}),
     noop: changes.length ? undefined : { tasks: tasksNow(asked), note: 'No change: the tasks already have these values.' },
     async apply(writer) {
-      const { undo } = await applyStaged(stage.changes, writer)
-      return { result: { tasks: tasksNow(ids) }, undo }
+      await applyStaged(stage.changes, writer)
+      return { result: { tasks: tasksNow(ids) } }
     },
   }
 }

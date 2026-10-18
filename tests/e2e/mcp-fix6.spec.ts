@@ -1,9 +1,9 @@
 /**
  * Review 6 of MCP T-a on the local bridge (MCP plan § 3.2 / § 3.3), driven like Claude Code drives it (the built
  * bridge through the MCP SDK's stdio client, its own port). Each test names the rule it guards:
- *  - Undo vs "changed since": a property the person renamed, set up or built on — or whose database they locked —
- *    stays; a restored database set up again stays; a linked sub-page that stays keeps its link; the follows of an Undo
- *    that goes without running are released;
+ *  - Undo vs "changed since" (all or nothing since Weg 4 D2 — tests/e2e/mcp-undo.spec.ts): a property the person
+ *    renamed, set up or built on — or whose database they locked — refuses the Undo whole; so does a restored database
+ *    set up again; an untouched linked sub-page goes with its link, one written in refuses its call's Undo;
  *  - locked / One's own databases while the card waited: create_property, a moved row's new options, a replace or an
  *    icon of a page moved into the memory — nothing written;
  *  - what a call starts: a database block in a ROW's text names the autofill that fills again;
@@ -103,14 +103,27 @@ async function approveAfter(page: Page, name: string, args: Record<string, unkno
   return r
 }
 
-const KEPT = 'Undone — parts edited since were kept'
+/** The newest Undo of a tool, refused whole (Weg 4 D2): the toast names what changed; nothing is written. */
+async function undoRefused(page: Page, tool: string, what: string) {
+  const before = await wsEval(page, (s) => JSON.stringify([s.pages, s.databases]))
+  await openAgentsTab(page)
+  const keys = page.locator('.mcp-log__row').getByRole('button', { name: `Undo ${tool}` })
+  const n = await keys.count()
+  await keys.first().click()
+  await expect(keys).toHaveCount(n - 1)
+  // the parts it names (any order around `what`): "… changed since (title, values). Nothing was put back."
+  await expect(page.locator('.toast', { hasText: 'Not undone:' }).last()).toContainText(new RegExp(`changed since \\([^)]*${what}[^)]*\\)\\. Nothing was put back\\.`))
+  await closeSettings(page)
+  expect(await wsEval(page, (s) => JSON.stringify([s.pages, s.databases])), 'a refused Undo writes nothing').toBe(before)
+}
+
 const trashed = (page: Page, id: string) => wsEval(page, (s, id) => !!s.pages[id]?.trashed, id)
 const propNames = (page: Page, db: string) => wsEval(page, (s, db) => ((s.databases[db]?.properties ?? []) as AnyState[]).map((p) => p.name as string), db)
 const setLocked = (page: Page, db: string) => wsEval(page, (s, db: string) => s.updateDatabase(db, { locked: true }), db)
 
 /* ------------------------------------------------------------------ Undo vs changed since */
 
-test('one_create_property Undo keeps a property renamed and set up since, one a board groups by, one in a database locked since — an untouched one goes', async ({ page }) => {
+test('one_create_property Undo is refused whole for a property renamed and set up since, one a board groups by, one in a database locked since (Weg 4) — an untouched one goes', async ({ page }) => {
   await openApp(page)
   const db = await wsEval(page, (s) => {
     const id = s.createDatabase({ title: 'Deals', properties: [{ id: 'd-title', name: 'Name', type: 'title' }] })
@@ -131,8 +144,7 @@ test('one_create_property Undo keeps a property renamed and set up since, one a 
     s.updateProperty(a.db, a.id, { name: 'Pipeline stage', options: [...def.options, { id: 'o-mara', name: 'Negotiation (Mara)', color: 'orange' }] })
   }, { db, id: phase })
   await flush(page)
-  await undoLast(page, 'one_create_property')
-  await expect.poll(() => page.getByText(KEPT).count()).toBeGreaterThan(0)
+  await undoRefused(page, 'one_create_property', 'properties')
   expect(await exists(db, phase)).toBe(true)
 
   // a board grouped by it since
@@ -140,7 +152,7 @@ test('one_create_property Undo keeps a property renamed and set up since, one a 
   const region = (await propOf(db, 'Region'))!
   await wsEval(page, (s, a: { db: string; id: string }) => s.addView(a.db, { type: 'board', name: 'By region', groupBy: a.id }), { db, id: region })
   await flush(page)
-  await undoLast(page, 'one_create_property')
+  await undoRefused(page, 'one_create_property', 'views')
   expect(await exists(db, region)).toBe(true)
 
   // in a database the person locked since: its schema stays as it is
@@ -148,7 +160,7 @@ test('one_create_property Undo keeps a property renamed and set up since, one a 
   const owner = (await propOf(locked, 'Owner'))!
   await setLocked(page, locked)
   await flush(page)
-  await undoLast(page, 'one_create_property')
+  await undoRefused(page, 'one_create_property', 'lock')
   expect(await exists(locked, owner)).toBe(true)
 
   // the control: untouched, it goes
@@ -159,7 +171,7 @@ test('one_create_property Undo keeps a property renamed and set up since, one a 
   expect(await exists(db, budget)).toBe(false)
 })
 
-test('one_restore_page Undo keeps a restored database the person set up again (a column, a view)', async ({ page }) => {
+test('one_restore_page Undo is refused whole for a restored database the person set up again (a column, a view — Weg 4)', async ({ page }) => {
   await openApp(page)
   const db = await wsEval(page, (s) => {
     const id = s.createDatabase({ title: 'Archive board', properties: [{ id: 'a-title', name: 'Name', type: 'title' }] })
@@ -176,12 +188,11 @@ test('one_restore_page Undo keeps a restored database the person set up again (a
     s.addView(db, { type: 'board', name: 'By owner' })
   }, db)
   await flush(page)
-  await undoLast(page, 'one_restore_page')
-  await expect.poll(() => page.getByText(KEPT).count()).toBeGreaterThan(0)
+  await undoRefused(page, 'one_restore_page', 'properties, views')
   expect(await trashed(page, db)).toBe(false)
 })
 
-test('one_create_page linkInParent Undo: a new page that stays keeps its link, also when nobody wrote in the parent', async ({ page }) => {
+test('one_create_page linkInParent Undo: an untouched page goes with its link; one the person wrote in refuses its call\'s Undo whole and keeps its link (Weg 4)', async ({ page }) => {
   await openApp(page)
   const host = await wsEval(page, (s) => {
     const id = s.createPage({ title: 'Launch plan' })
@@ -195,46 +206,16 @@ test('one_create_page linkInParent Undo: a new page that stays keeps its link, a
   // the person writes into the first new page only (the host stays as the calls left it)
   await wsEval(page, (s, id: string) => s.setContent(id, { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Her notes.' }] }] }, 'e2e'), kept.id)
   await flush(page)
-  // the second call's Undo first (its page untouched: page and link go), then the first's (kept: its link stays)
+  // the second call's Undo first (its page untouched: all back — page and link go), then the first's (refused whole: the
+  // page and its link stay)
   await undoLast(page, 'one_create_page')
-  await undoLast(page, 'one_create_page')
+  await undoRefused(page, 'one_create_page', 'text')
   const hostText = () => wsEval(page, (s, h: string) => JSON.stringify(s.pages[h].content), host)
   expect(await trashed(page, gone.id)).toBe(true)
   expect(await trashed(page, kept.id)).toBe(false)
   expect(await hostText()).toContain(kept.id)
   expect(await hostText()).not.toContain(gone.id)
   expect(await hostText()).toContain('Intro.')
-})
-
-/** Objects shaped like follow.ts MadeAs (a baseline a follow holds), alive after a full GC. */
-async function madeAsAlive(page: Page): Promise<number> {
-  const cdp = await page.context().newCDPSession(page)
-  await cdp.send('HeapProfiler.enable')
-  await cdp.send('HeapProfiler.collectGarbage')
-  await cdp.send('HeapProfiler.collectGarbage')
-  const proto = (await cdp.send('Runtime.evaluate', { expression: 'Object.prototype' })) as { result: { objectId: string } }
-  const q = (await cdp.send('Runtime.queryObjects', { prototypeObjectId: proto.result.objectId })) as { objects: { objectId: string } }
-  const r = (await cdp.send('Runtime.callFunctionOn', {
-    objectId: q.objects.objectId,
-    functionDeclaration: 'function () { const want = "comments,cover,icon,key,props,rev,title"; let n = 0; for (const o of this) { try { if (Object.keys(o).sort().join(",") === want) n++ } catch {} } return n }',
-    returnByValue: true,
-  })) as { result: { value: number } }
-  await cdp.detach()
-  return r.result.value
-}
-
-test('the follows of an Undo that goes without running are released: cleared from Agent activity, none of 50 baselines stays', async ({ page }) => {
-  await openApp(page)
-  const db = await wsEval(page, (s) => s.createDatabase({ title: 'Leads', properties: [{ id: 'f-title', name: 'Name', type: 'title' }] }))
-  await flush(page)
-  await connect(page, 'Apply directly')
-  const before = await madeAsAlive(page)
-  json(await call('one_create_row', { databaseId: db, rows: Array.from({ length: 50 }, (_, i) => ({ title: `Lead ${i + 1}` })) }))
-  expect((await madeAsAlive(page)) - before).toBeGreaterThanOrEqual(50)
-  await openAgentsTab(page)
-  await page.getByRole('button', { name: 'Clear', exact: true }).click()
-  await closeSettings(page)
-  await expect.poll(async () => (await madeAsAlive(page)) - before, { timeout: 10_000 }).toBeLessThan(50)
 })
 
 /* ------------------------------------------------------------------ locked / One's own databases while the card waited */

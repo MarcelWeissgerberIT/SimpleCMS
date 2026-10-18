@@ -1255,16 +1255,16 @@ the public APIs stable — other areas are built against them in parallel.
   readable blocks (`linksReadably`); `class` on single reads. Comments over MCP: B per device
   (`McpSettings.comments`, localStorage `one.mcp`, default off), S per token (`api_tokens.mcp_comments`); off →
   `comments_off`. Batches: one call = ONE card (pages ≤ 50 with `$<index>` parents, rows / upsert ≤ 50,
-  `one_create_database` views / inline / rows; the card is capped at the viewport, its lines scroll); MCP's Undo of what
-  it made = trash (`undoCreated: 'trash'`: kept once its text, title, icon, cover, comments, values or place changed —
-  what the call itself set off, a derived writer whose cause names it (automation, autofill, kit), is no change; ONE
-  baseline for every such Undo — features/ai/agent/follow.ts `madeAs` / `changedSince` / `followCall`, also one_move_row's; agents and the
-  terminal keep delete; a failed apply's own rollback deletes — `ApplyResult.rollback`; one_create_database's Undo first
-  decides whether the database stays — a row of others, a row changed since or the database page itself changed
-  (title, icon, cover, schema, views — `databaseMark`) keeps it and everything else as it is;
-  in a host page written in since only the call's own block / link goes — features/mcp/undoNodes.ts; create_property
-  keeps a column someone filled — rows in the trash too; a unique_id column's own numbers are no filling and its counter
-  goes back —, restore_page a page changed since); a page locked while the card waited is checked again at apply
+  `one_create_database` views / inline / rows; the card is capped at the viewport, its lines scroll); B's Undo in
+  Agent activity is ALL OR NOTHING (Weg 4 D2, features/mcp/undo.ts — no planner has an undo): service.ts `tapeCall`
+  notes every page / database the call writes under its own writer while `plan.apply` runs (and what it was), `finish`
+  keeps them as the call left them + the live pages below each page the Undo would trash + the values / uses of a
+  property it added to an existing database; `runUndo` refuses whole when anything differs (whoever, the call's own
+  automations / autofill included; someone else's write during the call too) — writes nothing, toast + activity note
+  name what changed and point to Versions / the trash (+ Eject while `rewindAllowed()`); else ONE store update
+  `putBack` (store/rewind.ts `rewindState`, origin 'history', team workspaces too; made → trash, changed → as it was,
+  options a row holds and DB bookkeeping stamps kept) as `you~undo`; agents and the terminal keep their own
+  delete-mode removeCreated; a failed apply's own rollback deletes — `ApplyResult.rollback`; a page locked while the card waited is checked again at apply
   (append, replace, linkInParent, upsert text, a script's text — ScriptError 'locked_content'); ≥
   `MCP_LIMITS.rowsAsk` rows per CALL (new + changed, every database; a rename counts as a title change) that start paid
   AI work or send out are `alwaysAsk` (features/mcp/rows.ts `sideEffects` + `sideHold`); files values over MCP only reachable `onefile:` refs (`withFilesWritable` —

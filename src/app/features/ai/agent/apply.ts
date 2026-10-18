@@ -25,7 +25,6 @@ import { mediaNode } from '../media/blocks'
 import { applyNewTask, applyTaskAction, isPipelineTask, taskNeedsConfirm, taskSig, taskWriteEndsConfirm, textRefsGained } from '../../coding'
 import { isHandOnly, keyOwner, keyPropOf, keyText } from '../../../store/keys'
 import { formatWriterKey, withWriter, type Writer } from '../../../store/writer'
-import { changedSince, followCall, madeAs, textMoved } from './follow'
 import { createPrivatePage } from '../../../cloud'
 import { isSettled } from '../../recorder/settled'
 import { runKeyOf } from '../../recorder/model/writerKeys'
@@ -159,8 +158,7 @@ export interface ApplyResult {
   undo: () => { kept: string[]; reverted: Record<string, ID[]> }
   /**
    * the caller's own rollback when the batch as a whole fails (MCP: "Nothing was changed"): as `undo`, but what this
-   * batch created is deleted for good while untouched — never left in the trash, whatever `undoCreated` says (nobody
-   * could have worked with it yet)
+   * batch created is deleted for good while untouched — never left in the trash (nobody could have worked with it yet)
    */
   rollback: () => { kept: string[]; reverted: Record<string, ID[]> }
   /** what applying left out of a change (the settle gate's apply-time warnings, UI language), by change id */
@@ -226,12 +224,6 @@ export interface ApplyOpts {
    * this batch creates a task and no 'workItem' change is applied (a server run's proposals: nobody saw them staged here).
    */
   items?: { visible?: ((id: ID) => boolean) | null; creates?: boolean }
-  /**
-   * How the Undo takes back a page / row this batch created: 'delete' (default) — for good while untouched, to the
-   * trash once someone edited it; 'trash' (MCP, spec § 3.2) — to the trash while untouched, left alone ("kept") once
-   * someone changed it since.
-   */
-  undoCreated?: 'delete' | 'trash'
 }
 
 /** The terminal's writes on a pipeline task wait for the person's Confirm on its page (a version this device trusts). */
@@ -453,43 +445,61 @@ export async function applyChanges(changes: StagedChange[], all: StagedChange[],
 /** Set while a batch's own rollback runs (ApplyResult.rollback): what it created goes for good, never to the trash. */
 let rollingBack = false
 
+/** A page as the batch left it: its text (rev + key), title, icon, cover, comment threads and stored values. */
+interface MadeAs {
+  rev: number | undefined
+  key: string
+  title: string | undefined
+  icon: string
+  cover: string
+  comments: string
+  props: string
+}
+
+const json = (v: unknown) => JSON.stringify(v ?? null)
+/** Comment threads as a fingerprint (none and an empty list are the same). */
+const threads = (p: Page | undefined) => (p?.comments?.length ? JSON.stringify(p.comments) : 'null')
+
+/** A row's values as a key: the order of keys and an emptied value (null, '', []) do not count as a change. */
+function valuesKey(props: Record<string, unknown> | undefined): string {
+  const out: Array<[string, unknown]> = []
+  for (const k of Object.keys(props ?? {}).sort()) {
+    const v = props![k]
+    if (v === undefined || v === null || v === '' || (Array.isArray(v) && !v.length)) continue
+    out.push([k, v])
+  }
+  return JSON.stringify(out)
+}
+
+const madeAs = (p: Page | undefined): MadeAs => ({ rev: p?.contentRev, key: contentKey(p?.content), title: p?.title, icon: json(p?.icon), cover: json(p?.cover), comments: threads(p), props: valuesKey(p?.properties) })
+
+/** Did the text move away from how the batch left it (the same content written again counts as unchanged)? */
+const textMoved = (now: Page, b: MadeAs) => now.contentRev !== b.rev && contentKey(now.content) !== b.key
+
+/** Changed since the batch: text, title, icon, cover, comment threads or a stored value (its place is the caller's). */
+const changedSince = (now: Page, b: MadeAs): boolean => textMoved(now, b) || now.title !== b.title || json(now.icon) !== b.icon || json(now.cover) !== b.cover || threads(now) !== b.comments || valuesKey(now.properties) !== b.props
+
 /**
- * Undo of a created page / row: deleted for good while untouched; once someone touched it — its text, title, icon, cover,
- * comment threads, a stored value (changedSince, the same baseline the 'trash' mode reads), its place, a page put under
- * it, or it (or a page above it) in the trash — it goes to the trash instead (recoverable) — one in the trash stays as it
- * is. `mode` 'trash' (MCP): untouched → the trash, touched → left as it is (kept: false) — what the call itself set off
- * since (an automation on the new row, autofill, the kit: follow) is not a touch. The batch's own rollback
- * (ApplyResult.rollback) always takes the 'delete' way.
+ * Undo of a created page / row (the AI terminal, custom agents): deleted for good while untouched; once someone touched
+ * it — its text, title, icon, cover, comment threads, a stored value, its place, a page put under it, or it (or a page
+ * above it) in the trash — it goes to the trash instead (recoverable) — one in the trash stays as it is. The batch's own
+ * rollback (ApplyResult.rollback) deletes what it made for good. (An MCP call's Undo is its own: features/mcp/undo.ts.)
  */
-function removeCreated(id: ID, mode: ApplyOpts['undoCreated'] = 'delete', writer?: Writer): () => boolean {
+function removeCreated(id: ID): () => boolean {
   const made = ws().pages[id]
-  const first = madeAs(made)
-  const call = mode === 'trash' && writer ? formatWriterKey(writer) : null
-  // the baseline: as made, or as the call's own follow-ups left it (follow.ts)
-  const follow = call && made ? followCall(id, call, first) : null
-  const base = () => follow?.base() ?? first
+  const b = madeAs(made)
   // a row: its place as written (the person may move it since)
   const place = `${made?.parentId ?? null}|${made?.databaseId ?? null}`
   return () => {
-    const b = base()
-    follow?.stop()
     const { pages } = ws()
     const now = pages[id]
     if (!now || now.trashed) return true
-    // content as written (a later change of the same batch undone first writes it back: the same content counts)
-    const edited = textMoved(now, b) || now.title !== b.title
-    if (mode === 'trash' && !rollingBack) {
-      // a page above it in the trash already takes it along
-      if (isEffectivelyTrashed(pages, id)) return true
-      // changed since (text, title, icon, cover, comment threads, a value, its place, a live page put under it): left as it is
-      if (changedSince(now, b) || `${now.parentId ?? null}|${now.databaseId ?? null}` !== place || Object.values(pages).some((p) => p.parentId === id && !p.trashed)) return false
-      ws().trashPage(id)
-      return true
-    }
     // touched since: anything the person can have put there (a value they filled in, a comment thread, a cover — not only
-    // the text or title), its place, a page under it (in the trash too: deleting this one would take it along for good)
+    // the text or title; content as written — a later change of the same batch undone first writes it back: the same
+    // content counts), its place, a page under it (in the trash too: deleting this one would take it along for good)
     const touched =
-      edited ||
+      textMoved(now, b) ||
+      now.title !== b.title ||
       (!rollingBack && (changedSince(now, b) || `${now.parentId ?? null}|${now.databaseId ?? null}` !== place)) ||
       isEffectivelyTrashed(pages, id) ||
       Object.values(pages).some((p) => p.parentId === id)
@@ -562,7 +572,7 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
         if (doc) ws().setContent(made, doc, ORIGIN)
         return made
       })
-      return removeCreated(id, opts.undoCreated, w)
+      return removeCreated(id)
     }
     case 'create_row': {
       const dbId = c.databaseId!
@@ -583,7 +593,7 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
         return row
       })
       rowIds[c.pageId] = id
-      const remove = removeCreated(id, opts.undoCreated, w)
+      const remove = removeCreated(id)
       return () => {
         const ok = remove()
         dropUnusedOptions(dbId, created)

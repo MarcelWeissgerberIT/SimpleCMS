@@ -104,6 +104,23 @@ async function undoLast(page: Page, tool: string) {
   await closeSettings(page)
 }
 
+/**
+ * The newest Undo of a tool, refused whole (Weg 4 D2 — all or nothing): the toast names what changed and where to take it
+ * back by hand; the row keeps no Undo key; nothing is written (`snapshot` before = after).
+ */
+async function undoRefused(page: Page, tool: string, what: string) {
+  const before = await wsEval(page, (s) => JSON.stringify([s.pages, s.databases]))
+  await openAgentsTab(page)
+  const keys = page.locator('.mcp-log__row').getByRole('button', { name: `Undo ${tool}` })
+  const n = await keys.count()
+  await keys.first().click()
+  await expect(keys).toHaveCount(n - 1)
+  // the parts it names (any order around `what`): "… changed since (title, values). Nothing was put back."
+  await expect(page.locator('.toast', { hasText: 'Not undone:' }).last()).toContainText(new RegExp(`changed since \\([^)]*${what}[^)]*\\)\\. Nothing was put back\\.`))
+  await closeSettings(page)
+  expect(await wsEval(page, (s) => JSON.stringify([s.pages, s.databases])), 'a refused Undo writes nothing').toBe(before)
+}
+
 const contentOf = (page: Page, id: string) => wsEval(page, (s, id) => s.pages[id]?.content ?? null, id) as Promise<JSONContent | null>
 
 /** A tree of 50 chapters: $0 is the root, $1–$9 under it, the rest spread under $1–$9. */
@@ -593,7 +610,7 @@ test('rows going to the trash or losing a value to a property change start their
   expect(await wsEval(page, (s, ids: string[]) => ids.filter((id) => s.pages[id]?.trashed).length, rows)).toBe(2)
 })
 
-test("one_create_database's Undo leaves what changed since alone: an edited row keeps the database, and nothing else is touched", async ({ page }) => {
+test("one_create_database's Undo is all or nothing (Weg 4): a row renamed or a row of the person's refuses it whole; untouched, the database goes and nothing else is touched", async ({ page }) => {
   await openApp(page)
   const projects = await wsEval(page, (s) => {
     const db = s.createDatabase({ title: 'Projects', properties: [{ id: 'p-title', name: 'Name', type: 'title' }] })
@@ -602,7 +619,8 @@ test("one_create_database's Undo leaves what changed since alone: an edited row 
   })
   await flush(page)
   await connect(page, 'Apply directly')
-  // case 1: a one-way relation (two-way ones are set up in One — Weg 4), rows; the person renames one and adds their own row
+  // case 1: a one-way relation (two-way ones are set up in One — Weg 4), rows; the person renames one and adds their own
+  // row — refused whole (was: kept)
   const notes = json(await call('one_create_database', { title: 'Notes', properties: [{ name: 'Project', type: 'relation', relation: { databaseId: projects } }], rows: [{ title: 'Kickoff' }, { title: 'Review' }] }))
   expect(notes.reverse).toBeUndefined()
   await wsEval(
@@ -614,49 +632,48 @@ test("one_create_database's Undo leaves what changed since alone: an edited row 
     { notes: notes.id, kick: notes.rows[0].id },
   )
   await flush(page)
-  await undoLast(page, 'one_create_database')
+  await undoRefused(page, 'one_create_database', 'title, a page below')
   const after1 = await wsEval(page, (s, a: { id: string; review: string }) => ({ dbTrashed: !!s.pages[a.id]?.trashed, reviewTrashed: !!s.pages[a.review]?.trashed }), { id: notes.id, review: notes.rows[1].id })
   expect(after1).toEqual({ dbTrashed: false, reviewTrashed: false })
-  // case 2: only a row of the call renamed — the database stays, with that row
+  // case 2: only a row of the call renamed — refused whole: the database stays, with that row (was: kept)
   const retro = json(await call('one_create_database', { title: 'Retro', rows: [{ title: 'Went well' }, { title: 'To improve' }] }))
   await wsEval(page, (s, id) => s.updatePage(id, { title: 'Went really well' }), retro.rows[0].id)
   await flush(page)
-  await undoLast(page, 'one_create_database')
+  await undoRefused(page, 'one_create_database', 'title')
   expect(await wsEval(page, (s, a: { id: string; row: string }) => [!!s.pages[a.id]?.trashed, !!s.pages[a.row]?.trashed], { id: retro.id, row: retro.rows[0].id })).toEqual([false, false])
-  // untouched: the Undo takes the database back; the related database was never touched
+  // untouched: all back — the database goes; the related database was never touched
   const projectProps = await wsEval(page, (s, db: string) => s.databases[db].properties.length, projects)
   const clean = json(await call('one_create_database', { title: 'Clean', properties: [{ name: 'Project', type: 'relation', relation: { databaseId: projects } }], rows: [{ title: 'One' }] }))
   await undoLast(page, 'one_create_database')
   expect(await wsEval(page, (s, a: { id: string; projects: string }) => [!!s.pages[a.id]?.trashed, s.databases[a.projects].properties.length], { id: clean.id, projects })).toEqual([true, projectProps])
 })
 
-test('the Undo of rows and pages a call made compares every value: a row the person changed since stays (kept); an untouched one goes', async ({ page }) => {
+test('the Undo of rows a call made is all or nothing (Weg 4): one row the person changed since refuses it whole — the untouched one stays too', async ({ page }) => {
   await openApp(page)
   const { db } = await cards(page, 0)
   await connect(page, 'Apply directly')
   const made = json(await call('one_create_row', { databaseId: db, rows: [{ title: 'Neu 1', properties: { Ticket: 'T-101' } }, { title: 'Neu 2', properties: { Ticket: 'T-102' } }] }))
   const [edited, clean] = [made.rows[0].id as string, made.rows[1].id as string]
-  // the person moves "Neu 1" to Done and fills its empty Owner
+  // the person moves "Neu 1" to Done and fills its empty Owner — refused whole (was: kept, "Neu 2" to the trash)
   await wsEval(page, (s, id) => {
     s.setRowProperty(id, 'c-status', 's-done')
     s.setRowProperty(id, 'c-owner', 'Mara Lind')
   }, edited)
   await flush(page)
-  await undoLast(page, 'one_create_row')
-  await expect(page.getByText('Undone — parts edited since were kept')).toBeVisible()
-  expect(await wsEval(page, (s, a: { edited: string; clean: string }) => [!!s.pages[a.edited]?.trashed, s.pages[a.edited]?.properties['c-owner'], !!s.pages[a.clean]?.trashed], { edited, clean })).toEqual([false, 'Mara Lind', true])
+  await undoRefused(page, 'one_create_row', 'values')
+  expect(await wsEval(page, (s, a: { edited: string; clean: string }) => [!!s.pages[a.edited]?.trashed, s.pages[a.edited]?.properties['c-owner'], !!s.pages[a.clean]?.trashed], { edited, clean })).toEqual([false, 'Mara Lind', false])
   // a row one_upsert_rows made: the same
   const up = json(await call('one_upsert_rows', { databaseId: db, keyProperty: 'Ticket', rows: [{ key: 'T-300', title: 'Neues Ticket', properties: { Status: 'Doing' } }] }))
   await wsEval(page, (s, id) => s.setRowProperty(id, 'c-owner', 'Tessera'), up.rows[0].id)
   await flush(page)
-  await undoLast(page, 'one_upsert_rows')
+  await undoRefused(page, 'one_upsert_rows', 'values')
   expect(await wsEval(page, (s, id) => [!!s.pages[id]?.trashed, s.pages[id]?.properties['c-owner']], up.rows[0].id)).toEqual([false, 'Tessera'])
-  // a row the person moved into another database since: kept where it is
+  // a row the person moved into another database since: refused, it stays where it is
   const other = await wsEval(page, (s) => s.createDatabase({ title: 'Archiv', properties: [{ id: 'a-title', name: 'Name', type: 'title' }] }))
   const moved = json(await call('one_create_row', { databaseId: db, title: 'Wandert', properties: { Ticket: 'T-500' } }))
   await wsEval(page, (s, a: { id: string; to: string }) => s.updatePage(a.id, { databaseId: a.to, parentId: a.to }), { id: moved.id, to: other })
   await flush(page)
-  await undoLast(page, 'one_create_row')
+  await undoRefused(page, 'one_create_row', 'place')
   expect(await wsEval(page, (s, id) => !!s.pages[id]?.trashed, moved.id)).toBe(false)
 })
 
@@ -679,7 +696,7 @@ test('a failed call takes back what it made for good: nothing of it waits in the
   expect(rows).toEqual(['Hand-made'])
 })
 
-test("the Undo takes back only the call's own block or link from a page the person wrote in since — never a block left pointing into the trash", async ({ page }) => {
+test("a page the person wrote in since refuses the Undo of the call that put a block or a link into it (Weg 4: all or nothing) — never a block left pointing into the trash; untouched, all goes back", async ({ page }) => {
   await openApp(page)
   const host = await wsEval(page, (s) => {
     const id = s.createPage({ title: 'Launch plan' })
@@ -689,7 +706,8 @@ test("the Undo takes back only the call's own block or link from a page the pers
   await flush(page)
   await connect(page, 'Apply directly')
   const types = async (id: string) => ((await contentOf(page, id))?.content ?? []).map((b) => (b.type === 'databaseBlock' || b.type === 'pageLink' ? `${b.type}:${b.attrs?.databaseId ?? b.attrs?.pageId}` : (b.content ?? []).map((x) => x.text ?? x.type).join('')))
-  // an inline board; the person adds a paragraph to the page; Undo: the board and its block go, the paragraph stays
+  // an inline board; the person adds a paragraph to the page — refused whole: the board, its block and the paragraph
+  // stay (was: the board and its block went)
   const sprint = json(await call('one_create_database', { title: 'Sprint', inline: { pageId: host }, views: [{ type: 'board' }], rows: [{ title: 'Kick-off' }] }))
   await wsEval(page, (s, id) => {
     const c = s.pages[id].content
@@ -697,31 +715,26 @@ test("the Undo takes back only the call's own block or link from a page the pers
   }, host)
   await flush(page)
   expect(await types(host)).toEqual(['Intro.', `databaseBlock:${sprint.id}`, 'Typed by Mara.'])
-  await undoLast(page, 'one_create_database')
-  expect(await wsEval(page, (s, id) => !!s.pages[id]?.trashed, sprint.id)).toBe(true)
-  expect(await types(host)).toEqual(['Intro.', 'Typed by Mara.'])
-  // a sub-page linked in its parent; the person writes in the parent; Undo: the page and its link go, the text stays
+  await undoRefused(page, 'one_create_database', 'text')
+  expect(await wsEval(page, (s, id) => !!s.pages[id]?.trashed, sprint.id)).toBe(false)
+  expect(await types(host)).toEqual(['Intro.', `databaseBlock:${sprint.id}`, 'Typed by Mara.'])
+  // a sub-page linked in its parent; the person writes in the parent — refused whole: the page and its link stay
   const sub = json(await call('one_create_page', { title: 'Checkliste', parentId: host, linkInParent: 'block' }))
   await wsEval(page, (s, id) => {
     const c = s.pages[id].content
     s.setContent(id, { ...c, content: [...c.content, { type: 'paragraph', content: [{ type: 'text', text: 'More by Mara.' }] }] }, 'e2e')
   }, host)
   await flush(page)
-  expect(await types(host)).toEqual(['Intro.', 'Typed by Mara.', `pageLink:${sub.id}`, 'More by Mara.'])
+  expect(await types(host)).toEqual(['Intro.', `databaseBlock:${sprint.id}`, 'Typed by Mara.', `pageLink:${sub.id}`, 'More by Mara.'])
+  await undoRefused(page, 'one_create_page', 'text')
+  expect(await wsEval(page, (s, id) => !!s.pages[id]?.trashed, sub.id)).toBe(false)
+  // untouched since: the page goes to the trash and its link out of the parent — the parent's text as it was
+  const before = await types(host)
+  const notes = json(await call('one_create_page', { title: 'Notizen', parentId: host, linkInParent: 'mention' }))
+  expect((await types(host)).length).toBe(before.length + 1)
   await undoLast(page, 'one_create_page')
-  expect(await wsEval(page, (s, id) => !!s.pages[id]?.trashed, sub.id)).toBe(true)
-  expect(await types(host)).toEqual(['Intro.', 'Typed by Mara.', 'More by Mara.'])
-  // a linked sub-page the person wrote into stays — and so does its link
-  const kept = json(await call('one_create_page', { title: 'Notizen', parentId: host, linkInParent: 'mention' }))
-  await wsEval(page, (s, a: { host: string; kept: string }) => {
-    s.setContent(a.kept, { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Her notes.' }] }] }, 'e2e')
-    const c = s.pages[a.host].content
-    s.setContent(a.host, { ...c, content: [...c.content, { type: 'paragraph', content: [{ type: 'text', text: 'Last line.' }] }] }, 'e2e')
-  }, { host, kept: kept.id })
-  await flush(page)
-  await undoLast(page, 'one_create_page')
-  expect(await wsEval(page, (s, id) => !!s.pages[id]?.trashed, kept.id)).toBe(false)
-  expect(await wsEval(page, (s, a: { host: string; kept: string }) => JSON.stringify(s.pages[a.host].content).includes(a.kept), { host, kept: kept.id })).toBe(true)
+  expect(await wsEval(page, (s, id) => !!s.pages[id]?.trashed, notes.id)).toBe(true)
+  expect(await types(host)).toEqual(before)
 })
 
 test('a moved row and a renamed row name what they start: the target database\'s automations, a watched title', async ({ page }) => {
@@ -973,7 +986,7 @@ test('screenshots: a 50-row card in German — capped at the viewport, its lines
 
 /* ------------------------------------------------------------------ review 4 */
 
-test("the Undo of a row the call made takes it back although an automation the call set off filled a value since; the person's edit still keeps it", async ({ page }) => {
+test("the Undo of a row the call made is refused whole once an automation the call set off filled a value since (Weg 4: the call's own automations count) — Versions and the trash stay", async ({ page }) => {
   await openApp(page)
   const db = await wsEval(page, (s) => {
     const id = s.createDatabase({
@@ -990,23 +1003,23 @@ test("the Undo of a row the call made takes it back although an automation the c
   await flush(page)
   await connect(page, 'Apply directly')
   const stage = (id: string) => wsEval(page, (s, id) => s.pages[id]?.properties['l-stage'] ?? null, id)
-  // nobody touches the row: the automation's value is the call's own doing — the Undo takes the row back
+  // nobody touches the row, but the automation the call set off filled its Stage after the call: refused whole (was: the
+  // row went — the automation counted as the call's own)
   const made = json(await call('one_create_row', { databaseId: db, title: 'Lead from Claude' }))
   await expect.poll(() => stage(made.id), { timeout: 10_000 }).toBe('o-new')
   await flush(page)
-  await undoLast(page, 'one_create_row')
-  expect(await wsEval(page, (s, id) => !!s.pages[id]?.trashed, made.id)).toBe(true)
-  // the person writes a note after the automation ran: kept
+  await undoRefused(page, 'one_create_row', 'values')
+  expect(await wsEval(page, (s, id) => [!!s.pages[id]?.trashed, s.pages[id]?.properties['l-stage']], made.id)).toEqual([false, 'o-new'])
+  // the person writes a note after the automation ran: refused whole as well (was: kept)
   const second = json(await call('one_create_row', { databaseId: db, title: 'Lead two' }))
   await expect.poll(() => stage(second.id), { timeout: 10_000 }).toBe('o-new')
   await wsEval(page, (s, id) => s.setRowProperty(id, 'l-note', 'Mara called back'), second.id)
   await flush(page)
-  await undoLast(page, 'one_create_row')
-  await expect(page.getByText('Undone — parts edited since were kept')).toBeVisible()
+  await undoRefused(page, 'one_create_row', 'values')
   expect(await wsEval(page, (s, id) => [!!s.pages[id]?.trashed, s.pages[id]?.properties['l-note']], second.id)).toEqual([false, 'Mara called back'])
 })
 
-test("one_create_property's Undo leaves a property someone filled in since — and its values; an untouched one goes", async ({ page }) => {
+test("one_create_property's Undo is refused whole once someone filled the property in (its values stay); untouched, it goes (Weg 4)", async ({ page }) => {
   await openApp(page)
   const { db, rows } = await cards(page, 2)
   await connect(page, 'Apply directly')
@@ -1017,8 +1030,7 @@ test("one_create_property's Undo leaves a property someone filled in since — a
   // the person types into the new column
   await wsEval(page, (s, a: { row: string; prop: string }) => s.setRowProperty(a.row, a.prop, 'Mara Lind'), { row: rows[0], prop: owner })
   await flush(page)
-  await undoLast(page, 'one_create_property')
-  await expect(page.getByText('Undone — parts edited since were kept')).toBeVisible()
+  await undoRefused(page, 'one_create_property', 'values')
   expect(await propId('Account owner')).toBe(owner)
   expect(await wsEval(page, (s, a: { row: string; prop: string }) => s.pages[a.row]?.properties[a.prop], { row: rows[0], prop: owner })).toBe('Mara Lind')
   // nobody wrote into this one: it goes
@@ -1028,7 +1040,7 @@ test("one_create_property's Undo leaves a property someone filled in since — a
   await expect.poll(() => propId('Spare')).toBe(null)
 })
 
-test("one_restore_page's Undo leaves a page the person changed since out of the trash; an untouched one goes back", async ({ page }) => {
+test("one_restore_page's Undo is refused whole once the person changed the page (it stays out of the trash); untouched, it goes back (Weg 4)", async ({ page }) => {
   await openApp(page)
   const ids = await wsEval(page, (s) => {
     const mk = (title: string, text: string) => {
@@ -1048,8 +1060,7 @@ test("one_restore_page's Undo leaves a page the person changed since out of the 
   // an hour of the person's work on the restored page
   await wsEval(page, (s, id) => s.setContent(id, { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'An hour of the person’s work.' }] }] }, 'e2e'), ids.worked)
   await flush(page)
-  await undoLast(page, 'one_restore_page')
-  await expect(page.getByText('Undone — parts edited since were kept')).toBeVisible()
+  await undoRefused(page, 'one_restore_page', 'text')
   expect(await wsEval(page, (s, id) => [!!s.pages[id]?.trashed, s.pages[id]?.plain], ids.worked)).toEqual([false, 'An hour of the person’s work.'])
   // untouched since: back into the trash
   json(await call('one_restore_page', { id: ids.quiet }))
@@ -1157,8 +1168,8 @@ test('one_create_property { type: unique_id } (review 5): its Undo right after t
   const nr = (await propIdOf(page, db, 'Nr'))!
   expect(await wsEval(page, (s, a: { rows: string[]; prop: string }) => a.rows.map((id) => s.pages[id]?.properties[a.prop]), { rows, prop: nr })).toEqual([1, 2])
   await flush(page)
+  // all back: the column, its numbers (no filling of the person's)
   await undoLast(page, 'one_create_property')
-  await expect(page.getByText('Undone — parts edited since were kept')).toHaveCount(0)
   await expect.poll(() => propIdOf(page, db, 'Nr')).toBe(null)
   // its counter goes back too: a unique id made again starts at 1
   json(await call('one_create_property', { databaseId: db, name: 'Nr', type: 'unique_id' }))
@@ -1166,7 +1177,7 @@ test('one_create_property { type: unique_id } (review 5): its Undo right after t
   expect(await wsEval(page, (s, a: { rows: string[]; prop: string }) => a.rows.map((id) => s.pages[id]?.properties[a.prop]), { rows, prop: again })).toEqual([1, 2])
 })
 
-test("one_create_property (review 5): a value the person typed into a row now in the trash survives the Undo — the trash counts as the database's rows", async ({ page }) => {
+test("one_create_property (review 5): a value the person typed into a row now in the trash refuses the Undo whole — the trash counts as the database's rows (Weg 4)", async ({ page }) => {
   await openApp(page)
   const { db, rows } = await cards(page, 2)
   await connect(page, 'Apply directly')
@@ -1177,8 +1188,7 @@ test("one_create_property (review 5): a value the person typed into a row now in
     s.trashPage(a.row)
   }, { row: rows[0], prop: budget })
   await flush(page)
-  await undoLast(page, 'one_create_property')
-  await expect(page.getByText('Undone — parts edited since were kept')).toBeVisible()
+  await undoRefused(page, 'one_create_property', 'values')
   expect(await propIdOf(page, db, 'Budget')).toBe(budget)
   await wsEval(page, (s, row) => s.restorePage(row), rows[0])
   expect(await wsEval(page, (s, a: { row: string; prop: string }) => s.pages[a.row]?.properties[a.prop] ?? null, { row: rows[0], prop: budget })).toBe('12.000 €')
@@ -1219,7 +1229,7 @@ test('a page locked while the card waited takes nothing (review 5): one_update_p
   expect(await wsEval(page, (s) => Object.values(s.pages as Record<string, AnyState>).some((p) => p.title === 'Kapitel' && !p.trashed))).toBe(false)
 })
 
-test("one_create_database's Undo (review 5): a database the person renamed, gave a view or a column since stays — as the team server keeps it", async ({ page }) => {
+test("one_create_database's Undo (review 5): refused whole once the person renamed the database, gave it a view or a column (Weg 4); untouched, it goes", async ({ page }) => {
   await openApp(page)
   await connect(page, 'Apply directly')
   const trashed = (id: string) => wsEval(page, (s, id) => !!s.pages[id]?.trashed, id)
@@ -1227,8 +1237,7 @@ test("one_create_database's Undo (review 5): a database the person renamed, gave
   const renamed = json(await call('one_create_database', { title: 'Sprint 12', rows: [{ title: 'Kick-off' }] }))
   await wsEval(page, (s, id) => s.updatePage(id, { title: 'Sprint 12 — Nordlicht' }), renamed.id)
   await flush(page)
-  await undoLast(page, 'one_create_database')
-  await expect(page.getByText('Undone — parts edited since were kept')).toBeVisible()
+  await undoRefused(page, 'one_create_database', 'title')
   expect(await wsEval(page, (s, id) => [s.pages[id]?.title, !!s.pages[id]?.trashed], renamed.id)).toEqual(['Sprint 12 — Nordlicht', false])
   // a view and an empty column added since
   const viewed = json(await call('one_create_database', { title: 'Backlog', rows: [{ title: 'Item A' }] }))
@@ -1237,7 +1246,7 @@ test("one_create_database's Undo (review 5): a database the person renamed, gave
     s.addProperty(id, { name: 'Notiz', type: 'text' })
   }, viewed.id)
   await flush(page)
-  await undoLast(page, 'one_create_database')
+  await undoRefused(page, 'one_create_database', 'properties, views')
   expect(await trashed(viewed.id)).toBe(false)
   // nobody touched it: it goes
   const quiet = json(await call('one_create_database', { title: 'Quiet board', rows: [{ title: 'Item B' }] }))
@@ -1246,14 +1255,13 @@ test("one_create_database's Undo (review 5): a database the person renamed, gave
   await expect.poll(() => trashed(quiet.id)).toBe(true)
 })
 
-test('the Undo of a page the call made (review 5): a cover the person gave it since keeps it — as the team server compares icon, cover and comments', async ({ page }) => {
+test('the Undo of a page the call made (review 5): a cover the person gave it since refuses it whole — as the team server compares icon, cover and comments (Weg 4)', async ({ page }) => {
   await openApp(page)
   await connect(page, 'Apply directly')
   const made = json(await call('one_create_page', { title: 'Moodboard', markdown: 'Ideas from Claude.' }))
   await wsEval(page, (s, id) => s.updatePage(id, { cover: { type: 'color', value: 'orange', positionY: 50 } }), made.id)
   await flush(page)
-  await undoLast(page, 'one_create_page')
-  await expect(page.getByText('Undone — parts edited since were kept')).toBeVisible()
+  await undoRefused(page, 'one_create_page', 'cover')
   expect(await wsEval(page, (s, id) => [!!s.pages[id]?.cover, !!s.pages[id]?.trashed], made.id)).toEqual([true, false])
 })
 
@@ -1271,7 +1279,7 @@ async function inboxArchive(page: Page) {
   return ids
 }
 
-test("one_move_row's Undo (review 5): what the move itself set off (the target's automation) is the call's own — the row goes back; the person's edit still keeps it", async ({ page }) => {
+test("one_move_row's Undo (review 5): what the move set off since (the target's automation) refuses it whole, the person's edit too (Weg 4); untouched, the row goes back", async ({ page }) => {
   await openApp(page)
   const ids = await inboxArchive(page)
   await connect(page, 'Apply directly')
@@ -1279,17 +1287,24 @@ test("one_move_row's Undo (review 5): what the move itself set off (the target's
   json(await call('one_move_row', { id: ids.calls, databaseId: ids.archive }))
   await expect.poll(() => where(ids.calls), { timeout: 10_000 }).toEqual([ids.archive, 'fired'])
   await flush(page)
-  await undoLast(page, 'one_move_row')
-  await expect(page.getByText('Undone — parts edited since were kept')).toHaveCount(0)
-  expect(await wsEval(page, (s, id) => [s.pages[id]?.databaseId, s.pages[id]?.properties['e-owner']], ids.calls)).toEqual([ids.inbox, 'Mara Lind'])
-  // the person changes the moved row after the automation ran: it stays where it is
+  // the automation the move set off wrote the row after the call: refused whole (was: the row went back)
+  await undoRefused(page, 'one_move_row', 'values')
+  expect(await where(ids.calls)).toEqual([ids.archive, 'fired'])
+  // the person changes the moved row after the automation ran: refused whole, it stays where it is (was: kept)
   json(await call('one_move_row', { id: ids.second, databaseId: ids.archive }))
   await expect.poll(() => where(ids.second), { timeout: 10_000 }).toEqual([ids.archive, 'fired'])
   await wsEval(page, (s, id) => s.setRowProperty(id, 'a-flag', 'checked by Mara'), ids.second)
   await flush(page)
-  await undoLast(page, 'one_move_row')
-  await expect(page.getByText('Undone — parts edited since were kept')).toBeVisible()
+  await undoRefused(page, 'one_move_row', 'values')
   expect(await where(ids.second)).toEqual([ids.archive, 'checked by Mara'])
+  // untouched since (the automation off): all back — the row in its database with its values
+  await wsEval(page, (s, db: string) => s.updateDatabase(db, { automations: [] }), ids.archive)
+  const third = await wsEval(page, (s, db: string) => s.createRow(db, { title: 'Rückruf Tessera', properties: { 'e-owner': 'Mara Lind' } }), ids.inbox)
+  await flush(page)
+  json(await call('one_move_row', { id: third, databaseId: ids.archive }))
+  await flush(page)
+  await undoLast(page, 'one_move_row')
+  expect(await wsEval(page, (s, id) => [s.pages[id]?.databaseId, s.pages[id]?.properties['e-owner']], third)).toEqual([ids.inbox, 'Mara Lind'])
 })
 
 test('one_move_row with a record type (review 5): the card names the type and the properties it adds; its Undo takes them back; a locked target is refused, the row keeps its type', async ({ page }) => {
@@ -1328,8 +1343,8 @@ test('one_move_row with a record type (review 5): the card names the type and th
   expect(await types(ids.archive)).toEqual(['rt-lead'])
   expect(await propIdOf(page, ids.archive, 'Source')).toBeTruthy()
   await flush(page)
+  // untouched since: all back — the row, its type, the type and the property it brought along
   await undoLast(page, 'one_move_row')
-  await expect(page.getByText('Undone — parts edited since were kept')).toHaveCount(0)
   expect(await rowOf(ids.lead)).toEqual([ids.inbox, 'rt-lead'])
   expect(await types(ids.archive)).toEqual([])
   expect(await propIdOf(page, ids.archive, 'Source')).toBe(null)

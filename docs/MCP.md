@@ -222,14 +222,10 @@ out), and a tool takes **only** the arguments it declares: anything else is refu
   (autofill that updates by itself, a webhook or script automation, a row-triggered agent) add up to **5 or more** —
   new and changed rows together, over every database it touches, a new title counting as a change of the title
   property — is **always asked**, also in *Apply directly*. The card fits the screen: its lines scroll, the summary and
-  the keys stay in view. **Undo** puts what the call made into the trash while nobody changed it since (a page or row
-  whose text, title, icon, any value — also one filled into an empty field — or place changed, or that got a page
-  below it, is kept; what the call itself set off — a *row created* automation, autofill, a value script — is no
-  change), and sets changed values back unless they were changed again; a database the call made stays
-  (with everything in it and its block) once someone added a row or changed one of its rows. In
-  a page the person wrote in since, the Undo takes out only the call's own database block or page link (never leaving
-  one that points into the trash). A call that fails as a whole takes back what it made for good — nothing of it waits
-  in the trash. A link written into a **row's** text (`linkInParent` under rows) and a task changed in a row
+  the keys stay in view. **Undo** is all or nothing (see *Agent activity* below): the whole call goes back — what it
+  made into the trash, what it changed (values, a parent's text with its link or database block) as it was — or,
+  when anything of it changed since, nothing at all. A call that fails as a whole takes back what it made for good —
+  nothing of it waits in the trash. A link written into a **row's** text (`linkInParent` under rows) and a task changed in a row
   (`one_update_work_item`) change that row's text: what fills again on it is named, and 5 or more such rows are always
   asked. `one_upsert_rows` writes no text into a locked row page (`locked`, also when it was locked while the card
   waited).
@@ -268,7 +264,8 @@ diese fünf Aufgaben ein“* is two calls — `one_search { query: "Projekt Nord
   its lane (`properties: { "Status": "Todo" }`): a row without a value for the grouping property waits in the board's
   *No value* lane, as a row made in the app's table does (the description's example says so; moving them later is one
   `one_update_row { rows }` call and one card).
-- **Undo** (B) puts the database with its rows into the trash (unless rows of others are in it by then). S: when the
+- **Undo** (B) puts the database with its rows into the trash and takes its block out of the page's text — refused
+  whole once a row was added or changed, the database set up or the page written in since. S: when the
   database block or a row cannot be written, the database it made goes to the trash again and the error stands.
 
 ## Comments
@@ -401,9 +398,8 @@ The tools that delete, adjust, create and reorganise follow the same rules on bo
   *Database “Projects” with 8 rows → trash*, *Delete property “Budget” from Projects* with *Values · 8 rows lose their
   value*, the options a change removes with the rows that lose them; *Apply directly* logs every change with an
   **Undo** (a trashed database comes back with its rows, a moved page goes back, a deleted property comes back with
-  its values and view settings, view changes are reverted, a restored page goes back into the trash — parts edited
-  since are kept: a new property someone filled in, a restored page someone changed or put a page below); *Read only*
-  refuses them.
+  its values and view settings, view changes are reverted, a restored page goes back into the trash — all or nothing:
+  refused whole when anything of it changed since); *Read only* refuses them.
   Team server: a **write** token is needed; changes carry `api:<tokenId>` as `updatedBy`.
 
 ## Tasks
@@ -597,12 +593,18 @@ MCP." (a call waits up to 10 s for the tab first). The switch is **per browser**
   card with a line per page or row, one Approve, one Undo.
 - Every call — read or write, and how it ended (OK, error, refused, expired, cancelled; a repeat answered from an
   earlier call says so) — is listed in the **Agent activity** log of the settings tab. Applied writes have an **Undo**
-  there (approved ones also get an Undo toast). Undo is careful: what the call made goes to the trash while nobody
-  changed it since (a changed page or row is kept), values changed since are kept. A property the
-  call made stays once it was renamed or set up, holds values, a view groups, filters or sorts by it, a form asks it, it
-  is part of sub-items or dependencies, or its database was locked since; a database `one_restore_page` brought back stays in once it was set up again; a page
-  that stays keeps the link `linkInParent` wrote for it. What watches
-  an entry for "changed since" ends with its Undo, a Clear of the log, or when the entry leaves it (100 newest).
+  there (approved ones also get an Undo toast). **Undo is all or nothing** (features/mcp/undo.ts): while the call
+  applies, the tab notes every page and database it writes under its own writer and what each was before; when it
+  ends, it keeps them as the call left them — and the live pages below every page the Undo would trash (what the call
+  made, what it brought back from the trash), and the row values and uses (rollups, formulas, views, forms) of every
+  property it added to an existing database. The Undo compares: if **anything** of it differs now — whoever changed
+  it, the call's own *row created* automations and autofill included —, a page sits below one it would trash, or
+  someone else wrote one of them while the call ran, it writes **nothing** and says what changed: *Not undone:
+  “Kick-off” changed since (values). Nothing was put back.* — *Take it back by hand with Versions or the trash* (in
+  the local workspace also *Eject in the flight recorder*); the entry keeps no Undo key. Otherwise everything goes back
+  in **one** store update as the person's Undo (`you~undo`): what the call made to the trash (never deleted for good),
+  what it changed as it was (an option a row still holds stays; counters and last-run stamps are bookkeeping and stay
+  as they are). The answer to a repeat of an undone call is forgotten: repeating it makes the thing again.
 - A rejection tells the agent *The person rejected this change in One … Do not retry it*. A call that would change
   nothing (the same title, the same values) is answered without a card.
 - Writes go through the workspace store like any edit: content with origin `ai`, version history snapshots before

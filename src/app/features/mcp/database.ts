@@ -10,7 +10,7 @@ import { t } from '../../i18n'
 import { newId } from '../../lib/ids'
 import type { Database, ID, Page, PropertyDef, View, ViewType } from '../../store/types'
 import { defaultView } from '../../store/store'
-import { contentKey, snapshotNow } from '../history/snapshots'
+import { snapshotNow } from '../history/snapshots'
 import { coerceProperties, withFilesWritable } from '../ai/agent/props'
 import { ToolInputError, withReadLimit, withToolScope } from '../ai/agent/tools'
 import { commitItems, pagePrivate, stageItems } from '../ai/agent/workItems'
@@ -26,11 +26,9 @@ import { iconText, live, McpToolError, pageUrl, pathOf, propertyJson, q, titleOf
 import { atPath, chars, checkFileScope, cleanName, eachEntry, pageOrThrow, parseIcon, str, tasksOf, type PlanLine, type WritePlan } from './plan'
 import { mcpStatusOptions, propertySpec } from './schema'
 import { mcpReadableTop, mcpReadLimit } from './limits'
-import { withoutNodes } from './undoNodes'
 import { bodyLine, checkFiles, rowFacts, rowNo, sideEffects, sideHold, splitTitle } from './rows'
 import { layoutName, viewChange } from './structure'
 import { withWriter } from '../../store/writer'
-import { changedSince, madeAs, type MadeAs } from '../ai/agent/follow'
 
 /** What a board groups by when the call names nothing (spec § 2.3): the first of these types. */
 const GROUPABLE: PropertyDef['type'][] = ['status', 'select', 'multi_select', 'person', 'checkbox']
@@ -92,36 +90,6 @@ function blockRef(pageId: ID, blockId: string | null): string {
   const doc = ws().pages[pageId]?.content
   const i = (doc?.content ?? []).findIndex((b) => b.attrs?.id === blockId)
   return (i >= 0 ? refNow(doc, i) : null) ?? `#${blockId}`
-}
-
-/** A row as the call left it (title, text, icon, cover, comment threads, values, its place): the Undo compares it with the row now. */
-interface RowMark {
-  made: MadeAs
-  place: string
-}
-
-function rowMark(id: ID): RowMark | undefined {
-  const p = ws().pages[id]
-  return p ? { made: madeAs(p), place: `${p.parentId}|${p.databaseId}` } : undefined
-}
-
-/** Has someone changed this row since the call made it (title, text, icon, cover, comments, a value, its place, a live page put under it)? */
-function rowChangedSince(id: ID, mark: RowMark | undefined): boolean {
-  const { pages } = ws()
-  const p = pages[id]
-  // gone or in the trash: nothing of the person's to keep there
-  if (!p || p.trashed || !mark) return false
-  return changedSince(p, mark.made) || `${p.parentId}|${p.databaseId}` !== mark.place || Object.values(pages).some((c) => c.parentId === id && !c.trashed)
-}
-
-/**
- * The database page and its schema as the call left them (taken after its rows, which may add select options): its
- * title, icon, cover, comment threads, properties and views — the team server's Restore compares the same (markOf).
- */
-function databaseMark(id: ID): string {
-  const p = ws().pages[id]
-  const d = ws().databases[id]
-  return JSON.stringify([p?.title ?? null, p?.icon ?? null, p?.cover ?? null, p?.comments?.length ? p.comments : null, d?.properties ?? null, d?.views ?? null])
 }
 
 /**
@@ -350,9 +318,10 @@ export function planCreateDatabase(args: Record<string, unknown>): WritePlan {
       withWriter(writer, () => {
         ws().createDatabase({ id, title, parentId: parent?.id ?? null, properties: props, ...(views ? { views } : {}), ...(icon ? { icon } : {}), ...(inline ? { inline: true } : {}) })
       })
-      const undos: Array<() => boolean> = []
       // the block in the page's text (a version of the page first): at the end, or after the block named
       let blockId: string | null = null
+      /** the page's text before the block and the revision the block wrote (the failure rollback below) */
+      let before: { prev: JSONContent | null; rev: number | undefined } | null = null
       if (inline && parent) {
         const pageId = parent.id
         await snapshotNow(pageId, 'ai')
@@ -365,35 +334,20 @@ export function planCreateDatabase(args: Record<string, unknown>): WritePlan {
         const at = inline.at === null ? blocks.length : anchorId ? blocks.findIndex((b) => b.attrs?.id === anchorId) + 1 : Math.min(inline.at + 1, blocks.length)
         blocks.splice(at > 0 ? at : blocks.length, 0, block)
         withWriter(writer, () => ws().setContent(pageId, { type: 'doc', content: blocks }, 'ai'))
-        const rev = ws().pages[pageId]?.contentRev
-        const key = contentKey(ws().pages[pageId]?.content)
-        const ownBlock = blockId
-        undos.push(() => {
-          const now = ws().pages[pageId]
-          // the page deleted for good: the block went with it
-          if (!now) return true
-          if (now.contentRev === rev || contentKey(now.content) === key) {
-            ws().setContent(pageId, prev, 'ai')
-            return true
-          }
-          // the person wrote in the page since: only the call's own block goes — their edits stay, and no block is left
-          // pointing at a database in the trash
-          const next = withoutNodes(now.content, (n) => n.type === 'databaseBlock' && n.attrs?.id === ownBlock)
-          if (next) ws().setContent(pageId, next, 'ai')
-          return true
-        })
+        before = { prev, rev: ws().pages[pageId]?.contentRev }
       }
-      // the rows (after the schema); a failure takes the whole call back
+      // the rows (after the schema); a failure takes the whole call back — its block out of the page, the database
+      // deleted for good (nobody could have worked with it yet: "Nothing was changed" holds)
       let rowIds: Record<string, ID> = {}
-      let rowsUndo: () => boolean = () => true
       if (stage.changes.length) {
         try {
-          const done = await applyStaged(stage.changes, writer)
-          rowIds = done.rowIds
-          rowsUndo = done.undo
+          rowIds = (await applyStaged(stage.changes, writer)).rowIds
         } catch (e) {
           withWriter(writer, () => {
-            for (const u of undos) u()
+            const host = before && parent ? ws().pages[parent.id] : undefined
+            // the text as it was while nobody wrote in it since, else only the block taken out (it would point nowhere)
+            if (host && before?.rev === host.contentRev) ws().setContent(host.id, before.prev, 'ai')
+            else if (host?.content?.content) ws().setContent(host.id, { ...host.content, content: host.content.content.filter((b) => !(b.type === 'databaseBlock' && b.attrs?.id === blockId)) }, 'ai')
             ws().deletePagePermanently(id)
           })
           throw e
@@ -402,11 +356,6 @@ export function planCreateDatabase(args: Record<string, unknown>): WritePlan {
       const d = ws().databases[id]
       const madeRows = rows.map((c) => rowIds[c.pageId] ?? c.pageId)
       const note = notes.length ? notes.join(' ') : undefined
-      // each row as the call left it: the Undo takes the database back only while nobody changed any of them
-      const asMade = new Map(madeRows.map((rid) => [rid, rowMark(rid)] as const))
-      // the database itself as the call left it: renamed, given another icon / cover, a property or view added, renamed
-      // or set up since → it stays (as the team server's Restore keeps it)
-      const dbMark = databaseMark(id)
       return {
         result: {
           id,
@@ -419,23 +368,6 @@ export function planCreateDatabase(args: Record<string, unknown>): WritePlan {
           ...(rows.length ? { rows: rows.map((c, index) => ({ index, id: madeRows[index], title: c.title ?? '' })) } : {}),
           ...tasksOf(tasks.created),
           ...(note ? { note } : {}),
-        },
-        undo: () => {
-          const { pages } = ws()
-          const now = pages[id]
-          // in the trash already (the person put it there): it stays there, never deleted for good
-          const gone = !now || now.trashed
-          // first: does the database stay? A row someone added, or a row of the call someone changed since, keeps it —
-          // and then the call leaves everything as it is (rows, the block in the page)
-          if (!gone) {
-            const others = Object.values(pages).some((p) => p.parentId === id && !p.trashed && !asMade.has(p.id))
-            const changed = madeRows.some((rid) => rowChangedSince(rid, asMade.get(rid)))
-            if (others || changed || databaseMark(id) !== dbMark) return false
-          }
-          // it goes: the rows (to the trash while untouched), the block in the page, the database
-          const kept = [rowsUndo(), ...[...undos].reverse().map((u) => u())]
-          if (!gone) ws().trashPage(id)
-          return kept.every(Boolean)
         },
       }
     },

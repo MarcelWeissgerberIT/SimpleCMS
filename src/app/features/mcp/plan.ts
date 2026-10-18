@@ -1,6 +1,7 @@
 /**
  * One MCP — what every writing tool shares: the plan a call becomes (validated, nothing written; a
- * localized summary for the approval card; apply() + undo), and the small argument checks.
+ * localized summary for the approval card; apply()), and the small argument checks. A call's Undo is no planner's:
+ * service.ts tapes what apply() writes (undo.ts — all or nothing).
  * write.ts (pages, rows, new properties and databases), tidy.ts (trash, restore, moves) and
  * structure.ts (database, property and view changes) build plans with these.
  */
@@ -35,8 +36,6 @@ export type PlanLine =
 
 export interface Applied {
   result: unknown
-  /** revert (false = parts left alone because they were changed since) */
-  undo?: () => boolean
 }
 
 export interface WritePlan {

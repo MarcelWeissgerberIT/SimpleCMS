@@ -266,19 +266,19 @@ export function planCreateRow(args: Record<string, unknown>): WritePlan {
     lines,
     ...(items_.holds.length || hold.alwaysAsk ? { alwaysAsk: true } : {}),
     async apply(writer) {
-      const { rowIds, undo } = await applyStaged(stage.changes, writer)
+      const { rowIds } = await applyStaged(stage.changes, writer)
       const live = ws().databases[db.id]
       if (!batch) {
         const c = rows[0]
         const id = rowIds[c.pageId] ?? c.pageId
         const row = ws().pages[id]
-        return { result: { id, databaseId: db.id, title: made[0].title, url: pageUrl(id), properties: row && live ? rowProperties(live, row) : {}, ...tasksOf(items_.created) }, undo }
+        return { result: { id, databaseId: db.id, title: made[0].title, url: pageUrl(id), properties: row && live ? rowProperties(live, row) : {}, ...tasksOf(items_.created) } }
       }
       const out = rows.map((c, index) => {
         const id = rowIds[c.pageId] ?? c.pageId
         return { index, id, title: c.title ?? '' }
       })
-      return { result: { databaseId: db.id, urlBase: pageUrl(''), rows: out, ...tasksOf(items_.created) }, undo }
+      return { result: { databaseId: db.id, urlBase: pageUrl(''), rows: out, ...tasksOf(items_.created) } }
     },
   }
 }
@@ -398,8 +398,8 @@ export function planUpdateRow(args: Record<string, unknown>): WritePlan {
     ...(items.holds.length || alwaysAsk ? { alwaysAsk: true } : {}),
     noop: stage.changes.length ? undefined : { ...result(), note: batch ? 'No change: every row already has these values.' : 'No change: the row already has these values.' },
     async apply(writer) {
-      const { undo } = await applyStaged(stage.changes, writer)
-      return { result: result(), undo }
+      await applyStaged(stage.changes, writer)
+      return { result: result() }
     },
   }
 }
@@ -550,8 +550,8 @@ export function planUpsertRows(args: Record<string, unknown>): WritePlan {
     async apply(writer) {
       // locked while the card waited: nothing written
       lockedText(true)
-      const { rowIds, undo } = await applyStaged(stage.changes, writer)
-      return { result: answer(rowIds), undo }
+      const { rowIds } = await applyStaged(stage.changes, writer)
+      return { result: answer(rowIds) }
     },
   }
 }
