@@ -38,6 +38,7 @@ import { preWhyText, refusalText } from './text'
 import type { OrderPreResult, OrderPreWhy } from './pre'
 import type { OrderChain, OrderChainStep, OrderRecord } from './types'
 import { navigate } from '../../../lib/router'
+import { chainKeyBlock } from './lamp'
 
 type Tr = ReturnType<typeof useT>
 
@@ -119,6 +120,11 @@ export default function ChainPart({ rowId, rec, ready, pre, headId, viewer, else
   const card = rec.state === 'running' && !chain?.halted && view?.move.kind === 'card' ? view.move : null
   const elsewhere = rec.state === 'running' && view?.move.kind === 'wait' && view.move.why === 'elsewhere'
   const busyStep = useCoding((s) => chain?.steps.find((st) => s.busy.some((b) => b.taskId === st.id))?.n ?? null)
+  // Orders B12 — a key that lets the chain start something works only where it may (a team: the device with the worker
+  // link; never an outdated / unsafe worker): elsewhere it stays, aria-disabled, with its reason (read again on the link)
+  useCoding((s) => `${s.enabled}|${s.conn}|${s.refused ?? ''}|${s.worker?.worker ?? ''}`)
+  const keyBlock = viewer ? null : chainKeyBlock()
+  const keyBlockWhy = keyBlock ? t(`${O}.keyWhy.${keyBlock}`) : undefined
   // the steps S may skip (failed, stopped, trashed, ejected) — read again when a step's row, the run on the worker or the
   // engine's move changes (never on every write of the workspace)
   const stepPages = useWorkspace(useShallow((s) => (chain?.steps ?? []).map((st) => s.pages[st.id])))
@@ -298,14 +304,14 @@ export default function ChainPart({ rowId, rec, ready, pre, headId, viewer, else
             </p>
             {!viewer && (
               <div className="orp-keys" data-bar="">
-                <HandKey ready onPress={resumeKey} primary testId="order-resume">
+                <HandKey ready={!keyBlock} reason={keyBlockWhy} onPress={resumeKey} primary testId="order-resume">
                   <span className="kbd" aria-hidden>
                     ↵
                   </span>
                   {t(`${O}.key.resume`)}
                 </HandKey>
                 {skippable.slice(0, 1).map((n) => (
-                  <HandKey key={n} ready onPress={() => skip(n)} testId="order-skip">
+                  <HandKey key={n} ready={!keyBlock} reason={keyBlockWhy} onPress={() => skip(n)} testId="order-skip">
                     <span className="kbd" aria-hidden>
                       S
                     </span>
@@ -387,7 +393,7 @@ export default function ChainPart({ rowId, rec, ready, pre, headId, viewer, else
                   </button>
                 )}
                 {skippable.slice(0, 1).map((n) => (
-                  <HandKey key={n} ready onPress={() => skip(n)} testId="order-skip">
+                  <HandKey key={n} ready={!keyBlock} reason={keyBlockWhy} onPress={() => skip(n)} testId="order-skip">
                     <span className="kbd" aria-hidden>
                       S
                     </span>

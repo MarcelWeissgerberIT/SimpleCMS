@@ -14,8 +14,10 @@
  *  - 'chainConfirm' a request in Läuft whose chain this device holds no record of — the worker moved here (a team), a
  *                   restored backup — while its steps carry the request (`order:<row>:chainConfirm@<ids 8>`); only on
  *                   the device with the worker link in a team;
- *  - 'request'      a team: the member's own request stands in Planen and was not pressed here (another device
- *                   asked) — on the worker device only (`order:<row>:request`).
+ *  - 'request'      a team: the member's own request stands in Planen because another device asked for it — this
+ *                   device saw that Planen arrive from the server and has not pressed or planned it since (team.ts
+ *                   requestedElsewhere; a device that was away meanwhile: a request it knows nothing of, changed within a
+ *                   day) — on the worker device only (`order:<row>:request@<asked 36>`).
  * Viewers get none. O(requests): this device's records (every one of the scope is read at start), the engine's moves,
  * the request rows from the shared row index; only a Läuft request without a record looks at its projects' rows.
  */
@@ -35,6 +37,7 @@ import { useOrderPlanner } from './runs'
 import { usePressNotes } from './press'
 import { onSeen } from './seen'
 import type { OrderChain, OrderRecord } from './types'
+import { requestedElsewhere } from './team'
 
 const ws = () => useWorkspace.getState()
 
@@ -206,8 +209,10 @@ export function orderCards(now = Date.now()): OrderCard[] {
       if (carriers.length) out.push({ id: `order:${row}:chainConfirm@${idsKey(carriers.map((c) => c.id))}`, kind: 'chainConfirm', row, at: page.updatedAt })
       continue
     }
-    if (status === 'plan' && team && linked && !rec?.want && !(rec?.state === 'draft' && rec.draft) && !carried(rec) && !planningHere(row)) {
-      out.push({ id: `order:${row}:request`, kind: 'request', row, at: s.pages[row]?.updatedAt ?? 0 })
+    const page = s.pages[row]
+    if (status === 'plan' && team && linked && page && requestedElsewhere(rec, page, now) && !planningHere(row)) {
+      const at = rec?.asked?.at ?? page.updatedAt
+      out.push({ id: `order:${row}:request@${at.toString(36)}`, kind: 'request', row, at })
     }
   }
   return out

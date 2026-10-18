@@ -535,7 +535,8 @@ async function writeDraft(
       blocked = true
       return rec
     }
-    const { want: _want, ...rest } = rec ?? { v: 1 as const, state: 'draft' as const }
+    // planned here: a kept press is spent, a request from another device answered (Orders B12)
+    const { want: _want, asked: _asked, ...rest } = rec ?? { v: 1 as const, state: 'draft' as const }
     // a follow-up plan over a halted or finished chain: that state is kept with the draft (D brings it back as it was)
     const over = rec?.chain && (rec.state === 'halted' || rec.state === 'done') ? rec.state : rec?.state === 'draft' ? rec.draft?.over : undefined
     return { ...rest, v: 1, state: 'draft', draft: over ? { ...draft, over } : draft }

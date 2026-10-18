@@ -329,6 +329,8 @@ function requestKeys(item: QueueItem, row: string): CardAction[] {
       run: async () => {
         const out = await planOrderHere(row)
         if (out.kind === 'refused') return out.why === 'gone' ? { ok: false, error: 'features.preflight.err.elsewhere', elsewhere: true } : { ok: false, error: orderPreWhyText(out.why, out.left) }
+        // the worker link went away meanwhile: this device only asked for it — nothing planned here
+        if (out.kind === 'asked') return { ok: false, error: orderPreWhyText('elsewhere') }
         return { ok: true, final: `${P}.final.replan` }
       },
     },

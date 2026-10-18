@@ -589,14 +589,31 @@ node.describe('the chain engine — B7 parts (Node)', () => {
     nodeExpect(chainSuccessor(undefined, 'task1')).toBeNull()
   })
 
-  node('a team device without the worker link never moves a step (it waits "elsewhere"); halts and cards stay its own', () => {
+  node('a team device without the worker link never moves a step (it waits "elsewhere"); it follows the request only — halts and cards about the steps are the worker device\'s (B12)', () => {
     let chain = withAdvance(chainOf([step(1, 'coding'), step(2, 'coding')]), 1, T0 + 10_000)
     chain = withDone(chain, 1, doneEvidence({ kind: 'coding', task: 'task1', run: 'r' }, T0 + 20_000))
     const tasks = { task1: facts({ stage: 'done', stageKind: 'done' }), task2: facts() }
+    const away = { here: { advance: false } }
     nodeExpect(nextMove(world(chain, tasks))).toMatchObject({ kind: 'advance', step: 2 })
-    nodeExpect(nextMove(world(chain, tasks, { here: { advance: false } }))).toEqual({ kind: 'wait', why: 'elsewhere', step: 2 })
-    nodeExpect(nextMove(world(chain, { ...tasks, task2: facts({ trusted: false }) }, { here: { advance: false } }))).toMatchObject({ kind: 'card', why: 'confirm' })
-    nodeExpect(nextMove(world(chain, tasks, { here: { advance: false }, request: { live: true, status: 'halted', usable: true } }))).toEqual({ kind: 'halt', why: 'status' })
+    nodeExpect(nextMove(world(chain, tasks, away))).toEqual({ kind: 'wait', why: 'elsewhere', step: 2 })
+    // B12: no card here (the worker device asks it) — a Confirm wait, a done move nobody recorded
+    nodeExpect(nextMove(world(chain, { ...tasks, task2: facts({ trusted: false }) }, away))).toEqual({ kind: 'wait', why: 'elsewhere', step: 2 })
+    nodeExpect(nextMove(world(withDone(chain, 1, doneEvidence(null, T0 + 20_000)), tasks, away))).toEqual({ kind: 'wait', why: 'elsewhere', step: 2 })
+    // B12: no halt about the steps either — a step the worker device moved that this stale record still holds parked
+    // ("out of order" there would halt the worker device's chain through the Status), a trashed step, the budget
+    nodeExpect(nextMove(world(chain, { ...tasks, task2: facts({ stage: 'ready', stageKind: 'queue' }) }))).toMatchObject({ kind: 'halt', why: 'outOfOrder', step: 2 })
+    nodeExpect(nextMove(world(chain, { ...tasks, task2: facts({ stage: 'ready', stageKind: 'queue' }) }, away))).toEqual({ kind: 'wait', why: 'elsewhere', step: 2 })
+    nodeExpect(nextMove(world(chain, { ...tasks, task2: facts({ trashed: true }) }, away))).toEqual({ kind: 'wait', why: 'elsewhere', step: 2 })
+    nodeExpect(nextMove(world({ ...chain, budgetUsd: 1 }, { ...tasks, task1: facts({ stage: 'done', stageKind: 'done', spentUsd: 2 }) }, away))).toEqual({ kind: 'wait', why: 'elsewhere', step: 2 })
+    // the request is followed everywhere: Angehalten halts (sticky), the trash halts
+    nodeExpect(nextMove(world(chain, tasks, { ...away, request: { live: true, status: 'halted', usable: true } }))).toEqual({ kind: 'halt', why: 'status' })
+    nodeExpect(nextMove(world(chain, tasks, { ...away, request: { live: false, status: 'running', usable: true } }))).toEqual({ kind: 'halt', why: 'trashed' })
+    // the end: every step done and the worker device's Fertig — done here too (never "finished by someone else")
+    const all = { task1: facts({ stage: 'done', stageKind: 'done' }), task2: facts({ stage: 'done', stageKind: 'done' }) }
+    const both = withAdvance(chain, 2, T0 + 30_000)
+    nodeExpect(nextMove(world(both, all, away))).toEqual({ kind: 'wait', why: 'elsewhere' })
+    nodeExpect(nextMove(world(both, all, { ...away, request: { live: true, status: 'done', usable: true } }))).toEqual({ kind: 'done' })
+    nodeExpect(nextMove(world(chain, tasks, { ...away, request: { live: true, status: 'done', usable: true } }))).toEqual({ kind: 'halt', why: 'finished' })
   })
 
   node('a chain planned again from a done step: its first step takes that step\'s result (copy, from null) after its count', () => {

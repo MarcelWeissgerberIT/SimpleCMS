@@ -3,7 +3,8 @@
  *  - a pipeline task that is a step of a chain on this device: "PA-12 · 2/3"; a parked one: "PA-12 · wartet auf 01"
  *    (the chain is this device's record — never the Prüfauftrag / Schritt fields, which only display);
  *  - a request on the work orders' board: in Planen its sub-state (plant ◐ · Rückfrage · Regler hält · wartet auf Worker ·
- *    abgelaufen — ↵ erneut); while its chain runs, where it waits for the person ("02 Coding · Review ●", "weiter mit
+ *    abgelaufen — ↵ erneut · angefordert — a team: asked for from a device without the worker link, or on the worker
+ *    device a request another device asked for, Orders B12); while its chain runs, where it waits for the person ("02 Coding · Review ●", "weiter mit
  *    02?") — computed, never a stored Status, so cards do not jump lanes at every gate.
  * Each chip reads its own stores; a card that is none of these renders nothing.
  */
@@ -21,6 +22,9 @@ import { startStageOf } from '../stages'
 import { orderCode, statusKeyOf } from './db'
 import { useOrderRecords, orderScope } from './records'
 import { usePlannerRun } from './runs'
+import { useCloud } from '../../../cloud'
+import { workerElsewhere } from './facts'
+import { requestedElsewhere } from './team'
 import { usePressNotes, wantLive } from './press'
 import { useChainMoves } from './chainRun'
 import { stepNo } from './words'
@@ -68,6 +72,8 @@ function RequestChip({ db, row }: { db: Database; row: Page }) {
   const run = usePlannerRun(row.id)
   const note = usePressNotes((s) => s.notes[row.id] ?? null)
   const ok = useCoding((s) => workerVerdict(s) === 'ok')
+  const team = useCloud((s) => s.active.kind === 'cloud')
+  const away = useCoding((s) => workerElsewhere(s))
   const move = useChainMoves((s) => s.moves[row.id]?.move ?? null)
   // a running chain's step that waits for the person (a gate, a question, a failure — this device's run state)
   const local = useCodingLocal((s) => s.tasks)
@@ -80,7 +86,9 @@ function RequestChip({ db, row }: { db: Database; row: Page }) {
     const want = r?.want
     const live = wantLive(want)
     const waiting = !!want && live && !ok
-    const chip = planning ? 'planning' : (outcome?.kind === 'held' || outcome?.kind === 'brake') && !waiting ? 'regler' : want && !live ? 'expired' : waiting ? 'worker' : r?.state === 'draft' && r.draft && !r.draft.plan.steps.length ? 'question' : null
+    // Orders B12 — a team: asked for on the worker device (here without the link), or asked for from another device
+    const asked = team && (away || (ok && rec !== undefined && rec !== 'unreadable' && requestedElsewhere(r, row)))
+    const chip = planning ? 'planning' : (outcome?.kind === 'held' || outcome?.kind === 'brake') && !waiting ? 'regler' : want && !live ? 'expired' : waiting ? 'worker' : r?.state === 'draft' && r.draft && !r.draft.plan.steps.length ? 'question' : asked ? 'asked' : null
     if (!chip) return null
     return (
       <div className="dbc-chip label" data-chip={chip} data-testid="order-card-chip">

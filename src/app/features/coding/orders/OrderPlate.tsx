@@ -11,6 +11,11 @@
  *    the brake note in the plate; questions only: an answer field each (Questions.tsx)
  *  - ↵ Planen (a press of the allow-list, how 'plate'); viewers see no key
  *  - ChainPart.tsx: Kette bereit (ReadyPart.tsx), a creation, an interrupted one, the Laufleiste, the end
+ *  - a team (Orders B12): a device without the worker link holds no plan or chain — RemotePart.tsx shows what the tasks
+ *    show (display only) with its two keys (D Verwerfen in Kette bereit, H Anhalten while it runs); ↵ Planen there asks
+ *    the worker device for it (the Status Planen, its card "Hier planen"); the worker device says a request from another
+ *    device in the strip; a work order moved out of Private is never planned ("nur private Prüfaufträge"); a data rule's
+ *    refusal of the planner is worded for a member ("Regel des Arbeitsbereichs — eine Admin kann sie ändern", no key)
  * Keys with focus in the plate: Esc only leaves (focus to the heading — it never discards), ⌘. stops a planner run, Z
  * takes back the plan D just discarded. On a phone the plate's main keys row is a bar at the bottom (above the flight
  * recorder's deck, the floating keys out of the way — `html[data-bottom-bar]`).
@@ -20,6 +25,7 @@ import { ArrowRight, Settings2 } from 'lucide-react'
 import { useWorkspace } from '../../../store/store'
 import type { ID, OrderStatusKey } from '../../../store/types'
 import { useCloud } from '../../../cloud'
+import { useUI } from '../../../store/ui'
 import { Led, Screws } from '../../../ui/controls'
 import { useLang, useT } from '../../../i18n'
 import { navigate } from '../../../lib/router'
@@ -29,12 +35,17 @@ import { workerVerdict } from '../link'
 import { openCodingSettings } from '../open'
 import { ChangeReposButton } from '../SetupCard'
 import { readOrderConfig } from './config'
-import { orderCode, orderStatusKey } from './db'
+import { orderCode, orderRowShared, orderStatusKey } from './db'
 import { orderPreNow, pressPlan, usePressNotes, wantLive } from './press'
 import { useOrderRecord } from './records'
 import { usePlannerRun } from './runs'
 import { outcomeText, preWhyText, problemText, untilText } from './text'
 import ChainPart from './ChainPart'
+import RemotePart from './RemotePart'
+import { requestedElsewhere, ruleRefusal } from './team'
+import { AIError } from '../../ai/core/errors'
+import { FixKeys } from '../../ai/setup/AINeedsSetup'
+import { aiRulesAllowed } from '../../../store/ai'
 import { PlanBrake, PlanningPart } from './Planning'
 import { QuestionsForm } from './Questions'
 import { OrderSettingsKey } from './OrderSettings'
@@ -47,7 +58,7 @@ import { useOrderAuto } from './auto'
 import type { OrderPreWhy } from './pre'
 import './orders.css'
 
-type Chip = 'planning' | 'question' | 'regler' | 'worker' | 'expired' | null
+type Chip = 'planning' | 'question' | 'regler' | 'worker' | 'expired' | 'asked' | null
 type LedState = 'off' | 'on' | 'ok'
 
 const STATUS_LED: Record<OrderStatusKey, LedState> = { draft: 'off', plan: 'on', ready: 'on', running: 'on', halted: 'off', done: 'ok' }
@@ -102,11 +113,12 @@ export default function OrderPlate({ rowId }: { rowId: ID }) {
   // a brake note answered or set aside (the next run shows its own)
   const [brakeDone, setBrakeDone] = useState(false)
   // re-render on the row, the database and the worker link
-  useWorkspace((s) => s.pages[rowId])
+  const page = useWorkspace((s) => s.pages[rowId])
   const db = useWorkspace((s) => (s.pages[rowId]?.databaseId ? s.databases[s.pages[rowId]!.databaseId!] : undefined))
   useWorkspace((s) => s.databases)
   const coding = useCoding()
   const viewer = useCloud((s) => s.readOnly)
+  const team = useCloud((s) => s.active.kind === 'cloud')
   // Orders B11: this device's "Ohne Bestätigung starten" for the request's database (the deferred line says it starts)
   const autoOn = !!useOrderAuto(db?.id).consent
   const stored = useOrderRecord(rowId)
@@ -172,6 +184,10 @@ export default function OrderPlate({ rowId }: { rowId: ID }) {
     }
   }, [viewer])
   const asks = rec?.state === 'draft' && !!rec.draft && !rec.draft.plan.steps.length
+  // Orders B12 — a team: a work order moved out of Private is never planned; on the worker device, a request another
+  // device asked for (its card "Hier planen" in Preflight; ↵ Planen here is the same press)
+  const shared = orderRowShared(rowId)
+  const askedHere = team && status === 'plan' && pre.ok && !!page && stored !== undefined && !unreadable && requestedElsewhere(rec, page) && note?.why !== 'planning' && !(!!run && run.phase !== 'done')
   // a kept press waits for the worker only while no 'ok' one is online here (else it plans in 5 s, or the planner held /
   // refused it and it waits for the worker's next return — trigger.ts `parked`)
   const ok = workerVerdict(coding) === 'ok'
@@ -189,7 +205,9 @@ export default function OrderPlate({ rowId }: { rowId: ID }) {
               ? 'worker'
               : asks
                 ? 'question'
-                : null
+                : askedHere || (team && !pre.ok && pre.why === 'elsewhere')
+                  ? 'asked'
+                  : null
   const ended = status === 'plan' && !planningNow && outcome ? outcomeText(outcome, code) : null
   const online = coding.enabled && coding.conn === 'connected'
   const elsewhere = !pre.ok && pre.why === 'elsewhere'
@@ -211,10 +229,13 @@ export default function OrderPlate({ rowId }: { rowId: ID }) {
 
   // the strip: a viewer · a kept press · an expired one · the first failing precondition · ready
   let line: string
-  let why: OrderPreWhy | 'ok' | 'later' | 'expired' | 'viewer' | 'unreadable'
+  let why: OrderPreWhy | 'ok' | 'later' | 'expired' | 'viewer' | 'unreadable' | 'shared'
   if (viewer) {
     why = 'viewer'
     line = t('features.coding.order.pre.viewer')
+  } else if (shared) {
+    why = 'shared'
+    line = preWhyText('shared')
   } else if (unreadable) {
     why = 'unreadable'
     line = t('features.coding.order.why.unreadable')
@@ -234,16 +255,24 @@ export default function OrderPlate({ rowId }: { rowId: ID }) {
   }
   const left = pre.ok && pre.left.length ? t('features.coding.order.pre.left', { list: pre.left.map((k) => `${t(`features.coding.pipe.${k.kind}`)}: ${problemText(k.problem)}`).join(' · ') }) : ''
   const running = status === 'running'
-  const fix = !pre.ok && why !== 'viewer' && why !== 'unreadable' ? pre.why : null
+  const fix = !pre.ok && why !== 'viewer' && why !== 'unreadable' && why !== 'shared' ? pre.why : null
   // the chain's part (ChainPart.tsx): the plan to confirm in Kette bereit, a creation, the Laufleiste
   const ready = status === 'ready'
   const chainState = rec?.state
   const chainShown =
     !!rec && ((chainState === 'draft' && ready && !!rec.draft?.plan.steps.length) || chainState === 'creating' || chainState === 'interrupted' || (!!rec.chain && (chainState === 'running' || chainState === 'halted' || chainState === 'done')))
+  // Orders B12 — no plan or chain of the request on this device: a team device without the worker link shows what the
+  // tasks show (display only); the worker device a chain started elsewhere has not reached yet says "Kette bestätigen"
+  const adopt = team && online && !shared && !viewer && status === 'running' && !chainShown
+  const remote = !chainShown && !shared && !!status && ((elsewhere && status !== 'draft') || adopt)
   // the strip's "ready to plan" says nothing once a plan or a chain stands here
   const strip = !(chainShown && why === 'ok' && !ended)
-  // planning again is a plain key beside the plan; nothing plans over a chain being made or running
-  const planKey = !chainShown || chainState === 'draft' || chainState === 'halted' || chainState === 'done'
+  // planning again is a plain key beside the plan; nothing plans over a chain being made or running — never a work order
+  // moved out of Private; a device without the worker link asks for it only where a press would plan anew
+  const planKey = !shared && (elsewhere ? !status || status === 'draft' || status === 'halted' || status === 'done' : !chainShown || chainState === 'draft' || chainState === 'halted' || chainState === 'done')
+  // a data rule refused the planner's request (§2.2 item 7): its fix keys — a member reads who can change a workspace rule
+  const refusedErr = outcome?.kind === 'blocked' && outcome.block.why === 'refused' && outcome.block.error instanceof AIError ? outcome.block.error : null
+  const rule = refusedErr ? ruleRefusal(refusedErr.code, refusedErr.fix, aiRulesAllowed()) : null
 
   // the planner asked back (or refused): its questions are the plate's main part, their key carries ↵
   const askOnly = status === 'plan' && rec?.state === 'draft' && !!rec.draft && !rec.draft.plan.steps.length && (rec.draft.plan.questions.length > 0 || !!rec.draft.plan.refused)
@@ -251,7 +280,7 @@ export default function OrderPlate({ rowId }: { rowId: ID }) {
   // answers' key while the planner asks)
   const plain = chainShown || (askOnly && !!rec?.draft?.plan.questions.length)
   const planButton = (
-    <button type="button" className={`btn btn--sm${plain ? '' : ' btn--primary'}`} disabled={running} title={running ? t('features.coding.order.why.running') : undefined} onClick={() => void pressPlan(rowId, 'plate')} data-testid="order-plan">
+    <button type="button" className={`btn btn--sm${plain ? '' : ' btn--primary'}`} disabled={running} title={running ? t('features.coding.order.why.running') : undefined} onClick={() => void pressPlan(rowId, 'plate').then((r) => r.kind === 'asked' && useUI.getState().toast({ message: t('features.coding.order.toast.asked', { id: code }), kind: 'info' }))} data-testid="order-plan">
       {!plain && (
         <span className="kbd" aria-hidden>
           ↵
@@ -307,11 +336,22 @@ export default function OrderPlate({ rowId }: { rowId: ID }) {
             {line}
             {left && <span className="orp-strip__left"> {left}</span>}
           </p>
+          {askedHere && (
+            <p className="orp-strip__line orp-strip__ended" data-testid="order-asked">
+              {t('features.coding.order.asked.line')}
+            </p>
+          )}
           {ended && !brake && (
             <p className="orp-strip__line orp-strip__ended" data-outcome={outcome?.kind} data-testid="order-outcome">
               {ended}
             </p>
           )}
+          {ended && !brake && rule === 'member' && (
+            <p className="orp-strip__line orp-strip__ended" data-testid="order-rule-member">
+              {t('features.coding.order.why.ruleMember')}
+            </p>
+          )}
+          {ended && !brake && rule === 'fix' && !viewer && <FixKeys fix={refusedErr!.fix} feature="terminal" />}
           {fix && <FixKey why={fix} />}
         </div>
       )}
@@ -337,6 +377,7 @@ export default function OrderPlate({ rowId }: { rowId: ID }) {
         </div>
       )}
       {chainShown && rec && <ChainPart rowId={rowId} rec={rec} ready={ready} pre={pre} headId={hid} viewer={viewer} elsewhereHere={elsewhere} />}
+      {remote && status && <RemotePart rowId={rowId} status={status} adopt={adopt} viewer={viewer} headId={hid} />}
       {!viewer && planKey && !(chainShown && chainState === 'draft') && !planningNow && (
         <div className="orp-keys" data-bar="">
           {planButton}

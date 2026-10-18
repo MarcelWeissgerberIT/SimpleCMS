@@ -12,9 +12,16 @@
  *     - Coding off / the worker away / outdated / unsafe → the press is KEPT on this device (the record's `want`, with
  *       its provenance); the Status moves to Planen; it plans 5 s after an 'ok' worker is online here (trigger.ts), in
  *       mode 'trigger', within 24 h — then it expires ("abgelaufen — ↵ erneut");
- *     - anything else (a viewer, the worker on another device, no repo, no usable project) → nothing is written; the
- *       plate names the reason (`usePressNotes`).
+ *     - a team device without the worker link (the worker hangs on another device of the member — Orders B12, §3.10):
+ *       the press is a REQUEST for that device — the Status moves to Planen (`#s`), nothing is kept or planned here; the
+ *       worker device sees the Planen arrive and shows its VON HAND card "Auf anderem Gerät angefordert · ↵ Hier planen"
+ *       (trigger.ts records it, lamp.ts shows it) — never a trigger;
+ *     - anything else (a viewer, no repo, no usable project) → nothing is written; the plate names the reason
+ *       (`usePressNotes`).
  *  3. A chain that runs is never planned over ("Kette läuft — erst anhalten").
+ *  4. Only a private work order is planned in a team (`isOrderRow` — the one row test of the press, the trigger, the
+ *     command and the kept presses): a row whose database was moved into the workspace is refused ('shared').
+ * Every press this device made is noted on its record (`pressed`, 24 h): a request card never names this device's own.
  */
 import { create } from 'zustand'
 import { useWorkspace } from '../../../store/store'
@@ -25,14 +32,14 @@ import { newId } from '../../../lib/ids'
 import { useUI } from '../../../store/ui'
 import { t } from '../../../i18n'
 import { refIdsIn } from '../refs'
-import { orderStatusKey, writeOrderStatus } from './db'
+import { isOrderRow, orderRowShared, orderStatusKey, writeOrderStatus } from './db'
 import { kindProjects, requestFacts } from './facts'
 import { orderPre, type OrderPreFacts, type OrderPreKind, type OrderPreResult, type OrderPreWhy } from './pre'
-import { patchOrderRecord } from './records'
+import { bareRecord, patchOrderRecord } from './records'
 import { planOrder } from './plan'
 import type { PlanOutcome } from './planner'
 import { pageShown, requestNow, shownFp, textFp } from './fingerprint'
-import { ORDER_LIMITS, type OrderPress, type OrderPressHow, type OrderProv } from './types'
+import { ORDER_LIMITS, type OrderPress, type OrderPressHow, type OrderProv, type OrderRecord } from './types'
 
 const ws = () => useWorkspace.getState()
 
@@ -100,7 +107,8 @@ export const orderPreNow = (rowId: ID): OrderPreResult => orderPre(orderPreFacts
 /* ------------------------------------------------------------------ what the plate says after a press */
 
 export interface PressNote {
-  why: OrderPreWhy | 'running' | 'gone' | 'planning'
+  /** 'asked': a team device without the worker link asked the worker device for it (B12) · 'shared': not a private work order */
+  why: OrderPreWhy | 'running' | 'gone' | 'planning' | 'asked' | 'shared'
   at: number
   left: OrderPreKind[]
 }
@@ -121,16 +129,17 @@ export type PressResult =
   | { kind: 'planning' }
   /** kept on this device: plans when an 'ok' worker is back here */
   | { kind: 'kept'; why: OrderPreWhy }
-  | { kind: 'refused'; why: OrderPreWhy | 'running' | 'gone'; left: OrderPreKind[] }
+  /** Orders B12 — a team device without the worker link: the Status is Planen, the worker device's card plans it */
+  | { kind: 'asked' }
+  | { kind: 'refused'; why: OrderPreWhy | 'running' | 'gone' | 'shared'; left: OrderPreKind[] }
 
 /** The order writer of a request's Status (`order:<row>:<run>#s`). */
 export const statusWriter = (rowId: ID, run: string): Writer => ({ kind: 'order', row: rowId, run, change: 's' })
 
-/** Is this a live request row (not trashed, its database a live work-orders one)? */
+/** Is this a live request row a press may plan (the one row test — db.ts isOrderRow: in a team a private one only)? */
 function liveRow(rowId: ID): boolean {
   const s = ws()
-  const row = s.pages[rowId]
-  return !!row?.databaseId && !row.trashed && !isEffectivelyTrashed(s.pages, rowId) && s.databases[row.databaseId]?.system === 'workorders'
+  return isOrderRow(rowId, s) && !isEffectivelyTrashed(s.pages, rowId)
 }
 
 /**
@@ -139,7 +148,17 @@ function liveRow(rowId: ID): boolean {
  */
 export async function pressPlan(rowId: ID, how: OrderPressHow, opts: { captured?: ReturnType<typeof pressProv> } = {}): Promise<PressResult> {
   const captured = opts.captured ?? pressProv(ws().pages, rowId)
-  if (!liveRow(rowId)) return { kind: 'refused', why: 'gone', left: [] }
+  // a team: a database or row made just now ("Prüfen lassen") is marked private by the cloud binding in a microtask
+  // after its write — let that land before the row test (the provenance above is the moment of the press)
+  await Promise.resolve()
+  if (!liveRow(rowId)) {
+    // a team: a work order moved out of Private is never planned (its plate says so)
+    if (orderRowShared(rowId)) {
+      setPressNote(rowId, { why: 'shared', at: Date.now(), left: [] })
+      return { kind: 'refused', why: 'shared', left: [] }
+    }
+    return { kind: 'refused', why: 'gone', left: [] }
+  }
   const shown = pressShown(rowId, Object.keys(captured.prov))
   const at = Date.now()
   const fps = await shown()
@@ -151,19 +170,31 @@ export async function pressPlan(rowId: ID, how: OrderPressHow, opts: { captured?
     return { kind: 'refused', why: 'running', left: [] }
   }
   const pre = orderPreNow(rowId)
+  // Orders B12 — a team device without the worker link: a request for the worker device (the Status Planen is the
+  // request; nothing is kept or planned here — §3.1: a press from another device is a card there, never a want)
+  if (!pre.ok && pre.why === 'elsewhere') {
+    if (status !== 'plan') writeOrderStatus(rowId, 'plan', statusWriter(rowId, press.run))
+    setPressNote(rowId, { why: 'asked', at: press.at, left: [] })
+    return { kind: 'asked' }
+  }
   if (!pre.ok && !pre.want) {
     setPressNote(rowId, { why: pre.why, at: press.at, left: pre.left })
+    // the request stands in Planen (the person's drag wrote it): this device pressed it — no request card names it
+    if (orderStatusKey(rowId) === 'plan') await patchOrderRecord(rowId, (rec) => pressedNow(rec, press.at))
     return { kind: 'refused', why: pre.why, left: pre.left }
   }
   if (status !== 'plan') writeOrderStatus(rowId, 'plan', statusWriter(rowId, press.run))
   if (!pre.ok) {
     // kept on this device: the want carries the press (its provenance) — a newer press replaces an older one
-    await patchOrderRecord(rowId, (rec) => ({ ...(rec ?? { v: 1, state: 'draft' }), want: { at: press.at, mode: 'trigger', press } }))
+    await patchOrderRecord(rowId, (rec) => ({ ...pressedNow(rec, press.at), want: { at: press.at, mode: 'trigger', press } }))
     setPressNote(rowId, { why: pre.why, at: press.at, left: [] })
     return { kind: 'kept', why: pre.why }
   }
-  // planning now: an older kept press of this row is spent
-  await patchOrderRecord(rowId, (rec) => (rec?.want ? dropWant(rec) : rec))
+  // planning now: an older kept press of this row is spent (and a request from another device answered)
+  await patchOrderRecord(rowId, (rec) => {
+    const { want: _w, ...rest } = pressedNow(rec, press.at)
+    return rest
+  })
   setPressNote(rowId, { why: 'planning', at: press.at, left: pre.left })
   void callPlanner(rowId, 'manual', press)
   return { kind: 'planning' }
@@ -203,9 +234,25 @@ export const autoAfter = (rowId: ID, run: string): Promise<unknown> =>
   import('./autoStart').then((m) => m.autoAfterPlan(rowId, run)).catch(() => null)
 
 /** The record without its want (a record that held nothing else is removed). */
-export function dropWant<R extends { v: 1; state: string; want?: unknown; draft?: unknown; chain?: unknown }>(rec: R): R | null {
+export function dropWant(rec: OrderRecord): OrderRecord | null {
   const { want: _w, ...rest } = rec
-  return !rest.draft && !rest.chain && rest.state === 'draft' ? null : (rest as R)
+  return bareRecord(rest) ? null : rest
+}
+
+/**
+ * Orders B12: the record once the request left Planen — no kept press, no request from another device (a record that
+ * held nothing else is removed). The same object when there was neither.
+ */
+export function dropAsk(rec: OrderRecord): OrderRecord | null {
+  if (!rec.want && !rec.asked) return rec
+  const { want: _w, asked: _a, ...rest } = rec
+  return bareRecord(rest) ? null : rest
+}
+
+/** Orders B12: this device pressed the request now — a request from another device before it is answered by it. */
+const pressedNow = (rec: OrderRecord | null, at: number): OrderRecord => {
+  const { asked: _a, ...rest } = rec ?? { v: 1 as const, state: 'draft' as const }
+  return { ...rest, pressed: at }
 }
 
 /** Is a kept press still in time (≤ 24 h)? */

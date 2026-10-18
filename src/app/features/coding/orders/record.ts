@@ -12,6 +12,8 @@
  *    of that chain a chain planned again from it takes its Grundlage from (`basis`). Anything
  *    outside these bounds is dropped; a chain without readable steps is no chain.
  *  - The draft is kept only in its outline (plan, hash, run, time); plan.ts readPlan (B5) reads the plan itself.
+ *  - Orders B12 (a team): `asked` (a Planen that arrived from another device) and `pressed` (this device's last press),
+ *    both times only.
  */
 import type { ID } from '../../../store/types'
 import { BUDGET_RANGE, ORDER_KINDS } from './config'
@@ -210,6 +212,9 @@ export function readPress(v: unknown): OrderPress | null {
   return { run: v.run, at: v.at, how: v.how as OrderPressHow, prov, pins, ...(Object.keys(fps).length ? { fps } : {}) }
 }
 
+/** A record that holds nothing any more (only planned, no draft, chain, kept press or request mark): none. */
+export const bareRecord = (rec: OrderRecord): boolean => rec.state === 'draft' && !rec.draft && !rec.chain && !rec.want && !rec.asked && rec.pressed === undefined
+
 /** A record as this build keeps it (null: none, or not one this build can read). */
 export function readOrderRecord(v: unknown): OrderRecord | null {
   if (!isObj(v) || v.v !== 1 || !(STATES as readonly unknown[]).includes(v.state)) return null
@@ -219,6 +224,9 @@ export function readOrderRecord(v: unknown): OrderRecord | null {
     const press = readPress(v.want.press)
     out.want = { at: v.want.at, mode: 'trigger', ...(press ? { press } : {}) }
   }
+  // Orders B12: a Planen that arrived from another device · this device's own last press
+  if (isObj(v.asked) && isTime(v.asked.at)) out.asked = { at: v.asked.at }
+  if (isTime(v.pressed)) out.pressed = v.pressed
   const d = v.draft
   if (isObj(d) && isObj(d.plan) && typeof d.hash === 'string' && d.hash.length <= 128 && isId(d.run) && isTime(d.at)) out.draft = d as unknown as OrderDraft
   if (v.chain !== undefined) {

@@ -165,6 +165,8 @@ export function sendToOrders(pageId: ID, opts: { note?: string; fresh?: boolean 
     const id = orderCode(rowId) ?? ''
     if (r.kind === 'refused' && r.why !== 'gone') ui().toast({ message: t('features.coding.order.toast.refused', { id, why: preWhyText(r.why, r.left) }), kind: 'error' })
     if (r.kind === 'kept') ui().toast({ message: t('features.coding.order.toast.kept', { id, why: preWhyText(r.why), time: untilText(Date.now() + ORDER_LIMITS.wantMs) }) })
+    // Orders B12 — a team device without the worker link: asked for on the worker device
+    if (r.kind === 'asked') ui().toast({ message: t('features.coding.order.toast.asked', { id }) })
   })
   return 'made'
 }

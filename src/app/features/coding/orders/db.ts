@@ -63,6 +63,20 @@ export function isOrderRow(rowId: ID | null | undefined, s: Pick<ReturnType<type
   return !!p?.databaseId && !p.trashed && orderDbIds(s).includes(p.databaseId)
 }
 
+/**
+ * Orders B12 — a team: a live row of a work-orders database someone moved out of Private (into the workspace). Its
+ * plate is shown, but nothing plans it — only private work orders are planned (the ONE row test every press, the
+ * trigger, the command and the kept presses use is `isOrderRow`).
+ */
+export function orderRowShared(rowId: ID | null | undefined, s: Pick<ReturnType<typeof ws>, 'pages' | 'databases'> = ws()): boolean {
+  if (!rowId || !inTeam()) return false
+  const p = s.pages[rowId]
+  const db = p?.databaseId ? s.databases[p.databaseId] : undefined
+  const dbPage = db ? s.pages[db.id] : undefined
+  if (!p || p.trashed || !db || db.system !== 'workorders' || !dbPage || dbPage.trashed || isEffectivelyTrashed(s.pages, db.id) || inTemplate(s.pages, db.id)) return false
+  return !dbPage.private
+}
+
 /* ------------------------------------------------------------------ the fields */
 
 const both = (key: string) => [ALL_MESSAGES.en[key], ALL_MESSAGES.de[key]].filter(Boolean).map((n) => n.trim().toLowerCase())

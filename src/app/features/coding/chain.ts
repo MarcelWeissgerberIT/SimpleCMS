@@ -120,7 +120,8 @@ export interface ChainWorld {
   refs: Record<ID, ChainRefFacts>
   /**
    * may this tab move steps (absent: yes) — in a team only the device with the worker link and the chain's record
-   * advances; elsewhere a step that would start waits ('elsewhere'). Halts and cards are this device's own either way.
+   * advances; elsewhere the chain waits ('elsewhere'): such a device follows only the request (its Status — a halt, the
+   * end, the trash); halts and cards about the steps are the worker device's (Orders B12).
    */
   here?: { advance: boolean }
   /**
@@ -310,13 +311,24 @@ export function nextMove(world: ChainWorld, press?: ChainPress): ChainMove {
   if (request.usable && request.status === 'halted') return { kind: 'halt', why: 'status' }
   // Fertig by anyone but the chain's own end (that writes the record 'done' first): the chain ends here — while this
   // device asks "end the chain?" it only waits
+  // a team (Orders B12): a device without the worker link — its steps all done, the worker device's Fertig is the end
+  const steering = !world.here || world.here.advance
+  const allBehind = live.every((_s, i) => behind(i))
   if (request.usable && request.status === 'done') {
+    if (!steering && allBehind) return { kind: 'done' }
     if (world.asking || (chain.finishing !== undefined && world.now - chain.finishing < FINISH_ASK_MS)) return { kind: 'wait', why: 'finishing' }
     return { kind: 'halt', why: 'finished' }
   }
   if (!request.live) return { kind: 'halt', why: 'trashed' }
   if (!request.usable) return { kind: 'halt', why: 'statusOption' }
+  // a team (Orders B12): a device without the worker link only follows the request (its Status — a halt, the end, the
+  // trash); what the steps did is the worker device's to judge — it moves them, halts on them and asks its cards (a
+  // stale record here never halts a chain the worker device runs on)
 
+  if (!steering) {
+    const at = live.findIndex((_s, i) => !behind(i))
+    return at < 0 ? { kind: 'wait', why: 'elsewhere' } : { kind: 'wait', why: 'elsewhere', step: live[at]!.n }
+  }
   // 1. halt — the steps: ejected, or trashed / gone while the chain still needs them (one not arrived here yet waits)
   for (const s of live) if (facts(s)?.ejected) return { kind: 'halt', why: 'ejected', step: s.n }
   let arriving: number | null = null
@@ -415,8 +427,6 @@ export function nextMove(world: ChainWorld, press?: ChainPress): ChainMove {
     const pf = facts(prev)
     if (pf?.branch && pf.repo && pf.repo === f.repo) branch = pf.branch
   }
-  // a team: only the device with the worker link moves a step (the record is this device's either way)
-  if (world.here && !world.here.advance) return { kind: 'wait', why: 'elsewhere', step: cur.n }
   return { kind: 'advance', step: cur.n, to: f.startStage, from: prev?.n ?? null, basis: !prev ? (chain.basis ? 'copy' : 'none') : prevSkipped ? 'skipped' : 'copy', branch, again }
 }
 

@@ -16,6 +16,12 @@
  *    Fertig while running → asks ("Kette beenden?"; yes: halt + Fertig, no: back); into Entwurf from Kette bereit = D
  *    (the plan discarded, Z in the toast), while running → back; into Angehalten = H (the engine's, B7).
  *
+ * A team (Orders B12, §3.10): the request's Status reaching Planen from ANOTHER device — a change that arrives from the
+ * server (the member's own: the work orders are private) — is recorded on this device (`OrderRecord.asked`); on the device
+ * with the worker link it is Preflight's VON HAND card "Auf anderem Gerät angefordert · ↵ Hier planen" (lamp.ts), never
+ * a press. Kette bereit → Entwurf from another device (its D) discards this device's plan; back to Kette bereit (its Z)
+ * brings the plan back.
+ *
  * The kept presses (wants): 5 s after an 'ok' worker is online in this tab, every live want of this device's scope
  * plans in mode 'trigger' — only while its row still stands in Planen; one that is 24 h old has expired (a fresh read
  * drops it, records.ts; the plate says "abgelaufen" only while this tab still holds it). Spent (compare-and-set) before
@@ -34,10 +40,10 @@ import { isApplyingCloudChange } from '../../../cloud'
 import { newId } from '../../../lib/ids'
 import { t } from '../../../i18n'
 import { useCoding, type CodingState } from '../state'
-import { workerVerdict } from '../link'
+import { workerOnline, workerVerdict } from '../link'
 import { withFinishing, withHalt } from '../chain'
 import { addOrderRepoOptions, isOrderRow, orderCode, orderDbIds, orderProps, orderStatusKey, statusKeyOf, writeOrderStatus } from './db'
-import { callPlanner, dropWant, orderPreNow, pressPlan, pressProv, setPressNote, statusWriter, wantLive, type PressResult } from './press'
+import { callPlanner, dropAsk, dropWant, orderPreNow, pressPlan, pressProv, setPressNote, statusWriter, wantLive, type PressResult } from './press'
 import { loadOrderRecord, ORDERS_CHANNEL, patchOrderRecord, recordRowIds } from './records'
 import { followRecord, holdFinishing, kick, startChains } from './chainRun'
 import { preWhyText, untilText } from './text'
@@ -90,6 +96,8 @@ async function putBack(rowId: ID, to: OrderStatusKey): Promise<void> {
 /** What a press made of a Status → Planen by hand: said in a toast (the plate is not in view on the board). */
 function sayPress(rowId: ID, r: PressResult): void {
   if (r.kind === 'planning') return
+  // Orders B12 — a team device without the worker link: asked for on the worker device
+  if (r.kind === 'asked') return toast(t('features.coding.order.toast.asked', { id: label(rowId) }))
   if (r.kind === 'kept') return toast(t('features.coding.order.toast.kept', { id: label(rowId), why: preWhyText(r.why), time: untilText(Date.now() + ORDER_LIMITS.wantMs) }))
   if (r.why === 'gone') return
   toast(t('features.coding.order.toast.refused', { id: label(rowId), why: preWhyText(r.why, r.left) }), 'error')
@@ -248,6 +256,41 @@ async function haltRecord(rowId: ID, by: string): Promise<void> {
   if (halted && out.rec?.chain?.halted) notifyAway(rowId, t('features.coding.order.notify.halted', { id: label(rowId), why: t('features.coding.order.halt.status') }))
 }
 
+/* ------------------------------------------------------------------ a team: another device's Status writes (B12) */
+
+/**
+ * The request reached Planen from another device (the server's change): recorded here — the worker device's card asks
+ * "↵ Hier planen" (lamp.ts). Only while it still stands in Planen; the person is told on the worker device's background tab.
+ */
+async function markAsked(rowId: ID): Promise<void> {
+  if (orderStatusKey(rowId) !== 'plan') return
+  const at = Date.now()
+  const out = await patchOrderRecord(rowId, (r) => (r?.state === 'running' || r?.state === 'creating' || r?.state === 'interrupted' ? r : { ...(r ?? { v: 1, state: 'draft' }), asked: { at } }))
+  if (out.rec?.asked?.at === at && workerOnline()) notifyAway(rowId, t('features.coding.order.notify.asked', { id: label(rowId) }))
+}
+
+/**
+ * Kette bereit → Entwurf from another device (its D): this device's plan is discarded (kept for that device's Z); a
+ * follow-up plan over a halted / finished chain gives that chain back. Nothing is written into the request here.
+ */
+function remoteDiscard(rowId: ID): Promise<unknown> {
+  return patchOrderRecord(rowId, (r) => {
+    if (r?.state !== 'draft' || !r.draft || r.draft.from) return r
+    if (r.draft.over && r.chain) return { ...r, state: r.draft.over }
+    return { ...r, state: 'discarded' }
+  })
+}
+
+/** Entwurf → Kette bereit from another device (its Z after D): the plan discarded here comes back. */
+function remoteUndiscard(rowId: ID): Promise<unknown> {
+  return patchOrderRecord(rowId, (r) => {
+    if (!r?.draft || r.draft.from) return r
+    if (r.state === 'discarded') return { ...r, state: 'draft' }
+    if (r.draft.over && r.state === r.draft.over && r.chain) return { ...r, state: 'draft' }
+    return r
+  })
+}
+
 /** The row's Status field is empty (no option at all — not one of another build's). */
 function noStatus(db: Database, row: { properties: Record<ID, unknown> }): boolean {
   const prop = orderProps(db).status
@@ -275,6 +318,8 @@ function onPages(state: ReturnType<typeof ws>, prev: ReturnType<typeof ws>): voi
     // a new row is no press (a card added in the Planen lane is a half-written request); one made here without a Status
     // (a table's "New", the sidebar's + entry) stands in Entwurf — the board hides rows without one
     if (!before) {
+      // Orders B12 — a team: a request made on another device straight into Planen (its "Prüfen lassen") is asked for
+      if (isApplyingCloudChange() && !now.trashed && statusKeyOf(state.databases[now.databaseId]!, now) === 'plan' && isOrderRow(id, state)) queueMicrotask(() => void markAsked(id))
       if (who === undefined) who = writerNow()
       if (who && !now.trashed && noStatus(state.databases[now.databaseId]!, now)) queueMicrotask(() => draftIfNone(id))
       continue
@@ -287,8 +332,14 @@ function onPages(state: ReturnType<typeof ws>, prev: ReturnType<typeof ws>): voi
     if (!next || next === was) continue
     const replay = isApplyingRemote()
     // the request left Planen (whoever wrote it): a press kept for the worker's return is spent — never fired by a later
-    // Planen some other writer sets (an automation, a script, an Undo …)
-    if (was === 'plan' && !replay) queueMicrotask(() => void patchOrderRecord(id, (r) => (r?.want ? dropWant(r) : r)))
+    // Planen some other writer sets (an automation, a script, an Undo …); a request from another device is answered
+    if (was === 'plan' && !replay) queueMicrotask(() => void patchOrderRecord(id, (r) => (r ? dropAsk(r) : r)))
+    // Orders B12 — a team: another device's Status write (the server's change): asked for · its D · its Z
+    if (isApplyingCloudChange() && !now.trashed && isOrderRow(id, state)) {
+      if (next === 'plan') queueMicrotask(() => void markAsked(id))
+      else if (was === 'ready' && next === 'draft') queueMicrotask(() => void remoteDiscard(id))
+      else if (was === 'draft' && next === 'ready') queueMicrotask(() => void remoteUndiscard(id))
+    }
     // Angehalten by anyone (another device's change too): this device's chain halts at once — recorded in the tab where
     // it happened (sticky); a record still being created halts as soon as it would run (confirm.ts toRunning)
     if (next === 'halted' && !replay) {

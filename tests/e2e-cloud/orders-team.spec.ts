@@ -5,8 +5,8 @@
  *    or its rows; the request row is private too.
  *  - the member's cloud worker hangs on ANOTHER DEVICE (its download made there — this browser holds no key): the plate
  *    says "The worker is attached to another device — plan / start there", its WORKER lamp "on another device", no fix
- *    key; a press is refused here — never kept as a want (§3.1: a press from another device is a card on the worker
- *    device, B12) — and nothing is planned.
+ *    key; the press is a REQUEST for that device (B12, §3.10): the request stands in Planen ("asked for"), never kept as
+ *    a want here and never planned here — the worker device's card plans it (orders-team-chain.spec).
  *  - a viewer: no "Have it checked" in the page menu or ⌘K (also with Coding switched on), the Settings row says
  *    "You can only view this workspace."; a request row someone moved out of Private shows its plate read-only — the
  *    strip says so, no ↵ Plan.
@@ -109,14 +109,15 @@ test('"Have it checked" in a team makes a PRIVATE database; the worker on anothe
   await expect(peek.getByTestId('order-pre')).toContainText('The worker is attached to another device — plan / start there')
   await expect(peek.getByTestId('order-lamp-worker')).toContainText('on another device')
   await expect(peek.getByTestId('order-fix')).toHaveCount(0)
-  await expect(a.locator('.toast', { hasText: 'WO-1: The worker is attached to another device' })).toBeVisible()
-  // refused, never kept: no want on this device, nothing planned — also for ↵ Plan on the plate
+  // B12: asked for on the worker device — never kept here, nothing planned here; no ↵ Plan while it is asked for
+  await expect(a.locator('.toast', { hasText: 'WO-1: asked for — the device with the worker shows “Plan here”' })).toBeVisible()
   expect(await want(a, row!)).toBeNull()
-  await peek.getByTestId('order-plan').click()
+  await expect(peek.getByTestId('order-remote-line')).toHaveText('Asked for — the device with the worker shows “Plan here”')
+  await expect(peek.getByTestId('order-chip')).toHaveText('asked for')
+  await expect(peek.getByTestId('order-plan')).toHaveCount(0)
   await a.waitForTimeout(400)
   expect(await want(a, row!)).toBeNull()
   expect(await planned(a)).toEqual([])
-  await expect(peek.getByTestId('order-chip')).toHaveCount(0)
 
   // the colleague: neither the database nor the request reaches bob; the shared page is there
   await ready(b, wsId)

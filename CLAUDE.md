@@ -1343,6 +1343,24 @@ the public APIs stable — other areas are built against them in parallel.
   → `draft.pressFps`) and the planner's read · a scrubbed key · no budget), the sig still matches and the Patchbay (the
   cached compute) names no open fuse on the planner's path; else `draft.auto` = the reasons ("Nicht automatisch
   gestartet: …" on the plate and the Preflight card). The deferred line says "Plant und startet ohne Bestätigung …".
+- Work orders in a team (Prüfaufträge B12; orders/team.ts pure · RemotePart.tsx · teamMessages.ts): only PRIVATE work
+  orders are planned — `isOrderRow` is the one row test of the press, the trigger, the command and the kept presses (a
+  database moved out of Private: its plate says so, 'shared'; the press tests the row a microtask late — the binding marks a
+  just-made private database private in a microtask); the roles live on private pipelines (`pipelineDbIdsOf`).
+  Plan / confirm / advance / resume / stop now only on the device with the worker link. A press on a device without it
+  (`pre.why 'elsewhere'`) is a REQUEST: the Status → Planen (`#s`), nothing kept or planned there (never a want); the
+  worker device records the Planen that arrives from the server (trigger.ts `markAsked` → `OrderRecord.asked`, ≤ 24 h;
+  its own presses `pressed`) and shows Preflight's VON HAND card "Auf anderem Gerät angefordert · ↵ Hier planen"
+  (`requestedElsewhere`; a device that was away meanwhile: a request it holds no record of, ≤ 24 h). Kette bereit →
+  Entwurf from another device (its D) discards the worker device's plan, back to Kette bereit (its Z) restores it. A
+  device without the worker link holds no plan or chain: its plate only DISPLAYS what the tasks show (RemotePart:
+  carriers in Schritt order — display fields, never what the engine follows) with D Verwerfen (Kette bereit) and H
+  Anhalten (Läuft, a Status write — works everywhere, sticky on the worker device). The engine on a device without the
+  link (`ChainWorld.here.advance` false) follows the request only (Angehalten, Fertig, the trash) — no step halts, no
+  cards, never a Status written from a stale record; the worker device without a record of a running chain gets
+  "Kette bestätigen" (this device's Approvals). A data rule's refusal of the planner: a member reads "Regel des
+  Arbeitsbereichs — eine Admin kann sie ändern" without the change key (`ruleRefusal`). No auto mode in a team.
+  `Database.orders` is a plain database value the cloud binding copies (readDatabase / writeDatabase).
 - MCP tidy-up tools (trash / restore ≤ 50 ids, move page / row, update database / property, delete property, view
   create / update / delete) live in `features/mcp/{tidy,structure}.ts` and `server/src/mcp/{tidy,structure}.ts` with
   the same rules: never delete for good, locked databases refuse structure changes, no page ⇄ entry or Private ⇄ shared

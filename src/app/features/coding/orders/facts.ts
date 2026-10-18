@@ -74,6 +74,12 @@ export function kindProjectsOf(ordersDb: ID | null, kinds: readonly OrderKind[])
   })
 }
 
+/**
+ * A team member's worker hangs on another device of theirs (the relay refused this tab, or says the worker is online
+ * there) — §2.2 item 3's 'elsewhere' (Orders B12: a press here asks that device for it).
+ */
+export const workerElsewhere = (c: Pick<ReturnType<typeof useCoding.getState>, 'refused' | 'relay' | 'conn'>): boolean => c.refused === 'other-device' || (!!c.relay?.online && c.conn !== 'connected')
+
 /** §2.2 items 1–6 as this tab sees them now (checkPreconditions decides), with each offered kind's project. */
 export function requestFacts(rowId: ID, kinds?: readonly OrderKind[]): Omit<PlannerFacts, 'kinds'> & { kinds: KindProject[] } {
   const c = useCoding.getState()
@@ -83,7 +89,7 @@ export function requestFacts(rowId: ID, kinds?: readonly OrderKind[]): Omit<Plan
     readOnly: codingReadOnly(),
     online: workerOnline(c),
     // a team member's cloud worker at another device (the relay refused this one, or says it is online there)
-    elsewhere: c.refused === 'other-device' || (!!c.relay?.online && c.conn !== 'connected'),
+    elsewhere: workerElsewhere(c),
     connText: codingConnText(),
     verdict: workerVerdict(c),
     repos: c.worker?.repos.length ?? 0,

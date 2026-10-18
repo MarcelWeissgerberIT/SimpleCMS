@@ -13,7 +13,7 @@ import type { OrderPreKind, OrderPreWhy } from './pre'
 import type { KindProblem } from './preconditions'
 import type { PlanOutcome } from './planner'
 
-export function preWhyText(why: OrderPreWhy | 'running' | 'gone' | 'planning', left: OrderPreKind[] = []): string {
+export function preWhyText(why: OrderPreWhy | 'running' | 'gone' | 'planning' | 'asked' | 'shared', left: OrderPreKind[] = []): string {
   const s = useCoding.getState()
   switch (why) {
     case 'offline':
@@ -24,6 +24,8 @@ export function preWhyText(why: OrderPreWhy | 'running' | 'gone' | 'planning', l
       return t('features.coding.worker.unsafe', { version: s.worker?.worker ?? '?' })
     case 'readOnly':
       return t('features.coding.setup.readOnly')
+    case 'asked':
+      return t('features.coding.order.remote.asked')
     case 'noProject':
       return t('features.coding.order.why.noProject', { list: left.map((k) => `${t(`features.coding.pipe.${k.kind}`)}: ${problemText(k.problem)}`).join(' · ') || '—' })
     default:

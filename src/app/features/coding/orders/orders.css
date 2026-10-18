@@ -355,9 +355,10 @@
   color: var(--ink-3);
 }
 @container (max-width: 560px) {
+  /* the number keeps its own narrow column: the title starts right beside it, not under the wide state word */
   .orc-row {
-    grid-template-columns: auto minmax(0, 1fr);
-    grid-template-areas: 'state stage' 'n title';
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas: 'state state stage' 'n title title';
   }
   .orc-row__state {
     grid-area: state;

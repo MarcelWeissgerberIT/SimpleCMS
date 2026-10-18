@@ -394,4 +394,13 @@ export interface OrderRecord {
   want?: { at: number; mode: 'trigger'; press?: OrderPress }
   draft?: OrderDraft
   chain?: OrderChain
+  /**
+   * Orders B12 (a team): the request's Status reached Planen from ANOTHER device — this device saw the change arrive
+   * from the server (the member's own write: the work orders are private) — the worker device's VON HAND card "Auf
+   * anderem Gerät angefordert · ↵ Hier planen" (never a trigger). ≤ 24 h; dropped when the request leaves Planen or is
+   * pressed here.
+   */
+  asked?: { at: number }
+  /** Orders B12: when this device last pressed the request (any outcome) — a request card never names its own press. ≤ 24 h. */
+  pressed?: number
 }

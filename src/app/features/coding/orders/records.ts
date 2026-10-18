@@ -17,7 +17,9 @@ import { useEffect } from 'react'
 import { createStore, del, get, keys, update, type UseStore } from 'idb-keyval'
 import type { ID } from '../../../store/types'
 import { activeWorkspace, useCloud } from '../../../cloud'
-import { orderScopeOf, readOrderRecord } from './record'
+import { bareRecord, orderScopeOf, readOrderRecord } from './record'
+
+export { bareRecord }
 import { readStoredPlan } from './plan'
 import { BUDGET_RANGE } from './config'
 import { readAutoWhy } from './autoCore'
@@ -140,12 +142,16 @@ export function readStored(v: unknown, now = Date.now()): OrderRecord | null | '
     else delete rec.draft
   }
   // drafts, discarded and finished requests: 30 days
-  const at = Math.max(rec.draft?.at ?? 0, rec.chain?.confirmedAt ?? 0, rec.want?.at ?? 0)
+  const at = Math.max(rec.draft?.at ?? 0, rec.chain?.confirmedAt ?? 0, rec.want?.at ?? 0, rec.asked?.at ?? 0, rec.pressed ?? 0)
   if ((rec.state === 'draft' || rec.state === 'discarded' || rec.state === 'done') && at + ORDER_LIMITS.keepMs < now) return null
   // a press kept longer than 24 h is gone (the plate says "abgelaufen — ↵ erneut")
   if (rec.want && rec.want.at + ORDER_LIMITS.wantMs < now) delete rec.want
-  return rec
+  // Orders B12: a request from another device and this device's own press are good for 24 h, as a kept press
+  if (rec.asked && rec.asked.at + ORDER_LIMITS.wantMs < now) delete rec.asked
+  if (rec.pressed !== undefined && rec.pressed + ORDER_LIMITS.wantMs < now) delete rec.pressed
+  return bareRecord(rec) ? null : rec
 }
+
 
 /* ------------------------------------------------------------------ this tab's copy */
 

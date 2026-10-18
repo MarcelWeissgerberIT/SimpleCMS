@@ -41,6 +41,10 @@ export async function planRows(dbId: ID, rowIds: ID[], here: ID | null): Promise
     if (r.kind === 'planning') {
       pressed++
       out.push(t('features.coding.order.cmd.res.planning', { id: code }))
+    } else if (r.kind === 'asked') {
+      // Orders B12 — a team device without the worker link: asked for on the worker device (its card plans it)
+      pressed++
+      out.push(t('features.coding.order.cmd.res.asked', { id: code }))
     } else if (r.kind === 'kept') {
       // kept on this device (§3.1): with Coding off it waits for Coding and the worker
       pressed++
