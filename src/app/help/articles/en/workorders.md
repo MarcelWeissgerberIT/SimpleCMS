@@ -75,7 +75,7 @@ In the work order settings, **Start without confirming** lets a finished plan st
 In the Patchbay every Work orders database is a **Planner** module; its next steps — and the pipelines' own hand-ons (Then, stories) — are drawn as chain cables.
 
 ## In a team
-The Work orders database is private. Planning, starting and going on happen on the device with the worker link. Another device can ask for a plan — the worker device then shows a BY HAND card *Requested on another device · ↵ Plan here* — and halt a chain, but never start or resume one. Start without confirming does not exist in a team. A device that holds no record of a chain (its worker moved there) gets one Preflight card **Confirm chain**, with every step under its own Approvals.
+The Work orders database is private. Planning, starting and going on happen on the device with the worker link. Another device can ask for a plan — the worker device then shows a BY HAND card *Requested on another device · ↵ Plan here* — and halt a chain, but never start or resume one. Start without confirming does not exist in a team. A device that holds no record of a chain (its worker moved there) gets one Preflight card **Confirm chain**, with every step under its own Approvals. When another device sets **Done** and takes it back with *No*, the chain stays halted — the Status reads **Halted**, and **↵ Resume** on the device with the worker goes on.
 
 ## Not the pre-check
 **Have it checked** hands your request to Claude Code in the pipelines. Jev's [pre-check](help:ai-jev) is something else: a decision model that marks your agents' proposals before you decide. Work orders' plans are not pre-checked by Jev.

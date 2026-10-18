@@ -14,9 +14,13 @@ export async function readCard(page: Page): Promise<void> {
   const card = page.getByTestId('order-plate').getByTestId('order-chain-card')
   await expect(card).toBeVisible()
   await page.keyboard.press('Shift')
-  const edges = card.locator('.orc-edge')
-  const n = await edges.count()
-  for (let i = 0; i < n; i++) await edges.nth(i).scrollIntoViewIfNeeded()
+  // read again while what it shows still changes (a step's text arriving): until its ↵ is ready
+  await expect(async () => {
+    const edges = card.locator('.orc-edge')
+    const n = await edges.count()
+    for (let i = 0; i < n; i++) await edges.nth(i).scrollIntoViewIfNeeded()
+    await expect(card.getByTestId('order-card-go')).toHaveAttribute('data-ready', '', { timeout: 1500 })
+  }).toPass({ timeout: 20_000 })
 }
 
 /** Read the plan in Kette bereit in full, as a person does (a key first: the page column lets its scroll hold go). */

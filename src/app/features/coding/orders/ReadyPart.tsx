@@ -632,14 +632,9 @@ export default function ReadyPart({ rowId, rec, pre, headId, viewer, elsewhere, 
   }
   // Fix 2: while a step is being edited, no other station is removed or moved (the edit would land on another step) —
   // said in the plate's note; the edit is finished (Save / Esc) first
-  const removeKey = (i: number) => {
-    if (editing !== null) return onNote(t(`${O}.start.why.editing`))
-    return remove(i)
-  }
-  const moveKey = (i: number, by: -1 | 1) => {
-    if (editing !== null) return onNote(t(`${O}.start.why.editing`))
-    return move(i, by)
-  }
+  const editingNote = () => onNote(t(`${O}.edit.finishFirst`, { n: stepNo(base + (editing ?? 0) + 1) }))
+  const removeKey = (i: number) => (editing !== null ? editingNote() : remove(i))
+  const moveKey = (i: number, by: -1 | 1) => (editing !== null ? editingNote() : move(i, by))
   const pickRepo = async (i: number, repo: string) => {
     const out = await editStep(rowId, i, { repo })
     onNote(said(out))

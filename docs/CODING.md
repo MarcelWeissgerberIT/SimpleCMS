@@ -1141,6 +1141,18 @@ at every auto create. After a press (never after R / O / Ab hier neu planen) a c
 missing / other repo, a named branch, a kind outside the settings, mail or outside provenance of the request / a page / a
 ref, a fingerprint moved since the press, a scrubbed key, no budget, the lapse, a fuse).
 
+Who wrote a request's **title and fields** (review Fix 2, `orders/rowWriters.ts` + the pure `rowMarks.ts`): the bridge,
+the terminal's applied rows, scripts, automations, templates, imports … leave no trace on the page when they write
+those, so the trigger subscriber notes per field the last writer that was not the person (`you` via none / 'ui' /
+'command', an editor) — IndexedDB `one-coding` `<scope>|orderby|<row>`, never synced, exported or backed up, wiped with
+`one-coding`; the person's own later write of that field clears it; the Status is never a field there; a row such a
+writer made counts as theirs while its body has no content origin. The press carries it (`OrderProv.outside`) and auto
+mode falls back on it ("written from outside"); the plate tags the request FREMD. The request's fingerprint covers its
+title, its fields (Status aside) and its text (`requestFp`), so a title rewritten between the press and the planner's
+read falls back as "moved", and ↵ Kette starten refuses a request changed since it was planned. The W summary's origin
+'summary' is no writing of the person (it quotes task titles agents may write). The content-origin rule is one function
+(`autoCore.ts originByPerson`) for auto mode, the plate's tags and the chain engine.
+
 ### In a team
 
 The work-orders database and the chain roles live in private documents (`isOrderRow` = the one row test of press,
@@ -1152,6 +1164,15 @@ device (a Status write, sticky); resume, skip, stop now and start only on the wo
 gets "Kette bestätigen". No auto mode. `Database.orders` is a plain database value for the server (readDatabase /
 writeDatabase copy it; an older build keeps it). Member wording for a workspace data rule: "Regel des Arbeitsbereichs —
 eine Admin kann sie ändern".
+
+Review Fix 2 in a team: Fertig taken back on another device (its "No" in "Kette beenden?") while the worker device had
+ended the chain on reading that Fertig (a 'finished' halt it did not record by its own "yes") — the halt stays, the
+worker device writes Angehalten (`#s`, trigger.ts `remoteUnfinish`) and its Preflight card "Kette angehalten" asks ↵
+Fortsetzen (lamp.ts: a 'finished' halt is a card whenever the Status is not Fertig). A request made on the worker device
+straight into Planen (a duplicate, a template, an automation …) is noted as this device's (`pressed`) — never "asked
+for on another device". Two Local workers of one member: a chain step another worker claimed (its Worker field, within
+`CLAIM_STALE_MS`) makes the other device offer no "Kette bestätigen" and refuse the take-over (`claimedElsewhere`,
+'steered'); a Planen pressed on one of them can still show the other a request card (no signal before steps exist).
 
 ### Work orders × the flight recorder
 

@@ -39,7 +39,6 @@ const BRANCH = 'one/login-timeout'
 const errors: string[] = []
 function watch(p: Page, who: string) {
   p.on('pageerror', (e) => errors.push(`${who} pageerror: ${e.message}`))
-  p.on('console', (m) => {
     // the browser's own network lines: a Local link nobody listens on, a refused relay upgrade
     if (m.type() === 'error' && !/WebSocket connection to 'ws:\/\/127\.0\.0\.1|WebSocket connection to .*\/coding\/tab|Refused to connect to 'ws:\/\/127\.0\.0\.1/.test(m.text())) errors.push(`${who} console.error: ${m.text()}`)
   })
@@ -255,8 +254,14 @@ async function pressHand(p: Page) {
 async function readCard(p: Page) {
   const card = p.getByTestId('order-plate').getByTestId('order-chain-card')
   await expect(card).toBeVisible()
-  const edges = card.locator('.orc-edge')
-  for (let i = 0; i < (await edges.count()); i++) await edges.nth(i).scrollIntoViewIfNeeded()
+  // a key press: the column's scroll hold (shell/lib/hooks.ts useColumnScroll) undoes scrolls until the reader acts
+  await p.keyboard.press('Shift')
+  // read again while what it shows still changes (a step's text arriving): until its ↵ is ready
+  await expect(async () => {
+    const edges = card.locator('.orc-edge')
+    for (let i = 0; i < (await edges.count()); i++) await edges.nth(i).scrollIntoViewIfNeeded()
+    await expect(card.getByTestId('order-card-go')).toHaveAttribute('data-ready', '', { timeout: 1500 })
+  }).toPass({ timeout: 20_000 })
 }
 const openRow = async (p: Page, row: string) => {
   await p.evaluate((id) => (window.location.hash = `#/p/${id}`), row)

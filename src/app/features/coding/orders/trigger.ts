@@ -298,8 +298,10 @@ function remoteUndiscard(rowId: ID): Promise<unknown> {
  * Fix 2 — a team: the request's Planen was written on this device (no person's press here — a duplicate, a template,
  * an automation …): noted as this device's (`pressed`), so the request card never says "asked for on another device".
  */
-function notePlanHere(rowId: ID): Promise<unknown> {
-  if (orderStatusKey(rowId) !== 'plan') return Promise.resolve()
+async function notePlanHere(rowId: ID): Promise<unknown> {
+  // a row made just now is marked private by the cloud binding in a microtask after its write (press.ts waits the same)
+  await Promise.resolve()
+  if (orderStatusKey(rowId) !== 'plan' || !isOrderRow(rowId)) return
   return patchOrderRecord(rowId, (r) => {
     if (r?.state === 'running' || r?.state === 'creating' || r?.state === 'interrupted') return r
     const { asked: _a, ...rest } = r ?? { v: 1 as const, state: 'draft' as const }
@@ -354,7 +356,8 @@ function onPages(state: ReturnType<typeof ws>, prev: ReturnType<typeof ws>): voi
       if (mark !== null && db) noteRowWrite(id, db, now, before, mark)
       // Fix 2 — a team: a request standing in Planen that was written HERE (made straight into Planen by a duplicate, a
       // template, an automation, an import …) was not asked for on another device — noted, so no request card names it
-      if (db && inTeam() && !now.trashed && statusKeyOf(db, now) === 'plan' && (!before || statusKeyOf(db, before) !== 'plan')) queueMicrotask(() => void notePlanHere(id))
+      // (only where the card could show: the device with the worker link)
+      if (db && inTeam() && workerOnline() && !now.trashed && statusKeyOf(db, now) === 'plan' && (!before || statusKeyOf(db, before) !== 'plan')) queueMicrotask(() => void notePlanHere(id))
     }
     // a new row is no press (a card added in the Planen lane is a half-written request); one made here without a Status
     // (a table's "New", the sidebar's + entry) stands in Entwurf — the board hides rows without one

@@ -1234,7 +1234,9 @@ the public APIs stable — other areas are built against them in parallel.
   (`coding`, `you`, `terminal`) and never a write that would end a task's wait for Confirm (`keepTrust`, `#a<n>`);
   Grundlage is a copy; every start-like key VON HAND; auto consent per device (`one.orders.auto:<scope>:<db>`), local
   only, budget required, Patchbay asked at every create; team: the worker device plans, confirms and advances;
-  `saveOrderConfig` only. Words: DE "Prüfauftrag", "Kette", "Planer" — EN "Work order", "Chain", "Planner"; never
+  `saveOrderConfig` only. Who last wrote a request's title / fields (not the person): `orders/rowWriters.ts`
+  (`one-coding` `<scope>|orderby|<row>`, per device; the press carries it as `OrderProv.outside`); the request's
+  fingerprint is title + fields + text (`requestFp`); content origin 'summary' is never the person's. Words: DE "Prüfauftrag", "Kette", "Planer" — EN "Work order", "Chain", "Planner"; never
   "Intake", "Einwurf", "Plan bereit", "Prüfung", "danach" or "Aufgabe" for the request (tests/e2e/orders-names.spec.ts).
   The What's new Try key `workorders` opens a sample request in Entwurf (orders/try.ts, registered by `startOrders`).
 - Pipeline / work-order hardening (Prüfaufträge B2): custom agents' tools (features/agents/scope.ts `agentTools`) and

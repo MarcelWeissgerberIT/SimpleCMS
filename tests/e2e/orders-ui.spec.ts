@@ -468,7 +468,7 @@ test.describe('the work order plate (B8)', () => {
     await expect(heads).toHaveCount(3)
     expect(await kinds()).toEqual(['spec', 'coding', 'qa'])
     await expect(plate.getByTestId('order-step-edit')).toBeVisible()
-    await expect(plate.getByTestId('order-chain-note')).toHaveText('Finish the edit first')
+    await expect(plate.getByTestId('order-chain-note')).toHaveText('Finish editing step 03 first — then remove or move')
     await stations.nth(0).getByTestId('order-step-remove').click()
     await expect(heads).toHaveCount(3)
     await plate.getByTestId('order-step-edit').getByRole('button', { name: 'Cancel' }).click()

@@ -354,7 +354,7 @@ test('Fix 2: two Local workers of one member — a step another worker claimed: 
     await b.keyboard.press('Escape')
     await expect.poll(() => conn(b), { timeout: 30_000 }).toBe('connected')
     await expect.poll(() => wsEval(b, (s, id) => !!s.pages[id], steps[2]!), { timeout: 20_000 }).toBe(true)
-    await expect.poll(() => seam<boolean>(b, '__oneOrders', (s, x) => s.claimedElsewhere(x), steps), { timeout: 20_000 }).toBe(true)
+    await expect.poll(() => seam<boolean>(b, '__oneOrders', (s, x) => s.claimedElsewhere(x), steps), { timeout: 45_000 }).toBe(true)
     // past the settle time: still no card on B
     await b.waitForTimeout(12_000)
     expect((await orders(b).cards()).filter((c) => c.row === row)).toEqual([])

@@ -121,7 +121,11 @@ export default function ChainCard({ rowId, chain, move, viewer, onOutcome }: { r
   // read to its end (both open at first; the seen book per chain step and what it shows: an edit is seen again)
   const stepKey = `step:${keyOf(text)}`
   const basisKey = basis ? `basis:${keyOf(basisShown)}` : null
-  const shownWhole = !!text && book.whole(stepKey) && book.has(`fold:${stepKey}`) && (!basisKey || (book.whole(basisKey) && book.has(`fold:${basisKey}`)))
+  const unseen = [
+    ...(!text ? ['text'] : []),
+    ...[stepKey, ...(basisKey ? [basisKey] : [])].flatMap((k) => [`fold:${k}`, `${k}:top`, `${k}:bottom`].filter((x) => !book.has(x))),
+  ]
+  const shownWhole = !unseen.length
   const loading = (confirm && !view) || (needsSeen && !seen)
 
   const run = (fn: () => Promise<ChainKeyOutcome>) => async () => {
@@ -139,7 +143,7 @@ export default function ChainCard({ rowId, chain, move, viewer, onOutcome }: { r
   const halt = run(() => import('./chainKeys').then((m) => m.haltChain(rowId)))
 
   return (
-    <div className="orc-card" role="group" aria-label={t(`${O}.card.label`, { n: stepNo(move.step) })} data-testid="order-chain-card" data-why={move.why} data-all={move.all.join(' ')}>
+    <div className="orc-card" role="group" aria-label={t(`${O}.card.label`, { n: stepNo(move.step) })} data-testid="order-chain-card" data-why={move.why} data-all={move.all.join(' ')} data-unseen={unseen.join(' ') || undefined}>
       {lines.map((line, i) => (
         <p key={i} className="orc-line orc-line--warn orc-card__why" data-testid="order-card-why">
           {line}
