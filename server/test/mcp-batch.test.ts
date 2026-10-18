@@ -1,8 +1,8 @@
 /**
  * MCP B3 on the team server (MCP plan § 2.2 / § 2.3 / § 3.6): sub-pages, boards and rows in one call each — the same
  * tools as the local bridge — and the pre-images a team server keeps instead of a card: Workspace → API lists the
- * calls, a restore puts them back (rows field by field, made pages to the trash, content as it was), refused
- * `changed_since` for a document that moved unless forced. Plus the compensating write: an inline database whose
+ * calls, a restore puts a call back as a whole (fields, made pages to the trash, content as it was) or — anything moved
+ * since — refuses `changed_since` and writes nothing; force puts back texts and fields only. Plus the compensating write: an inline database whose
  * block could not be written goes to the trash again (in process, over a failing collab). Fictional data.
  */
 import assert from 'node:assert/strict'
@@ -280,7 +280,7 @@ describe('MCP B3: sub-pages, boards, rows (team server)', () => {
   })
 
   test('pre-images: Workspace → API lists the calls; a restore puts rows, pages and content back; changed_since unless forced', async () => {
-    // a row batch, then one card changed by hand: the restore keeps that field and names it
+    // a row batch, then one card changed by hand: the restore is refused (all or nothing) and names it
     const upd = await call(writer, 'one_update_row', { rows: [{ id: 'card-5', properties: { Owner: 'Tessera' } }, { id: 'card-6', properties: { Owner: 'Tessera' } }] })
     assert.equal(upd.rows.length, 2)
     let list = await calls()
@@ -292,10 +292,15 @@ describe('MCP B3: sub-pages, boards, rows (team server)', () => {
     meta.doc.transact(() => (yp('card-6').get('properties') as Y.Map<unknown>).set('c-owner', 'Mara Lind'))
     await flushed(meta)
     const back = await owner.post(`/api/workspaces/${wsId}/mcp-calls/${rowsCall.callId}/restore`, {})
-    assert.equal(back.status, 200, JSON.stringify(back.body))
-    assert.deepEqual(back.body.kept.map((k: { id: string; fields: string[] }) => [k.id, k.fields]), [['card-6', ['Owner']]])
-    await waitFor(() => (yp('card-5').get('properties') as Y.Map<unknown>).get('c-owner') === undefined, 5000, 'card-5 back')
+    assert.equal(back.status, 409, JSON.stringify(back.body))
+    assert.equal(back.body.error.code, 'changed_since')
+    assert.deepEqual(back.body.error.details.changed.map((k: { id: string; fields: string[] }) => [k.id, k.fields]), [['card-6', ['Owner']]])
+    await sleep(150)
+    assert.equal((yp('card-5').get('properties') as Y.Map<unknown>).get('c-owner'), 'Tessera', 'nothing put back — not the untouched card either')
     assert.equal((yp('card-6').get('properties') as Y.Map<unknown>).get('c-owner'), 'Mara Lind')
+    // force: both fields the call wrote go back (the later change too)
+    assert.equal((await owner.post(`/api/workspaces/${wsId}/mcp-calls/${rowsCall.callId}/restore`, { force: true })).status, 200)
+    await waitFor(() => ['card-5', 'card-6'].every((id) => (yp(id).get('properties') as Y.Map<unknown>).get('c-owner') === undefined), 5000, 'both back')
 
     // a replace: the page moves after the call → changed_since; force puts it back
     const protokoll = (await call(writer, 'one_create_page', { title: 'Protokoll', parentId: 'proj', markdown: 'First version.' })).id as string
@@ -346,7 +351,7 @@ describe('MCP B3: sub-pages, boards, rows (team server)', () => {
     assert.equal(call8.changed, 1)
     const back = await owner.post(`/api/workspaces/${wsId}/mcp-calls/${call8.callId}/restore`, {})
     assert.equal(back.status, 200, JSON.stringify(back.body))
-    assert.deepEqual(back.body.kept, [])
+    assert.deepEqual(back.body.left, [])
     await waitFor(() => !card8.doc.getXmlFragment('default').toString().includes('Injected body text'), 5000, 'body taken back')
     await waitFor(() => (yp('card-8').get('properties') as Y.Map<unknown>).get('c-owner') === undefined, 5000, 'owner back')
     assert.doesNotMatch(String(yp('card-8').get('plain') ?? ''), /Injected/)
@@ -362,7 +367,7 @@ describe('MCP B3: sub-pages, boards, rows (team server)', () => {
     assert.equal(refused.body.error?.code ?? refused.body.code, 'changed_since')
   })
 
-  test('a restore after a later DELETION is refused changed_since (the state hash covers deletions); a block the call only put there comes out alone', async () => {
+  test('a restore after a later DELETION is refused changed_since (the text fingerprint covers deletions) — also for the call that only put its database block there', async () => {
     const host = await call(writer, 'one_create_page', { title: 'Host', parentId: 'proj', markdown: 'Delta line' })
     await call(writer, 'one_update_page', { id: host.id, markdown: 'Alpha line\n\nBeta line\n\nGamma line', mode: 'replace' })
     await call(writer, 'one_create_database', { title: 'Inline board', inline: { pageId: host.id }, views: [{ type: 'board' }] })
@@ -381,13 +386,17 @@ describe('MCP B3: sub-pages, boards, rows (team server)', () => {
     await sleep(150)
     assert.ok(!frag.toString().includes('Beta line'), 'the deleted line is not brought back')
     assert.ok(!frag.toString().includes('Delta line') && frag.toString().includes('Gamma line'), 'nothing written')
-    // the inline board's call put only its block there: never refused — the untouched board goes, its block comes out
-    // alone (the pre-image is not written over the later deletion)
+    // the inline board's call put only its block there — the host's text moved since all the same: refused as a whole,
+    // the board stays with its block, and force has nothing to put back (it only made things)
     const board = list.find((x) => x.tool === 'one_create_database' && x.titles.includes('Inline board'))!
-    const back = await owner.post(`/api/workspaces/${wsId}/mcp-calls/${board.callId}/restore`, {})
-    assert.equal(back.status, 200, JSON.stringify(back.body))
-    assert.deepEqual(back.body.kept, [])
-    await waitFor(() => !frag.toArray().some((n) => (n as Y.XmlElement).nodeName === 'databaseBlock'), 5000, 'block out')
+    for (const force of [false, true]) {
+      const back = await owner.post(`/api/workspaces/${wsId}/mcp-calls/${board.callId}/restore`, force ? { force } : {})
+      assert.equal(back.status, 409, JSON.stringify(back.body))
+      assert.deepEqual(back.body.error.details.changed.map((k: { id: string; what: string[] }) => [k.id, k.what]), [[host.id, ['text']]])
+      assert.equal(back.body.error.details.canForce, false)
+    }
+    await sleep(150)
+    assert.ok(frag.toArray().some((n) => (n as Y.XmlElement).nodeName === 'databaseBlock'), 'the block stays')
     assert.ok(!frag.toString().includes('Beta line'), 'the deleted line is still not brought back')
   })
 
@@ -485,9 +494,9 @@ describe('one_create_database inline: a failed block write trashes the new datab
   })
 })
 
-/* ------------------------------------------------------------------ restore leaves what changed since alone (review 2) */
+/* ------------------------------------------------------------------ restore is all or nothing (Weg 4 D3) */
 
-describe('Restore puts back only what nobody changed since — made pages, boards, partner rows, earlier restores', () => {
+describe('Restore is all or nothing — anything the call made or changed that moved since refuses it whole', () => {
   let server: TestServer
   let owner: Client
   let wsId: string
@@ -505,6 +514,13 @@ describe('Restore puts back only what nobody changed since — made pages, board
   const props = (id: string) => yp(id).get('properties') as Y.Map<unknown>
   const calls = async () => (await owner.get(`/api/workspaces/${wsId}/mcp-calls`)).body as Array<{ callId: string; tool: string; kinds: string[]; titles: string[]; restoredAt: string | null }>
   const restore = (callId: string, force = false) => owner.post(`/api/workspaces/${wsId}/mcp-calls/${callId}/restore`, force ? { force: true } : {})
+  /** a refusal (409 changed_since): what it names, as [id, what] */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const refusedWith = (res: { status: number; body: any }) => {
+    assert.equal(res.status, 409, JSON.stringify(res.body))
+    assert.equal(res.body.error.code, 'changed_since')
+    return (res.body.error.details.changed as Array<{ id: string; what: string[] }>).map((k) => [k.id, [...k.what].sort()] as const)
+  }
 
   before(async () => {
     server = await startServer({ API_RATE_LIMIT: '1000' })
@@ -555,35 +571,36 @@ describe('Restore puts back only what nobody changed since — made pages, board
     assert.equal((await calls()).length, before, 'no pre-image kept: nothing was written')
   })
 
-  test('a made page someone wrote into, or put a sub-page under, stays (named in kept); force puts it into the trash', async () => {
+  test('a made page someone wrote into, or put a sub-page under: refused (named); force never trashes it', async () => {
     const made = await call(writer, 'one_create_page', { title: 'Meeting notes', parentId: 'wiki' })
     await waitFor(() => !!yp(made.id), 5000, 'page arrived')
     const d = await doc(`ws:${wsId}:p:${made.id}`)
     d.doc.transact(() => d.doc.getXmlFragment('default').insert(0, [para('Decisions: ship on Friday. Budget 40k.', 'blk-mara-001')]))
     await flushed(d)
     const c = (await calls()).find((x) => x.tool === 'one_create_page' && x.titles.includes('Meeting notes'))!
-    const res = await restore(c.callId)
-    assert.equal(res.status, 200, JSON.stringify(res.body))
-    assert.deepEqual(res.body.kept.map((k: { id: string }) => k.id), [made.id])
+    assert.deepEqual(refusedWith(await restore(c.callId)), [[made.id, ['text']]])
     await sleep(200)
     assert.notEqual(yp(made.id).get('trashed'), true, 'a page with text typed since stays')
     assert.equal((await calls()).find((x) => x.callId === c.callId)!.restoredAt, null)
-    // a page with only a sub-page someone added: kept as well
+    // a page with only a sub-page someone added: refused as well
     const second = await call(writer, 'one_create_page', { title: 'Action items', parentId: 'wiki' })
     await waitFor(() => !!yp(second.id), 5000, 'second arrived')
     meta.doc.transact(() => pages().set('mara-sub', pageEntry({ title: 'Her own sub-page', parentId: second.id, order: 1 })))
     await flushed(meta)
     const c2 = (await calls()).find((x) => x.tool === 'one_create_page' && x.titles.includes('Action items'))!
-    assert.deepEqual((await restore(c2.callId)).body.kept.map((k: { id: string }) => k.id), [second.id])
+    assert.deepEqual(refusedWith(await restore(c2.callId)), [[second.id, ['below']]])
     await sleep(200)
     assert.notEqual(yp(second.id).get('trashed'), true)
-    // "Restore anyway": to the trash (with what is below it — nothing is deleted)
-    assert.equal((await restore(c.callId, true)).status, 200)
-    await waitFor(() => yp(made.id).get('trashed') === true, 5000, 'forced into the trash')
-    assert.ok((await calls()).find((x) => x.callId === c.callId)!.restoredAt)
+    // "Restore anyway" never trashes: a call that only made a page has nothing it could put back — refused again
+    const forced = await restore(c.callId, true)
+    assert.deepEqual(refusedWith(forced), [[made.id, ['text']]])
+    assert.equal(forced.body.error.details.canForce, false)
+    await sleep(200)
+    assert.notEqual(yp(made.id).get('trashed'), true)
+    assert.equal((await calls()).find((x) => x.callId === c.callId)!.restoredAt, null)
   })
 
-  test('a board the call made that the team filled since stays — with its rows; an untouched one goes', async () => {
+  test('a board the call made that the team filled since: refused, the board and its rows stay; an untouched one goes', async () => {
     const db = await call(writer, 'one_create_database', { title: 'Team board', parentId: 'wiki', views: [{ type: 'board' }], rows: [{ title: 'Card by Claude' }] })
     await waitFor(() => !!yp(db.id), 5000, 'db arrived')
     meta.doc.transact(() => {
@@ -591,50 +608,39 @@ describe('Restore puts back only what nobody changed since — made pages, board
     })
     await flushed(meta)
     const c = (await calls()).find((x) => x.tool === 'one_create_database' && x.titles.includes('Team board'))!
-    const res = await restore(c.callId)
-    assert.equal(res.status, 200, JSON.stringify(res.body))
-    assert.deepEqual(res.body.kept.map((k: { id: string }) => k.id), [db.id])
+    assert.deepEqual(refusedWith(await restore(c.callId)), [[db.id, ['below']]])
     await sleep(200)
     assert.notEqual(yp(db.id).get('trashed'), true)
     assert.notEqual(yp(db.rows[0].id).get('trashed'), true, "the call's own row stays with its board")
     // the same call without a person's row: to the trash
     const other = await call(writer, 'one_create_database', { title: 'Scratch board', parentId: 'wiki', views: [{ type: 'board' }], rows: [{ title: 'Only Claude' }] })
     const c2 = (await calls()).find((x) => x.tool === 'one_create_database' && x.titles.includes('Scratch board'))!
-    assert.deepEqual((await restore(c2.callId)).body.kept, [])
+    assert.deepEqual((await restore(c2.callId)).body.left, [])
     await waitFor(() => yp(other.id).get('trashed') === true, 5000, 'untouched board trashed')
   })
 
-  test('each part is put back once: a retry and "Restore anyway" never write a content part an earlier restore put back', async () => {
+  test('one made page renamed: nothing goes, neither page nor link — once it is as the call left it again, the whole call goes back', async () => {
     const made = await call(writer, 'one_create_page', { parentId: 'wiki', linkInParent: 'block', pages: [{ title: 'Glossar' }, { title: 'Index' }] })
     const [glossar, index] = made.pages.map((p: { id: string }) => p.id)
     const wiki = await doc(`ws:${wsId}:p:wiki`)
     const links = () => wiki.doc.getXmlFragment('default').toArray().filter((n) => (n as Y.XmlElement).nodeName === 'pageLink').map((n) => (n as Y.XmlElement).getAttribute('pageId'))
     await waitFor(() => links().length === 2, 5000, 'links in the wiki')
-    // one made page is renamed → kept on restore with its link; the other goes, and its link is taken out
     meta.doc.transact(() => yp(glossar).set('title', 'Glossary'))
     await flushed(meta)
     const c = (await calls()).find((x) => x.tool === 'one_create_page' && x.kinds.includes('content') && x.titles.includes('Glossary'))!
-    const first = await restore(c.callId)
-    assert.equal(first.status, 200, JSON.stringify(first.body))
-    assert.deepEqual(first.body.kept.map((k: { title: string; fields?: string[] }) => [k.title, k.fields]), [['Glossary', undefined], ['Wissensbasis', ['Glossary']]])
-    await waitFor(() => yp(index).get('trashed') === true, 5000, 'Index trashed')
-    await waitFor(() => links().join() === glossar, 5000, "only Index's link taken back")
-    // someone writes into the wiki after the restore
-    wiki.doc.transact(() => wiki.doc.getXmlFragment('default').insert(wiki.doc.getXmlFragment('default').length, [para('Typed after the restore by Tessera.', 'blk-tess-001')]))
-    await flushed(wiki)
-    // a plain retry: no changed_since from the first restore's own write — the renamed page is still kept, nothing else runs
-    const again = await restore(c.callId)
-    assert.equal(again.status, 200, JSON.stringify(again.body))
-    assert.deepEqual(again.body.kept.map((k: { title: string }) => k.title), ['Glossary', 'Wissensbasis'])
-    assert.equal(again.body.restored, 0)
-    assert.deepEqual(links(), [glossar])
-    // "Restore anyway": only the kept page goes, and its link with it; the wiki keeps Tessera's line
-    const forced = await restore(c.callId, true)
-    assert.equal(forced.status, 200, JSON.stringify(forced.body))
-    await waitFor(() => yp(glossar).get('trashed') === true, 5000, 'kept page trashed')
-    await waitFor(() => links().length === 0, 5000, 'its link out')
-    await sleep(300)
-    assert.ok(wiki.doc.getXmlFragment('default').toString().includes('Typed after the restore'), "the wiki's later text stays")
+    assert.deepEqual(refusedWith(await restore(c.callId)), [[glossar, ['title']]])
+    await sleep(200)
+    assert.notEqual(yp(index).get('trashed'), true, 'the untouched page stays too')
+    assert.deepEqual(links().sort(), [glossar, index].sort(), 'no link taken out')
+    // the name back as the call left it: nothing moved any more — both pages and both links go in one Restore
+    meta.doc.transact(() => yp(glossar).set('title', 'Glossar'))
+    await flushed(meta)
+    const back = await restore(c.callId)
+    assert.equal(back.status, 200, JSON.stringify(back.body))
+    assert.equal(back.body.restored, 3, 'two pages to the trash, one text back')
+    await waitFor(() => yp(glossar).get('trashed') === true && yp(index).get('trashed') === true, 5000, 'both trashed')
+    await waitFor(() => links().length === 0, 5000, 'both links out')
+    assert.ok(wiki.doc.getXmlFragment('default').toString().includes('Intro of the wiki.'))
     assert.match((await restore(c.callId)).body.note, /put back already/)
   })
 
@@ -650,18 +656,19 @@ describe('Restore puts back only what nobody changed since — made pages, board
     const c = (await calls()).find((x) => x.tool === 'one_upsert_rows')!
     const res = await restore(c.callId)
     assert.equal(res.status, 200, JSON.stringify(res.body))
-    assert.deepEqual(res.body.kept, [])
+    assert.deepEqual(res.body.left, [])
     await waitFor(() => props('tk-3').get('k-owner') === undefined, 5000, 'owner back')
     const forced = await restore(c.callId, true)
     assert.equal(forced.status, 200)
+    assert.match(forced.body.note, /put back already/)
     await sleep(200)
     assert.equal(props('tk-3').get('k-note'), 'Mara wrote this later')
     assert.equal(yp('tk-3').get('title'), 'Ticket 3 (renamed by Mara)')
   })
 
-  /* review 3: what "changed since" covers — every stored value, icon / cover / comments, a database's schema, kept children */
+  /* what "changed since" covers — every stored value, icon / cover / comments, a database's schema, children */
 
-  test('a made row a member filled an EMPTY field of since stays (named in kept); its untouched sibling goes; force takes it too', async () => {
+  test('a made row a member filled an EMPTY field of since: refused — its untouched sibling stays too; force never trashes', async () => {
     const out = await call(writer, 'one_create_row', { databaseId: 'db-keyed', rows: [{ title: 'Card from Claude', properties: { Ticket: 'K-9' } }, { title: 'Untouched card', properties: { Ticket: 'K-10' } }] })
     const [filled, untouched] = [out.rows[0].id as string, out.rows[1].id as string]
     await waitFor(() => !!yp(filled) && !!yp(untouched), 5000, 'rows arrived')
@@ -670,18 +677,15 @@ describe('Restore puts back only what nobody changed since — made pages, board
     meta.doc.transact(() => props(filled).set('k-owner', 'Mara Lind'))
     await flushed(meta)
     const c = (await calls()).find((x) => x.tool === 'one_create_row' && x.titles.includes('Card from Claude'))!
-    const res = await restore(c.callId)
-    assert.equal(res.status, 200, JSON.stringify(res.body))
-    assert.deepEqual(res.body.kept.map((k: { id: string }) => k.id), [filled], 'the filled row is named in kept')
-    await waitFor(() => yp(untouched).get('trashed') === true, 5000, 'the untouched row goes')
+    assert.deepEqual(refusedWith(await restore(c.callId)), [[filled, ['values']]], 'the filled row is named')
+    assert.deepEqual(refusedWith(await restore(c.callId, true)), [[filled, ['values']]], 'force has nothing to put back')
     await sleep(200)
+    assert.notEqual(yp(untouched).get('trashed'), true, 'the untouched row stays too')
     assert.notEqual(yp(filled).get('trashed'), true, "Mara's value stays with its row")
     assert.equal(props(filled).get('k-owner'), 'Mara Lind')
-    assert.equal((await restore(c.callId, true)).status, 200)
-    await waitFor(() => yp(filled).get('trashed') === true, 5000, 'forced into the trash')
   })
 
-  test('a made page whose icon or comments a member changed since stays (named in kept)', async () => {
+  test('a made page whose icon or comments a member changed since: refused (named), it stays', async () => {
     const iconPage = await call(writer, 'one_create_page', { title: 'Icon page', parentId: 'wiki' })
     const talkPage = await call(writer, 'one_create_page', { title: 'Talk page', parentId: 'wiki' })
     await waitFor(() => !!yp(iconPage.id) && !!yp(talkPage.id), 5000, 'pages arrived')
@@ -695,15 +699,13 @@ describe('Restore puts back only what nobody changed since — made pages, board
     await flushed(meta)
     for (const [made, title] of [[iconPage.id, 'Icon page'], [talkPage.id, 'Talk page']] as const) {
       const c = (await calls()).find((x) => x.tool === 'one_create_page' && x.titles.includes(title))!
-      const res = await restore(c.callId)
-      assert.equal(res.status, 200, JSON.stringify(res.body))
-      assert.deepEqual(res.body.kept.map((k: { id: string }) => k.id), [made], `${title} is named in kept`)
+      assert.deepEqual(refusedWith(await restore(c.callId)), [[made, ['mark']]], `${title} is named`)
       await sleep(150)
       assert.notEqual(yp(made).get('trashed'), true, `${title} stays`)
     }
   })
 
-  test('nested made pages: a sub-page that stays keeps its made parent (and what is below it) out of the trash', async () => {
+  test('nested made pages: a page put below a made sub-page refuses the whole call — parent, sub-page and sibling stay', async () => {
     // someone puts their own page under the made sub-page
     const made = await call(writer, 'one_create_page', { parentId: 'wiki', pages: [{ title: 'Handbuch' }, { title: 'Kapitel 1', parentId: '$0' }, { title: 'Anhang', parentId: '$0' }] })
     const [parent, child, sibling] = [made.pages[0].id as string, made.pages[1].id as string, made.pages[2].id as string]
@@ -711,12 +713,10 @@ describe('Restore puts back only what nobody changed since — made pages, board
     meta.doc.transact(() => pages().set('mara-notes', pageEntry({ title: 'Maras Notizen', parentId: child, order: 1 })))
     await flushed(meta)
     const c = (await calls()).find((x) => x.tool === 'one_create_page' && x.titles.includes('Handbuch'))!
-    const res = await restore(c.callId)
-    assert.equal(res.status, 200, JSON.stringify(res.body))
-    assert.deepEqual(res.body.kept.map((k: { id: string }) => k.id).sort(), [child, parent].sort(), 'the sub-page and its made parent are kept')
-    await waitFor(() => yp(sibling).get('trashed') === true, 5000, 'the untouched sibling goes')
+    assert.deepEqual(refusedWith(await restore(c.callId)), [[child, ['below']]], 'the sub-page Mara put a page under is named')
     await sleep(200)
-    assert.notEqual(yp(parent).get('trashed'), true, 'the made parent of a kept page stays')
+    assert.notEqual(yp(sibling).get('trashed'), true, 'the untouched sibling stays too')
+    assert.notEqual(yp(parent).get('trashed'), true, 'the made parent stays')
     assert.notEqual(yp(child).get('trashed'), true)
     assert.notEqual(yp('mara-notes').get('trashed'), true, "Mara's page stays where it is")
     // text typed into a made sub-page keeps its parent as well
@@ -727,13 +727,12 @@ describe('Restore puts back only what nobody changed since — made pages, board
     d.doc.transact(() => d.doc.getXmlFragment('default').insert(0, [para('Typed by Tessera into the sub-page.', 'blk-tess-sub')]))
     await flushed(d)
     const call2 = (await calls()).find((x) => x.tool === 'one_create_page' && x.titles.includes('Leitfaden'))!
-    const res2 = await restore(call2.callId)
-    assert.deepEqual(res2.body.kept.map((k: { id: string }) => k.id).sort(), [c2, p2].sort())
+    assert.deepEqual(refusedWith(await restore(call2.callId)), [[c2, ['text']]])
     await sleep(200)
     assert.notEqual(yp(p2).get('trashed'), true)
   })
 
-  test('a made database whose properties or views the team changed since stays (named in kept); force takes it', async () => {
+  test('a made database whose properties or views the team changed since: refused (named), it stays — also with force', async () => {
     const db = await call(writer, 'one_create_database', { title: 'Team Tracker', parentId: 'wiki', properties: [{ name: 'Name', type: 'title' }, { name: 'Status', type: 'status' }] })
     await waitFor(() => !!yp(db.id), 5000, 'db arrived')
     const ydb = meta.doc.getMap('databases').get(db.id) as Y.Map<unknown>
@@ -743,18 +742,17 @@ describe('Restore puts back only what nobody changed since — made pages, board
     })
     await flushed(meta)
     const c = (await calls()).find((x) => x.tool === 'one_create_database' && x.titles.includes('Team Tracker'))!
-    const res = await restore(c.callId)
-    assert.equal(res.status, 200, JSON.stringify(res.body))
-    assert.deepEqual(res.body.kept.map((k: { id: string }) => k.id), [db.id])
+    assert.deepEqual(refusedWith(await restore(c.callId)), [[db.id, ['mark']]])
     await sleep(200)
     assert.notEqual(yp(db.id).get('trashed'), true, 'the extended board stays')
     // an untouched database of the same shape goes (the mark is taken after its rows: no false "changed")
     const other = await call(writer, 'one_create_database', { title: 'Scratch tracker', parentId: 'wiki', properties: [{ name: 'Name', type: 'title' }, { name: 'Tag', type: 'select' }], rows: [{ title: 'One', properties: { Tag: 'new option' } }] })
     const c2 = (await calls()).find((x) => x.tool === 'one_create_database' && x.titles.includes('Scratch tracker'))!
-    assert.deepEqual((await restore(c2.callId)).body.kept, [])
+    assert.deepEqual((await restore(c2.callId)).body.left, [])
     await waitFor(() => yp(other.id).get('trashed') === true, 5000, 'untouched tracker trashed')
-    assert.equal((await restore(c.callId, true)).status, 200)
-    await waitFor(() => yp(db.id).get('trashed') === true, 5000, 'forced into the trash')
+    assert.deepEqual(refusedWith(await restore(c.callId, true)), [[db.id, ['mark']]])
+    await sleep(200)
+    assert.notEqual(yp(db.id).get('trashed'), true, 'force never trashes')
   })
 
   /* review 4: opening a page is no change — the editor's closing paragraph and the block ids it fills in */
@@ -787,12 +785,12 @@ describe('Restore puts back only what nobody changed since — made pages, board
     const pageCall = (await calls()).find((x) => x.tool === 'one_create_page' && x.titles.includes('Notizen'))!
     const r1 = await restore(pageCall.callId)
     assert.equal(r1.status, 200, JSON.stringify(r1.body))
-    assert.deepEqual(r1.body.kept, [], 'an opened page is not "changed since"')
+    assert.deepEqual(r1.body.left, [], 'an opened page is not "changed since"')
     await waitFor(() => yp(made.id).get('trashed') === true, 5000, 'the opened page goes to the trash')
     const dbCall = (await calls()).find((x) => x.tool === 'one_create_database' && x.titles.includes('Inline board'))!
     const r2 = await restore(dbCall.callId)
     assert.equal(r2.status, 200, JSON.stringify(r2.body))
-    assert.deepEqual(r2.body.kept, [])
+    assert.deepEqual(r2.body.left, [])
     await waitFor(() => yp(db.id).get('trashed') === true, 5000, 'the inline database goes to the trash')
     await waitFor(() => !host.doc.getXmlFragment('default').toArray().some((n) => (n as Y.XmlElement).nodeName === 'databaseBlock'), 5000, "the host's database block is taken back")
     // a real edit after opening still counts: typed text keeps a made page
@@ -801,7 +799,7 @@ describe('Restore puts back only what nobody changed since — made pages, board
     d.doc.transact(() => d.doc.getXmlFragment('default').insert(0, [para('Mara typed this.', 'blk-mara-open')]))
     await flushed(d)
     const typedCall = (await calls()).find((x) => x.tool === 'one_create_page' && x.titles.includes('Protokoll'))!
-    assert.deepEqual((await restore(typedCall.callId)).body.kept.map((k: { id: string }) => k.id), [typed.id])
+    assert.deepEqual(refusedWith(await restore(typedCall.callId)), [[typed.id, ['text']]])
   })
 })
 

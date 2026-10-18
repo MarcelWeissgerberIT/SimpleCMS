@@ -1,6 +1,7 @@
 /**
  * Review 5 on the team server — the bridge's rules where the server had its own (MCP plan § 3.2 / § 3.6 / § 4):
- *  - Restore keeps a made page / row someone MOVED since (its place is part of "changed since", as on the bridge);
+ *  - Restore refuses (all or nothing) when a made page / row was MOVED since (its place is part of "changed since", as on
+ *    the bridge);
  *  - one_upsert_rows checks a locked row page before anything is written, and reads "empty" from the content (a picture
  *    or a divider is no empty page);
  *  - every row of a batch that does not fit is named in ONE refusal (create_row / update_row / create_database rows);
@@ -140,7 +141,7 @@ describe('review 5: the team server words and checks as the bridge does', () => 
     await server.stop()
   })
 
-  test('Restore keeps a made page a member MOVED since, and a made row a member moved into another database (named in kept)', async () => {
+  test('Restore is refused for a made page a member MOVED since, and a made row a member moved into another database (named)', async () => {
     const page = await call(writer, 'one_create_page', { title: 'Meeting notes', parentId: 'wiki' })
     const rows = await call(writer, 'one_create_row', { databaseId: 'db-cards', rows: [{ title: 'Moved card', properties: { Ticket: 'T-M' } }] })
     const row = rows.rows[0].id as string
@@ -158,8 +159,8 @@ describe('review 5: the team server words and checks as the bridge does', () => 
     ] as const) {
       const c = (await calls()).find((x) => x.tool === tool && x.titles.includes(title))!
       const res = await restore(c.callId)
-      assert.equal(res.status, 200, JSON.stringify(res.body))
-      assert.deepEqual(res.body.kept.map((k: { id: string }) => k.id), [id], `${title} is named in kept`)
+      assert.equal(res.status, 409, JSON.stringify(res.body))
+      assert.deepEqual(res.body.error.details.changed.map((k: { id: string; what: string[] }) => [k.id, k.what]), [[id, ['place']]], `${title} is named`)
       await sleep(150)
       assert.notEqual(yp(id).get('trashed'), true, `${title} stays where the member put it`)
     }

@@ -3,8 +3,8 @@
  *  - one_move_row never gives a select bound to a shared list an option of its own (the list owns them);
  *  - one_delete_property clears no rollup in a locked database or in One's own database (refused), and leaves a
  *    template's alone;
- *  - Restore decides what it keeps first: a kept inline database keeps its block in the host page, a kept page made with
- *    linkInParent keeps its link — only the links of the pages that went come out;
+ *  - Restore is all or nothing (Weg 4 D3): an inline database the team added a row to, or a page made with linkInParent
+ *    that someone wrote into, refuses the whole call — the database keeps its block, both pages keep their links;
  *  - one_create_database: a property of another type named like the default title "Name" is refused, as on the bridge;
  *  - one rule for options (colours lower-cased, unknown colours, duplicates refused — also options.add), an unknown
  *    property is not_found, an ambiguous view bad_argument, the lock the person's decision (rejected), a long option
@@ -191,7 +191,7 @@ describe('review 7: the team server takes what the bridge takes', () => {
     assert.equal(target('db-tpl'), 'a-pages')
   })
 
-  test('Restore: a kept inline database keeps its block in the host page; the host is named in kept', async () => {
+  test('Restore: an inline database the team added a row to refuses the call — the database and its block stay', async () => {
     const made = await call(writer, 'one_create_database', { title: 'Board', inline: { pageId: 'host' }, rows: [{ title: 'Kick-off' }] })
     await waitFor(() => !!yp(made.id), 5000, 'db')
     // a member adds a row: the database is theirs too now
@@ -199,17 +199,15 @@ describe('review 7: the team server takes what the bridge takes', () => {
     await flushed(meta)
     const c = (await calls()).find((x) => x.tool === 'one_create_database' && x.titles.includes('Board'))!
     const res = await restore(c.callId)
-    assert.equal(res.status, 200, JSON.stringify(res.body))
-    assert.notEqual(yp(made.id).get('trashed'), true, 'the database is kept')
+    assert.equal(res.status, 409, JSON.stringify(res.body))
+    assert.deepEqual(res.body.error.details.changed.map((k: { id: string; what: string[] }) => [k.id, k.what]), [[made.id, ['below']]])
+    assert.notEqual(yp(made.id).get('trashed'), true, 'the database stays')
     const xml = await hostXml('host')
-    assert.match(xml, /databaseblock/i, `its block stays while the database is kept: ${xml}`)
+    assert.match(xml, /databaseblock/i, `its block stays: ${xml}`)
     assert.match(xml, /Intro text/)
-    const kept = res.body.kept as Array<{ id: string; fields?: string[] }>
-    assert.ok(kept.some((k) => k.id === made.id), JSON.stringify(kept))
-    assert.ok(kept.some((k) => k.id === 'host' && k.fields?.includes('Board')), JSON.stringify(kept))
   })
 
-  test('Restore: a kept page made with linkInParent keeps its link; the link of a page that went comes out', async () => {
+  test('Restore: a page made with linkInParent that someone wrote into refuses the call — both pages and both links stay, also with force', async () => {
     const made = await call(writer, 'one_create_page', { parentId: 'host2', linkInParent: 'block', pages: [{ title: 'Kick-off notes' }, { title: 'Agenda' }] })
     const [notes, agenda] = made.pages as Array<{ id: string }>
     await waitFor(() => !!yp(notes!.id) && !!yp(agenda!.id), 5000, 'pages')
@@ -217,21 +215,18 @@ describe('review 7: the team server takes what the bridge takes', () => {
     kid.doc.transact(() => kid.doc.getXmlFragment('default').insert(0, [para('Typed by Mara Lind', 'blk-kid-1')]))
     await flushed(kid)
     const c = (await calls()).find((x) => x.tool === 'one_create_page' && x.titles.includes('Kick-off notes'))!
-    const res = await restore(c.callId)
-    assert.equal(res.status, 200, JSON.stringify(res.body))
-    assert.notEqual(yp(notes!.id).get('trashed'), true, 'the page typed into is kept')
-    await waitFor(() => yp(agenda!.id).get('trashed') === true, 5000, 'Agenda trashed')
+    for (const force of [false, true]) {
+      const res = await owner.post(`/api/workspaces/${wsId}/mcp-calls/${c.callId}/restore`, force ? { force } : {})
+      assert.equal(res.status, 409, JSON.stringify(res.body))
+      assert.deepEqual(res.body.error.details.changed.map((k: { id: string; what: string[] }) => [k.id, k.what]), [[notes!.id, ['text']]])
+      assert.equal(res.body.error.details.canForce, false, 'the call only made pages: force has nothing to put back')
+    }
+    await sleep(200)
+    assert.notEqual(yp(notes!.id).get('trashed'), true)
+    assert.notEqual(yp(agenda!.id).get('trashed'), true, 'the untouched page stays too')
     const xml = await hostXml('host2')
-    assert.ok(xml.includes(`pageId="${notes!.id}"`), `the kept page keeps its link: ${xml}`)
-    assert.ok(!xml.includes(`pageId="${agenda!.id}"`), `the trashed page's link came out: ${xml}`)
+    assert.ok(xml.includes(`pageId="${notes!.id}"`) && xml.includes(`pageId="${agenda!.id}"`), `both links stay: ${xml}`)
     assert.match(xml, /Intro text/)
-    // forced later: the kept page goes too, and so does its link (its own write is no "change since")
-    const forced = await owner.post(`/api/workspaces/${wsId}/mcp-calls/${c.callId}/restore`, { force: true })
-    assert.equal(forced.status, 200, JSON.stringify(forced.body))
-    await waitFor(() => yp(notes!.id).get('trashed') === true, 5000, 'Kick-off notes trashed')
-    const after = await hostXml('host2')
-    assert.ok(!/pagelink/i.test(after), after)
-    assert.match(after, /Intro text/)
   })
 
   test('one_create_database: a property of another type named "Name" is refused (no quiet "Title"), as on the bridge', async () => {

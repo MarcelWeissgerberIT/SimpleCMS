@@ -878,13 +878,9 @@ export class Repo {
       .map(({ sealed, ...row }) => ({ ...row, data: openText(this.keyOf(workspaceId).aead, sealed, preimageContext(workspaceId, row.id)) }))
   }
 
-  /**
-   * One part of a call after a Restore: `data` = the part again with what that Restore put back noted (sealed anew), or
-   * `restoredAt` = put back whole (a later Restore never writes it again).
-   */
-  updatePreimage(workspaceId: string, id: string, data: string | null, restoredAt: number | null) {
-    if (data !== null) this.db.run('UPDATE mcp_preimages SET sealed = ? WHERE workspace_id = ? AND id = ?', sealText(this.keyOf(workspaceId).aead, data, preimageContext(workspaceId, id)), workspaceId, id)
-    if (restoredAt !== null) this.db.run('UPDATE mcp_preimages SET restored_at = ? WHERE workspace_id = ? AND id = ?', restoredAt, workspaceId, id)
+  /** A call put back (a Restore puts a call back as a whole): every part of it marked, never written again. */
+  markCallRestored(workspaceId: string, callId: string, at: number) {
+    this.db.run('UPDATE mcp_preimages SET restored_at = ? WHERE workspace_id = ? AND call_id = ? AND restored_at IS NULL', at, workspaceId, callId)
   }
 
   // ── housekeeping ─────────────────────────────────────────────────────

@@ -6,20 +6,21 @@
  * the call — and for every page or row it made, the state of its own text right after the call. Sealed with the
  * workspace key (repo.ts savePreimage), kept 14 days, deleted with the workspace.
  *
- * Restore (owners / admins, Workspace → API "Recent MCP writes") puts back only what nobody changed since — the bridge's
- * Undo rule (spec § 3.6):
- *  - a made page or row goes to the trash while it is as the call left it: its title (and a row's values), its text
- *    (textHash: its blocks, ids and the editor's trailing empty paragraph aside), and nothing below it but what the call made (a sub-page someone added, a row the team put into a
- *    database the call made, a row of the call that changed). Else it stays and is named in `kept`;
- *  - a changed row gets back each field that still holds what the call wrote (a field someone changed since is kept and
- *    named); relation values go back as a write puts them (two-way partners in step — putValues);
- *  - a content document whose text moved since the call is refused `changed_since` (nothing is written); a member
- *    who only opened the page changed nothing. A text the call only put its own links (linkInParent) or an inline
- *    database's block into is never refused: it goes back whole only when everything they point at went and nobody
- *    wrote there since, else only the nodes of what went come out (later edits stay, forced or not — the bridge's Undo).
- * `force` puts back what was kept too (the dialog says the later changes go). Each part — and inside one, each thing — is
- * put back once: a later Restore (with or without force) touches only what is left (`done`), never what an earlier one
- * put back (its own write is no "change since"), and a call whose every part is back is done.
+ * Restore (owners / admins, Workspace → API "Recent MCP writes") is ALL OR NOTHING (Weg 4, the owner's decision; the
+ * bridge's Undo follows the same rule):
+ *  - nothing the call made or changed was touched since → the fields it wrote get their earlier values, the texts it
+ *    replaced or wrote a link / database block into get their earlier text, and what it made goes to the trash — the
+ *    meta in ONE transaction, then the texts;
+ *  - anything moved since → `409 changed_since` naming each thing and what moved (`changedSince`), and NOTHING is
+ *    written: a field it wrote, a text it wrote into (textHash: its blocks, ids and the editor's trailing empty paragraph
+ *    aside — a member who only opened a page changed nothing), a made page's or row's title, text, stored values, icon /
+ *    cover / comments (a database's properties and views), its place, the trash, something put below it — and a page
+ *    whose text would go back that was locked in One since;
+ *  - `force` (after that answer) puts back the recorded texts the call replaced and the fields it wrote, whole, and never
+ *    trashes anything: what the call made stays — with the link or database block it wrote for it — and is listed
+ *    (`left`). A call that only made things has nothing force could put back (`canForce: false`), and a page locked
+ *    since is never written: both stay refused.
+ * A call is put back as a whole (every part marked at once); a second Restore changes nothing.
  */
 import * as Y from 'yjs'
 import type { Services } from '../context.ts'
@@ -39,8 +40,7 @@ type Values = Record<string, unknown>
 /**
  * A page, row or database a call made, as the call left it: its title, its text (`hash`, textHash), `mark` — what else
  * people change on it (markOf: icon, cover, comment threads; a database's properties and views) — and `place` (placeOf:
- * its parent and database; a page or row someone moved since is theirs, as on the bridge). Pre-images stored before
- * `mark` / `place` existed have none (those checks are left out for them).
+ * its parent and database). A Restore compares all of them (one missing counts as moved).
  */
 export interface Made {
   id: string
@@ -57,52 +57,35 @@ export type Preimage =
   | { kind: 'pages'; created: Made[] }
   /**
    * a page's content before the call: a Y update of a document holding a copy of its fragment, and its `plain` — `own`:
-   * the call wrote only links / a database block of things it made into it (linkInParent, an inline database), each
-   * named by the made thing (a Restore that keeps one of them takes out only the others' nodes)
+   * the call wrote only links / a database block of things it made into it (linkInParent, an inline database), named by
+   * the made things' ids (a forced Restore leaves those: what the call made stays, with its link or block)
    */
-  | { kind: 'content'; page: string; before: string; plain: string; own?: OwnNode[] }
+  | { kind: 'content'; page: string; before: string; plain: string; own?: unknown[] }
 
-/** A node a call put into an existing page's text for a thing it made: its page link / mention line, or its database block. */
-export interface OwnNode {
-  /** the made page / database */
-  id: string
-  node: 'pageLink' | 'mention' | 'databaseBlock'
-  /** databaseBlock: its block id */
-  block?: string
-}
-
-/** A part as kept: its pre-image, the repeat key of its call, and what an earlier Restore put back already (keysOf). */
-type Stored = Preimage & { dup?: string; done?: string[] }
+/** A part as kept, with the repeat key of its call (duplicates.ts). */
+type Stored = Preimage & { dup?: string }
 
 /** What a tool records for its call (one recorder per call). */
 export interface Recorder {
   callId: string
   rows(p: Omit<Extract<Preimage, { kind: 'rows' }>, 'kind'>): void
   pages(created: Made[]): void
-  content(pageId: string, before: string, plain: string, afterHash: string | null, own?: OwnNode[]): void
+  content(pageId: string, before: string, plain: string, afterHash: string | null, own?: string[]): void
 }
 
-/** The things of a part a Restore puts back one by one: `p:<page>`, `c:<made row>`, `u:<row>:<field>` (`#title`). */
-function keysOf(pre: Preimage): string[] {
-  if (pre.kind === 'pages') return pre.created.map((c) => `p:${c.id}`)
-  if (pre.kind === 'rows')
-    return [
-      ...pre.created.map((c) => `c:${c.id}`),
-      ...pre.updated.flatMap((u) => [...Object.keys(u.after.values).map((k) => `u:${u.id}:${k}`), ...(u.after.title !== undefined && u.before.title !== undefined ? [`u:${u.id}:#title`] : [])]),
-    ]
-  // a text holding only the call's own nodes: each made thing's node goes back on its own (`l:<made id>`)
-  if (pre.kind === 'content' && pre.own?.length) return pre.own.map((o) => `l:${o.id}`)
-  return []
-}
-
-/** Is this top-level node the call's own node for `o` (its databaseBlock, its pageLink, a line holding only its mention)? */
-function isOwn(n: unknown, o: OwnNode): boolean {
-  if (!(n instanceof Y.XmlElement)) return false
-  if (o.node === 'databaseBlock') return n.nodeName === 'databaseBlock' && n.getAttribute('id') === o.block && n.getAttribute('databaseId') === o.id
-  if (o.node === 'pageLink') return n.nodeName === 'pageLink' && n.getAttribute('pageId') === o.id
-  if (n.nodeName !== 'paragraph') return false
-  const kids = n.toArray().filter((k) => !(k instanceof Y.XmlText && !k.toString()))
-  return kids.length === 1 && kids[0] instanceof Y.XmlElement && kids[0].nodeName === 'mention' && kids[0].getAttribute('id') === o.id
+/**
+ * What moved since a call on one thing it made or changed (a Restore's `changed_since` names each): `text` · `title` ·
+ * `values` (a made row's stored values; a changed row: `fields` names the fields it wrote that moved) · `mark` (icon,
+ * cover, comment threads; a database's properties or views) · `place` (moved) · `below` (a page or row put below it) ·
+ * `trash` · `gone` (deleted for good) · `locked` (a page whose text would go back, locked in One since).
+ */
+export type MovedWhat = 'text' | 'title' | 'values' | 'mark' | 'place' | 'below' | 'trash' | 'gone' | 'locked'
+export interface Moved {
+  id: string
+  /** as it is called now (as the call left it when it is gone) */
+  title: string
+  what: MovedWhat[]
+  fields?: string[]
 }
 
 /**
@@ -186,6 +169,19 @@ function valuesMoved(then: Values, now: Values): boolean {
     if (!same(a, b)) return true
   }
   return false
+}
+
+/** How a refusal names what moved (English API words; the app has its own, EN + DE). */
+const MOVED_WORDS: Record<MovedWhat, string> = {
+  text: 'text',
+  title: 'title',
+  values: 'values',
+  mark: 'icon, cover, comments, properties or views',
+  place: 'moved',
+  below: 'a page or row put below it',
+  trash: 'in the trash',
+  gone: 'deleted',
+  locked: 'locked in One',
 }
 
 export interface McpCall {
@@ -317,10 +313,10 @@ export class McpPreimages {
     }))
   }
 
-  /** A content pre-image written back: the fragment as it was (a detached copy), the page's plain text in the meta. */
-  async writeBack(wsId: string, docName: string, pageId: string, before: string, actor: string): Promise<void> {
+  /** A content document's fragment replaced by a pre-image's detached copy; answers its plain text then. */
+  private putText(docName: string, before: string, actor: string): Promise<string> {
     const update = Buffer.from(before, 'base64')
-    const plain = await this.s.collab.write(
+    return this.s.collab.write(
       docName,
       (doc) => {
         const source = new Y.Doc()
@@ -333,6 +329,11 @@ export class McpPreimages {
       },
       actor,
     )
+  }
+
+  /** A content pre-image written back (a failed call's rollback): the fragment as it was, the page's plain text in the meta. */
+  async writeBack(wsId: string, docName: string, pageId: string, before: string, actor: string): Promise<void> {
+    const plain = await this.putText(docName, before, actor)
     await this.s.collab.write(
       metaDoc(wsId),
       (doc) => {
@@ -346,263 +347,189 @@ export class McpPreimages {
     )
   }
 
-  /** Take only the call's own nodes for these made things out of a page's text (the person's edits stay). */
-  async takeOut(wsId: string, docName: string, pageId: string, own: readonly OwnNode[], actor: string): Promise<void> {
-    const plain = await this.s.collab.write(
-      docName,
-      (doc) => {
-        const frag = doc.getXmlFragment('default')
-        const nodes = frag.toArray()
-        for (let i = nodes.length - 1; i >= 0; i--) if (own.some((o) => isOwn(nodes[i]!, o))) frag.delete(i, 1)
-        return fragmentText(doc, 20_000)
-      },
-      actor,
-    )
-    await this.s.collab.write(
-      metaDoc(wsId),
-      (doc) => {
-        const yp = pageMap(roots(doc), pageId)
-        if (!yp) return
-        yp.set('plain', plain)
-        yp.set('updatedAt', Date.now())
-        yp.set('updatedBy', actor)
-      },
-      actor,
-    )
+  /** The refusal of a Restore: `409 changed_since`, each thing named with what moved (details: `changed`, `canForce`). */
+  private static refusal(changed: Moved[], canForce: boolean): ApiError {
+    const say = (m: Moved) => `${JSON.stringify(m.title || 'Untitled')} (${[...(m.fields ?? []), ...m.what.filter((w) => !(w === 'values' && m.fields?.length)).map((w) => MOVED_WORDS[w])].join(', ')})`
+    const remedy = canForce
+      ? 'Restore with force to put back the texts and fields the call changed anyway (the later changes there go; what it made stays) — or undo it in One instead: Versions (page history) or the trash.'
+      : 'Undo it in One instead: Versions (page history) or the trash.'
+    return new ApiError(409, 'changed_since', `Changed since this call: ${changed.map(say).join(', ')}. Nothing was put back. ${remedy}`, { details: { changed, canForce } })
   }
 
-  /** Put a call back (see the head comment). `actor`: the owner / admin who asked. */
-  async restore(wsId: string, callId: string, force: boolean, actor: string) {
+  /** Put a call back, all or nothing (see the head comment). `actor`: the owner / admin who asked. */
+  async restore(wsId: string, callId: string, force: boolean, actor: string): Promise<{ callId: string; restored: number; left: Array<{ id: string; title: string }>; note?: string }> {
     const rows = this.s.repo.preimagesOf(wsId, callId)
     if (!rows.length) throw notFound('call_not_found', 'No MCP call with this id (kept 14 days)')
-    const all = rows.map((p) => ({ ...p, pre: JSON.parse(p.data) as Stored }))
-    // only what is still to put back: parts an earlier Restore finished are never written again
-    const open = all.filter((p) => !p.restored_at)
-    if (!open.length) return { callId, restored: 0, kept: [] as Array<{ id: string; title: string; fields?: string[] }>, note: 'This call was put back already.' }
-    const done = new Map(open.map((p) => [p.id, new Set(p.pre.done ?? [])] as const))
-    // everything the call made (also what an earlier Restore put back already): what lies below it is the call's own
-    const made = new Set<string>()
-    for (const p of all) if (p.pre.kind === 'pages' || p.pre.kind === 'rows') for (const c of p.pre.created) made.add(c.id)
+    // a call goes back as a whole: once a part is marked, it was put back
+    if (rows.some((p) => p.restored_at)) return { callId, restored: 0, left: [], note: 'This call was put back already.' }
+    const parts = rows.map((p) => ({ ...p, pre: JSON.parse(p.data) as Stored }))
+    const contents = parts.flatMap((p) => (p.pre.kind === 'content' ? [{ ...p.pre, doc: p.doc, after: p.after_hash }] : []))
+    const made: Array<Made & { values?: Values }> = parts.flatMap((p) => (p.pre.kind === 'pages' || p.pre.kind === 'rows' ? p.pre.created : []))
+    const updated = parts.flatMap((p) => {
+      const pre = p.pre
+      return pre.kind === 'rows' ? pre.updated.map((u) => ({ ...u, db: pre.db })) : []
+    })
+    const madeIds = new Set(made.map((m) => m.id))
+    /** a text the call wrote only its own links / database block into: force leaves it (what it made stays, with them) */
+    const ownOnly = (c: (typeof contents)[number]) => Array.isArray(c.own) && c.own.length > 0
+    const forced = contents.filter((c) => !ownOnly(c))
 
-    // content first: a document that moved since the call is refused unless forced (nothing written yet)
-    const contents = open.filter((p) => p.pre.kind === 'content')
-    if (!force) {
-      const moved: string[] = []
-      for (const p of contents) {
-        // a text the call only put its own links / database block into: never refused — only those nodes come out (the
-        // whole pre-image only while nobody wrote there since), so a later edit never goes, forced or not
-        if ((p.pre as Extract<Preimage, { kind: 'content' }>).own?.length) continue
-        const after = p.after_hash
-        if (after && (await this.s.collab.read(p.doc, (doc) => textMoved(doc, after)))) moved.push((p.pre as Extract<Preimage, { kind: 'content' }>).page)
-      }
-      if (moved.length) {
-        const titles = await this.model.read(wsId, (r) => moved.map((id) => String(pageMap(r, id)?.get('title') ?? id)))
-        throw new ApiError(409, 'changed_since', `Changed since this call: ${titles.map((t) => JSON.stringify(t)).join(', ')}. Restore with force to put it back anyway (the later changes go).`, { details: { pages: moved } })
-      }
-    }
-    // the text of each page and row the call made, now against right after the call (read before the meta write)
-    const movedText = new Set<string>()
-    for (const p of open) {
-      if (p.pre.kind !== 'pages' && p.pre.kind !== 'rows') continue
-      const d = done.get(p.id)!
-      for (const c of p.pre.created) {
-        const hash = c.hash
-        if (!hash || d.has(`${p.pre.kind === 'pages' ? 'p' : 'c'}:${c.id}`)) continue
-        if (await this.s.collab.read(contentDoc(wsId, c.id), (doc) => textMoved(doc, hash))) movedText.add(c.id)
-      }
-    }
+    // the texts as they are now, before the meta is read: each text the call wrote into, each made page's / row's own text
+    const textMovedIds = new Set<string>()
+    for (const c of contents) if (!c.after || (await this.s.collab.read(c.doc, (doc) => textMoved(doc, c.after!)))) textMovedIds.add(c.page)
+    for (const m of made) if (!m.hash || (await this.s.collab.read(contentDoc(wsId, m.id), (doc) => textMoved(doc, m.hash!)))) textMovedIds.add(m.id)
 
-    let restored = 0
-    const kept: Array<{ id: string; title: string; fields?: string[] }> = []
-    // rows and pages first (one meta transaction) — what the Restore keeps decides what of a text holding the call's own
-    // links / database block goes back (the content parts after it); made pages first, so a row of a database the call made goes along with it
-    // (in its trash, as in One) instead of being trashed on its own
-    const meta = open.filter((p) => p.pre.kind !== 'content').sort((a, b) => Number(b.pre.kind === 'pages') - Number(a.pre.kind === 'pages'))
-    if (meta.length) {
+    /** everything that moved since the call (read before the write and again inside it: nothing is written when it moved) */
+    const changedSince = (r: Roots): Moved[] => {
+      const out = new Map<string, Moved>()
+      const note = (id: string, title: string, what: MovedWhat, fields?: string[]) => {
+        const m = out.get(id) ?? { id, title, what: [] }
+        if (!m.what.includes(what)) m.what.push(what)
+        if (fields?.length) m.fields = [...(m.fields ?? []), ...fields]
+        out.set(id, m)
+      }
+      // the live pages and rows below each thing the call made
+      const below = new Map<string, string[]>()
+      if (made.length)
+        for (const [id, yp] of r.pages.entries()) {
+          if (!(yp instanceof Y.Map) || yp.get('trashed') === true) continue
+          for (const up of new Set([yp.get('parentId'), yp.get('databaseId')])) if (typeof up === 'string' && up !== id && madeIds.has(up)) below.set(up, [...(below.get(up) ?? []), id])
+        }
+      for (const m of made) {
+        const yp = pageMap(r, m.id)
+        if (!yp) {
+          note(m.id, m.title, 'gone')
+          continue
+        }
+        const title = String(yp.get('title') ?? '')
+        if (yp.get('trashed') === true) note(m.id, title, 'trash')
+        if (title !== m.title) note(m.id, title, 'title')
+        if (textMovedIds.has(m.id)) note(m.id, title, 'text')
+        if (m.values && valuesMoved(m.values, McpPreimages.rowState(r, m.id)?.values ?? {})) note(m.id, title, 'values')
+        if (m.mark === undefined || McpPreimages.markOf(r, m.id) !== m.mark) note(m.id, title, 'mark')
+        if (m.place === undefined || McpPreimages.placeOf(r, m.id) !== m.place) note(m.id, title, 'place')
+        if ((below.get(m.id) ?? []).some((k) => !madeIds.has(k))) note(m.id, title, 'below')
+      }
+      for (const u of updated) {
+        const yp = pageMap(r, u.id)
+        if (!yp) {
+          note(u.id, u.after.title ?? u.before.title ?? '', 'gone')
+          continue
+        }
+        const defs = liveDatabase(r, typeof yp.get('databaseId') === 'string' ? String(yp.get('databaseId')) : u.db)?.properties ?? []
+        const now = McpPreimages.rowState(r, u.id, Object.keys(u.after.values))!
+        // the fields it wrote, named as people see them now
+        const fields = Object.entries(u.after.values)
+          .filter(([k, v]) => !same(now.values[k], v))
+          .map(([k]) => defs.find((d) => d.id === k)?.name ?? k)
+        if (u.after.title !== undefined && u.before.title !== undefined && now.title !== u.after.title) fields.push(defs.find((d) => d.type === 'title')?.name ?? 'title')
+        if (fields.length) note(u.id, now.title, 'values', fields)
+      }
+      for (const c of contents) {
+        const yp = pageMap(r, c.page)
+        if (!yp) {
+          note(c.page, '', 'gone')
+          continue
+        }
+        const title = String(yp.get('title') ?? '')
+        if (textMovedIds.has(c.page)) note(c.page, title, 'text')
+        // its text would go back into a page locked in One since (the call could not have written into a locked one)
+        if ((yp.get('settings') as { locked?: unknown } | undefined)?.locked === true) note(c.page, title, 'locked')
+      }
+      return [...out.values()]
+    }
+    /** force puts back texts and fields — never into a locked page, and never when the call only made things */
+    const canForce = (changed: Moved[]) => (updated.length > 0 || forced.length > 0) && !changed.some((m) => m.what.includes('locked'))
+    /** the fields it wrote back to their earlier values (relations as a write puts them), its replaced texts' plain text */
+    const putFields = (r: Roots, texts: typeof contents, at: number) => {
+      let n = 0
+      for (const u of updated) {
+        const yp = pageMap(r, u.id)
+        if (!yp) continue
+        putValues(this.model, r, u.id, Object.fromEntries(Object.keys(u.after.values).map((k) => [k, u.before.values[k] ?? null])), actor, at)
+        if (u.after.title !== undefined && u.before.title !== undefined) yp.set('title', u.before.title)
+        yp.set('updatedAt', at)
+        yp.set('updatedBy', actor)
+        n += 1
+      }
+      for (const c of texts) {
+        const yp = pageMap(r, c.page)
+        if (!yp) continue
+        yp.set('plain', c.plain)
+        yp.set('updatedAt', at)
+        yp.set('updatedBy', actor)
+      }
+      return n
+    }
+    /** a made thing with nothing the call made above it (what is below one goes along with it, in its trash, as in One) */
+    const topOf = (r: Roots) =>
+      made.filter((m) => {
+        const seen = new Set<string>([m.id])
+        let yp = pageMap(r, m.id)
+        while (yp) {
+          const ups = [yp.get('parentId'), yp.get('databaseId')].filter((x): x is string => typeof x === 'string' && !!x && !seen.has(x))
+          if (ups.some((x) => madeIds.has(x))) return false
+          const next: string | undefined = ups[0]
+          if (!next) return true
+          seen.add(next)
+          yp = pageMap(r, next)
+        }
+        return true
+      })
+
+    const changed = await this.model.read(wsId, (r) => changedSince(r))
+    if (changed.length) {
+      if (!force || !canForce(changed)) throw McpPreimages.refusal(changed, canForce(changed))
+      // "Restore anyway": the texts it replaced and the fields it wrote, whole; what it made stays and is listed
       const out = await this.s.collab.write(
         metaDoc(wsId),
         (doc) => {
           const r = roots(doc)
-          const at = Date.now()
-          let n = 0
-          const keep: typeof kept = []
-          // the live pages below each page and in each database (one pass)
-          const below = new Map<string, string[]>()
-          for (const [id, yp] of r.pages.entries()) {
-            if (!(yp instanceof Y.Map) || yp.get('trashed') === true) continue
-            for (const up of new Set([yp.get('parentId'), yp.get('databaseId')])) if (typeof up === 'string' && up && up !== id) below.set(up, [...(below.get(up) ?? []), id])
-          }
-          /** made things this Restore keeps (changed since): a made page above one stays with it */
-          const keptHere = new Set<string>()
-          /**
-           * something below it that is not the call's to take (a sub-page someone added, a row the team put in) — or a
-           * page the call made that stays (kept below: trashing its made parent would take it, and what is below it, along)
-           */
-          const foreign = (id: string) => (below.get(id) ?? []).some((k) => !made.has(k) || keptHere.has(k))
-          /** its icon, cover, comment threads (a database: its properties and views) — or its place — moved since the call */
-          const markMoved = (c: Made) => (c.mark !== undefined && McpPreimages.markOf(r, c.id) !== c.mark) || (c.place !== undefined && McpPreimages.placeOf(r, c.id) !== c.place)
-          // each made row: as the call left it? (title, its whole stored values — a field filled in since too —, its
-          // text, icon / cover / comments, its place, nothing put below it)
-          const rowChanged = new Map<string, boolean>()
-          for (const p of meta) {
-            if (p.pre.kind !== 'rows') continue
-            for (const c of p.pre.created) {
-              const now = McpPreimages.rowState(r, c.id)
-              const changed = !now || now.title !== c.title || valuesMoved(c.values, now.values) || movedText.has(c.id) || markMoved(c) || foreign(c.id)
-              rowChanged.set(c.id, changed)
-              if (changed && !force) keptHere.add(c.id)
-            }
-          }
-          const trash = (id: string) => {
-            const yp = pageMap(r, id)!
-            yp.set('trashed', true)
-            yp.set('trashedAt', at)
-            yp.set('updatedAt', at)
-            yp.set('updatedBy', actor)
-            n += 1
-          }
-          /** made databases left as they are: their rows of the call stay with them (not trashed, not named twice) */
-          const keptDbs = new Set<string>()
-          for (const p of meta) {
-            const pre = p.pre
-            const d = done.get(p.id)!
-            if (pre.kind === 'pages') {
-              // the newest first (a page made under another of the same call before its parent)
-              for (const c of [...pre.created].reverse()) {
-                const key = `p:${c.id}`
-                if (d.has(key)) continue
-                const yp = pageMap(r, c.id)
-                if (!yp || inTrash(r, c.id)) {
-                  d.add(key)
-                  continue
-                }
-                const title = String(yp.get('title') ?? '')
-                const isDb = yp.get('kind') === 'database'
-                const changed =
-                  title !== c.title || movedText.has(c.id) || markMoved(c) || foreign(c.id) || (isDb && [...rowChanged].some(([rid, ch]) => ch && pageMap(r, rid)?.get('databaseId') === c.id))
-                if (changed && !force) {
-                  keep.push({ id: c.id, title })
-                  keptHere.add(c.id)
-                  if (isDb) keptDbs.add(c.id)
-                  continue
-                }
-                trash(c.id)
-                d.add(key)
-              }
-            } else if (pre.kind === 'rows') {
-              for (const c of pre.updated) {
-                const yp = pageMap(r, c.id)
-                if (!yp) {
-                  for (const k of keysOf({ ...pre, created: [], updated: [c] })) d.add(k)
-                  continue
-                }
-                const dbId = typeof yp.get('databaseId') === 'string' ? (yp.get('databaseId') as string) : pre.db
-                // a kept field is named as people see it (its property's name now)
-                const props = liveDatabase(r, dbId)?.properties ?? []
-                const nameOf = (k: string) => props.find((x) => x.id === k)?.name ?? k
-                const now = McpPreimages.rowState(r, c.id, Object.keys(c.after.values))!
-                const changed: string[] = []
-                const back: Values = {}
-                for (const [k, after] of Object.entries(c.after.values)) {
-                  const key = `u:${c.id}:${k}`
-                  if (d.has(key)) continue
-                  if (!same(now.values[k], after) && !force) {
-                    changed.push(nameOf(k))
-                    continue
-                  }
-                  back[k] = c.before.values[k] ?? null
-                  d.add(key)
-                }
-                let title = false
-                if (c.after.title !== undefined && c.before.title !== undefined && !d.has(`u:${c.id}:#title`)) {
-                  if (now.title === c.after.title || force) {
-                    yp.set('title', c.before.title)
-                    d.add(`u:${c.id}:#title`)
-                    title = true
-                  } else changed.push(props.find((x) => x.type === 'title')?.name ?? 'title')
-                }
-                if (Object.keys(back).length || title) {
-                  // relation values as a write puts them: the partner rows in step (no one-sided link left)
-                  putValues(this.model, r, c.id, back, actor, at)
-                  yp.set('updatedAt', at)
-                  yp.set('updatedBy', actor)
-                  n += 1
-                }
-                if (changed.length) keep.push({ id: c.id, title: now.title, fields: changed })
-              }
-              for (const c of pre.created) {
-                const key = `c:${c.id}`
-                if (d.has(key)) continue
-                const yp = pageMap(r, c.id)
-                if (!yp || inTrash(r, c.id)) {
-                  d.add(key)
-                  continue
-                }
-                // a row of a made database that stays: it stays with it
-                if (keptDbs.has(String(yp.get('databaseId') ?? ''))) continue
-                if (rowChanged.get(c.id) && !force) {
-                  keep.push({ id: c.id, title: String(yp.get('title') ?? '') })
-                  continue
-                }
-                trash(c.id)
-                d.add(key)
-              }
-            }
-          }
-          return { n, keep }
+          const texts = forced.filter((c) => !!pageMap(r, c.page))
+          const n = putFields(r, texts, Date.now())
+          const left = topOf(r)
+            .filter((m) => !!pageMap(r, m.id) && !inTrash(r, m.id))
+            .map((m) => ({ id: m.id, title: String(pageMap(r, m.id)!.get('title') ?? '') }))
+          return { n, texts, left }
         },
         actor,
       )
-      restored += out.n
-      kept.push(...out.keep)
+      for (const c of out.texts) await this.putText(c.doc, c.before, actor)
+      this.s.repo.markCallRestored(wsId, callId, Date.now())
+      const restored = out.n + out.texts.length
+      this.s.log.info('mcp call restored', { workspace: wsId, call: callId, restored, left: out.left.length, force: true, by: actor })
+      return { callId, restored, left: out.left, ...(out.left.length ? { note: 'Put back the texts and fields this call changed. What it made stays (left): move it to the trash in One if it is no longer wanted.' } : {}) }
     }
-    // the texts, after the made things were decided: a text the call only put its own links / database block into goes
-    // back whole only when every thing they point at went (to the trash, now or before) and nobody wrote there since (as
-    // the bridge's Undo); else only the nodes of the things that went come out (a later edit stays), and the page is
-    // named in `kept` with the things whose link / block stays
-    for (const p of contents) {
-      const pre = p.pre as Extract<Preimage, { kind: 'content' }>
-      const d = done.get(p.id)!
-      if (!pre.own?.length) {
-        await this.writeBack(wsId, p.doc, pre.page, pre.before, actor)
-        // back now: never written again by a later Restore (its own write is no change since — and a failure below
-        // leaves it done)
-        this.s.repo.updatePreimage(wsId, p.id, null, Date.now())
-        d.add('*')
-        restored += 1
-        continue
-      }
-      const own = pre.own
-      const state = await this.model.read(wsId, (r) => ({ gone: own.filter((o) => !pageMap(r, o.id) || inTrash(r, o.id)).map((o) => o.id), title: String(pageMap(r, pre.page)?.get('title') ?? ''), titles: new Map(own.map((o) => [o.id, String(pageMap(r, o.id)?.get('title') ?? '')] as const)) }))
-      const gone = new Set(state.gone)
-      const open = own.filter((o) => !d.has(`l:${o.id}`))
-      const staying = open.filter((o) => !gone.has(o.id))
-      const after = p.after_hash
-      const untouched = !!after && open.length === own.length && !(await this.s.collab.read(p.doc, (doc) => textMoved(doc, after)))
-      if (!staying.length && untouched) await this.writeBack(wsId, p.doc, pre.page, pre.before, actor)
-      else if (open.some((o) => gone.has(o.id))) await this.takeOut(wsId, p.doc, pre.page, open.filter((o) => gone.has(o.id)), actor)
-      const wrote = open.some((o) => gone.has(o.id))
-      for (const o of open) if (gone.has(o.id)) d.add(`l:${o.id}`)
-      if (wrote) restored += 1
-      if (staying.length) kept.push({ id: pre.page, title: state.title, fields: staying.map((o) => state.titles.get(o.id) || o.id) })
-      if (keysOf(pre).every((k) => d.has(k))) this.s.repo.updatePreimage(wsId, p.id, null, Date.now())
-      else if (wrote) this.s.repo.updatePreimage(wsId, p.id, JSON.stringify({ ...p.pre, done: [...d] }), null)
-    }
-    // each part: back whole → done; else what it put back is noted (a later Restore touches only the rest)
-    const at = Date.now()
-    for (const p of open) {
-      const d = done.get(p.id)!
-      if (p.pre.kind === 'content') continue
-      const whole = keysOf(p.pre).every((k) => d.has(k))
-      if (whole) this.s.repo.updatePreimage(wsId, p.id, null, at)
-      else if (d.size !== (p.pre.done?.length ?? 0)) this.s.repo.updatePreimage(wsId, p.id, JSON.stringify({ ...p.pre, done: [...d] }), null)
-    }
+
+    // nothing moved: the meta in one transaction (checked again in it — nothing is written when something moved meanwhile),
+    // then the texts
+    const n = await this.s.collab.write(
+      metaDoc(wsId),
+      (doc) => {
+        const r = roots(doc)
+        const again = changedSince(r)
+        if (again.length) throw McpPreimages.refusal(again, canForce(again))
+        const at = Date.now()
+        let n = putFields(r, contents, at)
+        for (const m of topOf(r)) {
+          const yp = pageMap(r, m.id)!
+          yp.set('trashed', true)
+          yp.set('trashedAt', at)
+          yp.set('updatedAt', at)
+          yp.set('updatedBy', actor)
+          n += 1
+        }
+        return n
+      },
+      actor,
+    )
+    for (const c of contents) await this.putText(c.doc, c.before, actor)
+    this.s.repo.markCallRestored(wsId, callId, Date.now())
     // a repeat of the call is no longer answered with what it made (it is in the trash now): it makes it again
-    if (restored) {
-      const dup = all.map((p) => p.pre.dup).find((d): d is string => typeof d === 'string')
-      if (dup) forgetCall(this.s, rows[0]!.token_id, dup)
-    }
-    this.s.log.info('mcp call restored', { workspace: wsId, call: callId, restored, kept: kept.length, force, by: actor })
-    return { callId, restored, kept, ...(kept.length ? { note: 'Some things were changed since this call and were left as they are (restore with force to put them back too).' } : {}) }
+    const dup = parts.map((p) => p.pre.dup).find((d): d is string => typeof d === 'string')
+    if (dup) forgetCall(this.s, rows[0]!.token_id, dup)
+    const restored = n + contents.length
+    this.s.log.info('mcp call restored', { workspace: wsId, call: callId, restored, force, by: actor })
+    return { callId, restored, left: [] }
   }
 }

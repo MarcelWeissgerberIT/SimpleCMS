@@ -12,7 +12,7 @@ import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { useLang, useT } from '../../i18n'
 import { Led } from '../../ui/controls'
-import { cloudApi, type ApiComments, type ApiScope, type ApiToken, type IncomingHook, type McpCallEntry, type McpRestore } from './api'
+import { cloudApi, mcpChangedOf, type ApiComments, type ApiScope, type ApiToken, type IncomingHook, type McpCallEntry, type McpChanged, type McpRestore } from './api'
 import { errorCode, errorText } from './errors'
 import { HelpLink } from '../../help'
 import { useCloud } from '../../cloud'
@@ -532,7 +532,7 @@ function Hooks({ wsId }: { wsId: string }) {
 
 /* ------------------------------------------------------------------ recent MCP writes (team server pre-images) */
 
-type CallConfirm = { id: string; kind: 'restore' | 'force'; names: string } | null
+type CallConfirm = { id: string; kind: 'restore' | 'force' } | null
 
 /** Owners / admins: the MCP calls of the last 14 days that wrote something, each with Restore (docs/MCP.md). */
 function McpCalls({ wsId }: { wsId: string }) {
@@ -561,7 +561,10 @@ function McpCallList({ wsId }: { wsId: string }) {
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [confirm, setConfirm] = useState<CallConfirm>(null)
-  const [kept, setKept] = useState<Record<string, McpRestore['kept']>>({})
+  /** a refused restore per call: what moved since (all or nothing — nothing was put back) */
+  const [refused, setRefused] = useState<Record<string, McpChanged>>({})
+  /** a forced restore per call: what the call made that stays */
+  const [left, setLeft] = useState<Record<string, McpRestore['left']>>({})
   const listRef = useRef<HTMLDivElement>(null)
 
   /**
@@ -611,6 +614,14 @@ function McpCallList({ wsId }: { wsId: string }) {
   }, [load])
 
   const quote = (names: string[]) => names.map((n) => `“${n || t('common.untitled')}”`).join(', ')
+  /** each thing that moved since, with what moved: “Card 3” (Owner), “Glossar” (title, moved) */
+  const movedNames = (r: McpChanged) =>
+    r.changed
+      .map((c) => {
+        const what = [...c.fields, ...c.what.filter((w) => !(w === 'values' && c.fields.length)).map((w) => t(`shell.cloud.mcp.what.${w}`))]
+        return `“${c.title || t('common.untitled')}”${what.length ? ` (${what.join(', ')})` : ''}`
+      })
+      .join(', ')
 
   const restore = async (call: McpCallEntry, force: boolean) => {
     setBusy(call.callId)
@@ -618,16 +629,20 @@ function McpCallList({ wsId }: { wsId: string }) {
     try {
       const out = await cloudApi.restoreMcpCall(wsId, call.callId, force)
       setConfirm(null)
-      setKept(({ [call.callId]: _, ...rest }) => (out.kept.length ? { ...rest, [call.callId]: out.kept } : rest))
-      if (!out.kept.length) useUI.getState().toast({ message: t('shell.cloud.mcp.done'), kind: 'success' })
+      setRefused(({ [call.callId]: _, ...rest }) => rest)
+      setLeft(({ [call.callId]: _, ...rest }) => (out.left.length ? { ...rest, [call.callId]: out.left } : rest))
+      if (!out.left.length) useUI.getState().toast({ message: t('shell.cloud.mcp.done'), kind: 'success' })
       await load()
-      // the bar and (once put back) the row's Restore key are gone: its "Restore anyway" key when fields were kept, else the row
-      focusCall(call.callId, out.kept.length ? ['force', 'row'] : ['row'])
+      // the bar and the row's Restore key are gone: the row
+      focusCall(call.callId, ['row'])
     } catch (e) {
-      // a page text moved since the call: ask again, this time saying what goes
-      if (errorCode(e) === 'changed_since') setConfirm({ id: call.callId, kind: 'force', names: quote(call.titles) })
-      else {
-        setConfirm(null)
+      setConfirm(null)
+      // something moved since the call: nothing was put back — say what, and offer "Restore anyway" when it can help
+      const moved = errorCode(e) === 'changed_since' ? mcpChangedOf(e) : null
+      if (moved) {
+        setRefused((was) => ({ ...was, [call.callId]: moved }))
+        focusCall(call.callId, ['force', 'restore', 'row'])
+      } else {
         setError(errorText(e, t))
         focusCall(call.callId, ['restore', 'row'])
       }
@@ -675,7 +690,8 @@ function McpCallList({ wsId }: { wsId: string }) {
               ...(call.changed ? [t('shell.cloud.mcp.changed', { n: call.changed })] : []),
               ago(call.at),
             ]
-            const left = kept[call.callId]
+            const moved = refused[call.callId]
+            const stays = left[call.callId]
             return (
               <li key={call.callId} className="api-row" data-testid="mcp-call" data-call={call.callId} tabIndex={-1} aria-label={name} data-restored={call.restoredAt ? '' : undefined}>
                 <span className="api-row__glyph" aria-hidden>
@@ -690,18 +706,27 @@ function McpCallList({ wsId }: { wsId: string }) {
                 </div>
                 <div className="api-row__ctl">
                   {!call.restoredAt && (
-                    <button type="button" className="btn btn--sm btn--ghost" data-focus="restore" onClick={() => setConfirm({ id: call.callId, kind: 'restore', names: '' })} disabled={busy !== null} aria-label={`${t('shell.cloud.mcp.restore')}: ${name}`}>
+                    <button type="button" className="btn btn--sm btn--ghost" data-focus="restore" onClick={() => setConfirm({ id: call.callId, kind: 'restore' })} disabled={busy !== null} aria-label={`${t('shell.cloud.mcp.restore')}: ${name}`}>
                       <Undo2 size={13} aria-hidden />
                       {t('shell.cloud.mcp.restore')}
                     </button>
                   )}
                 </div>
-                {left && !call.restoredAt && confirm?.id !== call.callId && (
-                  <div className="api-kept" role="status">
-                    <p className="api-kept__line">{t('shell.cloud.mcp.kept', { names: quote(left.map((k) => (k.fields?.length ? `${k.title} (${k.fields.join(', ')})` : k.title))) })}</p>
-                    <button type="button" className="btn btn--sm btn--ghost" data-focus="force" disabled={busy !== null} onClick={() => setConfirm({ id: call.callId, kind: 'force', names: quote(left.map((k) => k.title)) })}>
-                      {t('shell.cloud.mcp.force')}
-                    </button>
+                {moved && !call.restoredAt && confirm?.id !== call.callId && (
+                  <div className="api-kept" role="status" data-testid="mcp-call-changed">
+                    <p className="api-kept__line">
+                      {t('shell.cloud.mcp.changedSince', { names: movedNames(moved) })} {t(moved.canForce ? 'shell.cloud.mcp.forceHint' : 'shell.cloud.mcp.undoInOne')}
+                    </p>
+                    {moved.canForce && (
+                      <button type="button" className="btn btn--sm btn--ghost" data-focus="force" disabled={busy !== null} onClick={() => setConfirm({ id: call.callId, kind: 'force' })}>
+                        {t('shell.cloud.mcp.force')}
+                      </button>
+                    )}
+                  </div>
+                )}
+                {stays && call.restoredAt && (
+                  <div className="api-kept" role="status" data-testid="mcp-call-left">
+                    <p className="api-kept__line">{t('shell.cloud.mcp.left', { names: quote(stays.map((m) => m.title)) })}</p>
                   </div>
                 )}
                 {confirm?.id === call.callId && confirm.kind === 'restore' && (
@@ -709,7 +734,7 @@ function McpCallList({ wsId }: { wsId: string }) {
                 )}
                 {confirm?.id === call.callId && confirm.kind === 'force' && (
                   <ConfirmBar
-                    question={`${left ? '' : `${t('shell.cloud.mcp.changedSince', { names: confirm.names })} `}${t('shell.cloud.mcp.forceQ', { names: confirm.names })}`}
+                    question={t('shell.cloud.mcp.forceQ')}
                     action={t('shell.cloud.mcp.force')}
                     danger
                     busy={busy !== null}
