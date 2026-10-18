@@ -51,7 +51,7 @@ import { QuestionsForm } from './Questions'
 import { OrderSettingsKey } from './OrderSettings'
 import { stopPlanning } from './runs'
 import { takeDiscardUndo } from './trigger'
-import { typing } from '../../../ui/keys'
+import { typingWithin } from '../../../ui/keys'
 import { HelpLink } from '../../../help'
 import { ORDER_LIMITS } from './types'
 import { useOrderAuto } from './auto'
@@ -150,10 +150,12 @@ export default function OrderPlate({ rowId }: { rowId: ID }) {
         if (stopPlanning(rowId)) e.preventDefault()
         return
       }
-      if (typing(el) || e.ctrlKey || e.metaKey || e.altKey) return
+      // a dialog around the plate (the side peek) never owns its keys — a field, a menu / dialog inside it does (Fix 2)
+      if (typingWithin(el, plate) || e.ctrlKey || e.metaKey || e.altKey) return
       if (e.key === 'Escape') {
         // a popover / dialog inside handles its own Esc first
-        if (el.closest('[role="dialog"]')) return
+        const inner = el.closest('[role="dialog"]')
+        if (inner && inner !== plate && plate.contains(inner)) return
         e.preventDefault()
         document.getElementById(hid)?.focus()
         return

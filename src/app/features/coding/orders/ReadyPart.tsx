@@ -27,14 +27,14 @@ import type { ID } from '../../../store/types'
 import type { Writer } from '../../../store/writer'
 import { ReadOnlyDoc } from '../../../editor'
 import { CodeArea, markdownTokenizer } from '../../../ui/code'
-import { typing } from '../../../ui/keys'
+import { typingWithin } from '../../../ui/keys'
 import { useLang, useT } from '../../../i18n'
 import { useUI } from '../../../store/ui'
 import { fmtUsd, fmtAmount, parseAmount } from '../../../lib/money'
 import { classOfPage } from '../../ai/core'
 import { claudeDoc } from '../../ai/claudeDoc'
 import { costText } from '../../ai/Receipt'
-import { agentIdOf } from '../../agents/attribution'
+import { provOutside } from './autoCore'
 import { useCoding, defaultApprovals } from '../state'
 import { modelLabel } from '../tasks'
 import { stepNo } from './words'
@@ -62,11 +62,11 @@ const O = 'features.coding.order'
 const YOU: Writer = { kind: 'you', via: 'ui' }
 /** stages that run Claude Code (their model shows on the station) */
 const CLAUDE_STAGES = new Set(['plan', 'implement', 'doc'])
-/** content origins of the person's own writing (an editor's `editor:<key>`, the answers to the planner) */
-const byPerson = (origin: string | null | undefined): boolean => !origin || origin.startsWith('editor:') || origin === 'answers' || origin === 'summary'
-
-/** Who last wrote a page the planner read, as a class: someone other than the person (an agent, the sync, Claude …). */
-export const provForeign = (p: OrderProv | undefined): boolean => !!p && (!!agentIdOf(p.updatedBy) || !byPerson(p.contentOrigin))
+/**
+ * Who last wrote a page the planner read, as a class: someone other than the person (an agent, the sync, Claude, the
+ * bridge on a request's title / fields …) — the auto mode's own rule (autoCore.ts provOutside, Fix 2).
+ */
+export const provForeign = (p: OrderProv | undefined): boolean => provOutside(p)
 
 /** The class tags of a page that goes along: PRIVAT · MAIL · FREMD. */
 function tagsOf(id: ID, prov: OrderProv | undefined): Array<'private' | 'mail' | 'foreign'> {
@@ -225,6 +225,9 @@ export function Station({
   repos,
   onEdit,
   onRepo,
+  onRemove,
+  onMove,
+  count,
 }: {
   facts: StationFacts
   index: number
@@ -235,6 +238,11 @@ export function Station({
   repos: string[]
   onEdit: (i: number) => void
   onRepo: (i: number, repo: string) => void
+  /** Fix 2: the station's own keys for what Entf / Alt+↑↓ do (a phone has neither) — absent: not offered here */
+  onRemove?: (i: number) => void
+  onMove?: (i: number, by: -1 | 1) => void
+  /** how many stations the plan has (the first cannot move up, the last not down, the only one not go) */
+  count?: number
 }) {
   const t = useT()
   const { step, n, kp } = facts
@@ -321,13 +329,42 @@ export function Station({
             {branch && <span>{branch}</span>}
             {facts.next && <span>{t(`${O}.plan.next`, { n: stepNo(facts.next.n), kind: t(`${O}.kind.${facts.next.step.kind}`), title: facts.next.step.title })}</span>}
             {!viewer && (
-              <button type="button" className="btn btn--ghost btn--sm orc-station__edit" onClick={() => onEdit(index)} data-testid="order-step-edit-key">
-                <span className="kbd" aria-hidden>
-                  E
-                </span>
-                <Pencil size={13} strokeWidth={1.75} aria-hidden />
-                {t(`${O}.key.edit`)}
-              </button>
+              <span className="orc-station__keys">
+                <button type="button" className="btn btn--ghost btn--sm" onClick={() => onEdit(index)} data-testid="order-step-edit-key">
+                  <span className="kbd" aria-hidden>
+                    E
+                  </span>
+                  <Pencil size={13} strokeWidth={1.75} aria-hidden />
+                  {t(`${O}.key.edit`)}
+                </button>
+                {onMove && (count ?? 0) > 1 && index > 0 && (
+                  <button type="button" className="btn btn--ghost btn--sm" onClick={() => onMove(index, -1)} data-testid="order-step-up" aria-label={t(`${O}.key.moveUpAria`, { n: stepNo(n) })}>
+                    <span className="kbd" aria-hidden>
+                      Alt+↑
+                    </span>
+                    <ChevronUp size={13} strokeWidth={1.75} aria-hidden />
+                    {t(`${O}.key.moveUp`)}
+                  </button>
+                )}
+                {onMove && (count ?? 0) > 1 && index < (count ?? 0) - 1 && (
+                  <button type="button" className="btn btn--ghost btn--sm" onClick={() => onMove(index, 1)} data-testid="order-step-down" aria-label={t(`${O}.key.moveDownAria`, { n: stepNo(n) })}>
+                    <span className="kbd" aria-hidden>
+                      Alt+↓
+                    </span>
+                    <ChevronDown size={13} strokeWidth={1.75} aria-hidden />
+                    {t(`${O}.key.moveDown`)}
+                  </button>
+                )}
+                {onRemove && (count ?? 0) > 1 && (
+                  <button type="button" className="btn btn--ghost btn--sm" onClick={() => onRemove(index)} data-testid="order-step-remove" aria-label={t(`${O}.key.removeAria`, { n: stepNo(n) })}>
+                    <span className="kbd" aria-hidden>
+                      {t(`${O}.kbd.delete`)}
+                    </span>
+                    <Trash2 size={13} strokeWidth={1.75} aria-hidden />
+                    {t(`${O}.key.removeShort`)}
+                  </button>
+                )}
+              </span>
             )}
           </p>
         </>
@@ -593,6 +630,16 @@ export default function ReadyPart({ rowId, rec, pre, headId, viewer, elsewhere, 
     if (!out.ok) return
     focusTarget.current = i + by
   }
+  // Fix 2: while a step is being edited, no other station is removed or moved (the edit would land on another step) —
+  // said in the plate's note; the edit is finished (Save / Esc) first
+  const removeKey = (i: number) => {
+    if (editing !== null) return onNote(t(`${O}.start.why.editing`))
+    return remove(i)
+  }
+  const moveKey = (i: number, by: -1 | 1) => {
+    if (editing !== null) return onNote(t(`${O}.start.why.editing`))
+    return move(i, by)
+  }
   const pickRepo = async (i: number, repo: string) => {
     const out = await editStep(rowId, i, { repo })
     onNote(said(out))
@@ -610,13 +657,14 @@ export default function ReadyPart({ rowId, rec, pre, headId, viewer, elsewhere, 
   keys.current = (e: KeyboardEvent) => {
     if (e.repeat || e.ctrlKey || e.metaKey || viewer) return
     const el = e.target as HTMLElement
-    if (typing(el) || el.closest('.orc-edit')) return
+    // a dialog around the plate (the side peek) never owns its keys — a field, a menu / dialog inside it does (Fix 2)
+    if (typingWithin(el, root.current?.closest('section') ?? null) || el.closest('.orc-edit')) return
     const at = el.closest<HTMLElement>('[data-station]')
     const i = at ? Number(at.dataset.station) : -1
     if (e.altKey) {
       if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && i >= 0) {
         e.preventDefault()
-        void move(i, e.key === 'ArrowUp' ? -1 : 1)
+        void moveKey(i, e.key === 'ArrowUp' ? -1 : 1)
       }
       return
     }
@@ -651,9 +699,11 @@ export default function ReadyPart({ rowId, rec, pre, headId, viewer, elsewhere, 
         e.preventDefault()
         return setEditing(Math.max(0, i))
       case 'delete':
+      case 'backspace':
+        // Backspace too: the key a Mac keyboard labels "delete"
         if (i < 0) return
         e.preventDefault()
-        return void remove(i)
+        return void removeKey(i)
       case 'enter':
         if (onKey) return
         e.preventDefault()
@@ -724,6 +774,9 @@ export default function ReadyPart({ rowId, rec, pre, headId, viewer, elsewhere, 
               repos={repoList}
               onEdit={(x) => setEditing(x)}
               onRepo={(x, r) => void pickRepo(x, r)}
+              onRemove={(x) => void removeKey(x)}
+              onMove={(x, by) => void moveKey(x, by)}
+              count={stations.list.length}
               editing={
                 editing === i ? (
                   <StepEditor

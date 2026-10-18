@@ -251,6 +251,13 @@ async function pressHand(p: Page) {
   await expect(p.getByTestId('pf-confirm')).toBeVisible()
   await p.getByTestId('pf-confirm-key').press('Enter')
 }
+/** Fix 2: the chain card's step and Grundlage read to their ends (its ↵ acts only then). */
+async function readCard(p: Page) {
+  const card = p.getByTestId('order-plate').getByTestId('order-chain-card')
+  await expect(card).toBeVisible()
+  const edges = card.locator('.orc-edge')
+  for (let i = 0; i < (await edges.count()); i++) await edges.nth(i).scrollIntoViewIfNeeded()
+}
 const openRow = async (p: Page, row: string) => {
   await p.evaluate((id) => (window.location.hash = `#/p/${id}`), row)
   await expect(p.getByTestId('order-plate')).toBeVisible()
@@ -339,6 +346,7 @@ test('request on B → "Hier planen" on A; A plans and advances, B only displays
   // ── A: ↵ Weiter on its plate card (VON HAND) — step 02 gets ONE Grundlage, then runs on A's worker
   await openRow(a, row)
   const go = a.getByTestId('order-card-go')
+  await readCard(a)
   await expect(go).toHaveAttribute('data-ready', '')
   await go.click()
   await expect.poll(() => handed(fake!, steps[1]!), { timeout: 20_000 }).toBe(true)
@@ -371,6 +379,7 @@ test('request on B → "Hier planen" on A; A plans and advances, B only displays
   await a.getByTestId('order-resume').click()
   await expect.poll(async () => (await orders(a).move(row))?.kind ?? null, { timeout: 20_000 }).toBe('card')
   expect(await orders(a).move(row)).toMatchObject({ kind: 'card', step: 3, all: ['evidence'] })
+  await readCard(a)
   await expect(a.getByTestId('order-card-go')).toHaveAttribute('data-ready', '')
   await a.getByTestId('order-card-go').click()
   await expect.poll(() => handed(fake!, steps[2]!), { timeout: 20_000 }).toBe(true)

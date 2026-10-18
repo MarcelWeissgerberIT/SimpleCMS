@@ -210,7 +210,8 @@ export function readPress(v: unknown): OrderPress | null {
   if (isObj(v.prov))
     for (const [id, p] of Object.entries(v.prov).slice(0, MAX_PROV)) {
       if (!isId(id) || !isObj(p) || typeof p.contentRev !== 'number' || !Number.isInteger(p.contentRev) || p.contentRev < 0) continue
-      prov[id] = { createdBy: by(p.createdBy), updatedBy: by(p.updatedBy), contentOrigin: by(p.contentOrigin), contentRev: p.contentRev }
+      const outside = typeof p.outside === 'string' && p.outside ? p.outside.slice(0, 40) : null
+      prov[id] = { createdBy: by(p.createdBy), updatedBy: by(p.updatedBy), contentOrigin: by(p.contentOrigin), contentRev: p.contentRev, ...(outside ? { outside } : {}) }
     }
   const pins: Record<ID, number> = {}
   if (isObj(v.pins))

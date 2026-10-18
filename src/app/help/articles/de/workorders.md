@@ -54,6 +54,7 @@ Dann läuft die Kette von selbst:
 - **↵ Fortsetzen** geht weiter. Nur so endet ein Halt: keine andere Änderung am Status hebt ihn auf.
 - <kbd>S</kbd> **Schritt überspringen** bei einem fehlgeschlagenen, gestoppten, gelöschten oder ausgeworfenen Schritt — der nächste Schritt bekommt dann keine Grundlage.
 - **Alle Ketten anhalten** steht oben im Board der Prüfaufträge und in #/coding.
+- **Im Vorflug-Check** tragen die Karten die Tasten des Vorflug-Checks: auf *Weiter mit Schritt 02?* geht <kbd>A</kbd> weiter und <kbd>D</kbd> **hält die Kette an** — dort heißt D nicht Verwerfen —, auf *Kette angehalten* setzt <kbd>A</kbd> fort und <kbd>1</kbd> **überspringt den Schritt**. H und S gelten auf der Platte des Auftrags.
 
 ## Was sicher bleibt
 - **Nur du startest.** Das Planen, der Start und jede Taste, die dem Worker Arbeit gibt — Kette starten, Weiter, Fortsetzen, Überspringen, eine Freigabe, die den nächsten Schritt startet — sind deine eigenen Drücke: im Vorflug-Check **VON HAND**, nie per ⇧A oder Wischen.

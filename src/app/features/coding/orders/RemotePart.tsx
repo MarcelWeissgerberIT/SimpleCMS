@@ -16,7 +16,7 @@ import { Trash2 } from 'lucide-react'
 import { useWorkspace } from '../../../store/store'
 import type { ID, OrderStatusKey } from '../../../store/types'
 import { Led } from '../../../ui/controls'
-import { typing } from '../../../ui/keys'
+import { typingWithin } from '../../../ui/keys'
 import { useT } from '../../../i18n'
 import { codingProps, readPipeline, stageOfRow } from '../schema'
 import { startStageOf } from '../stages'
@@ -81,7 +81,8 @@ export default function RemotePart({ rowId, status, adopt, viewer, headId }: { r
   const keys = useRef<(e: KeyboardEvent) => void>(() => {})
   keys.current = (e: KeyboardEvent) => {
     if (e.repeat || e.altKey || e.ctrlKey || e.metaKey || viewer) return
-    if (typing(e.target as HTMLElement)) return
+    // a dialog around the plate (the side peek) never owns its keys (Fix 2)
+    if (typingWithin(e.target as HTMLElement, root.current?.closest('section') ?? null)) return
     const k = e.key.toLowerCase()
     if (k === 'h' && status === 'running' && !adopt) {
       e.preventDefault()

@@ -5,8 +5,10 @@
  * written under a given writer (the allow-list's negative cases: an Undo, a template, an automation, the terminal …), a
  * kept press aged.
  */
-import type { ID, OrderStatusKey } from '../../../store/types'
-import type { Writer } from '../../../store/writer'
+import type { ID, OrderStatusKey, PropertyValue } from '../../../store/types'
+import { withWriter, type Writer } from '../../../store/writer'
+import { useWorkspace } from '../../../store/store'
+import { loadRowOutside } from './rowWriters'
 import { ensureOrderDb, orderDbId, orderStatusKey, writeOrderStatus } from './db'
 import { orderPreNow, pressLog } from './press'
 import { loadOrderRecord, patchOrderRecord } from './records'
@@ -31,5 +33,11 @@ export function installOrderEntriesSeam(x: { fireWants: () => Promise<void>; wri
     send: (pageId: ID, note?: string) => sendToOrders(pageId, { note }),
     pre: (rowId: ID) => orderPreNow(rowId),
     writerKey: x.writerKey,
+    /** Fix 2: a request row made / renamed / a field written under `writer` (the bridge, a script, an automation …) */
+    createRowAs: (writer: Writer, dbId: ID, input: { title?: string; properties?: Record<ID, PropertyValue> }) => withWriter(writer, () => useWorkspace.getState().createRow(dbId, input)),
+    renameAs: (writer: Writer, rowId: ID, title: string) => withWriter(writer, () => useWorkspace.getState().updatePage(rowId, { title })),
+    setPropAs: (writer: Writer, rowId: ID, prop: ID, value: PropertyValue) => withWriter(writer, () => useWorkspace.getState().setRowProperty(rowId, prop, value)),
+    /** Fix 2: who last wrote the row's title / fields here (rowWriters.ts), as stored */
+    rowOutside: (rowId: ID) => loadRowOutside(rowId),
   }
 }

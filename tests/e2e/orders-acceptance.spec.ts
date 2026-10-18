@@ -37,7 +37,7 @@ import type { BrowserContext, Locator, Page, Route } from '@playwright/test'
 import { test, expect, openApp, wsEval, gotoPage, editorOf } from './fixtures'
 import { claudeJson, claudeSse, type ClaudeBlock, type ClaudeTurn } from './helpers/providers'
 import { startFakeWorker, type FakeWorker, type Json } from './helpers/fakeWorker'
-import { readPlan } from './helpers/orders'
+import { readCard, readPlan } from './helpers/orders'
 import { flushLamps, waitPreflight } from './helpers/preflightStory.mjs'
 import { WORKER_CAN, type WorkerInfo } from '../../src/app/features/coding/protocol'
 import { messages as entryMsgs } from '../../src/app/features/coding/orders/entryMessages'
@@ -599,12 +599,12 @@ test.describe('Prüfaufträge — the owner\'s story end to end (B15)', () => {
     const card = plate.getByTestId('order-chain-card')
     await expect(card).toHaveAttribute('data-why', 'checkpoint', { timeout: 30_000 })
     await expect(plate.getByTestId('order-card-why').first()).toContainText('Session-Timeout beheben')
-    await plate.getByTestId('order-card-basis').locator('summary').click()
     await expect(plate.getByTestId('order-card-basis')).toContainText('Aus Schritt 01')
     await expect(plate.getByTestId('order-card-basis')).toContainText('Das Gateway beendet die Sitzung nach 30 s')
     await shot(page, 'b15-1-checkpoint', card)
     expect(handed(fake!).some((h) => h.startsWith(ids[1]!))).toBe(false)
     const go = plate.getByTestId('order-card-go')
+    await readCard(page)
     await expect(go).toHaveAttribute('data-ready', '', { timeout: 10_000 })
     await go.click()
 

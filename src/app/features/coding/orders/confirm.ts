@@ -43,7 +43,7 @@ import type { ID } from '../../../store/types'
 import { withWriter, type Writer } from '../../../store/writer'
 import { newId } from '../../../lib/ids'
 import { docToMarkdown, readableBlocks } from '../../../editor'
-import { pageFp, quoteTitleOf, requestNow, textFp } from './fingerprint'
+import { pageFp, quoteTitleOf, requestFp, requestNow, textFp } from './fingerprint'
 import { withHalt } from '../chain'
 import { currentLang, t } from '../../../i18n'
 import { canonicalJson } from '../protocol'
@@ -66,7 +66,7 @@ import { followRecord, orderWriter, unschedule } from './chainRun'
 import { stepBlockIds, stepPage } from './stepPage'
 import { stepWords } from './words'
 import { taskVersionView } from '../terminal'
-import { carried, chainCarriers, chainKeyBlock, heldIds } from './lamp'
+import { carried, chainCarriers, chainKeyBlock, claimedElsewhere, heldIds } from './lamp'
 import { ORDER_LIMITS, type OrderChain, type OrderChainStep, type OrderDraft, type OrderKind, type OrderRecord } from './types'
 
 const ws = () => useWorkspace.getState()
@@ -409,7 +409,7 @@ async function startLocked(rowId: ID, hash: string): Promise<StartOutcome> {
   const request = requestNow(rowId)
   if (looksLikeKey(request.text) || looksLikeKey(row.title)) return fail({ why: 'keys' })
   const fps = draft.source.fps ?? {}
-  if (!fps[rowId] || (await textFp(request.text)) !== fps[rowId]) return fail({ why: 'source', page: rowId })
+  if (!fps[rowId] || (await requestFp(request)) !== fps[rowId]) return fail({ why: 'source', page: rowId })
   for (const id of new Set(steps.flatMap((st) => st.refs.filter(live)))) if (!fps[id] || (await pageFp(ws().pages[id])) !== fps[id]) return fail({ why: 'source', page: id })
 
   // every step against the shared checks and its project's needs (projects not made yet: their template)
@@ -657,7 +657,7 @@ export type ConfirmChainOutcome =
       /** busy: the request's lock is held · state: this device holds a chain of it, or it does not stand in Läuft ·
        *  changed: a step is not (exactly) the version the card rendered, or the steps are not the ones it listed — nothing
        *  was trusted, shown again · numbers: the Schritt numbers are missing or doubled · the chain guard's reasons */
-      why: 'busy' | 'state' | 'changed' | 'numbers' | 'record' | 'readOnly' | 'elsewhere' | 'outdated' | 'unsafe'
+      why: 'busy' | 'state' | 'changed' | 'numbers' | 'record' | 'readOnly' | 'elsewhere' | 'outdated' | 'unsafe' | 'steered'
     }
 
 /** A chain of at most this many steps can be taken over (the record reader's bound). */
@@ -684,6 +684,8 @@ export async function confirmChainVersions(rowId: ID, shown: ReadonlyArray<{ id:
     if (!carriers.length || carriers.length !== shown.length || carriers.some((c, i) => c.id !== shown[i]!.id)) return { ok: false, why: 'changed' }
     const ns = carriers.map((c) => c.n)
     if (carriers.length > ADOPT_MAX || ns.some((n) => n === null) || new Set(ns).size !== ns.length) return { ok: false, why: 'numbers' }
+    // Fix 2: a step another worker has claimed — that device steers the chain; this one never takes it over
+    if (claimedElsewhere(carriers.map((c) => c.id))) return { ok: false, why: 'steered' }
     // every version exactly as the card rendered it — checked for all before any is trusted
     const views = []
     for (let i = 0; i < carriers.length; i++) {

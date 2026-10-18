@@ -706,7 +706,11 @@
   margin-top: 8px;
   color: var(--ink-3);
 }
-.orc-station__edit {
+/* a station's own keys (E · ↑ · ↓ · Entf): words on every device — a phone has no Entf or Alt (Fix 2) */
+.orc-station__keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
   margin-left: auto;
 }
 .orc-refs {
@@ -868,7 +872,8 @@
   color: var(--ink-3);
   font-size: var(--text-xs);
 }
-@media (hover: none) {
+/* the key hint only where a keyboard is likely (a fine pointer): a touch device shows the keys' words instead */
+@media (hover: none), (pointer: coarse) {
   .orc-keyhint {
     display: none;
   }

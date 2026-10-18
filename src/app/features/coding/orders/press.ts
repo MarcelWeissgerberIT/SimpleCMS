@@ -38,7 +38,8 @@ import { orderPre, type OrderPreFacts, type OrderPreKind, type OrderPreResult, t
 import { bareRecord, patchOrderRecord } from './records'
 import { planOrder } from './plan'
 import type { PlanOutcome } from './planner'
-import { pageShown, requestNow, shownFp, textFp } from './fingerprint'
+import { pageShown, requestFp, requestNow, shownFp } from './fingerprint'
+import { loadRowOutside, outsideOf, rowOutsideNow } from './rowWriters'
 import { ORDER_LIMITS, type OrderPress, type OrderPressHow, type OrderProv, type OrderRecord } from './types'
 
 const ws = () => useWorkspace.getState()
@@ -56,7 +57,10 @@ export function pressProv(pages: Record<ID, Page>, rowId: ID): { prov: Record<ID
   const prov: Record<ID, OrderProv> = {}
   const pins: Record<ID, number> = {}
   if (!row) return { prov, pins }
-  prov[rowId] = provOf(row)
+  // Fix 2: who last wrote its title / fields / made it, as this tab holds it now (rowWriters.ts) — pressPlan reads the
+  // stored marks again before it plans
+  const outside = outsideOf(rowOutsideNow(rowId), row)
+  prov[rowId] = { ...provOf(row), ...(outside ? { outside } : {}) }
   pins[rowId] = row.contentRev ?? 0
   let n = 0
   for (const id of refIdsIn(row.content?.content ?? [], rowId)) {
@@ -77,12 +81,12 @@ export function pressProv(pages: Record<ID, Page>, rowId: ID): { prov: Record<ID
  */
 function pressShown(rowId: ID, ids: readonly ID[]): () => Promise<Record<ID, string>> {
   const s = ws()
-  const request = s.pages[rowId] ? requestNow(rowId).text : null
+  const request = s.pages[rowId] ? requestNow(rowId) : null
   const pages = ids.filter((id) => id !== rowId && !!s.pages[id]).map((id) => [id, pageShown(s.pages[id])] as const)
   return async () => {
     const out: Record<ID, string> = {}
     try {
-      if (request !== null) out[rowId] = await textFp(request)
+      if (request !== null) out[rowId] = await requestFp(request)
       for (const [id, shown] of pages) out[id] = await shownFp(shown)
     } catch {
       return {}
@@ -147,7 +151,7 @@ function liveRow(rowId: ID): boolean {
  * from the state before the Status write) — default: now (the command, the plate, Prüfen lassen press before writing).
  */
 export async function pressPlan(rowId: ID, how: OrderPressHow, opts: { captured?: ReturnType<typeof pressProv> } = {}): Promise<PressResult> {
-  const captured = opts.captured ?? pressProv(ws().pages, rowId)
+  let captured = opts.captured ?? pressProv(ws().pages, rowId)
   // a team: a database or row made just now ("Prüfen lassen") is marked private by the cloud binding in a microtask
   // after its write — let that land before the row test (the provenance above is the moment of the press)
   await Promise.resolve()
@@ -160,6 +164,10 @@ export async function pressPlan(rowId: ID, how: OrderPressHow, opts: { captured?
     return { kind: 'refused', why: 'gone', left: [] }
   }
   const shown = pressShown(rowId, Object.keys(captured.prov))
+  // Fix 2: the row's title / fields written by someone other than the person — the marks as stored (another tab's, one
+  // from before a reload) join what the press captured
+  const outside = captured.prov[rowId] && !captured.prov[rowId]!.outside ? outsideOf(await loadRowOutside(rowId), ws().pages[rowId]) : null
+  if (outside) captured = { ...captured, prov: { ...captured.prov, [rowId]: { ...captured.prov[rowId]!, outside } } }
   const at = Date.now()
   const fps = await shown()
   const press: OrderPress = { run: newId(), at, how, ...captured, ...(Object.keys(fps).length ? { fps } : {}) }

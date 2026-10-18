@@ -21,7 +21,7 @@ import { resultLine, stepResults, writeSummary, type StepResult } from './summar
 import { useWorkspace } from '../../../store/store'
 import type { ID } from '../../../store/types'
 import { Led, shortcutLabel } from '../../../ui/controls'
-import { typing } from '../../../ui/keys'
+import { typingWithin } from '../../../ui/keys'
 import { useLang, useT } from '../../../i18n'
 import { useUI } from '../../../store/ui'
 import { useCoding } from '../state'
@@ -117,6 +117,17 @@ export default function ChainPart({ rowId, rec, ready, pre, headId, viewer, else
   const first = sorted[0]
   const counting = rec.state === 'running' && !!chain && !chain.halted && !!first && chain.advanced?.[first.n] === undefined
   const left = useLeft(counting ? chain!.startAt : null)
+  // Fix 2: a screen reader hears the count once at its start and once at its end — never every tick (the ticking line is
+  // aria-hidden; this region says it)
+  const [said, setSaid] = useState('')
+  const wasCounting = useRef(false)
+  const firstN = first?.n
+  useEffect(() => {
+    if (counting && !wasCounting.current && firstN !== undefined)
+      setSaid(t(`${O}.chain.countdownSay`, { n: stepNo(firstN), s: Math.max(1, Math.ceil(((chain?.startAt ?? Date.now()) - Date.now()) / 1000)) }))
+    else if (!counting && wasCounting.current && firstN !== undefined) setSaid(rec.state === 'running' && chain?.advanced?.[firstN] !== undefined ? t(`${O}.chain.countdownTaken`, { n: stepNo(firstN) }) : t(`${O}.chain.countdownEnded`))
+    wasCounting.current = counting
+  }, [counting]) // eslint-disable-line react-hooks/exhaustive-deps
   // B7: the engine's newest move here (a card the chain waits at), the step running on this device's worker, the steps S may skip
   const view = useChainMoves((s) => s.moves[rowId])
   const card = rec.state === 'running' && !chain?.halted && view?.move.kind === 'card' ? view.move : null
@@ -190,7 +201,8 @@ export default function ChainPart({ rowId, rec, ready, pre, headId, viewer, else
     // Kette bereit: ReadyPart has the keys
     if (e.repeat || e.altKey || viewer || draft?.plan.steps.length) return
     const el = e.target as HTMLElement
-    if (typing(el)) return
+    // a dialog AROUND the plate (the side peek) never owns its keys — a field, or a menu / dialog inside it, does (Fix 2)
+    if (typingWithin(el, root.current?.closest('section') ?? null)) return
     const running = rec.state === 'running' && !!chain && !chain.halted
     // ⌘. Sofort stoppen: only while a step of the chain runs on this device's worker
     if (e.key === '.' && (e.metaKey || e.ctrlKey)) {
@@ -353,7 +365,7 @@ export default function ChainPart({ rowId, rec, ready, pre, headId, viewer, else
           <ChainCard rowId={rowId} chain={chain} move={card} viewer={viewer} onOutcome={keyed} />
         ) : counting ? (
           <div className="orc-count" data-testid="order-countdown">
-            <p className="orc-line" aria-live="polite">
+            <p className="orc-line" aria-hidden>
               {t(`${O}.chain.countdown`, { n: stepNo(first!.n), s: new Intl.NumberFormat(lang === 'de' ? 'de-DE' : 'en-US').format(left) })}
             </p>
             {!viewer && (
@@ -424,6 +436,9 @@ export default function ChainPart({ rowId, rec, ready, pre, headId, viewer, else
         § {t(`${O}.plan.title`)} · {t(`${O}.plan.steps.${(draft?.plan.steps.length ?? chain?.steps.length ?? 0) === 1 ? 'one' : 'other'}`, { n: draft?.plan.steps.length ?? chain?.steps.length ?? 0 })}
       </p>
       {body}
+      <p className="visually-hidden" aria-live="polite" data-testid="order-countdown-live">
+        {said}
+      </p>
       {note && (
         <p className="orc-line orc-line--warn" role="alert" data-testid="order-chain-note">
           {note}

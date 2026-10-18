@@ -65,7 +65,8 @@ import { serverSkip } from './tools'
 import { serverReads } from './serverTools'
 import { emptyFold, foldCalls, type CallFold } from './calls'
 import { loadOrderRecord, orderScope, patchOrderRecord } from './records'
-import { pageShown, requestNow, shownFp, textFp } from './fingerprint'
+import { pageShown, requestFp, requestNow, shownFp, textFp } from './fingerprint'
+import { loadRowOutside, outsideOf } from './rowWriters'
 import { endSignal, patchRun, plannerRun, runSignal, startRun } from './runs'
 import { ORDER_LIMITS, type OrderConfig, type OrderDraft, type OrderPlanV1, type OrderProv, type OrderRecord, type OrderServerSkip, type OrderStatusKey, type PlanNote } from './types'
 import type { Receipt } from '../../ai/core/meter'
@@ -408,14 +409,20 @@ async function planRun(rowId: ID, run: string, opts: PlanOpts, signal: AbortSign
   const s = ws()
   const prov: Record<ID, OrderProv> = {}
   for (const id of [rowId, ...built.pages.map((p) => p.id)]) {
-    const p = opts.prov?.[id] ?? (s.pages[id] ? provOf(s.pages[id]!) : null)
+    let p = opts.prov?.[id] ?? (s.pages[id] ? provOf(s.pages[id]!) : null)
+    // Fix 2: the request's title / fields written by someone other than the person (rowWriters.ts) — also for a plan made
+    // from no press (the answers to its questions)
+    if (p && id === rowId && !p.outside) {
+      const outside = outsideOf(await loadRowOutside(rowId), s.pages[rowId])
+      if (outside) p = { ...p, outside }
+    }
     if (p) prov[id] = p
   }
   const pins: Record<ID, number> = Object.fromEntries(Object.entries(prov).map(([id, p]) => [id, p.contentRev]))
   // fingerprints of what the planner reads — the request as every step quotes it, each linked page (fingerprint.ts):
   // ↵ Kette starten refuses when one moved since (never the tab-local contentRev); the chain pins its pages at these
-  const readNow = { request: requestNow(rowId).text, pages: built.pages.map((p) => [p.id, s.pages[p.id] ? pageShown(s.pages[p.id]) : null] as const) }
-  const fps: Record<ID, string> = { [rowId]: await textFp(readNow.request) }
+  const readNow = { request: requestNow(rowId), pages: built.pages.map((p) => [p.id, s.pages[p.id] ? pageShown(s.pages[p.id]) : null] as const) }
+  const fps: Record<ID, string> = { [rowId]: await requestFp(readNow.request) }
   for (const [id, shown] of readNow.pages) if (shown) fps[id] = await shownFp(shown)
 
   // the request (and at most one repair round)

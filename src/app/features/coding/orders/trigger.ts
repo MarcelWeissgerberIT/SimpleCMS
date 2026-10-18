@@ -40,6 +40,7 @@ import { isApplyingCloudChange } from '../../../cloud'
 import { newId } from '../../../lib/ids'
 import { t } from '../../../i18n'
 import { useCoding, type CodingState } from '../state'
+import { inTeam } from '../schema'
 import { workerOnline, workerVerdict } from '../link'
 import { withFinishing, withHalt } from '../chain'
 import { addOrderRepoOptions, isOrderRow, orderCode, orderDbIds, orderProps, orderStatusKey, statusKeyOf, writeOrderStatus } from './db'
@@ -49,6 +50,7 @@ import { followRecord, holdFinishing, kick, startChains } from './chainRun'
 import { preWhyText, untilText } from './text'
 import { ORDER_LIMITS, type OrderPress, type OrderRecord } from './types'
 import { startAutoWatch } from './autoWatch'
+import { markOf, noteRowWrite } from './rowWriters'
 import { registerOrdersTry } from './try'
 
 const ws = () => useWorkspace.getState()
@@ -292,6 +294,33 @@ function remoteUndiscard(rowId: ID): Promise<unknown> {
   })
 }
 
+/**
+ * Fix 2 — a team: the request's Planen was written on this device (no person's press here — a duplicate, a template,
+ * an automation …): noted as this device's (`pressed`), so the request card never says "asked for on another device".
+ */
+function notePlanHere(rowId: ID): Promise<unknown> {
+  if (orderStatusKey(rowId) !== 'plan') return Promise.resolve()
+  return patchOrderRecord(rowId, (r) => {
+    if (r?.state === 'running' || r?.state === 'creating' || r?.state === 'interrupted') return r
+    const { asked: _a, ...rest } = r ?? { v: 1 as const, state: 'draft' as const }
+    return { ...rest, pressed: Date.now() }
+  })
+}
+
+/**
+ * Fix 2 — a team: Fertig went back to Läuft on another device (its "No") while this device had ended the chain on reading
+ * that Fertig (a 'finished' halt it did not record by its own "yes"): the chain stays halted (sticky — nothing starts
+ * without ↵ Fortsetzen here), and the Status is set to Angehalten (`#s`) so no device reads Läuft over a stopped chain.
+ */
+async function remoteUnfinish(rowId: ID): Promise<void> {
+  const rec = asRecord(await loadOrderRecord(rowId, { fresh: true }))
+  const chain = rec?.chain
+  if (rec?.state !== 'halted' || chain?.halted?.why !== 'finished' || chain.halted.by === 'you~ui') return
+  if (orderStatusKey(rowId) !== 'running') return
+  writeOrderStatus(rowId, 'halted', statusWriter(rowId, chain.run))
+  notifyAway(rowId, t('features.coding.order.notify.halted', { id: label(rowId), why: t('features.coding.order.halt.finished') }))
+}
+
 /** The row's Status field is empty (no option at all — not one of another build's). */
 function noStatus(db: Database, row: { properties: Record<ID, unknown> }): boolean {
   const prop = orderProps(db).status
@@ -312,10 +341,21 @@ function onPages(state: ReturnType<typeof ws>, prev: ReturnType<typeof ws>): voi
   const dbs = ordersDbs(state.databases)
   if (!dbs.size) return
   let who: Writer | null | undefined
+  let mark: 'person' | string | null | undefined
   for (const id of pageChanges(state.pages, prev.pages).changed) {
     const now = state.pages[id]
     const before = prev.pages[id]
     if (!now?.databaseId || !dbs.has(now.databaseId)) continue
+    // Fix 2: who wrote the request's title / fields (rowWriters.ts) — a replay of another tab (that tab records it) and a
+    // change from the server (a team: no auto mode) change nothing
+    if ((!before || now.title !== before.title || now.properties !== before.properties) && !isApplyingRemote() && !isApplyingCloudChange()) {
+      if (mark === undefined) mark = markOf(currentWriter(), inPersonEvent())
+      const db = state.databases[now.databaseId]
+      if (mark !== null && db) noteRowWrite(id, db, now, before, mark)
+      // Fix 2 — a team: a request standing in Planen that was written HERE (made straight into Planen by a duplicate, a
+      // template, an automation, an import …) was not asked for on another device — noted, so no request card names it
+      if (db && inTeam() && !now.trashed && statusKeyOf(db, now) === 'plan' && (!before || statusKeyOf(db, before) !== 'plan')) queueMicrotask(() => void notePlanHere(id))
+    }
     // a new row is no press (a card added in the Planen lane is a half-written request); one made here without a Status
     // (a table's "New", the sidebar's + entry) stands in Entwurf — the board hides rows without one
     if (!before) {
@@ -340,6 +380,9 @@ function onPages(state: ReturnType<typeof ws>, prev: ReturnType<typeof ws>): voi
       if (next === 'plan') queueMicrotask(() => void markAsked(id))
       else if (was === 'ready' && next === 'draft') queueMicrotask(() => void remoteDiscard(id))
       else if (was === 'draft' && next === 'ready') queueMicrotask(() => void remoteUndiscard(id))
+      // Fix 2: Fertig taken back on another device (its "No" in "End the chain?") — this device ended the chain on
+      // reading that Fertig: the halt stays (only ↵ Fortsetzen lifts it), and the Status says so on every device
+      else if (was === 'done' && next === 'running') queueMicrotask(() => void remoteUnfinish(id))
     }
     // Angehalten by anyone (another device's change too): this device's chain halts at once — recorded in the tab where
     // it happened (sticky); a record still being created halts as soon as it would run (confirm.ts toRunning)

@@ -23,6 +23,7 @@ import { fileURLToPath } from 'node:url'
 import type { Page } from '@playwright/test'
 import { test, expect, openApp, wsEval, gotoPage } from './fixtures'
 import { mockClaudeScript, type ClaudeTurn } from './helpers/providers'
+import { readCard } from './helpers/orders'
 import { startFakeWorker, type FakeWorker } from './helpers/fakeWorker'
 import { call, mockAgent, openTerminal, prompt, run, say, terminal } from './helpers/terminal'
 import { test as node, expect as nodeExpect } from '@playwright/test'
@@ -242,15 +243,27 @@ test.describe('the chain on its own (fake worker: BA → Coding → QA)', () => 
     await page.waitForTimeout(2500)
     expect(handedOrder(fake!).some((h) => h.startsWith(ids[1]!))).toBe(false)
 
-    // the plate: the card with what goes along, ↵ Weiter (VON HAND)
+    // the plate: the card with what goes along, ↵ Weiter (VON HAND) — Fix 2: only once step 02 as it will run and its
+    // Grundlage were read to their ends (a short window: the card sits below the fold until scrolled to)
+    await page.setViewportSize({ width: 1440, height: 320 })
     await gotoPage(page, row)
     const plate = page.getByTestId('order-plate')
     await expect(plate.getByTestId('order-chain-card')).toHaveAttribute('data-why', 'checkpoint')
     await expect(plate.getByTestId('order-card-why')).toHaveText('Analysis done → 02 coding ‹Session-Timeout beheben›')
-    await plate.getByTestId('order-card-basis').locator('summary').click()
+    await expect(plate.getByTestId('order-card-step')).toHaveAttribute('open', '')
+    await expect(plate.getByTestId('order-card-basis')).toHaveAttribute('open', '')
     await expect(plate.getByTestId('order-card-basis')).toContainText('From step 01 (analysis):')
     await expect(plate.getByTestId('order-card-basis')).toContainText('der Gateway beendet die Sitzung nach 30 s')
     const go = plate.getByTestId('order-card-go')
+    await expect(plate.getByTestId('order-card-step').locator('.orc-edge[data-edge="bottom"]')).not.toBeInViewport()
+    await page.waitForTimeout(600)
+    await expect(go).toHaveAttribute('aria-disabled', 'true')
+    await expect(go).toHaveAttribute('title', 'Read step 02 to its end first')
+    await go.dispatchEvent('click')
+    await page.waitForTimeout(800)
+    expect(await stageOf(page, ids[1]!)).toBe('Backlog')
+    await readCard(page)
+    await page.setViewportSize({ width: 1440, height: 900 })
     await expect(go).toHaveAttribute('data-ready', '')
     await go.click()
 
@@ -340,8 +353,8 @@ test.describe('the chain on its own (fake worker: BA → Coding → QA)', () => 
     const plate = page.getByTestId('order-plate')
     await expect(plate.getByTestId('order-chain-card')).toHaveAttribute('data-why', 'confirm')
     await expect(plate.getByTestId('order-card-why')).toHaveText(/Step 02 was changed by Agent/)
-    await plate.getByTestId('order-card-step').locator('summary').click()
     await expect(plate.getByTestId('order-card-step')).toContainText('Bitte zusätzlich den Server neu starten.')
+    await readCard(page)
     const go = plate.getByTestId('order-card-go')
     await expect(go).toHaveText('↵Confirm and go on')
     await expect(go).toHaveAttribute('data-ready', '')

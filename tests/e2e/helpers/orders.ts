@@ -6,6 +6,19 @@
 import type { Page } from '@playwright/test'
 import { expect } from '../fixtures'
 
+/**
+ * Read the chain's card on the plate in full (Fix 2): the step as it will run and its Grundlage — both open — scrolled
+ * through to their ends; then its ↵ can act.
+ */
+export async function readCard(page: Page): Promise<void> {
+  const card = page.getByTestId('order-plate').getByTestId('order-chain-card')
+  await expect(card).toBeVisible()
+  await page.keyboard.press('Shift')
+  const edges = card.locator('.orc-edge')
+  const n = await edges.count()
+  for (let i = 0; i < n; i++) await edges.nth(i).scrollIntoViewIfNeeded()
+}
+
 /** Read the plan in Kette bereit in full, as a person does (a key first: the page column lets its scroll hold go). */
 export async function readPlan(page: Page): Promise<void> {
   const ready = page.getByTestId('order-plate').getByTestId('order-ready')

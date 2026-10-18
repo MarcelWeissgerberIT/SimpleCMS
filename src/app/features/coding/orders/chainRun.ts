@@ -62,6 +62,7 @@ import { pipelineLine, startStageOf } from '../stages'
 import { doneEvidence, nextMove, parksNewTasks, SETTLE_MS, withAdvance, withBack, withBasisSeen, withDone, withForeign, withHalt, withLine, withMoved, withoutForeign, withPassed, withRefs, withSeenNext, type ChainMove, type ChainPress, type ChainTaskFacts, type ChainWorld } from '../chain'
 import { basisBlock, basisText, placeBasis, skippedBlock } from './basis'
 import { pageFp, textFp } from './fingerprint'
+import { originByPerson } from './autoCore'
 import { chainWords, stepNo } from './words'
 import { orderConfigUsable, readOrderConfig } from './config'
 import { orderCode, orderStatusKey, writeOrderStatus } from './db'
@@ -76,9 +77,8 @@ export const ORDER_ORIGIN = 'order'
 
 /* ------------------------------------------------------------------ the world */
 
-/** Content origins of the person's own writing on this device besides an editor's (`editor:<key>`). */
-const PERSON_ORIGINS = new Set(['answers'])
-const byPerson = (origin: string | null | undefined): boolean => !!origin && (origin.startsWith('editor:') || PERSON_ORIGINS.has(origin))
+/** The person's own text by its content origin — autoCore.ts's one rule (no origin: no evidence, foreign here). */
+const byPerson = originByPerson
 
 const missing: ChainTaskFacts = { exists: false, trashed: false, stage: null, stageKind: null, parkStage: null, startStage: null, startsAtOnce: false, state: 'idle', line: '', approvals: 'all', endsConfirm: false, trusted: false, repo: null, branch: null, spentUsd: 0 }
 

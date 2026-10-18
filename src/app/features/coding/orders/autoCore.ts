@@ -25,14 +25,30 @@
 import type { ID, OrderKind } from '../../../store/types'
 import type { OrderAutoWhy, OrderPlanV1, OrderProv, PlanNote } from './types'
 
-/** Content origins of the person's own writing (an editor's `editor:<key>`, the answers to the planner, the summary key W). */
-const PERSON_ORIGINS = new Set(['answers', 'summary'])
-const byPerson = (origin: string | null | undefined): boolean => !origin || origin.startsWith('editor:') || PERSON_ORIGINS.has(origin)
+/**
+ * Content origins of the person's own writing besides an editor's (`editor:<key>`): the answers to the planner. Never the
+ * summary key W's 'summary' (Fix 2): its callout quotes each step's task title, which agents and the bridge may write.
+ */
+const PERSON_ORIGINS = new Set(['answers'])
+/**
+ * Is a text with this content origin the person's own? ONE rule for the auto mode, the plate's FREMD tags and the chain
+ * engine (chainRun.ts): an editor here or the answers — no origin is no evidence (see provOutside for a request row).
+ */
+export const originByPerson = (origin: string | null | undefined): boolean => !!origin && (origin.startsWith('editor:') || PERSON_ORIGINS.has(origin))
 /** A writer stamp that is not the person: an agent (`agent:<id>`), the public API / a webhook (`api:` / `hook:`). */
 const outsideStamp = (by: string | null | undefined): boolean => typeof by === 'string' && /^(agent|api|hook|mcp):/.test(by)
 
-/** Was this page last written by someone other than the person (the provenance captured at the press)? */
-export const provOutside = (p: Pick<OrderProv, 'updatedBy' | 'contentOrigin'> | null | undefined): boolean => !!p && (outsideStamp(p.updatedBy) || !byPerson(p.contentOrigin))
+/**
+ * Was this page last written by someone other than the person (the provenance captured at the press)?
+ *  - a writer stamp of an agent / the API / a webhook;
+ *  - a request row's title or a field (never the Status) last written by someone other than the person, or the row made
+ *    by someone else while its body has no content origin (`outside` — rowWriters.ts, Fix 2);
+ *  - a body whose content origin is not the person's (originByPerson). A body with NO origin was never written (a row
+ *    made with a title only) or copied by a duplicate: its row's `outside` decides — the chain engine, which has no such
+ *    record for the pages it takes along, counts it as foreign (fail closed: its card shows the text).
+ */
+export const provOutside = (p: Pick<OrderProv, 'updatedBy' | 'contentOrigin' | 'outside'> | null | undefined): boolean =>
+  !!p && (outsideStamp(p.updatedBy) || !!p.outside || (!!p.contentOrigin && !originByPerson(p.contentOrigin)))
 
 /** What auto mode reads about one page that goes into the plan (the request, a page read, a step's ref). */
 export interface AutoInput {

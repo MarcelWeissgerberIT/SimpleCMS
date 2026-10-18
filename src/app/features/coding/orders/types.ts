@@ -114,6 +114,11 @@ export interface OrderProv {
   updatedBy: string | null
   contentOrigin: string | null
   contentRev: number
+  /**
+   * Fix 2 — a request row only: the kind of the writer other than the person who last wrote its title or a field (never
+   * the Status), or made it while its body has no content origin (rowWriters.ts outsideOf; absent: the person's)
+   */
+  outside?: string
 }
 
 /** One call the planner made on the picked server, as the plate lists it ("<Server> · <tool>(<args>) → 3,2 kB"). */

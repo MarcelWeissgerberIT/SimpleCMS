@@ -54,6 +54,7 @@ Then the chain runs by itself:
 - **↵ Resume** goes on. It is the only way out of a halt: no other change of the Status lifts it.
 - <kbd>S</kbd> **Skip step** for a failed, stopped, trashed or ejected step — the next step then gets no basis.
 - **Halt all chains** sits at the head of the Work orders board and on #/coding.
+- **In Preflight** the cards carry Preflight's keys: on *Go on with step 02?* <kbd>A</kbd> goes on and <kbd>D</kbd> **halts the chain** — there D does not mean discard —, on *Chain halted* <kbd>A</kbd> resumes and <kbd>1</kbd> **skips the step**. H and S work on the request's plate.
 
 ## What stays safe
 - **Only you start.** Planning, the start and every key that hands work to the worker — Start chain, Go on, Resume, Skip, an approval that starts the next step — are your own presses: **BY HAND** in Preflight, never in ⇧A or a swipe.

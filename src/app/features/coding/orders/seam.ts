@@ -124,6 +124,9 @@ if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams
     // this device's record of a request set as given (a record another build or device state would leave here)
     putRecord: (rowId: ID, rec: unknown) => import('./records').then((m) => m.patchOrderRecord(rowId, () => rec as never)).then(plain),
     trusted: (taskId: ID) => import('../trust').then((m) => m.isTrusted(taskId)),
+    // Fix 2 — Kette bestätigen's ↵ with the versions given (all or nothing); is a step claimed by another worker?
+    confirmChain: (rowId: ID, shown: Array<{ id: ID; hash: string }>) => import('./confirm').then((m) => m.confirmChainVersions(rowId, shown)).then(plain),
+    claimedElsewhere: (ids: ID[]) => import('./lamp').then((m) => m.claimedElsewhere(ids)),
     // what the brake note's E does on the plate (governor BrakeFor): an allowance for exactly this retry, then plan again
     retryWith: (rowId: ID, allowance: string) =>
       Promise.all([import('../../ai/core/gate'), import('./planner')]).then(([g, m]) => {

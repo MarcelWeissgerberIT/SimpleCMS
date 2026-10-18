@@ -30,6 +30,7 @@ import { useCoding } from '../state'
 import { workerOnline, workerVerdict } from '../link'
 import { codingProps, codingReadOnly, inTeam, pipelineDbIdsOf } from '../schema'
 import { PIPELINE_KINDS, type PipelineKind } from '../stages'
+import { CLAIM_STALE_MS } from '../protocol'
 import { orderCode, orderRowIds, orderStatusKey } from './db'
 import { loadOrderRecord, orderScope, useOrderRecords } from './records'
 import { useChainMoves } from './chainRun'
@@ -122,6 +123,28 @@ export function chainCarriers(rowId: ID, skip: ReadonlySet<ID> = new Set()): Cha
   return out.sort((a, b) => (a.n ?? 1e9) - (b.n ?? 1e9) || a.createdAt - b.createdAt || (a.id < b.id ? -1 : 1))
 }
 
+/**
+ * Fix 2 — two devices of one member may each hold a Local worker link (only the Cloud relay keeps one tab per member):
+ * is a chain step already claimed by another worker (its Worker field names another worker, claimed within the stale
+ * time)? Then that device steers the chain — this one neither offers "Kette bestätigen" nor takes it over.
+ */
+export function claimedElsewhere(ids: readonly ID[], here: string | null = useCoding.getState().worker?.name ?? null, now = Date.now()): boolean {
+  const s = ws()
+  for (const id of ids) {
+    const p = s.pages[id]
+    const db = p?.databaseId ? s.databases[p.databaseId] : undefined
+    if (!p || !db) continue
+    const props = codingProps(db)
+    const owner = props.worker ? p.properties[props.worker] : null
+    if (typeof owner !== 'string' || !owner || owner === here) continue
+    const v = props.claimed ? p.properties[props.claimed] : null
+    const start = v && typeof v === 'object' && !Array.isArray(v) ? (v as { start?: unknown }).start : null
+    const at = typeof start === 'string' ? new Date(start.length <= 10 ? `${start}T00:00` : start).getTime() : NaN
+    if (Number.isFinite(at) && now - at < CLAIM_STALE_MS) return true
+  }
+  return false
+}
+
 /** The ids of every chain a record holds (its own and the one it replaced). */
 export function heldIds(rec: OrderRecord | null): Set<ID> {
   const out = new Set<ID>()
@@ -185,7 +208,9 @@ export function orderCards(now = Date.now()): OrderCard[] {
       out.push({ id: `order:${row}:interrupted@${chain.run.slice(0, 8)}`, kind: 'interrupted', row, at: chain.confirmedAt })
       continue
     }
-    if (rec?.state === 'halted' && chain?.halted && chain.halted.why !== 'finished') {
+    // a chain ended by Fertig: no card while the Status says Fertig — one Fertig taken back elsewhere (Fix 2) waits for
+    // ↵ Fortsetzen here like any halt
+    if (rec?.state === 'halted' && chain?.halted && (chain.halted.why !== 'finished' || status !== 'done')) {
       out.push({ id: `order:${row}:halted@${chain.halted.at.toString(36)}`, kind: 'halted', row, at: chain.halted.at })
       continue
     }
@@ -206,6 +231,8 @@ export function orderCards(now = Date.now()): OrderCard[] {
         continue
       }
       const carriers = chainCarriers(row, heldIds(rec))
+      // Fix 2: another worker already runs a step of it — that device steers the chain, no card here
+      if (carriers.length && claimedElsewhere(carriers.map((c) => c.id))) continue
       if (carriers.length) out.push({ id: `order:${row}:chainConfirm@${idsKey(carriers.map((c) => c.id))}`, kind: 'chainConfirm', row, at: page.updatedAt })
       continue
     }

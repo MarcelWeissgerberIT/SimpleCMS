@@ -7,6 +7,9 @@
  * along: step n+1's text as it will run, the Grundlage it gets, the text of every page that changed. ↵ passes a changed
  * page or Grundlage only as the card rendered it — their fingerprints go with the press (a newer write asks again).
  *
+ * ↵ is ready only once the step as it will run and its Grundlage were each read to their end here (Fix 2 — both folds
+ * open at first; an edit of the step is a new text, seen again).
+ *
  * Keys (VON HAND where they let the worker start something — a fresh press ≥ 300 ms after the key became ready, never a
  * plate-wide Enter): ↵ Weiter (passes exactly the reasons shown) · for the Confirm wait ↵ Bestätigen und weiter (the
  * version the card rendered) · E Anpassen (the step's page) · R Ab hier neu planen (after an analysis) · H Anhalten.
@@ -26,6 +29,7 @@ import { basisText } from './basis'
 import { pageShown, shownFp, textFp } from './fingerprint'
 import { stepNo } from './words'
 import { HandKey } from './HandKey'
+import { Edge, keyOf, SeenFold, useSeenBook } from './seen'
 import type { ChainKeyOutcome } from './chainKeys'
 import type { OrderChain, OrderDoneBy } from './types'
 
@@ -90,6 +94,7 @@ export default function ChainCard({ rowId, chain, move, viewer, onOutcome }: { r
   const refKey = (move.refs ?? []).join(' ')
   const refShown = useMemo(() => (refKey ? refKey.split(' ') : []).map((id, i) => ({ id, ...pageShown(refPages[i]) })), [refKey, refPages])
   const [seen, setSeen] = useState<{ refs: Record<ID, string>; basis?: string } | null>(null)
+  const book = useSeenBook(`${rowId}:${chain.run}:${move.step}`)
   const wantBasis = move.all.includes('basis')
   const needsSeen = move.all.includes('ref') || wantBasis
   useEffect(() => {
@@ -112,6 +117,12 @@ export default function ChainCard({ rowId, chain, move, viewer, onOutcome }: { r
   const text = confirm ? (view?.markdown ?? '') : page ? docToMarkdown(page.content) : ''
 
   const lines = cardWhyLines(move, { kind, title, refs: refPages }, t)
+  // Fix 2: ↵ starts step n+1 only once it was seen whole here — the step as it will run and its Grundlage, each opened and
+  // read to its end (both open at first; the seen book per chain step and what it shows: an edit is seen again)
+  const stepKey = `step:${keyOf(text)}`
+  const basisKey = basis ? `basis:${keyOf(basisShown)}` : null
+  const shownWhole = !!text && book.whole(stepKey) && book.has(`fold:${stepKey}`) && (!basisKey || (book.whole(basisKey) && book.has(`fold:${basisKey}`)))
+  const loading = (confirm && !view) || (needsSeen && !seen)
 
   const run = (fn: () => Promise<ChainKeyOutcome>) => async () => {
     if (pending) return
@@ -135,16 +146,18 @@ export default function ChainCard({ rowId, chain, move, viewer, onOutcome }: { r
         </p>
       ))}
       <p className="label orc-card__next">{t(`${O}.plan.next`, { n: stepNo(move.step), kind, title })}</p>
-      {/* what goes along: the step as it will run, its Grundlage */}
-      <details className="orc-card__fold" data-testid="order-card-step">
-        <summary className="label">{t(`${O}.card.text`)}</summary>
+      {/* what goes along: the step as it will run, its Grundlage — open, each counts once read to its end */}
+      <SeenFold id={stepKey} book={book} className="orc-card__fold" testId="order-card-step" defaultOpen summary={<summary className="label">{t(`${O}.card.text`)}</summary>}>
+        <Edge id={stepKey} edge="top" book={book} />
         <pre className="orc-card__text">{text || '—'}</pre>
-      </details>
-      {basis && (
-        <details className="orc-card__fold" data-testid="order-card-basis" open={move.all.includes('basis') || undefined}>
-          <summary className="label">{t(`${O}.card.basis`)}</summary>
+        {!!text && <Edge id={stepKey} edge="bottom" book={book} />}
+      </SeenFold>
+      {basis && basisKey && (
+        <SeenFold id={basisKey} book={book} className="orc-card__fold" testId="order-card-basis" defaultOpen summary={<summary className="label">{t(`${O}.card.basis`)}</summary>}>
+          <Edge id={basisKey} edge="top" book={book} />
           <pre className="orc-card__text">{basisShown}</pre>
-        </details>
+          <Edge id={basisKey} edge="bottom" book={book} />
+        </SeenFold>
       )}
       {/* the pages that changed, as they go along — exactly this is what ↵ pins */}
       {refShown.map((r) => (
@@ -155,7 +168,13 @@ export default function ChainCard({ rowId, chain, move, viewer, onOutcome }: { r
       ))}
       {!viewer && (
         <div className="orp-keys">
-          <HandKey ready={!pending && (!confirm || !!view) && (!needsSeen || !!seen)} reason={(confirm && !view) || (needsSeen && !seen) ? t(`${O}.key.readying`) : undefined} onPress={() => void go()} primary testId="order-card-go">
+          <HandKey
+            ready={!pending && !loading && shownWhole}
+            reason={loading ? t(`${O}.key.readying`) : !shownWhole ? t(`${O}.card.seeFirst`, { n: stepNo(move.step) }) : undefined}
+            onPress={() => void go()}
+            primary
+            testId="order-card-go"
+          >
             <span className="kbd" aria-hidden>
               ↵
             </span>

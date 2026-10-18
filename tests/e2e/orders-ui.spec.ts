@@ -21,7 +21,7 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import type { Page } from '@playwright/test'
-import { test, expect, openApp, wsEval, gotoPage } from './fixtures'
+import { test, expect, openApp, wsEval, uiEval, gotoPage } from './fixtures'
 import { mockClaudeScript, type ClaudeTurn } from './helpers/providers'
 import { startFakeWorker, type FakeWorker } from './helpers/fakeWorker'
 import { readPlan } from './helpers/orders'
@@ -268,6 +268,12 @@ test.describe('the work order plate (B8)', () => {
     await expect(start).toHaveAttribute('data-ready', '')
     await start.click()
     await expect(plate.getByTestId('order-countdown')).toBeVisible()
+    // Fix 2: a screen reader hears the count once — the ticking line is not live, the live line says it with its keys
+    await expect(plate.getByTestId('order-countdown-live')).toHaveText(/^Step 01 starts in \d+ s · ↵ now · Z undo$/)
+    const said = await plate.getByTestId('order-countdown-live').textContent()
+    await expect(plate.getByTestId('order-countdown').locator('[aria-live]')).toHaveCount(0)
+    await page.waitForTimeout(2200)
+    await expect(plate.getByTestId('order-countdown-live')).toHaveText(said!)
     const rec = (await orders(page).record(row))!
     expect(rec.state).toBe('running')
     expect(rec.chain.budgetUsd).toBe(10)
@@ -399,6 +405,78 @@ test.describe('the work order plate (B8)', () => {
     rec = (await orders(page).record(row))!
     const step2 = rec.chain.steps.find((s: AnyState) => s.n === 2)
     expect((await pageOf(page, step2.id)).title).toBe(EDITED)
+  })
+
+  test('Fix 2: in the side peek the plate keys act (E · Entf · Backspace · Alt+↑/↓ · Z · D); each station has its own keys with words; no remove / move while a step is edited', async ({ page }) => {
+    await mockClaudeScript(page.context(), [], { fallback: answer({ plan: noContext() }) })
+    const { row } = await setup(page)
+    expect(await orders(page).plan(row)).toMatchObject({ kind: 'ready' })
+    // the plate in the side peek (how "Prüfen lassen" and a board card open it) — a non-modal dialog around it
+    await page.evaluate(() => (window.location.hash = '#/'))
+    await uiEval(page, (u, id) => u.openPeek(id, 'side'), row)
+    const plate = page.getByTestId('order-plate')
+    await expect(plate).toBeVisible()
+    expect(await plate.evaluate((el) => !!el.closest('[role="dialog"]'))).toBe(true)
+    const heads = plate.getByTestId('order-station-head')
+    await expect(heads).toHaveCount(3)
+    const kinds = async () => ((await orders(page).record(row))!.draft.plan.steps as AnyState[]).map((s) => s.kind)
+    // E edits, Esc cancels
+    await heads.nth(1).focus()
+    await page.keyboard.press('e')
+    await expect(plate.getByTestId('order-step-edit')).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(plate.getByTestId('order-step-edit')).toHaveCount(0)
+    // Entf removes, Z puts it back; Backspace (the Mac's "delete") too
+    await heads.nth(2).focus()
+    await page.keyboard.press('Delete')
+    await expect(heads).toHaveCount(2)
+    await page.keyboard.press('z')
+    await expect(heads).toHaveCount(3)
+    await heads.nth(2).focus()
+    await page.keyboard.press('Backspace')
+    await expect(heads).toHaveCount(2)
+    await page.keyboard.press('z')
+    await expect(heads).toHaveCount(3)
+    // Alt+↑ moves
+    await heads.nth(1).focus()
+    await page.keyboard.press('Alt+ArrowUp')
+    await expect.poll(kinds).toEqual(['coding', 'spec', 'qa'])
+    await heads.nth(0).focus()
+    await page.keyboard.press('Alt+ArrowDown')
+    await expect.poll(kinds).toEqual(['spec', 'coding', 'qa'])
+    // each station's own keys, in words (a phone has neither Entf nor Alt): ↓ on 01, ↑ on 02, Remove on 03
+    const stations = plate.getByTestId('order-plan-step')
+    await expect(stations.nth(0).getByTestId('order-step-up')).toHaveCount(0)
+    await stations.nth(0).getByTestId('order-step-down').click()
+    await expect.poll(kinds).toEqual(['coding', 'spec', 'qa'])
+    await stations.nth(1).getByTestId('order-step-up').click()
+    await expect.poll(kinds).toEqual(['spec', 'coding', 'qa'])
+    await expect(stations.nth(2).getByTestId('order-step-down')).toHaveCount(0)
+    await expect(stations.nth(2).getByTestId('order-step-remove')).toContainText('Remove')
+    await stations.nth(2).getByTestId('order-step-remove').click()
+    await expect(heads).toHaveCount(2)
+    await heads.nth(0).focus()
+    await page.keyboard.press('z')
+    await expect(heads).toHaveCount(3)
+    // while a step is edited, no other station is removed or moved — said, the edit stays open
+    await heads.nth(2).focus()
+    await page.keyboard.press('e')
+    await expect(plate.getByTestId('order-step-edit')).toBeVisible()
+    await heads.nth(0).focus()
+    await page.keyboard.press('Delete')
+    await page.keyboard.press('Alt+ArrowDown')
+    await expect(heads).toHaveCount(3)
+    expect(await kinds()).toEqual(['spec', 'coding', 'qa'])
+    await expect(plate.getByTestId('order-step-edit')).toBeVisible()
+    await expect(plate.getByTestId('order-chain-note')).toHaveText('Finish the edit first')
+    await stations.nth(0).getByTestId('order-step-remove').click()
+    await expect(heads).toHaveCount(3)
+    await plate.getByTestId('order-step-edit').getByRole('button', { name: 'Cancel' }).click()
+    await expect(plate.getByTestId('order-step-edit')).toHaveCount(0)
+    // D in the peek: the plan is discarded (Status Entwurf)
+    await heads.nth(0).focus()
+    await page.keyboard.press('d')
+    await expect.poll(() => statusOf(page, row)).toBe(ST.draft)
   })
 
   test('questions only: the plate asks, typing there is text; the answers go into the request and it plans again', async ({ page }) => {

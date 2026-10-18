@@ -78,7 +78,8 @@ function readNote(v: unknown): PlanNote | null {
 
 function readProv(v: unknown): OrderProv | null {
   if (!isObj(v) || typeof v.contentRev !== 'number' || !Number.isInteger(v.contentRev) || v.contentRev < 0) return null
-  return { createdBy: str(v.createdBy, WHO), updatedBy: str(v.updatedBy, WHO), contentOrigin: str(v.contentOrigin, WHO), contentRev: v.contentRev }
+  const outside = str(v.outside, 40)
+  return { createdBy: str(v.createdBy, WHO), updatedBy: str(v.updatedBy, WHO), contentOrigin: str(v.contentOrigin, WHO), contentRev: v.contentRev, ...(outside ? { outside } : {}) }
 }
 
 /** A stored draft as this build keeps it (null: not one it can read — the record then holds no draft). */
