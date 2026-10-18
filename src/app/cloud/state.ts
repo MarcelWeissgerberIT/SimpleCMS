@@ -97,6 +97,8 @@ export class CloudError extends Error {
   status: number
   /** 429 only: seconds until the next attempt may succeed (Retry-After). */
   retryAfter?: number
+  /** the server's `error.details`, as sent (unchecked: each reader checks what it needs) */
+  details?: unknown
   constructor(code: string, message: string, status = 0) {
     super(message)
     this.code = code

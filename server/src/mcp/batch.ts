@@ -642,8 +642,8 @@ export class McpBatch {
           actor,
         )
         const hash = await this.s.collab.read(contentDoc(wsId, parentId), (doc) => textHash(doc))
-        // the call put only its own links there: a Restore that keeps one of the pages takes out only the others' links
-        rec.content(parentId, snapshot, plainBefore, hash, kids.map((i) => ({ id: ids[i]!, node: link === 'block' ? ('pageLink' as const) : ('mention' as const) })))
+        // the call put only its own links there: a forced Restore leaves them with the pages it made (they stay)
+        rec.content(parentId, snapshot, plainBefore, hash, kids.map((i) => ids[i]!))
         await this.s.collab.write(
           metaDoc(wsId),
           (doc) => {
@@ -782,8 +782,8 @@ export class McpBatch {
       await this.trash(wsId, [created.id], actor)
       throw err
     }
-    // the database as the call left it — after its rows (they may have added select options): a Restore keeps it once
-    // the team changed its properties or views since
+    // the database as the call left it — after its rows (they may have added select options): a Restore is refused whole
+    // once the team changed its properties or views since
     rec.pages(await this.madePages(wsId, [{ id: created.id, title: input.title }]))
     if (rows.length) rec.rows({ db: created.id, created: await this.madeRows(wsId, rows.map((r) => r.id)), updated: [] })
     // the database block in the page's text, last; a failed write trashes the new database again (compensating write)
@@ -813,8 +813,8 @@ export class McpBatch {
           blockRef = refOfId(doc, block!)
           return textHash(doc)
         })
-        // the call put only its database block there: a Restore that keeps the database keeps its block
-        rec.content(pageId, snapshot, plain, hash, [{ id: created.id, node: 'databaseBlock', block: block! }])
+        // the call put only its database block there: a forced Restore leaves it with the database (it stays)
+        rec.content(pageId, snapshot, plain, hash, [created.id])
       } catch (err) {
         await this.trash(wsId, [created.id], actor)
         throw err

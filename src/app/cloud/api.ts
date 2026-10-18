@@ -62,14 +62,17 @@ const httpCode = (status: number) =>
 async function readError(res: Response): Promise<CloudError> {
   let code = httpCode(res.status)
   let message = res.statusText || `HTTP ${res.status}`
+  let details: unknown
   try {
-    const body = (await res.json()) as { error?: { code?: string; message?: string } }
+    const body = (await res.json()) as { error?: { code?: string; message?: string; details?: unknown } }
     if (body?.error?.code) code = body.error.code
     if (body?.error?.message) message = body.error.message
+    details = body?.error?.details
   } catch {
     /* not JSON */
   }
   const err = new CloudError(code, message, res.status)
+  if (details !== undefined) err.details = details
   if (res.status === 429) {
     const retry = Number(res.headers.get('retry-after'))
     if (Number.isFinite(retry) && retry > 0) err.retryAfter = retry

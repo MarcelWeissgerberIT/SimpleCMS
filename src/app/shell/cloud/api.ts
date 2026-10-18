@@ -97,11 +97,33 @@ export interface McpCallEntry {
   restoredAt: number | null
 }
 
-/** A restore's answer: what went back, what was kept (changed since — `force` puts it back too). */
+/** A restore's answer: how many things went back; `left` = what the call made that stays (a forced restore never trashes). */
 export interface McpRestore {
   restored: number
-  kept: Array<{ id: string; title: string; fields?: string[] }>
+  left: Array<{ id: string; title: string }>
   note?: string
+}
+
+/** What moved since a call, per thing (a refused restore: 409 changed_since, docs/API.md). */
+export type McpMovedWhat = 'text' | 'title' | 'values' | 'mark' | 'place' | 'below' | 'trash' | 'gone' | 'locked'
+export interface McpChanged {
+  changed: Array<{ id: string; title: string; what: McpMovedWhat[]; fields: string[] }>
+  /** "Restore anyway" would put back the texts and fields the call changed (never for a call that only made things) */
+  canForce: boolean
+}
+
+const WHATS: readonly McpMovedWhat[] = ['text', 'title', 'values', 'mark', 'place', 'below', 'trash', 'gone', 'locked']
+
+/** The details of a refused restore (the error's `details`), checked; null when it is no such refusal. */
+export function mcpChangedOf(e: unknown): McpChanged | null {
+  if (!(e instanceof CloudError) || e.code !== 'changed_since') return null
+  const d = (e.details ?? {}) as { changed?: unknown; canForce?: unknown }
+  const strings = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [])
+  const changed = (Array.isArray(d.changed) ? d.changed : []).flatMap((c) => {
+    const x = (c ?? {}) as { id?: unknown; title?: unknown; what?: unknown; fields?: unknown }
+    return typeof x.id === 'string' ? [{ id: x.id, title: typeof x.title === 'string' ? x.title : '', what: strings(x.what).filter((w): w is McpMovedWhat => (WHATS as readonly string[]).includes(w)), fields: strings(x.fields) }] : []
+  })
+  return { changed, canForce: d.canForce === true }
 }
 
 type RawCall = Omit<McpCallEntry, 'at' | 'restoredAt'> & { at: string; restoredAt: string | null }
