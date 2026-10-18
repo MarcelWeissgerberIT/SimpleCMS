@@ -23,14 +23,14 @@ import { keyHolders } from '../agents/stage.ts'
 import { ValueError, type ValueContext } from '../api/values.ts'
 import { newId } from '../tokens.ts'
 import { assertNotSystem } from './system.ts'
-import { McpWrites, assertNoSystemPartner, checkFilesValue, friendlyIn, iconIn, optionNames, unprocessable, type PropertyInput } from './writes.ts'
+import { McpWrites, assertNoSystemPartner, checkFilesValue, cleanRowTitle, friendlyIn, iconIn, optionNames, unprocessable, type PropertyInput } from './writes.ts'
 import { defaultView, viewChange, type View, type ViewInput } from './structure.ts'
 import { McpPreimages, fragmentSnapshot, putValues, textHash, type Recorder } from './preimages.ts'
 import { docJson } from './pageRead.ts'
 import { blockHash, parseRef } from '../../../src/shared/mcp/refs.ts'
 import { nestedTopLevel, refIndex } from '../../../src/shared/mcp/pageRead.ts'
 import { MCP_DEFAULT_STATUS, MCP_LIMITS, MCP_VIEW_TYPES } from '../../../src/shared/mcp/tables.ts'
-import { codeOf, mcpError } from '../../../src/shared/mcp/errors.ts'
+import { batchRefusal, codeOf, mcpError } from '../../../src/shared/mcp/errors.ts'
 
 const q = (s: string) => JSON.stringify(s)
 const titleOf = (p: { title: string } | null | undefined) => p?.title.trim() || 'Untitled'
@@ -44,6 +44,33 @@ function atPath(err: unknown, path: string): never {
   const code = codeOf(err.message)
   const body = code ? err.message.slice(code.length + 1).trim() : err.message
   throw new ApiError(err.status, err.code, `${code ?? (err.status === 404 ? 'not_found' : 'bad_argument')}: ${path}: ${body}`, { details: err.details })
+}
+
+/**
+ * Every entry of a batch checked — a later one too when an earlier one fails — and ONE refusal naming each that does not
+ * fit (`rows[i] ("title"): …` per line, shared/mcp/errors.ts batchRefusal — the bridge's words, plan.ts eachEntry); a
+ * single bad entry keeps its own refusal with its path. `check` throws an ApiError for an entry that does not fit.
+ */
+function eachRow<T, R>(items: readonly T[], label: (item: T, i: number) => string | null, check: (item: T, i: number) => R, root = 'rows'): R[] {
+  const out: R[] = []
+  const failed: Array<{ i: number; err: ApiError }> = []
+  items.forEach((item, i) => {
+    try {
+      out.push(check(item, i))
+    } catch (err) {
+      try {
+        atPath(err, `${root}[${i}]`)
+      } catch (e) {
+        if (!(e instanceof ApiError)) throw e
+        failed.push({ i, err: e })
+      }
+    }
+  })
+  if (!failed.length) return out
+  if (failed.length === 1) throw failed[0]!.err
+  const statuses = new Set(failed.map((f) => f.err.status))
+  const message = batchRefusal(failed.map((f) => ({ path: `${root}[${f.i}]`, name: label(items[f.i]!, f.i), message: f.err.message })), items.length, root)
+  throw new ApiError(statuses.size === 1 ? failed[0]!.err.status : 422, codeOf(message) ?? 'bad_argument', message)
 }
 
 /**
@@ -206,22 +233,22 @@ export class McpBatch {
     return Promise.all(ids.map((id) => this.s.collab.read(contentDoc(wsId, id), (doc) => textHash(doc))))
   }
 
-  /** What else people change on made pages / rows / databases, right now (preimages.ts markOf). */
-  private marks(wsId: string, ids: string[]): Promise<string[]> {
-    return this.model.read(wsId, (r) => ids.map((id) => McpPreimages.markOf(r, id)))
+  /** What else people change on made pages / rows / databases, right now (preimages.ts markOf), and where each sits (placeOf). */
+  private marks(wsId: string, ids: string[]): Promise<Array<{ mark: string; place: string }>> {
+    return this.model.read(wsId, (r) => ids.map((id) => ({ mark: McpPreimages.markOf(r, id), place: McpPreimages.placeOf(r, id) })))
   }
 
-  /** Made rows as a pre-image keeps them: title, every stored value, the state of their text, their mark. */
+  /** Made rows as a pre-image keeps them: title, every stored value, the state of their text, their mark and place. */
   async madeRows(wsId: string, ids: string[]) {
     const [states, hashes, marks] = await Promise.all([this.rowStates(wsId, ids), this.hashes(wsId, ids), this.marks(wsId, ids)])
-    return states.map((st, i) => ({ id: st.id, title: st.title, values: st.values, hash: hashes[i]!, mark: marks[i]! }))
+    return states.map((st, i) => ({ id: st.id, title: st.title, values: st.values, hash: hashes[i]!, ...marks[i]! }))
   }
 
-  /** Made pages (or a database) as a pre-image keeps them: title, the state of their text, their mark. */
+  /** Made pages (or a database) as a pre-image keeps them: title, the state of their text, their mark and place. */
   private async madePages(wsId: string, items: Array<{ id: string; title: string }>) {
     const ids = items.map((it) => it.id)
     const [hashes, marks] = await Promise.all([this.hashes(wsId, ids), this.marks(wsId, ids)])
-    return items.map((it, i) => ({ id: it.id, title: it.title, hash: hashes[i]!, mark: marks[i]! }))
+    return items.map((it, i) => ({ id: it.id, title: it.title, hash: hashes[i]!, ...marks[i]! }))
   }
 
   /** Rows put back to `values` (rollback of a failed call): stored values and two-way partners as a write puts them. */
@@ -256,17 +283,14 @@ export class McpBatch {
       const ctx = this.model.context(wsId, r)
       const key = keyPropOf(db.properties)
       const keys = new Map<string, number>()
-      input.rows.forEach((row, i) => {
-        try {
-          const { values, title } = this.checkRow(r, db, row, null, ctx)
-          if (!title?.trim()) throw refuse(422, 'bad_argument', 'title', 'a row needs a title')
-          // the key stays unique among the rows of the call too
-          const k = key ? keyText(key.type, values[key.id]) : ''
-          if (k && keys.has(k)) throw unprocessable('invalid_value', `"${key!.name}" is this database's key and rows[${keys.get(k)}] has ${q(k)} too`)
-          if (k) keys.set(k, i)
-        } catch (err) {
-          atPath(err, `rows[${i}]`)
-        }
+      // every row checked: one refusal names each row that does not fit (as the bridge)
+      eachRow(input.rows, (row) => row.title?.trim() || null, (row, i) => {
+        const { values, title } = this.checkRow(r, db, row, null, ctx)
+        if (!title?.trim()) throw refuse(422, 'bad_argument', 'title', 'a row needs a title')
+        // the key stays unique among the rows of the call too
+        const k = key ? keyText(key.type, values[key.id]) : ''
+        if (k && keys.has(k)) throw unprocessable('invalid_value', `"${key!.name}" is this database's key and rows[${keys.get(k)}] has ${q(k)} too`)
+        if (k) keys.set(k, i)
       })
     })
     const made = await this.insertRows(wsId, input.databaseId, input.rows, actor)
@@ -282,24 +306,24 @@ export class McpBatch {
     if (rows.length > MCP_LIMITS.rows) throw refuse(413, 'too_large', 'rows', `${rows.length} rows (at most ${MCP_LIMITS.rows} per call)`)
     const plan = await this.model.read(wsId, (r) => {
       const seen = new Set<string>()
-      return rows.map((row, i) => {
-        try {
-          if (seen.has(row.id)) throw refuse(422, 'bad_argument', '', 'this row is listed twice — one entry per row')
-          seen.add(row.id)
-          const page = livePage(r, row.id)
-          if (!page) throw notFound('row_not_found', `No such row in this workspace: no row with id "${row.id}" (or it is in the trash)`)
-          assertNotSystem(r, row.id)
-          if (!page.databaseId) throw notFound('row_not_found', `No such row: ${q(titleOf(page))} is a page, not a database row — use one_update_page`)
-          const db = liveDatabase(r, page.databaseId)
-          if (!db) throw notFound('database_not_found', 'The row\'s database is gone')
-          if (!Object.keys(row.properties ?? {}).length) throw refuse(422, 'bad_argument', 'properties', 'name at least one property to change')
-          const checked = this.checkRow(r, db, { properties: row.properties }, row.id, this.model.context(wsId, r))
-          return { id: row.id, dbId: db.page.id, ids: Object.keys(checked.values), title: checked.title }
-        } catch (err) {
-          if (single) throw err
-          atPath(err, `rows[${i}]`)
-        }
-      })
+      const one = (row: (typeof rows)[number]) => {
+        if (seen.has(row.id)) throw refuse(422, 'bad_argument', '', 'this row is listed twice — one entry per row')
+        seen.add(row.id)
+        const page = livePage(r, row.id)
+        if (!page) throw notFound('row_not_found', `No such row in this workspace: no row with id "${row.id}" (or it is in the trash)`)
+        assertNotSystem(r, row.id)
+        if (!page.databaseId) throw notFound('row_not_found', `No such row: ${q(titleOf(page))} is a page, not a database row — use one_update_page`)
+        const db = liveDatabase(r, page.databaseId)
+        if (!db) throw notFound('database_not_found', 'The row\'s database is gone')
+        if (!Object.keys(row.properties ?? {}).length) throw refuse(422, 'bad_argument', 'properties', 'name at least one property to change')
+        // a title given through its properties: as the bridge takes it (never empty, whitespace collapsed, ≤ 300)
+        row.properties = cleanRowTitle(db.properties, row.properties)
+        const checked = this.checkRow(r, db, { properties: row.properties }, row.id, this.model.context(wsId, r))
+        return { id: row.id, dbId: db.page.id, ids: Object.keys(checked.values), title: checked.title }
+      }
+      if (single) return rows.map((row) => one(row))
+      // every row checked: one refusal names each row that does not fit (as the bridge), by its title now
+      return eachRow(rows, (row) => { const p = livePage(r, row.id); return p ? titleOf(p) : null }, (row) => one(row))
     })
     const before = await this.model.read(wsId, (r) => plan.map((p) => McpPreimages.rowState(r, p.id, p.ids)!))
     const done: number[] = []
@@ -345,7 +369,7 @@ export class McpBatch {
   async upsertRows(wsId: string, input: UpsertInput, actor: string, rec: Recorder) {
     if (input.rows.length > MCP_LIMITS.rows) throw refuse(413, 'too_large', 'rows', `${input.rows.length} rows (at most ${MCP_LIMITS.rows} per call)`)
     /** `pids`: the properties an update writes (only what differs) — its pre-image and rollback hold just those */
-    type Plan = { key: string; action: 'created' | 'updated' | 'unchanged'; id?: string; row: RowItem; changed?: Record<string, unknown>; pids?: string[]; title?: string; body?: string; kept?: boolean }
+    type Plan = { key: string; action: 'created' | 'updated' | 'unchanged'; id?: string; row: RowItem; changed?: Record<string, unknown>; pids?: string[]; title?: string; body?: string; kept?: boolean; md?: string; locked?: boolean; name?: string }
     const decided = await this.model.read(wsId, (r) => {
       const db = liveDatabase(r, input.databaseId)
       if (!db) throw notFound('database_not_found', `No database with id "${input.databaseId}" in this workspace`)
@@ -392,11 +416,12 @@ export class McpBatch {
             }
           }
           const title = item.title?.trim() && item.title.trim() !== page.title.trim() ? item.title.trim() : undefined
-          const empty = !String(pageMap(r, id)?.get('plain') ?? '').trim()
-          const body = item.markdown?.trim() && empty ? item.markdown : undefined
-          const kept = !!item.markdown?.trim() && !empty
-          if (!Object.keys(changed).length && !title && !body) return { key: k, action: 'unchanged', id, row: {}, kept }
-          return { key: k, action: 'updated', id, row: {}, changed, pids, title, body, kept }
+          // its text: whether the page is empty is read from its content below (a picture or a divider is no empty page)
+          const md = item.markdown?.trim() ? item.markdown : undefined
+          const locked = (pageMap(r, id)?.get('settings') as { locked?: unknown } | undefined)?.locked === true
+          const extra = { md, locked, name: page.title }
+          if (!Object.keys(changed).length && !title) return { key: k, action: 'unchanged', id, row: {}, ...extra }
+          return { key: k, action: 'updated', id, row: {}, changed, pids, title, ...extra }
         } catch (err) {
           if (err instanceof ApiError || err instanceof ValueError) return fail(err.message)
           throw err
@@ -406,6 +431,20 @@ export class McpBatch {
       return { plans, keyName: keyProp.name }
     })
     const { plans, keyName } = decided
+    // a found row's markdown is written only while its page is empty — read from its content (every top-level block an
+    // empty paragraph, as the bridge reads it), never from `plain` (a picture, a divider or a database has no text, and
+    // `plain` lags typing); a locked page takes no text: refused before anything is written (spec § 3.6, as the bridge)
+    for (const [i, p] of plans.entries()) {
+      if (!p.md || !p.id) continue
+      const empty = await this.s.collab.read(contentDoc(wsId, p.id), (doc) => (docJson(doc).content ?? []).every((b) => b.type === 'paragraph' && !(b.content ?? []).length))
+      if (!empty) {
+        p.kept = true
+        continue
+      }
+      if (p.locked) throw refuse(422, 'locked', `rows[${i}].markdown`, `${q(p.name || 'Untitled')} is locked in One: its content cannot change (its title and values can)`, 'Leave its markdown out, or ask the person to unlock it.')
+      p.body = p.md
+      if (p.action === 'unchanged') Object.assign(p, { action: 'updated', changed: {}, pids: [] })
+    }
     // the rows this call changes: only the fields it writes (and the title when it renames), before — the pre-image and
     // the rollback of a failure on the way; a field the call never wrote is never put back, never named as kept
     const updates = plans.filter((p) => p.action === 'updated')
@@ -694,7 +733,8 @@ export class McpBatch {
       await this.model.read(wsId, (r) => {
         const ctx = this.model.context(wsId, r)
         const db = { page: { id: 'draft' } as PageInfo, ydb: new Y.Map<unknown>(), properties: draft.defs }
-        input.rows!.forEach((row, i) => {
+        // every row checked: one refusal names each row that does not fit (as the bridge)
+        eachRow(input.rows!, (row) => row.title?.trim() || null, (row) => {
           for (const [key, raw] of Object.entries(row.properties ?? {})) {
             const prop = findProperty(draft.defs, key)
             if (prop && (prop.type === 'select' || prop.type === 'multi_select')) {
@@ -703,11 +743,7 @@ export class McpBatch {
               if (fresh.length) freshOptions.set(prop.name.trim().toLowerCase(), [...new Set([...(freshOptions.get(prop.name.trim().toLowerCase()) ?? []), ...fresh])])
             }
           }
-          try {
-            if (!this.checkRow(r, db, row, null, ctx).title?.trim()) throw refuse(422, 'bad_argument', 'title', 'a row needs a title')
-          } catch (err) {
-            atPath(err, `rows[${i}]`)
-          }
+          if (!this.checkRow(r, db, row, null, ctx).title?.trim()) throw refuse(422, 'bad_argument', 'title', 'a row needs a title')
         })
       })
     }

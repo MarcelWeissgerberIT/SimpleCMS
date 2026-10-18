@@ -433,8 +433,17 @@ export function planUpsertRows(args: Record<string, unknown>): WritePlan {
     if (e instanceof ToolInputError) throw new McpToolError(mcpError('bad_argument', /key_property|property/i.test(e.message) ? 'keyProperty' : '', mcpMessage(e.message)))
     throw e
   }
-  // any refused row fails the whole call, with every row's reason (no partial upsert — spec § 2.3)
-  const refused = staged.results.map((r, index) => ({ ...r, index })).filter((r) => r.action === 'refused')
+  // any refused row fails the whole call, with every row's reason (no partial upsert — spec § 2.3); a key listed twice in
+  // one call is refused too (the second entry would quietly overwrite the first) — as the team server refuses it
+  const firstOf = new Map<string, number>()
+  const refused = staged.results
+    .map((r, index) => {
+      const k = String(r.key ?? '')
+      const before = r.action !== 'refused' && k ? firstOf.get(k) : undefined
+      if (k && !firstOf.has(k)) firstOf.set(k, index)
+      return before !== undefined ? { ...r, index, action: 'refused' as const, reason: `listed twice (rows[${before}] has it too)` } : { ...r, index }
+    })
+    .filter((r) => r.action === 'refused')
   if (refused.length)
     throw new McpToolError(
       mcpError(

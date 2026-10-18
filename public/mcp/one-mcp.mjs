@@ -19987,12 +19987,22 @@ var MCP_REMEDIES = {
   bad_argument: "Check the tool's arguments (tools/list) and call again.",
   comments_off: "Comments are off in One (Settings \u2192 Agents \xB7 MCP). Ask the person; do not retry."
 };
+var isMcpErrorCode = (v) => typeof v === "string" && CODES.has(v);
+function codeOf(message) {
+  const m = /^([a-z_]+):/.exec(message);
+  return m && isMcpErrorCode(m[1]) ? m[1] : null;
+}
 var sentence = (s) => {
   const t = s.trim();
   return !t ? "" : /[.!?…]$/.test(t) ? t : `${t}.`;
 };
 function mcpError(code, path, what, next) {
   return `${code}: ${path ? `${path}: ` : ""}${sentence(what)} Nothing was changed. ${next ?? MCP_REMEDIES[code]}`;
+}
+function withCode(message) {
+  if (codeOf(message)) return message;
+  const code = /changed (while this call waited|meanwhile|after its dry run|since)/i.test(message) ? "page_changed" : /\b(is|are) gone\b|gone by now|deleted meanwhile|Use one_search to find page ids/i.test(message) ? "not_found" : /was locked meanwhile/i.test(message) ? "locked" : /\bcancelled\b|the person's decision/i.test(message) ? "rejected" : "bad_argument";
+  return `${code}: ${message}`;
 }
 
 // src/policy.ts
@@ -20108,6 +20118,10 @@ function describe2(c, newest) {
 
 // src/bridge.ts
 var CANCELLED = mcpError("rejected", "", "The call was cancelled");
+var UNKNOWN = "Whether the call was carried out is not known: read what it touches (one_get_page, one_query_database) before you call again.";
+var GONE = `rejected: One was closed or disconnected before it answered. ${UNKNOWN}`;
+var TOOK_OVER = `rejected: Another One tab took over before this one answered. ${UNKNOWN}`;
+var NO_ANSWER = (s) => `rejected: One did not answer within ${s} s (is the tab still open?). ${UNKNOWN}`;
 var MAX_PAYLOAD = 16 * 1024 * 1024;
 var HELLO_MS = 5e3;
 var MAX_PENDING_MS = 10 * 6e4;
@@ -20136,6 +20150,7 @@ function toolsOf(v) {
   }
   return out;
 }
+var takesNo = (tool, key) => mcpError("bad_argument", key, `${tool} takes no argument ${JSON.stringify(key)} (it takes: ${[...TOOLS2.get(tool) ?? []].join(", ") || "none"})`);
 function undeclared(tool, args) {
   const known = TOOLS2.get(tool);
   return known ? Object.keys(args).filter((k) => !known.has(k)) : Object.keys(args);
@@ -20270,7 +20285,7 @@ ${text2}`);
       this.conns.delete(conn);
       if (!this.drop(conn)) return;
       this.opts.log(`One tab disconnected: ${conn.info ? label(conn.info.workspace) : ""}`);
-      this.failCalls(conn, "One was closed or disconnected before it answered.");
+      this.failCalls(conn, GONE);
       this.sendPeers();
     });
   }
@@ -20289,7 +20304,7 @@ ${text2}`);
     this.drop(old);
     this.send(old, { type: "replaced" });
     old.ws.close(MCP_CLOSE_REPLACED, "replaced by a newer tab");
-    this.failCalls(old, "Another One tab took over before this one answered.");
+    this.failCalls(old, TOOK_OVER);
     this.opts.log(why);
   }
   receive(conn, msg, hello) {
@@ -20324,7 +20339,7 @@ ${text2}`);
         const f = this.inflight.get(String(msg.id));
         if (!f || f.conn !== conn) return;
         const ms = Math.min(MAX_PENDING_MS, Math.max(1e3, Number(msg.timeoutMs) || MCP_APPROVAL_MS));
-        f.arm(ms + 1e4, "The change was not approved in time. Nothing was changed.");
+        f.arm(ms + 1e4, mcpError("approval_timeout", "", "The change was not approved in time"));
         f.onPending?.(ms);
         return;
       }
@@ -20332,7 +20347,10 @@ ${text2}`);
       case "error": {
         const f = this.inflight.get(String(msg.id));
         if (!f || f.conn !== conn) return;
-        if (msg.type === "error") return f.finish({ ok: false, error: str(msg.error, 8e3) || "rejected: The call failed in One. Nothing was confirmed \u2014 read what the call touches again before you call again." });
+        if (msg.type === "error") {
+          const said = str(msg.error, 8e3);
+          return f.finish({ ok: false, error: !said ? "rejected: The call failed in One. Nothing was confirmed \u2014 read what the call touches again before you call again." : conn.info && conn.info.contract < 2 ? withCode(said) : said });
+        }
         f.finish(this.checked(f, msg.result ?? null));
         return;
       }
@@ -20389,7 +20407,7 @@ ${text2}`);
   /* ------------------------------------------------------------------ calls */
   inUseMessage() {
     const p = this.opts.port;
-    return `Another One MCP bridge is already using port ${p} (probably started by another MCP client). Quit that client, or run this one on another port: set ONE_MCP_PORT for the bridge and the same port in One \u2192 Settings \u2192 Agents \xB7 MCP.`;
+    return `rejected: Another One MCP bridge is already using port ${p} (probably started by another MCP client). Nothing was changed. Ask the person to quit that client, or to run this one on another port: set ONE_MCP_PORT for the bridge and the same port in One \u2192 Settings \u2192 Agents \xB7 MCP.`;
   }
   /** Wait (up to `ms`) for a tab to connect. */
   waitForApp(ms, signal) {
@@ -20410,11 +20428,13 @@ ${text2}`);
   }
   ready() {
     if (this.state === "in-use") return this.inUseMessage();
-    if (this.state !== "listening") return "The One bridge is not running.";
+    if (this.state !== "listening") return mcpError("rejected", "", "The One bridge is not running", "Ask the person to restart their MCP client (it starts the bridge).");
     return null;
   }
-  /** one_list_workspaces: the connected workspaces, newest first. No content. */
-  async listWorkspaces(signal) {
+  /** one_list_workspaces: the connected workspaces, newest first. No content. Its arguments: none (strict, as every tool). */
+  async listWorkspaces(signal, args = {}) {
+    const extra = undeclared("one_list_workspaces", args);
+    if (extra.length) return { ok: false, error: takesNo("one_list_workspaces", extra[0]) };
     const down = this.ready();
     if (down) return { ok: false, error: down };
     await this.waitForApp(this.opts.waitMs, signal);
@@ -20434,7 +20454,7 @@ ${text2}`);
   async call(tool, args, opts = {}) {
     if (!TOOLS2.has(tool)) return { ok: false, error: mcpError("bad_argument", "", `Unknown tool ${JSON.stringify(tool)}`, "tools/list names the tools there are.") };
     const extra = undeclared(tool, args);
-    if (extra.length) return { ok: false, error: mcpError("bad_argument", extra[0], `${tool} takes no argument ${JSON.stringify(extra[0])} (it takes: ${[...TOOLS2.get(tool)].join(", ")})`) };
+    if (extra.length) return { ok: false, error: takesNo(tool, extra[0]) };
     const down = this.ready();
     if (down) return { ok: false, error: down };
     const { workspace: target, ...rest } = args;
@@ -20474,7 +20494,7 @@ ${text2}`);
         }
       };
       this.inflight.set(id, entry);
-      entry.arm(this.opts.timeoutMs, `One did not answer within ${Math.round(this.opts.timeoutMs / 1e3)} s. Is the tab still open?`);
+      entry.arm(this.opts.timeoutMs, NO_ANSWER(Math.round(this.opts.timeoutMs / 1e3)));
       opts.signal?.addEventListener("abort", onAbort, { once: true });
       this.send(conn, expected ? { type: "call", id, tool, args: rest, workspace: expected } : { type: "call", id, tool, args: rest });
     });
@@ -28597,7 +28617,7 @@ function createMcpServer(bridge2, version2) {
     };
     try {
       if (def.name === "one_list_workspaces") {
-        const out2 = await bridge2.listWorkspaces(extra.signal);
+        const out2 = await bridge2.listWorkspaces(extra.signal, args);
         return out2.ok ? text(JSON.stringify(out2.result)) : text(out2.error, true);
       }
       const out = await bridge2.call(def.name, args, {

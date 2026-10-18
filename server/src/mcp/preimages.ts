@@ -35,15 +35,17 @@ import { MCP_LIMITS } from '../../../src/shared/mcp/tables.ts'
 type Values = Record<string, unknown>
 
 /**
- * A page, row or database a call made, as the call left it: its title, its text (`hash`, textHash) and `mark` — what else
- * people change on it (markOf: icon, cover, comment threads; a database's properties and views). Pre-images stored
- * before `mark` existed have none (that check is left out for them).
+ * A page, row or database a call made, as the call left it: its title, its text (`hash`, textHash), `mark` — what else
+ * people change on it (markOf: icon, cover, comment threads; a database's properties and views) — and `place` (placeOf:
+ * its parent and database; a page or row someone moved since is theirs, as on the bridge). Pre-images stored before
+ * `mark` / `place` existed have none (those checks are left out for them).
  */
 export interface Made {
   id: string
   title: string
   hash?: string
   mark?: string
+  place?: string
 }
 
 export type Preimage =
@@ -216,6 +218,14 @@ export class McpPreimages {
     return { title: page.title, values }
   }
 
+  /** Where a page / row sits: its parent and its database (a move since the call is a change since). */
+  static placeOf(r: Roots, id: string): string {
+    const yp = pageMap(r, id)
+    if (!yp) return ''
+    const at = (k: string) => (typeof yp.get(k) === 'string' ? String(yp.get(k)) : '')
+    return `${at('parentId')}|${at('databaseId')}`
+  }
+
   /**
    * What people change on a made page / row / database besides its title, values and text, as one fingerprint: its icon,
    * cover and comment threads — and a database's properties and views (a column or a view the team added since).
@@ -382,10 +392,10 @@ export class McpPreimages {
            * page the call made that stays (kept below: trashing its made parent would take it, and what is below it, along)
            */
           const foreign = (id: string) => (below.get(id) ?? []).some((k) => !made.has(k) || keptHere.has(k))
-          /** its icon, cover, comment threads (a database: its properties and views) moved since the call */
-          const markMoved = (c: Made) => c.mark !== undefined && McpPreimages.markOf(r, c.id) !== c.mark
+          /** its icon, cover, comment threads (a database: its properties and views) — or its place — moved since the call */
+          const markMoved = (c: Made) => (c.mark !== undefined && McpPreimages.markOf(r, c.id) !== c.mark) || (c.place !== undefined && McpPreimages.placeOf(r, c.id) !== c.place)
           // each made row: as the call left it? (title, its whole stored values — a field filled in since too —, its
-          // text, icon / cover / comments, nothing put below it)
+          // text, icon / cover / comments, its place, nothing put below it)
           const rowChanged = new Map<string, boolean>()
           for (const p of meta) {
             if (p.pre.kind !== 'rows') continue

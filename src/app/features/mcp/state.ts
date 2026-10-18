@@ -74,7 +74,7 @@ export interface McpActivity {
   /** error message (as the agent got it) */
   note?: string
   /** revert an applied write (this tab session) */
-  undo?: () => boolean
+  undo?: () => boolean | Promise<boolean>
 }
 
 /** … 'workspace': the tab switched to another workspace while the change waited */

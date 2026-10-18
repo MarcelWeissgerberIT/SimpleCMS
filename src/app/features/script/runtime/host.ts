@@ -45,22 +45,40 @@ export interface HostOptions {
   scope?: ((id: ID) => boolean) | null
   /** who writes (store/writer.ts): script:<id>:<run>, with the caller as its cause */
   writer: Writer
-  /** a caller's rule for what the run may change (RunOptions.writeGuard): a name = refused */
-  writeGuard?: ((target: WriteTarget) => string | null) | null
+  /** a caller's rule for what the run may change (RunOptions.writeGuard): a verdict other than null = refused */
+  writeGuard?: ((target: WriteTarget) => WriteVerdict) | null
   /** what the run may read of a page's text (RunOptions.textLimit) */
-  textLimit?: ((id: ID) => { markdown: string; plain: string } | null) | null
+  textLimit?: ((id: ID) => CallerText | null) | null
 }
 
 /**
  * What a write of a run touches, for a caller's rule (RunOptions.writeGuard): the page, its database, a new page's parent;
- * `tree`: the write takes the page's whole subtree along (the trash) — what lies below it counts too.
+ * `tree`: the write takes the page's whole subtree along (the trash) — what lies below it counts too; `content`: the
+ * write changes the page's text (append / prepend / replace).
  */
 export interface WriteTarget {
   pageId?: ID | null
   dbId?: ID | null
   parentId?: ID | null
   tree?: boolean
+  content?: boolean
 }
+
+/**
+ * A page's text as the caller lets a run read it (RunOptions.textLimit): only part of it (MCP: the person's context marks),
+ * or — `whole` — all of it, rendered the caller's way (MCP: a chart's table only from a source the client may read).
+ */
+export interface CallerText {
+  markdown: string
+  plain: string
+  whole?: boolean
+}
+
+/**
+ * A caller's verdict on a write: null = allowed; a name = One's own database there (ScriptError 'system_db'); `{ locked }`
+ * = the text of a page locked in One (ScriptError 'locked_content' — MCP: a locked page refuses content changes).
+ */
+export type WriteVerdict = string | { locked: string } | null
 
 const EFFECT_KIND: Record<EffectName, EffectKind> = { 'mail.send': 'mail', claude: 'claude', 'http.post': 'http' }
 
@@ -82,8 +100,8 @@ export class Host {
   readonly scope: ((id: ID) => boolean) | null
   /** the run's writer: every store write of the run runs in its frame (one per synchronous burst) */
   readonly writer: Writer
-  private readonly writeGuard: ((target: WriteTarget) => string | null) | null
-  private readonly textLimit: ((id: ID) => { markdown: string; plain: string } | null) | null
+  private readonly writeGuard: ((target: WriteTarget) => WriteVerdict) | null
+  private readonly textLimit: ((id: ID) => CallerText | null) | null
   readonly started = Date.now()
   readonly log: LogLine[] = []
   readonly changes: ChangeItem[] = []
@@ -122,7 +140,7 @@ export class Host {
   }
 
   /** What the run may read of this page's text — a caller's limit (RunOptions.textLimit); null = all of it. */
-  limitedText(id: ID): { markdown: string; plain: string } | null {
+  limitedText(id: ID): CallerText | null {
     return this.textLimit && !this.isDraft(id) ? this.textLimit(id) : null
   }
 
@@ -131,8 +149,9 @@ export class Host {
    * writes or plans writes, so a dry run stops where the run would.
    */
   private check(target: WriteTarget): void {
-    const name = this.writeGuard?.(target)
-    if (name) throw new ScriptError('system_db', { name })
+    const verdict = this.writeGuard?.(target)
+    if (typeof verdict === 'string' && verdict) throw new ScriptError('system_db', { name: verdict })
+    if (verdict && typeof verdict === 'object') throw new ScriptError('locked_content', { name: verdict.locked })
   }
 
   /** The databases a relation value also writes into: an explicit two-way partner's rows (writePropertyValue syncs them). */
@@ -318,10 +337,11 @@ export class Host {
   async writeContent(page: Page, markdown: string, how: 'append' | 'prepend' | 'replace'): Promise<void> {
     this.guard(`${how}()`)
     if (!this.isDraft(page.id)) {
-      this.check({ pageId: page.id, dbId: page.databaseId })
+      this.check({ pageId: page.id, dbId: page.databaseId, content: true })
       // the caller lets this run read only part of the page (RunOptions.textLimit — MCP: the person's context marks): a
       // replace rebuilt from what it read would drop the rest — refused in every mode, so a dry run already stops here
-      if (how === 'replace' && this.limitedText(page.id)) throw new ScriptError('limited_replace', { name: page.title.trim() || page.id })
+      const lim = this.limitedText(page.id)
+      if (how === 'replace' && lim && !lim.whole) throw new ScriptError('limited_replace', { name: page.title.trim() || page.id })
     }
     const md = markdown.slice(0, 500_000)
     const existing = this.changes.find((c) => c.pageId === page.id && c.kind === 'content')

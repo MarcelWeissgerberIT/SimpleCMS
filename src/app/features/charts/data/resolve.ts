@@ -63,8 +63,28 @@ function databaseData(source: Extract<ChartSource, { kind: 'database' }>): Chart
   return data
 }
 
+/**
+ * A caller's rule for which live sources a chart may read while it runs (sync only, innermost wins): an MCP read of a
+ * page resolves a chart's spreadsheet / database only where the client may read that source itself (features/mcp —
+ * not a template's, not in the trash, a spreadsheet only in what the person's context marks let through); any other
+ * source answers "not available" — the node's Markdown then carries no table and a frozen copy no numbers.
+ */
+export type ChartSourceGate = (source: ChartSource) => boolean
+let sourceGate: ChartSourceGate | null = null
+
+export function withChartSourceGate<T>(gate: ChartSourceGate, fn: () => T): T {
+  const prev = sourceGate
+  sourceGate = gate
+  try {
+    return fn()
+  } finally {
+    sourceGate = prev
+  }
+}
+
 /** Data available right now (no IndexedDB): exports and the first paint. */
 export function resolveChartDataSync(source: ChartSource, spec: TableSpec = {}): ChartData {
+  if (sourceGate && source.kind !== 'manual' && source.kind !== 'inline' && !sourceGate(source)) return fail('charts.err.notAvailable')
   try {
     switch (source.kind) {
       case 'manual':

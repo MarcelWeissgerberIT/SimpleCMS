@@ -817,3 +817,103 @@ test('one_list_pages, urlBase in lists, full views, inline / system / class on r
   // the overview's tree is cut below the first level: it points to one_list_pages
   expect(json(await call('one_overview')).tree).toEqual({ more: true, use: 'one_list_pages' })
 })
+
+/* review 5: a chart's live source and the backlinks read only what the client may read; an older bridge keeps contract 1's sub-pages */
+
+const SALARIES = /98731|87124/
+
+/** "Gehälter": an intro, a spreadsheet of salaries, a chart drawn from it; "Report": a chart drawn from a template's sheet. */
+async function salaries(page: Page) {
+  const ids = await wsEval(page, (s) => {
+    const sheet = (id: string) => ({
+      type: 'spreadsheet',
+      attrs: { id, title: 'Gehälter', sheets: [{ id: 'sh1', name: 'Q4', rows: 10, cols: 4, cells: { A1: { v: 'Name' }, B1: { v: 'Gehalt' }, A2: { v: 'Mara Lind' }, B2: { v: '98731' }, A3: { v: 'Tessera' }, B3: { v: '87124' } }, colWidths: {} }], active: 'sh1', datasets: [], charts: [] },
+    })
+    const chart = (id: string, pageId: string, sheetBlockId: string) => ({ type: 'chart', attrs: { id, spec: { kind: 'bar', title: 'Gehälter', source: { kind: 'sheet', pageId, sheetBlockId, ref: 'A1:B3' }, labels: 'firstColumn', seriesIn: 'columns' } } })
+    const pay = s.createPage({ title: 'Gehälter' })
+    s.setContent(pay, { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'keep-0001-gh' }, content: [{ type: 'text', text: 'Intro to the salary review.' }] }, sheet('sheet-sal-0001'), chart('keep-0003-gh', pay, 'sheet-sal-0001')] }, 'e2e')
+    const tpl = s.createPage({ title: 'Vorlage Gehälter' })
+    s.setContent(tpl, { type: 'doc', content: [sheet('sheet-tpl-0001')] }, 'e2e')
+    s.updatePage(tpl, { template: { name: 'Vorlage Gehälter' }, hidden: true })
+    const report = s.createPage({ title: 'Report' })
+    s.setContent(report, { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Quarterly report.' }] }, chart('rep-0002-chart', tpl, 'sheet-tpl-0001')] }, 'e2e')
+    return { pay, tpl, report }
+  })
+  await flush(page)
+  return ids
+}
+
+test("a chart's live source is read only where the client may read it (review 5): a sheet the context marks leave out, a template's sheet — no data, no table", async ({ page }) => {
+  await openApp(page)
+  const ids = await salaries(page)
+  await connect(page)
+  const chartOf = (r: AnyState) => flat(r.blocks ?? []).find((b) => b.type === 'chart')
+  // no marks: the chart's data comes from its sheet, as the sheet itself is readable
+  const all = json(await call('one_get_page', { id: ids.pay, format: 'blocks' }))
+  expect(chartOf(all).data.data.labels).toEqual(['Mara Lind', 'Tessera'])
+  // the person lets Claude read the intro and the chart, not the sheet: neither the chart's data nor its Markdown table
+  await page.evaluate((id) => (window as unknown as { __oneMcp: { context: (id: string, ids: string[] | null) => Promise<void> } }).__oneMcp.context(id, ['keep-0001-gh', 'keep-0003-gh']), ids.pay)
+  for (const format of ['blocks', 'markdown'] as const) {
+    const r = await call('one_get_page', { id: ids.pay, format })
+    expect(text(r), format).not.toMatch(SALARIES)
+    expect(text(r), format).not.toContain('Mara Lind')
+  }
+  const limited = json(await call('one_get_page', { id: ids.pay, format: 'blocks' }))
+  expect(limited.blocks.map((b: AnyState) => b.type)).toEqual(['paragraph', 'chart'])
+  expect(chartOf(limited).data.data).toBeNull()
+  // a script over MCP reads the page as the client may: the same
+  const q = json(await call('one_run_query', { code: 'page("Gehälter").markdown' }))
+  expect(JSON.stringify(q)).not.toMatch(SALARIES)
+  // a chart on an ordinary page drawn from a template's sheet: the template is not the workspace's data
+  for (const format of ['blocks', 'markdown'] as const) {
+    const r = await call('one_get_page', { id: ids.report, format })
+    expect(text(r), format).not.toMatch(SALARIES)
+  }
+  const report = json(await call('one_get_page', { id: ids.report, format: 'blocks' }))
+  expect(chartOf(report).data.data).toBeNull()
+  expect(JSON.stringify(json(await call('one_run_query', { code: 'page("Report").markdown' })))).not.toMatch(SALARIES)
+})
+
+test('backlinks honour context marks (review 5): a page whose only link sits in a block the person left out is not listed', async ({ page }) => {
+  await openApp(page)
+  const ids = await wsEval(page, (s) => {
+    const target = s.createPage({ title: 'Kündigung Tessera' })
+    const board = s.createPage({ title: 'Board notes' })
+    s.setContent(board, { type: 'doc', content: [{ type: 'paragraph', attrs: { id: 'keep-0001-bn' }, content: [{ type: 'text', text: 'Public agenda.' }] }, { type: 'pageLink', attrs: { id: 'hide-0002-bn', pageId: target } }] }, 'e2e')
+    const open = s.createPage({ title: 'Open notes' })
+    s.setContent(open, { type: 'doc', content: [{ type: 'pageLink', attrs: { id: 'open-0001-bn', pageId: target } }] }, 'e2e')
+    return { target, board, open }
+  })
+  await flush(page)
+  await connect(page)
+  const backlinks = async () => (json(await call('one_get_page', { id: ids.target })).backlinks ?? []).map((b: AnyState) => b.title).sort()
+  expect(await backlinks()).toEqual(['Board notes', 'Open notes'])
+  await page.evaluate((id) => (window as unknown as { __oneMcp: { context: (id: string, ids: string[] | null) => Promise<void> } }).__oneMcp.context(id, ['keep-0001-bn']), ids.board)
+  expect(await backlinks()).toEqual(['Open notes'])
+})
+
+test('a bridge older than one_list_pages keeps contract 1 (review 5): one_get_page lists up to 100 sub-pages, one_overview never points to a tool it lacks', async ({ page }) => {
+  await openApp(page)
+  const id = await wsEval(page, (s) => {
+    const id = s.createPage({ title: 'Kapitelsammlung' })
+    for (let i = 1; i <= 70; i++) s.createPage({ title: `Kapitel ${i}`, parentId: id })
+    return id
+  })
+  await flush(page)
+  await connect(page)
+  const seed = (bridge: string) => page.evaluate((bridge) => (window as unknown as { __oneMcp: { seed: (p: Record<string, unknown>) => void } }).__oneMcp.seed({ bridge }), bridge)
+  await seed('1.11.0')
+  const old = json(await call('one_get_page', { id }))
+  expect(Array.isArray(old.children)).toBe(true)
+  expect(old.children).toHaveLength(70)
+  expect(old.children[69]).toMatchObject({ title: 'Kapitel 70', kind: 'page' })
+  const oldOverview = json(await call('one_overview'))
+  expect(JSON.stringify(oldOverview)).not.toContain('one_list_pages')
+  expect(oldOverview.tree).toMatchObject({ more: true })
+  // the current bridge: parts, the sub-pages capped with one_list_pages for the rest
+  await seed('1.12.0')
+  const now = json(await call('one_get_page', { id }))
+  expect(now.children.items).toHaveLength(50)
+  expect(now.children.more).toBe(20)
+  expect(json(await call('one_overview')).tree).toEqual({ more: true, use: 'one_list_pages' })
+})

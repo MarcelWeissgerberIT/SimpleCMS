@@ -23,7 +23,8 @@ import { livePage, withPageNodes, type LinkTarget } from './links'
 import { mediaNode } from '../media/blocks'
 import { applyNewTask, applyTaskAction, isPipelineTask, taskNeedsConfirm, taskSig, taskWriteEndsConfirm, textRefsGained } from '../../coding'
 import { isHandOnly, keyOwner, keyPropOf, keyText } from '../../../store/keys'
-import { currentWriter, formatWriterKey, withWriter, type Writer, type WriterKey } from '../../../store/writer'
+import { formatWriterKey, withWriter, type Writer } from '../../../store/writer'
+import { changedSince, followCall, madeAs, textMoved } from './follow'
 import { createPrivatePage } from '../../../cloud'
 import { isSettled } from '../../recorder/settled'
 import { runKeyOf } from '../../recorder/model/writerKeys'
@@ -449,82 +450,6 @@ export async function applyChanges(changes: StagedChange[], all: StagedChange[],
 /** Set while a batch's own rollback runs (ApplyResult.rollback): what it created goes for good, never to the trash. */
 let rollingBack = false
 
-/** A row's values as a key: the order of keys and an emptied value (null, '', []) do not count as a change. */
-function valuesKey(props: Record<string, unknown> | undefined): string {
-  const keys = Object.keys(props ?? {}).sort()
-  const out: Array<[string, unknown]> = []
-  for (const k of keys) {
-    const v = props![k]
-    if (v === undefined || v === null || v === '' || (Array.isArray(v) && !v.length)) continue
-    out.push([k, v])
-  }
-  return JSON.stringify(out)
-}
-
-/** What a created page / row held when it was made — the Undo compares against it (removeCreated). */
-interface MadeAs {
-  rev: number | undefined
-  key: string
-  title: string | undefined
-  icon: string
-  props: Record<string, unknown>
-}
-
-const madeAs = (p: Page | undefined): MadeAs => ({ rev: p?.contentRev, key: contentKey(p?.content), title: p?.title, icon: JSON.stringify(p?.icon ?? null), props: { ...(p?.properties ?? {}) } })
-
-/** One value as valuesKey counts it (an emptied value is none). */
-const valueKey = (v: unknown) => (v === undefined || v === null || v === '' || (Array.isArray(v) && !v.length) ? '' : JSON.stringify(v))
-
-/**
- * The pages an MCP call made (removeCreated 'trash'), by the call's writer key: what the call itself set off since —
- * a row_created automation, autofill, the kit, a script an automation ran (a derived writer whose `cause` chain names
- * the call, store/writer.ts) — counts as the page as the call made it, so its Undo still takes it back. Such a write
- * moves only the parts it changed, and only while they were still as made (an edit of the person's before it stays an
- * edit); anyone else's write never moves the baseline. One store listener for all, idle unless such a writer writes.
- */
-const followed = new Map<ID, { call: WriterKey; base: MadeAs }>()
-let unfollow: (() => void) | null = null
-
-/** The writers a derived writer names as its cause chain (its key's causes, its raw cause one level deeper); null: none. */
-function causesOf(w: Writer | null): Set<string> | null {
-  if (!w || w.kind === 'mcp') return null
-  const raw = w.kind === 'script' ? w.via : 'cause' in w ? w.cause : undefined
-  if (typeof raw !== 'string' || !raw) return null
-  return new Set([...formatWriterKey(w).split('<').slice(1), ...raw.split('<')])
-}
-
-/** Move the baseline by what this write changed of a page, part by part, where that part was still as made. */
-function moveBase(b: MadeAs, before: Page, now: Page): void {
-  if (now.contentRev !== before.contentRev && (before.contentRev === b.rev || contentKey(before.content) === b.key)) {
-    b.rev = now.contentRev
-    b.key = contentKey(now.content)
-  }
-  if (now.title !== before.title && before.title === b.title) b.title = now.title
-  const icon = JSON.stringify(now.icon ?? null)
-  if (icon !== JSON.stringify(before.icon ?? null) && JSON.stringify(before.icon ?? null) === b.icon) b.icon = icon
-  if (now.properties !== before.properties) {
-    for (const k of new Set([...Object.keys(before.properties ?? {}), ...Object.keys(now.properties ?? {})])) {
-      const was = valueKey(before.properties?.[k])
-      if (valueKey(now.properties?.[k]) !== was && was === valueKey(b.props[k])) b.props[k] = now.properties?.[k]
-    }
-  }
-}
-
-function follow(id: ID, call: WriterKey, base: MadeAs): void {
-  followed.set(id, { call, base })
-  unfollow ??= useWorkspace.subscribe((s, prev) => {
-    // only a write some other write set off (an automation, autofill, the kit, a script …) can move a baseline
-    const causes = causesOf(currentWriter())
-    if (!causes) return
-    for (const [pid, f] of followed) {
-      const now = s.pages[pid]
-      const before = prev.pages[pid]
-      if (!now) followed.delete(pid)
-      else if (before && now !== before && causes.has(f.call)) moveBase(f.base, before, now)
-    }
-  })
-}
-
 /**
  * Undo of a created page / row: deleted for good while untouched; once someone edited it, put pages under it or put it
  * (or a page above it) in the trash, it goes to the trash instead (recoverable) — one in the trash stays as it is.
@@ -536,35 +461,24 @@ function removeCreated(id: ID, mode: ApplyOpts['undoCreated'] = 'delete', writer
   const made = ws().pages[id]
   const first = madeAs(made)
   const call = mode === 'trash' && writer ? formatWriterKey(writer) : null
-  if (call && made) follow(id, call, first)
-  // the baseline: as made, or as the call's own follow-ups left it
-  const base = () => followed.get(id)?.base ?? first
+  // the baseline: as made, or as the call's own follow-ups left it (follow.ts)
+  const follow = call && made ? followCall(id, call, first) : null
+  const base = () => follow?.base() ?? first
   // a row: its place as written (the person may move it since)
   const place = `${made?.parentId ?? null}|${made?.databaseId ?? null}`
   return () => {
     const b = base()
-    followed.delete(id)
-    if (!followed.size && unfollow) {
-      unfollow()
-      unfollow = null
-    }
+    follow?.stop()
     const { pages } = ws()
     const now = pages[id]
     if (!now || now.trashed) return true
     // content as written (a later change of the same batch undone first writes it back: the same content counts)
-    const edited = (now.contentRev !== b.rev && contentKey(now.content) !== b.key) || now.title !== b.title
+    const edited = textMoved(now, b) || now.title !== b.title
     if (mode === 'trash' && !rollingBack) {
       // a page above it in the trash already takes it along
       if (isEffectivelyTrashed(pages, id)) return true
-      // changed since (text, title, icon, a value, its place, a live page put under it): left as it is
-      if (
-        edited ||
-        JSON.stringify(now.icon ?? null) !== b.icon ||
-        valuesKey(now.properties) !== valuesKey(b.props) ||
-        `${now.parentId ?? null}|${now.databaseId ?? null}` !== place ||
-        Object.values(pages).some((p) => p.parentId === id && !p.trashed)
-      )
-        return false
+      // changed since (text, title, icon, cover, comment threads, a value, its place, a live page put under it): left as it is
+      if (changedSince(now, b) || `${now.parentId ?? null}|${now.databaseId ?? null}` !== place || Object.values(pages).some((p) => p.parentId === id && !p.trashed)) return false
       ws().trashPage(id)
       return true
     }

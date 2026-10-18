@@ -18,4 +18,4 @@ try: settings-mcp
 
 One's own databases (memory, Mails, the pipelines) stay read-only over MCP, templates stay invisible, and a call repeated within 2 minutes does not make something twice. This needs bridge **1.12.0**: download `one.mcpb` again, and reload One once after it updated.
 
-On a team server the same tools work at `/mcp`. It changes without a card, so **Recent MCP writes** under **Workspace settings → Automation → API** lists every MCP call of the last 14 days with **Restore**. More: [Claude Desktop & local MCP](help:mcp-bridge).
+On a team server the same tools work at `/mcp`. It changes without a card, so **Recent MCP writes** under **Workspace settings → Automation → API** lists the MCP calls of the last 14 days that made or overwrote something — pages, rows, databases, row values, a replaced page text — with **Restore**. More: [Claude Desktop & local MCP](help:mcp-bridge).

@@ -51,6 +51,8 @@ export type ScriptErrorCode =
   | 'system_db'
   // the caller lets the run read only part of the page (MCP: context marks): a replace would overwrite the rest
   | 'limited_replace'
+  // the caller's rule: the text of a page locked in One (MCP: a locked page refuses content changes)
+  | 'locked_content'
   | 'no_effect'
   | 'refused'
   | 'effect_failed'
@@ -120,6 +122,7 @@ export const ERROR_TEXT_EN: Record<ScriptErrorCode, string> = {
   no_write: 'You can view this workspace but not change it.',
   system_db: '“{name}” is One\'s own database: a run started over MCP cannot change it (nothing of this write happened).',
   limited_replace: 'replace() on “{name}”: the person limited what this run may read of the page (context marks) — a replace would overwrite blocks it may not read (nothing of this write happened). Use append() instead.',
+  locked_content: '“{name}” is locked in One: a run started over MCP cannot change its text (nothing of this write happened).',
   no_effect: 'The effect {name} is not available.',
   refused: '{name} was not allowed in this run.',
   effect_failed: '{name} failed: {detail}',

@@ -37,7 +37,7 @@ does not list the tool, or answers `local_only` for that argument).
 | `one_get_database` | read | ✓ | ✓ | `{ id }` — the schema (types, options, relations, read-only flags — `onlyByHand` properties are read-only for MCP clients, `key` marks the database's key) and the views in full (grouping, filters, sorts, visible properties) |
 | `one_query_database` | read | ✓ | ✓ | `{ databaseId, filter?, sort?, limit?, cursor? }` — rows with friendly values, filtered and sorted, paginated |
 | `one_create_page` | write | ✓ | ✓ · `private` local only | `{ title, parentId?, markdown?, icon?, before? \| after? \| index?, private?, linkInParent? }` — a page, or a sub-page under a page **or a row**; or `{ pages: [≤ 50] }` — a whole tree in one call ([Sub-pages and batches](#sub-pages-and-batches)) |
-| `one_update_page` | write | ✓ | ✓ | `{ id, title?, icon?, markdown?, mode: 'append' \| 'replace' }` — a task block of the page written back as it was read (`> [!TODO] … {#wi_…}`) stays that task: its title and notes from the Markdown, its fields as the app has them. B: new `> [!TODO]` quotes become tasks through the same gate as the app ([Tasks](#tasks)); a replace that removes tasks is always asked; a page that changed while the call waited for approval is not replaced (call again); a replace keeps page links as links. S refuses a `replace` of a page holding a task (`page_holds_tasks`), a page whose blocks its Markdown cannot carry (`lossy_replace`) and a locked page's content (`locked`) |
+| `one_update_page` | write | ✓ | ✓ | `{ id, title?, icon?, markdown?, mode: 'append' \| 'replace' }` — a task block of the page written back as it was read (`> [!TODO] … {#wi_…}`) stays that task: its title and notes from the Markdown, its fields as the app has them. B: new `> [!TODO]` quotes become tasks through the same gate as the app ([Tasks](#tasks)); a replace that removes tasks is always asked; a page that changed while the call waited for approval is not replaced (call again); a replace keeps page links as links. S refuses a `replace` of a page holding a task or a page whose blocks its Markdown cannot carry (both `lossy_replace`) and a locked page's content (`locked`) |
 | `one_create_row` | write | ✓ | ✓ | `{ databaseId, title, properties?, markdown? }` or `{ databaseId, rows: [≤ 50] }` — all or none; a key another row holds and an `onlyByHand` property are refused |
 | `one_update_row` | write | ✓ | ✓ | `{ id, properties }` or `{ rows: [{ id, properties }] ≤ 50 }` — only what you pass changes, `null` clears; all or none; the same refusals |
 | `one_upsert_rows` | write | ✓ | ✓ | `{ databaseId, keyProperty, rows: [{ key, title?, properties?, markdown? }] ≤ 50 }` — keep a database in step with items from elsewhere, by a key: per row `created`, `updated` (only the values that differ) or `unchanged` |
@@ -75,7 +75,12 @@ out), and a tool takes **only** the arguments it declares: anything else is refu
   ([`src/shared/mcp/errors.ts`](../src/shared/mcp/errors.ts)). **Every** refusal starts with its code — the tab's own
   checks too (a value, a filter, a cursor, a property spec): a message that names none gets the one it means
   (`withCode`: changed while the call waited → `page_changed`, gone meanwhile → `not_found`, locked meanwhile →
-  `locked`, anything about the arguments → `bad_argument`), as the team server's answers do. Arguments are strict at
+  `locked`, anything about the arguments → `bad_argument`), as the team server's answers do; the bridge's own too — a
+  card not approved in time `approval_timeout`, a tab that closed, reloaded or was replaced while a call waited and a tab
+  that did not answer `rejected` (*whether the call was carried out is not known: read what it touches before you call
+  again* — never "Nothing was changed"), the port in use or the bridge not running `rejected`, and every refusal of an
+  older One tab (contract 1) gets its code from the bridge. `one_list_workspaces` takes no argument: any is refused
+  (`bad_argument`) on both ways in. Arguments are strict at
   every depth: a key a closed object of the contract does not declare — `rows[0].Status` beside `properties`,
   `pages[1].content`, `inline.afterblock`, `views[0].group_by` — is `bad_argument` with its path on both ways in (the
   team server's schemas are strict objects at every depth; its `tools/list` says `additionalProperties: false` there
@@ -124,8 +129,9 @@ out), and a tool takes **only** the arguments it declares: anything else is refu
   part never cuts a line that fits in a part, so a table, a code block or a list read in parts is the same block again
   when the joined Markdown is written back. A bridge older than 1.12.0 (no cursor in its schema) gets contract 1's
   answer instead: the whole page's Markdown, cut at 60,000 characters with a last line *[Truncated: 60,000 of N
-  characters — the rest needs the updated One bridge]* and `truncated: true`; Settings → Agents · MCP asks for the
-  update.
+  characters — the rest needs the updated One bridge]* and `truncated: true`, and `children` as contract 1 listed them
+  (up to 100 sub-pages, no `more`); its one_overview never points to one_list_pages (the old bridge has none — a cut tree
+  says to use one_search). Settings → Agents · MCP asks for the update.
 - **`rev`** — the content's revision, an opaque string (B: the page's content counter; S: a hash of its document state —
   state vector and delete set, so a member who only deletes moves it too).
 - **`format: "blocks"`** — every block nested: `{ ref, type, markdown?, attrs?, data?, children? }`. Leaves carry their
@@ -188,7 +194,9 @@ out), and a tool takes **only** the arguments it declares: anything else is refu
   = Done on these 20 cards" is one call); every row that does not fit is named in one refusal (`rows[i] ("title"): …`
   per line). `one_upsert_rows` mirrors items by a key: `keyProperty` names the database's
   key or a text / number / url property; a row whose key holds `key` gets only the values that differ, no such row →
-  a new one (its `markdown` is written only while its page is empty); any refused row fails the whole call with the list.
+  a new one (its `markdown` is written only while its page is empty — every top-level block an empty paragraph, on B and
+  S alike); a key listed twice in one call is refused (`rows[1] (key "7"): listed twice (rows[0] has it too)`) on both;
+  any refused row fails the whole call with the list.
 - **One card per call** (B, *Ask first*): *Create 50 pages in “Launch plan”* with a line per page, *Change 20 rows in
   Cards* with each value before → after. Every line shows **everything** the entry writes — each value (never only the
   first ones) and, under it, the text it writes into its page (*Content of “Kick-off” · 1,204 chars* with its first
@@ -731,9 +739,9 @@ curl -s https://team.example.com/mcp \
   quotes, code, dividers, marks, links); other Markdown stays text. `one_update_page` appends after the last block or,
   with `mode: "replace"`, replaces everything — editors open on that page follow along live. A page that holds a
   task block is never replaced: the server cannot read or write a task yet (its Markdown prints one as plain blocks,
-  so a read → edit → replace round trip would turn every task into paragraphs) — `replace` answers 422
-  `page_holds_tasks` and changes nothing (a server agent's report in replace mode notes it in its run); `append`
-  works as always, until server parity.
+  so a read → edit → replace round trip would turn every task into paragraphs) — `replace` answers
+  `lossy_replace` (*… holds tasks; a replace over the team server would turn them into plain text*) and changes
+  nothing (a server agent's report in replace mode notes it in its run); `append` works as always, until server parity.
 - **Beyond the REST API**: `one_update_page` (content, title, icon), `one_create_database`, `one_create_property`
   (options, two-way relations, unique ids numbered for the existing rows, the property shown in every view), new
   select options from `one_create_row` / `one_update_row`, the [tidy-up tools](#tidying-up) (properties, options,
@@ -755,10 +763,14 @@ curl -s https://team.example.com/mcp \
 
 ### What the server does without a card (pre-images, restore)
 
-The team server has no approval card and no Undo of its own, so it keeps, **per MCP call that changes something**,
-what it needs to put that call back — a *pre-image*: the rows it made (with their values), each field it changed
-(before → after), the pages and databases it made, and a page's content right before a `replace` (or before a link was
-appended to it, or before `one_upsert_rows` wrote a row's body). Pre-images are sealed with the workspace's key, kept **14 days** and deleted with the workspace; REST
+The team server has no approval card and no Undo of its own, so it keeps, **for the calls that make or overwrite
+something**, what it needs to put that call back — a *pre-image*: the rows it made (with their values), each row field
+it changed (before → after), the pages and databases it made, and a page's content right before a `replace` (or before
+a link or database block was written into it, or before `one_upsert_rows` wrote a row's body). Kept for
+`one_create_page`, `one_create_row`, `one_update_row`, `one_upsert_rows`, `one_create_database` and a replace of
+`one_update_page` — **not** for property, option or view changes (`one_create_property`, `one_update_property`,
+`one_delete_property`, `one_update_database`, the view tools), moves, trash and restore, a page's title or icon, or a
+plain `append`: those are not listed and are undone in One (the page history, the trash). Pre-images are sealed with the workspace's key, kept **14 days** and deleted with the workspace; REST
 API writes keep none.
 
 **Workspace settings → Automation → API → Recent MCP writes** (owners and admins) lists the last 100 calls — the
@@ -796,7 +808,7 @@ tool in words, the token, what it made and changed, the first titles, its age �
 | Auth | `Authorization: Bearer one_…` only; missing or unknown → `401` with `WWW-Authenticate: Bearer`. The session cookie is never read |
 | Origin | requests that carry an `Origin` header of another site are refused (`403`); MCP clients don't send one |
 | CORS | none: MCP clients are programs, not web pages. A browser-based client needs a server-side proxy (the MCP Inspector's proxy works) |
-| Limits | shared with `/api/v1`: 120 requests per minute per token (`API_RATE_LIMIT`; every JSON-RPC request counts — a client's start is 2–3 of them), 30 failed authentications per minute per client address, 256 KB per request, 100 rows per query answer |
+| Limits | shared with `/api/v1`: 120 requests per minute per token (`API_RATE_LIMIT`; every JSON-RPC request counts — a client's start is 2–3 of them), 30 failed authentications per minute per client address, 256 KB per request for a read token and 512 KB for a write token (a tool call over it is answered `too_large` — split it), 100 rows per query answer |
 | Reverse proxy | nothing to configure (no streaming); Caddy from `docker-compose.yml` works as it is |
 | Logs | tool calls that change something are logged (`mcp page updated` …) with the token id — never the token |
 | Version | `serverInfo.version` = `<server version>+mcp.2`; `GET /api/config` lists `mcp:2` in `supports` while the server serves contract 2 (T-a). The team server and the app update together: an older server keeps its tools as they were; the app reads `supports` and, on a server without `mcp:2`, shows no *Recent MCP writes* and no token *Comments* choice, but one line: the team server needs an update |

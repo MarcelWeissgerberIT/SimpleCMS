@@ -595,6 +595,74 @@ describe('workspaces', () => {
   })
 })
 
+describe("the bridge's own refusals carry a code (review 5)", () => {
+  test('one_list_workspaces takes no argument: anything is refused (bad_argument), as on the team server', async () => {
+    const { client } = await start()
+    track(await helloApp())
+    for (const args of [{ verbose: true }, { workspace: 'Acme' }]) {
+      const res = await client.callTool({ name: 'one_list_workspaces', arguments: args })
+      assert.equal(res.isError, true, JSON.stringify(args))
+      const key = Object.keys(args)[0]!
+      assert.equal(textOf(res), `bad_argument: ${key}: one_list_workspaces takes no argument "${key}" (it takes: none). Nothing was changed. ${MCP_REMEDIES.bad_argument}`)
+    }
+    const ok = await client.callTool({ name: 'one_list_workspaces', arguments: {} })
+    assert.equal(ok.isError, undefined)
+  })
+
+  test('a tab gone, replaced or silent while a call waited: rejected — and never "Nothing was changed" (the outcome is not known)', async () => {
+    const { client } = await start({ ONE_MCP_TIMEOUT_MS: '400' })
+    const app = track(await helloApp('Acme'))
+    const pending = client.callTool({ name: 'one_create_page', arguments: { title: 'Kapitel' } })
+    await app.next('call')
+    app.close()
+    const gone = textOf(await pending)
+    assert.equal(codeOf(gone), 'rejected', gone)
+    assert.match(gone, /closed or disconnected before it answered\. Whether the call was carried out is not known/)
+    assert.doesNotMatch(gone, /Nothing was changed/)
+    // a newer tab of the same workspace takes over while a call waits
+    const first = track(await helloApp('Nordlicht'))
+    const waiting = client.callTool({ name: 'one_create_page', arguments: { title: 'Kapitel 2', workspace: 'Nordlicht' } })
+    await first.next('call')
+    track(await helloApp('Nordlicht'))
+    const replaced = textOf(await waiting)
+    assert.equal(codeOf(replaced), 'rejected', replaced)
+    assert.match(replaced, /Another One tab took over/)
+    // no answer at all
+    const silent = textOf(await client.callTool({ name: 'one_overview', arguments: { workspace: 'Nordlicht' } }))
+    assert.equal(codeOf(silent), 'rejected', silent)
+    assert.match(silent, /did not answer within/)
+  })
+
+  test('the approval window running out is approval_timeout', async () => {
+    const { client } = await start({ ONE_MCP_TIMEOUT_MS: '300' })
+    const app = track(await helloApp())
+    app.ws.on('message', (d) => {
+      const msg = JSON.parse(d.toString()) as BridgeMessage
+      if (msg.type === 'call') app.send({ type: 'pending', id: msg.id, timeoutMs: 1000 })
+    })
+    const res = await client.callTool({ name: 'one_create_row', arguments: { databaseId: 'db', title: 'Q4 launch' } })
+    assert.equal(res.isError, true)
+    assert.equal(codeOf(textOf(res)), 'approval_timeout', textOf(res))
+  })
+
+  test('the port taken by another bridge, and an older tab\'s refusals, start with a code', async () => {
+    await start()
+    const second = await startBridge()
+    try {
+      const res = await second.client.callTool({ name: 'one_overview', arguments: {} })
+      assert.equal(codeOf(textOf(res)), 'rejected', textOf(res))
+    } finally {
+      await second.close()
+    }
+    // a tab whose hello names no contract (One before contract 2) words its refusals without one: the bridge adds it
+    const { client } = bridge!
+    const old = track(await helloApp('Old words'))
+    serve(old, () => ({ error: 'No page with id "nope". Use one_search to find page ids.' }))
+    const res = await client.callTool({ name: 'one_get_page', arguments: { id: 'nope' } })
+    assert.equal(textOf(res), 'not_found: No page with id "nope". Use one_search to find page ids.')
+  })
+})
+
 describe('handshake security', () => {
   const status = async (opts: Parameters<typeof connectApp>[0]) => {
     try {

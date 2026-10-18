@@ -115,3 +115,33 @@ export function withRemedy(message: string): string {
   if (!code || /\b[Nn]othing (was|is) \w+/.test(message)) return message
   return `${sentence(message)} Nothing was changed. ${MCP_REMEDIES[code]}`
 }
+
+/** The most entries a batch refusal lists (then "and n more"). */
+export const BATCH_REFUSAL_LINES = 20
+
+/** An entry's refusal as a line of the batch's list: no code, no "Nothing was changed.", no next step, its path short. */
+export function entryText(message: string, path: string): string {
+  let m = message
+  const code = codeOf(m)
+  if (code) m = m.slice(code.length + 1).trim()
+  // the entry's own path (the list names it); a deeper part stays ("properties.Status: …")
+  if (m.startsWith(`${path}.`)) m = m.slice(path.length + 1)
+  else if (m.startsWith(`${path}:`)) m = m.slice(path.length + 1)
+  m = m.replace(/Nothing was (changed|staged)\.\s*/g, '')
+  for (const r of Object.values(MCP_REMEDIES)) m = m.split(r).join('')
+  return m.replace(/\s+/g, ' ').trim()
+}
+
+/**
+ * ONE refusal for every entry of a batch that does not fit (spec § 2.3, bridge and team server alike): `rows[i]
+ * ("title"): …` per line (≤ 20, then "and n more"), the code they share (else bad_argument), "Nothing was changed." and
+ * the next step. `failed[i].message` is the entry's own refusal (with its code); `root` is the argument ("rows").
+ */
+export function batchRefusal(failed: ReadonlyArray<{ path: string; name: string | null; message: string }>, total: number, root: string): string {
+  const codes = new Set(failed.map((f) => codeOf(f.message) ?? 'bad_argument'))
+  const code: McpErrorCode = codes.size === 1 ? [...codes][0]! : 'bad_argument'
+  const listed = failed.slice(0, BATCH_REFUSAL_LINES).map((f) => `- ${f.path}${f.name ? ` (${JSON.stringify(f.name)})` : ''}: ${entryText(f.message, f.path)}`)
+  if (failed.length > BATCH_REFUSAL_LINES) listed.push(`- and ${failed.length - BATCH_REFUSAL_LINES} more`)
+  // the contract's shape over several lines: code and path first, the list, then "Nothing was changed." and the next step
+  return `${code}: ${root}: ${failed.length} of ${total} ${root} do not fit:\n${listed.join('\n')}\nNothing was changed. Fix those ${root} (or leave them out) and send the call again.`
+}

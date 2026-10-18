@@ -1252,21 +1252,30 @@ the public APIs stable — other areas are built against them in parallel.
   text is searched and snippeted) — and writes: a replace of a marked page is refused (a script's `replace()` too —
   ScriptError 'limited_replace'), settle runs under `withReadLimit(mcpReadLimit)` (every row text: create_database,
   upsert), a block ref of an unreadable block is refused without its ref now (limits.ts
-  `mcpReadableTop`); `class` on single reads. Comments over MCP: B per device
+  `mcpReadableTop`), a chart reads its live source only where the client may read it (limits.ts `mcpChartSource` /
+  `withMcpCharts` → charts `withChartSourceGate`: no template's sheet, no sheet outside the marks), backlinks only from
+  readable blocks (`linksReadably`); `class` on single reads. Comments over MCP: B per device
   (`McpSettings.comments`, localStorage `one.mcp`, default off), S per token (`api_tokens.mcp_comments`); off →
   `comments_off`. Batches: one call = ONE card (pages ≤ 50 with `$<index>` parents, rows / upsert ≤ 50,
   `one_create_database` views / inline / rows; the card is capped at the viewport, its lines scroll); MCP's Undo of what
-  it made = trash (`undoCreated: 'trash'`: kept once its text, title, icon, values or place changed — what the call
-  itself set off, a derived writer whose cause names it (automation, autofill, kit), is no change; agents and the
+  it made = trash (`undoCreated: 'trash'`: kept once its text, title, icon, cover, comments, values or place changed —
+  what the call itself set off, a derived writer whose cause names it (automation, autofill, kit), is no change; ONE
+  baseline for every such Undo — features/ai/agent/follow.ts `madeAs` / `changedSince` / `followCall`, also one_move_row's
+  and a script run's (`undoRun(run, { keep })` leaves fields changed since); agents and the
   terminal keep delete; a failed apply's own rollback deletes — `ApplyResult.rollback`; one_create_database's Undo first
-  decides whether the database stays — a row of others or a row changed since keeps it and everything else as it is;
+  decides whether the database stays — a row of others, a row changed since or the database page itself changed
+  (title, icon, cover, schema, views — `databaseMark`) keeps it and everything else as it is;
   in a host page written in since only the call's own block / link goes — features/mcp/undoNodes.ts; create_property
-  keeps a column someone filled, restore_page a page changed since); ≥
+  keeps a column someone filled — rows in the trash too; a unique_id column's own numbers are no filling and its counter
+  goes back —, restore_page a page changed since); a page locked while the card waited is checked again at apply
+  (append, replace, linkInParent, upsert text, a script's text — ScriptError 'locked_content'); ≥
   `MCP_LIMITS.rowsAsk` rows per CALL (new + changed, every database; a rename counts as a title change) that start paid
   AI work or send out are `alwaysAsk` (features/mcp/rows.ts `sideEffects` + `sideHold`); files values over MCP only reachable `onefile:` refs (`withFilesWritable` —
   agents keep files read-only). S checks every row and page before the first write, takes back a batch that fails
-  mid-way, trashes a database whose block or rows failed, and keeps a pre-image per MCP write (server/src/mcp/
-  preimages.ts, `mcp_preimages`, sealed, 14 days; an upsert's row body too; `GET …/mcp-calls`, `POST …/mcp-calls/:callId/restore`, Workspace →
+  mid-way, trashes a database whose block or rows failed, and keeps a pre-image for what it makes and for row fields /
+  page text it changes (server/src/mcp/preimages.ts, `mcp_preimages`, sealed, 14 days; an upsert's row body too — no
+  property, view, move or trash call and no plain append keeps one: every surface says so; Restore keeps what a member
+  changed or moved since; S bodies ≤ 256 KB read / 512 KB write, a bigger tools/call answers `too_large`; `GET …/mcp-calls`, `POST …/mcp-calls/:callId/restore`, Workspace →
   Automation → API § 07). Client text naming a tool that does not exist yet is a bug (T-b brings `one_attach_file`,
   `one_edit_blocks`, files, `one_comment`, templates).
 - MCP tidy-up tools (trash / restore ≤ 50 ids, move page / row, update database / property, delete property, view

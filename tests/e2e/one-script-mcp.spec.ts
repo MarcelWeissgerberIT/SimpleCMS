@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url'
 import type { Page } from '@playwright/test'
 import { Client } from '../../mcp/node_modules/@modelcontextprotocol/sdk/dist/esm/client/index.js'
 import { StdioClientTransport } from '../../mcp/node_modules/@modelcontextprotocol/sdk/dist/esm/client/stdio.js'
-import { test, expect, openApp, wsEval, pageIdByTitle } from './fixtures'
+import { test, expect, openApp, wsEval, pageIdByTitle, flush } from './fixtures'
 
 type AnyState = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
 type ToolResult = { content?: Array<{ type: string; text?: string }>; isError?: boolean }
@@ -267,4 +267,117 @@ test('one_run_script: a script edited while the card is open does not run — th
   expect(r.isError).toBe(true)
   expect(text(r)).toContain('was changed after its dry run')
   expect(await prioOf(page, ids)).toEqual(['o_low', 'o_low', 'o_low'])
+})
+
+/* review 5: a script run's Undo leaves what changed since alone; a locked page refuses a script's text; the card names what the rows start */
+
+async function undoLast(page: Page, tool: string) {
+  await page.evaluate(() => (window as unknown as { __one: { ui: { getState: () => { openModal: (m: unknown) => void } } } }).__one.ui.getState().openModal({ type: 'settings' }))
+  await page.getByRole('tab', { name: /Agents · MCP/ }).click()
+  const undone = page.locator('.mcp-log__row', { hasText: tool }).filter({ hasText: 'Undone' })
+  const before = await undone.count()
+  await page.locator('.mcp-log__row').getByRole('button', { name: `Undo ${tool}` }).first().click()
+  await expect(undone).toHaveCount(before + 1)
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+}
+
+const lines = (...texts: string[]) => ({ type: 'doc', content: texts.map((text) => ({ type: 'paragraph', content: [{ type: 'text', text }] })) })
+
+test("one_run_script's Undo (review 5): a line the person typed since stays and the toast says so; untouched, the run's change goes back", async ({ page }) => {
+  await openApp(page)
+  await connect(page)
+  await page.keyboard.press('Escape')
+  const id = await wsEval(page, (s, doc) => {
+    const id = s.createPage({ title: 'Notizen' })
+    s.setContent(id, doc, 'e2e')
+    return id
+  }, lines('Line A.'))
+  await addScript(page, { id: 'sc-line', name: 'Add line', code: 'page("Notizen").append("Line B by the script.")\n' })
+  await flush(page)
+  const plain = () => wsEval(page, (s, id) => (s.pages[id]?.plain as string) ?? '', id)
+  const run = async () => {
+    const pending = call('one_run_script', { script: 'Add line' })
+    const card = page.getByRole('alertdialog')
+    await expect(card).toBeVisible()
+    await card.getByRole('button', { name: /Approve/ }).click()
+    json(await pending)
+    await expect.poll(plain).toContain('Line B by the script.')
+  }
+  // nobody touched the page since: the Undo takes the line back
+  await run()
+  await flush(page)
+  await undoLast(page, 'one_run_script')
+  await expect.poll(plain).toBe('Line A.')
+  await expect(page.getByText('Undone — parts edited since were kept')).toHaveCount(0)
+  // the person types a line after the run: the Undo leaves the text alone and says so
+  await run()
+  await wsEval(page, (s, a: { id: string; doc: unknown }) => s.setContent(a.id, a.doc as never, 'e2e'), { id, doc: lines('Line A.', 'Line B by the script.', 'Line C typed by Mara.') })
+  await flush(page)
+  await undoLast(page, 'one_run_script')
+  await expect(page.getByText('Undone — parts edited since were kept')).toBeVisible()
+  expect(await plain()).toContain('Line C typed by Mara.')
+})
+
+test('one_run_script into a locked page (review 5): refused before any card; locked while the card waited, the run stops before writing', async ({ page }) => {
+  await openApp(page)
+  await connect(page)
+  await page.keyboard.press('Escape')
+  const id = await wsEval(page, (s, doc) => {
+    const id = s.createPage({ title: 'Handbuch' })
+    s.setContent(id, doc, 'e2e')
+    s.updatePage(id, { settings: { fullWidth: false, smallText: false, font: 'sans', locked: true } })
+    return id
+  }, lines('Do not change.'))
+  await addScript(page, { id: 'sc-lock', name: 'Lock test', code: 'page("Handbuch").append("Changed by a script.")\n' })
+  await flush(page)
+  const plain = () => wsEval(page, (s, id) => (s.pages[id]?.plain as string) ?? '', id)
+  const setLocked = (on: boolean) => wsEval(page, (s, a: { id: string; on: boolean }) => s.updatePage(a.id, { settings: { ...s.pages[a.id].settings, locked: a.on } }), { id, on })
+  const LOCKED = /^locked: script: the script "Lock test" writes into "Handbuch", which is locked in One: its content cannot change over MCP\. Nothing was changed\./
+  const r = await call('one_run_script', { script: 'Lock test' })
+  expect(r.isError, text(r)).toBe(true)
+  expect(text(r)).toMatch(LOCKED)
+  await expect(page.getByRole('alertdialog')).toHaveCount(0)
+  expect(await plain()).toBe('Do not change.')
+  // unlocked: the card comes; locked while it waits → the run stops, nothing written
+  await setLocked(false)
+  await flush(page)
+  const pending = call('one_run_script', { script: 'Lock test' })
+  const card = page.getByRole('alertdialog')
+  await expect(card).toBeVisible()
+  await setLocked(true)
+  await flush(page)
+  await card.getByRole('button', { name: /Approve/ }).click()
+  const stopped = await pending
+  expect(stopped.isError, text(stopped)).toBe(true)
+  expect(text(stopped)).toMatch(LOCKED)
+  expect(await plain()).toBe('Do not change.')
+})
+
+test('one_run_script names what its row writes start (review 5): the automation on Stage, and the rule that 6 such rows are always asked', async ({ page }) => {
+  await openApp(page)
+  await connect(page)
+  await page.keyboard.press('Escape')
+  const ids = await wsEval(page, (s) => {
+    const db = s.createDatabase({
+      title: 'Deals',
+      properties: [
+        { id: 'd-title', name: 'Name', type: 'title' },
+        { id: 'd-stage', name: 'Stage', type: 'select', options: [{ id: 'o-open', name: 'Open', color: 'blue' }, { id: 'o-closed', name: 'Closed', color: 'green' }] },
+      ],
+    })
+    s.updateDatabase(db, { automations: [{ id: 'au-crm', name: 'Tell the CRM', enabled: true, trigger: { type: 'property_changed', propertyId: 'd-stage' }, actions: [{ type: 'webhook', url: 'https://crm.nordlicht.example/hook', method: 'POST' }], lastRunAt: null, lastStatus: null, lastMessage: null }] })
+    const rows = Array.from({ length: 6 }, (_, i) => s.createRow(db, { title: `Deal ${i + 1}`, properties: { 'd-stage': 'o-open' } }))
+    return { db, rows }
+  })
+  await addScript(page, { id: 'sc-close', name: 'Close deals', code: 'for d in db("Deals").rows {\n  d.set(Stage: "Closed")\n}\n' })
+  await flush(page)
+  const pending = call('one_run_script', { script: 'Close deals' })
+  const card = page.getByRole('alertdialog')
+  await expect(card).toBeVisible()
+  await expect(card.locator('.mcp-line', { hasText: 'Starts' })).toContainText('automation “Tell the CRM”')
+  await expect(card).toContainText('Always asked: 6 rows start paid AI work or send something out of One.')
+  await card.getByRole('button', { name: /Reject/ }).click()
+  expect((await pending).isError).toBe(true)
+  expect(await wsEval(page, (s, rows: string[]) => rows.map((id) => s.pages[id]?.properties['d-stage']), ids.rows)).toEqual(Array(6).fill('o-open'))
 })

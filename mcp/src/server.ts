@@ -79,7 +79,7 @@ export function createMcpServer(bridge: Bridge, version: string): McpServer {
     }
     try {
       if (def.name === 'one_list_workspaces') {
-        const out = await bridge.listWorkspaces(extra.signal)
+        const out = await bridge.listWorkspaces(extra.signal, args)
         return out.ok ? text(JSON.stringify(out.result)) : text(out.error, true)
       }
       const out = await bridge.call(def.name as McpToolName, args, {

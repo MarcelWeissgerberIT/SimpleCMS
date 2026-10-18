@@ -38,10 +38,19 @@ import {
   type McpToolName,
   type McpWorkspaceInfo,
 } from '../../src/shared/mcp/contract.ts'
-import { mcpError } from '../../src/shared/mcp/errors.ts'
+import { mcpError, withCode } from '../../src/shared/mcp/errors.ts'
 
 /** A call its client cancelled (only that client would read it): every refusal starts with a code (spec § 2.0). */
 const CANCELLED = mcpError('rejected', '', 'The call was cancelled')
+
+/**
+ * The bridge's own refusals when the tab went away or did not answer: coded like every refusal (spec § 2.0), and — since
+ * the tab may have carried the call out already — never "Nothing was changed": the agent reads what the call touches first.
+ */
+const UNKNOWN = 'Whether the call was carried out is not known: read what it touches (one_get_page, one_query_database) before you call again.'
+const GONE = `rejected: One was closed or disconnected before it answered. ${UNKNOWN}`
+const TOOK_OVER = `rejected: Another One tab took over before this one answered. ${UNKNOWN}`
+const NO_ANSWER = (s: number) => `rejected: One did not answer within ${s} s (is the tab still open?). ${UNKNOWN}`
 import { isAllowedHost, isAllowedOrigin } from './policy.ts'
 import { describe, label, resolveWorkspace } from './workspaces.ts'
 
@@ -150,6 +159,9 @@ function toolsOf(v: unknown): Map<string, Set<string>> | null {
   }
   return out
 }
+
+/** The refusal of an argument a tool does not declare — the team server's words (tools.ts argumentError). */
+const takesNo = (tool: string, key: string) => mcpError('bad_argument', key, `${tool} takes no argument ${JSON.stringify(key)} (it takes: ${[...(TOOLS.get(tool) ?? [])].join(', ') || 'none'})`)
 
 /** Arguments a call passes that this bridge's contract does not declare for the tool (`additionalProperties: false`). */
 function undeclared(tool: string, args: Record<string, unknown>): string[] {
@@ -297,7 +309,7 @@ export class Bridge {
       this.conns.delete(conn)
       if (!this.drop(conn)) return
       this.opts.log(`One tab disconnected: ${conn.info ? label(conn.info.workspace) : ''}`)
-      this.failCalls(conn, 'One was closed or disconnected before it answered.')
+      this.failCalls(conn, GONE)
       this.sendPeers()
     })
   }
@@ -319,7 +331,7 @@ export class Bridge {
     this.drop(old)
     this.send(old, { type: 'replaced' })
     old.ws.close(MCP_CLOSE_REPLACED, 'replaced by a newer tab')
-    this.failCalls(old, 'Another One tab took over before this one answered.')
+    this.failCalls(old, TOOK_OVER)
     this.opts.log(why)
   }
 
@@ -358,7 +370,7 @@ export class Bridge {
         if (!f || f.conn !== conn) return
         const ms = Math.min(MAX_PENDING_MS, Math.max(1000, Number(msg.timeoutMs) || MCP_APPROVAL_MS))
         // a little slack: the tab's own approval timeout answers first
-        f.arm(ms + 10_000, 'The change was not approved in time. Nothing was changed.')
+        f.arm(ms + 10_000, mcpError('approval_timeout', '', 'The change was not approved in time'))
         f.onPending?.(ms)
         return
       }
@@ -366,7 +378,11 @@ export class Bridge {
       case 'error': {
         const f = this.inflight.get(String(msg.id))
         if (!f || f.conn !== conn) return
-        if (msg.type === 'error') return f.finish({ ok: false, error: str(msg.error, 8000) || 'rejected: The call failed in One. Nothing was confirmed — read what the call touches again before you call again.' })
+        // an older tab (contract 1) words its refusals without a code: the code is put first here (shared withCode)
+        if (msg.type === 'error') {
+          const said = str(msg.error, 8000)
+          return f.finish({ ok: false, error: !said ? 'rejected: The call failed in One. Nothing was confirmed — read what the call touches again before you call again.' : conn.info && conn.info.contract < 2 ? withCode(said) : said })
+        }
         f.finish(this.checked(f, msg.result ?? null))
         return
       }
@@ -431,7 +447,7 @@ export class Bridge {
 
   private inUseMessage(): string {
     const p = this.opts.port
-    return `Another One MCP bridge is already using port ${p} (probably started by another MCP client). Quit that client, or run this one on another port: set ONE_MCP_PORT for the bridge and the same port in One → Settings → Agents · MCP.`
+    return `rejected: Another One MCP bridge is already using port ${p} (probably started by another MCP client). Nothing was changed. Ask the person to quit that client, or to run this one on another port: set ONE_MCP_PORT for the bridge and the same port in One → Settings → Agents · MCP.`
   }
 
   /** Wait (up to `ms`) for a tab to connect. */
@@ -454,12 +470,14 @@ export class Bridge {
 
   private ready(): string | null {
     if (this.state === 'in-use') return this.inUseMessage()
-    if (this.state !== 'listening') return 'The One bridge is not running.'
+    if (this.state !== 'listening') return mcpError('rejected', '', 'The One bridge is not running', 'Ask the person to restart their MCP client (it starts the bridge).')
     return null
   }
 
-  /** one_list_workspaces: the connected workspaces, newest first. No content. */
-  async listWorkspaces(signal?: AbortSignal): Promise<CallOutcome> {
+  /** one_list_workspaces: the connected workspaces, newest first. No content. Its arguments: none (strict, as every tool). */
+  async listWorkspaces(signal?: AbortSignal, args: Record<string, unknown> = {}): Promise<CallOutcome> {
+    const extra = undeclared('one_list_workspaces', args)
+    if (extra.length) return { ok: false, error: takesNo('one_list_workspaces', extra[0]!) }
     const down = this.ready()
     if (down) return { ok: false, error: down }
     await this.waitForApp(this.opts.waitMs, signal)
@@ -485,7 +503,7 @@ export class Bridge {
     if (!TOOLS.has(tool)) return { ok: false, error: mcpError('bad_argument', '', `Unknown tool ${JSON.stringify(tool)}`, 'tools/list names the tools there are.') }
     // strict arguments: what the tool does not declare is refused here, never dropped on the way
     const extra = undeclared(tool, args)
-    if (extra.length) return { ok: false, error: mcpError('bad_argument', extra[0]!, `${tool} takes no argument ${JSON.stringify(extra[0])} (it takes: ${[...TOOLS.get(tool)!].join(', ')})`) }
+    if (extra.length) return { ok: false, error: takesNo(tool, extra[0]!) }
     const down = this.ready()
     if (down) return { ok: false, error: down }
     // `workspace` is the bridge's argument: it picks the tab and is never forwarded as a tool argument
@@ -527,7 +545,7 @@ export class Bridge {
         },
       }
       this.inflight.set(id, entry)
-      entry.arm(this.opts.timeoutMs, `One did not answer within ${Math.round(this.opts.timeoutMs / 1000)} s. Is the tab still open?`)
+      entry.arm(this.opts.timeoutMs, NO_ANSWER(Math.round(this.opts.timeoutMs / 1000)))
       opts.signal?.addEventListener('abort', onAbort, { once: true })
       this.send(conn, expected ? { type: 'call', id, tool, args: rest, workspace: expected } : { type: 'call', id, tool, args: rest })
     })

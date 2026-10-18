@@ -11,13 +11,17 @@
  *  a run never writes into One's own databases (system_database — its dry run stops there, so nothing runs).
  */
 import { t } from '../../i18n'
-import { appRunUI, findScript, preApprovedUI, plannedItems, runQueryForTool, runReport, runScript, runScriptById, silentRunUI, undoRun, type RunResult } from '../script'
+import { appRunUI, findScript, preApprovedUI, plannedItems, runQueryForTool, runReport, runScript, runScriptById, runTouched, silentRunUI, undoRun, type ChangeItem, type RunResult, type ScriptRun } from '../script'
+import { sideEffects, sideHold, type SideEffects } from './rows'
 import { MCP_QUERY_ROWS } from './contract'
 import { chars, str, type PlanLine, type WritePlan } from './plan'
 import { live, McpToolError, q, titleOf, ws } from './values'
-import { formatWriterKey } from '../../store/writer'
+import { formatWriterKey, type Writer } from '../../store/writer'
+import type { ID } from '../../store/types'
+import { changedSince, followCall, madeAs, textMoved, valueKey } from '../ai/agent/follow'
 import { mcpPageText } from './limits'
 import { systemBelow, systemOf, systemRefusal, type SystemHit } from './system'
+import type { WriteTarget, WriteVerdict } from '../script'
 
 /* ------------------------------------------------------------------ one_run_query */
 
@@ -67,6 +71,9 @@ function dryPlan(r: RunResult): { lines: PlanLine[]; approved: ReturnType<typeof
   for (const e of effects) lines.push({ k: 'fact', entry: true, label: t(`features.mcp.script.effect.${e.kind}`), value: e.label })
   if (r.effects.length > CARD_MAX) lines.push({ k: 'note', value: `${t('features.mcp.plan.more', { n: chars(r.effects.length - CARD_MAX) })} ${t('features.mcp.script.askedInOne')}` })
   if (!changes.length && !r.effects.length) lines.push({ k: 'note', value: t('features.mcp.script.nothing') })
+  // what the run's row writes start (autofill, automations — a webhook, a script —, row-triggered agents), per database,
+  // as every row-writing tool names it (rows.ts sideEffects / sideHold)
+  lines.push(...startsOf(changes))
   lines.unshift({ k: 'note', value: t('features.mcp.script.dryShows') })
   if (r.effects.some((e) => e.kind === 'http')) lines.push({ k: 'note', value: t('features.mcp.script.httpNote') })
   lines.push({ k: 'note', value: t('features.mcp.script.undoNote') })
@@ -77,14 +84,50 @@ function dryPlan(r: RunResult): { lines: PlanLine[]; approved: ReturnType<typeof
   return { lines, approved: plannedItems(r).filter((i) => listed.has(i.key)) }
 }
 
+/** The "Starts:" lines of a run's row writes: new rows, changed values (by property), a row's text, rows to the trash. */
+function startsOf(changes: readonly ChangeItem[]): PlanLine[] {
+  const per = new Map<ID, { created: number; set: Set<ID>; props: Set<ID>; text: Set<ID>; trashed: number }>()
+  const made = new Set(changes.filter((c) => c.kind === 'create').map((c) => c.pageId))
+  for (const c of changes) {
+    if (!c.dbId) continue
+    const db = ws().databases[c.dbId]
+    if (!db) continue
+    const e = per.get(c.dbId) ?? { created: 0, set: new Set<ID>(), props: new Set<ID>(), text: new Set<ID>(), trashed: 0 }
+    per.set(c.dbId, e)
+    if (c.kind === 'create') e.created += 1
+    else if (c.kind === 'trash') e.trashed += 1
+    else if (c.kind === 'content' && !made.has(c.pageId)) e.text.add(c.pageId)
+    else if (c.kind === 'set' && !made.has(c.pageId)) {
+      e.set.add(c.pageId)
+      for (const d of c.props ?? []) {
+        const prop = db.properties.find((p) => p.name === d.name)
+        if (prop) e.props.add(prop.id)
+      }
+    }
+  }
+  const sides: SideEffects[] = []
+  for (const [dbId, e] of per) {
+    const db = ws().databases[dbId]!
+    sides.push(sideEffects(db, e.created, { created: true, props: new Set() }))
+    sides.push(sideEffects(db, e.set.size, { props: e.props }))
+    // a text only: what fills again on it (rows changed in their values too are counted there already)
+    sides.push(sideEffects(db, [...e.text].filter((id) => !e.set.has(id)).length, { text: true, props: new Set() }))
+    sides.push(sideEffects(db, e.trashed, { deleted: true, props: new Set() }))
+  }
+  return [...sides.flatMap((x) => x.lines), ...sideHold(sides).lines]
+}
+
 /**
  * One's own databases are read-only over MCP (spec § 3.1 / § 3.3): a run started over MCP — its dry run, check pass and
  * run — asks this rule before every write (RunOptions.writeGuard), so it stops before writing into the Coding / spec / QA
  * pipelines, the test cases, the memory and its log, Mails or the mail directories (a row, a page below a row, a new
- * row, the trash — of such a page or of a page holding one below it —, a two-way partner's rows). `hit` keeps the first refusal for the MCP error.
+ * row, the trash — of such a page or of a page holding one below it —, a two-way partner's rows). A locked page refuses
+ * content changes over MCP (spec § 3.3): the text of a page locked in One (append / prepend / replace) stops the run the
+ * same way. `hit` / `locked` keep the first refusal for the MCP error.
  */
-function systemWrites(): { guard: (t: { pageId?: string | null; dbId?: string | null; parentId?: string | null; tree?: boolean }) => string | null; hit: () => SystemHit | null } {
+function systemWrites(): { guard: (t: WriteTarget) => WriteVerdict; hit: () => SystemHit | null; locked: () => string | null } {
   let first: SystemHit | null = null
+  let lockedFirst: string | null = null
   return {
     guard(t) {
       for (const id of [t.pageId, t.dbId, t.parentId]) {
@@ -95,14 +138,25 @@ function systemWrites(): { guard: (t: { pageId?: string | null; dbId?: string | 
           return hit.title
         }
       }
+      const page = t.content && t.pageId ? ws().pages[t.pageId] : undefined
+      if (page?.settings.locked) {
+        const name = titleOf(page)
+        lockedFirst ??= name
+        return { locked: name }
+      }
       return null
     },
     hit: () => first,
+    locked: () => lockedFirst,
   }
 }
 
 /** The system_database refusal of a run the rule stopped. */
 const scriptRefusal = (hit: SystemHit, name: string) => systemRefusal(hit, 'script', `the script ${q(name)} writes there`)
+
+/** The locked refusal of a run that would change the text of a page locked in One (spec § 3.3). */
+const lockedRefusal = (page: string, name: string) =>
+  `locked: script: the script ${q(name)} writes into ${q(page)}, which is locked in One: its content cannot change over MCP. Nothing was changed. Leave that page out, or ask the person to unlock it.`
 
 /**
  * A replace of a page the person limited with context marks (the run reads only the marked blocks — limits.ts
@@ -143,6 +197,8 @@ export async function planRunScript(args: Record<string, unknown>): Promise<Writ
   // a write into One's own databases: refused before anything ran (the dry run stopped at it)
   const refused = sys.hit()
   if (refused) throw new McpToolError(scriptRefusal(refused, script.name))
+  const locked = sys.locked()
+  if (locked !== null) throw new McpToolError(lockedRefusal(locked, script.name))
   const limited = limitedRefusal(dry, script.name)
   if (limited) throw new McpToolError(limited)
   if (dry.status !== 'ok') {
@@ -170,14 +226,16 @@ export async function planRunScript(args: Record<string, unknown>): Promise<Writ
       if (!r) throw new McpToolError(`${q(script.name)} is already running in One. Nothing was changed — try again when it is done.`)
       const report = await runReport(r, 'run')
       const stopped = guard.hit()
+      // a page locked while the card waited (or one the dry run did not reach): the run stopped before writing its text
+      const lockedNow = stopped ? null : guard.locked()
       // a run that stopped after it changed something: those changes stay — the answer says so and that calling again
       // would make them twice (partial: no "Nothing was changed … call again" is added to it)
       const stays = (n: number) => `The ${n} change(s) it made before stay — the person can undo the run in One (Scripts → run log). Do not call it again (that would make them twice); tell the person.`
       // a replace of a page under context marks the dry run did not reach (marks set while the card waited, another path)
-      const limitedNow = stopped ? null : limitedRefusal(r, script.name)
-      if (stopped || limitedNow) {
+      const limitedNow = stopped || lockedNow !== null ? null : limitedRefusal(r, script.name)
+      if (stopped || lockedNow !== null || limitedNow) {
         const made = r.changes.filter((c) => !c.skipped).length
-        const msg = stopped ? scriptRefusal(stopped, script.name) : limitedNow!
+        const msg = stopped ? scriptRefusal(stopped, script.name) : lockedNow !== null ? lockedRefusal(lockedNow, script.name) : limitedNow!
         if (!made) throw new McpToolError(msg)
         // what the refusal says up to its "Nothing was changed." — which is not so here
         const head = msg.slice(0, msg.indexOf(' Nothing was changed.'))
@@ -193,15 +251,59 @@ export async function planRunScript(args: Record<string, unknown>): Promise<Writ
       const run = r.run
       return {
         result: { script: scriptInfo, ...report },
-        undo: run && r.changes.some((c) => !c.skipped)
-          ? () => {
-              void undoRun(run)
-              return true
-            }
-          : undefined,
+        undo: run && r.changes.some((c) => !c.skipped) ? await sinceUndo(run, writer) : undefined,
       }
     },
   }
 }
 
 const scriptExists = (id: string) => !!ws().scripts?.[id]
+
+/**
+ * The Undo of a run started over MCP (spec § 3.2): it leaves alone what changed since and says so — each page the run
+ * touched is marked as the run left it (text, title, icon, each value it wrote, its trash state; a page it made also its
+ * cover, comment threads, place and the pages below it), kept in step with what the run itself set off since (an
+ * automation or autofill whose writer names the call or the run: follow.ts), and only fields still as the run left them go
+ * back. Answers false ("Undone — parts edited since were kept") when anything stayed.
+ */
+async function sinceUndo(run: ScriptRun, writer: Writer): Promise<() => Promise<boolean>> {
+  const touched = (await runTouched(run.id)) ?? {}
+  const calls = [formatWriterKey(writer), formatWriterKey({ kind: 'script', id: run.scriptId, run: run.id })]
+  const marks = new Map<ID, { follow: ReturnType<typeof followCall>; trashed: boolean; place: string }>()
+  for (const id of Object.keys(touched)) {
+    const p = ws().pages[id]
+    if (p) marks.set(id, { follow: followCall(id, calls, madeAs(p)), trashed: !!p.trashed, place: `${p.parentId ?? null}|${p.databaseId ?? null}` })
+  }
+  return async () => {
+    let kept = false
+    const keep = (id: ID, field: string): boolean => {
+      const m = marks.get(id)
+      const now = ws().pages[id]
+      if (!m || !now) return false
+      const b = m.follow.base()
+      const moved =
+        field === 'created'
+          ? !now.trashed && (changedSince(now, b) || `${now.parentId ?? null}|${now.databaseId ?? null}` !== m.place || Object.values(ws().pages).some((c) => c.parentId === id && !c.trashed))
+          : field === 'title'
+            ? now.title !== b.title
+            : field === 'icon'
+              ? JSON.stringify(now.icon ?? null) !== b.icon
+              : field === 'content'
+                ? textMoved(now, b)
+                : field === 'trashed'
+                  ? // trashed by the run: brought back since · brought back by the run: changed since
+                    !!now.trashed !== m.trashed || (!m.trashed && changedSince(now, b))
+                  : field.startsWith('props:')
+                    ? valueKey(now.properties?.[field.slice(6)]) !== valueKey(b.props[field.slice(6)])
+                    : false
+      if (moved) kept = true
+      return moved
+    }
+    try {
+      await undoRun(run, { keep })
+    } finally {
+      for (const m of marks.values()) m.follow.stop()
+    }
+    return !kept
+  }
+}

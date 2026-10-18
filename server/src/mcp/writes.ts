@@ -15,6 +15,7 @@ import { schemaOut, type ValueContext } from '../api/values.ts'
 import { newId } from '../tokens.ts'
 import { assertNotSystem, PARTNER_SYSTEM, TWO_WAY_SYSTEM } from './system.ts'
 import { MCP_DEFAULT_PROPERTIES, MCP_DEFAULT_STATUS, MCP_LIMITS, MCP_PLAIN_MARKS, MCP_PLAIN_NODES, MCP_PROPERTY_TYPES } from '../../../src/shared/mcp/tables.ts'
+import { mcpError } from '../../../src/shared/mcp/errors.ts'
 
 /** Property types an agent may add (the shared table: formula, rollup and button need settings the tools don't take). */
 export const CREATABLE_TYPES = MCP_PROPERTY_TYPES
@@ -42,6 +43,38 @@ interface Option {
 }
 
 export const unprocessable = (code: string, message: string) => new ApiError(422, code, message)
+
+/** The longest title a call may give (the bridge's limit, before its whitespace is collapsed). */
+export const MCP_TITLE_MAX = 300
+
+/**
+ * A title as the bridge takes it over MCP (one_update_page, a row's title through `properties`): whitespace collapsed,
+ * at most 300 characters, never empty — a call that empties it or passes only whitespace is refused (bad_argument).
+ */
+export function cleanTitle(raw: unknown, path: string, what = '"title"'): string {
+  if (typeof raw !== 'string') throw new ApiError(422, 'bad_argument', mcpError('bad_argument', path, `${what} must be a string`))
+  if (raw.length > MCP_TITLE_MAX) throw new ApiError(422, 'bad_argument', mcpError('bad_argument', path, `too long (${raw.length} characters, at most ${MCP_TITLE_MAX})`))
+  const t = raw.replace(/\s+/g, ' ').trim()
+  if (!t) throw new ApiError(422, 'bad_argument', mcpError('bad_argument', path, `${what} must not be empty`))
+  return t
+}
+
+/**
+ * A row's `properties` with its title (by "title", the title property's name or id) cleaned as cleanTitle does — the
+ * same rule as the bridge's one_update_row; a properties object without a title passes as it is.
+ */
+export function cleanRowTitle(props: ReadonlyArray<PropertyDef>, properties: Record<string, unknown>, path = 'properties'): Record<string, unknown> {
+  const titleProp = props.find((p) => p.type === 'title')
+  let out: Record<string, unknown> | null = null
+  for (const [k, v] of Object.entries(properties)) {
+    const key = k.trim().toLowerCase()
+    const isTitle = (key === 'title' && !findProperty(props as PropertyDef[], k)) || (!!titleProp && (findProperty(props as PropertyDef[], k)?.id === titleProp.id))
+    if (!isTitle) continue
+    out ??= { ...properties }
+    out[k] = cleanTitle(v ?? '', `${path}.${k}`, 'the title')
+  }
+  return out ?? properties
+}
 
 /** The refusal of a Markdown replace of a page holding a task (one_update_page, a server agent's report). */
 export const PAGE_HOLDS_TASKS = 'This page holds tasks; a replace would turn them into plain text. Append instead, or edit the page in One.'
@@ -229,7 +262,15 @@ export class McpWrites {
           const frag = doc.getXmlFragment('default')
           if (input.mode === 'replace') {
             // a task block cannot be read or written here yet (server parity, P4): a replace would turn it into paragraphs
-            if (holdsWorkItem(doc)) throw unprocessable('page_holds_tasks', PAGE_HOLDS_TASKS)
+            // (over MCP in the contract's words: a replace that would lose them is lossy_replace — the error's own code
+            // stays page_holds_tasks for the server agents' report)
+            if (holdsWorkItem(doc))
+              throw unprocessable(
+                'page_holds_tasks',
+                opts.mcp
+                  ? `lossy_replace: ${JSON.stringify(before.title || 'Untitled')} holds tasks; a replace over the team server would turn them into plain text. Nothing was changed. Append instead (mode "append"), change it in One, or use the local bridge (it asks first).`
+                  : PAGE_HOLDS_TASKS,
+              )
             const lossy = opts.mcp ? lossyIn(doc) : []
             if (lossy.length)
               throw unprocessable(
@@ -386,7 +427,7 @@ export class McpWrites {
     if (parentId) {
       const parent = livePage(r, parentId)
       if (!parent) throw notFound('parent_not_found', `No parent page with id "${parentId}" in this workspace`)
-      if (parent.kind === 'database') throw unprocessable('parent_is_database', 'The parent is a database: a database goes inside a page')
+      if (parent.kind === 'database') throw unprocessable('parent_is_database', mcpError('bad_argument', 'parentId', `${JSON.stringify(parent.title || 'Untitled')} is a database; a database goes under a page`, 'Pass the page above it as parentId (or leave parentId out for the top level).'))
       // nothing new below a row of One's own databases
       assertNotSystem(r, parentId)
     }

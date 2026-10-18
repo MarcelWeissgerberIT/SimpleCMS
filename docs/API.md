@@ -12,8 +12,9 @@ the other half of One's *outgoing* webhooks (database automations, button blocks
 - AI agents: the same tokens open the server's **remote MCP endpoint** (`https://<your server>/mcp`) for Claude
   Code, Claude Desktop and other MCP clients — see [`MCP.md`](MCP.md#team-server). MCP reaches more than the REST API
   (pages in full with every block, sub-page trees, boards with views and rows, rows in bulk, comments with the token's
-  flag); the REST API stays as it is (`/api/v1`). The server keeps a restorable copy of what each MCP call changed
-  ([Recent MCP writes](#recent-mcp-writes)); REST writes keep none.
+  flag); the REST API stays as it is (`/api/v1`). The server keeps a restorable copy of what an MCP call made or overwrote
+  (pages, rows, databases, row fields, a replaced page text — [Recent MCP writes](#recent-mcp-writes) names which calls);
+  REST writes keep none.
 
 Contents: [Tokens](#tokens) · [Conventions](#conventions) · [Endpoints](#endpoints) ·
 [Values](#property-values) · [Content](#content-markdown-lite) · [Idempotency](#idempotency) ·
@@ -381,9 +382,13 @@ bad token), `409 runtime_not_ready`, `409 agent_unavailable` (switched off, not 
 
 ## Recent MCP writes
 
-The MCP endpoint has no approval step, so the server keeps, per MCP call that changed something, what it needs to put
-the call back (a *pre-image*: rows made, each field changed before → after, pages made, a page's content before a
-replace) — sealed with the workspace's key, kept 14 days, deleted with the workspace. Owners and admins see them in
+The MCP endpoint has no approval step, so the server keeps what it needs to put a call back (a *pre-image*) for the
+calls that make or overwrite something: pages, rows and databases made (`one_create_page`, `one_create_row`,
+`one_create_database`, `one_upsert_rows`), each row field changed before → after (`one_update_row`, `one_upsert_rows`),
+a page's content before a `replace` — and before the link or database block a call writes into a page, or the text
+`one_upsert_rows` writes into a row. Property, option and view changes, moves, trash and restore, a page's new title or
+icon and a plain `append` keep **none** and are not listed (undo those in One: page history, the trash). Pre-images
+are sealed with the workspace's key, kept 14 days, deleted with the workspace. Owners and admins see them in
 **Workspace settings → Automation → API → Recent MCP writes** and restore a call there. Session cookie, admins and
 the owner (like the token routes, not the public API):
 

@@ -12,10 +12,12 @@ import type { Database, ID, Page, PropertyDef, PropertyValue, SelectOption } fro
 import { isHandOnly, keyOwner, keyPropOf, keyText } from '../../store/keys'
 import { newId } from '../../lib/ids'
 import { MCP_BULK_MAX, type McpToolName } from './contract'
-import { chars, clone, idList, itemLines, palette, same, str, tidyPageOrThrow, type PlanLine, type WritePlan } from './plan'
+import { chars, clone, idList, itemLines, palette, str, tidyPageOrThrow, type PlanLine, type WritePlan } from './plan'
 import { databaseOrThrow, kindOf, live, McpToolError, pageUrl, pathOf, q, rowProperties, rowsOf, titleOf, TWO_WAY_SUFFIX, ws } from './values'
 import { adoptRowType } from '../../database'
-import { withWriter } from '../../store/writer'
+import { formatWriterKey, withWriter } from '../../store/writer'
+import { followCall, madeAs, valueKey, valuesKey } from '../ai/agent/follow'
+import { mcpError } from '../../../shared/mcp/errors'
 import { assertNotSystem, assertTreeNotSystem } from './system'
 import { sideEffects, sideHold } from './rows'
 import { contentKey } from '../history/snapshots'
@@ -186,7 +188,7 @@ function liveTree(id: ID): Set<ID> {
   return out
 }
 
-/** A page as one_restore_page brought it back: its text, title, icon, place and values. */
+/** A page as one_restore_page brought it back: its text, title, icon, cover, comment threads, place and values. */
 interface RestoredAs {
   rev: number
   key: string
@@ -198,11 +200,11 @@ const nonEmpty = (props: Page['properties'] | undefined) =>
     .filter(([, v]) => !(v === undefined || v === null || v === '' || (Array.isArray(v) && !v.length)))
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
 
-const restOf = (p: Page) => JSON.stringify([p.title, p.icon ?? null, p.parentId ?? null, p.databaseId ?? null, nonEmpty(p.properties)])
+const restOf = (p: Page) => JSON.stringify([p.title, p.icon ?? null, p.cover ?? null, p.comments?.length ? p.comments : null, p.parentId ?? null, p.databaseId ?? null, nonEmpty(p.properties)])
 
 const restoredAs = (p: Page | undefined): RestoredAs => ({ rev: p?.contentRev ?? 0, key: contentKey(p?.content), rest: p ? restOf(p) : '' })
 
-/** Changed since it was brought back (text — the same text written back counts as unchanged —, title, icon, place, values). */
+/** Changed since it was brought back (text — the same text written back counts as unchanged —, title, icon, cover, comments, place, values). */
 const changedSince = (p: Page | undefined, as: RestoredAs) => !p || (p.contentRev !== as.rev && contentKey(p.content) !== as.key) || restOf(p) !== as.rest
 
 function planRestore(args: Record<string, unknown>): WritePlan {
@@ -543,6 +545,18 @@ function planMoveRow(args: Record<string, unknown>): WritePlan {
   if (map.carried.length) lines.push({ k: 'fact', label: t('features.mcp.plan.properties'), value: map.carried.join(', ') })
   const freshNames = [...map.fresh.values()].flat().map((o) => o.name)
   if (freshNames.length) lines.push({ k: 'fact', label: t('features.mcp.plan.newOptions'), value: freshNames.join(', ') })
+  // a row of a record type the target does not hold yet: the type comes along (database adoptRowType) and adds its
+  // properties there — a schema change, named on the card; a locked target cannot take it (the row would lose its type)
+  const typeId = row.recordType ?? null
+  const adopting = !!typeId && !(to.recordTypes ?? []).includes(typeId)
+  const rt = adopting ? (ws().kit?.recordTypes[typeId!] ?? null) : null
+  if (adopting && rt && to.locked)
+    throw new McpToolError(mcpError('locked', 'databaseId', `${q(name)} is of the record type ${q(rt.name)}, which ${q(toTitle)} does not hold, and ${q(toTitle)} is locked in One: the type cannot come along (it would add its properties there)`, 'Move it into a database that holds the type, or ask the person to unlock it.'))
+  if (adopting) {
+    const adds = rt ? rt.properties.map((p) => p.name).filter(Boolean) : []
+    const value = !rt ? t('features.mcp.plan.recordType.lost') : adds.length ? t('features.mcp.plan.recordType.adds', { type: rt.name, props: adds.join(', ') }) : t('features.mcp.plan.recordType.along', { type: rt.name })
+    lines.push({ k: 'fact', label: t('features.mcp.plan.recordType'), value })
+  }
   // the values land under the target's property ids (and a unique id is numbered there): its "property changed"
   // automations, row-triggered agents and auto-filling properties see a changed row — named on the card (sideHold)
   const side = sideEffects(to, 1, { props: new Set([...Object.keys(map.values), ...to.properties.filter((p) => p.type === 'unique_id').map((p) => p.id)]) })
@@ -561,7 +575,9 @@ function planMoveRow(args: Record<string, unknown>): WritePlan {
         const cur = live(row.id)
         const target = ws().databases[to.id]
         if (!cur || cur.databaseId !== from.id || !target || !live(to.id)) throw new McpToolError(`${q(name)} or ${q(toTitle)} changed meanwhile. Nothing was changed.`)
-        const before = { properties: clone(cur.properties), order: cur.order }
+        // the type that would come along: a target locked while the card waited cannot take it
+        if (adopting && rt && !(target.recordTypes ?? []).includes(typeId!) && target.locked) throw new McpToolError(mcpError('locked', 'databaseId', `${q(toTitle)} was locked meanwhile: the record type ${q(rt.name)} of ${q(name)} cannot come along`))
+        const before = { properties: clone(cur.properties), order: cur.order, recordType: cur.recordType ?? null }
         for (const [propId, opts] of map.fresh) {
           const def = target.properties.find((p) => p.id === propId)
           if (def) ws().updateProperty(to.id, propId, { options: [...(def.options ?? []), ...opts] })
@@ -575,16 +591,29 @@ function planMoveRow(args: Record<string, unknown>): WritePlan {
         }
         const order = Math.max(0, ...Object.values(ws().pages).filter((p) => p.parentId === to.id).map((p) => p.order)) + 1
         ws().updatePage(row.id, { databaseId: to.id, parentId: to.id, properties: values, order })
-        // a row of a record type the target does not hold yet: the type comes along (database/model/recordTypes)
+        // a row of a record type the target does not hold yet: the type comes along (database/model/recordTypes) — the
+        // properties it adds there are the call's (its Undo takes them back while nobody uses them)
+        const propsBefore = new Set(ws().databases[to.id]?.properties.map((p) => p.id) ?? [])
+        const heldType = typeId ? (ws().databases[to.id]?.recordTypes ?? []).includes(typeId) : true
         adoptRowType(row.id)
+        const attached = typeId && !heldType && (ws().databases[to.id]?.recordTypes ?? []).includes(typeId) ? { typeId, props: (ws().databases[to.id]?.properties ?? []).filter((p) => !propsBefore.has(p.id)).map((p) => p.id) } : null
         const moved = ws().pages[row.id]
         const d = ws().databases[to.id]
+        const typeAfter = moved.recordType ?? null
+        // the row as the call left it: what the move itself set off since (a property_changed automation, autofill on the
+        // target — their writers name this call as their cause) moves this baseline, an edit of anyone else does not (follow.ts)
+        const follow = followCall(row.id, formatWriterKey(writer), madeAs(moved))
         return {
           result: { id: row.id, title: moved.title, from: { id: from.id, title: fromTitle }, databaseId: to.id, database: toTitle, url: pageUrl(row.id), properties: rowProperties(d, moved), ...(freshNames.length ? { addedOptions: freshNames } : {}) },
           undo: () => {
+            const base = follow.base()
+            follow.stop()
             const now = ws().pages[row.id]
-            if (!now || now.databaseId !== to.id || !same(now.properties, values) || !live(from.id)) return false
+            if (!now || now.databaseId !== to.id || valuesKey(now.properties) !== valuesKey(base.props) || (now.recordType ?? null) !== typeAfter || !live(from.id)) return false
             ws().updatePage(row.id, { databaseId: from.id, parentId: from.id, properties: before.properties, order: before.order })
+            // its record type as it was (a locked target had cleared it)
+            if ((ws().pages[row.id]?.recordType ?? null) !== before.recordType) ws().setRecordType(row.id, before.recordType)
+            let clean = true
             // options added for it go again when nothing else took them up
             for (const [propId, opts] of map.fresh) {
               const def = ws().databases[to.id]?.properties.find((p) => p.id === propId)
@@ -593,7 +622,19 @@ function planMoveRow(args: Record<string, unknown>): WritePlan {
               const drop = new Set(opts.filter((o) => !used.has(o.id)).map((o) => o.id))
               if (drop.size) ws().updateProperty(to.id, propId, { options: (def.options ?? []).filter((o) => !drop.has(o.id)) })
             }
-            return true
+            // the record type it brought along goes again while no other row there carries it and none of its
+            // properties holds a value (the trash included); otherwise it stays — a part someone used since
+            if (attached) {
+              const db = ws().databases[to.id]
+              const usedType = Object.values(ws().pages).some((p) => p.databaseId === to.id && p.recordType === attached.typeId)
+              const filled = attached.props.some((pid) => Object.values(ws().pages).some((p) => p.databaseId === to.id && valueKey(p.properties?.[pid]) !== ''))
+              if (!db || db.locked || usedType || filled || !(db.recordTypes ?? []).includes(attached.typeId)) clean = false
+              else {
+                ws().detachRecordType(to.id, attached.typeId)
+                for (const pid of attached.props) ws().deleteProperty(to.id, pid)
+              }
+            }
+            return clean
           },
         }
       })

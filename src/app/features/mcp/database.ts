@@ -28,6 +28,7 @@ import { withoutNodes } from './undoNodes'
 import { bodyLine, checkFiles, rowFacts, rowNo, splitTitle } from './rows'
 import { layoutName, viewChange } from './structure'
 import { withWriter } from '../../store/writer'
+import { changedSince, madeAs, type MadeAs } from '../ai/agent/follow'
 
 /** What a board groups by when the call names nothing (spec § 2.3): the first of these types. */
 const GROUPABLE: PropertyDef['type'][] = ['status', 'select', 'multi_select', 'person', 'checkbox']
@@ -91,35 +92,34 @@ function blockRef(pageId: ID, blockId: string | null): string {
   return (i >= 0 ? refNow(doc, i) : null) ?? `#${blockId}`
 }
 
-/** A row as the call left it (title, text, icon, values): the Undo compares it with the row now. */
+/** A row as the call left it (title, text, icon, cover, comment threads, values, its place): the Undo compares it with the row now. */
 interface RowMark {
-  title: string
-  rev: number | undefined
-  key: string
-  icon: string
-  props: string
+  made: MadeAs
   place: string
 }
 
 function rowMark(id: ID): RowMark | undefined {
   const p = ws().pages[id]
-  return p ? { title: p.title, rev: p.contentRev, key: contentKey(p.content), icon: JSON.stringify(p.icon ?? null), props: JSON.stringify(p.properties ?? {}), place: `${p.parentId}|${p.databaseId}` } : undefined
+  return p ? { made: madeAs(p), place: `${p.parentId}|${p.databaseId}` } : undefined
 }
 
-/** Has someone changed this row since the call made it (title, text, icon, a value, its place, a live page put under it)? */
+/** Has someone changed this row since the call made it (title, text, icon, cover, comments, a value, its place, a live page put under it)? */
 function rowChangedSince(id: ID, mark: RowMark | undefined): boolean {
   const { pages } = ws()
   const p = pages[id]
   // gone or in the trash: nothing of the person's to keep there
   if (!p || p.trashed || !mark) return false
-  return (
-    p.title !== mark.title ||
-    (p.contentRev !== mark.rev && contentKey(p.content) !== mark.key) ||
-    JSON.stringify(p.icon ?? null) !== mark.icon ||
-    JSON.stringify(p.properties ?? {}) !== mark.props ||
-    `${p.parentId}|${p.databaseId}` !== mark.place ||
-    Object.values(pages).some((c) => c.parentId === id && !c.trashed)
-  )
+  return changedSince(p, mark.made) || `${p.parentId}|${p.databaseId}` !== mark.place || Object.values(pages).some((c) => c.parentId === id && !c.trashed)
+}
+
+/**
+ * The database page and its schema as the call left them (taken after its rows, which may add select options): its
+ * title, icon, cover, comment threads, properties and views — the team server's Restore compares the same (markOf).
+ */
+function databaseMark(id: ID): string {
+  const p = ws().pages[id]
+  const d = ws().databases[id]
+  return JSON.stringify([p?.title ?? null, p?.icon ?? null, p?.cover ?? null, p?.comments?.length ? p.comments : null, d?.properties ?? null, d?.views ?? null])
 }
 
 /**
@@ -384,6 +384,9 @@ export function planCreateDatabase(args: Record<string, unknown>): WritePlan {
       const note = notes.length ? notes.join(' ') : undefined
       // each row as the call left it: the Undo takes the database back only while nobody changed any of them
       const asMade = new Map(madeRows.map((rid) => [rid, rowMark(rid)] as const))
+      // the database itself as the call left it: renamed, given another icon / cover, a property or view added, renamed
+      // or set up since → it stays (as the team server's Restore keeps it)
+      const dbMark = databaseMark(id)
       return {
         result: {
           id,
@@ -408,7 +411,7 @@ export function planCreateDatabase(args: Record<string, unknown>): WritePlan {
           if (!gone) {
             const others = Object.values(pages).some((p) => p.parentId === id && !p.trashed && !asMade.has(p.id))
             const changed = madeRows.some((rid) => rowChangedSince(rid, asMade.get(rid)))
-            if (others || changed) return false
+            if (others || changed || databaseMark(id) !== dbMark) return false
           }
           // it goes: the rows (to the trash while untouched), the block in the page, the reverse properties, the database
           const kept = [rowsUndo(), ...[...undos].reverse().map((u) => u())]

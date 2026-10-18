@@ -60,6 +60,7 @@ export { appRunUI, silentRunUI } from './runtime/dialogs'
 export { loadScriptRuns, useScriptRuns, MAX_RUNS } from './runtime/runs'
 export { errorMessage } from './ui/errors'
 export type { RunOptions, RunResult, RunVar } from './runtime/run'
+export type { CallerText, WriteTarget, WriteVerdict } from './runtime/host'
 /* team trust of code outside saved scripts (features/kit: an own property type's scripts): a version this device saved or confirmed */
 export { codeHash as scriptCodeHash, isTrusted as isScriptTrusted, trustCode as trustScriptCode, inTeam as scriptsInTeam } from './runtime/trust'
 export type { RunUI, RunMode, ScriptRun, LogLine, ChangeItem, EffectItem, ConfirmItem, ErrorInfo, ResultTable, Cell } from './runtime/types'
@@ -79,9 +80,17 @@ export async function runScript(o: RunOptions): Promise<RunResult> {
   return (await loadScriptEngine()).runScript(o)
 }
 
-/** Undo a run of this device's run log (pages it created go to the trash, everything else back). */
-export async function undoRun(run: ScriptRun): Promise<boolean> {
-  return (await loadScriptEngine()).undoRun(run)
+/**
+ * Undo a run of this device's run log (pages it created go to the trash, everything else back); `opts.keep` leaves a
+ * field (or a page the run made) as it is now — an MCP caller's "changed since" (features/mcp/script.ts).
+ */
+export async function undoRun(run: ScriptRun, opts?: { keep?: (id: ID, field: string) => boolean }): Promise<boolean> {
+  return (await loadScriptEngine()).undoRun(run, opts)
+}
+
+/** What a run that is still undoable in this tab touched: per page, the fields it changed (title, icon, content, trashed, props:<id>, created). */
+export async function runTouched(runId: string): Promise<Record<ID, string[]> | null> {
+  return (await loadScriptEngine()).runTouched(runId)
 }
 
 /** The flight recorder's eject settled a run (its Undo goes) · its Undo gave it back. Busy: the script runs in this tab. */

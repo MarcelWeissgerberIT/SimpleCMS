@@ -248,7 +248,7 @@ test.describe('the One tab (stand-in bridge)', () => {
       expect(hello.tools).toEqual(mcpToolArgs())
       expect(hello.tools.one_create_page).toEqual(['title', 'parentId', 'markdown', 'icon', 'before', 'after', 'index', 'private', 'linkInParent', 'pages'])
       expect(hello.tools.one_upsert_rows).toEqual(['databaseId', 'keyProperty', 'rows'])
-      await expect(page.getByTestId('mcp-outdated')).toHaveText(`Bridge 1.11.0 — update to ${MCP_BRIDGE_CURRENT}: download one.mcpb or one-mcp.mjs again. Until then the newest tools are missing and a long page reads only its first 60,000 characters (Claude is told where it was cut).`)
+      await expect(page.getByTestId('mcp-outdated')).toHaveText(`Bridge 1.11.0 — update to ${MCP_BRIDGE_CURRENT}: download one.mcpb or one-mcp.mjs again. Until then the newest tools are missing, a long page reads only its first 60,000 characters (Claude is told where it was cut) and a page lists only its first 100 sub-pages.`)
       await expect(page.getByTestId('mcp-legacy')).toHaveCount(0)
       await page.keyboard.press('Escape')
       await page.evaluate(() => (window.location.hash = '#/mcp'))

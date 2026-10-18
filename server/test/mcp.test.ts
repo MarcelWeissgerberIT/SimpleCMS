@@ -247,12 +247,17 @@ describe('remote MCP', () => {
     assert.equal(ok.headers.get('access-control-allow-origin'), null, 'no CORS')
     assert.equal(((await ok.json()) as { result: { serverInfo: { name: string } } }).result.serverInfo.name, 'one')
     assert.equal((await post({ authorization: `Bearer ${writeToken}`, origin: 'https://evil.example' })).status, 403)
-    const big = await fetch(`${server.url}/mcp`, {
-      method: 'POST',
-      headers: { authorization: `Bearer ${writeToken}`, 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
-      body: JSON.stringify({ ...init, params: { ...init.params, padding: 'x'.repeat(300_000) } }),
-    })
-    assert.equal(big.status, 413, 'requests are limited to 256 KB like the public API')
+    // bodies per token: a read token 256 KB, a write token 512 KB (MCP_LIMITS.bodyRead / bodyWrite) — anything but a tool
+    // call over it is the transport's 413 (a tool call over it: the refusal too_large, mcp-parity5.test.ts)
+    const big = (token: string, n: number) =>
+      fetch(`${server.url}/mcp`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+        body: JSON.stringify({ ...init, params: { ...init.params, padding: 'x'.repeat(n) } }),
+      })
+    assert.equal((await big(readToken, 300_000)).status, 413, 'a read token: 256 KB per request')
+    assert.equal((await big(writeToken, 300_000)).status, 200, 'a write token: 512 KB per request')
+    assert.equal((await big(writeToken, 600_000)).status, 413, 'a write token: no more than 512 KB')
     const get = await fetch(`${server.url}/mcp`, { headers: { authorization: `Bearer ${writeToken}`, accept: 'text/event-stream' } })
     assert.equal(get.status, 405)
     assert.equal(get.headers.get('allow'), 'POST')
@@ -588,7 +593,7 @@ describe('remote MCP', () => {
 
     const plain = await call(writer, 'one_create_database', { title: 'Inbox' })
     assert.deepEqual(plain.properties.map((p: { name: string; type: string }) => `${p.name}:${p.type}`), ['Name:title', 'Status:status', 'Tags:multi_select', 'Date:date'])
-    await fails(writer, 'one_create_database', { title: 'x', parentId: 'db-tasks' }, /parent is a database/)
+    await fails(writer, 'one_create_database', { title: 'x', parentId: 'db-tasks' }, /^bad_argument: parentId: "Tasks" is a database; a database goes under a page/)
     await fails(writer, 'one_create_database', { title: 'x', properties: [{ name: 'A', type: 'title' }, { name: 'B', type: 'title' }] }, /one title property/)
     await fails(writer, 'one_create_database', { title: 'x', properties: [{ name: 'Rel', type: 'relation', relation: { databaseId: 'nope' } }] }, /no database with id "nope"/)
   })

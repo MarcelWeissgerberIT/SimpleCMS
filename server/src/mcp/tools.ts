@@ -21,7 +21,7 @@ import { FILTER_OPS, sortKeys } from './query.ts'
 import { McpReads } from './reads.ts'
 import { McpStructure, VIEW_TYPES, type ViewInput } from './structure.ts'
 import { BULK_MAX, McpTidy } from './tidy.ts'
-import { CREATABLE_TYPES, MAX_DB_PROPERTIES, McpWrites } from './writes.ts'
+import { CREATABLE_TYPES, MAX_DB_PROPERTIES, McpWrites, cleanTitle } from './writes.ts'
 import { once } from './duplicates.ts'
 import { dupHash, remembersResult } from '../../../src/shared/mcp/duplicates.ts'
 import { McpBatch } from './batch.ts'
@@ -89,6 +89,9 @@ const CHANGE = { readOnlyHint: false, destructiveHint: false, idempotentHint: fa
  */
 const desc = (name: McpToolName, note?: string) => (note ? `${mcpDescription(name)}\n${note}` : mcpDescription(name))
 
+/** The side note of the batch tools: this server's per-request limit (the shared description counts characters; index.ts). */
+const BODY_NOTE = ` One request carries at most ${MCP_LIMITS.bodyWrite / 1024} KB on this server: split a larger batch into several calls.`
+
 const workspaceArg = z
   .string()
   .max(200)
@@ -117,7 +120,9 @@ function codeFor(err: ApiError): McpErrorCode {
 
 /** An ApiError as a message for the agent: its code first, what went wrong, what is allowed and the next step. */
 function explain(err: ApiError): string {
-  if (err.code === 'parent_is_database') return withRemedy('bad_argument: parentId: The parent is a database: add a row with one_create_row instead')
+  // the REST model's refusal of a page under a database (its own words name the REST route): the MCP next step — a refusal
+  // already in the contract's words (one_create_database: "a database goes under a page") keeps them
+  if (err.code === 'parent_is_database' && !codeOf(err.message)) return withRemedy('bad_argument: parentId: The parent is a database: add a row with one_create_row instead')
   const details = err.details as { errors?: Array<{ allowed?: string[]; property?: string }> } | undefined
   const allowed = (details?.errors ?? []).filter((e) => e.allowed?.length).map((e) => `${e.property}: ${e.allowed!.join(', ')}`)
   const message = `${err.message}${allowed.length ? ` (allowed — ${allowed.join(' · ')})` : ''}`
@@ -383,7 +388,7 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
     'one_create_page',
     {
       title: 'Create pages',
-      description: desc('one_create_page', 'Markdown here: headings, lists, to-dos (- [ ]), quotes, code blocks, dividers, bold / italic / strike / code, links.'),
+      description: desc('one_create_page', `Markdown here: headings, lists, to-dos (- [ ]), quotes, code blocks, dividers, bold / italic / strike / code, links.${BODY_NOTE}`),
       inputSchema: {
         title: z.string().max(2000).optional(),
         parentId: id.nullable().optional(),
@@ -426,7 +431,9 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
         // a replace keeps its pre-image (the content before, taken in the write's own transaction)
         const rec = recorder('one_update_page')
         let before: { snapshot: string; plain: string } | null = null
-        const out = await writes.updatePage(ws, { id: a.id, title: a.title, icon: a.icon, markdown: md(a.markdown), mode: a.mode ?? 'append' }, actor, {
+        // the title as the bridge takes it: whitespace collapsed, never empty, at most 300 characters
+        const title = a.title === undefined ? undefined : cleanTitle(a.title, 'title')
+        const out = await writes.updatePage(ws, { id: a.id, title, icon: a.icon, markdown: md(a.markdown), mode: a.mode ?? 'append' }, actor, {
           mcp: true,
           preimage: (doc) => (before = { snapshot: fragmentSnapshot(doc), plain: fragmentText(doc, 20_000) }),
         })
@@ -440,7 +447,7 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
     'one_create_row',
     {
       title: 'Create rows',
-      description: desc('one_create_row', "People: a member's email works too."),
+      description: desc('one_create_row', `People: a member's email works too.${BODY_NOTE}`),
       inputSchema: {
         databaseId: id,
         title: z.string().max(2000).optional(),
@@ -510,7 +517,7 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
     'one_upsert_rows',
     {
       title: 'Mirror rows by key',
-      description: desc('one_upsert_rows', "People: a member's email works too."),
+      description: desc('one_upsert_rows', `People: a member's email works too.${BODY_NOTE}`),
       inputSchema: {
         databaseId: id,
         keyProperty: z.string().min(1).max(200),

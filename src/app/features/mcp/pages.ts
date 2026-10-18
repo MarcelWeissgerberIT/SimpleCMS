@@ -243,6 +243,11 @@ export function planCreatePage(args: Record<string, unknown>): WritePlan {
     lines,
     ...(tasks.holds.length || hold.alwaysAsk ? { alwaysAsk: true } : {}),
     async apply(writer) {
+      // a parent locked while the card waited takes no link (spec § 3.3): refused before anything is made
+      if (link !== 'none')
+        for (const it of items)
+          if (it.parent.kind === 'page' && ws().pages[it.parent.page.id]?.settings.locked)
+            throw new McpToolError(mcpError('locked', 'linkInParent', `${q(titleOf(it.parent.page))} was locked meanwhile: no link can be added to its text`, 'Leave linkInParent out, or ask the person to unlock it.'))
       // every page staged — their tasks settled again, their parents first (applyOrder)
       const { undo: stagedUndo } = await applyStaged(stage.changes, writer)
       const undos: Array<() => boolean> = []

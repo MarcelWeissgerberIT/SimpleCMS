@@ -110,8 +110,9 @@ mcp_preimages(id, workspace_id, token_id, call_id, tool, doc, kind, sealed, afte
 ```
 
 Migration v12 (*MCP pre-images*, [`MCP.md`](MCP.md#what-the-server-does-without-a-card-pre-images-restore)): the
-team server's `/mcp` has no approval card and no Undo, so every MCP call that changes something keeps, per document it
-touched, what a restore needs — the rows it made (with their values), each field it changed (before → after), the
+team server's `/mcp` has no approval card and no Undo, so every MCP call that makes or overwrites something (pages, rows,
+databases, row fields, a replaced or linked-into page — not property, view, move or trash calls, a title / icon change or a
+plain append) keeps, per document it touched, what a restore needs — the rows it made (with their values), each field it changed (before → after), the
 pages and databases it made, a content fragment before a replace or an appended link (a Y update of a detached copy)
 and `after_hash`, a fingerprint of the content document's text right after the call (`tx1:` + SHA-256 of its blocks
 as JSON, block ids and the editor's trailing empty paragraphs aside — preimages.ts `textHash`; a restore refuses
@@ -216,7 +217,7 @@ All mutating requests require `Content-Type: application/json` (CSRF guard toget
 | `GET /api/coding/worker` | worker token | *(coding relay)* `Authorization: Bearer onew_…`, no `Origin` → `{ workspace: { id: 'team:<id>', name }, member: { email, name }, state, online }` (`one-worker check`); 401 unknown / revoked, 403 `forbidden` / `viewer` |
 | `GET /api/workspaces/:id/tokens` | admin | *(public API)* active API tokens `[{ id, name, scope, comments, created_at, last_used_at, revoked, created_by: { id, name, email } \| null }]`, newest first |
 | `POST /api/workspaces/:id/tokens` | admin | `{ name (1–80), scope: 'read'\|'write', comments?: 'off'\|'read'\|'write' }` → `201` token **+ `token`** (the secret, only here); `409 too_many_tokens` past 25 |
-| `GET /api/workspaces/:id/mcp-calls` | admin | *(MCP pre-images)* the newest 100 MCP calls that changed something (14 days): `[{ callId, tool, token: { id, name }, at, made, changed, titles, restoredAt }]` |
+| `GET /api/workspaces/:id/mcp-calls` | admin | *(MCP pre-images)* the newest 100 MCP calls that keep one (14 days: pages / rows / databases made, row fields changed, a replaced or linked-into page's content — property, view, move and trash calls and plain appends keep none): `[{ callId, tool, token: { id, name }, at, made, changed, titles, restoredAt }]` |
 | `POST /api/workspaces/:id/mcp-calls/:callId/restore` | admin | `{ force? }` → `{ callId, restored, kept, note? }` — puts a call back ([`API.md`](API.md#recent-mcp-writes)); `409 changed_since`, `404 call_not_found` |
 | `DELETE /api/workspaces/:id/tokens/:tokenId` | admin | revoke → `204` (`404 token_not_found`) |
 | `GET /api/workspaces/:id/hooks` | admin | incoming webhooks `[{ id, database: { id, title \| null }, created_at, rotated_at, last_delivery_at, deliveries, created_by }]` (`title: null` = the database is gone) |

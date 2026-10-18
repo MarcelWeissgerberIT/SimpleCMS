@@ -159,6 +159,9 @@ function planUpdatePage(args: Record<string, unknown>): WritePlan {
     noop: changed.length ? undefined : { id: page.id, title: page.title, url: pageUrl(page.id), changed: [], note: 'No change: the page already looks like that.' },
     async apply(writer) {
       if (!live(page.id)) throw new McpToolError(mcpError('not_found', 'id', `${q(name)} is gone (deleted or in the trash) since the call was made`))
+      // locked while the card waited (locking moves no revision): its content takes nothing — append or replace
+      if (markdown !== null && ws().pages[page.id]?.settings.locked)
+        throw new McpToolError(mcpError('locked', 'markdown', `${q(name)} was locked meanwhile: its content cannot change (its title and icon can)`, 'Leave "markdown" out, or ask the person to unlock it.'))
       const undos: Array<() => boolean> = []
       if (replaceWith) {
         // the page changed while the call waited for approval (typed into, synced), or one of its new ids is taken by

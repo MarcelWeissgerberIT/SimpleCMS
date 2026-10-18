@@ -318,16 +318,34 @@ export function clearMcpActivity() {
 /** An MCP client's name as a run note carries it (store/writer.ts RunMeta.client: an identifier, never content). */
 const clientName = (name: string): string => name.replace(/[^A-Za-z0-9 ._-]/g, '').trim().slice(0, 40)
 
+/** one_overview for a bridge older than one_list_pages: its cut tree points to one_search instead. */
+function legacyOverview(result: unknown): unknown {
+  if (!result || typeof result !== 'object' || !('tree' in result)) return result
+  return { ...result, tree: { more: true, note: 'Not every page is listed here: one_search finds the others by title, one_get_page lists a page\'s sub-pages.' } }
+}
+
 /** Undo an applied write from the log. */
 export function undoMcpActivity(key: string) {
   const a = get().activity.find((x) => x.id === key)
   if (!a?.undo || a.state !== 'ok') return
   // the person's Undo of the call (store/writer.ts)
-  const clean = withWriter({ kind: 'you', via: 'undo', ref: key.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 64) }, () => a.undo!())
+  // (a script run's Undo resolves later: its frame holds only the synchronous start — undoRun opens its own frame for
+  // its one write burst, script/runtime/run.ts — so the promise is taken out of the frame, never returned through it)
+  let out!: boolean | Promise<boolean>
+  withWriter({ kind: 'you', via: 'undo', ref: key.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 64) }, () => {
+    out = a.undo!()
+  })
   logPatch(key, { state: 'undone', undo: undefined })
   // a repeat of the call makes the thing again (it is not answered with what went to the trash)
   forgetDuplicate((d) => d.activity === key)
-  useUI.getState().toast(clean ? t('features.mcp.toast.undone') : t('features.mcp.toast.undoneKept'))
+  const tell = (clean: boolean) => useUI.getState().toast(clean ? t('features.mcp.toast.undone') : t('features.mcp.toast.undoneKept'))
+  // a script run's Undo resolves once its run log answered (features/mcp/script.ts)
+  if (typeof out === 'boolean') tell(out)
+  else
+    void out.then(tell, (err) => {
+      console.error('[mcp] undo failed', err)
+      tell(false)
+    })
 }
 
 /* ------------------------------------------------------------------ */
@@ -418,7 +436,7 @@ const VERDICT_STATE: Record<Exclude<Verdict, 'approve'>, ActivityState> = { reje
 function boundWorkspace(expected: string | undefined): { ok: true; ws: McpIdentity } | { ok: false; error: string } {
   const now = currentWorkspace()
   if (bound && (!expected || !MCP_WORKSPACE_ID.test(expected))) return { ok: false, error: mismatch(undefined, now) }
-  if (!now) return { ok: false, error: bound ? mismatch(expected, null) : 'The One tab is between workspaces right now (loading, signed out or removed from it). Nothing was done.' }
+  if (!now) return { ok: false, error: bound ? mismatch(expected, null) : `${MCP_ERR.mismatch}: the One tab is between workspaces right now (loading, signed out or removed from it). Nothing was done. Ask the person which workspace to use.` }
   if (bound && now.id !== expected) return { ok: false, error: mismatch(expected, now) }
   return { ok: true, ws: now }
 }
@@ -516,9 +534,11 @@ async function handleCall(id: string, tool: McpToolName, args: Record<string, un
     if (!def.write) {
       if (tool === 'one_list_work_items') await warmMembers()
       // a bridge older than parts (no cursor in its schema, no parts in its description): contract 1's whole-page answer
-      const legacyRead = tool === 'one_get_page' && (!get().bridge || bridgeOutdated(get().bridge))
+      const older = !get().bridge || bridgeOutdated(get().bridge)
+      const legacyRead = tool === 'one_get_page' && older
       const result = legacyRead ? await getPage(args, { whole: true }) : await READ_TOOLS[tool]!(args, get().mode)
-      return answer(result, 'ok')
+      // and it serves no one_list_pages: the overview never sends the client there
+      return answer(older && tool === 'one_overview' ? legacyOverview(result) : result, 'ok')
     }
     if (get().mode === 'read') return fail(ERR.readOnly, 'rejected')
     if (useCloud.getState().readOnly) return fail(ERR.viewer, 'rejected')

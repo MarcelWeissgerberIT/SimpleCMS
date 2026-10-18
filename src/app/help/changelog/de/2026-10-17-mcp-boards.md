@@ -18,4 +18,4 @@ try: settings-mcp
 
 Die eigenen Datenbanken von One (Gedächtnis, Mails, die Pipelines) bleiben über MCP schreibgeschützt, Vorlagen bleiben unsichtbar, und ein Aufruf, der innerhalb von 2 Minuten wiederholt wird, legt nichts doppelt an. Das braucht Brücke **1.12.0**: `one.mcpb` neu herunterladen und One nach dem Update einmal neu laden.
 
-Auf einem Team-Server gibt es dieselben Werkzeuge unter `/mcp`. Er ändert ohne Karte, deshalb listet **Letzte MCP-Schreibvorgänge** unter **Workspace-Einstellungen → Automatisierung → API** jeden MCP-Aufruf der letzten 14 Tage mit **Zurückholen**. Mehr unter [Claude Desktop & lokales MCP](help:mcp-bridge).
+Auf einem Team-Server gibt es dieselben Werkzeuge unter `/mcp`. Er ändert ohne Karte, deshalb listet **Letzte MCP-Schreibvorgänge** unter **Workspace-Einstellungen → Automatisierung → API** die MCP-Aufrufe der letzten 14 Tage, die etwas angelegt oder überschrieben haben – Seiten, Zeilen, Datenbanken, Zeilenwerte, einen ersetzten Seitentext – mit **Zurückholen**. Mehr unter [Claude Desktop & lokales MCP](help:mcp-bridge).

@@ -31,6 +31,8 @@ import {
   type ReadAnchors,
 } from '../../../shared/mcp/pageRead'
 import { useMcp } from './state'
+import { linksReadably, mcpChartSource, withMcpCharts } from './limits'
+import type { ChartSource } from '../charts'
 import { iconText, iso, kindOf, live, McpToolError, pageUrl, pathOf, q, rowProperties, rowsOf, titleOf, ws } from './values'
 
 const str = (v: unknown) => (typeof v === 'string' ? v : '')
@@ -140,7 +142,9 @@ function chartData(a: Record<string, unknown>, loaded: Loaded): Record<string, u
   if (!spec || typeof spec !== 'object') return {}
   const mod = loaded.charts
   let data: unknown = null
-  if (mod && spec.source && typeof spec.source === 'object') {
+  // a live source the client may not read itself (a template's sheet, a sheet the person's marks leave out, a database in
+  // the trash): no data (limits.ts mcpChartSource)
+  if (mod && spec.source && typeof spec.source === 'object' && mcpChartSource(spec.source as ChartSource)) {
     try {
       const d = mod.resolveChartDataSync(spec.source as Parameters<typeof mod.resolveChartDataSync>[0], spec)
       data = d.error ? { error: d.error } : { labels: d.labels, series: d.series.map((s) => ({ name: s.name, values: s.values })), ...(d.unit ? { unit: d.unit } : {}) }
@@ -225,7 +229,8 @@ function blockData(node: PMJson, loaded: Loaded): Record<string, unknown> | unde
 
 function readerFor(loaded: Loaded): BlockReader {
   return {
-    markdown: (content) => docToFileMarkdown({ type: 'doc', content: content as JSONContent[] }),
+    // a chart's table only from a source the client may read (limits.ts)
+    markdown: (content) => withMcpCharts(() => docToFileMarkdown({ type: 'doc', content: content as JSONContent[] })),
     data: (node) => blockData(node, loaded),
   }
 }
@@ -372,10 +377,14 @@ export async function getPage(args: Record<string, unknown>, opts: { whole?: boo
   const children = Object.values(pages)
     .filter((c) => c.parentId === now.id && !c.databaseId && !c.hidden && live(c.id))
     .sort((a, b) => a.order - b.order || a.createdAt - b.createdAt)
-  head.children = { items: children.slice(0, 50).map((c) => ({ id: c.id, title: titleOf(c), kind: kindOf(c) })), more: Math.max(0, children.length - 50) }
+  // a bridge older than parts (opts.whole) serves no one_list_pages: contract 1's list of up to 100 sub-pages
+  if (opts.whole) {
+    if (children.length) head.children = children.slice(0, 100).map((c) => ({ id: c.id, title: titleOf(c), kind: kindOf(c) }))
+  } else head.children = { items: children.slice(0, 50).map((c) => ({ id: c.id, title: titleOf(c), kind: kindOf(c) })), more: Math.max(0, children.length - 50) }
   if (others.length) head.alsoTitled = others.slice(0, 10).map((o) => ({ id: o.id, path: pathOf(o.id) }))
+  // a page whose only link sits in a block the person's context marks leave out is no backlink here
   head.backlinks = selectBacklinks(pages, now.id)
-    .filter((b) => live(b.id) && !inTemplate(pages, b.id))
+    .filter((b) => live(b.id) && !inTemplate(pages, b.id) && linksReadably(b.id, now.id))
     .slice(0, 50)
     .map((b) => ({ id: b.id, title: titleOf(b), path: pathOf(b.id) }))
   if (threads) head.comments = threads
