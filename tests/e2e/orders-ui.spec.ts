@@ -430,11 +430,17 @@ test.describe('the work order plate (B8)', () => {
     await heads.nth(2).focus()
     await page.keyboard.press('Delete')
     await expect(heads).toHaveCount(2)
+    // the remove has landed once its toast is up (its Undo is armed then); focus on the station now last
+    await expect(page.locator('.toast', { hasText: 'Step 03 removed' })).toBeVisible()
+    await expect(heads.nth(1)).toBeFocused()
     await page.keyboard.press('z')
     await expect(heads).toHaveCount(3)
+    await expect(page.locator('.toast', { hasText: 'Step 03 removed' })).toHaveCount(0)
     await heads.nth(2).focus()
     await page.keyboard.press('Backspace')
     await expect(heads).toHaveCount(2)
+    await expect(page.locator('.toast', { hasText: 'Step 03 removed' })).toBeVisible()
+    await expect(heads.nth(1)).toBeFocused()
     await page.keyboard.press('z')
     await expect(heads).toHaveCount(3)
     // Alt+↑ moves
