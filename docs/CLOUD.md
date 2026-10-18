@@ -69,6 +69,7 @@ The GitHub Pages build stays local-only.
 | `AGENT_CONCURRENCY` | agent runs at the same time over all workspaces (default 4, 1–32; per workspace at most 2) *(server addition)* |
 | `AGENT_TICK_MS` / `AGENT_COALESCE_MS` | schedule check interval (30 s) and the row-trigger collecting window (60 s). **Only with `DEV_MODE=1`** (test servers); otherwise exit 78 *(server addition)* |
 | `MEDIA_FETCH_HOSTS` | `name=127.0.0.1:4601,…`: made-up names `POST …/files/fetch` reaches on this machine over plain HTTP (the e2e suite's media fixture). **Only with `DEV_MODE=1`**; otherwise exit 78 — deployments fetch through the SSRF guard only *(server addition)* |
+| `MCP_RESTORE_GAP_MS` | a pause between an MCP restore's first check and its writes (default 0), so a test can change something in that window. **Only with `DEV_MODE=1`**; otherwise exit 78 *(server addition)* |
 | `CODING_RELAY` | `off` (or `0` / `false` / `no`) switches the coding relay off: no `/coding/*` upgrades, `…/coding/workers` answers `404 coding_relay_off`, `GET /api/config` says `coding_relay: false`; default on — see *Coding relay* *(server addition)* |
 | `CODING_PING_MS` | the relay's WebSocket ping interval (default 25 000): a socket that answers no ping (and sends nothing) is closed at the next one (after 1–2 intervals); a tab that sends no `alive` for six intervals is let go (4408). **Only with `DEV_MODE=1`**; otherwise exit 78 *(server addition)* |
 
@@ -122,8 +123,11 @@ row carries the text fingerprint of its content document right after the call (`
 else people change on it (icon, cover, comment threads; a database's properties and views, taken after its rows), and
 `place` (its parent and database). A restore is all or nothing: it compares every part — each text's fingerprint, each
 written field, each made thing's title, hash, mark, place, stored values, trash and the live pages below it, a text
-page locked since — and refuses `409 changed_since` (writing nothing) when anything moved; else it writes the meta in
-one transaction (checked again inside it) and then the texts. `force` puts back the texts and fields only and never
+page locked since — and refuses `409 changed_since` (writing nothing) when anything moved; else it writes the texts
+first, each checked again in its own write (with `force` only a text the refusal named may have moved), then the meta
+in one transaction, checked again inside it (a page locked meanwhile too). A change that lands while it writes refuses
+the whole restore: the texts it had written are taken back, each only while it is still as the restore left it (one
+typed into right after stays, and the refusal names it — `details.stayed`). `force` puts back the texts and fields only and never
 trashes. `restored_at` is set on every part of the call at once (repo.ts `markCallRestored`); a call counts as restored
 (`mcp-calls.restoredAt`) when every part is.
 

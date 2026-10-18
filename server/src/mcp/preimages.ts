@@ -10,7 +10,8 @@
  * bridge's Undo follows the same rule):
  *  - nothing the call made or changed was touched since → the fields it wrote get their earlier values, the texts it
  *    replaced or wrote a link / database block into get their earlier text, and what it made goes to the trash — the
- *    meta in ONE transaction, then the texts;
+ *    meta in ONE transaction — the texts first, each checked again in its own write, then the meta, checked again in
+ *    its transaction; a change landing meanwhile refuses the whole Restore and the texts written so far are taken back;
  *  - anything moved since → `409 changed_since` naming each thing and what moved (`changedSince`), and NOTHING is
  *    written: a field it wrote, a text it wrote into (textHash: its blocks, ids and the editor's trailing empty paragraph
  *    aside — a member who only opened a page changed nothing), a made page's or row's title, text, stored values, icon /
@@ -313,19 +314,25 @@ export class McpPreimages {
     }))
   }
 
-  /** A content document's fragment replaced by a pre-image's detached copy; answers its plain text then. */
-  private putText(docName: string, before: string, actor: string): Promise<string> {
+  /**
+   * A content document's fragment replaced by a pre-image's detached copy, checked in the same transaction: with
+   * `expect` (textHash) only while its text is still that one — else nothing is written and the answer is null. Answers
+   * its plain text then, the fragment it replaced (`was`, a detached copy) and its text's fingerprint after the write.
+   */
+  private putText(docName: string, before: string, actor: string, expect?: string): Promise<{ plain: string; was: string; hash: string } | null> {
     const update = Buffer.from(before, 'base64')
     return this.s.collab.write(
       docName,
       (doc) => {
+        if (expect !== undefined && textMoved(doc, expect)) return null
+        const was = fragmentSnapshot(doc)
         const source = new Y.Doc()
         Y.applyUpdate(source, update)
         const frag = doc.getXmlFragment('default')
         if (frag.length) frag.delete(0, frag.length)
         const back = source.getXmlFragment('default').toArray().map((n) => (n as Y.XmlElement | Y.XmlText).clone())
         if (back.length) frag.insert(0, back)
-        return fragmentText(doc, 20_000)
+        return { plain: fragmentText(doc, 20_000), was, hash: textHash(doc) }
       },
       actor,
     )
@@ -333,7 +340,7 @@ export class McpPreimages {
 
   /** A content pre-image written back (a failed call's rollback): the fragment as it was, the page's plain text in the meta. */
   async writeBack(wsId: string, docName: string, pageId: string, before: string, actor: string): Promise<void> {
-    const plain = await this.putText(docName, before, actor)
+    const plain = (await this.putText(docName, before, actor))!.plain
     await this.s.collab.write(
       metaDoc(wsId),
       (doc) => {
@@ -347,13 +354,20 @@ export class McpPreimages {
     )
   }
 
-  /** The refusal of a Restore: `409 changed_since`, each thing named with what moved (details: `changed`, `canForce`). */
-  private static refusal(changed: Moved[], canForce: boolean): ApiError {
+  /**
+   * The refusal of a Restore: `409 changed_since`, each thing named with what moved (details: `changed`, `canForce`).
+   * `stayed`: texts this Restore had put back and could not take back again because they were typed into right after
+   * (the rare case of a change landing while the Restore wrote) — named, never hidden behind "Nothing was put back".
+   */
+  private static refusal(changed: Moved[], canForce: boolean, stayed: string[] = []): ApiError {
     const say = (m: Moved) => `${JSON.stringify(m.title || 'Untitled')} (${[...(m.fields ?? []), ...m.what.filter((w) => !(w === 'values' && m.fields?.length)).map((w) => MOVED_WORDS[w])].join(', ')})`
     const remedy = canForce
       ? 'Restore with force to put back the texts and fields the call changed anyway (the later changes there go; what it made stays) — or undo it in One instead: version history or the trash.'
       : 'Undo it in One instead: version history or the trash.'
-    return new ApiError(409, 'changed_since', `Changed since this call: ${changed.map(say).join(', ')}. Nothing was put back. ${remedy}`, { details: { changed, canForce } })
+    const done = stayed.length
+      ? `Nothing else was put back — the text of ${stayed.map((t) => JSON.stringify(t || 'Untitled')).join(', ')} was put back and typed into right after, so it stays as it is now (its earlier text is in version history).`
+      : 'Nothing was put back.'
+    return new ApiError(409, 'changed_since', `Changed since this call: ${changed.map(say).join(', ')}. ${done} ${remedy}`, { details: { changed, canForce, ...(stayed.length ? { stayed } : {}) } })
   }
 
   /** Put a call back, all or nothing (see the head comment). `actor`: the owner / admin who asked. */
@@ -478,52 +492,96 @@ export class McpPreimages {
       })
 
     const changed = await this.model.read(wsId, (r) => changedSince(r))
+    if (changed.length && (!force || !canForce(changed))) throw McpPreimages.refusal(changed, canForce(changed))
+    if (this.s.config.mcpRestoreGapMs) await new Promise((ok) => setTimeout(ok, this.s.config.mcpRestoreGapMs))
+
+    // The texts first, each checked in its own write (a text typed into since the check above is never overwritten:
+    // with force only one that had moved already, as the refusal named it, goes); then the meta in ONE transaction,
+    // checked again in it. Anything that moved meanwhile refuses the whole Restore: the texts written so far are taken
+    // back (each only while it is still as this Restore left it) and nothing else is written.
+    const gone = new Set(changed.filter((m) => m.what.includes('gone')).map((m) => m.id))
+    const texts = force && changed.length ? forced.filter((c) => !gone.has(c.page)) : contents
+    const written: Array<{ doc: string; page: string; was: string; hash: string }> = []
+    const takeBack = async (): Promise<string[]> => {
+      const stayed: string[] = []
+      for (const w of written.reverse()) if (!(await this.putText(w.doc, w.was, actor, w.hash))) stayed.push(w.page)
+      return stayed
+    }
+    const refuse = async (moved?: Moved[]): Promise<never> => {
+      const stayed = await takeBack()
+      const now = moved ?? (await this.model.read(wsId, (r) => changedSince(r)))
+      const titles = stayed.length ? await this.model.read(wsId, (r) => stayed.map((id) => String(pageMap(r, id)?.get('title') ?? ''))) : []
+      throw McpPreimages.refusal(now, canForce(now), titles)
+    }
+    for (const c of texts) {
+      const out = await this.putText(c.doc, c.before, actor, force && textMovedIds.has(c.page) ? undefined : (c.after ?? ''))
+      if (!out) {
+        textMovedIds.add(c.page)
+        await refuse()
+      }
+      written.push({ doc: c.doc, page: c.page, was: out!.was, hash: out!.hash })
+    }
+    // a made page's or row's own text, read once more right before the meta is written
+    if (!force || !changed.length) for (const m of made) if (!textMovedIds.has(m.id) && (!m.hash || (await this.s.collab.read(contentDoc(wsId, m.id), (doc) => textMoved(doc, m.hash!))))) textMovedIds.add(m.id)
+
     if (changed.length) {
-      if (!force || !canForce(changed)) throw McpPreimages.refusal(changed, canForce(changed))
       // "Restore anyway": the texts it replaced and the fields it wrote, whole; what it made stays and is listed
-      const out = await this.s.collab.write(
-        metaDoc(wsId),
-        (doc) => {
-          const r = roots(doc)
-          const texts = forced.filter((c) => !!pageMap(r, c.page))
-          const n = putFields(r, texts, Date.now())
-          const left = topOf(r)
-            .filter((m) => !!pageMap(r, m.id) && !inTrash(r, m.id))
-            .map((m) => ({ id: m.id, title: String(pageMap(r, m.id)!.get('title') ?? '') }))
-          return { n, texts, left }
-        },
-        actor,
-      )
-      for (const c of out.texts) await this.putText(c.doc, c.before, actor)
+      let out: { n: number; left: Array<{ id: string; title: string }> } | Moved[]
+      try {
+        out = await this.s.collab.write(
+          metaDoc(wsId),
+          (doc) => {
+            const r = roots(doc)
+            // a page locked meanwhile: refused (its text was taken back above)
+            const again = changedSince(r)
+            if (!canForce(again)) return again
+            const n = putFields(r, texts.filter((c) => !!pageMap(r, c.page)), Date.now())
+            const left = topOf(r)
+              .filter((m) => !!pageMap(r, m.id) && !inTrash(r, m.id))
+              .map((m) => ({ id: m.id, title: String(pageMap(r, m.id)!.get('title') ?? '') }))
+            return { n, left }
+          },
+          actor,
+        )
+      } catch (err) {
+        await takeBack()
+        throw err
+      }
+      if (Array.isArray(out)) return refuse(out)
       this.s.repo.markCallRestored(wsId, callId, Date.now())
-      const restored = out.n + out.texts.length
+      const restored = out.n + texts.length
       this.s.log.info('mcp call restored', { workspace: wsId, call: callId, restored, left: out.left.length, force: true, by: actor })
       return { callId, restored, left: out.left, ...(out.left.length ? { note: 'Put back the texts and fields this call changed. What it made stays (left): move it to the trash in One if it is no longer wanted.' } : {}) }
     }
 
-    // nothing moved: the meta in one transaction (checked again in it — nothing is written when something moved meanwhile),
-    // then the texts
-    const n = await this.s.collab.write(
-      metaDoc(wsId),
-      (doc) => {
-        const r = roots(doc)
-        const again = changedSince(r)
-        if (again.length) throw McpPreimages.refusal(again, canForce(again))
-        const at = Date.now()
-        let n = putFields(r, contents, at)
-        for (const m of topOf(r)) {
-          const yp = pageMap(r, m.id)!
-          yp.set('trashed', true)
-          yp.set('trashedAt', at)
-          yp.set('updatedAt', at)
-          yp.set('updatedBy', actor)
-          n += 1
-        }
-        return n
-      },
-      actor,
-    )
-    for (const c of contents) await this.putText(c.doc, c.before, actor)
+    // nothing moved: the meta in one transaction, checked again in it (the texts above were checked as they were written)
+    let n: number | Moved[]
+    try {
+      n = await this.s.collab.write(
+        metaDoc(wsId),
+        (doc) => {
+          const r = roots(doc)
+          const again = changedSince(r)
+          if (again.length) return again
+          const at = Date.now()
+          let n = putFields(r, contents, at)
+          for (const m of topOf(r)) {
+            const yp = pageMap(r, m.id)!
+            yp.set('trashed', true)
+            yp.set('trashedAt', at)
+            yp.set('updatedAt', at)
+            yp.set('updatedBy', actor)
+            n += 1
+          }
+          return n
+        },
+        actor,
+      )
+    } catch (err) {
+      await takeBack()
+      throw err
+    }
+    if (Array.isArray(n)) return refuse(n)
     this.s.repo.markCallRestored(wsId, callId, Date.now())
     // a repeat of the call is no longer answered with what it made (it is in the trash now): it makes it again
     const dup = parts.map((p) => p.pre.dup).find((d): d is string => typeof d === 'string')

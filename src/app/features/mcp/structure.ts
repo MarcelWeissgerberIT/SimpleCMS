@@ -10,7 +10,7 @@
 import { t } from '../../i18n'
 import { newId } from '../../lib/ids'
 import { defaultView } from '../../store/store'
-import { inTemplate } from '../../store/selectors'
+import { inTemplate, isEffectivelyTrashed } from '../../store/selectors'
 import type { Database, DateValue, Filter, FilterGroup, FilterOperator, ID, Page, PropertyDef, PropertyType, PropertyValue, SelectOption, Sort, View, ViewType } from '../../store/types'
 import { MCP_FILTER_OPS, MCP_TYPE_CHANGES, MCP_VIEW_TYPES, type McpToolName } from './contract'
 import { chars, cleanName, clone, colorOf, optionsOf, palette, parseIcon, same, str, type PlanLine, type WritePlan } from './plan'
@@ -177,13 +177,14 @@ interface RollupClear {
 /**
  * The rollups a property's delete clears: in its own database those that roll up through it (a relation), in every other
  * database those that roll it up through a relation to its database. A template's database is not looked at over MCP
- * (spec § 3.3: it reads as not found — the team server's deleteProperty leaves it out too).
+ * (spec § 3.3: it reads as not found — the team server's deleteProperty leaves it out too), nor one in the trash or below a
+ * trashed page (the server's liveDatabase leaves those out: their rollups are neither targets nor cleared).
  */
 function rollupsOn(dbId: ID, propId: ID): RollupClear[] {
   const { databases, pages } = ws()
   const out: RollupClear[] = []
   for (const d of Object.values(databases)) {
-    if (d.id !== dbId && (!pages[d.id] || inTemplate(pages, d.id))) continue
+    if (d.id !== dbId && (!pages[d.id] || inTemplate(pages, d.id) || pages[d.id]!.trashed || isEffectivelyTrashed(pages, d.id))) continue
     for (const p of d.properties) {
       if (p.type !== 'rollup' || !p.rollup) continue
       const rel = d.properties.find((x) => x.id === p.rollup!.relationPropertyId)

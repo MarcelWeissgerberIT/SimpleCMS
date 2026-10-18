@@ -376,7 +376,8 @@ The tools that delete, adjust, create and reorganise follow the same rules on bo
   number → text. Anything else is refused with that list. `one_delete_property` removes a property with its values
   (not the title); views forget it the way the app's delete does (filters, sorts, grouping, calculations, chart axes,
   colour rules), and a rollup in another database that rolls it up is cleared (the card says *Also clears the rollup
-  “Total” in Reports*) — refused while that database is locked or One's own. Views take the friendly names: `groupBy` (a board needs a status, select, multi_select, person or
+  “Total” in Reports*) — refused while that database is locked or One's own; a database in the trash (or below a
+  trashed page) is left alone, as on the team server. Views take the friendly names: `groupBy` (a board needs a status, select, multi_select, person or
   checkbox property), `dateProperty` (calendar and timeline need one; a feed orders by it), `filter` in the shape of
   `one_query_database` (ANDed; dates also `today`, `tomorrow`, `yesterday`, `one_week_ago`, `one_week_from_now`;
   people by name or `me`), `sort`, `properties` (the visible ones, in order). Chart and form views are set up in the
@@ -611,7 +612,7 @@ MCP." (a call waits up to 10 s for the tab first). The switch is **per browser**
   applies, the tab notes every page and database it writes under its own writer and what each was before; when it
   ends, it keeps them as the call left them — and the live pages below every page the Undo would trash (what the call
   made, what it brought back from the trash), and the row values and uses (rollups, formulas, views, forms) of every
-  property it added to an existing database. The Undo compares: if **anything** of it differs now — whoever changed
+  property it added to an existing database or changed the type of. The Undo compares: if **anything** of it differs now — whoever changed
   it, the call's own *row created* automations and autofill included —, a page sits below one it would trash, or
   someone else wrote one of them while the call ran, it writes **nothing** and says what changed: *Not undone:
   “Kick-off” changed since (values). Nothing was put back.* — *Take it back by hand with Versions or the trash* (in

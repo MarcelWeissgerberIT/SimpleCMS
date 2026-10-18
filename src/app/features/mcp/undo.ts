@@ -5,7 +5,7 @@
  *  - While `plan.apply` runs, every page and database the call writes under its own writer is noted with what it was
  *    before (`tapeCall`). When it ends, they are kept as the call left them — with the live pages below every page the
  *    Undo would put into the trash (what the call made, what it brought back from the trash) and the row values and
- *    uses of every property it added to an existing database.
+ *    uses of every property it added to an existing database or changed the type of.
  *  - The Undo compares (`changedSince`): when anything of it differs now — whoever changed it, the call's own automations
  *    and autofill included —, a page sits below one it would trash, or someone else wrote one of them while the call
  *    ran, it writes NOTHING and names what changed; Versions, the trash and (in the local workspace) the flight
@@ -122,7 +122,7 @@ function liveBelow(pages: Record<ID, Page>, roots: readonly ID[]): Set<ID> {
 
 const isEmpty = (v: unknown) => v === undefined || v === null || v === '' || (Array.isArray(v) && !v.length)
 
-/** A property the call added to a database that was there before: its row values (the trash too) and what is built on it. */
+/** A property the call added to (or changed the type of in) a database that was there before: its row values (the trash too) and what is built on it. */
 function propUse(dbId: ID, propId: ID): { values: string; refs: string } {
   const s = ws()
   const db = s.databases[dbId]
@@ -161,7 +161,7 @@ export interface CallUndo {
   below: Map<ID, Page | null>
   /** the databases of those pages (a restored database, a database below a page) as the call left them — their schema is theirs */
   inside: Map<ID, Database>
-  /** a property the call added to an existing database → its values and what is built on it, as the call left them */
+  /** a property the call added to an existing database or changed the type of → its values and what is built on it, as the call left them */
   added: Array<{ db: ID; prop: ID; use: { values: string; refs: string } }>
   /** page / database ids someone else wrote while the call ran ("db:<id>" for a database) */
   meanwhile: Set<string>
@@ -223,7 +223,13 @@ export function tapeCall(writer: Writer): { finish: () => CallUndo | null; stop:
       }
       if (after === was) continue
       out.dbs.push({ id, was, after })
-      if (was) for (const p of after.properties) if (!was.properties.some((x) => x.id === p.id)) out.added.push({ db: id, prop: p.id, use: propUse(id, p.id) })
+      // a property it added, or one whose type it changed (its values now fit the new type: a value written since would
+      // no longer fit the old one the Undo puts back)
+      if (was)
+        for (const p of after.properties) {
+          const old = was.properties.find((x) => x.id === p.id)
+          if (!old || old.type !== p.type) out.added.push({ db: id, prop: p.id, use: propUse(id, p.id) })
+        }
     }
     if (!out.pages.length && !out.dbs.length) return null
     const made = new Set(out.pages.filter((e) => !e.was).map((e) => e.id))

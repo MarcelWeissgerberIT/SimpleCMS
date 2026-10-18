@@ -279,3 +279,126 @@ describe('Weg 4 D3: Restore on the team server is all or nothing', () => {
     assert.ok(d.doc.getXmlFragment('default').toString().includes('Second version.'), 'the locked text is untouched')
   })
 })
+
+/**
+ * W1 review: a Restore checks again as it writes. A change that lands between the first check and the writes (here held
+ * open by the DEV-only MCP_RESTORE_GAP_MS) refuses the whole Restore: no text typed meanwhile is overwritten, a page
+ * locked meanwhile gets no text — also with force — and texts already put back are taken back again.
+ */
+describe('Weg 4 W1: a Restore checks again as it writes', () => {
+  const GAP = 1500
+  let server: TestServer
+  let owner: Client
+  let wsId: string
+  let meta: DocClient
+  let writer: McpClient
+  const open: DocClient[] = []
+  const doc = async (name: string) => {
+    const d = openDoc(server, owner, name)
+    open.push(d)
+    await d.synced
+    return d
+  }
+  const pages = () => meta.doc.getMap('pages')
+  const yp = (id: string) => pages().get(id) as Y.Map<unknown>
+  const calls = async () => (await owner.get(`/api/workspaces/${wsId}/mcp-calls`)).body as Array<{ callId: string; tool: string; titles: string[]; restoredAt: string | null }>
+  const callOf = async (tool: string, title: string) => (await calls()).find((c) => c.tool === tool && c.titles.includes(title))!
+  const restore = (callId: string, force = false) => owner.post(`/api/workspaces/${wsId}/mcp-calls/${callId}/restore`, force ? { force: true } : {})
+  const text = (d: DocClient) => d.doc.getXmlFragment('default').toString()
+  const type = async (d: DocClient, words: string, id: string) => {
+    const frag = d.doc.getXmlFragment('default')
+    d.doc.transact(() => frag.insert(frag.length, [para(words, id)]))
+    await flushed(d)
+  }
+  const lock = async (id: string) => {
+    meta.doc.transact(() => yp(id).set('settings', { fullWidth: false, smallText: false, font: 'sans', locked: true }))
+    await flushed(meta)
+  }
+
+  before(async () => {
+    server = await startServer({ API_RATE_LIMIT: '1000', MCP_RESTORE_GAP_MS: String(GAP) })
+    owner = await signIn(server, 'mara@nordlicht.test')
+    wsId = (await owner.post('/api/workspaces', { name: 'Nordlicht' })).body.id
+    meta = await doc(`ws:${wsId}`)
+    meta.doc.transact(() => pages().set('plan', pageEntry({ title: 'Launch plan', order: 1 })))
+    addDatabase(meta.doc, 'db-cards', 'Cards', [
+      { id: 'c-title', name: 'Name', type: 'title' },
+      { id: 'c-ticket', name: 'Ticket', type: 'text', key: true },
+      { id: 'c-owner', name: 'Owner', type: 'text' },
+    ])
+    meta.doc.transact(() => {
+      for (let i = 1; i <= 2; i++) pages().set(`card-${i}`, pageEntry({ title: `Card ${i}`, parentId: 'db-cards', databaseId: 'db-cards', order: i }, { 'c-ticket': `T-${i}` }))
+    })
+    await flushed(meta)
+    const token = (await owner.post(`/api/workspaces/${wsId}/tokens`, { name: 'Claude', scope: 'write' })).body.token
+    writer = await connect(server.url, token)
+  })
+
+  after(async () => {
+    await writer?.close().catch(() => {})
+    for (const d of open) d.destroy()
+    await server.stop()
+  })
+
+  test('typed into a replaced text while the Restore runs: refused, the sentence stays, nothing goes to the trash', async () => {
+    const page = await call(writer, 'one_create_page', { title: 'Protokoll', parentId: 'plan', markdown: 'First version.' })
+    await call(writer, 'one_update_page', { id: page.id, markdown: 'Second version.', mode: 'replace' })
+    const d = await doc(`ws:${wsId}:p:${page.id}`)
+    await waitFor(() => text(d).includes('Second version.'), 5000, 'replaced')
+    const c = await callOf('one_update_page', 'Protokoll')
+    const pending = restore(c.callId)
+    await sleep(GAP / 3)
+    await type(d, 'Mara Lind typed this meanwhile.', 'blk-mara-001')
+    const res = await pending
+    assert.equal(res.status, 409, JSON.stringify(res.body))
+    assert.equal(res.body.error?.code, 'changed_since')
+    assert.match(String(res.body.error?.message), /Nothing was put back/)
+    assert.deepEqual(res.body.error?.details?.changed.map((m: Changed) => [m.id, m.what]), [[page.id, ['text']]])
+    await sleep(300)
+    assert.ok(text(d).includes('Mara Lind typed this meanwhile.'), 'the sentence typed meanwhile stays')
+    assert.ok(text(d).includes('Second version.'), 'the text is not put back')
+    assert.equal((await calls()).find((x) => x.callId === c.callId)!.restoredAt, null)
+  })
+
+  test('two bodies, one typed into while the Restore runs: refused as a whole — neither body is put back, no field either', async () => {
+    const one = await doc(`ws:${wsId}:p:card-1`)
+    const two = await doc(`ws:${wsId}:p:card-2`)
+    await call(writer, 'one_upsert_rows', { databaseId: 'db-cards', keyProperty: 'Ticket', rows: [{ key: 'T-1', properties: { Owner: 'Tessera' }, markdown: 'Body one from the mirror.' }, { key: 'T-2', properties: { Owner: 'Tessera' }, markdown: 'Body two from the mirror.' }] })
+    await waitFor(() => text(one).includes('Body one') && text(two).includes('Body two'), 5000, 'written')
+    const c = await callOf('one_upsert_rows', 'Card 2')
+    const pending = restore(c.callId)
+    await sleep(GAP / 3)
+    await type(two, 'Nordlicht note typed meanwhile.', 'blk-nord-001')
+    const res = await pending
+    assert.equal(res.status, 409, JSON.stringify(res.body))
+    assert.match(String(res.body.error?.message), /Nothing was put back/)
+    await sleep(300)
+    assert.ok(text(two).includes('Nordlicht note typed meanwhile.') && text(two).includes('Body two'), 'the typed body stays as it is')
+    assert.ok(text(one).includes('Body one from the mirror.'), 'the untouched body is not put back either (or was taken back again)')
+    assert.equal((yp('card-1').get('properties') as Y.Map<unknown>).get('c-owner'), 'Tessera', 'no field put back')
+    assert.equal((await calls()).find((x) => x.callId === c.callId)!.restoredAt, null)
+  })
+
+  test('force, and the page is locked while the Restore runs: refused — the text it had put back is taken back again', async () => {
+    const page = await call(writer, 'one_create_page', { title: 'Wissensbasis', parentId: 'plan', markdown: 'Old wiki text.' })
+    await call(writer, 'one_update_page', { id: page.id, markdown: 'Wiki text from the call.', mode: 'replace' })
+    const d = await doc(`ws:${wsId}:p:${page.id}`)
+    await waitFor(() => text(d).includes('Wiki text from the call.'), 5000, 'replaced')
+    await type(d, 'Tessera added a line.', 'blk-tess-001')
+    const c = await callOf('one_update_page', 'Wissensbasis')
+    const first = await restore(c.callId)
+    assert.equal(first.status, 409)
+    assert.equal(first.body.error?.details?.canForce, true, 'force could put the text back')
+    const pending = restore(c.callId, true)
+    await sleep(GAP / 3)
+    await lock(page.id)
+    const res = await pending
+    assert.equal(res.status, 409, JSON.stringify(res.body))
+    assert.equal(res.body.error?.details?.canForce, false)
+    assert.ok(res.body.error?.details?.changed.some((m: Changed) => m.id === page.id && m.what.includes('locked')), JSON.stringify(res.body))
+    await sleep(300)
+    assert.ok(text(d).includes('Tessera added a line.') && text(d).includes('Wiki text from the call.'), `the locked page keeps its text: ${text(d)}`)
+    assert.ok(!text(d).includes('Old wiki text.'))
+    assert.equal((await calls()).find((x) => x.callId === c.callId)!.restoredAt, null)
+  })
+})
