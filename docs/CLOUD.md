@@ -118,15 +118,14 @@ and `after_hash`, a fingerprint of the content document's text right after the c
 as JSON, block ids and the editor's trailing empty paragraphs aside — preimages.ts `textHash`; a restore refuses
 `changed_since` when it moved; rows stored before hold the document's state hash and are compared as such). `sealed` is AES-256-GCM with the workspace's key (AAD `mcp-preimage\n<workspace>\n<id>`); kept 14 days
 (housekeeping's `purgeExpired`), `ON DELETE CASCADE` from `workspaces`. REST API writes keep none. A made page or
-row carries the text fingerprint of its content document right after the call (`hash`) and `mark`, a fingerprint of what
-else people change on it (icon, cover, comment threads; a database's properties and views, taken after its rows): a
-restore trashes it only while that hash, the mark, its title, its whole stored values (a field filled in since that was
-empty counts) and the pages below it are as the call left them — else it is kept and named, and a made page above a
-kept one is kept with it (never trashed with it). Pre-images from before `mark` skip that one check. Each
-part is restored once: a restore that kept something stores (sealed again) which of its things went back (`done`) and
-sets `restored_at` only when the whole part went back; a content part is marked restored as soon as its text is
-written back, so a retry never compares against its own write. A call counts as restored (`mcp-calls.restoredAt`)
-when every part is.
+row carries the text fingerprint of its content document right after the call (`hash`), `mark`, a fingerprint of what
+else people change on it (icon, cover, comment threads; a database's properties and views, taken after its rows), and
+`place` (its parent and database). A restore is all or nothing: it compares every part — each text's fingerprint, each
+written field, each made thing's title, hash, mark, place, stored values, trash and the live pages below it, a text
+page locked since — and refuses `409 changed_since` (writing nothing) when anything moved; else it writes the meta in
+one transaction (checked again inside it) and then the texts. `force` puts back the texts and fields only and never
+trashes. `restored_at` is set on every part of the call at once (repo.ts `markCallRestored`); a call counts as restored
+(`mcp-calls.restoredAt`) when every part is.
 
 Migration v11: an API token's `mcp_comments` — what its MCP client gets from `one_get_page { comments: true }`
 (`off` by default; a `read` token is never `write`), chosen when the token is created.
@@ -218,7 +217,7 @@ All mutating requests require `Content-Type: application/json` (CSRF guard toget
 | `GET /api/workspaces/:id/tokens` | admin | *(public API)* active API tokens `[{ id, name, scope, comments, created_at, last_used_at, revoked, created_by: { id, name, email } \| null }]`, newest first |
 | `POST /api/workspaces/:id/tokens` | admin | `{ name (1–80), scope: 'read'\|'write', comments?: 'off'\|'read'\|'write' }` → `201` token **+ `token`** (the secret, only here); `409 too_many_tokens` past 25 |
 | `GET /api/workspaces/:id/mcp-calls` | admin | *(MCP pre-images)* the newest 100 MCP calls that keep one (14 days: pages / rows / databases made, row fields changed, a replaced or linked-into page's content — property, view, move and trash calls and plain appends keep none): `[{ callId, tool, token: { id, name }, at, made, changed, titles, restoredAt }]` |
-| `POST /api/workspaces/:id/mcp-calls/:callId/restore` | admin | `{ force? }` → `{ callId, restored, kept, note? }` — puts a call back ([`API.md`](API.md#recent-mcp-writes)); `409 changed_since`, `404 call_not_found` |
+| `POST /api/workspaces/:id/mcp-calls/:callId/restore` | admin | `{ force? }` → `{ callId, restored, left, note? }` — puts a call back as a whole ([`API.md`](API.md#recent-mcp-writes)); `409 changed_since` (anything moved since: nothing written, `details.changed` / `canForce`), `404 call_not_found` |
 | `DELETE /api/workspaces/:id/tokens/:tokenId` | admin | revoke → `204` (`404 token_not_found`) |
 | `GET /api/workspaces/:id/hooks` | admin | incoming webhooks `[{ id, database: { id, title \| null }, created_at, rotated_at, last_delivery_at, deliveries, created_by }]` (`title: null` = the database is gone) |
 | `POST /api/workspaces/:id/hooks` | admin | `{ databaseId }` → `201` hook **+ `url`** (`${PUBLIC_URL}/api/v1/hooks/<secret>`, only here); `404 database_not_found`, `409 too_many_hooks` past 25 |

@@ -830,28 +830,27 @@ plain `append`: those are not listed and are undone in One (the page history, th
 API writes keep none.
 
 **Workspace settings → Automation → API → Recent MCP writes** (owners and admins) lists the last 100 calls — the
-tool in words, the token, what it made and changed, the first titles, its age — each with **Restore**:
+tool in words, the token, what it made and changed, the first titles, its age — each with **Restore**. Restore is
+**all or nothing** (the owner's decision; the bridge's Undo follows the same rule):
 
-- made pages, databases and rows go to the **trash** (rows of a made database go along with it) — **only while nobody
-  changed them since**: a made page whose text, title, icon, cover or comment threads someone changed, or below which
-  someone put a page, a made row whose title, text or any stored value changed (a field filled in that was empty too),
-  a made database that someone added a row to, whose rows changed or whose properties or views changed, and a made page
-  above one that is kept is **kept and named** (*Restore anyway* trashes it too);
-- each changed field goes back **while it still holds what the call wrote** — a field someone changed since is kept and
-  named (*Restore anyway* puts it back too); a two-way relation goes back on both sides (its partner rows are set as
-  the app sets them);
-- a page text that changed since the call — added to or only deleted from — is refused (`changed_since`) — **Restore
-  anyway** puts the call's copy back and the later changes go (the dialog says so). A text the call only put its own
-  links (`linkInParent`) or an inline database's block into is decided after what it points at and is never refused:
-  it goes back whole when every page / database it links went and nobody wrote there since (as the bridge's Undo);
-  else only the links / blocks of those that went come out (a later edit stays, also with *Restore anyway*), and the
-  page is named in `kept` with the ones whose link or block stays; "Changed" means the text: a member
-  who only opened the page (the editor's empty paragraph after a closing list, heading, table or database block, the
-  block ids it fills in) changed nothing;
-- a call put back is forgotten for repeats: the same call again makes the thing again;
-- each part goes back once: a Restore that kept something puts back the rest and remembers it — a later *Restore
-  anyway* acts only on what was kept, never again on what went back (a text written since into a page that was put
-  back stays); the row says *Restored* once every part is back;
+- **nothing the call made or changed was touched since** → it all goes back in one Restore: each field it wrote gets
+  its earlier value (a two-way relation as the app sets it, its partner rows in step), each text it replaced — or wrote
+  a link (`linkInParent`) or an inline database's block into — gets its earlier text, and the pages, databases and rows
+  it made go to the **trash** (what lies below a made page or database goes along with it, as in One);
+- **anything moved since** → refused `409 changed_since`, and **nothing is written**; the answer and the row name each
+  thing and what moved: a field it wrote (named), a text it wrote into — added to or only deleted from —, a made page's
+  or row's title, text, stored values (a field filled in that was empty too), icon, cover or comment threads (a made
+  database's properties and views), its place (moved), the trash, a page or row someone put below it, and a page whose
+  text would go back that was locked in One since. Whoever changed it counts — a member, the REST API, a server agent.
+  Undo it in One instead (version history, the trash). "Changed" means the text: a member who only
+  opened the page (the editor's empty paragraph after a closing list, heading, table or database block, the block ids it
+  fills in) changed nothing;
+- **Restore anyway** (`force`, offered only when it can help) puts back the texts the call replaced and the fields it
+  wrote, whole — what was changed there since goes (the dialog says so) — and **never trashes anything**: what the call
+  made stays, with the link or database block it wrote for it, and is listed (`left`) to trash by hand. A call that only
+  made things has nothing it could put back, and a page locked since is never written: both stay refused;
+- a call goes back as a whole, once: the row says *Put back*, a second Restore changes nothing; a call put back is
+  forgotten for repeats (the same call again makes the thing again);
 - `one_upsert_rows` keeps the pre-image of the fields it wrote only (never the row's other fields), and a call that
   fails mid-way takes everything back — the rows it made, the values and the texts it wrote;
 - restoring twice changes nothing. Routes: `GET /api/workspaces/:id/mcp-calls`,

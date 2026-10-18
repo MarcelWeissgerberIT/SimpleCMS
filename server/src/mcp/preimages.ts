@@ -351,8 +351,8 @@ export class McpPreimages {
   private static refusal(changed: Moved[], canForce: boolean): ApiError {
     const say = (m: Moved) => `${JSON.stringify(m.title || 'Untitled')} (${[...(m.fields ?? []), ...m.what.filter((w) => !(w === 'values' && m.fields?.length)).map((w) => MOVED_WORDS[w])].join(', ')})`
     const remedy = canForce
-      ? 'Restore with force to put back the texts and fields the call changed anyway (the later changes there go; what it made stays) — or undo it in One instead: Versions (page history) or the trash.'
-      : 'Undo it in One instead: Versions (page history) or the trash.'
+      ? 'Restore with force to put back the texts and fields the call changed anyway (the later changes there go; what it made stays) — or undo it in One instead: version history or the trash.'
+      : 'Undo it in One instead: version history or the trash.'
     return new ApiError(409, 'changed_since', `Changed since this call: ${changed.map(say).join(', ')}. Nothing was put back. ${remedy}`, { details: { changed, canForce } })
   }
 

@@ -613,13 +613,13 @@ function McpCallList({ wsId }: { wsId: string }) {
     void load()
   }, [load])
 
-  const quote = (names: string[]) => names.map((n) => `“${n || t('common.untitled')}”`).join(', ')
+  const quote = (names: string[]) => names.map((n) => t('shell.cloud.mcp.quoted', { name: n || t('common.untitled') })).join(', ')
   /** each thing that moved since, with what moved: “Card 3” (Owner), “Glossar” (title, moved) */
   const movedNames = (r: McpChanged) =>
     r.changed
       .map((c) => {
         const what = [...c.fields, ...c.what.filter((w) => !(w === 'values' && c.fields.length)).map((w) => t(`shell.cloud.mcp.what.${w}`))]
-        return `“${c.title || t('common.untitled')}”${what.length ? ` (${what.join(', ')})` : ''}`
+        return `${t('shell.cloud.mcp.quoted', { name: c.title || t('common.untitled') })}${what.length ? ` (${what.join(', ')})` : ''}`
       })
       .join(', ')
 

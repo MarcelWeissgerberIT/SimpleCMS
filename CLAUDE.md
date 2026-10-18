@@ -1271,8 +1271,7 @@ the public APIs stable — other areas are built against them in parallel.
   agents keep files read-only). S checks every row and page before the first write, takes back a batch that fails
   mid-way, trashes a database whose block or rows failed, and keeps a pre-image for what it makes and for row fields /
   page text it changes (server/src/mcp/preimages.ts, `mcp_preimages`, sealed, 14 days; an upsert's row body too — no
-  property, view, move or trash call and no plain append keeps one: every surface says so; Restore keeps what a member
-  changed or moved since; S bodies ≤ 256 KB read / 512 KB write, a bigger tools/call answers `too_large`; `GET …/mcp-calls`, `POST …/mcp-calls/:callId/restore`, Workspace →
+  property, view, move or trash call and no plain append keeps one: every surface says so; Restore is all or nothing; S bodies ≤ 256 KB read / 512 KB write, a bigger tools/call answers `too_large`; `GET …/mcp-calls`, `POST …/mcp-calls/:callId/restore`, Workspace →
   Automation → API § 07). Client text naming a tool that does not exist yet is a bug (T-b brings `one_attach_file`,
   `one_edit_blocks`, files, `one_comment`, templates).
 - MCP tidy-up tools (trash / restore ≤ 50 ids, move page / row, update database / property, delete property, view
@@ -1290,9 +1289,11 @@ the public APIs stable — other areas are built against them in parallel.
   (`<id>.2way`) or a sub-items / dependencies pair is refused on B (features/mcp/twoWay.ts `assertOneWayInput` at plan,
   `assertOneWayStage` in `assertStageWritable` at apply) and S (writes.ts `assertOneWay`), and so is `twoWay: true`;
   one-way relations are fine; MCP never syncs partners. one_delete_property refuses to clear a rollup in a locked
-  or One's own database. Every bridge structure tool calls `assertNotSystem` again at apply. S Restore decides made
-  keeps before the content parts; a part with `own` nodes (linkInParent links, an inline block) is never refused
-  `changed_since`: whole only when all it points at went and nobody wrote there since, else only the nodes of what went.
+  or One's own database. Every bridge structure tool calls `assertNotSystem` again at apply. S Restore (Weg 4 D3) is
+  all or nothing: anything the call made or changed that moved since (a written field, a text it wrote into — `own`
+  link / block parts too —, a made thing's title / text / values / mark / place / trash / something below it, a text
+  page locked since) → `409 changed_since` with `details { changed, canForce }`, nothing written; else the meta in ONE
+  transaction (checked again inside it), then the texts; `force` puts back texts + fields only, never trashes (`left`).
 - MCP addresses workspaces by id (`local:<hash>` / `team:<id>`, features/mcp/identity.ts; per-browser localStorage
   `one.mcp.device`); every bridge call is bound to that id and refused on a mismatch — never act in another workspace.
 - MCP task tools (local bridge only until server parity, bridge ≥ 1.8.0): `one_list_work_items` (read, JSON) and
