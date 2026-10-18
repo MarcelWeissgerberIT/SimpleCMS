@@ -14,6 +14,7 @@ import { live, McpToolError, q, ws } from './values'
 import type { Writer } from '../../store/writer'
 import { privateRefsFor, privateScopeRefusal } from '../ai/claudeFiles'
 import { batchRefusal, codeOf, mcpError } from '../../../shared/mcp/errors'
+import { optionColor, optionPath, readOptions } from '../../../shared/mcp/options'
 import { MCP_LIMITS } from '../../../shared/mcp/tables'
 import { isIconError, mcpIcon } from '../../../shared/mcp/icon'
 
@@ -128,24 +129,19 @@ export const same = (a: unknown, b: unknown) => JSON.stringify(a ?? null) === JS
 /** Option colours (no "default"), in the order new options take them. */
 export const palette = COLOR_NAMES.filter((c) => c !== 'default')
 
-/** A colour name an agent passed ("Blue" → 'blue'); undefined when it is none of the palette. */
-export const colorOf = (raw: unknown): ColorName | undefined => (typeof raw === 'string' && (palette as string[]).includes(raw.trim().toLowerCase()) ? (raw.trim().toLowerCase() as ColorName) : undefined)
+/** A colour name an agent passed ("Blue" → 'blue'); undefined when it is none of the colours (shared/mcp/options.ts). */
+export const colorOf = (raw: unknown): ColorName | undefined => optionColor(raw) ?? undefined
 
 /** Options for select / multi_select / status from names or {name, color, group}. */
 export function optionsOf(type: PropertyType, raw: unknown, key: string, start = 0): SelectOption[] | undefined {
   if (raw === undefined || raw === null) return undefined
   if (type !== 'select' && type !== 'multi_select' && type !== 'status') throw new McpToolError(mcpError('bad_argument', key, 'options only apply to select, multi_select and status'))
   if (!Array.isArray(raw)) throw new McpToolError(mcpError('bad_argument', key, 'a list of option names (or {name, color, group}) is expected'))
-  const opts: Array<{ name: string; color?: ColorName; group?: StatusGroup }> = []
-  for (const item of raw as unknown[]) {
-    const o = typeof item === 'string' ? { name: item } : item && typeof item === 'object' && !Array.isArray(item) ? (item as Record<string, unknown>) : null
-    if (!o || typeof o.name !== 'string') throw new McpToolError(mcpError('bad_argument', key, 'every option is a name or {name, color, group}'))
-    const name = o.name.replace(/\s+/g, ' ').trim().slice(0, MCP_LIMITS.optionName)
-    if (!name || opts.some((x) => x.name.toLowerCase() === name.toLowerCase())) continue
-    const color = colorOf(o.color)
-    const group = o.group === 'todo' || o.group === 'in_progress' || o.group === 'done' ? o.group : undefined
-    opts.push({ name, ...(color ? { color } : {}), ...(group ? { group } : {}) })
-  }
+  // the shared rule (shared/mcp/options.ts): colours lower-cased; an empty name, a name listed twice, an unknown colour or
+  // group refused — as the team server refuses them
+  const read = readOptions(raw as unknown[])
+  if ('problem' in read) throw new McpToolError(mcpError('bad_argument', optionPath(key, read.problem), read.problem.what))
+  const opts: Array<{ name: string; color?: ColorName; group?: StatusGroup }> = read.options
   if (opts.length > 100) throw new McpToolError(mcpError('bad_argument', key, `${opts.length} options (at most 100)`))
   if (type === 'status' && !opts.length) return undefined
   // status without groups: first = to do, last = done, the rest in progress

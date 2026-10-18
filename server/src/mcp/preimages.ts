@@ -14,7 +14,9 @@
  *  - a changed row gets back each field that still holds what the call wrote (a field someone changed since is kept and
  *    named); relation values go back as a write puts them (two-way partners in step — putValues);
  *  - a content document whose text moved since the call is refused `changed_since` (nothing is written); a member
- *    who only opened the page changed nothing.
+ *    who only opened the page changed nothing. A text the call only put its own links (linkInParent) or an inline
+ *    database's block into is never refused: it goes back whole only when everything they point at went and nobody
+ *    wrote there since, else only the nodes of what went come out (later edits stay, forced or not — the bridge's Undo).
  * `force` puts back what was kept too (the dialog says the later changes go). Each part — and inside one, each thing — is
  * put back once: a later Restore (with or without force) touches only what is left (`done`), never what an earlier one
  * put back (its own write is no "change since"), and a call whose every part is back is done.
@@ -53,8 +55,21 @@ export type Preimage =
   | { kind: 'rows'; db: string; created: Array<Made & { values: Values }>; updated: Array<{ id: string; before: { title?: string; values: Values }; after: { title?: string; values: Values } }> }
   /** pages (or a database) a call made, each with its text's state right after the call */
   | { kind: 'pages'; created: Made[] }
-  /** a page's content before the call: a Y update of a document holding a copy of its fragment, and its `plain` */
-  | { kind: 'content'; page: string; before: string; plain: string }
+  /**
+   * a page's content before the call: a Y update of a document holding a copy of its fragment, and its `plain` — `own`:
+   * the call wrote only links / a database block of things it made into it (linkInParent, an inline database), each
+   * named by the made thing (a Restore that keeps one of them takes out only the others' nodes)
+   */
+  | { kind: 'content'; page: string; before: string; plain: string; own?: OwnNode[] }
+
+/** A node a call put into an existing page's text for a thing it made: its page link / mention line, or its database block. */
+export interface OwnNode {
+  /** the made page / database */
+  id: string
+  node: 'pageLink' | 'mention' | 'databaseBlock'
+  /** databaseBlock: its block id */
+  block?: string
+}
 
 /** A part as kept: its pre-image, the repeat key of its call, and what an earlier Restore put back already (keysOf). */
 type Stored = Preimage & { dup?: string; done?: string[] }
@@ -64,7 +79,7 @@ export interface Recorder {
   callId: string
   rows(p: Omit<Extract<Preimage, { kind: 'rows' }>, 'kind'>): void
   pages(created: Made[]): void
-  content(pageId: string, before: string, plain: string, afterHash: string | null): void
+  content(pageId: string, before: string, plain: string, afterHash: string | null, own?: OwnNode[]): void
 }
 
 /** The things of a part a Restore puts back one by one: `p:<page>`, `c:<made row>`, `u:<row>:<field>` (`#title`). */
@@ -75,7 +90,19 @@ function keysOf(pre: Preimage): string[] {
       ...pre.created.map((c) => `c:${c.id}`),
       ...pre.updated.flatMap((u) => [...Object.keys(u.after.values).map((k) => `u:${u.id}:${k}`), ...(u.after.title !== undefined && u.before.title !== undefined ? [`u:${u.id}:#title`] : [])]),
     ]
+  // a text holding only the call's own nodes: each made thing's node goes back on its own (`l:<made id>`)
+  if (pre.kind === 'content' && pre.own?.length) return pre.own.map((o) => `l:${o.id}`)
   return []
+}
+
+/** Is this top-level node the call's own node for `o` (its databaseBlock, its pageLink, a line holding only its mention)? */
+function isOwn(n: unknown, o: OwnNode): boolean {
+  if (!(n instanceof Y.XmlElement)) return false
+  if (o.node === 'databaseBlock') return n.nodeName === 'databaseBlock' && n.getAttribute('id') === o.block && n.getAttribute('databaseId') === o.id
+  if (o.node === 'pageLink') return n.nodeName === 'pageLink' && n.getAttribute('pageId') === o.id
+  if (n.nodeName !== 'paragraph') return false
+  const kids = n.toArray().filter((k) => !(k instanceof Y.XmlText && !k.toString()))
+  return kids.length === 1 && kids[0] instanceof Y.XmlElement && kids[0].nodeName === 'mention' && kids[0].getAttribute('id') === o.id
 }
 
 /**
@@ -204,7 +231,7 @@ export class McpPreimages {
       callId,
       rows: (p) => (p.created.length || p.updated.length ? save(metaDoc(wsId), { kind: 'rows', ...p }) : undefined),
       pages: (created) => (created.length ? save(metaDoc(wsId), { kind: 'pages', created }) : undefined),
-      content: (pageId, before, plain, afterHash) => save(contentDoc(wsId, pageId), { kind: 'content', page: pageId, before, plain }, afterHash),
+      content: (pageId, before, plain, afterHash, own) => save(contentDoc(wsId, pageId), { kind: 'content', page: pageId, before, plain, ...(own?.length ? { own } : {}) }, afterHash),
     }
   }
 
@@ -319,6 +346,31 @@ export class McpPreimages {
     )
   }
 
+  /** Take only the call's own nodes for these made things out of a page's text (the person's edits stay). */
+  async takeOut(wsId: string, docName: string, pageId: string, own: readonly OwnNode[], actor: string): Promise<void> {
+    const plain = await this.s.collab.write(
+      docName,
+      (doc) => {
+        const frag = doc.getXmlFragment('default')
+        const nodes = frag.toArray()
+        for (let i = nodes.length - 1; i >= 0; i--) if (own.some((o) => isOwn(nodes[i]!, o))) frag.delete(i, 1)
+        return fragmentText(doc, 20_000)
+      },
+      actor,
+    )
+    await this.s.collab.write(
+      metaDoc(wsId),
+      (doc) => {
+        const yp = pageMap(roots(doc), pageId)
+        if (!yp) return
+        yp.set('plain', plain)
+        yp.set('updatedAt', Date.now())
+        yp.set('updatedBy', actor)
+      },
+      actor,
+    )
+  }
+
   /** Put a call back (see the head comment). `actor`: the owner / admin who asked. */
   async restore(wsId: string, callId: string, force: boolean, actor: string) {
     const rows = this.s.repo.preimagesOf(wsId, callId)
@@ -337,6 +389,9 @@ export class McpPreimages {
     if (!force) {
       const moved: string[] = []
       for (const p of contents) {
+        // a text the call only put its own links / database block into: never refused — only those nodes come out (the
+        // whole pre-image only while nobody wrote there since), so a later edit never goes, forced or not
+        if ((p.pre as Extract<Preimage, { kind: 'content' }>).own?.length) continue
         const after = p.after_hash
         if (after && (await this.s.collab.read(p.doc, (doc) => textMoved(doc, after)))) moved.push((p.pre as Extract<Preimage, { kind: 'content' }>).page)
       }
@@ -359,16 +414,8 @@ export class McpPreimages {
 
     let restored = 0
     const kept: Array<{ id: string; title: string; fields?: string[] }> = []
-    for (const p of contents) {
-      const pre = p.pre as Extract<Preimage, { kind: 'content' }>
-      await this.writeBack(wsId, p.doc, pre.page, pre.before, actor)
-      // back now: never written again by a later Restore (its own write is no change since — and a failure below
-      // leaves it done)
-      this.s.repo.updatePreimage(wsId, p.id, null, Date.now())
-      done.get(p.id)!.add('*')
-      restored += 1
-    }
-    // rows and pages: one meta transaction; made pages first, so a row of a database the call made goes along with it
+    // rows and pages first (one meta transaction) — what the Restore keeps decides what of a text holding the call's own
+    // links / database block goes back (the content parts after it); made pages first, so a row of a database the call made goes along with it
     // (in its trash, as in One) instead of being trashed on its own
     const meta = open.filter((p) => p.pre.kind !== 'content').sort((a, b) => Number(b.pre.kind === 'pages') - Number(a.pre.kind === 'pages'))
     if (meta.length) {
@@ -508,6 +555,38 @@ export class McpPreimages {
       )
       restored += out.n
       kept.push(...out.keep)
+    }
+    // the texts, after the made things were decided: a text the call only put its own links / database block into goes
+    // back whole only when every thing they point at went (to the trash, now or before) and nobody wrote there since (as
+    // the bridge's Undo); else only the nodes of the things that went come out (a later edit stays), and the page is
+    // named in `kept` with the things whose link / block stays
+    for (const p of contents) {
+      const pre = p.pre as Extract<Preimage, { kind: 'content' }>
+      const d = done.get(p.id)!
+      if (!pre.own?.length) {
+        await this.writeBack(wsId, p.doc, pre.page, pre.before, actor)
+        // back now: never written again by a later Restore (its own write is no change since — and a failure below
+        // leaves it done)
+        this.s.repo.updatePreimage(wsId, p.id, null, Date.now())
+        d.add('*')
+        restored += 1
+        continue
+      }
+      const own = pre.own
+      const state = await this.model.read(wsId, (r) => ({ gone: own.filter((o) => !pageMap(r, o.id) || inTrash(r, o.id)).map((o) => o.id), title: String(pageMap(r, pre.page)?.get('title') ?? ''), titles: new Map(own.map((o) => [o.id, String(pageMap(r, o.id)?.get('title') ?? '')] as const)) }))
+      const gone = new Set(state.gone)
+      const open = own.filter((o) => !d.has(`l:${o.id}`))
+      const staying = open.filter((o) => !gone.has(o.id))
+      const after = p.after_hash
+      const untouched = !!after && open.length === own.length && !(await this.s.collab.read(p.doc, (doc) => textMoved(doc, after)))
+      if (!staying.length && untouched) await this.writeBack(wsId, p.doc, pre.page, pre.before, actor)
+      else if (open.some((o) => gone.has(o.id))) await this.takeOut(wsId, p.doc, pre.page, open.filter((o) => gone.has(o.id)), actor)
+      const wrote = open.some((o) => gone.has(o.id))
+      for (const o of open) if (gone.has(o.id)) d.add(`l:${o.id}`)
+      if (wrote) restored += 1
+      if (staying.length) kept.push({ id: pre.page, title: state.title, fields: staying.map((o) => state.titles.get(o.id) || o.id) })
+      if (keysOf(pre).every((k) => d.has(k))) this.s.repo.updatePreimage(wsId, p.id, null, Date.now())
+      else if (wrote) this.s.repo.updatePreimage(wsId, p.id, JSON.stringify({ ...p.pre, done: [...d] }), null)
     }
     // each part: back whole → done; else what it put back is noted (a later Restore touches only the rest)
     const at = Date.now()

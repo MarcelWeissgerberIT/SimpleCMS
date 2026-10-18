@@ -362,22 +362,33 @@ describe('MCP B3: sub-pages, boards, rows (team server)', () => {
     assert.equal(refused.body.error?.code ?? refused.body.code, 'changed_since')
   })
 
-  test('a restore after a later DELETION is refused changed_since (the state hash covers deletions)', async () => {
-    const host = await call(writer, 'one_create_page', { title: 'Host', parentId: 'proj', markdown: 'Alpha line\n\nBeta line\n\nGamma line' })
+  test('a restore after a later DELETION is refused changed_since (the state hash covers deletions); a block the call only put there comes out alone', async () => {
+    const host = await call(writer, 'one_create_page', { title: 'Host', parentId: 'proj', markdown: 'Delta line' })
+    await call(writer, 'one_update_page', { id: host.id, markdown: 'Alpha line\n\nBeta line\n\nGamma line', mode: 'replace' })
     await call(writer, 'one_create_database', { title: 'Inline board', inline: { pageId: host.id }, views: [{ type: 'board' }] })
     const d = await doc(`ws:${wsId}:p:${host.id}`)
     await waitFor(() => d.doc.getXmlFragment('default').toArray().some((n) => (n as Y.XmlElement).nodeName === 'databaseBlock'), 5000, 'block')
     const frag = d.doc.getXmlFragment('default')
     const beta = frag.toArray().findIndex((n) => n.toString().includes('Beta line'))
     assert.ok(beta >= 0)
-    // the person removes "Beta line" after the call — a deletion only
+    // the person removes "Beta line" after the calls — a deletion only
     d.doc.transact(() => frag.delete(beta, 1))
     await flushed(d)
-    const c = (await calls()).find((x) => x.tool === 'one_create_database' && x.titles.includes('Inline board'))!
-    const res = await owner.post(`/api/workspaces/${wsId}/mcp-calls/${c.callId}/restore`, {})
+    const list = await calls()
+    const replace = list.find((x) => x.tool === 'one_update_page' && x.titles.includes('Host'))!
+    const res = await owner.post(`/api/workspaces/${wsId}/mcp-calls/${replace.callId}/restore`, {})
     assert.equal(res.status, 409, JSON.stringify(res.body))
     await sleep(150)
     assert.ok(!frag.toString().includes('Beta line'), 'the deleted line is not brought back')
+    assert.ok(!frag.toString().includes('Delta line') && frag.toString().includes('Gamma line'), 'nothing written')
+    // the inline board's call put only its block there: never refused — the untouched board goes, its block comes out
+    // alone (the pre-image is not written over the later deletion)
+    const board = list.find((x) => x.tool === 'one_create_database' && x.titles.includes('Inline board'))!
+    const back = await owner.post(`/api/workspaces/${wsId}/mcp-calls/${board.callId}/restore`, {})
+    assert.equal(back.status, 200, JSON.stringify(back.body))
+    assert.deepEqual(back.body.kept, [])
+    await waitFor(() => !frag.toArray().some((n) => (n as Y.XmlElement).nodeName === 'databaseBlock'), 5000, 'block out')
+    assert.ok(!frag.toString().includes('Beta line'), 'the deleted line is still not brought back')
   })
 
   test('a restored call is forgotten: repeating it makes the thing again (never answered with what went to the trash)', async () => {
@@ -591,30 +602,34 @@ describe('Restore puts back only what nobody changed since — made pages, board
   })
 
   test('each part is put back once: a retry and "Restore anyway" never write a content part an earlier restore put back', async () => {
-    const made = await call(writer, 'one_create_page', { title: 'Glossar', parentId: 'wiki', linkInParent: 'block' })
+    const made = await call(writer, 'one_create_page', { parentId: 'wiki', linkInParent: 'block', pages: [{ title: 'Glossar' }, { title: 'Index' }] })
+    const [glossar, index] = made.pages.map((p: { id: string }) => p.id)
     const wiki = await doc(`ws:${wsId}:p:wiki`)
-    const links = () => wiki.doc.getXmlFragment('default').toArray().filter((n) => (n as Y.XmlElement).nodeName === 'pageLink').length
-    await waitFor(() => links() === 1, 5000, 'link in the wiki')
-    // the made page is renamed → kept on restore; the wiki's link is taken out
-    meta.doc.transact(() => yp(made.id).set('title', 'Glossary'))
+    const links = () => wiki.doc.getXmlFragment('default').toArray().filter((n) => (n as Y.XmlElement).nodeName === 'pageLink').map((n) => (n as Y.XmlElement).getAttribute('pageId'))
+    await waitFor(() => links().length === 2, 5000, 'links in the wiki')
+    // one made page is renamed → kept on restore with its link; the other goes, and its link is taken out
+    meta.doc.transact(() => yp(glossar).set('title', 'Glossary'))
     await flushed(meta)
     const c = (await calls()).find((x) => x.tool === 'one_create_page' && x.kinds.includes('content') && x.titles.includes('Glossary'))!
     const first = await restore(c.callId)
     assert.equal(first.status, 200, JSON.stringify(first.body))
-    assert.deepEqual(first.body.kept.map((k: { title: string }) => k.title), ['Glossary'])
-    await waitFor(() => links() === 0, 5000, 'link taken back')
+    assert.deepEqual(first.body.kept.map((k: { title: string; fields?: string[] }) => [k.title, k.fields]), [['Glossary', undefined], ['Wissensbasis', ['Glossary']]])
+    await waitFor(() => yp(index).get('trashed') === true, 5000, 'Index trashed')
+    await waitFor(() => links().join() === glossar, 5000, "only Index's link taken back")
     // someone writes into the wiki after the restore
     wiki.doc.transact(() => wiki.doc.getXmlFragment('default').insert(wiki.doc.getXmlFragment('default').length, [para('Typed after the restore by Tessera.', 'blk-tess-001')]))
     await flushed(wiki)
     // a plain retry: no changed_since from the first restore's own write — the renamed page is still kept, nothing else runs
     const again = await restore(c.callId)
     assert.equal(again.status, 200, JSON.stringify(again.body))
-    assert.deepEqual(again.body.kept.map((k: { title: string }) => k.title), ['Glossary'])
+    assert.deepEqual(again.body.kept.map((k: { title: string }) => k.title), ['Glossary', 'Wissensbasis'])
     assert.equal(again.body.restored, 0)
-    // "Restore anyway": only the kept page goes; the wiki keeps Tessera's line
+    assert.deepEqual(links(), [glossar])
+    // "Restore anyway": only the kept page goes, and its link with it; the wiki keeps Tessera's line
     const forced = await restore(c.callId, true)
     assert.equal(forced.status, 200, JSON.stringify(forced.body))
-    await waitFor(() => yp(made.id).get('trashed') === true, 5000, 'kept page trashed')
+    await waitFor(() => yp(glossar).get('trashed') === true, 5000, 'kept page trashed')
+    await waitFor(() => links().length === 0, 5000, 'its link out')
     await sleep(300)
     assert.ok(wiki.doc.getXmlFragment('default').toString().includes('Typed after the restore'), "the wiki's later text stays")
     assert.match((await restore(c.callId)).body.note, /put back already/)

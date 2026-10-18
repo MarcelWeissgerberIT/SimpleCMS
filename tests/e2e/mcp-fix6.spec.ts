@@ -418,7 +418,7 @@ test('a select bound to a shared list takes no option of its own: rows, one_upda
 
 /* ------------------------------------------------------------------ two-way relations and sub-items */
 
-test('two-way relations: a new row links back from its partner row (card names it, Undo takes it back); sub-items keep one parent, never itself', async ({ page }) => {
+test('two-way relations: a new row links back from its partner row (card names it; its Undo trashes the row and keeps the link, as the app\'s trash); sub-items keep one parent, never itself', async ({ page }) => {
   await openApp(page)
   const ids = await wsEval(page, (s) => {
     const projects = s.createDatabase({ title: 'Projects', properties: [{ id: 'pr-title', name: 'Name', type: 'title' }] })
@@ -448,10 +448,12 @@ test('two-way relations: a new row links back from its partner row (card names i
   const made = json(await pending)
   const backOf = (row: string) => wsEval(page, (s, a: { row: string; prop: string }) => (s.pages[a.row].properties[a.prop] as string[] | undefined) ?? [], { row, prop: reverse! })
   expect(await backOf(ids.nordlicht)).toEqual([made.id])
-  // the Undo takes the row and its link on the other side back
+  // the Undo puts the row in the trash; the link stays on both sides, as the app's trash leaves it — so a restore from
+  // the trash leaves no one-sided link (review 7: only a row deleted for good takes its partner links back)
   await flush(page)
   await undoLast(page, 'one_create_row')
-  await expect.poll(() => backOf(ids.nordlicht)).toEqual([])
+  await expect.poll(() => wsEval(page, (s, id: string) => !!s.pages[id]?.trashed, made.id as string)).toBe(true)
+  expect(await backOf(ids.nordlicht)).toEqual([made.id])
   // sub-items: at most one parent, never itself (the team server refuses the same)
   await openAgentsTab(page)
   await page.getByRole('radio', { name: 'Apply directly' }).click()

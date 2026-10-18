@@ -9,7 +9,7 @@
 import * as Y from 'yjs'
 import type { Services } from '../context.ts'
 import { notFound } from '../errors.ts'
-import { type PageInfo, type PropertyDef, type Roots, type SelectOption, clone, inTemplate, inTrash, liveDatabase, livePage, nextOrder, pageMap, pairedRelation, propertiesMap, readPage, roots, rowsOf } from '../api/meta.ts'
+import { type PageInfo, type PropertyDef, type Roots, type SelectOption, clone, inTemplate, listNameOf, inTrash, liveDatabase, livePage, nextOrder, pageMap, pairedRelation, propertiesMap, readPage, roots, rowsOf } from '../api/meta.ts'
 import { isHandOnly, keyOwner, keyPropOf, keyText } from '../api/keys.ts'
 import { metaDoc, type WorkspaceModel } from '../api/model.ts'
 import { newId } from '../tokens.ts'
@@ -18,6 +18,7 @@ import { COLORS, propsMapOf, unprocessable } from './writes.ts'
 import { attachRecordType, heldTypes, recordTypeOf } from './recordTypes.ts'
 import { assertNotSystem, assertTreeNotSystem } from './system.ts'
 import { MCP_BULK_MAX } from '../../../src/shared/mcp/tables.ts'
+import { listOptionText } from '../../../src/shared/mcp/errors.ts'
 
 /** Most ids one call trashes or restores (the shared table). */
 export const BULK_MAX = MCP_BULK_MAX
@@ -339,6 +340,8 @@ export class McpTidy {
             if (known) mapped.push(known.id)
             else if (sp.type === 'status') problems.push(`${q(sp.name)}: ${q(toTitle)} has no status ${q(opt.name)} (it has ${(tp.options ?? []).map((o) => q(o.name)).join(', ')})`)
             else if (to.ydb.get('locked') === true) problems.push(`${q(sp.name)}: ${q(toTitle)} is locked, so the option ${q(opt.name)} cannot be added there`)
+            // bound to a shared list there (features/kit): the list owns the options — never one on the property alone
+            else if (tp.listId) problems.push(`${q(sp.name)}: ${listOptionText(opt.name, listNameOf(r, tp.listId))}`)
             else {
               const made: SelectOption = { id: newId(), name: opt.name, color: opt.color ?? COLORS[(tp.options?.length ?? 0) % COLORS.length]! }
               fresh.set(tp.id, [...(fresh.get(tp.id) ?? []), made])

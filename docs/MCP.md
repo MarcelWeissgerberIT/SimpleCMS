@@ -84,7 +84,10 @@ out), and a tool takes **only** the arguments it declares: anything else is refu
   card not approved in time `approval_timeout`, a tab that closed, reloaded or was replaced while a call waited and a tab
   that did not answer `rejected` (*whether the call was carried out is not known: read what it touches before you call
   again* — never "Nothing was changed"), the port in use or the bridge not running `rejected`, and every refusal of an
-  older One tab (contract 1) gets its code from the bridge; a fault of the team server's own is `rejected` with the
+  older One tab (contract 1) gets its code from the bridge (its own words keep their meaning: rejected on the card,
+  *Agents can only read*, view only, signed out, switched to read-only or cancelled → `rejected`; not approved in time or
+  One gone while the card waited → `approval_timeout` — never `bad_argument`); an unknown property or view is
+  `not_found` (several views of one name `bad_argument`) and locking a database `rejected` on both ways in; a fault of the team server's own is `rejected` with the
   same words (a batch may have written part of the call — S never says "not made" there, nor "try again").
   `one_list_workspaces` takes no argument: any is refused
   (`bad_argument`) on both ways in. Arguments are strict at
@@ -289,6 +292,13 @@ next step there is a token with comments on, made by an owner or admin). Writing
 - **One Script over MCP** (`one_run_script`, its dry run too) never writes into those databases either — a run that
   would is refused before anything happens (`system_database`; also a value of a two-way relation whose other side is
   one of them); a run already under way stops at that write, and what it changed before stays (the answer says so).
+- **A two-way relation into one of them** — a pair the person made in One — takes no value over MCP (`one_create_row`,
+  `one_update_row`, `one_upsert_rows`, a row of `one_create_database`): the value would write the link into their rows
+  too. `system_database: properties.<name>: … this relation is two-way, so setting it would also write into the linked
+  rows there` on both ways in; B checks again when the card is approved (a pair that turned into one meanwhile).
+- **Their schema stays** also when another database is reshaped: `one_delete_property` of a property a rollup there
+  rolls up is refused (`system_database`; a locked database's rollup `locked`); a template's rollup is not looked at.
+  B checks every structure tool (database, property, view) again when the card is approved.
 - **Private stays private** (B, team workspace): Markdown written into a shared page never links a private page (a
   `#/p/<id>` link of one is `private_scope`), as a file or a mention would not.
 - **Coding tasks** never take trust from an MCP write (also through a script `one_run_script` ran): a pipeline task whose version an MCP write moved (its row, its
@@ -307,10 +317,17 @@ names, dates `"YYYY-MM-DD"` / `"YYYY-MM-DDTHH:mm"` (wall-clock time) or `{ start
 relations by row id or title, `true` / `false`, numbers, `null` to clear. A select or multi-select option that doesn't
 exist yet is added to the property — except on a property that takes its options from a **shared list** (Building
 blocks): there a new option is `bad_argument` naming the list (it is added to the list in One), on rows, in
-`one_update_property { options }` and through agents alike; a type change makes such a property a plain one (as the
-app's). A value of a **two-way relation** links back from the rows it names (B as S: the card names them under
-*Links back*, the Undo takes them back); a database's **sub-items** parent property takes one parent, never the row
-itself. Everything else that doesn't fit fails the whole call and names every problem (with the allowed values). **Filters** (`one_query_database`) are `[{ property, op, value }]`, all must hold; `op` is
+`one_update_property { options }`, a row `one_move_row` brings along, a value `one_run_script` sets (its dry run stops
+there) and through agents alike; a type change makes such a property a plain one (as the app's). **Options** a call
+names (`one_create_property`, `one_create_database`, `options.add`) are read the same way on both sides
+([`src/shared/mcp/options.ts`](../src/shared/mcp/options.ts)): a colour is lower-cased (`"Red"` = red), an unknown
+colour, a status group other than todo / in_progress / done, an empty name or a name listed twice is `bad_argument`
+with its path (`options[1].name`); a name longer than 60 characters is cut (also `options.update.newName`). A database
+made over MCP has a title property "Name" unless one of type `title` is given — a property of another type named
+"Name" is then refused (`properties[0].name: "Name" is the name of the title property …`) on both. A value of a
+**two-way relation** links back from the rows it names (B as S: the card names them under *Links back* — a sub-items
+child's old parent too, whose *Sub-items* lose it — the Undo takes them back; a script's card names them as well); a
+database's **sub-items** parent property takes one parent, never the row itself. Everything else that doesn't fit fails the whole call and names every problem (with the allowed values). **Filters** (`one_query_database`) are `[{ property, op, value }]`, all must hold; `op` is
 `equals`, `not_equals`, `contains`, `not_contains`, `is_empty`, `is_not_empty`, `gt`, `gte`, `lt`, `lte` (numbers and
 dates). **Sort** is a property name, `createdAt`, `updatedAt` or `order` (the table's order, the default); `-` in
 front sorts descending (`"-Due"`). Results are JSON; failures are MCP tool errors (`isError: true`) with a message an
@@ -333,7 +350,8 @@ The tools that delete, adjust, create and reorganise follow the same rules on bo
   distinct value), select → multi_select / status / text, status → select / multi_select / text, multi_select → text,
   number → text. Anything else is refused with that list. `one_delete_property` removes a property with its values
   (not the title); views forget it the way the app's delete does (filters, sorts, grouping, calculations, chart axes,
-  colour rules). Views take the friendly names: `groupBy` (a board needs a status, select, multi_select, person or
+  colour rules), and a rollup in another database that rolls it up is cleared (the card says *Also clears the rollup
+  “Total” in Reports*) — refused while that database is locked or One's own. Views take the friendly names: `groupBy` (a board needs a status, select, multi_select, person or
   checkbox property), `dateProperty` (calendar and timeline need one; a feed orders by it), `filter` in the shape of
   `one_query_database` (ANDed; dates also `today`, `tomorrow`, `yesterday`, `one_week_ago`, `one_week_from_now`;
   people by name or `me`), `sort`, `properties` (the visible ones, in order). Chart and form views are set up in the
@@ -568,9 +586,10 @@ MCP." (a call waits up to 10 s for the tab first). The switch is **per browser**
 - Every call — read or write, and how it ended (OK, error, refused, expired, cancelled; a repeat answered from an
   earlier call says so) — is listed in the **Agent activity** log of the settings tab. Applied writes have an **Undo**
   there (approved ones also get an Undo toast). Undo is careful: what the call made goes to the trash while nobody
-  changed it since (a changed page or row is kept), values changed since are kept. A property the call made stays once
-  it was renamed or set up, holds values, a view groups, filters or sorts by it, or its database was locked since (for
-  a two-way pair: either side); a database `one_restore_page` brought back stays in once it was set up again; a page
+  changed it since (a changed page or row is kept), values changed since are kept; a row that goes to the trash keeps
+  its two-way links on both sides (as the app's trash does), so restoring it leaves no one-sided link. A property the
+  call made stays once it was renamed or set up, holds values, a view groups, filters or sorts by it, a form asks it, it
+  is part of sub-items or dependencies, or its database was locked since (for a two-way pair: either side); a database `one_restore_page` brought back stays in once it was set up again; a page
   that stays keeps the link `linkInParent` wrote for it; a script run's sub-page goes back with its page. What watches
   an entry for "changed since" ends with its Undo, a Clear of the log, or when the entry leaves it (100 newest).
 - A rejection tells the agent *The person rejected this change in One … Do not retry it*. A call that would change
@@ -811,7 +830,11 @@ tool in words, the token, what it made and changed, the first titles, its age �
   named (*Restore anyway* puts it back too); a two-way relation goes back on both sides (its partner rows are set as
   the app sets them);
 - a page text that changed since the call — added to or only deleted from — is refused (`changed_since`) — **Restore
-  anyway** puts the call's copy back and the later changes go (the dialog says so). "Changed" means the text: a member
+  anyway** puts the call's copy back and the later changes go (the dialog says so). A text the call only put its own
+  links (`linkInParent`) or an inline database's block into is decided after what it points at and is never refused:
+  it goes back whole when every page / database it links went and nobody wrote there since (as the bridge's Undo);
+  else only the links / blocks of those that went come out (a later edit stays, also with *Restore anyway*), and the
+  page is named in `kept` with the ones whose link or block stays; "Changed" means the text: a member
   who only opened the page (the editor's empty paragraph after a closing list, heading, table or database block, the
   block ids it fills in) changed nothing;
 - a call put back is forgotten for repeats: the same call again makes the thing again;

@@ -19,7 +19,8 @@ import { nestedTopLevel, refIndex } from '../../../shared/mcp/pageRead'
 import { mcpError } from '../../../shared/mcp/errors'
 import { MCP_DEFAULT_PROPERTIES, MCP_LIMITS, MCP_VIEW_TYPES } from '../../../shared/mcp/tables'
 import { applyStaged, assertStageWritable, callStage, itemPlan, mcpMessage, outsideTemplates } from './stage'
-import { assertNotSystem, systemOf, systemRefusal, TWO_WAY_SYSTEM } from './system'
+import { assertNoSystemPartner, assertNotSystem, systemOf, systemRefusal, TWO_WAY_SYSTEM } from './system'
+import { titleNameTaken } from '../../../shared/mcp/options'
 import { iconText, live, McpToolError, pageUrl, pathOf, propertyJson, q, titleOf, ws } from './values'
 import { atPath, chars, checkFileScope, cleanName, eachEntry, pageOrThrow, parseIcon, str, tasksOf, type PlanLine, type WritePlan } from './plan'
 import { dropProperty, mcpStatusOptions, propChangedSince, propMark, propertySpec } from './schema'
@@ -177,6 +178,12 @@ export function planCreateDatabase(args: Record<string, unknown>): WritePlan {
   const titleSpecs = Array.isArray(raw) ? raw.filter((r) => r && typeof r === 'object' && (r as { type?: unknown }).type === 'title') : []
   if (titleSpecs.length > 1) throw new McpToolError(mcpError('bad_argument', 'properties', 'only one property can be of type "title"'))
   const titleName = titleSpecs.length ? str((titleSpecs[0] as { name?: unknown }).name, 'properties[title].name', { required: true, max: MCP_LIMITS.propertyName }).replace(/\s+/g, ' ').trim() : 'Name'
+  // the title property is "Name" unless one of type "title" is given: a property of another type named so clashes with it
+  // — refused with the words the team server uses (shared/mcp/options.ts titleNameTaken)
+  if (!titleSpecs.length && Array.isArray(raw)) {
+    const clash = raw.findIndex((r) => r && typeof r === 'object' && typeof (r as { name?: unknown }).name === 'string' && (r as { name: string }).name.replace(/\s+/g, ' ').trim().toLowerCase() === 'name')
+    if (clash >= 0) throw new McpToolError(mcpError('bad_argument', `properties[${clash}].name`, titleNameTaken((raw[clash] as { name: string }).name.trim())))
+  }
   const taken = [titleName]
   const specs = Array.isArray(raw)
     ? raw
@@ -314,6 +321,8 @@ export function planCreateDatabase(args: Record<string, unknown>): WritePlan {
     const target = sp.reverse ? willBe[sp.reverse.dbId] : undefined
     if (sp.reverse && target) willBe[sp.reverse.dbId] = { ...target, properties: [...target.properties, sp.reverse.def] }
   }
+  // never into One's own database (a reverse property there is refused above; this is the backstop for the rows)
+  assertNoSystemPartner(stage.changes, '', willBe)
   const partners = partnerPlan(stage.changes, willBe)
   lines.push(...partners.lines)
   sides.push(...partners.sides)

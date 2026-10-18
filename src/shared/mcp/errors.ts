@@ -87,10 +87,23 @@ export function mcpError(code: McpErrorCode, path: string, what: string, next?: 
 }
 
 /**
+ * The words of an older One tab (contract 1, which sent its refusals without a code) for an approval that never came: the
+ * window ran out, or the tab went away while the card waited (the person's answer is unknown — never an argument error).
+ */
+const NO_ANSWER = /was not approved within|disconnected while this change waited/i
+
+/**
+ * The person's own decision or One's settings, in an older tab's words too: rejected on the card, "Agents can only read",
+ * a member who can only view, signed out, switched to read-only while the card waited, cancelled.
+ */
+const PERSON = /\bcancelled\b|the person's decision|rejected this change|can only read|can only view|not signed in|switched to read-only/i
+
+/**
  * The code a refusal without one means (spec § 2.0: the code is the first word of EVERY refusal — an agent branches on
  * it): something that changed while the call waited → page_changed; something gone meanwhile → not_found; locked
- * meanwhile → locked; the person's own decision → rejected; anything else is about the arguments → bad_argument (as the
- * team server's explain() does). A message that starts with a code keeps it.
+ * meanwhile → locked; an approval that never came → approval_timeout; the person's own decision (or One's settings) →
+ * rejected; anything else is about the arguments → bad_argument (as the team server's explain() does). A message that
+ * starts with a code keeps it. An older One tab's (contract 1) refusals get their code here (the bridge, mcp/src/bridge.ts).
  */
 export function withCode(message: string): string {
   if (codeOf(message)) return message
@@ -100,9 +113,11 @@ export function withCode(message: string): string {
       ? 'not_found'
       : /was locked meanwhile/i.test(message)
         ? 'locked'
-        : /\bcancelled\b|the person's decision/i.test(message)
-          ? 'rejected'
-          : 'bad_argument'
+        : NO_ANSWER.test(message)
+          ? 'approval_timeout'
+          : PERSON.test(message)
+            ? 'rejected'
+            : 'bad_argument'
   return `${code}: ${message}`
 }
 

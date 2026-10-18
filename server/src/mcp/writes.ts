@@ -16,6 +16,7 @@ import { newId } from '../tokens.ts'
 import { assertNotSystem, PARTNER_SYSTEM, TWO_WAY_SYSTEM } from './system.ts'
 import { MCP_DEFAULT_PROPERTIES, MCP_DEFAULT_STATUS, MCP_LIMITS, MCP_PLAIN_MARKS, MCP_PLAIN_NODES, MCP_PROPERTY_TYPES } from '../../../src/shared/mcp/tables.ts'
 import { listOptionText, mcpError } from '../../../src/shared/mcp/errors.ts'
+import { optionPath, readOptions, titleNameTaken } from '../../../src/shared/mcp/options.ts'
 import { isIconError, mcpIcon } from '../../../src/shared/mcp/icon.ts'
 
 /** Property types an agent may add (the shared table: formula, rollup and button need settings the tools don't take). */
@@ -24,8 +25,6 @@ export const CREATABLE_TYPES = MCP_PROPERTY_TYPES
 export type CreatableType = (typeof CREATABLE_TYPES)[number]
 
 export const COLORS = ['gray', 'brown', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink', 'red'] as const
-const COLOR_SET = new Set<string>(['default', ...COLORS])
-const GROUPS = new Set(['todo', 'in_progress', 'done'])
 
 export type OptionInput = string | { name: string; color?: string; group?: string }
 
@@ -148,19 +147,15 @@ function options(type: string, input: OptionInput[] | undefined): Option[] | und
     // the contract's default status options (the local bridge makes the same — shared/mcp/tables.ts)
     return type === 'status' ? MCP_DEFAULT_STATUS.map((o) => ({ id: newId(), ...o })) : []
   }
-  const seen = new Set<string>()
-  return input.map((o, i) => {
-    const spec = typeof o === 'string' ? { name: o } : o
-    // as the bridge takes them (plan.ts optionsOf): whitespace collapsed, cut to MCP_LIMITS.optionName
-    const name = spec.name.replace(/\s+/g, ' ').trim().slice(0, MCP_LIMITS.optionName)
-    if (!name) throw unprocessable('invalid_option', 'Option names cannot be empty')
-    if (seen.has(name.toLowerCase())) throw unprocessable('invalid_option', `Option "${name}" is listed twice`)
-    seen.add(name.toLowerCase())
-    if (spec.color !== undefined && !COLOR_SET.has(spec.color)) throw unprocessable('invalid_option', `${name}: color is one of ${[...COLOR_SET].join(', ')}`)
-    if (spec.group !== undefined && !GROUPS.has(spec.group)) throw unprocessable('invalid_option', `${name}: group is todo, in_progress or done`)
-    const opt: Option = { id: newId(), name, color: spec.color ?? COLORS[i % COLORS.length]! }
+  // the shared rule (src/shared/mcp/options.ts), as the local bridge reads them: whitespace collapsed, cut to
+  // MCP_LIMITS.optionName, colours lower-cased; an empty name, a name listed twice, an unknown colour or group refused
+  const read = readOptions(input)
+  if ('problem' in read) throw unprocessable('invalid_option', mcpError('bad_argument', optionPath('options', read.problem), read.problem.what))
+  const list = read.options
+  return list.map((spec, i) => {
+    const opt: Option = { id: newId(), name: spec.name, color: spec.color ?? COLORS[i % COLORS.length]! }
     // status options belong to a group: first "to do", last "done", the rest "in progress"
-    if (type === 'status') opt.group = spec.group ?? (i === 0 ? 'todo' : i === input.length - 1 && input.length > 1 ? 'done' : 'in_progress')
+    if (type === 'status') opt.group = spec.group ?? (i === 0 ? 'todo' : i === list.length - 1 && list.length > 1 ? 'done' : 'in_progress')
     return opt
   })
 }
@@ -494,7 +489,13 @@ export class McpWrites {
       if (names.has(k)) throw unprocessable('invalid_property', `Property "${p.name}" is listed twice`)
       names.add(k)
     }
-    const all = titles.length ? specs : [{ name: names.has('name') ? 'Title' : 'Name', type: 'title' as const }, ...specs]
+    // the title property is "Name" unless one of type "title" is given (the shared description says so): a property of
+    // another type named so would clash with it — refused, as the local bridge refuses it (never renamed quietly)
+    if (!titles.length) {
+      const clash = specs.findIndex((p) => p.name.replace(/\s+/g, ' ').trim().toLowerCase() === 'name')
+      if (clash >= 0) throw unprocessable('invalid_property', mcpError('bad_argument', `properties[${clash}].name`, titleNameTaken(specs[clash]!.name.trim())))
+    }
+    const all = titles.length ? specs : [{ name: 'Name', type: 'title' as const }, ...specs]
     const pairs: Array<{ def: PropertyDef; spec: PropertyInput }> = all.map((spec) => ({ spec, def: definition(r, spec, id) }))
     const reverse = pairs.filter(({ spec }) => spec.type === 'relation' && spec.relation?.twoWay && spec.relation.databaseId !== id)
     for (const { spec } of reverse) {

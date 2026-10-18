@@ -395,7 +395,7 @@ the owner (like the token routes, not the public API):
 | Method & path | Body → Response |
 |---|---|
 | `GET /api/workspaces/:id/mcp-calls` | → `[{ callId, tool, token: { id, name }, at, parts, kinds, made, changed, titles (≤ 3), restoredAt }]` — the newest 100 calls of the last 14 days |
-| `POST /api/workspaces/:id/mcp-calls/:callId/restore` | `{ force?: boolean }` → `{ callId, restored, kept: [{ id, title, fields? }], note? }` — made pages / databases / rows go to the trash; each changed field goes back while it still holds what the call wrote (`kept` names the others); a page text that changed since answers `409 changed_since` unless `force` (then the later changes go). A second restore changes nothing. `404 call_not_found` |
+| `POST /api/workspaces/:id/mcp-calls/:callId/restore` | `{ force?: boolean }` → `{ callId, restored, kept: [{ id, title, fields? }], note? }` — made pages / databases / rows go to the trash; each changed field goes back while it still holds what the call wrote (`kept` names the others); a page text that changed since answers `409 changed_since` unless `force` (then the later changes go); a page the call only put its own links (`linkInParent`) or an inline database's block into is never refused: it goes back whole only when everything they point at went and nobody wrote there since — else only the links / blocks of what went come out (later edits stay, also with `force`) and, while one stays, the page is in `kept` (`fields` = the things whose link or block stays). A second restore changes nothing. `404 call_not_found` |
 
 ## Errors
 

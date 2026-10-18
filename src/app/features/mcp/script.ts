@@ -12,12 +12,12 @@
  */
 import { t } from '../../i18n'
 import { appRunUI, findScript, preApprovedUI, plannedItems, runQueryForTool, runReport, runScript, runScriptById, runTouched, silentRunUI, undoRun, type ChangeItem, type RunResult, type ScriptRun } from '../script'
-import { sideEffects, sideHold, type SideEffects } from './rows'
+import { addPartnerRows, linksBack, partnerRows, sideEffects, sideHold, type SideEffects } from './rows'
 import { MCP_QUERY_ROWS } from './contract'
 import { chars, str, type PlanLine, type WritePlan } from './plan'
 import { live, McpToolError, q, titleOf, ws } from './values'
 import { formatWriterKey, type Writer } from '../../store/writer'
-import type { ID } from '../../store/types'
+import type { Database, ID } from '../../store/types'
 import { changedSince, followCall, madeAs, textMoved, valueKey } from '../ai/agent/follow'
 import { mcpPageText } from './limits'
 import { systemBelow, systemOf, systemRefusal, type SystemHit } from './system'
@@ -84,14 +84,25 @@ function dryPlan(r: RunResult): { lines: PlanLine[]; approved: ReturnType<typeof
   return { lines, approved: plannedItems(r).filter((i) => listed.has(i.key)) }
 }
 
-/** The "Starts:" lines of a run's row writes: new rows, changed values (by property), a row's text, rows to the trash. */
+/**
+ * The "Starts:" lines of a run's row writes: new rows, changed values (by property), a row's text, rows to the trash —
+ * and the rows a two-way relation value writes besides its own ("Links back", rows.ts partnerRows: the partner rows, a
+ * sub-items child's old parent), with what that starts in their database. All counted into the call's hold (sideHold).
+ */
 function startsOf(changes: readonly ChangeItem[]): PlanLine[] {
   const per = new Map<ID, { created: number; set: Set<ID>; props: Set<ID>; text: Set<ID>; trashed: number }>()
   const made = new Set(changes.filter((c) => c.kind === 'create').map((c) => c.pageId))
+  const partners = new Map<string, { db: Database; propId: ID; name: string; rows: Set<ID> }>()
   for (const c of changes) {
     if (!c.dbId) continue
     const db = ws().databases[c.dbId]
     if (!db) continue
+    if (c.kind === 'create' || c.kind === 'set')
+      for (const d of c.props ?? []) {
+        if (!d.links) continue
+        const prop = db.properties.find((p) => p.type === 'relation' && p.name === d.name)
+        if (prop) addPartnerRows(partners, partnerRows(ws().databases, db, prop, c.kind === 'create' ? null : c.pageId, d.links.before, d.links.after))
+      }
     const e = per.get(c.dbId) ?? { created: 0, set: new Set<ID>(), props: new Set<ID>(), text: new Set<ID>(), trashed: 0 }
     per.set(c.dbId, e)
     if (c.kind === 'create') e.created += 1
@@ -114,7 +125,10 @@ function startsOf(changes: readonly ChangeItem[]): PlanLine[] {
     sides.push(sideEffects(db, [...e.text].filter((id) => !e.set.has(id)).length, { text: true, props: new Set() }))
     sides.push(sideEffects(db, e.trashed, { deleted: true, props: new Set() }))
   }
-  return [...sides.flatMap((x) => x.lines), ...sideHold(sides).lines]
+  // two-way relations: the linked (or unlinked) rows change too — named, and what that starts there counted
+  const back = linksBack(partners)
+  sides.push(...back.sides)
+  return [...back.lines, ...sides.flatMap((x) => x.lines), ...sideHold(sides).lines]
 }
 
 /**

@@ -20010,9 +20010,11 @@ var sentence = (s) => {
 function mcpError(code, path, what, next) {
   return `${code}: ${path ? `${path}: ` : ""}${sentence(what)} Nothing was changed. ${next ?? MCP_REMEDIES[code]}`;
 }
+var NO_ANSWER = /was not approved within|disconnected while this change waited/i;
+var PERSON = /\bcancelled\b|the person's decision|rejected this change|can only read|can only view|not signed in|switched to read-only/i;
 function withCode(message) {
   if (codeOf(message)) return message;
-  const code = /changed (while this call waited|meanwhile|after its dry run|since)/i.test(message) ? "page_changed" : /\b(is|are) gone\b|gone by now|deleted meanwhile|Use one_search to find page ids/i.test(message) ? "not_found" : /was locked meanwhile/i.test(message) ? "locked" : /\bcancelled\b|the person's decision/i.test(message) ? "rejected" : "bad_argument";
+  const code = /changed (while this call waited|meanwhile|after its dry run|since)/i.test(message) ? "page_changed" : /\b(is|are) gone\b|gone by now|deleted meanwhile|Use one_search to find page ids/i.test(message) ? "not_found" : /was locked meanwhile/i.test(message) ? "locked" : NO_ANSWER.test(message) ? "approval_timeout" : PERSON.test(message) ? "rejected" : "bad_argument";
   return `${code}: ${message}`;
 }
 
@@ -20206,7 +20208,7 @@ var CANCELLED = mcpError("rejected", "", "The call was cancelled");
 var UNKNOWN = "Whether the call was carried out is not known: read what it touches (one_get_page, one_query_database) before you call again.";
 var GONE = `rejected: One was closed or disconnected before it answered. ${UNKNOWN}`;
 var TOOK_OVER = `rejected: Another One tab took over before this one answered. ${UNKNOWN}`;
-var NO_ANSWER = (s) => `rejected: One did not answer within ${s} s (is the tab still open?). ${UNKNOWN}`;
+var NO_ANSWER2 = (s) => `rejected: One did not answer within ${s} s (is the tab still open?). ${UNKNOWN}`;
 var OLDER_REPEATS = "This One tab is an older version: it does not recognise a repeated call \u2014 calling again makes it a second time. If you are unsure whether this call went through, read first (one_search, one_get_page) before you call again.";
 var MAX_PAYLOAD = 16 * 1024 * 1024;
 var HELLO_MS = 5e3;
@@ -20589,7 +20591,7 @@ ${text2}`);
         }
       };
       this.inflight.set(id, entry);
-      entry.arm(this.opts.timeoutMs, NO_ANSWER(Math.round(this.opts.timeoutMs / 1e3)));
+      entry.arm(this.opts.timeoutMs, NO_ANSWER2(Math.round(this.opts.timeoutMs / 1e3)));
       opts.signal?.addEventListener("abort", onAbort, { once: true });
       this.send(conn, expected ? { type: "call", id, tool, args: rest, workspace: expected } : { type: "call", id, tool, args: rest });
     });

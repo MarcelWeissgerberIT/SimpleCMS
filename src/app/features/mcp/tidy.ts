@@ -17,7 +17,7 @@ import { databaseOrThrow, kindOf, live, McpToolError, pageUrl, pathOf, q, rowPro
 import { adoptRowType } from '../../database'
 import { formatWriterKey, withWriter } from '../../store/writer'
 import { followCall, madeAs, valueKey, valuesKey } from '../ai/agent/follow'
-import { mcpError } from '../../../shared/mcp/errors'
+import { listOptionText, mcpError } from '../../../shared/mcp/errors'
 import { assertNotSystem, assertTreeNotSystem } from './system'
 import { sideEffects, sideHold } from './rows'
 import { contentKey } from '../history/snapshots'
@@ -477,6 +477,8 @@ function mapRow(row: Page, from: Database, to: Database, toTitle: string): RowMa
         if (known) mapped.push(known.id)
         else if (sp.type === 'status') out.problems.push(`${q(sp.name)}: ${q(toTitle)} has no status ${q(opt.name)} (it has ${(tp.options ?? []).map((o) => q(o.name)).join(', ')})`)
         else if (to.locked) out.problems.push(`${q(sp.name)}: ${q(toTitle)} is locked, so the option ${q(opt.name)} cannot be added there`)
+        // bound to a shared list there (features/kit): the list owns the options — never one on the property alone
+        else if (tp.listId) out.problems.push(`${q(sp.name)}: ${listOptionText(opt.name, ws().kit?.lists[tp.listId]?.name ?? '?')}`)
         else {
           const made: SelectOption = { id: newId(), name: opt.name, color: opt.color ?? palette[(tp.options?.length ?? 0) % palette.length] }
           out.fresh.set(tp.id, [...(out.fresh.get(tp.id) ?? []), made])
@@ -599,6 +601,11 @@ function planMoveRow(args: Record<string, unknown>): WritePlan {
           throw new McpToolError(
             mcpError('locked', 'databaseId', `${q(toTitle)} was locked meanwhile: the option(s) ${[...map.fresh.values()].flat().map((o) => q(o.name)).join(', ')} cannot be added there`, 'Move it into a database that has those options, or ask the person to unlock it.'),
           )
+        // a property bound to a shared list while the card waited takes no option of its own (the list owns them)
+        for (const [propId, opts] of map.fresh) {
+          const def = target.properties.find((p) => p.id === propId)
+          if (def?.listId) throw new McpToolError(mcpError('bad_argument', 'databaseId', `${q(def.name)} in ${q(toTitle)}: ${listOptionText(opts[0]!.name, ws().kit?.lists[def.listId]?.name ?? '?')}`, 'Add the option to the list in One first, or ask the person.'))
+        }
         // the type that would come along: a target locked while the card waited cannot take it
         if (adopting && rt && !(target.recordTypes ?? []).includes(typeId!) && target.locked) throw new McpToolError(mcpError('locked', 'databaseId', `${q(toTitle)} was locked meanwhile: the record type ${q(rt.name)} of ${q(name)} cannot come along`))
         const before = { properties: clone(cur.properties), order: cur.order, recordType: cur.recordType ?? null }

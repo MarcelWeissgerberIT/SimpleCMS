@@ -540,11 +540,12 @@ export async function applyChanges(changes: StagedChange[], all: StagedChange[],
 let rollingBack = false
 
 /**
- * Undo of a created page / row: deleted for good while untouched; once someone edited it, put pages under it or put it
- * (or a page above it) in the trash, it goes to the trash instead (recoverable) — one in the trash stays as it is.
- * `mode` 'trash' (MCP): untouched → the trash, touched (text, title, icon, a value, its place, a page under it) → left
- * as it is (kept: false) — what the call itself set off since (an automation on the new row, autofill, the kit: follow)
- * is not a touch. The batch's own rollback (ApplyResult.rollback) always takes the 'delete' way.
+ * Undo of a created page / row: deleted for good while untouched; once someone touched it — its text, title, icon, cover,
+ * comment threads, a stored value (changedSince, the same baseline the 'trash' mode reads), its place, a page put under
+ * it, or it (or a page above it) in the trash — it goes to the trash instead (recoverable) — one in the trash stays as it
+ * is. `mode` 'trash' (MCP): untouched → the trash, touched → left as it is (kept: false) — what the call itself set off
+ * since (an automation on the new row, autofill, the kit: follow) is not a touch. The batch's own rollback
+ * (ApplyResult.rollback) always takes the 'delete' way.
  */
 function removeCreated(id: ID, mode: ApplyOpts['undoCreated'] = 'delete', writer?: Writer): () => boolean {
   const made = ws().pages[id]
@@ -571,7 +572,13 @@ function removeCreated(id: ID, mode: ApplyOpts['undoCreated'] = 'delete', writer
       ws().trashPage(id)
       return true
     }
-    const touched = edited || isEffectivelyTrashed(pages, id) || Object.values(pages).some((p) => p.parentId === id)
+    // touched since: anything the person can have put there (a value they filled in, a comment thread, a cover — not only
+    // the text or title), its place, a page under it (in the trash too: deleting this one would take it along for good)
+    const touched =
+      edited ||
+      (!rollingBack && (changedSince(now, b) || `${now.parentId ?? null}|${now.databaseId ?? null}` !== place)) ||
+      isEffectivelyTrashed(pages, id) ||
+      Object.values(pages).some((p) => p.parentId === id)
     if (touched) ws().trashPage(id)
     else ws().deletePagePermanently(id)
     return true
@@ -672,9 +679,10 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
       const remove = removeCreated(id, opts.undoCreated, w)
       return () => {
         const ok = remove()
-        // the row went (to the trash, or for good): its links on the other side go too, where nobody changed them since
-        const gone = !ws().pages[id] || !!ws().pages[id]!.trashed
-        const back = ok && gone ? unsyncPartners(partners) : true
+        // the row deleted for good: its links on the other side go too, where nobody changed them since. A row that went to
+        // the trash keeps its relation value and the partner rows keep their link to it — as the app's trash does (and
+        // the team server's Restore) — so restoring it from the trash leaves no one-sided two-way link
+        const back = ok && !ws().pages[id] ? unsyncPartners(partners) : true
         dropUnusedOptions(dbId, created)
         return ok && back
       }

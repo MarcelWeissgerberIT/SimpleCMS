@@ -18,7 +18,7 @@ import { keepItems, markdownToDoc } from '../../../editor'
 import { snapshotNow } from '../../history/snapshots'
 import { withoutWebImages } from '../../agents/images'
 import { ScriptError, type Pos, type Value } from '../lang'
-import { coerceProp, propByName, type Coerced } from './props'
+import { coerceProp, listOptionDetail, propByName, type Coerced } from './props'
 import { chartBlocks } from './markdown'
 import { effectImpl, type EffectInputs, type EffectName, type EffectOutputs } from './effects'
 import type { ChangeItem, ConfirmItem, EffectItem, EffectKind, LogLine, PropDiff, ResultTable, RunMode, RunUI } from './types'
@@ -255,8 +255,11 @@ export class Host {
     const props = (prior.props ??= [])
     for (const d of diffs) {
       const cur = props.find((x) => x.name === d.name)
-      if (cur) cur.after = d.after
-      else props.push(d)
+      if (cur) {
+        cur.after = d.after
+        // a relation: the links the first set() found, the last one's
+        if (d.links) cur.links = { before: cur.links?.before ?? d.links.before, after: d.links.after }
+      } else props.push(d)
     }
     if (prior.kind === 'create' && title !== null) prior.title = title
   }
@@ -286,7 +289,7 @@ export class Host {
     if (db) this.checkPartners(db, coerced)
     const diffs: PropDiff[] = []
     if (title !== null) diffs.push({ name: db?.properties.find((p) => p.type === 'title')?.name ?? 'title', before: page.title, after: title })
-    for (const c of coerced) diffs.push({ name: c.prop.name, before: this.isDraft(page.id) ? '' : safeText(db!, c.prop, page), after: c.text })
+    for (const c of coerced) diffs.push({ name: c.prop.name, before: this.isDraft(page.id) ? '' : safeText(db!, c.prop, page), after: c.text, ...linksOf(c, this.isDraft(page.id) ? undefined : page) })
     if (this.real) {
       await this.touch(page.id)
       if (title !== null) this.as(() => s.updatePage(page.id, { title }))
@@ -323,6 +326,8 @@ export class Host {
     const ids = names.map((n) => {
       let o = opts.find((x) => x.name.trim().toLowerCase() === n.trim().toLowerCase())
       if (!o) {
+        // bound to a shared list since the value was read (features/kit): the list owns the options — none of its own
+        if (live?.listId) throw new ScriptError('bad_value', { name: live.name, detail: listOptionDetail(live, n) })
         o = { id: newId(), name: n, color: PALETTE[opts.length % PALETTE.length] }
         opts.push(o)
       }
@@ -409,7 +414,7 @@ export class Host {
     }
     this.check({ dbId: db.id })
     this.checkPartners(db, coerced)
-    const props: PropDiff[] = coerced.map((c) => ({ name: c.prop.name, before: '', after: c.text }))
+    const props: PropDiff[] = coerced.map((c) => ({ name: c.prop.name, before: '', after: c.text, ...linksOf(c) }))
     if (!this.real) {
       const id = `draft-${++this.draftSeq}`
       const now = Date.now()
@@ -565,6 +570,13 @@ function safeText(db: Database, prop: PropertyDef, row: Page): string {
   } catch {
     return ''
   }
+}
+
+/** A relation value's links before (`page`: the row as it is; none for a new row) and after — PropDiff.links. */
+function linksOf(c: Coerced, page?: Page): Pick<PropDiff, 'links'> {
+  if (c.prop.type !== 'relation') return {}
+  const was = page?.properties[c.prop.id]
+  return { links: { before: Array.isArray(was) ? (was as ID[]) : [], after: Array.isArray(c.value) ? (c.value as ID[]) : [] } }
 }
 
 /** A draft row's stored value (existing options only — new ones don't exist in a dry run). */

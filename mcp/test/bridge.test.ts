@@ -664,6 +664,29 @@ describe("the bridge's own refusals carry a code (review 5)", () => {
     const res = await client.callTool({ name: 'one_get_page', arguments: { id: 'nope' } })
     assert.equal(textOf(res), 'not_found: No page with id "nope". Use one_search to find page ids.')
   })
+
+  test('review 7: an older tab\'s (contract 1) own refusals keep their meaning — the person\'s decision is rejected, no answer approval_timeout, never bad_argument', async () => {
+    const { client } = await start()
+    // the refusals of One's tab before contract 2 (src/app/features/mcp/service.ts ERR of ea7908e), word for word
+    const frozen: Array<[string, string]> = [
+      ['One is set to "Agents can only read" (Settings → Agents · MCP). Nothing was changed.', 'rejected'],
+      ['You can only view this team workspace in One, so agents cannot change it either. Nothing was changed.', 'rejected'],
+      ['One is not signed in to this team workspace. Sign in in the One tab first.', 'rejected'],
+      ['The person rejected this change in One. Nothing was changed. Do not retry it; ask them what they want instead.', 'rejected'],
+      ['The change was not approved within 2 minutes, so nothing was changed.', 'approval_timeout'],
+      ['Cancelled. Nothing was changed.', 'rejected'],
+      ['Agent changes were switched to read-only in One while this change waited. Nothing was changed.', 'rejected'],
+      ['One disconnected while this change waited for approval. Nothing was changed.', 'approval_timeout'],
+    ]
+    const old = track(await helloApp('Old words'))
+    let next = 0
+    serve(old, () => ({ error: frozen[next++]![0] }))
+    for (const [said, code] of frozen) {
+      const res = await client.callTool({ name: 'one_create_row', arguments: { databaseId: 'db', title: 'Q4 launch' } })
+      assert.equal(res.isError, true)
+      assert.equal(textOf(res), `${code}: ${said}`)
+    }
+  })
 })
 
 describe('handshake security', () => {

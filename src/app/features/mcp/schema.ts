@@ -4,7 +4,7 @@
  */
 import { newId } from '../../lib/ids'
 import { t } from '../../i18n'
-import type { ID, PropertyDef, PropertyType, SelectOption } from '../../store/types'
+import type { FormConfig, ID, PropertyDef, PropertyType, SelectOption } from '../../store/types'
 import { MCP_DEFAULT_STATUS, MCP_PROPERTY_TYPES } from './contract'
 import { databaseOrThrow, McpToolError, q, titleOf, TWO_WAY_SUFFIX, ws } from './values'
 import { mcpError } from '../../../shared/mcp/errors'
@@ -90,8 +90,9 @@ const VIEW_REFS = ['filter', 'sorts', 'groupBy', 'dateProperty', 'calculations',
 
 /**
  * What is built on a property besides its values: view settings naming it (filter, sort, grouping, date, chart,
- * calculations, card preview, colour rules, a feed's date, a free board's fields), a formula naming it, a rollup through
- * it or of it, autofill, an automation, a command (database/model/withoutProperty.ts).
+ * calculations, card preview, colour rules, a feed's date, a free board's fields, a form's questions / page breaks /
+ * conditions / response marker), a formula naming it, a rollup through it or of it, autofill, an automation, a command,
+ * the sub-items or dependencies pair it is part of (database/model/withoutProperty.ts propertyRefs).
  */
 function builtOn(dbId: ID, propId: ID): string {
   const s = ws()
@@ -126,7 +127,19 @@ export function propChangedSince(m: PropMark): boolean {
   return !!db.locked || defOf(m.dbId, m.id) !== m.def || builtOn(m.dbId, m.id) !== m.refs || holdsValues(m.dbId, m.id, m.made)
 }
 
-/** Delete a property the call added — and any view setting still pointing at it (as one_delete_property clears them). */
+/** A form's settings without a property: its question settings, a page break before it, conditions on it, the marker on it. */
+function formWithout(form: FormConfig, propId: ID): FormConfig {
+  const questions = form.questions ? Object.fromEntries(Object.entries(form.questions).filter(([k]) => k !== propId).map(([k, qn]) => [k, qn.showIf ? { ...qn, showIf: { ...qn.showIf, conditions: qn.showIf.conditions.filter((c) => c.q !== propId) } } : qn])) : undefined
+  const out: FormConfig = { ...form, ...(questions ? { questions } : {}) }
+  if (form.pages) out.pages = form.pages.filter((b) => b.before !== propId)
+  if (form.marker?.propertyId === propId) delete out.marker
+  return out
+}
+
+/**
+ * Delete a property the call added — and any view setting still pointing at it (as one_delete_property clears them), a
+ * form's settings for it too (its question entry, page break, conditions, marker): nothing is left pointing at nothing.
+ */
 export function dropProperty(dbId: ID, propId: ID): void {
   const db = ws().databases[dbId]
   if (!db?.properties.some((p) => p.id === propId)) return
@@ -137,6 +150,7 @@ export function dropProperty(dbId: ID, propId: ID): void {
     if (!c) continue
     const patch: Record<string, unknown> = {}
     for (const k of VIEW_REFS) if (JSON.stringify(v[k] ?? null) !== JSON.stringify(c[k] ?? null)) patch[k] = c[k]
+    if (v.form && JSON.stringify(v.form).includes(JSON.stringify(propId))) patch.form = formWithout(v.form, propId)
     if (Object.keys(patch).length) ws().updateView(dbId, v.id, patch)
   }
 }

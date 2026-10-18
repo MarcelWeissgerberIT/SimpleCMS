@@ -14,9 +14,11 @@ import { canBeKey } from '../api/keys.ts'
 import { findProperty, metaDoc, type WorkspaceModel } from '../api/model.ts'
 import { schemaOut } from '../api/values.ts'
 import { newId } from '../tokens.ts'
-import { assertNotSystem } from './system.ts'
+import { assertNotSystem, systemOf, systemRefusal } from './system.ts'
 import { iconOut } from './reads.ts'
 import { MCP_LIMITS, MCP_TYPE_CHANGES, MCP_VIEW_TYPES } from '../../../src/shared/mcp/tables.ts'
+import { colorRefusal, optionColor, optionPath, readOptions } from '../../../src/shared/mcp/options.ts'
+import { mcpError } from '../../../src/shared/mcp/errors.ts'
 import { COLORS, cleanTitle, iconIn, propsMapOf, unprocessable, type OptionInput } from './writes.ts'
 
 /** Layouts an agent can create or switch to, and the type changes whose values carry over (the shared tables). */
@@ -161,6 +163,30 @@ function schemaDb(r: Roots, id: string) {
   return { ...db, title }
 }
 
+type Rollup = { relationPropertyId?: string; targetPropertyId?: string }
+
+/**
+ * The rollups a property's delete clears: in its own database those that roll up through it (a relation), in every other
+ * live database (templates left out — liveDatabase) those that roll it up through a relation to its database.
+ */
+function rollupsOn(r: Roots, dbId: string, propId: string): Array<{ dbId: string; ydb: Y.Map<unknown>; propId: string; name: string; title: string; locked: boolean; next: Rollup }> {
+  const out: Array<{ dbId: string; ydb: Y.Map<unknown>; propId: string; name: string; title: string; locked: boolean; next: Rollup }> = []
+  for (const otherId of r.databases.keys()) {
+    const other = liveDatabase(r, otherId)
+    if (!other) continue
+    for (const p of other.properties) {
+      const roll = (p as PropertyDef & { rollup?: Rollup }).rollup
+      if (p.type !== 'rollup' || !roll) continue
+      const rel = other.properties.find((x) => x.id === roll.relationPropertyId)
+      let next: Rollup | null = null
+      if (otherId === dbId && roll.relationPropertyId === propId) next = { ...roll, relationPropertyId: '', targetPropertyId: '' }
+      else if (rel?.relationDatabaseId === dbId && roll.targetPropertyId === propId) next = { ...roll, targetPropertyId: '' }
+      if (next) out.push({ dbId: otherId, ydb: other.ydb, propId: p.id, name: p.name, title: titleOf(other.page), locked: other.ydb.get('locked') === true, next })
+    }
+  }
+  return out
+}
+
 function propertyOrThrow(props: PropertyDef[], ref: string, title: string): PropertyDef {
   const prop = findProperty(props, ref)
   if (!prop) throw notFound('property_not_found', `${q(title)} has no property ${q(ref)}. Properties: ${props.map((p) => q(p.name)).join(', ')}.`)
@@ -173,7 +199,9 @@ function viewOrThrow(views: View[], ref: string, title: string): View {
   const named = views.filter((v) => norm(v.name) === norm(ref))
   if (named.length === 1) return named[0]!
   const list = views.map((v) => `${q(v.name)} (${v.id}, ${v.type})`).join(', ')
-  throw notFound('view_not_found', named.length ? `${q(title)} has several views named ${q(ref)}: pass the id — ${list}.` : `${q(title)} has no view ${q(ref)}. Views: ${list}.`)
+  // several views of that name: the arguments' to settle (bad_argument), as the local bridge answers it
+  if (named.length) throw unprocessable('view_ambiguous', `bad_argument: view: ${q(title)} has several views named ${q(ref)}: pass the id — ${list}. Nothing was changed. Check the tool's arguments (tools/list) and call again.`)
+  throw notFound('view_not_found', `${q(title)} has no view ${q(ref)}. Views: ${list}.`)
 }
 
 /** All rows of a database, the trashed ones too (a deleted property leaves none of its values). */
@@ -204,7 +232,7 @@ export class McpStructure {
       if (!db) throw notFound('database_not_found', `No database with id ${q(input.id)} in this workspace. Use one_list_databases to get database ids.`)
       assertNotSystem(r, input.id)
       if (input.locked !== undefined)
-        throw unprocessable('lock_is_personal', `Locking and unlocking ${q(titleOf(db.page))} is the person's decision in the app (the lock in the database's toolbar), so agents cannot change it. Nothing was changed.`)
+        throw unprocessable('lock_is_personal', `rejected: locked: Locking and unlocking ${q(titleOf(db.page))} is the person's decision in One (the lock in the database's toolbar), so agents cannot change it. Nothing was changed. Ask the person; do not retry it.`)
       return db
     }
     await this.model.read(wsId, check)
@@ -244,6 +272,15 @@ export class McpStructure {
       const prop = propertyOrThrow(db.properties, input.property, db.title)
       if (prop.type === 'title') throw unprocessable('title_property', `${q(prop.name)} is the title property of ${q(db.title)}: every database keeps one. Nothing was changed.`)
       const withValue = allRows(r, db.page.id).filter((x) => x.yp.get('trashed') !== true && !isEmpty(valueOf(x.yp, prop.id))).length
+      // a rollup in another database that rolls it up is cleared with it: where that database's schema must stay (One's
+      // own, or locked) the delete is refused before anything is written — as the local bridge refuses it
+      for (const c of rollupsOn(r, db.page.id, prop.id)) {
+        if (c.dbId === db.page.id) continue
+        const sys = systemOf(r, c.dbId)
+        if (sys) throw systemRefusal(sys, 'property', `its rollup ${q(c.name)} rolls up ${q(prop.name)}, and the delete would clear it`)
+        if (c.locked)
+          throw unprocessable('database_locked', `locked: property: ${q(c.title)} is locked in One: its rollup ${q(c.name)} rolls up ${q(prop.name)}, and the delete would clear it (its properties cannot change). Nothing was changed. Ask the person to unlock it, or to change that rollup first.`)
+      }
       return { db, prop, withValue }
     }
     await this.model.read(wsId, check)
@@ -266,20 +303,10 @@ export class McpStructure {
             yp.set('updatedBy', actor)
           }
         }
-        // rollups through this relation, or of this property from another database
-        for (const otherId of r.databases.keys()) {
-          const other = liveDatabase(r, otherId)
-          if (!other) continue
-          const pm = propsMapOf(other.ydb)
-          for (const p of other.properties) {
-            const roll = (p as PropertyDef & { rollup?: { relationPropertyId?: string; targetPropertyId?: string } }).rollup
-            if (p.type !== 'rollup' || !roll) continue
-            const rel = other.properties.find((x) => x.id === roll.relationPropertyId)
-            let next: typeof roll | null = null
-            if (otherId === db.page.id && roll.relationPropertyId === prop.id) next = { ...roll, relationPropertyId: '', targetPropertyId: '' }
-            else if (rel?.relationDatabaseId === db.page.id && roll.targetPropertyId === prop.id) next = { ...roll, targetPropertyId: '' }
-            if (next) pm.set(p.id, clone({ ...(pm.get(p.id) as object), rollup: next }))
-          }
+        // rollups through this relation, or of this property from another database (checked above)
+        for (const c of rollupsOn(r, db.page.id, prop.id)) {
+          const pm = propsMapOf(c.ydb)
+          pm.set(c.propId, clone({ ...(pm.get(c.propId) as object), rollup: c.next }))
         }
         return { databaseId: db.page.id, deleted: { id: prop.id, name: prop.name, type: prop.type }, rowsWithValue: withValue }
       },
@@ -513,8 +540,9 @@ function optionPlan(prop: PropertyDef, input: OptionChanges): { options: SelectO
       next.name = nn
     }
     if (u.color !== undefined) {
-      const c = u.color.trim().toLowerCase()
-      if (!(COLORS as readonly string[]).includes(c)) throw unprocessable('invalid_option', `options.update: ${q(u.color)} is not a colour. Use one of: ${COLORS.join(', ')}.`)
+      // the shared colours (src/shared/mcp/options.ts), as the local bridge takes them
+      const c = optionColor(u.color)
+      if (!c) throw unprocessable('invalid_option', mcpError('bad_argument', 'options.update.color', colorRefusal(u.color)))
       next.color = c
     }
     if (u.group !== undefined) {
@@ -523,15 +551,14 @@ function optionPlan(prop: PropertyDef, input: OptionChanges): { options: SelectO
     }
     options = options.map((x) => (x.id === hit.id ? next : x))
   }
-  const addedNames = new Set<string>()
-  for (const [i, o] of (input.add ?? []).entries()) {
-    const spec = typeof o === 'string' ? { name: o } : o
-    const name = spec.name.replace(/\s+/g, ' ').trim().slice(0, MCP_LIMITS.optionName)
-    if (!name || addedNames.has(norm(name))) continue
-    if (options.some((x) => norm(x.name) === norm(name))) throw unprocessable('invalid_option', `options.add: ${q(prop.name)} has an option ${q(name)} already.`)
-    addedNames.add(norm(name))
-    const color = spec.color && (COLORS as readonly string[]).includes(spec.color.toLowerCase()) ? spec.color.toLowerCase() : COLORS[(options.length + i) % COLORS.length]!
-    options.push({ id: newId(), name, color, ...(prop.type === 'status' ? { group: spec.group ?? 'todo' } : {}) })
+  // the shared rule (src/shared/mcp/options.ts), as the local bridge reads options.add: an empty name, a name listed twice,
+  // an unknown colour or group refused — never dropped or replaced quietly
+  const read = readOptions(input.add ?? [])
+  if ('problem' in read) throw unprocessable('invalid_option', mcpError('bad_argument', optionPath('options.add', read.problem), read.problem.what))
+  const start = options.length
+  for (const [i, spec] of read.options.entries()) {
+    if (options.some((x) => norm(x.name) === norm(spec.name))) throw unprocessable('invalid_option', `options.add: ${q(prop.name)} has an option ${q(spec.name)} already.`)
+    options.push({ id: newId(), name: spec.name, color: spec.color ?? COLORS[(start + i) % COLORS.length]!, ...(prop.type === 'status' ? { group: spec.group ?? 'todo' } : {}) })
   }
   if (prop.type === 'status' && !options.length) throw unprocessable('invalid_option', `${q(prop.name)} is a status: it keeps at least one option.`)
   if (options.length > 200) throw unprocessable('invalid_option', `${q(prop.name)} would have more than 200 options.`)
