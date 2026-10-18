@@ -19,6 +19,7 @@ import { withWriter } from '../../store/writer'
 import { listOptionText, mcpError } from '../../../shared/mcp/errors'
 import { assertNotSystem, assertTreeNotSystem } from './system'
 import { sideEffects, sideHold } from './rows'
+import { noTargets } from './gate'
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
@@ -66,6 +67,9 @@ function recentTrash(): string {
     .slice(0, 8)
   return items.length ? ` Recently trashed: ${items.map((p) => `${q(titleOf(p))} (${p.id}, ${kindOf(p)})`).join(', ')}.` : ' The trash is empty.'
 }
+
+/** The argument each id of `id` / `ids` came from. */
+const idPaths = (args: Record<string, unknown>, ids: readonly ID[]): Record<ID, string> => (Array.isArray(args.ids) ? Object.fromEntries(ids.map((id, i) => [id, `ids[${i}]`])) : { [ids[0]!]: 'id' })
 
 /* ------------------------------------------------------------------ */
 /* one_trash_page                                                      */
@@ -137,6 +141,8 @@ function planTrash(args: Record<string, unknown>): WritePlan {
     target: single ? titleOf(items[0].page) : summary,
     lines,
     ...(hold.alwaysAsk ? { alwaysAsk: true } : {}),
+    // each page with everything below it (nothing of One's own may go along)
+    targets: { ...noTargets(), places: items.map((x) => x.page.id), trees: items.map((x) => x.page.id), paths: idPaths(args, ids) },
     async apply(writer) {
       // every write of this call under its writer (store/writer.ts) — one synchronous burst
       return withWriter(writer, () => {
@@ -217,6 +223,8 @@ function planRestore(args: Record<string, unknown>): WritePlan {
     summary,
     target: single ? titleOf(items[0].page) : summary,
     lines,
+    // in the trash — that is the point; nothing of One's own may come back with them
+    targets: { ...noTargets(), restores: items.map((x) => x.page.id), paths: idPaths(args, ids) },
     async apply(writer) {
       // every write of this call under its writer (store/writer.ts) — one synchronous burst
       return withWriter(writer, () => {
@@ -291,6 +299,7 @@ function planMovePage(args: Record<string, unknown>): WritePlan {
       summary: '',
       target: name,
       lines: [],
+      targets: noTargets(),
       noop: { id: page.id, title: page.title, parentId, path: pathOf(page.id), note: 'No change: it is there already. Pass "before", "after" or "index" to reorder it.' },
       apply: async () => ({ result: null }),
     }
@@ -313,6 +322,8 @@ function planMovePage(args: Record<string, unknown>): WritePlan {
     summary: sameParent ? t('features.mcp.sum.reorder', { title: name, where: whereTo }) : t('features.mcp.sum.move', { title: name, where: whereTo }),
     target: name,
     lines,
+    // the page, its new place; Private ⇄ the workspace stays the person's (team)
+    targets: { ...noTargets(), places: [page.id, ...(parentId ? [parentId] : [])], moves: [{ id: page.id, to: parentId }], paths: { [page.id]: 'id', ...(parentId ? { [parentId]: 'parentId' } : {}) } },
     async apply(writer) {
       // every write of this call under its writer (store/writer.ts) — one synchronous burst
       return withWriter(writer, () => {
@@ -453,6 +464,7 @@ function planMoveRow(args: Record<string, unknown>): WritePlan {
       summary: '',
       target: name,
       lines: [],
+      targets: noTargets(),
       noop: { id: row.id, title: row.title, databaseId: to.id, note: `No change: the row is in ${q(toTitle)} already.` },
       apply: async () => ({ result: null }),
     }
@@ -496,6 +508,22 @@ function planMoveRow(args: Record<string, unknown>): WritePlan {
     target: `${fromTitle} → ${toTitle}`,
     lines,
     ...(hold.alwaysAsk ? { alwaysAsk: true } : {}),
+    // the row out of one database into the other (a new row there); new options or a record type are a schema change there
+    targets: {
+      ...noTargets(),
+      places: [row.id],
+      rows: [
+        { db: from.id, ids: [row.id] },
+        { db: to.id, ids: [], made: 1 },
+      ],
+      schema: map.fresh.size || adopting ? [to.id] : [],
+      moves: [{ id: row.id, to: to.id }],
+      paths: { [row.id]: 'id', [to.id]: 'databaseId' },
+      // why its schema is touched (said when it is locked)
+      ...(map.fresh.size || adopting
+        ? { why: { [to.id]: map.fresh.size ? `the option(s) ${freshNames.map(q).join(', ')} cannot be added there` : `the record type ${q(rt?.name ?? '?')} of ${q(name)} cannot come along` } }
+        : {}),
+    },
     async apply(writer) {
       // every write of this call under its writer (store/writer.ts) — one synchronous burst
       return withWriter(writer, () => {

@@ -306,6 +306,20 @@ next step there is a token with comments on, made by an owner or admin). Writing
 - Still not offered: deleting for good, locking, settings, members, agents, automations, scripts' code, buttons,
   synced blocks, embeds, meeting notes, chart and form views, formula and rollup properties, Private ⇄ shared moves.
 
+**One gate for every write** ([`src/shared/mcp/targets.ts`](../src/shared/mcp/targets.ts)). Every write tool names
+what its call touches — the pages whose text it writes, the databases whose schema it changes (also another database
+whose rollup a delete clears), the rows it writes values into (and how many it makes), the pages it puts something
+under, moves, renames or trashes, a replaced page, a page coming back from the trash, a move between parents. ONE
+check refuses the call when any of them is a template's (`not_found`, never named), in the trash (`not_found`), One's
+own (`system_database`), a locked page's text or a locked database's schema (`locked`; rows, titles, icons and places
+stay writable), a replace under the person's context marks (`rejected`, B) or a Private ⇄ shared move
+(`private_scope`, B team) — naming the argument it came from (`locked: linkInParent: …`) and every target that fails
+the same check. B runs it when the call is planned (before any card) and again right before it writes (a page locked
+or trashed, a database made One's own while the card waited: `… was locked meanwhile`, `… went to the trash since the
+call was made`; nothing is written); S runs it before each write tool (server/src/mcp/gate.ts). The tools' own checks
+stay behind it as a backstop. B also decides "always asked" from the same targets: 5 or more rows in databases that
+fill by themselves, send something out of One (a webhook or script automation) or start a row-triggered agent.
+
 **Values** are the friendly ones of the public API ([API.md § Property values](API.md#property-values)): option
 names, dates `"YYYY-MM-DD"` / `"YYYY-MM-DDTHH:mm"` (wall-clock time) or `{ start, end }`, people by email or name,
 relations by row id or title, `true` / `false`, numbers, `null` to clear. A select or multi-select option that doesn't
@@ -586,7 +600,7 @@ MCP." (a call waits up to 10 s for the tab first). The switch is **per browser**
 | Mode | Reads | Writes |
 |---|---|---|
 | **Ask first** (default) | answered at once | each one waits for a card in the tab (bottom right): the tool, the target and a diff-like summary — *Create row “Q4 launch” in Projects · Status: In progress*, property values *before → after*, new options, the Markdown that will be written. **Approve** (↵) or **Reject** (Esc). No answer within **2 minutes** = rejected. The agent sees the wait as progress (`notifications/progress`, *Waiting for approval in One…*) |
-| **Apply directly** | answered at once | written right away — except a change that assigns someone, sets a reminder, changes a task someone is assigned to, adds a blocker to an existing task or removes tasks, and a batch of 5 or more rows that starts paid AI work or sends something out of One: that one is **always asked** (the card says why: *Always asked: Names a person*) |
+| **Apply directly** | answered at once | written right away — except a change that assigns someone, sets a reminder, changes a task someone is assigned to, adds a blocker to an existing task or removes tasks, and a batch of 5 or more rows that starts paid AI work or sends something out of One (also counted from the rows a call touches in databases that can — [one gate](#what-mcp-never-changes)): that one is **always asked** (the card says why: *Always asked: Names a person*) |
 | **Read only** | answered at once | refused: *One is set to "Agents can only read"* |
 
 - **One call, one card** — also for a batch: 50 sub-pages, a board with its rows, 20 rows changed at once are one

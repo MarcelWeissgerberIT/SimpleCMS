@@ -41,6 +41,10 @@ import { runUndo, tapeCall } from './undo'
 import { localNetworkPermission } from '../../lib/localNetwork'
 import { loadFileStamps } from '../../lib/files'
 import { fileRefsIn } from '../ai/claudeFiles'
+import { asksAlways, assertWritable } from './gate'
+import { mcpReadLimit } from './limits'
+import { withReadLimit } from '../ai/agent/tools'
+import { chars } from './plan'
 
 const set = useMcp.setState
 const get = useMcp.getState
@@ -558,14 +562,22 @@ async function handleCall(id: string, tool: McpToolName, args: Record<string, un
     await warmMembers()
     // the workspace stamps of the files the call names (lib/files.ts): claudeDoc's check runs inside the plan, sync
     await loadFileStamps(fileRefsIn(args))
-    const plan = tool === 'one_run_script' ? await planRunScript(args) : planWrite(tool, args)
-    logPatch(key, { target: plan.target })
-    if (plan.noop) {
-      answer(plan.noop, 'same', plan.noopNote ? { note: plan.noopNote } : {})
-      if (mine) closeDuplicate(mine, { ok: true, result: plan.noop }, id, null)
+    // the call reads pages as the person's context marks allow (limits.ts) — once for the whole call (its synchronous
+    // parts: the planner, and apply up to its first await); the planners' own limits stay as a backstop
+    const planned = tool === 'one_run_script' ? await withReadLimit(mcpReadLimit, () => planRunScript(args)) : withReadLimit(mcpReadLimit, () => planWrite(tool, args))
+    logPatch(key, { target: planned.target })
+    if (planned.noop) {
+      answer(planned.noop, 'same', planned.noopNote ? { note: planned.noopNote } : {})
+      if (mine) closeDuplicate(mine, { ok: true, result: planned.noop }, id, null)
       return
     }
-    // asked also in "Apply directly" when the plan says so (rows that start paid or outward work, task holds)
+    // the gate (gate.ts): what the call touches may be written by an agent — template, trash, One's own databases, locked,
+    // context marks, private scope — else nothing is asked and nothing written
+    assertWritable(planned.targets, 'plan')
+    // asked also in "Apply directly" when the plan says so (rows that start paid or outward work, task holds) — and when
+    // its targets do (≥ rowsAsk rows in databases that start paid or outward work), with the card's line saying why
+    const heavy = planned.alwaysAsk ? 0 : asksAlways(planned.targets)
+    const plan: WritePlan = heavy ? { ...planned, alwaysAsk: true, lines: [...planned.lines, { k: 'note', value: t('features.mcp.plan.startsHold', { n: chars(heavy) }) }] } : planned
     const ask = get().mode === 'ask' || !!plan.alwaysAsk
     if (ask) {
       send({ type: 'pending', id, timeoutMs: MCP_APPROVAL_MS })
@@ -579,6 +591,8 @@ async function handleCall(id: string, tool: McpToolName, args: Record<string, un
     // still the same workspace right before anything is written
     const still = boundWorkspace(expected)
     if (!still.ok || still.ws.id !== at.ws.id) return fail(still.ok ? mismatch(at.ws.id, still.ws) : still.error, 'rejected')
+    // the gate again: locked, trashed, made One's own or marked by the person while the card waited — nothing is written
+    assertWritable(plan.targets, 'apply')
     // the call writes as itself (store/writer.ts): mcp:<session>:<call>:<tool>; the recorder learns its client first
     const writer: Writer = { kind: 'mcp', session: get().session ?? '-', call: id, tool }
     noteRun(writer, { tool, ...(get().client?.name ? { client: clientName(get().client!.name) } : {}) })
@@ -586,7 +600,7 @@ async function handleCall(id: string, tool: McpToolName, args: Record<string, un
     const tape = tapeCall(writer)
     let applied: Awaited<ReturnType<WritePlan['apply']>>
     try {
-      applied = await plan.apply(writer)
+      applied = await withReadLimit(mcpReadLimit, () => plan.apply(writer))
     } catch (e) {
       // nothing to undo (a failed call's own rollback ran)
       tape.stop()

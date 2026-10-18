@@ -25,10 +25,11 @@ import { CREATABLE_TYPES, MAX_DB_PROPERTIES, McpWrites, cleanRowTitle, cleanTitl
 import { once } from './duplicates.ts'
 import { dupHash, remembersResult } from '../../../src/shared/mcp/duplicates.ts'
 import { McpBatch } from './batch.ts'
+import { assertWritable } from './gate.ts'
 import { McpPreimages, fragmentSnapshot, textHash } from './preimages.ts'
 import { fragmentText } from '../api/content.ts'
 import { contentDoc } from '../api/model.ts'
-import { MCP_CONTRACT_REV, MCP_LIMITS, MCP_LINE_BOARD, MCP_LINE_CLASS, MCP_LINE_CODEWORD, MCP_LINE_CONTENT, mcpDescription, type McpToolName } from '../../../src/shared/mcp/contract.ts'
+import { MCP_CONTRACT_REV, MCP_LIMITS, MCP_TOOLS, MCP_LINE_BOARD, MCP_LINE_CLASS, MCP_LINE_CODEWORD, MCP_LINE_CONTENT, mcpDescription, type McpToolName } from '../../../src/shared/mcp/contract.ts'
 import { codeOf, isMcpErrorCode, mcpError, withRemedy, type McpErrorCode } from '../../../src/shared/mcp/errors.ts'
 import { stripRefLabels } from '../../../src/shared/mcp/refs.ts'
 import { MCP_PAGE_KINDS } from '../../../src/shared/mcp/tables.ts'
@@ -178,6 +179,30 @@ function strictArguments(server: McpServer): void {
   }
 }
 
+/**
+ * The write gate (gate.ts, Weg 4 D4) before every write tool: what the call touches may be written by an agent — no
+ * template's page, nothing in the trash, nothing of One's own databases, no locked page's text or database's schema —
+ * else it is refused before the tool runs (the tools' own checks stay as the backstop). A call that names another
+ * workspace is left to the tool's boundary refusal (`inside` false): nothing is read for it.
+ */
+function gateWrites(server: McpServer, inside: (workspace: string | undefined) => boolean, check: (tool: McpToolName, a: Record<string, unknown>) => Promise<void>): void {
+  const register = server.registerTool.bind(server) as (name: string, config: Record<string, unknown>, cb: (a: Record<string, unknown>, extra: unknown) => unknown) => unknown
+  ;(server as unknown as { registerTool: typeof register }).registerTool = (name, config, cb) => {
+    if (!MCP_TOOLS.some((t) => t.name === name && t.write)) return register(name, config, cb)
+    return register(name, config, async (a, extra) => {
+      if (inside(typeof a?.workspace === 'string' ? a.workspace : undefined)) {
+        try {
+          await check(name as McpToolName, a ?? {})
+        } catch (err) {
+          if (err instanceof ApiError) throw new Error(explain(err))
+          throw err
+        }
+      }
+      return cb(a, extra)
+    })
+  }
+}
+
 function instructions(name: string, id: string, write: boolean): string {
   return [
     `SimpleCMS One team workspace "${name}": pages (Markdown content), databases with typed properties, rows (pages inside a database).`,
@@ -224,6 +249,9 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
     if (!/^(local|team):/.test(want) && name && norm(want) === norm(name)) return null
     return `workspace_mismatch: this connection (its API token) reaches only the workspace ${JSON.stringify(name)} (${self.id}); ${JSON.stringify(want)} is not it, so nothing was done. Ask the person which workspace they mean — another workspace needs its own token.`
   }
+
+  // the write gate before every write tool (gate.ts)
+  gateWrites(server, (arg) => outside(arg) === null, (tool, a) => assertWritable(model, ws, tool, a))
 
   /** The JSON answer, naming the workspace it came from. */
   const json = (value: Json) => {

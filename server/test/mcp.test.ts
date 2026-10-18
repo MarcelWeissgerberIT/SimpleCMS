@@ -345,7 +345,7 @@ describe('remote MCP', () => {
     for (const id of ['tpl-1', 'tpl-2', 'db-tpl']) await fails(reader, 'one_get_page', { id }, /No page with id/)
     await fails(reader, 'one_query_database', { databaseId: 'db-tpl' }, /no such database|no database/i)
     await fails(writer, 'one_create_row', { databaseId: 'db-tpl', title: 'Sneaky' }, /no such database|no database/i)
-    await fails(writer, 'one_create_page', { title: 'Sneaky', parentId: 'tpl-1' }, /no such parent page|no parent page/i)
+    await fails(writer, 'one_create_page', { title: 'Sneaky', parentId: 'tpl-1' }, /^not_found: parentId: No page with id "tpl-1"/) // the write gate: a template's page reads as unknown
     await fails(writer, 'one_trash_page', { id: 'tpl-2' }, /no page|no such page/i)
   })
 
@@ -481,7 +481,7 @@ describe('remote MCP', () => {
     assert.match(msg, /allowed — Status: Not started, In progress, Done/)
     await fails(writer, 'one_create_row', { databaseId: 'db-tasks', title: 'x', properties: { Colour: 'red' } }, /Unknown property "Colour"/)
     await fails(writer, 'one_create_row', { databaseId: 'doc-1', title: 'x' }, /No such database/)
-    await fails(outsider, 'one_create_row', { databaseId: 'db-tasks', title: 'x' }, /No such database/)
+    await fails(outsider, 'one_create_row', { databaseId: 'db-tasks', title: 'x' }, /^not_found: databaseId: No database with id "db-tasks"/)
   })
 
   test('one_update_row: values by name, the title by its property name; 404 for pages that are not rows', async () => {
@@ -521,7 +521,7 @@ describe('remote MCP', () => {
     await waitFor(() => (meta.doc.getMap('pages').get(top.id) as Y.Map<unknown> | undefined)?.get('parentId') === null, 5000, 'top-level page')
 
     await fails(writer, 'one_create_page', { title: 'x', parentId: 'db-tasks' }, /one_create_row/)
-    await fails(writer, 'one_create_page', { title: 'x', parentId: 'secret-1' }, /No such parent/)
+    await fails(writer, 'one_create_page', { title: 'x', parentId: 'secret-1' }, /^not_found: parentId: No page with id "secret-1"/)
     await fails(writer, 'one_update_page', { id: 'db-tasks', markdown: 'x' }, /database/)
     await fails(writer, 'one_update_page', { id: 'nope', title: 'x' }, /No page/)
     await fails(writer, 'one_update_page', { id: created.id, icon: 'not an icon at all' }, /icon/)
@@ -650,7 +650,7 @@ describe('remote MCP', () => {
     const a = await call(writer, 'one_create_page', { title: 'Old A' })
     const b = await call(writer, 'one_create_page', { title: 'Old B', parentId: a.id })
     const c = await call(writer, 'one_create_page', { title: 'Old C' })
-    await fails(writer, 'one_trash_page', { ids: [a.id, 'nope'] }, /^not_found: Nothing was moved to the trash: no page with id "nope"/)
+    await fails(writer, 'one_trash_page', { ids: [a.id, 'nope'] }, /^not_found: ids\[1\]: No page with id "nope"/)
     assert.equal((await call(reader, 'one_get_page', { id: a.id })).title, 'Old A', 'all or nothing')
     await fails(writer, 'one_trash_page', {}, /Missing required parameter "id"/)
     const bulk = await call(writer, 'one_trash_page', { ids: [a.id, b.id, c.id] })
@@ -664,9 +664,9 @@ describe('remote MCP', () => {
     assert.equal((await call(reader, 'one_get_page', { id: b.id })).path, 'Old A / Old B')
 
     // private pages and templates: untouchable, as if they did not exist
-    await fails(writer, 'one_trash_page', { id: 'secret-1' }, /no page with id "secret-1"/)
+    await fails(writer, 'one_trash_page', { id: 'secret-1' }, /no page with id "secret-1"/i)
     await fails(writer, 'one_restore_page', { id: 'secret-1' }, /nothing in the trash has id "secret-1"/)
-    await fails(writer, 'one_trash_page', { ids: ['tpl-1'] }, /no page with id "tpl-1"/)
+    await fails(writer, 'one_trash_page', { ids: ['tpl-1'] }, /no page with id "tpl-1"/i)
   })
 
   test('one_move_page: under another page, before / after / index, to the top level; cycles, databases, rows and private pages refused', async () => {
@@ -792,7 +792,7 @@ describe('remote MCP', () => {
       ['one_update_view', { databaseId: 'db-locked', view: 'Board', name: 'x' }],
       ['one_delete_view', { databaseId: 'db-locked', view: 'Board' }],
     ] as const)
-      await fails(writer, name, args, /"Archive" is locked in the app/)
+      await fails(writer, name, args, /^locked: databaseId: "Archive" is locked in One: its properties and views cannot change/)
   })
 
   test('the token’s last use is recorded and nothing secret reaches the log', async () => {

@@ -1274,6 +1274,12 @@ the public APIs stable — other areas are built against them in parallel.
   property, view, move or trash call and no plain append keeps one: every surface says so; Restore is all or nothing; S bodies ≤ 256 KB read / 512 KB write, a bigger tools/call answers `too_large`; `GET …/mcp-calls`, `POST …/mcp-calls/:callId/restore`, Workspace →
   Automation → API § 07). Client text naming a tool that does not exist yet is a bug (T-b brings `one_attach_file`,
   `one_edit_blocks`, files, `one_comment`, templates).
+- MCP write gate (Weg 4 D4; src/shared/mcp/targets.ts `targetProblem`, B features/mcp/gate.ts, S server/src/mcp/gate.ts):
+  every planner fills `WritePlan.targets` (content · schema · rows · places, + marked / trees / restores / moves, `paths`
+  per id, `why` for a database reached through another); service.ts runs `assertWritable(targets, 'plan')` after
+  planning and `'apply'` right before `plan.apply(writer)` (after boundWorkspace), installs `withReadLimit(mcpReadLimit)`
+  once per call and derives "always asked" from the targets too (`asksAlways`); S runs `targetsOf` + the same check
+  before each write tool (`gateWrites`). Per-tool checks stay as the backstop. A new write tool fills its targets.
 - MCP tidy-up tools (trash / restore ≤ 50 ids, move page / row, update database / property, delete property, view
   create / update / delete) live in `features/mcp/{tidy,structure}.ts` and `server/src/mcp/{tidy,structure}.ts` with
   the same rules: never delete for good, locked databases refuse structure changes, no page ⇄ entry or Private ⇄ shared

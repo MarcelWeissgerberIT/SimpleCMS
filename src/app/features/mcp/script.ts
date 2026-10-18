@@ -17,6 +17,7 @@ import { str, type WritePlan } from './plan'
 import { live, McpToolError, q, titleOf, ws } from './values'
 import { mcpPageText } from './limits'
 import { systemBelow, systemOf, systemRefusal, type SystemHit } from './system'
+import { noTargets } from './gate'
 import type { WriteTarget, WriteVerdict } from '../script'
 
 /* ------------------------------------------------------------------ one_run_query */
@@ -108,7 +109,7 @@ export async function planRunScript(args: Record<string, unknown>): Promise<Writ
   const page = rawPage ? live(rawPage) : null
   if (rawPage && !page) throw new McpToolError(`not_found: No page with id ${q(rawPage)}. Use one_search to find page ids.`)
   const contextPageId = page?.id ?? null
-  const base = { tool: 'one_run_script' as const, verb: t('features.mcp.verb.dryRunScript'), target: script.name, summary: script.name, lines: [], apply: async () => ({ result: null }) }
+  const base = { tool: 'one_run_script' as const, verb: t('features.mcp.verb.dryRunScript'), target: script.name, summary: script.name, lines: [], targets: noTargets(), apply: async () => ({ result: null }) }
   const scriptInfo = { id: script.id, name: script.name, kind: script.kind }
 
   // a saved query only reads: its answer

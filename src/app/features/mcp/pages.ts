@@ -22,6 +22,7 @@ import { atPath, chars, checkFileScope, pageOrThrow, parseIcon, preview, str, ta
 import { withWriter } from '../../store/writer'
 import { bodyLine, rowNo, sideEffects, sideHold, type SideEffects } from './rows'
 import { stripRefLabels } from '../../../shared/mcp/refs'
+import { mergeTargets, stageTargets } from './gate'
 
 type Parent = { kind: 'none' } | { kind: 'page'; page: Page } | { kind: 'batch'; index: number }
 
@@ -241,6 +242,12 @@ export function planCreatePage(args: Record<string, unknown>): WritePlan {
     target: batch ? (callParent ? titleOf(callParent) : t('features.mcp.plan.topLevel')) : items[0]!.title,
     lines,
     ...(tasks.holds.length || hold.alwaysAsk ? { alwaysAsk: true } : {}),
+    // the parents the pages go under — and their text when a link goes into it
+    targets: mergeTargets(stageTargets(stage.changes), {
+      places: items.flatMap((it) => (it.parent.kind === 'page' ? [it.parent.page.id] : [])),
+      content: link === 'none' ? [] : items.flatMap((it) => (it.parent.kind === 'page' ? [it.parent.page.id] : [])),
+      paths: Object.fromEntries(items.flatMap((it, i) => (it.parent.kind === 'page' ? [[it.parent.page.id, link !== 'none' ? 'linkInParent' : batch && !shared ? `pages[${i}].parentId` : 'parentId']] : []))),
+    }),
     async apply(writer) {
       // a parent locked while the card waited takes no link (spec § 3.3): refused before anything is made
       if (link !== 'none')

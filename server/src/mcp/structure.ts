@@ -169,7 +169,7 @@ type Rollup = { relationPropertyId?: string; targetPropertyId?: string }
  * The rollups a property's delete clears: in its own database those that roll up through it (a relation), in every other
  * live database (templates left out — liveDatabase) those that roll it up through a relation to its database.
  */
-function rollupsOn(r: Roots, dbId: string, propId: string): Array<{ dbId: string; ydb: Y.Map<unknown>; propId: string; name: string; title: string; locked: boolean; next: Rollup }> {
+export function rollupsOn(r: Roots, dbId: string, propId: string): Array<{ dbId: string; ydb: Y.Map<unknown>; propId: string; name: string; title: string; locked: boolean; next: Rollup }> {
   const out: Array<{ dbId: string; ydb: Y.Map<unknown>; propId: string; name: string; title: string; locked: boolean; next: Rollup }> = []
   for (const otherId of r.databases.keys()) {
     const other = liveDatabase(r, otherId)

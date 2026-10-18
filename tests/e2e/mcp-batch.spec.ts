@@ -1238,7 +1238,7 @@ test('a page locked while the card waited takes nothing (review 5): one_update_p
   expect(await plain()).toBe('Intro.')
   await lockedWhileWaiting('one_update_page', { id: host, markdown: 'Replaced by Claude.', mode: 'replace' }, /^locked: markdown: "Handbuch" was locked meanwhile/)
   expect(await plain()).toBe('Intro.')
-  await lockedWhileWaiting('one_create_page', { title: 'Kapitel', parentId: host, linkInParent: 'block' }, /^locked: linkInParent: "Handbuch" was locked meanwhile: no link can be added to its text\. Nothing was changed\./)
+  await lockedWhileWaiting('one_create_page', { title: 'Kapitel', parentId: host, linkInParent: 'block' }, /^locked: linkInParent: "Handbuch" was locked meanwhile: its content cannot change \(its title and icon can\)\. Nothing was changed\./)
   expect(await blocks()).toEqual(['paragraph'])
   expect(await wsEval(page, (s) => Object.values(s.pages as Record<string, AnyState>).some((p) => p.title === 'Kapitel' && !p.trashed))).toBe(false)
 })

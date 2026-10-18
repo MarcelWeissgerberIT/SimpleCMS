@@ -11,6 +11,7 @@ import { t } from '../../i18n'
 import type { ID } from '../../store/types'
 import { itemScope, listItems } from '../ai/agent/workItems'
 import { ToolInputError, withReadLimit } from '../ai/agent/tools'
+import { stageTargets } from './gate'
 import { mcpReadLimit } from './limits'
 import { getItemIndex, isBlocked, isOverdue, peopleResolver, settleWorld, type ItemEntry, type SettleWorld } from '../workitems'
 import { applyStaged, callStage, itemPlan, mcpMessage, stageWith } from './stage'
@@ -123,6 +124,8 @@ export function planUpdateWorkItems(args: Record<string, unknown>): WritePlan {
     target: changes.length === 1 ? (first?.title ?? '') : t('features.mcp.sum.updateTasks', { n: changes.length }),
     lines,
     ...(items.holds.length || hold.alwaysAsk ? { alwaysAsk: true } : {}),
+    // the pages holding the tasks (their text)
+    targets: stageTargets(stage.changes),
     noop: changes.length ? undefined : { tasks: tasksNow(asked), note: 'No change: the tasks already have these values.' },
     async apply(writer) {
       await applyStaged(stage.changes, writer)

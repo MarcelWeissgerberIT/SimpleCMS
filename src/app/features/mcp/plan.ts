@@ -13,6 +13,7 @@ import { COLOR_NAMES } from '../../store/types'
 import type { McpToolName } from './contract'
 import { live, McpToolError, q, ws } from './values'
 import type { Writer } from '../../store/writer'
+import type { WriteTargets } from '../../../shared/mcp/targets'
 import { privateRefsFor, privateScopeRefusal } from '../ai/claudeFiles'
 import { batchRefusal, codeOf, mcpError } from '../../../shared/mcp/errors'
 import { optionColor, optionPath, readOptions } from '../../../shared/mcp/options'
@@ -53,6 +54,11 @@ export interface WritePlan {
   noopNote?: string
   /** asked even when changes are applied directly (≥ 5 rows that start paid AI work or send something out of One, task holds) */
   alwaysAsk?: boolean
+  /**
+   * what the call touches (gate.ts — one check at plan time and again right before apply: template, trash, One's own
+   * databases, locked, context marks, private scope); [] everywhere for a call that writes nothing
+   */
+  targets: WriteTargets
   /** write it as `writer`'s (store/writer.ts: the MCP call) — every synchronous burst inside its frame */
   apply(writer: Writer): Promise<Applied>
 }

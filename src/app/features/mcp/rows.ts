@@ -23,6 +23,7 @@ import { atPath, chars, checkFileScope, eachEntry, pageOrThrow, preview, str, ta
 import { withFilesWritable } from '../ai/agent/props'
 import { mcpReadLimit } from './limits'
 import { stripRefLabels } from '../../../shared/mcp/refs'
+import { stageTargets } from './gate'
 
 /* ------------------------------------------------------------------ */
 /* Shared                                                              */
@@ -265,6 +266,7 @@ export function planCreateRow(args: Record<string, unknown>): WritePlan {
     target: dbName,
     lines,
     ...(items_.holds.length || hold.alwaysAsk ? { alwaysAsk: true } : {}),
+    targets: { ...stageTargets(stage.changes), paths: { [db.id]: 'databaseId' } },
     async apply(writer) {
       const { rowIds } = await applyStaged(stage.changes, writer)
       const live = ws().databases[db.id]
@@ -396,6 +398,7 @@ export function planUpdateRow(args: Record<string, unknown>): WritePlan {
     target: batch ? dbs.join(', ') : `${first.dbName} / ${titleOf(first.row)}`,
     lines,
     ...(items.holds.length || alwaysAsk ? { alwaysAsk: true } : {}),
+    targets: { ...stageTargets(stage.changes), paths: Object.fromEntries(plans.map((p, i) => [p.row.id, batch ? `rows[${i}].id` : 'id'])) },
     noop: stage.changes.length ? undefined : { ...result(), note: batch ? 'No change: every row already has these values.' : 'No change: the row already has these values.' },
     async apply(writer) {
       await applyStaged(stage.changes, writer)
@@ -546,6 +549,8 @@ export function planUpsertRows(args: Record<string, unknown>): WritePlan {
     target: dbName,
     lines,
     ...(items.holds.length || hold.alwaysAsk ? { alwaysAsk: true } : {}),
+    // the rows it makes, the rows it changes (their values, their text)
+    targets: { ...stageTargets(stage.changes), paths: { [db.id]: 'databaseId', ...Object.fromEntries(textInto.map((x) => [x.id, x.path])) } },
     noop: stage.changes.length ? undefined : { ...answer({}), note: 'No change: every row already has these values.' },
     async apply(writer) {
       // locked while the card waited: nothing written

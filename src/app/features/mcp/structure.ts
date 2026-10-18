@@ -22,6 +22,7 @@ import { mcpError } from '../../../shared/mcp/errors'
 import { colorRefusal, optionName } from '../../../shared/mcp/options'
 import { canBeHandOnly, canBeKey } from '../../store/keys'
 import { MCP_LIMITS } from '../../../shared/mcp/tables'
+import { noTargets } from './gate'
 
 /* ------------------------------------------------------------------ */
 /* Lookups                                                             */
@@ -102,6 +103,8 @@ function planUpdateDatabase(args: Record<string, unknown>): WritePlan {
     summary: t('features.mcp.sum.updateDatabase', { title: name }),
     target: name,
     lines,
+    // its title and icon (a locked database keeps them writable, as its rows)
+    targets: { ...noTargets(), places: [db.id], paths: { [db.id]: 'id' } },
     noop: changed.length ? undefined : { ...result(), note: 'No change: the database already looks like that.' },
     async apply(writer) {
       // every write of this call under its writer (store/writer.ts) — one synchronous burst
@@ -253,6 +256,14 @@ function planDeleteProperty(args: Record<string, unknown>): WritePlan {
     target: `${title} / ${prop.name}`,
     lines,
     ...(hold.alwaysAsk ? { alwaysAsk: true } : {}),
+    // its schema, the databases whose rollups it clears, the rows losing a value
+    targets: {
+      ...noTargets(),
+      schema: [db.id, ...others.map((r) => r.dbId)],
+      paths: { [db.id]: 'databaseId', ...Object.fromEntries(others.map((r) => [r.dbId, 'property'])) },
+      why: Object.fromEntries(others.map((r) => [r.dbId, `its rollup ${q(r.name)} rolls up ${q(prop.name)}, and the delete would clear it`])),
+      rows: [{ db: db.id, ids: allRows(db.id).filter((r) => !r.trashed && !isEmpty(r.properties[prop.id])).map((r) => r.id) }],
+    },
     async apply(writer) {
       // every write of this call under its writer (store/writer.ts) — one synchronous burst
       return withWriter(writer, () => {
@@ -451,6 +462,8 @@ function planUpdateProperty(args: Record<string, unknown>): WritePlan {
     target: `${title} / ${prop.name}`,
     lines,
     ...(hold.alwaysAsk ? { alwaysAsk: true } : {}),
+    // its schema and the rows whose value it clears or converts
+    targets: { ...noTargets(), schema: [db.id], paths: { [db.id]: 'databaseId' }, rows: [{ db: db.id, ids: (toType ? rows.filter((r) => !r.trashed && !isEmpty(r.properties[prop.id])) : losing).map((r) => r.id) }] },
     noop: changed.length ? undefined : { ...result(), note: 'No change: the property already looks like that.' },
     async apply(writer) {
       // every write of this call under its writer (store/writer.ts) — one synchronous burst
@@ -820,6 +833,7 @@ function planCreateView(args: Record<string, unknown>): WritePlan {
     summary: t('features.mcp.sum.createView', { name: view.name, db: title }),
     target: `${title} / ${view.name}`,
     lines,
+    targets: { ...noTargets(), schema: [db.id], paths: { [db.id]: 'databaseId' } },
     async apply(writer) {
       // every write of this call under its writer (store/writer.ts) — one synchronous burst
       return withWriter(writer, () => {
@@ -852,6 +866,7 @@ function planUpdateView(args: Record<string, unknown>): WritePlan {
     summary: t('features.mcp.sum.updateView', { name: view.name, db: title }),
     target: `${title} / ${view.name}`,
     lines,
+    targets: { ...noTargets(), schema: [db.id], paths: { [db.id]: 'databaseId' } },
     noop: Object.keys(patch).length ? undefined : { ...result(), note: 'No change: the view already looks like that.' },
     async apply(writer) {
       // every write of this call under its writer (store/writer.ts) — one synchronous burst
@@ -883,6 +898,7 @@ function planDeleteView(args: Record<string, unknown>): WritePlan {
       { k: 'fact', label: t('features.mcp.plan.layout'), value: layoutName(view.type) },
       { k: 'note', value: t('features.mcp.plan.viewGoneNote') },
     ],
+    targets: { ...noTargets(), schema: [db.id], paths: { [db.id]: 'databaseId' } },
     async apply(writer) {
       // every write of this call under its writer (store/writer.ts) — one synchronous burst
       return withWriter(writer, () => {

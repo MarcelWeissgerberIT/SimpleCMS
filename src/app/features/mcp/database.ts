@@ -29,6 +29,7 @@ import { mcpReadableTop, mcpReadLimit } from './limits'
 import { bodyLine, checkFiles, rowFacts, rowNo, sideEffects, sideHold, splitTitle } from './rows'
 import { layoutName, viewChange } from './structure'
 import { withWriter } from '../../store/writer'
+import { noTargets } from './gate'
 
 /** What a board groups by when the call names nothing (spec § 2.3): the first of these types. */
 const GROUPABLE: PropertyDef['type'][] = ['status', 'select', 'multi_select', 'person', 'checkbox']
@@ -296,6 +297,8 @@ export function planCreateDatabase(args: Record<string, unknown>): WritePlan {
     target: title,
     lines,
     ...(tasks.holds.length || side.alwaysAsk ? { alwaysAsk: true } : {}),
+    // the page it goes under (inline: into its text); its own rows are new
+    targets: { ...noTargets(), places: parent ? [parent.id] : [], content: inline && parent ? [parent.id] : [], ...(parent ? { paths: { [parent.id]: wherePath } } : {}) },
     async apply(writer) {
       if (parent && !live(parent.id)) throw new McpToolError(mcpError('not_found', inline ? 'inline.pageId' : 'parentId', `${q(titleOf(parent))} is gone (deleted or in the trash) since the call was made`))
       // moved into One's own databases while the card waited (spec § 3.3): nothing new below it

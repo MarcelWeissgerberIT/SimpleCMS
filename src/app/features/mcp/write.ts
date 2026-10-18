@@ -33,6 +33,7 @@ import { mcpError } from '../../../shared/mcp/errors'
 import { TIDY_PLANNERS } from './tidy'
 import { STRUCTURE_PLANNERS } from './structure'
 import { withWriter } from '../../store/writer'
+import { mergeTargets, stageTargets } from './gate'
 
 export type { Applied, PlanLine, WritePlan } from './plan'
 export { mcpMessage } from './stage'
@@ -157,6 +158,12 @@ function planUpdatePage(args: Record<string, unknown>): WritePlan {
     target: name,
     lines,
     ...(holds.length || side.alwaysAsk ? { alwaysAsk: true } : {}),
+    // its text (a replace overwrites what the person's context marks may hide), its title / icon, the folded task changes
+    targets: mergeTargets(
+      stageTargets(stage.changes),
+      { content: markdown !== null ? [page.id] : [], marked: replaceWith ? [page.id] : [] },
+      { places: iconChanged || (changed.includes('title') && !page.databaseId) ? [page.id] : [], paths: { [page.id]: markdown !== null ? 'markdown' : 'id' } },
+    ),
     noop: changed.length ? undefined : { id: page.id, title: page.title, url: pageUrl(page.id), changed: [], note: 'No change: the page already looks like that.' },
     async apply(writer) {
       if (!live(page.id)) throw new McpToolError(mcpError('not_found', 'id', `${q(name)} is gone (deleted or in the trash) since the call was made`))
@@ -207,6 +214,7 @@ function planCreateProperty(args: Record<string, unknown>): WritePlan {
     summary: t('features.mcp.sum.createProperty', { name: spec.def.name, db: dbTitle }),
     target: dbTitle,
     lines: spec.lines,
+    targets: { content: [], schema: [db.id], rows: [], places: [], paths: { [db.id]: 'databaseId' } },
     async apply(writer) {
       const now = ws().databases[db.id]
       if (!now || !live(db.id)) throw new McpToolError(`${q(dbTitle)} is gone. Nothing was changed.`)
