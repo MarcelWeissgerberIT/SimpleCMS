@@ -28,7 +28,7 @@ import { SpeechRecognizer, openAgent, speechSupported, useRecorderOpen, type Spe
 import { useIsMobile } from '../lib/hooks'
 import { createPageAndOpen, goToPage } from '../lib/actions'
 import { isReadOnly, useReadOnly } from '../cloud/state'
-import { InstallPlacardHost } from './Install'
+import { InstallPlacardHost } from './Install.tsx'
 import { captureTargets, saveCapture, writable, type CaptureTarget } from './quick'
 import { SHARE_FILE_MAX, SHARE_TOTAL_MAX } from './share'
 import { sizeLabel } from './ClipConfirm'

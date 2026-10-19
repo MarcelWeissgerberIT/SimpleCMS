@@ -33,7 +33,7 @@ import { useRack } from './RackContext'
 import { benchPainted, onBenchPainted, useBenchPainted } from './paintMark'
 import { lampNo } from '../setup/keys'
 import { announce, noteTight, selectModule, setCursor, setHover, usePbUI } from './store'
-import { hasLiveWindow, ledOf, LiveLed, LiveWindow, useModuleLive } from './LiveWin'
+import { hasLiveWindow, ledOf, LiveLed, LiveWindow, useModuleLive } from './LiveWin.tsx'
 import { useDragOver, useModuleAccept } from './patchUI'
 
 const P = 'features.patchbay'

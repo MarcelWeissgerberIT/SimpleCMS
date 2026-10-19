@@ -1,0 +1,33 @@
+.local-coder {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--rule);
+  background: var(--paper);
+}
+.local-coder__field {
+  display: grid;
+  gap: 6px;
+  margin: 12px 0;
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+.local-coder__field .input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  font-weight: 400;
+}
+.local-coder__field textarea {
+  resize: vertical;
+  line-height: 1.5;
+}
+.local-coder__result {
+  max-height: 320px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 12px;
+  border: 1px solid var(--rule);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
