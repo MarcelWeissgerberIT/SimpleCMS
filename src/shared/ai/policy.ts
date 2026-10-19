@@ -5,7 +5,8 @@
  * generation a stored rule needs refuses every AI request (it would not enforce that rule).
  */
 import type { Caps, DataClass, DeviceAI, FeatureClass, MemberClass, PriceOverride, PriceRow, ProviderId, ProviderPolicy, Restriction, RouteRule, SharedClass, ShortlistRow, UpstreamRule, WorkspaceAI } from './types.ts'
-import { EFFORTS, STORED_PROVIDERS, isProviderId, modelIdProblem } from './models.ts'
+import { EFFORTS, STORED_PROVIDERS, WORKSPACE_PROVIDERS, isProviderId, modelIdProblem } from './models.ts'
+import { sanitizeLocal } from './local.ts'
 import { PRICE_KEYS } from './prices.ts'
 import { sanitizeRule } from './route.ts'
 import { isJevRouter } from './jev.ts'
@@ -21,10 +22,11 @@ export const FEATURE_CLASSES: readonly FeatureClass[] = ['write', 'ask', 'worksp
  * This build's AI policy generation (generations.ts names each entry; this is N only in a build holding every entry
  * numbered ≤ N): 1 = no rule limits Claude; 2 = GEN.claudeLimits, data rules that limit Claude (a workspace allow list or
  * forbid for Claude, a device narrow) are enforced at every point a request is built (S2); 3 = GEN.budget, a day / month
- * budget of the workspace or this browser is enforced by the Regler's brake (features/governor/install.ts, G1). Restricted
+ * budget of the workspace or this browser is enforced by the Regler's brake (features/governor/install.ts, G1); 4 =
+ * GEN.localRoutes, a device rule naming the local model server is routed there (core/resolve.ts, local slice 1). Restricted
  * pages get a GEN entry of their own, numbered when they merge — never a number promised here.
  */
-export const AI_POLICY_GEN: number = GEN.budget
+export const AI_POLICY_GEN: number = GEN.localRoutes
 
 export const MAX_RESTRICTED = 200
 export const MAX_SHORTLIST = 24
@@ -43,7 +45,7 @@ function restrictions(v: unknown): Restriction[] {
   const out: Restriction[] = []
   for (const x of v) {
     if (!isObj(x) || typeof x.root !== 'string' || !ID_RE.test(x.root)) continue
-    const to = pick(x.to, STORED_PROVIDERS)
+    const to = pick(x.to, WORKSPACE_PROVIDERS)
     if (out.some((o) => o.root === x.root)) continue
     out.push({ root: x.root, to })
     if (out.length >= MAX_RESTRICTED) break
@@ -57,20 +59,21 @@ function upstream(v: unknown): UpstreamRule | undefined {
   return { deny, noCollect: v.noCollect !== false, zdr: v.zdr === true }
 }
 
-function routes<K extends string>(v: unknown, keys: readonly K[]): Partial<Record<K, RouteRule>> | undefined {
+/** `local`: may a rule name the local model server (this device's rules only — a workspace rule that does is dropped). */
+function routes<K extends string>(v: unknown, keys: readonly K[], local: boolean): Partial<Record<K, RouteRule>> | undefined {
   if (!isObj(v)) return undefined
   const out: Partial<Record<K, RouteRule>> = {}
   for (const k of keys) {
     const r = sanitizeRule(v[k])
-    if (r) out[k] = r
+    if (r && (local || !namesLocal(r))) out[k] = r
   }
   return Object.keys(out).length ? out : undefined
 }
 
-function perProvider<T>(v: unknown, read: (x: unknown) => T | undefined): Partial<Record<ProviderId, T>> | undefined {
+function perProvider<T>(v: unknown, read: (x: unknown) => T | undefined, providers: readonly ProviderId[] = WORKSPACE_PROVIDERS): Partial<Record<ProviderId, T>> | undefined {
   if (!isObj(v)) return undefined
   const out: Partial<Record<ProviderId, T>> = {}
-  for (const p of STORED_PROVIDERS) {
+  for (const p of providers) {
     const x = read(v[p])
     if (x !== undefined) out[p] = x
   }
@@ -92,7 +95,7 @@ export function sanitizeWorkspaceAI(v: unknown): WorkspaceAI | undefined {
     })
     out.policy = { providers: providers ?? {}, restricted: restrictions(v.policy.restricted) }
   }
-  const r = routes<FeatureClass | '*'>(v.routes, [...FEATURE_CLASSES, '*'])
+  const r = routes<FeatureClass | '*'>(v.routes, [...FEATURE_CLASSES, '*'], false)
   if (r) out.routes = r
   const limits = perProvider(v.limits, (x) => {
     const usd = isObj(x) ? fin(x.monthUsd) : undefined
@@ -186,14 +189,15 @@ function shortlist(v: unknown): ShortlistRow[] {
 export function sanitizeDeviceAI(v: unknown): DeviceAI | undefined {
   if (!isObj(v)) return undefined
   const out: DeviceAI = {}
-  const r = routes<FeatureClass>(v.routes, FEATURE_CLASSES)
+  const r = routes<FeatureClass>(v.routes, FEATURE_CLASSES, true)
   if (r) out.routes = r
+  // the local model server takes the AI terminal only (slice 1): never the default for every kind of work
   const d = sanitizeRule(v.default)
-  if (d) out.default = d
+  if (d && !namesLocal(d)) out.default = d
   if (typeof v.fallbackForChosen === 'boolean') out.fallbackForChosen = v.fallbackForChosen
   const allow = perProvider(v.allow, (x) => (Array.isArray(x) ? pick(x, MEMBER_CLASSES) : undefined))
   if (allow) out.allow = allow
-  const narrow = perProvider(v.narrow, (x) => (Array.isArray(x) ? pick(x, DATA_CLASSES) : undefined))
+  const narrow = perProvider(v.narrow, (x) => (Array.isArray(x) ? pick(x, DATA_CLASSES) : undefined), STORED_PROVIDERS)
   if (narrow) out.narrow = narrow
   if (Array.isArray(v.restricted)) out.restricted = restrictions(v.restricted)
   if (Array.isArray(v.models)) out.models = shortlist(v.models)
@@ -206,6 +210,8 @@ export function sanitizeDeviceAI(v: unknown): DeviceAI | undefined {
     if (typeof v.jev.compare === 'boolean') j.compare = v.jev.compare
     if (Object.keys(j).length) out.jev = j
   }
+  const local = sanitizeLocal(v.local)
+  if (local) out.local = local
   const g = gen(v.gen)
   if (g !== undefined) out.gen = g
   return Object.keys(out).length ? out : undefined
@@ -219,7 +225,7 @@ export type RoleKey = (typeof ROLE_KEYS)[number]
 function readRoles(v: unknown): DeviceAI['roles'] | undefined {
   if (!isObj(v)) return undefined
   const out: NonNullable<DeviceAI['roles']> = {}
-  for (const p of STORED_PROVIDERS) {
+  for (const p of WORKSPACE_PROVIDERS) {
     const x = v[p]
     if (!isObj(x)) continue
     const r: Partial<Record<RoleKey, string>> = {}
@@ -251,6 +257,9 @@ const has = (list: readonly string[] | undefined, c: string): boolean => !!list 
  */
 export function allowedFor(p: ProviderId, cls: DataClass, ws?: WorkspaceAI | null, device?: DeviceAI | null): boolean {
   if (has(device?.narrow?.[p], cls)) return false
+  // the local model server: nothing leaves this computer for One or a provider — every class, on this device (a team
+  // workspace never routes to it: core/resolve.ts)
+  if (p === 'local') return true
   const rule = ws?.policy?.providers?.[p]
   const claudeOpen = p === 'anthropic' && !rule
   if (isShared(cls)) return claudeOpen || has(rule?.allow, cls)
@@ -320,7 +329,17 @@ export function limitsClaude(ws?: WorkspaceAI | null, device?: DeviceAI | null):
  * alone (and a rule pinning the Jev Router) need nothing: an S1 tab never sends to OpenRouter.
  */
 export function requiredGen(ws?: WorkspaceAI | null, device?: DeviceAI | null): number {
+  // a device rule naming the local model server: an older tab would drop it and send the terminal to Claude
+  if (deviceNamesLocal(device)) return GEN.localRoutes
   return limitsClaude(ws, device) ? GEN.claudeLimits : 1
+}
+
+/** Does a rule name the local model server? */
+export const namesLocal = (rule: RouteRule | null | undefined): boolean => !!rule?.some((r) => r.p === 'local')
+
+/** Does this device's layer route any kind of work to the local model server? */
+export function deviceNamesLocal(device?: DeviceAI | null): boolean {
+  return Object.values(device?.routes ?? {}).some((r) => namesLocal(r)) || namesLocal(device?.default)
 }
 
 /* ------------------------------------------------------------------ */
@@ -351,7 +370,7 @@ const UPSTREAM_DEFAULT: UpstreamRule = { deny: [], noCollect: true, zdr: false }
  */
 export function loosens(mine?: WorkspaceAI | null, theirs?: WorkspaceAI | null): LooseItem[] {
   const out: LooseItem[] = []
-  for (const p of STORED_PROVIDERS) {
+  for (const p of WORKSPACE_PROVIDERS) {
     const a = mine?.policy?.providers?.[p]
     const b = theirs?.policy?.providers?.[p]
     const allowA = SHARED_CLASSES.filter((c) => allowedFor(p, c, mine, null))

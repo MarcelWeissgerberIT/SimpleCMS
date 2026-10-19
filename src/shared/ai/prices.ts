@@ -5,6 +5,7 @@
  * never "the most expensive known row".
  */
 import type { CostSource, PriceCols, PriceOverride, PriceRow, Route, Usage } from './types.ts'
+import { LOCAL_PRICE } from './local.ts'
 
 export const PRICES_DATE = '2026-10-12'
 
@@ -57,6 +58,8 @@ export function boundRow(cols: PriceCols, at: string = PRICES_DATE): PriceRow {
 /** The table row of a direct route (null: not in the table — an OpenRouter model, an unknown id). A dated snapshot id
  *  ('…-20261001', as a response may name the model) is priced as its model. */
 export function priceRow(route: Pick<Route, 'p' | 'm'>): PriceRow | null {
+  // a model on this computer: $0 (a known price — the Regler's band is zero, never "no price")
+  if (route.p === 'local') return LOCAL_PRICE
   return PRICES[`${route.p}:${route.m}`] ?? (route.p === 'openrouter' ? null : (PRICES[`${route.p}:${route.m.replace(/-\d{8}$/, '')}`] ?? null))
 }
 
