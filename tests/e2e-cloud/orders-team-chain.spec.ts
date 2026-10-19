@@ -458,7 +458,17 @@ test('the worker moves to B: ONE "Kette bestätigen" card there, its ↵ adopts 
   expect(adopted.chain.steps.map((s: AnyState) => s.id)).toEqual(steps)
   // this device's Approvals ('none') — never the ones A confirmed under
   expect(adopted.chain.steps.map((s: AnyState) => s.approvals)).toEqual(['none', 'none', 'none'])
-  expect(adopted.chain.doneBy['1']).toMatchObject({ kind: 'you', via: 'preflight', sawNext: true })
+  // Fix 3: "Kette bestätigen" never counts as having seen step 02 — the analysis checkpoint asks once on B
+  expect(adopted.chain.doneBy['1']).toMatchObject({ kind: 'you', via: 'preflight' })
+  expect(adopted.chain.doneBy['1'].sawNext).toBeUndefined()
+  await expect.poll(async () => (await orders(b).cards()).map((c) => c.kind), { timeout: 30_000 }).toEqual(['next'])
+  await openOrdersLamp(b)
+  await expect(pfCard(b)).toHaveAttribute('data-kind', 'next')
+  // read step 02 and its Grundlage to their ends (A acts only then)
+  await b.keyboard.press('Shift')
+  const edges = pfCard(b).getByTestId('pf-order-next').locator('.orc-edge')
+  for (let i = 0; i < (await edges.count()); i++) await edges.nth(i).scrollIntoViewIfNeeded()
+  await pressHand(b)
 
   // B goes on: step 02 with ONE Grundlage, then QA, then the end — all on B's link
   await expect.poll(() => stageOf(b, steps[2]!), { timeout: 60_000 }).toBe('Done')
