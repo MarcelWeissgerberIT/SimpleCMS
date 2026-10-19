@@ -15,6 +15,12 @@ export async function localPath(root: string, input: unknown): Promise<string> {
   const dest = resolve(root, input)
   const inside = (p: string) => { const r = relative(root, p); return !r.startsWith('..') && !isAbsolute(r) }
   if (!inside(dest)) throw new Error('Path leaves the worktree.')
+  let segment = root
+  for (const part of relative(root, dest).split(/[/\\]/).filter(Boolean)) {
+    segment = resolve(segment, part)
+    try { if ((await lstat(segment)).isSymbolicLink()) throw new Error('Symbolic links are not accessible to this agent.') }
+    catch (e) { if ((e as NodeJS.ErrnoException).code === 'ENOENT') break; throw e }
+  }
   let existing = dest
   while (true) {
     try {

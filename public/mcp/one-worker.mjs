@@ -30839,6 +30839,16 @@ async function localPath(root, input) {
     return !r.startsWith("..") && !isAbsolute4(r);
   };
   if (!inside(dest)) throw new Error("Path leaves the worktree.");
+  let segment = root;
+  for (const part of relative(root, dest).split(/[/\\]/).filter(Boolean)) {
+    segment = resolve6(segment, part);
+    try {
+      if ((await lstat(segment)).isSymbolicLink()) throw new Error("Symbolic links are not accessible to this agent.");
+    } catch (e) {
+      if (e.code === "ENOENT") break;
+      throw e;
+    }
+  }
   let existing = dest;
   while (true) {
     try {

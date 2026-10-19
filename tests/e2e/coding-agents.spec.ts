@@ -42,5 +42,13 @@ test('coding Type selects Claude, Codex or local; persists and reaches only capa
   }).toBe('codex')
   expect(payload?.stage.kind).toBe('plan')
   expect(payload?.stage.model).toBeNull()
-  await page.screenshot({ path: test.info().outputPath('coding-agent-selection.png'), fullPage: false })
+  for (const [width, height] of [[1440, 900], [390, 844]]) {
+    await page.setViewportSize({ width, height })
+    for (const theme of ['light', 'dark']) {
+      await wsEval(page, (s, theme) => s.updateSettings({ theme }), theme)
+      await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
+      await pick.scrollIntoViewIfNeeded()
+      await page.screenshot({ path: test.info().outputPath(`coding-agent-${width}-${theme}.png`), fullPage: false })
+    }
+  }
 })
