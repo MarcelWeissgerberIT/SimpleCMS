@@ -74,6 +74,15 @@ await build({
 chmodSync(workerFile, 0o755)
 console.log(`built ${workerFile} (${Math.round(statSync(workerFile).size / 1024)} KB)`)
 
+const coderFile = fileURLToPath(new URL('../public/mcp/one-local-coder.mjs', import.meta.url))
+await build({
+  entryPoints: ['src/local-coder/index.ts'], outfile: coderFile, bundle: true, platform: 'node', preserveSymlinks: true,
+  format: 'esm', target: 'node20', logLevel: 'warning', legalComments: 'eof',
+  banner: { js: '#!/usr/bin/env node\nimport { createRequire as __createRequire } from "node:module"; const require = __createRequire(import.meta.url);' },
+})
+chmodSync(coderFile, 0o755)
+console.log(`built ${coderFile} (${Math.round(statSync(coderFile).size / 1024)} KB)`)
+
 const { packMcpb } = await importTs('src/mcpb.ts')
 const mcpb = packMcpb({
   version: pkg.version,

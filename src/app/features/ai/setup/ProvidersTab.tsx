@@ -27,6 +27,7 @@ import { verifyProvider } from '../core/verify'
 import { routable } from '../core/routable'
 import { labelFor } from '../core/registry'
 import { McpServers } from '../mcp-servers/McpServers'
+import { LocalCoder } from '../local-coder/LocalCoder'
 import { MemorySettings } from '../memory'
 import { ledgerTotals, type LedgerTotal } from '../../governor'
 import { DeviceBrake } from '../../governor/ui/DeviceBrake'
@@ -100,6 +101,7 @@ export function ProvidersTab({ section, server, add }: { section?: 'mcp' | 'memo
         </button>
       </div>
       <Plates />
+      <LocalCoder />
       <DeviceRows />
       <DataLines />
       <OwnData />
