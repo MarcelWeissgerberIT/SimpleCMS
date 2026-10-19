@@ -345,6 +345,34 @@ test.describe('confirming a work order: startChain', () => {
     expect(await statusOf(page, row)).toBe(ST.running)
   })
 
+  test('Fix 3: a creation left by a tab that closed mid-create is completed by a tab already open (no reload), once', async ({ page, context, errors }) => {
+    await mockClaudeScript(context, [], { fallback: answer({ plan: noContext() }) })
+    const { row } = await setup(page, { projects: true })
+    expect(await orders(page).plan(row)).toMatchObject({ kind: 'ready' })
+    await flush(page)
+    // tab A, opened beside this one: its ↵ stops for good before step 2 (as a tab closed mid-create)
+    const a = await context.newPage()
+    errors.watch(a)
+    await openApp(a)
+    await orders(a).fault({ at: 2, mode: 'hold' })
+    await a.evaluate((r) => void (window as unknown as Seam).__oneOrders.start(r), row)
+    await expect.poll(async () => Object.keys((await orders(page).record(row))?.chain?.made ?? {}), { timeout: 15_000 }).toEqual(['1'])
+    expect((await orders(page).record(row)).state).toBe('creating')
+    const first = (await orders(page).record(row)).chain.steps[0].id as string
+    await flush(a)
+    // this tab has A's step 01 (the cross-tab save) — and the record stays 'creating' while A holds it
+    await expect.poll(() => wsEval(page, (s, id) => !!s.pages[id], first), { timeout: 15_000 }).toBe(true)
+    await page.waitForTimeout(1000)
+    expect((await orders(page).record(row)).state).toBe('creating')
+    // A closes: this tab, open all along, completes the chain — all three steps once, running, Status Läuft
+    await a.close()
+    await expect.poll(async () => (await orders(page).record(row)).state, { timeout: 20_000 }).toBe('running')
+    await expect.poll(() => chainRows(page, row), { timeout: 10_000 }).toHaveLength(3)
+    expect(await statusOf(page, row)).toBe(ST.running)
+    await page.waitForTimeout(1500)
+    expect((await chainRows(page, row)).length).toBe(3)
+  })
+
   test('"Angelegte verwerfen": the steps an interrupted chain made go to the trash, the plan stands again', async ({ page }) => {
     await mockClaudeScript(page.context(), [], { fallback: answer({ plan: noContext() }) })
     const { row } = await setup(page, { projects: true })

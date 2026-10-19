@@ -578,4 +578,38 @@ test.describe('review — work orders in the app', () => {
     await page.waitForTimeout(1500)
     expect(handedOf(fake!, ids[1]!)).toEqual([])
   })
+
+  test('Fix 3: two running requests set to Fertig at once — the question that took the other’s place answers that one “no”: neither chain stays held', async ({ page, context }) => {
+    await mockClaudeScript(context, [], { fallback: answer() })
+    const { row } = await setup(page, { approvals: 'none', checkpoint: false })
+    // a second request of the same kind (the same text, its own row)
+    const row2 = await wsEval(page, (s, r) => {
+      const src = s.pages[r]
+      return s.createRow(src.databaseId, { title: 'Login-Timeout prüfen (2)', properties: { ...src.properties }, content: src.content }) as string
+    }, row)
+    // every stage keeps running: both chains stay Läuft
+    plays(fake!, () => null)
+    for (const r of [row, row2]) {
+      expect(await orders(page).plan(r)).toMatchObject({ kind: 'ready' })
+      await orders(page).start(r)
+      await orders(page).startNow(r)
+      await expect.poll(async () => (await orders(page).record(r)).state, { timeout: 20_000 }).toBe('running')
+    }
+    // a bulk "Set Status → Fertig" over both (you~ui): two questions, the second opens in the first one's place
+    await wsEval(page, (s, [a, b, v]) => {
+      s.setRowProperty(a, 'woStatus', v)
+      s.setRowProperty(b, 'woStatus', v)
+    }, [row, row2, ST.done] as const)
+    const dialog = page.getByRole('dialog')
+    await expect(dialog).toContainText('End the chain')
+    // the first question went without an answer: its request is back in Läuft and its chain no longer held
+    await expect.poll(() => statusOf(page, row), { timeout: 10_000 }).toBe(ST.running)
+    await expect.poll(async () => (await orders(page).move(row))?.why ?? null, { timeout: 10_000 }).not.toBe('finishing')
+    expect((await orders(page).record(row)).chain.finishing ?? null).toBeNull()
+    // no on the one still open: the second goes back too
+    await page.keyboard.press('Escape')
+    await expect(dialog).toHaveCount(0)
+    await expect.poll(() => statusOf(page, row2), { timeout: 10_000 }).toBe(ST.running)
+    await expect.poll(async () => (await orders(page).move(row2))?.why ?? null, { timeout: 10_000 }).not.toBe('finishing')
+  })
 })

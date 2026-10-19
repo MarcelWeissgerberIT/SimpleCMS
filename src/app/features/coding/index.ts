@@ -273,14 +273,14 @@ export { chainSuccessor, withPassed, withSeenNext, withRefs } from './chain'
  * 'interrupted' · 'chainConfirm' (a Läuft request whose chain this device holds no record of — the worker moved, a
  * restore) · 'request' (a team: Planen asked on another device); onOrderCardsChanged / onOrderSeen; prepareOrderCard /
  * orderPrep / dropOrderPrep (what a card shows, read when it becomes current — what its ↵ passes) · readyBlock (why ↵
- * Kette starten cannot act: the plate's own order and seen book) · chainKeyBlock (the guard of every start-like key) ·
+ * Kette starten cannot act: the plate's own order and seen book) · nextBlock (the same for ↵ Weiter) · chainKeyBlock (the guard of every start-like key) ·
  * chainChipOf (a coding card's "PA-12 · 2/3"). The keys — each VON HAND where it lets the worker start something — are
  * the orders' own entry points, called only from Preflight's queue/calls.ts: startChain · discardPlan · advanceChain /
  * confirmAndGo · haltChain · resumeChain · skipChainStep · replanFrom · finishRest · discardMade · confirmChainVersions ·
  * planHere · undoChain (the start's Undo).
  */
 export { orderCards, onOrderCardsChanged, onOrderSeen, parseOrderCard, chainChipOf, chainKeyBlock, type OrderCard, type OrderCardKind } from './orders/lamp'
-export { prepareOrderCard, orderPrep, dropOrderPrep, readyBlock, type OrderPrep } from './orders/cardPrep'
+export { prepareOrderCard, orderPrep, dropOrderPrep, readyBlock, nextBlock, type OrderPrep } from './orders/cardPrep'
 export { refusalText as orderStartRefusalText, preWhyText as orderPreWhyText } from './orders/text'
 export { discardPlan } from './orders/trigger'
 export const OrderCardBody = lazy(() => import('./orders/OrderCard'))

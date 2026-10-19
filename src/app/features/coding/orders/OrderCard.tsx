@@ -30,9 +30,9 @@ import { ContextBox, SkipLine } from './Context'
 import { Station, Tag, noteText, provForeign, useStations } from './ReadyPart'
 import { projectAvgCost, COST_SAMPLE } from './costs'
 import { olderParked } from './confirm'
-import { orderPrep, readyBlock, type OrderPrep, type StepShown } from './cardPrep'
+import { nextBlock, nextKeysOf, nextScope, orderPrep, readyBlock, type OrderPrep, type StepShown } from './cardPrep'
 import { useOrderRecord } from './records'
-import { Edge, keyOf, useSeenBook } from './seen'
+import { Edge, keyOf, useSeenBook, type SeenBook } from './seen'
 import { preWhyText } from './text'
 import { stepNo } from './words'
 import { orderCode } from './db'
@@ -64,18 +64,25 @@ function Doc({ markdown, testId }: { markdown: string; testId?: string }) {
   )
 }
 
-/** One step as it will run: its head line, its page as the version view shows it, the Grundlage it takes. */
-function StepAsItRuns({ shown, lead, t }: { shown: StepShown; lead: string; t: Tr }) {
+/**
+ * One step as it will run: its head line, its page as the version view shows it, the Grundlage it takes. With `seen`
+ * (the 'next' card): each between top / bottom edges in that book — ↵ Weiter waits until both were read to their end.
+ */
+function StepAsItRuns({ shown, lead, t, seen }: { shown: StepShown; lead: string; t: Tr; seen?: { book: SeenBook; step: string; basis: string | null } }) {
   const title = shown.view?.title.trim() || shown.step.title || t('common.untitled')
   return (
     <div className="ord-step" data-testid="pf-order-step" data-step={shown.step.n}>
       <p className="label ord-step__head">{lead || t(`${O}.plan.next`, { n: stepNo(shown.step.n), kind: t(`${O}.kind.${shown.step.kind}`), title })}</p>
       <p className="label ord-sub">{t(`${O}.card.text`)}</p>
+      {seen && shown.view && <Edge id={seen.step} edge="top" book={seen.book} />}
       {shown.view ? <Doc markdown={shown.view.markdown} testId="pf-order-step-text" /> : <Gone />}
+      {seen && shown.view && <Edge id={seen.step} edge="bottom" book={seen.book} />}
       {shown.basis && (
         <div className="ord-basis" data-testid="pf-order-basis">
           <p className="label ord-sub">{t(`${O}.card.basis`)}</p>
+          {seen?.basis && <Edge id={seen.basis} edge="top" book={seen.book} />}
           <ReadOnlyDoc content={{ type: 'doc', content: [shown.basis] }} className="orc-doc" headingOffset={2} />
+          {seen?.basis && <Edge id={seen.basis} edge="bottom" book={seen.book} />}
         </div>
       )}
     </div>
@@ -182,12 +189,17 @@ function RequestText({ row, foreign, t }: { row: ID; foreign: boolean; t: Tr }) 
 
 /* ------------------------------------------------------------------ next */
 
-function NextBody({ prep }: { prep: Extract<OrderPrep, { kind: 'next' }> }) {
+function NextBody({ id, prep }: { id: string; prep: Extract<OrderPrep, { kind: 'next' }> }) {
   const t = useT()
   const refPages = useWorkspace(useShallow((s) => (prep.move.refs ?? []).map((id) => s.pages[id])))
   const step = prep.next.step
   const title = prep.next.view?.title.trim() || step.title || t('common.untitled')
   const lines = cardWhyLines(prep.move, { kind: t(`${O}.kind.${step.kind}`), title, refs: refPages }, t)
+  // Fix 3: the plate's seen book for this step — ↵ Weiter waits until each part was read to its end (here or there)
+  const book = useSeenBook(nextScope(prep.row, prep.chain.run, prep.move.step))
+  const keys = nextKeysOf(prep)
+  const refKey = new Map(keys.refs)
+  const why = nextBlock(id)
   return (
     <div className="ord-card" data-testid="pf-order-next" data-all={prep.move.all.join(' ')}>
       {lines.map((line, i) => (
@@ -195,13 +207,20 @@ function NextBody({ prep }: { prep: Extract<OrderPrep, { kind: 'next' }> }) {
           {line}
         </p>
       ))}
-      <StepAsItRuns shown={prep.next} lead="" t={t} />
+      <StepAsItRuns shown={prep.next} lead="" t={t} seen={{ book, step: keys.step, basis: keys.basis }} />
       {prep.refs.map((r) => (
         <div key={r.id} className="ord-ref" data-testid="pf-order-ref">
           <p className="label ord-sub">{t(`${O}.card.ref`, { title: r.title || t('common.untitled') })}</p>
+          <Edge id={refKey.get(r.id)!} edge="top" book={book} />
           <pre className="orc-card__text">{r.text || '—'}</pre>
+          <Edge id={refKey.get(r.id)!} edge="bottom" book={book} />
         </div>
       ))}
+      {why && (
+        <p className="orc-line orc-line--quiet" role="status" data-testid="pf-order-why">
+          {why.key.startsWith('features.') ? t(why.key, why.vars) : why.key}
+        </p>
+      )}
     </div>
   )
 }
@@ -333,7 +352,7 @@ export default function OrderCardBody({ item }: { item: { id: string }; expanded
     case 'ready':
       return <ReadyBody id={item.id} row={prep.row} />
     case 'next':
-      return <NextBody prep={prep} />
+      return <NextBody id={item.id} prep={prep} />
     case 'halted':
       return <HaltedBody prep={prep} />
     case 'chainConfirm':

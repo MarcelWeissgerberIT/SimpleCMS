@@ -1038,7 +1038,10 @@ A throw trashes every step this press made and restores the record. The step pag
 callout "Kontext vom MCP-Server ‹name› (fremd)", then goal / criteria / the refs (fixed block ids, a trailing paragraph:
 opening it writes nothing). `undoChain` (Z, `you~undo`): all or nothing, refused once a step was taken or changed.
 `finishCreates` at boot completes an untouched 'creating' record (≤ 10 min) or marks it 'interrupted' (two VON HAND keys:
-**Rest anlegen** = a new press with §2.2 and the version check, **Angelegte verwerfen**).
+**Rest anlegen** = a new press with §2.2 and the version check, **Angelegte verwerfen**). A tab already open that reads a
+'creating' record (boot or the records channel) waits for its creator's row lock (`orderRowLock`, no `ifAvailable`) and
+runs `finishCreates` once it is free — a creator that finished meanwhile leaves nothing to do, so the chain is never made
+twice (chainRun.ts `recoverCreate`; without Web Locks only a tab's start does it).
 
 ### The chain engine
 
@@ -1058,7 +1061,7 @@ reaching done (`setChainHook`), by a debounced write to a chain step / row / ref
    ('finished') · 'ejectedStatus'.
 2. **card** (VON HAND, the chain waits): step n done without evidence ("— weiter?") · after a BA step with
    `checkpoint`, unless the gate fold showed step n+1 whole (`doneBy[n].sawNext` / `chain.seenNext`, from the gate card's
-   fold read to its end) · drift of step n+1's start `pipelineLine` or Approvals ("Pipeline geändert seit Bestätigung") ·
+   fold read to its end; never from Preflight's **Kette bestätigen**, which does not show step n+1 read to its end) · drift of step n+1's start `pipelineLine` or Approvals ("Pipeline geändert seit Bestätigung") ·
    a ref changed by someone other than the person since confirm (the card renders that page and pins exactly what it
    rendered) · the Grundlage's source written from outside while it ran ('basis': passed only with the fingerprint of the
    Grundlage the card rendered) · step n+1 waits for Confirm (`taskWriteEndsConfirm || !isTrusted`: the card renders

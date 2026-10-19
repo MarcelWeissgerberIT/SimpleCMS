@@ -67,6 +67,8 @@ import { emptyFold, foldCalls, type CallFold } from './calls'
 import { loadOrderRecord, orderScope, patchOrderRecord } from './records'
 import { pageShown, requestFp, requestNow, shownFp, textFp } from './fingerprint'
 import { loadRowOutside, outsideOf } from './rowWriters'
+import { pressProv } from './press'
+import { provOutside } from './autoCore'
 import { endSignal, patchRun, plannerRun, runSignal, startRun } from './runs'
 import { ORDER_LIMITS, type OrderConfig, type OrderDraft, type OrderPlanV1, type OrderProv, type OrderRecord, type OrderServerSkip, type OrderStatusKey, type PlanNote } from './types'
 import type { Receipt } from '../../ai/core/meter'
@@ -568,6 +570,21 @@ function doneStepsStill(rec: OrderRecord, from: { n: number; run: string }): boo
 
 /* ------------------------------------------------------------------ answers */
 
+/**
+ * The provenance a plan after the answers takes: what was captured before the answers were written, an earlier draft's
+ * outside writer kept per page (an earlier answers round wrote 'answers' over it), the row's revision as it is after the
+ * answers (the pins match the stored body).
+ */
+export function answersProv(rowId: ID, captured: Record<ID, OrderProv>, before: Record<ID, OrderProv> | undefined, rowRev: number | undefined): Record<ID, OrderProv> {
+  const out: Record<ID, OrderProv> = {}
+  for (const [id, p] of Object.entries(captured)) {
+    const was = before?.[id]
+    out[id] = was && provOutside(was) && !provOutside(p) ? { ...was, contentRev: p.contentRev } : p
+  }
+  if (out[rowId] && rowRev !== undefined) out[rowId] = { ...out[rowId]!, contentRev: rowRev }
+  return out
+}
+
 const YOU: Writer = { kind: 'you', via: 'ui' }
 
 /**
@@ -594,6 +611,10 @@ export async function answerQuestions(rowId: ID, answers: ReadonlyArray<{ q: str
       ...x.a.split(/\n+/).map((line): JSONContent => ({ type: 'paragraph', ...(line.trim() ? { content: [text(line.trim())] } : {}) })),
     ]),
   ]
+  // the provenance before the answers are written (as a press captures it): the answers are the person's, the body
+  // above them is not made the person's by them — an earlier draft's outside origin stays (fail closed)
+  const captured = pressProv(ws().pages, rowId).prov
+  const before = rec?.state === 'draft' ? rec.draft?.source.prov : undefined
   const editor = liveEditorOf(rowId)
   if (editor && !editor.isDestroyed && editor.isEditable) editAs(editor, YOU, () => editor.chain().insertContentAt(editor.state.doc.content.size, blocks).run())
   else {
@@ -603,7 +624,7 @@ export async function answerQuestions(rowId: ID, answers: ReadonlyArray<{ q: str
     const content = (page.content?.content ?? []) as JSONContent[]
     withWriter(YOU, () => ws().setContent(rowId, { type: 'doc', content: [...content, ...blocks] }, 'answers'))
   }
-  const out = await planOrder(rowId, { mode: 'manual', replace: true, answers: given })
+  const out = await planOrder(rowId, { mode: 'manual', replace: true, answers: given, prov: answersProv(rowId, captured, before, ws().pages[rowId]?.contentRev) })
   // Orders B11: the answers go on with the press — with this device's consent, a finished plan starts as after a press
   if (out.kind === 'ready') await import('./autoStart').then((m) => m.autoAfterPlan(rowId, out.run)).catch(() => null)
   return out

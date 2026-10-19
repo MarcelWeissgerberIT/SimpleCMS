@@ -31,6 +31,8 @@ export const ORDERS_CHANNEL = 'one-coding-orders'
 /** This tab's records scope now (record.ts orderScopeOf; a team account not known yet: `…:u:-`, holding nothing). */
 export const orderScope = (): string => orderScopeOf(activeWorkspace(), useCloud.getState().user?.id)
 const scope = orderScope
+/** The Web Lock a request's start / Undo / finish holds (confirm.ts withLocks) — a creator gone releases it. */
+export const orderRowLock = (rowId: ID): string => `one-order:${orderScope()}:${rowId}`
 
 const keyOf = (rowId: ID, s = scope()) => `${s}|order|${rowId}`
 

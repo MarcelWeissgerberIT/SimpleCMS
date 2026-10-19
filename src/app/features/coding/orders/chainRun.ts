@@ -66,7 +66,7 @@ import { originByPerson } from './autoCore'
 import { chainWords, stepNo } from './words'
 import { orderConfigUsable, readOrderConfig } from './config'
 import { orderCode, orderStatusKey, writeOrderStatus } from './db'
-import { loadOrderRecord, ORDERS_CHANNEL, orderScope, patchOrderRecord, recordRowIds, useOrderRecords } from './records'
+import { loadOrderRecord, ORDERS_CHANNEL, orderRowLock, orderScope, patchOrderRecord, recordRowIds, useOrderRecords } from './records'
 import { ORDER_LIMITS, type OrderChain, type OrderChainStep, type OrderDoneBy, type OrderRecord } from './types'
 
 const ws = () => useWorkspace.getState()
@@ -746,10 +746,45 @@ const firstWaiting = (chain: OrderChain | undefined): boolean => {
   return !!first && chain!.advanced?.[first.n] === undefined
 }
 
-/** A record as this tab now holds it: its countdown scheduled when its first step waits for `startAt`. */
+/** A record as this tab now holds it: its countdown scheduled when its first step waits for `startAt`; a 'creating' one recovered once its creator is gone. */
 function follow(rowId: ID, rec: OrderRecord | null): void {
   if (rec?.state === 'running' && rec.chain && !rec.chain.halted && firstWaiting(rec.chain)) schedule(rowId, rec.chain.startAt)
   else if (!rec || rec.state !== 'running') unschedule(rowId)
+  if (rec?.state === 'creating' && rec.chain) recoverCreate(rowId, rec.chain.run)
+}
+
+/** 'creating' records this tab waits on (`<scope>|<row>|<run>`), and how often it tried each */
+const recovering = new Set<string>()
+const recoverTries = new Map<string, number>()
+
+/**
+ * A record left 'creating' (another tab, or this one before a reload): wait until its creator's row lock is free — the
+ * creator finished, or its tab closed / crashed — then finishCreates (it re-reads the record under the locks: a chain
+ * the creator completed meanwhile is left alone, so it is never made twice). Every tab already open recovers it, not
+ * only one that starts later. Without Web Locks: as before (only a tab's start finishes it).
+ */
+function recoverCreate(rowId: ID, run: string): void {
+  const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined
+  if (!locks?.request) return
+  const scope = orderScope()
+  const key = `${scope}|${rowId}|${run}`
+  if (recovering.has(key)) return
+  const tries = (recoverTries.get(key) ?? 0) + 1
+  // a record write that keeps failing never spins
+  if (tries > 3) return
+  recovering.add(key)
+  recoverTries.set(key, tries)
+  void locks
+    .request(orderRowLock(rowId), () => undefined)
+    .then(async () => {
+      if (orderScope() !== scope) return
+      await import('./confirm').then((m) => m.finishCreates([rowId]))
+      // still 'creating' (another tab took it, and that one went too): wait again
+      const rec = asRecord(await loadOrderRecord(rowId, { fresh: true }))
+      recovering.delete(key)
+      if (orderScope() === scope && rec?.state === 'creating' && rec.chain?.run === run) recoverCreate(rowId, run)
+    })
+    .catch(() => recovering.delete(key))
 }
 
 /** ↵ jetzt: step 01 starts now (the count is cut short) — only while it has not started. */

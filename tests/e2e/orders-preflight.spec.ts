@@ -105,10 +105,10 @@ async function setup(page: Page, o: { approvals?: 'all' | 'review' | 'none' } = 
 }
 
 /** What the fake worker answers per stage kind. */
-function plays(fake: FakeWorker) {
+function plays(fake: FakeWorker, more = '') {
   fake.auto = (task) => {
     const kind = task.stage.kind as string
-    if (kind === 'doc' || kind === 'analyze') return { status: 'ok', plan: `## ${task.stage.name}\n\nErgebnis von ${task.stage.name}: der Gateway beendet die Sitzung nach 30 s (Nordlicht).` }
+    if (kind === 'doc' || kind === 'analyze') return { status: 'ok', plan: `## ${task.stage.name}\n\nErgebnis von ${task.stage.name}: der Gateway beendet die Sitzung nach 30 s (Nordlicht).${more}` }
     if (kind === 'plan') return { status: 'ok', plan: 'Plan: Session-Timeout im Gateway auf 5 Minuten setzen.' }
     if (kind === 'implement') return { status: 'ok', summary: 'Timeout geändert.', branch: BRANCH }
     if (kind === 'test') return { status: 'ok', test: { ok: true, output: 'ok', ms: 12, code: 0 } }
@@ -178,6 +178,16 @@ async function readStations(page: Page): Promise<void> {
     if ((await fold.getAttribute('open')) === null) await fold.locator('summary').first().click()
     await expect(fold).toHaveAttribute('data-seen', '')
   }
+}
+
+/** Read the 'next' card to its end: each edge of the step, its Grundlage and the changed pages on screen. */
+async function readNext(page: Page): Promise<void> {
+  const body = card(page).getByTestId('pf-order-next')
+  await expect(body).toBeVisible()
+  await page.keyboard.press('Shift')
+  const edges = body.locator('.orc-edge')
+  for (let i = 0; i < (await edges.count()); i++) await edges.nth(i).scrollIntoViewIfNeeded()
+  await expect(card(page).locator('.pf-key[data-key="a"]')).not.toHaveAttribute('aria-disabled', 'true')
 }
 
 /** A key on the current card by its letter: the card focused first (keys act only with focus in the queue). */
@@ -305,7 +315,9 @@ test.describe('work orders in Preflight (B9)', () => {
     await expect(live(page)).toContainText('No clean card to apply here.')
     expect((await orders(page).record(row))!.chain.advanced?.['2']).toBeUndefined()
     expect(await stageOf(page, ids[1]!)).toBe('Backlog')
-    // A: the VON HAND row; only its confirm key goes on
+    // the step and its Grundlage read to their end (Fix 3: the plate's rule), then A: the VON HAND row; only its confirm
+    // key goes on
+    await readNext(page)
     await press(page, 'a')
     await expect(page.getByTestId('pf-confirm')).toContainText('starts the worker · goes to Claude Code')
     expect((await orders(page).record(row))!.chain.advanced?.['2']).toBeUndefined()
@@ -313,6 +325,36 @@ test.describe('work orders in Preflight (B9)', () => {
     await expect.poll(async () => (await orders(page).record(row))!.chain.advanced?.['2'] ?? null, { timeout: 15_000 }).not.toBeNull()
     await expect.poll(() => stageOf(page, ids[1]!), { timeout: 15_000 }).not.toBe('Backlog')
     await expect.poll(async () => (await q(page)).done.map((d: AnyState) => d.id)).toContain(id)
+  })
+
+  test('Fix 3: Weiter mit Schritt 02? — A waits until the step and its Grundlage were read to their end (the plate’s book)', async ({ page }) => {
+    await mockClaudeScript(page.context(), [], { fallback: answer() })
+    const { row } = await setup(page, { approvals: 'none' })
+    // a long analysis: the Grundlage step 02 takes along is taller than the screen
+    plays(fake!, Array.from({ length: 120 }, (_, i) => `\n\nBefund ${i + 1}: der Gateway von Nordlicht schließt die Sitzung nach 30 s.`).join('') + '\n\nLetzter Befund: Ende der Analyse.')
+    expect(await orders(page).plan(row)).toMatchObject({ kind: 'ready' })
+    await orders(page).start(row)
+    await orders(page).startNow(row)
+    await expect.poll(async () => (await orders(page).move(row))?.why ?? null, { timeout: 40_000 }).toBe('checkpoint')
+    await openLamp(page, 'orders')
+    await ready(page, 'next')
+    const body = card(page).getByTestId('pf-order-next')
+    await expect(body.getByTestId('pf-order-basis')).toContainText('Letzter Befund: Ende der Analyse.')
+    // only its head on screen: A refused with the reason, nothing goes on
+    const a = card(page).locator('.pf-key[data-key="a"]')
+    await expect(a).toHaveAttribute('aria-disabled', 'true')
+    await expect(body.getByTestId('pf-order-why')).toHaveText('Read step 02 to its end first')
+    await press(page, 'a')
+    await expect(page.getByTestId('pf-confirm')).toHaveCount(0)
+    expect((await orders(page).record(row))!.chain.advanced?.['2']).toBeUndefined()
+    // read to the end (each edge on screen): A acts (VON HAND)
+    expect(await body.locator('.orc-edge').count()).toBeGreaterThanOrEqual(4)
+    await readNext(page)
+    await expect(a).not.toHaveAttribute('aria-disabled', 'true')
+    await expect(body.getByTestId('pf-order-why')).toHaveCount(0)
+    await press(page, 'a')
+    await page.getByTestId('pf-confirm-key').press('Enter')
+    await expect.poll(async () => (await orders(page).record(row))!.chain.advanced?.['2'] ?? null, { timeout: 15_000 }).not.toBeNull()
   })
 
   test('Approvals all: the gate card whose approval starts the next step carries the chain chip, is VON HAND and ⇧A skips it', async ({ page }) => {
@@ -390,6 +432,32 @@ test.describe('work orders in Preflight (B9)', () => {
     // the engine goes on from here: step 01 leaves its park stage; Z never takes an adopted chain back
     await expect.poll(async () => (await orders(page).record(row))!.chain.advanced?.['1'] ?? null, { timeout: 15_000 }).not.toBeNull()
     expect(await call(page, 'undoable', row)).toBe('taken')
+  })
+
+  test('Fix 3: Kette bestätigen over a finished analysis never counts as having seen step 02 — the checkpoint card still asks once', async ({ page }) => {
+    await mockClaudeScript(page.context(), [], { fallback: answer() })
+    const { row } = await setup(page, { approvals: 'none' })
+    plays(fake!)
+    expect(await orders(page).plan(row)).toMatchObject({ kind: 'ready' })
+    const ids = (await orders(page).start(row)).steps as string[]
+    await orders(page).startNow(row)
+    await expect.poll(async () => (await orders(page).move(row))?.why ?? null, { timeout: 40_000 }).toBe('checkpoint')
+    // this device forgets the chain (a restore, the worker moved): the request's tasks are carried on by "Kette bestätigen"
+    await orders(page).dropRecord(row)
+    await expect.poll(async () => (await orders(page).cards()).map((c) => c.kind), { timeout: 25_000 }).toContain('chainConfirm')
+    await openLamp(page, 'orders')
+    await ready(page, 'chainConfirm')
+    await press(page, 'a')
+    await page.getByTestId('pf-confirm-key').press('Enter')
+    await expect.poll(async () => (await orders(page).record(row))?.state ?? null, { timeout: 15_000 }).toBe('running')
+    const rec = (await orders(page).record(row))!
+    expect(rec.chain.doneBy['1']).toMatchObject({ kind: 'you', via: 'preflight' })
+    expect(rec.chain.doneBy['1'].sawNext).toBeUndefined()
+    // the analysis' checkpoint asks for step 02 (shown in full there) — nothing went on by itself
+    await expect.poll(async () => (await orders(page).move(row))?.why ?? null, { timeout: 15_000 }).toBe('checkpoint')
+    await page.waitForTimeout(1500)
+    expect((await orders(page).record(row))!.chain.advanced?.['2']).toBeUndefined()
+    expect(await stageOf(page, ids[1]!)).toBe('Backlog')
   })
 
   test('Kette angehalten: ↵ Fortsetzen only where the chain may start something — an outdated worker refuses it (the reason on the key); a current one resumes', async ({ page }) => {

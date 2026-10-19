@@ -61,7 +61,7 @@ import { orderPlanHash, type ResolvedStep } from './plan'
 import { chainPropsCheck, ensureChainProps, type ChainPropsResult } from './props'
 import { orderCode, orderStatusKey, writeOrderStatus } from './db'
 import { orderConfigUsable, readOrderConfig } from './config'
-import { loadOrderRecord, orderScope, patchOrderRecord } from './records'
+import { loadOrderRecord, orderRowLock, orderScope, patchOrderRecord } from './records'
 import { followRecord, orderWriter, unschedule } from './chainRun'
 import { stepBlockIds, stepPage } from './stepPage'
 import { stepWords } from './words'
@@ -119,7 +119,7 @@ export type FinishOutcome = { ok: true; created: number } | ({ ok: false } & (St
 
 /* ------------------------------------------------------------------ locks */
 
-const rowLock = (rowId: ID) => `one-order:${orderScope()}:${rowId}`
+const rowLock = orderRowLock
 const chainLock = (rowId: ID) => `one-order-chain:${orderScope()}:${rowId}`
 /** requests this tab is starting / taking back (without Web Locks: the only guard) */
 const inflight = new Set<ID>()
@@ -711,9 +711,10 @@ export async function confirmChainVersions(rowId: ID, shown: ReadonlyArray<{ id:
       const repo = props.repo ? page.properties[props.repo] : null
       const stage = stageOfRow(pipeline, props, page)
       const n = c.n!
-      // under way (out of its park stage) counts as started; done as passed by this press (it showed the next step whole)
+      // under way (out of its park stage) counts as started; done as passed by this press — never as "saw the next step"
+      // (`sawNext`): the card's view of each version is not read to its end here, so a checkpoint after it asks once
       if (stage && stage.id !== startStageOf(pipeline, !!repo, false)?.id) advanced[n] = now
-      if (stage?.kind === 'done') doneBy[n] = { kind: 'you', via: 'preflight', at: now, sawNext: true }
+      if (stage?.kind === 'done') doneBy[n] = { kind: 'you', via: 'preflight', at: now }
       const ids = stepBlockIds(c.id)
       const refs: Record<ID, string> = {}
       for (const r of views[i]!.refs) refs[r.id] = await pageFp(ws().pages[r.id])

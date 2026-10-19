@@ -193,6 +193,32 @@ function titleOf(id: ID): string {
   return !p ? t('common.untitled') : p.private ? t(`${O}.plan.privatePage`) : p.title.trim() || t('common.untitled')
 }
 
+/** The seen book of a 'next' card — the plate's ChainCard's (`<row>:<chain run>:<step>`): seen there counts here too. */
+export const nextScope = (row: ID, run: string, step: number): string => `${row}:${run}:${step}`
+/** The keys a 'next' card's text must be read to its end under: the step as it will run, its Grundlage, each changed page. */
+export function nextKeysOf(prep: Extract<OrderPrep, { kind: 'next' }>): { step: string; basis: string | null; refs: Array<[ID, string]> } {
+  return {
+    step: `step:${keyOf(prep.next.view?.markdown ?? '')}`,
+    basis: prep.next.basis ? `basis:${keyOf(prep.next.basisText)}` : null,
+    refs: prep.refs.map((r) => [r.id, `ref:${r.id}:${keyOf(`${r.title}\n${r.text}`)}`]),
+  }
+}
+
+/**
+ * Why ↵ Weiter on a 'next' card cannot act yet (null: it may) — the plate's rule (Fix 2): the step as it will run, its
+ * Grundlage and every changed page it passes as seen, each read from its top to its bottom edge (the plate's book).
+ */
+export function nextBlock(id: string): { key: string; vars?: Record<string, string | number> } | null {
+  const prep = preps.get(id)
+  if (!prep) return { key: 'features.preflight.why.loading' }
+  if (prep.kind !== 'next' || !prep.next.view) return { key: 'features.preflight.err.changed' }
+  const scope = nextScope(prep.row, prep.chain.run, prep.move.step)
+  const keys = nextKeysOf(prep)
+  const all = [keys.step, ...(keys.basis ? [keys.basis] : []), ...keys.refs.map(([, k]) => k)]
+  if (all.some((k) => !seenWhole(scope, k))) return { key: `${O}.card.seeFirst`, vars: { n: stepNo(prep.move.step) } }
+  return null
+}
+
 /**
  * Why ↵ Kette starten on a 'ready' card cannot act now (null: it may) — the plate's own order: the card read again
  * first, the preconditions, a coding step without a repo, the server's context, every station seen in full, every page

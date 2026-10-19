@@ -33,6 +33,7 @@ import {
   parseOrderCard,
   prepareOrderCard,
   readyBlock,
+  nextBlock,
   type OrderCard,
   type OrderCardKind,
 } from '../../coding'
@@ -161,7 +162,8 @@ function readyKeys(item: QueueItem, row: string): CardAction[] {
 function nextKeys(item: QueueItem, row: string): CardAction[] {
   const prep = orderPrep(item.id)
   const p = prep?.kind === 'next' ? prep : null
-  const blocked: CardAction['blocked'] = !prep ? LOADING : !p ? { key: CHANGED } : (guard() ?? (p.confirm && !p.next.view ? { key: CHANGED } : null))
+  // Fix 3: the plate's rule — the step as it will run, its Grundlage and every changed page read to their end first
+  const blocked: CardAction['blocked'] = !prep ? LOADING : !p ? { key: CHANGED } : (guard() ?? (p.confirm && !p.next.view ? { key: CHANGED } : nextBlock(item.id)))
   const keys: CardAction[] = [
     {
       key: 'a',
@@ -386,7 +388,7 @@ export const ordersLamp: LampSourceDef = {
           return requestKeys(item, p.row)
       }
     },
-    // the ready card's ↵ waits until its stations were seen in full (on the card or the plate): its keys follow
+    // the ready / next cards' ↵ waits until what they show was seen in full (on the card or the plate): their keys follow
     watch: (_item, changed) => all(onOrderSeen(changed), onOrderCardsChanged(changed)),
     Body: OrderCardBody,
   },

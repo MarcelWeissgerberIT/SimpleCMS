@@ -25,6 +25,15 @@ export function ModalHost() {
   )
 }
 
+/** A key per modal object (each `openModal` call hands over a new one). */
+const modalKeys = new WeakMap<object, number>()
+let modalCount = 0
+function modalKey(m: object): number {
+  let k = modalKeys.get(m)
+  if (k === undefined) modalKeys.set(m, (k = ++modalCount))
+  return k
+}
+
 function ModalSwitch({ modal, onClose }: { modal: ModalState; onClose: () => void }) {
   switch (modal.type) {
     case 'settings':
@@ -40,7 +49,8 @@ function ModalSwitch({ modal, onClose }: { modal: ModalState; onClose: () => voi
     case 'move':
       return <MoveModal pageId={modal.pageId} onClose={onClose} />
     case 'confirm':
-      return <ConfirmModal {...modal} onClose={onClose} />
+      // its own instance per dialog: a confirm opened in place of another unmounts that one, so its `onCancel` runs
+      return <ConfirmModal key={modalKey(modal)} {...modal} onClose={onClose} />
     case 'history':
       return <HistoryModal pageId={modal.pageId} onClose={onClose} />
     case 'share':
