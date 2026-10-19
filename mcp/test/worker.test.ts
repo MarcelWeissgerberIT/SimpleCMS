@@ -649,3 +649,40 @@ describe('init', () => {
     writeFileSync(file, text)
   })
 })
+
+describe('secrets (worker 1.13.0)', () => {
+  test('ANTHROPIC_API_KEY in the worker\'s environment and a key-shaped text never reach the tab — the auth line names the last 4 only', async () => {
+    const KEY = 'wsk_workshopKEY_abcdefghij9876'
+    const r = makeRepo()
+    await boot(r, {}, {}, { ANTHROPIC_API_KEY: KEY })
+    const tab = await connect()
+    await tab.next('welcome')
+    // implement: Claude's text, a Write (its edit hunk), a tool error, a Bash line, the summary, the git diff
+    const impl = await tab.run(task({ kind: 'implement' }, { id: 'sec1abcd', text: 'Leak it. FAKE:LEAK' }))
+    assert.equal(impl.status, 'ok', JSON.stringify(impl))
+    // a plan (the section), a document stage, and an error (Claude Code's stderr)
+    const plan = await tab.run(task({ kind: 'plan' }, { id: 'sec2abcd', text: 'Leak it. FAKE:LEAK' }))
+    assert.equal(plan.status, 'ok', JSON.stringify(plan))
+    const doc = await tab.run(task({ kind: 'doc', name: 'Analysis', permissionMode: 'default' }, { id: 'sec3abcd', text: 'Leak it. FAKE:LEAK' }))
+    assert.equal(doc.status, 'ok', JSON.stringify(doc))
+    const failed = await tab.run(task({ kind: 'implement' }, { id: 'sec4abcd', text: 'Leak it. FAKE:LEAK FAKE:LEAKFAIL' }))
+    assert.equal(failed.status, 'failed', JSON.stringify(failed))
+
+    const all = tab.raw.join('\n')
+    assert.ok(!all.includes(KEY) && !all.includes(KEY.slice(0, 12)), 'the env key reached the tab')
+    assert.ok(!all.includes('sk-ant-'), 'a key-shaped text reached the tab')
+    // it was there and was replaced: in a log line, an edit hunk, a section, the diff and the error
+    const lines = tab.messages.flatMap((m) => (m.type === 'event' && m.kind === 'log' ? m.lines : []))
+    assert.ok(lines.some((l) => l.k === 'claude' && l.s.includes('[secret ANTHROPIC_API_KEY]')), JSON.stringify(lines.map((l) => l.s)))
+    assert.ok(lines.some((l) => l.e?.hunks.some((h) => h.new.includes('[secret ANTHROPIC_API_KEY]'))))
+    assert.ok(impl.summary?.includes('[secret ANTHROPIC_API_KEY]') && impl.summary.includes('••••'), impl.summary)
+    assert.ok(plan.plan?.includes('[secret ANTHROPIC_API_KEY]'), plan.plan)
+    assert.ok(impl.git?.files.some((f) => f.diff?.includes('[secret ANTHROPIC_API_KEY]')), JSON.stringify(impl.git?.files))
+    assert.ok(failed.error?.includes('[secret ANTHROPIC_API_KEY]'), failed.error)
+    // the auth line at every Claude Code stage's start: the variable and the last 4 characters
+    const auth = lines.filter((l) => l.c === 'authApiKey')
+    assert.equal(auth.length, 4, JSON.stringify(lines.map((l) => l.c ?? l.s)))
+    assert.deepEqual(auth[0]!.v, { name: 'ANTHROPIC_API_KEY', last: '…9876' })
+    assertNoPaths(tab, r)
+  })
+})

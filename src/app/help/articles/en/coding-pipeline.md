@@ -3,7 +3,7 @@ id: coding-pipeline
 title: Coding pipeline (Claude Code on your machine)
 section: ai
 order: 9
-keywords: coding, pipeline, claude code, worker, permalink, page address, copy link, give a page, reference a page, mention a page, answer, rework, one-worker, download, setup, windows, powershell, cmd, wsl, pairing, model, opus, sonnet, haiku, fable, tick repositories, git, branch, worktree, pull request, pr, diff, tests, repo, repository, code review, programmieren, aufgaben, cloud worker, one-worker-cloud, build server, vm, relay, remote, another computer, local or cloud, offline, not connected, local network access, apps on device
+keywords: coding, pipeline, claude code, worker, permalink, page address, copy link, give a page, reference a page, mention a page, answer, rework, one-worker, download, setup, windows, powershell, cmd, wsl, pairing, model, opus, sonnet, haiku, fable, tick repositories, git, branch, worktree, pull request, pr, diff, tests, repo, repository, code review, programmieren, aufgaben, cloud worker, one-worker-cloud, build server, vm, relay, remote, another computer, local or cloud, offline, not connected, local network access, apps on device, api key, anthropic_api_key, console, billing
 related: pipelines, legacy-modernisation, mcp-bridge, custom-agents, agent
 summary: Hand coding tasks to Claude Code on your computer — plan, approve, implement, test, ship — and follow every step in One.
 ---
@@ -79,6 +79,9 @@ The **Log** tab shows every step: *Fetching origin…*, the new branch, *Startin
 Which Claude model Claude Code uses is set in **Pipeline** (on #/coding): open a stage's details (plan, implement and document stages) and pick its **Model** — **Standard** (the repo's model in the worker's `worker.json`, else Claude Code's default), **Opus**, **Sonnet**, **Haiku**, **Fable**, or **Own…** for any other model name (letters, digits and `. _ : - [ ]`; One checks it while you type). A stage with a model shows it as a small chip in its row. Plan with a strong model, implement with a faster one — each stage runs with its own.
 
 For one task, **Model** in the coding panel (next to Approvals) overrides every Claude Code stage of that task — on this device: **As the pipeline**, one of the models above, or an own name the pipeline already uses. While Claude Code runs, a chip under **Now** shows the model it really uses, and the log names the model the worker passed on. A worker downloaded before models existed never gets a stage with a model — the task says *This stage needs a newer coding worker*: download it again, then **Retry**.
+
+## Who pays for Claude Code
+Claude Code uses your own sign-in — unless the worker was started with `ANTHROPIC_API_KEY` set in that shell. In the runs the worker starts (`claude -p`), an API key from the environment (or `ANTHROPIC_AUTH_TOKEN`, or a cloud provider's settings) takes precedence over your subscription and an `apiKeyHelper`, without asking. Handy for a workshop or a team account: set a Claude Console key (`export ANTHROPIC_API_KEY=…`, in PowerShell `$env:ANTHROPIC_API_KEY = "…"`), start the worker from that shell, and give the key's Console workspace a spend limit. At each Claude Code stage the log says which one it uses — *API key from ANTHROPIC_API_KEY · …1a2b* (the last 4 characters only) or *your Claude Code sign-in*. Keys never reach One: the worker removes them from every log line, section, diff and error.
 
 ## A task from start to finish
 1. **New task**: title, repo, goal, acceptance criteria. Leave *The worker may start right away* ticked. The task itself is the task's **page** (below the coding panel) — that text is what Claude Code works from. When the page is empty, **Insert outline** adds Goal, Acceptance criteria and Notes to fill in.

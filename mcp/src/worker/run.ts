@@ -27,6 +27,7 @@ import { BODY_MAX, GLAB_TEXT_MAX_WIN, GitError, branchDiff, commentPr, commitAll
 import { FOLDER_BUSY, forgetGitEnv, gitHint, hintLine, hintTerminal } from './gitenv.ts'
 import { inSyncedFolder, rmRetry, worktreesAt, type Synced, type WorktreesAt } from './paths.ts'
 import { repoScrubber, type Scrubber } from './scrub.ts'
+import { claudeAuth } from './secrets.ts'
 import { runAnalysis, runTests, type RunResult } from './testrun.ts'
 
 export interface StageContext {
@@ -434,6 +435,12 @@ function afterRun(ctx: StageContext, res: ClaudeResult, maxTurns: number, log: L
   return out
 }
 
+/** Which credential Claude Code will use (worker 1.13.0) — never the credential itself: its last 4 characters at most. */
+function logAuth(log: Log, env: NodeJS.ProcessEnv) {
+  const a = claudeAuth(env)
+  log('info', a.s, a.code, a.v)
+}
+
 async function claudeStage(ctx: StageContext, wt: TaskWorktree, scrub: Scrubber, log: Log): Promise<StageOutcome> {
   const { repo, task, caps } = ctx
   const plant = planted(ctx, wt.dir, log)
@@ -458,6 +465,8 @@ async function claudeStage(ctx: StageContext, wt: TaskWorktree, scrub: Scrubber,
   const maxTurns = turnsOf(task, repo)
   const extras = claudeExtras(ctx, log, !!mcp, true)
   if (task.resume) log('info', `Continuing after the step limit — the previous run stopped at ${task.resume.turns}/${task.resume.max} steps; Claude Code goes on from the worktree`, 'continueRun', { turns: task.resume.turns, max: task.resume.max })
+  const env = claudeEnv()
+  logAuth(log, env)
   log('info', `Starting Claude Code (${mode} mode)…`, 'starting', { mode })
   // while Claude Code changes files: the Diff tab follows along (a snapshot whenever the worktree changed)
   const live = plan ? null : liveDiff(ctx, wt, scrub)
@@ -479,7 +488,7 @@ async function claudeStage(ctx: StageContext, wt: TaskWorktree, scrub: Scrubber,
       scratch: extras.scratch,
       permissionTool: extras.permissionTool,
       caps,
-      env: claudeEnv(),
+      env,
       signal: ctx.signal,
       onLog: (l) => ctx.log({ ...l, s: scrub.text(l.s), ...(l.v ? { v: scrubVars(scrub, l.v) } : {}), ...(l.e ? { e: scrubEdit(scrub, l.e) } : {}) }),
       onProgress: ctx.progress,
@@ -540,6 +549,8 @@ async function docStage(ctx: StageContext, scrub: Scrubber, log: Log, branch: st
   // a document stage writes nothing: no scratch folder — what it may not read it asks for (worker 1.11.0)
   const extras = claudeExtras(ctx, log, !!mcp, false)
   if (task.resume) log('info', `Continuing after the step limit — the previous run stopped at ${task.resume.turns}/${task.resume.max} steps`, 'continueRun', { turns: task.resume.turns, max: task.resume.max })
+  const env = claudeEnv()
+  logAuth(log, env)
   log('info', 'Starting Claude Code (read only)…', 'starting', { mode: 'read only' })
   try {
     const res = await runClaude({
@@ -558,7 +569,7 @@ async function docStage(ctx: StageContext, scrub: Scrubber, log: Log, branch: st
       budgetUsd: lim.budget,
       permissionTool: extras.permissionTool,
       caps,
-      env: claudeEnv(),
+      env,
       signal: ctx.signal,
       onLog: (l) => ctx.log({ ...l, s: scrub.text(l.s), ...(l.v ? { v: scrubVars(scrub, l.v) } : {}), ...(l.e ? { e: scrubEdit(scrub, l.e) } : {}) }),
       onProgress: ctx.progress,
