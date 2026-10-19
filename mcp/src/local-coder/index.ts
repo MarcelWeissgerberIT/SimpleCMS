@@ -3,6 +3,11 @@ import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { randomBytes } from 'node:crypto'
 import { coderServer, DEFAULT_ORIGINS } from './server.ts'
+import { connectAtlasMemory } from '../worker/local-memory-oauth.ts'
+
+if (process.argv.includes('--connect-atlas-memory')) {
+  try { await connectAtlasMemory() } catch { console.error('Atlas memory connection could not be completed. Check the Atlas sign-in, private shadow consent and personal configuration.'); process.exitCode = 1 }
+} else {
 
 const keyFile = process.env.ONE_CODER_KEY_FILE || join(homedir(), '.config', 'one-local-coder', 'api-key')
 mkdirSync(dirname(keyFile), { recursive: true, mode: 0o700 })
@@ -24,3 +29,4 @@ const server = coderServer({ key: () => readFileSync(keyFile, 'utf8'), origins, 
 server.listen(port, '127.0.0.1', () => console.error(`One Local Coder: http://127.0.0.1:${port}/mcp\nAPI key file: ${keyFile}`))
 server.on('error', error => { console.error(error.message); process.exit(1) })
 for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => server.close(() => process.exit(0)))
+}

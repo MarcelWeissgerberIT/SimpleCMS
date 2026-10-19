@@ -102,7 +102,7 @@ The coding pipeline's local adapter now provides:
 - `read_file`: source ranges, at most 400 lines/20,000 characters per call, total file size at most 200 KB.
 - `edit_file`: unique exact replacement, only in passages read from the current file; stale reads, ambiguous matches, symlinks and hard links are refused.
 - `write_file`: new files or complete replacements after reading the complete current file; no `.git` access.
-- `update_plan`: a task-local working plan kept when earlier tool history is compacted. It is not persistent training or cross-task memory.
+- `update_plan`: a concise plan retained by the task memory described below. This is explicit storage and retrieval, not model training.
 - `run_checks`: only this repository's configured analysis/test commands. No model-supplied shell commands. Available only in implementation stages with configured checks.
 
 Root AGENTS.md, CLAUDE.md, README.md and package.json excerpts are loaded as project guidance. Nested guidance can be found/read with the source tools. Before returning a successful implementation, the worker runs configured checks. Failed output is returned to the model for repair, bounded by the shared step budget and at most three verification runs. Failed checks cannot be reported as a successful stage. The pipeline's later Test stage remains available. Check commands execute project code with the same permissions as the existing worker Test stage; file-tool boundaries are not an operating-system sandbox.
@@ -142,3 +142,94 @@ npx playwright test tests/e2e/local-coder.spec.ts
 Use Node 22.18+ (or Node 24) for TypeScript tests. Tests cover authentication, origin checks, key rotation,
 MCP handshake/discovery, schema validation, limits, the browser connection and encrypted key storage.
 The upstream model is mocked in these repeatable tests. A real Ollama run is a separate local smoke test.
+
+
+## Interchangeable local harness and task memory (worker 1.16.0)
+
+The harness is owned by One, not by Qwen or an Ollama profile. `local-inference.ts` defines the inference contract
+(messages, tool schemas, context/output budgets, cancellation, normalized reply/token count). The shipped adapter
+uses Ollama's loopback API. Set `ONE_CODER_MODEL` to switch to another installed **tool-capable** model without
+changing memory, MCP connections, the source boundary or verification. Other inference engines can implement the
+same contract; an LM Studio/MLX transport is not included in this release. A model must support structured function
+calls; changing its name cannot add that capability. Existing memory remains historical reference material.
+
+`ONE_CODER_CONTEXT` accepts 32768 (default), 65536 or 131072. Choose a profile within the model's supported context
+and test RAM use/latency first. The harness reserves 8192 tokens and also uses a conservative character budget,
+adjusted downward from observed prompt-token counts. It archives old complete tool groups before the next request;
+it never executes calls from a response reporting a near-full prompt. Increasing the environment variable does not
+expand the model's native capabilities. This release does not download or train another model.
+
+### Local task state and retrieval
+
+Pipeline runs save private snapshots beside `worker-state.json` in `local-memory/`. The scope is the repository,
+task and stage, inside that worker's configuration directory. **Continue** restores it; **Start over** starts fresh.
+A model change does not change the scope. Memories never grant file-write permission: compaction invalidates prior
+read snapshots and the next edit needs a fresh source read. Checks always run again in a resumed implementation.
+
+- `memory_checkpoint {decisions,remaining,next}` and `update_plan {plan}` retain working notes. They are explicitly
+  labelled unverified, including when reloaded or mirrored to Atlas.
+- `memory_search {query}` ranks archived results by matching words and returns up to six source pointers/IDs.
+  `memory_recall {id}` reloads one bounded historical excerpt. This is lexical retrieval, not an embedding index.
+- Tool receipts are archived automatically with source names, content-derived IDs and timestamps. At most 96 entries,
+  12000 characters each (long results retain head/tail and an omission notice). The snapshot is capped at 1.5 MB;
+  older entries are evicted, and missing entries require reading the original source again.
+- Each snapshot is written atomically with mode 0600 in a directory created with 0700. Retention: 30 days and up to
+  64 task snapshots, cleaned when memory is opened. Memory is local text storage, not encrypted model weights or
+  learning. Owner-configured OAuth credentials are stored separately, never in task snapshots.
+- Known environment/connector credentials and key-shaped strings are scrubbed. Bearer/JWT and common credential
+  assignments get additional memory redaction. Credential-named MCP results are omitted from memory. This is no
+  guarantee that arbitrary business information is non-sensitive; do not select material you do not want processed.
+
+The standalone proposal panel keeps this retrieval state only for its current request; it does not persist selected
+documents or offer pipeline Continue. The browser's existing file-selection limits remain in force.
+
+### Progress, limits and external side effects
+
+After repeated calls without new useful tool evidence, the worker warns once; five identical calls or ten stagnant
+attempts stop with a partial-state report. A changing plan alone is not evidence of progress. Global step/time limits,
+a three-minute inference-request timeout and at most three configured check runs still apply. Repeated compaction
+that does not make room also stops. A long task can still fail; these controls bound failure rather than guarantee
+completion or frontier-model quality.
+
+External writes/notes/questions are journalled **before** sending. Explicit Continue will not replay the same
+canonical request. Completed receipts are returned as history; an uncertain outcome requires checking the remote
+state. This prevents blind retries, not a distributed exactly-once guarantee. File reads and read-only MCP operations
+can run again to obtain fresh data. Writes remain subject to the user's task and the remote server's permissions.
+
+### Private Atlas shadow checkpoints
+
+An owner-configured personal MCP entry can add `oneMemoryProjects: {"repo-name":"atlas"}`. For a separate memory
+connection, also set `oneTaskMemoryOnly: true` and an explicit `oneAllowedTools` list. The worker chooses a connected
+entry with a mapping for the current repo. Alternatively, `ONE_CODER_ATLAS_PROJECT` opts the normal `atlas` connection
+into one fixed project. Never derive this configuration from a task or repository file.
+
+At the end of an implementation run or a bounded pause, the host mirrors a compact checkpoint through
+`atlas_memory_save`, always with `scope: private`, `memoryType: project`, observed confidence and explicit provenance.
+It includes working notes, observed actions and source pointers, not the archive's full document/code bodies.
+Titles include a content hash for Atlas's deduplication; existing controlling memories are not silently overwritten.
+At most one sync attempt per run. Planning/proposal stages never upload memories. `memory_atlas_recall {ref}` can
+reload only references already saved by this task, using `atlas_context` with a 1800-token/6-record budget.
+
+**A bearer token that can create agents or save memories does not necessarily have shadow read access.** The worker
+checks `atlas_whoami.shadowScope` before uploading. No verified shadow scope means local-only memory and an explicit
+notice. Atlas/network/auth failures do not cause a retry loop or invalidate successful local checks.
+
+For Atlas deployments offering OAuth shadow consent, prepare an independent connection:
+
+```sh
+node public/mcp/one-local-coder.mjs --connect-atlas-memory
+```
+
+This prints a sign-in URL and waits up to 15 minutes on a random **127.0.0.1** callback port. Sign in and explicitly
+choose **Also my private shadow records (only mine)**. The checkbox is not preselected. Authorization uses the MCP
+SDK's discovery, public-client registration and PKCE/state validation. OAuth network requests stay on the configured
+Atlas origin and reject redirects. Existing active credentials remain in place until the new exchange succeeds.
+Access/refresh credentials are saved with mode 0600 in `~/.config/one/atlas-memory-oauth.json`. The personal
+`atlas-memory` entry points to that file and preserves the owner's repository/project map. It permits only memory,
+context, get, search and identity tools; `oneTaskMemoryOnly` keeps it out of the model's general MCP-call route.
+The transport can refresh credentials without showing them to the model. Expired/revoked consent requiring sign-in
+is reported; the worker never opens a browser or grants consent by itself. Repeat the explicit setup when needed.
+
+Add `atlas-memory` to the worker's selected MCP servers, then restart an idle worker. `ONE_CODER_MCP_CONFIG` can
+select another personal configuration file for both setup and runtime. A separate memory connection avoids changing
+the tenant selection of clients sharing the main Atlas token. Scope checks and server authorization still apply.

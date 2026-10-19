@@ -38,6 +38,7 @@ const integer = (v: unknown, fallback: number) => v === undefined ? fallback : t
 /** Tools share a snapshot: patches cannot overwrite a file changed since it was read. */
 export class LocalFiles {
   private seen = new Map<string, { hash: string; full: boolean; excerpts: string[] }>()
+  forgetReads() { this.seen.clear() }
   private root: string
   constructor(root: string) { this.root = root }
   private async path(input: unknown): Promise<string> {

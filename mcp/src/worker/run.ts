@@ -17,7 +17,7 @@
 import { randomBytes } from 'node:crypto'
 import { existsSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { SHIP_TRAILER, type ForgeWeb, type GitInfo, type LogLine, type PermissionCount, type ShipAction, type ShipRecord, type ShipRequestHow, type StageOutcome, type TaskPayload, type TaskProgress, type TestResult, type ToolEdit } from '../../../src/app/features/coding/protocol.ts'
 import type { RepoConfig, SourceWhy } from './config.ts'
 import type { WorkerState } from './state.ts'
@@ -614,6 +614,8 @@ async function alternateStage(ctx: StageContext, scrub: Scrubber, log: Log, bran
     const options = { agent, cwd: dir, prompt, readOnly, maxSteps: max, signal: ctx.signal, taskMcp: ctx.taskMcp, progress: ctx.progress,
       log: (line: LogLine) => ctx.log({ ...line, s: scrub.text(line.s) }) }
     const res = agent === 'local' ? await runLocal({ ...options,
+      memory: { directory: join(dirname(ctx.state.file), 'local-memory'), scope: JSON.stringify([repo.path, task.id, task.stage.id]), resume: !!task.resume, projectKey: repo.name },
+      scrub: s => scrub.text(s),
       mcpServers: repo.claude.mcpServers.length ? repo.claude.mcpServers : ctx.localMcpServers,
       verify: !readOnly && (repo.analyzeCommand?.length || repo.testCommand?.length) ? async signal => {
         const outputs: string[] = []
