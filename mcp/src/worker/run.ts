@@ -29,6 +29,8 @@ import { inSyncedFolder, rmRetry, worktreesAt, type Synced, type WorktreesAt } f
 import { repoScrubber, type Scrubber } from './scrub.ts'
 import { claudeAuth } from './secrets.ts'
 import { runAnalysis, runTests, type RunResult } from './testrun.ts'
+import { runCodex } from './codex.ts'
+import { runLocal } from './local-agent.ts'
 
 export interface StageContext {
   repo: RepoConfig
@@ -442,6 +444,7 @@ function logAuth(log: Log, env: NodeJS.ProcessEnv) {
 }
 
 async function claudeStage(ctx: StageContext, wt: TaskWorktree, scrub: Scrubber, log: Log): Promise<StageOutcome> {
+  if (ctx.task.agent && ctx.task.agent !== 'claude') return alternateStage(ctx, scrub, log, wt.branch, wt.dir, wt)
   const { repo, task, caps } = ctx
   const plant = planted(ctx, wt.dir, log)
   if (plant) return { status: 'refused', branch: wt.branch, error: plant }
@@ -526,6 +529,7 @@ export const DOC_DENIED = ['Edit', 'MultiEdit', 'Write', 'NotebookEdit', 'Bash']
  * branch, it runs in that branch's worktree (if there is one) and the prompt carries what the branch changes (a review).
  */
 async function docStage(ctx: StageContext, scrub: Scrubber, log: Log, branch: string | null, dir: string | null): Promise<StageOutcome> {
+  if (ctx.task.agent && ctx.task.agent !== 'claude') return alternateStage(ctx, scrub, log, branch, dir ?? ctx.repo.path)
   const { repo, task, caps } = ctx
   const plant = planted(ctx, dir ?? repo.path, log)
   if (plant) return { status: 'refused', error: plant }
@@ -588,6 +592,35 @@ async function docStage(ctx: StageContext, scrub: Scrubber, log: Log, branch: st
   } finally {
     mcp?.dispose()
   }
+}
+
+/** Codex cloud and local Ollama use the same isolated worktree and the worker's task MCP tools. */
+async function alternateStage(ctx: StageContext, scrub: Scrubber, log: Log, branch: string | null, dir: string, wt?: TaskWorktree): Promise<StageOutcome> {
+  const { task, repo } = ctx
+  const agent = task.agent
+  if (agent !== 'codex' && agent !== 'local') return { status: 'refused', error: 'Unknown coding agent.' }
+  const lim = limits(ctx)
+  if (lim.refuse) return { status: 'limit', error: lim.refuse }
+  const readOnly = task.stage.kind !== 'implement' || (repo.claude.permissionMode.implement ?? task.stage.permissionMode) === 'plan'
+  const changes = task.stage.kind === 'doc' && branch ? await branchDiff(repo, branch, wt?.dir ?? null).catch(() => null) : null
+  const prompt = buildPrompt(task, repo, branch ?? '', markerCode(), changes ? { text: changes.text, worktree: !!wt } : null)
+    + '\n\nUse your native file and shell tools inside this worktree. One task tools are available through MCP. The read-only sandbox applies to planning and documents. Ask through one_task_ask if essential information is missing.'
+  log('info', `Starting ${agent === 'local' ? 'local Ollama coding agent' : 'Codex'} (${readOnly ? 'read only' : 'workspace write'}).`)
+  if (agent === 'codex') log('info', 'Codex uses this computer’s Codex login. Dollar cost is not supplied by Codex CLI; One does not estimate it.')
+  const max = turnsOf(task, repo)
+  const live = wt && !readOnly ? liveDiff(ctx, wt, scrub) : null
+  try {
+    const res = await (agent === 'local' ? runLocal : runCodex)({ agent, cwd: dir, prompt, readOnly, maxSteps: max, signal: ctx.signal, taskMcp: ctx.taskMcp, progress: ctx.progress,
+      log: line => ctx.log({ ...line, s: scrub.text(line.s) }) })
+    const base: Partial<StageOutcome> = { ...(branch ? { branch } : {}), turns: res.steps, ...(wt ? { git: await gitSnapshot(ctx, wt, scrub) } : {}) }
+    if (res.stopped) return { ...base, status: 'stopped', error: 'Stopped in One.' }
+    if (ctx.question()) return { ...base, status: 'question', question: scrub.text(ctx.question()!) }
+    if (res.limited) return { ...base, status: 'limit', error: res.error, stepLimit: { turns: res.steps, max } }
+    if (!res.ok) return { ...base, status: 'failed', error: scrub.text(res.error ?? 'The coding agent failed.') }
+    const content = scrub.text(res.text).trim()
+    if (!content) return { ...base, status: 'failed', error: 'The coding agent returned no final answer.' }
+    return task.stage.kind === 'implement' ? { ...base, status: 'ok', summary: clip(content, SUMMARY_MAX) } : { ...base, status: 'ok', plan: clip(content, 60000) }
+  } finally { live?.stop() }
 }
 
 /** The analysis output in the page: the head (where the findings start) and the tail (the totals). */

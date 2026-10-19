@@ -1,3 +1,4 @@
+import { codingAgentOf } from './agent'
 /**
  * The task panel on a coding task's page (between its properties and its body): the stage timeline, what
  * the task waits for (Approve · Rework with instructions · Answer · Stop · Retry · Run now · Confirm on this
@@ -252,10 +253,10 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
         {canAct && stage?.kind !== 'done' && (
           <div className="ctk-picks">
             <ApprovalsPick taskId={pageId} kind={kind} pipeline={pipeline} />
-            <ModelPick taskId={pageId} pipeline={pipeline} />
+            {codingAgentOf(useWorkspace.getState().databases[task.databaseId!]!, task) === 'claude' && <ModelPick taskId={pageId} pipeline={pipeline} />}
           </div>
         )}
-        {stage?.kind !== 'done' && <TaskMcp taskId={pageId} repo={repo} />}
+        {stage?.kind !== 'done' && codingAgentOf(useWorkspace.getState().databases[task.databaseId!]!, task) === 'claude' && <TaskMcp taskId={pageId} repo={repo} />}
 
         {needsTrust && canAct && (
           <div className="ctk-box ctk-box--trust" role="alert">

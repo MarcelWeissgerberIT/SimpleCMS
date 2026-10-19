@@ -1,3 +1,4 @@
+import { codingAgentOf } from './agent'
 /**
  * Coding pipeline — the task operations on the workspace (store actions only):
  *  - for the worker: pickNext (choose + claim: Worker + Claimed at), heartbeat, finishStage (cost, branch,
@@ -289,8 +290,10 @@ export async function pickNext(repos: string[], workerName: string, docs = false
     }
     // a stage an older worker would misread (it ran unknown kinds as git stages, it would ignore the model): not for
     // this worker — the task says why
-    const model = modelFor(stage, local)
-    if (stageNeeds({ ...stage, model }).some((need) => !caps.has(need))) {
+    const agent = db.system === 'coding' ? codingAgentOf(db, row) : 'claude'
+    if (!agent) { skip(); await patchTask(row.id, { state: 'failed', error: t('features.coding.agent.unknown'), runNow: false }); continue }
+    const model = agent === 'claude' ? modelFor(stage, local) : null
+    if (stageNeeds({ ...stage, model, agent }).some((need) => !caps.has(need))) {
       skip()
       if (local.error !== OLD_WORKER()) await patchTask(row.id, { state: 'failed', error: OLD_WORKER(), runNow: false })
       continue
@@ -324,6 +327,7 @@ export async function pickNext(repos: string[], workerName: string, docs = false
     await patchTask(row.id, { state: 'running', stageId: stage.id, run, error: null, runNow: false, resume: false })
     return {
       id: row.id,
+      agent,
       title: fresh.title.trim() || t('common.untitled'),
       repo,
       stage: { id: stage.id, name: stage.name, kind: stage.kind, instructions: stage.instructions ?? '', permissionMode: stage.kind === 'plan' ? 'plan' : stage.kind === 'doc' ? 'default' : (stage.permissionMode ?? 'acceptEdits'), maxTurns: stageSteps(stage), gitAction: stage.gitAction ?? null, model },
@@ -1371,6 +1375,7 @@ export async function setTaskModel(taskId: ID, model: string | null): Promise<vo
 // added stay — P1 invariant 5; a follow-up's copied tasks are new tasks)
 if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams(window.location.search).has('e2e'))) {
   ;(window as unknown as { __oneCodingWrites?: unknown }).__oneCodingWrites = {
+    next: pickNext,
     create: (title: string, kind: PipelineKind = 'coding', repo: string | null = null) => createTask({ title, repo, goal: 'A goal.', criteria: [], priority: 'medium', branch: '', start: false, kind }),
     // work orders B3: the parked-start guard over these task ids (null: none) · the chain roles on a project
     parked: (ids: ID[] | null) => setParkedGuard(ids ? (id) => ids.includes(id) : null),

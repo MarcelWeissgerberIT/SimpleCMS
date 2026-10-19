@@ -7,6 +7,37 @@ execute shell commands or run the coding pipeline. Source code is sent only when
 
 ## Start the service
 
+### Choose the coding agent for a pipeline task (worker 1.14.0)
+
+On a **Coding** task, the **Type** line selects **Claude Code**, **Codex**, or **Local · Ollama**. The selection
+is a regular select property of that task, so it survives reloads and sync. Existing tasks default to Claude Code.
+Other databases keep their record-type picker. The selection cannot change through this picker while the task runs.
+An unknown explicit choice is refused; a worker that lacks `agent:codex` / `agent:local` never runs it as Claude.
+
+Download and start the updated worker under **Settings → Coding worker**. Claude uses the existing Claude Code
+installation and permissions. Codex uses a recent **Codex CLI** (`codex exec` must support
+`--ignore-user-config`); `CODEX_BIN` may point to it. Cloud Codex uses its own login (`codex login`). On a Mac the worker
+also finds the CLI shipped with ChatGPT/Codex when it is not on PATH. Local calls this computer's Ollama directly with `marcel-coder:latest`. Flat function tools read and write
+source files inside the worktree and call the task-scoped MCP tools. It needs no Codex CLI and exposes no arbitrary
+shell command tool; One's configured test and git stages still run through the worker. Local mode does not send the task to OpenAI.
+
+The worker makes the worktree as before. Codex plans and documents use its read-only sandbox; implementation uses workspace-write. Local plans and
+documents get only read tools; implementation adds a file-writing tool confined to the worktree. It passes no sandbox-bypass flag. Denied operations do not trigger an unattended approval.
+Task context, notes and questions are available via the worker's scoped MCP tools (read/note/ask only). Codex
+explicitly approves these three tools for this task; local inference uses the MCP client directly. User-configured Codex MCP servers are not attached. Local tool calling depends on the
+model's capabilities; source-code tasks should include clear goals and acceptance criteria.
+
+Stop terminates the process tree, output and steps are bounded, and One still owns tests and git actions. Claude model
+overrides apply only to Claude; the task panel hides them for the other agents. The worker owner may set
+`ONE_CODEX_MODEL` for Codex or `ONE_CODER_MODEL` for Ollama. Codex CLI does not report dollar cost, so One reports no
+new dollar amount for those runs; its dollar limit cannot cap Codex spending. Local inference has no provider token fee.
+The separate API-key-protected MCP task panel below remains available for code proposals without repository access.
+
+References: [Codex non-interactive mode](https://learn.chatgpt.com/docs/non-interactive-mode),
+[Codex MCP configuration](https://learn.chatgpt.com/docs/extend/mcp?surface=cli).
+
+### Standalone MCP task panel
+
 1. Install/start Ollama and load a coding model. The default model name is `marcel-coder` (an Ollama profile).
    For an uncustomized installation use `ollama pull qwen3-coder:30b` and set `ONE_CODER_MODEL=qwen3-coder:30b`.
 2. Download `mcp/one-local-coder.mjs` from the same One build, or build it in this repository with

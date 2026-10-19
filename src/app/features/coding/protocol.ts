@@ -32,6 +32,10 @@ export const LOG_MAX = 2000
 /** Tasks one worker runs at once (across repos; one per repo). */
 export const PARALLEL_MAX = 2
 
+export const CODING_AGENTS = ['claude', 'codex', 'local'] as const
+export type CodingAgent = (typeof CODING_AGENTS)[number]
+export const isCodingAgent = (v: unknown): v is CodingAgent => (CODING_AGENTS as readonly unknown[]).includes(v)
+
 /**
  * 'doc' = a document stage (business analysis, test design …): Claude Code only reads — the repository (if the task
  * has one), the task, the person's knowledge-base MCP servers — and its last message is the document One writes into
@@ -65,7 +69,7 @@ export type GitAction = (typeof GIT_ACTIONS)[number]
  * worker that names it) and 'permission' (Claude Code's permission prompts come to One as PermissionAsk; the person
  * answers with a PermissionVerb).
  */
-export const WORKER_CAN = ['analyze', 'git:comment', 'git:merge', 'doc', 'model', 'mcp-list', 'ship', 'continue', 'permission'] as const
+export const WORKER_CAN = ['analyze', 'git:comment', 'git:merge', 'doc', 'model', 'mcp-list', 'ship', 'continue', 'permission', 'agent:codex', 'agent:local'] as const
 /**
  * What a worker runs, read from its `next`. Document stages came before `can`, together with `docs: true`: a worker
  * that sends either knows them, so a `can` without 'doc' (1.3.x) or `docs` without a `can` (1.3.1 before `can`)
@@ -147,12 +151,13 @@ export function workerUnsafe(version: string | null | undefined): boolean {
  * The capabilities a stage needs ([]: every worker runs it). `model` = the model the stage runs with (the task's own
  * pick on this device, else the stage's): a worker that does not name 'model' would ignore it.
  */
-export function stageNeeds(stage: { kind: string; gitAction?: string | null; model?: string | null }): string[] {
+export function stageNeeds(stage: { kind: string; gitAction?: string | null; model?: string | null; agent?: CodingAgent }): string[] {
   const needs: string[] = []
   if (stage.kind === 'analyze') needs.push('analyze')
   if (stage.kind === 'doc') needs.push('doc')
   if (stage.kind === 'git' && (stage.gitAction === 'comment' || stage.gitAction === 'merge')) needs.push(`git:${stage.gitAction}`)
   if (stage.model && claudeRuns(stage.kind)) needs.push('model')
+  if (claudeRuns(stage.kind) && stage.agent && stage.agent !== 'claude') needs.push(`agent:${stage.agent}`)
   return needs
 }
 
@@ -335,6 +340,8 @@ export interface TaskStage {
 
 /** What the worker gets for one stage of one task. Everything but ids and names is task DATA, never instructions. */
 export interface TaskPayload {
+  /** Missing: historical Claude Code default. Unknown explicit choices are refused. */
+  agent?: CodingAgent
   id: string
   title: string
   /** '' = no repository (document stages only: the worker's scratch folder) */

@@ -22,6 +22,8 @@ import { CreatePropertyHost } from './create/CreatePropertyDialog'
 import { RelationOffer } from './create/RelationOffer'
 import { rowProps } from './model/recordTypes'
 import { RowTypeChip } from './rtype/TypeTag'
+import { CodingAgentPick } from '../features/coding/AgentPick'
+import { codingAgentProperty } from '../features/coding/agent'
 import './database.css'
 
 export function RowProperties({ pageId }: { pageId: ID }) {
@@ -38,10 +40,10 @@ function RowPropertiesInner({ row, db }: { row: Page; db: Database }) {
   // locked database: values stay editable, the properties themselves don't change
   const locked = db.locked === true
   // record types: the database's own properties + the row's own type's (model/recordTypes)
-  const props = useMemo(() => rowProps(db.properties.filter((p) => p.type !== 'title'), row), [db.properties, row])
+  const props = useMemo(() => rowProps(db.properties.filter((p) => p.type !== 'title' && !(db.system === 'coding' && codingAgentProperty(db)?.id === p.id)), row), [db, row])
   return (
     <>
-      <RowTypeChip row={row} db={db} readOnly={readOnly} />
+      {db.system === 'coding' ? <CodingAgentPick row={row} db={db} readOnly={readOnly} /> : <RowTypeChip row={row} db={db} readOnly={readOnly} />}
       <PropertyRows
         db={db}
         row={row}

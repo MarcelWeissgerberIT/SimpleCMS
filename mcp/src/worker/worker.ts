@@ -1,3 +1,4 @@
+import { isCodingAgent } from '../../../src/app/features/coding/protocol.ts'
 /**
  * one-worker — the loop. While a One tab of its workspace is connected, the worker asks for the next task
  * of its repos whose stage the worker takes (`next`: the tab picks by priority and age and claims it in the
@@ -197,6 +198,7 @@ export function taskIds(raw: unknown): { id: string; stageId: string } | null {
 /** The tab's answer to `next`, checked field by field (One is trusted to pick, not to be well-formed). */
 export function sanitizeTask(raw: unknown): TaskPayload | null {
   if (!isObj(raw) || !isObj(raw.stage)) return null
+  if (raw.agent !== undefined && !isCodingAgent(raw.agent)) return null
   const s = raw.stage
   const kind = (STAGE_KINDS as readonly string[]).includes(String(s.kind)) ? (s.kind as TaskPayload['stage']['kind']) : null
   const id = str(raw.id, 64)
@@ -205,6 +207,7 @@ export function sanitizeTask(raw: unknown): TaskPayload | null {
   const turns = Number(s.maxTurns)
   return {
     id,
+    ...(raw.agent ? { agent: raw.agent as TaskPayload['agent'] } : {}),
     title: oneLine(str(raw.title, 300)) || 'Untitled task',
     repo: raw.repo,
     stage: {
@@ -570,7 +573,7 @@ export class Worker {
    */
   private async claudeForStage(task: TaskPayload): Promise<ClaudeCaps> {
     const kind = task.stage.kind
-    if (this.caps.found || (kind !== 'plan' && kind !== 'implement' && kind !== 'doc')) return this.caps
+    if ((task.agent && task.agent !== 'claude') || this.caps.found || (kind !== 'plan' && kind !== 'implement' && kind !== 'doc')) return this.caps
     return this.lookForClaude()
   }
 

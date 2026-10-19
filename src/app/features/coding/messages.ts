@@ -7,6 +7,12 @@ import type { Messages } from '@/shared/i18n'
  */
 export const messages: Messages = {
   en: {
+    'features.coding.agent.label': 'Coding agent',
+    'features.coding.agent.claude': 'Claude Code',
+    'features.coding.agent.codex': 'Codex',
+    'features.coding.agent.local': 'Local · Ollama',
+    'features.coding.agent.unknown': 'Unknown coding agent — choose again',
+    'features.coding.agent.locked': 'Unlock the database to add the coding agent field.',
     'shell.settings.tab.coding': 'Coding worker',
     'features.coding.title': 'Coding',
     'features.coding.kicker': 'Coding pipeline',
@@ -318,7 +324,7 @@ export const messages: Messages = {
     'features.coding.task.freshPlain': 'The worker makes a new branch one/… for this task.',
     'features.coding.task.unknownRepo': 'The connected worker has no repo “{repo}” — tick it on its setup page or choose another one.',
     'features.coding.task.specTitle': 'Describe the task in the page below.',
-    'features.coding.task.specBody': 'Goal, acceptance criteria and notes — this text is what Claude Code works from.',
+    'features.coding.task.specBody': 'Goal, acceptance criteria and notes — this text is what the selected coding agent works from.',
     'features.coding.task.outline': 'Insert outline',
     'features.coding.task.notes': 'Notes',
     'features.coding.approvals.label': 'Approvals',
@@ -844,6 +850,12 @@ export const messages: Messages = {
     'features.coding.worker.outdatedFix': 'A newer worker is on the site — {adds}. This one still runs every stage, but a stage can go on “working” after Claude Code is done. Download it, stop the old one (Ctrl+C) and start the new file.',
   },
   de: {
+    'features.coding.agent.label': 'Coding-Agent',
+    'features.coding.agent.claude': 'Claude Code',
+    'features.coding.agent.codex': 'Codex',
+    'features.coding.agent.local': 'Lokal · Ollama',
+    'features.coding.agent.unknown': 'Unbekannter Coding-Agent — bitte neu wählen',
+    'features.coding.agent.locked': 'Entsperre die Datenbank, um das Coding-Agent-Feld hinzuzufügen.',
     'shell.settings.tab.coding': 'Coding-Worker',
     'features.coding.title': 'Coding',
     'features.coding.kicker': 'Coding-Pipeline',
@@ -1155,7 +1167,7 @@ export const messages: Messages = {
     'features.coding.task.freshPlain': 'Der Worker legt für diese Aufgabe einen neuen Branch one/… an.',
     'features.coding.task.unknownRepo': 'Der verbundene Worker hat kein Repo „{repo}“ – hake es auf seiner Einrichtungsseite an oder wähle ein anderes.',
     'features.coding.task.specTitle': 'Beschreibe die Aufgabe unten im Seiteninhalt.',
-    'features.coding.task.specBody': 'Ziel, Abnahmekriterien und Hinweise – mit diesem Text arbeitet Claude Code.',
+    'features.coding.task.specBody': 'Ziel, Abnahmekriterien und Hinweise – mit diesem Text arbeitet der gewählte Coding-Agent.',
     'features.coding.task.outline': 'Gliederung einfügen',
     'features.coding.task.notes': 'Hinweise',
     'features.coding.approvals.label': 'Freigaben',
