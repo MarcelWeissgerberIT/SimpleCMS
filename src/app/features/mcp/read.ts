@@ -5,10 +5,10 @@
  */
 import { format } from 'date-fns'
 import { useUI } from '../../store/ui'
-import { inTemplate, selectBacklinks } from '../../store/selectors'
+import { inTemplate } from '../../store/selectors'
 import type { Database, ID, Page, PropertyDef } from '../../store/types'
-import { docToFileMarkdown } from '../../editor'
 import { parseHash } from '../../lib/router'
+import { isContextLimited, readableContent } from '../../editor'
 import { t } from '../../i18n'
 import { retrieve, workspaceDocs } from '../ai/workspace'
 import { MCP_FILTER_OPS, type McpAgentMode, type McpToolName } from './contract'
@@ -17,17 +17,17 @@ import { scriptList } from '../script'
 import { queryTarget, runQuery } from './script'
 import { listWorkItemsMcp } from './workItems'
 import { systemNote } from './system'
-import { comparable, databaseOrThrow, friendlyValue, iconText, iso, kindOf, live, McpToolError, pageUrl, pathOf, propertyJson, q, rowJson, rowProperties, rowsOf, titleOf, ws } from './values'
-
-/** Characters of page Markdown in one answer. */
-export const MARKDOWN_MAX = 60_000
+import { viewJson } from './structure'
+import { mcpError } from '../../../shared/mcp/errors'
+import { classOf, getPage, listPages, urlBase } from './pageRead'
+import { comparable, databaseOrThrow, friendlyValue, iconText, iso, kindOf, live, McpToolError, pageUrl, pathOf, propertyJson, q, rowJson, rowsOf, titleOf, ws } from './values'
 
 const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '')
 
 function int(v: unknown, def: number, min: number, max: number, key: string): number {
   if (v === undefined || v === null || v === '') return def
   const n = typeof v === 'number' ? v : Number(v)
-  if (!Number.isFinite(n)) throw new McpToolError(`"${key}" must be a number.`)
+  if (!Number.isFinite(n)) throw new McpToolError(mcpError('bad_argument', key, 'a number is expected'))
   return Math.max(min, Math.min(max, Math.floor(n)))
 }
 
@@ -44,6 +44,8 @@ function overview(mode: McpAgentMode) {
   const { pages, databases, people } = ws()
   const alive = Object.values(pages).filter((p) => live(p.id))
   const childrenOf = (id: ID | null) => alive.filter((p) => p.parentId === id && !p.databaseId && !p.hidden).sort((a, b) => a.order - b.order)
+  /** the tree leaves something out: the answer points to one_list_pages */
+  let cut = false
   const node = (p: Page, depth: number): Record<string, unknown> => {
     const out: Record<string, unknown> = ref(p)
     const icon = iconText(p.icon)
@@ -54,9 +56,11 @@ function overview(mode: McpAgentMode) {
       out.children = kids.slice(0, TREE_CHILDREN).map((c) => node(c, depth + 1))
       if (kids.length > TREE_CHILDREN) out.more = kids.length - TREE_CHILDREN
     } else if (kids.length) out.more = kids.length
+    if (out.more) cut = true
     return out
   }
   const top = childrenOf(null)
+  const tree = top.slice(0, TREE_TOP).map((p) => node(p, 0))
   const route = parseHash(window.location.hash)
   const open = route.name === 'page' ? live(route.id) : null
   const peekId = useUI.getState().peekPageId
@@ -85,8 +89,9 @@ function overview(mode: McpAgentMode) {
       databases: dbs.length,
       rows: alive.filter((p) => !!p.databaseId).length,
     },
-    pages: top.slice(0, TREE_TOP).map((p) => node(p, 0)),
+    pages: tree,
     ...(top.length > TREE_TOP ? { morePages: top.length - TREE_TOP } : {}),
+    ...(cut || top.length > TREE_TOP ? { tree: { more: true, use: 'one_list_pages' } } : {}),
     databases: dbs,
     people: people.map((p) => ({ name: p.name })),
     // One Script: the person's saved scripts and queries (one_run_script runs one, after their OK)
@@ -116,92 +121,33 @@ function snippet(text: string, query: string): string {
 
 function search(args: Record<string, unknown>) {
   const query = str(args.query)
-  if (!query) throw new McpToolError('Missing required parameter "query".')
-  if (query.length > 300) throw new McpToolError('"query" is too long (at most 300 characters).')
+  if (!query) throw new McpToolError(mcpError('bad_argument', 'query', 'missing — it is required'))
+  if (query.length > 300) throw new McpToolError(mcpError('bad_argument', 'query', `too long (${query.length} characters, at most 300)`))
   const limit = int(args.limit, 10, 1, 50, 'limit')
   const { pages } = ws()
-  const hits = retrieve(query, workspaceDocs(), 50)
+  // the person's context marks hold for MCP reads (spec § 2.1, Q10): a limited page is searched — and its snippet cut —
+  // only in the blocks it lets Claude read, so a query cannot pull excluded text out piece by piece
+  const limited = new Set<ID>()
+  const plain = (p: Page): string => {
+    if (!isContextLimited(p.id)) return p.plain ?? ''
+    limited.add(p.id)
+    return readableContent(p.id).plain
+  }
+  const hits = retrieve(query, workspaceDocs(null, { plain }), 50)
   return {
     query,
+    urlBase: urlBase(),
     results: hits.slice(0, limit).map((h) => {
       const p = pages[h.id]
       const out: Record<string, unknown> = { id: h.id, kind: p ? kindOf(p) : 'page', title: h.title, path: pathOf(h.id) }
       if (p?.databaseId) out.databaseId = p.databaseId
       out.snippet = snippet(h.text, query)
-      out.url = pageUrl(h.id)
+      if (limited.has(h.id)) out.limited = true
       if (p) out.updatedAt = iso(p.updatedAt)
       return out
     }),
     total: hits.length,
   }
-}
-
-/* ------------------------------------------------------------------ */
-/* one_get_page                                                        */
-/* ------------------------------------------------------------------ */
-
-/** A page by id, or by exact (case-insensitive) title — the most recently edited if several match. */
-export function findPage(args: Record<string, unknown>): { page: Page; others: Page[] } {
-  const id = str(args.id)
-  const title = str(args.title)
-  if (!id && !title) throw new McpToolError('Give the page id (or its exact title).')
-  if (id) {
-    // a template's page is not found by its id either (live)
-    const p = live(id)
-    if (p) return { page: p, others: [] }
-    if (!title) throw new McpToolError(`No page with id ${q(id)}. Use one_search to find page ids.`)
-  }
-  // by title: template pages (features/templates) never answer, as by id
-  const pages = ws().pages
-  const all = Object.values(pages).filter((p) => live(p.id) && !inTemplate(pages, p.id))
-  const hits = all.filter((p) => p.title.trim().toLowerCase() === title.toLowerCase()).sort((a, b) => b.updatedAt - a.updatedAt)
-  if (!hits.length) {
-    const near = all
-      .filter((p) => p.title.toLowerCase().includes(title.toLowerCase()))
-      .sort((a, b) => b.updatedAt - a.updatedAt)
-      .slice(0, 5)
-    throw new McpToolError(`No page titled ${q(title)}.${near.length ? ` Similar: ${near.map((p) => `${q(titleOf(p))} (${p.id})`).join(', ')}` : ' Try one_search.'}`)
-  }
-  return { page: hits[0], others: hits.slice(1) }
-}
-
-function getPage(args: Record<string, unknown>) {
-  const { page: p, others } = findPage(args)
-  const { pages, databases } = ws()
-  const out: Record<string, unknown> = {
-    id: p.id,
-    kind: kindOf(p),
-    title: p.title,
-    icon: iconText(p.icon),
-    path: pathOf(p.id),
-    url: pageUrl(p.id),
-    parentId: p.parentId,
-  }
-  if (p.databaseId && databases[p.databaseId]) out.database = { id: p.databaseId, title: titleOf(pages[p.databaseId]) }
-  out.createdAt = iso(p.createdAt)
-  out.updatedAt = iso(p.updatedAt)
-  if (p.settings.locked) out.locked = true
-  if (p.databaseId && databases[p.databaseId]) out.properties = rowProperties(databases[p.databaseId], p)
-  if (p.kind === 'database' && databases[p.id]) {
-    out.rows = rowsOf(p.id).length
-    out.schema = databases[p.id].properties.map((prop) => ({ name: prop.name, type: prop.type, ...(prop.options ? { options: prop.options.map((o) => o.name) } : {}) }))
-    out.hint = 'A database: one_query_database lists its rows, one_get_database has the full schema and views.'
-  }
-  // sub-pages as the sidebar shows them: never a template's (they read like unknown ids) nor a hidden one
-  const children = Object.values(pages)
-    .filter((c) => c.parentId === p.id && !c.databaseId && !c.hidden && live(c.id))
-    .sort((a, b) => a.order - b.order)
-  if (children.length) out.children = children.slice(0, 100).map(ref)
-  if (others.length) out.alsoTitled = others.slice(0, 10).map((o) => ({ id: o.id, path: pathOf(o.id) }))
-  // the file form: dates and people as `one:` links — a replace that copies them keeps them as mentions
-  const md = docToFileMarkdown(p.content).trim()
-  out.markdown = md.length > MARKDOWN_MAX ? `${md.slice(0, MARKDOWN_MAX)}\n[Truncated: ${MARKDOWN_MAX.toLocaleString('en')} of ${md.length.toLocaleString('en')} characters]` : md
-  if (md.length > MARKDOWN_MAX) out.truncated = true
-  out.backlinks = selectBacklinks(pages, p.id)
-    .filter((b) => live(b.id))
-    .slice(0, 50)
-    .map((b) => ({ id: b.id, title: titleOf(b), path: pathOf(b.id) }))
-  return out
 }
 
 /* ------------------------------------------------------------------ */
@@ -211,6 +157,7 @@ function getPage(args: Record<string, unknown>) {
 function listDatabases() {
   const { databases, pages } = ws()
   return {
+    urlBase: urlBase(),
     databases: Object.values(databases)
       .map((d) => ({ d, page: live(d.id) }))
       .filter((x): x is { d: Database; page: Page } => !!x.page && !inTemplate(pages, x.d.id))
@@ -218,8 +165,10 @@ function listDatabases() {
         id: d.id,
         title: titleOf(page),
         path: pathOf(d.id),
-        url: pageUrl(d.id),
+        parentId: page.parentId,
         rows: rowsOf(d.id).length,
+        inline: !!d.inline,
+        system: d.system ?? null,
         properties: d.properties.map((p) => ({ name: p.name, type: p.type })),
       }))
       .sort((a, b) => a.path.localeCompare(b.path) || a.title.localeCompare(b.title)),
@@ -228,7 +177,6 @@ function listDatabases() {
 
 function getDatabase(args: Record<string, unknown>) {
   const { db, page } = databaseOrThrow(args.id)
-  const nameOf = (id: ID | null | undefined) => (id ? (db.properties.find((p) => p.id === id)?.name ?? null) : null)
   return {
     id: db.id,
     title: titleOf(page),
@@ -236,20 +184,15 @@ function getDatabase(args: Record<string, unknown>) {
     path: pathOf(db.id),
     url: pageUrl(db.id),
     parentId: page.parentId,
+    class: classOf(db.id),
+    inline: !!db.inline,
     rows: rowsOf(db.id).length,
     locked: !!db.locked,
     ...(db.locked ? { lockedNote: 'Locked: rows can be added and changed; properties and options cannot.' } : {}),
     ...(db.system ? { system: db.system, systemNote: systemNote(db.system) } : {}),
     properties: db.properties.map((p) => propertyJson(db, p)),
-    views: db.views.map((v) => ({
-      id: v.id,
-      name: v.name,
-      type: v.type,
-      ...(nameOf(v.groupBy) ? { groupBy: nameOf(v.groupBy) } : {}),
-      ...(nameOf(v.dateProperty) ? { dateProperty: nameOf(v.dateProperty) } : {}),
-      ...(v.sorts.length ? { sorts: v.sorts.map((s) => ({ property: nameOf(s.propertyId) ?? s.propertyId, direction: s.direction })) } : {}),
-      filtered: !!v.filter?.items.length,
-    })),
+    // every view in full: its filter as one_create_view takes it, the visible properties in order (spec § 2.1)
+    views: db.views.map((v) => ({ ...viewJson(db, v), filtered: !!v.filter?.items.length })),
   }
 }
 
@@ -285,7 +228,7 @@ interface Field {
 
 function sortSpecs(raw: unknown): Array<{ property: string; desc: boolean }> {
   if (raw === undefined || raw === null || raw === '') return []
-  const one = (x: unknown): { property: string; desc: boolean } => {
+  const one = (x: unknown, i: number | null): { property: string; desc: boolean } => {
     if (typeof x === 'string') {
       const s = x.trim()
       return s.startsWith('-') ? { property: s.slice(1).trim(), desc: true } : { property: s, desc: false }
@@ -294,9 +237,9 @@ function sortSpecs(raw: unknown): Array<{ property: string; desc: boolean }> {
       const o = x as { property: string; direction?: unknown }
       return { property: o.property.trim(), desc: o.direction === 'desc' }
     }
-    throw new McpToolError('"sort" must be a property name ("-Name" for descending), {property, direction} or a list of those.')
+    throw new McpToolError(mcpError('bad_argument', i === null ? 'sort' : `sort[${i}]`, 'a property name ("-Name" for descending), {property, direction} or a list of those is expected'))
   }
-  const list = Array.isArray(raw) ? raw.slice(0, 5).map(one) : [one(raw)]
+  const list = Array.isArray(raw) ? raw.slice(0, 5).map((x, i) => one(x, i)) : [one(raw, null)]
   return list.filter((s) => s.property && s.property !== 'order')
 }
 
@@ -305,7 +248,7 @@ function queryDatabase(args: Record<string, unknown>) {
   const limit = int(args.limit, 50, 1, 100, 'limit')
   const titleProp = db.properties.find((p) => p.type === 'title')
   const cache = new Map<string, string[]>()
-  const fieldOf = (name: string): Field => {
+  const fieldOf = (name: string, path: string): Field => {
     const n = name.trim().toLowerCase()
     const byProp = (prop: PropertyDef): Field => ({
       key: prop.id,
@@ -331,20 +274,20 @@ function queryDatabase(args: Record<string, unknown>) {
     if (prop) return byProp(prop)
     if (n === 'createdat' || n === 'created') return { key: 'createdAt', checkbox: false, values: (r) => [iso(r.createdAt).toLowerCase()] }
     if (n === 'updatedat' || n === 'updated' || n === 'last edited') return { key: 'updatedAt', checkbox: false, values: (r) => [iso(r.updatedAt).toLowerCase()] }
-    throw new McpToolError(`Unknown property ${q(name)}. Properties: ${db.properties.map((p) => q(p.name)).join(', ')} (or title, createdAt, updatedAt).`)
+    throw new McpToolError(mcpError('bad_argument', path, `${q(titleOf(page))} has no property ${q(name)}. Properties: ${db.properties.map((p) => q(p.name)).join(', ')} (or title, createdAt, updatedAt)`, 'Use one of those names (one_get_database lists them) and call again.'))
   }
 
   const raw = args.filter
-  if (raw !== undefined && raw !== null && !Array.isArray(raw)) throw new McpToolError('"filter" must be a list of {property, op, value}.')
-  if (Array.isArray(raw) && raw.length > 20) throw new McpToolError('At most 20 filter conditions.')
-  const filters = ((raw as unknown[] | undefined) ?? []).map((f) => {
+  if (raw !== undefined && raw !== null && !Array.isArray(raw)) throw new McpToolError(mcpError('bad_argument', 'filter', 'a list of {property, op, value} is expected'))
+  if (Array.isArray(raw) && raw.length > 20) throw new McpToolError(mcpError('bad_argument', 'filter', `${raw.length} conditions (at most 20)`))
+  const filters = ((raw as unknown[] | undefined) ?? []).map((f, i) => {
     const o = (f && typeof f === 'object' ? f : {}) as Record<string, unknown>
-    const field = fieldOf(String(o.property ?? ''))
+    const field = fieldOf(String(o.property ?? ''), `filter[${i}].property`)
     const given = String(o.op ?? '').trim().toLowerCase() as Op
-    if (!MCP_FILTER_OPS.includes(given)) throw new McpToolError(`Unknown op ${q(String(o.op ?? ''))}. Use one of: ${MCP_FILTER_OPS.slice(0, 14).join(', ')}.`)
+    if (!MCP_FILTER_OPS.includes(given)) throw new McpToolError(mcpError('bad_argument', `filter[${i}].op`, `unknown op ${q(String(o.op ?? ''))}`, `Use one of: ${MCP_FILTER_OPS.slice(0, 14).join(', ')}.`))
     return { field, op: ALIAS[given] ?? given, value: needle(o.value, field.checkbox) }
   })
-  const sorts = sortSpecs(args.sort).map((s) => ({ field: fieldOf(s.property), desc: s.desc }))
+  const sorts = sortSpecs(args.sort).map((s, i, all) => ({ field: fieldOf(s.property, all.length > 1 || Array.isArray(args.sort) ? `sort[${i}]` : 'sort'), desc: s.desc }))
 
   const all = rowsOf(db.id)
   const matches = all.filter((row) =>
@@ -404,8 +347,13 @@ function queryDatabase(args: Record<string, unknown>) {
   const end = offset + slice.length
   return {
     database: { id: db.id, title: titleOf(page) },
+    urlBase: urlBase(),
     total: matches.length,
-    rows: slice.map((r) => rowJson(db, r)),
+    // a list: no link per row (urlBase + id)
+    rows: slice.map((r) => {
+      const { url: _url, ...row } = rowJson(db, r)
+      return row
+    }),
     next: end < matches.length ? encodeCursor(end, fingerprint) : null,
   }
 }
@@ -422,8 +370,8 @@ const encodeCursor = (offset: number, fp: string) => `${offset.toString(36)}.${f
 function decodeCursor(v: unknown, fp: string): number {
   if (v === undefined || v === null || v === '') return 0
   const m = typeof v === 'string' ? /^([0-9a-z]+)\.([0-9a-z]+)$/.exec(v.trim()) : null
-  if (!m) throw new McpToolError('Invalid "cursor": pass the "next" value of the previous answer.')
-  if (m[2] !== fp) throw new McpToolError('This cursor belongs to another query (other filter or sort). Start again without a cursor.')
+  if (!m) throw new McpToolError(mcpError('bad_argument', 'cursor', 'not a cursor of this tool', 'Pass the "next" value of the previous answer.'))
+  if (m[2] !== fp) throw new McpToolError(mcpError('bad_argument', 'cursor', 'this cursor belongs to another query (other filter or sort)', 'Start again without a cursor.'))
   return parseInt(m[1], 36)
 }
 
@@ -442,7 +390,8 @@ export const READ_TOOLS: Partial<Record<McpToolName, (args: Record<string, unkno
   one_overview: (_args, mode) => overview(mode),
   one_list_workspaces: (_args, mode) => ownWorkspace(mode),
   one_search: search,
-  one_get_page: getPage,
+  one_get_page: (args) => getPage(args),
+  one_list_pages: listPages,
   one_list_databases: listDatabases,
   one_get_database: getDatabase,
   one_query_database: queryDatabase,
@@ -461,6 +410,8 @@ export function readTarget(tool: McpToolName, args: Record<string, unknown>): st
       return `“${str(args.query)}”`
     case 'one_get_page':
       return str(args.title) || title(args.id)
+    case 'one_list_pages':
+      return args.parentId ? title(args.parentId) : workspaceInfo().name
     case 'one_get_database':
       return title(args.id)
     case 'one_run_query':

@@ -62,18 +62,20 @@ export interface DocsFilter {
 }
 
 /**
- * Searchable documents for every live page; database pages include a compact table of their rows.
+ * Searchable documents for every live page; database pages include a compact table of their rows. `opts.plain`: a
+ * page's own text as the caller may read it (MCP search: only the blocks the person's context marks leave readable).
  * Templates (features/templates) are not workspace content: their pages stay out. With a filter (a route that does not
  * see everything) pages it may not see are left out before ranking, and a database lists only rows it may see.
  */
-export function workspaceDocs(filter?: DocsFilter | null): Doc[] {
+export function workspaceDocs(filter?: DocsFilter | null, opts?: { plain?: (p: Page) => string }): Doc[] {
   const { pages, databases } = useWorkspace.getState()
   const docs: Doc[] = []
   for (const p of Object.values(pages)) {
     if (p.trashed || isEffectivelyTrashed(pages, p.id) || inTemplate(pages, p.id)) continue
     if (filter && !filter.quick(p.id)) continue
     const title = p.title.trim() || 'Untitled'
-    let text = p.plain ?? ''
+    // the page's own text (a caller that honours the person's context marks passes what may be read)
+    let text = (opts?.plain ? opts.plain(p) : p.plain) ?? ''
     if (p.databaseId && databases[p.databaseId]) {
       const facts = rowFacts(databases[p.databaseId], p)
       const dbTitle = pages[p.databaseId]?.title?.trim()

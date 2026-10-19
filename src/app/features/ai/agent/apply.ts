@@ -8,7 +8,7 @@
 import type { JSONContent } from '@tiptap/core'
 import { useWorkspace } from '../../../store/store'
 import { isEffectivelyTrashed } from '../../../store/selectors'
-import { COLOR_NAMES, type DateValue, type ID, type PropertyDef, type PropertyValue, type SelectOption, type View } from '../../../store/types'
+import { COLOR_NAMES, type DateValue, type ID, type Page, type PropertyDef, type PropertyValue, type SelectOption, type View } from '../../../store/types'
 import { defaultView } from '../../../store/store'
 import { claudeSettled } from '../claudeDoc'
 import { webImagesOf } from '../../agents/images'
@@ -16,6 +16,7 @@ import { newId } from '../../../lib/ids'
 import { aiWrite, contentKey, snapshotNow } from '../../history/snapshots'
 import { t } from '../../../i18n'
 import { depsOf, type ColumnSpec, type PropChange, type StagedChange } from './types'
+import { listOptionError } from './props'
 import { saveMemory, updateMemory } from '../memory/save'
 import { applyPageEdits } from './edit'
 import { applyItemChanges, applyNotes, itemCtx, itemPageOf, pagePrivate, sourceOfWriter, stagedTasksOf, type ItemApply, type ItemApplyOpts } from './workItems'
@@ -24,6 +25,7 @@ import { mediaNode } from '../media/blocks'
 import { applyNewTask, applyTaskAction, isPipelineTask, taskNeedsConfirm, taskSig, taskWriteEndsConfirm, textRefsGained } from '../../coding'
 import { isHandOnly, keyOwner, keyPropOf, keyText } from '../../../store/keys'
 import { formatWriterKey, withWriter, type Writer } from '../../../store/writer'
+import { createPrivatePage } from '../../../cloud'
 import { isSettled } from '../../recorder/settled'
 import { runKeyOf } from '../../recorder/model/writerKeys'
 
@@ -79,6 +81,8 @@ function resolveOptions(dbId: ID, prop: PropertyDef, names: string[], created: M
     if (live.type === 'status') throw new Error(`unknown status "${name}"`)
     // locked since it was staged: the options stay as they are
     if (ws().databases[dbId]?.locked) throw new Error(`the database is locked — no new option "${name}"`)
+    // bound to a shared list since (features/kit): the list owns the options — never one on the property alone
+    if (live.listId) throw new Error(listOptionError(live, name, opts.map((o) => o.name)))
     const opt: SelectOption = { id: newId(), name, color: palette[(opts.length + fresh.length) % palette.length] }
     opts.push(opt)
     fresh.push(opt)
@@ -152,6 +156,11 @@ export interface ApplyResult {
    * `reverted`: of a kept update_row, the properties that did go back (nobody had changed them)
    */
   undo: () => { kept: string[]; reverted: Record<string, ID[]> }
+  /**
+   * the caller's own rollback when the batch as a whole fails (MCP: "Nothing was changed"): as `undo`, but what this
+   * batch created is deleted for good while untouched — never left in the trash (nobody could have worked with it yet)
+   */
+  rollback: () => { kept: string[]; reverted: Record<string, ID[]> }
   /** what applying left out of a change (the settle gate's apply-time warnings, UI language), by change id */
   notes?: Record<string, string[]>
   /** the page a change really wrote, by change id ('workItem': the task's page now — attribution stamps it) */
@@ -421,23 +430,79 @@ export async function applyChanges(changes: StagedChange[], all: StagedChange[],
     }
     return { kept, reverted }
   }
-  return { applied, failed, rowIds, final, undo, ...(Object.keys(notes).length ? { notes } : {}), pages }
+  const rollback = () => {
+    const prev = rollingBack
+    rollingBack = true
+    try {
+      return undo()
+    } finally {
+      rollingBack = prev
+    }
+  }
+  return { applied, failed, rowIds, final, undo, rollback, ...(Object.keys(notes).length ? { notes } : {}), pages }
 }
 
+/** Set while a batch's own rollback runs (ApplyResult.rollback): what it created goes for good, never to the trash. */
+let rollingBack = false
+
+/** A page as the batch left it: its text (rev + key), title, icon, cover, comment threads and stored values. */
+interface MadeAs {
+  rev: number | undefined
+  key: string
+  title: string | undefined
+  icon: string
+  cover: string
+  comments: string
+  props: string
+}
+
+const json = (v: unknown) => JSON.stringify(v ?? null)
+/** Comment threads as a fingerprint (none and an empty list are the same). */
+const threads = (p: Page | undefined) => (p?.comments?.length ? JSON.stringify(p.comments) : 'null')
+
+/** A row's values as a key: the order of keys and an emptied value (null, '', []) do not count as a change. */
+function valuesKey(props: Record<string, unknown> | undefined): string {
+  const out: Array<[string, unknown]> = []
+  for (const k of Object.keys(props ?? {}).sort()) {
+    const v = props![k]
+    if (v === undefined || v === null || v === '' || (Array.isArray(v) && !v.length)) continue
+    out.push([k, v])
+  }
+  return JSON.stringify(out)
+}
+
+const madeAs = (p: Page | undefined): MadeAs => ({ rev: p?.contentRev, key: contentKey(p?.content), title: p?.title, icon: json(p?.icon), cover: json(p?.cover), comments: threads(p), props: valuesKey(p?.properties) })
+
+/** Did the text move away from how the batch left it (the same content written again counts as unchanged)? */
+const textMoved = (now: Page, b: MadeAs) => now.contentRev !== b.rev && contentKey(now.content) !== b.key
+
+/** Changed since the batch: text, title, icon, cover, comment threads or a stored value (its place is the caller's). */
+const changedSince = (now: Page, b: MadeAs): boolean => textMoved(now, b) || now.title !== b.title || json(now.icon) !== b.icon || json(now.cover) !== b.cover || threads(now) !== b.comments || valuesKey(now.properties) !== b.props
+
 /**
- * Undo of a created page / row: deleted for good while untouched; once someone edited it, put pages under it or put it
- * (or a page above it) in the trash, it goes to the trash instead (recoverable) — one in the trash stays as it is.
+ * Undo of a created page / row (the AI terminal, custom agents): deleted for good while untouched; once someone touched
+ * it — its text, title, icon, cover, comment threads, a stored value, its place, a page put under it, or it (or a page
+ * above it) in the trash — it goes to the trash instead (recoverable) — one in the trash stays as it is. The batch's own
+ * rollback (ApplyResult.rollback) deletes what it made for good. (An MCP call's Undo is its own: features/mcp/undo.ts.)
  */
 function removeCreated(id: ID): () => boolean {
-  const rev = ws().pages[id]?.contentRev
-  const key = contentKey(ws().pages[id]?.content)
-  const title = ws().pages[id]?.title
+  const made = ws().pages[id]
+  const b = madeAs(made)
+  // a row: its place as written (the person may move it since)
+  const place = `${made?.parentId ?? null}|${made?.databaseId ?? null}`
   return () => {
     const { pages } = ws()
     const now = pages[id]
     if (!now || now.trashed) return true
-    // content as written (a later change of the same batch undone first writes it back: the same content counts)
-    const touched = (now.contentRev !== rev && contentKey(now.content) !== key) || now.title !== title || isEffectivelyTrashed(pages, id) || Object.values(pages).some((p) => p.parentId === id)
+    // touched since: anything the person can have put there (a value they filled in, a comment thread, a cover — not only
+    // the text or title; content as written — a later change of the same batch undone first writes it back: the same
+    // content counts), its place, a page under it (in the trash too: deleting this one would take it along for good)
+    const touched =
+      textMoved(now, b) ||
+      now.title !== b.title ||
+      (!rollingBack && (changedSince(now, b) || `${now.parentId ?? null}|${now.databaseId ?? null}` !== place)) ||
+      isEffectivelyTrashed(pages, id) ||
+      Object.values(pages).some((p) => p.parentId === id)
     if (touched) ws().trashPage(id)
     else ws().deletePagePermanently(id)
     return true
@@ -502,7 +567,8 @@ async function applyOne(c: StagedChange, resolveRow: (id: ID) => ID, rowIds: Rec
       // its tasks are settled before anything is written (an id taken by now fails the change, nothing created)
       const doc = c.markdown?.trim() ? toDoc(c.markdown, c, { pageId: c.pageId, private: pagePrivate(c.parentId) }) : null
       const id = as(() => {
-        const made = s.createPage({ id: c.pageId, parentId: c.parentId ?? null, title: c.title ?? '' })
+        // the top of the member's Private section (team, MCP `private`): its own meta document
+        const made = c.privateRoot && !c.parentId ? createPrivatePage({ id: c.pageId, title: c.title ?? '' }) : s.createPage({ id: c.pageId, parentId: c.parentId ?? null, title: c.title ?? '' })
         if (doc) ws().setContent(made, doc, ORIGIN)
         return made
       })

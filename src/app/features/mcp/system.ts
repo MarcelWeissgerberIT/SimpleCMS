@@ -66,9 +66,12 @@ export function systemOf(id: ID | null | undefined): SystemHit | null {
 /** What one_get_database says about a One database (B and S word it alike). */
 export const systemNote = (kind: SystemKind): string => `One's ${KIND_TEXT[kind] ?? kind} database: read-only over MCP (rows, properties, views).`
 
-/** The `system_database` refusal (spec § 2.0 error shape). */
-export function systemRefusal(hit: SystemHit): string {
-  return `system_database: ${q(hit.title)} is One's ${KIND_TEXT[hit.kind] ?? hit.kind} database; over MCP it is read-only (its rows, the pages below them, its properties and views). Nothing was changed. Reading it stays allowed; changes there are made in One.`
+/**
+ * The `system_database` refusal (spec § 2.0 error shape). `path`: the argument it is about; `why`: what the call would
+ * have changed there, when that is not plain from the call (a script's write, a rollup the delete would clear).
+ */
+export function systemRefusal(hit: SystemHit, path = '', why = ''): string {
+  return `system_database: ${path ? `${path}: ` : ''}${q(hit.title)} is One's ${KIND_TEXT[hit.kind] ?? hit.kind} database; over MCP it is read-only (its rows, the pages below them, its properties and views)${why ? ` — ${why}` : ''}. Nothing was changed. Reading it stays allowed; changes there are made in One.`
 }
 
 /** Refuse a page that belongs to a One database. */

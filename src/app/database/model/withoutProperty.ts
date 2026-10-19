@@ -67,8 +67,9 @@ const inFilter = (g: FilterGroup | null | undefined, propId: ID): boolean => !!g
 
 /**
  * What still points at a property besides row values — view settings a delete would not clean up (filter, sort,
- * grouping, date, chart, feed, a free board's fields), a formula naming it, a rollup through it or of it, an
- * automation, an autofill source, a command. Empty: it can go without a trace. Pure.
+ * grouping, date, chart, feed, a free board's fields, a form's questions / page breaks / conditions / response marker),
+ * a formula naming it, a rollup through it or of it, an automation, an autofill source, a command, the sub-items or
+ * dependencies pair it is part of. Empty: it can go without a trace. Pure.
  */
 export function propertyRefs(db: Database, databases: Record<ID, Database>, propId: ID): string[] {
   const out = new Set<string>()
@@ -81,7 +82,12 @@ export function propertyRefs(db: Database, databases: Record<ID, Database>, prop
     if (v.chart && (v.chart.xPropertyId === propId || v.chart.yPropertyId === propId || v.chart.seriesPropertyId === propId)) out.add('chart')
     if (v.feed?.dateProperty === propId) out.add('feed')
     if (v.typeFields && Object.values(v.typeFields).some((ids) => ids.includes(propId))) out.add('typeFields')
+    // a form's question settings, a page break before it, a condition on it, its response marker
+    if (v.form && JSON.stringify(v.form).includes(JSON.stringify(propId))) out.add('form')
   }
+  // sub-items and dependencies are built on a two-way self-relation pair
+  if (db.subItems && (db.subItems.parentPropertyId === propId || db.subItems.childPropertyId === propId)) out.add('subItems')
+  if (db.dependencies && (db.dependencies.blockedByPropertyId === propId || db.dependencies.blockingPropertyId === propId)) out.add('dependencies')
   for (const p of db.properties) {
     if (p.id === propId) continue
     const f = p.formula ?? ''

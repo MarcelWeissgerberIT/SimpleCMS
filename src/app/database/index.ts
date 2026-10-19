@@ -54,6 +54,8 @@ export { openAutofillPanel } from './autofill'
  * read-only refused) · openAutofill(dbId, propId): the database page with that property's autofill panel
  */
 export { setAutofillAuto, openAutofill } from './autofill/auto'
+/** MCP (a row batch names what it starts): autofillOf(prop) — a property's autofill config (null: none, or not fillable) */
+export { autofillOf } from './autofill/config'
 /**
  * Properties created on the fly (also for the workspace agent / MCP tools):
  *  - createPropertyQuick(dbId, { name, type, relation?: { databaseId, twoWay?, reverseName? }, options?, numberFormat? },

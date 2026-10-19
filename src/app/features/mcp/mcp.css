@@ -261,6 +261,18 @@
   max-width: 460px;
 }
 
+/* comments over MCP: a second row of the changes panel, below a hairline */
+.mcp-comments {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--rule);
+  display: grid;
+  gap: 6px;
+}
+.mcp-comments__label {
+  color: var(--ink-2);
+}
+
 /* ---------- setup ---------- */
 .mcp-steps {
   display: grid;
@@ -434,7 +446,7 @@
 }
 .mcp-log__row {
   display: grid;
-  grid-template-columns: 8.5ch 6ch 19.5ch minmax(0, 1fr) auto 24px;
+  grid-template-columns: 8.5ch 9.5ch 19.5ch minmax(0, 1fr) auto 24px;
   gap: 10px;
   align-items: center;
   min-height: 26px;
@@ -467,7 +479,13 @@
   white-space: nowrap;
 }
 .mcp-log__note {
+  grid-row: 2;
+  grid-column: 3 / -1;
+  margin-top: -4px;
   color: var(--ink-3);
+  font-size: calc(10.5px * var(--text-scale));
+  line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 .mcp-log__state {
   color: var(--ink-3);
@@ -530,7 +548,11 @@
   width: 380px;
   max-width: calc(100vw - 32px);
 }
+/* capped at the viewport: head, workspace, summary, time and keys stay in view; the lines scroll (.mcp-card__scroll) */
 .mcp-card {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 56px);
   overflow: hidden;
   border: 1px solid var(--rule-strong);
   border-top: 2px solid var(--signal);
@@ -609,11 +631,33 @@
   line-height: 1.35;
   overflow-wrap: anywhere;
 }
+.mcp-card > :not(.mcp-card__scroll) {
+  flex: none;
+}
+.mcp-card__scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin: 6px 12px 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  border-top: 1px solid var(--rule);
+}
+.mcp-card__scroll[data-scrolls] {
+  border-bottom: 1px solid var(--rule-strong);
+}
+.mcp-card__scroll:focus-visible {
+  outline: 2px solid var(--signal);
+  outline-offset: 4px; /* clear of the number column; inside the card's 12px gutter */
+}
 .mcp-card__lines {
   display: grid;
   gap: 0;
-  margin: 6px 12px 0;
-  border-top: 1px solid var(--rule);
+  margin: 0;
+}
+.mcp-card__more {
+  margin: 0;
+  padding: 4px 12px 0;
+  color: var(--ink-3);
 }
 .mcp-line {
   display: grid;
@@ -639,6 +683,9 @@
   font-size: var(--text-sm);
   line-height: 1.45;
   overflow-wrap: anywhere;
+}
+.mcp-line[data-num] {
+  grid-template-columns: auto minmax(0, 1fr);
 }
 .mcp-line--md {
   grid-template-columns: minmax(0, 1fr);
@@ -784,12 +831,18 @@
   .mcp-log__target {
     display: none;
   }
+  .mcp-log__note {
+    grid-column: 2 / -1;
+  }
   .mcp-dock {
     right: 16px;
     left: 16px;
     bottom: calc(16px + env(safe-area-inset-bottom));
     width: auto;
     max-width: none;
+  }
+  .mcp-card {
+    max-height: calc(100dvh - 32px - env(safe-area-inset-bottom) - env(safe-area-inset-top));
   }
 }
 

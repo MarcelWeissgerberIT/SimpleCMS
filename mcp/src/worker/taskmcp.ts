@@ -17,7 +17,7 @@ import { request } from 'node:http'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, ListToolsRequestSchema, type CallToolResult, type Tool } from '@modelcontextprotocol/sdk/types.js'
-import { MCP_TASK_TOOLS } from '../../../src/app/features/mcp/contract.ts'
+import { MCP_TASK_TOOLS } from '../../../src/shared/mcp/contract.ts'
 import { PERMISSION_FIELD_MAX, PERMISSION_WAIT_MS } from '../../../src/app/features/coding/protocol.ts'
 
 const text = (s: string, isError = false): CallToolResult => ({ content: [{ type: 'text', text: s }], ...(isError ? { isError: true } : {}) })

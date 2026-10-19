@@ -272,6 +272,23 @@ export function formatWriterKey(w: Writer): WriterKey {
   return key.length > max ? key.slice(0, max) : key
 }
 
+/** A key part that names an MCP call: the start of a key or of one of its causes (`…<mcp:<session>:<call>:<tool>`). */
+const MCP_PART = /(^|<)mcp:/
+
+/**
+ * Did an MCP client make this write, or cause it — an automation / autofill / kit / synced copy its write woke (their
+ * `cause`), a script such an automation started (`script:…` with its caller as `via`), at any depth the keys still hold?
+ * Read on the writer's key and on its raw cause, which keeps one level more than the key does. (MCP itself never runs a
+ * script: one_run_script is a dry run only.)
+ */
+export function mcpCaused(w: Writer | null): boolean {
+  if (!w) return false
+  if (w.kind === 'mcp') return true
+  if (MCP_PART.test(formatWriterKey(w))) return true
+  const raw = 'cause' in w ? w.cause : 'via' in w ? w.via : undefined
+  return typeof raw === 'string' && MCP_PART.test(raw)
+}
+
 /** Events of the person: a store write inside one of them without a frame is theirs (the recorder's fallback, step 3). */
 export const USER_EVENTS: ReadonlySet<string> = new Set(['click', 'dblclick', 'contextmenu', 'keydown', 'keyup', 'keypress', 'input', 'beforeinput', 'compositionend', 'change', 'pointerdown', 'pointerup', 'mousedown', 'mouseup', 'touchend', 'drop', 'dragend', 'paste', 'cut', 'submit', 'blur', 'focusout'])
 

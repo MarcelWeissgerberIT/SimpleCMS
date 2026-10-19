@@ -1,16 +1,15 @@
 /**
  * One Script over the local MCP bridge: the built bridge (public/mcp/one-mcp.mjs) as a child process,
  * driven by the MCP SDK client over stdio, the app tab connected to it. one_run_query answers rows as JSON
- * (writes refused); one_run_script is planned as a dry run, ALWAYS asked on the approval card (also in
- * "Apply directly"), refused in "Read only"; dryRun only reports; a saved query answers at once; the list
- * of effects the card showed is not asked again in the app. Never talks to api.anthropic.com or Google.
- */
+ * (writes refused); one_run_script is a dry run only (Weg 4): no card, `ran: false`, nothing written or sent — the
+ * person runs a script in One; a saved query answers at once; Read only refuses it. Never talks to api.anthropic.com
+ * or Google. */
 import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import type { Page } from '@playwright/test'
 import { Client } from '../../mcp/node_modules/@modelcontextprotocol/sdk/dist/esm/client/index.js'
 import { StdioClientTransport } from '../../mcp/node_modules/@modelcontextprotocol/sdk/dist/esm/client/stdio.js'
-import { test, expect, openApp, wsEval, pageIdByTitle } from './fixtures'
+import { test, expect, openApp, wsEval, pageIdByTitle, flush } from './fixtures'
 
 type AnyState = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
 type ToolResult = { content?: Array<{ type: string; text?: string }>; isError?: boolean }
@@ -157,7 +156,7 @@ test('one_run_query: rows as JSON, read-only; one_overview lists the scripts', a
   expect(overview.scripts).toEqual([{ id: 'sc-raise', name: 'Offene hochstufen', kind: 'script' }])
 })
 
-test('one_run_script: a dry run on the card — asked also in Apply directly; dryRun only reports; Read only refuses', async ({ page }) => {
+test('one_run_script is a dry run only (Weg 4): no card, also in Apply directly; ran: false; a saved query answers; Read only refuses', async ({ page }) => {
   await openApp(page)
   await connect(page)
   await page.getByRole('radio', { name: 'Apply directly' }).click()
@@ -166,46 +165,21 @@ test('one_run_script: a dry run on the card — asked also in Apply directly; dr
   await addScript(page, { id: 'sc-raise', name: 'Offene hochstufen', code: RAISE })
   await addScript(page, { id: 'sc-q', name: 'Offene zählen', code: 'db("Aufgaben").where(Status = "Offen").count', kind: 'query' })
 
-  // dryRun: what it would do — nothing changes, nothing is asked
-  const dry = json(await call('one_run_script', { script: 'Offene hochstufen', dryRun: true }))
-  expect(dry).toMatchObject({ mode: 'dry', status: 'ok', printed: ['raised'] })
-  expect(dry.changes.map((c: AnyState) => [c.kind, c.title, c.properties[0].after])).toEqual([
-    ['set', 'Angebot schreiben', 'Hoch'],
-    ['set', 'Rechnung prüfen', 'Hoch'],
-  ])
-  expect(await prioOf(page, ids)).toEqual(['o_low', 'o_low', 'o_low'])
-  await expect(page.getByRole('alertdialog')).toHaveCount(0)
+  // what it would do — nothing changes, nothing is asked; dryRun: true answers the same
+  for (const args of [{ script: 'Offene hochstufen' }, { script: 'Offene hochstufen', dryRun: true }]) {
+    const dry = json(await call('one_run_script', args))
+    expect(dry).toMatchObject({ ran: false, mode: 'dry', status: 'ok', printed: ['raised'] })
+    expect(dry.note).toContain('ask the person to run it in One → Scripts')
+    expect(dry.changes.map((c: AnyState) => [c.kind, c.title, c.properties[0].after])).toEqual([
+      ['set', 'Angebot schreiben', 'Hoch'],
+      ['set', 'Rechnung prüfen', 'Hoch'],
+    ])
+    expect(await prioOf(page, ids)).toEqual(['o_low', 'o_low', 'o_low'])
+    await expect(page.getByRole('alertdialog')).toHaveCount(0)
+  }
 
   // a saved query: its answer, at once
   expect(json(await call('one_run_script', { script: 'sc-q' }))).toMatchObject({ query: true, value: 2 })
-
-  // a run: the card shows the dry run, even though changes are applied directly
-  const pending = call('one_run_script', { script: 'Offene hochstufen' })
-  const card = page.getByRole('alertdialog')
-  await expect(card).toBeVisible()
-  await expect(card).toHaveAttribute('data-tool', 'one_run_script')
-  await expect(card).toContainText('Run script')
-  await expect(card.locator('.mcp-card__sum')).toHaveText('Run the script “Offene hochstufen”')
-  await expect(card).toContainText('The dry run shows what it will do:')
-  await expect(card.locator('.mcp-line').first()).toContainText('Angebot schreiben · Aufgaben — Priorität: Niedrig → Hoch')
-  expect(await prioOf(page, ids)).toEqual(['o_low', 'o_low', 'o_low'])
-  await card.getByRole('button', { name: /Approve/ }).click()
-  const ran = json(await pending)
-  expect(ran).toMatchObject({ mode: 'run', status: 'ok', script: { id: 'sc-raise', name: 'Offene hochstufen' } })
-  expect(ran.changes).toHaveLength(2)
-  expect(await prioOf(page, ids)).toEqual(['o_high', 'o_high', 'o_low'])
-  // one toast: the approval's, with Undo (the script's own stays quiet)
-  await expect(page.locator('.toast', { hasText: 'Done: Run the script “Offene hochstufen”' })).toBeVisible()
-  await expect(page.locator('.toast', { hasText: 'ran ·' })).toHaveCount(0)
-  await page.locator('.toast', { hasText: 'Done: Run the script' }).getByRole('button', { name: 'Undo' }).click()
-  await expect.poll(() => prioOf(page, ids)).toEqual(['o_low', 'o_low', 'o_low'])
-
-  // rejected: nothing runs
-  const rejected = call('one_run_script', { script: 'sc-raise' })
-  await expect(card).toBeVisible()
-  await card.getByRole('button', { name: /Reject/ }).click()
-  expect((await rejected).isError).toBe(true)
-  expect(await prioOf(page, ids)).toEqual(['o_low', 'o_low', 'o_low'])
 
   // unknown scripts list the ones there are
   const unknown = await call('one_run_script', { script: 'Nope' })
@@ -221,7 +195,7 @@ test('one_run_script: a dry run on the card — asked also in Apply directly; dr
   expect(text(ro)).toContain('Agents can only read')
 })
 
-test('one_run_script with a mail: the card lists it; once approved there, the run does not ask again', async ({ page }) => {
+test('one_run_script with a mail: the dry run names it, nothing is sent and nothing written', async ({ page }) => {
   await page.addInitScript(() => {
     const w = window as unknown as { __opened: string[] }
     w.__opened = []
@@ -236,35 +210,34 @@ test('one_run_script with a mail: the card lists it; once approved there, the ru
   const welcome = await pageIdByTitle(page, 'Welcome to One')
   await addScript(page, { id: 'sc-mail', name: 'Weiterleiten', code: 'mail.send(to: "bob@example.com", subject: page.current.title, body: "Siehe One")\npage.current.append("- weitergeleitet")\n' })
 
-  const pending = call('one_run_script', { script: 'Weiterleiten', pageId: welcome })
-  const card = page.getByRole('alertdialog')
-  await expect(card).toBeVisible()
-  await expect(card.locator('.mcp-line', { hasText: 'Mail' })).toContainText('bob@example.com · Welcome to One')
-  await expect(card.locator('.mcp-line', { hasText: 'Content' })).toContainText('Welcome to One')
-  await card.getByRole('button', { name: /Approve/ }).click()
-  const ran = json(await pending)
-  expect(ran.effects).toEqual([{ kind: 'mail', label: 'bob@example.com · Welcome to One', status: 'done' }])
-  // no second list in the app: the card was the confirmation
+  const dry = json(await call('one_run_script', { script: 'Weiterleiten', pageId: welcome }))
+  expect(dry).toMatchObject({ ran: false, mode: 'dry' })
+  expect(dry.effects).toEqual([expect.objectContaining({ kind: 'mail', label: 'bob@example.com · Welcome to One' })])
+  expect(dry.changes.map((c: AnyState) => [c.kind, c.title])).toEqual([['content', 'Welcome to One']])
+  await expect(page.getByRole('alertdialog')).toHaveCount(0)
   await expect(page.getByRole('dialog', { name: 'Before this run' })).toHaveCount(0)
-  expect(await page.evaluate(() => (window as unknown as { __opened: string[] }).__opened)).toEqual([expect.stringMatching(/^mailto:bob@example\.com\?subject=Welcome%20to%20One/)])
-  expect(await wsEval(page, (s, id) => s.pages[id].plain, welcome)).toContain('weitergeleitet')
+  expect(await page.evaluate(() => (window as unknown as { __opened: string[] }).__opened)).toEqual([])
+  expect(await wsEval(page, (s, id) => s.pages[id].plain, welcome)).not.toContain('weitergeleitet')
 })
 
-test('one_run_script: a script edited while the card is open does not run — the approval was for the code the dry run showed', async ({ page }) => {
+const lines = (...texts: string[]) => ({ type: 'doc', content: texts.map((text) => ({ type: 'paragraph', content: [{ type: 'text', text }] })) })
+
+test('one_run_script into a locked page (review 5): the dry run is refused, nothing written', async ({ page }) => {
   await openApp(page)
   await connect(page)
   await page.keyboard.press('Escape')
-  const { ids } = await makeTasks(page)
-  await addScript(page, { id: 'sc-swap', name: 'Harmlos', code: 'print("nothing to do")\n' })
-  const pending = call('one_run_script', { script: 'Harmlos' })
-  const card = page.getByRole('alertdialog')
-  await expect(card).toBeVisible()
-  await expect(card).toContainText('The dry run changes nothing and sends nothing.')
-  // meanwhile the code becomes something else
-  await addScript(page, { id: 'sc-swap', name: 'Harmlos', code: RAISE })
-  await card.getByRole('button', { name: /Approve/ }).click()
-  const r = await pending
-  expect(r.isError).toBe(true)
-  expect(text(r)).toContain('was changed after its dry run')
-  expect(await prioOf(page, ids)).toEqual(['o_low', 'o_low', 'o_low'])
+  const id = await wsEval(page, (s, doc) => {
+    const id = s.createPage({ title: 'Handbuch' })
+    s.setContent(id, doc, 'e2e')
+    s.updatePage(id, { settings: { fullWidth: false, smallText: false, font: 'sans', locked: true } })
+    return id
+  }, lines('Do not change.'))
+  await addScript(page, { id: 'sc-lock', name: 'Lock test', code: 'page("Handbuch").append("Changed by a script.")\n' })
+  await flush(page)
+  const plain = () => wsEval(page, (s, id) => (s.pages[id]?.plain as string) ?? '', id)
+  const r = await call('one_run_script', { script: 'Lock test' })
+  expect(r.isError, text(r)).toBe(true)
+  expect(text(r)).toMatch(/^locked: script: the script "Lock test" writes into "Handbuch", which is locked in One: its content cannot change over MCP\. Nothing was changed\./)
+  await expect(page.getByRole('alertdialog')).toHaveCount(0)
+  expect(await plain()).toBe('Do not change.')
 })

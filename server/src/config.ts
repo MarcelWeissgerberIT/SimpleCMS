@@ -45,6 +45,11 @@ export interface Config {
   mediaFetchHosts: Record<string, string>
   /** The coding relay for cloud workers (docs/CLOUD.md § Coding relay): CODING_RELAY=off switches it off. */
   codingRelay: boolean
+  /**
+   * DEV_MODE test servers only (MCP_RESTORE_GAP_MS): a pause between a Restore's first check and its writes, so a test
+   * can change something in that window. 0 in every deployment.
+   */
+  mcpRestoreGapMs: number
   /** How often the relay pings its sockets (25 s; only DEV_MODE may change it, via CODING_PING_MS). */
   codingPingMs: number
 }
@@ -92,6 +97,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
 
   if (env.MEDIA_FETCH_HOSTS && !devMode) throw new ConfigError('MEDIA_FETCH_HOSTS is only honoured with DEV_MODE=1 (test servers); deployments fetch media through the SSRF guard only')
   if (env.CODING_PING_MS && !devMode) throw new ConfigError('CODING_PING_MS is only honoured with DEV_MODE=1 (test servers); deployments ping relay sockets every 25 s')
+  if (env.MCP_RESTORE_GAP_MS && !devMode) throw new ConfigError('MCP_RESTORE_GAP_MS is only honoured with DEV_MODE=1 (test servers)')
   for (const name of ['AGENT_TICK_MS', 'AGENT_COALESCE_MS']) {
     if (env[name] && !devMode) throw new ConfigError(`${name} is only honoured with DEV_MODE=1 (test servers); deployments check schedules every 30 s and collect row changes for 60 s`)
   }
@@ -132,6 +138,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     mediaFetchHosts: devMode ? parseFetchHosts(env.MEDIA_FETCH_HOSTS) : {},
     codingRelay: !['0', 'off', 'false', 'no'].includes((env.CODING_RELAY ?? '').trim().toLowerCase()),
     codingPingMs: devMode ? int(env.CODING_PING_MS, 25_000, 50, 600_000, 'CODING_PING_MS') : 25_000,
+    mcpRestoreGapMs: devMode ? int(env.MCP_RESTORE_GAP_MS, 0, 0, 10_000, 'MCP_RESTORE_GAP_MS') : 0,
   }
 }
 

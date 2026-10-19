@@ -1,8 +1,8 @@
 /**
  * The MCP side: the tool list comes straight from the shared contract; every call is forwarded
  * to the One tab of the workspace it is meant for (bridge.ts, workspaces.ts) — one_list_workspaces
- * the bridge answers itself. Results are the tab's JSON (naming the workspace it ran in), errors are
- * tool errors (isError) with the tab's or the bridge's human-readable message.
+ * the bridge answers itself. Results are the tab's JSON, compact (naming the workspace it ran in), errors are
+ * tool errors (isError) with the tab's or the bridge's message (src/shared/mcp/errors.ts: a code first).
  */
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import {
@@ -16,8 +16,9 @@ import {
   type GetPromptResult,
   type Tool,
 } from '@modelcontextprotocol/sdk/types.js'
-import { MCP_INSTRUCTIONS, MCP_PROMPT, MCP_TOOLS, mcpPromptText, type McpToolDef, type McpToolName } from '../../src/app/features/mcp/contract.ts'
+import { MCP_INSTRUCTIONS, MCP_PROMPT, MCP_TOOLS, mcpPromptText, type McpToolDef, type McpToolName } from '../../src/shared/mcp/contract.ts'
 import type { Bridge } from './bridge.ts'
+import { mcpError } from '../../src/shared/mcp/errors.ts'
 
 /** How often a call waiting for approval reports progress (clients that reset timeouts on it keep waiting). */
 const PROGRESS_MS = 10_000
@@ -64,7 +65,7 @@ export function createMcpServer(bridge: Bridge, version: string): McpServer {
   server.setRequestHandler(CallToolRequestSchema, async (req, extra): Promise<CallToolResult> => {
     const name = req.params.name
     const def = MCP_TOOLS.find((t) => t.name === name)
-    if (!def) return text(`Unknown tool ${JSON.stringify(name)}. Tools: ${MCP_TOOLS.map((t) => t.name).join(', ')}.`, true)
+    if (!def) return text(mcpError('bad_argument', '', `Unknown tool ${JSON.stringify(name)}`, `Tools: ${MCP_TOOLS.map((t) => t.name).join(', ')}.`), true)
     const args = req.params.arguments && typeof req.params.arguments === 'object' ? (req.params.arguments as Record<string, unknown>) : {}
     const token = req.params._meta?.progressToken
     let ticker: ReturnType<typeof setInterval> | null = null
@@ -78,8 +79,8 @@ export function createMcpServer(bridge: Bridge, version: string): McpServer {
     }
     try {
       if (def.name === 'one_list_workspaces') {
-        const out = await bridge.listWorkspaces(extra.signal)
-        return out.ok ? text(JSON.stringify(out.result, null, 2)) : text(out.error, true)
+        const out = await bridge.listWorkspaces(extra.signal, args)
+        return out.ok ? text(JSON.stringify(out.result)) : text(out.error, true)
       }
       const out = await bridge.call(def.name as McpToolName, args, {
         signal: extra.signal,
@@ -89,7 +90,8 @@ export function createMcpServer(bridge: Bridge, version: string): McpServer {
         },
       })
       if (!out.ok) return text(out.error, true)
-      return text(typeof out.result === 'string' ? out.result : JSON.stringify(out.result, null, 2))
+      // compact: results count against the client's output limit by their serialized size (spec § 2.0)
+      return text(typeof out.result === 'string' ? out.result : JSON.stringify(out.result))
     } finally {
       if (ticker) clearInterval(ticker)
     }

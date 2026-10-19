@@ -5,18 +5,24 @@
  *
  * Deleting a property clears what pointed at it the way the app's delete does
  * (database/model/actions.ts): view filters, calculations, chart axes, card previews, colour rules,
- * rollups. Every change has an undo for the agent log that leaves alone what was edited since.
+ * rollups. Every change can be undone from the agent log — all or nothing (undo.ts).
  */
 import { t } from '../../i18n'
 import { newId } from '../../lib/ids'
 import { defaultView } from '../../store/store'
-import { inTemplate } from '../../store/selectors'
+import { inTemplate, isEffectivelyTrashed } from '../../store/selectors'
 import type { Database, DateValue, Filter, FilterGroup, FilterOperator, ID, Page, PropertyDef, PropertyType, PropertyValue, SelectOption, Sort, View, ViewType } from '../../store/types'
 import { MCP_FILTER_OPS, MCP_TYPE_CHANGES, MCP_VIEW_TYPES, type McpToolName } from './contract'
 import { chars, cleanName, clone, colorOf, optionsOf, palette, parseIcon, same, str, type PlanLine, type WritePlan } from './plan'
 import { databaseOrThrow, iconText, McpToolError, pageUrl, propertyJson, q, titleOf, TWO_WAY_SUFFIX, ws } from './values'
 import { withWriter } from '../../store/writer'
-import { assertNotSystem } from './system'
+import { sideEffects, sideHold } from './rows'
+import { assertNotSystem, systemOf, systemRefusal } from './system'
+import { mcpError } from '../../../shared/mcp/errors'
+import { colorRefusal, optionName } from '../../../shared/mcp/options'
+import { canBeHandOnly, canBeKey } from '../../store/keys'
+import { MCP_LIMITS } from '../../../shared/mcp/tables'
+import { noTargets } from './gate'
 
 /* ------------------------------------------------------------------ */
 /* Lookups                                                             */
@@ -25,11 +31,11 @@ import { assertNotSystem } from './system'
 /** A database the tools may reshape: live, not a template's, not locked. */
 function schemaDb(id: unknown): { db: Database; page: Page; title: string } {
   const { db, page } = databaseOrThrow(id)
-  if (inTemplate(ws().pages, db.id)) throw new McpToolError(`No database with id ${q(String(id))}. Use one_list_databases to get database ids.`)
+  if (inTemplate(ws().pages, db.id)) throw new McpToolError(`not_found: No database with id ${q(String(id))}. Use one_list_databases to get database ids.`)
   // One's own databases (pipelines, memory, mails …): their schema and views stay as One made them
   assertNotSystem(db.id)
   const title = titleOf(page)
-  if (db.locked) throw new McpToolError(`${q(title)} is locked in One: its properties and views cannot change (rows can). Ask the person to unlock it. Nothing was changed.`)
+  if (db.locked) throw new McpToolError(`locked: ${q(title)} is locked in One: its properties and views cannot change (rows can). Ask the person to unlock it. Nothing was changed.`)
   return { db, page, title }
 }
 
@@ -38,7 +44,8 @@ const norm = (s: string) => s.replace(/\s+/g, ' ').trim().toLowerCase()
 function propertyOrThrow(db: Database, raw: unknown, title: string, key = 'property'): PropertyDef {
   const ref = str(raw, key, { required: true, max: 200 }).trim()
   const prop = db.properties.find((p) => p.id === ref) ?? db.properties.find((p) => norm(p.name) === norm(ref))
-  if (!prop) throw new McpToolError(`${q(title)} has no property ${q(ref)}. Properties: ${db.properties.map((p) => q(p.name)).join(', ')}.`)
+  // not_found — as the team server answers it (structure.ts propertyOrThrow)
+  if (!prop) throw new McpToolError(`not_found: ${key}: ${q(title)} has no property ${q(ref)}. Properties: ${db.properties.map((p) => q(p.name)).join(', ')}. Nothing was changed. Read the database with one_get_database and use one of its property names.`)
   return prop
 }
 
@@ -49,7 +56,12 @@ function viewOrThrow(db: Database, raw: unknown, title: string): View {
   const named = db.views.filter((v) => norm(v.name) === norm(ref))
   if (named.length === 1) return named[0]
   const list = db.views.map((v) => `${q(v.name)} (${v.id}, ${v.type})`).join(', ')
-  throw new McpToolError(named.length ? `${q(title)} has several views named ${q(ref)}: pass the id — ${list}.` : `${q(title)} has no view ${q(ref)}. Views: ${list}.`)
+  // an unknown view is not_found, several of that name are the arguments' to settle (bad_argument) — as on the team server
+  throw new McpToolError(
+    named.length
+      ? mcpError('bad_argument', 'view', `${q(title)} has several views named ${q(ref)}: pass the id — ${list}`)
+      : `not_found: view: ${q(title)} has no view ${q(ref)}. Views: ${list}. Nothing was changed. Read the database with one_get_database and use one of its views.`,
+  )
 }
 
 /** Every row of the database, the trashed ones too (the store clears values on all of them). */
@@ -62,12 +74,12 @@ const isEmpty = (v: PropertyValue | undefined) => v === undefined || v === null 
 
 function planUpdateDatabase(args: Record<string, unknown>): WritePlan {
   const { db, page } = databaseOrThrow(args.id)
-  if (inTemplate(ws().pages, db.id)) throw new McpToolError(`No database with id ${q(String(args.id))}. Use one_list_databases to get database ids.`)
+  if (inTemplate(ws().pages, db.id)) throw new McpToolError(`not_found: No database with id ${q(String(args.id))}. Use one_list_databases to get database ids.`)
   assertNotSystem(db.id)
   const name = titleOf(page)
   if (args.locked !== undefined && args.locked !== null)
-    throw new McpToolError(`Locking and unlocking ${q(name)} is the person's decision in One (the lock in the database's toolbar), so agents cannot change it. Nothing was changed.`)
-  const title = args.title === undefined || args.title === null ? null : cleanName(args.title, 'title')
+    throw new McpToolError(`rejected: locked: Locking and unlocking ${q(name)} is the person's decision in One (the lock in the database's toolbar), so agents cannot change it. Nothing was changed. Ask the person; do not retry it.`)
+  const title = args.title === undefined || args.title === null ? null : cleanName(args.title, 'title', MCP_LIMITS.title)
   if (title === '') throw new McpToolError('"title" must not be empty.')
   const icon = parseIcon(args.icon)
   if (title === null && icon === undefined) throw new McpToolError('Nothing to change: pass "title" and/or "icon".')
@@ -91,28 +103,22 @@ function planUpdateDatabase(args: Record<string, unknown>): WritePlan {
     summary: t('features.mcp.sum.updateDatabase', { title: name }),
     target: name,
     lines,
+    // its title and icon (a locked database keeps them writable, as its rows)
+    targets: { ...noTargets(), places: [db.id], paths: { [db.id]: 'id' } },
     noop: changed.length ? undefined : { ...result(), note: 'No change: the database already looks like that.' },
     async apply(writer) {
       // every write of this call under its writer (store/writer.ts) — one synchronous burst
       return withWriter(writer, () => {
         const prev = ws().pages[db.id]
         if (!prev || prev.trashed) throw new McpToolError(`${q(name)} is gone. Nothing was changed.`)
+        // moved into One's own databases while the card waited (spec § 3.3): refused as at plan time
+        assertNotSystem(db.id)
         const patch: Partial<Page> = {}
         if (changed.includes('title')) patch.title = title!
         if (changed.includes('icon')) patch.icon = icon ?? null
-        const before = { title: prev.title, icon: prev.icon }
         ws().updatePage(db.id, patch)
         return {
           result: result(),
-          undo: () => {
-            const now = ws().pages[db.id]
-            if (!now) return false
-            const back: Partial<Page> = {}
-            if (patch.title !== undefined && now.title === patch.title) back.title = before.title
-            if (patch.icon !== undefined && iconText(now.icon) === iconText(patch.icon)) back.icon = before.icon
-            if (Object.keys(back).length) ws().updatePage(db.id, back)
-            return Object.keys(back).length === Object.keys(patch).length
-          },
         }
       })
     },
@@ -160,66 +166,64 @@ function danglingPatch(v: View, propId: ID): Partial<View> | null {
   return Object.keys(patch).length ? patch : null
 }
 
-/** Delete a property and clear what pointed at it; returns the undo (definition, values, view settings, rollups). */
-function removeProperty(dbId: ID, propId: ID): () => boolean {
-  const st = ws()
-  const fresh = st.databases[dbId]
-  const index = fresh.properties.findIndex((p) => p.id === propId)
-  const def = clone(fresh.properties[index])
-  const viewsBefore = clone(fresh.views)
-  const values = allRows(dbId)
-    .filter((r) => r.properties[propId] !== undefined)
-    .map((r) => [r.id, clone(r.properties[propId])] as const)
-  const rollups: Array<{ dbId: ID; propId: ID; before: NonNullable<PropertyDef['rollup']>; after: NonNullable<PropertyDef['rollup']> }> = []
-  for (const d of Object.values(st.databases)) {
+interface RollupClear {
+  dbId: ID
+  propId: ID
+  name: string
+  before: NonNullable<PropertyDef['rollup']>
+  after: NonNullable<PropertyDef['rollup']>
+}
+
+/**
+ * The rollups a property's delete clears: in its own database those that roll up through it (a relation), in every other
+ * database those that roll it up through a relation to its database. A template's database is not looked at over MCP
+ * (spec § 3.3: it reads as not found — the team server's deleteProperty leaves it out too), nor one in the trash or below a
+ * trashed page (the server's liveDatabase leaves those out: their rollups are neither targets nor cleared).
+ */
+function rollupsOn(dbId: ID, propId: ID): RollupClear[] {
+  const { databases, pages } = ws()
+  const out: RollupClear[] = []
+  for (const d of Object.values(databases)) {
+    if (d.id !== dbId && (!pages[d.id] || inTemplate(pages, d.id) || pages[d.id]!.trashed || isEffectivelyTrashed(pages, d.id))) continue
     for (const p of d.properties) {
       if (p.type !== 'rollup' || !p.rollup) continue
       const rel = d.properties.find((x) => x.id === p.rollup!.relationPropertyId)
-      if (d.id === dbId && p.rollup.relationPropertyId === propId) rollups.push({ dbId: d.id, propId: p.id, before: p.rollup, after: { ...p.rollup, relationPropertyId: '', targetPropertyId: '' } })
-      else if (rel?.relationDatabaseId === dbId && p.rollup.targetPropertyId === propId) rollups.push({ dbId: d.id, propId: p.id, before: p.rollup, after: { ...p.rollup, targetPropertyId: '' } })
+      if (d.id === dbId && p.rollup.relationPropertyId === propId) out.push({ dbId: d.id, propId: p.id, name: p.name, before: p.rollup, after: { ...p.rollup, relationPropertyId: '', targetPropertyId: '' } })
+      else if (rel?.relationDatabaseId === dbId && p.rollup.targetPropertyId === propId) out.push({ dbId: d.id, propId: p.id, name: p.name, before: p.rollup, after: { ...p.rollup, targetPropertyId: '' } })
     }
   }
+  return out
+}
+
+/**
+ * A rollup in another database that a delete would clear, where that database's schema must not change over MCP: one of
+ * One's own databases (system_database) or a locked one (locked) — refused before anything is written (`meanwhile`: at
+ * apply, after the card waited).
+ */
+function assertRollupsWritable(dbId: ID, list: readonly RollupClear[], prop: string, meanwhile = false): void {
+  for (const r of list) {
+    if (r.dbId === dbId) continue
+    const sys = systemOf(r.dbId)
+    if (sys) throw new McpToolError(systemRefusal(sys, 'property', `its rollup ${q(r.name)} rolls up ${q(prop)}, and the delete would clear it`))
+    if (ws().databases[r.dbId]?.locked) {
+      const where = titleOf(ws().pages[r.dbId])
+      throw new McpToolError(
+        mcpError('locked', 'property', `${q(where)}${meanwhile ? ' was locked meanwhile' : ' is locked in One'}: its rollup ${q(r.name)} rolls up ${q(prop)}, and the delete would clear it (its properties cannot change)`, 'Ask the person to unlock it, or to change that rollup first.'),
+      )
+    }
+  }
+}
+
+/** Delete a property and clear what pointed at it: its values, view settings naming it, rollups through it or of it. */
+function removeProperty(dbId: ID, propId: ID): void {
+  const st = ws()
+  const rollups = rollupsOn(dbId, propId)
   st.deleteProperty(dbId, propId)
   for (const v of ws().databases[dbId].views) {
     const patch = danglingPatch(v, propId)
     if (patch) st.updateView(dbId, v.id, patch)
   }
   for (const r of rollups) st.updateProperty(r.dbId, r.propId, { rollup: r.after })
-  const viewsAfter = clone(ws().databases[dbId].views)
-
-  return () => {
-    const w = ws()
-    if (!w.databases[dbId] || w.databases[dbId].properties.some((p) => p.id === propId)) return false
-    w.addProperty(dbId, def, index)
-    let clean = true
-    for (const vb of viewsBefore) {
-      const va = viewsAfter.find((x) => x.id === vb.id)
-      const cur = ws().databases[dbId]?.views.find((x) => x.id === vb.id)
-      if (!va || !cur) continue
-      const patch: Record<string, unknown> = {}
-      // addProperty showed it in every view: back to where it was (or hidden), unless the list changed since
-      const shown = cur.visibleProperties.filter((x) => x !== propId)
-      if (same(shown, va.visibleProperties)) patch.visibleProperties = clone(vb.visibleProperties)
-      else {
-        const at = vb.visibleProperties.indexOf(propId)
-        if (at >= 0) shown.splice(Math.min(at, shown.length), 0, propId)
-        patch.visibleProperties = shown
-        clean = false
-      }
-      for (const k of new Set([...Object.keys(vb), ...Object.keys(va)]) as Set<keyof View>) {
-        if (k === 'visibleProperties' || same(vb[k], va[k])) continue
-        if (same(cur[k], va[k])) patch[k] = vb[k] === undefined ? undefined : clone(vb[k])
-        else clean = false
-      }
-      w.updateView(dbId, vb.id, patch as Partial<View>)
-    }
-    for (const r of rollups) {
-      const cur = ws().databases[r.dbId]?.properties.find((p) => p.id === r.propId)
-      if (cur && same(cur.rollup, r.after)) w.updateProperty(r.dbId, r.propId, { rollup: r.before })
-    }
-    for (const [rowId, v] of values) if (ws().pages[rowId]) w.setRowProperty(rowId, propId, v)
-    return clean
-  }
 }
 
 function planDeleteProperty(args: Record<string, unknown>): WritePlan {
@@ -236,6 +240,15 @@ function planDeleteProperty(args: Record<string, unknown>): WritePlan {
     { k: 'fact', label: t('features.mcp.plan.values'), value: t(withValue === 1 ? 'features.mcp.plan.valuesGone.one' : 'features.mcp.plan.valuesGone.other', { n: chars(withValue) }) },
   ]
   if (partner) lines.push({ k: 'note', value: t('features.mcp.plan.partnerStays', { name: partner.name, db: titleOf(ws().pages[prop.relationDatabaseId!]) }) })
+  // rollups in other databases that roll it up: cleared with it — refused where that database's schema must stay
+  // (locked, or One's own), named on the card otherwise
+  const others = rollupsOn(db.id, prop.id).filter((r) => r.dbId !== db.id)
+  assertRollupsWritable(db.id, others, prop.name)
+  for (const r of others) lines.push({ k: 'note', value: t('features.mcp.plan.rollupCleared', { name: r.name, db: titleOf(ws().pages[r.dbId]) }) })
+  // the rows losing a value: what that sets off (an auto-filled property's inputs change) — named, ≥ rowsAsk always asked
+  const side = sideEffects(db, withValue, { dropped: true, props: new Set([prop.id]) })
+  const hold = sideHold([side])
+  lines.push(...side.lines, ...hold.lines)
   lines.push({ k: 'note', value: t('features.mcp.plan.propGoneNote') })
   return {
     tool: 'one_delete_property',
@@ -243,14 +256,27 @@ function planDeleteProperty(args: Record<string, unknown>): WritePlan {
     summary: t('features.mcp.sum.deleteProperty', { name: prop.name, db: title }),
     target: `${title} / ${prop.name}`,
     lines,
+    ...(hold.alwaysAsk ? { alwaysAsk: true } : {}),
+    // its schema, the databases whose rollups it clears, the rows losing a value
+    targets: {
+      ...noTargets(),
+      schema: [db.id, ...others.map((r) => r.dbId)],
+      paths: { [db.id]: 'databaseId', ...Object.fromEntries(others.map((r) => [r.dbId, 'property'])) },
+      why: Object.fromEntries(others.map((r) => [r.dbId, `its rollup ${q(r.name)} rolls up ${q(prop.name)}, and the delete would clear it`])),
+      rows: [{ db: db.id, ids: allRows(db.id).filter((r) => !r.trashed && !isEmpty(r.properties[prop.id])).map((r) => r.id) }],
+    },
     async apply(writer) {
       // every write of this call under its writer (store/writer.ts) — one synchronous burst
       return withWriter(writer, () => {
         const now = ws().databases[db.id]
         if (!now?.properties.some((p) => p.id === prop.id)) throw new McpToolError(`${q(prop.name)} is gone already. Nothing was changed.`)
         if (now.locked) throw new McpToolError(`${q(title)} was locked meanwhile. Nothing was changed.`)
-        const undo = removeProperty(db.id, prop.id)
-        return { result: { databaseId: db.id, deleted: { id: prop.id, name: prop.name, type: prop.type }, rowsWithValue: withValue, note: 'Deleted with its values. The person can undo it in One (Agent activity).' }, undo }
+        // moved into One's own databases while the card waited (spec § 3.3)
+        assertNotSystem(db.id)
+        // a rollup that rolls it up in a database locked (or made One's own) while the card waited, or one set up since
+        assertRollupsWritable(db.id, rollupsOn(db.id, prop.id), prop.name, true)
+        removeProperty(db.id, prop.id)
+        return { result: { databaseId: db.id, deleted: { id: prop.id, name: prop.name, type: prop.type }, rowsWithValue: withValue, note: 'Deleted with its values. The person can undo it in One (Agent activity).' } }
       })
     },
   }
@@ -292,6 +318,12 @@ interface OptionPlan {
 
 function optionPlan(prop: PropertyDef, raw: unknown): OptionPlan {
   if (!SELECTISH.has(prop.type)) throw new McpToolError(`"options": ${q(prop.name)} is ${prop.type} — options belong to select, multi_select and status.`)
+  // a select bound to a shared list (features/kit): the list owns its options — every list edit writes them into the
+  // property again, so an option changed here alone would vanish (and the values with it); they change in One
+  if (prop.listId)
+    throw new McpToolError(
+      `bad_argument: options: ${q(prop.name)} takes its options from the shared list ${q(ws().kit?.lists[prop.listId]?.name ?? '?')}: they are added, renamed or removed there, in One (Building blocks). Nothing was changed. Ask the person to change the list.`,
+    )
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new McpToolError('"options" must be an object: {add?, update?, remove?}.')
   const o = raw as Record<string, unknown>
   const list = (k: string) => {
@@ -321,7 +353,8 @@ function optionPlan(prop: PropertyDef, raw: unknown): OptionPlan {
     if (removed.has(hit.id)) throw new McpToolError(`options.update: ${q(hit.name)} is also being removed.`)
     const next = { ...hit }
     if (e.newName !== undefined && e.newName !== null) {
-      const nn = cleanName(e.newName, 'options.update.newName', 60)
+      // a name longer than an option takes is cut, as every option name over MCP (and the team server) — never refused
+      const nn = optionName(str(e.newName, 'options.update.newName', { max: 200 }))
       if (!nn) throw new McpToolError('options.update: "newName" must not be empty.')
       if (options.some((x) => x.id !== hit.id && norm(x.name) === norm(nn))) throw new McpToolError(`options.update: ${q(prop.name)} has an option ${q(nn)} already.`)
       if (nn !== hit.name) lines.push({ k: 'fact', label: t('features.mcp.plan.renameOption'), value: `${hit.name} → ${nn}` })
@@ -329,7 +362,7 @@ function optionPlan(prop: PropertyDef, raw: unknown): OptionPlan {
     }
     if (e.color !== undefined && e.color !== null) {
       const c = colorOf(e.color)
-      if (!c) throw new McpToolError(`options.update: ${q(String(e.color))} is not a colour. Use one of: ${palette.join(', ')}.`)
+      if (!c) throw new McpToolError(mcpError('bad_argument', 'options.update.color', colorRefusal(e.color)))
       if (c !== hit.color) lines.push({ k: 'fact', label: t('features.mcp.plan.colorOption'), value: `${next.name} · ${hit.color} → ${c}` })
       next.color = c
     }
@@ -362,7 +395,7 @@ function planUpdateProperty(args: Record<string, unknown>): WritePlan {
   const patch: Partial<PropertyDef> = {}
   const changed: string[] = []
   if (args.name !== undefined && args.name !== null) {
-    const name = cleanName(args.name, 'name', 100)
+    const name = cleanName(args.name, 'name', MCP_LIMITS.propertyName)
     if (!name) throw new McpToolError('"name" must not be empty.')
     if (db.properties.some((p) => p.id !== prop.id && norm(p.name) === norm(name))) throw new McpToolError(`${q(title)} already has a property named ${q(name)}.`)
     if (name !== prop.name) {
@@ -413,6 +446,11 @@ function planUpdateProperty(args: Record<string, unknown>): WritePlan {
   if (toType) lines.push({ k: 'note', value: t(filled === 1 ? 'features.mcp.plan.converts.one' : 'features.mcp.plan.converts.other', { n: chars(filled) }) })
   if (args.name === undefined && args.description === undefined && args.type === undefined && args.options === undefined)
     throw new McpToolError('Nothing to change: pass "name", "description", "type" and/or "options".')
+  // rows whose value changes (a removed option is cleared, a new type converts every filled value): the automations,
+  // auto-filled properties and row-triggered agents watching the property — named, ≥ rowsAsk rows always asked
+  const side = sideEffects(db, toType ? filled : losing.length, { props: new Set([prop.id]) })
+  const hold = sideHold([side])
+  lines.push(...side.lines, ...hold.lines)
   const result = () => {
     const d = ws().databases[db.id]
     const p = d?.properties.find((x) => x.id === prop.id)
@@ -424,6 +462,9 @@ function planUpdateProperty(args: Record<string, unknown>): WritePlan {
     summary: t('features.mcp.sum.updateProperty', { name: prop.name, db: title }),
     target: `${title} / ${prop.name}`,
     lines,
+    ...(hold.alwaysAsk ? { alwaysAsk: true } : {}),
+    // its schema and the rows whose value it clears or converts
+    targets: { ...noTargets(), schema: [db.id], paths: { [db.id]: 'databaseId' }, rows: [{ db: db.id, ids: (toType ? rows.filter((r) => !r.trashed && !isEmpty(r.properties[prop.id])) : losing).map((r) => r.id) }] },
     noop: changed.length ? undefined : { ...result(), note: 'No change: the property already looks like that.' },
     async apply(writer) {
       // every write of this call under its writer (store/writer.ts) — one synchronous burst
@@ -432,10 +473,16 @@ function planUpdateProperty(args: Record<string, unknown>): WritePlan {
         const cur = d?.properties.find((p) => p.id === prop.id)
         if (!d || !cur || !same(cur, prop)) throw new McpToolError(`${q(prop.name)} changed meanwhile. Nothing was changed — read it again (one_get_database).`)
         if (d.locked) throw new McpToolError(`${q(title)} was locked meanwhile. Nothing was changed.`)
-        const before = { def: clone(cur), values: new Map(allRows(db.id).map((r) => [r.id, clone(r.properties[prop.id])] as const)) }
+        // moved into One's own databases while the card waited (spec § 3.3): refused as at plan time
+        assertNotSystem(db.id)
         const full: Partial<PropertyDef> = { ...patch }
         if (toType) {
           full.type = toType
+          // a plain type afterwards, as the app converts one (database/model/actions.ts): no own type, no shared list —
+          // a key stays one only where a type can be a key, "Only by hand" only where values are written
+          Object.assign(full, { custom: undefined, listId: undefined })
+          if (prop.key && !canBeKey({ type: toType })) full.key = undefined
+          if (prop.agentReadOnly && !canBeHandOnly({ type: toType })) full.agentReadOnly = undefined
           let options: SelectOption[] | undefined
           if (SELECTISH.has(toType)) {
             if (SELECTISH.has(prop.type)) options = (prop.options ?? []).map((o) => (toType === 'status' ? { ...o, group: o.group ?? 'todo' } : { id: o.id, name: o.name, color: o.color }))
@@ -445,7 +492,7 @@ function planUpdateProperty(args: Record<string, unknown>): WritePlan {
               for (const r of allRows(db.id)) {
                 const text = typeof r.properties[prop.id] === 'string' ? (r.properties[prop.id] as string) : ''
                 for (const part of toType === 'multi_select' ? text.split(',') : [text]) {
-                  const n = part.replace(/\s+/g, ' ').trim().slice(0, 60)
+                  const n = part.replace(/\s+/g, ' ').trim().slice(0, MCP_LIMITS.optionName)
                   if (n && !options.some((o) => norm(o.name) === norm(n)) && options.length < 200) options.push({ id: newId(), name: n, color: palette[options.length % palette.length] })
                 }
               }
@@ -466,28 +513,8 @@ function planUpdateProperty(args: Record<string, unknown>): WritePlan {
             if (typeof v === 'string' && removed.has(v)) ws().setRowProperty(r.id, prop.id, null)
             else if (Array.isArray(v) && v.some((x) => removed.has(x))) ws().setRowProperty(r.id, prop.id, v.filter((x) => !removed.has(x)))
           }
-        const after = { def: clone(ws().databases[db.id].properties.find((p) => p.id === prop.id)!), values: new Map(allRows(db.id).map((r) => [r.id, clone(r.properties[prop.id])] as const)) }
         return {
           result: result(),
-          undo: () => {
-            const now = ws().databases[db.id]?.properties.find((p) => p.id === prop.id)
-            if (!now || !same(now, after.def)) return false
-            // the old definition exactly: fields the change added are cleared
-            const back: Record<string, unknown> = { ...before.def }
-            for (const k of Object.keys(now)) if (!(k in before.def)) back[k] = undefined
-            ws().updateProperty(db.id, prop.id, back as Partial<PropertyDef>)
-            let clean = true
-            for (const [rowId, v] of before.values) {
-              const row = ws().pages[rowId]
-              if (!row) continue
-              if (!same(row.properties[prop.id], after.values.get(rowId))) {
-                clean = false
-                continue
-              }
-              if (!same(v, row.properties[prop.id])) ws().setRowProperty(rowId, prop.id, v ?? null)
-            }
-            return clean
-          },
         }
       })
     },
@@ -642,8 +669,8 @@ function toSorts(db: Database, raw: unknown, problems: string[]): Sort[] {
   return out
 }
 
-/** The view as agents see it: names instead of ids. */
-function viewJson(db: Database, v: View) {
+/** The view as agents see it: names instead of ids (one_get_database's views, create / update view results). */
+export function viewJson(db: Database, v: View) {
   const nameOf = (id: ID | null | undefined) => (id ? (db.properties.find((p) => p.id === id)?.name ?? null) : null)
   const valueOut = (f: Filter): unknown => {
     const prop = db.properties.find((p) => p.id === f.propertyId)
@@ -668,6 +695,10 @@ function viewJson(db: Database, v: View) {
     ...(v.filter?.items.length ? { filter: flat(v.filter), ...(v.filter.op === 'or' ? { filterMatch: 'any' } : {}) } : {}),
     ...(v.sorts.length ? { sorts: v.sorts.map((s) => ({ property: nameOf(s.propertyId) ?? s.propertyId, direction: s.direction })) } : {}),
     properties: v.visibleProperties.map(nameOf).filter((n): n is string => !!n),
+    // what agents read but set up only in One: a free board, a chart's kind, a form
+    ...(v.free ? { free: true } : {}),
+    ...(v.type === 'chart' && v.chart ? { chart: { kind: v.chart.kind } } : {}),
+    ...(v.type === 'form' ? { form: true } : {}),
   }
 }
 
@@ -677,7 +708,7 @@ interface ViewChange {
 }
 
 /** The view settings of a create / update call, validated against the database (base = the view now). */
-function viewChange(db: Database, args: Record<string, unknown>, base: View): ViewChange {
+export function viewChange(db: Database, args: Record<string, unknown>, base: View): ViewChange {
   const problems: string[] = []
   const patch: Partial<View> = {}
   const lines: PlanLine[] = []
@@ -776,7 +807,7 @@ function viewChange(db: Database, args: Record<string, unknown>, base: View): Vi
 }
 
 /** A layout as the card names it. */
-const layoutName = (type: string) => ((MCP_VIEW_TYPES as readonly string[]).includes(type) ? t(`features.mcp.viewName.${type}`) : type)
+export const layoutName = (type: string) => ((MCP_VIEW_TYPES as readonly string[]).includes(type) ? t(`features.mcp.viewName.${type}`) : type)
 
 /** A filter operator on the card: comparisons as signs, the rest in words. */
 const OP_SIGNS: Record<string, string> = { is: '=', eq: '=', is_not: '≠', neq: '≠', gt: '>', after: '>', gte: '≥', on_or_after: '≥', lt: '<', before: '<', lte: '≤', on_or_before: '≤' }
@@ -803,22 +834,18 @@ function planCreateView(args: Record<string, unknown>): WritePlan {
     summary: t('features.mcp.sum.createView', { name: view.name, db: title }),
     target: `${title} / ${view.name}`,
     lines,
+    targets: { ...noTargets(), schema: [db.id], paths: { [db.id]: 'databaseId' } },
     async apply(writer) {
       // every write of this call under its writer (store/writer.ts) — one synchronous burst
       return withWriter(writer, () => {
         const d = ws().databases[db.id]
         if (!d || d.locked) throw new McpToolError(`${q(title)} is gone or was locked meanwhile. Nothing was changed.`)
+        // moved into One's own databases while the card waited (spec § 3.3): refused as at plan time
+        assertNotSystem(db.id)
         ws().addView(db.id, view)
         const made = ws().databases[db.id].views.find((v) => v.id === view.id)!
-        const after = clone(made)
         return {
           result: { databaseId: db.id, view: viewJson(ws().databases[db.id], made), url: `${pageUrl(db.id)}` },
-          undo: () => {
-            const now = ws().databases[db.id]?.views.find((v) => v.id === view.id)
-            if (!now || !same(now, after)) return false
-            ws().deleteView(db.id, view.id)
-            return true
-          },
         }
       })
     },
@@ -840,6 +867,7 @@ function planUpdateView(args: Record<string, unknown>): WritePlan {
     summary: t('features.mcp.sum.updateView', { name: view.name, db: title }),
     target: `${title} / ${view.name}`,
     lines,
+    targets: { ...noTargets(), schema: [db.id], paths: { [db.id]: 'databaseId' } },
     noop: Object.keys(patch).length ? undefined : { ...result(), note: 'No change: the view already looks like that.' },
     async apply(writer) {
       // every write of this call under its writer (store/writer.ts) — one synchronous burst
@@ -847,20 +875,11 @@ function planUpdateView(args: Record<string, unknown>): WritePlan {
         const d = ws().databases[db.id]
         const cur = d?.views.find((v) => v.id === view.id)
         if (!d || !cur || d.locked) throw new McpToolError(`${q(view.name)} is gone or ${q(title)} was locked meanwhile. Nothing was changed.`)
-        const keys = Object.keys(patch) as Array<keyof View>
-        const before = Object.fromEntries(keys.map((k) => [k, clone(cur[k])])) as Partial<View>
+        // moved into One's own databases while the card waited (spec § 3.3): refused as at plan time
+        assertNotSystem(db.id)
         ws().updateView(db.id, view.id, patch)
-        const after = clone(ws().databases[db.id].views.find((v) => v.id === view.id)!)
         return {
           result: result(),
-          undo: () => {
-            const now = ws().databases[db.id]?.views.find((v) => v.id === view.id)
-            if (!now) return false
-            const back: Record<string, unknown> = {}
-            for (const k of keys) if (same(now[k], after[k])) back[k] = before[k]
-            if (Object.keys(back).length) ws().updateView(db.id, view.id, back as Partial<View>)
-            return Object.keys(back).length === keys.length
-          },
         }
       })
     },
@@ -880,24 +899,18 @@ function planDeleteView(args: Record<string, unknown>): WritePlan {
       { k: 'fact', label: t('features.mcp.plan.layout'), value: layoutName(view.type) },
       { k: 'note', value: t('features.mcp.plan.viewGoneNote') },
     ],
+    targets: { ...noTargets(), schema: [db.id], paths: { [db.id]: 'databaseId' } },
     async apply(writer) {
       // every write of this call under its writer (store/writer.ts) — one synchronous burst
       return withWriter(writer, () => {
         const d = ws().databases[db.id]
         const index = d?.views.findIndex((v) => v.id === view.id) ?? -1
         if (!d || index < 0 || d.locked || d.views.length <= 1) throw new McpToolError(`${q(view.name)} is gone, the last view or ${q(title)} was locked meanwhile. Nothing was changed.`)
-        const copy = clone(d.views[index])
+        // moved into One's own databases while the card waited (spec § 3.3): refused as at plan time
+        assertNotSystem(db.id)
         ws().deleteView(db.id, view.id)
         return {
           result: { databaseId: db.id, deleted: { id: view.id, name: view.name, type: view.type }, views: ws().databases[db.id].views.map((v) => ({ id: v.id, name: v.name, type: v.type })) },
-          undo: () => {
-            const now = ws().databases[db.id]
-            if (!now || now.views.some((v) => v.id === view.id)) return false
-            const views = [...now.views]
-            views.splice(Math.min(index, views.length), 0, copy)
-            ws().updateDatabase(db.id, { views })
-            return true
-          },
         }
       })
     },

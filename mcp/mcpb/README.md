@@ -1,9 +1,10 @@
 # SimpleCMS One — Claude Desktop extension {{version}}
 
-Lets Claude search, read and write your One workspace — pages, databases, rows and properties — tidy
-it up (move, reshape, trash and restore), answer questions across databases with One Script queries and
-run your saved scripts (after you approved their dry run) in the One tab you have open in your browser
-(https://getonecms.com/app/ or your own build).
+Lets Claude search, read and write your One workspace — pages, sub-pages, databases, boards, rows and
+properties — tidy it up (move, reshape, trash and restore), answer questions across databases with One
+Script queries and run your saved scripts (after you approved their dry run) in the One tab you have open
+in your browser (https://getonecms.com/app/ or your own build). A tree of sub-pages, a board with its
+rows or 50 row changes are one call and one approval card; pages read in full, every block with its data.
 
 ## Use it
 
@@ -23,7 +24,8 @@ Claude Desktop runs the extension with the Node.js it ships — nothing else to 
 ## Update
 
 Download the new `one.mcpb` from the same place and open it — Claude Desktop replaces the installed
-version when the new one is higher.
+version when the new one is higher. After One itself was updated, reload its tab once: the bridge refuses
+tools a tab does not know yet ("reload One") instead of sending them to it.
 
 ## What it does
 

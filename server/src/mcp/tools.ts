@@ -15,33 +15,57 @@ import type { Services } from '../context.ts'
 import { ApiError } from '../errors.ts'
 import { idSchema } from '../http/util.ts'
 import type { ApiTokenRow } from '../repo.ts'
-import type { WorkspaceModel } from '../api/model.ts'
+import { findProperty, type WorkspaceModel } from '../api/model.ts'
+import { liveDatabase, livePage } from '../api/meta.ts'
 import { FILTER_OPS, sortKeys } from './query.ts'
 import { McpReads } from './reads.ts'
-import { McpStructure, TYPE_CHANGES, VIEW_TYPES, type ViewInput } from './structure.ts'
+import { McpStructure, VIEW_TYPES, type ViewInput } from './structure.ts'
 import { BULK_MAX, McpTidy } from './tidy.ts'
-import { CREATABLE_TYPES, MAX_DB_PROPERTIES, McpWrites, iconIn } from './writes.ts'
-import { assertNotSystem } from './system.ts'
+import { CREATABLE_TYPES, MAX_DB_PROPERTIES, McpWrites, cleanRowTitle, cleanTitle } from './writes.ts'
+import { once } from './duplicates.ts'
+import { dupHash, remembersResult } from '../../../src/shared/mcp/duplicates.ts'
+import { McpBatch } from './batch.ts'
+import { assertWritable } from './gate.ts'
+import { McpPreimages, fragmentSnapshot, textHash } from './preimages.ts'
+import { fragmentText } from '../api/content.ts'
+import { contentDoc } from '../api/model.ts'
+import { MCP_CONTRACT_REV, MCP_LIMITS, MCP_TOOLS, MCP_LINE_BOARD, MCP_LINE_CLASS, MCP_LINE_CODEWORD, MCP_LINE_CONTENT, mcpDescription, type McpToolName } from '../../../src/shared/mcp/contract.ts'
+import { codeOf, isMcpErrorCode, mcpError, withRemedy, type McpErrorCode } from '../../../src/shared/mcp/errors.ts'
+import { stripRefLabels } from '../../../src/shared/mcp/refs.ts'
+import { MCP_PAGE_KINDS } from '../../../src/shared/mcp/tables.ts'
+
+/**
+ * The answer to a fault of the server's own (not an ApiError): whether the call — or a part of a batch — was carried out
+ * is not known, so it says neither "not made" nor "try again": the model reads what the call touches first (the bridge
+ * words its own fault alike: "Nothing was confirmed — read what the call touches again").
+ */
+export const MCP_FAULT =
+  'rejected: The tool failed on the team server. Whether the call was carried out is not known: read what it touches (one_get_page, one_query_database) before you call again, and tell the person if it fails again.'
+
+/** Markdown a client wrote: ref labels it copied from a read (⟦#…~…⟧) never reach content. */
+const md = (v: string | undefined) => (v === undefined ? undefined : stripRefLabels(v))
+/** The same for every item of a batch (pages, rows) that carries its own Markdown. */
+const mdEach = <T extends { markdown?: string }>(list: T[] | undefined) => list?.map((it) => (it.markdown === undefined ? it : { ...it, markdown: md(it.markdown) }))
 
 const id = idSchema.describe('A page, row or database id')
-const markdown = z.string().max(200_000)
+const markdown = z.string().max(MCP_LIMITS.text)
 const icon = z.string().max(80).describe('An emoji, "asset:<name>" or "lucide:<IconName>"')
-const option = z.union([z.string().min(1).max(200), z.object({ name: z.string().min(1).max(200), color: z.string().optional(), group: z.enum(['todo', 'in_progress', 'done']).optional() })])
+const option = z.union([z.string().min(1).max(200), z.strictObject({ name: z.string().min(1).max(200), color: z.string().optional(), group: z.enum(['todo', 'in_progress', 'done']).optional() })])
 const relation = z
-  .object({
+  .strictObject({
     databaseId: idSchema.describe('The related database'),
-    twoWay: z.boolean().optional().describe('Also add the reverse relation to the other database'),
-    reverseName: z.string().min(1).max(200).optional().describe('Name of the reverse property (two-way only)'),
+    twoWay: z.boolean().optional().describe('Over MCP a relation is one-way: true is refused (two-way relations are set up in One)'),
+    reverseName: z.string().min(1).max(MCP_LIMITS.propertyName).optional().describe('Not used over MCP (two-way relations are set up in One)'),
   })
   .describe('relation properties only')
 const propertySpec = {
-  name: z.string().min(1).max(200),
+  name: z.string().min(1).max(MCP_LIMITS.propertyName),
   options: z.array(option).max(200).optional().describe('select / multi_select / status: option names (or { name, color, group })'),
   relation: relation.optional(),
 }
-const sortItem = z.object({ property: z.string().min(1), direction: z.enum(['asc', 'desc']).optional() })
+const sortItem = z.strictObject({ property: z.string().min(1), direction: z.enum(['asc', 'desc']).optional() })
 const sortArg = z.union([z.string().max(200), sortItem, z.array(sortItem).max(5)])
-const filterItem = z.object({ property: z.string().min(1).max(200), op: z.enum(FILTER_OPS), value: z.unknown().optional() })
+const filterItem = z.strictObject({ property: z.string().min(1).max(200), op: z.enum(FILTER_OPS), value: z.unknown().optional() })
 const ids = z.array(idSchema).min(1).max(BULK_MAX).describe(`Several ids at once (at most ${BULK_MAX}). All or nothing: one id that does not fit fails the call and nothing changes.`)
 const propertyRef = z.string().min(1).max(200).describe('The property: its exact name (any case) or id')
 const viewRef = z.string().min(1).max(200).describe('The view: its id or exact name (one_get_database lists the views)')
@@ -63,11 +87,19 @@ const viewIn = (a: { name?: string; groupBy?: string | null; dateProperty?: stri
   sort: a.sort === undefined ? undefined : a.sort === null ? null : sortKeys(a.sort).map((k) => ({ property: k.property, desc: k.direction === 'desc' })),
   properties: a.properties,
 })
+/** A new row of a batch (one_create_row / one_create_database `rows`). */
+const rowItem = z.strictObject({ title: z.string().max(2000), properties: z.record(z.string(), z.unknown()).optional(), markdown: markdown.optional() })
 const DESTRUCTIVE = { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false } as const
 const CHANGE = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false } as const
 
-const VALUES =
-  'Values are plain JSON by property name: text, numbers, true/false, an option name for select and status (a list of names for multi_select), dates as "YYYY-MM-DD" or "YYYY-MM-DDTHH:mm" or {"start", "end"}, people by email or name, relations by row id or title, null to clear. Formula, rollup, created/edited and unique-id properties are computed and cannot be set.'
+/**
+ * A tool's description: the shared text (src/shared/mcp/contract.ts — the local bridge's, without what only it does)
+ * plus at most one side-note line about this server (server/test/mcp-parity.test.ts).
+ */
+const desc = (name: McpToolName, note?: string) => (note ? `${mcpDescription(name)}\n${note}` : mcpDescription(name))
+
+/** The side note of the batch tools: this server's per-request limit (the shared description counts characters; index.ts). */
+const BODY_NOTE = ` One request carries at most ${MCP_LIMITS.bodyWrite / 1024} KB on this server: split a larger batch into several calls.`
 
 const workspaceArg = z
   .string()
@@ -85,25 +117,106 @@ type Json = Record<string, unknown> | unknown[]
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 const norm = (s: string) => s.normalize('NFC').trim().replace(/\s+/g, ' ').toLowerCase()
 
-/** An ApiError as a message for the agent: what went wrong and what is allowed. */
+/** The contract's code of an API error (src/shared/mcp/errors.ts). */
+function codeFor(err: ApiError): McpErrorCode {
+  if (isMcpErrorCode(err.code)) return err.code
+  if (err.status === 404) return 'not_found'
+  if (err.code === 'database_locked' || err.code === 'page_locked') return 'locked'
+  if (err.status === 413) return 'too_large'
+  if (err.status === 403) return 'rejected'
+  return 'bad_argument'
+}
+
+/** An ApiError as a message for the agent: its code first, what went wrong, what is allowed and the next step. */
 function explain(err: ApiError): string {
-  if (err.code === 'parent_is_database') return 'The parent is a database: add a row with one_create_row instead'
+  // the REST model's refusal of a page under a database (its own words name the REST route): the MCP next step — a refusal
+  // already in the contract's words (one_create_database: "a database goes under a page") keeps them
+  if (err.code === 'parent_is_database' && !codeOf(err.message)) return withRemedy('bad_argument: parentId: The parent is a database: add a row with one_create_row instead')
   const details = err.details as { errors?: Array<{ allowed?: string[]; property?: string }> } | undefined
   const allowed = (details?.errors ?? []).filter((e) => e.allowed?.length).map((e) => `${e.property}: ${e.allowed!.join(', ')}`)
-  return `${err.message}${allowed.length ? ` (allowed — ${allowed.join(' · ')})` : ''}`
+  const message = `${err.message}${allowed.length ? ` (allowed — ${allowed.join(' · ')})` : ''}`
+  return withRemedy(codeOf(message) ? message : `${codeFor(err)}: ${message}`)
+}
+
+/** An argument path as the contract writes it: `rows[3].properties.Status`. */
+const pathText = (path: ReadonlyArray<PropertyKey>): string =>
+  path.reduce<string>((out, seg) => (typeof seg === 'number' ? `${out}[${seg}]` : out ? `${out}.${String(seg)}` : String(seg)), '')
+
+/** A tool's arguments that do not fit its schema, in the contract's shape (`bad_argument: <path>: …` — spec § 2.0). */
+export function argumentError(tool: string, error: z.ZodError, declared: readonly string[]): string {
+  const [first, ...rest] = error.issues
+  if (!first) return mcpError('bad_argument', '', `the arguments of ${tool} do not fit`)
+  if (first.code === 'unrecognized_keys') {
+    const key = first.keys[0] ?? ''
+    const top = !first.path.length
+    return mcpError('bad_argument', pathText([...first.path, key]), `${tool} takes no argument ${JSON.stringify(key)}${top ? ` (it takes: ${declared.join(', ') || 'none'})` : ''}`)
+  }
+  const also = rest.slice(0, 3).map((i) => `${pathText(i.path) || 'the call'}: ${i.message}`)
+  return mcpError('bad_argument', pathText(first.path), `${first.message}${also.length ? ` (also ${also.join('; ')})` : ''}`)
+}
+
+/**
+ * Strict arguments on this server too (spec § 2.0, docs/MCP.md): every tool's schema is a strict object — tools/list says
+ * `additionalProperties: false` and an argument the tool does not declare is refused instead of dropped (a mistyped
+ * `parentID` would otherwise make a page at the top level) — and an argument that does not fit is answered in the
+ * contract's shape (`bad_argument: <path>: … Nothing was changed. …`), before the tool runs, as the local bridge answers.
+ * The SDK checks arguments in its private validateToolInput; this server's instance answers that check itself
+ * (server/test/mcp-parity.test.ts guards it: an SDK that stops calling it fails the undeclared-argument case there).
+ */
+function strictArguments(server: McpServer): void {
+  const register = server.registerTool.bind(server) as (name: string, config: Record<string, unknown>, cb: unknown) => unknown
+  ;(server as unknown as { registerTool: typeof register }).registerTool = (name, config, cb) => {
+    const shape = (config.inputSchema ?? {}) as z.ZodRawShape
+    return register(name, { ...config, inputSchema: z.object(shape).strict() }, cb)
+  }
+  type Checked = { inputSchema?: z.ZodType }
+  ;(server as unknown as { validateToolInput: (tool: Checked, args: unknown, name: string) => Promise<unknown> }).validateToolInput = async (tool, args, name) => {
+    if (!tool.inputSchema) return undefined
+    const res = await tool.inputSchema.safeParseAsync(args ?? {})
+    if (res.success) return res.data
+    const declared = tool.inputSchema instanceof z.ZodObject ? Object.keys(tool.inputSchema.shape) : []
+    throw new Error(argumentError(name, res.error, declared))
+  }
+}
+
+/**
+ * The write gate (gate.ts, Weg 4 D4) before every write tool: what the call touches may be written by an agent — no
+ * template's page, nothing in the trash, nothing of One's own databases, no locked page's text or database's schema —
+ * else it is refused before the tool runs (the tools' own checks stay as the backstop). A call that names another
+ * workspace is left to the tool's boundary refusal (`inside` false): nothing is read for it.
+ */
+function gateWrites(server: McpServer, inside: (workspace: string | undefined) => boolean, check: (tool: McpToolName, a: Record<string, unknown>) => Promise<void>): void {
+  const register = server.registerTool.bind(server) as (name: string, config: Record<string, unknown>, cb: (a: Record<string, unknown>, extra: unknown) => unknown) => unknown
+  ;(server as unknown as { registerTool: typeof register }).registerTool = (name, config, cb) => {
+    if (!MCP_TOOLS.some((t) => t.name === name && t.write)) return register(name, config, cb)
+    return register(name, config, async (a, extra) => {
+      if (inside(typeof a?.workspace === 'string' ? a.workspace : undefined)) {
+        try {
+          await check(name as McpToolName, a ?? {})
+        } catch (err) {
+          if (err instanceof ApiError) throw new Error(explain(err))
+          throw err
+        }
+      }
+      return cb(a, extra)
+    })
+  }
 }
 
 function instructions(name: string, id: string, write: boolean): string {
   return [
     `SimpleCMS One team workspace "${name}": pages (Markdown content), databases with typed properties, rows (pages inside a database).`,
     `This connection reaches only this workspace (id ${id}); the optional "workspace" argument of every tool is refused when it names another one (workspace_mismatch: nothing was done — ask the person).`,
-    'Start with one_overview (page tree, databases, today\'s date); find things with one_search; read a page with one_get_page.',
+    'Start with one_overview (page tree, databases, today\'s date); find things with one_search; read a page with one_get_page (format "blocks" shows every block with its data; long pages come in parts — pass "next" as cursor); list pages with one_list_pages.',
     'Values are friendly: option names, dates "YYYY-MM-DD" or "YYYY-MM-DDTHH:MM" (wall-clock, no time zone), member emails for people, row ids for relations.',
+    'Errors start with a code ("not_found: …") and say what to do next.',
     write
-      ? 'Changes reach everyone who has the workspace open at once. Tidying up: one_move_page reorganises pages and databases, one_move_row moves a row into another database; one_update_database, one_update_property, one_delete_property and one_create_view / one_update_view / one_delete_view reshape databases. one_trash_page moves pages, rows and whole databases (with their rows) to the trash — nothing is ever deleted for good, one_restore_page brings things back. Before removing or reorganising several things, say what you plan to do.'
+      ? `Changes reach everyone who has the workspace open at once; repeating a call that made something within 2 minutes does not make a second one (the answer says duplicateOf). ${MCP_LINE_BOARD} Tidying up: one_move_page, one_move_row, one_update_database / _property / _view, one_trash_page (nothing is deleted for good: one_restore_page brings things back). Before removing or reorganising several things, say what you plan to do.`
       : 'This token can only read: the write tools are not available.',
-    // keep in step with MCP_INSTRUCTIONS / MCP_PROMPT of the local bridge (src/app/features/mcp/contract.ts)
-    'Codeword: a message that starts with "one:" is meant for this One workspace — use these tools for it, not web search or other connectors, even when those could answer too. Without the codeword, use them when the person clearly talks about their One pages, databases or notes.',
+    MCP_LINE_CONTENT,
+    MCP_LINE_CLASS,
+    // the shared codeword line (src/shared/mcp/contract.ts): the same words as the local bridge's
+    MCP_LINE_CODEWORD,
   ].join(' ')
 }
 
@@ -116,10 +229,16 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
   const writes = new McpWrites(s, model)
   const tidy = new McpTidy(s, model)
   const structure = new McpStructure(s, model)
+  const batch = new McpBatch(s, model, writes)
+  const preimages = new McpPreimages(s, model)
+  /** one recorder per tool call: its pre-images (owners / admins put a call back in Workspace → API) */
+  const recorder = (tool: McpToolName, a?: Record<string, unknown>) => preimages.recorder(ws, token.id, tool, a && remembersResult(tool) ? dupHash(tool, a) : null)
   const name = s.repo.workspaceById(ws)?.name ?? ''
   /** The workspace as MCP names it — the same id the local bridge uses for a team workspace. */
   const self = { id: `team:${ws}`, name }
-  const server = new McpServer({ name: 'one', title: 'SimpleCMS One', version: s.config.version }, { instructions: instructions(name, self.id, write) })
+  // serverInfo names the tool contract too (semver build metadata): 0.1.0+mcp.2 = this server with contract 2
+  const server = new McpServer({ name: 'one', title: 'SimpleCMS One', version: `${s.config.version}+mcp.${MCP_CONTRACT_REV}` }, { instructions: instructions(name, self.id, write) })
+  strictArguments(server)
 
   /** null when `workspace` is absent or names the token's workspace; else the refusal. */
   const outside = (arg: string | undefined): string | null => {
@@ -131,10 +250,14 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
     return `workspace_mismatch: this connection (its API token) reaches only the workspace ${JSON.stringify(name)} (${self.id}); ${JSON.stringify(want)} is not it, so nothing was done. Ask the person which workspace they mean — another workspace needs its own token.`
   }
 
+  // the write gate before every write tool (gate.ts)
+  gateWrites(server, (arg) => outside(arg) === null, (tool, a) => assertWritable(model, ws, tool, a))
+
   /** The JSON answer, naming the workspace it came from. */
   const json = (value: Json) => {
     const out = isObj(value) ? { ...value, workspace: { ...(isObj(value.workspace) ? value.workspace : {}), ...self } } : value
-    return { content: [{ type: 'text' as const, text: JSON.stringify(out, null, 2) }] }
+    // compact: a client counts results by their serialized size (spec § 2.0)
+    return { content: [{ type: 'text' as const, text: JSON.stringify(out) }] }
   }
 
   /** Runs a tool inside the boundary: JSON result, or a tool error the agent can read. */
@@ -146,9 +269,14 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
     } catch (err) {
       if (err instanceof ApiError) throw new Error(explain(err))
       s.log.error('mcp tool failed', { workspace: ws, token: token.id, error: err as Error })
-      throw new Error('Internal error — the change was not made. Try again in a moment.')
+      // a fault of the server's own: whether (a part of) the call was carried out is not known — a batch may have written
+      // some of it — so the model reads before it calls again (the bridge words its own fault alike)
+      throw new Error(MCP_FAULT)
     }
   }
+
+  /** A creating call runs once per token and arguments within 2 minutes: a repeat gets its answer (duplicates.ts). */
+  const made = (tool: McpToolName, a: Record<string, unknown>, fn: () => Promise<Json>) => () => once(s, token.id, ws, tool, a, fn)
 
   // the codeword as a prompt (Claude Desktop's "+" menu, Claude Code's /mcp__one__one): "one: <task>"
   server.registerPrompt(
@@ -169,7 +297,7 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
     'one_overview',
     {
       title: 'Workspace overview',
-      description: 'The workspace at a glance: its name, the page tree (ids, titles, icons), every database with its row count, today\'s date and whether this connection may write. Call this first.',
+      description: desc('one_overview', "Here: a write token's changes apply at once (no approval step); a read token only reads."),
       inputSchema: WS,
       annotations: READ,
     },
@@ -180,7 +308,7 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
     'one_list_workspaces',
     {
       title: 'Connected workspaces',
-      description: 'The workspaces this connection reaches: here exactly one — the API token\'s (id, name, access). No content.',
+      description: desc('one_list_workspaces', "Here exactly one: the API token's workspace."),
       annotations: READ,
     },
     async () =>
@@ -205,7 +333,7 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
     'one_search',
     {
       title: 'Search',
-      description: 'Full-text search over page titles and content (pages, database rows, databases). Returns ids, paths and a snippet around the match, best matches first.',
+      description: desc('one_search'),
       inputSchema: { query: z.string().trim().min(1).max(200), limit: z.number().int().min(1).max(50).optional().describe('default 10'), ...WS },
       annotations: READ,
     },
@@ -216,20 +344,47 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
     'one_get_page',
     {
       title: 'Read a page',
-      description: 'One page, row or database page by id (or by exact title): title, icon, path, the row\'s properties, the content as Markdown, child pages and backlinks (pages that link here).',
-      inputSchema: { id: id.optional(), title: z.string().min(1).max(2000).optional().describe('Exact title (case-insensitive) when the id is not known'), ...WS },
+      description: desc('one_get_page'),
+      inputSchema: {
+        id: id.optional(),
+        title: z.string().min(1).max(2000).optional().describe('Exact title (case-insensitive) when the id is not known'),
+        format: z.enum(['markdown', 'blocks']).optional(),
+        refs: z.boolean().optional().describe('Label each block with its ref (labels are not text).'),
+        cursor: z.string().max(200).optional().describe('"next" of the previous part.'),
+        comments: z.boolean().optional().describe('Comment threads too — only when this token may read comments.'),
+        transcript: z.boolean().optional().describe('blocks: meeting notes with their transcript lines.'),
+        ...WS,
+      },
       annotations: READ,
     },
     async (a) =>
       run(a.workspace, async () => {
         if (!a.id && !a.title) throw new ApiError(400, 'invalid_request', 'Give the page id (or its exact title)')
-        return reads.getPage(ws, { id: a.id, title: a.title })
+        return reads.getPage(ws, { id: a.id, title: a.title, format: a.format, refs: a.refs, cursor: a.cursor, comments: a.comments, transcript: a.transcript }, { comments: token.mcp_comments ?? 'off' })
       })(),
   )
 
   server.registerTool(
+    'one_list_pages',
+    {
+      title: 'List pages',
+      description: desc('one_list_pages'),
+      inputSchema: {
+        parentId: id.nullable().optional().describe('A page, row or database; omit or null for the top level.'),
+        depth: z.number().int().min(1).max(3).optional().describe('Default 1.'),
+        kinds: z.array(z.enum(MCP_PAGE_KINDS)).min(1).max(3).optional().describe('Default page + database.'),
+        cursor: z.string().max(200).optional(),
+        limit: z.number().int().min(1).max(MCP_LIMITS.listMax).optional().describe(`Default ${MCP_LIMITS.listDefault}.`),
+        ...WS,
+      },
+      annotations: READ,
+    },
+    async (a) => run(a.workspace, () => reads.listPages(ws, { parentId: a.parentId ?? null, depth: a.depth, kinds: a.kinds, cursor: a.cursor, limit: a.limit }))(),
+  )
+
+  server.registerTool(
     'one_list_databases',
-    { title: 'List databases', description: 'Every database: id, title, path, row count and property names with types.', inputSchema: WS, annotations: READ },
+    { title: 'List databases', description: desc('one_list_databases'), inputSchema: WS, annotations: READ },
     async (a) => run(a.workspace, () => reads.listDatabases(ws))(),
   )
 
@@ -237,7 +392,7 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
     'one_get_database',
     {
       title: 'Database schema',
-      description: 'A database\'s schema: properties with type, options (select, multi_select, status), related database (relation), read-only flag; and its views.',
+      description: desc('one_get_database'),
       inputSchema: { id, ...WS },
       annotations: READ,
     },
@@ -249,10 +404,10 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
     {
       title: 'Query rows',
       description:
-        'Rows of a database with their property values by name (option names, ISO dates, people, related rows as { id, title }). Filters are ANDed and compare case-insensitively; property "title" is the row title, "createdAt" / "updatedAt" the timestamps. Ops: equals, not_equals, contains, not_contains, is_empty, is_not_empty, gt, gte, lt, lte (numbers and dates "YYYY-MM-DD"), also starts_with, ends_with, is_checked, is_not_checked. Page through with cursor = the "next" of the previous answer.',
+        desc('one_query_database'),
       inputSchema: {
         databaseId: id,
-        filter: z.array(z.object({ property: z.string().min(1), op: z.enum(FILTER_OPS), value: z.unknown().optional() })).max(20).optional(),
+        filter: z.array(z.strictObject({ property: z.string().min(1), op: z.enum(FILTER_OPS), value: z.unknown().optional() })).max(20).optional(),
         sort: z.union([z.string().max(200), sortItem, z.array(sortItem).max(5)]).optional().describe('A property name, "createdAt", "updatedAt" or "order" (default, the table order); prefix "-" for descending, e.g. "-Due"'),
         limit: z.number().int().min(1).max(100).optional().describe('Rows per answer (default 50)'),
         cursor: z.string().max(2000).optional(),
@@ -270,25 +425,35 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
   server.registerTool(
     'one_create_page',
     {
-      title: 'Create a page',
-      description: 'A new page at the top level or inside another page (not a database — use one_create_row there). Content in Markdown: headings, lists, to-dos (- [ ]), quotes, code blocks, dividers, bold/italic/strike/code, links (#/p/<id> links to a page).',
-      inputSchema: { title: z.string().max(2000), parentId: id.nullable().optional(), markdown: markdown.optional(), icon: icon.optional(), ...WS },
+      title: 'Create pages',
+      description: desc('one_create_page', `Markdown here: headings, lists, to-dos (- [ ]), quotes, code blocks, dividers, bold / italic / strike / code, links.${BODY_NOTE}`),
+      inputSchema: {
+        title: z.string().max(2000).optional(),
+        parentId: id.nullable().optional(),
+        markdown: markdown.optional(),
+        icon: icon.optional(),
+        before: id.optional().describe('A sibling id: place it right before'),
+        after: id.optional().describe('A sibling id: place it right after'),
+        index: z.number().int().min(0).optional().describe('0 = first (default last)'),
+        private: z.boolean().optional().describe('Local bridge only: refused here (local_only)'),
+        linkInParent: z.enum(['none', 'block', 'mention']).optional(),
+        pages: z
+          .array(z.strictObject({ title: z.string().min(1).max(2000), parentId: z.string().max(80).optional().describe('A page / row id or "$<index>"'), markdown: markdown.optional(), icon: icon.optional() }))
+          .min(1)
+          .max(MCP_LIMITS.pages)
+          .optional(),
+        ...WS,
+      },
       annotations: CREATE,
     },
-    async (a) =>
-      run(a.workspace, async () => {
-        // nothing new below a row of One's own databases (read-only over MCP — system.ts)
-        if (a.parentId) await model.read(ws, (r) => assertNotSystem(r, a.parentId))
-        const created = await model.createPage(ws, { title: a.title, parentId: a.parentId ?? null, content: a.markdown, icon: iconIn(a.icon) }, actor)
-        return { ...created, title: a.title }
-      })(),
+    async (a) => run(a.workspace, made('one_create_page', a, () => batch.createPages(ws, { ...a, markdown: md(a.markdown), pages: mdEach(a.pages) }, actor, recorder('one_create_page', a))))(),
   )
 
   server.registerTool(
     'one_update_page',
     {
       title: 'Update a page',
-      description: 'Change a page\'s (or row\'s) title or icon, and append Markdown to its content (mode "append", the default) or replace the content (mode "replace").',
+      description: desc('one_update_page', "Here a replace is refused when the page holds content this server's Markdown cannot write back (the answer names it)."),
       inputSchema: {
         id,
         title: z.string().max(2000).optional(),
@@ -299,46 +464,134 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
       },
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
     },
-    async (a) => run(a.workspace, () => writes.updatePage(ws, { id: a.id, title: a.title, icon: a.icon, markdown: a.markdown, mode: a.mode ?? 'append' }, actor, { mcp: true }))(),
+    async (a) =>
+      run(a.workspace, async () => {
+        // a replace keeps its pre-image (the content before, taken in the write's own transaction)
+        const rec = recorder('one_update_page')
+        let before: { snapshot: string; plain: string } | null = null
+        // the title as the bridge takes it: whitespace collapsed, never empty, at most 300 characters
+        const title = a.title === undefined ? undefined : cleanTitle(a.title, 'title')
+        const out = await writes.updatePage(ws, { id: a.id, title, icon: a.icon, markdown: md(a.markdown), mode: a.mode ?? 'append' }, actor, {
+          mcp: true,
+          preimage: (doc) => (before = { snapshot: fragmentSnapshot(doc), plain: fragmentText(doc, 20_000) }),
+        })
+        const pre = before as { snapshot: string; plain: string } | null
+        if (pre) await rec.content(a.id, pre.snapshot, pre.plain, await s.collab.read(contentDoc(ws, a.id), (doc) => textHash(doc)))
+        return out
+      })(),
   )
 
   server.registerTool(
     'one_create_row',
     {
-      title: 'Create a row',
-      description: `Add a row to a database: its title, property values and optional Markdown content for the row's page. ${VALUES} An unknown select or multi_select option is created; anything else that does not fit fails the whole call with every problem listed.`,
-      inputSchema: { databaseId: id, title: z.string().max(2000), properties: z.record(z.string(), z.unknown()).optional().describe('Property name → value'), markdown: markdown.optional(), ...WS },
+      title: 'Create rows',
+      description: desc('one_create_row', `People: a member's email works too.${BODY_NOTE}`),
+      inputSchema: {
+        databaseId: id,
+        title: z.string().max(2000).optional(),
+        properties: z.record(z.string(), z.unknown()).optional().describe('Property name → value'),
+        markdown: markdown.optional(),
+        rows: z.array(rowItem).min(1).max(MCP_LIMITS.rows).optional(),
+        ...WS,
+      },
       annotations: CREATE,
     },
     async (a) =>
-      run(a.workspace, async () => {
-        // an MCP client is an agent: properties "Only by hand" are refused (api/keys.ts)
-        const row = await writes.prepareRow(ws, { databaseId: a.databaseId }, { title: a.title, properties: a.properties }, actor, { agent: true, mcp: true, files: 'onefile' })
-        const created = await model.createRow(ws, a.databaseId, { title: row.title ?? a.title, properties: row.properties, content: a.markdown }, actor, { agent: true, files: 'onefile' })
-        return { ...created, title: row.title ?? a.title }
-      })(),
+      run(
+        a.workspace,
+        made('one_create_row', a, async () => {
+          const rec = recorder('one_create_row', a)
+          if (a.rows) {
+            const mixed = (['title', 'properties', 'markdown'] as const).find((k) => a[k] !== undefined)
+            if (mixed) throw new ApiError(422, 'bad_argument', `bad_argument: ${mixed}: pass "rows" or title / properties / markdown, not both`)
+            return batch.createRows(ws, { databaseId: a.databaseId, rows: mdEach(a.rows)! }, actor, rec)
+          }
+          // the title as the bridge takes it: given as "title" or through the properties, whitespace collapsed, never empty,
+          // at most MCP_LIMITS.title (as the batch form and the bridge refuse a row without one)
+          const given = typeof a.title === 'string' && a.title.trim() ? cleanTitle(a.title, 'title') : undefined
+          const props = a.properties
+            ? await model.read(ws, (r) => {
+                const defs = liveDatabase(r, a.databaseId)?.properties ?? []
+                const titleId = defs.find((p) => p.type === 'title')?.id
+                const isTitle = (k: string) => (k.trim().toLowerCase() === 'title' && !findProperty(defs, k)) || (!!titleId && findProperty(defs, k)?.id === titleId)
+                // an empty title among the properties gives way to "title" (as the bridge's splitTitle)
+                return cleanRowTitle(defs, Object.fromEntries(Object.entries(a.properties!).filter(([k, v]) => !(given && isTitle(k) && typeof v === 'string' && !v.trim()))))
+              })
+            : undefined
+          // an MCP client is an agent: properties "Only by hand" are refused (api/keys.ts)
+          const row = await writes.prepareRow(ws, { databaseId: a.databaseId }, { title: given, properties: props }, actor, { agent: true, mcp: true, files: 'onefile' })
+          const titled = await model.read(ws, (r) => {
+            const db = liveDatabase(r, a.databaseId)
+            const named = db ? Object.entries(row.properties ?? {}).find(([k]) => k.trim().toLowerCase() === 'title' || findProperty(db.properties, k)?.type === 'title') : undefined
+            return (row.title ?? (typeof named?.[1] === 'string' ? named[1] : '') ?? '').replace(/\s+/g, ' ').trim()
+          })
+          if (!titled) throw new ApiError(422, 'bad_argument', 'bad_argument: title: a row needs a title (or pass "rows")')
+          const created = await model.createRow(ws, a.databaseId, { title: row.title ?? given, properties: row.properties, content: md(a.markdown) }, actor, { agent: true, files: 'onefile' })
+          // the pre-image: the row as made, with its text's state (a Restore leaves it when someone changed it since)
+          const [state] = await batch.madeRows(ws, [created.id])
+          if (state?.title !== undefined) await rec.rows({ db: a.databaseId, created: [state], updated: [] })
+          return { ...created, title: state?.title ?? row.title ?? a.title ?? '' }
+        }),
+      )(),
   )
 
   server.registerTool(
     'one_update_row',
     {
-      title: 'Update a row',
-      description: `Set property values of an existing row; only the properties you pass change. ${VALUES} Pass the title property's name (or "title") to rename the row. Answers the row as it is now.`,
-      inputSchema: { id, properties: z.record(z.string(), z.unknown()).describe('Property name → new value'), ...WS },
+      title: 'Update rows',
+      description: desc('one_update_row', "People: a member's email works too. Answers the row as it is now (\"rows\": what changed per row)."),
+      inputSchema: {
+        id: id.optional(),
+        properties: z.record(z.string(), z.unknown()).optional().describe('Property name → new value'),
+        rows: z.array(z.strictObject({ id, properties: z.record(z.string(), z.unknown()) })).min(1).max(MCP_LIMITS.rows).optional(),
+        ...WS,
+      },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },
     async (a) =>
       run(a.workspace, async () => {
-        const row = await writes.prepareRow(ws, { rowId: a.id }, { properties: a.properties }, actor, { agent: true, mcp: true, files: 'onefile' })
-        return model.updateRow(ws, a.id, { title: row.title, properties: row.properties }, actor, { agent: true, files: 'onefile' })
+        const rec = recorder('one_update_row')
+        if (a.rows) {
+          const mixed = (['id', 'properties'] as const).find((k) => a[k] !== undefined)
+          if (mixed) throw new ApiError(422, 'bad_argument', `bad_argument: ${mixed}: pass "rows" or id / properties, not both`)
+          return batch.updateRows(ws, a.rows, actor, rec)
+        }
+        if (!a.id || !a.properties) throw new ApiError(422, 'bad_argument', 'bad_argument: id: pass "id" and "properties" (or "rows")')
+        // one row: the answer is the row as it is now (as before); the pre-image as for a batch
+        await batch.updateRows(ws, [{ id: a.id, properties: a.properties }], actor, rec, true)
+        return model.read(ws, (r) => {
+          const page = livePage(r, a.id!)
+          const db = page?.databaseId ? liveDatabase(r, page.databaseId) : null
+          if (!page || !db) throw new ApiError(404, 'page_not_found', `No row with id "${a.id}"`)
+          return model.rowOut(ws, db.properties, page, model.context(ws, r))
+        })
       })(),
+  )
+
+  server.registerTool(
+    'one_upsert_rows',
+    {
+      title: 'Mirror rows by key',
+      description: desc('one_upsert_rows', `People: a member's email works too.${BODY_NOTE}`),
+      inputSchema: {
+        databaseId: id,
+        keyProperty: z.string().min(1).max(200),
+        rows: z
+          .array(z.strictObject({ key: z.union([z.string().min(1).max(500), z.number()]), title: z.string().max(2000).optional(), properties: z.record(z.string(), z.unknown()).optional(), markdown: z.string().max(MCP_LIMITS.upsertText).optional() }))
+          .min(1)
+          .max(MCP_LIMITS.rows),
+        ...WS,
+      },
+      annotations: CREATE,
+    },
+    async (a) => run(a.workspace, made('one_upsert_rows', a, () => batch.upsertRows(ws, { databaseId: a.databaseId, keyProperty: a.keyProperty, rows: mdEach(a.rows)! }, actor, recorder('one_upsert_rows'))))(),
   )
 
   server.registerTool(
     'one_create_property',
     {
       title: 'Add a property',
-      description: 'Add a property (column) to a database. Types: text, number, select, multi_select, status, date, person, checkbox, url, email, phone, files, relation, rating, created_time, last_edited_time, created_by, last_edited_by, unique_id.',
+      description: desc('one_create_property'),
       inputSchema: { databaseId: id, ...propertySpec, type: z.enum(CREATABLE_TYPES), ...WS },
       annotations: CREATE,
     },
@@ -349,39 +602,52 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
     'one_create_database',
     {
       title: 'Create a database',
-      description: 'A new database (with a table view) at the top level or inside a page. properties: [{ name, type, options?, relation? }] — a title property "Name" is added when none is given; without properties you get Name, Status, Tags, Date.',
+      description: desc('one_create_database'),
       inputSchema: {
         title: z.string().max(2000),
         parentId: id.nullable().optional(),
+        inline: z.strictObject({ pageId: id, afterBlock: z.string().max(200).optional() }).optional(),
+        icon: icon.optional(),
         properties: z
-          .array(z.object({ ...propertySpec, type: z.enum(['title', ...CREATABLE_TYPES]) }))
+          .array(z.strictObject({ ...propertySpec, type: z.enum(['title', ...CREATABLE_TYPES]) }))
           .max(MAX_DB_PROPERTIES)
           .optional(),
+        views: z.array(z.strictObject({ type: z.enum(VIEW_TYPES), ...viewSettings })).min(1).max(5).optional(),
+        rows: z.array(rowItem).max(MCP_LIMITS.rows).optional(),
         ...WS,
       },
       annotations: CREATE,
     },
-    async (a) => run(a.workspace, () => writes.createDatabase(ws, { title: a.title, parentId: a.parentId ?? null, properties: a.properties }, actor))(),
+    async (a) =>
+      run(
+        a.workspace,
+        made('one_create_database', a, () =>
+          batch.createDatabase(
+            ws,
+            { title: cleanTitle(a.title, 'title'), parentId: a.parentId ?? null, inline: a.inline, icon: a.icon, properties: a.properties, views: a.views?.map((v) => ({ type: v.type, ...viewIn(v) })), rows: mdEach(a.rows) },
+            actor,
+            recorder('one_create_database', a),
+          ),
+        ),
+      )(),
   )
 
   server.registerTool(
     'one_update_property',
     {
       title: 'Change a property',
-      description: `Change a property (column): rename it, change its description, add / rename / recolour / remove select, multi_select and status options (removing an option clears it from the rows that had it — the answer says how many), or change its type where the values carry over: ${Object.entries(TYPE_CHANGES)
-        .map(([from, to]) => `${from} → ${to.join(' / ')}`)
-        .join('; ')}. Other type changes are refused. Not in a locked database.`,
+      description: desc('one_update_property'),
       inputSchema: {
         databaseId: id,
         property: propertyRef,
-        name: z.string().max(200).optional().describe('New name'),
+        name: z.string().max(MCP_LIMITS.propertyName).optional().describe('New name'),
         description: z.string().max(2000).optional().describe('Tooltip text ("" removes it)'),
         type: z.enum(CREATABLE_TYPES).optional().describe('New type (see the allowed changes above)'),
         options: z
-          .object({
+          .strictObject({
             add: z.array(option).max(100).optional().describe('New options: names, or { name, color, group }'),
             update: z
-              .array(z.object({ name: z.string().min(1).max(200), newName: z.string().max(200).optional(), color: z.string().max(20).optional(), group: z.enum(['todo', 'in_progress', 'done']).optional() }))
+              .array(z.strictObject({ name: z.string().min(1).max(200), newName: z.string().max(200).optional(), color: z.string().max(20).optional(), group: z.enum(['todo', 'in_progress', 'done']).optional() }))
               .max(100)
               .optional()
               .describe('Rename or recolour options (rows keep them)'),
@@ -400,7 +666,7 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
     'one_delete_property',
     {
       title: 'Delete a property',
-      description: 'Delete a property (column) and its values from every row; views that used it forget it. Not the title property, not in a locked database. The answer says how many rows had a value.',
+      description: desc('one_delete_property'),
       inputSchema: { databaseId: id, property: propertyRef, ...WS },
       annotations: DESTRUCTIVE,
     },
@@ -411,7 +677,7 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
     'one_update_database',
     {
       title: 'Change a database',
-      description: "Rename a database or change its icon. Locking and unlocking a database is the person's decision in the app (refused here).",
+      description: desc('one_update_database'),
       inputSchema: { id, title: z.string().max(2000).optional(), icon: icon.optional().describe('An emoji, "asset:<name>" or "lucide:<IconName>"; "" removes the icon'), locked: z.boolean().optional().describe('Not supported: refused'), ...WS },
       annotations: CHANGE,
     },
@@ -422,7 +688,7 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
     'one_create_view',
     {
       title: 'Add a view',
-      description: `Add a view (a tab) to a database: its layout (${VIEW_TYPES.join(', ')}), name, grouping, date property, filter, sorts and visible properties. Not in a locked database.`,
+      description: desc('one_create_view'),
       inputSchema: { databaseId: id, type: z.enum(VIEW_TYPES), ...viewSettings, ...WS },
       annotations: CREATE,
     },
@@ -433,7 +699,7 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
     'one_update_view',
     {
       title: 'Change a view',
-      description: 'Change a view: its name, layout, grouping, date property, filter, sorts or visible properties — only what you pass changes. Not in a locked database.',
+      description: desc('one_update_view'),
       inputSchema: { databaseId: id, view: viewRef, type: z.enum(VIEW_TYPES).optional(), ...viewSettings, ...WS },
       annotations: CHANGE,
     },
@@ -444,7 +710,7 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
     'one_delete_view',
     {
       title: 'Delete a view',
-      description: 'Remove a view (tab) of a database — the rows stay. Not the last view, not in a locked database.',
+      description: desc('one_delete_view'),
       inputSchema: { databaseId: id, view: viewRef, ...WS },
       annotations: DESTRUCTIVE,
     },
@@ -456,7 +722,7 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
     {
       title: 'Move a page',
       description:
-        'Reorganise: move a page or a database under another page, or to the top level (parentId null), and/or place it before or after a sibling (or at an index among its siblings). Refused: into itself or its own sub-pages, into a database (pages do not become rows here). Rows stay in their database — one_move_row moves a row to another database.',
+        desc('one_move_page'),
       inputSchema: {
         id: id.describe('Page or database id'),
         parentId: id.nullable().optional().describe('The new parent page; null = the top level. Omit to stay under the current parent (reorder only)'),
@@ -475,7 +741,7 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
     {
       title: 'Move a row to another database',
       description:
-        'Move a database row (with its content) into another database. Only when the schemas fit: every value the row has needs a property of the same name and type there (select / multi_select options are matched by name, missing ones are added; status options must exist; relations must point to the same database and not be two-way). Refused otherwise — the answer lists what does not fit. Rows that other rows link to stay where they are.',
+        desc('one_move_row'),
       inputSchema: { id: id.describe('Row id'), databaseId: id.describe('The database to move it to'), ...WS },
       annotations: CHANGE,
     },
@@ -486,7 +752,7 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
     'one_trash_page',
     {
       title: 'Move to trash',
-      description: `Move pages, rows or databases to the trash — a page with its sub-pages, a database with all its rows (the answer says how many). Nothing is deleted for good: one_restore_page (or the trash in the app) brings it back. Pass "id", or "ids" for up to ${BULK_MAX} at once.`,
+      description: desc('one_trash_page'),
       inputSchema: { id: id.optional(), ids: ids.optional(), ...WS },
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
     },
@@ -497,7 +763,7 @@ export function buildMcpServer(s: Services, model: WorkspaceModel, token: ApiTok
     'one_restore_page',
     {
       title: 'Restore from the trash',
-      description: `Bring pages, rows or databases back from the trash (a database with its rows). A page whose parent is gone comes back at the top level. Pass "id", or "ids" for up to ${BULK_MAX}; an id that is not in the trash fails the call with the most recently trashed items listed.`,
+      description: desc('one_restore_page'),
       inputSchema: { id: id.optional().describe('Id of the trashed page, row or database'), ids: ids.optional(), ...WS },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     },

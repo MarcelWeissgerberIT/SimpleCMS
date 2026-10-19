@@ -10,12 +10,17 @@ the other half of One's *outgoing* webhooks (database automations, button blocks
   into the workspace's Yjs documents exactly like the app does (see *How writes work* below).
 - Base URL: `https://<your server>/api/v1` — e.g. `https://cloud.example.com/api/v1`.
 - AI agents: the same tokens open the server's **remote MCP endpoint** (`https://<your server>/mcp`) for Claude
-  Code, Claude Desktop and other MCP clients — see [`MCP.md`](MCP.md#team-server).
+  Code, Claude Desktop and other MCP clients — see [`MCP.md`](MCP.md#team-server). MCP reaches more than the REST API
+  (pages in full with every block, sub-page trees, boards with views and rows, rows in bulk, comments with the token's
+  flag); the REST API stays as it is (`/api/v1`). The server keeps a restorable copy of what an MCP call made or overwrote
+  (pages, rows, databases, row fields, a replaced page text — [Recent MCP writes](#recent-mcp-writes) names which calls);
+  REST writes keep none. Two-way relations (sub-items and dependencies too) are set over REST as before, but not over
+  MCP: an MCP value of one and `twoWay: true` are refused (`refused_type` — [`MCP.md`](MCP.md#two-way-relations)).
 
 Contents: [Tokens](#tokens) · [Conventions](#conventions) · [Endpoints](#endpoints) ·
 [Values](#property-values) · [Content](#content-markdown-lite) · [Idempotency](#idempotency) ·
-[Incoming webhooks](#incoming-webhooks) · [Custom agents](#custom-agents) · [Errors](#errors) · [Limits](#limits) ·
-[Recipes](#recipes-n8n-make-zapier) · [How writes work](#how-writes-work)
+[Incoming webhooks](#incoming-webhooks) · [Custom agents](#custom-agents) · [Recent MCP writes](#recent-mcp-writes) ·
+[Errors](#errors) · [Limits](#limits) · [Recipes](#recipes-n8n-make-zapier) · [How writes work](#how-writes-work)
 
 ## Tokens
 
@@ -26,6 +31,10 @@ instead). A token belongs to **one workspace** and has a scope:
 |---|---|
 | `read` | every `GET` endpoint |
 | `write` | everything `read` may, plus creating rows and pages and changing rows |
+
+A token also says whether MCP clients get **comments** (`comments`: `off` — the default —, `read`, or `write` for a
+write token; *Comments (MCP)* in the form). It only decides what `one_get_page { comments: true }` answers on `/mcp`
+([`MCP.md`](MCP.md#comments)); the REST API never returns comments.
 
 The secret looks like `one_` + 43 characters and is shown **once**, when it is created; the server
 keeps only an HMAC fingerprint (keyed with the server's `SECRET`) and can never show it again. Lost
@@ -371,6 +380,23 @@ instruction. 10 deliveries per agent per minute (then `429`), at most 20 runs wa
 (`429 queue_full`). Errors: `404 hook_not_found` (unknown, regenerated or deleted URL — counted like a
 bad token), `409 runtime_not_ready`, `409 agent_unavailable` (switched off, not a webhook agent, gone),
 `413 payload_too_large`, `503 agents_off`.
+
+## Recent MCP writes
+
+The MCP endpoint has no approval step, so the server keeps what it needs to put a call back (a *pre-image*) for the
+calls that make or overwrite something: pages, rows and databases made (`one_create_page`, `one_create_row`,
+`one_create_database`, `one_upsert_rows`), each row field changed before → after (`one_update_row`, `one_upsert_rows`),
+a page's content before a `replace` — and before the link or database block a call writes into a page, or the text
+`one_upsert_rows` writes into a row. Property, option and view changes, moves, trash and restore, a page's new title or
+icon and a plain `append` keep **none** and are not listed (undo those in One: page history, the trash). Pre-images
+are sealed with the workspace's key, kept 14 days, deleted with the workspace. Owners and admins see them in
+**Workspace settings → Automation → API → Recent MCP writes** and restore a call there. Session cookie, admins and
+the owner (like the token routes, not the public API):
+
+| Method & path | Body → Response |
+|---|---|
+| `GET /api/workspaces/:id/mcp-calls` | → `[{ callId, tool, token: { id, name }, at, parts, kinds, made, changed, titles (≤ 3), restoredAt }]` — the newest 100 calls of the last 14 days |
+| `POST /api/workspaces/:id/mcp-calls/:callId/restore` | `{ force?: boolean }` → `{ callId, restored, left: [{ id, title }], note? }` — **all or nothing**. Nothing the call made or changed was touched since: the fields it wrote get their earlier values, the texts it replaced or wrote a link / database block into get their earlier text, and what it made goes to the trash (`left: []`). Anything moved since — a field it wrote, a text it wrote into, a row or page it changed going to the trash (or below a trashed page) or moving (`trash` / `place`), a made page's or row's title, text, values, icon / cover / comments (a database's properties / views), its place, the trash, a page or row put below it, a page whose text would go back locked since — answers `409 changed_since` and writes **nothing**: `error.details = { changed: [{ id, title, what: ['text' \| 'title' \| 'values' \| 'mark' \| 'place' \| 'below' \| 'trash' \| 'gone' \| 'locked'], fields? }], canForce, stayed? }` — the restore checks again as it writes each text and the meta; a change landing meanwhile refuses it whole and the texts it had written go back (`stayed`: one typed into right after, left as it is and named). With `force` (only where `canForce`) the replaced texts and the written fields go back whole (later changes there go) and **nothing is trashed** — also when nothing moved any more by the time it arrives: what the call made stays and is listed in `left` (with the link or database block it wrote for it). A call that only made things (`canForce: false`; with nothing moved `409 nothing_to_force`), a page locked since, or a row / page it changed that went to the trash or moved stays refused — undo it in One (version history, the trash). A second restore changes nothing. `404 call_not_found` |
 
 ## Errors
 

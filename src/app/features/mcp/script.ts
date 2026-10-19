@@ -2,18 +2,23 @@
  * One MCP — One Script for agents:
  *  - one_run_query (read): a read-only query → rows as JSON (capped), through the script area's tool
  *    helper (writes, effects and dialogs refused).
- *  - one_run_script (write): a saved script by id or name. Planned as a dry run (dialogs answer their
- *    defaults, nothing happens); the approval card lists what it would change and send, and it is ALWAYS
- *    asked — also in "Apply directly" (`alwaysAsk`). Approved, it runs with the app's dialogs; the list the
- *    card showed is not asked again (a web request or anything the dry run did not show still is).
- *    dryRun: true answers the dry run without asking. A saved query runs read-only, without asking.
+ *  - one_run_script: a saved script by id or name — over MCP a DRY RUN only (the owner's decision until T-b): dialogs
+ *    answer their defaults, nothing is written or sent, no card; the answer is the dry run's report with `ran: false`
+ *    and the next step (the person runs it in One → Scripts). A saved query answers read-only. Read only refuses it as
+ *    every write tool.
+ *  Both: a page's `.markdown` / `.text` give only what the person's context marks let through (limits.ts mcpPageText);
+ *  the dry run stops where a run would write into One's own databases (system_database) or into the text of a page
+ *  locked in One (locked), and before a replace of a page the person limited with context marks (rejected).
  */
 import { t } from '../../i18n'
-import { appRunUI, findScript, preApprovedUI, plannedItems, runQueryForTool, runReport, runScript, runScriptById, silentRunUI, undoRun, type RunResult } from '../script'
+import { findScript, runQueryForTool, runReport, runScript, silentRunUI, type RunResult } from '../script'
 import { MCP_QUERY_ROWS } from './contract'
-import { chars, str, type PlanLine, type WritePlan } from './plan'
+import { str, type WritePlan } from './plan'
 import { live, McpToolError, q, titleOf, ws } from './values'
-import { formatWriterKey } from '../../store/writer'
+import { mcpPageText } from './limits'
+import { systemBelow, systemOf, systemRefusal, type SystemHit } from './system'
+import { noTargets } from './gate'
+import type { WriteTarget, WriteVerdict } from '../script'
 
 /* ------------------------------------------------------------------ one_run_query */
 
@@ -21,7 +26,8 @@ export async function runQuery(args: Record<string, unknown>): Promise<Record<st
   const code = str(args.code, 'code', { required: true, max: 20_000 })
   const limit = args.limit === undefined || args.limit === null ? MCP_QUERY_ROWS : Number(args.limit)
   if (!Number.isFinite(limit)) throw new McpToolError('"limit" must be a number.')
-  const out = await runQueryForTool(code, { maxRows: Math.max(1, Math.min(MCP_QUERY_ROWS, Math.floor(limit))) })
+  // a page's .markdown / .text give only what the person's context marks let through (as one_get_page / one_search)
+  const out = await runQueryForTool(code, { maxRows: Math.max(1, Math.min(MCP_QUERY_ROWS, Math.floor(limit))), textLimit: mcpPageText })
   if (!out.ok) throw new McpToolError(`${out.error} Nothing was changed.`)
   const { ok: _ok, ...answer } = out
   return answer
@@ -35,91 +41,98 @@ export function queryTarget(args: Record<string, unknown>): string {
 
 /* ------------------------------------------------------------------ one_run_script */
 
-const dbName = (id: string | null) => (id ? titleOf(ws().pages[id]) : '')
-
-/** The card's lines: each change and effect of the dry run (the first ones, then "+ n more"). */
-function dryLines(r: RunResult): PlanLine[] {
-  const lines: PlanLine[] = []
-  const MAX = 8
-  const changes = r.changes.filter((c) => !c.skipped)
-  for (const c of changes.slice(0, MAX)) {
-    const where = c.dbId ? ` · ${dbName(c.dbId)}` : ''
-    const props = c.props?.length ? ` — ${c.props.map((p) => `${p.name}: ${p.before || '—'} → ${p.after || '—'}`).join(', ')}` : ''
-    lines.push({ k: 'fact', label: t(`features.mcp.script.change.${c.kind}`), value: `${c.title.trim() || t('common.untitled')}${where}${props}` })
+/**
+ * One's own databases are read-only over MCP (spec § 3.1 / § 3.3): the dry run started over MCP asks this rule before
+ * every write it plans (RunOptions.writeGuard), so it stops at a write into the Coding / spec / QA pipelines, the test
+ * cases, the memory and its log, Mails or the mail directories (a row, a page below a row, a new row, the trash — of
+ * such a page or of a page holding one below it —, a two-way partner's rows). A locked page refuses content changes over
+ * MCP (spec § 3.3): the text of a page locked in One (append / prepend / replace) stops it the same way. `hit` / `locked`
+ * keep the first refusal for the MCP error.
+ */
+function systemWrites(): { guard: (t: WriteTarget) => WriteVerdict; hit: () => SystemHit | null; locked: () => string | null } {
+  let first: SystemHit | null = null
+  let lockedFirst: string | null = null
+  return {
+    guard(t) {
+      for (const id of [t.pageId, t.dbId, t.parentId]) {
+        // the trash of a page takes its subtree along: a One database below it refuses it (as one_trash_page)
+        const hit = t.tree && id === t.pageId && id ? systemBelow(id) : systemOf(id)
+        if (hit) {
+          first ??= hit
+          return hit.title
+        }
+      }
+      const page = t.content && t.pageId ? ws().pages[t.pageId] : undefined
+      if (page?.settings.locked) {
+        const name = titleOf(page)
+        lockedFirst ??= name
+        return { locked: name }
+      }
+      return null
+    },
+    hit: () => first,
+    locked: () => lockedFirst,
   }
-  if (changes.length > MAX) lines.push({ k: 'note', value: t('features.mcp.plan.more', { n: chars(changes.length - MAX) }) })
-  for (const e of r.effects.slice(0, MAX)) lines.push({ k: 'fact', label: t(`features.mcp.script.effect.${e.kind}`), value: e.label })
-  if (r.effects.length > MAX) lines.push({ k: 'note', value: t('features.mcp.plan.more', { n: chars(r.effects.length - MAX) }) })
-  if (!changes.length && !r.effects.length) lines.push({ k: 'note', value: t('features.mcp.script.nothing') })
-  lines.unshift({ k: 'note', value: t('features.mcp.script.dryShows') })
-  if (r.effects.some((e) => e.kind === 'http')) lines.push({ k: 'note', value: t('features.mcp.script.httpNote') })
-  lines.push({ k: 'note', value: t('features.mcp.script.undoNote') })
-  return lines
 }
 
+/** The system_database refusal of a run the rule stopped. */
+const scriptRefusal = (hit: SystemHit, name: string) => systemRefusal(hit, 'script', `the script ${q(name)} writes there`)
+
+/** The locked refusal of a run that would change the text of a page locked in One (spec § 3.3). */
+const lockedRefusal = (page: string, name: string) =>
+  `locked: script: the script ${q(name)} writes into ${q(page)}, which is locked in One: its content cannot change over MCP. Nothing was changed. Leave that page out, or ask the person to unlock it.`
+
 /**
- * Plan a run of a saved script: a dry run first. Errors of the dry run (and a script that is gone) are
- * the agent's to fix; a saved query or dryRun: true answer at once (noop — nothing to approve).
+ * A replace of a page the person limited with context marks (the run reads only the marked blocks — limits.ts
+ * mcpPageText): it would overwrite the blocks Claude may not read, as one_update_page's replace would. The host refuses
+ * it in every mode (ScriptError 'limited_replace'); this is its MCP refusal — nothing about the hidden blocks.
  */
-export async function planRunScript(args: Record<string, unknown>): Promise<WritePlan & { alwaysAsk: true }> {
+const limitedRefusal = (r: RunResult, name: string): string | null =>
+  r.error?.code === 'limited_replace'
+    ? `rejected: script: the script ${q(name)} replaces the text of ${q(String(r.error.params.name ?? ''))} — the person limited what you may read on this page (context marks); a replace would overwrite blocks you may not read. Nothing was changed. Append instead (append()), or ask the person.`
+    : null
+
+/** What every answer of one_run_script says: nothing ran, and how the script runs (model-facing English). */
+export const DRY_ONLY_NOTE =
+  'This was a dry run: nothing was changed. Over MCP a saved script only dry-runs — to run it, ask the person to run it in One → Scripts.'
+
+/**
+ * one_run_script: a saved query answers read-only; a script dry-runs (no card, nothing written or sent) and answers its
+ * report with `ran: false` and DRY_ONLY_NOTE. Errors of the dry run (and a script that is gone) are the agent's to fix.
+ */
+export async function planRunScript(args: Record<string, unknown>): Promise<WritePlan> {
   const ref = str(args.script, 'script', { required: true, max: 200 })
   const found = findScript(ref)
   if ('error' in found) throw new McpToolError(found.error)
   const { script } = found
   const rawPage = str(args.pageId, 'pageId', { max: 80 }).trim()
   const page = rawPage ? live(rawPage) : null
-  if (rawPage && !page) throw new McpToolError(`No page with id ${q(rawPage)}. Use one_search to find page ids.`)
+  if (rawPage && !page) throw new McpToolError(`not_found: No page with id ${q(rawPage)}. Use one_search to find page ids.`)
   const contextPageId = page?.id ?? null
-  const base = { tool: 'one_run_script' as const, alwaysAsk: true as const, verb: t('features.mcp.verb.runScript'), target: script.name }
+  const base = { tool: 'one_run_script' as const, verb: t('features.mcp.verb.dryRunScript'), target: script.name, summary: script.name, lines: [], targets: noTargets(), apply: async () => ({ result: null }) }
   const scriptInfo = { id: script.id, name: script.name, kind: script.kind }
 
-  // a saved query only reads: its answer, nothing to approve
+  // a saved query only reads: its answer
   if (script.kind === 'query') {
-    const out = await runQueryForTool(script.code, { contextPageId, maxRows: MCP_QUERY_ROWS })
+    const out = await runQueryForTool(script.code, { contextPageId, maxRows: MCP_QUERY_ROWS, textLimit: mcpPageText })
     if (!out.ok) throw new McpToolError(`${out.error} Nothing was changed.`)
     const { ok: _ok, ...answer } = out
-    return { ...base, summary: script.name, lines: [], noop: { script: scriptInfo, query: true, ...answer }, apply: async () => ({ result: null }) }
+    return { ...base, noop: { script: scriptInfo, query: true, ...answer } }
   }
 
-  const dry = await runScript({ code: script.code, mode: 'dry', scriptId: script.id, name: script.name, contextPageId, ui: silentRunUI, record: false })
+  const sys = systemWrites()
+  const dry: RunResult = await runScript({ code: script.code, mode: 'dry', scriptId: script.id, name: script.name, contextPageId, ui: silentRunUI, record: false, writeGuard: sys.guard, textLimit: mcpPageText })
+  // a write into One's own databases, into a page locked in One, a replace under context marks: refused (the dry run
+  // stopped there)
+  const refused = sys.hit()
+  if (refused) throw new McpToolError(scriptRefusal(refused, script.name))
+  const locked = sys.locked()
+  if (locked !== null) throw new McpToolError(lockedRefusal(locked, script.name))
+  const limited = limitedRefusal(dry, script.name)
+  if (limited) throw new McpToolError(limited)
   if (dry.status !== 'ok') {
     const report = await runReport(dry, 'dry')
     throw new McpToolError(`The dry run of ${q(script.name)} failed: ${String(report.error ?? dry.status)}. Nothing was changed.`)
   }
-  if (args.dryRun === true) return { ...base, summary: script.name, lines: [], noop: { script: scriptInfo, ...(await runReport(dry, 'dry')) }, apply: async () => ({ result: null }) }
-
-  const approved = plannedItems(dry)
-  return {
-    ...base,
-    summary: t('features.mcp.sum.runScript', { name: script.name }),
-    lines: dryLines(dry),
-    async apply(writer) {
-      if (!scriptExists(script.id)) throw new McpToolError(`The script ${q(script.name)} was deleted meanwhile. Nothing was changed.`)
-      // the person approved what the dry run of THIS code showed: a script edited while the card was open
-      // (another tab, the AI terminal, a team member) is not what they approved
-      if (ws().scripts?.[script.id]?.code !== script.code)
-        throw new McpToolError(`The script ${q(script.name)} was changed after its dry run. Nothing was changed — call one_run_script again to show the person the new plan.`)
-      // the approval toast ("Done: …" with Undo) tells the person; the script's own toast would repeat it
-      // a script run started by this MCP call (store/writer.ts: script:<id>:<run> with the call as its cause)
-      const r = await runScriptById(script.id, { mode: 'run', contextPageId, ui: preApprovedUI(appRunUI, approved), notify: false, writer: { via: formatWriterKey(writer) } })
-      if (!r) throw new McpToolError(`${q(script.name)} is already running in One. Nothing was changed — try again when it is done.`)
-      const report = await runReport(r, 'run')
-      if (r.status === 'cancelled') throw new McpToolError(`The person cancelled the run of ${q(script.name)} in One. Nothing was changed. Do not retry it; ask them instead.`)
-      const done = r.changes.filter((c) => !c.skipped).length
-      if (r.status !== 'ok')
-        throw new McpToolError(`The run of ${q(script.name)} ${r.status === 'stopped' ? 'was stopped' : `stopped with an error: ${String(report.error ?? r.status)}`}. ${done ? `The ${done} change(s) it made before stay — the person can undo the run in One (Scripts → run log).` : 'Nothing was changed.'}`)
-      const run = r.run
-      return {
-        result: { script: scriptInfo, ...report },
-        undo: run && r.changes.some((c) => !c.skipped)
-          ? () => {
-              void undoRun(run)
-              return true
-            }
-          : undefined,
-      }
-    },
-  }
+  return { ...base, noop: { script: scriptInfo, ran: false, ...(await runReport(dry, 'dry')), note: DRY_ONLY_NOTE }, noopNote: t('features.mcp.log.dryOnly') }
 }
-
-const scriptExists = (id: string) => !!ws().scripts?.[id]

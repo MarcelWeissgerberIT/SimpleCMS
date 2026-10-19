@@ -4,11 +4,12 @@
  * it). Approve ↵ / Reject Esc while the card has focus; it takes focus when it appears unless the
  * person is typing. A hairline drains over the two-minute window.
  */
-import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { Check, X } from 'lucide-react'
 import { useT } from '../../i18n'
 import { approveMcp, rejectMcp } from './service'
 import { clientLabel, useMcp, type McpApproval } from './state'
+import { titleIfClipped } from '../../ui/clip'
 import type { PlanLine } from './write'
 import './mcp.css'
 
@@ -72,8 +73,9 @@ function Line({ line }: { line: PlanLine }) {
       )
     case 'fact':
       return (
-        <div className="mcp-line">
-          <dt>{line.label}</dt>
+        // a batch's numbered line ("01"): the number takes only its own width, the title gets the rest
+        <div className="mcp-line" data-num={numbered(line) || undefined}>
+          <dt onMouseEnter={titleIfClipped}>{line.label}</dt>
           <dd>{line.value}</dd>
         </div>
       )
@@ -102,6 +104,53 @@ function Line({ line }: { line: PlanLine }) {
         </div>
       )
   }
+}
+
+/** A batch's numbered line ("01"): the number takes only its own width, the title gets the rest. */
+const numbered = (l: PlanLine) => l.k === 'fact' && /^\d{1,3}$/.test(l.label)
+
+/** How many of the lines are things the person approves (a batch's rows, pages …) — never its facts, notes or texts. */
+const entriesOf = (lines: readonly PlanLine[]) => lines.filter((l) => numbered(l) || (l.k === 'fact' && l.entry)).length
+
+/**
+ * The card's lines: its only scroll area (the card is capped at the viewport — head, workspace, summary, time and the
+ * keys always stay in view, however many lines a batch has). Focusable while it scrolls, so the keyboard can read it.
+ */
+function Lines({ id, lines }: { id: string; lines: PlanLine[] }) {
+  const t = useT()
+  const ref = useRef<HTMLDivElement>(null)
+  const [scrolls, setScrolls] = useState(false)
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const measure = () => setScrolls(el.scrollHeight > el.clientHeight + 1)
+    measure()
+    const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
+    ro?.observe(el)
+    window.addEventListener('resize', measure)
+    return () => {
+      ro?.disconnect()
+      window.removeEventListener('resize', measure)
+    }
+  }, [lines])
+  const entries = entriesOf(lines)
+  return (
+    <>
+      <div ref={ref} className="mcp-card__scroll" role="region" aria-label={t('features.mcp.card.lines')} tabIndex={scrolls ? 0 : -1} data-scrolls={scrolls || undefined}>
+        <dl className="mcp-card__lines" id={id}>
+          {lines.map((l, i) => (
+            <Line key={i} line={l} />
+          ))}
+        </dl>
+      </div>
+      {scrolls && (
+        <p className="label mcp-card__more" aria-hidden>
+          {/* the entries the person approves (the summary's number), else no number at all */}
+          {entries > 1 ? t('features.mcp.card.scrollHint', { n: entries }) : t('features.mcp.card.scrollHintAll')}
+        </p>
+      )}
+    </>
+  )
 }
 
 function ApprovalCard({ approval, total }: { approval: McpApproval; total: number }) {
@@ -150,13 +199,7 @@ function ApprovalCard({ approval, total }: { approval: McpApproval; total: numbe
       <p className="mcp-card__sum" id={`${uid}-sum`}>
         {plan.summary}
       </p>
-      {plan.lines.length > 0 && (
-        <dl className="mcp-card__lines" id={`${uid}-lines`}>
-          {plan.lines.map((l, i) => (
-            <Line key={i} line={l} />
-          ))}
-        </dl>
-      )}
+      {plan.lines.length > 0 && <Lines id={`${uid}-lines`} lines={plan.lines} />}
       <div className="mcp-card__time">
         <span className="label">{t('features.mcp.card.expires')}</span>
         <Countdown approval={approval} />

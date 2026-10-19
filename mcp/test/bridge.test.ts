@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { request } from 'node:http'
 import { after, afterEach, describe, test } from 'node:test'
-import { MCP_CLOSE_REPLACED, MCP_NO_APP, MCP_SUBPROTOCOL_V1, MCP_TOOLS, type BridgeMessage } from '../../src/app/features/mcp/contract.ts'
+import { MCP_ARGS_V1, MCP_CLOSE_REPLACED, MCP_NO_APP, MCP_SUBPROTOCOL_V1, MCP_TOOLS, mcpToolArgs, type BridgeMessage } from '../../src/shared/mcp/contract.ts'
+import { MCP_REMEDIES, codeOf } from '../../src/shared/mcp/errors.ts'
 import { connectApp, helloApp, PORT, serve, startBridge, textOf, waitFor, type FakeApp, type Started } from './helpers.ts'
 
 let bridge: Started | null = null
@@ -48,6 +49,7 @@ describe('tool list', () => {
       'one_get_database',
       'one_get_page',
       'one_list_databases',
+      'one_list_pages',
       'one_list_work_items',
       'one_list_workspaces',
       'one_move_page',
@@ -65,9 +67,10 @@ describe('tool list', () => {
       'one_update_row',
       'one_update_view',
       'one_update_work_item',
+      'one_upsert_rows',
     ])
     // what removes something says so (clients ask before running these)
-    const destructive = ['one_delete_property', 'one_delete_view', 'one_run_script', 'one_trash_page', 'one_update_property']
+    const destructive = ['one_delete_property', 'one_delete_view', 'one_trash_page', 'one_update_property']
     for (const def of MCP_TOOLS) {
       const tool = tools.find((t) => t.name === def.name)!
       assert.deepEqual(tool.inputSchema, def.inputSchema, def.name)
@@ -93,7 +96,7 @@ describe('tool list', () => {
     assert.match(client.getInstructions() ?? '', /one_list_work_items/)
   })
 
-  test('One Script: one_run_query reads (with the language reference), one_run_script writes and is asked first', async () => {
+  test('One Script: one_run_query reads (with the language reference), one_run_script only dry-runs over MCP (Weg 4)', async () => {
     const { client } = await start()
     const { tools } = await client.listTools()
     const query = tools.find((t) => t.name === 'one_run_query')!
@@ -102,11 +105,13 @@ describe('tool list', () => {
     assert.match(query.description ?? '', /One Script/)
     assert.match(query.description ?? '', /db\(@Tasks\)/)
     const run = tools.find((t) => t.name === 'one_run_script')!
+    // Read only still refuses it (a write tool), but it changes nothing: never destructive
     assert.equal(run.annotations?.readOnlyHint, false)
-    assert.equal(run.annotations?.destructiveHint, true)
+    assert.equal(run.annotations?.destructiveHint, false)
     assert.deepEqual(run.inputSchema.required, ['script'])
-    assert.match(run.description ?? '', /dry/)
-    assert.match(run.description ?? '', /approve/)
+    assert.match(run.description ?? '', /Dry-run/)
+    assert.match(run.description ?? '', /ran: false/)
+    assert.match(run.description ?? '', /One → Scripts/)
   })
 
   test('trash and restore take one id or up to 50 ids', async () => {
@@ -225,7 +230,10 @@ describe('forwarding', () => {
       onprogress: (p) => progress.push(p.message ?? ''),
     })
     assert.equal(res.isError, undefined)
-    assert.deepEqual(JSON.parse(textOf(res)), { id: 'row1', workspace: { id: 'local:test-workspace', name: 'Test workspace' } })
+    // a tab without a contract (One before contract 2) does not join repeats: the bridge says so on what it made (review 6)
+    const out = JSON.parse(textOf(res)) as Record<string, unknown>
+    assert.match(String(out.note), /older version: it does not recognise a repeated call/)
+    assert.deepEqual({ ...out, note: undefined }, { id: 'row1', workspace: { id: 'local:test-workspace', name: 'Test workspace' }, repeatsJoined: false, note: undefined })
     assert.deepEqual(progress, ['Waiting for approval in One…'])
   })
 
@@ -243,6 +251,101 @@ describe('forwarding', () => {
 })
 
 const from = (res: unknown) => JSON.parse(textOf(res)) as { from?: string; workspace?: { id: string | null; name: string } }
+
+describe('contract 2: strict arguments, what the tab runs, compact results', () => {
+  test('an argument the tool does not declare is refused by the bridge (bad_argument) — nothing reaches the tab', async () => {
+    const { client } = await start()
+    const app = track(await helloApp('Nordlicht', 'apply', { tools: mcpToolArgs() }))
+    const seen: string[] = []
+    serve(app, (tool) => (seen.push(tool), { result: { id: 'p1' } }))
+    const res = await client.callTool({ name: 'one_create_page', arguments: { title: 'Launch plan', colour: 'orange' } })
+    assert.equal(res.isError, true)
+    const text = textOf(res)
+    assert.equal(codeOf(text), 'bad_argument', text)
+    assert.match(text, /^bad_argument: colour: one_create_page takes no argument "colour" \(it takes: title, parentId, markdown, icon, before, after, index, private, linkInParent, pages, workspace\)\. Nothing was changed\./)
+    assert.ok(text.endsWith(MCP_REMEDIES.bad_argument))
+    // the routing argument is the bridge's own: never refused, never forwarded
+    const ok = await client.callTool({ name: 'one_create_page', arguments: { title: 'Launch plan', workspace: 'Nordlicht' } })
+    assert.equal(ok.isError, undefined, textOf(ok))
+    assert.deepEqual(seen, ['one_create_page'])
+  })
+
+  test('a tab that does not announce a tool or an argument gets no call of it: app_outdated, nothing reaches it', async () => {
+    const { client } = await start()
+    const tools = mcpToolArgs()
+    // an older One: no one_run_query yet, and one_create_page without "icon"
+    delete tools.one_run_query
+    tools.one_create_page = tools.one_create_page!.filter((a) => a !== 'icon')
+    const app = track(await helloApp('Tessera', 'apply', { tools }))
+    const seen: Array<[string, unknown]> = []
+    serve(app, (tool, args) => (seen.push([tool, args]), { result: { id: 'p1' } }))
+    const query = await client.callTool({ name: 'one_run_query', arguments: { code: 'db("Tasks").count' } })
+    assert.equal(query.isError, true)
+    assert.match(textOf(query), /^app_outdated: this One tab has no one_run_query yet/)
+    assert.ok(textOf(query).endsWith(MCP_REMEDIES.app_outdated))
+    const icon = await client.callTool({ name: 'one_create_page', arguments: { title: 'Launch plan', icon: '🚀' } })
+    assert.equal(icon.isError, true)
+    assert.match(textOf(icon), /^app_outdated: icon: this One tab does not know "icon" of one_create_page yet/)
+    assert.deepEqual(seen, [])
+    // what it announces still runs
+    const plain = await client.callTool({ name: 'one_create_page', arguments: { title: 'Launch plan' } })
+    assert.equal(plain.isError, undefined, textOf(plain))
+    assert.deepEqual(seen, [['one_create_page', { title: 'Launch plan' }]])
+  })
+
+  test('a tab without "tools" (One before contract 2) is judged against the frozen contract 1', async () => {
+    const { client } = await start()
+    const app = track(await helloApp('Wissensbasis', 'apply'))
+    const seen: Array<[string, unknown]> = []
+    serve(app, (tool, args) => (seen.push([tool, args]), { result: { ok: true } }))
+    // every argument of contract 1 still reaches such a tab
+    for (const [tool, args] of Object.entries(MCP_ARGS_V1)) {
+      if (tool === 'one_list_workspaces') continue
+      const res = await client.callTool({ name: tool, arguments: Object.fromEntries(args.map((a) => [a, a === 'limit' || a === 'index' ? 1 : 'x'])) })
+      assert.equal(res.isError, undefined, `${tool}: ${textOf(res)}`)
+    }
+    assert.equal(seen.length, Object.keys(MCP_ARGS_V1).length - 1)
+    // what contract 1 did not have never reaches such a tab — never silently made shared, never half done (MCP B3)
+    seen.length = 0
+    const priv = await client.callTool({ name: 'one_create_page', arguments: { title: 'Launch plan', private: true } })
+    assert.equal(priv.isError, true)
+    assert.match(textOf(priv), /^app_outdated: private: this One tab \(an older version\) does not know "private" of one_create_page yet/)
+    const batch = await client.callTool({ name: 'one_create_page', arguments: { pages: [{ title: 'Nordlicht' }, { title: 'Tessera', parentId: '$0' }] } })
+    assert.match(textOf(batch), /^app_outdated: pages: /)
+    const upsert = await client.callTool({ name: 'one_upsert_rows', arguments: { databaseId: 'db1', keyProperty: 'Ticket', rows: [{ key: 'T-1' }] } })
+    assert.match(textOf(upsert), /^app_outdated: this One tab \(an older version\) has no one_upsert_rows yet/)
+    const rows = await client.callTool({ name: 'one_create_row', arguments: { databaseId: 'db1', rows: [{ title: 'Mara Lind' }] } })
+    assert.match(textOf(rows), /^app_outdated: rows: /)
+    assert.deepEqual(seen, [])
+    // contract 1 is frozen: today's contract only adds to it
+    const now = mcpToolArgs()
+    for (const [tool, args] of Object.entries(MCP_ARGS_V1)) for (const a of args) assert.ok(now[tool]?.includes(a), `${tool}.${a} is still in the contract`)
+    // what B2 added never reaches such a tab: a paged / blocks read and one_list_pages are refused, nothing is sent
+    const before = seen.length
+    for (const [tool, args, re] of [
+      ['one_get_page', { id: 'p1', format: 'blocks' }, /^app_outdated: format: this One tab \(an older version\) does not know "format" of one_get_page yet/],
+      ['one_get_page', { id: 'p1', cursor: '1.abc.def' }, /^app_outdated: cursor:/],
+      ['one_get_page', { id: 'p1', comments: true }, /^app_outdated: comments:/],
+      ['one_list_pages', {}, /^app_outdated: this One tab \(an older version\) has no one_list_pages yet/],
+    ] as const) {
+      const res = await client.callTool({ name: tool, arguments: args })
+      assert.equal(res.isError, true, `${tool} ${JSON.stringify(args)}`)
+      assert.match(textOf(res), re)
+    }
+    assert.equal(seen.length, before)
+  })
+
+  test('results are compact JSON (no indentation): they count against the client\'s limit by their size', async () => {
+    const { client } = await start()
+    const app = track(await helloApp('Nordlicht'))
+    serve(app, () => ({ result: { pages: [{ id: 'p1', title: 'Launch plan', children: [{ id: 'p2', title: 'Mara Lind' }] }] } }))
+    const res = await client.callTool({ name: 'one_overview', arguments: {} })
+    assert.doesNotMatch(textOf(res), /\n/)
+    assert.equal(JSON.parse(textOf(res)).pages[0].children[0].title, 'Mara Lind')
+    const list = await client.callTool({ name: 'one_list_workspaces', arguments: {} })
+    assert.doesNotMatch(textOf(list), /\n/)
+  })
+})
 
 describe('connections', () => {
   test('a newer tab of the same workspace wins; the older one is told and closed', async () => {
@@ -497,6 +600,97 @@ describe('workspaces', () => {
   })
 })
 
+describe("the bridge's own refusals carry a code (review 5)", () => {
+  test('one_list_workspaces takes no argument: anything is refused (bad_argument), as on the team server', async () => {
+    const { client } = await start()
+    track(await helloApp())
+    for (const args of [{ verbose: true }, { workspace: 'Acme' }]) {
+      const res = await client.callTool({ name: 'one_list_workspaces', arguments: args })
+      assert.equal(res.isError, true, JSON.stringify(args))
+      const key = Object.keys(args)[0]!
+      assert.equal(textOf(res), `bad_argument: ${key}: one_list_workspaces takes no argument "${key}" (it takes: none). Nothing was changed. ${MCP_REMEDIES.bad_argument}`)
+    }
+    const ok = await client.callTool({ name: 'one_list_workspaces', arguments: {} })
+    assert.equal(ok.isError, undefined)
+  })
+
+  test('a tab gone, replaced or silent while a call waited: rejected — and never "Nothing was changed" (the outcome is not known)', async () => {
+    const { client } = await start({ ONE_MCP_TIMEOUT_MS: '400' })
+    const app = track(await helloApp('Acme'))
+    const pending = client.callTool({ name: 'one_create_page', arguments: { title: 'Kapitel' } })
+    await app.next('call')
+    app.close()
+    const gone = textOf(await pending)
+    assert.equal(codeOf(gone), 'rejected', gone)
+    assert.match(gone, /closed or disconnected before it answered\. Whether the call was carried out is not known/)
+    assert.doesNotMatch(gone, /Nothing was changed/)
+    // a newer tab of the same workspace takes over while a call waits
+    const first = track(await helloApp('Nordlicht'))
+    const waiting = client.callTool({ name: 'one_create_page', arguments: { title: 'Kapitel 2', workspace: 'Nordlicht' } })
+    await first.next('call')
+    track(await helloApp('Nordlicht'))
+    const replaced = textOf(await waiting)
+    assert.equal(codeOf(replaced), 'rejected', replaced)
+    assert.match(replaced, /Another One tab took over/)
+    // no answer at all
+    const silent = textOf(await client.callTool({ name: 'one_overview', arguments: { workspace: 'Nordlicht' } }))
+    assert.equal(codeOf(silent), 'rejected', silent)
+    assert.match(silent, /did not answer within/)
+  })
+
+  test('the approval window running out is approval_timeout', async () => {
+    const { client } = await start({ ONE_MCP_TIMEOUT_MS: '300' })
+    const app = track(await helloApp())
+    app.ws.on('message', (d) => {
+      const msg = JSON.parse(d.toString()) as BridgeMessage
+      if (msg.type === 'call') app.send({ type: 'pending', id: msg.id, timeoutMs: 1000 })
+    })
+    const res = await client.callTool({ name: 'one_create_row', arguments: { databaseId: 'db', title: 'Q4 launch' } })
+    assert.equal(res.isError, true)
+    assert.equal(codeOf(textOf(res)), 'approval_timeout', textOf(res))
+  })
+
+  test('the port taken by another bridge, and an older tab\'s refusals, start with a code', async () => {
+    await start()
+    const second = await startBridge()
+    try {
+      const res = await second.client.callTool({ name: 'one_overview', arguments: {} })
+      assert.equal(codeOf(textOf(res)), 'rejected', textOf(res))
+    } finally {
+      await second.close()
+    }
+    // a tab whose hello names no contract (One before contract 2) words its refusals without one: the bridge adds it
+    const { client } = bridge!
+    const old = track(await helloApp('Old words'))
+    serve(old, () => ({ error: 'No page with id "nope". Use one_search to find page ids.' }))
+    const res = await client.callTool({ name: 'one_get_page', arguments: { id: 'nope' } })
+    assert.equal(textOf(res), 'not_found: No page with id "nope". Use one_search to find page ids.')
+  })
+
+  test('review 7: an older tab\'s (contract 1) own refusals keep their meaning — the person\'s decision is rejected, no answer approval_timeout, never bad_argument', async () => {
+    const { client } = await start()
+    // the refusals of One's tab before contract 2 (src/app/features/mcp/service.ts ERR of ea7908e), word for word
+    const frozen: Array<[string, string]> = [
+      ['One is set to "Agents can only read" (Settings → Agents · MCP). Nothing was changed.', 'rejected'],
+      ['You can only view this team workspace in One, so agents cannot change it either. Nothing was changed.', 'rejected'],
+      ['One is not signed in to this team workspace. Sign in in the One tab first.', 'rejected'],
+      ['The person rejected this change in One. Nothing was changed. Do not retry it; ask them what they want instead.', 'rejected'],
+      ['The change was not approved within 2 minutes, so nothing was changed.', 'approval_timeout'],
+      ['Cancelled. Nothing was changed.', 'rejected'],
+      ['Agent changes were switched to read-only in One while this change waited. Nothing was changed.', 'rejected'],
+      ['One disconnected while this change waited for approval. Nothing was changed.', 'approval_timeout'],
+    ]
+    const old = track(await helloApp('Old words'))
+    let next = 0
+    serve(old, () => ({ error: frozen[next++]![0] }))
+    for (const [said, code] of frozen) {
+      const res = await client.callTool({ name: 'one_create_row', arguments: { databaseId: 'db', title: 'Q4 launch' } })
+      assert.equal(res.isError, true)
+      assert.equal(textOf(res), `${code}: ${said}`)
+    }
+  })
+})
+
 describe('handshake security', () => {
   const status = async (opts: Parameters<typeof connectApp>[0]) => {
     try {
@@ -548,5 +742,26 @@ describe('handshake security', () => {
     assert.equal(res.status, 426)
     assert.equal(res.headers['access-control-allow-origin'], undefined)
     assert.match(res.body, /WebSocket only/)
+  })
+})
+
+describe('review 6: repeats are joined only by an up-to-date tab', () => {
+  test('a creating call answered by an older tab (contract 1) says repeats are not joined there; a contract-2 tab\'s answer stays as it is', async () => {
+    const { client } = await start()
+    const old = track(await helloApp('Wissensbasis', 'apply'))
+    serve(old, (tool) => (tool === 'one_create_page' || tool === 'one_get_page' ? { result: { id: 'p1', title: 'Launch plan' } } : null))
+    const made = JSON.parse(textOf(await client.callTool({ name: 'one_create_page', arguments: { title: 'Launch plan' } }))) as { repeatsJoined?: boolean; note?: string }
+    assert.equal(made.repeatsJoined, false)
+    assert.match(made.note ?? '', /older version: it does not recognise a repeated call/)
+    // a read is no creating call: no note
+    const read = JSON.parse(textOf(await client.callTool({ name: 'one_get_page', arguments: { id: 'p1' } }))) as { note?: string }
+    assert.equal(read.note, undefined)
+    old.ws.close()
+    await waitFor(() => !old.ws.readyState || old.ws.readyState >= 2)
+    const now = track(await helloApp('Nordlicht', 'apply', { tools: mcpToolArgs() }))
+    serve(now, () => ({ result: { id: 'p2', title: 'Launch plan' } }))
+    const fresh = JSON.parse(textOf(await client.callTool({ name: 'one_create_page', arguments: { title: 'Launch plan', workspace: 'Nordlicht' } }))) as { repeatsJoined?: boolean; note?: string }
+    assert.equal(fresh.repeatsJoined, undefined)
+    assert.equal(fresh.note, undefined)
   })
 })

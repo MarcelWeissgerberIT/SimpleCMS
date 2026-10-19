@@ -28,6 +28,12 @@ export interface PropertyDef {
   key?: boolean
   /** "Only by hand": agents and MCP clients never write it (api/keys.ts) */
   agentReadOnly?: boolean
+  /** a select bound to a shared list (the app's building blocks, meta map 'lists'): the list owns its options */
+  listId?: string
+  /** an own property type (meta map 'propTypes') */
+  custom?: string
+  /** a property a record type brought (meta map 'recordTypes'): { id: the type, prop: its property } */
+  fromType?: { id: string; prop: string }
 }
 
 export interface PageInfo {
@@ -150,6 +156,22 @@ export function readOrdered<T>(v: unknown): T[] {
 export function databaseMap(r: Roots, id: string): YMap | null {
   const ydb = r.databases.get(id)
   return ydb instanceof Y.Map ? (ydb as YMap) : null
+}
+
+/**
+ * An entry of the app's building blocks (docs/CLOUD.md § Meta document schema: meta maps 'lists', 'propTypes',
+ * 'recordTypes' — one JSON entry per id, written by the app's binding), or null.
+ */
+export function kitEntry(r: Roots, part: 'lists' | 'propTypes' | 'recordTypes', id: string | null | undefined): Record<string, unknown> | null {
+  if (!id) return null
+  const v = r.pages.doc?.getMap<unknown>(part).get(id)
+  return isObj(v) ? v : null
+}
+
+/** The name of the shared list a property takes its options from ('?' when it is gone). */
+export function listNameOf(r: Roots, listId: string): string {
+  const name = kitEntry(r, 'lists', listId)?.name
+  return typeof name === 'string' && name ? name : '?'
 }
 
 export function readProperties(ydb: YMap): PropertyDef[] {

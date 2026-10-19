@@ -10,7 +10,7 @@ import { RotateCcw } from 'lucide-react'
 import { useLang, useT } from '../../../i18n'
 import { useWorkspace } from '../../../store/store'
 import { useCloud } from '../../../cloud'
-import { MCP_CODEWORD } from '../contract'
+import { MCP_BRIDGE_CURRENT, MCP_CODEWORD, bridgeOutdated } from '../contract'
 import { shortId, workspaceInfo } from '../identity'
 import { connectMcpNow } from '../service'
 import { openMcpSettings } from '../McpStatus'
@@ -37,6 +37,7 @@ export function BridgeSection() {
   if (conn === 'replaced') notes.push({ key: 'replaced', text: t('features.mcp.msg.replaced') })
   if (conn === 'blocked') notes.push({ key: 'blocked', text: s.blocked === 'insecure' ? t('features.mcp.msg.insecure') : t('features.mcp.msg.permission'), err: true })
   if (connected && s.legacy) notes.push({ key: 'legacy', text: t('features.mcp.msg.legacy') })
+  else if (connected && bridgeOutdated(s.bridge)) notes.push({ key: 'outdated', text: t('features.mcp.msg.outdated', { v: s.bridge ?? '', need: MCP_BRIDGE_CURRENT }) })
   if (connected && s.peers.length > 0) notes.push({ key: 'peers', text: t(s.peers.length === 1 ? 'features.mcp.msg.peers.one' : 'features.mcp.msg.peers.other', { names: peerNames }) })
   if (s.enabled && s.approvals.length > 0) notes.push({ key: 'approvals', text: t(s.approvals.length === 1 ? 'features.mcp.page.bridge.approvals.one' : 'features.mcp.page.bridge.approvals.other', { count: s.approvals.length }) })
 

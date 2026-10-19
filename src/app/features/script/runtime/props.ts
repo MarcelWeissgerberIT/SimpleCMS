@@ -190,6 +190,8 @@ export function coerceProp(db: Database, prop: PropertyDef, raw: Value): Coerced
         const hit = opts.find((o) => o.name.trim().toLowerCase() === n.toLowerCase())
         if (!hit && prop.type === 'status') throw bad(prop, `no status "${n}" (${opts.map((o) => o.name).join(', ')})`)
         if (!hit && db.locked) throw bad(prop, `no option "${n}" — the database is locked (${opts.map((o) => o.name).join(', ')})`)
+        // a new option of a select bound to a shared list (features/kit) goes into the list when written (host.ts
+        // ensureOptions — as the option picker adds it there); a dry run reports it (PropDiff.addsToList)
         const name = hit?.name ?? n.slice(0, 100)
         if (names.some((x) => x.toLowerCase() === name.toLowerCase())) continue
         if (!hit) fresh.push(name)

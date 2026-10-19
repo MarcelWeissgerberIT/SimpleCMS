@@ -13,7 +13,7 @@ import { COLOR_NAMES, type ColorName, type Database, type ID, type Page, type Pr
 import { newId } from '../../../lib/ids'
 import { navigate } from '../../../lib/router'
 import { useCloud } from '../../../cloud'
-import { propertyValueToText, writePropertyValue } from '../../../database'
+import { pairedRelationIn, propertyValueToText, writePropertyValue } from '../../../database'
 import { keepItems, markdownToDoc } from '../../../editor'
 import { snapshotNow } from '../../history/snapshots'
 import { withoutWebImages } from '../../agents/images'
@@ -23,6 +23,7 @@ import { chartBlocks } from './markdown'
 import { effectImpl, type EffectInputs, type EffectName, type EffectOutputs } from './effects'
 import type { ChangeItem, ConfirmItem, EffectItem, EffectKind, LogLine, PropDiff, ResultTable, RunMode, RunUI } from './types'
 import { withWriter, type Writer } from '../../../store/writer'
+import { KIT_LIMITS } from '../../../store/kit'
 
 export const SCRIPT_ORIGIN = 'script'
 export const LOG_MAX = 500
@@ -45,7 +46,40 @@ export interface HostOptions {
   scope?: ((id: ID) => boolean) | null
   /** who writes (store/writer.ts): script:<id>:<run>, with the caller as its cause */
   writer: Writer
+  /** a caller's rule for what the run may change (RunOptions.writeGuard): a verdict other than null = refused */
+  writeGuard?: ((target: WriteTarget) => WriteVerdict) | null
+  /** what the run may read of a page's text (RunOptions.textLimit) */
+  textLimit?: ((id: ID) => CallerText | null) | null
 }
+
+/**
+ * What a write of a run touches, for a caller's rule (RunOptions.writeGuard): the page, its database, a new page's parent;
+ * `tree`: the write takes the page's whole subtree along (the trash) — what lies below it counts too; `content`: the
+ * write changes the page's text (append / prepend / replace).
+ */
+export interface WriteTarget {
+  pageId?: ID | null
+  dbId?: ID | null
+  parentId?: ID | null
+  tree?: boolean
+  content?: boolean
+}
+
+/**
+ * A page's text as the caller lets a run read it (RunOptions.textLimit): only part of it (MCP: the person's context marks),
+ * or — `whole` — all of it, rendered the caller's way (MCP: a chart's table only from a source the client may read).
+ */
+export interface CallerText {
+  markdown: string
+  plain: string
+  whole?: boolean
+}
+
+/**
+ * A caller's verdict on a write: null = allowed; a name = One's own database there (ScriptError 'system_db'); `{ locked }`
+ * = the text of a page locked in One (ScriptError 'locked_content' — MCP: a locked page refuses content changes).
+ */
+export type WriteVerdict = string | { locked: string } | null
 
 const EFFECT_KIND: Record<EffectName, EffectKind> = { 'mail.send': 'mail', claude: 'claude', 'http.post': 'http' }
 
@@ -67,6 +101,8 @@ export class Host {
   readonly scope: ((id: ID) => boolean) | null
   /** the run's writer: every store write of the run runs in its frame (one per synchronous burst) */
   readonly writer: Writer
+  private readonly writeGuard: ((target: WriteTarget) => WriteVerdict) | null
+  private readonly textLimit: ((id: ID) => CallerText | null) | null
   readonly started = Date.now()
   readonly log: LogLine[] = []
   readonly changes: ChangeItem[] = []
@@ -100,6 +136,34 @@ export class Host {
     this.approved = o.approved ?? null
     this.scope = o.scope ?? null
     this.writer = o.writer
+    this.writeGuard = o.writeGuard ?? null
+    this.textLimit = o.textLimit ?? null
+  }
+
+  /** What the run may read of this page's text — a caller's limit (RunOptions.textLimit); null = all of it. */
+  limitedText(id: ID): CallerText | null {
+    return this.textLimit && !this.isDraft(id) ? this.textLimit(id) : null
+  }
+
+  /**
+   * A caller's rule for this write (RunOptions.writeGuard), asked before anything of it happens — in every mode that
+   * writes or plans writes, so a dry run stops where the run would.
+   */
+  private check(target: WriteTarget): void {
+    const verdict = this.writeGuard?.(target)
+    if (typeof verdict === 'string' && verdict) throw new ScriptError('system_db', { name: verdict })
+    if (verdict && typeof verdict === 'object') throw new ScriptError('locked_content', { name: verdict.locked })
+  }
+
+  /** The databases a relation value also writes into: an explicit two-way partner's rows (writePropertyValue syncs them). */
+  private checkPartners(db: Database, coerced: readonly Coerced[]): void {
+    if (!this.writeGuard) return
+    const dbs = useWorkspace.getState().databases
+    for (const c of coerced) {
+      if (c.prop.type !== 'relation') continue
+      const pair = pairedRelationIn(dbs, db.id, c.prop)
+      if (pair) this.check({ dbId: pair.db.id })
+    }
   }
 
   /**
@@ -192,8 +256,12 @@ export class Host {
     const props = (prior.props ??= [])
     for (const d of diffs) {
       const cur = props.find((x) => x.name === d.name)
-      if (cur) cur.after = d.after
-      else props.push(d)
+      if (cur) {
+        cur.after = d.after
+        // a select bound to a shared list: the options the last set() adds there
+        if (d.addsToList) cur.addsToList = d.addsToList
+        else delete cur.addsToList
+      } else props.push(d)
     }
     if (prior.kind === 'create' && title !== null) prior.title = title
   }
@@ -218,9 +286,12 @@ export class Host {
       }
       coerced.push(coerceProp(db!, prop, value))
     }
+    // a caller's rule (MCP: One's own databases): the row itself, and a two-way partner's rows a relation writes too
+    if (!this.isDraft(page.id)) this.check({ pageId: page.id, dbId: page.databaseId })
+    if (db) this.checkPartners(db, coerced)
     const diffs: PropDiff[] = []
     if (title !== null) diffs.push({ name: db?.properties.find((p) => p.type === 'title')?.name ?? 'title', before: page.title, after: title })
-    for (const c of coerced) diffs.push({ name: c.prop.name, before: this.isDraft(page.id) ? '' : safeText(db!, c.prop, page), after: c.text })
+    for (const c of coerced) diffs.push({ name: c.prop.name, before: this.isDraft(page.id) ? '' : safeText(db!, c.prop, page), after: c.text, ...listAdds(c) })
     if (this.real) {
       await this.touch(page.id)
       if (title !== null) this.as(() => s.updatePage(page.id, { title }))
@@ -262,7 +333,15 @@ export class Host {
       }
       return o.id
     })
-    if (opts.length !== before) this.as(() => s.updateProperty(dbId, prop.id, { options: opts }))
+    if (opts.length === before) return ids
+    // a select bound to a shared list (features/kit): a new option goes into the list, as the option picker puts it there
+    // — upsertList writes the list's items into every property bound to it, this one too (the same ids)
+    const list = live?.listId ? s.kit?.lists[live.listId] : undefined
+    if (list) {
+      const items = [...list.items, ...opts.slice(before).map((o) => ({ id: o.id, name: o.name, color: o.color }))]
+      if (items.length > KIT_LIMITS.items) throw new ScriptError('bad_value', { name: prop.name, detail: `the shared list "${list.name}" is full (${KIT_LIMITS.items} options)` })
+      this.as(() => s.upsertList({ ...list, items }))
+    } else this.as(() => s.updateProperty(dbId, prop.id, { options: opts }))
     return ids
   }
 
@@ -270,6 +349,13 @@ export class Host {
 
   async writeContent(page: Page, markdown: string, how: 'append' | 'prepend' | 'replace'): Promise<void> {
     this.guard(`${how}()`)
+    if (!this.isDraft(page.id)) {
+      this.check({ pageId: page.id, dbId: page.databaseId, content: true })
+      // the caller lets this run read only part of the page (RunOptions.textLimit — MCP: the person's context marks): a
+      // replace rebuilt from what it read would drop the rest — refused in every mode, so a dry run already stops here
+      const lim = this.limitedText(page.id)
+      if (how === 'replace' && lim && !lim.whole) throw new ScriptError('limited_replace', { name: page.title.trim() || page.id })
+    }
     const md = markdown.slice(0, 500_000)
     const existing = this.changes.find((c) => c.pageId === page.id && c.kind === 'content')
     if (existing) existing.how = how === 'replace' || existing.how === 'replace' ? 'replace' : existing.how
@@ -292,6 +378,7 @@ export class Host {
   /** A new page (under `parentId`; null = the top level) with an optional body. */
   async createPage(input: { title: string; parentId: ID | null; markdown: string }): Promise<ID> {
     this.guard('create.page()')
+    if (input.parentId && !this.isDraft(input.parentId)) this.check({ parentId: input.parentId })
     const title = input.title.replace(/\s*\n\s*/g, ' ').slice(0, 2000)
     if (!this.real) {
       const id = `draft-${++this.draftSeq}`
@@ -333,7 +420,9 @@ export class Host {
       }
       coerced.push(coerceProp(db, prop, v))
     }
-    const props: PropDiff[] = coerced.map((c) => ({ name: c.prop.name, before: '', after: c.text }))
+    this.check({ dbId: db.id })
+    this.checkPartners(db, coerced)
+    const props: PropDiff[] = coerced.map((c) => ({ name: c.prop.name, before: '', after: c.text, ...listAdds(c) }))
     if (!this.real) {
       const id = `draft-${++this.draftSeq}`
       const now = Date.now()
@@ -369,6 +458,8 @@ export class Host {
   /** Move a page / row to the trash (asked like an effect in a run; Undo restores it). */
   async trash(page: Page): Promise<boolean> {
     this.guard('trash()')
+    // the trash takes everything below the page along (a database of One's own under it too)
+    if (!this.isDraft(page.id)) this.check({ pageId: page.id, dbId: page.databaseId, tree: true })
     const label = page.title.trim() || '—'
     const allowed = await this.allow('trash', label)
     if (!allowed) {
@@ -487,6 +578,12 @@ function safeText(db: Database, prop: PropertyDef, row: Page): string {
   } catch {
     return ''
   }
+}
+
+/** A select bound to a shared list (features/kit): the new options a value adds to that list — PropDiff.addsToList. */
+function listAdds(c: Coerced): Pick<PropDiff, 'addsToList'> {
+  const list = c.prop.listId && c.fresh?.length ? useWorkspace.getState().kit?.lists[c.prop.listId] : undefined
+  return list ? { addsToList: { list: list.name, options: [...c.fresh!] } } : {}
 }
 
 /** A draft row's stored value (existing options only — new ones don't exist in a dry run). */

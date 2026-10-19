@@ -138,3 +138,36 @@ test('team: a private upload copied into a shared page over MCP is refused (priv
   expect(now).not.toContain(ref)
   expect(publishes).toEqual([])
 })
+
+test('team: a link to a private page written into a shared page over MCP is refused (private_scope): no page link, no mention', async ({ page }) => {
+  await signIn(page, email('lina'))
+  const wsId = await createWorkspace(page, 'Polaris team')
+  await openApp(page, wsId)
+  await waitOnline(page)
+  const secret = await page.evaluate(() => (window as unknown as { __one: { cloud: { createPrivatePage(o: object): Promise<string> } } }).__one.cloud.createPrivatePage({ title: 'Salary sketch' }))
+  await expect.poll(() => wsEval(page, (s, id) => !!s.pages[id]?.private, secret)).toBe(true)
+  const shared = await wsEval(page, (s) => s.createPage({ title: 'Launch plan' }))
+  const parent = await wsEval(page, (s) => s.createPage({ title: 'Projekt Polaris' }))
+  const db = await wsEval(page, (s) => s.createDatabase({ title: 'Polaris tasks' }))
+  const ws = await connect(page)
+  const before = await wsEval(page, (s, id) => JSON.stringify(s.pages[id].content ?? null), shared)
+  for (const [tool, args] of [
+    ['one_update_page', { id: shared, markdown: `[Salary sketch](#/p/${secret})` }],
+    ['one_update_page', { id: shared, markdown: `See [Salary sketch](#/p/${secret}) for the numbers.` }],
+    ['one_update_page', { id: shared, mode: 'replace', markdown: `Plan\n\nSee [the numbers](#/p/${secret}).` }],
+    ['one_create_page', { title: 'Budget', parentId: parent, markdown: `[Salary sketch](#/p/${secret})` }],
+    ['one_create_row', { databaseId: db, title: 'Budget row', markdown: `[Salary sketch](#/p/${secret})` }],
+  ] as const) {
+    const r = await call(tool, { ...args, workspace: ws })
+    expect(r.isError, `${tool} → ${text(r)}`).toBe(true)
+    expect(text(r)).toMatch(/^private_scope: (rows\[0\]: )?markdown: .*links a private page/)
+  }
+  await page.waitForTimeout(500)
+  expect(await wsEval(page, (s, id) => JSON.stringify(s.pages[id].content ?? null), shared)).toBe(before)
+  expect(await wsEval(page, (s) => Object.values(s.pages).filter((p: AnyState) => p.title === 'Budget' || p.title === 'Budget row').length)).toBe(0)
+  // private → private: allowed (the link stays where only the member sees it)
+  const note = await page.evaluate(() => (window as unknown as { __one: { cloud: { createPrivatePage(o: object): Promise<string> } } }).__one.cloud.createPrivatePage({ title: 'My notes' }))
+  await expect.poll(() => wsEval(page, (s, id) => !!s.pages[id]?.private, note)).toBe(true)
+  json(await call('one_update_page', { id: note, markdown: `[Salary sketch](#/p/${secret})`, workspace: ws }))
+  await expect.poll(() => wsEval(page, (s, a) => JSON.stringify(s.pages[a.note].content ?? null).includes(a.secret), { note, secret })).toBe(true)
+})

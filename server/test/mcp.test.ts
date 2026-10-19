@@ -8,6 +8,7 @@ import { Client as McpClient } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import * as Y from 'yjs'
 import { type Client, type DocClient, flushed, openDoc, signIn, sleep, startServer, type TestServer, waitFor } from './helpers.ts'
+import { MCP_LOCAL_ONLY, MCP_SHARED_TOOLS } from '../../src/shared/mcp/contract.ts'
 
 /* ------------------------------------------------------------------ fixtures */
 
@@ -101,25 +102,10 @@ async function fails(client: McpClient, name: string, args: Record<string, unkno
   return res.content[0]!.text
 }
 
-const READ_TOOLS = ['one_get_database', 'one_get_page', 'one_list_databases', 'one_list_workspaces', 'one_overview', 'one_query_database', 'one_search']
-const WRITE_TOOLS = [
-  'one_create_database',
-  'one_create_page',
-  'one_create_property',
-  'one_create_row',
-  'one_create_view',
-  'one_delete_property',
-  'one_delete_view',
-  'one_move_page',
-  'one_move_row',
-  'one_restore_page',
-  'one_trash_page',
-  'one_update_database',
-  'one_update_page',
-  'one_update_property',
-  'one_update_row',
-  'one_update_view',
-]
+/** The tool lists come from the shared contract (the local-only tools left out) — mcp-parity.test.ts checks the rest. */
+const SERVED = MCP_SHARED_TOOLS.filter((t) => !MCP_LOCAL_ONLY.includes(t.name))
+const READ_TOOLS = SERVED.filter((t) => !t.write).map((t) => t.name).sort()
+const WRITE_TOOLS = SERVED.filter((t) => t.write).map((t) => t.name).sort()
 
 /* ------------------------------------------------------------------ suite */
 
@@ -261,12 +247,17 @@ describe('remote MCP', () => {
     assert.equal(ok.headers.get('access-control-allow-origin'), null, 'no CORS')
     assert.equal(((await ok.json()) as { result: { serverInfo: { name: string } } }).result.serverInfo.name, 'one')
     assert.equal((await post({ authorization: `Bearer ${writeToken}`, origin: 'https://evil.example' })).status, 403)
-    const big = await fetch(`${server.url}/mcp`, {
-      method: 'POST',
-      headers: { authorization: `Bearer ${writeToken}`, 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
-      body: JSON.stringify({ ...init, params: { ...init.params, padding: 'x'.repeat(300_000) } }),
-    })
-    assert.equal(big.status, 413, 'requests are limited to 256 KB like the public API')
+    // bodies per token: a read token 256 KB, a write token 512 KB (MCP_LIMITS.bodyRead / bodyWrite) — anything but a tool
+    // call over it is the transport's 413 (a tool call over it: the refusal too_large, mcp-parity5.test.ts)
+    const big = (token: string, n: number) =>
+      fetch(`${server.url}/mcp`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+        body: JSON.stringify({ ...init, params: { ...init.params, padding: 'x'.repeat(n) } }),
+      })
+    assert.equal((await big(readToken, 300_000)).status, 413, 'a read token: 256 KB per request')
+    assert.equal((await big(writeToken, 300_000)).status, 200, 'a write token: 512 KB per request')
+    assert.equal((await big(writeToken, 600_000)).status, 413, 'a write token: no more than 512 KB')
     const get = await fetch(`${server.url}/mcp`, { headers: { authorization: `Bearer ${writeToken}`, accept: 'text/event-stream' } })
     assert.equal(get.status, 405)
     assert.equal(get.headers.get('allow'), 'POST')
@@ -354,7 +345,7 @@ describe('remote MCP', () => {
     for (const id of ['tpl-1', 'tpl-2', 'db-tpl']) await fails(reader, 'one_get_page', { id }, /No page with id/)
     await fails(reader, 'one_query_database', { databaseId: 'db-tpl' }, /no such database|no database/i)
     await fails(writer, 'one_create_row', { databaseId: 'db-tpl', title: 'Sneaky' }, /no such database|no database/i)
-    await fails(writer, 'one_create_page', { title: 'Sneaky', parentId: 'tpl-1' }, /no such parent page|no parent page/i)
+    await fails(writer, 'one_create_page', { title: 'Sneaky', parentId: 'tpl-1' }, /^not_found: parentId: No page with id "tpl-1"/) // the write gate: a template's page reads as unknown
     await fails(writer, 'one_trash_page', { id: 'tpl-2' }, /no page|no such page/i)
   })
 
@@ -362,7 +353,7 @@ describe('remote MCP', () => {
     const p = await call(reader, 'one_get_page', { id: 'doc-1' })
     assert.equal(p.kind, 'page')
     assert.equal(p.icon, '📘')
-    assert.deepEqual(p.children, [{ id: 'doc-2', title: 'Onboarding', kind: 'page' }])
+    assert.deepEqual(p.children, { items: [{ id: 'doc-2', title: 'Onboarding', kind: 'page' }], more: 0 })
     const md = p.markdown as string
     assert.match(md, /^# How we work/)
     assert.match(md, /Read \*\*this\*\* and \[the site\]\(https:\/\/example\.com\)\./)
@@ -405,7 +396,7 @@ describe('remote MCP', () => {
     assert.deepEqual(db.properties.find((p: { name: string }) => p.name === 'Status').options.map((o: { name: string }) => o.name), ['Not started', 'In progress', 'Done'])
     const rel = db.properties.find((p: { name: string }) => p.name === 'Project')
     assert.deepEqual([rel.relationDatabaseId, rel.relationDatabaseTitle], ['db-proj', 'Projects'])
-    assert.deepEqual(db.views, [{ id: 'v-1', name: 'Board', type: 'board', groupBy: 'Status', sorts: [{ property: 'Estimate', direction: 'desc' }], filtered: false }])
+    assert.deepEqual(db.views, [{ id: 'v-1', name: 'Board', type: 'board', groupBy: 'Status', sorts: [{ property: 'Estimate', direction: 'desc' }], properties: ['Status', 'Tags', 'Due', 'Estimate', 'Done?', 'Project'], filtered: false }])
     assert.equal(db.rows, 3)
     await fails(reader, 'one_get_database', { id: 'doc-1' }, /No database/)
     await fails(outsider, 'one_get_database', { id: 'db-tasks' }, /No database/)
@@ -450,10 +441,12 @@ describe('remote MCP', () => {
 
   test('one_create_row: friendly values in, live at a connected client; 422 names the allowed values', async () => {
     const watcher = await doc(owner, `ws:${wsId}`)
+    // a one-way relation (Project is two-way: refused over MCP until T-b — mcp-weg4.test.ts)
+    await call(writer, 'one_create_property', { databaseId: 'db-tasks', name: 'Reference', type: 'relation', relation: { databaseId: 'db-proj' } })
     const created = await call(writer, 'one_create_row', {
       databaseId: 'db-tasks',
       title: 'Plan launch',
-      properties: { Status: 'not started', Tags: ['Beta'], Due: '2026-12-01', Estimate: 5, Project: 'proj-1' },
+      properties: { Status: 'not started', Tags: ['Beta'], Due: '2026-12-01', Estimate: 5, Reference: 'proj-1' },
       markdown: '## Steps\n\n- [ ] draft\n- [ ] review',
     })
     assert.match(created.url, new RegExp(`/app/\\?w=${wsId}#/p/${created.id}$`))
@@ -462,18 +455,21 @@ describe('remote MCP', () => {
     assert.equal(yp.get('title'), 'Plan launch')
     assert.equal(yp.get('createdBy'), yp.get('updatedBy'))
     assert.match(String(yp.get('createdBy')), /^api:/)
-    assert.deepEqual((yp.get('properties') as Y.Map<unknown>).toJSON(), { 'p-status': 'o-todo', 'p-tags': ['t-b'], 'p-due': { start: '2026-12-01', end: null }, 'p-est': 5, 'p-proj': ['proj-1'] })
-    // the two-way partner got the row too
-    await waitFor(() => ((watcher.doc.getMap('pages').get('proj-1') as Y.Map<unknown>).get('properties') as Y.Map<unknown>).toJSON()['p-proj.2way'].length === 2, 5000, 'partner')
+    const props = (yp.get('properties') as Y.Map<unknown>).toJSON()
+    const refId = Object.keys(props).find((k) => !k.startsWith('p-'))!
+    assert.deepEqual(props, { 'p-status': 'o-todo', 'p-tags': ['t-b'], 'p-due': { start: '2026-12-01', end: null }, 'p-est': 5, [refId]: ['proj-1'] })
+    // a two-way relation is refused; its partner row is not touched
+    await fails(writer, 'one_create_row', { databaseId: 'db-tasks', title: 'x', properties: { Project: 'proj-1' } }, /^refused_type: properties\.Project: "Project" is two-way/)
+    assert.deepEqual(((watcher.doc.getMap('pages').get('proj-1') as Y.Map<unknown>).get('properties') as Y.Map<unknown>).toJSON()['p-proj.2way'], ['row-1'])
     const back = await call(reader, 'one_get_page', { id: created.id })
     assert.match(back.markdown, /## Steps\n\n- \[ \] draft\n- \[ \] review/)
 
     // agent-friendly input: "title", new multi_select options, related rows by title
-    const smart = await call(writer, 'one_create_row', { databaseId: 'db-tasks', title: 'placeholder', properties: { title: 'Smart row', Tags: 'Gamma, alpha', Project: 'apollo' } })
+    const smart = await call(writer, 'one_create_row', { databaseId: 'db-tasks', title: 'placeholder', properties: { title: 'Smart row', Tags: 'Gamma, alpha', Reference: 'apollo' } })
     const got = await call(reader, 'one_get_page', { id: smart.id })
     assert.equal(got.title, 'Smart row')
     assert.deepEqual(got.properties.Tags, ['Gamma', 'Alpha'])
-    assert.deepEqual(got.properties.Project, [{ id: 'proj-1', title: 'Apollo' }])
+    assert.deepEqual(got.properties.Reference, [{ id: 'proj-1', title: 'Apollo' }])
     const tags = (await call(reader, 'one_get_database', { id: 'db-tasks' })).properties.find((p: { name: string }) => p.name === 'Tags')
     assert.deepEqual(tags.options.map((o: { name: string }) => o.name), ['Alpha', 'Beta', 'Gamma'])
     // nothing is added for a row that can't be written
@@ -485,7 +481,7 @@ describe('remote MCP', () => {
     assert.match(msg, /allowed — Status: Not started, In progress, Done/)
     await fails(writer, 'one_create_row', { databaseId: 'db-tasks', title: 'x', properties: { Colour: 'red' } }, /Unknown property "Colour"/)
     await fails(writer, 'one_create_row', { databaseId: 'doc-1', title: 'x' }, /No such database/)
-    await fails(outsider, 'one_create_row', { databaseId: 'db-tasks', title: 'x' }, /No such database/)
+    await fails(outsider, 'one_create_row', { databaseId: 'db-tasks', title: 'x' }, /^not_found: databaseId: No database with id "db-tasks"/)
   })
 
   test('one_update_row: values by name, the title by its property name; 404 for pages that are not rows', async () => {
@@ -525,7 +521,7 @@ describe('remote MCP', () => {
     await waitFor(() => (meta.doc.getMap('pages').get(top.id) as Y.Map<unknown> | undefined)?.get('parentId') === null, 5000, 'top-level page')
 
     await fails(writer, 'one_create_page', { title: 'x', parentId: 'db-tasks' }, /one_create_row/)
-    await fails(writer, 'one_create_page', { title: 'x', parentId: 'secret-1' }, /No such parent/)
+    await fails(writer, 'one_create_page', { title: 'x', parentId: 'secret-1' }, /^not_found: parentId: No page with id "secret-1"/)
     await fails(writer, 'one_update_page', { id: 'db-tasks', markdown: 'x' }, /database/)
     await fails(writer, 'one_update_page', { id: 'nope', title: 'x' }, /No page/)
     await fails(writer, 'one_update_page', { id: created.id, icon: 'not an icon at all' }, /icon/)
@@ -549,7 +545,7 @@ describe('remote MCP', () => {
     assert.ok(content.doc.getXmlFragment('default').toString().includes('<workitem'))
   })
 
-  test('one_create_property: options, two-way relations, unique ids; duplicates and locked databases refused', async () => {
+  test('one_create_property: options, one-way relations (twoWay refused), unique ids; duplicates and locked databases refused', async () => {
     const sel = await call(writer, 'one_create_property', { databaseId: 'db-tasks', name: 'Priority', type: 'select', options: ['High', { name: 'Low', color: 'gray' }] })
     assert.deepEqual(sel.property.options.map((o: { name: string; color: string }) => [o.name, o.color]), [['High', 'gray'], ['Low', 'gray']])
     await call(writer, 'one_update_row', { id: 'row-1', properties: { Priority: 'high' } })
@@ -560,11 +556,14 @@ describe('remote MCP', () => {
     const status = await call(writer, 'one_create_property', { databaseId: 'db-proj', name: 'Phase', type: 'status' })
     assert.deepEqual(status.property.options.map((o: { name: string }) => o.name), ['Not started', 'In progress', 'Done'])
 
-    const rel = await call(writer, 'one_create_property', { databaseId: 'db-tasks', name: 'Reviewers', type: 'relation', relation: { databaseId: 'db-proj', twoWay: true, reverseName: 'Reviewed tasks' } })
-    assert.equal(rel.reverse.property.id, `${rel.property.id}.2way`)
+    // two-way relations stay out of MCP until T-b: refused, nothing added on either side; one-way is fine
+    await fails(writer, 'one_create_property', { databaseId: 'db-tasks', name: 'Reviewers', type: 'relation', relation: { databaseId: 'db-proj', twoWay: true, reverseName: 'Reviewed tasks' } }, /^refused_type: relation\.twoWay: two-way relations are set up in One/)
+    const rel = await call(writer, 'one_create_property', { databaseId: 'db-tasks', name: 'Reviewers', type: 'relation', relation: { databaseId: 'db-proj' } })
+    assert.equal(rel.reverse, undefined)
     await call(writer, 'one_update_row', { id: 'row-3', properties: { Reviewers: ['proj-1'] } })
+    assert.deepEqual((await call(reader, 'one_get_page', { id: 'row-3' })).properties.Reviewers, [{ id: 'proj-1', title: 'Apollo' }])
     const apollo = await call(reader, 'one_query_database', { databaseId: 'db-proj' })
-    assert.deepEqual(apollo.rows[0].properties['Reviewed tasks'], [{ id: 'row-3', title: 'Ship it' }])
+    assert.equal(apollo.rows[0].properties['Reviewed tasks'], undefined)
 
     const key = await call(writer, 'one_create_property', { databaseId: 'db-tasks', name: 'Key', type: 'unique_id' })
     assert.equal(key.property.readOnly, true)
@@ -582,11 +581,11 @@ describe('remote MCP', () => {
     const made = await call(writer, 'one_create_database', {
       title: 'Leads',
       parentId: 'doc-1',
-      properties: [{ name: 'Company', type: 'title' }, { name: 'Stage', type: 'status', options: ['New', 'Talking', 'Won'] }, { name: 'Owner', type: 'person' }, { name: 'Projects', type: 'relation', relation: { databaseId: 'db-proj', twoWay: true } }],
+      properties: [{ name: 'Company', type: 'title' }, { name: 'Stage', type: 'status', options: ['New', 'Talking', 'Won'] }, { name: 'Owner', type: 'person' }, { name: 'Projects', type: 'relation', relation: { databaseId: 'db-proj' } }],
     })
     assert.deepEqual(made.properties.map((p: { name: string }) => p.name), ['Company', 'Stage', 'Owner', 'Projects'])
     assert.deepEqual(made.properties[1].options.map((o: { name: string; group: string }) => o.group), ['todo', 'in_progress', 'done'])
-    assert.equal(made.reverse[0].property.name, 'Leads')
+    assert.equal(made.reverse, undefined)
     const db = await call(reader, 'one_get_database', { id: made.id })
     assert.equal(db.path, 'Handbook / Leads')
     assert.deepEqual(db.views.map((v: { type: string }) => v.type), ['table'])
@@ -602,7 +601,7 @@ describe('remote MCP', () => {
 
     const plain = await call(writer, 'one_create_database', { title: 'Inbox' })
     assert.deepEqual(plain.properties.map((p: { name: string; type: string }) => `${p.name}:${p.type}`), ['Name:title', 'Status:status', 'Tags:multi_select', 'Date:date'])
-    await fails(writer, 'one_create_database', { title: 'x', parentId: 'db-tasks' }, /parent is a database/)
+    await fails(writer, 'one_create_database', { title: 'x', parentId: 'db-tasks' }, /^bad_argument: parentId: "Tasks" is a database; a database goes under a page/)
     await fails(writer, 'one_create_database', { title: 'x', properties: [{ name: 'A', type: 'title' }, { name: 'B', type: 'title' }] }, /one title property/)
     await fails(writer, 'one_create_database', { title: 'x', properties: [{ name: 'Rel', type: 'relation', relation: { databaseId: 'nope' } }] }, /no database with id "nope"/)
   })
@@ -651,13 +650,13 @@ describe('remote MCP', () => {
     const a = await call(writer, 'one_create_page', { title: 'Old A' })
     const b = await call(writer, 'one_create_page', { title: 'Old B', parentId: a.id })
     const c = await call(writer, 'one_create_page', { title: 'Old C' })
-    await fails(writer, 'one_trash_page', { ids: [a.id, 'nope'] }, /^Nothing was moved to the trash: no page with id "nope"/)
+    await fails(writer, 'one_trash_page', { ids: [a.id, 'nope'] }, /^not_found: ids\[1\]: No page with id "nope"/)
     assert.equal((await call(reader, 'one_get_page', { id: a.id })).title, 'Old A', 'all or nothing')
     await fails(writer, 'one_trash_page', {}, /Missing required parameter "id"/)
     const bulk = await call(writer, 'one_trash_page', { ids: [a.id, b.id, c.id] })
     assert.deepEqual([bulk.count, bulk.alsoTrashed, bulk.trashed.map((x: { title: string }) => x.title)], [2, 1, ['Old A', 'Old C']])
     await fails(writer, 'one_trash_page', { id: a.id }, /is already in the trash/)
-    await fails(writer, 'one_restore_page', { id: 'nope' }, /^Nothing was restored: nothing in the trash has id "nope"\. Recently trashed: "Old (A|C)"/)
+    await fails(writer, 'one_restore_page', { id: 'nope' }, /^not_found: Nothing was restored: nothing in the trash has id "nope"\. Recently trashed: "Old (A|C)"/)
     await fails(writer, 'one_restore_page', { id: b.id }, new RegExp(`is inside "Old A" \\(${a.id}\\), which is in the trash — restore that instead`))
     await fails(writer, 'one_restore_page', { id: 'doc-1' }, /is not in the trash/)
     const both = await call(writer, 'one_restore_page', { ids: [a.id, c.id] })
@@ -665,9 +664,9 @@ describe('remote MCP', () => {
     assert.equal((await call(reader, 'one_get_page', { id: b.id })).path, 'Old A / Old B')
 
     // private pages and templates: untouchable, as if they did not exist
-    await fails(writer, 'one_trash_page', { id: 'secret-1' }, /no page with id "secret-1"/)
+    await fails(writer, 'one_trash_page', { id: 'secret-1' }, /no page with id "secret-1"/i)
     await fails(writer, 'one_restore_page', { id: 'secret-1' }, /nothing in the trash has id "secret-1"/)
-    await fails(writer, 'one_trash_page', { ids: ['tpl-1'] }, /no page with id "tpl-1"/)
+    await fails(writer, 'one_trash_page', { ids: ['tpl-1'] }, /no page with id "tpl-1"/i)
   })
 
   test('one_move_page: under another page, before / after / index, to the top level; cycles, databases, rows and private pages refused', async () => {
@@ -675,7 +674,7 @@ describe('remote MCP', () => {
     const b1 = await call(writer, 'one_create_page', { title: 'Box 1', parentId: shelf.id })
     const b2 = await call(writer, 'one_create_page', { title: 'Box 2', parentId: shelf.id })
     const loose = await call(writer, 'one_create_page', { title: 'Loose box' })
-    const kids = async () => ((await call(reader, 'one_get_page', { id: shelf.id })).children as Array<{ title: string }>).map((k) => k.title)
+    const kids = async () => ((await call(reader, 'one_get_page', { id: shelf.id })).children.items as Array<{ title: string }>).map((k) => k.title)
 
     const moved = await call(writer, 'one_move_page', { id: loose.id, parentId: shelf.id, before: b1.id })
     assert.deepEqual([moved.parentId, moved.index, moved.path, moved.kind], [shelf.id, 0, 'Shelf', 'page'])
@@ -793,7 +792,7 @@ describe('remote MCP', () => {
       ['one_update_view', { databaseId: 'db-locked', view: 'Board', name: 'x' }],
       ['one_delete_view', { databaseId: 'db-locked', view: 'Board' }],
     ] as const)
-      await fails(writer, name, args, /"Archive" is locked in the app/)
+      await fails(writer, name, args, /^locked: databaseId: "Archive" is locked in One: its properties and views cannot change/)
   })
 
   test('the token’s last use is recorded and nothing secret reaches the log', async () => {

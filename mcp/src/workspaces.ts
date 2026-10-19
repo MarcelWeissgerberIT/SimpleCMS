@@ -15,7 +15,7 @@
  * Ids route, names are for people: two workspaces may share a name, so a name only ever resolves when
  * exactly one connected workspace carries it.
  */
-import { MCP_ERR, MCP_WORKSPACE_ID, type McpAgentMode, type McpWorkspaceInfo } from '../../src/app/features/mcp/contract.ts'
+import { MCP_ERR, MCP_WORKSPACE_ID, type McpAgentMode, type McpWorkspaceInfo } from '../../src/shared/mcp/contract.ts'
 
 export interface Candidate {
   info: { workspace: McpWorkspaceInfo; mode: McpAgentMode }
@@ -61,8 +61,8 @@ export function resolveWorkspace<T extends Candidate>(all: T[], arg: unknown, la
       error: `${MCP_ERR.required}: ${all.length} One workspaces are connected: ${listing(all)}. Pass "workspace" with the id or the name of the one you mean — if it is not clear which one, ask the person. Nothing was done.`,
     }
   }
-  if (typeof arg !== 'string') return { ok: false, error: `"workspace" must be a string: the id or the name of a connected workspace (one_list_workspaces). Nothing was done.` }
-  if (arg.length > WORKSPACE_ARG_MAX) return { ok: false, error: `"workspace" is too long: pass the id or the name of a connected workspace (one_list_workspaces). Nothing was done.` }
+  if (typeof arg !== 'string') return { ok: false, error: `bad_argument: workspace: "workspace" must be a string: the id or the name of a connected workspace (one_list_workspaces). Nothing was done.` }
+  if (arg.length > WORKSPACE_ARG_MAX) return { ok: false, error: `bad_argument: workspace: "workspace" is too long: pass the id or the name of a connected workspace (one_list_workspaces). Nothing was done.` }
   const want = arg.trim()
 
   const byId = all.filter((c) => c.info.workspace.id === want)

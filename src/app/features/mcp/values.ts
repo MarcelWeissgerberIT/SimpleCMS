@@ -9,14 +9,22 @@ import type { Database, ID, Page, PageIcon, PropertyDef } from '../../store/type
 import { propertyValueToText, typeOfRow } from '../../database'
 import { isSettable } from '../ai/agent/props'
 import { isHandOnly, keyPropOf } from '../../store/keys'
+import { withCode } from '../../../shared/mcp/errors'
 
 export const ws = () => useWorkspace.getState()
 
 /** A tool call the agent has to fix: the message goes back as the tool error. */
+/** A refusal of a tool call: it always starts with a code (shared/mcp/errors.ts withCode — spec § 2.0). */
 export class McpToolError extends Error {
-  constructor(message: string) {
-    super(message)
+  /**
+   * The call wrote part of what it meant to before it stopped (a script run that stopped mid-way): its message says what
+   * stays and what to do — no "Nothing was changed … call again" is added to it (service.ts fail, withRemedy).
+   */
+  readonly partial: boolean
+  constructor(message: string, opts: { partial?: boolean } = {}) {
+    super(withCode(message))
     this.name = 'McpToolError'
+    this.partial = !!opts.partial
   }
 }
 
@@ -76,7 +84,7 @@ export function databaseOrThrow(id: unknown): { db: Database; page: Page } {
       .filter((p): p is Page => !!p && p.title.trim().toLowerCase() === raw.toLowerCase())
     page = hits.length === 1 ? hits[0] : null
   }
-  if (!page || !databases[page.id]) throw new McpToolError(`No database with id ${q(raw)}. Use one_list_databases to get database ids.`)
+  if (!page || !databases[page.id]) throw new McpToolError(`not_found: No database with id ${q(raw)}. Use one_list_databases to get database ids.`)
   return { db: databases[page.id], page }
 }
 

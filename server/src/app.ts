@@ -22,6 +22,7 @@ import { inviteRoutes } from './routes/invites.ts'
 import { meRoutes, sessionRoutes } from './routes/me.ts'
 import { serverRoutes, signupRoutes } from './routes/server.ts'
 import { workspaceRoutes } from './routes/workspaces.ts'
+import { MCP_SERVER_SUPPORTS } from '../../src/shared/mcp/contract.ts'
 
 const JSON_LIMIT = 256 * 1024
 
@@ -68,8 +69,10 @@ export function buildApp(s: Services, extra: { model?: WorkspaceModel; agents?: 
       // what this server enforces for the app: 'ai' = it guards workspace.ai (owners / admins only) and keeps agents'
       // multi-provider fields — the app writes workspace.ai only when this lists 'ai' ('providers' follows with S9);
       // 'governor' = it guards workspace.governor the same way (the Regler's budgets — the app writes it only then);
-      // 'signoffs' = it guards the fuseSignoffs map the same way (the Patchbay's allowed paths — the app writes it only then)
-      supports: ['ai', 'governor', 'signoffs'],
+      // 'signoffs' = it guards the fuseSignoffs map the same way (the Patchbay's allowed paths — the app writes it only then);
+      // 'mcp:2' = its /mcp serves contract 2 of the MCP tools (src/shared/mcp: strict arguments, duplicate answers, the
+      // error codes); 'mcp:3' follows with train T-b
+      supports: ['ai', 'governor', 'signoffs', MCP_SERVER_SUPPORTS],
     }),
   )
 

@@ -18,12 +18,12 @@ export interface MarkdownContext {
   path?(): string[] | null
 }
 
-interface MdText {
+export interface MdText {
   text: string
   marks: Record<string, unknown>
 }
 
-interface MdNode {
+export interface MdNode {
   type: string
   attrs: Record<string, unknown>
   /** block / inline children (elements and text runs, in order) */
@@ -255,6 +255,11 @@ function chart(n: MdNode): string {
   }
   const from = source?.kind === 'database' ? 'a database' : source?.kind === 'sheet' ? 'a spreadsheet' : source?.kind === 'system' ? 'workspace statistics' : 'live data'
   return `${head} — drawn from ${from} in the app`
+}
+
+/** Blocks as the server's Markdown writes them (the MCP read core reads one block at a time through this). */
+export function blocksMarkdown(list: MdNode[], ctx: MarkdownContext): string {
+  return blocks(list, ctx).replace(/\n{3,}/g, '\n\n')
 }
 
 function blocks(list: MdNode[], ctx: MarkdownContext): string {

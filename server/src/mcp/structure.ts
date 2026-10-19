@@ -1,37 +1,30 @@
 /**
  * The MCP tools that reshape databases on the team server (docs/MCP.md): rename / re-icon a
  * database, change or delete a property (options, safe type changes), add / change / delete views.
- * The same rules, tables and messages as the local bridge (src/app/features/mcp/structure.ts and
- * MCP_TYPE_CHANGES / MCP_VIEW_TYPES in contract.ts — keep them in step). Views are written the way
+ * The same rules and messages as the local bridge (src/app/features/mcp/structure.ts); the tables are the shared ones
+ * (src/shared/mcp/tables.ts MCP_TYPE_CHANGES / MCP_VIEW_TYPES). Views are written the way
  * the app stores them (docs/CLOUD.md § Meta document schema: `views` = Y.Map id → JSON View with
  * `order`); a locked database refuses all of it, and locking is the person's decision in the app.
  */
 import * as Y from 'yjs'
 import type { Services } from '../context.ts'
 import { notFound } from '../errors.ts'
-import { type PropertyDef, type Roots, type SelectOption, clone, liveDatabase, pageMap, propertiesMap, readOrdered, readPeople, roots } from '../api/meta.ts'
+import { type PropertyDef, type Roots, type SelectOption, clone, listNameOf, liveDatabase, pageMap, propertiesMap, readOrdered, readPeople, roots } from '../api/meta.ts'
+import { canBeKey } from '../api/keys.ts'
 import { findProperty, metaDoc, type WorkspaceModel } from '../api/model.ts'
 import { schemaOut } from '../api/values.ts'
 import { newId } from '../tokens.ts'
-import { assertNotSystem } from './system.ts'
+import { assertNotSystem, systemOf, systemRefusal } from './system.ts'
 import { iconOut } from './reads.ts'
-import { COLORS, iconIn, propsMapOf, unprocessable, type OptionInput } from './writes.ts'
+import { MCP_LIMITS, MCP_TYPE_CHANGES, MCP_VIEW_TYPES } from '../../../src/shared/mcp/tables.ts'
+import { colorRefusal, optionColor, optionPath, readOptions } from '../../../src/shared/mcp/options.ts'
+import { mcpError } from '../../../src/shared/mcp/errors.ts'
+import { COLORS, cleanTitle, iconIn, propsMapOf, unprocessable, type OptionInput } from './writes.ts'
 
-/** Layouts an agent can create or switch to (MCP_VIEW_TYPES). */
-export const VIEW_TYPES = ['table', 'board', 'list', 'gallery', 'calendar', 'timeline', 'feed'] as const
+/** Layouts an agent can create or switch to, and the type changes whose values carry over (the shared tables). */
+export const VIEW_TYPES = MCP_VIEW_TYPES
 export type ViewType = (typeof VIEW_TYPES)[number]
-
-/** Type changes whose values carry over (MCP_TYPE_CHANGES of the local bridge). */
-export const TYPE_CHANGES: Record<string, readonly string[]> = {
-  text: ['url', 'email', 'phone', 'select', 'multi_select'],
-  url: ['text', 'email', 'phone'],
-  email: ['text', 'url', 'phone'],
-  phone: ['text', 'url', 'email'],
-  select: ['multi_select', 'status', 'text'],
-  status: ['select', 'multi_select', 'text'],
-  multi_select: ['text'],
-  number: ['text'],
-}
+export const TYPE_CHANGES = MCP_TYPE_CHANGES
 
 interface Filter {
   id: string
@@ -45,7 +38,7 @@ interface FilterGroup {
   items: Array<Filter | FilterGroup>
 }
 /** A view as the app stores it (src/app/store/types.ts View) — only what these tools touch is typed. */
-interface View {
+export interface View {
   id: string
   name: string
   type: string
@@ -113,7 +106,7 @@ const viewOrder = (ydb: Y.Map<unknown>, id: string): number => {
 }
 
 /** A new view like the app's defaultView (store.ts). */
-function defaultView(type: ViewType, props: PropertyDef[], name?: string): View {
+export function defaultView(type: ViewType, props: PropertyDef[], name?: string): View {
   const firstOf = (...types: string[]) => props.find((p) => types.includes(p.type))?.id ?? null
   const view: View = { id: newId(), name: name ?? VIEW_NAMES[type] ?? type, type, filter: null, sorts: [], visibleProperties: props.filter((p) => p.type !== 'title').map((p) => p.id), openIn: 'peek' }
   if (type === 'board') view.groupBy = firstOf('status', 'select', 'person', 'checkbox')
@@ -170,6 +163,30 @@ function schemaDb(r: Roots, id: string) {
   return { ...db, title }
 }
 
+type Rollup = { relationPropertyId?: string; targetPropertyId?: string }
+
+/**
+ * The rollups a property's delete clears: in its own database those that roll up through it (a relation), in every other
+ * live database (templates left out — liveDatabase) those that roll it up through a relation to its database.
+ */
+export function rollupsOn(r: Roots, dbId: string, propId: string): Array<{ dbId: string; ydb: Y.Map<unknown>; propId: string; name: string; title: string; locked: boolean; next: Rollup }> {
+  const out: Array<{ dbId: string; ydb: Y.Map<unknown>; propId: string; name: string; title: string; locked: boolean; next: Rollup }> = []
+  for (const otherId of r.databases.keys()) {
+    const other = liveDatabase(r, otherId)
+    if (!other) continue
+    for (const p of other.properties) {
+      const roll = (p as PropertyDef & { rollup?: Rollup }).rollup
+      if (p.type !== 'rollup' || !roll) continue
+      const rel = other.properties.find((x) => x.id === roll.relationPropertyId)
+      let next: Rollup | null = null
+      if (otherId === dbId && roll.relationPropertyId === propId) next = { ...roll, relationPropertyId: '', targetPropertyId: '' }
+      else if (rel?.relationDatabaseId === dbId && roll.targetPropertyId === propId) next = { ...roll, targetPropertyId: '' }
+      if (next) out.push({ dbId: otherId, ydb: other.ydb, propId: p.id, name: p.name, title: titleOf(other.page), locked: other.ydb.get('locked') === true, next })
+    }
+  }
+  return out
+}
+
 function propertyOrThrow(props: PropertyDef[], ref: string, title: string): PropertyDef {
   const prop = findProperty(props, ref)
   if (!prop) throw notFound('property_not_found', `${q(title)} has no property ${q(ref)}. Properties: ${props.map((p) => q(p.name)).join(', ')}.`)
@@ -182,7 +199,9 @@ function viewOrThrow(views: View[], ref: string, title: string): View {
   const named = views.filter((v) => norm(v.name) === norm(ref))
   if (named.length === 1) return named[0]!
   const list = views.map((v) => `${q(v.name)} (${v.id}, ${v.type})`).join(', ')
-  throw notFound('view_not_found', named.length ? `${q(title)} has several views named ${q(ref)}: pass the id — ${list}.` : `${q(title)} has no view ${q(ref)}. Views: ${list}.`)
+  // several views of that name: the arguments' to settle (bad_argument), as the local bridge answers it
+  if (named.length) throw unprocessable('view_ambiguous', `bad_argument: view: ${q(title)} has several views named ${q(ref)}: pass the id — ${list}. Nothing was changed. Check the tool's arguments (tools/list) and call again.`)
+  throw notFound('view_not_found', `${q(title)} has no view ${q(ref)}. Views: ${list}.`)
 }
 
 /** All rows of a database, the trashed ones too (a deleted property leaves none of its values). */
@@ -213,12 +232,12 @@ export class McpStructure {
       if (!db) throw notFound('database_not_found', `No database with id ${q(input.id)} in this workspace. Use one_list_databases to get database ids.`)
       assertNotSystem(r, input.id)
       if (input.locked !== undefined)
-        throw unprocessable('lock_is_personal', `Locking and unlocking ${q(titleOf(db.page))} is the person's decision in the app (the lock in the database's toolbar), so agents cannot change it. Nothing was changed.`)
+        throw unprocessable('lock_is_personal', `rejected: locked: Locking and unlocking ${q(titleOf(db.page))} is the person's decision in One (the lock in the database's toolbar), so agents cannot change it. Nothing was changed. Ask the person; do not retry it.`)
       return db
     }
     await this.model.read(wsId, check)
-    const title = input.title === undefined ? undefined : input.title.replace(/\s+/g, ' ').trim()
-    if (title === '') throw unprocessable('invalid_request', '"title" must not be empty.')
+    // the title as the bridge takes it (writes.ts cleanTitle): whitespace collapsed, never empty, at most MCP_LIMITS.title
+    const title = input.title === undefined ? undefined : cleanTitle(input.title, 'title')
     const icon = iconIn(input.icon)
     if (title === undefined && icon === undefined) throw unprocessable('invalid_request', 'Nothing to change: pass "title" and/or "icon".')
     const out = await this.s.collab.write(
@@ -253,6 +272,15 @@ export class McpStructure {
       const prop = propertyOrThrow(db.properties, input.property, db.title)
       if (prop.type === 'title') throw unprocessable('title_property', `${q(prop.name)} is the title property of ${q(db.title)}: every database keeps one. Nothing was changed.`)
       const withValue = allRows(r, db.page.id).filter((x) => x.yp.get('trashed') !== true && !isEmpty(valueOf(x.yp, prop.id))).length
+      // a rollup in another database that rolls it up is cleared with it: where that database's schema must stay (One's
+      // own, or locked) the delete is refused before anything is written — as the local bridge refuses it
+      for (const c of rollupsOn(r, db.page.id, prop.id)) {
+        if (c.dbId === db.page.id) continue
+        const sys = systemOf(r, c.dbId)
+        if (sys) throw systemRefusal(sys, 'property', `its rollup ${q(c.name)} rolls up ${q(prop.name)}, and the delete would clear it`)
+        if (c.locked)
+          throw unprocessable('database_locked', `locked: property: ${q(c.title)} is locked in One: its rollup ${q(c.name)} rolls up ${q(prop.name)}, and the delete would clear it (its properties cannot change). Nothing was changed. Ask the person to unlock it, or to change that rollup first.`)
+      }
       return { db, prop, withValue }
     }
     await this.model.read(wsId, check)
@@ -275,20 +303,10 @@ export class McpStructure {
             yp.set('updatedBy', actor)
           }
         }
-        // rollups through this relation, or of this property from another database
-        for (const otherId of r.databases.keys()) {
-          const other = liveDatabase(r, otherId)
-          if (!other) continue
-          const pm = propsMapOf(other.ydb)
-          for (const p of other.properties) {
-            const roll = (p as PropertyDef & { rollup?: { relationPropertyId?: string; targetPropertyId?: string } }).rollup
-            if (p.type !== 'rollup' || !roll) continue
-            const rel = other.properties.find((x) => x.id === roll.relationPropertyId)
-            let next: typeof roll | null = null
-            if (otherId === db.page.id && roll.relationPropertyId === prop.id) next = { ...roll, relationPropertyId: '', targetPropertyId: '' }
-            else if (rel?.relationDatabaseId === db.page.id && roll.targetPropertyId === prop.id) next = { ...roll, targetPropertyId: '' }
-            if (next) pm.set(p.id, clone({ ...(pm.get(p.id) as object), rollup: next }))
-          }
+        // rollups through this relation, or of this property from another database (checked above)
+        for (const c of rollupsOn(r, db.page.id, prop.id)) {
+          const pm = propsMapOf(c.ydb)
+          pm.set(c.propId, clone({ ...(pm.get(c.propId) as object), rollup: c.next }))
         }
         return { databaseId: db.page.id, deleted: { id: prop.id, name: prop.name, type: prop.type }, rowsWithValue: withValue }
       },
@@ -338,6 +356,13 @@ export class McpStructure {
       let removed = new Set<string>()
       if (input.options !== undefined) {
         if (toType) throw unprocessable('invalid_request', 'Change the type and the options in two calls (first the type).')
+        // a select bound to a shared list (the app's building blocks): its options are the list's — changed there, in
+        // the app (an option changed here alone would go with the next list edit, and the values with it)
+        if (prop.listId)
+          throw unprocessable(
+            'invalid_option',
+            `bad_argument: options: ${q(prop.name)} takes its options from the shared list ${q(listNameOf(r, prop.listId))}: they are added, renamed or removed there, in One (Building blocks). Nothing was changed. Ask the person to change the list.`,
+          )
         const plan = optionPlan(prop, input.options)
         removed = plan.removed
         if (!same(plan.options, prop.options ?? [])) {
@@ -361,6 +386,11 @@ export class McpStructure {
         // —— changes from here on ——
         if (toType) {
           def.type = toType
+          // a plain type afterwards, as the app converts one (database/model/actions.ts): no own type, no shared list —
+          // a key stays one only where a type can be a key ("Only by hand" stays: every type here is written)
+          delete def.listId
+          delete def.custom
+          if (def.key && !canBeKey({ type: toType })) delete def.key
           if (SELECTISH.has(toType)) {
             if (SELECTISH.has(prop.type)) def.options = (prop.options ?? []).map((o) => (toType === 'status' ? { ...o, group: o.group ?? 'todo' } : { id: o.id, name: o.name, ...(o.color ? { color: o.color } : {}) }))
             else {
@@ -504,14 +534,15 @@ function optionPlan(prop: PropertyDef, input: OptionChanges): { options: SelectO
     const hit = find(u.name, 'options.update')
     const next = { ...hit }
     if (u.newName !== undefined) {
-      const nn = u.newName.replace(/\s+/g, ' ').trim().slice(0, 60)
+      const nn = u.newName.replace(/\s+/g, ' ').trim().slice(0, MCP_LIMITS.optionName)
       if (!nn) throw unprocessable('invalid_option', 'options.update: "newName" must not be empty.')
       if (options.some((x) => x.id !== hit.id && norm(x.name) === norm(nn))) throw unprocessable('invalid_option', `options.update: ${q(prop.name)} has an option ${q(nn)} already.`)
       next.name = nn
     }
     if (u.color !== undefined) {
-      const c = u.color.trim().toLowerCase()
-      if (!(COLORS as readonly string[]).includes(c)) throw unprocessable('invalid_option', `options.update: ${q(u.color)} is not a colour. Use one of: ${COLORS.join(', ')}.`)
+      // the shared colours (src/shared/mcp/options.ts), as the local bridge takes them
+      const c = optionColor(u.color)
+      if (!c) throw unprocessable('invalid_option', mcpError('bad_argument', 'options.update.color', colorRefusal(u.color)))
       next.color = c
     }
     if (u.group !== undefined) {
@@ -520,15 +551,14 @@ function optionPlan(prop: PropertyDef, input: OptionChanges): { options: SelectO
     }
     options = options.map((x) => (x.id === hit.id ? next : x))
   }
-  const addedNames = new Set<string>()
-  for (const [i, o] of (input.add ?? []).entries()) {
-    const spec = typeof o === 'string' ? { name: o } : o
-    const name = spec.name.replace(/\s+/g, ' ').trim().slice(0, 60)
-    if (!name || addedNames.has(norm(name))) continue
-    if (options.some((x) => norm(x.name) === norm(name))) throw unprocessable('invalid_option', `options.add: ${q(prop.name)} has an option ${q(name)} already.`)
-    addedNames.add(norm(name))
-    const color = spec.color && (COLORS as readonly string[]).includes(spec.color.toLowerCase()) ? spec.color.toLowerCase() : COLORS[(options.length + i) % COLORS.length]!
-    options.push({ id: newId(), name, color, ...(prop.type === 'status' ? { group: spec.group ?? 'todo' } : {}) })
+  // the shared rule (src/shared/mcp/options.ts), as the local bridge reads options.add: an empty name, a name listed twice,
+  // an unknown colour or group refused — never dropped or replaced quietly
+  const read = readOptions(input.add ?? [])
+  if ('problem' in read) throw unprocessable('invalid_option', mcpError('bad_argument', optionPath('options.add', read.problem), read.problem.what))
+  const start = options.length
+  for (const [i, spec] of read.options.entries()) {
+    if (options.some((x) => norm(x.name) === norm(spec.name))) throw unprocessable('invalid_option', `options.add: ${q(prop.name)} has an option ${q(spec.name)} already.`)
+    options.push({ id: newId(), name: spec.name, color: spec.color ?? COLORS[(start + i) % COLORS.length]!, ...(prop.type === 'status' ? { group: spec.group ?? 'todo' } : {}) })
   }
   if (prop.type === 'status' && !options.length) throw unprocessable('invalid_option', `${q(prop.name)} is a status: it keeps at least one option.`)
   if (options.length > 200) throw unprocessable('invalid_option', `${q(prop.name)} would have more than 200 options.`)
@@ -664,7 +694,7 @@ function toFilter(r: Roots, props: PropertyDef[], members: Member[], raw: { prop
 const flatKey = (g: FilterGroup | null | undefined): unknown => (g?.items.length ? g.items.map((it) => ('items' in it ? flatKey(it) : [it.propertyId, it.operator, it.value ?? null])) : null)
 
 /** The view settings of a create / update call, validated against the schema; the patch for `base`. */
-function viewChange(r: Roots, props: PropertyDef[], input: ViewInput, base: View, members: Member[]): Partial<View> {
+export function viewChange(r: Roots, props: PropertyDef[], input: ViewInput, base: View, members: Member[]): Partial<View> {
   const problems: string[] = []
   const patch: Partial<View> = {}
   const typeOf = (id: string | null | undefined) => props.find((p) => p.id === id)?.type ?? ''
@@ -739,8 +769,8 @@ function viewChange(r: Roots, props: PropertyDef[], input: ViewInput, base: View
   return patch
 }
 
-/** The view as agents see it: names instead of ids (the local bridge's viewJson). */
-function viewJson(r: Roots, props: PropertyDef[], v: View) {
+/** The view as agents see it: names instead of ids (the local bridge's viewJson; one_get_database's views). */
+export function viewJson(r: Roots, props: PropertyDef[], v: View) {
   const nameOf = (id: unknown) => (typeof id === 'string' ? (props.find((p) => p.id === id)?.name ?? null) : null)
   const people = readPeople(r)
   const valueOut = (f: Filter): unknown => {
@@ -766,5 +796,9 @@ function viewJson(r: Roots, props: PropertyDef[], v: View) {
     ...(v.filter?.items?.length ? { filter: flat(v.filter), ...(v.filter.op === 'or' ? { filterMatch: 'any' } : {}) } : {}),
     ...(v.sorts?.length ? { sorts: v.sorts.map((s) => ({ property: nameOf(s.propertyId) ?? s.propertyId, direction: s.direction })) } : {}),
     properties: (v.visibleProperties ?? []).map(nameOf).filter((n): n is string => !!n),
+    // what agents read but set up only in One: a free board, a chart's kind, a form
+    ...(v.free === true ? { free: true } : {}),
+    ...(v.type === 'chart' && isObj(v.chart) && typeof v.chart.kind === 'string' ? { chart: { kind: v.chart.kind } } : {}),
+    ...(v.type === 'form' ? { form: true } : {}),
   }
 }

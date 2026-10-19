@@ -5,33 +5,10 @@
  */
 import { ApiError } from '../errors.ts'
 import { parseDate } from '../api/values.ts'
+import { MCP_FILTER_OPS } from '../../../src/shared/mcp/tables.ts'
 
-export const FILTER_OPS = [
-  // the shared set (local bridge and team server)
-  'equals',
-  'not_equals',
-  'contains',
-  'not_contains',
-  'is_empty',
-  'is_not_empty',
-  'gt',
-  'gte',
-  'lt',
-  'lte',
-  // also understood here
-  'starts_with',
-  'ends_with',
-  'is_checked',
-  'is_not_checked',
-  'eq',
-  'neq',
-  'is',
-  'is_not',
-  'before',
-  'after',
-  'on_or_before',
-  'on_or_after',
-] as const
+/** The filter operators (the shared table, src/shared/mcp/tables.ts — the local bridge takes the same). */
+export const FILTER_OPS = MCP_FILTER_OPS
 
 export type FilterOp = (typeof FILTER_OPS)[number]
 

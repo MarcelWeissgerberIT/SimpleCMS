@@ -35,6 +35,8 @@ export interface PropDiff {
   name: string
   before: string
   after: string
+  /** a select bound to a shared list (features/kit): the new options the value adds to that list (a dry run reports them) */
+  addsToList?: { list: string; options: string[] }
 }
 
 /** A write of a run (done in a run, planned in a dry run). */

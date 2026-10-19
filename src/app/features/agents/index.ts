@@ -90,7 +90,7 @@ export { setProposalsShown } from './hold'
  * The Patchbay's reads (features/patchbay — §1.2, §2.3; every export below exists for it, the rules are this area's own):
  *  - tool names: isReadTool(name) · isWriteNamed(name) (a write word: never read as a read) · toolWords(name) ·
  *    testedTools(name, local, remote?) (a server's tools as this browser knows them; null = never tested)
- *  - scope: scopeFilter(agent) (null = everything outside templates) · scopeText(agent)
+ *  - scope: scopeFilter(agent) (templates never — also not for "everything") · scopeText(agent)
  *  - routeBlock(agent) / RUNNABLE_PROVIDERS: an agent this build cannot run · awaitsConfirm(agent): a browser agent
  *    another member changed waits for its creator · runsHere(agent): this browser runs it
  *  - integration profiles on this device: integrationStatuses() / useIntegrationStatuses() · deviceServers() ·

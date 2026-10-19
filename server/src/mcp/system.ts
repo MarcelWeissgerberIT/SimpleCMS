@@ -11,7 +11,7 @@ import * as Y from 'yjs'
 import { databaseMap, inTemplate, pageMap, type Roots } from '../api/meta.ts'
 import { ApiError } from '../errors.ts'
 
-export const SYSTEM_KINDS = ['memory', 'memory-log', 'mails', 'mail-contacts', 'mail-companies', 'mail-conversations', 'coding', 'spec', 'qa', 'testcases'] as const
+export const SYSTEM_KINDS = ['memory', 'memory-log', 'mails', 'mail-contacts', 'mail-companies', 'mail-conversations', 'coding', 'spec', 'qa', 'testcases', 'workorders'] as const
 export type SystemKind = (typeof SYSTEM_KINDS)[number]
 
 export interface SystemHit {
@@ -31,6 +31,7 @@ const KIND_TEXT: Record<SystemKind, string> = {
   spec: 'Business analysis pipeline',
   qa: 'QA pipeline',
   testcases: 'test cases',
+  workorders: 'work orders',
 }
 
 const str = (v: unknown) => (typeof v === 'string' && v ? v : null)
@@ -85,18 +86,21 @@ export function systemBelow(r: Roots, id: string): SystemHit | null {
 
 export const systemNote = (kind: SystemKind): string => `One's ${KIND_TEXT[kind] ?? kind} database: read-only over MCP (rows, properties, views).`
 
-/** The `system_database` refusal (422). */
-export function systemRefusal(hit: SystemHit) {
+/**
+ * The `system_database` refusal (422). `path`: the argument it is about; `why`: what the call would have changed there,
+ * when that is not plain from the call (a two-way relation's reverse side, a partner row).
+ */
+export function systemRefusal(hit: SystemHit, path = '', why = '') {
   return new ApiError(
     422,
     'system_database',
-    `system_database: ${JSON.stringify(hit.title)} is One's ${KIND_TEXT[hit.kind] ?? hit.kind} database; over MCP it is read-only (its rows, the pages below them, its properties and views). Nothing was changed. Reading it stays allowed; changes there are made in One.`,
+    `system_database: ${path ? `${path}: ` : ''}${JSON.stringify(hit.title)} is One's ${KIND_TEXT[hit.kind] ?? hit.kind} database; over MCP it is read-only (its rows, the pages below them, its properties and views)${why ? ` — ${why}` : ''}. Nothing was changed. Reading it stays allowed; changes there are made in One.`,
   )
 }
 
-export function assertNotSystem(r: Roots, id: string | null | undefined): void {
+export function assertNotSystem(r: Roots, id: string | null | undefined, path = '', why = ''): void {
   const hit = systemOf(r, id)
-  if (hit) throw systemRefusal(hit)
+  if (hit) throw systemRefusal(hit, path, why)
 }
 
 export function assertTreeNotSystem(r: Roots, id: string): void {

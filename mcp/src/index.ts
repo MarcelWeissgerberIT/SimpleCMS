@@ -11,7 +11,7 @@
  *   ONE_MCP_QUIET=1     no log output
  */
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
-import { MCP_DEFAULT_PORT } from '../../src/app/features/mcp/contract.ts'
+import { MCP_DEFAULT_PORT } from '../../src/shared/mcp/contract.ts'
 import { Bridge } from './bridge.ts'
 import { allowedOrigins } from './policy.ts'
 import { createMcpServer } from './server.ts'

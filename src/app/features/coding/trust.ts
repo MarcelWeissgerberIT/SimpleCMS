@@ -34,7 +34,7 @@ import { agentIdOf, isAgentWriting } from '../agents/attribution'
 import { addTrusted, clearFileTouched, clearMcpTouched, isFileTouched, isMcpTouched, loadFileTouched, loadMcpTouched, markFileTouched, markMcpTouched, trustedHashes } from './local'
 import { refIdsOf, refsKey } from './refs'
 import { codingProps, optionName, pipelineDbIds, readPipeline } from './schema'
-import { currentWriter, withWriter, type Writer } from '../../store/writer'
+import { currentWriter, mcpCaused, withWriter, type Writer } from '../../store/writer'
 import { isEjectWriter } from '../recorder/settled'
 import { contentKey } from '../history/snapshots'
 
@@ -113,8 +113,11 @@ export function confirmWhy(page: Page): 'agent' | 'mcp' | 'file' | null {
   return agentTouched(page) ? 'agent' : null
 }
 
-/** A write an MCP client made (or one it caused: a synced copy, an automation, autofill … — the writer's `cause`). */
-const byMcp = (w: Writer | null): boolean => !!w && (w.kind === 'mcp' || ('cause' in w && typeof w.cause === 'string' && w.cause.startsWith('mcp:')))
+/**
+ * A write an MCP client made, or one it caused: a synced copy, an automation, autofill … (their `cause`), a script such an
+ * automation started (its `via`) — store/writer.ts `mcpCaused`.
+ */
+const byMcp = (w: Writer | null): boolean => mcpCaused(w)
 
 /**
  * Local workspaces: would a write from this tab end the task's wait for Confirm? The attribution keeper

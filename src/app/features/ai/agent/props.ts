@@ -10,6 +10,7 @@ import { propertyValueToText } from '../../../database'
 import { t } from '../../../i18n'
 import type { PropChange, PropIntent } from './types'
 import { isHandOnly } from '../../../store/keys'
+import { listOptionText } from '../../../../shared/mcp/errors'
 
 /** Computed or file properties Claude cannot set. */
 const READ_ONLY = new Set<PropertyType>(['formula', 'rollup', 'created_time', 'last_edited_time', 'created_by', 'last_edited_by', 'unique_id', 'files'])
@@ -23,6 +24,24 @@ export const agentWritable = (p: PropertyDef) => isSettable(p) && !isHandOnly(p)
 export const handOnlyError = (p: Pick<PropertyDef, 'name'>) => `"${p.name}" is filled in only by hand ("Only by hand"): agents never write it. Leave it out.`
 
 type Result = { ok: true; change: PropChange } | { ok: false; error: string }
+
+/**
+ * Files properties are read-only for agents — except over MCP (spec § 2.3): there they take this workspace's files as
+ * `onefile:<id>` refs, which MCP checked before staging (reachable, this workspace, scope; features/mcp/rows.ts).
+ * Only while `withFilesWritable` runs (MCP's stageWith); no other caller ever sets it.
+ */
+let filesWritable = false
+export function withFilesWritable<T>(fn: () => T): T {
+  const prev = filesWritable
+  filesWritable = true
+  try {
+    return fn()
+  } finally {
+    filesWritable = prev
+  }
+}
+
+const FILE_REF = /^onefile:[A-Za-z0-9_-]{1,64}$/
 
 const MAX_TEXT = 5000
 
@@ -79,9 +98,27 @@ function ok(db: Database, prop: PropertyDef, row: Page | null, intent: PropInten
 
 const value = (v: PropertyValue): PropIntent => ({ kind: 'value', value: v })
 
+/**
+ * A new option for a select bound to a shared list (PropertyDef.listId, features/kit): the list owns the options and
+ * every list edit writes them into the property again — an option only on the property would vanish and leave its
+ * values pointing at nothing. So agents and MCP never add one there; the person adds it to the list in One.
+ */
+export function listOptionError(prop: Pick<PropertyDef, 'listId'>, name: string, all: string[]): string {
+  const list = prop.listId ? useWorkspace.getState().kit?.lists[prop.listId] : undefined
+  return `${listOptionText(name, list?.name ?? '?')}. Use one of: ${all.map((n) => JSON.stringify(n)).join(', ')}.`
+}
+
 /** Validate / coerce one value Claude sent for a property. `row` is null for a new row. */
 export function coerceProperty(db: Database, prop: PropertyDef, raw: unknown, row: Page | null): Result {
   const fail = (msg: string): Result => ({ ok: false, error: `"${prop.name}" (${prop.type}): ${msg}` })
+  if (prop.type === 'files' && filesWritable && !isHandOnly(prop)) {
+    if (raw === null || raw === undefined || raw === '') return ok(db, prop, row, value([]), '')
+    const refs = (Array.isArray(raw) ? raw : [raw]).map((x) => (typeof x === 'string' ? x.trim() : ''))
+    const bad = refs.find((x) => !FILE_REF.test(x))
+    if (bad !== undefined) return fail(`expected this workspace's files as "onefile:<id>", got ${show(bad)}.`)
+    const list = [...new Set(refs)]
+    return ok(db, prop, row, value(list), list.join(', '))
+  }
   if (READ_ONLY.has(prop.type)) return fail('this property is computed and cannot be set.')
   // "Only by hand": agents never write it (store/keys.ts)
   if (isHandOnly(prop)) return { ok: false, error: handOnlyError(prop) }
@@ -168,6 +205,8 @@ export function coerceProperty(db: Database, prop: PropertyDef, raw: unknown, ro
         if (!hit && prop.type === 'status') return fail(`unknown status ${JSON.stringify(name)}. Use one of: ${all.map((n) => JSON.stringify(n)).join(', ')}.`)
         // a locked database keeps its options (database/model/lock.ts): only existing ones can be picked
         if (!hit && db.locked) return fail(`unknown option ${JSON.stringify(name)} — the database is locked, so no new options can be created. Use one of: ${all.map((n) => JSON.stringify(n)).join(', ')}.`)
+        // a select bound to a shared list (features/kit) takes its options from the list: a new one is added there, in One
+        if (!hit && prop.listId) return fail(listOptionError(prop, name, all))
         const n = hit?.name ?? name.slice(0, 60)
         if (final.some((x) => x.toLowerCase() === n.toLowerCase())) continue
         if (!hit) fresh.push(n)

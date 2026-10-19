@@ -12,12 +12,14 @@ import { useCloud } from '../../cloud'
 import { Led, Switch } from '../../ui/controls'
 import { useLang, useT } from '../../i18n'
 import { inAppWindow } from '../../lib/localNetwork'
-import { MCP_CODEWORD, MCP_DEFAULT_PORT, type McpAgentMode } from './contract'
+import { MCP_BRIDGE_CURRENT, MCP_CODEWORD, MCP_COMMENT_MODES, MCP_DEFAULT_PORT, bridgeOutdated, type McpAgentMode } from './contract'
 import { shortId, workspaceInfo } from './identity'
-import { clearMcpActivity, connectMcpNow, setMcpEnabled, setMcpMode, setMcpPort, undoMcpActivity } from './service'
+import { clearMcpActivity, connectMcpNow, setMcpComments, setMcpEnabled, setMcpMode, setMcpPort, undoMcpActivity } from './service'
+import { onRovingKey } from '../../ui/roving'
 import { clientLabel, useMcp, validPort, type McpActivity, type McpConn } from './state'
 import { bridgeLed, bridgeStateText } from './stateText'
 import { openMcpConnections } from './connections/open'
+import { HelpLink } from '../../help'
 import './mcp.css'
 
 /** Where the site serves the bridge (respects the app's base: getonecms.com/mcp/one-mcp.mjs). */
@@ -179,6 +181,11 @@ function BridgePanel() {
           <p>{t('features.mcp.msg.legacy')}</p>
         </div>
       )}
+      {connected && !s.legacy && bridgeOutdated(s.bridge) && (
+        <div className="mcp-msg" data-testid="mcp-outdated">
+          <p>{t('features.mcp.msg.outdated', { v: s.bridge ?? '', need: MCP_BRIDGE_CURRENT })}</p>
+        </div>
+      )}
       {s.enabled && s.conn === 'waiting' && (
         <div className="mcp-msg">
           <p>{s.prompt ? t('features.mcp.msg.prompt') : t('features.mcp.msg.waiting')}</p>
@@ -225,7 +232,35 @@ function ModePanel() {
       <p className="mcp-hint" id={hintId}>
         {t(`features.mcp.mode.${mode}Hint`)}
       </p>
+      <CommentsRow />
     </Panel>
+  )
+}
+
+/** Comments over MCP on this device: off (the default) · read · read + write. */
+function CommentsRow() {
+  const t = useT()
+  const comments = useMcp((s) => s.comments)
+  const id = useId()
+  return (
+    <div className="mcp-comments" data-testid="mcp-comments">
+      <div>
+        <span className="label mcp-comments__label" id={`${id}-l`}>
+          {t('features.mcp.comments.label')}
+        </span>
+        <HelpLink id="mcp-bridge" topic={t('features.mcp.comments.label')} />
+      </div>
+      <div className="seg mcp-modes" role="radiogroup" aria-labelledby={`${id}-l`} aria-describedby={`${id}-h`} onKeyDown={(e) => onRovingKey(e)}>
+        {MCP_COMMENT_MODES.map((m) => (
+          <button key={m} type="button" role="radio" aria-checked={comments === m} tabIndex={comments === m ? 0 : -1} className="seg__btn" onClick={() => setMcpComments(m)} data-comments={m}>
+            {t(`features.mcp.comments.${m}`)}
+          </button>
+        ))}
+      </div>
+      <p className="mcp-hint" id={`${id}-h`}>
+        {t(`features.mcp.comments.${comments}Hint`)}
+      </p>
+    </div>
   )
 }
 
@@ -319,10 +354,11 @@ function ActivityRow({ a }: { a: McpActivity }) {
       </time>
       <span className="mcp-log__tag">{a.write ? t('features.mcp.log.write') : t('features.mcp.log.read')}</span>
       <span className="mcp-log__tool">{a.tool}</span>
-      <span className="mcp-log__target" title={a.note ?? a.target}>
+      <span className="mcp-log__target" title={a.target}>
         {a.target}
-        {a.note && <span className="mcp-log__note"> — {a.note}</span>}
       </span>
+      {/* the note on its own line, whole: a refused Undo or a dry run says why, also at phone width */}
+      {a.note && <span className="mcp-log__note">{a.note}</span>}
       <span className="mcp-log__state">
         {t(`features.mcp.log.state.${a.state}`)}
         {a.ms !== undefined && a.state !== 'wait' ? ` · ${a.ms} ms` : ''}

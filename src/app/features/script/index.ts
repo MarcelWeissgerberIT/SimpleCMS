@@ -60,6 +60,7 @@ export { appRunUI, silentRunUI } from './runtime/dialogs'
 export { loadScriptRuns, useScriptRuns, MAX_RUNS } from './runtime/runs'
 export { errorMessage } from './ui/errors'
 export type { RunOptions, RunResult, RunVar } from './runtime/run'
+export type { CallerText, WriteTarget, WriteVerdict } from './runtime/host'
 /* team trust of code outside saved scripts (features/kit: an own property type's scripts): a version this device saved or confirmed */
 export { codeHash as scriptCodeHash, isTrusted as isScriptTrusted, trustCode as trustScriptCode, inTeam as scriptsInTeam } from './runtime/trust'
 export type { RunUI, RunMode, ScriptRun, LogLine, ChangeItem, EffectItem, ConfirmItem, ErrorInfo, ResultTable, Cell } from './runtime/types'

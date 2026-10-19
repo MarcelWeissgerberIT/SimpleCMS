@@ -294,6 +294,12 @@ export interface WorkspaceState extends Workspace {
    * does not exist now, a locked database whose schema would change, a page locked now.
    */
   applyRewind: (patch: RewindPatch, origin: 'eject' | 'rewind') => boolean
+  /**
+   * An MCP call's Undo only (features/mcp/undo.ts — Agent activity): what the call made or changed put back in ONE
+   * update (store/rewind.ts, content origin 'history'), in team workspaces too. Its caller checked that nothing changed
+   * since. False when refused: a patched id that does not exist now, a locked database whose schema would change.
+   */
+  putBack: (patch: RewindPatch) => boolean
 
   /**
    * Cloud binding only (src/app/cloud): apply a batch of changes that came from the server.
@@ -395,7 +401,8 @@ function trashedOrUnderTrash(pages: Record<ID, Page>, id: ID): boolean {
 const isDe = () => useWorkspace.getState().settings.language === 'de'
 const L = (en: string, de: string) => (isDe() ? de : en)
 
-function defaultStatusOptions(): SelectOption[] {
+/** A status property's options when none are given (the workspace language): Not started · In progress · Done. */
+export function defaultStatusOptions(): SelectOption[] {
   return [
     { id: newId(), name: L('Not started', 'Nicht begonnen'), color: 'gray', group: 'todo' },
     { id: newId(), name: L('In progress', 'In Arbeit'), color: 'blue', group: 'in_progress' },
@@ -902,6 +909,19 @@ export const useWorkspace = create<WorkspaceState>()(
       if (!next) return false
       if (next.pages === s.pages && next.databases === s.databases) return true
       // every subscriber's pageChanges() gets the patched ids without a scan of the map
+      if (next.pages !== s.pages) {
+        const n = Object.keys(s.pages).length
+        rememberChanges(next.pages, s.pages, { changed: next.changed, added: [], removed: [] }, n, n)
+      }
+      set({ pages: next.pages, databases: next.databases, recent: next.recent })
+      return true
+    },
+
+    putBack: (patch) => {
+      const s = get()
+      const next = rewindState(s, patch, 'history', now(), { lockedPages: true })
+      if (!next) return false
+      if (next.pages === s.pages && next.databases === s.databases) return true
       if (next.pages !== s.pages) {
         const n = Object.keys(s.pages).length
         rememberChanges(next.pages, s.pages, { changed: next.changed, added: [], removed: [] }, n, n)

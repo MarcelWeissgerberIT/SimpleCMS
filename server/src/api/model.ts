@@ -84,7 +84,15 @@ export class WorkspaceModel {
   }
 
   context(wsId: string, r: Roots): ValueContext {
-    return { r, members: this.s.repo.members(wsId).map((m) => ({ id: m.id, email: m.email, name: m.name })), people: readPeople(r) }
+    return {
+      r,
+      members: this.s.repo.members(wsId).map((m) => ({ id: m.id, email: m.email, name: m.name })),
+      people: readPeople(r),
+      files: (id) => {
+        const f = this.s.repo.file(wsId, id)
+        return !f ? 'missing' : f.private_to ? 'private' : 'ok'
+      },
+    }
   }
 
   read<T>(wsId: string, fn: (r: Roots, doc: Y.Doc) => T): Promise<T> {
@@ -336,9 +344,10 @@ export class WorkspaceModel {
 
   /**
    * Two-way relations (the app's writeValue): rows linked now get this row in their partner
-   * property, rows unlinked lose it. A partner that is a sub-items parent holds one row only.
+   * property, rows unlinked lose it. A partner that is a sub-items parent holds one row only. Also run by every write that
+   * puts a relation value back without updateRow (an MCP call's Restore and its rollbacks, mcp/preimages.ts putValues).
    */
-  private syncPartners(r: Roots, dbId: string, props: PropertyDef[], rowId: string, before: Record<string, unknown>, after: Record<string, unknown>, actor: string, at: number) {
+  syncPartners(r: Roots, dbId: string, props: PropertyDef[], rowId: string, before: Record<string, unknown>, after: Record<string, unknown>, actor: string, at: number) {
     const relOf = (id: string, propId: string): string[] => {
       const yp = pageMap(r, id)
       const v = yp ? propertiesMap(yp).get(propId) : undefined

@@ -1,16 +1,20 @@
 /**
  * One MCP — writing through the workspace agent's tools: a private stage per call (callStage), one agent tool run on it
  * (stageWith — its input errors become MCP errors, in MCP words: mcpMessage), the staged changes applied as the call
- * (applyStaged — one rollback when any fails), and what they do to task blocks as approval-card lines (itemPlan).
+ * (applyStaged — one rollback when any fails; the call's Undo is undo.ts'), and what they do to task blocks as
+ * approval-card lines (itemPlan).
  * write.ts (pages, rows) and workItems.ts (one_update_work_item) build on these.
  */
 import { t, currentLang } from '../../i18n'
 import type { ID } from '../../store/types'
-import { AGENT_TOOLS, ToolInputError, withToolScope, type AgentTool, type StageApi } from '../ai/agent/tools'
+import { AGENT_TOOLS, ToolInputError, withReadLimit, withToolScope, type AgentTool, type StageApi } from '../ai/agent/tools'
+import { mcpReadLimit } from './limits'
+import { withFilesWritable } from '../ai/agent/props'
 import { applyChanges } from '../ai/agent/apply'
 import { guardOrderRows, guardPipelineRows } from '../ai/agent/coding'
 import { inTemplate } from '../../store/selectors'
 import { systemChange, systemGuard, systemRefusal } from './system'
+import { assertOneWayStage } from './twoWay'
 import { newItemSession } from '../ai/agent/workItems'
 import type { StagedChange, ToolName } from '../ai/agent/types'
 import { factLine, holdText, type HoldReason, type ItemFact } from '../workitems'
@@ -80,40 +84,51 @@ export function mcpStageTool(name: ToolName): AgentTool | undefined {
 }
 
 /** Templates are not found over MCP (spec § 3.3): the agent tools' lookups see every page outside them. */
-const outsideTemplates = (id: string) => !inTemplate(ws().pages, id)
+export const outsideTemplates = (id: string) => !inTemplate(ws().pages, id)
 
-/** Refuse a stage holding a change that writes into One's own databases (a folded change staged outside a tool). */
+/**
+ * Refuse a stage holding a change that writes into One's own databases (a folded change staged outside a tool), or a
+ * value of a two-way relation (two-way relations stay out of MCP — also one made two-way while the card waited).
+ */
 export function assertStageWritable(changes: readonly StagedChange[]): void {
   const hit = systemChange(changes)
   if (hit) throw new McpToolError(systemRefusal(hit))
+  assertOneWayStage(changes)
 }
 
-/** Run one agent tool on the stage; its input errors become MCP errors. */
+/**
+ * Run one agent tool on the stage; its input errors become MCP errors. It reads pages as the person's context marks
+ * allow (limits.ts mcpReadLimit — as the terminal's tools do): a task in an excluded block is no link target, is not
+ * resolved by update_work_item and is never named.
+ */
 export function stageWith(stage: StageApi, name: ToolName, input: Record<string, unknown>) {
   const tool = mcpStageTool(name)
   if (!tool) throw new Error(`agent tool ${name} missing`)
   try {
-    const out = withToolScope(outsideTemplates, () => tool.run(input, stage))
+    // files properties take this workspace's files over MCP (checked by the planner first — rows.ts checkFiles)
+    const out = withReadLimit(mcpReadLimit, () => withFilesWritable(() => withToolScope(outsideTemplates, () => tool.run(input, stage))))
     // the staging tools answer at once (only run_query / write_script load the script engine)
     if (out instanceof Promise) throw new Error(`agent tool ${name} is not a staging tool`)
     return out
   } catch (e) {
+    // an input the agent tool refuses is the arguments' fault: bad_argument (McpToolError; the planner adds the entry's path — atPath)
     if (e instanceof ToolInputError) throw new McpToolError(mcpMessage(e.message))
     throw e
   }
 }
 
-export async function applyStaged(changes: StagedChange[], writer: Writer): Promise<{ rowIds: Record<string, ID>; undo: () => boolean }> {
-  if (!changes.length) return { rowIds: {}, undo: () => true }
+export async function applyStaged(changes: StagedChange[], writer: Writer): Promise<{ rowIds: Record<string, ID> }> {
+  if (!changes.length) return { rowIds: {} }
   // the plan was checked; a page that moved into one of One's databases while the card waited is refused all the same
   assertStageWritable(changes)
   const res = await applyChanges(changes, changes, (id) => id, { writer })
   if (res.failed.length) {
-    // the call takes back what it wrote (its own rollback)
-    withWriter(writer, () => res.undo())
+    // the call takes back what it wrote (its own rollback): what it made is deleted for good, never left in the trash —
+    // the client is told nothing was changed
+    withWriter(writer, () => res.rollback())
     throw new McpToolError(`Nothing was changed: ${res.failed.map((f) => f.error).join('; ')}.`)
   }
-  return { rowIds: res.rowIds, undo: () => res.undo().kept.length === 0 }
+  return { rowIds: res.rowIds }
 }
 
 /* ------------------------------------------------------------------ */

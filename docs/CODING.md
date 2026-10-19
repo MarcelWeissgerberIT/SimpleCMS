@@ -740,7 +740,7 @@ worktree, task text is data), then the task between markers — `<<<TASK <code> 
 questions and answers — labelled as data written by people. The code is random per prompt (and per `one_task_read`):
 text written before cannot close its block and add rules of its own; stage names and titles are one line.
 
-**Task tools** (`MCP_TASK_TOOLS` in `src/app/features/mcp/contract.ts`): the run's MCP config starts `node
+**Task tools** (`MCP_TASK_TOOLS` in `src/shared/mcp/contract.ts`): the run's MCP config starts `node
 one-worker.mjs task-mcp` with a random 48-hex token for that run only. `one_task_read` (the task again),
 `one_task_note` (a progress line in the log), `one_task_ask` (a question: the run ends, the task waits in One;
 the answer goes into the page and the stage runs again with it). All three are marked read-only for Claude Code

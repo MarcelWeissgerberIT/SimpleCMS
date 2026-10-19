@@ -23,18 +23,28 @@ import { useUI } from '../../store/ui'
 import { useCloud } from '../../cloud'
 import { t } from '../../i18n'
 import { BRAND } from '@/shared/brand'
-import { MCP_APPROVAL_MS, MCP_CLOSE_REPLACED, MCP_ERR, MCP_SUBPROTOCOL, MCP_SUBPROTOCOLS, MCP_TOOLS, MCP_WORKSPACE_ID, type AppMessage, type BridgeMessage, type McpAgentMode, type McpToolName } from './contract'
+import { MCP_APPROVAL_MS, MCP_CLOSE_REPLACED, MCP_CONTRACT_REV, MCP_ERR, MCP_SUBPROTOCOL, MCP_SUBPROTOCOLS, MCP_TOOLS, MCP_WORKSPACE_ID, bridgeOutdated, mcpToolArgs, type AppMessage, type BridgeMessage, type McpAgentMode, type McpToolName } from './contract'
+import { mcpError, withCode, withRemedy } from '../../../shared/mcp/errors'
+import { undeclaredIn, undeclaredText } from '../../../shared/mcp/args'
+import { createsSomething, duplicateAnswer, duplicateKey, DUPLICATE_MS, remembersResult } from '../../../shared/mcp/duplicates'
+import { MCP_LIMITS } from '../../../shared/mcp/tables'
 import { currentWorkspace, workspaceInfo, type McpIdentity } from './identity'
 import { READ_TOOLS, readTarget } from './read'
+import { getPage } from './pageRead'
 import { McpToolError } from './values'
 import { mcpMessage, planWrite, type WritePlan } from './write'
 import { planRunScript } from './script'
 import { warmMembers } from '../workitems'
 import { DEFAULT_SETTINGS, loadSettings, MCP_STORAGE_KEY, saveSettings, useMcp, validPort, type ActivityState, type McpActivity, type McpSettings, type Verdict } from './state'
 import { endRun, noteRun, withWriter, type Writer } from '../../store/writer'
+import { runUndo, tapeCall } from './undo'
 import { localNetworkPermission } from '../../lib/localNetwork'
 import { loadFileStamps } from '../../lib/files'
 import { fileRefsIn } from '../ai/claudeFiles'
+import { asksAlways, assertWritable } from './gate'
+import { mcpReadLimit } from './limits'
+import { withReadLimit } from '../ai/agent/tools'
+import { chars } from './plan'
 
 const set = useMcp.setState
 const get = useMcp.getState
@@ -44,14 +54,14 @@ const get = useMcp.getState
 /* ------------------------------------------------------------------ */
 
 const ERR = {
-  readOnly: 'One is set to "Agents can only read" (Settings → Agents · MCP). Nothing was changed.',
-  viewer: 'You can only view this team workspace in One, so agents cannot change it either. Nothing was changed.',
-  signedOut: 'One is not signed in to this team workspace. Sign in in the One tab first.',
-  reject: 'The person rejected this change in One. Nothing was changed. Do not retry it; ask them what they want instead.',
-  timeout: `The change was not approved within ${MCP_APPROVAL_MS / 60_000} minutes, so nothing was changed.`,
-  cancel: 'Cancelled. Nothing was changed.',
-  mode: 'Agent changes were switched to read-only in One while this change waited. Nothing was changed.',
-  gone: 'One disconnected while this change waited for approval. Nothing was changed.',
+  readOnly: mcpError('rejected', '', 'One is set to "Agents can only read" (Settings → Agents · MCP)', 'Ask the person whether they want to allow changes; do not retry on your own.'),
+  viewer: mcpError('rejected', '', 'You can only view this team workspace in One, so agents cannot change it either'),
+  signedOut: mcpError('rejected', '', 'One is not signed in to this team workspace', 'Ask the person to sign in in the One tab first.'),
+  reject: mcpError('rejected', '', 'The person rejected this change in One'),
+  timeout: mcpError('approval_timeout', '', `The change was not approved within ${MCP_APPROVAL_MS / 60_000} minutes`),
+  cancel: mcpError('rejected', '', 'The call was cancelled before it was approved'),
+  mode: mcpError('rejected', '', 'Agent changes were switched to read-only in One while this change waited'),
+  gone: mcpError('approval_timeout', '', 'One disconnected while this change waited for approval', 'Ask the person whether to try again once One is open; do not retry on your own.'),
   workspace: `${MCP_ERR.mismatch}: the One tab switched to another workspace while this change waited for approval, so it was cancelled. Nothing was changed. Ask the person which workspace to use.`,
 } as const
 
@@ -75,7 +85,7 @@ function stamped(result: unknown, ws: McpIdentity): Record<string, unknown> {
 
 function patchSettings(patch: Partial<McpSettings>) {
   const s = get()
-  const next: McpSettings = { enabled: s.enabled, mode: s.mode, port: s.port, ...patch }
+  const next: McpSettings = { enabled: s.enabled, mode: s.mode, port: s.port, comments: s.comments, ...patch }
   saveSettings(next)
   set(next)
 }
@@ -95,6 +105,12 @@ export function setMcpMode(mode: McpAgentMode) {
   // read only: whatever waits for approval is refused now
   if (mode === 'read') for (const a of get().approvals) settle(a.id, 'mode')
   sendStatus()
+}
+
+/** Comments over MCP on this device: off · read · read + write (Settings → Agents · MCP). */
+export function setMcpComments(comments: McpSettings['comments']) {
+  if (comments === get().comments) return
+  patchSettings({ comments })
 }
 
 export function setMcpPort(port: number) {
@@ -138,8 +154,11 @@ function delay(): number {
   return BACKOFF[Math.min(attempt, BACKOFF.length - 1)]
 }
 
+/** The tools this tab runs, with the arguments each takes (contract 2): a bridge refuses anything else before it gets here. */
+const TOOL_ARGS = mcpToolArgs()
+
 function hello(): AppMessage {
-  return { type: 'hello', app: 'one', version: BRAND.version, workspace: workspaceMsg(), mode: get().mode }
+  return { type: 'hello', app: 'one', version: BRAND.version, workspace: workspaceMsg(), mode: get().mode, tools: TOOL_ARGS, contract: MCP_CONTRACT_REV }
 }
 
 function send(msg: AppMessage) {
@@ -252,7 +271,10 @@ function receive(msg: BridgeMessage) {
     case 'welcome':
       attempt = 0
       failingSince = 0
-      set({ conn: 'connected', blocked: null, prompt: false, client: msg.client ?? null, session: nanoid(10), bridge: msg.bridge ?? null, calls: 0 })
+      set({ conn: 'connected', blocked: null, prompt: false, client: msg.client ?? null, session: nanoid(10), bridge: typeof msg.bridge === 'string' ? msg.bridge.slice(0, 40) : null, calls: 0 })
+      // a new MCP session: repeats are matched within one session only
+      duplicates.clear()
+      owners.clear()
       lastStatus = JSON.stringify({ type: 'status', workspace: workspaceMsg(), mode: get().mode })
       // the workspace may have changed between hello and welcome
       sendStatus()
@@ -286,7 +308,7 @@ const LOG_MAX = 100
 function logStart(id: string, tool: McpToolName, write: boolean, target: string): string {
   const key = `${id}:${Date.now().toString(36)}`
   const entry: McpActivity = { id: key, at: Date.now(), session: get().session, tool, write, target, state: 'run' }
-  set((s) => ({ activity: [entry, ...s.activity].slice(0, LOG_MAX) }))
+  set({ activity: [entry, ...get().activity].slice(0, LOG_MAX) })
   return key
 }
 
@@ -301,14 +323,30 @@ export function clearMcpActivity() {
 /** An MCP client's name as a run note carries it (store/writer.ts RunMeta.client: an identifier, never content). */
 const clientName = (name: string): string => name.replace(/[^A-Za-z0-9 ._-]/g, '').trim().slice(0, 40)
 
-/** Undo an applied write from the log. */
+/** one_overview for a bridge older than one_list_pages: its cut tree points to one_search instead. */
+function legacyOverview(result: unknown): unknown {
+  if (!result || typeof result !== 'object' || !('tree' in result)) return result
+  return { ...result, tree: { more: true, note: 'Not every page is listed here: one_search finds the others by title, one_get_page lists a page\'s sub-pages.' } }
+}
+
+/**
+ * Undo an applied write from the log — all or nothing (undo.ts): changed since, it writes nothing, says what changed and
+ * where to take it back by hand (the entry keeps no Undo key: it would only say the same again).
+ */
 export function undoMcpActivity(key: string) {
   const a = get().activity.find((x) => x.id === key)
   if (!a?.undo || a.state !== 'ok') return
   // the person's Undo of the call (store/writer.ts)
-  const clean = withWriter({ kind: 'you', via: 'undo', ref: key.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 64) }, () => a.undo!())
+  const out = withWriter({ kind: 'you', via: 'undo', ref: key.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 64) }, () => a.undo!())
+  if (!out.ok) {
+    logPatch(key, { undo: undefined, note: `${out.message} ${out.detail}` })
+    useUI.getState().toast({ message: out.message, detail: out.detail, kind: 'error', timeout: 12_000 })
+    return
+  }
   logPatch(key, { state: 'undone', undo: undefined })
-  useUI.getState().toast(clean ? t('features.mcp.toast.undone') : t('features.mcp.toast.undoneKept'))
+  // a repeat of the call makes the thing again (it is not answered with what went to the trash)
+  forgetDuplicate((d) => d.activity === key)
+  useUI.getState().toast(t('features.mcp.toast.undone'))
 }
 
 /* ------------------------------------------------------------------ */
@@ -333,6 +371,8 @@ export function settleMcpCall(session: string, call: string, _ejectId: string): 
     if (!settledStates.has(a.id)) settledStates.set(a.id, a.state)
     logPatch(a.id, { state: 'undone', undo: undefined })
   }
+  // what the call made is ejected: its repeat is a new call (an eject's Undo does not bring the entry back)
+  forgetDuplicate((d) => d.session === session && d.call === call)
   return list.length > 0
 }
 
@@ -355,6 +395,8 @@ const verdicts = new Map<string, (v: Verdict) => void>()
 function settle(id: string, v: Verdict) {
   const done = verdicts.get(id)
   if (!done) return
+  // the client gave up on this call, but a repeat of it joined the card: the card stays and answers the repeat
+  if (v === 'cancel' && (owners.get(id)?.joined.length ?? 0) > 0) return
   verdicts.delete(id)
   set((s) => ({ approvals: s.approvals.filter((a) => a.id !== id) }))
   done(v)
@@ -395,9 +437,60 @@ const VERDICT_STATE: Record<Exclude<Verdict, 'approve'>, ActivityState> = { reje
 function boundWorkspace(expected: string | undefined): { ok: true; ws: McpIdentity } | { ok: false; error: string } {
   const now = currentWorkspace()
   if (bound && (!expected || !MCP_WORKSPACE_ID.test(expected))) return { ok: false, error: mismatch(undefined, now) }
-  if (!now) return { ok: false, error: bound ? mismatch(expected, null) : 'The One tab is between workspaces right now (loading, signed out or removed from it). Nothing was done.' }
+  if (!now) return { ok: false, error: bound ? mismatch(expected, null) : `${MCP_ERR.mismatch}: the One tab is between workspaces right now (loading, signed out or removed from it). Nothing was done. Ask the person which workspace to use.` }
   if (bound && now.id !== expected) return { ok: false, error: mismatch(expected, now) }
   return { ok: true, ws: now }
+}
+
+/* ------------------------------------------------------------------ */
+/* Duplicate calls (spec § 2.0): one map per MCP session                */
+/* ------------------------------------------------------------------ */
+
+type CallOutcome = { ok: true; result: unknown } | { ok: false; error: string; state: ActivityState }
+
+/** A creating call that waits (its repeats join it) or was applied in the window (its repeats get its result). */
+type Duplicate =
+  | { key: string; state: 'wait'; joined: Array<(out: CallOutcome) => void> }
+  /** `activity`: the call's line in Agent activity (its Undo forgets the entry, as an eject of `session` · `call` does) */
+  | { key: string; state: 'done'; at: number; result: unknown; session: string; call: string; activity: string }
+
+/** key = session · workspace · tool + canonical arguments; insertion order = age (≤ MCP_LIMITS.duplicateEntries) */
+const duplicates = new Map<string, Duplicate>()
+/** call id → the waiting entry it opened (a cancel of that call leaves the card to the repeats that joined it) */
+const owners = new Map<string, Extract<Duplicate, { state: 'wait' }>>()
+
+function openDuplicate(key: string, call: string): Duplicate {
+  const entry: Extract<Duplicate, { state: 'wait' }> = { key, state: 'wait', joined: [] }
+  owners.set(call, entry)
+  duplicates.delete(key)
+  duplicates.set(key, entry)
+  // bounded: the oldest finished entries go first, then the oldest of all
+  while (duplicates.size > MCP_LIMITS.duplicateEntries) {
+    const old = [...duplicates.values()].find((d) => d.state === 'done') ?? duplicates.values().next().value!
+    duplicates.delete(old.key)
+  }
+  return entry
+}
+
+/**
+ * The waiting call ended: its repeats get the same answer; applied → remembered (`remember`: its activity line and
+ * session, so an Undo or an eject forgets it again), anything else forgotten.
+ */
+function closeDuplicate(entry: Duplicate, out: CallOutcome, call: string, remember: { session: string; activity: string } | null) {
+  if (entry.state !== 'wait') return
+  owners.delete(call)
+  for (const join of entry.joined.splice(0)) join(out)
+  if (duplicates.get(entry.key) !== entry) return
+  if (out.ok && remember) duplicates.set(entry.key, { key: entry.key, state: 'done', at: Date.now(), result: out.result, call, ...remember })
+  else duplicates.delete(entry.key)
+}
+
+/**
+ * A call was taken back (its Undo in Agent activity, an eject): its repeat is a new call again — never answered with
+ * the result of what is in the trash now (spec § 2.0: only APPLIED calls answer their repeats).
+ */
+function forgetDuplicate(match: (d: Extract<Duplicate, { state: 'done' }>) => boolean): void {
+  for (const [key, d] of duplicates) if (d.state === 'done' && match(d)) duplicates.delete(key)
 }
 
 async function handleCall(id: string, tool: McpToolName, args: Record<string, unknown>, expected?: string) {
@@ -412,37 +505,79 @@ async function handleCall(id: string, tool: McpToolName, args: Record<string, un
   }
   const key = logStart(id, tool, !!def?.write, target)
   const ms = () => Math.round(performance.now() - started)
-  const fail = (message: string, state: ActivityState = 'err') => {
-    send({ type: 'error', id, error: message })
-    logPatch(key, { state, ms: ms(), note: message })
+  /** the waiting entry this call opened: its repeats get its answer */
+  let mine: Duplicate | null = null
+  // every refusal starts with its code (spec § 2.0) — one this tab's code did not name gets the one it means (withCode)
+  const fail = (message: string, state: ActivityState = 'err', partial = false) => {
+    // a call that wrote part of it says itself what stays (never "Nothing was changed … call again" after it)
+    const error = partial ? withCode(message) : withRemedy(withCode(message))
+    send({ type: 'error', id, error })
+    logPatch(key, { state, ms: ms(), note: error })
+    if (mine) closeDuplicate(mine, { ok: false, error, state }, id, null)
   }
   try {
-    if (!def) return fail(`Unknown tool ${JSON.stringify(tool)}.`)
+    if (!def) return fail(mcpError('bad_argument', '', `Unknown tool ${JSON.stringify(tool)}`, 'tools/list names the tools there are.'))
+    // strict arguments (the tool's schema has additionalProperties: false): nothing undeclared is dropped silently
+    const extra = Object.keys(args).find((k) => k !== 'workspace' && !Object.hasOwn(def.inputSchema.properties, k))
+    if (extra) return fail(mcpError('bad_argument', extra, `${tool} takes no argument ${JSON.stringify(extra)}`), 'rejected')
+    // … and at every depth: a key a closed object of the contract does not declare (rows[0].Status, pages[1].content)
+    const { workspace: _workspace, ...declared } = args
+    const nested = undeclaredIn(declared, def.inputSchema)
+    if (nested) return fail(mcpError('bad_argument', nested.path, undeclaredText(tool, nested)), 'rejected')
     if (useCloud.getState().status === 'signed-out') return fail(ERR.signedOut)
     // the boundary: only the workspace the call is meant for, only while this tab shows it
     const at = boundWorkspace(expected)
     if (!at.ok) return fail(at.error, 'rejected')
+    const answer = (result: unknown, state: ActivityState, patch: Partial<McpActivity> = {}) => {
+      send({ type: 'result', id, result: stamped(result, at.ws) })
+      logPatch(key, { state, ms: ms(), ...patch })
+    }
     if (!def.write) {
       if (tool === 'one_list_work_items') await warmMembers()
-      const result = await READ_TOOLS[tool]!(args, get().mode)
-      send({ type: 'result', id, result: stamped(result, at.ws) })
-      logPatch(key, { state: 'ok', ms: ms() })
-      return
+      // a bridge older than parts (no cursor in its schema, no parts in its description): contract 1's whole-page answer
+      const older = !get().bridge || bridgeOutdated(get().bridge)
+      const legacyRead = tool === 'one_get_page' && older
+      const result = legacyRead ? await getPage(args, { whole: true }) : await READ_TOOLS[tool]!(args, get().mode)
+      // and it serves no one_list_pages: the overview never sends the client there
+      return answer(older && tool === 'one_overview' ? legacyOverview(result) : result, 'ok')
     }
     if (get().mode === 'read') return fail(ERR.readOnly, 'rejected')
     if (useCloud.getState().readOnly) return fail(ERR.viewer, 'rejected')
+    // a repeat of a creating call: joins the one still waiting, or gets the answer of the one applied just now
+    if (createsSomething(tool)) {
+      const dupKey = `${get().session ?? '-'}\n${at.ws.id}\n${duplicateKey(tool, args)}`
+      const hit = duplicates.get(dupKey)
+      // a keyed upsert only joins a waiting call (MCP_JOIN_ONLY_TOOLS): applied, its repeat runs again
+      if (hit?.state === 'done' && remembersResult(tool) && Date.now() - hit.at <= DUPLICATE_MS) return answer(duplicateAnswer(hit.result, hit.at, Date.now()), 'same', { note: t('features.mcp.log.duplicate') })
+      if (hit?.state === 'wait') {
+        send({ type: 'pending', id, timeoutMs: MCP_APPROVAL_MS })
+        logPatch(key, { state: 'wait' })
+        const out = await new Promise<CallOutcome>((resolve) => hit.joined.push(resolve))
+        if (!out.ok) return fail(out.error, out.state)
+        return answer(out.result, 'same', { note: t('features.mcp.log.joined') })
+      }
+      mine = openDuplicate(dupKey, id)
+    }
     // team: the member list (owners by email) before the planner runs — staging never waits for it
     await warmMembers()
     // the workspace stamps of the files the call names (lib/files.ts): claudeDoc's check runs inside the plan, sync
     await loadFileStamps(fileRefsIn(args))
-    const plan = tool === 'one_run_script' ? await planRunScript(args) : planWrite(tool, args)
-    logPatch(key, { target: plan.target })
-    if (plan.noop) {
-      send({ type: 'result', id, result: stamped(plan.noop, at.ws) })
-      logPatch(key, { state: 'same', ms: ms() })
+    // the call reads pages as the person's context marks allow (limits.ts) — once for the whole call (its synchronous
+    // parts: the planner, and apply up to its first await); the planners' own limits stay as a backstop
+    const planned = tool === 'one_run_script' ? await withReadLimit(mcpReadLimit, () => planRunScript(args)) : withReadLimit(mcpReadLimit, () => planWrite(tool, args))
+    logPatch(key, { target: planned.target })
+    if (planned.noop) {
+      answer(planned.noop, 'same', planned.noopNote ? { note: planned.noopNote } : {})
+      if (mine) closeDuplicate(mine, { ok: true, result: planned.noop }, id, null)
       return
     }
-    // a script is always asked (it may send mail, call Claude, trash pages), also in "Apply directly"
+    // the gate (gate.ts): what the call touches may be written by an agent — template, trash, One's own databases, locked,
+    // context marks, private scope — else nothing is asked and nothing written
+    assertWritable(planned.targets, 'plan')
+    // asked also in "Apply directly" when the plan says so (rows that start paid or outward work, task holds) — and when
+    // its targets do (≥ rowsAsk rows in databases that start paid or outward work), with the card's line saying why
+    const heavy = planned.alwaysAsk ? 0 : asksAlways(planned.targets)
+    const plan: WritePlan = heavy ? { ...planned, alwaysAsk: true, lines: [...planned.lines, { k: 'note', value: t('features.mcp.plan.startsHold', { n: chars(heavy) }) }] } : planned
     const ask = get().mode === 'ask' || !!plan.alwaysAsk
     if (ask) {
       send({ type: 'pending', id, timeoutMs: MCP_APPROVAL_MS })
@@ -456,19 +591,29 @@ async function handleCall(id: string, tool: McpToolName, args: Record<string, un
     // still the same workspace right before anything is written
     const still = boundWorkspace(expected)
     if (!still.ok || still.ws.id !== at.ws.id) return fail(still.ok ? mismatch(at.ws.id, still.ws) : still.error, 'rejected')
+    // the gate again: locked, trashed, made One's own or marked by the person while the card waited — nothing is written
+    assertWritable(plan.targets, 'apply')
     // the call writes as itself (store/writer.ts): mcp:<session>:<call>:<tool>; the recorder learns its client first
     const writer: Writer = { kind: 'mcp', session: get().session ?? '-', call: id, tool }
     noteRun(writer, { tool, ...(get().client?.name ? { client: clientName(get().client!.name) } : {}) })
+    // what the call writes into pages and databases, under its own writer: its Undo (all or nothing, undo.ts)
+    const tape = tapeCall(writer)
     let applied: Awaited<ReturnType<WritePlan['apply']>>
     try {
-      applied = await plan.apply(writer)
+      applied = await withReadLimit(mcpReadLimit, () => plan.apply(writer))
+    } catch (e) {
+      // nothing to undo (a failed call's own rollback ran)
+      tape.stop()
+      throw e
     } finally {
       endRun(writer)
     }
-    send({ type: 'result', id, result: stamped(applied.result, at.ws) })
-    logPatch(key, { state: 'ok', ms: ms(), undo: applied.undo })
+    const taken = tape.finish()
+    const undo = taken ? () => runUndo(taken) : undefined
+    answer(applied.result, 'ok', undo ? { undo } : {})
+    if (mine) closeDuplicate(mine, { ok: true, result: applied.result }, id, remembersResult(tool) ? { session: get().session ?? '-', activity: key } : null)
     // approved by hand: confirm with an undo (Apply directly stays quiet — the log has it)
-    if (ask && applied.undo)
+    if (ask && undo)
       useUI.getState().toast({
         message: t('features.mcp.toast.applied', { what: plan.summary }),
         kind: 'success',
@@ -476,10 +621,11 @@ async function handleCall(id: string, tool: McpToolName, args: Record<string, un
         timeout: 8000,
       })
   } catch (e) {
-    if (e instanceof McpToolError) return fail(e.message)
+    if (e instanceof McpToolError) return fail(e.message, 'err', e.partial)
     const msg = e instanceof Error ? e.message : String(e)
     console.warn('[one] MCP tool failed', tool, e)
-    fail(`The tool failed in One: ${mcpMessage(msg)}`)
+    // a fault of One's own: whether a part was written is not known for sure — the agent reads before it calls again
+    fail(`rejected: The tool failed in One: ${mcpMessage(msg)}. Nothing was confirmed — read what the call touches again before you call again, and tell the person if it fails again.`)
   } finally {
     set((s) => ({ busy: Math.max(0, s.busy - 1) }))
   }
@@ -533,6 +679,7 @@ export function startMcp() {
       disconnect()
     }
     if (next.port !== cur.port) set({ port: next.port })
+    if (next.comments !== cur.comments) set({ comments: next.comments })
   })
   const onWake = () => {
     if (document.visibilityState === 'visible') wake()
@@ -560,7 +707,7 @@ if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams
     /** the flight recorder's eject: an activity as a call leaves it (its Undo counts its presses in `undos`) */
     seedActivity: (a: Omit<McpActivity, 'undo'>, undoable: boolean) => {
       const w = window as unknown as { __oneMcpUndos?: number }
-      set((s) => ({ activity: [{ ...a, ...(undoable ? { undo: () => ((w.__oneMcpUndos = (w.__oneMcpUndos ?? 0) + 1), true) } : {}) }, ...s.activity] }))
+      set((s) => ({ activity: [{ ...a, ...(undoable ? { undo: () => ((w.__oneMcpUndos = (w.__oneMcpUndos ?? 0) + 1), { ok: true as const }) } : {}) }, ...s.activity] }))
     },
     undos: () => (window as unknown as { __oneMcpUndos?: number }).__oneMcpUndos ?? 0,
     /** MCP · Connections' bridge row in a given state (never connects, never sends — the state only) */
@@ -573,5 +720,12 @@ if (typeof window !== 'undefined' && (import.meta.env.DEV || new URLSearchParams
     busy: mcpBusy,
     settle: settleMcpCall,
     unsettle: unsettleMcpCall,
+    /** what Claude may read of a page (editor/context): these top-level blocks only, [] = nothing, null = the whole page */
+    context: async (pageId: string, ids: string[] | null) => {
+      const editor = await import('../../editor')
+      if (ids === null) editor.setContextMode(pageId, 'page')
+      else if (ids.length) editor.setContextMarks(pageId, ids)
+      else editor.setContextMode(pageId, 'none')
+    },
   }
 }

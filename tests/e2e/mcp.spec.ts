@@ -235,7 +235,9 @@ test('Ask first: the card shows the change; Approve writes it, Reject tells the 
   const rejected = call('one_update_row', { id: row.id, properties: { Status: 'Done', Project: 'Q4 launch (renamed)' } })
   await expect(card).toBeVisible()
   await expect(card).toContainText('Change row “Q4 launch” in Projects')
-  await expect(card.locator('.mcp-line', { hasText: 'Status' })).toContainText('In progress→Done')
+  await expect(card.locator('.mcp-line').filter({ has: page.locator('dt', { hasText: /^Status$/ }) })).toContainText('In progress→Done')
+  // what the change starts is named on the card (MCP B3): the seeded automation on Status
+  await expect(card.locator('.mcp-line').filter({ has: page.locator('dt', { hasText: /^Starts$/ }) })).toContainText('automation “Notify when Status → Done”')
   await expect(card.locator('.mcp-line', { hasText: 'Project' }).first()).toContainText('Q4 launch (renamed)')
   await page.keyboard.press('Escape')
   const res = await rejected
@@ -248,7 +250,8 @@ test('Ask first: the card shows the change; Approve writes it, Reject tells the 
   await expect(page.locator('.mcp-log__row').nth(0)).toContainText('Refused')
   await expect(page.locator('.mcp-log__row').nth(1)).toContainText('OK')
   await page.locator('.mcp-log__row').nth(1).getByRole('button', { name: 'Undo one_create_row' }).click()
-  await expect.poll(() => wsEval(page, (s, id) => !!s.pages[id], row.id)).toBe(false)
+  // an MCP call's Undo puts what it made into the trash (never deleted for good — MCP plan § 3.2)
+  await expect.poll(() => wsEval(page, (s, id) => s.pages[id]?.trashed === true, row.id)).toBe(true)
   await expect(page.locator('.mcp-log__row').nth(1)).toContainText('Undone')
 })
 
@@ -310,7 +313,7 @@ test('Apply directly writes at once; Read only refuses; a no-op needs no approva
   await flush(page)
 })
 
-test('Undo never deletes for good what the person put in the trash meanwhile: a created page and database stay there', async ({ page }) => {
+test('Undo never deletes for good what the person put in the trash meanwhile: refused whole (Weg 4), a created page and database stay there', async ({ page }) => {
   await openApp(page)
   await connect(page)
   await page.getByRole('radio', { name: 'Apply directly' }).click()
@@ -319,10 +322,12 @@ test('Undo never deletes for good what the person put in the trash meanwhile: a 
   // the person puts both in the trash
   await wsEval(page, (s, ids) => ids.forEach((id: string) => s.trashPage(id)), [created.id, db.id])
   const before = await wsEval(page, (s, ids) => ids.map((id: string) => s.pages[id].trashedAt as number), [created.id, db.id])
-  // … then takes the agent's writes back from the log
+  // … then tries to take the agent's writes back from the log: changed since (in the trash) — nothing is written
   await page.locator('.mcp-log__row').getByRole('button', { name: 'Undo one_create_database' }).click()
   await page.locator('.mcp-log__row').getByRole('button', { name: 'Undo one_create_page' }).click()
-  await expect(page.locator('.mcp-log__row', { hasText: 'Undone' })).toHaveCount(2)
+  await expect(page.locator('.mcp-log__row', { hasText: 'Not undone:' })).toHaveCount(2)
+  await expect(page.locator('.mcp-log__row[data-state="undone"]')).toHaveCount(0)
+  await expect(page.locator('.toast', { hasText: 'changed since (trash). Nothing was put back.' }).first()).toBeVisible()
   // still in the trash with their trash time — never deleted for good
   const now = await wsEval(page, (s, ids) => ids.map((id: string) => (s.pages[id] ? { trashed: s.pages[id].trashed, at: s.pages[id].trashedAt } : null)), [created.id, db.id])
   expect(now).toEqual(before.map((at) => ({ trashed: true, at })))
@@ -582,7 +587,7 @@ test.describe('tidy up', () => {
   /** The newest applied call of a tool: Undo it in the log (Settings → Agents · MCP). */
   async function undoLast(page: Page, tool: string) {
     await openAgentsTab(page)
-    const undone = page.locator('.mcp-log__row', { hasText: tool }).filter({ hasText: 'Undone' })
+    const undone = page.locator('.mcp-log__row[data-state="undone"]', { hasText: tool })
     const before = await undone.count()
     await page.locator('.mcp-log__row').getByRole('button', { name: `Undo ${tool}` }).first().click()
     await expect(undone).toHaveCount(before + 1)
@@ -644,10 +649,10 @@ test.describe('tidy up', () => {
     const c = json(await call('one_create_page', { title: 'Old C' }))
     const trashed = (id: string) => wsEval(page, (s, id) => s.pages[id].trashed, id)
 
-    await fails('one_trash_page', { ids: [a.id, 'nope'] }, 'Nothing was moved to the trash: no page with id "nope"')
+    await fails('one_trash_page', { ids: [a.id, 'nope'] }, 'not_found: Nothing was moved to the trash: no page with id "nope"')
     expect(await trashed(a.id)).toBe(false)
     await fails('one_trash_page', { ids: Array.from({ length: 51 }, (_, i) => `x${i}`) }, 'At most 50 ids')
-    await fails('one_trash_page', {}, 'Missing required parameter "id"')
+    await fails('one_trash_page', {}, 'bad_argument: id: missing — it is required')
 
     const res = json(await call('one_trash_page', { ids: [a.id, b.id, c.id] }))
     // B is inside A: it goes along with it
@@ -657,7 +662,7 @@ test.describe('tidy up', () => {
     expect([await trashed(a.id), await trashed(c.id)]).toEqual([true, true])
     await fails('one_trash_page', { id: a.id }, 'is already in the trash')
 
-    await fails('one_restore_page', { id: 'nope' }, /^Nothing was restored: nothing in the trash has id "nope"\. Recently trashed: .*"Old (A|C)"/)
+    await fails('one_restore_page', { id: 'nope' }, /^not_found: Nothing was restored: nothing in the trash has id "nope"\. Recently trashed: .*"Old (A|C)"/)
     await fails('one_restore_page', { id: b.id }, `is inside "Old A" (${a.id}), which is in the trash — restore that instead`)
     const back = json(await call('one_restore_page', { ids: [a.id, c.id] }))
     expect(back.count).toBe(2)
@@ -677,7 +682,7 @@ test.describe('tidy up', () => {
     const x = json(await call('one_create_page', { title: 'X page', parentId: home.id }))
     const y = json(await call('one_create_page', { title: 'Y page', parentId: home.id }))
     const z = json(await call('one_create_page', { title: 'Z page' }))
-    const kids = async () => (json(await call('one_get_page', { id: home.id })).children as Json[]).map((k) => k.title)
+    const kids = async () => (json(await call('one_get_page', { id: home.id })).children.items as Json[]).map((k) => k.title)
 
     const moved = json(await call('one_move_page', { id: z.id, parentId: home.id, before: x.id }))
     expect(moved).toMatchObject({ id: z.id, parentId: home.id, path: 'Home base', index: 0 })
@@ -802,7 +807,10 @@ test.describe('tidy up', () => {
     json(await call('one_create_property', { databaseId: db.id, name: 'Bought', type: 'date' }))
     const cal = json(await call('one_create_view', { databaseId: db.id, type: 'calendar', name: 'When' }))
     expect(cal.view).toMatchObject({ type: 'calendar', dateProperty: 'Bought' })
+    // all or nothing (Weg 4): the newest first — a later call on the same database (the property "Bought") is a change
+    // since for the earlier view change, so its Undo comes before that one's
     await undoLast(page, 'one_create_view')
+    await undoLast(page, 'one_create_property')
     await undoLast(page, 'one_update_view')
     expect(await wsEval(page, (s, id) => s.databases[id].views.map((v: any) => `${v.name}:${v.type}:${v.groupBy ? 'g' : '-'}`), db.id)).toEqual(['Table:table:-', 'Board:board:g']) // eslint-disable-line @typescript-eslint/no-explicit-any
 
