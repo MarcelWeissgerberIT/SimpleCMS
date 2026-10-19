@@ -1,6 +1,15 @@
 import type { Messages } from '@/shared/i18n'
 export const messages: Messages = {
   en: {
+    'features.localCoder.cardName': 'Local model',
+    'features.localCoder.configure': 'Set up local model',
+    'features.localCoder.change': 'Change connection',
+    'features.localCoder.test': 'Test coding',
+    'features.localCoder.state.none': 'Not set up',
+    'features.localCoder.state.saved': 'Saved · not checked',
+    'features.localCoder.state.checking': 'Working locally…',
+    'features.localCoder.state.ready': 'Connected',
+    'features.localCoder.state.refused': 'Check connection',
     'features.localCoder.title': 'Local coding assistant · MCP',
     'features.localCoder.lead': 'Send a task and pasted source code to the model on this computer. Answers stay here. It returns code and reviews; it does not change project files or run commands.',
     'features.localCoder.url': 'Local MCP address',
@@ -25,6 +34,15 @@ export const messages: Messages = {
     'features.localCoder.setup': 'Setup and API-key instructions',
   },
   de: {
+    'features.localCoder.cardName': 'Lokales Modell',
+    'features.localCoder.configure': 'Lokales Modell einrichten',
+    'features.localCoder.change': 'Verbindung ändern',
+    'features.localCoder.test': 'Coding testen',
+    'features.localCoder.state.none': 'Nicht eingerichtet',
+    'features.localCoder.state.saved': 'Gespeichert · nicht geprüft',
+    'features.localCoder.state.checking': 'Arbeitet lokal …',
+    'features.localCoder.state.ready': 'Verbunden',
+    'features.localCoder.state.refused': 'Verbindung prüfen',
     'features.localCoder.title': 'Lokaler Coding-Assistent · MCP',
     'features.localCoder.lead': 'Sende einen Auftrag und eingefügten Quelltext an das Modell auf diesem Rechner. Antworten bleiben hier. Es liefert Code und Reviews; es ändert keine Projektdateien und führt keine Befehle aus.',
     'features.localCoder.url': 'Lokale MCP-Adresse',

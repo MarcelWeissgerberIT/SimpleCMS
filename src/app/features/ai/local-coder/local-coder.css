@@ -1,8 +1,5 @@
 .local-coder {
   min-width: 0;
-  padding: 14px;
-  border: 1px solid var(--rule);
-  background: var(--paper);
 }
 .local-coder__field {
   display: grid;

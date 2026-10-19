@@ -1,6 +1,6 @@
 import { createServer, type Server } from 'node:http'
 import { coderServer } from '../../mcp/src/local-coder/server'
-import { test, expect, openApp, uiEval } from './fixtures'
+import { test, expect, openApp, uiEval, wsEval } from './fixtures'
 
 test('local MCP: rejects a bad key, stores the valid key in the vault, runs a task and reconnects after reload', async ({ page, errors }) => {
   test.setTimeout(90000)
@@ -23,6 +23,9 @@ test('local MCP: rejects a bad key, stores the valid key in the vault, runs a ta
   try {
     await openApp(page)
     await uiEval(page, s => s.openModal({ type: 'settings', tab: 'ai' }))
+    const card = page.getByTestId('settings-plate-local')
+    await expect(card).toHaveClass('pplate')
+    await card.getByRole('button', { name: 'Set up local model' }).click()
     const panel = page.getByTestId('local-coder')
     await panel.getByLabel('Local MCP address').fill(url)
     await panel.getByLabel('Your local API key', { exact: true }).fill('wrong-key-with-more-than-32-characters')
@@ -47,10 +50,30 @@ test('local MCP: rejects a bad key, stores the valid key in the vault, runs a ta
     expect(requests).toHaveLength(1)
     await page.reload()
     await uiEval(page, s => s.openModal({ type: 'settings', tab: 'ai' }))
-    await panel.getByRole('button', { name: 'Check & save connection' }).click()
-    await expect(panel.getByRole('status')).toContainText('Connected')
+    await expect(card.getByRole('status')).toContainText('Saved · not checked')
+    await card.getByRole('button', { name: 'Check (free)' }).click()
+    await expect(card.getByRole('status')).toContainText('Connected')
+    await card.getByRole('button', { name: 'Test coding' }).click()
     await panel.getByRole('button', { name: 'Forget connection' }).click()
     await expect(panel.getByRole('button', { name: 'Run locally' })).toBeDisabled()
+    await page.keyboard.press('Escape')
+    await expect(panel).not.toBeVisible()
+    await expect(card.getByRole('status')).toContainText('Not set up')
+    await wsEval(page, s => s.updateSettings({ language: 'de' }))
+    for (const [width, height] of [[1440, 900], [390, 844]]) {
+      await page.setViewportSize({ width, height })
+      for (const theme of ['light', 'dark']) {
+        await wsEval(page, (s, theme) => s.updateSettings({ theme }), theme)
+        await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
+        await card.scrollIntoViewIfNeeded()
+        await page.screenshot({ animations: 'disabled', path: test.info().outputPath(`local-card-${width}-${theme}.png`) })
+        await card.getByRole('button', { name: 'Lokales Modell einrichten' }).click()
+        await expect(panel.getByLabel('Lokale MCP-Adresse')).toBeVisible()
+        await page.screenshot({ animations: 'disabled', path: test.info().outputPath(`local-dialog-${width}-${theme}.png`) })
+        await page.keyboard.press('Escape')
+        await expect(panel).not.toBeVisible()
+      }
+    }
   } finally {
     await Promise.all([service, ollama].map(s => new Promise<void>(r => s.close(() => r()))))
   }

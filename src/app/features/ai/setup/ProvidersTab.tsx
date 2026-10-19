@@ -101,7 +101,6 @@ export function ProvidersTab({ section, server, add }: { section?: 'mcp' | 'memo
         </button>
       </div>
       <Plates />
-      <LocalCoder />
       <DeviceRows />
       <DataLines />
       <OwnData />
@@ -237,6 +236,7 @@ function Plates() {
           </ProviderPlate>
         )
       })}
+      <LocalCoder />
     </section>
   )
 }
