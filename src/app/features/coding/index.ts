@@ -108,7 +108,7 @@ export type { PermissionAsk, PermissionVerb } from './protocol'
 /** bumped whenever this device trusts another task version (Confirm …, also in another tab): a trust readout re-checks with it */
 export const useCodingTrustRev = (): number => useCodingLocal((s) => s.trustRev)
 /** admins: every member's cloud worker with Revoke (the workspace page's Automation section; renders nothing otherwise) */
-export { CloudWorkers as CodingCloudWorkers } from './CloudWorkers'
+export { CloudWorkers as CodingCloudWorkers } from './CloudWorkers.tsx'
 /**
  * The Patchbay's reads (features/patchbay — §1.3 gates, §1.4 the GIT exit, §1.7 live; the rules stay this area's own):
  *  - pipelineDbIdsOf(kind) (every live project of a kind, oldest first; team: private ones) · readPipeline(db) (the
