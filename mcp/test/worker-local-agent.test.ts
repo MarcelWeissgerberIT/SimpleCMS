@@ -62,3 +62,42 @@ test('built worker executes the chosen local agent without Claude or Codex CLI',
     assert.ok(!mock.bodies[0].tools.some((t: any) => t.function.name === 'one_task_permission'))
   } finally { tab?.close(); await worker.stop(); await mock.close() }
 })
+
+test('failed configured checks feed back into the model and a precise repair is checked again', async () => {
+  const root = tempDir('local-repair')
+  const call = (name: string, args: object) => ({ role: 'assistant', content: '', tool_calls: [{ function: { name, arguments: args } }] })
+  const answers = [call('write_file', { path: 'feature.txt', content: 'BROKEN' }), { role: 'assistant', content: 'Done.' }, call('read_file', { path: 'feature.txt' }), call('edit_file', { path: 'feature.txt', old_text: 'BROKEN', new_text: 'FIXED' }), { role: 'assistant', content: 'Repaired.' }]
+  const requests: any[] = []
+  const server = createServer(async (req, res) => {
+    let raw = ''; for await (const c of req) raw += c
+    requests.push(JSON.parse(raw))
+    res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ message: answers.shift() }))
+  })
+  await new Promise<void>(r => server.listen(0, '127.0.0.1', r))
+  let checks = 0
+  try {
+    const result = await runLocal({ agent: 'local', cwd: root, prompt: 'Repair the feature.', readOnly: false, maxSteps: 10, taskMcp: null, signal: new AbortController().signal, log: () => {}, env: { ONE_CODER_OLLAMA: `http://127.0.0.1:${(server.address() as { port: number }).port}` },
+      verify: async () => { checks++; const ok = readFileSync(join(root, 'feature.txt'), 'utf8') === 'FIXED'; return { ok, output: ok ? 'PASS' : 'FAIL feature.txt is broken' } },
+    })
+    assert.equal(result.ok, true, result.error)
+    assert.equal(checks, 2)
+    assert.match(result.text, /checks passed/)
+    assert.ok(requests.some(r => r.messages.some((m: any) => m.role === 'user' && m.content.includes('FAIL feature.txt'))))
+    assert.equal(readFileSync(join(root, 'feature.txt'), 'utf8'), 'FIXED')
+  } finally { await new Promise<void>(r => server.close(() => r())) }
+})
+
+test('a near-full model context is refused before executing its proposed file mutation', async () => {
+  const root = tempDir('local-context-limit')
+  const server = createServer(async (req, res) => {
+    for await (const _ of req) { /* consume request */ }
+    res.setHeader('Content-Type', 'application/json')
+    res.end(JSON.stringify({ prompt_eval_count: 32000, message: { role: 'assistant', content: '', tool_calls: [{ function: { name: 'write_file', arguments: { path: 'truncated.txt', content: 'must not be written' } } }] } }))
+  })
+  await new Promise<void>(r => server.listen(0, '127.0.0.1', r))
+  try {
+    const result = await runLocal({ agent: 'local', cwd: root, prompt: 'Implement.', readOnly: false, maxSteps: 4, taskMcp: null, signal: new AbortController().signal, log: () => {}, env: { ONE_CODER_OLLAMA: `http://127.0.0.1:${(server.address() as { port: number }).port}` } })
+    assert.equal(result.limited, true)
+    assert.equal(existsSync(join(root, 'truncated.txt')), false)
+  } finally { await new Promise<void>(r => server.close(() => r())) }
+})

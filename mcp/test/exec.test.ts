@@ -855,11 +855,15 @@ describe('exec — source guard', () => {
       'claude.ts: r.bin', // the same (StageContext.bin = WorkerOptions.bin)
       "clone.ts: 'git'",
       'clone.ts: cmd', // runCli: 'git' (an .exe only) · 'gh' · 'glab'
+      'codex.ts: bin', // findCodex(): person's CODEX_BIN, trusted app install or PATH; help probe
+      'codex.ts: bin', // the same selected CLI; task content travels over stdin
       "config.ts: 'git'",
       "git.ts: 'git'",
       "git.ts: 'ssh'", // sshHostName(): `ssh -G <host>` — a host name (SSH_HOST: never an option) the remote's address names
       'git.ts: cmd', // run(): 'gh' | 'glab'
       "gitenv.ts: 'git'",
+      'local-benchmark.ts: process.execPath', // opt-in benchmark: this Node, fixed check.mjs in a disposable fixture
+      'local-benchmark.ts: process.execPath', // syntax-check the fixed benchmark fixture before invoking the model
       'opener.ts: how.cmd', // cmd.exe from System32, or ONE_WORKER_BROWSER (the person's)
       'picker.ts: how.cmd', // powershell.exe from System32, or ONE_WORKER_PICKER (the person's)
       "proctree.ts: 'ps'", // macOS / Linux without /proc: the system's ps — what Claude Code left running (worker 1.11.0)
@@ -880,6 +884,12 @@ describe('exec — source guard', () => {
     const exec = readFileSync(join(dir, 'exec.ts'), 'utf8')
     assert.match(exec, /const line = cmdLine\(\[fromCwd\(r\.line\.argv\[0\]!, cwd\), \.\.\.r\.line\.argv\.slice\(1\)\]/)
     assert.deepEqual([...exec.matchAll(/\bspawn(?:Sync)?\(([^,]+),/g)].map((m) => m[1]).sort(), ['run.file', 'run.file', 'systemTool(\'taskkill\')'])
+    // The MCP SDK owns stdio spawning: resolve the person's named server outside the worktree,
+    // with the same PATH cleanup and shim rules; model arguments never select a program.
+    const localMcp = readFileSync(join(dir, 'local-mcp.ts'), 'utf8')
+    assert.match(localMcp, /resolveCommand\(expand\(entry.command, env\)/)
+    assert.match(localMcp, /cwd: homedir\(\)/)
+    assert.match(localMcp, /const childEnv = ownEnv\(/)
   })
 })
 

@@ -536,6 +536,7 @@ export class Worker {
           caps,
           bin: this.bin,
           taskMcp: { command: process.execPath, args: [this.opts.self, 'task-mcp'], env: { ONE_WORKER_TASK_URL: `http://127.0.0.1:${this.config.port}/task`, ONE_WORKER_TASK_TOKEN: token } },
+          localMcpServers: this.config.mcpServers,
           signal: run.abort.signal,
           log: (line) => this.logLine(task.id, line),
           git: (g) => this.link.send({ type: 'event', taskId: task.id, kind: 'git', git: g }),

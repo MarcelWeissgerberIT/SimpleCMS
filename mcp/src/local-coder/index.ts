@@ -19,6 +19,7 @@ const port = Number(process.env.ONE_CODER_PORT || 11435)
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('Invalid port')
 const origins = process.env.ONE_CODER_ORIGINS ? process.env.ONE_CODER_ORIGINS.split(',').map(s => s.trim()).filter(Boolean) : DEFAULT_ORIGINS
 const server = coderServer({ key: () => readFileSync(keyFile, 'utf8'), origins, port,
+  mcpServers: (process.env.ONE_CODER_MCP_SERVERS ?? '').split(/[\s,]+/).filter(Boolean),
   model: process.env.ONE_CODER_MODEL || 'marcel-coder', ollama: process.env.ONE_CODER_OLLAMA || 'http://127.0.0.1:11434' })
 server.listen(port, '127.0.0.1', () => console.error(`One Local Coder: http://127.0.0.1:${port}/mcp\nAPI key file: ${keyFile}`))
 server.on('error', error => { console.error(error.message); process.exit(1) })

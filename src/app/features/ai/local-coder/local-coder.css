@@ -28,3 +28,16 @@
   font-size: var(--text-sm);
   line-height: 1.5;
 }
+.local-coder__attachments {
+  margin: 16px 0;
+  padding: 12px;
+  min-width: 0;
+  border: 1px solid var(--rule);
+}
+.local-coder__attachments legend { font-size: var(--text-sm); font-weight: 650; }
+.local-coder__files { list-style: none; padding: 0; margin: 12px 0 0; max-height: 360px; overflow: auto; }
+.local-coder__files > li { padding: 8px 0; border-top: 1px solid var(--rule); }
+.local-coder__file { display: flex; align-items: start; gap: 6px; }
+.local-coder__file label { display: flex; align-items: start; gap: 8px; flex: 1; min-width: 0; font-size: var(--text-sm); overflow-wrap: anywhere; }
+.local-coder__files summary, .local-coder__context summary { cursor: pointer; font-size: var(--text-sm); }
+.local-coder__context { margin-bottom: 14px; }

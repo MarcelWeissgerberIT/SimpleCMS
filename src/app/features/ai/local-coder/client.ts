@@ -61,7 +61,7 @@ export async function coderCall(url: string, key: string, method: string, params
   return message.result
 }
 
-export async function checkCoder(url: string, key: string, signal?: AbortSignal): Promise<void> {
+export async function checkCoder(url: string, key: string, signal?: AbortSignal): Promise<{ model: string; mcpServers: string[] }> {
   const init = await coderCall(url, key, 'initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'simplecms-one', version: '1.0.0' } }, signal)
   if (init.serverInfo?.name !== 'one-local-coder') throw new CoderError('protocol')
   await coderCall(url, key, 'notifications/initialized', {}, signal)
@@ -69,6 +69,11 @@ export async function checkCoder(url: string, key: string, signal?: AbortSignal)
   if (!['coding_task', 'coding_status'].every(name => list.tools?.some((t: { name: string }) => t.name === name))) throw new CoderError('protocol')
   const status = await coderCall(url, key, 'tools/call', { name: 'coding_status', arguments: {} }, signal)
   if (status.isError) throw new CoderError('offline')
+  try {
+    const info = JSON.parse(status.content?.find((p: { type: string }) => p.type === 'text')?.text ?? '')
+    if (typeof info.model !== 'string') throw new Error('model')
+    return { model: info.model, mcpServers: Array.isArray(info.mcpServers) ? info.mcpServers.filter((s: unknown): s is string => typeof s === 'string').slice(0, 20) : [] }
+  } catch { throw new CoderError('protocol') }
 }
 
 export async function codingTask(url: string, key: string, task: string, context: string, signal?: AbortSignal): Promise<string> {

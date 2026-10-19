@@ -42,6 +42,7 @@ export interface StageContext {
   bin: string
   /** the task tools for Claude Code: { command, args, env } of `one-worker.mjs task-mcp` (null = none) */
   taskMcp: { command: string; args: string[]; env: Record<string, string> } | null
+  localMcpServers?: string[]
   signal: AbortSignal
   /** a line for One's log (scrubbed here) */
   log: (line: LogLine) => void
@@ -604,14 +605,31 @@ async function alternateStage(ctx: StageContext, scrub: Scrubber, log: Log, bran
   const readOnly = task.stage.kind !== 'implement' || (repo.claude.permissionMode.implement ?? task.stage.permissionMode) === 'plan'
   const changes = task.stage.kind === 'doc' && branch ? await branchDiff(repo, branch, wt?.dir ?? null).catch(() => null) : null
   const prompt = buildPrompt(task, repo, branch ?? '', markerCode(), changes ? { text: changes.text, worktree: !!wt } : null)
-    + '\n\nUse your native file and shell tools inside this worktree. One task tools are available through MCP. The read-only sandbox applies to planning and documents. Ask through one_task_ask if essential information is missing.'
+    + `\n\nUse your native ${agent === 'local' ? 'file, search and configured check' : 'file and shell'} tools inside this worktree. One task tools are available through MCP. The read-only sandbox applies to planning and documents. Ask through one_task_ask if essential information is missing.`
   log('info', `Starting ${agent === 'local' ? 'local Ollama coding agent' : 'Codex'} (${readOnly ? 'read only' : 'workspace write'}).`)
   if (agent === 'codex') log('info', 'Codex uses this computer’s Codex login. Dollar cost is not supplied by Codex CLI; One does not estimate it.')
   const max = turnsOf(task, repo)
   const live = wt && !readOnly ? liveDiff(ctx, wt, scrub) : null
   try {
-    const res = await (agent === 'local' ? runLocal : runCodex)({ agent, cwd: dir, prompt, readOnly, maxSteps: max, signal: ctx.signal, taskMcp: ctx.taskMcp, progress: ctx.progress,
-      log: line => ctx.log({ ...line, s: scrub.text(line.s) }) })
+    const options = { agent, cwd: dir, prompt, readOnly, maxSteps: max, signal: ctx.signal, taskMcp: ctx.taskMcp, progress: ctx.progress,
+      log: (line: LogLine) => ctx.log({ ...line, s: scrub.text(line.s) }) }
+    const res = agent === 'local' ? await runLocal({ ...options,
+      mcpServers: repo.claude.mcpServers.length ? repo.claude.mcpServers : ctx.localMcpServers,
+      verify: !readOnly && (repo.analyzeCommand?.length || repo.testCommand?.length) ? async signal => {
+        const outputs: string[] = []
+        let ok = true
+        for (const [name, command] of [['analysis', repo.analyzeCommand], ['tests', repo.testCommand]] as const) {
+          if (!command?.length) continue
+          signal.throwIfAborted()
+          log('test', `Local verification: ${name}…`)
+          const checked = await (name === 'analysis' ? runAnalysis : runTests)(repo, dir, signal, undefined, s => scrub.text(s))
+          outputs.push(`${name}: ${checked.ok ? 'PASS' : 'FAIL'}\n${checked.output.slice(-6000)}`)
+          ok &&= checked.ok
+          if (checked.notStarted) return { ok: false, output: outputs.join('\n'), unavailable: true }
+        }
+        return { ok, output: outputs.join('\n') }
+      } : undefined,
+    }) : await runCodex(options)
     const base: Partial<StageOutcome> = { ...(branch ? { branch } : {}), turns: res.steps, ...(wt ? { git: await gitSnapshot(ctx, wt, scrub) } : {}) }
     if (res.stopped) return { ...base, status: 'stopped', error: 'Stopped in One.' }
     if (ctx.question()) return { ...base, status: 'question', question: scrub.text(ctx.question()!) }
