@@ -19,7 +19,7 @@ export interface ProviderInfo {
   /** the company that receives a request routed here ("Anthropic") */
   company: string
   /** the code plate (the provider is told by letters, never by colour) */
-  code: 'CL' | 'OA' | 'OR' | 'LO'
+  code: 'CL' | 'OA' | 'OR'
   /** the plate's subtitle */
   sub: Bilingual
   /** the API host requests go to */
@@ -119,46 +119,17 @@ const OPENROUTER: OpenRouterInfo = {
   pluginsUrl: 'https://openrouter.ai/settings/plugins',
 }
 
-/**
- * A model server on this computer (OpenAI-compatible: Ollama, LM Studio, llama.cpp …) — no company, no account, no key
- * (an optional placeholder only). Its address is the person's own (settings.ai.local — local.ts accepts loopback only);
- * `host` is the default. It is not one of the cloud providers below: no setup step, no plate in their row, no hard limit.
- */
-const LOCAL: ProviderInfo = {
-  id: 'local',
-  name: 'Local',
-  company: 'this computer',
-  code: 'LO',
-  sub: { en: 'OPENAI-COMPATIBLE', de: 'OPENAI-KOMPATIBEL' },
-  host: '127.0.0.1',
-  consoleUrl: '',
-  keyUrl: '',
-  limitUrl: '',
-  keyPrefix: '',
-  shipped: true,
-  privacy: {
-    en: 'Requests go from this browser to the program at <address> on this computer; nothing goes to One or a provider. One does not see what that program does with them.',
-    de: 'Anfragen gehen von diesem Browser an das Programm unter <Adresse> auf diesem Rechner; nichts geht an One oder einen Anbieter. Was das Programm damit macht, sieht One nicht.',
-  },
-  hardLimit: { en: 'None — it runs on this computer', de: 'Keins — es läuft auf diesem Rechner' },
-}
-
-/** Registry order (Claude · OpenAI · OpenRouter) — every list of providers shows them in this order. The local model
- *  server is not in it (it is no provider one sets up with a key — Settings › AI has its own plate). */
+/** Registry order (Claude · OpenAI · OpenRouter) — every list of providers shows them in this order. */
 export const PROVIDER_ORDER: readonly ProviderId[] = ['anthropic', 'openai', 'openrouter']
 
-export const PROVIDERS: { readonly anthropic: ProviderInfo; readonly openai: ProviderInfo; readonly openrouter: OpenRouterInfo; readonly local: ProviderInfo } = {
+export const PROVIDERS: { readonly anthropic: ProviderInfo; readonly openai: ProviderInfo; readonly openrouter: OpenRouterInfo } = {
   anthropic: ANTHROPIC,
   openai: OPENAI,
   openrouter: OPENROUTER,
-  local: LOCAL,
 }
 
 /** A provider's entry (an unknown id reads as Claude's — the default path). */
-export const providerInfo = (p: ProviderId | string | null | undefined): ProviderInfo => (p === 'openai' ? OPENAI : p === 'openrouter' ? OPENROUTER : p === 'local' ? LOCAL : ANTHROPIC)
-
-/** The local plate's privacy sentence with the address it sends to. */
-export const localPrivacy = (lang: 'en' | 'de', address: string): string => LOCAL.privacy[lang].replace(lang === 'de' ? '<Adresse>' : '<address>', address)
+export const providerInfo = (p: ProviderId | string | null | undefined): ProviderInfo => (p === 'openai' ? OPENAI : p === 'openrouter' ? OPENROUTER : ANTHROPIC)
 
 /**
  * The provider a pasted key belongs to when it is ANOTHER one than `p` (its known prefix) — a key in the wrong tab is
@@ -166,7 +137,7 @@ export const localPrivacy = (lang: 'en' | 'de', address: string): string => LOCA
  */
 export function keyOfOther(p: ProviderId, key: string): ProviderId | null {
   const k = key.trim()
-  return PROVIDER_ORDER.find((q) => q !== p && !!providerInfo(q).keyPrefix && k.startsWith(providerInfo(q).keyPrefix)) ?? null
+  return PROVIDER_ORDER.find((q) => q !== p && k.startsWith(providerInfo(q).keyPrefix)) ?? null
 }
 
 /** The providers requests can go to in this build. */

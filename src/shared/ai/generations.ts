@@ -13,8 +13,6 @@ export const GEN = {
   claudeLimits: 2,
   /** a day / month budget of the workspace or this browser, or the coding worker governed (Regler G1) */
   budget: 3,
-  /** this device's rule names the local model server (provider 'local' — the AI terminal, local slice 1) */
-  localRoutes: 4,
 } as const
 
 export type GenName = keyof typeof GEN
@@ -29,7 +27,6 @@ export type GenTable = Readonly<Partial<Record<string, number>>>
 export const GEN_ENFORCED: Readonly<Record<GenName, string>> = {
   claudeLimits: 'src/shared/ai/policy.ts',
   budget: 'src/app/features/governor/install.ts',
-  localRoutes: 'src/app/features/ai/core/resolve.ts',
 }
 
 /**

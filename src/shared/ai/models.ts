@@ -4,17 +4,13 @@
  * model can do. No OpenRouter model, maker or slug is named here — those come from the person's catalogue (the Jev
  * Router's id lives in jev.ts, the decision to offer it in owner.ts).
  */
-import type { Caps, CloudProviderId, Effort, ModelInfo, ProviderId, Route } from './types.ts'
+import type { Caps, Effort, ModelInfo, ProviderId, Route } from './types.ts'
 import { priceRow } from './prices.ts'
 import { isJevRouter } from './jev.ts'
 import { OWNER } from './owner.ts'
 import { providerInfo } from './providers.ts'
-import { LOCAL_MODEL_RE } from './local.ts'
 
-/** Every provider a stored route may name — 'local' only in this device's rules and the ledger (local.ts). */
-export const STORED_PROVIDERS: readonly ProviderId[] = ['anthropic', 'openai', 'openrouter', 'local']
-/** The providers a workspace's rules (policy, limits, restricted pages) may name: never 'local'. */
-export const WORKSPACE_PROVIDERS: readonly CloudProviderId[] = ['anthropic', 'openai', 'openrouter']
+export const STORED_PROVIDERS: readonly ProviderId[] = ['anthropic', 'openai', 'openrouter']
 export const isProviderId = (v: unknown): v is ProviderId => typeof v === 'string' && (STORED_PROVIDERS as readonly string[]).includes(v)
 export const EFFORTS: readonly Effort[] = ['low', 'medium', 'high']
 
@@ -122,8 +118,6 @@ const ID_RE: Record<ProviderId, RegExp> = {
   openai: /^(ft:[a-z0-9][A-Za-z0-9._:-]{0,119}|[a-z0-9][a-z0-9._:-]{0,95})$/,
   // vendor/model[:variant] — no '~' aliases, no '@' presets
   openrouter: /^[a-z0-9][a-z0-9._-]{0,47}\/[a-z0-9][a-z0-9._:-]{0,95}$/,
-  // a model name as the local server lists it (local.ts LOCAL_MODEL_RE)
-  local: LOCAL_MODEL_RE,
 }
 
 /** What One knows of a catalogue row when it judges a slug (all optional). */

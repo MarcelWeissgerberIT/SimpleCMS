@@ -5,13 +5,8 @@
  */
 import type { AIErrorCode } from './errors.ts'
 
-/**
- * Stored anywhere (routes, rules, the ledger). 'local' = a model server on this computer (OpenAI-compatible, e.g.
- * Ollama): this device's rules and the ledger only — never a workspace rule or an agent's route (local.ts).
- */
-export type ProviderId = 'anthropic' | 'openai' | 'openrouter' | 'local'
-/** The providers in another company's cloud (a workspace may name them; 'local' never). */
-export type CloudProviderId = Exclude<ProviderId, 'local'>
+/** Stored anywhere (routes, rules, the ledger). */
+export type ProviderId = 'anthropic' | 'openai' | 'openrouter'
 /** Runtime only — 'demo' (canned answers) is never stored; sanitizers refuse it. */
 export type RuntimeProviderId = ProviderId | 'demo'
 export type Effort = 'low' | 'medium' | 'high'
@@ -288,19 +283,7 @@ export interface DeviceAI {
   roles?: Partial<Record<ProviderId, { fast?: string; standard?: string; deep?: string }>>
   /** Jev's switches on this device (slice SJ: `verify` = "Belegt?" under answers; S6: `compare`) — absent = off */
   jev?: { verify?: boolean; compare?: boolean }
-  /** the local model server on this computer (local.ts — loopback only; never synced, never in a backup) */
-  local?: LocalConfig
   gen?: number
-}
-
-/** settings.ai.local: where the local model server answers and which of its models One asks. */
-export interface LocalConfig {
-  /** the OpenAI-compatible base URL, loopback only, path ending in /v1 (local.ts localBase) */
-  base: string
-  /** the model name as the server lists it */
-  model: string
-  /** the context window the server runs the model with (tokens) */
-  context: number
 }
 
 /* ------------------------------------------------------------------ */
@@ -423,9 +406,6 @@ export interface Turn {
   /** characters that streamed in (text, reasoning, tool input) */
   streamedChars: number
   annotations?: Annotation[]
-  /** tool calls whose arguments were not JSON (a tolerant parser keeps them with `{}` input — the loop answers each
-   *  with an error result instead of running it) */
-  invalidCalls?: string[]
 }
 
 /** A provider key's credit as the provider reports it (no text is ever sent to read it). */
