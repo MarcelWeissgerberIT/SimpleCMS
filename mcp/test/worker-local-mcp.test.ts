@@ -11,6 +11,7 @@ import { runLocal } from '../src/worker/local-agent.ts'
 import { cleanupAll, tempDir } from './worker-helpers.ts'
 
 after(cleanupAll)
+const agentTools = ['atlas_agent_list', 'atlas_agent_create', 'atlas_agent_update', 'atlas_agent_block', 'atlas_agent_revoke', 'atlas_agent_token', 'atlas_agent_token_revoke']
 test('external MCP tools cooperate in one task; namespaced calls, auth redaction and read-only policy hold', async () => {
   const secret = 'test-mcp-private-token-not-model-context'
   const calls: string[] = []
@@ -23,6 +24,9 @@ test('external MCP tools cooperate in one task; namespaced calls, auth redaction
     })
     mcp.registerTool('atlas_create', { description: 'Create a record', inputSchema: { title: z.string() } }, async () => {
       calls.push('create'); return { content: [{ type: 'text', text: 'Created' }] }
+    })
+    for (const name of agentTools) mcp.registerTool(name, { description: name, inputSchema: {} }, async () => {
+      calls.push(name); return { content: [{ type: 'text', text: '[]' }] }
     })
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true })
     res.on('close', () => { void transport.close(); void mcp.close() })
@@ -42,6 +46,12 @@ test('external MCP tools cooperate in one task; namespaced calls, auth redaction
     await readOnly.connect(['atlas', 'docs'], env, AbortSignal.timeout(10000))
     assert.equal(readOnly.search('atlas_get')[0]?.name, 'atlas_get')
     assert.equal(readOnly.search('atlas_create').length, 0)
+    assert.equal(readOnly.search('atlas_agent_list').find(t => t.name === 'atlas_agent_list')?.readOnly, true)
+    await readOnly.call('atlas', 'atlas_agent_list', {}, new AbortController().signal)
+    for (const name of agentTools.slice(1)) {
+      assert.ok(!readOnly.search(name).some(t => t.name === name))
+      await assert.rejects(readOnly.call('atlas', name, {}, new AbortController().signal))
+    }
     assert.ok(readOnly.search('docs atlas_get').some(t => t.server === 'docs' && t.readOnly))
     await assert.rejects(readOnly.call('atlas', 'atlas_create', { title: 'no' }, new AbortController().signal))
     assert.ok(!(await readOnly.call('atlas', 'atlas_get', { ref: 42 }, new AbortController().signal)).includes(secret))
@@ -68,6 +78,12 @@ test('external MCP tools cooperate in one task; namespaced calls, auth redaction
     assert.ok(!calls.includes('create'))
     assert.ok(JSON.stringify(bodies).includes('Record 43'))
     assert.ok(!JSON.stringify(bodies).includes(secret))
+    assert.ok(!calls.some(name => agentTools.slice(1).includes(name)))
+    const implementation = new LocalMcp(false)
+    try {
+      await implementation.connect(['atlas'], env, AbortSignal.timeout(10000))
+      for (const name of agentTools) assert.ok(implementation.search(name).some(t => t.name === name), name)
+    } finally { await implementation.close() }
   } finally {
     await readOnly.close()
     await Promise.all([server, ...(ollama ? [ollama] : [])].map(s => new Promise<void>(r => s.close(() => r()))))

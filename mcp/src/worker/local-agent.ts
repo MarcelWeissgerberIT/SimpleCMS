@@ -53,7 +53,7 @@ export async function runLocal(opts: LocalRun): Promise<CodexResult> {
       opts.log({ t: Date.now(), k: 'info', s: external.description() })
     }
     if (opts.taskMcp) {
-      client = new Client({ name: 'one-local-agent', version: '1.15.0' })
+      client = new Client({ name: 'one-local-agent', version: '1.15.1' })
       const env = Object.fromEntries(Object.entries({ ...(opts.env ?? process.env), ...opts.taskMcp.env }).filter((e): e is [string, string] => typeof e[1] === 'string'))
       transport = new StdioClientTransport({ command: opts.taskMcp.command, args: opts.taskMcp.args, env, stderr: 'ignore' })
       await client.connect(transport, { timeout: 15000 })

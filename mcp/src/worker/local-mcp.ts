@@ -12,7 +12,7 @@ const object = (v: unknown): v is Record<string, any> => !!v && typeof v === 'ob
 const strings = (v: unknown): v is Record<string, string> => object(v) && Object.values(v).every(s => typeof s === 'string')
 const expand = (s: string, env: NodeJS.ProcessEnv) => s.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}/g, (_, key, fallback) => env[key] ?? fallback ?? (() => { throw new Error('Required MCP environment variable is missing.') })())
 // Older Atlas deployments omit MCP annotations. Only these known reading operations are admitted in a plan.
-const ATLAS_READ = new Set(['atlas_search', 'atlas_get', 'atlas_query', 'atlas_context', 'atlas_briefing', 'atlas_constraints', 'atlas_children', 'atlas_sprint_report', 'atlas_setup_changelog', 'atlas_setup_checkup', 'atlas_code_resolve', 'atlas_tenant_search'])
+const ATLAS_READ = new Set(['atlas_search', 'atlas_get', 'atlas_query', 'atlas_context', 'atlas_briefing', 'atlas_constraints', 'atlas_children', 'atlas_sprint_report', 'atlas_setup_changelog', 'atlas_setup_checkup', 'atlas_code_resolve', 'atlas_tenant_search', 'atlas_agent_list'])
 
 /** Named personal MCP connections only. Never loads a repository's executable .mcp.json. */
 export class LocalMcp {
@@ -40,7 +40,7 @@ export class LocalMcp {
       try {
         const entry: unknown = config[name]
         if (!object(entry) || entry.disabled === true) throw new Error('Missing server')
-        client = new Client({ name: 'one-local-coder', version: '1.15.0' })
+        client = new Client({ name: 'one-local-coder', version: '1.15.1' })
         if (entry.type === 'http' || entry.type === 'sse' || entry.url) {
           const url = new URL(expand(String(entry.url || ''), env))
           if (url.username || url.password || url.hash || !['https:', 'http:'].includes(url.protocol) || (url.protocol === 'http:' && !['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname))) throw new Error('Use HTTPS or loopback MCP')

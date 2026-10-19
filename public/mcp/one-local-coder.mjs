@@ -42649,7 +42649,7 @@ var strings = (v) => object3(v) && Object.values(v).every((s) => typeof s === "s
 var expand = (s, env) => s.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}/g, (_, key, fallback) => env[key] ?? fallback ?? (() => {
   throw new Error("Required MCP environment variable is missing.");
 })());
-var ATLAS_READ = /* @__PURE__ */ new Set(["atlas_search", "atlas_get", "atlas_query", "atlas_context", "atlas_briefing", "atlas_constraints", "atlas_children", "atlas_sprint_report", "atlas_setup_changelog", "atlas_setup_checkup", "atlas_code_resolve", "atlas_tenant_search"]);
+var ATLAS_READ = /* @__PURE__ */ new Set(["atlas_search", "atlas_get", "atlas_query", "atlas_context", "atlas_briefing", "atlas_constraints", "atlas_children", "atlas_sprint_report", "atlas_setup_changelog", "atlas_setup_checkup", "atlas_code_resolve", "atlas_tenant_search", "atlas_agent_list"]);
 var LocalMcp = class {
   clients = /* @__PURE__ */ new Map();
   tools = [];
@@ -42679,7 +42679,7 @@ var LocalMcp = class {
       try {
         const entry = config2[name];
         if (!object3(entry) || entry.disabled === true) throw new Error("Missing server");
-        client = new Client({ name: "one-local-coder", version: "1.15.0" });
+        client = new Client({ name: "one-local-coder", version: "1.15.1" });
         if (entry.type === "http" || entry.type === "sse" || entry.url) {
           const url2 = new URL(expand(String(entry.url || ""), env));
           if (url2.username || url2.password || url2.hash || !["https:", "http:"].includes(url2.protocol) || url2.protocol === "http:" && !["127.0.0.1", "localhost", "[::1]"].includes(url2.hostname)) throw new Error("Use HTTPS or loopback MCP");
@@ -42799,7 +42799,7 @@ async function runLocal(opts) {
       opts.log({ t: Date.now(), k: "info", s: external.description() });
     }
     if (opts.taskMcp) {
-      client = new Client({ name: "one-local-agent", version: "1.15.0" });
+      client = new Client({ name: "one-local-agent", version: "1.15.1" });
       const env = Object.fromEntries(Object.entries({ ...opts.env ?? process.env, ...opts.taskMcp.env }).filter((e) => typeof e[1] === "string"));
       transport = new StdioClientTransport({ command: opts.taskMcp.command, args: opts.taskMcp.args, env, stderr: "ignore" });
       await client.connect(transport, { timeout: 15e3 });
