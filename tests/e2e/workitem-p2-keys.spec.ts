@@ -10,8 +10,14 @@ import type { BrowserContext, CDPSession, Locator, Page } from '@playwright/test
 import type { JSONContent } from '@tiptap/core'
 import { Client } from '../../mcp/node_modules/@modelcontextprotocol/sdk/dist/esm/client/index.js'
 import { StdioClientTransport } from '../../mcp/node_modules/@modelcontextprotocol/sdk/dist/esm/client/stdio.js'
-import { test, expect, openApp, wsEval, createPage, gotoPage, editorOf, flush, sse, MOD } from './fixtures'
-import { call, mockAgent, openTerminal, prompt, say, setKey, terminal, type AnyState } from './helpers/terminal'
+import { test, expect, openApp, wsEval, createPage, gotoPage, editorOf, flush, sse, MOD, unfoldDone } from './fixtures'
+import { call, mockAgent, openTerminal as openTerm, prompt, say, setKey, terminal, type AnyState } from './helpers/terminal'
+
+/** The terminal, with applied / discarded proposals unfolded (they fold into a summary line otherwise). */
+async function openTerminal(page: Page) {
+  await openTerm(page)
+  await unfoldDone(page)
+}
 
 const p = (text: string): JSONContent => (text ? { type: 'paragraph', content: [{ type: 'text', text }] } : { type: 'paragraph' })
 const doc = (...content: JSONContent[]): JSONContent => ({ type: 'doc', content })

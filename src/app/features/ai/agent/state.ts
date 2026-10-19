@@ -139,9 +139,11 @@ export interface AgentState {
   applying: boolean
   /** the Regler's halt card: the running task waits for E · H · Mod+. (null: none) */
   halt: HaltState | null
+  /** the review list's applied / discarded rows are unfolded (per conversation, in memory; /new folds them) */
+  doneShown: boolean
 }
 
-export const initialAgentState = (): Pick<AgentState, 'status' | 'turns' | 'steps' | 'changes' | 'usage' | 'live' | 'calls' | 'mcp' | 'echo' | 'unseen' | 'memCards' | 'memOffNext' | 'media' | 'applying' | 'halt'> => ({
+export const initialAgentState = (): Pick<AgentState, 'status' | 'turns' | 'steps' | 'changes' | 'usage' | 'live' | 'calls' | 'mcp' | 'echo' | 'unseen' | 'memCards' | 'memOffNext' | 'media' | 'applying' | 'halt' | 'doneShown'> => ({
   status: 'idle',
   turns: [],
   steps: [],
@@ -157,6 +159,7 @@ export const initialAgentState = (): Pick<AgentState, 'status' | 'turns' | 'step
   media: [],
   applying: false,
   halt: null,
+  doneShown: false,
 })
 
 /* ---------- dock height (a per-device convenience: localStorage, may be unavailable) ---------- */

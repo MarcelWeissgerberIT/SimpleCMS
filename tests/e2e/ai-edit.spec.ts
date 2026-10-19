@@ -8,7 +8,7 @@
  */
 import type { BrowserContext, Page } from '@playwright/test'
 import type { JSONContent } from '@tiptap/core'
-import { test, expect, openApp, gotoPage, createPage, wsEval, editorOf, doc, para, heading, flush, MOD } from './fixtures'
+import { test, expect, openApp, gotoPage, createPage, wsEval, editorOf, doc, para, heading, flush, MOD, showDone } from './fixtures'
 import { diffDocs, docDiffStats, foldRows, wordRuns, type DiffNode } from '../../src/app/features/history/docDiff'
 
 type AnyState = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -63,7 +63,8 @@ async function mockAgent(ctx: BrowserContext, script: Step[]): Promise<AnyState[
 const setKey = (page: Page) => wsEval(page, (s) => s.updateSettings({ aiApiKey: 'sk-ant-e2e-test-key' }))
 const terminal = (page: Page) => page.getByRole('region', { name: 'AI terminal' })
 const prompt = (page: Page) => terminal(page).getByRole('textbox', { name: 'Task for the agent' })
-const change = (page: Page, n: number) => terminal(page).locator('.term-change').nth(n - 1)
+// by its number (#n): applied and discarded proposals fold below the open ones
+const change = (page: Page, n: number) => terminal(page).locator(`.term-change[data-n="${n}"]`)
 
 async function openTerminal(page: Page) {
   await page.keyboard.press(`${MOD}+j`)
@@ -188,6 +189,7 @@ test.describe('edit_page: Claude changes existing content after the OK', () => {
 
     // discard the delete, apply the rest (one batch)
     await change(page, 2).getByRole('button', { name: 'Discard #2' }).click()
+    await showDone(page)
     await expect(change(page, 2)).toHaveAttribute('data-status', 'discarded')
     await terminal(page).locator('.term-bar').getByRole('button', { name: 'Apply all' }).click()
     await expect(change(page, 1)).toHaveAttribute('data-status', 'applied')
@@ -252,6 +254,7 @@ test.describe('edit_page: Claude changes existing content after the OK', () => {
     await expect(change(page, 1).locator('.agent-edit__note')).toContainText('Changed since it was proposed')
 
     await terminal(page).locator('.term-bar').getByRole('button', { name: 'Apply all' }).click()
+    await showDone(page)
     await expect(change(page, 2)).toHaveAttribute('data-status', 'applied')
     await expect(change(page, 1)).toHaveAttribute('data-status', 'failed')
     await expect(change(page, 1).locator('.term-change__error')).toContainText('Skipped: the text changed after Claude proposed this')
@@ -284,6 +287,7 @@ test.describe('edit_page: Claude changes existing content after the OK', () => {
     await expect(change(page, 1).locator('ul li .ddiff-ins')).toHaveText(['and signup bugs'])
     await expect(change(page, 2).locator('ul li[data-diff="add"]')).toHaveText('Write the release notes')
     await terminal(page).locator('.term-bar').getByRole('button', { name: 'Apply all' }).click()
+    await showDone(page)
     await expect(change(page, 2)).toHaveAttribute('data-status', 'applied')
     await expect.poll(() => blocksOf(page, id)).toEqual(['Weekly sync', P1, P2, P3, 'Ship the beta|Write the release notes|Fix the login and signup bugs'])
     // applied: what each edit did, still inside the list
@@ -363,6 +367,7 @@ test.describe('edit_page: Claude changes existing content after the OK', () => {
     await expect(c.locator('.ddiff-del')).toContainText(['Old', 'will be'])
     await expect(c.locator('.ddiff-ins')).toContainText(['New', 'was'])
     await c.getByRole('button', { name: 'Apply #1' }).click()
+    await showDone(page)
     await expect(c).toHaveAttribute('data-status', 'applied')
     expect(await blocksOf(page, id)).toEqual(['Memo', 'New intro line.', 'Old body text that was rewritten.'])
     await expect.poll(async () => (await snapshotsOf(page, id)).map((m) => m.reason)).toEqual(['ai'])

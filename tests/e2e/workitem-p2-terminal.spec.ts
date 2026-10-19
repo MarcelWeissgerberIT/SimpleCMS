@@ -6,8 +6,8 @@
  */
 import type { Page } from '@playwright/test'
 import type { JSONContent } from '@tiptap/core'
-import { test, expect, openApp, wsEval, createPage, gotoPage, editorOf, flush, pageIdByTitle } from './fixtures'
-import { call, mockAgent, openTerminal, prompt, resultText, run, say, setKey, terminal, type AnyState } from './helpers/terminal'
+import { test, expect, openApp, wsEval, createPage, gotoPage, editorOf, flush, pageIdByTitle, unfoldDone } from './fixtures'
+import { call, mockAgent, openTerminal as openTerm, prompt, resultText, run, say, setKey, terminal, type AnyState } from './helpers/terminal'
 import { expectLane, markRec, startRecorder } from './helpers/recorder'
 import { ledger } from './helpers/aiFlows'
 
@@ -31,7 +31,14 @@ const pageContent = (page: Page, id: string) => wsEval(page, (s, id) => s.pages[
 const people = (page: Page) => wsEval(page, (s) => Object.fromEntries((s.people as Array<{ id: string; name: string }>).map((x) => [x.name, x.id])))
 const peopleCount = (page: Page) => wsEval(page, (s) => s.people.length as number)
 const changes = (page: Page) => page.evaluate(() => ((window as unknown as { __oneTerm: { state: { getState(): { changes: AnyState[] } } } }).__oneTerm.state.getState().changes))
-const change = (page: Page, n: number) => terminal(page).locator('.term-change').nth(n - 1)
+// by its number (#n): open proposals come first, the applied / discarded ones below the summary line
+const change = (page: Page, n: number) => terminal(page).locator(`.term-change[data-n="${n}"]`)
+
+/** The terminal, with applied / discarded proposals unfolded (they fold into a summary line otherwise). */
+async function openTerminal(page: Page) {
+  await openTerm(page)
+  await unfoldDone(page)
+}
 type TermSeam = { applyStaged(ids?: string[], opts?: { quiet?: boolean }): Promise<{ res: AnyState | null }> }
 /** Apply staged changes through the terminal's apply step (quiet: no toasts) — what the review's keys do. */
 const applyAlone = (page: Page, ...ids: string[]) =>

@@ -11,7 +11,7 @@
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import type { BrowserContext, Page, Route } from '@playwright/test'
-import { test, expect, openApp, wsEval, uiEval, createPage, gotoPage, editorOf, doc, para, MOD, flush, openExportDialog } from './fixtures'
+import { test, expect, openApp, wsEval, uiEval, createPage, gotoPage, editorOf, doc, para, MOD, flush, openExportDialog, showDone } from './fixtures'
 
 type AnyState = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -284,6 +284,7 @@ test.describe('media from MCP servers (mocked Claude API, made-up hosts)', () =>
     // staged, not written yet
     expect(await blocksOf(page, id, 'image')).toHaveLength(0)
     await change.getByRole('button', { name: /^Apply #/ }).click()
+    await showDone(page)
     await expect(change).toHaveAttribute('data-status', 'applied')
     await expect.poll(() => blocksOf(page, id, 'image').then((x) => x.length)).toBe(1)
     const [img] = await blocksOf(page, id, 'image')

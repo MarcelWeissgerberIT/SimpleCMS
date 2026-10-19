@@ -7,7 +7,7 @@
  * Claude is mocked — never api.anthropic.com.
  */
 import type { Locator, Page } from '@playwright/test'
-import { test, expect, openApp, gotoPage, wsEval, doc, para, MOD } from './fixtures'
+import { test, expect, openApp, gotoPage, wsEval, doc, para, MOD, showDone } from './fixtures'
 
 type AnyState = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -264,6 +264,7 @@ test.describe('version history: database entries keep their properties', () => {
     await expect(change).toHaveCount(1, { timeout: 20_000 })
     expect(await versions(page, row)).toEqual([])
     await change.getByRole('button', { name: 'Apply #1' }).click()
+    await showDone(page)
     await expect(change).toHaveAttribute('data-status', 'applied')
     await expect.poll(async () => (await props(page, row))['p-status']).toBe('o-done')
     await expect.poll(async () => (await versions(page, row)).map((m) => m.reason)).toEqual(['ai'])

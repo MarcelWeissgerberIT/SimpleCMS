@@ -6,7 +6,7 @@
  * input_json_delta), progress-update thinking blocks, or final text.
  */
 import type { BrowserContext, Page } from '@playwright/test'
-import { test, expect, openApp, pageIdByTitle, wsEval, uiEval, MOD } from './fixtures'
+import { test, expect, openApp, pageIdByTitle, wsEval, uiEval, MOD, showDone } from './fixtures'
 
 type AnyState = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -221,6 +221,7 @@ test.describe('Workspace agent (mocked Claude API)', () => {
     })
     expect(qa).toMatchObject({ origin: 'ai' })
     expect(qa.plain).toContain('final QA pass on staging')
+    await showDone(page)
     await expect(first).toContainText('Applied')
     await expect(panel.locator('.term-bar')).toHaveCount(0)
 
@@ -248,6 +249,10 @@ test.describe('Workspace agent (mocked Claude API)', () => {
     await expect(panel.locator('.term-head__status')).toContainText('Done')
 
     await panel.getByRole('button', { name: 'Discard #2' }).click()
+    // the discarded proposal folds into the summary line below the open one
+    await expect(panel.getByTestId('term-done-count')).toHaveText('1 discarded')
+    await expect(panel.locator('#term-review-title')).toHaveText('1 proposed change')
+    await showDone(page)
     await expect(panel.getByRole('listitem', { name: '#2 New row' })).toContainText('Discarded')
     await expect(panel.locator('.term-bar')).toContainText('1 proposed change')
     await panel.locator('.term-bar').getByRole('button', { name: 'Apply all' }).click()

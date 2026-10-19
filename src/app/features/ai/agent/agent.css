@@ -1025,6 +1025,63 @@
   color: var(--ink-2);
 }
 
+/* applied and discarded proposals, folded into one line below the open ones (Show unfolds them) */
+.term-done {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: calc(28px * var(--text-scale));
+  padding: 2px 4px 2px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-1);
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.term-done:focus-visible {
+  outline: none;
+}
+
+.term-changes:focus-within .term-done[data-cursor] {
+  border-color: var(--signal);
+  box-shadow: inset 2px 0 0 var(--signal);
+}
+
+.term-done__count {
+  color: var(--ink);
+  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.term-done__undo {
+  color: var(--ink-3);
+}
+
+.term-done__undo .kbd {
+  text-transform: none;
+}
+
+.term-done .btn--sm {
+  height: 24px;
+  font-family: var(--font-mono);
+  font-size: calc(10.5px * var(--text-scale));
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.term-done__show svg {
+  transition: transform var(--dur-1) var(--ease-out);
+}
+
+.term-done__show[aria-expanded='true'] svg {
+  transform: rotate(180deg);
+}
+
 .term-changes {
   display: flex;
   flex-direction: column;
@@ -1640,6 +1697,7 @@
   .term-key__hide,
   .term-foot .term-keys,
   .term-review__keys,
+  .term-done__undo,
   .term-head__status {
     display: none;
   }

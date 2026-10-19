@@ -996,17 +996,35 @@ const KEYS: Array<[() => string, string]> = [
 /* ------------------------------------------------------------------ */
 
 const isOpen = (c: StagedChange) => c.status === 'pending' || c.status === 'failed'
+/** Rows that stay on top: open ones and the ones being written right now; the rest folds into the summary line. */
+const onTop = (c: StagedChange) => isOpen(c) || c.status === 'applying'
+/** The summary line's key in the list's cursor (rows are keyed `o:<id>` on top, `d:<id>` unfolded below it). */
+const SUMMARY = 's'
 
 function Review({ listRef, readOnly }: { listRef: React.RefObject<HTMLOListElement | null>; readOnly: boolean }) {
   const t = useT()
   const changes = useAgent((s) => s.changes)
   const running = useAgent((s) => s.status === 'running')
   const applying = useAgent((s) => s.applying)
-  const open = changes.filter(isOpen).length
-  const [cursor, setCursor] = useState(0)
+  const shown = useAgent((s) => s.doneShown)
+  const top = useMemo(() => changes.filter(onTop), [changes])
+  const done = useMemo(() => changes.filter((c) => !onTop(c)), [changes])
+  const open = top.filter(isOpen).length
+  const applied = done.filter((c) => c.status === 'applied').length
+  const discarded = done.filter((c) => c.status === 'discarded').length
+  // the rows j / k move over: open ones, the summary line, the unfolded ones
+  const rows = useMemo(
+    () => [...top.map((c) => ({ key: `o:${c.id}`, c })), ...(done.length ? [{ key: SUMMARY, c: undefined }] : []), ...(shown ? done.map((c) => ({ key: `d:${c.id}`, c })) : [])],
+    [top, done, shown],
+  )
+  const [cursor, setCursor] = useState<{ key: string; pos: number }>({ key: '', pos: 0 })
   const [marked, setMarked] = useState<ReadonlySet<string>>(() => new Set())
   const disabled = running || readOnly || applying
-  const at = Math.min(cursor, changes.length - 1)
+  const found = rows.findIndex((r) => r.key === cursor.key)
+  // a row that left its place (applied, discarded, folded): the cursor keeps the position
+  const at = found >= 0 ? found : Math.max(0, Math.min(cursor.pos, rows.length - 1))
+  // the list holds the keyboard (a row that went away takes no blur with it)
+  const hasFocus = useRef(false)
 
   // marks belong to proposals that are still open
   useEffect(() => {
@@ -1016,8 +1034,18 @@ function Review({ listRef, readOnly }: { listRef: React.RefObject<HTMLOListEleme
     })
   }, [changes])
 
+  // the focused row folded away or moved: the keyboard goes to the row now at its place (never to the body)
+  useLayoutEffect(() => {
+    const key = rows[at]?.key ?? ''
+    if (key !== cursor.key || at !== cursor.pos) setCursor({ key, pos: at })
+    if (!hasFocus.current || !focusIsNowhere()) return
+    const el = listRef.current?.querySelector<HTMLElement>(`li[data-i="${at}"]`)
+    if (el) el.focus({ preventScroll: true })
+    else focusPrompt()
+  })
+
   const focusAt = (i: number) => {
-    setCursor(i)
+    setCursor({ key: rows[i]?.key ?? '', pos: i })
     requestAnimationFrame(() => listRef.current?.querySelector<HTMLElement>(`li[data-i="${i}"]`)?.focus())
   }
   const toggle = (id: string) =>
@@ -1027,26 +1055,34 @@ function Review({ listRef, readOnly }: { listRef: React.RefObject<HTMLOListEleme
       else next.add(id)
       return next
     })
+  const fold = () => useAgent.setState((s) => ({ doneShown: !s.doneShown }))
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLOListElement>) => {
     const li = e.target as HTMLElement
     // keys only on an entry itself (its buttons keep Space / Enter)
     if (!li.dataset?.i || e.metaKey || e.ctrlKey || e.altKey) return
-    const c = changes[at]
+    const row = rows[at]
+    const c = row?.c
     const key = e.key
     const handled = () => {
       e.preventDefault()
       e.stopPropagation()
     }
-    const moves: Record<string, number> = { j: at + 1, ArrowDown: at + 1, k: at - 1, ArrowUp: at - 1, Home: 0, End: changes.length - 1 }
+    const moves: Record<string, number> = { j: at + 1, ArrowDown: at + 1, k: at - 1, ArrowUp: at - 1, Home: 0, End: rows.length - 1 }
     if (key in moves) {
       handled()
-      focusAt(Math.max(0, Math.min(changes.length - 1, moves[key])))
+      focusAt(Math.max(0, Math.min(rows.length - 1, moves[key])))
       return
     }
     if (key === 'Escape') {
       handled()
       focusPrompt()
+      return
+    }
+    // the summary line: Space / ↵ fold the applied and discarded rows out or in
+    if (row?.key === SUMMARY && (key === ' ' || key === 'Enter')) {
+      handled()
+      fold()
       return
     }
     if (key === ' ') {
@@ -1088,37 +1124,89 @@ function Review({ listRef, readOnly }: { listRef: React.RefObject<HTMLOListEleme
     }
   }
 
+  const item = (c: StagedChange, i: number) => (
+    <ChangeItem
+      key={c.id}
+      change={c}
+      all={changes}
+      index={i}
+      cursor={i === at}
+      marked={marked.has(c.id)}
+      disabled={disabled}
+      compact={running}
+      onMark={() => toggle(c.id)}
+      onFocus={() => setCursor({ key: rows[i]?.key ?? '', pos: i })}
+    />
+  )
+  const parts = [applied ? t('features.agent.review.doneApplied', { count: applied }) : '', discarded ? t('features.agent.review.doneDiscarded', { count: discarded }) : ''].filter(Boolean)
+  const summaryAt = top.length
+
   return (
-    <section className="term-review" aria-labelledby="term-review-title">
-      <div className="term-review__head">
-        <h3 id="term-review-title" className="term-review__title">
-          {tn('features.agent.review.title', changes.length)}
-        </h3>
-        <span className="term-review__rule" aria-hidden />
-        {open > 0 && (
-          <button type="button" className="btn btn--ghost btn--sm" disabled={running} onClick={discardAllStaged}>
-            {t('features.agent.review.discardAll')}
-          </button>
+    <section className="term-review" aria-labelledby={open > 0 ? 'term-review-title' : 'term-done-count'}>
+      {open > 0 && (
+        <>
+          <div className="term-review__head">
+            <h3 id="term-review-title" className="term-review__title">
+              {tn('features.agent.review.title', open)}
+            </h3>
+            <span className="term-review__rule" aria-hidden />
+            <button type="button" className="btn btn--ghost btn--sm" disabled={running} onClick={discardAllStaged}>
+              {t('features.agent.review.discardAll')}
+            </button>
+          </div>
+          <p className="term-review__note">
+            {readOnly ? t('features.agent.review.readOnly') : t('features.agent.review.note')} <span className="term-review__keys">{t('features.agent.review.keys')}</span>
+          </p>
+        </>
+      )}
+      <ol
+        className="term-changes"
+        ref={listRef}
+        onKeyDown={onKeyDown}
+        onFocus={() => {
+          hasFocus.current = true
+        }}
+        onBlur={(e) => {
+          const to = e.relatedTarget as Node | null
+          if (to) {
+            hasFocus.current = e.currentTarget.contains(to)
+            return
+          }
+          // focus to nowhere: a row that was removed keeps the list's claim, a real blur (a click elsewhere) gives it up
+          const from = e.target
+          setTimeout(() => {
+            if (from.isConnected && !listRef.current?.contains(document.activeElement)) hasFocus.current = false
+          })
+        }}
+      >
+        {top.map((c, i) => item(c, i))}
+        {done.length > 0 && (
+          <li
+            className="term-done"
+            data-i={summaryAt}
+            data-summary=""
+            data-cursor={at === summaryAt || undefined}
+            tabIndex={at === summaryAt ? 0 : -1}
+            aria-labelledby="term-done-count"
+            onFocus={(e) => e.target === e.currentTarget && setCursor({ key: SUMMARY, pos: summaryAt })}
+          >
+            <span className="led led--ok" aria-hidden />
+            <span className="term-done__count" id="term-done-count" data-testid="term-done-count">
+              {parts.join(' · ')}
+            </span>
+            {applied > 0 && !readOnly && (
+              <span className="term-done__undo" aria-hidden>
+                {'· '}
+                <span className="kbd">u</span> {t('features.agent.review.doneUndo')}
+              </span>
+            )}
+            <span className="term-review__rule" aria-hidden />
+            <button type="button" className="btn btn--ghost btn--sm term-done__show" aria-expanded={shown} onClick={fold} data-testid="term-done-show">
+              <ChevronDown size={12} strokeWidth={1.75} aria-hidden /> {t('features.agent.review.doneShow')}
+            </button>
+          </li>
         )}
-      </div>
-      <p className="term-review__note">
-        {readOnly ? t('features.agent.review.readOnly') : t('features.agent.review.note')} <span className="term-review__keys">{t('features.agent.review.keys')}</span>
-      </p>
-      <ol className="term-changes" ref={listRef} onKeyDown={onKeyDown}>
-        {changes.map((c, i) => (
-          <ChangeItem
-            key={c.id}
-            change={c}
-            all={changes}
-            index={i}
-            cursor={i === at}
-            marked={marked.has(c.id)}
-            disabled={disabled}
-            compact={running}
-            onMark={() => toggle(c.id)}
-            onFocus={() => setCursor(i)}
-          />
-        ))}
+        {shown && done.map((c, i) => item(c, summaryAt + 1 + i))}
       </ol>
     </section>
   )
@@ -1400,6 +1488,7 @@ function ChangeItem({
     <li
       className="term-change"
       data-i={index}
+      data-n={c.n}
       data-status={c.status}
       data-kind={c.kind}
       data-cursor={cursor || undefined}
