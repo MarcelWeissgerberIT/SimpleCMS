@@ -17,7 +17,7 @@ import { WORKER, fakeOpener, makeCodingHome, makeCodingRepo, startCodingWorker, 
 /** CODING_E2E_PORT: one port for both when suites run side by side (each test runs one worker at a time) */
 const PORT = Number(process.env.CODING_E2E_PORT) || 47383
 /** the downloaded worker's port (set in Settings before the download: the preset carries it) */
-const SETUP_PORT = Number(process.env.CODING_E2E_PORT) || 47384
+const SETUP_PORT = Number(process.env.CODING_E2E_PORT) || 47484 + 10 * Number(process.env.TEST_PARALLEL_INDEX ?? 0)
 
 test.describe.configure({ mode: 'serial' })
 

@@ -153,7 +153,7 @@ node.describe('review — the engine', () => {
 
 /* ------------------------------------------------------------------ in the app */
 
-const PORT = Number(process.env.CODING_E2E_PORT) || 47384
+const PORT = Number(process.env.CODING_E2E_PORT) || 47484 + 10 * Number(process.env.TEST_PARALLEL_INDEX ?? 0)
 const FIXTURE = JSON.parse(readFileSync(fileURLToPath(new URL('../fixtures/ai/anthropic/orders-plan-kb.json', import.meta.url)), 'utf8')) as AnyState
 const CASE = 'pgcase000001'
 const OTHER = 'pgother00001'

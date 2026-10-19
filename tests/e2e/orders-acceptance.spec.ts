@@ -51,7 +51,7 @@ import { startMockMcp } from '../fixtures/mock-mcp.mjs'
 type AnyState = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
 
 /** CODING_E2E_PORT: one port for the coding suites when they run side by side (one worker at a time) */
-const PORT = Number(process.env.CODING_E2E_PORT) || 47384
+const PORT = Number(process.env.CODING_E2E_PORT) || 47484 + 10 * Number(process.env.TEST_PARALLEL_INDEX ?? 0)
 /** ORDERS_SHOTS=<dir>: photograph the story (German, 1440 × 900 + 390 × 844, light + dark) */
 const SHOTS = process.env.ORDERS_SHOTS ?? ''
 

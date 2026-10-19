@@ -135,7 +135,7 @@ node.describe('work orders × the eject (Node)', () => {
 /* ------------------------------------------------------------------ the app */
 
 /** CODING_E2E_PORT: one port for the coding suites when they run side by side (one worker at a time) */
-const PORT = Number(process.env.CODING_E2E_PORT) || 47384
+const PORT = Number(process.env.CODING_E2E_PORT) || 47484 + 10 * Number(process.env.TEST_PARALLEL_INDEX ?? 0)
 
 const FIXTURE = JSON.parse(readFileSync(fileURLToPath(new URL('../fixtures/ai/anthropic/orders-plan-kb.json', import.meta.url)), 'utf8')) as AnyState
 const CASE = 'pgcase000001'

@@ -34,7 +34,7 @@ import type { Translate } from '../../src/shared/i18n'
 type AnyState = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
 
 /** CODING_E2E_PORT: one port for the coding suites when they run side by side (one worker at a time) */
-const PORT = Number(process.env.CODING_E2E_PORT) || 47384
+const PORT = Number(process.env.CODING_E2E_PORT) || 47484 + 10 * Number(process.env.TEST_PARALLEL_INDEX ?? 0)
 test.describe.configure({ mode: 'serial' })
 
 const FIXTURE = JSON.parse(readFileSync(fileURLToPath(new URL('../fixtures/ai/anthropic/orders-plan-kb.json', import.meta.url)), 'utf8')) as AnyState

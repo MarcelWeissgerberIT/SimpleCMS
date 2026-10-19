@@ -29,7 +29,7 @@ type AnyState = Record<string, any> // eslint-disable-line @typescript-eslint/no
 test.use({ bypassCSP: true })
 
 /** CODING_E2E_PORT: the fake worker's port (one worker at a time) */
-const PORT = Number(process.env.CODING_E2E_PORT) || 47384
+const PORT = Number(process.env.CODING_E2E_PORT) || 47584 + 10 * Number(process.env.TEST_PARALLEL_INDEX ?? 0)
 
 const FIXTURE = JSON.parse(readFileSync(fileURLToPath(new URL('../fixtures/ai/anthropic/orders-plan-kb.json', import.meta.url)), 'utf8')) as AnyState
 const WELCOME: WorkerInfo = { worker: '1.11.0', name: 'website-box', repos: [{ name: 'website', baseBranch: 'main', branches: ['main', 'one/nordlicht-footer'], mcp: [] }], parallel: 1, busy: [], spentToday: 0, dayLimit: null, claude: { found: true, version: '2.0.0' }, setup: true, mcp: [] }
