@@ -36,7 +36,7 @@ import { lampNo } from '../setup/keys'
 import { usePbUI } from './store'
 import { useShallow } from 'zustand/react/shallow'
 import { useLive } from '../live/live'
-import { hasLiveWindow, ledOf, LiveLed, LiveWindow, useModuleLive } from './LiveWin'
+import { hasLiveWindow, ledOf, LiveLed, LiveWindow, useModuleLive } from './LiveWin.tsx'
 import type { FuseMarks, Words } from './words'
 import { scrollBehavior } from './motion'
 

@@ -18,7 +18,7 @@ import { FormBuilder } from './FormBuilder'
 import { ShareFormModal, closingOf, formTitle } from './ShareForm'
 import { markerOf, responseRows } from './responses'
 import { pagesOf } from './logic'
-import { Responses } from './Responses'
+import { Responses } from './Responses.tsx'
 import { hostOf } from './webhook'
 import './form.css'
 

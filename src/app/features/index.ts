@@ -116,7 +116,7 @@ export { McpServers } from './ai/mcp-servers/McpServers'
  * "→ KB" chip next to a prompt input · McpSkippedNote { calls } = the note for an addressed server that
  * stayed out (calls = what runAI's onMcp reported; McpCall entries with `skipped`)
  */
-export { CodewordChip, McpSkippedNote } from './ai/mcp-servers/Codeword'
+export { CodewordChip, McpSkippedNote } from './ai/mcp-servers/Codeword.tsx'
 export type { McpCall } from './ai/mcp-servers/activity'
 /*
  * Media from MCP servers (features/ai/media): runAI({ onMedia }) reports what the results returned (images,
