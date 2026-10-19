@@ -94,6 +94,13 @@ export const LOG_CODES = new Set([
   'addDirOff',
   'stepLimit',
   'continueRun',
+  // worker 1.13.0: which credential Claude Code uses at a stage's start — never the credential, its last 4 characters at
+  // most (a cloud provider · ANTHROPIC_AUTH_TOKEN · ANTHROPIC_API_KEY · CLAUDE_CODE_OAUTH_TOKEN · the person's sign-in)
+  'authCloud',
+  'authToken',
+  'authApiKey',
+  'authOAuthToken',
+  'authLogin',
 ])
 
 const CODE = /^[a-zA-Z][a-zA-Z.]{0,40}$/

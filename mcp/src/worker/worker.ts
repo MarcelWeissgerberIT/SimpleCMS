@@ -62,6 +62,7 @@ import { cloudOf } from './config.ts'
 import { relayUrl, workerOrigins } from './preset.ts'
 import { dataBlock, markerCode, newShip, noteGitHint, requestBody, requestKind, requestLine, runStage, withRequest, withTaskTrailer } from './run.ts'
 import { Scrubber, repoScrubber } from './scrub.ts'
+import { scrubSecretText, secretValues } from './secrets.ts'
 import { cloneBase } from './clone.ts'
 import type { SetupLive } from './setup.ts'
 
@@ -166,6 +167,17 @@ const INTAKE_EVENT_MS = 250
 const str = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max) : '')
 /** Control characters and line / paragraph separators → spaces. */
 const oneLine = (s: string) => s.replace(/[\u0000-\u001f\u007f\u2028\u2029]/g, ' ').trim()
+
+/** A log line without secrets (its text, values and edit hunks) — the backstop of Worker.logLine. */
+export function secretLine(l: LogLine, secrets: ReturnType<typeof secretValues>): LogLine {
+  const x = (t: string) => scrubSecretText(t, secrets)
+  return {
+    ...l,
+    s: x(l.s),
+    ...(l.v ? { v: Object.fromEntries(Object.entries(l.v).map(([k, v]) => [k, typeof v === 'string' ? x(v) : v])) } : {}),
+    ...(l.e ? { e: { ...l.e, path: x(l.e.path), hunks: l.e.hunks.map((h) => ({ old: x(h.old), new: x(h.new) })) } } : {}),
+  }
+}
 
 /** An outcome's texts through the run's scrubber (again: it is idempotent — the replacements match no rule). */
 export function scrubOutcome(o: StageOutcome, scrub: Scrubber): StageOutcome {
@@ -595,7 +607,11 @@ export class Worker {
   private logBuf = new Map<string, LogLine[]>()
   private logTimer: ReturnType<typeof setTimeout> | null = null
 
-  private logLine(taskId: string, line: LogLine) {
+  /** The environment's secret values (worker 1.13.0): a last pass over every log line — each site scrubs before it cuts. */
+  private secrets = secretValues()
+
+  private logLine(taskId: string, raw: LogLine) {
+    const line = secretLine(raw, this.secrets)
     if (!this.link.via) return this.link.send({ type: 'event', taskId, kind: 'log', lines: [line] })
     const buf = this.logBuf.get(taskId) ?? []
     buf.push(line)

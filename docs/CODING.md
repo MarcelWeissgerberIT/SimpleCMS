@@ -566,6 +566,23 @@ is free on a connected worker, it is not claimed by another worker within 10 min
 it is confirmed on this device. Highest priority first, then the oldest. The claim (**Worker** + **Claimed at**) is
 renewed every minute; a claim without heartbeat for 10 minutes may be taken over.
 
+### Billing: your sign-in or an API key
+
+Claude Code takes its credential from the environment the worker hands it (run.ts `claudeEnv()`: the worker's own,
+without `ONE_WORKER_*`). In `claude -p` — how the worker runs it — `ANTHROPIC_API_KEY` (and `ANTHROPIC_AUTH_TOKEN`, or a
+cloud provider's `CLAUDE_CODE_USE_BEDROCK` / `_VERTEX` / `_FOUNDRY`) **takes precedence over an `apiKeyHelper` and the
+`/login` subscription, without asking**. So for a workshop or a team account, start the worker with a Claude Console
+key set in that shell (`export ANTHROPIC_API_KEY=…` / `$env:ANTHROPIC_API_KEY = "…"`, then `node one-worker.mjs`) and
+every stage bills that key's Console workspace — put a **spend limit on that workspace** in the Console; the worker's
+own cost limits (per task, per day) stay as they are. Unset it (or start the worker from a shell without it) and
+Claude Code uses your own sign-in again.
+
+Worker 1.13.0: every Claude Code stage logs which credential it will use, never the credential itself — `authApiKey` /
+`authToken` / `authOAuthToken` ("API key from ANTHROPIC_API_KEY · …1a2b": the variable and its last 4 characters),
+`authCloud` (the provider) or `authLogin` (your Claude Code sign-in, or an `apiKeyHelper` the worker cannot see).
+Precedence as Claude Code's: cloud provider → `ANTHROPIC_AUTH_TOKEN` → `ANTHROPIC_API_KEY` → `CLAUDE_CODE_OAUTH_TOKEN` →
+sign-in (secrets.ts `claudeAuth`).
+
 ### The task panel
 
 On a task's page, between its properties and its body: the stage timeline; what it waits for (**Approve**,
@@ -1217,6 +1234,13 @@ E2E ports: never 6000 (Chromium refuses it as unsafe).
   `<repo>`, worktrees folder → `<worktrees>`, home → `~`, temp → `<tmp>`; on Windows in every spelling — any case,
   `/` for `\`, MSYS `/c/Users/…`, JSON-escaped `\\`, `file:///C:/…`, the home folder's 8.3 short name). The config's
   commands are never sent; an error names a command by its program name only.
+- **Secrets stay on the machine** (worker 1.13.0, secrets.ts). Before any path, the same scrubber removes the value of
+  every credential variable in the worker's environment — `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`,
+  `CLAUDE_CODE_OAUTH_TOKEN`, `OPENROUTER_API_KEY`, `GITHUB_TOKEN`, `GH_TOKEN`, `GITLAB_TOKEN`, `AWS_SECRET_ACCESS_KEY` …
+  plus any variable whose name ends in `KEY` / `TOKEN` / `SECRET` / `PASSWORD` with a value of 12+ characters (→
+  `[secret <NAME>]`) — and key-shaped text (`sk-ant-…`, `sk-…`; `src/shared/ai/keys.ts`, → `••••`) from every log line
+  (tool lines, edit hunks), section, test output, diff and error — always before a text is cut to length. Every log
+  line passes it once more as it leaves (worker.ts `secretLine`).
 - **The repository's web address, nothing more.** Through ship records and `GitInfo.web` (worker 1.10.0) One learns the
   repository's web address — scheme, host, project path (`cleanWeb` on both sides) — never a user name, token or local
   path; request addresses come from gh / glab or the compare link and must lie on that address. The setup page's scan

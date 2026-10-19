@@ -24,10 +24,14 @@
  * /cygdrive/c/…, /mnt/c/…, a UNC path \\server\share\…, the long form a link or junction resolves to, and the home
  * folder's 8.3 short name (C:\Users\MAXMUS~1 — learned from TEMP / TMP / LOCALAPPDATA, plus the pattern Windows makes
  * such names by). The user name alone is never replaced (a user called "test" would eat code).
+ *
+ * Before any path (worker 1.13.0): secrets — the values of credential variables in the worker's environment and
+ * key-shaped text (secrets.ts).
  */
 import { homedir, tmpdir } from 'node:os'
 import { realpathSync } from 'node:fs'
 import { envGet } from './exec.ts'
+import { scrubSecretText, secretValues, type SecretValue } from './secrets.ts'
 
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
@@ -39,6 +43,8 @@ export interface ScrubOptions {
   tmp?: string
   /** a path as the disk resolves it (null: not there) — tests */
   realpath?: (p: string) => string | null
+  /** the secret values removed before any path (default: those of `env`, else this process's — secrets.ts) */
+  secrets?: readonly SecretValue[]
 }
 
 const tryReal = (f: (p: string) => string, p: string): string | null => {
@@ -219,8 +225,10 @@ function shortPattern(home: string): string | null {
 
 export class Scrubber {
   private rules: Array<{ re: RegExp; to: string }> = []
+  private secrets: readonly SecretValue[]
 
   constructor(pairs: Array<[string | null | undefined, string]> = [], opts: ScrubOptions = {}) {
+    this.secrets = opts.secrets ?? secretValues(opts.env ?? process.env)
     const platform = opts.platform ?? process.platform
     const base: Array<[string | null | undefined, string]> = [...pairs, [opts.tmp ?? tmpdir(), '<tmp>'], [opts.home ?? homedir(), '~']]
     const list: Array<{ source: string; len: number; to: string }> = []
@@ -284,8 +292,9 @@ export class Scrubber {
     this.rules = list.map(({ source, to }) => ({ re: new RegExp(source, 'giu'), to }))
   }
 
+  /** Secrets first (worker 1.13.0: a credential's value, key-shaped text), then the paths. */
   text(s: string): string {
-    let out = s
+    let out = scrubSecretText(s, this.secrets)
     for (const r of this.rules) out = out.replace(r.re, r.to)
     return out
   }

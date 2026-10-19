@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// SimpleCMS One — coding worker 1.12.0 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp/src/worker
+// SimpleCMS One — coding worker 1.13.0 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp/src/worker
 // Runs coding tasks from One with Claude Code on this computer. Setup: node one-worker.mjs --help
 // Docs and security model: https://github.com/MarcelWeissgerberIT/SimpleCMS/blob/main/docs/CODING.md
 import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);
@@ -11652,8 +11652,8 @@ async function gitEnv(cwd, base = process.env, opts = {}) {
   if (isSet(base, "GIT_SSH_COMMAND", platform) || isSet(base, "GIT_SSH", platform)) return env;
   if (cwd === null && sshCommandInEnv(base, platform)) return env;
   const key = cwd === null ? "" : pathId(cwd, platform);
-  let set = sshConfig.get(key);
-  if (set === void 0) {
+  let set2 = sshConfig.get(key);
+  if (set2 === void 0) {
     const ms = Math.min(opts.timeoutMs ?? 1e4, 1e4);
     const get = (args, dir) => configGet(["config", ...args], dir, env, ms, platform);
     let found;
@@ -11671,10 +11671,10 @@ async function gitEnv(cwd, base = process.env, opts = {}) {
       }
     }
     if (found === null) return env;
-    set = found;
-    sshConfig.set(key, set);
+    set2 = found;
+    sshConfig.set(key, set2);
   }
-  if (!set) env.GIT_SSH_COMMAND = BATCH_SSH;
+  if (!set2) env.GIT_SSH_COMMAND = BATCH_SSH;
   return env;
 }
 function configGet(args, cwd, env, timeoutMs, platform) {
@@ -11928,8 +11928,8 @@ function claudeConfig(raw, where, problems, trusted) {
     }
   }
   const model = cleanModel(c.model);
-  const set = typeof c.projectSettings === "boolean";
-  if (c.projectSettings !== void 0 && !set) problems.push(`${where}: claude.projectSettings must be true or false \u2014 ${trusted ? "true" : "false"} is used`);
+  const set2 = typeof c.projectSettings === "boolean";
+  if (c.projectSettings !== void 0 && !set2) problems.push(`${where}: claude.projectSettings must be true or false \u2014 ${trusted ? "true" : "false"} is used`);
   return {
     model,
     maxTurns: Math.floor(num(c.maxTurns, 30, 1, 200)),
@@ -11938,8 +11938,8 @@ function claudeConfig(raw, where, problems, trusted) {
     disallowedTools: strings(c.disallowedTools),
     strictMcp: c.strictMcp !== false,
     mcpServers: mcpNames(c.mcpServers, where, problems),
-    projectSettings: set ? c.projectSettings : trusted,
-    projectSettingsSet: set
+    projectSettings: set2 ? c.projectSettings : trusted,
+    projectSettingsSet: set2
   };
 }
 var MCP_NAME = /^[A-Za-z0-9_-]{1,64}$/;
@@ -13002,11 +13002,11 @@ function findClaude(env = process.env, opts = {}) {
   const P = platform === "win32" ? win323 : posix3;
   const home = opts.home ?? homedir5();
   const raw = (envGet(env, "CLAUDE_BIN", platform) ?? "").trim();
-  const set = (/^"(.+)"$/s.exec(raw)?.[1] ?? /^'(.+)'$/s.exec(raw)?.[1] ?? raw).trim();
-  if (set) {
-    if (set === "~" || /^~[\\/]/.test(set)) return { bin: P.join(home, set.slice(2)), from: "env" };
-    const withFolder = /[\\/]/.test(set) || platform === "win32" && /^[A-Za-z]:/.test(set);
-    return { bin: withFolder ? P.resolve(opts.cwd ?? process.cwd(), set) : set, from: "env" };
+  const set2 = (/^"(.+)"$/s.exec(raw)?.[1] ?? /^'(.+)'$/s.exec(raw)?.[1] ?? raw).trim();
+  if (set2) {
+    if (set2 === "~" || /^~[\\/]/.test(set2)) return { bin: P.join(home, set2.slice(2)), from: "env" };
+    const withFolder = /[\\/]/.test(set2) || platform === "win32" && /^[A-Za-z]:/.test(set2);
+    return { bin: withFolder ? P.resolve(opts.cwd ?? process.cwd(), set2) : set2, from: "env" };
   }
   const exists = opts.exists ?? isFile;
   const onPath = platform === "win32" ? resolveCommand("claude", [], { platform, env, exists }, "shim").ok : (envGet(env, "PATH", platform) ?? "").split(":").some((d) => d.startsWith("/") && exists(posix3.join(d, "claude")));
@@ -13029,8 +13029,8 @@ function claudeMissingError(missing) {
 }
 function gitBash(env = process.env, ctx) {
   const exists = ctx?.exists ?? isFile;
-  const set = envGet(env, "CLAUDE_CODE_GIT_BASH_PATH", "win32")?.trim();
-  if (set) return { path: exists(set) ? set : null, from: "env" };
+  const set2 = envGet(env, "CLAUDE_CODE_GIT_BASH_PATH", "win32")?.trim();
+  if (set2) return { path: exists(set2) ? set2 : null, from: "env" };
   const git2 = resolveCommand("git", [], { ...ctx, platform: "win32", env }, "exe");
   if (!git2.ok) return { path: null, from: null };
   const dir = win323.dirname(git2.file);
@@ -14269,6 +14269,77 @@ import { join as join6 } from "node:path";
 // src/worker/scrub.ts
 import { homedir as homedir6, tmpdir } from "node:os";
 import { realpathSync as realpathSync3 } from "node:fs";
+
+// ../src/shared/ai/keys.ts
+var KEY_RES = [/(?<![A-Za-z0-9_-])sk-(?:ant|proj|or-v1)-[A-Za-z0-9_-]{12,}/g, /(?<![A-Za-z0-9_-])sk-[A-Za-z0-9_-]{20,}/g];
+function scrubSecrets(text2, extra = []) {
+  let out = text2;
+  for (const s of extra) if (s && s.length >= 4) out = out.split(s).join("\u2022\u2022\u2022\u2022");
+  for (const re of KEY_RES) out = out.replace(re, "\u2022\u2022\u2022\u2022");
+  return out;
+}
+
+// src/worker/secrets.ts
+var SECRET_ENV = [
+  "ANTHROPIC_API_KEY",
+  "ANTHROPIC_AUTH_TOKEN",
+  "CLAUDE_CODE_OAUTH_TOKEN",
+  "OPENROUTER_API_KEY",
+  "OPENAI_API_KEY",
+  "GITHUB_TOKEN",
+  "GH_TOKEN",
+  "GH_ENTERPRISE_TOKEN",
+  "GITLAB_TOKEN",
+  "GITLAB_PRIVATE_TOKEN",
+  "AWS_SECRET_ACCESS_KEY",
+  "AWS_SESSION_TOKEN",
+  "AWS_BEARER_TOKEN_BEDROCK",
+  "AZURE_CLIENT_SECRET",
+  "NPM_TOKEN"
+];
+var SECRET_NAME = /(KEY|TOKEN|SECRET|PASSWORD)$/i;
+var NAMED_MIN = 8;
+var OTHER_MIN = 12;
+function secretValues(env = process.env) {
+  const named = new Set(SECRET_ENV.map((n) => n.toUpperCase()));
+  const out = /* @__PURE__ */ new Map();
+  for (const [name, raw] of Object.entries(env)) {
+    if (typeof raw !== "string") continue;
+    const value2 = raw.trim();
+    const upper = name.toUpperCase();
+    const min = named.has(upper) ? NAMED_MIN : SECRET_NAME.test(name) ? OTHER_MIN : null;
+    if (min === null || value2.length < min) continue;
+    if (!out.has(value2)) out.set(value2, upper);
+  }
+  return [...out].map(([value2, name]) => ({ name, value: value2 })).sort((a, b) => b.value.length - a.value.length);
+}
+function scrubSecretText(s, secrets) {
+  let out = s;
+  for (const { name, value: value2 } of secrets) if (out.includes(value2)) out = out.split(value2).join(`[secret ${name}]`);
+  return scrubSecrets(out);
+}
+var set = (env, name) => {
+  const v = env[name];
+  return typeof v === "string" && v.trim() !== "" ? v.trim() : null;
+};
+var truthy = (env, name) => {
+  const v = set(env, name);
+  return v !== null && !/^(0|false|no|off)$/i.test(v);
+};
+var last4 = (v) => v.length >= 12 ? `\u2026${v.slice(-4)}` : "\u2026";
+function claudeAuth(env) {
+  const cloud2 = truthy(env, "CLAUDE_CODE_USE_BEDROCK") ? "Amazon Bedrock" : truthy(env, "CLAUDE_CODE_USE_VERTEX") ? "Google Vertex AI" : truthy(env, "CLAUDE_CODE_USE_FOUNDRY") ? "Microsoft Foundry" : null;
+  if (cloud2) return { code: "authCloud", v: { provider: cloud2 }, s: `Claude Code bills: ${cloud2} (cloud provider from the environment)` };
+  const token = set(env, "ANTHROPIC_AUTH_TOKEN");
+  if (token) return { code: "authToken", v: { name: "ANTHROPIC_AUTH_TOKEN", last: last4(token) }, s: `Claude Code bills: auth token from ANTHROPIC_AUTH_TOKEN \xB7 ${last4(token)}` };
+  const key = set(env, "ANTHROPIC_API_KEY");
+  if (key) return { code: "authApiKey", v: { name: "ANTHROPIC_API_KEY", last: last4(key) }, s: `Claude Code bills: API key from ANTHROPIC_API_KEY \xB7 ${last4(key)}` };
+  const oauth = set(env, "CLAUDE_CODE_OAUTH_TOKEN");
+  if (oauth) return { code: "authOAuthToken", v: { name: "CLAUDE_CODE_OAUTH_TOKEN", last: last4(oauth) }, s: `Claude Code bills: sign-in token from CLAUDE_CODE_OAUTH_TOKEN \xB7 ${last4(oauth)} (unless an apiKeyHelper is set)` };
+  return { code: "authLogin", v: {}, s: "Claude Code bills: your Claude Code sign-in (claude /login, or an apiKeyHelper in its settings)" };
+}
+
+// src/worker/scrub.ts
 var escape2 = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 var tryReal = (f, p) => {
   try {
@@ -14378,7 +14449,9 @@ function shortPattern(home) {
 }
 var Scrubber = class {
   rules = [];
+  secrets;
   constructor(pairs = [], opts = {}) {
+    this.secrets = opts.secrets ?? secretValues(opts.env ?? process.env);
     const platform = opts.platform ?? process.platform;
     const base = [...pairs, [opts.tmp ?? tmpdir(), "<tmp>"], [opts.home ?? homedir6(), "~"]];
     const list = [];
@@ -14439,8 +14512,9 @@ var Scrubber = class {
     list.sort((a, b) => b.len - a.len || b.source.length - a.source.length);
     this.rules = list.map(({ source, to }) => ({ re: new RegExp(source, "giu"), to }));
   }
+  /** Secrets first (worker 1.13.0: a credential's value, key-shaped text), then the paths. */
   text(s) {
-    let out = s;
+    let out = scrubSecretText(s, this.secrets);
     for (const r of this.rules) out = out.replace(r.re, r.to);
     return out;
   }
@@ -14872,6 +14946,10 @@ function afterRun(ctx, res, maxTurns, log2) {
   }
   return out;
 }
+function logAuth(log2, env) {
+  const a = claudeAuth(env);
+  log2("info", a.s, a.code, a.v);
+}
 async function claudeStage(ctx, wt, scrub, log2) {
   const { repo, task, caps } = ctx;
   const plant = planted(ctx, wt.dir, log2);
@@ -14896,6 +14974,8 @@ async function claudeStage(ctx, wt, scrub, log2) {
   const maxTurns = turnsOf(task, repo);
   const extras = claudeExtras(ctx, log2, !!mcp, true);
   if (task.resume) log2("info", `Continuing after the step limit \u2014 the previous run stopped at ${task.resume.turns}/${task.resume.max} steps; Claude Code goes on from the worktree`, "continueRun", { turns: task.resume.turns, max: task.resume.max });
+  const env = claudeEnv();
+  logAuth(log2, env);
   log2("info", `Starting Claude Code (${mode} mode)\u2026`, "starting", { mode });
   const live = plan ? null : liveDiff(ctx, wt, scrub);
   try {
@@ -14916,7 +14996,7 @@ async function claudeStage(ctx, wt, scrub, log2) {
       scratch: extras.scratch,
       permissionTool: extras.permissionTool,
       caps,
-      env: claudeEnv(),
+      env,
       signal: ctx.signal,
       onLog: (l) => ctx.log({ ...l, s: scrub.text(l.s), ...l.v ? { v: scrubVars(scrub, l.v) } : {}, ...l.e ? { e: scrubEdit(scrub, l.e) } : {} }),
       onProgress: ctx.progress,
@@ -14968,6 +15048,8 @@ async function docStage(ctx, scrub, log2, branch, dir) {
   const maxTurns = turnsOf(task, repo);
   const extras = claudeExtras(ctx, log2, !!mcp, false);
   if (task.resume) log2("info", `Continuing after the step limit \u2014 the previous run stopped at ${task.resume.turns}/${task.resume.max} steps`, "continueRun", { turns: task.resume.turns, max: task.resume.max });
+  const env = claudeEnv();
+  logAuth(log2, env);
   log2("info", "Starting Claude Code (read only)\u2026", "starting", { mode: "read only" });
   try {
     const res = await runClaude({
@@ -14986,7 +15068,7 @@ async function docStage(ctx, scrub, log2, branch, dir) {
       budgetUsd: lim.budget,
       permissionTool: extras.permissionTool,
       caps,
-      env: claudeEnv(),
+      env,
       signal: ctx.signal,
       onLog: (l) => ctx.log({ ...l, s: scrub.text(l.s), ...l.v ? { v: scrubVars(scrub, l.v) } : {}, ...l.e ? { e: scrubEdit(scrub, l.e) } : {} }),
       onProgress: ctx.progress,
@@ -18023,6 +18105,15 @@ var clipLine = (s, n) => s.length > n ? `${s.slice(0, n - 1)}\u2026` : s;
 var INTAKE_EVENT_MS = 250;
 var str3 = (v, max2) => typeof v === "string" ? v.slice(0, max2) : "";
 var oneLine2 = (s) => s.replace(/[\u0000-\u001f\u007f\u2028\u2029]/g, " ").trim();
+function secretLine(l, secrets) {
+  const x2 = (t) => scrubSecretText(t, secrets);
+  return {
+    ...l,
+    s: x2(l.s),
+    ...l.v ? { v: Object.fromEntries(Object.entries(l.v).map(([k, v]) => [k, typeof v === "string" ? x2(v) : v])) } : {},
+    ...l.e ? { e: { ...l.e, path: x2(l.e.path), hunks: l.e.hunks.map((h) => ({ old: x2(h.old), new: x2(h.new) })) } } : {}
+  };
+}
 function scrubOutcome(o, scrub) {
   const out = { ...o };
   for (const k of ["error", "summary", "plan", "question"]) if (typeof out[k] === "string") out[k] = scrub.text(out[k]);
@@ -18398,7 +18489,10 @@ var Worker2 = class {
   /** Log lines per task, sent together (cloud mode: every 250 ms or 200 lines — one relay frame instead of hundreds). */
   logBuf = /* @__PURE__ */ new Map();
   logTimer = null;
-  logLine(taskId, line) {
+  /** The environment's secret values (worker 1.13.0): a last pass over every log line — each site scrubs before it cuts. */
+  secrets = secretValues();
+  logLine(taskId, raw) {
+    const line = secretLine(raw, this.secrets);
     if (!this.link.via) return this.link.send({ type: "event", taskId, kind: "log", lines: [line] });
     const buf = this.logBuf.get(taskId) ?? [];
     buf.push(line);
@@ -37667,7 +37761,7 @@ ${prompt}`);
 }
 
 // src/worker/index.ts
-var VERSION = true ? "1.12.0" : "dev";
+var VERSION = true ? "1.13.0" : "dev";
 var quiet = process.env.ONE_WORKER_QUIET === "1";
 var recent = [];
 var log = (msg) => {
