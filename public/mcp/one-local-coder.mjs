@@ -39297,12 +39297,16 @@ var LocalMemory = class {
     const safe = this.clean(value);
     const id = hash2(safeSource + "\n" + safe).slice(0, 20);
     const existing = this.entries.find((e) => e.id === id);
-    if (existing) {
-      existing.historical = false;
-      return existing;
-    }
     if (meta3.revision) {
       for (const prior of this.entries) if (prior.source === safeSource && prior.revision && prior.revision !== meta3.revision) prior.superseded = true;
+    }
+    if (existing) {
+      existing.historical = false;
+      existing.superseded = false;
+      existing.at = Date.now();
+      if (meta3.evidence) existing.evidence = meta3.evidence;
+      if (meta3.revision) existing.revision = meta3.revision;
+      return existing;
     }
     const text2 = safe.length > MAX_TEXT ? safe.slice(0, 8e3) + "\n[Middle omitted; reread original source.]\n" + safe.slice(-3900) : safe;
     const entry = { id, source: safeSource, text: text2, originalChars: safe.length, at: Date.now(), evidence: meta3.evidence ?? "model-note", ...meta3.revision ? { revision: meta3.revision } : {} };
@@ -39711,7 +39715,7 @@ var LocalFiles = class {
           truncated = true;
           break;
         }
-        const path = relative(this.root, resolve(dir, e.name));
+        const path = relative(this.root, resolve(dir, e.name)).replaceAll("\\", "/");
         if (e.isDirectory()) await walk(await this.path(path), depth + 1);
         else if (/\.(?:tsx?|jsx?|mjs|cjs|py|go|rs|cs|java|md|json)$/i.test(path)) {
           scanned++;

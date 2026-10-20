@@ -149,7 +149,7 @@ export class LocalFiles {
       for (const e of (await readdir(dir, { withFileTypes: true })).sort((a,b) => a.name.localeCompare(b.name))) {
         if (EXCLUDED.test(e.name) || e.isSymbolicLink()) continue
         if (scanned >= 400 || bytes >= 2_000_000) { truncated = true; break }
-        const path = relative(this.root, resolve(dir, e.name))
+        const path = relative(this.root, resolve(dir, e.name)).replaceAll('\\', '/')
         if (e.isDirectory()) await walk(await this.path(path), depth + 1)
         else if (/\.(?:tsx?|jsx?|mjs|cjs|py|go|rs|cs|java|md|json)$/i.test(path)) {
           scanned++

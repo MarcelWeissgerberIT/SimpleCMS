@@ -38,6 +38,9 @@ test('memory revisions supersede old excerpts; restored tool observations remain
   assert.equal(m.recall(a.id).superseded,true);assert.equal(m.search('old').length,0)
   const n=new LocalMemory(x=>x);await n.load({...opts,resume:true});const hit=n.search('new')[0]!
   assert.equal(hit.historical,true);assert.equal(hit.evidence,'tool-result');assert.equal(n.search('correct')[0]?.evidence,'model-note')
+  n.remember('read_file:src/a.ts','old',{evidence:'tool-result',revision:'a'.repeat(64)})
+  assert.equal(n.search('old')[0]?.historical,false)
+  assert.equal(n.search('new').length,0, 'restoring earlier source content makes that observation current again')
  }finally{await rm(root,{recursive:true,force:true})}
 })
 test('QA feedback repairs a failed check then runs fresh review, respecting shared budget and write-ahead attempt count',async()=>{

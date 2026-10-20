@@ -71,8 +71,13 @@ export class LocalMemory {
     const safe = this.clean(value)
     const id = hash(safeSource + '\n' + safe).slice(0, 20)
     const existing = this.entries.find(e => e.id === id)
-    if (existing) { existing.historical = false; return existing }
     if (meta.revision) for (const prior of this.entries) if (prior.source === safeSource && prior.revision && prior.revision !== meta.revision) prior.superseded = true
+    if (existing) {
+      existing.historical = false; existing.superseded = false; existing.at = Date.now()
+      if (meta.evidence) existing.evidence = meta.evidence
+      if (meta.revision) existing.revision = meta.revision
+      return existing
+    }
     const text = safe.length > MAX_TEXT ? safe.slice(0, 8000) + '\n[Middle omitted; reread original source.]\n' + safe.slice(-3900) : safe
     const entry: MemoryEntry = { id, source: safeSource, text, originalChars: safe.length, at: Date.now(), evidence: meta.evidence ?? 'model-note', ...(meta.revision ? { revision: meta.revision } : {}) }
     this.entries.push(entry)
