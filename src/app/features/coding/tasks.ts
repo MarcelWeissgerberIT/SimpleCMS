@@ -1089,6 +1089,7 @@ function createTaskRow(input: NewTask): ID {
   const properties: Record<ID, PropertyValue> = {}
   if (input.agent) {
     let property = codingAgentProperty(db)
+    if (!property && db.locked) throw new Error(t('features.coding.order.settings.locked'))
     if (!property) { property = agentProperty(); ws().addProperty(dbId, property) }
     properties[property.id] = `coding_agent_${input.agent}`
   }

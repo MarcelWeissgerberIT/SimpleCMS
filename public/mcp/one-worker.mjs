@@ -34454,6 +34454,7 @@ async function runStage(ctx) {
   if (ctx.team && !task.trusted) return { status: "refused", error: "This task was written or changed on another device and is not confirmed on this one. Confirm it in One (task panel) first." };
   const kind = task.stage.kind;
   if (task.quality?.review && kind === "implement") return { status: "refused", error: "Delivery QA cannot edit production files; return findings to a coding task." };
+  if (task.quality && !task.quality.review && kind === "git" && task.stage.gitAction === "merge") return { status: "refused", error: "A coding delivery cannot merge before final QA." };
   if (kind === "queue" || kind === "gate" || kind === "done" || kind === "import") return { status: "refused", error: `A ${kind} stage is not run by the worker.` };
   if (kind === "doc" || kind === "analyze") {
     log2("info", `Stage "${task.stage.name}" (${kind}) on ${repo.name}`, "stage", { stage: task.stage.name, kind, repo: repo.name });

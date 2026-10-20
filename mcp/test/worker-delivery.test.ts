@@ -59,5 +59,10 @@ test('built worker runs final QA checks on the combined branch before read-only 
     const missing = await tab.run(task({ kind: 'doc' }, { id: 'qaNoBranch', agent: 'local', branch: null, quality }))
     assert.equal(missing.status, 'failed')
     assert.match(missing.error ?? '', /combined coding branch/)
+    const write = await tab.run(task({ kind: 'implement' }, { id: 'qaCannotWrite', agent: 'local', branch: 'one/delivery', quality }))
+    assert.equal(write.status, 'refused')
+    const merge = await tab.run(task({ kind: 'git', gitAction: 'merge' }, { id: 'childCannotMerge', branch: 'one/delivery', quality: { ...quality, review: false } }))
+    assert.equal(merge.status, 'refused')
+    assert.match(merge.error ?? '', /before final QA/)
   } finally { tab?.close(); await worker.stop(); await new Promise<void>(resolve => upstream.close(() => resolve())) }
 })
