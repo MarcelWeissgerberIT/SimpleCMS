@@ -166,6 +166,7 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
   const connected = conn === 'connected'
   const repo = props.repo ? (ctx.db.properties.find((p) => p.id === props.repo)?.options?.find((o) => o.id === task.properties[props.repo!])?.name ?? null) : null
   const branch = props.branch ? String(task.properties[props.branch] ?? '').trim() || null : null
+  const unmetered = codingAgentOf(ctx.db, task) === 'ollama'
   const cost = props.cost && typeof task.properties[props.cost] === 'number' ? (task.properties[props.cost] as number) : 0
   const files = local.git?.files ?? []
   const state = taskPhase(stage, local, running)
@@ -219,8 +220,8 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
             {t(waitsForYou ? 'features.coding.state.permission' : `features.coding.state.${state}`)}
             {state === 'running' && elapsed ? ` · ${elapsed}` : ''}
           </span>
-          <span className="label ctk-cost" title={t('features.coding.panel.costHint')}>
-            {money(cost)}
+          <span className="label ctk-cost" title={t(unmetered ? 'features.coding.panel.ollamaCostHint' : 'features.coding.panel.costHint')}>
+            {unmetered ? t('features.coding.panel.ollamaCost') : money(cost)}
           </span>
           <HelpLink id="coding-pipeline" />
         </span>

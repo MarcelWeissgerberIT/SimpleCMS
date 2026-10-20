@@ -167,3 +167,9 @@ Kontextbudgets: 65.536, 131.072 (Standard), 262.144 oder 1.000.000 Tokens. Denkt
 Kostenschätzungen verwenden die veröffentlichten Preise vom 19. Oktober 2026: 0,15 US-Dollar je Million Eingabetokens, 0,015 für gecachte Eingaben und 0,60 für Ausgaben einschließlich Denken. Verbrauch wird zur Aufgabe gebucht; Aufgaben- und Tagesbudgets begrenzen weitere Anfragen. Bei einer ungewissen Antwort bleibt eine konservative obere Schätzung bestehen, ohne automatische Wiederholung. Das ist kein Abrechnungsbeleg. Siehe [MiniMax-Ankündigung](https://www.minimax.io/blog/minimax-m31f) und [API-Dokumentation](https://platform.minimax.io/docs/guides/text-generation).
 
 Nach dem Hinterlegen eines Keys lässt sich ein kleiner synthetischer Vergleich ausdrücklich mit `node one-worker.mjs benchmark --agent minimax --limit 3 --budget 1` starten. Das US-Dollar-Budget gilt für diesen Lauf. `--agent local` nutzt das lokale Modell. Diese kleinen Programmierfälle belegen keine Gleichwertigkeit mit einem Spitzenmodell; dafür reale Arbeitspakete und Abnahmekriterien vergleichen.
+
+## Ollama Cloud
+
+Wähle **Ollama Cloud** unter Typ oder getrennt für jede Rolle eines Prüfauftrags. Ab Worker **1.19.0** öffnest du **Ollama Cloud einrichten**, gibst deinen eigenen Ollama-Key im Passwortfeld ein und speicherst. Der Key bleibt beim Worker dieses Rechners und wird nicht mit One synchronisiert. Verwende den API-Namen eines werkzeugfähigen Cloud-Modells, anfangs `minimax-m3.1-flash`. Das Kontextbudget kann das eigene Limit des Modells nicht vergrößern.
+
+Speichern sendet keine Cloud-Anfrage. Die eigene Schaltfläche **Verbindung testen (Cloud-Anfrage)** prüft gespeicherten Key und Modell. Ausgewählter Code und Werkzeugergebnisse gehen an Ollama. Dessen Tariflimits gelten; One kann bei diesem Abotarif keine Dollarbudgets durchsetzen. Aufgabenberechtigungen, Schrittlimits, Atlas-/MCP-Werkzeuge und Prüfungen gelten weiter. Lokales Ollama bleibt separat.

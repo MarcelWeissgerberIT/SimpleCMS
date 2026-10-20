@@ -42,6 +42,7 @@ export function CodingAgentPick({ row, db, readOnly }: { row: Page; db: Database
       {CODING_AGENTS.map(id => <option key={id} value={id}>{t(`features.coding.agent.${id}`)}</option>)}
     </select>
     {agent === 'minimax' && <div className="rtype-row__hint">{t('features.coding.agent.minimaxHint')} <ChangeReposButton label={t('features.coding.agent.minimaxSetup')} testId="coding-minimax-setup" /></div>}
+    {agent === 'ollama' && <div className="rtype-row__hint">{t('features.coding.agent.ollamaHint')} <ChangeReposButton label={t('features.coding.agent.ollamaSetup')} testId="coding-ollama-setup" /></div>}
     {error && <span role="alert">{t('features.coding.agent.locked')}</span>}
   </div>
 }

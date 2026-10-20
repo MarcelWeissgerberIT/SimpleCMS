@@ -4314,6 +4314,24 @@ process.exit(1)
     await ctx.close()
   },
 
+  async 'ollama-cloud'(browser) {
+    const { ctx, page } = await freshPage(browser)
+    await waitPreflight(page)
+    const pipe = await seedPipeline(page)
+    const id = pipe.tasks[1]
+    await page.evaluate(id => { window.location.hash = `#/p/${id}` }, id)
+    await page.getByTestId('coding-agent-select').selectOption('ollama')
+    await page.getByTestId('coding-agent-type').scrollIntoViewIfNeeded()
+    await rest(page)
+    await page.evaluate(() => {
+      const ui = window.__one.ui.getState()
+      for (const toast of ui.toasts) ui.dismissToast(toast.id)
+    })
+    await rest(page)
+    await save(page, 'ollama-cloud')
+    await ctx.close()
+  },
+
   async 'coding-agent-labels'(browser) {
     const { ctx, page } = await freshPage(browser)
     await waitPreflight(page)
@@ -4599,7 +4617,7 @@ process.exit(1)
   },
 }
 
-const browser = await chromium.launch()
+const browser = await chromium.launch(process.env.ONE_SHOT_BROWSER ? { executablePath: process.env.ONE_SHOT_BROWSER } : {})
 let failed = 0
 for (const [name, run] of Object.entries(shots)) {
   if (ONLY.length && !ONLY.includes(name)) continue

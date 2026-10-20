@@ -167,3 +167,9 @@ The available context budgets are 65,536, 131,072 (default), 262,144 and 1,000,0
 Cost estimates use the published prices (19 October 2026): USD 0.15 per million input tokens, 0.015 cached input and 0.60 output including thinking. Provider usage updates the task ledger, and the existing task/day budgets cap subsequent requests. An uncertain response retains a conservative upper estimate; it is not retried automatically. This is not a billing receipt. See [MiniMax’s announcement](https://www.minimax.io/blog/minimax-m31f) and [API documentation](https://platform.minimax.io/docs/guides/text-generation).
 
 After configuring a key, an explicit synthetic smoke comparison can run with `node one-worker.mjs benchmark --agent minimax --limit 3 --budget 1`. The USD budget covers that benchmark run. `--agent local` uses the local model. These small programming cases do not establish parity with a frontier model; use real work packages and acceptance checks for that comparison.
+
+## Ollama Cloud
+
+Select **Ollama Cloud** under Type or separately for each work-order role. With worker **1.19.0**, open **Ollama Cloud setup**, enter your own Ollama key in the password field and save. The key stays with this computer’s worker; it is not synced with One. Use a tool-capable cloud model’s API name, initially `minimax-m3.1-flash`. The context setting is a working budget and cannot increase the model’s own limit.
+
+Saving sends no cloud request. The separate **Test connection (cloud request)** button tests the saved key and model. Selected code and tool results go to Ollama. Its plan quotas apply; One cannot enforce dollar budgets for this subscription tariff. Task permissions, step limits, Atlas/MCP tools and checks still apply. Local Ollama remains separate.

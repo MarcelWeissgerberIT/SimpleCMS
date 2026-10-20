@@ -138,6 +138,59 @@ function meetingScript(ids: { meeting: string; projects: string }): Step[] {
   ]
 }
 
+for (const language of ['en', 'de'] as const) test(`${language}: page reads show actual part numbers including block-aligned pagination`, async ({ page, context }) => {
+  await openApp(page)
+  await setKey(page)
+  const id = await wsEval(page, (s, language) => {
+    const id = s.createPage({ title: 'Long acceptance notes', parentId: null })
+    const paragraphs = language === 'de' ? Array.from({ length: 5 }, (_, i) => String(i + 1).repeat(9000)) : ['a'.repeat(38851)]
+    s.setContent(id, { type: 'doc', content: paragraphs.map(text => ({ type: 'paragraph', content: [{ type: 'text', text }] })) }, 'seed')
+    return id
+  }, language)
+  const total = language === 'de' ? 5 : 4 // 45K chars need FIVE parts when preserving paragraph boundaries.
+  let n = 0
+  let lastOffset = 0
+  const script: Step[] = [() => sseMessage([{ type: 'tool_use', id: 'part-0', name: 'read_page', input: { id } }])]
+  for (let i = 1; i <= total; i++) script.push(body => {
+    const last = body.messages.at(-1).content.find((b: AnyState) => b.type === 'tool_result')
+    const next = /Call read_page with offset (\d+)/.exec(last.content)
+    n++
+    if (i < total) {
+      expect(next).not.toBeNull()
+      const offset = Number(next![1])
+      expect(offset).toBeGreaterThan(lastOffset)
+      lastOffset = offset
+      return sseMessage([{ type: 'tool_use', id: `part-${i}`, name: 'read_page', input: { id, offset } }])
+    }
+    expect(next).toBeNull()
+    // Re-reading the first part must still say part 1, rather than counting calls.
+    return sseMessage([{ type: 'tool_use', id: 'reread', name: 'read_page', input: { id } }])
+  })
+  script.push(() => sseMessage([{ type: 'text', text: 'Read all acceptance notes.' }]))
+  await mockAgent(context, script)
+  await openAgentFromPalette(page)
+  await wsEval(page, (s, language) => s.updateSettings({ language }), language)
+  const input = page.getByRole('textbox', { name: language === 'de' ? 'Aufgabe für den Agenten' : 'Task for the agent' })
+  await input.fill('Read all acceptance notes')
+  await input.press('Enter')
+  const rows = page.locator('.term-step[data-tool="read_page"]')
+  await expect(rows).toHaveCount(total + 1)
+  await expect(page.locator('.term-head__status')).toContainText(language === 'de' ? 'Fertig' : 'Done')
+  expect(n).toBe(total)
+  for (let i = 0; i <= total; i++) {
+    const number = i === total ? 1 : i + 1
+    await expect(rows.nth(i)).toContainText(language === 'de' ? `Teil ${number} von ${total}` : `Part ${number} of ${total}`)
+  }
+  for (const [width, height] of [[1440, 900], [390, 844]]) {
+    await page.setViewportSize({ width, height })
+    for (const theme of ['light', 'dark']) {
+      await wsEval(page, (s, theme) => s.updateSettings({ theme }), theme)
+      await rows.last().scrollIntoViewIfNeeded()
+      await page.screenshot({ path: test.info().outputPath(`page-parts-${language}-${width}-${theme}.png`) })
+    }
+  }
+})
+
 test.describe('Workspace agent (mocked Claude API)', () => {
   test('scripted run: step log, 2 staged rows, nothing written until "Apply all", then Undo removes them', async ({ page, context }) => {
     await openApp(page)

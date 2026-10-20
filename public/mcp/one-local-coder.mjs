@@ -39424,6 +39424,7 @@ var SECRET_ENV = [
   "CLAUDE_CODE_OAUTH_TOKEN",
   "OPENROUTER_API_KEY",
   "MINIMAX_API_KEY",
+  "OLLAMA_API_KEY",
   "OPENAI_API_KEY",
   "GITHUB_TOKEN",
   "GH_TOKEN",
@@ -43302,6 +43303,7 @@ async function runLocal(opts) {
   const secrets = secretValues(env);
   const toolEnv = { ...env };
   delete toolEnv.MINIMAX_API_KEY;
+  delete toolEnv.OLLAMA_API_KEY;
   const files = new LocalFiles(root);
   const external = new LocalMcp(opts.readOnly);
   const clean = (s) => external.redact(scrubSecretText(opts.scrub ? opts.scrub(s) : s, secrets));
@@ -43433,8 +43435,8 @@ Private Atlas checkpoint: /r/${ref}.`;
       if (JSON.stringify({ messages, tools }).length > charBudget) return limited("The initial task or selected context exceeds this model profile. Select narrower excerpts.");
       signal.throwIfAborted();
       const data = await inference({ model, messages, tools, contextTokens: budget.tokens, outputTokens: opts.outputTokens ?? 4096, signal });
-      result.cost = inference.cost?.() ?? 0;
-      opts.progress?.({ turns: result.steps, maxTurns: opts.maxSteps, cost: result.cost, model });
+      result.cost = inference.unmetered ? void 0 : inference.cost?.() ?? 0;
+      opts.progress?.({ turns: result.steps, maxTurns: opts.maxSteps, cost: result.cost ?? null, model });
       if ((data.inputTokens ?? 0) >= budget.inputLimit) return limited("The local prompt is near the context limit. No proposed tool call was executed.");
       if (data.inputTokens && data.inputTokens > 0) charBudget = Math.min(charBudget, Math.floor(JSON.stringify({ messages, tools }).length / data.inputTokens * budget.inputLimit * 0.8));
       if (!data.message) return { ...result, error: "The model returned no message." };
@@ -43557,7 +43559,7 @@ Next: ${args.next}`), text: clean(args.summary) };
           output2 = { error: clean(e instanceof Error ? e.message : "Tool failed") };
         }
         opts.log({ t: Date.now(), k: "info", s: clean(`${name}: ${typeof args.path === "string" ? args.path.slice(0, 300) : "task tool"}`) });
-        opts.progress?.({ turns: result.steps, maxTurns: opts.maxSteps, cost: result.cost ?? 0, model });
+        opts.progress?.({ turns: result.steps, maxTurns: opts.maxSteps, cost: result.cost ?? (inference.unmetered ? null : 0), model });
         const text2 = clean(typeof output2 === "string" ? output2 : JSON.stringify(output2));
         const sensitive = name === "mcp_call_tool" && /token|secret|credential|password|oauth/i.test(String(args.name));
         if (journaled && !failed) memory.finishOperation(name, args, sensitive ? "[Credential-bearing tool result omitted from task memory.]" : text2);
@@ -43576,7 +43578,7 @@ Next: ${args.next}`), text: clean(args.summary) };
     }
     return { ...result, stopped: true, text: memory.report() };
   } catch (e) {
-    result.cost = inference.cost?.() ?? 0;
+    result.cost = inference.unmetered ? void 0 : inference.cost?.() ?? 0;
     if (e instanceof InferenceLimit) {
       result.limited = true;
       result.limitKind = e.kind;

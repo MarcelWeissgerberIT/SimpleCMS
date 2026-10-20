@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// SimpleCMS One — coding worker 1.18.0 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp/src/worker
+// SimpleCMS One — coding worker 1.19.0 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp/src/worker
 // Runs coding tasks from One with Claude Code on this computer. Setup: node one-worker.mjs --help
 // Docs and security model: https://github.com/MarcelWeissgerberIT/SimpleCMS/blob/main/docs/CODING.md
 import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);
@@ -420,11 +420,11 @@ var require_codegen = __commonJS({
         const rhs = this.rhs === void 0 ? "" : ` = ${this.rhs}`;
         return `${varKind} ${this.name}${rhs};` + _n;
       }
-      optimizeNames(names, constants5) {
+      optimizeNames(names, constants6) {
         if (!names[this.name.str])
           return;
         if (this.rhs)
-          this.rhs = optimizeExpr(this.rhs, names, constants5);
+          this.rhs = optimizeExpr(this.rhs, names, constants6);
         return this;
       }
       get names() {
@@ -441,10 +441,10 @@ var require_codegen = __commonJS({
       render({ _n }) {
         return `${this.lhs} = ${this.rhs};` + _n;
       }
-      optimizeNames(names, constants5) {
+      optimizeNames(names, constants6) {
         if (this.lhs instanceof code_1.Name && !names[this.lhs.str] && !this.sideEffects)
           return;
-        this.rhs = optimizeExpr(this.rhs, names, constants5);
+        this.rhs = optimizeExpr(this.rhs, names, constants6);
         return this;
       }
       get names() {
@@ -505,8 +505,8 @@ var require_codegen = __commonJS({
       optimizeNodes() {
         return `${this.code}` ? this : void 0;
       }
-      optimizeNames(names, constants5) {
-        this.code = optimizeExpr(this.code, names, constants5);
+      optimizeNames(names, constants6) {
+        this.code = optimizeExpr(this.code, names, constants6);
         return this;
       }
       get names() {
@@ -535,12 +535,12 @@ var require_codegen = __commonJS({
         }
         return nodes.length > 0 ? this : void 0;
       }
-      optimizeNames(names, constants5) {
+      optimizeNames(names, constants6) {
         const { nodes } = this;
         let i2 = nodes.length;
         while (i2--) {
           const n = nodes[i2];
-          if (n.optimizeNames(names, constants5))
+          if (n.optimizeNames(names, constants6))
             continue;
           subtractNames(names, n.names);
           nodes.splice(i2, 1);
@@ -593,12 +593,12 @@ var require_codegen = __commonJS({
           return void 0;
         return this;
       }
-      optimizeNames(names, constants5) {
+      optimizeNames(names, constants6) {
         var _a4;
-        this.else = (_a4 = this.else) === null || _a4 === void 0 ? void 0 : _a4.optimizeNames(names, constants5);
-        if (!(super.optimizeNames(names, constants5) || this.else))
+        this.else = (_a4 = this.else) === null || _a4 === void 0 ? void 0 : _a4.optimizeNames(names, constants6);
+        if (!(super.optimizeNames(names, constants6) || this.else))
           return;
-        this.condition = optimizeExpr(this.condition, names, constants5);
+        this.condition = optimizeExpr(this.condition, names, constants6);
         return this;
       }
       get names() {
@@ -621,10 +621,10 @@ var require_codegen = __commonJS({
       render(opts) {
         return `for(${this.iteration})` + super.render(opts);
       }
-      optimizeNames(names, constants5) {
-        if (!super.optimizeNames(names, constants5))
+      optimizeNames(names, constants6) {
+        if (!super.optimizeNames(names, constants6))
           return;
-        this.iteration = optimizeExpr(this.iteration, names, constants5);
+        this.iteration = optimizeExpr(this.iteration, names, constants6);
         return this;
       }
       get names() {
@@ -660,10 +660,10 @@ var require_codegen = __commonJS({
       render(opts) {
         return `for(${this.varKind} ${this.name} ${this.loop} ${this.iterable})` + super.render(opts);
       }
-      optimizeNames(names, constants5) {
-        if (!super.optimizeNames(names, constants5))
+      optimizeNames(names, constants6) {
+        if (!super.optimizeNames(names, constants6))
           return;
-        this.iterable = optimizeExpr(this.iterable, names, constants5);
+        this.iterable = optimizeExpr(this.iterable, names, constants6);
         return this;
       }
       get names() {
@@ -705,11 +705,11 @@ var require_codegen = __commonJS({
         (_b2 = this.finally) === null || _b2 === void 0 ? void 0 : _b2.optimizeNodes();
         return this;
       }
-      optimizeNames(names, constants5) {
+      optimizeNames(names, constants6) {
         var _a4, _b2;
-        super.optimizeNames(names, constants5);
-        (_a4 = this.catch) === null || _a4 === void 0 ? void 0 : _a4.optimizeNames(names, constants5);
-        (_b2 = this.finally) === null || _b2 === void 0 ? void 0 : _b2.optimizeNames(names, constants5);
+        super.optimizeNames(names, constants6);
+        (_a4 = this.catch) === null || _a4 === void 0 ? void 0 : _a4.optimizeNames(names, constants6);
+        (_b2 = this.finally) === null || _b2 === void 0 ? void 0 : _b2.optimizeNames(names, constants6);
         return this;
       }
       get names() {
@@ -1010,7 +1010,7 @@ var require_codegen = __commonJS({
     function addExprNames(names, from) {
       return from instanceof code_1._CodeOrName ? addNames(names, from.names) : names;
     }
-    function optimizeExpr(expr, names, constants5) {
+    function optimizeExpr(expr, names, constants6) {
       if (expr instanceof code_1.Name)
         return replaceName(expr);
       if (!canOptimize(expr))
@@ -1025,14 +1025,14 @@ var require_codegen = __commonJS({
         return items;
       }, []));
       function replaceName(n) {
-        const c = constants5[n.str];
+        const c = constants6[n.str];
         if (c === void 0 || names[n.str] !== 1)
           return n;
         delete names[n.str];
         return c;
       }
       function canOptimize(e) {
-        return e instanceof code_1._Code && e._items.some((c) => c instanceof code_1.Name && names[c.str] === 1 && constants5[c.str] !== void 0);
+        return e instanceof code_1._Code && e._items.some((c) => c instanceof code_1.Name && names[c.str] === 1 && constants6[c.str] !== void 0);
       }
     }
     function subtractNames(names, from) {
@@ -10049,7 +10049,7 @@ var require_websocket = __commonJS({
     var http = __require("http");
     var net = __require("net");
     var tls = __require("tls");
-    var { randomBytes: randomBytes13, createHash: createHash7 } = __require("crypto");
+    var { randomBytes: randomBytes14, createHash: createHash7 } = __require("crypto");
     var { Duplex, Readable } = __require("stream");
     var { URL: URL2 } = __require("url");
     var PerMessageDeflate2 = require_permessage_deflate();
@@ -10600,7 +10600,7 @@ var require_websocket = __commonJS({
         }
       }
       const defaultPort = isSecure ? 443 : 80;
-      const key = randomBytes13(16).toString("base64");
+      const key = randomBytes14(16).toString("base64");
       const request2 = isSecure ? https.request : http.request;
       const protocolSet = /* @__PURE__ */ new Set();
       let perMessageDeflate;
@@ -11495,7 +11495,7 @@ var require_websocket_server = __commonJS({
 
 // src/worker/index.ts
 import { fileURLToPath } from "node:url";
-import { existsSync as existsSync10, statSync as statSync5 } from "node:fs";
+import { existsSync as existsSync11, statSync as statSync5 } from "node:fs";
 import { homedir as homedir13, userInfo } from "node:os";
 import { resolve as resolve9 } from "node:path";
 
@@ -11508,12 +11508,12 @@ var CLAIM_STALE_MS = 10 * 6e4;
 var HEARTBEAT_MS = 6e4;
 var LOG_MAX = 2e3;
 var PARALLEL_MAX = 2;
-var CODING_AGENTS = ["claude", "codex", "local", "minimax"];
+var CODING_AGENTS = ["claude", "codex", "local", "minimax", "ollama"];
 var isCodingAgent = (v) => CODING_AGENTS.includes(v);
 var STAGE_KINDS = ["queue", "import", "analyze", "plan", "doc", "gate", "implement", "test", "git", "done"];
 var PERMISSION_MODES = ["plan", "acceptEdits", "default"];
 var GIT_ACTIONS = ["commit", "push", "pr", "update-base", "comment", "merge"];
-var WORKER_CAN = ["analyze", "git:comment", "git:merge", "doc", "model", "mcp-list", "ship", "continue", "permission", "agent:codex", "agent:local", "agent:minimax", "delivery-qa"];
+var WORKER_CAN = ["analyze", "git:comment", "git:merge", "doc", "model", "mcp-list", "ship", "continue", "permission", "agent:codex", "agent:local", "agent:minimax", "agent:ollama", "delivery-qa"];
 var MODEL_NAME = /^[A-Za-z0-9][A-Za-z0-9._:[\]-]{0,99}$/;
 function cleanModel(v) {
   if (typeof v !== "string") return null;
@@ -14864,10 +14864,10 @@ function insideWorktrees(repo, dir, platform = process.platform) {
 }
 
 // src/worker/run.ts
-import { randomBytes as randomBytes7 } from "node:crypto";
-import { existsSync as existsSync5, mkdtempSync, writeFileSync as writeFileSync3 } from "node:fs";
+import { randomBytes as randomBytes8 } from "node:crypto";
+import { existsSync as existsSync6, mkdtempSync, writeFileSync as writeFileSync4 } from "node:fs";
 import { tmpdir as tmpdir3 } from "node:os";
-import { dirname as dirname6, join as join11 } from "node:path";
+import { dirname as dirname7, join as join12 } from "node:path";
 
 // src/worker/scrub.ts
 import { homedir as homedir6, tmpdir } from "node:os";
@@ -14889,6 +14889,7 @@ var SECRET_ENV = [
   "CLAUDE_CODE_OAUTH_TOKEN",
   "OPENROUTER_API_KEY",
   "MINIMAX_API_KEY",
+  "OLLAMA_API_KEY",
   "OPENAI_API_KEY",
   "GITHUB_TOKEN",
   "GH_TOKEN",
@@ -15261,6 +15262,8 @@ function runCommand(argv2, timeoutSec, what, cwd, signal, onLine, scrub) {
   if (!argv2?.length) return Promise.resolve({ ok: true, output: "", ms: 0, code: null, skipped: true });
   const started = Date.now();
   const env = { ...process.env, CI: process.env.CI ?? "1", FORCE_COLOR: "0", NO_COLOR: "1" };
+  delete env.OLLAMA_API_KEY;
+  delete env.MINIMAX_API_KEY;
   const s = spawnSafe(argv2[0], argv2.slice(1), { cwd, env, stdio: ["ignore", "pipe", "pipe"], detached: process.platform !== "win32", windowsHide: true, allow: "person" });
   if (!s.ok) return Promise.resolve(s.why === "failed" ? { ok: false, output: s.error, ms: 0, code: -1 } : notStarted(s.why));
   const child = s.child;
@@ -31680,8 +31683,8 @@ async function random(size) {
   const evenDistCutoff = Math.pow(2, 8) - Math.pow(2, 8) % mask.length;
   let result = "";
   while (result.length < size) {
-    const randomBytes13 = await getRandomValues(size - result.length);
-    for (const randomByte of randomBytes13) {
+    const randomBytes14 = await getRandomValues(size - result.length);
+    for (const randomByte of randomBytes14) {
       if (randomByte < evenDistCutoff) {
         result += mask[randomByte % mask.length];
       }
@@ -33971,6 +33974,7 @@ async function runLocal(opts) {
   const secrets = secretValues(env);
   const toolEnv = { ...env };
   delete toolEnv.MINIMAX_API_KEY;
+  delete toolEnv.OLLAMA_API_KEY;
   const files = new LocalFiles(root);
   const external = new LocalMcp(opts.readOnly);
   const clean = (s) => external.redact(scrubSecretText(opts.scrub ? opts.scrub(s) : s, secrets));
@@ -34102,8 +34106,8 @@ Private Atlas checkpoint: /r/${ref}.`;
       if (JSON.stringify({ messages, tools }).length > charBudget) return limited("The initial task or selected context exceeds this model profile. Select narrower excerpts.");
       signal.throwIfAborted();
       const data = await inference({ model, messages, tools, contextTokens: budget.tokens, outputTokens: opts.outputTokens ?? 4096, signal });
-      result.cost = inference.cost?.() ?? 0;
-      opts.progress?.({ turns: result.steps, maxTurns: opts.maxSteps, cost: result.cost, model });
+      result.cost = inference.unmetered ? void 0 : inference.cost?.() ?? 0;
+      opts.progress?.({ turns: result.steps, maxTurns: opts.maxSteps, cost: result.cost ?? null, model });
       if ((data.inputTokens ?? 0) >= budget.inputLimit) return limited("The local prompt is near the context limit. No proposed tool call was executed.");
       if (data.inputTokens && data.inputTokens > 0) charBudget = Math.min(charBudget, Math.floor(JSON.stringify({ messages, tools }).length / data.inputTokens * budget.inputLimit * 0.8));
       if (!data.message) return { ...result, error: "The model returned no message." };
@@ -34226,7 +34230,7 @@ Next: ${args.next}`), text: clean(args.summary) };
           output = { error: clean(e instanceof Error ? e.message : "Tool failed") };
         }
         opts.log({ t: Date.now(), k: "info", s: clean(`${name}: ${typeof args.path === "string" ? args.path.slice(0, 300) : "task tool"}`) });
-        opts.progress?.({ turns: result.steps, maxTurns: opts.maxSteps, cost: result.cost ?? 0, model });
+        opts.progress?.({ turns: result.steps, maxTurns: opts.maxSteps, cost: result.cost ?? (inference.unmetered ? null : 0), model });
         const text2 = clean(typeof output === "string" ? output : JSON.stringify(output));
         const sensitive = name === "mcp_call_tool" && /token|secret|credential|password|oauth/i.test(String(args.name));
         if (journaled && !failed) memory.finishOperation(name, args, sensitive ? "[Credential-bearing tool result omitted from task memory.]" : text2);
@@ -34245,7 +34249,7 @@ Next: ${args.next}`), text: clean(args.summary) };
     }
     return { ...result, stopped: true, text: memory.report() };
   } catch (e) {
-    result.cost = inference.cost?.() ?? 0;
+    result.cost = inference.unmetered ? void 0 : inference.cost?.() ?? 0;
     if (e instanceof InferenceLimit) {
       result.limited = true;
       result.limitKind = e.kind;
@@ -34265,35 +34269,182 @@ Next: ${args.next}`), text: clean(args.summary) };
   }
 }
 
-// src/worker/minimax-config.ts
+// src/worker/ollama-cloud-inference.ts
+var ENDPOINT = "https://ollama.com/v1/chat/completions";
+var integer3 = (n) => typeof n === "number" && Number.isSafeInteger(n) && n >= 0;
+function wireMessages(messages) {
+  return messages.map((m) => {
+    if (m.role === "tool") {
+      if (typeof m.tool_call_id !== "string") throw new Error("Ollama Cloud tool result has no call ID.");
+      return { role: "tool", tool_call_id: m.tool_call_id, content: m.content };
+    }
+    return {
+      role: m.role,
+      content: m.content ?? "",
+      ...m.reasoning_content !== void 0 ? { reasoning_content: m.reasoning_content } : {},
+      ...m.tool_calls?.length ? { tool_calls: m.tool_calls.map((c) => ({ id: c.id, type: "function", function: { name: c.function.name, arguments: typeof c.function.arguments === "string" ? c.function.arguments : JSON.stringify(c.function.arguments) } })) } : {}
+    };
+  });
+}
+function ollamaCloudInference(config2, transport = fetch) {
+  if (!config2.apiKey) throw new Error("Set your Ollama Cloud API key on the worker setup page before starting this task.");
+  const inference = async (request2) => {
+    request2.signal.throwIfAborted();
+    const messages = wireMessages(request2.messages);
+    const response = await transport(ENDPOINT, {
+      method: "POST",
+      redirect: "error",
+      signal: AbortSignal.any([request2.signal, AbortSignal.timeout(18e4)]),
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${config2.apiKey}` },
+      body: JSON.stringify({ model: config2.model, messages, tools: request2.tools, stream: false, max_tokens: request2.outputTokens })
+    });
+    if (!response.ok) {
+      throw new Error(response.status === 401 || response.status === 403 ? "Ollama Cloud rejected the API key. Check it on the worker setup page." : response.status === 429 ? "Ollama Cloud rate or credit limit reached. Retry later after checking your account." : `Ollama Cloud request failed (HTTP ${response.status}).`);
+    }
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error("Ollama Cloud returned no response body.");
+    const chunks = [];
+    let size = 0;
+    try {
+      while (true) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        size += chunk.value.byteLength;
+        if (size > 2 * 1024 * 1024) {
+          await reader.cancel();
+          throw new Error("Ollama Cloud response exceeded 2 MB.");
+        }
+        chunks.push(chunk.value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    let data;
+    try {
+      data = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    } catch {
+      throw new Error("Ollama Cloud returned invalid JSON. No tool call was executed.");
+    }
+    const usage = data.usage;
+    if (!integer3(usage?.prompt_tokens) || !integer3(usage?.completion_tokens)) throw new InferenceLimit("Ollama Cloud returned no usable token usage. Stopped before executing tools; check provider billing.");
+    const choice = data.choices?.[0];
+    if (choice?.finish_reason === "length") throw new InferenceLimit("Ollama Cloud reached its output limit. No partial tool call was executed. Split the task into smaller work packages.");
+    if (!["stop", "tool_calls"].includes(choice?.finish_reason)) throw new Error("Ollama Cloud returned an unsupported finish reason. No tool call was executed.");
+    const message = choice.message;
+    if (message?.role !== "assistant" || message.content != null && typeof message.content !== "string" || message.reasoning_content != null && typeof message.reasoning_content !== "string") throw new Error("Ollama Cloud returned an invalid assistant message.");
+    const calls = message.tool_calls ?? [];
+    if (!Array.isArray(calls) || calls.length > 8 || new Set(calls.map((c) => c?.id)).size !== calls.length) throw new Error("Ollama Cloud returned invalid tool calls.");
+    for (const call of calls) if (typeof call?.id !== "string" || !call.id || call.type !== "function" || typeof call.function?.name !== "string" || typeof call.function?.arguments !== "string") throw new Error("Ollama Cloud returned an invalid tool call.");
+    for (const call of calls) {
+      if (call.id.length > 200 || call.function.arguments.length > 7e4 || !request2.tools.some((t) => t.function?.name === call.function.name)) throw new Error("Ollama Cloud returned an unavailable or oversized tool call.");
+      let args;
+      try {
+        args = JSON.parse(call.function.arguments);
+      } catch {
+        throw new Error("Ollama Cloud returned invalid tool arguments. No tool call was executed.");
+      }
+      if (!args || typeof args !== "object" || Array.isArray(args)) throw new Error("Ollama Cloud tool arguments must be an object.");
+    }
+    if (choice.finish_reason === "tool_calls" && !calls.length) throw new Error("Ollama Cloud omitted its tool calls.");
+    return { message, inputTokens: usage.prompt_tokens };
+  };
+  inference.unmetered = true;
+  return inference;
+}
+
+// src/worker/ollama-cloud-config.ts
 import { constants as constants4, closeSync as closeSync2, existsSync as existsSync4, fstatSync, mkdirSync as mkdirSync3, openSync as openSync2, readFileSync as readFileSync5, renameSync as renameSync2, unlinkSync, writeFileSync as writeFileSync2 } from "node:fs";
 import { dirname as dirname5, join as join10 } from "node:path";
 import { randomBytes as randomBytes6 } from "node:crypto";
-var MINIMAX_MODEL = "MiniMax-M3.1-Flash";
-var MINIMAX_CONTEXTS = [65536, 131072, 262144, 1e6];
-var MINIMAX_EFFORTS = ["low", "medium", "high", "xhigh", "max"];
-var minimaxFile = (workerFile) => join10(dirname5(workerFile), "minimax.json");
+var OLLAMA_CLOUD_MODEL = "minimax-m3.1-flash";
+var OLLAMA_CLOUD_CONTEXTS = [65536, 131072, 262144, 1e6];
+var validModel = (value2) => typeof value2 === "string" && /^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,127}$/.test(value2);
+var ollamaCloudFile = (workerFile) => join10(dirname5(workerFile), "ollama-cloud.json");
 var validKey = (value2) => typeof value2 === "string" && /^[!-~]{16,4096}$/.test(value2);
-function readMiniMax(workerFile, env = process.env) {
+function readOllamaCloud(workerFile, env = process.env) {
   let raw = {};
-  const file = minimaxFile(workerFile);
+  const file = ollamaCloudFile(workerFile);
   if (existsSync4(file)) {
     const fd2 = openSync2(file, constants4.O_RDONLY | (constants4.O_NOFOLLOW ?? 0));
     try {
       const stat = fstatSync(fd2);
-      if (!stat.isFile() || stat.size > 8192 || process.platform !== "win32" && stat.mode & 63) throw new Error("MiniMax settings must be a private file (chmod 600).");
+      if (!stat.isFile() || stat.size > 8192 || process.platform !== "win32" && stat.mode & 63) throw new Error("Ollama Cloud settings must be a private file (chmod 600).");
       try {
         raw = JSON.parse(readFileSync5(fd2, "utf8"));
       } catch {
-        throw new Error("Invalid MiniMax settings file. Replace it on the setup page.");
+        throw new Error("Invalid Ollama Cloud settings file. Replace it on the setup page.");
       }
     } finally {
       closeSync2(fd2);
     }
   }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("Invalid Ollama Cloud settings.");
+  const apiKey = env.OLLAMA_API_KEY?.trim() || raw.apiKey || "";
+  if (apiKey && !validKey(apiKey)) throw new Error("Invalid Ollama Cloud API key. Replace it on the worker setup page.");
+  return { apiKey, contextTokens: OLLAMA_CLOUD_CONTEXTS.includes(raw.contextTokens) ? raw.contextTokens : 131072, model: validModel(raw.model) ? raw.model : OLLAMA_CLOUD_MODEL };
+}
+function ollamaCloudStatus(workerFile) {
+  try {
+    const c = readOllamaCloud(workerFile);
+    return { configured: !!c.apiKey, model: c.model, contextTokens: c.contextTokens, environment: !!process.env.OLLAMA_API_KEY?.trim() };
+  } catch {
+    return { configured: false, model: OLLAMA_CLOUD_MODEL, contextTokens: 131072, error: "Ollama Cloud settings could not be read. Replace them on this page." };
+  }
+}
+function saveOllamaCloud(workerFile, raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("Invalid Ollama Cloud settings.");
+  const body = raw;
+  if (Object.keys(body).some((k) => !["apiKey", "contextTokens", "model", "remove"].includes(k))) throw new Error("Unknown Ollama Cloud setting.");
+  const file = ollamaCloudFile(workerFile);
+  if (body.remove === true) {
+    if (existsSync4(file)) unlinkSync(file);
+    return;
+  }
+  if (!OLLAMA_CLOUD_CONTEXTS.includes(body.contextTokens) || !validModel(body.model)) throw new Error("Choose a supported Ollama Cloud context and model.");
+  if (body.apiKey !== void 0 && typeof body.apiKey !== "string") throw new Error("Invalid Ollama Cloud API key.");
+  const key = typeof body.apiKey === "string" ? body.apiKey.trim() : "";
+  const apiKey = key || readOllamaCloud(workerFile, {}).apiKey;
+  if (key && !validKey(key)) throw new Error("Invalid Ollama Cloud API key.");
+  if (!apiKey && !process.env.OLLAMA_API_KEY?.trim()) throw new Error("Enter your Ollama Cloud API key.");
+  mkdirSync3(dirname5(file), { recursive: true, mode: 448 });
+  const temp = file + "." + randomBytes6(8).toString("hex") + ".tmp";
+  try {
+    writeFileSync2(temp, JSON.stringify({ apiKey, contextTokens: body.contextTokens, model: body.model }) + "\n", { mode: 384, flag: "wx" });
+    renameSync2(temp, file);
+  } finally {
+    if (existsSync4(temp)) unlinkSync(temp);
+  }
+}
+
+// src/worker/minimax-config.ts
+import { constants as constants5, closeSync as closeSync3, existsSync as existsSync5, fstatSync as fstatSync2, mkdirSync as mkdirSync4, openSync as openSync3, readFileSync as readFileSync6, renameSync as renameSync3, unlinkSync as unlinkSync2, writeFileSync as writeFileSync3 } from "node:fs";
+import { dirname as dirname6, join as join11 } from "node:path";
+import { randomBytes as randomBytes7 } from "node:crypto";
+var MINIMAX_MODEL = "MiniMax-M3.1-Flash";
+var MINIMAX_CONTEXTS = [65536, 131072, 262144, 1e6];
+var MINIMAX_EFFORTS = ["low", "medium", "high", "xhigh", "max"];
+var minimaxFile = (workerFile) => join11(dirname6(workerFile), "minimax.json");
+var validKey2 = (value2) => typeof value2 === "string" && /^[!-~]{16,4096}$/.test(value2);
+function readMiniMax(workerFile, env = process.env) {
+  let raw = {};
+  const file = minimaxFile(workerFile);
+  if (existsSync5(file)) {
+    const fd2 = openSync3(file, constants5.O_RDONLY | (constants5.O_NOFOLLOW ?? 0));
+    try {
+      const stat = fstatSync2(fd2);
+      if (!stat.isFile() || stat.size > 8192 || process.platform !== "win32" && stat.mode & 63) throw new Error("MiniMax settings must be a private file (chmod 600).");
+      try {
+        raw = JSON.parse(readFileSync6(fd2, "utf8"));
+      } catch {
+        throw new Error("Invalid MiniMax settings file. Replace it on the setup page.");
+      }
+    } finally {
+      closeSync3(fd2);
+    }
+  }
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new Error("Invalid MiniMax settings.");
   const apiKey = env.MINIMAX_API_KEY?.trim() || raw.apiKey || "";
-  if (apiKey && !validKey(apiKey)) throw new Error("Invalid MiniMax API key. Replace it on the worker setup page.");
+  if (apiKey && !validKey2(apiKey)) throw new Error("Invalid MiniMax API key. Replace it on the worker setup page.");
   return { apiKey, contextTokens: MINIMAX_CONTEXTS.includes(raw.contextTokens) ? raw.contextTokens : 131072, effort: MINIMAX_EFFORTS.includes(raw.effort) ? raw.effort : "high" };
 }
 function miniMaxStatus(workerFile) {
@@ -34310,30 +34461,30 @@ function saveMiniMax(workerFile, raw) {
   if (Object.keys(body).some((k) => !["apiKey", "contextTokens", "effort", "remove"].includes(k))) throw new Error("Unknown MiniMax setting.");
   const file = minimaxFile(workerFile);
   if (body.remove === true) {
-    if (existsSync4(file)) unlinkSync(file);
+    if (existsSync5(file)) unlinkSync2(file);
     return;
   }
   if (!MINIMAX_CONTEXTS.includes(body.contextTokens) || !MINIMAX_EFFORTS.includes(body.effort)) throw new Error("Choose a supported MiniMax context and thinking effort.");
   if (body.apiKey !== void 0 && typeof body.apiKey !== "string") throw new Error("Invalid MiniMax API key.");
   const key = typeof body.apiKey === "string" ? body.apiKey.trim() : "";
   const apiKey = key || readMiniMax(workerFile, {}).apiKey;
-  if (key && !validKey(key)) throw new Error("Invalid MiniMax API key.");
+  if (key && !validKey2(key)) throw new Error("Invalid MiniMax API key.");
   if (!apiKey && !process.env.MINIMAX_API_KEY?.trim()) throw new Error("Enter your MiniMax API key.");
-  mkdirSync3(dirname5(file), { recursive: true, mode: 448 });
-  const temp = file + "." + randomBytes6(8).toString("hex") + ".tmp";
+  mkdirSync4(dirname6(file), { recursive: true, mode: 448 });
+  const temp = file + "." + randomBytes7(8).toString("hex") + ".tmp";
   try {
-    writeFileSync2(temp, JSON.stringify({ apiKey, contextTokens: body.contextTokens, effort: body.effort }) + "\n", { mode: 384, flag: "wx" });
-    renameSync2(temp, file);
+    writeFileSync3(temp, JSON.stringify({ apiKey, contextTokens: body.contextTokens, effort: body.effort }) + "\n", { mode: 384, flag: "wx" });
+    renameSync3(temp, file);
   } finally {
-    if (existsSync4(temp)) unlinkSync(temp);
+    if (existsSync5(temp)) unlinkSync2(temp);
   }
 }
 
 // src/worker/minimax-inference.ts
-var ENDPOINT = "https://api.minimax.io/v1/chat/completions";
+var ENDPOINT2 = "https://api.minimax.io/v1/chat/completions";
 var MINIMAX_PRICE = { input: 0.15, cached: 0.015, output: 0.6 };
-var integer3 = (n) => typeof n === "number" && Number.isSafeInteger(n) && n >= 0;
-function wireMessages(messages) {
+var integer4 = (n) => typeof n === "number" && Number.isSafeInteger(n) && n >= 0;
+function wireMessages2(messages) {
   return messages.map((m) => {
     if (m.role === "tool") {
       if (typeof m.tool_call_id !== "string") throw new Error("MiniMax tool result has no call ID.");
@@ -34352,14 +34503,14 @@ function miniMaxInference(config2, budgetUsd, transport = fetch) {
   let cost = 0;
   const inference = async (request2) => {
     request2.signal.throwIfAborted();
-    const messages = wireMessages(request2.messages);
+    const messages = wireMessages2(request2.messages);
     const inputBound = Math.min(request2.contextTokens, Buffer.byteLength(JSON.stringify({ messages, tools: request2.tools })) + 2048);
     const reserve = inputBound * MINIMAX_PRICE.input / 1e6;
     const output = Math.min(request2.outputTokens, budgetUsd === null ? request2.outputTokens : Math.floor((budgetUsd - cost - reserve) * 1e6 / MINIMAX_PRICE.output));
     if (output < 256) throw new InferenceLimit("MiniMax cost limit reached. No further API request was sent.", "budget");
     const reserved = reserve + output * MINIMAX_PRICE.output / 1e6;
     cost += reserved;
-    const response = await transport(ENDPOINT, {
+    const response = await transport(ENDPOINT2, {
       method: "POST",
       redirect: "error",
       signal: AbortSignal.any([request2.signal, AbortSignal.timeout(18e4)]),
@@ -34395,8 +34546,8 @@ function miniMaxInference(config2, budgetUsd, transport = fetch) {
       throw new Error("MiniMax returned invalid JSON. No tool call was executed.");
     }
     const usage = data.usage;
-    if (!integer3(usage?.prompt_tokens) || !integer3(usage?.completion_tokens)) throw new InferenceLimit("MiniMax returned no usable token usage. Stopped before executing tools; check provider billing.");
-    const cached2 = Math.min(usage.prompt_tokens, integer3(usage.prompt_tokens_details?.cached_tokens) ? usage.prompt_tokens_details.cached_tokens : 0);
+    if (!integer4(usage?.prompt_tokens) || !integer4(usage?.completion_tokens)) throw new InferenceLimit("MiniMax returned no usable token usage. Stopped before executing tools; check provider billing.");
+    const cached2 = Math.min(usage.prompt_tokens, integer4(usage.prompt_tokens_details?.cached_tokens) ? usage.prompt_tokens_details.cached_tokens : 0);
     cost -= reserved;
     cost += ((usage.prompt_tokens - cached2) * MINIMAX_PRICE.input + cached2 * MINIMAX_PRICE.cached + usage.completion_tokens * MINIMAX_PRICE.output) / 1e6;
     const choice = data.choices?.[0];
@@ -34504,19 +34655,19 @@ A: ${a.a.trim()}
   if (task.quality) {
     parts.push("", "## Confirmed delivery acceptance (data)", ...dataBlock("ACCEPTANCE", JSON.stringify(task.quality), code));
     if (task.quality.review) parts.push("This is a fresh final QA pass. Read the combined branch and check every acceptance criterion. Configured tests have been run by the host. Do not rely on previous model summaries. Report needs_rework or blocked when evidence is missing; completed means no unresolved acceptance failures. Do not edit production files.");
-    if (task.quality.review && task.agent !== "local" && task.agent !== "minimax") parts.push('End with one fenced json object: {"status":"completed"|"blocked"|"needs_rework","summary":"evidence-based review","next":"remaining action or empty"}. Missing or non-completed verdicts cannot pass QA.');
+    if (task.quality.review && task.agent !== "local" && task.agent !== "minimax" && task.agent !== "ollama") parts.push('End with one fenced json object: {"status":"completed"|"blocked"|"needs_rework","summary":"evidence-based review","next":"remaining action or empty"}. Missing or non-completed verdicts cannot pass QA.');
   }
   if (diff) parts.push("", "## Changes on the branch (data)", ...dataBlock("DIFF", diff.text, code));
   return parts.join("\n");
 }
-var markerCode = () => randomBytes7(6).toString("hex");
+var markerCode = () => randomBytes8(6).toString("hex");
 function dataBlock(label, body, code) {
   return [`<<<${label} ${code}`, body, `${label} ${code}>>>`];
 }
 function writeMcpConfig(taskMcp) {
-  const dir = mkdtempSync(join11(tmpdir3(), "one-worker-"));
-  const file = join11(dir, "mcp.json");
-  writeFileSync3(file, JSON.stringify({ mcpServers: { "one-task": { type: "stdio", command: taskMcp.command, args: taskMcp.args, env: taskMcp.env } } }, null, 2), { mode: 384 });
+  const dir = mkdtempSync(join12(tmpdir3(), "one-worker-"));
+  const file = join12(dir, "mcp.json");
+  writeFileSync4(file, JSON.stringify({ mcpServers: { "one-task": { type: "stdio", command: taskMcp.command, args: taskMcp.args, env: taskMcp.env } } }, null, 2), { mode: 384 });
   return { file, dispose: () => void rmRetry(dir) };
 }
 function planted(ctx, dir, log2) {
@@ -34585,7 +34736,7 @@ function ownSettings(ctx, cwd, log2) {
     const names = repo.claude.mcpServers.join(", ");
     log2("info", `${repo.name}: only your user-scope MCP servers reach Claude Code here \u2014 add ${names} with "claude mcp add -s user \u2026"; a server added in the default (local) scope stays out while the repo's own settings are off.`, "mcpUserScope", { repo: repo.name, names });
   }
-  const has = OWN_SETTINGS.filter((n) => existsSync5(join11(cwd, n)));
+  const has = OWN_SETTINGS.filter((n) => existsSync6(join12(cwd, n)));
   if (!has.length) return null;
   const off = repo.source ? OFF[repo.source] : null;
   const files = has.join(", ");
@@ -34645,7 +34796,7 @@ async function runStage(ctx) {
         const test = { ok: checked.ok, output: scrub.text(checked.output).slice(-2e4), ms: checked.ms, code: checked.code };
         if (!checked.ok || checked.notStarted) return { status: "failed", test, error: "Delivery QA checks failed: " + scrub.text(checked.output).slice(-6e3) };
         const reviewed = await docStage(ctx, scrub, log2, branch, dir);
-        if (reviewed.status === "ok" && task.agent !== "local" && task.agent !== "minimax") {
+        if (reviewed.status === "ok" && task.agent !== "local" && task.agent !== "minimax" && task.agent !== "ollama") {
           const verdict = deliveryReview(reviewed.plan ?? reviewed.summary ?? "");
           if (!verdict || verdict.status !== "completed") return { ...reviewed, status: "failed", test, error: verdict ? `${verdict.status}: ${verdict.summary}
 Next: ${verdict.next}` : "Delivery QA requires a structured final verdict; no completion was accepted." };
@@ -34860,7 +35011,7 @@ async function docStage(ctx, scrub, log2, branch, dir) {
 async function alternateStage(ctx, scrub, log2, branch, dir, wt) {
   const { task, repo } = ctx;
   const agent = task.agent;
-  if (agent !== "codex" && agent !== "local" && agent !== "minimax") return { status: "refused", error: "Unknown coding agent." };
+  if (agent !== "codex" && agent !== "local" && agent !== "minimax" && agent !== "ollama") return { status: "refused", error: "Unknown coding agent." };
   const lim = limits(ctx);
   if (lim.refuse) return { status: "limit", error: lim.refuse };
   const readOnly = task.stage.kind !== "implement" || (repo.claude.permissionMode.implement ?? task.stage.permissionMode) === "plan";
@@ -34868,7 +35019,7 @@ async function alternateStage(ctx, scrub, log2, branch, dir, wt) {
   const prompt = buildPrompt(task, repo, branch ?? "", markerCode(), changes ? { text: changes.text, worktree: !!wt } : null) + `
 
 Use your native ${agent !== "codex" ? "file, search and configured check" : "file and shell"} tools inside this worktree. One task tools are available through MCP. The read-only sandbox applies to planning and documents. Ask through one_task_ask if essential information is missing.`;
-  log2("info", `Starting ${agent === "local" ? "local Ollama coding agent" : agent === "minimax" ? MINIMAX_MODEL : "Codex"} (${readOnly ? "read only" : "workspace write"}).`);
+  log2("info", `Starting ${agent === "local" ? "local Ollama coding agent" : agent === "minimax" ? MINIMAX_MODEL : agent === "ollama" ? "Ollama Cloud" : "Codex"} (${readOnly ? "read only" : "workspace write"}).`);
   if (agent === "codex") log2("info", "Codex uses this computer\u2019s Codex login. Dollar cost is not supplied by Codex CLI; One does not estimate it.");
   const max2 = turnsOf(task, repo);
   const live = wt && !readOnly ? liveDiff(ctx, wt, scrub) : null;
@@ -34884,6 +35035,9 @@ Use your native ${agent !== "codex" ? "file, search and configured check" : "fil
       progress: ctx.progress,
       log: (line) => ctx.log({ ...line, s: scrub.text(line.s) })
     };
+    const ollama = agent === "ollama" ? readOllamaCloud(ctx.state.file) : null;
+    if (ollama?.apiKey) scrub.protect("OLLAMA_API_KEY", ollama.apiKey);
+    if (ollama) log2("info", "Ollama Cloud: selected source and tool results leave this computer. Ollama plan quotas apply; USD cost and dollar limits cannot be metered for this tariff. Stage step limits and checks remain active.");
     const minimax = agent === "minimax" ? readMiniMax(ctx.state.file) : null;
     if (minimax?.apiKey) scrub.protect("MINIMAX_API_KEY", minimax.apiKey);
     if (minimax) log2("info", "MiniMax uses its cloud API. Selected source and tool results leave this computer; dollar amounts are estimates from token usage at published prices.");
@@ -34895,8 +35049,14 @@ Use your native ${agent !== "codex" ? "file, search and configured check" : "fil
         outputTokens: 16384,
         context: { tokens: minimax.contextTokens, inputLimit: minimax.contextTokens - 32768, chars: Math.floor((minimax.contextTokens - 32768) * 1.5) }
       } : {},
+      ...ollama ? {
+        inference: ollamaCloudInference(ollama),
+        model: ollama.model,
+        outputTokens: 16384,
+        context: { tokens: ollama.contextTokens, inputLimit: ollama.contextTokens - 32768, chars: Math.floor((ollama.contextTokens - 32768) * 1.5) }
+      } : {},
       completionRequired: !!task.quality,
-      memory: { directory: join11(dirname6(ctx.state.file), "local-memory"), scope: JSON.stringify([repo.path, task.id, task.stage.id]), resume: !!task.resume, projectKey: repo.name },
+      memory: { directory: join12(dirname7(ctx.state.file), "local-memory"), scope: JSON.stringify([repo.path, task.id, task.stage.id]), resume: !!task.resume, projectKey: repo.name },
       scrub: (s) => scrub.text(s),
       mcpServers: repo.claude.mcpServers.length ? repo.claude.mcpServers : ctx.localMcpServers,
       verify: !readOnly && (repo.analyzeCommand?.length || repo.testCommand?.length) ? async (signal) => {
@@ -35171,11 +35331,11 @@ async function gitStage(ctx, wt, scrub, log2) {
 }
 
 // src/worker/worker.ts
-import { randomBytes as randomBytes11 } from "node:crypto";
+import { randomBytes as randomBytes12 } from "node:crypto";
 
 // src/worker/state.ts
-import { existsSync as existsSync6, readFileSync as readFileSync6, writeFileSync as writeFileSync4 } from "node:fs";
-import { dirname as dirname7, join as join12 } from "node:path";
+import { existsSync as existsSync7, readFileSync as readFileSync7, writeFileSync as writeFileSync5 } from "node:fs";
+import { dirname as dirname8, join as join13 } from "node:path";
 var empty = () => ({ v: 1, created: {}, tasks: {}, spent: {}, taskSpent: {}, leftovers: {} });
 function readLeftovers(raw) {
   const out = {};
@@ -35193,11 +35353,11 @@ var WorkerState = class {
   file;
   data;
   constructor(configFile2) {
-    this.file = join12(dirname7(configFile2), "worker-state.json");
+    this.file = join13(dirname8(configFile2), "worker-state.json");
     this.data = empty();
     try {
-      if (existsSync6(this.file)) {
-        const raw = JSON.parse(readFileSync6(this.file, "utf8"));
+      if (existsSync7(this.file)) {
+        const raw = JSON.parse(readFileSync7(this.file, "utf8"));
         if (isObj2(raw) && raw.v === 1) {
           this.data = {
             v: 1,
@@ -35214,7 +35374,7 @@ var WorkerState = class {
   }
   save() {
     const tmp = `${this.file}.tmp`;
-    writeFileSync4(tmp, JSON.stringify(this.data, null, 2), { mode: 384 });
+    writeFileSync5(tmp, JSON.stringify(this.data, null, 2), { mode: 384 });
     renameRetry(tmp, this.file);
   }
   created(repo, branch) {
@@ -35413,13 +35573,13 @@ function alwaysRule(req, opts = {}) {
 // src/worker/intake.ts
 import { createWriteStream, rmSync as rmSync2 } from "node:fs";
 import { homedir as homedir11, tmpdir as tmpdir4 } from "node:os";
-import { join as join17 } from "node:path";
-import { randomBytes as randomBytes9 } from "node:crypto";
+import { join as join18 } from "node:path";
+import { randomBytes as randomBytes10 } from "node:crypto";
 
 // src/worker/clone.ts
-import { existsSync as existsSync7, mkdirSync as mkdirSync4, readdirSync as readdirSync4, writeFileSync as writeFileSync5 } from "node:fs";
+import { existsSync as existsSync8, mkdirSync as mkdirSync5, readdirSync as readdirSync4, writeFileSync as writeFileSync6 } from "node:fs";
 import { homedir as homedir9 } from "node:os";
-import { join as join13, posix as posix6, win32 as win326 } from "node:path";
+import { join as join14, posix as posix6, win32 as win326 } from "node:path";
 var HOST = /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/;
 var SEGMENT = /^[A-Za-z0-9_~][A-Za-z0-9_.~+-]{0,99}$/;
 var USER = /^[A-Za-z0-9._-]{1,64}$/;
@@ -35486,7 +35646,7 @@ function cloneBase(raw, home = homedir9(), platform = process.platform, env = pr
   if (synced === "cloudStorage") return { error: "That folder lies in a synced cloud folder (~/Library/CloudStorage \u2014 OneDrive, Google Drive, Dropbox \u2026) \u2014 git would wait for files from the cloud. Pick one that is not synced, like ~/one-repos." };
   return dir;
 }
-var defaultCloneDir = (home = homedir9()) => join13(home, "one-repos");
+var defaultCloneDir = (home = homedir9()) => join14(home, "one-repos");
 function cloneHint(stderr) {
   const s = stderr.replace(/\r/g, "\n");
   if (/Permission denied \(publickey/i.test(s)) return "The SSH key was refused: add your key to the SSH agent (ssh-add) and to your account on the host \u2014 or use the HTTPS address.";
@@ -35500,12 +35660,12 @@ function cloneHint(stderr) {
 }
 var PROGRESS_LINE_MAX = 16 * 1024;
 async function cloneInto(target, base, onProgress, opts = {}) {
-  const dir = join13(base, target.name);
+  const dir = join14(base, target.name);
   if (!inFolder(dir, base) || samePath(dir, base)) throw new Error("That folder name is not allowed.");
-  if (existsSync7(dir)) {
+  if (existsSync8(dir)) {
     const entries = readdirSync4(dir);
     if (entries.length) {
-      const origin = existsSync7(join13(dir, ".git")) ? (await git(dir, ["remote", "get-url", "origin"], 1e4)).stdout.trim() : "";
+      const origin = existsSync8(join14(dir, ".git")) ? (await git(dir, ["remote", "get-url", "origin"], 1e4)).stdout.trim() : "";
       const bare = (u) => u.replace(/\.git$/, "");
       if (origin && (target.kind === "local" ? samePath(bare(origin), bare(target.url)) : bare(origin) === bare(target.url))) {
         if (inFolder(dir, defaultCloneDir(opts.home))) markSource(dir, "clone");
@@ -35514,8 +35674,8 @@ async function cloneInto(target, base, onProgress, opts = {}) {
       throw new Error(`${dir} already exists \u2014 pick another clone folder, or add that folder instead.`);
     }
   }
-  mkdirSync4(base, { recursive: true });
-  const made = !existsSync7(dir);
+  mkdirSync5(base, { recursive: true });
+  const made = !existsSync8(dir);
   const timeoutMs = opts.timeoutMs ?? (Number(process.env.ONE_WORKER_CLONE_MS) || 30 * 6e4);
   const args = gitArgs(["-c", "protocol.ext.allow=never", "-c", `protocol.file.allow=${opts.local ? "always" : "never"}`, "clone", "--progress", "--", target.url, target.name]);
   const env = await gitEnv(null, process.env, { note: opts.log });
@@ -35561,7 +35721,7 @@ async function cloneInto(target, base, onProgress, opts = {}) {
     if (made) await rmRetry(dir);
     throw failed;
   }
-  writeFileSync5(join13(dir, ".git", SOURCE_MARK), "clone\n");
+  writeFileSync6(join14(dir, ".git", SOURCE_MARK), "clone\n");
   return { dir, already: false };
 }
 var runCli = async (cmd, args) => {
@@ -36239,9 +36399,9 @@ var Unzip = /* @__PURE__ */ (function() {
 })();
 
 // src/worker/zipimport.ts
-import { closeSync as closeSync3, createReadStream, existsSync as existsSync8, lstatSync as lstatSync3, mkdirSync as mkdirSync5, openSync as openSync3, readFileSync as readFileSync7, readdirSync as readdirSync5, rmSync, statSync as statSync4, writeFileSync as writeFileSync6, writeSync } from "node:fs";
-import { randomBytes as randomBytes8 } from "node:crypto";
-import { dirname as dirname8, join as join14, relative as relative2, resolve as resolve7, sep as sep3 } from "node:path";
+import { closeSync as closeSync4, createReadStream, existsSync as existsSync9, lstatSync as lstatSync3, mkdirSync as mkdirSync6, openSync as openSync4, readFileSync as readFileSync8, readdirSync as readdirSync5, rmSync, statSync as statSync4, writeFileSync as writeFileSync7, writeSync } from "node:fs";
+import { randomBytes as randomBytes9 } from "node:crypto";
+import { dirname as dirname9, join as join15, relative as relative2, resolve as resolve7, sep as sep3 } from "node:path";
 var ZIP_MAX = () => Number(process.env.ONE_WORKER_ZIP_MAX) || 500 * 1024 * 1024;
 var UNPACKED_MAX = 2 * 1024 * 1024 * 1024;
 var FILES_MAX = 1e5;
@@ -36284,10 +36444,10 @@ var DISK = {
   list: (dir) => readdirSync5(dir, { withFileTypes: true })
 };
 function isRepoDir(d, disk) {
-  const head = disk.lstat(join14(d, "HEAD"));
+  const head = disk.lstat(join15(d, "HEAD"));
   if (!head || head.isDirectory()) return false;
-  if (disk.lstat(join14(d, "commondir"))) return true;
-  return !!disk.lstat(join14(d, "objects")) && !!disk.lstat(join14(d, "refs"));
+  if (disk.lstat(join15(d, "commondir"))) return true;
+  return !!disk.lstat(join15(d, "objects")) && !!disk.lstat(join15(d, "refs"));
 }
 function gitDirIn(dir, disk = DISK) {
   const todo = [dir];
@@ -36295,17 +36455,17 @@ function gitDirIn(dir, disk = DISK) {
     const d = todo.pop();
     const entries = disk.list(d);
     const named = entries.find((e) => isDotGit(e.name));
-    if (named) return { path: join14(d, named.name), kind: "dotgit" };
-    const dot = disk.lstat(join14(d, ".git"));
+    if (named) return { path: join15(d, named.name), kind: "dotgit" };
+    const dot = disk.lstat(join15(d, ".git"));
     if (dot) {
       const same3 = entries.find((e) => {
-        const st = disk.lstat(join14(d, e.name));
+        const st = disk.lstat(join15(d, e.name));
         return !!st && st.dev === dot.dev && st.ino === dot.ino;
       });
-      return { path: join14(d, same3?.name ?? ".git"), kind: "dotgit" };
+      return { path: join15(d, same3?.name ?? ".git"), kind: "dotgit" };
     }
     if (isRepoDir(d, disk)) return { path: d, kind: "repo" };
-    for (const e of entries) if (e.isDirectory()) todo.push(join14(d, e.name));
+    for (const e of entries) if (e.isDirectory()) todo.push(join15(d, e.name));
   }
   return null;
 }
@@ -36322,9 +36482,9 @@ var PROGRESS_MS = 200;
 async function importZip(zipFile, base, name, label, onProgress = () => {
 }) {
   const started = Date.now();
-  mkdirSync5(base, { recursive: true });
-  const tmp = join14(base, `.one-import-${randomBytes8(6).toString("hex")}`);
-  mkdirSync5(tmp);
+  mkdirSync6(base, { recursive: true });
+  const tmp = join15(base, `.one-import-${randomBytes9(6).toString("hex")}`);
+  mkdirSync6(tmp);
   let files = 0;
   let bytes = 0;
   let fail = null;
@@ -36355,16 +36515,16 @@ async function importZip(zipFile, base, name, label, onProgress = () => {
         fail = `the ZIP has a path outside its folder (${shown(file.name)})`;
         return;
       }
-      const folder = dirname8(dest);
+      const folder = dirname9(dest);
       if (!made.has(folder)) {
-        mkdirSync5(folder, { recursive: true });
+        mkdirSync6(folder, { recursive: true });
         made.add(folder);
       }
-      let fd2 = openSync3(dest, "w", 420);
+      let fd2 = openSync4(dest, "w", 420);
       open5++;
       const close = () => {
         if (fd2 === null) return;
-        closeSync3(fd2);
+        closeSync4(fd2);
         fd2 = null;
         open5--;
       };
@@ -36405,16 +36565,16 @@ async function importZip(zipFile, base, name, label, onProgress = () => {
     if (fail) throw new Error(fail);
     progress(true);
     const top = readdirSync5(tmp);
-    const root = top.length === 1 && statSync4(join14(tmp, top[0])).isDirectory() ? join14(tmp, top[0]) : tmp;
-    let dir = join14(base, name);
-    for (let i2 = 2; existsSync8(dir); i2++) dir = join14(base, `${name}-${i2}`);
+    const root = top.length === 1 && statSync4(join15(tmp, top[0])).isDirectory() ? join15(tmp, top[0]) : tmp;
+    let dir = join15(base, name);
+    for (let i2 = 2; existsSync9(dir); i2++) dir = join15(base, `${name}-${i2}`);
     renameRetry(root, dir);
     if (root !== tmp) rmSync(tmp, { recursive: true, force: true });
     const unpacked = Date.now();
     const parts = await finishImport(dir, label);
     return { dir, files, times: { unpack: unpacked - started, ...parts } };
   } finally {
-    if (existsSync8(tmp)) rmSync(tmp, { recursive: true, force: true });
+    if (existsSync9(tmp)) rmSync(tmp, { recursive: true, force: true });
   }
 }
 async function finishImport(dir, label) {
@@ -36432,10 +36592,10 @@ async function finishImport(dir, label) {
 var NO_DRIVERS = "* -filter !diff merge\n";
 var NO_DRIVERS_NOTE = "# one-worker: this repository was imported from a ZIP, so no git filter, diff or merge driver runs in it (yours\n# neither: nbstripout, Git LFS \u2026) and its files stay as they were committed. Remove the next line to allow them.\n";
 async function commitImport(dir, label) {
-  const holder = join14(dirname8(dir), `.one-import-git-${randomBytes8(6).toString("hex")}`);
-  const gitDir2 = join14(holder, ".git");
-  const hooks = join14(holder, "no-hooks");
-  mkdirSync5(hooks, { recursive: true });
+  const holder = join15(dirname9(dir), `.one-import-git-${randomBytes9(6).toString("hex")}`);
+  const gitDir2 = join15(holder, ".git");
+  const hooks = join15(holder, "no-hooks");
+  mkdirSync6(hooks, { recursive: true });
   const safe = ["-c", "core.fsmonitor=false", "-c", `core.hooksPath=${hooks}`, "-c", "gc.auto=0", "-c", "maintenance.auto=false"];
   const repo = [`--git-dir=${gitDir2}`, `--work-tree=${dir}`];
   const run2 = async (cwd, args, timeoutMs = 12e4) => {
@@ -36445,36 +36605,36 @@ async function commitImport(dir, label) {
   };
   try {
     await run2(holder, ["init", "-q"]);
-    const attributes = join14(gitDir2, "info", "attributes");
+    const attributes = join15(gitDir2, "info", "attributes");
     const was = statSync4(attributes, { throwIfNoEntry: false });
-    const theirs = was?.isFile() && was.size <= 1024 * 1024 ? readFileSync7(attributes, "utf8") : "";
+    const theirs = was?.isFile() && was.size <= 1024 * 1024 ? readFileSync8(attributes, "utf8") : "";
     rmSync(attributes, { force: true });
-    mkdirSync5(dirname8(attributes), { recursive: true });
-    writeFileSync6(attributes, `${theirs && !theirs.endsWith("\n") ? `${theirs}
+    mkdirSync6(dirname9(attributes), { recursive: true });
+    writeFileSync7(attributes, `${theirs && !theirs.endsWith("\n") ? `${theirs}
 ` : theirs}${NO_DRIVERS_NOTE}${NO_DRIVERS}`);
     await run2(dir, [...repo, "symbolic-ref", "HEAD", "refs/heads/main"]);
     await run2(dir, [...repo, "add", "-A"], 10 * 6e4);
     const who = (await git(dir, [...safe, ...repo, "config", "user.email"], 12e4, { local: true })).stdout.trim();
     const identity = who ? [] : ["-c", "user.name=One worker", "-c", "user.email=one-worker@localhost"];
     await run2(dir, [...identity, ...repo, "commit", "-q", "--no-verify", "--allow-empty", "-m", `Import ${label.slice(0, 200)}`], 10 * 6e4);
-    writeFileSync6(join14(gitDir2, SOURCE_MARK), "zip\n");
+    writeFileSync7(join15(gitDir2, SOURCE_MARK), "zip\n");
     refusePlanted(dir);
-    renameRetry(gitDir2, join14(dir, ".git"));
+    renameRetry(gitDir2, join15(dir, ".git"));
   } finally {
     rmSync(holder, { recursive: true, force: true });
   }
 }
 
 // src/worker/publish.ts
-import { existsSync as existsSync9, readFileSync as readFileSync8, readdirSync as readdirSync6 } from "node:fs";
-import { join as join15 } from "node:path";
+import { existsSync as existsSync10, readFileSync as readFileSync9, readdirSync as readdirSync6 } from "node:fs";
+import { join as join16 } from "node:path";
 var NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
 var OWNER = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}(\/[A-Za-z0-9][A-Za-z0-9._-]{0,99}){0,5}$/;
 function read(dir, file, max2 = 256 * 1024) {
   try {
-    const p = join15(dir, file);
-    if (!existsSync9(p)) return null;
-    const text2 = readFileSync8(p, "utf8");
+    const p = join16(dir, file);
+    if (!existsSync10(p)) return null;
+    const text2 = readFileSync9(p, "utf8");
     return text2.length > max2 ? text2.slice(0, max2) : text2;
   } catch {
     return null;
@@ -36584,17 +36744,17 @@ async function publishRepo(dir, t, run2, onLine = () => {
 // src/worker/scan.ts
 import { lstat as lstat3, readFile as readFile3, readdir as readdir3, realpath as realpath3 } from "node:fs/promises";
 import { homedir as homedir10 } from "node:os";
-import { basename as basename2, join as join16, relative as relative3, sep as sep4 } from "node:path";
+import { basename as basename2, join as join17, relative as relative3, sep as sep4 } from "node:path";
 var USUAL_PLACES = ["code", "projects", "dev", "src", "repos", "git", "GitHub", "Documents/GitHub", "Developer", "workspace", "Documents", "Desktop"];
 function usualPlaces(home, platform = process.platform, env = process.env) {
-  const out = USUAL_PLACES.map((place) => ({ path: join16(home, ...place.split("/")), depth: place.split("/").length }));
+  const out = USUAL_PLACES.map((place) => ({ path: join17(home, ...place.split("/")), depth: place.split("/").length }));
   if (platform !== "win32") return out;
-  out.splice(out.length - 2, 0, { path: join16(home, "source", "repos"), depth: 2 });
+  out.splice(out.length - 2, 0, { path: join17(home, "source", "repos"), depth: 2 });
   const one = envGet(env, "OneDrive", "win32")?.trim();
   if (one) {
     const rel = relative3(home, one);
     const depth = rel && !rel.startsWith("..") && !/^[A-Za-z]:/.test(rel) ? rel.split(/[\\/]/).length : 1;
-    for (const f of ["Documents", "Desktop"]) out.push({ path: join16(one, f), depth: depth + 1 });
+    for (const f of ["Documents", "Desktop"]) out.push({ path: join17(one, f), depth: depth + 1 });
   }
   return out;
 }
@@ -36697,7 +36857,7 @@ async function findRepos(opts = {}) {
     if (depth >= maxDepth) continue;
     for (const e of entries) {
       if (!e.isDirectory() || e.name.startsWith(".") || SKIP_DIRS.has(e.name)) continue;
-      queue.push({ path: join16(path, e.name), depth: depth + 1 });
+      queue.push({ path: join17(path, e.name), depth: depth + 1 });
     }
   }
   return { paths, capped, blocked, dirs, ms: Date.now() - start };
@@ -36744,7 +36904,7 @@ function remoteHost(url2) {
 var FILE_MS = 1500;
 async function topFileAsync(dir, name, max2 = 256 * 1024) {
   try {
-    const p = join16(dir, name);
+    const p = join17(dir, name);
     const st = await timed(lstat3(p), FILE_MS);
     if (st === TIMEOUT || !st.isFile() || st.size > max2) return null;
     const text2 = await timed(readFile3(p, "utf8"), FILE_MS);
@@ -36755,7 +36915,7 @@ async function topFileAsync(dir, name, max2 = 256 * 1024) {
 }
 var hasAsync = async (dir, name) => {
   try {
-    const st = await timed(lstat3(join16(dir, name)), FILE_MS);
+    const st = await timed(lstat3(join17(dir, name)), FILE_MS);
     return st !== TIMEOUT && st.isFile();
   } catch {
     return false;
@@ -36887,7 +37047,7 @@ async function isMainCheckoutAsync(dir) {
   try {
     const st = await timed(lstat3(dir), FILE_MS * 2);
     if (st === TIMEOUT || !st.isDirectory()) return false;
-    const git2 = await timed(lstat3(join16(dir, ".git")), FILE_MS * 2);
+    const git2 = await timed(lstat3(join17(dir, ".git")), FILE_MS * 2);
     return git2 !== TIMEOUT && git2.isDirectory();
   } catch {
     return false;
@@ -36936,8 +37096,8 @@ var Intake = class {
     if (declared <= 0) throw new Error("The ZIP is empty.");
     if (declared > max2) throw new Error(`The ZIP is larger than ${Math.round(max2 / 1024 / 1024)} MB.`);
     this.base();
-    const tmp = join17(tmpdir4(), `one-intake-${randomBytes9(8).toString("hex")}.zip`);
-    const upload = { id: randomBytes9(12).toString("hex"), taskId: id, file, tmp, out: createWriteStream(tmp, { mode: 384 }), size: 0, declared, timer: setTimeout(() => this.drop("the upload stopped"), IDLE_MS), error: null };
+    const tmp = join18(tmpdir4(), `one-intake-${randomBytes10(8).toString("hex")}.zip`);
+    const upload = { id: randomBytes10(12).toString("hex"), taskId: id, file, tmp, out: createWriteStream(tmp, { mode: 384 }), size: 0, declared, timer: setTimeout(() => this.drop("the upload stopped"), IDLE_MS), error: null };
     upload.timer.unref?.();
     upload.out.on("error", (e) => {
       upload.error ??= e;
@@ -37107,9 +37267,9 @@ function isAllowedHost(host, port) {
 }
 
 // src/worker/box.ts
-import { createCipheriv, createDecipheriv, hkdfSync, randomBytes as randomBytes10 } from "node:crypto";
+import { createCipheriv, createDecipheriv, hkdfSync, randomBytes as randomBytes11 } from "node:crypto";
 var B64 = /^[A-Za-z0-9+/]*={0,2}$/;
-var newNonce = () => randomBytes10(32).toString("base64url");
+var newNonce = () => randomBytes11(32).toString("base64url");
 function sessionKey(pair, tabNonce, workerNonce, info2 = RELAY_BOX_INFO) {
   if (!RELAY_NONCE.test(pair) || !RELAY_NONCE.test(tabNonce) || !RELAY_NONCE.test(workerNonce)) throw new Error("bad key material");
   const salt = Buffer.concat([Buffer.from(tabNonce, "base64url"), Buffer.from(workerNonce, "base64url")]);
@@ -37128,7 +37288,7 @@ var BoxSession = class {
     this.out = side === "tab" ? "tw" : "wt";
     this.into = side === "tab" ? "wt" : "tw";
   }
-  seal(text2, droppable2 = false, iv = randomBytes10(12)) {
+  seal(text2, droppable2 = false, iv = randomBytes11(12)) {
     const seq = ++this.sent;
     const cipher = createCipheriv("aes-256-gcm", this.key, iv);
     cipher.setAAD(Buffer.from(`${this.out}:${this.s}:${seq}`, "utf8"));
@@ -38253,7 +38413,7 @@ var Worker2 = class {
     if (!repo) return refuse(`the repo "${task.repo}" is not in this worker's config (not ticked) \u2014 One cannot add repos; tick it in the worker's setup page ("Change repositories") or add it to worker.json on the computer that should work on it`);
     if (!noRepo && [...this.runs.values()].some((r) => r.repo.name === repo.name)) return refuse(`another task runs in "${repo.name}" right now`);
     if (this.workspace?.kind === "team" && !task.trusted) return refuse("the task is not confirmed on this device (team workspace)");
-    const token = randomBytes11(24).toString("hex");
+    const token = randomBytes12(24).toString("hex");
     let scratch;
     try {
       scratch = scratchDir(this.config, task.id);
@@ -38370,7 +38530,7 @@ var Worker2 = class {
    * harmless when One applied it but its answer was lost (a dropped relay connection): One answers ok again.
    */
   async finish(taskId, stageId, outcome) {
-    const key = `f${Date.now().toString(36)}${randomBytes11(6).toString("hex")}`;
+    const key = `f${Date.now().toString(36)}${randomBytes12(6).toString("hex")}`;
     this.flushLogs(taskId);
     this.unsent.set(key, { taskId, stageId, outcome });
     try {
@@ -38708,7 +38868,7 @@ A: ${a.a}
     const now = Date.now();
     const wait = permissionWaitMs();
     const ask = {
-      id: randomBytes11(12).toString("hex"),
+      id: randomBytes12(12).toString("hex"),
       tool: req.tool,
       kind: kindOf(req.tool),
       what,
@@ -41325,7 +41485,7 @@ async function serveTaskMcp(version2) {
 // src/worker/local-benchmark.ts
 import { mkdtemp, writeFile as writeFile2, readFile as readFile4, rm as rm4 } from "node:fs/promises";
 import { tmpdir as tmpdir5 } from "node:os";
-import { join as join18 } from "node:path";
+import { join as join19 } from "node:path";
 var cases = [
   ["sum", "Return the sum of finite numeric array entries, ignoring strings, null, NaN and Infinity.", `export function solve(values) { return 0 }`, `assert.equal(solve([1,2,'3',null,NaN,Infinity,-1]),2); assert.equal(solve([]),0)`],
   ["slug", "Make a page slug: trim, lowercase, normalize accents (NFD), replace runs of non-ASCII-alphanumeric characters with one hyphen, remove edge hyphens.", `export function solve(value) { return value }`, `assert.equal(solve('  Caf\xE9 & One CMS! '),'cafe-one-cms'); assert.equal(solve('---'),''); assert.equal(solve('A__B'),'a-b')`],
@@ -41343,15 +41503,15 @@ async function localBenchmark(limit = 10, options) {
   let cost = 0;
   const results = [];
   for (const [name, task, source, tests] of cases.slice(0, limit)) {
-    const root = await mkdtemp(join18(tmpdir5(), "one-local-benchmark-"));
+    const root = await mkdtemp(join19(tmpdir5(), "one-local-benchmark-"));
     const start = Date.now();
     try {
-      await writeFile2(join18(root, "solution.mjs"), source);
-      await writeFile2(join18(root, "check.mjs"), `import assert from 'node:assert/strict'; import {solve} from './solution.mjs';
+      await writeFile2(join19(root, "solution.mjs"), source);
+      await writeFile2(join19(root, "check.mjs"), `import assert from 'node:assert/strict'; import {solve} from './solution.mjs';
 ${tests}
 console.log('PASS');`);
-      await writeFile2(join18(root, "README.md"), "Benchmark fixture: change only solution.mjs. check.mjs is the fixed acceptance test. Keep its contents unchanged. No dependencies.\n");
-      const checkBefore = await readFile4(join18(root, "check.mjs"), "utf8");
+      await writeFile2(join19(root, "README.md"), "Benchmark fixture: change only solution.mjs. check.mjs is the fixed acceptance test. Keep its contents unchanged. No dependencies.\n");
+      const checkBefore = await readFile4(join19(root, "check.mjs"), "utf8");
       const syntax = await execFileSafe(process.execPath, ["--check", "check.mjs"], { cwd: root, timeoutMs: 1e4, maxBuffer: 2e4 });
       if (syntax.code !== 0) throw new Error(`Invalid benchmark fixture ${name}: ${syntax.stderr}`);
       const result = await runLocal({
@@ -41367,7 +41527,7 @@ Keep the exported solve function. Change only solution.mjs. Use the configured c
         log: () => {
         },
         verify: async (signal) => {
-          if (await readFile4(join18(root, "check.mjs"), "utf8") !== checkBefore) return { ok: false, output: "Acceptance tests were modified.", unavailable: true };
+          if (await readFile4(join19(root, "check.mjs"), "utf8") !== checkBefore) return { ok: false, output: "Acceptance tests were modified.", unavailable: true };
           signal.throwIfAborted();
           const checked = await execFileSafe(process.execPath, ["check.mjs"], { cwd: root, timeoutMs: 1e4, maxBuffer: 2e4 });
           return { ok: checked.code === 0, output: checked.stdout + checked.stderr };
@@ -41391,9 +41551,9 @@ if (process.argv[1]?.endsWith("local-benchmark.ts") && process.argv.includes("--
 }
 
 // src/worker/setup.ts
-import { randomBytes as randomBytes12 } from "node:crypto";
+import { randomBytes as randomBytes13 } from "node:crypto";
 import { homedir as homedir12 } from "node:os";
-import { isAbsolute as isAbsolute5, join as join19, resolve as resolve8 } from "node:path";
+import { isAbsolute as isAbsolute5, join as join20, resolve as resolve8 } from "node:path";
 
 // src/worker/picker.ts
 var PROMPT = "One worker \u2014 pick the folder of a git repository";
@@ -41640,6 +41800,23 @@ var SETUP_JS = String.raw`(function () {
   var token = (/[#&]k=([A-Za-z0-9_-]{43})/.exec(location.hash) || [])[1] || ''
   var de = /^de\b/i.test(navigator.language || '')
   var EN = {
+    ollamaTitle: 'Ollama Cloud · API',
+    ollamaHint: 'Cloud model: selected source, prompts and tool results go to Ollama. The same One / Atlas harness applies. The key is saved privately on this computer, outside the One workspace. Ollama plan quotas apply; One cannot meter dollar limits for this tariff.',
+    ollamaReady: 'Key saved · not yet verified with Ollama',
+    ollamaEmpty: 'No API key configured',
+    ollamaEnvironment: 'An environment key takes precedence. Remove OLLAMA_API_KEY and restart the worker to remove it.',
+    ollamaKey: 'Ollama API key',
+    ollamaKeep: 'Leave empty to keep the saved key',
+    ollamaContext: 'Context budget (tokens)',
+    ollamaModel: 'Cloud model name',
+    ollamaModels: 'Browse Ollama cloud models (use the API name)',
+    ollamaSave: 'Save Ollama Cloud settings',
+    ollamaRemove: 'Remove saved Ollama key',
+    ollamaSaved: 'Settings saved. No model request was made.',
+    ollamaError: 'Ollama Cloud settings could not be saved.',
+    ollamaTest: 'Test connection (cloud request)',
+    ollamaTested: 'Cloud request succeeded with the saved key and model.',
+    ollamaTestError: 'Cloud test failed. Check your saved key, model and Ollama quota.',
     miniTitle: 'MiniMax M3.1 Flash · API',
     miniHint: 'Cloud model: selected source, prompts and tool results are sent to MiniMax. The same One / Atlas tools and task memory apply. Save your own API key on this computer; it is never sent to the One workspace.',
     miniReady: 'Key saved · not yet verified with MiniMax',
@@ -41710,7 +41887,7 @@ var SETUP_JS = String.raw`(function () {
     forgeGithub: 'GitHub (also Enterprise)',
     forgeHint: 'Automatic reads the address: a host with “gitlab” or “github” in its name. A self-hosted GitLab or GitHub Enterprise under its own name: pick it here — then One links commits and branches, and the worker opens merge / pull requests with glab / gh.',
     limit: 'Cost limit per task (USD)',
-    mcpLabel: 'Own MCP servers for Claude Code, local Ollama and MiniMax',
+    mcpLabel: 'Own MCP servers for Claude Code, local Ollama, Ollama Cloud and MiniMax',
     mcpHint: 'Names as “claude mcp list” shows them, e.g. kb — this repo\'s stages may use their tools (a knowledge base, a design system). Empty: only One\'s task tools.',
     allowedLabel: 'Allowed without asking',
     allowedHint: 'What Claude Code may do in this repo without asking you — added by “Always for this repo” in One (or by hand in worker.json). Remove one and press Save: One asks again next time.',
@@ -41775,7 +41952,7 @@ var SETUP_JS = String.raw`(function () {
     saved: 'Saved — One sees {n} repositories now.',
     savedOne: 'Saved — One sees 1 repository now.',
     savedNone: 'Saved — no repositories: this worker takes only document tasks without a repository (Business analysis, QA).',
-    wmcpLabel: 'Default MCP servers · Claude Code / Ollama / MiniMax',
+    wmcpLabel: 'Default MCP servers · Claude Code / Ollama / Ollama Cloud / MiniMax',
     wmcpHint: 'Business analysis / QA tasks without a repo run here with these servers (names as “claude mcp list” shows them, e.g. kb) — added with “claude mcp add -s user …”: a server in the default local scope stays out. Ollama and MiniMax also use this list when the repository has no list of its own; personal JSON connections come from ~/.claude.json or ONE_CODER_MCP_CONFIG.',
     writes: 'writes {file}',
     status: '§ STATUS',
@@ -41793,6 +41970,23 @@ var SETUP_JS = String.raw`(function () {
     failed: 'That did not work: {e}'
   }
   var DE = {
+    ollamaTitle: 'Ollama Cloud · API',
+    ollamaHint: 'Cloud-Modell: Ausgewählter Quelltext, Prompts und Werkzeugergebnisse gehen an Ollama. Der One-/Atlas-Harness gilt auch hier. Der Key wird privat auf diesem Rechner gespeichert, außerhalb des One-Arbeitsbereichs. Es gelten Ollamas Tariflimits; One kann für diesen Tarif keine Dollargrenzen messen.',
+    ollamaReady: 'Key gespeichert · noch nicht bei Ollama geprüft',
+    ollamaEmpty: 'Kein API-Key hinterlegt',
+    ollamaEnvironment: 'Ein Umgebungs-Key hat Vorrang. Zum Entfernen OLLAMA_API_KEY entfernen und den Worker neu starten.',
+    ollamaKey: 'Ollama API-Key',
+    ollamaKeep: 'Leer lassen, um den gespeicherten Key zu behalten',
+    ollamaContext: 'Kontextbudget (Tokens)',
+    ollamaModel: 'Name des Cloud-Modells',
+    ollamaModels: 'Ollama-Cloud-Modelle ansehen (API-Namen verwenden)',
+    ollamaSave: 'Ollama-Cloud-Einstellungen speichern',
+    ollamaRemove: 'Gespeicherten Ollama-Key entfernen',
+    ollamaSaved: 'Einstellungen gespeichert. Es wurde keine Modellanfrage gesendet.',
+    ollamaError: 'Ollama-Cloud-Einstellungen konnten nicht gespeichert werden.',
+    ollamaTest: 'Verbindung testen (Cloud-Anfrage)',
+    ollamaTested: 'Cloud-Anfrage mit gespeichertem Key und Modell erfolgreich.',
+    ollamaTestError: 'Cloud-Test fehlgeschlagen. Gespeicherten Key, Modell und Ollama-Kontingent prüfen.',
     miniTitle: 'MiniMax M3.1 Flash · API',
     miniHint: 'Cloud-Modell: Ausgewählter Quelltext, Prompts und Werkzeugergebnisse gehen an MiniMax. Die One-/Atlas-Werkzeuge und das Aufgabengedächtnis gelten auch hier. Deinen eigenen API-Key nur auf diesem Rechner speichern; er wird nicht an den One-Arbeitsbereich gesendet.',
     miniReady: 'Key gespeichert · noch nicht bei MiniMax geprüft',
@@ -41928,7 +42122,7 @@ var SETUP_JS = String.raw`(function () {
     saved: 'Gespeichert – One sieht jetzt {n} Repositories.',
     savedOne: 'Gespeichert – One sieht jetzt 1 Repository.',
     savedNone: 'Gespeichert – keine Repositories: Dieser Worker nimmt nur Dokument-Aufgaben ohne Repository (Business-Analyse, QA).',
-    wmcpLabel: 'Standard-MCP-Server · Claude Code / Ollama / MiniMax',
+    wmcpLabel: 'Standard-MCP-Server · Claude Code / Ollama / Ollama Cloud / MiniMax',
     wmcpHint: 'Business-Analyse- / QA-Aufgaben ohne Repo laufen hier mit diesen Servern (Namen wie in „claude mcp list“, z. B. kb) – hinzugefügt mit „claude mcp add -s user …“: Ein Server im Standard-Bereich (local) bleibt draußen. Ollama und MiniMax nutzen diese Liste auch, wenn das Repository keine eigene hat; die persönlichen JSON-Verbindungen stehen in ~/.claude.json oder ONE_CODER_MCP_CONFIG.',
     writes: 'schreibt {file}',
     status: '§ STATUS',
@@ -42014,6 +42208,11 @@ var SETUP_JS = String.raw`(function () {
   var cloneOpen = false
   var cloneUrl = ''
   var cloneDirText = null
+  var ollamaKey = ''
+  var ollamaContext = null
+  var ollamaModel = null
+  var ollamaSaving = false
+  var ollamaMessage = ''
   var miniKey = ''
   var miniContext = null
   var miniEffort = null
@@ -42212,6 +42411,43 @@ var SETUP_JS = String.raw`(function () {
     ])
   }
 
+  function ollamaPanel() {
+    var m = state.ollama || { configured: false, contextTokens: 131072, model: 'minimax-m3.1-flash' }
+    function save(remove) {
+      var body = remove ? { remove: true } : { apiKey: ollamaKey, contextTokens: ollamaContext || m.contextTokens, model: (ollamaModel || m.model).trim() }
+      ollamaSaving = true; ollamaMessage = ''; render()
+      api('POST', 'ollama', body).then(function (next) {
+        ollamaKey = ''; ollamaContext = null; ollamaModel = null; ollamaSaving = false; ollamaMessage = t('ollamaSaved'); adopt(next)
+      }, function (e) { ollamaSaving = false; ollamaMessage = e.message || t('ollamaError'); render() })
+    }
+    return el('section', { className: 'wmcp', 'data-testid': 'ollama-setup' }, [
+      el('h2', { className: 'label', text: t('ollamaTitle') }),
+      el('p', { className: 'hint', text: t('ollamaHint') }),
+      el('p', { className: 'hint', text: m.error || t(m.configured ? 'ollamaReady' : 'ollamaEmpty') }),
+      m.environment ? el('p', { className: 'hint', text: t('ollamaEnvironment') }) : null,
+      el('div', { className: 'field' }, [
+        el('label', { className: 'label', for: 'ollama-key', text: t('ollamaKey') }),
+        el('input', { type: 'password', id: 'ollama-key', value: ollamaKey, autocomplete: 'new-password', spellcheck: 'false', placeholder: t('ollamaKeep'), disabled: ollamaSaving, oninput: function (e) { ollamaKey = e.target.value } })
+      ]),
+      el('div', { className: 'field' }, [
+        el('label', { className: 'label', for: 'ollama-context', text: t('ollamaContext') }),
+        el('select', { id: 'ollama-context', disabled: ollamaSaving, onchange: function (e) { ollamaContext = Number(e.target.value) } }, [65536, 131072, 262144, 1000000].map(function (n) { return el('option', { value: n, selected: n === (ollamaContext || m.contextTokens), text: n.toLocaleString(de ? 'de-DE' : 'en-US') }) }))
+      ]),
+      el('div', { className: 'field' }, [
+        el('label', { className: 'label', for: 'ollama-model', text: t('ollamaModel') }),
+        el('input', { type: 'text', id: 'ollama-model', value: ollamaModel === null ? m.model : ollamaModel, maxlength: 128, autocomplete: 'off', spellcheck: 'false', disabled: ollamaSaving, oninput: function (e) { ollamaModel = e.target.value } }),
+        el('a', { href: 'https://ollama.com/search?c=cloud', target: '_blank', rel: 'noopener noreferrer', text: t('ollamaModels') })
+      ]),
+      el('button', { type: 'button', className: 'btn', text: t('ollamaSave'), disabled: ollamaSaving, onclick: function () { save(false) } }),
+      m.configured ? el('button', { type: 'button', className: 'btn', text: t('ollamaTest'), disabled: ollamaSaving, onclick: function () {
+        ollamaSaving = true; ollamaMessage = ''; render()
+        api('POST', 'ollama-test', {}).then(function () { ollamaSaving = false; ollamaMessage = t('ollamaTested'); render() }, function () { ollamaSaving = false; ollamaMessage = t('ollamaTestError'); render() })
+      } }) : null,
+      m.configured ? el('button', { type: 'button', className: 'btn btn--ghost', text: t('ollamaRemove'), disabled: ollamaSaving, onclick: function () { save(true) } }) : null,
+      ollamaMessage ? el('p', { className: 'hint', role: 'status', text: ollamaMessage }) : null
+    ])
+  }
+
   function render() {
     var app = $('app')
     var focus = document.activeElement && document.activeElement.id
@@ -42270,6 +42506,7 @@ var SETUP_JS = String.raw`(function () {
       el('span', { className: 'hint', text: t('wmcpHint') })
     ]))
     app.appendChild(minimaxPanel())
+    app.appendChild(ollamaPanel())
     app.appendChild(statusPanel())
     var bar = $('bar')
     bar.hidden = false
@@ -42575,7 +42812,7 @@ async function installed(cmd) {
 }
 var FACTS_MS = 15e3;
 var SetupServer = class {
-  token = randomBytes12(32).toString("base64url");
+  token = randomBytes13(32).toString("base64url");
   host;
   home;
   found = /* @__PURE__ */ new Map();
@@ -42704,6 +42941,7 @@ var SetupServer = class {
       // the person's own Claude Code MCP servers for tasks without a repository (document stages)
       mcpServers: config2.mcpServers,
       minimax: miniMaxStatus(this.host.configFile),
+      ollama: ollamaCloudStatus(this.host.configFile),
       clone: this.clone,
       // what the one-time marking marked (an older worker's clones and imports), until the person took note
       marked: unseenMarks(this.host.configFile),
@@ -42720,7 +42958,7 @@ var SetupServer = class {
     const raw = typeof typed === "string" ? unquote(typed) : "";
     if (!raw || raw.length > 1e3 || /[\u0000-\u001f]/.test(raw)) return { ok: false, error: "Type the folder of a git repository." };
     let dir;
-    if (raw === "~" || raw.startsWith("~/") || raw.startsWith("~\\")) dir = join19(this.home, raw.slice(2));
+    if (raw === "~" || raw.startsWith("~/") || raw.startsWith("~\\")) dir = join20(this.home, raw.slice(2));
     else if (isAbsolute5(raw)) dir = resolve8(raw);
     else {
       dir = resolve8(this.home, raw);
@@ -42782,7 +43020,7 @@ var SetupServer = class {
     if (typeof base !== "string") return { ok: false, status: 400, error: base.error };
     const max2 = ZIP_MAX();
     if (Number(req.headers["content-length"] ?? 0) > max2) return { ok: false, status: 413, error: `The ZIP is larger than ${Math.round(max2 / 1024 / 1024)} MB.` };
-    const tmp = join19(tmpdir6(), `one-import-${randomBytes12(8).toString("hex")}.zip`);
+    const tmp = join20(tmpdir6(), `one-import-${randomBytes13(8).toString("hex")}.zip`);
     let size = 0;
     const out = createWriteStream2(tmp, { mode: 384 });
     try {
@@ -42997,6 +43235,26 @@ var SetupServer = class {
       marksSeen(this.host.configFile);
       return json(200, await this.state()), true;
     }
+    if (op === "ollama-test") {
+      if (this.host.live().busy.length) return json(409, { error: "Wait for running tasks to finish before testing Ollama Cloud." }), true;
+      try {
+        const config2 = readOllamaCloud(this.host.configFile);
+        const response = await ollamaCloudInference(config2)({ model: config2.model, messages: [{ role: "user", content: "Connection test. Reply OK." }], tools: [], contextTokens: config2.contextTokens, outputTokens: 512, signal: AbortSignal.timeout(3e4) });
+        if (!response.message?.content?.trim()) throw new Error("Empty test response");
+        return json(200, { ok: true }), true;
+      } catch {
+        return json(400, { error: "Ollama Cloud test failed. Check the saved key, model and account quota." }), true;
+      }
+    }
+    if (op === "ollama") {
+      if (this.host.live().busy.length) return json(409, { error: "Wait for running tasks to finish before changing Ollama Cloud settings." }), true;
+      try {
+        saveOllamaCloud(this.host.configFile, body);
+      } catch {
+        return json(400, { error: "Ollama Cloud settings could not be saved. Check the key, model and context." }), true;
+      }
+      return json(200, await this.state()), true;
+    }
     if (op === "minimax") {
       if (this.host.live().busy.length) return json(409, { error: "Wait for running tasks to finish before changing MiniMax settings." }), true;
       try {
@@ -43078,7 +43336,7 @@ ${prompt}`);
 }
 
 // src/worker/index.ts
-var VERSION = true ? "1.18.0" : "dev";
+var VERSION = true ? "1.19.0" : "dev";
 var quiet = process.env.ONE_WORKER_QUIET === "1";
 var recent = [];
 var log = (msg) => {
@@ -43173,7 +43431,7 @@ Next: add your repositories to "repos", then run: ${again("check")}
   if (presetProblem) log(`the preset in this file is ignored (${presetProblem}) \u2014 download the worker from One again`);
   let loaded;
   try {
-    loaded = existsSync10(configFile) || !preset ? loadConfig(configFile, process.env, configOpts) : { config: emptyConfig(configFile), problems: [] };
+    loaded = existsSync11(configFile) || !preset ? loadConfig(configFile, process.env, configOpts) : { config: emptyConfig(configFile), problems: [] };
   } catch (e) {
     process.stderr.write(`${e instanceof Error ? e.message : String(e)}
 Or download the worker from One (Settings \u2192 Coding worker): that file comes ready-paired and asks for your repos itself.
@@ -43190,7 +43448,7 @@ Or download the worker from One (Settings \u2192 Coding worker): that file comes
     const bash = win ? gitBash() : null;
     const relay = cloud ? await checkCloud(preset.origin, preset.cloud.token) : null;
     const lines = [
-      `config     ${configFile}${existsSync10(configFile) ? "" : " (not written yet)"}`,
+      `config     ${configFile}${existsSync11(configFile) ? "" : " (not written yet)"}`,
       ...cloud ? [`download   cloud worker for "${preset.name}" \xB7 paired (end-to-end) with the browser that downloaded it`, `cloud      ${relay.line}`] : preset ? [`download   paired with a browser for "${preset.name}" \xB7 accepts ${preset.origin}${preset.dev ? " (+ localhost)" : ""}`] : [],
       `workspace  ${config2.workspace ?? "not set \u2014 every One tab is refused"}`,
       `port       ${config2.port}${cloud ? " (task tools and the setup page only \u2014 One reaches this worker through the team server)" : ""}`,

@@ -420,7 +420,23 @@ const readPage: AgentTool = {
     let body = md ? part : '(empty page)'
     if (offset && !part) body = `(offset ${offset} is past the end: the page has ${md.length} characters)`
     if (more) body += `\n[Part ${offset}–${offset + part.length} of ${md.length} characters. Call read_page with offset ${offset + part.length}${withRefs ? ' and refs: true' : ''} for the rest.]`
-    return { content: `${head.join('\n')}\n\n${body}`, summary: t(lim ? 'features.agent.res.limited' : 'features.agent.res.chars', { count: md.length.toLocaleString() }), state: 'ok' }
+    // Count the actual block-aligned parts, not ceil(length / max): a boundary can shorten a part.
+    let total = 0
+    let number = 1
+    for (let start = 0; start < md.length;) {
+      total++
+      if (start <= offset) number = total
+      let next = Math.min(md.length, start + PAGE_PART_CHARS)
+      if (next < md.length) {
+        const cut = md.lastIndexOf('\n\n', next)
+        if (cut > start + PAGE_PART_CHARS * 0.6) next = cut
+      }
+      start = next
+    }
+    const size = t(lim ? 'features.agent.res.limited' : 'features.agent.res.chars', { count: md.length.toLocaleString() })
+    const summary = total > 1 && offset < md.length
+      ? `${t('features.agent.res.part', { number, total })} · ${size}` : size
+    return { content: `${head.join('\n')}\n\n${body}`, summary, state: 'ok' }
   },
 }
 

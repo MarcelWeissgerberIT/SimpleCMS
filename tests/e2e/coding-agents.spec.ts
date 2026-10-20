@@ -1,13 +1,13 @@
 import { test, expect, openApp, gotoPage, wsEval, reloadApp } from './fixtures'
 
-for (const selectedAgent of ['codex', 'minimax'] as const) test(`coding Type selects ${selectedAgent}; persists and reaches only capable workers`, async ({ page }) => {
+for (const selectedAgent of ['codex', 'minimax', 'ollama'] as const) test(`coding Type selects ${selectedAgent}; persists and reaches only capable workers`, async ({ page }) => {
   await openApp(page)
   // Use the real task creation path and database schema.
   const id = await page.evaluate(() => (window as any).__oneCodingWrites.create('Agent selection test'))
   await gotoPage(page, id)
   const pick = page.getByTestId('coding-agent-select')
   await expect(pick).toHaveValue('claude')
-  await expect(pick.locator('option')).toHaveText(['Claude Code', 'Codex', 'Local · Ollama', 'MiniMax · API'])
+  await expect(pick.locator('option')).toHaveText(['Claude Code', 'Codex', 'Local · Ollama', 'MiniMax · API', 'Ollama Cloud'])
   await pick.selectOption('local')
   const selected = await wsEval(page, (s, id) => {
     const row = s.pages[id]
@@ -19,24 +19,25 @@ for (const selectedAgent of ['codex', 'minimax'] as const) test(`coding Type sel
   await reloadApp(page)
   await gotoPage(page, id)
   await expect(pick).toHaveValue('local')
-  if (selectedAgent === 'minimax') {
+  if (selectedAgent !== 'codex') {
     // Existing databases have only the historical three options. Selecting the new engine upgrades that property.
-    await wsEval(page, (s, id) => {
+    await wsEval(page, (s, { id, selectedAgent }) => {
       const db = s.databases[s.pages[id].databaseId]
       const prop = db.properties.find((p: any) => p.id.startsWith('coding_agent_'))
-      s.updateProperty(db.id, prop.id, { options: prop.options.filter((o: any) => o.id !== 'coding_agent_minimax') })
-    }, id)
+      s.updateProperty(db.id, prop.id, { options: prop.options.filter((o: any) => o.id !== `coding_agent_${selectedAgent}`) })
+    }, { id, selectedAgent })
   }
-  if (selectedAgent === 'minimax') {
+  if (selectedAgent !== 'codex') {
     await wsEval(page, (s, id) => s.updateDatabase(s.pages[id].databaseId, { locked: true }), id)
-    await pick.selectOption('minimax')
+    await pick.selectOption(selectedAgent)
     await expect(page.getByRole('alert')).toContainText('Unlock the database')
     await expect(pick).toHaveValue('local')
     await wsEval(page, (s, id) => s.updateDatabase(s.pages[id].databaseId, { locked: false }), id)
   }
   await pick.selectOption(selectedAgent)
-  if (selectedAgent === 'minimax') await expect(page.getByTestId('coding-agent-type')).toContainText('Cloud API')
+  if (selectedAgent !== 'codex') await expect(page.getByTestId('coding-agent-type')).toContainText('Cloud API')
   await expect(page.getByTestId('coding-model')).toHaveCount(0)
+  if (selectedAgent === 'ollama') await expect(page.locator('.ctk-cost')).toHaveText('Ollama plan')
   await wsEval(page, (s, id) => {
     const row = s.pages[id]
     const db = s.databases[row.databaseId]
@@ -53,13 +54,14 @@ for (const selectedAgent of ['codex', 'minimax'] as const) test(`coding Type sel
   await page.getByRole('button', { name: 'Retry', exact: true }).click()
   let payload: any
   await expect.poll(async () => {
-    payload = await page.evaluate(() => (window as any).__oneCodingWrites.next(['demo'], 'new-worker', true, ['doc', 'model', 'agent:codex', 'agent:local', 'agent:minimax']))
+    payload = await page.evaluate(() => (window as any).__oneCodingWrites.next(['demo'], 'new-worker', true, ['doc', 'model', 'agent:codex', 'agent:local', 'agent:minimax', 'agent:ollama']))
     return payload?.agent
   }).toBe(selectedAgent)
   expect(payload?.stage.kind).toBe('plan')
   expect(payload?.stage.model).toBeNull()
   for (const [width, height] of [[1440, 900], [390, 844]]) {
     await page.setViewportSize({ width, height })
+    await page.waitForTimeout(400) // let the responsive sidebar close before capturing the mobile layout
     for (const theme of ['light', 'dark']) {
       await wsEval(page, (s, theme) => s.updateSettings({ theme }), theme)
       await expect(page.locator('html')).toHaveAttribute('data-theme', theme)

@@ -7,6 +7,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { z } from 'zod'
 import { LocalMcp } from '../src/worker/local-mcp.ts'
+import { ollamaCloudInference } from '../src/worker/ollama-cloud-inference.ts'
 import { miniMaxInference } from '../src/worker/minimax-inference.ts'
 import { runLocal } from '../src/worker/local-agent.ts'
 import { MemoryOAuth } from '../src/worker/local-memory-oauth.ts'
@@ -124,6 +125,24 @@ test('external MCP tools cooperate in one task; namespaced calls, auth redaction
     assert.ok(calls.includes('get:45'), 'MiniMax reaches the actual MCP fixture through the common harness')
     assert.ok(JSON.stringify(miniBodies).includes('Record 45'))
     assert.ok(!JSON.stringify(miniBodies).includes(secret))
+    const cloudBodies: any[] = []
+    const cloudCalls = [
+      ['mcp_search_tools', { query: 'atlas_get' }],
+      ['mcp_call_tool', { server: 'atlas', name: 'atlas_get', arguments: { ref: 45 } }],
+      ['write_file', { path: 'ollama-feature.txt', content: 'Implemented using Atlas context.' }],
+      ['finish_task', { status: 'completed', summary: 'Read Atlas 45 and implemented the feature.', next: '' }],
+    ]
+    const cloud = await runLocal({ agent: 'ollama', cwd: root, prompt: 'Use Atlas record 45 and implement.', readOnly: false, maxSteps: 8, taskMcp: null, mcpServers: ['atlas', 'docs'], signal: new AbortController().signal, log: () => {}, env,
+      inference: ollamaCloudInference({ apiKey: 'ollama_fixture_private_key', contextTokens: 131072, model: 'minimax-m3.1-flash' }, async (_url, init) => {
+        cloudBodies.push(JSON.parse(String(init!.body)))
+        const [name, args] = cloudCalls.shift()!
+        return Response.json({ choices: [{ finish_reason: 'tool_calls', message: { role: 'assistant', content: '', reasoning_content: 'Read, implement, finish.', tool_calls: [{ id: 'cloud-' + cloudBodies.length, type: 'function', function: { name, arguments: JSON.stringify(args) } }] } }], usage: { prompt_tokens: 1000, completion_tokens: 100 } })
+      }),
+    })
+    assert.equal(cloud.ok, true, cloud.error)
+    assert.ok(calls.includes('get:45'), 'Ollama Cloud reaches the actual MCP fixture through the common harness')
+    assert.ok(JSON.stringify(cloudBodies).includes('Record 45'))
+    assert.ok(!JSON.stringify(cloudBodies).includes(secret))
     const implementation = new LocalMcp(false)
     try {
       await implementation.connect(['atlas'], env, AbortSignal.timeout(10000))

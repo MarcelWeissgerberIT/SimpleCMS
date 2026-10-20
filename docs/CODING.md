@@ -1546,3 +1546,11 @@ node one-worker.mjs benchmark --agent local --limit 3
 ```
 
 These cases create isolated temporary files, pin the acceptance tests and remove the fixtures afterwards. No real project data or Atlas connection is used by this benchmark. Offline adapter tests also cover the actual One task MCP and an Atlas MCP fixture. Neither fixture tests nor this small benchmark establish frontier-model quality; compare real work packages separately.
+
+## Ollama Cloud
+
+Worker 1.19.0 adds `agent:ollama`, separate from `agent:local`. Choose **Ollama Cloud** per task or delivery role, then open its local setup from One. The password field saves a private `ollama-cloud.json` beside `worker.json` (0600 on macOS/Linux); `OLLAMA_API_KEY` may override it. Blank input keeps the stored key. Remove deletes the file, not an environment override or the provider-side key. Keys never enter One workspace state.
+
+Use a tool-capable API model name from [Ollama cloud models](https://ollama.com/search?c=cloud); initial model: `minimax-m3.1-flash`. Context is a harness budget, not an extension of a model’s supported context. Direct inference uses only `https://ollama.com/v1/chat/completions` with bearer authentication and redirects disabled. No local Ollama daemon is required. Saving does not call the provider; the explicit connection test sends a fixed small prompt.
+
+Selected context and tool results leave this computer. Ollama subscription quotas apply: USD usage is unknown, not zero, so worker dollar budgets cannot meter this tariff. Stage step caps, task permissions, memory, Atlas/MCP scope and host verification remain in force. There is no automatic retry or fallback to a different provider.

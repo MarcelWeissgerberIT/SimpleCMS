@@ -184,6 +184,23 @@ export const SETUP_JS = String.raw`(function () {
   var token = (/[#&]k=([A-Za-z0-9_-]{43})/.exec(location.hash) || [])[1] || ''
   var de = /^de\b/i.test(navigator.language || '')
   var EN = {
+    ollamaTitle: 'Ollama Cloud · API',
+    ollamaHint: 'Cloud model: selected source, prompts and tool results go to Ollama. The same One / Atlas harness applies. The key is saved privately on this computer, outside the One workspace. Ollama plan quotas apply; One cannot meter dollar limits for this tariff.',
+    ollamaReady: 'Key saved · not yet verified with Ollama',
+    ollamaEmpty: 'No API key configured',
+    ollamaEnvironment: 'An environment key takes precedence. Remove OLLAMA_API_KEY and restart the worker to remove it.',
+    ollamaKey: 'Ollama API key',
+    ollamaKeep: 'Leave empty to keep the saved key',
+    ollamaContext: 'Context budget (tokens)',
+    ollamaModel: 'Cloud model name',
+    ollamaModels: 'Browse Ollama cloud models (use the API name)',
+    ollamaSave: 'Save Ollama Cloud settings',
+    ollamaRemove: 'Remove saved Ollama key',
+    ollamaSaved: 'Settings saved. No model request was made.',
+    ollamaError: 'Ollama Cloud settings could not be saved.',
+    ollamaTest: 'Test connection (cloud request)',
+    ollamaTested: 'Cloud request succeeded with the saved key and model.',
+    ollamaTestError: 'Cloud test failed. Check your saved key, model and Ollama quota.',
     miniTitle: 'MiniMax M3.1 Flash · API',
     miniHint: 'Cloud model: selected source, prompts and tool results are sent to MiniMax. The same One / Atlas tools and task memory apply. Save your own API key on this computer; it is never sent to the One workspace.',
     miniReady: 'Key saved · not yet verified with MiniMax',
@@ -254,7 +271,7 @@ export const SETUP_JS = String.raw`(function () {
     forgeGithub: 'GitHub (also Enterprise)',
     forgeHint: 'Automatic reads the address: a host with “gitlab” or “github” in its name. A self-hosted GitLab or GitHub Enterprise under its own name: pick it here — then One links commits and branches, and the worker opens merge / pull requests with glab / gh.',
     limit: 'Cost limit per task (USD)',
-    mcpLabel: 'Own MCP servers for Claude Code, local Ollama and MiniMax',
+    mcpLabel: 'Own MCP servers for Claude Code, local Ollama, Ollama Cloud and MiniMax',
     mcpHint: 'Names as “claude mcp list” shows them, e.g. kb — this repo\'s stages may use their tools (a knowledge base, a design system). Empty: only One\'s task tools.',
     allowedLabel: 'Allowed without asking',
     allowedHint: 'What Claude Code may do in this repo without asking you — added by “Always for this repo” in One (or by hand in worker.json). Remove one and press Save: One asks again next time.',
@@ -319,7 +336,7 @@ export const SETUP_JS = String.raw`(function () {
     saved: 'Saved — One sees {n} repositories now.',
     savedOne: 'Saved — One sees 1 repository now.',
     savedNone: 'Saved — no repositories: this worker takes only document tasks without a repository (Business analysis, QA).',
-    wmcpLabel: 'Default MCP servers · Claude Code / Ollama / MiniMax',
+    wmcpLabel: 'Default MCP servers · Claude Code / Ollama / Ollama Cloud / MiniMax',
     wmcpHint: 'Business analysis / QA tasks without a repo run here with these servers (names as “claude mcp list” shows them, e.g. kb) — added with “claude mcp add -s user …”: a server in the default local scope stays out. Ollama and MiniMax also use this list when the repository has no list of its own; personal JSON connections come from ~/.claude.json or ONE_CODER_MCP_CONFIG.',
     writes: 'writes {file}',
     status: '§ STATUS',
@@ -337,6 +354,23 @@ export const SETUP_JS = String.raw`(function () {
     failed: 'That did not work: {e}'
   }
   var DE = {
+    ollamaTitle: 'Ollama Cloud · API',
+    ollamaHint: 'Cloud-Modell: Ausgewählter Quelltext, Prompts und Werkzeugergebnisse gehen an Ollama. Der One-/Atlas-Harness gilt auch hier. Der Key wird privat auf diesem Rechner gespeichert, außerhalb des One-Arbeitsbereichs. Es gelten Ollamas Tariflimits; One kann für diesen Tarif keine Dollargrenzen messen.',
+    ollamaReady: 'Key gespeichert · noch nicht bei Ollama geprüft',
+    ollamaEmpty: 'Kein API-Key hinterlegt',
+    ollamaEnvironment: 'Ein Umgebungs-Key hat Vorrang. Zum Entfernen OLLAMA_API_KEY entfernen und den Worker neu starten.',
+    ollamaKey: 'Ollama API-Key',
+    ollamaKeep: 'Leer lassen, um den gespeicherten Key zu behalten',
+    ollamaContext: 'Kontextbudget (Tokens)',
+    ollamaModel: 'Name des Cloud-Modells',
+    ollamaModels: 'Ollama-Cloud-Modelle ansehen (API-Namen verwenden)',
+    ollamaSave: 'Ollama-Cloud-Einstellungen speichern',
+    ollamaRemove: 'Gespeicherten Ollama-Key entfernen',
+    ollamaSaved: 'Einstellungen gespeichert. Es wurde keine Modellanfrage gesendet.',
+    ollamaError: 'Ollama-Cloud-Einstellungen konnten nicht gespeichert werden.',
+    ollamaTest: 'Verbindung testen (Cloud-Anfrage)',
+    ollamaTested: 'Cloud-Anfrage mit gespeichertem Key und Modell erfolgreich.',
+    ollamaTestError: 'Cloud-Test fehlgeschlagen. Gespeicherten Key, Modell und Ollama-Kontingent prüfen.',
     miniTitle: 'MiniMax M3.1 Flash · API',
     miniHint: 'Cloud-Modell: Ausgewählter Quelltext, Prompts und Werkzeugergebnisse gehen an MiniMax. Die One-/Atlas-Werkzeuge und das Aufgabengedächtnis gelten auch hier. Deinen eigenen API-Key nur auf diesem Rechner speichern; er wird nicht an den One-Arbeitsbereich gesendet.',
     miniReady: 'Key gespeichert · noch nicht bei MiniMax geprüft',
@@ -472,7 +506,7 @@ export const SETUP_JS = String.raw`(function () {
     saved: 'Gespeichert – One sieht jetzt {n} Repositories.',
     savedOne: 'Gespeichert – One sieht jetzt 1 Repository.',
     savedNone: 'Gespeichert – keine Repositories: Dieser Worker nimmt nur Dokument-Aufgaben ohne Repository (Business-Analyse, QA).',
-    wmcpLabel: 'Standard-MCP-Server · Claude Code / Ollama / MiniMax',
+    wmcpLabel: 'Standard-MCP-Server · Claude Code / Ollama / Ollama Cloud / MiniMax',
     wmcpHint: 'Business-Analyse- / QA-Aufgaben ohne Repo laufen hier mit diesen Servern (Namen wie in „claude mcp list“, z. B. kb) – hinzugefügt mit „claude mcp add -s user …“: Ein Server im Standard-Bereich (local) bleibt draußen. Ollama und MiniMax nutzen diese Liste auch, wenn das Repository keine eigene hat; die persönlichen JSON-Verbindungen stehen in ~/.claude.json oder ONE_CODER_MCP_CONFIG.',
     writes: 'schreibt {file}',
     status: '§ STATUS',
@@ -558,6 +592,11 @@ export const SETUP_JS = String.raw`(function () {
   var cloneOpen = false
   var cloneUrl = ''
   var cloneDirText = null
+  var ollamaKey = ''
+  var ollamaContext = null
+  var ollamaModel = null
+  var ollamaSaving = false
+  var ollamaMessage = ''
   var miniKey = ''
   var miniContext = null
   var miniEffort = null
@@ -756,6 +795,43 @@ export const SETUP_JS = String.raw`(function () {
     ])
   }
 
+  function ollamaPanel() {
+    var m = state.ollama || { configured: false, contextTokens: 131072, model: 'minimax-m3.1-flash' }
+    function save(remove) {
+      var body = remove ? { remove: true } : { apiKey: ollamaKey, contextTokens: ollamaContext || m.contextTokens, model: (ollamaModel || m.model).trim() }
+      ollamaSaving = true; ollamaMessage = ''; render()
+      api('POST', 'ollama', body).then(function (next) {
+        ollamaKey = ''; ollamaContext = null; ollamaModel = null; ollamaSaving = false; ollamaMessage = t('ollamaSaved'); adopt(next)
+      }, function (e) { ollamaSaving = false; ollamaMessage = e.message || t('ollamaError'); render() })
+    }
+    return el('section', { className: 'wmcp', 'data-testid': 'ollama-setup' }, [
+      el('h2', { className: 'label', text: t('ollamaTitle') }),
+      el('p', { className: 'hint', text: t('ollamaHint') }),
+      el('p', { className: 'hint', text: m.error || t(m.configured ? 'ollamaReady' : 'ollamaEmpty') }),
+      m.environment ? el('p', { className: 'hint', text: t('ollamaEnvironment') }) : null,
+      el('div', { className: 'field' }, [
+        el('label', { className: 'label', for: 'ollama-key', text: t('ollamaKey') }),
+        el('input', { type: 'password', id: 'ollama-key', value: ollamaKey, autocomplete: 'new-password', spellcheck: 'false', placeholder: t('ollamaKeep'), disabled: ollamaSaving, oninput: function (e) { ollamaKey = e.target.value } })
+      ]),
+      el('div', { className: 'field' }, [
+        el('label', { className: 'label', for: 'ollama-context', text: t('ollamaContext') }),
+        el('select', { id: 'ollama-context', disabled: ollamaSaving, onchange: function (e) { ollamaContext = Number(e.target.value) } }, [65536, 131072, 262144, 1000000].map(function (n) { return el('option', { value: n, selected: n === (ollamaContext || m.contextTokens), text: n.toLocaleString(de ? 'de-DE' : 'en-US') }) }))
+      ]),
+      el('div', { className: 'field' }, [
+        el('label', { className: 'label', for: 'ollama-model', text: t('ollamaModel') }),
+        el('input', { type: 'text', id: 'ollama-model', value: ollamaModel === null ? m.model : ollamaModel, maxlength: 128, autocomplete: 'off', spellcheck: 'false', disabled: ollamaSaving, oninput: function (e) { ollamaModel = e.target.value } }),
+        el('a', { href: 'https://ollama.com/search?c=cloud', target: '_blank', rel: 'noopener noreferrer', text: t('ollamaModels') })
+      ]),
+      el('button', { type: 'button', className: 'btn', text: t('ollamaSave'), disabled: ollamaSaving, onclick: function () { save(false) } }),
+      m.configured ? el('button', { type: 'button', className: 'btn', text: t('ollamaTest'), disabled: ollamaSaving, onclick: function () {
+        ollamaSaving = true; ollamaMessage = ''; render()
+        api('POST', 'ollama-test', {}).then(function () { ollamaSaving = false; ollamaMessage = t('ollamaTested'); render() }, function () { ollamaSaving = false; ollamaMessage = t('ollamaTestError'); render() })
+      } }) : null,
+      m.configured ? el('button', { type: 'button', className: 'btn btn--ghost', text: t('ollamaRemove'), disabled: ollamaSaving, onclick: function () { save(true) } }) : null,
+      ollamaMessage ? el('p', { className: 'hint', role: 'status', text: ollamaMessage }) : null
+    ])
+  }
+
   function render() {
     var app = $('app')
     var focus = document.activeElement && document.activeElement.id
@@ -814,6 +890,7 @@ export const SETUP_JS = String.raw`(function () {
       el('span', { className: 'hint', text: t('wmcpHint') })
     ]))
     app.appendChild(minimaxPanel())
+    app.appendChild(ollamaPanel())
     app.appendChild(statusPanel())
     var bar = $('bar')
     bar.hidden = false

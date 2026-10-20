@@ -1,3 +1,5 @@
+import { readFileSync, statSync, existsSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { test, expect } from './fixtures'
 import { cleanupAll, makeRepo, writeConfig, spawnWorker, WORKER_BUNDLE, WS_LOCAL } from '../../mcp/test/worker-helpers'
 
@@ -22,6 +24,33 @@ test('worker setup saves a private MiniMax key without calling the provider, and
     await expect(section.getByLabel('Context budget (tokens)')).toHaveValue('1000000')
     await expect(section.getByLabel('Thinking effort')).toHaveValue('max')
     expect(requests).toBe(0)
+    const cloud = page.getByTestId('ollama-setup')
+    await cloud.scrollIntoViewIfNeeded()
+    await expect(cloud.getByLabel('Ollama API key', { exact: true })).toHaveAttribute('type', 'password')
+    const key = 'ollama_fixture_key_never_real'
+    await cloud.getByLabel('Ollama API key', { exact: true }).fill(key)
+    await cloud.getByLabel('Cloud model name', { exact: true }).fill('minimax-m3.1-flash')
+    await cloud.getByRole('button', { name: 'Save Ollama Cloud settings' }).click()
+    await expect(cloud).toContainText('Key saved · not yet verified with Ollama')
+    await expect(cloud.getByLabel('Ollama API key', { exact: true })).toHaveValue('')
+    const secretFile = join(dirname(file), 'ollama-cloud.json')
+    expect(JSON.parse(readFileSync(secretFile, 'utf8')).apiKey).toBe(key)
+    if (process.platform !== 'win32') expect(statSync(secretFile).mode & 0o777).toBe(0o600)
+    const setupUrl = new URL(url)
+    const auth = setupUrl.hash.slice(3)
+    const state = await page.request.get(setupUrl.origin + '/setup/api/state', { headers: { 'x-one-setup': auth } })
+    expect(await state.text()).not.toContain(key)
+    const refused = await page.request.post(setupUrl.origin + '/setup/api/ollama', { data: { remove: true }, headers: { origin: setupUrl.origin } })
+    expect(refused.status()).toBe(401)
+    const foreign = await page.request.post(setupUrl.origin + '/setup/api/ollama', { data: { remove: true }, headers: { 'x-one-setup': auth, origin: 'https://evil.invalid' } })
+    expect(foreign.status()).toBe(403)
+    await cloud.getByLabel('Cloud model name', { exact: true }).fill('gpt-oss:120b')
+    await cloud.getByRole('button', { name: 'Save Ollama Cloud settings' }).click()
+    await expect(cloud.getByLabel('Cloud model name', { exact: true })).toHaveValue('gpt-oss:120b')
+    expect(JSON.parse(readFileSync(secretFile, 'utf8')).apiKey).toBe(key)
+    await cloud.getByRole('button', { name: 'Remove saved Ollama key' }).click()
+    await expect(cloud).toContainText('No API key configured')
+    expect(existsSync(secretFile)).toBe(false)
     await section.getByRole('button', { name: 'Remove saved MiniMax key' }).click()
     await expect(section).toContainText('No API key configured')
     expect(requests).toBe(0)

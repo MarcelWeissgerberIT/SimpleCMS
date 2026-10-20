@@ -163,7 +163,9 @@ export class OutputLines {
 function runCommand(argv: string[] | null, timeoutSec: number, what: string, cwd: string, signal: AbortSignal, onLine?: (s: string) => void, scrub?: (s: string) => string): Promise<RunResult> {
   if (!argv?.length) return Promise.resolve({ ok: true, output: '', ms: 0, code: null, skipped: true })
   const started = Date.now()
-  const env = { ...process.env, CI: process.env.CI ?? '1', FORCE_COLOR: '0', NO_COLOR: '1' }
+  const env: NodeJS.ProcessEnv = { ...process.env, CI: process.env.CI ?? '1', FORCE_COLOR: '0', NO_COLOR: '1' }
+  delete env.OLLAMA_API_KEY
+  delete env.MINIMAX_API_KEY
   // the person's own command: a .cmd / .bat the reader cannot read may run through cmd.exe (escaped); its environment
   // as it is (no NoDefaultCurrentDirectoryInExePath: its scripts may call a program in their folder by its bare name)
   const s = spawnSafe(argv[0]!, argv.slice(1), { cwd, env, stdio: ['ignore', 'pipe', 'pipe'], detached: process.platform !== 'win32', windowsHide: true, allow: 'person' })

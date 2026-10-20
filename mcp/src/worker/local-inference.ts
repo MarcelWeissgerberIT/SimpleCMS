@@ -10,6 +10,8 @@ export interface LocalInferenceRequest {
 export interface LocalInferenceResponse { message?: any; inputTokens?: number }
 export interface LocalInference {
   (request: LocalInferenceRequest): Promise<LocalInferenceResponse>
+  /** Subscription provider without a USD usage price. Never report it as free. */
+  unmetered?: boolean
   cost?: () => number
   profile?: (model: string, signal: AbortSignal) => Promise<string>
 }
