@@ -22,6 +22,7 @@
  *    does not take the worker over; a tab another tab or device took the worker from takes it back once that tab
  *    lets it go (the server lists it online without a tab); tasks run only while such a tab is connected.
  */
+import { codingAgentName } from './agent'
 import { useWorkspace, pageChanges } from '../../store/store'
 import { t } from '../../i18n'
 import { BRAND } from '@/shared/brand'
@@ -79,7 +80,7 @@ function tellAsk(taskId: string, ask: PermissionAsk) {
   told.add(ask.id)
   if (told.size > 200) told.delete(told.values().next().value as string)
   const title = useWorkspace.getState().pages[taskId]?.title.trim() || t('common.untitled')
-  notifyAway(taskId, t('features.coding.notify.permission', { title, tool: ask.tool }))
+  notifyAway(taskId, t('features.coding.notify.permission', { title, tool: ask.tool, agent: codingAgentName(taskId) }))
 }
 
 /**

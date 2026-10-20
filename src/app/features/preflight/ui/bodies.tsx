@@ -8,7 +8,7 @@ import { lazy, type ReactNode } from 'react'
 import { useLang, useT } from '../../../i18n'
 import { useWorkspace } from '../../../store/store'
 import { useCloudSync } from '../../../cloud'
-import { AskWhat, NextStepFold, codingLogText, useCoding, type TaskVersionView } from '../../coding'
+import { AskWhat, NextStepFold, codingLogText, useCoding, useCodingAgentName, type TaskVersionView } from '../../coding'
 import { AgentChangeBody, useAgentRuns, useServerAgents } from '../../agents'
 import { useAgent } from '../../ai/agent/state'
 import { FullText } from '../../ai/agent/CodingDiff'
@@ -110,6 +110,7 @@ function TaskBody({ item, expanded }: { item: QueueItem; expanded: boolean }) {
   // canContinue(), read live: a connected older worker cannot continue — the card's A starts the stage over then
   const cont = useCoding((s) => s.can === null || s.can.includes('continue'))
   const p = parseTaskItem(item.id)
+  const agentName = useCodingAgentName(p?.taskId ?? '')
   const prep = codingPrep(item.id)
   if (!p) return <Gone />
   if (p.kind === 'intake') return <p className="pf-card__note">{t('features.preflight.task.intakeNote')}</p>
@@ -172,7 +173,7 @@ function TaskBody({ item, expanded }: { item: QueueItem; expanded: boolean }) {
         </Field>
       )}
       {p.kind === 'question' && (
-        <Field label={t('features.preflight.task.question')}>
+        <Field label={t('features.preflight.task.question', { agent: agentName })}>
           <span className="pf-quote">{d?.question ?? '—'}</span>
         </Field>
       )}

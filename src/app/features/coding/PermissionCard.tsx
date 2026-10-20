@@ -11,6 +11,7 @@
  *    gets) — the stage runs on from its worktree — and Start over; an older worker gets Start over only, with why.
  *  - the last run's permission count, one line.
  */
+import { useCodingAgentName } from './agent'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { Check, Play, RotateCcw, ShieldAlert, X } from 'lucide-react'
 import { useT } from '../../i18n'
@@ -139,6 +140,7 @@ export const ARM_MS = 400
  */
 export function PermissionCard({ taskId, ask, canAct, onAnswered }: { taskId: ID; ask: PermissionAsk; canAct: boolean; onAnswered?: () => void }) {
   const t = useT()
+  const agentName = useCodingAgentName(taskId)
   const [busy, setBusy] = useState(false)
   const [armed, setArmed] = useState(false)
   useEffect(() => {
@@ -167,7 +169,7 @@ export function PermissionCard({ taskId, ask, canAct, onAnswered }: { taskId: ID
       <p className="ctk-perm__head">
         <ShieldAlert size={15} strokeWidth={1.75} aria-hidden />
         <span className="label ctk-perm__label" id={labelId}>
-          {t('features.coding.perm.label')}
+          {t('features.coding.perm.label', { agent: agentName })}
         </span>
         <span className="label ctk-perm__left">
           {t('features.coding.perm.until', { time: left })}

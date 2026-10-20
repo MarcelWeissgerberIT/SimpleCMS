@@ -35,7 +35,7 @@ import { createRequire } from 'node:module'
 import { delimiter, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { strToU8, zipSync } from 'fflate'
-import { seedMorning, waitPreflight } from '../tests/e2e/helpers/preflightStory.mjs'
+import { seedMorning, seedPipeline, waitPreflight, flushLamps } from '../tests/e2e/helpers/preflightStory.mjs'
 import { seedTrust } from '../tests/e2e/helpers/trustStory.mjs'
 import { playStoryPage, storyTime } from '../tests/e2e/helpers/recorderStory.mjs'
 import { routeAIHosts } from './lib/aiHosts.mjs'
@@ -4277,6 +4277,32 @@ process.exit(1)
     await page.waitForTimeout(700)
     await page.mouse.move(W + 40, H + 40)
     await save(page, 'redo', frameAround(union(await boxOf(page.locator('.ai-panel').first()), await boxOf(page.locator('#main .pv-title').first())), { width: W, height: H }, 16 / 10, 28))
+    await ctx.close()
+  },
+
+  /** Agent-neutral overview, named task question. Fixture state only; no model or worker starts. */
+  async 'coding-agent-labels'(browser) {
+    const { ctx, page } = await freshPage(browser)
+    await waitPreflight(page)
+    const pipe = await seedPipeline(page)
+    const id = pipe.tasks[1]
+    await page.evaluate((id) => { window.location.hash = `#/p/${id}` }, id)
+    await page.getByTestId('coding-agent-select').selectOption('codex')
+    await page.evaluate(({ id, other }) => {
+      const p = window.__onePreflight
+      p.stores.codingLocal.setState((s) => ({ tasks: { ...s.tasks, [`local:local|${id}`]: { state: 'question', question: 'Which source document defines the expected certificate behavior?', at: Date.now() } } }))
+      p.stores.coding.setState({ asks: { [other]: { id: 'a1b2c3d4e5f6a7b8c9d0e1f2', tool: 'Read', kind: 'read', what: 'Read the selected source document', repo: 'fixture', rule: null, at: Date.now(), until: Date.now() + 900000 } } })
+      const ui = window.__one.ui.getState()
+      for (const t of ui.toasts) ui.dismissToast(t.id)
+      window.location.hash = '#/'
+    }, { id, other: pipe.tasks[0] })
+    await flushLamps(page)
+    const cap = page.locator('.pf-cap[data-lamp="question"]')
+    await cap.focus()
+    await page.keyboard.press('Enter')
+    await page.locator('.pf-q article.pf-card[data-current]:not([aria-busy="true"])').waitFor()
+    await rest(page)
+    await save(page, 'coding-agent-labels')
     await ctx.close()
   },
 

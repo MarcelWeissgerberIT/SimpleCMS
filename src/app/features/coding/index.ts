@@ -300,3 +300,6 @@ export const unsettleEjectedOrder = (runKey: string, ids: readonly string[], eje
 export const orderEjectBusy = (runKeys: readonly string[]) => import('./orders/eject').then((m) => m.orderEjectBusy(runKeys))
 export const orderEjectFacts = (units: readonly string[]) => import('./orders/eject').then((m) => m.orderEjectFacts(units))
 export { withEjected, withoutEjected } from './chain'
+
+/** The selected coding agent's display name for task-specific UI. */
+export { useCodingAgentName } from './agent'

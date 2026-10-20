@@ -84,7 +84,7 @@ test('a permission: the task waits for you, the card says what Claude Code wants
   fake!.askPermission(task, askOf())
   await expect(page.getByTestId('coding-state')).toContainText('Waiting for you · permission')
   const card = page.getByTestId('coding-permission')
-  await expect(card).toContainText('Claude wants')
+  await expect(card).toContainText('Claude Code wants')
   await expect(page.getByTestId('coding-permission-what')).toHaveText('npm run lint')
   await expect(page.getByTestId('coding-permission-rule')).toContainText('Bash(npm run lint:*)')
   await expect(card.getByTestId('coding-permission-always')).toBeVisible()
@@ -237,7 +237,7 @@ test('Preflight in German: the "Claude möchte" card shows the request in full; 
   expect(fake!.permAsked).toHaveLength(0)
   // D: VON HAND — the confirm row first, ↵ on its key answers
   await page.keyboard.press('d')
-  await expect(page.getByTestId('pf-confirm')).toContainText('geht an Claude Code')
+  await expect(page.getByTestId('pf-confirm')).toContainText('geht an den Coding-Agenten')
   await expect(page.getByTestId('pf-confirm-key')).toBeFocused()
   expect(fake!.permAsked).toHaveLength(0)
   await page.keyboard.press('Enter')

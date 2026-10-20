@@ -1,3 +1,4 @@
+import { useCodingAgentName } from './agent'
 import { codingAgentOf } from './agent'
 /**
  * The task panel on a coding task's page (between its properties and its body): the stage timeline, what
@@ -81,6 +82,7 @@ function useElapsed(since: number | null): string {
 export default function TaskPanel({ pageId }: { pageId: ID }) {
   const t = useT()
   const lang = useLang()
+  const agentName = useCodingAgentName(pageId)
   // re-render on the row / the database changing
   const row = useWorkspace((s) => s.pages[pageId])
   const dbs = useWorkspace((s) => s.databases)
@@ -300,7 +302,7 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
               act(() => answerTask(pageId, a))()
             }}
           >
-            <span className="label">{t('features.coding.ask.label')}</span>
+            <span className="label">{t('features.coding.ask.label', { agent: agentName })}</span>
             <p className="ctk-question" data-testid="coding-question">{local.question}</p>
             {/* pages the question names in quotes: one key puts the page into the answer */}
             {local.question && <GivePages question={local.question} taskId={pageId} draft={answer} allowPrivate={allowPrivate} field={answerField} />}

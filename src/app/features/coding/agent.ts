@@ -1,6 +1,7 @@
 import type { Database, Page, PropertyDef } from '../../store/types'
 import { newId } from '../../lib/ids'
-import { t } from '../../i18n'
+import { t, useT } from '../../i18n'
+import { useWorkspace } from '../../store/store'
 import { CODING_AGENTS, type CodingAgent } from './protocol'
 
 export const AGENT_LABELS: Record<CodingAgent, string> = { claude: 'Claude Code', codex: 'Codex', local: 'Local · Ollama' }
@@ -14,4 +15,20 @@ export function codingAgentOf(db: Database, row: Page): CodingAgent | null {
   if (value == null || value === '') return 'claude'
   const choice = p?.options?.find(o => o.id === value)
   return CODING_AGENTS.find(id => choice?.id === `coding_agent_${id}` || choice?.name === AGENT_LABELS[id]) ?? null
+}
+
+/** Task-specific UI name; unknown or missing task data stays provider-neutral. */
+export function codingAgentName(taskId: string, tr = t): string {
+  const s = useWorkspace.getState()
+  const row = s.pages[taskId]
+  const db = row?.databaseId ? s.databases[row.databaseId] : null
+  const agent = row && db ? codingAgentOf(db, row) : null
+  return agent ? tr(`features.coding.agent.${agent}`) : tr('features.coding.agent.label')
+}
+
+export function useCodingAgentName(taskId: string): string {
+  const tr = useT()
+  useWorkspace(s => s.pages[taskId])
+  useWorkspace(s => s.databases)
+  return codingAgentName(taskId, tr)
 }
