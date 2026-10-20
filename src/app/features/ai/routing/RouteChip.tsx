@@ -16,7 +16,7 @@ import { routeChoices, routeFor } from '../core/gate'
 import { shortFor } from '../core/registry'
 import type { Need, PurposeId } from '../core/purposes'
 import { RoutePicker, whyText } from './RoutePicker'
-import { isRouteKey } from './keys'
+import { isRouteKey, PLATE } from './keys'
 import './routing.css'
 
 export { isRouteKey, PLATE }
