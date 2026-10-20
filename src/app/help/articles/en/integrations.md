@@ -21,12 +21,12 @@ At least one condition is needed. The list shows an LED per profile and why: **A
 - `keys` — the **Key** switch in the property menu.
 - `onlyByHand` — the **Only by hand** switch in the property menu.
 - `upsert` — the tool `upsert_rows` for agents and the [AI terminal](help:agent).
-- `toolAllowList` — the tool list per MCP server in the agent editor.
+- `toolAllowList` — retained for older profiles; MCP tool selection in the agent editor is always available.
 - `agentState` — `agent_state_get` / `agent_state_set` between runs.
 - `notify` — `notify_me`: an agent's notes in your inbox.
 - `sends` — the profile's send routes for the [Outbox](help:outbox): ⌘ → “Reply in the ticket tool” on a mirrored row, drafted without tools, sent by you.
 
-Without an active profile these switches, tools and sections are not offered. What is already set **stays in force**: a property that is the key stays unique, “Only by hand” fields stay closed to every agent, and an agent that already has a tool list keeps it. A field set to “Only by hand” shows its switch in the property menu to everyone, so it can always be switched off there.
+Except for MCP tool selection, these switches, tools and sections need an active profile. What is already set **stays in force**: a property that is the key stays unique, “Only by hand” fields stay closed to every agent, and an agent that already has a tool list keeps it. A field set to “Only by hand” shows its switch in the property menu to everyone, so it can always be switched off there.
 
 The [Patchbay](help:patchbay)'s fuse keys need no unlock: *“Field” by hand only* and *Disconnect write tools* only take capability away. **Set up in the Patchbay** on a profile opens its setup lamps there — every member may, since it only reads.
 

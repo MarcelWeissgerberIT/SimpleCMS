@@ -995,6 +995,7 @@
   align-items: center;
 }
 .agx-row--tools {
+  flex-wrap: wrap;
   align-items: center;
   margin-top: 6px;
 }

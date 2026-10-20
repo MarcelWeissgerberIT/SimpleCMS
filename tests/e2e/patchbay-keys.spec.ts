@@ -228,7 +228,7 @@ test.describe('B10 · key 2b — an MCP fuse: the write tools disconnected', () 
     return mailWorld([inboxHelper({ write: 'stage', mcpServers: ['alpha'] }), sorter], { servers: [ALPHA(), server('srvGamma', 'gamma', { tools: ['create_row', 'update_row'], checkedAt: 1 })] })
   }
 
-  test('reads kept, the leaky one named; none left → "Server removed from the agent"; the editor keeps the list read-only with "Change in the Patchbay" — no profile needed', async ({ page }) => {
+  test('reads kept, the leaky one named; none left → "Server removed from the agent"; the editor keeps the editable list and "Change in the Patchbay" — no profile needed', async ({ page }) => {
     await openRack(page, mcpWorld())
     await selectFuseWith(page, 2, (t) => t.agent === 'agInbox' && t.server === 'alpha')
     // proposals do not stop MCP tools: key 1 refused with why
@@ -250,15 +250,14 @@ test.describe('B10 · key 2b — an MCP fuse: the write tools disconnected', () 
     await expect.poll(async () => (await agentOf(page, 'agSorter')).mcpTools).toEqual({ gamma: [] })
     await expect(fuseVal(page)).toHaveText('none open')
 
-    // the editor (no profile unlocks the tool list there): the kept list, read-only, and the way to the Patchbay
+    // The editor keeps the narrowed list editable without a profile and retains the Patchbay link.
     await page.evaluate(() => (window.location.hash = '#/agents/agInbox'))
     await page.getByRole('button', { name: 'Edit', exact: true }).click()
     const editor = page.locator('.agx-editor')
-    await expect(editor.getByRole('group', { name: 'Tools of ALPHA' })).toHaveCount(0)
-    const kept = editor.getByTestId('agx-tools-kept')
-    await expect(kept).toContainText('ALPHA')
-    await expect(kept).toContainText('2 allowed tools')
-    await kept.getByTestId('pb-hint-kept').click()
+    const tools = editor.getByRole('group', { name: 'Tools of ALPHA' })
+    await expect(tools).toBeVisible()
+    await expect(tools.getByRole('checkbox', { checked: true })).toHaveCount(2)
+    await editor.getByTestId('pb-hint-kept').click()
     await expect(page.locator('.agx-editor')).toHaveCount(0)
     await expect.poll(() => decodeURIComponent(page.url())).toContain('#/patchbay?m=agent:agInbox')
     await expect(page.locator('.pb-mod[data-key="agent:agInbox"]')).toBeFocused()

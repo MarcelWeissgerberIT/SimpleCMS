@@ -4280,6 +4280,26 @@ process.exit(1)
     await ctx.close()
   },
 
+  /** Tool names are inserted into a draft; the fictional MCP connection is never called. */
+  async 'agent-tools'(browser) {
+    const { ctx, page } = await freshPage(browser)
+    await page.evaluate(() => {
+      window.__one.workspace.getState().updateSettings({ mcpServers: [{ id: 'shot-atlas', name: 'atlas', url: 'https://atlas.example.com/mcp', enabled: true, token: '', prompt: '', tools: ['atlas_agent_list', 'atlas_project_get', 'atlas_record_search', 'atlas_agent_update'], checkedAt: Date.now() }] })
+      window.location.hash = '#/agents'
+    })
+    await page.locator('[data-recipe="blank"]').click()
+    const editor = page.locator('.agx-editor')
+    await editor.getByLabel('Name', { exact: true }).fill('Project check')
+    await editor.getByTestId('agx-job').locator('textarea').fill('Read the selected project records and report blockers. Use ')
+    await editor.getByRole('checkbox', { name: 'ATLAS', exact: true }).check()
+    await editor.getByRole('group', { name: 'Tools of ATLAS' }).getByRole('button', { name: 'Read-only tools' }).click()
+    await editor.getByTestId('agx-insert-tool').click()
+    await page.getByRole('menu').getByRole('textbox', { name: 'Search tools' }).fill('atlas')
+    await rest(page)
+    await save(page, 'agent-tools')
+    await ctx.close()
+  },
+
   /** The built-in specialists, filtered by their category. */
   async 'agent-catalog'(browser) {
     const { ctx, page } = await freshPage(browser)

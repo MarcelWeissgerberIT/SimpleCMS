@@ -20,7 +20,7 @@ export function instructionTools(agent: Pick<CustomAgent, 'scope' | 'write' | 'm
   const own: string[] = agentTools(agent).map((t) => t.name)
   const chosen = new Set(agent.mcpServers)
   const mcp = readServers(settings)
-    .filter((s) => chosen.has(s.name))
+    .filter((s) => s.enabled && chosen.has(s.name))
     .flatMap((s) => {
       const allowed = agent.mcpTools?.[s.name]
       return (s.tools ?? []).filter((n) => !allowed || allowed.includes(n))

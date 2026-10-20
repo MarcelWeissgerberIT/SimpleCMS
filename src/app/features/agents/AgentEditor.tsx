@@ -32,7 +32,6 @@ import { usdSignAfter } from '../../lib/money'
 import { isReadTool, testedTools } from './mcpTools'
 import { placeholdersIn } from './mirror'
 import { useDismissMirrorToasts } from './mirrorToasts'
-import { useServerUnlocked, useUnlocked } from './integrations/status'
 // the Patchbay's one dependency-free module (plan §1.2): "On fuse F1 — show in the Patchbay" where the setting lives
 import { FuseHintLine, PatchbayAgentLink } from '../patchbay/hint'
 import './mirror.css'
@@ -533,6 +532,8 @@ function Instructions({ value, onChange, error, id, agent }: { value: string; on
   const [open, setOpen] = useState(() => openPlaceholders(value))
   const ac = useRef<AbortController | null>(null)
   const area = useRef<CodeAreaHandle>(null)
+  const toolMenu = useMenu()
+  const toolRange = useRef<[number, number]>([0, 0])
   useEffect(() => () => ac.current?.abort(), [])
   // a recipe's placeholders still in the text (mirror.ts): a key selects one, so typing replaces it
   const holes = placeholdersIn(value)
@@ -544,6 +545,12 @@ function Instructions({ value, onChange, error, id, agent }: { value: string; on
   }
   const { scope, write, mcpServers, mcpTools } = agent
   const tools = useMemo(() => instructionTools({ scope, write, mcpServers, mcpTools }, { mcpServers: servers }), [scope, write, mcpServers, mcpTools, servers])
+  const toolEntries: MenuEntry[] = [
+    ...([{ label: t('features.agents.ed.toolsOne'), names: tools.own }, { label: t('features.agents.ed.toolsMcp'), names: tools.mcp }].flatMap(({ label, names }): MenuEntry[] => names.length ? [
+      { kind: 'section', label },
+      ...names.map((name) => ({ label: name, onSelect: () => requestAnimationFrame(() => area.current?.insert(...toolRange.current, name)), disabled: value.length - (toolRange.current[1] - toolRange.current[0]) + name.length > AGENT_LIMITS.instructions })),
+    ] : [])),
+  ]
   const toolKey = [...tools.own, ...tools.mcp].join(' ')
   const tokenize = useMemo(() => markdownTokenizer({ tools: toolKey.split(' ').filter(Boolean) }), [toolKey])
   const improve = async () => {
@@ -649,11 +656,19 @@ function Instructions({ value, onChange, error, id, agent }: { value: string; on
           </button>
         )}
         <span className="agx-spacer" />
-        <span className="agx-legend" aria-hidden>
-          <span className="syn-tool">{t('features.agents.ed.legendTool')}</span>
-          <span className="syn-ph">[{t('features.agents.ed.legendPh')}]</span>
-        </span>
+        <button type="button" className="btn btn--sm" disabled={busy} onClick={(e) => {
+          if (!toolMenu.open) {
+            const el = area.current?.textarea
+            toolRange.current = [el?.selectionStart ?? value.length, el?.selectionEnd ?? value.length]
+          }
+          toolMenu.toggle(e)
+        }} aria-haspopup="menu" aria-expanded={toolMenu.open} data-testid="agx-insert-tool">
+          <Plus size={13} strokeWidth={1.75} aria-hidden /> {t('features.agents.ed.insertTool')}
+        </button>
+        <Menu {...toolMenu.props} entries={toolEntries} searchable searchPlaceholder={t('features.agents.ed.searchTools')} emptyLabel={t('features.agents.ed.toolsNoMatch')} width={350} />
+        <span className="agx-legend" aria-hidden><span className="syn-ph">[{t('features.agents.ed.legendPh')}]</span></span>
       </div>
+      <p className="agx-field__hint">{t('features.agents.ed.insertToolHint')}</p>
       {tools.mcp.length > 0 && <p className="agx-note">{t('features.agents.ed.toolsKnown', { own: tools.own.length, mcp: tools.mcp.length })}</p>}
     </Field>
   )
@@ -851,8 +866,8 @@ function ScopeFields({ d, set, error, titles }: { d: CustomAgent; set: (p: Parti
 
 /**
  * MCP servers by name: browser agents use Settings → AI, server agents the server's list. The tool allow-list
- * per server only while an active integration profile unlocks it (this device's servers; for a server agent also the
- * runtime's, by name / host) — without one, a list the agent already has stays applied and is shown read-only.
+ * per server is available for every connected server, independently of integration profiles. Stored lists remain
+ * enforced by the existing runner; choosing names in the instructions never changes those lists.
  */
 /**
  * The MCP servers it may call. A browser agent's ticked server that is switched off on this device, or not set up here
@@ -862,10 +877,7 @@ function McpFields({ d, set, agentId, onLeave, held }: { d: CustomAgent; set: (p
   const t = useT()
   const settings = useWorkspace((s) => s.settings)
   const runtime = useServerAgents((s) => s.runtime)
-  const here = useUnlocked('toolAllowList')
-  const onServer = useServerUnlocked('toolAllowList')
   const profiles = useWorkspace((s) => s.integrations)
-  const allowList = here || (d.runner === 'server' && onServer)
   const local = readServers(settings)
   // the OUT tools of a server (send tools of the profiles matching it by name / host): off for every agent
   const outOf = (name: string): string[] => {
@@ -878,7 +890,6 @@ function McpFields({ d, set, agentId, onLeave, held }: { d: CustomAgent; set: (p
   const off = (name: string) => d.runner !== 'server' && local.some((s) => s.name === name && !s.enabled)
   // the Patchbay's hint per server (§1.20): inside its tool list, beside its kept line, else under the list of servers
   const hint = (name: string) => (agentId ? <FuseHintLine kind="agentServer" id={`${agentId}:${name}`} onOpen={onLeave} held={held} /> : null)
-  const kept = (name: string) => !allowList && !!d.mcpTools && Object.prototype.hasOwnProperty.call(d.mcpTools, name)
   type Note = { name: string; kind: 'missing' | 'off' }
   const notes = d.runner === 'server' ? [] : d.mcpServers.flatMap((name): Note[] => (!names.includes(name) ? [{ name, kind: 'missing' }] : off(name) ? [{ name, kind: 'off' }] : []))
   return (
@@ -913,18 +924,8 @@ function McpFields({ d, set, agentId, onLeave, held }: { d: CustomAgent; set: (p
         </p>
       ))}
       <p className="agx-field__hint">{t('features.agents.ed.mcpHint')}</p>
-      {!allowList && d.mcpServers.filter((name) => !kept(name)).map((name) => <span key={name}>{hint(name)}</span>)}
-      {d.mcpServers.filter(kept).map((name) => (
-        <div key={name}>
-          <p className="agx-tools-kept" data-testid="agx-tools-kept">
-            <span className="label">{name.toUpperCase()}</span>
-            <span>{t('features.agents.ed.toolsKept', { n: d.mcpTools![name].length })}</span>
-            {agentId && <PatchbayAgentLink agent={agentId} onOpen={onLeave} held={held} />}
-          </p>
-          {hint(name)}
-        </div>
-      ))}
-      {allowList && d.mcpServers.map((name) => (
+      {agentId && d.mcpServers.length > 0 && <PatchbayAgentLink agent={agentId} onOpen={onLeave} held={held} />}
+      {d.mcpServers.map((name) => (
         <McpToolList
           key={name}
           server={name}
@@ -954,6 +955,7 @@ function McpFields({ d, set, agentId, onLeave, held }: { d: CustomAgent; set: (p
 function McpToolList({ server, tools, allow, out, hint: fuseHint, onChange }: { server: string; tools: string[] | null; allow: string[] | undefined; out: string[]; hint?: ReactNode; onChange: (list: string[] | undefined) => void }) {
   const t = useT()
   const id = useId()
+  const [query, setQuery] = useState('')
   const known = tools ?? []
   const shown = [...known, ...(allow ?? []).filter((x) => !known.includes(x))]
   const on = (tool: string) => allow === undefined || allow.includes(tool)
@@ -983,14 +985,18 @@ function McpToolList({ server, tools, allow, out, hint: fuseHint, onChange }: { 
               {t('features.agents.ed.toolsRead')}
             </button>
           )}
+          <button type="button" className="btn btn--sm" aria-pressed={allow?.length === 0} disabled={allow?.length === 0} onClick={() => onChange([])}>
+            {t('features.agents.ed.toolsOff')}
+          </button>
           <button type="button" className="btn btn--sm" aria-pressed={allow === undefined} onClick={() => onChange(undefined)} disabled={allow === undefined}>
             {t('features.agents.ed.toolsAll')}
           </button>
         </span>
       </div>
+      {shown.length > 8 && <input className="input" type="search" value={query} onChange={(e) => setQuery(e.target.value)} aria-label={t('features.agents.ed.searchToolsOf', { name: server.toUpperCase() })} placeholder={t('features.agents.ed.searchTools')} />}
       {shown.length > 0 && (
         <div className="agx-tools__list">
-          {shown.map((tool) => (
+          {shown.filter((tool) => tool.toLowerCase().includes(query.trim().toLowerCase())).map((tool) => (
             <label key={tool} className="agx-check agx-check--tool" data-missing={!known.includes(tool) || undefined} data-out={out.includes(tool) || undefined} title={out.includes(tool) ? t('features.agents.ed.toolOut') : undefined}>
               <input type="checkbox" checked={on(tool)} onChange={(e) => toggle(tool, e.target.checked)} />
               <span className="mono agx-tools__tool" title={tool}>

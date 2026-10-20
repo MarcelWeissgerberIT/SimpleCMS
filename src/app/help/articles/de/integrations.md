@@ -21,12 +21,12 @@ Mindestens eine Bedingung ist nötig. Die Liste zeigt je Profil eine LED und den
 - `keys` — der Schalter **Schlüssel** im Eigenschaftsmenü.
 - `onlyByHand` — der Schalter **Nur von Hand** im Eigenschaftsmenü.
 - `upsert` — das Werkzeug `upsert_rows` für Agenten und das [KI-Terminal](help:agent).
-- `toolAllowList` — die Werkzeugliste je MCP-Server im Agenten-Editor.
+- `toolAllowList` — für ältere Profile erhalten; die MCP-Werkzeugauswahl im Agenten-Editor ist immer verfügbar.
 - `agentState` — `agent_state_get` / `agent_state_set` zwischen Läufen.
 - `notify` — `notify_me`: Notizen eines Agenten in deinem Posteingang.
 - `sends` — die Sendewege des Profils für den [Ausgang](help:outbox): ⌘ → „Im Ticket-Tool antworten“ an einer gespiegelten Zeile, ohne Werkzeuge entworfen, von dir gesendet.
 
-Ohne aktives Profil werden diese Schalter, Werkzeuge und Bereiche nicht angeboten. Was schon gesetzt ist, **gilt weiter**: Eine Schlüssel-Eigenschaft bleibt eindeutig, Felder „Nur von Hand“ bleiben für jeden Agenten zu, und ein Agent mit Werkzeugliste behält sie. Ein Feld auf „Nur von Hand“ zeigt seinen Schalter im Eigenschaftsmenü allen, damit er dort immer wieder ausgeschaltet werden kann.
+Mit Ausnahme der MCP-Werkzeugauswahl benötigen diese Schalter, Werkzeuge und Bereiche ein aktives Profil. Was schon gesetzt ist, **gilt weiter**: Eine Schlüssel-Eigenschaft bleibt eindeutig, Felder „Nur von Hand“ bleiben für jeden Agenten zu, und ein Agent mit Werkzeugliste behält sie. Ein Feld auf „Nur von Hand“ zeigt seinen Schalter im Eigenschaftsmenü allen, damit er dort immer wieder ausgeschaltet werden kann.
 
 Die Sicherungstasten im [Schaltplan](help:patchbay) brauchen keine Freischaltung: *„Feld“ nur von Hand* und *Schreib-Werkzeuge abklemmen* nehmen nur Fähigkeiten weg. **Im Schaltplan einrichten** an einem Profil öffnet dort seine Einrichtungs-Lampen — das darf jedes Mitglied, weil es nur liest.
 
