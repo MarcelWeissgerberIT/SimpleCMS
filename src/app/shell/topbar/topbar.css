@@ -21,6 +21,25 @@
   min-width: 0;
   overflow: hidden;
 }
+.tb-nav-back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  flex: none;
+  min-width: 30px;
+  height: 30px;
+  padding: 0 6px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: var(--ink-2);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+.tb-nav-back:hover:not(:disabled) { background: var(--hover); color: var(--ink); }
+.tb-nav-back:active:not(:disabled) { transform: translateY(1px); }
+.tb-nav-back:disabled { opacity: .4; cursor: default; }
 .tb-crumbs > .tb-crumbs__list,
 .tb-crumbs > .tb-crumb {
   min-width: 0;

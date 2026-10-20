@@ -1,7 +1,7 @@
 ---
 id: 2026-10-20-minimax-coding
 date: 2026-10-20
-order: 5
+order: 6
 title: MiniMax in the coding pipeline
 summary: Choose MiniMax M3.1 Flash for a task or a delivery role, with the same One and Atlas harness.
 image: assets/shots/changelog/minimax-coding.webp

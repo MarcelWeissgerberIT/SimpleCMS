@@ -1,7 +1,7 @@
 ---
 id: 2026-10-20-coding-harness
 date: 2026-10-20
-order: 2
+order: 3
 title: Coding packets, evaluations and QA repairs
 summary: Targeted context, versioned methods and bounded repair sub-runs in the shared harness.
 image: assets/shots/changelog/coding-harness.webp

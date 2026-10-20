@@ -4314,6 +4314,16 @@ process.exit(1)
     await ctx.close()
   },
 
+  async 'navigation-back'(browser) {
+    const { ctx, page } = await freshPage(browser)
+    await openPage(page, 'Team wiki')
+    await openPage(page, 'Weekly sync — notes')
+    await page.locator('.tb').getByRole('button', { name: 'Back', exact: true }).waitFor()
+    await rest(page)
+    await save(page, 'navigation-back', { x: 0, y: 0, width: 1440, height: 640 })
+    await ctx.close()
+  },
+
   async 'agent-page-activity'(browser) {
     const { ctx, page } = await freshPage(browser, {claude:{turns:[() => sseTurn([{type:'text',text:'## Brief review\n\nThe objective is clear. Add acceptance criteria for each work package and confirm which source documents define the expected behavior.'}])]}})
     const target = await openPage(page, 'Weekly sync — notes')

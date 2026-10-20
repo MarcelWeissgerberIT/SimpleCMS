@@ -206,9 +206,11 @@ export function pageHref(id: string, block?: string): string {
 }
 
 export function navigate(r: Route | string, opts: { replace?: boolean } = {}): void {
+  initNavigation()
   const href = typeof r === 'string' ? r : routeHref(r)
   if (opts.replace) {
-    history.replaceState(null, '', href)
+    history.replaceState(history.state, '', href)
+    stampNavigation()
     window.dispatchEvent(new HashChangeEvent('hashchange'))
   } else if (window.location.hash !== href) {
     window.location.hash = href
@@ -236,5 +238,58 @@ function getSnapshot(): Route {
 }
 
 export function useRoute(): Route {
+  initNavigation()
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
+}
+
+// An app-local boundary, rather than history.length (which also counts the site before One).
+// Native entry state survives reload and browser Back/Forward. No page content is stored here.
+const NAV_KEY = 'one.navigation.v1'
+let navigationReady = false
+let navigationDepth = 0
+const navigationListeners = new Set<() => void>()
+
+function savedNavigation(): { depth: number; hash: string; path: string } | null {
+  const n = history.state?.[NAV_KEY]
+  return n && Number.isSafeInteger(n.depth) && n.depth >= 0 && n.path === location.pathname && n.hash === location.hash ? n : null
+}
+
+function stampNavigation() {
+  history.replaceState({ ...history.state, [NAV_KEY]: { depth: navigationDepth, path: location.pathname, hash: location.hash } }, '')
+}
+
+function setNavigationDepth(depth: number) {
+  navigationDepth = depth
+  for (const cb of navigationListeners) cb()
+}
+
+function initNavigation() {
+  if (navigationReady) return
+  navigationReady = true
+  navigationDepth = savedNavigation()?.depth ?? 0
+  stampNavigation()
+  window.addEventListener('popstate', () => {
+    const saved = savedNavigation()
+    if (saved) setNavigationDepth(saved.depth)
+  })
+  window.addEventListener('hashchange', () => {
+    const saved = savedNavigation()
+    const depth = saved?.depth ?? navigationDepth + 1
+    navigationDepth = depth
+    if (!saved) stampNavigation()
+    setNavigationDepth(depth)
+  })
+}
+
+export function useCanGoBack(): boolean {
+  initNavigation()
+  return useSyncExternalStore(cb => {
+    navigationListeners.add(cb)
+    return () => { navigationListeners.delete(cb) }
+  }, () => navigationDepth > 0, () => false)
+}
+
+export function goBack(): void {
+  initNavigation()
+  if (navigationDepth > 0) history.back()
 }

@@ -1,7 +1,7 @@
 ---
 id: 2026-10-20-annunciator-panel
 date: 2026-10-20
-order: 6
+order: 7
 title: Ein Panel mit Schutzglas
 summary: Preflight erhält eingelassene Leuchtfelder und getrennte geschützte Taster für Caution und Warning.
 image: assets/shots/changelog/annunciator-panel.webp

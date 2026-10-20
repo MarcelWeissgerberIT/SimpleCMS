@@ -24,3 +24,7 @@ New here? **Take the 3-minute tour**: eight steps on the real interface — the 
 <kbd>Mod+,</kbd> opens **Settings** (also in the workspace menu at the top of the sidebar): your name, the language (English or Deutsch), the theme — light (Paper), dark (Carbon) or System — the **text size** of the whole app (**Appearance**: Standard, M, L or XL, on this device) and the colour of the **switch LEDs**, your Claude key and your data.
 
 > Your workspace lives in this browser only. Export a backup now and then: **Workspace settings → Data → Export workspace**.
+
+## Returning to the previous view
+
+Use **Back** at the top left to return through visited pages and areas, including Agents, Coding and Patchbay. On a phone the control is a left arrow. It is disabled until you have a previous One step in this tab. Reloading keeps the available steps; the browser’s Back and Forward buttons still work. The separate **Back to the main page** control unfolds the main column when working in stacked panes.

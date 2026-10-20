@@ -1,7 +1,7 @@
 ---
 id: 2026-10-20-agent-tools
 date: 2026-10-20
-order: 8
+order: 9
 title: Agenten-Werkzeuge direkt wählen
 summary: Werkzeugnamen suchen und einfügen, MCP-Berechtigungen ohne Integrationsprofil wählen.
 image: assets/shots/changelog/agent-tools.webp

@@ -1,7 +1,7 @@
 ---
 id: 2026-10-20-annunciator-panel
 date: 2026-10-20
-order: 6
+order: 7
 title: A guarded annunciator panel
 summary: Preflight gets physical lamp lenses and separate covered Caution and Warning buttons.
 image: assets/shots/changelog/annunciator-panel.webp

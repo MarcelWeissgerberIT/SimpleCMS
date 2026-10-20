@@ -3,7 +3,7 @@ import { ArrowLeft, ChevronsRight, Clock3, Lock, Menu as MenuIcon, MessageSquare
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { useBreadcrumbs, usePage } from '../../store/selectors'
-import type { Route } from '../../lib/router'
+import { goBack, useCanGoBack, type Route } from '../../lib/router'
 import { PageIcon } from '../../ui/PageIcon'
 import { Tooltip } from '../../ui/Tooltip'
 import { Led, shortcutLabel } from '../../ui/controls'
@@ -25,6 +25,7 @@ import './topbar.css'
 export function Topbar({ route }: { route: Route }) {
   const t = useT()
   const mobile = useIsMobile()
+  const canGoBack = useCanGoBack()
   const collapsed = useWorkspace((s) => s.settings.sidebarCollapsed)
   // with stacked panes open, the bar acts on the column you are working in
   const paneId = useStageView((s) => s.activePaneId)
@@ -49,6 +50,12 @@ export function Topbar({ route }: { route: Route }) {
           </Tooltip>
         )
       )}
+      <Tooltip label={t('shell.topbar.back')}>
+        <button type="button" className="tb-nav-back" aria-label={t('shell.topbar.back')} disabled={!canGoBack} onClick={goBack}>
+          <ArrowLeft size={16} strokeWidth={1.7} aria-hidden />
+          {!mobile && <span>{t('shell.topbar.back')}</span>}
+        </button>
+      </Tooltip>
       {paneId && mainFolded && (
         <Tooltip label={t('shell.topbar.backToMain')}>
           <button type="button" className="tb-back" onClick={revealMain}>
