@@ -1,3 +1,4 @@
+import { fmtUsd } from '../../lib/money'
 /**
  * While a task runs: what the worker did last and how long ago (ticking), and the running counters —
  * Claude Code's step of the stage's limit, the model it reports, its cost estimate so far, the files changed in the
@@ -51,7 +52,7 @@ export function RunCounters({ taskId, files, onFiles }: { taskId: ID; files: Git
   const p = useCoding((s) => s.progress[taskId])
   const add = files.reduce((n, f) => n + f.add, 0)
   const del = files.reduce((n, f) => n + f.del, 0)
-  const money = (n: number) => n.toLocaleString(lang === 'de' ? 'de-DE' : 'en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 })
+  const money = (n: number) => fmtUsd(n, lang)
   if (!p && !files.length) return null
   return (
     <div className="ctk-chips">

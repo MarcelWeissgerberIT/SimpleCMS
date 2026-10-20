@@ -1,3 +1,4 @@
+import { workerModelRows } from './core/workerModels'
 /**
  * Claude, bring-your-own-key — the facades every call site uses (runAI, streamCompletion, completeStructured), the
  * prompts and the model list. The Claude request paths themselves (the SDK, loaded lazily on first use, metering, MCP,
@@ -139,7 +140,7 @@ export function resolveModel(id: string | undefined | null): (typeof AI_MODELS)[
  *  Whether a request of a given purpose can go out: aiStatus(purpose). */
 export function isAIConfigured(): boolean {
   const s = useWorkspace.getState().settings
-  return !!s.aiApiKey || Object.values(s.aiKeys ?? {}).some(Boolean)
+  return !!s.aiApiKey || Object.values(s.aiKeys ?? {}).some(Boolean) || workerModelRows().length > 0
 }
 
 /* ------------------------------------------------------------------ */

@@ -21,7 +21,7 @@ import './runs.css'
 type T = typeof tt
 
 /** The company that runs a provider's models (receipts name it for its own steps). */
-const COMPANY: Record<ProviderId, string> = { anthropic: 'Anthropic', openai: 'OpenAI', openrouter: 'OpenRouter' }
+const COMPANY: Record<ProviderId, string> = { anthropic: 'Anthropic', openai: 'OpenAI', openrouter: 'OpenRouter', local: 'Local Ollama', ollama: 'Ollama Cloud', minimax: 'MiniMax', codex: 'Codex' }
 
 /** What a receipt says the run cost: an amount, "≈ amount" for an estimate, "Price unknown" without a price. */
 export function costText(t: T, lang: Lang, usd: number | null, source: CostSource): string {

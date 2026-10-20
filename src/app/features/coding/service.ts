@@ -1,3 +1,4 @@
+import type { WorkerModel, WorkerTextRequest, WorkerTextResult } from '@/shared/ai/worker'
 /**
  * Coding pipeline — the tab side of the worker link (features/coding/protocol.ts).
  *
@@ -1048,4 +1049,19 @@ export function startCoding() {
     // a page may only close with 1000 or 3000–4999 (1001 throws)
     link?.close(1000, 'tab closed')
   })
+}
+
+/** Plain inference uses the same paired link, independent of coding jobs; no repo or tool access. */
+export async function requestTextModels(): Promise<WorkerModel[]> {
+  const result = await request({ op: 'text-models' } as never, 15000)
+  return Array.isArray(result) ? result : []
+}
+export async function requestWorkerText(body: WorkerTextRequest, signal?: AbortSignal): Promise<WorkerTextResult> {
+  signal?.throwIfAborted()
+  const requestId = crypto.randomUUID()
+  const stop = () => { void request({ op: 'text-stop', requestId } as never, 5000).catch(() => {}) }
+  signal?.addEventListener('abort', stop, { once: true })
+  try {
+    return await request({ op: 'text-request', requestId, request: body } as never, 190000) as WorkerTextResult
+  } finally { signal?.removeEventListener('abort', stop) }
 }

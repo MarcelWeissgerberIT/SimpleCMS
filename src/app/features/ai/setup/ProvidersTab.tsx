@@ -41,6 +41,8 @@ import { helpFor } from './errors'
 import { Rich } from './AINeedsSetup'
 import { GateSetting } from '../decide/ui/GateRow'
 import { isJevModel } from '@/shared/ai/jev'
+import { WorkerModelsSettings } from './WorkerModelsSettings'
+import { CostSettings } from './CostSettings'
 import './plates.css'
 import './settings.css'
 
@@ -101,8 +103,10 @@ export function ProvidersTab({ section, server, add }: { section?: 'mcp' | 'memo
           {t('features.ai.prov.tab.setup')}
         </button>
       </div>
+      <CostSettings />
       <Plates />
       <OllamaCloudSettings />
+      <WorkerModelsSettings />
       <DeviceRows />
       <DataLines />
       <OwnData />
@@ -386,7 +390,7 @@ function Usage() {
       alive = false
     }
   }, [])
-  const usd = (r?: LedgerTotal) => fmtUsd(r?.usd ?? 0, lang)
+  const usd = (r?: LedgerTotal) => r?.unpriced ? `${r.requests > r.unpriced ? fmtUsd(r.usd, lang) + ' + ' : ''}${t('features.ai.receipt.unknown')}` : fmtUsd(r?.usd ?? 0, lang)
   return (
     <section className="aip__usage" aria-labelledby="aip-usage" data-testid="settings-usage">
       <h4 className="aip__h" id="aip-usage">

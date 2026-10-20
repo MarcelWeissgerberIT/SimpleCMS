@@ -1,3 +1,4 @@
+import { fmtUsd } from '../../lib/money'
 import { useCodingAgentName } from './agent'
 import { codingAgentOf } from './agent'
 /**
@@ -174,7 +175,7 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
   const before = stage && stage.index > 0 ? pipeline[stage.index - 1]?.kind : undefined
   const auto: Tab = state === 'running' ? 'log' : !coding && local.plan && stage?.kind !== 'queue' ? 'plan' : stage?.kind === 'gate' && (before === 'plan' || before === 'doc' || before === 'analyze') ? 'plan' : stage?.kind === 'gate' || stage?.kind === 'git' || stage?.kind === 'done' ? (files.length ? 'diff' : 'log') : local.test && stage?.kind === 'test' ? 'tests' : 'log'
   const shown = tab ?? auto
-  const money = (n: number) => n.toLocaleString(lang === 'de' ? 'de-DE' : 'en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 })
+  const money = (n: number) => fmtUsd(n, lang)
   const ledState = state === 'running' ? 'on' : state === 'failed' || state === 'stopped' ? 'off' : state === 'done' ? 'ok' : state === 'question' || state === 'gate' || state === 'intake' ? 'on' : 'ok'
   const canAct = !viewer
   const waitsForYou = state === 'running' && !!ask

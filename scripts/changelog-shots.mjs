@@ -4314,6 +4314,48 @@ process.exit(1)
     await ctx.close()
   },
 
+  async 'euro-costs'(browser) {
+    const { ctx, page } = await freshPage(browser)
+    await page.evaluate(() => {
+      window.__one.workspace.getState().updateSettings({ costDisplay: { currency: 'EUR', eurPerUsd: 0.8, date: '2026-10-20', source: 'manual' } })
+      window.__one.ui.getState().openModal({ type: 'settings' })
+    })
+    await page.getByRole('tab', { name: /AI$/ }).click()
+    await page.getByTestId('cost-settings').scrollIntoViewIfNeeded()
+    await rest(page)
+    await save(page, 'euro-costs', await boxOf(page.getByRole('dialog', { name: 'Settings' })))
+    await ctx.close()
+  },
+
+  async 'request-models'(browser) {
+    const { startFakeWorker } = await import('../tests/e2e/helpers/fakeWorker.ts')
+    const { WORKER_CAN } = await import('../src/app/features/coding/protocol.ts')
+    const fake = await startFakeWorker(47488, { worker: '1.21.0', name: 'My worker', repos: [], parallel: 1, busy: [], spentToday: 0, dayLimit: null, claude: { found: true, version: '2.0' } })
+    fake.can = [...WORKER_CAN]
+    fake.textModels = [{ provider: 'local', model: 'marcel-flow:latest', context: 32768 }, { provider: 'ollama', model: 'cloud-model', context: 65536 }, { provider: 'minimax', model: 'MiniMax-M3.1-Flash', context: 131072 }, { provider: 'codex', model: 'gpt-6.1-sol', context: 64000 }]
+    let ctx
+    try {
+      const fresh = await freshPage(browser); ctx = fresh.ctx; const page = fresh.page
+      await page.evaluate(() => {
+        window.__one.workspace.getState().setWorkspaceAI({ policy: { providers: Object.fromEntries(['local','ollama','minimax','codex'].map(p => [p, { allow: ['public','structure','selection','page','workspace'] }])), restricted: [] } })
+        window.__one.ui.getState().openModal({ type: 'settings' })
+      })
+      await page.getByRole('tab', { name: /Coding worker/ }).click()
+      await page.getByLabel('Port', { exact: true }).fill('47488')
+      await page.getByLabel('Port', { exact: true }).press('Enter')
+      await page.getByRole('switch', { name: 'Connect to a coding worker on this computer' }).click()
+      await page.getByTestId('coding-conn').filter({ hasText: 'My worker' }).waitFor()
+      await page.keyboard.press('Escape')
+      const line = 'Review the launch brief and make the acceptance criteria clear.'
+      const id = await createPage(page, 'Launch brief', { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: line }] }] })
+      await openPage(page, id); await selectRange(page, line)
+      await page.locator('[aria-label="Formatting"]').first().getByRole('button', { name: /^Ask AI$/ }).click()
+      await page.getByTestId('route-chip-provider').click()
+      await rest(page)
+      await save(page, 'request-models')
+    } finally { await ctx?.close(); await fake.close() }
+  },
+
   async 'provider-model-picker'(browser) {
     const { ctx, page } = await freshPage(browser)
     const line = 'Review the launch brief and make the acceptance criteria clear.'

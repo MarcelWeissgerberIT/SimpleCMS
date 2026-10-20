@@ -147,7 +147,7 @@ async function resolve(marker: string, scope: string, name = AI_KEY_SECRET): Pro
   return key
 }
 
-const PROVIDER_NAME: Record<ProviderId, string> = { anthropic: 'Claude', openai: 'OpenAI', openrouter: 'OpenRouter' }
+const PROVIDER_NAME: Record<ProviderId, string> = { anthropic: 'Claude', openai: 'OpenAI', openrouter: 'OpenRouter', local: 'Local', ollama: 'Ollama Cloud', minimax: 'MiniMax', codex: 'Codex' }
 
 /** The marker points at nothing (and still is the store's): clear it, so the UI asks for the key again. */
 function dropMarker(marker: string, provider: ProviderId = 'anthropic'): void {
@@ -161,7 +161,7 @@ function dropMarker(marker: string, provider: ProviderId = 'anthropic'): void {
 /** The marker (or a legacy plaintext Claude key) a provider's slot holds ('' = none). */
 function markerOf(settings: Settings, provider: ProviderId): string {
   if (provider === 'anthropic') return settings.aiApiKey.trim()
-  const v = settings.aiKeys?.[provider]
+  const v = provider === 'openai' || provider === 'openrouter' ? settings.aiKeys?.[provider] : undefined
   return typeof v === 'string' ? v.trim() : ''
 }
 

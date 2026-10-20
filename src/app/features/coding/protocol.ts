@@ -1,3 +1,4 @@
+import type { WorkerTextRequest } from '../../../shared/ai/worker.ts'
 /**
  * Coding pipeline — the shared contract of `one-worker` (mcp/src/worker, bundled to public/mcp/one-worker.mjs)
  * and the app (features/coding). Pure data, no imports: the worker bundles this file as it is, so the
@@ -69,7 +70,7 @@ export type GitAction = (typeof GIT_ACTIONS)[number]
  * worker that names it) and 'permission' (Claude Code's permission prompts come to One as PermissionAsk; the person
  * answers with a PermissionVerb).
  */
-export const WORKER_CAN = ['analyze', 'git:comment', 'git:merge', 'doc', 'model', 'mcp-list', 'ship', 'continue', 'permission', 'agent:codex', 'agent:local', 'agent:minimax', 'agent:ollama', 'delivery-qa', 'harness-quality'] as const
+export const WORKER_CAN = ['text-models', 'analyze', 'git:comment', 'git:merge', 'doc', 'model', 'mcp-list', 'ship', 'continue', 'permission', 'agent:codex', 'agent:local', 'agent:minimax', 'agent:ollama', 'delivery-qa', 'harness-quality'] as const
 /**
  * What a worker runs, read from its `next`. Document stages came before `can`, together with `docs: true`: a worker
  * that sends either knows them, so a `can` without 'doc' (1.3.x) or `docs` without a `can` (1.3.1 before `can`)
@@ -660,6 +661,9 @@ export type TabMessage =
   | { type: 'req'; id: string; op: 'git'; taskId: string; verb: GitVerb; repo: string; branch: string | null; title: string; message?: string }
   /** "Change repositories": the worker opens its setup page locally (a fixed verb — One can never tick or add a repo) */
   | { type: 'req'; id: string; op: 'open-setup' }
+  | { type: 'req'; id: string; op: 'text-models' }
+  | { type: 'req'; id: string; op: 'text-request'; requestId: string; request: WorkerTextRequest }
+  | { type: 'req'; id: string; op: 'text-stop'; requestId: string }
   /**
    * Import stage: the code a task starts from — a ZIP the person picked in the task panel (begin → chunk … → end,
    * base64 pieces of ≤ `chunk` bytes) or a clone address they typed. The worker makes it a NEW repository in its

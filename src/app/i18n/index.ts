@@ -1,3 +1,4 @@
+import { moneySymbol } from '../lib/money'
 /**
  * App i18n. Usage:
  *   const t = useT();  t('editor.slash.heading1')  t('db.rows', { count: 3 })
@@ -31,7 +32,7 @@ export const ALL_MESSAGES = withSettingsPath(mergeMessages(core, code, shell, ed
 
 const cache: Partial<Record<Lang, Translate>> = {}
 function translator(lang: Lang): Translate {
-  return (cache[lang] ??= makeTranslator(ALL_MESSAGES, lang))
+  return (cache[lang] ??= ((base) => (key, vars) => base(key, { costCurrency: moneySymbol(), ...vars }))(makeTranslator(ALL_MESSAGES, lang)))
 }
 
 export function t(key: string, vars?: Record<string, string | number>): string {
@@ -44,6 +45,8 @@ export function currentLang(): Lang {
 }
 
 export function useLang(): Lang {
+  // Currency and rate are part of this device’s number presentation. Refresh localized cost surfaces together.
+  useWorkspace((s) => s.settings.costDisplay)
   return useWorkspace((s) => s.settings.language)
 }
 

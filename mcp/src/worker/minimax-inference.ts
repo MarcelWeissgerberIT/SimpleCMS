@@ -73,7 +73,7 @@ export function miniMaxInference(config: MiniMaxConfig, budgetUsd: number | null
       if (!args || typeof args !== 'object' || Array.isArray(args)) throw new Error('MiniMax tool arguments must be an object.')
     }
     if (choice.finish_reason === 'tool_calls' && !calls.length) throw new Error('MiniMax omitted its tool calls.')
-    return { message, inputTokens: usage.prompt_tokens }
+    return { message, inputTokens: usage.prompt_tokens, outputTokens: usage.completion_tokens }
   }
   inference.cost = () => cost
   return inference

@@ -7,7 +7,7 @@ export interface LocalInferenceRequest {
   outputTokens: number
   signal: AbortSignal
 }
-export interface LocalInferenceResponse { message?: any; inputTokens?: number }
+export interface LocalInferenceResponse { message?: any; inputTokens?: number; outputTokens?: number }
 export interface ModelFacts { tools: boolean | null; vision: boolean | null; nativeContext: number | null; quantization?: string; family?: string }
 export interface LocalInference {
   inspect?: (model: string, signal: AbortSignal) => Promise<ModelFacts>
@@ -37,8 +37,8 @@ export function ollamaInference(base: URL): LocalInference {
       body: JSON.stringify({ model: request.model, messages: request.messages, tools: request.tools, stream: false, keep_alive: '30m', options: { num_ctx: request.contextTokens, num_predict: request.outputTokens, temperature: 0.2 } }),
     })
     if (!response.ok) throw new Error(`Ollama could not run the local coding task (HTTP ${response.status}).`)
-    const data = await response.json() as { message?: any; prompt_eval_count?: number }
-    return { message: data.message, inputTokens: data.prompt_eval_count }
+    const data = await response.json() as { message?: any; prompt_eval_count?: number; eval_count?: number }
+    return { message: data.message, inputTokens: data.prompt_eval_count, outputTokens: data.eval_count }
   }
   let shown: { model: string; data: any } | null = null
   const show = async (model: string, signal: AbortSignal) => {

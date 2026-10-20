@@ -804,6 +804,8 @@ export interface Settings {
    */
   aiApiKey: string
   aiModel: string
+  /** Display only. Ledgers, provider prices and budget limits remain USD. */
+  costDisplay?: { currency: 'USD' | 'EUR'; eurPerUsd?: number; date?: string; source?: 'ecb' | 'manual' }
   /**
    * Keys of the other AI providers — vault MARKERS like aiApiKey ("vault:<seal id>:<last 4>"), never a key; nothing
    * writes them before multi-provider slice 2, but every reader keeps them (only `vault:` markers). Never exported,

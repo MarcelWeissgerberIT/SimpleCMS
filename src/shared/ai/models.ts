@@ -10,7 +10,7 @@ import { isJevRouter } from './jev.ts'
 import { OWNER } from './owner.ts'
 import { providerInfo } from './providers.ts'
 
-export const STORED_PROVIDERS: readonly ProviderId[] = ['anthropic', 'openai', 'openrouter']
+export const STORED_PROVIDERS: readonly ProviderId[] = ['anthropic', 'openai', 'openrouter', 'local', 'ollama', 'minimax', 'codex']
 export const isProviderId = (v: unknown): v is ProviderId => typeof v === 'string' && (STORED_PROVIDERS as readonly string[]).includes(v)
 export const EFFORTS: readonly Effort[] = ['low', 'medium', 'high']
 
@@ -113,6 +113,10 @@ export function capsOf(route: Pick<Route, 'p' | 'm'>): Caps | null {
 }
 
 const ID_RE: Record<ProviderId, RegExp> = {
+  local: /^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,127}$/,
+  ollama: /^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,127}$/,
+  minimax: /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/,
+  codex: /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/,
   anthropic: /^claude-[a-z0-9][a-z0-9.-]{0,62}$/,
   // a fine-tune's id ends in a mixed-case suffix ('ft:gpt-6-luna:nordlicht:tessera:9ABel2dg')
   openai: /^(ft:[a-z0-9][A-Za-z0-9._:-]{0,119}|[a-z0-9][a-z0-9._:-]{0,95})$/,

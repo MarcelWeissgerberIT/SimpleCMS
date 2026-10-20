@@ -1,3 +1,4 @@
+import { registerMoneyDisplay } from '../lib/money'
 /**
  * Central workspace store (zustand + immer). All persistent data lives here.
  * UI-only, non-persistent state lives in ./ui.ts.
@@ -1589,3 +1590,5 @@ export function getWorkspaceSnapshot(): Workspace {
     ...(s.fuseSignoffs ? { fuseSignoffs: s.fuseSignoffs } : {}),
   }
 }
+
+registerMoneyDisplay(() => useWorkspace.getState().settings.costDisplay)

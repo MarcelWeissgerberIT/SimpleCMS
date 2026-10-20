@@ -6,7 +6,7 @@
 import type { AIErrorCode } from './errors.ts'
 
 /** Stored anywhere (routes, rules, the ledger). */
-export type ProviderId = 'anthropic' | 'openai' | 'openrouter'
+export type ProviderId = 'anthropic' | 'openai' | 'openrouter' | 'local' | 'ollama' | 'minimax' | 'codex'
 /** Runtime only — 'demo' (canned answers) is never stored; sanitizers refuse it. */
 export type RuntimeProviderId = ProviderId | 'demo'
 export type Effort = 'low' | 'medium' | 'high'

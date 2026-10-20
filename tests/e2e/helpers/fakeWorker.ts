@@ -8,7 +8,7 @@
  * running stage finishes as 'stopped' (`stopAsked`).
  * Used by coding-old-worker.spec (older workers), coding-ship-fake.spec (ship records), coding-permission.spec.
  */
-import { WORKER_SUBPROTOCOL, type WorkerInfo } from '../../../src/app/features/coding/protocol'
+import { WORKER_SUBPROTOCOL, type WorkerInfo } from '../../../src/app/features/coding/protocol.ts'
 
 export type Json = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -21,6 +21,9 @@ export interface Asked {
 
 export interface FakeWorker {
   /** null: an older worker (no `can`); a list: what a newer one names (with `docs: true`) */
+  textModels: Json[]
+  textAsked: Json[]
+  onText: ((request: Json) => Json) | null
   can: string[] | null
   /** `docs: true` without a `can`: the worker the Business analysis / QA pipelines came with */
   docs: boolean
@@ -73,6 +76,7 @@ export async function startFakeWorker(port: number, info: WorkerInfo): Promise<F
   const running = () => fake.handed().filter((t) => !finished.has(t))
   const status = () => tab?.send(JSON.stringify({ type: 'status', busy: running().map((t) => ({ taskId: t.id, repo: t.repo, stageId: t.stage.id, since: Date.now(), ...(fake.asks.get(t.id) ? { ask: fake.asks.get(t.id) } : {}) })), spentToday: 0 }))
   const fake: FakeWorker = {
+    textModels: [], textAsked: [], onText: null,
     can: null,
     docs: false,
     hellos: [],
@@ -137,6 +141,13 @@ export async function startFakeWorker(port: number, info: WorkerInfo): Promise<F
         return ask()
       }
       if (m.type === 'nudge') return ask()
+      if (m.type === 'req' && m.op === 'text-models') { ws.send(JSON.stringify({ type: 'res', id: m.id, ok: true, result: fake.textModels })); return }
+      if (m.type === 'req' && m.op === 'text-request') {
+        fake.textAsked.push(m.request)
+        const result = fake.onText?.(m.request) ?? { model: m.request.model, text: 'Worker text answer.', inputTokens: 200, outputTokens: 50, usd: null }
+        ws.send(JSON.stringify({ type: 'res', id: m.id, ok: true, result })); return
+      }
+      if (m.type === 'req' && m.op === 'text-stop') { ws.send(JSON.stringify({ type: 'res', id: m.id, ok: true, result: { stopped: true } })); return }
       if (m.type === 'req' && m.op === 'git') {
         fake.gitAsked.push(m)
         const answer = fake.onGit ? fake.onGit(m) : new Error('git is not played by this fake')

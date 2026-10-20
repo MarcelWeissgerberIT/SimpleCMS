@@ -1,3 +1,4 @@
+import { useId } from 'react'
 /**
  * "Your own data" (design § 10.2, OWNER.memberClassesOwnedByMember): private pages · mail · memory · MCP results, per
  * provider — this device only, starting off; a workspace rule never opens one (it may forbid one: read-only with the
@@ -20,13 +21,14 @@ export interface MemberDataProps {
 
 export function MemberData({ providers, allow, onChange }: MemberDataProps) {
   const t = useT()
+  const titleId = useId()
   const forbid = useWorkspace((s) => s.ai?.policy?.providers)
   const others = providers.filter((p) => p !== 'anthropic')
   if (!others.length) return null
   return (
-    <section className="ownd" aria-labelledby="ownd-title" data-testid="member-data">
+    <section className="ownd" aria-labelledby={titleId} data-testid="member-data">
       <div className="ownd__head">
-        <span id="ownd-title" className="label">
+        <span id={titleId} className="label">
           {t('features.ai.prov.own.title')}
         </span>
         <span className="ownd__sub">{t('features.ai.prov.own.sub')}</span>

@@ -19,7 +19,7 @@ export interface ProviderInfo {
   /** the company that receives a request routed here ("Anthropic") */
   company: string
   /** the code plate (the provider is told by letters, never by colour) */
-  code: 'CL' | 'OA' | 'OR'
+  code: 'CL' | 'OA' | 'OR' | 'LO' | 'OC' | 'MM' | 'CX'
   /** the plate's subtitle */
   sub: Bilingual
   /** the API host requests go to */
@@ -120,16 +120,29 @@ const OPENROUTER: OpenRouterInfo = {
 }
 
 /** Registry order (Claude · OpenAI · OpenRouter) — every list of providers shows them in this order. */
-export const PROVIDER_ORDER: readonly ProviderId[] = ['anthropic', 'openai', 'openrouter']
+/** Inference through the paired worker. Credentials stay there; data policy remains per destination. */
+const workerInfo = (id: ProviderId, name: string, code: ProviderInfo['code'], host: string, url: string, privacy: Bilingual): ProviderInfo => ({
+  ...ANTHROPIC, id, name, company: name, code, host, sub: { en: 'ONE WORKER', de: 'ONE WORKER' }, consoleUrl: url, keyUrl: url, limitUrl: url, keyPrefix: '', shipped: true,
+  privacy, hardLimit: { en: 'Worker limits and provider account', de: 'Worker-Grenzen und Anbieterkonto' },
+})
+const LOCAL = workerInfo('local', 'Lokal · Ollama', 'LO', '127.0.0.1', 'https://ollama.com', { en: 'Selected text goes to the paired worker and its local Ollama server. No model API cloud request.', de: 'Ausgewählter Text geht zum gekoppelten Worker und seinem lokalen Ollama-Server. Keine Modellanfrage an eine Cloud-API.' })
+const OLLAMA = workerInfo('ollama', 'Ollama Cloud', 'OC', 'ollama.com', 'https://ollama.com/settings/keys', { en: 'Selected text goes through the paired worker to Ollama Cloud. Its API key stays on the worker.', de: 'Ausgewählter Text geht über den gekoppelten Worker an Ollama Cloud. Der API-Key bleibt beim Worker.' })
+const MINIMAX = workerInfo('minimax', 'MiniMax', 'MM', 'api.minimax.io', 'https://platform.minimax.io', { en: 'Selected text goes through the paired worker to MiniMax. Its API key stays on the worker.', de: 'Ausgewählter Text geht über den gekoppelten Worker an MiniMax. Der API-Key bleibt beim Worker.' })
+const CODEX = workerInfo('codex', 'Codex', 'CX', 'OpenAI via Codex CLI', 'https://chatgpt.com', { en: 'Selected text goes through the paired worker to its signed-in Codex CLI, in an isolated text request.', de: 'Ausgewählter Text geht über den gekoppelten Worker an dessen angemeldete Codex-CLI, als isolierte Textanfrage.' })
+export const WORKER_PROVIDERS = ['local', 'ollama', 'minimax', 'codex'] as const
+export type WorkerProvider = typeof WORKER_PROVIDERS[number]
+export const isWorkerProvider = (p: string): p is WorkerProvider => (WORKER_PROVIDERS as readonly string[]).includes(p)
 
-export const PROVIDERS: { readonly anthropic: ProviderInfo; readonly openai: ProviderInfo; readonly openrouter: OpenRouterInfo } = {
+export const PROVIDER_ORDER: readonly ProviderId[] = ['anthropic', 'openai', 'openrouter', 'local', 'ollama', 'minimax', 'codex']
+
+export const PROVIDERS: { readonly anthropic: ProviderInfo; readonly openai: ProviderInfo; readonly openrouter: OpenRouterInfo; readonly local: ProviderInfo; readonly ollama: ProviderInfo; readonly minimax: ProviderInfo; readonly codex: ProviderInfo } = {
   anthropic: ANTHROPIC,
   openai: OPENAI,
-  openrouter: OPENROUTER,
+  openrouter: OPENROUTER, local: LOCAL, ollama: OLLAMA, minimax: MINIMAX, codex: CODEX,
 }
 
 /** A provider's entry (an unknown id reads as Claude's — the default path). */
-export const providerInfo = (p: ProviderId | string | null | undefined): ProviderInfo => (p === 'openai' ? OPENAI : p === 'openrouter' ? OPENROUTER : ANTHROPIC)
+export const providerInfo = (p: ProviderId | string | null | undefined): ProviderInfo => (PROVIDERS[p as ProviderId] ?? ANTHROPIC)
 
 /**
  * The provider a pasted key belongs to when it is ANOTHER one than `p` (its known prefix) — a key in the wrong tab is
@@ -137,7 +150,7 @@ export const providerInfo = (p: ProviderId | string | null | undefined): Provide
  */
 export function keyOfOther(p: ProviderId, key: string): ProviderId | null {
   const k = key.trim()
-  return PROVIDER_ORDER.find((q) => q !== p && k.startsWith(providerInfo(q).keyPrefix)) ?? null
+  return PROVIDER_ORDER.find((q) => q !== p && !!providerInfo(q).keyPrefix && k.startsWith(providerInfo(q).keyPrefix)) ?? null
 }
 
 /** The providers requests can go to in this build. */

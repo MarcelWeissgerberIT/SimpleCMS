@@ -39445,7 +39445,7 @@ function ollamaInference(base) {
     });
     if (!response.ok) throw new Error(`Ollama could not run the local coding task (HTTP ${response.status}).`);
     const data = await response.json();
-    return { message: data.message, inputTokens: data.prompt_eval_count };
+    return { message: data.message, inputTokens: data.prompt_eval_count, outputTokens: data.eval_count };
   };
   let shown = null;
   const show = async (model, signal) => {

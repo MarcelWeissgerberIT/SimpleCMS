@@ -60,7 +60,7 @@ export function ollamaCloudInference(config: OllamaCloudConfig, transport: typeo
       if (!args || typeof args !== 'object' || Array.isArray(args)) throw new Error('Ollama Cloud tool arguments must be an object.')
     }
     if (choice.finish_reason === 'tool_calls' && !calls.length) throw new Error('Ollama Cloud omitted its tool calls.')
-    return { message, inputTokens: usage.prompt_tokens }
+    return { message, inputTokens: usage.prompt_tokens, outputTokens: usage.completion_tokens }
   }
   inference.unmetered = true
   return inference

@@ -109,3 +109,6 @@
 .aip__mcpcell b {
   color: var(--ink);
 }
+
+.cost-settings__actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.cost-settings .field { margin-top: 10px; }

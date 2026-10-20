@@ -20,6 +20,8 @@ export interface CodexRun {
   cwd: string
   prompt: string
   readOnly: boolean
+  /** Isolated text response: disable execution, browsing, apps and skill discovery. */
+  textOnly?: boolean
   maxSteps: number
   signal: AbortSignal
   taskMcp: { command: string; args: string[]; env: Record<string, string> } | null
@@ -27,11 +29,15 @@ export interface CodexRun {
   env?: NodeJS.ProcessEnv
   progress?: (value: TaskProgress) => void
 }
-export interface CodexResult { ok: boolean; stopped: boolean; limited: boolean; text: string; steps: number; cost?: number; limitKind?: 'budget' | 'model'; error?: string }
+export interface CodexResult { ok: boolean; stopped: boolean; limited: boolean; text: string; steps: number; cost?: number; inputTokens?: number; outputTokens?: number; limitKind?: 'budget' | 'model'; error?: string }
 
 /** Arguments contain no task text or credentials; own MCP credentials are inherited by name. */
 export function codexArgs(opts: CodexRun): string[] {
   const args = ['exec', '--json', '--ignore-user-config', '--ephemeral', '--color', 'never', '--sandbox', opts.readOnly ? 'read-only' : 'workspace-write', '-c', 'approval_policy="never"']
+  if (opts.textOnly) {
+    for (const feature of ['shell_tool', 'unified_exec', 'view_image', 'browser_use', 'computer_use', 'apps', 'multi_agent', 'skill_mcp_dependency_install']) args.push('--disable', feature)
+    args.push('-c', 'web_search="disabled"')
+  }
   const mcp = opts.taskMcp
   args.push('-c', mcp ? `mcp_servers={one_task={command=${JSON.stringify(mcp.command)},args=${JSON.stringify(mcp.args)},required=true,enabled_tools=["one_task_read","one_task_note","one_task_ask"],tools={one_task_read={approval_mode="approve"},one_task_note={approval_mode="approve"},one_task_ask={approval_mode="approve"}},env_vars=${JSON.stringify(Object.keys(mcp.env))}}}` : 'mcp_servers={}')
   args.push('-c', 'shell_environment_policy.exclude=["*TOKEN*","*KEY*","*SECRET*"]')
@@ -75,7 +81,7 @@ export async function runCodex(opts: CodexRun): Promise<CodexResult> {
       if (event.type === 'item.started' && item?.type === 'command_execution') tree?.bashStart(item.id)
       if (event.type === 'item.completed') {
         if (item?.type === 'command_execution') tree?.bashEnd(item.id)
-        if (item?.type === 'agent_message' && typeof item.text === 'string') result.text = safe(item.text).slice(0, 60000)
+        if (item?.type === 'agent_message' && typeof item.text === 'string') result.text = safe(item.text).slice(0, opts.textOnly ? 250001 : 60000)
         if (['command_execution', 'mcp_tool_call', 'file_change'].includes(item?.type)) {
           result.steps++
           opts.progress?.({ turns: result.steps, maxTurns: opts.maxSteps, cost: opts.agent === 'local' ? 0 : null, model: opts.agent === 'local' ? 'Ollama' : 'Codex' })
@@ -84,7 +90,7 @@ export async function runCodex(opts: CodexRun): Promise<CodexResult> {
           if (result.steps >= opts.maxSteps) { result.limited = true; void killTree(child) }
         }
       }
-      if (event.type === 'turn.completed') { ended = true; tree?.atResult() }
+      if (event.type === 'turn.completed') { ended = true; tree?.atResult(); result.inputTokens = event.usage?.input_tokens; result.outputTokens = event.usage?.output_tokens }
     } catch { /* A diagnostic is never a successful agent event. */ }
   })
   child.stderr?.on('data', chunk => { diagnostic = (diagnostic + safe(chunk.toString())).slice(-4000); bytes += chunk.length; if (bytes > 8 * 1024 * 1024) void killTree(child) })

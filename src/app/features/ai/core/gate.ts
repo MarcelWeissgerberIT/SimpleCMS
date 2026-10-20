@@ -1,3 +1,5 @@
+import { workerProviderReady, workerModelRows } from './workerModels'
+import { isWorkerProvider } from '@/shared/ai/providers'
 /**
  * prepare(): the single choke point in front of every AI request, before any data is loaded or sent.
  *
@@ -542,7 +544,7 @@ function world(): RouteWorld {
     device: s.settings.ai,
     aiModel: s.settings.aiModel,
     // Claude's marker is settings.aiApiKey; the others' are settings.aiKeys (store/secrets.ts)
-    hasKey: (p) => (p === 'anthropic' ? !!s.settings.aiApiKey.trim() : hasAIKey(p)),
+    hasKey: (p) => isWorkerProvider(p) ? workerProviderReady(p) : p === 'anthropic' ? !!s.settings.aiApiKey.trim() : hasAIKey(p),
     info: (route, pool) => modelInfo(route, pool),
     shortlist: shortlist().map((r) => r.m),
   }
@@ -764,6 +766,8 @@ export function deciderRoute(decider?: Route | null): { route: Route | null; lev
 }
 
 export interface AIStatus {
+  /** An explicit request pick is possible even when no default provider has a key. */
+  selectable?: boolean
   /** a request would go out (or get a demo answer) */
   ready: boolean
   /** the route it would take (null: none — see `reason`, or demo) */
@@ -791,7 +795,8 @@ export function aiStatus(purposeId: PurposeId): AIStatus {
     // a key for another provider that does not take this kind of work (yet): set up Claude for it
     const other = (['openai', 'openrouter'] as const).filter((p) => hasAIKey(p))
     const route = other.length && other.every((p) => !routable(p, purpose.cls))
-    return { ready: false, route: null, demo: false, reason: route ? 'route' : 'no_key', fix: { kind: 'step', step: 'key', provider: 'anthropic' } }
+    const selectable = workerModelRows().some(m => routable(m.route.p, purpose.cls) && purpose.caps.every(n => canDo(m.caps, n)))
+    return { selectable, ready: false, route: null, demo: false, reason: route ? 'route' : 'no_key', fix: { kind: 'step', step: 'key', provider: 'anthropic' } }
   }
   const reason = res.code === 'policy' || res.code === 'capability' || res.code === 'model_gone' || res.code === 'no_key' ? res.code : 'no_key'
   return { ready: false, route: res.route, demo: false, reason, ...(res.fixes[0] ? { fix: res.fixes[0] } : {}) }
@@ -872,6 +877,7 @@ export function routeChoices(purposeId: PurposeId, o: { sources?: readonly Sourc
   // Claude's models (a key here)
   const claudeKey = !!s.settings.aiApiKey.trim()
   if (claudeKey) for (const m of MODELS) if (m.route.p === 'anthropic' && m.selectable) add(row({ p: 'anthropic', m: m.route.m }, 'models'))
+  for (const model of workerModelRows()) add(row(model.route, 'models'))
   // the OpenRouter shortlist (a key here)
   const orKey = hasAIKey('openrouter')
   const list = shortlist()

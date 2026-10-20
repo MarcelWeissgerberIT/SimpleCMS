@@ -12,7 +12,7 @@ import { useLang, useT } from '../../../i18n'
 import { useWorkspace } from '../../../store/store'
 import { useUI } from '../../../store/ui'
 import { navigate, openPage, useRoute } from '../../../lib/router'
-import { fmtUsd } from '../../../lib/money'
+import { fmtUsd, displayCurrency } from '../../../lib/money'
 import { useCloud } from '../../../cloud'
 import { shortcutLabel } from '../../../ui/controls'
 import { AI_MODELS, resolveModel } from '../client'
@@ -1910,7 +1910,7 @@ function Foot() {
             </dd>
           </div>
           <div className="term-meter__usd">
-            <dt className="visually-hidden">USD</dt>
+            <dt className="visually-hidden">{displayCurrency()}</dt>
             <dd data-testid="agent-cost">{meterUsd(usage.usd, usage.byModel, lang)}</dd>
           </div>
         </dl>

@@ -1,3 +1,4 @@
+import { fmtUsd } from '../../lib/money'
 /**
  * Settings → Coding worker: the 3-step card (SetupCard: download the worker ready-paired, start it, tick the
  * repos in its page), this device's link (switch — a download switches it on —, LED, read-out, port, what a
@@ -225,7 +226,7 @@ export function WorkerTab() {
   const [port, setPort] = useState(String(s.port))
   const portId = useId()
   const connected = s.enabled && s.conn === 'connected'
-  const money = (n: number) => n.toLocaleString(lang === 'de' ? 'de-DE' : 'en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 })
+  const money = (n: number) => fmtUsd(n, lang)
   const commitPort = () => {
     const p = validPort(port)
     if (p) setCodingPort(p)

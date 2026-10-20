@@ -386,6 +386,8 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
 
   const narrow = useNarrow()
   const [setup, setSetup] = useState(!hasKey && !isAIDemo() && !openRun)
+  // Worker discovery is asynchronous. A usable request route can arrive after the menu opened.
+  useEffect(() => { if (hasKey) setSetup(false) }, [hasKey])
   /** the key card is what a typed Space opened (and it has not been left since): typing there goes back into the page */
   const [typedCard, setTypedCard] = useState(() => !!typed && setup)
   useEffect(() => {

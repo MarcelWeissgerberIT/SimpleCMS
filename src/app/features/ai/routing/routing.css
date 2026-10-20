@@ -272,3 +272,16 @@ body:has(.pal-scrim) :is(.route-pop, .route-sheet) { z-index: calc(var(--z-palet
     opacity: 0;
   }
 }
+
+.route-provider { display: inline-flex; align-items: center; justify-content: space-between; gap: 6px; }
+.route-provider > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.route-providers { width: min(380px, calc(100vw - 16px)); overflow-y: auto; padding: 0; }
+.route-providers__title { padding: 10px 12px; border-bottom: 1px solid var(--rule); }
+.route-providers__row { display: flex; align-items: center; border-bottom: 1px solid var(--rule); }
+.route-providers__row > button[data-provider] { appearance: none; flex: 1; min-width: 0; text-align: left; background: transparent; color: var(--ink); border: 0; padding: 10px 12px; cursor: pointer; }
+.route-providers__row strong, .route-providers__row button > span { display: block; }
+.route-providers__row button > span { margin-top: 3px; color: var(--muted); font-size: 12px; line-height: 1.4; }
+.route-providers__row [aria-pressed='true'] { box-shadow: inset 2px 0 var(--signal); }
+.route-providers__row [aria-disabled='true'] { cursor: default; }
+.route-providers__row > .btn { flex: none; margin-right: 8px; }
+.route-providers__row > button:hover, .route-providers__row > button:focus-visible { background: var(--hover); }

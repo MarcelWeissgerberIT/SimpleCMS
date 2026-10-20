@@ -1,3 +1,4 @@
+import { textModels, textRequest } from './text-models.ts'
 import { readRepairPolicy } from '../../../src/shared/coding/repair.ts'
 import { isCodingAgent } from '../../../src/app/features/coding/protocol.ts'
 /**
@@ -317,6 +318,7 @@ export class Worker {
       },
       onDisconnect: () => {
         this.workspace = null
+        for (const controller of this.textRuns.values()) controller.abort()
         // a ZIP half-received from that tab will not be finished by it (a retry starts afresh, not "another import runs")
         this.intaker?.drop('One disconnected')
         this.checkAway()
@@ -460,6 +462,7 @@ export class Worker {
    */
   async stop(): Promise<void> {
     this.stopped = true
+    for (const controller of this.textRuns.values()) controller.abort()
     if (this.poller) clearInterval(this.poller)
     if (this.beater) clearInterval(this.beater)
     const running = [...this.runs.values()]
@@ -691,7 +694,19 @@ export class Worker {
 
   /* ------------------------------------------------------------------ the person's actions */
 
+  private textRuns = new Map<string, AbortController>()
+
   private async onRequest(msg: Extract<TabMessage, { type: 'req' }>): Promise<unknown> {
+    if (msg.op === 'text-models') return textModels(this.config.file)
+    if (msg.op === 'text-stop') { this.textRuns.get(msg.requestId)?.abort(); return { stopped: true } }
+    if (msg.op === 'text-request') {
+      if (typeof msg.requestId !== 'string' || !/^[a-zA-Z0-9-]{1,64}$/.test(msg.requestId) || this.textRuns.has(msg.requestId) || this.textRuns.size >= 2) throw new Error('Text request is busy or invalid.')
+      const abort = new AbortController()
+      this.textRuns.set(msg.requestId, abort)
+      const timer = setTimeout(() => abort.abort(), 180000)
+      try { return await textRequest(this.config.file, msg.request, abort.signal) }
+      finally { clearTimeout(timer); this.textRuns.delete(msg.requestId) }
+    }
     if (msg.op === 'stop') {
       const run = this.runs.get(String(msg.taskId))
       if (!run) return { stopped: false }

@@ -1,3 +1,4 @@
+import { useWorkerModels } from '../core/workerModels'
 /**
  * <AINeedsSetup>: the one card every "can this run?" surface shows when the answer is no (UX § 3 / § 10.6) — the AI
  * terminal, ⌘K "?", help Ask, autofill, meeting notes, agents, kit fill, the Outbox draft, mail organise, design import,
@@ -10,7 +11,7 @@
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { KeyRound, Play, RotateCw, ShieldAlert, SlidersHorizontal } from 'lucide-react'
 import type { DataClass, FeatureClass, ProviderId } from '@/shared/ai/types'
-import { providerInfo, shippedProviders } from '@/shared/ai/providers'
+import { providerInfo, shippedProviders, isWorkerProvider } from '@/shared/ai/providers'
 import { useWorkspace } from '../../../store/store'
 import { aiRulesAllowed } from '../../../store/ai'
 import { useT } from '../../../i18n'
@@ -34,6 +35,7 @@ export function Rich({ text }: { text: string }) {
 
 /** aiStatus(purpose), kept current: keys, rules, the device layer, the model and the demo switch. */
 export function useAIStatus(purpose: PurposeId): AIStatus {
+  const workerRev = useWorkerModels()
   const key = useWorkspace((s) => s.settings.aiApiKey)
   const keys = useWorkspace((s) => s.settings.aiKeys)
   const device = useWorkspace((s) => s.settings.ai)
@@ -41,7 +43,7 @@ export function useAIStatus(purpose: PurposeId): AIStatus {
   const model = useWorkspace((s) => s.settings.aiModel)
   const [demo, setDemo] = useState(isAIDemo)
   useEffect(() => onAIDemo(() => setDemo(isAIDemo())), [])
-  return useMemo(() => aiStatus(purpose), [purpose, key, keys, device, ws, model, demo])
+  return useMemo(() => aiStatus(purpose), [purpose, key, keys, device, ws, model, demo, workerRev])
 }
 
 /**
@@ -49,7 +51,7 @@ export function useAIStatus(purpose: PurposeId): AIStatus {
  * (newer rules → Reload, the off switch, a data rule, a capability, a removed model: the gate answers, nothing is sent).
  * Only "no key for this kind of work here" (no_key · route) puts the card up front. A demo answer is not a key.
  */
-export const offersAI = (s: AIStatus): boolean => !s.demo && (s.ready || (s.reason !== 'no_key' && s.reason !== 'route'))
+export const offersAI = (s: AIStatus): boolean => !s.demo && (s.selectable || s.ready || (s.reason !== 'no_key' && s.reason !== 'route'))
 
 /** Why the card shows (aiStatus' reason, or one a caller knows: a request that failed for want of a key). */
 export type NeedsReason = AIStatus['reason'] | 'nokey'
@@ -132,7 +134,7 @@ export function AINeedsSetup({ purpose, reason, fix, variant = 'card', onOpen, o
   } else {
     title = t('features.ai.prov.needs.title')
     // only the providers this build can set up (a listed one that is not shipped yet reads "comes soon" in step 01)
-    const names = shippedProviders().map((id) => providerInfo(id).name)
+    const names = shippedProviders().filter(p => !isWorkerProvider(p)).map((id) => providerInfo(id).name)
     const list = names.length > 1 ? `${names.slice(0, -1).join(', ')}${t('features.ai.prov.needs.or')}${names[names.length - 1]}` : (names[0] ?? '')
     body = t('features.ai.prov.needs.body', { list, all: t(names.length > 2 ? 'features.ai.prov.needs.several' : 'features.ai.prov.needs.both') })
     key = { label: t('features.ai.prov.needs.open'), icon: <KeyRound size={13} strokeWidth={1.75} aria-hidden />, run: open(() => openAISetup({ reason: 'nokey', feature: cls })) }

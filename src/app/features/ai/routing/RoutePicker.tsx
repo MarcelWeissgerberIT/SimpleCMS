@@ -1,3 +1,5 @@
+import { useWorkspace } from '../../../store/store'
+import { useWorkerModels } from '../core/workerModels'
 /**
  * The route picker (§ 12.5): a cmdk list in a popover (a sheet on phones) under the route chip. Rows: the route this
  * device's rules choose now ("Default on this device"), the kind of work's rule, the models with a key here (Claude,
@@ -24,7 +26,7 @@ import { classLabel } from './classLabel'
 
 type T = ReturnType<typeof useT>
 
-const COMPANY: Record<Route['p'], string> = { anthropic: 'Anthropic', openai: 'OpenAI', openrouter: 'OpenRouter' }
+const COMPANY: Record<Route['p'], string> = { anthropic: 'Anthropic', openai: 'OpenAI', openrouter: 'OpenRouter', local: 'Ollama (worker)', ollama: 'Ollama Cloud', minimax: 'MiniMax', codex: 'Codex' }
 
 /** A kind of work as people read it ("Writing" · "Schreiben"). */
 export { classLabel } from './classLabel'
@@ -78,7 +80,10 @@ export interface RoutePickerProps {
 export function RoutePicker({ anchor, purpose, chip, provider: initialProvider, sources, carries, needs, reads, onPick, onClose }: RoutePickerProps) {
   const t = useT()
   const lang = useLang()
-  const choices = useMemo(() => routeChoices(purpose, { sources, carries, needs }), [purpose, sources, carries, needs])
+  const modelRevision = useWorkerModels()
+  const settings = useWorkspace(s => s.settings)
+  const policy = useWorkspace(s => s.ai)
+  const choices = useMemo(() => routeChoices(purpose, { sources, carries, needs }), [purpose, sources, carries, needs, modelRevision, settings, policy])
   const picked = chip ? `${routeKey(chip)}${chip.effort ? `#${chip.effort}` : ''}` : ''
   // the highlighted row starts on the pick (the lead line names where it goes)
   const [active, setActive] = useState(picked)

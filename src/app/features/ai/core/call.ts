@@ -1,3 +1,5 @@
+import { isWorkerProvider } from '@/shared/ai/providers'
+import { sendWorkerText } from './workerModels'
 /**
  * sendNeutral(): one request to a provider on the neutral wire (multi-provider S2: OpenRouter one-shots), after the gate
  * prepared it — a lazy part of the AI path (the facades import it only for a non-Claude route):
@@ -111,6 +113,15 @@ export interface NeutralOpts {
 export async function sendNeutral(prepared: Prepared, req: ChatRequest, o: NeutralOpts): Promise<Turn> {
   const route = prepared.route
   if (!route) throw new AIError('no_key')
+  if (isWorkerProvider(route.p)) {
+    if (req.kind !== 'chat' || req.output.kind !== 'text' || req.tools?.length || req.messages.some(m => m.parts.some(p => p.type !== 'text'))) throw new AIError('capability')
+    const result = await sendWorkerText(route, [{ role: 'system', content: req.system }, ...req.messages.map(m => ({ role: m.role, content: m.parts.map(p => p.type === 'text' ? p.text : '').join('\n') }))], Math.min(req.maxTokens, 16384), o.signal)
+    const usage = result.inputTokens !== null && result.outputTokens !== null ? { input: result.inputTokens, output: result.outputTokens, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0, reasoning: 0, ...(route.p === 'local' ? { reportedUsd: 0 } : {}) } : null
+    const turn: Turn = { kind: 'chat', parts: [{ type: 'text', text: result.text }], stop: 'end', usage, served: result.model, streamedChars: result.text.length }
+    o.call.response(neutralResponse(turn, { price: priceFor(route), promptChars: o.promptChars }))
+    o.onToken?.(result.text)
+    return turn
+  }
   const key = await getAIKey(route.p)
   if (!key) throw new AIError('no_key')
   if (o.signal?.aborted) throw new AIError('aborted')
