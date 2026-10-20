@@ -1638,3 +1638,49 @@
   color: var(--ink);
   background: var(--surface-2);
 }
+
+/* Catalog and saved agents have independent filters. Counts always describe the whole section. */
+.agx-filters {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 240px);
+  gap: 10px;
+  margin: 16px 0 20px;
+}
+.agx-filters .input {
+  width: 100%;
+  min-width: 0;
+}
+.agx-catalog__group + .agx-catalog__group {
+  margin-top: 24px;
+}
+.agx-catalog__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 8px;
+  margin: 0 0 10px;
+  border-bottom: 1px solid var(--rule);
+  color: var(--ink-2);
+  font-weight: 500;
+}
+.agx-recipe__needs {
+  color: var(--ink-2);
+  font-size: var(--text-xs);
+  margin-top: 5px;
+}
+.agx-catalog__hint {
+  margin-top: 20px;
+  max-width: 78ch;
+}
+.agx-saved {
+  margin-top: 30px;
+}
+.agx-saved .agx-cards {
+  margin-top: 0;
+}
+@media (max-width: 600px) {
+  .agx-filters {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

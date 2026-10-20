@@ -11,8 +11,8 @@ import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import { openAISettings } from '../ai/setup/openAISetup'
 import { inTemplate, isEffectivelyTrashed } from '../../store/selectors'
-import { AGENT_LIMITS, localTimeZone, sameAgent } from '../../store/agents'
-import type { AgentTrigger, CustomAgent, ID, Page } from '../../store/types'
+import { AGENT_CATEGORIES, AGENT_LIMITS, localTimeZone, sameAgent } from '../../store/agents'
+import type { AgentCategory, AgentTrigger, CustomAgent, ID, Page } from '../../store/types'
 import { useCloud } from '../../cloud'
 import { Modal } from '../../ui/Modal'
 import { Menu, useMenu, type MenuEntry } from '../../ui/Menu'
@@ -327,6 +327,11 @@ export function AgentEditor({
               />
             </Field>
           </div>
+          <Field label={t('features.agents.category.label')} id={`${uid}-category`}>
+            <select id={`${uid}-category`} className="input" value={d.category ?? 'custom'} onChange={(e) => set({ category: e.target.value as AgentCategory })}>
+              {AGENT_CATEGORIES.map((c) => <option key={c} value={c}>{t(`features.agents.category.${c}`)}</option>)}
+            </select>
+          </Field>
           <Instructions value={d.instructions} onChange={(instructions) => set({ instructions })} error={errors.instructions} id={ids.instr} agent={d} />
         </Section>
 

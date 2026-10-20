@@ -113,6 +113,7 @@ export function mirrorDraft(input: { recipe: ResolvedRecipe; server: string; nam
   const draft: CustomAgent = {
     ...base,
     name: fillTokens(r.agent.name, vars).slice(0, 80),
+    category: 'integrations',
     icon: r.icon,
     instructions: fillTokens(r.agent.instructions, vars),
     trigger: { type: 'schedule', every: r.agent.schedule.every, at: r.agent.schedule.at, tz: localTimeZone(), ...(r.agent.schedule.weekday !== undefined ? { weekday: r.agent.schedule.weekday } : {}), ...(r.agent.schedule.day !== undefined ? { day: r.agent.schedule.day } : {}) },

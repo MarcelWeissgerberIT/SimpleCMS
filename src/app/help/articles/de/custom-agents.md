@@ -9,6 +9,11 @@ summary: Gespeicherte KI-Helfer für wiederkehrende Arbeit — jeder mit Auftrag
 ---
 **Agenten** in der Seitenleiste listet deine eigenen Agenten. **Neuer Agent** startet mit einem Rezept — *Tägliche Mail-Sortierung*, *Wochenbericht aus Projekten*, *Neue Formularantworten zusammenfassen*, *Seiten mit der Wissensdatenbank abgleichen* — oder **Leer**. Eine aktive [Integration](help:integrations) bringt eigene Rezepte mit, benannt nach der Integration, etwa einen Spiegel der Liste eines anderen Werkzeugs. Nichts läuft, bevor du speicherst.
 
+## Vorlagen und Kategorien
+Der Katalog enthält zwölf Vorlagen in **Planung & Projekte**, **Coding & Qualität**, **Wissen & Dokumente**, **Kommunikation**, **Integrationen** und **Allgemein**. Suche nach Name oder Aufgabe oder wähle eine Kategorie. Integrationsrezepte stehen im selben Katalog, der auch nach dem Speichern eines Agenten verfügbar bleibt.
+
+Die neuen Helfer unterstützen Auftragszerlegung, Code-Reviews, Testpläne, Atlas/MCP-Projektchecks, Entscheidungen, Besprechungen und Dokumente. Sie öffnen sich als manuelle Entwürfe für einen Bericht: Wähle ihre Quellseiten und gegebenenfalls eine MCP-Verbindung vor der Nutzung. Sie analysieren bereitgestellte Inhalte; Repository-Änderungen und ausgeführte Tests laufen über **Coding** oder **Prüfaufträge**. Über **Kategorie** im Editor ordnest du auch eigene Agenten. Ältere Agenten erscheinen unter **Allgemein**.
+
 ## Was ein Agent hat
 - **Auftrag** — einen **Namen** und **Anweisungen** in klaren Worten (**Mit Claude verbessern** schleift sie). Das Feld nummeriert die Zeilen und unterstreicht die Werkzeuge, die der Agent nutzen kann (die von One und die seiner MCP-Server); Platzhalter in Großbuchstaben wie `[WIE DIE EINTRÄGE AUFGELISTET WERDEN]` sind markiert und gezählt — **Nächster Platzhalter** springt hin, und **Jetzt ausführen** fragt nach, solange einer offen ist.
 - **Auslöser** — **Manuell**, **Zeitplan** (stündlich, täglich, werktags, wöchentlich, monatlich, zu Uhrzeit und Zeitzone), **Neue Zeile** in einer Datenbank (auch Formularantworten und synchronisierte Mails), **Zeile geändert** oder **Webhook** (nur Server-Agenten).

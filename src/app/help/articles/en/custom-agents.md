@@ -9,6 +9,11 @@ summary: Saved AI helpers for recurring work — each with a job, a trigger and 
 ---
 **Agents** in the sidebar lists your custom agents. **New agent** starts from a recipe — *Daily mail triage*, *Weekly report from projects*, *Summarise new form answers*, *Check pages against your knowledge base* — or **Blank**. An active [integration](help:integrations) adds its own recipes, named by the integration, such as a mirror of another tool's list. Nothing runs until you save.
 
+## Templates and categories
+The catalog contains twelve starters in **Planning & projects**, **Coding & quality**, **Knowledge & documents**, **Communication**, **Integrations** and **General**. Search by name or job, or choose a category. Integration recipes join the same catalog, which stays available after you save an agent.
+
+The new specialists help with brief decomposition, code reviews, test plans, Atlas/MCP project checks, decisions, meetings and documents. They open as manual, report-only drafts: choose their source pages and any MCP connection before using them. They analyse supplied material; repository edits and executed tests run through **Coding** or **Work orders**. Set **Category** in the editor to organise your own agents. Older agents appear under **General**.
+
 ## What an agent has
 - **Job** — a **Name** and **Instructions** in plain words (**Improve with Claude** polishes them). The field numbers its lines and underlines the tools the agent can use (One’s and its MCP servers’); placeholders in capitals like `[HOW TO LIST THE ITEMS]` are marked and counted — **Next placeholder** jumps to one, and **Run now** asks first while any is open.
 - **Trigger** — **Manual**, **Schedule** (hourly, daily, weekdays, weekly, monthly, at a time and time zone), **New row** in a database (form answers and synced mails included), **Row changed**, or **Webhook** (server agents only).

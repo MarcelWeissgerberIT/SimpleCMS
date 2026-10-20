@@ -1280,10 +1280,13 @@ export type AgentTriggerType = AgentTrigger['type']
 
 /** read only (answer only) · propose changes for review · apply directly */
 export type AgentWriteMode = 'none' | 'stage' | 'apply'
+export type AgentCategory = 'planning' | 'coding' | 'knowledge' | 'communication' | 'integrations' | 'custom'
 
 export interface CustomAgent {
   id: ID
   name: string
+  /** Organization only; absent on older agents = general. Does not grant tools or select a model. */
+  category?: AgentCategory
   icon?: PageIcon | null
   /** the job in plain language (≤ 8000 characters) */
   instructions: string

@@ -4280,6 +4280,18 @@ process.exit(1)
     await ctx.close()
   },
 
+  /** The built-in specialists, filtered by their category. */
+  async 'agent-catalog'(browser) {
+    const { ctx, page } = await freshPage(browser)
+    await page.evaluate(() => { window.location.hash = '#/agents' })
+    const catalog = page.getByTestId('agx-catalog')
+    await catalog.waitFor()
+    await catalog.getByLabel('Category', { exact: true }).selectOption('coding')
+    await rest(page)
+    await save(page, 'agent-catalog')
+    await ctx.close()
+  },
+
   /** #/agents/<id>: a weekly agent, run once — its report and two proposals waiting for review. */
   async 'custom-agents'(browser) {
     const ids = {}

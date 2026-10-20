@@ -20,15 +20,14 @@ import { Menu, useMenu } from '../../ui/Menu'
 import { PageIcon } from '../../ui/PageIcon'
 import { Switch } from '../../ui/controls'
 import { useLang, useT } from '../../i18n'
-import { localized } from '../../store/integrations'
 import { resolveModel } from '../ai/client'
 import { AINeedsSetup } from '../ai/setup/AINeedsSetup'
 import { AgentEditor } from './AgentEditor'
 import { RunHistory } from './RunHistory'
 import { TrustPlate } from './trust/ui/TrustPlate'
-import { RECIPES, blankAgent, recipeDraft, type RecipeId } from './recipes'
+import { blankAgent, recipeDraft } from './recipes'
+import { AgentCatalog, AgentFilters, categoryCounts, matchesAgentText, type CategoryFilter, type RecipePick } from './AgentCatalog'
 import { MirrorSetup, type RecipeSource } from './MirrorSetup'
-import { useRecipeSources } from './integrations/status'
 import { madeKind, undoMirror, type MirrorMade } from './mirror'
 import { introText, leftBehind, mirrorUndoTitle, trashWithUndo } from './mirrorFlow'
 import { MirrorDiscard, MirrorUndoAsk } from './MirrorDiscard'
@@ -205,7 +204,6 @@ export default function AgentsView({ agentId }: { agentId?: string }) {
 /* ------------------------------------------------------------------ */
 
 /** A recipe picked in the gallery: a built-in one, or one an active integration profile brings. */
-type RecipePick = RecipeId | RecipeSource
 type Draft = { agent: CustomAgent; mirror?: MirrorMade }
 
 function useNewAgent() {
@@ -319,53 +317,6 @@ function useNewAgent() {
   return { open: () => setPicking(true), pick, ui }
 }
 
-function RecipeList({ onPick }: { onPick: (id: RecipePick) => void }) {
-  const t = useT()
-  const lang = useLang()
-  // the recipes of the active integration profiles (configured, never built in), named by their profile
-  const sources = useRecipeSources()
-  return (
-    <ul className="agx-recipes">
-      {sources.flatMap(({ profile, servers }) =>
-        (profile.recipes ?? []).map((recipe) => {
-          const icon = { type: 'lucide' as const, value: recipe.icon ?? 'Layers', ...(recipe.color || !recipe.icon ? { color: recipe.color ?? ('brown' as const) } : {}) }
-          return (
-            <li key={`${profile.id}:${recipe.id}`}>
-              <button type="button" className="agx-recipe agx-recipe--int" onClick={() => onPick({ profile, recipe, servers })} data-recipe={`${profile.id}:${recipe.id}`}>
-                <span className="agx-recipe__icon">
-                  <PageIcon icon={icon} size={22} />
-                </span>
-                <span className="agx-recipe__text">
-                  <span className="agx-recipe__name">{localized(recipe.name, lang) || t('features.agents.recipe.mirror.name')}</span>
-                  <span className="agx-recipe__desc">{localized(recipe.description, lang) || t('features.agents.recipe.mirror.desc')}</span>
-                </span>
-                {/* the whole profile name: it wraps (a phone has no hover title), never cut without a sign */}
-                <span className="agx-recipe__code label" title={t('features.integrations.recipeFrom', { name: profile.name })}>
-                  <span className="led led--ok" aria-hidden />
-                  <span className="agx-recipe__from">{profile.name}</span>
-                </span>
-              </button>
-            </li>
-          )
-        }),
-      )}
-      {RECIPES.map((r) => (
-        <li key={r.id}>
-          <button type="button" className="agx-recipe" onClick={() => onPick(r.id)} data-recipe={r.id}>
-            <span className="agx-recipe__icon">
-              <PageIcon icon={r.icon} size={22} />
-            </span>
-            <span className="agx-recipe__text">
-              <span className="agx-recipe__name">{t(`features.agents.recipe.${r.id}.name`)}</span>
-              <span className="agx-recipe__desc">{t(`features.agents.recipe.${r.id}.desc`)}</span>
-            </span>
-            <span className="agx-recipe__code label">{r.code}</span>
-          </button>
-        </li>
-      ))}
-    </ul>
-  )
-}
 
 function RecipeModal({ onPick, onClose }: { onPick: (id: RecipePick) => void; onClose: () => void }) {
   const t = useT()
@@ -373,7 +324,7 @@ function RecipeModal({ onPick, onClose }: { onPick: (id: RecipePick) => void; on
   return (
     <Modal open onClose={onClose} label="§ AG" title={t('features.agents.newTitle')} width={620} className="agx-recipe-modal">
       <p className="agx-lead agx-lead--modal">{t('features.agents.newLead')}</p>
-      <RecipeList onPick={onPick} />
+      <AgentCatalog onPick={onPick} />
     </Modal>
   )
 }
@@ -385,6 +336,9 @@ function RecipeModal({ onPick, onClose }: { onPick: (id: RecipePick) => void; on
 function AgentList() {
   const t = useT()
   const agents = useAgents()
+  const [query, setQuery] = useState('')
+  const [category, setCategory] = useState<CategoryFilter>('all')
+  const shown = agents.filter((a) => (category === 'all' || (a.category ?? 'custom') === category) && matchesAgentText(`${a.name} ${a.instructions} ${t(`features.agents.category.${a.category ?? 'custom'}`)}`, query))
   const readOnly = useCloud((s) => s.readOnly)
   const created = useNewAgent()
   const now = useMinute()
@@ -410,20 +364,21 @@ function AgentList() {
         </div>
         <p className="agx-lead">{t('features.agents.lead')}</p>
       </header>
-      {agents.length === 0 ? (
-        <section className="agx-start" aria-labelledby="agx-start-title">
-          <h2 id="agx-start-title" className="agx-start__title label">
-            {t('features.agents.startTitle')}
-          </h2>
-          {readOnly ? <p className="agx-note">{t('features.agents.readOnly')}</p> : <RecipeList onPick={created.pick} />}
+      {agents.length > 0 && (
+        <section className="agx-saved" aria-labelledby="agx-saved-title">
+          <h2 id="agx-saved-title" className="agx-start__title label">{t('features.agents.catalog.saved')}</h2>
+          <AgentFilters saved query={query} category={category} counts={categoryCounts(agents.map((a) => a.category ?? 'custom'))} onQuery={setQuery} onCategory={setCategory} />
+          {shown.length ? (
+            <ul className="agx-cards">
+              {shown.map((a) => <AgentCard key={a.id} agent={a} n={agents.indexOf(a) + 1} now={now} />)}
+            </ul>
+          ) : <p className="agx-note" role="status">{t('features.agents.catalog.noneSaved')}</p>}
         </section>
-      ) : (
-        <ul className="agx-cards">
-          {agents.map((a, i) => (
-            <AgentCard key={a.id} agent={a} n={i + 1} now={now} />
-          ))}
-        </ul>
       )}
+      <section className="agx-start" aria-labelledby="agx-start-title">
+        <h2 id="agx-start-title" className="agx-start__title label">{t('features.agents.catalog.title')}</h2>
+        {readOnly ? <p className="agx-note">{t('features.agents.readOnly')}</p> : <AgentCatalog onPick={created.pick} />}
+      </section>
       {created.ui}
     </div>
   )
@@ -522,6 +477,7 @@ function AgentCard({ agent, n, now }: { agent: CustomAgent; n: number; now: numb
         </p>
       )}
       <div className="agx-card__foot">
+        <span className="agx-chip label">{t(`features.agents.category.${agent.category ?? 'custom'}`)}</span>
         <span className="agx-chip label">{t(`features.agents.runner.${agent.runner}`)}</span>
         <span className="agx-chip label">{t(`features.agents.write.${agent.write}Short`)}</span>
         {pending > 0 && (
