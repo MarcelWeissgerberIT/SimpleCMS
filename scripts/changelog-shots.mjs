@@ -8,7 +8,7 @@
  *
  * (CHANGELOG_DRAFT=1 lets the build pass while a new entry's picture does not exist yet.)
  *
- * Shots: work-orders, mcp-boards, worker-permissions, page-refs, sidebar, patchbay, ship-log, mcp-connections, worker-windows, safe-zip-import, regler, agent-precheck, ai-setup, ai-receipts, agent-trust, claude-tasks, flight-recorder-eject, flight-recorder-window, preflight, flight-recorder, tasks, outbox, mirror-again, glass-switches, history-compare, mcp-overview, mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
+ * Shots: annunciator-panel, work-orders, mcp-boards, worker-permissions, page-refs, sidebar, patchbay, ship-log, mcp-connections, worker-windows, safe-zip-import, regler, agent-precheck, ai-setup, ai-receipts, agent-trust, claude-tasks, flight-recorder-eject, flight-recorder-window, preflight, flight-recorder, tasks, outbox, mirror-again, glass-switches, history-compare, mcp-overview, mirror, task-mcp, models, search, terminal-pipelines, cloud-worker, one-picker, pipelines, legacy-modernise, coding-live, text-size, mcp-media, coding-setup, free-board, building-blocks, workspace-settings, diagram-viewer, coding-pipeline, pages-per-item, design-import, tour, quick-capture, script-templates, one-script-everywhere, file-ai, one-script, transform, ai-edit, db-commands, gmail-one-click, memory, grips-footer, block-select, split-to-page, image-ai, claude-reads, redo, ai-terminal, mcp-codewords, mcp-tidy-up, slash-menu, turn-into-database,
  * custom-agents, gmail, help-centre, mcp-servers, feed-blocks — each named like its image. Every shot starts from a fresh, seeded
  * workspace in English, light theme, 1440 × 900 at device scale 2; the crop of the relevant area is scaled
  * to 1440 px wide and saved as public/assets/shots/changelog/<shot>.webp (≤ 150 KB: the quality steps down
@@ -1812,6 +1812,21 @@ process.exit(1)
    * Outbox acknowledged earlier, ↵ on Proposals, one card applied and one discarded: the queue at card 3 / 10. Every
    * request to another host is refused; Claude is never asked (counting and the cards cost no tokens).
    */
+  async 'annunciator-panel'(browser) {
+    const { ctx, page } = await freshPage(browser, { setup: (ctx) => ctx.route(/^https?:\/\/(?!127\.0\.0\.1|localhost)/, (route) => route.abort()) })
+    await waitPreflight(page)
+    await seedMorning(page)
+    await page.evaluate(() => {
+      window.__onePreflight.noBlink()
+      const ui = window.__one.ui.getState()
+      for (const toast of ui.toasts) ui.dismissToast(toast.id)
+    })
+    await page.getByTestId('pf-cover-red').click()
+    await rest(page)
+    await save(page, 'annunciator-panel', await page.getByTestId('pf-plate').boundingBox())
+    await ctx.close()
+  },
+
   async preflight(browser) {
     const { ctx, page } = await freshPage(browser, { setup: (ctx) => ctx.route(/^https?:\/\/(?!127\.0\.0\.1|localhost)/, (route) => route.abort()) })
     await waitPreflight(page)

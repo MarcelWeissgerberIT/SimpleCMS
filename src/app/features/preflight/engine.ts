@@ -434,13 +434,13 @@ export function blinkStartAt(litCaps: number, now = Date.now()): number {
 }
 
 /**
- * The day's lamp test on the first full render once ready: off by preference → "off"; reduced motion → "skipped";
+ * The day's lamp test on the first full render once ready (`repeat`: the explicit TEST key): off by preference → "off"; reduced motion → "skipped";
  * else all caps on for 120 ms (phase1), then the lit caps come back `stagger` ms apart (phase2, `data-relit` set by
  * these timers on `grid`'s lit caps), done by ≤ 260 ms. Returns when it ends (ms from now), 0 when nothing runs.
  */
-export function runLampTest(grid: HTMLElement | null): number {
+export function runLampTest(grid: HTMLElement | null, repeat = false): number {
   const s = S()
-  if (!s.ready || s.today.test || s.testing !== 'off') return 0
+  if (!s.ready || (s.today.test && !repeat) || s.testing !== 'off') return 0
   if (!readPrefs().test) {
     updateToday({ test: 'off' })
     appendLog({ at: Date.now(), k: 'test', skipped: 'off' })

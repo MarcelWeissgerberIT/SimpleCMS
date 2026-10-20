@@ -1,7 +1,7 @@
 ---
 id: 2026-10-20-coding-agent-labels
 date: 2026-10-20
-order: 1
+order: 2
 title: The selected coding agent asks
 summary: Coding questions and permission cards name the agent you chose.
 image: assets/shots/changelog/coding-agent-labels.webp

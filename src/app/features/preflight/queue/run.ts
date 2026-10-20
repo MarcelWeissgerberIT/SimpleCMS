@@ -262,7 +262,7 @@ export function focusCard(): void {
       // the lamp's queue is empty: the next lit lamp's tab, else MASTER CAUTION on the strip, else the main region
       const tab = document.querySelector<HTMLElement>('.pf-q [role="tab"][aria-selected="true"]')
       if (tab) return restoreFocus(tab)
-      const mc = document.querySelector<HTMLElement>('[data-testid="pf-mkey-strip"], [data-testid="pf-mkey"]')
+      const mc = document.querySelector<HTMLElement>('[data-testid="pf-mkey-strip"], [data-testid="pf-cover-amber"]')
       if (mc) return restoreFocus(mc)
       if (focusIsNowhere()) restoreFocus(mainRegion())
     }),
@@ -309,7 +309,7 @@ function nextLamp(from: QueueTab, isOpen: (id: string) => boolean): LampId | nul
 function handOff(next: LampId | null): void {
   const tab = next ? document.querySelector<HTMLElement>(`.pf-q .pf-tab[data-lamp="${CSS.escape(next)}"]`) : null
   if (tab) return restoreFocus(tab)
-  const mc = document.querySelector<HTMLElement>('[data-testid="pf-mkey"], [data-testid="pf-mkey-strip"]')
+  const mc = document.querySelector<HTMLElement>('[data-testid="pf-cover-amber"], [data-testid="pf-mkey-strip"]')
   restoreFocus(mc ?? mainRegion())
 }
 
