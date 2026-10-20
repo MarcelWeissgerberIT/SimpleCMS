@@ -394,6 +394,15 @@ const allOR = (allow = [...PRESETS.all]) => ws({ openrouter: { allow } })
 const memberAll: DeviceAI = { allow: { openrouter: [...MEMBER_CLASSES] } }
 
 test.describe('levels (chip → device class → workspace class → device default → workspace default → legacy)', () => {
+  test('an agent own model overrides device and workspace defaults without bypassing key checks',()=>{
+    const input = ask({cls:'agents',model:'claude-haiku-4-5',caps:['tools'],classes:['page']})
+    const world = worldOf({device:{routes:{agents:[{p:'anthropic',m:'claude-sonnet-5-5'}]}},ws:{routes:{agents:[{p:'anthropic',m:'claude-opus-5-5'}]}}})
+    expect(resolveRoute(input,world)).toMatchObject({ok:true,level:'agent',route:{m:'claude-haiku-4-5'}})
+    expect(resolveRoute({...input,model:null},world)).toMatchObject({ok:true,level:'device',route:{m:'claude-sonnet-5-5'}})
+    expect(resolveRoute(input,{...world,hasKey:()=>false})).toMatchObject({ok:false,code:'no_key'})
+    expect(resolveRoute({...input,classes:['mail']},worldOf({device:{narrow:{anthropic:['mail']}}}))).toMatchObject({ok:false,code:'policy',detail:'mail'})
+    expect(resolveRoute({...input,model:'missing-model'},world)).toMatchObject({ok:false})
+  })
   const route = (r: ReturnType<typeof resolveRoute>) => (r.ok ? `${r.level}:${r.route.p}:${r.route.m}` : r.none ? 'none' : `${r.code}`)
   test('the first level with a rule wins; levels are never merged', () => {
     const device: DeviceAI = { routes: { bulk: [{ p: OR, m: 'vendor-a/swift-1' }] }, default: [{ p: CL, m: 'claude-sonnet-5-5' }] }

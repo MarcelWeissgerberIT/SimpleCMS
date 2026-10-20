@@ -137,3 +137,5 @@ export { loadRuntime, loadServerRuns } from './server'
 export { rememberedReports } from './mirrorMemory'
 
 export { AgentInvocationRuns } from './AgentInvocationRuns'
+export { AgentModelDefault } from './ModelDefault'
+export { PageAgentActivity } from './PageActivitySlot'

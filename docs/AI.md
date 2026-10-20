@@ -140,3 +140,9 @@ like any other — no custom agent, no tool loop of One's: ONE structured reques
   `orders-planner.spec` (the planner's real body — golden `golden/orders-planner-pick.json`; fixture
   `orders-plan-kb.json` with the fictional server "Wissensbasis"), `orders-plan.spec` (the strict reader, prompt rules,
   no service name in the prompt), `governor-core` (the `RUN_MODES` row).
+
+## Page agent activity and model defaults
+
+`agents/PageActivitySlot` loads the page-owned activity UI lazily, without storing markers in page content. Targeted invocation records show immediately; `exec.ts` records at most 100 successful real `read_page` target IDs and the initial model label. Server assignments use existing run records and poll only while a matching run is active and the page is visible. Interrupted browser runs still use the runner's existing Web Lock recovery. Report export defaults to the source page (ordinary databases: a row), appends current content after a version snapshot, and rechecks locks, workspace and read-only state. Merely reading the page does not save a report.
+
+Patchbay's browser-agent model control writes the existing device AI class rule through `setDeviceRule('agents', ...)` under the person's patchbay writer. It does not change Coding or server-agent models. For class `agents`, an explicit `PrepareInput.model` has the `agent` level after a per-request chip, before device/workspace rules, with all normal key/capability/data checks. The runner pins the initial prechecked Claude model for subsequent requests of the same run; actual usage receipts still identify models that answered. Changing a default affects later runs. The browser engine's supported provider set is unchanged.

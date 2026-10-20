@@ -40,6 +40,7 @@ import { CodeArea, lineColAt, lineStarts, markdownTokenizer, type CodeAreaHandle
 import { createHook, deleteHook, getHook, serverErrorText, useServerAgents, type HookState } from './server'
 import { ReviewSection } from '../ai/decide/ui/ReviewSection'
 import { loadRuns, useAgentRuns } from './runs'
+import { AgentModelHint } from './ModelDefault'
 import './agents.css'
 
 type Errors = AgentSaveErrors
@@ -408,13 +409,14 @@ export function AgentEditor({
           <div className="agx-grid2">
             <Field label={t('features.agents.ed.model')} id={`${uid}-model`}>
               <select id={`${uid}-model`} className="input" value={d.model ?? ''} onChange={(e) => set({ model: e.target.value || null })}>
-                <option value="">{t('features.agents.ed.modelDefault')}</option>
+                <option value="">{t(d.runner === 'server' ? 'features.agents.model.server' : 'features.agents.model.inherit')}</option>
                 {AI_MODELS.map((m) => (
                   <option key={m.id} value={m.id}>
                     {m.name}
                   </option>
                 ))}
               </select>
+              <AgentModelHint agent={d} />
             </Field>
             <Field label={t('features.agents.ed.effort')}>
               <Seg

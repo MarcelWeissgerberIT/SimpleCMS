@@ -21,7 +21,7 @@ import { Menu, useMenu } from '../../ui/Menu'
 import { PageIcon } from '../../ui/PageIcon'
 import { Switch } from '../../ui/controls'
 import { useLang, useT } from '../../i18n'
-import { resolveModel } from '../ai/client'
+import { AgentModelHint } from './ModelDefault'
 import { AINeedsSetup } from '../ai/setup/AINeedsSetup'
 import { AgentEditor } from './AgentEditor'
 import { RunHistory } from './RunHistory'
@@ -553,7 +553,6 @@ function AgentDetail({ id }: { id: ID }) {
     : [...agent.scope.pages, ...agent.scope.databases]
         .map((x) => (pages[x] ? pages[x].title.trim() || t('common.untitled') : t(agent.scope.databases.includes(x) ? 'features.agents.ed.goneDb' : 'features.agents.ed.gone')))
         .join(', ') || '—'
-  const model = agent.model ? resolveModel(agent.model).short : t('features.agents.ed.modelDefault')
 
   return (
     <div className="agx agx--detail">
@@ -636,7 +635,7 @@ function AgentDetail({ id }: { id: ID }) {
         <div>
           <dt>{t('features.agents.spec.engine')}</dt>
           <dd className="mono">
-            {model}
+            <AgentModelHint agent={agent} />
             {agent.effort ? ` · ${t(`features.agents.effort.${agent.effort}`)}` : ''}
           </dd>
         </div>

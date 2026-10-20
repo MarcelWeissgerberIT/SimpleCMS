@@ -88,3 +88,7 @@ Das Rack wird zu **Strängen** — eine Karte pro Verarbeitung mit ihren Quellen
 
 ## Was auf diesem Gerät bleibt
 Die Läufe des Tages, was der Schaltplan beim Öffnen gelesen hat (nur IDs, nie Text), der Stand der Einrichtung, der Schalter Patchen und die Reihenfolge im Rack bleiben in diesem Browser — nie synchronisiert, exportiert oder in ein Backup übernommen — und gehen mit der Gerätekopie. Zugelassene Wege gehören zum Arbeitsbereich: im Team geteilt, in vollständigen Backups enthalten und beim Wiederherstellen nie aus einem Backup übernommen.
+
+## Modell für Browser-Agenten
+
+Oben im Schaltplan legst du das Standardmodell für gespeicherte Browser-Agenten auf diesem Gerät fest. Eine eigene Modellauswahl im Agenten hat Vorrang; laufende Aufträge behalten ihr Startmodell. Einzelheiten und Grenzen stehen unter [Eigene Agenten](help:custom-agents).

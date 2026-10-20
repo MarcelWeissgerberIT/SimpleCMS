@@ -1,7 +1,7 @@
 /**
  * Which route a request takes (design § 8.1 / 8.2, the S2 subset) — pure over a RouteWorld, so the Node specs run it:
  *
- *   chip (this request only) → device.routes[cls] → workspace.routes[cls] → device.default → workspace.routes['*'] → legacy
+ *   chip (this request only) → own agent model (class agents) → device.routes[cls] → workspace.routes[cls] → device.default → workspace.routes['*'] → legacy
  *
  * The first level that has a rule wins (levels are never merged). A pin whose provider does not take the class yet
  * (routable.ts) is skipped; a rule left without pins is skipped to the next level (a step says so). The winning rule's
@@ -49,7 +49,7 @@ export interface ResolveInput {
   forced?: { route: Route; pool?: readonly string[] } | null
   /** the route chip: this request only */
   chip?: Route | null
-  /** a model the call picks itself (a custom agent's own Claude model) — the legacy level's */
+  /** An own Claude model: class agents takes it before defaults; other classes use it at the legacy level. */
   model?: string | null
   /** class 'gate': the agent's own Vorprüfer (review v2 `decider`) — its level, before the device's rule */
   decider?: Route | null
@@ -145,6 +145,7 @@ function levels(input: ResolveInput, w: RouteWorld): Array<[Level, RouteRule | n
     ]
   return [
     ['chip', input.chip ? [input.chip] : null],
+    ['agent', input.cls === 'agents' && input.model ? [{p:'anthropic',m:input.model}] : null],
     ['device', w.device?.routes?.[input.cls]],
     ['workspace', w.ws?.routes?.[input.cls]],
     ['default', w.device?.default],

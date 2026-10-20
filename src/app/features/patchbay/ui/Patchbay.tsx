@@ -1,4 +1,4 @@
-import { AgentInvocationRuns } from '../../agents'
+import { AgentInvocationRuns, AgentModelDefault } from '../../agents'
 /**
  * #/patchbay — the page (a lazy chunk, route.tsx; plan §3.3). The head (HeaderMenu.tsx), the readout strip, and the
  * bench: the rack (Rack.tsx — modules, net flags, folds, bus chips, the cable layer, the legend) or, where the rack
@@ -669,6 +669,7 @@ export default function Patchbay(props: PatchbayRouteProps) {
       {model && (
         <Readout t={t} lang={lang} model={model} runs={runs} money={money} costsRead={live.costsRead} fuses={fuses} phone={phone} onFuse={onFuse} setup={set && setupId ? { done: set.done, total: set.lamps.length, band: bandOn } : null} />
       )}
+      <AgentModelDefault />
       <AgentInvocationRuns />
       <DropPlate t={t} flow={flow} />
       {setupId && !bandOn && set && <SetupStrip t={t} profileId={setupId} set={set} onOpen={onOpenSetup} onClose={onCloseSetup} />}

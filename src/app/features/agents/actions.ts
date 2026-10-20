@@ -54,6 +54,7 @@ export async function runNow(agent: CustomAgent, opts: { confirmed?: boolean; in
   if (agent.runner === 'server') {
     try {
       await runOnServer(agent.id, opts.invocation)
+      await loadServerRuns(agent.id)
       useUI.getState().toast({ message: t('features.agents.toast.serverStarted', { name: agent.name }), kind: 'success' })
       window.setTimeout(() => void loadServerRuns(agent.id), 1200)
     } catch (e) {

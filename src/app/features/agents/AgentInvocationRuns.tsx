@@ -38,6 +38,7 @@ export function AgentInvocationRuns() {
         <span className="label">{t(statusKey(run.status))}</span>
       </div>
       {run.invocation?.objective && <p>{run.invocation.objective}</p>}
+      {run.model && <p className="label">{t('features.agents.model.resolved', {model:run.model})}</p>}
       <p className="label">{new Date(run.startedAt).toLocaleString(locale)} · {run.steps.filter(s => s.kind === 'mcp' || s.kind === 'tool').map(s => s.label).slice(-6).join(' · ')}</p>
     </article>)}
   </section>

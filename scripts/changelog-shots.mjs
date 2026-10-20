@@ -4314,6 +4314,25 @@ process.exit(1)
     await ctx.close()
   },
 
+  async 'agent-page-activity'(browser) {
+    const { ctx, page } = await freshPage(browser, {claude:{turns:[() => sseTurn([{type:'text',text:'## Brief review\n\nThe objective is clear. Add acceptance criteria for each work package and confirm which source documents define the expected behavior.'}])]}})
+    const target = await openPage(page, 'Weekly sync — notes')
+    await page.evaluate(() => {
+      const now = Date.now()
+      window.__one.workspace.getState().upsertAgent({id:'ag-shot-page-review',name:'BA · Brief review',instructions:'Review the selected brief and report concrete gaps with the next useful action.',trigger:{type:'manual'},scope:{everything:true,pages:[],databases:[]},write:'none',output:null,mcpServers:[],runner:'browser',model:'claude-sonnet-5-5',maxRunUsd:2,enabled:false,createdAt:now,updatedAt:now})
+    })
+    await page.getByRole('button',{name:'Page options',exact:true}).click()
+    await page.getByRole('menuitem',{name:'Run an agent on this page…'}).click()
+    const dialog=page.getByRole('dialog',{name:'Run agent with an assignment'})
+    await dialog.getByLabel('Agent',{exact:true}).selectOption('ag-shot-page-review')
+    await dialog.getByLabel('One-time objective (optional)',{exact:true}).fill('Review this brief for missing acceptance criteria and source references.')
+    await dialog.getByRole('button',{name:'Start this run',exact:true}).click()
+    await page.getByTestId('page-agent-activity').getByRole('button',{name:'Save findings…'}).waitFor()
+    await rest(page)
+    await save(page,'agent-page-activity')
+    await ctx.close()
+  },
+
   async 'coding-harness'(browser) {
     const { ctx, page } = await freshPage(browser)
     await openPage(page, 'Weekly sync — notes')

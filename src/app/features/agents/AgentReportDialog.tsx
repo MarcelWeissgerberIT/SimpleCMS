@@ -21,8 +21,11 @@ export function AgentReportDialog({ request }: { request: Extract<AgentDialogReq
   const agents = useWorkspace(s => s.agents)
   const readOnly = useCloud(s => s.readOnly)
   const run = request.run
-  const [mode, setMode] = useState<'new' | 'append' | 'database'>('new')
-  const [target, setTarget] = useState('')
+  const initialPage = request.req.pageId ?? run.invocation?.pageId
+  const initialDb = initialPage && pages[initialPage]?.kind === 'database'
+  const allowedDb = initialPage && databases[initialPage] && !databases[initialPage].system && !databases[initialPage].pipeline?.length
+  const [mode, setMode] = useState<'new' | 'append' | 'database'>(initialDb ? allowedDb ? 'database' : 'new' : initialPage ? 'append' : 'new')
+  const [target, setTarget] = useState(initialDb && !allowedDb ? '' : initialPage ?? '')
   const [query, setQuery] = useState('')
   const [title, setTitle] = useState(`${agents?.[run.agentId]?.name || t('features.agents.invoke.agent')} · ${new Date(run.startedAt).toLocaleDateString(locale)}`)
   const [busy, setBusy] = useState(false)
@@ -48,10 +51,11 @@ export function AgentReportDialog({ request }: { request: Extract<AgentDialogReq
       const saved = useAgentReportLinks.getState().links[run.id]
       if (saved && saved.mode === mode && saved.destination === target && s.pages[saved.pageId] && !isEffectivelyTrashed(s.pages, saved.pageId)) return close()
       const body = claudeBlocks(withoutWebImages(run.summary))
+      const sourceId = run.invocation?.pageId ?? request.req.pageId
       const provenance = { type: 'paragraph', attrs: { id: `agent-report-${run.id}` }, content: [
         { type: 'text', text: `${agents?.[run.agentId]?.name || t('features.agents.invoke.agent')} · ${new Date(run.startedAt).toLocaleString(locale)} · ` },
         { type: 'text', text: t('features.agents.report.source'), marks: [{ type: 'link', attrs: { href: `#/agents/${run.agentId}?run=${encodeURIComponent(run.id)}` } }] },
-        ...(run.invocation?.pageId ? [{ type: 'text', text: ' · ' }, { type: 'text', text: run.invocation.pageTitle || t('features.agents.invoke.target'), marks: [{ type: 'link', attrs: { href: `#/p/${run.invocation.pageId}` } }] }] : []),
+        ...(sourceId ? [{ type: 'text', text: ' · ' }, { type: 'text', text: run.invocation?.pageTitle || s.pages[sourceId]?.title || t('features.agents.invoke.target'), marks: [{ type: 'link', attrs: { href: `#/p/${sourceId}` } }] }] : []),
       ] }
       const content = { type: 'doc', content: [provenance, ...body] }
       let id: string

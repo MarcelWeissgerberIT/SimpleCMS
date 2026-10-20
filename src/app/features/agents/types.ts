@@ -106,6 +106,10 @@ export interface AgentRun {
   /** e.g. a row id / "schedule 08:00" */
   trigger: { type: AgentTrigger['type']; detail?: string }
   invocation?: AgentInvocationRecord
+  /** Pages actually read in this browser run; ids only, bounded. */
+  pageIds?: ID[]
+  /** The model resolved when this run started (not a future default). */
+  model?: string
   startedAt: number
   endedAt?: number
   status: AgentRunStatus

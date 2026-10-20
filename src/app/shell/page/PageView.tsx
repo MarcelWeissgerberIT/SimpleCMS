@@ -7,7 +7,7 @@ import { useUI } from '../../store/ui'
 import { isEffectivelyTrashed, usePage } from '../../store/selectors'
 import { PageEditor } from '../../editor'
 import { DatabaseView, RowProperties } from '../../database'
-import { TemplateBanner, CodingTaskSlot, OrderSlot, OrderDbSlot, OutboxDockSlot, OutboxDbFoot, OutboxReadout, RecorderDbRead, RowSlips } from '../../features'
+import { TemplateBanner, CodingTaskSlot, OrderSlot, OrderDbSlot, OutboxDockSlot, OutboxDbFoot, OutboxReadout, RecorderDbRead, RowSlips, PageAgentActivity } from '../../features'
 import { PageIcon } from '../../ui/PageIcon'
 import { IconPicker } from '../../ui/IconPicker'
 import { Popover } from '../../ui/Popover'
@@ -83,6 +83,7 @@ function PageViewInner({ page, variant }: { page: Page; variant: PageVariant }) 
         <div className="pv-col">
           <PageHeaderControls page={page} readOnly={readOnly} />
           <PageTitle page={page} readOnly={readOnly} variant={variant} onEnter={() => focusEditor('start')} />
+          {!trashed && <PageAgentActivity pageId={page.id} />}
           {/* a freshly seeded workspace: "Take the 3-minute tour" on its Welcome page (shell/tour) */}
           {variant === 'main' && !readOnly && <TourOffer pageId={page.id} />}
           {/* a database with send routes or slips: IN OUTBOX · SENT TODAY (features/outbox) */}
@@ -373,4 +374,3 @@ function TrashBanner({ page, canEdit }: { page: Page; canEdit: boolean }) {
     </div>
   )
 }
-

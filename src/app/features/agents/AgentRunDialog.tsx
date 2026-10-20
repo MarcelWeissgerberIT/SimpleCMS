@@ -10,6 +10,7 @@ import { closeAgentDialog, type AgentDialogRequest } from './dialogs'
 import { useCloud } from '../../cloud'
 import './agents.css'
 import './invocation.css'
+import { AgentModelHint } from './ModelDefault'
 
 export function AgentRunDialog({ request }: { request: Extract<AgentDialogRequest, { kind: 'agentRun' }> }) {
   const t = useT()
@@ -62,6 +63,8 @@ export function AgentRunDialog({ request }: { request: Extract<AgentDialogReques
         <textarea className="input" rows={5} maxLength={INVOCATION_MAX} value={objective} onChange={e => setObjective(e.target.value)} placeholder={t('features.agents.invoke.placeholder')} />
       </label>
       <p className="agx-field__hint">{t('features.agents.invoke.hint')}</p>
+      {agent && <AgentModelHint agent={agent} />}
+      {pageId && <p className="agx-field__hint">{t('features.agents.page.deliveryHint')}</p>}
       {agent && <details><summary>{t('features.agents.invoke.saved')}</summary><pre className="agx-invoke__saved">{agent.instructions}</pre></details>}
       {error && <p className="agx-field__error" role="alert">{error}</p>}
       {!Object.keys(agents ?? {}).length && <p>{t('features.agents.invoke.noAgents')}</p>}

@@ -79,3 +79,15 @@ The one-time objective replaces the default goal, with the same role, scope, too
 The run history retains the assignment and source. **Patchbay → Manual agent assignments** shows source → agent → result, status and recent tools. Result links open the exact retained run.
 
 At a finished report, **Save report…** creates a new page (optionally below a page), appends to a page or creates a row in an ordinary database. It preserves existing text and includes links to the source and agent run. Templates, locked destinations and system or coding-pipeline databases are excluded. The saved-report link is kept on this device; the exported page or row syncs with its workspace. Appending the same report to the same page does not duplicate it.
+
+## See agents on the page
+
+Below the title, **Agents on this page** shows who is working with the page: agent, status, one-time objective, initial model and latest step. It covers targeted page assignments and pages actually read with `read_page` in a browser run. The indicator does not change page content. Server runs show their recorded assignment target; running assignments refresh while the page is visible.
+
+After a successful run, the indicator asks **Save the findings on this page?**. **Save findings…** opens the report dialog with the page selected and **Append to a page** as the default. Ordinary databases default to an entry. Choose another destination or cancel. Locked targets and read-only access prevent saving. The report links back to its run and source, preserves existing content and is not appended twice. **Save report…** in the run history also preselects the target of a page assignment.
+
+## Set a model default in Patchbay
+
+At the top of **Patchbay**, choose **Default model for browser agents · this device**. This applies to saved agents running in this browser and survives reloads. It shares the device's existing agent AI rule, without changing other kinds of AI work.
+
+In **Edit agent → Engine → Model**, save an explicit override. Priority is **own agent model → Patchbay/device default → workspace and general defaults**. Without an override, One shows the resolved model. A running browser assignment retains its initial model; changing the default affects later runs. The browser agent engine currently offers Claude models. Select local coding models in **Coding**; server agents use their own model or server default. Model selection changes no data rules, tools, budgets or approvals.

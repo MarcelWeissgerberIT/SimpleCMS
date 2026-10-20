@@ -1314,7 +1314,7 @@ export interface CustomAgent {
    */
   mirrorOf?: ID
   runner: 'browser' | 'server'
-  /** null = the workspace default */
+  /** null = the browser's agent rule / workspace defaults (server runner: its server default). */
   model?: string | null
   effort?: 'low' | 'medium' | 'high' | null
   /**

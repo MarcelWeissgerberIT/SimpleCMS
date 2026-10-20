@@ -44,7 +44,7 @@ export interface AgentEditorRequest {
 
 /** The dialog open now (one at a time; `seq` tells a new request from the one before). */
 export type AgentDialogRequest =
-  | { kind: 'agentReport'; run: AgentRun; req: AgentEditorRequest; seq: number }
+  | { kind: 'agentReport'; run: AgentRun; req: AgentEditorRequest & {pageId?: ID}; seq: number }
   | { kind: 'agentRun'; req: { agentId?: ID; pageId?: ID; from?: HTMLElement | null; after?: (outcome: AgentDialogOutcome) => void }; seq: number }
   | { kind: 'mirrorSetup'; req: MirrorSetupRequest; seq: number }
   | { kind: 'agentEditor'; agent: ID | CustomAgent; req: AgentEditorRequest; seq: number }
@@ -159,4 +159,4 @@ export function openAgentRun(req: { agentId?: ID; pageId?: ID; from?: HTMLElemen
   put({ kind: 'agentRun', req, seq: ++seq })
 }
 
-export function openAgentReport(run: AgentRun): void { put({ kind: 'agentReport', run, req: {}, seq: ++seq }) }
+export function openAgentReport(run: AgentRun, req: AgentEditorRequest & {pageId?: ID} = {}): void { put({ kind: 'agentReport', run, req, seq: ++seq }) }

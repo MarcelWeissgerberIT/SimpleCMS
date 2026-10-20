@@ -539,6 +539,8 @@ async function runInner(agent: CustomAgent, req: RunRequest, reg: { decide: stri
   try {
     // the gate first (newer AI rules, AI off, no key …): no MCP token is opened when it refuses (the run ends as an error)
     const pre = precheck({ purpose: 'agents.run', sources: agentSources(agent, [...(req.rows ?? []), ...(req.invocation?.pageId ? [req.invocation.pageId] : [])], '', !req.invocation), model: agent.model })
+    run.model = pre.label
+    await save(true)
     // the agent's MCP servers, by name, as set up and switched on in this browser (Settings → AI); only the tools
     // its allow-list names (mcpTools) — a server whose list is empty is left out, a switched-off one too (the editor says so)
     const allow = agent.mcpTools ?? {}
@@ -564,6 +566,18 @@ async function runInner(agent: CustomAgent, req: RunRequest, reg: { decide: stri
     // … only where the route may receive it (D-S2-29)
     memory = pre.allows('memory') ? memoryFor(invocationJob(agent.instructions, req.invocation)) : { block: '', use: null }
     const ctx = context(agent, run, [...(req.rows ?? []), ...(req.invocation?.pageId ? [req.invocation.pageId] : [])], last)
+    const trackedTools = agentTools(agent, { upsert: unlocks.upsert, read }).map(tool => tool.name !== 'read_page' ? tool : {
+      ...tool,
+      async run(input: Record<string, unknown>, api: StageApi) {
+        const result = await tool.run(input, api)
+        const id = typeof input.id === 'string' ? api.resolve(input.id.trim()) : ''
+        if (result.state === 'ok' && id && useWorkspace.getState().pages[id]) {
+          run.pageIds = [...new Set([...(run.pageIds ?? []), id])].slice(-100)
+          await save(true)
+        }
+        return result
+      },
+    })
     const end = await runAgent({
       // its scope: the pages and databases it names (scope "everything": the workspace as a whole), the trigger's
       // rows, its report page, the One memory when it goes along
@@ -577,9 +591,9 @@ async function runInner(agent: CustomAgent, req: RunRequest, reg: { decide: stri
       mcp,
       // `recall` reads the memory too: its results join the run's touched classes like every other read (a pre-check
       // then declares 'memory')
-      tools: [...agentTools(agent, { upsert: unlocks.upsert, read }), ...(memory.use ? [read ? { ...recallTool, run: (input: Record<string, unknown>, st: StageApi) => afterRead(recallTool.run(input, st), read) } : recallTool] : []), ...runTools(agent, extras, { notes: unlocks.notes, state: unlocks.state })],
+      tools: [...trackedTools, ...(memory.use ? [read ? { ...recallTool, run: (input: Record<string, unknown>, st: StageApi) => afterRead(recallTool.run(input, st), read) } : recallTool] : []), ...runTools(agent, extras, { notes: unlocks.notes, state: unlocks.state })],
       system: agentSystem(agent.write, unlocks, canCreateItems()),
-      model: agent.model,
+      model: pre.route?.m ?? agent.model,
       effort: agent.effort,
       // the run's source and how it started (features/governor modes.ts — an agent runs three ways); its budget per run
       // is one more line of the Regler (only while a Regler line is set — else the check after each response, below)

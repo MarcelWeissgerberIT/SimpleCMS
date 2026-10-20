@@ -36,7 +36,7 @@ function sseMessage(blocks: Block[], usage = { input: 1200, output: 80 }): strin
   return body
 }
 
-type Step = (body: AnyState) => string
+type Step = (body: AnyState) => string | Promise<string>
 
 /** api.anthropic.com → request n gets script[n]; later requests get a short report. Returns the request bodies. */
 async function mockClaude(ctx: BrowserContext, script: Step[] = [], fallback = 'Checked everything. Nothing to change.'): Promise<AnyState[]> {
@@ -50,7 +50,7 @@ async function mockClaude(ctx: BrowserContext, script: Step[] = [], fallback = '
     bodies.push(body)
     const step = script[bodies.length - 1] ?? (() => sseMessage([{ type: 'text', text: fallback }]))
     try {
-      await route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'text/event-stream' }, body: step(body) })
+      await route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'text/event-stream' }, body: await step(body) })
     } catch {
       /* aborted (budget stop) */
     }
@@ -765,7 +765,9 @@ test('one-time assignment from a page; scope is enforced, the run is linked in P
   const original = 'Review the architecture every week. Do not modify pages.'
   const id = await addAgent(page, { id: 'ag-one-time', name: 'BA agent', instructions: original, scope: { everything: false, pages: [other], databases: [] }, output: { pageId: other, mode: 'append' } })
   const reportBefore = await wsEval(page, (s, id) => JSON.stringify(s.pages[id].content), other)
-  const bodies = await mockClaude(context, [() => sseMessage([{ type: 'tool_use', id: 'read-target', name: 'read_page', input: { id: target } }]), () => sseMessage([{ type: 'text', text: '# Delivery plan\n\nRead the brief and split the implementation into three packages.' }])])
+  let finish!: () => void
+  const finishing = new Promise<void>(resolve => { finish = resolve })
+  const bodies = await mockClaude(context, [() => sseMessage([{ type: 'tool_use', id: 'read-target', name: 'read_page', input: { id: target } }]), async () => { await finishing; return sseMessage([{ type: 'text', text: '# Delivery plan\n\nRead the brief and split the implementation into three packages.' }]) }])
   await gotoPage(page, target)
   await page.getByRole('button', { name: 'Page options', exact: true }).click()
   await page.getByRole('menuitem', { name: 'Run an agent on this page…' }).click()
@@ -778,7 +780,28 @@ test('one-time assignment from a page; scope is enforced, the run is linked in P
   await wsEval(page, (s, { id, target }) => s.upsertAgent({ ...s.agents[id], scope: { everything: false, pages: [target, s.agents[id].scope.pages[0]], databases: [] } }), { id, target })
   await dialog.getByLabel('One-time objective (optional)', { exact: true }).fill('Split the selected brief into three implementation packages.')
   await dialog.getByRole('button', { name: 'Start this run' }).click()
+  const activity = page.getByTestId('page-agent-activity')
+  await expect(activity).toContainText('BA agent')
+  await expect(activity).toContainText('Working with this page')
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: width === 1440 ? 900 : 844 })
+    for (const theme of ['light', 'dark']) {
+      await wsEval(page, (s, theme) => s.updateSettings({ theme }), theme)
+      await page.screenshot({ path: test.info().outputPath(`page-agent-${width}-${theme}.png`), animations:'disabled' })
+      expect(await activity.evaluate(el => el.getBoundingClientRect().right)).toBeLessThanOrEqual(width)
+    }
+  }
+  finish()
   const [run] = await waitRuns(page, id, 1)
+  await expect(activity).toContainText('Save the findings on this page?')
+  await activity.getByRole('button', { name:'Save findings…' }).click()
+  const save = page.getByRole('dialog', { name:'Save report…', exact:true })
+  await expect(save.getByLabel('Save as',{exact:true})).toHaveValue('append')
+  await expect(save.getByLabel('Destination',{exact:true})).toHaveValue(target)
+  await save.getByRole('button',{name:'Save report',exact:true}).click()
+  await expect(activity).toContainText('Findings saved on this page.')
+  await expect(activity.getByRole('button',{name:'Save findings…'})).toHaveCount(0)
+  expect(await wsEval(page,(s,id)=>JSON.stringify(s.pages[id].content),target)).toContain('Delivery plan')
   expect(run.invocation).toMatchObject({ pageId: target, pageTitle: 'Weekly sync — notes', objective: 'Split the selected brief into three implementation packages.' })
   expect(JSON.stringify(bodies[0].messages)).toContain('ONE-TIME MANUAL ASSIGNMENT')
   expect(JSON.stringify(bodies[0].messages)).toContain(target)
@@ -793,8 +816,56 @@ test('one-time assignment from a page; scope is enforced, the run is linked in P
   const flow = page.getByTestId('agent-invocation-runs')
   await expect(flow).toContainText('Weekly sync — notes')
   await expect(flow).toContainText('BA agent')
-  await expect(flow).toContainText('Open result')
+  await expect(flow.getByRole('link', {name:'Weekly sync — notes',exact:true}).last()).toHaveAttribute('href', `#/p/${target}`)
   await expect(flow).toContainText('Read · Weekly sync — notes')
+})
+
+test('Patchbay model default is inherited, pinned for a run and overridden in the agent; actual page reads show activity', async ({page,context}) => {
+  await openApp(page, '#/patchbay')
+  await setKey(page)
+  const target = await pageIdByTitle(page,'Weekly sync — notes')
+  const id = await addAgent(page,{id:'ag-model-default',name:'Model check'})
+  const pick = page.getByTestId('agent-model-default').getByRole('combobox')
+  await pick.selectOption('claude-sonnet-5-5')
+  expect(await wsEval(page,s=>s.settings.ai.routes.agents)).toEqual([{p:'anthropic',m:'claude-sonnet-5-5'}])
+  let startRead!:()=>void, finish!:()=>void
+  const reading = new Promise<void>(r=>{startRead=r}), finishing = new Promise<void>(r=>{finish=r})
+  const bodies = await mockClaude(context,[async()=>{await reading;return sseMessage([{type:'tool_use',id:'actual-read',name:'read_page',input:{id:target}}])},async()=>{await finishing;return sseMessage([{type:'text',text:'Checked the page.'}])}])
+  await goAgent(page,id)
+  await expect(page.getByTestId('agent-model-effective')).toContainText('Sonnet')
+  await page.getByRole('button',{name:'Run now',exact:true}).click()
+  await expect.poll(()=>bodies.length).toBe(1)
+  expect(bodies[0].model).toBe('claude-sonnet-5-5')
+  await page.evaluate(()=>{window.location.hash='#/patchbay'})
+  await page.getByTestId('agent-model-default').getByRole('combobox').selectOption('claude-opus-5-5')
+  startRead()
+  await expect.poll(()=>bodies.length).toBe(2)
+  expect(bodies[1].model).toBe('claude-sonnet-5-5')
+  await gotoPage(page,target)
+  await expect(page.getByTestId('page-agent-activity')).toContainText('Working with this page')
+  finish()
+  const [run] = await waitRuns(page,id,1)
+  expect(run.pageIds).toContain(target)
+  expect(run.invocation).toBeUndefined()
+  await goAgent(page,id)
+  await page.getByRole('button',{name:'Edit',exact:true}).click()
+  const editor = page.getByRole('dialog')
+  await editor.getByLabel('Model',{exact:true}).selectOption('claude-haiku-4-5')
+  await editor.getByRole('button',{name:'Save',exact:true}).click()
+  await expect(page.getByTestId('agent-model-effective')).toContainText('Haiku')
+  await page.getByRole('button',{name:'Run now',exact:true}).click()
+  await waitRuns(page,id,2)
+  expect(bodies.at(-1).model).toBe('claude-haiku-4-5')
+  await reloadApp(page)
+  await page.evaluate(()=>{window.location.hash='#/patchbay'})
+  await expect(page.getByTestId('agent-model-default').getByRole('combobox')).toHaveValue('claude-opus-5-5')
+  for (const width of [1440,390]) {
+    await page.setViewportSize({width,height:width===1440?900:844})
+    for (const theme of ['light','dark']) {
+      await wsEval(page,(s,theme)=>s.updateSettings({theme}),theme)
+      await page.screenshot({path:test.info().outputPath(`agent-default-${width}-${theme}.png`),animations:'disabled'})
+    }
+  }
 })
 
 test('report export creates a page, appends without replacing content, and creates a database entry with provenance', async ({ page, context }) => {

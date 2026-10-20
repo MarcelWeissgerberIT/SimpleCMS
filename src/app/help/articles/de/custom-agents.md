@@ -79,3 +79,15 @@ Der Einmalauftrag ersetzt das Standardziel bei gleicher Rolle, gleichem Bereich,
 Die Laufhistorie bewahrt Auftrag und Quelle. **Schaltplan → Manuelle Agentenaufträge** zeigt Quelle → Agent → Ergebnis, Status und letzte Werkzeuge. Der Ergebnislink öffnet den konkreten aufbewahrten Lauf.
 
 Mit **Bericht ablegen …** an einem fertigen Bericht erstellst du eine neue Seite (optional unter einer Seite), hängst den Bericht an eine Seite an oder legst einen Eintrag in einer gewöhnlichen Datenbank an. Vorhandener Text bleibt erhalten; Verweise führen zu Quelle und Agentenlauf. Vorlagen, gesperrte Ziele sowie System- und Coding-Pipeline-Datenbanken sind ausgeschlossen. Der Ablagelink bleibt auf diesem Gerät; die Seite oder der Eintrag synchronisiert mit dem Arbeitsbereich. Derselbe Bericht wird nicht doppelt an dieselbe Seite angehängt.
+
+## Agenten direkt auf der Seite sehen
+
+Unter dem Seitentitel zeigt **Agenten auf dieser Seite**, wer gerade mit der Seite arbeitet: Agent, Status, Einmalauftrag, Startmodell und letzter Arbeitsschritt. Das gilt für gezielte Seitenaufträge und für tatsächlich mit `read_page` gelesene Seiten eines Browserlaufs. Die Anzeige verändert den Seiteninhalt nicht. Serverläufe zeigen ihr gespeichertes Auftragsziel; während eines sichtbaren laufenden Auftrags wird der Status nachgeladen.
+
+Nach einem erfolgreichen Lauf fragt die Anzeige **Befund auf dieser Seite ablegen?**. **Befund ablegen …** öffnet den Ablagedialog mit dieser Seite als Ziel und **An Seite anhängen** als Vorgabe. Für gewöhnliche Datenbanken wird ein Eintrag vorausgewählt. Du kannst ein anderes Ziel wählen oder abbrechen. Gesperrte Ziele und reine Leserechte erlauben keine Ablage. Der Bericht erhält einen Verweis auf Agentenlauf und Quelle; vorhandener Text bleibt erhalten, dieselbe Ablage wird nicht doppelt angehängt. Auch **Bericht ablegen …** in der Laufhistorie wählt bei einem Seitenauftrag dessen Ziel vor.
+
+## Modellvorgabe im Schaltplan
+
+Im **Schaltplan** wählst du oben das **Standardmodell für Browser-Agenten · dieses Gerät**. Diese Vorgabe gilt für gespeicherte Agenten, die in diesem Browser laufen, und bleibt nach einem Neuladen erhalten. Sie teilt ihre Einstellung mit den KI-Regeln dieses Geräts für Agenten. Sie verändert keine anderen KI-Arten.
+
+Im Agenten unter **Bearbeiten → Antrieb → Modell** kannst du eine eigene Auswahl speichern. Reihenfolge: **eigenes Agentenmodell → Schaltplan-/Gerätevorgabe → Arbeitsbereich und allgemeine Vorgaben**. Ohne eigene Auswahl zeigt One das aufgelöste Modell. Ein laufender Browserauftrag behält sein beim Start gewähltes Modell; eine neue Vorgabe gilt für spätere Läufe. Derzeit bietet der Browser-Agentenmotor Claude-Modelle an. Lokale Coding-Modelle werden in **Coding** gewählt; Server-Agenten verwenden ihr eigenes Modell beziehungsweise ihren Serverstandard. Modellwahl ändert keine Datenregeln, Werkzeugrechte, Budgets oder Freigaben.
