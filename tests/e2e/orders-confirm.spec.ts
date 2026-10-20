@@ -167,7 +167,7 @@ test.describe('confirming a work order: startChain', () => {
     plan.steps = plan.steps.map((s: AnyState, i: number) => ({ ...s, repo: 'website', needs: i ? [i] : [], covers: ['R1'] }))
     await mockClaudeScript(page.context(), [answer({ calls: true, plan })])
     const { db, row } = await setup(page, { server: true })
-    await wsEval(page, (s, id) => s.updateDatabase(id, { orders: { ...s.databases[id].orders, agent: 'local' } }), db)
+    await wsEval(page, (s, id) => s.updateDatabase(id, { orders: { ...s.databases[id].orders, agent: 'local', qaRepairs: 2 } }), db)
     expect(await orders(page).plan(row)).toMatchObject({ kind: 'ready', steps: 3 })
     await gotoPage(page, row)
     await expect(page.getByTestId('order-delivery')).toBeVisible()
@@ -192,6 +192,9 @@ test.describe('confirming a work order: startChain', () => {
       expect(values).toContain('coding_agent_local')
     }
     const rec = await orders(page).record(row)
+    expect(rec.chain.repair).toEqual({ attempts: 2, agent: 'local' })
+    await wsEval(page, (s, id) => s.updateDatabase(id, { orders: { ...s.databases[id].orders, qaRepairs: undefined, agent: 'claude' } }), db)
+    expect((await orders(page).record(row)).chain.repair).toEqual({ attempts: 2, agent: 'local' })
     expect(rec.chain.steps[2].needs).toEqual([2])
     await call(page, 'startNow', row)
     await expect.poll(() => fake!.handed().length, { timeout: 15_000 }).toBeGreaterThan(0)

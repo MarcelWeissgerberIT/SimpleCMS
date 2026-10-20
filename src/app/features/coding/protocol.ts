@@ -69,7 +69,7 @@ export type GitAction = (typeof GIT_ACTIONS)[number]
  * worker that names it) and 'permission' (Claude Code's permission prompts come to One as PermissionAsk; the person
  * answers with a PermissionVerb).
  */
-export const WORKER_CAN = ['analyze', 'git:comment', 'git:merge', 'doc', 'model', 'mcp-list', 'ship', 'continue', 'permission', 'agent:codex', 'agent:local', 'agent:minimax', 'agent:ollama', 'delivery-qa'] as const
+export const WORKER_CAN = ['analyze', 'git:comment', 'git:merge', 'doc', 'model', 'mcp-list', 'ship', 'continue', 'permission', 'agent:codex', 'agent:local', 'agent:minimax', 'agent:ollama', 'delivery-qa', 'harness-quality'] as const
 /**
  * What a worker runs, read from its `next`. Document stages came before `can`, together with `docs: true`: a worker
  * that sends either knows them, so a `can` without 'doc' (1.3.x) or `docs` without a `can` (1.3.1 before `can`)
@@ -341,7 +341,7 @@ export interface TaskStage {
 /** What the worker gets for one stage of one task. Everything but ids and names is task DATA, never instructions. */
 export interface TaskPayload {
   /** Confirmed work-order acceptance, separate from model-authored page text. */
-  quality?: { review: boolean; requirements: string[]; acceptance: string[] }
+  quality?: { review: boolean; requirements: string[]; acceptance: string[]; repair?: import('../../../shared/coding/repair').RepairPolicy; packages?: Array<{ id: string; title: string; requirements: string[] }>; remainingUsd?: number }
   /** Missing: historical Claude Code default. Unknown explicit choices are refused. */
   agent?: CodingAgent
   id: string
@@ -567,6 +567,7 @@ export interface StageOutcome {
   /** pull request or compare URL */
   url?: string
   test?: TestResult
+  repairs?: Array<{ attempt: number; packageIds: string[]; finding: string; outcome: string }>
   git?: GitInfo
   /** worker 1.10.0: git stages (commit · push · pr · comment · merge) — also on a 'failed' outcome after the commit */
   ship?: ShipRecord

@@ -9,6 +9,9 @@ import type { Messages } from '@/shared/i18n'
  */
 export const messages: Messages = {
   en: {
+    'features.coding.order.settings.repairs': 'Automatic QA repairs',
+    'features.coding.order.settings.repairsOff': 'Off',
+    'features.coding.order.settings.repairsHint': 'Allow 1 or 2 repair sub-runs on the same branch with the selected Coding agent, followed by fresh QA. Shared step and monetary limits still apply; existing checks are protected. Planner: workspace AI. Cloud choices send selected context to the provider.',
     'features.coding.order.db': 'Work orders',
     'features.coding.order.one': 'Work order',
     'features.coding.order.prop.name': 'Name',
@@ -136,6 +139,9 @@ export const messages: Messages = {
     'features.coding.order.sample.made': 'Sample request in Draft — it plans only when you press ↵ Plan',
   },
   de: {
+    'features.coding.order.settings.repairs': 'Automatische QA-Reparaturen',
+    'features.coding.order.settings.repairsOff': 'Aus',
+    'features.coding.order.settings.repairsHint': 'Erlaube 1 oder 2 Reparatur-Unterläufe auf demselben Branch mit dem gewählten Coding-Agenten und anschließender frischer QA. Gemeinsame Schritt- und Geldgrenzen gelten weiter; bestehende Checks bleiben geschützt. Planer: Arbeitsbereichs-KI. Cloud-Auswahl sendet ausgewählten Kontext an den Anbieter.',
     'features.coding.order.db': 'Prüfaufträge',
     'features.coding.order.one': 'Prüfauftrag',
     'features.coding.order.prop.name': 'Name',

@@ -97,3 +97,14 @@ test('final QA cannot mark the parent done without a successful host verificatio
   w.tasks.task4!.verified = true
   expect(nextMove(w)).toMatchObject({ kind: 'done' })
 })
+
+
+test('repair authority is explicit, pinned and hashed; malformed policy cannot be treated as ordinary QA', async () => {
+  const c = chain(); c.repair = { attempts: 2, agent: 'local' }
+  expect(readOrderChain(c)?.repair).toEqual(c.repair)
+  expect(readOrderChain({ ...c, repair: { attempts: 99, agent: 'local' } })).toBeNull()
+  const config = newOrderConfig({ draft: 'a', plan: 'b', ready: 'c', running: 'd', halted: 'e', done: 'f' })
+  expect(readOrderConfig({ system: 'workorders', orders: { ...config, qaRepairs: 99 } }).kind).toBe('unreadable')
+  const base = { project: 'p', park: 'queue', start: 'doc' }
+  expect(await orderPlanHash(plan(), [base], 'none')).not.toBe(await orderPlanHash(plan(), [{ ...base, repair: c.repair }], 'none'))
+})

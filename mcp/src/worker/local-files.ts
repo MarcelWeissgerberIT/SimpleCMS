@@ -69,7 +69,7 @@ export class LocalFiles {
     const full = start === 1 && end === lines.length && content === text
     const previous = this.seen.get(path)
     this.seen.set(path, { hash: digest(text), full: full || (!!previous?.full && previous.hash === digest(text)), excerpts: [...(previous?.hash === digest(text) ? previous.excerpts.slice(-7) : []), content] })
-    return { path: input, start_line: start, end_line: end, total_lines: lines.length, complete: full, content }
+    return { revision: digest(text), path: input, start_line: start, end_line: end, total_lines: lines.length, complete: full, content }
   }
   async write(input: unknown, content: unknown) {
     if (typeof content !== 'string' || content.length > 60000) throw new Error('File content must be text up to 60,000 characters.')
@@ -138,9 +138,42 @@ export class LocalFiles {
     await walk(await this.path(folder), 0)
     return { matches, scanned_files: visited, truncated }
   }
+  /** Bounded source map; excerpts do not grant an edit snapshot. No executable project configuration. */
+  async map(query: unknown = '') {
+    if (typeof query !== 'string' || query.length > 4000) throw new Error('Map query must be bounded text.')
+    const terms = [...new Set(query.toLowerCase().match(/[a-z0-9_äöüß-]{3,}/g) ?? [])].slice(0, 40)
+    const entries: Array<{ path: string; revision: string; imports: string[]; symbols: string[]; score: number }> = []
+    let scanned = 0, bytes = 0, truncated = false
+    const walk = async (dir: string, depth: number): Promise<void> => {
+      if (depth > 12 || scanned >= 400 || bytes >= 2_000_000) { truncated = true; return }
+      for (const e of (await readdir(dir, { withFileTypes: true })).sort((a,b) => a.name.localeCompare(b.name))) {
+        if (EXCLUDED.test(e.name) || e.isSymbolicLink()) continue
+        if (scanned >= 400 || bytes >= 2_000_000) { truncated = true; break }
+        const path = relative(this.root, resolve(dir, e.name))
+        if (e.isDirectory()) await walk(await this.path(path), depth + 1)
+        else if (/\.(?:tsx?|jsx?|mjs|cjs|py|go|rs|cs|java|md|json)$/i.test(path)) {
+          scanned++
+          try {
+            const source = await this.text(await this.path(path)); bytes += Buffer.byteLength(source)
+            const imports = [...source.matchAll(/(?:from\s*|require\(\s*|import\s*)['"]([^'"]+)['"]/g)].slice(0, 10).map(m => m[1]!.slice(0, 100))
+            const symbols = source.split('\n').filter(l => /^\s*(?:export\s+)?(?:async\s+)?(?:function|class|interface|type|def|func|pub\s+fn)\s+/.test(l)).slice(0, 8).map(l => l.trim().slice(0, 150))
+            const score = terms.reduce((n,t) => n + (path.toLowerCase().includes(t) ? 8 : 0) + (symbols.join(' ').toLowerCase().includes(t) ? 3 : 0) + (source.toLowerCase().includes(t) ? 1 : 0), 0)
+            entries.push({ path, revision: digest(source), imports, symbols, score })
+          } catch { /* inaccessible/oversized/binary source is never indexed */ }
+        }
+      }
+    }
+    await walk(this.root, 0)
+    entries.sort((a,b) => b.score - a.score || a.path.localeCompare(b.path))
+    const selected = entries.slice(0, 16)
+    // Add reverse dependencies of the best matches inside the same bounded scan.
+    const names = selected.slice(0,4).map(e => e.path.replace(/\.[^.]+$/, '').split('/').at(-1)!)
+    for (const e of entries) if (selected.length < 20 && !selected.includes(e) && e.imports.some(i => names.some(n => i.endsWith('/' + n)))) selected.push(e)
+    return { entries: selected, scanned, truncated: truncated || entries.length > selected.length, warning: 'Partial lexical/symbol map, not a complete dependency graph. Read current source before editing.' }
+  }
   async projectContext() {
     let text = ''
-    for (const name of ['AGENTS.md', 'CLAUDE.md', 'README.md', 'package.json']) {
+    for (const name of ['AGENTS.md', 'CLAUDE.md', 'GLOSSARY.md', 'CONTEXT.md', 'README.md', 'package.json']) {
       try { const textFile = await this.text(await this.path(name)); text += `\n--- ${name} (excerpt) ---\n${textFile.slice(0, 3500)}\n` } catch { /* optional project context; excerpts never count as a complete tool read */ }
     }
     return text.slice(0, 12000)

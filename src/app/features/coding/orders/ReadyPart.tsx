@@ -40,7 +40,7 @@ import { modelLabel } from '../tasks'
 import { stepNo } from './words'
 import { HandKey } from './HandKey'
 import { kindProjects, type KindProject } from './facts'
-import { readOrderConfig } from './config'
+import { readOrderConfig, orderAgent } from './config'
 import { olderParked, planHashNow, startChain } from './confirm'
 import { editStep, moveStep, removeStep, restoreDraft, setDraftBudget, type EditOutcome, type StepPatch } from './edit'
 import { endsAtGate, holdsOf, checkpointAfter, stopsOf, type StopStep } from './stops'
@@ -819,6 +819,7 @@ export default function ReadyPart({ rowId, rec, pre, headId, viewer, elsewhere, 
         {costs.length ? `${t(`${O}.plan.cost.head`)} ${costs.join(' · ')} ${t(`${O}.plan.cost.last`, { n: COST_SAMPLE })} · ${t(`${O}.plan.cost.notCapped`)}` : t(`${O}.plan.costNone`)}
       </p>
       <BudgetField rowId={rowId} draft={draft} configUsd={config?.budgetUsd} viewer={viewer} />
+      {!!config?.qaRepairs && <p className="orc-line" data-testid="order-repair-consent">{t(`${O}.settings.repairs`)}: {config.qaRepairs} · {t(`features.coding.agent.${orderAgent(config, 'coding') ?? 'claude'}`)}. {t(`${O}.settings.repairsHint`)}</p>}
       {elsewhere && (
         <p className="orc-line orc-line--warn" data-testid="order-elsewhere">
           {t(`${O}.why.elsewhere`)}

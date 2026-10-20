@@ -7,7 +7,7 @@ import { miniMaxInference } from './minimax-inference.ts'
 import { readMiniMax, MINIMAX_MODEL } from './minimax-config.ts'
 import { execFileSafe } from './exec.ts'
 
-const cases = [
+export const cases = [
   ['sum', 'Return the sum of finite numeric array entries, ignoring strings, null, NaN and Infinity.', `export function solve(values) { return 0 }`, `assert.equal(solve([1,2,'3',null,NaN,Infinity,-1]),2); assert.equal(solve([]),0)`],
   ['slug', 'Make a page slug: trim, lowercase, normalize accents (NFD), replace runs of non-ASCII-alphanumeric characters with one hyphen, remove edge hyphens.', `export function solve(value) { return value }`, `assert.equal(solve('  Café & One CMS! '),'cafe-one-cms'); assert.equal(solve('---'),''); assert.equal(solve('A__B'),'a-b')`],
   ['csv', 'Encode one CSV row: join with commas; quote fields containing a comma, double quote or newline; escape each double quote by doubling it. Convert null/undefined to empty strings.', `export function solve(row) { return row.join(',') }`, String.raw`assert.equal(solve(['a,b','x"y',null]),'"a,b","x""y",'); assert.equal(solve(['a','b']),'a,b'); assert.equal(solve(['a\nb']),'"a\nb"')`],

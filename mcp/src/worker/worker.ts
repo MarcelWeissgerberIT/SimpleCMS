@@ -1,3 +1,4 @@
+import { readRepairPolicy } from '../../../src/shared/coding/repair.ts'
 import { isCodingAgent } from '../../../src/app/features/coding/protocol.ts'
 /**
  * one-worker — the loop. While a One tab of its workspace is connected, the worker asks for the next task
@@ -210,7 +211,11 @@ export function sanitizeTask(raw: unknown): TaskPayload | null {
     const q = raw.quality
     const texts = (v: unknown, max: number) => Array.isArray(v) && v.length >= 1 && v.length <= max && v.every(x => typeof x === 'string' && x.trim() && x.length <= 400)
     if (!isObj(q) || typeof q.review !== 'boolean' || !texts(q.requirements, 16) || !texts(q.acceptance, 10)) return null
-    quality = { review: q.review, requirements: q.requirements as string[], acceptance: q.acceptance as string[] }
+    if (q.repair !== undefined && (!q.review || !readRepairPolicy(q.repair))) return null
+    if (q.packages !== undefined && (!Array.isArray(q.packages) || !q.packages.length || q.packages.length > 8 || q.packages.some((p: any) => !isObj(p) || typeof p.id !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(p.id) || typeof p.title !== 'string' || p.title.length > 200 || !texts(p.requirements,16)))) return null
+    if (q.repair && !q.packages) return null
+    if (q.remainingUsd !== undefined && (typeof q.remainingUsd !== 'number' || !Number.isFinite(q.remainingUsd) || q.remainingUsd < 0 || q.remainingUsd > 10000)) return null
+    quality = { ...(q.repair ? { repair: readRepairPolicy(q.repair)! } : {}), ...(q.packages ? { packages: q.packages as any } : {}), ...(q.remainingUsd !== undefined ? { remainingUsd: q.remainingUsd as number } : {}), review: q.review, requirements: q.requirements as string[], acceptance: q.acceptance as string[] }
   }
   return {
     id,

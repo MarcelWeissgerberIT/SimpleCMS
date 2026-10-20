@@ -297,10 +297,18 @@ export async function pickNext(repos: string[], workerName: string, docs = false
       const record = await (await import('./orders/records')).loadOrderRecord(orderIds[0])
       if (record && record !== 'unreadable') {
         const step = record.chain?.steps.find(s => s.id === row.id)
-        if (step?.delivery) quality = { review: step.kind === 'qa' && !!record.chain?.steps.some(s => s.kind === 'coding'), requirements: step.delivery.requirements.map(r => `${r.id}: ${r.text}`), acceptance: step.delivery.acceptance }
+        if (step?.delivery) {
+          const review = step.kind === 'qa' && !!record.chain?.steps.some(s => s.kind === 'coding')
+          quality = { review, requirements: step.delivery.requirements.map(r => `${r.id}: ${r.text}`), acceptance: step.delivery.acceptance }
+          if (review && record.chain?.repair) {
+            quality.repair = record.chain.repair
+            quality.packages = record.chain.steps.filter(s => s.kind === 'coding' && s.n < step.n).map(s => ({ id: s.id, title: ws().pages[s.id]?.title ?? 'Coding', requirements: s.delivery?.requirements.map(r => r.id) ?? [] }))
+            if (record.chain.budgetUsd !== undefined) quality.remainingUsd = Math.max(0, record.chain.budgetUsd - record.chain.steps.reduce((n,s) => n + (taskLocal(s.id).spentUsd ?? 0), 0))
+          }
+        }
       }
     }
-    if (quality && !caps.has('delivery-qa')) { skip(); await patchTask(row.id, { state: 'failed', error: OLD_WORKER(), runNow: false }); continue }
+    if (quality && (!caps.has('delivery-qa') || (quality.repair && !caps.has('harness-quality')))) { skip(); await patchTask(row.id, { state: 'failed', error: OLD_WORKER(), runNow: false }); continue }
     if (!agent) { skip(); await patchTask(row.id, { state: 'failed', error: t('features.coding.agent.unknown'), runNow: false }); continue }
     const model = agent === 'claude' ? modelFor(stage, local) : null
     if (stageNeeds({ ...stage, model, agent }).some((need) => !caps.has(need))) {
@@ -408,6 +416,11 @@ export async function finishStage(taskId: ID, stageId: ID, outcome: StageOutcome
   if (outcome.test) patch.test = outcome.test
   // QA: the test cases of a document stage become rows of the Test cases database (the JSON leaves the page)
   let doc = outcome.plan ?? null
+  if (Array.isArray(outcome.repairs) && outcome.repairs.length) {
+    const labels = currentLang() === 'de' ? ['QA-Reparatur', 'Pakete', 'Ergebnis'] : ['QA repair', 'Packages', 'Outcome']
+    const repairs = outcome.repairs.slice(0, 2).filter(r => r && [1, 2].includes(r.attempt) && Array.isArray(r.packageIds) && typeof r.finding === 'string' && typeof r.outcome === 'string').map(r => `### ${labels[0]} ${r.attempt}\n${labels[1]}: ${r.packageIds.filter(id => typeof id === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(id)).slice(0, 8).map(id => `[#/p/${id}](#/p/${id})`).join(', ')}\n${r.finding.slice(0, 2000)}\n${labels[2]}: ${r.outcome.slice(0, 2000)}`).join('\n\n')
+    doc = [doc, repairs].filter(Boolean).join('\n\n')
+  }
   let cases: TestCase[] = []
   const output = stage?.kind === 'doc' ? stage.output : undefined
   if (doc && output === 'testcases') {
@@ -428,7 +441,7 @@ export async function finishStage(taskId: ID, stageId: ID, outcome: StageOutcome
     }
   }
   const tree = doc && output === 'pages' ? splitSections(doc) : null
-  if (outcome.plan) patch.plan = doc ?? outcome.plan
+  if (doc) patch.plan = doc
   if (doc && output === 'review') patch.review = { text: doc.slice(0, 60_000), at: Date.now() }
   if (outcome.summary && stage?.kind === 'implement') patch.summary = outcome.summary
 

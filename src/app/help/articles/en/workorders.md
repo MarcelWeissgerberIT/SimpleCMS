@@ -82,3 +82,6 @@ The Work orders database is private. Planning, starting and going on happen on t
 
 ## What stays on this device
 The plan, the chain's record (which tasks belong to it, who set each one done), what it spent and the switch for starting without confirming live in this browser — never synced, exported or backed up — and go with the device copy and the local reset. Full backups carry the database's settings, never a plan or a chain. The [flight recorder](help:flight-recorder) can eject a chain's steps: an ejected step halts its chain, and <kbd>S</kbd> decides.
+
+## Context and QA repairs
+In **Settings → Automatic QA repairs**, optionally allow bounded repair sub-runs. The default is Off; the confirmed chain pins the choice and Coding agent. See [Coding harness, context and quality](help:coding-harness) for operation, limits, evaluations and Atlas memory.

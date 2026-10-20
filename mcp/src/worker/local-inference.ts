@@ -8,7 +8,9 @@ export interface LocalInferenceRequest {
   signal: AbortSignal
 }
 export interface LocalInferenceResponse { message?: any; inputTokens?: number }
+export interface ModelFacts { tools: boolean | null; vision: boolean | null; nativeContext: number | null; quantization?: string; family?: string }
 export interface LocalInference {
+  inspect?: (model: string, signal: AbortSignal) => Promise<ModelFacts>
   (request: LocalInferenceRequest): Promise<LocalInferenceResponse>
   /** Subscription provider without a USD usage price. Never report it as free. */
   unmetered?: boolean
@@ -38,15 +40,27 @@ export function ollamaInference(base: URL): LocalInference {
     const data = await response.json() as { message?: any; prompt_eval_count?: number }
     return { message: data.message, inputTokens: data.prompt_eval_count }
   }
-  inference.profile = async (model, signal) => {
+  let shown: { model: string; data: any } | null = null
+  const show = async (model: string, signal: AbortSignal) => {
     const response = await fetch(new URL('/api/show', base), {
       method: 'POST', redirect: 'error', signal: AbortSignal.any([signal, AbortSignal.timeout(10000)]), headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model }),
     })
     if (!response.ok) throw new Error('The selected local model profile could not be loaded. Check that the model is installed.')
-    const data = await response.json() as { system?: unknown }
+    const data = await response.json() as any
     if (data.system !== undefined && typeof data.system !== 'string') throw new Error('The selected local model profile is invalid.')
     if (typeof data.system === 'string' && data.system.length > 50000) throw new Error('The selected model profile exceeds 50,000 characters. Shorten it before running the task.')
-    return typeof data.system === 'string' ? data.system : ''
+    shown = { model, data }
+    return data
+  }
+  inference.profile = async (model, signal) => (await show(model, signal)).system ?? ''
+  inference.inspect = async (model, signal) => {
+    const d = shown?.model === model ? shown.data : await show(model, signal)
+    const caps = Array.isArray(d.capabilities) ? d.capabilities : null
+    const lengths = Object.entries(d.model_info ?? {}).filter(([k,v]) => k.endsWith('.context_length') && typeof v === 'number' && v > 0).map(([,v]) => v as number)
+    return { tools: caps ? caps.includes('tools') : null, vision: caps ? caps.includes('vision') : null,
+      nativeContext: lengths.length ? Math.min(...lengths) : null,
+      ...(typeof d.details?.quantization_level === 'string' ? { quantization: d.details.quantization_level.slice(0,40) } : {}),
+      ...(typeof d.details?.family === 'string' ? { family: d.details.family.slice(0,80) } : {}) }
   }
   return inference
 }

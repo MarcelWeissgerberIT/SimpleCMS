@@ -28,7 +28,7 @@ const ID_RE = /^[A-Za-z0-9_-]{1,64}$/
 /** An MCP server's name (features/ai/mcp-servers/config.ts NAME_RE): the person's own, as they named it. */
 const SERVER_NAME_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/
 const MAX_EXTRA = 4000
-const KNOWN = new Set(['v', 'status', 'server', 'kinds', 'projects', 'checkpoint', 'budgetUsd', 'agent', 'agents'])
+const KNOWN = new Set(['v', 'status', 'server', 'kinds', 'projects', 'checkpoint', 'budgetUsd', 'agent', 'agents', 'qaRepairs'])
 
 export type OrderConfigRead =
   /** not a work-orders database, or nothing stored */
@@ -59,6 +59,7 @@ export function sanitizeOrderConfig(v: unknown): OrderConfigRead {
   const agentNames = ['claude', 'codex', 'local', 'minimax', 'ollama']
   if (v.agent !== undefined && !agentNames.includes(String(v.agent))) return { kind: 'unreadable' }
   if (v.agents !== undefined && (!isObj(v.agents) || Object.entries(v.agents).some(([kind, agent]) => !ORDER_KINDS.includes(kind as OrderKind) || !agentNames.includes(String(agent))))) return { kind: 'unreadable' }
+  if (v.qaRepairs !== undefined && v.qaRepairs !== 1 && v.qaRepairs !== 2) return { kind: 'unreadable' }
   let repaired = false
   if (typeof v.v === 'number' && Number.isFinite(v.v) && v.v > 1) return { kind: 'unreadable' }
   if (v.v !== 1) repaired = true
@@ -134,6 +135,7 @@ export function sanitizeOrderConfig(v: unknown): OrderConfigRead {
     kinds,
     ...(projects ? { projects } : {}),
     checkpoint,
+    ...(v.qaRepairs === 1 || v.qaRepairs === 2 ? { qaRepairs: v.qaRepairs } : {}),
     ...(['claude', 'codex', 'local', 'minimax', 'ollama'].includes(String(v.agent)) ? { agent: v.agent } : {}),
     ...(Object.keys(agents).length ? { agents } : {}),
     ...(budgetUsd !== undefined ? { budgetUsd } : {}),

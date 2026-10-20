@@ -132,6 +132,13 @@ export function OrderSettingsPanel({ dbId }: { dbId: ID }) {
             </select>
           </label>)}
         </div>
+        <label className="ors__project"><span>{t(`${O}.settings.repairs`)}</span>
+          <select className="input" data-testid="order-settings-repairs" value={config?.qaRepairs ?? 0} onChange={e => save(c => { const { qaRepairs: _, ...rest } = c; const n = Number(e.target.value); return n ? { ...rest, qaRepairs: n as 1 | 2 } : rest })}>
+            <option value={0}>{t(`${O}.settings.repairsOff`)}</option><option value={1}>1</option><option value={2}>2</option>
+          </select>
+        </label>
+        <p className="orc-line orc-line--quiet">{t(`${O}.settings.repairsHint`)}</p>
+        <HelpLink id="coding-harness" />
         <div className="ors__kinds">
           {ORDER_KINDS.map((k: OrderKind) => {
             const on = !!config?.kinds.includes(k)

@@ -679,6 +679,8 @@ export interface OrderConfig {
   kinds: OrderKind[]
   projects?: Partial<Record<OrderKind, ID>>
   checkpoint: boolean
+  /** Explicit opt-in, pinned at chain confirmation. */
+  qaRepairs?: 1 | 2
   budgetUsd?: number
 }
 

@@ -862,6 +862,7 @@ describe('exec — source guard', () => {
       "git.ts: 'ssh'", // sshHostName(): `ssh -G <host>` — a host name (SSH_HOST: never an option) the remote's address names
       'git.ts: cmd', // run(): 'gh' | 'glab'
       "gitenv.ts: 'git'",
+      'harness-eval.ts: process.execPath', // opt-in evaluation: this Node and a host-written checker outside the disposable worktree; never a model-selected program
       'local-benchmark.ts: process.execPath', // opt-in benchmark: this Node, fixed check.mjs in a disposable fixture
       'local-benchmark.ts: process.execPath', // syntax-check the fixed benchmark fixture before invoking the model
       'opener.ts: how.cmd', // cmd.exe from System32, or ONE_WORKER_BROWSER (the person's)

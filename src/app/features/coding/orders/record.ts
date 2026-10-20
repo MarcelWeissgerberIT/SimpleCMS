@@ -1,3 +1,4 @@
+import { readRepairPolicy } from '@/shared/coding/repair'
 /**
  * Work orders — this device's record of a request (types.ts OrderRecord; IndexedDB `one-coding` `<scope>|order|<rowId>`)
  * as every reader keeps it. Pure (a Node spec reads it). The chain engine acts only on what this reader returns: a
@@ -97,6 +98,7 @@ function readDoneBy(v: unknown): OrderDoneBy | null {
 /** A chain as the engine acts on it (null: no readable chain). `nested`: the older chain one replaced (never one more level). */
 export function readOrderChain(v: unknown, nested = false): OrderChain | null {
   if (!isObj(v) || !isId(v.run) || !isTime(v.confirmedAt) || !isTime(v.startAt) || !Array.isArray(v.steps)) return null
+  if (v.repair !== undefined && !readRepairPolicy(v.repair)) return null
   const steps: OrderChainStep[] = []
   for (const raw of v.steps.slice(0, MAX_STEPS)) {
     const s = readStep(raw)
@@ -189,6 +191,7 @@ export function readOrderChain(v: unknown, nested = false): OrderChain | null {
     ...(isTime(v.resumedAt) ? { resumedAt: v.resumedAt } : {}),
     // "Stop after the analysis": on unless stored as false
     checkpoint: v.checkpoint !== false,
+    ...(v.repair ? { repair: readRepairPolicy(v.repair)! } : {}),
     ...(budgetUsd !== undefined ? { budgetUsd } : {}),
     ...(Object.keys(made).length ? { made } : {}),
     ...(skipped.length ? { skipped } : {}),

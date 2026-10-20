@@ -82,3 +82,6 @@ Die Datenbank Prüfaufträge ist privat. Planen, Starten und Weitergehen passier
 
 ## Was auf diesem Gerät bleibt
 Der Plan, der Eintrag der Kette (welche Aufgaben dazugehören, wer jede auf Fertig gesetzt hat), was sie ausgegeben hat, und der Schalter für Ohne Bestätigung starten liegen in diesem Browser — nie synchronisiert, exportiert oder im Backup — und gehen mit der Gerätekopie und dem lokalen Zurücksetzen. Vollständige Backups tragen die Einstellungen der Datenbank, nie einen Plan oder eine Kette. Der [Flugschreiber](help:flight-recorder) kann die Schritte einer Kette auswerfen: ein ausgeworfener Schritt hält seine Kette an, und <kbd>S</kbd> entscheidet.
+
+## Kontext und QA-Reparaturen
+Unter **Einstellungen → Automatische QA-Reparaturen** kannst du begrenzte Reparatur-Unterläufe zulassen. Standard ist Aus; die bestätigte Kette hält Auswahl und Coding-Agent fest. Ablauf, Grenzen, Modelltests und Atlas-Memory erklärt [Coding-Harness, Kontext und Qualität](help:coding-harness).

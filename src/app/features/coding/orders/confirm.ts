@@ -349,7 +349,7 @@ function rollback(rowId: ID, run: string, steps: readonly OrderChainStep[], rest
 
 /** Each step's project and pipeline lines as they resolve on this device now (the planner's ResolvedStep). */
 function resolveSteps(draft: OrderDraft, kp: readonly KindProject[], approvals: 'all' | 'review' | 'none', config?: import('./types').OrderConfig): ResolvedStep[] {
-  return draft.plan.steps.map((st, i) => { const agent = config ? orderAgent(config, st.kind) : undefined; return { ...(agent ? { agent } : {}), project: kp[i]!.project, park: pipelineLine(kp[i]!.pipeline, !!st.repo, false, approvals), start: pipelineLine(kp[i]!.pipeline, !!st.repo, true, approvals) } })
+  return draft.plan.steps.map((st, i) => { const agent = config ? orderAgent(config, st.kind) : undefined; return { ...(agent ? { agent } : {}), ...(config?.qaRepairs && st.kind === 'qa' ? { repair: { attempts: config.qaRepairs, agent: orderAgent(config, 'coding') ?? 'claude' } } : {}), project: kp[i]!.project, park: pipelineLine(kp[i]!.pipeline, !!st.repo, false, approvals), start: pipelineLine(kp[i]!.pipeline, !!st.repo, true, approvals) } })
 }
 
 /**
@@ -481,6 +481,7 @@ async function startLocked(rowId: ID, hash: string): Promise<StartOutcome> {
     doneBy: {},
     halted: null,
     checkpoint: read.config.checkpoint,
+    ...(read.config.qaRepairs ? { repair: { attempts: read.config.qaRepairs, agent: orderAgent(read.config, 'coding') ?? 'claude' } } : {}),
     // the budget set on the plate for this chain (null: none), else the work orders' settings
     ...(draft.budget !== undefined ? (draft.budget !== null ? { budgetUsd: draft.budget } : {}) : read.config.budgetUsd !== undefined ? { budgetUsd: read.config.budgetUsd } : {}),
     ...(older ? { replaced: { chain: older, trashed: trash } } : {}),

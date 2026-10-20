@@ -35,6 +35,7 @@ import { TRUST } from './run.ts'
 import { STOP_HARD_MS, Worker } from './worker.ts'
 import { serveTaskMcp } from './taskmcp.ts'
 import { filePreset } from './preset.ts'
+import { evaluateHarness } from './harness-eval.ts'
 import { localBenchmark } from './local-benchmark.ts'
 import { SetupServer } from './setup.ts'
 import { factsOf, findRepos, shortPath } from './scan.ts'
@@ -91,7 +92,8 @@ if (flag('--version') || flag('-v')) {
 }
 
 if (flag('--help') || flag('-h')) {
-  process.stdout.write(`one-worker ${VERSION} — coding tasks from One, run by Claude Code on this computer
+  process.stdout.write(`one-worker ${VERSION} — evaluate --limit 3 --repeats 1 --cases module-integration,resume-package
+Coding tasks from One, run by Claude Code on this computer
 ${
   cloud
     ? `\nThis CLOUD worker was downloaded for the workspace "${preset!.name}" (${preset!.workspace}). It connects out to
@@ -121,6 +123,12 @@ Needs: Node.js 22 or newer, git${win ? ' (Git for Windows — Claude Code needs 
 }
 
 async function main() {
+  if (command === 'evaluate') {
+    const report = await evaluateHarness({ limit: Number(value('--limit') ?? 3), repeats: Number(value('--repeats') ?? 1), ...(value('--cases') ? { cases: value('--cases')!.split(',') } : {}), onCase: (id, ok) => process.stderr.write(`${id}: ${ok ? 'PASS' : 'FAIL'}\n`) })
+    process.stdout.write(JSON.stringify(report, null, 2) + '\n')
+    process.exitCode = report.passed === report.total ? 0 : 1
+    return
+  }
   if (command === 'task-mcp') return serveTaskMcp(VERSION)
   if (command === 'benchmark') {
     const agent = value('--agent') ?? 'local'

@@ -1,0 +1,155 @@
+{
+  "v": 1,
+  "harnessVersion": "1.20.0",
+  "suite": "one-harness/1",
+  "suiteHash": "d0946d41e16aad70aaedee24c1a6831b1edfcec16440a67705dd66660e2b69a3",
+  "model": "marcel-flow:latest",
+  "context": 32768,
+  "at": "2026-10-20T12:10:34.576Z",
+  "kind": "24 synthetic CMS/repository cases, including multi-file contracts and resume; not a private-project or frontier-model score",
+  "passed": 2,
+  "total": 3,
+  "falseCompletions": 0,
+  "results": [
+    {
+      "id": "source-conflict",
+      "repeat": 1,
+      "ok": false,
+      "modelClaimedSuccess": false,
+      "ms": 18719,
+      "steps": 1,
+      "receipts": [
+        {
+          "v": 1,
+          "model": "marcel-flow:latest",
+          "profileHash": "a243af098d95498323633016c4958c3a57a18740e9665f247960ffc2a6a0fec7",
+          "contextTokens": 32768,
+          "rounds": 2,
+          "toolCalls": 0,
+          "toolErrors": 0,
+          "compactions": 0,
+          "maxInputTokens": 7807,
+          "verificationRuns": 0,
+          "formatRepairs": 1,
+          "methods": [
+            "implement@1:7508cc412516f982",
+            "contract@1:37d22402bb7d7474"
+          ],
+          "modelFacts": {
+            "tools": true,
+            "vision": false,
+            "nativeContext": 262144,
+            "quantization": "Q4_K_M",
+            "family": "qwen3moe"
+          },
+          "ms": 18675
+        }
+      ],
+      "error": "The local model returned an invalid tool call after format correction. Retry or split the task into smaller steps."
+    },
+    {
+      "id": "module-integration",
+      "repeat": 1,
+      "ok": true,
+      "modelClaimedSuccess": true,
+      "ms": 14833,
+      "steps": 5,
+      "receipts": [
+        {
+          "v": 1,
+          "model": "marcel-flow:latest",
+          "profileHash": "a243af098d95498323633016c4958c3a57a18740e9665f247960ffc2a6a0fec7",
+          "contextTokens": 32768,
+          "rounds": 5,
+          "toolCalls": 5,
+          "toolErrors": 0,
+          "compactions": 0,
+          "maxInputTokens": 8415,
+          "verificationRuns": 1,
+          "formatRepairs": 0,
+          "methods": [
+            "implement@1:7508cc412516f982",
+            "contract@1:37d22402bb7d7474"
+          ],
+          "modelFacts": {
+            "tools": true,
+            "vision": false,
+            "nativeContext": 262144,
+            "quantization": "Q4_K_M",
+            "family": "qwen3moe"
+          },
+          "ms": 14785
+        }
+      ],
+      "error": null
+    },
+    {
+      "id": "resume-package",
+      "repeat": 1,
+      "ok": true,
+      "modelClaimedSuccess": true,
+      "ms": 23464,
+      "steps": 11,
+      "receipts": [
+        {
+          "v": 1,
+          "model": "marcel-flow:latest",
+          "profileHash": "a243af098d95498323633016c4958c3a57a18740e9665f247960ffc2a6a0fec7",
+          "contextTokens": 32768,
+          "rounds": 6,
+          "toolCalls": 6,
+          "toolErrors": 0,
+          "compactions": 0,
+          "maxInputTokens": 8451,
+          "verificationRuns": 1,
+          "formatRepairs": 0,
+          "methods": [
+            "implement@1:7508cc412516f982",
+            "contract@1:37d22402bb7d7474"
+          ],
+          "modelFacts": {
+            "tools": true,
+            "vision": false,
+            "nativeContext": 262144,
+            "quantization": "Q4_K_M",
+            "family": "qwen3moe"
+          },
+          "ms": 12130
+        },
+        {
+          "v": 1,
+          "model": "marcel-flow:latest",
+          "profileHash": "a243af098d95498323633016c4958c3a57a18740e9665f247960ffc2a6a0fec7",
+          "contextTokens": 32768,
+          "rounds": 5,
+          "toolCalls": 5,
+          "toolErrors": 0,
+          "compactions": 0,
+          "maxInputTokens": 8791,
+          "verificationRuns": 1,
+          "formatRepairs": 0,
+          "methods": [
+            "implement@1:7508cc412516f982",
+            "documents@1:b8b42efdc54ebbad"
+          ],
+          "modelFacts": {
+            "tools": true,
+            "vision": false,
+            "nativeContext": 262144,
+            "quantization": "Q4_K_M",
+            "family": "qwen3moe"
+          },
+          "ms": 11260
+        }
+      ],
+      "error": null
+    }
+  ],
+  "hardware": {
+    "chip": "Apple M3 Max",
+    "memoryGiB": 48,
+    "baseModel": "qwen3-coder:30b",
+    "quantization": "Q4_K_M"
+  },
+  "interpretation": "Initial three-case local sample, not a complete-suite or frontier-model score. Includes the failed case. Model tags can change; repeat under matching installed weights and settings."
+}

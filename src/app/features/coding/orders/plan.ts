@@ -378,6 +378,7 @@ export function planOpenPoints(plan: OrderPlanV1): Array<{ kind: 'question'; tex
 
 /** What one step resolves to on this device: its project (null: made at confirm) and its pipeline lines (stages.ts pipelineLine). */
 export interface ResolvedStep {
+  repair?: import('@/shared/coding/repair').RepairPolicy
   agent?: string
   project: ID | null
   /** pipelineLine(…, start: false) — where it is parked */

@@ -1,7 +1,7 @@
 ---
 id: 2026-10-20-ollama-cloud
 date: 2026-10-20
-order: 2
+order: 3
 title: Ollama Cloud mit eigenem Key
 summary: Ein Ollama-Cloud-Modell für Coding wählen und den Key im lokalen Worker speichern.
 image: assets/shots/changelog/ollama-cloud.webp

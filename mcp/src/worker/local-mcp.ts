@@ -117,6 +117,11 @@ export class LocalMcp {
       .filter(t => !terms.length || t.score > 0).sort((a, b) => b.score - a.score).slice(0, 6)
       .map(({ server, tool }) => ({ server, name: tool.name, description: tool.description?.slice(0, 1500), inputSchema: tool.inputSchema, readOnly: tool.annotations?.readOnlyHint === true }))
   }
+  probe(server: unknown, names: unknown) {
+    if (typeof server !== 'string' || !Array.isArray(names) || names.length > 30 || names.some(n => typeof n !== 'string' || n.length > 120)) throw new Error('Supply a configured server and up to 30 exact tool names.')
+    const available = this.tools.filter(t => t.server === server && !this.memoryOnly.has(server)).map(t => t.tool.name)
+    return { server, connected: this.clients.has(server), available: names.filter(n => available.includes(n)), missingOrNotAllowed: names.filter(n => !available.includes(n)), stage: this.readOnly ? 'read-only' : 'implementation', evidence: 'Discovery only. Account permission and real tool execution are verified only by a successful call. No write was performed.' }
+  }
   memoryTarget(key?: string, reading = false) {
     if (this.readOnly && !reading) return null
     for (const [server, projects] of this.memoryProjects) {

@@ -42,6 +42,7 @@ export function autoSigParts(db: ID): AutoSigParts | null {
     kinds: [...c.kinds],
     pinned: { ...(c.projects ?? {}) },
     checkpoint: c.checkpoint,
+    ...(c.qaRepairs ? { repair: { attempts: c.qaRepairs, agent: c.agents?.coding ?? c.agent ?? 'claude' } } : {}),
     budget: c.budgetUsd ?? null,
     server: name ? { name, url: srv?.url ?? null, tools: srv?.tools?.length ? [...srv.tools].sort() : null, profiles } : null,
     projects: kindProjectsOf(db, ORDER_KINDS).map((k) => ({ kind: k.kind, stages: stagesPart(k.pipeline) })),

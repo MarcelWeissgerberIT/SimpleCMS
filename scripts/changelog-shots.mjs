@@ -4314,6 +4314,22 @@ process.exit(1)
     await ctx.close()
   },
 
+  async 'coding-harness'(browser) {
+    const { ctx, page } = await freshPage(browser)
+    await openPage(page, 'Weekly sync — notes')
+    await rest(page)
+    await page.keyboard.press('?')
+    const help = page.getByRole('dialog', { name: 'Help' })
+    await help.waitFor()
+    await help.getByRole('searchbox').fill('Coding harness context quality')
+    await page.waitForTimeout(400)
+    await help.getByRole('searchbox').press('Enter')
+    await help.locator('.help-art__title', { hasText: 'Coding harness, context and quality' }).waitFor()
+    await rest(page)
+    await save(page, 'coding-harness')
+    await ctx.close()
+  },
+
   async 'agent-assignments'(browser) {
     const { ctx, page } = await freshPage(browser)
     const target = await pageIdByTitle(page, 'Weekly sync — notes')

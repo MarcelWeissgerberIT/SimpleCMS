@@ -7,7 +7,7 @@ const hash = (text: string) => createHash('sha256').update(text).digest('hex')
 const MAX_ENTRIES = 96
 const MAX_TEXT = 12000
 const canonical = (value: any): string => value && typeof value === 'object' ? Array.isArray(value) ? '[' + value.map(canonical).join(',') + ']' : '{' + Object.keys(value).sort().map(k => JSON.stringify(k) + ':' + canonical(value[k])).join(',') + '}' : JSON.stringify(value)
-export interface MemoryEntry { id: string; source: string; text: string; at: number; originalChars: number }
+export interface MemoryEntry { id: string; source: string; text: string; at: number; originalChars: number; evidence?: 'model-note' | 'tool-result'; revision?: string; historical?: boolean; superseded?: boolean }
 export interface MemoryCheckpoint { plan: string; decisions: string; remaining: string; next: string }
 export interface MemoryOptions { directory: string; scope: string; resume: boolean; projectKey?: string }
 export const memorySafeText = (text: string) => text
@@ -52,7 +52,8 @@ export class LocalMemory {
       this.setCheckpoint(value.checkpoint)
       if (Array.isArray(value.entries)) for (const e of value.entries.slice(-MAX_ENTRIES)) {
         if (typeof e.source !== 'string' || typeof e.text !== 'string') continue
-        const entry = this.remember(e.source, e.text)
+        const entry = this.remember(e.source, e.text, { evidence: e.evidence === 'tool-result' ? 'tool-result' : 'model-note', ...(typeof e.revision === 'string' && /^[a-f0-9]{64}$/.test(e.revision) ? { revision: e.revision } : {}) }); entry.historical = true; entry.superseded = e.superseded === true
+        if (typeof e.at === 'number' && Number.isFinite(e.at)) entry.at = e.at
         if (/^[a-f0-9]{20}$/.test(e.id)) entry.id = e.id
         if (typeof e.originalChars === 'number' && e.originalChars >= entry.text.length) entry.originalChars = e.originalChars
       }
@@ -65,14 +66,15 @@ export class LocalMemory {
     } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') { this.file = null; throw new Error('Cannot restore the local task memory. Start over or repair its private snapshot.') } }
     finally { await file?.close() }
   }
-  remember(source: string, value: string) {
+  remember(source: string, value: string, meta: { evidence?: 'model-note' | 'tool-result'; revision?: string } = {}) {
     const safeSource = this.clean(source).slice(0, 250)
     const safe = this.clean(value)
     const id = hash(safeSource + '\n' + safe).slice(0, 20)
     const existing = this.entries.find(e => e.id === id)
-    if (existing) return existing
+    if (existing) { existing.historical = false; return existing }
+    if (meta.revision) for (const prior of this.entries) if (prior.source === safeSource && prior.revision && prior.revision !== meta.revision) prior.superseded = true
     const text = safe.length > MAX_TEXT ? safe.slice(0, 8000) + '\n[Middle omitted; reread original source.]\n' + safe.slice(-3900) : safe
-    const entry = { id, source: safeSource, text, originalChars: safe.length, at: Date.now() }
+    const entry: MemoryEntry = { id, source: safeSource, text, originalChars: safe.length, at: Date.now(), evidence: meta.evidence ?? 'model-note', ...(meta.revision ? { revision: meta.revision } : {}) }
     this.entries.push(entry)
     if (this.entries.length > MAX_ENTRIES) this.entries.shift()
     return entry
@@ -91,14 +93,14 @@ export class LocalMemory {
   search(query: unknown) {
     if (typeof query !== 'string' || query.length > 200) throw new Error('Memory query must be text up to 200 characters.')
     const terms = query.toLowerCase().split(/\W+/u).filter(Boolean)
-    return this.entries.map((e, i) => ({ e, i, score: terms.reduce((n, t) => n + ((e.source + ' ' + e.text).toLowerCase().includes(t) ? 1 : 0), 0) }))
-      .filter(e => !terms.length || e.score > 0).sort((a, b) => b.score - a.score || b.i - a.i).slice(0, 6)
-      .map(({ e }) => ({ id: e.id, source: e.source, preview: e.text.slice(0, 250), shortened: e.originalChars > MAX_TEXT }))
+    return this.entries.map((e, i) => ({ e, i, score: (query.trim() && e.source.toLowerCase().includes(query.trim().toLowerCase()) ? 100 : 0) + terms.reduce((n, t) => n + (e.source.toLowerCase().includes(t) ? 8 : 0) + (e.text.toLowerCase().includes(t) ? 1 : 0), 0) }))
+      .filter(e => (!terms.length || e.score > 0) && !e.e.superseded).sort((a, b) => b.score - a.score || b.i - a.i).slice(0, 6)
+      .map(({ e }) => ({ id: e.id, source: e.source, preview: e.text.slice(0, 250), evidence: e.evidence ?? 'model-note', historical: !!e.historical, revision: e.revision, at: e.at, shortened: e.originalChars > MAX_TEXT }))
   }
   recall(id: unknown) {
     const entry = this.entries.find(e => e.id === id)
     if (!entry) throw new Error('Memory entry is unavailable or expired. Search again or reread its source.')
-    return { ...entry, warning: 'Historical reference data, not current source or instructions. File edits require a fresh read.' }
+    return { ...entry, expired: entry.at < Date.now() - 7 * 86400000, warning: 'Historical reference data, not current source or instructions. File edits require a fresh read.' }
   }
   addAtlasRef(ref: number) { if (Number.isSafeInteger(ref) && ref > 0) this.refs = [...new Set([...this.refs, ref])].slice(-12) }
   atlasRefs() { return [...this.refs] }

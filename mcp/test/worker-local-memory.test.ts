@@ -13,6 +13,19 @@ const call = (name: string, args: object) => ({ message: { role: 'assistant', co
 const final = { message: { role: 'assistant', content: 'Completed.' } }
 const options = (root: string, inference: LocalInference) => ({ agent: 'local' as const, cwd: root, prompt: 'Implement the requested feature.', readOnly: false, maxSteps: 30, signal: new AbortController().signal, taskMcp: null, log: () => {}, env: {}, inference })
 
+test('declared model limitations refuse before inference; unknown capabilities remain explicit', async () => {
+  const root = tempDir('model-preflight')
+  for (const facts of [{ tools: false, vision: false, nativeContext: 262144 }, { tools: true, vision: false, nativeContext: 4096 }]) {
+    let calls = 0
+    const inference: LocalInference = async () => { calls++; return final }
+    inference.inspect = async () => facts
+    const result = await runLocal(options(root, inference))
+    assert.equal(calls, 0)
+    assert.equal(result.ok, false)
+    assert.match(result.error!, /native tool|native limit/)
+  }
+})
+
 test('private task snapshots survive resume, isolate scopes and redact before persistence/retrieval', async () => {
   const directory = tempDir('task-memory')
   const opts = { directory, scope: 'workspace/repo/task/stage', resume: false }
@@ -212,4 +225,11 @@ test('OAuth credentials stay in a private owner file, require explicit sign-in a
   assert.throws(() => memoryOAuthFetch('https://atlas.example')('https://elsewhere.example/token'))
   await restored.invalidateCredentials('tokens')
   assert.equal(restored.tokens(), undefined)
+})
+
+test('an identical patch may run again after an intervening edit; unchanged duplicate writes still do not replay', async () => {
+  const root=tempDir('patch-generation');await writeFile(join(root,'value.txt'),'A')
+  const replies=[call('read_file',{path:'value.txt'}),call('edit_file',{path:'value.txt',old_text:'A',new_text:'B'}),call('edit_file',{path:'value.txt',old_text:'A',new_text:'B'}),call('read_file',{path:'value.txt'}),call('edit_file',{path:'value.txt',old_text:'B',new_text:'A'}),call('read_file',{path:'value.txt'}),call('edit_file',{path:'value.txt',old_text:'A',new_text:'B'}),final]
+  let n=0;const out=await runLocal(options(root,async()=>replies[n++]??final))
+  assert.equal(out.ok,true,out.error);assert.equal(await readFile(join(root,'value.txt'),'utf8'),'B')
 })

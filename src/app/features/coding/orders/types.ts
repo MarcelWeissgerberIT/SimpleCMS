@@ -322,6 +322,7 @@ export interface OrderChain {
   resumedAt?: number
   /** "Stop after the analysis" as confirmed */
   checkpoint: boolean
+  repair?: import('@/shared/coding/repair').RepairPolicy
   budgetUsd?: number
   /** while creating: step n → the task made so far (a throw trashes them; finishCreates completes them) */
   made?: Record<number, ID>

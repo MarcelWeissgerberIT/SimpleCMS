@@ -66,3 +66,33 @@ test('built worker runs final QA checks on the combined branch before read-only 
     assert.match(merge.error ?? '', /before final QA/)
   } finally { tab?.close(); await worker.stop(); await new Promise<void>(resolve => upstream.close(() => resolve())) }
 })
+
+test('opt-in QA repair fixes the approved branch, protects the check entrypoint and runs fresh read-only review', async () => {
+  const r=makeRepo();mkdirSync(r.worktrees)
+  const dir=join(r.worktrees,'repair');sh(r.path,'worktree','add','-b','one/repair',dir)
+  writeFileSync(join(dir,'feature.txt'),'BROKEN')
+  let writes=0,reviews=0
+  const upstream=createServer(async(req,res)=>{
+    let raw='';for await(const c of req)raw+=c
+    const body=JSON.parse(raw);res.setHeader('Content-Type','application/json')
+    if(req.url==='/api/show')return res.end(JSON.stringify({system:'Keep concise.'}))
+    const writable=body.tools.some((t:any)=>t.function.name==='edit_file')
+    let name='finish_task',args:any={status:'completed',summary:'Verified the fixed combined branch.',next:''}
+    if(writable){
+      const n=writes++
+      if(n===0){name='read_file';args={path:'feature.txt'}}
+      if(n===1){name='edit_file';args={path:'feature.txt',old_text:'BROKEN',new_text:'FIXED'}}
+    }else reviews++
+    res.end(JSON.stringify({message:{role:'assistant',content:'',tool_calls:[{function:{name,arguments:args}}]}}))
+  })
+  await new Promise<void>(resolve=>upstream.listen(0,'127.0.0.1',resolve))
+  const probe=createServer();await new Promise<void>(resolve=>probe.listen(0,'127.0.0.1',resolve));const port=(probe.address() as any).port;await new Promise<void>(resolve=>probe.close(()=>resolve()))
+  const file=writeConfig(r,{workspace:WS_LOCAL.id,port,pollSec:2,name:'repair-test',repos:[repoEntry(r)]})
+  const worker=await startWorker(file,{ONE_CODER_OLLAMA:`http://127.0.0.1:${(upstream.address() as any).port}`})
+  let tab:FakeTab|null=null
+  try{
+    tab=await FakeTab.connect(port);tab.hello(WS_LOCAL);await tab.next('welcome')
+    const outcome=await tab.run(task({kind:'doc'},{id:'qaRepair',agent:'local',branch:'one/repair',quality:{...quality,repair:{attempts:2,agent:'local'},packages:[{id:'codeOne',title:'Fix feature',requirements:['R1']}]}}))
+    assert.equal(outcome.status,'ok',JSON.stringify(outcome));assert.equal(outcome.test?.ok,true);assert.equal(outcome.repairs?.length,1);assert.deepEqual(outcome.repairs?.[0]?.packageIds,['codeOne']);assert.equal(reviews,1);assert.equal(writes,3)
+  }finally{tab?.close();await worker.stop();await new Promise<void>(resolve=>upstream.close(()=>resolve()))}
+})

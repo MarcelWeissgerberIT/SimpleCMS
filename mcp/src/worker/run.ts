@@ -1,3 +1,4 @@
+import { checkManifest, checksUnchanged, qaFeedback, readRepairJournal, writeRepairJournal } from './qa-repair.ts'
 /**
  * one-worker — one stage of one task: plan / implement (Claude Code in the task's worktree), document (Claude Code
  * reads only; with the branch's diff when the task has one), static analysis + test (the repo's analyzeCommand /
@@ -70,6 +71,8 @@ export interface StageContext {
   waiting?: () => boolean
   /** worker 1.11.0: the stage's permission requests so far (worker.ts) */
   permissions?: () => PermissionCount
+  /** Host-owned guard for automatic repair verification. Never supplied by the model. */
+  verifyBoundary?: () => Promise<boolean>
 }
 
 const SUMMARY_MAX = 6000
@@ -378,15 +381,40 @@ export async function runStage(ctx: StageContext): Promise<StageOutcome> {
       if (dir) scrub = repoScrubber(own, dir)
       if (kind === 'doc' && task.quality?.review) {
         if (!branch || !dir || !repo.testCommand?.length) return { status: 'failed', error: 'Delivery QA requires the combined coding branch and a configured repository test command.' }
-        const checked = await runTests(repo, dir, ctx.signal, undefined, s => scrub.text(s))
-        const test: TestResult = { ok: checked.ok, output: scrub.text(checked.output).slice(-20000), ms: checked.ms, code: checked.code }
-        if (!checked.ok || checked.notStarted) return { status: 'failed', test, error: 'Delivery QA checks failed: ' + scrub.text(checked.output).slice(-6000) }
-        const reviewed = await docStage(ctx, scrub, log, branch, dir)
-        if (reviewed.status === 'ok' && task.agent !== 'local' && task.agent !== 'minimax' && task.agent !== 'ollama') {
-          const verdict = deliveryReview(reviewed.plan ?? reviewed.summary ?? '')
-          if (!verdict || verdict.status !== 'completed') return { ...reviewed, status: 'failed', test, error: verdict ? `${verdict.status}: ${verdict.summary}\nNext: ${verdict.next}` : 'Delivery QA requires a structured final verdict; no completion was accepted.' }
-        }
-        return { ...reviewed, test, summary: [reviewed.summary, 'Delivery QA: configured tests passed on the combined branch.'].filter(Boolean).join('\n') }
+        const policy=task.quality.repair
+        const manifest=policy?await checkManifest(dir,[repo.testCommand??[],repo.analyzeCommand??[]]):{}
+        const journalDir=join(dirname(ctx.state.file),'qa-repairs')
+        const scope=JSON.stringify([task.id,task.stage.id,branch,policy])
+        const journal=policy?await readRepairJournal(journalDir,scope):{attempts:0}
+        const max=turnsOf(task,repo)
+        // A chain's remaining allowance is also a hard ceiling for this QA stage and its repairs.
+        const stageSpent=ctx.state.spentOn(task.id)
+        const stageRepo=task.quality.remainingUsd===undefined?repo:{...repo,maxUsdPerTask:Math.min(repo.maxUsdPerTask??Infinity,stageSpent+task.quality.remainingUsd)}
+        const result=await qaFeedback({policy,remainingSteps:max,signal:ctx.signal,journal,packages:task.quality.packages?.map(p=>p.id)??[],
+          save:j=>writeRepairJournal(journalDir,scope,j),note:s=>log('info',s),unchanged:()=>checksUnchanged(dir,manifest),
+          review:async remaining=>{
+            const checked=await runTests(repo,dir,ctx.signal,undefined,s=>scrub.text(s))
+            const test:TestResult={ok:checked.ok,output:scrub.text(checked.output).slice(-20000),ms:checked.ms,code:checked.code}
+            if(!checked.ok||checked.notStarted)return {status:'failed',test,error:(checked.notStarted?'Delivery QA checks unavailable: ':'Delivery QA checks failed: ')+scrub.text(checked.output).slice(-6000)}
+            const reviewed=await docStage({...ctx,repo:stageRepo,task:{...task,stage:{...task.stage,maxTurns:remaining}}},scrub,log,branch,dir)
+            if(reviewed.status==='ok' && task.agent!=='local' && task.agent!=='minimax' && task.agent!=='ollama') {
+              const verdict=deliveryReview(reviewed.plan??reviewed.summary??'')
+              if(!verdict||verdict.status!=='completed')return {...reviewed,status:'failed',test,error:verdict?`${verdict.status}: ${verdict.summary}\nNext: ${verdict.next}`:'Delivery QA requires a structured final verdict; no completion was accepted.'}
+            }
+            return {...reviewed,test,summary:[reviewed.summary,'Delivery QA: configured tests passed on the combined branch.'].filter(Boolean).join('\n')}
+          },
+          repair:async(finding,remaining)=>{
+            if(!policy)return {status:'refused',error:'No automatic repair authority.'}
+            const repairTask:TaskPayload={...task,agent:policy.agent,resume:undefined,quality:{...task.quality!,review:false,repair:undefined},rework:finding,
+              stage:{...task.stage,kind:'implement',name:'QA repair',maxTurns:remaining,permissionMode:'acceptEdits',instructions:'Repair only the QA findings against the confirmed delivery. Existing acceptance tests, scripts and dependency configuration must remain unchanged. Add regression tests where appropriate. Do not commit, push or merge. Report unresolved blockers.'}}
+            log('info',`QA repair uses the confirmed Coding agent: ${policy.agent}.`)
+            const repairCtx={...ctx,repo:stageRepo,task:repairTask,verifyBoundary:()=>checksUnchanged(dir,manifest)}
+            const wt:TaskWorktree={dir,branch,created:false}
+            // Direct stage call: uses the same approved branch, budgets and permission machinery, no new git stage.
+            return await claudeStage(repairCtx,wt,scrub,log)
+          },
+        })
+        return result
       }
       return kind === 'doc' ? await docStage(ctx, scrub, log, branch, dir) : await analyzeStage(ctx, scrub, log, dir)
     } catch (e) {
@@ -657,6 +685,7 @@ async function alternateStage(ctx: StageContext, scrub: Scrubber, log: Log, bran
       scrub: s => scrub.text(s),
       mcpServers: repo.claude.mcpServers.length ? repo.claude.mcpServers : ctx.localMcpServers,
       verify: !readOnly && (repo.analyzeCommand?.length || repo.testCommand?.length) ? async signal => {
+        if (ctx.verifyBoundary && !await ctx.verifyBoundary()) return { ok: false, unavailable: true, output: 'Automatic repair changed protected verification inputs. No check was accepted.' }
         const outputs: string[] = []
         let ok = true
         for (const [name, command] of [['analysis', repo.analyzeCommand], ['tests', repo.testCommand]] as const) {

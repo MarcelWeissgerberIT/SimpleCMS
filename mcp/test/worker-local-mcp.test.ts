@@ -69,6 +69,13 @@ test('external MCP tools cooperate in one task; namespaced calls, auth redaction
     await readOnly.connect(['atlas', 'docs'], env, AbortSignal.timeout(10000))
     assert.equal(readOnly.search('atlas_get')[0]?.name, 'atlas_get')
     assert.equal(readOnly.search('atlas_create').length, 0)
+    const beforeProbe = calls.length
+    const probe = readOnly.probe('atlas', agentTools)
+    assert.equal(probe.connected, true)
+    assert.deepEqual(probe.available, ['atlas_agent_list'])
+    assert.deepEqual(probe.missingOrNotAllowed, agentTools.slice(1))
+    assert.equal(calls.length, beforeProbe, 'discovery must not create agents or tokens')
+    assert.equal(readOnly.probe('missing', ['atlas_agent_list']).connected, false)
     assert.equal(readOnly.search('atlas_agent_list').find(t => t.name === 'atlas_agent_list')?.readOnly, true)
     await readOnly.call('atlas', 'atlas_agent_list', {}, new AbortController().signal)
     for (const name of agentTools.slice(1)) {
