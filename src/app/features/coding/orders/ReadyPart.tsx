@@ -742,6 +742,12 @@ export default function ReadyPart({ rowId, rec, pre, headId, viewer, elsewhere, 
           <span className="label">{t(`${O}.plan.understood`)}</span> {draft.plan.summary}
         </p>
       )}
+      {draft.plan.delivery && <div className="orc-lines" data-testid="order-delivery">
+        <p className="label">{t(`${O}.chain.delivery`)}</p>
+        {draft.plan.delivery.requirements.map(r => <p className="orc-line" key={r.id}><strong>{r.id}</strong> {r.text}</p>)}
+        <p className="label">{t(`${O}.chain.acceptance`)}</p>
+        <ul>{draft.plan.delivery.acceptance.map((s, i) => <li key={i}>{s}</li>)}</ul>
+      </div>}
       {(draft.notes ?? []).length > 0 && (
         <ul className="orc-notes" data-testid="order-notes">
           {(draft.notes ?? []).map((n, i) => (

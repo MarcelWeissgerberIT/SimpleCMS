@@ -24,6 +24,7 @@ import { canonicalJson } from '../protocol'
 import { scrubSecrets } from '@/shared/ai/keys'
 import { planKeyHits, scrubPlanKeys } from './keys'
 import { PLAN_LIMITS, type OrderKind, type OrderPlanV1, type OrderStepPlan, type PlanNote } from './types'
+import { DELIVERY_LIMITS, readDelivery } from './delivery'
 
 /** What the reader checks an answer against. */
 export interface PlanReadCtx {
@@ -47,7 +48,7 @@ type Obj = Record<string, unknown>
 const isObj = (v: unknown): v is Obj => !!v && typeof v === 'object' && !Array.isArray(v)
 const PRIORITIES = ['high', 'medium', 'low'] as const
 const KINDS: readonly string[] = ['spec', 'coding', 'qa']
-const PLAN_KEYS = ['v', 'summary', 'context', 'steps', 'questions', 'refused']
+const PLAN_KEYS = ['v', 'summary', 'context', 'steps', 'questions', 'refused', 'delivery']
 const STEP_KEYS = ['kind', 'title', 'goal', 'criteria', 'repo', 'branch', 'priority', 'refs', 'why']
 const CONTEXT_KEYS = ['server', 'note', 'links']
 /** a refs entry as the store mints ids */
@@ -154,7 +155,9 @@ function readStep(v: unknown, i: number, ctx: PlanReadCtx, p: Problems): OrderSt
     return null
   }
   const before = p.list.length
-  unknownKeys(v, STEP_KEYS, path, p)
+  if ('needs' in v && (!Array.isArray(v.needs) || v.needs.some(n => !Number.isInteger(n)))) p.add(`${path}.needs must be step numbers.`)
+  if ('covers' in v && (!Array.isArray(v.covers) || v.covers.some(id => typeof id !== 'string'))) p.add(`${path}.covers must be requirement IDs.`)
+  unknownKeys(v, [...STEP_KEYS, 'needs', 'covers'], path, p)
   for (const k of STEP_KEYS) if (!(k in v)) p.add(`${path}.${k} is missing.`)
   let kind: OrderKind | null = null
   if (typeof v.kind !== 'string' || !KINDS.includes(v.kind)) p.add(`${path}.kind must be one of ${ctx.kinds.join(', ')}.`)
@@ -181,7 +184,7 @@ function readStep(v: unknown, i: number, ctx: PlanReadCtx, p: Problems): OrderSt
   else if (v.refs.length > PLAN_LIMITS.refs * 4) p.add(`${path}.refs has ${v.refs.length} entries — at most ${PLAN_LIMITS.refs}.`)
   else refs = v.refs.filter((r): r is string => typeof r === 'string').map((r) => r.trim())
   if (p.list.length > before || !kind || title === null || goal === null || !criteria || why === null || !priority || !refs) return null
-  return { kind, title, goal, criteria, repo, branch, priority, refs, why }
+  return { kind, title, goal, criteria, repo, branch, priority, refs, why, ...('needs' in v ? { needs: v.needs as number[] } : {}), ...('covers' in v ? { covers: v.covers as string[] } : {}) }
 }
 
 /** Shape, bounds and kinds — before anything is made safe. */
@@ -198,7 +201,7 @@ function readShape(raw: unknown, ctx: PlanReadCtx): { plan: OrderPlanV1 | null; 
   }
   if (!isObj(v)) return { plan: null, problems: ['The answer must be a JSON object.'] }
   unknownKeys(v, PLAN_KEYS, 'The plan', p)
-  for (const k of PLAN_KEYS) if (!(k in v)) p.add(`"${k}" is missing.`)
+  for (const k of PLAN_KEYS.filter(k => k !== 'delivery')) if (!(k in v)) p.add(`"${k}" is missing.`)
   if (v.v !== 1) p.add('"v" must be 1.')
   const summary = str(v.summary, 'summary', PLAN_LIMITS.summary, p)
   // the server's context
@@ -218,22 +221,26 @@ function readShape(raw: unknown, ctx: PlanReadCtx): { plan: OrderPlanV1 | null; 
   }
   // the steps
   const steps: OrderStepPlan[] = []
+  const deliveryLimits = v.delivery ? DELIVERY_LIMITS : PLAN_LIMITS
   if (!Array.isArray(v.steps)) p.add('steps must be a list.')
-  else if (v.steps.length > PLAN_LIMITS.steps) p.add(`steps has ${v.steps.length} steps — at most ${PLAN_LIMITS.steps}.`)
+  else if (v.steps.length > deliveryLimits.steps) p.add(`steps has ${v.steps.length} steps — at most ${deliveryLimits.steps}.`)
   else {
     v.steps.forEach((s, i) => {
       const step = readStep(s, i, ctx, p)
       if (step) steps.push(step)
     })
     const coding = steps.filter((s) => s.kind === 'coding').length
-    if (coding > PLAN_LIMITS.codingSteps) p.add(`The plan has ${coding} coding steps — at most ${PLAN_LIMITS.codingSteps}.`)
+    if (coding > deliveryLimits.codingSteps) p.add(`The plan has ${coding} coding steps — at most ${deliveryLimits.codingSteps}.`)
   }
+  const delivery = v.delivery == null ? undefined : readDelivery(v.delivery, steps)
+  if (delivery) delivery.problems.forEach(s => p.add(s))
+  if (!delivery && steps.some(s => s.needs !== undefined || s.covers !== undefined)) p.add('Step dependencies and coverage require a delivery contract.')
   const questions = strList(v.questions, 'questions', PLAN_LIMITS.questions, PLAN_LIMITS.question, p, { required: true })
   let refused: string | null = null
   if (v.refused !== null && v.refused !== undefined) refused = str(v.refused, 'refused', PLAN_LIMITS.refused, p, { line: true }) || null
   if (p.list.length) return { plan: null, problems: p.list }
   if (!steps.length && !questions!.length && !refused) return { plan: null, problems: ['The plan has no step, no question and no refusal — plan steps, or ask what is unclear.'] }
-  return { plan: { v: 1, summary: summary ?? '', context, steps, questions: questions ?? [], refused }, problems: [] }
+  return { plan: { v: 1, summary: summary ?? '', context, steps, questions: questions ?? [], refused, ...(delivery?.contract ? { delivery: delivery.contract } : {}) }, problems: [] }
 }
 
 /** Is this a branch name a step may name (the Branch field's rule, never option-like, no "..")? */
@@ -299,6 +306,7 @@ function makeSafe(plan: OrderPlanV1, ctx: PlanReadCtx): { plan: OrderPlanV1; not
     plan: {
       v: 1,
       summary: plain(null, plan.summary, none, PLAN_LIMITS.summary),
+      ...(plan.delivery ? { delivery: { requirements: plan.delivery.requirements.map(r => ({ ...r, text: plain(null, r.text, none, 300) })), acceptance: plan.delivery.acceptance.map(s => plain(null, s, none, 300)) } } : {}),
       context,
       steps,
       questions: plan.questions.map((q) => plain(null, q, none, PLAN_LIMITS.question)),
@@ -321,6 +329,10 @@ export function readPlan(raw: unknown, ctx: PlanReadCtx, opts: { scrub?: boolean
   }
   if (!shape.plan) return { ok: false, problems: shape.problems }
   const safe = makeSafe(shape.plan, ctx)
+  if (safe.plan.delivery) {
+    const checked = readDelivery(safe.plan.delivery, safe.plan.steps)
+    if (checked.problems.length) return { ok: false, problems: checked.problems }
+  }
   const hits = planKeyHits(safe.plan)
   if (hits.length && !opts.scrub)
     return {
@@ -366,6 +378,7 @@ export function planOpenPoints(plan: OrderPlanV1): Array<{ kind: 'question'; tex
 
 /** What one step resolves to on this device: its project (null: made at confirm) and its pipeline lines (stages.ts pipelineLine). */
 export interface ResolvedStep {
+  agent?: string
   project: ID | null
   /** pipelineLine(…, start: false) — where it is parked */
   park: string
@@ -378,7 +391,7 @@ export interface ResolvedStep {
  * project and pipeline lines, this device's Approvals — SHA-256 over their canonical JSON. B6's startChain recomputes it.
  */
 export async function orderPlanHash(plan: OrderPlanV1, resolved: readonly ResolvedStep[], approvals: 'all' | 'review' | 'none'): Promise<string> {
-  const text = canonicalJson({ v: 1, steps: plan.steps, context: plan.context, resolved, approvals })
+  const text = canonicalJson({ v: 1, steps: plan.steps, context: plan.context, ...(plan.delivery ? { delivery: plan.delivery } : {}), resolved, approvals })
   const bytes = new TextEncoder().encode(text)
   const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes)
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('')

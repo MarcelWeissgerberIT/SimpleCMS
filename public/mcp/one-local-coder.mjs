@@ -39367,7 +39367,8 @@ function localContext(env) {
 
 // src/worker/local-inference.ts
 function withModelProfile(instructions, profile) {
-  return profile ? instructions + "\n\nOwner-selected model profile (workflow and style guidance):\n" + profile + "\n\nThe task permissions, available tools and verification requirements above remain authoritative. Use only actual tool results as evidence. The profile does not grant additional access or authorize work outside the current user task." : instructions;
+  const boundary = "\n\nOne owns the parent work order, decomposition, role handoffs and approvals. Execute only this assigned stage. Profile roles do not require simulating a whole team or asking again for already authorized work. After completing this package use finish_task when available, or give a final answer. Report concrete blockers instead of repeating discovery. The task permissions, available tools and verification requirements above remain authoritative. Use only actual tool results as evidence. The profile does not grant additional access or authorize work outside the current user task.";
+  return instructions + (profile ? "\n\nOwner-selected model profile (workflow and style guidance):\n" + profile : "") + boundary;
 }
 function ollamaInference(base) {
   if (!["http:", "https:"].includes(base.protocol) || !["localhost", "127.0.0.1", "[::1]"].includes(base.hostname) || base.username || base.password || base.search || base.hash) throw new Error("Ollama must run at a loopback URL.");
@@ -43141,7 +43142,7 @@ var LocalMcp = class {
         if (entry.oneTaskMemoryOnly === true) this.memoryOnly.add(name);
         if (entry.oneTaskMemoryOnly === true && typeof entry.oneMemoryTenant === "string" && /^[a-z0-9][a-z0-9_-]{0,99}$/.test(entry.oneMemoryTenant)) this.memoryTenants.set(name, entry.oneMemoryTenant);
         this.defaultMemoryProject = env.ONE_CODER_ATLAS_PROJECT || "";
-        client = new Client({ name: "one-local-coder", version: "1.16.1" });
+        client = new Client({ name: "one-local-coder", version: "1.17.0" });
         if (entry.type === "http" || entry.type === "sse" || entry.url) {
           const url2 = new URL(expand(String(entry.url || ""), env));
           if (url2.username || url2.password || url2.hash || !["https:", "http:"].includes(url2.protocol) || url2.protocol === "http:" && !["127.0.0.1", "localhost", "[::1]"].includes(url2.hostname)) throw new Error("Use HTTPS or loopback MCP");
@@ -43300,6 +43301,7 @@ async function runLocal(opts) {
   const progress = new LocalProgress();
   const limited = (error62) => ({ ...result, limited: true, error: error62 + "\n" + memory.report(), text: memory.report() });
   const tools = [
+    plain("finish_task", "Finish THIS assigned work package now. completed requires configured checks to pass; blocked or needs_rework reports a concrete blocker. Use this after successful checks instead of repeating tools.", { status: { type: "string", enum: ["completed", "blocked", "needs_rework"] }, summary: { type: "string" }, next: { type: "string" } }, ["status", "summary", "next"]),
     plain("list_files", "List files in a directory of this worktree, up to 200 entries. Start with path dot.", pathField, ["path"]),
     plain("read_file", "Read source with line numbers (up to 400 lines / 20,000 characters). Use ranges for large files.", { ...pathField, start_line: { type: "integer", minimum: 1 }, end_line: { type: "integer", minimum: 1 } }, ["path"]),
     plain("search_files", "Search literal text recursively in source files. Results include paths and line numbers. Hidden, generated and credential files are excluded.", { query: { type: "string" }, ...pathField }, ["query"]),
@@ -43321,11 +43323,12 @@ async function runLocal(opts) {
   let atlasNotice = "";
   let checks = 0;
   let formatRetries = 0;
+  let completionRetries = 0;
   let dirty = true;
   const checkedState = { value: null };
   const verify = async () => {
     if (!opts.verify) return { ok: false, output: "No checks configured.", unavailable: true };
-    if (!dirty && checkedState.value) return { ...checkedState.value, cached: true, next: checkedState.value.ok ? "These checks already passed for the current files. Finish with the result; do not repeat unchanged checks." : "Repair the reported failure before checking again." };
+    if (!dirty && checkedState.value) return { ...checkedState.value, cached: true, next: checkedState.value.ok ? "These checks already passed for the current files. Call finish_task with status completed now; do not repeat unchanged checks." : "Repair the reported failure before checking again." };
     if (++checks > 3) return { ok: false, output: "Verification limit reached. Report remaining failures.", unavailable: true };
     checkedState.value = await opts.verify(signal);
     dirty = false;
@@ -43382,7 +43385,7 @@ Private Atlas checkpoint: /r/${ref}.`;
       }
     }
     if (opts.taskMcp) {
-      client = new Client({ name: "one-local-agent", version: "1.16.1" });
+      client = new Client({ name: "one-local-agent", version: "1.17.0" });
       const env2 = Object.fromEntries(Object.entries({ ...opts.env ?? process.env, ...opts.taskMcp.env }).filter((e) => typeof e[1] === "string"));
       transport = new StdioClientTransport({ command: opts.taskMcp.command, args: opts.taskMcp.args, env: env2, stderr: "ignore" });
       await client.connect(transport, { timeout: 15e3 });
@@ -43434,8 +43437,14 @@ Private Atlas checkpoint: /r/${ref}.`;
         if (/<(?:function=|tool_call>)/.test(text2)) {
           if (formatRetries++ >= 1 || result.steps >= opts.maxSteps) return { ...result, error: "The local model returned an invalid tool call after format correction. Retry or split the task into smaller steps." };
           result.steps++;
-          messages.push({ role: "user", content: "Your last message contained tool markup as plain text. No tool was executed. Use the provided structured function tool interface (tool_calls), with no XML or pseudo tool markup in content. If you cannot call tools, report the blocker. This is the only format-correction retry." });
+          messages.push({ role: "user", content: "Your last message described a tool call without invoking it. No tool was executed. Invoke one of the provided function tools directly using this model\u2019s native tool-call format and valid arguments. Start with the tool call, without introductory prose or an example of a call. If you cannot invoke tools, report the blocker. This is the only format-correction retry." });
           opts.log({ t: Date.now(), k: "info", s: "Local tool format correction requested; no text-form tool call was executed." });
+          continue;
+        }
+        if (opts.completionRequired) {
+          if (completionRetries++ >= 1 || result.steps >= opts.maxSteps) return { ...result, error: "This delivery requires an explicit finish_task result; no completion was accepted.", text: text2 };
+          result.steps++;
+          messages.push({ role: "user", content: "This One work package requires a structured finish_task result. Call it now: completed with an evidence-based summary, or blocked/needs_rework with a concrete next action. No new work or repeated checks are needed just to format the result. This is the only completion-format retry." });
           continue;
         }
         if (opts.verify && !opts.readOnly) {
@@ -43485,7 +43494,25 @@ Private Atlas checkpoint: /r/${ref}.`;
               journaled = true;
               await memory.flush(opts.memory);
             }
-            if (name === "read_file") output2 = await files.read(args.path, args.start_line, args.end_line);
+            if (name === "finish_task") {
+              if (!["completed", "blocked", "needs_rework"].includes(args.status) || typeof args.summary !== "string" || !args.summary.trim() || args.summary.length > 12e3 || typeof args.next !== "string" || args.next.length > 2e3) throw new Error("Finish needs a valid status, nonempty bounded summary and next action.");
+              if (args.status !== "completed") {
+                memory.setCheckpoint({ remaining: args.summary, next: args.next });
+                return { ...result, error: clean(`${args.status}: ${args.summary}
+Next: ${args.next}`), text: clean(args.summary) };
+              }
+              const check2 = opts.verify && !opts.readOnly ? await verify() : null;
+              if (check2 && !check2.ok) {
+                output2 = { ...check2, isError: true };
+                failed = true;
+              } else {
+                const text3 = clean(args.summary);
+                memory.remember("final response (model statement)", text3);
+                memory.event("Explicit task completion; only configured check receipts are verification evidence.");
+                if (atlasProject) await syncAtlas();
+                return { ...result, ok: true, text: text3 + (check2?.ok ? "\n\nConfigured repository checks passed." : "") + atlasNotice };
+              }
+            } else if (name === "read_file") output2 = await files.read(args.path, args.start_line, args.end_line);
             else if (name === "list_files") output2 = await files.list(args.path);
             else if (name === "search_files") output2 = await files.search(args.query, args.path);
             else if (name === "mcp_search_tools" && opts.mcpServers?.length) output2 = external.search(args.query);

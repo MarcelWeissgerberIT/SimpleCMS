@@ -7,6 +7,14 @@ import type { Messages } from '@/shared/i18n'
  */
 export const messages: Messages = {
   en: {
+    'features.coding.order.settings.agentsHint': 'Choose the execution agent per role. The planner uses One’s AI settings.',
+    'features.coding.order.plan.mergeBeforeQa': 'A coding subtask cannot merge before final delivery QA. Use a pipeline without Merge for these subtasks.',
+
+    'features.coding.order.plan.goesWithDelivery': 'Goes along with every delivery step',
+    'features.coding.order.chain.delivery': 'Requirements for this delivery',
+    'features.coding.order.chain.acceptance': 'Final acceptance',
+    'features.coding.order.chain.dependencies': 'Required earlier steps',
+
     'features.coding.agent.label': 'Coding agent',
     'features.coding.agent.claude': 'Claude Code',
     'features.coding.agent.codex': 'Codex',
@@ -850,6 +858,14 @@ export const messages: Messages = {
     'features.coding.worker.outdatedFix': 'A newer worker is on the site — {adds}. This one still runs every stage, but a stage can go on “working” after Claude Code is done. Download it, stop the old one (Ctrl+C) and start the new file.',
   },
   de: {
+    'features.coding.order.settings.agentsHint': 'Wähle den ausführenden Agenten je Rolle. Der Planer nutzt Ones KI-Einstellungen.',
+    'features.coding.order.plan.mergeBeforeQa': 'Eine Coding-Teilaufgabe darf nicht vor der Gesamtabnahme mergen. Nutze dafür eine Pipeline ohne Merge.',
+
+    'features.coding.order.plan.goesWithDelivery': 'Geht bei jedem Auftragsschritt mit',
+    'features.coding.order.chain.delivery': 'Anforderungen dieses Auftrags',
+    'features.coding.order.chain.acceptance': 'Gesamtabnahme',
+    'features.coding.order.chain.dependencies': 'Benötigte vorherige Schritte',
+
     'features.coding.agent.label': 'Coding-Agent',
     'features.coding.agent.claude': 'Claude Code',
     'features.coding.agent.codex': 'Codex',

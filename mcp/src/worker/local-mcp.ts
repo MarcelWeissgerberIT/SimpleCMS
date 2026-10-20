@@ -50,7 +50,7 @@ export class LocalMcp {
         if (entry.oneTaskMemoryOnly === true) this.memoryOnly.add(name)
         if (entry.oneTaskMemoryOnly === true && typeof entry.oneMemoryTenant === 'string' && /^[a-z0-9][a-z0-9_-]{0,99}$/.test(entry.oneMemoryTenant)) this.memoryTenants.set(name, entry.oneMemoryTenant)
         this.defaultMemoryProject = env.ONE_CODER_ATLAS_PROJECT || ''
-        client = new Client({ name: 'one-local-coder', version: '1.16.1' })
+        client = new Client({ name: 'one-local-coder', version: '1.17.0' })
         if (entry.type === 'http' || entry.type === 'sse' || entry.url) {
           const url = new URL(expand(String(entry.url || ''), env))
           if (url.username || url.password || url.hash || !['https:', 'http:'].includes(url.protocol) || (url.protocol === 'http:' && !['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname))) throw new Error('Use HTTPS or loopback MCP')

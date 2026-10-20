@@ -18,6 +18,7 @@
 import type { ID } from '../../../store/types'
 import { BUDGET_RANGE, ORDER_KINDS } from './config'
 import { ORDER_HALT_WHYS, type OrderChain, type OrderChainStep, type OrderDoneBy, type OrderDraft, type OrderHaltWhy, type OrderKind, type OrderPress, type OrderPressHow, type OrderProv, type OrderRecord, type OrderState } from './types'
+import { readDeliveryContract } from './delivery'
 
 /**
  * Whose records (records.ts orderScope): 'local:local', or in a team workspace this member's own —
@@ -52,6 +53,10 @@ function readStep(v: unknown): OrderChainStep | null {
   if (!isStepN(v.n) || !isId(v.id) || !(ORDER_KINDS as readonly unknown[]).includes(v.kind) || !isId(v.project)) return null
   if (typeof v.line !== 'string' || v.line.length > MAX_LINE) return null
   if (v.approvals !== 'all' && v.approvals !== 'review' && v.approvals !== 'none') return null
+  const currentNumber = v.n
+  if (v.needs !== undefined && (!Array.isArray(v.needs) || v.needs.length > MAX_STEPS || new Set(v.needs).size !== v.needs.length || v.needs.some(n => !isStepN(n) || n >= currentNumber))) return null
+  const delivery = v.delivery === undefined ? null : readDeliveryContract(v.delivery)
+  if (delivery && !delivery.contract) return null
   // each page it takes along → its pinned fingerprint ('' = unknown: an older record's revision — it asks)
   const refs: Record<ID, string> = {}
   if (isObj(v.refs))
@@ -63,6 +68,8 @@ function readStep(v: unknown): OrderChainStep | null {
   const own = Array.isArray(v.own) ? [...new Set(v.own.filter((b): b is string => typeof b === 'string' && BLOCK_RE.test(b)))].slice(0, MAX_OWN) : []
   return {
     n: v.n,
+    ...(delivery?.contract ? { delivery: delivery.contract } : {}),
+    ...(Array.isArray(v.needs) ? { needs: v.needs as number[] } : {}),
     id: v.id,
     kind: v.kind as OrderKind,
     project: v.project,
@@ -100,6 +107,7 @@ export function readOrderChain(v: unknown, nested = false): OrderChain | null {
   if (!steps.length || v.steps.length > MAX_STEPS) return null
   steps.sort((a, b) => a.n - b.n)
   const ns = new Set(steps.map((s) => s.n))
+  if (steps.some(s => s.needs?.some(n => !ns.has(n)))) return null
   const doneBy: Record<number, OrderDoneBy> = {}
   if (isObj(v.doneBy))
     for (const [k, d] of Object.entries(v.doneBy)) {

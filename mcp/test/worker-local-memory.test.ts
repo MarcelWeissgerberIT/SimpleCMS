@@ -105,6 +105,30 @@ test('repeated failing tools stop with useful partial state before the global bu
   assert.match(result.text, /read_file:missing.ts/)
 })
 
+test('explicit completion is checked by the host, rejects failures, and ends without another inference turn', async () => {
+  const root = tempDir('memory-finish')
+  let calls = 0
+  let checked = false
+  const replies = [call('finish_task', { status: 'completed', summary: 'All done', next: '' }), call('finish_task', { status: 'blocked', summary: 'The configured check still fails', next: 'Repair the failing assertion' })]
+  const failed = await runLocal({ ...options(root, async () => replies[calls++] ?? final), verify: async () => ({ ok: false, output: 'FAIL fixed acceptance' }) })
+  assert.equal(failed.ok, false)
+  assert.match(failed.error!, /blocked/)
+  calls = 0
+  const passed = await runLocal({ ...options(root, async () => { calls++; return call('finish_task', { status: 'completed', summary: 'Implemented and checked', next: '' }) }), verify: async () => { checked = true; return { ok: true, output: 'PASS' } } })
+  assert.equal(passed.ok, true, passed.error)
+  assert.equal(checked, true)
+  assert.equal(calls, 1)
+})
+
+test('delivery packages require structured completion and bound missing-completion retries', async () => {
+  const root = tempDir('delivery-finish-required')
+  let calls = 0
+  const failed = await runLocal({ ...options(root, async () => { calls++; return final }), completionRequired: true })
+  assert.equal(failed.ok, false)
+  assert.match(failed.error!, /explicit finish_task/)
+  assert.equal(calls, 2)
+})
+
 test('text-form tool calls get one bounded correction and never execute as tools', async () => {
   const root = tempDir('memory-tool-format')
   let calls = 0

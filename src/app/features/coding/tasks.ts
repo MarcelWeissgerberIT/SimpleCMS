@@ -1,4 +1,4 @@
-import { codingAgentOf } from './agent'
+import { codingAgentOf, codingAgentProperty, agentProperty } from './agent'
 /**
  * Coding pipeline — the task operations on the workspace (store actions only):
  *  - for the worker: pickNext (choose + claim: Worker + Claimed at), heartbeat, finishStage (cost, branch,
@@ -290,7 +290,17 @@ export async function pickNext(repos: string[], workerName: string, docs = false
     }
     // a stage an older worker would misread (it ran unknown kinds as git stages, it would ignore the model): not for
     // this worker — the task says why
-    const agent = db.system === 'coding' ? codingAgentOf(db, row) : 'claude'
+    const agent = codingAgentOf(db, row)
+    const orderIds = props.order ? row.properties[props.order] : null
+    let quality: TaskPayload['quality']
+    if (Array.isArray(orderIds) && typeof orderIds[0] === 'string') {
+      const record = await (await import('./orders/records')).loadOrderRecord(orderIds[0])
+      if (record && record !== 'unreadable') {
+        const step = record.chain?.steps.find(s => s.id === row.id)
+        if (step?.delivery) quality = { review: step.kind === 'qa' && !!record.chain?.steps.some(s => s.kind === 'coding'), requirements: step.delivery.requirements.map(r => `${r.id}: ${r.text}`), acceptance: step.delivery.acceptance }
+      }
+    }
+    if (quality && !caps.has('delivery-qa')) { skip(); await patchTask(row.id, { state: 'failed', error: OLD_WORKER(), runNow: false }); continue }
     if (!agent) { skip(); await patchTask(row.id, { state: 'failed', error: t('features.coding.agent.unknown'), runNow: false }); continue }
     const model = agent === 'claude' ? modelFor(stage, local) : null
     if (stageNeeds({ ...stage, model, agent }).some((need) => !caps.has(need))) {
@@ -328,6 +338,7 @@ export async function pickNext(repos: string[], workerName: string, docs = false
     return {
       id: row.id,
       agent,
+      ...(quality ? { quality } : {}),
       title: fresh.title.trim() || t('common.untitled'),
       repo,
       stage: { id: stage.id, name: stage.name, kind: stage.kind, instructions: stage.instructions ?? '', permissionMode: stage.kind === 'plan' ? 'plan' : stage.kind === 'doc' ? 'default' : (stage.permissionMode ?? 'acceptEdits'), maxTurns: stageSteps(stage), gitAction: stage.gitAction ?? null, model },
@@ -981,6 +992,7 @@ export function moveTask(taskId: ID, stageId: ID): void {
 }
 
 export interface NewTask {
+  agent?: TaskPayload['agent']
   title: string
   repo: string | null
   goal: string
@@ -1075,6 +1087,11 @@ function createTaskRow(input: NewTask): ID {
   const pipeline = readPipeline(db)
   const start = startStageOf(pipeline, !!input.repo, input.start)
   const properties: Record<ID, PropertyValue> = {}
+  if (input.agent) {
+    let property = codingAgentProperty(db)
+    if (!property) { property = agentProperty(); ws().addProperty(dbId, property) }
+    properties[property.id] = `coding_agent_${input.agent}`
+  }
   const repoOpt = input.repo ? optionByName(db, props.repo, input.repo) : null
   if (props.repo && repoOpt) properties[props.repo] = repoOpt
   if (props.stage && start) properties[props.stage] = start.id

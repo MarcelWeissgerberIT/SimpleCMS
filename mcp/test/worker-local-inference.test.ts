@@ -25,7 +25,7 @@ test('owner profiles are loaded for the selected model, validated and never trea
     assert.match(withModelProfile('Read-only stage.', loaded), /does not grant additional access/)
     profile = undefined
     assert.equal(await adapter.profile!('unmodified-base-model', signal), '')
-    assert.equal(withModelProfile('Read-only stage.', ''), 'Read-only stage.')
+    assert.match(withModelProfile('Read-only stage.', ''), /Read-only stage\.[\s\S]*One owns the parent work order/)
     profile = { unexpected: true }
     await assert.rejects(adapter.profile!('invalid', signal), /invalid/)
     profile = 'x'.repeat(50001)

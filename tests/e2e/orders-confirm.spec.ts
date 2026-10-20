@@ -161,6 +161,73 @@ test.describe('confirming a work order: startChain', () => {
     fake = null
   })
 
+  test('confirmed delivery carries context, local agent and acceptance into actual worker handoff', async ({ page }) => {
+    const plan = fill(FIXTURE.plan)
+    plan.delivery = { requirements: [{ id: 'R1', text: 'The session survives the timeout.' }], acceptance: ['Session remains valid and logout still works.'] }
+    plan.steps = plan.steps.map((s: AnyState, i: number) => ({ ...s, repo: 'website', needs: i ? [i] : [], covers: ['R1'] }))
+    await mockClaudeScript(page.context(), [answer({ calls: true, plan })])
+    const { db, row } = await setup(page, { server: true })
+    await wsEval(page, (s, id) => s.updateDatabase(id, { orders: { ...s.databases[id].orders, agent: 'local' } }), db)
+    expect(await orders(page).plan(row)).toMatchObject({ kind: 'ready', steps: 3 })
+    await gotoPage(page, row)
+    await expect(page.getByTestId('order-delivery')).toBeVisible()
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: width === 1440 ? 900 : 844 })
+      for (const theme of ['light', 'dark']) {
+        await page.evaluate(t => document.documentElement.setAttribute('data-theme', t), theme)
+        await page.keyboard.press('Shift')
+        if (width === 390) { await page.mouse.move(300, 500); await page.mouse.wheel(0, 500) }
+        await page.getByTestId('order-delivery').evaluate(el => el.scrollIntoView({ block: 'center' }))
+        await page.screenshot({ path: `/tmp/one-delivery-${width}-${theme}.png`, animations: 'disabled' })
+      }
+    }
+    const out = await orders(page).start(row)
+    expect(out).toMatchObject({ ok: true })
+    for (const id of out.steps as string[]) {
+      const p = await pageOf(page, id)
+      expect(textOf(p.content)).toContain('R1: The session survives the timeout.')
+      expect(textOf(p.content)).toContain('Session remains valid and logout still works.')
+      expect(textOf(p.content)).toContain(plan.context.note)
+      const values = Object.values(p.properties)
+      expect(values).toContain('coding_agent_local')
+    }
+    const rec = await orders(page).record(row)
+    expect(rec.chain.steps[2].needs).toEqual([2])
+    await call(page, 'startNow', row)
+    await expect.poll(() => fake!.handed().length, { timeout: 15_000 }).toBeGreaterThan(0)
+    expect(fake!.handed()[0]).toMatchObject({ agent: 'local', quality: { review: false, requirements: ['R1: The session survives the timeout.'], acceptance: plan.delivery.acceptance } })
+  })
+
+  test('the settings route BA, coding and QA independently and show the selected agents', async ({ page }) => {
+    const plan = noContext()
+    plan.delivery = { requirements: [{ id: 'R1', text: 'Session remains valid' }], acceptance: ['Login and logout pass'] }
+    plan.steps = plan.steps.map((s: AnyState, i: number) => ({ ...s, repo: 'website', needs: i ? [i] : [], covers: ['R1'] }))
+    await mockClaudeScript(page.context(), [answer({ plan })])
+    const { db, row } = await setup(page)
+    await gotoPage(page, row)
+    await page.getByTestId('order-settings-key').first().click()
+    await page.getByTestId('order-settings-agent-spec').selectOption('claude')
+    await page.getByTestId('order-settings-agent-coding').selectOption('local')
+    await page.getByTestId('order-settings-agent-qa').selectOption('codex')
+    expect(await wsEval(page, (s, id) => s.databases[id].orders.agents, db)).toEqual({ spec: 'claude', coding: 'local', qa: 'codex' })
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: width === 1440 ? 900 : 844 })
+      for (const theme of ['light', 'dark']) {
+        await page.evaluate(t => document.documentElement.setAttribute('data-theme', t), theme)
+        await page.getByTestId('order-settings-agent-coding').scrollIntoViewIfNeeded()
+        await page.screenshot({ path: `/tmp/one-delivery-settings-${width}-${theme}.png`, animations: 'disabled' })
+      }
+    }
+    await page.keyboard.press('Escape')
+    expect(await orders(page).plan(row)).toMatchObject({ kind: 'ready' })
+    const out = await orders(page).start(row)
+    expect(out).toMatchObject({ ok: true })
+    for (const [i, agent] of ['claude', 'local', 'codex'].entries()) {
+      const p = await pageOf(page, out.steps[i])
+      expect(Object.values(p.properties)).toContain(`coding_agent_${agent}`)
+    }
+  })
+
   test('every step parked with its page (slot · request quote · context in step 01 · goal · criteria · pages), roles, trust; step 01 starts after the count', async ({ page }) => {
     await mockClaudeScript(page.context(), [answer({ calls: true })])
     const { row } = await setup(page, { server: true })

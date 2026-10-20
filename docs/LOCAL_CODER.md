@@ -250,3 +250,43 @@ is reported; the worker never opens a browser or grants consent by itself. Repea
 Add `atlas-memory` to the worker's selected MCP servers, then restart an idle worker. `ONE_CODER_MCP_CONFIG` can
 select another personal configuration file for both setup and runtime. A separate memory connection avoids changing
 the tenant selection of clients sharing the main Atlas token. Scope checks and server authorization still apply.
+
+
+## Work-order deliveries and final QA (worker 1.17.0)
+
+One’s existing work orders now plan a bounded delivery with up to 12 steps, including up to 8 coding tasks.
+New planner answers include a `delivery` contract: numbered requirements and final acceptance checks. Each step
+names its earlier dependencies (`needs`) and requirement coverage (`covers`). Unknown IDs, forward/cyclic references,
+missing work, different repositories/branches and coding work without final QA are refused before creation. Legacy
+plans without a contract retain their previous limits and behavior. Very large or multi-repository requests must be
+split explicitly; this release does not recursively create an unlimited graph or claim that a partial milestone is
+an entire completed project.
+
+In **Work orders → Settings**, choose Claude Code, Codex or local Ollama separately for BA, Coding and QA. The planner
+itself continues to use One’s existing AI routing/settings; selecting local coding does not switch the planner’s
+provider. Per-role choices participate in the confirmation hash. Unsupported explicit agent settings are refused,
+never silently run through a cloud agent. An older worker without `delivery-qa` cannot claim these tasks.
+
+Each generated task carries its relevant requirements, final acceptance checks, dependency pointers and the approved
+MCP server context. Task-scoped source references remain subject to the existing page/version checks. Coding steps
+without an explicitly selected branch reuse the latest coding branch in that repository, so later tasks and final QA
+see the combined work. The record remains the scheduler’s authority; display relations and model notes cannot start
+another task. A skipped contracted step cannot satisfy the delivery. A child coding pipeline containing Merge is
+refused: merge belongs after final acceptance. Other custom shell/test commands remain the owner’s configured code.
+
+Final QA document stages require that branch’s worktree and a configured test command. The host reruns those tests
+before a fresh read-only review. Missing commands and failed tests stop QA. Local QA cannot receive production-file
+write tools; an implement stage is refused for final QA. The parent cannot become complete without a successful,
+non-skipped QA test receipt. This is evidence of configured checks, not a guarantee that those checks cover every
+business requirement. Review findings and blockers stop the chain for correction; automatic cross-task QA repair
+and a separate Atlas-PM execution adapter are not included.
+
+Local contracted tasks must call `finish_task {status,summary,next}`. `completed` reruns/reuses the host’s current
+verification receipt; failed checks cannot be excused by a completion claim. `blocked` and `needs_rework` preserve a
+concrete next action and fail the stage. One bounded formatting retry handles narrative-only completion. Legacy
+proposal calls still accept ordinary final responses. Native Claude/Codex final QA returns a fenced JSON verdict
+with the same three fields; missing or non-completed verdicts fail QA.
+
+Validation combines deterministic graph/context/protocol tests, a browser chain-to-worker handoff, real local
+model runs in disposable fixtures and read-only inspection of previous work. Reports from actual private projects
+stay outside this repository. These initial cases are not an Opus-level benchmark or proof of large-project autonomy.

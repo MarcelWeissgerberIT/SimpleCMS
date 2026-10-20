@@ -31,6 +31,7 @@ import { claudeAuth } from './secrets.ts'
 import { runAnalysis, runTests, type RunResult } from './testrun.ts'
 import { runCodex } from './codex.ts'
 import { runLocal } from './local-agent.ts'
+import { deliveryReview } from './delivery-review.ts'
 
 export interface StageContext {
   repo: RepoConfig
@@ -165,6 +166,11 @@ export function buildPrompt(task: TaskPayload, repo: RepoConfig, branch: string,
   if (task.rework?.trim()) parts.push('', '## Rework requested (data)', ...dataBlock('REWORK', task.rework.trim(), code))
   if (task.answers.length) {
     parts.push('', '## Your questions and the person\'s answers (data)', ...dataBlock('ANSWERS', task.answers.map((a) => `Q: ${a.q.trim()}\nA: ${a.a.trim()}\n`).join('\n'), code))
+  }
+  if (task.quality) {
+    parts.push('', '## Confirmed delivery acceptance (data)', ...dataBlock('ACCEPTANCE', JSON.stringify(task.quality), code))
+    if (task.quality.review) parts.push('This is a fresh final QA pass. Read the combined branch and check every acceptance criterion. Configured tests have been run by the host. Do not rely on previous model summaries. Report needs_rework or blocked when evidence is missing; completed means no unresolved acceptance failures. Do not edit production files.')
+    if (task.quality.review && task.agent !== 'local') parts.push('End with one fenced json object: {"status":"completed"|"blocked"|"needs_rework","summary":"evidence-based review","next":"remaining action or empty"}. Missing or non-completed verdicts cannot pass QA.')
   }
   if (diff) parts.push('', '## Changes on the branch (data)', ...dataBlock('DIFF', diff.text, code))
   return parts.join('\n')
@@ -355,6 +361,7 @@ export async function runStage(ctx: StageContext): Promise<StageOutcome> {
   forgetGitEnv()
   if (ctx.team && !task.trusted) return { status: 'refused', error: 'This task was written or changed on another device and is not confirmed on this one. Confirm it in One (task panel) first.' }
   const kind = task.stage.kind
+  if (task.quality?.review && kind === 'implement') return { status: 'refused', error: 'Delivery QA cannot edit production files; return findings to a coding task.' }
   if (kind === 'queue' || kind === 'gate' || kind === 'done' || kind === 'import') return { status: 'refused', error: `A ${kind} stage is not run by the worker.` }
   // a document stage reads only, a static analysis runs a command: neither creates a worktree or a branch (the task's
   // worktree when it has one, else the main checkout — or the scratch folder for a document without a repository)
@@ -364,6 +371,18 @@ export async function runStage(ctx: StageContext): Promise<StageOutcome> {
       const branch = task.repo ? (task.branch ?? ctx.state.taskAt(task.id)?.branch ?? null) : null
       const dir = branch ? await worktreeOf(repo, branch).catch(() => null) : null
       if (dir) scrub = repoScrubber(own, dir)
+      if (kind === 'doc' && task.quality?.review) {
+        if (!branch || !dir || !repo.testCommand?.length) return { status: 'failed', error: 'Delivery QA requires the combined coding branch and a configured repository test command.' }
+        const checked = await runTests(repo, dir, ctx.signal, undefined, s => scrub.text(s))
+        const test: TestResult = { ok: checked.ok, output: scrub.text(checked.output).slice(-20000), ms: checked.ms, code: checked.code }
+        if (!checked.ok || checked.notStarted) return { status: 'failed', test, error: 'Delivery QA checks failed: ' + scrub.text(checked.output).slice(-6000) }
+        const reviewed = await docStage(ctx, scrub, log, branch, dir)
+        if (reviewed.status === 'ok' && task.agent !== 'local') {
+          const verdict = deliveryReview(reviewed.plan ?? reviewed.summary ?? '')
+          if (!verdict || verdict.status !== 'completed') return { ...reviewed, status: 'failed', test, error: verdict ? `${verdict.status}: ${verdict.summary}\nNext: ${verdict.next}` : 'Delivery QA requires a structured final verdict; no completion was accepted.' }
+        }
+        return { ...reviewed, test, summary: [reviewed.summary, 'Delivery QA: configured tests passed on the combined branch.'].filter(Boolean).join('\n') }
+      }
       return kind === 'doc' ? await docStage(ctx, scrub, log, branch, dir) : await analyzeStage(ctx, scrub, log, dir)
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
@@ -614,6 +633,7 @@ async function alternateStage(ctx: StageContext, scrub: Scrubber, log: Log, bran
     const options = { agent, cwd: dir, prompt, readOnly, maxSteps: max, signal: ctx.signal, taskMcp: ctx.taskMcp, progress: ctx.progress,
       log: (line: LogLine) => ctx.log({ ...line, s: scrub.text(line.s) }) }
     const res = agent === 'local' ? await runLocal({ ...options,
+      completionRequired: !!task.quality,
       memory: { directory: join(dirname(ctx.state.file), 'local-memory'), scope: JSON.stringify([repo.path, task.id, task.stage.id]), resume: !!task.resume, projectKey: repo.name },
       scrub: s => scrub.text(s),
       mcpServers: repo.claude.mcpServers.length ? repo.claude.mcpServers : ctx.localMcpServers,

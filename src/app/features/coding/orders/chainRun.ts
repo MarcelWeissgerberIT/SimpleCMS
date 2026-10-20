@@ -128,6 +128,7 @@ export async function taskFacts(id: ID, young = false): Promise<ChainTaskFacts> 
     repo,
     branch: typeof branchRaw === 'string' && branchRaw.trim() ? branchRaw.trim() : null,
     spentUsd: typeof local.spentUsd === 'number' && local.spentUsd > 0 ? local.spentUsd : 0,
+    verified: local.test?.ok === true && !local.test.skipped && local.state !== 'failed',
   }
 }
 

@@ -16,7 +16,7 @@ const allowedMcp = new Set(['one_task_read', 'one_task_note', 'one_task_ask'])
 
 /** Local inference with flat function tools: no cloud provider, CLI or arbitrary shell execution. */
 export interface LocalVerification { ok: boolean; output: string; unavailable?: boolean }
-export interface LocalRun extends CodexRun { verify?: (signal: AbortSignal) => Promise<LocalVerification>; mcpServers?: string[]; memory?: MemoryOptions; scrub?: (s: string) => string; inference?: LocalInference }
+export interface LocalRun extends CodexRun { completionRequired?: boolean; verify?: (signal: AbortSignal) => Promise<LocalVerification>; mcpServers?: string[]; memory?: MemoryOptions; scrub?: (s: string) => string; inference?: LocalInference }
 
 export async function runLocal(opts: LocalRun): Promise<CodexResult> {
   const result: CodexResult = { ok: false, stopped: false, limited: false, text: '', steps: 0 }
@@ -35,6 +35,7 @@ export async function runLocal(opts: LocalRun): Promise<CodexResult> {
   const progress = new LocalProgress()
   const limited = (error: string): CodexResult => ({ ...result, limited: true, error: error + '\n' + memory.report(), text: memory.report() })
   const tools: any[] = [
+    plain('finish_task', 'Finish THIS assigned work package now. completed requires configured checks to pass; blocked or needs_rework reports a concrete blocker. Use this after successful checks instead of repeating tools.', { status: { type: 'string', enum: ['completed', 'blocked', 'needs_rework'] }, summary: { type: 'string' }, next: { type: 'string' } }, ['status', 'summary', 'next']),
     plain('list_files', 'List files in a directory of this worktree, up to 200 entries. Start with path dot.', pathField, ['path']),
     plain('read_file', 'Read source with line numbers (up to 400 lines / 20,000 characters). Use ranges for large files.', { ...pathField, start_line: { type: 'integer', minimum: 1 }, end_line: { type: 'integer', minimum: 1 } }, ['path']),
     plain('search_files', 'Search literal text recursively in source files. Results include paths and line numbers. Hidden, generated and credential files are excluded.', { query: { type: 'string' }, ...pathField }, ['query']),
@@ -56,11 +57,12 @@ export async function runLocal(opts: LocalRun): Promise<CodexResult> {
   let atlasNotice = ''
   let checks = 0
   let formatRetries = 0
+  let completionRetries = 0
   let dirty = true
   const checkedState: { value: LocalVerification | null } = { value: null }
   const verify = async () => {
     if (!opts.verify) return { ok: false, output: 'No checks configured.', unavailable: true }
-    if (!dirty && checkedState.value) return { ...checkedState.value, cached: true, next: checkedState.value.ok ? 'These checks already passed for the current files. Finish with the result; do not repeat unchanged checks.' : 'Repair the reported failure before checking again.' }
+    if (!dirty && checkedState.value) return { ...checkedState.value, cached: true, next: checkedState.value.ok ? 'These checks already passed for the current files. Call finish_task with status completed now; do not repeat unchanged checks.' : 'Repair the reported failure before checking again.' }
     if (++checks > 3) return { ok: false, output: 'Verification limit reached. Report remaining failures.', unavailable: true }
     checkedState.value = await opts.verify(signal)
     dirty = false
@@ -106,7 +108,7 @@ export async function runLocal(opts: LocalRun): Promise<CodexResult> {
       }
     }
     if (opts.taskMcp) {
-      client = new Client({ name: 'one-local-agent', version: '1.16.1' })
+      client = new Client({ name: 'one-local-agent', version: '1.17.0' })
       const env = Object.fromEntries(Object.entries({ ...(opts.env ?? process.env), ...opts.taskMcp.env }).filter((e): e is [string, string] => typeof e[1] === 'string'))
       transport = new StdioClientTransport({ command: opts.taskMcp.command, args: opts.taskMcp.args, env, stderr: 'ignore' })
       await client.connect(transport, { timeout: 15000 })
@@ -160,8 +162,14 @@ export async function runLocal(opts: LocalRun): Promise<CodexResult> {
         if (/<(?:function=|tool_call>)/.test(text)) {
           if (formatRetries++ >= 1 || result.steps >= opts.maxSteps) return { ...result, error: 'The local model returned an invalid tool call after format correction. Retry or split the task into smaller steps.' }
           result.steps++
-          messages.push({ role: 'user', content: 'Your last message contained tool markup as plain text. No tool was executed. Use the provided structured function tool interface (tool_calls), with no XML or pseudo tool markup in content. If you cannot call tools, report the blocker. This is the only format-correction retry.' })
+          messages.push({ role: 'user', content: 'Your last message described a tool call without invoking it. No tool was executed. Invoke one of the provided function tools directly using this model’s native tool-call format and valid arguments. Start with the tool call, without introductory prose or an example of a call. If you cannot invoke tools, report the blocker. This is the only format-correction retry.' })
           opts.log({ t: Date.now(), k: 'info', s: 'Local tool format correction requested; no text-form tool call was executed.' })
+          continue
+        }
+        if (opts.completionRequired) {
+          if (completionRetries++ >= 1 || result.steps >= opts.maxSteps) return { ...result, error: 'This delivery requires an explicit finish_task result; no completion was accepted.', text }
+          result.steps++
+          messages.push({ role: 'user', content: 'This One work package requires a structured finish_task result. Call it now: completed with an evidence-based summary, or blocked/needs_rework with a concrete next action. No new work or repeated checks are needed just to format the result. This is the only completion-format retry.' })
           continue
         }
         if (opts.verify && !opts.readOnly) {
@@ -203,7 +211,23 @@ export async function runLocal(opts: LocalRun): Promise<CodexResult> {
           else if (cached && sideEffect && !cached.failed) { replay = true; output = { cached: true, result: cached.value, warning: 'Identical operation already ran. Its side effect was not repeated.' } }
           else {
             if (remoteWrite) { memory.beginOperation(name, args); journaled = true; await memory.flush(opts.memory) }
-            if (name === 'read_file') output = await files.read(args.path, args.start_line, args.end_line)
+            if (name === 'finish_task') {
+              if (!['completed', 'blocked', 'needs_rework'].includes(args.status) || typeof args.summary !== 'string' || !args.summary.trim() || args.summary.length > 12000 || typeof args.next !== 'string' || args.next.length > 2000) throw new Error('Finish needs a valid status, nonempty bounded summary and next action.')
+              if (args.status !== 'completed') {
+                memory.setCheckpoint({ remaining: args.summary, next: args.next })
+                return { ...result, error: clean(`${args.status}: ${args.summary}\nNext: ${args.next}`), text: clean(args.summary) }
+              }
+              const check = opts.verify && !opts.readOnly ? await verify() : null
+              if (check && !check.ok) { output = { ...check, isError: true }; failed = true }
+              else {
+                const text = clean(args.summary)
+                memory.remember('final response (model statement)', text)
+                memory.event('Explicit task completion; only configured check receipts are verification evidence.')
+                if (atlasProject) await syncAtlas()
+                return { ...result, ok: true, text: text + (check?.ok ? '\n\nConfigured repository checks passed.' : '') + atlasNotice }
+              }
+            }
+            else if (name === 'read_file') output = await files.read(args.path, args.start_line, args.end_line)
             else if (name === 'list_files') output = await files.list(args.path)
             else if (name === 'search_files') output = await files.search(args.query, args.path)
             else if (name === 'mcp_search_tools' && opts.mcpServers?.length) output = external.search(args.query)

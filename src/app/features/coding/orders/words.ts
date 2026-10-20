@@ -42,6 +42,9 @@ export function stepWords(tr: Translate, lang: Lang): StepPageWords {
   return {
     waits: (n) => tr('features.coding.order.chain.waitsStep', { n: stepNo(n) }),
     request: (code) => tr('features.coding.order.chain.request', { id: code }),
+    delivery: tr('features.coding.order.chain.delivery'),
+    acceptance: tr('features.coding.order.chain.acceptance'),
+    dependencies: tr('features.coding.order.chain.dependencies'),
     requestCut: (shown, total) => tr('features.coding.order.chain.requestCut', { shown: num.format(shown), total: num.format(total) }),
     context: (server) => tr('features.coding.order.chain.context', { server }),
     refs: tr('features.coding.order.chain.refs'),

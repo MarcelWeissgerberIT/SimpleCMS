@@ -10,7 +10,7 @@
 import { looksLikeKey, scrubSecrets } from '@/shared/ai/keys'
 import type { OrderPlanV1 } from './types'
 
-export type PlanKeyField = 'summary' | 'context' | 'questions' | 'refused' | 'title' | 'goal' | 'criteria' | 'why'
+export type PlanKeyField = 'summary' | 'context' | 'questions' | 'refused' | 'title' | 'goal' | 'criteria' | 'why' | 'delivery'
 
 /** A field holding a key: `step` = the step's number (1 = "01"), null for the plan's own fields. */
 export interface PlanKeyHit {
@@ -28,6 +28,7 @@ export function planKeyHits(plan: OrderPlanV1): PlanKeyHit[] {
     if (texts.some((t) => looksLikeKey(t))) hits.push({ step, field })
   }
   check(null, 'summary', [plan.summary])
+  if (plan.delivery) check(null, 'delivery', [...plan.delivery.requirements.map(r => r.text), ...plan.delivery.acceptance])
   if (plan.context) check(null, 'context', [plan.context.note, ...plan.context.links])
   check(null, 'questions', plan.questions)
   check(null, 'refused', [plan.refused])
@@ -56,6 +57,7 @@ export function scrubPlanKeys(plan: OrderPlanV1): { plan: OrderPlanV1; scrubbed:
   if (!planKeyHits(plan).length) return { plan, scrubbed: [] }
   const next: OrderPlanV1 = {
     ...plan,
+    ...(plan.delivery ? { delivery: { requirements: plan.delivery.requirements.map(r => ({ ...r, text: scrub(null, r.text) })), acceptance: plan.delivery.acceptance.map(s => scrub(null, s)) } } : {}),
     summary: scrub(null, plan.summary),
     context: plan.context ? { ...plan.context, note: scrub(null, plan.context.note), links: plan.context.links.map((l) => scrub(null, l)) } : null,
     questions: plan.questions.map((q) => scrub(null, q)),

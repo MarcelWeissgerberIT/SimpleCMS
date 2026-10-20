@@ -205,8 +205,16 @@ export function sanitizeTask(raw: unknown): TaskPayload | null {
   if (!kind || !id || !/^[A-Za-z0-9_-]+$/.test(id) || typeof raw.repo !== 'string') return null
   const answers = Array.isArray(raw.answers) ? raw.answers.filter(isObj).slice(-20).map((a) => ({ q: str(a.q, 4000), a: str(a.a, 4000) })) : []
   const turns = Number(s.maxTurns)
+  let quality: TaskPayload['quality']
+  if (raw.quality !== undefined) {
+    const q = raw.quality
+    const texts = (v: unknown, max: number) => Array.isArray(v) && v.length >= 1 && v.length <= max && v.every(x => typeof x === 'string' && x.trim() && x.length <= 400)
+    if (!isObj(q) || typeof q.review !== 'boolean' || !texts(q.requirements, 16) || !texts(q.acceptance, 10)) return null
+    quality = { review: q.review, requirements: q.requirements as string[], acceptance: q.acceptance as string[] }
+  }
   return {
     id,
+    ...(quality ? { quality } : {}),
     ...(raw.agent ? { agent: raw.agent as TaskPayload['agent'] } : {}),
     title: oneLine(str(raw.title, 300)) || 'Untitled task',
     repo: raw.repo,

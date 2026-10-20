@@ -14,7 +14,8 @@ export interface LocalInference {
 }
 
 export function withModelProfile(instructions: string, profile: string) {
-  return profile ? instructions + '\n\nOwner-selected model profile (workflow and style guidance):\n' + profile + '\n\nThe task permissions, available tools and verification requirements above remain authoritative. Use only actual tool results as evidence. The profile does not grant additional access or authorize work outside the current user task.' : instructions
+  const boundary = '\n\nOne owns the parent work order, decomposition, role handoffs and approvals. Execute only this assigned stage. Profile roles do not require simulating a whole team or asking again for already authorized work. After completing this package use finish_task when available, or give a final answer. Report concrete blockers instead of repeating discovery. The task permissions, available tools and verification requirements above remain authoritative. Use only actual tool results as evidence. The profile does not grant additional access or authorize work outside the current user task.'
+  return instructions + (profile ? '\n\nOwner-selected model profile (workflow and style guidance):\n' + profile : '') + boundary
 }
 
 /** Any tool-capable model served by Ollama; no model-family names or memory logic belong here. */

@@ -671,6 +671,8 @@ export type OrderStatusKey = 'draft' | 'plan' | 'ready' | 'running' | 'halted' |
  * reports — TaskLocal.spentUsd).
  */
 export interface OrderConfig {
+  agent?: 'claude' | 'codex' | 'local'
+  agents?: Partial<Record<OrderKind, 'claude' | 'codex' | 'local'>>
   v: 1
   status: Record<OrderStatusKey, ID>
   server: { name: string } | null

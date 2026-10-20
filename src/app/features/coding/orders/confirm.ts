@@ -60,7 +60,7 @@ import { requestFacts, type KindProject } from './facts'
 import { orderPlanHash, type ResolvedStep } from './plan'
 import { chainPropsCheck, ensureChainProps, type ChainPropsResult } from './props'
 import { orderCode, orderStatusKey, writeOrderStatus } from './db'
-import { orderConfigUsable, readOrderConfig } from './config'
+import { orderConfigUsable, readOrderConfig, orderAgent } from './config'
 import { loadOrderRecord, orderRowLock, orderScope, patchOrderRecord } from './records'
 import { followRecord, orderWriter, unschedule } from './chainRun'
 import { stepBlockIds, stepPage } from './stepPage'
@@ -207,22 +207,27 @@ async function buildStep(
     after: o.after,
     code: orderCode(rowId) ?? (ws().pages[rowId]?.title.trim() || t('common.untitled')),
     request: o.request,
-    context: i === 0 && draft.source.server && draft.plan.context ? draft.plan.context : null,
+    context: (i === 0 || draft.plan.delivery) && draft.source.server && draft.plan.context ? draft.plan.context : null,
+    ...(draft.plan.delivery ? { delivery: draft.plan.delivery, covers: step.covers, needs: (step.needs ?? []).map(n => ({ n: o.n - i + n - 1, title: draft.plan.steps[n - 1]!.title })) } : {}),
     refs: refs.map((id) => ({ id, label: ws().pages[id]?.private ? '' : titleOf(id) })),
     titleOf,
     words: stepWords(t, currentLang()),
   })
   const body = taskBody({ goal: '', goalDoc: planned.goalDoc, criteria: planned.criteria, lead: page.lead, extra: page.extra })
   const text = docToMarkdown({ type: 'doc', content: body }).trim()
-  const plan: NewTaskPlan = { ...planned, then: [], start: false, id: o.id, order: { rowId, step: o.n, run: o.run }, lead: page.lead, extra: page.extra, refs: refPagesOf(body), text }
+  const config = readOrderConfig(ws().databases[ws().pages[rowId]?.databaseId ?? ''])
+  const agent = config.kind === 'ok' ? orderAgent(config.config, step.kind) : undefined
+  const plan: NewTaskPlan = { ...planned, ...(agent ? { agent } : {}), then: [], start: false, id: o.id, order: { rowId, step: o.n, run: o.run }, lead: page.lead, extra: page.extra, refs: refPagesOf(body), text }
   const pipeline = readPipeline(ws().databases[o.project])
-  const sig = await sha256(canonicalJson([step.kind, o.project, planned.title, planned.repo, planned.branch, planned.priority, text]))
+  const sig = await sha256(canonicalJson([step.kind, o.project, planned.title, planned.repo, planned.branch, planned.priority, text, ...(agent ? [agent] : [])]))
   return {
     ok: true,
     step: {
       plan,
       chain: {
         n: o.n,
+        ...(draft.plan.delivery ? { delivery: { requirements: draft.plan.delivery.requirements.filter(r => step.covers?.includes(r.id)), acceptance: draft.plan.delivery.acceptance } } : {}),
+        ...(step.needs ? { needs: step.needs.map(n => o.n - i + n - 1) } : {}),
         id: o.id,
         kind: step.kind,
         project: o.project,
@@ -343,8 +348,8 @@ function rollback(rowId: ID, run: string, steps: readonly OrderChainStep[], rest
 /* ------------------------------------------------------------------ the hash ↵ confirms */
 
 /** Each step's project and pipeline lines as they resolve on this device now (the planner's ResolvedStep). */
-function resolveSteps(draft: OrderDraft, kp: readonly KindProject[], approvals: 'all' | 'review' | 'none'): ResolvedStep[] {
-  return draft.plan.steps.map((st, i) => ({ project: kp[i]!.project, park: pipelineLine(kp[i]!.pipeline, !!st.repo, false, approvals), start: pipelineLine(kp[i]!.pipeline, !!st.repo, true, approvals) }))
+function resolveSteps(draft: OrderDraft, kp: readonly KindProject[], approvals: 'all' | 'review' | 'none', config?: import('./types').OrderConfig): ResolvedStep[] {
+  return draft.plan.steps.map((st, i) => { const agent = config ? orderAgent(config, st.kind) : undefined; return { ...(agent ? { agent } : {}), project: kp[i]!.project, park: pipelineLine(kp[i]!.pipeline, !!st.repo, false, approvals), start: pipelineLine(kp[i]!.pipeline, !!st.repo, true, approvals) } })
 }
 
 /**
@@ -361,7 +366,8 @@ export async function planHashNow(rowId: ID, draft: OrderDraft): Promise<string 
     kp.push(p)
   }
   const approvals = defaultApprovals()
-  return orderPlanHash(draft.plan, resolveSteps(draft, kp, approvals), approvals)
+  const config = readOrderConfig(ws().databases[ws().pages[rowId]?.databaseId ?? ''])
+  return orderPlanHash(draft.plan, resolveSteps(draft, kp, approvals, config.kind === 'ok' ? config.config : undefined), approvals)
 }
 
 /* ------------------------------------------------------------------ startChain */
@@ -398,10 +404,11 @@ async function startLocked(rowId: ID, hash: string): Promise<StartOutcome> {
     const p = facts.kinds.find((k) => k.kind === steps[i]!.kind)
     if (!p || p.problem) return fail({ why: 'kind', step: i + 1, kind: steps[i]!.kind, problem: p?.problem ?? 'gone' })
     kp.push(p)
+    if (draft.plan.delivery && steps[i]!.kind === 'coding' && p.pipeline.some(st => st.kind === 'git' && st.gitAction === 'merge')) return fail({ why: 'failed', step: i + 1, error: t('features.coding.order.plan.mergeBeforeQa') })
   }
   // the plan as the plate showed it: the same hash over the steps, projects, lines and this device's Approvals now
   const approvals = defaultApprovals()
-  const resolved = resolveSteps(draft, kp, approvals)
+  const resolved = resolveSteps(draft, kp, approvals, read.config)
   if ((await orderPlanHash(draft.plan, resolved, approvals)) !== hash) return fail({ why: 'changed' })
   // what every step quotes and takes along must be exactly what the planner read (fingerprints, never the tab-local
   // contentRev): a request an agent, the bridge or the sync added to since — or a linked page that moved — is planned

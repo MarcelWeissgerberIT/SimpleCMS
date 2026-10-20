@@ -94,7 +94,7 @@ export function ContextBox({ draft, goesWith, edges, end }: { draft: OrderDraft;
         <span className="label orc-tag" data-tag="foreign">
           {t(`${O}.plan.foreign`)}
         </span>
-        <span className="label orc-context__goes">{t(`${O}.plan.goesWith`, { n: goesWith })}</span>
+        <span className="label orc-context__goes">{draft.plan.delivery ? t(`${O}.plan.goesWithDelivery`) : t(`${O}.plan.goesWith`, { n: goesWith })}</span>
       </p>
       <p className="orc-context__note">{ctx.note}</p>
       {ctx.links.length > 0 && (

@@ -69,7 +69,7 @@ export type GitAction = (typeof GIT_ACTIONS)[number]
  * worker that names it) and 'permission' (Claude Code's permission prompts come to One as PermissionAsk; the person
  * answers with a PermissionVerb).
  */
-export const WORKER_CAN = ['analyze', 'git:comment', 'git:merge', 'doc', 'model', 'mcp-list', 'ship', 'continue', 'permission', 'agent:codex', 'agent:local'] as const
+export const WORKER_CAN = ['analyze', 'git:comment', 'git:merge', 'doc', 'model', 'mcp-list', 'ship', 'continue', 'permission', 'agent:codex', 'agent:local', 'delivery-qa'] as const
 /**
  * What a worker runs, read from its `next`. Document stages came before `can`, together with `docs: true`: a worker
  * that sends either knows them, so a `can` without 'doc' (1.3.x) or `docs` without a `can` (1.3.1 before `can`)
@@ -340,6 +340,8 @@ export interface TaskStage {
 
 /** What the worker gets for one stage of one task. Everything but ids and names is task DATA, never instructions. */
 export interface TaskPayload {
+  /** Confirmed work-order acceptance, separate from model-authored page text. */
+  quality?: { review: boolean; requirements: string[]; acceptance: string[] }
   /** Missing: historical Claude Code default. Unknown explicit choices are refused. */
   agent?: CodingAgent
   id: string

@@ -23,9 +23,13 @@ import type { JSONContent } from '@tiptap/core'
 import type { ID } from '../../../store/types'
 import { scrubSecrets } from '@/shared/ai/keys'
 import { ORDER_LIMITS } from './types'
+import type { DeliveryContract } from './delivery'
 
 /** The words a step page holds — in the person's language (the app: i18n; a Node spec: makeTranslator). */
 export interface StepPageWords {
+  delivery?: string
+  acceptance?: string
+  dependencies?: string
   /** "Waits for step 01" */
   waits: (n: number) => string
   /** "Request (PA-12)" */
@@ -39,6 +43,9 @@ export interface StepPageWords {
 }
 
 export interface StepPageInput {
+  delivery?: DeliveryContract
+  covers?: string[]
+  needs?: Array<{ n: number; title: string }>
   /** the step's task id (minted before it is created) — the own blocks' ids derive from it */
   taskId: ID
   /** the chain's step before this one (null: the first step of this chain — no slot) */
@@ -137,6 +144,13 @@ export function stepPage(input: StepPageInput): StepPage {
   const max = input.max ?? ORDER_LIMITS.quoteChars
   const lead: JSONContent[] = []
   const own: string[] = []
+  if (input.delivery) {
+    const requirements = input.delivery.requirements.filter(r => input.covers?.includes(r.id))
+    const body = [input.words.delivery ?? 'Delivery contract', ...requirements.map(r => `${r.id}: ${r.text}`), input.words.acceptance ?? 'Final acceptance', ...input.delivery.acceptance.map(s => `• ${s}`), ...(input.needs?.length ? [input.words.dependencies ?? 'Dependencies', ...input.needs.map(s => `${s.n}: ${s.title}`)] : [])].join('\n')
+    const id = `${input.taskId}-delivery`
+    lead.push({ type: 'callout', attrs: { id, icon: 'asset:notepad', color: 'gray' }, content: paragraphs(body) })
+    own.push(id)
+  }
 
   // 1. the slot the Grundlage replaces
   if (input.after !== null) {
@@ -154,7 +168,7 @@ export function stepPage(input: StepPageInput): StepPage {
   own.push(ids.request)
 
   // 3. the server's part (the chain's first step only)
-  if (input.context && input.after === null) {
+  if (input.context && (input.after === null || input.delivery)) {
     const note = input.context.note.replace(ADDRESS, (_all, id: string) => `@${input.titleOf(id)}`)
     const links = input.context.links.filter((l) => ABSOLUTE.test(l) && !l.includes('#/p/'))
     const content: JSONContent[] = [{ type: 'paragraph', content: [text(input.words.context(input.context.server), [{ type: 'bold' }])] }, ...paragraphs(note)]

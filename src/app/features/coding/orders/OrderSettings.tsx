@@ -24,7 +24,8 @@ import { fmtAmount, parseAmount } from '../../../lib/money'
 import { activeWorkspace, useCloud } from '../../../cloud'
 import { HelpLink } from '../../../help'
 import { pipelineDbIdsOf } from '../schema'
-import { ORDER_KINDS, readOrderConfig } from './config'
+import { CODING_AGENTS, type CodingAgent } from '../protocol'
+import { ORDER_KINDS, readOrderConfig, orderAgent } from './config'
 import { saveOrderConfig } from './db'
 import { serverRows } from './serverTools'
 import type { OrderConfig, OrderKind } from './types'
@@ -122,6 +123,15 @@ export function OrderSettingsPanel({ dbId }: { dbId: ID }) {
       </fieldset>
       <fieldset className="ors__group" disabled={disabled}>
         <legend className="label">{t('features.coding.pipe.label')}</legend>
+        <p className="orc-line orc-line--quiet">{t(`${O}.settings.agentsHint`)}</p>
+        <div className="ors__projects">
+          {ORDER_KINDS.map(kind => <label className="ors__project" key={kind}>
+            <span>{t(`features.coding.pipe.${kind}`)}</span>
+            <select className="input" data-testid={`order-settings-agent-${kind}`} value={config ? orderAgent(config, kind) ?? 'claude' : 'claude'} onChange={e => save(c => ({ ...c, agents: { ...c.agents, [kind]: e.target.value as CodingAgent } }))}>
+              {CODING_AGENTS.map(agent => <option key={agent} value={agent}>{t(`features.coding.agent.${agent}`)}</option>)}
+            </select>
+          </label>)}
+        </div>
         <div className="ors__kinds">
           {ORDER_KINDS.map((k: OrderKind) => {
             const on = !!config?.kinds.includes(k)

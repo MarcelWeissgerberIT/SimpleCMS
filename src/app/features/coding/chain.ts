@@ -55,6 +55,8 @@ import { landsOn, startStageOf, type ResolvedStage, type StageApprovals } from '
 
 /** What the engine knows about one task of the chain (the sink reads it from the store, this device's state and trust). */
 export interface ChainTaskFacts {
+  /** Fresh host verification receipt for a delivery QA task (legacy steps do not require it). */
+  verified?: boolean
   /** false: no such row here (deleted for good, or not arrived in this tab yet) */
   exists: boolean
   /**
@@ -288,7 +290,9 @@ export function nextMove(world: ChainWorld, press?: ChainPress): ChainMove {
   const skipped = new Set(chain.skipped ?? [])
   const advanced = chain.advanced ?? {}
   const live = steps.filter((s) => !skipped.has(s.n))
+  if (steps.some(s => s.delivery && skipped.has(s.n))) return { kind: 'halt', why: 'member' }
   const facts = (s: OrderChainStep): ChainTaskFacts | undefined => world.tasks[s.id]
+  if (steps.some(s => s.delivery && s.kind === 'qa' && steps.some(p => p.kind === 'coding') && facts(s)?.stageKind === 'done' && !facts(s)?.verified)) return { kind: 'halt', why: 'member' }
   const started = (s: OrderChainStep) => advanced[s.n] !== undefined
   // done: in a done stage — or, gone for good, recorded as moved to done
   const finished = (s: OrderChainStep) => {
@@ -358,6 +362,14 @@ export function nextMove(world: ChainWorld, press?: ChainPress): ChainMove {
   if (at < 0) return { kind: 'done' }
   const cur = live[at]!
   const f = facts(cur)!
+  // A skipped dependency never satisfies a delivery contract, including on final QA.
+  if (cur.needs?.some(n => skipped.has(n))) return { kind: 'halt', why: 'member', step: cur.n }
+  for (const n of cur.needs ?? []) {
+    const dependency = steps.find(s => s.n === n)
+    if (!dependency) return { kind: 'halt', why: 'member', step: cur.n }
+    const df = facts(dependency)
+    if (!df || df.stageKind !== 'done') return { kind: 'wait', why: df ? waitWhy(df) : 'elsewhere', step: dependency.n }
+  }
   let again = false
   if (started(cur)) {
     if (!(f.stage === f.parkStage && f.state !== 'running')) return { kind: 'wait', why: waitWhy(f), step: cur.n }
@@ -423,6 +435,11 @@ export function nextMove(world: ChainWorld, press?: ChainPress): ChainMove {
 
   // 3. advance — a QA step on the coding step's repo without a branch of its own takes the coding step's
   let branch: string | null = null
+  // Confirmed deliveries build sequentially on the latest coding branch of the same repository.
+  if (cur.needs && !f.branch && (cur.kind === 'coding' || cur.kind === 'qa')) {
+    const prior = live.slice(0, at).reverse().find(s => s.kind === 'coding' && !skipped.has(s.n) && facts(s)?.repo === f.repo)
+    if (prior) branch = facts(prior)?.branch ?? null
+  }
   if (cur.kind === 'qa' && !f.branch && prev && !prevSkipped && prev.kind === 'coding') {
     const pf = facts(prev)
     if (pf?.branch && pf.repo && pf.repo === f.repo) branch = pf.branch

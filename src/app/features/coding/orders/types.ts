@@ -15,6 +15,7 @@
 import type { ID, OrderConfig, OrderKind, OrderStatusKey } from '../../../store/types'
 import type { Writer } from '../../../store/writer'
 import type { Receipt } from '../../ai/core/meter'
+import type { DeliveryContract } from './delivery'
 
 export type { OrderConfig, OrderKind, OrderStatusKey }
 
@@ -23,6 +24,8 @@ export type { OrderConfig, OrderKind, OrderStatusKey }
 /** The planner's answer: what it understood, the server's context (when one took part), the steps, open points. */
 export interface OrderPlanV1 {
   v: 1
+  /** Absent on legacy drafts. New plans bind every requirement to work and final acceptance. */
+  delivery?: DeliveryContract
   /** ≤ 600 — "Verstanden: …" */
   summary: string
   /** what the picked server returned that the planner used (null: no server took part); note ≤ 2000, absolute links only */
@@ -40,6 +43,8 @@ export interface OrderPlanV1 {
 
 /** One step of a plan — becomes one pipeline task in its kind's project. */
 export interface OrderStepPlan {
+  needs?: number[]
+  covers?: string[]
   kind: OrderKind
   /** ≤ 200 */
   title: string
@@ -247,6 +252,9 @@ export type OrderAutoWhy =
 
 /** One step of a confirmed chain. */
 export interface OrderChainStep {
+  delivery?: DeliveryContract
+  /** Required earlier steps, mapped to the chain's actual step numbers at confirmation. */
+  needs?: number[]
   /** the step number (a follow-up chain goes on counting: 4, 5, 6 …) */
   n: number
   /** the task row */
