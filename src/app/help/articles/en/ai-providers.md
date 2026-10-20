@@ -36,3 +36,7 @@ One plate per provider: its state, **Check (free)**, **Change key**, **Remove �
 ## Ollama Cloud for coding
 
 Open **Settings → AI → Ollama Cloud → Set up API key and model…**. The same card is in **Coding worker** settings. It opens the worker’s protected setup page. Enter your key there once and save; all coding tasks using Ollama Cloud on that worker share the saved key and model. If the worker is offline, the card opens its connection settings first. One never reads or synchronizes this key. Opening settings and saving send no model request; **Test connection (cloud request)** is a separate action. This does not change the AI terminal or browser-agent provider.
+
+## Choose provider before model
+
+The AI menu, palette questions (**Mod+K → ?**) and **Help → Ask** show a separate provider control before the model. Choosing **Claude** or **OpenRouter** selects the first usable route for this request and opens that provider’s model list. Choose a specific model there. The ordinary model button or **Alt+M** searches across providers; **Models from provider** narrows the list. Choosing sends no request and changes no default. **Default on this device** restores the configured route; the explicit default buttons still save device rules. Missing keys, data rules and required capabilities can disable a provider or model. These controls currently offer Claude and OpenRouter; local, Ollama Cloud and other coding engines are selected in Coding.

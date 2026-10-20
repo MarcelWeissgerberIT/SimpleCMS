@@ -1,7 +1,7 @@
 ---
 id: 2026-10-20-agent-page-activity
 date: 2026-10-20
-order: 3
+order: 4
 title: Agents on the page and a model default
 summary: See who is working, save findings to the page and choose browser-agent models in Patchbay.
 image: assets/shots/changelog/agent-page-activity.webp

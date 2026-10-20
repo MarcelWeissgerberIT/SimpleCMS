@@ -13,10 +13,10 @@ import { useLang, useT } from '../../../i18n'
 import { useUI } from '../../../store/ui'
 import { Popover } from '../../../ui/Popover'
 import { setDeviceDefault, setDeviceRule } from '../../../store/aiRules'
-import type { DataClass, FeatureClass, Route, SourceRef } from '@/shared/ai/types'
+import type { DataClass, FeatureClass, ProviderId, Route, SourceRef } from '@/shared/ai/types'
 import { routeKey } from '@/shared/ai/route'
 import { isJevRouter } from '@/shared/ai/jev'
-import { PROVIDERS } from '@/shared/ai/providers'
+import { PROVIDER_ORDER, PROVIDERS } from '@/shared/ai/providers'
 import { routeChoices, type ChoiceWhy, type RouteChoice } from '../core/gate'
 import type { Need, PurposeId } from '../core/purposes'
 import { PLATE } from './keys'
@@ -64,6 +64,8 @@ export interface RoutePickerProps {
   anchor: Element | null
   purpose: PurposeId
   chip: Route | null
+  /** Provider chosen in the separate control; ordinary model search starts across providers. */
+  provider?: ProviderId
   sources?: readonly SourceRef[]
   carries?: readonly DataClass[]
   needs?: readonly Need[]
@@ -73,7 +75,7 @@ export interface RoutePickerProps {
   onClose: () => void
 }
 
-export function RoutePicker({ anchor, purpose, chip, sources, carries, needs, reads, onPick, onClose }: RoutePickerProps) {
+export function RoutePicker({ anchor, purpose, chip, provider: initialProvider, sources, carries, needs, reads, onPick, onClose }: RoutePickerProps) {
   const t = useT()
   const lang = useLang()
   const choices = useMemo(() => routeChoices(purpose, { sources, carries, needs }), [purpose, sources, carries, needs])
@@ -81,6 +83,8 @@ export function RoutePicker({ anchor, purpose, chip, sources, carries, needs, re
   // the highlighted row starts on the pick (the lead line names where it goes)
   const [active, setActive] = useState(picked)
   const [why, setWhy] = useState(false)
+  const [provider, setProvider] = useState<ProviderId | ''>(initialProvider ?? '')
+  const [search, setSearch] = useState('')
   const [sheet] = useState(phone)
   const root = useRef<HTMLDivElement | null>(null)
   const closeRef = useRef(onClose)
@@ -102,17 +106,18 @@ export function RoutePicker({ anchor, purpose, chip, sources, carries, needs, re
     if (sheet) root.current?.querySelector<HTMLInputElement>('input')?.focus({ preventScroll: true })
   }, [sheet])
 
-  const byKey = useMemo(() => new Map(choices.rows.map((r) => [r.key, r])), [choices])
-  const current = byKey.get(active) ?? choices.rows.find((r) => r.key === picked) ?? choices.rows[0]
+  const rows = useMemo(() => choices.rows.filter(r => !provider || r.route.p === provider), [choices, provider])
+  const byKey = useMemo(() => new Map(rows.map((r) => [r.key, r])), [rows])
+  const current = byKey.get(active) ?? rows.find((r) => r.key === picked) ?? rows[0]
   const leadRoute = current?.route ?? choices.now
   const router = !!leadRoute && leadRoute.p === 'openrouter' && isJevRouter(leadRoute.m)
   const target = current && current.ok && current.group !== 'now' ? current : null
   const cls = classLabel(t, choices.cls)
 
-  const now = choices.rows.filter((r) => r.group === 'now')
-  const rule = choices.rows.filter((r) => r.group === 'rule')
-  const models = [...choices.rows.filter((r) => r.group === 'models' && r.ok), ...choices.rows.filter((r) => r.group === 'models' && !r.ok)]
-  const routerRows = choices.rows.filter((r) => r.group === 'router')
+  const now = rows.filter((r) => r.group === 'now')
+  const rule = rows.filter((r) => r.group === 'rule')
+  const models = [...rows.filter((r) => r.group === 'models' && r.ok), ...rows.filter((r) => r.group === 'models' && !r.ok)]
+  const routerRows = rows.filter((r) => r.group === 'router')
   // every tier refused for the same reason: one dimmed row says why
   const routerOne = routerRows.length > 0 && routerRows.every((r) => !r.ok && r.why?.code === routerRows[0]!.why?.code) ? routerRows[0]! : null
 
@@ -157,6 +162,13 @@ export function RoutePicker({ anchor, purpose, chip, sources, carries, needs, re
 
   const body = (
     <div ref={root} className="route-picker" data-sheet={sheet ? '' : undefined}>
+      <label className="route-picker__provider">
+        <span className="label">{t('features.ai.prov.chip.providerModels')}</span>
+        <select className="input" value={provider} onChange={e => { setProvider(e.target.value as ProviderId | ''); setActive(''); setSearch('') }}>
+          <option value="">{t('features.ai.prov.chip.allProviders')}</option>
+          {PROVIDER_ORDER.filter(p => PROVIDERS[p].shipped).map(p => <option key={p} value={p}>{PROVIDERS[p].name}</option>)}
+        </select>
+      </label>
       <p className="route-picker__lead" data-testid="route-lead">
         {router ? t('features.ai.prov.chip.leadRouter', { reads }) : t('features.ai.prov.chip.lead', { reads, company: leadRoute ? COMPANY[leadRoute.p] : '—' })}
         {router && (
@@ -171,8 +183,9 @@ export function RoutePicker({ anchor, purpose, chip, sources, carries, needs, re
         </p>
       )}
       <Command label={t('features.ai.prov.chip.title')} value={active} onValueChange={setActive} loop className="route-picker__cmd">
-        <Command.Input className="route-picker__input" placeholder={t('features.ai.prov.chip.filter')} data-autofocus="" />
+        <Command.Input className="route-picker__input" placeholder={t('features.ai.prov.chip.filter')} value={search} onValueChange={setSearch} data-autofocus="" />
         <Command.List className="route-picker__list">
+          <Command.Empty className="route-picker__lead">{t('features.ai.prov.chip.noModels')}</Command.Empty>
           {now.length > 0 && <Command.Group>{now.map((r) => item(r, { label: t('features.ai.prov.chip.now'), sub: r.label }))}</Command.Group>}
           {rule.length > 0 && <Command.Group heading={t('features.ai.prov.chip.group.rule', { class: cls })}>{rule.map((r) => item(r))}</Command.Group>}
           {models.length > 0 && <Command.Group heading={t('features.ai.prov.chip.group.models')}>{models.map((r) => item(r))}</Command.Group>}

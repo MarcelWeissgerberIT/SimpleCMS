@@ -100,6 +100,10 @@ Mit **LOKAL** markierte Einträge verlassen das Gerät nie. Die Datei geht nur m
 Eine Anfrage läuft weiter, wenn du das Feld schließt, in die Seitenleiste klickst oder eine andere Seite öffnest — nur **Stopp** und **Verwerfen** beenden sie. Die Seite zeigt sie unten an (**KI · Schreibt…**, dann **KI-Ergebnis fertig · Ansehen**), die Seitenleiste markiert die Seite mit einem Punkt, und ein Hinweis mit **Öffnen** meldet ein fertiges Ergebnis auf einer anderen Seite. Hat sich der Text inzwischen geändert, findet One ihn wieder; ist er weg, ist **Auswahl ersetzen** aus und **Darunter einfügen** setzt ans Ende der Seite. Ergebnisse warten auf diesem Gerät (auch nach dem Neuladen), bis du sie übernimmst oder verwirfst — höchstens 7 Tage, nie synchronisiert.
 
 ## ⌘K, dann ?
-Tippe `?` in der Befehlspalette, um Claude zur geöffneten Seite zu fragen. Die Antwort an die Seite anhängen, als neue Seite anlegen oder kopieren.
+Tippe `?` in der Befehlspalette, um das gewählte Modell zur geöffneten Seite zu fragen. Die Antwort an die Seite anhängen, als neue Seite anlegen oder kopieren.
 
-> Anfragen gehen aus deinem Browser mit deinem Schlüssel an Anthropic. Hinzugefügte MCP-Server können bei freien Anfragen mitmachen — siehe [MCP-Server](help:mcp-servers).
+> Anfragen gehen aus deinem Browser mit deinem Schlüssel an den gewählten Anbieter. MCP-Server können bei unterstützten freien Anfragen über Claude mitmachen — siehe [MCP-Server](help:mcp-servers).
+
+## Anbieter vor dem Modell wählen
+
+Im KI-Menü, bei Fragen über **Mod+K → ?** und unter **Hilfe → Fragen** steht vor dem Modell eine eigene Anbieterauswahl. **Claude** oder **OpenRouter** wählt den ersten nutzbaren Weg für diese Anfrage und öffnet die Modellliste dieses Anbieters. Dort das konkrete Modell wählen. Die normale Modelltaste oder **Alt+M** sucht über Anbieter hinweg; **Modelle des Anbieters** grenzt die Liste ein. Die Auswahl sendet keine Anfrage und ändert keinen Standard. **Standard auf diesem Gerät** kehrt zum eingestellten Weg zurück; nur die ausdrücklichen Standardtasten speichern eine Gerätevorgabe. Fehlende Schlüssel, Datenregeln und benötigte Fähigkeiten können Anbieter oder Modelle sperren. Diese Auswahl bietet derzeit Claude und OpenRouter; lokale Modelle, Ollama Cloud und weitere Coding-Antriebe werden in Coding gewählt.

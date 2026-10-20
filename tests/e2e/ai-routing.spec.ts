@@ -7,7 +7,7 @@
 import type { Page } from '@playwright/test'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { test, expect, openApp, wsEval, createPage, gotoPage, editorOf, selectText, doc, para, pageIdByTitle } from './fixtures'
+import { test, expect, openApp, wsEval, createPage, gotoPage, editorOf, selectText, doc, para, pageIdByTitle, MOD } from './fixtures'
 import { hostCounts, mockClaudeScript, mockOpenRouter, seedEndpoints, text, type ClaudeStep, type ORStepFn } from './helpers/providers'
 import { aiPanel, autofillPriority, improve } from './helpers/aiFlows'
 import { capsOfRow, readCatalogRow } from '../../src/shared/ai/catalog'
@@ -100,11 +100,93 @@ test.describe('the rules decide the route of each request', () => {
 })
 
 test.describe('the route chip and its picker', () => {
+  test('provider before model switches OpenRouter to Claude for one request, with provider-scoped models and no default write', async ({ page }, info) => {
+    const { or, claude } = await setup(page)
+    await rules(page, 'setDeviceRule', 'write', [{ p: 'openrouter', m: LUNA }])
+    await openMenu(page)
+    const provider = aiPanel(page).getByTestId('route-chip-provider')
+    await expect(provider).toHaveValue('openrouter')
+    await provider.selectOption('anthropic')
+    await expect(picker(page)).toBeVisible()
+    await expect(picker(page).getByLabel('Models from provider')).toHaveValue('anthropic')
+    await expect(picker(page).locator('[data-route^="openrouter:"]')).toHaveCount(0)
+    expect(claude.requests).toHaveLength(0)
+    expect(or.posts()).toHaveLength(0)
+    await rowOf(page, 'anthropic:claude-sonnet-5-5').click()
+    await expect(provider).toHaveValue('anthropic')
+    await expect(chipOf(page)).toContainText('SONNET')
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+    for (const width of [1440, 390]) for (const theme of ['light', 'dark']) {
+      await page.setViewportSize({ width, height: width === 390 ? 844 : 900 })
+      await wsEval(page, (s, theme) => s.updateSettings({ theme }), theme)
+      await page.screenshot({ path: info.outputPath(`provider-model-${width}-${theme}.png`), animations: 'disabled' })
+      expect(await aiPanel(page).evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
+      await expect(provider).toBeVisible()
+      await expect(chipOf(page)).toBeVisible()
+    }
+    await aiPanel(page).getByRole('option', { name: /Improve writing/ }).click()
+    await expect(aiPanel(page)).toContainText('A tighter launch sentence.')
+    expect(claude.requests).toHaveLength(1)
+    expect(claude.requests[0].body.model).toBe('claude-sonnet-5-5')
+    expect(or.posts()).toHaveLength(0)
+    expect(await wsEval(page, s => s.settings.ai.routes.write)).toEqual([{ p: 'openrouter', m: LUNA }])
+  })
+
+  test('provider switch to OpenRouter executes its chosen model; missing key and data policy disable the provider', async ({ page }) => {
+    const { or, claude } = await setup(page)
+    await openMenu(page)
+    const provider = aiPanel(page).getByTestId('route-chip-provider')
+    await provider.selectOption('openrouter')
+    await expect(picker(page).locator('[data-route^="anthropic:"]')).toHaveCount(0)
+    await rowOf(page, `openrouter:${LUNA}`).click()
+    await aiPanel(page).getByRole('option', { name: /Improve writing/ }).click()
+    await expect(aiPanel(page)).toContainText('A tighter launch sentence.')
+    expect(or.posts()).toHaveLength(1)
+    expect(or.posts()[0].body!.model).toBe(LUNA)
+    expect(claude.requests).toHaveLength(0)
+    await page.keyboard.press('Escape')
+    await wsEval(page, s => s.setWorkspaceAI({ policy: { providers: { openrouter: { allow: [] } }, restricted: [] } }))
+    await openMenu(page)
+    await expect(provider.locator('option[value="openrouter"]')).toBeDisabled()
+    await page.keyboard.press('Escape')
+    await wsEval(page, s => s.updateSettings({ aiKeys: { openrouter: '' } }))
+    await openMenu(page)
+    await expect(provider.locator('option[value="openrouter"]')).toBeDisabled()
+    await expect(provider.locator('option[value="openrouter"]')).toContainText('no key on this device')
+  })
+
+  test('provider selector is shared by palette questions and Help Ask, preserves questions and makes no requests on selection', async ({ page }) => {
+    const { or, claude } = await setup(page)
+    await page.setViewportSize({ width: 390, height: 844 })
+    await page.keyboard.press(`${MOD}+k`)
+    await page.locator('.pal-input__field').fill('? Explain this page')
+    await page.getByTestId('ask-route-chip-provider').selectOption('openrouter')
+    await rowOf(page, `openrouter:${LUNA}`).click()
+    await expect(page.getByTestId('ask-route-chip-provider')).toHaveValue('openrouter')
+    await expect(page.locator('.pal-input__field')).toHaveValue('Explain this page')
+    await page.keyboard.press('Escape')
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('dialog', { name: 'Command palette', exact: true })).toHaveCount(0)
+    await page.evaluate(() => (document.activeElement as HTMLElement)?.blur())
+    await page.keyboard.press('?')
+    const help = page.getByRole('dialog', { name: 'Help', exact: true })
+    await help.getByRole('tab', { name: /Ask/ }).click()
+    await help.getByRole('textbox', { name: 'Your question', exact: true }).fill('How do I create a page?')
+    await help.getByTestId('help-route-chip-provider').selectOption('openrouter')
+    await rowOf(page, `openrouter:${LUNA}`).click()
+    await expect(help.getByTestId('help-route-chip-provider')).toHaveValue('openrouter')
+    await expect(help.getByRole('textbox', { name: 'Your question', exact: true })).toHaveValue('How do I create a page?')
+    expect(or.posts()).toHaveLength(0)
+    expect(claude.requests).toHaveLength(0)
+    await wsEval(page, s => s.updateSettings({ language: 'de' }))
+    await expect(page.getByRole('dialog', { name: 'Hilfe', exact: true }).getByRole('combobox', { name: 'Anbieter für diese Anfrage', exact: true })).toBeVisible()
+  })
+
   test('a Claude-only profile: the chip shows the same model as before, no ROUTER group; a pick goes with this request only (acceptance 1, chip part)', async ({ page }) => {
     const { claude, or } = await setup(page, { claudeOnly: true })
     await openMenu(page)
     await expect(chipOf(page)).toContainText('OPUS 5.5')
-    await expect(chipOf(page).locator('.route-chip__plate')).toHaveText('CL')
+    await expect(aiPanel(page).getByTestId('route-chip-provider')).toHaveValue('anthropic')
     await chipOf(page).click()
     await expect(picker(page)).toBeVisible()
     await expect(picker(page).getByTestId('route-lead')).toHaveText('Reads: the selection · goes to Anthropic')
@@ -137,7 +219,7 @@ test.describe('the route chip and its picker', () => {
     await page.keyboard.press('Enter')
     await expect(picker(page)).toHaveCount(0)
     await expect(chipOf(page)).toContainText('LUNA')
-    await expect(chipOf(page).locator('.route-chip__plate')).toHaveText('OR')
+    await expect(aiPanel(page).getByTestId('route-chip-provider')).toHaveValue('openrouter')
     await expect(field).toBeFocused()
     // Esc in the picker closes it, the AI menu stays
     await page.keyboard.press('Alt+m')
@@ -267,4 +349,3 @@ test.describe('phone width', () => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   })
 })
-

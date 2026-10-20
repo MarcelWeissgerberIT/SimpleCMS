@@ -4314,6 +4314,19 @@ process.exit(1)
     await ctx.close()
   },
 
+  async 'provider-model-picker'(browser) {
+    const { ctx, page } = await freshPage(browser)
+    const line = 'Review the launch brief and make the acceptance criteria clear.'
+    const id = await createPage(page, 'Launch brief', { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: line }] }] })
+    await openPage(page, id)
+    await selectRange(page, line)
+    await page.locator('[aria-label="Formatting"]').first().getByRole('button', { name: /^Ask AI$/ }).click()
+    await page.getByTestId('route-chip-provider').waitFor()
+    await rest(page)
+    await save(page, 'provider-model-picker')
+    await ctx.close()
+  },
+
   async 'ollama-global-settings'(browser) {
     const { ctx, page } = await freshPage(browser)
     await page.evaluate(() => window.__one.ui.getState().openModal({ type: 'settings' }))

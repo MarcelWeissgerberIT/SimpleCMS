@@ -1,7 +1,7 @@
 ---
 id: 2026-10-20-agent-assignments
 date: 2026-10-20
-order: 5
+order: 6
 title: Give an agent a one-time assignment
 summary: Choose a target page per run, follow it in Patchbay, and save its report wherever you need it.
 image: assets/shots/changelog/agent-assignments.webp

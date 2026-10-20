@@ -1,7 +1,7 @@
 ---
 id: 2026-10-20-agent-catalog
 date: 2026-10-20
-order: 11
+order: 12
 title: Agentenvorlagen nach Kategorien
 summary: Mit einem Helfer starten und eigene Agenten ordnen.
 image: assets/shots/changelog/agent-catalog.webp

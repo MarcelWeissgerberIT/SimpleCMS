@@ -100,6 +100,10 @@ Entries marked **LOCAL** never leave the device. The file goes to Anthropic only
 A request keeps going when you close the panel, click in the sidebar or open another page — only **Stop** and **Discard** end it. The page shows it at its foot (**AI · Writing…**, then **AI result ready · View**), the sidebar marks the page with a dot, and a toast with **Open** tells you when a result is ready elsewhere. If the text changed meanwhile, One finds it again; when it is gone, **Replace** is off and **Insert below** goes to the end of the page. Results wait on this device (also after a reload) until you accept or discard them — for 7 days at most, never synced.
 
 ## ⌘K, then ?
-Type `?` in the command palette to ask Claude about the open page. Append the answer to the page, make it a new page, or copy it.
+Type `?` in the command palette to ask the selected model about the open page. Append the answer to the page, make it a new page, or copy it.
 
-> Requests go from your browser to Anthropic with your key. MCP servers you added can join free-form requests — see [MCP servers](help:mcp-servers).
+> Requests go from your browser to the selected provider with your key. MCP servers can join supported free-form requests through Claude — see [MCP servers](help:mcp-servers).
+
+## Choose provider before model
+
+The AI menu, palette questions (**Mod+K → ?**) and **Help → Ask** show a separate provider control before the model. Choosing **Claude** or **OpenRouter** selects the first usable route for this request and opens that provider’s model list. Choose a specific model there. The ordinary model button or **Alt+M** searches across providers; **Models from provider** narrows the list. Choosing sends no request and changes no default. **Default on this device** restores the configured route; the explicit default buttons still save device rules. Missing keys, data rules and required capabilities can disable a provider or model. These controls currently offer Claude and OpenRouter; local, Ollama Cloud and other coding engines are selected in Coding.

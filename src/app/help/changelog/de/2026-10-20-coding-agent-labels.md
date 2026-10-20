@@ -1,7 +1,7 @@
 ---
 id: 2026-10-20-coding-agent-labels
 date: 2026-10-20
-order: 9
+order: 10
 title: Der ausgewählte Coding-Agent fragt
 summary: Rückfragen und Erlaubniskarten nennen den von dir gewählten Agenten.
 image: assets/shots/changelog/coding-agent-labels.webp

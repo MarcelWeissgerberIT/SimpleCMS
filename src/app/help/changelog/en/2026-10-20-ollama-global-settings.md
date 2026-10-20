@@ -1,7 +1,7 @@
 ---
 id: 2026-10-20-ollama-global-settings
 date: 2026-10-20
-order: 1
+order: 2
 title: Ollama Cloud in global settings
 summary: Set up the worker-wide coding key and model from Settings → AI.
 image: assets/shots/changelog/ollama-global-settings.webp

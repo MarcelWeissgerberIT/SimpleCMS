@@ -1,5 +1,21 @@
 /* The route chip and the route picker (§ 12.5). Tokens only; the chip keeps the .ai-model shape of the AI menu. */
 
+.route-controls { display: inline-flex; align-items: center; flex: none; gap: 4px; min-width: 0; max-width: 100%; }
+.route-provider { min-width: 0; max-width: 10em; text-overflow: ellipsis; cursor: pointer; }
+.route-controls .ai-model.route-chip { flex: 0 1 auto; min-width: 0; }
+.route-picker__provider { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--rule); }
+.route-picker__provider .input { flex: 1; min-width: 0; width: auto; }
+/* The picker is portalled to body, above the dialog or palette that opened it. */
+body:has(.modal-scrim, .help[data-layer='modal']) :is(.route-pop, .route-sheet) { z-index: calc(var(--z-modal) + 20); }
+body:has(.pal-scrim) :is(.route-pop, .route-sheet) { z-index: calc(var(--z-palette) + 1); }
+@media (max-width: 600px) {
+  .route-controls { max-width: min(100%, 22em); }
+  .route-provider { max-width: 8em; }
+  .route-controls .route-chip { max-width: 11em; }
+  .ai-cmd { flex-wrap: wrap; }
+  .ai-cmd > .route-controls { margin-left: auto; margin-bottom: 6px; }
+}
+
 .ai-model.route-chip {
   display: inline-flex;
   align-items: center;

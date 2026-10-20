@@ -1,7 +1,7 @@
 ---
 id: 2026-10-20-ollama-global-settings
 date: 2026-10-20
-order: 1
+order: 2
 title: Ollama Cloud zentral einrichten
 summary: Key und Modell für alle Coding-Aufgaben des Workers über Einstellungen → KI einrichten.
 image: assets/shots/changelog/ollama-global-settings.webp

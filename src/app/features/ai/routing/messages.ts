@@ -8,6 +8,10 @@ import type { Messages } from '@/shared/i18n'
  */
 export const messages: Messages = {
   en: {
+    'features.ai.prov.chip.provider': 'Provider for this request',
+    'features.ai.prov.chip.providerModels': 'Models from provider',
+    'features.ai.prov.chip.allProviders': 'All providers',
+    'features.ai.prov.chip.noModels': 'no available models here',
     'features.ai.cls.public': 'Help & instructions',
     'features.ai.cls.structure': 'Database & field names',
     'features.ai.cls.selection': 'Selected text',
@@ -92,6 +96,10 @@ export const messages: Messages = {
     'features.ai.jev.router.needs2': 'needs at least 2 models in your list',
   },
   de: {
+    'features.ai.prov.chip.provider': 'Anbieter für diese Anfrage',
+    'features.ai.prov.chip.providerModels': 'Modelle des Anbieters',
+    'features.ai.prov.chip.allProviders': 'Alle Anbieter',
+    'features.ai.prov.chip.noModels': 'hier keine verfügbaren Modelle',
     'features.ai.cls.public': 'Hilfe & Anweisungen',
     'features.ai.cls.structure': 'Namen von Datenbanken & Feldern',
     'features.ai.cls.selection': 'Markierter Text',

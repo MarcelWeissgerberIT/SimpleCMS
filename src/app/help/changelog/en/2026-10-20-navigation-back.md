@@ -1,7 +1,7 @@
 ---
 id: 2026-10-20-navigation-back
 date: 2026-10-20
-order: 2
+order: 3
 title: Back in One
 summary: Return through visited pages and areas from the app header.
 image: assets/shots/changelog/navigation-back.webp

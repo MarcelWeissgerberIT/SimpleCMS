@@ -1,7 +1,7 @@
 ---
 id: 2026-10-20-agent-page-activity
 date: 2026-10-20
-order: 3
+order: 4
 title: Agenten auf der Seite und eine Modellvorgabe
 summary: Laufende Agenten sehen, Befunde auf der Seite ablegen und Browser-Agentenmodelle im Schaltplan wählen.
 image: assets/shots/changelog/agent-page-activity.webp
