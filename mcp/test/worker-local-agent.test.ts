@@ -11,6 +11,7 @@ after(cleanupAll)
 const mockOllama = async (readOnly = false) => {
   const bodies: any[] = []
   const server = createServer(async (req, res) => {
+    if (req.url === '/api/show') { for await (const _ of req) { /* consume */ }; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ system: 'Owner profile marker: prefer verified evidence.' })); return }
     let raw = ''; for await (const c of req) raw += c
     const body = JSON.parse(raw); bodies.push(body)
     const count = body.messages.filter((m: any) => m.role === 'tool').length
@@ -41,6 +42,7 @@ test('local inference writes in its worktree; read-only stages never get a write
       const result = await runLocal({ agent: 'local', cwd: root, prompt: 'Implement.', readOnly, maxSteps: 4, taskMcp: null, signal: new AbortController().signal, log: () => {}, env: { ONE_CODER_OLLAMA: mock.base } })
       assert.equal(result.ok, true, result.error)
       assert.equal(mock.bodies[0].tools.some((t: any) => t.function.name === 'write_file'), !readOnly)
+      assert.match(mock.bodies[0].messages[0].content, /Owner profile marker/)
       assert.equal(existsSync(join(root, 'forbidden.txt')), false)
       if (!readOnly) assert.equal(readFileSync(join(root, 'feature.txt'), 'utf8'), 'Local implementation.')
     } finally { await mock.close() }
@@ -69,6 +71,7 @@ test('failed configured checks feed back into the model and a precise repair is 
   const answers = [call('write_file', { path: 'feature.txt', content: 'BROKEN' }), { role: 'assistant', content: 'Done.' }, call('read_file', { path: 'feature.txt' }), call('edit_file', { path: 'feature.txt', old_text: 'BROKEN', new_text: 'FIXED' }), { role: 'assistant', content: 'Repaired.' }]
   const requests: any[] = []
   const server = createServer(async (req, res) => {
+    if (req.url === '/api/show') { for await (const _ of req) { /* consume */ }; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ system: 'Owner profile marker: prefer verified evidence.' })); return }
     let raw = ''; for await (const c of req) raw += c
     requests.push(JSON.parse(raw))
     res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ message: answers.shift() }))
@@ -90,6 +93,7 @@ test('failed configured checks feed back into the model and a precise repair is 
 test('a near-full model context is refused before executing its proposed file mutation', async () => {
   const root = tempDir('local-context-limit')
   const server = createServer(async (req, res) => {
+    if (req.url === '/api/show') { for await (const _ of req) { /* consume */ }; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ system: 'Owner profile marker: prefer verified evidence.' })); return }
     for await (const _ of req) { /* consume request */ }
     res.setHeader('Content-Type', 'application/json')
     res.end(JSON.stringify({ prompt_eval_count: 32000, message: { role: 'assistant', content: '', tool_calls: [{ function: { name: 'write_file', arguments: { path: 'truncated.txt', content: 'must not be written' } } }] } }))

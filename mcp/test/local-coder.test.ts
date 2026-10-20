@@ -10,6 +10,7 @@ const origin = 'http://localhost:5173'
 const upstreamCalls: Array<Record<string, any>> = []
 const upstream = createServer(async (req, res) => {
   res.setHeader('Content-Type', 'application/json')
+  if (req.url === '/api/show') { for await (const _ of req) { /* consume */ }; return res.end(JSON.stringify({ system: 'Owner profile marker: prefer verified evidence.' })) }
   if (req.url === '/api/ps' || req.url === '/api/tags') return res.end(JSON.stringify({ models: [{ name: 'test-coder:latest' }] }))
   let raw = ''
   for await (const c of req) raw += c
@@ -56,6 +57,7 @@ test('real MCP handshake, tool listing, status and coding task round trip', asyn
     assert.equal(result.isError, false)
     assert.match(JSON.stringify(result.content), /return a \+ b/)
     assert.equal(upstreamCalls.at(-1)?.model, 'test-coder')
+    assert.match(upstreamCalls.at(-1)?.messages[0].content, /Owner profile marker/)
     assert.equal(upstreamCalls.at(-1)?.messages[1].content, 'Implement add\n\nProject context:\nPython')
     const invalid = await client.callTool({ name: 'coding_task', arguments: { task: '', max_tokens: 99999 } })
     assert.equal(invalid.isError, true)

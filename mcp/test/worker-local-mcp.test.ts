@@ -89,6 +89,7 @@ test('external MCP tools cooperate in one task; namespaced calls, auth redaction
     ]
     const bodies: any[] = []
     ollama = createServer(async (req, res) => {
+    if (req.url === '/api/show') { for await (const _ of req) { /* consume */ }; res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify({ system: 'Owner profile marker: prefer verified evidence.' })); return }
       let raw = ''; for await (const c of req) raw += c
       bodies.push(JSON.parse(raw))
       const call = responses.shift()

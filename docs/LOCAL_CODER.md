@@ -153,6 +153,23 @@ changing memory, MCP connections, the source boundary or verification. Other inf
 same contract; an LM Studio/MLX transport is not included in this release. A model must support structured function
 calls; changing its name cannot add that capability. Existing memory remains historical reference material.
 
+### Owner-selected model profiles (worker 1.16.1)
+
+Both the pipeline and the standalone panel load the selected model's Ollama `system` profile from `/api/show`
+once at task start. They include it alongside the harness instructions, so a profile such as `marcel-flow` keeps
+its workflow and writing style even though the harness supplies its own system message. The profile stays in the
+system message during compaction and counts toward the same context budget. A missing/invalid profile response or
+one exceeding 50,000 characters stops the task before inference; a base model without a system profile is valid.
+Tool access, task boundaries and check receipts still come from the harness, not from claims in profile text.
+
+Set `ONE_CODER_MODEL=marcel-flow` in the environment of **both** services to select an installed profile for the
+pipeline worker and the separate MCP panel. Restart both processes after changing their configuration. A profile
+changes instructions, not model weights or coding ability; evaluate real tasks and verify reported results.
+
+Plain-text tool markup receives one format-correction turn; it is never parsed into an executable call. A second
+malformed reply stops. Repeated check requests without a source edit reuse the existing receipt and ask the model
+to finish or repair; edits invalidate that receipt. The three-run limit applies to actual verification runs.
+
 `ONE_CODER_CONTEXT` accepts 32768 (default), 65536 or 131072. Choose a profile within the model's supported context
 and test RAM use/latency first. The harness reserves 8192 tokens and also uses a conservative character budget,
 adjusted downward from observed prompt-token counts. It archives old complete tool groups before the next request;

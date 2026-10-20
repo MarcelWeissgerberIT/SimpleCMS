@@ -66,7 +66,9 @@ test('context compaction retains checkpoint and addressable source, but revokes 
   let index = 0
   const requests: any[] = []
   let recalled = false
+  let profileLoads = 0
   const inference: LocalInference = async request => {
+    assert.match(request.messages[0].content, /Owner model workflow marker/)
     requests.push(structuredClone(request.messages))
     const step = index++
     if (step === 0) return call('memory_checkpoint', { decisions: 'Preserve API', remaining: 'Patch a.txt', next: 'Read exact lines' })
@@ -82,7 +84,9 @@ test('context compaction retains checkpoint and addressable source, but revokes 
     if (step === 8) { recalled = request.messages.at(-1)?.content.includes('line-0'); return final }
     return final
   }
+  inference.profile = async () => { profileLoads++; return 'Owner model workflow marker' }
   const result = await runLocal(options(root, inference))
+  assert.equal(profileLoads, 1)
   assert.equal(result.ok, true, result.error)
   assert.ok(requests.some(ms => ms.some((m: any) => m.content?.includes('Earlier tool history is archived'))))
   assert.ok(requests.some(ms => ms.some((m: any) => m.content?.includes('Preserve API'))))
@@ -99,6 +103,40 @@ test('repeated failing tools stop with useful partial state before the global bu
   assert.ok(requests <= 6)
   assert.match(result.error!, /No useful progress/)
   assert.match(result.text, /read_file:missing.ts/)
+})
+
+test('text-form tool calls get one bounded correction and never execute as tools', async () => {
+  const root = tempDir('memory-tool-format')
+  let calls = 0
+  const bad = { message: { role: 'assistant', content: '<function=write_file>{"path":"forbidden.txt","content":"no"}</function></tool_call>' } }
+  const repaired = await runLocal(options(root, async request => {
+    if (calls++ === 0) return bad
+    assert.match(request.messages.at(-1).content, /No tool was executed/)
+    return final
+  }))
+  assert.equal(repaired.ok, true, repaired.error)
+  assert.equal(calls, 2)
+  await assert.rejects(stat(join(root, 'forbidden.txt')))
+  calls = 0
+  const failed = await runLocal(options(root, async () => { calls++; return bad }))
+  assert.equal(failed.ok, false)
+  assert.match(failed.error!, /after format correction/)
+  assert.equal(calls, 2)
+  await assert.rejects(stat(join(root, 'forbidden.txt')))
+})
+
+test('unchanged check requests reuse receipts, while a source edit invalidates the receipt', async () => {
+  const root = tempDir('memory-check-receipt')
+  await writeFile(join(root, 'feature.txt'), 'OLD')
+  const replies = [call('run_checks', { request: 'check' }), call('run_checks', { request: 'check' }), call('read_file', { path: 'feature.txt' }), call('edit_file', { path: 'feature.txt', old_text: 'OLD', new_text: 'NEW' }), call('run_checks', { request: 'check' }), final]
+  let checks = 0
+  let index = 0
+  const result = await runLocal({ ...options(root, async request => {
+    if (index === 2) assert.match(request.messages.at(-1).content, /"cached":true/)
+    return replies[index++] ?? final
+  }), verify: async () => { checks++; return { ok: true, output: 'PASS' } } })
+  assert.equal(result.ok, true, result.error)
+  assert.equal(checks, 2)
 })
 
 test('model changes retain the same host memory; Continue restores notes but fresh starts do not', async () => {

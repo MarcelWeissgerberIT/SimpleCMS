@@ -22,7 +22,8 @@ test('local MCP: rejects a bad key, stores the valid key in the vault, runs a ta
   const requests: unknown[] = []
   const ollama = createServer(async (req, res) => {
     res.setHeader('Content-Type', 'application/json')
-    if (req.url === '/api/ps' || req.url === '/api/tags') return res.end(JSON.stringify({ models: [{ name: 'test-coder' }] }))
+    if (req.url === '/api/show') { for await (const _ of req) { /* consume */ }; return res.end(JSON.stringify({ system: 'Owner profile marker: prefer verified evidence.' })) }
+  if (req.url === '/api/ps' || req.url === '/api/tags') return res.end(JSON.stringify({ models: [{ name: 'test-coder' }] }))
     let body = ''
     for await (const c of req) body += c
     requests.push(JSON.parse(body))
