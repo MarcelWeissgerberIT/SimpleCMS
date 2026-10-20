@@ -13,6 +13,8 @@ export const GEN = {
   claudeLimits: 2,
   /** a day / month budget of the workspace or this browser, or the coding worker governed (Regler G1) */
   budget: 3,
+  /** worker inference destinations, their data rules, routes and ledger provider ids */
+  workerModels: 4,
 } as const
 
 export type GenName = keyof typeof GEN
@@ -27,6 +29,7 @@ export type GenTable = Readonly<Partial<Record<string, number>>>
 export const GEN_ENFORCED: Readonly<Record<GenName, string>> = {
   claudeLimits: 'src/shared/ai/policy.ts',
   budget: 'src/app/features/governor/install.ts',
+  workerModels: 'src/shared/ai/policy.ts',
 }
 
 /**

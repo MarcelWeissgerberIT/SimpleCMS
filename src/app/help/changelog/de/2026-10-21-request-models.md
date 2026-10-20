@@ -10,3 +10,5 @@ help: ai-menu, ai-providers
 try: ai-menu
 ---
 Anbieter und Modelle pro Anfrage wechseln: Claude, OpenRouter und die Textmodelle des gekoppelten Workers (lokales Ollama, Ollama Cloud, MiniMax und Codex). Die Anbieterliste zeigt Sperrgründe in einer eigenen Zeile. Datenregeln bleiben wirksam, Standards bleiben unverändert. Worker ab 1.21 erforderlich; Textanfragen haben keine Projekt- oder MCP-Werkzeuge.
+
+Nach dem Speichern neuer Anbieterregeln fordern ältere One-Fenster zum Neuladen auf.

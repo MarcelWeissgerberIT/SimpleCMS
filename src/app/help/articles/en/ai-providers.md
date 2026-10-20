@@ -47,3 +47,5 @@ The AI menu, palette questions (**Mod+K → ?**) and **Help → Ask** show a sep
 The provider list separates names from availability. Blocked entries explain why and link to setup. Models include locally installed Ollama models, Ollama’s cloud catalogue, the configured MiniMax model and the Codex CLI’s cached models. Actual model access depends on the account and is checked when sending. **Local** means inference on the paired worker; a cloud worker is outside your Mac. Ollama cloud aliases are refused as local inference.
 
 **Cost display** applies EUR/USD to all metered providers. The rate and date are shown; stored costs and limits remain USD. **Price unknown** means no individual price and never free. MiniMax is estimated from token prices; Ollama Cloud and Codex can use plan quotas. A USD budget limit can block requests with an unknown price.
+
+Saving rules for worker providers makes an older One window ask for a reload. This keeps older windows from ignoring new provider and budget rules.

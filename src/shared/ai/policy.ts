@@ -1,3 +1,4 @@
+import { isWorkerProvider } from './providers.ts'
 /**
  * The AI rules as stored — Workspace.ai (synced, owners / admins) and settings.ai (this device) — what they let a
  * provider receive (allowedFor: shared classes by the workspace, member classes by the member on their device, narrowed
@@ -24,7 +25,7 @@ export const FEATURE_CLASSES: readonly FeatureClass[] = ['write', 'ask', 'worksp
  * budget of the workspace or this browser is enforced by the Regler's brake (features/governor/install.ts, G1). Restricted
  * pages get a GEN entry of their own, numbered when they merge — never a number promised here.
  */
-export const AI_POLICY_GEN: number = GEN.budget
+export const AI_POLICY_GEN: number = GEN.workerModels
 
 export const MAX_RESTRICTED = 200
 export const MAX_SHORTLIST = 24
@@ -320,6 +321,9 @@ export function limitsClaude(ws?: WorkspaceAI | null, device?: DeviceAI | null):
  * alone (and a rule pinning the Jev Router) need nothing: an S1 tab never sends to OpenRouter.
  */
 export function requiredGen(ws?: WorkspaceAI | null, device?: DeviceAI | null): number {
+  const workerKeys = (v: object | null | undefined) => Object.keys(v ?? {}).some(isWorkerProvider)
+  const routes = [...Object.values(ws?.routes ?? {}), ...Object.values(device?.routes ?? {}), device?.default ?? []]
+  if (workerKeys(ws?.policy?.providers) || workerKeys(ws?.limits) || workerKeys(device?.allow) || workerKeys(device?.narrow) || workerKeys(device?.roles) || routes.some(rule => rule?.some(route => isWorkerProvider(route.p)))) return GEN.workerModels
   return limitsClaude(ws, device) ? GEN.claudeLimits : 1
 }
 
