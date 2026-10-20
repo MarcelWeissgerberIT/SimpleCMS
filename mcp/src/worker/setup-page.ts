@@ -184,6 +184,21 @@ export const SETUP_JS = String.raw`(function () {
   var token = (/[#&]k=([A-Za-z0-9_-]{43})/.exec(location.hash) || [])[1] || ''
   var de = /^de\b/i.test(navigator.language || '')
   var EN = {
+    miniTitle: 'MiniMax M3.1 Flash · API',
+    miniHint: 'Cloud model: selected source, prompts and tool results are sent to MiniMax. The same One / Atlas tools and task memory apply. Save your own API key on this computer; it is never sent to the One workspace.',
+    miniReady: 'Key saved · not yet verified with MiniMax',
+    miniEmpty: 'No API key configured',
+    miniEnvironment: 'An environment key takes precedence. Remove MINIMAX_API_KEY and restart the worker to revoke it.',
+    miniKey: 'MiniMax API key',
+    miniKeep: 'Leave empty to keep the saved key',
+    miniContext: 'Context budget (tokens)',
+    miniEffort: 'Thinking effort',
+    miniSave: 'Save MiniMax settings',
+    miniRemove: 'Remove saved MiniMax key',
+    miniSaved: 'Settings saved. No model request was made.',
+    miniError: 'MiniMax settings could not be saved.',
+    miniSetup: 'Configure MiniMax',
+
     kicker: '§ ONE WORKER — {ws}',
     title: 'Pick the repositories One may work in',
     lead: 'Tick a repository and One can hand it coding tasks: Claude Code works on a branch in its own worktree, your checkout stays as it is. Paths and commands stay on this computer — One only learns the names.',
@@ -239,7 +254,7 @@ export const SETUP_JS = String.raw`(function () {
     forgeGithub: 'GitHub (also Enterprise)',
     forgeHint: 'Automatic reads the address: a host with “gitlab” or “github” in its name. A self-hosted GitLab or GitHub Enterprise under its own name: pick it here — then One links commits and branches, and the worker opens merge / pull requests with glab / gh.',
     limit: 'Cost limit per task (USD)',
-    mcpLabel: 'Own MCP servers for Claude Code and local Ollama',
+    mcpLabel: 'Own MCP servers for Claude Code, local Ollama and MiniMax',
     mcpHint: 'Names as “claude mcp list” shows them, e.g. kb — this repo\'s stages may use their tools (a knowledge base, a design system). Empty: only One\'s task tools.',
     allowedLabel: 'Allowed without asking',
     allowedHint: 'What Claude Code may do in this repo without asking you — added by “Always for this repo” in One (or by hand in worker.json). Remove one and press Save: One asks again next time.',
@@ -304,8 +319,8 @@ export const SETUP_JS = String.raw`(function () {
     saved: 'Saved — One sees {n} repositories now.',
     savedOne: 'Saved — One sees 1 repository now.',
     savedNone: 'Saved — no repositories: this worker takes only document tasks without a repository (Business analysis, QA).',
-    wmcpLabel: 'Default MCP servers · Claude Code / local Ollama',
-    wmcpHint: 'Business analysis / QA tasks without a repo run here with these servers (names as “claude mcp list” shows them, e.g. kb) — added with “claude mcp add -s user …”: a server in the default local scope stays out. Local Ollama also uses this list when the repository has no list of its own; personal JSON connections come from ~/.claude.json or ONE_CODER_MCP_CONFIG.',
+    wmcpLabel: 'Default MCP servers · Claude Code / Ollama / MiniMax',
+    wmcpHint: 'Business analysis / QA tasks without a repo run here with these servers (names as “claude mcp list” shows them, e.g. kb) — added with “claude mcp add -s user …”: a server in the default local scope stays out. Ollama and MiniMax also use this list when the repository has no list of its own; personal JSON connections come from ~/.claude.json or ONE_CODER_MCP_CONFIG.',
     writes: 'writes {file}',
     status: '§ STATUS',
     one: 'One',
@@ -322,6 +337,21 @@ export const SETUP_JS = String.raw`(function () {
     failed: 'That did not work: {e}'
   }
   var DE = {
+    miniTitle: 'MiniMax M3.1 Flash · API',
+    miniHint: 'Cloud-Modell: Ausgewählter Quelltext, Prompts und Werkzeugergebnisse gehen an MiniMax. Die One-/Atlas-Werkzeuge und das Aufgabengedächtnis gelten auch hier. Deinen eigenen API-Key nur auf diesem Rechner speichern; er wird nicht an den One-Arbeitsbereich gesendet.',
+    miniReady: 'Key gespeichert · noch nicht bei MiniMax geprüft',
+    miniEmpty: 'Kein API-Key eingerichtet',
+    miniEnvironment: 'Ein Umgebungs-Key hat Vorrang. Zum Widerrufen MINIMAX_API_KEY entfernen und den Worker neu starten.',
+    miniKey: 'MiniMax API-Key',
+    miniKeep: 'Leer lassen, um den gespeicherten Key zu behalten',
+    miniContext: 'Kontextbudget (Tokens)',
+    miniEffort: 'Denktiefe',
+    miniSave: 'MiniMax-Einstellungen speichern',
+    miniRemove: 'Gespeicherten MiniMax-Key entfernen',
+    miniSaved: 'Einstellungen gespeichert. Keine Modellanfrage gesendet.',
+    miniError: 'MiniMax-Einstellungen konnten nicht gespeichert werden.',
+    miniSetup: 'MiniMax einrichten',
+
     kicker: '§ ONE WORKER — {ws}',
     title: 'Wähle die Repositories, in denen One arbeiten darf',
     lead: 'Hak ein Repository an, und One kann ihm Coding-Aufgaben geben: Claude Code arbeitet auf einem Branch in einem eigenen Worktree, dein Checkout bleibt, wie er ist. Pfade und Befehle bleiben auf diesem Rechner – One erfährt nur die Namen.',
@@ -442,8 +472,8 @@ export const SETUP_JS = String.raw`(function () {
     saved: 'Gespeichert – One sieht jetzt {n} Repositories.',
     savedOne: 'Gespeichert – One sieht jetzt 1 Repository.',
     savedNone: 'Gespeichert – keine Repositories: Dieser Worker nimmt nur Dokument-Aufgaben ohne Repository (Business-Analyse, QA).',
-    wmcpLabel: 'Standard-MCP-Server · Claude Code / lokales Ollama',
-    wmcpHint: 'Business-Analyse- / QA-Aufgaben ohne Repo laufen hier mit diesen Servern (Namen wie in „claude mcp list“, z. B. kb) – hinzugefügt mit „claude mcp add -s user …“: Ein Server im Standard-Bereich (local) bleibt draußen. Lokales Ollama nutzt diese Liste auch, wenn das Repository keine eigene hat; die persönlichen JSON-Verbindungen stehen in ~/.claude.json oder ONE_CODER_MCP_CONFIG.',
+    wmcpLabel: 'Standard-MCP-Server · Claude Code / Ollama / MiniMax',
+    wmcpHint: 'Business-Analyse- / QA-Aufgaben ohne Repo laufen hier mit diesen Servern (Namen wie in „claude mcp list“, z. B. kb) – hinzugefügt mit „claude mcp add -s user …“: Ein Server im Standard-Bereich (local) bleibt draußen. Ollama und MiniMax nutzen diese Liste auch, wenn das Repository keine eigene hat; die persönlichen JSON-Verbindungen stehen in ~/.claude.json oder ONE_CODER_MCP_CONFIG.',
     writes: 'schreibt {file}',
     status: '§ STATUS',
     one: 'One',
@@ -528,6 +558,11 @@ export const SETUP_JS = String.raw`(function () {
   var cloneOpen = false
   var cloneUrl = ''
   var cloneDirText = null
+  var miniKey = ''
+  var miniContext = null
+  var miniEffort = null
+  var miniSaving = false
+  var miniMessage = ''
   var wmcpText = null
   var cloneErr = ''
   var cloneProto = 'https'
@@ -689,6 +724,38 @@ export const SETUP_JS = String.raw`(function () {
     ])
   }
 
+  function minimaxPanel() {
+    var m = state.minimax || { configured: false, contextTokens: 131072, effort: 'high' }
+    function save(remove) {
+      var body = remove ? { remove: true } : { apiKey: miniKey, contextTokens: miniContext || m.contextTokens, effort: miniEffort || m.effort }
+      miniSaving = true; miniMessage = ''; render()
+      api('POST', 'minimax', body).then(function (next) {
+        miniKey = ''; miniContext = null; miniEffort = null; miniSaving = false; miniMessage = t('miniSaved'); adopt(next)
+      }, function (e) { miniSaving = false; miniMessage = e.message || t('miniError'); render() })
+    }
+    return el('section', { className: 'wmcp', 'data-testid': 'minimax-setup' }, [
+      el('h2', { className: 'label', text: t('miniTitle') }),
+      el('p', { className: 'hint', text: t('miniHint') }),
+      el('p', { className: 'hint', text: m.error || t(m.configured ? 'miniReady' : 'miniEmpty') }),
+      m.environment ? el('p', { className: 'hint', text: t('miniEnvironment') }) : null,
+      el('div', { className: 'field' }, [
+        el('label', { className: 'label', for: 'minimax-key', text: t('miniKey') }),
+        el('input', { type: 'password', id: 'minimax-key', value: miniKey, autocomplete: 'new-password', spellcheck: 'false', placeholder: t('miniKeep'), disabled: miniSaving, oninput: function (e) { miniKey = e.target.value } })
+      ]),
+      el('div', { className: 'field' }, [
+        el('label', { className: 'label', for: 'minimax-context', text: t('miniContext') }),
+        el('select', { id: 'minimax-context', disabled: miniSaving, onchange: function (e) { miniContext = Number(e.target.value) } }, [65536, 131072, 262144, 1000000].map(function (n) { return el('option', { value: n, selected: n === (miniContext || m.contextTokens), text: n.toLocaleString(de ? 'de-DE' : 'en-US') }) }))
+      ]),
+      el('div', { className: 'field' }, [
+        el('label', { className: 'label', for: 'minimax-effort', text: t('miniEffort') }),
+        el('select', { id: 'minimax-effort', disabled: miniSaving, onchange: function (e) { miniEffort = e.target.value } }, ['low', 'medium', 'high', 'xhigh', 'max'].map(function (v) { return el('option', { value: v, selected: v === (miniEffort || m.effort), text: v }) }))
+      ]),
+      el('button', { type: 'button', className: 'btn', text: t('miniSave'), disabled: miniSaving, onclick: function () { save(false) } }),
+      m.configured ? el('button', { type: 'button', className: 'btn btn--ghost', text: t('miniRemove'), disabled: miniSaving, onclick: function () { save(true) } }) : null,
+      miniMessage ? el('p', { className: 'hint', role: 'status', text: miniMessage }) : null
+    ])
+  }
+
   function render() {
     var app = $('app')
     var focus = document.activeElement && document.activeElement.id
@@ -746,6 +813,7 @@ export const SETUP_JS = String.raw`(function () {
       el('input', { type: 'text', id: 'wmcp', value: wmcpText === null ? (state.mcpServers || []).join(', ') : wmcpText, placeholder: 'kb', spellcheck: 'false', autocomplete: 'off', oninput: function (ev) { wmcpText = ev.target.value } }),
       el('span', { className: 'hint', text: t('wmcpHint') })
     ]))
+    app.appendChild(minimaxPanel())
     app.appendChild(statusPanel())
     var bar = $('bar')
     bar.hidden = false

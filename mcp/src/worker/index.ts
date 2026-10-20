@@ -35,6 +35,7 @@ import { TRUST } from './run.ts'
 import { STOP_HARD_MS, Worker } from './worker.ts'
 import { serveTaskMcp } from './taskmcp.ts'
 import { filePreset } from './preset.ts'
+import { localBenchmark } from './local-benchmark.ts'
 import { SetupServer } from './setup.ts'
 import { factsOf, findRepos, shortPath } from './scan.ts'
 import { terminalChecklist } from './checklist.ts'
@@ -107,6 +108,8 @@ Exit code 2: the server let this file go for good (token revoked or replaced, me
                                               start finds your git repos and opens a page to tick them.
   node one-worker.mjs setup                   run and open that page again (change the repos)
   node one-worker.mjs check                   check the config, the repos and Claude Code
+  node one-worker.mjs benchmark --agent minimax --limit 3 --budget 1
+                                              opt-in synthetic model test; cloud API costs up to the USD budget
   node one-worker.mjs init --workspace <id>   (by hand) write ${defaultConfigFile()}
 
 Options: --config <file> (or ONE_WORKER_CONFIG), --no-browser (no setup page: pick the repos in this
@@ -119,6 +122,16 @@ Needs: Node.js 22 or newer, git${win ? ' (Git for Windows — Claude Code needs 
 
 async function main() {
   if (command === 'task-mcp') return serveTaskMcp(VERSION)
+  if (command === 'benchmark') {
+    const agent = value('--agent') ?? 'local'
+    const limit = Number(value('--limit') ?? 3)
+    const budgetUsd = Number(value('--budget') ?? 1)
+    if (!['local', 'minimax'].includes(agent) || !Number.isInteger(limit) || limit < 1 || limit > 10 || !Number.isFinite(budgetUsd) || budgetUsd < 0.01 || budgetUsd > 25) throw new Error('Use --agent local|minimax, --limit 1…10 and --budget 0.01…25 (USD).')
+    const report = await localBenchmark(limit, { agent: agent as 'local' | 'minimax', configFile, budgetUsd })
+    process.stdout.write(JSON.stringify(report, null, 2) + '\n')
+    process.exitCode = report.passed === report.total ? 0 : 1
+    return
+  }
 
   if (command === 'init') {
     try {

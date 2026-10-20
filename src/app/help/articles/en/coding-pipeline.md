@@ -7,7 +7,7 @@ keywords: coding, pipeline, claude code, worker, permalink, page address, copy l
 related: pipelines, workorders, legacy-modernisation, mcp-bridge, custom-agents, agent
 summary: Hand coding tasks to Claude Code on your computer — plan, approve, implement, test, ship — and follow every step in One.
 ---
-**#/coding** (⌘K *Coding pipeline*). One keeps the tasks, the approvals, the log and the diff; a small worker on **your** computer runs git and Claude Code. Your code never leaves your machine.
+**#/coding** (⌘K *Coding pipeline*). One keeps the tasks, the approvals, the log and the diff; a small worker on **your** computer runs git and Claude Code. The worker runs on your machine. Selected code and tool results go to the chosen model provider; Local · Ollama runs inference locally.
 
 ## Set up in three steps
 You need Node.js 22 or newer, git and the **Claude Code** CLI, signed in once (`claude`) — on macOS, Linux or Windows 10 / 11 (see *Windows* below). Then **Settings → Coding worker** (or **#/coding**):
@@ -155,3 +155,15 @@ Ask the [AI terminal](help:agent) (<kbd>Mod+J</kbd>) *“what waits for me in th
 The worker touches only the repos you ticked; One can send it task text and fixed git actions — never a command, and it can never tick a repo itself. A downloaded worker only accepts this browser and this workspace; a cloud worker's messages are sealed between this browser and the worker — the server only passes them on. Claude Code keeps its permission rules, and task text goes to it as data, not as instructions. A cost limit per task is set on the worker's page, one per day in `worker.json`. For the note, One learns the repository's web address (host and project) — never a path. In a team workspace your worker only takes tasks you wrote or confirmed on this device (**Confirm on this device**) — a stage (its model too), repo or branch changed on another device asks again. A task one of your custom agents wrote waits for the same confirmation, also in your local workspace. The AI terminal never confirms a task: its actions are proposals you apply, those that start the worker one by one, and they are refused for a task that waits for Confirm. A task file the [folder / GitHub sync](help:sync) picks up never moves a task — Stage, Repo, Branch and the other pipeline fields stay as One has them, and the file is written again — and a task whose text came from the file waits for **Confirm on this device**, also in your local workspace.
 
 > Tip: the full reference — config keys, protocol, troubleshooting — is `docs/CODING.md` in the repository.
+
+
+## MiniMax M3.1 Flash
+Choose **MiniMax · API** under the task’s Type, or per BA / Coding / QA role in a work order. Worker **1.18.0** adds this adapter to the shared file tools, One task MCP, selected external MCP servers (including Atlas), task memory and checks. A worker without `agent:minimax` never takes the task as Claude.
+
+Open **Settings → Coding worker → Change repositories**, then the **MiniMax M3.1 Flash · API** section. Enter your key there, choose thinking effort and context budget, and save. The key is stored in `minimax.json` alongside the worker’s own configuration, with owner-only permissions on macOS/Linux. It never becomes a workspace property or tool argument. A worker environment `MINIMAX_API_KEY` takes precedence. Removing the saved file does not revoke an environment key.
+
+The available context budgets are 65,536, 131,072 (default), 262,144 and 1,000,000 tokens. Thinking defaults to `high`; completion reserves 16,384 tokens including thinking. Memory compaction and progress limits still apply. Selected code, prompts and tool results are sent to MiniMax’s cloud API. Saving the key does not test or call the model.
+
+Cost estimates use the published prices (19 October 2026): USD 0.15 per million input tokens, 0.015 cached input and 0.60 output including thinking. Provider usage updates the task ledger, and the existing task/day budgets cap subsequent requests. An uncertain response retains a conservative upper estimate; it is not retried automatically. This is not a billing receipt. See [MiniMax’s announcement](https://www.minimax.io/blog/minimax-m31f) and [API documentation](https://platform.minimax.io/docs/guides/text-generation).
+
+After configuring a key, an explicit synthetic smoke comparison can run with `node one-worker.mjs benchmark --agent minimax --limit 3 --budget 1`. The USD budget covers that benchmark run. `--agent local` uses the local model. These small programming cases do not establish parity with a frontier model; use real work packages and acceptance checks for that comparison.

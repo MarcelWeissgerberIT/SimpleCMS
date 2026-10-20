@@ -27,7 +27,7 @@ export interface CodexRun {
   env?: NodeJS.ProcessEnv
   progress?: (value: TaskProgress) => void
 }
-export interface CodexResult { ok: boolean; stopped: boolean; limited: boolean; text: string; steps: number; error?: string }
+export interface CodexResult { ok: boolean; stopped: boolean; limited: boolean; text: string; steps: number; cost?: number; limitKind?: 'budget' | 'model'; error?: string }
 
 /** Arguments contain no task text or credentials; own MCP credentials are inherited by name. */
 export function codexArgs(opts: CodexRun): string[] {

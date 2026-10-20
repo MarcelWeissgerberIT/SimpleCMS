@@ -2,7 +2,7 @@ import { test, expect, openApp, gotoPage, wsEval } from './fixtures'
 import { seedPipeline, waitPreflight, flushLamps } from './helpers/preflightStory.mjs'
 
 // Display fixtures only: no model, command or worker is started.
-for (const lang of ['en', 'de'] as const) for (const agent of ['claude', 'codex', 'local'] as const) {
+for (const lang of ['en', 'de'] as const) for (const agent of ['claude', 'codex', 'local', 'minimax'] as const) {
   test(`${lang}: ${agent} names its question and permission; the overview stays neutral`, async ({ page }) => {
     await openApp(page)
     await waitPreflight(page)
@@ -11,7 +11,7 @@ for (const lang of ['en', 'de'] as const) for (const agent of ['claude', 'codex'
     const id = pipe.tasks[1]!
     await gotoPage(page, id)
     await page.getByTestId('coding-agent-select').selectOption(agent)
-    const name = agent === 'claude' ? 'Claude Code' : agent === 'codex' ? 'Codex' : lang === 'de' ? 'Lokal · Ollama' : 'Local · Ollama'
+    const name = agent === 'claude' ? 'Claude Code' : agent === 'codex' ? 'Codex' : agent === 'minimax' ? 'MiniMax · API' : lang === 'de' ? 'Lokal · Ollama' : 'Local · Ollama'
     await page.evaluate((id) => {
       const p = (window as any).__onePreflight
       p.stores.codingLocal.setState((s: any) => ({ tasks: { ...s.tasks, [`local:local|${id}`]: { state: 'question', question: 'Which source should I use?', at: Date.now() } } }))

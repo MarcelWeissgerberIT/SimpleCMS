@@ -17,6 +17,7 @@
  * tick or add a repo. A folder is offered only when it is a main checkout (a `.git` folder) the scan found,
  * that is in worker.json already, or that the person typed into the page.
  */
+import { miniMaxStatus, saveMiniMax } from './minimax-config.ts'
 import { randomBytes } from 'node:crypto'
 import { homedir } from 'node:os'
 import { isAbsolute, join, resolve } from 'node:path'
@@ -300,6 +301,7 @@ export class SetupServer {
       cloneDir: shortPath(this.cloneDir ?? config.cloneDir, this.home),
       // the person's own Claude Code MCP servers for tasks without a repository (document stages)
       mcpServers: config.mcpServers,
+      minimax: miniMaxStatus(this.host.configFile),
       clone: this.clone,
       // what the one-time marking marked (an older worker's clones and imports), until the person took note
       marked: unseenMarks(this.host.configFile),
@@ -621,6 +623,12 @@ export class SetupServer {
     }
     if (op === 'marks-seen') {
       marksSeen(this.host.configFile)
+      return json(200, await this.state()), true
+    }
+    if (op === 'minimax') {
+      if (this.host.live().busy.length) return json(409, { error: 'Wait for running tasks to finish before changing MiniMax settings.' }), true
+      try { saveMiniMax(this.host.configFile, body) }
+      catch (e) { return json(400, { error: e instanceof Error ? e.message : 'MiniMax settings could not be saved.' }), true }
       return json(200, await this.state()), true
     }
     if (op === 'save') {

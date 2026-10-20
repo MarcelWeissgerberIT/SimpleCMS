@@ -10,7 +10,13 @@ export interface LocalInferenceRequest {
 export interface LocalInferenceResponse { message?: any; inputTokens?: number }
 export interface LocalInference {
   (request: LocalInferenceRequest): Promise<LocalInferenceResponse>
+  cost?: () => number
   profile?: (model: string, signal: AbortSignal) => Promise<string>
+}
+
+export class InferenceLimit extends Error {
+  readonly kind: 'budget' | 'model'
+  constructor(message: string, kind: 'budget' | 'model' = 'model') { super(message); this.kind = kind }
 }
 
 export function withModelProfile(instructions: string, profile: string) {

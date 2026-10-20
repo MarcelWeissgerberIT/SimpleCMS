@@ -32,7 +32,7 @@ export const LOG_MAX = 2000
 /** Tasks one worker runs at once (across repos; one per repo). */
 export const PARALLEL_MAX = 2
 
-export const CODING_AGENTS = ['claude', 'codex', 'local'] as const
+export const CODING_AGENTS = ['claude', 'codex', 'local', 'minimax'] as const
 export type CodingAgent = (typeof CODING_AGENTS)[number]
 export const isCodingAgent = (v: unknown): v is CodingAgent => (CODING_AGENTS as readonly unknown[]).includes(v)
 
@@ -69,7 +69,7 @@ export type GitAction = (typeof GIT_ACTIONS)[number]
  * worker that names it) and 'permission' (Claude Code's permission prompts come to One as PermissionAsk; the person
  * answers with a PermissionVerb).
  */
-export const WORKER_CAN = ['analyze', 'git:comment', 'git:merge', 'doc', 'model', 'mcp-list', 'ship', 'continue', 'permission', 'agent:codex', 'agent:local', 'delivery-qa'] as const
+export const WORKER_CAN = ['analyze', 'git:comment', 'git:merge', 'doc', 'model', 'mcp-list', 'ship', 'continue', 'permission', 'agent:codex', 'agent:local', 'agent:minimax', 'delivery-qa'] as const
 /**
  * What a worker runs, read from its `next`. Document stages came before `can`, together with `docs: true`: a worker
  * that sends either knows them, so a `can` without 'doc' (1.3.x) or `docs` without a `can` (1.3.1 before `can`)

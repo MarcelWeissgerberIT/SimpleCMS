@@ -452,6 +452,18 @@ describe('the setup page', () => {
     assert.equal((await call('/setup/api/state')).status, 401)
     assert.equal((await call('/setup/api/state', { token: token.replace(/^./, (c) => (c === 'a' ? 'b' : 'a')) })).status, 403)
     assert.equal((await call('/setup/api/state', { token, host: `localhost:${PORT}` })).status, 403)
+    const miniKey = 'mini_setup_fixture_only_key'
+    const mini = { apiKey: miniKey, contextTokens: 262144, effort: 'high' }
+    assert.equal((await call('/setup/api/minimax', { origin: SELF, body: mini })).status, 401)
+    assert.equal((await call('/setup/api/minimax', { token, origin: 'https://evil.example', body: mini })).status, 403)
+    const miniSaved = await call('/setup/api/minimax', { token, origin: SELF, body: mini })
+    assert.equal(miniSaved.status, 200, miniSaved.text)
+    assert.equal(miniSaved.json().minimax.configured, true)
+    assert.ok(!miniSaved.text.includes(miniKey))
+    assert.ok(!JSON.stringify(tab.messages).includes(miniKey))
+    const miniRemoved = await call('/setup/api/minimax', { token, origin: SELF, body: { remove: true } })
+    assert.equal(miniRemoved.status, 200)
+    assert.equal(miniRemoved.json().minimax.configured, false)
     const first = (await call('/setup/api/state', { token })).json()
     assert.equal(first.workspace.name, 'Studio')
     const state = await doneState(token)

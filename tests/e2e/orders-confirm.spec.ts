@@ -208,8 +208,8 @@ test.describe('confirming a work order: startChain', () => {
     await page.getByTestId('order-settings-key').first().click()
     await page.getByTestId('order-settings-agent-spec').selectOption('claude')
     await page.getByTestId('order-settings-agent-coding').selectOption('local')
-    await page.getByTestId('order-settings-agent-qa').selectOption('codex')
-    expect(await wsEval(page, (s, id) => s.databases[id].orders.agents, db)).toEqual({ spec: 'claude', coding: 'local', qa: 'codex' })
+    await page.getByTestId('order-settings-agent-qa').selectOption('minimax')
+    expect(await wsEval(page, (s, id) => s.databases[id].orders.agents, db)).toEqual({ spec: 'claude', coding: 'local', qa: 'minimax' })
     for (const width of [1440, 390]) {
       await page.setViewportSize({ width, height: width === 1440 ? 900 : 844 })
       for (const theme of ['light', 'dark']) {
@@ -222,7 +222,7 @@ test.describe('confirming a work order: startChain', () => {
     expect(await orders(page).plan(row)).toMatchObject({ kind: 'ready' })
     const out = await orders(page).start(row)
     expect(out).toMatchObject({ ok: true })
-    for (const [i, agent] of ['claude', 'local', 'codex'].entries()) {
+    for (const [i, agent] of ['claude', 'local', 'minimax'].entries()) {
       const p = await pageOf(page, out.steps[i])
       expect(Object.values(p.properties)).toContain(`coding_agent_${agent}`)
     }

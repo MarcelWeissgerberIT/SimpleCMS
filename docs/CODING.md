@@ -1526,3 +1526,23 @@ state: pending | active, online }` — what `node one-worker-cloud.mjs check` pr
 The worker's code: [`mcp/src/worker`](../mcp/src/worker) (bundled with the bridge by `npm run build:mcp` to
 `public/mcp/one-worker.mjs`, committed; `npm --prefix mcp test` runs its tests against temp repos, a local bare remote
 and a fake `CLAUDE_BIN`).
+
+
+## MiniMax coding engine (worker 1.18.0)
+
+The `minimax` agent uses `MiniMax-M3.1-Flash` at the fixed MiniMax HTTPS API endpoint. It runs in the same isolated worktree through `runLocal`'s provider-neutral inference contract: host file policy, configured checks, One task MCP, selected external MCP servers, Atlas shadow-memory scoping, operation journal and bounded-progress checks all remain in the harness. Planning/document stages stay read-only. Quality stages use `finish_task`; the combined-branch QA stage still runs configured tests in the host. No Claude or Codex CLI is required for this adapter.
+
+The worker's loopback setup page stores `minimax.json` beside its config, atomically with mode 0600 on macOS/Linux. The API key never enters the One protocol, workspace, model prompt or MCP child environment. `MINIMAX_API_KEY` in the worker environment overrides the file. Setup responses only return configuration status; saving sends no inference request. Setup's existing Host, Origin and per-start token checks cover the new `POST /setup/api/minimax` route. Changing settings while tasks are active is refused.
+
+Defaults: 131,072 context tokens, high effort, 16,384 output tokens including thinking. Setup also offers 65,536 / 262,144 / 1,000,000 context tokens and low / medium / high / xhigh / max effort. Memory and compaction remain enabled at every size. Selected prompts, code and tool results go to MiniMax's cloud API.
+
+Assistant `reasoning_content`, tool-call IDs and complete assistant/tool groups are preserved across turns. Truncated, malformed, unknown or duplicate tool calls are rejected before any tool in that response executes. Provider requests do not automatically retry. Published token prices (2026-10-19) produce task/day cost estimates, with cached input discounted and thinking counted as output. Before sending, a conservative input/output reservation must fit the remaining budget; uncertain transport outcomes retain that upper estimate. Dollar figures are estimates rather than billing receipts.
+
+Opt-in synthetic smoke comparison, after key setup:
+
+```sh
+node one-worker.mjs benchmark --agent minimax --limit 3 --budget 1
+node one-worker.mjs benchmark --agent local --limit 3
+```
+
+These cases create isolated temporary files, pin the acceptance tests and remove the fixtures afterwards. No real project data or Atlas connection is used by this benchmark. Offline adapter tests also cover the actual One task MCP and an Atlas MCP fixture. Neither fixture tests nor this small benchmark establish frontier-model quality; compare real work packages separately.

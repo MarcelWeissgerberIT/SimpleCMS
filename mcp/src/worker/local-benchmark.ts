@@ -3,6 +3,8 @@ import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { runLocal } from './local-agent.ts'
+import { miniMaxInference } from './minimax-inference.ts'
+import { readMiniMax, MINIMAX_MODEL } from './minimax-config.ts'
 import { execFileSafe } from './exec.ts'
 
 const cases = [
@@ -18,8 +20,10 @@ const cases = [
   ['references', 'Collect unique referenced page ids in traversal order from nested nodes: a node of type pageMention has attrs.pageId; recurse through content arrays; ignore missing ids. Accept a null root.', `export function solve(root) { return [] }`, `assert.deepEqual(solve({content:[{type:'pageMention',attrs:{pageId:'a'}},{content:[{type:'pageMention',attrs:{pageId:'b'}},{type:'pageMention',attrs:{pageId:'a'}}]}]}),['a','b']); assert.deepEqual(solve(null),[])`],
 ] as const
 
-export async function localBenchmark(limit = 10) {
-  const results: Array<{ task: string; ok: boolean; ms: number; steps: number; error?: string }> = []
+export async function localBenchmark(limit = 10, options?: { agent: 'local' | 'minimax'; configFile: string; budgetUsd: number }) {
+  const minimax = options?.agent === 'minimax' ? readMiniMax(options.configFile) : null
+  let cost = 0
+  const results: Array<{ task: string; ok: boolean; ms: number; steps: number; cost?: number; error?: string }> = []
   for (const [name, task, source, tests] of cases.slice(0, limit)) {
     const root = await mkdtemp(join(tmpdir(), 'one-local-benchmark-'))
     const start = Date.now()
@@ -30,7 +34,8 @@ export async function localBenchmark(limit = 10) {
       const checkBefore = await readFile(join(root, 'check.mjs'), 'utf8')
       const syntax = await execFileSafe(process.execPath, ['--check', 'check.mjs'], { cwd: root, timeoutMs: 10000, maxBuffer: 20000 })
       if (syntax.code !== 0) throw new Error(`Invalid benchmark fixture ${name}: ${syntax.stderr}`)
-      const result = await runLocal({ agent: 'local', cwd: root, prompt: `Implement this task in solution.mjs: ${task}\nKeep the exported solve function. Change only solution.mjs. Use the configured checks to verify.`, readOnly: false, maxSteps: 20, signal: AbortSignal.timeout(180000), taskMcp: null, log: () => {},
+      const result = await runLocal({ agent: minimax ? 'minimax' : 'local', cwd: root,
+        ...(minimax ? { inference: miniMaxInference(minimax, Math.max(0, options!.budgetUsd - cost)), model: MINIMAX_MODEL, outputTokens: 16384, context: { tokens: minimax.contextTokens, inputLimit: minimax.contextTokens - 32768, chars: (minimax.contextTokens - 32768) * 1.5 } } : {}), prompt: `Implement this task in solution.mjs: ${task}\nKeep the exported solve function. Change only solution.mjs. Use the configured checks to verify.`, readOnly: false, maxSteps: 20, signal: AbortSignal.timeout(180000), taskMcp: null, log: () => {},
         verify: async signal => {
           if (await readFile(join(root, 'check.mjs'), 'utf8') !== checkBefore) return { ok: false, output: 'Acceptance tests were modified.', unavailable: true }
           signal.throwIfAborted()
@@ -38,14 +43,15 @@ export async function localBenchmark(limit = 10) {
           return { ok: checked.code === 0, output: checked.stdout + checked.stderr }
         },
       })
-      results.push({ task: name, ok: result.ok, ms: Date.now() - start, steps: result.steps, ...(result.error ? { error: result.error } : {}) })
+      cost += result.cost ?? 0
+      results.push({ task: name, cost: result.cost ?? 0, ok: result.ok, ms: Date.now() - start, steps: result.steps, ...(result.error ? { error: result.error } : {}) })
       process.stderr.write(`${name}: ${result.ok ? 'PASS' : 'FAIL'} (${Math.round((Date.now() - start) / 1000)}s)\n`)
     } finally { await rm(root, { recursive: true, force: true }) }
   }
-  return { model: process.env.ONE_CODER_MODEL || 'marcel-coder:latest', kind: '10 small CMS-related programming tasks; not a frontier-model comparison', passed: results.filter(r => r.ok).length, total: results.length, results }
+  return { model: minimax ? MINIMAX_MODEL : process.env.ONE_CODER_MODEL || 'marcel-coder:latest', costEstimateUsd: cost, kind: `${limit} synthetic CMS-related programming tasks; not a frontier-model comparison`, passed: results.filter(r => r.ok).length, total: results.length, results }
 }
 
-if (process.argv.includes('--run')) {
+if (process.argv[1]?.endsWith('local-benchmark.ts') && process.argv.includes('--run')) {
   const limit = Number(process.argv.find(a => a.startsWith('--limit='))?.split('=')[1] ?? 10)
   if (!Number.isInteger(limit) || limit < 1 || limit > 10) throw new Error('Use --limit=1 through --limit=10')
   const report = await localBenchmark(limit)

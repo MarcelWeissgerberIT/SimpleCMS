@@ -3,6 +3,7 @@ import type { Database, Page } from '../../store/types'
 import { useWorkspace } from '../../store/store'
 import { useT } from '../../i18n'
 import { useTaskLocal } from './local'
+import { ChangeReposButton } from './SetupCard'
 import { useCoding } from './state'
 import { agentProperty, codingAgentOf, codingAgentProperty } from './agent'
 import { CODING_AGENTS, type CodingAgent } from './protocol'
@@ -24,7 +25,12 @@ export function CodingAgentPick({ row, db, readOnly }: { row: Page; db: Database
       const id = store.addProperty(db.id, agentProperty())
       prop = useWorkspace.getState().databases[db.id]?.properties.find(p => p.id === id)
     }
-    const option = prop?.options?.find(o => o.id === `coding_agent_${value}`)
+    let option = prop?.options?.find(o => o.id === `coding_agent_${value}`)
+    if (prop && !option && !current.locked) {
+      const added = agentProperty().options!.find(o => o.id === `coding_agent_${value}`)!
+      store.updateProperty(db.id, prop.id, { options: [...(prop.options ?? []), added] })
+      option = added
+    }
     if (!prop || !option) { setError(true); return }
     store.setRowProperty(row.id, prop.id, option.id)
     setError(false)
@@ -35,6 +41,7 @@ export function CodingAgentPick({ row, db, readOnly }: { row: Page; db: Database
       {!agent && <option value="unknown">{t('features.coding.agent.unknown')}</option>}
       {CODING_AGENTS.map(id => <option key={id} value={id}>{t(`features.coding.agent.${id}`)}</option>)}
     </select>
+    {agent === 'minimax' && <div className="rtype-row__hint">{t('features.coding.agent.minimaxHint')} <ChangeReposButton label={t('features.coding.agent.minimaxSetup')} testId="coding-minimax-setup" /></div>}
     {error && <span role="alert">{t('features.coding.agent.locked')}</span>}
   </div>
 }

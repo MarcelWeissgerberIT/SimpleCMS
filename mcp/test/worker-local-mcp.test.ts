@@ -7,6 +7,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { z } from 'zod'
 import { LocalMcp } from '../src/worker/local-mcp.ts'
+import { miniMaxInference } from '../src/worker/minimax-inference.ts'
 import { runLocal } from '../src/worker/local-agent.ts'
 import { MemoryOAuth } from '../src/worker/local-memory-oauth.ts'
 import { cleanupAll, tempDir } from './worker-helpers.ts'
@@ -105,6 +106,24 @@ test('external MCP tools cooperate in one task; namespaced calls, auth redaction
     assert.ok(JSON.stringify(bodies).includes('Record 43'))
     assert.ok(!JSON.stringify(bodies).includes(secret))
     assert.ok(!calls.some(name => agentTools.slice(1).includes(name)))
+    const miniBodies: any[] = []
+    const miniCalls = [
+      ['mcp_search_tools', { query: 'atlas_get' }],
+      ['mcp_call_tool', { server: 'atlas', name: 'atlas_get', arguments: { ref: 45 } }],
+      ['write_file', { path: 'minimax-feature.txt', content: 'Implemented using Atlas context.' }],
+      ['finish_task', { status: 'completed', summary: 'Read Atlas 45 and implemented the feature.', next: '' }],
+    ]
+    const mini = await runLocal({ agent: 'minimax', cwd: root, prompt: 'Use Atlas record 45 and implement.', readOnly: false, maxSteps: 8, taskMcp: null, mcpServers: ['atlas', 'docs'], signal: new AbortController().signal, log: () => {}, env,
+      inference: miniMaxInference({ apiKey: 'minimax_fixture_private_key', contextTokens: 131072, effort: 'high' }, 1, async (_url, init) => {
+        miniBodies.push(JSON.parse(String(init!.body)))
+        const [name, args] = miniCalls.shift()!
+        return Response.json({ choices: [{ finish_reason: 'tool_calls', message: { role: 'assistant', content: '', reasoning_content: 'Read, implement, finish.', tool_calls: [{ id: 'mini-' + miniBodies.length, type: 'function', function: { name, arguments: JSON.stringify(args) } }] } }], usage: { prompt_tokens: 1000, completion_tokens: 100 } })
+      }),
+    })
+    assert.equal(mini.ok, true, mini.error)
+    assert.ok(calls.includes('get:45'), 'MiniMax reaches the actual MCP fixture through the common harness')
+    assert.ok(JSON.stringify(miniBodies).includes('Record 45'))
+    assert.ok(!JSON.stringify(miniBodies).includes(secret))
     const implementation = new LocalMcp(false)
     try {
       await implementation.connect(['atlas'], env, AbortSignal.timeout(10000))

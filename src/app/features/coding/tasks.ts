@@ -1091,6 +1091,11 @@ function createTaskRow(input: NewTask): ID {
     let property = codingAgentProperty(db)
     if (!property && db.locked) throw new Error(t('features.coding.order.settings.locked'))
     if (!property) { property = agentProperty(); ws().addProperty(dbId, property) }
+    if (!property.options?.some(o => o.id === `coding_agent_${input.agent}`)) {
+      if (db.locked) throw new Error(t('features.coding.agent.locked'))
+      const added = agentProperty().options!.find(o => o.id === `coding_agent_${input.agent}`)!
+      ws().updateProperty(dbId, property.id, { options: [...(property.options ?? []), added] })
+    }
     properties[property.id] = `coding_agent_${input.agent}`
   }
   const repoOpt = input.repo ? optionByName(db, props.repo, input.repo) : null
