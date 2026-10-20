@@ -491,3 +491,9 @@ integration profiles and the Patchbay's allowed paths (`fuseSignoffs`, see [`CLO
 server guards those keys against every other writer; which of them a server guards is in `GET /api/config` → `supports`
 (`'ai'` = `workspace.ai`, `'governor'` = `workspace.governor`, `'signoffs'` = the `fuseSignoffs` map) — an app writes such a
 key only on a server that lists it.
+
+### One-time manual agent assignments
+
+A server with `GET /api/config` → `supports` containing `agent-invocation` accepts `POST /api/workspaces/:id/agents/:agentId/run` with optional JSON `{ "invocation": { "pageId": "...", "objective": "..." } }`. Both fields are optional; objective ≤ 4,000 characters, page id ≤ 80. Unknown fields, inaccessible targets and viewers are refused before enqueueing. Empty/absent JSON retains the historical quick-run behavior.
+
+The resolved assignment (with the target title snapshot) is included as `AgentRun.invocation`. Scope is checked again against the current definition before inference. The explicit goal supersedes only the default job, never scope, tools, write mode or reviews. One-time runs do not read/write the recurring cursor, count as its last successful run, or publish to its default report page.

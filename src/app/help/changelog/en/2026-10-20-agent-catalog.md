@@ -1,7 +1,7 @@
 ---
 id: 2026-10-20-agent-catalog
 date: 2026-10-20
-order: 6
+order: 7
 title: Agent templates by category
 summary: Start from a specialist and organise your own agents.
 image: assets/shots/changelog/agent-catalog.webp

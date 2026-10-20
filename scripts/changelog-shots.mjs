@@ -4314,6 +4314,23 @@ process.exit(1)
     await ctx.close()
   },
 
+  async 'agent-assignments'(browser) {
+    const { ctx, page } = await freshPage(browser)
+    const target = await pageIdByTitle(page, 'Weekly sync — notes')
+    await page.evaluate(() => {
+      const now = Date.now()
+      window.__one.workspace.getState().upsertAgent({ id: 'ag-shot-brief', name: 'BA · Delivery planning', instructions: 'Analyse requirements, identify open questions and break the work into verifiable implementation packages. Keep source references and acceptance criteria.', trigger: { type: 'manual' }, scope: { everything: true, pages: [], databases: [] }, write: 'stage', output: null, mcpServers: [], runner: 'browser', model: null, effort: null, maxRunUsd: 2, enabled: false, createdBy: null, createdAt: now, updatedAt: now })
+      window.location.hash = '#/agents/ag-shot-brief'
+    })
+    await page.getByRole('button', { name: 'Assignment & target…', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: 'Run agent with an assignment' })
+    await dialog.getByLabel('Target page', { exact: true }).selectOption(target)
+    await dialog.getByLabel('One-time objective (optional)', { exact: true }).fill('Review this brief. List missing requirements, then split it into three coding tasks with acceptance criteria and source references.')
+    await rest(page)
+    await save(page, 'agent-assignments')
+    await ctx.close()
+  },
+
   async 'ollama-cloud'(browser) {
     const { ctx, page } = await freshPage(browser)
     await waitPreflight(page)

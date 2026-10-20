@@ -755,3 +755,129 @@ test.describe('Custom agents', () => {
     await expect(page.locator('.agx-dhead').getByTestId('agx-state')).toHaveText('Review')
   })
 })
+
+// A manual brief is a run input, not a change of the recurring agent's definition.
+test('one-time assignment from a page; scope is enforced, the run is linked in Patchbay, and the next quick run uses defaults', async ({ page, context }) => {
+  await openApp(page)
+  await setKey(page)
+  const target = await pageIdByTitle(page, 'Weekly sync — notes')
+  const other = await pageIdByTitle(page, 'Reading list')
+  const original = 'Review the architecture every week. Do not modify pages.'
+  const id = await addAgent(page, { id: 'ag-one-time', name: 'BA agent', instructions: original, scope: { everything: false, pages: [other], databases: [] }, output: { pageId: other, mode: 'append' } })
+  const reportBefore = await wsEval(page, (s, id) => JSON.stringify(s.pages[id].content), other)
+  const bodies = await mockClaude(context, [() => sseMessage([{ type: 'tool_use', id: 'read-target', name: 'read_page', input: { id: target } }]), () => sseMessage([{ type: 'text', text: '# Delivery plan\n\nRead the brief and split the implementation into three packages.' }])])
+  await gotoPage(page, target)
+  await page.getByRole('button', { name: 'Page options', exact: true }).click()
+  await page.getByRole('menuitem', { name: 'Run an agent on this page…' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Run agent with an assignment' })
+  await dialog.getByLabel('Agent', { exact: true }).selectOption(id)
+  await expect(dialog.getByLabel('Target page', { exact: true })).toHaveValue(target)
+  await expect(dialog.getByRole('alert')).toContainText('outside the agent')
+  await expect(dialog.getByRole('button', { name: 'Start this run' })).toBeDisabled()
+  expect(bodies).toHaveLength(0)
+  await wsEval(page, (s, { id, target }) => s.upsertAgent({ ...s.agents[id], scope: { everything: false, pages: [target, s.agents[id].scope.pages[0]], databases: [] } }), { id, target })
+  await dialog.getByLabel('One-time objective (optional)', { exact: true }).fill('Split the selected brief into three implementation packages.')
+  await dialog.getByRole('button', { name: 'Start this run' }).click()
+  const [run] = await waitRuns(page, id, 1)
+  expect(run.invocation).toMatchObject({ pageId: target, pageTitle: 'Weekly sync — notes', objective: 'Split the selected brief into three implementation packages.' })
+  expect(JSON.stringify(bodies[0].messages)).toContain('ONE-TIME MANUAL ASSIGNMENT')
+  expect(JSON.stringify(bodies[0].messages)).toContain(target)
+  expect(await wsEval(page, (s, id) => s.agents[id].instructions, id)).toBe(original)
+  expect(await wsEval(page, (s, id) => JSON.stringify(s.pages[id].content), other)).toBe(reportBefore)
+  await goAgent(page, id)
+  await expect(page.getByTestId('agent-run-assignment')).toContainText('Split the selected brief')
+  await page.getByRole('button', { name: 'Run now', exact: true }).click()
+  await waitRuns(page, id, 2)
+  expect(JSON.stringify(bodies.at(-1).messages)).not.toContain('ONE-TIME MANUAL ASSIGNMENT')
+  await page.evaluate(() => { window.location.hash = '#/patchbay' })
+  const flow = page.getByTestId('agent-invocation-runs')
+  await expect(flow).toContainText('Weekly sync — notes')
+  await expect(flow).toContainText('BA agent')
+  await expect(flow).toContainText('Open result')
+  await expect(flow).toContainText('Read · Weekly sync — notes')
+})
+
+test('report export creates a page, appends without replacing content, and creates a database entry with provenance', async ({ page, context }) => {
+  await openApp(page)
+  await setKey(page)
+  const id = await addAgent(page, { id: 'ag-report-export', name: 'BA report' })
+  await mockClaude(context, [], '# Analysis report\n\n- First finding\n- Second finding\n\n![Remote](https://external.invalid/track)')
+  await goAgent(page, id)
+  await page.getByRole('button', { name: 'Run now', exact: true }).click()
+  const [run] = await waitRuns(page, id, 1)
+  const target = await pageIdByTitle(page, 'Weekly sync — notes')
+  const db = await pageIdByTitle(page, 'Projects')
+  const before = await wsEval(page, (s, id) => JSON.stringify(s.pages[id].content), target)
+  let exported = ''
+  for (const mode of ['new', 'append', 'database']) {
+    await page.getByRole('button', { name: 'Save report…', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: 'Save report…', exact: true })
+    await dialog.getByLabel('Save as', { exact: true }).selectOption(mode)
+    if (mode !== 'append') await dialog.getByLabel('Report title', { exact: true }).fill(`Saved report ${mode}`)
+    await dialog.getByLabel('Destination', { exact: true }).selectOption(mode === 'database' ? db : target)
+    await dialog.getByRole('button', { name: 'Save report', exact: true }).click()
+    await expect(dialog).toBeHidden()
+    const link = page.getByRole('link', { name: 'Open saved report' })
+    await expect(link).toBeVisible()
+    const href = await link.getAttribute('href')
+    exported = href!.split('#/p/')[1]
+    const saved = await wsEval(page, (s, id) => s.pages[id], exported)
+    expect(JSON.stringify(saved.content)).toContain('First finding')
+    expect(JSON.stringify(saved.content)).toContain(`#/agents/${id}?run=${run.id}`)
+    expect(JSON.stringify(saved.content)).not.toContain('"type":"image"')
+    if (mode === 'new') {
+      expect(saved.title).toBe('Saved report new')
+      expect(saved.parentId).toBe(target)
+    }
+    if (mode === 'append') {
+      expect(exported).toBe(target)
+      const originalBlocks = JSON.parse(before).content
+      expect(saved.content.content.slice(0, originalBlocks.length)).toEqual(originalBlocks)
+    }
+    if (mode === 'database') expect(saved.databaseId).toBe(db)
+  }
+  const appended = await wsEval(page, (s, id) => JSON.stringify(s.pages[id].content), target)
+  await page.getByRole('button', { name: 'Save report…', exact: true }).click()
+  const appendAgain = page.getByRole('dialog', { name: 'Save report…', exact: true })
+  await appendAgain.getByLabel('Save as', { exact: true }).selectOption('append')
+  await appendAgain.getByLabel('Destination', { exact: true }).selectOption(target)
+  await wsEval(page, (s, id) => s.updatePageSettings(id, { locked: true }), target)
+  await appendAgain.getByRole('button', { name: 'Save report', exact: true }).click()
+  await expect(appendAgain.getByRole('alert')).toContainText('unavailable')
+  await wsEval(page, (s, id) => s.updatePageSettings(id, { locked: false }), target)
+  await appendAgain.getByRole('button', { name: 'Save report', exact: true }).click()
+  await expect(appendAgain).toBeHidden()
+  expect(await wsEval(page, (s, id) => JSON.stringify(s.pages[id].content), target)).toBe(appended)
+  exported = target
+  // The saved link survives a reload; exporting again to the same destination never appends twice.
+  await reloadApp(page)
+  await goAgent(page, id)
+  await expect(page.getByRole('link', { name: 'Open saved report' })).toHaveAttribute('href', `#/p/${exported}`)
+  await page.evaluate(() => { window.location.hash = '#/patchbay' })
+  await expect(page.getByTestId('agent-invocation-runs').getByRole('link', { name: 'Weekly sync — notes', exact: true })).toHaveAttribute('href', `#/p/${target}`)
+  // The report's provenance opens the exact retained run.
+  await page.evaluate(({ id, run }) => { window.location.hash = `#/agents/${id}?run=${run}` }, { id, run: run.id })
+  await expect(page.locator(`[aria-controls="agx-run-${run.id}"]`)).toHaveAttribute('aria-expanded', 'true')
+  await page.getByRole('button', { name: 'Assignment & target…' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Run agent with an assignment' })
+  await expect(dialog.getByLabel('Agent', { exact: true })).toHaveValue(id)
+  for (const [width, height] of [[1440, 900], [390, 844]]) {
+    await page.setViewportSize({ width, height })
+    for (const theme of ['light', 'dark']) {
+      await wsEval(page, (s, theme) => s.updateSettings({ theme }), theme)
+      await page.screenshot({ path: test.info().outputPath(`manual-agent-${width}-${theme}.png`), animations: 'disabled' })
+    }
+  }
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await page.getByRole('button', { name: 'Save report…', exact: true }).click()
+  const reportDialog = page.getByRole('dialog', { name: 'Save report…', exact: true })
+  await reportDialog.getByLabel('Save as', { exact: true }).selectOption('database')
+  await reportDialog.getByLabel('Destination', { exact: true }).selectOption(db)
+  for (const [width, height] of [[1440, 900], [390, 844]]) {
+    await page.setViewportSize({ width, height })
+    for (const theme of ['light', 'dark']) {
+      await wsEval(page, (s, theme) => s.updateSettings({ theme }), theme)
+      await page.screenshot({ path: test.info().outputPath(`report-export-${width}-${theme}.png`), animations: 'disabled' })
+    }
+  }
+})

@@ -1,4 +1,6 @@
 /** Custom agents — what the UI does: run now, switch on / off, delete. */
+import type { AgentInvocation } from '@/shared/agents/invocation'
+import { checkedInvocation } from './invocation'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import type { CustomAgent, ID } from '../../store/types'
@@ -34,7 +36,9 @@ function unfinished(agent: CustomAgent): boolean {
  * Preflight, a database command, ⌘K): the rest and the first step's band, "+1 $ once and start" only when that makes
  * it fit (an allowance for this run, today — keyed to the run id minted here) · cancel. It never waits mid-run.
  */
-export async function runNow(agent: CustomAgent, opts: { confirmed?: boolean } = {}): Promise<void> {
+export async function runNow(agent: CustomAgent, opts: { confirmed?: boolean; invocation?: AgentInvocation } = {}): Promise<void> {
+  agent = useWorkspace.getState().agents?.[agent.id] ?? agent
+  try { checkedInvocation(agent, opts.invocation) } catch (e) { useUI.getState().toast({ message: e instanceof Error ? e.message : t('features.agents.invoke.outside'), kind: 'error' }); return }
   if (unfinished(agent)) return
   const hits = opts.confirmed ? [] : findPlaceholders(agent.instructions, AGENT_PLACEHOLDERS)
   if (hits.length) {
@@ -43,13 +47,13 @@ export async function runNow(agent: CustomAgent, opts: { confirmed?: boolean } =
       title: t('features.agents.ph.title'),
       body: t(hits.length === 1 ? 'features.agents.ph.body.one' : 'features.agents.ph.body.other', { name: agent.name, count: hits.length, first: hits[0].text }),
       confirmLabel: t('features.agents.ph.run'),
-      onConfirm: () => void runNow(agent, { confirmed: true }),
+      onConfirm: () => void runNow(agent, { ...opts, confirmed: true }),
     })
     return
   }
   if (agent.runner === 'server') {
     try {
-      await runOnServer(agent.id)
+      await runOnServer(agent.id, opts.invocation)
       useUI.getState().toast({ message: t('features.agents.toast.serverStarted', { name: agent.name }), kind: 'success' })
       window.setTimeout(() => void loadServerRuns(agent.id), 1200)
     } catch (e) {
@@ -58,15 +62,21 @@ export async function runNow(agent: CustomAgent, opts: { confirmed?: boolean } =
     return
   }
   const runId = newId()
-  const req = { trigger: { type: 'manual' as const }, manual: true, runId }
+  const req = { trigger: { type: 'manual' as const }, manual: true, runId, ...(opts.invocation ? { invocation: opts.invocation } : {}) }
   // the first step and, with a Vorprüfer, the band its checks reserve right after the start
-  const input = await startFor(agent, req, runId)
-  const v = await startCheck(input)
-  if (!v.start) return void startAsk(agent, v, () => {
-    allowTask(input.run!.source!, 1)
-    void executeRun(agent, req)
-  })
-  await executeRun(agent, req)
+  const execute = async () => {
+    try { await executeRun(agent, req) }
+    catch (e) { useUI.getState().toast({ message: e instanceof Error ? e.message : t('features.agents.invoke.outside'), kind: 'error' }) }
+  }
+  try {
+    const input = await startFor(agent, req, runId)
+    const v = await startCheck(input)
+    if (!v.start) return void startAsk(agent, v, () => {
+      allowTask(input.run!.source!, 1)
+      void execute()
+    })
+    await execute()
+  } catch (e) { useUI.getState().toast({ message: e instanceof Error ? e.message : t('features.agents.invoke.outside'), kind: 'error' }) }
 }
 
 /** The start dialog at the red line (a manual run): the rest, the first step; E only when +1 $ makes it fit. */

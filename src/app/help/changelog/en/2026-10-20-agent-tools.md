@@ -1,7 +1,7 @@
 ---
 id: 2026-10-20-agent-tools
 date: 2026-10-20
-order: 5
+order: 6
 title: Choose agent tools directly
 summary: Search and insert tool names, and choose MCP permissions without an integration profile.
 image: assets/shots/changelog/agent-tools.webp

@@ -13,7 +13,7 @@ import { fmtNumber, fmtRelative, plural, wordCount } from '../lib/format'
 import { useKbdHint } from '../lib/hooks'
 import { useReadOnly } from '../cloud/state'
 import { SwitchFace } from '../../ui/controls'
-import { openRecorder, REWIND_SHORTCUT, canSendToOrders, sendToOrders, sendToOrdersWithNote, useCoding } from '../../features'
+import { openAgentRun, openRecorder, REWIND_SHORTCUT, canSendToOrders, sendToOrders, sendToOrdersWithNote, useCoding } from '../../features'
 
 const FONTS: Array<{ id: PageFont; key: string }> = [
   { id: 'sans', key: 'shell.font.default' },
@@ -83,6 +83,7 @@ export function PageMenu({ page, anchor, onClose, mobile }: { page: Page; anchor
     { kind: 'separator' },
     { label: t('shell.permalink.copy'), icon: <Link2 size={15} />, onSelect: () => void copyPageLink(page.id) },
     { label: t('shell.ai.copy'), icon: <ClipboardCopy size={15} />, onSelect: () => void copyPageForAI(page.id) },
+    ...only(edit && !inTemplate(ws.pages, page.id), [{ label: t('features.agents.invoke.onPage'), icon: <Zap size={15} />, onSelect: () => openAgentRun({ pageId: page.id }) }]),
     // work orders: only while Coding is on here (features/coding/orders) — never for viewers
     ...only(sendable, [
       { label: t('features.coding.order.cmd.send'), icon: <ClipboardCheck size={15} />, onSelect: () => void sendToOrders(page.id) },

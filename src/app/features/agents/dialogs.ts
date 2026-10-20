@@ -13,6 +13,7 @@
  * then has MirrorSetup make it again ("Use …" → reuseMirror).
  */
 import { useSyncExternalStore } from 'react'
+import type { AgentRun } from './types'
 import type { CustomAgent, ID } from '../../store/types'
 import type { MirrorMade } from './mirror'
 
@@ -43,6 +44,8 @@ export interface AgentEditorRequest {
 
 /** The dialog open now (one at a time; `seq` tells a new request from the one before). */
 export type AgentDialogRequest =
+  | { kind: 'agentReport'; run: AgentRun; req: AgentEditorRequest; seq: number }
+  | { kind: 'agentRun'; req: { agentId?: ID; pageId?: ID; from?: HTMLElement | null; after?: (outcome: AgentDialogOutcome) => void }; seq: number }
   | { kind: 'mirrorSetup'; req: MirrorSetupRequest; seq: number }
   | { kind: 'agentEditor'; agent: ID | CustomAgent; req: AgentEditorRequest; seq: number }
 
@@ -150,3 +153,10 @@ export const useKeptDrafts = (): number => useSyncExternalStore(subscribeKept, k
 
 /** Every change of the kept drafts (the setup's facts listen outside React too). */
 export const onKeptDrafts = (fn: () => void): (() => void) => subscribeKept(fn)
+
+/** Select an agent and one-time assignment without leaving the current page. */
+export function openAgentRun(req: { agentId?: ID; pageId?: ID; from?: HTMLElement | null } = {}): void {
+  put({ kind: 'agentRun', req, seq: ++seq })
+}
+
+export function openAgentReport(run: AgentRun): void { put({ kind: 'agentReport', run, req: {}, seq: ++seq }) }

@@ -1,7 +1,7 @@
 ---
 id: 2026-10-20-minimax-coding
 date: 2026-10-20
-order: 2
+order: 3
 title: MiniMax in der Coding-Pipeline
 summary: MiniMax M3.1 Flash je Aufgabe oder Lieferrolle wählen und denselben One-/Atlas-Harness nutzen.
 image: assets/shots/changelog/minimax-coding.webp

@@ -403,7 +403,7 @@ export { agentTriggerText, loadAgentRuns, useAgentRuns } from './agents'
  */
 export { useUnlocked, unlocked, IntegrationsPanel } from './agents'
 /* the agents' dialogs over any route (B11 fills them; ModalHost mounts the host once): MirrorSetup / AgentEditor */
-export { AgentDialogsHost, openMirrorSetup, openAgentEditor } from './agents'
+export { AgentDialogsHost, openAgentRun, openMirrorSetup, openAgentEditor } from './agents'
 /*
  * One Script (features/script — a small, safe script language that only reaches One; see script/index.ts):
  *  - ScriptsRoute { scriptId? } (route #/scripts, #/scripts/<id>) · ScriptDialogHost (mount once: what a run asks)

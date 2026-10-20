@@ -1,3 +1,4 @@
+import { openAgentRun } from './dialogs'
 /**
  * #/agents — custom agents as instrument cards (LED status, trigger, next run, last run, cost of the
  * last runs, what waits for review), "New agent" from a starter recipe — or from a recipe an active integration
@@ -581,6 +582,9 @@ function AgentDetail({ id }: { id: ID }) {
               <>
                 <button type="button" className="btn btn--primary" onClick={() => void runNow(agent)} disabled={last?.status === 'running' || wait.waiting}>
                   <Play size={13} strokeWidth={1.9} aria-hidden /> {t('features.agents.runNow')}
+                </button>
+                <button type="button" className="btn" onClick={() => openAgentRun({ agentId: agent.id })} disabled={last?.status === 'running' || wait.waiting}>
+                  {t('features.agents.invoke.open')}
                 </button>
                 <button type="button" className="btn" onClick={() => setEditing(true)}>
                   <Pencil size={13} strokeWidth={1.8} aria-hidden /> {t('features.agents.edit')}

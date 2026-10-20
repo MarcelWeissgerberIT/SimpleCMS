@@ -122,7 +122,7 @@ export { integrationStatuses, useIntegrationStatuses, deviceServers, type Integr
 export { openIntegrations } from './integrations/open'
 export { mirrorAgentOf, sameNamedDb, mirrorTitles, type SameNamed, type MirrorTitles } from './mirror'
 export { lostPages, lostText, runBlock, type LostPage, type LostRole } from './gone'
-export { openMirrorSetup, openAgentEditor, type MirrorSetupRequest, type AgentEditorRequest } from './dialogs'
+export { openAgentRun, openMirrorSetup, openAgentEditor, type MirrorSetupRequest, type AgentEditorRequest } from './dialogs'
 /** mirror drafts kept per tab (a setup over the Patchbay stops after the database; lamp 05 opens the kept draft) and
  *  the outcome a dialog's `after` gets — dialogs.ts imports React + types only, so these stay cheap on the boot path */
 export {
@@ -135,3 +135,5 @@ export { resolveRecipe, type ResolvedRecipe } from './integrations/recipe'
 export { validateProfileText, type Validation as ProfileValidation } from './integrations/validate'
 export { loadRuntime, loadServerRuns } from './server'
 export { rememberedReports } from './mirrorMemory'
+
+export { AgentInvocationRuns } from './AgentInvocationRuns'

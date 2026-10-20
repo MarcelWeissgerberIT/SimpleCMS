@@ -39,7 +39,7 @@ export type Route =
   /** #/inbox → this device's inbox (see features/inbox, shell/inbox) */
   | { name: 'inbox' }
   /** #/agents → custom agents · #/agents/<id> → one agent (see features/agents) */
-  | { name: 'agents'; id?: string }
+  | { name: 'agents'; id?: string; run?: string }
   /** #/scripts → scripts and queries · #/scripts/<id> → one script (see features/script) */
   | { name: 'scripts'; id?: string }
   /** #/coding → the coding pipeline (see features/coding); kind: the Business analysis / QA pipeline */
@@ -92,7 +92,10 @@ export function parseHash(hash: string): Route {
   if (parts[0] === 'journal') return { name: 'journal' }
   if (parts[0] === 'agenda') return { name: 'agenda' }
   if (parts[0] === 'inbox') return { name: 'inbox' }
-  if (parts[0] === 'agents') return parts[1] ? { name: 'agents', id: parts[1] } : { name: 'agents' }
+  if (parts[0] === 'agents') {
+    const run = params.get('run')
+    return parts[1] ? { name: 'agents', id: parts[1], ...(run && /^[A-Za-z0-9_-]{1,80}$/.test(run) ? { run } : {}) } : { name: 'agents' }
+  }
   if (parts[0] === 'scripts') return parts[1] ? { name: 'scripts', id: parts[1] } : { name: 'scripts' }
   if (parts[0] === 'outbox') return parts[1] && /^out_[A-Za-z0-9]{10}$/.test(parts[1]) ? { name: 'outbox', slip: parts[1] } : { name: 'outbox' }
   if (parts[0] === 'coding') return parts[1] === 'spec' || parts[1] === 'qa' ? { name: 'coding', kind: parts[1] } : { name: 'coding' }
@@ -153,7 +156,7 @@ export function routeHref(r: Route): string {
     case 'inbox':
       return '#/inbox'
     case 'agents':
-      return r.id ? `#/agents/${r.id}` : '#/agents'
+      return r.id ? `#/agents/${r.id}${r.run ? `?run=${encodeURIComponent(r.run)}` : ''}` : '#/agents'
     case 'scripts':
       return r.id ? `#/scripts/${r.id}` : '#/scripts'
     case 'coding':

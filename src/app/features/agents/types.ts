@@ -2,6 +2,7 @@
  * Custom agents — run records (shared contract with the server runner: the browser keeps them per
  * device in IndexedDB "one-agents", the server in its table `agent_runs`; same JSON shape).
  */
+import type { AgentInvocationRecord } from '@/shared/agents/invocation'
 import type { MediaItem } from '../ai/media/types'
 import type { AgentTrigger, CustomAgent, ID } from '../../store/types'
 import type { StagedChange } from '../ai/agent/types'
@@ -104,6 +105,7 @@ export interface AgentRun {
   seq?: number
   /** e.g. a row id / "schedule 08:00" */
   trigger: { type: AgentTrigger['type']; detail?: string }
+  invocation?: AgentInvocationRecord
   startedAt: number
   endedAt?: number
   status: AgentRunStatus

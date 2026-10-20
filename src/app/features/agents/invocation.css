@@ -1,0 +1,10 @@
+.agx-invocation-runs { margin: 16px 0; padding: 16px; border: 1px solid var(--rule); background: var(--bg); }
+.agx-invocation-flow { padding: 12px 0; border-top: 1px solid var(--rule); min-width: 0; }
+.agx-invocation-flow__route { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; }
+.agx-invocation-flow p { white-space: pre-wrap; overflow-wrap: anywhere; margin: 8px 0 0; max-height: 10em; overflow: auto; }
+.agx-invocation-flow a { color: var(--ink); text-decoration-color: var(--signal); overflow-wrap: anywhere; }
+.agx-invoke__body { padding: 20px; display: grid; gap: 16px; }
+.agx-invoke__body .agx-field { display: grid; gap: 8px; }
+.agx-invoke__saved { white-space: pre-wrap; font: inherit; overflow-wrap: anywhere; max-height: 180px; overflow: auto; }
+.agx-run__invocation { border: 1px solid var(--rule); padding: 12px; margin-bottom: 12px; }
+.agx-run__invocation p { white-space: pre-wrap; overflow-wrap: anywhere; }

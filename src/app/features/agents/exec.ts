@@ -11,6 +11,8 @@
  * upsert_rows, the state tools and notify_me are offered only while an active integration profile unlocks them on
  * this device (integrations/status.ts); the system prompt names only what is offered.
  */
+import { invocationJob, readInvocation, type AgentInvocation } from '@/shared/agents/invocation'
+import { checkedInvocation } from './invocation'
 import type { JSONContent } from '@tiptap/core'
 import { outermostItems } from '../../lib/itemIds'
 import { format } from 'date-fns'
@@ -72,10 +74,10 @@ import { addToLines } from '../ai/core/meter'
 import { stepText } from '../ai/Receipt'
 
 /** What a run carries (the AI gate's sources): its scope, the trigger's rows, its report page, the memory database. */
-function agentSources(agent: CustomAgent, rows: readonly ID[], memoryBlock: string): SourceRef[] {
+function agentSources(agent: CustomAgent, rows: readonly ID[], memoryBlock: string, includeReport = true): SourceRef[] {
   const out: SourceRef[] = agent.scope.everything ? [{ all: true }] : [...agent.scope.pages.map((page) => ({ page })), ...agent.scope.databases.map((db) => ({ db }))]
   for (const row of rows) out.push({ row })
-  if (agent.output?.pageId) out.push({ page: agent.output.pageId })
+  if (includeReport && agent.output?.pageId) out.push({ page: agent.output.pageId })
   out.push(...memoryRef(memoryBlock))
   // a scope with nothing in it still reads the workspace's structure (list_databases)
   return out.length ? out : [{ all: true }]
@@ -188,7 +190,7 @@ function context(agent: CustomAgent, run: AgentRun, rows: ID[], last: AgentRun |
     lastRunLine(last),
     `Your scope: ${scopeText(agent)}.`,
   ]
-  if (agent.output?.pageId && s.pages[agent.output.pageId]) lines.push(`Your report is ${agent.output.mode === 'replace' ? 'written over' : 'added to the end of'} the page ${JSON.stringify(s.pages[agent.output.pageId].title.trim() || 'Untitled')} after the run — do not write it there yourself.`)
+  if (!run.invocation && agent.output?.pageId && s.pages[agent.output.pageId]) lines.push(`Your report is ${agent.output.mode === 'replace' ? 'written over' : 'added to the end of'} the page ${JSON.stringify(s.pages[agent.output.pageId].title.trim() || 'Untitled')} after the run — do not write it there yourself.`)
   if (rows.length) {
     // only rows the agent may see (a trigger on a database outside its scope names none)
     const visible = scopeFilter(agent)
@@ -208,6 +210,7 @@ function context(agent: CustomAgent, run: AgentRun, rows: ID[], last: AgentRun |
 
 export interface RunRequest {
   trigger: AgentRun['trigger']
+  invocation?: AgentInvocation
   /** row triggers: the rows that started the run */
   rows?: ID[]
   /** a person asked (toasts for busy / problems) */
@@ -232,14 +235,15 @@ function usableServers(agent: CustomAgent) {
  * as FIRST_STEP_OUT) — its MCP servers (their rounds), its run (source, mode, the agent's own budget per run). `last`: the
  * last successful run (its line in the context), when the caller read it.
  */
-export function startInput(agent: CustomAgent, req: Pick<RunRequest, 'manual' | 'trigger' | 'rows'>, runId: ID, last: AgentRun | null = null): PrepareInput {
-  const unlocks: RunUnlocks = { upsert: unlocked('upsert'), state: unlocked('agentState'), notes: unlocked('notify') }
-  const rows = req.rows ?? []
+export function startInput(agent: CustomAgent, req: Pick<RunRequest, 'manual' | 'trigger' | 'rows' | 'invocation'>, runId: ID, last: AgentRun | null = null): PrepareInput {
+  const unlocks: RunUnlocks = { upsert: unlocked('upsert'), state: !req.invocation && unlocked('agentState'), notes: unlocked('notify') }
+  checkedInvocation(agent, req.invocation)
+  const rows = [...(req.rows ?? []), ...(req.invocation?.pageId ? [req.invocation.pageId] : [])]
   // what the route may receive decides what goes along (as in runOnce): the servers' part, the memory and recall
   let mayMcp = true
   let mayMemory = true
   try {
-    const pre = precheck({ purpose: 'agents.run', sources: agentSources(agent, rows, ''), model: agent.model })
+    const pre = precheck({ purpose: 'agents.run', sources: agentSources(agent, rows, '', !req.invocation), model: agent.model })
     mayMcp = pre.allows('mcp')
     mayMemory = pre.allows('memory')
   } catch {
@@ -248,15 +252,15 @@ export function startInput(agent: CustomAgent, req: Pick<RunRequest, 'manual' | 
   const usable = mayMcp ? usableServers(agent) : []
   const names = usable.map((s) => s.name)
   const mcpPart = usable.length ? mcpSystemText(usable, instructionsText(), agent.mcpServers.filter((n) => names.includes(n)), null, agent.mcpTools ?? {}, Object.fromEntries(usable.map((s) => [s.name, outToolsFor(s)]))).length + 2 : 0
-  const memory = mayMemory ? memoryFor(agent.instructions) : { block: '', use: null }
+  const memory = mayMemory ? memoryFor(invocationJob(agent.instructions, req.invocation)) : { block: '', use: null }
   const tools = [...agentTools(agent, { upsert: unlocks.upsert }), ...(memory.use ? [recallTool] : []), ...runTools(agent, { saved: null, notes: [] }, { notes: unlocks.notes, state: unlocks.state })]
   const defs = tools.map((x) => ({ name: x.name, description: x.description, input_schema: x.input_schema }))
-  const ctx = context(agent, { trigger: req.trigger } as AgentRun, rows, last)
-  const user = taskMessage([], agent.instructions, memory.block ? `${ctx}\n\n${memory.block}` : ctx)
+  const ctx = context(agent, { trigger: req.trigger, invocation: req.invocation } as AgentRun, rows, last)
+  const user = taskMessage([], invocationJob(agent.instructions, req.invocation), memory.block ? `${ctx}\n\n${memory.block}` : ctx)
   const promptChars = agentSystem(agent.write, unlocks, canCreateItems()).length + mcpPart + JSON.stringify(defs).length + JSON.stringify([user]).length
   return {
     purpose: 'agents.run',
-    sources: agentSources(agent, rows, memory.block),
+    sources: agentSources(agent, rows, memory.block, !req.invocation),
     model: agent.model,
     size: { promptChars, maxTokens: 64000, bandOut: FIRST_STEP_OUT },
     run: { source: `agent:${agent.id}:${runId}`, mode: runModeOf(req), budget: agent.maxRunUsd },
@@ -297,6 +301,11 @@ async function writeReport(agent: CustomAgent, run: AgentRun, writer: Writer, fi
  * 'waiting' when another member changed it and its creator has not confirmed that yet (confirm.ts).
  */
 export async function executeRun(agent: CustomAgent, req: RunRequest): Promise<AgentRun | 'busy' | 'waiting'> {
+  agent = useWorkspace.getState().agents?.[agent.id] ?? agent
+  if (req.invocation && req.trigger.type !== 'manual') throw new Error('One-time objectives require a manual run.')
+  const invocation = readInvocation(req.invocation)
+  checkedInvocation(agent, invocation)
+  req = { ...req, invocation }
   const cur = useWorkspace.getState().agents?.[agent.id]
   if (awaitsConfirm(agent) || (cur && awaitsConfirm(cur))) {
     if (req.manual) useUI.getState().toast({ message: t('features.agents.toast.waiting', { name: agent.name }) })
@@ -338,7 +347,7 @@ async function deciderPriced(review: Review | null): Promise<{ route: Route; pri
  * after it starts (a Vorprüfer while a line is set) — so a run whose rest covers its first step but not its checks' band
  * asks (manual: the start dialog, its +1 $) or is held (background) at its start, never at its first request.
  */
-export async function startFor(agent: CustomAgent, req: Pick<RunRequest, 'manual' | 'trigger' | 'rows'>, runId: ID, last: AgentRun | null = null): Promise<PrepareInput> {
+export async function startFor(agent: CustomAgent, req: Pick<RunRequest, 'manual' | 'trigger' | 'rows' | 'invocation'>, runId: ID, last: AgentRun | null = null): Promise<PrepareInput> {
   const input = startInput(agent, req, runId, last)
   const checks = decisionChecks(agent)
   const d = await deciderPriced(checks && checks !== 'unreadable' ? checks : null)
@@ -361,20 +370,21 @@ async function runInner(agent: CustomAgent, req: RunRequest, reg: { decide: stri
   // that says why (the run list and a toast), never as a run that "finished"
   // a model route this version cannot run (a newer version saved it): no request, an error run that says so
   if (routeBlock(agent)) return blockedRun(agent, req, t('features.agents.blocked.route'), t('features.agents.blocked.routeShort'))
-  const block = runBlock(agent, useWorkspace.getState().pages, t('common.untitled'))
+  const block = runBlock(req.invocation ? { ...agent, output: null } : agent, useWorkspace.getState().pages, t('common.untitled'))
   if (block) return blockedRun(agent, req, blockText(t, block), block.lost.map((l) => lostText(t, l)).join(' '))
   // what earlier runs left: the last successful one (context), the agent's saved state (runTools.ts)
   let last: AgentRun | null = null
   let saved: AgentState | null = null
   try {
-    last = lastSuccess(await loadRuns(agent.id))
-    saved = await getAgentState(agent.id)
+    const history = await loadRuns(agent.id)
+    last = req.invocation ? null : lastSuccess(history)
+    saved = req.invocation ? null : await getAgentState(agent.id)
   } catch (e) {
     console.warn('[one] agents: could not read the earlier runs', e)
   }
   const extras: RunExtras = { saved, notes: [] }
   // what this run may use beyond the workspace tools: what the active integration profiles unlock on this device
-  const unlocks: RunUnlocks = { upsert: unlocked('upsert'), state: unlocked('agentState'), notes: unlocked('notify') }
+  const unlocks: RunUnlocks = { upsert: unlocked('upsert'), state: !req.invocation && unlocked('agentState'), notes: unlocked('notify') }
   const mode = runModeOf(req)
   const runId = req.runId ?? newId()
   // the Regler's start check (scheduled / triggered runs — a manual one asked where it was pressed, actions.ts runNow):
@@ -384,7 +394,7 @@ async function runInner(agent: CustomAgent, req: RunRequest, reg: { decide: stri
     if (!v.start && 'hold' in v) return heldStart(agent, req, v)
   }
   const seq = await nextSeq(agent.id)
-  const run: AgentRun = { id: runId, agentId: agent.id, runner: 'browser', seq, trigger: req.trigger, startedAt: Date.now(), status: 'running', summary: '', steps: [] }
+  const run: AgentRun = { id: runId, agentId: agent.id, runner: 'browser', seq, trigger: req.trigger, startedAt: Date.now(), status: 'running', summary: '', steps: [], ...(req.invocation ? { invocation: checkedInvocation(agent, req.invocation) } : {}) }
   // the run's writes (store/writer.ts): agent:<id>:<run>, each change with its id, the report as 'report'
   const writer: Writer = { kind: 'agent', id: agent.id, run: run.id }
   noteRun(writer, { seq })
@@ -528,7 +538,7 @@ async function runInner(agent: CustomAgent, req: RunRequest, reg: { decide: stri
 
   try {
     // the gate first (newer AI rules, AI off, no key …): no MCP token is opened when it refuses (the run ends as an error)
-    const pre = precheck({ purpose: 'agents.run', sources: agentSources(agent, req.rows ?? [], ''), model: agent.model })
+    const pre = precheck({ purpose: 'agents.run', sources: agentSources(agent, [...(req.rows ?? []), ...(req.invocation?.pageId ? [req.invocation.pageId] : [])], '', !req.invocation), model: agent.model })
     // the agent's MCP servers, by name, as set up and switched on in this browser (Settings → AI); only the tools
     // its allow-list names (mcpTools) — a server whose list is empty is left out, a switched-off one too (the editor says so)
     const allow = agent.mcpTools ?? {}
@@ -552,15 +562,15 @@ async function runInner(agent: CustomAgent, req: RunRequest, reg: { decide: stri
     await warmMembers()
     // the One memory (features/ai/memory): the memories that fit the job go along, plus `recall`
     // … only where the route may receive it (D-S2-29)
-    memory = pre.allows('memory') ? memoryFor(agent.instructions) : { block: '', use: null }
-    const ctx = context(agent, run, req.rows ?? [], last)
+    memory = pre.allows('memory') ? memoryFor(invocationJob(agent.instructions, req.invocation)) : { block: '', use: null }
+    const ctx = context(agent, run, [...(req.rows ?? []), ...(req.invocation?.pageId ? [req.invocation.pageId] : [])], last)
     const end = await runAgent({
       // its scope: the pages and databases it names (scope "everything": the workspace as a whole), the trigger's
       // rows, its report page, the One memory when it goes along
       purpose: 'agents.run',
-      sources: agentSources(agent, req.rows ?? [], memory.block),
+      sources: agentSources(agent, [...(req.rows ?? []), ...(req.invocation?.pageId ? [req.invocation.pageId] : [])], memory.block, !req.invocation),
       history: [],
-      user: taskMessage([], agent.instructions, memory.block ? `${ctx}\n\n${memory.block}` : ctx),
+      user: taskMessage([], invocationJob(agent.instructions, req.invocation), memory.block ? `${ctx}\n\n${memory.block}` : ctx),
       stage,
       signal: ac.signal,
       hooks,
@@ -692,7 +702,7 @@ async function runInner(agent: CustomAgent, req: RunRequest, reg: { decide: stri
   }
   if (run.status === 'ok' || run.status === 'staged') {
     try {
-      if (await writeReport(agent, run, writer, reportFirst)) run.steps.push({ kind: 'note', label: t('features.agents.run.reported'), state: 'ok' })
+      if (!req.invocation && await writeReport(agent, run, writer, reportFirst)) run.steps.push({ kind: 'note', label: t('features.agents.run.reported'), state: 'ok' })
     } catch (e) {
       run.steps.push({ kind: 'note', label: t('features.agents.run.reportFailed'), state: 'err' })
       console.warn('[one] agents: could not write the report', e)
@@ -712,7 +722,7 @@ async function runInner(agent: CustomAgent, req: RunRequest, reg: { decide: stri
           : staged
             ? t(`features.memory.result.staged.${staged === 1 ? 'one' : 'other'}`, { count: staged })
             : t('features.memory.result.report')
-    noteUse(run.summary, memory.use, { task: agent.instructions, where: { kind: 'agent', name: agent.name }, result })
+    noteUse(run.summary, memory.use, { task: invocationJob(agent.instructions, req.invocation), where: { kind: 'agent', name: agent.name }, result })
   }
   run.usage = { input: usage.input, output: usage.output, cacheRead: usage.cacheRead, usd: Math.round(usage.usd * 10_000) / 10_000, ...(usage.byModel.length ? { byModel: usage.byModel } : {}) }
   // a Regler line set: where it stood when the run ended (the run row's line; nothing without one)
@@ -783,7 +793,7 @@ async function tellHeld(agent: CustomAgent, run: AgentRun): Promise<void> {
 async function blockedRun(agent: CustomAgent, req: RunRequest, reason: string, detail: string): Promise<AgentRun> {
   const seq = await nextSeq(agent.id)
   const now = Date.now()
-  const run: AgentRun = { id: newId(), agentId: agent.id, runner: 'browser', seq, trigger: req.trigger, startedAt: now, endedAt: now, status: 'error', error: reason, summary: '', steps: [] }
+  const run: AgentRun = { id: newId(), agentId: agent.id, runner: 'browser', seq, trigger: req.trigger, startedAt: now, endedAt: now, status: 'error', error: reason, summary: '', steps: [], ...(req.invocation ? { invocation: req.invocation } : {}) }
   await putRun(run)
   if (!onAgentPage(agent.id))
     useUI.getState().toast({ message: t('features.agents.toast.blocked', { name: agent.name, detail }), kind: 'error', action: { label: t('common.open'), run: () => navigate(`#/agents/${agent.id}`) }, timeout: 10_000, background: true })
@@ -798,7 +808,7 @@ async function blockedRun(agent: CustomAgent, req: RunRequest, reason: string, d
  */
 async function settleExtras(agent: CustomAgent, run: AgentRun, extras: RunExtras, rowIds: Record<string, ID>) {
   const done = run.status === 'ok' || run.status === 'staged'
-  if (extras.pending !== undefined) {
+  if (!run.invocation && extras.pending !== undefined) {
     if (done) {
       try {
         // proposals wait for review (or changes were applied — undoable): the run keeps the state it replaces —

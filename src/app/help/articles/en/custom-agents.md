@@ -69,3 +69,13 @@ An [integration](help:integrations) brings this recipe — its database, views a
 The agent opens in the editor — built in: every weekday at 07:30, **Proposals for review**, a budget of $1.00 per run. Replace the four parts in **[SQUARE BRACKETS]** in its instructions — how to list the items, how to read one with its comments, who you are in the tool, and what *Clear* means for you; **To replace** above the text selects each one. A switched-on agent cannot be saved while one is left.
 
 Each run reads only what changed since the last one (its saved state holds the comment count per item), updates the rows by key, marks **New comment** and **Waiting on me**, judges the **Clarity**, checks **Gone from source** for items the tool no longer lists, and leaves you notes in the [inbox](help:mentions-dates) — *“New comment on #8215”*, *“3 items became ready”*. Once the first runs look right, switch **Changes** to **Apply directly**.
+
+## One-time assignments and report destinations
+
+On a page, open **Page options → Run an agent on this page…**. Or open an agent and choose **Assignment & target…** beside **Run now**. The target and optional objective apply to one manual run. An empty objective uses the saved goal on the chosen page; without either value, the saved job runs normally. The existing quick-run button remains available.
+
+The one-time objective replaces the default goal, with the same role, scope, tools, write mode, budget and reviews. An out-of-scope target is refused. The definition is not saved again. One-time runs do not advance recurring cursors, supersede older proposals or automatically publish to the recurring report page. Server agents require a server supporting `agent-invocation`; an older server receives no start request for such a run.
+
+The run history retains the assignment and source. **Patchbay → Manual agent assignments** shows source → agent → result, status and recent tools. Result links open the exact retained run.
+
+At a finished report, **Save report…** creates a new page (optionally below a page), appends to a page or creates a row in an ordinary database. It preserves existing text and includes links to the source and agent run. Templates, locked destinations and system or coding-pipeline databases are excluded. The saved-report link is kept on this device; the exported page or row syncs with its workspace. Appending the same report to the same page does not duplicate it.
