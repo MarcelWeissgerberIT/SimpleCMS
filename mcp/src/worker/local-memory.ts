@@ -52,7 +52,9 @@ export class LocalMemory {
       this.setCheckpoint(value.checkpoint)
       if (Array.isArray(value.entries)) for (const e of value.entries.slice(-MAX_ENTRIES)) {
         if (typeof e.source !== 'string' || typeof e.text !== 'string') continue
-        const entry = this.remember(e.source, e.text, { evidence: e.evidence === 'tool-result' ? 'tool-result' : 'model-note', ...(typeof e.revision === 'string' && /^[a-f0-9]{64}$/.test(e.revision) ? { revision: e.revision } : {}) }); entry.historical = true; entry.superseded = e.superseded === true
+        // Restore the saved status, not insertion-order supersession: a repeated read may refresh an older entry in place.
+        const entry = this.remember(e.source, e.text, { evidence: e.evidence === 'tool-result' ? 'tool-result' : 'model-note' }); entry.historical = true; entry.superseded = e.superseded === true
+        if (typeof e.revision === 'string' && /^[a-f0-9]{64}$/.test(e.revision)) entry.revision = e.revision
         if (typeof e.at === 'number' && Number.isFinite(e.at)) entry.at = e.at
         if (/^[a-f0-9]{20}$/.test(e.id)) entry.id = e.id
         if (typeof e.originalChars === 'number' && e.originalChars >= entry.text.length) entry.originalChars = e.originalChars

@@ -41,6 +41,10 @@ test('memory revisions supersede old excerpts; restored tool observations remain
   n.remember('read_file:src/a.ts','old',{evidence:'tool-result',revision:'a'.repeat(64)})
   assert.equal(n.search('old')[0]?.historical,false)
   assert.equal(n.search('new').length,0, 'restoring earlier source content makes that observation current again')
+  await n.flush({...opts,resume:true})
+  const restored = new LocalMemory(x=>x); await restored.load({...opts,resume:true})
+  assert.equal(restored.search('old')[0]?.historical,true)
+  assert.equal(restored.search('new').length,0, 'reload preserves saved revision status rather than insertion order')
  }finally{await rm(root,{recursive:true,force:true})}
 })
 test('QA feedback repairs a failed check then runs fresh review, respecting shared budget and write-ahead attempt count',async()=>{
