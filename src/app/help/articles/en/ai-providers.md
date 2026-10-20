@@ -32,3 +32,7 @@ The AI menu, ⌘K **?**, ask your workspace, transform, images and files, autofi
 One plate per provider: its state, **Check (free)**, **Change key**, **Remove …** (only the key, or the key and this device's rules for it, with Undo). Below: **This device** — a default and one row per kind of work — the data lines, your own data, today's usage and the MCP servers.
 
 > Keys are sealed in this browser's vault, per provider — never synced, never in backups or exports. Another device asks for them again.
+
+## Ollama Cloud for coding
+
+Open **Settings → AI → Ollama Cloud → Set up API key and model…**. The same card is in **Coding worker** settings. It opens the worker’s protected setup page. Enter your key there once and save; all coding tasks using Ollama Cloud on that worker share the saved key and model. If the worker is offline, the card opens its connection settings first. One never reads or synchronizes this key. Opening settings and saving send no model request; **Test connection (cloud request)** is a separate action. This does not change the AI terminal or browser-agent provider.

@@ -1,7 +1,7 @@
 ---
 id: 2026-10-20-navigation-back
 date: 2026-10-20
-order: 1
+order: 2
 title: Zurück in One
 summary: Über die Kopfleiste zu besuchten Seiten und Bereichen zurückkehren.
 image: assets/shots/changelog/navigation-back.webp

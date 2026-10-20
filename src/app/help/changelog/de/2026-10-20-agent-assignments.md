@@ -1,7 +1,7 @@
 ---
 id: 2026-10-20-agent-assignments
 date: 2026-10-20
-order: 4
+order: 5
 title: Einmalaufträge für deine Agenten
 summary: Pro Lauf eine Zielseite wählen, den Weg im Schaltplan verfolgen und Berichte passend ablegen.
 image: assets/shots/changelog/agent-assignments.webp

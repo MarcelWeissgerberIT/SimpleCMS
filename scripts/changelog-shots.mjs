@@ -4314,6 +4314,16 @@ process.exit(1)
     await ctx.close()
   },
 
+  async 'ollama-global-settings'(browser) {
+    const { ctx, page } = await freshPage(browser)
+    await page.evaluate(() => window.__one.ui.getState().openModal({ type: 'settings' }))
+    await page.getByRole('tab', { name: /AI$/ }).click()
+    await page.getByTestId('ollama-cloud-settings').scrollIntoViewIfNeeded()
+    await rest(page)
+    await save(page, 'ollama-global-settings', await boxOf(page.getByRole('dialog', { name: 'Settings' })))
+    await ctx.close()
+  },
+
   async 'navigation-back'(browser) {
     const { ctx, page } = await freshPage(browser)
     await openPage(page, 'Team wiki')

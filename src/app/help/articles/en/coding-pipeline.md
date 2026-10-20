@@ -173,3 +173,7 @@ After configuring a key, an explicit synthetic smoke comparison can run with `no
 Select **Ollama Cloud** under Type or separately for each work-order role. With worker **1.19.0**, open **Ollama Cloud setup**, enter your own Ollama key in the password field and save. The key stays with this computer’s worker; it is not synced with One. Use a tool-capable cloud model’s API name, initially `minimax-m3.1-flash`. The context setting is a working budget and cannot increase the model’s own limit.
 
 Saving sends no cloud request. The separate **Test connection (cloud request)** button tests the saved key and model. Selected code and tool results go to Ollama. Its plan quotas apply; One cannot enforce dollar budgets for this subscription tariff. Task permissions, step limits, Atlas/MCP tools and checks still apply. Local Ollama remains separate.
+
+## Ollama Cloud for coding
+
+Open **Settings → AI → Ollama Cloud → Set up API key and model…**. The same card is in **Coding worker** settings. It opens the worker’s protected setup page. Enter your key there once and save; all coding tasks using Ollama Cloud on that worker share the saved key and model. If the worker is offline, the card opens its connection settings first. One never reads or synchronizes this key. Opening settings and saving send no model request; **Test connection (cloud request)** is a separate action. This does not change the AI terminal or browser-agent provider.

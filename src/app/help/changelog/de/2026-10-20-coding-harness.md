@@ -1,7 +1,7 @@
 ---
 id: 2026-10-20-coding-harness
 date: 2026-10-20
-order: 3
+order: 4
 title: Coding-Pakete, Modelltests und QA-Reparaturen
 summary: Gezielter Kontext, versionierte Methoden und begrenzte Reparatur-Unterläufe im gemeinsamen Harness.
 image: assets/shots/changelog/coding-harness.webp

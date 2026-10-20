@@ -51,7 +51,7 @@ export function SettingsModal({ initialTab, section, server, add, onClose }: { i
     openWorkspaceSettings('people')
   }, [team, onClose])
   if (team) return null
-  return <Settings initialTab={initialTab} section={section} server={server} add={add} onClose={onClose} />
+  return <Settings key={initialTab} initialTab={initialTab} section={section} server={server} add={add} onClose={onClose} />
 }
 
 function Settings({ initialTab, section, server, add, onClose }: { initialTab?: SettingsTab; section?: 'mcp' | 'memory' | 'limit'; server?: string; add?: boolean; onClose: () => void }) {
@@ -59,7 +59,8 @@ function Settings({ initialTab, section, server, add, onClose }: { initialTab?: 
   const serverAdmin = useCloud((c) => !!c.user && !!c.serverAdmin)
   const TABS = withServer(BASE_TABS, serverAdmin)
   const [tab, setTab] = useState<SettingsTab>(() => {
-    const asked = initialTab ?? (consumeSyncSettingsRequest() ? 'sync' : null) ?? (consumeMcpSettingsRequest() ? 'mcp' : null) ?? (consumeMailSettingsRequest() ? 'mail' : null) ?? (consumeCodingSettingsRequest() ? 'coding' : null)
+    const codingAsked = consumeCodingSettingsRequest()
+    const asked = initialTab ?? (consumeSyncSettingsRequest() ? 'sync' : null) ?? (consumeMcpSettingsRequest() ? 'mcp' : null) ?? (consumeMailSettingsRequest() ? 'mail' : null) ?? (codingAsked ? 'coding' : null)
     return asked && TABS.includes(asked) ? asked : 'general'
   })
   const idx = TABS.indexOf(tab)
@@ -511,4 +512,3 @@ function AboutTab() {
     </div>
   )
 }
-

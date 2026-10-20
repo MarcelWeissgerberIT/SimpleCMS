@@ -7,6 +7,15 @@ import type { Messages } from '@/shared/i18n'
  */
 export const messages: Messages = {
   en: {
+    'features.coding.ollamaGlobal.scope': 'Coding · all tasks on this worker',
+    'features.coding.ollamaGlobal.lead': 'Set the API key and model once on the worker. Every coding task that uses Ollama Cloud shares these settings.',
+    'features.coding.ollamaGlobal.ready': 'Worker reachable · {name}',
+    'features.coding.ollamaGlobal.old': 'Update the coding worker or enable its setup page in Coding worker settings.',
+    'features.coding.ollamaGlobal.off': 'Connect your coding worker first.',
+    'features.coding.ollamaGlobal.privacy': 'Opens the protected setup page on the worker’s computer. The key stays there; One neither reads nor synchronizes it. Saving sends no model request.',
+    'features.coding.ollamaGlobal.open': 'Set up API key and model…',
+    'features.coding.ollamaGlobal.connect': 'Open coding worker settings',
+    'features.coding.ollamaGlobal.use': 'Choose Ollama Cloud in the task or work-order role. This setting applies to coding execution; the AI terminal and browser agents keep their own AI settings.',
     'features.coding.order.settings.agentsHint': 'Choose the execution agent per role. The planner uses One’s AI settings.',
     'features.coding.order.plan.mergeBeforeQa': 'A coding subtask cannot merge before final delivery QA. Use a pipeline without Merge for these subtasks.',
 
@@ -866,6 +875,15 @@ export const messages: Messages = {
     'features.coding.worker.outdatedFix': 'A newer worker is on the site — {adds}. This one still runs every stage, but a stage can go on “working” after Claude Code is done. Download it, stop the old one (Ctrl+C) and start the new file.',
   },
   de: {
+    'features.coding.ollamaGlobal.scope': 'Coding · alle Aufgaben dieses Workers',
+    'features.coding.ollamaGlobal.lead': 'API-Key und Modell einmal beim Worker hinterlegen. Alle Coding-Aufgaben mit Ollama Cloud nutzen diese Einstellungen.',
+    'features.coding.ollamaGlobal.ready': 'Worker erreichbar · {name}',
+    'features.coding.ollamaGlobal.old': 'Coding-Worker aktualisieren oder seine Einrichtungsseite in den Coding-Worker-Einstellungen aktivieren.',
+    'features.coding.ollamaGlobal.off': 'Verbinde zuerst deinen Coding-Worker.',
+    'features.coding.ollamaGlobal.privacy': 'Öffnet die geschützte Einrichtungsseite auf dem Rechner des Workers. Der Key bleibt dort; One liest und synchronisiert ihn nicht. Speichern sendet keine Modellanfrage.',
+    'features.coding.ollamaGlobal.open': 'API-Key und Modell einrichten …',
+    'features.coding.ollamaGlobal.connect': 'Coding-Worker-Einstellungen öffnen',
+    'features.coding.ollamaGlobal.use': 'In der Aufgabe oder Prüfauftragsrolle Ollama Cloud wählen. Diese Einstellung gilt für die Coding-Ausführung; KI-Terminal und Browser-Agenten behalten ihre eigenen KI-Einstellungen.',
     'features.coding.order.settings.agentsHint': 'Wähle den ausführenden Agenten je Rolle. Der Planer nutzt Ones KI-Einstellungen.',
     'features.coding.order.plan.mergeBeforeQa': 'Eine Coding-Teilaufgabe darf nicht vor der Gesamtabnahme mergen. Nutze dafür eine Pipeline ohne Merge.',
 

@@ -1,0 +1,10 @@
+.ocs { min-width: 0; margin: 16px 0; border: 1px solid var(--rule-strong); border-radius: var(--radius-1); background: var(--surface); overflow: hidden; }
+.ocs__head { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--rule); background: var(--hover); }
+.ocs__head > div { flex: 1; min-width: 0; }
+.ocs__head h3 { margin: 0 0 3px; font-family: var(--font-head); font-size: calc(19px * var(--text-scale)); font-weight: 800; font-stretch: 115%; }
+.ocs__code { display: grid; place-items: center; flex: none; width: 30px; height: 30px; border-radius: var(--radius-1); background: var(--ink); color: var(--ink-inverse); font-family: var(--font-mono); font-size: var(--text-sm); }
+.ocs__body { padding: 0 14px 12px; }
+.ocs__body p { margin: 12px 0; font-size: var(--text-sm); line-height: 1.5; }
+.ocs__state { display: flex; align-items: center; gap: 8px; }
+.ocs__body .ocs__hint { color: var(--ink-2); }
+.ocs__body .btn { max-width: 100%; white-space: normal; text-align: left; }

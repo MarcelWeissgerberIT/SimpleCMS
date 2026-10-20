@@ -21,6 +21,7 @@ import { reconnect, setCodingEnabled, setCodingPort, setCodingVia, viaFor } from
 import { cloudContextOk, relayAvailable } from './cloudWorkers'
 import { useCoding, validPort, type CodingState } from './state'
 import { SetupCard } from './SetupCard'
+import { OllamaCloudSettings } from './OllamaCloudSettings'
 import { WORKER_FILE, downloadLines, startLines } from './download'
 import { OsSwitch, StartBlock } from './StartBlock'
 import { workerStateText } from './stateText'
@@ -252,6 +253,7 @@ export function WorkerTab() {
       <ViaSwitch code="§ A" />
 
       <SetupCard code="§ B" />
+      <OllamaCloudSettings inWorker />
 
       <Panel
         code="§ C"

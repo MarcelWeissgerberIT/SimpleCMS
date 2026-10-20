@@ -32,3 +32,7 @@ Das KI-Menü, ⌘K **?**, Arbeitsbereich fragen, Umwandeln, Bilder und Dateien, 
 Eine Platte je Anbieter: Zustand, **Prüfen (kostenlos)**, **Schlüssel ändern**, **Entfernen …** (nur den Schlüssel, oder Schlüssel und die Regeln dieses Geräts dafür, mit Rückgängig). Darunter: **Dieses Gerät** — ein Standard und eine Zeile je Art von Arbeit —, die Datenzeilen, deine eigenen Daten, der heutige Verbrauch und die MCP-Server.
 
 > Schlüssel liegen versiegelt im Tresor dieses Browsers, je Anbieter — nie synchronisiert, nie in Sicherungen oder Exporten. Ein anderes Gerät fragt sie neu ab.
+
+## Ollama Cloud zentral für Coding einrichten
+
+Öffne **Einstellungen → KI → Ollama Cloud → API-Key und Modell einrichten …**. Dieselbe Karte steht unter **Coding-Worker**. Sie öffnet die geschützte Einrichtungsseite des Workers. Dort den Key einmal eintragen und speichern; alle Coding-Aufgaben mit Ollama Cloud auf diesem Worker teilen sich Key und Modell. Ist der Worker offline, führt die Karte zuerst zu seinen Verbindungseinstellungen. One liest und synchronisiert diesen Key nicht. Einstellungen öffnen und speichern sendet keine Modellanfrage; **Verbindung testen (Cloud-Anfrage)** ist eine eigene Aktion. Die Anbieterwahl für KI-Terminal und Browser-Agenten bleibt separat.
