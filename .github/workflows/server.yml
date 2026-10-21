@@ -1,0 +1,67 @@
+name: Team server container
+
+on:
+  push:
+    paths:
+      - 'server/**'
+      - 'src/shared/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/server.yml'
+  pull_request:
+    paths:
+      - 'server/**'
+      - 'src/shared/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/server.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: server-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build the deployable image, including every shared server contract
+        run: docker build -f server/Dockerfile -t one-server-ci .
+      - name: Create disposable production configuration
+        run: |
+          python3 - <<'PY'
+          import os, pathlib, secrets
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'one-server.env'
+          path.write_text('\n'.join([
+              'PUBLIC_URL=http://127.0.0.1:8080',
+              'SECRET=' + secrets.token_hex(32),
+              'DATA_KEY=' + secrets.token_hex(32),
+              'SIGNUP=invite',
+              'AGENTS=off',
+              '',
+          ]))
+          path.chmod(0o600)
+          PY
+      - name: Start production server and verify its public boundary
+        run: |
+          docker run -d --name one-server-ci --env-file "$RUNNER_TEMP/one-server.env" -p 127.0.0.1:8080:8080 one-server-ci
+          for attempt in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:8080/api/health >/dev/null; then break; fi
+            sleep 2
+          done
+          curl -fsS http://127.0.0.1:8080/api/health
+          curl -fsS http://127.0.0.1:8080/app/ >/dev/null
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/api/me)" = 401
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/api/dev/mailbox)" = 404
+          curl -fsS http://127.0.0.1:8080/api/config | python3 -c 'import json,sys; c=json.load(sys.stdin); assert c["dev_mode"] is False and c["signup"]["mode"] == "invite"'
+      - name: Diagnostics and cleanup
+        if: always()
+        run: |
+          docker logs one-server-ci || true
+          docker rm -f one-server-ci || true
+          rm -f "$RUNNER_TEMP/one-server.env"
