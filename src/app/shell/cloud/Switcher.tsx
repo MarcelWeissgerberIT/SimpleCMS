@@ -1,3 +1,5 @@
+import { useEffect, useState } from 'react'
+import { localWorkspaces, onLocalWorkspacesChange, type LocalWorkspace } from '../../store/localWorkspaces'
 import { BookOpen, LogIn, LogOut, Plus, UserPlus } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { openInviteSettings, useCloud } from '../../cloud'
@@ -25,15 +27,24 @@ export function useWorkspaceEntries(): MenuEntry[] {
   const isLocal = active.kind === 'local'
   // the local workspace's name is known while it is open
   const localName = useWorkspace((x) => (isLocal ? x.settings.workspaceName.trim() : ''))
+  const [locals, setLocals] = useState<LocalWorkspace[]>([{ id: 'local', name: 'One', createdAt: 0 }])
+  useEffect(() => {
+    let alive = true
+    const refresh = () => { void localWorkspaces().then(v => { if (alive) setLocals(v) }).catch(console.warn) }
+    refresh()
+    const off = onLocalWorkspacesChange(refresh)
+    return () => { alive = false; off() }
+  }, [localName])
   const entries: MenuEntry[] = [
     { kind: 'section', label: t('shell.cloud.switcher.workspaces') },
-    {
-      id: 'ws-local',
-      label: localName ? `${localName} · ${t('shell.cloud.switcher.local')}` : t('shell.cloud.switcher.local'),
-      icon: <Led state={isLocal ? 'ok' : 'off'} />,
-      checked: isLocal,
-      onSelect: () => !isLocal && cloudApi.switchWorkspace({ kind: 'local', id: 'local' }),
-    },
+    ...locals.map((w): MenuEntry => ({
+      id: w.id === 'local' ? 'ws-local' : `ws-local-${w.id}`,
+      label: `${isLocal && active.id === w.id ? localName || w.name : w.name} · ${t('shell.cloud.switcher.local')}`,
+      icon: <Led state={isLocal && active.id === w.id ? 'ok' : 'off'} />,
+      checked: isLocal && active.id === w.id,
+      onSelect: () => !(isLocal && active.id === w.id) && cloudApi.switchWorkspace({ kind: 'local', id: w.id }),
+    })),
+    { id: 'local-new', label: t('shell.locals.new'), icon: <Plus size={15} />, onSelect: () => openCloudDialog('new-local-workspace') },
     ...workspaces.map(
       (w): MenuEntry => ({
         id: `ws-${w.id}`,

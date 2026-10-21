@@ -9,6 +9,7 @@
  *    workspace's local copy (IndexedDB) and syncs in the background. Without a connection the
  *    local copy opens offline (when this browser has been signed in before).
  */
+import { localStorageId } from '../lib/localWorkspace'
 import { useWorkspace, emptyWorkspace } from '../store/store'
 import { fetchConfig, getSession, notifyUnauthenticated, setServerKnown, setServerProbe, type Account, type ServerConfig } from './api'
 import { listenForForget, runPendingForget } from './device'
@@ -17,7 +18,7 @@ import { useCloud, useCloudSync, type WorkspaceRef } from './state'
 import { readOnlyFor, rememberSchemaMin, storedSchemaMin } from './schemaGate'
 import { emptySettings, openCloudWorkspace } from './workspace'
 
-const LOCAL: WorkspaceRef = { kind: 'local', id: 'local' }
+const LOCAL: WorkspaceRef = { kind: 'local', id: localStorageId }
 
 /** One GET api/config at a time; REST calls made before it answered wait for it (see api.ts). */
 let detection: Promise<ServerConfig | 'absent' | 'network'> | null = null
@@ -152,7 +153,7 @@ export async function bootCloud(): Promise<'local' | 'cloud' | 'signed-out'> {
     }
   }
   if (choice.kind === 'local') {
-    useCloud.setState({ status: 'local', active: LOCAL })
+    useCloud.setState({ status: 'local', active: choice })
     void detect(signedInMarker)
     return 'local'
   }
@@ -241,10 +242,28 @@ export async function refreshMe(): Promise<Me | null> {
 
 /** Remember the choice for this browser and reload the app into that workspace. */
 export function switchWorkspaceImpl(ref: WorkspaceRef): void {
-  writeChoice(ref.kind === 'local' ? LOCAL : ref)
+  void switchSaved(ref).catch(async e => {
+    console.warn('[one] workspace switch could not save', e)
+    const { useUI } = await import('../store/ui')
+    const { t } = await import('../i18n')
+    useUI.getState().toast({ kind: 'error', message: t('shell.locals.switchFailed') })
+  })
+}
+
+async function switchSaved(ref: WorkspaceRef): Promise<void> {
+  const { flushOpenEditors } = await import('../editor')
+  flushOpenEditors()
+  const { flushSave, getSaveStatus } = await import('../store/persistence')
+  if (useCloud.getState().active.kind === 'local') {
+    await flushSave()
+    if (getSaveStatus() === 'error') throw new Error('Workspace save failed')
+  }
+  const { flushPersonalSettings } = await import('../store/personal')
+  await flushPersonalSettings()
+  writeChoice(ref)
   try {
     const url = new URL(window.location.href)
-    url.searchParams.delete('w')
+    url.searchParams.set('w', ref.kind === 'local' ? (ref.id === 'local' ? 'local' : `local:${ref.id}`) : ref.id)
     url.searchParams.delete(SIGNED_IN_PARAM)
     url.hash = ''
     window.location.replace(url.toString())

@@ -117,7 +117,8 @@ export function activeWorkspace(): WorkspaceRef {
  * remembered choice where a server can be reached, else the local workspace. For the pre-paint look (main.tsx).
  */
 export function expectedWorkspace(): WorkspaceRef {
-  return SERVER_CAPABLE ? readChoice() : { kind: 'local', id: 'local' }
+  const choice = readChoice()
+  return choice.kind === 'local' || SERVER_CAPABLE ? choice : { kind: 'local', id: 'local' }
 }
 
 /** Remember the choice for this browser and reload the app into that workspace (drops `?w=` and the route). */

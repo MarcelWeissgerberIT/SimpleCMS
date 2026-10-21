@@ -1,3 +1,6 @@
+import { localStorageId } from './lib/localWorkspace'
+import { personalSettings, startPersonalSettings } from './store/personal'
+import { rememberLocalWorkspace } from './store/localWorkspaces'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import '@/shared/fonts'
@@ -40,7 +43,7 @@ startSwitchLed()
 // …and the workspace look this device last saw for the workspace it is about to open (lib/look)
 {
   const ref = cloud.expectedWorkspace()
-  applyCachedLook(ref.kind === 'cloud' ? ref.id : 'local')
+  applyCachedLook(ref.id)
 }
 
 // Code blocks on pages know One Script too (editor/lib/codeLanguages.ts: the language menu is a registry).
@@ -94,7 +97,7 @@ async function boot() {
     mode = await cloud.bootCloud()
   } catch (e) {
     console.error('[one] cloud boot failed — opening the local workspace', e)
-    cloud.useCloud.setState({ status: 'local', active: { kind: 'local', id: 'local' }, role: null, readOnly: false })
+    cloud.useCloud.setState({ status: 'local', active: { kind: 'local', id: localStorageId }, role: null, readOnly: false })
   }
   if (mode === 'local') await bootLocal()
 
@@ -214,6 +217,10 @@ function testApi<T extends object>(mod: T): T {
 
 /** The browser-only workspace: load (or seed) it from IndexedDB and start saving + cross-tab sync. */
 async function bootLocal() {
+  // Pin even the first tab's choice: a later selection in another window must not change this tab on reload.
+  const address = new URL(window.location.href)
+  address.searchParams.set('w', localStorageId === 'local' ? 'local' : `local:${localStorageId}`)
+  history.replaceState(history.state, '', address.toString())
   // reset → load → seed → first save run under a cross-tab lock: a second tab waits and
   // then loads the very same workspace instead of seeding its own.
   await withBootLock(async () => {
@@ -223,10 +230,11 @@ async function bootLocal() {
     const saved = await loadWorkspace()
     const store = useWorkspace.getState()
     if (saved) {
+      saved.settings = await personalSettings(saved.settings)
       store.hydrate(saved)
     } else {
       const ws = emptyWorkspace()
-      ws.settings.language = detectLang()
+      ws.settings = await personalSettings(ws.settings)
       store.hydrate(ws)
       seedWorkspace(ws.settings.language)
       // MARGIN, built by clicking (the seeded budget sheet uses it)
@@ -241,7 +249,14 @@ async function bootLocal() {
     }
   })
 
+  await rememberLocalWorkspace(useWorkspace.getState().settings.workspaceName)
+  startPersonalSettings()
   startPersistence()
+  useWorkspace.subscribe((s, prev) => {
+    if (s.settings.workspaceName !== prev.settings.workspaceName) void rememberLocalWorkspace(s.settings.workspaceName).catch(console.warn)
+  })
+  const { importPendingWorkspace } = await import('./features/io/workspacePackage')
+  await importPendingWorkspace()
   // demo pages seeded before the icon change get the new icons (only untouched ones; saved like an edit)
   refreshDemoIcons()
 }

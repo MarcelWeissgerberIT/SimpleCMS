@@ -1,13 +1,14 @@
+import { localChannel, localDatabase, localStorageId } from '../../lib/localWorkspace'
 import { safeLocalGet, safeLocalSet } from '@/shared/brand'
 import { useCloud } from '../../cloud'
 import { forgetLookCache } from '../../lib/look/apply'
 import { ORDER_AUTO_KEY_PREFIX, PATCHBAY_DB, PATCHBAY_LS_PREFIX, PATCHBAY_RETURN_KEY, RECORDER_DB } from '../../features'
 
 /** localStorage flag: wipe all IndexedDB data on the next boot (before anything opens a connection). */
-export const RESET_FLAG = 'one.resetPending'
+export const RESET_FLAG = localChannel('one.resetPending')
 
 /** Tabs of this app tell each other about a reset here (separate from the data-sync channel). */
-const CHANNEL = 'one-reset'
+const CHANNEL = localChannel('one-reset')
 /** Channels in the same tab hear each other — tag messages so a tab ignores its own. */
 const TAB = Math.random().toString(36).slice(2)
 
@@ -36,7 +37,7 @@ export function requestReset() {
     console.warn('[one] erasing is for the local workspace — a team workspace removes its copy instead')
     return
   }
-  safeLocalSet(RESET_FLAG, '1')
+  safeLocalSet(RESET_FLAG, JSON.stringify([localDatabase()]))
   broadcast({ type: 'reset' })
   window.location.hash = '#/'
   window.location.reload()
@@ -68,7 +69,7 @@ export function listenForReset(): () => void {
 export async function withBootLock<T>(fn: () => Promise<T>): Promise<T> {
   const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined
   if (!locks?.request) return fn()
-  return locks.request('one-boot', () => fn()) as Promise<T>
+  return locks.request(localChannel('one-boot'), () => fn()) as Promise<T>
 }
 
 /**
@@ -82,6 +83,19 @@ export async function withBootLock<T>(fn: () => Promise<T>): Promise<T> {
 export async function runPendingReset(onBlocked?: () => void): Promise<boolean> {
   const raw = safeLocalGet(RESET_FLAG)
   if (!raw) return false
+  if (raw === JSON.stringify([localDatabase()])) {
+    await new Promise<void>((resolve, reject) => {
+      const req = indexedDB.deleteDatabase(localDatabase())
+      req.onsuccess = () => resolve()
+      req.onerror = () => reject(req.error)
+      req.onblocked = () => onBlocked?.()
+    })
+    safeLocalSet(RESET_FLAG, null)
+    safeLocalSet(`one.shell.visits:local:${localStorageId}`, null)
+    safeLocalSet(`one.mirror.reports:local:${localStorageId}`, null)
+    forgetLookCache(localStorageId)
+    return true
+  }
   // "1" = a fresh request; a JSON list = databases an interrupted run had not deleted yet
   let names: string[] | null = null
   try {

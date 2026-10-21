@@ -1,3 +1,4 @@
+import { linkInCurrentWorkspace } from '../../lib/workspaceAddress'
 import { useEffect } from 'react'
 import { useUI } from '../../store/ui'
 import { useWorkspace } from '../../store/store'
@@ -187,7 +188,7 @@ function internalPageId(a: HTMLAnchorElement): string | null {
     // absolute/relative URL: only ours if it points at this very document
     try {
       const url = new URL(a.href, window.location.href)
-      if (url.origin !== window.location.origin || url.pathname !== window.location.pathname) return null
+      if (url.origin !== window.location.origin || url.pathname !== window.location.pathname || !linkInCurrentWorkspace(url)) return null
     } catch {
       return null
     }

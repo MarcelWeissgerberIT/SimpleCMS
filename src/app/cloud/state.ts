@@ -24,7 +24,7 @@ export interface CloudWorkspace {
 }
 
 /** Which workspace this browser tab shows. 'local' = the browser-only workspace. */
-export type WorkspaceRef = { kind: 'local'; id: 'local' } | { kind: 'cloud'; id: string }
+export type WorkspaceRef = { kind: 'local'; id: string } | { kind: 'cloud'; id: string }
 
 export type CloudStatus =
   | 'local' // the local workspace is active (cloud may or may not be available)

@@ -668,3 +668,5 @@ export {
   type FuseHint,
   type HintKind,
 } from './patchbay'
+
+export { buildWorkspacePackage, portableWorkspace, makeLocalWorkspace, parseWorkspacePackage, type WorkspacePackage } from './io/workspacePackage'

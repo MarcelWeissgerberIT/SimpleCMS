@@ -25,7 +25,7 @@ test.describe('import / export', () => {
     // RECENT (Workspace.recent) holds the canary: which pages this device opened is never in a backup
     await gotoPage(page, canary)
     expect(await wsEval(page, (s, id) => s.recent.includes(id), canary)).toBe(true)
-    // this device's visits and sidebar section state (shell/lib/visits.ts): never in a backup, gone with a reset
+    // Visits belong to the workspace; the sidebar section choice stays this device's. Neither is in a backup.
     await page.evaluate(() => {
       localStorage.setItem('one.shell.visits:local:local', JSON.stringify({ v: 1, e: { 'reset-canary': [3, Date.now(), 3] } }))
       localStorage.setItem('one.shell.visited', JSON.stringify({ tab: 'frequent', open: false }))
@@ -35,7 +35,7 @@ test.describe('import / export', () => {
 
     // export (Workspace settings → Data → Export workspace → Full backup)
     let section = await openWorkspaceSection(page, 'data')
-    await section.getByRole('button', { name: 'Export workspace' }).click()
+    await section.getByRole('button', { name: 'Export workspace', exact: true }).click()
     let dialog = page.getByRole('dialog')
     await dialog.getByRole('radio', { name: /Whole workspace/ }).click()
     await dialog.getByRole('radio', { name: /Full backup/ }).click()
@@ -61,7 +61,7 @@ test.describe('import / export', () => {
     await Promise.all([page.waitForEvent('load'), confirm.getByRole('button', { name: 'Erase & restart' }).click()])
     await waitForApp(page)
     expect(await page.evaluate(() => localStorage.getItem('one.shell.visits:local:local') ?? '')).not.toContain('reset-canary')
-    expect(await page.evaluate(() => localStorage.getItem('one.shell.visited'))).toBeNull()
+    expect(await page.evaluate(() => localStorage.getItem('one.shell.visited'))).toBe(JSON.stringify({ tab: 'frequent', open: false }))
     expect(await page.evaluate(() => localStorage.getItem('one.mirror.reports:local:local'))).toBeNull()
     // a fresh demo workspace: the canary is gone
     await expect(page.locator('#main .pv-title')).toHaveValue('Welcome to One')

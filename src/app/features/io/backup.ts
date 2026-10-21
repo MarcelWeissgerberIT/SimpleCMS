@@ -172,7 +172,7 @@ export function backupStats(b: Backup) {
  * Restore the backup files that `json` references. A file that already exists here under the same
  * ref (backup made on this device) is reused instead of being stored a second time.
  */
-async function restoreFiles(b: Backup, json: string, onProgress?: (done: number, total: number) => void): Promise<Map<string, string>> {
+async function restoreFiles(b: Backup, json: string, onProgress?: (done: number, total: number) => void, freshFiles = false): Promise<Map<string, string>> {
   const used = new Set(json.match(REF_RE) ?? [])
   const list = b.files.filter((f) => f?.ref?.startsWith(FILE_PREFIX) && typeof f.data === 'string' && used.has(f.ref))
   const map = new Map<string, string>()
@@ -180,7 +180,7 @@ async function restoreFiles(b: Backup, json: string, onProgress?: (done: number,
   for (const f of list) {
     done++
     try {
-      const existing = await getFile(f.ref)
+      const existing = freshFiles ? undefined : await getFile(f.ref)
       if (existing && existing.size === Math.floor((f.data.replace(/=+$/, '').length * 3) / 4)) map.set(f.ref, f.ref)
       else {
         const blob = await (await fetch(`data:${f.type || 'application/octet-stream'};base64,${f.data}`)).blob()
@@ -355,7 +355,7 @@ export function backupGovernor(b: Backup): { theirs: WorkspaceGovernor | undefin
 /** Restore files, remap their refs and apply the workspace. `ai`: the person's answer when the backup's AI rules would
  *  loosen this workspace's, or its governor differs ('theirs' — only where they may be written; anything else keeps
  *  them). */
-export async function applyBackup(b: Backup, mode: 'merge' | 'replace', onProgress?: (done: number, total: number) => void, opts: { ai?: 'mine' | 'theirs' } = {}): Promise<RestoreResult> {
+export async function applyBackup(b: Backup, mode: 'merge' | 'replace', onProgress?: (done: number, total: number) => void, opts: { ai?: 'mine' | 'theirs'; workspaceOnly?: boolean; freshFiles?: boolean } = {}): Promise<RestoreResult> {
   // a team workspace: viewers can't write, and "replace" would swap it out for everyone in it
   const cloud = useCloud.getState()
   if (cloud.readOnly) throw new Error(t('features.io.err.viewOnly'))
@@ -391,8 +391,8 @@ export async function applyBackup(b: Backup, mode: 'merge' | 'replace', onProgre
 
   // only files that the surviving pages / databases use
   let json = JSON.stringify({ pages: keep, databases: keptDbs })
-  const refMap = await restoreFiles(b, json, onProgress)
-  if (refMap.size) json = json.replace(REF_RE, (ref) => refMap.get(ref) ?? ref)
+  const refMap = await restoreFiles(b, json, onProgress, opts.freshFiles)
+  if (refMap.size || opts.freshFiles) json = json.replace(REF_RE, (ref) => refMap.get(ref) ?? (opts.freshFiles ? `onefile:missing${newId()}` : ref))
   const incoming = JSON.parse(json) as { pages: Record<ID, Page>; databases: Record<ID, Database> }
 
   // open editors must apply restored content: new rev, origin that is no editor's own id
@@ -452,7 +452,7 @@ export async function applyBackup(b: Backup, mode: 'merge' | 'replace', onProgre
         pages,
         databases,
         // the AI keys and this device's AI rules stay this device's — never the file's, also without a key here
-        settings: { ...source.settings, aiApiKey: snap.settings.aiApiKey, ...(snap.settings.aiKeys ? { aiKeys: snap.settings.aiKeys } : {}), ...(snap.settings.ai ? { ai: snap.settings.ai } : {}) },
+        settings: { ...(opts.workspaceOnly ? { ...snap.settings, workspaceName: source.settings.workspaceName, startPageId: source.settings.startPageId, lastPageId: null } : source.settings), aiApiKey: snap.settings.aiApiKey, ...(snap.settings.aiKeys ? { aiKeys: snap.settings.aiKeys } : {}), ...(snap.settings.ai ? { ai: snap.settings.ai } : {}) },
         // the workspace's AI rules stay this workspace's (a file never loosens them)
         ai: snap.ai,
         // the Regler likewise stays this workspace's (the person takes the backup's through setGovernor above)

@@ -47,7 +47,7 @@ export function App() {
   const route = useRoute()
   const signedOut = useCloud((s) => s.status === 'signed-out')
   // the workspace look (Workspace → Look): share and form links keep One's standard look
-  const lookScope = useCloud((s) => (s.active.kind === 'cloud' ? s.active.id : 'local'))
+  const lookScope = useCloud((s) => (s.active.id))
   const look = useWorkspace((s) => s.look ?? null)
   const ready = useWorkspace((s) => s.ready)
   useWorkspaceLook({ route: route.name, scope: lookScope, look, ready, persist: !signedOut })

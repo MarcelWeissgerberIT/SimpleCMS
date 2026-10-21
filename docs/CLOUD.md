@@ -1286,3 +1286,13 @@ Work orders (docs/CODING.md § Work orders) need nothing new from the server:
    backups (Litestream / nightly copy), self-hosting guide, admin CLI.
 3. **C3 — business:** billing for the hosted cloud at 99 € / $99 per user per year (Stripe), usage limits, DPA/AVV.
    Self-hosting stays free.
+
+### Multiple local workspaces and portable packages
+
+The original local workspace remains in `keyval-store/keyval`; it is never moved or replaced during migration. Additional local workspaces use `one-local-<id>/keyval` with the same transactional persistence layout. The local workspace identity is pinned when the tab loads. Its BroadcastChannel, unload stash, boot lock and reset flag are namespaced; another tab selecting a workspace cannot redirect existing writes. The nonsecret catalogue lives in `one-workspaces/kv`. Explicit selectors are `?w=local`, `?w=local:<id>` and the existing team `?w=<id>`; newly copied permalinks carry that selector.
+
+Personal preferences for local workspaces are held in `one-personal/kv` and merged by changed keys across tabs. Keys remain vault markers in the original local personal vault scope; no existing credentials are moved. Mail targets and sync settings remain bound to the workspace. Existing team overlays are unchanged. Worker pairing continues to require the intended MCP workspace identity.
+
+`simplecms-one-workspace` v1 is a portable envelope around a content backup. It allowlists workspace-owned fields, excludes personal settings/connections, Private team pages and fuse grants, strips webhook destinations, pauses agents and database automations, and removes active recurring schedules. Import creates a new local workspace; it never replaces the selected workspace. Pending imports finish under the new workspace identity before background services start. Imported attachments receive fresh IDs and ownership stamps; missing attachment payloads cannot resolve to files in another workspace. The same portable sanitizer is applied when copying a local workspace into a new team workspace. Existing personal overlays and keys are never uploaded to shared documents.
+
+New reset requests clear only the selected local content database. Legacy full-device reset requests queued by older builds retain their previous migration behavior.

@@ -1,3 +1,4 @@
+import { buildWorkspacePackage } from '../../features'
 /**
  * Workspace page § 07 — Data: backup / export / import (the same keys Settings had: BackupKeys), when this
  * device last saved a full backup, the trash (count + open it), and where the workspace is copied to — the
@@ -30,6 +31,7 @@ export function DataSection() {
     <>
       <SectionHead n="08" title={t('shell.ws.sec.data')} lead={inCloud ? t('shell.ws.data.leadTeam') : t('shell.ws.data.lead')} help="export" />
       <SubHead label={t('shell.ws.data.backup')} />
+      <WorkspacePackageKey />
       <BackupKeys />
       <LastBackupLine />
       <SubHead label={t('shell.ws.data.trash')} />
@@ -126,4 +128,30 @@ function SyncCopies() {
       />
     </>
   )
+}
+
+function WorkspacePackageKey() {
+  const t = useT()
+  const [busy, setBusy] = useState(false)
+  const download = async () => {
+    setBusy(true)
+    try {
+      const { flushOpenEditors } = await import('../../editor')
+      flushOpenEditors()
+      const { useWorkspace } = await import('../../store/store')
+      const name = useWorkspace.getState().settings.workspaceName
+      const packet = await buildWorkspacePackage(name)
+      const blob = new Blob([JSON.stringify(packet)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `${name.replace(/[^a-zA-Z0-9_-]/g, '-').slice(0, 60) || 'One'}.one-workspace.json`
+      link.click()
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
+    } catch (e) {
+      const { useUI } = await import('../../store/ui')
+      useUI.getState().toast({ kind: 'error', message: t('shell.locals.exportFailed', { error: e instanceof Error ? e.message : String(e) }) })
+    } finally { setBusy(false) }
+  }
+  return <div className="wsp-package" data-testid="workspace-package"><p>{t('shell.locals.exportLead')}</p><button type="button" className="btn" disabled={busy} onClick={() => void download()}>{t(busy ? 'shell.locals.exporting' : 'shell.locals.export')}</button><p className="muted">{t('shell.locals.team')}</p></div>
 }

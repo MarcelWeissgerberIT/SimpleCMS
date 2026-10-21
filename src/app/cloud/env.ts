@@ -3,6 +3,7 @@
  * (per browser, `?w=<id>` overrides it for one tab), the last known session (for offline boots)
  * and the user's colour.
  */
+import { localStorageId, parseLocalChoice } from '../lib/localWorkspace'
 import { COLOR_NAMES, type ColorName } from '../store/types'
 import type { CloudUser, CloudWorkspace, WorkspaceRef } from './state'
 
@@ -40,11 +41,12 @@ export function lsSet(key: string, value: string | null): void {
   }
 }
 
-const LOCAL: WorkspaceRef = { kind: 'local', id: 'local' }
+const LOCAL: WorkspaceRef = { kind: 'local', id: localStorageId }
 
 function parseRef(raw: string | null): WorkspaceRef | null {
   if (!raw) return null
-  if (raw === 'local') return LOCAL
+  const local = parseLocalChoice(raw)
+  if (local) return { kind: 'local', id: local }
   return WS_ID.test(raw) ? { kind: 'cloud', id: raw } : null
 }
 
@@ -65,7 +67,7 @@ export function hasStoredChoice(): boolean {
 }
 
 export function writeChoice(ref: WorkspaceRef): void {
-  lsSet(CHOICE_KEY, ref.kind === 'local' ? 'local' : ref.id)
+  lsSet(CHOICE_KEY, ref.kind === 'local' ? (ref.id === 'local' ? 'local' : `local:${ref.id}`) : ref.id)
 }
 
 export interface SessionCache {

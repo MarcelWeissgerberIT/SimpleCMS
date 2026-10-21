@@ -1,3 +1,4 @@
+import { localMessages } from './workspace/local-messages'
 import type { Messages } from '@/shared/i18n'
 import { cloudPrice } from '@/shared/pricing'
 import { agendaMessages } from './agenda/messages'
@@ -33,6 +34,7 @@ export const messages: Messages = {
     ...tourMessages.en,
     ...discoverMessages.en,
     ...workspaceMessages.en,
+    ...localMessages.en,
     ...lookMessages.en,
     ...paletteMessages.en,
     ...visitedMessages.en,
@@ -422,9 +424,9 @@ export const messages: Messages = {
     'shell.settings.data.everyMin': 'Every {n} min',
     'shell.settings.data.danger': 'Danger zone',
     'shell.settings.data.reset': 'Reset workspace',
-    'shell.settings.data.resetBody': 'Deletes all pages, databases, files and history on this device and starts fresh.',
+    'shell.settings.data.resetBody': 'Clears the pages and databases of this workspace. Other workspaces, personal settings and connections stay.',
     'shell.settings.data.resetConfirmTitle': 'Reset the entire workspace?',
-    'shell.settings.data.resetConfirmBody': 'All pages, databases, uploaded files and history on this device will be erased. Export first if you want a backup.',
+    'shell.settings.data.resetConfirmBody': 'The pages and databases of this workspace will be erased. Other workspaces and personal connections stay. Export first if you want a backup.',
     'shell.settings.data.resetConfirm': 'Erase & restart',
     'shell.about.version': 'Version {v}',
     'shell.about.build': 'Build {at}',
@@ -525,6 +527,7 @@ export const messages: Messages = {
     ...tourMessages.de,
     ...discoverMessages.de,
     ...workspaceMessages.de,
+    ...localMessages.de,
     ...lookMessages.de,
     ...paletteMessages.de,
     ...visitedMessages.de,
@@ -894,9 +897,9 @@ export const messages: Messages = {
     'shell.settings.data.everyMin': 'Alle {n} Min.',
     'shell.settings.data.danger': 'Gefahrenzone',
     'shell.settings.data.reset': 'Workspace zurücksetzen',
-    'shell.settings.data.resetBody': 'Löscht alle Seiten, Datenbanken, Dateien und Verläufe auf diesem Gerät und beginnt neu.',
+    'shell.settings.data.resetBody': 'Leert die Seiten und Datenbanken dieses Workspace. Andere Workspaces, persönliche Einstellungen und Verbindungen bleiben.',
     'shell.settings.data.resetConfirmTitle': 'Gesamten Workspace zurücksetzen?',
-    'shell.settings.data.resetConfirmBody': 'Alle Seiten, Datenbanken, hochgeladenen Dateien und Verläufe auf diesem Gerät werden gelöscht. Exportiere vorher, wenn du ein Backup willst.',
+    'shell.settings.data.resetConfirmBody': 'Die Seiten und Datenbanken dieses Workspace werden gelöscht. Andere Workspaces und persönliche Verbindungen bleiben. Exportiere vorher, wenn du ein Backup willst.',
     'shell.settings.data.resetConfirm': 'Löschen & neu starten',
     'shell.about.version': 'Version {v}',
     'shell.about.build': 'Build {at}',

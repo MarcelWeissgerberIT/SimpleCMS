@@ -110,6 +110,9 @@ export async function uploadLocalWorkspaceImpl(wsId: string, onProgress?: (p: nu
     if (!raw) throw new CloudError('nothing_to_upload', 'This browser has no local workspace.')
     local = migrate(raw)
   }
+  const deviceSettings = local.settings
+  const { portableWorkspace } = await import('../features')
+  local = portableWorkspace(local, local.settings.workspaceName)
   remapUnsafeIds(local)
   const pages = Object.values(local.pages)
   const userId = c.user.id
@@ -178,6 +181,9 @@ export async function uploadLocalWorkspaceImpl(wsId: string, onProgress?: (p: nu
       for (const person of local.people) if (person?.id) r.people.set(person.id, { id: person.id, name: person.name, color: person.color })
       // custom functions: one JSON entry each, as the binding writes them (every reader sanitizes them)
       for (const fn of Object.values(local.functions ?? {})) r.functions.set(fn.id, JSON.parse(JSON.stringify(fn)))
+      // Saved agent definitions travel too, paused and without this device's grants or connections.
+      const agents = meta.doc.getMap<unknown>('agents')
+      for (const agent of Object.values(local.agents ?? {})) agents.set(agent.id, { ...JSON.parse(JSON.stringify(agent)), enabled: false, createdBy: userId, updatedBy: userId })
       // scripts (features/script): the same; the uploader becomes their author
       const scripts = meta.doc.getMap<unknown>('scripts')
       for (const sc of Object.values(local.scripts ?? {})) scripts.set(sc.id, { ...JSON.parse(JSON.stringify(sc)), createdBy: userId, updatedBy: userId })
@@ -234,7 +240,7 @@ export async function uploadLocalWorkspaceImpl(wsId: string, onProgress?: (p: nu
     }
     if (!(await loadOverlay(wsId))) {
       await saveOverlay(wsId, {
-        settings: { ...local.settings, lastPageId: null },
+        settings: { ...deviceSettings, lastPageId: null, startPageId: local.settings.startPageId },
         favorites: pages.filter((p) => p.favorite).map((p) => p.id),
         recent: local.recent,
         pending: [],

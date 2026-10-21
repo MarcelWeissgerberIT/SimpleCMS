@@ -51,6 +51,11 @@ const keys = new Map<string, string>()
 /** marker → its seal, still running */
 const sealing = new Map<string, Promise<void>>()
 
+/** Wait before publishing a vault marker to another local workspace or leaving this tab. */
+export async function flushSecretWrites(): Promise<void> {
+  await Promise.all([...sealing.values()])
+}
+
 const warn = (what: string) => (e: unknown) => console.warn(`[one] ${what}`, e instanceof Error ? e.message : e)
 
 /** Put `marker` → `key` into memory and seal it as `name`; resolves true once it is stored encrypted. */

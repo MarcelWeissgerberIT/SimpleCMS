@@ -1,3 +1,4 @@
+import { LocalWorkspaceDialog } from '../workspace/LocalDialog'
 import { useEffect, useId, useState } from 'react'
 import { AlertTriangle, Check, CornerDownLeft, LogOut, X } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
@@ -16,6 +17,7 @@ import './cloud.css'
 /** Host for the cloud dialogs (ModalState only knows the core modals). Mount once in the workspace. */
 export function CloudDialogs() {
   const dialog = useCloudUI((s) => s.dialog)
+  if (dialog === 'new-local-workspace') return <LocalWorkspaceDialog />
   if (dialog === 'new-workspace') return <NewWorkspaceDialog />
   if (dialog === 'sign-in') return <SignInDialog />
   if (dialog === 'sign-out') return <SignOutDialog />

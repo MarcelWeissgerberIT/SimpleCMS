@@ -4327,6 +4327,23 @@ process.exit(1)
     await ctx.close()
   },
 
+  async 'local-workspaces'(browser) {
+    const { ctx, page } = await freshPage(browser)
+    await page.evaluate(() => window.__one.workspace.getState().updateSettings({ workspaceName: 'Product lab' }))
+    await page.locator('aside.sb .sb-head__ws').click()
+    await page.getByRole('menuitem', { name: 'New local workspace…' }).click()
+    await page.getByRole('textbox', { name: 'Workspace name', exact: true }).fill('Client workspace')
+    await page.getByRole('button', { name: 'Create and open', exact: true }).click()
+    await page.waitForURL(/w=local%3A/)
+    await page.waitForFunction(() => !!window.__one)
+    await page.evaluate(() => { location.hash = '#/workspace/data' })
+    await page.getByTestId('workspace-package').waitFor()
+    await page.locator('aside.sb .sb-head__ws').click()
+    await rest(page)
+    await save(page, 'local-workspaces')
+    await ctx.close()
+  },
+
   async 'request-models'(browser) {
     const { startFakeWorker } = await import('../tests/e2e/helpers/fakeWorker.ts')
     const { WORKER_CAN } = await import('../src/app/features/coding/protocol.ts')

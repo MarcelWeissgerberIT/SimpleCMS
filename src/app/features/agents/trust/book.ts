@@ -38,7 +38,7 @@ export const useTrust = create<TrustState>()(() => ({ scope: null, byAgent: {} }
 /** 'local:local' · 'cloud:<ws>:u:<account>' · null (a team workspace whose account is not known yet). */
 export function trustScope(): string | null {
   const ref = activeWorkspace()
-  if (ref.kind !== 'cloud') return 'local:local'
+  if (ref.kind !== 'cloud') return `local:${ref.id}`
   const uid = useCloud.getState().user?.id
   const scope = uid ? `cloud:${ref.id}:u:${uid}` : null
   return scope && !scope.includes('|') ? scope : null

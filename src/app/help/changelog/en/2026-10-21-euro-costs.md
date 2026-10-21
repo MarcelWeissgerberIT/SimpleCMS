@@ -1,7 +1,7 @@
 ---
 id: 2026-10-21-euro-costs
 date: 2026-10-21
-order: 2
+order: 3
 title: Show AI costs in euros
 summary: Show AI costs in euros.
 image: assets/shots/changelog/euro-costs.webp
