@@ -32,6 +32,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
+      - name: Reproduce a private self-hosted checkout
+        run: chmod -R go-rwx public
       - name: Build the deployable image, including every shared server contract
         run: docker build -f server/Dockerfile -t one-server-ci .
       - name: Create disposable production configuration
@@ -58,6 +60,9 @@ jobs:
           done
           curl -fsS http://127.0.0.1:8080/api/health
           curl -fsS http://127.0.0.1:8080/app/ >/dev/null
+          curl -fsS http://127.0.0.1:8080/manifest.webmanifest | python3 -c 'import json,sys; assert json.load(sys.stdin)["name"]'
+          curl -fsS http://127.0.0.1:8080/look-boot.js >/dev/null
+          curl -fsS http://127.0.0.1:8080/favicon.svg >/dev/null
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/api/me)" = 401
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/api/dev/mailbox)" = 404
           curl -fsS http://127.0.0.1:8080/api/config | python3 -c 'import json,sys; c=json.load(sys.stdin); assert c["dev_mode"] is False and c["signup"]["mode"] == "invite"'

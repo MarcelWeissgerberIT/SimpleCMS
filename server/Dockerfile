@@ -41,7 +41,9 @@ WORKDIR /app/server
 COPY --from=app /src/dist /app/dist
 COPY --from=server /srv/dist ./dist
 COPY server/package.json server/LICENSE server/README.md ./
-RUN mkdir -p /data && chown node:node /data
+# A self-hosted checkout may use umask 077. Vite preserves permissions of public/
+# files, so normalize readability while keeping the application root-owned.
+RUN mkdir -p /data && chown node:node /data && chmod -R a+rX /app
 USER node
 VOLUME ["/data"]
 EXPOSE 8080
