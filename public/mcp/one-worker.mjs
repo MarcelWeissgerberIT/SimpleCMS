@@ -44026,7 +44026,7 @@ ${prompt}`);
 
 // src/worker/workspaces.ts
 import { createHash as createHash10, createHmac, randomBytes as randomBytes15 } from "node:crypto";
-import { constants as constants7, closeSync as closeSync5, existsSync as existsSync11, fstatSync as fstatSync3, lstatSync as lstatSync4, mkdirSync as mkdirSync7, openSync as openSync5, readFileSync as readFileSync11, renameSync as renameSync4, unlinkSync as unlinkSync3, writeFileSync as writeFileSync8 } from "node:fs";
+import { constants as constants7, closeSync as closeSync5, existsSync as existsSync11, fstatSync as fstatSync3, lstatSync as lstatSync4, mkdirSync as mkdirSync7, openSync as openSync5, readFileSync as readFileSync11, readdirSync as readdirSync7, renameSync as renameSync4, unlinkSync as unlinkSync3, writeFileSync as writeFileSync8 } from "node:fs";
 import { dirname as dirname11, join as join24 } from "node:path";
 var hash2 = (s) => createHash10("sha256").update(s).digest("hex");
 var MAX = 32;
@@ -44123,6 +44123,14 @@ function workspaceConfig(base, grant) {
     repos: base.repos.map((r) => ({ ...r, worktreeDir: join24(r.worktreeDir, `ws-${scope}`), branchPrefix: `${r.branchPrefix}ws-${scope}/` }))
   };
 }
+function workspaceSpending(config2, primary) {
+  const parent = join24(dirname11(config2.file), "workspaces");
+  if (!existsSync11(parent)) return primary;
+  if (lstatSync4(parent).isSymbolicLink() || !lstatSync4(parent).isDirectory()) throw new Error("Invalid workspace runtime directory.");
+  const scopes = readdirSync7(parent, { withFileTypes: true }).filter((entry) => entry.isDirectory() && !entry.isSymbolicLink() && /^[a-f0-9]{24}$/.test(entry.name));
+  if (scopes.length > 5e3) throw new Error("Too many saved workspace contexts to check the device budget.");
+  return primary + scopes.reduce((total, scope) => total + new WorkerState(config2.file, join24(parent, scope.name)).spentToday(), 0);
+}
 var WorkerWorkspaces = class {
   grants;
   children = /* @__PURE__ */ new Map();
@@ -44162,13 +44170,7 @@ var WorkerWorkspaces = class {
     return { ...live, busy: [...this.workers].flatMap((worker) => worker.live().busy) };
   }
   spent() {
-    let total = this.primary.state.spentToday();
-    for (const entry of this.grants.list()) {
-      const grant = this.grants.get(entry.id);
-      const runtime = workspaceConfig(this.primary.config, grant);
-      total += new WorkerState(runtime.file, runtime.runtimeDir).spentToday();
-    }
-    return total;
+    return workspaceSpending(this.primary.config, this.primary.state.spentToday());
   }
   async route(socket, hello) {
     if (this.closed || this.revoking.has(hello.workspace.id) || hello.workspace.id === this.primary.config.workspace) return false;

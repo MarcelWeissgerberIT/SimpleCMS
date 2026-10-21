@@ -1,6 +1,6 @@
 /** Device-local grants and isolated worker contexts. No workspace document is configuration or authority. */
 import { createHash, createHmac, randomBytes } from 'node:crypto'
-import { constants, closeSync, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
+import { constants, closeSync, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { WebSocket } from 'ws'
 import { PAIR_SECRET, type TabMessage, type WorkspaceRef } from '../../../src/app/features/coding/protocol.ts'
@@ -90,6 +90,16 @@ export function workspaceConfig(base: WorkerConfig, grant: Grant): WorkerConfig 
   }
 }
 
+/** Revocation/owner rotation changes authority, never the device's already incurred daily spending. */
+export function workspaceSpending(config: WorkerConfig, primary: number): number {
+  const parent = join(dirname(config.file), 'workspaces')
+  if (!existsSync(parent)) return primary
+  if (lstatSync(parent).isSymbolicLink() || !lstatSync(parent).isDirectory()) throw new Error('Invalid workspace runtime directory.')
+  const scopes = readdirSync(parent, { withFileTypes: true }).filter(entry => entry.isDirectory() && !entry.isSymbolicLink() && /^[a-f0-9]{24}$/.test(entry.name))
+  if (scopes.length > 5000) throw new Error('Too many saved workspace contexts to check the device budget.')
+  return primary + scopes.reduce((total, scope) => total + new WorkerState(config.file, join(parent, scope.name)).spentToday(), 0)
+}
+
 export class WorkerWorkspaces {
   readonly grants: WorkspaceGrants
   private children = new Map<string, Promise<Worker>>()
@@ -121,14 +131,7 @@ export class WorkerWorkspaces {
     return { ...live, busy: [...this.workers].flatMap(worker => worker.live().busy) }
   }
   private spent() {
-    // Include grants whose contexts have not connected since restart.
-    let total = this.primary.state.spentToday()
-    for (const entry of this.grants.list()) {
-      const grant = this.grants.get(entry.id)!
-      const runtime = workspaceConfig(this.primary.config, grant)
-      total += new WorkerState(runtime.file, runtime.runtimeDir).spentToday()
-    }
-    return total
+    return workspaceSpending(this.primary.config, this.primary.state.spentToday())
   }
   async route(socket: WebSocket, hello: Hello): Promise<boolean> {
     if (this.closed || this.revoking.has(hello.workspace.id) || hello.workspace.id === this.primary.config.workspace) return false

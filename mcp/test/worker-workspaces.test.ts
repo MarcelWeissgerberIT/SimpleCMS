@@ -3,7 +3,7 @@ import { after, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { join, dirname } from 'node:path'
-import { WorkspaceGrants, workspaceConfig } from '../src/worker/workspaces.ts'
+import { WorkspaceGrants, workspaceConfig, workspaceSpending } from '../src/worker/workspaces.ts'
 import { WorkerState } from '../src/worker/state.ts'
 import { emptyConfig, scratchPath } from '../src/worker/config.ts'
 import { saveOllamaCloud, readOllamaCloud } from '../src/worker/ollama-cloud-config.ts'
@@ -56,6 +56,8 @@ test('runtime state and scratch are namespaced; credentials keep the device conf
   saveOllamaCloud(file, { apiKey: 'private-fixture-ollama-key', contextTokens: 131072, model: 'model-fixture' })
   assert.equal(readOllamaCloud(second.configFile, {}).apiKey, 'private-fixture-ollama-key')
   assert.equal(existsSync(join(b.runtimeDir!, 'ollama-cloud.json')), false)
+  first.addCost('same_id', 1.25); second.addCost('same_id', 2.50)
+  assert.equal(workspaceSpending(base, 0.75), 4.50, 'archived/unconnected workspaces count without an active grant')
 })
 
 test('the downloaded device worker grants a second workspace; identical task IDs have isolated branches, task tools and outcomes across reconnects and restart', { timeout: 120000 }, async () => {
