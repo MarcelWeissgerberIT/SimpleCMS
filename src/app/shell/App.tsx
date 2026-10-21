@@ -33,6 +33,7 @@ import { InviteScreen } from './cloud/InviteScreen'
 import { SignupScreen } from './cloud/SignupScreen'
 import { CloudDialogs } from './cloud/Dialogs'
 import { CloudBanner } from './cloud/Sync'
+import { CheckoutBanner } from './cloud/Checkout'
 import { CaptureHost } from './capture/QuickCapture'
 import { Discover } from './discover/Discover'
 import { WorkspacePage } from './workspace/WorkspacePage'
@@ -134,6 +135,7 @@ function Workspace({ route }: { route: Route }) {
       <Sidebar />
       <div className="app-main">
         <CloudBanner />
+        <CheckoutBanner />
         <Topbar route={route} />
         <ErrorBoundary inline>
           <Stage

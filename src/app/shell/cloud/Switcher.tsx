@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { localWorkspaces, onLocalWorkspacesChange, type LocalWorkspace } from '../../store/localWorkspaces'
-import { BookOpen, LogIn, LogOut, Plus, UserPlus } from 'lucide-react'
+import { BookOpen, CloudDownload, GitCompareArrows, LogIn, LogOut, Plus, UserPlus } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
-import { openInviteSettings, useCloud } from '../../cloud'
+import { openInviteSettings, useCloud, useCheckout } from '../../cloud'
 import { useWorkspace } from '../../store/store'
 import type { MenuEntry } from '../../ui/Menu'
 import { Led } from '../../ui/controls'
@@ -25,6 +25,8 @@ export function useWorkspaceEntries(): MenuEntry[] {
     useShallow((s) => ({ available: s.available, user: s.user, workspaces: s.workspaces, active: s.active, status: s.status, role: s.role })),
   )
   const isLocal = active.kind === 'local'
+  const checkout = useCheckout(s => s.record)
+  const canCheckout = useCloud(s => s.supports?.includes('checkout:1') && !s.readOnly && s.status === 'online')
   // the local workspace's name is known while it is open
   const localName = useWorkspace((x) => (isLocal ? x.settings.workspaceName.trim() : ''))
   const [locals, setLocals] = useState<LocalWorkspace[]>([{ id: 'local', name: 'One', createdAt: 0 }])
@@ -57,6 +59,8 @@ export function useWorkspaceEntries(): MenuEntry[] {
       }),
     ),
   ]
+  if (isLocal && checkout) entries.push({ id: 'checkout-compare', label: t('shell.checkout.compare'), icon: <GitCompareArrows size={15} />, onSelect: () => openCloudDialog('checkout-merge') })
+  if (!isLocal && canCheckout) entries.push({ id: 'checkout-local', label: t('shell.checkout.action'), icon: <CloudDownload size={15} />, onSelect: () => openCloudDialog('checkout') })
 
   if (!available) {
     entries.push(

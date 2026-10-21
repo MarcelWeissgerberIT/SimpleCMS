@@ -128,6 +128,8 @@ function fallBackToLocal(error: string | null, forget: boolean) {
 }
 
 export async function bootCloud(): Promise<'local' | 'cloud' | 'signed-out'> {
+  const { loadCheckout } = await import('./checkout')
+  await loadCheckout()
   if (!SERVER_CAPABLE) {
     setServerKnown(false)
     useCloud.setState({ available: false, status: 'local', active: LOCAL })

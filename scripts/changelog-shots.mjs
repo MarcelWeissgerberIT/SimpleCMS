@@ -4372,6 +4372,15 @@ process.exit(1)
     }
   },
 
+  async 'workspace-checkout'() {
+    // The real two-browser journey captures desktop/mobile comparisons in both themes.
+    const port = process.env.ONE_CHECKOUT_SHOT_PORT || '4549'
+    execFileSync(process.execPath, ['node_modules/@playwright/test/cli.js', 'test', '-c', 'playwright.cloud.config.ts', 'checkout.spec.ts'], {
+      env: { ...process.env, CLOUD_E2E_PORT: port, CLOUD_E2E_SKIP_BUILD: '' }, stdio: 'pipe', timeout: 240000,
+    })
+    await saveSideBySide('workspace-checkout', ['.shots/checkout-1440-light.png'])
+  },
+
   async 'local-workspaces'(browser) {
     const { ctx, page } = await freshPage(browser)
     await page.evaluate(() => window.__one.workspace.getState().updateSettings({ workspaceName: 'Product lab' }))

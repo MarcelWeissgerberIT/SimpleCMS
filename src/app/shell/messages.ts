@@ -1,4 +1,5 @@
 import { localMessages } from './workspace/local-messages'
+import { checkoutMessages } from './cloud/checkout-messages'
 import type { Messages } from '@/shared/i18n'
 import { cloudPrice } from '@/shared/pricing'
 import { agendaMessages } from './agenda/messages'
@@ -35,6 +36,7 @@ export const messages: Messages = {
     ...discoverMessages.en,
     ...workspaceMessages.en,
     ...localMessages.en,
+    ...checkoutMessages.en,
     ...lookMessages.en,
     ...paletteMessages.en,
     ...visitedMessages.en,
@@ -528,6 +530,7 @@ export const messages: Messages = {
     ...discoverMessages.de,
     ...workspaceMessages.de,
     ...localMessages.de,
+    ...checkoutMessages.de,
     ...lookMessages.de,
     ...paletteMessages.de,
     ...visitedMessages.de,

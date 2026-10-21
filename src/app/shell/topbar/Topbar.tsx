@@ -17,6 +17,7 @@ import { revealMain, useStageView } from '../lib/stage'
 import { PageMenu } from './PageMenu'
 import { PresenceStack } from '../cloud/Presence'
 import { useCloudReadout, ViewOnlyTag } from '../cloud/Sync'
+import { CheckoutMode } from '../cloud/Checkout'
 import { useReadOnly } from '../cloud/state'
 import { MasterCautionKey, PatchbayReturnChip } from '../../features'
 import { toggleStar } from '../lib/favorites'
@@ -78,6 +79,7 @@ export function Topbar({ route }: { route: Route }) {
         {/* Preflight: MASTER CAUTION on every route (nothing while Preflight is off) */}
         <MasterCautionKey />
         <PresenceStack pageId={route.name === 'page' ? route.id : null} max={mobile ? 2 : 4} />
+        <CheckoutMode />
         <ViewOnlyTag />
         <SaveLed />
         {page && !page.trashed && <PageActions page={page} mobile={mobile} />}

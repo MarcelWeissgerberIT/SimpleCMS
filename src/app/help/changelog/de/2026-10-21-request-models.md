@@ -1,7 +1,7 @@
 ---
 id: 2026-10-21-request-models
 date: 2026-10-21
-order: 3
+order: 4
 title: Alle eingerichteten Textmodelle wählen
 summary: Alle eingerichteten Textmodelle wählen.
 image: assets/shots/changelog/request-models.webp

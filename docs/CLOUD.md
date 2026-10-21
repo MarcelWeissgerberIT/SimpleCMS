@@ -5,6 +5,34 @@ client (`src/app/cloud/`). Change it first, then the code.
 
 ## Product
 
+### Explicit detached content checkout (checkout:1)
+
+Normal cloud offline edits continue syncing automatically. Explicit checkout instead creates a separate local
+workspace/catalogue entry. `one-checkouts/kv` stores its source origin/account/workspace, three-way base,
+normalized local checkpoint and attachment-id mapping. The local copy never opens a source content document.
+Its grey crossed-out cloud/banner remains visible after reload; checkout requires an acknowledged warning.
+
+Session routes: `GET /api/workspaces/:id/checkout` (viewer read) returns a version-1 snapshot of shared pages,
+rich text and databases plus read-only people/functions/building-block context. Private documents, settings,
+agents, policies and database automation/template/command configuration are excluded. The UI offers checkout
+only to connected writers on a server advertising `checkout:1`. Every referenced attachment downloads under
+current authorization and receives a fresh local id/scope; incomplete downloads prevent opening the checkout.
+
+`POST /api/workspaces/:id/checkout/merge` (member write) accepts `{ revisions, data }`: the current review's
+meta/page document hashes (Yjs snapshots including deletions) and reviewed content. It pins the shared documents,
+rechecks current membership, the exact guarded document set, hashes, structure and locks before any write.
+Validation and all writes then run synchronously without interleaving live client edits; the batch is persisted
+in one database transaction and broadcast through normal document transactions. `409 checkout_stale` means
+nothing was applied and a fresh comparison is required. New files upload before committing content; interrupted
+uploads may leave unreferenced files but never a partially merged page batch. Limits: 5,000 pages, 16 MiB JSON.
+
+The pure three-way planner combines independent JSON fields; arrays and rich text are whole-value conflicts.
+Deletion/trash versus edit conflicts at the page boundary. Explicit local/cloud choices resolve conflicts;
+no last-writer overwrite is inferred. After a successful merge the copy remains detached and its checkpoint
+advances to the approved result. Personal settings and connections are never merged. Account changes or lost
+write membership prevent returning content. Detached copies persist after sign-out, like other local workspaces.
+
+
 | | Local (default) | Team Cloud |
 |---|---|---|
 | Who | one person, one browser | teams |

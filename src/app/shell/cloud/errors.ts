@@ -3,6 +3,15 @@ import type { Translate } from '@/shared/i18n'
 
 /** Error codes from docs/CLOUD.md → plain-language message keys. */
 const KEYS: Record<string, string> = {
+  checkout_stale: 'shell.checkout.stale',
+  checkout_file: 'shell.checkout.attachment',
+  checkout_pending: 'shell.checkout.pending',
+  checkout_locked: 'shell.checkout.locked',
+  checkout_structure: 'shell.checkout.structure',
+  checkout_save: 'shell.checkout.save',
+  checkout_checkpoint: 'shell.checkout.checkpoint',
+  checkout_duplicate_key: 'shell.checkout.duplicate',
+  checkout_unique_id: 'shell.checkout.unique',
   unavailable: 'shell.cloud.err.unavailable',
   network: 'shell.cloud.err.network',
   offline: 'shell.cloud.err.network',

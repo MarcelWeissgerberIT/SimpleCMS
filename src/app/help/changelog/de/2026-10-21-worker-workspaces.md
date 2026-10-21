@@ -1,7 +1,7 @@
 ---
 id: 2026-10-21-worker-workspaces
 date: 2026-10-21
-order: 1
+order: 2
 title: Ein Geräte-Worker, getrennte Workspaces
 summary: Weitere Workspaces einmal freigeben, Modellverbindungen behalten und Auftragsstände getrennt führen.
 image: assets/shots/changelog/worker-workspaces.webp

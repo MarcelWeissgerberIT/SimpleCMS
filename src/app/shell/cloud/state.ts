@@ -9,7 +9,7 @@ import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import type { Translate } from '@/shared/i18n'
 
-export type CloudDialog = 'new-workspace' | 'new-local-workspace' | 'sign-in' | 'sign-out'
+export type CloudDialog = 'new-workspace' | 'new-local-workspace' | 'sign-in' | 'sign-out' | 'checkout' | 'checkout-merge'
 
 export const useCloudUI = create<{ dialog: CloudDialog | null }>(() => ({ dialog: null }))
 

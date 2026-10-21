@@ -191,6 +191,8 @@ type Entry =
 const W = (ws: string) => `/api/workspaces/${ws}`
 
 const ROUTES: Record<string, Entry> = {
+  'GET /api/workspaces/:id/checkout': { scope: 'workspace', req: (ws) => ({ method: 'GET', path: `${W(ws)}/checkout` }) },
+  'POST /api/workspaces/:id/checkout/merge': { scope: 'workspace', req: (ws) => ({ method: 'POST', path: `${W(ws)}/checkout/merge`, json: { revisions: {}, data: { pages: {}, databases: {} } } }) },
   'ALL /api/*': { scope: 'none', why: 'catch-all 404 for unknown API paths' },
   'GET /api/health': { scope: 'none', why: 'liveness' },
   'GET /api/config': { scope: 'none', why: 'server settings for the sign-in screen' },

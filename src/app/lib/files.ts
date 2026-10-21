@@ -92,6 +92,15 @@ export async function saveFile(blob: Blob, name = 'file'): Promise<string> {
   return FILE_PREFIX + id
 }
 
+/** An explicit detached copy: fresh id and scope, no cloud upload or mutation of the source file. */
+export async function saveDetachedFile(blob: Blob, name: string, ws: string): Promise<string> {
+  const id = newId()
+  const rec: StoredFile = { blob, name, type: blob.type, size: blob.size, createdAt: Date.now(), ws }
+  await set(id, rec, fileStore)
+  noteStamp(id, rec)
+  return FILE_PREFIX + id
+}
+
 /** Downloads in flight (several views asking for the same missing file share one request). */
 const fetching = new Map<string, Promise<StoredFile | undefined>>()
 

@@ -240,6 +240,26 @@ export function createCollab(deps: { config: Config; log: Logger; repo: Repo; se
     pageInMeta,
     read,
     write,
+    async withDocuments(names, fn, actor) {
+      const opened: Array<{ name: string; connection: Awaited<ReturnType<typeof hocuspocus.hocuspocus.openDirectConnection>>; context: ConnContext }> = []
+      try {
+        for (const name of [...new Set(names)]) {
+          const parsed = parseDocName(name)
+          if (!parsed || parsed.owner !== null) throw new Error('checkout only opens shared documents')
+          const context: ConnContext = { userId: actor, sessionId: '', workspaceId: parsed.workspaceId, role: repo.memberRole(parsed.workspaceId, actor) ?? 'viewer', actor }
+          const connection = await hocuspocus.hocuspocus.openDirectConnection(name, context)
+          opened.push({ name, connection, context })
+        }
+        const docs = new Map(opened.map(e => [e.name, e.connection.document!]))
+        return fn(docs, (name, change) => {
+          const entry = opened.find(e => e.name === name)
+          if (!entry) throw new Error('document not pinned')
+          docs.get(name)!.transact(() => change(docs.get(name)!), { source: 'local', context: entry.context })
+        })
+      } finally {
+        await Promise.all(opened.map(e => e.connection.disconnect()))
+      }
+    },
     onStored(fn) {
       storedListeners.add(fn)
       return () => storedListeners.delete(fn)

@@ -36,6 +36,7 @@ import {
   updateProfile as updateProfileImpl,
 } from './account'
 import { request } from './api'
+export { useCheckout, loadCheckout, checkoutWorkspace, compareCheckout, mergeCheckout, type CheckoutReview } from './checkout'
 import { readChoice, SERVER_CAPABLE } from './env'
 import { bootCloud as bootCloudImpl, refreshMe, switchWorkspaceImpl } from './boot'
 import { isApplyingCloud, withWriteActor } from './binding'

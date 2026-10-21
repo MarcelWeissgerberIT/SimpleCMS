@@ -22,6 +22,7 @@ import { inviteRoutes } from './routes/invites.ts'
 import { meRoutes, sessionRoutes } from './routes/me.ts'
 import { serverRoutes, signupRoutes } from './routes/server.ts'
 import { workspaceRoutes } from './routes/workspaces.ts'
+import { checkoutRoutes } from './routes/checkout.ts'
 import { MCP_SERVER_SUPPORTS } from '../../src/shared/mcp/contract.ts'
 
 const JSON_LIMIT = 256 * 1024
@@ -72,7 +73,7 @@ export function buildApp(s: Services, extra: { model?: WorkspaceModel; agents?: 
       // 'signoffs' = it guards the fuseSignoffs map the same way (the Patchbay's allowed paths — the app writes it only then);
       // 'mcp:2' = its /mcp serves contract 2 of the MCP tools (src/shared/mcp: strict arguments, duplicate answers, the
       // error codes); 'mcp:3' follows with train T-b
-      supports: ['ai', 'governor', 'signoffs', 'agent-invocation', MCP_SERVER_SUPPORTS],
+      supports: ['ai', 'governor', 'signoffs', 'agent-invocation', 'checkout:1', MCP_SERVER_SUPPORTS],
     }),
   )
 
@@ -80,6 +81,7 @@ export function buildApp(s: Services, extra: { model?: WorkspaceModel; agents?: 
   app.route('/api/me', meRoutes(s))
   app.route('/api/session', sessionRoutes(s))
   app.route('/api/workspaces', workspaceRoutes(s))
+  app.route('/api/workspaces', checkoutRoutes(s))
   app.route('/api/workspaces', fileRoutes(s))
   app.route('/api/workspaces', mediaFetchRoutes(s))
   app.route('/api/workspaces', documentRoutes(s))
@@ -154,5 +156,6 @@ function jsonLimit(): MiddlewareHandler<AppEnv> {
       throw new ApiError(413, 'payload_too_large', 'Request body too large')
     },
   })
-  return (c, next) => (c.req.method === 'PUT' && /\/files\/[^/]+$/.test(c.req.path) ? next() : limit(c, next))
+  const checkoutLimit = bodyLimit({ maxSize: 16 * 1024 * 1024 })
+  return (c, next) => c.req.method === 'POST' && /^\/api\/workspaces\/[^/]+\/checkout\/merge$/.test(c.req.path) ? checkoutLimit(c, next) : (c.req.method === 'PUT' && /\/files\/[^/]+$/.test(c.req.path) ? next() : limit(c, next))
 }

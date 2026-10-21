@@ -1,7 +1,7 @@
 ---
 id: 2026-10-21-worker-workspaces
 date: 2026-10-21
-order: 1
+order: 2
 title: One device worker, separate workspaces
 summary: Allow additional workspaces once; retain model connections and isolate each task’s state.
 image: assets/shots/changelog/worker-workspaces.webp
