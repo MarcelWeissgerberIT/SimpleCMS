@@ -312,6 +312,7 @@ export class FakeTab {
   raw: string[] = []
   closed: { code: number } | null = null
   queue: TaskPayload[] = []
+  strictRepos = false
   outcomes: Array<{ taskId: string; stageId: string; outcome: StageOutcome }> = []
   heartbeats = 0
   private seq = 0
@@ -356,7 +357,7 @@ export class FakeTab {
     if (msg.op === 'next') {
       // a task of a repo the worker asked for; else the first one (a tab that hands out the wrong repo)
       const match = this.queue.findIndex((t) => msg.repos.includes(t.repo))
-      const i = match >= 0 ? match : this.queue.length ? 0 : -1
+      const i = match >= 0 ? match : this.strictRepos ? this.queue.findIndex(t => !t.repo && t.stage.kind === 'doc') : this.queue.length ? 0 : -1
       const task = i >= 0 ? this.queue.splice(i, 1)[0]! : null
       return reply({ task })
     }

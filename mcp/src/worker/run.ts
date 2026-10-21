@@ -338,7 +338,7 @@ function limits(ctx: StageContext): { budget: number | null; refuse: string | nu
   const { repo, state, task } = ctx
   const spent = Math.max(task.spent || 0, state.spentOn(task.id))
   const taskLeft = repo.maxUsdPerTask !== null ? repo.maxUsdPerTask - spent : null
-  const dayLeft = repo.maxUsdPerDay !== null ? repo.maxUsdPerDay - state.spentToday() : null
+  const dayLeft = repo.maxUsdPerDay !== null ? repo.maxUsdPerDay - (state.globalSpent?.() ?? state.spentToday()) : null
   if (taskLeft !== null && taskLeft < 0.01) return { budget: 0, refuse: `This task reached its cost limit ($${repo.maxUsdPerTask!.toFixed(2)} in worker.json).` }
   if (dayLeft !== null && dayLeft < 0.01) return { budget: 0, refuse: `Today's cost limit is reached ($${repo.maxUsdPerDay!.toFixed(2)} in worker.json).` }
   const lefts = [taskLeft, dayLeft].filter((x): x is number => x !== null)
@@ -665,10 +665,10 @@ async function alternateStage(ctx: StageContext, scrub: Scrubber, log: Log, bran
   try {
     const options = { agent, cwd: dir, prompt, readOnly, maxSteps: max, signal: ctx.signal, taskMcp: ctx.taskMcp, progress: ctx.progress,
       log: (line: LogLine) => ctx.log({ ...line, s: scrub.text(line.s) }) }
-    const ollama = agent === 'ollama' ? readOllamaCloud(ctx.state.file) : null
+    const ollama = agent === 'ollama' ? readOllamaCloud(ctx.state.configFile) : null
     if (ollama?.apiKey) scrub.protect('OLLAMA_API_KEY', ollama.apiKey)
     if (ollama) log('info', 'Ollama Cloud: selected source and tool results leave this computer. Ollama plan quotas apply; USD cost and dollar limits cannot be metered for this tariff. Stage step limits and checks remain active.')
-    const minimax = agent === 'minimax' ? readMiniMax(ctx.state.file) : null
+    const minimax = agent === 'minimax' ? readMiniMax(ctx.state.configFile) : null
     if (minimax?.apiKey) scrub.protect('MINIMAX_API_KEY', minimax.apiKey)
     if (minimax) log('info', 'MiniMax uses its cloud API. Selected source and tool results leave this computer; dollar amounts are estimates from token usage at published prices.')
     const res = agent !== 'codex' ? await runLocal({ ...options,
@@ -681,7 +681,7 @@ async function alternateStage(ctx: StageContext, scrub: Scrubber, log: Log, bran
         context: { tokens: ollama.contextTokens, inputLimit: ollama.contextTokens - 32768, chars: Math.floor((ollama.contextTokens - 32768) * 1.5) },
       } : {}),
       completionRequired: !!task.quality,
-      memory: { directory: join(dirname(ctx.state.file), 'local-memory'), scope: JSON.stringify([repo.path, task.id, task.stage.id]), resume: !!task.resume, projectKey: repo.name },
+      memory: { directory: join(dirname(ctx.state.file), 'local-memory'), scope: JSON.stringify([...(ctx.state.scope ? [ctx.state.scope] : []), repo.path, task.id, task.stage.id]), resume: !!task.resume, projectKey: repo.name },
       scrub: s => scrub.text(s),
       mcpServers: repo.claude.mcpServers.length ? repo.claude.mcpServers : ctx.localMcpServers,
       verify: !readOnly && (repo.analyzeCommand?.length || repo.testCommand?.length) ? async signal => {

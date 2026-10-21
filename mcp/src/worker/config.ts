@@ -72,6 +72,8 @@ export interface RepoConfig {
 
 export interface WorkerConfig {
   file: string
+  /** Host-computed private runtime folder; never accepted from workspace content or worker.json. */
+  runtimeDir?: string
   /** the One workspace this worker serves (null = not bound: every tab is refused) */
   workspace: string | null
   name: string
@@ -550,12 +552,12 @@ function cloneDirOf(raw: unknown, configDir: string, problems: string[]): string
  * (--add-dir: temporary files without asking; never a path One learns), and a task without a repository runs in it.
  * Removed with the task's branch (Clean up / Discard).
  */
-export function scratchPath(config: Pick<WorkerConfig, 'file'>, taskId: string): string {
-  return join(dirname(config.file), 'scratch', taskId.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64) || 'task')
+export function scratchPath(config: Pick<WorkerConfig, 'file' | 'runtimeDir'>, taskId: string): string {
+  return join(config.runtimeDir ?? dirname(config.file), 'scratch', taskId.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 64) || 'task')
 }
 
 /** The task's scratch folder, made (mode 0700) when it is not there. */
-export function scratchDir(config: Pick<WorkerConfig, 'file'>, taskId: string): string {
+export function scratchDir(config: Pick<WorkerConfig, 'file' | 'runtimeDir'>, taskId: string): string {
   const dir = scratchPath(config, taskId)
   mkdirSync(dir, { recursive: true, mode: 0o700 })
   return dir

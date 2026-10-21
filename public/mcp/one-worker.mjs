@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// SimpleCMS One — coding worker 1.21.0 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp/src/worker
+// SimpleCMS One — coding worker 1.22.0 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp/src/worker
 // Runs coding tasks from One with Claude Code on this computer. Setup: node one-worker.mjs --help
 // Docs and security model: https://github.com/MarcelWeissgerberIT/SimpleCMS/blob/main/docs/CODING.md
 import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);
@@ -420,11 +420,11 @@ var require_codegen = __commonJS({
         const rhs = this.rhs === void 0 ? "" : ` = ${this.rhs}`;
         return `${varKind} ${this.name}${rhs};` + _n;
       }
-      optimizeNames(names, constants7) {
+      optimizeNames(names, constants8) {
         if (!names[this.name.str])
           return;
         if (this.rhs)
-          this.rhs = optimizeExpr(this.rhs, names, constants7);
+          this.rhs = optimizeExpr(this.rhs, names, constants8);
         return this;
       }
       get names() {
@@ -441,10 +441,10 @@ var require_codegen = __commonJS({
       render({ _n }) {
         return `${this.lhs} = ${this.rhs};` + _n;
       }
-      optimizeNames(names, constants7) {
+      optimizeNames(names, constants8) {
         if (this.lhs instanceof code_1.Name && !names[this.lhs.str] && !this.sideEffects)
           return;
-        this.rhs = optimizeExpr(this.rhs, names, constants7);
+        this.rhs = optimizeExpr(this.rhs, names, constants8);
         return this;
       }
       get names() {
@@ -505,8 +505,8 @@ var require_codegen = __commonJS({
       optimizeNodes() {
         return `${this.code}` ? this : void 0;
       }
-      optimizeNames(names, constants7) {
-        this.code = optimizeExpr(this.code, names, constants7);
+      optimizeNames(names, constants8) {
+        this.code = optimizeExpr(this.code, names, constants8);
         return this;
       }
       get names() {
@@ -535,12 +535,12 @@ var require_codegen = __commonJS({
         }
         return nodes.length > 0 ? this : void 0;
       }
-      optimizeNames(names, constants7) {
+      optimizeNames(names, constants8) {
         const { nodes } = this;
         let i2 = nodes.length;
         while (i2--) {
           const n = nodes[i2];
-          if (n.optimizeNames(names, constants7))
+          if (n.optimizeNames(names, constants8))
             continue;
           subtractNames(names, n.names);
           nodes.splice(i2, 1);
@@ -593,12 +593,12 @@ var require_codegen = __commonJS({
           return void 0;
         return this;
       }
-      optimizeNames(names, constants7) {
+      optimizeNames(names, constants8) {
         var _a4;
-        this.else = (_a4 = this.else) === null || _a4 === void 0 ? void 0 : _a4.optimizeNames(names, constants7);
-        if (!(super.optimizeNames(names, constants7) || this.else))
+        this.else = (_a4 = this.else) === null || _a4 === void 0 ? void 0 : _a4.optimizeNames(names, constants8);
+        if (!(super.optimizeNames(names, constants8) || this.else))
           return;
-        this.condition = optimizeExpr(this.condition, names, constants7);
+        this.condition = optimizeExpr(this.condition, names, constants8);
         return this;
       }
       get names() {
@@ -621,10 +621,10 @@ var require_codegen = __commonJS({
       render(opts) {
         return `for(${this.iteration})` + super.render(opts);
       }
-      optimizeNames(names, constants7) {
-        if (!super.optimizeNames(names, constants7))
+      optimizeNames(names, constants8) {
+        if (!super.optimizeNames(names, constants8))
           return;
-        this.iteration = optimizeExpr(this.iteration, names, constants7);
+        this.iteration = optimizeExpr(this.iteration, names, constants8);
         return this;
       }
       get names() {
@@ -660,10 +660,10 @@ var require_codegen = __commonJS({
       render(opts) {
         return `for(${this.varKind} ${this.name} ${this.loop} ${this.iterable})` + super.render(opts);
       }
-      optimizeNames(names, constants7) {
-        if (!super.optimizeNames(names, constants7))
+      optimizeNames(names, constants8) {
+        if (!super.optimizeNames(names, constants8))
           return;
-        this.iterable = optimizeExpr(this.iterable, names, constants7);
+        this.iterable = optimizeExpr(this.iterable, names, constants8);
         return this;
       }
       get names() {
@@ -705,11 +705,11 @@ var require_codegen = __commonJS({
         (_b2 = this.finally) === null || _b2 === void 0 ? void 0 : _b2.optimizeNodes();
         return this;
       }
-      optimizeNames(names, constants7) {
+      optimizeNames(names, constants8) {
         var _a4, _b2;
-        super.optimizeNames(names, constants7);
-        (_a4 = this.catch) === null || _a4 === void 0 ? void 0 : _a4.optimizeNames(names, constants7);
-        (_b2 = this.finally) === null || _b2 === void 0 ? void 0 : _b2.optimizeNames(names, constants7);
+        super.optimizeNames(names, constants8);
+        (_a4 = this.catch) === null || _a4 === void 0 ? void 0 : _a4.optimizeNames(names, constants8);
+        (_b2 = this.finally) === null || _b2 === void 0 ? void 0 : _b2.optimizeNames(names, constants8);
         return this;
       }
       get names() {
@@ -1010,7 +1010,7 @@ var require_codegen = __commonJS({
     function addExprNames(names, from) {
       return from instanceof code_1._CodeOrName ? addNames(names, from.names) : names;
     }
-    function optimizeExpr(expr, names, constants7) {
+    function optimizeExpr(expr, names, constants8) {
       if (expr instanceof code_1.Name)
         return replaceName(expr);
       if (!canOptimize(expr))
@@ -1025,14 +1025,14 @@ var require_codegen = __commonJS({
         return items;
       }, []));
       function replaceName(n) {
-        const c = constants7[n.str];
+        const c = constants8[n.str];
         if (c === void 0 || names[n.str] !== 1)
           return n;
         delete names[n.str];
         return c;
       }
       function canOptimize(e) {
-        return e instanceof code_1._Code && e._items.some((c) => c instanceof code_1.Name && names[c.str] === 1 && constants7[c.str] !== void 0);
+        return e instanceof code_1._Code && e._items.some((c) => c instanceof code_1.Name && names[c.str] === 1 && constants8[c.str] !== void 0);
       }
     }
     function subtractNames(names, from) {
@@ -1071,10 +1071,10 @@ var require_util = __commonJS({
     var codegen_1 = require_codegen();
     var code_1 = require_code();
     function toHash(arr) {
-      const hash2 = {};
+      const hash3 = {};
       for (const item of arr)
-        hash2[item] = true;
-      return hash2;
+        hash3[item] = true;
+      return hash3;
     }
     exports.toHash = toHash;
     function alwaysValidSchema(it, schema) {
@@ -10049,7 +10049,7 @@ var require_websocket = __commonJS({
     var http = __require("http");
     var net = __require("net");
     var tls = __require("tls");
-    var { randomBytes: randomBytes15, createHash: createHash10 } = __require("crypto");
+    var { randomBytes: randomBytes16, createHash: createHash11 } = __require("crypto");
     var { Duplex, Readable } = __require("stream");
     var { URL: URL2 } = __require("url");
     var PerMessageDeflate2 = require_permessage_deflate();
@@ -10600,7 +10600,7 @@ var require_websocket = __commonJS({
         }
       }
       const defaultPort = isSecure ? 443 : 80;
-      const key = randomBytes15(16).toString("base64");
+      const key = randomBytes16(16).toString("base64");
       const request2 = isSecure ? https.request : http.request;
       const protocolSet = /* @__PURE__ */ new Set();
       let perMessageDeflate;
@@ -10730,7 +10730,7 @@ var require_websocket = __commonJS({
           abortHandshake(websocket, socket, "Invalid Upgrade header");
           return;
         }
-        const digest3 = createHash10("sha1").update(key + GUID).digest("base64");
+        const digest3 = createHash11("sha1").update(key + GUID).digest("base64");
         if (res.headers["sec-websocket-accept"] !== digest3) {
           abortHandshake(websocket, socket, "Invalid Sec-WebSocket-Accept header");
           return;
@@ -11099,7 +11099,7 @@ var require_websocket_server = __commonJS({
     var EventEmitter = __require("events");
     var http = __require("http");
     var { Duplex } = __require("stream");
-    var { createHash: createHash10 } = __require("crypto");
+    var { createHash: createHash11 } = __require("crypto");
     var extension2 = require_extension();
     var PerMessageDeflate2 = require_permessage_deflate();
     var subprotocol2 = require_subprotocol();
@@ -11406,7 +11406,7 @@ var require_websocket_server = __commonJS({
           );
         }
         if (this._state > RUNNING) return abortHandshake(socket, 503);
-        const digest3 = createHash10("sha1").update(key + GUID).digest("base64");
+        const digest3 = createHash11("sha1").update(key + GUID).digest("base64");
         const headers = [
           "HTTP/1.1 101 Switching Protocols",
           "Upgrade: websocket",
@@ -11495,7 +11495,7 @@ var require_websocket_server = __commonJS({
 
 // src/worker/index.ts
 import { fileURLToPath } from "node:url";
-import { existsSync as existsSync11, statSync as statSync5 } from "node:fs";
+import { existsSync as existsSync12, statSync as statSync5 } from "node:fs";
 import { homedir as homedir14, userInfo } from "node:os";
 import { resolve as resolve9 } from "node:path";
 
@@ -12692,7 +12692,7 @@ function cloneDirOf(raw, configDir, problems) {
   return resolve2(configDir, expandHome(raw.trim()));
 }
 function scratchPath(config2, taskId) {
-  return join3(dirname(config2.file), "scratch", taskId.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 64) || "task");
+  return join3(config2.runtimeDir ?? dirname(config2.file), "scratch", taskId.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 64) || "task");
 }
 function scratchDir(config2, taskId) {
   const dir = scratchPath(config2, taskId);
@@ -14909,12 +14909,12 @@ async function checkManifest(root, commands = []) {
   return files;
 }
 async function checksUnchanged(root, manifest) {
-  for (const [path, hash2] of Object.entries(manifest)) {
+  for (const [path, hash3] of Object.entries(manifest)) {
     const info2 = await lstat(join6(root, path)).catch(() => null);
     if (!info2?.isFile() || info2.isSymbolicLink() || info2.nlink > 1 || info2.size > 2e6) return false;
     const f = await open(join6(root, path), constants.O_RDONLY | (constants.O_NOFOLLOW || 0));
     try {
-      if (digest((await f.readFile()).toString("base64")) !== hash2) return false;
+      if (digest((await f.readFile()).toString("base64")) !== hash3) return false;
     } finally {
       await f.close();
     }
@@ -31941,8 +31941,8 @@ async function random(size) {
   const evenDistCutoff = Math.pow(2, 8) - Math.pow(2, 8) % mask.length;
   let result = "";
   while (result.length < size) {
-    const randomBytes15 = await getRandomValues(size - result.length);
-    for (const randomByte of randomBytes15) {
+    const randomBytes16 = await getRandomValues(size - result.length);
+    for (const randomByte of randomBytes16) {
       if (randomByte < evenDistCutoff) {
         result += mask[randomByte % mask.length];
       }
@@ -35056,7 +35056,7 @@ function limits(ctx) {
   const { repo, state, task } = ctx;
   const spent = Math.max(task.spent || 0, state.spentOn(task.id));
   const taskLeft = repo.maxUsdPerTask !== null ? repo.maxUsdPerTask - spent : null;
-  const dayLeft = repo.maxUsdPerDay !== null ? repo.maxUsdPerDay - state.spentToday() : null;
+  const dayLeft = repo.maxUsdPerDay !== null ? repo.maxUsdPerDay - (state.globalSpent?.() ?? state.spentToday()) : null;
   if (taskLeft !== null && taskLeft < 0.01) return { budget: 0, refuse: `This task reached its cost limit ($${repo.maxUsdPerTask.toFixed(2)} in worker.json).` };
   if (dayLeft !== null && dayLeft < 0.01) return { budget: 0, refuse: `Today's cost limit is reached ($${repo.maxUsdPerDay.toFixed(2)} in worker.json).` };
   const lefts = [taskLeft, dayLeft].filter((x2) => x2 !== null);
@@ -35371,10 +35371,10 @@ Use your native ${agent !== "codex" ? "file, search and configured check" : "fil
       progress: ctx.progress,
       log: (line) => ctx.log({ ...line, s: scrub.text(line.s) })
     };
-    const ollama = agent === "ollama" ? readOllamaCloud(ctx.state.file) : null;
+    const ollama = agent === "ollama" ? readOllamaCloud(ctx.state.configFile) : null;
     if (ollama?.apiKey) scrub.protect("OLLAMA_API_KEY", ollama.apiKey);
     if (ollama) log2("info", "Ollama Cloud: selected source and tool results leave this computer. Ollama plan quotas apply; USD cost and dollar limits cannot be metered for this tariff. Stage step limits and checks remain active.");
-    const minimax = agent === "minimax" ? readMiniMax(ctx.state.file) : null;
+    const minimax = agent === "minimax" ? readMiniMax(ctx.state.configFile) : null;
     if (minimax?.apiKey) scrub.protect("MINIMAX_API_KEY", minimax.apiKey);
     if (minimax) log2("info", "MiniMax uses its cloud API. Selected source and tool results leave this computer; dollar amounts are estimates from token usage at published prices.");
     const res = agent !== "codex" ? await runLocal({
@@ -35392,7 +35392,7 @@ Use your native ${agent !== "codex" ? "file, search and configured check" : "fil
         context: { tokens: ollama.contextTokens, inputLimit: ollama.contextTokens - 32768, chars: Math.floor((ollama.contextTokens - 32768) * 1.5) }
       } : {},
       completionRequired: !!task.quality,
-      memory: { directory: join13(dirname7(ctx.state.file), "local-memory"), scope: JSON.stringify([repo.path, task.id, task.stage.id]), resume: !!task.resume, projectKey: repo.name },
+      memory: { directory: join13(dirname7(ctx.state.file), "local-memory"), scope: JSON.stringify([...ctx.state.scope ? [ctx.state.scope] : [], repo.path, task.id, task.stage.id]), resume: !!task.resume, projectKey: repo.name },
       scrub: (s) => scrub.text(s),
       mcpServers: repo.claude.mcpServers.length ? repo.claude.mcpServers : ctx.localMcpServers,
       verify: !readOnly && (repo.analyzeCommand?.length || repo.testCommand?.length) ? async (signal) => {
@@ -35840,9 +35840,14 @@ var today = (d = /* @__PURE__ */ new Date()) => `${d.getFullYear()}-${String(d.g
 var isObj2 = (v) => !!v && typeof v === "object" && !Array.isArray(v);
 var WorkerState = class {
   file;
+  configFile;
+  scope;
+  globalSpent;
   data;
-  constructor(configFile2) {
-    this.file = join15(dirname8(configFile2), "worker-state.json");
+  constructor(configFile2, runtimeDir, scope) {
+    this.configFile = configFile2;
+    this.scope = scope;
+    this.file = join15(runtimeDir ?? dirname8(configFile2), "worker-state.json");
     this.data = empty();
     try {
       if (existsSync7(this.file)) {
@@ -38173,6 +38178,11 @@ var WorkerLink = class {
   }
   /** 'in-use': another program holds the port (another one-worker?) · 'refused': the system does not let the worker listen there */
   start() {
+    if (this.opts.virtual) {
+      this.state = "listening";
+      this.pinger = setInterval(() => this.ping(), this.opts.pingMs ?? 15e3);
+      return Promise.resolve("listening");
+    }
     return new Promise((resolve10) => {
       const onError = (e) => {
         this.state = "in-use";
@@ -38201,6 +38211,7 @@ var WorkerLink = class {
     if (this.pairing) this.endPairing(this.pairing);
     await this.dial?.stop();
     for (const ws of this.wss.clients) ws.close(1001, "worker stopped");
+    for (const conn of this.conns) conn.close(1001, "worker stopped");
     await new Promise((r) => this.wss.close(() => r()));
     await new Promise((r) => this.http.listening ? this.http.close(() => r()) : r());
     this.http.closeAllConnections?.();
@@ -38311,9 +38322,28 @@ ${text2}`);
     if (!isAllowedOrigin(req.headers.origin, this.opts.origins)) return this.refuse(socket, 403, "Forbidden", `origin ${JSON.stringify(req.headers.origin ?? "(none)")} is not allowed`);
     const protocols = String(req.headers["sec-websocket-protocol"] ?? "").split(",").map((s) => s.trim());
     if (!protocols.includes(WORKER_SUBPROTOCOL)) return this.refuse(socket, 400, "Bad Request", `protocol ${JSON.stringify(protocols.join(", "))} (this worker speaks ${WORKER_SUBPROTOCOL})`);
-    this.wss.handleUpgrade(req, socket, head, (ws) => this.adopt(ws));
+    this.wss.handleUpgrade(req, socket, head, (ws) => {
+      if (!this.opts.routeLocal) return this.adopt(ws);
+      const timer = setTimeout(() => ws.close(1008, "hello expected"), HELLO_MS);
+      ws.once("message", (data, binary) => {
+        clearTimeout(timer);
+        let hello;
+        try {
+          hello = JSON.parse(data.toString());
+        } catch {
+          return ws.close(1008, "bad hello");
+        }
+        if (binary || hello?.type !== "hello" || hello.app !== "one" || !workspaceOf(hello.workspace)) return ws.close(1008, "bad hello");
+        void this.opts.routeLocal(ws, hello).then((taken) => {
+          if (!taken && ws.readyState === import_websocket.default.OPEN) this.adopt(ws, hello);
+        }).catch(() => ws.close(1008, "workspace unavailable"));
+      });
+      ws.once("close", () => clearTimeout(timer));
+      ws.on("error", () => {
+      });
+    });
   }
-  adopt(ws) {
+  adopt(ws, first) {
     const conn = {
       ws,
       workspace: null,
@@ -38346,6 +38376,7 @@ ${text2}`);
       clearTimeout(hello);
       this.gone(conn);
     });
+    if (first) this.receive(conn, first, hello);
   }
   /** A tab's connection ended (its socket closed, or its relay pairing ended). */
   gone(conn) {
@@ -38460,7 +38491,7 @@ ${text2}`);
       this.opts.log(
         reason === "unbound" ? `refused the tab of ${JSON.stringify(offered.name)}: this worker is not bound to a workspace yet \u2014 set "workspace": ${JSON.stringify(offered.id)} in worker.json if it should serve that one` : reason === "pair" ? `refused a tab of ${JSON.stringify(offered.name)}: it did not bring this download's pairing key \u2014 start the file One downloaded last, or download the worker again (One \u2192 Settings \u2192 Coding worker)` : `refused the tab of ${JSON.stringify(offered.name)} (${offered.id}): this worker serves ${this.opts.workspace}`
       );
-    if (conn.isOpen()) conn.send(JSON.stringify({ type: "refused", reason, ...this.opts.pair ? { paired: true } : {} }));
+    if (conn.isOpen()) conn.send(JSON.stringify({ type: "refused", reason, ...this.opts.pair ? { paired: true } : {}, ...this.opts.canGrantWorkspace && reason === "workspace" ? { workspaceGrant: true, ...this.opts.workspaceChallenge?.(offered.id) } : {} }));
     conn.close(WORKER_CLOSE_REFUSED, reason === "unbound" ? "worker not bound" : reason === "pair" ? "not paired" : "another workspace");
   }
   receive(conn, msg, hello) {
@@ -38703,9 +38734,13 @@ var Worker2 = class {
     this.opts = opts;
     this.bin = opts.bin;
     this.config = opts.config;
-    this.state = new WorkerState(opts.config.file);
+    this.state = new WorkerState(opts.config.file, opts.config.runtimeDir, opts.config.runtimeDir ? opts.config.workspace ?? void 0 : void 0);
     const cloud2 = cloudOf(opts.config);
     this.link = new WorkerLink({
+      virtual: opts.virtual,
+      routeLocal: opts.routeLocal,
+      canGrantWorkspace: opts.canGrantWorkspace,
+      workspaceChallenge: opts.workspaceChallenge,
       port: opts.config.port,
       origins: workerOrigins(opts.config.preset, [process.env.ONE_ORIGINS ?? "", ...opts.config.origins], opts.log),
       workspace: opts.config.workspace,
@@ -38734,8 +38769,27 @@ var Worker2 = class {
       },
       onRequest: (msg) => this.onRequest(msg),
       onNudge: () => this.tick(),
-      onTask: (token, tool, args) => this.onTask(token, tool, args)
+      onTask: (token, tool, args) => opts.routeTask ? opts.routeTask(token, tool, args) : this.onTask(token, tool, args)
     });
+  }
+  acceptLocal(socket, hello) {
+    this.link.adopt(socket, hello);
+  }
+  hasTaskToken(token) {
+    return this.tokens.has(token);
+  }
+  taskCall(token, tool, args) {
+    return this.onTask(token, tool, args);
+  }
+  runningCount() {
+    return this.runs.size;
+  }
+  activeRepos() {
+    return [...this.runs.values()].map((run2) => run2.repo.name);
+  }
+  cancelRuns() {
+    for (const controller of this.textRuns.values()) controller.abort();
+    for (const run2 of this.runs.values()) run2.abort.abort();
   }
   info() {
     const limits2 = this.config.repos.map((r) => r.maxUsdPerDay).filter((x2) => x2 !== null);
@@ -38751,6 +38805,7 @@ var Worker2 = class {
       claude: { found: this.caps.found, version: this.caps.version },
       setup: !!this.opts.setup,
       paired: !!this.config.preset,
+      multiWorkspace: !!this.config.preset && !cloudOf(this.config),
       via: cloudOf(this.config) ? "cloud" : "local",
       mcp: this.config.mcpServers
     };
@@ -38773,7 +38828,7 @@ var Worker2 = class {
    */
   async reload(next) {
     const known = new Set(this.config.repos.map((r) => pathId(r.path)));
-    this.config = { ...next, workspace: this.config.workspace, port: this.config.port, preset: this.config.preset, origins: this.config.origins };
+    this.config = { ...next, runtimeDir: this.config.runtimeDir, workspace: this.config.workspace, port: this.config.port, preset: this.config.preset, origins: this.config.origins };
     forgetGitEnv();
     for (const repo of this.config.repos.filter((r) => !known.has(pathId(r.path)))) {
       try {
@@ -38853,6 +38908,7 @@ var Worker2 = class {
    */
   async stop() {
     this.stopped = true;
+    this.cancelRuns();
     for (const controller of this.textRuns.values()) controller.abort();
     if (this.poller) clearInterval(this.poller);
     if (this.beater) clearInterval(this.beater);
@@ -38873,13 +38929,21 @@ var Worker2 = class {
       return;
     }
     const busyRepos = new Set([...this.runs.values()].map((r) => r.repo.name));
-    const free = this.config.repos.filter((r) => !busyRepos.has(r.name)).map((r) => r.name);
+    const occupied = this.opts.busyRepos?.();
+    const free = this.config.repos.filter((r) => !busyRepos.has(r.name) && !occupied?.has(r.name)).map((r) => r.name);
     if (this.runs.size >= this.config.parallel) return;
+    const release = this.opts.reserveWork ? this.opts.reserveWork(free) : () => {
+    };
+    if (!release) return;
     this.polling = true;
     this.again = false;
     void this.link.request({ op: "next", repos: free, worker: this.config.name, docs: true, can: [...WORKER_CAN] }).then((res) => {
       const raw = res?.task;
       const task = sanitizeTask(raw);
+      if (task?.repo && this.opts.busyRepos && !free.includes(task.repo)) {
+        void this.finish(task.id, task.stage.id, { status: "refused", error: "This repository was not offered for work in this workspace. Wait for its running work to finish." });
+        return false;
+      }
       if (task) this.begin(task);
       else if (raw) this.unreadable(raw);
       return !!task;
@@ -38887,6 +38951,7 @@ var Worker2 = class {
       if (this.workspace) this.opts.log(`asking One for work failed: ${e instanceof Error ? e.message : String(e)}`);
       return false;
     }).then((got) => {
+      release();
       this.polling = false;
       if (got || this.again) setTimeout(() => this.tick(), 50);
     });
@@ -38954,6 +39019,7 @@ var Worker2 = class {
       this.sendStatus();
       void this.refreshBranches();
       this.tick();
+      this.opts.capacityChanged?.();
     });
   }
   /**
@@ -39077,7 +39143,18 @@ var Worker2 = class {
       run2.abort.abort();
       return { stopped: true };
     }
-    if (msg.op === "git") return this.gitVerb(msg);
+    if (msg.op === "git") {
+      if (this.opts.busyRepos?.().has(msg.repo)) throw new Error("This repository is busy in a workspace. Wait for its running work to finish.");
+      const release = this.opts.reserveWork ? this.opts.reserveWork([msg.repo]) : () => {
+      };
+      if (!release) throw new Error("The device worker is busy. Retry after its current work finishes.");
+      try {
+        return await this.gitVerb(msg);
+      } finally {
+        release();
+        this.opts.capacityChanged?.();
+      }
+    }
     if (msg.op === "permission") return this.answerAsk(msg);
     if (msg.op === "open-setup") return this.opts.setup ? this.opts.setup.open() : { opened: false, reason: "off" };
     if (msg.op === "intake-begin" || msg.op === "intake-chunk" || msg.op === "intake-end" || msg.op === "intake-clone") {
@@ -42431,6 +42508,9 @@ var SETUP_JS = String.raw`(function () {
     reading: 'Reading the repositories… {f} of {n}',
     noKey: 'This page needs its key. Open it at the address the worker printed in its terminal.',
     unbound: 'This worker is not bound to a workspace. Download it from One (Settings → Coding worker) — that file comes ready-paired.',
+    workspaces: 'Additional workspaces on this device',
+    revokeWorkspace: 'Revoke access',
+    revokeWorkspaceConfirm: 'Revoke this workspace’s access and stop its running tasks? Its saved state remains on this computer.',
     noClaude: 'Claude Code was not found. Install it and sign in once (claude) — the worker looks for it again: this page within seconds, a stage when you press Retry in One. Installed where PATH does not reach? Set CLAUDE_BIN and restart the worker.',
     noClaudeWin: 'Claude Code was not found. Install it — its native installer (PowerShell: irm https://claude.ai/install.ps1 | iex; it needs Git for Windows) or npm i -g @anthropic-ai/claude-code — and sign in once (claude): the worker looks for it again, this page within seconds, a stage when you press Retry in One. A .cmd the worker cannot read is never started through cmd.exe: then set CLAUDE_BIN to claude.exe or Claude Code’s cli.js and restart the worker.',
     syncedicloud: 'In iCloud Drive: git waits for files that are only in the cloud. Faster: a clone outside it (~/one-repos).',
@@ -42601,6 +42681,9 @@ var SETUP_JS = String.raw`(function () {
     reading: 'Lese die Repositories … {f} von {n}',
     noKey: 'Diese Seite braucht ihren Schlüssel. Öffne sie unter der Adresse, die der Worker in seinem Terminal zeigt.',
     unbound: 'Dieser Worker ist an keinen Arbeitsbereich gebunden. Lade ihn in One herunter (Einstellungen → Coding-Worker) – diese Datei ist schon gekoppelt.',
+    workspaces: 'Weitere Arbeitsbereiche auf diesem Gerät',
+    revokeWorkspace: 'Freigabe entziehen',
+    revokeWorkspaceConfirm: 'Diesem Arbeitsbereich die Freigabe entziehen und seine laufenden Aufträge stoppen? Sein gespeicherter Stand bleibt auf diesem Rechner.',
     noClaude: 'Claude Code wurde nicht gefunden. Installiere es und melde dich einmal an (claude) – der Worker sucht es erneut: diese Seite nach wenigen Sekunden, eine Stufe, wenn du in One „Erneut versuchen“ drückst. Liegt es außerhalb des PATH? Dann CLAUDE_BIN setzen und den Worker neu starten.',
     noClaudeWin: 'Claude Code wurde nicht gefunden. Installiere es – mit dem eigenen Installer (PowerShell: irm https://claude.ai/install.ps1 | iex; er braucht Git for Windows) oder npm i -g @anthropic-ai/claude-code – und melde dich einmal an (claude): Der Worker sucht es erneut, diese Seite nach wenigen Sekunden, eine Stufe, wenn du in One „Erneut versuchen“ drückst. Eine .cmd, die der Worker nicht lesen kann, startet er nie über cmd.exe: dann CLAUDE_BIN auf claude.exe oder die cli.js von Claude Code setzen und den Worker neu starten.',
     syncedicloud: 'In iCloud Drive: git wartet auf Dateien, die nur in der Cloud liegen. Schneller: ein Klon außerhalb (~/one-repos).',
@@ -43050,6 +43133,15 @@ var SETUP_JS = String.raw`(function () {
       return
     }
     if (!state.workspace.id) app.appendChild(el('p', { className: 'msg', text: t('unbound') }))
+    if (state.workspaces && state.workspaces.length) {
+      var spaces = el('section', { className: 'msg' }, [el('h2', { text: t('workspaces') })])
+      state.workspaces.forEach(function (space) {
+        spaces.appendChild(el('p', {}, [el('span', { text: space.name + ' · ' }), el('button', { type: 'button', text: t('revokeWorkspace'), onclick: function () {
+          if (confirm(t('revokeWorkspaceConfirm'))) api('POST', 'workspace-revoke', { id: space.id }).then(adopt, fail)
+        } })]))
+      })
+      app.appendChild(spaces)
+    }
     if (state.live && state.live.claude && !state.live.claude.found) app.appendChild(el('p', { className: 'msg', text: t(windows() ? 'noClaudeWin' : 'noClaude') }))
     if (state.marked && state.marked.length) app.appendChild(marksNote(state.marked))
     var sc = state.scan
@@ -43531,6 +43623,7 @@ var SetupServer = class {
       cloneDir: shortPath(this.cloneDir ?? config2.cloneDir, this.home),
       // the person's own Claude Code MCP servers for tasks without a repository (document stages)
       mcpServers: config2.mcpServers,
+      workspaces: this.host.workspaces?.list() ?? [],
       minimax: miniMaxStatus(this.host.configFile),
       ollama: ollamaCloudStatus(this.host.configFile),
       clone: this.clone,
@@ -43792,6 +43885,11 @@ var SetupServer = class {
       await this.scan();
       return json(200, await this.state()), true;
     }
+    if (op === "workspace-revoke") {
+      if (!this.host.workspaces || !isObj7(body) || typeof body.id !== "string") return json(400, { error: "Choose a granted workspace." }), true;
+      await this.host.workspaces.revoke(body.id);
+      return json(200, await this.state()), true;
+    }
     if (op === "pick") {
       if (this.picking) return json(409, { error: "A folder dialog is already open on this computer." }), true;
       this.picking = true;
@@ -43926,8 +44024,230 @@ ${prompt}`);
   });
 }
 
+// src/worker/workspaces.ts
+import { createHash as createHash10, createHmac, randomBytes as randomBytes15 } from "node:crypto";
+import { constants as constants7, closeSync as closeSync5, existsSync as existsSync11, fstatSync as fstatSync3, lstatSync as lstatSync4, mkdirSync as mkdirSync7, openSync as openSync5, readFileSync as readFileSync11, renameSync as renameSync4, unlinkSync as unlinkSync3, writeFileSync as writeFileSync8 } from "node:fs";
+import { dirname as dirname11, join as join24 } from "node:path";
+var hash2 = (s) => createHash10("sha256").update(s).digest("hex");
+var MAX = 32;
+var WorkspaceGrants = class {
+  file;
+  owner;
+  entries = /* @__PURE__ */ new Map();
+  challenges = /* @__PURE__ */ new Map();
+  constructor(configFile2, owner) {
+    this.owner = owner;
+    this.file = join24(dirname11(configFile2), "worker-workspaces.json");
+    if (!existsSync11(this.file)) return;
+    const fd2 = openSync5(this.file, constants7.O_RDONLY | (constants7.O_NOFOLLOW || 0));
+    try {
+      const info2 = fstatSync3(fd2);
+      if (!info2.isFile() || info2.nlink > 1 || info2.size > 4e4 || process.platform !== "win32" && info2.mode & 63) throw new Error("Workspace grants must be a private regular file.");
+      const raw = JSON.parse(readFileSync11(fd2, "utf8"));
+      if (raw.owner !== hash2(owner)) return;
+      if (raw.v !== 1 || !Array.isArray(raw.grants) || raw.grants.length > MAX) throw new Error("Invalid workspace grants.");
+      for (const entry of raw.grants) {
+        const workspace = workspaceOf(entry?.workspace);
+        if (!workspace || typeof entry.pair !== "string" || !PAIR_SECRET.test(entry.pair)) throw new Error("Invalid workspace grant.");
+        this.entries.set(workspace.id, { workspace, pair: entry.pair });
+      }
+    } finally {
+      closeSync5(fd2);
+    }
+  }
+  get(id) {
+    return this.entries.get(id);
+  }
+  list() {
+    return [...this.entries.values()].map((g) => ({ id: g.workspace.id, name: g.workspace.name }));
+  }
+  challenge(workspace) {
+    for (const [key, value2] of this.challenges) if (value2.until < Date.now()) this.challenges.delete(key);
+    if (this.challenges.size >= 128) this.challenges.delete(this.challenges.keys().next().value);
+    const nonce = randomBytes15(32).toString("base64url");
+    this.challenges.set(nonce, { workspace, until: Date.now() + 12e4 });
+    return nonce;
+  }
+  add(workspace, pair, raw) {
+    if (!raw || typeof raw !== "object" || typeof pair !== "string" || !PAIR_SECRET.test(pair) || this.entries.has(workspace.id) || this.entries.size >= MAX) return false;
+    const proof = raw;
+    if (typeof proof.nonce !== "string" || !PAIR_SECRET.test(proof.nonce) || typeof proof.signature !== "string" || !PAIR_SECRET.test(proof.signature)) return false;
+    const challenge = this.challenges.get(proof.nonce);
+    this.challenges.delete(proof.nonce);
+    if (!challenge || challenge.workspace !== workspace.id || challenge.until < Date.now()) return false;
+    const expected = createHmac("sha256", this.owner).update(JSON.stringify([proof.nonce, workspace.id, pair])).digest("base64url");
+    if (!sameSecret(expected, proof.signature)) return false;
+    this.entries.set(workspace.id, { workspace, pair });
+    try {
+      this.save();
+    } catch (error2) {
+      this.entries.delete(workspace.id);
+      throw error2;
+    }
+    return true;
+  }
+  revoke(id) {
+    const old = this.entries.get(id);
+    this.entries.delete(id);
+    try {
+      this.save();
+    } catch (error2) {
+      if (old) this.entries.set(id, old);
+      throw error2;
+    }
+  }
+  save() {
+    mkdirSync7(dirname11(this.file), { recursive: true, mode: 448 });
+    const temp = `${this.file}.${randomBytes15(8).toString("hex")}.tmp`;
+    try {
+      writeFileSync8(temp, JSON.stringify({ v: 1, owner: hash2(this.owner), grants: [...this.entries.values()] }), { mode: 384, flag: "wx" });
+      renameSync4(temp, this.file);
+    } finally {
+      if (existsSync11(temp)) unlinkSync3(temp);
+    }
+  }
+};
+function workspaceConfig(base, grant) {
+  const scope = hash2(grant.workspace.id).slice(0, 24);
+  const parent = join24(dirname11(base.file), "workspaces");
+  const runtimeDir = join24(parent, scope);
+  for (const dir of [parent, runtimeDir]) {
+    mkdirSync7(dir, { recursive: true, mode: 448 });
+    if (!lstatSync4(dir).isDirectory() || lstatSync4(dir).isSymbolicLink()) throw new Error("Invalid workspace runtime directory.");
+  }
+  return {
+    ...base,
+    workspace: grant.workspace.id,
+    runtimeDir,
+    preset: base.preset ? { ...base.preset, workspace: grant.workspace.id, name: grant.workspace.name, pair: grant.pair } : null,
+    repos: base.repos.map((r) => ({ ...r, worktreeDir: join24(r.worktreeDir, `ws-${scope}`), branchPrefix: `${r.branchPrefix}ws-${scope}/` }))
+  };
+}
+var WorkerWorkspaces = class {
+  grants;
+  children = /* @__PURE__ */ new Map();
+  workers = /* @__PURE__ */ new Set();
+  claims = /* @__PURE__ */ new Map();
+  closed = false;
+  revoking = /* @__PURE__ */ new Set();
+  primary;
+  options;
+  constructor(primary, options) {
+    this.primary = primary;
+    this.options = options;
+    if (!options.config.preset?.pair || options.config.preset.cloud) throw new Error("A local paired worker is required.");
+    this.grants = new WorkspaceGrants(options.config.file, options.config.preset.pair);
+    this.workers.add(primary);
+    primary.state.globalSpent = () => this.spent();
+  }
+  busyRepos = () => new Set([...this.workers].flatMap((w) => w.activeRepos()).concat([...this.claims.values()].flat()));
+  reserve = (repos) => {
+    if (this.closed || this.claims.size + [...this.workers].reduce((n, w) => n + w.runningCount(), 0) >= this.primary.config.parallel) return null;
+    if (repos.some((repo) => this.busyRepos().has(repo))) return null;
+    const id = /* @__PURE__ */ Symbol();
+    this.claims.set(id, repos);
+    let released = false;
+    return () => {
+      if (!released) {
+        released = true;
+        this.claims.delete(id);
+      }
+    };
+  };
+  changed = () => {
+    for (const worker of this.workers) worker.tick();
+  };
+  live() {
+    const live = this.primary.live();
+    return { ...live, busy: [...this.workers].flatMap((worker) => worker.live().busy) };
+  }
+  spent() {
+    let total = this.primary.state.spentToday();
+    for (const entry of this.grants.list()) {
+      const grant = this.grants.get(entry.id);
+      const runtime = workspaceConfig(this.primary.config, grant);
+      total += new WorkerState(runtime.file, runtime.runtimeDir).spentToday();
+    }
+    return total;
+  }
+  async route(socket, hello) {
+    if (this.closed || this.revoking.has(hello.workspace.id) || hello.workspace.id === this.primary.config.workspace) return false;
+    const workspace = workspaceOf(hello.workspace);
+    if (!workspace) return false;
+    let grant = this.grants.get(workspace.id);
+    if (!grant && this.grants.add(workspace, hello.pair, hello.authorizeWorkspace)) grant = this.grants.get(workspace.id);
+    if (!grant) return false;
+    if (!sameSecret(grant.pair, hello.pair)) {
+      socket.send(JSON.stringify({ type: "refused", reason: "pair", paired: true }));
+      socket.close(4003, "not paired");
+      return true;
+    }
+    let pending = this.children.get(workspace.id);
+    if (!pending) {
+      const config2 = workspaceConfig(this.primary.config, grant);
+      pending = (async () => {
+        const worker2 = new Worker2({ ...this.options, config: config2, virtual: true, routeLocal: void 0, routeTask: void 0, workspaceChallenge: void 0, canGrantWorkspace: false, reserveWork: this.reserve, busyRepos: this.busyRepos, capacityChanged: this.changed });
+        worker2.state.globalSpent = () => this.spent();
+        this.workers.add(worker2);
+        try {
+          await worker2.start();
+          if (this.closed) {
+            await worker2.stop();
+            throw new Error("Worker stopped.");
+          }
+          ;
+          return worker2;
+        } catch (error2) {
+          await worker2.stop().catch(() => {
+          });
+          this.workers.delete(worker2);
+          this.children.delete(workspace.id);
+          throw error2;
+        }
+      })();
+      this.children.set(workspace.id, pending);
+    }
+    const worker = await pending;
+    if (socket.readyState === import_websocket.default.OPEN && !this.closed && this.grants.get(workspace.id) === grant) worker.acceptLocal(socket, hello);
+    else socket.close(1008, "workspace unavailable");
+    return true;
+  }
+  task = async (token, tool, args) => {
+    for (const worker of this.workers) if (worker.hasTaskToken(token)) return worker.taskCall(token, tool, args);
+    return { ok: false, status: 401, error: "Unknown task token." };
+  };
+  async reload() {
+    for (const [id, pending] of this.children) {
+      const grant = this.grants.get(id);
+      if (grant) await (await pending).reload(workspaceConfig(this.primary.config, grant));
+    }
+  }
+  async revoke(id) {
+    this.revoking.add(id);
+    try {
+      this.grants.revoke(id);
+      const pending = this.children.get(id);
+      this.children.delete(id);
+      if (pending) {
+        const worker = await pending;
+        await worker.stop();
+        this.workers.delete(worker);
+      }
+    } finally {
+      this.revoking.delete(id);
+      this.changed();
+    }
+  }
+  async stop() {
+    this.closed = true;
+    for (const worker of this.workers) worker.cancelRuns();
+    await Promise.allSettled([...this.workers].filter((w) => w !== this.primary).map((w) => w.stop()));
+  }
+};
+
 // src/worker/index.ts
-var VERSION = true ? "1.21.0" : "dev";
+var workspaceHost = null;
+var VERSION = true ? "1.22.0" : "dev";
 var quiet = process.env.ONE_WORKER_QUIET === "1";
 var recent = [];
 var log = (msg) => {
@@ -44030,7 +44350,7 @@ Next: add your repositories to "repos", then run: ${again("check")}
   if (presetProblem) log(`the preset in this file is ignored (${presetProblem}) \u2014 download the worker from One again`);
   let loaded;
   try {
-    loaded = existsSync11(configFile) || !preset ? loadConfig(configFile, process.env, configOpts) : { config: emptyConfig(configFile), problems: [] };
+    loaded = existsSync12(configFile) || !preset ? loadConfig(configFile, process.env, configOpts) : { config: emptyConfig(configFile), problems: [] };
   } catch (e) {
     process.stderr.write(`${e instanceof Error ? e.message : String(e)}
 Or download the worker from One (Settings \u2192 Coding worker): that file comes ready-paired and asks for your repos itself.
@@ -44047,7 +44367,7 @@ Or download the worker from One (Settings \u2192 Coding worker): that file comes
     const bash = win ? gitBash() : null;
     const relay = cloud ? await checkCloud(preset.origin, preset.cloud.token) : null;
     const lines = [
-      `config     ${configFile}${existsSync11(configFile) ? "" : " (not written yet)"}`,
+      `config     ${configFile}${existsSync12(configFile) ? "" : " (not written yet)"}`,
       ...cloud ? [`download   cloud worker for "${preset.name}" \xB7 paired (end-to-end) with the browser that downloaded it`, `cloud      ${relay.line}`] : preset ? [`download   paired with a browser for "${preset.name}" \xB7 accepts ${preset.origin}${preset.dev ? " (+ localhost)" : ""}`] : [],
       `workspace  ${config2.workspace ?? "not set \u2014 every One tab is refused"}`,
       `port       ${config2.port}${cloud ? " (task tools and the setup page only \u2014 One reaches this worker through the team server)" : ""}`,
@@ -44099,7 +44419,14 @@ ${ok ? "All good." : "Fix the lines above."}
     log,
     config: () => worker.config,
     reload: () => reload(worker),
-    live: () => worker.live()
+    live: () => workspaceHost?.live() ?? worker.live(),
+    workspaces: {
+      list: () => workspaceHost?.grants.list() ?? [],
+      revoke: async (id) => {
+        if (!workspaceHost) throw new Error("Workspace hosting is unavailable.");
+        await workspaceHost.revoke(id);
+      }
+    }
   });
   let stopping = false;
   const shutdown = async (code = 0) => {
@@ -44107,6 +44434,7 @@ ${ok ? "All good." : "Fix the lines above."}
     stopping = true;
     log("stopping \u2014 ending running tasks");
     setTimeout(() => process.exit(code), STOP_HARD_MS).unref();
+    await workspaceHost?.stop();
     await worker?.stop().catch(() => {
     });
     process.exit(code);
@@ -44117,7 +44445,29 @@ ${ok ? "All good." : "Fix the lines above."}
   };
   const claude = findClaude();
   if (claude.from === "native") log(nativeNotOnPath());
-  worker = new Worker2({ config: config2, version: VERSION, bin: claude.bin, claudeFrom: claude.from, self, log, setup, recent: () => recent, intake: { configFile, reload: () => reload(worker) }, onFatal });
+  const options = {
+    config: config2,
+    version: VERSION,
+    bin: claude.bin,
+    claudeFrom: claude.from,
+    self,
+    log,
+    setup,
+    recent: () => recent,
+    intake: { configFile, reload: () => reload(worker) },
+    onFatal,
+    ...preset && !cloud ? {
+      canGrantWorkspace: true,
+      workspaceChallenge: (id) => ({ workspaceOwner: config2.workspace, workspaceNonce: workspaceHost.grants.challenge(id) }),
+      routeLocal: (socket, hello) => workspaceHost.route(socket, hello),
+      routeTask: (token, tool, args) => workspaceHost.task(token, tool, args),
+      reserveWork: (repos) => workspaceHost.reserve(repos),
+      busyRepos: () => workspaceHost.busyRepos(),
+      capacityChanged: () => workspaceHost?.changed()
+    } : {}
+  };
+  worker = new Worker2(options);
+  if (preset && !cloud) workspaceHost = new WorkerWorkspaces(worker, options);
   const up = await worker.start();
   if (up !== "listening") {
     if (command === "setup" && up === "in-use")
@@ -44154,6 +44504,7 @@ async function reload(worker) {
   for (const p of next.problems) log(`config: ${p}`);
   for (const n of next.notes ?? []) log(`config: ${n}`);
   await worker.reload(withPreset(next.config, preset));
+  await workspaceHost?.reload();
 }
 async function pickRepos(worker, setup) {
   if (setup) {

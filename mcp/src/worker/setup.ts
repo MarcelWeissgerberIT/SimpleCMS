@@ -52,6 +52,7 @@ export interface SetupLive {
 }
 
 export interface SetupHost {
+  workspaces?: { list: () => { id: string; name: string }[]; revoke: (id: string) => Promise<void> }
   configFile: string
   port: number
   preset: WorkerPreset | null
@@ -303,6 +304,7 @@ export class SetupServer {
       cloneDir: shortPath(this.cloneDir ?? config.cloneDir, this.home),
       // the person's own Claude Code MCP servers for tasks without a repository (document stages)
       mcpServers: config.mcpServers,
+      workspaces: this.host.workspaces?.list() ?? [],
       minimax: miniMaxStatus(this.host.configFile),
       ollama: ollamaCloudStatus(this.host.configFile),
       clone: this.clone,
@@ -591,6 +593,11 @@ export class SetupServer {
     }
     if (op === 'scan') {
       await this.scan()
+      return json(200, await this.state()), true
+    }
+    if (op === 'workspace-revoke') {
+      if (!this.host.workspaces || !isObj(body) || typeof body.id !== 'string') return json(400, { error: 'Choose a granted workspace.' }), true
+      await this.host.workspaces.revoke(body.id)
       return json(200, await this.state()), true
     }
     if (op === 'pick') {

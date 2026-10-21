@@ -224,6 +224,9 @@ export const SETUP_JS = String.raw`(function () {
     reading: 'Reading the repositories… {f} of {n}',
     noKey: 'This page needs its key. Open it at the address the worker printed in its terminal.',
     unbound: 'This worker is not bound to a workspace. Download it from One (Settings → Coding worker) — that file comes ready-paired.',
+    workspaces: 'Additional workspaces on this device',
+    revokeWorkspace: 'Revoke access',
+    revokeWorkspaceConfirm: 'Revoke this workspace’s access and stop its running tasks? Its saved state remains on this computer.',
     noClaude: 'Claude Code was not found. Install it and sign in once (claude) — the worker looks for it again: this page within seconds, a stage when you press Retry in One. Installed where PATH does not reach? Set CLAUDE_BIN and restart the worker.',
     noClaudeWin: 'Claude Code was not found. Install it — its native installer (PowerShell: irm https://claude.ai/install.ps1 | iex; it needs Git for Windows) or npm i -g @anthropic-ai/claude-code — and sign in once (claude): the worker looks for it again, this page within seconds, a stage when you press Retry in One. A .cmd the worker cannot read is never started through cmd.exe: then set CLAUDE_BIN to claude.exe or Claude Code’s cli.js and restart the worker.',
     syncedicloud: 'In iCloud Drive: git waits for files that are only in the cloud. Faster: a clone outside it (~/one-repos).',
@@ -394,6 +397,9 @@ export const SETUP_JS = String.raw`(function () {
     reading: 'Lese die Repositories … {f} von {n}',
     noKey: 'Diese Seite braucht ihren Schlüssel. Öffne sie unter der Adresse, die der Worker in seinem Terminal zeigt.',
     unbound: 'Dieser Worker ist an keinen Arbeitsbereich gebunden. Lade ihn in One herunter (Einstellungen → Coding-Worker) – diese Datei ist schon gekoppelt.',
+    workspaces: 'Weitere Arbeitsbereiche auf diesem Gerät',
+    revokeWorkspace: 'Freigabe entziehen',
+    revokeWorkspaceConfirm: 'Diesem Arbeitsbereich die Freigabe entziehen und seine laufenden Aufträge stoppen? Sein gespeicherter Stand bleibt auf diesem Rechner.',
     noClaude: 'Claude Code wurde nicht gefunden. Installiere es und melde dich einmal an (claude) – der Worker sucht es erneut: diese Seite nach wenigen Sekunden, eine Stufe, wenn du in One „Erneut versuchen“ drückst. Liegt es außerhalb des PATH? Dann CLAUDE_BIN setzen und den Worker neu starten.',
     noClaudeWin: 'Claude Code wurde nicht gefunden. Installiere es – mit dem eigenen Installer (PowerShell: irm https://claude.ai/install.ps1 | iex; er braucht Git for Windows) oder npm i -g @anthropic-ai/claude-code – und melde dich einmal an (claude): Der Worker sucht es erneut, diese Seite nach wenigen Sekunden, eine Stufe, wenn du in One „Erneut versuchen“ drückst. Eine .cmd, die der Worker nicht lesen kann, startet er nie über cmd.exe: dann CLAUDE_BIN auf claude.exe oder die cli.js von Claude Code setzen und den Worker neu starten.',
     syncedicloud: 'In iCloud Drive: git wartet auf Dateien, die nur in der Cloud liegen. Schneller: ein Klon außerhalb (~/one-repos).',
@@ -843,6 +849,15 @@ export const SETUP_JS = String.raw`(function () {
       return
     }
     if (!state.workspace.id) app.appendChild(el('p', { className: 'msg', text: t('unbound') }))
+    if (state.workspaces && state.workspaces.length) {
+      var spaces = el('section', { className: 'msg' }, [el('h2', { text: t('workspaces') })])
+      state.workspaces.forEach(function (space) {
+        spaces.appendChild(el('p', {}, [el('span', { text: space.name + ' · ' }), el('button', { type: 'button', text: t('revokeWorkspace'), onclick: function () {
+          if (confirm(t('revokeWorkspaceConfirm'))) api('POST', 'workspace-revoke', { id: space.id }).then(adopt, fail)
+        } })]))
+      })
+      app.appendChild(spaces)
+    }
     if (state.live && state.live.claude && !state.live.claude.found) app.appendChild(el('p', { className: 'msg', text: t(windows() ? 'noClaudeWin' : 'noClaude') }))
     if (state.marked && state.marked.length) app.appendChild(marksNote(state.marked))
     var sc = state.scan

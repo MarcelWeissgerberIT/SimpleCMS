@@ -1,7 +1,7 @@
 ---
 id: 2026-10-21-local-workspaces
 date: 2026-10-21
-order: 1
+order: 2
 title: Multiple local workspaces
 summary: Create separate workspaces, switch between them and share a preconfigured package.
 image: assets/shots/changelog/local-workspaces.webp

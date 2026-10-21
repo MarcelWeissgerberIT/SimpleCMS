@@ -219,7 +219,10 @@ describe('pairing (the built bundle with a preset line)', () => {
 
     const other = await connect(PAIR, { ...WS, id: 'local:another-one' })
     await waitFor(() => other.closed !== null)
-    assert.deepEqual(other.messages, [{ type: 'refused', reason: 'workspace', paired: true }])
+    assert.equal(other.messages[0]?.type, 'refused')
+    assert.equal((other.messages[0] as { reason: string }).reason, 'workspace')
+    assert.equal((other.messages[0] as { workspaceOwner: string }).workspaceOwner, PRESET.workspace)
+    assert.match((other.messages[0] as { workspaceNonce: string }).workspaceNonce, /^[A-Za-z0-9_-]{43}$/)
 
     // the general defaults are not accepted: only the site the download came from
     await assert.rejects(FakeTab.connect(PORT, { origin: 'https://getonecms.com' }), /HTTP 403/)

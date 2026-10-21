@@ -617,6 +617,8 @@ export interface WorkerInfo {
   setup?: boolean
   /** it came ready-paired from a download in One */
   paired?: boolean
+  /** Multiple explicitly granted workspace contexts share this device's model/MCP configuration. */
+  multiWorkspace?: boolean
   /** how it reaches One: 127.0.0.1 (local) or the team server's relay (cloud); older workers send none */
   via?: 'local' | 'cloud'
   /** own Claude Code MCP servers of document stages of tasks without a repository — names only (older workers send none) */
@@ -651,7 +653,7 @@ export interface IntakeState {
 export type TabMessage =
   /** `pair`: this device's pairing secret for the workspace (a downloaded worker requires it) */
   /** `can`: what this tab handles beyond the first protocol (TAB_CAN; older tabs send none) */
-  | { type: 'hello'; app: 'one'; version: string; workspace: WorkspaceRef; pair?: string; can?: string[] }
+  | { type: 'hello'; app: 'one'; version: string; workspace: WorkspaceRef; pair?: string; can?: string[]; authorizeWorkspace?: { nonce: string; signature: string } }
   | { type: 'status'; workspace: WorkspaceRef }
   /** tasks changed: ask for work now */
   | { type: 'nudge' }
@@ -782,7 +784,7 @@ export type WorkerToRelay = { type: 'relay'; op: 'close-tab'; s: number; code: (
 export type WorkerMessage =
   | ({ type: 'welcome' } & WorkerInfo)
   /** `paired`: the worker came ready-paired from a download (its workspace and secret are fixed in the file) */
-  | { type: 'refused'; reason: RefusedReason; paired?: boolean }
+  | { type: 'refused'; reason: RefusedReason; paired?: boolean; workspaceGrant?: boolean; workspaceOwner?: string; workspaceNonce?: string }
   | { type: 'status'; busy: BusyTask[]; spentToday: number }
   | {
       type: 'req'

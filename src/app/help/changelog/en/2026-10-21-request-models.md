@@ -1,7 +1,7 @@
 ---
 id: 2026-10-21-request-models
 date: 2026-10-21
-order: 2
+order: 3
 title: Choose configured text models
 summary: Choose configured text models.
 image: assets/shots/changelog/request-models.webp

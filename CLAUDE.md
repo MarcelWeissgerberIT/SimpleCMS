@@ -597,7 +597,11 @@ the public APIs stable — other areas are built against them in parallel.
   page with origin 'coding'; logs, diffs and trust per device in IndexedDB `one-coding`, never synced. One sends the worker
   only task data and the fixed verbs in GIT_VERBS — never a path or a command; the worker runs git as argument lists,
   only on repos in its own config, creates / cleans only its own branches + worktrees, never skips Claude Code's
-  permissions. Programs start ONLY through mcp/src/worker/exec.ts (no other worker file value-imports `node:child_process`
+  permissions. From worker 1.22 a paired local download also hosts explicitly enrolled workspace contexts
+  (worker/workspaces.ts): owner proof only on a user action, one per-workspace key; virtual Worker/WorkerLink instances
+  isolate sockets, queues, outcomes, task tokens, state, memory and worktrees. The original workspace keeps its state.
+  Config/credentials/MCP connections stay device-wide; repository locks, concurrency and day limits span contexts.
+  Cloud relay workers and unpaired configs keep their one-workspace binding. Programs start ONLY through mcp/src/worker/exec.ts (no other worker file value-imports `node:child_process`
   — guard in exec.test.ts; never `shell: true`; on Windows a bare name from PATH only, never the cwd, system tools by
   absolute path, git only as git.exe, `.cmd` shims read, not run): Claude Code, git, gh and glab never run through
   cmd.exe — only the person's own worker.json `testCommand` / `analyzeCommand` and `ONE_WORKER_BROWSER` /

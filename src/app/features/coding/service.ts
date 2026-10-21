@@ -206,8 +206,9 @@ let fastUntil = 0
  * A worker was downloaded for `workspaceId` (download.ts): keep its pairing secret (replacing the last one),
  * switch the link on and look for it often for ten minutes. A connected worker stays connected.
  */
-export function pairDownloaded(workspaceId: string, secret: string) {
+export function pairDownloaded(workspaceId: string, secret: string, connectNow = true) {
   patchSettings({ enabled: true, pairs: { ...get().pairs, [workspaceId]: { secret, at: Date.now() } } })
+  if (!connectNow || currentWorkspace()?.id !== workspaceId) return
   fastUntil = Date.now() + 10 * 60_000
   if (get().conn === 'connected') return
   disconnect(false)
@@ -518,7 +519,9 @@ function attach(open: (h: LinkHandlers) => LinkHandle) {
       if (!mine()) return
       if (msg.type === 'refused') {
         refused = true
-        set({ refused: msg.reason === 'unbound' || msg.reason === 'pair' ? msg.reason : 'workspace', refusedPaired: msg.paired === true })
+        set({ refused: msg.reason === 'unbound' || msg.reason === 'pair' ? msg.reason : 'workspace', refusedPaired: msg.paired === true, refusedWorkspaceGrant: msg.workspaceGrant === true,
+          refusedWorkspaceOwner: typeof msg.workspaceOwner === 'string' ? msg.workspaceOwner.slice(0, 120) : null,
+          refusedWorkspaceNonce: typeof msg.workspaceNonce === 'string' ? msg.workspaceNonce.slice(0, 43) : null })
         return
       }
       void receive(msg)

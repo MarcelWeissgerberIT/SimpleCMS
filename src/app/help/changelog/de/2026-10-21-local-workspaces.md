@@ -1,7 +1,7 @@
 ---
 id: 2026-10-21-local-workspaces
 date: 2026-10-21
-order: 1
+order: 2
 title: Mehrere lokale Workspaces
 summary: Workspaces getrennt anlegen, wechseln und als vorkonfiguriertes Paket weitergeben.
 image: assets/shots/changelog/local-workspaces.webp

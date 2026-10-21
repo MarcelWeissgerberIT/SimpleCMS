@@ -7,6 +7,12 @@ import type { Messages } from '@/shared/i18n'
  */
 export const messages: Messages = {
   en: {
+    'features.coding.settings.grant': 'Allow this workspace on the device worker',
+    'features.coding.settings.grantHint': 'Use the running device worker with a separate workspace key, task state and memory. Models and personal MCP connections stay on this computer.',
+    'features.coding.settings.grantWorking': 'Allowing workspace…',
+    'features.coding.settings.grantFailed': 'The workspace could not be allowed. Update the worker to 1.22 or newer, use its original browser profile, then retry.',
+    'features.coding.settings.multiHint': 'One device worker, separate workspaces. Grant access once per workspace; revoke access on the worker’s setup page.',
+    'features.coding.settings.grantUpgrade': 'For multiple workspaces, update the device worker to version 1.22 or newer. Start the updated file in its original workspace first.',
     'features.coding.ollamaGlobal.scope': 'Coding · all tasks on this worker',
     'features.coding.ollamaGlobal.lead': 'Set the API key and model once on the worker. Every coding task that uses Ollama Cloud shares these settings.',
     'features.coding.ollamaGlobal.ready': 'Worker reachable · {name}',
@@ -685,7 +691,7 @@ export const messages: Messages = {
     'features.coding.settings.manualHint': 'For a config of your own: the plain worker without a pairing, bound to this workspace by its init command, your repositories written into ~/.config/one/worker.json by hand. The steps above do all of this for you.',
     'features.coding.settings.pair': 'This worker was downloaded in another browser, or a newer download replaced it. Stop it and start the file you downloaded last — or download it again (step 1).',
     'features.coding.settings.refusedPaired': 'This worker was downloaded for another workspace. Download it for this one (step 1) and start that file.',
-    'features.coding.settings.safePair': 'A downloaded worker is paired with this browser and this workspace: other tabs, browsers and workspaces are refused. A new download replaces the pairing.',
+    'features.coding.settings.safePair': 'A downloaded device worker is paired with this browser. Additional workspaces need an explicit grant and their own pairing key. A new original download replaces the pairing and revokes additional grants.',
     'features.coding.settings.step1': 'Needs Node.js 22 or newer, git (on Windows: Git for Windows), and the Claude Code CLI — installed and signed in (claude).',
     'features.coding.settings.step2': 'Save the worker in your home folder:',
     'features.coding.settings.download': 'Download command',
@@ -875,6 +881,12 @@ export const messages: Messages = {
     'features.coding.worker.outdatedFix': 'A newer worker is on the site — {adds}. This one still runs every stage, but a stage can go on “working” after Claude Code is done. Download it, stop the old one (Ctrl+C) and start the new file.',
   },
   de: {
+    'features.coding.settings.grant': 'Diesen Workspace am Geräte-Worker freigeben',
+    'features.coding.settings.grantHint': 'Den laufenden Geräte-Worker mit eigenem Workspace-Schlüssel, Auftragsstand und Memory nutzen. Modelle und persönliche MCP-Verbindungen bleiben auf diesem Rechner.',
+    'features.coding.settings.grantWorking': 'Workspace wird freigegeben…',
+    'features.coding.settings.grantFailed': 'Der Workspace konnte nicht freigegeben werden. Worker auf 1.22 oder neuer aktualisieren, sein ursprüngliches Browser-Profil verwenden und erneut versuchen.',
+    'features.coding.settings.multiHint': 'Ein Geräte-Worker, getrennte Workspaces. Jeden Workspace einmal freigeben; die Freigabe lässt sich auf der Einrichtungsseite des Workers entziehen.',
+    'features.coding.settings.grantUpgrade': 'Für mehrere Workspaces den Geräte-Worker auf Version 1.22 oder neuer aktualisieren. Die aktualisierte Datei zuerst im ursprünglichen Workspace starten.',
     'features.coding.ollamaGlobal.scope': 'Coding · alle Aufgaben dieses Workers',
     'features.coding.ollamaGlobal.lead': 'API-Key und Modell einmal beim Worker hinterlegen. Alle Coding-Aufgaben mit Ollama Cloud nutzen diese Einstellungen.',
     'features.coding.ollamaGlobal.ready': 'Worker erreichbar · {name}',
@@ -1552,7 +1564,7 @@ export const messages: Messages = {
     'features.coding.settings.manualHint': 'Für eine eigene Konfiguration: der Worker ohne Kopplung, per init-Befehl an diesen Arbeitsbereich gebunden, deine Repositories von Hand in ~/.config/one/worker.json eingetragen. Die Schritte oben erledigen das alles für dich.',
     'features.coding.settings.pair': 'Dieser Worker wurde in einem anderen Browser heruntergeladen, oder ein neuerer Download hat ihn ersetzt. Beende ihn und starte die zuletzt heruntergeladene Datei – oder lade ihn erneut herunter (Schritt 1).',
     'features.coding.settings.refusedPaired': 'Dieser Worker wurde für einen anderen Arbeitsbereich heruntergeladen. Lade ihn für diesen herunter (Schritt 1) und starte diese Datei.',
-    'features.coding.settings.safePair': 'Ein heruntergeladener Worker ist mit diesem Browser und diesem Arbeitsbereich gekoppelt: Andere Tabs, Browser und Arbeitsbereiche werden abgelehnt. Ein neuer Download ersetzt die Kopplung.',
+    'features.coding.settings.safePair': 'Ein heruntergeladener Geräte-Worker ist mit diesem Browser gekoppelt. Weitere Arbeitsbereiche brauchen eine ausdrückliche Freigabe und einen eigenen Kopplungsschlüssel. Ein neuer ursprünglicher Download ersetzt die Kopplung und widerruft zusätzliche Freigaben.',
     'features.coding.settings.step1': 'Braucht Node.js 22 oder neuer, Git (unter Windows: Git for Windows) und die Claude-Code-CLI – installiert und angemeldet (claude).',
     'features.coding.settings.step2': 'Speichere den Worker in deinem Home-Ordner:',
     'features.coding.settings.download': 'Download-Befehl',

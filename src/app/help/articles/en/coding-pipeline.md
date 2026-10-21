@@ -9,6 +9,18 @@ summary: Hand coding tasks to Claude Code on your computer — plan, approve, im
 ---
 **#/coding** (⌘K *Coding pipeline*). One keeps the tasks, the approvals, the log and the diff; a small worker on **your** computer runs git and Claude Code. The worker runs on your machine. Selected code and tool results go to the chosen model provider; Local · Ollama runs inference locally.
 
+## One device worker for several workspaces
+
+From worker **1.22**, the same local worker connection can serve several explicitly allowed workspaces. Start the updated worker in its original workspace first. In the additional workspace, open **Settings → Coding worker** and choose **Allow this workspace on the device worker**. Use the browser profile that downloaded the original worker. One then connects to the matching context when you switch workspaces.
+
+Each additional workspace gets its own pairing key, task state, memory, scratch and worktree folders, and automatically created branches. Identical task IDs stay separate. Models, API keys, personal MCP connections and repositories allowed on the device are shared. Workspace packages and team synchronization never include worker keys or grants.
+
+A running task keeps its workspace when you switch. Its results wait for that One tab to return; another workspace cannot receive them. A task that needs data or permission from One needs its own tab available. The device worker runs only one task per repository across workspaces; concurrency and daily limits apply across the device. Costs are shown per workspace where the provider reports them.
+
+**Change repositories** opens the worker’s protected setup page. Under **Additional workspaces on this device**, revoke access to stop that workspace’s tasks. Saved work remains on the computer. A new download with a new original pairing key revokes earlier additional grants; allow those workspaces again afterwards. Models and personal connections are retained.
+
+These grants apply to the **local connection**, including a team workspace reached locally. A cloud worker through the team relay stays bound to its own workspace and member token.
+
 ## Set up in three steps
 You need Node.js 22 or newer, git and the **Claude Code** CLI, signed in once (`claude`) — on macOS, Linux or Windows 10 / 11 (see *Windows* below). Then **Settings → Coding worker** (or **#/coding**):
 

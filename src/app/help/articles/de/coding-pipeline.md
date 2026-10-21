@@ -9,6 +9,18 @@ summary: Gib Programmieraufgaben an Claude Code auf deinem Rechner — planen, f
 ---
 **#/coding** (⌘K *Coding-Pipeline*). One verwaltet die Aufgaben, die Freigaben, das Log und den Diff; ein kleiner Worker auf **deinem** Rechner führt Git und Claude Code aus. Der Worker läuft auf deinem Rechner. Ausgewählter Code und Werkzeugergebnisse gehen an den gewählten Modellanbieter; Lokal · Ollama führt das Modell lokal aus.
 
+## Ein Geräte-Worker für mehrere Workspaces
+
+Ab Worker **1.22** kannst du dieselbe lokale Worker-Verbindung für mehrere ausdrücklich freigegebene Workspaces verwenden. Den aktualisierten Worker zuerst im ursprünglichen Workspace starten. Im weiteren Workspace unter **Einstellungen → Coding-Worker** auf **Diesen Workspace am Geräte-Worker freigeben** klicken. Verwende dasselbe Browser-Profil, mit dem der ursprüngliche Worker heruntergeladen wurde. Danach verbindet sich One beim Workspace-Wechsel automatisch mit dem passenden Kontext.
+
+Jeder zusätzliche Workspace erhält einen eigenen Kopplungsschlüssel, Auftragsstand, Memory-, Scratch- und Worktree-Ordner sowie eigene automatisch angelegte Branches. Auch gleichlautende Aufgaben-IDs bleiben getrennt. Modelle, API-Schlüssel, persönliche MCP-Verbindungen und die auf dem Gerät freigegebenen Repositories werden gemeinsam verwendet. Zugangsschlüssel und Worker-Freigaben werden nicht in Workspace-Pakete exportiert oder mit dem Team synchronisiert.
+
+Aufträge behalten beim Wechsel ihre Zuordnung. Ergebnisse warten auf die Rückkehr des zugehörigen One-Tabs; ein anderer Workspace erhält sie nicht. Wenn ein Auftrag Daten oder eine Freigabe aus One braucht, muss sein Tab erreichbar sein. Dasselbe Repository bearbeitet der Geräte-Worker nur in einem Workspace gleichzeitig; die Parallelitäts- und Tageslimits gelten übergreifend. Kosten werden je Workspace angezeigt, soweit der Anbieter sie meldet.
+
+Unter **Repositories ändern** öffnest du die geschützte Einrichtungsseite des Workers. Dort kannst du unter **Weitere Arbeitsbereiche auf diesem Gerät** eine Freigabe entziehen. Das stoppt die Aufträge dieses Workspace; gespeicherte Arbeitsstände bleiben erhalten. Ein neuer Download mit einem neuen ursprünglichen Kopplungsschlüssel widerruft bisherige zusätzliche Freigaben; die Workspaces anschließend erneut freigeben. Modelle und persönliche Verbindungen werden dabei nicht gelöscht.
+
+Diese Freigaben gelten für die **lokale Verbindung**, auch zu einem Team-Workspace. Ein Cloud-Worker über den Team-Relay bleibt an seinen eigenen Workspace und sein Mitglieds-Token gebunden.
+
 ## In drei Schritten einrichten
 Du brauchst Node.js 22 oder neuer, Git und die **Claude-Code**-CLI, einmal angemeldet (`claude`) — unter macOS, Linux oder Windows 10 / 11 (siehe *Windows* unten). Dann **Einstellungen → Coding-Worker** (oder **#/coding**):
 

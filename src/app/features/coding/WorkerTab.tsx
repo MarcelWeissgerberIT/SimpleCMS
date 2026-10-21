@@ -26,6 +26,7 @@ import { OllamaCloudSettings } from './OllamaCloudSettings'
 import { WORKER_FILE, downloadLines, startLines } from './download'
 import { OsSwitch, StartBlock } from './StartBlock'
 import { workerStateText } from './stateText'
+import { authorizeWorkerWorkspace } from './workspaces'
 import { notifyEnabled, notifyPermission, setNotify } from './notify'
 import { ensureOrderDb, orderDbId } from './orders/db'
 import './coding.css'
@@ -87,9 +88,12 @@ const CLOUD_REFUSALS: Partial<Record<NonNullable<CodingState['refused']>, string
 /** What a refusal means and what to do — by why the worker (or, in cloud mode, the team server) said no. */
 function Refused({ s, wsId, cloud }: { s: CodingState; wsId: string; cloud: boolean }) {
   const t = useT()
+  const [granting, setGranting] = useState(false)
+  const [grantError, setGrantError] = useState(false)
+  const grant = !cloud && s.refused === 'workspace' && s.refusedWorkspaceGrant && Object.keys(s.pairs).length > 0
   const relayKey = s.refused ? CLOUD_REFUSALS[s.refused] : undefined
   const legacy = !cloud && !relayKey && s.refused !== 'pair' && !s.refusedPaired
-  const text = relayKey
+  const text = grant ? t('features.coding.settings.grantHint') : relayKey
     ? t(relayKey)
     : s.refused === 'pair'
       ? t(cloud ? 'features.coding.settings.pairCloud' : 'features.coding.settings.pair')
@@ -101,6 +105,14 @@ function Refused({ s, wsId, cloud }: { s: CodingState; wsId: string; cloud: bool
   return (
     <div className="cw-msg cw-msg--warn" data-testid="coding-refused" data-reason={s.refused ?? undefined}>
       <p>{text}</p>
+      {!cloud && s.refused === 'workspace' && s.refusedPaired && !s.refusedWorkspaceGrant && <p>{t('features.coding.settings.grantUpgrade')}</p>}
+      {grant && <>
+        <button type="button" className="btn btn--sm" disabled={granting} data-testid="coding-workspace-grant" onClick={() => {
+          setGranting(true); setGrantError(false)
+          void authorizeWorkerWorkspace().catch(() => setGrantError(true)).finally(() => setGranting(false))
+        }}>{t(granting ? 'features.coding.settings.grantWorking' : 'features.coding.settings.grant')}</button>
+        {grantError && <p role="alert">{t('features.coding.settings.grantFailed')}</p>}
+      </>}
       {legacy && (
         <>
           <OsSwitch />
@@ -274,6 +286,7 @@ export function WorkerTab() {
           </div>
         </div>
         <NotifySwitch />
+        {!cloud && connected && s.worker?.multiWorkspace && <p className="cw-hint" data-testid="coding-multiple-workspaces">{t('features.coding.settings.multiHint')}</p>}
         <dl className="cw-ro">
           <div className="cw-ro__cell">
             <dt className="label">{t('features.coding.ro.worker')}</dt>

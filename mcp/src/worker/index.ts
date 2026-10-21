@@ -41,6 +41,9 @@ import { SetupServer } from './setup.ts'
 import { factsOf, findRepos, shortPath } from './scan.ts'
 import { terminalChecklist } from './checklist.ts'
 import { pathId, samePath } from './paths.ts'
+import { WorkerWorkspaces } from './workspaces.ts'
+
+let workspaceHost: WorkerWorkspaces | null = null
 
 declare const __VERSION__: string
 const VERSION = typeof __VERSION__ === 'string' ? __VERSION__ : 'dev'
@@ -233,7 +236,11 @@ async function main() {
         log,
         config: () => worker!.config,
         reload: () => reload(worker!),
-        live: () => worker!.live(),
+        live: () => workspaceHost?.live() ?? worker!.live(),
+        workspaces: {
+          list: () => workspaceHost?.grants.list() ?? [],
+          revoke: async id => { if (!workspaceHost) throw new Error('Workspace hosting is unavailable.'); await workspaceHost.revoke(id) },
+        },
       })
   let stopping = false
   /** code 2: a cloud worker the team server let go for good (a service manager must not restart it) */
@@ -243,6 +250,7 @@ async function main() {
     log('stopping — ending running tasks')
     // whatever happens: the runs' leftovers and outcomes get STOP_WAIT_MS (worker.ts), then the process ends
     setTimeout(() => process.exit(code), STOP_HARD_MS).unref()
+    await workspaceHost?.stop()
     await worker?.stop().catch(() => {})
     process.exit(code)
   }
@@ -252,7 +260,19 @@ async function main() {
   }
   const claude = findClaude()
   if (claude.from === 'native') log(nativeNotOnPath())
-  worker = new Worker({ config, version: VERSION, bin: claude.bin, claudeFrom: claude.from, self, log, setup, recent: () => recent, intake: { configFile, reload: () => reload(worker!) }, onFatal })
+  const options = { config, version: VERSION, bin: claude.bin, claudeFrom: claude.from, self, log, setup, recent: () => recent, intake: { configFile, reload: () => reload(worker!) }, onFatal,
+    ...(preset && !cloud ? {
+      canGrantWorkspace: true,
+      workspaceChallenge: (id: string) => ({ workspaceOwner: config.workspace!, workspaceNonce: workspaceHost!.grants.challenge(id) }),
+      routeLocal: (socket: import('ws').WebSocket, hello: Extract<import('../../../src/app/features/coding/protocol.ts').TabMessage, { type: 'hello' }>) => workspaceHost!.route(socket, hello),
+      routeTask: (token: string, tool: string, args: Record<string, unknown>) => workspaceHost!.task(token, tool, args),
+      reserveWork: (repos: string[]) => workspaceHost!.reserve(repos),
+      busyRepos: () => workspaceHost!.busyRepos(),
+      capacityChanged: () => workspaceHost?.changed(),
+    } : {}),
+  }
+  worker = new Worker(options)
+  if (preset && !cloud) workspaceHost = new WorkerWorkspaces(worker, options)
   const up = await worker.start()
   if (up !== 'listening') {
     // 'refused': the line above says why (a port Windows keeps for itself …)
@@ -297,6 +317,7 @@ async function reload(worker: Worker): Promise<void> {
   for (const p of next.problems) log(`config: ${p}`)
   for (const n of next.notes ?? []) log(`config: ${n}`)
   await worker.reload(withPreset(next.config, preset))
+  await workspaceHost?.reload()
 }
 
 /** First start (or `setup`): the page in the browser — or, without one, the checklist in this terminal. */

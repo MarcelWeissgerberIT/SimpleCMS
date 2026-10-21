@@ -4327,6 +4327,51 @@ process.exit(1)
     await ctx.close()
   },
 
+  async 'worker-workspaces'(browser) {
+    const work = codingRepo()
+    const { startDownloadedWorker, fakeOpener } = await import('../tests/e2e/helpers/coding.ts')
+    const { ctx, page } = await freshPage(browser)
+    let worker = null
+    const settings = async () => {
+      await page.evaluate(() => window.__one.ui.getState().openModal({ type: 'settings' }))
+      await page.getByRole('tab', { name: /Coding worker$/ }).click()
+    }
+    try {
+      await page.evaluate(() => window.__one.workspace.getState().updateSettings({ workspaceName: 'Original' }))
+      await settings()
+      const port = page.getByLabel('Port', { exact: true })
+      await port.fill('47867'); await port.press('Enter')
+      const [download] = await Promise.all([page.waitForEvent('download'), page.getByTestId('coding-download').click()])
+      const file = join(work.root, 'one-worker.mjs'); await download.saveAs(file)
+      const home = join(work.root, 'home'), config = join(home, '.config', 'one')
+      mkdirSync(config, { recursive: true })
+      writeFileSync(join(config, 'worker.json'), JSON.stringify({ name: 'device-worker', pollSec: 2, repos: [{ name: 'website', path: work.path, pr: 'none' }] }))
+      worker = await startDownloadedWorker(file, home, work, fakeOpener(work).program)
+      await page.getByTestId('coding-multiple-workspaces').waitFor({ timeout: 20000 })
+      await page.getByRole('dialog').locator('.modal__close').click()
+      await page.locator('aside.sb .sb-head__ws').click()
+      await page.getByRole('menuitem', { name: 'New local workspace…' }).click()
+      await page.getByRole('textbox', { name: 'Workspace name', exact: true }).fill('TestSpace')
+      await page.getByRole('button', { name: 'Create and open', exact: true }).click()
+      await page.waitForURL(/w=local%3A/); await page.waitForFunction(() => !!window.__one)
+      await settings()
+      const grant = page.getByTestId('coding-workspace-grant')
+      await grant.waitFor({ timeout: 20000 }); await grant.scrollIntoViewIfNeeded()
+      await rest(page)
+      await save(page, 'worker-workspaces', await boxOf(page.getByRole('dialog', { name: 'Settings' })))
+      for (const [width, height] of [[1440, 900], [390, 844]]) for (const theme of ['light', 'dark']) {
+        await page.setViewportSize({ width, height })
+        await page.evaluate(theme => window.__one.workspace.getState().updateSettings({ theme }), theme)
+        await grant.scrollIntoViewIfNeeded(); await rest(page)
+        await page.screenshot({ path: `.shots/worker-workspaces-${width}-${theme}.png` })
+      }
+      await grant.click(); await page.getByTestId('coding-multiple-workspaces').waitFor({ timeout: 30000 })
+    } finally {
+      await worker?.stop(); await ctx.close(); rmSync(work.root, { recursive: true, force: true })
+      errors = errors.filter(e => !/WebSocket connection to 'ws:\/\/127\.0\.0\.1:47867.*ERR_CONNECTION_REFUSED/.test(e))
+    }
+  },
+
   async 'local-workspaces'(browser) {
     const { ctx, page } = await freshPage(browser)
     await page.evaluate(() => window.__one.workspace.getState().updateSettings({ workspaceName: 'Product lab' }))

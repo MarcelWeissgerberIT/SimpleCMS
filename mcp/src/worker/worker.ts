@@ -59,7 +59,7 @@ import { Intake } from './intake.ts'
 import { checkRepo, cleanup, commentPr, commitAll, discard, headOf, info, isDirty, localBranches, mergePr, openPr, ownLocks, prune, push, sweepLeftovers, updateFromBase, webOf, worktreeOf, GitError } from './git.ts'
 import { FOLDER_BUSY, forgetGitEnv } from './gitenv.ts'
 import { pathId, rmRetry } from './paths.ts'
-import { WorkerLink } from './link.ts'
+import { WorkerLink, type LinkOptions } from './link.ts'
 import type { CloudFatal } from './cloud.ts'
 import { cloudOf } from './config.ts'
 import { relayUrl, workerOrigins } from './preset.ts'
@@ -70,6 +70,14 @@ import { cloneBase } from './clone.ts'
 import type { SetupLive } from './setup.ts'
 
 export interface WorkerOptions {
+  virtual?: boolean
+  routeLocal?: LinkOptions['routeLocal']
+  routeTask?: LinkOptions['onTask']
+  canGrantWorkspace?: boolean
+  workspaceChallenge?: LinkOptions['workspaceChallenge']
+  reserveWork?: (repos: string[]) => (() => void) | null
+  busyRepos?: () => ReadonlySet<string>
+  capacityChanged?: () => void
   config: WorkerConfig
   version: string
   /** the Claude Code CLI */
@@ -291,9 +299,13 @@ export class Worker {
     this.opts = opts
     this.bin = opts.bin
     this.config = opts.config
-    this.state = new WorkerState(opts.config.file)
+    this.state = new WorkerState(opts.config.file, opts.config.runtimeDir, opts.config.runtimeDir ? opts.config.workspace ?? undefined : undefined)
     const cloud = cloudOf(opts.config)
     this.link = new WorkerLink({
+      virtual: opts.virtual,
+      routeLocal: opts.routeLocal,
+      canGrantWorkspace: opts.canGrantWorkspace,
+      workspaceChallenge: opts.workspaceChallenge,
       port: opts.config.port,
       origins: workerOrigins(opts.config.preset, [process.env.ONE_ORIGINS ?? '', ...opts.config.origins], opts.log),
       workspace: opts.config.workspace,
@@ -325,8 +337,18 @@ export class Worker {
       },
       onRequest: (msg) => this.onRequest(msg),
       onNudge: () => this.tick(),
-      onTask: (token, tool, args) => this.onTask(token, tool, args),
+      onTask: (token, tool, args) => opts.routeTask ? opts.routeTask(token, tool, args) : this.onTask(token, tool, args),
     })
+  }
+
+  acceptLocal(socket: import('ws').WebSocket, hello: Extract<TabMessage, { type: 'hello' }>) { this.link.adopt(socket, hello) }
+  hasTaskToken(token: string) { return this.tokens.has(token) }
+  taskCall(token: string, tool: string, args: Record<string, unknown>) { return this.onTask(token, tool, args) }
+  runningCount() { return this.runs.size }
+  activeRepos() { return [...this.runs.values()].map(run => run.repo.name) }
+  cancelRuns() {
+    for (const controller of this.textRuns.values()) controller.abort()
+    for (const run of this.runs.values()) run.abort.abort()
   }
 
   info(): WorkerInfo {
@@ -343,6 +365,7 @@ export class Worker {
       claude: { found: this.caps.found, version: this.caps.version },
       setup: !!this.opts.setup,
       paired: !!this.config.preset,
+      multiWorkspace: !!this.config.preset && !cloudOf(this.config),
       via: cloudOf(this.config) ? 'cloud' : 'local',
       mcp: this.config.mcpServers,
     }
@@ -368,7 +391,7 @@ export class Worker {
    */
   async reload(next: WorkerConfig): Promise<void> {
     const known = new Set(this.config.repos.map((r) => pathId(r.path)))
-    this.config = { ...next, workspace: this.config.workspace, port: this.config.port, preset: this.config.preset, origins: this.config.origins }
+    this.config = { ...next, runtimeDir: this.config.runtimeDir, workspace: this.config.workspace, port: this.config.port, preset: this.config.preset, origins: this.config.origins }
     // the person may have set their own core.sshCommand meanwhile
     forgetGitEnv()
     for (const repo of this.config.repos.filter((r) => !known.has(pathId(r.path)))) {
@@ -462,6 +485,7 @@ export class Worker {
    */
   async stop(): Promise<void> {
     this.stopped = true
+    this.cancelRuns()
     for (const controller of this.textRuns.values()) controller.abort()
     if (this.poller) clearInterval(this.poller)
     if (this.beater) clearInterval(this.beater)
@@ -484,9 +508,12 @@ export class Worker {
       return
     }
     const busyRepos = new Set([...this.runs.values()].map((r) => r.repo.name))
-    const free = this.config.repos.filter((r) => !busyRepos.has(r.name)).map((r) => r.name)
+    const occupied = this.opts.busyRepos?.()
+    const free = this.config.repos.filter((r) => !busyRepos.has(r.name) && !occupied?.has(r.name)).map((r) => r.name)
     // no free repo still leaves document stages of tasks without a repository
     if (this.runs.size >= this.config.parallel) return
+    const release = this.opts.reserveWork ? this.opts.reserveWork(free) : () => {}
+    if (!release) return
     this.polling = true
     this.again = false
     void this.link
@@ -494,6 +521,10 @@ export class Worker {
       .then((res) => {
         const raw = (res as NextResult | null)?.task
         const task = sanitizeTask(raw)
+        if (task?.repo && this.opts.busyRepos && !free.includes(task.repo)) {
+          void this.finish(task.id, task.stage.id, { status: 'refused', error: 'This repository was not offered for work in this workspace. Wait for its running work to finish.' })
+          return false
+        }
         if (task) this.begin(task)
         else if (raw) this.unreadable(raw)
         return !!task
@@ -503,6 +534,7 @@ export class Worker {
         return false
       })
       .then((got) => {
+        release()
         this.polling = false
         // more capacity (or a nudge came in): ask again
         if (got || this.again) setTimeout(() => this.tick(), 50)
@@ -581,6 +613,7 @@ export class Worker {
         this.sendStatus()
         void this.refreshBranches()
         this.tick()
+        this.opts.capacityChanged?.()
       })
   }
 
@@ -713,7 +746,12 @@ export class Worker {
       run.abort.abort()
       return { stopped: true }
     }
-    if (msg.op === 'git') return this.gitVerb(msg)
+    if (msg.op === 'git') {
+      if (this.opts.busyRepos?.().has(msg.repo)) throw new Error('This repository is busy in a workspace. Wait for its running work to finish.')
+      const release = this.opts.reserveWork ? this.opts.reserveWork([msg.repo]) : () => {}
+      if (!release) throw new Error('The device worker is busy. Retry after its current work finishes.')
+      try { return await this.gitVerb(msg) } finally { release(); this.opts.capacityChanged?.() }
+    }
     if (msg.op === 'permission') return this.answerAsk(msg)
     // "Change repositories": the page opens HERE; One gets only whether it opened — never its address or key
     if (msg.op === 'open-setup') return this.opts.setup ? this.opts.setup.open() : ({ opened: false, reason: 'off' } satisfies OpenSetupResult)
