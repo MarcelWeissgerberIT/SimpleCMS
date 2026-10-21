@@ -169,6 +169,12 @@ function winning(rule: RouteRule, level: Level, input: ResolveInput, w: RouteWor
 export function resolveRoute(input: ResolveInput, w: RouteWorld): Resolved {
   const steps: StepNote[] = []
   if (input.forced) return winning([input.forced.route], 'forced', input, w, steps, input.forced.pool)
+  // A person's explicit pick must never fall through to a different provider when the action changes class.
+  // Stored defaults may still skip an unsupported class, as before.
+  if (input.cls !== 'gate' && input.chip && !routable(input.chip.p, input.cls)) {
+    steps.push({ k: 'capability', from: routeKey(input.chip), code: 'class' })
+    return { ok: false, code: 'capability', detail: input.cls, route: input.chip, level: 'chip', steps, fixes: [{ kind: 'step', step: 'models', provider: input.chip.p }] }
+  }
   for (const [level, rule] of levels(input, w)) {
     if (!rule?.length) continue
     const pins = rule.filter((r) => routable(r.p, input.cls))

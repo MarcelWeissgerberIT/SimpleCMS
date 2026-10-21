@@ -108,6 +108,7 @@ Type `?` in the command palette to ask the selected model about the open page. A
 
 The AI menu, palette questions (**Mod+K → ?**) and **Help → Ask** show a separate provider control before the model. Choosing an available provider selects its first usable route for this request and opens that provider’s model list. Choose a specific model there. The ordinary model button or **Alt+M** searches across providers; **Models from provider** narrows the list. Choosing sends no request and changes no default. **Default on this device** restores the configured route; the explicit default buttons still save device rules. Missing keys, data rules and required capabilities can disable a provider or model. With a connected worker version 1.21 or newer, local Ollama models, Ollama Cloud, MiniMax and Codex also support text requests here. Load models and explicitly configure data rules in **Settings → AI → Models on the worker**. Credentials remain on the worker. Images, PDFs and structured tool runs still require a capable model; Coding keeps its own agent selection.
 
+A provider explicitly chosen for a request is never silently replaced by another provider. If an action needs capabilities that this route does not support, One stops and lets you choose a suitable model.
 
 ## Costs in euros
 

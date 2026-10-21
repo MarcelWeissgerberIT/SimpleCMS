@@ -108,6 +108,7 @@ Tippe `?` in der Befehlspalette, um das gewählte Modell zur geöffneten Seite z
 
 Im KI-Menü, bei Fragen über **Mod+K → ?** und unter **Hilfe → Fragen** steht vor dem Modell eine eigene Anbieterauswahl. Ein verfügbarer Anbieter wählt den ersten nutzbaren Weg für diese Anfrage und öffnet die Modellliste dieses Anbieters. Dort das konkrete Modell wählen. Die normale Modelltaste oder **Alt+M** sucht über Anbieter hinweg; **Modelle des Anbieters** grenzt die Liste ein. Die Auswahl sendet keine Anfrage und ändert keinen Standard. **Standard auf diesem Gerät** kehrt zum eingestellten Weg zurück; nur die ausdrücklichen Standardtasten speichern eine Gerätevorgabe. Fehlende Schlüssel, Datenregeln und benötigte Fähigkeiten können Anbieter oder Modelle sperren. Zusätzlich stehen über einen verbundenen Worker ab 1.21 lokale Ollama-Modelle, Ollama Cloud, MiniMax und Codex für normale Textanfragen bereit. Unter **Einstellungen → KI → Modelle beim Worker** die Modellliste laden und Datenregeln ausdrücklich festlegen. Die Anfrage erhält nur ausgewählten Kontext; diese Textanfragen haben keine Projekt- oder MCP-Werkzeuge. Bilder, PDFs und strukturierte Werkzeugläufe bleiben auf passende Modelle begrenzt. Der Coding-Bereich hat weiterhin seine eigene Agentenauswahl.
 
+Ein ausdrücklich für die Anfrage gewählter Anbieter wird nicht still durch einen anderen ersetzt. Braucht die gewählte Aktion Fähigkeiten, die dieser Weg nicht unterstützt, stoppt One und du kannst ein passendes Modell wählen.
 
 ## Kosten in Euro
 
