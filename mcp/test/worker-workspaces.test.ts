@@ -119,6 +119,8 @@ test('the downloaded device worker grants a second workspace; identical task IDs
     assert.ok(!worker.stderr().includes(owner)); assert.ok(!worker.stderr().includes(pair))
     assert.ok(existsSync(grants.file))
     await resumed.request({ op: 'open-setup' })
+    // WebSocket response and stderr are separate streams; Node 22 may deliver the response first.
+    await waitFor(() => /http:\/\/127\.0\.0\.1:\d+\/setup#k=[A-Za-z0-9_-]+/.test(worker.stderr()), 5000)
     const address = new URL(worker.stderr().match(/http:\/\/127\.0\.0\.1:\d+\/setup#k=[A-Za-z0-9_-]+/)![0])
     const key = new URLSearchParams(address.hash.slice(1)).get('k')!
     const revoked = await fetch(new URL('/setup/api/workspace-revoke', address), { method: 'POST', headers: { Origin: address.origin, 'Content-Type': 'application/json', 'X-One-Setup': key }, body: JSON.stringify({ id: extra.id }) })
