@@ -25,6 +25,8 @@ RUN npm ci --no-audit --no-fund
 COPY server/ ./
 # Shared app/server contracts (AI, MCP and agent invocation). Preserve their relative paths.
 COPY src/shared/ /src/shared/
+# The shared MCP contract embeds One Script's pure reference text.
+COPY src/app/features/script/reference.ts /src/app/features/script/reference.ts
 RUN npm run build
 
 # ── 3. runtime ──────────────────────────────────────────────────────────────

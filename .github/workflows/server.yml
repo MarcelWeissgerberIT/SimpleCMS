@@ -5,6 +5,7 @@ on:
     paths:
       - 'server/**'
       - 'src/shared/**'
+      - 'src/app/features/script/reference.ts'
       - 'package.json'
       - 'package-lock.json'
       - '.github/workflows/server.yml'
@@ -12,6 +13,7 @@ on:
     paths:
       - 'server/**'
       - 'src/shared/**'
+      - 'src/app/features/script/reference.ts'
       - 'package.json'
       - 'package-lock.json'
       - '.github/workflows/server.yml'
