@@ -5,6 +5,7 @@
  */
 import { buildLibrary, type HelpFile, type HelpLang, type HelpLibrary } from './library'
 import { buildChangelog, type Changelog, type ChangelogFile } from './changelog/entries'
+import { shortcutText } from '../ui/controls'
 
 const RAW = import.meta.glob('./articles/*/*.md', { query: '?raw', import: 'default', eager: true }) as Record<string, string>
 
@@ -18,6 +19,12 @@ function files(): HelpFile[] {
 }
 
 export const LIBRARY: HelpLibrary = buildLibrary(files(), import.meta.env.DEV ? (msg) => console.warn(msg) : undefined)
+// Search ranges, headings and snippets must refer to the same platform labels the reader sees.
+for (const articles of Object.values(LIBRARY)) for (const a of articles) {
+  a.title = shortcutText(a.title)
+  a.summary = shortcutText(a.summary)
+  a.plain = shortcutText(a.plain)
+}
 
 /* "What's new": src/app/help/changelog/{en,de}/<yyyy-mm-dd>-<slug>.md, newest first */
 const CHANGES = import.meta.glob('./changelog/*/*.md', { query: '?raw', import: 'default', eager: true }) as Record<string, string>
@@ -33,5 +40,11 @@ function changeFiles(): ChangelogFile[] {
 
 const devWarn = import.meta.env.DEV ? (msg: string) => console.warn(msg) : undefined
 export const CHANGELOG: Changelog = buildChangelog(changeFiles(), devWarn, devWarn, new Set(LIBRARY.en.map((a) => a.id)))
+
+for (const entries of Object.values(CHANGELOG)) for (const e of entries) {
+  e.title = shortcutText(e.title)
+  e.summary = shortcutText(e.summary)
+  e.plain = shortcutText(e.plain)
+}
 
 export { searchHelp, type HelpHit } from './search'

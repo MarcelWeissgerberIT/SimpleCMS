@@ -195,9 +195,9 @@ export const messages: Messages = {
     'features.outbox.legend.edit': 'Edit',
     'features.outbox.legend.redraft': 'Redraft',
 
-    'features.outbox.empty.db': 'No slips for this database yet. Pick a row and use a send route below (or ⌘ on the row).',
+    'features.outbox.empty.db': 'No slips for this database yet. Pick a row and use a send route below (or Commands on the row).',
     'features.outbox.empty.page': 'Nothing in the Outbox.',
-    'features.outbox.empty.how': 'On a mirrored database: ⌘ on a row → a send route. Claude drafts, you check and send.',
+    'features.outbox.empty.how': 'On a mirrored database: Commands on a row → a send route. Claude drafts, you check and send.',
     'features.outbox.empty.noRoutes': 'No send route is active on this device: an integration profile with send routes needs its MCP server here, switched on.',
 
     'features.outbox.routes.title': 'Send routes',
@@ -497,9 +497,9 @@ export const messages: Messages = {
     'features.outbox.legend.edit': 'Bearbeiten',
     'features.outbox.legend.redraft': 'Neu entwerfen',
 
-    'features.outbox.empty.db': 'Noch keine Zettel für diese Datenbank. Wähl eine Zeile und nimm unten einen Sendeweg (oder ⌘ an der Zeile).',
+    'features.outbox.empty.db': 'Noch keine Zettel für diese Datenbank. Wähl eine Zeile und nimm unten einen Sendeweg (oder Befehle an der Zeile).',
     'features.outbox.empty.page': 'Nichts im Ausgang.',
-    'features.outbox.empty.how': 'In einer gespiegelten Datenbank: ⌘ an einer Zeile → ein Sendeweg. Claude entwirft, du prüfst und sendest.',
+    'features.outbox.empty.how': 'In einer gespiegelten Datenbank: Befehle an einer Zeile → ein Sendeweg. Claude entwirft, du prüfst und sendest.',
     'features.outbox.empty.noRoutes': 'Auf diesem Gerät ist kein Sendeweg aktiv: Ein Integrationsprofil mit Sendewegen braucht seinen MCP-Server hier, eingeschaltet.',
 
     'features.outbox.routes.title': 'Sendewege',

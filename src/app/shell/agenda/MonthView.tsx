@@ -1,3 +1,4 @@
+import { ALT } from '../../ui/controls'
 import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent } from 'react'
 import { DndContext, DragOverlay } from '@dnd-kit/core'
 import { PenLine, Plus } from 'lucide-react'
@@ -146,7 +147,7 @@ export const isWeekend = (d: number) => {
 }
 
 export function altLabel(): string {
-  return typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent) ? '⌥' : 'Alt'
+  return ALT
 }
 
 function MonthDay({ day, out, hidden }: { day: number; out: boolean; hidden: number }) {

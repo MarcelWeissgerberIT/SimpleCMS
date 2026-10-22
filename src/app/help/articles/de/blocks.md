@@ -22,7 +22,7 @@ Am Zeilenanfang tippen:
 - `> ` — Zitat, `>> ` — Aufklappliste, `!> ` — Hinweisbox
 - ```` ``` ```` — Codeblock, `$$ ` — Formel, `---` — Trennlinie
 
-**Codeblöcke** nummerieren ihre Zeilen ab vier Zeilen und lassen jede Zeile in einer Reihe (lange Zeilen scrollen); die Tasten in ihrer Leiste schalten Zeilennummern und **Zeilen umbrechen** für diesen Block auf diesem Gerät, **Kopieren** kopiert den Code, und ein JSON-Block sagt, ob er gültig ist — oder wo der erste Fehler steckt. ⌘/Strg+A im Block markiert zuerst seinen Code. *One Script* ist eine der Sprachen.
+**Codeblöcke** nummerieren ihre Zeilen ab vier Zeilen und lassen jede Zeile in einer Reihe (lange Zeilen scrollen); die Tasten in ihrer Leiste schalten Zeilennummern und **Zeilen umbrechen** für diesen Block auf diesem Gerät, **Kopieren** kopiert den Code, und ein JSON-Block sagt, ob er gültig ist — oder wo der erste Fehler steckt. <kbd>Mod+A</kbd> im Block markiert zuerst seinen Code. *One Script* ist eine der Sprachen.
 
 Markierter Text zeigt die Werkzeugleiste: fett, kursiv, unterstrichen, durchgestrichen, Code, Link, Farbe, **KI fragen** und **Kommentieren**.
 

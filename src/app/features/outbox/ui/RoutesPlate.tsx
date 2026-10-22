@@ -3,7 +3,7 @@
  * the draft popover for the rows picked (the focused slip's row when nothing is picked), the help line, and the
  * logbook of the focused slip.
  */
-import { Command } from 'lucide-react'
+import { ListTree } from 'lucide-react'
 import type { ID } from '../../../store/types'
 import { useT } from '../../../i18n'
 import { HelpLink } from '../../../help'
@@ -34,7 +34,7 @@ export default function RoutesPlate({ dbId }: { dbId: ID }) {
                 onClick={(e) => openDraft({ dbId, route: r.ref, rowIds: focus ? [focus.target.rowId] : [], anchor: e.currentTarget })}
               >
                 <span className="obx-routekey__cmd" aria-hidden>
-                  <Command size={11} />
+                  <ListTree size={11} />
                 </span>
                 {r.label}
                 <span className="obx-out" title={t('features.outbox.routes.outTitle')}>

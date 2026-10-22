@@ -1,4 +1,5 @@
 import { moneySymbol } from '../lib/money'
+import { shortcutText } from '../ui/controls'
 /**
  * App i18n. Usage:
  *   const t = useT();  t('editor.slash.heading1')  t('db.rows', { count: 3 })
@@ -23,7 +24,7 @@ import { messages as code } from '../ui/code/messages'
 function withSettingsPath(m: Messages): Messages {
   for (const lang of ['en', 'de'] as const) {
     const path = m[lang]['shell.settings.path.ai'] ?? m.en['shell.settings.path.ai'] ?? ''
-    for (const [k, v] of Object.entries(m[lang])) if (v.includes('{settingsAI}')) m[lang][k] = v.split('{settingsAI}').join(path)
+    for (const [k, v] of Object.entries(m[lang])) m[lang][k] = shortcutText(v.split('{settingsAI}').join(path))
   }
   return m
 }

@@ -5,7 +5,7 @@
  * the way to each. Team workspaces: API tokens and webhooks (owners and admins manage them) at the end.
  */
 import { useEffect, type ReactNode } from 'react'
-import { Bot, Cable, CalendarClock, Command, GitBranch, LayoutTemplate, SquareCode, SquareFunction, Workflow, type LucideIcon } from 'lucide-react'
+import { Bot, Cable, CalendarClock, ListTree, GitBranch, LayoutTemplate, SquareCode, SquareFunction, Workflow, type LucideIcon } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
@@ -140,7 +140,7 @@ export function AutomationSection({ team }: { team: TeamData }) {
     },
     {
       id: 'commands',
-      icon: Command,
+      icon: ListTree,
       empty: t('shell.ws.auto.commandsEmpty'),
       items: inv.commands.map(({ dbId, command: c }) => ({
         key: `${dbId}:${c.id}`,

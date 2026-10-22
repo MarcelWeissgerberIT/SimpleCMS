@@ -5,6 +5,7 @@
  * ⌘K, the phone layout, and the public pages prerendered at /help/ (src/help-site) under the /SimpleCMS/ base.
  */
 import { readFileSync } from 'node:fs'
+import { createKeyboardLabels } from '../../src/shared/keyboard.js'
 import type { Page } from '@playwright/test'
 import { test, expect, openApp, wsEval, uiEval, mockClaude, MOD } from './fixtures'
 
@@ -239,7 +240,9 @@ test.describe('help panel', () => {
     expect(/^section: writing$/m.test(md)).toBe(true)
     const no = `§ 02.${order}`
     await openApp(page)
-    await page.keyboard.press(`${MOD === 'Meta' ? 'Meta' : 'Control'}+Alt+z`)
+    const nav = await page.evaluate(() => ({ platform: navigator.platform, userAgentData: { platform: (navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData?.platform } }))
+    const browserMod = createKeyboardLabels(nav).isMac ? 'Meta' : 'Control'
+    await page.keyboard.press(`${browserMod}+Alt+z`)
     await expect(page.locator('section.deck .deck__no')).toHaveAttribute('title', no)
     await page.keyboard.press('Escape')
     await expect(page.locator('section.deck')).toHaveCount(0)

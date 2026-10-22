@@ -234,7 +234,7 @@ export function ChangeView({ id }: { id: string }) {
           <span className="label cl-fig__n">{fig}</span> {entry.alt}
         </figcaption>
       </figure>
-      <Doc blocks={entry.blocks} nav={nav} />
+      <Doc blocks={entry.blocks} nav={nav} platformKeys />
       {entry.try && (
         <div className="cl-try" role="group" aria-label={t('help.news.try')}>
           <span className="label cl-try__label" aria-hidden>

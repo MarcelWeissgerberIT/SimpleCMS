@@ -41,13 +41,18 @@ const tr = (lang: HelpLang) => (key: string, vars?: Record<string, string | numb
   return vars ? raw.replace(/\{(\w+)\}/g, (m, k) => (k in vars ? String(vars[k]) : m)) : raw
 }
 
+/** Preserve the authored label for runtime OS detection, including prose outside keycaps. */
+function platformText(text: string): string {
+  return /[⌘⌥⇧⌃]/.test(text) ? `<span data-shortcut-text="${esc(text)}">${esc(text)}</span>` : esc(text)
+}
+
 /* ------------------------------------------------------------------ */
 /* Article body                                                        */
 /* ------------------------------------------------------------------ */
 
 /** "Mod+Shift+K" → "Ctrl+Shift+K" (the script turns it into ⌘⇧K on a Mac). */
 function kbdHtml(keys: string): string {
-  const combo = /^(Mod|Alt|Shift)\+|\+(Mod|Alt|Shift)\b/.test(keys)
+  const combo = /^(Mod|Alt|Shift|Control)(?:\+|$)|\+(Mod|Alt|Shift|Control)\b|[⌘⌥⇧⌃]/.test(keys)
   const text = combo ? keys.replace(/\bMod\b/g, 'Ctrl') : keys
   return combo ? `<kbd data-keys="${esc(keys)}">${esc(text)}</kbd>` : `<kbd>${esc(text)}</kbd>`
 }
@@ -57,7 +62,7 @@ function inlineHtml(nodes: Inline[], href: (id: string) => string): string {
     .map((n) => {
       switch (n.t) {
         case 'text':
-          return esc(n.v)
+          return platformText(n.v)
         case 'b':
           return `<strong>${inlineHtml(n.c, href)}</strong>`
         case 'i':
@@ -204,7 +209,7 @@ function indexPage(lib: HelpLibrary, lang: HelpLang, opts: SiteOptions, newest?:
         <section class="chap" id="${s.id}" aria-labelledby="chap-${s.id}">
           <h2 class="chap-head" id="chap-${s.id}"><span class="chap-num">§ ${s.num}</span><span class="chap-name">${esc(t(`help.sec.${s.id}`))}</span><span class="chap-rule" aria-hidden="true"></span><span class="lbl">${String(list.length).padStart(2, '0')}</span></h2>
           <ul class="rows">
-            ${list.map((a) => `<li><a class="row" href="${esc(href(a.id))}"><span class="row-num">${a.num}</span><span class="row-main"><span class="row-title">${esc(a.title)}</span><span class="row-sum">${esc(a.summary)}</span></span><span class="row-go" aria-hidden="true">→</span></a></li>`).join('\n            ')}
+            ${list.map((a) => `<li><a class="row" href="${esc(href(a.id))}"><span class="row-num">${a.num}</span><span class="row-main"><span class="row-title">${platformText(a.title)}</span><span class="row-sum">${platformText(a.summary)}</span></span><span class="row-go" aria-hidden="true">→</span></a></li>`).join('\n            ')}
           </ul>
         </section>`
   }).join('')
@@ -242,28 +247,28 @@ function articlePage(lib: HelpLibrary, lang: HelpLang, a: HelpArticle, opts: Sit
   const other: HelpLang = lang === 'de' ? 'en' : 'de'
   const twin = lib[other].some((x) => x.id === a.id)
   const toc = chapter
-    .map((x) => `<li><a href="${esc(href(x.id))}"${x.id === a.id ? ' aria-current="page"' : ''}><span class="row-num">${x.num}</span>${esc(x.title)}</a></li>`)
+    .map((x) => `<li><a href="${esc(href(x.id))}"${x.id === a.id ? ' aria-current="page"' : ''}><span class="row-num">${x.num}</span>${platformText(x.title)}</a></li>`)
     .join('')
   const main = `
       <div class="wrap art-grid">
         <article class="art" aria-labelledby="art-h">
           <nav class="crumbs lbl" aria-label="${esc(t('help.crumbs'))}"><a href="${esc(home)}">${esc(t('help.home'))}</a><span aria-hidden="true">/</span><a href="${esc(`${home}#${a.section}`)}">§ ${sectionNum(a.section)} ${esc(t(`help.sec.${a.section}`))}</a></nav>
           <p class="lbl art-code">§ ${a.num} · ${esc(t('help.minutes', { n: a.minutes }))}</p>
-          <h1 id="art-h" class="art-title">${esc(a.title)}</h1>
-          ${a.summary ? `<p class="art-sum">${esc(a.summary)}</p>` : ''}
+          <h1 id="art-h" class="art-title">${platformText(a.title)}</h1>
+          ${a.summary ? `<p class="art-sum">${platformText(a.summary)}</p>` : ''}
           <div class="doc">
 ${blocksHtml(a.blocks, href)}
           </div>
           ${
             related.length
               ? `<section class="related" aria-labelledby="rel-h"><h2 class="lbl" id="rel-h">${esc(t('help.related'))}</h2><ul class="rows">${related
-                  .map((r) => `<li><a class="row" href="${esc(href(r.id))}"><span class="row-num">${r.num}</span><span class="row-main"><span class="row-title">${esc(r.title)}</span></span><span class="row-go" aria-hidden="true">→</span></a></li>`)
+                  .map((r) => `<li><a class="row" href="${esc(href(r.id))}"><span class="row-num">${r.num}</span><span class="row-main"><span class="row-title">${platformText(r.title)}</span></span><span class="row-go" aria-hidden="true">→</span></a></li>`)
                   .join('')}</ul></section>`
               : ''
           }
           ${
             prev || next
-              ? `<nav class="pager" aria-label="${esc(t('help.inSection'))}">${prev ? `<a class="pager-link" href="${esc(href(prev.id))}"><span class="lbl">← ${esc(t('help.prev'))} · ${prev.num}</span><span>${esc(prev.title)}</span></a>` : '<span></span>'}${next ? `<a class="pager-link pager-next" href="${esc(href(next.id))}"><span class="lbl">${esc(t('help.next'))} · ${next.num} →</span><span>${esc(next.title)}</span></a>` : ''}</nav>`
+              ? `<nav class="pager" aria-label="${esc(t('help.inSection'))}">${prev ? `<a class="pager-link" href="${esc(href(prev.id))}"><span class="lbl">← ${esc(t('help.prev'))} · ${prev.num}</span><span>${platformText(prev.title)}</span></a>` : '<span></span>'}${next ? `<a class="pager-link pager-next" href="${esc(href(next.id))}"><span class="lbl">${esc(t('help.next'))} · ${next.num} →</span><span>${platformText(next.title)}</span></a>` : ''}</nav>`
               : ''
           }
         </article>
@@ -288,7 +293,7 @@ export const CHANGELOG_FEED = 'help/changelog.xml'
 /** The index's pointer to the newest entry. */
 function newsLink(lang: HelpLang, opts: SiteOptions, e: ChangelogEntry): string {
   const t = tr(lang)
-  return `<a class="news-link" href="${esc(`${opts.base}${changelogPath(lang)}`)}"><span class="lbl news-link__k">§ 00 — ${esc(t('help.site.news.link'))}</span><span class="news-link__t"><span class="lbl news-link__d">${esc(t('help.site.news.latest'))} · ${esc(entryDateLabel(e.date, lang))}</span> ${esc(e.title)}</span><span class="row-go" aria-hidden="true">→</span></a>`
+  return `<a class="news-link" href="${esc(`${opts.base}${changelogPath(lang)}`)}"><span class="lbl news-link__k">§ 00 — ${esc(t('help.site.news.link'))}</span><span class="news-link__t"><span class="lbl news-link__d">${esc(t('help.site.news.latest'))} · ${esc(entryDateLabel(e.date, lang))}</span> ${platformText(e.title)}</span><span class="row-go" aria-hidden="true">→</span></a>`
 }
 
 const figNum = (i: number, total: number) => String(total - i).padStart(2, '0')
@@ -310,8 +315,8 @@ function changelogPage(news: SiteNews, lib: HelpLibrary, lang: HelpLang, opts: S
       return `
           <article class="news" id="${esc(e.id)}" aria-labelledby="${esc(e.id)}-h">
             <p class="lbl news-meta"><time datetime="${esc(e.date)}">${esc(entryDateLabel(e.date, lang))}</time><span aria-hidden="true">·</span><span>${esc(fig(i))}</span><a class="news-anchor" href="#${esc(e.id)}" aria-label="${esc(t('help.site.news.permalink'))}: ${esc(e.title)}">#</a></p>
-            <h2 id="${esc(e.id)}-h" class="news-title">${esc(e.title)}</h2>
-            ${e.summary ? `<p class="news-sum">${esc(e.summary)}</p>` : ''}
+            <h2 id="${esc(e.id)}-h" class="news-title">${platformText(e.title)}</h2>
+            ${e.summary ? `<p class="news-sum">${platformText(e.summary)}</p>` : ''}
             <figure class="news-fig"><a href="${esc(src)}"><img src="${esc(src)}"${dims} alt="${esc(e.alt)}" loading="lazy" decoding="async" /></a><figcaption><span class="lbl news-fig__n">${esc(fig(i))}</span> ${esc(e.alt)}</figcaption></figure>
             <div class="doc news-doc">
 ${blocksHtml(e.blocks, href)}
@@ -319,14 +324,14 @@ ${blocksHtml(e.blocks, href)}
             ${tryLine}
             ${
               related.length
-                ? `<ul class="rows news-rel">${related.map((r) => `<li><a class="row" href="${esc(href(r.id))}"><span class="row-num">${r.num}</span><span class="row-main"><span class="row-title">${esc(r.title)}</span></span><span class="row-go" aria-hidden="true">→</span></a></li>`).join('')}</ul>`
+                ? `<ul class="rows news-rel">${related.map((r) => `<li><a class="row" href="${esc(href(r.id))}"><span class="row-num">${r.num}</span><span class="row-main"><span class="row-title">${platformText(r.title)}</span></span><span class="row-go" aria-hidden="true">→</span></a></li>`).join('')}</ul>`
                 : ''
             }
           </article>`
     })
     .join('')
   const toc = entries
-    .map((e) => `<li><a href="#${esc(e.id)}"><span class="row-num">${esc(entryDateLabel(e.date, lang).slice(0, 6))}</span>${esc(e.title)}</a></li>`)
+    .map((e) => `<li><a href="#${esc(e.id)}"><span class="row-num">${esc(entryDateLabel(e.date, lang).slice(0, 6))}</span>${platformText(e.title)}</a></li>`)
     .join('')
   const main = `
       <div class="wrap">

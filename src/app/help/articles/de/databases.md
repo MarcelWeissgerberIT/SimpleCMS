@@ -23,6 +23,6 @@ In der Werkzeugleiste der Datenbank, **•••**:
 - **Als CSV exportieren**, und **.ics exportieren** für Datenbanken mit Datum (für Kalender-Apps).
 - **Link kopieren** zur Datenbank.
 
-Neuer Eintrag, CSV-Export, eine Ansicht und mehr sind auch die [Befehle](help:database-commands) der Datenbank: die Taste **⌘** an ihrer Zeile in der Seitenleiste und in ihrer Werkzeugleiste — und du kannst eigene hinzufügen.
+Neuer Eintrag, CSV-Export, eine Ansicht und mehr sind auch die [Befehle](help:database-commands) der Datenbank: die Taste **Befehle** an ihrer Zeile in der Seitenleiste und in ihrer Werkzeugleiste — und du kannst eigene hinzufügen.
 
 > Du ziehst aus Notion, Trello oder einer Tabelle um? Nimm **Importieren** in der Seitenleiste — ganze Datenbanken kommen mit ihren Eigenschaften an.

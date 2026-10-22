@@ -4,7 +4,7 @@
  * the database toolbar's key; ⌘K gets them flat (palette.ts).
  */
 import { useState } from 'react'
-import { Command, SlidersHorizontal, Zap } from 'lucide-react'
+import { ListTree, SlidersHorizontal, Zap } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
 import type { ID } from '../../store/types'
@@ -129,7 +129,7 @@ export interface DbCommandKeyProps {
   onOpenChange?: (open: boolean) => void
 }
 
-/** The command key: ⌘ glyph, an LED while a command of the database runs (or its Gmail sync). */
+/** The command key: neutral list glyph, an LED while a command of the database runs (or its Gmail sync). */
 export function DbCommandKey({ dbId, variant, rowIds, host, onOpenChange }: DbCommandKeyProps) {
   const t = useT()
   const [anchor, setAnchor] = useState<Element | null>(null)
@@ -156,7 +156,7 @@ export function DbCommandKey({ dbId, variant, rowIds, host, onOpenChange }: DbCo
         set(anchor ? null : e.currentTarget)
       }}
     >
-      <Command size={14} strokeWidth={1.75} aria-hidden />
+      <ListTree size={14} strokeWidth={1.75} aria-hidden />
       {(busy || syncing) && <span className="led led--on cmd-key__led" aria-hidden />}
     </button>
   )

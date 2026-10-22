@@ -3,7 +3,7 @@
  * (the DARF chip — G1 has no lever: what each kind of work does by itself). Names come from the workspace live (agents,
  * databases, properties); the ledger itself holds ids only.
  */
-import { Blocks, Bot, Brain, CircleDot, CircleHelp, ClipboardCheck, Command, Mail, MessagesSquare, Mic, Palette, PenLine, Plug, Send, SquareCode, SquareTerminal, TableProperties, Wand, type LucideIcon } from 'lucide-react'
+import { Blocks, Bot, Brain, CircleDot, CircleHelp, ClipboardCheck, ListTree, Mail, MessagesSquare, Mic, Palette, PenLine, Plug, Send, SquareCode, SquareTerminal, TableProperties, Wand, type LucideIcon } from 'lucide-react'
 import type { Translate } from '@/shared/i18n'
 import type { CustomAgent, Database, Page } from '../../../store/types'
 import { shortcutLabel } from '../../../ui/controls'
@@ -23,7 +23,7 @@ const ICONS: Record<ConsumerKind, LucideIcon> = {
   mail: Mail,
   outbox: Send,
   script: SquareCode,
-  palette: Command,
+  palette: ListTree,
   workspace: MessagesSquare,
   help: CircleHelp,
   memory: Brain,

@@ -10,7 +10,7 @@ import { useWorkspace } from '../../store/store'
 import { isEffectivelyTrashed } from '../../store/selectors'
 import { toast } from '../../store/ui'
 import { useT } from '../../i18n'
-import { isMac } from '../../ui/controls'
+import { shortcutLabel } from '../../ui/controls'
 import { asVariant, normalizeActions, type ButtonAction, type ButtonVariant } from '../schema/button'
 import { consumeFreshButton, runButton } from '../lib/buttonRun'
 import { ButtonConfig, type ButtonDraft } from './ButtonConfig'
@@ -89,7 +89,7 @@ export function ButtonView({ node, editor, getPos, selected, updateAttributes }:
           <span className={`ob__count label${count ? '' : ' is-empty'}`}>{count ? t(count === 1 ? 'editor.button.count.one' : 'editor.button.count', { count }) : t('editor.button.none')}</span>
           {selected && (
             <span className="ob__keys label" aria-hidden>
-              <kbd className="kbd">{isMac ? '⌘↵' : 'Ctrl ↵'}</kbd> {t('editor.button.hint.run')} <kbd className="kbd">⇧↵</kbd> {t('editor.button.hint.edit')}
+              <kbd className="kbd">{shortcutLabel('Mod+↵')}</kbd> {t('editor.button.hint.run')} <kbd className="kbd">{shortcutLabel('Shift+↵')}</kbd> {t('editor.button.hint.edit')}
             </span>
           )}
         </span>

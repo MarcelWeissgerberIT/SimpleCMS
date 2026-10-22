@@ -28,14 +28,14 @@ Type `@` and pick a page, database or person: it becomes a chip. The chip keeps 
 - Try the **dry run** first: it shows what the script would change without changing anything.
 
 ## Autocomplete
-The editor suggests while you type — after one letter, after `.` and `@`, and inside a text where an option fits; <kbd>Ctrl+Space</kbd> (<kbd>⌥Esc</kbd> on a Mac) asks for suggestions anywhere. <kbd>↑</kbd> <kbd>↓</kbd> choose, <kbd>Enter</kbd> or <kbd>Tab</kbd> take, <kbd>Esc</kbd> closes; with the list closed, Enter is a new line.
+The editor suggests while you type — after one letter, after `.` and `@`, and inside a text where an option fits; <kbd>Ctrl+Space</kbd> (Option+Esc on a Mac) asks for suggestions anywhere. <kbd>↑</kbd> <kbd>↓</kbd> choose, <kbd>Enter</kbd> or <kbd>Tab</kbd> take, <kbd>Esc</kbd> closes; with the list closed, Enter is a new line.
 
 - It knows what a value is: after `db(@Tasks).` the query methods, after `.rows.` the list methods, on an entry its properties first (with their type and options), on a page, a text or a date their members — each with its signature and one line about it.
 - Inside `.where(`, `.sort(`, `.group(` … the database's properties come as names (in backticks when they need them); inside `t.set(` and `.add(` as `Property: `.
 - After `Status = `, `Status != ` or `set(Status: ` come the option names as texts, for a checkbox `true` / `false`, for a date `today()`, `today() + 7d` …, for people `me()` and their names.
 - `@` finds pages, databases, entries, people, agents and scripts — typos too — the most recently edited first.
 - **Snippets** at the start of a line: `for`, `if`, `ifelse`, `fn`, `let`, `query`, `each`, `mail`, `confirm`, `choose`, `ask`, `notify`, `claude`. <kbd>Tab</kbd> jumps to the next place to fill, <kbd>Shift+Tab</kbd> back, <kbd>Esc</kbd> leaves them.
-- The bar below the code shows the call you are in, its current argument marked. <kbd>F1</kbd> or <kbd>Mod+I</kbd> — or <kbd>Ctrl</kbd> / <kbd>⌘</kbd> + hover — explains the name at the caret.
+- The bar below the code shows the call you are in, its current argument marked. <kbd>F1</kbd> or <kbd>Mod+I</kbd> — or <kbd>Mod</kbd> + hover — explains the name at the caret.
 
 ## Run, dry run, stop
 - <kbd>Mod+Shift+Enter</kbd> — **Dry run**: reads for real, changes nothing, sends nothing, and lists what the script *would* do ("change 2 entries in Tasks, send a mail to …").

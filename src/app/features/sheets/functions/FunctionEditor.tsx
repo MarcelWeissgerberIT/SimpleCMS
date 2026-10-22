@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { Redo2, Undo2 } from 'lucide-react'
 import type { CustomFunction, FnParam, ID } from '../../../store/types'
 import { useT } from '../../../i18n'
-import { Kbd, MOD } from '../../../ui/controls'
+import { Kbd, MOD, shortcutLabel } from '../../../ui/controls'
 import type { Catalog } from './catalog'
 import { ExprTree } from './ExprTree'
 import { NodeMenu, type NodeAction } from './NodeMenu'
@@ -358,7 +358,7 @@ export function FunctionEditor(props: FunctionEditorProps) {
                   disabled={!props.canRedo}
                   onClick={props.onRedo}
                   aria-label={t('features.fn.redo')}
-                  title={`${t('features.fn.redo')} · ${MOD}⇧Z`}
+                  title={`${t('features.fn.redo')} · ${shortcutLabel('Mod+Shift+Z')}`}
                 >
                   <Redo2 size={13} />
                 </button>

@@ -9,7 +9,7 @@ summary: Claude entwirft eine Antwort oder Änderung für ein anderes Werkzeug, 
 ---
 In ein anderes Werkzeug schreiben — ein Kommentar im Ticket, ein Status, gebuchte Zeit — ist die Stelle, an der ein Fehler am meisten kostet. Der Ausgang teilt das in drei Schritte, und nur der letzte gehört allein dir:
 
-1. **Claude entwirft.** ⌘ auf einer gespiegelten Zeile → **Im Ticket-Tool antworten**. Claude schreibt den Text in einer Anfrage **ganz ohne Werkzeuge** — es kann nichts senden, was auch immer in der Zeile steht.
+1. **Claude entwirft.** Befehle auf einer gespiegelten Zeile → **Im Ticket-Tool antworten**. Claude schreibt den Text in einer Anfrage **ganz ohne Werkzeuge** — es kann nichts senden, was auch immer in der Zeile steht.
 2. **Du schaust.** Aus dem Entwurf wird ein **Zettel**: der Text genau so, wie er rausgeht, die Eingaben des Werkzeugs, was sich danach in One ändert, was Claude gelesen hat — jedes Stück Text von anderen ist **FREMD** markiert.
 3. **Du sendest.** **Kopieren & öffnen**, im anderen Werkzeug posten, **Als gesendet markieren**. One aktualisiert die Zeile und behält eine Quittung.
 
@@ -39,7 +39,7 @@ Ein Sendeweg gehört zu einem [Integrationsprofil](help:integrations) (`sends`).
 Das Profil braucht die Freischaltungen `sends` und `keys` und muss seinen Server **über Name oder Host** finden. Jedes `sends[].tool` ist dann **OUT**: in jeder Claude-Anfrage, die One für diesen Server stellt, abgeschaltet — egal, was Werkzeuglisten, Codewörter oder gewählte Werkzeuge sagen. **Einstellungen → Claude KI → MCP-Server** zeigt pro Server, wie viele OUT sind.
 
 ## Einen Zettel entwerfen
-Ein Sendeweg erscheint als [Datenbank-Befehl](help:database-commands) der gespiegelten Datenbank: die ⌘-Taste an ihrer Zeile in der Seitenleiste, das Rechtsklick-Menü, die ⌘-Taste der Werkzeugleiste (erst eine Zeile wählen) und ⌘K „<Datenbank>: Im Ticket-Tool antworten“. Die Tafel **Sendewege** unter der Tabelle listet sie auch.
+Ein Sendeweg erscheint als [Datenbank-Befehl](help:database-commands) der gespiegelten Datenbank: die Befehle-Taste an ihrer Zeile in der Seitenleiste, das Rechtsklick-Menü, die Befehle-Taste der Werkzeugleiste (erst eine Zeile wählen) und ⌘K „<Datenbank>: Im Ticket-Tool antworten“. Die Tafel **Sendewege** unter der Tabelle listet sie auch.
 
 Das Popover nimmt eine Anweisung (optional) — `@` oder `one:` erwähnt deine eigenen Seiten — und bietet **Claude entwirft** (↵) oder **Selbst schreiben**. Claude liest die Zeile (als Text von anderen), die Seiten, die du erwähnst (nur, was ihre Kontext-Marken durchlassen), dein [Gedächtnis](help:memory) und deine Anweisung; die Kostenzeile zeigt, was es gekostet hat. Mit mehreren gewählten Zeilen bekommt jede ihren eigenen Zettel (bis zu 10). Das Popover zu schließen hält keinen Entwurf an.
 

@@ -28,14 +28,14 @@ Tippe `@` und wähle eine Seite, Datenbank oder Person: sie wird zum Chip. Der C
 - Probier zuerst den **Probelauf**: Er zeigt, was das Skript ändern würde, ohne etwas zu ändern.
 
 ## Autovervollständigung
-Der Editor schlägt beim Tippen vor — nach einem Buchstaben, nach `.` und `@` und in einem Text, wo eine Option passt; <kbd>Strg+Leertaste</kbd> (<kbd>⌥Esc</kbd> auf dem Mac) holt Vorschläge überall. <kbd>↑</kbd> <kbd>↓</kbd> wählen, <kbd>Enter</kbd> oder <kbd>Tab</kbd> übernehmen, <kbd>Esc</kbd> schließt; ist die Liste zu, macht Enter eine neue Zeile.
+Der Editor schlägt beim Tippen vor — nach einem Buchstaben, nach `.` und `@` und in einem Text, wo eine Option passt; <kbd>Strg+Leertaste</kbd> (Option+Esc auf dem Mac) holt Vorschläge überall. <kbd>↑</kbd> <kbd>↓</kbd> wählen, <kbd>Enter</kbd> oder <kbd>Tab</kbd> übernehmen, <kbd>Esc</kbd> schließt; ist die Liste zu, macht Enter eine neue Zeile.
 
 - Er weiß, was ein Wert ist: nach `db(@Aufgaben).` die Abfrage-Methoden, nach `.rows.` die Listen-Methoden, bei einem Eintrag zuerst seine Eigenschaften (mit Typ und Optionen), bei einer Seite, einem Text oder einem Datum deren Mitglieder — jedes mit Signatur und einer Zeile dazu.
 - In `.where(`, `.sort(`, `.group(` … kommen die Eigenschaften der Datenbank als Namen (in Backticks, wo nötig); in `t.set(` und `.add(` als `Eigenschaft: `.
 - Nach `Status = `, `Status != ` oder `set(Status: ` kommen die Optionen als Texte, bei einer Checkbox `true` / `false`, bei einem Datum `today()`, `today() + 7d` …, bei Personen `me()` und ihre Namen.
 - `@` findet Seiten, Datenbanken, Einträge, Personen, Agenten und Skripte — auch mit Tippfehlern —, die zuletzt bearbeiteten zuerst.
 - **Bausteine** am Zeilenanfang: `for`, `if`, `ifelse`, `fn`, `let`, `query`, `each`, `mail`, `confirm`, `choose`, `ask`, `notify`, `claude`. <kbd>Tab</kbd> springt zur nächsten Stelle zum Ausfüllen, <kbd>Shift+Tab</kbd> zurück, <kbd>Esc</kbd> verlässt sie.
-- Die Leiste unter dem Code zeigt den Aufruf, in dem du bist, mit markiertem Argument. <kbd>F1</kbd> oder <kbd>Mod+I</kbd> — oder <kbd>Strg</kbd> / <kbd>⌘</kbd> + Zeigen — erklärt den Namen an der Schreibmarke.
+- Die Leiste unter dem Code zeigt den Aufruf, in dem du bist, mit markiertem Argument. <kbd>F1</kbd> oder <kbd>Mod+I</kbd> — oder <kbd>Mod</kbd> + Zeigen — erklärt den Namen an der Schreibmarke.
 
 ## Ausführen, Probelauf, Stopp
 - <kbd>Mod+Shift+Enter</kbd> — **Probelauf**: liest wirklich, ändert nichts, sendet nichts und listet, was das Skript tun *würde* („2 Einträge in Aufgaben ändern, eine Mail an … senden“).

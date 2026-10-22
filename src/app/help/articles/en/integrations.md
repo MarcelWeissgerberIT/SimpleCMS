@@ -24,7 +24,7 @@ At least one condition is needed. The list shows an LED per profile and why: **A
 - `toolAllowList` — retained for older profiles; MCP tool selection in the agent editor is always available.
 - `agentState` — `agent_state_get` / `agent_state_set` between runs.
 - `notify` — `notify_me`: an agent's notes in your inbox.
-- `sends` — the profile's send routes for the [Outbox](help:outbox): ⌘ → “Reply in the ticket tool” on a mirrored row, drafted without tools, sent by you.
+- `sends` — the profile's send routes for the [Outbox](help:outbox): Commands → “Reply in the ticket tool” on a mirrored row, drafted without tools, sent by you.
 
 Except for MCP tool selection, these switches, tools and sections need an active profile. What is already set **stays in force**: a property that is the key stays unique, “Only by hand” fields stay closed to every agent, and an agent that already has a tool list keeps it. A field set to “Only by hand” shows its switch in the property menu to everyone, so it can always be switched off there.
 

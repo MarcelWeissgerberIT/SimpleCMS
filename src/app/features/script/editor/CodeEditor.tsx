@@ -12,6 +12,7 @@
  * Tab / Shift+Tab, Esc leaves them. F1 or Mod+I shows what the name at the caret is (Ctrl / ⌘ + hover too).
  * Backspace after a chip removes the whole chip. The parent handles run keys (onKey).
  */
+import { isMac as platformIsMac } from '../../../ui/controls'
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react'
 import { useT } from '../../../i18n'
 import type { Translate } from '@/shared/i18n'
@@ -84,7 +85,7 @@ const SYNC_MAX = 8000
 /** The source of a reference token. */
 export const refToken = (c: Pick<RefCandidate, 'label' | 'kind' | 'id'>) => `@[${c.label.replace(/[\]\\]/g, (x) => `\\${x}`).replace(/\n/g, ' ')}](${c.kind}:${c.id})`
 
-const isMac = () => typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent)
+const isMac = () => platformIsMac
 
 /* ------------------------------------------------------------------ texts of candidates */
 

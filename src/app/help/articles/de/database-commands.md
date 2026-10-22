@@ -10,9 +10,9 @@ summary: Jede Datenbank hat ein Menü mit Befehlen — Neuer Eintrag, CSV-Export
 Jede Datenbank hat eine kurze Liste von Befehlen: das, was du am häufigsten mit ihr tust, einen Klick entfernt.
 
 ## Wo sie sind
-- **Seitenleiste:** mit der Maus über eine Datenbank fahren und auf die Taste **⌘** neben **+** klicken. Auf dem Handy **⋯** antippen — die Befehle stehen oben in diesem Menü.
+- **Seitenleiste:** mit der Maus über eine Datenbank fahren und auf die Taste **Befehle** neben **+** klicken. Auf dem Handy **⋯** antippen — die Befehle stehen oben in diesem Menü.
 - **Rechtsklick** auf eine Datenbank in der Seitenleiste: Der Abschnitt **Befehle** kommt zuerst.
-- **Datenbankseite:** die Taste **⌘** in der Werkzeugleiste.
+- **Datenbankseite:** die Taste **Befehle** in der Werkzeugleiste.
 - **⌘K:** den Namen der Datenbank oder den Befehl tippen, z. B. *Mails: Jetzt synchronisieren* oder *Projekte: Als CSV exportieren*.
 
 ## Die Standardbefehle
@@ -33,6 +33,6 @@ Läuft ein Befehl, leuchtet die LED an der Taste; das Ergebnis kommt als kurze M
   - **Agent ausführen** — einer deiner [eigenen Agenten](help:custom-agents),
   - **Ansicht öffnen** — die Datenbank in einer ihrer Ansichten.
 
-*Eigenschaften ändern* betrifft die Zeilen, die du in der Tabelle markiert hast — starte den Befehl mit der Taste **⌘** auf der Datenbankseite.
+*Eigenschaften ändern* betrifft die Zeilen, die du in der Tabelle markiert hast — starte den Befehl mit der Taste **Befehle** auf der Datenbankseite.
 
 > Eine **gesperrte** Datenbank behält ihre Befehle, wie sie sind: Sie laufen weiter, aber niemand ändert die Liste, bis sie entsperrt ist. In einem Team-Arbeitsbereich werden die Befehle wie die Datenbank geteilt; Leser sehen nur Befehle, die nichts verändern, und Agenten folgen ihren eigenen Regeln (ein Browser-Agent läuft im Browser seines Erstellers).

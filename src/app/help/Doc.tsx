@@ -3,7 +3,7 @@
  * keycaps. `help:<id>` links open the article in the panel; web links open in a new tab.
  */
 import { Fragment, type ReactNode } from 'react'
-import { shortcutLabel } from '../ui/controls'
+import { shortcutLabel, shortcutText } from '../ui/controls'
 import { helpLinkId, type Block, type Inline } from './markdown'
 import type { Range } from './search'
 
@@ -17,23 +17,25 @@ export interface DocProps {
   blocks: Block[]
   nav: DocNav
   className?: string
+  /** Normalize legacy shortcut prose only in the bundled manual, never arbitrary answers. */
+  platformKeys?: boolean
 }
 
 /** "Mod+K" → the platform's label (⌘K / Ctrl+K); single keys and words stay as written. */
-export const keyLabel = (keys: string): string => (/^(Mod|Alt|Shift)\+/.test(keys) || /\+(Mod|Alt|Shift)\b/.test(keys) ? shortcutLabel(keys) : keys)
+export const keyLabel = shortcutLabel
 
-export function Doc({ blocks, nav, className }: DocProps) {
+export function Doc({ blocks, nav, className, platformKeys = false }: DocProps) {
   return (
     <div className={`help-doc${className ? ` ${className}` : ''}`}>
       {blocks.map((b, i) => (
-        <BlockView key={i} block={b} nav={nav} />
+        <BlockView key={i} block={b} nav={nav} platformKeys={platformKeys} />
       ))}
     </div>
   )
 }
 
-function BlockView({ block: b, nav }: { block: Block; nav: DocNav }) {
-  const inl = (c: Inline[]) => <Inlines nodes={c} nav={nav} />
+function BlockView({ block: b, nav, platformKeys }: { block: Block; nav: DocNav; platformKeys: boolean }) {
+  const inl = (c: Inline[]) => <Inlines nodes={c} nav={nav} platformKeys={platformKeys} />
   switch (b.t) {
     case 'h2':
       return <h4 className="help-doc__h2">{inl(b.c)}</h4>
@@ -80,21 +82,21 @@ function BlockView({ block: b, nav }: { block: Block; nav: DocNav }) {
   }
 }
 
-export function Inlines({ nodes, nav }: { nodes: Inline[]; nav: DocNav }): ReactNode {
+export function Inlines({ nodes, nav, platformKeys = false }: { nodes: Inline[]; nav: DocNav; platformKeys?: boolean }): ReactNode {
   return nodes.map((n, i) => {
     switch (n.t) {
       case 'text':
-        return <Fragment key={i}>{n.v}</Fragment>
+        return <Fragment key={i}>{platformKeys ? shortcutText(n.v) : n.v}</Fragment>
       case 'b':
         return (
           <strong key={i}>
-            <Inlines nodes={n.c} nav={nav} />
+            <Inlines nodes={n.c} nav={nav} platformKeys={platformKeys} />
           </strong>
         )
       case 'i':
         return (
           <em key={i}>
-            <Inlines nodes={n.c} nav={nav} />
+            <Inlines nodes={n.c} nav={nav} platformKeys={platformKeys} />
           </em>
         )
       case 'code':
@@ -102,7 +104,7 @@ export function Inlines({ nodes, nav }: { nodes: Inline[]; nav: DocNav }): React
       case 'kbd':
         return (
           <kbd key={i} className="kbd help-doc__kbd">
-            {keyLabel(n.v)}
+            {platformKeys || !/[⌘⌥⇧⌃]/.test(n.v) ? keyLabel(n.v) : n.v}
           </kbd>
         )
       case 'link': {
@@ -120,17 +122,17 @@ export function Inlines({ nodes, nav }: { nodes: Inline[]; nav: DocNav }): React
                 nav.open(id)
               }}
             >
-              <Inlines nodes={n.c} nav={nav} />
+              <Inlines nodes={n.c} nav={nav} platformKeys={platformKeys} />
             </a>
           )
         const safe = /^https?:\/\//i.test(n.href)
         return safe ? (
           <a key={i} href={n.href} target="_blank" rel="noopener noreferrer" className="help-doc__link help-doc__link--out">
-            <Inlines nodes={n.c} nav={nav} />
+            <Inlines nodes={n.c} nav={nav} platformKeys={platformKeys} />
           </a>
         ) : (
           <Fragment key={i}>
-            <Inlines nodes={n.c} nav={nav} />
+            <Inlines nodes={n.c} nav={nav} platformKeys={platformKeys} />
           </Fragment>
         )
       }

@@ -44,7 +44,7 @@ export const discoverMessages: Messages = {
     'shell.discover.card.palette.how': 'then type',
     'shell.discover.card.commands.title': 'Database commands',
     'shell.discover.card.commands.what': 'Every database has its menu of things to run — built-in ones and your own.',
-    'shell.discover.card.commands.how': 'The ⌘ key next to a database in the sidebar',
+    'shell.discover.card.commands.how': 'The Commands button next to a database in the sidebar',
 
     'shell.discover.card.aiMenu.title': 'The AI menu',
     'shell.discover.card.aiMenu.what': 'Rewrite, fix, translate, summarise — or ask in your own words. Works on images and files too.',
@@ -128,7 +128,7 @@ export const discoverMessages: Messages = {
     'shell.discover.card.palette.how': 'dann tippen',
     'shell.discover.card.commands.title': 'Datenbank-Befehle',
     'shell.discover.card.commands.what': 'Jede Datenbank hat ihr Menü zum Ausführen — eingebaute Befehle und eigene.',
-    'shell.discover.card.commands.how': 'Die ⌘-Taste neben einer Datenbank in der Seitenleiste',
+    'shell.discover.card.commands.how': 'Die Befehle-Taste neben einer Datenbank in der Seitenleiste',
 
     'shell.discover.card.aiMenu.title': 'Das KI-Menü',
     'shell.discover.card.aiMenu.what': 'Umschreiben, korrigieren, übersetzen, zusammenfassen — oder in eigenen Worten fragen. Auch für Bilder und Dateien.',

@@ -23,6 +23,6 @@ In the database toolbar, **•••**:
 - **Export as CSV**, and **Export .ics** for databases with dates (for calendar apps).
 - **Copy link** to the database.
 
-New entry, Export CSV, a view and more are also the database's [commands](help:database-commands): the **⌘** key on its sidebar row and in its toolbar — and you can add your own.
+New entry, Export CSV, a view and more are also the database's [commands](help:database-commands): the **Commands** key on its sidebar row and in its toolbar — and you can add your own.
 
 > Moving in from Notion, Trello or a spreadsheet? Use **Import** in the sidebar — whole databases arrive with their properties.

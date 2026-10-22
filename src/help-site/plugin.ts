@@ -141,7 +141,7 @@ export function helpSite({ root, io, origin = 'https://getonecms.com', hash }: H
     }).join('\n')
     return `${faces}\n${io.readText(dir('src/shared/tokens.css'))}\n${io.readText(dir('src/help-site/help-site.css'))}`
   }
-  const script = () => io.readText(dir('src/help-site/help.js'))
+  const script = () => io.readText(dir('src/shared/keyboard.js')).replace('export function', 'function') + '\n' + io.readText(dir('src/help-site/help.js'))
 
   return {
     name: 'one-help-site',

@@ -26,7 +26,7 @@ Select a range and click **Chart** in the spreadsheet toolbar. A sheet's chart c
 
 ## Open large, zoom, minimap
 **Open large** — the ↗ key on a chart or a Mermaid diagram, its block menu or a double-click on the drawing — shows it across the screen, sharp at every size:
-- **Zoom:** <kbd>+</kbd> <kbd>−</kbd>, <kbd>Ctrl</kbd> / <kbd>⌘</kbd> + wheel or a pinch (around the pointer), a double-click (<kbd>Shift</kbd> = out). <kbd>0</kbd> fits it into the window, <kbd>1</kbd> shows it at 100 %.
+- **Zoom:** <kbd>+</kbd> <kbd>−</kbd>, <kbd>Mod</kbd> + wheel or a pinch (around the pointer), a double-click (<kbd>Shift</kbd> = out). <kbd>0</kbd> fits it into the window, <kbd>1</kbd> shows it at 100 %.
 - **Move:** drag, the wheel or the arrow keys (<kbd>Shift</kbd> = bigger steps).
 - **Minimap:** bottom right while the drawing is larger than the window — click a spot or drag the orange frame to go there; <kbd>M</kbd> hides and shows it.
 - **Download SVG** saves the drawing; <kbd>Esc</kbd> closes.

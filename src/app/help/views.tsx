@@ -224,7 +224,7 @@ export function ArticleView({ id }: { id: string }) {
         {a.title}
       </h3>
       {a.summary && <p className="help-art__summary">{a.summary}</p>}
-      <Doc blocks={a.blocks} nav={nav} />
+      <Doc blocks={a.blocks} nav={nav} platformKeys />
       {related.length > 0 && (
         <section className="help-related" aria-labelledby="help-related-h">
           <h4 className="label help-related__label" id="help-related-h">

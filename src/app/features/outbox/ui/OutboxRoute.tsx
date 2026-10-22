@@ -6,6 +6,7 @@
  * (else the one J / K last went to); ⌘↵ opens the slip in its dock — a card shows its text clipped, so nothing is
  * copied from here.
  */
+import { ListTree } from 'lucide-react'
 import { useEffect, useMemo, useState, type KeyboardEvent } from 'react'
 import { Send } from 'lucide-react'
 import { useWorkspace } from '../../../store/store'
@@ -401,7 +402,7 @@ function FromCard() {
       <ul>
         <li>
           <span className="obx-from__ico" aria-hidden>
-            ⌘
+            <ListTree size={14} aria-hidden />
           </span>
           {t('features.outbox.from.command')}
         </li>
