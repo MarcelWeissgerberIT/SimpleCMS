@@ -10,6 +10,8 @@ summary: Claude remembers what you confirm — facts, preferences, decisions, pr
 The One memory is a database in your workspace: **One memory**, with one row per memory — one plain sentence, a **Type** (Fact, Preference, Decision, Procedure, Example), **Topics**, a **Source** and **Active**. A Procedure's page holds its template (steps, columns, wording). It is an ordinary database: edit, add, untick **Active** or delete rows by hand — One reads whatever is in it. In a team workspace it is private: only you see it.
 
 ## Remembering — always with your OK
+The AI terminal offers **Start your One memory** with a first example sentence. The button only fills the prompt; submitting shows a local proposal, and confirming saves it. After a first completed task, choose **Suggest memories from this task** instead: only that click starts an additional AI request. **Not now** hides the offer without changing your settings. Disabled memory, explicitly disabled proposals and read-only access are respected.
+
 - **After an AI-terminal task** Claude proposes 0–3 memories: a card **REMEMBER? · 2** at the end of the task. On an entry: <kbd>y</kbd> or <kbd>Enter</kbd> saves, <kbd>e</kbd> edits (type, sentence, topics, template), <kbd>n</kbd> dismisses, <kbd>a</kbd> saves all, <kbd>u</kbd> undoes. <kbd>Tab</kbd> on the empty prompt jumps to the card. Nothing is saved without your OK.
 - **Yourself:** `/remember <sentence>` (`/merken`) in the terminal; in the AI menu a request starting with *remember …* or *merk dir …*; or select text → **Ask AI → Remember this** — Claude condenses it into one proposal you save, edit or discard.
 - In the terminal Claude can also stage a memory itself (`remember`); it appears in the review list like any other change.

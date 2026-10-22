@@ -47,6 +47,7 @@ import { depsOf, makesTasks, onEjected, type AgentStep, type AgentTurn, type Sta
 import { ImageRefChip } from '../image/ImageRefChip'
 import { FileRefChip } from '../file/FileRefChip'
 import { MemoryProposals } from './MemoryProposals'
+import { MemoryStart } from './MemoryStart'
 import { memoryHistory } from '../memory/log'
 import { openEntry, openMemoryDb, openMemoryLog } from '../memory/open'
 import { readMemories } from '../memory/read'
@@ -221,6 +222,7 @@ export default function AgentSheet() {
           {!hasKey && <NoKey />}
           <Timeline />
           {changes.length > 0 && <Review listRef={listRef} readOnly={readOnly} />}
+          <MemoryStart />
         </div>
         {pending > 0 && (
           <div className="term-bar" role="region" aria-label={tn('features.agent.review.title', pending)}>

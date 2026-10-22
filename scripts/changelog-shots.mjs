@@ -942,6 +942,18 @@ function orderPlanAnswer(caseId, body) {
 }
 
 const shots = {
+  async 'memory-start'(browser) {
+    const { ctx, page } = await freshPage(browser, { claude: { turns: [() => sseTurn([{ type: 'text', text: 'For the workshop review, use three sections: **Findings**, **Evidence**, and **Next check**. Separate confirmed results from assumptions.' }])] } })
+    await page.keyboard.press('Control+j')
+    const prompt = page.locator('.term-prompt__input')
+    await prompt.fill('For workshop reviews, I prefer findings, evidence and the next check. Draft a short review outline.')
+    await prompt.press('Enter')
+    await page.getByTestId('memory-start').getByRole('button', { name: 'Suggest memories from this task' }).waitFor()
+    await page.getByTestId('memory-start').scrollIntoViewIfNeeded()
+    await rest(page)
+    await save(page, 'memory-start')
+    await ctx.close()
+  },
   /** Website desktop install entry, using Windows/Edge instructions without installing an OS app. */
   async 'desktop-install'(browser) {
     const { ctx, page } = await freshPage(browser, { setup: async (ctx) => {

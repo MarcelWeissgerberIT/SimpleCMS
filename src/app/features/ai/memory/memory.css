@@ -4,6 +4,10 @@
    to its ink palette, so the same parts render there and in the menu.
    ================================================================ */
 
+.term-memory-start p { margin: 10px 0; line-height: 1.5; color: var(--ink-2); }
+.term-memory-start__keys { display: flex; flex-wrap: wrap; gap: 8px; }
+.term-memory-start__keys .btn { white-space: normal; text-align: left; }
+
 /* ---------- the "MEMORY · 3" line (AI menu, under the reads line) ---------- */
 .mem-line-btn {
   display: flex;

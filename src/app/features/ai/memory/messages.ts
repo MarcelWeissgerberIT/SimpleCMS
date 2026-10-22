@@ -8,6 +8,13 @@ import type { Messages } from '@/shared/i18n'
  */
 export const messages: Messages = {
   en: {
+    'features.memory.start.title': 'Start your One memory',
+    'features.memory.start.before': 'Keep a preference or a repeatable way of working for future tasks. Try a sentence: it becomes a proposal first. Nothing is saved until you confirm.',
+    'features.memory.start.after': 'Anything worth keeping from this task? One can suggest memories with one additional AI request. You review each suggestion; confirming the first creates your memory. In a team workspace it is private to you.',
+    'features.memory.start.try': 'Try remembering a sentence',
+    'features.memory.start.propose': 'Suggest memories from this task',
+    'features.memory.start.later': 'Not now',
+    'features.memory.start.draft': '/remember For reviews, I prefer findings, evidence and the next check.',
     'features.memory.dbTitle': 'One memory',
     'features.memory.prop.name': 'Name',
     'features.memory.prop.type': 'Type',
@@ -189,6 +196,13 @@ export const messages: Messages = {
     'features.agent.cmd.example': 'save the open page as an example in the memory (/example <tag>)',
   },
   de: {
+    'features.memory.start.title': 'Dein One-Gedächtnis starten',
+    'features.memory.start.before': 'Behalte eine Vorliebe oder ein wiederverwendbares Vorgehen für spätere Aufgaben. Probiere einen Satz aus: Zuerst entsteht ein Vorschlag. Erst deine Bestätigung speichert ihn.',
+    'features.memory.start.after': 'Ist aus dieser Aufgabe etwas dauerhaft nützlich? One kann mit einer zusätzlichen KI-Anfrage Erinnerungen vorschlagen. Du prüfst jeden Vorschlag; die erste Bestätigung richtet dein Gedächtnis ein. Im Team-Workspace bleibt es privat für dich.',
+    'features.memory.start.try': 'Einen Satz zum Merken ausprobieren',
+    'features.memory.start.propose': 'Aus dieser Aufgabe Erinnerungen vorschlagen',
+    'features.memory.start.later': 'Nicht jetzt',
+    'features.memory.start.draft': '/merken Bei Reviews bitte immer Befund, Nachweis und nächsten Prüfschritt angeben.',
     'features.memory.dbTitle': 'One-Gedächtnis',
     'features.memory.prop.name': 'Name',
     'features.memory.prop.type': 'Art',
