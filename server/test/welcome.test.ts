@@ -6,11 +6,11 @@ import { parseWelcomePaste } from '../../src/shared/welcome.ts'
 import { Client, mailbox, signIn, smtpSink, startServer, type TestServer } from './helpers.ts'
 
 test('local paste matches full identities, transliterations and labelled tokens; ambiguity never partially imports',()=>{
-  const people=[{id:'a',name:'Max Wölfel',email:'max.woelfel@example.test'},{id:'b',name:'Nazligül Cayoglu',email:'nazliguel.cayoglu@example.test'},{id:'c',name:'Julian Renz',email:'julian.renz@example.test'},{id:'d',name:'Julian Weitz',email:'julian.weitz@example.test'}]
-  const good=parseWelcomePaste('Max Woelfel\nLink: https://atlas.example/invite?token=INVITE-ONLY\nToken: MCP-MAX\n\nnazliguel.cayoglu@example.test | Link: https://atlas.example/naz | Token: MCP-NAZ',people)
+  const people=[{id:'a',name:'Mara Schön',email:'mara.schoen@example.test'},{id:'b',name:'Aylin Güney',email:'aylin.gueney@example.test'},{id:'c',name:'Jan Sommer',email:'jan.sommer@example.test'},{id:'d',name:'Jan Winter',email:'jan.winter@example.test'}]
+  const good=parseWelcomePaste('Mara Schoen\nLink: https://atlas.example/invite?token=INVITE-ONLY\nToken: MCP-MAX\n\naylin.gueney@example.test | Link: https://atlas.example/naz | Token: MCP-NAZ',people)
   assert.deepEqual(good.issues,[]);assert.deepEqual(good.updates,[{id:'a',atlasLink:'https://atlas.example/invite?token=INVITE-ONLY',atlasToken:'MCP-MAX'},{id:'b',atlasLink:'https://atlas.example/naz',atlasToken:'MCP-NAZ'}])
-  assert.equal(parseWelcomePaste('Max Wölfel\nhttps://atlas.example/?token=NOT-MCP',people).updates[0]?.atlasToken,undefined)
-  for(const bad of ['Julian\nLink: https://atlas.example/x','Max Wölfel\nLink: https://atlas.example/one\nLink: https://atlas.example/two','Julian Renz + Julian Weitz\nToken: private','Unknown Person\nLink: https://atlas.example/x']){
+  assert.equal(parseWelcomePaste('Mara Schön\nhttps://atlas.example/?token=NOT-MCP',people).updates[0]?.atlasToken,undefined)
+  for(const bad of ['Jan\nLink: https://atlas.example/x','Mara Schön\nLink: https://atlas.example/one\nLink: https://atlas.example/two','Jan Sommer + Jan Winter\nToken: private','Unknown Person\nLink: https://atlas.example/x']){
     const r=parseWelcomePaste(bad,people);assert.ok(r.issues.length);assert.deepEqual(r.updates,[]);assert.ok(!JSON.stringify(r).includes('private'))
   }
 })

@@ -10,7 +10,7 @@ async function cloud(page:Page,viewer=false){
   },{USER,WORKSPACES,viewer})
 }
 test('private bulk input matches recipients locally; save sends no invitation and a future deadline keeps Send disabled',async({page},info)=>{
-  const recipients=[{id:'a',name:'Max Wölfel',email:'max.woelfel@example.test',workspaceId:'ws_team',role:'member',guest:false,note:'Team',status:'draft',hasAtlasLink:false,hasAtlasToken:false,atlasHost:null},{id:'b',name:'Julian Renz',email:'julian.renz@example.test',workspaceId:'ws_guests',role:'viewer',guest:true,note:'Guest only',status:'draft',hasAtlasLink:false,hasAtlasToken:false,atlasHost:null}]
+  const recipients=[{id:'a',name:'Mara Schön',email:'mara.schoen@example.test',workspaceId:'ws_team',role:'member',guest:false,note:'Team',status:'draft',hasAtlasLink:false,hasAtlasToken:false,atlasHost:null},{id:'b',name:'Jan Sommer',email:'jan.sommer@example.test',workspaceId:'ws_guests',role:'viewer',guest:true,note:'Guest only',status:'draft',hasAtlasLink:false,hasAtlasToken:false,atlasHost:null}]
   let draft={revision:1,title:'Workshop',notBefore:Date.now()+86400000,lang:'en',recipients},saved:any=null,send=0
   await page.route('**/api/workspaces/ws_team/welcome**',async route=>{
     const req=route.request()
@@ -23,7 +23,7 @@ test('private bulk input matches recipients locally; save sends no invitation an
   await openApp(page);await cloud(page);await page.evaluate(()=>{location.hash='#/workspace/people'})
   const editor=page.getByRole('region',{name:'Welcome emails'});await expect(editor).toBeVisible()
   await editor.getByText('Paste names, links and tokens together',{exact:true}).click()
-  await editor.getByLabel('Protected import',{exact:true}).fill('Max Woelfel\nLink: https://atlas.example.test/invite?token=MAX-URL\nToken: MAX-MCP\nJulian Renz | Link: https://atlas.example.test/invite?token=JULIAN-URL | Token: JULIAN-MCP')
+  await editor.getByLabel('Protected import',{exact:true}).fill('Mara Schoen\nLink: https://atlas.example.test/invite?token=MAX-URL\nToken: MAX-MCP\nJan Sommer | Link: https://atlas.example.test/invite?token=JULIAN-URL | Token: JULIAN-MCP')
   await editor.getByRole('button',{name:'Match locally',exact:true}).click()
   expect(saved).toBeNull();expect(send).toBe(0)
   await editor.getByRole('button',{name:'Save encrypted',exact:true}).click()
