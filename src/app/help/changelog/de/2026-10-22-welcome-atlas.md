@@ -6,7 +6,7 @@ order: 1
 summary: Willkommensmails privat vorbereiten; Atlas-Zugänge auf der eigenen Startseite öffnen.
 image: assets/shots/changelog/welcome-atlas.webp
 alt: Persönliches Atlas-Startmodal mit verdecktem Link und Token sowie Abschluss nach eigener Prüfung.
-try: workspace
+try: welcome
 help: welcome-emails
 ---
 Unter **Workspace → Personen** bereitest du Willkommensmails mit eigenen Empfängern und getrennten Team-/Gastbereichen vor. Ein lokaler Parser ordnet Namen, persönliche Links und separate Tokens zu. Speichern versendet nichts; erst dein Klick nach dem gewählten Zeitpunkt gibt die Mails frei.

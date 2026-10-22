@@ -51,9 +51,11 @@ export function AtlasWelcome() {
   const lang=useLang(),tr=(de:string,en:string)=>lang==='de'?de:en
   const active=useCloud(s=>s.active),user=useCloud(s=>s.user?.id),supported=useCloud(s=>s.supports?.includes('welcome:1'))
   const ws=active.kind==='cloud'?active.id:null
+  const identity=`${ws??''}:${user??''}`
+  const [scope,setScope]=useState('')
   const [ids,setIds]=useState<Array<{id:string}>>([]),[entry,setEntry]=useState<{id:string;name:string;atlasLink:string;atlasToken:string}|null>(null),[busy,setBusy]=useState(false),[message,setMessage]=useState(''),[checked,setChecked]=useState(false),[show,setShow]=useState(false)
-  useEffect(()=>{let live=true;setIds([]);setEntry(null);setMessage('');if(ws&&user&&supported)void cloudApi.cloudRequest<Array<{id:string}>>('GET',path(ws,'-access')).then(r=>{if(live)setIds(r)}).catch(()=>{});return()=>{live=false}},[ws,user,supported])
-  if(!ws||!ids.length)return null
+  useEffect(()=>{let live=true;setScope(identity);setIds([]);setEntry(null);setMessage('');if(ws&&user&&supported)void cloudApi.cloudRequest<Array<{id:string}>>('GET',path(ws,'-access')).then(r=>{if(live)setIds(r)}).catch(()=>{});return()=>{live=false}},[ws,user,supported])
+  if(!ws||!user||!supported||scope!==identity||!ids.length)return null
   return <section className="welcome-start" data-testid="atlas-welcome"><strong>{tr('Willkommen · dein Atlas-Zugang','Welcome · your Atlas access')}</strong><p>{tr('Erste Aufgabe: persönliche MCP-Verbindung einrichten und einen freigegebenen Record lesen.','First task: set up your personal MCP connection and read one approved record.')}</p><button className="btn btn--primary" disabled={busy} onClick={()=>{const workspace=ws,owner=user;setBusy(true);setChecked(false);setShow(false);void cloudApi.cloudRequest<{name:string;atlasLink:string;atlasToken:string}>('POST',path(ws,`-access/${ids[0].id}/open`)).then(r=>{if(useCloud.getState().active.kind==='cloud'&&useCloud.getState().active.id===workspace&&useCloud.getState().user?.id===owner)setEntry({...r,id:ids[0].id})}).catch(()=>setMessage(tr('Zugang nicht verfügbar. Bitte Organisator fragen.','Access unavailable. Please ask the organizer.'))).finally(()=>setBusy(false))}}>{tr('Atlas-Zugang einrichten','Set up Atlas access')}</button>{message&&<p role="status">{message}</p>}
     <Modal open={!!entry} onClose={()=>setEntry(null)} title={tr('Dein persönlicher Atlas-Zugang','Your personal Atlas access')} width={650}>{entry&&<div className="welcome-editor">
       <p>{tr('Diese Daten sind nur für dein angemeldetes Konto bestimmt. Keine Tokens in Workspace-Seiten oder Chats einfügen.','These details are for your signed-in account only. Never paste tokens into workspace pages or chats.')}</p>

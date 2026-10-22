@@ -6,7 +6,7 @@ order: 1
 summary: Prepare welcome emails privately; open your own Atlas access on Start.
 image: assets/shots/changelog/welcome-atlas.webp
 alt: Personal Atlas start modal with masked link and token, dismissed after the participant’s own check.
-try: workspace
+try: welcome
 help: welcome-emails
 ---
 Under **Workspace → People**, prepare welcome emails with personal recipients and separate team/guest destinations. A local parser assigns names, personal links and separate tokens. Saving sends nothing; only your click after the chosen time releases the messages.

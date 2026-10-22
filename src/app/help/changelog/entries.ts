@@ -63,6 +63,7 @@ export const CHANGELOG_TRIES = [
   'kit',
   'look',
   'integrations',
+  'welcome',
   'recorder',
   'preflight',
   'agent-precheck',
