@@ -1,3 +1,4 @@
+import { sanitizeLocalization } from './localization'
 /**
  * IndexedDB persistence + live cross-tab sync.
  *
@@ -125,6 +126,7 @@ function normalizePage(id: ID, v: unknown, now: number): { page: Page; repaired:
   p.id = fix(v.id === id, id, v.id)
   p.kind = fix(v.kind === 'page' || v.kind === 'database', 'page', v.kind)
   p.title = fix(typeof v.title === 'string', '', v.title)
+  if (v.localization !== undefined) { const l = sanitizeLocalization(v.localization); if (l) p.localization = l; else { delete p.localization; repaired = true } }
   p.parentId = fix(isIdOrNull(v.parentId), null, v.parentId)
   p.databaseId = fix(isIdOrNull(v.databaseId), null, v.databaseId)
   p.properties = fix(isObj(v.properties), {}, v.properties)

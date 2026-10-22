@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { ArrowLeft, ChevronsRight, Clock3, Lock, Menu as MenuIcon, MessageSquare, MoreHorizontal, Presentation, Star, Waypoints, Home, CalendarDays, CalendarRange, CircleSlash, Inbox, Bell, Bot, SquareCode, Compass, GitBranch, Blocks, Send, type LucideIcon } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
-import { useBreadcrumbs, usePage } from '../../store/selectors'
+import { useDisplayBreadcrumbs, usePage } from '../../store/selectors'
 import { goBack, useCanGoBack, type Route } from '../../lib/router'
 import { PageIcon } from '../../ui/PageIcon'
 import { Tooltip } from '../../ui/Tooltip'
@@ -119,7 +119,7 @@ function RouteCrumb({ route }: { route: Route }) {
 
 function Crumbs({ page, compact }: { page: Page; compact: boolean }) {
   const t = useT()
-  const chain = useBreadcrumbs(page.id)
+  const chain = useDisplayBreadcrumbs(page.id)
   const menu = useMenu()
   const readOnly = useReadOnly()
   const items = compact ? chain.slice(-1) : chain

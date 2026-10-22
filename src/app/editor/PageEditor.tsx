@@ -1,3 +1,5 @@
+import type { Lang } from '@/shared/i18n'
+import { localizePage } from '../store/localization'
 /**
  * PageEditor — the TipTap block editor bound to one page in the workspace store.
  *  - initial content from page.content; debounced writes via setContent(…, instanceId)
@@ -37,6 +39,8 @@ import './editor.css'
 export interface PageEditorProps {
   pageId: ID
   readOnly?: boolean
+  /** A language variant is rendered without binding its text back to the canonical Y document. */
+  language?: Lang | null
   autoFocus?: boolean
   /** Called with the TipTap editor instance once created. */
   onReady?: (editor: Editor) => void
@@ -268,7 +272,7 @@ export function PageEditor(props: PageEditorProps) {
   // A fresh editor per page keeps undo history and plugins page-scoped.
   // (A tab shows one workspace for its whole life: switching workspaces reloads the app.)
   if (useCloud.getState().active.kind === 'cloud') return <CloudEditor key={props.pageId} {...props} />
-  return <EditorInstance key={props.pageId} {...props} />
+  return props.language ? <TranslatedDoc {...props} /> : <EditorInstance key={props.pageId} {...props} />
 }
 
 /** How long a page document may take before the page shows its last known text (read-only) meanwhile. */
@@ -302,9 +306,18 @@ function CloudEditor(props: PageEditorProps) {
       releaseContentDoc(pageId)
     }
   }, [pageId])
-  if (unbound) return <EditorInstance {...props} />
+  if (unbound) return props.language ? <TranslatedDoc {...props} /> : <EditorInstance {...props} />
   if (!handle) return slow ? <WaitingDoc pageId={pageId} className={props.className} /> : <div className={['one-editor', 'is-loading', props.className ?? ''].filter(Boolean).join(' ')} aria-busy="true" />
-  return <EditorInstance {...props} collab={handle} />
+  return props.language ? <TranslatedDoc {...props} /> : <EditorInstance {...props} collab={handle} />
+}
+
+function TranslatedDoc({ pageId, language, className, onReady }: PageEditorProps) {
+  const page = useWorkspace(s => s.pages[pageId])
+  const db = useWorkspace(s => page ? s.databases[page.kind === 'database' ? page.id : page.databaseId ?? ''] : undefined)
+  const shown = useMemo(() => page ? localizePage(page, language ?? null, db) : null, [page, language, db])
+  return <div className={`one-editor is-readonly ${className ?? ''}`} data-page-id={pageId} data-localized-page={language}>
+    <ReadOnlyDoc content={shown?.content ?? null} headingOffset={1} onReady={onReady} />
+  </div>
 }
 
 /** Plain text as paragraphs (one per line) — what is known of a page whose content this device never had. */

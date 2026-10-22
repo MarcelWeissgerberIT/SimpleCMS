@@ -1,3 +1,4 @@
+import { sanitizeLocalization } from './localization'
 import { registerMoneyDisplay } from '../lib/money'
 /**
  * Central workspace store (zustand + immer). All persistent data lives here.
@@ -778,7 +779,7 @@ export const useWorkspace = create<WorkspaceState>()(
     updatePage: (id, patch) => {
       const pages = get().pages
       const p = pages[id]
-      if (p) set({ pages: withPage(pages, { ...p, ...patch, updatedAt: now() }) })
+      if (p) set({ pages: withPage(pages, { ...p, ...patch, ...('localization' in patch ? { localization: sanitizeLocalization(patch.localization) } : {}), updatedAt: now() }) })
     },
 
     updatePageSettings: (id, patch) =>

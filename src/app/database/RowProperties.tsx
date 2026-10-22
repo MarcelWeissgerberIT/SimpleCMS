@@ -1,3 +1,5 @@
+import { useContentLanguage } from '../lib/contentLanguage'
+import { localizeDatabase, localizePage } from '../store/localization'
 /**
  * Property panel shown under a row page's title: icon + name + value editor per property,
  * "Add a property", hide-empty toggle. Keyboard: ↑↓ between rows, Enter edits.
@@ -33,10 +35,15 @@ export function RowProperties({ pageId }: { pageId: ID }) {
   return <RowPropertiesInner row={row} db={db} />
 }
 
-function RowPropertiesInner({ row, db }: { row: Page; db: Database }) {
+function RowPropertiesInner({ row: originalRow, db: originalDb }: { row: Page; db: Database }) {
+  const { lang } = useContentLanguage()
+  const dbPage = usePage(originalDb.id)
+  const db = dbPage ? localizeDatabase(originalDb, dbPage, lang) : originalDb
+  const row = localizePage(originalRow, lang, originalDb)
   const resolver = useResolver(db.id)
   const [hideEmpty, setHideEmpty] = useLocalState<boolean>(`one.db.hideEmpty.${db.id}`, false)
-  const readOnly = useDbReadOnly()
+  const baseReadOnly = useDbReadOnly()
+  const readOnly = baseReadOnly || !!lang && (!!originalRow.localization && originalRow.localization.source !== lang || !!dbPage?.localization && dbPage.localization.source !== lang)
   // locked database: values stay editable, the properties themselves don't change
   const locked = db.locked === true
   // record types: the database's own properties + the row's own type's (model/recordTypes)
@@ -94,7 +101,7 @@ export function PropertyRows({ db, row, resolver, props, getValue, onChange, hid
   const listRef = useRef<HTMLDivElement>(null)
   const createEntry = usePropertyCreate(db)
 
-  const values = useMemo(() => new Map(props.map((p) => [p.id, resolver.value(db, p, row)])), [props, resolver, db, row])
+  const values = useMemo(() => new Map(props.map((p) => [p.id, resolver.value(resolver.ctx.databases[db.id] ?? db, resolver.ctx.databases[db.id]?.properties.find(x => x.id === p.id) ?? p, p.type === 'formula' || p.type === 'rollup' ? resolver.ctx.pages[row.id] ?? row : row)])), [props, resolver, db, row])
   const emptyIds = props.filter((p) => isEmptyValue(p, values.get(p.id)) && p.type !== 'checkbox').map((p) => p.id)
   const shown = hideEmpty ? props.filter((p) => !emptyIds.includes(p.id)) : props
 

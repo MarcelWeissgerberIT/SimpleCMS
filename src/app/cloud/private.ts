@@ -144,6 +144,7 @@ export async function movePagePrivacyImpl(pageId: ID, toPrivate: boolean, target
         const p = now.pages[id]
         fileRefs(p?.cover, refs)
         fileRefs(p?.properties, refs)
+        fileRefs(p?.localization, refs)
         fileRefs(now.databases[id]?.templates, refs)
       }
       await publishNow([...refs])

@@ -119,6 +119,16 @@ the public APIs stable — other areas are built against them in parallel.
 
 ## Data rules
 
+- Native workspace translations (`features/translation`, `store/localization.ts`): optional `Page.localization` holds
+  source language plus reviewed EN/DE string dictionaries and a source signature. Canonical text, block/page IDs,
+  relations, option values, formulas and permissions never change. Content language follows the UI by default;
+  an override is per device/workspace (`lib/contentLanguage.ts`), never synced or exported. Translated prose/views
+  are read-only; source edits make the document variant stale. `workspace.translate` uses normal routing/metering,
+  MCP off, bounded batches, editable preview and explicit save with source checks. Workspace → Data and the page
+  controls are entry points. Standard share/document export remains canonical; workspace backups retain variants.
+  Database projections must query/filter/order/evaluate formulas against the ORIGINAL schema/values; translate only
+  display labels and scalar text at the outer display boundary (`database/translation.ts`).
+
 - All persistent data goes through `useWorkspace` actions in `src/app/store/store.ts`. Never mutate state directly.
 - Page content is TipTap JSON. Write it ONLY with `setContent(pageId, json, origin)`; `origin` is the writer
   (editor instance id, 'history', 'ai', 'sync', 'import', 'synced' = synced-block service, 'file' = folder / GitHub

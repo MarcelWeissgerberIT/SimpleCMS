@@ -17,7 +17,7 @@ import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, ClipboardCheck, Clipboar
 import { useShallow } from 'zustand/react/shallow'
 import { useWorkspace } from '../../store/store'
 import { useUI } from '../../store/ui'
-import { usePage } from '../../store/selectors'
+import { usePage, usePageLabel } from '../../store/selectors'
 import { useRoute } from '../../lib/router'
 import { PageIcon } from '../../ui/PageIcon'
 import { Menu, useMenu, type MenuEntry } from '../../ui/Menu'
@@ -487,6 +487,7 @@ function ShowAllKey({ dbId, depth, total }: { dbId: ID; depth: number; total: nu
 function TreeRow({ id, depth, section, draggable, expanded }: { id: ID; depth: number; section: string; draggable: boolean; expanded: boolean }) {
   const t = useT()
   const page = usePage(id)
+  const displayTitle = usePageLabel(id)
   const route = useRoute()
   const active = route.name === 'page' && route.id === id
   // an entry of this (closed) database is open → mark the database
@@ -539,7 +540,7 @@ function TreeRow({ id, depth, section, draggable, expanded }: { id: ID; depth: n
   if (!page) return null
   const kind = nodeKind(page)
   const isDb = kind === 'database'
-  const title = page.title.trim() || t('common.untitled')
+  const title = displayTitle.trim() || t('common.untitled')
   const dropPos = drop?.overId === dndId ? drop.pos : undefined
   const isDragging = activeId === dndId
 

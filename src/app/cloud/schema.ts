@@ -17,6 +17,7 @@ import type { CustomFunction, Database, ID, Page, PageComment, Person, PropertyD
 import { DEFAULT_PAGE_SETTINGS } from '../store/store'
 import { deepEqual } from '../store/merge'
 import { sanitizeFunction } from '../store/functions'
+import { sanitizeLocalization } from '../store/localization'
 import { sanitizePropFlags } from '../store/keys'
 
 /** Origin of every store → meta transaction (docs/CLOUD.md: origin 'local'). */
@@ -33,7 +34,7 @@ export const roots = (doc: Y.Doc) => ({
 })
 
 /** Synced page fields stored as plain values (everything else is per device or nested). */
-const PAGE_FIELDS = ['kind', 'title', 'icon', 'cover', 'parentId', 'databaseId', 'order', 'trashed', 'trashedAt', 'createdAt', 'updatedAt', 'settings', 'hidden', 'plain', 'template', 'recordType'] as const
+const PAGE_FIELDS = ['kind', 'title', 'icon', 'cover', 'parentId', 'databaseId', 'order', 'trashed', 'trashedAt', 'createdAt', 'updatedAt', 'settings', 'hidden', 'plain', 'template', 'recordType', 'localization'] as const
 type PageField = (typeof PAGE_FIELDS)[number]
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
@@ -216,6 +217,8 @@ export function readPage(id: ID, yp: YMap, cur: Page | undefined, favorite: bool
     settings: { ...DEFAULT_PAGE_SETTINGS, ...(isObj(settings) ? (clone(settings) as Partial<Page['settings']>) : {}) },
     plain: str(g('plain'), cur?.plain ?? ''),
   }
+  const localization = sanitizeLocalization(g('localization'))
+  if (localization) next.localization = localization
   const hidden = g('hidden')
   if (hidden !== undefined) next.hidden = hidden === true
   // a template's root (features/templates): gallery metadata, shared by the whole team

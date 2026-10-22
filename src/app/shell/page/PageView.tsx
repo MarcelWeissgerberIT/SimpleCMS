@@ -1,4 +1,6 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useContentLanguage } from '../../lib/contentLanguage'
+import { localizePage } from '../../store/localization'
+import { useEffect, useLayoutEffect, useRef, useState, useMemo } from 'react'
 import type { Editor } from '@tiptap/core'
 import { ImagePlus, SmilePlus, RotateCcw, Trash2 } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
@@ -7,7 +9,7 @@ import { useUI } from '../../store/ui'
 import { isEffectivelyTrashed, usePage } from '../../store/selectors'
 import { PageEditor } from '../../editor'
 import { DatabaseView, RowProperties } from '../../database'
-import { TemplateBanner, CodingTaskSlot, OrderSlot, OrderDbSlot, OutboxDockSlot, OutboxDbFoot, OutboxReadout, RecorderDbRead, RowSlips, PageAgentActivity } from '../../features'
+import { TemplateBanner, CodingTaskSlot, OrderSlot, OrderDbSlot, OutboxDockSlot, OutboxDbFoot, OutboxReadout, RecorderDbRead, RowSlips, PageAgentActivity, TranslationControls } from '../../features'
 import { PageIcon } from '../../ui/PageIcon'
 import { IconPicker } from '../../ui/IconPicker'
 import { Popover } from '../../ui/Popover'
@@ -30,12 +32,16 @@ import './page.css'
 export type PageVariant = 'main' | 'pane' | 'peek'
 
 export function PageView({ pageId, variant }: { pageId: ID; variant: PageVariant }) {
-  const page = usePage(pageId)
+  const source = usePage(pageId)
+  const { lang } = useContentLanguage()
+  const db = useWorkspace(s => source ? s.databases[source.kind === 'database' ? source.id : source.databaseId ?? ''] : undefined)
+  const page = useMemo(() => source ? localizePage(source, lang, db) : undefined, [source, lang, db])
+  const language = source?.localization && lang !== source.localization.source ? lang : null
   if (!page) return <NotFound kind="page" />
-  return <PageViewInner key={pageId} page={page} variant={variant} />
+  return <PageViewInner key={pageId} page={page} variant={variant} language={language} />
 }
 
-function PageViewInner({ page, variant }: { page: Page; variant: PageVariant }) {
+function PageViewInner({ page, variant, language }: { page: Page; variant: PageVariant; language: import('@/shared/i18n').Lang | null }) {
   const trashed = useWorkspace((s) => isEffectivelyTrashed(s.pages, page.id))
   const editorRef = useRef<Editor | null>(null)
   const isDb = page.kind === 'database'
@@ -43,7 +49,7 @@ function PageViewInner({ page, variant }: { page: Page; variant: PageVariant }) 
   const locked = page.settings.locked
   // a viewer in a team workspace reads every page like a locked one
   const viewer = useReadOnly()
-  const readOnly = locked || trashed || viewer
+  const readOnly = locked || trashed || viewer || !!language
   const wide = page.settings.fullWidth || isDb
 
   const articleRef = useRef<HTMLElement>(null)
@@ -83,6 +89,7 @@ function PageViewInner({ page, variant }: { page: Page; variant: PageVariant }) 
         <div className="pv-col">
           <PageHeaderControls page={page} readOnly={readOnly} />
           <PageTitle page={page} readOnly={readOnly} variant={variant} onEnter={() => focusEditor('start')} />
+          {!trashed && <TranslationControls pageId={page.id} />}
           {!trashed && <PageAgentActivity pageId={page.id} />}
           {/* a freshly seeded workspace: "Take the 3-minute tour" on its Welcome page (shell/tour) */}
           {variant === 'main' && !readOnly && <TourOffer pageId={page.id} />}
@@ -115,6 +122,7 @@ function PageViewInner({ page, variant }: { page: Page; variant: PageVariant }) 
           ) : (
             <PageEditor
               pageId={page.id}
+              language={language}
               readOnly={readOnly}
               onReady={(ed) => {
                 editorRef.current = ed

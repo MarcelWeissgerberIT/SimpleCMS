@@ -1,4 +1,4 @@
-import { buildWorkspacePackage } from '../../features'
+import { buildWorkspacePackage, WorkspaceTranslations } from '../../features'
 /**
  * Workspace page § 07 — Data: backup / export / import (the same keys Settings had: BackupKeys), when this
  * device last saved a full backup, the trash (count + open it), and where the workspace is copied to — the
@@ -31,6 +31,7 @@ export function DataSection() {
     <>
       <SectionHead n="08" title={t('shell.ws.sec.data')} lead={inCloud ? t('shell.ws.data.leadTeam') : t('shell.ws.data.lead')} help="export" />
       <SubHead label={t('shell.ws.data.backup')} />
+      <WorkspaceTranslations />
       <WorkspacePackageKey />
       <BackupKeys />
       <LastBackupLine />

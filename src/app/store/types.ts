@@ -74,6 +74,8 @@ export interface Page {
   id: ID
   kind: 'page' | 'database'
   title: string
+  /** Native presentation variants; canonical IDs, content and values remain authoritative. */
+  localization?: import('./localization').PageLocalization
   icon: PageIcon | null
   cover: PageCover | null
   /** Parent page id, or null for workspace root. Database rows: the database page id. */

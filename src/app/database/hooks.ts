@@ -1,3 +1,5 @@
+import { displayDbModel, translatedSearch } from './translation'
+import { useContentLanguage } from '../lib/contentLanguage'
 /**
  * Data hooks: build a Resolver + filtered/sorted/grouped rows for a database view.
  */
@@ -7,7 +9,7 @@ import { pageChanges, useWorkspace } from '../store/store'
 import { useLang, useT } from '../i18n'
 import type { Database, ID, Kit, Page, PropertyDef, PropertyValue, View } from '../store/types'
 import { Resolver, type Ctx } from './model/resolve'
-import { defaultsFromFilter, groupRows, searchRows, testGroup, type RowGroup } from './model/query'
+import { defaultsFromFilter, groupRows, testGroup, type RowGroup } from './model/query'
 import { orderRows, type ViewOrder } from './model/feed'
 import { parentIdOf, subItemsOf } from './model/hierarchy'
 import { safeLocalGet, safeLocalSet } from '@/shared/brand'
@@ -168,6 +170,7 @@ export interface DbModel {
 
 export function useDbModel(db: Database, dbPage: Page, view: View, search: string, inline: boolean, keep: ID[] = []): DbModel {
   const resolver = useResolver(db.id)
+  const { lang: contentLang } = useContentLanguage()
   const labels = useLabels()
   const kit = useWorkspace((s) => s.kit)
   const t = useT()
@@ -192,7 +195,7 @@ export function useDbModel(db: Database, dbPage: Page, view: View, search: strin
     let out = allRows
     if (sub) out = out.filter((row) => !parentIdOf(resolver.ctx.pages, sub, row))
     if (view.filter && view.filter.items.length) out = out.filter((row) => testGroup(resolver, db, view.filter!, row, propMap))
-    if (search.trim()) out = searchRows(resolver, db, out, search)
+    if (search.trim()) out = translatedSearch(resolver, db, dbPage, out, search, contentLang)
     // the view's sorts — a feed without any: newest first (model/feed)
     out = orderRows(resolver, db, order, out, propMap)
     if (keep.length) {
@@ -202,13 +205,13 @@ export function useDbModel(db: Database, dbPage: Page, view: View, search: strin
       if (extra.length) out = [...out, ...extra]
     }
     return out
-  }, [allRows, sub, view.filter, order, search, resolver, db, propMap, keep])
+  }, [allRows, sub, view.filter, order, search, resolver, db, dbPage, contentLang, propMap, keep])
   const groupProp = view.groupBy && ['table', 'list', 'board'].includes(view.type) ? propMap.get(view.groupBy) ?? null : null
   const groups = useMemo(() => (groupProp ? groupRows(resolver, db, groupProp, rows, labels) : null), [groupProp, resolver, db, rows, labels])
   const newRowDefaults = useCallback(() => defaultsFromFilter(view, propMap, (p) => resolveMe(p, resolver.ctx)), [view, propMap, resolver])
   const readOnly = useDbReadOnly()
   const locked = db.locked === true
-  return { db, dbPage, view, resolver, propMap, allProps, kit, titleProp, visibleProps, allRows, rows, groups, groupProp, search, inline, newRowDefaults, readOnly, locked, fixed: readOnly || locked }
+  return displayDbModel({ db, dbPage, view, resolver, propMap, allProps, kit, titleProp, visibleProps, allRows, rows, groups, groupProp, search, inline, newRowDefaults, readOnly, locked, fixed: readOnly || locked }, contentLang)
 }
 
 export const DbModelContext = createContext<DbModel | null>(null)

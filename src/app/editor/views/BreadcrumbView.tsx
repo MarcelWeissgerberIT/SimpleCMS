@@ -1,3 +1,5 @@
+import { useContentLanguage } from '../../lib/contentLanguage'
+import { localizedTitle } from '../../store/localization'
 /**
  * Breadcrumb block: the path of the page it sits on — workspace › parents › page — as links that
  * follow renames and moves. A frozen path (share links, exports: schema/breadcrumb.ts) shows as text.
@@ -40,6 +42,7 @@ const Sep = () => (
 export function BreadcrumbView({ node, editor, selected, getPos }: ReactNodeViewProps) {
   const t = useT()
   const route = useRoute()
+  const { lang } = useContentLanguage()
   // the page this editor shows; read-only renders (history, slides) fall back to the open page
   const pageId = editor.view.dom.getAttribute('data-page-id') ?? (route.name === 'page' ? route.id : null)
   const frozen = frozenPathOf(node.attrs.path)
@@ -105,7 +108,7 @@ export function BreadcrumbView({ node, editor, selected, getPos }: ReactNodeView
               <a href={`#/p/${p.id}`} className="crumbs-view__item" aria-current={last ? 'page' : undefined} draggable={false} onClick={(e) => follow(e, p.id)}>
                 <PageIcon icon={p.icon} kind={p.kind} size={15} />
                 <span className="crumbs-view__title" data-untitled={!p.title.trim() || undefined}>
-                  {p.title.trim() || untitled}
+                  {localizedTitle(p, lang).trim() || untitled}
                 </span>
               </a>
             </li>

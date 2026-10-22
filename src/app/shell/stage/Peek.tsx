@@ -7,7 +7,7 @@ import { useT } from '../../i18n'
 import { PageView } from '../page/PageView'
 import { copyPageLink, goToPage } from '../lib/actions'
 import { useColumnScroll, useIsMobile, useLocalPref } from '../lib/hooks'
-import { useBreadcrumbs } from '../../store/selectors'
+import { useDisplayBreadcrumbs } from '../../store/selectors'
 import { PageIcon } from '../../ui/PageIcon'
 import { outsidePress } from '../../ui/gesture'
 
@@ -169,7 +169,7 @@ function PeekPanel({ id }: { id: string }) {
 /** Parent chain of the peeked page (e.g. the database a row belongs to). */
 function PeekPath({ id }: { id: string }) {
   const t = useT()
-  const chain = useBreadcrumbs(id).slice(0, -1).slice(-2)
+  const chain = useDisplayBreadcrumbs(id).slice(0, -1).slice(-2)
   if (!chain.length) return null
   return (
     <span className="peek__path">

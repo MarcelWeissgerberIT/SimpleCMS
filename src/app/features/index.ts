@@ -670,3 +670,6 @@ export {
 } from './patchbay'
 
 export { buildWorkspacePackage, portableWorkspace, makeLocalWorkspace, parseWorkspacePackage, type WorkspacePackage } from './io/workspacePackage'
+
+/** Native language variants, explicit AI preview and per-workspace content language. */
+export { TranslationControls, WorkspaceTranslations } from './translation'

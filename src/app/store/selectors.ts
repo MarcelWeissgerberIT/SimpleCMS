@@ -1,3 +1,5 @@
+import { useContentLanguage } from '../lib/contentLanguage'
+import { localizedTitle } from './localization'
 /** Read hooks and pure selectors over the workspace store. */
 import { useMemo } from 'react'
 import { useShallow } from 'zustand/react/shallow'
@@ -353,4 +355,14 @@ export function useTrash(): Page[] {
 /** Display title with fallback. */
 export function pageTitle(p: Page | undefined, untitled = 'Untitled'): string {
   return p?.title?.trim() || untitled
+}
+
+/** Display-only labels; callers that write or execute keep using canonical usePage(). */
+export function usePageLabel(id: ID | null | undefined): string {
+  const page = usePage(id), { lang } = useContentLanguage()
+  return page ? localizedTitle(page, lang) : ''
+}
+export function useDisplayBreadcrumbs(id: ID | null | undefined): Page[] {
+  const chain = useBreadcrumbs(id), { lang } = useContentLanguage()
+  return useMemo(() => chain.map(p => ({ ...p, title: localizedTitle(p, lang) })), [chain, lang])
 }

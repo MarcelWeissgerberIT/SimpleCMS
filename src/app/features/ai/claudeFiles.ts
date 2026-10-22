@@ -84,6 +84,7 @@ function fileUses(visible: ((id: ID) => boolean) | null): Map<string, Use> {
     fileRefsIn(p.content, refs)
     fileRefsIn(p.cover, refs)
     fileRefsIn(p.properties, refs)
+    fileRefsIn(p.localization, refs)
     if (!refs.size || isEffectivelyTrashed(pages, p.id) || inTemplate(pages, p.id)) continue
     for (const r of refs) {
       const u = uses.get(r) ?? { shared: false }

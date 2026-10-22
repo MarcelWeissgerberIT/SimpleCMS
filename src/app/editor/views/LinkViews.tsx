@@ -1,3 +1,5 @@
+import { useContentLanguage } from '../../lib/contentLanguage'
+import { localizedTitle } from '../../store/localization'
 import { useState, type MouseEvent } from 'react'
 import { NodeViewWrapper, type ReactNodeViewProps } from '@tiptap/react'
 import { useShallow } from 'zustand/react/shallow'
@@ -18,11 +20,12 @@ import { isOrphanGroup, useSyncedEntry } from '../synced/state'
 import './dateMention.css'
 
 function usePageInfo(id: string | null) {
+  const { lang } = useContentLanguage()
   return useWorkspace(
     useShallow((s) => {
       const p = id ? s.pages[id] : undefined
       // "in trash" also when an ancestor is trashed — the page goes with it on "Empty trash"
-      return { exists: !!p, title: p?.title ?? '', icon: p?.icon ?? null, kind: p?.kind ?? 'page', trashed: !!(id && p && isEffectivelyTrashed(s.pages, id)) }
+      return { exists: !!p, title: p ? localizedTitle(p, lang) : '', icon: p?.icon ?? null, kind: p?.kind ?? 'page', trashed: !!(id && p && isEffectivelyTrashed(s.pages, id)) }
     }),
   )
 }

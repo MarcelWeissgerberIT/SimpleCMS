@@ -49,6 +49,7 @@ export const PURPOSES = {
   'structure.transform': p('structure', ['selection'], ['people', 'mcp'], ['structured']),
   'structure.freeboard': p('structure', ['selection', 'structure'], ['mcp'], ['structured']),
   'structure.redo': p('structure', ['selection'], ['page'], ['structured']),
+  'workspace.translate': p('write', ['page', 'structure'], [], ['structured']),
   'drawing.diagram': p('structure', ['selection'], ['page'], ['structured']),
   'memory.propose': p('memory', ['memory'], ['selection', 'page'], ['structured']),
   'memory.example': p('memory', ['memory'], ['page'], ['structured']),
