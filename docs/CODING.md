@@ -1565,3 +1565,26 @@ A local paired download is the device host. Its original workspace keeps its exi
 One host WebSocketServer routes the validated hello into an isolated virtual Worker/WorkerLink. Contexts never take over another workspace’s tab, pending requests, events or buffered outcomes. Task MCP uses the same host port and routes each unguessable run token to its owning context. A shared reservation covers polling and manual git operations; repository locks and concurrency apply across all contexts. Daily cost limits use aggregate device spending including archived/revoked contexts, while context status reports its own spending. Revocation or owner-key rotation cannot reset already incurred daily spending.
 
 Additional state, QA journals, memory and scratch live below `workspaces/<sha256(workspace id)[0:24]>/`. Worktree roots and generated branch prefixes are scoped too. Model and MCP credentials always resolve from the original worker.json directory, never the runtime directory. Local task memory includes the workspace id in its scope. Repositories and personal model/MCP settings are shared device configuration; One workspace exports do not contain these grants or keys. A tab must stay available for its own context’s task reads/permissions; completed work buffers only in that context until reconnect.
+
+
+## GitHub Copilot (worker 1.24.0)
+
+Choose `copilot` per coding task or delivery role. Install GitHub Copilot CLI >=1.0.102 on the worker computer and use
+`copilot auth login` with the participant’s own entitled account. Copilot CLI/model availability and enterprise policy
+are checked on that computer; an editor subscription alone is insufficient. The local setup page saves only a model
+ID (`copilot.json`, 0600), lists available models on explicit Check (no model inference), and supports `auto`.
+`ONE_COPILOT_MODEL` overrides the file; `COPILOT_BIN` locates a CLI outside PATH. Credentials stay in the CLI’s own
+login or supported environment, never One workspace state.
+
+The adapter uses the official SDK stream protocol (`vscode-jsonrpc` framing) with a short-lived CLI process and session
+per inference round. Native tools, discovery, hooks, skills, cross-session store and remote export are off. The model
+returns a bounded JSON function-call envelope; the existing One harness alone reads/edits source, executes configured
+checks, bounds context/memory and MCP calls. No arbitrary shell, commits or pushes are exposed. Personal Atlas tools
+use the task proxy and exact selected allow-list, with read-only stages restricted at the proxy. No Claude installation
+is required when using those selected personal connections. The checkout can remain on internal Git; selected context
+still travels to the Copilot service. Browser agents and the AI terminal have separate provider settings.
+
+Copilot subscription usage has no USD receipt; do not invent a zero price or claim dollar budgets meter this tariff.
+Step/time bounds and verification remain in force. `agent:copilot` prevents older workers from taking the task.
+Protocol and transport reference: https://github.com/github/copilot-sdk/tree/main/nodejs/src
+CLI reference: https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference

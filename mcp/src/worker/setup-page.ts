@@ -184,6 +184,17 @@ export const SETUP_JS = String.raw`(function () {
   var token = (/[#&]k=([A-Za-z0-9_-]{43})/.exec(location.hash) || [])[1] || ''
   var de = /^de\b/i.test(navigator.language || '')
   var EN = {
+    copilotTitle: 'GitHub Copilot · CLI',
+    copilotHint: 'Uses this computer’s Copilot CLI login and organization permissions. Selected context goes to the Copilot service; One runs the file tools, MCP and configured checks. Copilot native tools and automatic repository configuration are disabled. Subscription usage has no USD receipt. Browser agents and the AI terminal retain their separate provider settings.',
+    copilotInstall: 'Install GitHub Copilot CLI (1.0.102 or newer), then sign in locally: copilot auth login. An IDE subscription alone does not confirm CLI access. Tokens stay in Copilot CLI or COPILOT_GITHUB_TOKEN; do not paste them into One.',
+    copilotModel: 'Copilot model ID (auto uses the account default)',
+    copilotSave: 'Save Copilot model',
+    copilotCheck: 'Check CLI and login (no model request)',
+    copilotSaved: 'Model saved. No model request was sent.',
+    copilotReady: 'CLI signed in. Available models are listed below; no coding run was started.',
+    copilotMissing: 'CLI or login unavailable. Install/update the CLI, sign in and check organization permissions.',
+    copilotError: 'Copilot settings could not be saved.',
+    copilotEnvironment: 'ONE_COPILOT_MODEL overrides the saved model. Change the environment and restart the worker to remove that override.',
     ollamaTitle: 'Ollama Cloud · API',
     ollamaHint: 'Cloud model: selected source, prompts and tool results go to Ollama. The same One / Atlas harness applies. The key is saved privately on this computer, outside the One workspace. Ollama plan quotas apply; One cannot meter dollar limits for this tariff.',
     ollamaReady: 'Key saved · not yet verified with Ollama',
@@ -339,8 +350,8 @@ export const SETUP_JS = String.raw`(function () {
     saved: 'Saved — One sees {n} repositories now.',
     savedOne: 'Saved — One sees 1 repository now.',
     savedNone: 'Saved — no repositories: this worker takes only document tasks without a repository (Business analysis, QA).',
-    wmcpLabel: 'Default MCP servers · Claude Code / Ollama / Ollama Cloud / MiniMax',
-    wmcpHint: 'Business analysis / QA tasks without a repo run here with these servers (names as “claude mcp list” shows them, e.g. kb) — added with “claude mcp add -s user …”: a server in the default local scope stays out. Ollama and MiniMax also use this list when the repository has no list of its own; personal JSON connections come from ~/.claude.json or ONE_CODER_MCP_CONFIG.',
+    wmcpLabel: 'Default MCP servers · Claude Code / Copilot / Ollama / Ollama Cloud / MiniMax',
+    wmcpHint: 'Business analysis / QA tasks without a repo run here with these servers (names as “claude mcp list” shows them, e.g. kb) — added with “claude mcp add -s user …”: a server in the default local scope stays out. Copilot, Ollama and MiniMax also use this list when the repository has no list of its own; personal JSON connections come from ~/.claude.json or ONE_CODER_MCP_CONFIG.',
     writes: 'writes {file}',
     status: '§ STATUS',
     one: 'One',
@@ -357,6 +368,17 @@ export const SETUP_JS = String.raw`(function () {
     failed: 'That did not work: {e}'
   }
   var DE = {
+    copilotTitle: 'GitHub Copilot · CLI',
+    copilotHint: 'Nutzt die Copilot-CLI-Anmeldung und Unternehmensrechte dieses Rechners. Ausgewählter Kontext geht an den Copilot-Dienst; One führt Dateiwerkzeuge, MCP und konfigurierte Prüfungen aus. Native Copilot-Werkzeuge und automatische Repository-Konfiguration sind ausgeschaltet. Abonutzung liefert keinen USD-Kostennachweis. Browser-Agenten und KI-Terminal behalten ihre eigenen Anbietereinstellungen.',
+    copilotInstall: 'GitHub Copilot CLI (ab 1.0.102) installieren und lokal anmelden: copilot auth login. Ein IDE-Abo bestätigt noch keinen CLI-Zugriff. Tokens bleiben in Copilot CLI oder COPILOT_GITHUB_TOKEN; nicht in One einfügen.',
+    copilotModel: 'Copilot-Modell-ID (auto nutzt den Kontostandard)',
+    copilotSave: 'Copilot-Modell speichern',
+    copilotCheck: 'CLI und Anmeldung prüfen (keine Modellanfrage)',
+    copilotSaved: 'Modell gespeichert. Keine Modellanfrage gesendet.',
+    copilotReady: 'CLI angemeldet. Verfügbare Modelle stehen unten; kein Coding-Lauf gestartet.',
+    copilotMissing: 'CLI oder Anmeldung nicht verfügbar. CLI installieren/aktualisieren, anmelden und Unternehmensrechte prüfen.',
+    copilotError: 'Copilot-Einstellungen konnten nicht gespeichert werden.',
+    copilotEnvironment: 'ONE_COPILOT_MODEL hat Vorrang vor dem gespeicherten Modell. Um dies zu ändern, die Umgebungsvariable anpassen und den Worker neu starten.',
     ollamaTitle: 'Ollama Cloud · API',
     ollamaHint: 'Cloud-Modell: Ausgewählter Quelltext, Prompts und Werkzeugergebnisse gehen an Ollama. Der One-/Atlas-Harness gilt auch hier. Der Key wird privat auf diesem Rechner gespeichert, außerhalb des One-Arbeitsbereichs. Es gelten Ollamas Tariflimits; One kann für diesen Tarif keine Dollargrenzen messen.',
     ollamaReady: 'Key gespeichert · noch nicht bei Ollama geprüft',
@@ -512,8 +534,8 @@ export const SETUP_JS = String.raw`(function () {
     saved: 'Gespeichert – One sieht jetzt {n} Repositories.',
     savedOne: 'Gespeichert – One sieht jetzt 1 Repository.',
     savedNone: 'Gespeichert – keine Repositories: Dieser Worker nimmt nur Dokument-Aufgaben ohne Repository (Business-Analyse, QA).',
-    wmcpLabel: 'Standard-MCP-Server · Claude Code / Ollama / Ollama Cloud / MiniMax',
-    wmcpHint: 'Business-Analyse- / QA-Aufgaben ohne Repo laufen hier mit diesen Servern (Namen wie in „claude mcp list“, z. B. kb) – hinzugefügt mit „claude mcp add -s user …“: Ein Server im Standard-Bereich (local) bleibt draußen. Ollama und MiniMax nutzen diese Liste auch, wenn das Repository keine eigene hat; die persönlichen JSON-Verbindungen stehen in ~/.claude.json oder ONE_CODER_MCP_CONFIG.',
+    wmcpLabel: 'Standard-MCP-Server · Claude Code / Copilot / Ollama / Ollama Cloud / MiniMax',
+    wmcpHint: 'Business-Analyse- / QA-Aufgaben ohne Repo laufen hier mit diesen Servern (Namen wie in „claude mcp list“, z. B. kb) – hinzugefügt mit „claude mcp add -s user …“: Ein Server im Standard-Bereich (local) bleibt draußen. Copilot, Ollama und MiniMax nutzen diese Liste auch, wenn das Repository keine eigene hat; die persönlichen JSON-Verbindungen stehen in ~/.claude.json oder ONE_CODER_MCP_CONFIG.',
     writes: 'schreibt {file}',
     status: '§ STATUS',
     one: 'One',
@@ -598,6 +620,10 @@ export const SETUP_JS = String.raw`(function () {
   var cloneOpen = false
   var cloneUrl = ''
   var cloneDirText = null
+  var copilotModel = null
+  var copilotBusy = false
+  var copilotMessage = ''
+  var copilotModels = []
   var ollamaKey = ''
   var ollamaContext = null
   var ollamaModel = null
@@ -769,6 +795,32 @@ export const SETUP_JS = String.raw`(function () {
     ])
   }
 
+  function copilotPanel() {
+    var c = state.copilot || { model: 'auto' }
+    return el('section', { className: 'wmcp', 'data-testid': 'copilot-setup' }, [
+      el('h2', { className: 'label', text: t('copilotTitle') }),
+      el('p', { className: 'hint', text: t('copilotHint') }),
+      el('p', { className: 'hint', text: t('copilotInstall') }),
+      c.error ? el('p', { className: 'hint', text: c.error }) : null,
+      c.environment ? el('p', { className: 'hint', text: t('copilotEnvironment') }) : null,
+      el('div', { className: 'field' }, [
+        el('label', { className: 'label', for: 'copilot-model', text: t('copilotModel') }),
+        el('input', { type: 'text', id: 'copilot-model', list: 'copilot-models', value: copilotModel === null ? c.model : copilotModel, maxlength: 120, autocomplete: 'off', spellcheck: 'false', disabled: copilotBusy, oninput: function (e) { copilotModel = e.target.value } }),
+        el('datalist', { id: 'copilot-models' }, ['auto'].concat(copilotModels).map(function (name) { return el('option', { value: name }) }))
+      ]),
+      el('button', { type: 'button', className: 'btn', text: t('copilotSave'), disabled: copilotBusy, onclick: function () {
+        copilotBusy = true; copilotMessage = ''; render()
+        api('POST', 'copilot', { model: (copilotModel === null ? c.model : copilotModel).trim() }).then(function (next) { copilotBusy = false; copilotModel = null; copilotMessage = t('copilotSaved'); adopt(next) }, function () { copilotBusy = false; copilotMessage = t('copilotError'); render() })
+      } }),
+      el('button', { type: 'button', className: 'btn', text: t('copilotCheck'), disabled: copilotBusy, onclick: function () {
+        copilotBusy = true; copilotMessage = ''; render()
+        api('POST', 'copilot-check', {}).then(function (result) { copilotBusy = false; copilotModels = result.models || []; copilotMessage = t(result.authenticated ? 'copilotReady' : 'copilotMissing'); render() }, function () { copilotBusy = false; copilotMessage = t('copilotMissing'); render() })
+      } }),
+      copilotModels.length ? el('p', { className: 'hint', text: copilotModels.join(', ') }) : null,
+      copilotMessage ? el('p', { className: 'hint', role: 'status', text: copilotMessage }) : null
+    ])
+  }
+
   function minimaxPanel() {
     var m = state.minimax || { configured: false, contextTokens: 131072, effort: 'high' }
     function save(remove) {
@@ -904,6 +956,7 @@ export const SETUP_JS = String.raw`(function () {
       el('input', { type: 'text', id: 'wmcp', value: wmcpText === null ? (state.mcpServers || []).join(', ') : wmcpText, placeholder: 'kb', spellcheck: 'false', autocomplete: 'off', oninput: function (ev) { wmcpText = ev.target.value } }),
       el('span', { className: 'hint', text: t('wmcpHint') })
     ]))
+    app.appendChild(copilotPanel())
     app.appendChild(minimaxPanel())
     app.appendChild(ollamaPanel())
     app.appendChild(statusPanel())

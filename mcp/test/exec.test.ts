@@ -858,6 +858,8 @@ describe('exec — source guard', () => {
       'codex.ts: bin', // findCodex(): person's CODEX_BIN, trusted app install or PATH; help probe
       'codex.ts: bin', // the same selected CLI; task content travels over stdin
       "config.ts: 'git'",
+      'copilot.ts: findCopilot(env)', // person's COPILOT_BIN or trusted PATH/install, version probe in tmpdir
+      'copilot.ts: findCopilot(env)', // same host-selected CLI, isolated cwd; prompt travels over SDK stdin
       "git.ts: 'git'",
       "git.ts: 'ssh'", // sshHostName(): `ssh -G <host>` — a host name (SSH_HOST: never an option) the remote's address names
       'git.ts: cmd', // run(): 'gh' | 'glab'

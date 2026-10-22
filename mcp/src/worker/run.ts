@@ -31,6 +31,8 @@ import { inSyncedFolder, rmRetry, worktreesAt, type Synced, type WorktreesAt } f
 import { repoScrubber, type Scrubber } from './scrub.ts'
 import { claudeAuth } from './secrets.ts'
 import { runAnalysis, runTests, type RunResult } from './testrun.ts'
+import { copilotInference, COPILOT_CONTEXT } from './copilot.ts'
+import { readCopilot } from './copilot-config.ts'
 import { runCodex } from './codex.ts'
 import { runLocal } from './local-agent.ts'
 import { ollamaCloudInference } from './ollama-cloud-inference.ts'
@@ -178,7 +180,7 @@ export function buildPrompt(task: TaskPayload, repo: RepoConfig, branch: string,
   if (task.quality) {
     parts.push('', '## Confirmed delivery acceptance (data)', ...dataBlock('ACCEPTANCE', JSON.stringify(task.quality), code))
     if (task.quality.review) parts.push('This is a fresh final QA pass. Read the combined branch and check every acceptance criterion. Configured tests have been run by the host. Do not rely on previous model summaries. Report needs_rework or blocked when evidence is missing; completed means no unresolved acceptance failures. Do not edit production files.')
-    if (task.quality.review && task.agent !== 'local' && task.agent !== 'minimax' && task.agent !== 'ollama') parts.push('End with one fenced json object: {"status":"completed"|"blocked"|"needs_rework","summary":"evidence-based review","next":"remaining action or empty"}. Missing or non-completed verdicts cannot pass QA.')
+    if (task.quality.review && task.agent !== 'local' && task.agent !== 'minimax' && task.agent !== 'ollama' && task.agent !== 'copilot') parts.push('End with one fenced json object: {"status":"completed"|"blocked"|"needs_rework","summary":"evidence-based review","next":"remaining action or empty"}. Missing or non-completed verdicts cannot pass QA.')
   }
   if (task.personalMcp?.length) parts.push('Personal MCP connections are available through one_task_mcp_search and one_task_mcp_call. Discover tools first, then use exact names and schemas. Credentials are held by the worker, never request or print them. Only the explicitly granted tools and this stage’s permissions apply.')
   if (diff) parts.push('', '## Changes on the branch (data)', ...dataBlock('DIFF', diff.text, code))
@@ -399,7 +401,7 @@ export async function runStage(ctx: StageContext): Promise<StageOutcome> {
             const test:TestResult={ok:checked.ok,output:scrub.text(checked.output).slice(-20000),ms:checked.ms,code:checked.code}
             if(!checked.ok||checked.notStarted)return {status:'failed',test,error:(checked.notStarted?'Delivery QA checks unavailable: ':'Delivery QA checks failed: ')+scrub.text(checked.output).slice(-6000)}
             const reviewed=await docStage({...ctx,repo:stageRepo,task:{...task,stage:{...task.stage,maxTurns:remaining}}},scrub,log,branch,dir)
-            if(reviewed.status==='ok' && task.agent!=='local' && task.agent!=='minimax' && task.agent!=='ollama') {
+            if(reviewed.status==='ok' && task.agent!=='local' && task.agent!=='minimax' && task.agent!=='ollama' && task.agent!=='copilot') {
               const verdict=deliveryReview(reviewed.plan??reviewed.summary??'')
               if(!verdict||verdict.status!=='completed')return {...reviewed,status:'failed',test,error:verdict?`${verdict.status}: ${verdict.summary}\nNext: ${verdict.next}`:'Delivery QA requires a structured final verdict; no completion was accepted.'}
             }
@@ -653,20 +655,22 @@ async function docStage(ctx: StageContext, scrub: Scrubber, log: Log, branch: st
 async function alternateStage(ctx: StageContext, scrub: Scrubber, log: Log, branch: string | null, dir: string, wt?: TaskWorktree): Promise<StageOutcome> {
   const { task, repo } = ctx
   const agent = task.agent
-  if (agent !== 'codex' && agent !== 'local' && agent !== 'minimax' && agent !== 'ollama') return { status: 'refused', error: 'Unknown coding agent.' }
+  if (agent !== 'codex' && agent !== 'local' && agent !== 'minimax' && agent !== 'ollama' && agent !== 'copilot') return { status: 'refused', error: 'Unknown coding agent.' }
   const lim = limits(ctx)
   if (lim.refuse) return { status: 'limit', error: lim.refuse }
   const readOnly = task.stage.kind !== 'implement' || (repo.claude.permissionMode.implement ?? task.stage.permissionMode) === 'plan'
   const changes = task.stage.kind === 'doc' && branch ? await branchDiff(repo, branch, wt?.dir ?? null).catch(() => null) : null
   const prompt = buildPrompt(task, repo, branch ?? '', markerCode(), changes ? { text: changes.text, worktree: !!wt } : null)
     + `\n\nUse your native ${agent !== 'codex' ? 'file, search and configured check' : 'file and shell'} tools inside this worktree. One task tools are available through MCP. The read-only sandbox applies to planning and documents. Ask through one_task_ask if essential information is missing.`
-  log('info', `Starting ${agent === 'local' ? 'local Ollama coding agent' : agent === 'minimax' ? MINIMAX_MODEL : agent === 'ollama' ? 'Ollama Cloud' : 'Codex'} (${readOnly ? 'read only' : 'workspace write'}).`)
+  log('info', `Starting ${agent === 'local' ? 'local Ollama coding agent' : agent === 'minimax' ? MINIMAX_MODEL : agent === 'ollama' ? 'Ollama Cloud' : agent === 'copilot' ? 'GitHub Copilot' : 'Codex'} (${readOnly ? 'read only' : 'workspace write'}).`)
   if (agent === 'codex') log('info', 'Codex uses this computer’s Codex login. Dollar cost is not supplied by Codex CLI; One does not estimate it.')
   const max = turnsOf(task, repo)
   const live = wt && !readOnly ? liveDiff(ctx, wt, scrub) : null
   try {
     const options = { agent, cwd: dir, prompt, readOnly, maxSteps: max, signal: ctx.signal, taskMcp: ctx.taskMcp, progress: ctx.progress,
       log: (line: LogLine) => ctx.log({ ...line, s: scrub.text(line.s) }) }
+    const copilot = agent === 'copilot' ? readCopilot(ctx.state.configFile) : null
+    if(copilot)log('info','Copilot uses the CLI login and organization policy on this computer. Selected context goes to the Copilot service. One owns file tools, MCP, bounded task memory and checks; native Copilot tools are disabled. Subscription usage has no USD receipt; dollar limits cannot meter this tariff.')
     const ollama = agent === 'ollama' ? readOllamaCloud(ctx.state.configFile) : null
     if (ollama?.apiKey) scrub.protect('OLLAMA_API_KEY', ollama.apiKey)
     if (ollama) log('info', 'Ollama Cloud: selected source and tool results leave this computer. Ollama plan quotas apply; USD cost and dollar limits cannot be metered for this tariff. Stage step limits and checks remain active.')
@@ -674,6 +678,7 @@ async function alternateStage(ctx: StageContext, scrub: Scrubber, log: Log, bran
     if (minimax?.apiKey) scrub.protect('MINIMAX_API_KEY', minimax.apiKey)
     if (minimax) log('info', 'MiniMax uses its cloud API. Selected source and tool results leave this computer; dollar amounts are estimates from token usage at published prices.')
     const res = agent !== 'codex' ? await runLocal({ ...options,
+      ...(copilot ? {inference:copilotInference(copilot.model),model:copilot.model,outputTokens:8192,context:{tokens:COPILOT_CONTEXT,inputLimit:COPILOT_CONTEXT-8192,chars:(COPILOT_CONTEXT-8192)*1.5}} : {}),
       ...(minimax ? {
         inference: miniMaxInference(minimax, lim.budget), model: MINIMAX_MODEL, outputTokens: 16384,
         context: { tokens: minimax.contextTokens, inputLimit: minimax.contextTokens - 32768, chars: Math.floor((minimax.contextTokens - 32768) * 1.5) },
@@ -685,7 +690,7 @@ async function alternateStage(ctx: StageContext, scrub: Scrubber, log: Log, bran
       completionRequired: !!task.quality,
       memory: { directory: join(dirname(ctx.state.file), 'local-memory'), scope: JSON.stringify([...(ctx.state.scope ? [ctx.state.scope] : []), repo.path, task.id, task.stage.id]), resume: !!task.resume, projectKey: repo.name },
       scrub: s => scrub.text(s),
-      mcpServers: repo.claude.mcpServers.length ? repo.claude.mcpServers : ctx.localMcpServers,
+      mcpServers: task.personalMcp?.length ? [] : repo.claude.mcpServers.length ? repo.claude.mcpServers : ctx.localMcpServers,
       verify: !readOnly && (repo.analyzeCommand?.length || repo.testCommand?.length) ? async signal => {
         if (ctx.verifyBoundary && !await ctx.verifyBoundary()) return { ok: false, unavailable: true, output: 'Automatic repair changed protected verification inputs. No check was accepted.' }
         const outputs: string[] = []

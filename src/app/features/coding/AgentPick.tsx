@@ -43,6 +43,7 @@ export function CodingAgentPick({ row, db, readOnly }: { row: Page; db: Database
     </select>
     {agent === 'minimax' && <div className="rtype-row__hint">{t('features.coding.agent.minimaxHint')} <ChangeReposButton label={t('features.coding.agent.minimaxSetup')} testId="coding-minimax-setup" /></div>}
     {agent === 'ollama' && <div className="rtype-row__hint">{t('features.coding.agent.ollamaHint')} <ChangeReposButton label={t('features.coding.agent.ollamaSetup')} testId="coding-ollama-setup" /></div>}
+    {agent === 'copilot' && <div className="rtype-row__hint">{t('features.coding.agent.copilotHint')} <ChangeReposButton label={t('features.coding.agent.copilotSetup')} testId="coding-copilot-setup" /></div>}
     {error && <span role="alert">{t('features.coding.agent.locked')}</span>}
   </div>
 }

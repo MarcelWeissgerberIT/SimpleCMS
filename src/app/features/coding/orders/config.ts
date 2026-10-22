@@ -56,7 +56,7 @@ export function readOrderConfig(db: { system?: string; orders?: unknown } | null
 export function sanitizeOrderConfig(v: unknown): OrderConfigRead {
   if (v === undefined || v === null) return { kind: 'none' }
   if (!isObj(v)) return { kind: 'none' }
-  const agentNames = ['claude', 'codex', 'local', 'minimax', 'ollama']
+  const agentNames = ['claude', 'codex', 'local', 'minimax', 'ollama', 'copilot']
   if (v.agent !== undefined && !agentNames.includes(String(v.agent))) return { kind: 'unreadable' }
   if (v.agents !== undefined && (!isObj(v.agents) || Object.entries(v.agents).some(([kind, agent]) => !ORDER_KINDS.includes(kind as OrderKind) || !agentNames.includes(String(agent))))) return { kind: 'unreadable' }
   if (v.qaRepairs !== undefined && v.qaRepairs !== 1 && v.qaRepairs !== 2) return { kind: 'unreadable' }
@@ -125,7 +125,7 @@ export function sanitizeOrderConfig(v: unknown): OrderConfigRead {
   const agents: OrderConfig['agents'] = {}
   if (isObj(v.agents)) for (const kind of ORDER_KINDS) {
     const agent = v.agents[kind]
-    if (agent === 'claude' || agent === 'codex' || agent === 'local' || agent === 'minimax' || agent === 'ollama') agents[kind] = agent
+    if (agent === 'claude' || agent === 'codex' || agent === 'local' || agent === 'minimax' || agent === 'ollama' || agent === 'copilot') agents[kind] = agent
   }
   const config = {
     ...(extra ?? {}),
@@ -136,7 +136,7 @@ export function sanitizeOrderConfig(v: unknown): OrderConfigRead {
     ...(projects ? { projects } : {}),
     checkpoint,
     ...(v.qaRepairs === 1 || v.qaRepairs === 2 ? { qaRepairs: v.qaRepairs } : {}),
-    ...(['claude', 'codex', 'local', 'minimax', 'ollama'].includes(String(v.agent)) ? { agent: v.agent } : {}),
+    ...(['claude', 'codex', 'local', 'minimax', 'ollama', 'copilot'].includes(String(v.agent)) ? { agent: v.agent } : {}),
     ...(Object.keys(agents).length ? { agents } : {}),
     ...(budgetUsd !== undefined ? { budgetUsd } : {}),
   } as OrderConfig

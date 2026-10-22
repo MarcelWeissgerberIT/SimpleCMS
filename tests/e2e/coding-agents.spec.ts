@@ -1,13 +1,13 @@
 import { test, expect, openApp, gotoPage, wsEval, reloadApp } from './fixtures'
 
-for (const selectedAgent of ['codex', 'minimax', 'ollama'] as const) test(`coding Type selects ${selectedAgent}; persists and reaches only capable workers`, async ({ page }) => {
+for (const selectedAgent of ['codex', 'minimax', 'ollama', 'copilot'] as const) test(`coding Type selects ${selectedAgent}; persists and reaches only capable workers`, async ({ page }) => {
   await openApp(page)
   // Use the real task creation path and database schema.
   const id = await page.evaluate(() => (window as any).__oneCodingWrites.create('Agent selection test'))
   await gotoPage(page, id)
   const pick = page.getByTestId('coding-agent-select')
   await expect(pick).toHaveValue('claude')
-  await expect(pick.locator('option')).toHaveText(['Claude Code', 'Codex', 'Local · Ollama', 'MiniMax · API', 'Ollama Cloud'])
+  await expect(pick.locator('option')).toHaveText(['Claude Code', 'Codex', 'Local · Ollama', 'MiniMax · API', 'Ollama Cloud', 'GitHub Copilot'])
   await pick.selectOption('local')
   const selected = await wsEval(page, (s, id) => {
     const row = s.pages[id]
@@ -35,7 +35,8 @@ for (const selectedAgent of ['codex', 'minimax', 'ollama'] as const) test(`codin
     await wsEval(page, (s, id) => s.updateDatabase(s.pages[id].databaseId, { locked: false }), id)
   }
   await pick.selectOption(selectedAgent)
-  if (selectedAgent !== 'codex') await expect(page.getByTestId('coding-agent-type')).toContainText('Cloud API')
+  if (selectedAgent === 'minimax' || selectedAgent === 'ollama') await expect(page.getByTestId('coding-agent-type')).toContainText('Cloud API')
+  if (selectedAgent === 'copilot') { await expect(page.getByTestId('coding-agent-type')).toContainText('Copilot CLI');await expect(page.locator('.ctk-cost')).toHaveText('Copilot plan') }
   await expect(page.getByTestId('coding-model')).toHaveCount(0)
   if (selectedAgent === 'ollama') await expect(page.locator('.ctk-cost')).toHaveText('Ollama plan')
   await wsEval(page, (s, id) => {
@@ -54,7 +55,7 @@ for (const selectedAgent of ['codex', 'minimax', 'ollama'] as const) test(`codin
   await page.getByRole('button', { name: 'Retry', exact: true }).click()
   let payload: any
   await expect.poll(async () => {
-    payload = await page.evaluate(() => (window as any).__oneCodingWrites.next(['demo'], 'new-worker', true, ['doc', 'model', 'agent:codex', 'agent:local', 'agent:minimax', 'agent:ollama']))
+    payload = await page.evaluate(() => (window as any).__oneCodingWrites.next(['demo'], 'new-worker', true, ['doc', 'model', 'agent:codex', 'agent:local', 'agent:minimax', 'agent:ollama', 'agent:copilot']))
     return payload?.agent
   }).toBe(selectedAgent)
   expect(payload?.stage.kind).toBe('plan')

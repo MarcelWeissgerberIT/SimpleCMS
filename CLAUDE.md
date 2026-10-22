@@ -119,6 +119,14 @@ the public APIs stable — other areas are built against them in parallel.
 
 ## Data rules
 
+- Copilot coding (`mcp/src/worker/copilot.ts`): worker 1.24.0 / capability `agent:copilot` uses Copilot CLI >=1.0.102 as
+  a text-only JSON-RPC model transport for the shared local harness. Every model round has an isolated temporary cwd,
+  native tools/config discovery/hooks/skills/session store off; no task text or tokens in argv. CLI login belongs to
+  the worker account. Exact model IDs are availability-checked; never silently fall back. Subscription usage is
+  unmetered in USD, never free. `copilot.json` stores only a model; the setup check sends no model prompt. Task-scoped
+  personal MCP proxies work for Claude and Copilot; personal tokens never reach model prompts/CLI environment.
+  Browser agents / AI terminal remain separate; do not advertise a Copilot coding login as a global AI-provider key.
+
 - Native workspace translations (`features/translation`, `store/localization.ts`): optional `Page.localization` holds
   source language plus reviewed EN/DE string dictionaries and a source signature. Canonical text, block/page IDs,
   relations, option values, formulas and permissions never change. Content language follows the UI by default;

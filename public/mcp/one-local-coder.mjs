@@ -43412,7 +43412,7 @@ var LocalMcp = class {
 // src/worker/local-agent.ts
 var plain = (name, description, properties, required2) => ({ type: "function", function: { name, description, parameters: { type: "object", properties, required: required2, additionalProperties: false } } });
 var pathField = { path: { type: "string", description: "Path relative to the task worktree" } };
-var allowedMcp = /* @__PURE__ */ new Set(["one_task_read", "one_task_note", "one_task_ask"]);
+var allowedMcp = /* @__PURE__ */ new Set(["one_task_read", "one_task_note", "one_task_ask", "one_task_mcp_search", "one_task_mcp_call"]);
 async function runLocal(opts) {
   const result = { ok: false, stopped: false, limited: false, text: "", steps: 0 };
   const root = await realpath2(opts.cwd);
@@ -43423,6 +43423,9 @@ async function runLocal(opts) {
   const secrets = secretValues(env);
   const toolEnv = { ...env };
   delete toolEnv.MINIMAX_API_KEY;
+  delete toolEnv.COPILOT_GITHUB_TOKEN;
+  delete toolEnv.GH_TOKEN;
+  delete toolEnv.GITHUB_TOKEN;
   delete toolEnv.OLLAMA_API_KEY;
   const files = new LocalFiles(root);
   const external = new LocalMcp(opts.readOnly);

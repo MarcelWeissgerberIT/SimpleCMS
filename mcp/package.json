@@ -1,8 +1,8 @@
 {
   "name": "one-mcp",
   "private": true,
-  "version": "1.23.0",
-  "description": "SimpleCMS One \u2014 local MCP bridge: lets Claude Desktop, Claude Code or any MCP client work in the One tab open in your browser.",
+  "version": "1.24.0",
+  "description": "SimpleCMS One — local MCP bridge: lets Claude Desktop, Claude Code or any MCP client work in the One tab open in your browser.",
   "license": "MIT",
   "type": "module",
   "engines": {
@@ -20,6 +20,7 @@
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.0",
     "fflate": "^0.8.3",
+    "vscode-jsonrpc": "8.2.1",
     "ws": "^8.18.3",
     "zod": "4.6.5"
   },

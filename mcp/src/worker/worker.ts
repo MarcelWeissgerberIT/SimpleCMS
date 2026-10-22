@@ -212,7 +212,7 @@ export function sanitizeTask(raw: unknown): TaskPayload | null {
   if (!isObj(raw) || !isObj(raw.stage)) return null
   if (raw.agent !== undefined && !isCodingAgent(raw.agent)) return null
   const personalMcp = personalConnections(raw.personalMcp)
-  if (!personalMcp || (personalMcp.length && raw.agent !== undefined && raw.agent !== 'claude')) return null
+  if (!personalMcp || (personalMcp.length && raw.agent !== undefined && raw.agent !== 'claude' && raw.agent !== 'copilot')) return null
   const s = raw.stage
   const kind = (STAGE_KINDS as readonly string[]).includes(String(s.kind)) ? (s.kind as TaskPayload['stage']['kind']) : null
   if (personalMcp.length && !['plan', 'implement', 'doc'].includes(kind ?? '')) return null
@@ -577,7 +577,7 @@ export class Worker {
     const run: Run = { task, repo, abort: new AbortController(), token, question: null, since: Date.now(), scrub: repoScrubber({ ...repo, scratch }), scratch, cwd: null, asks: [], counts: { asked: 0, allowed: 0, refused: 0 } }
     // Stop: every request that waits for the person is refused at once
     run.abort.signal.addEventListener('abort', () => this.settleAll(run, 'stopped'), { once: true })
-    if (task.personalMcp?.length) run.personal = new PersonalMcp(task.personalMcp, task.stage.kind !== 'implement')
+    if (task.personalMcp?.length) run.personal = new PersonalMcp(task.personalMcp, task.stage.kind !== 'implement' || (repo.claude.permissionMode.implement ?? task.stage.permissionMode) === 'plan')
     this.runs.set(task.id, run)
     this.tokens.set(token, run)
     this.sendStatus()

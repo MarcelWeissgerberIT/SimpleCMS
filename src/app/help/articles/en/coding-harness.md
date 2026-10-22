@@ -10,7 +10,7 @@ summary: How One prepares coding packages, retrieves context, bounds QA repairs 
 One owns the request, its work packages and acceptance. The selected model works on one package at a time. A profile such as `marcel-flow` changes instructions, not model weights. Switching models retains the harness, tools and boundaries.
 
 ## Task packet and methods
-The shared harness for **Local · Ollama**, **MiniMax** and **Ollama Cloud** prepares a bounded packet: project guidance, available terminology in `GLOSSARY.md`/`CONTEXT.md`, relevant file pointers, symbols, imports and selected versioned methods. The source map uses bounded lexical/symbol search, not a complete architecture graph. An excerpt does not count as a source read for subsequent editing.
+The shared harness for **Local · Ollama**, **MiniMax**, **Ollama Cloud** and **GitHub Copilot** prepares a bounded packet: project guidance, available terminology in `GLOSSARY.md`/`CONTEXT.md`, relevant file pointers, symbols, imports and selected versioned methods. The source map uses bounded lexical/symbol search, not a complete architecture graph. An excerpt does not count as a source read for subsequent editing.
 
 `code_map` loads more orientation. `skill_list` and `skill_read` load small methods for implementation, diagnosis, contracts, sources, UI checks and acceptance review. They grant no permissions and execute no downloaded scripts. A UI method does not give a text model vision or screenshot judgment.
 

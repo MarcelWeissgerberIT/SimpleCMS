@@ -21,6 +21,7 @@ test('handoff refuses malformed credentials and strips executable transports; pr
   const prompt = buildPrompt(t, { name: 'fixture', claude: { mcpServers: [] } } as any, 'one/fixture')
   assert.ok(!prompt.includes(token));assert.ok(!prompt.includes(entry.url))
   assert.equal(sanitizeTask({ ...task({ kind: 'implement' }), agent: 'codex', personalMcp: clean }), null)
+  assert.equal(sanitizeTask({ ...task({ kind: 'implement' }), agent: 'copilot', personalMcp: clean })?.agent, 'copilot')
   assert.equal(sanitizeTask({ ...task({ kind: 'test' }), agent: 'claude', personalMcp: clean }), null)
 })
 test('proxy enforces auth, allow-list and plan read-only; results redact tokens and close ends access', async t => {

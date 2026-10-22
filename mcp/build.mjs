@@ -71,6 +71,8 @@ await build({
   },
   define: { __VERSION__: JSON.stringify(pkg.version) },
 })
+// vscode-jsonrpc has a diagnostic template with a trailing space. Escape it without changing the string value.
+writeFileSync(workerFile, readFileSync(workerFile, 'utf8').replace('Error is: \n', 'Error is:\\x20\n'))
 chmodSync(workerFile, 0o755)
 console.log(`built ${workerFile} (${Math.round(statSync(workerFile).size / 1024)} KB)`)
 

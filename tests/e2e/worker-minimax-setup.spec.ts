@@ -1,18 +1,36 @@
 import { readFileSync, statSync, existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { test, expect } from './fixtures'
 import { cleanupAll, makeRepo, writeConfig, spawnWorker, WORKER_BUNDLE, WS_LOCAL } from '../../mcp/test/worker-helpers'
 
 test('worker setup saves a private MiniMax key without calling the provider, and removes it explicitly', async ({ page }) => {
   const repo = makeRepo()
   const file = writeConfig(repo, { workspace: WS_LOCAL.id, port: 47396, name: 'MiniMax setup fixture', repos: [] })
-  const worker = await spawnWorker({ bundle: WORKER_BUNDLE, args: ['setup', '--config', file], env: { ONE_WORKER_BROWSER: 'none' } })
+  const copilotCapture = join(repo.dir, 'copilot-probe.json')
+  const worker = await spawnWorker({ bundle: WORKER_BUNDLE, args: ['setup', '--config', file], env: { ONE_WORKER_BROWSER: 'none', COPILOT_BIN: fileURLToPath(new URL('../../mcp/test/fixtures/fake-copilot.mjs', import.meta.url)), COPILOT_CAPTURE: copilotCapture } })
   let requests = 0
   await page.route('https://api.minimax.io/**', route => { requests++; return route.abort() })
   try {
     await expect.poll(() => /http:\/\/127\.0\.0\.1:47396\/setup#k=[A-Za-z0-9_-]{43}/.test(worker.stdout()), { timeout: 20000 }).toBe(true)
     const url = worker.stdout().match(/http:\/\/127\.0\.0\.1:47396\/setup#k=[A-Za-z0-9_-]{43}/)![0]
     await page.goto(url)
+    const copilot = page.getByTestId('copilot-setup')
+    await expect(copilot).toBeVisible()
+    await expect(copilot).toContainText('copilot auth login')
+    await expect(copilot.locator('input[type=password]')).toHaveCount(0)
+    await copilot.getByLabel('Copilot model ID (auto uses the account default)', {exact:true}).fill('gpt-6.1-sol')
+    await copilot.getByRole('button', {name:'Save Copilot model',exact:true}).click()
+    await expect(copilot).toContainText('Model saved. No model request was sent.')
+    const copilotFile = join(dirname(file),'copilot.json')
+    expect(JSON.parse(readFileSync(copilotFile,'utf8'))).toEqual({model:'gpt-6.1-sol'})
+    if(process.platform!=='win32')expect(statSync(copilotFile).mode&0o777).toBe(0o600)
+    await copilot.getByRole('button',{name:'Check CLI and login (no model request)',exact:true}).click()
+    await expect(copilot).toContainText('CLI signed in.')
+    await expect(copilot).toContainText('claude-opus-5.5')
+    expect(readFileSync(copilotCapture,'utf8')).not.toContain('session.send')
+    for(const width of [1440,390]){await page.setViewportSize({width,height:900});await copilot.scrollIntoViewIfNeeded();await page.screenshot({path:test.info().outputPath(`copilot-setup-${width}.png`)})}
+    await page.setViewportSize({width:1440,height:900})
     const section = page.getByTestId('minimax-setup')
     await expect(section).toBeVisible()
     await section.getByLabel('MiniMax API key', { exact: true }).fill('mini_browser_fixture_private_key')

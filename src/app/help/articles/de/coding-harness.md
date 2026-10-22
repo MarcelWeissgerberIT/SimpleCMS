@@ -10,7 +10,7 @@ summary: Wie One Coding-Aufträge vorbereitet, Kontext nachlädt, QA-Reparaturen
 One verwaltet den Auftrag, seine Teilaufgaben und die Abnahme. Das ausgewählte Modell bearbeitet jeweils ein Arbeitspaket. Ein Rollenprofil wie `marcel-flow` ändert Anweisungen, nicht die Modellgewichte. Ein Modellwechsel behält den Harness, die Werkzeuge und die Grenzen bei.
 
 ## Aufgabenpaket und Methoden
-Der gemeinsame Harness für **Lokal · Ollama**, **MiniMax** und **Ollama Cloud** stellt vor dem Lauf ein begrenztes Paket zusammen: Projektanweisungen, vorhandene Fachbegriffe aus `GLOSSARY.md`/`CONTEXT.md`, relevante Dateiverweise, Symbole, Imports und passende versionierte Arbeitsmethoden. Die Code-Karte ist eine begrenzte Text-/Symbolsuche, kein vollständiger Architekturgraph. Ein Auszug zählt nicht als Lesen für eine anschließende Änderung.
+Der gemeinsame Harness für **Lokal · Ollama**, **MiniMax**, **Ollama Cloud** und **GitHub Copilot** stellt vor dem Lauf ein begrenztes Paket zusammen: Projektanweisungen, vorhandene Fachbegriffe aus `GLOSSARY.md`/`CONTEXT.md`, relevante Dateiverweise, Symbole, Imports und passende versionierte Arbeitsmethoden. Die Code-Karte ist eine begrenzte Text-/Symbolsuche, kein vollständiger Architekturgraph. Ein Auszug zählt nicht als Lesen für eine anschließende Änderung.
 
 `code_map` lädt weitere Orientierung. `skill_list` und `skill_read` laden kleine Methoden für Implementierung, Fehleranalyse, Schnittstellenprüfung, Quellenarbeit, UI-Prüfung und Abnahme. Sie gewähren keine zusätzlichen Rechte und führen keine heruntergeladenen Skripte aus. UI-Methoden ersetzen keine Bildverarbeitung: Ein Textmodell kann Screenshots nicht visuell bewerten.
 

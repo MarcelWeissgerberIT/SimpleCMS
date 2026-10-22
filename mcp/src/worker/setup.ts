@@ -1,3 +1,5 @@
+import { copilotStatus, saveCopilot } from './copilot-config.ts'
+import { probeCopilot } from './copilot.ts'
 /**
  * one-worker — the local setup page: http://127.0.0.1:<port>/setup#k=<token>, on the worker's own port.
  * The person ticks the repositories One may hand tasks to (found by scan.ts), sets base branch, test
@@ -306,6 +308,7 @@ export class SetupServer {
       mcpServers: config.mcpServers,
       workspaces: this.host.workspaces?.list() ?? [],
       minimax: miniMaxStatus(this.host.configFile),
+      copilot: copilotStatus(this.host.configFile),
       ollama: ollamaCloudStatus(this.host.configFile),
       clone: this.clone,
       // what the one-time marking marked (an older worker's clones and imports), until the person took note
@@ -634,6 +637,15 @@ export class SetupServer {
     if (op === 'marks-seen') {
       marksSeen(this.host.configFile)
       return json(200, await this.state()), true
+    }
+    if (op === 'copilot-check') {
+      if (this.host.live().busy.length) return json(409,{error:'Wait for running tasks to finish before checking Copilot.'}),true
+      return json(200,await probeCopilot()),true
+    }
+    if (op === 'copilot') {
+      if (this.host.live().busy.length) return json(409,{error:'Wait for running tasks to finish before changing Copilot settings.'}),true
+      try { saveCopilot(this.host.configFile,body) } catch { return json(400,{error:'Enter a valid Copilot model ID or auto. Credentials belong to Copilot CLI.'}),true }
+      return json(200,await this.state()),true
     }
     if (op === 'ollama-test') {
       if (this.host.live().busy.length) return json(409, { error: 'Wait for running tasks to finish before testing Ollama Cloud.' }), true
