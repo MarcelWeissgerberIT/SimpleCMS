@@ -50,7 +50,7 @@ import type { SavedMedia } from '../media/types'
 import { endRun, noteRun, withWriter, type Writer } from '../../../store/writer'
 import { isSettled, onSettled } from '../../recorder/settled'
 import { addToLines, tapSignal } from '../core/meter'
-import type { LedgerEntry, Usage } from '@/shared/ai/types'
+import type { LedgerEntry, ProviderId, Usage } from '@/shared/ai/types'
 import { stepText } from '../Receipt'
 
 const set = useAgent.setState
@@ -58,6 +58,8 @@ const get = useAgent.getState
 
 /** The API conversation of this session (append-only). */
 let history: BetaMessageParam[] = []
+/** A provider change starts fresh model context; proposals and the visible log stay available. */
+let historyProvider: ProviderId | null = null
 /** change statuses Claude has been told about (to report what the user did in between) */
 let reported: Record<string, StagedChange['status']> = {}
 let controller: AbortController | null = null
@@ -85,7 +87,7 @@ let convId = newId()
 /** each task's ledger source in this conversation (its memory proposal request is the task's too) */
 const taskSources = new Map<number, string>()
 /** what a task went with (the conversation before it, its references and mentions) — "Run the task again" */
-const turnSnap = new Map<number, { before: BetaMessageParam[]; refs: TermRef[]; mentions: TermMention[] }>()
+const turnSnap = new Map<number, { before: BetaMessageParam[]; provider: ProviderId | null; refs: TermRef[]; mentions: TermMention[] }>()
 /** this conversation's applied writes of pipeline tasks (fingerprint before → after): a task action staged before them still applies */
 const sigSteps = new Map<ID, Array<[string, string]>>()
 /** the running proposal request (after a task) */
@@ -387,6 +389,8 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
   if (!task || get().status === 'running') return
   const n = get().turns.length + 1
   const prevTurn = opts.continues ? get().turns[get().turns.length - 1] : undefined
+  let runProvider: ProviderId | null = null
+  let providerChangeNoted = false
   const ac = new AbortController()
   controller = ac
   setStopHandler(() => ac.abort())
@@ -501,7 +505,7 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
       countUsage(entry ?? null, u)
     },
     history(messages) {
-      if (here()) history = messages
+      if (here()) { history = messages; historyProvider = runProvider }
     },
     limit() {
       note(t('features.agent.limitNote'))
@@ -554,9 +558,9 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
   // servers addressed by a codeword always join; the others are left out while they reject their token here
   const forced = codewordsIn(task, setup.servers)?.forced ?? []
   const before = history
+  const beforeProvider = historyProvider
   // every task, a Continue too: "Run the task again" after a sign-in sends it once more from here
-  turnSnap.set(n, { before, refs, mentions })
-  const tooling = terminalSetup(withCoding, withMemTools, withUpsert, prepared.taskRules)
+  turnSnap.set(n, { before, provider: beforeProvider, refs, mentions })
   // team: the member list (owners by email) before the first request — the staging tools never wait for it
   await warmMembers()
   // the workspace as a whole (tools read any page in scope), the open page and the pages the task points at
@@ -565,6 +569,14 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
     answered = 0
     // the gate first (newer AI rules, a key in the task …): nothing is attached or loaded when it refuses
     const pre = precheck({ purpose: 'terminal.task', route: get().route, sources, typed: task })
+    if (opts.continues && historyProvider && historyProvider !== pre.route?.p) throw new AIError('capability', t('features.agent.err.providerChanged'))
+    runProvider = pre.route?.p ?? null
+    if (history.length && historyProvider !== runProvider && !providerChangeNoted) {
+      note(t('features.agent.providerFresh'))
+      providerChangeNoted = true
+    }
+    const activeHistory = historyProvider === runProvider ? history : []
+    const tooling = terminalSetup(withCoding, withMemTools && pre.allows('memory'), withUpsert, prepared.taskRules)
     // a route that may not receive MCP (a data rule): no server joins, each is said
     const mcpOk = pre.allows('mcp')
     if (!mcpOk) for (const name of mcpNames(setup, 'free', forced)) note(t('features.ai.mcp.cw.note.policy', { server: name }))
@@ -574,15 +586,15 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
     // servers left out because they rejected their token: the terminal offers a sign-in under the task
     if (left.length && here()) patchTurn(n, { signIn: [...new Set([...(get().turns.find((x) => x.n === n)?.signIn ?? []), ...left])] })
     // referenced image blocks go along as images (Claude for images); one that cannot be loaded is noted
-    const withImages = await withRefImages(taskMessage(history, prompt, text), refs, ac.signal, (title) => note(t('features.ai.image.refFailed', { title })))
+    const withImages = await withRefImages(taskMessage(activeHistory, prompt, text), refs, ac.signal, (title) => note(t('features.ai.image.refFailed', { title })))
     // referenced file blocks go along as documents (Claude for files); one that cannot be read is noted
     const user = await withRefFiles(withImages, refs, ac.signal, (title) => note(t('features.ai.file.refFailed', { title })))
     return runAgent({
       purpose: 'terminal.task',
-      route: get().route,
+      route: pre.route,
       sources,
       typed: task,
-      history,
+      history: activeHistory,
       user,
       stage,
       signal: ac.signal,
@@ -618,6 +630,7 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
         // a server this task did not address rejected its token: once more without it (the conversation as before)
         if (!(e instanceof AIError && e.code === 'mcp_auth' && e.server && !forced.includes(e.server)) || sawMcp || ac.signal.aborted) throw e
         history = before
+        historyProvider = beforeProvider
         end = await attempt()
         break
       }
@@ -910,6 +923,7 @@ export function newTask() {
   controller = null
   setStopHandler(null)
   history = []
+  historyProvider = null
   forgetStagedIds()
   itemSession = newItemSession('terminal')
   reported = {}
@@ -1343,6 +1357,7 @@ export function rerunAfterSignIn(entryId: string): void {
   if (!turn || !snap) return
   patchConnect(entryId, { retried: true })
   history = snap.before
+  historyProvider = snap.provider
   // a Continue goes on again (the same task, a fresh budget, what is staged); a task runs with the chips it had
   void runTask(turn.task, turn.continues ? { history: false, continues: turn.continues } : { history: false, again: { refs: snap.refs, mentions: snap.mentions } })
 }

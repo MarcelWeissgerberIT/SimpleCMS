@@ -1,11 +1,11 @@
 ---
 id: copilot-coding
-title: GitHub Copilot in the coding worker
+title: GitHub Copilot in One
 section: ai
 order: 22
 keywords: copilot, github, enterprise, internal git, windows, c++, angular, subscription, atlas, model
 related: coding-pipeline, coding-harness, personal-secrets, mcp-servers
-summary: Use a local Copilot CLI login as the model transport for One's coding harness.
+summary: Use your local Copilot CLI login for One’s AI actions, browser agents and coding harness.
 ---
 Choose **GitHub Copilot** as a task's **Coding agent**, or pin it for a work-order role. Worker **1.25.0** or newer is required; older workers cannot silently substitute Claude. The worker also exposes Copilot as an AI provider for One. Coding tasks keep their own engine choice; workspace features use the common provider/model picker and AI rules. Signing in does not change your defaults or grant access to workspace data.
 
@@ -41,6 +41,6 @@ Open **Settings → AI → Models on the worker**, refresh the list, and check t
 | Pictures, native PDFs, image generation and Jev decisions | Not supported by this Copilot transport; choose a capable provider explicitly |
 | Unattended team-server agents while your browser/worker is offline | Not provided by the personal Copilot connection |
 
-Browser MCP connections use the servers selected in **Settings → AI / Agents · MCP** and the agent’s exact tool allow-list. Integration OUT/send tools stay disabled. The worker accepts only selected public HTTPS connections, no launch commands or extra headers. Stopping, closing the connection or switching workspaces aborts active worker requests. No repository files are read by text requests; a workspace tool reads only the allowed One content. A terminal conversation containing native images, PDFs or another provider’s private reasoning history needs a fresh text conversation for Copilot.
+Browser MCP connections use the servers selected in **Settings → AI / Agents · MCP** and the agent’s exact tool allow-list. Integration OUT/send tools stay disabled. The worker accepts only selected public HTTPS connections, no launch commands or extra headers. Stopping, closing the connection or switching workspaces aborts active worker requests. No repository files are read by text requests; a workspace tool reads only the allowed One content. Changing terminal providers starts the next task with fresh model context; earlier proposals stay available for review. Follow-up tasks with the same provider retain their conversation. Finish a limited run with its original provider, or send a fresh task after switching. Native images and PDFs remain unsupported through this transport.
 
 Browser requests use at most 65,536 context tokens when the CLI reports enough capacity, otherwise a conservative 32,768-token budget; tool descriptions are shortened and MCP schemas are retrieved by search. Loops stop on tool/round limits, repeated calls, cancellation or missing context. Per-response usage is recorded when available, with unknown monetary cost rather than a fabricated zero. Dollar budgets cannot meter a Copilot subscription. A real account/model/network test is still required on each workshop laptop.

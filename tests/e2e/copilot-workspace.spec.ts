@@ -1,6 +1,7 @@
 import { writeFile } from 'node:fs/promises'
 import { test, expect, openApp, wsEval, createPage, gotoPage, doc, para, MOD } from './fixtures'
 import { startFakeWorker, type FakeWorker } from './helpers/fakeWorker'
+import { mockClaudeScript, text } from './helpers/providers'
 import { WORKER_CAN } from '../../src/app/features/coding/protocol'
 
 const PORT=47413,MODEL='claude-opus-5.5'
@@ -57,6 +58,30 @@ test.describe('Copilot across workspace features',()=>{
     // Record the actual default terminal schema budget, so the worker's boundary can also be exercised locally.
     await writeFile(info.outputPath('copilot-terminal-request.json'),JSON.stringify(fake.textAsked[0]))
     await info.attach('copilot-terminal-request',{body:JSON.stringify(fake.textAsked[0]),contentType:'application/json'})
+  })
+  test('a fresh task after switching providers does not forward the previous conversation',async({page})=>{
+    await wsEval(page,s=>s.updateSettings({aiApiKey:'sk-ant-e2e-fixture-key'}))
+    const claude=await mockClaudeScript(page,[text('CLAUDE-HISTORY-ONLY-SENTINEL')])
+    await page.keyboard.press(`${MOD}+j`)
+    const term=page.getByRole('region',{name:'AI terminal'}),prompt=term.getByRole('textbox',{name:'Task for the agent'})
+    await prompt.fill('Answer my first-provider-only question.');await prompt.press('Enter')
+    await expect(term.locator('.term-answer')).toContainText('CLAUDE-HISTORY-ONLY-SENTINEL')
+    expect(claude.requests).toHaveLength(1)
+    fake.onText=r=>({model:r.model,text:'Fresh Copilot answer.',inputTokens:120,outputTokens:20,usd:null})
+    await page.evaluate(async model=>(await (window as any).__oneAI.rules()).setDeviceDefault([{p:'copilot',m:model}]),MODEL)
+    await prompt.fill('Answer this new task using Copilot.');await prompt.press('Enter')
+    await expect(term.locator('.term-answer').last()).toContainText('Fresh Copilot answer.')
+    expect(fake.textAsked).toHaveLength(1)
+    const sent=JSON.stringify(fake.textAsked[0].messages)
+    expect(sent).toContain('Answer this new task using Copilot')
+    expect(sent).not.toContain('CLAUDE-HISTORY-ONLY-SENTINEL')
+    expect(sent).not.toContain('first-provider-only')
+    expect(claude.requests).toHaveLength(1)
+    await expect(term).toContainText('Provider changed: this task starts with fresh model context')
+    await prompt.fill('Now explain your Copilot answer.');await prompt.press('Enter')
+    await expect.poll(()=>fake.textAsked.length).toBe(2)
+    expect(JSON.stringify(fake.textAsked[1].messages)).toContain('Fresh Copilot answer.')
+    expect(JSON.stringify(fake.textAsked[1].messages)).not.toContain('CLAUDE-HISTORY-ONLY-SENTINEL')
   })
   test('selected Atlas tools cooperate with a manual browser agent; credentials never enter model text',async({page})=>{
     const token='private-atlas-token-for-copilot-test'

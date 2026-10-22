@@ -1,11 +1,11 @@
 ---
 id: copilot-coding
-title: GitHub Copilot im Coding-Worker
+title: GitHub Copilot in One
 section: ai
 order: 22
 keywords: copilot, github, enterprise, internes git, windows, c++, angular, abonnement, atlas, modell
 related: coding-pipeline, coding-harness, personal-secrets, mcp-servers
-summary: Die lokale Copilot-CLI-Anmeldung als Modellzugang für Ones Coding-Harness nutzen.
+summary: Die lokale Copilot-CLI-Anmeldung für Ones KI-Aktionen, Browser-Agenten und Coding-Harness nutzen.
 ---
 Unter **Coding-Agent** einer Aufgabe **GitHub Copilot** wählen oder für eine Prüfauftragsrolle festlegen. Dafür wird Worker **1.25.0** oder neuer benötigt; ältere Worker können nicht stillschweigend Claude einsetzen. Der Worker bietet Copilot auch als KI-Anbieter für One an. Coding-Aufgaben behalten ihre eigene Engine-Auswahl; Workspace-Funktionen nutzen die gemeinsame Anbieter-/Modellauswahl und KI-Regeln. Die Anmeldung ändert keine Standards und erteilt keine Datenfreigaben.
 
@@ -41,6 +41,6 @@ Für die Live-Übung einen kleinen realen Auftrag mit eigener Teilnehmeranmeldun
 | Bilder, native PDFs, Bilderzeugung und Jev-Entscheidungen | Über diesen Copilot-Weg nicht unterstützt; ausdrücklich einen passenden Anbieter wählen |
 | Unbeaufsichtigte Teamserver-Agenten bei geschlossenem Browser/Worker | Durch die persönliche Copilot-Verbindung nicht bereitgestellt |
 
-Für Browser-MCP gelten die unter **Einstellungen → KI / Agenten · MCP** gewählten Server und die genaue Werkzeugfreigabe des Agenten. OUT-/Sendewerkzeuge der Integrationen bleiben aus. Der Worker akzeptiert nur ausgewählte öffentliche HTTPS-Verbindungen, keine Startbefehle oder zusätzlichen Header. Stoppen, Verbindungsende und Workspace-Wechsel brechen laufende Worker-Anfragen ab. Textanfragen lesen keine Repository-Dateien; Workspace-Werkzeuge lesen ausschließlich den erlaubten One-Inhalt. Enthält eine Terminal-Unterhaltung native Bilder, PDFs oder private Denkblöcke eines anderen Anbieters, ist für Copilot eine neue Textunterhaltung nötig.
+Für Browser-MCP gelten die unter **Einstellungen → KI / Agenten · MCP** gewählten Server und die genaue Werkzeugfreigabe des Agenten. OUT-/Sendewerkzeuge der Integrationen bleiben aus. Der Worker akzeptiert nur ausgewählte öffentliche HTTPS-Verbindungen, keine Startbefehle oder zusätzlichen Header. Stoppen, Verbindungsende und Workspace-Wechsel brechen laufende Worker-Anfragen ab. Textanfragen lesen keine Repository-Dateien; Workspace-Werkzeuge lesen ausschließlich den erlaubten One-Inhalt. Ein Anbieterwechsel im Terminal startet die nächste Aufgabe mit frischem Modellkontext; bisherige Vorschläge bleiben zur Prüfung erhalten. Folgeaufgaben beim gleichen Anbieter behalten ihr Gespräch. Einen begrenzten Lauf beim bisherigen Anbieter fortsetzen oder nach dem Wechsel eine neue Aufgabe senden. Native Bilder und PDFs werden über diesen Zugang weiterhin nicht unterstützt.
 
 Browser-Anfragen nutzen höchstens 65.536 Kontext-Tokens bei ausreichender gemeldeter CLI-Kapazität, sonst ein vorsichtiges Budget von 32.768 Tokens; Werkzeugbeschreibungen werden gekürzt und MCP-Schemata gezielt gesucht. Werkzeug-/Rundengrenzen, wiederholte Aufrufe, Abbruch und fehlender Kontext beenden einen Lauf. Vorhandener Tokenverbrauch wird pro Antwort erfasst; Geldkosten bleiben unbekannt statt als null verbucht zu werden. Dollarbudgets können ein Copilot-Abo nicht messen. Ein echter Konto-/Modell-/Netzwerktest bleibt auf jedem Workshop-Laptop erforderlich.
