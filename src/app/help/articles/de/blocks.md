@@ -15,6 +15,8 @@ Ein Mermaid-Diagramm musst du nicht tippen: Markiere eine Liste von Schritten �
 
 Zu breit für die Seite? **Groß öffnen** — die ↗-Taste am Schaubild, sein Blockmenü oder ein Doppelklick — zeigt es über den ganzen Bildschirm, mit Zoom, Verschieben und Minikarte ([Diagramme](help:charts)).
 
+Für Skizzen-Diagramme und Illustrationen gibt es `/handdrawn` → **Handgezeichnet**. Diagramme bleiben bearbeitbar; Illustrationen nutzen einen verbundenen Bilddienst. Beides lässt sich als Cover übernehmen ([Handgezeichnet](help:hand-drawn)).
+
 ## Markdown-Kürzel
 Am Zeilenanfang tippen:
 - `# `, `## `, `### ` — Überschriften

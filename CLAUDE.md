@@ -408,6 +408,14 @@ the public APIs stable — other areas are built against them in parallel.
   origin 'ai'; the terminal stages ChangeKind 'media'. CORS refused → Open / Upload a copy; team: `POST
   /api/workspaces/:id/files/fetch` (SSRF guard, docs/API.md). `/generate image|video` = a forced request to ONE server
   (no memory, no page text unless ticked); the chosen server per device in localStorage `one.generate.server`.
+- Hand-drawn blocks (`editor/handdrawn`, `/handdrawn`): a lazy preview window inserts ordinary `mermaid` or `image`
+  nodes, with optional `drawing` provenance (v1, one-sketch, original prompt, aspect, context, serverId, local reference).
+  Diagrams keep a fixed Mermaid handDrawn front matter, including in Markdown exports; the diagram request is
+  `drawing.diagram` (structured, interactive, at most one parse repair). Illustrations use the existing forced-MCP
+  generation and media cards — no remote fetch before Save. References are described through the gated vision route;
+  the description, never original pixels, goes to the image service. Context is opt-in and route-shaped. Apply locates
+  existing blocks by stable id and refuses concurrent source edits. Covers are explicit snapshots. `stripButtonActions`
+  also removes `drawing` metadata at the share/export boundary; workspace backups keep it and its referenced files.
 - MCP sign-in (mcp-servers/oauth.ts, `McpServerConfig.oauth`): protected-resource metadata → the first listed
   authorization server that is CORS-readable with PKCE S256 (self-registration preferred; the host's own only when none
   is listed) → DCR → PKCE in a window → return to `<app>/?oauth=mcp` (no `#`; main.tsx → `#/oauth/mcp`); state + verifier

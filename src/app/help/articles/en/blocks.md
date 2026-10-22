@@ -15,6 +15,8 @@ A Mermaid diagram doesn't have to be typed: select a list of steps → **Ask AI*
 
 Too wide for the page? **Open large** — the ↗ key on the diagram, its block menu or a double-click — shows it across the screen with zoom, pan and a minimap ([Charts](help:charts)).
 
+For sketch diagrams and illustrations, use `/handdrawn` → **Hand-drawn**. Diagrams remain editable; illustrations use a connected image service. Both can become page covers ([Hand-drawn](help:hand-drawn)).
+
 ## Markdown shortcuts
 Type these at the start of a line:
 - `# `, `## `, `### ` — headings

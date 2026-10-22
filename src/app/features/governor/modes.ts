@@ -36,6 +36,7 @@ export const RUN_MODES: Readonly<Record<PurposeId, ModeRow>> = {
   'structure.transform': row('interactive', 'structured', 'ai'),
   'structure.freeboard': row('interactive', 'structured', 'ai'),
   'structure.redo': row('interactive', 'structured', 'ai'),
+  'drawing.diagram': row('interactive', 'structured', 'ai'),
   'memory.propose': row('follow-up', 'structured', 'memory'),
   'memory.example': row('follow-up', 'structured', 'memory'),
   'vision.image': row('interactive', 'text', 'ai'),

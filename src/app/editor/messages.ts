@@ -5,6 +5,7 @@ import { contextMessages } from './context/messages'
 import { splitMessages } from './split/messages'
 import { selectMessages } from './select/messages'
 import { workItemMessages } from './workitem/messages'
+import { drawingMessages } from './handdrawn/messages'
 
 /** Strings for the editor area. Keys MUST be prefixed with "editor." — always add both en and de. */
 export const messages: Messages = {
@@ -15,6 +16,7 @@ export const messages: Messages = {
     ...splitMessages.en,
     ...selectMessages.en,
     ...workItemMessages.en,
+    ...drawingMessages.en,
     // a page document waiting for the server (team cloud: first open after an update, offline)
     'editor.wait.loading.label': 'Loading',
     'editor.wait.loading': 'From the server — editable in a moment. This is the last known text.',
@@ -560,6 +562,7 @@ export const messages: Messages = {
     ...splitMessages.de,
     ...selectMessages.de,
     ...workItemMessages.de,
+    ...drawingMessages.de,
     'editor.wait.loading.label': 'Lädt',
     'editor.wait.loading': 'Vom Server – gleich bearbeitbar. Das ist der zuletzt bekannte Stand.',
     'editor.wait.offline.label': 'Offline · nur lesen',

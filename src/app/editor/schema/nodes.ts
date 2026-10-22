@@ -152,6 +152,7 @@ export const Mermaid = Node.create({
   selectable: true,
   addAttributes() {
     return {
+      drawing: { default: null, renderHTML: () => ({}), parseHTML: () => null },
       code: {
         default: '',
         parseHTML: (el) => el.getAttribute('data-code') ?? el.textContent ?? '',
@@ -435,6 +436,7 @@ export const BlockImage = Image.extend({
   addAttributes() {
     return {
       ...this.parent?.(),
+      drawing: { default: null, renderHTML: () => ({}), parseHTML: () => null },
       caption: { default: '', parseHTML: (el) => el.getAttribute('data-caption') ?? el.querySelector?.('figcaption')?.textContent ?? '' },
       width: {
         default: null,

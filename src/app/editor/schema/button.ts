@@ -171,11 +171,17 @@ function parseActionsAttr(el: HTMLElement): ButtonAction[] {
 
 /**
  * The same doc without button actions (webhook URLs, database ids …): for anything that leaves
- * the workspace — HTML export, share links. Returns the input when there is no button inside.
+ * the workspace — HTML export, share links. Drawing briefs and source references stay here too.
+ * Returns the input when nothing private needs stripping.
  */
 export function stripButtonActions(doc: JSONContent): JSONContent {
   const walk = (n: JSONContent): JSONContent => {
     let out = n
+    // This is also the share-link boundary: a portrait reference and the generation brief stay in the workspace.
+    if ((n.type === 'image' || n.type === 'mermaid') && n.attrs?.drawing) {
+      const { drawing: _drawing, ...attrs } = n.attrs
+      out = { ...out, attrs }
+    }
     if (n.type === 'button' && Array.isArray(n.attrs?.actions) && n.attrs.actions.length) out = { ...n, attrs: { ...n.attrs, actions: [] } }
     if (out.content) {
       const kids = out.content.map(walk)

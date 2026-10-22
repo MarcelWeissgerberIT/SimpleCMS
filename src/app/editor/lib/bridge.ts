@@ -57,6 +57,7 @@ export interface OverlayState {
   inlinePicker: InlinePicker | null
   /** a task's picker / card (editor/workitem/ItemPickers.tsx) */
   itemPicker: ItemPickerState | null
+  drawing: { blockId?: string; mode?: 'diagram' | 'image' } | null
 }
 
 /**
@@ -108,6 +109,7 @@ export function createBridge(): Bridge {
     comments: { active: null, via: null, draft: null, panel: false, showResolved: false },
     inlinePicker: null,
     itemPicker: null,
+    drawing: null,
   })) as Bridge
   store.keyHandlers = {}
   return store

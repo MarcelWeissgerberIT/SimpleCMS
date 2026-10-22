@@ -451,8 +451,10 @@ test.describe('run modes (B4, features/governor/modes.ts)', () => {
   test('one row per purpose of PURPOSES; the caller-mode ones; text purposes capped no lower than minOut', () => {
     expect(Object.keys(RUN_MODES).sort()).toEqual(Object.keys(PURPOSES).sort())
     // 28 + SJ's two decisions (train 9: gate.precheck takes its run's mode, gate.verify is a person's answer check) + the
-    // work-order planner (orders B1: manual · trigger)
-    expect(Object.keys(RUN_MODES)).toHaveLength(31)
+    // work-order planner (orders B1: manual · trigger) and the interactive structured drawing request
+    expect(Object.keys(RUN_MODES)).toHaveLength(32)
+    expect(modeOf('drawing.diagram')).toBe('interactive')
+    expect(minOut('drawing.diagram', false)).toBeNull()
     expect([...CALLER_MODE].sort()).toEqual(['agents.run', 'bulk.autofill', 'bulk.mail', 'coding.plan', 'gate.precheck', 'scripts.effect'])
     expect(missesMode('gate.precheck')).toBe(true)
     expect(missesMode('gate.precheck', 'scheduled')).toBe(false)

@@ -347,6 +347,6 @@ export async function openExportDialog(page: Page): Promise<Locator> {
   await page.evaluate(() => (window.location.hash = '#/workspace/data'))
   const ws = page.getByTestId('workspace-page')
   await expect(ws).toHaveAttribute('data-section', 'data')
-  await ws.getByRole('button', { name: 'Export workspace' }).click()
+  await ws.getByRole('button', { name: 'Export workspace', exact: true }).click()
   return page.getByRole('dialog')
 }

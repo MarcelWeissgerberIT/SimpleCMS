@@ -1,5 +1,5 @@
 /** Everything that floats around an editable editor. */
-import { memo } from 'react'
+import { lazy, memo, Suspense } from 'react'
 import type { Editor } from '@tiptap/core'
 import { useStore } from 'zustand'
 import type { Bridge } from '../lib/bridge'
@@ -17,6 +17,12 @@ import { InlinePickers } from '../icons/InlinePickers'
 import { ItemPickers } from '../workitem/ItemPickers'
 import { useUI } from '../../store/ui'
 import './menus.css'
+
+const HandDrawnPanel = lazy(() => import('../handdrawn/HandDrawnPanel'))
+function Drawing({ editor, bridge, pageId }: { editor: Editor; bridge: Bridge; pageId: string }) {
+  const request = useStore(bridge, s => s.drawing)
+  return request ? <Suspense fallback={null}><HandDrawnPanel editor={editor} pageId={pageId} request={request} onClose={() => bridge.setState({ drawing: null })} /></Suspense> : null
+}
 
 function AI({ editor, bridge, pageId }: { editor: Editor; bridge: Bridge; pageId: string }) {
   const ai = useStore(bridge, (s) => s.ai)
@@ -52,6 +58,7 @@ export const EditorOverlays = memo(function EditorOverlays({ editor, bridge, pag
       <TableToolbar editor={editor} />
       <LinkHover editor={editor} bridge={bridge} />
       <AI editor={editor} bridge={bridge} pageId={pageId} />
+      <Drawing editor={editor} bridge={bridge} pageId={pageId} />
       <AIRunsSlot editor={editor} pageId={pageId} />
     </>
   )

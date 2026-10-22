@@ -942,6 +942,20 @@ function orderPlanAnswer(caseId, body) {
 }
 
 const shots = {
+  /** Hand-drawn: the real preview, no AI request and no external image. */
+  async 'hand-drawn'(browser) {
+    const { ctx, page } = await freshPage(browser)
+    const id = await createPage(page, 'Workshop · From request to evidence', doc(para('One organises the work; Atlas keeps requirements, decisions and evidence.'), para('')))
+    await openPage(page, id)
+    await page.locator('#main .ProseMirror p').last().click()
+    await page.keyboard.type('/handdrawn')
+    await page.getByRole('option', { name: /Hand-drawn/ }).click()
+    await page.getByTestId('drawing-prompt').fill('Show the path from a requirement to tested evidence. Keep the team responsible for decisions.')
+    await page.getByTestId('drawing-panel').locator('.mermaid-view__svg svg').waitFor({ timeout: 20000 })
+    await rest(page)
+    await save(page, 'hand-drawn', await boxOf(page.locator('.modal.drawing-modal'), 16))
+    await ctx.close()
+  },
   /**
    * Work orders (2026-10-18): a request "Check the login timeout" (it mentions @Support case 4711 and names the repo)
    * planned by ↵ Plan on its plate — the plate in Chain ready: lamps (Coding on, the worker studio-mac, Context

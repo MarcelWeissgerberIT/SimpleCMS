@@ -202,7 +202,7 @@ test.describe('button block', () => {
     await ed.locator('p').last().click()
     await page.keyboard.press('ArrowUp')
     await expect(ed.locator('.ob.is-selected')).toHaveCount(1)
-    await expect(ed.locator('.ob.is-selected .ob__keys')).toContainText(/(⌘|Ctrl )↵ run/)
+    await expect(ed.locator('.ob.is-selected .ob__keys')).toContainText(/(⌘|Ctrl[+ ])↵ run/)
     await page.keyboard.press('Space')
     await page.keyboard.press('Enter')
     await page.waitForTimeout(400)

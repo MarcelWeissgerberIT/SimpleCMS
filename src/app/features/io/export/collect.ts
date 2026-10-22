@@ -58,7 +58,8 @@ export const FILE_REF_RE = /onefile:[0-9a-z]+/g
 export function collectRefs(tree: ExportTree): string[] {
   const set = new Set<string>()
   for (const p of tree.all) {
-    const json = JSON.stringify([p.content, p.cover, p.properties])
+    // The source portrait is workspace-only, even if its reference occurs in drawing provenance.
+    const json = JSON.stringify(p.content, (key, value) => key === 'drawing' ? undefined : value) + JSON.stringify([p.cover, p.properties])
     for (const m of json.match(FILE_REF_RE) ?? []) set.add(m)
   }
   return [...set]

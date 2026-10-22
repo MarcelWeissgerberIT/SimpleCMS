@@ -332,6 +332,16 @@ export const BLOCKS: BlockItem[] = [
     run: (ctx) => insertBlock(ctx.editor, { type: 'blockMath', attrs: { latex: '' } }, ctx.range),
   },
   {
+    id: 'handDrawn',
+    group: 'media',
+    icon: ClipboardPen,
+    keywords: 'hand drawn handdrawn sketch illustration diagram orange cover skizze handgezeichnet zeichnen schaubild',
+    run: (ctx) => {
+      if (ctx.range) ctx.editor.chain().focus().deleteRange(ctx.range).run()
+      ctx.bridge.setState({ drawing: {} })
+    },
+  },
+  {
     id: 'mermaid',
     group: 'advanced',
     icon: Network,
