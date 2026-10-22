@@ -1542,7 +1542,10 @@ doneAt (done only), frozen = { people names, blockedBy n, related n } only in do
 field line (a hard break in the title = `\` + the next quoted line), the reader off (`WORK_ITEMS_FROM_MARKDOWN`);
 `stripPrivate()` → `freezeWorkItems()`: no ids, names frozen; parses from HTML only with the clip key; P1: created only by
 the editor and by copies, see Data rules), `button` (attrs: label, variant 'signal'|'ink'|'ghost', actions = JSON
-array, see editor/schema/button.ts — strip with `stripButtonActions()` before a doc leaves the workspace),
+array, see editor/schema/button.ts — strip with `stripButtonActions()` before a doc leaves the workspace;
+`worker_setup` opens the existing personal coding settings only, never registers/downloads/executes. Authorized live
+translated pages opt into navigation/setup actions via `ReadOnlyDoc.pageActions`; writes, guests, locked pages and
+static previews stay inert),
 `tabs` (container of `tab`, no tabs inside tabs; the shown tab is editor view state) / `tab` (attrs: title; content:
 blocks), `icon` (inline atom; attrs: kind 'asset'|'lucide', name, color — glyphs only; editor/schema/icon.ts),
 `spreadsheet` (atom; attrs: id, title, sheets = [{ id, name, rows, cols, cells: { A1: { v = raw input, fmt, b, i,

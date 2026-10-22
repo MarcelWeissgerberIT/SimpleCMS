@@ -29,3 +29,9 @@ Am Zeilenanfang tippen:
 Markierter Text zeigt die Werkzeugleiste: fett, kursiv, unterstrichen, durchgestrichen, Code, Link, Farbe, **KI fragen** und **Kommentieren**.
 
 > Ein eingefügter Link lässt sich als Link behalten oder in ein Lesezeichen, eine Einbettung oder einen Player verwandeln.
+
+## Einrichtungs- und Download-Buttons
+
+Ein Button kann **Worker einrichten / herunterladen** öffnen. Er öffnet deine persönlichen Coding-Worker-Einstellungen; der Download dort koppelt den Worker mit deinem Konto und aktuellen Workspace. Der Button selbst erzeugt keinen Token und startet keinen Auftrag. Codeblöcke haben eine Taste **Kopieren**, die den Befehl kopiert, ohne ihn auszuführen.
+
+Auf einer übersetzten Live-Seite können berechtigte Mitglieder Navigation und Worker-Einrichtung nutzen. Buttons, die Inhalte ändern, bleiben in dieser Übersetzungsansicht deaktiviert. Gesperrte Seiten, reine Gast-Lesezugänge und statische Freigaben erhalten keine neuen Aktionen.

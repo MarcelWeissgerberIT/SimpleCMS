@@ -269,10 +269,19 @@ test.describe('button block', () => {
     const evil = JSON.stringify([{ id: 'x', type: 'webhook', url: 'https://hooks.e2e.test/evil', method: 'POST' }])
     /** caret at the end of the "Bottom line" paragraph (a pasted atom stays selected — never paste over it) */
     const caretAtBottom = async () => {
-      await ed.locator('p', { hasText: 'Bottom line' }).click()
-      // a human-scale pause: ProseMirror re-syncs its selection shortly after focus
+      // Repeated atom pastes can leave a node selection; establish the same DOM caret on macOS and Linux.
+      await ed.locator('p', { hasText: 'Bottom line' }).evaluate(p => {
+        const root = p.closest('[contenteditable]') as HTMLElement
+        root.focus()
+        const range = document.createRange()
+        range.selectNodeContents(p.lastChild!)
+        range.collapse(false)
+        const sel = getSelection()!
+        sel.removeAllRanges()
+        sel.addRange(range)
+        document.dispatchEvent(new Event('selectionchange'))
+      })
       await page.waitForTimeout(150)
-      await page.keyboard.press('End')
       // the caret really sits at the end of "Bottom line" before anything is pasted
       await expect
         .poll(() => page.evaluate(() => {

@@ -110,3 +110,11 @@ export function StaticButtonView({ node }: ReactNodeViewProps) {
     </NodeViewWrapper>
   )
 }
+
+/** Live translated pages keep navigation/setup usable; previews and every writing action stay inert. */
+export function ReadOnlyPageButtonView(props: ReactNodeViewProps) {
+  const actions = normalizeActions(props.node.attrs.actions)
+  return actions.length > 0 && actions.every(a => a.type === 'open' || a.type === 'worker_setup')
+    ? <ButtonView {...props} />
+    : <StaticButtonView {...props} />
+}

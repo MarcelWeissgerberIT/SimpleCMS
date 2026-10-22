@@ -313,10 +313,11 @@ function CloudEditor(props: PageEditorProps) {
 
 function TranslatedDoc({ pageId, language, className, onReady }: PageEditorProps) {
   const page = useWorkspace(s => s.pages[pageId])
+  const cloudReadOnly = useCloud(s => s.readOnly)
   const db = useWorkspace(s => page ? s.databases[page.kind === 'database' ? page.id : page.databaseId ?? ''] : undefined)
   const shown = useMemo(() => page ? localizePage(page, language ?? null, db) : null, [page, language, db])
   return <div className={`one-editor is-readonly ${className ?? ''}`} data-page-id={pageId} data-localized-page={language}>
-    <ReadOnlyDoc content={shown?.content ?? null} headingOffset={1} onReady={onReady} />
+    <ReadOnlyDoc content={shown?.content ?? null} headingOffset={1} onReady={onReady} pageId={pageId} pageActions={!!page && !cloudReadOnly && !page.trashed && !page.settings.locked} />
   </div>
 }
 

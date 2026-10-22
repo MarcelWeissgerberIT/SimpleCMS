@@ -942,6 +942,22 @@ function orderPlanAnswer(caseId, body) {
 }
 
 const shots = {
+  async 'setup-buttons'(browser) {
+    const { ctx, page } = await freshPage(browser)
+    const id = await createPage(page, 'Set up your coding worker', {type:'doc',content:[
+      {type:'heading',attrs:{level:2},content:[{type:'text',text:'Your account. Your workspace. Your worker.'}]},
+      {type:'paragraph',content:[{type:'text',text:'Open your personal download, then start the worker on your computer. Copying a command never runs it.'}]},
+      {type:'button',attrs:{label:'Open my worker download',variant:'signal',actions:[{id:'setup',type:'worker_setup'}]}},
+      {type:'button',attrs:{label:'Node.js downloads',variant:'ink',actions:[{id:'node',type:'open',url:'https://nodejs.org/en/download',pageId:null}]}},
+      {type:'codeBlock',attrs:{language:'bash'},content:[{type:'text',text:'node one-worker-cloud.mjs'}]},
+      {type:'paragraph',content:[{type:'text',text:'Keep this terminal and One open while work should run. Your download is paired with your own account and workspace.'}]}
+    ]})
+    await openPage(page, id)
+    await page.locator('.code-block__copy').waitFor()
+    await rest(page)
+    await save(page, 'setup-buttons')
+    await ctx.close()
+  },
   async 'welcome-link-token'(browser) {
     const { ctx, page } = await freshPage(browser)
     await page.evaluate(() => {

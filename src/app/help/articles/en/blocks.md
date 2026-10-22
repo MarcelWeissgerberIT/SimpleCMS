@@ -29,3 +29,9 @@ Type these at the start of a line:
 Select text for the formatting toolbar: bold, italic, underline, strikethrough, code, link, colour, **Ask AI** and **Comment**.
 
 > Pasting a link offers to keep it as a link or turn it into a bookmark, an embed or a player.
+
+## Setup and download buttons
+
+A button can open **Worker setup / download**. It opens your personal Coding worker settings; use the download there to pair the worker with your account and current workspace. It creates no token and starts no task by itself. Code blocks have a **Copy** button that copies the command without executing it.
+
+On a translated live page, authorized members can use navigation and worker setup buttons. Buttons that change content remain disabled in that translated view. Locked pages, read-only guest access and static shares grant no new actions.

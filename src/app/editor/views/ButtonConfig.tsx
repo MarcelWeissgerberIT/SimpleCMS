@@ -4,7 +4,7 @@
  */
 import { useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { Editor, JSONContent } from '@tiptap/core'
-import { ArrowDown, ArrowUp, ChevronDown, ExternalLink, FilePlus2, ListPlus, MessageSquare, PencilLine, Plus, SquareCode, Trash2, Webhook, X, type LucideIcon } from 'lucide-react'
+import { ArrowDown, ArrowUp, ChevronDown, Download, ExternalLink, FilePlus2, ListPlus, MessageSquare, PencilLine, Plus, SquareCode, Trash2, Webhook, X, type LucideIcon } from 'lucide-react'
 import { Modal } from '../../ui/Modal'
 import { Menu, useMenu, type MenuEntry } from '../../ui/Menu'
 import { Switch } from '../../ui/controls'
@@ -37,6 +37,7 @@ const ACTION_ICON: Record<ButtonActionType, LucideIcon> = {
   open: ExternalLink,
   message: MessageSquare,
   run_script: SquareCode,
+  worker_setup: Download,
 }
 
 const TYPE_GLYPH: Partial<Record<PropertyDef['type'], string>> = {
@@ -272,6 +273,9 @@ function ActionCard({
       break
     case 'run_script':
       body = <ScriptFields action={action} onChange={onChange} />
+      break
+    case 'worker_setup':
+      body = <p className="bcfg__note">{t('editor.button.workerSetupHint')}</p>
       break
   }
   return (

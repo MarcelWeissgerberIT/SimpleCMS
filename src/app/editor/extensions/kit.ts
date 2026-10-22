@@ -32,17 +32,20 @@ const emojiQuery = (q: string) => /^(?:[a-z][a-z0-9_+-]+|[+-]1|100)$/i.test(q)
 export function editorExtensions({
   bridge,
   readOnly = false,
+  pageActions = false,
   headingOffset = 0,
   collab,
 }: {
   bridge: Bridge | null
   readOnly?: boolean
+  /** Only a live, authorised translated page: navigation/setup buttons, never document writes. */
+  pageActions?: boolean
   /** 1 under a page title (<h1>): heading blocks render as <h2>–<h4>. */
   headingOffset?: number
   /** Team cloud: bind to the page's content document (live collaboration, Y undo, carets). */
   collab?: ContentDocHandle
 }): AnyExtension[] {
-  const exts = baseExtensions({ readOnly, wrap: nodeViewWraps({ readOnly }), headingOffset, collab: !!collab })
+  const exts = baseExtensions({ readOnly, wrap: nodeViewWraps({ readOnly, pageActions }), headingOffset, collab: !!collab })
   if (readOnly || !bridge) return [...exts, pasteExtension(null), BlockFlash, QuietStart.configure({ still: readOnly }), ...(collab ? collabExtensions(collab) : [])]
   return [
     ...(collab ? collabExtensions(collab) : []),

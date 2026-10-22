@@ -14,8 +14,8 @@ const EMPTY: JSONContent = { type: 'doc', content: [{ type: 'paragraph' }] }
  * `headingOffset`: pass 1 when the doc sits under its own page-title <h1> (share view) so heading
  * blocks render as <h2>–<h4>; the default 0 keeps <h1>–<h3> (slides, previews, AI answers).
  */
-export function ReadOnlyDoc({ content, className, headingOffset = 0, onReady }: { content: JSONContent | null; className?: string; headingOffset?: number; onReady?: (editor: Editor) => void }) {
-  const extensions = useMemo(() => editorExtensions({ bridge: null, readOnly: true, headingOffset }), [headingOffset])
+export function ReadOnlyDoc({ content, className, headingOffset = 0, onReady, pageActions = false, pageId }: { content: JSONContent | null; className?: string; headingOffset?: number; onReady?: (editor: Editor) => void; pageActions?: boolean; pageId?: string }) {
+  const extensions = useMemo(() => editorExtensions({ bridge: null, readOnly: true, headingOffset, pageActions }), [headingOffset, pageActions])
   const editor = useEditor(
     {
       extensions,
@@ -23,9 +23,9 @@ export function ReadOnlyDoc({ content, className, headingOffset = 0, onReady }: 
       editable: false,
       immediatelyRender: true,
       shouldRerenderOnTransaction: false,
-      editorProps: { attributes: { class: 'doc-content' } },
+      editorProps: { attributes: { class: 'doc-content', ...(pageId ? { 'data-page-id': pageId } : {}) } },
     },
-    [extensions],
+    [extensions, pageId],
   )
   useEffect(() => { if (editor && !editor.isDestroyed) onReady?.(editor) }, [editor, onReady])
   // consumers often pass a fresh object per render: only re-render the doc when it really changed

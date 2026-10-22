@@ -12,7 +12,7 @@ import { MentionView, PageLinkView } from './LinkViews'
 import { BookmarkView, EmbedView, FileBlockView } from './MediaViews'
 import { DatabaseBlockView, TocView } from './TocView'
 import { guardView } from './BrokenBlock'
-import { ButtonView, StaticButtonView } from './ButtonView'
+import { ButtonView, StaticButtonView, ReadOnlyPageButtonView } from './ButtonView'
 import { StaticTabsView, TabsView, tabsViewOptions } from './TabsView'
 import { SyncedBlockView, syncedViewOptions } from './SyncedBlockView'
 import { AudioView, VideoView } from './MediaBlockViews'
@@ -44,7 +44,7 @@ const buttonEvents = {
   stopEvent: ({ event }: { event: Event }) => !event.type.startsWith('drag') && event.type !== 'drop' && !!(event.target as Element | null)?.closest?.('button'),
 }
 
-export function nodeViewWraps({ readOnly }: { readOnly: boolean }): ExtensionWrap {
+export function nodeViewWraps({ readOnly, pageActions = false }: { readOnly: boolean; pageActions?: boolean }): ExtensionWrap {
   return {
     // views with editable content (NodeViewContent) stay unwrapped: a fallback would drop the content hole
     callout: withView(CalloutView),
@@ -66,7 +66,7 @@ export function nodeViewWraps({ readOnly }: { readOnly: boolean }): ExtensionWra
     video: withView(guardView(VideoView)),
     audio: withView(guardView(AudioView)),
     // read-only renders (share, history, slides) get a disabled key that never runs
-    button: withView(guardView(readOnly ? StaticButtonView : ButtonView), buttonEvents),
+    button: withView(guardView(readOnly ? (pageActions ? ReadOnlyPageButtonView : StaticButtonView) : ButtonView), buttonEvents),
     // the strip is React's; the tab panels are ProseMirror content (no guard: it would drop the content hole)
     tabs: withView(readOnly ? StaticTabsView : TabsView, tabsViewOptions),
     // read-only renders show the plain content (schema HTML, no frame)
