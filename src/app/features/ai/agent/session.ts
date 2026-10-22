@@ -407,7 +407,7 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
   }
   // the One memory: the memories that fit this task go along (/no-memory: none; a continuation: they went along already)
   // the One memory goes along only where the route may receive it (D-S2-29; the terminal runs on Claude in S2)
-  const mem = prevTurn || !mayReceive('terminal.task', 'memory') ? { use: null, block: '' } : memoryFor(task, { off: opts.noMemory || get().memOffNext })
+  const mem = prevTurn || !mayReceive('terminal.task', 'memory', get().route) ? { use: null, block: '' } : memoryFor(task, { off: opts.noMemory || get().memOffNext })
   const memShown = prevTurn ? prevTurn.memory : (mem.use ?? undefined)
   const text = mem.block ? `${context(refs, mentions)}\n\n${mem.block}` : context(refs, mentions)
   const prepared = prepareTask(task)
@@ -564,7 +564,7 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
   const attempt = async () => {
     answered = 0
     // the gate first (newer AI rules, a key in the task …): nothing is attached or loaded when it refuses
-    const pre = precheck({ purpose: 'terminal.task', sources, typed: task })
+    const pre = precheck({ purpose: 'terminal.task', route: get().route, sources, typed: task })
     // a route that may not receive MCP (a data rule): no server joins, each is said
     const mcpOk = pre.allows('mcp')
     if (!mcpOk) for (const name of mcpNames(setup, 'free', forced)) note(t('features.ai.mcp.cw.note.policy', { server: name }))
@@ -579,6 +579,7 @@ export async function runTask(raw?: string, opts: { noMemory?: boolean; history?
     const user = await withRefFiles(withImages, refs, ac.signal, (title) => note(t('features.ai.file.refFailed', { title })))
     return runAgent({
       purpose: 'terminal.task',
+      route: get().route,
       sources,
       typed: task,
       history,

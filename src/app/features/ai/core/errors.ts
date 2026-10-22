@@ -5,7 +5,7 @@
 import type { AIErrorCode } from '@/shared/ai/errors'
 import type { DataClass, ProviderId, Route } from '@/shared/ai/types'
 import { labelOf, providerLabel } from '@/shared/ai/models'
-import { providerInfo } from '@/shared/ai/providers'
+import { PROVIDER_ORDER, providerInfo } from '@/shared/ai/providers'
 import { legacyRule } from '@/shared/ai/route'
 import { useWorkspace } from '../../../store/store'
 import { t } from '../../../i18n'
@@ -37,7 +37,7 @@ export type AIFix =
  * registry.ts labelFor); Claude's are the registry's own ("Claude Opus 5.5").
  */
 export function providerOfLabel(label: string): ProviderId {
-  for (const p of ['openrouter', 'openai'] as const) if (label === providerLabel(p) || label.startsWith(`${providerLabel(p)} ·`)) return p
+  for (const p of PROVIDER_ORDER.filter(p => p !== 'anthropic')) if (label === providerLabel(p) || label.startsWith(`${providerLabel(p)} ·`)) return p
   return 'anthropic'
 }
 

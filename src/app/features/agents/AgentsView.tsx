@@ -22,7 +22,7 @@ import { PageIcon } from '../../ui/PageIcon'
 import { Switch } from '../../ui/controls'
 import { useLang, useT } from '../../i18n'
 import { AgentModelHint } from './ModelDefault'
-import { AINeedsSetup } from '../ai/setup/AINeedsSetup'
+import { AINeedsSetup, useAIStatus } from '../ai/setup/AINeedsSetup'
 import { AgentEditor } from './AgentEditor'
 import { RunHistory } from './RunHistory'
 import { TrustPlate } from './trust/ui/TrustPlate'
@@ -513,7 +513,7 @@ function AgentDetail({ id }: { id: ID }) {
   const agent = useWorkspace((s) => s.agents?.[id])
   const pages = useWorkspace((s) => s.pages)
   const databases = useWorkspace((s) => s.databases)
-  const hasKey = useWorkspace((s) => !!s.settings.aiApiKey.trim())
+  const hasKey = useAIStatus('agents.run').ready
   const readOnly = useCloud((s) => s.readOnly)
   const people = useWorkspace((s) => s.people)
   const wait = useConfirmState(agent)

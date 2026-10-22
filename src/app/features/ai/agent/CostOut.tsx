@@ -7,7 +7,7 @@
  */
 import { labelOf } from '@/shared/ai/models'
 import type { Lang } from '@/shared/i18n'
-import { useLang, useT } from '../../../i18n'
+import { useLang, useT, t } from '../../../i18n'
 import { fmtUsd } from '../../../lib/money'
 import type { ModelLine } from '../core/meter'
 import { costText, sourceText } from '../Receipt'
@@ -29,6 +29,7 @@ export function fmtTokens(n: number, lang: Lang): string {
 
 /** A conversation's or run's amount as the meters show it: "≈" only when a response in it was estimated. */
 export function meterUsd(usd: number, lines: readonly ModelLine[] | null | undefined, lang: Lang): string {
+  if (lines?.some(l => l.usd === null)) return t('features.ai.receipt.unknown')
   return `${(lines ?? []).some((l) => l.source === 'estimate') ? '≈ ' : ''}${fmtUsd(usd, lang)}`
 }
 

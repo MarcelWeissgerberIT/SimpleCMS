@@ -193,7 +193,7 @@ test.describe('workspace look', () => {
     await wsEval(page, (s) => s.setLook({ preset: 'blueprint', colors: { paper: '#edf0f2', ink: '#0e1a2b', signal: '#2759db' }, fonts: { ui: 'archivo', text: 'ui', headings: 'condensed' }, corners: 'standard', updatedAt: 0, updatedBy: null }))
     await gotoPage(page, id)
     await page.keyboard.press(`${MOD}+j`)
-    const model = page.locator('.term .term-head__model')
+    const model = page.getByTestId('term-route-chip')
     await expect(model).toBeVisible()
     await page.evaluate(() => (window as unknown as { __one: { ui: { getState: () => { toast: (t: unknown) => void } } } }).__one.ui.getState().toast({ message: 'Look saved', action: { label: 'Undo', run: () => {} } }))
     const action = page.locator('.toast__action').first()

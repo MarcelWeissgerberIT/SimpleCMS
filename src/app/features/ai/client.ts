@@ -17,7 +17,7 @@ import { meterCall, type MeterCall, type Receipt } from './core/meter'
 import { memoryRef } from './core/refs'
 import type { Need, PurposeId } from './core/purposes'
 import { demoAnswer, streamDemo } from './demo'
-import { codewordsIn, currentSetup, mcpNames, readServers, type Codewords, type McpRequestKind, type McpSetup, type McpToolAllow } from './mcp-servers/config'
+import { attachMcp, codewordsIn, currentSetup, mcpNames, readServers, type Codewords, type McpRequestKind, type McpSetup, type McpToolAllow } from './mcp-servers/config'
 import { skippedCall } from './mcp-servers/activity'
 import { routeFor } from './core/status'
 import { allowedFor } from '@/shared/ai/policy'
@@ -219,8 +219,9 @@ export async function streamCompletion(opts: StreamOptions): Promise<string> {
     // are said, by name (nothing opened)
     if (prepared.provider !== 'anthropic' && prepared.provider !== 'demo') {
       const names = opts.mcp === false ? [] : mcpNames(opts.setup ?? currentSetup(), opts.mcp ?? 'fixed', cw?.forced)
-      if (names.length) opts.onMcp?.(names.map((n) => skippedCall(n, 'provider', providerLabel(prepared.provider as ProviderId))))
-      return await viaNeutral(prepared, call, { system: opts.system, parts: [{ type: 'text', text: opts.prompt }], output: { kind: 'text' }, maxTokens: 8000 }, opts)
+      const workerMcp = prepared.provider === 'copilot' && opts.mcp !== false && prepared.allows('mcp') ? await attachMcp(opts.setup ?? currentSetup(), opts.mcp ?? 'fixed', { forced: cw?.forced, picked: cw?.picked }) : null
+      if (names.length && prepared.provider !== 'copilot') opts.onMcp?.(names.map((n) => skippedCall(n, 'provider', providerLabel(prepared.provider as ProviderId))))
+      return await viaNeutral(prepared, call, { system: opts.system, parts: [{ type: 'text', text: opts.prompt }], output: { kind: 'text' }, maxTokens: 8000, mcp: workerMcp }, opts)
     }
     return await streamOnce(opts, false, prepared, call)
   } finally {
@@ -257,8 +258,8 @@ function codewordRefusal(e: unknown, opts: Pick<StreamOptions, 'purpose' | 'rout
 export async function viaNeutral(
   prepared: Prepared,
   call: MeterCall,
-  r: { system: string; parts: Part[]; output: ChatRequest['output']; maxTokens: number; promptChars?: number; cache?: ChatRequest['cache'] },
-  o: { signal?: AbortSignal; onToken?: (delta: string) => void },
+  r: { system: string; parts: Part[]; output: ChatRequest['output']; maxTokens: number; promptChars?: number; cache?: ChatRequest['cache']; mcp?: import('./mcp-servers/config').McpAttachment | null },
+  o: { signal?: AbortSignal; onToken?: (delta: string) => void; onMcp?: (calls: import('./mcp-servers/activity').McpCall[]) => void },
 ): Promise<string> {
   if (!prepared.route) throw new AIError('no_key')
   const { sendNeutral } = await import('./core/call')
@@ -267,7 +268,7 @@ export async function viaNeutral(
   // the governor's cap (a text answer near the red line): the visible budget, never above the call's own
   const req: ChatRequest = { kind: 'chat', route: prepared.route, system: r.system, messages: [{ role: 'user', parts: r.parts }], output: r.output, maxTokens: capped(r.maxTokens, prepared), cache: r.cache ?? 'none' }
   const promptChars = r.promptChars ?? r.system.length + r.parts.reduce((n, p) => n + (p.type === 'text' ? p.text.length : 0), 0)
-  const turn = await sendNeutral(prepared, req, { signal: o.signal, onToken: o.onToken, call, promptChars })
+  const turn = await sendNeutral(prepared, req, { signal: o.signal, onToken: o.onToken, call, promptChars, mcp: r.mcp, onMcp: o.onMcp })
   if (turn.stop === 'refusal' || turn.stop === 'content_filter') throw new AIError('refusal')
   const text = turn.parts.map((p) => (p.type === 'text' ? p.text : '')).join('')
   if (!text.trim()) throw new AIError('empty')
@@ -365,7 +366,8 @@ export async function completeStructured(opts: StructuredOptions): Promise<strin
         used(e)
         return e
       } }
-      return await viaNeutral(prepared, tapped, { system: opts.system, parts: [{ type: 'text', text: opts.prompt }], output: { kind: 'json', name: 'answer', schema: opts.schema }, maxTokens: opts.maxTokens ?? 4096 }, opts)
+      const workerMcp = prepared.provider === 'copilot' && opts.mcp !== false && prepared.allows('mcp') ? await attachMcp(opts.setup ?? currentSetup(), opts.mcp ?? 'fixed', { forced, allow: opts.allow }) : null
+      return await viaNeutral(prepared, tapped, { system: opts.system, parts: [{ type: 'text', text: opts.prompt }], output: { kind: 'json', name: 'answer', schema: opts.schema }, maxTokens: opts.maxTokens ?? 4096, mcp: workerMcp }, opts)
     }
     return await structuredOnce(opts, false, prepared, call)
   } finally {

@@ -2,7 +2,7 @@
 import { useEffect, useSyncExternalStore } from 'react'
 import type { Caps, ModelInfo, Route } from '@/shared/ai/types'
 import { isWorkerProvider } from '@/shared/ai/providers'
-import { validWorkerModel, type WorkerModel } from '@/shared/ai/worker'
+import { validWorkerModel, type WorkerModel, type WorkerFunction } from '@/shared/ai/worker'
 import { useCoding } from '../../coding'
 import { AIError } from './errors'
 
@@ -30,7 +30,7 @@ export function refreshWorkerModels(): Promise<void> {
         if (!isWorkerProvider(m.provider) || !validWorkerModel(m.model) || !Number.isSafeInteger(m.context) || m.context < 2048 || m.context > 2000000) continue
         const row: WorkerModel = m
         next.push({ route: { p: row.provider, m: row.model }, label: row.model, short: row.model.toUpperCase().slice(0, 22), vendor: row.provider,
-          caps: { ...TEXT_CAPS, context: row.context }, price: row.provider === 'local' ? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, source: 'table', at: 'local' } : row.provider === 'minimax' ? { input: 0.15, output: 0.60, cacheRead: 0.015, cacheWrite: 0.15, source: 'bound', at: '2026-10-19' } : null })
+          caps: { ...TEXT_CAPS, context: row.context, ...(row.provider === 'copilot' && row.chat === true && api.workerCaps()?.includes('copilot-chat') ? { structured: true, tools: true, mcp: 'allow-only' as const, mcpListing: true, maxOutput: 8192 } : {}) }, price: row.provider === 'local' ? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, source: 'table', at: 'local' } : row.provider === 'minimax' ? { input: 0.15, output: 0.60, cacheRead: 0.015, cacheWrite: 0.15, source: 'bound', at: '2026-10-19' } : null })
       }
       publish(next)
     } catch { publish([]) }
@@ -46,12 +46,13 @@ export function useWorkerModels(): number {
   }, [conn, can])
   return useSyncExternalStore(fn => { listeners.add(fn); return () => listeners.delete(fn) }, () => revision)
 }
-export async function sendWorkerText(route: Route, messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>, maxTokens: number, signal?: AbortSignal) {
+export async function sendWorkerText(route: Route, messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>, maxTokens: number, signal?: AbortSignal, extra: { tools?: WorkerFunction[]; schema?: Record<string, unknown> } = {}) {
   if (!isWorkerProvider(route.p)) throw new AIError('capability')
   const api = await import('../../coding')
   if (!workerProviderReady(route.p)) throw new AIError('offline')
-  const result = await api.requestWorkerText({ provider: route.p, model: route.m, messages, maxTokens }, signal)
+  const result = await api.requestWorkerText({ provider: route.p, model: route.m, messages, maxTokens, ...extra }, signal)
   if (signal?.aborted) throw new AIError('aborted')
   if (!result || result.model !== route.m || typeof result.text !== 'string' || result.text.length > 250000 || (result.usd !== null && (!Number.isFinite(result.usd) || result.usd < 0))) throw new AIError('unknown', 'Invalid worker response')
+  if (result.calls && (route.p !== 'copilot' || !Array.isArray(result.calls) || result.calls.length > 8 || result.calls.some(c => !c || typeof c.id !== 'string' || !extra.tools?.some(t => t.name === c.name) || !c.arguments || typeof c.arguments !== 'object' || Array.isArray(c.arguments)))) throw new AIError('capability', 'Invalid worker tool response')
   return result
 }

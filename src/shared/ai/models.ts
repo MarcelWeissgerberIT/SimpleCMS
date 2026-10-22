@@ -10,7 +10,7 @@ import { isJevRouter } from './jev.ts'
 import { OWNER } from './owner.ts'
 import { providerInfo } from './providers.ts'
 
-export const STORED_PROVIDERS: readonly ProviderId[] = ['anthropic', 'openai', 'openrouter', 'local', 'ollama', 'minimax', 'codex']
+export const STORED_PROVIDERS: readonly ProviderId[] = ['anthropic', 'openai', 'openrouter', 'local', 'ollama', 'minimax', 'codex', 'copilot']
 export const isProviderId = (v: unknown): v is ProviderId => typeof v === 'string' && (STORED_PROVIDERS as readonly string[]).includes(v)
 export const EFFORTS: readonly Effort[] = ['low', 'medium', 'high']
 
@@ -116,6 +116,7 @@ const ID_RE: Record<ProviderId, RegExp> = {
   local: /^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,127}$/,
   ollama: /^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,127}$/,
   minimax: /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/,
+  copilot: /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,119}$/,
   codex: /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/,
   anthropic: /^claude-[a-z0-9][a-z0-9.-]{0,62}$/,
   // a fine-tune's id ends in a mixed-case suffix ('ft:gpt-6-luna:nordlicht:tessera:9ABel2dg')
@@ -162,6 +163,7 @@ export function refusedSlug(id: string, row?: CatalogueHint | null): SlugRefusal
 export function modelIdProblem(p: unknown, id: unknown, row?: CatalogueHint | null): 'provider' | 'format' | SlugRefusal | null {
   if (!isProviderId(p)) return 'provider'
   if (typeof id !== 'string') return 'format'
+  if (p === 'copilot' && /^(?:gh[pousr]_|github_pat_|sk-|eyJ)/.test(id)) return 'format'
   if (p === 'openrouter') {
     const refused = refusedSlug(id, row)
     if (refused) return refused

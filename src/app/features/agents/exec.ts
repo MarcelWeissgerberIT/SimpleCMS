@@ -1,3 +1,5 @@
+import { refreshWorkerModels, workerProviderReady } from '../ai/core/workerModels'
+import { readAgentRoute } from '@/shared/ai/route'
 /**
  * Custom agents — one run in this browser: the workspace agent's loop (features/ai/agent/run.ts)
  * headless, with the agent's instructions, its scope-checked tools, its MCP servers, model, effort
@@ -240,10 +242,12 @@ export function startInput(agent: CustomAgent, req: Pick<RunRequest, 'manual' | 
   checkedInvocation(agent, req.invocation)
   const rows = [...(req.rows ?? []), ...(req.invocation?.pageId ? [req.invocation.pageId] : [])]
   // what the route may receive decides what goes along (as in runOnce): the servers' part, the memory and recall
+  let copilotSubscription = false
   let mayMcp = true
   let mayMemory = true
   try {
-    const pre = precheck({ purpose: 'agents.run', sources: agentSources(agent, rows, '', !req.invocation), model: agent.model })
+    const pre = precheck({ purpose: 'agents.run', sources: agentSources(agent, rows, '', !req.invocation), model: agent.model, route: (() => { const pins = readAgentRoute(agent.route); return Array.isArray(pins) ? pins[0] : null })() })
+    copilotSubscription = pre.route?.p === 'copilot'
     mayMcp = pre.allows('mcp')
     mayMemory = pre.allows('memory')
   } catch {
@@ -261,9 +265,10 @@ export function startInput(agent: CustomAgent, req: Pick<RunRequest, 'manual' | 
   return {
     purpose: 'agents.run',
     sources: agentSources(agent, rows, memory.block, !req.invocation),
+    route: (() => { const pins = readAgentRoute(agent.route); return Array.isArray(pins) ? pins[0] : null })(),
     model: agent.model,
     size: { promptChars, maxTokens: 64000, bandOut: FIRST_STEP_OUT },
-    run: { source: `agent:${agent.id}:${runId}`, mode: runModeOf(req), budget: agent.maxRunUsd },
+    run: { source: `agent:${agent.id}:${runId}`, mode: runModeOf(req), ...(copilotSubscription ? {} : {budget:agent.maxRunUsd}) },
     ...(usable.length ? { mcp: { servers: usable.length } } : {}),
   }
 }
@@ -370,6 +375,8 @@ async function runInner(agent: CustomAgent, req: RunRequest, reg: { decide: stri
   // that says why (the run list and a toast), never as a run that "finished"
   // a model route this version cannot run (a newer version saved it): no request, an error run that says so
   if (routeBlock(agent)) return blockedRun(agent, req, t('features.agents.blocked.route'), t('features.agents.blocked.routeShort'))
+  const picked = readAgentRoute(agent.route)
+  if (Array.isArray(picked) && picked[0]?.p === 'copilot' && !workerProviderReady('copilot')) await refreshWorkerModels()
   const block = runBlock(req.invocation ? { ...agent, output: null } : agent, useWorkspace.getState().pages, t('common.untitled'))
   if (block) return blockedRun(agent, req, blockText(t, block), block.lost.map((l) => lostText(t, l)).join(' '))
   // what earlier runs left: the last successful one (context), the agent's saved state (runTools.ts)
@@ -505,7 +512,7 @@ async function runInner(agent: CustomAgent, req: RunRequest, reg: { decide: stri
         const line = entry ? stepText(t, st, entry.served.p, { lang: currentLang() }) : null
         if (line && !run.steps.some((x) => x.label === line)) step({ kind: 'note', label: line, state: 'ok' })
       }
-      if (entry && entry.usd === null && !ac.signal.aborted) {
+      if (entry && entry.usd === null && entry.served.p !== 'copilot' && !ac.signal.aborted) {
         noPrice = labelOf({ p: entry.served.p, m: entry.served.model })
         ac.abort()
       }
@@ -538,7 +545,7 @@ async function runInner(agent: CustomAgent, req: RunRequest, reg: { decide: stri
 
   try {
     // the gate first (newer AI rules, AI off, no key …): no MCP token is opened when it refuses (the run ends as an error)
-    const pre = precheck({ purpose: 'agents.run', sources: agentSources(agent, [...(req.rows ?? []), ...(req.invocation?.pageId ? [req.invocation.pageId] : [])], '', !req.invocation), model: agent.model })
+    const pre = precheck({ purpose: 'agents.run', sources: agentSources(agent, [...(req.rows ?? []), ...(req.invocation?.pageId ? [req.invocation.pageId] : [])], '', !req.invocation), model: agent.model, route: (() => { const pins = readAgentRoute(agent.route); return Array.isArray(pins) ? pins[0] : null })() })
     run.model = pre.label
     await save(true)
     // the agent's MCP servers, by name, as set up and switched on in this browser (Settings → AI); only the tools
@@ -582,6 +589,7 @@ async function runInner(agent: CustomAgent, req: RunRequest, reg: { decide: stri
       // its scope: the pages and databases it names (scope "everything": the workspace as a whole), the trigger's
       // rows, its report page, the One memory when it goes along
       purpose: 'agents.run',
+      route: pre.route,
       sources: agentSources(agent, [...(req.rows ?? []), ...(req.invocation?.pageId ? [req.invocation.pageId] : [])], memory.block, !req.invocation),
       history: [],
       user: taskMessage([], invocationJob(agent.instructions, req.invocation), memory.block ? `${ctx}\n\n${memory.block}` : ctx),
@@ -597,7 +605,7 @@ async function runInner(agent: CustomAgent, req: RunRequest, reg: { decide: stri
       effort: agent.effort,
       // the run's source and how it started (features/governor modes.ts — an agent runs three ways); its budget per run
       // is one more line of the Regler (only while a Regler line is set — else the check after each response, below)
-      run: { source: `agent:${agent.id}:${run.id}`, mode, budget: agent.maxRunUsd },
+      run: { source: `agent:${agent.id}:${run.id}`, mode, ...(pre.route?.p === 'copilot' ? {} : {budget:agent.maxRunUsd}) },
       // the tool reads are built for the route (ai/agent/run.ts); the trigger's rows were read before it — with them a
       // route that does not see everything is refused (the gate's backstop)
       applied: req.rows?.length ? null : appliedOf(pre),

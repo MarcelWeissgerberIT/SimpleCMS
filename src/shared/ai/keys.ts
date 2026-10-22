@@ -4,7 +4,7 @@
  */
 
 /** Claude, OpenAI project and OpenRouter keys, and any other "sk-…" key of 20+ characters (never inside a word). */
-const KEY_RES = [/(?<![A-Za-z0-9_-])sk-(?:ant|proj|or-v1)-[A-Za-z0-9_-]{12,}/g, /(?<![A-Za-z0-9_-])sk-[A-Za-z0-9_-]{20,}/g]
+const KEY_RES = [/(?<![A-Za-z0-9_-])(?:github_pat_|gh[pousr]_)[A-Za-z0-9_]{12,}/g, /(?<![A-Za-z0-9_-])sk-(?:ant|proj|or-v1)-[A-Za-z0-9_-]{12,}/g, /(?<![A-Za-z0-9_-])sk-[A-Za-z0-9_-]{20,}/g]
 
 /** Does the text hold something that looks like an API key? ("task-1234", "desk-…" do not.) */
 export function looksLikeKey(text: string | null | undefined): boolean {

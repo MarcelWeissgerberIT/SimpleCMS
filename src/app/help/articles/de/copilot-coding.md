@@ -7,7 +7,7 @@ keywords: copilot, github, enterprise, internes git, windows, c++, angular, abon
 related: coding-pipeline, coding-harness, personal-secrets, mcp-servers
 summary: Die lokale Copilot-CLI-Anmeldung als Modellzugang für Ones Coding-Harness nutzen.
 ---
-Unter **Coding-Agent** einer Aufgabe **GitHub Copilot** wählen oder für eine Prüfauftragsrolle festlegen. Dafür wird Worker **1.24.0** oder neuer benötigt; ältere Worker können nicht stillschweigend Claude einsetzen. Die Anbindung gilt für Coding-, Planungs- und Dokumentstufen im Worker. Browser-Agenten und KI-Terminal behalten ihre eigenen Anbietereinstellungen; eine Copilot-Lizenz richtet diese nicht automatisch ein.
+Unter **Coding-Agent** einer Aufgabe **GitHub Copilot** wählen oder für eine Prüfauftragsrolle festlegen. Dafür wird Worker **1.25.0** oder neuer benötigt; ältere Worker können nicht stillschweigend Claude einsetzen. Der Worker bietet Copilot auch als KI-Anbieter für One an. Coding-Aufgaben behalten ihre eigene Engine-Auswahl; Workspace-Funktionen nutzen die gemeinsame Anbieter-/Modellauswahl und KI-Regeln. Die Anmeldung ändert keine Standards und erteilt keine Datenfreigaben.
 
 ## Auf dem Teilnehmerrechner einrichten
 GitHub Copilot CLI **ab 1.0.102** auf demselben Rechner wie den One-Worker installieren und mit `copilot auth login` lokal anmelden. Das Konto benötigt einen passenden Copilot-Zugang und die Unternehmensfreigabe für CLI und gewähltes Modell. Ein IDE-Abo beweist diese Voraussetzungen noch nicht. `COPILOT_BIN` kann auch unter Windows auf eine CLI außerhalb von PATH zeigen.
@@ -27,3 +27,20 @@ Für einen persönlichen Atlas-Agenten dessen eigene Verbindung und die benötig
 Copilot-Abonutzung ist **kein USD-Kostennachweis**. One weist sie nicht als kostenlos aus und kann Dollargrenzen gegen diesen Tarif nicht durchsetzen. Schritt-/Zeitgrenzen der Stufe, Wiederholungserkennung und konfigurierte Prüfungen bleiben aktiv. Das anfängliche Kontextbudget des Harness beträgt 32.768 Tokens; gezieltes Nachladen und Aufgabengedächtnis gelten weiter. Das ist eine vorsichtige Harness-Grenze, keine Angabe zum maximalen Modellkontext.
 
 Für die Live-Übung einen kleinen realen Auftrag mit eigener Teilnehmeranmeldung im freigegebenen Netz ausführen: vorgesehenen Atlas-Record lesen, Änderung planen, im Branch umsetzen, Simulation/Tests ausführen und tatsächliche Nachweise verlinken. Verfügbares Modell und Unternehmensbeschränkungen auf genau diesem Rechner prüfen. Bestandene lokale One-Tests bestätigen weder den Zugang im Kundennetz noch garantieren sie die Qualität erzeugten Codes.
+
+## Copilot in One verwenden
+**Einstellungen → KI → Modelle beim Worker** öffnen, die Liste aktualisieren und prüfen, ob deine angemeldeten Copilot-Modelle erscheinen. Für **GitHub Copilot** nur die gewünschten Datenklassen freigeben; persönliche Daten und MCP benötigen eigene Freigaben auf diesem Gerät. In One wird kein Copilot-API-Key hinterlegt. Über den Anbieter vor dem Modell kannst du Copilot für eine einzelne Anfrage wählen oder als Standard dieses Workspace/Geräts speichern. Ein eigener Browser-Agent kann ein eigenes Copilot-Modell fest hinterlegen.
+
+| Bereich | Unterstützter Weg |
+| --- | --- |
+| Schreiben, Fragen, Workspace-Suche und Hilfe | Gemeinsame Anbieter-/Modellauswahl |
+| Datenbank-Umwandlung, Autofill, Übersetzungen, Besprechungszusammenfassung, Gedächtnisvorschläge, Skriptentwürfe und Auftragsplanung | Text oder anhand des Schemas geprüftes JSON; fehlerhafte Ausgaben werden vor Änderungen abgewiesen |
+| KI-Terminal und Browser-Agenten | One führt die vorhandenen Werkzeuge im erlaubten Bereich aus und nutzt den bestehenden Prüf-/Übernahmeablauf |
+| Atlas und andere ausgewählte Remote-MCP-Server | Ones Worker verbindet sich mit den ausgewählten Zugangsdaten; Copilot erhält Schemata und bereinigte Ergebnisse, keine Tokens |
+| Coding-Pipeline | Gemeinsamer Coding-Harness, konfigurierte Tests, ausdrückliche Git-Stufen |
+| Bilder, native PDFs, Bilderzeugung und Jev-Entscheidungen | Über diesen Copilot-Weg nicht unterstützt; ausdrücklich einen passenden Anbieter wählen |
+| Unbeaufsichtigte Teamserver-Agenten bei geschlossenem Browser/Worker | Durch die persönliche Copilot-Verbindung nicht bereitgestellt |
+
+Für Browser-MCP gelten die unter **Einstellungen → KI / Agenten · MCP** gewählten Server und die genaue Werkzeugfreigabe des Agenten. OUT-/Sendewerkzeuge der Integrationen bleiben aus. Der Worker akzeptiert nur ausgewählte öffentliche HTTPS-Verbindungen, keine Startbefehle oder zusätzlichen Header. Stoppen, Verbindungsende und Workspace-Wechsel brechen laufende Worker-Anfragen ab. Textanfragen lesen keine Repository-Dateien; Workspace-Werkzeuge lesen ausschließlich den erlaubten One-Inhalt. Enthält eine Terminal-Unterhaltung native Bilder, PDFs oder private Denkblöcke eines anderen Anbieters, ist für Copilot eine neue Textunterhaltung nötig.
+
+Browser-Anfragen nutzen höchstens 65.536 Kontext-Tokens bei ausreichender gemeldeter CLI-Kapazität, sonst ein vorsichtiges Budget von 32.768 Tokens; Werkzeugbeschreibungen werden gekürzt und MCP-Schemata gezielt gesucht. Werkzeug-/Rundengrenzen, wiederholte Aufrufe, Abbruch und fehlender Kontext beenden einen Lauf. Vorhandener Tokenverbrauch wird pro Antwort erfasst; Geldkosten bleiben unbekannt statt als null verbucht zu werden. Dollarbudgets können ein Copilot-Abo nicht messen. Ein echter Konto-/Modell-/Netzwerktest bleibt auf jedem Workshop-Laptop erforderlich.

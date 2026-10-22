@@ -153,6 +153,17 @@
   color: var(--ink);
 }
 
+.term-head .route-controls { flex: 1 1 auto; min-width: 0; max-width: 24em; }
+.term-head .route-provider { min-width: 0; max-width: 7em; }
+.term-head .route-chip { min-width: 0; }
+@container (max-width: 640px) {
+  .term-head { gap: 4px; }
+  .term-head__sep, .term-head > .term-spacer { display: none; }
+  .term-head .route-controls { max-width: 44%; }
+  .term-head .route-provider { max-width: 5em; }
+  .term-head__title { letter-spacing: 0; }
+}
+
 .term-head__sep {
   color: var(--ink-3);
 }

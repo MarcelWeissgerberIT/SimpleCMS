@@ -685,7 +685,7 @@ function gate(input: PrepareInput, held: boolean, backstopToo = false): Prepared
     run,
     chip: !!input.route && (input.pinned ?? 'person') === 'person',
     // MCP joins Claude routes that may receive it only (client.ts attachMcp)
-    mcp: input.mcp && route.p === 'anthropic' && allows('mcp') ? { servers: Math.max(0, input.mcp.servers), toolChars: input.mcp.toolChars ?? [], ...(input.mcp.rounds ? { rounds: input.mcp.rounds } : {}) } : { servers: 0, toolChars: [] },
+    mcp: input.mcp && ['anthropic', 'copilot'].includes(route.p) && allows('mcp') ? { servers: Math.max(0, input.mcp.servers), toolChars: input.mcp.toolChars ?? [], ...(input.mcp.rounds ? { rounds: input.mcp.rounds } : {}) } : { servers: 0, toolChars: [] },
     price: price !== undefined ? price : priceRow(route),
     ...(hints ? { hints } : {}),
     label,

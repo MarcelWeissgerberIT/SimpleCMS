@@ -7,7 +7,7 @@ keywords: copilot, github, enterprise, internal git, windows, c++, angular, subs
 related: coding-pipeline, coding-harness, personal-secrets, mcp-servers
 summary: Use a local Copilot CLI login as the model transport for One's coding harness.
 ---
-Choose **GitHub Copilot** as a task's **Coding agent**, or pin it for a work-order role. Worker **1.24.0** or newer is required; older workers cannot silently substitute Claude. This connection is for coding, planning and document stages in the worker. Browser agents and the AI terminal keep their own provider settings; a Copilot license does not automatically configure them.
+Choose **GitHub Copilot** as a task's **Coding agent**, or pin it for a work-order role. Worker **1.25.0** or newer is required; older workers cannot silently substitute Claude. The worker also exposes Copilot as an AI provider for One. Coding tasks keep their own engine choice; workspace features use the common provider/model picker and AI rules. Signing in does not change your defaults or grant access to workspace data.
 
 ## Set up on the participant computer
 Install GitHub Copilot CLI **1.0.102** or newer on the same computer as the One worker, then sign in locally with `copilot auth login`. The account must have a suitable Copilot entitlement and organization permission for the CLI and chosen model. An IDE subscription alone is not evidence that this works. `COPILOT_BIN` can point to a CLI outside PATH, including on Windows.
@@ -27,3 +27,20 @@ For a personal Atlas agent, select its dedicated connection and exact permitted 
 Copilot subscription usage is **not a USD receipt**. One does not report it as free and cannot enforce dollar limits against that tariff. Stage step/time limits, repeated-action detection and configured checks remain active. The initial harness context budget is 32,768 tokens; bounded retrieval and task memory apply rather than claiming the model's maximum context. It is a conservative harness budget, not a model specification.
 
 Before relying on the live exercise, run a small real task using the participant's own login and approved network: read the intended Atlas record, plan a change, implement in the branch, execute simulation/tests and link actual evidence. Check the available model and enterprise restrictions on that computer. Successful local automated tests of One are not proof of access inside the customer's network or a guarantee of generated code quality.
+
+## Use Copilot across One
+Open **Settings → AI → Models on the worker**, refresh the list, and check that your signed-in Copilot models appear. Allow only the data classes you intend to send to **GitHub Copilot**; personal data and MCP need their own device permissions. No Copilot API key belongs in One. The provider control before the model lets you choose Copilot for just one request, or save it as this workspace/device’s default. A custom browser agent can pin its own Copilot model.
+
+| Area | Supported path |
+| --- | --- |
+| Writing, questions, workspace search and help | Common provider/model selection |
+| Database transformation, autofill, translations, meeting summaries, memory proposals, script drafts and work-order planning | Text or schema-validated JSON; malformed output is rejected before changes are applied |
+| AI terminal and browser agents | One runs its existing scoped tools and stages proposals for the existing review/apply flow |
+| Atlas and other selected remote MCP servers | One’s worker connects using the selected credentials; schemas and scrubbed tool results reach Copilot, tokens do not |
+| Coding pipeline | Shared coding harness, configured tests, explicit Git stages |
+| Pictures, native PDFs, image generation and Jev decisions | Not supported by this Copilot transport; choose a capable provider explicitly |
+| Unattended team-server agents while your browser/worker is offline | Not provided by the personal Copilot connection |
+
+Browser MCP connections use the servers selected in **Settings → AI / Agents · MCP** and the agent’s exact tool allow-list. Integration OUT/send tools stay disabled. The worker accepts only selected public HTTPS connections, no launch commands or extra headers. Stopping, closing the connection or switching workspaces aborts active worker requests. No repository files are read by text requests; a workspace tool reads only the allowed One content. A terminal conversation containing native images, PDFs or another provider’s private reasoning history needs a fresh text conversation for Copilot.
+
+Browser requests use at most 65,536 context tokens when the CLI reports enough capacity, otherwise a conservative 32,768-token budget; tool descriptions are shortened and MCP schemas are retrieved by search. Loops stop on tool/round limits, repeated calls, cancellation or missing context. Per-response usage is recorded when available, with unknown monetary cost rather than a fabricated zero. Dollar budgets cannot meter a Copilot subscription. A real account/model/network test is still required on each workshop laptop.

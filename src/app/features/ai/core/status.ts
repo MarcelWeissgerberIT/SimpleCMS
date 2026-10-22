@@ -26,8 +26,8 @@ export const estimateLabel = (route: Route, pool?: readonly string[]): string =>
 export const estimateOn = (r: { route: Route; pool?: readonly string[] }, req: EstimateRequest): Band | null => estimate(r.route, req, Date.now(), priceFor(r.route, r.pool), capsFor(r.route, r.pool), modelInfo(r.route, r.pool)?.hints)
 
 /** May the route a request of this purpose takes receive this class? (before the request is built — the memory block) */
-export function mayReceive(purpose: PurposeId, cls: DataClass): boolean {
-  const { route } = routeFor(purpose)
+export function mayReceive(purpose: PurposeId, cls: DataClass, picked?: Route | null): boolean {
+  const { route } = routeFor(purpose, { route: picked })
   const s = useWorkspace.getState()
   return allowedFor(route.p, cls, s.ai, s.settings.ai)
 }

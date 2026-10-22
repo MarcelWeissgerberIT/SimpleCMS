@@ -19,7 +19,7 @@ export interface ProviderInfo {
   /** the company that receives a request routed here ("Anthropic") */
   company: string
   /** the code plate (the provider is told by letters, never by colour) */
-  code: 'CL' | 'OA' | 'OR' | 'LO' | 'OC' | 'MM' | 'CX'
+  code: 'CL' | 'OA' | 'OR' | 'LO' | 'OC' | 'MM' | 'CX' | 'CP'
   /** the plate's subtitle */
   sub: Bilingual
   /** the API host requests go to */
@@ -129,16 +129,17 @@ const LOCAL = workerInfo('local', 'Lokal · Ollama', 'LO', '127.0.0.1', 'https:/
 const OLLAMA = workerInfo('ollama', 'Ollama Cloud', 'OC', 'ollama.com', 'https://ollama.com/settings/keys', { en: 'Selected text goes through the paired worker to Ollama Cloud. Its API key stays on the worker.', de: 'Ausgewählter Text geht über den gekoppelten Worker an Ollama Cloud. Der API-Key bleibt beim Worker.' })
 const MINIMAX = workerInfo('minimax', 'MiniMax', 'MM', 'api.minimax.io', 'https://platform.minimax.io', { en: 'Selected text goes through the paired worker to MiniMax. Its API key stays on the worker.', de: 'Ausgewählter Text geht über den gekoppelten Worker an MiniMax. Der API-Key bleibt beim Worker.' })
 const CODEX = workerInfo('codex', 'Codex', 'CX', 'OpenAI via Codex CLI', 'https://chatgpt.com', { en: 'Selected text goes through the paired worker to its signed-in Codex CLI, in an isolated text request.', de: 'Ausgewählter Text geht über den gekoppelten Worker an dessen angemeldete Codex-CLI, als isolierte Textanfrage.' })
-export const WORKER_PROVIDERS = ['local', 'ollama', 'minimax', 'codex'] as const
+const COPILOT = workerInfo('copilot', 'GitHub Copilot', 'CP', 'GitHub Copilot via CLI', 'https://github.com/settings/copilot', { en: 'Selected text and tool results go through the paired worker to its signed-in Copilot CLI and the Copilot service. One executes workspace tools; MCP credentials stay outside model prompts. A running personal worker is required.', de: 'Ausgewählter Text und Werkzeugergebnisse gehen über den gekoppelten Worker an dessen angemeldete Copilot-CLI und den Copilot-Dienst. One führt Workspace-Werkzeuge aus; MCP-Zugangsdaten bleiben außerhalb der Modellprompts. Ein laufender persönlicher Worker wird benötigt.' })
+export const WORKER_PROVIDERS = ['local', 'ollama', 'minimax', 'codex', 'copilot'] as const
 export type WorkerProvider = typeof WORKER_PROVIDERS[number]
 export const isWorkerProvider = (p: string): p is WorkerProvider => (WORKER_PROVIDERS as readonly string[]).includes(p)
 
-export const PROVIDER_ORDER: readonly ProviderId[] = ['anthropic', 'openai', 'openrouter', 'local', 'ollama', 'minimax', 'codex']
+export const PROVIDER_ORDER: readonly ProviderId[] = ['anthropic', 'openai', 'openrouter', 'local', 'ollama', 'minimax', 'codex', 'copilot']
 
-export const PROVIDERS: { readonly anthropic: ProviderInfo; readonly openai: ProviderInfo; readonly openrouter: OpenRouterInfo; readonly local: ProviderInfo; readonly ollama: ProviderInfo; readonly minimax: ProviderInfo; readonly codex: ProviderInfo } = {
+export const PROVIDERS: { readonly anthropic: ProviderInfo; readonly openai: ProviderInfo; readonly openrouter: OpenRouterInfo; readonly local: ProviderInfo; readonly ollama: ProviderInfo; readonly minimax: ProviderInfo; readonly codex: ProviderInfo; readonly copilot: ProviderInfo } = {
   anthropic: ANTHROPIC,
   openai: OPENAI,
-  openrouter: OPENROUTER, local: LOCAL, ollama: OLLAMA, minimax: MINIMAX, codex: CODEX,
+  openrouter: OPENROUTER, local: LOCAL, ollama: OLLAMA, minimax: MINIMAX, codex: CODEX, copilot: COPILOT,
 }
 
 /** A provider's entry (an unknown id reads as Claude's — the default path). */

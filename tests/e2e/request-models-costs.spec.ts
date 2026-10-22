@@ -12,6 +12,7 @@ const models = [
   { provider: 'ollama', model: 'cloud-choice', context: 65536 },
   { provider: 'minimax', model: 'MiniMax-M3.1-Flash', context: 131072 },
   { provider: 'codex', model: 'gpt-6.1-sol', context: 64000 },
+  { provider: 'copilot', model: 'claude-opus-5.5', context: 32768, chat: true, maxOutput: 8192 },
 ]
 async function connect(page: Page) {
   await page.evaluate(() => (window as any).__one.ui.getState().openModal({ type: 'settings' }))
@@ -41,11 +42,11 @@ test.describe('worker models for a single text request', () => {
     fake.textModels = models
     fake.onText = request => ({ model: request.model, text: 'Improved by ' + request.provider, inputTokens: 220, outputTokens: 40, usd: request.provider === 'local' ? 0 : null })
     await openApp(page)
-    await wsEval(page, (s, allow) => s.setWorkspaceAI({ policy: { providers: Object.fromEntries(['local', 'ollama', 'minimax', 'codex'].map(p => [p, { allow }])), restricted: [] } }), ALL)
+    await wsEval(page, (s, allow) => s.setWorkspaceAI({ policy: { providers: Object.fromEntries(['local', 'ollama', 'minimax', 'codex', 'copilot'].map(p => [p, { allow }])), restricted: [] } }), ALL)
     await connect(page)
   })
   test.afterEach(async () => { await fake?.close() })
-  for (const provider of ['local', 'ollama', 'minimax', 'codex']) test(`${provider}: choose and execute without a Claude key or default change`, async ({ page }, info) => {
+  for (const provider of ['local', 'ollama', 'minimax', 'codex', 'copilot']) test(`${provider}: choose and execute without a Claude key or default change`, async ({ page }, info) => {
     await wsEval(page, s => s.updateSettings({ costDisplay: { currency: 'EUR', eurPerUsd: 0.8, date: '2026-10-20', source: 'manual' } }))
     await openMenu(page)
     await page.getByTestId('route-chip-provider').click()
@@ -74,7 +75,7 @@ test.describe('worker models for a single text request', () => {
     expect(await wsEval(page, s => s.settings.ai?.default ?? null)).toBeNull()
     expect(await wsEval(page, s => s.settings.ai?.routes ?? null)).toBeNull()
     if (provider === 'local' || provider === 'minimax') await expect(aiPanel(page).getByTestId('ai-receipt')).toContainText('€')
-    if (provider === 'ollama' || provider === 'codex') await expect(aiPanel(page).getByTestId('ai-receipt')).toContainText('Price unknown')
+    if (provider === 'ollama' || provider === 'codex' || provider === 'copilot') await expect(aiPanel(page).getByTestId('ai-receipt')).toContainText('Price unknown')
   })
 })
 

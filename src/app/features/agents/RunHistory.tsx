@@ -1,3 +1,4 @@
+import { meterUsd } from '../ai/agent/CostOut'
 import { openAgentReport } from './dialogs'
 import { loadReportLinks, useAgentReportLinks } from './reportLinks'
 /**
@@ -112,7 +113,7 @@ function RunItem({ run, n, first, addressed }: { run: AgentRun; n: number; first
         <span className="agx-run__meta agx-run__meta--when mono">{fmtWhen(t, run.startedAt, lang)}</span>
         <span className="agx-run__meta agx-run__meta--dur mono">{dur}</span>
         <span className="agx-run__meta agx-run__meta--usd mono" data-testid="agx-run-usd">
-          {run.usage ? fmtUsd(run.usage.usd, lang) : '—'}
+          {run.usage ? meterUsd(run.usage.usd, readLines(run.usage.byModel), lang) : '—'}
         </span>
       </button>
       {open && (
@@ -215,7 +216,7 @@ function UsageLine({ usage }: { usage: NonNullable<AgentRun['usage']> }) {
   if (!lines.length)
     return (
       <p className="agx-run__usage mono" data-testid="agx-run-usage">
-        IN + CACHE W {n(usage.input)} · CACHE R {n(usage.cacheRead)} · OUT {n(usage.output)} · ≈ {fmtUsd(usage.usd, lang)}
+        IN + CACHE W {n(usage.input)} · CACHE R {n(usage.cacheRead)} · OUT {n(usage.output)} · ≈ {meterUsd(usage.usd, readLines(usage.byModel), lang)}
       </p>
     )
   const sum = lines.reduce((a, l) => ({ input: a.input + l.input, write: a.write + l.cacheWrite, read: a.read + l.cacheRead, output: a.output + l.output }), { input: 0, write: 0, read: 0, output: 0 })
@@ -223,7 +224,7 @@ function UsageLine({ usage }: { usage: NonNullable<AgentRun['usage']> }) {
   return (
     <p className="agx-run__usage mono" data-testid="agx-run-usage">
       IN {n(sum.input)} · CACHE W/R {n(sum.write)}/{n(sum.read)} · OUT {n(sum.output)} · {estimated ? '≈ ' : ''}
-      {fmtUsd(usage.usd, lang)}
+      {meterUsd(usage.usd, readLines(usage.byModel), lang)}
     </p>
   )
 }

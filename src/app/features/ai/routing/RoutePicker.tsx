@@ -26,7 +26,7 @@ import { classLabel } from './classLabel'
 
 type T = ReturnType<typeof useT>
 
-const COMPANY: Record<Route['p'], string> = { anthropic: 'Anthropic', openai: 'OpenAI', openrouter: 'OpenRouter', local: 'Ollama (worker)', ollama: 'Ollama Cloud', minimax: 'MiniMax', codex: 'Codex' }
+const COMPANY: Record<Route['p'], string> = { anthropic: 'Anthropic', openai: 'OpenAI', openrouter: 'OpenRouter', local: 'Ollama (worker)', ollama: 'Ollama Cloud', minimax: 'MiniMax', codex: 'Codex', copilot: 'GitHub Copilot' }
 
 /** A kind of work as people read it ("Writing" · "Schreiben"). */
 export { classLabel } from './classLabel'

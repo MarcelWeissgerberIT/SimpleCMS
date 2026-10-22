@@ -92,6 +92,7 @@ export class LocalMcp {
           for (const tool of listed.tools) {
             if (++count > 600) break
             if (Array.isArray(entry.oneAllowedTools) && !entry.oneAllowedTools.includes(tool.name)) continue
+            if (Array.isArray(entry.oneDeniedTools) && entry.oneDeniedTools.includes(tool.name)) continue
             const readOnly = tool.annotations?.readOnlyHint === true || (Array.isArray(entry.oneReadOnlyTools) && entry.oneReadOnlyTools.includes(tool.name)) || (tool.annotations?.readOnlyHint === undefined && ATLAS_READ.has(tool.name))
             if (!this.readOnly || readOnly) this.tools.push({ server: name, tool: { ...tool, annotations: { ...tool.annotations, readOnlyHint: readOnly } } })
           }
@@ -117,6 +118,9 @@ export class LocalMcp {
     return this.tools.filter(t => !this.memoryOnly.has(t.server)).map(t => ({ ...t, score: terms.reduce((n, term) => n + (`${t.server} ${t.tool.name} ${t.tool.description ?? ''}`.toLowerCase().includes(term) ? 1 : 0), 0) }))
       .filter(t => !terms.length || t.score > 0).sort((a, b) => b.score - a.score).slice(0, 6)
       .map(({ server, tool }) => ({ server, name: tool.name, description: tool.description?.slice(0, 1500), inputSchema: tool.inputSchema, readOnly: tool.annotations?.readOnlyHint === true }))
+  }
+  catalog() {
+    return this.tools.filter(t => !this.memoryOnly.has(t.server)).map(({ server, tool }) => ({ server, name: tool.name, description: tool.description?.slice(0, 1500), inputSchema: tool.inputSchema }))
   }
   probe(server: unknown, names: unknown) {
     if (typeof server !== 'string' || !Array.isArray(names) || names.length > 30 || names.some(n => typeof n !== 'string' || n.length > 120)) throw new Error('Supply a configured server and up to 30 exact tool names.')

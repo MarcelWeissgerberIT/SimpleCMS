@@ -25,7 +25,7 @@ export const FEATURE_CLASSES: readonly FeatureClass[] = ['write', 'ask', 'worksp
  * budget of the workspace or this browser is enforced by the Regler's brake (features/governor/install.ts, G1). Restricted
  * pages get a GEN entry of their own, numbered when they merge — never a number promised here.
  */
-export const AI_POLICY_GEN: number = GEN.workerModels
+export const AI_POLICY_GEN: number = GEN.copilot
 
 export const MAX_RESTRICTED = 200
 export const MAX_SHORTLIST = 24
@@ -323,6 +323,7 @@ export function limitsClaude(ws?: WorkspaceAI | null, device?: DeviceAI | null):
 export function requiredGen(ws?: WorkspaceAI | null, device?: DeviceAI | null): number {
   const workerKeys = (v: object | null | undefined) => Object.keys(v ?? {}).some(isWorkerProvider)
   const routes = [...Object.values(ws?.routes ?? {}), ...Object.values(device?.routes ?? {}), device?.default ?? []]
+  if ([ws?.policy?.providers, ws?.limits, device?.allow, device?.narrow, device?.roles].some(v => v && Object.hasOwn(v, 'copilot')) || routes.some(rule => rule?.some(route => route.p === 'copilot'))) return GEN.copilot
   if (workerKeys(ws?.policy?.providers) || workerKeys(ws?.limits) || workerKeys(device?.allow) || workerKeys(device?.narrow) || workerKeys(device?.roles) || routes.some(rule => rule?.some(route => isWorkerProvider(route.p)))) return GEN.workerModels
   return limitsClaude(ws, device) ? GEN.claudeLimits : 1
 }

@@ -4412,6 +4412,41 @@ process.exit(1)
     await ctx.close()
   },
 
+  async 'copilot-workspace'(browser) {
+    const { startFakeWorker } = await import('../tests/e2e/helpers/fakeWorker.ts')
+    const { WORKER_CAN } = await import('../src/app/features/coding/protocol.ts')
+    const fake = await startFakeWorker(47415, { worker:'1.25.0',name:'Copilot worker',repos:[],parallel:1,busy:[],spentToday:0,dayLimit:null,claude:{found:false,version:null} })
+    fake.can=[...WORKER_CAN]
+    fake.textModels=[{provider:'copilot',model:'claude-opus-5.5',context:32768,chat:true,maxOutput:8192}]
+    let ctx
+    try {
+      const fresh=await freshPage(browser);ctx=fresh.ctx;const page=fresh.page
+      await page.evaluate(()=>{
+        const s=window.__one.workspace.getState()
+        s.updateSettings({aiApiKey:''})
+        s.setWorkspaceAI({policy:{providers:{copilot:{allow:['public','structure','selection','page','rows','workspace','people','transcript','files']}},restricted:[]}})
+        window.__one.ui.getState().openModal({type:'settings'})
+      })
+      await page.getByRole('tab',{name:/Coding worker/}).click()
+      await page.getByLabel('Port',{exact:true}).fill('47415');await page.getByLabel('Port',{exact:true}).press('Enter')
+      await page.getByRole('switch',{name:'Connect to a coding worker on this computer'}).click()
+      await page.getByTestId('coding-conn').filter({hasText:'Copilot worker'}).waitFor()
+      await page.getByRole('tab',{name:/AI$/}).click()
+      await page.getByTestId('worker-model-settings').getByText(/claude-opus-5.5/).waitFor()
+      await page.keyboard.press('Escape')
+      const id=await createPage(page,'Simulation acceptance',{type:'doc',content:[para('Expected result: requirement 43 passes the configured simulation.')]})
+      await openPage(page,id)
+      let round=0
+      fake.onText=r=>{const n=round++;return {model:r.model,text:n===2?'Read the source and prepared a review. Apply it when you are ready.':'',calls:n===0?[{id:'r1',name:'read_page',arguments:{id}}]:n===1?[{id:'w1',name:'append_to_page',arguments:{id,markdown:'## Test evidence\nRequirement 43 is ready for simulation. Record the actual result before accepting it.'}}]:[],inputTokens:300,outputTokens:50,usd:null}}
+      await page.evaluate(async()=>{const rules=await window.__oneAI.rules();rules.setDeviceDefault([{p:'copilot',m:'claude-opus-5.5'}])})
+      await page.keyboard.press('Control+j')
+      const terminal=page.getByRole('region',{name:'AI terminal'}),prompt=terminal.getByRole('textbox',{name:'Task for the agent'})
+      await prompt.fill('Read this page and prepare a short review with the next test step.');await prompt.press('Enter')
+      await terminal.locator('.term-answer').filter({hasText:'prepared a review'}).waitFor()
+      await rest(page);await save(page,'copilot-workspace')
+    } finally { await ctx?.close();await fake.close() }
+  },
+
   async 'request-models'(browser) {
     const { startFakeWorker } = await import('../tests/e2e/helpers/fakeWorker.ts')
     const { WORKER_CAN } = await import('../src/app/features/coding/protocol.ts')

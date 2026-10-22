@@ -1,3 +1,7 @@
+import { useAIStatus } from '../ai/setup/AINeedsSetup'
+import { useWorkerModels, workerModelRows } from '../ai/core/workerModels'
+import { routeFor } from '../ai/core/gate'
+import { readAgentRoute } from '@/shared/ai/route'
 /**
  * Custom agents — the editor (a dialog): job (name, icon, instructions + "Improve with Claude"),
  * trigger, access (scope, write mode, MCP servers), report page, engine (runner, model, effort,
@@ -192,7 +196,11 @@ export function AgentEditor({
     return () => cancelAnimationFrame(raf)
   }, [section])
   useDismissMirrorToasts()
+  useWorkerModels()
   const [d, setD] = useState<CustomAgent>(initial)
+  const pins = readAgentRoute(d.route)
+  const copilotPin = Array.isArray(pins) && pins[0]?.p === 'copilot' ? pins[0] : null
+  const subscription = d.runner === 'browser' && (!!copilotPin || !d.model && !Array.isArray(pins) && routeFor('agents.run').route.p === 'copilot')
   // unsaved changes: the Patchbay's hint links say "save first" instead of leaving (they would drop the change)
   const dirty = !isNew && !sameAgent(d, initial)
   const [errors, setErrors] = useState<Errors>({})
@@ -408,13 +416,14 @@ export function AgentEditor({
           {inCloud && !serverOk && <p className="agx-note">{runtime && !runtime.available ? t('features.agents.server.off') : t('features.agents.runner.serverOff')}</p>}
           <div className="agx-grid2">
             <Field label={t('features.agents.ed.model')} id={`${uid}-model`}>
-              <select id={`${uid}-model`} className="input" value={d.model ?? ''} onChange={(e) => set({ model: e.target.value || null })}>
+              <select id={`${uid}-model`} className="input" value={copilotPin ? `copilot:${copilotPin.m}` : d.model ?? ''} onChange={(e) => { const worker = workerModelRows().find(m => m.route.p === 'copilot' && `copilot:${m.route.m}` === e.target.value); set(worker ? {route:[worker.route],model:null} : {route:null,model:e.target.value || null}) }}>
                 <option value="">{t(d.runner === 'server' ? 'features.agents.model.server' : 'features.agents.model.inherit')}</option>
                 {AI_MODELS.map((m) => (
                   <option key={m.id} value={m.id}>
                     {m.name}
                   </option>
                 ))}
+                {d.runner === 'browser' && <optgroup label="GitHub Copilot">{workerModelRows().filter(m => m.route.p === 'copilot' && m.caps.tools).map(m => <option key={m.route.m} value={`copilot:${m.route.m}`}>{m.label}</option>)}</optgroup>}
               </select>
               <AgentModelHint agent={d} />
             </Field>
@@ -433,7 +442,7 @@ export function AgentEditor({
             </Field>
           </div>
           <div className="agx-grid2">
-            <Field label={t('features.agents.ed.budget')} hint={t('features.agents.ed.budgetHint')} error={errors.budget} id={ids.budget}>
+            <Field label={t('features.agents.ed.budget')} hint={t(subscription ? 'features.coding.panel.copilotCostHint' : 'features.agents.ed.budgetHint')} error={errors.budget} id={ids.budget}>
               {/* the sign where the UI's language puts it: "$ 1.00" · "1,00 $" */}
               <div className="agx-money" data-after={usdSignAfter(lang) || undefined}>
                 <span className="agx-money__sign mono" aria-hidden>
@@ -442,6 +451,7 @@ export function AgentEditor({
                 {/* text, not type=number: the UI language's decimal mark (and a dot) — never a comma dropped silently */}
                 <input
                   id={ids.budget}
+                  disabled={subscription}
                   className="input mono"
                   type="text"
                   inputMode="decimal"
@@ -527,7 +537,7 @@ function IconButton({ icon, onPick }: { icon: CustomAgent['icon']; onPick: (icon
  */
 function Instructions({ value, onChange, error, id, agent }: { value: string; onChange: (v: string) => void; error?: string; id: string; agent: CustomAgent }) {
   const t = useT()
-  const hasKey = useWorkspace((s) => !!s.settings.aiApiKey.trim())
+  const hasKey = useAIStatus('write.instructions').ready
   const servers = useWorkspace((s) => s.settings.mcpServers)
   const [busy, setBusy] = useState(false)
   const [prev, setPrev] = useState<string | null>(null)

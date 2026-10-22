@@ -15,6 +15,8 @@ export const GEN = {
   budget: 3,
   /** worker inference destinations, their data rules, routes and ledger provider ids */
   workerModels: 4,
+  /** Copilot destination, browser tool loops and their data policy */
+  copilot: 5,
 } as const
 
 export type GenName = keyof typeof GEN
@@ -30,6 +32,7 @@ export const GEN_ENFORCED: Readonly<Record<GenName, string>> = {
   claudeLimits: 'src/shared/ai/policy.ts',
   budget: 'src/app/features/governor/install.ts',
   workerModels: 'src/shared/ai/policy.ts',
+  copilot: 'src/shared/ai/policy.ts',
 }
 
 /**

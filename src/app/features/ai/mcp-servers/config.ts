@@ -1,3 +1,4 @@
+import type { WorkerMcpServer } from '@/shared/ai/worker'
 /**
  * Remote MCP servers for One's built-in Claude — the Messages API MCP connector: Anthropic connects
  * to the server (Streamable HTTP / SSE over https) while it answers, so nothing runs in this browser
@@ -300,6 +301,7 @@ export function allowFor(allow: McpToolAllow | undefined, server: Pick<McpServer
 
 /** What one request sends for MCP. */
 export interface McpAttachment {
+  worker?: WorkerMcpServer[]
   servers: BetaRequestMCPServerURLDefinition[]
   toolsets: BetaMCPToolset[]
   /** appended to the request's system prompt */
@@ -490,6 +492,7 @@ export async function attachMcp(
   // a picked tool that is OUT is never named to Claude (pickedTool does not pick one either)
   const picked = opts.picked && !(out[opts.picked.server] ?? []).includes(opts.picked.tool) ? opts.picked : null
   return {
+    worker: usable.map(({ s, token }) => ({ name: s.name, url: s.url, token, allow: allowedTools(allow, s.name), deny: out[s.name] ?? [] })),
     servers: usable.map(({ s, token }) => ({ type: 'url', url: s.url, name: s.name, ...(token ? { authorization_token: token } : {}) })),
     toolsets: usable.map(({ s }) => toolsetFor(s.name, allowedTools(allow, s.name), out[s.name])),
     system: mcpSystemText(

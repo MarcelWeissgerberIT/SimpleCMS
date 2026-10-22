@@ -1,3 +1,4 @@
+import type { Route } from '@/shared/ai/types'
 /**
  * AI terminal (the workspace agent) — session state (this tab only, never persisted). Kept light:
  * the terminal body, the loop and the tools load lazily when it opens (AgentPanel.tsx). A task
@@ -98,6 +99,7 @@ export interface EchoAsk {
 }
 
 export interface AgentState {
+  route: Route | null
   open: boolean
   /** text in the prompt */
   draft: string
@@ -141,7 +143,8 @@ export interface AgentState {
   halt: HaltState | null
 }
 
-export const initialAgentState = (): Pick<AgentState, 'status' | 'turns' | 'steps' | 'changes' | 'usage' | 'live' | 'calls' | 'mcp' | 'echo' | 'unseen' | 'memCards' | 'memOffNext' | 'media' | 'applying' | 'halt'> => ({
+export const initialAgentState = (): Pick<AgentState, 'route' | 'status' | 'turns' | 'steps' | 'changes' | 'usage' | 'live' | 'calls' | 'mcp' | 'echo' | 'unseen' | 'memCards' | 'memOffNext' | 'media' | 'applying' | 'halt'> => ({
+  route: null,
   status: 'idle',
   turns: [],
   steps: [],

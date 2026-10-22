@@ -93,7 +93,7 @@ export async function probeCopilot(env:NodeJS.ProcessEnv=process.env){
   if(status?.isAuthenticated!==true)return {...cap,authenticated:false,models:[] as string[],error:'Sign in locally with copilot auth login. No model request was sent.'}
   const models=await rpc.sendRequest<any>('models.list',{})
   const list=Array.isArray(models)?models:models?.models
-  return {...cap,authenticated:true,models:Array.isArray(list)?list.filter(m=>validCopilotModel(m?.id)&&m?.policy?.state!=='disabled').map(m=>m.id).slice(0,120):[] as string[]}
+  return {...cap,authenticated:true,models:Array.isArray(list)?list.filter(m=>validCopilotModel(m?.id)&&m?.policy?.state!=='disabled').map(m=>m.id).slice(0,120):[] as string[], contexts:Object.fromEntries((Array.isArray(list)?list:[]).filter(m=>validCopilotModel(m?.id)&&Number.isSafeInteger(m?.capabilities?.limits?.max_context_window_tokens)&&m.capabilities.limits.max_context_window_tokens>=8192).map(m=>[m.id,Math.min(65536,m.capabilities.limits.max_context_window_tokens)]))}
  })}catch{return {...cap,authenticated:false,models:[] as string[],error:'Copilot login/model availability could not be checked. Check your CLI, subscription and organization policy. No model request was sent.'}}
 }
 export function parseCopilotAnswer(raw:string,tools:any[]):LocalInferenceResponse {

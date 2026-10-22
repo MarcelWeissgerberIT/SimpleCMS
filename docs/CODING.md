@@ -1582,9 +1582,19 @@ returns a bounded JSON function-call envelope; the existing One harness alone re
 checks, bounds context/memory and MCP calls. No arbitrary shell, commits or pushes are exposed. Personal Atlas tools
 use the task proxy and exact selected allow-list, with read-only stages restricted at the proxy. No Claude installation
 is required when using those selected personal connections. The checkout can remain on internal Git; selected context
-still travels to the Copilot service. Browser agents and the AI terminal have separate provider settings.
+still travels to the Copilot service. Worker 1.25.0 also registers Copilot in the shared AI route system; coding engine choices remain independent.
 
 Copilot subscription usage has no USD receipt; do not invent a zero price or claim dollar budgets meter this tariff.
 Step/time bounds and verification remain in force. `agent:copilot` prevents older workers from taking the task.
 Protocol and transport reference: https://github.com/github/copilot-sdk/tree/main/nodejs/src
 CLI reference: https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference
+
+
+Copilot workspace provider (`copilot-chat`, policy generation `GEN.copilot`): text/JSON requests use the authenticated
+worker link and SDK transport with native CLI tools off. The worker compiles JSON schemas using the existing MCP SDK
+validator; it never executes model-returned browser functions. Browser loops stage scoped One changes via the existing
+StageApi and stop on repetition, tool/round/time/context bounds. The model-mcp operation only accepts explicit public
+HTTPS connection descriptors, no processes or extra headers; exact allow/deny lists and input schemas are enforced
+again at the worker before a call. Selected MCP credentials remain on that path and are redacted from results.
+The team relay carries these frames end-to-end encrypted. Disconnect/Stop abort both inference and MCP requests.
+Native image/PDF, media generation, Jev decision models and browser-free server agents remain unsupported.

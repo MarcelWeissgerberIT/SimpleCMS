@@ -15,8 +15,8 @@ import { navigate, openPage, useRoute } from '../../../lib/router'
 import { fmtUsd, displayCurrency } from '../../../lib/money'
 import { useCloud } from '../../../cloud'
 import { shortcutLabel } from '../../../ui/controls'
-import { AI_MODELS, resolveModel } from '../client'
-import { AINeedsSetup } from '../setup/AINeedsSetup'
+import { RouteChip } from '../routing/RouteChip'
+import { AINeedsSetup, useAIStatus } from '../setup/AINeedsSetup'
 import { openAISetup, openAISettings } from '../setup/openAISetup'
 import { MarkdownLite } from '../MarkdownLite'
 import { closeAgent, clampHeight, removeRef, setTermHeight, stopAgent, useAgent, HEIGHT_DEFAULT, type EchoEntry } from './state'
@@ -57,12 +57,9 @@ import { MediaPreview } from '../media/MediaPreview'
 import { pagePrivate } from '../media/blocks'
 import { parsePageAddress } from '../../../lib/permalink'
 import { inTemplate, isEffectivelyTrashed } from '../../../store/selectors'
-import { PROVIDERS } from '@/shared/ai/providers'
 import '../ai.css'
 import './agent.css'
 
-/** The terminal runs on Claude until slice 3: Anthropic bills its requests. */
-const TERMINAL_COMPANY = PROVIDERS.anthropic.company
 
 export { PropDiff, Preview } from './ReviewParts'
 
@@ -86,7 +83,8 @@ const focusPrompt = () => document.querySelector<HTMLTextAreaElement>('.term-pro
 
 export default function AgentSheet() {
   const t = useT()
-  const hasKey = useWorkspace((s) => !!s.settings.aiApiKey.trim())
+  const pickedRoute = useAgent(s => s.route)
+  const hasKey = useAIStatus('terminal.task').ready || !!pickedRoute
   const status = useAgent((s) => s.status)
   const turns = useAgent((s) => s.turns)
   const echo = useAgent((s) => s.echo)
@@ -348,14 +346,9 @@ function Head() {
   const pinned = useAgent((s) => s.mcp?.names.length ?? null)
   const halted = useAgent((s) => !!s.halt)
   const nextMcp = useWorkspace((s) => readServers(s.settings).filter((x) => x.enabled).length)
-  const model = resolveModel(useWorkspace((s) => s.settings.aiModel))
-  const updateSettings = useWorkspace((s) => s.updateSettings)
+  const route = useAgent(s => s.route)
   const running = status === 'running'
   const mcp = pinned ?? nextMcp
-  const cycleModel = () => {
-    const i = AI_MODELS.findIndex((m) => m.id === model.id)
-    updateSettings({ aiModel: AI_MODELS[(i + 1) % AI_MODELS.length].id })
-  }
   const led = running ? 'led led--on ai-led--live' : status === 'error' ? 'led ai-led--err' : status === 'idle' ? 'led' : status === 'done' ? 'led led--ok' : 'led led--on'
   return (
     <header className="term-head">
@@ -366,9 +359,7 @@ function Head() {
       <span className="term-head__sep" aria-hidden>
         ·
       </span>
-      <button type="button" className="term-head__model" onClick={cycleModel} disabled={running} title={t('features.ai.switchModel')}>
-        {model.short.split(' ')[0]}
-      </button>
+      <RouteChip purpose="terminal.task" chip={route} onChip={route => useAgent.setState({route})} sources={[{all:true}]} reads={t('features.agent.meter.workspace')} disabled={running} testId="term-route-chip" />
       {mcp > 0 && (
         <span className="term-head__read">
           <span aria-hidden>· </span>
@@ -685,7 +676,8 @@ function TurnMedia({ n }: { n: number }) {
 function LimitNote({ last }: { last: boolean }) {
   const t = useT()
   const running = useAgent((s) => s.status === 'running')
-  const hasKey = useWorkspace((s) => !!s.settings.aiApiKey.trim())
+  const pickedRoute = useAgent(s => s.route)
+  const hasKey = useAIStatus('terminal.task').ready || !!pickedRoute
   const staged = useAgent((s) => s.changes.filter((c) => c.status === 'pending' || c.status === 'failed').length)
   return (
     <div className="term-limit" role="status">
@@ -888,7 +880,7 @@ function Echo({ entry }: { entry: EchoEntry }) {
           <CostTable lines={u.byModel} />
           <ReglerRestLine />
           <p className="term-echo__note">
-            {t('features.agent.meter.billed', { company: TERMINAL_COMPANY })} <HelpLink id="ai-costs" topic={t('features.ai.receipt.help')} />
+            {t('features.agent.meter.providerBilling')} <HelpLink id="ai-costs" topic={t('features.ai.receipt.help')} />
           </p>
         </>
       ) : (
@@ -910,7 +902,7 @@ function Echo({ entry }: { entry: EchoEntry }) {
               </div>
             ))}
           </dl>
-          <p className="term-echo__note">{t('features.agent.meter.billed', { company: TERMINAL_COMPANY })}</p>
+          <p className="term-echo__note">{t('features.agent.meter.providerBilling')}</p>
         </>
       )
       break
@@ -1886,7 +1878,7 @@ function Foot() {
         </span>
         <span>{t('features.agent.kbd.help')}</span>
       </p>
-      <div className="term-meter" title={t('features.agent.meter.billed', { company: TERMINAL_COMPANY })}>
+      <div className="term-meter" title={t('features.agent.meter.providerBilling')}>
         <dl className="term-meter__vals">
           {/* IN as in /cost: the input outside the cache; cache writes and reads beside it */}
           <div>
@@ -1914,7 +1906,7 @@ function Foot() {
             <dd data-testid="agent-cost">{meterUsd(usage.usd, usage.byModel, lang)}</dd>
           </div>
         </dl>
-        <span className="term-meter__note">{t('features.agent.meter.billed', { company: TERMINAL_COMPANY })}</span>
+        <span className="term-meter__note">{t('features.agent.meter.providerBilling')}</span>
       </div>
     </footer>
   )

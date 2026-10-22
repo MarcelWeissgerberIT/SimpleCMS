@@ -8,7 +8,9 @@
 import type { BetaContentBlock, MessageCreateParamsNonStreaming } from '@anthropic-ai/sdk/resources/beta/messages/messages'
 import { useWorkspace } from '../../../store/store'
 import type { McpServerConfig } from '../../../store/types'
-import { AIError, claudeClient, metered, thinks, toAIError, type SDKModule } from '../client'
+import { AIError, claudeClient, metered, thinks, toAIError, viaNeutral, type SDKModule } from '../client'
+import { requestWorkerMcp } from '../../coding'
+import type { WorkerMcpTool } from '@/shared/ai/worker'
 import { capped, prepare, settle, type Prepared } from '../core/gate'
 import { meterCall, type MeterCall } from '../core/meter'
 import { MCP_BETA, attachMcp, clearRefused } from './config'
@@ -96,6 +98,18 @@ async function inspectOnce(server: McpServerConfig, mode: 'test' | 'guide', sign
   if (!mcp) throw markUnsent(new AIError('mcp', 'the token is not available in this browser', server.name))
   let sdk: SDKModule | null = null
   try {
+    if(prepared.provider==='copilot'){
+      if(!mcp.worker)throw new AIError('mcp')
+      const listed=await requestWorkerMcp({action:'list',servers:mcp.worker},signal) as {tools:WorkerMcpTool[]}
+      if(!Array.isArray(listed?.tools))throw new AIError('mcp')
+      const tools=[...new Set(listed.tools.map(t=>t.tool))]
+      const text=mode==='guide'?await viaNeutral(prepared,call,{system:SYSTEM(server.name),parts:[{type:'text',text:task(mode,useWorkspace.getState().settings.language==='de'?'de':'en')+'\n\nSelected tool definitions (source data):\n'+JSON.stringify(listed.tools)}],output:{kind:'text'},maxTokens:4000},{signal}):''
+      const out=mode==='guide'?parseInspect(text):{tools,listed:true,guide:''}
+      out.tools=tools;out.listed=true
+      if(mode==='guide'&&tools.length&&!out.guide)throw new AIError('empty')
+      clearRefused(server.name)
+      return out
+    }
     const got = await claudeClient()
     sdk = got.sdk
     const { client } = got

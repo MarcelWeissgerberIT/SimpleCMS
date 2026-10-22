@@ -1,4 +1,5 @@
 import { personalConnections, PersonalMcp } from './personal-mcp.ts'
+import { modelMcp } from './model-mcp.ts'
 import { textModels, textRequest } from './text-models.ts'
 import { readRepairPolicy } from '../../../src/shared/coding/repair.ts'
 import { isCodingAgent } from '../../../src/app/features/coding/protocol.ts'
@@ -742,12 +743,12 @@ export class Worker {
   private async onRequest(msg: Extract<TabMessage, { type: 'req' }>): Promise<unknown> {
     if (msg.op === 'text-models') return textModels(this.config.file)
     if (msg.op === 'text-stop') { this.textRuns.get(msg.requestId)?.abort(); return { stopped: true } }
-    if (msg.op === 'text-request') {
+    if (msg.op === 'text-request' || msg.op === 'model-mcp') {
       if (typeof msg.requestId !== 'string' || !/^[a-zA-Z0-9-]{1,64}$/.test(msg.requestId) || this.textRuns.has(msg.requestId) || this.textRuns.size >= 2) throw new Error('Text request is busy or invalid.')
       const abort = new AbortController()
       this.textRuns.set(msg.requestId, abort)
       const timer = setTimeout(() => abort.abort(), 180000)
-      try { return await textRequest(this.config.file, msg.request, abort.signal) }
+      try { return await (msg.op === 'model-mcp' ? modelMcp(msg.request, abort.signal) : textRequest(this.config.file, msg.request, abort.signal)) }
       finally { clearTimeout(timer); this.textRuns.delete(msg.requestId) }
     }
     if (msg.op === 'stop') {

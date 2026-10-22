@@ -152,7 +152,7 @@ async function resolve(marker: string, scope: string, name = AI_KEY_SECRET): Pro
   return key
 }
 
-const PROVIDER_NAME: Record<ProviderId, string> = { anthropic: 'Claude', openai: 'OpenAI', openrouter: 'OpenRouter', local: 'Local', ollama: 'Ollama Cloud', minimax: 'MiniMax', codex: 'Codex' }
+const PROVIDER_NAME: Record<ProviderId, string> = { anthropic: 'Claude', openai: 'OpenAI', openrouter: 'OpenRouter', local: 'Local', ollama: 'Ollama Cloud', minimax: 'MiniMax', codex: 'Codex', copilot: 'GitHub Copilot' }
 
 /** The marker points at nothing (and still is the store's): clear it, so the UI asks for the key again. */
 function dropMarker(marker: string, provider: ProviderId = 'anthropic'): void {

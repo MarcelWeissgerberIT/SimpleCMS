@@ -1,3 +1,4 @@
+import { HelpLink } from '../../../help'
 import { useState } from 'react'
 import { WORKER_PROVIDERS, PROVIDERS, type WorkerProvider } from '@/shared/ai/providers'
 import { useT } from '../../../i18n'
@@ -23,7 +24,8 @@ export function WorkerModelsSettings() {
     <button type="button" className="btn" disabled={busy} onClick={async () => { setBusy(true); try { await refreshWorkerModels() } finally { setBusy(false) } }}>{t('features.ai.prov.chip.refreshModels')}</button>
     {!connected && <p className="st-p">{t('features.ai.prov.chip.workerOld')} <button type="button" className="btn btn--sm" onClick={openCodingSettings}>{t('features.ai.prov.chip.configure')}</button></p>}
     {connected && <ul>{models.map(m => <li key={`${m.route.p}:${m.route.m}`}>{PROVIDERS[m.route.p].name} · {m.label}</li>)}</ul>}
-    <p className="st-p">{t('features.ai.prov.chip.workerText')}</p>
+    <p className="st-p">{t('features.ai.prov.chip.workerText')} <HelpLink id="copilot-coding" /></p>
+    <button type="button" className="btn btn--sm" onClick={openCodingSettings}>{t('features.coding.agent.copilotSetup')}</button>
     <label className="field"><span className="label">{t('features.ai.prov.chip.workerPrivacy')}</span><select className="input" value={provider} onChange={e => setProvider(e.target.value as WorkerProvider)}>{WORKER_PROVIDERS.map(p => <option key={p} value={p}>{PROVIDERS[p].name}</option>)}</select></label>
     <DataRules providers={[provider]} allow={{ [provider]: ws?.policy?.providers?.[provider]?.allow ?? [] }} narrow={device?.narrow ?? {}}
       lockOf={() => aiRulesAllowed() ? null : t('features.ai.prov.rules.teamLock')}

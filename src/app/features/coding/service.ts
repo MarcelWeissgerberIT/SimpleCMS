@@ -1,4 +1,4 @@
-import type { WorkerModel, WorkerTextRequest, WorkerTextResult } from '@/shared/ai/worker'
+import type { WorkerModel, WorkerTextRequest, WorkerTextResult, WorkerMcpRequest } from '@/shared/ai/worker'
 /**
  * Coding pipeline — the tab side of the worker link (features/coding/protocol.ts).
  *
@@ -1056,7 +1056,7 @@ export function startCoding() {
 
 /** Plain inference uses the same paired link, independent of coding jobs; no repo or tool access. */
 export async function requestTextModels(): Promise<WorkerModel[]> {
-  const result = await request({ op: 'text-models' } as never, 15000)
+  const result = await request({ op: 'text-models' } as never, 45000)
   return Array.isArray(result) ? result : []
 }
 export async function requestWorkerText(body: WorkerTextRequest, signal?: AbortSignal): Promise<WorkerTextResult> {
@@ -1067,4 +1067,13 @@ export async function requestWorkerText(body: WorkerTextRequest, signal?: AbortS
   try {
     return await request({ op: 'text-request', requestId, request: body } as never, 190000) as WorkerTextResult
   } finally { signal?.removeEventListener('abort', stop) }
+}
+
+export async function requestWorkerMcp(body: WorkerMcpRequest, signal?: AbortSignal): Promise<unknown> {
+  signal?.throwIfAborted()
+  const requestId = crypto.randomUUID()
+  const stop = () => { void request({ op: 'text-stop', requestId } as never, 5000).catch(() => {}) }
+  signal?.addEventListener('abort', stop, { once: true })
+  try { return await request({ op: 'model-mcp', requestId, request: body } as never, 190000) }
+  finally { signal?.removeEventListener('abort', stop) }
 }

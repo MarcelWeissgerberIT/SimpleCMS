@@ -1,7 +1,7 @@
 ---
 id: 2026-10-22-hand-drawn
 date: 2026-10-22
-order: 1
+order: 2
 title: Handgezeichnete Blöcke
 summary: Bearbeitbare Skizzen-Diagramme und Illustrationen in Orange und Schwarz, mit Vorschau und Seiten-Cover.
 image: assets/shots/changelog/hand-drawn.webp

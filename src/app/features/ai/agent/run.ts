@@ -241,6 +241,7 @@ export function taskMessage(history: BetaMessageParam[], task: string, context: 
 export async function runAgent(opts: {
   /** what the run is for: 'terminal.task' (the AI terminal) or 'agents.run' (a custom agent) */
   purpose: PurposeId
+  route?: import('@/shared/ai/types').Route | null
   /** what it reads: the open page, references, the agent's scope — { all: true } for the workspace as a whole */
   sources: readonly SourceRef[]
   /** the person's own words (the terminal's task): refused when they look like an API key */
@@ -294,14 +295,18 @@ export async function runAgent(opts: {
     // tool-use step could cut a tool input; the overshoot is one step at most, as every Regler surface says
     const fixed = (opts.system ?? AGENT_SYSTEM).length + (mcp?.system.length ?? 0) + JSON.stringify(defs).length
     // a picture or a PDF in the conversation counts as its pixels / pages, never as its base64 (messagesChars)
-    const size = { promptChars: fixed + messagesChars(messages), maxTokens: LOOP_MAX_TOKENS, bandOut: FIRST_STEP_OUT }
+    const size = { promptChars: fixed + messagesChars(messages), maxTokens: (caps: import('@/shared/ai/types').Caps | null) => Math.min(LOOP_MAX_TOKENS, caps?.maxOutput ?? LOOP_MAX_TOKENS), bandOut: FIRST_STEP_OUT }
     const run = opts.run ?? (opts.ledgerSource ? { source: opts.ledgerSource } : undefined)
     // the conversation's MCP servers: the first response may loop at the provider (its context read per iteration) —
     // the brake counts their rounds; every further request is braked by beforeRound
-    prepared = prepare({ purpose: opts.purpose, sources: opts.sources, typed: opts.typed, model: opts.model, size, applied: opts.applied, ...(run ? { run } : {}), ...(mcp?.servers.length ? { mcp: { servers: mcp.servers.length } } : {}) })
+    prepared = prepare({ purpose: opts.purpose, sources: opts.sources, typed: opts.typed, model: opts.model, route: opts.route, size, applied: opts.applied, ...(run ? { run } : {}), ...(mcp?.servers.length ? { mcp: { servers: mcp.servers.length } } : {}) })
     // the tool reads of a route that does not see everything: built for it, pages it may not see out of scope (B6)
     const shape = shapeOf(prepared)
     const seen = shape ? prepared.visible : null
+    if (prepared.route?.p === 'copilot') {
+      const { runCopilotAgent } = await import('./copilot')
+      return await runCopilotAgent(opts, prepared, messages)
+    }
     let call = meterCall(prepared, { source: run?.source, signal })
     const got = await claudeClient()
     sdk = got.sdk

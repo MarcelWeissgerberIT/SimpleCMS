@@ -100,6 +100,8 @@ const sleep = (ms: number, signal?: AbortSignal) =>
   })
 
 export interface NeutralOpts {
+  mcp?: import('../mcp-servers/config').McpAttachment | null
+  onMcp?: (calls: import('../mcp-servers/activity').McpCall[]) => void
   signal?: AbortSignal
   /** each streamed text delta */
   onToken?: (delta: string) => void
@@ -113,6 +115,7 @@ export interface NeutralOpts {
 export async function sendNeutral(prepared: Prepared, req: ChatRequest, o: NeutralOpts): Promise<Turn> {
   const route = prepared.route
   if (!route) throw new AIError('no_key')
+  if (route.p === 'copilot') return (await import('./copilotCall')).sendCopilotCompletion(prepared, req, o)
   if (isWorkerProvider(route.p)) {
     if (req.kind !== 'chat' || req.output.kind !== 'text' || req.tools?.length || req.messages.some(m => m.parts.some(p => p.type !== 'text'))) throw new AIError('capability')
     const result = await sendWorkerText(route, [{ role: 'system', content: req.system }, ...req.messages.map(m => ({ role: m.role, content: m.parts.map(p => p.type === 'text' ? p.text : '').join('\n') }))], Math.min(req.maxTokens, 16384), o.signal)

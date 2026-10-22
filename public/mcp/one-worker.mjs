@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// SimpleCMS One — coding worker 1.24.0 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp/src/worker
+// SimpleCMS One — coding worker 1.25.0 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp/src/worker
 // Runs coding tasks from One with Claude Code on this computer. Setup: node one-worker.mjs --help
 // Docs and security model: https://github.com/MarcelWeissgerberIT/SimpleCMS/blob/main/docs/CODING.md
 import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);
@@ -3347,10 +3347,10 @@ var require_code = __commonJS({
       }
       get names() {
         var _a4;
-        return (_a4 = this._names) !== null && _a4 !== void 0 ? _a4 : this._names = this._items.reduce((names, c) => {
+        return (_a4 = this._names) !== null && _a4 !== void 0 ? _a4 : this._names = this._items.reduce((names2, c) => {
           if (c instanceof Name)
-            names[c.str] = (names[c.str] || 0) + 1;
-          return names;
+            names2[c.str] = (names2[c.str] || 0) + 1;
+          return names2;
         }, {});
       }
     };
@@ -3676,11 +3676,11 @@ var require_codegen = __commonJS({
         const rhs = this.rhs === void 0 ? "" : ` = ${this.rhs}`;
         return `${varKind} ${this.name}${rhs};` + _n;
       }
-      optimizeNames(names, constants9) {
-        if (!names[this.name.str])
+      optimizeNames(names2, constants9) {
+        if (!names2[this.name.str])
           return;
         if (this.rhs)
-          this.rhs = optimizeExpr(this.rhs, names, constants9);
+          this.rhs = optimizeExpr(this.rhs, names2, constants9);
         return this;
       }
       get names() {
@@ -3697,15 +3697,15 @@ var require_codegen = __commonJS({
       render({ _n }) {
         return `${this.lhs} = ${this.rhs};` + _n;
       }
-      optimizeNames(names, constants9) {
-        if (this.lhs instanceof code_1.Name && !names[this.lhs.str] && !this.sideEffects)
+      optimizeNames(names2, constants9) {
+        if (this.lhs instanceof code_1.Name && !names2[this.lhs.str] && !this.sideEffects)
           return;
-        this.rhs = optimizeExpr(this.rhs, names, constants9);
+        this.rhs = optimizeExpr(this.rhs, names2, constants9);
         return this;
       }
       get names() {
-        const names = this.lhs instanceof code_1.Name ? {} : { ...this.lhs.names };
-        return addExprNames(names, this.rhs);
+        const names2 = this.lhs instanceof code_1.Name ? {} : { ...this.lhs.names };
+        return addExprNames(names2, this.rhs);
       }
     };
     var AssignOp = class extends Assign {
@@ -3761,8 +3761,8 @@ var require_codegen = __commonJS({
       optimizeNodes() {
         return `${this.code}` ? this : void 0;
       }
-      optimizeNames(names, constants9) {
-        this.code = optimizeExpr(this.code, names, constants9);
+      optimizeNames(names2, constants9) {
+        this.code = optimizeExpr(this.code, names2, constants9);
         return this;
       }
       get names() {
@@ -3791,20 +3791,20 @@ var require_codegen = __commonJS({
         }
         return nodes.length > 0 ? this : void 0;
       }
-      optimizeNames(names, constants9) {
+      optimizeNames(names2, constants9) {
         const { nodes } = this;
         let i2 = nodes.length;
         while (i2--) {
           const n = nodes[i2];
-          if (n.optimizeNames(names, constants9))
+          if (n.optimizeNames(names2, constants9))
             continue;
-          subtractNames(names, n.names);
+          subtractNames(names2, n.names);
           nodes.splice(i2, 1);
         }
         return nodes.length > 0 ? this : void 0;
       }
       get names() {
-        return this.nodes.reduce((names, n) => addNames(names, n.names), {});
+        return this.nodes.reduce((names2, n) => addNames(names2, n.names), {});
       }
     };
     var BlockNode = class extends ParentNode {
@@ -3849,20 +3849,20 @@ var require_codegen = __commonJS({
           return void 0;
         return this;
       }
-      optimizeNames(names, constants9) {
+      optimizeNames(names2, constants9) {
         var _a4;
-        this.else = (_a4 = this.else) === null || _a4 === void 0 ? void 0 : _a4.optimizeNames(names, constants9);
-        if (!(super.optimizeNames(names, constants9) || this.else))
+        this.else = (_a4 = this.else) === null || _a4 === void 0 ? void 0 : _a4.optimizeNames(names2, constants9);
+        if (!(super.optimizeNames(names2, constants9) || this.else))
           return;
-        this.condition = optimizeExpr(this.condition, names, constants9);
+        this.condition = optimizeExpr(this.condition, names2, constants9);
         return this;
       }
       get names() {
-        const names = super.names;
-        addExprNames(names, this.condition);
+        const names2 = super.names;
+        addExprNames(names2, this.condition);
         if (this.else)
-          addNames(names, this.else.names);
-        return names;
+          addNames(names2, this.else.names);
+        return names2;
       }
     };
     If.kind = "if";
@@ -3877,10 +3877,10 @@ var require_codegen = __commonJS({
       render(opts) {
         return `for(${this.iteration})` + super.render(opts);
       }
-      optimizeNames(names, constants9) {
-        if (!super.optimizeNames(names, constants9))
+      optimizeNames(names2, constants9) {
+        if (!super.optimizeNames(names2, constants9))
           return;
-        this.iteration = optimizeExpr(this.iteration, names, constants9);
+        this.iteration = optimizeExpr(this.iteration, names2, constants9);
         return this;
       }
       get names() {
@@ -3901,8 +3901,8 @@ var require_codegen = __commonJS({
         return `for(${varKind} ${name}=${from}; ${name}<${to}; ${name}++)` + super.render(opts);
       }
       get names() {
-        const names = addExprNames(super.names, this.from);
-        return addExprNames(names, this.to);
+        const names2 = addExprNames(super.names, this.from);
+        return addExprNames(names2, this.to);
       }
     };
     var ForIter = class extends For {
@@ -3916,10 +3916,10 @@ var require_codegen = __commonJS({
       render(opts) {
         return `for(${this.varKind} ${this.name} ${this.loop} ${this.iterable})` + super.render(opts);
       }
-      optimizeNames(names, constants9) {
-        if (!super.optimizeNames(names, constants9))
+      optimizeNames(names2, constants9) {
+        if (!super.optimizeNames(names2, constants9))
           return;
-        this.iterable = optimizeExpr(this.iterable, names, constants9);
+        this.iterable = optimizeExpr(this.iterable, names2, constants9);
         return this;
       }
       get names() {
@@ -3961,20 +3961,20 @@ var require_codegen = __commonJS({
         (_b2 = this.finally) === null || _b2 === void 0 ? void 0 : _b2.optimizeNodes();
         return this;
       }
-      optimizeNames(names, constants9) {
+      optimizeNames(names2, constants9) {
         var _a4, _b2;
-        super.optimizeNames(names, constants9);
-        (_a4 = this.catch) === null || _a4 === void 0 ? void 0 : _a4.optimizeNames(names, constants9);
-        (_b2 = this.finally) === null || _b2 === void 0 ? void 0 : _b2.optimizeNames(names, constants9);
+        super.optimizeNames(names2, constants9);
+        (_a4 = this.catch) === null || _a4 === void 0 ? void 0 : _a4.optimizeNames(names2, constants9);
+        (_b2 = this.finally) === null || _b2 === void 0 ? void 0 : _b2.optimizeNames(names2, constants9);
         return this;
       }
       get names() {
-        const names = super.names;
+        const names2 = super.names;
         if (this.catch)
-          addNames(names, this.catch.names);
+          addNames(names2, this.catch.names);
         if (this.finally)
-          addNames(names, this.finally.names);
-        return names;
+          addNames(names2, this.finally.names);
+        return names2;
       }
     };
     var Catch = class extends BlockNode {
@@ -4258,15 +4258,15 @@ var require_codegen = __commonJS({
       }
     };
     exports.CodeGen = CodeGen;
-    function addNames(names, from) {
+    function addNames(names2, from) {
       for (const n in from)
-        names[n] = (names[n] || 0) + (from[n] || 0);
-      return names;
+        names2[n] = (names2[n] || 0) + (from[n] || 0);
+      return names2;
     }
-    function addExprNames(names, from) {
-      return from instanceof code_1._CodeOrName ? addNames(names, from.names) : names;
+    function addExprNames(names2, from) {
+      return from instanceof code_1._CodeOrName ? addNames(names2, from.names) : names2;
     }
-    function optimizeExpr(expr, names, constants9) {
+    function optimizeExpr(expr, names2, constants9) {
       if (expr instanceof code_1.Name)
         return replaceName(expr);
       if (!canOptimize(expr))
@@ -4282,18 +4282,18 @@ var require_codegen = __commonJS({
       }, []));
       function replaceName(n) {
         const c = constants9[n.str];
-        if (c === void 0 || names[n.str] !== 1)
+        if (c === void 0 || names2[n.str] !== 1)
           return n;
-        delete names[n.str];
+        delete names2[n.str];
         return c;
       }
       function canOptimize(e) {
-        return e instanceof code_1._Code && e._items.some((c) => c instanceof code_1.Name && names[c.str] === 1 && constants9[c.str] !== void 0);
+        return e instanceof code_1._Code && e._items.some((c) => c instanceof code_1.Name && names2[c.str] === 1 && constants9[c.str] !== void 0);
       }
     }
-    function subtractNames(names, from) {
+    function subtractNames(names2, from) {
       for (const n in from)
-        names[n] = (names[n] || 0) - (from[n] || 0);
+        names2[n] = (names2[n] || 0) - (from[n] || 0);
     }
     function not(x2) {
       return typeof x2 == "boolean" || typeof x2 == "number" || x2 === null ? !x2 : (0, code_1._)`!${par(x2)}`;
@@ -4491,7 +4491,7 @@ var require_names = __commonJS({
     "use strict";
     Object.defineProperty(exports, "__esModule", { value: true });
     var codegen_1 = require_codegen();
-    var names = {
+    var names2 = {
       // validation function arguments
       data: new codegen_1.Name("data"),
       // data passed to validation function
@@ -4520,7 +4520,7 @@ var require_names = __commonJS({
       jsonLen: new codegen_1.Name("jsonLen"),
       jsonPart: new codegen_1.Name("jsonPart")
     };
-    exports.default = names;
+    exports.default = names2;
   }
 });
 
@@ -14769,7 +14769,7 @@ var isCodingAgent = (v) => CODING_AGENTS.includes(v);
 var STAGE_KINDS = ["queue", "import", "analyze", "plan", "doc", "gate", "implement", "test", "git", "done"];
 var PERMISSION_MODES = ["plan", "acceptEdits", "default"];
 var GIT_ACTIONS = ["commit", "push", "pr", "update-base", "comment", "merge"];
-var WORKER_CAN = ["text-models", "analyze", "git:comment", "git:merge", "doc", "model", "mcp-list", "ship", "continue", "permission", "agent:codex", "agent:local", "agent:minimax", "agent:ollama", "agent:copilot", "delivery-qa", "harness-quality", "personal-secrets"];
+var WORKER_CAN = ["text-models", "copilot-chat", "analyze", "git:comment", "git:merge", "doc", "model", "mcp-list", "ship", "continue", "permission", "agent:codex", "agent:local", "agent:minimax", "agent:ollama", "agent:copilot", "delivery-qa", "harness-quality", "personal-secrets"];
 var MODEL_NAME = /^[A-Za-z0-9][A-Za-z0-9._:[\]-]{0,99}$/;
 function cleanModel(v) {
   if (typeof v !== "string") return null;
@@ -14941,8 +14941,8 @@ function findWin(cmd, c) {
     return null;
   }
   const own2 = win32.extname(cmd).toLowerCase();
-  const names = exts.includes(own2) ? [cmd] : exts.map((e) => cmd + e);
-  for (const dir of pathDirs(c.env)) for (const n of names) if (c.exists(win32.join(dir, n))) return win32.join(dir, n);
+  const names2 = exts.includes(own2) ? [cmd] : exts.map((e) => cmd + e);
+  for (const dir of pathDirs(c.env)) for (const n of names2) if (c.exists(win32.join(dir, n))) return win32.join(dir, n);
   return null;
 }
 var extOf = (p) => win32.extname(p).toLowerCase();
@@ -16844,8 +16844,8 @@ var RunTree = class {
       const { end, spared } = leftoversOf({ ...input, cmds });
       const group = !this.win && now.some((p) => p.pgid === this.root) && !spared.some((s) => s.proc.pgid === this.root);
       if (end.length || group) await endProcs(end, { root: this.root, group, platform: this.platform });
-      const names = (list) => [...new Set(list.filter(Boolean))].slice(0, 5);
-      return { n: end.length, names: names(end.map((p) => shortName(p.name))), spared: { n: spared.length, names: names(spared.map((s) => s.label)) } };
+      const names2 = (list) => [...new Set(list.filter(Boolean))].slice(0, 5);
+      return { n: end.length, names: names2(end.map((p) => shortName(p.name))), spared: { n: spared.length, names: names2(spared.map((s) => s.label)) } };
     } catch {
       return none;
     } finally {
@@ -17046,16 +17046,16 @@ function mcpLaunchers(opts) {
   const dir = envGet(env, "CLAUDE_CONFIG_DIR", platform)?.trim();
   const home = opts.home ?? homedir5();
   const config2 = readJson(dir ? join4(dir, ".claude.json") : join4(home, ".claude.json"));
-  const names = new Set(launchers(config2?.mcpServers, env));
-  for (const servers of managedServers(opts.managed ?? managedDirs(process.platform, env))) for (const n of launchers(servers, env)) names.add(n);
-  for (const servers of pluginServers(dir || join4(home, ".claude"), env, platform)) for (const n of launchers(servers, env, true)) names.add(n);
+  const names2 = new Set(launchers(config2?.mcpServers, env));
+  for (const servers of managedServers(opts.managed ?? managedDirs(process.platform, env))) for (const n of launchers(servers, env)) names2.add(n);
+  for (const servers of pluginServers(dir || join4(home, ".claude"), env, platform)) for (const n of launchers(servers, env, true)) names2.add(n);
   if (opts.projectSettings) {
     const projects = config2?.projects && typeof config2.projects === "object" ? config2.projects : {};
     for (const [key, p] of Object.entries(projects))
-      if (opts.dirs.some((d) => samePath(key, d)) && p && typeof p === "object") for (const n of launchers(p.mcpServers, env)) names.add(n);
-    for (const d of opts.dirs) for (const n of launchers(readJson(join4(d, ".mcp.json"))?.mcpServers, env)) names.add(n);
+      if (opts.dirs.some((d) => samePath(key, d)) && p && typeof p === "object") for (const n of launchers(p.mcpServers, env)) names2.add(n);
+    for (const d of opts.dirs) for (const n of launchers(readJson(join4(d, ".mcp.json"))?.mcpServers, env)) names2.add(n);
   }
-  return [...names].filter(Boolean).sort();
+  return [...names2].filter(Boolean).sort();
 }
 function claudeArgs(r) {
   const args = ["-p", "--output-format", "stream-json", "--verbose", "--permission-mode", cliMode(r.mode, r.caps), "--max-turns", String(r.maxTurns)];
@@ -17274,12 +17274,12 @@ Claude Code could not start (${e.code ?? e.name})`;
       const left = tree ? await tree.end() : { n: 0, names: [], spared: { n: 0, names: [] } };
       if (left.n) {
         result.leftovers = left.n;
-        const names = left.names.join(", ");
-        log2("info", `Ended ${left.n} program(s) Claude Code left running${names ? `: ${names}` : ""}`, "claudeLeftovers", { n: left.n, names });
+        const names2 = left.names.join(", ");
+        log2("info", `Ended ${left.n} program(s) Claude Code left running${names2 ? `: ${names2}` : ""}`, "claudeLeftovers", { n: left.n, names: names2 });
       }
       if (left.spared.n) {
-        const names = left.spared.names.join(", ");
-        log2("info", `Left ${left.spared.n} program(s) running that Claude Code started and other tools may use${names ? `: ${names}` : ""}`, "claudeSpared", { n: left.spared.n, names });
+        const names2 = left.spared.names.join(", ");
+        log2("info", `Left ${left.spared.n} program(s) running that Claude Code started and other tools may use${names2 ? `: ${names2}` : ""}`, "claudeSpared", { n: left.spared.n, names: names2 });
       }
       lines.close();
       child.stdout?.destroy();
@@ -17746,9 +17746,9 @@ async function diffFiles(dir, base, status) {
   };
   if (mb) {
     const numstat = await gitOk(dir, ["diff", "--numstat", "-z", "-M", mb]);
-    const names = await gitOk(dir, ["diff", "--name-status", "-z", "-M", mb]);
+    const names2 = await gitOk(dir, ["diff", "--name-status", "-z", "-M", mb]);
     const statusOfPath = /* @__PURE__ */ new Map();
-    const ns = names.split("\0").filter((x2) => x2 !== "");
+    const ns = names2.split("\0").filter((x2) => x2 !== "");
     for (let i2 = 0; i2 < ns.length; i2++) {
       const code = ns[i2][0];
       if (code === "R" || code === "C") {
@@ -18120,7 +18120,7 @@ function insideWorktrees(repo, dir, platform = process.platform) {
 }
 
 // ../src/shared/ai/keys.ts
-var KEY_RES = [/(?<![A-Za-z0-9_-])sk-(?:ant|proj|or-v1)-[A-Za-z0-9_-]{12,}/g, /(?<![A-Za-z0-9_-])sk-[A-Za-z0-9_-]{20,}/g];
+var KEY_RES = [/(?<![A-Za-z0-9_-])(?:github_pat_|gh[pousr]_)[A-Za-z0-9_]{12,}/g, /(?<![A-Za-z0-9_-])sk-(?:ant|proj|or-v1)-[A-Za-z0-9_-]{12,}/g, /(?<![A-Za-z0-9_-])sk-[A-Za-z0-9_-]{20,}/g];
 function scrubSecrets(text2, extra = []) {
   let out = text2;
   for (const s of extra) if (s && s.length >= 4) out = out.split(s).join("\u2022\u2022\u2022\u2022");
@@ -18399,10 +18399,10 @@ var START = "(?<!(?<!%[0-9A-Fa-f]|\\\\)[\\p{L}\\p{N}_.~-])";
 var POSIX_ONE = "(?:\\\\?/|%2[Ff])";
 var POSIX_SEP = `${POSIX_ONE}+`;
 function posixSource(p) {
-  const names = p.split("/").filter(Boolean);
-  if (!p.startsWith("/") || !names.length) return null;
-  if (names.length === 1) return `${START}/${nameSource(names[0])}${END}`;
-  return `(?:/|${START}(?:\\\\/|%2[Ff]))${names.map(nameSource).join(POSIX_SEP)}${END}`;
+  const names2 = p.split("/").filter(Boolean);
+  if (!p.startsWith("/") || !names2.length) return null;
+  if (names2.length === 1) return `${START}/${nameSource(names2[0])}${END}`;
+  return `(?:/|${START}(?:\\\\/|%2[Ff]))${names2.map(nameSource).join(POSIX_SEP)}${END}`;
 }
 var WIN_SEP = "(?:[\\\\/]|%5[Cc]|%2[Ff])+";
 var winNorm = (p) => {
@@ -18417,10 +18417,10 @@ function winParts(native) {
   if (unc) return { drive: null, names: unc[1].split("\\").filter(Boolean) };
   return null;
 }
-function winSource(drive, names) {
-  if (!names.length) return null;
-  if (drive === null) return `[\\\\/]{2,4}${names.join(WIN_SEP)}${END}`;
-  return `(?:${drive}(?::|%3[Aa])|(?:/cygdrive|/mnt)?/${drive})${WIN_SEP}${names.join(WIN_SEP)}${END}`;
+function winSource(drive, names2) {
+  if (!names2.length) return null;
+  if (drive === null) return `[\\\\/]{2,4}${names2.join(WIN_SEP)}${END}`;
+  return `(?:${drive}(?::|%3[Aa])|(?:/cygdrive|/mnt)?/${drive})${WIN_SEP}${names2.join(WIN_SEP)}${END}`;
 }
 function shortHomes(home, env, realpath4) {
   const out = /* @__PURE__ */ new Set();
@@ -18506,9 +18506,9 @@ var Scrubber = class {
           if (sp) push2(winSource(sp.drive, sp.names), long.length, to);
         }
         if (pattern && parts.drive !== null && homeNames > 0) {
-          const names = [...parts.names];
-          names[homeNames - 1] = pattern;
-          push2(winSource(parts.drive, names), long.length, to);
+          const names2 = [...parts.names];
+          names2[homeNames - 1] = pattern;
+          push2(winSource(parts.drive, names2), long.length, to);
         }
       }
     }
@@ -18826,7 +18826,7 @@ async function probeCopilot(env = process.env) {
       if (status?.isAuthenticated !== true) return { ...cap, authenticated: false, models: [], error: "Sign in locally with copilot auth login. No model request was sent." };
       const models = await rpc.sendRequest("models.list", {});
       const list = Array.isArray(models) ? models : models?.models;
-      return { ...cap, authenticated: true, models: Array.isArray(list) ? list.filter((m) => validCopilotModel(m?.id) && m?.policy?.state !== "disabled").map((m) => m.id).slice(0, 120) : [] };
+      return { ...cap, authenticated: true, models: Array.isArray(list) ? list.filter((m) => validCopilotModel(m?.id) && m?.policy?.state !== "disabled").map((m) => m.id).slice(0, 120) : [], contexts: Object.fromEntries((Array.isArray(list) ? list : []).filter((m) => validCopilotModel(m?.id) && Number.isSafeInteger(m?.capabilities?.limits?.max_context_window_tokens) && m.capabilities.limits.max_context_window_tokens >= 8192).map((m) => [m.id, Math.min(65536, m.capabilities.limits.max_context_window_tokens)])) };
     });
   } catch {
     return { ...cap, authenticated: false, models: [], error: "Copilot login/model availability could not be checked. Check your CLI, subscription and organization policy. No model request was sent." };
@@ -18840,9 +18840,9 @@ function parseCopilotAnswer(raw, tools) {
     throw new Error("Copilot returned an invalid harness response. No response tools were executed.");
   }
   if (!object(data) || typeof data.content !== "string" || data.content.length > 1e5 || !Array.isArray(data.tool_calls) || data.tool_calls.length > 8) throw new Error("Invalid Copilot harness response.");
-  const names = new Set(tools.map((t) => t.function.name));
+  const names2 = new Set(tools.map((t) => t.function.name));
   const calls = data.tool_calls.map((c) => {
-    if (!object(c) || !object(c.function) || !names.has(c.function.name) || !object(c.function.arguments) || JSON.stringify(c.function.arguments).length > 1e5) throw new Error("Copilot requested an unavailable tool or invalid arguments.");
+    if (!object(c) || !object(c.function) || !names2.has(c.function.name) || !object(c.function.arguments) || JSON.stringify(c.function.arguments).length > 1e5) throw new Error("Copilot requested an unavailable tool or invalid arguments.");
     return { id: randomUUID(), type: "function", function: { name: c.function.name, arguments: c.function.arguments } };
   });
   return { message: { role: "assistant", content: data.content, ...calls.length ? { tool_calls: calls } : {} } };
@@ -19596,8 +19596,8 @@ var LocalFiles = class {
     await walk(this.root, 0);
     entries.sort((a, b) => b.score - a.score || a.path.localeCompare(b.path));
     const selected = entries.slice(0, 16);
-    const names = selected.slice(0, 4).map((e) => e.path.replace(/\.[^.]+$/, "").split("/").at(-1));
-    for (const e of entries) if (selected.length < 20 && !selected.includes(e) && e.imports.some((i2) => names.some((n) => i2.endsWith("/" + n)))) selected.push(e);
+    const names2 = selected.slice(0, 4).map((e) => e.path.replace(/\.[^.]+$/, "").split("/").at(-1));
+    for (const e of entries) if (selected.length < 20 && !selected.includes(e) && e.imports.some((i2) => names2.some((n) => i2.endsWith("/" + n)))) selected.push(e);
     return { entries: selected, scanned, truncated: truncated || entries.length > selected.length, warning: "Partial lexical/symbol map, not a complete dependency graph. Read current source before editing." };
   }
   async projectContext() {
@@ -19653,10 +19653,10 @@ var util;
       return obj[e];
     });
   };
-  util2.objectKeys = typeof Object.keys === "function" ? (obj) => Object.keys(obj) : (object5) => {
+  util2.objectKeys = typeof Object.keys === "function" ? (obj) => Object.keys(obj) : (object6) => {
     const keys = [];
-    for (const key in object5) {
-      if (Object.prototype.hasOwnProperty.call(object5, key)) {
+    for (const key in object6) {
+      if (Object.prototype.hasOwnProperty.call(object6, key)) {
         keys.push(key);
       }
     }
@@ -23658,9 +23658,9 @@ function floatSafeRemainder2(val, step) {
   return ratio - roundedRatio;
 }
 var EVALUATING = /* @__PURE__ */ Symbol("evaluating");
-function defineLazy(object5, key, getter) {
+function defineLazy(object6, key, getter) {
   let value2 = void 0;
-  Object.defineProperty(object5, key, {
+  Object.defineProperty(object6, key, {
     get() {
       if (value2 === EVALUATING) {
         return void 0;
@@ -23672,7 +23672,7 @@ function defineLazy(object5, key, getter) {
       return value2;
     },
     set(v) {
-      Object.defineProperty(object5, key, {
+      Object.defineProperty(object6, key, {
         value: v
         // configurable: true,
       });
@@ -28119,8 +28119,8 @@ function foldObjects(members2) {
   }
   const properties = {};
   const required2 = /* @__PURE__ */ new Set();
-  for (const object5 of objects) {
-    for (const key in object5.properties) {
+  for (const object6 of objects) {
+    for (const key in object6.properties) {
       if (Object.prototype.hasOwnProperty.call(properties, key))
         continue;
       const parts = [];
@@ -28134,18 +28134,18 @@ function foldObjects(members2) {
       const merged = parts.length === 1 ? parts[0] : foldObjects(parts) ?? { allOf: parts };
       assignProp(properties, key, merged);
     }
-    for (const key of object5.required ?? [])
+    for (const key of object6.required ?? [])
       required2.add(key);
   }
   const folded = { type: "object", properties };
   if (required2.size)
     folded.required = [...required2];
-  if (objects.every((object5) => object5.additionalProperties === false)) {
+  if (objects.every((object6) => object6.additionalProperties === false)) {
     folded.additionalProperties = false;
   } else {
     const constraints = [];
-    for (const object5 of objects) {
-      const constraint = undeclaredConstraint(object5);
+    for (const object6 of objects) {
+      const constraint = undeclaredConstraint(object6);
       if (constraint && !constraints.some((seen) => JSON.stringify(seen) === JSON.stringify(constraint)))
         constraints.push(constraint);
     }
@@ -28922,12 +28922,12 @@ function rewriteKeyNames(ctx) {
   const rewrites = /* @__PURE__ */ new Map();
   for (const record2 of pendingRecords.get(ctx) ?? []) {
     const seen = ctx.seen.get(record2);
-    const names = (seen?.def ?? seen?.schema)?.propertyNames;
-    if (!names || names === true || rewrites.has(names))
+    const names2 = (seen?.def ?? seen?.schema)?.propertyNames;
+    if (!names2 || names2 === true || rewrites.has(names2))
       continue;
-    const rewritten = stringifyKeyNames(bySchema, names, /* @__PURE__ */ new Set());
-    if (rewritten !== names)
-      rewrites.set(names, rewritten);
+    const rewritten = stringifyKeyNames(bySchema, names2, /* @__PURE__ */ new Set());
+    if (rewritten !== names2)
+      rewrites.set(names2, rewritten);
   }
   if (!rewrites.size)
     return;
@@ -32798,11 +32798,11 @@ function parseMapDef(def, refs) {
 
 // node_modules/zod-to-json-schema/dist/esm/parsers/nativeEnum.js
 function parseNativeEnumDef(def) {
-  const object5 = def.values;
+  const object6 = def.values;
   const actualKeys = Object.keys(def.values).filter((key) => {
-    return typeof object5[object5[key]] !== "number";
+    return typeof object6[object6[key]] !== "number";
   });
-  const actualValues = actualKeys.map((key) => object5[key]);
+  const actualValues = actualKeys.map((key) => object6[key]);
   const parsedTypes = Array.from(new Set(actualValues.map((values) => typeof values)));
   return {
     type: parsedTypes.length === 1 ? parsedTypes[0] === "string" ? "string" : "number" : ["string", "number"],
@@ -37586,8 +37586,8 @@ var LocalMcp = class {
   constructor(readOnly) {
     this.readOnly = readOnly;
   }
-  async connect(names, env, signal, configFile2 = env.ONE_CODER_MCP_CONFIG || join12(homedir9(), ".claude.json"), supplied) {
-    if (!names.length) return;
+  async connect(names2, env, signal, configFile2 = env.ONE_CODER_MCP_CONFIG || join12(homedir9(), ".claude.json"), supplied) {
+    if (!names2.length) return;
     let config2;
     if (supplied) config2 = supplied;
     else try {
@@ -37599,7 +37599,7 @@ var LocalMcp = class {
     } catch {
       throw new Error("Cannot read the personal MCP configuration. Use ONE_CODER_MCP_CONFIG for a JSON file with mcpServers.");
     }
-    for (const name of [...new Set(names)].slice(0, 20)) {
+    for (const name of [...new Set(names2)].slice(0, 20)) {
       signal.throwIfAborted();
       if (!/^[A-Za-z0-9_-]{1,80}$/.test(name) || ["one", "one-task"].includes(name)) continue;
       let client = null;
@@ -37652,6 +37652,7 @@ var LocalMcp = class {
           for (const tool of listed.tools) {
             if (++count3 > 600) break;
             if (Array.isArray(entry.oneAllowedTools) && !entry.oneAllowedTools.includes(tool.name)) continue;
+            if (Array.isArray(entry.oneDeniedTools) && entry.oneDeniedTools.includes(tool.name)) continue;
             const readOnly = tool.annotations?.readOnlyHint === true || Array.isArray(entry.oneReadOnlyTools) && entry.oneReadOnlyTools.includes(tool.name) || tool.annotations?.readOnlyHint === void 0 && ATLAS_READ.has(tool.name);
             if (!this.readOnly || readOnly) this.tools.push({ server: name, tool: { ...tool, annotations: { ...tool.annotations, readOnlyHint: readOnly } } });
           }
@@ -37677,10 +37678,13 @@ var LocalMcp = class {
     const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
     return this.tools.filter((t) => !this.memoryOnly.has(t.server)).map((t) => ({ ...t, score: terms.reduce((n, term) => n + (`${t.server} ${t.tool.name} ${t.tool.description ?? ""}`.toLowerCase().includes(term) ? 1 : 0), 0) })).filter((t) => !terms.length || t.score > 0).sort((a, b) => b.score - a.score).slice(0, 6).map(({ server, tool }) => ({ server, name: tool.name, description: tool.description?.slice(0, 1500), inputSchema: tool.inputSchema, readOnly: tool.annotations?.readOnlyHint === true }));
   }
-  probe(server, names) {
-    if (typeof server !== "string" || !Array.isArray(names) || names.length > 30 || names.some((n) => typeof n !== "string" || n.length > 120)) throw new Error("Supply a configured server and up to 30 exact tool names.");
+  catalog() {
+    return this.tools.filter((t) => !this.memoryOnly.has(t.server)).map(({ server, tool }) => ({ server, name: tool.name, description: tool.description?.slice(0, 1500), inputSchema: tool.inputSchema }));
+  }
+  probe(server, names2) {
+    if (typeof server !== "string" || !Array.isArray(names2) || names2.length > 30 || names2.some((n) => typeof n !== "string" || n.length > 120)) throw new Error("Supply a configured server and up to 30 exact tool names.");
     const available = this.tools.filter((t) => t.server === server && !this.memoryOnly.has(server)).map((t) => t.tool.name);
-    return { server, connected: this.clients.has(server), available: names.filter((n) => available.includes(n)), missingOrNotAllowed: names.filter((n) => !available.includes(n)), stage: this.readOnly ? "read-only" : "implementation", evidence: "Discovery only. Account permission and real tool execution are verified only by a successful call. No write was performed." };
+    return { server, connected: this.clients.has(server), available: names2.filter((n) => available.includes(n)), missingOrNotAllowed: names2.filter((n) => !available.includes(n)), stage: this.readOnly ? "read-only" : "implementation", evidence: "Discovery only. Account permission and real tool execution are verified only by a successful call. No write was performed." };
   }
   memoryTarget(key, reading = false) {
     if (this.readOnly && !reading) return null;
@@ -38512,8 +38516,8 @@ function planted(ctx, dir, log2) {
   if ((ctx.platform ?? process.platform) !== "win32") return null;
   const { repo } = ctx;
   const env = claudeEnv();
-  const names = mcpLaunchers({ dirs: [dir, repo.path], projectSettings: repo.claude.projectSettings, home: ctx.home, env, platform: ctx.platform });
-  const file = plantedProgram(dir, { platform: ctx.platform, env, names });
+  const names2 = mcpLaunchers({ dirs: [dir, repo.path], projectSettings: repo.claude.projectSettings, home: ctx.home, env, platform: ctx.platform });
+  const file = plantedProgram(dir, { platform: ctx.platform, env, names: names2 });
   if (!file) return null;
   log2("error", plantedError(file), "plantedProgram", { file });
   ctx.terminal?.(`repo "${repo.name}": ${file} at the top of ${dir} keeps Claude Code from starting there \u2014 remove or rename it in the repository and in that folder (the task's branch), then press Retry in One`);
@@ -38571,8 +38575,8 @@ function ownSettings(ctx, cwd, log2) {
   const { repo, caps } = ctx;
   if (repo.claude.projectSettings) return null;
   if (caps.settingSources && repo.claude.mcpServers.length && !ctx.task.personalMcp?.length) {
-    const names = repo.claude.mcpServers.join(", ");
-    log2("info", `${repo.name}: only your user-scope MCP servers reach Claude Code here \u2014 add ${names} with "claude mcp add -s user \u2026"; a server added in the default (local) scope stays out while the repo's own settings are off.`, "mcpUserScope", { repo: repo.name, names });
+    const names2 = repo.claude.mcpServers.join(", ");
+    log2("info", `${repo.name}: only your user-scope MCP servers reach Claude Code here \u2014 add ${names2} with "claude mcp add -s user \u2026"; a server added in the default (local) scope stays out while the repo's own settings are off.`, "mcpUserScope", { repo: repo.name, names: names2 });
   }
   const has = OWN_SETTINGS.filter((n) => existsSync7(join15(cwd, n)));
   if (!has.length) return null;
@@ -39250,6 +39254,47 @@ var PersonalMcp = class {
   }
 };
 
+// src/worker/model-mcp.ts
+var object5 = (v) => !!v && typeof v === "object" && !Array.isArray(v);
+var names = (v) => Array.isArray(v) && v.length <= 600 && v.every((n) => typeof n === "string" && /^[A-Za-z0-9_.:-]{1,128}$/.test(n));
+function checkModelMcp(raw) {
+  if (!object5(raw) || !["list", "search", "call"].includes(raw.action) || Object.keys(raw).some((k) => !["servers", "action", "server", "name", "arguments", "query"].includes(k)) || !Array.isArray(raw.servers) || !raw.servers.length || raw.servers.length > 12) throw new Error("Invalid MCP request.");
+  for (const s of raw.servers) {
+    if (!object5(s) || Object.keys(s).some((k) => !["name", "url", "token", "allow", "deny"].includes(k)) || typeof s.name !== "string" || !/^[a-z][a-z0-9_-]{0,31}$/.test(s.name) || ["one", "one-task"].includes(s.name) || typeof s.url !== "string" || s.url.length > 500 || !connectionUrl(s.url) || typeof s.token !== "string" || s.token.length > 8192 || /[\r\n]/.test(s.token) || s.allow !== null && !names(s.allow) || !names(s.deny)) throw new Error("Invalid selected MCP connection.");
+  }
+  if (new Set(raw.servers.map((s) => s.name)).size !== raw.servers.length) throw new Error("Duplicate MCP connection.");
+  if (raw.action === "search" && (typeof raw.query !== "string" || raw.query.length > 200)) throw new Error("Invalid MCP search.");
+  if (raw.action === "call" && (typeof raw.server !== "string" || typeof raw.name !== "string" || !object5(raw.arguments) || JSON.stringify(raw.arguments).length > 2e4)) throw new Error("Invalid MCP call.");
+  return raw;
+}
+async function modelMcp(raw, signal) {
+  const r = checkModelMcp(raw), client = new LocalMcp(false);
+  try {
+    const config2 = Object.fromEntries(r.servers.map((s) => [s.name, { type: "http", url: s.url, headers: s.token ? { Authorization: "Bearer " + s.token } : {}, ...s.allow ? { oneAllowedTools: s.allow } : {}, oneDeniedTools: s.deny }]));
+    await client.connect(r.servers.map((s) => s.name), {}, signal, void 0, config2);
+    if (r.servers.some((s) => !client.probe(s.name, []).connected)) throw new Error("A selected MCP connection could not be opened. Check its login and permissions.");
+    if (r.action === "search") {
+      let chars = 0;
+      const tools2 = client.search(r.query).filter((t) => {
+        const size = JSON.stringify(t).length;
+        if (chars + size > 12e3) return false;
+        chars += size;
+        return true;
+      });
+      return { tools: JSON.parse(client.redact(JSON.stringify(tools2))) };
+    }
+    if (r.action === "call") {
+      const tool = client.catalog().find((t) => t.server === r.server && t.name === r.name);
+      if (!tool || !new AjvJsonSchemaValidator().getValidator(tool.inputSchema)(r.arguments).valid) throw new Error("MCP tool is unavailable or arguments do not match its schema.");
+      return { result: await client.call(r.server, r.name, r.arguments, signal) };
+    }
+    const tools = client.catalog().slice(0, 120).map((t, i2) => ({ name: "remote_mcp_" + i2, server: t.server, tool: t.name, description: `[${t.server} / ${t.name}] ${t.description ?? ""}`, parameters: t.inputSchema }));
+    return { tools: JSON.parse(client.redact(JSON.stringify(tools))) };
+  } finally {
+    await client.close();
+  }
+}
+
 // src/worker/text-models.ts
 import { readFileSync as readFileSync8 } from "node:fs";
 import { homedir as homedir10 } from "node:os";
@@ -39296,7 +39341,8 @@ var LOCAL = workerInfo("local", "Lokal \xB7 Ollama", "LO", "127.0.0.1", "https:/
 var OLLAMA = workerInfo("ollama", "Ollama Cloud", "OC", "ollama.com", "https://ollama.com/settings/keys", { en: "Selected text goes through the paired worker to Ollama Cloud. Its API key stays on the worker.", de: "Ausgew\xE4hlter Text geht \xFCber den gekoppelten Worker an Ollama Cloud. Der API-Key bleibt beim Worker." });
 var MINIMAX = workerInfo("minimax", "MiniMax", "MM", "api.minimax.io", "https://platform.minimax.io", { en: "Selected text goes through the paired worker to MiniMax. Its API key stays on the worker.", de: "Ausgew\xE4hlter Text geht \xFCber den gekoppelten Worker an MiniMax. Der API-Key bleibt beim Worker." });
 var CODEX = workerInfo("codex", "Codex", "CX", "OpenAI via Codex CLI", "https://chatgpt.com", { en: "Selected text goes through the paired worker to its signed-in Codex CLI, in an isolated text request.", de: "Ausgew\xE4hlter Text geht \xFCber den gekoppelten Worker an dessen angemeldete Codex-CLI, als isolierte Textanfrage." });
-var WORKER_PROVIDERS = ["local", "ollama", "minimax", "codex"];
+var COPILOT = workerInfo("copilot", "GitHub Copilot", "CP", "GitHub Copilot via CLI", "https://github.com/settings/copilot", { en: "Selected text and tool results go through the paired worker to its signed-in Copilot CLI and the Copilot service. One executes workspace tools; MCP credentials stay outside model prompts. A running personal worker is required.", de: "Ausgew\xE4hlter Text und Werkzeugergebnisse gehen \xFCber den gekoppelten Worker an dessen angemeldete Copilot-CLI und den Copilot-Dienst. One f\xFChrt Workspace-Werkzeuge aus; MCP-Zugangsdaten bleiben au\xDFerhalb der Modellprompts. Ein laufender pers\xF6nlicher Worker wird ben\xF6tigt." });
+var WORKER_PROVIDERS = ["local", "ollama", "minimax", "codex", "copilot"];
 var isWorkerProvider = (p) => WORKER_PROVIDERS.includes(p);
 
 // ../src/shared/ai/worker.ts
@@ -39304,6 +39350,15 @@ var WORKER_TEXT_MAX = 18e4;
 var validWorkerModel = (v) => typeof v === "string" && /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/.test(v);
 
 // src/worker/text-models.ts
+var copilotCatalog = null;
+async function copilotModels() {
+  const key = JSON.stringify([process.env.COPILOT_BIN, process.env.COPILOT_GITHUB_TOKEN, process.env.GH_TOKEN, process.env.GITHUB_TOKEN]);
+  if (copilotCatalog?.key === key && copilotCatalog.until > Date.now()) return copilotCatalog.rows;
+  const result = await probeCopilot();
+  const rows = result.authenticated ? result.models.filter(validCopilotModel).map((model) => ({ provider: "copilot", model, context: "contexts" in result ? result.contexts[model] ?? COPILOT_CONTEXT : COPILOT_CONTEXT, chat: true, maxOutput: 8192 })) : [];
+  copilotCatalog = { key, until: Date.now() + 3e4, rows };
+  return rows;
+}
 var localBase = () => {
   const url2 = new URL(process.env.ONE_CODER_OLLAMA || "http://127.0.0.1:11434");
   ollamaInference(url2);
@@ -39350,12 +39405,19 @@ async function textModels(file) {
     }
     for (const model of [...new Set(known)]) if (validWorkerModel(model)) out.push({ provider: "codex", model, context: 64e3 });
   }
+  try {
+    out.push(...await copilotModels());
+  } catch {
+  }
   return out;
 }
 function checkTextRequest(raw) {
   const r = raw;
   if (!r || typeof r !== "object" || !isWorkerProvider(r.provider) || !validWorkerModel(r.model) || !Number.isSafeInteger(r.maxTokens) || r.maxTokens < 1 || r.maxTokens > 16384 || !Array.isArray(r.messages) || !r.messages.length || r.messages.length > 64) throw new Error("Invalid text request.");
-  if (Object.keys(r).some((k) => !["provider", "model", "messages", "maxTokens"].includes(k))) throw new Error("Unknown text request field.");
+  if (Object.keys(r).some((k) => !["provider", "model", "messages", "maxTokens", ...r.provider === "copilot" ? ["tools", "schema"] : []].includes(k))) throw new Error("Unknown text request field.");
+  if (r.tools !== void 0 && (!Array.isArray(r.tools) || r.tools.length > 160 || r.tools.some((t) => !t || typeof t.name !== "string" || !/^[A-Za-z0-9_-]{1,100}$/.test(t.name) || typeof t.description !== "string" || !t.parameters || typeof t.parameters !== "object" || Array.isArray(t.parameters) || Object.keys(t).some((k) => !["name", "description", "parameters"].includes(k))) || new Set(r.tools.map((t) => t.name)).size !== r.tools.length)) throw new Error("Invalid function definitions.");
+  if (r.schema !== void 0 && (!r.schema || typeof r.schema !== "object" || Array.isArray(r.schema))) throw new Error("Invalid output schema.");
+  if (JSON.stringify([r.tools, r.schema]).length > 1e5) throw new Error("Function/schema payload is too large.");
   let size = 0;
   for (const m of r.messages) {
     if (!m || !["system", "user", "assistant"].includes(m.role) || typeof m.content !== "string" || Object.keys(m).some((k) => !["role", "content"].includes(k))) throw new Error("Only plain text messages are supported.");
@@ -39366,9 +39428,30 @@ function checkTextRequest(raw) {
 }
 async function textRequest(file, raw, signal) {
   const r = checkTextRequest(raw);
-  const model = (await textModels(file)).find((m) => m.provider === r.provider && m.model === r.model);
+  const model = (await (r.provider === "copilot" ? copilotModels() : textModels(file))).find((m) => m.provider === r.provider && m.model === r.model);
   if (!model) throw new Error("This model is no longer available on the worker. Refresh the model list.");
-  if (Buffer.byteLength(JSON.stringify(r.messages)) + r.maxTokens + 2048 > model.context) throw new Error("The text exceeds this model\u2019s conservative context limit. Select a smaller passage.");
+  if (Math.ceil(Buffer.byteLength(JSON.stringify([r.messages, r.tools, r.schema])) / (r.provider === "copilot" ? 1.5 : 1)) + Math.min(r.maxTokens, r.provider === "copilot" ? 8192 : 16384) + 2048 > model.context) throw new Error("The text exceeds this model\u2019s conservative context limit. Select a smaller passage.");
+  if (r.provider === "copilot") {
+    const tools = (r.tools ?? []).map((t) => ({ type: "function", function: t }));
+    const validator = new AjvJsonSchemaValidator();
+    const output = r.schema ? validator.getValidator(r.schema) : null;
+    const inputs = new Map((r.tools ?? []).map((t) => [t.name, validator.getValidator(t.parameters)]));
+    const messages = r.schema ? [{ role: "system", content: "Return an answer matching this JSON schema. Put the JSON answer as a string in the harness content field. Schema: " + JSON.stringify(r.schema) }, ...r.messages] : r.messages;
+    const data2 = await copilotInference(r.model)({ model: r.model, messages, tools, contextTokens: model.context, outputTokens: Math.min(r.maxTokens, 8192), signal });
+    const calls = (data2.message.tool_calls ?? []).map((c) => ({ id: c.id, name: c.function.name, arguments: c.function.arguments }));
+    if (calls.length && !tools.length) throw new Error("Copilot returned unexpected tools.");
+    for (const call of calls) if (!inputs.get(call.name)?.(call.arguments).valid) throw new Error("Copilot returned invalid function arguments; no tool was executed.");
+    if (!calls.length && output) {
+      let answer;
+      try {
+        answer = JSON.parse(data2.message.content ?? "");
+      } catch {
+        throw new Error("Copilot returned invalid JSON; no change was applied.");
+      }
+      if (!output(answer).valid) throw new Error("Copilot answer does not match the requested schema; no change was applied.");
+    }
+    return { model: r.model, text: data2.message.content ?? "", ...calls.length ? { calls } : {}, inputTokens: data2.inputTokens ?? null, outputTokens: data2.outputTokens ?? null, usd: null };
+  }
   if (r.provider === "codex") {
     const cwd = await mkdtemp2(join16(tmpdir5(), "one-text-"));
     try {
@@ -41022,20 +41105,20 @@ async function guessAnalyzeAsync(dir) {
     } catch {
     }
   }
-  let names = [];
+  let names2 = [];
   try {
     const list = await timed(readdir4(dir), FILE_MS);
-    if (list !== TIMEOUT) names = list;
+    if (list !== TIMEOUT) names2 = list;
   } catch {
-    names = [];
+    names2 = [];
   }
-  if (names.some((n) => /^(eslint\.config\.(js|mjs|cjs|ts)|\.eslintrc(\.(js|cjs|json|yml|yaml))?)$/.test(n))) return ["npx", "eslint", "."];
-  if (names.some((n) => /\.(sln|csproj|vbproj)$/i.test(n))) return ["dotnet", "build", "-nologo", "-clp:Summary"];
-  if (names.includes("go.mod")) return ["go", "vet", "./..."];
-  if (names.includes("Cargo.toml")) return ["cargo", "clippy"];
-  const py = names.includes("pyproject.toml") ? await topFileAsync(dir, "pyproject.toml") : null;
+  if (names2.some((n) => /^(eslint\.config\.(js|mjs|cjs|ts)|\.eslintrc(\.(js|cjs|json|yml|yaml))?)$/.test(n))) return ["npx", "eslint", "."];
+  if (names2.some((n) => /\.(sln|csproj|vbproj)$/i.test(n))) return ["dotnet", "build", "-nologo", "-clp:Summary"];
+  if (names2.includes("go.mod")) return ["go", "vet", "./..."];
+  if (names2.includes("Cargo.toml")) return ["cargo", "clippy"];
+  const py = names2.includes("pyproject.toml") ? await topFileAsync(dir, "pyproject.toml") : null;
   if (py && /\[tool\.ruff/.test(py)) return ["ruff", "check", "."];
-  if (names.includes(".flake8") || names.includes("setup.cfg")) return ["flake8"];
+  if (names2.includes(".flake8") || names2.includes("setup.cfg")) return ["flake8"];
   return null;
 }
 function guessFrom(pkg, mk, present) {
@@ -42452,8 +42535,8 @@ var Worker2 = class {
   /** Read every repo's local branches again; tell One when they changed (announce = false: the caller does). */
   async refreshBranches(announce = true) {
     let changed = false;
-    const names = new Set(this.config.repos.map((r) => r.name));
-    for (const name of [...this.branches.keys()]) if (!names.has(name)) this.branches.delete(name);
+    const names2 = new Set(this.config.repos.map((r) => r.name));
+    for (const name of [...this.branches.keys()]) if (!names2.has(name)) this.branches.delete(name);
     for (const repo of this.config.repos) {
       const list = await localBranches(repo).catch(() => []);
       const before = this.branches.get(repo.name);
@@ -42719,13 +42802,13 @@ var Worker2 = class {
       this.textRuns.get(msg.requestId)?.abort();
       return { stopped: true };
     }
-    if (msg.op === "text-request") {
+    if (msg.op === "text-request" || msg.op === "model-mcp") {
       if (typeof msg.requestId !== "string" || !/^[a-zA-Z0-9-]{1,64}$/.test(msg.requestId) || this.textRuns.has(msg.requestId) || this.textRuns.size >= 2) throw new Error("Text request is busy or invalid.");
       const abort = new AbortController();
       this.textRuns.set(msg.requestId, abort);
       const timer = setTimeout(() => abort.abort(), 18e4);
       try {
-        return await textRequest(this.config.file, msg.request, abort.signal);
+        return await (msg.op === "model-mcp" ? modelMcp(msg.request, abort.signal) : textRequest(this.config.file, msg.request, abort.signal));
       } finally {
         clearTimeout(timer);
         this.textRuns.delete(msg.requestId);
@@ -46086,7 +46169,7 @@ var SETUP_JS = String.raw`(function () {
   var de = /^de\b/i.test(navigator.language || '')
   var EN = {
     copilotTitle: 'GitHub Copilot · CLI',
-    copilotHint: 'Uses this computer’s Copilot CLI login and organization permissions. Selected context goes to the Copilot service; One runs the file tools, MCP and configured checks. Copilot native tools and automatic repository configuration are disabled. Subscription usage has no USD receipt. Browser agents and the AI terminal retain their separate provider settings.',
+    copilotHint: 'Uses this computer’s Copilot CLI login and organization permissions. Selected context goes to the Copilot service; One runs the file tools, MCP and configured checks. Copilot native tools and automatic repository configuration are disabled. Subscription usage has no USD receipt. In One → Settings → AI, refresh worker models and choose Copilot for workspace features; data permissions and defaults stay explicit.',
     copilotInstall: 'Install GitHub Copilot CLI (1.0.102 or newer), then sign in locally: copilot auth login. An IDE subscription alone does not confirm CLI access. Tokens stay in Copilot CLI or COPILOT_GITHUB_TOKEN; do not paste them into One.',
     copilotModel: 'Copilot model ID (auto uses the account default)',
     copilotSave: 'Save Copilot model',
@@ -46270,7 +46353,7 @@ var SETUP_JS = String.raw`(function () {
   }
   var DE = {
     copilotTitle: 'GitHub Copilot · CLI',
-    copilotHint: 'Nutzt die Copilot-CLI-Anmeldung und Unternehmensrechte dieses Rechners. Ausgewählter Kontext geht an den Copilot-Dienst; One führt Dateiwerkzeuge, MCP und konfigurierte Prüfungen aus. Native Copilot-Werkzeuge und automatische Repository-Konfiguration sind ausgeschaltet. Abonutzung liefert keinen USD-Kostennachweis. Browser-Agenten und KI-Terminal behalten ihre eigenen Anbietereinstellungen.',
+    copilotHint: 'Nutzt die Copilot-CLI-Anmeldung und Unternehmensrechte dieses Rechners. Ausgewählter Kontext geht an den Copilot-Dienst; One führt Dateiwerkzeuge, MCP und konfigurierte Prüfungen aus. Native Copilot-Werkzeuge und automatische Repository-Konfiguration sind ausgeschaltet. Abonutzung liefert keinen USD-Kostennachweis. In One → Einstellungen → KI die Worker-Modelle aktualisieren und Copilot für Workspace-Funktionen wählen; Datenfreigaben und Standards bleiben ausdrücklich.',
     copilotInstall: 'GitHub Copilot CLI (ab 1.0.102) installieren und lokal anmelden: copilot auth login. Ein IDE-Abo bestätigt noch keinen CLI-Zugriff. Tokens bleiben in Copilot CLI oder COPILOT_GITHUB_TOKEN; nicht in One einfügen.',
     copilotModel: 'Copilot-Modell-ID (auto nutzt den Kontostandard)',
     copilotSave: 'Copilot-Modell speichern',
@@ -47458,15 +47541,15 @@ var SetupServer = class {
     if (!list || list.length > 100) return ["Nothing to save."];
     const known = new Map(this.repos().map((r) => [pathId(r.path), r]));
     const choices = [];
-    const names = /* @__PURE__ */ new Set();
+    const names2 = /* @__PURE__ */ new Set();
     for (const item of list) {
       if (!isObj7(item) || typeof item.path !== "string") return ["A repository could not be read."];
       const repo = known.get(pathId(item.path));
       if (!repo) return [`${item.path} is not on the list \u2014 rescan, or add the folder first.`];
       const name = typeof item.name === "string" ? item.name.trim() : repo.name;
       if (!REPO_NAME.test(name)) return [`"${name}": a name needs letters, digits, ".", "_" or "-" (at most 64).`];
-      if (names.has(name.toLowerCase())) return [`The name "${name}" is used twice.`];
-      names.add(name.toLowerCase());
+      if (names2.has(name.toLowerCase())) return [`The name "${name}" is used twice.`];
+      names2.add(name.toLowerCase());
       const baseBranch = typeof item.baseBranch === "string" && item.baseBranch.trim() ? item.baseBranch.trim() : repo.base;
       const test = typeof item.test === "string" ? splitArgs(item.test) : repo.test;
       const limit = typeof item.maxUsdPerTask === "number" && Number.isFinite(item.maxUsdPerTask) && item.maxUsdPerTask > 0 ? Math.min(1e4, Math.round(item.maxUsdPerTask * 100) / 100) : null;
@@ -47933,7 +48016,7 @@ var WorkerWorkspaces = class {
 
 // src/worker/index.ts
 var workspaceHost = null;
-var VERSION = true ? "1.24.0" : "dev";
+var VERSION = true ? "1.25.0" : "dev";
 var quiet = process.env.ONE_WORKER_QUIET === "1";
 var recent = [];
 var log = (msg) => {
