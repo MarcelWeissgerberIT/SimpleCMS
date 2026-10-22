@@ -51,3 +51,10 @@ export function AgentModelHint({agent}:{agent:CustomAgent}) {
   const subscription = pin?.p === 'copilot' || !pin && !agent.model && agent.runner === 'browser' && routeFor('agents.run').route.p === 'copilot'
   return <p className="agx-field__hint" data-testid="agent-model-effective">{t(agent.model || pin ? 'features.agents.model.own' : 'features.agents.model.resolved', {model})}{subscription && <> · {t('features.coding.panel.copilotCostHint')}</>}</p>
 }
+
+
+export function usesCopilot(agent:CustomAgent):boolean {
+  if(agent.runner!=='browser')return false
+  const pins=readAgentRoute(agent.route)
+  return Array.isArray(pins)&&pins.length ? pins[0].p==='copilot' : !agent.model && routeFor('agents.run').route.p==='copilot'
+}

@@ -21,7 +21,7 @@ import { Menu, useMenu } from '../../ui/Menu'
 import { PageIcon } from '../../ui/PageIcon'
 import { Switch } from '../../ui/controls'
 import { useLang, useT } from '../../i18n'
-import { AgentModelHint } from './ModelDefault'
+import { AgentModelHint, usesCopilot } from './ModelDefault'
 import { AINeedsSetup, useAIStatus } from '../ai/setup/AINeedsSetup'
 import { AgentEditor } from './AgentEditor'
 import { RunHistory } from './RunHistory'
@@ -642,7 +642,7 @@ function AgentDetail({ id }: { id: ID }) {
         <div>
           <dt>{t('features.agents.spec.budget')}</dt>
           <dd className="mono">
-            {fmtUsd(agent.maxRunUsd, lang)} {t('features.agents.spec.perRun')}
+            {usesCopilot(agent) ? t('features.coding.panel.copilotCost') : <>{fmtUsd(agent.maxRunUsd, lang)} {t('features.agents.spec.perRun')}</>}
           </dd>
         </div>
       </dl>
