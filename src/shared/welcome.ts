@@ -4,6 +4,8 @@ export interface WelcomeRecipient {
   role: 'member' | 'viewer'; guest: boolean; note: string
   status: 'draft' | 'sending' | 'sent' | 'uncertain'
   hasAtlasLink: boolean; hasAtlasToken: boolean; atlasHost: string | null
+  /** Presence only, never the URL credential. Absent on older servers. */
+  hasAtlasLinkToken?: boolean
   sentAt?: number
 }
 export interface WelcomeDraft {
@@ -12,6 +14,21 @@ export interface WelcomeDraft {
 }
 export interface WelcomePatch extends Omit<WelcomeDraft, 'recipients'> {
   recipients: Array<WelcomeRecipient & { atlasLink?: string; atlasToken?: string }>
+}
+/** Extract a URL credential for explicit personal display/copy, never as a verified MCP token. */
+export function atlasLinkToken(link: string): string | null {
+  try {
+    if (link.length > 4096) return null
+    const url = new URL(link)
+    if (url.protocol !== 'https:' || url.username || url.password) return null
+    const hash = url.hash.slice(1)
+    const fragment = new URLSearchParams(hash.includes('?') ? hash.slice(hash.indexOf('?') + 1) : hash)
+    const values = [url.searchParams, fragment].flatMap(params => ['token', 'invite_token', 'access_token'].flatMap(key => params.getAll(key)))
+    const tokens = [...new Set(values.map(v => v.trim()).filter(Boolean))]
+    return tokens.length === 1 && !/\s/.test(tokens[0]!) ? tokens[0]! : null
+  } catch {
+    return null
+  }
 }
 const normalized = (s: string) => s.toLocaleLowerCase().replaceAll('ä','ae').replaceAll('ö','oe').replaceAll('ü','ue').replaceAll('ß','ss').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9@]+/g,' ').trim()
 const tokenLabel = '(?:(?:atlas|mcp|agent(?:en)?)[-_ ]*)?token|api[-_ ]?key|authorization'

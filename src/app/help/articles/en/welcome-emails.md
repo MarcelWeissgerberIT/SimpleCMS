@@ -9,7 +9,7 @@ summary: Prepare recipients privately, assign personal links and explicitly rele
 ---
 Under **Workspace → People → Welcome emails**, admins can prepare their own private draft. It contains recipients, email addresses, destination workspaces, roles, personal Atlas links and optional separate Atlas agent tokens. Other admins cannot see this draft. It is neither workspace content nor model context and is excluded from workspace exports.
 
-Recipients initially appear as compact plate cards showing name, email, destination workspace, access and status. Click a card to expand its fields, then click again to collapse. **Expand all** and **Collapse all** control the whole list. Collapsing preserves your inputs. “Atlas link ready” and “MCP token ready” only mean a value is present; they do not confirm a connection test. New recipients open directly for editing.
+Recipients initially appear as compact plate cards showing name, email, destination workspace, access and status. Click a card to expand its fields, then click again to collapse. **Expand all** and **Collapse all** control the whole list. Collapsing preserves your inputs. The indicators distinguish “Atlas link ready”, “Access token detected in link” and “Separate MCP token stored”. They confirm presence, not validity or a successful connection test. Detection remains visible below the link field after encrypted saving; a blank field retains the stored value. New recipients open directly for editing.
 
 ## Paste names, links and tokens together
 Add recipients first or correct the prepared addresses. Under **Paste names, links and tokens together**, use a full name or email followed by these fields:
@@ -37,3 +37,5 @@ First task: open Atlas, put your own agent token in **My secrets**, select the e
 After a successful test, confirm **I have successfully tested my personal connection** and press **Atlas access works · dismiss reminder**. This is the person's own confirmation, not an automatic test claimed by One. Only their reminder disappears; connections and tokens are neither deleted nor revoked at Atlas.
 
 Protected access expires seven days after sending. Values are encrypted with the workspace's server key and recipient-bound outside shared documents. The server must be able to decrypt them for targeted mailing or retrieval; this is not an end-to-end vault. Long-term personal connections belong in the passphrase-protected **My secrets** vault.
+
+The personal access modal also extracts recognized URL access tokens into a separate masked field with **Copy link token**. This does not verify MCP access or automatically store the token in an MCP connection.

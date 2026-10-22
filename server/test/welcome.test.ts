@@ -2,7 +2,14 @@ import assert from 'node:assert/strict'
 import { after, before, test } from 'node:test'
 import { DatabaseSync } from 'node:sqlite'
 import { join } from 'node:path'
-import { parseWelcomePaste } from '../../src/shared/welcome.ts'
+import { atlasLinkToken, parseWelcomePaste } from '../../src/shared/welcome.ts'
+
+test('URL credentials are extracted separately, without treating them as MCP credentials or accepting ambiguous links',()=>{
+  assert.equal(atlasLinkToken('https://atlas.example/invite?token=SYNTHETIC%2BACCESS'),'SYNTHETIC+ACCESS')
+  assert.equal(atlasLinkToken('https://atlas.example/#/join?invite_token=SYNTHETIC-ACCESS'),'SYNTHETIC-ACCESS')
+  assert.equal(atlasLinkToken('https://atlas.example/#access_token=SYNTHETIC-ACCESS'),'SYNTHETIC-ACCESS')
+  for(const url of ['https://atlas.example/?token=','https://atlas.example/?token=one&token=two','https://atlas.example/?token=one#token=two','http://atlas.example/?token=one','https://user:pass@atlas.example/?token=one','https://atlas.example/?token=has%20space','not-a-url'])assert.equal(atlasLinkToken(url),null)
+})
 import { Client, mailbox, signIn, smtpSink, startServer, type TestServer } from './helpers.ts'
 
 test('local paste matches full identities, transliterations and labelled tokens; ambiguity never partially imports',()=>{
@@ -61,6 +68,7 @@ test('preparation is private, encrypted and side-effect free; time/revision/gues
   const before=(await mailbox(server)).length
   let r=await put(owner,draft());assert.equal(r.status,200,JSON.stringify(r.body));assert.equal(r.body.revision,1)
   assert.ok(r.body.recipients.every((x:any)=>x.hasAtlasLink&&x.hasAtlasToken));assert.ok(!JSON.stringify(r.body).includes('SECRET'));assert.ok(!JSON.stringify(r.body).includes('INVITE'))
+  assert.ok(r.body.recipients.every((x:any)=>x.hasAtlasLinkToken===true))
   assert.equal((await mailbox(server)).length,before);assert.equal((await owner.get(`/api/workspaces/${ws}/invites`)).body.length,0)
   assert.equal((await alice.get(path())).status,404)
   const adminInvite=(await owner.post(`/api/workspaces/${ws}/invites`,{email:'other@welcome.test',role:'admin'})).body.link

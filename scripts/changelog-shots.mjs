@@ -942,6 +942,23 @@ function orderPlanAnswer(caseId, body) {
 }
 
 const shots = {
+  async 'welcome-link-token'(browser) {
+    const { ctx, page } = await freshPage(browser)
+    await page.evaluate(() => {
+      const user={id:'organizer',name:'Organizer',email:'organizer@example.test'}
+      const workspace={id:'ws_workshop',name:'Workshop team',role:'owner',icon:null}
+      const recipients=[{id:'mara',name:'Mara Schön',email:'mara.schoen@example.test',workspaceId:workspace.id,role:'member',guest:false,note:'We work together in the workshop.',status:'draft',hasAtlasLink:true,hasAtlasLinkToken:true,hasAtlasToken:false,atlasHost:'atlas.example.test'},{id:'jan',name:'Jan Sommer',email:'jan.sommer@example.test',workspaceId:workspace.id,role:'viewer',guest:true,note:'Guest · read only',status:'draft',hasAtlasLink:true,hasAtlasLinkToken:true,hasAtlasToken:true,atlasHost:'atlas.example.test'}]
+      window.__oneCloud.mock({listMembers:async()=>[{user,role:'owner',created_at:Date.now()}],listInvites:async()=>[],cloudRequest:async(_method,path)=>path.endsWith('/welcome')?{revision:1,title:'Workshop',notBefore:Date.parse('2031-01-01'),lang:'en',recipients}:[]})
+      window.__oneCloud.set({available:true,status:'online',active:{kind:'cloud',id:workspace.id},user,role:'owner',readOnly:false,workspaces:[workspace],supports:['welcome:1','guests:1']})
+      location.hash='#/workspace/people'
+    })
+    const card=page.getByTestId('welcome-recipient').first()
+    await card.locator('summary').click()
+    await card.scrollIntoViewIfNeeded()
+    await rest(page)
+    await save(page, 'welcome-link-token')
+    await ctx.close()
+  },
   async 'memory-start'(browser) {
     const { ctx, page } = await freshPage(browser, { claude: { turns: [() => sseTurn([{ type: 'text', text: 'For the workshop review, use three sections: **Findings**, **Evidence**, and **Next check**. Separate confirmed results from assumptions.' }])] } })
     await page.keyboard.press('Control+j')

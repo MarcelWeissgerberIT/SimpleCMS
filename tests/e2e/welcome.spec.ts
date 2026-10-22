@@ -1,4 +1,4 @@
-import { test, expect, openApp } from './fixtures'
+import { test, expect, openApp, wsEval } from './fixtures'
 import type { Page } from '@playwright/test'
 const USER={id:'organizer',email:'organizer@example.test',name:'Organizer'}
 const WORKSPACES=[{id:'ws_team',name:'Workshop team',role:'owner',icon:null},{id:'ws_guests',name:'Workshop guests',role:'owner',icon:null}]
@@ -17,7 +17,7 @@ test('private bulk input matches recipients locally; save sends no invitation an
     if(req.url().includes('welcome-access'))return route.fulfill({json:[]})
     if(req.url().endsWith('/send')){send++;return route.fulfill({status:409,json:{error:{code:'welcome_early'}}})}
     if(req.url().includes('/preview/'))return route.fulfill({json:{text:'Welcome to ONE and Atlas. Personal links hidden.'}})
-    if(req.method()==='PUT'){saved=req.postDataJSON();draft={...saved,revision:2,recipients:saved.recipients.map(({atlasLink,atlasToken,...r}:any)=>({...r,status:'draft',hasAtlasLink:true,hasAtlasToken:true,atlasHost:'atlas.example.test'}))}}
+    if(req.method()==='PUT'){saved=req.postDataJSON();draft={...saved,revision:2,recipients:saved.recipients.map(({atlasLink,atlasToken,...r}:any)=>({...r,status:'draft',hasAtlasLink:true,hasAtlasLinkToken:true,hasAtlasToken:true,atlasHost:'atlas.example.test'}))}}
     await route.fulfill({json:draft})
   })
   await openApp(page);await cloud(page);await page.evaluate(()=>{location.hash='#/workspace/people'})
@@ -34,6 +34,10 @@ test('private bulk input matches recipients locally; save sends no invitation an
   await editor.getByRole('button',{name:'Collapse all',exact:true}).click();await expect(editor.locator('.welcome-recipient[open]')).toHaveCount(0)
   await cards.first().locator('summary').click()
   await expect(cards.first().getByLabel('Note in the email',{exact:true})).toHaveValue('Keep this note when collapsed')
+  const linkField=cards.first().getByLabel('Personal Atlas link (including URL token)',{exact:false})
+  await linkField.fill('https://atlas.example.test/invite?token=SYNTHETIC-LINK-ONLY')
+  await expect(cards.first().getByTestId('welcome-link-token')).toHaveText('Access token detected in link')
+  await expect(cards.first().locator('summary')).toContainText('No separate MCP token')
   await editor.getByText('Paste names, links and tokens together',{exact:true}).click()
   await editor.getByLabel('Protected import',{exact:true}).fill('Mara Schoen\nLink: https://atlas.example.test/invite?token=MAX-URL\nMCP-Token:\nMAX-MCP\nJan Sommer | Link: https://atlas.example.test/invite?token=JULIAN-URL | Authorization: Bearer JULIAN-MCP')
   await editor.getByRole('button',{name:'Match locally',exact:true}).click()
@@ -42,12 +46,26 @@ test('private bulk input matches recipients locally; save sends no invitation an
   await expect(editor).toContainText('Saved encrypted. Nothing sent.')
   expect(saved.recipients.map((r:any)=>[r.id,r.workspaceId,r.atlasToken])).toEqual([['a','ws_team','MAX-MCP'],['b','ws_team','JULIAN-MCP']])
   expect(await editor.getByLabel('Separate Atlas agent token (optional)').first().inputValue()).toBe('')
+  await expect(cards.first().getByTestId('welcome-link-token')).toHaveText('Access token detected in link')
+  const tokenField=cards.first().getByLabel('Separate Atlas agent token (optional)',{exact:false})
+  const left=await linkField.boundingBox(),right=await tokenField.boundingBox()
+  expect(Math.abs(left!.y-right!.y)).toBeLessThan(1)
+  expect(Math.abs(left!.height-right!.height)).toBeLessThan(1)
   await editor.getByRole('button',{name:'Email preview',exact:true}).first().click();await expect(page.getByRole('dialog')).toContainText('Personal links hidden');await page.keyboard.press('Escape')
   await editor.getByRole('checkbox').check();await expect(editor.getByRole('button',{name:/Send welcome emails/})).toBeDisabled();expect(send).toBe(0)
   await editor.getByRole('button',{name:'Collapse all',exact:true}).click()
   for(const width of [1440,390]){await page.setViewportSize({width,height:1000});await editor.locator('.welcome-list-head').scrollIntoViewIfNeeded();await page.screenshot({path:info.outputPath(`welcome-cards-${width}.png`),animations:'disabled'});expect(await editor.evaluate(e=>e.scrollWidth<=e.clientWidth)).toBe(true)}
   await cards.first().locator('summary').click();await expect(cards.first().getByLabel('Name',{exact:true})).toBeVisible()
-  await page.screenshot({path:info.outputPath('welcome-card-expanded-390.png'),animations:'disabled'})
+  for(const width of [1440,390])for(const theme of ['light','dark'] as const){
+    await page.setViewportSize({width,height:width===390?844:900})
+    await wsEval(page,(s,theme)=>s.updateSettings({theme}),theme)
+    await linkField.scrollIntoViewIfNeeded()
+    const left=await linkField.boundingBox(),right=await tokenField.boundingBox()
+    if(width===1440)expect(Math.abs(left!.y-right!.y)).toBeLessThan(1)
+    else expect(right!.y).toBeGreaterThan(left!.y+left!.height)
+    expect(await editor.evaluate(e=>e.scrollWidth<=e.clientWidth)).toBe(true)
+    await page.screenshot({path:info.outputPath(`welcome-aligned-${width}-${theme}.png`),animations:'disabled'})
+  }
   await expect(cards.first().locator('summary')).not.toContainText('MAX-MCP')
   await editor.getByRole('button',{name:'Add person',exact:true}).click()
   await expect(cards.last()).toHaveAttribute('open','');await expect(cards.last().getByLabel('Name',{exact:true})).toBeVisible()
@@ -68,6 +86,9 @@ test('Start reveals only the signed-in recipient’s credentials on a click; exp
   await expect(modal.getByLabel('Atlas agent token',{exact:true})).toHaveValue('PERSONAL-MCP')
   await expect(modal.getByLabel('Atlas agent token',{exact:true})).toHaveAttribute('type','password')
   await expect(modal.getByRole('link',{name:'Open Atlas'})).toHaveAttribute('href','https://atlas.example.test/invite?token=PERSONAL-URL')
+  const urlToken=modal.getByLabel('Access token from Atlas link · not a verified MCP token',{exact:true})
+  await expect(urlToken).toHaveValue('PERSONAL-URL')
+  await expect(urlToken).toHaveAttribute('type','password')
   expect(opened).toBe(1)
   await page.screenshot({path:info.outputPath('atlas-welcome-modal.png'),animations:'disabled'})
   await expect(modal.getByRole('button',{name:'Atlas access works · dismiss reminder'})).toBeDisabled()
