@@ -15,6 +15,35 @@ test('local paste matches full identities, transliterations and labelled tokens;
   }
 })
 
+test('paste extracts explicit MCP/agent credentials and Bearer headers, including a value below its label',()=>{
+  const people=[{id:'a',name:'Mara Schön',email:'mara.schoen@example.test'},{id:'b',name:'Jan Sommer',email:'jan.sommer@example.test'}]
+  for(const label of ['MCP-Token','mcp_token','Agent-Token','Agenten-Token','Atlas Token','API-Key','**MCP-Token:**']){
+    const field=label.endsWith('**')?`${label} \`MCP-SYNTHETIC\``:`${label}: MCP-SYNTHETIC`
+    const result=parseWelcomePaste(`Mara Schön\nLink: https://atlas.example/invite?token=INVITE-ONLY\n${field}`,people)
+    assert.deepEqual(result,{updates:[{id:'a',atlasLink:'https://atlas.example/invite?token=INVITE-ONLY',atlasToken:'MCP-SYNTHETIC'}],issues:[]})
+  }
+  assert.deepEqual(parseWelcomePaste('Mara Schön | MCP-Token: MCP-FIRST | Link: https://atlas.example/invite?token=ONLY-INVITE',people),{updates:[{id:'a',atlasLink:'https://atlas.example/invite?token=ONLY-INVITE',atlasToken:'MCP-FIRST'}],issues:[]})
+  const multiline=parseWelcomePaste('Mara Schön\nMCP-Token:\n"MCP-FIRST"\nJan Sommer | Link: https://atlas.example/invite?token=INVITE-SECOND | Authorization: Bearer MCP-SECOND',people)
+  assert.deepEqual(multiline,{updates:[{id:'a',atlasToken:'MCP-FIRST'},{id:'b',atlasLink:'https://atlas.example/invite?token=INVITE-SECOND',atlasToken:'MCP-SECOND'}],issues:[]})
+  assert.equal(parseWelcomePaste('Mara Schön\nAuthorization:\nBearer MCP-NEXT-LINE',people).updates[0]?.atlasToken,'MCP-NEXT-LINE')
+  assert.equal(parseWelcomePaste('Mara Schön\nToken: Bearer MCP-STRIPPED',people).updates[0]?.atlasToken,'MCP-STRIPPED')
+  for(const input of [
+    'Mara Schön\nToken: MCP-ONE | MCP-Token: MCP-TWO',
+    'Mara Schön\nMCP-Token:\nJan Sommer\nToken: MCP-TWO',
+    'Mara Schön\nMCP-Token:\nhttps://atlas.example/invite?token=INVITE-ONLY',
+    'Mara Schön\nAuthorization: Basic NOT-A-BEARER-TOKEN',
+    'Mara Schön\nAuthorization:\nNOT-A-BEARER-TOKEN',
+    'Mara Schön\nMCP-Token:',
+    'Mara Schön\nToken: MCP-ONE\nAgent-Token: MCP-TWO',
+    'Mara Schön\nMCP-Token: '+ 'A'.repeat(4097),
+  ]){
+    const r=parseWelcomePaste(input,people);assert.ok(r.issues.length);assert.deepEqual(r.updates,[])
+    assert.ok(r.issues.every(x=>/^\d+$/.test(x)),'Errors contain only line numbers, never pasted secrets')
+  }
+  const urlOnly=parseWelcomePaste('Mara Schön\nhttps://atlas.example/invite?token=INVITE-ONLY&mcp_token=UNVERIFIED',people)
+  assert.equal(urlOnly.updates[0]?.atlasToken,undefined)
+})
+
 let server:TestServer,owner:Client,other:Client,alice:Client,bob:Client,ws:string,guest:string
 before(async()=>{
   server=await startServer({AUTH_IP_LIMIT:'1000'});owner=await signIn(server,'organizer@welcome.test');other=await signIn(server,'other@welcome.test');alice=await signIn(server,'alice@welcome.test');bob=await signIn(server,'bob@welcome.test')

@@ -18,7 +18,7 @@ Link: https://atlas.example/invite?token=EXAMPLE
 Token: SEPARATE-AGENT-TOKEN
 ```
 
-A single `Name | Link: … | Token: …` row also works. Parsing runs locally without an AI request; German umlauts and ae/oe/ue are matched. First names alone, conflicting links, unknown names and ambiguous matches need correction. A URL token is never interpreted as an MCP agent token. An import with errors is withheld in full. After matching, review recipients and destinations, then press **Save encrypted**. Input values are hidden again; blank fields retain saved values.
+A single `Name | Link: … | Token: …` row also works. Parsing runs locally without an AI request; German umlauts and ae/oe/ue are matched. First names alone, conflicting links, unknown names and ambiguous matches need correction. Separate credentials are also extracted directly from `MCP-Token: …`, `Agent-Token: …`, `Agenten-Token: …`, `API-Key: …` and `Authorization: Bearer …`. A value may appear on the next line; quotes and inline backticks are removed. Bearer credentials are stored without the prefix. A URL token is never interpreted as an MCP agent token; an invitation link alone cannot supply a separate MCP token. An import with errors is withheld in full. After matching, review recipients and destinations, then press **Save encrypted**. Input values are hidden again; blank fields retain saved values.
 
 ## Sending requires your click
 **Manual sending not before** blocks sending until the chosen time, including on the server. No automatic send timer runs. Saving and previewing send nothing and create no invitations. Preview hides personal links. Confirm recipients and roles, then press **Send welcome emails**.

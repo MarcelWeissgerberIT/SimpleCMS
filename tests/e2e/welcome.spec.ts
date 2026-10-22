@@ -23,7 +23,7 @@ test('private bulk input matches recipients locally; save sends no invitation an
   await openApp(page);await cloud(page);await page.evaluate(()=>{location.hash='#/workspace/people'})
   const editor=page.getByRole('region',{name:'Welcome emails'});await expect(editor).toBeVisible()
   await editor.getByText('Paste names, links and tokens together',{exact:true}).click()
-  await editor.getByLabel('Protected import',{exact:true}).fill('Mara Schoen\nLink: https://atlas.example.test/invite?token=MAX-URL\nToken: MAX-MCP\nJan Sommer | Link: https://atlas.example.test/invite?token=JULIAN-URL | Token: JULIAN-MCP')
+  await editor.getByLabel('Protected import',{exact:true}).fill('Mara Schoen\nLink: https://atlas.example.test/invite?token=MAX-URL\nMCP-Token:\nMAX-MCP\nJan Sommer | Link: https://atlas.example.test/invite?token=JULIAN-URL | Authorization: Bearer JULIAN-MCP')
   await editor.getByRole('button',{name:'Match locally',exact:true}).click()
   expect(saved).toBeNull();expect(send).toBe(0)
   await editor.getByRole('button',{name:'Save encrypted',exact:true}).click()
