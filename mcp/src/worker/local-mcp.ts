@@ -13,7 +13,7 @@ const object = (v: unknown): v is Record<string, any> => !!v && typeof v === 'ob
 const strings = (v: unknown): v is Record<string, string> => object(v) && Object.values(v).every(s => typeof s === 'string')
 const expand = (s: string, env: NodeJS.ProcessEnv) => s.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}/g, (_, key, fallback) => env[key] ?? fallback ?? (() => { throw new Error('Required MCP environment variable is missing.') })())
 // Older Atlas deployments omit MCP annotations. Only these known reading operations are admitted in a plan.
-const ATLAS_READ = new Set(['atlas_search', 'atlas_get', 'atlas_query', 'atlas_context', 'atlas_briefing', 'atlas_constraints', 'atlas_children', 'atlas_sprint_report', 'atlas_setup_changelog', 'atlas_setup_checkup', 'atlas_code_resolve', 'atlas_tenant_search', 'atlas_agent_list'])
+const ATLAS_READ = new Set(['atlas_whoami', 'atlas_search', 'atlas_get', 'atlas_query', 'atlas_context', 'atlas_briefing', 'atlas_constraints', 'atlas_children', 'atlas_sprint_report', 'atlas_setup_changelog', 'atlas_setup_checkup', 'atlas_code_resolve', 'atlas_tenant_search', 'atlas_agent_list'])
 
 /** Named personal MCP connections only. Never loads a repository's executable .mcp.json. */
 export class LocalMcp {
@@ -28,10 +28,11 @@ export class LocalMcp {
   private memoryOnly = new Set<string>()
   private memoryTenants = new Map<string, string>()
   constructor(readOnly: boolean) { this.readOnly = readOnly }
-  async connect(names: string[], env: NodeJS.ProcessEnv, signal: AbortSignal, configFile = env.ONE_CODER_MCP_CONFIG || join(homedir(), '.claude.json')) {
+  async connect(names: string[], env: NodeJS.ProcessEnv, signal: AbortSignal, configFile = env.ONE_CODER_MCP_CONFIG || join(homedir(), '.claude.json'), supplied?: Record<string, unknown>) {
     if (!names.length) return
     let config: Record<string, any>
-    try {
+    if (supplied) config = supplied
+    else try {
       const text = await readFile(configFile, 'utf8')
       if (text.length > 2_000_000) throw new Error('Large MCP configuration')
       const parsed: unknown = JSON.parse(text)
@@ -91,7 +92,7 @@ export class LocalMcp {
           for (const tool of listed.tools) {
             if (++count > 600) break
             if (Array.isArray(entry.oneAllowedTools) && !entry.oneAllowedTools.includes(tool.name)) continue
-            const readOnly = tool.annotations?.readOnlyHint === true || (Array.isArray(entry.oneReadOnlyTools) && entry.oneReadOnlyTools.includes(tool.name)) || (tool.annotations?.readOnlyHint === undefined && name === 'atlas' && ATLAS_READ.has(tool.name))
+            const readOnly = tool.annotations?.readOnlyHint === true || (Array.isArray(entry.oneReadOnlyTools) && entry.oneReadOnlyTools.includes(tool.name)) || (tool.annotations?.readOnlyHint === undefined && ATLAS_READ.has(tool.name))
             if (!this.readOnly || readOnly) this.tools.push({ server: name, tool: { ...tool, annotations: { ...tool.annotations, readOnlyHint: readOnly } } })
           }
           cursor = listed.nextCursor
@@ -177,5 +178,5 @@ export class LocalMcp {
       return shortened()
     } catch { signal.throwIfAborted(); throw new Error(`MCP call failed on ${server}. Check that server's connection and account permissions.`) }
   }
-  async close() { await Promise.all([...this.clients.values()].map(c => c.close().catch(() => {}))); this.clients.clear() }
+  async close() { await Promise.all([...this.clients.values()].map(c => c.close().catch(() => {}))); this.clients.clear();this.tools = [];this.secrets = [];this.oauth = [] }
 }

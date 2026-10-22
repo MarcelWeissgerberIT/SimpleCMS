@@ -200,6 +200,8 @@ const ROUTES: Record<string, Entry> = {
   'GET /api/auth/verify': { scope: 'secret', why: 'the magic-link token is the credential' },
   'POST /api/auth/verify': { scope: 'secret', why: 'the magic-link token is the credential' },
   'POST /api/auth/logout': { scope: 'none', why: 'ends the caller\'s own session' },
+  'GET /api/me/secrets': { scope: 'none', why: 'only the signed-in person’s encrypted vault, no user id or admin bypass' },
+  'PUT /api/me/secrets': { scope: 'none', why: 'only the signed-in person’s encrypted vault, authenticated and CSRF guarded' },
   'GET /api/me': { scope: 'none', why: 'the caller\'s own account and memberships' },
   'PATCH /api/me': { scope: 'none', why: 'the caller\'s own account' },
   'GET /api/session': { scope: 'none', why: 'the caller\'s own account and memberships' },

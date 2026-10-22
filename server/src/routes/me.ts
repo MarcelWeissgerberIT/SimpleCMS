@@ -1,3 +1,6 @@
+import { isVaultEnvelope } from '../../../src/shared/personalVault.ts'
+import { ApiError, rateLimited } from '../errors.ts'
+import { MINUTE } from '../tokens.ts'
 import { Hono } from 'hono'
 import { z } from 'zod'
 import type { Auth } from '../auth/sessions.ts'
@@ -33,6 +36,28 @@ export function meRoutes(s: Services) {
   const app = new Hono<AppEnv>()
 
   app.get('/', (c) => c.json(account(s, requireAuth(c))))
+
+  // Only the current session's owner. No user-id parameter, admin bypass, MCP or workspace export.
+  app.get('/secrets', (c) => {
+    const { user } = requireAuth(c)
+    const row = s.db.get<{ envelope: string; version: number }>('SELECT envelope, version FROM personal_vaults WHERE user_id = ?', user.id)
+    return c.json(row ? { envelope: JSON.parse(row.envelope), version: row.version } : { envelope: null, version: 0 })
+  })
+  app.put('/secrets', async (c) => {
+    const { user } = requireAuth(c)
+    const wait = s.limiter.hit(`personal-vault:${user.id}`, 30, MINUTE)
+    if (wait) throw rateLimited(wait)
+    const input = await body(c, z.object({ version: z.number().int().min(0).max(2147483646), envelope: z.unknown().refine(isVaultEnvelope) }).strict())
+    const saved = s.db.tx(() => {
+      const row = s.db.get<{ version: number }>('SELECT version FROM personal_vaults WHERE user_id = ?', user.id)
+      if ((row?.version ?? 0) !== input.version) return false
+      s.db.run('INSERT INTO personal_vaults (user_id, envelope, version, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET envelope = excluded.envelope, version = excluded.version, updated_at = excluded.updated_at', user.id, JSON.stringify(input.envelope), input.version + 1, Date.now())
+      return true
+    })
+    if (!saved) throw new ApiError(409, 'vault_changed', 'Your personal vault changed on another device. Lock and unlock again before saving.')
+    s.log.info('personal vault updated', { user: user.id })
+    return c.json({ version: input.version + 1 })
+  })
 
   app.patch('/', async (c) => {
     const { user } = requireAuth(c)

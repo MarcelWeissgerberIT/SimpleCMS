@@ -101,3 +101,20 @@ included), `localStorage` and `sessionStorage` for the plain text, exports a bac
 If a key may have leaked, revoke it where it was made: the [Anthropic console](https://console.anthropic.com/settings/keys)
 or [GitHub → Fine-grained tokens](https://github.com/settings/personal-access-tokens). Give the GitHub token access to
 the one repository you sync, with "Contents: Read and write" only.
+
+## Personal passphrase vault (Settings → My secrets)
+
+This separate store does not migrate the profile-key vault described above. Personal Atlas/agent MCP credentials are
+client-encrypted (AES-256-GCM, random 96-bit IV, PBKDF2-SHA256 600k, random 128-bit salt, non-extractable key).
+AAD binds ciphertext to the origin/account. The server's `personal_vaults` table stores only the envelope, user id,
+revision and update time, outside workspace documents/backups/MCP. `/api/me/secrets` uses only the session user; no
+workspace-owner or server-admin override exists. CSRF, body size and write-rate guards apply; optimistic revisions
+refuse concurrent overwrite. Server operators still control delivered application code: this is not protection
+against malicious JavaScript or a compromised endpoint. Lost passphrases cannot be recovered.
+
+An explicit per-task, in-memory grant sends selected credentials through the paired coding transport (cloud relay:
+end-to-end encrypted). The current Claude Code worker keeps them in memory, not argv, environment or project config.
+It exposes a run-scoped MCP proxy with an exact tool allow-list and read-only plan/document stages. External writes
+are immediate; restricting the token in Atlas remains necessary. The worker and OS are trusted recipients, and
+locking the browser vault does not revoke a credential already granted to a running process. Stop the task or revoke
+the upstream token to end that authority. Local vault changes use a Web Lock and revision check when available.

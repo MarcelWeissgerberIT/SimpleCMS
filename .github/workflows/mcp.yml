@@ -8,6 +8,8 @@ on:
   push:
     paths:
       - 'mcp/**'
+      - 'src/shared/personalVault.ts'
+      - 'src/shared/mcp/**'
       - 'src/app/features/coding/protocol.ts'
       - 'src/app/features/coding/relayBox.ts'
       - 'src/app/features/coding/startLines.ts'
@@ -19,6 +21,8 @@ on:
   pull_request:
     paths:
       - 'mcp/**'
+      - 'src/shared/personalVault.ts'
+      - 'src/shared/mcp/**'
       - 'src/app/features/coding/protocol.ts'
       - 'src/app/features/coding/relayBox.ts'
       - 'src/app/features/coding/startLines.ts'

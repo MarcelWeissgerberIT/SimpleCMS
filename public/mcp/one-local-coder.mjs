@@ -43223,7 +43223,7 @@ var strings = (v) => object3(v) && Object.values(v).every((s) => typeof s === "s
 var expand = (s, env) => s.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}/g, (_, key, fallback) => env[key] ?? fallback ?? (() => {
   throw new Error("Required MCP environment variable is missing.");
 })());
-var ATLAS_READ = /* @__PURE__ */ new Set(["atlas_search", "atlas_get", "atlas_query", "atlas_context", "atlas_briefing", "atlas_constraints", "atlas_children", "atlas_sprint_report", "atlas_setup_changelog", "atlas_setup_checkup", "atlas_code_resolve", "atlas_tenant_search", "atlas_agent_list"]);
+var ATLAS_READ = /* @__PURE__ */ new Set(["atlas_whoami", "atlas_search", "atlas_get", "atlas_query", "atlas_context", "atlas_briefing", "atlas_constraints", "atlas_children", "atlas_sprint_report", "atlas_setup_changelog", "atlas_setup_checkup", "atlas_code_resolve", "atlas_tenant_search", "atlas_agent_list"]);
 var LocalMcp = class {
   clients = /* @__PURE__ */ new Map();
   tools = [];
@@ -43238,10 +43238,11 @@ var LocalMcp = class {
   constructor(readOnly) {
     this.readOnly = readOnly;
   }
-  async connect(names, env, signal, configFile = env.ONE_CODER_MCP_CONFIG || join4(homedir3(), ".claude.json")) {
+  async connect(names, env, signal, configFile = env.ONE_CODER_MCP_CONFIG || join4(homedir3(), ".claude.json"), supplied) {
     if (!names.length) return;
     let config2;
-    try {
+    if (supplied) config2 = supplied;
+    else try {
       const text2 = await readFile2(configFile, "utf8");
       if (text2.length > 2e6) throw new Error("Large MCP configuration");
       const parsed = JSON.parse(text2);
@@ -43303,7 +43304,7 @@ var LocalMcp = class {
           for (const tool of listed.tools) {
             if (++count > 600) break;
             if (Array.isArray(entry.oneAllowedTools) && !entry.oneAllowedTools.includes(tool.name)) continue;
-            const readOnly = tool.annotations?.readOnlyHint === true || Array.isArray(entry.oneReadOnlyTools) && entry.oneReadOnlyTools.includes(tool.name) || tool.annotations?.readOnlyHint === void 0 && name === "atlas" && ATLAS_READ.has(tool.name);
+            const readOnly = tool.annotations?.readOnlyHint === true || Array.isArray(entry.oneReadOnlyTools) && entry.oneReadOnlyTools.includes(tool.name) || tool.annotations?.readOnlyHint === void 0 && ATLAS_READ.has(tool.name);
             if (!this.readOnly || readOnly) this.tools.push({ server: name, tool: { ...tool, annotations: { ...tool.annotations, readOnlyHint: readOnly } } });
           }
           cursor = listed.nextCursor;
@@ -43402,6 +43403,9 @@ var LocalMcp = class {
     await Promise.all([...this.clients.values()].map((c) => c.close().catch(() => {
     })));
     this.clients.clear();
+    this.tools = [];
+    this.secrets = [];
+    this.oauth = [];
   }
 };
 

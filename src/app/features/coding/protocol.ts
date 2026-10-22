@@ -70,7 +70,7 @@ export type GitAction = (typeof GIT_ACTIONS)[number]
  * worker that names it) and 'permission' (Claude Code's permission prompts come to One as PermissionAsk; the person
  * answers with a PermissionVerb).
  */
-export const WORKER_CAN = ['text-models', 'analyze', 'git:comment', 'git:merge', 'doc', 'model', 'mcp-list', 'ship', 'continue', 'permission', 'agent:codex', 'agent:local', 'agent:minimax', 'agent:ollama', 'delivery-qa', 'harness-quality'] as const
+export const WORKER_CAN = ['text-models', 'analyze', 'git:comment', 'git:merge', 'doc', 'model', 'mcp-list', 'ship', 'continue', 'permission', 'agent:codex', 'agent:local', 'agent:minimax', 'agent:ollama', 'delivery-qa', 'harness-quality', 'personal-secrets'] as const
 /**
  * What a worker runs, read from its `next`. Document stages came before `can`, together with `docs: true`: a worker
  * that sends either knows them, so a `can` without 'doc' (1.3.x) or `docs` without a `can` (1.3.1 before `can`)
@@ -91,7 +91,7 @@ export function workerOutdated(can: readonly string[] | null): boolean {
  * Capabilities no stage waits for ('ship': the ship note with links · 'continue': Continue after the step limit ·
  * 'permission': permission prompts in One) — a worker without them runs every stage as before.
  */
-export const WORKER_EXTRAS: readonly string[] = ['ship', 'continue', 'permission']
+export const WORKER_EXTRAS: readonly string[] = ['ship', 'continue', 'permission', 'personal-secrets']
 /**
  * An outdated worker that lacks only WORKER_EXTRAS (1.9.0 without 'ship'): it skips nothing — the #/coding plate says
  * what the newer one adds instead of "skips stages it does not know".
@@ -341,6 +341,8 @@ export interface TaskStage {
 
 /** What the worker gets for one stage of one task. Everything but ids and names is task DATA, never instructions. */
 export interface TaskPayload {
+  /** Ephemeral, explicitly granted by this person. Never persisted or included in prompts. */
+  personalMcp?: import('../../../shared/personalVault').PersonalConnection[]
   /** Confirmed work-order acceptance, separate from model-authored page text. */
   quality?: { review: boolean; requirements: string[]; acceptance: string[]; repair?: import('../../../shared/coding/repair').RepairPolicy; packages?: Array<{ id: string; title: string; requirements: string[] }>; remainingUsd?: number }
   /** Missing: historical Claude Code default. Unknown explicit choices are refused. */
@@ -619,6 +621,7 @@ export interface WorkerInfo {
   paired?: boolean
   /** Multiple explicitly granted workspace contexts share this device's model/MCP configuration. */
   multiWorkspace?: boolean
+  personalSecrets?: boolean
   /** how it reaches One: 127.0.0.1 (local) or the team server's relay (cloud); older workers send none */
   via?: 'local' | 'cloud'
   /** own Claude Code MCP servers of document stages of tasks without a repository — names only (older workers send none) */

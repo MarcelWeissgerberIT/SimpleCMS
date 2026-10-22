@@ -77,3 +77,7 @@ Tippe `/bild generieren` (oder `/video generieren`) in eine Zeile, oder klicke *
 Anfragen gehen an `api.anthropic.com`; Anthropic verbindet sich mit dem Server, während Claude antwortet. Deshalb gehen nur entfernte Server, die per HTTPS erreichbar sind (Streamable HTTP oder SSE) — keine lokalen.
 
 > Das Token geht mit jeder Anfrage, die den Server nutzt, an Anthropic und liegt versiegelt in diesem Browser — nie in Backups, Exporten oder Sync (auch die Tokens einer Anmeldung nicht). Nimm ein eigenes Token für One, möglichst nur lesend. Auf einem anderen Gerät trägst du das Token erneut ein oder meldest dich dort an.
+
+## Persönliche Tokens für Claude Code
+
+Unter [Meine Secrets](help:personal-secrets) speicherst du Atlas- und Agenten-Tokens pro Person mit eigener Passphrase. In einer Coding-Aufgabe gibst du die benötigten Verbindungen ausdrücklich für den aktuellen Worker frei. Diese Freigabe ist getrennt von den normalen MCP-Verbindungen für Browser-Agenten; bestehende Verbindungen werden nicht automatisch migriert.

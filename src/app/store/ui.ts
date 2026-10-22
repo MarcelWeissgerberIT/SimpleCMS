@@ -12,7 +12,7 @@ import { newId } from '../lib/ids'
 export type ModalState =
   /** `section`: Settings › AI scrolled to its MCP servers or memory (features/ai/setup openAISettings) */
   /** section 'mcp' with `server`: that server's details open (MCP · Connections' "Settings ↗") · `add`: the add form open */
-  | { type: 'settings'; tab?: 'general' | 'appearance' | 'ai' | 'data' | 'shortcuts' | 'about' | 'team' | 'coding'; section?: 'mcp' | 'memory' | 'limit'; server?: string; add?: boolean }
+  | { type: 'settings'; tab?: 'general' | 'appearance' | 'ai' | 'data' | 'shortcuts' | 'about' | 'team' | 'coding' | 'secrets'; section?: 'mcp' | 'memory' | 'limit'; server?: string; add?: boolean }
   /** the AI setup assistant (features/ai/setup openAISetup): why it opened, at which step / provider / data class */
   | { type: 'aiSetup'; reason?: AISetupReason; feature?: FeatureClass; provider?: ProviderId; step?: AISetupStep; data?: DataClass }
   /** tab / select: open on built-ins or own templates, with a template root (own / customised) selected */

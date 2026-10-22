@@ -1,3 +1,4 @@
+import { personalConnectionsForTask, personalSelection } from '../secrets/store'
 import { codingAgentOf, codingAgentProperty, agentProperty } from './agent'
 /**
  * Coding pipeline — the task operations on the workspace (store actions only):
@@ -342,9 +343,19 @@ export async function pickNext(repos: string[], workerName: string, docs = false
     // Continue after the step limit (worker 1.11.0 'continue'): this run goes on from the worktree — only once, only
     // for the stage that stopped there, only to a worker that knows it
     const resume = local.resume && local.stepLimit && local.stepLimit.stageId === stage.id && caps.has('continue') ? { turns: local.stepLimit.turns, max: local.stepLimit.max } : null
+    let personalMcp: TaskPayload['personalMcp']
+    if (['plan', 'implement', 'doc'].includes(stage.kind) && personalSelection(row.id).length) {
+      try {
+        if (agent !== 'claude' || !caps.has('personal-secrets')) throw new Error('Meine Secrets benötigen den aktuellen Claude-Code-Worker. / My secrets require the current Claude Code worker.')
+        personalMcp = personalConnectionsForTask(row.id)
+      } catch (e) {
+        skip();await patchTask(row.id, { state: 'failed', error: e instanceof Error ? e.message : 'Unlock My secrets.', runNow: false });continue
+      }
+    }
     await patchTask(row.id, { state: 'running', stageId: stage.id, run, error: null, runNow: false, resume: false })
     return {
       id: row.id,
+      ...(personalMcp?.length ? { personalMcp } : {}),
       agent,
       ...(quality ? { quality } : {}),
       title: fresh.title.trim() || t('common.untitled'),

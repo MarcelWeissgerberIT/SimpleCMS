@@ -4,7 +4,7 @@
  * for tasks without a repository). The worker names them (names only, `mcp-list`); an older worker names none and
  * the line stays away. When the task's text mentions one of One's MCP servers (its name or codeword) — or MCP at
  * all while none is given — that Claude Code may not use here, a note says so with the setup page one click away.
- * One's own MCP servers (Settings → AI) never reach Claude Code: they are for One's Claude only.
+ * One's normal MCP settings are not forwarded automatically. The separate personal vault grants connections per task through the worker proxy.
  * A chain step's own context callout (orders/stepPage.ts) names the server its text was READ from — that text is in
  * the task already, so it is no mention (B15: every chain step planned with a server carried a false note).
  */
@@ -17,6 +17,7 @@ import { readServers } from '../ai/mcp-servers/config'
 import { useCoding } from './state'
 import { ChangeReposButton } from './SetupCard'
 import { mentionedMcp, taskMcpServers } from './tasks'
+import { TaskSecrets } from '../secrets/TaskSecrets'
 import { stepBlockIds } from './orders/stepPage'
 
 /** the task's text without a chain step's own context callout */
@@ -35,13 +36,15 @@ export function TaskMcp({ taskId, repo }: { taskId: ID; repo: string | null }) {
   useWorkspace((s) => s.settings.mcpServers)
   if (!connected || !worker || !page) return null
   const list = taskMcpServers(worker, repo)
-  if (!list) return null
-  const missing = mentionedMcp(taskText(taskId, page.title, page.content, page.plain), readServers(), list)
+  const available = list ?? []
+  const missing = mentionedMcp(taskText(taskId, page.title, page.content, page.plain), readServers(), available)
   return (
+    <>
+    <TaskSecrets taskId={taskId} capable={worker.personalSecrets === true} worker={worker.name} />
     <div className="ctk-mcp" data-testid="coding-task-mcp">
       <span className="label">{t('features.coding.mcp.label')}</span>
-      {list.length ? (
-        list.map((n) => (
+      {available.length ? (
+        available.map((n) => (
           <code key={n} className="ctk-mcp__name">
             {n}
           </code>
@@ -57,5 +60,6 @@ export function TaskMcp({ taskId, repo }: { taskId: ID; repo: string | null }) {
         </p>
       )}
     </div>
+    </>
   )
 }

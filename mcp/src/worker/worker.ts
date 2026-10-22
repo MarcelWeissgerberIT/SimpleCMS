@@ -1,3 +1,4 @@
+import { personalConnections, PersonalMcp } from './personal-mcp.ts'
 import { textModels, textRequest } from './text-models.ts'
 import { readRepairPolicy } from '../../../src/shared/coding/repair.ts'
 import { isCodingAgent } from '../../../src/app/features/coding/protocol.ts'
@@ -112,6 +113,7 @@ const BRANCHES_FIRST_MS = Number(process.env.ONE_WORKER_BRANCHES_MS) || 2000
 const lookAgainMs = () => Number(process.env.ONE_WORKER_LOOK_MS) || 5000
 
 interface Run {
+  personal?: PersonalMcp
   task: TaskPayload
   repo: RepoConfig
   abort: AbortController
@@ -209,8 +211,11 @@ export function taskIds(raw: unknown): { id: string; stageId: string } | null {
 export function sanitizeTask(raw: unknown): TaskPayload | null {
   if (!isObj(raw) || !isObj(raw.stage)) return null
   if (raw.agent !== undefined && !isCodingAgent(raw.agent)) return null
+  const personalMcp = personalConnections(raw.personalMcp)
+  if (!personalMcp || (personalMcp.length && raw.agent !== undefined && raw.agent !== 'claude')) return null
   const s = raw.stage
   const kind = (STAGE_KINDS as readonly string[]).includes(String(s.kind)) ? (s.kind as TaskPayload['stage']['kind']) : null
+  if (personalMcp.length && !['plan', 'implement', 'doc'].includes(kind ?? '')) return null
   const id = str(raw.id, 64)
   if (!kind || !id || !/^[A-Za-z0-9_-]+$/.test(id) || typeof raw.repo !== 'string') return null
   const answers = Array.isArray(raw.answers) ? raw.answers.filter(isObj).slice(-20).map((a) => ({ q: str(a.q, 4000), a: str(a.a, 4000) })) : []
@@ -228,6 +233,7 @@ export function sanitizeTask(raw: unknown): TaskPayload | null {
   }
   return {
     id,
+    ...(personalMcp.length ? { personalMcp } : {}),
     ...(quality ? { quality } : {}),
     ...(raw.agent ? { agent: raw.agent as TaskPayload['agent'] } : {}),
     title: oneLine(str(raw.title, 300)) || 'Untitled task',
@@ -365,6 +371,7 @@ export class Worker {
       claude: { found: this.caps.found, version: this.caps.version },
       setup: !!this.opts.setup,
       paired: !!this.config.preset,
+      personalSecrets: true,
       multiWorkspace: !!this.config.preset && !cloudOf(this.config),
       via: cloudOf(this.config) ? 'cloud' : 'local',
       mcp: this.config.mcpServers,
@@ -570,11 +577,12 @@ export class Worker {
     const run: Run = { task, repo, abort: new AbortController(), token, question: null, since: Date.now(), scrub: repoScrubber({ ...repo, scratch }), scratch, cwd: null, asks: [], counts: { asked: 0, allowed: 0, refused: 0 } }
     // Stop: every request that waits for the person is refused at once
     run.abort.signal.addEventListener('abort', () => this.settleAll(run, 'stopped'), { once: true })
+    if (task.personalMcp?.length) run.personal = new PersonalMcp(task.personalMcp, task.stage.kind !== 'implement')
     this.runs.set(task.id, run)
     this.tokens.set(token, run)
     this.sendStatus()
     this.opts.log(`task ${task.id} "${task.title}" — ${task.stage.name} (${task.stage.kind}) in ${repo.name}`)
-    run.done = this.claudeForStage(task)
+    run.done = Promise.resolve().then(async () => { await run.personal?.connect(run.abort.signal);return this.claudeForStage(task) })
       .then((caps) =>
         runStage({
           repo,
@@ -583,7 +591,7 @@ export class Worker {
           team: this.workspace?.kind === 'team',
           caps,
           bin: this.bin,
-          taskMcp: { command: process.execPath, args: [this.opts.self, 'task-mcp'], env: { ONE_WORKER_TASK_URL: `http://127.0.0.1:${this.config.port}/task`, ONE_WORKER_TASK_TOKEN: token } },
+          taskMcp: { command: process.execPath, args: [this.opts.self, 'task-mcp'], env: { ONE_WORKER_TASK_URL: `http://127.0.0.1:${this.config.port}/task`, ONE_WORKER_TASK_TOKEN: token, ONE_WORKER_PERSONAL_READ_ONLY: task.stage.kind === 'implement' ? '0' : '1' } },
           localMcpServers: this.config.mcpServers,
           signal: run.abort.signal,
           log: (line) => this.logLine(task.id, line),
@@ -605,6 +613,8 @@ export class Worker {
       .then((outcome) => scrubOutcome(outcome, run.scrub))
       .then(async (outcome) => {
         this.tokens.delete(token)
+        await run.personal?.close()
+        delete task.personalMcp
         // Claude Code ended: nothing may wait for an answer any more
         this.settleAll(run, 'stopped')
         this.runs.delete(task.id)
@@ -976,6 +986,13 @@ export class Worker {
     const run = this.tokens.get(token)
     if (!run) return { ok: false, status: 403, error: 'This task run has ended — the task tools work only while the worker runs the task.' }
     const t = run.task
+    if (tool === 'one_task_mcp_search' || tool === 'one_task_mcp_call') {
+      if (!run.personal) return { ok: false, status: 403, error: 'No personal MCP connection was granted to this run in One.' }
+      try {
+        if (tool === 'one_task_mcp_search') return { ok: true, text: run.personal.client.redact(JSON.stringify(run.personal.client.search(args.query))) }
+        return { ok: true, text: await run.personal.client.call(args.server, args.name, args.arguments, run.abort.signal) }
+      } catch { return { ok: false, status: 400, error: 'Personal MCP tool unavailable, refused or failed. Check the selected connection, tool allow-list and stage permissions.' } }
+    }
     if (tool === 'one_task_read') {
       // data between markers with a fresh code (the text cannot close its block early), like the prompt
       const code = markerCode()
