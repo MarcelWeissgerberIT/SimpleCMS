@@ -550,7 +550,8 @@ the public APIs stable — other areas are built against them in parallel.
 - Capture (shell/capture): share target POST → service worker → IndexedDB `one-share` → `#/clip?share=<id>`, always asked
   (ClipConfirm), a Clippings page via `saveFile()`, origin 'clip' (the old GET share flow stays for older installs); quick
   capture (Mod+Shift+K, phone floating key, ⌘K, `?launch=capture`) writes only through quick.ts (draft per device in
-  localStorage `one.capture.draft`); "Install One" via install.ts; manifest shortcuts `?launch=capture|new-page|search|
+  localStorage `one.capture.draft`); "Install One" via shared/install.ts (early native-prompt capture + platform guide,
+  shared by landing and app; React subscription in capture/install.ts); manifest shortcuts `?launch=capture|new-page|search|
   terminal`; `Toast.more` = extra toast keys.
 - Foreign links (lib/foreignLinks.ts): a relative href in page content ("/r/11900", copied by Claude from an MCP result)
   never opens One's own site — it resolves against the first enabled MCP server's `linkBase`, else the only enabled

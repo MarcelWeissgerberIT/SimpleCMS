@@ -619,10 +619,10 @@ async function openGeneral(page: Page) {
 }
 
 test.describe('install One', () => {
-  test('the key shows when the browser offers an install, runs its prompt, and is gone once installed', async ({ page }) => {
+  test('the desktop key stays visible without a prompt, uses one when offered, and is gone once installed', async ({ page }) => {
     await openApp(page)
     await openGeneral(page)
-    await expect(page.getByTestId('install-one')).toHaveCount(0)
+    await expect(page.getByTestId('install-one')).toBeVisible()
     await page.keyboard.press('Escape')
     // One keeps the browser's mini-infobar away and offers the install itself
     expect(await offerInstall(page)).toBe(true)
@@ -631,7 +631,7 @@ test.describe('install One', () => {
     await page.keyboard.press('Escape')
     await openGeneral(page)
     const key = page.getByTestId('install-one')
-    await expect(key).toContainText('As an app: its own window and icon, works offline')
+    await expect(key).toContainText('Its own window and icon')
     await key.getByRole('button', { name: 'Install', exact: true }).click()
     await expect(key).toHaveCount(0)
     expect(await page.evaluate(() => (window as unknown as AnyState).__prompted)).toBe(1)

@@ -942,6 +942,20 @@ function orderPlanAnswer(caseId, body) {
 }
 
 const shots = {
+  /** Website desktop install entry, using Windows/Edge instructions without installing an OS app. */
+  async 'desktop-install'(browser) {
+    const { ctx, page } = await freshPage(browser, { setup: async (ctx) => {
+      await ctx.addInitScript(() => {
+        Object.defineProperty(navigator, 'userAgent', { get: () => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36 Edg/145.0.0.0' })
+      })
+    } })
+    await page.goto(`${LOCAL}/?skip`, { waitUntil: 'networkidle' })
+    await page.getByRole('button', { name: 'Install One', exact: true }).click()
+    await page.getByRole('dialog', { name: 'Install One as a desktop app' }).waitFor()
+    await rest(page)
+    await save(page, 'desktop-install')
+    await ctx.close()
+  },
   /** Hand-drawn: the real preview, no AI request and no external image. */
   async 'hand-drawn'(browser) {
     const { ctx, page } = await freshPage(browser)
