@@ -22,6 +22,18 @@ test('private bulk input matches recipients locally; save sends no invitation an
   })
   await openApp(page);await cloud(page);await page.evaluate(()=>{location.hash='#/workspace/people'})
   const editor=page.getByRole('region',{name:'Welcome emails'});await expect(editor).toBeVisible()
+  const cards=editor.getByTestId('welcome-recipient')
+  await expect(cards).toHaveCount(2);await expect(editor.locator('.welcome-recipient[open]')).toHaveCount(0)
+  await expect(cards.first().getByLabel('Name',{exact:true})).not.toBeVisible()
+  await expect(cards.nth(1).locator('summary')).toContainText('Guest · read only')
+  await cards.first().locator('summary').click()
+  await cards.first().getByLabel('Note in the email',{exact:true}).fill('Keep this note when collapsed')
+  await cards.first().locator('summary').focus();await page.keyboard.press('Enter')
+  await expect(cards.first()).not.toHaveAttribute('open')
+  await editor.getByRole('button',{name:'Expand all',exact:true}).click();await expect(editor.locator('.welcome-recipient[open]')).toHaveCount(2)
+  await editor.getByRole('button',{name:'Collapse all',exact:true}).click();await expect(editor.locator('.welcome-recipient[open]')).toHaveCount(0)
+  await cards.first().locator('summary').click()
+  await expect(cards.first().getByLabel('Note in the email',{exact:true})).toHaveValue('Keep this note when collapsed')
   await editor.getByText('Paste names, links and tokens together',{exact:true}).click()
   await editor.getByLabel('Protected import',{exact:true}).fill('Mara Schoen\nLink: https://atlas.example.test/invite?token=MAX-URL\nMCP-Token:\nMAX-MCP\nJan Sommer | Link: https://atlas.example.test/invite?token=JULIAN-URL | Authorization: Bearer JULIAN-MCP')
   await editor.getByRole('button',{name:'Match locally',exact:true}).click()
@@ -32,7 +44,14 @@ test('private bulk input matches recipients locally; save sends no invitation an
   expect(await editor.getByLabel('Separate Atlas agent token (optional)').first().inputValue()).toBe('')
   await editor.getByRole('button',{name:'Email preview',exact:true}).first().click();await expect(page.getByRole('dialog')).toContainText('Personal links hidden');await page.keyboard.press('Escape')
   await editor.getByRole('checkbox').check();await expect(editor.getByRole('button',{name:/Send welcome emails/})).toBeDisabled();expect(send).toBe(0)
-  for(const width of [1440,390]){await page.setViewportSize({width,height:1000});await editor.scrollIntoViewIfNeeded();await page.screenshot({path:info.outputPath(`welcome-editor-${width}.png`),animations:'disabled'});expect(await editor.evaluate(e=>e.scrollWidth<=e.clientWidth)).toBe(true)}
+  await editor.getByRole('button',{name:'Collapse all',exact:true}).click()
+  for(const width of [1440,390]){await page.setViewportSize({width,height:1000});await editor.locator('.welcome-list-head').scrollIntoViewIfNeeded();await page.screenshot({path:info.outputPath(`welcome-cards-${width}.png`),animations:'disabled'});expect(await editor.evaluate(e=>e.scrollWidth<=e.clientWidth)).toBe(true)}
+  await cards.first().locator('summary').click();await expect(cards.first().getByLabel('Name',{exact:true})).toBeVisible()
+  await page.screenshot({path:info.outputPath('welcome-card-expanded-390.png'),animations:'disabled'})
+  await expect(cards.first().locator('summary')).not.toContainText('MAX-MCP')
+  await editor.getByRole('button',{name:'Add person',exact:true}).click()
+  await expect(cards.last()).toHaveAttribute('open','');await expect(cards.last().getByLabel('Name',{exact:true})).toBeVisible()
+
 })
 test('Start reveals only the signed-in recipient’s credentials on a click; explicit completion removes the personal button',async({page},info)=>{
   let completed=false,opened=0

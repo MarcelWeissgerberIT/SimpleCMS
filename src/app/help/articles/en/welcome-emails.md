@@ -9,6 +9,8 @@ summary: Prepare recipients privately, assign personal links and explicitly rele
 ---
 Under **Workspace → People → Welcome emails**, admins can prepare their own private draft. It contains recipients, email addresses, destination workspaces, roles, personal Atlas links and optional separate Atlas agent tokens. Other admins cannot see this draft. It is neither workspace content nor model context and is excluded from workspace exports.
 
+Recipients initially appear as compact plate cards showing name, email, destination workspace, access and status. Click a card to expand its fields, then click again to collapse. **Expand all** and **Collapse all** control the whole list. Collapsing preserves your inputs. “Atlas link ready” and “MCP token ready” only mean a value is present; they do not confirm a connection test. New recipients open directly for editing.
+
 ## Paste names, links and tokens together
 Add recipients first or correct the prepared addresses. Under **Paste names, links and tokens together**, use a full name or email followed by these fields:
 

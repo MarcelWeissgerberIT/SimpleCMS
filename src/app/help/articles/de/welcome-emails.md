@@ -9,6 +9,8 @@ summary: Empfänger privat vorbereiten, persönliche Links zuordnen und den Vers
 ---
 Unter **Workspace → Personen → Willkommensmails** können Admins ihren eigenen privaten Entwurf vorbereiten. Er enthält Empfänger, E-Mail-Adresse, Ziel-Workspace, Rolle, persönlichen Atlas-Link und optional einen separaten Atlas-Agenten-Token. Andere Admins sehen diesen Entwurf nicht. Er ist kein Workspace-Inhalt, kein Modellkontext und kein Teil des Workspace-Exports.
 
+Die Empfänger erscheinen zunächst als kompakte Platten-Karten mit Name, E-Mail, Ziel-Workspace, Zugang und Status. Ein Klick auf die Karte klappt die Eingabefelder auf; erneut klicken klappt sie zu. **Alle aufklappen** und **Alle zuklappen** steuern die gesamte Liste. Eingaben bleiben beim Zuklappen erhalten. Die Anzeigen „Atlas-Link bereit“ und „MCP-Token bereit“ bestätigen nur, dass ein Wert erfasst ist; sie sind kein Verbindungstest. Neue Personen öffnen sich direkt zur Bearbeitung.
+
 ## Namen, Links und Tokens gesammelt einfügen
 Zuerst Empfänger hinzufügen oder vorbereitete Adressen korrigieren. Unter **Namen, Links und Tokens gesammelt einfügen** pro Person den vollen Namen oder die E-Mail-Adresse und die folgenden Felder einfügen:
 
