@@ -12,6 +12,7 @@ import { errorText } from './errors'
 import { Avatar } from './Avatar'
 import { ApiSection } from './ApiSection'
 import { Invites } from './Invites'
+import { WelcomeEditor } from './Welcome'
 import { canAdmin, roleLabel, useWorkspaceTitle } from './state'
 import './cloud.css'
 
@@ -111,9 +112,10 @@ export function TeamInvites({ team }: { team: TeamData }) {
   const t = useT()
   // opened from the Share dialog / the workspace menu: go straight to the invite form
   const [wantInviteForm] = useState(() => consumeInviteSettingsRequest())
+  const welcome = useCloud(s=>s.supports?.includes('welcome:1'))
   if (!team.wsId) return null
   if (!team.admin) return <p className="tm-empty">{t('shell.cloud.team.adminOnly')}</p>
-  return <Invites wsId={team.wsId} invites={team.invites} setInvites={team.setInvites} reload={team.reload} focusForm={wantInviteForm && (team.members !== null || team.loadError !== null)} />
+  return <><Invites wsId={team.wsId} invites={team.invites} setInvites={team.setInvites} reload={team.reload} focusForm={wantInviteForm && (team.members !== null || team.loadError !== null)} />{welcome&&<WelcomeEditor key={team.wsId} wsId={team.wsId}/>}</>
 }
 
 export { ApiSection as TeamApi }

@@ -186,7 +186,7 @@ export const SETUP_JS = String.raw`(function () {
   var EN = {
     copilotTitle: 'GitHub Copilot · CLI',
     copilotHint: 'Uses this computer’s Copilot CLI login and organization permissions. Selected context goes to the Copilot service; One runs the file tools, MCP and configured checks. Copilot native tools and automatic repository configuration are disabled. Subscription usage has no USD receipt. In One → Settings → AI, refresh worker models and choose Copilot for workspace features; data permissions and defaults stay explicit.',
-    copilotInstall: 'Install GitHub Copilot CLI (1.0.102 or newer), then sign in locally: copilot auth login. An IDE subscription alone does not confirm CLI access. Tokens stay in Copilot CLI or COPILOT_GITHUB_TOKEN; do not paste them into One.',
+    copilotInstall: 'Install GitHub Copilot CLI (1.0.102 or newer), then sign in locally: copilot login. An IDE subscription alone does not confirm CLI access. Tokens stay in Copilot CLI or COPILOT_GITHUB_TOKEN; do not paste them into One.',
     copilotModel: 'Copilot model ID (auto uses the account default)',
     copilotSave: 'Save Copilot model',
     copilotCheck: 'Check CLI and login (no model request)',
@@ -370,7 +370,7 @@ export const SETUP_JS = String.raw`(function () {
   var DE = {
     copilotTitle: 'GitHub Copilot · CLI',
     copilotHint: 'Nutzt die Copilot-CLI-Anmeldung und Unternehmensrechte dieses Rechners. Ausgewählter Kontext geht an den Copilot-Dienst; One führt Dateiwerkzeuge, MCP und konfigurierte Prüfungen aus. Native Copilot-Werkzeuge und automatische Repository-Konfiguration sind ausgeschaltet. Abonutzung liefert keinen USD-Kostennachweis. In One → Einstellungen → KI die Worker-Modelle aktualisieren und Copilot für Workspace-Funktionen wählen; Datenfreigaben und Standards bleiben ausdrücklich.',
-    copilotInstall: 'GitHub Copilot CLI (ab 1.0.102) installieren und lokal anmelden: copilot auth login. Ein IDE-Abo bestätigt noch keinen CLI-Zugriff. Tokens bleiben in Copilot CLI oder COPILOT_GITHUB_TOKEN; nicht in One einfügen.',
+    copilotInstall: 'GitHub Copilot CLI (ab 1.0.102) installieren und lokal anmelden: copilot login. Ein IDE-Abo bestätigt noch keinen CLI-Zugriff. Tokens bleiben in Copilot CLI oder COPILOT_GITHUB_TOKEN; nicht in One einfügen.',
     copilotModel: 'Copilot-Modell-ID (auto nutzt den Kontostandard)',
     copilotSave: 'Copilot-Modell speichern',
     copilotCheck: 'CLI und Anmeldung prüfen (keine Modellanfrage)',

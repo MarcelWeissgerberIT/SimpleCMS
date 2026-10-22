@@ -1,0 +1,12 @@
+.welcome-editor { display:grid;gap:12px;margin-block:16px; }
+.welcome-editor label { display:grid;gap:5px;font-size:13px; }
+.welcome-fields { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px; }
+.welcome-recipient,.welcome-start { border:1px solid var(--rule-strong);padding:16px;margin-block:12px; }
+.welcome-recipient { display:grid;gap:10px; }
+.welcome-editor .input { min-width:0;width:100%; }
+.welcome-actions { display:flex;gap:8px;flex-wrap:wrap; }
+.welcome-editor .welcome-confirm { display:flex;align-items:flex-start;gap:8px; }
+.welcome-secret-paste { -webkit-text-security:disc; }
+.welcome-preview { white-space:pre-wrap;overflow-wrap:anywhere;padding:20px;font:inherit; }
+.welcome-start { border-left:3px solid #ff4f00; }
+@media(max-width:600px){.welcome-fields{grid-template-columns:minmax(0,1fr)}}

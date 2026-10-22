@@ -2,7 +2,7 @@
 id: 2026-10-22-copilot-workspace
 date: 2026-10-22
 title: Copilot im gesamten Workspace
-order: 1
+order: 3
 summary: Eigene Copilot-Anmeldung für One-Aktionen, Terminal und Browser-Agenten mit ausgewählten Atlas-Werkzeugen.
 image: assets/shots/changelog/copilot-workspace.webp
 alt: Copilot liest eine Simulationsseite und schlägt im One-Terminal einen Prüfbericht vor.

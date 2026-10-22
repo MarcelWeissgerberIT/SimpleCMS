@@ -1,5 +1,7 @@
 /** The harness only consumes this contract. Model selection and wire format stay in the adapter. */
 export interface LocalInferenceRequest {
+  /** Copilot accepts in-memory image blobs; no arbitrary files or URLs. */
+  attachments?: import('../../../src/shared/ai/worker.ts').WorkerAttachment[]
   model: string
   messages: any[]
   tools: any[]

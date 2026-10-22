@@ -1570,7 +1570,7 @@ Additional state, QA journals, memory and scratch live below `workspaces/<sha256
 ## GitHub Copilot (worker 1.24.0)
 
 Choose `copilot` per coding task or delivery role. Install GitHub Copilot CLI >=1.0.102 on the worker computer and use
-`copilot auth login` with the participant’s own entitled account. Copilot CLI/model availability and enterprise policy
+`copilot login` with the participant’s own entitled account. Copilot CLI/model availability and enterprise policy
 are checked on that computer; an editor subscription alone is insufficient. The local setup page saves only a model
 ID (`copilot.json`, 0600), lists available models on explicit Check (no model inference), and supports `auto`.
 `ONE_COPILOT_MODEL` overrides the file; `COPILOT_BIN` locates a CLI outside PATH. Credentials stay in the CLI’s own
@@ -1597,4 +1597,13 @@ StageApi and stop on repetition, tool/round/time/context bounds. The model-mcp o
 HTTPS connection descriptors, no processes or extra headers; exact allow/deny lists and input schemas are enforced
 again at the worker before a call. Selected MCP credentials remain on that path and are redacted from results.
 The team relay carries these frames end-to-end encrypted. Disconnect/Stop abort both inference and MCP requests.
-Native image/PDF, media generation, Jev decision models and browser-free server agents remain unsupported.
+Worker 1.26.0 adds `copilot-media`: only account-advertised vision models receive selected images as SDK blob
+attachments (no filesystem paths, URLs, argv payloads or prompt-embedded base64). The browser validates capability
+metadata; the worker independently checks fresh account capabilities, MIME signatures, canonical base64, count and
+size (four images / 3 MiB total at most; stricter model limits win). Each image reserves 4096 context tokens.
+PDF text is extracted in the browser using the existing PDF.js worker (no document scripts, system fonts or OCR), bounded to
+100 pages / 120000 characters. Scans and clipped documents fail before inference. The UI and prompt explicitly
+disclose that figures/layout are omitted. Images and PDF text also work in the terminal/browser-agent converter.
+Native PDF visual inspection, media generation, Jev decision models and browser-free server agents remain unsupported.
+`auto` is sent explicitly to the CLI rather than accidentally using a configured native default. The account model
+catalog is authoritative, including Free accounts with only `auto`; do not invent extra model IDs or subscription prices.

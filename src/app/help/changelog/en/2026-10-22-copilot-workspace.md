@@ -2,7 +2,7 @@
 id: 2026-10-22-copilot-workspace
 date: 2026-10-22
 title: Copilot across your workspace
-order: 1
+order: 3
 summary: Use your own Copilot login for One actions, the terminal and browser agents with selected Atlas tools.
 image: assets/shots/changelog/copilot-workspace.webp
 alt: Copilot reads a simulation page and stages a review in the One terminal.

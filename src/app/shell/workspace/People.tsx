@@ -20,6 +20,7 @@ import { toggleMenu } from '../lib/menu'
 import { goToPage } from '../lib/actions'
 import { useInCloud, useReadOnly } from '../cloud/state'
 import { TeamInvites, TeamMembers, type TeamData } from '../cloud/Team'
+import { AtlasWelcome } from '../cloud/Welcome'
 import { addPerson, checkPersonName, mergePeople, mergeTargets, peopleUsage, recolourPerson, removeUnusedPerson, renamePerson, taskCount, usedCount, PERSON_NAME_MAX, type NameCheck, type PersonUse, type UseRef } from './people'
 import { PersonAvatar, SectionHead, SubHead } from './parts'
 
@@ -57,6 +58,7 @@ export function PeopleSection({ team }: { team: TeamData }) {
     return (
       <>
         <SectionHead n="03" title={t('shell.ws.sec.people')} lead={t('shell.ws.people.leadTeam')} help="members-roles" />
+        <AtlasWelcome />
         <SubHead label={t('shell.cloud.team.members')} count={team.members?.length} />
         <TeamMembers team={team} onLeft={() => navigate({ name: 'home' })} aside={(id) => <MemberUse use={usage.get(id)} name={people.find((p) => p.id === id)?.name ?? ''} />} />
         <SubHead label={t('shell.cloud.team.invites')} count={team.admin ? team.invites.length : undefined} />

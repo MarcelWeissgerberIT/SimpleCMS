@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// SimpleCMS One — coding worker 1.25.0 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp/src/worker
+// SimpleCMS One — coding worker 1.26.0 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp/src/worker
 // Runs coding tasks from One with Claude Code on this computer. Setup: node one-worker.mjs --help
 // Docs and security model: https://github.com/MarcelWeissgerberIT/SimpleCMS/blob/main/docs/CODING.md
 import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);
@@ -14769,7 +14769,7 @@ var isCodingAgent = (v) => CODING_AGENTS.includes(v);
 var STAGE_KINDS = ["queue", "import", "analyze", "plan", "doc", "gate", "implement", "test", "git", "done"];
 var PERMISSION_MODES = ["plan", "acceptEdits", "default"];
 var GIT_ACTIONS = ["commit", "push", "pr", "update-base", "comment", "merge"];
-var WORKER_CAN = ["text-models", "copilot-chat", "analyze", "git:comment", "git:merge", "doc", "model", "mcp-list", "ship", "continue", "permission", "agent:codex", "agent:local", "agent:minimax", "agent:ollama", "agent:copilot", "delivery-qa", "harness-quality", "personal-secrets"];
+var WORKER_CAN = ["text-models", "copilot-chat", "copilot-media", "analyze", "git:comment", "git:merge", "doc", "model", "mcp-list", "ship", "continue", "permission", "agent:codex", "agent:local", "agent:minimax", "agent:ollama", "agent:copilot", "delivery-qa", "harness-quality", "personal-secrets"];
 var MODEL_NAME = /^[A-Za-z0-9][A-Za-z0-9._:[\]-]{0,99}$/;
 function cleanModel(v) {
   if (typeof v !== "string") return null;
@@ -18701,6 +18701,38 @@ import { randomBytes as randomBytes4, randomUUID } from "node:crypto";
 import { mkdtemp, rm as rm3 } from "node:fs/promises";
 import { isAbsolute as isAbsolute4, join as join7, resolve as resolve5 } from "node:path";
 import { homedir as homedir7, tmpdir as tmpdir2 } from "node:os";
+
+// ../src/shared/ai/worker.ts
+var WORKER_MEDIA_BYTES = 3 * 1024 * 1024;
+var WORKER_MEDIA_COUNT = 4;
+var WORKER_TEXT_MAX = 18e4;
+var validWorkerModel = (v) => typeof v === "string" && /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/.test(v);
+
+// src/worker/copilot-media.ts
+var TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
+function visionOf(model) {
+  if (model?.capabilities?.supports?.vision !== true) return;
+  const v = model.capabilities.limits?.vision;
+  const mediaTypes = TYPES.filter((t) => !Array.isArray(v?.supported_media_types) || v.supported_media_types.includes(t));
+  if (!mediaTypes.length) return;
+  return { mediaTypes, maxImages: Math.min(WORKER_MEDIA_COUNT, Number.isSafeInteger(v?.max_prompt_images) && v.max_prompt_images > 0 ? v.max_prompt_images : 1), maxBytes: Math.min(WORKER_MEDIA_BYTES, Number.isSafeInteger(v?.max_prompt_image_size) && v.max_prompt_image_size > 0 ? v.max_prompt_image_size : WORKER_MEDIA_BYTES) };
+}
+function checkAttachments(raw, vision) {
+  if (raw === void 0) return [];
+  if (!Array.isArray(raw) || raw.length > WORKER_MEDIA_COUNT) throw new Error("Too many Copilot image attachments.");
+  if (raw.length && !vision) throw new Error("This account model does not advertise vision support. Refresh models or choose another model.");
+  let bytes = 0;
+  for (const a of raw) {
+    if (!a || typeof a !== "object" || Object.keys(a).some((k) => !["mediaType", "data"].includes(k)) || !TYPES.includes(a.mediaType) || typeof a.data !== "string" || !a.data.length || a.data.length > Math.ceil(WORKER_MEDIA_BYTES / 3) * 4 || (a.data.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(a.data))) throw new Error("Invalid in-memory image attachment.");
+    const b = Buffer.from(a.data, "base64");
+    const signature = a.mediaType === "image/png" ? b.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) : a.mediaType === "image/jpeg" ? b[0] === 255 && b[1] === 216 && b[2] === 255 : a.mediaType === "image/webp" ? b.toString("ascii", 0, 4) === "RIFF" && b.toString("ascii", 8, 12) === "WEBP" : /^GIF8[79]a/.test(b.toString("ascii", 0, 6));
+    bytes += b.length;
+    if (!signature || a.data !== b.toString("base64") || bytes > WORKER_MEDIA_BYTES || vision && (!vision.mediaTypes.includes(a.mediaType) || b.length > vision.maxBytes || raw.length > vision.maxImages)) throw new Error("Image type, count or size exceeds this Copilot model\u2019s limits.");
+  }
+  return raw;
+}
+
+// src/worker/copilot.ts
 var COPILOT_CONTEXT = 32768;
 var validCopilotModel = (v) => typeof v === "string" && /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,119}$/.test(v) && !/^(?:gh[pousr]_|github_pat_|sk-|eyJ)/.test(v);
 function findCopilot(env = process.env) {
@@ -18749,7 +18781,7 @@ async function detectCopilot(env = process.env) {
 }
 var object = (v) => !!v && typeof v === "object" && !Array.isArray(v);
 var count2 = (v) => typeof v === "number" && Number.isSafeInteger(v) && v >= 0 ? v : void 0;
-var INSTALL = "Install or update GitHub Copilot CLI (1.0.102 or newer) on this computer and sign in with copilot auth login. The subscription and organization policy must permit Copilot CLI. Set COPILOT_BIN if it is not on PATH.";
+var INSTALL = "Install or update GitHub Copilot CLI (1.0.102 or newer) on this computer and sign in with copilot login. The subscription and organization policy must permit Copilot CLI. Set COPILOT_BIN if it is not on PATH.";
 async function session(env, signal, run2) {
   signal.throwIfAborted();
   const cap = await detectCopilot(env);
@@ -18823,10 +18855,10 @@ async function probeCopilot(env = process.env) {
   try {
     return await session(env, AbortSignal.timeout(2e4), async (rpc) => {
       const status = await rpc.sendRequest("auth.getStatus", {});
-      if (status?.isAuthenticated !== true) return { ...cap, authenticated: false, models: [], error: "Sign in locally with copilot auth login. No model request was sent." };
+      if (status?.isAuthenticated !== true) return { ...cap, authenticated: false, models: [], error: "Sign in locally with copilot login. No model request was sent." };
       const models = await rpc.sendRequest("models.list", {});
       const list = Array.isArray(models) ? models : models?.models;
-      return { ...cap, authenticated: true, models: Array.isArray(list) ? list.filter((m) => validCopilotModel(m?.id) && m?.policy?.state !== "disabled").map((m) => m.id).slice(0, 120) : [], contexts: Object.fromEntries((Array.isArray(list) ? list : []).filter((m) => validCopilotModel(m?.id) && Number.isSafeInteger(m?.capabilities?.limits?.max_context_window_tokens) && m.capabilities.limits.max_context_window_tokens >= 8192).map((m) => [m.id, Math.min(65536, m.capabilities.limits.max_context_window_tokens)])) };
+      return { ...cap, authenticated: true, models: Array.isArray(list) ? list.filter((m) => validCopilotModel(m?.id) && m?.policy?.state !== "disabled").map((m) => m.id).slice(0, 120) : [], visions: Object.fromEntries((Array.isArray(list) ? list : []).filter((m) => validCopilotModel(m?.id) && visionOf(m)).map((m) => [m.id, visionOf(m)])), contexts: Object.fromEntries((Array.isArray(list) ? list : []).filter((m) => validCopilotModel(m?.id) && Number.isSafeInteger(m?.capabilities?.limits?.max_context_window_tokens) && m.capabilities.limits.max_context_window_tokens >= 8192).map((m) => [m.id, Math.min(65536, m.capabilities.limits.max_context_window_tokens)])) };
     });
   } catch {
     return { ...cap, authenticated: false, models: [], error: "Copilot login/model availability could not be checked. Check your CLI, subscription and organization policy. No model request was sent." };
@@ -18851,10 +18883,12 @@ function copilotInference(model = "auto", env = process.env) {
   if (!validCopilotModel(model)) throw new Error("Invalid Copilot model ID.");
   const inference = async (request2) => session(env, request2.signal, async (rpc, dir) => {
     const auth2 = await rpc.sendRequest("auth.getStatus", {});
-    if (auth2?.isAuthenticated !== true) throw new Error("Copilot is not signed in. Run copilot auth login on this computer; a Copilot IDE license alone does not confirm CLI access.");
-    if (model !== "auto") {
+    if (auth2?.isAuthenticated !== true) throw new Error("Copilot is not signed in. Run copilot login on this computer; a Copilot IDE license alone does not confirm CLI access.");
+    if (model !== "auto" || request2.attachments?.length) {
       const result = await rpc.sendRequest("models.list", {}), models = Array.isArray(result) ? result : result?.models;
-      if (!Array.isArray(models) || !models.some((m) => m.id === model && m.policy?.state !== "disabled")) throw new Error("The selected Copilot model is not available under this login/policy. Choose an available model on the worker setup page; no fallback was used.");
+      const selected = Array.isArray(models) ? models.find((m) => m.id === model && m.policy?.state !== "disabled") : null;
+      if (!selected) throw new Error("The selected Copilot model is not available under this login/policy. Choose an available model on the worker setup page; no fallback was used.");
+      checkAttachments(request2.attachments, visionOf(selected));
     }
     const id = randomUUID();
     let answer = "", error2 = "", usage = {};
@@ -18888,7 +18922,8 @@ function copilotInference(model = "auto", env = process.env) {
       const created = await rpc.sendRequest("session.create", {
         sessionId: id,
         clientName: "one-worker",
-        ...model === "auto" ? {} : { model, allowedModels: [model] },
+        model,
+        ...model === "auto" ? {} : { allowedModels: [model] },
         workingDirectory: dir,
         tools: [],
         availableTools: [],
@@ -18911,7 +18946,7 @@ function copilotInference(model = "auto", env = process.env) {
       });
       if (created?.sessionId !== id) throw new Error("Copilot did not create the requested isolated session.");
       ready = true;
-      await rpc.sendRequest("session.send", { sessionId: id, prompt: JSON.stringify({ messages: request2.messages, tools: request2.tools }), mode: "immediate" });
+      await rpc.sendRequest("session.send", { sessionId: id, prompt: JSON.stringify({ messages: request2.messages, tools: request2.tools }), ...request2.attachments?.length ? { attachments: request2.attachments.map((a, i2) => ({ type: "blob", data: a.data, mimeType: a.mediaType, displayName: "one-image-" + (i2 + 1) })) } : {}, mode: "immediate" });
       await finished;
       if (error2) throw new Error(error2);
       if (!answer.trim()) throw new Error("Copilot returned no final harness response.");
@@ -39345,17 +39380,13 @@ var COPILOT = workerInfo("copilot", "GitHub Copilot", "CP", "GitHub Copilot via 
 var WORKER_PROVIDERS = ["local", "ollama", "minimax", "codex", "copilot"];
 var isWorkerProvider = (p) => WORKER_PROVIDERS.includes(p);
 
-// ../src/shared/ai/worker.ts
-var WORKER_TEXT_MAX = 18e4;
-var validWorkerModel = (v) => typeof v === "string" && /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/.test(v);
-
 // src/worker/text-models.ts
 var copilotCatalog = null;
 async function copilotModels() {
   const key = JSON.stringify([process.env.COPILOT_BIN, process.env.COPILOT_GITHUB_TOKEN, process.env.GH_TOKEN, process.env.GITHUB_TOKEN]);
   if (copilotCatalog?.key === key && copilotCatalog.until > Date.now()) return copilotCatalog.rows;
   const result = await probeCopilot();
-  const rows = result.authenticated ? result.models.filter(validCopilotModel).map((model) => ({ provider: "copilot", model, context: "contexts" in result ? result.contexts[model] ?? COPILOT_CONTEXT : COPILOT_CONTEXT, chat: true, maxOutput: 8192 })) : [];
+  const rows = result.authenticated ? result.models.filter(validCopilotModel).map((model) => ({ provider: "copilot", model, context: "contexts" in result ? result.contexts[model] ?? COPILOT_CONTEXT : COPILOT_CONTEXT, chat: true, maxOutput: 8192, ..."visions" in result && result.visions[model] ? { vision: result.visions[model] } : {} })) : [];
   copilotCatalog = { key, until: Date.now() + 3e4, rows };
   return rows;
 }
@@ -39414,10 +39445,11 @@ async function textModels(file) {
 function checkTextRequest(raw) {
   const r = raw;
   if (!r || typeof r !== "object" || !isWorkerProvider(r.provider) || !validWorkerModel(r.model) || !Number.isSafeInteger(r.maxTokens) || r.maxTokens < 1 || r.maxTokens > 16384 || !Array.isArray(r.messages) || !r.messages.length || r.messages.length > 64) throw new Error("Invalid text request.");
-  if (Object.keys(r).some((k) => !["provider", "model", "messages", "maxTokens", ...r.provider === "copilot" ? ["tools", "schema"] : []].includes(k))) throw new Error("Unknown text request field.");
+  if (Object.keys(r).some((k) => !["provider", "model", "messages", "maxTokens", ...r.provider === "copilot" ? ["tools", "schema", "attachments"] : []].includes(k))) throw new Error("Unknown text request field.");
   if (r.tools !== void 0 && (!Array.isArray(r.tools) || r.tools.length > 160 || r.tools.some((t) => !t || typeof t.name !== "string" || !/^[A-Za-z0-9_-]{1,100}$/.test(t.name) || typeof t.description !== "string" || !t.parameters || typeof t.parameters !== "object" || Array.isArray(t.parameters) || Object.keys(t).some((k) => !["name", "description", "parameters"].includes(k))) || new Set(r.tools.map((t) => t.name)).size !== r.tools.length)) throw new Error("Invalid function definitions.");
   if (r.schema !== void 0 && (!r.schema || typeof r.schema !== "object" || Array.isArray(r.schema))) throw new Error("Invalid output schema.");
   if (JSON.stringify([r.tools, r.schema]).length > 1e5) throw new Error("Function/schema payload is too large.");
+  if (r.attachments !== void 0) checkAttachments(r.attachments, { mediaTypes: ["image/png", "image/jpeg", "image/webp", "image/gif"], maxImages: 4, maxBytes: 3 * 1024 * 1024 });
   let size = 0;
   for (const m of r.messages) {
     if (!m || !["system", "user", "assistant"].includes(m.role) || typeof m.content !== "string" || Object.keys(m).some((k) => !["role", "content"].includes(k))) throw new Error("Only plain text messages are supported.");
@@ -39430,14 +39462,15 @@ async function textRequest(file, raw, signal) {
   const r = checkTextRequest(raw);
   const model = (await (r.provider === "copilot" ? copilotModels() : textModels(file))).find((m) => m.provider === r.provider && m.model === r.model);
   if (!model) throw new Error("This model is no longer available on the worker. Refresh the model list.");
-  if (Math.ceil(Buffer.byteLength(JSON.stringify([r.messages, r.tools, r.schema])) / (r.provider === "copilot" ? 1.5 : 1)) + Math.min(r.maxTokens, r.provider === "copilot" ? 8192 : 16384) + 2048 > model.context) throw new Error("The text exceeds this model\u2019s conservative context limit. Select a smaller passage.");
+  if ((r.attachments?.length ?? 0) * 4096 + Math.ceil(Buffer.byteLength(JSON.stringify([r.messages, r.tools, r.schema])) / (r.provider === "copilot" ? 1.5 : 1)) + Math.min(r.maxTokens, r.provider === "copilot" ? 8192 : 16384) + 2048 > model.context) throw new Error("The text exceeds this model\u2019s conservative context limit. Select a smaller passage.");
   if (r.provider === "copilot") {
+    const attachments = checkAttachments(r.attachments, model.vision);
     const tools = (r.tools ?? []).map((t) => ({ type: "function", function: t }));
     const validator = new AjvJsonSchemaValidator();
     const output = r.schema ? validator.getValidator(r.schema) : null;
     const inputs = new Map((r.tools ?? []).map((t) => [t.name, validator.getValidator(t.parameters)]));
     const messages = r.schema ? [{ role: "system", content: "Return an answer matching this JSON schema. Put the JSON answer as a string in the harness content field. Schema: " + JSON.stringify(r.schema) }, ...r.messages] : r.messages;
-    const data2 = await copilotInference(r.model)({ model: r.model, messages, tools, contextTokens: model.context, outputTokens: Math.min(r.maxTokens, 8192), signal });
+    const data2 = await copilotInference(r.model)({ model: r.model, messages, tools, contextTokens: model.context, outputTokens: Math.min(r.maxTokens, 8192), attachments, signal });
     const calls = (data2.message.tool_calls ?? []).map((c) => ({ id: c.id, name: c.function.name, arguments: c.function.arguments }));
     if (calls.length && !tools.length) throw new Error("Copilot returned unexpected tools.");
     for (const call of calls) if (!inputs.get(call.name)?.(call.arguments).valid) throw new Error("Copilot returned invalid function arguments; no tool was executed.");
@@ -46170,7 +46203,7 @@ var SETUP_JS = String.raw`(function () {
   var EN = {
     copilotTitle: 'GitHub Copilot · CLI',
     copilotHint: 'Uses this computer’s Copilot CLI login and organization permissions. Selected context goes to the Copilot service; One runs the file tools, MCP and configured checks. Copilot native tools and automatic repository configuration are disabled. Subscription usage has no USD receipt. In One → Settings → AI, refresh worker models and choose Copilot for workspace features; data permissions and defaults stay explicit.',
-    copilotInstall: 'Install GitHub Copilot CLI (1.0.102 or newer), then sign in locally: copilot auth login. An IDE subscription alone does not confirm CLI access. Tokens stay in Copilot CLI or COPILOT_GITHUB_TOKEN; do not paste them into One.',
+    copilotInstall: 'Install GitHub Copilot CLI (1.0.102 or newer), then sign in locally: copilot login. An IDE subscription alone does not confirm CLI access. Tokens stay in Copilot CLI or COPILOT_GITHUB_TOKEN; do not paste them into One.',
     copilotModel: 'Copilot model ID (auto uses the account default)',
     copilotSave: 'Save Copilot model',
     copilotCheck: 'Check CLI and login (no model request)',
@@ -46354,7 +46387,7 @@ var SETUP_JS = String.raw`(function () {
   var DE = {
     copilotTitle: 'GitHub Copilot · CLI',
     copilotHint: 'Nutzt die Copilot-CLI-Anmeldung und Unternehmensrechte dieses Rechners. Ausgewählter Kontext geht an den Copilot-Dienst; One führt Dateiwerkzeuge, MCP und konfigurierte Prüfungen aus. Native Copilot-Werkzeuge und automatische Repository-Konfiguration sind ausgeschaltet. Abonutzung liefert keinen USD-Kostennachweis. In One → Einstellungen → KI die Worker-Modelle aktualisieren und Copilot für Workspace-Funktionen wählen; Datenfreigaben und Standards bleiben ausdrücklich.',
-    copilotInstall: 'GitHub Copilot CLI (ab 1.0.102) installieren und lokal anmelden: copilot auth login. Ein IDE-Abo bestätigt noch keinen CLI-Zugriff. Tokens bleiben in Copilot CLI oder COPILOT_GITHUB_TOKEN; nicht in One einfügen.',
+    copilotInstall: 'GitHub Copilot CLI (ab 1.0.102) installieren und lokal anmelden: copilot login. Ein IDE-Abo bestätigt noch keinen CLI-Zugriff. Tokens bleiben in Copilot CLI oder COPILOT_GITHUB_TOKEN; nicht in One einfügen.',
     copilotModel: 'Copilot-Modell-ID (auto nutzt den Kontostandard)',
     copilotSave: 'Copilot-Modell speichern',
     copilotCheck: 'CLI und Anmeldung prüfen (keine Modellanfrage)',
@@ -48016,7 +48049,7 @@ var WorkerWorkspaces = class {
 
 // src/worker/index.ts
 var workspaceHost = null;
-var VERSION = true ? "1.25.0" : "dev";
+var VERSION = true ? "1.26.0" : "dev";
 var quiet = process.env.ONE_WORKER_QUIET === "1";
 var recent = [];
 var log = (msg) => {

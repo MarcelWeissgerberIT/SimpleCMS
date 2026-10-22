@@ -73,8 +73,18 @@ export function inviteMail(
   }
 }
 
+/** Personal Atlas tokens are deliberately absent: they are available only after authenticated ONE sign-in. */
+export function welcomeMail(lang: Lang, i: {name:string;title:string;workspace:string;link:string;atlasLink:string;startLink:string;guest:boolean;note:string}):RenderedMail {
+  const de=lang==='de', title=de?`Willkommen · ${oneLine(i.title)}`:`Welcome · ${oneLine(i.title)}`
+  const body=de?`Hallo ${oneLine(i.name)}, willkommen im Workspace „${oneLine(i.workspace)}“. ${i.guest?'Du erhältst Zugang zum getrennten Gastbereich für den Workshop.':'Hier arbeiten wir als ONE-Team zusammen.'} ${oneLine(i.note,300)}`:`Hello ${oneLine(i.name)}, welcome to “${oneLine(i.workspace)}”. ${i.guest?'You have access to the separate workshop guest area.':'This is our ONE team workspace.'} ${oneLine(i.note,300)}`
+  const task=de?'Deine erste Aufgabe: In Atlas anmelden. In ONE unter Workspace → Personen deinen persönlichen Atlas-Start öffnen. Den eigenen Atlas-Agenten-Token in „Meine Secrets“ hinterlegen, die Atlas-MCP-Verbindung auswählen und einen freigegebenen Workshop-Record testweise lesen. Falls kein Token bereitliegt, zuerst in Atlas den eigenen Agenten anlegen. Keine Tokens in Seiten oder Chats kopieren.':'Your first task: Sign in to Atlas. In ONE, open your personal Atlas start under Workspace → People. Store your own Atlas agent token in “My secrets”, select the Atlas MCP connection and test-read one approved workshop record. If no token is provided, create your own agent in Atlas first. Never copy tokens into pages or chats.'
+  const cta={href:i.link,label:de?'ONE-Einladung annehmen':'Accept ONE invitation'}, fallback=de?'Dein persönlicher ONE-Link:':'Your personal ONE link:'
+  const extra=[{href:i.atlasLink,label:'Atlas'},{href:i.startLink,label:de?'Erste Aufgabe in ONE':'First task in ONE'}]
+  return {subject:title,text:`${title}\n\n${body}\n\nONE: ${i.link}\nAtlas: ${i.atlasLink}\n\n${task}\n\n${i.startLink}\n\n${de?'ONE-Einladungen sind 7 Tage gültig; der Atlas-Link hat seine eigene Gültigkeit.':'ONE invitations expire after 7 days; the Atlas link has its own expiry.'}\n`,html:layout('WORKSHOP',title,body,cta,fallback,task,extra)}
+}
+
 /** Table layout + inline styles: the only thing every mail client renders the same. Paper, ink, one orange. */
-function layout(label: string, title: string, body: string, cta: { href: string; label: string }, fallback: string, footer: string): string {
+function layout(label: string, title: string, body: string, cta: { href: string; label: string }, fallback: string, footer: string, extra: Array<{href:string;label:string}> = []): string {
   const e = escapeHtml
   const mono = "'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace"
   const sans = "Archivo,'Helvetica Neue',Helvetica,Arial,sans-serif"
@@ -93,6 +103,7 @@ function layout(label: string, title: string, body: string, cta: { href: string;
 <a href="${e(cta.href)}" style="display:inline-block;background:#141413;color:#fbfaf6;text-decoration:none;font:600 14px/1 ${sans};padding:13px 20px;border-radius:2px;border-bottom:2px solid #ff4f00;">${e(cta.label)} &rarr;</a>
 </td></tr>
 <tr><td style="padding:0 28px 24px;font:400 12px/1.5 ${sans};color:#67635b;">${e(fallback)}<br><a href="${e(cta.href)}" style="color:#141413;word-break:break-all;font:400 11.5px/1.5 ${mono};">${e(cta.href)}</a></td></tr>
+${extra.length?`<tr><td style="padding:0 28px 24px;font:400 14px/1.6 ${sans};">${extra.map(x=>`<a href="${e(x.href)}" style="color:#141413;">${e(x.label)}</a>`).join(' &nbsp;·&nbsp; ')}</td></tr>`:''}
 <tr><td style="padding:16px 28px;border-top:1px solid #d9d5ca;font:400 12px/1.5 ${sans};color:#67635b;">${e(footer)}</td></tr>
 </table>
 </td></tr></table>

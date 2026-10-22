@@ -2653,7 +2653,7 @@ function McpChips({ calls }: { calls: McpCall[] }) {
 
 function ErrorNote({ error, model, message, onAskClaude, fix, fixes, onFixOpen, onPick }: { error: AIError; model: string; message?: string; onAskClaude?: () => void; fix?: AIFix | null; fixes?: AIFix[]; onFixOpen?: () => void; onPick?: () => void }) {
   const t = useT()
-  const detail = error.code === 'bad_request' || error.code === 'unknown' || error.code === 'mcp' ? (error.detail ?? '') : ''
+  const detail = ['bad_request','unknown','mcp','context','capability'].includes(error.code) ? (error.detail ?? '') : ''
   // every distinct way out (no endpoint: the operator rules and another model), the first one first
   const keys = (fixes?.length ? fixes : fix ? [fix] : []).filter((f, i, all) => f.kind !== 'askClaude' && all.findIndex((x) => JSON.stringify(x) === JSON.stringify(f)) === i)
   return (

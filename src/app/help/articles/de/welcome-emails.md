@@ -1,0 +1,37 @@
+---
+id: welcome-emails
+title: Willkommensmails und persönlicher Atlas-Start
+section: team
+order: 9
+keywords: workshop, willkommen, atlas, token, link, einladung, sammeln, import, gäste, start
+related: invites, personal-secrets, workshop-startcheck, members-roles
+summary: Empfänger privat vorbereiten, persönliche Links zuordnen und den Versand selbst freigeben.
+---
+Unter **Workspace → Personen → Willkommensmails** können Admins ihren eigenen privaten Entwurf vorbereiten. Er enthält Empfänger, E-Mail-Adresse, Ziel-Workspace, Rolle, persönlichen Atlas-Link und optional einen separaten Atlas-Agenten-Token. Andere Admins sehen diesen Entwurf nicht. Er ist kein Workspace-Inhalt, kein Modellkontext und kein Teil des Workspace-Exports.
+
+## Namen, Links und Tokens gesammelt einfügen
+Zuerst Empfänger hinzufügen oder vorbereitete Adressen korrigieren. Unter **Namen, Links und Tokens gesammelt einfügen** pro Person den vollen Namen oder die E-Mail-Adresse und die folgenden Felder einfügen:
+
+```text
+Max Beispiel
+Link: https://atlas.example/invite?token=BEISPIEL
+Token: SEPARATER-AGENTEN-TOKEN
+```
+
+Auch eine Zeile mit `Name | Link: … | Token: …` funktioniert. Der Parser läuft lokal ohne KI-Anfrage; Umlaute und ae/oe/ue werden zugeordnet. Nur Vorname, widersprüchliche Links, unbekannte Namen oder mehrdeutige Treffer werden zur Korrektur markiert. Ein URL-Token wird nicht als MCP-Agenten-Token interpretiert. Bei Fehlern wird der Sammelimport vollständig zurückgehalten. Nach erfolgreicher Zuordnung Empfänger und Ziele prüfen und **Verschlüsselt speichern** drücken. Danach sind die Eingabewerte wieder verborgen; leere Felder behalten gespeicherte Werte.
+
+## Versand bleibt ein bewusster Klick
+**Manueller Versand frühestens** sperrt den Versand bis zum gewählten Zeitpunkt – auch auf dem Server. Es läuft kein automatischer Versandtimer. Speichern und Mailvorschau verschicken nichts und erzeugen keine Einladungen. Die Vorschau verbirgt persönliche Links. Vor dem Versand die Empfänger und Rollen bestätigen und **Willkommensmails senden** drücken.
+
+Teammitglieder erhalten ihren Team-Workspace. Gäste müssen einen getrennten Workspace mit Leserechten erhalten. Die Mail enthält einen adressgebundenen ONE-Einladungslink, den persönlichen Atlas-Link und die erste Aufgabe. Ist die Person bereits Mitglied, führt ihr ONE-Link direkt in den Workspace. Separate MCP-Tokens stehen nicht in der Mail. ONE-Einladungen gelten sieben Tage; ein vorhandener Atlas-Link hat seine eigene Gültigkeit und muss zum Workshop noch funktionieren.
+
+Der Status **An Mailserver übergeben** bestätigt die SMTP-Annahme, nicht die Zustellung im Postfach. Bei unklarem Versand oder einem Serverabbruch wird dieselbe Person nicht automatisch erneut angeschrieben. Erst Versandstatus klären; kein blindes Wiederholen.
+
+## Persönlicher Button auf Start
+Nach Anmeldung und Annahme der ONE-Einladung erscheint **Atlas-Zugang einrichten** auf Start und unter Workspace → Personen. Erst ein Klick liest die eigenen Zugangswerte. Das Modal zeigt den persönlichen Link und einen gegebenenfalls hinterlegten Agenten-Token zunächst verdeckt; **Werte anzeigen**, Kopieren und Atlas öffnen sind bewusste Aktionen. Andere Mitglieder und Admins können über diese Funktion keine fremden Werte öffnen.
+
+Die erste Aufgabe: Atlas öffnen, den eigenen Agenten-Token in **Meine Secrets** hinterlegen, die genaue MCP-Adresse und benötigte Werkzeuge auswählen, Verbindung prüfen und einen freigegebenen Record lesen. Ein Einladungs-Token im Link ist kein MCP-Agenten-Token. Fehlt der Agenten-Token, ihn zunächst in Atlas erzeugen.
+
+Nach dem erfolgreichen Test **Ich habe die persönliche Verbindung erfolgreich geprüft** bestätigen und **Atlas-Zugang funktioniert · Hinweis entfernen** drücken. Das ist eine persönliche Bestätigung, keine von One behauptete automatische Prüfung. Nur der Hinweis dieser Person verschwindet; Verbindungen und Tokens werden dadurch nicht gelöscht oder bei Atlas widerrufen.
+
+Die geschützte Bereitstellung endet sieben Tage nach dem Versand. Die Werte liegen mit dem Workspace-Server-Schlüssel verschlüsselt und empfängergebunden außerhalb der gemeinsamen Dokumente. Der Server muss sie für den gezielten Versand beziehungsweise Abruf entschlüsseln können; dies ist kein Ende-zu-Ende-Tresor. Dauerhaft genutzte persönliche Verbindungen gehören in den passphrasengeschützten Bereich **Meine Secrets**.

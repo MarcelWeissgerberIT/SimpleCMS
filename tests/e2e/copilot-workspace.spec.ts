@@ -1,7 +1,8 @@
 import { writeFile } from 'node:fs/promises'
-import { test, expect, openApp, wsEval, createPage, gotoPage, doc, para, MOD } from './fixtures'
+import { test, expect, openApp, wsEval, createPage, gotoPage, doc, para, MOD, editorOf } from './fixtures'
 import { startFakeWorker, type FakeWorker } from './helpers/fakeWorker'
 import { mockClaudeScript, text } from './helpers/providers'
+import { pdfBytes } from './helpers/files'
 import { WORKER_CAN } from '../../src/app/features/coding/protocol'
 
 const PORT=47413,MODEL='claude-opus-5.5'
@@ -10,9 +11,9 @@ test.describe('Copilot across workspace features',()=>{
   test.describe.configure({mode:'serial'})
   let fake:FakeWorker
   test.beforeEach(async({page})=>{
-    fake=await startFakeWorker(PORT,{worker:'1.25.0',name:'copilot-workspace-fixture',repos:[],parallel:1,busy:[],spentToday:0,dayLimit:null,claude:{found:false,version:null},setup:true})
+    fake=await startFakeWorker(PORT,{worker:'1.26.0',name:'copilot-workspace-fixture',repos:[],parallel:1,busy:[],spentToday:0,dayLimit:null,claude:{found:false,version:null},setup:true})
     fake.can=[...WORKER_CAN]
-    fake.textModels=[{provider:'copilot',model:MODEL,context:32768,chat:true,maxOutput:8192}]
+    fake.textModels=[{provider:'copilot',model:MODEL,context:32768,chat:true,maxOutput:8192,vision:{mediaTypes:['image/png','image/jpeg'],maxImages:4,maxBytes:3145728}},{provider:'copilot',model:'gpt-6.1-sol',context:32768,chat:true,maxOutput:8192}]
     await openApp(page)
     await wsEval(page,(s,allow)=>{s.setWorkspaceAI({policy:{providers:{copilot:{allow}},restricted:[]}});s.updateSettings({ai:{allow:{copilot:['mcp','memory']}}})},ALL)
     await page.evaluate(()=>(window as any).__one.ui.getState().openModal({type:'settings'}))
@@ -33,7 +34,7 @@ test.describe('Copilot across workspace features',()=>{
     const changed=await page.evaluate(async model=>(await (window as any).__oneAI.rules()).setDeviceDefault([{p:'copilot',m:model}]),MODEL)
     expect(changed).toBe(true)
     expect(await page.evaluate(()=>(window as any).__oneAI.policyKnownAt(4))).toBe(false)
-    const fail=await page.evaluate(model=>(window as any).__oneAI.precheck({purpose:'vision.image',sources:[{file:'upload'}],route:{p:'copilot',m:model}}),MODEL)
+    const fail=await page.evaluate(model=>(window as any).__oneAI.precheck({purpose:'vision.image',sources:[{file:'upload'}],route:{p:'copilot',m:'gpt-6.1-sol'}}),MODEL)
     expect(fail.ok).toBe(false);expect(fake.textAsked).toHaveLength(1)
   })
   test('terminal reads real page content and stages an append without changing the page automatically',async({page},info)=>{
@@ -82,6 +83,48 @@ test.describe('Copilot across workspace features',()=>{
     await expect.poll(()=>fake.textAsked.length).toBe(2)
     expect(JSON.stringify(fake.textAsked[1].messages)).toContain('Fresh Copilot answer.')
     expect(JSON.stringify(fake.textAsked[1].messages)).not.toContain('CLAUDE-HISTORY-ONLY-SENTINEL')
+  })
+  test('picture actions send selected pixels as in-memory blobs and keep review before applying',async({page},info)=>{
+    const pixels=await page.evaluate(()=>{const c=document.createElement('canvas');c.width=320;c.height=160;const g=c.getContext('2d')!;g.fillStyle='white';g.fillRect(0,0,320,160);g.fillStyle='black';g.font='24px sans-serif';g.fillText('Workshop 43',20,60);return c.toDataURL('image/png')})
+    const id=await createPage(page,{title:'Copilot picture review',content:doc({type:'image',attrs:{src:pixels,alt:'Original image'}})})
+    await gotoPage(page,id)
+    fake.onText=r=>({model:r.model,text:JSON.stringify({alt:'Workshop 43 label',caption:'Synthetic workshop image'}),inputTokens:150,outputTokens:35,usd:null})
+    await page.evaluate(async model=>(await (window as any).__oneAI.rules()).setDeviceDefault([{p:'copilot',m:model}]),MODEL)
+    const figure=editorOf(page,id).locator('.image-view').first()
+    await figure.hover();await figure.getByTestId('image-ai-key').click();await page.getByRole('menuitem',{name:/Describe the image/}).click()
+    const panel=page.getByRole('dialog',{name:'Ask AI'})
+    await expect(panel.getByRole('textbox',{name:'Alt text'})).toHaveValue('Workshop 43 label')
+    expect(fake.textAsked).toHaveLength(1)
+    expect(fake.textAsked[0].attachments).toMatchObject([{mediaType:'image/png'}])
+    expect(JSON.stringify(fake.textAsked[0].messages)).not.toContain(pixels.split(',')[1])
+    expect(await wsEval(page,(s,id)=>s.pages[id].content.content[0].attrs.alt,id)).toBe('Original image')
+    await page.screenshot({path:info.outputPath('copilot-image-review.png'),animations:'disabled'})
+    await panel.getByRole('option',{name:/Apply alt text/}).click()
+    await expect.poll(()=>wsEval(page,(s,id)=>s.pages[id].content.content[0].attrs.alt,id)).toBe('Workshop 43 label')
+  })
+  test('PDF actions extract real text locally and label omitted figures; scanned PDFs send no model request',async({page})=>{
+    const pdf=Buffer.from(pdfBytes(1,'WORKSHOP-PDF-43')).toString('base64')
+    const id=await createPage(page,{title:'Copilot PDF review',content:doc({type:'fileBlock',attrs:{src:'data:application/pdf;base64,'+pdf,name:'workshop.pdf',display:'file'}})})
+    await gotoPage(page,id)
+    fake.onText=r=>({model:r.model,text:'The document contains WORKSHOP-PDF-43. Figures and layout were not inspected.',inputTokens:150,outputTokens:35,usd:null})
+    await page.evaluate(async model=>(await (window as any).__oneAI.rules()).setDeviceDefault([{p:'copilot',m:model}]),MODEL)
+    const file=editorOf(page,id).locator('.file-view').first()
+    await file.hover();await file.getByTestId('file-ai-key').click();await page.getByRole('menuitem',{name:/^Summarise/}).click()
+    const panel=page.getByRole('dialog',{name:'Ask AI'})
+    await expect(panel).toContainText('WORKSHOP-PDF-43',{timeout:20000})
+    await expect(panel.getByTestId('ai-file-meta')).toContainText('PDF text extracted locally')
+    expect(fake.textAsked).toHaveLength(1)
+    expect(JSON.stringify(fake.textAsked[0].messages)).toContain('WORKSHOP-PDF-43')
+    expect(JSON.stringify(fake.textAsked[0])).not.toContain(pdf)
+    expect(fake.textAsked[0].attachments??[]).toEqual([])
+    await page.keyboard.press('Escape')
+    const scan=Buffer.from(pdfBytes(1,'')).toString('base64')
+    const scanId=await createPage(page,{title:'Scanned empty PDF',content:doc({type:'fileBlock',attrs:{src:'data:application/pdf;base64,'+scan,name:'scan.pdf',display:'file'}})})
+    await gotoPage(page,scanId)
+    const card=editorOf(page,scanId).locator('.file-view').first()
+    await card.hover();await card.getByTestId('file-ai-key').click();await page.getByRole('menuitem',{name:/^Summarise/}).click()
+    await expect(page.getByRole('dialog',{name:'Ask AI'})).toContainText('no readable text',{timeout:20000})
+    expect(fake.textAsked).toHaveLength(1)
   })
   test('selected Atlas tools cooperate with a manual browser agent; credentials never enter model text',async({page})=>{
     const token='private-atlas-token-for-copilot-test'

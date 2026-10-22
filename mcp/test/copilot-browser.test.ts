@@ -6,6 +6,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { textRequest, textModels, checkTextRequest } from '../src/worker/text-models.ts'
 import { modelMcp, checkModelMcp } from '../src/worker/model-mcp.ts'
+import { checkAttachments, visionOf } from '../src/worker/copilot-media.ts'
+import { readFile } from 'node:fs/promises'
 import { looksLikeKey } from '../../src/shared/ai/keys.ts'
 import { sanitizeRoute, isRouteKey } from '../../src/shared/ai/route.ts'
 import { requiredGen, AI_POLICY_GEN } from '../../src/shared/ai/policy.ts'
@@ -62,4 +64,29 @@ test('Browser MCP uses selected HTTPS credentials only; denied tools and malform
     for(const url of ['http://127.0.0.1/mcp','https://169.254.169.254/mcp','https://atlas.example.org/mcp?token=secret'])assert.throws(()=>checkModelMcp({servers:[{...servers[0],url}],action:'list'}))
     assert.throws(()=>checkModelMcp({servers:[{...servers[0],command:'sh'}],action:'list'}))
   }finally{globalThis.fetch=original}
+})
+
+test('Copilot vision is account-advertised; blobs stay out of prompts/argv; text models and unsafe attachment fields are rejected', async()=>{
+  const previous={...process.env},dir=await mkdtemp(join(tmpdir(),'copilot-media-')),capture=join(dir,'wire.json')
+  process.env.COPILOT_BIN=fileURLToPath(new URL('./fixtures/fake-copilot.mjs',import.meta.url))
+  process.env.COPILOT_CAPTURE=capture
+  process.env.COPILOT_ANSWERS=JSON.stringify([{content:'Image seen.',tool_calls:[]}])
+  const image={mediaType:'image/png',data:'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2SAAAAABJRU5ErkJggg=='}
+  const req={provider:'copilot',model:'claude-opus-5.5',messages:[{role:'user',content:'Describe image attachment 1.'}],maxTokens:512,attachments:[image]}
+  try{
+    const rows=await textModels(join(dir,'worker.json'))
+    assert.ok(rows.some(r=>r.provider==='copilot'&&r.model==='auto'))
+    assert.ok(rows.find(r=>r.provider==='copilot'&&r.model==='claude-opus-5.5')?.vision)
+    assert.equal((await textRequest(join(dir,'worker.json'),req,new AbortController().signal)).text,'Image seen.')
+    const events=JSON.parse(await readFile(capture,'utf8')),sent=events.find((e:any)=>e.method==='session.send')
+    assert.equal(sent.params.attachments[0].type,'blob');assert.equal(sent.params.attachments[0].data,image.data)
+    assert.ok(!sent.params.prompt.includes(image.data));assert.ok(!sent.args.join(' ').includes(image.data))
+    await assert.rejects(textRequest(join(dir,'worker.json'),{...req,model:'gpt-6.1-sol'},new AbortController().signal),/vision/)
+    assert.throws(()=>checkTextRequest({...req,attachments:[{...image,path:'/private/file'}]}),/attachment/)
+    assert.throws(()=>checkTextRequest({...req,attachments:[{mediaType:'image/png',data:Buffer.from('not an image').toString('base64')}]}),/Image/)
+    assert.equal(visionOf({id:'name-does-not-prove-vision'}),undefined)
+    assert.throws(()=>checkAttachments([image],{mediaTypes:['image/jpeg'],maxImages:1,maxBytes:1000}),/limits/)
+    const auto=await textRequest(join(dir,'worker.json'),{...req,model:'auto',attachments:[]},new AbortController().signal)
+    assert.equal(auto.model,'auto')
+  }finally{process.env=previous;await rm(dir,{recursive:true,force:true})}
 })

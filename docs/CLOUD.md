@@ -1324,3 +1324,29 @@ Personal preferences for local workspaces are held in `one-personal/kv` and merg
 `simplecms-one-workspace` v1 is a portable envelope around a content backup. It allowlists workspace-owned fields, excludes personal settings/connections, Private team pages and fuse grants, strips webhook destinations, pauses agents and database automations, and removes active recurring schedules. Import creates a new local workspace; it never replaces the selected workspace. Pending imports finish under the new workspace identity before background services start. Imported attachments receive fresh IDs and ownership stamps; missing attachment payloads cannot resolve to files in another workspace. The same portable sanitizer is applied when copying a local workspace into a new team workspace. Existing personal overlays and keys are never uploaded to shared documents.
 
 New reset requests clear only the selected local content database. Legacy full-device reset requests queued by older builds retain their previous migration behavior.
+# Private welcome preparation and Atlas onboarding (`welcome:1`)
+
+Workspace → People offers a per-organizer private welcome draft, independent of shared Yjs content,
+workspace exports, model context and personal vaults. REST is cookie-authenticated and CSRF guarded:
+`GET/PUT /api/workspaces/:id/welcome`, `GET …/welcome/preview/:recipient` and `POST …/welcome/send`
+require admin membership and use only the signed-in organizer's draft. Every destination must be a team
+workspace the organizer administers; guest rows require a separate viewer workspace. Revision checks and
+in-flight locks prevent stale edits and simultaneous sending. No scheduler sends these messages.
+
+Migration 14 stores draft payloads and recipient onboarding values as AES-GCM envelopes under the source
+workspace key with owner/entry-specific AAD. No secret values occur in GET/preview/send answers or shared
+documents. Explicit local paste parsing maps full names/emails, rejects ambiguous imports and separates
+invitation URL tokens from labelled MCP agent tokens. Only Send creates address-bound invitations (7 days)
+and calls SMTP. Separate MCP tokens are excluded from mail; Atlas invitation URLs remain intentionally
+included. Before sending, all rows are persisted as `sending`; failure/crash leaves `uncertain`/`sending`
+and never triggers an automatic retry. SMTP acceptance is not proof of inbox delivery.
+
+`GET …/welcome-access` returns opaque entry IDs only, for the verified session email's HMAC and current
+target membership. `POST …/welcome-access/:entry/open` additionally checks the same recipient, expiry and
+the organizer's continued source admin rights; its `no-store` answer contains that recipient's access
+values. No admin bypass. Entries expire after seven days. `POST …/:entry/complete` marks only the caller's
+entry complete. The Start/People modal masks values, supports explicit reveal/copy, and disappears after
+the participant confirms their real connection test. Completion neither proves a test nor revokes Atlas.
+The server decrypts onboarding values for these operations; durable connections use the independent
+client-encrypted personal vault. Draft ciphertext remains in normal encrypted server backups, never in
+portable workspace packages. Tests cover privacy, encryption, tenancy, deadlines, replay and SMTP failure.

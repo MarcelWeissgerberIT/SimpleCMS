@@ -14,7 +14,7 @@ export const ROUTABLE: Readonly<Record<ProviderId, readonly FeatureClass[]>> = {
   ollama: ['write', 'ask', 'workspace', 'help'],
   minimax: ['write', 'ask', 'workspace', 'help'],
   codex: ['write', 'ask', 'workspace', 'help'],
-  copilot: FEATURE_CLASSES.filter(c => !['vision', 'generate', 'gate'].includes(c)),
+  copilot: FEATURE_CLASSES.filter(c => !['generate', 'gate'].includes(c)),
   openrouter: ['write', 'ask', 'workspace', 'structure', 'vision', 'documents', 'bulk', 'meeting', 'memory', 'help', 'gate'],
 }
 

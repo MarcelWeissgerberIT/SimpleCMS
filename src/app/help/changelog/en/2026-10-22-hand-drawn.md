@@ -1,7 +1,7 @@
 ---
 id: 2026-10-22-hand-drawn
 date: 2026-10-22
-order: 2
+order: 4
 title: Hand-drawn blocks
 summary: Editable sketch diagrams and illustrations in orange and black, with previews and page covers.
 image: assets/shots/changelog/hand-drawn.webp

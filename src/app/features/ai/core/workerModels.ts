@@ -2,7 +2,7 @@
 import { useEffect, useSyncExternalStore } from 'react'
 import type { Caps, ModelInfo, Route } from '@/shared/ai/types'
 import { isWorkerProvider } from '@/shared/ai/providers'
-import { validWorkerModel, type WorkerModel, type WorkerFunction } from '@/shared/ai/worker'
+import { validWorkerModel, validWorkerVision, type WorkerModel, type WorkerFunction, type WorkerAttachment } from '@/shared/ai/worker'
 import { useCoding } from '../../coding'
 import { AIError } from './errors'
 
@@ -30,7 +30,7 @@ export function refreshWorkerModels(): Promise<void> {
         if (!isWorkerProvider(m.provider) || !validWorkerModel(m.model) || !Number.isSafeInteger(m.context) || m.context < 2048 || m.context > 2000000) continue
         const row: WorkerModel = m
         next.push({ route: { p: row.provider, m: row.model }, label: row.model, short: row.model.toUpperCase().slice(0, 22), vendor: row.provider,
-          caps: { ...TEXT_CAPS, context: row.context, ...(row.provider === 'copilot' && row.chat === true && api.workerCaps()?.includes('copilot-chat') ? { structured: true, tools: true, mcp: 'allow-only' as const, mcpListing: true, maxOutput: 8192 } : {}) }, price: row.provider === 'local' ? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, source: 'table', at: 'local' } : row.provider === 'minimax' ? { input: 0.15, output: 0.60, cacheRead: 0.015, cacheWrite: 0.15, source: 'bound', at: '2026-10-19' } : null })
+          caps: { ...TEXT_CAPS, context: row.context, ...(row.provider === 'copilot' && row.chat === true && api.workerCaps()?.includes('copilot-chat') ? { structured: true, tools: true, mcp: 'allow-only' as const, mcpListing: true, maxOutput: 8192, ...(api.workerCaps()?.includes('copilot-media') ? { pdf: {maxBytes:23*1024*1024,maxPages:100}, vision: validWorkerVision(row.vision) ? {maxEdge:1568,maxBytes:row.vision.maxBytes} : false } : {}) } : {}) }, price: row.provider === 'local' ? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, source: 'table', at: 'local' } : row.provider === 'minimax' ? { input: 0.15, output: 0.60, cacheRead: 0.015, cacheWrite: 0.15, source: 'bound', at: '2026-10-19' } : null })
       }
       publish(next)
     } catch { publish([]) }
@@ -46,7 +46,7 @@ export function useWorkerModels(): number {
   }, [conn, can])
   return useSyncExternalStore(fn => { listeners.add(fn); return () => listeners.delete(fn) }, () => revision)
 }
-export async function sendWorkerText(route: Route, messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>, maxTokens: number, signal?: AbortSignal, extra: { tools?: WorkerFunction[]; schema?: Record<string, unknown> } = {}) {
+export async function sendWorkerText(route: Route, messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>, maxTokens: number, signal?: AbortSignal, extra: { tools?: WorkerFunction[]; schema?: Record<string, unknown>; attachments?: WorkerAttachment[] } = {}) {
   if (!isWorkerProvider(route.p)) throw new AIError('capability')
   const api = await import('../../coding')
   if (!workerProviderReady(route.p)) throw new AIError('offline')

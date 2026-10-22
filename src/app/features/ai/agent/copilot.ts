@@ -5,6 +5,7 @@ import { beforeRound } from '../core/gate'
 import { AIError } from '../core/errors'
 import { meterCall, neutralResponse } from '../core/meter'
 import { shapeOf, withShape } from '../core/shape'
+import { CopilotContent } from '../core/copilotContent'
 import { sendWorkerText } from '../core/workerModels'
 import type { Turn } from '@/shared/ai/types'
 import type { WorkerFunction } from '@/shared/ai/worker'
@@ -13,13 +14,27 @@ import { AGENT_SYSTEM, type runAgent, type RunEnd } from './run'
 import { TERMINAL_TOOLS, MAX_TOOL_CALLS, RESULT_CHARS, argLabel, clipResult, withReadLimit, withToolScope } from './tools'
 
 /** JSON transcripts close every tool call explicitly. Unsupported binary parts fail before sending. */
-export function copilotMessages(messages: BetaMessageParam[]) {
-  return messages.map(m => {
-    if (typeof m.content === 'string') return { role: m.role, content: m.content }
-    if (m.content.some(b => !['text','tool_use','tool_result'].includes(b.type))) throw new AIError('capability', 'Start a new text conversation for Copilot; images/PDFs and provider-specific history are unsupported.')
-    for (const b of m.content) if (b.type === 'tool_result' && Array.isArray(b.content) && b.content.some(p => p.type !== 'text')) throw new AIError('capability', 'Copilot currently accepts text tool results only.')
-    return { role: m.role, content: JSON.stringify(m.content) }
-  })
+export async function copilotMessages(messages: BetaMessageParam[], material: CopilotContent) {
+  material.reset()
+  const result: Array<{role:'user'|'assistant'|'system';content:string}> = []
+  for (const m of messages) {
+    if (typeof m.content === 'string') { result.push({role:m.role,content:await material.part({type:'text',text:m.content})});continue }
+    const parts = []
+    for (const b of m.content) {
+      if (b.type==='image' && b.source.type==='base64') parts.push({type:'text',text:await material.part({type:'image',mime:b.source.media_type,data:b.source.data})})
+      else if (b.type==='document' && b.source.type==='base64' && b.source.media_type==='application/pdf') parts.push({type:'text',text:await material.part({type:'document',title:b.title??'PDF',pdf:{data:b.source.data,pages:1}})})
+      else if (b.type==='document' && b.source.type==='text') parts.push({type:'text',text:await material.part({type:'document',title:b.title??'Document',text:b.source.data})})
+      else if (b.type==='text') parts.push({...b,text:await material.part({type:'text',text:b.text})})
+      else if (b.type==='tool_use') parts.push(b)
+      else if (b.type==='tool_result') {
+        if (Array.isArray(b.content) && b.content.some(p=>p.type!=='text')) throw new AIError('capability','Copilot accepts text tool results only.')
+        const content=typeof b.content==='string'?await material.part({type:'text',text:b.content}):await Promise.all((b.content??[]).map(async p=>({...p,text:await material.part({type:'text',text:p.type==='text'?p.text:''})})))
+        parts.push({...b,content})
+      } else throw new AIError('capability','Unsupported private provider history. Start a fresh task.')
+    }
+    result.push({role:m.role,content:JSON.stringify(parts)})
+  }
+  return result
 }
 export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prepared: Prepared, messages: BetaMessageParam[]): Promise<RunEnd> {
   const route = prepared.route!, { signal, hooks, stage } = opts
@@ -36,10 +51,12 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
     remote = workerMcpSession(opts.mcp.worker, signal, hooks.mcp)
   }
   const definitions: WorkerFunction[] = [...tools.map(t => ({ name: t.name, description: t.description.slice(0,400), parameters: t.input_schema })), ...(remote ? WORKER_MCP_FUNCTIONS : [])]
+  const material = new CopilotContent(signal)
   const run = async () => {
     while (++rounds <= 40) {
       if (signal.aborted) throw new AIError('aborted')
-      const result = await sendWorkerText(route, [{ role: 'system', content: system }, ...copilotMessages(messages)], Math.min(8192, prepared.maxTokens ?? 8192), signal, { tools: calls < MAX_TOOL_CALLS ? definitions : [] })
+      const transcript = await copilotMessages(messages, material)
+      const result = await sendWorkerText(route, [{ role: 'system', content: system }, ...transcript], Math.min(8192, prepared.maxTokens ?? 8192), signal, { tools: calls < MAX_TOOL_CALLS ? definitions : [], ...(material.attachments.length ? {attachments:material.attachments} : {}) })
       const usage = result.inputTokens !== null && result.outputTokens !== null ? { input: result.inputTokens, output: result.outputTokens, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0, reasoning: 0 } : null
       const turn: Turn = { kind: 'chat', parts: [{ type: 'text', text: result.text }], stop: result.calls?.length ? 'tool_calls' : 'end', usage, served: result.model, streamedChars: result.text.length }
       const entry = call.response(neutralResponse(turn, { price: null, promptChars: system.length + JSON.stringify(messages).length + JSON.stringify(definitions).length }))

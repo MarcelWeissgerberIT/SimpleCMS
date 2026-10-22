@@ -400,4 +400,28 @@ export const migrations: Migration[] = [
       );
     `,
   },
+  {
+    version: 14,
+    name: 'private welcome drafts and recipient-bound Atlas onboarding',
+    sql: `
+      CREATE TABLE welcome_drafts (
+        workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        sealed TEXT NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY(workspace_id,user_id)
+      );
+      CREATE TABLE welcome_access (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        target_workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        email_hash TEXT NOT NULL,
+        sealed TEXT NOT NULL,
+        expires_at INTEGER NOT NULL,
+        completed_at INTEGER
+      );
+      CREATE INDEX welcome_access_recipient ON welcome_access(target_workspace_id,email_hash);
+    `,
+  },
 ]

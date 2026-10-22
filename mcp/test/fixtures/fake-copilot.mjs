@@ -13,7 +13,7 @@ function handle(r){
  const reply=result=>out({id:r.id,result})
  if(r.method==='ping')return reply({message:'pong',protocolVersion:3})
  if(r.method==='auth.getStatus')return reply({isAuthenticated:process.env.COPILOT_FAKE_SIGNED_OUT!=='1'})
- if(r.method==='models.list')return reply({models:[{id:'claude-opus-5.5',capabilities:{limits:{max_context_window_tokens:200000}}},{id:'gpt-6.1-sol'},{id:'blocked-model',policy:{state:'disabled'}}]})
+ if(r.method==='models.list')return reply({models:[{id:'auto'},{id:'claude-opus-5.5',capabilities:{supports:{vision:true},limits:{max_context_window_tokens:200000,vision:{supported_media_types:['image/png','image/jpeg'],max_prompt_images:4,max_prompt_image_size:3145728}}}},{id:'gpt-6.1-sol'},{id:'blocked-model',policy:{state:'disabled'}}]})
  if(r.method==='session.create'){session=r.params.sessionId;return reply({sessionId:session})}
  if(r.method==='session.delete')return reply({success:true})
  if(r.method!=='session.send')return out({id:r.id,error:{code:-32601,message:'Unknown method'}})

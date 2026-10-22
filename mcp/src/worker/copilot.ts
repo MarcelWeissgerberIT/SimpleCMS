@@ -8,6 +8,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { isAbsolute, join, resolve } from 'node:path'
 import { homedir, tmpdir } from 'node:os'
 import { createMessageConnection, StreamMessageReader, StreamMessageWriter, ResponseError } from 'vscode-jsonrpc/node.js'
+import { visionOf, checkAttachments } from './copilot-media.ts'
 import { execFileSafe, resolveCommand, spawnSafe, isFile, killTree, envGet, pathAbsolute } from './exec.ts'
 import { RUN_MARK, RunTree } from './proctree.ts'
 import { secretValues, scrubSecretText } from './secrets.ts'
@@ -47,9 +48,9 @@ export async function detectCopilot(env:NodeJS.ProcessEnv=process.env){
 }
 const object=(v:unknown):v is Record<string,any>=>!!v&&typeof v==='object'&&!Array.isArray(v)
 const count=(v:unknown)=>typeof v==='number'&&Number.isSafeInteger(v)&&v>=0?v:undefined
-const INSTALL='Install or update GitHub Copilot CLI (1.0.102 or newer) on this computer and sign in with copilot auth login. The subscription and organization policy must permit Copilot CLI. Set COPILOT_BIN if it is not on PATH.'
+const INSTALL='Install or update GitHub Copilot CLI (1.0.102 or newer) on this computer and sign in with copilot login. The subscription and organization policy must permit Copilot CLI. Set COPILOT_BIN if it is not on PATH.'
 
-/** A bounded, ephemeral text-only SDK session. No API key, task text or personal MCP token in argv/config files. */
+/** A bounded, ephemeral SDK session. No API key, task text or personal MCP token in argv/config files. */
 async function session<T>(env:NodeJS.ProcessEnv,signal:AbortSignal,run:(rpc:ReturnType<typeof createMessageConnection>,dir:string)=>Promise<T>):Promise<T>{
  signal.throwIfAborted()
  const cap=await detectCopilot(env)
@@ -90,10 +91,10 @@ export async function probeCopilot(env:NodeJS.ProcessEnv=process.env){
  if(!cap.supported)return {...cap,authenticated:false,models:[] as string[],error:INSTALL}
  try{return await session(env,AbortSignal.timeout(20000),async rpc=>{
   const status=await rpc.sendRequest<any>('auth.getStatus',{})
-  if(status?.isAuthenticated!==true)return {...cap,authenticated:false,models:[] as string[],error:'Sign in locally with copilot auth login. No model request was sent.'}
+  if(status?.isAuthenticated!==true)return {...cap,authenticated:false,models:[] as string[],error:'Sign in locally with copilot login. No model request was sent.'}
   const models=await rpc.sendRequest<any>('models.list',{})
   const list=Array.isArray(models)?models:models?.models
-  return {...cap,authenticated:true,models:Array.isArray(list)?list.filter(m=>validCopilotModel(m?.id)&&m?.policy?.state!=='disabled').map(m=>m.id).slice(0,120):[] as string[], contexts:Object.fromEntries((Array.isArray(list)?list:[]).filter(m=>validCopilotModel(m?.id)&&Number.isSafeInteger(m?.capabilities?.limits?.max_context_window_tokens)&&m.capabilities.limits.max_context_window_tokens>=8192).map(m=>[m.id,Math.min(65536,m.capabilities.limits.max_context_window_tokens)]))}
+  return {...cap,authenticated:true,models:Array.isArray(list)?list.filter(m=>validCopilotModel(m?.id)&&m?.policy?.state!=='disabled').map(m=>m.id).slice(0,120):[] as string[], visions:Object.fromEntries((Array.isArray(list)?list:[]).filter(m=>validCopilotModel(m?.id)&&visionOf(m)).map(m=>[m.id,visionOf(m)])), contexts:Object.fromEntries((Array.isArray(list)?list:[]).filter(m=>validCopilotModel(m?.id)&&Number.isSafeInteger(m?.capabilities?.limits?.max_context_window_tokens)&&m.capabilities.limits.max_context_window_tokens>=8192).map(m=>[m.id,Math.min(65536,m.capabilities.limits.max_context_window_tokens)]))}
  })}catch{return {...cap,authenticated:false,models:[] as string[],error:'Copilot login/model availability could not be checked. Check your CLI, subscription and organization policy. No model request was sent.'}}
 }
 export function parseCopilotAnswer(raw:string,tools:any[]):LocalInferenceResponse {
@@ -111,10 +112,12 @@ export function copilotInference(model='auto',env:NodeJS.ProcessEnv=process.env)
  if(!validCopilotModel(model))throw new Error('Invalid Copilot model ID.')
  const inference:LocalInference=async(request:LocalInferenceRequest)=>session(env,request.signal,async(rpc,dir)=>{
   const auth=await rpc.sendRequest<any>('auth.getStatus',{})
-  if(auth?.isAuthenticated!==true)throw new Error('Copilot is not signed in. Run copilot auth login on this computer; a Copilot IDE license alone does not confirm CLI access.')
-  if(model!=='auto'){
+  if(auth?.isAuthenticated!==true)throw new Error('Copilot is not signed in. Run copilot login on this computer; a Copilot IDE license alone does not confirm CLI access.')
+  if(model!=='auto'||request.attachments?.length){
    const result=await rpc.sendRequest<any>('models.list',{}),models=Array.isArray(result)?result:result?.models
-   if(!Array.isArray(models)||!models.some(m=>m.id===model&&m.policy?.state!=='disabled'))throw new Error('The selected Copilot model is not available under this login/policy. Choose an available model on the worker setup page; no fallback was used.')
+   const selected=Array.isArray(models)?models.find(m=>m.id===model&&m.policy?.state!=='disabled'):null
+   if(!selected)throw new Error('The selected Copilot model is not available under this login/policy. Choose an available model on the worker setup page; no fallback was used.')
+   checkAttachments(request.attachments,visionOf(selected))
   }
   const id=randomUUID()
   let answer='',error='',usage:Record<string,unknown>={}
@@ -131,7 +134,7 @@ export function copilotInference(model='auto',env:NodeJS.ProcessEnv=process.env)
   })
   try{
    const created=await rpc.sendRequest<any>('session.create',{
-    sessionId:id,clientName:'one-worker',...(model==='auto'?{}:{model,allowedModels:[model]}),workingDirectory:dir,
+    sessionId:id,clientName:'one-worker',model,...(model==='auto'?{}:{allowedModels:[model]}),workingDirectory:dir,
     tools:[],availableTools:[],excludedTools:['*'],requestPermission:true,requestUserInput:false,streaming:false,
     mcpServers:{},enableConfigDiscovery:false,enableFileHooks:false,enableSkills:false,enableSessionStore:false,enableHostGitOperations:false,
     enableManagedSettings:true,enableSessionTelemetry:false,enableOnDemandInstructionDiscovery:false,skipEmbeddingRetrieval:true,embeddingCacheStorage:'in-memory',
@@ -139,7 +142,7 @@ export function copilotInference(model='auto',env:NodeJS.ProcessEnv=process.env)
    })
    if(created?.sessionId!==id)throw new Error('Copilot did not create the requested isolated session.')
    ready=true
-   await rpc.sendRequest('session.send',{sessionId:id,prompt:JSON.stringify({messages:request.messages,tools:request.tools}),mode:'immediate'})
+   await rpc.sendRequest('session.send',{sessionId:id,prompt:JSON.stringify({messages:request.messages,tools:request.tools}),...(request.attachments?.length?{attachments:request.attachments.map((a,i)=>({type:'blob',data:a.data,mimeType:a.mediaType,displayName:'one-image-'+(i+1)}))}:{}),mode:'immediate'})
    await finished
    if(error)throw new Error(error)
    if(!answer.trim())throw new Error('Copilot returned no final harness response.')

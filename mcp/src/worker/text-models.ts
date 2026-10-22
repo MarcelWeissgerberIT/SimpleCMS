@@ -14,6 +14,7 @@ import { ollamaInference } from './local-inference.ts'
 import { findCodex, runCodex } from './codex.ts'
 import { resolveCommand } from './exec.ts'
 import { probeCopilot, copilotInference, COPILOT_CONTEXT, validCopilotModel } from './copilot.ts'
+import { checkAttachments } from './copilot-media.ts'
 import { AjvJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/ajv-provider.js'
 
 let copilotCatalog: { key: string; until: number; rows: WorkerModel[] } | null = null
@@ -21,7 +22,7 @@ async function copilotModels(): Promise<WorkerModel[]> {
   const key = JSON.stringify([process.env.COPILOT_BIN, process.env.COPILOT_GITHUB_TOKEN, process.env.GH_TOKEN, process.env.GITHUB_TOKEN])
   if (copilotCatalog?.key === key && copilotCatalog.until > Date.now()) return copilotCatalog.rows
   const result = await probeCopilot()
-  const rows: WorkerModel[] = result.authenticated ? result.models.filter(validCopilotModel).map(model => ({ provider: 'copilot', model, context: 'contexts' in result ? result.contexts[model] ?? COPILOT_CONTEXT : COPILOT_CONTEXT, chat: true, maxOutput: 8192 })) : []
+  const rows: WorkerModel[] = result.authenticated ? result.models.filter(validCopilotModel).map(model => ({ provider: 'copilot', model, context: 'contexts' in result ? result.contexts[model] ?? COPILOT_CONTEXT : COPILOT_CONTEXT, chat: true, maxOutput: 8192, ...('visions' in result && result.visions[model] ? {vision:result.visions[model]} : {}) })) : []
   copilotCatalog = { key, until: Date.now() + 30000, rows }
   return rows
 }
@@ -69,10 +70,11 @@ export async function textModels(file: string): Promise<WorkerModel[]> {
 export function checkTextRequest(raw: unknown): WorkerTextRequest {
   const r = raw as WorkerTextRequest
   if (!r || typeof r !== 'object' || !isWorkerProvider(r.provider) || !validWorkerModel(r.model) || !Number.isSafeInteger(r.maxTokens) || r.maxTokens < 1 || r.maxTokens > 16384 || !Array.isArray(r.messages) || !r.messages.length || r.messages.length > 64) throw new Error('Invalid text request.')
-  if (Object.keys(r).some(k => !['provider', 'model', 'messages', 'maxTokens', ...(r.provider === 'copilot' ? ['tools', 'schema'] : [])].includes(k))) throw new Error('Unknown text request field.')
+  if (Object.keys(r).some(k => !['provider', 'model', 'messages', 'maxTokens', ...(r.provider === 'copilot' ? ['tools', 'schema', 'attachments'] : [])].includes(k))) throw new Error('Unknown text request field.')
   if (r.tools !== undefined && (!Array.isArray(r.tools) || r.tools.length > 160 || r.tools.some(t => !t || typeof t.name !== 'string' || !/^[A-Za-z0-9_-]{1,100}$/.test(t.name) || typeof t.description !== 'string' || !t.parameters || typeof t.parameters !== 'object' || Array.isArray(t.parameters) || Object.keys(t).some(k => !['name','description','parameters'].includes(k))) || new Set(r.tools.map(t => t.name)).size !== r.tools.length)) throw new Error('Invalid function definitions.')
   if (r.schema !== undefined && (!r.schema || typeof r.schema !== 'object' || Array.isArray(r.schema))) throw new Error('Invalid output schema.')
   if (JSON.stringify([r.tools, r.schema]).length > 100000) throw new Error('Function/schema payload is too large.')
+  if (r.attachments !== undefined) checkAttachments(r.attachments, {mediaTypes:['image/png','image/jpeg','image/webp','image/gif'],maxImages:4,maxBytes:3*1024*1024})
   let size = 0
   for (const m of r.messages) {
     if (!m || !['system', 'user', 'assistant'].includes(m.role) || typeof m.content !== 'string' || Object.keys(m).some(k => !['role', 'content'].includes(k))) throw new Error('Only plain text messages are supported.')
@@ -85,15 +87,16 @@ export async function textRequest(file: string, raw: unknown, signal: AbortSigna
   const r = checkTextRequest(raw)
   const model = (await (r.provider === 'copilot' ? copilotModels() : textModels(file))).find(m => m.provider === r.provider && m.model === r.model)
   if (!model) throw new Error('This model is no longer available on the worker. Refresh the model list.')
-  if (Math.ceil(Buffer.byteLength(JSON.stringify([r.messages, r.tools, r.schema])) / (r.provider === 'copilot' ? 1.5 : 1)) + Math.min(r.maxTokens, r.provider === 'copilot' ? 8192 : 16384) + 2048 > model.context) throw new Error('The text exceeds this model’s conservative context limit. Select a smaller passage.')
+  if ((r.attachments?.length ?? 0) * 4096 + Math.ceil(Buffer.byteLength(JSON.stringify([r.messages, r.tools, r.schema])) / (r.provider === 'copilot' ? 1.5 : 1)) + Math.min(r.maxTokens, r.provider === 'copilot' ? 8192 : 16384) + 2048 > model.context) throw new Error('The text exceeds this model’s conservative context limit. Select a smaller passage.')
   if (r.provider === 'copilot') {
+    const attachments = checkAttachments(r.attachments, model.vision)
     const tools = (r.tools ?? []).map(t => ({ type: 'function', function: t }))
     // Validate before contacting a model; no remote schema loading or tool execution.
     const validator = new AjvJsonSchemaValidator()
     const output = r.schema ? validator.getValidator(r.schema) : null
     const inputs = new Map((r.tools ?? []).map(t => [t.name, validator.getValidator(t.parameters)]))
     const messages = r.schema ? [{ role: 'system', content: 'Return an answer matching this JSON schema. Put the JSON answer as a string in the harness content field. Schema: ' + JSON.stringify(r.schema) }, ...r.messages] : r.messages
-    const data = await copilotInference(r.model)({ model: r.model, messages, tools, contextTokens: model.context, outputTokens: Math.min(r.maxTokens,8192), signal })
+    const data = await copilotInference(r.model)({ model: r.model, messages, tools, contextTokens: model.context, outputTokens: Math.min(r.maxTokens,8192), attachments, signal })
     const calls = (data.message.tool_calls ?? []).map((c: any) => ({ id: c.id, name: c.function.name, arguments: c.function.arguments }))
     if (calls.length && !tools.length) throw new Error('Copilot returned unexpected tools.')
     for (const call of calls) if (!inputs.get(call.name)?.(call.arguments).valid) throw new Error('Copilot returned invalid function arguments; no tool was executed.')
