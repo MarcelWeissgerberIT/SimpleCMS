@@ -41,6 +41,7 @@ export function inviteRoutes(s: Services) {
     return c.json({
       workspace: { name: ws.name, icon: ws.icon ? JSON.parse(ws.icon) : null },
       role: invite.role,
+      guest: !!invite.guest,
       inviter: inviter ? { name: inviter.name, email: inviter.email } : null,
       email: invite.email,
       expires_at: iso(invite.expires_at),
@@ -62,7 +63,7 @@ export function inviteRoutes(s: Services) {
       // already a member: keep the role, and the place stays for someone else (not a use)
       if (existing) return { workspaceId: invite.workspace_id, role: existing, joined: false }
       if (!s.repo.consumeInvite(invite.id, user.id)) throw notFound('invite_not_found', DEAD)
-      s.repo.addMember(invite.workspace_id, user.id, invite.role)
+      s.repo.addMember(invite.workspace_id, user.id, invite.role, !!invite.guest)
       return { workspaceId: invite.workspace_id, role: invite.role, joined: true }
     })
     if (result.joined) s.log.info('invite accepted', { workspace: result.workspaceId, user: user.id, role: result.role, invite: invite.id })

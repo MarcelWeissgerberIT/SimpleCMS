@@ -11,7 +11,8 @@ summary: Four roles decide who may do what. Private pages are yours alone — en
 - **Owner** — full control, including deleting the workspace.
 - **Admin** — edits, and manages people and invites.
 - **Member** — reads and edits pages and databases.
-- **Viewer** — reads everything, changes nothing.
+- **Viewer** — reads shared content, changes nothing.
+- **Guest · read only** — a viewer explicitly marked as a guest in this workspace. Guests observe the same shared pages and live updates; they cannot edit, manage people or start coding jobs. Admins choose this access under **People** or when inviting. Private pages and personal secrets remain separate. Read access permits copying; it does not prevent knowledge transfer.
 
 **Workspace settings → People** ([more](help:workspace)): change a role, transfer ownership (*Owner (transfer)*), **Remove** someone. **Leave** takes you out yourself. Removing or leaving deletes that person's private pages in this workspace.
 

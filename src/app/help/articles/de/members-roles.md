@@ -11,9 +11,12 @@ summary: Vier Rollen legen fest, wer was darf. Private Seiten gehören nur dir �
 - **Inhaber** — volle Kontrolle, auch Löschen des Workspace.
 - **Admin** — bearbeitet und verwaltet Personen und Einladungen.
 - **Mitglied** — liest und bearbeitet Seiten und Datenbanken.
-- **Leser** — liest alles, ändert nichts.
+- **Leser** — liest gemeinsame Inhalte, ändert nichts.
 
 **Workspace-Einstellungen → Personen** ([mehr](help:workspace)): Rolle ändern, Inhaberschaft übertragen (*Inhaber (übertragen)*), jemanden **Entfernen**. **Verlassen** nimmt dich selbst heraus. Entfernen oder Verlassen löscht die privaten Seiten dieser Person in diesem Workspace.
+
+## Gäste im gemeinsamen Workspace
+Unter **Personen** oder beim Einladen kann ein Admin **Gast · nur lesen** wählen. Gäste beobachten die gemeinsamen Seiten und laufenden Änderungen desselben Workspaces. Sie können keine Inhalte ändern, Personen verwalten oder Coding-Aufträge starten. Private Seiten und persönliche Secrets bleiben getrennt. Lesbare Inhalte lassen sich kopieren; Leserechte verhindern keinen Wissenstransfer.
 
 ## Private Seiten
 Der Bereich **Privat** in der Seitenleiste hält Seiten, die nur du siehst — nicht einmal Inhaber oder Admins können sie öffnen; der Server verweigert es.

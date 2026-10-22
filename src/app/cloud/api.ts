@@ -205,12 +205,12 @@ export function delWorkspace(id: string): Promise<void> {
 }
 
 export async function getMembers(wsId: string): Promise<Member[]> {
-  const list = await request<Array<{ user: RawUser; role: Role; created_at: unknown }>>('GET', `api/workspaces/${encodeURIComponent(wsId)}/members`)
-  return list.map((m) => ({ user: toUser(m.user), role: m.role, created_at: toMs(m.created_at) }))
+  const list = await request<Array<{ user: RawUser; role: Role; guest?: boolean; created_at: unknown }>>('GET', `api/workspaces/${encodeURIComponent(wsId)}/members`)
+  return list.map((m) => ({ user: toUser(m.user), role: m.role, guest: !!m.guest, created_at: toMs(m.created_at) }))
 }
 
-export function patchMember(wsId: string, userId: string, role: Role): Promise<void> {
-  return request<void>('PATCH', `api/workspaces/${encodeURIComponent(wsId)}/members/${encodeURIComponent(userId)}`, { role })
+export function patchMember(wsId: string, userId: string, role: Role, guest?: boolean): Promise<void> {
+  return request<void>('PATCH', `api/workspaces/${encodeURIComponent(wsId)}/members/${encodeURIComponent(userId)}`, { role, ...(guest === undefined ? {} : {guest}) })
 }
 
 export function delMember(wsId: string, userId: string): Promise<void> {
@@ -220,6 +220,7 @@ export function delMember(wsId: string, userId: string): Promise<void> {
 type RawPerson = { id: string; name: string | null; email: string | null } | null
 
 interface RawInvite {
+  guest?: boolean
   id: string
   role: Role
   email: string | null
@@ -240,6 +241,7 @@ const toPerson = (p: NonNullable<RawPerson>) => ({ id: p.id, name: p.name ?? '',
 const toInvite = (i: RawInvite): Invite => ({
   id: i.id,
   role: i.role,
+  guest: !!i.guest,
   email: i.email ?? null,
   created_at: toMs(i.created_at) || Date.now(),
   expires_at: toMs(i.expires_at),
@@ -255,6 +257,7 @@ const toInvite = (i: RawInvite): Invite => ({
 
 /** Option names on the wire (docs/CLOUD.md § Invites & registration links). */
 const linkOptions = (o?: InviteOptions) => ({
+  ...(o?.guest !== undefined ? { guest: o.guest } : {}),
   ...(o?.maxUses !== undefined ? { max_uses: o.maxUses } : {}),
   ...(o?.days !== undefined ? { expires_in_days: o.days } : {}),
   ...(o?.domains?.length ? { domains: o.domains } : {}),
@@ -266,10 +269,11 @@ export async function postInvite(wsId: string, role: Role, email?: string, lang?
   )
 }
 
-export async function postInviteEmails(wsId: string, emails: string[], role: Role, opts?: { days?: number; lang?: string }): Promise<EmailInviteResult[]> {
+export async function postInviteEmails(wsId: string, emails: string[], role: Role, opts?: { days?: number; lang?: string; guest?: boolean }): Promise<EmailInviteResult[]> {
   const r = await request<{ results: EmailInviteResult[] }>('POST', `api/workspaces/${encodeURIComponent(wsId)}/invites/emails`, {
     emails,
     role,
+    ...(opts?.guest !== undefined ? { guest: opts.guest } : {}),
     ...(opts?.days !== undefined ? { expires_in_days: opts.days } : {}),
     ...(opts?.lang ? { lang: opts.lang } : {}),
   })
@@ -287,6 +291,7 @@ export function delInvite(wsId: string, inviteId: string): Promise<void> {
 export async function getInvitePreview(token: string): Promise<InvitePreview> {
   const r = await request<{
     workspace: { name: string; icon?: unknown }
+    guest?: boolean
     role: Role
     inviter: { name: string | null; email: string } | null
     email?: string | null
@@ -298,6 +303,7 @@ export async function getInvitePreview(token: string): Promise<InvitePreview> {
   return {
     workspace: { name: r.workspace?.name ?? '', icon: r.workspace?.icon ?? null },
     role: r.role,
+    guest: !!r.guest,
     inviter: r.inviter ? r.inviter.name || r.inviter.email || null : null,
     email: r.email ?? null,
     ...(r.expires_at !== undefined ? { expires_at: toMs(r.expires_at) } : {}),

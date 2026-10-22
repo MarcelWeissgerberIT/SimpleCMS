@@ -45,7 +45,7 @@ export function inviteMail(
 ): RenderedMail {
   const ws = oneLine(input.workspace)
   const who = oneLine(input.inviter, 60)
-  const roleDe: Record<string, string> = { admin: 'Admin', member: 'Mitglied', viewer: 'Leser' }
+  const roleDe: Record<string, string> = { admin: 'Admin', member: 'Mitglied', viewer: 'Leser', guest: 'Gast · nur lesen' }
   const t =
     lang === 'de'
       ? {
@@ -61,7 +61,7 @@ export function inviteMail(
           subject: `${who} invited you to “${ws}”`,
           label: 'INVITATION',
           title: `Join “${ws}”`,
-          body: `${who} invited you to the workspace “${ws}” on ${PRODUCT} as ${input.role}. The invitation is valid for ${input.days === 1 ? 'one day' : `${input.days} days`}.`,
+          body: `${who} invited you to the workspace “${ws}” on ${PRODUCT} as ${input.role === 'guest' ? 'guest (read only)' : input.role}. The invitation is valid for ${input.days === 1 ? 'one day' : `${input.days} days`}.`,
           button: 'Accept invitation',
           fallback: 'Or paste this link into your browser:',
           ignore: "Don't know who this is? Just ignore this email.",
@@ -76,7 +76,7 @@ export function inviteMail(
 /** Personal Atlas tokens are deliberately absent: they are available only after authenticated ONE sign-in. */
 export function welcomeMail(lang: Lang, i: {name:string;title:string;workspace:string;link:string;atlasLink:string;startLink:string;guest:boolean;note:string}):RenderedMail {
   const de=lang==='de', title=de?`Willkommen · ${oneLine(i.title)}`:`Welcome · ${oneLine(i.title)}`
-  const body=de?`Hallo ${oneLine(i.name)}, willkommen im Workspace „${oneLine(i.workspace)}“. ${i.guest?'Du erhältst Zugang zum getrennten Gastbereich für den Workshop.':'Hier arbeiten wir als ONE-Team zusammen.'} ${oneLine(i.note,300)}`:`Hello ${oneLine(i.name)}, welcome to “${oneLine(i.workspace)}”. ${i.guest?'You have access to the separate workshop guest area.':'This is our ONE team workspace.'} ${oneLine(i.note,300)}`
+  const body=de?`Hallo ${oneLine(i.name)}, willkommen im Workspace „${oneLine(i.workspace)}“. ${i.guest?'Du erhältst als Gast Lesezugriff auf den gemeinsamen Workshop-Workspace. Du kannst Inhalte ansehen, aber nicht ändern.':'Hier arbeiten wir als ONE-Team zusammen.'} ${oneLine(i.note,300)}`:`Hello ${oneLine(i.name)}, welcome to “${oneLine(i.workspace)}”. ${i.guest?'You have guest read-only access to the shared workshop workspace. You can view content, but cannot change it.':'This is our ONE team workspace.'} ${oneLine(i.note,300)}`
   const task=de?'Deine erste Aufgabe: In Atlas anmelden. In ONE unter Workspace → Personen deinen persönlichen Atlas-Start öffnen. Den eigenen Atlas-Agenten-Token in „Meine Secrets“ hinterlegen, die Atlas-MCP-Verbindung auswählen und einen freigegebenen Workshop-Record testweise lesen. Falls kein Token bereitliegt, zuerst in Atlas den eigenen Agenten anlegen. Keine Tokens in Seiten oder Chats kopieren.':'Your first task: Sign in to Atlas. In ONE, open your personal Atlas start under Workspace → People. Store your own Atlas agent token in “My secrets”, select the Atlas MCP connection and test-read one approved workshop record. If no token is provided, create your own agent in Atlas first. Never copy tokens into pages or chats.'
   const cta={href:i.link,label:de?'ONE-Einladung annehmen':'Accept ONE invitation'}, fallback=de?'Dein persönlicher ONE-Link:':'Your personal ONE link:'
   const extra=[{href:i.atlasLink,label:'Atlas'},{href:i.startLink,label:de?'Erste Aufgabe in ONE':'First task in ONE'}]

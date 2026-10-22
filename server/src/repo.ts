@@ -44,6 +44,7 @@ export interface InviteRow {
   token_hash: string
   workspace_id: string
   role: InviteRole
+  guest: number
   email: string | null
   created_by: string | null
   created_at: number
@@ -323,19 +324,19 @@ export class Repo {
   }
 
   members(workspaceId: string) {
-    return this.db.all<UserRow & { role: Role; member_since: number }>(
-      `SELECT u.*, m.role, m.created_at AS member_since FROM members m JOIN users u ON u.id = m.user_id
+    return this.db.all<UserRow & { role: Role; guest: number; member_since: number }>(
+      `SELECT u.*, m.role, m.guest, m.created_at AS member_since FROM members m JOIN users u ON u.id = m.user_id
        WHERE m.workspace_id = ? ORDER BY m.created_at`,
       workspaceId,
     )
   }
 
-  addMember(workspaceId: string, userId: string, role: Role) {
-    this.db.run('INSERT INTO members (workspace_id, user_id, role, created_at) VALUES (?, ?, ?, ?)', workspaceId, userId, role, Date.now())
+  addMember(workspaceId: string, userId: string, role: Role, guest = false) {
+    this.db.run('INSERT INTO members (workspace_id, user_id, role, guest, created_at) VALUES (?, ?, ?, ?, ?)', workspaceId, userId, role, Number(guest), Date.now())
   }
 
-  setRole(workspaceId: string, userId: string, role: Exclude<Role, 'owner'>) {
-    this.db.run('UPDATE members SET role = ? WHERE workspace_id = ? AND user_id = ?', role, workspaceId, userId)
+  setRole(workspaceId: string, userId: string, role: Exclude<Role, 'owner'>, guest = false) {
+    this.db.run('UPDATE members SET role = ?, guest = ? WHERE workspace_id = ? AND user_id = ?', role, Number(guest), workspaceId, userId)
   }
 
   /**
@@ -346,7 +347,7 @@ export class Repo {
     this.db.tx(() => {
       this.db.run('UPDATE workspaces SET personal_of = NULL WHERE id = ? AND personal_of IS NOT NULL AND personal_of != ?', workspaceId, toUserId)
       this.db.run("UPDATE members SET role = 'admin' WHERE workspace_id = ? AND role = 'owner'", workspaceId)
-      if (this.memberRole(workspaceId, toUserId)) this.db.run("UPDATE members SET role = 'owner' WHERE workspace_id = ? AND user_id = ?", workspaceId, toUserId)
+      if (this.memberRole(workspaceId, toUserId)) this.db.run("UPDATE members SET role = 'owner', guest = 0 WHERE workspace_id = ? AND user_id = ?", workspaceId, toUserId)
       else this.addMember(workspaceId, toUserId, 'owner')
     })
   }
@@ -368,7 +369,7 @@ export class Repo {
 
   // ── invites ──────────────────────────────────────────────────────────
 
-  createInvite(input: { workspaceId: string; role: InviteRole; email: string | null; createdBy: string; maxUses?: number; ttl?: number; domains?: string[] | null }) {
+  createInvite(input: { workspaceId: string; role: InviteRole; email: string | null; createdBy: string; maxUses?: number; ttl?: number; domains?: string[] | null; guest?: boolean }) {
     const token = randomToken()
     const now = Date.now()
     const row: InviteRow = {
@@ -376,6 +377,7 @@ export class Repo {
       token_hash: this.hash(token),
       workspace_id: input.workspaceId,
       role: input.role,
+      guest: Number(input.guest ?? false),
       email: input.email ? normalizeEmail(input.email) : null,
       created_by: input.createdBy,
       created_at: now,
@@ -387,9 +389,9 @@ export class Repo {
       allowed_domains: input.domains?.length ? input.domains.join(',') : null,
     }
     this.db.run(
-      `INSERT INTO invites (id, token_hash, workspace_id, role, email, created_by, created_at, expires_at, max_uses, allowed_domains)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      row.id, row.token_hash, row.workspace_id, row.role, row.email, row.created_by, row.created_at, row.expires_at, row.max_uses, row.allowed_domains,
+      `INSERT INTO invites (id, token_hash, workspace_id, role, email, created_by, created_at, expires_at, max_uses, allowed_domains, guest)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      row.id, row.token_hash, row.workspace_id, row.role, row.email, row.created_by, row.created_at, row.expires_at, row.max_uses, row.allowed_domains, row.guest,
     )
     return { token, row }
   }

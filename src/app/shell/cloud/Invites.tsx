@@ -7,7 +7,7 @@ import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
 import { AlertTriangle, Link2, Mail } from 'lucide-react'
 import { formatDistanceToNowStrict } from 'date-fns'
 import { de, enUS } from 'date-fns/locale'
-import type { EmailInviteResult, Invite, Role } from '../../cloud'
+import { useCloud, type EmailInviteResult, type Invite, type Role } from '../../cloud'
 import { useUI } from '../../store/ui'
 import { useLang, useT } from '../../i18n'
 import { Led } from '../../ui/controls'
@@ -69,7 +69,9 @@ export function Invites({ wsId, invites, setInvites, reload, focusForm }: { wsId
   const t = useT()
   const uid = useId()
   const [mode, setMode] = useState<Mode>('link')
-  const [role, setRole] = useState<Role>('member')
+  const guests = useCloud(s=>s.supports?.includes('guests:1'))
+  const [role, setRole] = useState<Role|'guest'>('member')
+  const effectiveRole = role === 'guest' ? 'viewer' : role
   const [days, setDays] = useState(7)
   const [uses, setUses] = useState(1)
   const [domains, setDomains] = useState('')
@@ -104,9 +106,9 @@ export function Invites({ wsId, invites, setInvites, reload, focusForm }: { wsId
     setBusy(true)
     setError(null)
     try {
-      const custom = uses !== 1 || days !== 7 || domainList.length > 0
+      const custom = role === 'guest' || uses !== 1 || days !== 7 || domainList.length > 0
       // the plain single-use link keeps its short call (the server's defaults)
-      const inv = custom ? await cloudApi.createInvite(wsId, role, undefined, { maxUses: uses, days, domains: domainList }) : await cloudApi.createInvite(wsId, role, undefined)
+      const inv = custom ? await cloudApi.createInvite(wsId, effectiveRole, undefined, { maxUses: uses, days, domains: domainList, ...(role==='guest'?{guest:true}:{}) }) : await cloudApi.createInvite(wsId, effectiveRole, undefined)
       setCreated(inv)
       void reload()
     } catch (e) {
@@ -122,7 +124,7 @@ export function Invites({ wsId, invites, setInvites, reload, focusForm }: { wsId
     setBusy(true)
     setError(null)
     try {
-      const r = await cloudApi.sendInvites(wsId, addresses, role, days !== 7 ? { days } : undefined)
+      const r = await cloudApi.sendInvites(wsId, addresses, effectiveRole, role==='guest'?{days,guest:true}:days !== 7 ? { days } : undefined)
       setResults(r)
       // what went out (or exists anyway) leaves the box; invalid addresses stay to be fixed
       setEmails(r.filter((x) => x.status === 'invalid').map((x) => x.email).join(', '))
@@ -160,7 +162,7 @@ export function Invites({ wsId, invites, setInvites, reload, focusForm }: { wsId
       >
         <ModeSwitch mode={mode} onChange={switchMode} />
         <div className="tm-fields" data-mode={mode}>
-          <Select id={`${uid}-role`} label={t('shell.cloud.team.inviteRole')} value={role} onChange={setRole} options={(mode === 'link' ? LINK_ROLES : EMAIL_ROLES).map((r) => ({ value: r, label: roleLabel(t, r) }))} />
+          <Select id={`${uid}-role`} label={t('shell.cloud.team.inviteRole')} value={role} onChange={setRole} options={[...(mode === 'link' ? LINK_ROLES : EMAIL_ROLES), ...(guests ? ['guest' as const] : [])].map((r) => ({ value: r, label: r==='guest'?roleLabel(t,'viewer',true):roleLabel(t, r) }))} />
           <Select id={`${uid}-days`} label={t('shell.cloud.inv.valid')} value={days} onChange={setDays} options={days$} />
           {mode === 'link' ? (
             <>
@@ -300,7 +302,7 @@ function OpenInvites({ invites, onRevoke }: { invites: Invite[]; onRevoke: (i: I
             return (
               <li key={inv.id} className="tm-inv" data-testid="invite">
                 <span className="cl-role" data-role={inv.role}>
-                  {roleLabel(t, inv.role)}
+                  {roleLabel(t, inv.role, !!inv.guest)}
                 </span>
                 <span className="tm-inv__who">
                   <span className="tm-inv__line">

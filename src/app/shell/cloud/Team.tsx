@@ -275,16 +275,17 @@ function Members({
     }
   }
 
-  const changeRole = (m: Member, role: Role) =>
+  const guests = useCloud(s=>s.supports?.includes('guests:1'))
+  const changeRole = (m: Member, role: Role, guest = false) =>
     run(m.user.id, async () => {
-      await cloudApi.setMemberRole(wsId, m.user.id, role)
+      await cloudApi.setMemberRole(wsId, m.user.id, role, ...(guests ? [guest] as const : []))
       if (role === 'owner') {
         // the old owner becomes an admin (docs/CLOUD.md)
-        setMembers(sortMembers(members.map((x) => (x.user.id === m.user.id ? { ...x, role } : x.role === 'owner' ? { ...x, role: 'admin' } : x))))
+        setMembers(sortMembers(members.map((x) => (x.user.id === m.user.id ? { ...x, role, guest } : x.role === 'owner' ? { ...x, role: 'admin' } : x))))
         toast({ message: t('shell.cloud.team.transferred', { name: nameOf(m) }), kind: 'success' })
       } else {
-        setMembers(sortMembers(members.map((x) => (x.user.id === m.user.id ? { ...x, role } : x))))
-        toast({ message: t('shell.cloud.team.roleChanged', { name: nameOf(m), role: roleLabel(t, role) }), kind: 'success' })
+        setMembers(sortMembers(members.map((x) => (x.user.id === m.user.id ? { ...x, role, guest } : x))))
+        toast({ message: t('shell.cloud.team.roleChanged', { name: nameOf(m), role: roleLabel(t, role, guest) }), kind: 'success' })
       }
     })
 
@@ -333,13 +334,14 @@ function Members({
               {editable ? (
                 <select
                   className="input"
-                  value={m.role}
+                  value={m.guest?'guest':m.role}
                   aria-label={t('shell.cloud.team.roleOf', { name })}
                   disabled={busy}
                   onChange={(e) => {
-                    const role = e.target.value as Role
+                    const access = e.target.value
+                    const role = access === 'guest' ? 'viewer' : access as Role
                     if (role === 'owner') setPending({ kind: 'transfer', userId: m.user.id })
-                    else void changeRole(m, role)
+                    else void changeRole(m, role, access==='guest')
                   }}
                 >
                   {(['admin', 'member', 'viewer'] as Role[]).map((r) => (
@@ -347,11 +349,12 @@ function Members({
                       {roleLabel(t, r)}
                     </option>
                   ))}
+                  {guests && <option value="guest">{roleLabel(t,'viewer',true)}</option>}
                   {myRole === 'owner' && <option value="owner">{t('shell.cloud.team.transfer')}</option>}
                 </select>
               ) : (
                 <span className="cl-role" data-role={m.role}>
-                  {roleLabel(t, m.role)}
+                  {roleLabel(t, m.role, !!m.guest)}
                 </span>
               )}
               {editable && (

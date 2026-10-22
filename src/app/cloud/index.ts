@@ -189,8 +189,8 @@ export async function deleteWorkspace(id: string): Promise<void> {
 export async function listMembers(wsId: string): Promise<Member[]> {
   return listMembersImpl(wsId)
 }
-export async function setMemberRole(wsId: string, userId: string, role: Role): Promise<void> {
-  return setMemberRoleImpl(wsId, userId, role)
+export async function setMemberRole(wsId: string, userId: string, role: Role, guest?: boolean): Promise<void> {
+  return setMemberRoleImpl(wsId, userId, role, guest)
 }
 /** Removing yourself = leaving; leaving the open workspace switches this tab to the local one. */
 export async function removeMember(wsId: string, userId: string): Promise<void> {
@@ -208,7 +208,7 @@ export async function createInvite(wsId: string, role: Role, email?: string, opt
  * Invite several addresses at once (≤ 20): one single-use invite + mail each, in the app's language.
  * Per address: 'sent' · 'failed' (mail not sent; `link` to pass on by hand) · 'already_member' · 'invalid'.
  */
-export async function sendInvites(wsId: string, emails: string[], role: Role, opts?: { days?: number }): Promise<EmailInviteResult[]> {
+export async function sendInvites(wsId: string, emails: string[], role: Role, opts?: { days?: number; guest?: boolean }): Promise<EmailInviteResult[]> {
   return sendInvitesImpl(wsId, emails, role, opts)
 }
 export async function listInvites(wsId: string): Promise<Invite[]> {

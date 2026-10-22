@@ -15,7 +15,7 @@ before(async () => {
   viewer = await signIn(server, 'files-viewer@example.com')
   outsider = await signIn(server, 'files-outsider@example.com')
   wsId = (await owner.post('/api/workspaces', { name: 'Files' })).body.id
-  const invite = await owner.post(`/api/workspaces/${wsId}/invites`, { role: 'viewer' })
+  const invite = await owner.post(`/api/workspaces/${wsId}/invites`, { role: 'viewer', guest:true })
   await viewer.post(`/api/invites/${invite.body.link.split('#/invite/')[1]}/accept`)
 })
 after(async () => {

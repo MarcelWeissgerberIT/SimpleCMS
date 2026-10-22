@@ -24,3 +24,6 @@ The link opens *You're invited.* Sign in with your email (new here? the link cre
 
 ## Registration links (server admins)
 Addresses listed in the server's `ADMIN_EMAILS` see **Settings → Server**: the **Sign-up** mode — **Open**, **Invite only** or **Domains** — and **Create registration link**. Whoever opens it can create an account and gets a space of their own, nothing else. Shown once; revoke any time.
+
+## Guests in the same workspace
+Choose **Guest · read only** access. The invitation opens this workspace with the same shared pages and live updates. Guests are marked under **People** and cannot edit content or invite other people. Guest access cannot prevent copying of readable content.

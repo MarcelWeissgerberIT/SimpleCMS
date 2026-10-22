@@ -6,11 +6,11 @@ async function cloud(page:Page,viewer=false){
   await page.evaluate(({USER,WORKSPACES,viewer})=>{
     const c=(window as any).__oneCloud
     c.mock({listMembers:async()=>[{user:USER,role:viewer?'viewer':'owner',created_at:Date.now()}],listInvites:async()=>[],cloudRequest:async(method:string,path:string,body?:unknown)=>{const r=await fetch('/SimpleCMS/'+path,{method,...(body===undefined?{}:{headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})});if(!r.ok)throw new Error('Fixture refusal');return r.status===204?undefined:r.json()}})
-    c.set({available:true,status:'online',active:{kind:'cloud',id:'ws_team'},user:USER,role:viewer?'viewer':'owner',readOnly:viewer,workspaces:WORKSPACES,supports:['welcome:1']})
+    c.set({available:true,status:'online',active:{kind:'cloud',id:'ws_team'},user:USER,role:viewer?'viewer':'owner',readOnly:viewer,workspaces:WORKSPACES,supports:['welcome:1','guests:1']})
   },{USER,WORKSPACES,viewer})
 }
 test('private bulk input matches recipients locally; save sends no invitation and a future deadline keeps Send disabled',async({page},info)=>{
-  const recipients=[{id:'a',name:'Mara Schön',email:'mara.schoen@example.test',workspaceId:'ws_team',role:'member',guest:false,note:'Team',status:'draft',hasAtlasLink:false,hasAtlasToken:false,atlasHost:null},{id:'b',name:'Jan Sommer',email:'jan.sommer@example.test',workspaceId:'ws_guests',role:'viewer',guest:true,note:'Guest only',status:'draft',hasAtlasLink:false,hasAtlasToken:false,atlasHost:null}]
+  const recipients=[{id:'a',name:'Mara Schön',email:'mara.schoen@example.test',workspaceId:'ws_team',role:'member',guest:false,note:'Team',status:'draft',hasAtlasLink:false,hasAtlasToken:false,atlasHost:null},{id:'b',name:'Jan Sommer',email:'jan.sommer@example.test',workspaceId:'ws_team',role:'viewer',guest:true,note:'Guest only',status:'draft',hasAtlasLink:false,hasAtlasToken:false,atlasHost:null}]
   let draft={revision:1,title:'Workshop',notBefore:Date.now()+86400000,lang:'en',recipients},saved:any=null,send=0
   await page.route('**/api/workspaces/ws_team/welcome**',async route=>{
     const req=route.request()
@@ -28,7 +28,7 @@ test('private bulk input matches recipients locally; save sends no invitation an
   expect(saved).toBeNull();expect(send).toBe(0)
   await editor.getByRole('button',{name:'Save encrypted',exact:true}).click()
   await expect(editor).toContainText('Saved encrypted. Nothing sent.')
-  expect(saved.recipients.map((r:any)=>[r.id,r.workspaceId,r.atlasToken])).toEqual([['a','ws_team','MAX-MCP'],['b','ws_guests','JULIAN-MCP']])
+  expect(saved.recipients.map((r:any)=>[r.id,r.workspaceId,r.atlasToken])).toEqual([['a','ws_team','MAX-MCP'],['b','ws_team','JULIAN-MCP']])
   expect(await editor.getByLabel('Separate Atlas agent token (optional)').first().inputValue()).toBe('')
   await editor.getByRole('button',{name:'Email preview',exact:true}).first().click();await expect(page.getByRole('dialog')).toContainText('Personal links hidden');await page.keyboard.press('Escape')
   await editor.getByRole('checkbox').check();await expect(editor.getByRole('button',{name:/Send welcome emails/})).toBeDisabled();expect(send).toBe(0)

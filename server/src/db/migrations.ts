@@ -424,4 +424,12 @@ export const migrations: Migration[] = [
       CREATE INDEX welcome_access_recipient ON welcome_access(target_workspace_id,email_hash);
     `,
   },
+  {
+    version: 15,
+    name: 'read-only guests in their shared workspace',
+    sql: `
+      ALTER TABLE members ADD COLUMN guest INTEGER NOT NULL DEFAULT 0 CHECK (guest IN (0,1) AND (guest = 0 OR role = 'viewer'));
+      ALTER TABLE invites ADD COLUMN guest INTEGER NOT NULL DEFAULT 0 CHECK (guest IN (0,1) AND (guest = 0 OR role = 'viewer'));
+    `,
+  },
 ]

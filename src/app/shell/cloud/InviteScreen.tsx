@@ -11,6 +11,7 @@ import { CheckInbox, SignInForm, useSignInFlow } from './SignIn'
 import { roleLabel } from './state'
 
 interface Preview {
+  guest: boolean
   workspace: string
   role: Role
   inviter: string | null
@@ -24,7 +25,7 @@ interface Preview {
 
 /** The core passes the server's preview through; read it defensively (inviter is a name or { name, email }). */
 function readPreview(raw: unknown): Preview {
-  const p = (raw ?? {}) as { workspace?: { name?: string }; role?: Role; inviter?: unknown; email?: unknown; expires_at?: unknown; domains?: unknown; places_left?: unknown; max_uses?: unknown }
+  const p = (raw ?? {}) as { workspace?: { name?: string }; role?: Role; guest?: boolean; inviter?: unknown; email?: unknown; expires_at?: unknown; domains?: unknown; places_left?: unknown; max_uses?: unknown }
   let inviter: string | null = null
   if (typeof p.inviter === 'string') inviter = p.inviter.trim() || null
   else if (p.inviter && typeof p.inviter === 'object') {
@@ -35,6 +36,7 @@ function readPreview(raw: unknown): Preview {
   return {
     workspace: p.workspace?.name?.trim() || '—',
     role: p.role ?? 'member',
+    guest: p.guest === true,
     inviter,
     email: typeof p.email === 'string' && p.email ? p.email : null,
     expires: Number.isFinite(exp) ? exp : null,
@@ -138,8 +140,8 @@ export function InviteScreen({ token }: { token: string }) {
           <h1 className="display cl-title">{t('shell.cloud.invite.title')}</h1>
           <p className="cl-lede">
             {load.preview.inviter
-              ? t('shell.cloud.invite.lede', { inviter: load.preview.inviter, workspace: load.preview.workspace, role: roleLabel(t, load.preview.role) })
-              : t('shell.cloud.invite.ledeAnon', { workspace: load.preview.workspace, role: roleLabel(t, load.preview.role) })}
+              ? t('shell.cloud.invite.lede', { inviter: load.preview.inviter, workspace: load.preview.workspace, role: roleLabel(t, load.preview.role, !!load.preview.guest) })
+              : t('shell.cloud.invite.ledeAnon', { workspace: load.preview.workspace, role: roleLabel(t, load.preview.role, !!load.preview.guest) })}
           </p>
           <dl className="cl-card">
             <div>
@@ -150,9 +152,9 @@ export function InviteScreen({ token }: { token: string }) {
               <dt>{t('shell.cloud.invite.role')}</dt>
               <dd>
                 <span className="cl-role" data-role={load.preview.role}>
-                  {roleLabel(t, load.preview.role)}
+                  {roleLabel(t, load.preview.role, !!load.preview.guest)}
                 </span>
-                <span className="cl-card__hint">{t(`shell.cloud.roleHint.${load.preview.role}`)}</span>
+                <span className="cl-card__hint">{t(`shell.cloud.roleHint.${load.preview.guest?'guest':load.preview.role}`)}</span>
               </dd>
             </div>
             {load.preview.inviter && (

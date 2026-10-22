@@ -30,7 +30,7 @@ export function welcomeRoutes(s:Services) {
     for(const r of old?.recipients??[])if(r.status!=='draft'&&!v.recipients.some(n=>n.id===r.id))throw conflict('welcome_locked','Sent or uncertain recipients cannot be removed')
     const recipients:Recipient[]=v.recipients.map(r=>{
       target(auth.user.id,r.workspaceId)
-      if(r.guest&&(r.workspaceId===workspace.id||r.role!=='viewer'))throw badRequest('welcome_guest','Guests need a separate workspace with viewer access')
+      if(r.guest&&r.role!=='viewer')throw badRequest('welcome_guest','Guests must have viewer access in their destination workspace')
       const previous=old?.recipients.find(p=>p.id===r.id)
       const next={...r,email:normalizeEmail(r.email),status:previous?.status??'draft',hasAtlasLink:false,hasAtlasToken:false,atlasHost:null,atlasLink:r.atlasLink??previous?.atlasLink??'',atlasToken:r.atlasToken??previous?.atlasToken??'',...(previous?.sentAt?{sentAt:previous.sentAt}:{})} satisfies Recipient
       if(previous&&previous.status!=='draft'&&(['name','email','workspaceId','role','guest','note','atlasLink','atlasToken'] as const).some(k=>next[k]!==previous[k]))throw conflict('welcome_locked','Sent or uncertain recipients cannot be changed')
@@ -53,7 +53,7 @@ export function welcomeRoutes(s:Services) {
     if(s.mailer.mode!=='smtp'&&!s.config.devMode)throw conflict('welcome_mail','SMTP is not configured')
     const pending=d.recipients.filter(r=>r.status==='draft')
     if(!pending.length)throw conflict('welcome_done','No unsent recipients')
-    for(const r of pending){target(auth.user.id,r.workspaceId);if(!r.atlasLink)throw badRequest('welcome_atlas','Every recipient needs their Atlas link')}
+    for(const r of pending){target(auth.user.id,r.workspaceId);const existing=s.repo.userByEmail(r.email),role=existing&&s.repo.memberRole(r.workspaceId,existing.id);if(r.guest&&(r.role!=='viewer'||(role&&role!=='viewer')))throw conflict('welcome_guest','Guest recipients must have viewer access; review existing membership first');if(!r.atlasLink)throw badRequest('welcome_atlas','Every recipient needs their Atlas link')}
     for(const id of new Set(pending.map(r=>r.workspaceId)))if(s.repo.countInvitesSince(id,Date.now()-DAY)+pending.filter(r=>r.workspaceId===id).length>50)throw rateLimited(3600)
     locks.add(k)
     // Persist before any mail: process death or ambiguous SMTP failure must never trigger a silent duplicate.
@@ -65,7 +65,9 @@ export function welcomeRoutes(s:Services) {
           // Recheck both author and destination rights for each individual send.
           if(!atLeast(s.repo.memberRole(workspace.id,auth.user.id)??'viewer','admin'))throw new Error('Access changed')
           const w=target(auth.user.id,r.workspaceId),existing=s.repo.userByEmail(r.email),member=existing&&s.repo.memberRole(w.id,existing.id)
-          const link=member?s.config.publicUrl+`/app/?w=${encodeURIComponent(w.id)}`:s.config.publicUrl+'/app/#/invite/'+s.repo.createInvite({workspaceId:w.id,role:r.role,email:r.email,createdBy:auth.user.id,ttl:7*DAY,maxUses:1}).token
+          if(r.guest&&member&&member!=='viewer')throw new Error('Guest membership changed')
+          const link=member?s.config.publicUrl+`/app/?w=${encodeURIComponent(w.id)}`:s.config.publicUrl+'/app/#/invite/'+s.repo.createInvite({workspaceId:w.id,role:r.role,guest:r.guest,email:r.email,createdBy:auth.user.id,ttl:7*DAY,maxUses:1}).token
+          if(r.guest&&member==='viewer'&&existing)s.repo.setRole(w.id,existing.id,'viewer',true)
           store.grant(workspace.id,auth.user.id,newId(),r,Date.now()+7*DAY)
           const mail=welcomeMail(d.lang,{name:r.name,title:d.title,workspace:w.name,link,atlasLink:r.atlasLink,startLink:s.config.publicUrl+`/app/?w=${encodeURIComponent(w.id)}#/workspace/people`,guest:r.guest,note:r.note})
           await s.mailer.send({to:r.email,link,...mail});r.status='sent';r.sentAt=Date.now()

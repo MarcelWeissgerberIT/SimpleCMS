@@ -222,8 +222,8 @@ All mutating requests require `Content-Type: application/json` (CSRF guard toget
 | `POST /api/workspaces` | session | `{ name }` → workspace (caller = owner) |
 | `PATCH /api/workspaces/:id` | admin | `{ name?, icon? }` |
 | `DELETE /api/workspaces/:id` | owner | deletes workspace, documents, files |
-| `GET /api/workspaces/:id/members` | member | → `[{ user: {id,email,name}, role, created_at }]` |
-| `PATCH /api/workspaces/:id/members/:userId` | admin | `{ role }` (owner transfer only by owner) |
+| `GET /api/workspaces/:id/members` | member | → `[{ user: {id,email,name}, role, guest, created_at }]` |
+| `PATCH /api/workspaces/:id/members/:userId` | admin | `{ role, guest? }` (`guest:true` requires viewer; owner transfer only by owner) |
 | `DELETE /api/workspaces/:id/members/:userId` | admin, or self (leave) | |
 | `POST /api/workspaces/:id/invites` | admin | `{ role, email?, max_uses?, expires_in_days?, domains? }` → `{ id, link, expires_at, … }` (email → also sent) |
 | `POST /api/workspaces/:id/invites/emails` | admin | *(server addition)* `{ emails: string[] (1–20), role, expires_in_days?, lang? }` → `{ results: [{ email, status, link? }] }` |
@@ -1330,7 +1330,7 @@ Workspace → People offers a per-organizer private welcome draft, independent o
 workspace exports, model context and personal vaults. REST is cookie-authenticated and CSRF guarded:
 `GET/PUT /api/workspaces/:id/welcome`, `GET …/welcome/preview/:recipient` and `POST …/welcome/send`
 require admin membership and use only the signed-in organizer's draft. Every destination must be a team
-workspace the organizer administers; guest rows require a separate viewer workspace. Revision checks and
+workspace the organizer administers; guest rows require viewer access in their destination workspace, which may be the same shared workspace. Revision checks and
 in-flight locks prevent stale edits and simultaneous sending. No scheduler sends these messages.
 
 Migration 14 stores draft payloads and recipient onboarding values as AES-GCM envelopes under the source
@@ -1350,3 +1350,21 @@ the participant confirms their real connection test. Completion neither proves a
 The server decrypts onboarding values for these operations; durable connections use the independent
 client-encrypted personal vault. Draft ciphertext remains in normal encrypted server backups, never in
 portable workspace packages. Tests cover privacy, encryption, tenancy, deadlines, replay and SMTP failure.
+
+
+### Guests observing a shared workspace (v15)
+`guests:1` advertises guest designation on invitations and workspace members. The app offers
+**Guest · read only** when inviting and under People. On the wire this is `role: "viewer", guest: true`,
+not an additional permission rank. `members.guest` and `invites.guest` default to 0; database CHECKs
+require the viewer role whenever guest is 1. Invite create, bulk-email create and member PATCH reject
+`guest:true` with an editing role. Acceptance retains the designation, while an explicit promotion to
+member/admin/owner clears it. Existing non-guest memberships stay unchanged.
+
+Guests see the shared workspace's current documents through the same read-only collaboration path.
+Private pages, other users' secrets and organizer-private welcome drafts remain inaccessible. They
+cannot edit content, upload files, invite people or execute coding jobs. Read access does not prevent
+copying or offline retention. An optional separate viewer workspace remains possible.
+
+Welcome drafts may prepare guest recipients for the actual workshop workspace without creating
+memberships or sending mail. Sending remains explicit and deadline-gated; a guest recipient with an
+existing editing membership is refused before any email, so the organizer must review that membership.

@@ -175,3 +175,34 @@ test.describe('team cloud UI states (mocked cloud)', () => {
     await expect(stack).toHaveAttribute('aria-label', /Grace Hopper/)
   })
 })
+
+
+test('workspace admins can designate a read-only guest and create a guest invite for the same workspace', async ({page}, info) => {
+  await openApp(page)
+  await mockCloud(page,{available:true,user:USER,workspaces:WS,active:{kind:'cloud',id:'ws_acme123'},role:'owner',status:'online',supports:['guests:1']})
+  await page.evaluate(()=>{location.hash='#/workspace/people'})
+  const view=page.getByTestId('workspace-page')
+  await view.getByLabel('Role of Linus Ek').selectOption('guest')
+  await expect(page.locator('.toasts')).toContainText('Linus Ek is now Guest · read only')
+  await expect(view.getByLabel('Role of Linus Ek')).toHaveValue('guest')
+  expect(await calls(page)).toContainEqual(['setMemberRole','ws_acme123','u3','viewer',true])
+  await view.getByLabel('Role',{exact:true}).selectOption('guest')
+  await view.getByLabel('Role of Linus Ek').scrollIntoViewIfNeeded()
+  await page.screenshot({path:info.outputPath('workspace-read-only-guest.png'),animations:'disabled'})
+  await view.getByRole('button',{name:/Create invite link/}).click()
+  expect(await calls(page)).toContainEqual(['createInvite','ws_acme123','viewer',undefined,{maxUses:1,days:7,domains:[],guest:true}])
+  await view.getByLabel('Role of Linus Ek').selectOption('member')
+  expect(await calls(page)).toContainEqual(['setMemberRole','ws_acme123','u3','member',false])
+})
+
+
+test('a guest invitation explains read-only access to its workspace',async({page})=>{
+  await openApp(page)
+  await mockCloud(page,{available:true,user:USER,workspaces:WS,status:'online'})
+  await page.evaluate(()=>{
+    (window as any).__oneCloud.mock({previewInvite:async()=>({workspace:{name:'Shared workshop'},role:'viewer',guest:true,inviter:'Organizer'})})
+    location.hash='#/invite/synthetic-guest-token'
+  })
+  await expect(page.locator('.cl-role')).toHaveText('Guest · read only')
+  await expect(page.locator('.cl-card__hint')).toContainText('reads shared workspace content and cannot make changes')
+})

@@ -44,18 +44,17 @@ test('paste extracts explicit MCP/agent credentials and Bearer headers, includin
   assert.equal(urlOnly.updates[0]?.atlasToken,undefined)
 })
 
-let server:TestServer,owner:Client,other:Client,alice:Client,bob:Client,ws:string,guest:string
+let server:TestServer,owner:Client,other:Client,alice:Client,bob:Client,ws:string
 before(async()=>{
   server=await startServer({AUTH_IP_LIMIT:'1000'});owner=await signIn(server,'organizer@welcome.test');other=await signIn(server,'other@welcome.test');alice=await signIn(server,'alice@welcome.test');bob=await signIn(server,'bob@welcome.test')
   ws=(await owner.post('/api/workspaces',{name:'Workshop team'})).body.id
-  guest=(await owner.post('/api/workspaces',{name:'Workshop guests'})).body.id
 })
 after(async()=>{await server?.stop()})
 const path=()=>`/api/workspaces/${ws}/welcome`
 const put=(c:Client,v:unknown)=>c.json('PUT',path(),v)
 const draft=()=>({revision:0,title:'Synthetic workshop',notBefore:Date.now()+DAY,lang:'en',recipients:[
   {id:'alice',name:'Alice',email:'alice@welcome.test',workspaceId:ws,role:'member',guest:false,note:'Team',atlasLink:'https://atlas.example/invite?token=ALICE-INVITE',atlasToken:'ALICE-MCP-SECRET'},
-  {id:'bob',name:'Bob',email:'bob@welcome.test',workspaceId:guest,role:'viewer',guest:true,note:'Guest only',atlasLink:'https://atlas.example/invite?token=BOB-INVITE',atlasToken:'BOB-MCP-SECRET'}
+  {id:'bob',name:'Bob',email:'bob@welcome.test',workspaceId:ws,role:'viewer',guest:true,note:'Guest only',atlasLink:'https://atlas.example/invite?token=BOB-INVITE',atlasToken:'BOB-MCP-SECRET'}
 ]})
 const DAY=86400000
 test('preparation is private, encrypted and side-effect free; time/revision/guest gates are server enforced',async()=>{
@@ -69,7 +68,7 @@ test('preparation is private, encrypted and side-effect free; time/revision/gues
   assert.equal((await other.get(path())).body,null,'Another admin has no access to the organizer’s private draft')
   const alien=(await other.post('/api/workspaces',{name:'Another team'})).body.id
   assert.equal((await put(owner,{...draft(),revision:1,recipients:[{...draft().recipients[0],workspaceId:alien}]})).status,403)
-  assert.equal((await put(owner,{...draft(),revision:1,recipients:[{...draft().recipients[1],workspaceId:ws}]})).status,400)
+  assert.equal((await put(owner,{...draft(),revision:1,recipients:[{...draft().recipients[1],role:'member'}]})).status,400)
   assert.equal((await put(owner,draft())).status,409)
   assert.equal((await owner.post(path()+'/send',{revision:1})).status,409)
   const preview=(await owner.get(path()+'/preview/alice')).body
@@ -89,7 +88,7 @@ test('an SMTP failure remains uncertain and a second Send cannot resend that rec
     assert.equal((await c.get(`/api/workspaces/${w}/invites`)).body.length,count)
   }finally{await srv.stop();await sink.close()}
 })
-test('one explicit send separates guest/team, hides MCP tokens from mail, prevents replay and binds reveal/dismissal to the recipient',async()=>{
+test('one explicit send grants read-only guest access to the shared workspace, hides MCP tokens from mail, prevents replay and binds reveal/dismissal to the recipient',async()=>{
   const before=(await mailbox(server)).length,r=await owner.post(path()+'/send',{revision:2})
   assert.equal(r.status,200,JSON.stringify(r.body));assert.ok(r.body.recipients.every((p:any)=>p.status==='sent'))
   assert.ok(!JSON.stringify(r.body).includes('SECRET'));assert.equal((await mailbox(server)).length,before+2)
@@ -99,14 +98,31 @@ test('one explicit send separates guest/team, hides MCP tokens from mail, preven
   assert.equal((await alice.post('/api/invites/'+aMail.link.split('#/invite/')[1]+'/accept')).status,200)
   assert.equal((await bob.post('/api/invites/'+bMail.link.split('#/invite/')[1]+'/accept')).status,200)
   const members=(await owner.get(`/api/workspaces/${ws}/members`)).body
-  assert.ok(members.some((m:any)=>m.user.email==='alice@welcome.test'&&m.role==='member'));assert.ok(!members.some((m:any)=>m.user.email==='bob@welcome.test'))
-  const guests=(await owner.get(`/api/workspaces/${guest}/members`)).body;assert.ok(guests.some((m:any)=>m.user.email==='bob@welcome.test'&&m.role==='viewer'))
+  assert.ok(members.some((m:any)=>m.user.email==='alice@welcome.test'&&m.role==='member'));assert.ok(members.some((m:any)=>m.user.email==='bob@welcome.test'&&m.role==='viewer'&&m.guest===true))
+  assert.ok(aMail.text.includes('ONE team workspace'));assert.ok(bMail.text.includes('read-only access to the shared workshop workspace'))
+  assert.equal((await bob.patch(`/api/workspaces/${ws}`,{name:'Guest write'})).status,403)
+  assert.equal((await bob.post(`/api/workspaces/${ws}/invites`,{role:'member'})).status,403)
   const own=(await alice.get(path()+'-access')).body;assert.equal(own.length,1)
   assert.ok(!JSON.stringify(own).includes('SECRET'))
   assert.equal((await owner.post(path()+`-access/${own[0].id}/open`)).status,404)
-  assert.equal((await bob.post(`/api/workspaces/${guest}/welcome-access/${own[0].id}/open`)).status,404)
+  assert.equal((await bob.post(`/api/workspaces/${ws}/welcome-access/${own[0].id}/open`)).status,404)
   const revealed=await alice.post(path()+`-access/${own[0].id}/open`);assert.equal(revealed.body.atlasToken,'ALICE-MCP-SECRET');assert.equal(revealed.res.headers.get('cache-control'),'no-store')
   assert.equal((await alice.post(path()+`-access/${own[0].id}/complete`)).status,204);assert.deepEqual((await alice.get(path()+'-access')).body,[])
-  assert.equal((await bob.get(`/api/workspaces/${guest}/welcome-access`)).body.length,1)
+  assert.equal((await bob.get(`/api/workspaces/${ws}/welcome-access`)).body.length,1)
   const db=new DatabaseSync(join(server.dataDir,'one.sqlite'));try{const rows=db.prepare('SELECT sealed FROM welcome_access').all();assert.ok(rows.every(x=>String(x.sealed).startsWith('v1.')&&!String(x.sealed).includes('SECRET')))}finally{db.close()}
+})
+
+
+test('welcome send refuses an existing editing membership for a guest before any mail is sent',async()=>{
+  const w=(await owner.post('/api/workspaces',{name:'Existing guest membership'})).body.id
+  const invite=(await owner.post(`/api/workspaces/${w}/invites`,{role:'member'})).body.link
+  await bob.post('/api/invites/'+invite.split('#/invite/')[1]+'/accept')
+  const p=`/api/workspaces/${w}/welcome`
+  const input={...draft(),notBefore:0,recipients:[{...draft().recipients[1],workspaceId:w}]}
+  assert.equal((await owner.json('PUT',p,input)).status,200)
+  const before=(await mailbox(server)).length
+  assert.equal((await owner.post(p+'/send',{revision:1})).status,409)
+  assert.equal((await mailbox(server)).length,before)
+  assert.equal((await owner.get(p)).body.recipients[0].status,'draft')
+  assert.equal((await bob.get('/api/me')).body.workspaces.find((v:any)=>v.id===w).role,'member')
 })

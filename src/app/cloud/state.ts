@@ -147,12 +147,14 @@ export const useCloudSync = create<CloudSyncState>(() => ({
 }))
 
 export interface Member {
+  guest?: boolean
   user: CloudUser
   role: Role
   created_at: number
 }
 
 export interface Invite {
+  guest?: boolean
   id: string
   role: Role
   email: string | null
@@ -176,6 +178,7 @@ export interface Invite {
 
 /** Options of a new invite link (server defaults: single use, 7 days, any address). */
 export interface InviteOptions {
+  guest?: boolean
   /** 1–100 people (reusable links: member / viewer only). */
   maxUses?: number
   /** 1–30 days. */
@@ -192,6 +195,7 @@ export interface EmailInviteResult {
 }
 
 export interface InvitePreview {
+  guest?: boolean
   workspace: { name: string; icon?: unknown }
   role: Role
   /** Name (or address) of the person who invited. */

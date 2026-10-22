@@ -118,8 +118,8 @@ export function listMembersImpl(wsId: string): Promise<Member[]> {
   return getMembers(wsId)
 }
 
-export async function setMemberRoleImpl(wsId: string, userId: string, role: Role): Promise<void> {
-  await patchMember(wsId, userId, role)
+export async function setMemberRoleImpl(wsId: string, userId: string, role: Role, guest?: boolean): Promise<void> {
+  await patchMember(wsId, userId, role, guest)
   // an ownership transfer (or a change of one's own role) changes what this person may do
   if (role === 'owner' || userId === useCloud.getState().user?.id) {
     const me = await refreshMe()
@@ -142,8 +142,8 @@ export function createInviteImpl(wsId: string, role: Role, email?: string, opts?
   return postInvite(wsId, role, email?.trim() || undefined, lang(), opts)
 }
 
-export function sendInvitesImpl(wsId: string, emails: string[], role: Role, opts?: { days?: number }): Promise<EmailInviteResult[]> {
-  return postInviteEmails(wsId, emails, role, { days: opts?.days, lang: lang() })
+export function sendInvitesImpl(wsId: string, emails: string[], role: Role, opts?: { days?: number; guest?: boolean }): Promise<EmailInviteResult[]> {
+  return postInviteEmails(wsId, emails, role, { days: opts?.days, guest: opts?.guest, lang: lang() })
 }
 
 export function listInvitesImpl(wsId: string): Promise<Invite[]> {
