@@ -43,6 +43,7 @@ export interface StepPageWords {
 }
 
 export interface StepPageInput {
+  assumptions?: string[]
   delivery?: DeliveryContract
   covers?: string[]
   needs?: Array<{ n: number; title: string }>
@@ -144,6 +145,11 @@ export function stepPage(input: StepPageInput): StepPage {
   const max = input.max ?? ORDER_LIMITS.quoteChars
   const lead: JSONContent[] = []
   const own: string[] = []
+  if (input.assumptions?.length) {
+    const id = `${input.taskId}-assumptions`
+    lead.push({ type: 'callout', attrs: { id, icon: 'asset:notepad', color: 'gray' }, content: paragraphs(`Working assumptions / Arbeitsannahmen (not established facts):\n${input.assumptions.map(s => `• ${scrubSecrets(s)}`).join('\n')}`) })
+    own.push(id)
+  }
   if (input.delivery) {
     const requirements = input.delivery.requirements.filter(r => input.covers?.includes(r.id))
     const body = [input.words.delivery ?? 'Delivery contract', ...requirements.map(r => `${r.id}: ${r.text}`), input.words.acceptance ?? 'Final acceptance', ...input.delivery.acceptance.map(s => `• ${s}`), ...(input.needs?.length ? [input.words.dependencies ?? 'Dependencies', ...input.needs.map(s => `${s.n}: ${s.title}`)] : [])].join('\n')

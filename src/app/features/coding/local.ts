@@ -39,6 +39,10 @@ export interface TaskLocal {
   planSig?: string | null
   summary?: string | null
   test?: TestResult | null
+  /** Set at the claim, so a legacy/unrelated test cannot stand in for final delivery QA. */
+  qualityReview?: boolean
+  qualityInputs?: Record<ID, string>
+  deliveryQa?: { run: string; at: number; branch: string; inputs: Record<ID, string> } | null
   git?: GitInfo | null
   url?: string | null
   /** failed test runs since the last pass (the second one goes to the review gate) */

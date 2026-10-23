@@ -203,6 +203,7 @@ async function buildStep(
   }
   const refs = step.refs.filter(live).slice(0, ORDER_LIMITS.linkedPages)
   const page = stepPage({
+    assumptions: draft.plan.assumptions,
     taskId: o.id,
     after: o.after,
     code: orderCode(rowId) ?? (ws().pages[rowId]?.title.trim() || t('common.untitled')),

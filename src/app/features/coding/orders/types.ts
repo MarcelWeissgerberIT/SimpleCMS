@@ -28,6 +28,8 @@ export interface OrderPlanV1 {
   delivery?: DeliveryContract
   /** ≤ 600 — "Verstanden: …" */
   summary: string
+  /** Reversible working defaults, shown together with the plan; never a substitute for authority or evidence. */
+  assumptions?: string[]
   /** what the picked server returned that the planner used (null: no server took part); note ≤ 2000, absolute links only */
   context: { server: string; note: string; links: string[] } | null
   /** ≤ 6 steps, ≤ 3 of them coding — BA first when the requirement is unclear, QA last for the coded change */
@@ -418,6 +420,8 @@ export interface OrderRecord {
   want?: { at: number; mode: 'trigger'; press?: OrderPress }
   draft?: OrderDraft
   chain?: OrderChain
+  /** Human acceptance of one exact evidence snapshot on this device. A changed snapshot invalidates it. */
+  accepted?: { run: string; at: number; evidence: string }
   /**
    * Orders B12 (a team): the request's Status reached Planen from ANOTHER device — this device saw the change arrive
    * from the server (the member's own write: the work orders are private) — the worker device's VON HAND card "Auf

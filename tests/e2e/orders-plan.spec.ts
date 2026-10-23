@@ -331,7 +331,7 @@ node.describe('the planner prompt', () => {
 
   node('the schema names exactly the plan\'s fields (every one required, nothing else allowed)', () => {
     const s = PLAN_SCHEMA as AnyState
-    expect(Object.keys(s.properties)).toEqual(['v', 'summary', 'context', 'delivery', 'steps', 'questions', 'refused'])
+    expect(Object.keys(s.properties)).toEqual(['v', 'summary', 'assumptions', 'context', 'delivery', 'steps', 'questions', 'refused'])
     expect(s.required).toEqual(Object.keys(s.properties))
     expect(s.additionalProperties).toBe(false)
     const st = s.properties.steps.items

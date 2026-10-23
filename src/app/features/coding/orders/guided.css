@@ -1,0 +1,14 @@
+.og { margin: 16px 0; border: 1px solid var(--rule); border-left: 3px solid var(--signal); border-radius: 4px; background: var(--surface); overflow: hidden; }
+.og-head { display: flex; align-items: center; gap: 10px; width: 100%; padding: 12px 16px; border: 0; color: inherit; background: var(--plate); text-align: left; cursor: pointer; flex-wrap: wrap; }
+.og-head strong { font-size: 14px; }.og-fold { margin-left: auto; }.og-body { padding: 0 16px 16px; }
+.og-track { display: flex; list-style: none; gap: 8px; padding: 16px 0 8px; margin: 0; flex-wrap: wrap; }
+.og-track li { display: flex; align-items: center; gap: 6px; padding: 5px 8px; border: 1px solid var(--rule); font-size: 12px; border-radius: 3px; color: var(--ink-2); }
+.og-track li[data-state=current] { color: var(--ink); border-color: #ff5100; box-shadow: inset 0 -2px #ff5100; }.og-track li[data-state=past] { color: var(--ink); }
+.og-track li>span { font-family: var(--font-mono); font-size: 11px; }.og-hint { margin: 8px 0 14px; line-height: 1.55; max-width: 76ch; }
+.og-goal { display: grid; gap: 8px; margin-bottom: 12px; }.og-goal textarea { width: 100%; resize: vertical; }
+.og-active { display: inline-flex; align-items: center; gap: 8px; color: inherit; text-underline-offset: 4px; }
+.og-details { margin-top: 16px; padding-top: 10px; border-top: 1px solid var(--rule); font-size: 12px; color: var(--ink-2); }.og-details summary, .og-accept summary { cursor: pointer; }.og-details p { margin: 6px 0; }
+.og-accept { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 10px; }.og-accept>details, .og-issues, .og-quiet { width: 100%; }.og-issues { padding-left: 20px; line-height: 1.6; margin: 0; }
+.og-evidence { white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.6 var(--font-mono); max-height: 420px; overflow: auto; padding: 12px; border: 1px solid var(--rule); background: var(--plate); }
+.og-quiet, .og-note { font-size: 12px; color: var(--ink-2); margin: 4px 0; line-height: 1.5; }
+@media(max-width:600px) { .og-head { padding: 10px; gap: 7px; }.og-body { padding: 0 10px 12px; }.og-head .label { font-size: 10px; }.og-track { gap: 5px; }.og-track li { font-size: 11px; padding: 4px 5px; } }

@@ -42,7 +42,7 @@ import { HandKey } from './HandKey'
 import { kindProjects, type KindProject } from './facts'
 import { readOrderConfig, orderAgent } from './config'
 import { olderParked, planHashNow, startChain } from './confirm'
-import { editStep, moveStep, removeStep, restoreDraft, setDraftBudget, type EditOutcome, type StepPatch } from './edit'
+import { editAssumptions, editStep, moveStep, removeStep, restoreDraft, setDraftBudget, type EditOutcome, type StepPatch } from './edit'
 import { endsAtGate, holdsOf, checkpointAfter, stopsOf, type StopStep } from './stops'
 import { projectAvgCost, COST_SAMPLE } from './costs'
 import { pageShown, quoteTitleOf, requestNow } from './fingerprint'
@@ -742,6 +742,7 @@ export default function ReadyPart({ rowId, rec, pre, headId, viewer, elsewhere, 
           <span className="label">{t(`${O}.plan.understood`)}</span> {draft.plan.summary}
         </p>
       )}
+      {!!draft.plan.assumptions?.length && <details className="orc-lines" data-testid="order-assumptions"><summary>{t('features.coding.guide.assumptions')}</summary><ul>{draft.plan.assumptions.map((s, i) => <li key={i}>{s}{!viewer && !elsewhere && <button type="button" className="btn btn--ghost btn--sm" aria-label={t('features.coding.guide.dropAssumption')} onClick={() => void editAssumptions(rowId, draft.plan.assumptions!.filter((_, n) => n !== i)).then(out => onNote(said(out)))}>×</button>}</li>)}</ul></details>}
       {draft.plan.delivery && <div className="orc-lines" data-testid="order-delivery">
         <p className="label">{t(`${O}.chain.delivery`)}</p>
         {draft.plan.delivery.requirements.map(r => <p className="orc-line" key={r.id}><strong>{r.id}</strong> {r.text}</p>)}

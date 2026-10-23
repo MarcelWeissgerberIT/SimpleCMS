@@ -295,6 +295,7 @@ export async function pickNext(repos: string[], workerName: string, docs = false
     const agent = codingAgentOf(db, row)
     const orderIds = props.order ? row.properties[props.order] : null
     let quality: TaskPayload['quality']
+    let qualityInputs: Record<ID, string> = {}
     if (Array.isArray(orderIds) && typeof orderIds[0] === 'string') {
       const record = await (await import('./orders/records')).loadOrderRecord(orderIds[0])
       if (record && record !== 'unreadable') {
@@ -302,6 +303,10 @@ export async function pickNext(repos: string[], workerName: string, docs = false
         if (step?.delivery) {
           const review = step.kind === 'qa' && !!record.chain?.steps.some(s => s.kind === 'coding')
           quality = { review, requirements: step.delivery.requirements.map(r => `${r.id}: ${r.text}`), acceptance: step.delivery.acceptance }
+          if (review) {
+            const { taskEvidenceFp } = await import('./orders/guidedAcceptance')
+            qualityInputs = Object.fromEntries(await Promise.all(record.chain!.steps.filter(s => s.kind === 'coding').map(async s => [s.id, await taskEvidenceFp(ws().pages[s.id])])) )
+          }
           if (review && record.chain?.repair) {
             quality.repair = record.chain.repair
             quality.packages = record.chain.steps.filter(s => s.kind === 'coding' && s.n < step.n).map(s => ({ id: s.id, title: ws().pages[s.id]?.title ?? 'Coding', requirements: s.delivery?.requirements.map(r => r.id) ?? [] }))
@@ -353,7 +358,7 @@ export async function pickNext(repos: string[], workerName: string, docs = false
         skip();await patchTask(row.id, { state: 'failed', error: e instanceof Error ? e.message : 'Unlock My secrets.', runNow: false });continue
       }
     }
-    await patchTask(row.id, { state: 'running', stageId: stage.id, run, error: null, runNow: false, resume: false })
+    await patchTask(row.id, { state: 'running', stageId: stage.id, run, error: null, runNow: false, resume: false, qualityReview: quality?.review === true, qualityInputs, ...(quality?.review || stage.kind === 'implement' ? { deliveryQa: null } : {}) })
     return {
       id: row.id,
       ...(personalMcp?.length ? { personalMcp } : {}),
@@ -427,6 +432,11 @@ export async function finishStage(taskId: ID, stageId: ID, outcome: StageOutcome
     if (next) patch.url = next
   } else if (outcome.url) patch.url = outcome.url
   if (outcome.test) patch.test = outcome.test
+  if (local.qualityReview && local.stageId === stageId) {
+    patch.qualityReview = false
+    patch.deliveryQa = stillThere && stage?.kind === 'doc' && outcome.status === 'ok' && outcome.test?.ok === true && outcome.test.code === 0 && !outcome.test.skipped && outcome.branch && outcome.branch === text(row.properties[props.branch ?? '']).trim() && local.run
+      ? { run: local.run, at: Date.now(), branch: outcome.branch, inputs: local.qualityInputs ?? {} } : null
+  }
   if(stillThere&&outcome.status==='ok'&&stage?.kind==='test'&&outcome.test?.ok===true&&outcome.test.code===0&&!outcome.test.skipped)noteReadiness(readiness,{signal:'repo'})
   if(stillThere&&outcome.status==='ok'&&codingAgentOf(ctx.db,row)==='copilot'&&['implement','doc','plan'].includes(stage?.kind??''))noteReadiness(readiness,{signal:'copilot'})
   // QA: the test cases of a document stage become rows of the Test cases database (the JSON leaves the page)

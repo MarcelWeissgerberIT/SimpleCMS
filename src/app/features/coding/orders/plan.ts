@@ -48,7 +48,7 @@ type Obj = Record<string, unknown>
 const isObj = (v: unknown): v is Obj => !!v && typeof v === 'object' && !Array.isArray(v)
 const PRIORITIES = ['high', 'medium', 'low'] as const
 const KINDS: readonly string[] = ['spec', 'coding', 'qa']
-const PLAN_KEYS = ['v', 'summary', 'context', 'steps', 'questions', 'refused', 'delivery']
+const PLAN_KEYS = ['v', 'summary', 'context', 'steps', 'questions', 'refused', 'delivery', 'assumptions']
 const STEP_KEYS = ['kind', 'title', 'goal', 'criteria', 'repo', 'branch', 'priority', 'refs', 'why']
 const CONTEXT_KEYS = ['server', 'note', 'links']
 /** a refs entry as the store mints ids */
@@ -201,7 +201,7 @@ function readShape(raw: unknown, ctx: PlanReadCtx): { plan: OrderPlanV1 | null; 
   }
   if (!isObj(v)) return { plan: null, problems: ['The answer must be a JSON object.'] }
   unknownKeys(v, PLAN_KEYS, 'The plan', p)
-  for (const k of PLAN_KEYS.filter(k => k !== 'delivery')) if (!(k in v)) p.add(`"${k}" is missing.`)
+  for (const k of PLAN_KEYS.filter(k => !['delivery', 'assumptions'].includes(k))) if (!(k in v)) p.add(`"${k}" is missing.`)
   if (v.v !== 1) p.add('"v" must be 1.')
   const summary = str(v.summary, 'summary', PLAN_LIMITS.summary, p)
   // the server's context
@@ -236,11 +236,12 @@ function readShape(raw: unknown, ctx: PlanReadCtx): { plan: OrderPlanV1 | null; 
   if (delivery) delivery.problems.forEach(s => p.add(s))
   if (!delivery && steps.some(s => s.needs !== undefined || s.covers !== undefined)) p.add('Step dependencies and coverage require a delivery contract.')
   const questions = strList(v.questions, 'questions', PLAN_LIMITS.questions, PLAN_LIMITS.question, p, { required: true })
+  const assumptions = v.assumptions === undefined ? undefined : strList(v.assumptions, 'assumptions', 5, 300, p, { required: true })
   let refused: string | null = null
   if (v.refused !== null && v.refused !== undefined) refused = str(v.refused, 'refused', PLAN_LIMITS.refused, p, { line: true }) || null
   if (p.list.length) return { plan: null, problems: p.list }
   if (!steps.length && !questions!.length && !refused) return { plan: null, problems: ['The plan has no step, no question and no refusal — plan steps, or ask what is unclear.'] }
-  return { plan: { v: 1, summary: summary ?? '', context, steps, questions: questions ?? [], refused, ...(delivery?.contract ? { delivery: delivery.contract } : {}) }, problems: [] }
+  return { plan: { v: 1, summary: summary ?? '', context, steps, questions: questions ?? [], refused, ...(assumptions ? { assumptions } : {}), ...(delivery?.contract ? { delivery: delivery.contract } : {}) }, problems: [] }
 }
 
 /** Is this a branch name a step may name (the Branch field's rule, never option-like, no "..")? */
@@ -306,6 +307,7 @@ function makeSafe(plan: OrderPlanV1, ctx: PlanReadCtx): { plan: OrderPlanV1; not
     plan: {
       v: 1,
       summary: plain(null, plan.summary, none, PLAN_LIMITS.summary),
+      ...(plan.assumptions ? { assumptions: plan.assumptions.map(s => plain(null, s, none, 300)) } : {}),
       ...(plan.delivery ? { delivery: { requirements: plan.delivery.requirements.map(r => ({ ...r, text: plain(null, r.text, none, 300) })), acceptance: plan.delivery.acceptance.map(s => plain(null, s, none, 300)) } } : {}),
       context,
       steps,
@@ -392,7 +394,7 @@ export interface ResolvedStep {
  * project and pipeline lines, this device's Approvals — SHA-256 over their canonical JSON. B6's startChain recomputes it.
  */
 export async function orderPlanHash(plan: OrderPlanV1, resolved: readonly ResolvedStep[], approvals: 'all' | 'review' | 'none'): Promise<string> {
-  const text = canonicalJson({ v: 1, steps: plan.steps, context: plan.context, ...(plan.delivery ? { delivery: plan.delivery } : {}), resolved, approvals })
+  const text = canonicalJson({ v: 1, steps: plan.steps, context: plan.context, ...(plan.assumptions ? { assumptions: plan.assumptions } : {}), ...(plan.delivery ? { delivery: plan.delivery } : {}), resolved, approvals })
   const bytes = new TextEncoder().encode(text)
   const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes)
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('')

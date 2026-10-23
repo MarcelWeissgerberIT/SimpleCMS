@@ -11,6 +11,18 @@ Write down what should be checked — in a row of the **Work orders** database, 
 
 All of this needs **Coding switched on on this device** and a connected [coding worker](help:coding-pipeline). One of your own [MCP servers](help:mcp-servers) can add context — optional: without one, One plans from the request and its pages alone.
 
+## Guided start through acceptance
+
+**Start a guided task …** in the page menu uses the current page as its starting point. A new work order also offers a goal field and **Check context & prepare proposal**. The task companion shows five phases: Goal & context, Proposal, Implementation, Evidence and Acceptance. Collapse it using its header; the browser remembers this view. It creates no additional notifications or model calls.
+
+The planner consults permitted sources and existing answers first. Reversible details become visible **working assumptions**, individually removable before confirming the plan. They are included in the work packages. Product decisions, authority and successful tests cannot be assumed. Questions are reserved for real blockers and should be bundled. Existing pipeline approvals, data rules and budgets still apply.
+
+**A finished pipeline is not human acceptance.** Evidence is collected on the executing device. Coding deliveries require a confirmed contract, completed work packages and successful final QA on the combined branch with an actually executed test (exit code 0). Skipped work, changed ONE sources or coding packages changed since QA prevent acceptance. Older runs without the new QA receipt need another review. Analysis-only requests do not need invented coding tests.
+
+**Accept the result** confirms exactly the displayed evidence snapshot. ONE writes a report to the work order and keeps the decision on this device. Changed evidence invalidates that decision in the companion; the older report remains historical evidence. This is not a tamper-proof server signature or a live check of subsequent repository changes.
+
+**Prepare handoff to …** uses the MCP server selected in the plan, such as Atlas, and opens an editable AI-terminal draft. It sends nothing yet. Once started, the terminal should read current target records, check workspace and project, match existing evidence using the snapshot ID and follow existing approvals. Missing targets or permissions remain concrete blockers. The report does not claim a successful Atlas sync. An active terminal or existing draft is not overwritten.
+
 ## Writing a request
 - **On any page**: ⋯ → **Have it checked** (also in the sidebar row's menu and in ⌘K). The first use creates the **Work orders** database — the toast *Work orders created · WO-1* has **Undo**. One makes a row titled like the page, its body *Page: @the page*, and starts planning; the page itself is not changed. **Have it checked …** first asks for one line (*What should it look out for?*) that goes above the mention.
 - A page an open request already links opens that request instead — *Already in WO-3 (Plan)*, with **New request** in the toast.

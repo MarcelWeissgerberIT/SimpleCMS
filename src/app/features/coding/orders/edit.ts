@@ -129,6 +129,13 @@ async function draftNow(rowId: ID): Promise<OrderDraft | null> {
   return rec?.state === 'draft' && rec.draft?.plan.steps.length ? rec.draft : null
 }
 
+/** Working defaults are part of the exact plan that will be confirmed, not a separate hidden prompt. */
+export async function editAssumptions(rowId: ID, assumptions: string[]): Promise<EditOutcome> {
+  const before = await draftNow(rowId)
+  if (!before) return { ok: false, why: 'state' }
+  return writePlan(rowId, before, { ...before.plan, assumptions })
+}
+
 /** E: step `index` (0-based) changed as the person typed it. */
 export async function editStep(rowId: ID, index: number, patch: StepPatch): Promise<EditOutcome> {
   const before = await draftNow(rowId)

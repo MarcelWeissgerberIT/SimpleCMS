@@ -98,7 +98,7 @@ const DEFAULTS: Record<'plan' | 'implement' | 'doc', string> = {
     'Read the code that matters for this task and write an implementation plan: the files to change, the approach step by step,',
     'risks and open questions, and how to test it. Do not change any file. Hand the plan in as Markdown as your final message',
     '(the whole plan, not a pointer to a file) — ExitPlanMode, if you call it, only hands the plan to the person in One: this stage never leaves plan mode.',
-    'If something the task needs is missing (a page, a finding, a decision), ask with one_task_ask instead of guessing.',
+    'First look for missing information in the allowed sources and existing project conventions. Ask with one_task_ask only when an unresolved fact changes the product behaviour, scope, permissions or acceptance. Bundle related blockers in one question with a recommended next step; do not ask again for an answer already in the task.',
   ].join(' '),
   implement: [
     'Implement the task in this worktree. Follow the approved plan in the task data if there is one. Keep the change focused,',
@@ -149,6 +149,7 @@ export function buildPrompt(task: TaskPayload, repo: RepoConfig, branch: string,
       : []),
     '',
     '## Rules',
+    '- Work quietly within the confirmed scope: inspect permitted sources and existing answers before asking. Choose routine reversible implementation details yourself and state consequential assumptions in the result. Ask one bundled question only for a real blocker affecting product behaviour, scope, authority or acceptance. Never invent a missing requirement, permission or successful test. Stop with a concrete next step when blocked; do not repeat identical unsuccessful reads.',
     '- The worker does all git work: do not commit, push, switch branches or change git config.',
     kind === 'doc' ? '- Do not try to change files: this stage only reads.' : '- Stay inside this worktree.',
     ...(kind !== 'doc'

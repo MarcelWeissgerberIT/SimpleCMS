@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// SimpleCMS One — coding worker 1.26.0 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp/src/worker
+// SimpleCMS One — coding worker 1.26.1 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp/src/worker
 // Runs coding tasks from One with Claude Code on this computer. Setup: node one-worker.mjs --help
 // Docs and security model: https://github.com/MarcelWeissgerberIT/SimpleCMS/blob/main/docs/CODING.md
 import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);
@@ -38479,7 +38479,7 @@ var DEFAULTS = {
     "Read the code that matters for this task and write an implementation plan: the files to change, the approach step by step,",
     "risks and open questions, and how to test it. Do not change any file. Hand the plan in as Markdown as your final message",
     "(the whole plan, not a pointer to a file) \u2014 ExitPlanMode, if you call it, only hands the plan to the person in One: this stage never leaves plan mode.",
-    "If something the task needs is missing (a page, a finding, a decision), ask with one_task_ask instead of guessing."
+    "First look for missing information in the allowed sources and existing project conventions. Ask with one_task_ask only when an unresolved fact changes the product behaviour, scope, permissions or acceptance. Bundle related blockers in one question with a recommended next step; do not ask again for an answer already in the task."
   ].join(" "),
   implement: [
     "Implement the task in this worktree. Follow the approved plan in the task data if there is one. Keep the change focused,",
@@ -38504,6 +38504,7 @@ function buildPrompt(task, repo, branch, code = markerCode(), diff, opts = {}) {
     ] : [],
     "",
     "## Rules",
+    "- Work quietly within the confirmed scope: inspect permitted sources and existing answers before asking. Choose routine reversible implementation details yourself and state consequential assumptions in the result. Ask one bundled question only for a real blocker affecting product behaviour, scope, authority or acceptance. Never invent a missing requirement, permission or successful test. Stop with a concrete next step when blocked; do not repeat identical unsuccessful reads.",
     "- The worker does all git work: do not commit, push, switch branches or change git config.",
     kind === "doc" ? "- Do not try to change files: this stage only reads." : "- Stay inside this worktree.",
     ...kind !== "doc" ? [
@@ -48049,7 +48050,7 @@ var WorkerWorkspaces = class {
 
 // src/worker/index.ts
 var workspaceHost = null;
-var VERSION = true ? "1.26.0" : "dev";
+var VERSION = true ? "1.26.1" : "dev";
 var quiet = process.env.ONE_WORKER_QUIET === "1";
 var recent = [];
 var log = (msg) => {
