@@ -11,6 +11,8 @@ import { useViewActions, EmptyState } from './shared'
 import { CardBody, CardPreview } from './cards'
 import { useRowColor } from './tree'
 import { ruleStyle } from '../model/colors'
+import { readReadiness } from './readiness/model'
+import { ReadinessGallery } from './readiness/ReadinessGallery'
 import './views.css'
 
 export function GalleryView() {
@@ -21,6 +23,8 @@ export function GalleryView() {
   const preview = m.view.cardPreview ?? 'cover'
   const [limit, setLimit] = useState(120)
   const colorOf = useRowColor(m)
+  const readiness = readReadiness(m.db)
+  if (readiness) return <ReadinessGallery m={m} config={readiness} />
   if (!m.rows.length) return <EmptyState onAdd={m.readOnly ? undefined : () => actions.newRow({ open: true })} />
   return (
     <div className="dbg" data-size={size}>

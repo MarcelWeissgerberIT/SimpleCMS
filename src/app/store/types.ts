@@ -593,7 +593,23 @@ export interface TemplateRepeat {
   lastRunAt?: number
 }
 
+/** Optional gallery presentation for a manual workshop setup tracker. Values remain normal cells. */
+export interface ReadinessConfig {
+  v: 1
+  checks: Record<'one' | 'atlas' | 'worker' | 'copilot' | 'repo', ID>
+  role: ID
+  participation: ID
+  blocker: ID
+  next: ID
+  owner: ID
+  note: ID
+  changedAt: ID
+  changedBy: ID
+}
+
 export interface Database {
+  /** Ordinary gallery/table data; no authorization, probes or credential storage. */
+  readiness?: ReadinessConfig
   /** Same id as the database's Page. */
   id: ID
   properties: PropertyDef[]
