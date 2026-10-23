@@ -24,5 +24,4 @@
   user-select: none;
   cursor: help;
 }
-.doc-content .block-author.is-unknown { border-inline-start-color: var(--rule); opacity: .65; }
 @media print { .block-author, .block-authors-note { display: none !important; } }

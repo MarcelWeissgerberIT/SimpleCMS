@@ -30,11 +30,13 @@ export function BlockAuthors({ editor, handle }: { editor: Editor; handle: Conte
           const actor = stamp && typeof stamp.actor === 'string' ? stamp.actor : ''
           const known = actor && actor !== '@unverified'
           const name = (actor === user?.id ? user.name : '') || people.find(p => p.id === actor)?.name || (actor === user?.id ? user.email.split('@')[0] : '')
-          const label = name || (known ? t('shell.blockAuthors.account') : t('shell.blockAuthors.unknown'))
+          // No placeholder or widget spacing when the editor cannot be identified.
+          if (!known || !name?.trim()) return
+          const label = name
           const time = stamp && Number.isFinite(stamp.at) ? new Date(stamp.at).toLocaleString(lang === 'de' ? 'de-DE' : 'en-GB') : ''
           decorations.push(Decoration.widget(pos, () => {
             const plate = document.createElement('span')
-            plate.className = `block-author${known ? '' : ' is-unknown'}`
+            plate.className = 'block-author'
             plate.contentEditable = 'false'
             plate.tabIndex = 0
             plate.textContent = label
