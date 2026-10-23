@@ -103,6 +103,11 @@ export const messages: Messages = {
     'shell.pageMenu.fullWidth': 'Full width',
     'shell.pageMenu.lock': 'Lock page',
     'shell.pageMenu.focus': 'Focus mode',
+    'shell.blockAuthors.toggle': 'Show block editors',
+    'shell.blockAuthors.account': 'Account',
+    'shell.blockAuthors.unknown': 'Not recorded',
+    'shell.blockAuthors.last': 'Last synchronised change',
+    'shell.blockAuthors.note': 'Last editor per block · Lists and tables are grouped. Time is server receipt time. Older blocks may have no record. AI edits from a browser show the account that applied them.',
     'shell.pageMenu.automations': 'Automations',
     'shell.pageMenu.edited': 'Edited {when}',
 
@@ -592,6 +597,11 @@ export const messages: Messages = {
     'shell.pageMenu.fullWidth': 'Volle Breite',
     'shell.pageMenu.lock': 'Seite sperren',
     'shell.pageMenu.focus': 'Fokusmodus',
+    'shell.blockAuthors.toggle': 'Block-Bearbeiter anzeigen',
+    'shell.blockAuthors.account': 'Konto',
+    'shell.blockAuthors.unknown': 'Nicht erfasst',
+    'shell.blockAuthors.last': 'Letzte synchronisierte Änderung',
+    'shell.blockAuthors.note': 'Letzter Bearbeiter je Block · Listen und Tabellen sind zusammengefasst. Zeitpunkt = Serverempfang. Ältere Blöcke können ohne Nachweis sein. KI-Änderungen aus dem Browser zeigen das ausführende Konto.',
     'shell.pageMenu.automations': 'Automationen',
     'shell.pageMenu.edited': 'Bearbeitet {when}',
 

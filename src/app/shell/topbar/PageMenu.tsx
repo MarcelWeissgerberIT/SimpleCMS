@@ -1,3 +1,5 @@
+import { useCloud } from '../../cloud'
+import { useBlockAuthors } from '../../editor/authors/preference'
 import type { ReactNode } from 'react'
 import { BookMarked, BookmarkPlus, ClipboardCheck, ClipboardCopy, Copy, Download, FolderInput, LayoutTemplate, Link2, Trash2, Upload, Share2, Clock3, Presentation, Zap, Rewind, Star, StarOff } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
@@ -24,6 +26,8 @@ const FONTS: Array<{ id: PageFont; key: string }> = [
 export function PageMenu({ page, anchor, onClose, mobile }: { page: Page; anchor: HTMLElement | null; onClose: () => void; mobile: boolean }) {
   const t = useT()
   const lang = useLang()
+  const blockAuthors = useBlockAuthors()
+  const cloud = useCloud(s => s.active.kind === 'cloud' && !!s.supports?.includes('block-authors:1'))
   const focus = useUI((s) => s.focusMode)
   const kbd = useKbdHint()
   const ws = useWorkspace.getState()
@@ -80,6 +84,7 @@ export function PageMenu({ page, anchor, onClose, mobile }: { page: Page; anchor
 
   const entries: MenuEntry[] = [
     ...look,
+    ...(cloud && !isDb ? [{ kind: 'custom' as const, render: () => <div className="pm-toggles"><ToggleRow seed="blockAuthors" label={t('shell.blockAuthors.toggle')} checked={blockAuthors.enabled} onChange={blockAuthors.set} /></div> }] : []),
     { kind: 'separator' },
     { label: t('shell.permalink.copy'), icon: <Link2 size={15} />, onSelect: () => void copyPageLink(page.id) },
     { label: t('shell.ai.copy'), icon: <ClipboardCopy size={15} />, onSelect: () => void copyPageForAI(page.id) },

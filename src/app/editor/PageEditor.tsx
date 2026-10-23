@@ -34,6 +34,7 @@ import { acquireContentDoc, flushPageContent, releaseContentDoc, useCloud, type 
 import { inEditAs, NORMALISE_META, PERSON_META, registerEditorFlush } from './lib/editAs'
 import { useT } from '../i18n'
 import { ReadOnlyDoc } from './ReadOnlyDoc'
+import { BlockAuthors } from './authors/BlockAuthors'
 import './editor.css'
 
 export interface PageEditorProps {
@@ -308,16 +309,19 @@ function CloudEditor(props: PageEditorProps) {
   }, [pageId])
   if (unbound) return props.language ? <TranslatedDoc {...props} /> : <EditorInstance {...props} />
   if (!handle) return slow ? <WaitingDoc pageId={pageId} className={props.className} /> : <div className={['one-editor', 'is-loading', props.className ?? ''].filter(Boolean).join(' ')} aria-busy="true" />
-  return props.language ? <TranslatedDoc {...props} /> : <EditorInstance {...props} collab={handle} />
+  return props.language ? <TranslatedDoc {...props} collabHandle={handle} /> : <EditorInstance {...props} collab={handle} />
 }
 
-function TranslatedDoc({ pageId, language, className, onReady }: PageEditorProps) {
+function TranslatedDoc({ pageId, language, className, onReady, collabHandle }: PageEditorProps & { collabHandle?: ContentDocHandle }) {
+  const [editor, setEditor] = useState<Editor | null>(null)
+  const ready = useCallback((ed: Editor) => { setEditor(ed); onReady?.(ed) }, [onReady])
   const page = useWorkspace(s => s.pages[pageId])
   const cloudReadOnly = useCloud(s => s.readOnly)
   const db = useWorkspace(s => page ? s.databases[page.kind === 'database' ? page.id : page.databaseId ?? ''] : undefined)
   const shown = useMemo(() => page ? localizePage(page, language ?? null, db) : null, [page, language, db])
   return <div className={`one-editor is-readonly ${className ?? ''}`} data-page-id={pageId} data-localized-page={language}>
-    <ReadOnlyDoc content={shown?.content ?? null} headingOffset={1} onReady={onReady} pageId={pageId} pageActions={!!page && !cloudReadOnly && !page.trashed && !page.settings.locked} />
+    {editor && collabHandle && <BlockAuthors editor={editor} handle={collabHandle} />}
+    <ReadOnlyDoc content={shown?.content ?? null} headingOffset={1} onReady={ready} pageId={pageId} pageActions={!!page && !cloudReadOnly && !page.trashed && !page.settings.locked} />
   </div>
 }
 
@@ -578,6 +582,7 @@ function EditorInstance({ pageId, readOnly, autoFocus, onReady, className, colla
   const classes = ['one-editor', `doc--font-${font}`, small ? 'doc--small' : '', editable ? 'is-editable' : 'is-readonly', className ?? '']
   return (
     <div className={classes.filter(Boolean).join(' ')} data-instance={instanceId}>
+      {editor && collab && <BlockAuthors editor={editor} handle={collab} />}
       {editor && <Comments editor={editor} bridge={bridge} pageId={pageId} />}
       <EditorContent editor={editor} className="one-editor__content" />
       {editable && <div className="one-editor__tail" onMouseDown={onTailDown} aria-hidden />}

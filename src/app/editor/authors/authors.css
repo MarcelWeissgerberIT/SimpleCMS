@@ -1,0 +1,28 @@
+.block-authors-note {
+  margin: 0 0 24px;
+  padding: 10px 14px;
+  border: 1px solid var(--rule);
+  border-inline-start: 3px solid var(--signal);
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.doc-content .block-author {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  margin: 14px 0 5px;
+  padding: 2px 8px;
+  border: 1px solid var(--rule);
+  border-inline-start: 3px solid var(--signal);
+  border-radius: 2px;
+  color: var(--ink-2);
+  background: var(--surface-2);
+  font: 500 10px/1.6 'JetBrains Mono Variable', monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: none;
+  cursor: help;
+}
+.doc-content .block-author.is-unknown { border-inline-start-color: var(--rule); opacity: .65; }
+@media print { .block-author, .block-authors-note { display: none !important; } }

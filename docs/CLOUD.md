@@ -799,6 +799,7 @@ device opened, how often — localStorage `one.shell.visits:cloud:<id>`, never s
 - The editor binds directly to the page's content document (`@tiptap/extension-collaboration`,
   carets via `@tiptap/extension-collaboration-caret`). `page.content` in the store is refreshed from
   the Y document (debounced) so search, export, graph, backlinks and history keep working.
+- **Block editors** (`block-authors:1`): every page content document has a server-maintained `blockEditorsV1` Y.Map, keyed by top-level block id, containing `{actor, at}` for the last changed content received. The server compares content hashes (ignoring IDs), preserves unchanged/moved blocks, removes deleted/duplicate ids, restores client stamp-map writes, and marks released pending CRDT updates unknown. Old blocks are not backfilled. Lists/tables/containers are grouped. This is last synchronising account metadata, not a complete audit or original offline edit time; browser AI writes identify the applying account. Page options can show small editor plates (viewers too); the switch is browser-local, never shared content. Translated views refer to source-block authors. Public shares/exports/local workspaces omit the display.
 - Non-editor writers (`setContent` with origin `ai`, `history`, `import`, `link`, buttons …) are
   bridged into the content document (`prosemirrorJSONToYXmlFragment` with the editor schema).
 - Offline: every Y document is also persisted with `y-indexeddb`; the provider syncs on reconnect.
