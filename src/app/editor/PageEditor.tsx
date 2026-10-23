@@ -320,7 +320,7 @@ function TranslatedDoc({ pageId, language, className, onReady, collabHandle }: P
   const db = useWorkspace(s => page ? s.databases[page.kind === 'database' ? page.id : page.databaseId ?? ''] : undefined)
   const shown = useMemo(() => page ? localizePage(page, language ?? null, db) : null, [page, language, db])
   return <div className={`one-editor is-readonly ${className ?? ''}`} data-page-id={pageId} data-localized-page={language}>
-    {editor && collabHandle && <BlockAuthors editor={editor} handle={collabHandle} />}
+    {editor && collabHandle && <BlockAuthors editor={editor} handle={collabHandle} pageId={pageId} />}
     <ReadOnlyDoc content={shown?.content ?? null} headingOffset={1} onReady={ready} pageId={pageId} pageActions={!!page && !cloudReadOnly && !page.trashed && !page.settings.locked} />
   </div>
 }
@@ -582,7 +582,7 @@ function EditorInstance({ pageId, readOnly, autoFocus, onReady, className, colla
   const classes = ['one-editor', `doc--font-${font}`, small ? 'doc--small' : '', editable ? 'is-editable' : 'is-readonly', className ?? '']
   return (
     <div className={classes.filter(Boolean).join(' ')} data-instance={instanceId}>
-      {editor && collab && <BlockAuthors editor={editor} handle={collab} />}
+      {editor && collab && <BlockAuthors editor={editor} handle={collab} pageId={pageId} />}
       {editor && <Comments editor={editor} bridge={bridge} pageId={pageId} />}
       <EditorContent editor={editor} className="one-editor__content" />
       {editable && <div className="one-editor__tail" onMouseDown={onTailDown} aria-hidden />}

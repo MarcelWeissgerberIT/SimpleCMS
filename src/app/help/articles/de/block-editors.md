@@ -1,18 +1,20 @@
 ---
 id: block-editors
-title: Wer hat diesen Block bearbeitet?
+title: Bearbeiter und Änderungen im Abschnitt
 section: team
 order: 25
-keywords: Zusammenarbeit, Bearbeiter, Autor, Block, geteilt, einblenden, Nachweis
+keywords: Zusammenarbeit, Bearbeiter, Autor, Block, geteilt, einblenden, Nachweis, Änderungen, Abschnitt
 related: team-cloud
-summary: Den zuletzt synchronisierenden Account je Block im Cloud-Dokument einblenden.
+summary: Namen pro Abschnitt einblenden und ihre erfassten Änderungen gemeinsam ansehen.
 ---
-Öffne eine Seite im Cloud-Workspace und wähle **Seitenoptionen (…) → Block-Bearbeiter anzeigen**. Kleine Plaketten über den Blöcken zeigen den letzten Bearbeiter. Beim Darüberfahren siehst du den Zeitpunkt. Auch Leser können den Schalter nutzen. ONE merkt sich die Ansicht in diesem Browser; der Seiteninhalt, fremde Ansichten und Workspace-Exporte ändern sich dadurch nicht.
+Öffne eine geteilte Seite im Server-Workspace und wähle **Seitenoptionen (…) → Block-Bearbeiter anzeigen**. Namen erscheinen einmal pro Abschnitt, nicht nach jedem Tastendruck oder an jedem einzelnen Block. Eine Überschrift beginnt einen Abschnitt; Inhalt davor gehört zum ersten Bereich. Ohne Überschriften ist die Seite ein Bereich. Unbekannte oder nicht auflösbare Bearbeiter bleiben ohne Plakette und ohne zusätzlichen Abstand.
 
-ONE zeigt bereits anwesende Personen und Live-Cursor. Sie zeigen, wer gerade da ist oder tippt. Die Block-Plaketten zeigen dagegen das Konto, dessen Inhaltsänderung zuletzt beim Server ankam. Listen, Tabellen und andere Container haben jeweils eine gemeinsame Plakette. Änderungen darin aktualisieren deren Bearbeiter. Das Verschieben eines unveränderten Blocks innerhalb der Seite behält dessen Bearbeiter bei.
+**Klicke auf einen Namen**, um alle erfassten Beiträge dieser Person im angeklickten Abschnitt zu sehen. Das Panel zeigt zunächst nur hinzugefügten und entfernten Text. Die Änderungen werden nach betroffenem Bereich gebündelt. Fortlaufende Bearbeitungen derselben Person werden zusammengefasst; ein Wechsel zu einem anderen Bearbeiter erzeugt einen getrennten Beitrag. So erscheinen fremde Änderungen nicht als eigene. Über **Vorher und nachher anzeigen** kannst du Kontext und Formatierung vergleichen. Weitere Bereiche lassen sich nachladen; die Ansicht beschränkt sich nicht auf den letzten Beitrag. Der Seitentext wird dafür nicht verändert oder in neue Blöcke zerlegt.
 
-Der Server erfasst das angemeldete Konto statt eines mitgelieferten Namens. KI-Änderungen aus dem Browser zeigen das Konto, das sie angewendet hat. Ohne bekannten Bearbeiter oder zugehörigen Namen erscheint keine Plakette und es entsteht kein zusätzlicher Abstand. Das gilt auch für Server-/API-Schreibvorgänge ohne auflösbaren Namen. Ältere Blöcke erhalten beim Öffnen keinen erfundenen Autor.
+ONE erfasst die Vergleiche auf dem Server ab der Bereitstellung dieser Funktion. Früher wurden nur Name und Zeitpunkt gespeichert. Dafür zeigt das Panel einen Hinweis, statt einen alten Inhaltsvergleich zu erfinden. Gelöschter Inhalt bleibt in den erfassten Vergleichen erhalten, solange der betreffende Abschnitt existiert; gelöschte Abschnitte haben keinen Namen mehr als Einstieg auf der aktuellen Seite. Rückgängig gemachte Änderungen können in einem zusammengefassten Beitrag keine verbleibende Änderung ergeben.
 
-Der Zeitpunkt bezeichnet den Serverempfang, auch nach Offline-Arbeit. Gleichzeitige Änderungen laufen mit dem gemeinsamen Dokument zusammen. Dies ist eine Anzeige der letzten Änderung, keine vollständige Autorenhistorie oder Änderungsverfolgung. Beim Löschen eines Blocks entfällt seine aktuelle Plakette. Übersetzte Ansichten zeigen den Bearbeiter des Quellblocks, nicht dessen Übersetzer.
+Der Schalter ist **jederzeit abschaltbar**. Ausgeschaltet verschwinden Namensleisten und Panel vollständig. Die Einstellung gilt für diesen Browser und verändert die Ansicht anderer Personen nicht. Sie schaltet die Anzeige aus; der Server erfasst neue Beiträge weiterhin für die gemeinsame Änderungsansicht. Auch Gäste mit Leserecht können die Ansicht benutzen. Erfasste Vergleiche sind für die aktuellen Leser derselben Seite sichtbar; persönliche Geheimnisse gehören in **Meine Secrets**.
 
-Neu erfasst werden Änderungen, die nach der Bereitstellung dieser Funktion eintreffen. Lokale Workspaces, öffentliche Freigabeseiten und exportierte Dateien zeigen keine Plaketten. Der Server muss `block-authors:1` unterstützen.
+Der Server verwendet das angemeldete Konto. Browser-KI zeigt das Konto, das eine Änderung angewendet hat. Zeitpunkte bezeichnen den Serverempfang, auch nach Offline-Arbeit. Übersetzte Ansichten zeigen Änderungen am Quellinhalt. Live-Cursor zeigen dagegen, wer gerade anwesend ist oder tippt.
+
+Lokale Workspaces, Privatseiten und öffentliche Freigabeseiten zeigen die Funktion nicht. In privaten Seitendokumenten werden keine neuen Inhaltsvergleiche erfasst. Exportierte Workspace-Dateien enthalten diese Ansicht nicht; vollständige Serversicherungen bewahren die gemeinsam gespeicherten Vergleiche. Der Server benötigt `block-authors:1` und für Inhaltsvergleiche `block-changes:1`.

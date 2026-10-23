@@ -27,7 +27,12 @@ test('block editor plates toggle locally, show remote edits, persist the prefere
     await waitForApp(page)
     const id = await wsEval(page, state => {
       const id = state.createPage({title:'Shared block example'})
-      state.setContent(id, {type:'doc',content:['One','Two'].map((text,i)=>({type:'paragraph',attrs:{id:`block${i}`},content:[{type:'text',text}]}))})
+      state.setContent(id, {type:'doc',content:[
+        {type:'heading',attrs:{id:'areaA',level:2},content:[{type:'text',text:'Section A'}]},
+        ...['One','Two'].map((text,i)=>({type:'paragraph',attrs:{id:`block${i}`},content:[{type:'text',text}]})),
+        {type:'heading',attrs:{id:'areaB',level:2},content:[{type:'text',text:'Section B'}]},
+        {type:'paragraph',attrs:{id:'block2'},content:[{type:'text',text:'Elsewhere'}]},
+      ]})
       return id
     })
     await gotoPage(page, id)
@@ -42,14 +47,37 @@ test('block editor plates toggle locally, show remote edits, persist the prefere
     await expect(page.getByTestId('block-author').first()).toContainText('alice')
     const b = openDoc(s,bob,`ws:${ws}:p:${id}`); open.push(b); await b.synced
     const xml = b.doc.getXmlFragment('default')
-    await waitFor(()=>xml.length>=2)
-    const text = (xml.get(1) as Y.XmlElement).get(0) as Y.XmlText
+    await waitFor(()=>xml.length>=5)
+    const text = (xml.get(2) as Y.XmlElement).get(0) as Y.XmlText
     text.insert(0,'Bob changed: '); await flushed(b)
-    await expect(page.getByTestId('block-author').nth(1)).toContainText('bob')
-    await expect(page.getByTestId('block-author').first()).toContainText('alice')
+    const outside = (xml.get(4) as Y.XmlElement).get(0) as Y.XmlText
+    outside.insert(0,'Outside '); await flushed(b)
+    const bobButtons = page.getByTestId('block-author').filter({hasText:'bob'})
+    await expect(bobButtons).toHaveCount(2)
+    await bobButtons.first().click()
+    const panel = page.getByRole('dialog',{name:'Changes in this section'})
+    await expect(panel).toContainText('Section A')
+    await expect(panel).toContainText('Bob changed:')
+    await expect(panel).not.toContainText('Outside')
+    text.insert(0,'Again '); await flushed(b)
+    await expect(panel).toContainText('Again')
+    await expect(panel.getByTestId('block-change-group')).toHaveCount(1)
+    const a = openDoc(s,alice,`ws:${ws}:p:${id}`); open.push(a); await a.synced
+    ;((a.doc.getXmlFragment('default').get(2) as Y.XmlElement).get(0) as Y.XmlText).insert(0,'Owner ')
+    await flushed(a)
+    await expect(panel).not.toContainText('Owner')
+    text.insert(0,'Final '); await flushed(b)
+    await expect(panel).toContainText('Final')
+    await expect(panel).toContainText('Bob changed:')
+    await expect(panel.getByTestId('block-change-group')).toHaveCount(1)
+    await expect(panel.locator('.block-changes__entry')).toHaveCount(2)
+    await expect(panel).not.toContainText('Outside')
+    await panel.locator('summary').first().click()
+    await expect(panel.locator('.block-changes__comparison .one-doc')).toHaveCount(2)
+    await panel.getByRole('button',{name:'Close',exact:true}).click()
     const stamps = JSON.stringify(b.doc.getMap('blockEditorsV1').toJSON())
     await page.reload(); await waitForApp(page)
-    await expect(page.getByTestId('block-author').nth(1)).toContainText('bob')
+    await expect(page.getByTestId('block-author').filter({hasText:'bob'})).toHaveCount(2)
     await page.getByRole('button', {name:'Page options',exact:true}).click()
     await page.getByRole('menuitemcheckbox', {name:'Show block editors'}).click()
     await page.keyboard.press('Escape')
@@ -64,13 +92,26 @@ test('block editor plates toggle locally, show remote edits, persist the prefere
     await v.getByRole('button', {name:'Page options',exact:true}).click()
     await v.getByRole('menuitemcheckbox', {name:'Show block editors'}).click()
     await v.keyboard.press('Escape')
-    await expect(v.getByTestId('block-author').nth(1)).toContainText('bob')
+    await expect(v.getByTestId('block-author').filter({hasText:'bob'})).toHaveCount(2)
+    await v.getByTestId('block-author').filter({hasText:'bob'}).first().click()
+    await expect(v.getByRole('dialog',{name:'Changes in this section'})).toContainText('Final')
+    await expect(v.getByRole('dialog',{name:'Changes in this section'})).toHaveCSS('opacity','1')
     await v.screenshot({path:'test-results/block-authors-desktop.png',fullPage:true})
     await v.setViewportSize({width:390,height:844})
     await expect(v.locator('aside.sb')).not.toBeInViewport()
-    await expect(v.getByTestId('block-author').first()).toBeVisible()
-    await expect.poll(()=>v.getByTestId('block-author').first().evaluate(el=>{const r=el.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth})).toBe(true)
+    await expect(v.getByRole('dialog',{name:'Changes in this section'})).toBeVisible()
+    await expect.poll(()=>v.getByRole('dialog',{name:'Changes in this section'}).evaluate(el=>{const r=el.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth})).toBe(true)
+    await v.getByRole('dialog',{name:'Changes in this section'}).getByRole('button',{name:'Close',exact:true}).click()
     await expect(page.getByTestId('block-author')).toHaveCount(0)
     await v.screenshot({path:'test-results/block-authors-mobile.png',fullPage:true})
+    // The browser preference stays on, but a real local workspace never displays the feature.
+    await v.setViewportSize({width:1440,height:900})
+    await v.goto(`${s.url}/app/?e2e&w=local`); await waitForApp(v)
+    const local = await wsEval(v,state=>state.createPage({title:'Local-only page'}))
+    await gotoPage(v,local)
+    await expect(v.getByTestId('block-author')).toHaveCount(0)
+    await expect(v.locator('.block-authors-note')).toHaveCount(0)
+    await v.getByRole('button',{name:'Page options',exact:true}).click()
+    await expect(v.getByRole('menuitemcheckbox',{name:'Show block editors'})).toHaveCount(0)
   } finally { open.forEach(d=>d.destroy()); await viewerContext?.close(); await context.clearCookies(); await s.stop() }
 })

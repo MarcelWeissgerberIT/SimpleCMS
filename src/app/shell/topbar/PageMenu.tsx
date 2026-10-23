@@ -84,7 +84,7 @@ export function PageMenu({ page, anchor, onClose, mobile }: { page: Page; anchor
 
   const entries: MenuEntry[] = [
     ...look,
-    ...(cloud && !isDb ? [{ kind: 'custom' as const, render: () => <div className="pm-toggles"><ToggleRow seed="blockAuthors" label={t('shell.blockAuthors.toggle')} checked={blockAuthors.enabled} onChange={blockAuthors.set} /></div> }] : []),
+    ...(cloud && !isDb && !page.private ? [{ kind: 'custom' as const, render: () => <div className="pm-toggles"><ToggleRow seed="blockAuthors" label={t('shell.blockAuthors.toggle')} checked={blockAuthors.enabled} onChange={blockAuthors.set} /></div> }] : []),
     { kind: 'separator' },
     { label: t('shell.permalink.copy'), icon: <Link2 size={15} />, onSelect: () => void copyPageLink(page.id) },
     { label: t('shell.ai.copy'), icon: <ClipboardCopy size={15} />, onSelect: () => void copyPageForAI(page.id) },

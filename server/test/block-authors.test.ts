@@ -43,7 +43,7 @@ test('block stamps preserve untouched blocks, survive moves, reject forgeries an
 })
 
 test('real sockets attribute two members, retain stamps across reconnect, and viewers cannot stamp', async () => {
-  const s = await startServer()
+  let s = await startServer()
   const opened: ReturnType<typeof openDoc>[] = []
   try {
     const alice = await signIn(s, 'alice@blocks.test')
@@ -74,6 +74,14 @@ test('real sockets attribute two members, retain stamps across reconnect, and vi
     const fresh = openDoc(s, alice, `ws:${ws}:p:blocks`); opened.push(fresh); await fresh.synced
     assert.equal(stamp(fresh, 'p1').actor, aid)
     assert.equal(stamp(fresh, 'p2').actor, bid)
+    const history = [...fresh.doc.getMap<any>('blockChangesV1').values()]
+    assert.ok(history.some(c => c.block === 'p2' && c.actor === bid && c.before && c.after), 'a fresh reader sees the real contribution')
+    opened.splice(0).forEach(d => d.destroy())
+    await s.stop()
+    s = await startServer(s.env, s.dataDir)
+    const restarted = openDoc(s, alice, `ws:${ws}:p:blocks`); opened.push(restarted); await restarted.synced
+    const storedHistory = [...restarted.doc.getMap<any>('blockChangesV1').values()]
+    assert.ok(storedHistory.some(c => c.block === 'p2' && c.actor === bid && c.before && c.after), 'encrypted history persists across a real server restart')
   } finally { opened.forEach(d => d.destroy()); await s.stop() }
 })
 
@@ -95,4 +103,48 @@ test('waiting CRDT edits are unknown, and stored stamps survive a fresh guard', 
   stop = guardBlockAuthors(copy)
   assert.equal(copy.getMap<any>(BLOCK_AUTHORS).get('pending').actor, '@unverified')
   stop(); server.destroy(); copy.destroy(); upstream.destroy()
+})
+
+test('section changes coalesce typing, preserve other writers, reject forged history and survive reload', () => {
+  const d = new Y.Doc()
+  const frag = d.getXmlFragment('default')
+  const heading = new Y.XmlElement('heading'); heading.setAttribute('id', 'ready'); heading.setAttribute('level', '2')
+  const ht = new Y.XmlText(); ht.insert(0, 'Ready'); heading.insert(0, [ht])
+  frag.insert(0, [heading, paragraph('body', 'Base'), paragraph('delete-me', 'Remove this')])
+  let stop = guardBlockAuthors(d)
+  const map = d.getMap<any>('blockChangesV1')
+  const edit = (by: string, text: string) => d.transact(() => ((frag.get(1) as Y.XmlElement).get(0) as Y.XmlText).insert(0, text), member(by))
+  edit('alice', 'A '); edit('alice', 'AA ')
+  assert.equal(map.size, 1, 'typing does not create one record per key')
+  const first = [...map.values()][0]
+  assert.equal(first.area, 'ready')
+  assert.equal(first.before.content[0].text, 'Base')
+  assert.equal(first.after.content[0].text, 'AA A Base')
+  edit('bob', 'B '); edit('alice', 'AAA ')
+  assert.equal(map.size, 3, 'interleaved writers are separate contributions')
+  const entries = [...map.values()].sort((a,b) => a.seq-b.seq)
+  assert.deepEqual(entries.map(x => x.actor), ['alice','bob','alice'])
+  assert.equal(entries[2].before.content[0].text, 'B AA A Base', 'Bobs text is context, never an insertion credited to Alice')
+  const saved = JSON.stringify(map.toJSON())
+  d.transact(() => map.set(first.id, {...first, actor:'bob'}), member('bob'))
+  assert.equal(JSON.stringify(map.toJSON()), saved)
+  d.transact(() => map.clear(), member('bob'))
+  assert.equal(JSON.stringify(map.toJSON()), saved)
+  d.transact(() => frag.delete(2,1), member('alice'))
+  const removed = [...map.values()].find(x => x.block==='delete-me')
+  assert.equal(removed.area, 'ready'); assert.equal(removed.after,null)
+  assert.equal(removed.before.content[0].text,'Remove this')
+  stop()
+  const copy = new Y.Doc(); Y.applyUpdate(copy,Y.encodeStateAsUpdate(d))
+  stop = guardBlockAuthors(copy)
+  copy.transact(() => ((copy.getXmlFragment('default').get(1) as Y.XmlElement).get(0) as Y.XmlText).insert(0,'Later '),member('alice'))
+  assert.equal(copy.getMap('blockChangesV1').size, 4, 'reload continues the latest contribution without losing older ones')
+  stop(); copy.destroy(); d.destroy()
+})
+
+test('private page changes do not record content comparisons', () => {
+  const d = new Y.Doc(); const stop = guardBlockAuthors(d,{history:false})
+  d.transact(() => d.getXmlFragment('default').insert(0,[paragraph('private','Private text')]),member('alice'))
+  assert.equal(d.getMap('blockChangesV1').size,0)
+  stop(); d.destroy()
 })
