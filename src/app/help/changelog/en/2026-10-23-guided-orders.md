@@ -4,6 +4,8 @@ date: 2026-10-23
 title: From goal to human acceptance
 order: 1
 summary: Guided task start, visible working assumptions and acceptance based on worker receipts.
+image: assets/shots/changelog/guided-orders.png
+alt: The task companion after human acceptance in a simulated work order.
 help: workorders
 ---
 **Start a guided task …** uses a page as its starting point. The collapsible task companion shows goal, proposal, implementation, evidence and acceptance on the same plate.

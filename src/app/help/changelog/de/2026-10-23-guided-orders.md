@@ -4,6 +4,8 @@ date: 2026-10-23
 title: Vom Ziel zur fachlichen Abnahme
 order: 1
 summary: Geführter Aufgabenstart, sichtbare Arbeitsannahmen und Abnahme anhand der Worker-Nachweise.
+image: assets/shots/changelog/guided-orders.png
+alt: Die Aufgabenbegleitung nach fachlicher Abnahme in einem simulierten Prüfauftrag.
 help: workorders
 ---
 **Aufgabe geführt starten …** übernimmt eine Seite als Ausgangspunkt. Die einklappbare Aufgabenbegleitung zeigt Ziel, Vorschlag, Umsetzung, Nachweise und Abnahme auf derselben Platte.
