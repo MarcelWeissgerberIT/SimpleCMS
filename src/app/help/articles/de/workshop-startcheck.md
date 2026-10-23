@@ -4,13 +4,13 @@ title: Workshop · Startcheck auf dem Teilnehmerrechner
 section: ai
 order: 23
 keywords: workshop, copilot, windows, atlas, internes git, simulation, c++, angular, teilnehmer, test, evidenz
-related: copilot-coding, coding-harness, personal-secrets, custom-agents, team-cloud
+related: workshop-startampel, copilot-coding, coding-harness, personal-secrets, custom-agents, team-cloud
 summary: Konto, Worker, internes Repository und Atlas vor der ersten echten Aufgabe prüfen.
 ---
 Der Test muss auf dem Rechner stattfinden, der das interne Repository erreicht. Ein bestandener Organisatortest belegt weder den Zugang im Unternehmensnetz noch die fachliche Qualität der späteren Lösung. Zugangsdaten jeder Person bleiben persönlich; ein Workspace-Paket enthält keine persönlichen Verbindungen.
 
 ## 1 · Arbeitsbereich und Zugänge
-Den vorgesehenen Team-Workspace öffnen, Namen und eigene Rolle kontrollieren. Gäste erhalten nur den bestätigten Gastbereich. Ein Anmeldelink allein bestätigt weder Atlas-Rechte noch den Zugriff auf interne Repositories. Atlas-Tenant, tatsächliches Projekt und eigenen Agenten separat prüfen. Keine gemeinsamen Tokens in Seiten oder Chat einfügen; persönliche Atlas-Verbindungen gehören in **Meine Secrets**.
+Den vorgesehenen Team-Workspace öffnen, Namen und eigene Rolle kontrollieren. Im Workshop lesen Gäste die freigegebenen gemeinsamen Seiten mit; Bearbeiten, Einladen und Agenten-/Coding-Start bleiben gesperrt. Ein Anmeldelink allein bestätigt weder Atlas-Rechte noch den Zugriff auf interne Repositories. Atlas-Tenant, tatsächliches Projekt und eigenen Agenten separat prüfen. Keine gemeinsamen Tokens in Seiten oder Chat einfügen; persönliche Atlas-Verbindungen gehören in **Meine Secrets**.
 
 ## 2 · Worker und Modell
 Den aktuellen Worker herunterladen und auf demselben Laptop starten. Worker **1.26.0** enthält Copilot-Text, Werkzeuge und die bedingte Medien-Unterstützung. Unter **Einstellungen → Coding-Worker** verbinden; bei mehreren Workspaces die bewusste Freigabe dieses Arbeitsbereichs prüfen. Auf Windows die dort angebotenen Downloads und Tastenkürzel verwenden.
@@ -35,3 +35,5 @@ Bilder benötigen vom Konto gemeldete Bildfähigkeit. PDFs werden über Copilot 
 In One Briefing, Quellen, Bericht, Diff und Testbefehl sammeln. In Atlas Requirement, fachliche Entscheidung, offene Risiken und Testnachweis verknüpfen. Der Nachweis nennt Datum, ausführende Person, Commit/Branch, Umgebung, Befehl, erwartetes und tatsächliches Ergebnis. **Nicht ausgeführt** bleibt ein sichtbares Ergebnis; **bestanden** setzt einen echten Lauf voraus.
 
 Bei fehlendem Netz, Modellzugang, Repository oder Atlas-Recht: den Lauf stoppen, Ursache und nächste zuständige Person erfassen. Mit einer ausdrücklich als synthetisch bezeichneten Übung den Ablauf trainieren; daraus keine Abnahme des realen Produkts ableiten. Die menschliche Prüfung und Integration bleiben beim Team.
+
+Den persönlichen Stand in der [Startampel](../workshop-startampel/) festhalten: erst nach tatsächlicher Prüfung grün setzen. Ein gespeicherter Zugangslink reicht nicht.

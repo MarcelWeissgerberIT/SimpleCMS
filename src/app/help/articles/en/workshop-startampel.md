@@ -1,8 +1,8 @@
 ---
 id: workshop-startampel
 title: Workshop start check
-category: agents
-order: 19
+section: ai
+order: 24
 keywords: workshop, readiness, participants, worker, copilot, atlas, guest, setup
 related: workshop-startcheck, copilot-coding, personal-secrets, team-cloud
 summary: Check personal setup together and keep blockers visible.

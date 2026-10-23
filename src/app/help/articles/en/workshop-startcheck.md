@@ -4,13 +4,13 @@ title: Workshop · Participant laptop start check
 section: ai
 order: 23
 keywords: workshop, copilot, windows, atlas, internal git, simulation, c++, angular, participant, test, evidence
-related: copilot-coding, coding-harness, personal-secrets, custom-agents, team-cloud
+related: workshop-startampel, copilot-coding, coding-harness, personal-secrets, custom-agents, team-cloud
 summary: Check accounts, the worker, the internal checkout and Atlas before the first real task.
 ---
 Run this check on the computer that can access the internal repository. A successful organizer test proves neither access inside the company network nor the quality of the eventual solution. Each person's credentials remain personal; workspace packages contain no personal connections.
 
 ## 1 · Workspace and access
-Open the intended team workspace and check its name and your own role. Guests receive only their approved guest area. A sign-in link does not establish Atlas rights or access to internal repositories. Check the Atlas tenant, actual project and your own agent separately. Never paste shared tokens into pages or chats; personal Atlas connections belong in **My secrets**.
+Open the intended team workspace and check its name and your own role. Workshop guests can read approved shared pages; editing, inviting and agent/coding execution remain blocked. A sign-in link does not establish Atlas rights or access to internal repositories. Check the Atlas tenant, actual project and your own agent separately. Never paste shared tokens into pages or chats; personal Atlas connections belong in **My secrets**.
 
 ## 2 · Worker and model
 Download the current worker and start it on the same laptop. Worker **1.26.0** includes Copilot text, tools and conditional media support. Connect under **Settings → Coding worker**; with multiple workspaces, verify explicit permission for this workspace. On Windows use the downloads and shortcuts shown for that platform.
@@ -35,3 +35,5 @@ Images need account-advertised vision. Copilot handles PDFs as locally extracted
 Collect the brief, sources, report, diff and test command in One. Link the requirement, domain decision, open risks and test evidence in Atlas. Evidence names the date, person, commit/branch, environment, command, expected result and actual result. **Not run** remains visible; **passed** requires a real run.
 
 If the network, model access, repository or Atlas permission is missing, stop the run and record the cause and next responsible person. Practice the flow with an explicitly synthetic exercise; do not treat it as acceptance of the real product. Human review and integration remain the team's responsibility.
+
+Record personal progress in the [start checklist](../workshop-startampel/): mark green only after an actual check. A saved access link is not sufficient.

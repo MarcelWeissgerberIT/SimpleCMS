@@ -1,8 +1,8 @@
 ---
 id: workshop-startampel
 title: Startampel für den Workshop
-category: agents
-order: 19
+section: ai
+order: 24
 keywords: workshop, startampel, teilnehmer, worker, copilot, atlas, gast, einrichtung
 related: workshop-startcheck, copilot-coding, personal-secrets, team-cloud
 summary: Den persönlichen Einrichtungsstand gemeinsam prüfen und Blocker sichtbar festhalten.
