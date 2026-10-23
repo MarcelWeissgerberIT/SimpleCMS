@@ -1,5 +1,5 @@
 /** Minimal device observations. Never a credential, source excerpt or arbitrary URL. */
-export type ReadinessObservation = { signal:'atlas'; project:string; record:number } | { signal:'copilot'|'repo' }
+export type ReadinessObservation = { signal:'atlas'; project:string; record:number } | { signal:'copilot'|'repo'|'worker' }
 export interface ReadinessEvidence { at:number; source:'session'|'relay'|'device-mcp'|'device-worker'; project?:string; record?:number }
 export function atlasReadProof(tool:string, content:unknown):{project:string;record:number}|null {
   if(tool!=='atlas_get')return null

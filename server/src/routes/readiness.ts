@@ -13,14 +13,14 @@ import type {ReadinessEvidence} from '../../../src/shared/readiness.ts'
 const observation=z.discriminatedUnion('signal',[
  z.object({signal:z.literal('sync')}).strict(),
  z.object({signal:z.literal('atlas'),project:z.string().regex(/^[a-z0-9_-]{1,100}$/),record:z.number().int().positive().max(Number.MAX_SAFE_INTEGER)}).strict(),
- z.object({signal:z.enum(['copilot','repo'])}).strict(),
+ z.object({signal:z.enum(['copilot','repo','worker'])}).strict(),
 ])
 export function readinessRoutes(s:Services){
  const app=new Hono<AppEnv>(),store=new WelcomeStore(s)
  app.post('/:id/readiness',async c=>{
   const {workspace,auth,role}=access(s,c,'viewer'),input=await body(c,observation)
   const wait=s.limiter.hit(`readiness:${workspace.id}:${auth.user.id}`,60,60000);if(wait)throw rateLimited(60)
-  if(role==='viewer'&&['copilot','repo'].includes(input.signal))throw forbidden('viewer','Guests cannot report coding checks')
+  if(role==='viewer'&&['copilot','repo','worker'].includes(input.signal))throw forbidden('viewer','Guests cannot report coding checks')
   // Match verified account email privately to opaque welcome recipient ids. Display names never identify people.
   const ids=new Set<string>()
   for(const d of s.db.all<{workspace_id:string;user_id:string}>('SELECT workspace_id,user_id FROM welcome_drafts WHERE workspace_id=?',workspace.id)){
@@ -51,6 +51,7 @@ export function readinessRoutes(s:Services){
    put('one',{at:now,source:'session'})
    if(online&&role!=='viewer')put('worker',{at:now,source:'relay'})
    if(input.signal==='atlas')put('atlas',{at:now,source:'device-mcp',project:input.project,record:input.record})
+   if(input.signal==='worker')put('worker',{at:now,source:'device-worker'})
    if(input.signal==='copilot')put('copilot',{at:now,source:'device-worker'})
    if(input.signal==='repo')put('repo',{at:now,source:'device-worker'})
    if(changed){props.set(a.evidence,JSON.stringify(evidence));props.set(config.changedAt,new Date(now).toISOString());props.set(config.changedBy,'ONE · automatisch / automatic');row.set('updatedAt',now)}

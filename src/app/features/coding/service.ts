@@ -623,7 +623,7 @@ async function receive(msg: WorkerMessage) {
       failingSince = 0
       wasCurrent = true
       const { type: _type, ...info } = msg
-      const readiness = captureReadiness();if(readiness)void import('../../cloud/api').then(({request})=>{const current=captureReadiness();if(current?.workspace===readiness.workspace&&current?.user===readiness.user)return request('POST',`api/workspaces/${readiness.workspace}/readiness`,{signal:'sync'})}).catch(()=>{})
+      const readiness = captureReadiness();if(link?.via==='local')noteReadiness(readiness,{signal:'worker'});if(readiness)void import('../../cloud/api').then(({request})=>{const current=captureReadiness();if(current?.workspace===readiness.workspace&&current?.user===readiness.user)return request('POST',`api/workspaces/${readiness.workspace}/readiness`,{signal:'sync'})}).catch(()=>{})
       setBusy(info.busy, { conn: 'connected', refused: null, refusedPaired: false, pendingHere: false, worker: info, spentToday: info.spentToday ?? 0 })
       // the worker's repos as Repo options: upkeep, nobody's change (flight recorder)
       withWriter(SYSTEM('maintenance'), () => {
