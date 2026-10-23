@@ -17114,6 +17114,18 @@ async function textRequest(file, raw, signal) {
 
 // src/worker/demo-compare.ts
 var exec = promisify(execFile);
+async function demoCopilot(messages, maxTokens, model = "auto", env = process.env) {
+  const run2 = await prepareCopilotRun(model, { model, contextTokens: 32768 }, "task", env);
+  try {
+    const reply = await run2.inference({ model, messages, tools: [], contextTokens: run2.context.tokens, outputTokens: Math.min(maxTokens, 4096), signal: AbortSignal.timeout(18e4) });
+    if (reply.message?.tool_calls?.length || typeof reply.message?.content !== "string") throw new Error("Copilot returned an invalid text answer");
+    return { model: run2.model, text: reply.message.content, inputTokens: reply.inputTokens ?? null, outputTokens: reply.outputTokens ?? null, usd: null, copilotReceipt: run2.receipt() };
+  } catch (e) {
+    const error2 = e instanceof Error ? e : new Error(String(e));
+    Object.assign(error2, { copilotReceipt: run2.receipt() });
+    throw error2;
+  }
+}
 var cases = [{ id: "cpp-temperature", source: "cpp/include/temperature.hpp", test: "cpp/tests/temperature_test.cpp", total: 14 }, { id: "angular-validation", source: "web/api.ts", test: "tests/validation.test.mjs", total: 13 }];
 async function compareDemo(options) {
   const repo = await realpath(options.repo), output = options.output, temporary = await mkdtemp3(join7(tmpdir4(), "one-demo-compare-"));
@@ -17129,12 +17141,13 @@ async function compareDemo(options) {
       return { exit: typeof r.code === "number" ? r.code : 1, output: String(r.stdout ?? "") + String(r.stderr ?? "") + String(r.message ?? "") };
     }
   };
-  const complete = options.complete ?? Object.fromEntries([["local", options.model ?? "marcel-flow:latest"], ["copilot", options.copilotModel ?? "auto"]].map(([provider, model]) => [provider, async (messages, maxTokens) => textRequest(options.config ?? "", { provider, model, messages, maxTokens }, AbortSignal.timeout(18e4))]));
+  const complete = options.complete ?? { local: (messages, maxTokens) => textRequest(options.config ?? "", { provider: "local", model: options.model ?? "marcel-flow:latest", messages, maxTokens }, AbortSignal.timeout(18e4)), copilot: (messages, maxTokens) => demoCopilot(messages, maxTokens, options.copilotModel ?? "auto") };
   const report = { schema: 1, at: (/* @__PURE__ */ new Date()).toISOString(), commit: commit.trim(), synthetic: true, scope: "Two small text-to-patch checks. No full merge, browser, customer network or agent/MCP benchmark.", samePrompt: true, tools: false, sourceTestsUnchanged: true, results: [] };
   await mkdir(dirname3(output), { recursive: true });
   const save = () => writeFile(output, JSON.stringify(report, null, 2) + "\n", { mode: 384 });
   try {
-    for (const c of cases) {
+    if (options.cases?.some((id) => !cases.some((c) => c.id === id))) throw new Error("Unknown demo case");
+    for (const c of cases.filter((c2) => !options.cases || options.cases.includes(c2.id))) {
       const source = await readFile(join7(repo, c.source), "utf8"), tests = await readFile(join7(repo, c.test), "utf8");
       const messages = [{ role: "system", content: REVIEW_POLICY + '\nThis is an authorized synthetic coding exercise. Return ONLY JSON: {"content":"complete corrected source file","findings":[{"quote":"exact quote from input source","issue":"explanation"}]}. No Markdown fences. Edit only the supplied source, keep its interface, no imports/dependencies, no test edits, no approval claims.' }, { role: "user", content: `Repair ${c.source} to satisfy the unchanged acceptance tests. Valid temperatures are 0\u2013100 degrees Celsius inclusive or equivalent Fahrenheit. Reject non-finite/blank/invalid units. Preserve revision conflict precedence and API v2 request shape.
 SOURCE ${c.source}:
@@ -17143,7 +17156,7 @@ UNCHANGED TEST ${c.test}:
 ${tests}` }];
       for (const [provider, completion] of Object.entries(complete)) {
         options.progress?.(`${c.id} \xB7 ${provider}: starting`);
-        const dir = join7(temporary, c.id, provider), entry = { case: c.id, provider, promptSha256: createHash("sha256").update(JSON.stringify(messages)).digest("hex"), source: c.source, test: c.test, testSha256: createHash("sha256").update(tests).digest("hex"), total: c.total, passed: false };
+        const dir = join7(temporary, c.id, provider), entry = { case: c.id, provider, promptSha256: createHash("sha256").update(JSON.stringify(messages)).digest("hex"), source: c.source, test: c.test, testSha256: createHash("sha256").update(tests).digest("hex"), total: c.total, status: "not_run", passed: false };
         await mkdir(dirname3(join7(dir, c.source)), { recursive: true });
         await mkdir(dirname3(join7(dir, c.test)), { recursive: true });
         await writeFile(join7(dir, c.source), source);
@@ -17155,6 +17168,7 @@ ${tests}` }];
         const start = Date.now();
         try {
           const answer = await completion(messages, 4096);
+          entry.status = "answer_received";
           entry.ms = Date.now() - start;
           entry.model = answer.model;
           entry.inputTokens = answer.inputTokens;
@@ -17172,6 +17186,7 @@ ${tests}` }];
           const checked = await check();
           entry.check = checked;
           entry.passed = baseline.exit !== 0 && checked.exit === 0;
+          entry.status = entry.passed ? "passed" : "checks_failed";
           entry.patchSha256 = createHash("sha256").update(parsed.content).digest("hex");
           const artifact = join7(dirname3(output), `${c.id}-${provider}.txt`);
           await writeFile(artifact, parsed.content, { mode: 384 });
@@ -17179,6 +17194,11 @@ ${tests}` }];
         } catch (e) {
           entry.ms = Date.now() - start;
           entry.error = e instanceof Error ? e.message : String(e);
+          const receipt = e?.copilotReceipt;
+          if (receipt) {
+            entry.copilotReceipt = receipt;
+            entry.status = receipt.rounds ? "transport_or_format_error" : "not_run";
+          }
         }
         report.results.push(entry);
         await save();
