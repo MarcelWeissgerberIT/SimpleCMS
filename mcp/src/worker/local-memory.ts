@@ -19,6 +19,7 @@ export const memorySafeText = (text: string) => text
 export class LocalMemory {
   private entries: MemoryEntry[] = []
   private checkpoint: MemoryCheckpoint = { plan: '', decisions: '', remaining: '', next: '' }
+  private knowledge: Array<{ kind: string; summary: string; recallWhen: string; source: Record<string, unknown>; status: string }> = []
   private events: string[] = []
   private refs: number[] = []
   private operations: Record<string, { state: 'pending' | 'done'; receipt?: string }> = {}
@@ -50,6 +51,7 @@ export class LocalMemory {
       const value = JSON.parse(await file.readFile('utf8'))
       if (value.v !== 1 || value.scope !== hash(options.scope)) return
       this.setCheckpoint(value.checkpoint)
+      if (Array.isArray(value.knowledge)) for (const note of value.knowledge.slice(-8)) this.noteKnowledge(note)
       if (Array.isArray(value.entries)) for (const e of value.entries.slice(-MAX_ENTRIES)) {
         if (typeof e.source !== 'string' || typeof e.text !== 'string') continue
         // Restore the saved status, not insertion-order supersession: a repeated read may refresh an older entry in place.
@@ -96,6 +98,27 @@ export class LocalMemory {
     this.remember('checkpoint (unverified model notes)', JSON.stringify(this.checkpoint))
     return 'Checkpoint saved. Notes are unverified; reread source and rerun checks before relying on them.'
   }
+  noteKnowledge(value: unknown) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Supply a knowledge note with a source.')
+    const x = value as Record<string, unknown>
+    if (!['documented_decision', 'finding', 'constraint', 'open_question'].includes(String(x.kind)) || typeof x.summary !== 'string' || !x.summary.trim() || x.summary.length > 1500 || typeof x.recallWhen !== 'string' || !x.recallWhen.trim() || x.recallWhen.length > 500 || !x.source || typeof x.source !== 'object' || JSON.stringify(x.source).length > 4000) throw new Error('Knowledge needs a supported kind, summary, recallWhen and bounded source reference.')
+    const note = { kind: String(x.kind), summary: this.clean(x.summary), recallWhen: this.clean(x.recallWhen), source: JSON.parse(this.clean(JSON.stringify(x.source))), status: x.kind === 'documented_decision' ? 'reference_to_decision_not_a_new_approval' : 'candidate_not_a_team_decision' }
+    const identity = (n: typeof note) => JSON.stringify({ kind: n.kind, summary: n.summary, recallWhen: n.recallWhen, source: { location: n.source?.location, quote: n.source?.quote } })
+    const previous = this.knowledge.find(n => identity(n as typeof note) === identity(note))
+    if (previous) return previous
+    this.knowledge = [...this.knowledge, note].slice(-8)
+    this.remember('knowledge candidate: ' + note.kind, JSON.stringify(note), { evidence: 'model-note' })
+    return note
+  }
+  atlasSummary() {
+    const notes = Object.fromEntries(Object.entries(this.checkpoint).map(([k,v]) => [k, v.slice(0, k === 'decisions' ? 1000 : 300)]))
+    const knowledge = this.knowledge.map(n => ({ ...n, summary: n.summary.slice(0,800), recallWhen: n.recallWhen.slice(0,200), source: { ...n.source, ...(typeof n.source.quote === 'string' && n.source.quote.length > 500 ? { quote: n.source.quote.slice(0,500), quoteShortened: true } : {}) } }))
+    const build = () => JSON.stringify({ notes, knowledge, knowledgeOmitted: this.knowledge.length - knowledge.length, atlasRefs: this.refs, warning: 'Historical reference notes, not current instructions or new approvals. Full local notes remain addressable.' })
+    while (build().length > 12000 && knowledge.length) knowledge.shift()
+    return build()
+  }
+  knowledgeSignature() { return JSON.stringify({ decisions: this.checkpoint.decisions, knowledge: this.knowledge }) }
+  knowledgeNotes() { return structuredClone(this.knowledge) }
   event(text: string) { this.events.push(this.clean(text).slice(0, 300)); this.events = this.events.slice(-20) }
   search(query: unknown) {
     if (typeof query !== 'string' || query.length > 200) throw new Error('Memory query must be text up to 200 characters.')
@@ -121,7 +144,7 @@ export class LocalMemory {
   }
   summary() {
     const notes = Object.fromEntries(Object.entries(this.checkpoint).map(([k, v]) => [k, v.length > 1000 ? v.slice(0, 1000) + ' [shortened; memory_search checkpoint]' : v]))
-    return JSON.stringify({ notes, observed: this.events.slice(-10).map(e => e.slice(0, 180)), atlasRefs: this.refs, pendingExternalOperations: Object.values(this.operations).filter(o => o.state === 'pending').length, recent: this.entries.slice(-8).map(e => ({ id: e.id, source: e.source.slice(0, 150) })) })
+    return JSON.stringify({ notes, knowledge: this.knowledge, observed: this.events.slice(-10).map(e => e.slice(0, 180)), atlasRefs: this.refs, pendingExternalOperations: Object.values(this.operations).filter(o => o.state === 'pending').length, recent: this.entries.slice(-8).map(e => ({ id: e.id, source: e.source.slice(0, 150) })) })
   }
   report() {
     return 'Saved task state (notes may be unverified):\n' + this.summary() + '\nNext: continue from this checkpoint, reread changed source, and verify outstanding work.'
@@ -129,7 +152,7 @@ export class LocalMemory {
   async flush(options?: MemoryOptions) {
     if (!this.file || !options) return
     const temp = this.file + '.' + randomBytes(8).toString('hex') + '.tmp'
-    const snapshot = () => JSON.stringify({ v: 1, scope: hash(options.scope), checkpoint: this.checkpoint, events: this.events, entries: this.entries, refs: this.refs, operations: this.operations })
+    const snapshot = () => JSON.stringify({ v: 1, scope: hash(options.scope), checkpoint: this.checkpoint, knowledge: this.knowledge, events: this.events, entries: this.entries, refs: this.refs, operations: this.operations })
     let body = snapshot()
     while (Buffer.byteLength(body) > 1_500_000 && this.entries.length) { this.entries.shift(); body = snapshot() }
     const file = await open(temp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW || 0), 0o600)

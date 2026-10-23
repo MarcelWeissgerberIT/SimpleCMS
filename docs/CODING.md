@@ -1607,3 +1607,27 @@ disclose that figures/layout are omitted. Images and PDF text also work in the t
 Native PDF visual inspection, media generation, Jev decision models and browser-free server agents remain unsupported.
 `auto` is sent explicitly to the CLI rather than accidentally using a configured native default. The account model
 catalog is authoritative, including Free accounts with only `auto`; do not invent extra model IDs or subscription prices.
+
+## Source review and active knowledge (worker 1.28.0)
+The harness opens access to permitted context and tools; it is not a domain decision-maker. A shared review rule is
+injected into browser/terminal agents, server agents, the work-order planner and every worker coding prompt. Models
+actively analyse inconsistencies, group related findings and propose next steps. Product decisions and acceptance stay
+with people. Existing read-only, staged-change, hand-only-property and permission boundaries remain authoritative.
+
+`check_finding` checks exact quotations against bounded observations of `read_page` / `read_file`. Native coding clients
+use the task-scoped read-only MCP tools `one_task_source` and `one_task_check_finding`. The worker checks relative paths
+with LocalFiles' existing traversal/symlink/credential restrictions. Task reads and non-credential personal MCP outputs
+also receive receipts. Each receipt names its `checkWith` tool. No arbitrary URL is fetched; model notes and memory
+recalls cannot mint source evidence. Receipts are ephemeral and limited to 24 excerpts. Unknown receipts, unmatched
+quotations and duplicated identical citations cannot support a pair. The result always leaves semantic conflict
+unverified and team decision open: a quotation is neither current source authority nor proof of a contradiction.
+Instructions require this check, but free-form reports are not a schema-enforced guarantee of truthful model claims.
+
+The common local coding adapter also offers `memory_knowledge`: source-backed findings, constraints, open questions
+and references to documented human decisions, each with a recall trigger. The host checks the source quotation before
+recording the note. Notes never become new approvals. Local checkpoints persist before an immediate authorized private
+Atlas checkpoint attempt. Duplicate knowledge is not saved twice; at most three Atlas checkpoint writes occur per run.
+Failures stop further automatic sync attempts and retain local state; missing permission/connection or a write limit is
+reported as ATLAS PENDING. Atlas summaries are bounded; full local notes remain addressable. Read-only stages do not
+write Atlas. Native CLI and browser/server agents use explicitly granted Atlas tools under the same knowledge policy;
+they do not acquire the local adapter's automatic checkpoint transport. Existing workers need updating and a new run.

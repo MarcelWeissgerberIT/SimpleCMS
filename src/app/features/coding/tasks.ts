@@ -355,7 +355,7 @@ export async function pickNext(repos: string[], workerName: string, docs = false
     let personalMcp: TaskPayload['personalMcp']
     if (['plan', 'implement', 'doc'].includes(stage.kind) && personalSelection(row.id).length) {
       try {
-        if (!['claude','copilot'].includes(agent) || !caps.has('personal-secrets')) throw new Error('Meine Secrets benötigen einen aktuellen Claude-Code- oder Copilot-Worker. / My secrets require a current Claude Code or Copilot worker.')
+        if (!caps.has('personal-secrets') || (!['claude','copilot'].includes(agent) && !caps.has('source-review'))) throw new Error('Meine Secrets benötigen für diesen Coding-Agenten Worker 1.28.0 oder neuer. / My secrets require worker 1.28.0 or newer for this coding agent.')
         personalMcp = personalConnectionsForTask(row.id)
       } catch (e) {
         skip();await patchTask(row.id, { state: 'failed', error: e instanceof Error ? e.message : 'Unlock My secrets.', runNow: false });continue

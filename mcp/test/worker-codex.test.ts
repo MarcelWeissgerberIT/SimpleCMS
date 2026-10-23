@@ -72,3 +72,9 @@ test('built worker routes a Codex implement stage without invoking Claude', asyn
     }
   } finally { tab?.close(); await worker.stop() }
 })
+
+test('Codex exposes the task-scoped source checker and granted MCP proxy without serializing credentials', () => {
+ const args=codexArgs(options({taskMcp:{command:process.execPath,args:['fixture-task-mcp'],env:{ONE_WORKER_TASK_TOKEN:'fixture-private-token'}}})).join(' ')
+ for(const name of ['one_task_source','one_task_check_finding','one_task_mcp_search','one_task_mcp_call']) assert.ok(args.includes(name))
+ assert.ok(!args.includes('fixture-private-token'))
+})

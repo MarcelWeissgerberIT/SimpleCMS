@@ -1,3 +1,6 @@
+import { realpath } from 'node:fs/promises'
+import { ReviewSources } from '../../../src/shared/ai/review.ts'
+import { LocalFiles } from './local-files.ts'
 import { readCopilotChoice } from '../../../src/shared/copilot.ts'
 import { personalConnections, PersonalMcp } from './personal-mcp.ts'
 import { modelMcp } from './model-mcp.ts'
@@ -115,6 +118,8 @@ const BRANCHES_FIRST_MS = Number(process.env.ONE_WORKER_BRANCHES_MS) || 2000
 const lookAgainMs = () => Number(process.env.ONE_WORKER_LOOK_MS) || 5000
 
 interface Run {
+  sources?: ReviewSources
+
   personal?: PersonalMcp
   task: TaskPayload
   repo: RepoConfig
@@ -214,7 +219,7 @@ export function sanitizeTask(raw: unknown): TaskPayload | null {
   if (!isObj(raw) || !isObj(raw.stage)) return null
   if (raw.agent !== undefined && !isCodingAgent(raw.agent)) return null
   const personalMcp = personalConnections(raw.personalMcp)
-  if (!personalMcp || (personalMcp.length && raw.agent !== undefined && raw.agent !== 'claude' && raw.agent !== 'copilot')) return null
+  if (!personalMcp) return null
   const s = raw.stage
   if(s.copilot !== undefined && (raw.agent !== 'copilot' || !readCopilotChoice(s.copilot)))return null
   if(s.copilotSource !== undefined && !['task','role','worker'].includes(String(s.copilotSource)))return null
@@ -597,7 +602,7 @@ export class Worker {
           team: this.workspace?.kind === 'team',
           caps,
           bin: this.bin,
-          taskMcp: { command: process.execPath, args: [this.opts.self, 'task-mcp'], env: { ONE_WORKER_TASK_URL: `http://127.0.0.1:${this.config.port}/task`, ONE_WORKER_TASK_TOKEN: token, ONE_WORKER_PERSONAL_READ_ONLY: task.stage.kind === 'implement' ? '0' : '1' } },
+          taskMcp: { command: process.execPath, args: [this.opts.self, 'task-mcp'], env: { ONE_WORKER_TASK_URL: `http://127.0.0.1:${this.config.port}/task`, ONE_WORKER_TASK_TOKEN: token, ONE_WORKER_PERSONAL_READ_ONLY: task.stage.kind !== 'implement' || (repo.claude.permissionMode.implement ?? task.stage.permissionMode) === 'plan' ? '1' : '0' } },
           localMcpServers: this.config.mcpServers,
           signal: run.abort.signal,
           log: (line) => this.logLine(task.id, line),
@@ -992,11 +997,25 @@ export class Worker {
     const run = this.tokens.get(token)
     if (!run) return { ok: false, status: 403, error: 'This task run has ended — the task tools work only while the worker runs the task.' }
     const t = run.task
+    const sources = run.sources ??= new ReviewSources('one_task_check_finding')
+    if (tool === 'one_task_check_finding') {
+      try { return { ok: true, text: JSON.stringify(sources.check(args)) } }
+      catch { return { ok: false, status: 400, error: 'Use observed source receipts and exact quotations. A source check cannot grant approval.' } }
+    }
+    if (tool === 'one_task_source') {
+      if (!run.cwd) return { ok: false, status: 409, error: 'Task worktree is not ready.' }
+      try {
+        const result = await new LocalFiles(await realpath(run.cwd)).read(args.path, args.start_line, args.end_line)
+        return { ok: true, text: sources.observe(run.scrub.text(JSON.stringify(result)), `Worktree ${String(result.path)} lines ${result.start_line}-${result.end_line}; revision ${result.revision}`) }
+      } catch { return { ok: false, status: 400, error: 'Source unavailable in the permitted task worktree. Use a relative allowed source file and a valid line range.' } }
+    }
     if (tool === 'one_task_mcp_search' || tool === 'one_task_mcp_call') {
       if (!run.personal) return { ok: false, status: 403, error: 'No personal MCP connection was granted to this run in One.' }
       try {
         if (tool === 'one_task_mcp_search') return { ok: true, text: run.personal.client.redact(JSON.stringify(run.personal.client.search(args.query))) }
-        return { ok: true, text: await run.personal.client.call(args.server, args.name, args.arguments, run.abort.signal) }
+        const result = await run.personal.client.call(args.server, args.name, args.arguments, run.abort.signal)
+        if (JSON.parse(result)?.isError === true || /token|secret|credential|password|oauth/i.test(String(args.name))) return { ok: true, text: result }
+        return { ok: true, text: sources.observe(result, `Personal MCP ${String(args.server)} / ${String(args.name)}; tool output snapshot, not verified record authority`) }
       } catch { return { ok: false, status: 400, error: 'Personal MCP tool unavailable, refused or failed. Check the selected connection, tool allow-list and stage permissions.' } }
     }
     if (tool === 'one_task_read') {
@@ -1010,7 +1029,7 @@ export class Worker {
       ]
       if (t.rework) parts.push('', ...dataBlock('REWORK', t.rework.trim(), code))
       if (t.answers.length) parts.push('', ...dataBlock('ANSWERS', t.answers.map((a) => `Q: ${a.q}\nA: ${a.a}\n`).join('\n'), code))
-      return { ok: true, text: parts.join('\n') }
+      return { ok: true, text: sources.observe(parts.join('\n'), `One task ${t.id}; current task payload`) }
     }
     if (tool === 'one_task_note') {
       const text = typeof args.text === 'string' ? args.text.trim().slice(0, 2000) : ''

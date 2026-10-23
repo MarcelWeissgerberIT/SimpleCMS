@@ -1,3 +1,4 @@
+import { REVIEW_POLICY, ReviewSources, FINDING_SCHEMA, FINDING_DESCRIPTION } from '@/shared/ai/review'
 import {captureReadiness} from '../../../cloud'
 /**
  * Workspace agent — one task = one run of the SDK tool runner (client.beta.messages.toolRunner)
@@ -278,6 +279,10 @@ export async function runAgent(opts: {
 }): Promise<RunEnd> {
   const { stage, signal, hooks } = opts
   const mcp = opts.mcp ?? null
+  const reviewSources = new ReviewSources()
+  const reviewTool = { name: 'check_finding' as const, description: FINDING_DESCRIPTION, input_schema: FINDING_SCHEMA, write: false, run: async (input: Record<string, unknown>) => ({ content: JSON.stringify(reviewSources.check(input)), summary: 'Source quotation check · team decision open', state: 'ok' as const }) }
+  const offeredTools = [...(opts.tools ?? TERMINAL_TOOLS), reviewTool]
+  const reviewSystem = (opts.system ?? AGENT_SYSTEM) + '\n\n' + REVIEW_POLICY
   const readiness={scope:captureReadiness(),servers:(mcp?.servers??[]).map(s=>({name:s.name,url:s.url}))}
   let messages: BetaMessageParam[] = [...opts.history, opts.user]
   if (signal.aborted) {
@@ -292,10 +297,10 @@ export async function runAgent(opts: {
   try {
     // the gate: nothing is sent before it (features/ai/core/gate.ts); every response is metered (core/meter.ts)
     // its size: the system prompt (+ the servers' part), the conversation and the tool definitions; the answer budget
-    const defs = (opts.tools ?? TERMINAL_TOOLS).map((x) => ({ name: x.name, description: x.description, input_schema: x.input_schema }))
+    const defs = offeredTools.map((x) => ({ name: x.name, description: x.description, input_schema: x.input_schema }))
     // the brake judges the first request on FIRST_STEP_OUT (prompt + 4 096 output): the wire keeps its 64 000 — a capped
     // tool-use step could cut a tool input; the overshoot is one step at most, as every Regler surface says
-    const fixed = (opts.system ?? AGENT_SYSTEM).length + (mcp?.system.length ?? 0) + JSON.stringify(defs).length
+    const fixed = reviewSystem.length + (mcp?.system.length ?? 0) + JSON.stringify(defs).length
     // a picture or a PDF in the conversation counts as its pixels / pages, never as its base64 (messagesChars)
     const size = { promptChars: fixed + messagesChars(messages), maxTokens: (caps: import('@/shared/ai/types').Caps | null) => Math.min(LOOP_MAX_TOKENS, caps?.maxOutput ?? LOOP_MAX_TOKENS), bandOut: FIRST_STEP_OUT }
     const run = opts.run ?? (opts.ledgerSource ? { source: opts.ledgerSource } : undefined)
@@ -315,13 +320,13 @@ export async function runAgent(opts: {
     const { client } = got
     // the model the gate routed to (an agent's own, else this device's) and what it can do (caps, never its id)
     const model = prepared.route?.m ?? got.model
-    const system = opts.system ?? AGENT_SYSTEM
+    const system = reviewSystem
     let calls = 0
     let warned = false
     /** a call was refused at the limit: Claude was told to wrap up, the run ends as 'limit' */
     let refused = false
 
-    const tools: BetaRunnableTool<Record<string, unknown>>[] = (opts.tools ?? TERMINAL_TOOLS).map((tool) => ({
+    const tools: BetaRunnableTool<Record<string, unknown>>[] = offeredTools.map((tool) => ({
       type: 'custom',
       name: tool.name,
       description: tool.description,
@@ -357,7 +362,10 @@ export async function runAgent(opts: {
           throw new Error(msg)
         }
         hooks.toolEnd(stepId, { state: out.state, summary: out.summary, changeId: out.changeId, ms: performance.now() - started })
-        return clipResult(out.content, RESULT_CHARS + 2000)
+        const visible = clipResult(out.content, RESULT_CHARS + 2000)
+        if (tool.name === 'read_page') return reviewSources.observe(visible, `One page ${String(input.id ?? '')}`)
+        if (out.state === 'staged') reviewSources.clear()
+        return visible
       },
     }))
 

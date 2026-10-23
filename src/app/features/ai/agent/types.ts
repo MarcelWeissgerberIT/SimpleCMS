@@ -15,6 +15,7 @@ import type { ModelLine } from '../core/meter'
 import type { JevCheck } from '@/shared/ai/decide'
 
 export type ToolName =
+  | 'check_finding'
   | 'search_pages'
   | 'read_page'
   | 'list_databases'

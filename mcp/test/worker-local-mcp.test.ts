@@ -18,6 +18,7 @@ const agentTools = ['atlas_agent_list', 'atlas_agent_create', 'atlas_agent_updat
 test('external MCP tools cooperate in one task; namespaced calls, auth redaction and read-only policy hold', async () => {
   const secret = 'test-mcp-private-token-not-model-context'
   const calls: string[] = []
+  const memoryBodies: string[] = []
   let memoryFails = false
   let shadowEnabled = true
   const server = createServer(async (req, res) => {
@@ -38,7 +39,7 @@ test('external MCP tools cooperate in one task; namespaced calls, auth redaction
       calls.push('create'); return { content: [{ type: 'text', text: 'Created' }] }
     })
     mcp.registerTool('atlas_memory_save', { inputSchema: { project: z.string(), title: z.string(), body: z.string(), scope: z.literal('private'), memoryType: z.literal('project'), confidence: z.literal('observed'), sourceNote: z.string() } }, async args => {
-      calls.push('memory-save')
+      calls.push('memory-save'); memoryBodies.push(args.body)
       assert.equal(args.project, 'fixture-project')
       assert.ok(!args.body.includes(secret))
       return memoryFails ? { isError: true, content: [{ type: 'text', text: 'Shadow permission missing' }] } : { content: [{ type: 'text', text: JSON.stringify({ ref: 700 }) }] }
@@ -178,6 +179,21 @@ test('external MCP tools cooperate in one task; namespaced calls, auth redaction
     assert.equal(resumed.ok, true, resumed.error)
     assert.equal(calls.filter(x => x === 'create').length, 1)
     assert.match(resumed.text, /Private Atlas checkpoint: \/r\/700/)
+    // Important source-backed knowledge is checkpointed before finishing, with real private Atlas receipts.
+    await writeFile(join(root, 'knowledge.txt'), 'The configured timeout is ten seconds.')
+    const beforeKnowledge = calls.filter(x => x === 'memory-save').length
+    let knowledgeStep = 0, knowledgeReceipt = ''
+    const knowledgeRun = await runLocal({ ...run, maxSteps: 6, memory: { ...memory, scope: 'knowledge' }, inference: async request => {
+      const observed = request.messages.filter((m:any) => m.role === 'tool').at(-1)
+      if (knowledgeStep === 1) knowledgeReceipt = JSON.parse(String(observed!.content).split('\n[Task memory:')[0]!)._oneSource.receipt
+      if (knowledgeStep >= 2) assert.equal(calls.filter(x => x === 'memory-save').length, beforeKnowledge + 1, 'Atlas knowledge persisted before finish and deduplicated')
+      const call = (name:string,args:object) => ({ message: { role:'assistant', content:'', tool_calls:[{function:{name,arguments:args}}] } })
+      const note = { kind:'documented_decision', summary:'Reference only: source specifies a ten-second timeout.', recallWhen:'Before changing timeouts.', sourceA:{receipt:knowledgeReceipt,quote:'The configured timeout is ten seconds.'} }
+      switch (knowledgeStep++) { case 0: return call('read_file',{path:'knowledge.txt'});case 1: case 2: return call('memory_knowledge',note);default:return call('finish_task',{status:'completed',summary:'Knowledge captured; team decision unchanged.',next:''}) }
+    } })
+    assert.equal(knowledgeRun.ok,true,knowledgeRun.error)
+    assert.ok(memoryBodies.at(-1)!.includes('reference_to_decision_not_a_new_approval'))
+    assert.ok(memoryBodies.at(-1)!.includes('Before changing timeouts.'))
     memoryFails = true
     const before = calls.filter(x => x === 'memory-save').length
     const offline = await runLocal({ ...run, maxSteps: 4, memory: { ...memory, scope: 'offline' }, inference: async () => ({ message: { role: 'assistant', content: 'Local work complete.' } }) })

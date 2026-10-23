@@ -42,3 +42,22 @@ node one-worker.mjs evaluate --limit 24 --repeats 3
 Choose model and context through `ONE_CODER_MODEL` and `ONE_CODER_CONTEXT` (32768, 65536 or 131072) in this command's environment. Evaluations change no personal repository, attach no personal MCP and use no cloud inference. They consume local time and memory. Acceptance checks live outside the model's worktree; this is not OS isolation.
 
 JSON output includes suite hash, model, context, passed cases, false completions, duration, steps and run receipts. Repeat the same cases under the same conditions before comparing models or contexts. Even 24 green cases do not establish general frontier-model parity. A failure is evidence, not a reason to weaken acceptance. The older ten-function suite remains available as `benchmark`.
+
+
+## The harness opens doors: source quotation checks
+The harness opens access to permitted sources and tools and coordinates small work packages. Models actively look for contradictions, inconsistencies and problems, group related findings, explain impact and recommend next steps. Binding domain decisions and acceptance remain with the team. A rejected proposal is a valid outcome; enthusiasm for AI is not a success criterion.
+
+In the AI terminal, browser/server agents and the shared local coding adapter, `read_page` or `read_file` provides a receipt for the observed excerpt. `check_finding` compares exact quotations against receipts from this run. Starting with worker **1.28.0**, native coding clients get the same check through `one_task_source` and `one_task_check_finding`; `one_task_read` and personally granted MCP call results also provide receipts. The `checkWith` field identifies the matching checker.
+
+The checker fetches no arbitrary URLs, grants no extra access and writes nothing. It verifies only that a quotation occurred in an observed excerpt. Missing, expired or invalidated receipts require reading again. Request narrower excerpts when output is shortened. Historical memory and model notes do not mint fresh source receipts.
+
+**Supported quotations do not prove a semantic contradiction or approval.** Scope, versions, currentness, authority and meaning still need review. Reports separate findings, sources, context, impact, options and recommendations as proposals; the team decision remains open. A quotation check is neither an executed test nor automatic acceptance. Instructions require the checker, but free-form model responses are not thereby guaranteed truthful.
+
+Update existing coding installations to worker 1.28.0 and start a new run. Running processes and saved reports are not changed retroactively.
+
+## Actively retaining useful knowledge
+The shared companion rule asks models to consult relevant Atlas decisions and constraints before new work. Durable knowledge should carry its source, version, meaning and recall trigger. A confirmed human decision is retained as a reference to the actual decision; proposals and open questions stay separate.
+
+In the shared coding adapter — also used by MiniMax, Ollama Cloud and Copilot — `memory_knowledge` first checks an actual source quotation and persists the note locally. Authorized private Atlas sync is attempted immediately, rather than only at the end. Duplicate notes are deduplicated; at most three Atlas checkpoint writes occur per run. Failure stops further automatic attempts. Missing rights, connectivity or a reached limit remain visibly **ATLAS PENDING**. Saving memory grants no new access and replaces no binding team decision in Atlas.
+
+Browser/server agents and native coding clients receive the same knowledge rule and use their explicitly granted Atlas tools. The shared adapter’s automatic private checkpoint transport is not a universal background service on those paths. Each person needs their own access and correct workspace/project association; private credentials and memories are not automatically shared.

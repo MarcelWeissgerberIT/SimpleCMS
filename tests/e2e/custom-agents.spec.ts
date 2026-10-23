@@ -952,3 +952,33 @@ test('report export creates a page, appends without replacing content, and creat
     }
   }
 })
+
+test('harness source checker supports observed passages, rejects invented evidence and leaves team decisions open', async ({page,context}) => {
+  await openApp(page,'#/agents');await setKey(page)
+  const target=await pageIdByTitle(page,'Projects');let receipt='',quotation=''
+  const bodies=await mockClaude(context,[
+    body=>{
+      expect(JSON.stringify(body.system)).toContain('not a domain decision-maker')
+      expect(body.tools.some((x:AnyState)=>x.name==='check_finding')).toBe(true)
+      return sseMessage([{type:'tool_use',id:'source1',name:'read_page',input:{id:target}}])
+    },
+    body=>{
+      const content=toolResults(body).find((x:AnyState)=>x.tool_use_id==='source1').content as string
+      const footer=content.match(/\[One observed source: (\{.*\})\. Snapshot/)
+      const json=(()=>{try{return JSON.parse(content)}catch{return null}})()
+      receipt=json?._oneSource?.receipt??JSON.parse(footer![1]!).receipt
+      const source=footer?content.slice(0,footer.index):content
+      quotation=source.split('\n').find((line:string)=>line.trim().length>=16)!
+      return sseMessage([{type:'tool_use',id:'check1',name:'check_finding',input:{classification:'possible_contradiction',sourceA:{receipt,quote:quotation},sourceB:{receipt:'invented-source',quote:'This is an invented conflicting passage.'}}}])
+    },
+    body=>{
+      const checked=JSON.parse(toolResults(body).find((x:AnyState)=>x.tool_use_id==='check1').content as string)
+      expect(checked.status).toBe('insufficient_evidence');expect(checked.sourceA.verified).toBe(true);expect(checked.teamDecision).toBe('open');expect(checked.semanticConflict).toBe('not_verified')
+      return sseMessage([{type:'text',text:'Source A is observed; second source missing. Information gap; no team decision.'}])
+    }
+  ])
+  const id=await addAgent(page,{id:'ag-source-check',name:'Source checker',write:'none'})
+  await goAgent(page,id);await page.getByRole('button',{name:'Run now'}).click()
+  const [run]=await waitRuns(page,id,1)
+  expect(run.status).toBe('ok');expect(run.summary).toContain('Information gap');expect(bodies).toHaveLength(3)
+})

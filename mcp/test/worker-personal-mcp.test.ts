@@ -20,7 +20,7 @@ test('handoff refuses malformed credentials and strips executable transports; pr
   assert.ok(t)
   const prompt = buildPrompt(t, { name: 'fixture', claude: { mcpServers: [] } } as any, 'one/fixture')
   assert.ok(!prompt.includes(token));assert.ok(!prompt.includes(entry.url))
-  assert.equal(sanitizeTask({ ...task({ kind: 'implement' }), agent: 'codex', personalMcp: clean }), null)
+  for (const agent of ['codex','local','minimax','ollama']) assert.equal(sanitizeTask({ ...task({ kind: 'implement' }), agent, personalMcp: clean })?.agent, agent)
   assert.equal(sanitizeTask({ ...task({ kind: 'implement' }), agent: 'copilot', personalMcp: clean })?.agent, 'copilot')
   assert.equal(sanitizeTask({ ...task({ kind: 'test' }), agent: 'claude', personalMcp: clean }), null)
 })

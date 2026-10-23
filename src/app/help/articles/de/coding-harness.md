@@ -42,3 +42,22 @@ node one-worker.mjs evaluate --limit 24 --repeats 3
 Wähle Modell und Kontext über `ONE_CODER_MODEL` und `ONE_CODER_CONTEXT` (32768, 65536 oder 131072) in der Umgebung dieses Aufrufs. Die Suite verändert keine eigenen Repositories, verbindet kein persönliches MCP und nutzt keine Cloud-Inferenz. Sie braucht Zeit und lokalen Arbeitsspeicher. Die Abnahmeprüfungen liegen außerhalb des Modell-Arbeitsordners; das ist keine OS-Isolation.
 
 Die JSON-Ausgabe enthält Suite-Hash, Modell, Kontext, Erfolgsquote, falsche Erfolgsmeldungen, Dauer, Schritte und Laufbelege. Wiederhole denselben Satz mit denselben Bedingungen, bevor du Modelle oder Kontexte bewertest. Auch 24 grüne Fälle sind kein Nachweis allgemeiner Spitzenmodell-Qualität. Ein Fehler ist ein Ergebnis, kein Grund, die Abnahme zu lockern. Die ältere Zehn-Funktionen-Suite bleibt unter `benchmark` verfügbar.
+
+
+## Der Harness als Türöffner und die Quellenprüfung
+Der Harness erschließt erlaubte Quellen und Werkzeuge und organisiert kleine Arbeitspakete. Die Modelle suchen aktiv Widersprüche, Inkonsistenzen und Probleme, ordnen Zusammenhänge und Auswirkungen und begründen Empfehlungen. Die verbindliche fachliche Entscheidung und Abnahme bleiben beim Team. Ein begründet verworfener Vorschlag ist ein gültiges Ergebnis; Begeisterung für KI ist kein Erfolgskriterium.
+
+Im KI-Terminal, bei Browser-/Server-Agenten und im gemeinsamen lokalen Coding-Adapter liefert `read_page` beziehungsweise `read_file` einen Quellenbeleg für den gelesenen Ausschnitt. `check_finding` vergleicht zwei genaue Zitate mit den Belegen dieses Laufs. Die nativen Coding-Clients erhalten ab Worker **1.28.0** dieselbe Prüfung über `one_task_source` und `one_task_check_finding`; `one_task_read` und Ergebnisse persönlich freigegebener MCP-Aufrufe liefern ebenfalls Quellenbelege. Das Feld `checkWith` nennt das passende Prüfwerkzeug.
+
+Die Prüfung liest keine beliebigen URLs, erweitert keine Berechtigungen und schreibt nichts. Sie bestätigt ausschließlich, dass das Zitat im beobachteten Ausschnitt vorkam. Fehlende, abgelaufene oder nach einer Änderung verworfene Belege erfordern erneutes Lesen. Ein engerer Ausschnitt hilft bei gekürzten Ergebnissen. Historisches Memory und Modellnotizen erzeugen keine neuen Quellenbelege.
+
+**Zitate belegt bedeutet weder Widerspruch bewiesen noch fachlich freigegeben.** Geltungsbereich, Version, Aktualität und Bedeutung müssen weiter bewertet werden. Das Berichtsformat trennt Befund, Quellen, Kontext, Auswirkungen, Optionen und Empfehlung als Vorschlag; die Teamentscheidung bleibt offen. Eine Quellenprüfung ist kein Testlauf und keine automatische Abnahme. Der Einsatz des Prüfwerkzeugs wird angeordnet, aber freie Modellantworten sind dadurch nicht vollständig gegen falsche Aussagen abgesichert.
+
+Für bestehende Coding-Installationen den Worker auf 1.28.0 aktualisieren und einen neuen Lauf starten. Laufende Prozesse und bereits gespeicherte Berichte werden dadurch nicht rückwirkend geändert.
+
+## Wichtiges Wissen aktiv behalten
+Die gemeinsame Begleitregel fordert vor neuer Arbeit passende Atlas-Entscheidungen und Randbedingungen anzusehen. Erkennt das Modell dauerhaft nützliches Wissen, soll es Quelle, Stand, Bedeutung und Anlass zum Wiederaufrufen ablegen. Eine bestätigte menschliche Entscheidung wird als Verweis auf ihren Beschluss gespeichert; Vorschläge und offene Fragen bleiben getrennt.
+
+Im gemeinsamen Coding-Adapter – auch für MiniMax, Ollama Cloud und Copilot – prüft `memory_knowledge` zuerst ein tatsächliches Quellenzitat und speichert die Notiz lokal. Eine erlaubte private Atlas-Ablage wird sofort versucht, nicht erst am Laufende. Gleiche Notizen werden zusammengefasst; höchstens drei Atlas-Checkpoint-Schreibvorgänge pro Lauf. Fehler stoppen weitere automatische Versuche. Fehlende Rechte, Verbindung oder ein erreichtes Limit bleiben als **ATLAS PENDING** sichtbar. Die Ablage erweitert keine Berechtigungen und ersetzt keinen verbindlichen Team-Beschluss in Atlas.
+
+Bei Browser-/Server-Agenten und nativen Coding-Clients wirkt dieselbe Wissensregel; sie verwenden ihre ausdrücklich freigegebenen Atlas-Werkzeuge. Die automatische private Checkpoint-Übertragung des gemeinsamen Adapters ist dort kein universeller Hintergrunddienst. Jede Person braucht eigene Zugänge und den richtigen Workspace-/Projektbezug; private Tokens und Memories werden nicht automatisch geteilt.

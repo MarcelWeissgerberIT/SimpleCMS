@@ -102,7 +102,8 @@ describe('server agents: tool allow-list, last run, own state', () => {
     assert.ok(r.steps.some((s: any) => s.kind === 'note' && s.label === 'MCP server "wiki": no tool is allowed for this agent — left out.'), JSON.stringify(r.steps))
     // the agent's own tools come after the workspace tools; no notify_me on the server (no inbox there)
     const names = req.body.tools.filter((t: any) => t.name).map((t: any) => t.name)
-    assert.deepEqual(names.slice(-2), ['agent_state_get', 'agent_state_set'])
+    assert.ok(names.includes('check_finding'))
+    assert.deepEqual(names.filter((n:string)=>n!=='check_finding').slice(-2), ['agent_state_get', 'agent_state_set'])
     assert.equal(names.includes('notify_me'), false)
 
     fake.script('All tools', () => say('ok'))
@@ -203,4 +204,27 @@ describe('server agents: tool allow-list, last run, own state', () => {
     assert.deepEqual(sanitizeAgent('ag-allow', def)?.mcpTools, { tracker: ['list_items', 'get_item'], wiki: [] })
     assert.equal(sanitizeAgent('ag-all', meta.doc.getMap('agents').get('ag-all'))?.mcpTools, undefined)
   })
+  test('source checker uses actual scoped reads and cannot approve a semantic conflict', async () => {
+    const at=Date.now(),sourceA='The configured timeout is ten seconds.',sourceB='The configured timeout is thirty seconds.'
+    meta.doc.transact(()=>{
+      for(const [id,title] of [['source-a',sourceA],['source-b',sourceB]]){
+        const p=new Y.Map<unknown>();for(const[k,v] of Object.entries({kind:'page',title,parentId:null,databaseId:null,order:1,trashed:false,createdAt:at,updatedAt:at,plain:title,properties:{},comments:[],settings:{fullWidth:false,smallText:false,font:'sans',locked:false}}))p.set(k,v)
+        meta.doc.getMap('pages').set(id!,p)
+      }
+      meta.doc.getMap('agents').set('ag-source',agentDef('ag-source','Source review',{}))
+    });await flushed(meta)
+    fake.script('Source review',(req,n)=>{
+      assert.match(req.body.system,/not a domain decision-maker/)
+      if(n===0)return tools(['read_page',{id:'source-a'}],['read_page',{id:'source-b'}])
+      if(n===1){
+        const refs=toolResults(req).map(r=>JSON.parse(r.content.match(/\[One observed source: (\{.*\})\. Snapshot/)![1]!))
+        return tools(['check_finding',{classification:'possible_contradiction',sourceA:{receipt:refs[0].receipt,quote:sourceA},sourceB:{receipt:refs[1].receipt,quote:sourceB}}])
+      }
+      const checked=JSON.parse(toolResults(req)[0]!.content)
+      assert.equal(checked.status,'quotations_supported');assert.equal(checked.teamDecision,'open');assert.equal(checked.semanticConflict,'not_verified')
+      return say('Two quotations supported; context and team decision remain open.')
+    })
+    const result=await run('ag-source',1);assert.equal(result.status,'ok',JSON.stringify(result));assert.equal(fake.of('Source review').length,3)
+  })
+
 })

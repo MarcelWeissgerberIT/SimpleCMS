@@ -21,11 +21,11 @@ Saving does not contact Atlas or test the token. Begin with available reading to
 
 **Edit** replaces a token; a blank token field keeps the saved one. **Remove from vault** removes the entry only; revoke the token in Atlas. Existing MCP connections and provider keys are not automatically migrated or changed.
 
-## Use with Claude Code
+## Use with a coding agent
 
-Open a coding task with a connected, current worker. Under **My secrets · connections for this task**, explicitly select the connections for that task and displayed worker. The grant lasts only in this browser session and workspace; it is not exported or shared. Unlock before starting. An older worker or another coding engine does not silently take the grant: this path currently supports Claude Code.
+Open a coding task with a connected, current worker. Under **My secrets · connections for this task**, explicitly select the connections for that task and displayed worker. The grant lasts only in this browser session and workspace; it is not exported or shared. Unlock before starting. An older worker or another coding engine does not silently take the grant: worker 1.28.0 supports all coding agents. Older workers refuse newly supported engines.
 
-The worker receives only the selected connections, keeps tokens in memory and exposes `one_task_mcp_search` and `one_task_mcp_call` to Claude Code. Claude discovers schemas and calls allowed tools there. Token values do not enter its prompt or a project file. The temporary MCP launcher contains only the existing run-scoped One task credential. Claude Code does not load additional MCP connections from the regular worker configuration when a personal grant is in use. Connections close when the run ends. A changed worker connection requires a fresh grant.
+The worker receives only the selected connections, keeps tokens in memory and exposes `one_task_mcp_search` and `one_task_mcp_call` to the selected coding agent. The agent discovers schemas and calls allowed tools there. Token values do not enter its prompt or a project file. The temporary MCP launcher contains only the existing run-scoped One task credential. The coding agent does not load additional MCP connections from the regular worker configuration when a personal grant is in use. Connections close when the run ends. A changed worker connection requires a fresh grant.
 
 Plan and document stages expose only known or explicitly annotated read-only tools. Implementation stages can use explicitly granted external write tools immediately. One's proposal mode does not hold these writes for review. Start with a restricted Atlas token and a short reading allow-list.
 

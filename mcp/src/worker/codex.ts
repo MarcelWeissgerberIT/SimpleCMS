@@ -39,7 +39,7 @@ export function codexArgs(opts: CodexRun): string[] {
     args.push('-c', 'web_search="disabled"')
   }
   const mcp = opts.taskMcp
-  args.push('-c', mcp ? `mcp_servers={one_task={command=${JSON.stringify(mcp.command)},args=${JSON.stringify(mcp.args)},required=true,enabled_tools=["one_task_read","one_task_note","one_task_ask"],tools={one_task_read={approval_mode="approve"},one_task_note={approval_mode="approve"},one_task_ask={approval_mode="approve"}},env_vars=${JSON.stringify(Object.keys(mcp.env))}}}` : 'mcp_servers={}')
+  args.push('-c', mcp ? `mcp_servers={one_task={command=${JSON.stringify(mcp.command)},args=${JSON.stringify(mcp.args)},required=true,enabled_tools=["one_task_mcp_search","one_task_mcp_call","one_task_read","one_task_source","one_task_check_finding","one_task_note","one_task_ask"],tools={one_task_mcp_search={approval_mode="approve"},one_task_mcp_call={approval_mode="approve"},one_task_read={approval_mode="approve"},one_task_source={approval_mode="approve"},one_task_check_finding={approval_mode="approve"},one_task_note={approval_mode="approve"},one_task_ask={approval_mode="approve"}},env_vars=${JSON.stringify(Object.keys(mcp.env))}}}` : 'mcp_servers={}')
   args.push('-c', 'shell_environment_policy.exclude=["*TOKEN*","*KEY*","*SECRET*"]')
   if (opts.env?.ONE_CODEX_MODEL || process.env.ONE_CODEX_MODEL) args.push('--model', (opts.env?.ONE_CODEX_MODEL || process.env.ONE_CODEX_MODEL)!)
   args.push('-')

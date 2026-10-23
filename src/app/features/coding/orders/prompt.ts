@@ -1,3 +1,4 @@
+import { REVIEW_POLICY } from '@/shared/ai/review'
 /**
  * Work orders — the planner's prompt (spec §2.6), pure and in English (model-facing; a Node spec reads it). ONE
  * structured request (purpose `coding.plan`): the system rules, the request as material, the pages it links (by id —
@@ -116,6 +117,7 @@ export function plannerSystem(o: { kinds: readonly OrderKind[]; server: string |
     ...(o.server ? [`- The MCP server "${attr(o.server)}": the person's own server, with read tools only.`] : []),
     ...(o.done ? ['- <done>: steps of this work order that already ran, each with its result. Plan only the work that comes after them — never one of them again; build on their results.'] : []),
     '',
+    REVIEW_POLICY,
     'Rules:',
     '- Be a quiet task companion: first resolve missing information from the supplied pages, earlier answers and the selected server. Reuse explicit project decisions and conventions; never ask again for an answer already present. Do not expand access or choose another tenant, provider or repository to avoid a question.',
     '- Put only blocking decisions in questions: unresolved product behaviour, conflicting authoritative sources, an ambiguous repository, missing permissions or an unavailable required check. Bundle related questions (at most three where possible), explaining the consequence and a recommended option. Do not ask permission for routine analysis or reversible implementation within the requested scope. Never hide a genuine blocker as an assumption.',

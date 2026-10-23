@@ -1,3 +1,4 @@
+import { REVIEW_POLICY, ReviewSources, FINDING_SCHEMA, FINDING_DESCRIPTION } from '../../../src/shared/ai/review.ts'
 /**
  * One run of a server agent: Claude (Messages API, `@anthropic-ai/sdk`, streamed) works through the
  * agent's job with the workspace tools (tools.ts) and, when the agent names them, the runtime's
@@ -89,7 +90,8 @@ function howChangesWork(write: CustomAgent['write'], upsert: boolean): string {
 export function systemPrompt(agent: CustomAgent, mcp: string[], unlocks: ToolUnlocks = NO_UNLOCKS, out: Record<string, string[]> = {}): string {
   const allow = agent.mcpTools ?? {}
   const parts = [
-    `You are a custom agent in One, a workspace of pages and databases (like Notion). You run on the team's server, started by a schedule, a trigger or a person — nobody watches while you work and nobody can answer questions, so decide sensibly on your own. Your job is described in <agent_instructions>; you carry it out by reading the workspace with tools${agent.write === 'none' ? '' : ' and changing it'}.`,
+    `You are a custom agent in One, a workspace of pages and databases (like Notion). You run on the team's server, started by a schedule, a trigger or a person — nobody watches while you work and nobody can answer questions, use reversible technical defaults within the authorized scope; unresolved domain decisions remain open. Your job is described in <agent_instructions>; you carry it out by reading the workspace with tools${agent.write === 'none' ? '' : ' and changing it'}.`,
+    REVIEW_POLICY,
     howChangesWork(agent.write, unlocks.upsert),
     [
       'How to work',
@@ -113,7 +115,7 @@ export function systemPrompt(agent: CustomAgent, mcp: string[], unlocks: ToolUnl
       ...(unlocks.state ? ['- agent_state_get / agent_state_set keep a small JSON state of your own between runs (cursors, the last ids you saw). It is saved only when the run ends without an error.'] : []),
       '- Say in your report what is new: a server agent leaves no inbox notes.',
     ].join('\n'),
-    'When you are done\n- Reply with a short report in Markdown (two to eight lines): what you found or did, what you staged or changed, and anything you could not do, and why. No preamble, no questions.',
+    'When you are done\n- Reply with a short report in Markdown (two to eight lines, longer when needed for paired sources and open team decisions): what you found or did, what you staged or changed, and anything you could not do, and why. No preamble, no questions.',
     `<agent_instructions name=${JSON.stringify(agent.name).replace(/</g, '\\u003c').replace(/>/g, '\\u003e')}>\n${agent.instructions.trim() || '(no instructions)'}\n</agent_instructions>`,
   ]
   if (mcp.length) {
@@ -272,7 +274,8 @@ export async function runAgent(input: RunInput): Promise<RunOutcome> {
   }
 
   const unlocks = input.unlocks ?? NO_UNLOCKS
-  const tools = toolsFor(agent.write, unlocks)
+  const reviewSources = new ReviewSources()
+  const tools = [...toolsFor(agent.write, unlocks), { name: 'check_finding' as const, write: false, description: () => FINDING_DESCRIPTION, input_schema: FINDING_SCHEMA, label: () => 'check_finding · quotation support; team decision open', run: async (args: Record<string, unknown>) => JSON.stringify(reviewSources.check(args)) }]
   const toolDefs: BetaToolUnion[] = [
     ...tools.map((t) => ({ name: t.name, description: t.description(agent.write), input_schema: t.input_schema, eager_input_streaming: true })),
     ...servers.map((m) => toolsetOf(m.name, onlyOf(m.name), offOf(m.name))),
@@ -378,7 +381,10 @@ export async function runAgent(input: RunInput): Promise<RunOutcome> {
         }
         try {
           const out = await tool.run(args, ctx)
-          results.push({ type: 'tool_result', tool_use_id: call.id, content: clipResult(out, RESULT_CHARS + 2000) })
+          if (tool.write) reviewSources.clear()
+          const visible = clipResult(out, RESULT_CHARS + 2000)
+          const observed = tool.name === 'read_page' ? reviewSources.observe(visible, `One page ${String(args.id ?? '')}`) : visible
+          results.push({ type: 'tool_result', tool_use_id: call.id, content: observed })
           step({ kind: 'tool', label, state: 'ok' })
         } catch (err) {
           const message = err instanceof ToolInputError ? err.message : err instanceof ApiError ? explain(err) : 'The tool failed (internal error). Try something else.'

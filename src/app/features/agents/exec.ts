@@ -163,7 +163,7 @@ ${tasks && write !== 'none' ? `${TASK_RULES.replace('("me" = the person)', '(nam
 ${between}
 
 When you are done
-- Reply with a short report in Markdown (three to eight lines): what you did or found, what you changed or proposed, and anything you could not do, and why. No preamble, no questions.`
+- Reply with a short report in Markdown (three to eight lines, longer when needed for paired sources and open team decisions): what you did or found, what you changed or proposed, and anything you could not do, and why. No preamble, no questions.`
 }
 
 function triggerLine(run: AgentRun, agent: CustomAgent): string {
