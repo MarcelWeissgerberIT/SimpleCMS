@@ -1086,3 +1086,7 @@ export async function requestWorkerMcp(body: WorkerMcpRequest, signal?: AbortSig
   }
   finally { signal?.removeEventListener('abort', stop) }
 }
+
+/** Configure only this member’s paired cloud worker, never someone else’s model host. */
+export const modelShareStatus = () => request({op:"model-share-status"} as never, 15000)
+export const configureModelShare = (choice:{model:string;label:string;enabled:boolean}) => request({op:"model-share-config",choice} as never, 45000)

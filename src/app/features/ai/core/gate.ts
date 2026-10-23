@@ -1,3 +1,4 @@
+import { SHARED_PREFIX } from '@/shared/ai/shared-model'
 import { workerProviderReady, workerModelRows } from './workerModels'
 import { isWorkerProvider } from '@/shared/ai/providers'
 /**
@@ -653,11 +654,12 @@ function gate(input: PrepareInput, held: boolean, backstopToo = false): Prepared
   const route = res.route
   const pool = res.pool
   const label = labelFor(route, pool)
-  const sees = seesEverything(route.p, s.ai, s.settings.ai) ? 'all' : 'filtered'
+  const shared = route.p === 'local' && route.m.startsWith(SHARED_PREFIX)
+  const sees = !shared && seesEverything(route.p, s.ai, s.settings.ai) ? 'all' : 'filtered'
   const redact = redactionFor(route.p, s.ai, s.settings.ai)
-  const hiddenMember: DataClass[] = MEMBER_CLASSES.filter((c) => !allowedFor(route.p, c, s.ai, s.settings.ai))
+  const hiddenMember: DataClass[] = MEMBER_CLASSES.filter((c) => shared || !allowedFor(route.p, c, s.ai, s.settings.ai))
   const visible = (id: ID): boolean => !hiddenMember.length || ![...classOfPage(id, w)].some((c) => hiddenMember.includes(c))
-  const allows = (c: DataClass): boolean => allowedFor(route.p, c, s.ai, s.settings.ai)
+  const allows = (c: DataClass): boolean => !(shared && MEMBER_CLASSES.some(m => m === c)) && allowedFor(route.p, c, s.ai, s.settings.ai)
   // 5 · the backstop (D-S2-5): text built without the route's redaction / filter never goes to a route that may not see it
   const concerned = held || backstopToo ? backstop({ classes: [...classes], pageDerived: PAGE_DERIVED, sees, redact, hidden: hiddenMember, applied: input.applied, route: routeKey(route) }) : null
   if (concerned) throw new AIError('policy', concerned, undefined, label, [{ kind: 'step', step: 'data', provider: route.p, data: concerned }])

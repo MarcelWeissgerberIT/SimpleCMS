@@ -1,0 +1,12 @@
+.model-share{border:1px solid var(--c-border,#aaa);border-radius:4px;margin:24px 0;overflow:hidden}
+.model-share>header{background:var(--c-bg-alt,#e7e5df);padding:18px 20px;border-bottom:1px solid var(--c-border,#aaa)}
+.model-share>header>span{font:12px 'JetBrains Mono Variable',monospace;letter-spacing:.08em;color:var(--c-accent,#f50)}
+.model-share h4{font-size:20px;margin:10px 0}
+.model-share p{font-size:14px;line-height:1.5;margin:10px 0}
+.model-share__body{padding:12px 20px 20px}
+.model-share__row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:14px 0;border-top:1px solid var(--c-border,#aaa);margin-top:14px}
+.model-share__row>div{display:grid;gap:4px;flex:1;min-width:160px}
+.model-share__row>div>span{font-size:12px;color:var(--c-text-muted,#666);overflow-wrap:anywhere}
+.model-share__status{font:11px 'JetBrains Mono Variable',monospace}
+.model-share__status[data-online=true]:before{content:'● ';color:var(--c-green,#298743)}
+.model-share__status[data-online=false]:before{content:'● ';color:var(--c-text-muted,#888)}

@@ -61,3 +61,19 @@ The shared companion rule asks models to consult relevant Atlas decisions and co
 In the shared coding adapter — also used by MiniMax, Ollama Cloud and Copilot — `memory_knowledge` first checks an actual source quotation and persists the note locally. Authorized private Atlas sync is attempted immediately, rather than only at the end. Duplicate notes are deduplicated; at most three Atlas checkpoint writes occur per run. Failure stops further automatic attempts. Missing rights, connectivity or a reached limit remain visibly **ATLAS PENDING**. Saving memory grants no new access and replaces no binding team decision in Atlas.
 
 Browser/server agents and native coding clients receive the same knowledge rule and use their explicitly granted Atlas tools. The shared adapter’s automatic private checkpoint transport is not a universal background service on those paths. Each person needs their own access and correct workspace/project association; private credentials and memories are not automatically shared.
+
+## Share a local model with the team · worker 1.29.0+
+In the target **cloud workspace → Settings → AI → Share a local model**, select your installed model and choose **Share with this workspace**. The hosting cloud worker must belong to your account and that workspace. There is no global workspace grant. The panel shows the name, model, availability and queue. **Stop sharing** also works while the host is offline; restarting cannot reactivate a server-disabled share.
+
+Members select its entry under **Local · Ollama** for a text action without a worker of their own. One request runs at a time; at most twelve jobs including the running one and two per person are admitted. Existing personal worker jobs take priority over the next shared request. The route chip shows the queue position. Cancellation, lost membership, revocation and workspace changes stop requests. Waiting is bounded to eight minutes; inference to three. There is no automatic retry or cloud fallback.
+
+The first shared channel supports **text, reviews and code proposals**: up to 22 KB input and 4,096 output tokens. It does not run a coding pipeline, execute tools or share repositories or Atlas tokens. Guests and other workspaces cannot use it. Selected context reaches the host computer. Browser and worker encrypt contents with a fresh key per request; the team relay sees metadata and forwards ciphertext. The host decrypts for inference. Restart rotates the host key; the key is not independently identity-verified. A compromised ONE web application or host is outside this transport protection. No prompts or answers are stored in the database; short-lived jobs and results live in memory. Local computation through the Frankfurt relay is not a fully local LAN deployment.
+
+### Small demo comparison with Copilot
+Use the synthetic participant demo containing intentionally broken C++ and TypeScript validation:
+
+```sh
+node /path/one-worker.mjs compare-demo --repo /path/ONE-Demo --output /path/comparison/report.json --model marcel-flow:latest --copilot-model auto
+```
+
+This command uses local Ollama and your signed-in Copilot CLI directly, with identical inputs, a 4,096-token output budget and unchanged tests. No customer data or model shell tools are used. Reports retain prompt/test hashes, actual model where reported, elapsed time, usage and real test results. `auto` is not a fixed model; pin an available Copilot model for repeatability. Testing the shared transport additionally requires a run through the workspace queue. Two small tasks do not establish full merge or general model quality, Angular build/browser behavior or customer-network access. Subscription quota and electricity are not reported as free.

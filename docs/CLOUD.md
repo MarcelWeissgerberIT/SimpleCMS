@@ -1369,3 +1369,6 @@ copying or offline retention. An optional separate viewer workspace remains poss
 Welcome drafts may prepare guest recipients for the actual workshop workspace without creating
 memberships or sending mail. Sending remains explicit and deadline-gated; a guest recipient with an
 existing editing membership is refused before any email, so the organizer must review that membership.
+
+### Workspace model shares
+See `docs/CODING.md` → Workspace local model sharing. Worker 1.29.0 / server `shared-models:1` offers explicit local text inference to member+ users of one workspace, with a bounded FIFO queue and encrypted ephemeral request/result payloads. The personal coding relay's `(workspace, member)` isolation remains unchanged. Model sharing does not share coding, repository or Atlas permissions. A Frankfurt relay is still a network hop even when host and participants are on the same LAN.

@@ -1,3 +1,5 @@
+import { sharedModelRows, refreshSharedModels, useSharedModels, sendSharedText } from './sharedModels'
+import { SHARED_PREFIX } from '@/shared/ai/shared-model'
 /** Request-only routes discovered from the paired worker. No credentials or persisted model claims. */
 import { useEffect, useSyncExternalStore } from 'react'
 import type { Caps, ModelInfo, Route } from '@/shared/ai/types'
@@ -14,13 +16,14 @@ let revision = 0
 const listeners = new Set<() => void>()
 const publish = (next: ModelInfo[]) => { if (!next.length) details=[]; rows = next; revision++; for (const fn of listeners) fn() }
 let loading: Promise<void> | null = null
-export const workerModelRows = () => rows
-export const workerModelInfo = (route: Route) => rows.find(r => r.route.p === route.p && r.route.m === route.m) ?? null
-export const workerProviderReady = (p: string) => useCoding.getState().conn === 'connected' && rows.some(r => r.route.p === p)
+export const workerModelRows = () => [...rows, ...sharedModelRows()]
+export const workerModelInfo = (route: Route) => workerModelRows().find(r => r.route.p === route.p && r.route.m === route.m) ?? null
+export const workerProviderReady = (p: string) => (p === 'local' && sharedModelRows().length > 0) || (useCoding.getState().conn === 'connected' && rows.some(r => r.route.p === p))
 
 export function refreshWorkerModels(): Promise<void> {
   if (loading) return loading
   loading = (async () => {
+    await refreshSharedModels()
     const api = await import('../../coding')
     if (!api.workerOnline() || !api.workerCaps()?.includes('text-models')) { publish([]); return }
     const before = api.useCoding.getState().worker
@@ -41,16 +44,21 @@ export function refreshWorkerModels(): Promise<void> {
   return loading
 }
 export function useWorkerModels(): number {
+  const sharedRevision = useSharedModels()
   const conn = useCoding(s => s.conn)
   const can = useCoding(s => s.can?.includes('text-models') ?? false)
   useEffect(() => {
     if (conn !== 'connected') { publish([]); return }
     void refreshWorkerModels()
   }, [conn, can])
-  return useSyncExternalStore(fn => { listeners.add(fn); return () => listeners.delete(fn) }, () => revision)
+  return sharedRevision + useSyncExternalStore(fn => { listeners.add(fn); return () => listeners.delete(fn) }, () => revision)
 }
 export async function sendWorkerText(route: Route, messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>, maxTokens: number, signal?: AbortSignal, extra: { tools?: WorkerFunction[]; schema?: Record<string, unknown>; attachments?: WorkerAttachment[] } = {}) {
   if (!isWorkerProvider(route.p)) throw new AIError('capability')
+  if (route.p === 'local' && route.m.startsWith(SHARED_PREFIX)) {
+    if (extra.tools?.length || extra.schema || extra.attachments?.length) throw new AIError('capability')
+    try { return await sendSharedText(route.m, messages, maxTokens, signal) } catch (e) { throw new AIError(signal?.aborted ? 'aborted' : 'unknown', e instanceof Error ? e.message : String(e)) }
+  }
   const api = await import('../../coding')
   if (!workerProviderReady(route.p)) throw new AIError('offline')
   const result = await api.requestWorkerText({ provider: route.p, model: route.m, messages, maxTokens, ...extra }, signal)

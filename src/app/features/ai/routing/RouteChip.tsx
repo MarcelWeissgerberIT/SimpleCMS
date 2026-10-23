@@ -1,3 +1,5 @@
+import { sharedProgress } from '../core/sharedModels'
+import { SHARED_PREFIX } from '@/shared/ai/shared-model'
 /**
  * Provider + model controls (§ 12.5) in the AI menu's command line,
  * ⌘K "?" and the help's Ask. A click or Alt+M (`isRouteKey`) opens the route picker; a pick applies to this request
@@ -123,6 +125,7 @@ export function RouteChip({ purpose, chip, onChip, sources, carries, needs, read
           ▾
         </span>
       </button>
+      {chosen && r.route.p === 'local' && r.route.m.startsWith(SHARED_PREFIX) && sharedProgress() && <span role="status" aria-live="polite" className="route-chip__queue">{t(sharedProgress()!.state === 'queued' ? 'features.ai.prov.share.waiting' : 'features.ai.prov.share.running', {n:sharedProgress()!.position})}</span>}
       {open && (
         <RoutePicker
           anchor={btn.current}

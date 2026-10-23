@@ -19,7 +19,8 @@
  */
 import type { AIErrorCode } from '@/shared/ai/errors'
 import type { Caps, DataClass, DeviceAI, FeatureClass, ModelInfo, Route, RouteRule, StepNote, WorkspaceAI } from '@/shared/ai/types'
-import { refusedClasses } from '@/shared/ai/policy'
+import { SHARED_PREFIX } from '@/shared/ai/shared-model'
+import { refusedClasses, MEMBER_CLASSES } from '@/shared/ai/policy'
 import { legacyRule, routeKey } from '@/shared/ai/route'
 import { refusedSlug } from '@/shared/ai/models'
 import { isJevModel, isJevRouter } from '@/shared/ai/jev'
@@ -130,7 +131,7 @@ function filterPin(route: Route, input: ResolveInput, w: RouteWorld, forcedPool?
   const missing = input.caps.find((n) => !canDo(info.caps, n))
   if (missing) return { ok: false, code: 'capability', detail: missing, step: { k: 'capability', from: key, code: missing }, fix: missing === 'decisions' ? { kind: 'step', step: 'models', provider: 'openrouter' } : { kind: 'pick', need: missing } }
   // 4 · the data rule
-  const [refused] = refusedClasses(route.p, input.classes, w.ws, w.device)
+  const refused = (route.p === 'local' && route.m.startsWith(SHARED_PREFIX) ? input.classes.find(c => MEMBER_CLASSES.some(m => m === c)) : undefined) ?? refusedClasses(route.p, input.classes, w.ws, w.device)[0]
   if (refused) return { ok: false, code: 'policy', detail: refused, step: { k: 'policy', from: key, cls: refused }, fix: { kind: 'step', step: 'data', provider: route.p, data: refused } }
   return { ok: true, info, ...(pool ? { pool } : {}) }
 }

@@ -1,3 +1,4 @@
+import { SharedModelHost } from './shared-model.ts'
 import { realpath } from 'node:fs/promises'
 import { ReviewSources } from '../../../src/shared/ai/review.ts'
 import { LocalFiles } from './local-files.ts'
@@ -312,11 +313,14 @@ export class Worker {
   /** local branch names per repo name (announced to One for the Branch picker; names only) */
   private branches = new Map<string, string[]>()
 
+  private sharedModels: SharedModelHost
+
   constructor(opts: WorkerOptions) {
     this.opts = opts
     this.bin = opts.bin
     this.config = opts.config
     this.state = new WorkerState(opts.config.file, opts.config.runtimeDir, opts.config.runtimeDir ? opts.config.workspace ?? undefined : undefined)
+    this.sharedModels = new SharedModelHost(this.config, () => this.runs.size > 0 || this.textRuns.size > 0, opts.log)
     const cloud = cloudOf(opts.config)
     this.link = new WorkerLink({
       virtual: opts.virtual,
@@ -484,7 +488,7 @@ export class Worker {
     await Promise.race([this.refreshBranches(), new Promise((r) => (waited = setTimeout(r, BRANCHES_FIRST_MS)))])
     clearTimeout(waited)
     const up = await this.link.start()
-    if (up === 'listening') void this.checkRepos()
+    if (up === 'listening') { void this.checkRepos(); this.sharedModels.start() }
     if (up === 'listening') {
       const repos = `${this.config.repos.length} repo(s): ${this.config.repos.map((r) => r.name).join(', ') || 'none'}`
       if (this.link.via)
@@ -503,6 +507,7 @@ export class Worker {
    */
   async stop(): Promise<void> {
     this.stopped = true
+    this.sharedModels.stop()
     this.cancelRuns()
     for (const controller of this.textRuns.values()) controller.abort()
     if (this.poller) clearInterval(this.poller)
@@ -520,7 +525,7 @@ export class Worker {
 
   /** Ask One for work (one request at a time; again right after, if asked meanwhile). */
   tick(): void {
-    if (this.stopped || !this.workspace) return
+    if (this.stopped || !this.workspace || this.sharedModels.busy) return
     if (this.polling) {
       this.again = true
       return
@@ -751,9 +756,12 @@ export class Worker {
   private textRuns = new Map<string, AbortController>()
 
   private async onRequest(msg: Extract<TabMessage, { type: 'req' }>): Promise<unknown> {
+    if (msg.op === 'model-share-status') return this.sharedModels.status()
+    if (msg.op === 'model-share-config') return this.sharedModels.configure(msg.choice)
     if (msg.op === 'text-models') return textModels(this.config.file)
     if (msg.op === 'text-stop') { this.textRuns.get(msg.requestId)?.abort(); return { stopped: true } }
     if (msg.op === 'text-request' || msg.op === 'model-mcp') {
+      if (this.sharedModels.busy) throw new Error('The shared local model is processing a request. Try again shortly.')
       if (typeof msg.requestId !== 'string' || !/^[a-zA-Z0-9-]{1,64}$/.test(msg.requestId) || this.textRuns.has(msg.requestId) || this.textRuns.size >= 2) throw new Error('Text request is busy or invalid.')
       const abort = new AbortController()
       this.textRuns.set(msg.requestId, abort)

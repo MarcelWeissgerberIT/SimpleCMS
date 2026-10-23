@@ -432,4 +432,15 @@ export const migrations: Migration[] = [
       ALTER TABLE invites ADD COLUMN guest INTEGER NOT NULL DEFAULT 0 CHECK (guest IN (0,1) AND (guest = 0 OR role = 'viewer'));
     `,
   },
+  {
+    version: 16,
+    name: 'explicit workspace model shares (no prompts or results)',
+    sql: `CREATE TABLE shared_models (
+      id TEXT PRIMARY KEY REFERENCES coding_workers(id) ON DELETE CASCADE,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      model TEXT NOT NULL, label TEXT NOT NULL,
+      enabled INTEGER NOT NULL CHECK(enabled IN (0,1))
+    ); CREATE INDEX shared_models_workspace ON shared_models(workspace_id);`,
+  },
 ]

@@ -1,3 +1,4 @@
+import { compareDemo } from './demo-compare.ts'
 /**
  * one-worker — runs coding tasks from One with Claude Code on this computer (git worktrees, branches,
  * tests, pull requests). Bundled to public/mcp/one-worker.mjs (mcp/build.mjs). Docs: docs/CODING.md.
@@ -95,7 +96,8 @@ if (flag('--version') || flag('-v')) {
 }
 
 if (flag('--help') || flag('-h')) {
-  process.stdout.write(`one-worker ${VERSION} — evaluate --limit 3 --repeats 1 --cases module-integration,resume-package
+  process.stdout.write(`one-worker ${VERSION} — compare-demo --repo /path/to/demo --output /path/to/report.json
+one-worker ${VERSION} — evaluate --limit 3 --repeats 1 --cases module-integration,resume-package
 Coding tasks from One, run by Claude Code on this computer
 ${
   cloud
@@ -126,6 +128,14 @@ Needs: Node.js 22 or newer, git${win ? ' (Git for Windows — Claude Code needs 
 }
 
 async function main() {
+  if (command === 'compare-demo') {
+    const repo = value('--repo'), output = value('--output')
+    if (!repo || !output) throw new Error('Use compare-demo --repo /path/to/synthetic-demo --output /path/to/report.json [--model marcel-flow:latest] [--copilot-model auto]')
+    const report = await compareDemo({repo,output,model:value('--model')??undefined,copilotModel:value('--copilot-model')??undefined,config:configFile,progress:line=>process.stderr.write(line+'\n')})
+    process.stdout.write(JSON.stringify(report,null,2)+'\n')
+    process.exitCode = report.results.every((r:{passed:boolean})=>r.passed) ? 0 : 1
+    return
+  }
   if (command === 'evaluate') {
     const report = await evaluateHarness({ limit: Number(value('--limit') ?? 3), repeats: Number(value('--repeats') ?? 1), ...(value('--cases') ? { cases: value('--cases')!.split(',') } : {}), onCase: (id, ok) => process.stderr.write(`${id}: ${ok ? 'PASS' : 'FAIL'}\n`) })
     process.stdout.write(JSON.stringify(report, null, 2) + '\n')
