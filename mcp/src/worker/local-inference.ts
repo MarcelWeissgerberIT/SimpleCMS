@@ -12,6 +12,8 @@ export interface LocalInferenceRequest {
 export interface LocalInferenceResponse { message?: any; inputTokens?: number; outputTokens?: number }
 export interface ModelFacts { tools: boolean | null; vision: boolean | null; nativeContext: number | null; quantization?: string; family?: string }
 export interface LocalInference {
+  /** Last actual model reported by the provider, never inferred from the request. */
+  served?: () => string | null
   inspect?: (model: string, signal: AbortSignal) => Promise<ModelFacts>
   (request: LocalInferenceRequest): Promise<LocalInferenceResponse>
   /** Subscription provider without a USD usage price. Never report it as free. */

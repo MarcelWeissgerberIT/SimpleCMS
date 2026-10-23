@@ -1,3 +1,4 @@
+import { CopilotChoiceFields } from '../CopilotOptions'
 /**
  * The work orders' settings (spec §1.1 "Prüfaufträge-Einstellungen", `resizable="orders"`): a popover from the plate's ⚙
  * and from Settings › Coding worker § Work orders. Everything is written with saveOrderConfig (the only writer of
@@ -125,12 +126,13 @@ export function OrderSettingsPanel({ dbId }: { dbId: ID }) {
         <legend className="label">{t('features.coding.pipe.label')}</legend>
         <p className="orc-line orc-line--quiet">{t(`${O}.settings.agentsHint`)}</p>
         <div className="ors__projects">
-          {ORDER_KINDS.map(kind => <label className="ors__project" key={kind}>
-            <span>{t(`features.coding.pipe.${kind}`)}</span>
-            <select className="input" data-testid={`order-settings-agent-${kind}`} value={config ? orderAgent(config, kind) ?? 'claude' : 'claude'} onChange={e => save(c => ({ ...c, agents: { ...c.agents, [kind]: e.target.value as CodingAgent } }))}>
+          {ORDER_KINDS.map(kind => <div className="ors__project" key={kind}>
+            <label htmlFor={`${uid}-agent-${kind}`}>{t(`features.coding.pipe.${kind}`)}</label>
+            <select id={`${uid}-agent-${kind}`} className="input" data-testid={`order-settings-agent-${kind}`} value={config ? orderAgent(config, kind) ?? 'claude' : 'claude'} onChange={e => save(c => ({ ...c, agents: { ...c.agents, [kind]: e.target.value as CodingAgent } }))}>
               {CODING_AGENTS.map(agent => <option key={agent} value={agent}>{t(`features.coding.agent.${agent}`)}</option>)}
             </select>
-          </label>)}
+            {config && orderAgent(config,kind) === 'copilot' && <CopilotChoiceFields id={`role-${kind}`} value={config.copilot?.[kind] ?? {}} onChange={choice=>save(c=>({...c,copilot:{...c.copilot,[kind]:choice}}))} />}
+          </div>)}
         </div>
         <label className="ors__project"><span>{t(`${O}.settings.repairs`)}</span>
           <select className="input" data-testid="order-settings-repairs" value={config?.qaRepairs ?? 0} onChange={e => save(c => { const { qaRepairs: _, ...rest } = c; const n = Number(e.target.value); return n ? { ...rest, qaRepairs: n as 1 | 2 } : rest })}>

@@ -189,3 +189,7 @@ Saving sends no cloud request. The separate **Test connection (cloud request)** 
 ## Ollama Cloud for coding
 
 Open **Settings → AI → Ollama Cloud → Set up API key and model…**. The same card is in **Coding worker** settings. It opens the worker’s protected setup page. Enter your key there once and save; all coding tasks using Ollama Cloud on that worker share the saved key and model. If the worker is offline, the card opens its connection settings first. One never reads or synchronizes this key. Opening settings and saving send no model request; **Test connection (cloud request)** is a separate action. This does not change the AI terminal or browser-agent provider.
+
+
+## Copilot model and run receipt
+With **GitHub Copilot** and worker **1.27.0**, choose model, supported reasoning effort and context budget directly in the task. Work orders provide separate BA, Coding and QA defaults. Task overrides take precedence over the role copied on creation and the worker default. **Run receipts** show reported models, tokens and available quota data; missing money amounts remain unknown. Setup and limits: [GitHub Copilot in One](help:copilot-coding).

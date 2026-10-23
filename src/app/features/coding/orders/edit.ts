@@ -19,7 +19,7 @@ import { pipelineLine } from '../stages'
 import { readPlan, orderPlanHash, type PlanReadCtx, type ResolvedStep } from './plan'
 import { planKeyHits } from './keys'
 import { requestFacts } from './facts'
-import { BUDGET_RANGE, readOrderConfig, orderAgent } from './config'
+import { BUDGET_RANGE, readOrderConfig, orderExecution } from './config'
 import { DELIVERY_LIMITS, remapDependencies } from './delivery'
 import { loadOrderRecord, patchOrderRecord } from './records'
 import { PLAN_LIMITS, type OrderDraft, type OrderKind, type OrderPlanV1, type OrderRecord, type OrderStepPlan } from './types'
@@ -73,8 +73,7 @@ async function hashOf(rowId: ID, plan: OrderPlanV1): Promise<string | null> {
   for (const st of plan.steps) {
     const p = kinds.find((k) => k.kind === st.kind)
     if (!p) return null
-    const agent = config.kind === 'ok' ? orderAgent(config.config, st.kind) : undefined
-    resolved.push({ ...(agent ? { agent } : {}), project: p.project, park: pipelineLine(p.pipeline, !!st.repo, false, approvals), start: pipelineLine(p.pipeline, !!st.repo, true, approvals) })
+      resolved.push({ ...orderExecution(config.kind === 'ok' ? config.config : null, st.kind), project: p.project, park: pipelineLine(p.pipeline, !!st.repo, false, approvals), start: pipelineLine(p.pipeline, !!st.repo, true, approvals) })
   }
   return orderPlanHash(plan, resolved, approvals)
 }

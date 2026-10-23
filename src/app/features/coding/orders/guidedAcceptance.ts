@@ -59,7 +59,8 @@ export async function acceptanceSnapshot(rowId: string, rec: OrderRecord): Promi
   const own = acceptanceBlockId(rowId, chain.run)
   const request = { ...row, content: { type: 'doc', content: row.content?.content?.filter(b => b.attrs?.id !== own) ?? [] } }
   const pageHashes = await Promise.all(steps.map(async s => [s.id, await pageFp(ws.pages[s.id])] as const))
-  const hash = await textFp(canonicalJson({ run: chain.run, evidence, request: [await pageFp(request), row.properties], pageHashes, inputPins, pins, context: rec.draft?.plan.context ?? null, server: rec.draft?.source.server ?? null, contracts: steps.map(s => s.delivery) }))
+  const modelEvidence=steps.flatMap(s=>(taskLocal(s.id).copilotRuns??[]).slice(-8).map(run=>({task:s.id,...run})))
+  const hash = await textFp(canonicalJson({ run: chain.run, ...(modelEvidence.length?{modelEvidence}:{}), evidence, request: [await pageFp(request), row.properties], pageHashes, inputPins, pins, context: rec.draft?.plan.context ?? null, server: rec.draft?.source.server ?? null, contracts: steps.map(s => s.delivery) }))
   const accepted = rec.accepted?.run === chain.run && rec.accepted.evidence === hash
   const lines = [
     `# ${row.title || t('common.untitled')}`,
@@ -71,6 +72,7 @@ export async function acceptanceSnapshot(rowId: string, rec: OrderRecord): Promi
       const local = taskLocal(s.id), f = facts[i]!
       return `- ${s.n}. ${ws.pages[s.id]?.title || s.title || s.kind}: ${f.done ? t(`${G}.stepDone`) : t(`${G}.stepOpen`)}; ${f.test ? `test exit ${f.test.code ?? 'unknown'}, ${f.test.ok && !f.test.skipped ? 'PASS' : 'NOT PASSED'}` : t(`${G}.noChecks`)}${f.qa ? `; QA ${new Date(f.qa.at).toISOString()} · ${f.qa.branch}` : ''}${local.url ? `; ${local.url}` : ''} · ONE #/p/${s.id}`
     }),
+    ...steps.flatMap(s=>(taskLocal(s.id).copilotRuns??[]).slice(-8).map(run=>{const r=run.receipt;return `- Copilot · ONE #/p/${s.id} · ${run.stage} · ${run.status}: requested=${r.requestedModel} (${r.source}); CLI=${r.models.join(', ')||'unknown'}; context=${r.contextTokens}; input=${r.inputTokens??'unknown'}; output=${r.outputTokens??'unknown'}; nano-AIU=${r.nanoAiu??'unknown'}; money=unknown; ${new Date(r.finishedAt).toISOString()}`})),
     ...acceptanceIssues(evidence).map(k => `- ${t(`${G}.issue.${k}`)}`),
     ...(facts.at(-1)?.test ? ['', t(`${G}.testOutput`), taskLocal(steps.at(-1)!.id).test?.output.slice(-3000) ?? ''] : []),
     '', t(`${G}.targets`), ...(rec.draft?.plan.context?.links ?? []),

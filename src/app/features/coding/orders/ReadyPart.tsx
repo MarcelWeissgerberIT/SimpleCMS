@@ -473,6 +473,7 @@ function RequestPanel({ rowId, draft }: { rowId: ID; draft: OrderDraft }) {
  * it stops under this device's Approvals, the next step, a QA branch shared with a coding step, its key in the seen book.
  */
 export function useStations(rowId: ID, rec: OrderRecord, draft: OrderDraft) {
+  const t = useT()
   const databases = useWorkspace((s) => s.databases)
   const db = useWorkspace((s) => (s.pages[rowId]?.databaseId ? s.databases[s.pages[rowId]!.databaseId!] : undefined))
   const read = readOrderConfig(db)
@@ -493,7 +494,9 @@ export function useStations(rowId: ID, rec: OrderRecord, draft: OrderDraft) {
       list: steps.map((st, i): StationFacts => {
         const kp = projects.find((p) => p.kind === st.kind)
         const coding = st.kind === 'qa' && !st.branch && st.repo ? steps.slice(0, i).map((s, j) => ({ s, j })).reverse().find((x) => x.s.kind === 'coding' && x.s.repo === st.repo) : undefined
-        const model = kp?.pipeline.find((s) => CLAUDE_STAGES.has(s.kind) && s.model)?.model ?? null
+        const agent = config ? orderAgent(config,st.kind) ?? 'claude' : 'claude'
+        const choice = config?.copilot?.[st.kind]
+        const model = agent === 'copilot' ? `Copilot · ${choice?.model ?? t('features.coding.copilotOptions.worker')}${choice?.reasoningEffort ? ` · ${choice.reasoningEffort}` : ''}` : agent === 'claude' ? kp?.pipeline.find((s) => CLAUDE_STAGES.has(s.kind) && s.model)?.model ?? null : agent
         return {
           n: base + i + 1,
           step: st,
@@ -507,7 +510,7 @@ export function useStations(rowId: ID, rec: OrderRecord, draft: OrderDraft) {
         }
       }),
     }
-  }, [steps, projects, approvals, checkpoint, base])
+  }, [steps, projects, approvals, checkpoint, base, config, t])
   return { stations, projects, base, config, databases }
 }
 

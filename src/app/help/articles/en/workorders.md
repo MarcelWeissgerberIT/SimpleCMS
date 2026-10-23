@@ -97,3 +97,7 @@ The plan, the chain's record (which tasks belong to it, who set each one done), 
 
 ## Context and QA repairs
 In **Settings → Automatic QA repairs**, optionally allow bounded repair sub-runs. The default is Off; the confirmed chain pins the choice and Coding agent. See [Coding harness, context and quality](help:coding-harness) for operation, limits, evaluations and Atlas memory.
+
+
+## Copilot per role
+In settings under **Pipelines**, choose **GitHub Copilot** independently for BA, Coding and QA, then set model, reasoning effort and context below it. Worker **1.27.0** copies these choices into tasks when created; a personal task override takes precedence. Automatic QA repairs use the confirmed Coding choice, and re-reviews use the QA choice. The acceptance report includes the observed Copilot model/token summary. See [GitHub Copilot in One](help:copilot-coding).

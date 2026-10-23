@@ -31,7 +31,7 @@ import { inSyncedFolder, rmRetry, worktreesAt, type Synced, type WorktreesAt } f
 import { repoScrubber, type Scrubber } from './scrub.ts'
 import { claudeAuth } from './secrets.ts'
 import { runAnalysis, runTests, type RunResult } from './testrun.ts'
-import { copilotInference, COPILOT_CONTEXT } from './copilot.ts'
+import { prepareCopilotRun } from './copilot-run.ts'
 import { readCopilot } from './copilot-config.ts'
 import { runCodex } from './codex.ts'
 import { runLocal } from './local-agent.ts'
@@ -411,7 +411,7 @@ export async function runStage(ctx: StageContext): Promise<StageOutcome> {
           repair:async(finding,remaining)=>{
             if(!policy)return {status:'refused',error:'No automatic repair authority.'}
             const repairTask:TaskPayload={...task,agent:policy.agent,resume:undefined,quality:{...task.quality!,review:false,repair:undefined},rework:finding,
-              stage:{...task.stage,kind:'implement',name:'QA repair',maxTurns:remaining,permissionMode:'acceptEdits',instructions:'Repair only the QA findings against the confirmed delivery. Existing acceptance tests, scripts and dependency configuration must remain unchanged. Add regression tests where appropriate. Do not commit, push or merge. Report unresolved blockers.'}}
+              stage:{...task.stage,copilot:policy.agent==='copilot'?policy.copilot:undefined,copilotSource:policy.copilot?.model?'role':'worker',model:null,kind:'implement',name:'QA repair',maxTurns:remaining,permissionMode:'acceptEdits',instructions:'Repair only the QA findings against the confirmed delivery. Existing acceptance tests, scripts and dependency configuration must remain unchanged. Add regression tests where appropriate. Do not commit, push or merge. Report unresolved blockers.'}}
             log('info',`QA repair uses the confirmed Coding agent: ${policy.agent}.`)
             const repairCtx={...ctx,repo:stageRepo,task:repairTask,verifyBoundary:()=>checksUnchanged(dir,manifest)}
             const wt:TaskWorktree={dir,branch,created:false}
@@ -670,7 +670,7 @@ async function alternateStage(ctx: StageContext, scrub: Scrubber, log: Log, bran
   try {
     const options = { agent, cwd: dir, prompt, readOnly, maxSteps: max, signal: ctx.signal, taskMcp: ctx.taskMcp, progress: ctx.progress,
       log: (line: LogLine) => ctx.log({ ...line, s: scrub.text(line.s) }) }
-    const copilot = agent === 'copilot' ? readCopilot(ctx.state.configFile) : null
+    const copilot = agent === 'copilot' ? await prepareCopilotRun(readCopilot(ctx.state.configFile).model, task.stage.copilot, task.stage.copilotSource ?? 'worker') : null
     if(copilot)log('info','Copilot uses the CLI login and organization policy on this computer. Selected context goes to the Copilot service. One owns file tools, MCP, bounded task memory and checks; native Copilot tools are disabled. Subscription usage has no USD receipt; dollar limits cannot meter this tariff.')
     const ollama = agent === 'ollama' ? readOllamaCloud(ctx.state.configFile) : null
     if (ollama?.apiKey) scrub.protect('OLLAMA_API_KEY', ollama.apiKey)
@@ -679,7 +679,7 @@ async function alternateStage(ctx: StageContext, scrub: Scrubber, log: Log, bran
     if (minimax?.apiKey) scrub.protect('MINIMAX_API_KEY', minimax.apiKey)
     if (minimax) log('info', 'MiniMax uses its cloud API. Selected source and tool results leave this computer; dollar amounts are estimates from token usage at published prices.')
     const res = agent !== 'codex' ? await runLocal({ ...options,
-      ...(copilot ? {inference:copilotInference(copilot.model),model:copilot.model,outputTokens:8192,context:{tokens:COPILOT_CONTEXT,inputLimit:COPILOT_CONTEXT-8192,chars:(COPILOT_CONTEXT-8192)*1.5}} : {}),
+      ...(copilot ? {inference:copilot.inference,model:copilot.model,outputTokens:copilot.outputTokens,context:copilot.context} : {}),
       ...(minimax ? {
         inference: miniMaxInference(minimax, lim.budget), model: MINIMAX_MODEL, outputTokens: 16384,
         context: { tokens: minimax.contextTokens, inputLimit: minimax.contextTokens - 32768, chars: Math.floor((minimax.contextTokens - 32768) * 1.5) },
@@ -709,7 +709,9 @@ async function alternateStage(ctx: StageContext, scrub: Scrubber, log: Log, bran
       } : undefined,
     }) : await runCodex(options)
     if (res.cost && res.cost > 0) ctx.state.addCost(task.id, res.cost)
-    const base: Partial<StageOutcome> = { ...(branch ? { branch } : {}), turns: res.steps, ...(res.cost !== undefined ? { cost: res.cost } : {}), ...(wt ? { git: await gitSnapshot(ctx, wt, scrub) } : {}) }
+    const receipt = copilot ? {...copilot.receipt(),stageKind:task.stage.kind as 'plan'|'doc'|'implement',status:ctx.question()?'question' as const:res.stopped?'stopped' as const:res.limited?'limit' as const:res.ok?'ok' as const:'failed' as const} : null
+    if(receipt)log('info','Copilot run receipt: '+JSON.stringify(receipt))
+    const base: Partial<StageOutcome> = { ...(receipt ? {copilotReceipts:[receipt]} : {}), ...(branch ? { branch } : {}), turns: res.steps, ...(res.cost !== undefined ? { cost: res.cost } : {}), ...(wt ? { git: await gitSnapshot(ctx, wt, scrub) } : {}) }
     if (res.stopped) return { ...base, status: 'stopped', error: 'Stopped in One.' }
     if (ctx.question()) return { ...base, status: 'question', question: scrub.text(ctx.question()!) }
     if (res.limited) return { ...base, status: 'limit', error: res.error, ...(res.limitKind === 'budget' ? {} : { stepLimit: { turns: res.steps, max } }) }

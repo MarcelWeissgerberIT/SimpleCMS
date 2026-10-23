@@ -97,3 +97,7 @@ Der Plan, der Eintrag der Kette (welche Aufgaben dazugehören, wer jede auf Fert
 
 ## Kontext und QA-Reparaturen
 Unter **Einstellungen → Automatische QA-Reparaturen** kannst du begrenzte Reparatur-Unterläufe zulassen. Standard ist Aus; die bestätigte Kette hält Auswahl und Coding-Agent fest. Ablauf, Grenzen, Modelltests und Atlas-Memory erklärt [Coding-Harness, Kontext und Qualität](help:coding-harness).
+
+
+## Copilot je Rolle
+In den Einstellungen unter **Pipelines** BA, Coding und QA unabhängig auf **GitHub Copilot** stellen und darunter Modell, Denkaufwand und Kontext wählen. Ab Worker **1.27.0** werden diese Werte bei Anlage in die Aufgaben übernommen; persönliche Aufgabenwahl geht vor. Automatische QA-Reparaturen nutzen die bestätigte Coding-Rolle, Nachprüfungen die QA-Rolle. Der Abnahmebericht enthält die beobachtete Copilot-Modell-/Token-Zusammenfassung. Siehe [GitHub Copilot in One](help:copilot-coding).

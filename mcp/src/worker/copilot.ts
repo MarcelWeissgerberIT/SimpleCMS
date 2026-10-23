@@ -15,7 +15,8 @@ import { secretValues, scrubSecretText } from './secrets.ts'
 import type { LocalInference, LocalInferenceRequest, LocalInferenceResponse } from './local-inference.ts'
 export const COPILOT_MIN_VERSION = '1.0.102'
 export const COPILOT_CONTEXT = 32768
-export const validCopilotModel = (v: unknown): v is string => typeof v === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,119}$/.test(v) && !/^(?:gh[pousr]_|github_pat_|sk-|eyJ)/.test(v)
+export { validCopilotModel } from '../../../src/shared/copilot.ts'
+import { validCopilotModel, validEffort, COPILOT_CONTEXT_MAX, type CopilotUsage } from '../../../src/shared/copilot.ts'
 export function findCopilot(env: NodeJS.ProcessEnv = process.env): string {
  const explicit=envGet(env,'COPILOT_BIN')?.trim()
  if(explicit)return /[/\\]/.test(explicit)&&!isAbsolute(explicit)?resolve(explicit):explicit
@@ -94,7 +95,7 @@ export async function probeCopilot(env:NodeJS.ProcessEnv=process.env){
   if(status?.isAuthenticated!==true)return {...cap,authenticated:false,models:[] as string[],error:'Sign in locally with copilot login. No model request was sent.'}
   const models=await rpc.sendRequest<any>('models.list',{})
   const list=Array.isArray(models)?models:models?.models
-  return {...cap,authenticated:true,models:Array.isArray(list)?list.filter(m=>validCopilotModel(m?.id)&&m?.policy?.state!=='disabled').map(m=>m.id).slice(0,120):[] as string[], visions:Object.fromEntries((Array.isArray(list)?list:[]).filter(m=>validCopilotModel(m?.id)&&visionOf(m)).map(m=>[m.id,visionOf(m)])), contexts:Object.fromEntries((Array.isArray(list)?list:[]).filter(m=>validCopilotModel(m?.id)&&Number.isSafeInteger(m?.capabilities?.limits?.max_context_window_tokens)&&m.capabilities.limits.max_context_window_tokens>=8192).map(m=>[m.id,Math.min(65536,m.capabilities.limits.max_context_window_tokens)]))}
+  return {...cap,authenticated:true,efforts:Object.fromEntries((Array.isArray(list)?list:[]).filter(m=>validCopilotModel(m?.id)&&m?.policy?.state!=='disabled').map(m=>[m.id,Array.isArray(m.supportedReasoningEfforts)?m.supportedReasoningEfforts.filter(validEffort).slice(0,12):[]])),models:Array.isArray(list)?list.filter(m=>validCopilotModel(m?.id)&&m?.policy?.state!=='disabled').map(m=>m.id).slice(0,120):[] as string[], visions:Object.fromEntries((Array.isArray(list)?list:[]).filter(m=>validCopilotModel(m?.id)&&visionOf(m)).map(m=>[m.id,visionOf(m)])), contexts:Object.fromEntries((Array.isArray(list)?list:[]).filter(m=>validCopilotModel(m?.id)&&Number.isSafeInteger(m?.capabilities?.limits?.max_context_window_tokens)&&m.capabilities.limits.max_context_window_tokens>=8192).map(m=>[m.id,Math.min(COPILOT_CONTEXT_MAX,m.capabilities.limits.max_context_window_tokens)]))}
  })}catch{return {...cap,authenticated:false,models:[] as string[],error:'Copilot login/model availability could not be checked. Check your CLI, subscription and organization policy. No model request was sent.'}}
 }
 export function parseCopilotAnswer(raw:string,tools:any[]):LocalInferenceResponse {
@@ -108,33 +109,45 @@ export function parseCopilotAnswer(raw:string,tools:any[]):LocalInferenceRespons
  })
  return {message:{role:'assistant',content:data.content,...(calls.length?{tool_calls:calls}:{})}}
 }
-export function copilotInference(model='auto',env:NodeJS.ProcessEnv=process.env):LocalInference {
+export function copilotInference(model='auto',env:NodeJS.ProcessEnv=process.env,options: { reasoningEffort?: string; onUsage?: (usage: CopilotUsage) => void } = {}):LocalInference {
  if(!validCopilotModel(model))throw new Error('Invalid Copilot model ID.')
  const inference:LocalInference=async(request:LocalInferenceRequest)=>session(env,request.signal,async(rpc,dir)=>{
   const auth=await rpc.sendRequest<any>('auth.getStatus',{})
   if(auth?.isAuthenticated!==true)throw new Error('Copilot is not signed in. Run copilot login on this computer; a Copilot IDE license alone does not confirm CLI access.')
-  if(model!=='auto'||request.attachments?.length){
+  if(model!=='auto'||request.attachments?.length||options.reasoningEffort){
    const result=await rpc.sendRequest<any>('models.list',{}),models=Array.isArray(result)?result:result?.models
    const selected=Array.isArray(models)?models.find(m=>m.id===model&&m.policy?.state!=='disabled'):null
    if(!selected)throw new Error('The selected Copilot model is not available under this login/policy. Choose an available model on the worker setup page; no fallback was used.')
    checkAttachments(request.attachments,visionOf(selected))
+   if(options.reasoningEffort && (!validEffort(options.reasoningEffort)||!selected.supportedReasoningEfforts?.includes(options.reasoningEffort)))throw new Error('The selected Copilot model does not advertise this reasoning effort. Choose a supported effort or the model default.')
+   const native=selected.capabilities?.limits?.max_context_window_tokens
+   if(Number.isSafeInteger(native)&&request.contextTokens>native)throw new Error('The selected Copilot model no longer supports the requested context. Refresh the model list.')
   }
   const id=randomUUID()
-  let answer='',error='',usage:Record<string,unknown>={}
+  let answer='',error='',input:number|undefined,output:number|undefined,usageCount=0,inputMissing=false,outputMissing=false
+  const usageIds=new Set<string>()
   let ready=false,done:()=>void=()=>{}
   const finished=new Promise<void>(resolve=>{done=resolve})
   const subscription=rpc.onNotification('session.event',(n:any)=>{
    if(n?.sessionId!==id||!ready||!object(n.event))return
    const e=n.event,d=e.data
    if(e.type==='assistant.message'&&typeof d?.content==='string'){answer=d.content;if(answer.length>250000){error='Copilot response exceeded its size limit.';done()}}
-   if(e.type==='assistant.usage'&&object(d))usage=d
+   if(e.type==='assistant.usage'&&object(d)){
+    const key=typeof e.id==='string'?e.id:typeof d.apiCallId==='string'?d.apiCallId:null
+    if(key&&usageIds.has(key))return
+    if(key)usageIds.add(key)
+    const u=copilotUsage(d)
+    usageCount++;inputMissing ||= u.inputTokens===null;outputMissing ||= u.outputTokens===null
+    input=(input??0)+(u.inputTokens??0);output=(output??0)+(u.outputTokens??0)
+    options.onUsage?.(u)
+   }
    if(e.type==='session.error'){error='Copilot failed: '+String(d?.message??'model request rejected');done()}
    if(e.type==='tool.execution_start'){error='Unexpected native tool execution. The Copilot transport is text-only.';done()}
    if(e.type==='session.idle')done()
   })
   try{
    const created=await rpc.sendRequest<any>('session.create',{
-    sessionId:id,clientName:'one-worker',model,...(model==='auto'?{}:{allowedModels:[model]}),workingDirectory:dir,
+    sessionId:id,clientName:'one-worker',model,...(model==='auto'?{}:{allowedModels:[model]}),...(options.reasoningEffort?{reasoningEffort:options.reasoningEffort}:{}),workingDirectory:dir,
     tools:[],availableTools:[],excludedTools:['*'],requestPermission:true,requestUserInput:false,streaming:false,
     mcpServers:{},enableConfigDiscovery:false,enableFileHooks:false,enableSkills:false,enableSessionStore:false,enableHostGitOperations:false,
     enableManagedSettings:true,enableSessionTelemetry:false,enableOnDemandInstructionDiscovery:false,skipEmbeddingRetrieval:true,embeddingCacheStorage:'in-memory',
@@ -146,9 +159,15 @@ export function copilotInference(model='auto',env:NodeJS.ProcessEnv=process.env)
    await finished
    if(error)throw new Error(error)
    if(!answer.trim())throw new Error('Copilot returned no final harness response.')
-   return {...parseCopilotAnswer(answer,request.tools),inputTokens:count(usage.inputTokens),outputTokens:count(usage.outputTokens)}
+   return {...parseCopilotAnswer(answer,request.tools),inputTokens:!usageCount||inputMissing?undefined:input,outputTokens:!usageCount||outputMissing?undefined:output}
   }finally{subscription.dispose();await Promise.race([rpc.sendRequest('session.delete',{sessionId:id}).catch(()=>{}),new Promise(r=>{const t=setTimeout(r,1500);t.unref()})])}
  })
  inference.unmetered=true
  return inference
+}
+
+/** Read only documented assistant.usage metrics. A multiplier cost is never a currency amount. */
+export function copilotUsage(d: Record<string, any>): CopilotUsage {
+ const quotas=object(d.quotaSnapshots)?Object.entries(d.quotaSnapshots).filter(([k,q])=>/^[a-zA-Z0-9_.-]{1,64}$/.test(k)&&object(q)&&typeof q.remainingPercentage==='number'&&Number.isFinite(q.remainingPercentage)&&q.remainingPercentage>=0&&q.remainingPercentage<=100).slice(0,12).map(([name,q]:[string,any])=>({name,remainingPercentage:q.remainingPercentage,...(typeof q.resetDate==='string'&&q.resetDate.length<=40&&Number.isFinite(Date.parse(q.resetDate))?{resetDate:q.resetDate}: {})})):[]
+ return {model:validCopilotModel(d.model)&&d.model!=='auto'?d.model:null,reasoningEffort:validEffort(d.reasoningEffort)?d.reasoningEffort:null,inputTokens:count(d.inputTokens)??null,outputTokens:count(d.outputTokens)??null,nanoAiu:count(d.copilotUsage?.totalNanoAiu)??null,quotas}
 }

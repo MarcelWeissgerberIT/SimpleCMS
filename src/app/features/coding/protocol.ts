@@ -70,7 +70,7 @@ export type GitAction = (typeof GIT_ACTIONS)[number]
  * worker that names it) and 'permission' (Claude Code's permission prompts come to One as PermissionAsk; the person
  * answers with a PermissionVerb).
  */
-export const WORKER_CAN = ['text-models', 'copilot-chat', 'copilot-media', 'analyze', 'git:comment', 'git:merge', 'doc', 'model', 'mcp-list', 'ship', 'continue', 'permission', 'agent:codex', 'agent:local', 'agent:minimax', 'agent:ollama', 'agent:copilot', 'delivery-qa', 'harness-quality', 'personal-secrets'] as const
+export const WORKER_CAN = ['copilot-options', 'text-models', 'copilot-chat', 'copilot-media', 'analyze', 'git:comment', 'git:merge', 'doc', 'model', 'mcp-list', 'ship', 'continue', 'permission', 'agent:codex', 'agent:local', 'agent:minimax', 'agent:ollama', 'agent:copilot', 'delivery-qa', 'harness-quality', 'personal-secrets'] as const
 /**
  * What a worker runs, read from its `next`. Document stages came before `can`, together with `docs: true`: a worker
  * that sends either knows them, so a `can` without 'doc' (1.3.x) or `docs` without a `can` (1.3.1 before `can`)
@@ -159,6 +159,7 @@ export function stageNeeds(stage: { kind: string; gitAction?: string | null; mod
   if (stage.kind === 'git' && (stage.gitAction === 'comment' || stage.gitAction === 'merge')) needs.push(`git:${stage.gitAction}`)
   if (stage.model && claudeRuns(stage.kind)) needs.push('model')
   if (claudeRuns(stage.kind) && stage.agent && stage.agent !== 'claude') needs.push(`agent:${stage.agent}`)
+  if (claudeRuns(stage.kind) && stage.agent === 'copilot') needs.push('copilot-options')
   return needs
 }
 
@@ -321,6 +322,8 @@ export interface WorkspaceRef {
 
 /** The stage a task is run in, resolved by the tab from Database.pipeline. */
 export interface TaskStage {
+  copilot?: import('../../../shared/copilot').CopilotChoice
+  copilotSource?: 'task' | 'role' | 'worker'
   /** = the Stage option id */
   id: string
   name: string
@@ -554,6 +557,7 @@ export interface TestResult {
 export type OutcomeStatus = 'ok' | 'failed' | 'question' | 'stopped' | 'limit' | 'refused'
 
 export interface StageOutcome {
+  copilotReceipts?: import('../../../shared/copilot').CopilotReceipt[]
   status: OutcomeStatus
   /** Claude's closing summary / what the git stage did */
   summary?: string

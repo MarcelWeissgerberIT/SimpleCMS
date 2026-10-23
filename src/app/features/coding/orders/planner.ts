@@ -55,7 +55,7 @@ import { pipelineLine, pipelineNeedsRepo, runsFrom, startStageOf } from '../stag
 import { taskRefPlan } from '../refs'
 import { defaultApprovals } from '../state'
 import { notifyAway } from '../notify'
-import { orderConfigUsable, readOrderConfig, orderAgent } from './config'
+import { orderConfigUsable, readOrderConfig, orderExecution } from './config'
 import { orderStatusProps } from './status'
 import { requestFacts, type KindProject } from './facts'
 import { checkPreconditions, wordChars, type PlannerBlock } from './preconditions'
@@ -514,8 +514,7 @@ async function writeDraft(
   const resolved: ResolvedStep[] = plan.steps.map((step) => {
     const p = projects.find((x) => x.kind === step.kind)!
     const config = readOrderConfig(ws().databases[ws().pages[rowId]?.databaseId ?? ''])
-    const agent = config.kind === 'ok' ? orderAgent(config.config, step.kind) : undefined
-    return { ...(agent ? { agent } : {}), ...(config.kind === 'ok' && config.config.qaRepairs && step.kind === 'qa' ? { repair: { attempts: config.config.qaRepairs, agent: orderAgent(config.config, 'coding') ?? 'claude' } } : {}), project: p.project, park: pipelineLine(p.pipeline, !!step.repo, false, approvals), start: pipelineLine(p.pipeline, !!step.repo, true, approvals) }
+      return { ...orderExecution(config.kind === 'ok' ? config.config : null, step.kind), project: p.project, park: pipelineLine(p.pipeline, !!step.repo, false, approvals), start: pipelineLine(p.pipeline, !!step.repo, true, approvals) }
   })
   const hash = await orderPlanHash(plan, resolved, approvals)
   const draft: OrderDraft = {

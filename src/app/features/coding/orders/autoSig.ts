@@ -41,6 +41,7 @@ export function autoSigParts(db: ID): AutoSigParts | null {
     db,
     kinds: [...c.kinds],
     pinned: { ...(c.projects ?? {}) },
+    execution: {agent:c.agent??null,agents:c.agents??{},copilot:c.copilot??{}},
     checkpoint: c.checkpoint,
     ...(c.qaRepairs ? { repair: { attempts: c.qaRepairs, agent: c.agents?.coding ?? c.agent ?? 'claude' } } : {}),
     budget: c.budgetUsd ?? null,

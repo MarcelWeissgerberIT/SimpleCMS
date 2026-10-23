@@ -13,8 +13,8 @@ function handle(r){
  const reply=result=>out({id:r.id,result})
  if(r.method==='ping')return reply({message:'pong',protocolVersion:3})
  if(r.method==='auth.getStatus')return reply({isAuthenticated:process.env.COPILOT_FAKE_SIGNED_OUT!=='1'})
- if(r.method==='models.list')return reply({models:[{id:'auto'},{id:'claude-opus-5.5',capabilities:{supports:{vision:true},limits:{max_context_window_tokens:200000,vision:{supported_media_types:['image/png','image/jpeg'],max_prompt_images:4,max_prompt_image_size:3145728}}}},{id:'gpt-6.1-sol'},{id:'blocked-model',policy:{state:'disabled'}}]})
- if(r.method==='session.create'){session=r.params.sessionId;return reply({sessionId:session})}
+ if(r.method==='models.list')return reply({models:process.env.COPILOT_FAKE_MODELS?JSON.parse(process.env.COPILOT_FAKE_MODELS):[{id:'auto'},{id:'claude-opus-5.5',supportedReasoningEfforts:['low','medium','high'],capabilities:{supports:{vision:true},limits:{max_context_window_tokens:200000,vision:{supported_media_types:['image/png','image/jpeg'],max_prompt_images:4,max_prompt_image_size:3145728}}}},{id:'gpt-6.1-sol'},{id:'blocked-model',policy:{state:'disabled'}}]})
+ if(r.method==='session.create'){session=r.params.sessionId;globalThis.choice=r.params;return reply({sessionId:session})}
  if(r.method==='session.delete')return reply({success:true})
  if(r.method!=='session.send')return out({id:r.id,error:{code:-32601,message:'Unknown method'}})
  reply({messageId:'m1'})
@@ -25,6 +25,6 @@ function handle(r){
  const answers=JSON.parse(process.env.COPILOT_ANSWERS||'[]')
  const answer=answers[index]??{content:'Completed by Copilot fixture.',tool_calls:[]}
  out({method:'session.event',params:{sessionId:session,event:{type:'assistant.message',data:{content:typeof answer==='string'?answer:JSON.stringify(answer)}}}})
- out({method:'session.event',params:{sessionId:session,event:{type:'assistant.usage',data:{inputTokens:50,outputTokens:20}}}})
+ for(const u of JSON.parse(process.env.COPILOT_FAKE_USAGE||JSON.stringify([{model:globalThis.choice.model==='auto'?'gpt-6.1-sol':globalThis.choice.model,reasoningEffort:globalThis.choice.reasoningEffort,inputTokens:50,outputTokens:20}])))out({method:'session.event',params:{sessionId:session,event:{type:'assistant.usage',...(u.eventId?{id:u.eventId}:{}),data:u}}})
  out({method:'session.event',params:{sessionId:session,event:{type:'session.idle',data:{}}}})
 }

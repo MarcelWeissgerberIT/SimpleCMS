@@ -13,7 +13,8 @@ import { ollamaCloudInference } from './ollama-cloud-inference.ts'
 import { ollamaInference } from './local-inference.ts'
 import { findCodex, runCodex } from './codex.ts'
 import { resolveCommand } from './exec.ts'
-import { probeCopilot, copilotInference, COPILOT_CONTEXT, validCopilotModel } from './copilot.ts'
+import { probeCopilot, COPILOT_CONTEXT, validCopilotModel } from './copilot.ts'
+import { prepareCopilotRun } from './copilot-run.ts'
 import { checkAttachments } from './copilot-media.ts'
 import { AjvJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/ajv-provider.js'
 
@@ -22,7 +23,7 @@ async function copilotModels(): Promise<WorkerModel[]> {
   const key = JSON.stringify([process.env.COPILOT_BIN, process.env.COPILOT_GITHUB_TOKEN, process.env.GH_TOKEN, process.env.GITHUB_TOKEN])
   if (copilotCatalog?.key === key && copilotCatalog.until > Date.now()) return copilotCatalog.rows
   const result = await probeCopilot()
-  const rows: WorkerModel[] = result.authenticated ? result.models.filter(validCopilotModel).map(model => ({ provider: 'copilot', model, context: 'contexts' in result ? result.contexts[model] ?? COPILOT_CONTEXT : COPILOT_CONTEXT, chat: true, maxOutput: 8192, ...('visions' in result && result.visions[model] ? {vision:result.visions[model]} : {}) })) : []
+  const rows: WorkerModel[] = result.authenticated ? result.models.filter(validCopilotModel).map(model => ({ provider: 'copilot', model, context: 'contexts' in result ? result.contexts[model] ?? COPILOT_CONTEXT : COPILOT_CONTEXT, chat: true, maxOutput: 8192, ...('efforts' in result && result.efforts[model]?.length ? {reasoningEfforts:result.efforts[model]} : {}), ...('visions' in result && result.visions[model] ? {vision:result.visions[model]} : {}) })) : []
   copilotCatalog = { key, until: Date.now() + 30000, rows }
   return rows
 }
@@ -96,7 +97,8 @@ export async function textRequest(file: string, raw: unknown, signal: AbortSigna
     const output = r.schema ? validator.getValidator(r.schema) : null
     const inputs = new Map((r.tools ?? []).map(t => [t.name, validator.getValidator(t.parameters)]))
     const messages = r.schema ? [{ role: 'system', content: 'Return an answer matching this JSON schema. Put the JSON answer as a string in the harness content field. Schema: ' + JSON.stringify(r.schema) }, ...r.messages] : r.messages
-    const data = await copilotInference(r.model)({ model: r.model, messages, tools, contextTokens: model.context, outputTokens: Math.min(r.maxTokens,8192), attachments, signal })
+    const run = await prepareCopilotRun(r.model, {model:r.model,contextTokens:model.context}, 'task')
+    const data = await run.inference({ model: r.model, messages, tools, contextTokens: model.context, outputTokens: Math.min(r.maxTokens,8192), attachments, signal })
     const calls = (data.message.tool_calls ?? []).map((c: any) => ({ id: c.id, name: c.function.name, arguments: c.function.arguments }))
     if (calls.length && !tools.length) throw new Error('Copilot returned unexpected tools.')
     for (const call of calls) if (!inputs.get(call.name)?.(call.arguments).valid) throw new Error('Copilot returned invalid function arguments; no tool was executed.')
@@ -105,7 +107,7 @@ export async function textRequest(file: string, raw: unknown, signal: AbortSigna
       try { answer = JSON.parse(data.message.content ?? '') } catch { throw new Error('Copilot returned invalid JSON; no change was applied.') }
       if (!output(answer).valid) throw new Error('Copilot answer does not match the requested schema; no change was applied.')
     }
-    return { model: r.model, text: data.message.content ?? '', ...(calls.length ? { calls } : {}), inputTokens: data.inputTokens ?? null, outputTokens: data.outputTokens ?? null, usd: null }
+    return { model: r.model, copilotReceipt:run.receipt(), text: data.message.content ?? '', ...(calls.length ? { calls } : {}), inputTokens: data.inputTokens ?? null, outputTokens: data.outputTokens ?? null, usd: null }
   }
   if (r.provider === 'codex') {
     const cwd = await mkdtemp(join(tmpdir(), 'one-text-'))

@@ -8,9 +8,11 @@ import { AIError } from './errors'
 
 const TEXT_CAPS: Caps = { structured: false, tools: false, vision: false, pdf: false, mcp: false, mcpListing: false, cache: false, effort: false, reasoning: false, web: false, notes: false, refusalFallback: false, context: 32768, maxOutput: 16384 }
 let rows: ModelInfo[] = []
+let details: WorkerModel[] = []
+export const workerModelDetails = (model:string) => details.find(r=>r.provider==='copilot'&&r.model===model)
 let revision = 0
 const listeners = new Set<() => void>()
-const publish = (next: ModelInfo[]) => { rows = next; revision++; for (const fn of listeners) fn() }
+const publish = (next: ModelInfo[]) => { if (!next.length) details=[]; rows = next; revision++; for (const fn of listeners) fn() }
 let loading: Promise<void> | null = null
 export const workerModelRows = () => rows
 export const workerModelInfo = (route: Route) => rows.find(r => r.route.p === route.p && r.route.m === route.m) ?? null
@@ -26,6 +28,7 @@ export function refreshWorkerModels(): Promise<void> {
       const result = await api.requestTextModels()
       if (before !== api.useCoding.getState().worker || !api.workerOnline()) return
       const next: ModelInfo[] = []
+      details = result.filter(m=>m.provider==='copilot'&&validWorkerModel(m.model)).map(m=>({...m,reasoningEfforts:Array.isArray(m.reasoningEfforts)?m.reasoningEfforts.filter(x=>typeof x==='string'&&/^[a-z][a-z0-9_-]{0,23}$/.test(x)).slice(0,12):[]}))
       for (const m of result.slice(0, 120)) {
         if (!isWorkerProvider(m.provider) || !validWorkerModel(m.model) || !Number.isSafeInteger(m.context) || m.context < 2048 || m.context > 2000000) continue
         const row: WorkerModel = m

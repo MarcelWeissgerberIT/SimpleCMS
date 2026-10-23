@@ -1,3 +1,4 @@
+import { readCopilotChoice } from '@/shared/copilot'
 /**
  * Work orders (Prüfaufträge) — the per-database config (`Database.orders`, store/types.ts OrderConfig) as every reader
  * keeps it. Pure (a Node spec reads it; no store, no i18n).
@@ -28,7 +29,7 @@ const ID_RE = /^[A-Za-z0-9_-]{1,64}$/
 /** An MCP server's name (features/ai/mcp-servers/config.ts NAME_RE): the person's own, as they named it. */
 const SERVER_NAME_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/
 const MAX_EXTRA = 4000
-const KNOWN = new Set(['v', 'status', 'server', 'kinds', 'projects', 'checkpoint', 'budgetUsd', 'agent', 'agents', 'qaRepairs'])
+const KNOWN = new Set(['v', 'status', 'server', 'kinds', 'projects', 'checkpoint', 'budgetUsd', 'agent', 'agents', 'qaRepairs', 'copilot'])
 
 export type OrderConfigRead =
   /** not a work-orders database, or nothing stored */
@@ -59,6 +60,7 @@ export function sanitizeOrderConfig(v: unknown): OrderConfigRead {
   const agentNames = ['claude', 'codex', 'local', 'minimax', 'ollama', 'copilot']
   if (v.agent !== undefined && !agentNames.includes(String(v.agent))) return { kind: 'unreadable' }
   if (v.agents !== undefined && (!isObj(v.agents) || Object.entries(v.agents).some(([kind, agent]) => !ORDER_KINDS.includes(kind as OrderKind) || !agentNames.includes(String(agent))))) return { kind: 'unreadable' }
+  if (v.copilot !== undefined && (!isObj(v.copilot) || Object.entries(v.copilot).some(([kind, choice]) => !ORDER_KINDS.includes(kind as OrderKind) || !readCopilotChoice(choice)))) return { kind: 'unreadable' }
   if (v.qaRepairs !== undefined && v.qaRepairs !== 1 && v.qaRepairs !== 2) return { kind: 'unreadable' }
   let repaired = false
   if (typeof v.v === 'number' && Number.isFinite(v.v) && v.v > 1) return { kind: 'unreadable' }
@@ -138,6 +140,7 @@ export function sanitizeOrderConfig(v: unknown): OrderConfigRead {
     ...(v.qaRepairs === 1 || v.qaRepairs === 2 ? { qaRepairs: v.qaRepairs } : {}),
     ...(['claude', 'codex', 'local', 'minimax', 'ollama', 'copilot'].includes(String(v.agent)) ? { agent: v.agent } : {}),
     ...(Object.keys(agents).length ? { agents } : {}),
+    ...(isObj(v.copilot) ? { copilot: Object.fromEntries(Object.entries(v.copilot).map(([k,v]) => [k,readCopilotChoice(v)!])) } : {}),
     ...(budgetUsd !== undefined ? { budgetUsd } : {}),
   } as OrderConfig
   return { kind: 'ok', config, missing, repaired }
@@ -173,3 +176,10 @@ export const orderCheckpoint = (read: OrderConfigRead): boolean => (read.kind ==
 
 /** May anything act on this config (plan, create, auto)? Only a readable one whose six states all have an option. */
 export const orderConfigUsable = (read: OrderConfigRead): read is Extract<OrderConfigRead, { kind: 'ok' }> => read.kind === 'ok' && read.missing.length === 0
+
+/** Same role settings in the review hash, confirmation and generated task. */
+export function orderExecution(config: OrderConfig | null | undefined, kind: OrderKind) {
+  if (!config) return {}
+  const agent = orderAgent(config,kind)
+  return { ...(agent ? {agent} : {}), ...(agent === 'copilot' && config.copilot?.[kind] ? {copilotRole:config.copilot[kind]} : {}), ...(config.qaRepairs && kind === 'qa' ? {repair:{attempts:config.qaRepairs,agent:orderAgent(config,'coding') ?? 'claude',...(orderAgent(config,'coding') === 'copilot' && config.copilot?.coding ? {copilot:config.copilot.coding} : {})}} : {}) }
+}

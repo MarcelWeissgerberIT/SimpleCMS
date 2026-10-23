@@ -1,0 +1,14 @@
+.copilot-options { border:0; padding:0; margin:0; display:grid; gap:6px; min-width:0; width:100% }
+.copilot-options label { font-size:12px; color:var(--ink-2); margin-top:5px }
+.copilot-options .input { width:100%; min-width:0; max-width:100% }
+.copilot-options .btn { justify-self:start }
+.copilot-task { flex:1 1 260px; min-width:0 }
+.copilot-runs { margin:12px 0; border:1px solid var(--rule); border-left:3px solid var(--signal); padding:10px; min-width:0 }
+.copilot-runs summary { cursor:pointer; font-weight:600; overflow-wrap:anywhere }
+.copilot-run { margin-top:8px; background:var(--plate); border:1px solid var(--rule); padding:10px }
+.copilot-run summary span { display:block }
+.copilot-run summary span+span { font-family:var(--font-mono); font-size:11px; color:var(--ink-2); margin-top:5px }
+.copilot-run dl { display:grid; grid-template-columns:minmax(90px,1fr) minmax(0,3fr); gap:7px 12px; font-size:12px }
+.copilot-run dt { color:var(--ink-2) }
+.copilot-run dd { margin:0; overflow-wrap:anywhere }
+@media(max-width:540px) { .copilot-run dl { grid-template-columns:1fr } }

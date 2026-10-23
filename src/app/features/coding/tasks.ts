@@ -1,3 +1,4 @@
+import { readCopilotReceipt } from '@/shared/copilot'
 import { captureReadiness, noteReadiness } from '../../cloud'
 import { personalConnectionsForTask, personalSelection } from '../secrets/store'
 import { codingAgentOf, codingAgentProperty, agentProperty } from './agent'
@@ -318,6 +319,8 @@ export async function pickNext(repos: string[], workerName: string, docs = false
     if (quality && (!caps.has('delivery-qa') || (quality.repair && !caps.has('harness-quality')))) { skip(); await patchTask(row.id, { state: 'failed', error: OLD_WORKER(), runNow: false }); continue }
     if (!agent) { skip(); await patchTask(row.id, { state: 'failed', error: t('features.coding.agent.unknown'), runNow: false }); continue }
     const model = agent === 'claude' ? modelFor(stage, local) : null
+    const copilot = agent === 'copilot' && claudeRuns(stage.kind) ? local.copilot ?? local.copilotRole ?? {} : undefined
+    const copilotSource = local.copilot ? local.copilot.model ? 'task' : 'worker' : local.copilotRole?.model ? 'role' : 'worker'
     if (stageNeeds({ ...stage, model, agent }).some((need) => !caps.has(need))) {
       skip()
       if (local.error !== OLD_WORKER()) await patchTask(row.id, { state: 'failed', error: OLD_WORKER(), runNow: false })
@@ -366,7 +369,7 @@ export async function pickNext(repos: string[], workerName: string, docs = false
       ...(quality ? { quality } : {}),
       title: fresh.title.trim() || t('common.untitled'),
       repo,
-      stage: { id: stage.id, name: stage.name, kind: stage.kind, instructions: stage.instructions ?? '', permissionMode: stage.kind === 'plan' ? 'plan' : stage.kind === 'doc' ? 'default' : (stage.permissionMode ?? 'acceptEdits'), maxTurns: stageSteps(stage), gitAction: stage.gitAction ?? null, model },
+      stage: { id: stage.id, name: stage.name, kind: stage.kind, instructions: stage.instructions ?? '', permissionMode: stage.kind === 'plan' ? 'plan' : stage.kind === 'doc' ? 'default' : (stage.permissionMode ?? 'acceptEdits'), maxTurns: stageSteps(stage), gitAction: stage.gitAction ?? null, model, ...(copilot ? { copilot, copilotSource } : {}) },
       // the task, then the pages it refers to (@ mentions, links — also in answers and rework notes, this turn's first)
       // and the pages linked in those, as read-only text
       text: withRefs,
@@ -413,6 +416,8 @@ export async function finishStage(taskId: ID, stageId: ID, outcome: StageOutcome
   const stillThere = !!stage && ctx.stage?.id === stage.id
   const patch: Partial<TaskLocal> = { state: 'idle', error: null, question: null, stageId, resume: false, stepLimit: null }
   // worker 1.11.0: the stage's permission requests (the panel's summary line) — the newest run's only
+  const receipts = (Array.isArray(outcome.copilotReceipts) ? outcome.copilotReceipts : []).slice(0, 8).map(readCopilotReceipt).filter((r): r is NonNullable<typeof r> => !!r)
+  if (receipts.length) patch.copilotRuns = [...(local.copilotRuns ?? []), ...receipts.map((receipt,i) => ({ run:local.run ?? `receipt-${Date.now()}`, stageId, stage:receipt.stageKind==='implement'&&stage?.kind==='doc'?t('features.coding.copilotOptions.repair'):stage?.name ?? stageId, status:receipt.status ?? outcome.status, ...(outcome.branch ? {branch:outcome.branch} : {}), ...(outcome.test && i===receipts.length-1 ? {test:{ok:outcome.test.ok,code:outcome.test.code,skipped:outcome.test.skipped}} : {}), receipt }))].slice(-40)
   const perms = outcome.permissions
   const count = (n: unknown) => (typeof n === 'number' && Number.isFinite(n) && n >= 0 ? Math.min(Math.round(n), 100_000) : 0)
   patch.permissions = perms && typeof perms === 'object' ? { stageId, asked: count(perms.asked), allowed: count(perms.allowed), refused: count(perms.refused) } : null
@@ -1030,6 +1035,7 @@ export function moveTask(taskId: ID, stageId: ID): void {
 }
 
 export interface NewTask {
+  copilotRole?: import('@/shared/copilot').CopilotChoice
   agent?: TaskPayload['agent']
   title: string
   repo: string | null
@@ -1111,7 +1117,7 @@ export function taskBody(input: Pick<NewTask, 'goal' | 'goalDoc' | 'criteria' | 
 export async function createTask(input: NewTask, writer: Writer = PANEL): Promise<ID> {
   const id = withWriter(writer, () => createTaskRow(input))
   await trustTask(id)
-  await patchTask(id, { approvals: defaultApprovals() })
+  await patchTask(id, { approvals: defaultApprovals(), ...(input.copilotRole ? { copilotRole: input.copilotRole } : {}) })
   nudge()
   return id
 }

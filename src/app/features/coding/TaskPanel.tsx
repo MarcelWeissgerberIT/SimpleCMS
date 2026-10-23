@@ -1,3 +1,4 @@
+import { CopilotTaskOptions, CopilotRunHistory } from './CopilotOptions'
 import { fmtUsd } from '../../lib/money'
 import { useCodingAgentName } from './agent'
 import { codingAgentOf } from './agent'
@@ -244,6 +245,7 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
         })}
       </ol>
 
+      <CopilotRunHistory taskId={pageId} />
       <div className="ctk-act">
         {!enabled || conn !== 'connected' ? (
           <p className="ctk-msg" data-testid="coding-offline">
@@ -260,6 +262,7 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
           <div className="ctk-picks">
             <ApprovalsPick taskId={pageId} kind={kind} pipeline={pipeline} />
             {codingAgentOf(useWorkspace.getState().databases[task.databaseId!]!, task) === 'claude' && <ModelPick taskId={pageId} pipeline={pipeline} />}
+            {codingAgentOf(useWorkspace.getState().databases[task.databaseId!]!, task) === 'copilot' && <CopilotTaskOptions taskId={pageId} />}
           </div>
         )}
         {stage?.kind !== 'done' && codingAgentOf(useWorkspace.getState().databases[task.databaseId!]!, task) === 'claude' && <TaskMcp taskId={pageId} repo={repo} />}

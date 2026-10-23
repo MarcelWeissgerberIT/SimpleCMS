@@ -1,3 +1,4 @@
+import { readCopilotChoice } from '../../../src/shared/copilot.ts'
 import { personalConnections, PersonalMcp } from './personal-mcp.ts'
 import { modelMcp } from './model-mcp.ts'
 import { textModels, textRequest } from './text-models.ts'
@@ -215,6 +216,8 @@ export function sanitizeTask(raw: unknown): TaskPayload | null {
   const personalMcp = personalConnections(raw.personalMcp)
   if (!personalMcp || (personalMcp.length && raw.agent !== undefined && raw.agent !== 'claude' && raw.agent !== 'copilot')) return null
   const s = raw.stage
+  if(s.copilot !== undefined && (raw.agent !== 'copilot' || !readCopilotChoice(s.copilot)))return null
+  if(s.copilotSource !== undefined && !['task','role','worker'].includes(String(s.copilotSource)))return null
   const kind = (STAGE_KINDS as readonly string[]).includes(String(s.kind)) ? (s.kind as TaskPayload['stage']['kind']) : null
   if (personalMcp.length && !['plan', 'implement', 'doc'].includes(kind ?? '')) return null
   const id = str(raw.id, 64)
@@ -251,6 +254,8 @@ export function sanitizeTask(raw: unknown): TaskPayload | null {
       // a model name One picked (MODEL_NAME) — anything else is dropped (the repo's claude.model, else Claude Code's
       // default, runs instead); it reaches Claude Code only as the argument after --model
       model: cleanModel(s.model),
+      ...(s.copilot ? {copilot:readCopilotChoice(s.copilot)!} : {}),
+      ...(s.copilotSource ? {copilotSource:s.copilotSource as 'task'|'role'|'worker'} : {}),
     },
     text: str(raw.text, 200_000),
     rework: typeof raw.rework === 'string' && raw.rework.trim() ? raw.rework.slice(0, 40_000) : null,

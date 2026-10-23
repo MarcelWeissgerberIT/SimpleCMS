@@ -62,8 +62,9 @@ export async function writeRepairJournal(directory:string,scope:string,journal:R
 export async function qaFeedback(input:{policy?:RepairPolicy;remainingSteps:number;signal:AbortSignal;review:(remaining:number)=>Promise<StageOutcome>;repair:(finding:string,remaining:number)=>Promise<StageOutcome>;unchanged:()=>Promise<boolean>;journal:RepairJournal;save:(j:RepairJournal)=>Promise<void>;note:(s:string)=>void;packages:string[]}) {
   let turns=0,cost=0,hasCost=false
   const receipts:NonNullable<StageOutcome['repairs']>=[]
-  const observe=(out:StageOutcome)=>{turns+=out.turns??0;if(out.cost!==undefined){cost+=out.cost;hasCost=true}}
-  const aggregate=(out:StageOutcome):StageOutcome=>({...out,turns,cost:hasCost?cost:undefined, ...(receipts.length?{repairs:receipts}: {})})
+  const copilotReceipts:NonNullable<StageOutcome['copilotReceipts']>=[]
+  const observe=(out:StageOutcome)=>{copilotReceipts.push(...(out.copilotReceipts??[]));turns+=out.turns??0;if(out.cost!==undefined){cost+=out.cost;hasCost=true}}
+  const aggregate=(out:StageOutcome):StageOutcome=>({...out,turns,cost:hasCost?cost:undefined,...(copilotReceipts.length?{copilotReceipts:copilotReceipts.slice(0,8)}:{}), ...(receipts.length?{repairs:receipts}: {})})
   let out=await input.review(input.remainingSteps)
   observe(out)
   while(out.status==='failed' && input.policy && input.journal.attempts<input.policy.attempts && turns<input.remainingSteps) {

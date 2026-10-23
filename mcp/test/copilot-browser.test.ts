@@ -25,11 +25,11 @@ test('Copilot catalogue checks login without inference; browser JSON and functio
   globalThis.fetch=async()=>{throw new Error('no model/network traffic in fixture')}
   const req={provider:'copilot',model:'claude-opus-5.5',messages:[{role:'user',content:'Classify this'}],maxTokens:512}
   try{
-    const rows=await textModels(file);assert.ok(rows.some(r=>r.provider==='copilot'&&r.chat===true));assert.equal(rows.find(r=>r.provider==='copilot'&&r.model==='claude-opus-5.5')?.context,65536);assert.equal(rows.find(r=>r.provider==='copilot'&&r.model==='gpt-6.1-sol')?.context,32768)
+    const rows=await textModels(file);assert.ok(rows.some(r=>r.provider==='copilot'&&r.chat===true));assert.equal(rows.find(r=>r.provider==='copilot'&&r.model==='claude-opus-5.5')?.context,200000);assert.equal(rows.find(r=>r.provider==='copilot'&&r.model==='gpt-6.1-sol')?.context,32768)
     process.env.COPILOT_ANSWERS=JSON.stringify([{content:'{"label":"ready"}',tool_calls:[]}])
     const schema={type:'object',properties:{label:{type:'string'}},required:['label'],additionalProperties:false}
     const result=await textRequest(file,{...req,schema},new AbortController().signal)
-    assert.equal(result.text,'{"label":"ready"}');assert.equal(result.usd,null)
+    assert.equal(result.text,'{"label":"ready"}');assert.equal(result.usd,null);assert.deepEqual(result.copilotReceipt?.models,['claude-opus-5.5']);assert.equal(result.copilotReceipt?.inputTokens,50)
     await assert.rejects(textRequest(file,{...req,schema:{...schema,properties:{label:{type:'integer'}}}},new AbortController().signal),/schema/)
     const tools=[{name:'read_page',description:'Read one page',parameters:{type:'object',properties:{id:{type:'string'}},required:['id'],additionalProperties:false}}]
     process.env.COPILOT_ANSWERS=JSON.stringify([{content:'',tool_calls:[{function:{name:'read_page',arguments:{id:'p1'}}}]}])

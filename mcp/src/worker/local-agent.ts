@@ -179,7 +179,7 @@ export async function runLocal(opts: LocalRun): Promise<CodexResult> {
       stats.rounds++
       const data = await inference({ model, messages, tools, contextTokens: budget.tokens, outputTokens: opts.outputTokens ?? 4096, signal })
       result.cost = inference.unmetered ? undefined : inference.cost?.() ?? 0
-      opts.progress?.({ turns: result.steps, maxTurns: opts.maxSteps, cost: result.cost ?? null, model })
+      opts.progress?.({ turns: result.steps, maxTurns: opts.maxSteps, cost: result.cost ?? null, model: inference.served?.() ?? model })
       stats.maxInputTokens = Math.max(stats.maxInputTokens, data.inputTokens ?? 0)
       if ((data.inputTokens ?? 0) >= budget.inputLimit) return limited('The local prompt is near the context limit. No proposed tool call was executed.')
       if (data.inputTokens && data.inputTokens > 0) charBudget = Math.min(charBudget, Math.floor(JSON.stringify({ messages, tools }).length / data.inputTokens * budget.inputLimit * 0.8))
@@ -291,7 +291,7 @@ export async function runLocal(opts: LocalRun): Promise<CodexResult> {
         } catch (e) { failed = true; output = { error: clean(e instanceof Error ? e.message : 'Tool failed') } }
         if (failed) stats.toolErrors++
         opts.log({ t: Date.now(), k: 'info', s: clean(`${name}: ${typeof args.path === 'string' ? args.path.slice(0, 300) : 'task tool'}`) })
-        opts.progress?.({ turns: result.steps, maxTurns: opts.maxSteps, cost: result.cost ?? (inference.unmetered ? null : 0), model })
+        opts.progress?.({ turns: result.steps, maxTurns: opts.maxSteps, cost: result.cost ?? (inference.unmetered ? null : 0), model: inference.served?.() ?? model })
         const text = clean(typeof output === 'string' ? output : JSON.stringify(output))
         const sensitive = name === 'mcp_call_tool' && /token|secret|credential|password|oauth/i.test(String(args.name))
         if (journaled && !failed) memory.finishOperation(name, args, sensitive ? '[Credential-bearing tool result omitted from task memory.]' : text)

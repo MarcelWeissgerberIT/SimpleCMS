@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// SimpleCMS One — coding worker 1.26.1 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp/src/worker
+// SimpleCMS One — coding worker 1.27.0 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp/src/worker
 // Runs coding tasks from One with Claude Code on this computer. Setup: node one-worker.mjs --help
 // Docs and security model: https://github.com/MarcelWeissgerberIT/SimpleCMS/blob/main/docs/CODING.md
 import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);
@@ -14769,7 +14769,7 @@ var isCodingAgent = (v) => CODING_AGENTS.includes(v);
 var STAGE_KINDS = ["queue", "import", "analyze", "plan", "doc", "gate", "implement", "test", "git", "done"];
 var PERMISSION_MODES = ["plan", "acceptEdits", "default"];
 var GIT_ACTIONS = ["commit", "push", "pr", "update-base", "comment", "merge"];
-var WORKER_CAN = ["text-models", "copilot-chat", "copilot-media", "analyze", "git:comment", "git:merge", "doc", "model", "mcp-list", "ship", "continue", "permission", "agent:codex", "agent:local", "agent:minimax", "agent:ollama", "agent:copilot", "delivery-qa", "harness-quality", "personal-secrets"];
+var WORKER_CAN = ["copilot-options", "text-models", "copilot-chat", "copilot-media", "analyze", "git:comment", "git:merge", "doc", "model", "mcp-list", "ship", "continue", "permission", "agent:codex", "agent:local", "agent:minimax", "agent:ollama", "agent:copilot", "delivery-qa", "harness-quality", "personal-secrets"];
 var MODEL_NAME = /^[A-Za-z0-9][A-Za-z0-9._:[\]-]{0,99}$/;
 function cleanModel(v) {
   if (typeof v !== "string") return null;
@@ -18285,14 +18285,16 @@ async function writeRepairJournal(directory, scope, journal) {
 async function qaFeedback(input) {
   let turns = 0, cost = 0, hasCost = false;
   const receipts = [];
+  const copilotReceipts = [];
   const observe = (out2) => {
+    copilotReceipts.push(...out2.copilotReceipts ?? []);
     turns += out2.turns ?? 0;
     if (out2.cost !== void 0) {
       cost += out2.cost;
       hasCost = true;
     }
   };
-  const aggregate = (out2) => ({ ...out2, turns, cost: hasCost ? cost : void 0, ...receipts.length ? { repairs: receipts } : {} });
+  const aggregate = (out2) => ({ ...out2, turns, cost: hasCost ? cost : void 0, ...copilotReceipts.length ? { copilotReceipts: copilotReceipts.slice(0, 8) } : {}, ...receipts.length ? { repairs: receipts } : {} });
   let out = await input.review(input.remainingSteps);
   observe(out);
   while (out.status === "failed" && input.policy && input.journal.attempts < input.policy.attempts && turns < input.remainingSteps) {
@@ -18695,6 +18697,18 @@ function runCommand(argv2, timeoutSec, what, cwd, signal, onLine, scrub) {
   });
 }
 
+// ../src/shared/copilot.ts
+var COPILOT_CONTEXT_MAX = 262144;
+var validCopilotModel = (v) => typeof v === "string" && /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,119}$/.test(v) && !/^(?:gh[pousr]_|github_pat_|sk-|eyJ)/.test(v);
+var validEffort = (v) => typeof v === "string" && /^[a-z][a-z0-9_-]{0,23}$/.test(v);
+function readCopilotChoice(v) {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return null;
+  const o = v;
+  if (Object.keys(o).some((k) => !["model", "reasoningEffort", "contextTokens"].includes(k))) return null;
+  if (o.model !== void 0 && !validCopilotModel(o.model) || o.reasoningEffort !== void 0 && !validEffort(o.reasoningEffort) || o.contextTokens !== void 0 && (!Number.isSafeInteger(o.contextTokens) || o.contextTokens < 16384 || o.contextTokens > COPILOT_CONTEXT_MAX)) return null;
+  return { ...o.model !== void 0 ? { model: o.model } : {}, ...o.reasoningEffort !== void 0 ? { reasoningEffort: o.reasoningEffort } : {}, ...o.contextTokens !== void 0 ? { contextTokens: o.contextTokens } : {} };
+}
+
 // src/worker/copilot.ts
 var import_node = __toESM(require_node(), 1);
 import { randomBytes as randomBytes4, randomUUID } from "node:crypto";
@@ -18734,7 +18748,6 @@ function checkAttachments(raw, vision) {
 
 // src/worker/copilot.ts
 var COPILOT_CONTEXT = 32768;
-var validCopilotModel = (v) => typeof v === "string" && /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,119}$/.test(v) && !/^(?:gh[pousr]_|github_pat_|sk-|eyJ)/.test(v);
 function findCopilot(env = process.env) {
   const explicit = envGet(env, "COPILOT_BIN")?.trim();
   if (explicit) return /[/\\]/.test(explicit) && !isAbsolute4(explicit) ? resolve5(explicit) : explicit;
@@ -18858,7 +18871,7 @@ async function probeCopilot(env = process.env) {
       if (status?.isAuthenticated !== true) return { ...cap, authenticated: false, models: [], error: "Sign in locally with copilot login. No model request was sent." };
       const models = await rpc.sendRequest("models.list", {});
       const list = Array.isArray(models) ? models : models?.models;
-      return { ...cap, authenticated: true, models: Array.isArray(list) ? list.filter((m) => validCopilotModel(m?.id) && m?.policy?.state !== "disabled").map((m) => m.id).slice(0, 120) : [], visions: Object.fromEntries((Array.isArray(list) ? list : []).filter((m) => validCopilotModel(m?.id) && visionOf(m)).map((m) => [m.id, visionOf(m)])), contexts: Object.fromEntries((Array.isArray(list) ? list : []).filter((m) => validCopilotModel(m?.id) && Number.isSafeInteger(m?.capabilities?.limits?.max_context_window_tokens) && m.capabilities.limits.max_context_window_tokens >= 8192).map((m) => [m.id, Math.min(65536, m.capabilities.limits.max_context_window_tokens)])) };
+      return { ...cap, authenticated: true, efforts: Object.fromEntries((Array.isArray(list) ? list : []).filter((m) => validCopilotModel(m?.id) && m?.policy?.state !== "disabled").map((m) => [m.id, Array.isArray(m.supportedReasoningEfforts) ? m.supportedReasoningEfforts.filter(validEffort).slice(0, 12) : []])), models: Array.isArray(list) ? list.filter((m) => validCopilotModel(m?.id) && m?.policy?.state !== "disabled").map((m) => m.id).slice(0, 120) : [], visions: Object.fromEntries((Array.isArray(list) ? list : []).filter((m) => validCopilotModel(m?.id) && visionOf(m)).map((m) => [m.id, visionOf(m)])), contexts: Object.fromEntries((Array.isArray(list) ? list : []).filter((m) => validCopilotModel(m?.id) && Number.isSafeInteger(m?.capabilities?.limits?.max_context_window_tokens) && m.capabilities.limits.max_context_window_tokens >= 8192).map((m) => [m.id, Math.min(COPILOT_CONTEXT_MAX, m.capabilities.limits.max_context_window_tokens)])) };
     });
   } catch {
     return { ...cap, authenticated: false, models: [], error: "Copilot login/model availability could not be checked. Check your CLI, subscription and organization policy. No model request was sent." };
@@ -18879,19 +18892,23 @@ function parseCopilotAnswer(raw, tools) {
   });
   return { message: { role: "assistant", content: data.content, ...calls.length ? { tool_calls: calls } : {} } };
 }
-function copilotInference(model = "auto", env = process.env) {
+function copilotInference(model = "auto", env = process.env, options = {}) {
   if (!validCopilotModel(model)) throw new Error("Invalid Copilot model ID.");
   const inference = async (request2) => session(env, request2.signal, async (rpc, dir) => {
     const auth2 = await rpc.sendRequest("auth.getStatus", {});
     if (auth2?.isAuthenticated !== true) throw new Error("Copilot is not signed in. Run copilot login on this computer; a Copilot IDE license alone does not confirm CLI access.");
-    if (model !== "auto" || request2.attachments?.length) {
+    if (model !== "auto" || request2.attachments?.length || options.reasoningEffort) {
       const result = await rpc.sendRequest("models.list", {}), models = Array.isArray(result) ? result : result?.models;
       const selected = Array.isArray(models) ? models.find((m) => m.id === model && m.policy?.state !== "disabled") : null;
       if (!selected) throw new Error("The selected Copilot model is not available under this login/policy. Choose an available model on the worker setup page; no fallback was used.");
       checkAttachments(request2.attachments, visionOf(selected));
+      if (options.reasoningEffort && (!validEffort(options.reasoningEffort) || !selected.supportedReasoningEfforts?.includes(options.reasoningEffort))) throw new Error("The selected Copilot model does not advertise this reasoning effort. Choose a supported effort or the model default.");
+      const native = selected.capabilities?.limits?.max_context_window_tokens;
+      if (Number.isSafeInteger(native) && request2.contextTokens > native) throw new Error("The selected Copilot model no longer supports the requested context. Refresh the model list.");
     }
     const id = randomUUID();
-    let answer = "", error2 = "", usage = {};
+    let answer = "", error2 = "", input, output, usageCount = 0, inputMissing = false, outputMissing = false;
+    const usageIds = /* @__PURE__ */ new Set();
     let ready = false, done = () => {
     };
     const finished = new Promise((resolve11) => {
@@ -18907,7 +18924,18 @@ function copilotInference(model = "auto", env = process.env) {
           done();
         }
       }
-      if (e.type === "assistant.usage" && object(d)) usage = d;
+      if (e.type === "assistant.usage" && object(d)) {
+        const key = typeof e.id === "string" ? e.id : typeof d.apiCallId === "string" ? d.apiCallId : null;
+        if (key && usageIds.has(key)) return;
+        if (key) usageIds.add(key);
+        const u = copilotUsage(d);
+        usageCount++;
+        inputMissing ||= u.inputTokens === null;
+        outputMissing ||= u.outputTokens === null;
+        input = (input ?? 0) + (u.inputTokens ?? 0);
+        output = (output ?? 0) + (u.outputTokens ?? 0);
+        options.onUsage?.(u);
+      }
       if (e.type === "session.error") {
         error2 = "Copilot failed: " + String(d?.message ?? "model request rejected");
         done();
@@ -18924,6 +18952,7 @@ function copilotInference(model = "auto", env = process.env) {
         clientName: "one-worker",
         model,
         ...model === "auto" ? {} : { allowedModels: [model] },
+        ...options.reasoningEffort ? { reasoningEffort: options.reasoningEffort } : {},
         workingDirectory: dir,
         tools: [],
         availableTools: [],
@@ -18950,7 +18979,7 @@ function copilotInference(model = "auto", env = process.env) {
       await finished;
       if (error2) throw new Error(error2);
       if (!answer.trim()) throw new Error("Copilot returned no final harness response.");
-      return { ...parseCopilotAnswer(answer, request2.tools), inputTokens: count2(usage.inputTokens), outputTokens: count2(usage.outputTokens) };
+      return { ...parseCopilotAnswer(answer, request2.tools), inputTokens: !usageCount || inputMissing ? void 0 : input, outputTokens: !usageCount || outputMissing ? void 0 : output };
     } finally {
       subscription.dispose();
       await Promise.race([rpc.sendRequest("session.delete", { sessionId: id }).catch(() => {
@@ -18962,6 +18991,45 @@ function copilotInference(model = "auto", env = process.env) {
   });
   inference.unmetered = true;
   return inference;
+}
+function copilotUsage(d) {
+  const quotas = object(d.quotaSnapshots) ? Object.entries(d.quotaSnapshots).filter(([k, q]) => /^[a-zA-Z0-9_.-]{1,64}$/.test(k) && object(q) && typeof q.remainingPercentage === "number" && Number.isFinite(q.remainingPercentage) && q.remainingPercentage >= 0 && q.remainingPercentage <= 100).slice(0, 12).map(([name, q]) => ({ name, remainingPercentage: q.remainingPercentage, ...typeof q.resetDate === "string" && q.resetDate.length <= 40 && Number.isFinite(Date.parse(q.resetDate)) ? { resetDate: q.resetDate } : {} })) : [];
+  return { model: validCopilotModel(d.model) && d.model !== "auto" ? d.model : null, reasoningEffort: validEffort(d.reasoningEffort) ? d.reasoningEffort : null, inputTokens: count2(d.inputTokens) ?? null, outputTokens: count2(d.outputTokens) ?? null, nanoAiu: count2(d.copilotUsage?.totalNanoAiu) ?? null, quotas };
+}
+
+// src/worker/copilot-run.ts
+async function prepareCopilotRun(defaultModel, choice, source, env = process.env) {
+  if (choice !== void 0 && !readCopilotChoice(choice)) throw new Error("Invalid Copilot task options.");
+  const model = choice?.model ?? defaultModel;
+  const probe = await probeCopilot(env);
+  if (!probe.authenticated || !probe.models.length || model !== "auto" && !probe.models.includes(model)) throw new Error("Copilot model preflight failed. Check CLI login, model availability and organization policy. No model prompt was sent; no fallback was used.");
+  const effort = choice?.reasoningEffort;
+  if (effort && (model === "auto" || !("efforts" in probe) || !probe.efforts[model]?.includes(effort))) throw new Error("This Copilot model does not advertise the selected reasoning effort. Choose a supported effort or the model default. No model prompt was sent.");
+  const native = "contexts" in probe ? probe.contexts[model] : void 0;
+  const tokens = Math.min(choice?.contextTokens ?? COPILOT_CONTEXT_MAX, native ?? COPILOT_CONTEXT, COPILOT_CONTEXT_MAX);
+  if (tokens < 16384) throw new Error("This Copilot model advertises too little context for the coding harness. Choose another model.");
+  const receipt = { provider: "copilot", requestedModel: model, source, ...effort ? { requestedEffort: effort } : {}, contextTokens: tokens, startedAt: Date.now(), finishedAt: Date.now(), rounds: 0, usageReports: 0, models: [], reasoningEfforts: [], inputTokens: null, outputTokens: null, nanoAiu: null, quotas: [] };
+  const onUsage = (u) => {
+    receipt.usageReports++;
+    if (u.model && !receipt.models.includes(u.model) && receipt.models.length < 40) receipt.models.push(u.model);
+    if (u.reasoningEffort && !receipt.reasoningEfforts.includes(u.reasoningEffort) && receipt.reasoningEfforts.length < 40) receipt.reasoningEfforts.push(u.reasoningEffort);
+    for (const k of ["inputTokens", "outputTokens", "nanoAiu"]) receipt[k] = u[k] === null || receipt.usageReports > 1 && receipt[k] === null ? null : (receipt[k] ?? 0) + u[k];
+    if (u.quotas.length) receipt.quotas = u.quotas;
+  };
+  let missingUsage = false;
+  const adapter = copilotInference(model, env, { reasoningEffort: effort, onUsage });
+  const inference = async (request2) => {
+    receipt.rounds++;
+    const before = receipt.usageReports;
+    try {
+      return await adapter(request2);
+    } finally {
+      if (receipt.usageReports === before) missingUsage = true;
+    }
+  };
+  inference.unmetered = true;
+  inference.served = () => receipt.models.at(-1) ?? null;
+  return { model, inference, outputTokens: 8192, context: { tokens, inputLimit: tokens - 8192, chars: (tokens - 8192) * 1.5 }, receipt: () => ({ ...receipt, ...missingUsage ? { inputTokens: null, outputTokens: null, nanoAiu: null } : {}, finishedAt: Date.now() }) };
 }
 
 // src/worker/copilot-config.ts
@@ -37969,7 +38037,7 @@ Private Atlas checkpoint: /r/${ref}.`;
       stats.rounds++;
       const data = await inference({ model, messages, tools, contextTokens: budget.tokens, outputTokens: opts.outputTokens ?? 4096, signal });
       result.cost = inference.unmetered ? void 0 : inference.cost?.() ?? 0;
-      opts.progress?.({ turns: result.steps, maxTurns: opts.maxSteps, cost: result.cost ?? null, model });
+      opts.progress?.({ turns: result.steps, maxTurns: opts.maxSteps, cost: result.cost ?? null, model: inference.served?.() ?? model });
       stats.maxInputTokens = Math.max(stats.maxInputTokens, data.inputTokens ?? 0);
       if ((data.inputTokens ?? 0) >= budget.inputLimit) return limited("The local prompt is near the context limit. No proposed tool call was executed.");
       if (data.inputTokens && data.inputTokens > 0) charBudget = Math.min(charBudget, Math.floor(JSON.stringify({ messages, tools }).length / data.inputTokens * budget.inputLimit * 0.8));
@@ -38105,7 +38173,7 @@ Next: ${args.next}`), text: clean(args.summary) };
         }
         if (failed) stats.toolErrors++;
         opts.log({ t: Date.now(), k: "info", s: clean(`${name}: ${typeof args.path === "string" ? args.path.slice(0, 300) : "task tool"}`) });
-        opts.progress?.({ turns: result.steps, maxTurns: opts.maxSteps, cost: result.cost ?? (inference.unmetered ? null : 0), model });
+        opts.progress?.({ turns: result.steps, maxTurns: opts.maxSteps, cost: result.cost ?? (inference.unmetered ? null : 0), model: inference.served?.() ?? model });
         const text2 = clean(typeof output === "string" ? output : JSON.stringify(output));
         const sensitive = name === "mcp_call_tool" && /token|secret|credential|password|oauth/i.test(String(args.name));
         if (journaled && !failed) memory.finishOperation(name, args, sensitive ? "[Credential-bearing tool result omitted from task memory.]" : text2);
@@ -38707,7 +38775,7 @@ Next: ${verdict.next}` : "Delivery QA requires a structured final verdict; no co
               resume: void 0,
               quality: { ...task.quality, review: false, repair: void 0 },
               rework: finding,
-              stage: { ...task.stage, kind: "implement", name: "QA repair", maxTurns: remaining, permissionMode: "acceptEdits", instructions: "Repair only the QA findings against the confirmed delivery. Existing acceptance tests, scripts and dependency configuration must remain unchanged. Add regression tests where appropriate. Do not commit, push or merge. Report unresolved blockers." }
+              stage: { ...task.stage, copilot: policy.agent === "copilot" ? policy.copilot : void 0, copilotSource: policy.copilot?.model ? "role" : "worker", model: null, kind: "implement", name: "QA repair", maxTurns: remaining, permissionMode: "acceptEdits", instructions: "Repair only the QA findings against the confirmed delivery. Existing acceptance tests, scripts and dependency configuration must remain unchanged. Add regression tests where appropriate. Do not commit, push or merge. Report unresolved blockers." }
             };
             log2("info", `QA repair uses the confirmed Coding agent: ${policy.agent}.`);
             const repairCtx = { ...ctx, repo: stageRepo, task: repairTask, verifyBoundary: () => checksUnchanged(dir, manifest) };
@@ -38949,7 +39017,7 @@ Use your native ${agent !== "codex" ? "file, search and configured check" : "fil
       progress: ctx.progress,
       log: (line) => ctx.log({ ...line, s: scrub.text(line.s) })
     };
-    const copilot = agent === "copilot" ? readCopilot(ctx.state.configFile) : null;
+    const copilot = agent === "copilot" ? await prepareCopilotRun(readCopilot(ctx.state.configFile).model, task.stage.copilot, task.stage.copilotSource ?? "worker") : null;
     if (copilot) log2("info", "Copilot uses the CLI login and organization policy on this computer. Selected context goes to the Copilot service. One owns file tools, MCP, bounded task memory and checks; native Copilot tools are disabled. Subscription usage has no USD receipt; dollar limits cannot meter this tariff.");
     const ollama = agent === "ollama" ? readOllamaCloud(ctx.state.configFile) : null;
     if (ollama?.apiKey) scrub.protect("OLLAMA_API_KEY", ollama.apiKey);
@@ -38959,7 +39027,7 @@ Use your native ${agent !== "codex" ? "file, search and configured check" : "fil
     if (minimax) log2("info", "MiniMax uses its cloud API. Selected source and tool results leave this computer; dollar amounts are estimates from token usage at published prices.");
     const res = agent !== "codex" ? await runLocal({
       ...options,
-      ...copilot ? { inference: copilotInference(copilot.model), model: copilot.model, outputTokens: 8192, context: { tokens: COPILOT_CONTEXT, inputLimit: COPILOT_CONTEXT - 8192, chars: (COPILOT_CONTEXT - 8192) * 1.5 } } : {},
+      ...copilot ? { inference: copilot.inference, model: copilot.model, outputTokens: copilot.outputTokens, context: copilot.context } : {},
       ...minimax ? {
         inference: miniMaxInference(minimax, lim.budget),
         model: MINIMAX_MODEL,
@@ -38994,7 +39062,9 @@ ${checked.output.slice(-6e3)}`);
       } : void 0
     }) : await runCodex(options);
     if (res.cost && res.cost > 0) ctx.state.addCost(task.id, res.cost);
-    const base = { ...branch ? { branch } : {}, turns: res.steps, ...res.cost !== void 0 ? { cost: res.cost } : {}, ...wt ? { git: await gitSnapshot(ctx, wt, scrub) } : {} };
+    const receipt = copilot ? { ...copilot.receipt(), stageKind: task.stage.kind, status: ctx.question() ? "question" : res.stopped ? "stopped" : res.limited ? "limit" : res.ok ? "ok" : "failed" } : null;
+    if (receipt) log2("info", "Copilot run receipt: " + JSON.stringify(receipt));
+    const base = { ...receipt ? { copilotReceipts: [receipt] } : {}, ...branch ? { branch } : {}, turns: res.steps, ...res.cost !== void 0 ? { cost: res.cost } : {}, ...wt ? { git: await gitSnapshot(ctx, wt, scrub) } : {} };
     if (res.stopped) return { ...base, status: "stopped", error: "Stopped in One." };
     if (ctx.question()) return { ...base, status: "question", question: scrub.text(ctx.question()) };
     if (res.limited) return { ...base, status: "limit", error: res.error, ...res.limitKind === "budget" ? {} : { stepLimit: { turns: res.steps, max: max2 } } };
@@ -39387,7 +39457,7 @@ async function copilotModels() {
   const key = JSON.stringify([process.env.COPILOT_BIN, process.env.COPILOT_GITHUB_TOKEN, process.env.GH_TOKEN, process.env.GITHUB_TOKEN]);
   if (copilotCatalog?.key === key && copilotCatalog.until > Date.now()) return copilotCatalog.rows;
   const result = await probeCopilot();
-  const rows = result.authenticated ? result.models.filter(validCopilotModel).map((model) => ({ provider: "copilot", model, context: "contexts" in result ? result.contexts[model] ?? COPILOT_CONTEXT : COPILOT_CONTEXT, chat: true, maxOutput: 8192, ..."visions" in result && result.visions[model] ? { vision: result.visions[model] } : {} })) : [];
+  const rows = result.authenticated ? result.models.filter(validCopilotModel).map((model) => ({ provider: "copilot", model, context: "contexts" in result ? result.contexts[model] ?? COPILOT_CONTEXT : COPILOT_CONTEXT, chat: true, maxOutput: 8192, ..."efforts" in result && result.efforts[model]?.length ? { reasoningEfforts: result.efforts[model] } : {}, ..."visions" in result && result.visions[model] ? { vision: result.visions[model] } : {} })) : [];
   copilotCatalog = { key, until: Date.now() + 3e4, rows };
   return rows;
 }
@@ -39471,7 +39541,8 @@ async function textRequest(file, raw, signal) {
     const output = r.schema ? validator.getValidator(r.schema) : null;
     const inputs = new Map((r.tools ?? []).map((t) => [t.name, validator.getValidator(t.parameters)]));
     const messages = r.schema ? [{ role: "system", content: "Return an answer matching this JSON schema. Put the JSON answer as a string in the harness content field. Schema: " + JSON.stringify(r.schema) }, ...r.messages] : r.messages;
-    const data2 = await copilotInference(r.model)({ model: r.model, messages, tools, contextTokens: model.context, outputTokens: Math.min(r.maxTokens, 8192), attachments, signal });
+    const run2 = await prepareCopilotRun(r.model, { model: r.model, contextTokens: model.context }, "task");
+    const data2 = await run2.inference({ model: r.model, messages, tools, contextTokens: model.context, outputTokens: Math.min(r.maxTokens, 8192), attachments, signal });
     const calls = (data2.message.tool_calls ?? []).map((c) => ({ id: c.id, name: c.function.name, arguments: c.function.arguments }));
     if (calls.length && !tools.length) throw new Error("Copilot returned unexpected tools.");
     for (const call of calls) if (!inputs.get(call.name)?.(call.arguments).valid) throw new Error("Copilot returned invalid function arguments; no tool was executed.");
@@ -39484,7 +39555,7 @@ async function textRequest(file, raw, signal) {
       }
       if (!output(answer).valid) throw new Error("Copilot answer does not match the requested schema; no change was applied.");
     }
-    return { model: r.model, text: data2.message.content ?? "", ...calls.length ? { calls } : {}, inputTokens: data2.inputTokens ?? null, outputTokens: data2.outputTokens ?? null, usd: null };
+    return { model: r.model, copilotReceipt: run2.receipt(), text: data2.message.content ?? "", ...calls.length ? { calls } : {}, inputTokens: data2.inputTokens ?? null, outputTokens: data2.outputTokens ?? null, usd: null };
   }
   if (r.provider === "codex") {
     const cwd = await mkdtemp2(join16(tmpdir5(), "one-text-"));
@@ -39515,8 +39586,9 @@ async function textRequest(file, raw, signal) {
 function readRepairPolicy(v) {
   if (!v || typeof v !== "object" || Array.isArray(v)) return null;
   const o = v;
-  if (Object.keys(o).some((k) => !["attempts", "agent"].includes(k)) || ![1, 2].includes(o.attempts) || !["local", "minimax", "ollama", "claude", "codex", "copilot"].includes(String(o.agent))) return null;
-  return { attempts: o.attempts, agent: o.agent };
+  if (Object.keys(o).some((k) => !["attempts", "agent", "copilot"].includes(k)) || ![1, 2].includes(o.attempts) || !["local", "minimax", "ollama", "claude", "codex", "copilot"].includes(String(o.agent))) return null;
+  if (o.copilot !== void 0 && (o.agent !== "copilot" || !readCopilotChoice(o.copilot))) return null;
+  return { ...o.copilot ? { copilot: readCopilotChoice(o.copilot) } : {}, attempts: o.attempts, agent: o.agent };
 }
 
 // src/worker/worker.ts
@@ -42351,6 +42423,8 @@ function sanitizeTask(raw) {
   const personalMcp = personalConnections(raw.personalMcp);
   if (!personalMcp || personalMcp.length && raw.agent !== void 0 && raw.agent !== "claude" && raw.agent !== "copilot") return null;
   const s = raw.stage;
+  if (s.copilot !== void 0 && (raw.agent !== "copilot" || !readCopilotChoice(s.copilot))) return null;
+  if (s.copilotSource !== void 0 && !["task", "role", "worker"].includes(String(s.copilotSource))) return null;
   const kind = STAGE_KINDS.includes(String(s.kind)) ? s.kind : null;
   if (personalMcp.length && !["plan", "implement", "doc"].includes(kind ?? "")) return null;
   const id = str3(raw.id, 64);
@@ -42386,7 +42460,9 @@ function sanitizeTask(raw) {
       gitAction: GIT_ACTIONS.includes(String(s.gitAction)) ? s.gitAction : null,
       // a model name One picked (MODEL_NAME) — anything else is dropped (the repo's claude.model, else Claude Code's
       // default, runs instead); it reaches Claude Code only as the argument after --model
-      model: cleanModel(s.model)
+      model: cleanModel(s.model),
+      ...s.copilot ? { copilot: readCopilotChoice(s.copilot) } : {},
+      ...s.copilotSource ? { copilotSource: s.copilotSource } : {}
     },
     text: str3(raw.text, 2e5),
     rework: typeof raw.rework === "string" && raw.rework.trim() ? raw.rework.slice(0, 4e4) : null,
@@ -46205,14 +46281,14 @@ var SETUP_JS = String.raw`(function () {
     copilotTitle: 'GitHub Copilot · CLI',
     copilotHint: 'Uses this computer’s Copilot CLI login and organization permissions. Selected context goes to the Copilot service; One runs the file tools, MCP and configured checks. Copilot native tools and automatic repository configuration are disabled. Subscription usage has no USD receipt. In One → Settings → AI, refresh worker models and choose Copilot for workspace features; data permissions and defaults stay explicit.',
     copilotInstall: 'Install GitHub Copilot CLI (1.0.102 or newer), then sign in locally: copilot login. An IDE subscription alone does not confirm CLI access. Tokens stay in Copilot CLI or COPILOT_GITHUB_TOKEN; do not paste them into One.',
-    copilotModel: 'Copilot model ID (auto uses the account default)',
+    copilotModel: 'Worker default model (auto lets Copilot select)',
     copilotSave: 'Save Copilot model',
     copilotCheck: 'Check CLI and login (no model request)',
     copilotSaved: 'Model saved. No model request was sent.',
     copilotReady: 'CLI signed in. Available models are listed below; no coding run was started.',
     copilotMissing: 'CLI or login unavailable. Install/update the CLI, sign in and check organization permissions.',
     copilotError: 'Copilot settings could not be saved.',
-    copilotEnvironment: 'ONE_COPILOT_MODEL overrides the saved model. Change the environment and restart the worker to remove that override.',
+    copilotEnvironment: 'Explicit task and confirmed role choices take precedence. ONE_COPILOT_MODEL overrides the saved worker default. Change the environment and restart the worker to remove that override.',
     ollamaTitle: 'Ollama Cloud · API',
     ollamaHint: 'Cloud model: selected source, prompts and tool results go to Ollama. The same One / Atlas harness applies. The key is saved privately on this computer, outside the One workspace. Ollama plan quotas apply; One cannot meter dollar limits for this tariff.',
     ollamaReady: 'Key saved · not yet verified with Ollama',
@@ -46389,7 +46465,7 @@ var SETUP_JS = String.raw`(function () {
     copilotTitle: 'GitHub Copilot · CLI',
     copilotHint: 'Nutzt die Copilot-CLI-Anmeldung und Unternehmensrechte dieses Rechners. Ausgewählter Kontext geht an den Copilot-Dienst; One führt Dateiwerkzeuge, MCP und konfigurierte Prüfungen aus. Native Copilot-Werkzeuge und automatische Repository-Konfiguration sind ausgeschaltet. Abonutzung liefert keinen USD-Kostennachweis. In One → Einstellungen → KI die Worker-Modelle aktualisieren und Copilot für Workspace-Funktionen wählen; Datenfreigaben und Standards bleiben ausdrücklich.',
     copilotInstall: 'GitHub Copilot CLI (ab 1.0.102) installieren und lokal anmelden: copilot login. Ein IDE-Abo bestätigt noch keinen CLI-Zugriff. Tokens bleiben in Copilot CLI oder COPILOT_GITHUB_TOKEN; nicht in One einfügen.',
-    copilotModel: 'Copilot-Modell-ID (auto nutzt den Kontostandard)',
+    copilotModel: 'Worker-Standardmodell (auto lässt Copilot wählen)',
     copilotSave: 'Copilot-Modell speichern',
     copilotCheck: 'CLI und Anmeldung prüfen (keine Modellanfrage)',
     copilotSaved: 'Modell gespeichert. Keine Modellanfrage gesendet.',
@@ -48050,7 +48126,7 @@ var WorkerWorkspaces = class {
 
 // src/worker/index.ts
 var workspaceHost = null;
-var VERSION = true ? "1.26.1" : "dev";
+var VERSION = true ? "1.27.0" : "dev";
 var quiet = process.env.ONE_WORKER_QUIET === "1";
 var recent = [];
 var log = (msg) => {

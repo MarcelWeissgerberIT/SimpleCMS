@@ -60,7 +60,7 @@ import { requestFacts, type KindProject } from './facts'
 import { orderPlanHash, type ResolvedStep } from './plan'
 import { chainPropsCheck, ensureChainProps, type ChainPropsResult } from './props'
 import { orderCode, orderStatusKey, writeOrderStatus } from './db'
-import { orderConfigUsable, readOrderConfig, orderAgent } from './config'
+import { orderConfigUsable, readOrderConfig, orderExecution } from './config'
 import { loadOrderRecord, orderRowLock, orderScope, patchOrderRecord } from './records'
 import { followRecord, orderWriter, unschedule } from './chainRun'
 import { stepBlockIds, stepPage } from './stepPage'
@@ -217,10 +217,9 @@ async function buildStep(
   const body = taskBody({ goal: '', goalDoc: planned.goalDoc, criteria: planned.criteria, lead: page.lead, extra: page.extra })
   const text = docToMarkdown({ type: 'doc', content: body }).trim()
   const config = readOrderConfig(ws().databases[ws().pages[rowId]?.databaseId ?? ''])
-  const agent = config.kind === 'ok' ? orderAgent(config.config, step.kind) : undefined
-  const plan: NewTaskPlan = { ...planned, ...(agent ? { agent } : {}), then: [], start: false, id: o.id, order: { rowId, step: o.n, run: o.run }, lead: page.lead, extra: page.extra, refs: refPagesOf(body), text }
+  const plan: NewTaskPlan = { ...planned, ...orderExecution(config.kind === 'ok' ? config.config : null, step.kind), then: [], start: false, id: o.id, order: { rowId, step: o.n, run: o.run }, lead: page.lead, extra: page.extra, refs: refPagesOf(body), text }
   const pipeline = readPipeline(ws().databases[o.project])
-  const sig = await sha256(canonicalJson([step.kind, o.project, planned.title, planned.repo, planned.branch, planned.priority, text, ...(agent ? [agent] : [])]))
+  const sig = await sha256(canonicalJson([step.kind, o.project, planned.title, planned.repo, planned.branch, planned.priority, text, orderExecution(config.kind === 'ok' ? config.config : null, step.kind)]))
   return {
     ok: true,
     step: {
@@ -350,7 +349,7 @@ function rollback(rowId: ID, run: string, steps: readonly OrderChainStep[], rest
 
 /** Each step's project and pipeline lines as they resolve on this device now (the planner's ResolvedStep). */
 function resolveSteps(draft: OrderDraft, kp: readonly KindProject[], approvals: 'all' | 'review' | 'none', config?: import('./types').OrderConfig): ResolvedStep[] {
-  return draft.plan.steps.map((st, i) => { const agent = config ? orderAgent(config, st.kind) : undefined; return { ...(agent ? { agent } : {}), ...(config?.qaRepairs && st.kind === 'qa' ? { repair: { attempts: config.qaRepairs, agent: orderAgent(config, 'coding') ?? 'claude' } } : {}), project: kp[i]!.project, park: pipelineLine(kp[i]!.pipeline, !!st.repo, false, approvals), start: pipelineLine(kp[i]!.pipeline, !!st.repo, true, approvals) } })
+  return draft.plan.steps.map((st, i) => { return { ...orderExecution(config, st.kind), project: kp[i]!.project, park: pipelineLine(kp[i]!.pipeline, !!st.repo, false, approvals), start: pipelineLine(kp[i]!.pipeline, !!st.repo, true, approvals) } })
 }
 
 /**
@@ -482,7 +481,7 @@ async function startLocked(rowId: ID, hash: string): Promise<StartOutcome> {
     doneBy: {},
     halted: null,
     checkpoint: read.config.checkpoint,
-    ...(read.config.qaRepairs ? { repair: { attempts: read.config.qaRepairs, agent: orderAgent(read.config, 'coding') ?? 'claude' } } : {}),
+    ...(read.config.qaRepairs ? { repair: orderExecution(read.config, 'qa').repair } : {}),
     // the budget set on the plate for this chain (null: none), else the work orders' settings
     ...(draft.budget !== undefined ? (draft.budget !== null ? { budgetUsd: draft.budget } : {}) : read.config.budgetUsd !== undefined ? { budgetUsd: read.config.budgetUsd } : {}),
     ...(older ? { replaced: { chain: older, trashed: trash } } : {}),

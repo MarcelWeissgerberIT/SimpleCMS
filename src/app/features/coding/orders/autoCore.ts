@@ -128,6 +128,7 @@ export function autoFallbacks(f: AutoFacts): OrderAutoWhy[] {
  * create anyway). Canonical JSON of this is hashed (autoSig.ts).
  */
 export interface AutoSigParts {
+  execution?: unknown
   repair?: unknown
   v: 1
   db: ID

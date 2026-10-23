@@ -679,6 +679,8 @@ export type OrderStatusKey = 'draft' | 'plan' | 'ready' | 'running' | 'halted' |
  * reports — TaskLocal.spentUsd).
  */
 export interface OrderConfig {
+  /** Non-secret role defaults, snapshotted into tasks at chain confirmation. */
+  copilot?: Partial<Record<OrderKind, import('../../shared/copilot').CopilotChoice>>
   agent?: 'claude' | 'codex' | 'local' | 'minimax' | 'ollama' | 'copilot'
   agents?: Partial<Record<OrderKind, 'claude' | 'codex' | 'local' | 'minimax' | 'ollama' | 'copilot'>>
   v: 1

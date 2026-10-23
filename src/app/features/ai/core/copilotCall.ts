@@ -23,7 +23,7 @@ export async function sendCopilotCompletion(prepared: Prepared, req: ChatRequest
   for (let round = 0; round < 12; round++) {
     const result = await sendWorkerText(req.route, messages, Math.min(req.maxTokens, 8192), o.signal, { ...(material.attachments.length ? { attachments: material.attachments } : {}), ...(tools.length ? { tools } : {}), ...(req.output.kind === 'json' ? { schema: req.output.schema } : {}) })
     const usage = result.inputTokens !== null && result.outputTokens !== null ? { input: result.inputTokens, output: result.outputTokens, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0, reasoning: 0 } : null
-    const turn: Turn = { kind: 'chat', parts: [{ type: 'text', text: result.text }], stop: result.calls?.length ? 'tool_calls' : 'end', usage, served: result.model, streamedChars: result.text.length }
+    const turn: Turn = { kind: 'chat', parts: [{ type: 'text', text: result.text }], stop: result.calls?.length ? 'tool_calls' : 'end', usage, served: result.copilotReceipt?.models.at(-1) ?? null, streamedChars: result.text.length }
     const entry = o.call.response(neutralResponse(turn, { price: null, promptChars: JSON.stringify(messages).length + JSON.stringify(tools).length }))
     if (entry) { used.push(entry.usage); spent += entry.usd ?? 0 }
     if (!result.calls?.length) { o.onToken?.(result.text); return turn }

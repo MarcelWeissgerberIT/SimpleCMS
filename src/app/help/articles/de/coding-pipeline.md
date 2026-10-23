@@ -189,3 +189,7 @@ Speichern sendet keine Cloud-Anfrage. Die eigene Schaltfläche **Verbindung test
 ## Ollama Cloud zentral für Coding einrichten
 
 Öffne **Einstellungen → KI → Ollama Cloud → API-Key und Modell einrichten …**. Dieselbe Karte steht unter **Coding-Worker**. Sie öffnet die geschützte Einrichtungsseite des Workers. Dort den Key einmal eintragen und speichern; alle Coding-Aufgaben mit Ollama Cloud auf diesem Worker teilen sich Key und Modell. Ist der Worker offline, führt die Karte zuerst zu seinen Verbindungseinstellungen. One liest und synchronisiert diesen Key nicht. Einstellungen öffnen und speichern sendet keine Modellanfrage; **Verbindung testen (Cloud-Anfrage)** ist eine eigene Aktion. Die Anbieterwahl für KI-Terminal und Browser-Agenten bleibt separat.
+
+
+## Copilot-Modell und Laufnachweis
+Bei **GitHub Copilot** ab Worker **1.27.0** Modell, unterstützten Denkaufwand und Kontextbudget direkt an der Aufgabe wählen. Prüfaufträge bieten getrennte Vorgaben für BA, Coding und QA. Die Aufgabenwahl geht der bei Anlage übernommenen Rolle und dem Worker-Standard vor. **Laufnachweise** zeigen gemeldete Modelle, Tokens und verfügbare Kontingentdaten; fehlende Geldbeträge bleiben unbekannt. Einrichtung und Grenzen: [GitHub Copilot in One](help:copilot-coding).
