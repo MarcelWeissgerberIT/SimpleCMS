@@ -48631,6 +48631,7 @@ This file was downloaded for the workspace "${preset.name}" (${preset.workspace}
 
 Options: --config <file> (or ONE_WORKER_CONFIG), --no-browser (no setup page: pick the repos in this
 terminal), --force (init: replace the file), --help, --version
+--model-host: cloud model host only; no repository setup, scanning or coding repositories.
 Environment: CLAUDE_BIN (default "claude"), ONE_WORKER_PORT (default ${preset?.port ?? WORKER_DEFAULT_PORT}), ONE_ORIGINS, ONE_WORKER_BROWSER, ONE_WORKER_QUIET=1
 Needs: Node.js 22 or newer, git${win ? " (Git for Windows \u2014 Claude Code needs its Git Bash)" : ""}, the Claude Code CLI (signed in). Docs: docs/CODING.md
 `);
@@ -48686,7 +48687,9 @@ Or download the worker from One (Settings \u2192 Coding worker): that file comes
 `);
     process.exit(1);
   }
-  const config2 = withPreset(loaded.config, preset);
+  const configured = withPreset(loaded.config, preset);
+  if (flag("--model-host") && !cloud) throw new Error("--model-host requires a cloud worker downloaded for the target workspace.");
+  const config2 = flag("--model-host") ? { ...configured, repos: [] } : configured;
   for (const p of loaded.problems) log(`config: ${p}`);
   for (const n of loaded.notes ?? []) log(`config: ${n}`);
   if (command === "check") {
@@ -48740,7 +48743,7 @@ ${ok ? "All good." : "Fix the lines above."}
     }
   }
   let worker = null;
-  const setup = flag("--no-browser") ? null : new SetupServer({
+  const setup = flag("--no-browser") || flag("--model-host") ? null : new SetupServer({
     configFile,
     port: config2.port,
     preset,
@@ -48811,7 +48814,7 @@ ${ok ? "All good." : "Fix the lines above."}
   process.on("SIGTERM", () => void shutdown());
   process.on("SIGHUP", () => void shutdown());
   if (win) process.on("SIGBREAK", () => void shutdown());
-  if (command === "setup" || !config2.repos.length) await pickRepos(worker, setup);
+  if (!flag("--model-host") && (command === "setup" || !config2.repos.length)) await pickRepos(worker, setup);
 }
 async function checkCloud(origin, token) {
   const host = new URL(origin).host;

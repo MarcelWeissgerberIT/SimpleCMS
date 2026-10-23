@@ -20,7 +20,8 @@ import { compareDemo } from './demo-compare.ts'
  * (~/.config/one/cloud/<workspace>/), and stops with exit code 2 when the server lets it go for good (token
  * revoked or replaced, member removed) — a service manager should not restart it then (RestartPreventExitStatus=2).
  *
- * Environment: CLAUDE_BIN (the Claude Code CLI, default "claude"), ONE_WORKER_PORT, ONE_ORIGINS,
+ * --model-host: cloud model host only; no repository setup, scanning or coding repositories.
+Environment: CLAUDE_BIN (the Claude Code CLI, default "claude"), ONE_WORKER_PORT, ONE_ORIGINS,
  * ONE_WORKER_BROWSER (a program that opens the setup page, "none" = never), ONE_WORKER_QUIET=1. Logs go to
  * stderr.
  */
@@ -121,6 +122,7 @@ Exit code 2: the server let this file go for good (token revoked or replaced, me
 
 Options: --config <file> (or ONE_WORKER_CONFIG), --no-browser (no setup page: pick the repos in this
 terminal), --force (init: replace the file), --help, --version
+--model-host: cloud model host only; no repository setup, scanning or coding repositories.
 Environment: CLAUDE_BIN (default "claude"), ONE_WORKER_PORT (default ${preset?.port ?? WORKER_DEFAULT_PORT}), ONE_ORIGINS, ONE_WORKER_BROWSER, ONE_WORKER_QUIET=1
 Needs: Node.js 22 or newer, git${win ? ' (Git for Windows — Claude Code needs its Git Bash)' : ''}, the Claude Code CLI (signed in). Docs: docs/CODING.md
 `)
@@ -174,7 +176,9 @@ async function main() {
     process.stderr.write(`${e instanceof Error ? e.message : String(e)}\nOr download the worker from One (Settings → Coding worker): that file comes ready-paired and asks for your repos itself.\n`)
     process.exit(1)
   }
-  const config = withPreset(loaded.config, preset)
+  const configured = withPreset(loaded.config, preset)
+  if (flag('--model-host') && !cloud) throw new Error('--model-host requires a cloud worker downloaded for the target workspace.')
+  const config = flag('--model-host') ? { ...configured, repos: [] } : configured
   for (const p of loaded.problems) log(`config: ${p}`)
   for (const n of loaded.notes ?? []) log(`config: ${n}`)
 
@@ -236,7 +240,7 @@ async function main() {
 
   // the setup page lives on the worker's own port; --no-browser: none (the terminal asks instead)
   let worker: Worker | null = null
-  const setup = flag('--no-browser')
+  const setup = flag('--no-browser') || flag('--model-host')
     ? null
     : new SetupServer({
         configFile,
@@ -301,7 +305,7 @@ async function main() {
   // Windows: Ctrl+Break (Ctrl+C arrives as SIGINT)
   if (win) process.on('SIGBREAK', () => void shutdown())
 
-  if (command === 'setup' || !config.repos.length) await pickRepos(worker, setup)
+  if (!flag('--model-host') && (command === 'setup' || !config.repos.length)) await pickRepos(worker, setup)
 }
 
 /** `check` of a cloud worker: does the team server take this file's token (GET /api/coding/worker)? */
