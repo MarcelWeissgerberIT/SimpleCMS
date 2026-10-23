@@ -8,10 +8,10 @@ test('readiness plates persist checks, separate guests/later, and respect read-o
       {id:'name',name:'Name',type:'title'},
       ...checks.map(id=>({id,name:id,type:'select',options:['open','ready','blocked','na'].map(id=>({id,name:id,color:'gray'}))})),
       ...['role','participation'].map(id=>({id,name:id,type:'select'})),
-      ...['blocker','next','owner','note','at','by'].map(id=>({id,name:id,type:'text'})),
+      ...['blocker','next','owner','note','at','by','recipient','evidence'].map(id=>({id,name:id,type:'text'})),
     ]})
-    s.updateDatabase(db,{readiness:{v:1,checks:Object.fromEntries(checks.map(k=>[k,k])),role:'role',participation:'participation',blocker:'blocker',next:'next',owner:'owner',note:'note',changedAt:'at',changedBy:'by'},views:[{id:'plates',type:'gallery',name:'Plates',filter:null,sorts:[],visibleProperties:[],propertyWidths:{}}]})
-    s.createRow(db,{title:'Team member',properties:{role:'team'}})
+    s.updateDatabase(db,{readiness:{v:1,automation:{recipient:'recipient',evidence:'evidence',atlasProjects:['one-webserver']},checks:Object.fromEntries(checks.map(k=>[k,k])),role:'role',participation:'participation',blocker:'blocker',next:'next',owner:'owner',note:'note',changedAt:'at',changedBy:'by'},views:[{id:'plates',type:'gallery',name:'Plates',filter:null,sorts:[],visibleProperties:[],propertyWidths:{}}]})
+    s.createRow(db,{title:'Team member',properties:{role:'team',one:'ready',evidence:JSON.stringify({one:{at:1700000000000,source:'session'}})}})
     s.createRow(db,{title:'Workshop guest',properties:{role:'guest',one:'ready',atlas:'ready'}})
     s.createRow(db,{title:'Later user',properties:{participation:'later'}})
     return db
@@ -22,6 +22,9 @@ test('readiness plates persist checks, separate guests/later, and respect read-o
   await expect(tracker.locator('.ws-start__count strong')).toHaveText('1/2')
   const member=tracker.locator('article').filter({hasText:'Team member'})
   await member.getByRole('button').click()
+  await expect(member.locator('.ws-start__evidence')).toContainText('ONE session')
+  await member.locator('select').first().selectOption('open')
+  await expect(member.locator('.ws-start__evidence')).toHaveCount(0)
   await member.locator('select').nth(1).selectOption('blocked')
   await member.locator('textarea').first().fill('Atlas connection needs approval')
   await expect(member).toHaveAttribute('data-state','blocked')

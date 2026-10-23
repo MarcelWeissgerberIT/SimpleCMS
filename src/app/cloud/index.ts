@@ -376,3 +376,5 @@ export function cloudRequest<T>(method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELE
 export function writeAsAgent<T>(actor: string, fn: () => Promise<T> | T): Promise<T> {
   return withWriteActor(actor, fn)
 }
+
+export { captureReadiness, noteReadiness, noteAtlasRead, useReadinessSync, type ReadinessScope } from './readiness'

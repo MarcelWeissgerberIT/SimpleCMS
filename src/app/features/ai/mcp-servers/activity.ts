@@ -2,6 +2,7 @@
  * MCP activity of a response: `mcp_tool_use` / `mcp_tool_result` blocks run inside one response
  * (Anthropic calls the server), so they are only watched here — shown as "KB · search" chips.
  */
+import {noteAtlasRead,type ReadinessScope} from '../../../cloud'
 import type { BetaContentBlock } from '@anthropic-ai/sdk/resources/beta/messages/messages'
 
 export interface McpCall {
@@ -53,7 +54,7 @@ function resultText(content: unknown): string {
 }
 
 /** Fold one finished content block into the call list (returns the same list when nothing changed). */
-export function foldMcpBlock(calls: McpCall[], block: BetaContentBlock): McpCall[] {
+export function foldMcpBlock(calls: McpCall[], block: BetaContentBlock, readiness?: {scope:ReadinessScope|null;servers:Array<{name:string;url:string}>}): McpCall[] {
   if (block.type === 'mcp_tool_use') {
     if (calls.some((c) => c.id === block.id)) return calls
     return [...calls, { id: block.id, server: block.server_name, tool: block.name, arg: inputLabel(block.input), state: 'run' }]
@@ -61,6 +62,7 @@ export function foldMcpBlock(calls: McpCall[], block: BetaContentBlock): McpCall
   if (block.type === 'mcp_tool_result') {
     const i = calls.findIndex((c) => c.id === block.tool_use_id)
     if (i < 0) return calls
+    if(readiness&&!block.is_error)noteAtlasRead(readiness.scope,readiness.servers.find(s=>s.name===calls[i].server)?.url,calls[i].tool,block.content)
     const next = [...calls]
     next[i] = block.is_error ? { ...calls[i], state: 'err', error: sentence(clip(resultText(block.content).trim().replace(/\s+/g, ' '), 240)) } : { ...calls[i], state: 'ok' }
     return next

@@ -25,3 +25,10 @@ test('invalid/future tracker config falls back to ordinary gallery; data are not
  assert.equal(readReadiness({...db,properties:db.properties.filter(p=>p.id!=='atlas')}),null)
  assert.equal(readReadiness({...db,readiness:{...c,note:'owner'}}),null)
 })
+
+import {atlasReadProof} from '../../src/shared/readiness.ts'
+test('only a real Atlas record result becomes a minimal observation, not login, discovery, errors or arbitrary content',()=>{
+ assert.deepEqual(atlasReadProof('atlas_get',[{type:'text',text:JSON.stringify({item:{ref:31503,project:'one-webserver',body:'Not forwarded',token:'not-forwarded'}})}]),{project:'one-webserver',record:31503})
+ for(const tool of ['atlas_whoami','atlas_search','atlas_agent_list'])assert.equal(atlasReadProof(tool,{item:{ref:1,project:'one-webserver'}}),null)
+ for(const result of [{isError:true,content:[{type:'text',text:'failed'}]},{item:{ref:0,project:'one-webserver'}},{item:{ref:1,project:'bad project'}},'Successfully signed in','https://atlas.example/?token=SECRET'])assert.equal(atlasReadProof('atlas_get',result),null)
+})

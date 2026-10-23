@@ -26,7 +26,7 @@ import { ModalHost } from './modals/ModalHost'
 import { ErrorBoundary } from './ErrorBoundary'
 import { useBootRedirect, useDrawerAutoClose, useGlobalShortcuts, useLinkInterceptor, usePruneGoneViews, useRouteEffects } from './lib/global'
 import { useIsMobile } from './lib/hooks'
-import { useCloud } from '../cloud'
+import { useCloud, useReadinessSync } from '../cloud'
 import { installCloudDevHook } from './cloud/api'
 import { SignInScreen } from './cloud/SignIn'
 import { InviteScreen } from './cloud/InviteScreen'
@@ -45,6 +45,7 @@ installCloudDevHook()
 
 export function App() {
   useThemeAndLanguage()
+  useReadinessSync()
   const route = useRoute()
   const signedOut = useCloud((s) => s.status === 'signed-out')
   // the workspace look (Workspace → Look): share and form links keep One's standard look

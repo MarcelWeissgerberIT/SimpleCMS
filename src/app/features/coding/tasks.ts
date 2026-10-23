@@ -1,3 +1,4 @@
+import { captureReadiness, noteReadiness } from '../../cloud'
 import { personalConnectionsForTask, personalSelection } from '../secrets/store'
 import { codingAgentOf, codingAgentProperty, agentProperty } from './agent'
 /**
@@ -395,6 +396,7 @@ const KIND_ICON: Record<string, string> = { implement: 'asset:code', git: 'asset
 export async function finishStage(taskId: ID, stageId: ID, outcome: StageOutcome): Promise<void> {
   const ctx = taskContext(taskId)
   if (!ctx) return
+  const readiness = captureReadiness()
   await loadTask(taskId)
   const { props, pipeline, row } = ctx
   const stage = pipeline.find((s) => s.id === stageId) ?? null
@@ -425,6 +427,8 @@ export async function finishStage(taskId: ID, stageId: ID, outcome: StageOutcome
     if (next) patch.url = next
   } else if (outcome.url) patch.url = outcome.url
   if (outcome.test) patch.test = outcome.test
+  if(stillThere&&outcome.status==='ok'&&stage?.kind==='test'&&outcome.test?.ok===true&&outcome.test.code===0&&!outcome.test.skipped)noteReadiness(readiness,{signal:'repo'})
+  if(stillThere&&outcome.status==='ok'&&codingAgentOf(ctx.db,row)==='copilot'&&['implement','doc','plan'].includes(stage?.kind??''))noteReadiness(readiness,{signal:'copilot'})
   // QA: the test cases of a document stage become rows of the Test cases database (the JSON leaves the page)
   let doc = outcome.plan ?? null
   if (Array.isArray(outcome.repairs) && outcome.repairs.length) {

@@ -14,6 +14,7 @@ import { csrfGuard, securityHeaders } from './http/security.ts'
 import { mountStatic } from './http/static.ts'
 import { MCP_PATH, mcpRoutes } from './mcp/index.ts'
 import { welcomeRoutes } from './routes/welcome.ts'
+import { readinessRoutes } from './routes/readiness.ts'
 import { authRoutes } from './routes/auth.ts'
 import { documentRoutes } from './routes/documents.ts'
 import { fileRoutes } from './routes/files.ts'
@@ -74,7 +75,7 @@ export function buildApp(s: Services, extra: { model?: WorkspaceModel; agents?: 
       // 'signoffs' = it guards the fuseSignoffs map the same way (the Patchbay's allowed paths — the app writes it only then);
       // 'mcp:2' = its /mcp serves contract 2 of the MCP tools (src/shared/mcp: strict arguments, duplicate answers, the
       // error codes); 'mcp:3' follows with train T-b
-      supports: ['ai', 'governor', 'signoffs', 'agent-invocation', 'checkout:1', 'personal-secrets:1', 'welcome:1', 'guests:1', MCP_SERVER_SUPPORTS],
+      supports: ['ai', 'governor', 'signoffs', 'agent-invocation', 'checkout:1', 'personal-secrets:1', 'welcome:1', 'readiness:1', 'guests:1', MCP_SERVER_SUPPORTS],
     }),
   )
 
@@ -83,6 +84,7 @@ export function buildApp(s: Services, extra: { model?: WorkspaceModel; agents?: 
   app.route('/api/session', sessionRoutes(s))
   app.route('/api/workspaces', workspaceRoutes(s))
   app.route('/api/workspaces', welcomeRoutes(s))
+  app.route('/api/workspaces', readinessRoutes(s))
   app.route('/api/workspaces', checkoutRoutes(s))
   app.route('/api/workspaces', fileRoutes(s))
   app.route('/api/workspaces', mediaFetchRoutes(s))

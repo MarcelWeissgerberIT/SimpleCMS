@@ -1,3 +1,4 @@
+import {captureReadiness} from '../../../cloud'
 /**
  * Workspace agent — one task = one run of the SDK tool runner (client.beta.messages.toolRunner)
  * over the agent tools, streamed, with the user's own key straight to api.anthropic.com.
@@ -277,6 +278,7 @@ export async function runAgent(opts: {
 }): Promise<RunEnd> {
   const { stage, signal, hooks } = opts
   const mcp = opts.mcp ?? null
+  const readiness={scope:captureReadiness(),servers:(mcp?.servers??[]).map(s=>({name:s.name,url:s.url}))}
   let messages: BetaMessageParam[] = [...opts.history, opts.user]
   if (signal.aborted) {
     hooks.history(messages)
@@ -481,7 +483,7 @@ export async function runAgent(opts: {
             stream.on('contentBlock', (block: BetaContentBlock) => {
               if (block.type === 'thinking' && block.thinking.trim()) hooks.note(block.thinking.trim())
               if (media?.block(block)) hooks.media?.(media.items)
-              const next = foldMcpBlock(mcpCalls, block)
+              const next = foldMcpBlock(mcpCalls, block, readiness)
               if (next === mcpCalls) return
               const changed = next.find((c, i) => c !== mcpCalls[i])
               mcpCalls = next

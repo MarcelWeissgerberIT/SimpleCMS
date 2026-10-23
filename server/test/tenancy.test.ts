@@ -225,6 +225,7 @@ const ROUTES: Record<string, Entry> = {
   'PATCH /api/workspaces/:id': { scope: 'workspace', req: (ws) => ({ method: 'PATCH', path: W(ws), json: { name: 'Taken over' } }) },
   'DELETE /api/workspaces/:id': { scope: 'workspace', req: (ws) => ({ method: 'DELETE', path: W(ws) }) },
   'GET /api/workspaces/:id/members': { scope: 'workspace', req: (ws) => ({ method: 'GET', path: `${W(ws)}/members` }) },
+  'POST /api/workspaces/:id/readiness': { scope: 'workspace', req: ws=>({method:'POST',path:`${W(ws)}/readiness`,json:{signal:'sync'}}), own:200 },
   'GET /api/workspaces/:id/welcome': { scope: 'workspace', req: ws=>({method:'GET',path:`${W(ws)}/welcome`}) },
   'PUT /api/workspaces/:id/welcome': { scope: 'workspace', req: ws=>({method:'PUT',path:`${W(ws)}/welcome`,json:{}}) },
   'GET /api/workspaces/:id/welcome/preview/:recipient': { scope: 'workspace', req: ws=>({method:'GET',path:`${W(ws)}/welcome/preview/other`}), own:404 },

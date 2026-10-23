@@ -1,3 +1,5 @@
+import type {ReadinessConfig} from '../../shared/readiness'
+export type {ReadinessConfig} from '../../shared/readiness'
 /**
  * Workspace data model. This file is the CONTRACT between all app areas
  * (shell, editor, database, features). Extend carefully and keep it backwards
@@ -594,18 +596,6 @@ export interface TemplateRepeat {
 }
 
 /** Optional gallery presentation for a manual workshop setup tracker. Values remain normal cells. */
-export interface ReadinessConfig {
-  v: 1
-  checks: Record<'one' | 'atlas' | 'worker' | 'copilot' | 'repo', ID>
-  role: ID
-  participation: ID
-  blocker: ID
-  next: ID
-  owner: ID
-  note: ID
-  changedAt: ID
-  changedBy: ID
-}
 
 export interface Database {
   /** Ordinary gallery/table data; no authorization, probes or credential storage. */

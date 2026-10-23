@@ -58,7 +58,7 @@ import { cloudContextOk, listCloudWorkers, relayAvailable } from './cloudWorkers
 import { cloudKey, dropCloudKeys, keepCloudKey } from './cloudKeys'
 import { browserOs, workerOldOnWindows } from './winWorker'
 import type { SessionKey } from './relayBox'
-import { CloudError, useCloud } from '../../cloud'
+import { CloudError, useCloud, captureReadiness, noteReadiness, noteAtlasRead } from '../../cloud'
 import { SYSTEM, withWriter, type Writer } from '../../store/writer'
 import { localNetworkStatus } from '../../lib/localNetwork'
 import { notifyAway } from './notify'
@@ -623,6 +623,7 @@ async function receive(msg: WorkerMessage) {
       failingSince = 0
       wasCurrent = true
       const { type: _type, ...info } = msg
+      const readiness = captureReadiness();if(readiness)void import('../../cloud/api').then(({request})=>{const current=captureReadiness();if(current?.workspace===readiness.workspace&&current?.user===readiness.user)return request('POST',`api/workspaces/${readiness.workspace}/readiness`,{signal:'sync'})}).catch(()=>{})
       setBusy(info.busy, { conn: 'connected', refused: null, refusedPaired: false, pendingHere: false, worker: info, spentToday: info.spentToday ?? 0 })
       // the worker's repos as Repo options: upkeep, nobody's change (flight recorder)
       withWriter(SYSTEM('maintenance'), () => {
@@ -1061,19 +1062,27 @@ export async function requestTextModels(): Promise<WorkerModel[]> {
 }
 export async function requestWorkerText(body: WorkerTextRequest, signal?: AbortSignal): Promise<WorkerTextResult> {
   signal?.throwIfAborted()
+  const readiness = captureReadiness()
   const requestId = crypto.randomUUID()
   const stop = () => { void request({ op: 'text-stop', requestId } as never, 5000).catch(() => {}) }
   signal?.addEventListener('abort', stop, { once: true })
   try {
-    return await request({ op: 'text-request', requestId, request: body } as never, 190000) as WorkerTextResult
+    const result = await request({ op: 'text-request', requestId, request: body } as never, 190000) as WorkerTextResult
+    if(body.provider==='copilot'&&typeof result?.text==='string'&&result.text.trim()&&!signal?.aborted)noteReadiness(readiness,{signal:'copilot'})
+    return result
   } finally { signal?.removeEventListener('abort', stop) }
 }
 
 export async function requestWorkerMcp(body: WorkerMcpRequest, signal?: AbortSignal): Promise<unknown> {
   signal?.throwIfAborted()
+  const readiness = captureReadiness()
   const requestId = crypto.randomUUID()
   const stop = () => { void request({ op: 'text-stop', requestId } as never, 5000).catch(() => {}) }
   signal?.addEventListener('abort', stop, { once: true })
-  try { return await request({ op: 'model-mcp', requestId, request: body } as never, 190000) }
+  try {
+    const result = await request({ op: 'model-mcp', requestId, request: body } as never, 190000) as {result?:string}
+    if(body.action==='call'&&!signal?.aborted)noteAtlasRead(readiness,body.servers.find(s=>s.name===body.server)?.url,body.name,result?.result)
+    return result
+  }
   finally { signal?.removeEventListener('abort', stop) }
 }

@@ -1,3 +1,4 @@
+import {captureReadiness,type ReadinessScope} from '../../../cloud'
 /**
  * Claude (Anthropic) — today's request paths, moved here unchanged from client.ts (multi-provider S2): the SDK, loaded
  * lazily on first use (the only place `@anthropic-ai/sdk` is imported at run time), the wire counter, error mapping,
@@ -286,6 +287,7 @@ export async function metered<M extends { model?: unknown; usage?: unknown; cont
 }
 
 export async function streamOnce(opts: StreamOptions, again: boolean, prepared: Prepared, call: MeterCall): Promise<string> {
+  const readinessScope=captureReadiness()
   const { system, prompt, onToken, signal, mcp, codewords, onMcp: report, onMedia, setup, maxResumes } = opts
   const apiKey = await getAIKey('anthropic')
   if (!apiKey) throw new AIError('no_key')
@@ -324,7 +326,7 @@ export async function streamOnce(opts: StreamOptions, again: boolean, prepared: 
     let stopReason: string | null
     const promptChars = () => system.length + prompt.length
     if (attached) {
-      const final = await streamWithMcp(client, model, deep, `${system}\n\n${attached.system}`, prompt, attached, onText, onMcp, signal, { onMedia, maxResumes, seen, call, sdk })
+      const final = await streamWithMcp(client, model, deep, `${system}\n\n${attached.system}`, prompt, attached, onText, onMcp, signal, { onMedia, maxResumes, seen, call, sdk, readinessScope })
       stopReason = final.stop_reason
       text = answerText(final.content) || text
     } else if (!deep) {
@@ -386,9 +388,10 @@ async function streamWithMcp(
   onText: (delta: string) => void,
   onMcp: ((calls: McpCall[]) => void) | undefined,
   signal: AbortSignal | undefined,
-  more: { onMedia?: (items: MediaItem[]) => void; maxResumes?: number; seen?: { mcp: boolean }; call: MeterCall; sdk: SDKModule | null },
+  more: { readinessScope?:ReadinessScope|null; onMedia?: (items: MediaItem[]) => void; maxResumes?: number; seen?: { mcp: boolean }; call: MeterCall; sdk: SDKModule | null },
 ): Promise<BetaMessage> {
   const messages: BetaMessageParam[] = [{ role: 'user', content: prompt }]
+  const readiness={scope:more.readinessScope??null,servers:mcp.servers.map(s=>({name:s.name,url:s.url}))}
   let calls: McpCall[] = []
   // media in the results: cards for the person, nothing is fetched (features/ai/media)
   const media = more.onMedia ? createMediaCollector() : null
@@ -415,7 +418,7 @@ async function streamWithMcp(
     stream.on('contentBlock', (block: BetaContentBlock) => {
       if (more.seen && isMcpBlock(block)) more.seen.mcp = true
       if (media?.block(block)) more.onMedia?.(media.items)
-      const next = foldMcpBlock(calls, block)
+      const next = foldMcpBlock(calls, block, readiness)
       if (next === calls) return
       calls = next
       onMcp?.(calls)
@@ -465,6 +468,7 @@ const usageOfEntry = (e: LedgerEntry | null): StructuredUsage | null =>
   e ? { p: e.served.p, model: e.served.model, input: e.usage.input, output: e.usage.output, cacheRead: e.usage.cacheRead, cacheWrite: e.usage.cacheWrite + e.usage.cacheWrite1h, usd: e.usd } : null
 
 export async function structuredOnce(opts: StructuredOptions, again: boolean, prepared: Prepared, call: MeterCall): Promise<string> {
+  const readinessScope=captureReadiness()
   const { system, prompt, schema, maxTokens = 4096, signal, maxRetries = 4, mcp, onUsage, setup, allow } = opts
   // servers forced in whatever their scope (the work-order planner's pick); none when `mcp: false`
   const forced = mcp === false ? [] : [...(opts.forced ?? [])]
@@ -530,6 +534,7 @@ export async function structuredOnce(opts: StructuredOptions, again: boolean, pr
         used(got.entry)
         if (msg.content.some(isMcpBlock)) {
           sawMcp = true
+          let observations:McpCall[]=[];for(const block of msg.content)observations=foldMcpBlock(observations,block,{scope:readinessScope,servers:mcp.servers.map(s=>({name:s.name,url:s.url}))})
           opts.onMcpActivity?.({ attached: mcp.names, blocks: msg.content.filter(isMcpBlock) as unknown as Array<Record<string, unknown>> })
         }
         if (msg.stop_reason !== 'pause_turn' || resumes >= MAX_RESUMES) break
