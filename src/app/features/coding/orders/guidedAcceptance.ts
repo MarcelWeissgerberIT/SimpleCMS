@@ -1,3 +1,4 @@
+import {readHostExecution,evidenceMarker} from '@/shared/coding/evidence'
 import type { JSONContent } from '@tiptap/core'
 import { useWorkspace } from '../../../store/store'
 import { useCloud } from '../../../cloud'
@@ -64,7 +65,7 @@ export async function acceptanceSnapshot(rowId: string, rec: OrderRecord): Promi
   const accepted = rec.accepted?.run === chain.run && rec.accepted.evidence === hash
   const lines = [
     `# ${row.title || t('common.untitled')}`,
-    `${t(`${G}.receipt`)}: ${chain.run} · SHA-256 ${hash}`,
+    `${t(`${G}.receipt`)}: ${chain.run} · SHA-256 ${hash}`,evidenceMarker(hash),
     accepted ? t(`${G}.accepted`) : t(`${G}.notAccepted`),
     '', t(`${G}.criteria`), ...(steps.at(-1)?.delivery?.acceptance ?? []).map(s => `- ${s}`),
     '', t(`${G}.observed`),
@@ -72,8 +73,9 @@ export async function acceptanceSnapshot(rowId: string, rec: OrderRecord): Promi
       const local = taskLocal(s.id), f = facts[i]!
       return `- ${s.n}. ${ws.pages[s.id]?.title || s.title || s.kind}: ${f.done ? t(`${G}.stepDone`) : t(`${G}.stepOpen`)}; ${f.test ? `test exit ${f.test.code ?? 'unknown'}, ${f.test.ok && !f.test.skipped ? 'PASS' : 'NOT PASSED'}` : t(`${G}.noChecks`)}${f.qa ? `; QA ${new Date(f.qa.at).toISOString()} · ${f.qa.branch}` : ''}${local.url ? `; ${local.url}` : ''} · ONE #/p/${s.id}`
     }),
-    ...steps.flatMap(s=>(taskLocal(s.id).copilotRuns??[]).slice(-8).map(run=>{const r=run.receipt;return `- Copilot · ONE #/p/${s.id} · ${run.stage} · ${run.status}: requested=${r.requestedModel} (${r.source}); CLI=${r.models.join(', ')||'unknown'}; context=${r.contextTokens}; input=${r.inputTokens??'unknown'}; output=${r.outputTokens??'unknown'}; nano-AIU=${r.nanoAiu??'unknown'}; money=unknown; ${new Date(r.finishedAt).toISOString()}`})),
+    ...steps.flatMap(s=>(taskLocal(s.id).copilotRuns??[]).slice(-8).map(run=>{const r=run.receipt;return `- Copilot · ONE #/p/${s.id} · ${run.stage} · ${run.status}: requested=${r.requestedModel} (${r.source}); formatCorrections=${r.formatRepairs??'unknown'}; CLI=${r.models.join(', ')||'unknown'}; context=${r.contextTokens}; input=${r.inputTokens??'unknown'}; output=${r.outputTokens??'unknown'}; nano-AIU=${r.nanoAiu??'unknown'}; money=unknown; ${new Date(r.finishedAt).toISOString()}`})),
     ...acceptanceIssues(evidence).map(k => `- ${t(`${G}.issue.${k}`)}`),
+    ...steps.flatMap(s=>{const ex=readHostExecution(taskLocal(s.id).test?.execution);return ex?[`- Host · ONE #/p/${s.id} · ${JSON.stringify(ex.command)} · commit=${ex.commit??'unknown'} · dirty=${ex.dirty} · changedDuring=${ex.changedDuring} · ${ex.platform} · ${new Date(ex.startedAt).toISOString()}`]:[]}),
     ...(facts.at(-1)?.test ? ['', t(`${G}.testOutput`), taskLocal(steps.at(-1)!.id).test?.output.slice(-3000) ?? ''] : []),
     '', t(`${G}.targets`), ...(rec.draft?.plan.context?.links ?? []),
     '', t(`${G}.receiptLimit`),

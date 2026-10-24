@@ -1,4 +1,5 @@
 import { test, expect, openApp, wsEval, gotoPage } from './fixtures'
+import {readFile} from 'node:fs/promises'
 import { test as unit } from '@playwright/test'
 import { mockClaudeScript } from './helpers/providers'
 import { startFakeWorker } from './helpers/fakeWorker'
@@ -64,10 +65,10 @@ test('a guided goal runs through final QA and one human acceptance; Atlas is a d
       localStorage.setItem('one.coding.approvals', 'none')
       localStorage.setItem('one.tour', '{"off":true}')
     }, port)
-    const p = { ...proposal(), context: { server: 'atlas-fixture', note: 'Approved simulator requirement.', links: ['https://atlas.example.test/r/123'] } }
+    const p = { ...proposal(), context: { server: 'atlas-fixture', note: 'Approved simulator requirement.', links: ['https://aj-atlas.com/r/123'] } }
     const mock = await mockClaudeScript(page.context(), [{ blocks: [{ type: 'mcp_tool_use', id: 'get1', server: 'atlas-fixture', name: 'atlas_get', input: { ref: 123 } }, { type: 'mcp_tool_result', id: 'get1', text: 'R1: preserve a valid timeout.' }, { type: 'text', text: JSON.stringify(p) }] }])
     await openApp(page)
-    await wsEval(page, s => s.updateSettings({ language: 'en', aiApiKey: 'sk-ant-e2e-test-key', mcpServers: [{ id: 'atlasfixture', name: 'atlas-fixture', url: 'https://atlas.example.test/mcp', token: 'fixture-token', enabled: true, prompt: 'Simulator requirements', tools: ['atlas_get'], checkedAt: 1 }] }))
+    await wsEval(page, s => s.updateSettings({ language: 'en', aiApiKey: 'sk-ant-e2e-test-key', mcpServers: [{ id: 'atlasfixture', name: 'atlas-fixture', url: 'https://aj-atlas.com/mcp', token: 'fixture-token', enabled: true, prompt: 'Simulator requirements', tools: ['atlas_get'], checkedAt: 1 }] }))
     await expect.poll(() => page.evaluate(() => (window as any).__onePreflight.stores.coding.getState().conn)).toBe('connected')
     for (const kind of ['coding', 'qa']) {
       const seed = await page.evaluate(k => (window as any).__oneCodingWrites.create('seed', k, 'demo'), kind)
@@ -107,7 +108,36 @@ test('a guided goal runs through final QA and one human acceptance; Atlas is a d
     expect(count).toBe(1)
     await page.getByTestId('guided-atlas').click()
     await expect(page.locator('.term-prompt__input')).toHaveValue(/atlas-fixture: .*Prepare the handoff/s)
-    await expect(page.locator('.term-prompt__input')).toHaveValue(/https:\/\/atlas.example.test\/r\/123/)
+    await expect(page.locator('.term-prompt__input')).toHaveValue(/https:\/\/aj-atlas.com\/r\/123/)
+    const parent=await wsEval(page,s=>s.createPage({title:'Shared workshop evidence'}))
+    await page.getByTestId('packet-target').selectOption(parent)
+    await page.getByTestId('packet-publish').click()
+    const packetHref=await page.getByTestId('packet-link').getAttribute('href')
+    const packetId=packetHref!.split('/').at(-1)!
+    await page.getByTestId('packet-publish').click()
+    expect(await wsEval(page,(s,parent)=>Object.values(s.pages).filter((p:any)=>p.parentId===parent).length,parent)).toBe(1)
+    const packet=await wsEval(page,(s,id)=>s.pages[id],packetId)
+    const downloading=page.waitForEvent('download');await page.getByRole('button',{name:'Download evidence packet'}).click();const downloaded=await downloading
+    const json=JSON.parse(await readFile((await downloaded.path())!,'utf8'));expect(json.kind).toBe('one-evidence-packet');expect(json.snapshot).toBe(accepted.accepted.evidence);expect(JSON.stringify(json)).not.toContain('fixture-token')
+    const other=await page.context().browser()!.newContext({serviceWorkers:'block'});try{const second=await other.newPage();await openApp(second);await wsEval(second,(s,p)=>s.createPage({id:p.id,title:p.title,content:p.content}),packet);await gotoPage(second,packet.id);await expect(second.locator('.ProseMirror')).toContainText(accepted.accepted.evidence);expect(await second.locator('[data-testid=guided-order]').count()).toBe(0)}finally{await other.close()}
+
+    expect(JSON.stringify(packet.content)).toContain('one-evidence-packet')
+    expect(JSON.stringify(packet.content)).toContain(accepted.accepted.evidence)
+    expect(JSON.stringify(packet.content)).not.toContain('fixture-token')
+    await page.getByTestId('handoff-project').fill('wrong-project')
+    await page.getByTestId('handoff-record').fill('123')
+    fake.onModelMcp=()=>({result:JSON.stringify({item:{ref:123,project:'one-webserver',body:'ONE-EVIDENCE '+accepted.accepted.evidence}})})
+    await page.getByTestId('handoff-verify').click()
+    await expect(page.getByTestId('handoff-status')).toContainText('prepared')
+    await page.getByTestId('handoff-project').fill('one-webserver')
+    await page.getByTestId('handoff-verify').click()
+    await expect(page.getByTestId('handoff-status')).toContainText('confirmed by readback')
+    expect(fake.mcpAsked.every(r=>r.action==='call'&&r.name==='atlas_get')).toBe(true)
+    expect(await wsEval(page,(s,id)=>JSON.stringify(s.pages[id].content),packetId)).toContain('https://aj-atlas.com/r/123')
+    // The public packet remains readable without this device's private run or ability to execute it.
+    await gotoPage(page,packetId)
+    await expect(page.locator('.ProseMirror')).toContainText('confirmed')
+    await gotoPage(page,row)
     expect(mock.requests).toHaveLength(1)
     await page.locator('.term-prompt__input').fill('Keep my existing draft')
     await page.getByTestId('guided-atlas').click()

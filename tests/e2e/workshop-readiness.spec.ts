@@ -11,7 +11,7 @@ test('readiness plates persist checks, separate guests/later, and respect read-o
       ...['blocker','next','owner','note','at','by','recipient','evidence'].map(id=>({id,name:id,type:'text'})),
     ]})
     s.updateDatabase(db,{readiness:{v:1,automation:{recipient:'recipient',evidence:'evidence',atlasProjects:['one-webserver']},checks:Object.fromEntries(checks.map(k=>[k,k])),role:'role',participation:'participation',blocker:'blocker',next:'next',owner:'owner',note:'note',changedAt:'at',changedBy:'by'},views:[{id:'plates',type:'gallery',name:'Plates',filter:null,sorts:[],visibleProperties:[],propertyWidths:{}}]})
-    s.createRow(db,{title:'Team member',properties:{role:'team',one:'ready',evidence:JSON.stringify({one:{at:1700000000000,source:'session'}})}})
+    s.createRow(db,{title:'Team member',properties:{role:'team',one:'ready',evidence:JSON.stringify({one:{at:1700000000000,source:'session'},workerConnection:{at:Date.now(),source:'relay',online:false,version:'1.30.0'}})}})
     s.createRow(db,{title:'Workshop guest',properties:{role:'guest',one:'ready',atlas:'ready'}})
     s.createRow(db,{title:'Later user',properties:{participation:'later'}})
     return db
@@ -19,6 +19,7 @@ test('readiness plates persist checks, separate guests/later, and respect read-o
   await gotoPage(page,id)
   const tracker=page.getByTestId('workshop-start')
   await expect(tracker).toBeVisible()
+  await expect(tracker.locator('.ws-start__connection')).toContainText('Worker disconnected now')
   await expect(tracker.locator('.ws-start__count strong')).toHaveText('1/2')
   const member=tracker.locator('article').filter({hasText:'Team member'})
   await member.getByRole('button').click()

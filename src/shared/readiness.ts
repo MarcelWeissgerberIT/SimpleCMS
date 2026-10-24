@@ -1,6 +1,6 @@
 /** Minimal device observations. Never a credential, source excerpt or arbitrary URL. */
-export type ReadinessObservation = { signal:'atlas'; project:string; record:number } | { signal:'copilot'|'repo'|'worker' }
-export interface ReadinessEvidence { at:number; source:'session'|'relay'|'device-mcp'|'device-worker'; project?:string; record?:number }
+export type ReadinessObservation = ({ signal:'atlas'; project:string; record:number } | { signal:'copilot'|'repo'|'worker' }) & {version?:string}
+export interface ReadinessEvidence { at:number; source:'session'|'relay'|'device-mcp'|'device-worker'; project?:string; record?:number; version?:string; online?:boolean }
 export function atlasReadProof(tool:string, content:unknown):{project:string;record:number}|null {
   if(tool!=='atlas_get')return null
   const decode=(v:unknown):any=>{
@@ -60,4 +60,13 @@ export function participant(row: {properties:Record<string,unknown>}, c: Readine
   const done = required.filter(k => states[k] === 'ready').length
   const overall: Overall = later ? 'later' : required.some(k => states[k] === 'blocked') ? 'blocked' : done === required.length ? 'ready' : 'open'
   return { guest, later, required, states, done, total: required.length, overall }
+}
+
+/** A past setup proof and a current connection are separate facts. No silent deletion of prior checks. */
+export function workerConnection(e:unknown,now=Date.now()):'online'|'offline'|'stale'|'unknown'{
+ if(!e||typeof e!=='object')return 'unknown'
+ const v=e as ReadinessEvidence
+ if(!Number.isSafeInteger(v.at)||!['relay','device-worker'].includes(v.source)||typeof v.online!=='boolean')return 'unknown'
+ if(v.at>now+5000||now-v.at>90000)return 'stale'
+ return v.online?'online':'offline'
 }

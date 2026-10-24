@@ -32,6 +32,12 @@ test('account-bound automatic checks cannot target another person, leak a draft,
   assert.equal((await bob.post(path,{signal:'repo'})).status,403);assert.equal((await bob.post(path,{signal:'copilot'})).status,403)
   await bob.post(path,{signal:'sync'});await waitFor(()=>props('bob').get('one')==='ready');assert.equal(props('alice').get('repo'),'open')
   props('alice').set('copilot','blocked');await flushed(meta);await alice.post(path,{signal:'copilot'});assert.equal(props('alice').get('copilot'),'blocked')
+  await alice.post(path,{signal:'sync',version:'1.30.0',localWorker:{online:true,version:'1.30.0'}});await waitFor(()=>JSON.parse(String(props('alice').get('evidence'))).workerConnection?.online===true)
+  assert.equal(JSON.parse(String(props('alice').get('evidence'))).workerConnection.version,'1.30.0')
+  await alice.post(path,{signal:'sync',localWorker:{online:false}});await waitFor(()=>JSON.parse(String(props('alice').get('evidence'))).workerConnection?.online===false)
+  assert.equal(props('alice').get('worker'),'ready','Historical setup stays checked when connection goes offline')
+  assert.equal(props('alice').get('copilot'),'blocked','A connection refresh does not clear a manual blocker')
+  assert.equal((await alice.post(path,{signal:'sync',localWorker:{online:true,version:'token-secret'}})).status,400)
   assert.equal((await mailbox(server)).length,mails,'Status updates send no mail')
   assert.equal((await alice.get(`/api/workspaces/${ws}/welcome`)).status,403,'Private preparation is still private')
  }finally{meta?.destroy();await server.stop()}

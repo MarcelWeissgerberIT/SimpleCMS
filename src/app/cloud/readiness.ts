@@ -1,4 +1,5 @@
 /** Same-session receipts only. Never reads tokens, probes Atlas or starts a model. */
+import {useCoding} from '../features/coding/state'
 import {useEffect} from 'react'
 import {useCloud} from './state'
 import {request} from './api'
@@ -17,7 +18,8 @@ const path=(s:ReadinessScope)=>`api/workspaces/${encodeURIComponent(s.workspace)
 export function noteReadiness(s:ReadinessScope|null,observation:ReadinessObservation):void {
   if(!s||!current(s))return
   const key=`${s.workspace}:${s.user}:${observation.signal}`,now=Date.now();if(now-(sent.get(key)??0)<5000)return;sent.set(key,now);if(sent.size>30)sent.delete(sent.keys().next().value!)
-  void request<{matched:boolean}>('POST',path(s),observation).then(()=>{if(current(s))window.dispatchEvent(new CustomEvent('one-readiness',{detail:{workspace:s.workspace,user:s.user}}))}).catch(()=>{})
+  const v=useCoding.getState().worker?.worker;const version=v&&/^\d+\.\d+\.\d+$/.test(v)?v:undefined
+  void request<{matched:boolean}>('POST',path(s),{...observation,...(version?{version}:{})}).then(()=>{if(current(s))window.dispatchEvent(new CustomEvent('one-readiness',{detail:{workspace:s.workspace,user:s.user}}))}).catch(()=>{})
 }
 export function noteAtlasRead(s:ReadinessScope|null,serverUrl:string|undefined,tool:string,result:unknown,error=false):void {
   if(!s||error||!serverUrl)return
@@ -33,7 +35,7 @@ export function useReadinessSync():void {
     if(!configured)return
     const scope=captureReadiness();if(!scope)return
     let stopped=false,busy=false,atlasSeen=false
-    const sync=()=>{if(stopped||busy||!current(scope)||document.visibilityState==='hidden')return;busy=true;void request<{atlas:boolean}>('POST',path(scope),{signal:'sync'}).then(r=>{if(!stopped&&current(scope)&&r.atlas&&!atlasSeen){atlasSeen=true;window.dispatchEvent(new CustomEvent('one-readiness',{detail:{workspace:scope.workspace,user:scope.user}}))}}).catch(()=>{}).finally(()=>{busy=false})}
+    const sync=()=>{if(stopped||busy||!current(scope)||document.visibilityState==='hidden')return;busy=true;void request<{atlas:boolean}>('POST',path(scope),{signal:'sync',...(/^\d+\.\d+\.\d+$/.test(useCoding.getState().worker?.worker??'')?{version:useCoding.getState().worker!.worker}:{}),...(useCoding.getState().via?.[scope.workspace]!=='cloud'?{localWorker:{online:useCoding.getState().conn==='connected',...(/^\d+\.\d+\.\d+$/.test(useCoding.getState().worker?.worker??'')?{version:useCoding.getState().worker!.worker}:{})}}:{})}).then(r=>{if(!stopped&&current(scope)&&r.atlas&&!atlasSeen){atlasSeen=true;window.dispatchEvent(new CustomEvent('one-readiness',{detail:{workspace:scope.workspace,user:scope.user}}))}}).catch(()=>{}).finally(()=>{busy=false})}
     sync();const timer=window.setInterval(sync,30000);window.addEventListener('focus',sync)
     return()=>{stopped=true;window.clearInterval(timer);window.removeEventListener('focus',sync)}
   },[identity,configured])

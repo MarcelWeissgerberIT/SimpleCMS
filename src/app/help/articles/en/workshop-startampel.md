@@ -24,3 +24,6 @@ Expand a plate to record the cause, next step, responsible person, and a minimal
 The tracker establishes no Atlas connection, performs no additional connection or model tests, and sends no invitation. It records observed successful steps; ONE sign-in is attributed to the actual authenticated server session. A stored Atlas link or installed Copilot app is not proof of a successful read or CLI request. End-to-end acceptance requires its own evidence.
 
 Team members edit within existing workspace permissions; guests can only read. Ordinary database rows remain in workspace exports. Older ONE versions can show the data as a normal gallery/table.
+
+## Setup and current connection
+The five setup checks retain their source and time. The worker version is recorded when reported by the device. A separate connection label says “connected now”, “disconnected now” or “check again”. It uses authenticated participant events and the cloud relay observation, updates about every 30 seconds while ONE is visible and becomes stale after 90 seconds without observation. Closed tabs and lost network therefore cannot leave permanent green online evidence. Manual holds remain in place. The display probes no other accounts and starts no model.

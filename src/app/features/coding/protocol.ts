@@ -545,6 +545,9 @@ export interface GitInfo {
 }
 
 export interface TestResult {
+  /** Actual host execution only; absent for legacy/skipped/not-started checks. Never inferred from model text. */
+  execution?: { command:string[]; commit:string|null; dirty:boolean; changedDuring:boolean; platform:string; startedAt:number; finishedAt:number }
+
   ok: boolean
   /** the output's tail (paths of this machine replaced) */
   output: string

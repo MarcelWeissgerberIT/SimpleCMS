@@ -32,3 +32,13 @@ test('only a real Atlas record result becomes a minimal observation, not login, 
  for(const tool of ['atlas_whoami','atlas_search','atlas_agent_list'])assert.equal(atlasReadProof(tool,{item:{ref:1,project:'one-webserver'}}),null)
  for(const result of [{isError:true,content:[{type:'text',text:'failed'}]},{item:{ref:0,project:'one-webserver'}},{item:{ref:1,project:'bad project'}},'Successfully signed in','https://atlas.example/?token=SECRET'])assert.equal(atlasReadProof('atlas_get',result),null)
 })
+
+import {workerConnection} from '../../src/shared/readiness.ts'
+test('connection expires independently of preserved setup and manual blockers',()=>{
+ const at=100000
+ assert.equal(workerConnection({at,source:'relay',online:true,version:'1.30.0'},at+30000),'online')
+ assert.equal(workerConnection({at,source:'relay',online:false},at+30000),'offline')
+ assert.equal(workerConnection({at,source:'device-worker',online:true},at+90001),'stale')
+ assert.equal(workerConnection({at:at+6000,source:'relay',online:true},at),'stale')
+ assert.equal(workerConnection({at,source:'session',online:true},at),'unknown')
+})

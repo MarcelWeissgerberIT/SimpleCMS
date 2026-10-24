@@ -98,10 +98,11 @@ export async function probeCopilot(env:NodeJS.ProcessEnv=process.env){
   return {...cap,authenticated:true,efforts:Object.fromEntries((Array.isArray(list)?list:[]).filter(m=>validCopilotModel(m?.id)&&m?.policy?.state!=='disabled').map(m=>[m.id,Array.isArray(m.supportedReasoningEfforts)?m.supportedReasoningEfforts.filter(validEffort).slice(0,12):[]])),models:Array.isArray(list)?list.filter(m=>validCopilotModel(m?.id)&&m?.policy?.state!=='disabled').map(m=>m.id).slice(0,120):[] as string[], visions:Object.fromEntries((Array.isArray(list)?list:[]).filter(m=>validCopilotModel(m?.id)&&visionOf(m)).map(m=>[m.id,visionOf(m)])), contexts:Object.fromEntries((Array.isArray(list)?list:[]).filter(m=>validCopilotModel(m?.id)&&Number.isSafeInteger(m?.capabilities?.limits?.max_context_window_tokens)&&m.capabilities.limits.max_context_window_tokens>=8192).map(m=>[m.id,Math.min(COPILOT_CONTEXT_MAX,m.capabilities.limits.max_context_window_tokens)]))}
  })}catch{return {...cap,authenticated:false,models:[] as string[],error:'Copilot login/model availability could not be checked. Check your CLI, subscription and organization policy. No model request was sent.'}}
 }
+export class CopilotFormatError extends Error {}
 export function parseCopilotAnswer(raw:string,tools:any[]):LocalInferenceResponse {
  let data:unknown
- try{data=JSON.parse(raw.replace(/^```(?:json)?\s*|\s*```$/g,''))}catch{throw new Error('Copilot returned an invalid harness response. No response tools were executed.')}
- if(!object(data)||typeof data.content!=='string'||data.content.length>100000||!Array.isArray(data.tool_calls)||data.tool_calls.length>8)throw new Error('Invalid Copilot harness response.')
+ try{data=JSON.parse(raw.trim().replace(/^```(?:json)?\s*|\s*```$/g,'').trim())}catch{throw new CopilotFormatError('Copilot returned an invalid harness response. No response tools were executed.')}
+ if(!object(data)||typeof data.content!=='string'||data.content.length>100000||!Array.isArray(data.tool_calls)||data.tool_calls.length>8)throw new CopilotFormatError('Invalid Copilot harness response.')
  const names=new Set(tools.map(t=>t.function.name))
  const calls=data.tool_calls.map((c:any)=>{
   if(!object(c)||!object(c.function)||!names.has(c.function.name)||!object(c.function.arguments)||JSON.stringify(c.function.arguments).length>100000)throw new Error('Copilot requested an unavailable tool or invalid arguments.')
@@ -109,7 +110,7 @@ export function parseCopilotAnswer(raw:string,tools:any[]):LocalInferenceRespons
  })
  return {message:{role:'assistant',content:data.content,...(calls.length?{tool_calls:calls}:{})}}
 }
-export function copilotInference(model='auto',env:NodeJS.ProcessEnv=process.env,options: { reasoningEffort?: string; onUsage?: (usage: CopilotUsage) => void } = {}):LocalInference {
+export function copilotInference(model='auto',env:NodeJS.ProcessEnv=process.env,options: { reasoningEffort?: string; onUsage?: (usage: CopilotUsage) => void; onFormatRepair?: () => void } = {}):LocalInference {
  if(!validCopilotModel(model))throw new Error('Invalid Copilot model ID.')
  const inference:LocalInference=async(request:LocalInferenceRequest)=>session(env,request.signal,async(rpc,dir)=>{
   const auth=await rpc.sendRequest<any>('auth.getStatus',{})
@@ -127,7 +128,7 @@ export function copilotInference(model='auto',env:NodeJS.ProcessEnv=process.env,
   let answer='',error='',input:number|undefined,output:number|undefined,usageCount=0,inputMissing=false,outputMissing=false
   const usageIds=new Set<string>()
   let ready=false,done:()=>void=()=>{}
-  const finished=new Promise<void>(resolve=>{done=resolve})
+  let finished=new Promise<void>(resolve=>{done=resolve})
   const subscription=rpc.onNotification('session.event',(n:any)=>{
    if(n?.sessionId!==id||!ready||!object(n.event))return
    const e=n.event,d=e.data
@@ -155,11 +156,23 @@ export function copilotInference(model='auto',env:NodeJS.ProcessEnv=process.env,
    })
    if(created?.sessionId!==id)throw new Error('Copilot did not create the requested isolated session.')
    ready=true
-   await rpc.sendRequest('session.send',{sessionId:id,prompt:JSON.stringify({messages:request.messages,tools:request.tools}),...(request.attachments?.length?{attachments:request.attachments.map((a,i)=>({type:'blob',data:a.data,mimeType:a.mediaType,displayName:'one-image-'+(i+1)}))}:{}),mode:'immediate'})
-   await finished
-   if(error)throw new Error(error)
-   if(!answer.trim())throw new Error('Copilot returned no final harness response.')
-   return {...parseCopilotAnswer(answer,request.tools),inputTokens:!usageCount||inputMissing?undefined:input,outputTokens:!usageCount||outputMissing?undefined:output}
+   for(let attempt=0;attempt<2;attempt++){
+    request.signal.throwIfAborted()
+    answer='';error='';finished=new Promise<void>(resolve=>{done=resolve})
+    const prompt=attempt===0?JSON.stringify({messages:request.messages,tools:request.tools}):'Your previous answer was not a valid One harness envelope. No requested tools were executed. Correct its format ONLY, using the same task and permitted functions. Return one JSON object with exactly content (a string) and tool_calls (an array, empty for a final answer). Tool arguments must be JSON objects. Do not invent results, change the task or use a different model. No Markdown or commentary outside the object.'
+    await rpc.sendRequest('session.send',{sessionId:id,prompt,...(attempt===0&&request.attachments?.length?{attachments:request.attachments.map((a,i)=>({type:'blob',data:a.data,mimeType:a.mediaType,displayName:'one-image-'+(i+1)}))}:{}),mode:'immediate'})
+    await finished
+    if(error)throw new Error(error)
+    try{
+     if(!answer.trim())throw new CopilotFormatError('Copilot returned no final harness response.')
+     return {...parseCopilotAnswer(answer,request.tools),inputTokens:!usageCount||inputMissing?undefined:input,outputTokens:!usageCount||outputMissing?undefined:output}
+    }catch(e){
+     if(!(e instanceof CopilotFormatError))throw e
+     if(attempt===1)throw new CopilotFormatError('Copilot returned an invalid harness response after one format correction. No response tools were executed. Stop and inspect the model/CLI response; no model fallback was used.')
+     options.onFormatRepair?.()
+    }
+   }
+   throw new CopilotFormatError('Invalid Copilot harness response.')
   }finally{subscription.dispose();await Promise.race([rpc.sendRequest('session.delete',{sessionId:id}).catch(()=>{}),new Promise(r=>{const t=setTimeout(r,1500);t.unref()})])}
  })
  inference.unmetered=true

@@ -67,3 +67,8 @@ Browser-Anfragen nutzen höchstens 262.144 Kontext-Tokens bei ausreichender geme
 
 ## Dienstag arbeitsfähig starten
 Der [Workshop-Startcheck](help:workshop-startcheck) führt durch Konto, Worker, internes Git, Modelltest, Atlas-Verbindung und Testnachweise. Jede Person verwendet ihre eigenen Zugänge. Ein Test am Organisatorrechner ersetzt den Test auf dem Teilnehmerlaptop nicht.
+
+## Workshop-Stand · Worker 1.30.0
+Bei einer formal ungültigen Harness-Antwort versucht ONE genau eine Formatkorrektur im selben isolierten Copilot-Dialog, mit derselben Modellwahl und innerhalb des bestehenden Drei-Minuten-Limits. Beide Modellantworten zählen zum gemeldeten Verbrauch. Unzulässige Werkzeuge, Transport-/Anmeldefehler, Abbruch und Zeitüberschreitung werden nicht auf diese Weise wiederholt. Scheitert auch die Korrektur, stoppt der Lauf mit einer verständlichen Meldung. Die Laufnachweise nennen die Zahl der Formatkorrekturen; es gibt keinen stillen Anbieterwechsel.
+
+Tatsächlich gestartete konfigurierte Tests enthalten zusätzlich den bereinigten Befehl als Argumentliste, Commit soweit ermittelbar, Hinweise auf uncommittete beziehungsweise während des Tests geänderte Git-Zustände, Plattform und Zeit. Bei alten Workern oder nicht gestarteten Prüfungen bleiben diese Angaben unbekannt. Ein Commit mit uncommitteten Änderungen bezeichnet nicht den vollständigen geprüften Inhalt.

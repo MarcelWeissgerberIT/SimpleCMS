@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { ArrowRight, Check, Compass } from 'lucide-react'
 import { useWorkspace } from '../../../store/store'
@@ -12,6 +12,9 @@ import { acceptanceIssues, guidePhase, type GuidePhase } from './guidance'
 import { acceptGuidedOrder, acceptanceSnapshot, atlasHandoffPrompt, type AcceptanceSnapshot } from './guidedAcceptance'
 import { pressPlan } from './press'
 import type { OrderRecord, OrderStatusKey } from './types'
+import {makeEvidencePacket,publishEvidencePacket,downloadEvidencePacket} from './evidencePacket'
+import {verifyAtlasHandoff} from './guidedHandoff'
+import {patchOrderRecord} from './records'
 import './guided.css'
 
 const G = 'features.coding.guide'
@@ -32,6 +35,10 @@ export default function GuidedOrder({ rowId, rec, status, planning, viewer, serv
   const [goal, setGoal] = useState('')
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState('')
+  const [atlasRef,setAtlasRef]=useState(''),[project,setProject]=useState(()=>{const all=[...new Set(Object.values(useWorkspace.getState().databases).flatMap(d=>d.readiness?.automation?.atlasProjects??[]))];return all.length===1?all[0]!:''})
+  const [parent,setParent]=useState(''),[packetId,setPacketId]=useState('')
+  const verifyAbort=useRef<AbortController|null>(null)
+  useEffect(()=>()=>{verifyAbort.current?.abort()},[rowId])
   const [snapshot, setSnapshot] = useState<AcceptanceSnapshot | null>(null)
   const steps = rec?.chain?.steps ?? []
   const active = steps.find(st => {
@@ -74,10 +81,31 @@ export default function GuidedOrder({ rowId, rec, status, planning, viewer, serv
   }
   const issues = snapshot ? acceptanceIssues(snapshot.evidence) : []
   const handoff = async () => {
-    if (!snapshot || !targetServer || viewer || busy) return
+    if (!snapshot?.accepted || !rec?.chain || !targetServer || viewer || busy) return
     const { openAgent, useAgent } = await import('../../ai/agent/state')
     if (useAgent.getState().status === 'running' || useAgent.getState().draft.trim()) { setNote(t(`${G}.terminalBusy`)); return }
+    setBusy(true)
+    try{
+    const saved=await patchOrderRecord(rowId,r=>r?.chain?.run===rec.chain!.run&&r.accepted?.evidence===snapshot.hash?{...r,handoff:r.handoff?.evidence===snapshot.hash?r.handoff:{run:rec.chain!.run,evidence:snapshot.hash,state:'prepared',at:Date.now(),server:targetServer}}:r)
+    if(saved.rec?.handoff?.evidence!==snapshot.hash){setNote(t(`${G}.reload`));return}
+    if(useAgent.getState().status==='running'||useAgent.getState().draft.trim()){setNote(t(`${G}.terminalBusy`));return}
     openAgent({ task: atlasHandoffPrompt(targetServer, snapshot.report, rec?.draft?.plan.context?.links ?? []), run: false })
+    }catch{setNote(t(`${G}.reload`))}finally{setBusy(false)}
+  }
+  const verifyHandoff=async()=>{
+    if(!snapshot?.accepted||busy||viewer)return
+    setBusy(true);setNote('');const ac=new AbortController();verifyAbort.current=ac;const deadline=setTimeout(()=>ac.abort(),30000)
+    try{setNote(t(`${G}.${await verifyAtlasHandoff(rowId,snapshot.hash,project,atlasRef,ac.signal)?'handoffVerified':'handoffUnverified'}`))}catch{setNote(t(`${G}.handoffUnverified`))}finally{clearTimeout(deadline);setBusy(false)}
+  }
+  const downloadPacket=async()=>{
+    if(!snapshot||!rec?.chain||busy)return
+    setBusy(true)
+    try{const checked=await acceptanceSnapshot(rowId,rec);if(!checked||checked.hash!==snapshot.hash){setNote(t(`${G}.reload`));return}downloadEvidencePacket(makeEvidencePacket(rowId,rec,checked))}catch{setNote(t(`${G}.reload`))}finally{setBusy(false)}
+  }
+  const publishPacket=async()=>{
+    if(!snapshot||!rec?.chain||busy||viewer||!parent)return
+    setBusy(true);setNote('')
+    try{const id=await publishEvidencePacket(rowId,rec,snapshot,parent);if(id)setPacketId(id);else setNote(t(`${G}.reload`))}catch{setNote(t(`${G}.reload`))}finally{setBusy(false)}
   }
   const focusNext = () => {
     const root = document.querySelector(`[data-testid="order-plate"][data-row="${rowId}"]`)
@@ -104,8 +132,17 @@ export default function GuidedOrder({ rowId, rec, status, planning, viewer, serv
           {!viewer && issues.some(k => ['qa', 'checks', 'afterQa'].includes(k)) && steps.at(-1)?.kind === 'qa' && <a className="btn btn--sm" href={`#/p/${steps.at(-1)!.id}`}>{t(`${G}.openQa`)}</a>}
           <details><summary>{t(`${G}.showEvidence`)}</summary><pre className="og-evidence">{snapshot.report}</pre></details>
           {!viewer && !snapshot.accepted && <button type="button" className="btn btn--primary btn--sm" disabled={busy || issues.length > 0} onClick={() => void accept()} data-testid="guided-accept">{t(`${G}.accept`)}</button>}
-          {!viewer && targetServer && <button type="button" className="btn btn--sm" disabled={busy} onClick={() => void handoff()} data-testid="guided-atlas">{t(`${G}.handoff`, { server: targetServer })}</button>}
+          {!viewer && targetServer && <button type="button" className="btn btn--sm" disabled={busy||!snapshot.accepted} onClick={() => void handoff()} data-testid="guided-atlas">{t(`${G}.handoff`, { server: targetServer })}</button>}
           <p className="og-quiet">{t(`${G}.handoffHint`)}</p>
+          <div className="og-proof-tools" data-testid="guided-proof-tools">
+            <button className="btn btn--sm" type="button" disabled={busy} onClick={()=>void downloadPacket()}>{t(`${G}.packetDownload`)}</button>
+            {!viewer&&<><label>{t(`${G}.packetTarget`)}<select className="input" value={parent} onChange={e=>setParent(e.target.value)} data-testid="packet-target"><option value="">{t(`${G}.packetChoose`)}</option>{Object.values(useWorkspace.getState().pages).filter(p=>!p.private&&!p.trashed&&p.kind==='page'&&!p.databaseId).map(p=><option key={p.id} value={p.id}>{p.title||t('common.untitled')}</option>)}</select></label>
+            <p className="og-quiet">{t(`${G}.packetShareHint`)}</p><button className="btn btn--sm" disabled={busy||!parent} type="button" onClick={()=>void publishPacket()} data-testid="packet-publish">{t(`${G}.packetPublish`)}</button></>}
+            {packetId&&<a href={`#/p/${packetId}`} data-testid="packet-link">{t(`${G}.packetOpen`)}</a>}
+          </div>
+          {rec?.handoff?.evidence===snapshot.hash&&<section className="og-handoff" data-testid="handoff-status"><strong>{t(`${G}.handoffState.${rec.handoff.state}`)}</strong>{rec.handoff.url&&<a href={rec.handoff.url} target="_blank" rel="noopener noreferrer">{rec.handoff.project} · #{rec.handoff.ref}</a>}
+            {!viewer&&<><label>{t(`${G}.atlasProject`)}<input className="input" value={project} maxLength={100} onChange={e=>setProject(e.target.value)} data-testid="handoff-project"/></label><label>{t(`${G}.atlasRecord`)}<input className="input" value={atlasRef} maxLength={200} onChange={e=>setAtlasRef(e.target.value)} data-testid="handoff-record"/></label><button type="button" className="btn btn--sm" disabled={busy||!project||!atlasRef||!snapshot.accepted} onClick={()=>void verifyHandoff()} data-testid="handoff-verify">{t(`${G}.handoffVerify`)}</button></>}
+          </section>}
         </>}
       </div>}
       <details className="og-details"><summary>{t(`${G}.prepared`)}</summary>

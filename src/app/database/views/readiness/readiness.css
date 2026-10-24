@@ -39,3 +39,7 @@
 @media(max-width:780px){.ws-start__grid{grid-template-columns:1fr;}.ws-start__panel.screw-plate{padding:20px;}.ws-start__notes{grid-template-columns:1fr;}}
 @media(max-width:480px){.ws-start__head{padding:20px 14px 14px;column-gap:8px;}.ws-start__identity strong{font-size:17px;}.ws-start__overall>span:not(.ws-start__lamp){display:none;}.ws-start__body{margin-inline:14px;}.ws-start__checklist>label{align-items:flex-start;gap:10px;}.ws-start__summary{gap:10px;}.ws-start__summary>small{display:none;}}
 @media print{.ws-start__head{break-inside:avoid;}.ws-start__filters{display:none;}.ws-start__person{break-inside:avoid;box-shadow:none;}}
+
+.ws-start__connection{grid-column:1/-1;font:11px/1.5 var(--font-mono);color:var(--ws-open);border-left:3px solid currentColor;padding:5px 9px;background:var(--surface-2)}
+.ws-start__connection[data-live=online]{color:var(--ws-ok)}
+.ws-start__connection[data-live=offline]{color:var(--ws-block)}

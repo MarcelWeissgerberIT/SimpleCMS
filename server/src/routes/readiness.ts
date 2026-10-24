@@ -10,10 +10,11 @@ import {forbidden,rateLimited} from '../errors.ts'
 import {WelcomeStore} from '../welcome/store.ts'
 import {readReadiness,type ReadinessDatabase} from '../../../src/shared/readiness.ts'
 import type {ReadinessEvidence} from '../../../src/shared/readiness.ts'
+const version=z.string().regex(/^\d+\.\d+\.\d+$/).optional()
 const observation=z.discriminatedUnion('signal',[
- z.object({signal:z.literal('sync')}).strict(),
- z.object({signal:z.literal('atlas'),project:z.string().regex(/^[a-z0-9_-]{1,100}$/),record:z.number().int().positive().max(Number.MAX_SAFE_INTEGER)}).strict(),
- z.object({signal:z.enum(['copilot','repo','worker'])}).strict(),
+ z.object({signal:z.literal('sync'),version,localWorker:z.object({online:z.boolean(),version}).strict().optional()}).strict(),
+ z.object({signal:z.literal('atlas'),project:z.string().regex(/^[a-z0-9_-]{1,100}$/),record:z.number().int().positive().max(Number.MAX_SAFE_INTEGER),version}).strict(),
+ z.object({signal:z.enum(['copilot','repo','worker']),version}).strict(),
 ])
 export function readinessRoutes(s:Services){
  const app=new Hono<AppEnv>(),store=new WelcomeStore(s)
@@ -45,15 +46,21 @@ export function readinessRoutes(s:Services){
    const put=(key:keyof typeof config.checks,proof:ReadinessEvidence)=>{
     // A human-entered blocker remains an explicit hold, even after a later successful device observation.
     const status=props.get(config.checks[key]);if(status==='blocked')return
-    if(status==='ready'&&evidence[key])return
-    props.set(config.checks[key],'ready');evidence[key]=proof;changed=true
+    if(status==='ready'&&evidence[key]&&now-evidence[key].at<25000&&(!proof.version||proof.version===evidence[key].version))return
+    props.set(config.checks[key],'ready');evidence[key]={...evidence[key],...proof};changed=true
    }
    put('one',{at:now,source:'session'})
-   if(online&&role!=='viewer')put('worker',{at:now,source:'relay'})
+   if(online&&role!=='viewer')put('worker',{at:now,source:'relay',...(input.version?{version:input.version}:{})})
    if(input.signal==='atlas')put('atlas',{at:now,source:'device-mcp',project:input.project,record:input.record})
-   if(input.signal==='worker')put('worker',{at:now,source:'device-worker'})
-   if(input.signal==='copilot')put('copilot',{at:now,source:'device-worker'})
-   if(input.signal==='repo')put('repo',{at:now,source:'device-worker'})
+   if(input.signal==='worker')put('worker',{at:now,source:'device-worker',...(input.version?{version:input.version}:{})})
+   if(input.signal==='copilot')put('copilot',{at:now,source:'device-worker',...(input.version?{version:input.version}:{})})
+   if(input.signal==='repo')put('repo',{at:now,source:'device-worker',...(input.version?{version:input.version}:{})})
+   if(input.signal==='sync'&&role!=='viewer'){
+    const local=input.localWorker
+    const prev=evidence.workerConnection
+    const connected:ReadinessEvidence={at:now,source:local?'device-worker':'relay',online:online||!!local?.online,...(input.version?{version:input.version}:local?.version?{version:local.version}:prev?.version?{version:prev.version}:{})}
+    if(!prev||now-prev.at>=25000||prev.online!==connected.online||prev.version!==connected.version){evidence.workerConnection=connected;changed=true}
+   }
    if(changed){props.set(a.evidence,JSON.stringify(evidence));props.set(config.changedAt,new Date(now).toISOString());props.set(config.changedBy,'ONE · automatisch / automatic');row.set('updatedAt',now)}
    return {matched:true,atlas:props.get(config.checks.atlas)==='ready'&&!!evidence.atlas}
   },auth.user.id)

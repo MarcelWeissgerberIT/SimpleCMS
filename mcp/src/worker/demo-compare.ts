@@ -2,14 +2,13 @@
 import {readFile,writeFile,mkdir,mkdtemp,rm,realpath} from 'node:fs/promises'
 import {join,dirname} from 'node:path'
 import {tmpdir} from 'node:os'
-import {execFile} from 'node:child_process'
-import {promisify} from 'node:util'
+import {execFileSafe} from './exec.ts'
+import {git} from './git.ts'
 import {createHash} from 'node:crypto'
 import {REVIEW_POLICY} from '../../../src/shared/ai/review.ts'
 import type {WorkerTextResult} from '../../../src/shared/ai/worker.ts'
 import {textRequest} from './text-models.ts'
 import {prepareCopilotRun} from './copilot-run.ts'
-const exec=promisify(execFile)
 export type DemoCompletion=(messages:{role:'system'|'user'|'assistant';content:string}[],maxTokens:number)=>Promise<WorkerTextResult>
 export async function demoCopilot(messages:Parameters<DemoCompletion>[0],maxTokens:number,model='auto',env:NodeJS.ProcessEnv=process.env):Promise<WorkerTextResult>{
  const run=await prepareCopilotRun(model,{model,contextTokens:32768},'task',env)
@@ -22,10 +21,16 @@ export async function demoCopilot(messages:Parameters<DemoCompletion>[0],maxToke
 const cases=[{id:'cpp-temperature',source:'cpp/include/temperature.hpp',test:'cpp/tests/temperature_test.cpp',total:14},{id:'angular-validation',source:'web/api.ts',test:'tests/validation.test.mjs',total:13}]
 export async function compareDemo(options:{repo:string;output:string;complete?:Record<string,DemoCompletion>;model?:string;copilotModel?:string;config?:string;cases?:string[];progress?:(line:string)=>void}){
  const repo=await realpath(options.repo),output=options.output,temporary=await mkdtemp(join(tmpdir(),'one-demo-compare-'))
- const {stdout:commit}=await exec('git',['-C',repo,'rev-parse','HEAD'],{timeout:10000})
+ const revision=await git(repo,['rev-parse','HEAD'],10000,{local:true})
+ if(revision.code)throw new Error('Cannot read demo repository revision')
+ const commit=revision.stdout
  const pkg=JSON.parse(await readFile(join(repo,'package.json'),'utf8'))
  if(pkg.name!=='one-webserver-local-demo'||pkg.private!==true)throw new Error('Use the synthetic ONE WebServer demo repository.')
- const run=async(command:string,args:string[],cwd:string)=>{try{const r=await exec(command,args,{cwd,timeout:30000,maxBuffer:100000,env:{PATH:process.env.PATH??'',...(process.env.CXX?{CXX:process.env.CXX}:{})}});return {exit:0,output:r.stdout+r.stderr}}catch(e){const r=e as any;return {exit:typeof r.code==='number'?r.code:1,output:String(r.stdout??'')+String(r.stderr??'')+String(r.message??'')}}}
+ // Programs are selected by this fixture or the host's CXX setting; no model-selected command.
+ const run=async(command:string,args:string[],cwd:string)=>{
+  const r=await execFileSafe(command,args,{cwd,timeoutMs:30000,maxBuffer:100000,allow:'exe',env:{PATH:process.env.PATH??'',...(process.env.CXX?{CXX:process.env.CXX}:{})}})
+  return {exit:r.code,output:r.stdout+r.stderr+(r.error??'')}
+ }
  const complete=options.complete??{local:(messages:Parameters<DemoCompletion>[0],maxTokens:number)=>textRequest(options.config??'',{provider:'local',model:options.model??'marcel-flow:latest',messages,maxTokens},AbortSignal.timeout(180000)),copilot:(messages:Parameters<DemoCompletion>[0],maxTokens:number)=>demoCopilot(messages,maxTokens,options.copilotModel??'auto')}
  const report:any={schema:1,at:new Date().toISOString(),commit:commit.trim(),synthetic:true,scope:'Two small text-to-patch checks. No full merge, browser, customer network or agent/MCP benchmark.',samePrompt:true,tools:false,sourceTestsUnchanged:true,results:[]}
  await mkdir(dirname(output),{recursive:true})

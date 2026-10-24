@@ -401,7 +401,7 @@ export async function runStage(ctx: StageContext): Promise<StageOutcome> {
           save:j=>writeRepairJournal(journalDir,scope,j),note:s=>log('info',s),unchanged:()=>checksUnchanged(dir,manifest),
           review:async remaining=>{
             const checked=await runTests(repo,dir,ctx.signal,undefined,s=>scrub.text(s))
-            const test:TestResult={ok:checked.ok,output:scrub.text(checked.output).slice(-20000),ms:checked.ms,code:checked.code}
+            const test:TestResult={...(checked.execution?{execution:checked.execution}:{}),ok:checked.ok,output:scrub.text(checked.output).slice(-20000),ms:checked.ms,code:checked.code}
             if(!checked.ok||checked.notStarted)return {status:'failed',test,error:(checked.notStarted?'Delivery QA checks unavailable: ':'Delivery QA checks failed: ')+scrub.text(checked.output).slice(-6000)}
             const reviewed=await docStage({...ctx,repo:stageRepo,task:{...task,stage:{...task.stage,maxTurns:remaining}}},scrub,log,branch,dir)
             if(reviewed.status==='ok' && task.agent!=='local' && task.agent!=='minimax' && task.agent!=='ollama' && task.agent!=='copilot') {

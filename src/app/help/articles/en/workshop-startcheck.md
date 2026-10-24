@@ -9,6 +9,8 @@ summary: Check accounts, the worker, the internal checkout and Atlas before the 
 ---
 Run this check on the computer that can access the internal repository. A successful organizer test proves neither access inside the company network nor the quality of the eventual solution. Each person's credentials remain personal; workspace packages contain no personal connections.
 
+For Tuesday, use worker **1.30.0 or newer** from One’s current download. This includes bounded Copilot format correction and execution receipts. Older feature-version notes indicate when a capability was introduced, not the recommended workshop build.
+
 ## 1 · Workspace and access
 Open the intended team workspace and check its name and your own role. Workshop guests can read approved shared pages; editing, inviting and agent/coding execution remain blocked. A sign-in link does not establish Atlas rights or access to internal repositories. Check the Atlas tenant, actual project and your own agent separately. Never paste shared tokens into pages or chats; personal Atlas connections belong in **My secrets**.
 

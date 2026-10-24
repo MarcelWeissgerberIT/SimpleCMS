@@ -860,6 +860,7 @@ describe('exec — source guard', () => {
       "config.ts: 'git'",
       'copilot.ts: findCopilot(env)', // person's COPILOT_BIN or trusted PATH/install, version probe in tmpdir
       'copilot.ts: findCopilot(env)', // same host-selected CLI, isolated cwd; prompt travels over SDK stdin
+      'demo-compare.ts: command', // opt-in synthetic exercise: this Node, host CXX/compiler, or its fixed temporary test binary
       "git.ts: 'git'",
       "git.ts: 'ssh'", // sshHostName(): `ssh -G <host>` — a host name (SSH_HOST: never an option) the remote's address names
       'git.ts: cmd', // run(): 'gh' | 'glab'

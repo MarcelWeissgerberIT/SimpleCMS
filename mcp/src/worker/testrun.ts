@@ -3,6 +3,7 @@
  * in the task's worktree, with a timeout; the output's tail goes to One (paths of this machine replaced).
  * The program is looked up in PATH only — never in the worktree (exec.ts); one inside the repo needs its path.
  */
+import { git } from './git.ts'
 import type { TestResult } from '../../../src/app/features/coding/protocol.ts'
 import type { RepoConfig } from './config.ts'
 import { commandName, killTree, spawnSafe } from './exec.ts'
@@ -13,8 +14,17 @@ export const TEST_OUTPUT_MAX = 64_000
 /** notStarted: the program was not found (PATH only) or cannot run (a .cmd cmd.exe cannot pass the arguments to) — ok false, output '', ms 0, code -1 */
 export type RunResult = TestResult & { notStarted?: 'missing' | 'refused' }
 
-export function runTests(repo: RepoConfig, cwd: string, signal: AbortSignal, onLine?: (s: string) => void, scrub?: (s: string) => string): Promise<RunResult> {
-  return runCommand(repo.testCommand, repo.testTimeoutSec, 'tests', cwd, signal, onLine, scrub)
+export async function runTests(repo: RepoConfig, cwd: string, signal: AbortSignal, onLine?: (s: string) => void, scrub?: (s: string) => string): Promise<RunResult> {
+  if(!repo.testCommand?.length)return runCommand(repo.testCommand,repo.testTimeoutSec,'tests',cwd,signal,onLine,scrub)
+  signal.throwIfAborted()
+  const before=await git(cwd,['rev-parse','HEAD'],5000,{local:true})
+  const state=await git(cwd,['status','--porcelain'],5000,{local:true})
+  const startedAt=Date.now(),result=await runCommand(repo.testCommand,repo.testTimeoutSec,'tests',cwd,signal,onLine,scrub),finishedAt=Date.now()
+  if(result.notStarted||signal.aborted)return result
+  const after=await git(cwd,['rev-parse','HEAD'],5000,{local:true})
+  const afterState=await git(cwd,['status','--porcelain'],5000,{local:true})
+  const commit=before.code===0&&/^[a-f0-9]{40,64}$/.test(before.stdout.trim())?before.stdout.trim():null
+  return {...result,execution:{command:repo.testCommand.map(x=>(scrub?scrub(x):x).slice(0,1000)).slice(0,50),commit,dirty:state.code!==0||!!state.stdout.trim(),changedDuring:before.stdout!==after.stdout||state.stdout!==afterState.stdout,platform:process.platform,startedAt,finishedAt}}
 }
 
 /** The Static analysis stage: the repo's analyzeCommand, like the tests (a non-zero exit is a finding, not a failure). */

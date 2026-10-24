@@ -67,3 +67,8 @@ Browser requests use at most 262,144 context tokens when the CLI reports enough 
 
 ## Start the workshop ready to work
 The [workshop start check](help:workshop-startcheck) covers accounts, the worker, internal Git, a model test, Atlas and test evidence. Each participant uses their own credentials. A successful test on the organizer’s computer does not replace a test on the participant laptop.
+
+## Workshop build · worker 1.30.0
+For a malformed harness answer, ONE makes exactly one format-correction request in the same isolated Copilot session, with the same model selection and within the existing three-minute deadline. Both answers count towards reported usage. Unavailable tools, transport/login errors, cancellation and timeouts are not retried this way. If correction also fails, the run stops with a clear message. Receipts include the number of format corrections; no silent provider fallback occurs.
+
+Actually started configured tests also report the sanitised command as argv, commit if available, uncommitted/changed-during-test Git state, platform and timing. These fields remain unknown for older workers or tests that did not start. A commit accompanied by uncommitted changes does not identify the full tested content.

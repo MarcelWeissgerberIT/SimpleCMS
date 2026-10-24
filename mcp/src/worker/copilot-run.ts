@@ -13,7 +13,7 @@ export async function prepareCopilotRun(defaultModel: string, choice: CopilotCho
   // auto has no stable model capability: keep a conservative budget until explicitly pinned.
   const tokens = Math.min(choice?.contextTokens ?? COPILOT_CONTEXT_MAX, native ?? COPILOT_CONTEXT, COPILOT_CONTEXT_MAX)
   if(tokens<16384)throw new Error('This Copilot model advertises too little context for the coding harness. Choose another model.')
-  const receipt: CopilotReceipt = { provider:'copilot', requestedModel:model, source, ...(effort ? {requestedEffort:effort} : {}), contextTokens:tokens, startedAt:Date.now(), finishedAt:Date.now(), rounds:0, usageReports:0, models:[], reasoningEfforts:[], inputTokens:null, outputTokens:null, nanoAiu:null, quotas:[] }
+  const receipt: CopilotReceipt = { provider:'copilot', requestedModel:model, source, ...(effort ? {requestedEffort:effort} : {}), contextTokens:tokens, startedAt:Date.now(), finishedAt:Date.now(), rounds:0, formatRepairs:0, usageReports:0, models:[], reasoningEfforts:[], inputTokens:null, outputTokens:null, nanoAiu:null, quotas:[] }
   const onUsage = (u: CopilotUsage) => {
     receipt.usageReports++
     if (u.model && !receipt.models.includes(u.model) && receipt.models.length < 40) receipt.models.push(u.model)
@@ -22,7 +22,7 @@ export async function prepareCopilotRun(defaultModel: string, choice: CopilotCho
     if (u.quotas.length) receipt.quotas = u.quotas
   }
   let missingUsage=false
-  const adapter = copilotInference(model, env, {reasoningEffort:effort,onUsage})
+  const adapter = copilotInference(model, env, {reasoningEffort:effort,onUsage,onFormatRepair:()=>{receipt.formatRepairs=(receipt.formatRepairs??0)+1}})
   const inference: typeof adapter = async request => { receipt.rounds++;const before=receipt.usageReports;try{return await adapter(request)}finally{if(receipt.usageReports===before)missingUsage=true} }
   inference.unmetered = true
   inference.served = () => receipt.models.at(-1) ?? null

@@ -1,3 +1,4 @@
+import {readHandoff} from '../../../../shared/coding/evidence.ts'
 import { readRepairPolicy } from '@/shared/coding/repair'
 /**
  * Work orders — this device's record of a request (types.ts OrderRecord; IndexedDB `one-coding` `<scope>|order|<rowId>`)
@@ -240,6 +241,7 @@ export function readOrderRecord(v: unknown): OrderRecord | null {
   if (!isObj(v) || v.v !== 1 || !(STATES as readonly unknown[]).includes(v.state)) return null
   const state = v.state as OrderState
   const out: OrderRecord = { v: 1, state }
+  const handoff=readHandoff(v.handoff);if(handoff)out.handoff=handoff
   if (isObj(v.accepted) && isId(v.accepted.run) && isTime(v.accepted.at) && typeof v.accepted.evidence === 'string' && SIG_RE.test(v.accepted.evidence)) out.accepted = { run: v.accepted.run, at: v.accepted.at, evidence: v.accepted.evidence }
   if (isObj(v.want) && isTime(v.want.at) && v.want.mode === 'trigger') {
     const press = readPress(v.want.press)

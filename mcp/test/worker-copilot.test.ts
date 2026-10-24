@@ -73,7 +73,7 @@ test('auto receipts preserve actual models, deduplicate usage, sum units without
  await run.inference(request());await run.inference(request())
  let r=run.receipt();assert.equal(r.rounds,2);assert.equal(r.usageReports,2);assert.equal(r.inputTokens,100);assert.equal(r.outputTokens,40);assert.equal(r.nanoAiu,2000000000);assert.deepEqual(r.models,['gpt-6.1-sol']);assert.equal(r.requestedModel,'auto');assert.equal(r.quotas[0]?.remainingPercentage,72.5);assert.ok(!JSON.stringify(r).includes('secret'));assert.equal((r as any).cost,undefined)
  const missing=await prepareCopilotRun('auto',undefined,'worker',envOf({COPILOT_FAKE_USAGE:'[{"outputTokens":20,"cost":99}]'}));await missing.inference(request());r=missing.receipt();assert.equal(r.inputTokens,null);assert.equal(r.outputTokens,20);assert.deepEqual(r.models,[]);assert.equal(r.nanoAiu,null)
- const malformed=await prepareCopilotRun('auto',undefined,'worker',envOf({COPILOT_ANSWERS:'["malformed JSON"]'}));await assert.rejects(malformed.inference(request()),/invalid/);assert.equal(malformed.receipt().inputTokens,50)
+ const malformed=await prepareCopilotRun('auto',undefined,'worker',envOf({COPILOT_INDEX:join(tempDir('copilot-malformed'),'index'),COPILOT_ANSWERS:'["malformed JSON","malformed JSON"]'}));await assert.rejects(malformed.inference(request()),/invalid/);assert.equal(malformed.receipt().inputTokens,100)
  const silent=await prepareCopilotRun('auto',undefined,'worker',envOf({COPILOT_FAKE_USAGE:'[]'}));await silent.inference(request());assert.equal(silent.receipt().inputTokens,null);assert.deepEqual(silent.receipt().models,[])
  assert.equal(readCopilotReceipt({...r,models:['sk-private']}),null)
 })
@@ -105,7 +105,7 @@ test('built QA repair uses Coding model then QA model and retains both real harn
  try{
   tab=await FakeTab.connect(47416);tab.hello(WS_LOCAL);await tab.next('welcome')
   const out=await tab.run(task({kind:'doc',copilot:{model:'claude-opus-5.5',reasoningEffort:'high'},copilotSource:'role'},{id:'copilotRoleRepair',agent:'copilot',branch:'one/copilot-repair',quality:{review:true,requirements:['R1: Fix source'],acceptance:['Host tests pass'],repair:{attempts:1,agent:'copilot',copilot:{model:'gpt-6.1-sol'}},packages:[{id:'codeOne',title:'Fix feature',requirements:['R1']}]}}))
-  assert.equal(out.status,'ok',JSON.stringify(out));assert.equal(out.test?.ok,true);assert.equal(out.repairs?.length,1)
+  assert.equal(out.status,'ok',JSON.stringify(out));assert.equal(out.test?.ok,true);assert.equal(out.repairs?.length,1);assert.ok(out.test?.execution?.command.length);assert.match(out.test!.execution!.commit!,/^[a-f0-9]{40}$/);assert.equal(out.test!.execution!.platform,process.platform)
   assert.deepEqual(out.copilotReceipts?.map(r=>[r.requestedModel,r.stageKind,r.rounds]),[['gpt-6.1-sol','implement',3],['claude-opus-5.5','doc',1]])
   assert.deepEqual(out.copilotReceipts?.map(r=>r.status),['ok','ok']);assert.ok(out.copilotReceipts?.every(r=>r.source==='role'&&r.inputTokens!==null))
   const creates=JSON.parse(readFileSync(capture,'utf8')).filter((e:any)=>e.method==='session.create')
@@ -120,4 +120,15 @@ test('Copilot cooperates with the task-scoped Atlas MCP proxy without receiving 
  const result=await runLocal({agent:'copilot',cwd:root,prompt:'Read the approved Atlas requirement.',readOnly:true,maxSteps:5,signal:new AbortController().signal,log:()=>{},inference:copilotInference('auto',env),taskMcp:{command:process.execPath,args:[fileURLToPath(new URL('./fixtures/fake-task-proxy.mjs',import.meta.url))],env:{ONE_WORKER_TASK_TOKEN:secret,ONE_WORKER_PERSONAL_READ_ONLY:'1'}}})
  assert.equal(result.ok,true,result.error);assert.match(result.text,/Atlas requirement 43/)
  const wire=readFileSync(capture,'utf8');assert.ok(wire.includes('Actual proxy result: Atlas record 43'));assert.ok(!wire.includes(secret));assert.ok(!wire.includes('Authorization'))
+})
+
+test('one format correction keeps the model and isolated session, counts all usage and cannot retry unsafe tools',async()=>{
+ const root=tempDir('copilot-format-repair'),capture=join(root,'capture.json'),index=join(root,'index')
+ const run=await prepareCopilotRun('auto',undefined,'worker',envOf({COPILOT_CAPTURE:capture,COPILOT_INDEX:index,COPILOT_ANSWERS:JSON.stringify(['wrong envelope',{content:'Corrected answer',tool_calls:[]}])}))
+ const result=await run.inference(request());assert.equal(result.message.content,'Corrected answer');assert.equal(result.inputTokens,100);assert.equal(run.receipt().formatRepairs,1);assert.equal(run.receipt().inputTokens,100)
+ const events=JSON.parse(readFileSync(capture,'utf8'));assert.equal(events.filter((r:any)=>r.method==='session.create').length,1);assert.equal(events.filter((r:any)=>r.method==='session.send').length,2)
+ assert.match(events.filter((r:any)=>r.method==='session.send')[1].params.prompt,/No requested tools were executed/)
+ const badIndex=join(root,'bad-index');await assert.rejects(copilotInference('auto',envOf({COPILOT_INDEX:badIndex,COPILOT_ANSWERS:'["bad JSON","still bad JSON"]'}))(request()),/after one format correction/);assert.equal(readFileSync(badIndex,'utf8'),'2')
+ const unsafeIndex=join(root,'unsafe-index');await assert.rejects(copilotInference('auto',envOf({COPILOT_INDEX:unsafeIndex,COPILOT_ANSWERS:JSON.stringify([tool('shell',{command:'bad'})])}))(request()),/unavailable/);assert.equal(readFileSync(unsafeIndex,'utf8'),'1')
+ assert.equal(parseCopilotAnswer('  ```json\n{"content":"fenced","tool_calls":[]}\n```  ',[]).message.content,'fenced')
 })

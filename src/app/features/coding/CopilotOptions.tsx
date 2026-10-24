@@ -75,6 +75,7 @@ export function CopilotRunHistory({taskId}:{taskId:string}) {
         <dt>{t(`${C}.effort`)}</dt><dd>{t(`${C}.requested`)}: {r.requestedEffort||t(`${C}.modelDefault`)} · {t(`${C}.served`)}: {r.reasoningEfforts.join(', ')||unknown}</dd>
         <dt>{t(`${C}.context`)}</dt><dd>{number(r.contextTokens)} tokens</dd>
         <dt>{t(`${C}.usage`)}</dt><dd>{number(r.inputTokens)} input · {number(r.outputTokens)} output · {r.rounds} {t(`${C}.rounds`)}</dd>
+        <dt>{t(`${C}.formatRepairs`)}</dt><dd>{r.formatRepairs===undefined?unknown:r.formatRepairs}</dd>
         <dt>{t(`${C}.credits`)}</dt><dd>{r.nanoAiu===null?unknown:`${(r.nanoAiu/1e9).toLocaleString(lang,{maximumFractionDigits:9})} AIU`}</dd>
         <dt>{t(`${C}.money`)}</dt><dd>{unknown}</dd>
         <dt>{t(`${C}.quota`)}</dt><dd>{r.quotas.length?r.quotas.map(q=>`${q.name}: ${q.remainingPercentage.toLocaleString(lang)} %${q.resetDate?` · ${new Date(q.resetDate).toLocaleString(lang)}`:''}`).join('; '):unknown}</dd>

@@ -411,6 +411,8 @@ export interface OrderPress {
 
 /** This device's record of one request. */
 export interface OrderRecord {
+  /** A bounded handoff proof for this exact accepted snapshot; never a token or raw MCP output. */
+  handoff?: import('@/shared/coding/evidence').AtlasHandoff
   v: 1
   state: OrderState
   /**
