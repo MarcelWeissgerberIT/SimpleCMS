@@ -16,6 +16,7 @@ export function findCodex(env: NodeJS.ProcessEnv = process.env): string {
 }
 
 export interface CodexRun {
+  mcpOrigins?: string[]
   agent: Exclude<CodingAgent, 'claude'>
   cwd: string
   prompt: string

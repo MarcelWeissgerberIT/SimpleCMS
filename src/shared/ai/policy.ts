@@ -1,3 +1,4 @@
+import { readDataFlow, modelDestinationAllowed, hasFlowLimits } from './dataFlow.ts'
 import { isWorkerProvider } from './providers.ts'
 /**
  * The AI rules as stored — Workspace.ai (synced, owners / admins) and settings.ai (this device) — what they let a
@@ -25,7 +26,7 @@ export const FEATURE_CLASSES: readonly FeatureClass[] = ['write', 'ask', 'worksp
  * budget of the workspace or this browser is enforced by the Regler's brake (features/governor/install.ts, G1). Restricted
  * pages get a GEN entry of their own, numbered when they merge — never a number promised here.
  */
-export const AI_POLICY_GEN: number = GEN.copilot
+export const AI_POLICY_GEN: number = GEN.dataFlow
 
 export const MAX_RESTRICTED = 200
 export const MAX_SHORTLIST = 24
@@ -82,6 +83,8 @@ function perProvider<T>(v: unknown, read: (x: unknown) => T | undefined): Partia
 export function sanitizeWorkspaceAI(v: unknown): WorkspaceAI | undefined {
   if (!isObj(v)) return undefined
   const out: WorkspaceAI = {}
+  const flow = readDataFlow(v.dataFlow)
+  if (flow) out.dataFlow = flow
   const g = gen(v.gen)
   if (g !== undefined) out.gen = g
   if (isObj(v.policy)) {
@@ -187,6 +190,7 @@ function shortlist(v: unknown): ShortlistRow[] {
 export function sanitizeDeviceAI(v: unknown): DeviceAI | undefined {
   if (!isObj(v)) return undefined
   const out: DeviceAI = {}
+  if (typeof v.dataFlowHints === 'boolean') out.dataFlowHints = v.dataFlowHints
   const r = routes<FeatureClass>(v.routes, FEATURE_CLASSES)
   if (r) out.routes = r
   const d = sanitizeRule(v.default)
@@ -251,6 +255,7 @@ const has = (list: readonly string[] | undefined, c: string): boolean => !!list 
  * Absent rules: Claude = every class; OpenAI / OpenRouter = none.
  */
 export function allowedFor(p: ProviderId, cls: DataClass, ws?: WorkspaceAI | null, device?: DeviceAI | null): boolean {
+  if (!modelDestinationAllowed(p, ws?.dataFlow)) return false
   if (has(device?.narrow?.[p], cls)) return false
   const rule = ws?.policy?.providers?.[p]
   const claudeOpen = p === 'anthropic' && !rule
@@ -321,6 +326,7 @@ export function limitsClaude(ws?: WorkspaceAI | null, device?: DeviceAI | null):
  * alone (and a rule pinning the Jev Router) need nothing: an S1 tab never sends to OpenRouter.
  */
 export function requiredGen(ws?: WorkspaceAI | null, device?: DeviceAI | null): number {
+  if (hasFlowLimits(ws?.dataFlow) || ws?.policy?.restricted?.length || device?.restricted?.length) return GEN.dataFlow
   const workerKeys = (v: object | null | undefined) => Object.keys(v ?? {}).some(isWorkerProvider)
   const routes = [...Object.values(ws?.routes ?? {}), ...Object.values(device?.routes ?? {}), device?.default ?? []]
   if ([ws?.policy?.providers, ws?.limits, device?.allow, device?.narrow, device?.roles].some(v => v && Object.hasOwn(v, 'copilot')) || routes.some(rule => rule?.some(route => route.p === 'copilot'))) return GEN.copilot
@@ -356,6 +362,8 @@ const UPSTREAM_DEFAULT: UpstreamRule = { deny: [], noCollect: true, zdr: false }
  */
 export function loosens(mine?: WorkspaceAI | null, theirs?: WorkspaceAI | null): LooseItem[] {
   const out: LooseItem[] = []
+  for (const p of STORED_PROVIDERS) if (!modelDestinationAllowed(p, mine?.dataFlow) && modelDestinationAllowed(p, theirs?.dataFlow)) out.push({ kind: 'provider', p, classes: [] })
+  if (mine?.dataFlow?.mcpOrigins && (!theirs?.dataFlow?.mcpOrigins || theirs.dataFlow.mcpOrigins.some(x => !mine.dataFlow!.mcpOrigins!.includes(x)))) out.push({ kind: 'restricted', root: 'MCP' })
   for (const p of STORED_PROVIDERS) {
     const a = mine?.policy?.providers?.[p]
     const b = theirs?.policy?.providers?.[p]

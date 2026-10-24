@@ -1,3 +1,4 @@
+import { assertPreparedFlow } from './gate'
 /** Text/JSON one-shots with selected remote tools. The browser owns the loop and OUT lock. */
 import type { ChatRequest, Turn, Usage } from '@/shared/ai/types'
 import { WORKER_MCP_FUNCTIONS, workerMcpSession } from './workerMcp'
@@ -21,6 +22,7 @@ export async function sendCopilotCompletion(prepared: Prepared, req: ChatRequest
   }
   const tools = remote ? WORKER_MCP_FUNCTIONS : []
   for (let round = 0; round < 12; round++) {
+    assertPreparedFlow(prepared)
     const result = await sendWorkerText(req.route, messages, Math.min(req.maxTokens, 8192), o.signal, { ...(material.attachments.length ? { attachments: material.attachments } : {}), ...(tools.length ? { tools } : {}), ...(req.output.kind === 'json' ? { schema: req.output.schema } : {}) })
     const usage = result.inputTokens !== null && result.outputTokens !== null ? { input: result.inputTokens, output: result.outputTokens, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0, reasoning: 0 } : null
     const turn: Turn = { kind: 'chat', parts: [{ type: 'text', text: result.text }], stop: result.calls?.length ? 'tool_calls' : 'end', usage, served: result.copilotReceipt?.models.at(-1) ?? null, streamedChars: result.text.length }

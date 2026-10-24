@@ -144,7 +144,7 @@ export function meterResponse(prepared: Prepared, opts: Pick<MeterOpts, 'source'
     costSource = row ? 'estimate' : 'none'
   }
   // the request's own steps (the brake's cap, an allowance) first, then the response's
-  const own = (prepared.steps ?? []).filter((x) => x.k === 'brake' || x.k === 'allowance')
+  const own = (prepared.steps ?? []).filter((x) => x.k === 'brake' || x.k === 'allowance' || x.k === 'data-flow')
   const steps: StepNote[] = [...own, ...(fallback ? [{ k: 'refusal-fallback' as const, from: route.m, to: modelBase(served) }] : [...(r.steps ?? [])])]
   return meter({
     id: newId(),

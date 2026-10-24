@@ -13,7 +13,7 @@
 import type AnthropicSDK from '@anthropic-ai/sdk'
 import type { BetaContentBlockParam, BetaMessageParam } from '@anthropic-ai/sdk/resources/beta/messages/messages'
 import { AIError, claudeClient, finalOf, thinks, toAIError, usesDemo, viaNeutral } from '../client'
-import { capped, prepare, settle, type Prepared } from '../core/gate'
+import { assertPreparedFlow, capped, prepare, settle, type Prepared } from '../core/gate'
 import { meterCall, pdfChars, type Receipt } from '../core/meter'
 import type { PurposeId } from '../core/purposes'
 import type { RouteOptions } from '../client'
@@ -188,6 +188,7 @@ export async function requestFile(req: FileRequest): Promise<string> {
       return await viaNeutral(prepared, call, { system: SYSTEM, parts: [doc, { type: 'text', text: prompt }], output, maxTokens: Math.min(maxTokens, prepared.caps?.maxOutput ?? maxTokens), promptChars: promptChars(), cache: 'auto' }, { signal, onToken })
     }
     const got = await claudeClient()
+    assertPreparedFlow(prepared)
     sdk = got.sdk
     const { client } = got
     // the model the gate routed to; what it can do from its caps (never its id)

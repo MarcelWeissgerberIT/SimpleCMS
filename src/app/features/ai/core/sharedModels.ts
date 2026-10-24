@@ -1,3 +1,5 @@
+import {useWorkspace} from '../../../store/store'
+import {hasFlowLimits} from '@/shared/ai/dataFlow'
 import {useEffect,useSyncExternalStore} from 'react'
 import {useCloud,cloudRequest} from '../../../cloud'
 import {SHARED_PREFIX,SHARED_INPUT_MAX,sharedRequestBox,openShared,type SharedModel,type SharedBox} from '@/shared/ai/shared-model'
@@ -35,6 +37,8 @@ export async function sendSharedText(model:string,messages:{role:'system'|'user'
   const selectedScope=sharedScope(),workspace=useCloud.getState().active.id
   const share=sharedModels().find(r=>SHARED_PREFIX+r.id===model&&r.enabled&&r.online)
   if(!selectedScope||!share?.publicKey)throw new Error('Shared model offline. Refresh the model list.')
+  const workspaceState=useWorkspace.getState()
+  if((hasFlowLimits(workspaceState.ai?.dataFlow)||workspaceState.ai?.policy?.restricted?.length||workspaceState.settings.ai?.restricted?.length)&&!share.dataFlow)throw new Error('Update the model host worker to use explicit data-route boundaries.')
   signal?.throwIfAborted()
   const id=crypto.randomUUID(),payload={model:share.model,messages,maxTokens:Math.min(maxTokens,4096)}
   if(new TextEncoder().encode(JSON.stringify(payload)).length>SHARED_INPUT_MAX)throw new Error('Shared model: select a smaller passage (22 KB maximum).')

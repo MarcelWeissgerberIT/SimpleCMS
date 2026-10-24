@@ -800,6 +800,7 @@ function AskPanel({ question, pageId, onDone, chipHandle, onChipClosed }: { ques
         <RouteChip
           handle={chipHandle}
           purpose="palette.ask"
+          text={question}
           chip={chip}
           onChip={setChip}
           sources={page ? [{ page: page.id }] : []}

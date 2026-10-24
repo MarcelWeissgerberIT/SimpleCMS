@@ -46,6 +46,7 @@ export function whyText(t: T, w: ChoiceWhy | undefined): string {
       if (w.detail === 'pool') return t('features.ai.jev.router.needs2')
       return t('features.ai.prov.chip.why.other')
     case 'policy':
+      if (w.detail === 'destination') return t('features.ai.flow.blocked')
       return t('features.ai.prov.chip.why.rule', { class: w.detail ? t(`features.ai.cls.${w.detail}`) : '—' })
     case 'model_gone':
       return t('features.ai.prov.chip.why.gone')

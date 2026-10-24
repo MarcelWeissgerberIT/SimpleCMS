@@ -1,3 +1,5 @@
+import { DataFlowNotice } from '../ai/data-flow/DataFlowNotice'
+import { codingProvider } from '@/shared/ai/dataFlow'
 import { CopilotTaskOptions, CopilotRunHistory } from './CopilotOptions'
 import { fmtUsd } from '../../lib/money'
 import { useCodingAgentName } from './agent'
@@ -245,6 +247,7 @@ export default function TaskPanel({ pageId }: { pageId: ID }) {
         })}
       </ol>
 
+      {agent && <DataFlowNotice provider={codingProvider(agent) ?? 'anthropic'} sources={[{page:pageId}]} />}
       <CopilotRunHistory taskId={pageId} />
       <div className="ctk-act">
         {!enabled || conn !== 'connected' ? (

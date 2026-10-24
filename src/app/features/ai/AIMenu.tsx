@@ -2158,6 +2158,7 @@ export function AIMenu({ editor, pageId, mode, onClose, runId: openRun, redo, tr
                   chip={chip}
                   onChip={setChip}
                   sources={chipSources}
+                  text={query}
                   needs={chipNeeds}
                   reads={t(wsMode ? 'features.ai.prov.chip.reads.question' : 'features.ai.prov.chip.reads.selection')}
                   disabled={busy}

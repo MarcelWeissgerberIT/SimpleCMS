@@ -1,3 +1,4 @@
+import { assertPreparedFlow } from './gate'
 import { isWorkerProvider } from '@/shared/ai/providers'
 import { sendWorkerText } from './workerModels'
 /**
@@ -113,6 +114,7 @@ export interface NeutralOpts {
 
 /** One request on the neutral wire → the whole turn (or an AIError). */
 export async function sendNeutral(prepared: Prepared, req: ChatRequest, o: NeutralOpts): Promise<Turn> {
+  assertPreparedFlow(prepared)
   const route = prepared.route
   if (!route) throw new AIError('no_key')
   if (route.p === 'copilot') return (await import('./copilotCall')).sendCopilotCompletion(prepared, req, o)
@@ -168,6 +170,7 @@ export async function sendNeutral(prepared: Prepared, req: ChatRequest, o: Neutr
   // who serves is checked as soon as the stream says it: an answer that will be refused never shows (D-S2-16)
   const early = (servedModel: string, up?: string) => checkServed({ served: servedModel, ...(up ? { upstream: up } : {}) }, { requested: route.m, router, pool: lists?.pool, upstreams: pins?.names, deny: upstream.deny, refused: (s) => refusedSlug(s) !== null }).problem
   for (;;) {
+    assertPreparedFlow(prepared)
     let content = false
     let served: string | null = null
     let blocked = false

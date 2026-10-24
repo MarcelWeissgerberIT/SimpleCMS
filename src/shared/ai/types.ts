@@ -147,6 +147,7 @@ export interface Usage {
 
 export interface StepNote {
   k:
+    | 'data-flow'
     | 'capability'
     | 'policy'
     | 'nokey'
@@ -243,6 +244,8 @@ export interface Restriction {
 
 /** Workspace.ai — synced; team: meta map `workspace`, key `ai`, written by owners / admins only (server guard). */
 export interface WorkspaceAI {
+  /** Optional explicit destinations; absent: existing rules, with quiet local hints. */
+  dataFlow?: import('./dataFlow.ts').DataFlowRules
   /** the lowest build generation that enforces every stored rule */
   gen?: number
   policy?: {
@@ -268,6 +271,8 @@ export interface ShortlistRow {
 
 /** settings.ai — this device (team: this member on this device); never in defaultSettings(). */
 export interface DeviceAI {
+  /** Personal hint preference; never loosens a workspace destination rule. */
+  dataFlowHints?: boolean
   routes?: Partial<Record<FeatureClass, RouteRule>>
   default?: RouteRule
   fallbackForChosen?: boolean

@@ -6,6 +6,8 @@ export const SHARED_INPUT_MAX = 22000
 export const SHARED_QUEUE_MAX = 12
 export interface SharedModel {
   id: string; workspace: string; model: string; label: string; owner: string; mine: boolean;
+  /** Host checks local model metadata before sending context to inference. */
+  dataFlow?: boolean;
   enabled: boolean; online: boolean; queued: number; running: boolean; publicKey: SharedPublicKey | null
 }
 export interface SharedText {

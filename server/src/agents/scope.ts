@@ -1,3 +1,5 @@
+import { sanitizeWorkspaceAI } from '../../../src/shared/ai/policy.ts'
+import { modelDestinationAllowed, pageDestinationAllowed } from '../../../src/shared/ai/dataFlow.ts'
 /**
  * What a server agent may see: the workspace's shared meta document only (another member's private
  * pages live in their own documents and are never read), without the trash and templates
@@ -13,6 +15,12 @@ const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 
 /** A page, row or database the agent may read and (with its write mode) change. */
 export function inScope(r: Roots, scope: AgentScope, id: string): boolean {
   if (!pageMap(r, id) || outOfReach(r, id)) return false
+  const ai = sanitizeWorkspaceAI(r.workspace.get('ai'))
+  if (!modelDestinationAllowed('anthropic', ai?.dataFlow)) return false
+  if (ai?.policy?.restricted?.length) {
+    const pages = Object.fromEntries([...r.pages].map(([key]) => [key, { parentId: pageMap(r, key)?.get('parentId') as string | null }]))
+    if (!pageDestinationAllowed('anthropic', id, { pages }, ai.policy.restricted)) return false
+  }
   if (scope.everything) return true
   const roots = new Set([...scope.pages, ...scope.databases])
   const seen = new Set<string>()
@@ -31,7 +39,7 @@ export function inScope(r: Roots, scope: AgentScope, id: string): boolean {
  * in-scope row must not reveal what the agent may not read. (Friendly values: `{ id, title }`.)
  */
 export function redact(r: Roots, scope: AgentScope, value: unknown): unknown {
-  if (scope.everything || !Array.isArray(value)) return value
+  if (!Array.isArray(value)) return value
   return value.map((v) => (isObj(v) && typeof v.id === 'string' && 'title' in v && !inScope(r, scope, v.id) ? { id: v.id, title: '(outside this agent’s scope)' } : v))
 }
 

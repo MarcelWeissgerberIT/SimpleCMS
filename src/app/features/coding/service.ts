@@ -1,3 +1,4 @@
+import { hasFlowLimits, modelDestinationAllowed, mcpDestinationAllowed } from '@/shared/ai/dataFlow'
 import type { WorkerModel, WorkerTextRequest, WorkerTextResult, WorkerMcpRequest } from '@/shared/ai/worker'
 /**
  * Coding pipeline — the tab side of the worker link (features/coding/protocol.ts).
@@ -990,6 +991,11 @@ export function startCoding() {
     else if (!link && now && now.id !== lastWs && get().conn !== 'connecting') reconnect()
   }
   useWorkspace.subscribe((s, prev) => {
+    const boundary = (x: typeof s) => JSON.stringify([x.ai?.dataFlow?.providers, x.ai?.dataFlow?.mcpOrigins, x.ai?.policy?.restricted, x.settings.ai?.restricted])
+    if (s.epoch === prev.epoch && boundary(s) !== boundary(prev) && get().conn === 'connected') {
+      for (const busy of get().busy) void stopTask(busy.taskId).catch(() => {})
+      nudgeWorker()
+    }
     if (s.epoch !== prev.epoch || s.ready !== prev.ready) onWorkspace()
     // tasks changed (a new task, a stage moved): the worker may have work
     if (get().conn !== 'connected' || s.pages === prev.pages) return
@@ -1061,6 +1067,9 @@ export async function requestTextModels(): Promise<WorkerModel[]> {
   return Array.isArray(result) ? result : []
 }
 export async function requestWorkerText(body: WorkerTextRequest, signal?: AbortSignal): Promise<WorkerTextResult> {
+  if (!modelDestinationAllowed(body.provider, useWorkspace.getState().ai?.dataFlow)) throw new Error('Model destination is excluded by the workspace data-flow rule.')
+  const workspace = useWorkspace.getState()
+  if ((hasFlowLimits(workspace.ai?.dataFlow) || workspace.ai?.policy?.restricted?.length || workspace.settings.ai?.restricted?.length) && !get().can?.includes('data-flow')) throw new Error('Update the coding worker to use explicit data-route boundaries.')
   signal?.throwIfAborted()
   const readiness = captureReadiness()
   const requestId = crypto.randomUUID()
@@ -1074,6 +1083,7 @@ export async function requestWorkerText(body: WorkerTextRequest, signal?: AbortS
 }
 
 export async function requestWorkerMcp(body: WorkerMcpRequest, signal?: AbortSignal): Promise<unknown> {
+  if (body.servers.some(s => !mcpDestinationAllowed(s.url, useWorkspace.getState().ai?.dataFlow))) throw new Error('MCP destination is excluded by the workspace data-flow rule.')
   signal?.throwIfAborted()
   const readiness = captureReadiness()
   const requestId = crypto.randomUUID()

@@ -9,6 +9,8 @@
  */
 
 export const GEN = {
+  /** Explicit model/MCP destinations and page/task subtree boundaries. */
+  dataFlow: 6,
   /** a workspace / device rule limits what Claude may receive (multi-provider S2) */
   claudeLimits: 2,
   /** a day / month budget of the workspace or this browser, or the coding worker governed (Regler G1) */
@@ -29,6 +31,7 @@ export type GenTable = Readonly<Partial<Record<string, number>>>
  * GEN_UNNAMED_UPTO only has to exist).
  */
 export const GEN_ENFORCED: Readonly<Record<GenName, string>> = {
+  dataFlow: 'src/shared/ai/policy.ts',
   claudeLimits: 'src/shared/ai/policy.ts',
   budget: 'src/app/features/governor/install.ts',
   workerModels: 'src/shared/ai/policy.ts',

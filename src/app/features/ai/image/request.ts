@@ -13,7 +13,7 @@
 import type AnthropicSDK from '@anthropic-ai/sdk'
 import type { BetaMessageParam } from '@anthropic-ai/sdk/resources/beta/messages/messages'
 import { AIError, claudeClient, finalOf, thinks, toAIError, usesDemo, viaNeutral } from '../client'
-import { capped, prepare, settle, type Prepared } from '../core/gate'
+import { assertPreparedFlow, capped, prepare, settle, type Prepared } from '../core/gate'
 import { imageChars, meterCall, type Receipt } from '../core/meter'
 import type { PurposeId } from '../core/purposes'
 import type { RouteOptions } from '../client'
@@ -161,6 +161,7 @@ export async function requestImage(req: ImageRequest): Promise<string> {
       return await viaNeutral(prepared, call, { system: SYSTEM, parts: [{ type: 'image', mime: image.mediaType, data: image.data }, { type: 'text', text: prompt }], output, maxTokens: 8000, promptChars: promptChars() }, { signal, onToken })
     }
     const got = await claudeClient()
+    assertPreparedFlow(prepared)
     sdk = got.sdk
     const { client } = got
     // the model the gate routed to; what it can do from its caps (never its id)

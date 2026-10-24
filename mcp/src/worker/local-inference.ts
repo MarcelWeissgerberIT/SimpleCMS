@@ -36,6 +36,8 @@ export function withModelProfile(instructions: string, profile: string) {
 export function ollamaInference(base: URL): LocalInference {
   if (!['http:', 'https:'].includes(base.protocol) || !['localhost', '127.0.0.1', '[::1]'].includes(base.hostname) || base.username || base.password || base.search || base.hash) throw new Error('Ollama must run at a loopback URL.')
   const inference: LocalInference = async request => {
+    const metadata = await show(request.model, request.signal)
+    if (metadata.remote_host || metadata.remote_model || request.model.endsWith('-cloud')) throw new Error('A cloud-backed Ollama model cannot run as local inference.')
     const response = await fetch(new URL('/api/chat', base), {
       method: 'POST', redirect: 'error', signal: AbortSignal.any([request.signal, AbortSignal.timeout(180000)]), headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ model: request.model, messages: request.messages, tools: request.tools, stream: false, keep_alive: '30m', options: { num_ctx: request.contextTokens, num_predict: request.outputTokens, temperature: 0.2 } }),

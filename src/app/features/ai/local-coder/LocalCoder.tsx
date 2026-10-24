@@ -1,3 +1,4 @@
+import { AIError } from '../core/errors'
 import { useEffect, useRef, useState } from 'react'
 import { Modal } from '../../../ui/Modal'
 import { Screws } from '../../../ui/controls'
@@ -58,7 +59,7 @@ export function LocalCoder() {
     } catch (e) {
       if (!controller.signal.aborted) {
         const reason = e instanceof CoderError ? e.reason : e instanceof Error && e.message === 'vault' ? 'vault' : 'offline'
-        setError(t(`features.localCoder.error.${reason}`))
+        setError(e instanceof AIError ? e.message : t(`features.localCoder.error.${reason}`))
         if (!run) setReady(false)
       }
     } finally { if (abort.current === controller) { setBusy(false); abort.current = null } }

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// SimpleCMS One — coding worker 1.30.0 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp/src/worker
+// SimpleCMS One — coding worker 1.31.0 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp/src/worker
 // Runs coding tasks from One with Claude Code on this computer. Setup: node one-worker.mjs --help
 // Docs and security model: https://github.com/MarcelWeissgerberIT/SimpleCMS/blob/main/docs/CODING.md
 import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);
@@ -15322,7 +15322,7 @@ var isCodingAgent = (v) => CODING_AGENTS.includes(v);
 var STAGE_KINDS = ["queue", "import", "analyze", "plan", "doc", "gate", "implement", "test", "git", "done"];
 var PERMISSION_MODES = ["plan", "acceptEdits", "default"];
 var GIT_ACTIONS = ["commit", "push", "pr", "update-base", "comment", "merge"];
-var WORKER_CAN = ["shared-models", "source-review", "copilot-options", "text-models", "copilot-chat", "copilot-media", "analyze", "git:comment", "git:merge", "doc", "model", "mcp-list", "ship", "continue", "permission", "agent:codex", "agent:local", "agent:minimax", "agent:ollama", "agent:copilot", "delivery-qa", "harness-quality", "personal-secrets"];
+var WORKER_CAN = ["data-flow", "shared-models", "source-review", "copilot-options", "text-models", "copilot-chat", "copilot-media", "analyze", "git:comment", "git:merge", "doc", "model", "mcp-list", "ship", "continue", "permission", "agent:codex", "agent:local", "agent:minimax", "agent:ollama", "agent:copilot", "delivery-qa", "harness-quality", "personal-secrets"];
 var MODEL_NAME = /^[A-Za-z0-9][A-Za-z0-9._:[\]-]{0,99}$/;
 function cleanModel(v) {
   if (typeof v !== "string") return null;
@@ -16700,6 +16700,8 @@ function withModelProfile(instructions, profile) {
 function ollamaInference(base) {
   if (!["http:", "https:"].includes(base.protocol) || !["localhost", "127.0.0.1", "[::1]"].includes(base.hostname) || base.username || base.password || base.search || base.hash) throw new Error("Ollama must run at a loopback URL.");
   const inference = async (request2) => {
+    const metadata = await show(request2.model, request2.signal);
+    if (metadata.remote_host || metadata.remote_model || request2.model.endsWith("-cloud")) throw new Error("A cloud-backed Ollama model cannot run as local inference.");
     const response = await fetch(new URL("/api/chat", base), {
       method: "POST",
       redirect: "error",
@@ -16712,24 +16714,24 @@ function ollamaInference(base) {
     return { message: data.message, inputTokens: data.prompt_eval_count, outputTokens: data.eval_count };
   };
   let shown2 = null;
-  const show = async (model, signal) => {
+  const show = async (model2, signal) => {
     const response = await fetch(new URL("/api/show", base), {
       method: "POST",
       redirect: "error",
       signal: AbortSignal.any([signal, AbortSignal.timeout(1e4)]),
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model })
+      body: JSON.stringify({ model: model2 })
     });
     if (!response.ok) throw new Error("The selected local model profile could not be loaded. Check that the model is installed.");
     const data = await response.json();
     if (data.system !== void 0 && typeof data.system !== "string") throw new Error("The selected local model profile is invalid.");
     if (typeof data.system === "string" && data.system.length > 5e4) throw new Error("The selected model profile exceeds 50,000 characters. Shorten it before running the task.");
-    shown2 = { model, data };
+    shown2 = { model: model2, data };
     return data;
   };
-  inference.profile = async (model, signal) => (await show(model, signal)).system ?? "";
-  inference.inspect = async (model, signal) => {
-    const d = shown2?.model === model ? shown2.data : await show(model, signal);
+  inference.profile = async (model2, signal) => (await show(model2, signal)).system ?? "";
+  inference.inspect = async (model2, signal) => {
+    const d = shown2?.model === model2 ? shown2.data : await show(model2, signal);
     const caps = Array.isArray(d.capabilities) ? d.capabilities : null;
     const lengths = Object.entries(d.model_info ?? {}).filter(([k, v]) => k.endsWith(".context_length") && typeof v === "number" && v > 0).map(([, v]) => v);
     return {
@@ -17638,9 +17640,9 @@ import { homedir as homedir5, tmpdir as tmpdir2 } from "node:os";
 
 // src/worker/copilot-media.ts
 var TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
-function visionOf(model) {
-  if (model?.capabilities?.supports?.vision !== true) return;
-  const v = model.capabilities.limits?.vision;
+function visionOf(model2) {
+  if (model2?.capabilities?.supports?.vision !== true) return;
+  const v = model2.capabilities.limits?.vision;
   const mediaTypes = TYPES.filter((t) => !Array.isArray(v?.supported_media_types) || v.supported_media_types.includes(t));
   if (!mediaTypes.length) return;
   return { mediaTypes, maxImages: Math.min(WORKER_MEDIA_COUNT, Number.isSafeInteger(v?.max_prompt_images) && v.max_prompt_images > 0 ? v.max_prompt_images : 1), maxBytes: Math.min(WORKER_MEDIA_BYTES, Number.isSafeInteger(v?.max_prompt_image_size) && v.max_prompt_image_size > 0 ? v.max_prompt_image_size : WORKER_MEDIA_BYTES) };
@@ -17891,14 +17893,14 @@ function parseCopilotAnswer(raw, tools) {
   });
   return { message: { role: "assistant", content: data.content, ...calls.length ? { tool_calls: calls } : {} } };
 }
-function copilotInference(model = "auto", env = process.env, options = {}) {
-  if (!validCopilotModel(model)) throw new Error("Invalid Copilot model ID.");
+function copilotInference(model2 = "auto", env = process.env, options = {}) {
+  if (!validCopilotModel(model2)) throw new Error("Invalid Copilot model ID.");
   const inference = async (request2) => session(env, request2.signal, async (rpc, dir) => {
     const auth2 = await rpc.sendRequest("auth.getStatus", {});
     if (auth2?.isAuthenticated !== true) throw new Error("Copilot is not signed in. Run copilot login on this computer; a Copilot IDE license alone does not confirm CLI access.");
-    if (model !== "auto" || request2.attachments?.length || options.reasoningEffort) {
+    if (model2 !== "auto" || request2.attachments?.length || options.reasoningEffort) {
       const result = await rpc.sendRequest("models.list", {}), models = Array.isArray(result) ? result : result?.models;
-      const selected = Array.isArray(models) ? models.find((m) => m.id === model && m.policy?.state !== "disabled") : null;
+      const selected = Array.isArray(models) ? models.find((m) => m.id === model2 && m.policy?.state !== "disabled") : null;
       if (!selected) throw new Error("The selected Copilot model is not available under this login/policy. Choose an available model on the worker setup page; no fallback was used.");
       checkAttachments(request2.attachments, visionOf(selected));
       if (options.reasoningEffort && (!validEffort(options.reasoningEffort) || !selected.supportedReasoningEfforts?.includes(options.reasoningEffort))) throw new Error("The selected Copilot model does not advertise this reasoning effort. Choose a supported effort or the model default.");
@@ -17949,8 +17951,8 @@ function copilotInference(model = "auto", env = process.env, options = {}) {
       const created = await rpc.sendRequest("session.create", {
         sessionId: id,
         clientName: "one-worker",
-        model,
-        ...model === "auto" ? {} : { allowedModels: [model] },
+        model: model2,
+        ...model2 === "auto" ? {} : { allowedModels: [model2] },
         ...options.reasoningEffort ? { reasoningEffort: options.reasoningEffort } : {},
         workingDirectory: dir,
         tools: [],
@@ -18015,15 +18017,15 @@ function copilotUsage(d) {
 // src/worker/copilot-run.ts
 async function prepareCopilotRun(defaultModel, choice, source, env = process.env) {
   if (choice !== void 0 && !readCopilotChoice(choice)) throw new Error("Invalid Copilot task options.");
-  const model = choice?.model ?? defaultModel;
+  const model2 = choice?.model ?? defaultModel;
   const probe = await probeCopilot(env);
-  if (!probe.authenticated || !probe.models.length || model !== "auto" && !probe.models.includes(model)) throw new Error("Copilot model preflight failed. Check CLI login, model availability and organization policy. No model prompt was sent; no fallback was used.");
+  if (!probe.authenticated || !probe.models.length || model2 !== "auto" && !probe.models.includes(model2)) throw new Error("Copilot model preflight failed. Check CLI login, model availability and organization policy. No model prompt was sent; no fallback was used.");
   const effort = choice?.reasoningEffort;
-  if (effort && (model === "auto" || !("efforts" in probe) || !probe.efforts[model]?.includes(effort))) throw new Error("This Copilot model does not advertise the selected reasoning effort. Choose a supported effort or the model default. No model prompt was sent.");
-  const native = "contexts" in probe ? probe.contexts[model] : void 0;
+  if (effort && (model2 === "auto" || !("efforts" in probe) || !probe.efforts[model2]?.includes(effort))) throw new Error("This Copilot model does not advertise the selected reasoning effort. Choose a supported effort or the model default. No model prompt was sent.");
+  const native = "contexts" in probe ? probe.contexts[model2] : void 0;
   const tokens = Math.min(choice?.contextTokens ?? COPILOT_CONTEXT_MAX, native ?? COPILOT_CONTEXT, COPILOT_CONTEXT_MAX);
   if (tokens < 16384) throw new Error("This Copilot model advertises too little context for the coding harness. Choose another model.");
-  const receipt = { provider: "copilot", requestedModel: model, source, ...effort ? { requestedEffort: effort } : {}, contextTokens: tokens, startedAt: Date.now(), finishedAt: Date.now(), rounds: 0, formatRepairs: 0, usageReports: 0, models: [], reasoningEfforts: [], inputTokens: null, outputTokens: null, nanoAiu: null, quotas: [] };
+  const receipt = { provider: "copilot", requestedModel: model2, source, ...effort ? { requestedEffort: effort } : {}, contextTokens: tokens, startedAt: Date.now(), finishedAt: Date.now(), rounds: 0, formatRepairs: 0, usageReports: 0, models: [], reasoningEfforts: [], inputTokens: null, outputTokens: null, nanoAiu: null, quotas: [] };
   const onUsage = (u) => {
     receipt.usageReports++;
     if (u.model && !receipt.models.includes(u.model) && receipt.models.length < 40) receipt.models.push(u.model);
@@ -18032,7 +18034,7 @@ async function prepareCopilotRun(defaultModel, choice, source, env = process.env
     if (u.quotas.length) receipt.quotas = u.quotas;
   };
   let missingUsage = false;
-  const adapter = copilotInference(model, env, { reasoningEffort: effort, onUsage, onFormatRepair: () => {
+  const adapter = copilotInference(model2, env, { reasoningEffort: effort, onUsage, onFormatRepair: () => {
     receipt.formatRepairs = (receipt.formatRepairs ?? 0) + 1;
   } });
   const inference = async (request2) => {
@@ -18046,7 +18048,7 @@ async function prepareCopilotRun(defaultModel, choice, source, env = process.env
   };
   inference.unmetered = true;
   inference.served = () => receipt.models.at(-1) ?? null;
-  return { model, inference, outputTokens: 8192, context: { tokens, inputLimit: tokens - 8192, chars: (tokens - 8192) * 1.5 }, receipt: () => ({ ...receipt, ...missingUsage ? { inputTokens: null, outputTokens: null, nanoAiu: null } : {}, finishedAt: Date.now() }) };
+  return { model: model2, inference, outputTokens: 8192, context: { tokens, inputLimit: tokens - 8192, chars: (tokens - 8192) * 1.5 }, receipt: () => ({ ...receipt, ...missingUsage ? { inputTokens: null, outputTokens: null, nanoAiu: null } : {}, finishedAt: Date.now() }) };
 }
 
 // node_modules/@modelcontextprotocol/sdk/dist/esm/validation/ajv-provider.js
@@ -18123,7 +18125,7 @@ async function copilotModels() {
   const key = JSON.stringify([process.env.COPILOT_BIN, process.env.COPILOT_GITHUB_TOKEN, process.env.GH_TOKEN, process.env.GITHUB_TOKEN]);
   if (copilotCatalog?.key === key && copilotCatalog.until > Date.now()) return copilotCatalog.rows;
   const result = await probeCopilot();
-  const rows = result.authenticated ? result.models.filter(validCopilotModel).map((model) => ({ provider: "copilot", model, context: "contexts" in result ? result.contexts[model] ?? COPILOT_CONTEXT : COPILOT_CONTEXT, chat: true, maxOutput: 8192, ..."efforts" in result && result.efforts[model]?.length ? { reasoningEfforts: result.efforts[model] } : {}, ..."visions" in result && result.visions[model] ? { vision: result.visions[model] } : {} })) : [];
+  const rows = result.authenticated ? result.models.filter(validCopilotModel).map((model2) => ({ provider: "copilot", model: model2, context: "contexts" in result ? result.contexts[model2] ?? COPILOT_CONTEXT : COPILOT_CONTEXT, chat: true, maxOutput: 8192, ..."efforts" in result && result.efforts[model2]?.length ? { reasoningEfforts: result.efforts[model2] } : {}, ..."visions" in result && result.visions[model2] ? { vision: result.visions[model2] } : {} })) : [];
   copilotCatalog = { key, until: Date.now() + 3e4, rows };
   return rows;
 }
@@ -18171,7 +18173,7 @@ async function textModels(file) {
       }
     } catch {
     }
-    for (const model of [...new Set(known)]) if (validWorkerModel(model)) out.push({ provider: "codex", model, context: 64e3 });
+    for (const model2 of [...new Set(known)]) if (validWorkerModel(model2)) out.push({ provider: "codex", model: model2, context: 64e3 });
   }
   try {
     out.push(...await copilotModels());
@@ -18197,18 +18199,18 @@ function checkTextRequest(raw) {
 }
 async function textRequest(file, raw, signal) {
   const r = checkTextRequest(raw);
-  const model = (await (r.provider === "copilot" ? copilotModels() : textModels(file))).find((m) => m.provider === r.provider && m.model === r.model);
-  if (!model) throw new Error("This model is no longer available on the worker. Refresh the model list.");
-  if ((r.attachments?.length ?? 0) * 4096 + Math.ceil(Buffer.byteLength(JSON.stringify([r.messages, r.tools, r.schema])) / (r.provider === "copilot" ? 1.5 : 1)) + Math.min(r.maxTokens, r.provider === "copilot" ? 8192 : 16384) + 2048 > model.context) throw new Error("The text exceeds this model\u2019s conservative context limit. Select a smaller passage.");
+  const model2 = (await (r.provider === "copilot" ? copilotModels() : textModels(file))).find((m) => m.provider === r.provider && m.model === r.model);
+  if (!model2) throw new Error("This model is no longer available on the worker. Refresh the model list.");
+  if ((r.attachments?.length ?? 0) * 4096 + Math.ceil(Buffer.byteLength(JSON.stringify([r.messages, r.tools, r.schema])) / (r.provider === "copilot" ? 1.5 : 1)) + Math.min(r.maxTokens, r.provider === "copilot" ? 8192 : 16384) + 2048 > model2.context) throw new Error("The text exceeds this model\u2019s conservative context limit. Select a smaller passage.");
   if (r.provider === "copilot") {
-    const attachments = checkAttachments(r.attachments, model.vision);
+    const attachments = checkAttachments(r.attachments, model2.vision);
     const tools = (r.tools ?? []).map((t) => ({ type: "function", function: t }));
     const validator = new AjvJsonSchemaValidator();
     const output = r.schema ? validator.getValidator(r.schema) : null;
     const inputs = new Map((r.tools ?? []).map((t) => [t.name, validator.getValidator(t.parameters)]));
     const messages = r.schema ? [{ role: "system", content: "Return an answer matching this JSON schema. Put the JSON answer as a string in the harness content field. Schema: " + JSON.stringify(r.schema) }, ...r.messages] : r.messages;
-    const run2 = await prepareCopilotRun(r.model, { model: r.model, contextTokens: model.context }, "task");
-    const data2 = await run2.inference({ model: r.model, messages, tools, contextTokens: model.context, outputTokens: Math.min(r.maxTokens, 8192), attachments, signal });
+    const run2 = await prepareCopilotRun(r.model, { model: r.model, contextTokens: model2.context }, "task");
+    const data2 = await run2.inference({ model: r.model, messages, tools, contextTokens: model2.context, outputTokens: Math.min(r.maxTokens, 8192), attachments, signal });
     const calls = (data2.message.tool_calls ?? []).map((c) => ({ id: c.id, name: c.function.name, arguments: c.function.arguments }));
     if (calls.length && !tools.length) throw new Error("Copilot returned unexpected tools.");
     for (const call of calls) if (!inputs.get(call.name)?.(call.arguments).valid) throw new Error("Copilot returned invalid function arguments; no tool was executed.");
@@ -18242,17 +18244,17 @@ async function textRequest(file, raw, signal) {
     const data2 = await res.json();
     if (data2.remote_host || data2.remote_model) throw new Error("This is a cloud model. Choose Ollama Cloud explicitly.");
   }
-  const data = await inference({ model: r.model, messages: r.messages, tools: [], contextTokens: model.context, outputTokens: r.maxTokens, signal });
+  const data = await inference({ model: r.model, messages: r.messages, tools: [], contextTokens: model2.context, outputTokens: r.maxTokens, signal });
   if (data.message?.tool_calls?.length || typeof data.message?.content !== "string") throw new Error("The model did not return a plain text answer.");
   if (Buffer.byteLength(data.message.content) > 25e4) throw new Error("Model answer is too large.");
   return { model: r.model, text: data.message.content, inputTokens: data.inputTokens ?? null, outputTokens: data.outputTokens ?? null, usd: r.provider === "local" ? 0 : inference.cost?.() ?? null };
 }
 
 // src/worker/demo-compare.ts
-async function demoCopilot(messages, maxTokens, model = "auto", env = process.env) {
-  const run2 = await prepareCopilotRun(model, { model, contextTokens: 32768 }, "task", env);
+async function demoCopilot(messages, maxTokens, model2 = "auto", env = process.env) {
+  const run2 = await prepareCopilotRun(model2, { model: model2, contextTokens: 32768 }, "task", env);
   try {
-    const reply = await run2.inference({ model, messages, tools: [], contextTokens: run2.context.tokens, outputTokens: Math.min(maxTokens, 4096), signal: AbortSignal.timeout(18e4) });
+    const reply = await run2.inference({ model: model2, messages, tools: [], contextTokens: run2.context.tokens, outputTokens: Math.min(maxTokens, 4096), signal: AbortSignal.timeout(18e4) });
     if (reply.message?.tool_calls?.length || typeof reply.message?.content !== "string") throw new Error("Copilot returned an invalid text answer");
     return { model: run2.model, text: reply.message.content, inputTokens: reply.inputTokens ?? null, outputTokens: reply.outputTokens ?? null, usd: null, copilotReceipt: run2.receipt() };
   } catch (e) {
@@ -18530,11 +18532,11 @@ function claudeConfig(raw, where, problems, trusted) {
       else problems.push(`${where}: claude.permissionMode.${kind} ${JSON.stringify(mode)} is not allowed (${PERMISSION_MODES.join(", ")} \u2014 never one that skips permissions)`);
     }
   }
-  const model = cleanModel(c.model);
+  const model2 = cleanModel(c.model);
   const set2 = typeof c.projectSettings === "boolean";
   if (c.projectSettings !== void 0 && !set2) problems.push(`${where}: claude.projectSettings must be true or false \u2014 ${trusted ? "true" : "false"} is used`);
   return {
-    model,
+    model: model2,
     maxTurns: Math.floor(num(c.maxTurns, 30, 1, 200)),
     permissionMode: modes,
     allowedTools: strings(c.allowedTools),
@@ -18993,10 +18995,10 @@ var PRICES = [
   [/haiku-5-5/, 0.1, 0.5, 0.1, { over: 1e5, input: 0.5, output: 2.5 }],
   [/haiku-4-5/, 1, 5, 0.1]
 ];
-function estimateCost(model, usages) {
-  const row = model ? PRICES.find(([re]) => re.test(model)) : void 0;
-  if (!row) return null;
-  const [, baseIn, baseOut, read2, long] = row;
+function estimateCost(model2, usages) {
+  const row2 = model2 ? PRICES.find(([re]) => re.test(model2)) : void 0;
+  if (!row2) return null;
+  const [, baseIn, baseOut, read2, long] = row2;
   let usd2 = 0;
   for (const u of usages) {
     const tier = long && u.input + u.cacheWrite + u.cacheRead > long.over ? long : null;
@@ -19289,13 +19291,13 @@ function runClaude(r) {
     let gotResult = false;
     const scrub = r.scrub ?? same2;
     const log2 = (k, s, c, v) => r.onLog({ t: Date.now(), k, s, ...c ? { c, v } : {} });
-    let model = null;
+    let model2 = null;
     let turns = 0;
     let unnamed = 0;
     let planFile = null;
     const usages = /* @__PURE__ */ new Map();
     const toolNames = /* @__PURE__ */ new Map();
-    const progress = () => r.onProgress?.({ turns, maxTurns: r.maxTurns, cost: estimateCost(model, usages.values()), model });
+    const progress = () => r.onProgress?.({ turns, maxTurns: r.maxTurns, cost: estimateCost(model2, usages.values()), model: model2 });
     const started = Date.now();
     let heard = started;
     const quietMs = Number(process.env.ONE_WORKER_QUIET_MS) || 6e4;
@@ -19350,7 +19352,7 @@ Claude Code could not start (${e.code ?? e.name})`;
       switch (ev.type) {
         case "system":
           if (ev.subtype === "init") {
-            if (typeof ev.model === "string") model = ev.model;
+            if (typeof ev.model === "string") model2 = ev.model;
             const m = String(ev.permissionMode ?? r.mode);
             log2("info", `Claude Code started \xB7 ${m} mode${result.sessionId ? ` \xB7 session ${result.sessionId.slice(0, 8)}` : ""}`, "claudeStarted", { mode: m });
             progress();
@@ -19361,7 +19363,7 @@ Claude Code could not start (${e.code ?? e.name})`;
           const id = typeof message.id === "string" ? message.id : `n${++unnamed}`;
           if (!usages.has(id)) turns++;
           usages.set(id, usageOf(message.usage) ?? usages.get(id) ?? { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 });
-          if (typeof message.model === "string") model = message.model;
+          if (typeof message.model === "string") model2 = message.model;
           progress();
           const content = ev.message?.content ?? [];
           for (const block of Array.isArray(content) ? content : []) {
@@ -19411,7 +19413,7 @@ Claude Code could not start (${e.code ?? e.name})`;
           result.text = typeof ev.result === "string" ? ev.result : "";
           result.ok = ev.is_error !== true && result.subtype === "success";
           if (!result.ok) result.error = result.subtype === "error_max_turns" ? `Claude Code stopped after ${result.turns} turns (the stage's limit)` : /budget/i.test(result.subtype ?? "") ? "Claude Code stopped at the cost limit" : result.text || `Claude Code ended with ${result.subtype ?? "an error"}`;
-          r.onProgress?.({ turns: Math.max(turns, result.turns), maxTurns: r.maxTurns, cost: result.cost, model });
+          r.onProgress?.({ turns: Math.max(turns, result.turns), maxTurns: r.maxTurns, cost: result.cost, model: model2 });
           const why2 = result.ok ? "success" : result.subtype && result.subtype !== "success" ? result.subtype : "error";
           log2(result.ok ? "info" : "warn", `Claude Code finished \xB7 ${result.turns} turns \xB7 $${result.cost.toFixed(2)}${result.ok ? "" : ` \xB7 ${why2}`}`, result.ok ? "claudeDone" : "claudeEnded", { turns: result.turns, cost: result.cost.toFixed(2), why: why2 });
           if (!result.ok && SIGNED_OUT.test(result.text)) {
@@ -19463,6 +19465,151 @@ Claude Code could not start (${e.code ?? e.name})`;
     child.on("close", (code) => void finish(code));
   });
 }
+
+// ../src/shared/ai/shared-model.ts
+var SHARED_INPUT_MAX = 22e3;
+var bytes = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+var b64 = (b) => {
+  let s = "";
+  for (const c of new Uint8Array(b)) s += String.fromCharCode(c);
+  return btoa(s);
+};
+var context = (share, id) => new TextEncoder().encode(`one-model-share:v1:${share}:${id}`);
+async function modelShareKey() {
+  return globalThis.crypto.subtle.generateKey({ name: "RSA-OAEP", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" }, true, ["wrapKey", "unwrapKey"]);
+}
+async function sealShared(value2, key, share, id) {
+  const iv = globalThis.crypto.getRandomValues(new Uint8Array(12));
+  const data = await globalThis.crypto.subtle.encrypt({ name: "AES-GCM", iv, additionalData: context(share, id) }, key, new TextEncoder().encode(JSON.stringify(value2)));
+  return { v: 1, iv: b64(iv), data: b64(data) };
+}
+async function openShared(box, key, share, id) {
+  const data = await globalThis.crypto.subtle.decrypt({ name: "AES-GCM", iv: bytes(box.iv), additionalData: context(share, id) }, key, bytes(box.data));
+  return JSON.parse(new TextDecoder().decode(data));
+}
+async function sharedWorkerKey(box, key) {
+  if (!box.key) throw new Error("Missing request key");
+  return globalThis.crypto.subtle.unwrapKey("raw", bytes(box.key), key, { name: "RSA-OAEP" }, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+}
+
+// ../src/shared/ai/prices.ts
+var PRICES_DATE = "2026-10-12";
+var row = (cols, overrides) => ({ ...cols, ...overrides ? { overrides } : {}, source: "table", at: PRICES_DATE });
+var times = (c, k, minPrompt) => ({
+  minPrompt,
+  input: c.input * k,
+  output: c.output * k,
+  cacheRead: c.cacheRead * k,
+  cacheWrite: c.cacheWrite * k,
+  ...c.cacheWrite1h !== void 0 ? { cacheWrite1h: c.cacheWrite1h * k } : {}
+});
+var HAIKU_55 = { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125, cacheWrite1h: 0.2 };
+var openaiLong = (c) => ({ minPrompt: 272e3, input: c.input * 2, cacheRead: c.cacheRead * 2, cacheWrite: c.cacheWrite * 2, output: c.output * 1.5 });
+var LUNA = { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125 };
+var SOL = { input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2.5 };
+var ASTRA = { input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5 };
+var PRICES2 = {
+  "anthropic:claude-opus-5-5": row({ input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5, cacheWrite1h: 8 }),
+  // Sonnet 5.5 cache reads are $0.10 (One said $0.20 before)
+  "anthropic:claude-sonnet-5-5": row({ input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2.5, cacheWrite1h: 4 }),
+  "anthropic:claude-haiku-4-5": row({ input: 1, output: 5, cacheRead: 0.1, cacheWrite: 1.25, cacheWrite1h: 2 }),
+  "anthropic:claude-haiku-5-5": row(HAIKU_55, [times(HAIKU_55, 5, 1e5)]),
+  "openai:gpt-6-luna": row(LUNA, [openaiLong(LUNA)]),
+  "openai:gpt-6.1-sol": row(SOL, [openaiLong(SOL)]),
+  "openai:gpt-6-astra": row(ASTRA, [openaiLong(ASTRA)])
+};
+function priceRow(route) {
+  return PRICES2[`${route.p}:${route.m}`] ?? (route.p === "openrouter" ? null : PRICES2[`${route.p}:${route.m.replace(/-\d{8}$/, "")}`] ?? null);
+}
+
+// ../src/shared/ai/models.ts
+var STORED_PROVIDERS = ["anthropic", "openai", "openrouter", "local", "ollama", "minimax", "codex", "copilot"];
+var MB = 1024 * 1024;
+var CLAUDE_55 = {
+  structured: true,
+  tools: true,
+  vision: { maxEdge: 1568, maxBytes: 5 * MB },
+  pdf: { maxBytes: 23 * MB, maxPages: 600 },
+  mcp: "connector",
+  mcpListing: true,
+  cache: "auto+block",
+  effort: ["low", "medium", "high"],
+  reasoning: { mandatory: true },
+  web: false,
+  notes: true,
+  refusalFallback: true,
+  context: 1e6,
+  maxOutput: 128e3
+};
+var CLAUDE_HAIKU_45 = {
+  ...CLAUDE_55,
+  pdf: { maxBytes: 23 * MB, maxPages: 100 },
+  effort: false,
+  reasoning: false,
+  notes: false,
+  refusalFallback: false,
+  context: 2e5,
+  maxOutput: 64e3
+};
+var CLAUDE_HAIKU_55 = { ...CLAUDE_HAIKU_45, context: 1e6 };
+var OPENAI_6 = {
+  structured: true,
+  tools: true,
+  vision: { maxEdge: 2048, maxBytes: 10 * MB },
+  pdf: { maxBytes: 23 * MB, maxPages: 600 },
+  mcp: "allow-only",
+  mcpListing: true,
+  cache: "auto",
+  effort: ["low", "medium", "high"],
+  reasoning: { mandatory: true, minEffort: "low" },
+  web: false,
+  notes: true,
+  refusalFallback: false,
+  context: 105e4,
+  maxOutput: 128e3
+};
+var model = (p, m, label, short, vendor, caps, selectable, role) => ({
+  route: { p, m },
+  label,
+  short,
+  vendor,
+  ...role ? { role } : {},
+  caps,
+  price: priceRow({ p, m }),
+  selectable
+});
+var MODELS = [
+  model("anthropic", "claude-opus-5-5", "Claude Opus 5.5", "OPUS 5.5", "anthropic", CLAUDE_55, true, "deep"),
+  model("anthropic", "claude-sonnet-5-5", "Claude Sonnet 5.5", "SONNET 5.5", "anthropic", CLAUDE_55, true, "standard"),
+  model("anthropic", "claude-haiku-4-5", "Claude Haiku 4.5", "HAIKU 4.5", "anthropic", CLAUDE_HAIKU_45, true, "fast"),
+  model("anthropic", "claude-haiku-5-5", "Claude Haiku 5.5", "HAIKU 5.5", "anthropic", CLAUDE_HAIKU_55, false),
+  model("openai", "gpt-6-luna", "GPT-6 Luna", "LUNA", "openai", { ...OPENAI_6, reasoning: { mandatory: false } }, false, "fast"),
+  model("openai", "gpt-6.1-sol", "GPT-6.1 Sol", "SOL 6.1", "openai", OPENAI_6, false, "standard"),
+  model("openai", "gpt-6-astra", "GPT-6 Astra", "ASTRA", "openai", OPENAI_6, false, "deep")
+];
+
+// ../src/shared/ai/dataFlow.ts
+function originOf(raw) {
+  if (typeof raw !== "string" || raw.length > 500) return null;
+  try {
+    const u = new URL(raw);
+    return ["https:", "http:"].includes(u.protocol) && !u.username && !u.password ? u.origin : null;
+  } catch {
+    return null;
+  }
+}
+function readDataFlow(v) {
+  if (v === void 0) return void 0;
+  if (!v || typeof v !== "object" || Array.isArray(v)) return { providers: [], mcpOrigins: [] };
+  const x2 = v, out = {};
+  if (Object.hasOwn(x2, "providers")) out.providers = Array.isArray(x2.providers) ? [...new Set(x2.providers.filter((p) => STORED_PROVIDERS.includes(p)))] : [];
+  if (Object.hasOwn(x2, "mcpOrigins")) out.mcpOrigins = Array.isArray(x2.mcpOrigins) ? [...new Set(x2.mcpOrigins.map(originOf).filter((s) => !!s))].slice(0, 64) : [];
+  if (x2.hints === "quiet" || x2.hints === "off") out.hints = x2.hints;
+  return Object.keys(out).length ? out : void 0;
+}
+var modelDestinationAllowed = (p, flow) => !flow?.providers || flow.providers.includes(p);
+var mcpDestinationAllowed = (url2, flow) => !flow?.mcpOrigins || flow.mcpOrigins.includes(originOf(url2) ?? "");
+var codingProvider = (agent) => agent === "claude" ? "anthropic" : STORED_PROVIDERS.includes(agent) ? agent : null;
 
 // src/worker/qa-repair.ts
 import { createHash as createHash3, randomBytes as randomBytes7 } from "node:crypto";
@@ -19999,9 +20146,9 @@ function readCopilot(workerFile, env = process.env) {
     }
     if (!raw || typeof raw !== "object" || Array.isArray(raw) || Object.keys(raw).some((k) => k !== "model") || !validCopilotModel(raw.model)) throw new Error("Invalid Copilot settings. Save the model again on the worker setup page.");
   }
-  const model = env.ONE_COPILOT_MODEL?.trim() || raw.model || "auto";
-  if (!validCopilotModel(model)) throw new Error("Invalid Copilot model ID.");
-  return { model };
+  const model2 = env.ONE_COPILOT_MODEL?.trim() || raw.model || "auto";
+  if (!validCopilotModel(model2)) throw new Error("Invalid Copilot model ID.");
+  return { model: model2 };
 }
 function copilotStatus(workerFile) {
   try {
@@ -38415,8 +38562,10 @@ var LocalMcp = class {
   oauth = [];
   memoryOnly = /* @__PURE__ */ new Set();
   memoryTenants = /* @__PURE__ */ new Map();
-  constructor(readOnly) {
+  origins;
+  constructor(readOnly, origins) {
     this.readOnly = readOnly;
+    this.origins = origins;
   }
   async connect(names2, env, signal, configFile2 = env.ONE_CODER_MCP_CONFIG || join16(homedir10(), ".claude.json"), supplied) {
     if (!names2.length) return;
@@ -38439,6 +38588,7 @@ var LocalMcp = class {
       try {
         const entry = config2[name];
         if (!object5(entry) || entry.disabled === true) throw new Error("Missing server");
+        if (this.origins && (typeof entry.url !== "string" || !mcpDestinationAllowed(expand(entry.url, env), { mcpOrigins: this.origins }))) throw new Error("MCP destination is outside the task data-flow rule.");
         if (strings2(entry.oneMemoryProjects)) this.memoryProjects.set(name, entry.oneMemoryProjects);
         if (entry.oneTaskMemoryOnly === true) this.memoryOnly.add(name);
         if (entry.oneTaskMemoryOnly === true && typeof entry.oneMemoryTenant === "string" && /^[a-z0-9][a-z0-9_-]{0,99}$/.test(entry.oneMemoryTenant)) this.memoryTenants.set(name, entry.oneMemoryTenant);
@@ -38601,7 +38751,7 @@ async function runLocal(opts) {
   const result = { ok: false, stopped: false, limited: false, text: "", steps: 0 };
   const root = await realpath3(opts.cwd);
   const env = opts.env ?? process.env;
-  const model = opts.model || env.ONE_CODER_MODEL || "marcel-coder:latest";
+  const model2 = opts.model || env.ONE_CODER_MODEL || "marcel-coder:latest";
   const budget = opts.context ?? localContext(env);
   const inference = opts.inference ?? ollamaInference(new URL(env.ONE_CODER_OLLAMA || "http://127.0.0.1:11434"));
   const secrets = secretValues(env);
@@ -38612,13 +38762,13 @@ async function runLocal(opts) {
   delete toolEnv.GITHUB_TOKEN;
   delete toolEnv.OLLAMA_API_KEY;
   const files = new LocalFiles(root);
-  const external = new LocalMcp(opts.readOnly);
+  const external = new LocalMcp(opts.readOnly, opts.mcpOrigins);
   const clean = (s) => external.redact(scrubSecretText(opts.scrub ? opts.scrub(s) : s, secrets));
   const sources = new ReviewSources();
   const memory = new LocalMemory(clean);
   const progress = new LocalProgress();
   const started = Date.now();
-  const stats = { v: 1, model, profileHash: "", contextTokens: budget.tokens, rounds: 0, toolCalls: 0, toolErrors: 0, compactions: 0, maxInputTokens: 0, verificationRuns: 0, formatRepairs: 0, methods: [], modelFacts: null };
+  const stats = { v: 1, model: model2, profileHash: "", contextTokens: budget.tokens, rounds: 0, toolCalls: 0, toolErrors: 0, compactions: 0, maxInputTokens: 0, verificationRuns: 0, formatRepairs: 0, methods: [], modelFacts: null };
   const emit = () => opts.log({ t: Date.now(), k: "info", s: clean("Harness receipt: " + JSON.stringify({ ...stats, ms: Date.now() - started })) });
   const limited = (error2) => ({ ...result, limited: true, error: error2 + "\n" + memory.report(), text: memory.report() });
   const tools = [
@@ -38736,9 +38886,9 @@ Private Atlas checkpoint: /r/${ref}.`;
       }
     }
     const project = clean(await files.projectContext());
-    const profile = clean(await inference.profile?.(model, signal) ?? "");
+    const profile = clean(await inference.profile?.(model2, signal) ?? "");
     stats.profileHash = createHash8("sha256").update(profile).digest("hex");
-    const facts = await inference.inspect?.(model, signal);
+    const facts = await inference.inspect?.(model2, signal);
     stats.modelFacts = facts ?? { tools: null, nativeContext: null };
     if (facts?.tools === false) throw new Error("This model does not advertise native tool calling. Choose a tool-capable coding model.");
     if (facts?.nativeContext && budget.tokens > facts.nativeContext) throw new Error("Configured context exceeds the model\u2019s declared native limit. Select a smaller context.");
@@ -38776,9 +38926,9 @@ Private Atlas checkpoint: /r/${ref}.`;
       if (JSON.stringify({ messages, tools }).length > charBudget) return limited("The initial task or selected context exceeds this model profile. Select narrower excerpts.");
       signal.throwIfAborted();
       stats.rounds++;
-      const data = await inference({ model, messages, tools, contextTokens: budget.tokens, outputTokens: opts.outputTokens ?? 4096, signal });
+      const data = await inference({ model: model2, messages, tools, contextTokens: budget.tokens, outputTokens: opts.outputTokens ?? 4096, signal });
       result.cost = inference.unmetered ? void 0 : inference.cost?.() ?? 0;
-      opts.progress?.({ turns: result.steps, maxTurns: opts.maxSteps, cost: result.cost ?? null, model: inference.served?.() ?? model });
+      opts.progress?.({ turns: result.steps, maxTurns: opts.maxSteps, cost: result.cost ?? null, model: inference.served?.() ?? model2 });
       stats.maxInputTokens = Math.max(stats.maxInputTokens, data.inputTokens ?? 0);
       if ((data.inputTokens ?? 0) >= budget.inputLimit) return limited("The local prompt is near the context limit. No proposed tool call was executed.");
       if (data.inputTokens && data.inputTokens > 0) charBudget = Math.min(charBudget, Math.floor(JSON.stringify({ messages, tools }).length / data.inputTokens * budget.inputLimit * 0.8));
@@ -38929,7 +39079,7 @@ Next: ${args.next}`), text: clean(args.summary) };
         }
         if (failed) stats.toolErrors++;
         opts.log({ t: Date.now(), k: "info", s: clean(`${name}: ${typeof args.path === "string" ? args.path.slice(0, 300) : "task tool"}`) });
-        opts.progress?.({ turns: result.steps, maxTurns: opts.maxSteps, cost: result.cost ?? (inference.unmetered ? null : 0), model: inference.served?.() ?? model });
+        opts.progress?.({ turns: result.steps, maxTurns: opts.maxSteps, cost: result.cost ?? (inference.unmetered ? null : 0), model: inference.served?.() ?? model2 });
         const text2 = clean(typeof output === "string" ? output : JSON.stringify(output));
         const sensitive = name === "mcp_call_tool" && /token|secret|credential|password|oauth/i.test(String(args.name));
         if (journaled && !failed) memory.finishOperation(name, args, sensitive ? "[Credential-bearing tool result omitted from task memory.]" : text2);
@@ -39174,6 +39324,8 @@ async function gitSnapshot(ctx, wt, scrub) {
 }
 async function runStage(ctx) {
   const { repo, task } = ctx;
+  const destination = codingProvider(task.agent ?? "claude");
+  if (task.dataFlow && (!destination || ["plan", "implement", "doc"].includes(task.stage.kind) && !modelDestinationAllowed(destination, task.dataFlow))) return { status: "refused", error: "The task data-flow rule excludes this model destination." };
   const own2 = { ...repo, scratch: ctx.scratch ?? null };
   let scrub = repoScrubber(own2, null, { secrets: [...secretValues(), ...(task.personalMcp ?? []).map((e) => ({ name: "PERSONAL_MCP_TOKEN", value: e.token }))] });
   const log2 = (k, s, c, v) => ctx.log({ t: Date.now(), k, s: scrub.text(s), ...c ? { c, v: scrubVars(scrub, v) } : {} });
@@ -39323,8 +39475,8 @@ async function claudeStage(ctx, wt, scrub, log2) {
   const plan = task.stage.kind === "plan";
   const mode = plan ? "plan" : repo.claude.permissionMode.implement ?? task.stage.permissionMode;
   const mcp = ctx.taskMcp ? writeMcpConfig(ctx.taskMcp) : null;
-  const model = stageModel(task, repo);
-  logModel(log2, model);
+  const model2 = stageModel(task, repo);
+  logModel(log2, model2);
   const maxTurns = turnsOf(task, repo);
   const extras = claudeExtras(ctx, log2, !!mcp, true);
   if (task.resume) log2("info", `Continuing after the step limit \u2014 the previous run stopped at ${task.resume.turns}/${task.resume.max} steps; Claude Code goes on from the worktree`, "continueRun", { turns: task.resume.turns, max: task.resume.max });
@@ -39339,12 +39491,12 @@ async function claudeStage(ctx, wt, scrub, log2) {
       prompt: buildPrompt(task, repo, wt.branch, markerCode(), null, { scratch: extras.scratch, asks: !!extras.permissionTool }),
       mode,
       maxTurns,
-      model: model.model,
+      model: model2.model,
       // the person's own MCP servers this repo may use (setup page): their tools allowed, the strict flag left out
       allowedTools: [.../* @__PURE__ */ new Set([...repo.claude.allowedTools, ...mcp ? TASK_TOOL_PERMS : [], ...task.personalMcp?.length ? [] : repo.claude.mcpServers.map((n) => `mcp__${n}`)])],
       disallowedTools: repo.claude.disallowedTools,
       mcpConfig: mcp?.file ?? null,
-      strictMcp: !!task.personalMcp?.length || repo.claude.strictMcp && !repo.claude.mcpServers.length,
+      strictMcp: task.dataFlow?.mcpOrigins !== void 0 || !!task.personalMcp?.length || repo.claude.strictMcp && !repo.claude.mcpServers.length,
       projectSettings: repo.claude.projectSettings,
       budgetUsd: lim.budget,
       scratch: extras.scratch,
@@ -39398,8 +39550,8 @@ async function docStage(ctx, scrub, log2, branch, dir) {
   const changes = branch ? await branchDiff(repo, branch, dir).catch(() => null) : null;
   if (changes) log2("git", `The branch ${branch} changes ${changes.files} file(s) \u2014 the diff goes along${changes.clipped ? " (clipped)" : ""}`, "docDiff", { branch, n: changes.files });
   const mcp = ctx.taskMcp ? writeMcpConfig(ctx.taskMcp) : null;
-  const model = stageModel(task, repo);
-  logModel(log2, model);
+  const model2 = stageModel(task, repo);
+  logModel(log2, model2);
   const maxTurns = turnsOf(task, repo);
   const extras = claudeExtras(ctx, log2, !!mcp, false);
   if (task.resume) log2("info", `Continuing after the step limit \u2014 the previous run stopped at ${task.resume.turns}/${task.resume.max} steps`, "continueRun", { turns: task.resume.turns, max: task.resume.max });
@@ -39414,11 +39566,11 @@ async function docStage(ctx, scrub, log2, branch, dir) {
       // headless "default" mode: whatever is not allowed below is refused — or asked through One (the permission prompt)
       mode: "default",
       maxTurns,
-      model: model.model,
+      model: model2.model,
       allowedTools: [.../* @__PURE__ */ new Set([...DOC_TOOLS, ...mcp ? TASK_TOOL_PERMS : [], ...task.personalMcp?.length ? [] : repo.claude.mcpServers.map((n) => `mcp__${n}`)])],
       disallowedTools: [.../* @__PURE__ */ new Set([...DOC_DENIED, ...repo.claude.disallowedTools])],
       mcpConfig: mcp?.file ?? null,
-      strictMcp: !!task.personalMcp?.length || repo.claude.strictMcp && !repo.claude.mcpServers.length,
+      strictMcp: task.dataFlow?.mcpOrigins !== void 0 || !!task.personalMcp?.length || repo.claude.strictMcp && !repo.claude.mcpServers.length,
       projectSettings: repo.claude.projectSettings,
       budgetUsd: lim.budget,
       permissionTool: extras.permissionTool,
@@ -39494,6 +39646,7 @@ Use your native ${agent !== "codex" ? "file, search and configured check" : "fil
         context: { tokens: ollama.contextTokens, inputLimit: ollama.contextTokens - 32768, chars: Math.floor((ollama.contextTokens - 32768) * 1.5) }
       } : {},
       completionRequired: !!task.quality,
+      mcpOrigins: task.dataFlow?.mcpOrigins,
       memory: { directory: join17(dirname9(ctx.state.file), "local-memory"), scope: JSON.stringify([...ctx.state.scope ? [ctx.state.scope] : [], repo.path, task.id, task.stage.id]), resume: !!task.resume, projectKey: repo.name },
       scrub: (s) => scrub.text(s),
       mcpServers: task.personalMcp?.length ? [] : repo.claude.mcpServers.length ? repo.claude.mcpServers : ctx.localMcpServers,
@@ -39774,34 +39927,6 @@ async function gitStage(ctx, wt, scrub, log2) {
 // src/worker/shared-model.ts
 import { readFileSync as readFileSync9, writeFileSync as writeFileSync6, mkdirSync as mkdirSync6 } from "node:fs";
 import { dirname as dirname10 } from "node:path";
-
-// ../src/shared/ai/shared-model.ts
-var SHARED_INPUT_MAX = 22e3;
-var bytes = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
-var b64 = (b) => {
-  let s = "";
-  for (const c of new Uint8Array(b)) s += String.fromCharCode(c);
-  return btoa(s);
-};
-var context = (share, id) => new TextEncoder().encode(`one-model-share:v1:${share}:${id}`);
-async function modelShareKey() {
-  return globalThis.crypto.subtle.generateKey({ name: "RSA-OAEP", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" }, true, ["wrapKey", "unwrapKey"]);
-}
-async function sealShared(value2, key, share, id) {
-  const iv = globalThis.crypto.getRandomValues(new Uint8Array(12));
-  const data = await globalThis.crypto.subtle.encrypt({ name: "AES-GCM", iv, additionalData: context(share, id) }, key, new TextEncoder().encode(JSON.stringify(value2)));
-  return { v: 1, iv: b64(iv), data: b64(data) };
-}
-async function openShared(box, key, share, id) {
-  const data = await globalThis.crypto.subtle.decrypt({ name: "AES-GCM", iv: bytes(box.iv), additionalData: context(share, id) }, key, bytes(box.data));
-  return JSON.parse(new TextDecoder().decode(data));
-}
-async function sharedWorkerKey(box, key) {
-  if (!box.key) throw new Error("Missing request key");
-  return globalThis.crypto.subtle.unwrapKey("raw", bytes(box.key), key, { name: "RSA-OAEP" }, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
-}
-
-// src/worker/shared-model.ts
 var SharedModelHost = class {
   choice = null;
   timer = null;
@@ -39897,7 +40022,7 @@ var SharedModelHost = class {
       }
       const keys = await this.keys, publicKey = await globalThis.crypto.subtle.exportKey("jwk", keys.publicKey);
       const sent = this.outcome;
-      const reply = await this.api("poll", { publicKey, busy: this.occupied() || !!this.active, available: this.available, active: this.active?.id ?? null, ...sent ? { outcome: sent } : {} });
+      const reply = await this.api("poll", { publicKey, dataFlow: true, busy: this.occupied() || !!this.active, available: this.available, active: this.active?.id ?? null, ...sent ? { outcome: sent } : {} });
       if (this.outcome === sent) this.outcome = void 0;
       if (!reply.enabled) {
         this.choice.enabled = false;
@@ -41351,7 +41476,7 @@ async function commitImport(dir, label) {
 import { existsSync as existsSync11, readFileSync as readFileSync12, readdirSync as readdirSync6 } from "node:fs";
 import { join as join21 } from "node:path";
 var NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
-var OWNER = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}(\/[A-Za-z0-9][A-Za-z0-9._-]{0,99}){0,5}$/;
+var OWNER2 = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}(\/[A-Za-z0-9][A-Za-z0-9._-]{0,99}){0,5}$/;
 function read(dir, file, max2 = 256 * 1024) {
   try {
     const p = join21(dir, file);
@@ -41400,7 +41525,7 @@ function checkPublish(raw) {
   const name = typeof b.name === "string" ? b.name.trim() : "";
   if (!NAME.test(name)) return { error: 'A project name has letters, digits, ".", "_" or "-" (at most 100).' };
   const ownerRaw = typeof b.owner === "string" ? b.owner.trim().replace(/^\/+|\/+$/g, "") : "";
-  if (ownerRaw && !OWNER.test(ownerRaw)) return { error: "The group / owner looks wrong (e.g. acme or acme/platform)." };
+  if (ownerRaw && !OWNER2.test(ownerRaw)) return { error: "The group / owner looks wrong (e.g. acme or acme/platform)." };
   if (host === "github" && ownerRaw.includes("/")) return { error: "A GitHub owner is one name (an organisation)." };
   const visibility = b.visibility === "public" ? "public" : b.visibility === "internal" && host === "gitlab" ? "internal" : "private";
   return { host, owner: ownerRaw || null, name, visibility };
@@ -41865,8 +41990,8 @@ var Intake = class {
     const name = folderName(u.file.replace(/\.zip$/i, ""));
     this.running = u.taskId;
     this.host.log(`import for task ${u.taskId}: unpacking ${u.file} into ${base}`);
-    void importZip(u.tmp, base, name, u.file, (p) => this.host.event(u.taskId, { state: "running", source: "zip", label: u.file, line: `${p.files} files \xB7 ${(p.bytes / 1024 / 1024).toFixed(1)} MB`, percent: 60 })).then(async ({ dir, files, times }) => {
-      this.host.log(`import for task ${u.taskId}: ${files} files unpacked in ${secs(times.unpack)} \xB7 guard ${secs(times.guard)} \xB7 commit ${secs(times.commit)}`);
+    void importZip(u.tmp, base, name, u.file, (p) => this.host.event(u.taskId, { state: "running", source: "zip", label: u.file, line: `${p.files} files \xB7 ${(p.bytes / 1024 / 1024).toFixed(1)} MB`, percent: 60 })).then(async ({ dir, files, times: times2 }) => {
+      this.host.log(`import for task ${u.taskId}: ${files} files unpacked in ${secs(times2.unpack)} \xB7 guard ${secs(times2.guard)} \xB7 commit ${secs(times2.commit)}`);
       const t = Date.now();
       await this.adopt(u.taskId, "zip", u.file, dir, `${files} files`, suggestName(dir, name));
       this.host.log(`import for task ${u.taskId}: added in ${secs(Date.now() - t)}`);
@@ -42876,6 +43001,8 @@ function taskIds(raw) {
 function sanitizeTask(raw) {
   if (!isObj6(raw) || !isObj6(raw.stage)) return null;
   if (raw.agent !== void 0 && !isCodingAgent(raw.agent)) return null;
+  const dataFlow = readDataFlow(raw.dataFlow);
+  if (raw.dataFlow !== void 0 && !dataFlow) return null;
   const personalMcp = personalConnections(raw.personalMcp);
   if (!personalMcp) return null;
   const s = raw.stage;
@@ -42900,6 +43027,7 @@ function sanitizeTask(raw) {
   }
   return {
     id,
+    ...dataFlow ? { dataFlow } : {},
     ...personalMcp.length ? { personalMcp } : {},
     ...quality ? { quality } : {},
     ...raw.agent ? { agent: raw.agent } : {},
@@ -43216,6 +43344,10 @@ var Worker2 = class {
     if (!repo) return refuse(`the repo "${task.repo}" is not in this worker's config (not ticked) \u2014 One cannot add repos; tick it in the worker's setup page ("Change repositories") or add it to worker.json on the computer that should work on it`);
     if (!noRepo && [...this.runs.values()].some((r) => r.repo.name === repo.name)) return refuse(`another task runs in "${repo.name}" right now`);
     if (this.workspace?.kind === "team" && !task.trusted) return refuse("the task is not confirmed on this device (team workspace)");
+    const destination = codingProvider(task.agent ?? "claude");
+    if (task.dataFlow && (!destination || ["plan", "implement", "doc"].includes(task.stage.kind) && !modelDestinationAllowed(destination, task.dataFlow))) return refuse("The task data-flow rule excludes this model destination.");
+    if (task.personalMcp?.some((m) => !mcpDestinationAllowed(m.url, task.dataFlow))) return refuse("The task data-flow rule excludes a selected MCP destination.");
+    if (task.dataFlow?.mcpOrigins && ["claude", "codex"].includes(task.agent ?? "claude") && repo.claude.mcpServers.length && !task.personalMcp?.length) return refuse("Use explicitly selected personal MCP connections for this task\u2019s MCP origin rule.");
     const token = randomBytes15(24).toString("hex");
     let scratch;
     try {
@@ -45500,7 +45632,7 @@ var MCP_PAGE_KINDS = ["page", "database", "row"];
 var MCP_BULK_MAX = 50;
 var MCP_QUERY_ROWS = 100;
 var KB = 1024;
-var MB = 1024 * KB;
+var MB2 = 1024 * KB;
 var MCP_LIMITS = {
   /** one result part, measured on its serialized (compact JSON) text */
   part: 4e4,
@@ -45541,23 +45673,23 @@ var MCP_LIMITS = {
   extractMs: 1e4,
   /** image reads: edge, bytes, decode size (megapixels × 10⁶) */
   imagePx: 1568,
-  imageBytes: 5 * MB,
+  imageBytes: 5 * MB2,
   imageDecodePx: 5e7,
   /** a PDF as a resource (the B1 spike decides — moved to T-b / B5; at most this) */
-  pdfBytes: 10 * MB,
+  pdfBytes: 10 * MB2,
   /** a base64 upload from the model */
   base64Bytes: 256 * KB,
   /** web files fetched for an attach */
-  urlImage: 50 * MB,
-  urlMedia: 200 * MB,
-  urlPdf: 25 * MB,
+  urlImage: 50 * MB2,
+  urlMedia: 200 * MB2,
+  urlPdf: 25 * MB2,
   /** one_download_file: per file, per bridge process and day */
-  downloadFile: 200 * MB,
-  downloadDay: 1024 * MB,
+  downloadFile: 200 * MB2,
+  downloadDay: 1024 * MB2,
   /** attach quotas per day: bridge process · server token · server workspace */
-  attachBridgeDay: 500 * MB,
-  attachTokenDay: 100 * MB,
-  attachWorkspaceDay: 500 * MB,
+  attachBridgeDay: 500 * MB2,
+  attachTokenDay: 100 * MB2,
+  attachWorkspaceDay: 500 * MB2,
   /** team server request bodies: read tokens · write tokens */
   bodyRead: 256 * KB,
   bodyWrite: 512 * KB,
@@ -45569,8 +45701,8 @@ var MCP_LIMITS = {
   /** team server pre-images of MCP writes, days */
   preimageDays: 14,
   /** bridge ⇄ tab WebSocket frames and their chunks */
-  frame: 16 * MB,
-  chunk: 4 * MB,
+  frame: 16 * MB2,
+  chunk: 4 * MB2,
   /** properties of one_create_database */
   properties: 40,
   /** the model-facing budget: tools/list (serialized) and the instructions */
@@ -48612,7 +48744,7 @@ var WorkerWorkspaces = class {
 
 // src/worker/index.ts
 var workspaceHost = null;
-var VERSION = true ? "1.30.0" : "dev";
+var VERSION = true ? "1.31.0" : "dev";
 var quiet = process.env.ONE_WORKER_QUIET === "1";
 var recent = [];
 var log = (msg) => {

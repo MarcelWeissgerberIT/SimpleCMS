@@ -1,3 +1,4 @@
+import { assertMcpFlow } from './dataFlow'
 /** Deferred MCP discovery: credentials stay on the worker path, only six matching schemas enter model context. */
 import type { WorkerFunction, WorkerMcpServer } from '@/shared/ai/worker'
 import type { McpCall } from '../mcp-servers/activity'
@@ -11,6 +12,7 @@ export const isWorkerMcpFunction = (name:string) => WORKER_MCP_FUNCTIONS.some(t=
 export function workerMcpSession(servers:WorkerMcpServer[],signal:AbortSignal|undefined,event:(c:McpCall)=>void) {
   const discovered=new Set<string>()
   return async(name:string,args:Record<string,unknown>,id:string):Promise<string>=>{
+    assertMcpFlow(servers.map(s => s.url))
     if(signal?.aborted)throw new AIError('aborted')
     if(name==='one_mcp_search'){
       if(typeof args.query!=='string'||args.query.length>200)throw new AIError('mcp','Invalid discovery query.')

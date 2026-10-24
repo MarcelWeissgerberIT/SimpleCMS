@@ -36,7 +36,7 @@ export async function runLocal(opts: LocalRun): Promise<CodexResult> {
   delete toolEnv.GITHUB_TOKEN
   delete toolEnv.OLLAMA_API_KEY
   const files = new LocalFiles(root)
-  const external = new LocalMcp(opts.readOnly)
+  const external = new LocalMcp(opts.readOnly, opts.mcpOrigins)
   const clean = (s: string) => external.redact(scrubSecretText(opts.scrub ? opts.scrub(s) : s, secrets))
   const sources = new ReviewSources()
   const memory = new LocalMemory(clean)

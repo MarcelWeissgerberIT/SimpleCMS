@@ -11,7 +11,7 @@ import { SHARED_QUEUE_MAX } from '../../../src/shared/ai/shared-model.ts'
 
 type Share = {id:string;workspace_id:string;owner_id:string;model:string;label:string;enabled:number}
 type Job = {id:string;share:string;workspace:string;user:string;session:string;box:unknown;state:'queued'|'running'|'done'|'failed'|'cancelled';created:number;started:number;ended:number;result?:unknown}
-type Live = {at:number;key:Record<string,unknown>;fingerprint:string}
+type Live = {dataFlow:boolean;at:number;key:Record<string,unknown>;fingerprint:string}
 const box=z.object({v:z.literal(1),iv:z.string().regex(/^[A-Za-z0-9+/]{16}$/),data:z.string().min(24).max(220000).regex(/^[A-Za-z0-9+/]+=*$/),key:z.string().max(400).optional()}).strict()
 const publicKey=z.object({kty:z.literal('RSA'),n:z.string().min(342).max(344),e:z.literal('AQAB'),alg:z.literal('RSA-OAEP-256').optional(),ext:z.boolean().optional(),key_ops:z.array(z.literal('wrapKey')).max(1).optional()}).strict()
 export function sharedModelRoutes(s:Services) {
@@ -46,7 +46,7 @@ export function sharedModelRoutes(s:Services) {
   app.get('/workspaces/:id/model-shares',c=>{
     const {workspace,auth}=access(s,c,'member');clean()
     return c.json(s.db.all<Share>('SELECT * FROM shared_models WHERE workspace_id=?',workspace.id).filter(r=>r.enabled||r.owner_id===auth.user.id).map(r=>({
-      id:r.id,workspace:r.workspace_id,model:r.model,label:r.label,owner:s.repo.userById(r.owner_id)?.name??'Local model',mine:r.owner_id===auth.user.id,enabled:!!r.enabled,online:online(r),
+      id:r.id,workspace:r.workspace_id,model:r.model,label:r.label,owner:s.repo.userById(r.owner_id)?.name??'Local model',mine:r.owner_id===auth.user.id,enabled:!!r.enabled,online:online(r),dataFlow:live.get(r.id)?.dataFlow===true,
       queued:[...jobs.values()].filter(j=>j.share===r.id&&j.state==='queued').length,running:[...jobs.values()].some(j=>j.share===r.id&&j.state==='running'),publicKey:online(r)?live.get(r.id)?.key:null,
     })))
   })
@@ -92,12 +92,12 @@ export function sharedModelRoutes(s:Services) {
   })
   app.delete('/workspaces/:id/model-jobs/:job',c=>{fail(ownedJob(c),'cancelled');return c.body(null,204)})
   app.post('/coding/shared-model/poll',async c=>{
-    const w=worker(c),input=await body(c,z.object({publicKey,busy:z.boolean(),available:z.boolean(),active:z.string().uuid().nullable(),outcome:z.object({id:z.string().uuid(),box:box.optional()}).strict().optional()}).strict())
+    const w=worker(c),input=await body(c,z.object({publicKey,dataFlow:z.boolean().optional(),busy:z.boolean(),available:z.boolean(),active:z.string().uuid().nullable(),outcome:z.object({id:z.string().uuid(),box:box.optional()}).strict().optional()}).strict())
     clean();const r=get(w.id)
     if(!r||!allowed(r))return c.json({enabled:false,cancel:!!input.active})
     const fingerprint=input.publicKey.n,previous=live.get(w.id)
     if(previous&&previous.fingerprint!==fingerprint)for(const j of jobs.values())if(j.share===w.id&&(j.state==='queued'||j.state==='running'))fail(j)
-    if(input.available)live.set(w.id,{at:Date.now(),key:input.publicKey,fingerprint});else live.delete(w.id)
+    if(input.available)live.set(w.id,{at:Date.now(),key:input.publicKey,fingerprint,dataFlow:input.dataFlow===true});else live.delete(w.id)
     if(input.outcome){const j=jobs.get(input.outcome.id);if(j?.share===w.id&&j.state==='running'){if(input.outcome.box){j.state='done';j.result=input.outcome.box;j.box=null;j.ended=Date.now()}else fail(j)}}
     const current=input.active?jobs.get(input.active):null
     if(input.active)return c.json({enabled:true,model:r.model,cancel:!current||current.share!==w.id||current.state!=='running'})

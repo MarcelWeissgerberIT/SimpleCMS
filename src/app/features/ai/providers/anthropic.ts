@@ -1,3 +1,5 @@
+import { assertPreparedFlow } from '../core/gate'
+import { assertMcpFlow, assertModelFlow } from '../core/dataFlow'
 import {captureReadiness,type ReadinessScope} from '../../../cloud'
 /**
  * Claude (Anthropic) — today's request paths, moved here unchanged from client.ts (multi-provider S2): the SDK, loaded
@@ -110,6 +112,7 @@ async function getClient(apiKey: string): Promise<{ client: AnthropicSDK; sdk: S
  * api.anthropic.com only. Throws AIError('no_key') without a key.
  */
 export async function claudeClient(): Promise<{ client: AnthropicSDK; sdk: SDKModule; model: AIModelId }> {
+  assertModelFlow('anthropic')
   const apiKey = await getAIKey('anthropic')
   if (!apiKey) throw new AIError('no_key')
   const settings = useWorkspace.getState().settings
@@ -289,10 +292,12 @@ export async function metered<M extends { model?: unknown; usage?: unknown; cont
 export async function streamOnce(opts: StreamOptions, again: boolean, prepared: Prepared, call: MeterCall): Promise<string> {
   const readinessScope=captureReadiness()
   const { system, prompt, onToken, signal, mcp, codewords, onMcp: report, onMedia, setup, maxResumes } = opts
+  assertModelFlow('anthropic')
   const apiKey = await getAIKey('anthropic')
   if (!apiKey) throw new AIError('no_key')
   if (signal?.aborted) throw new AIError('aborted')
   // the model the gate routed to, and what it can do (caps — never a model id check)
+  assertPreparedFlow(prepared)
   const model = claudeRoute(prepared).m
   const deep = thinks(prepared.caps)
   let sdk: SDKModule | null = null
@@ -326,7 +331,7 @@ export async function streamOnce(opts: StreamOptions, again: boolean, prepared: 
     let stopReason: string | null
     const promptChars = () => system.length + prompt.length
     if (attached) {
-      const final = await streamWithMcp(client, model, deep, `${system}\n\n${attached.system}`, prompt, attached, onText, onMcp, signal, { onMedia, maxResumes, seen, call, sdk, readinessScope })
+      const final = await streamWithMcp(client, model, deep, `${system}\n\n${attached.system}`, prompt, attached, onText, onMcp, signal, { prepared, onMedia, maxResumes, seen, call, sdk, readinessScope })
       stopReason = final.stop_reason
       text = answerText(final.content) || text
     } else if (!deep) {
@@ -388,7 +393,7 @@ async function streamWithMcp(
   onText: (delta: string) => void,
   onMcp: ((calls: McpCall[]) => void) | undefined,
   signal: AbortSignal | undefined,
-  more: { readinessScope?:ReadinessScope|null; onMedia?: (items: MediaItem[]) => void; maxResumes?: number; seen?: { mcp: boolean }; call: MeterCall; sdk: SDKModule | null },
+  more: { prepared: Prepared; readinessScope?:ReadinessScope|null; onMedia?: (items: MediaItem[]) => void; maxResumes?: number; seen?: { mcp: boolean }; call: MeterCall; sdk: SDKModule | null },
 ): Promise<BetaMessage> {
   const messages: BetaMessageParam[] = [{ role: 'user', content: prompt }]
   const readiness={scope:more.readinessScope??null,servers:mcp.servers.map(s=>({name:s.name,url:s.url}))}
@@ -407,6 +412,8 @@ async function streamWithMcp(
       // Opus / Sonnet 5.5: thinking is always on (adaptive) — never send `thinking`; refusal fallbacks as above
       ...(opus ? { betas: [FALLBACK_BETA, MCP_BETA], fallbacks: 'default' as const, output_config: { effort: 'low' as const } } : { betas: [MCP_BETA] }),
     }
+    if (more.prepared) assertPreparedFlow(more.prepared)
+    assertMcpFlow(mcp.servers.map(s => s.url))
     const stream = client.beta.messages.stream(params)
     const abort = () => stream.abort()
     signal?.addEventListener('abort', abort, { once: true })
@@ -472,10 +479,12 @@ export async function structuredOnce(opts: StructuredOptions, again: boolean, pr
   const { system, prompt, schema, maxTokens = 4096, signal, maxRetries = 4, mcp, onUsage, setup, allow } = opts
   // servers forced in whatever their scope (the work-order planner's pick); none when `mcp: false`
   const forced = mcp === false ? [] : [...(opts.forced ?? [])]
+  assertModelFlow('anthropic')
   const apiKey = await getAIKey('anthropic')
   if (!apiKey) throw new AIError('no_key')
   if (signal?.aborted) throw new AIError('aborted')
   // the model the gate routed to, and what it can do (caps — never a model id check)
+  assertPreparedFlow(prepared)
   const model = claudeRoute(prepared).m
   const opus = thinks(prepared.caps)
   const used = (e: LedgerEntry | null) => {
@@ -509,6 +518,8 @@ export async function structuredOnce(opts: StructuredOptions, again: boolean, pr
       const turn: BetaMessageParam[] = [{ role: 'user', content: prompt }]
       let msg: BetaMessage
       for (let resumes = 0; ; resumes++) {
+        assertPreparedFlow(prepared)
+        assertMcpFlow(attached.servers.map(s=>s.url))
         const mcp = attached
         // one ledger entry per response: every resume of a paused turn is one
         const got = await metered(

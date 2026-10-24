@@ -1,3 +1,4 @@
+import { readDataFlow, codingProvider, modelDestinationAllowed, mcpDestinationAllowed } from '../../../src/shared/ai/dataFlow.ts'
 import { SharedModelHost } from './shared-model.ts'
 import { realpath } from 'node:fs/promises'
 import { ReviewSources } from '../../../src/shared/ai/review.ts'
@@ -219,6 +220,8 @@ export function taskIds(raw: unknown): { id: string; stageId: string } | null {
 export function sanitizeTask(raw: unknown): TaskPayload | null {
   if (!isObj(raw) || !isObj(raw.stage)) return null
   if (raw.agent !== undefined && !isCodingAgent(raw.agent)) return null
+  const dataFlow = readDataFlow(raw.dataFlow)
+  if (raw.dataFlow !== undefined && !dataFlow) return null
   const personalMcp = personalConnections(raw.personalMcp)
   if (!personalMcp) return null
   const s = raw.stage
@@ -243,6 +246,7 @@ export function sanitizeTask(raw: unknown): TaskPayload | null {
   }
   return {
     id,
+    ...(dataFlow ? { dataFlow } : {}),
     ...(personalMcp.length ? { personalMcp } : {}),
     ...(quality ? { quality } : {}),
     ...(raw.agent ? { agent: raw.agent as TaskPayload['agent'] } : {}),
@@ -582,6 +586,11 @@ export class Worker {
     if (!repo) return refuse(`the repo "${task.repo}" is not in this worker's config (not ticked) — One cannot add repos; tick it in the worker's setup page ("Change repositories") or add it to worker.json on the computer that should work on it`)
     if (!noRepo && [...this.runs.values()].some((r) => r.repo.name === repo.name)) return refuse(`another task runs in "${repo.name}" right now`)
     if (this.workspace?.kind === 'team' && !task.trusted) return refuse('the task is not confirmed on this device (team workspace)')
+    const destination = codingProvider(task.agent ?? 'claude')
+    if (task.dataFlow && (!destination || (['plan','implement','doc'].includes(task.stage.kind) && !modelDestinationAllowed(destination, task.dataFlow)))) return refuse('The task data-flow rule excludes this model destination.')
+    if (task.personalMcp?.some(m => !mcpDestinationAllowed(m.url, task.dataFlow))) return refuse('The task data-flow rule excludes a selected MCP destination.')
+    // Native CLI MCP and project startup settings cannot be constrained to an origin list here.
+    if (task.dataFlow?.mcpOrigins && ['claude','codex'].includes(task.agent ?? 'claude') && repo.claude.mcpServers.length && !task.personalMcp?.length) return refuse('Use explicitly selected personal MCP connections for this task’s MCP origin rule.')
     const token = randomBytes(24).toString('hex')
     // the task's scratch folder (worker 1.11.0): every Claude Code stage may keep temporary files there
     let scratch: string

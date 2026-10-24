@@ -1,3 +1,4 @@
+import { modelDestinationAllowed } from '@/shared/ai/dataFlow'
 /**
  * Which route a request takes (design § 8.1 / 8.2, the S2 subset) — pure over a RouteWorld, so the Node specs run it:
  *
@@ -108,6 +109,7 @@ function poolOk(m: string, input: ResolveInput, w: RouteWorld): boolean {
 /** Filters 1–4 for one pin. */
 function filterPin(route: Route, input: ResolveInput, w: RouteWorld, forcedPool?: readonly string[]): PinResult {
   const key = routeKey(route)
+  if (!modelDestinationAllowed(route.p, w.ws?.dataFlow)) return { ok: false, code: 'policy', detail: 'destination', step: { k: 'policy', from: key, code: 'destination' }, fix: { kind: 'step', step: 'data', provider: route.p } }
   // 1 · a key on this device
   if (!w.hasKey(route.p)) return { ok: false, code: 'no_key', step: { k: 'nokey', from: key }, fix: { kind: 'step', step: 'key', provider: route.p } }
   // 2 · known and not refused (+ the router's pool: filters 2–3 per shortlist model); the router writes text — never a

@@ -1,3 +1,4 @@
+import { assertMcpFlow } from '../core/dataFlow'
 import type { WorkerMcpServer } from '@/shared/ai/worker'
 /**
  * Remote MCP servers for One's built-in Claude — the Messages API MCP connector: Anthropic connects
@@ -481,6 +482,7 @@ export async function attachMcp(
     const off = outToolsFor(s)
     // an allow-list without a tool (or only OUT tools): the server has nothing to offer
     if (lockedOnly(allowedTools(allow, s.name), off)?.length === 0) continue
+    assertMcpFlow([s.url])
     // a signed-in server's access token is refreshed shortly before it expires (oauth.ts)
     const token = await tokenFor(s)
     if (token === null) continue

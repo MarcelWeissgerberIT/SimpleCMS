@@ -1,3 +1,5 @@
+import { sanitizeWorkspaceAI, policyKnown } from '../../../src/shared/ai/policy.ts'
+import { modelDestinationAllowed, mcpDestinationAllowed } from '../../../src/shared/ai/dataFlow.ts'
 import { REVIEW_POLICY, ReviewSources, FINDING_SCHEMA, FINDING_DESCRIPTION } from '../../../src/shared/ai/review.ts'
 /**
  * One run of a server agent: Claude (Messages API, `@anthropic-ai/sdk`, streamed) works through the
@@ -251,6 +253,11 @@ export async function runAgent(input: RunInput): Promise<RunOutcome> {
   if (decisionChecks(agent) !== null) return outcome('error', 'This agent has a pre-checker (Jev): pre-checks run in the browser only — this server does not run it yet.')
   if (!runsOnClaude(agent)) return outcome('error', 'This agent needs a newer server: its route is not Claude, or one this server cannot read.')
 
+  const readFlow = () => input.model.read(input.wsId, r => sanitizeWorkspaceAI(r.workspace.get('ai')))
+  const aiFlow = await readFlow()
+  if (!policyKnown(aiFlow) || !modelDestinationAllowed('anthropic', aiFlow?.dataFlow)) return outcome('error', 'The workspace data-flow rule excludes this server model destination.')
+  const flowVersion = JSON.stringify(aiFlow ?? null)
+
   // MCP servers the agent names and the runtime has (the rest is noted, not fatal); only the tools its allow-list names
   const allow = agent.mcpTools ?? {}
   const onlyOf = (name: string) => (Object.prototype.hasOwnProperty.call(allow, name) ? allow[name] : undefined)
@@ -270,6 +277,7 @@ export async function runAgent(input: RunInput): Promise<RunOutcome> {
       step({ kind: 'note', label: `MCP server "${name}": no tool is allowed for this agent — left out.`, state: 'err' })
       continue
     }
+    if (!mcpDestinationAllowed(m.url, aiFlow?.dataFlow)) return outcome('error', 'The workspace data-flow rule excludes a selected MCP destination.')
     servers.push({ type: 'url', url: m.url, name: m.name, ...(m.token ? { authorization_token: m.token } : {}) })
   }
 
@@ -297,6 +305,7 @@ export async function runAgent(input: RunInput): Promise<RunOutcome> {
 
   try {
     for (;;) {
+      if (JSON.stringify(await readFlow() ?? null) !== flowVersion) return outcome('error', 'Workspace AI rules changed during this run. Start again with the current rules.')
       if (signal.aborted) return outcome('error', 'The server stopped during the run.')
       const remaining = agent.maxRunUsd - usage.usd
       const maxTokens = Math.max(2048, Math.min(32_000, affordableOutput(model, remaining)))

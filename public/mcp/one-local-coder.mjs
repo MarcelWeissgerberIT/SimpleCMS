@@ -39542,6 +39542,8 @@ function withModelProfile(instructions, profile) {
 function ollamaInference(base) {
   if (!["http:", "https:"].includes(base.protocol) || !["localhost", "127.0.0.1", "[::1]"].includes(base.hostname) || base.username || base.password || base.search || base.hash) throw new Error("Ollama must run at a loopback URL.");
   const inference = async (request) => {
+    const metadata = await show(request.model, request.signal);
+    if (metadata.remote_host || metadata.remote_model || request.model.endsWith("-cloud")) throw new Error("A cloud-backed Ollama model cannot run as local inference.");
     const response = await fetch(new URL("/api/chat", base), {
       method: "POST",
       redirect: "error",
@@ -39554,24 +39556,24 @@ function ollamaInference(base) {
     return { message: data.message, inputTokens: data.prompt_eval_count, outputTokens: data.eval_count };
   };
   let shown = null;
-  const show = async (model, signal) => {
+  const show = async (model2, signal) => {
     const response = await fetch(new URL("/api/show", base), {
       method: "POST",
       redirect: "error",
       signal: AbortSignal.any([signal, AbortSignal.timeout(1e4)]),
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model })
+      body: JSON.stringify({ model: model2 })
     });
     if (!response.ok) throw new Error("The selected local model profile could not be loaded. Check that the model is installed.");
     const data = await response.json();
     if (data.system !== void 0 && typeof data.system !== "string") throw new Error("The selected local model profile is invalid.");
     if (typeof data.system === "string" && data.system.length > 5e4) throw new Error("The selected model profile exceeds 50,000 characters. Shorten it before running the task.");
-    shown = { model, data };
+    shown = { model: model2, data };
     return data;
   };
-  inference.profile = async (model, signal) => (await show(model, signal)).system ?? "";
-  inference.inspect = async (model, signal) => {
-    const d = shown?.model === model ? shown.data : await show(model, signal);
+  inference.profile = async (model2, signal) => (await show(model2, signal)).system ?? "";
+  inference.inspect = async (model2, signal) => {
+    const d = shown?.model === model2 ? shown.data : await show(model2, signal);
     const caps = Array.isArray(d.capabilities) ? d.capabilities : null;
     const lengths = Object.entries(d.model_info ?? {}).filter(([k, v]) => k.endsWith(".context_length") && typeof v === "number" && v > 0).map(([, v]) => v);
     return {
@@ -39860,6 +39862,154 @@ ${textFile.slice(0, 3500)}
     return text2.slice(0, 12e3);
   }
 };
+
+// ../src/shared/ai/prices.ts
+var PRICES_DATE = "2026-10-12";
+var row = (cols, overrides) => ({ ...cols, ...overrides ? { overrides } : {}, source: "table", at: PRICES_DATE });
+var times = (c, k, minPrompt) => ({
+  minPrompt,
+  input: c.input * k,
+  output: c.output * k,
+  cacheRead: c.cacheRead * k,
+  cacheWrite: c.cacheWrite * k,
+  ...c.cacheWrite1h !== void 0 ? { cacheWrite1h: c.cacheWrite1h * k } : {}
+});
+var HAIKU_55 = { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125, cacheWrite1h: 0.2 };
+var openaiLong = (c) => ({ minPrompt: 272e3, input: c.input * 2, cacheRead: c.cacheRead * 2, cacheWrite: c.cacheWrite * 2, output: c.output * 1.5 });
+var LUNA = { input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 0.125 };
+var SOL = { input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2.5 };
+var ASTRA = { input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5 };
+var PRICES = {
+  "anthropic:claude-opus-5-5": row({ input: 4, output: 20, cacheRead: 0.2, cacheWrite: 5, cacheWrite1h: 8 }),
+  // Sonnet 5.5 cache reads are $0.10 (One said $0.20 before)
+  "anthropic:claude-sonnet-5-5": row({ input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2.5, cacheWrite1h: 4 }),
+  "anthropic:claude-haiku-4-5": row({ input: 1, output: 5, cacheRead: 0.1, cacheWrite: 1.25, cacheWrite1h: 2 }),
+  "anthropic:claude-haiku-5-5": row(HAIKU_55, [times(HAIKU_55, 5, 1e5)]),
+  "openai:gpt-6-luna": row(LUNA, [openaiLong(LUNA)]),
+  "openai:gpt-6.1-sol": row(SOL, [openaiLong(SOL)]),
+  "openai:gpt-6-astra": row(ASTRA, [openaiLong(ASTRA)])
+};
+function priceRow(route) {
+  return PRICES[`${route.p}:${route.m}`] ?? (route.p === "openrouter" ? null : PRICES[`${route.p}:${route.m.replace(/-\d{8}$/, "")}`] ?? null);
+}
+
+// ../src/shared/ai/providers.ts
+var ANTHROPIC = {
+  id: "anthropic",
+  name: "Claude",
+  company: "Anthropic",
+  code: "CL",
+  sub: { en: "ANTHROPIC", de: "ANTHROPIC" },
+  host: "api.anthropic.com",
+  consoleUrl: "https://console.anthropic.com",
+  keyUrl: "https://console.anthropic.com/settings/keys",
+  limitUrl: "https://console.anthropic.com/settings/limits",
+  keyPrefix: "sk-ant-",
+  shipped: true,
+  privacy: {
+    en: "Requests go from this browser straight to Anthropic (api.anthropic.com), with your key. Anthropic does not train on API data. With MCP servers, Anthropic connects to them while Claude answers \u2014 their tokens go to Anthropic.",
+    de: "Anfragen gehen aus diesem Browser direkt an Anthropic (api.anthropic.com), mit deinem Schl\xFCssel. Anthropic trainiert nicht mit API-Daten. Mit MCP-Servern verbindet sich Anthropic, w\xE4hrend Claude antwortet \u2014 ihre Tokens gehen an Anthropic."
+  },
+  hardLimit: { en: "Spend limit in the Claude Console", de: "Ausgabenlimit in der Claude Console" }
+};
+var workerInfo = (id, name, code, host, url2, privacy) => ({
+  ...ANTHROPIC,
+  id,
+  name,
+  company: name,
+  code,
+  host,
+  sub: { en: "ONE WORKER", de: "ONE WORKER" },
+  consoleUrl: url2,
+  keyUrl: url2,
+  limitUrl: url2,
+  keyPrefix: "",
+  shipped: true,
+  privacy,
+  hardLimit: { en: "Worker limits and provider account", de: "Worker-Grenzen und Anbieterkonto" }
+});
+var LOCAL = workerInfo("local", "Lokal \xB7 Ollama", "LO", "127.0.0.1", "https://ollama.com", { en: "Selected text goes to the paired worker and its local Ollama server. No model API cloud request.", de: "Ausgew\xE4hlter Text geht zum gekoppelten Worker und seinem lokalen Ollama-Server. Keine Modellanfrage an eine Cloud-API." });
+var OLLAMA = workerInfo("ollama", "Ollama Cloud", "OC", "ollama.com", "https://ollama.com/settings/keys", { en: "Selected text goes through the paired worker to Ollama Cloud. Its API key stays on the worker.", de: "Ausgew\xE4hlter Text geht \xFCber den gekoppelten Worker an Ollama Cloud. Der API-Key bleibt beim Worker." });
+var MINIMAX = workerInfo("minimax", "MiniMax", "MM", "api.minimax.io", "https://platform.minimax.io", { en: "Selected text goes through the paired worker to MiniMax. Its API key stays on the worker.", de: "Ausgew\xE4hlter Text geht \xFCber den gekoppelten Worker an MiniMax. Der API-Key bleibt beim Worker." });
+var CODEX = workerInfo("codex", "Codex", "CX", "OpenAI via Codex CLI", "https://chatgpt.com", { en: "Selected text goes through the paired worker to its signed-in Codex CLI, in an isolated text request.", de: "Ausgew\xE4hlter Text geht \xFCber den gekoppelten Worker an dessen angemeldete Codex-CLI, als isolierte Textanfrage." });
+var COPILOT = workerInfo("copilot", "GitHub Copilot", "CP", "GitHub Copilot via CLI", "https://github.com/settings/copilot", { en: "Selected text and tool results go through the paired worker to its signed-in Copilot CLI and the Copilot service. One executes workspace tools; MCP credentials stay outside model prompts. A running personal worker is required.", de: "Ausgew\xE4hlter Text und Werkzeugergebnisse gehen \xFCber den gekoppelten Worker an dessen angemeldete Copilot-CLI und den Copilot-Dienst. One f\xFChrt Workspace-Werkzeuge aus; MCP-Zugangsdaten bleiben au\xDFerhalb der Modellprompts. Ein laufender pers\xF6nlicher Worker wird ben\xF6tigt." });
+
+// ../src/shared/ai/models.ts
+var MB = 1024 * 1024;
+var CLAUDE_55 = {
+  structured: true,
+  tools: true,
+  vision: { maxEdge: 1568, maxBytes: 5 * MB },
+  pdf: { maxBytes: 23 * MB, maxPages: 600 },
+  mcp: "connector",
+  mcpListing: true,
+  cache: "auto+block",
+  effort: ["low", "medium", "high"],
+  reasoning: { mandatory: true },
+  web: false,
+  notes: true,
+  refusalFallback: true,
+  context: 1e6,
+  maxOutput: 128e3
+};
+var CLAUDE_HAIKU_45 = {
+  ...CLAUDE_55,
+  pdf: { maxBytes: 23 * MB, maxPages: 100 },
+  effort: false,
+  reasoning: false,
+  notes: false,
+  refusalFallback: false,
+  context: 2e5,
+  maxOutput: 64e3
+};
+var CLAUDE_HAIKU_55 = { ...CLAUDE_HAIKU_45, context: 1e6 };
+var OPENAI_6 = {
+  structured: true,
+  tools: true,
+  vision: { maxEdge: 2048, maxBytes: 10 * MB },
+  pdf: { maxBytes: 23 * MB, maxPages: 600 },
+  mcp: "allow-only",
+  mcpListing: true,
+  cache: "auto",
+  effort: ["low", "medium", "high"],
+  reasoning: { mandatory: true, minEffort: "low" },
+  web: false,
+  notes: true,
+  refusalFallback: false,
+  context: 105e4,
+  maxOutput: 128e3
+};
+var model = (p, m, label, short, vendor, caps, selectable, role) => ({
+  route: { p, m },
+  label,
+  short,
+  vendor,
+  ...role ? { role } : {},
+  caps,
+  price: priceRow({ p, m }),
+  selectable
+});
+var MODELS = [
+  model("anthropic", "claude-opus-5-5", "Claude Opus 5.5", "OPUS 5.5", "anthropic", CLAUDE_55, true, "deep"),
+  model("anthropic", "claude-sonnet-5-5", "Claude Sonnet 5.5", "SONNET 5.5", "anthropic", CLAUDE_55, true, "standard"),
+  model("anthropic", "claude-haiku-4-5", "Claude Haiku 4.5", "HAIKU 4.5", "anthropic", CLAUDE_HAIKU_45, true, "fast"),
+  model("anthropic", "claude-haiku-5-5", "Claude Haiku 5.5", "HAIKU 5.5", "anthropic", CLAUDE_HAIKU_55, false),
+  model("openai", "gpt-6-luna", "GPT-6 Luna", "LUNA", "openai", { ...OPENAI_6, reasoning: { mandatory: false } }, false, "fast"),
+  model("openai", "gpt-6.1-sol", "GPT-6.1 Sol", "SOL 6.1", "openai", OPENAI_6, false, "standard"),
+  model("openai", "gpt-6-astra", "GPT-6 Astra", "ASTRA", "openai", OPENAI_6, false, "deep")
+];
+
+// ../src/shared/ai/dataFlow.ts
+function originOf(raw) {
+  if (typeof raw !== "string" || raw.length > 500) return null;
+  try {
+    const u = new URL(raw);
+    return ["https:", "http:"].includes(u.protocol) && !u.username && !u.password ? u.origin : null;
+  } catch {
+    return null;
+  }
+}
+var mcpDestinationAllowed = (url2, flow) => !flow?.mcpOrigins || flow.mcpOrigins.includes(originOf(url2) ?? "");
 
 // src/worker/local-mcp.ts
 import { readFile as readFile2 } from "node:fs/promises";
@@ -43341,8 +43491,10 @@ var LocalMcp = class {
   oauth = [];
   memoryOnly = /* @__PURE__ */ new Set();
   memoryTenants = /* @__PURE__ */ new Map();
-  constructor(readOnly) {
+  origins;
+  constructor(readOnly, origins) {
     this.readOnly = readOnly;
+    this.origins = origins;
   }
   async connect(names, env, signal, configFile = env.ONE_CODER_MCP_CONFIG || join4(homedir3(), ".claude.json"), supplied) {
     if (!names.length) return;
@@ -43365,6 +43517,7 @@ var LocalMcp = class {
       try {
         const entry = config2[name];
         if (!object4(entry) || entry.disabled === true) throw new Error("Missing server");
+        if (this.origins && (typeof entry.url !== "string" || !mcpDestinationAllowed(expand(entry.url, env), { mcpOrigins: this.origins }))) throw new Error("MCP destination is outside the task data-flow rule.");
         if (strings(entry.oneMemoryProjects)) this.memoryProjects.set(name, entry.oneMemoryProjects);
         if (entry.oneTaskMemoryOnly === true) this.memoryOnly.add(name);
         if (entry.oneTaskMemoryOnly === true && typeof entry.oneMemoryTenant === "string" && /^[a-z0-9][a-z0-9_-]{0,99}$/.test(entry.oneMemoryTenant)) this.memoryTenants.set(name, entry.oneMemoryTenant);
@@ -43527,7 +43680,7 @@ async function runLocal(opts) {
   const result = { ok: false, stopped: false, limited: false, text: "", steps: 0 };
   const root = await realpath2(opts.cwd);
   const env = opts.env ?? process.env;
-  const model = opts.model || env.ONE_CODER_MODEL || "marcel-coder:latest";
+  const model2 = opts.model || env.ONE_CODER_MODEL || "marcel-coder:latest";
   const budget = opts.context ?? localContext(env);
   const inference = opts.inference ?? ollamaInference(new URL(env.ONE_CODER_OLLAMA || "http://127.0.0.1:11434"));
   const secrets = secretValues(env);
@@ -43538,13 +43691,13 @@ async function runLocal(opts) {
   delete toolEnv.GITHUB_TOKEN;
   delete toolEnv.OLLAMA_API_KEY;
   const files = new LocalFiles(root);
-  const external = new LocalMcp(opts.readOnly);
+  const external = new LocalMcp(opts.readOnly, opts.mcpOrigins);
   const clean = (s) => external.redact(scrubSecretText(opts.scrub ? opts.scrub(s) : s, secrets));
   const sources = new ReviewSources();
   const memory = new LocalMemory(clean);
   const progress = new LocalProgress();
   const started = Date.now();
-  const stats = { v: 1, model, profileHash: "", contextTokens: budget.tokens, rounds: 0, toolCalls: 0, toolErrors: 0, compactions: 0, maxInputTokens: 0, verificationRuns: 0, formatRepairs: 0, methods: [], modelFacts: null };
+  const stats = { v: 1, model: model2, profileHash: "", contextTokens: budget.tokens, rounds: 0, toolCalls: 0, toolErrors: 0, compactions: 0, maxInputTokens: 0, verificationRuns: 0, formatRepairs: 0, methods: [], modelFacts: null };
   const emit = () => opts.log({ t: Date.now(), k: "info", s: clean("Harness receipt: " + JSON.stringify({ ...stats, ms: Date.now() - started })) });
   const limited = (error62) => ({ ...result, limited: true, error: error62 + "\n" + memory.report(), text: memory.report() });
   const tools = [
@@ -43662,9 +43815,9 @@ Private Atlas checkpoint: /r/${ref}.`;
       }
     }
     const project = clean(await files.projectContext());
-    const profile = clean(await inference.profile?.(model, signal) ?? "");
+    const profile = clean(await inference.profile?.(model2, signal) ?? "");
     stats.profileHash = createHash5("sha256").update(profile).digest("hex");
-    const facts = await inference.inspect?.(model, signal);
+    const facts = await inference.inspect?.(model2, signal);
     stats.modelFacts = facts ?? { tools: null, nativeContext: null };
     if (facts?.tools === false) throw new Error("This model does not advertise native tool calling. Choose a tool-capable coding model.");
     if (facts?.nativeContext && budget.tokens > facts.nativeContext) throw new Error("Configured context exceeds the model\u2019s declared native limit. Select a smaller context.");
@@ -43702,9 +43855,9 @@ Private Atlas checkpoint: /r/${ref}.`;
       if (JSON.stringify({ messages, tools }).length > charBudget) return limited("The initial task or selected context exceeds this model profile. Select narrower excerpts.");
       signal.throwIfAborted();
       stats.rounds++;
-      const data = await inference({ model, messages, tools, contextTokens: budget.tokens, outputTokens: opts.outputTokens ?? 4096, signal });
+      const data = await inference({ model: model2, messages, tools, contextTokens: budget.tokens, outputTokens: opts.outputTokens ?? 4096, signal });
       result.cost = inference.unmetered ? void 0 : inference.cost?.() ?? 0;
-      opts.progress?.({ turns: result.steps, maxTurns: opts.maxSteps, cost: result.cost ?? null, model: inference.served?.() ?? model });
+      opts.progress?.({ turns: result.steps, maxTurns: opts.maxSteps, cost: result.cost ?? null, model: inference.served?.() ?? model2 });
       stats.maxInputTokens = Math.max(stats.maxInputTokens, data.inputTokens ?? 0);
       if ((data.inputTokens ?? 0) >= budget.inputLimit) return limited("The local prompt is near the context limit. No proposed tool call was executed.");
       if (data.inputTokens && data.inputTokens > 0) charBudget = Math.min(charBudget, Math.floor(JSON.stringify({ messages, tools }).length / data.inputTokens * budget.inputLimit * 0.8));
@@ -43855,7 +44008,7 @@ Next: ${args.next}`), text: clean(args.summary) };
         }
         if (failed) stats.toolErrors++;
         opts.log({ t: Date.now(), k: "info", s: clean(`${name}: ${typeof args.path === "string" ? args.path.slice(0, 300) : "task tool"}`) });
-        opts.progress?.({ turns: result.steps, maxTurns: opts.maxSteps, cost: result.cost ?? (inference.unmetered ? null : 0), model: inference.served?.() ?? model });
+        opts.progress?.({ turns: result.steps, maxTurns: opts.maxSteps, cost: result.cost ?? (inference.unmetered ? null : 0), model: inference.served?.() ?? model2 });
         const text2 = clean(typeof output2 === "string" ? output2 : JSON.stringify(output2));
         const sensitive = name === "mcp_call_tool" && /token|secret|credential|password|oauth/i.test(String(args.name));
         if (journaled && !failed) memory.finishOperation(name, args, sensitive ? "[Credential-bearing tool result omitted from task memory.]" : text2);

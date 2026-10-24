@@ -6,7 +6,7 @@ import { stampGen, stampDeviceGen } from '../../src/shared/ai/governor.ts'
 
 test('worker data rules and routes stamp a generation older clients cannot enforce', () => {
   const ws = { policy: { providers: { local: { allow: ['selection'] as const } }, restricted: [] } }
-  assert.equal(AI_POLICY_GEN, GEN.workerModels)
+  assert.equal(AI_POLICY_GEN, GEN.dataFlow)
   assert.equal(requiredGen(ws), GEN.workerModels)
   assert.equal(stampGen(ws, null, 1), GEN.workerModels)
   const stored = sanitizeWorkspaceAI({ ...ws, gen: GEN.workerModels })!

@@ -11,7 +11,7 @@ import type { McpServerConfig } from '../../../store/types'
 import { AIError, claudeClient, metered, thinks, toAIError, viaNeutral, type SDKModule } from '../client'
 import { requestWorkerMcp } from '../../coding'
 import type { WorkerMcpTool } from '@/shared/ai/worker'
-import { capped, prepare, settle, type Prepared } from '../core/gate'
+import { assertPreparedFlow, capped, prepare, settle, type Prepared } from '../core/gate'
 import { meterCall, type MeterCall } from '../core/meter'
 import { MCP_BETA, attachMcp, clearRefused } from './config'
 
@@ -111,6 +111,7 @@ async function inspectOnce(server: McpServerConfig, mode: 'test' | 'guide', sign
       return out
     }
     const got = await claudeClient()
+    assertPreparedFlow(prepared)
     sdk = got.sdk
     const { client } = got
     // the model the gate routed to; what it can do from its caps (never its id)

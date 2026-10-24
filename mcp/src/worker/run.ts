@@ -1,3 +1,4 @@
+import { codingProvider, modelDestinationAllowed } from '../../../src/shared/ai/dataFlow.ts'
 import { REVIEW_POLICY } from '../../../src/shared/ai/review.ts'
 import { secretValues } from './secrets.ts'
 import { checkManifest, checksUnchanged, qaFeedback, readRepairJournal, writeRepairJournal } from './qa-repair.ts'
@@ -367,6 +368,8 @@ async function gitSnapshot(ctx: StageContext, wt: TaskWorktree, scrub: Scrubber)
 /** Run the task's current stage. Never throws: problems are a 'failed' outcome. */
 export async function runStage(ctx: StageContext): Promise<StageOutcome> {
   const { repo, task } = ctx
+  const destination = codingProvider(task.agent ?? 'claude')
+  if (task.dataFlow && (!destination || (['plan','implement','doc'].includes(task.stage.kind) && !modelDestinationAllowed(destination, task.dataFlow)))) return { status: 'refused', error: 'The task data-flow rule excludes this model destination.' }
   // the task's scratch folder too (worker 1.11.0): "<scratch>" in every text that goes to One
   const own = { ...repo, scratch: ctx.scratch ?? null }
   let scrub = repoScrubber(own, null, { secrets: [...secretValues(), ...(task.personalMcp ?? []).map(e => ({ name: 'PERSONAL_MCP_TOKEN', value: e.token }))] })
@@ -545,7 +548,7 @@ async function claudeStage(ctx: StageContext, wt: TaskWorktree, scrub: Scrubber,
       allowedTools: [...new Set([...repo.claude.allowedTools, ...(mcp ? TASK_TOOL_PERMS : []), ...(task.personalMcp?.length ? [] : repo.claude.mcpServers.map((n) => `mcp__${n}`))])],
       disallowedTools: repo.claude.disallowedTools,
       mcpConfig: mcp?.file ?? null,
-      strictMcp: !!task.personalMcp?.length || (repo.claude.strictMcp && !repo.claude.mcpServers.length),
+      strictMcp: task.dataFlow?.mcpOrigins !== undefined || !!task.personalMcp?.length || (repo.claude.strictMcp && !repo.claude.mcpServers.length),
       projectSettings: repo.claude.projectSettings,
       budgetUsd: lim.budget,
       scratch: extras.scratch,
@@ -628,7 +631,7 @@ async function docStage(ctx: StageContext, scrub: Scrubber, log: Log, branch: st
       allowedTools: [...new Set([...DOC_TOOLS, ...(mcp ? TASK_TOOL_PERMS : []), ...(task.personalMcp?.length ? [] : repo.claude.mcpServers.map((n) => `mcp__${n}`))])],
       disallowedTools: [...new Set([...DOC_DENIED, ...repo.claude.disallowedTools])],
       mcpConfig: mcp?.file ?? null,
-      strictMcp: !!task.personalMcp?.length || (repo.claude.strictMcp && !repo.claude.mcpServers.length),
+      strictMcp: task.dataFlow?.mcpOrigins !== undefined || !!task.personalMcp?.length || (repo.claude.strictMcp && !repo.claude.mcpServers.length),
       projectSettings: repo.claude.projectSettings,
       budgetUsd: lim.budget,
       permissionTool: extras.permissionTool,
@@ -691,6 +694,7 @@ async function alternateStage(ctx: StageContext, scrub: Scrubber, log: Log, bran
         context: { tokens: ollama.contextTokens, inputLimit: ollama.contextTokens - 32768, chars: Math.floor((ollama.contextTokens - 32768) * 1.5) },
       } : {}),
       completionRequired: !!task.quality,
+      mcpOrigins: task.dataFlow?.mcpOrigins,
       memory: { directory: join(dirname(ctx.state.file), 'local-memory'), scope: JSON.stringify([...(ctx.state.scope ? [ctx.state.scope] : []), repo.path, task.id, task.stage.id]), resume: !!task.resume, projectKey: repo.name },
       scrub: s => scrub.text(s),
       mcpServers: task.personalMcp?.length ? [] : repo.claude.mcpServers.length ? repo.claude.mcpServers : ctx.localMcpServers,

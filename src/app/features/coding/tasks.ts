@@ -1,3 +1,5 @@
+import { policyKnown } from '@/shared/ai/policy'
+import { codingProvider, providersForSources, hasFlowLimits } from '@/shared/ai/dataFlow'
 import { readCopilotReceipt } from '@/shared/copilot'
 import { captureReadiness, noteReadiness } from '../../cloud'
 import { personalConnectionsForTask, personalSelection } from '../secrets/store'
@@ -318,6 +320,15 @@ export async function pickNext(repos: string[], workerName: string, docs = false
     }
     if (quality && (!caps.has('delivery-qa') || (quality.repair && !caps.has('harness-quality')))) { skip(); await patchTask(row.id, { state: 'failed', error: OLD_WORKER(), runNow: false }); continue }
     if (!agent) { skip(); await patchTask(row.id, { state: 'failed', error: t('features.coding.agent.unknown'), runNow: false }); continue }
+    const flowSources = [row.id, ...refIdsOf(row)].map(page => ({ page }))
+    const restrictions = [...(s.ai?.policy?.restricted ?? []), ...(s.settings.ai?.restricted ?? [])]
+    const bounded = hasFlowLimits(s.ai?.dataFlow) || restrictions.length > 0
+    const providers = providersForSources(s.ai?.dataFlow, flowSources, s, restrictions)
+    const destination = codingProvider(agent)
+    if (!policyKnown(s.ai, s.settings.ai) || (bounded && (!caps.has('data-flow') || (claudeRuns(stage.kind) && (!destination || !providers.includes(destination)))))) {
+      skip(); await patchTask(row.id, { state: 'failed', error: t('features.ai.flow.blocked'), runNow: false }); continue
+    }
+    const dataFlow = bounded ? { ...s.ai?.dataFlow, providers } : undefined
     const model = agent === 'claude' ? modelFor(stage, local) : null
     const copilot = agent === 'copilot' && claudeRuns(stage.kind) ? local.copilot ?? local.copilotRole ?? {} : undefined
     const copilotSource = local.copilot ? local.copilot.model ? 'task' : 'worker' : local.copilotRole?.model ? 'role' : 'worker'
@@ -364,6 +375,7 @@ export async function pickNext(repos: string[], workerName: string, docs = false
     await patchTask(row.id, { state: 'running', stageId: stage.id, run, error: null, runNow: false, resume: false, qualityReview: quality?.review === true, qualityInputs, ...(quality?.review || stage.kind === 'implement' ? { deliveryQa: null } : {}) })
     return {
       id: row.id,
+      ...(dataFlow ? { dataFlow } : {}),
       ...(personalMcp?.length ? { personalMcp } : {}),
       agent,
       ...(quality ? { quality } : {}),

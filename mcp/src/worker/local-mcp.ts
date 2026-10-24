@@ -1,3 +1,4 @@
+import { mcpDestinationAllowed } from '../../../src/shared/ai/dataFlow.ts'
 import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -27,7 +28,8 @@ export class LocalMcp {
   private oauth: MemoryOAuth[] = []
   private memoryOnly = new Set<string>()
   private memoryTenants = new Map<string, string>()
-  constructor(readOnly: boolean) { this.readOnly = readOnly }
+  private readonly origins?: string[]
+  constructor(readOnly: boolean, origins?: string[]) { this.readOnly = readOnly; this.origins = origins }
   async connect(names: string[], env: NodeJS.ProcessEnv, signal: AbortSignal, configFile = env.ONE_CODER_MCP_CONFIG || join(homedir(), '.claude.json'), supplied?: Record<string, unknown>) {
     if (!names.length) return
     let config: Record<string, any>
@@ -47,6 +49,7 @@ export class LocalMcp {
       try {
         const entry: unknown = config[name]
         if (!object(entry) || entry.disabled === true) throw new Error('Missing server')
+        if (this.origins && (typeof entry.url !== 'string' || !mcpDestinationAllowed(expand(entry.url, env), { mcpOrigins: this.origins }))) throw new Error('MCP destination is outside the task data-flow rule.')
         if (strings(entry.oneMemoryProjects)) this.memoryProjects.set(name, entry.oneMemoryProjects)
         if (entry.oneTaskMemoryOnly === true) this.memoryOnly.add(name)
         if (entry.oneTaskMemoryOnly === true && typeof entry.oneMemoryTenant === 'string' && /^[a-z0-9][a-z0-9_-]{0,99}$/.test(entry.oneMemoryTenant)) this.memoryTenants.set(name, entry.oneMemoryTenant)

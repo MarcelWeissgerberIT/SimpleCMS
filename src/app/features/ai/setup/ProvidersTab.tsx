@@ -1,3 +1,4 @@
+import { DataFlowSettings } from '../data-flow/DataFlowSettings'
 /**
  * Settings › AI (this device, UX § 5.7): "Set up AI …"; compact provider plates (state, key marker, the free check —
  * no text sent —, Change key, Remove … with its impact list; OpenRouter: its key's limit from /key, "Set a limit ↗",
@@ -109,6 +110,7 @@ export function ProvidersTab({ section, server, add }: { section?: 'mcp' | 'memo
       <WorkerModelsSettings />
       <DeviceRows />
       <DataLines />
+      <section className="aip__section"><DataFlowSettings /></section>
       <OwnData />
       <Usage />
       <div ref={limitRef} data-section="limit" tabIndex={-1} aria-label={t('features.governor.device.title')}>

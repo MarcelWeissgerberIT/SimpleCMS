@@ -1,3 +1,5 @@
+import { flowAllows, flowPageVisible, flowRestrictions, assertModelFlow, flowSignature } from './dataFlow'
+import { inferencePlace } from '@/shared/ai/dataFlow'
 import { SHARED_PREFIX } from '@/shared/ai/shared-model'
 import { workerProviderReady, workerModelRows } from './workerModels'
 import { isWorkerProvider } from '@/shared/ai/providers'
@@ -422,6 +424,7 @@ function hold(p: Prepared, usd: number): void {
  */
 export async function beforeRound(r: LoopRound, o: { dry?: boolean } = {}): Promise<RoundVerdict> {
   const p = r.prepared
+  assertPreparedFlow(p)
   const route = p.route
   const v = route && brake.round ? await brake.round({ ...r, route, price: priceOf(route, p.pool), hints: wireHintsFor(route, modelInfo(route, p.pool)), candidates: () => haltCandidates(p) }) : null
   if (!v) return { go: true, reserve: p.reservation?.usd ?? 0, band: null }
@@ -484,6 +487,7 @@ export function prepare(input: PrepareInput): Prepared {
   if (strict() && !input.size) throw new Error(`[governor] prepare without a size (${String(input.purpose)}) — every request names its prompt and answer budget`)
   const p = gate(input, true)
   inputs.set(p, input)
+  flowVersions.set(p, flowSignature())
   return p
 }
 
@@ -515,6 +519,12 @@ function retried(input: PrepareInput): PrepareInput {
 
 /** The input each prepared request came from (reprepare). */
 const inputs = new WeakMap<Prepared, PrepareInput>()
+const flowVersions = new WeakMap<Prepared, string>()
+
+export function assertPreparedFlow(p: Prepared): void {
+  if (flowVersions.has(p) && flowVersions.get(p) !== flowSignature()) throw new AIError('policy', 'destination')
+  if (p.route) assertModelFlow(p.route.p, inputs.get(p)?.sources ?? [])
+}
 
 /**
  * The same request again on another route (the halt card's H — a cheaper model of the same provider): the old
@@ -652,13 +662,14 @@ function gate(input: PrepareInput, held: boolean, backstopToo = false): Prepared
   }
   if (!res.ok) throw new AIError(res.code, res.detail, undefined, labelFor(res.route), res.fixes)
   const route = res.route
+  assertModelFlow(route.p, input.sources)
   const pool = res.pool
   const label = labelFor(route, pool)
   const shared = route.p === 'local' && route.m.startsWith(SHARED_PREFIX)
-  const sees = !shared && seesEverything(route.p, s.ai, s.settings.ai) ? 'all' : 'filtered'
+  const sees = !shared && !flowRestrictions().length && seesEverything(route.p, s.ai, s.settings.ai) ? 'all' : 'filtered'
   const redact = redactionFor(route.p, s.ai, s.settings.ai)
   const hiddenMember: DataClass[] = MEMBER_CLASSES.filter((c) => shared || !allowedFor(route.p, c, s.ai, s.settings.ai))
-  const visible = (id: ID): boolean => !hiddenMember.length || ![...classOfPage(id, w)].some((c) => hiddenMember.includes(c))
+  const visible = (id: ID): boolean => flowPageVisible(route.p, id) && (!hiddenMember.length || ![...classOfPage(id, w)].some((c) => hiddenMember.includes(c)))
   const allows = (c: DataClass): boolean => !(shared && MEMBER_CLASSES.some(m => m === c)) && allowedFor(route.p, c, s.ai, s.settings.ai)
   // 5 · the backstop (D-S2-5): text built without the route's redaction / filter never goes to a route that may not see it
   const concerned = held || backstopToo ? backstop({ classes: [...classes], pageDerived: PAGE_DERIVED, sees, redact, hidden: hiddenMember, applied: input.applied, route: routeKey(route) }) : null
@@ -719,7 +730,7 @@ function gate(input: PrepareInput, held: boolean, backstopToo = false): Prepared
     model: route.m,
     caps: known,
     classes: [...classes],
-    steps,
+    steps: [...steps, { k: 'data-flow', code: inferencePlace(route.p, route.m) }],
     reservation: held ? reserve(usd, run.source) : null,
     ...(capped !== undefined ? { maxTokens: capped } : {}),
     ...(braked !== undefined ? { band: braked } : {}),
@@ -851,6 +862,7 @@ export function routeChoices(purposeId: PurposeId, o: { sources?: readonly Sourc
   const caps = [...new Set([...purpose.caps, ...(o.needs ?? [])])]
   const w = world()
   const check = (route: Route): Pick<RouteChoice, 'ok' | 'why' | 'pool'> => {
+    if (!flowAllows(route.p, o.sources ?? [])) return { ok: false, why: { code: 'policy', detail: 'destination' } }
     if (!routable(route.p, purpose.cls)) return { ok: false, why: { code: 'later' } }
     const res = resolveRoute({ cls: purpose.cls, chip: route, caps, classes }, w)
     if (res.ok) return res.level === 'chip' ? { ok: true, ...(res.pool ? { pool: res.pool } : {}) } : { ok: false, why: { code: 'later' } }
@@ -871,7 +883,7 @@ export function routeChoices(purposeId: PurposeId, o: { sources?: readonly Sourc
   }
   // the route without a chip
   const nowRes = resolveFor(purpose.cls, { caps, classes })
-  const now = nowRes.ok ? nowRes.route : null
+  const now = nowRes.ok && flowAllows(nowRes.route.p, o.sources ?? []) ? nowRes.route : null
   if (now) add({ ...row(now, 'now'), ok: true, ...(nowRes.ok && nowRes.pool ? { pool: nowRes.pool } : {}) })
   // this kind of work's rule (the device's, else the workspace's)
   const rule = s.settings.ai?.routes?.[purpose.cls] ?? s.ai?.routes?.[purpose.cls] ?? []

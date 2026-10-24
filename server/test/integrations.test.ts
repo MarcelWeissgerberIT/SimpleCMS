@@ -264,7 +264,7 @@ describe('integration profiles on a running server', () => {
     // by host: the state tools too
     await write(A, 'by-host', profile('by-host', { host: '*.example.com' }, ['agentState']))
     const r3 = await run('ag-mirror', 'Mirror agent')
-    assert.deepEqual(toolNames(r3).slice(-2), ['agent_state_get', 'agent_state_set'])
+    assert.deepEqual(toolNames(r3).filter(n => n.startsWith('agent_state_')), ['agent_state_get', 'agent_state_set'])
     assert.match(r3.body.system, /agent_state_get \/ agent_state_set keep a small JSON state/)
 
     // a host that does not match unlocks nothing; removing the profiles locks them again

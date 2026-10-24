@@ -1,3 +1,7 @@
+import { useWorkspace } from '../../../store/store'
+import { assertModelFlow, flowRestrictions } from '../core/dataFlow'
+import { AIError } from '../core/errors'
+import { hasFlowLimits } from '@/shared/ai/dataFlow'
 import { clearSecret, openSecret, sealSecret, vaultAvailable } from '../../../lib/vault'
 
 const SLOT = 'one.local-coder'
@@ -77,6 +81,9 @@ export async function checkCoder(url: string, key: string, signal?: AbortSignal)
 }
 
 export async function codingTask(url: string, key: string, task: string, context: string, signal?: AbortSignal): Promise<string> {
+  assertModelFlow('local')
+  // This legacy connector cannot attest local model metadata or carry per-task boundaries.
+  if (hasFlowLimits(useWorkspace.getState().ai?.dataFlow) || flowRestrictions().length) throw new AIError('policy', 'legacy-flow')
   const result = await coderCall(url, key, 'tools/call', { name: 'coding_task', arguments: { task, context } }, signal)
   if (result.isError) throw new CoderError('task')
   if (!Array.isArray(result.content)) throw new CoderError('protocol')

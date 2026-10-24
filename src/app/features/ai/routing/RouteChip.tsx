@@ -1,3 +1,4 @@
+import { DataFlowNotice } from '../data-flow/DataFlowNotice'
 import { sharedProgress } from '../core/sharedModels'
 import { SHARED_PREFIX } from '@/shared/ai/shared-model'
 /**
@@ -40,6 +41,7 @@ export interface RouteChipProps {
   carries?: readonly DataClass[]
   needs?: readonly Need[]
   /** the lead line's "Reads: …" */
+  text?: string
   reads: string
   disabled?: boolean
   /** after the picker closed (the caller gives its field the keyboard back) */
@@ -48,7 +50,7 @@ export interface RouteChipProps {
   testId?: string
 }
 
-export function RouteChip({ purpose, chip, onChip, sources, carries, needs, reads, disabled, onClosed, handle, testId = 'route-chip' }: RouteChipProps) {
+export function RouteChip({ purpose, chip, onChip, sources, carries, needs, reads, text, disabled, onClosed, handle, testId = 'route-chip' }: RouteChipProps) {
   const t = useT()
   const [open, setOpen] = useState(false)
   const [providersOpen, setProvidersOpen] = useState(false)
@@ -125,6 +127,7 @@ export function RouteChip({ purpose, chip, onChip, sources, carries, needs, read
           ▾
         </span>
       </button>
+      {chosen && <DataFlowNotice provider={r.route.p} model={r.route.m} sources={sources} text={text} />}
       {chosen && r.route.p === 'local' && r.route.m.startsWith(SHARED_PREFIX) && sharedProgress() && <span role="status" aria-live="polite" className="route-chip__queue">{t(sharedProgress()!.state === 'queued' ? 'features.ai.prov.share.waiting' : 'features.ai.prov.share.running', {n:sharedProgress()!.position})}</span>}
       {open && (
         <RoutePicker

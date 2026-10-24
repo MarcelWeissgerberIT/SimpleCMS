@@ -1,3 +1,4 @@
+import { assertModelFlow } from './dataFlow'
 import { sharedModelRows, refreshSharedModels, useSharedModels, sendSharedText } from './sharedModels'
 import { SHARED_PREFIX } from '@/shared/ai/shared-model'
 /** Request-only routes discovered from the paired worker. No credentials or persisted model claims. */
@@ -54,6 +55,7 @@ export function useWorkerModels(): number {
   return sharedRevision + useSyncExternalStore(fn => { listeners.add(fn); return () => listeners.delete(fn) }, () => revision)
 }
 export async function sendWorkerText(route: Route, messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>, maxTokens: number, signal?: AbortSignal, extra: { tools?: WorkerFunction[]; schema?: Record<string, unknown>; attachments?: WorkerAttachment[] } = {}) {
+  assertModelFlow(route.p)
   if (!isWorkerProvider(route.p)) throw new AIError('capability')
   if (route.p === 'local' && route.m.startsWith(SHARED_PREFIX)) {
     if (extra.tools?.length || extra.schema || extra.attachments?.length) throw new AIError('capability')

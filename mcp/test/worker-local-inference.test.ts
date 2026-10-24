@@ -35,3 +35,19 @@ test('owner profiles are loaded for the selected model, validated and never trea
     assert.ok(requests.every(r => r.url === '/api/show'))
   } finally { await new Promise<void>(resolve => server.close(() => resolve())) }
 })
+
+test('local inference refuses Ollama cloud redirects before any chat text is submitted', async () => {
+  let chats = 0
+  const server = createServer(async (req,res) => {
+    for await(const _ of req) { /* consume model metadata request */ }
+    res.setHeader('Content-Type','application/json')
+    if(req.url==='/api/show')res.end(JSON.stringify({remote_host:'https://ollama.com',remote_model:'cloud-model'}))
+    else { chats++;res.end(JSON.stringify({message:{content:'should never happen'}})) }
+  })
+  await new Promise<void>(r=>server.listen(0,'127.0.0.1',r))
+  try {
+    const inference=ollamaInference(new URL(`http://127.0.0.1:${(server.address() as {port:number}).port}`))
+    await assert.rejects(inference({model:'innocent-local-alias',messages:[{role:'user',content:'confidential sample'}],tools:[],contextTokens:4096,outputTokens:100,signal:new AbortController().signal}),/cloud-backed/)
+    assert.equal(chats,0)
+  } finally { await new Promise<void>(r=>server.close(()=>r())) }
+})
