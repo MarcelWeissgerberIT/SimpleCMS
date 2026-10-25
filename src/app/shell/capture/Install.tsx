@@ -4,7 +4,7 @@
  * once One runs installed.
  */
 import { useId, type ReactNode } from 'react'
-import { Download, EllipsisVertical, Share, SquarePlus } from 'lucide-react'
+import { Check, Download, EllipsisVertical, Share, SquarePlus } from 'lucide-react'
 import { Modal } from '../../ui/Modal'
 import type { MenuEntry } from '../../ui/Menu'
 import { useT } from '../../i18n'
@@ -20,6 +20,7 @@ export function InstallSection() {
   const t = useT()
   const id = useId()
   const mode = useInstallMode()
+  if (mode === 'installed') return <div className="st-field" data-testid="install-one-status"><div className="st-field__label"><Check size={14} aria-hidden /> {t('shell.install.installed')}</div><div className="st-field__hint">{t('shell.install.installedHint')}</div></div>
   if (!canOfferInstall(mode)) return null
   return (
     <div className="st-field" data-inline="" data-testid="install-one">
@@ -39,6 +40,16 @@ export function InstallSection() {
       </div>
     </div>
   )
+}
+
+/** Always discoverable in a browser tab, including browsers without a native prompt. */
+export function InstallTopbarButton({ compact = false }: { compact?: boolean }) {
+  const t = useT()
+  const mode = useInstallMode()
+  if (!canOfferInstall(mode)) return null
+  return <button type="button" className="tb-install" data-compact={compact || undefined} data-testid="install-one-topbar" aria-label={t('shell.install.website')} title={t('shell.install.website')} onClick={install}>
+    <Download size={15} strokeWidth={1.75} aria-hidden /><span>{t('shell.install.website')}</span>
+  </button>
 }
 
 /** The workspace menu's "Install One" entry ([] when there is nothing to install). */

@@ -11,6 +11,8 @@ summary: One funktioniert nach dem ersten Besuch offline — installier es als A
 Nach dem ersten Besuch hält One alles, was es braucht, auf dem Gerät — jede Ansicht inklusive. Ohne Verbindung funktionieren Seiten und Datenbanken wie gewohnt. Nur was das Internet braucht, wartet: Claude, MCP-Server, GitHub-Sync, Webhooks, Team-Sync.
 
 ## Als App installieren
+In One steht **Als App installieren** oben rechts in der Kopfzeile; auf kleinen Bildschirmen ist es die Taste mit dem Download-Symbol. Auch im normalen Browser-Vollbild bleibt sie verfügbar.
+
 Auf der Website steht **Als App installieren** neben **Workspace öffnen**. In One findest du die Taste unter **Einstellungen → Allgemein → One installieren** und im Workspace-Menü. Sie bleibt auch ohne angebotenen Installationsdialog sichtbar und zeigt dann die passenden Schritte. Läuft One bereits installiert, verschwindet die Taste.
 - **Windows, Edge:** Den Installationsdialog bestätigen oder **⋯ → Weitere Tools → Apps → Diese Website als App installieren** wählen. Danach lässt sich One an Start oder die Taskleiste anheften. Dafür braucht es keinen Coding-Worker und keinen separaten Windows-Build.
 - **Mac, Safari (macOS Sonoma 14 oder neuer):** Den Workspace öffnen, dann **Ablage → Zum Dock hinzufügen** oder **Teilen → Zum Dock hinzufügen** wählen. Safari bietet keinen von der Website auslösbaren Installationsdialog.

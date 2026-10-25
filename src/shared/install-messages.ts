@@ -4,6 +4,8 @@ import type { Messages } from './i18n'
 export const installMessages: Messages = {
   en: {
     'shell.install.title': 'Install One',
+    'shell.install.installed': 'One is already installed',
+    'shell.install.installedHint': 'The install button is hidden while One is installed or running in its own app window.',
     'shell.install.hint': 'Its own window and icon. Local workspaces work offline after loading; team workspaces keep their cloud connection.',
     'shell.install.hintDesktop': 'Install on Mac or Windows. If the browser has no direct prompt, One shows the steps for your browser.',
     'shell.install.website': 'Install as app',
@@ -47,6 +49,8 @@ export const installMessages: Messages = {
   },
   de: {
     'shell.install.title': 'One installieren',
+    'shell.install.installed': 'One ist bereits installiert',
+    'shell.install.installedHint': 'Ist One installiert oder im eigenen App-Fenster geöffnet, wird der Installationsbutton ausgeblendet.',
     'shell.install.hint': 'Eigenes Fenster und Symbol. Lokale Workspaces funktionieren nach dem Laden offline; Team-Workspaces behalten ihre Cloud-Verbindung.',
     'shell.install.hintDesktop': 'Auf Mac oder Windows installieren. Ohne direkten Installationsdialog zeigt One die Schritte für deinen Browser.',
     'shell.install.website': 'Als App installieren',

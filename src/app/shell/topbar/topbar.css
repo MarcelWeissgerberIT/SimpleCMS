@@ -337,3 +337,25 @@ button.tb-crumb:hover {
     animation: none;
   }
 }
+
+/* Install stays in the toolbar even when the browser offers instructions instead of a prompt. */
+.tb-install {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex: none;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--signal);
+  border-radius: var(--radius-1);
+  background: var(--signal-wash);
+  color: var(--signal-ink);
+  font: inherit;
+  font-size: var(--text-sm);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.tb-install:hover { background: var(--signal-wash-strong); }
+.tb-install[data-compact] { width: 30px; padding: 0; }
+.tb-install[data-compact] span { display: none; }

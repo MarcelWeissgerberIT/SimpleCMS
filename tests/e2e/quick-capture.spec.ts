@@ -650,6 +650,7 @@ test.describe('install One', () => {
     await openGeneral(page)
     await expect(page.getByRole('dialog', { name: 'Settings' }).getByText('Spell check', { exact: true })).toBeVisible()
     await expect(page.getByTestId('install-one')).toHaveCount(0)
+    await expect(page.getByTestId('install-one-status')).toContainText('One is already installed')
     await page.keyboard.press('Escape')
     await page.locator('aside.sb .sb-head__ws').click()
     await expect(page.getByRole('menuitem', { name: /^Settings/ })).toBeVisible()

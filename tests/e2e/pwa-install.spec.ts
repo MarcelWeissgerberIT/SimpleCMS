@@ -141,3 +141,37 @@ test('German instructions and website language switching remain usable at deskto
     }
   }
 })
+
+test('workspace toolbar offers direct installation in a regular fullscreen tab, even without a native prompt', async ({ page }) => {
+  await browserIdentity(page, WINDOWS_EDGE)
+  await page.addInitScript(() => {
+    const match = window.matchMedia.bind(window)
+    window.matchMedia = query => query.includes('display-mode: fullscreen')
+      ? { ...match(query), matches: true, addEventListener() {}, removeEventListener() {} } as MediaQueryList
+      : match(query)
+  })
+  await openApp(page)
+  const key = page.getByTestId('install-one-topbar')
+  await expect(key).toBeVisible()
+  await expect(key).toHaveAccessibleName('Install as app')
+  await key.click()
+  const guide = page.getByRole('dialog', {name:'Install One as a desktop app'})
+  await expect(guide).toContainText('Microsoft Edge')
+  await guide.getByRole('button', {name:'Got it'}).click()
+  await page.setViewportSize({width:390,height:844})
+  await expect(key).toBeVisible()
+  const box = (await key.boundingBox())!
+  expect(box.x).toBeGreaterThanOrEqual(0)
+  expect(box.x + box.width).toBeLessThanOrEqual(390)
+  await key.click()
+  await expect(guide).toBeVisible()
+})
+
+test('workspace toolbar consumes a native install prompt and hides after acceptance', async ({ page }) => {
+  await browserIdentity(page, WINDOWS_EDGE)
+  await openApp(page)
+  expect(await prompt(page, 'accepted')).toBe(true)
+  await page.getByTestId('install-one-topbar').click()
+  expect(await page.evaluate(() => (window as unknown as {__installCalls:number}).__installCalls)).toBe(1)
+  await expect(page.getByTestId('install-one-topbar')).toHaveCount(0)
+})

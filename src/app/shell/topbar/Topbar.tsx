@@ -1,3 +1,4 @@
+import { InstallTopbarButton } from '../capture/Install.tsx'
 import { useState } from 'react'
 import { ArrowLeft, ChevronsRight, Clock3, Lock, Menu as MenuIcon, MessageSquare, MoreHorizontal, Presentation, Star, Waypoints, Home, CalendarDays, CalendarRange, CircleSlash, Inbox, Bell, Bot, SquareCode, Compass, GitBranch, Blocks, Send, type LucideIcon } from 'lucide-react'
 import { useWorkspace } from '../../store/store'
@@ -74,6 +75,7 @@ export function Topbar({ route }: { route: Route }) {
         {page ? <Crumbs page={page} compact={mobile} /> : <RouteCrumb route={route} />}
       </nav>
       <div className="tb-right">
+        <InstallTopbarButton compact={mobile} />
         {/* the Patchbay's way back to its setup: only while a setup step left #/patchbay — never shed */}
         <PatchbayReturnChip />
         {/* Preflight: MASTER CAUTION on every route (nothing while Preflight is off) */}

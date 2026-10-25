@@ -11,6 +11,8 @@ summary: One works offline after the first visit — install it as an app, and r
 After your first visit One keeps everything it needs on the device — every view included. Without a connection, your pages and databases work as usual. Only things that need the internet wait: Claude, MCP servers, GitHub sync, webhooks, team sync.
 
 ## Install as an app
+In One, **Install as app** is in the top-right toolbar; small screens show its download icon. It remains available in regular browser fullscreen too.
+
 The website offers **Install as app** beside **Open the workspace**. In One use **Settings → General → Install One** or the workspace menu. The key remains available when the browser has not offered an install prompt: it shows instructions instead. It disappears when One runs installed.
 - **Windows, Edge:** confirm the install prompt, or use **⋯ → More tools → Apps → Install this site as an app**. One can then be pinned to Start or the taskbar. No coding worker or separate Windows build is needed.
 - **Mac, Safari (macOS Sonoma 14 or later):** open the workspace, then **File → Add to Dock** or **Share → Add to Dock**. Safari does not expose a website-triggered install prompt.

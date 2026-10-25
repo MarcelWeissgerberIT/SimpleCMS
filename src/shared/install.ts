@@ -2,7 +2,7 @@
  * "Install One": the browser's own install prompt where it has one (Chrome, Edge — `beforeinstallprompt`,
  * caught as early as this module loads), browser-specific instructions on desktops and phones when no prompt is available.
  * Safari uses Add to Dock (Mac) / Add to Home Screen (iOS). Hidden once One runs installed
- * (display-mode standalone / fullscreen / minimal-ui / window-controls-overlay, or iOS `navigator.standalone`).
+ * (display-mode standalone / minimal-ui / window-controls-overlay, or iOS `navigator.standalone`).
  */
 
 interface InstallPromptEvent extends Event {
@@ -13,7 +13,8 @@ interface InstallPromptEvent extends Event {
 /** 'prompt': native dialog · desktop / mobile: instructions · installed / none: nothing to show. */
 export type InstallMode = 'prompt' | 'ios' | 'menu' | 'desktop' | 'installed' | 'none'
 
-const APP_MODES = ['standalone', 'fullscreen', 'minimal-ui', 'window-controls-overlay']
+// Browser fullscreen alone is not proof of installation (e.g. a regular tab in fullscreen).
+const APP_MODES = ['standalone', 'minimal-ui', 'window-controls-overlay']
 
 let deferred: InstallPromptEvent | null = null
 let installedNow = false
