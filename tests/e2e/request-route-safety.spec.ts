@@ -3,7 +3,7 @@ import { resolveRoute, type RouteWorld } from '../../src/app/features/ai/core/re
 import { MODELS } from '../../src/shared/ai/models'
 import type { Route } from '../../src/shared/ai/types'
 
-const selected: Route = { p: 'local', m: 'marcel-flow:latest' }
+const selected: Route = { p: 'local', m: 'atlas-flow:latest' }
 const world: RouteWorld = { hasKey: () => true, shortlist: [], aiModel: 'claude-opus-5-5', info: route => ({ ...MODELS[0]!, route }) }
 test('an explicit request provider cannot silently fall through to Claude when an action needs another class', () => {
   const result = resolveRoute({ cls: 'structure', chip: selected, caps: ['structured'], classes: [] }, world)

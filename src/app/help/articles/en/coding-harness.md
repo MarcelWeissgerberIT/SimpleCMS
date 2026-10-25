@@ -7,7 +7,7 @@ keywords: local, ollama, coding, harness, atlas, memory, skills, methods, repair
 related: coding-pipeline, workorders, custom-agents, mcp-bridge
 summary: How One prepares coding packages, retrieves context, bounds QA repairs and evaluates local models.
 ---
-One owns the request, its work packages and acceptance. The selected model works on one package at a time. A profile such as `marcel-flow` changes instructions, not model weights. Switching models retains the harness, tools and boundaries.
+One owns the request, its work packages and acceptance. The selected model works on one package at a time. A profile such as `atlas-flow` changes instructions, not model weights. Switching models retains the harness, tools and boundaries.
 
 ## Task packet and methods
 The shared harness for **Local · Ollama**, **MiniMax**, **Ollama Cloud** and **GitHub Copilot** prepares a bounded packet: project guidance, available terminology in `GLOSSARY.md`/`CONTEXT.md`, relevant file pointers, symbols, imports and selected versioned methods. The source map uses bounded lexical/symbol search, not a complete architecture graph. An excerpt does not count as a source read for subsequent editing.
@@ -73,7 +73,7 @@ The first shared channel supports **text, reviews and code proposals**: up to 22
 Use the synthetic participant demo containing intentionally broken C++ and TypeScript validation:
 
 ```sh
-node /path/one-worker.mjs compare-demo --repo /path/ONE-Demo --output /path/comparison/report.json --model marcel-flow:latest --copilot-model auto
+node /path/one-worker.mjs compare-demo --repo /path/ONE-Demo --output /path/comparison/report.json --model atlas-flow:latest --copilot-model auto
 ```
 
 This command uses local Ollama and your signed-in Copilot CLI directly, with identical inputs, a 4,096-token output budget and unchanged tests. No customer data or model shell tools are used. Reports retain prompt/test hashes, actual model where reported, elapsed time, usage and real test results. `auto` is not a fixed model; pin an available Copilot model for repeatability. Testing the shared transport additionally requires a run through the workspace queue. Two small tasks do not establish full merge or general model quality, Angular build/browser behavior or customer-network access. Subscription quota and electricity are not reported as free.

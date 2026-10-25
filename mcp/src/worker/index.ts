@@ -142,7 +142,7 @@ async function main() {
 
   if (command === 'compare-demo') {
     const repo = value('--repo'), output = value('--output')
-    if (!repo || !output) throw new Error('Use compare-demo --repo /path/to/synthetic-demo --output /path/to/report.json [--model marcel-flow:latest] [--copilot-model auto]')
+    if (!repo || !output) throw new Error('Use compare-demo --repo /path/to/synthetic-demo --output /path/to/report.json [--model atlas-flow:latest] [--copilot-model auto]')
     const report = await compareDemo({repo,output,model:value('--model')??undefined,copilotModel:value('--copilot-model')??undefined,config:configFile,progress:line=>process.stderr.write(line+'\n')})
     process.stdout.write(JSON.stringify(report,null,2)+'\n')
     process.exitCode = report.results.every((r:{passed:boolean})=>r.passed) ? 0 : 1

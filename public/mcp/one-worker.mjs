@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// SimpleCMS One — coding worker 1.32.1 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp/src/worker
+// SimpleCMS One — coding worker 1.32.2 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp/src/worker
 // Runs coding tasks from One with Claude Code on this computer. Setup: node one-worker.mjs --help
 // Docs and security model: https://github.com/MarcelWeissgerberIT/SimpleCMS/blob/main/docs/CODING.md
 import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);
@@ -18968,7 +18968,7 @@ async function compareDemo(options) {
     const r = await execFileSafe(command2, args, { cwd, timeoutMs: 3e4, maxBuffer: 1e5, allow: "exe", env: { PATH: process.env.PATH ?? "", ...process.env.CXX ? { CXX: process.env.CXX } : {} } });
     return { exit: r.code, output: r.stdout + r.stderr + (r.error ?? "") };
   };
-  const complete = options.complete ?? { local: (messages, maxTokens) => textRequest(options.config ?? "", { provider: "local", model: options.model ?? "marcel-flow:latest", messages, maxTokens }, AbortSignal.timeout(18e4)), copilot: (messages, maxTokens) => demoCopilot(messages, maxTokens, options.copilotModel ?? "auto") };
+  const complete = options.complete ?? { local: (messages, maxTokens) => textRequest(options.config ?? "", { provider: "local", model: options.model ?? "atlas-flow:latest", messages, maxTokens }, AbortSignal.timeout(18e4)), copilot: (messages, maxTokens) => demoCopilot(messages, maxTokens, options.copilotModel ?? "auto") };
   const report = { schema: 1, at: (/* @__PURE__ */ new Date()).toISOString(), commit: commit.trim(), synthetic: true, scope: "Two small text-to-patch checks. No full merge, browser, customer network or agent/MCP benchmark.", samePrompt: true, tools: false, sourceTestsUnchanged: true, results: [] };
   await mkdir(dirname5(output), { recursive: true });
   const save = () => writeFile(output, JSON.stringify(report, null, 2) + "\n", { mode: 384 });
@@ -49409,7 +49409,7 @@ var WorkerWorkspaces = class {
 
 // src/worker/index.ts
 var workspaceHost = null;
-var VERSION = true ? "1.32.1" : "dev";
+var VERSION = true ? "1.32.2" : "dev";
 var quiet = process.env.ONE_WORKER_QUIET === "1";
 var recent = [];
 var log = (msg) => {
@@ -49490,7 +49490,7 @@ async function main() {
   if ((command === "run" || command === "setup") && await redirectInstalled(managed, command === "setup")) return;
   if (command === "compare-demo") {
     const repo = value("--repo"), output = value("--output");
-    if (!repo || !output) throw new Error("Use compare-demo --repo /path/to/synthetic-demo --output /path/to/report.json [--model marcel-flow:latest] [--copilot-model auto]");
+    if (!repo || !output) throw new Error("Use compare-demo --repo /path/to/synthetic-demo --output /path/to/report.json [--model atlas-flow:latest] [--copilot-model auto]");
     const report = await compareDemo({ repo, output, model: value("--model") ?? void 0, copilotModel: value("--copilot-model") ?? void 0, config: configFile, progress: (line) => process.stderr.write(line + "\n") });
     process.stdout.write(JSON.stringify(report, null, 2) + "\n");
     process.exitCode = report.results.every((r) => r.passed) ? 0 : 1;

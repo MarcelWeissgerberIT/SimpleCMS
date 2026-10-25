@@ -11,7 +11,7 @@ test('workspace model sharing: isolated encrypted FIFO, cancellation, revocation
   for(const [client,email,role]of [[alice,'alice@share.test','member'],[bob,'bob@share.test','member'],[guest,'guest@share.test','viewer']]as const){const link=(await owner.post(`/api/workspaces/${ws}/invites`,{email,role})).body.link;assert.equal((await client.post('/api/invites/'+link.split('#/invite/')[1]+'/accept')).status,200)}
   const worker=(await owner.post(`/api/workspaces/${ws}/coding/workers`,{label:'Local host'})).body
   const send=async(path:string,value:unknown,method='POST')=>{const r=await fetch(server.url+'/api/coding/shared-model/'+path,{method,headers:{authorization:'Bearer '+worker.token,'Content-Type':'application/json'},body:JSON.stringify(value)});return {status:r.status,body:await r.json() as any}}
-  const config={model:'marcel-flow:latest',label:'Marcels Modell',enabled:true}
+  const config={model:'atlas-flow:latest',label:'Atlas Flow',enabled:true}
   assert.equal((await send('config',config,'PUT')).status,200)
   const keys=await modelShareKey(),publicKey=await crypto.subtle.exportKey('jwk',keys.publicKey)
   const poll=(extra:Record<string,unknown>={})=>send('poll',{publicKey,busy:false,available:true,active:null,...extra})

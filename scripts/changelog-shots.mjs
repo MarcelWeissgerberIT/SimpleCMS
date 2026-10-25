@@ -4533,7 +4533,7 @@ process.exit(1)
     const { WORKER_CAN } = await import('../src/app/features/coding/protocol.ts')
     const fake = await startFakeWorker(47488, { worker: '1.21.0', name: 'My worker', repos: [], parallel: 1, busy: [], spentToday: 0, dayLimit: null, claude: { found: true, version: '2.0' } })
     fake.can = [...WORKER_CAN]
-    fake.textModels = [{ provider: 'local', model: 'marcel-flow:latest', context: 32768 }, { provider: 'ollama', model: 'cloud-model', context: 65536 }, { provider: 'minimax', model: 'MiniMax-M3.1-Flash', context: 131072 }, { provider: 'codex', model: 'gpt-6.1-sol', context: 64000 }]
+    fake.textModels = [{ provider: 'local', model: 'atlas-flow:latest', context: 32768 }, { provider: 'ollama', model: 'cloud-model', context: 65536 }, { provider: 'minimax', model: 'MiniMax-M3.1-Flash', context: 131072 }, { provider: 'codex', model: 'gpt-6.1-sol', context: 64000 }]
     let ctx
     try {
       const fresh = await freshPage(browser); ctx = fresh.ctx; const page = fresh.page

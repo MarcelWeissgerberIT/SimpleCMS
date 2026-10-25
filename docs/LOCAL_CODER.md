@@ -156,13 +156,13 @@ calls; changing its name cannot add that capability. Existing memory remains his
 ### Owner-selected model profiles (worker 1.16.1)
 
 Both the pipeline and the standalone panel load the selected model's Ollama `system` profile from `/api/show`
-once at task start. They include it alongside the harness instructions, so a profile such as `marcel-flow` keeps
+once at task start. They include it alongside the harness instructions, so a profile such as `atlas-flow` keeps
 its workflow and writing style even though the harness supplies its own system message. The profile stays in the
 system message during compaction and counts toward the same context budget. A missing/invalid profile response or
 one exceeding 50,000 characters stops the task before inference; a base model without a system profile is valid.
 Tool access, task boundaries and check receipts still come from the harness, not from claims in profile text.
 
-Set `ONE_CODER_MODEL=marcel-flow` in the environment of **both** services to select an installed profile for the
+Set `ONE_CODER_MODEL=atlas-flow` in the environment of **both** services to select an installed profile for the
 pipeline worker and the separate MCP panel. Restart both processes after changing their configuration. A profile
 changes instructions, not model weights or coding ability; evaluate real tasks and verify reported results.
 
@@ -303,4 +303,4 @@ Work-order settings optionally allow 1–2 automatic QA repair sub-runs, off by 
 
 The new opt-in local evaluation runs 24 synthetic cases, including multi-file contracts, conflicting source documents, page scope and resume. Acceptance scripts are outside the model worktree. No personal repository, MCP or cloud is attached; scripts are not protected by an OS sandbox. Run `node one-worker.mjs evaluate --limit 3 --cases module-integration,source-conflict,resume-package`; full runs use `--limit 24 --repeats 3`. Select a local model/context with the usual environment settings. JSON includes a suite hash, per-case receipts, false completions, timing and steps. These cases are workload templates, not an evaluation of private FeliX/ICM data or proof of frontier-model parity. Keep successful and failed reports to compare changes honestly.
 
-Initial local baseline on 20 October 2026 (Apple M3 Max, 48 GiB; Qwen3-Coder 30B Q4_K_M via `marcel-flow:latest`, 32768 context): the selected `module-integration` and `resume-package` cases passed; `source-conflict` failed after the bounded tool-format correction. Result: 2/3, zero false completions, not 24/24. The complete initial [JSON report](evals/2026-10-20-marcel-flow-32k.json) includes the failed case. This sample is too small for a general model ranking. A preliminary 65536-context run passed only 1/3 under the then-current harness; it was not a controlled final comparison and does not establish that a larger context improves quality.
+Initial local baseline on 20 October 2026 (Apple M3 Max, 48 GiB; Qwen3-Coder 30B Q4_K_M via the then-named `marcel-flow:latest` profile (now Atlas Flow, `atlas-flow:latest`), 32768 context): the selected `module-integration` and `resume-package` cases passed; `source-conflict` failed after the bounded tool-format correction. Result: 2/3, zero false completions, not 24/24. The complete initial [JSON report](evals/2026-10-20-marcel-flow-32k.json) includes the failed case. This sample is too small for a general model ranking. A preliminary 65536-context run passed only 1/3 under the then-current harness; it was not a controlled final comparison and does not establish that a larger context improves quality.

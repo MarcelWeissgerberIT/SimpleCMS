@@ -178,7 +178,7 @@ test('OpenRouter uses the same text-only cell proposal and explicit apply', asyn
 
 const PORT = 47394
 const models = [
-  { provider: 'local', model: 'marcel-flow:latest', context: 32768 },
+  { provider: 'local', model: 'atlas-flow:latest', context: 32768 },
   { provider: 'ollama', model: 'cloud-choice', context: 65536 },
   { provider: 'minimax', model: 'MiniMax-M3.1-Flash', context: 131072 },
   { provider: 'codex', model: 'gpt-6.1-sol', context: 64000 },

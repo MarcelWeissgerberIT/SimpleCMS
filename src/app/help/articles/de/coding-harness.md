@@ -7,7 +7,7 @@ keywords: lokal, ollama, coding, harness, atlas, memory, skills, methoden, repar
 related: coding-pipeline, workorders, custom-agents, mcp-bridge
 summary: Wie One Coding-Aufträge vorbereitet, Kontext nachlädt, QA-Reparaturen begrenzt und lokale Modelle prüft.
 ---
-One verwaltet den Auftrag, seine Teilaufgaben und die Abnahme. Das ausgewählte Modell bearbeitet jeweils ein Arbeitspaket. Ein Rollenprofil wie `marcel-flow` ändert Anweisungen, nicht die Modellgewichte. Ein Modellwechsel behält den Harness, die Werkzeuge und die Grenzen bei.
+One verwaltet den Auftrag, seine Teilaufgaben und die Abnahme. Das ausgewählte Modell bearbeitet jeweils ein Arbeitspaket. Ein Rollenprofil wie `atlas-flow` ändert Anweisungen, nicht die Modellgewichte. Ein Modellwechsel behält den Harness, die Werkzeuge und die Grenzen bei.
 
 ## Aufgabenpaket und Methoden
 Der gemeinsame Harness für **Lokal · Ollama**, **MiniMax**, **Ollama Cloud** und **GitHub Copilot** stellt vor dem Lauf ein begrenztes Paket zusammen: Projektanweisungen, vorhandene Fachbegriffe aus `GLOSSARY.md`/`CONTEXT.md`, relevante Dateiverweise, Symbole, Imports und passende versionierte Arbeitsmethoden. Die Code-Karte ist eine begrenzte Text-/Symbolsuche, kein vollständiger Architekturgraph. Ein Auszug zählt nicht als Lesen für eine anschließende Änderung.
@@ -73,7 +73,7 @@ Dieser erste Freigabekanal verarbeitet **Text, Reviews und Codevorschläge**: h�
 Die synthetische Teilnehmer-Demo enthält absichtlich fehlerhafte C++- und TypeScript-Validierung. Ein reproduzierbarer Text-zu-Code-Vergleich verwendet für beide Anbieter dieselben Eingaben, maximal 4.096 Ausgabetokens und unveränderte Tests. Im entpackten Demo-Repository:
 
 ```sh
-node /pfad/one-worker.mjs compare-demo --repo /pfad/ONE-Demo --output /pfad/vergleich/report.json --model marcel-flow:latest --copilot-model auto
+node /pfad/one-worker.mjs compare-demo --repo /pfad/ONE-Demo --output /pfad/vergleich/report.json --model atlas-flow:latest --copilot-model auto
 ```
 
 Dieser CLI-Befehl nutzt den lokalen Ollama und die persönlich angemeldete Copilot-CLI direkt. Er benötigt keine Kundendaten und gibt den Modellen keinen Shell-Zugriff. Der Bericht enthält Kontext-/Test-Prüfsummen, tatsächliches Modell soweit gemeldet, Laufzeit, Verbrauch und Prüfresultate. `auto` ist kein festes Modell; für wiederholbare Vergleiche ein freigeschaltetes Copilot-Modell explizit wählen. Ein Test des Freigabekanals muss zusätzlich durch die Workspace-Warteschlange laufen. Zwei kleine Aufgaben beweisen weder einen vollständigen schwierigen Merge noch allgemeine Modellqualität, Angular-Build, Browser-Verhalten oder Kundennetz-Zugriff. Subscription-Kontingent und Strom werden nicht als kostenlos ausgewiesen.

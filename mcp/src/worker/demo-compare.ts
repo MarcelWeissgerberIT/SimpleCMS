@@ -31,7 +31,7 @@ export async function compareDemo(options:{repo:string;output:string;complete?:R
   const r=await execFileSafe(command,args,{cwd,timeoutMs:30000,maxBuffer:100000,allow:'exe',env:{PATH:process.env.PATH??'',...(process.env.CXX?{CXX:process.env.CXX}:{})}})
   return {exit:r.code,output:r.stdout+r.stderr+(r.error??'')}
  }
- const complete=options.complete??{local:(messages:Parameters<DemoCompletion>[0],maxTokens:number)=>textRequest(options.config??'',{provider:'local',model:options.model??'marcel-flow:latest',messages,maxTokens},AbortSignal.timeout(180000)),copilot:(messages:Parameters<DemoCompletion>[0],maxTokens:number)=>demoCopilot(messages,maxTokens,options.copilotModel??'auto')}
+ const complete=options.complete??{local:(messages:Parameters<DemoCompletion>[0],maxTokens:number)=>textRequest(options.config??'',{provider:'local',model:options.model??'atlas-flow:latest',messages,maxTokens},AbortSignal.timeout(180000)),copilot:(messages:Parameters<DemoCompletion>[0],maxTokens:number)=>demoCopilot(messages,maxTokens,options.copilotModel??'auto')}
  const report:any={schema:1,at:new Date().toISOString(),commit:commit.trim(),synthetic:true,scope:'Two small text-to-patch checks. No full merge, browser, customer network or agent/MCP benchmark.',samePrompt:true,tools:false,sourceTestsUnchanged:true,results:[]}
  await mkdir(dirname(output),{recursive:true})
  const save=()=>writeFile(output,JSON.stringify(report,null,2)+'\n',{mode:0o600})

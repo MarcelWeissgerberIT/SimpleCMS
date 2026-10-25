@@ -7,7 +7,7 @@ import { aiPanel } from './helpers/aiFlows'
 const PORT = 47388
 const ALL = ['public', 'structure', 'selection', 'page', 'rows', 'files', 'workspace', 'people', 'transcript']
 const models = [
-  { provider: 'local', model: 'marcel-flow:latest', context: 32768 },
+  { provider: 'local', model: 'atlas-flow:latest', context: 32768 },
   { provider: 'local', model: 'other-local:latest', context: 32768 },
   { provider: 'ollama', model: 'cloud-choice', context: 65536 },
   { provider: 'minimax', model: 'MiniMax-M3.1-Flash', context: 131072 },

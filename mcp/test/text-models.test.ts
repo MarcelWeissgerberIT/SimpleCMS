@@ -7,7 +7,7 @@ import { checkTextRequest, textModels, textRequest } from '../src/worker/text-mo
 import { codexArgs } from '../src/worker/codex.ts'
 
 test('plain inference rejects tool/URL/path injection and oversize requests', () => {
-  const good = { provider: 'local', model: 'marcel-flow:latest', messages: [{ role: 'user', content: 'Summarize this text' }], maxTokens: 256 }
+  const good = { provider: 'local', model: 'atlas-flow:latest', messages: [{ role: 'user', content: 'Summarize this text' }], maxTokens: 256 }
   assert.deepEqual(checkTextRequest(good), good)
   for (const patch of [{ url: 'https://evil.test' }, { tools: [] }, { model: '../secret' }, { maxTokens: 0 }, { maxTokens: 20000 }, { messages: [{ role: 'tool', content: 'x' }] }, { messages: [{ role: 'user', content: 'x'.repeat(180001) }] }]) assert.throws(() => checkTextRequest({ ...good, ...patch }))
 })
