@@ -873,3 +873,8 @@ export function taskkillTree(pid: number, opts: { tree?: boolean } = {}): Promis
     }
   })
 }
+
+/** Token-free launcher for a validated installed worker; executable is the installing Node. */
+export function starterText(node: string, dir: string): string {
+  return `// ONE Worker stable starter. No tokens or pairing secrets.\nconst fs=require('node:fs'),path=require('node:path'),cp=require('node:child_process');\nconst dir=${JSON.stringify(dir)},m=JSON.parse(fs.readFileSync(path.join(dir,'current.json'),'utf8'));\nif(!/^\\d+\\.\\d+\\.\\d+-[a-f0-9]{16}\\.mjs$/.test(m.current))throw Error('Invalid worker release');\nconst verb=process.argv[2]||'start';\nif(!['start','setup','status','update','rollback','cancel'].includes(verb))throw Error('Use start, setup, status, update, rollback or cancel');\nconst child=cp.spawn(${JSON.stringify(node)},[path.join(dir,m.current),'managed-'+verb,'--config',m.config],{stdio:'inherit',windowsHide:false});\nchild.on('error',e=>{console.error(e.message);process.exitCode=1});child.on('exit',c=>{process.exitCode=c===null?1:c});\nfor(const s of ['SIGINT','SIGTERM'])process.on(s,()=>{if(child.exitCode!==null)return;if(process.platform!=='win32'){child.kill(s);return}try{const c=JSON.parse(fs.readFileSync(path.join(dir,'control.json'),'utf8')),socket=require('node:net').connect(c.port,'127.0.0.1');socket.on('connect',()=>socket.end(JSON.stringify({key:c.key,op:'shutdown'})+'\\n'));socket.on('error',()=>{});}catch{console.error('Worker is still starting; close its window after startup.')}});\n`
+}

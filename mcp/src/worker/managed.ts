@@ -2,8 +2,9 @@
  * A supervisor owns the profile lock and worker child. Updates drain all work, probe readiness, then commit.
  * Only the original HTTPS site supplies updates; a download with a different pairing cannot replace it silently.
  */
+import type { ChildProcess } from 'node:child_process'
 import { createHash, randomBytes } from 'node:crypto'
-import { fork, spawnSync, execFileSync, type ChildProcess } from 'node:child_process'
+import { spawnSafe, execFileSyncSafe, starterText } from './exec.ts'
 import { createServer, connect } from 'node:net'
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
@@ -27,10 +28,13 @@ function privateDir(dir: string) {
   if (process.platform !== 'win32') chmodSync(dir, 0o700)
   else {
     const system = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32')
-    const who = execFileSync(join(system,'whoami.exe'), ['/user','/fo','csv','/nh'], {encoding:'utf8',windowsHide:true})
+    const identity = execFileSyncSafe(join(system,'whoami.exe'), ['/user','/fo','csv','/nh'], {allow:'exe',timeoutMs:5000})
+    if (identity.code !== 0) throw new Error('Cannot determine Windows account for private worker permissions.')
+    const who = identity.stdout
     const sid = /S-\d+-\d+(?:-\d+)+/.exec(who)?.[0]
     if (!sid) throw new Error('Cannot determine Windows account for private worker permissions.')
-    execFileSync(join(system,'icacls.exe'), [dir,'/inheritance:r','/grant:r',`*${sid}:(OI)(CI)F`,'*S-1-5-18:(OI)(CI)F'], {stdio:'ignore',windowsHide:true})
+    const acl = execFileSyncSafe(join(system,'icacls.exe'), [dir,'/inheritance:r','/grant:r',`*${sid}:(OI)(CI)F`,'*S-1-5-18:(OI)(CI)F'], {allow:'exe',timeoutMs:10000})
+    if (acl.code !== 0) throw new Error('Cannot protect the Windows worker installation.')
   }
 }
 function atomic(file: string, text: string, mode = 0o600) {
@@ -74,9 +78,8 @@ export function updateAddress(p: WorkerPreset): string {
   if (url.origin !== p.origin || url.username || url.password || url.search || url.hash || !url.pathname.endsWith('/mcp/one-worker.mjs') || (url.protocol !== 'https:' && !(p.dev && ['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname)))) throw new Error('Updates require the original HTTPS ONE site (localhost only for development).')
   return url.href
 }
-export function starterText(node: string, dir: string): string {
-  return `// ONE Worker stable starter. No tokens or pairing secrets.\nconst fs=require('node:fs'),path=require('node:path'),cp=require('node:child_process');\nconst dir=${JSON.stringify(dir)},m=JSON.parse(fs.readFileSync(path.join(dir,'current.json'),'utf8'));\nif(!/^\\d+\\.\\d+\\.\\d+-[a-f0-9]{16}\\.mjs$/.test(m.current))throw Error('Invalid worker release');\nconst verb=process.argv[2]||'start';\nif(!['start','setup','status','update','rollback','cancel'].includes(verb))throw Error('Use start, setup, status, update, rollback or cancel');\nconst child=cp.spawn(${JSON.stringify(node)},[path.join(dir,m.current),'managed-'+verb,'--config',m.config],{stdio:'inherit',windowsHide:false});\nchild.on('error',e=>{console.error(e.message);process.exitCode=1});child.on('exit',c=>{process.exitCode=c===null?1:c});\nfor(const s of ['SIGINT','SIGTERM'])process.on(s,()=>{if(child.exitCode!==null)return;if(process.platform!=='win32'){child.kill(s);return}try{const c=JSON.parse(fs.readFileSync(path.join(dir,'control.json'),'utf8')),socket=require('node:net').connect(c.port,'127.0.0.1');socket.on('connect',()=>socket.end(JSON.stringify({key:c.key,op:'shutdown'})+'\\n'));socket.on('error',()=>{});}catch{console.error('Worker is still starting; close its window after startup.')}});\n`
-}
+export { starterText } from './exec.ts'
+
 function quoteSh(s: string) { return "'" + s.replace(/'/g, "'\\''") + "'" }
 /** Windows launcher paths are literal, including percent signs and exclamation marks. */
 export function shortcutText(node: string, start: string, windows: boolean): string {
@@ -92,8 +95,8 @@ function release(dir: string, source: string): string {
   const name = v + '-' + hash(source).slice(0, 16) + '.mjs'
   const file = join(dir, name)
   if (existsSync(file)) { if (lstatSync(file).isSymbolicLink() || !lstatSync(file).isFile() || hash(readFileSync(file)) !== hash(source)) throw new Error('Installed release was changed; refusing to execute it.') } else atomic(file, source)
-  const check = spawnSync(process.execPath, ['--check', file], { timeout: 15000, encoding: 'utf8', windowsHide: true })
-  if (check.status !== 0) throw new Error('Worker validation failed; the installed version is unchanged.')
+  const check = execFileSyncSafe(process.execPath, ['--check', file], { allow: 'exe', timeoutMs: 15000 })
+  if (check.code !== 0) throw new Error('Worker validation failed; the installed version is unchanged.')
   return name
 }
 async function request(dir: string, op: string): Promise<ManagedStatus> {
@@ -203,7 +206,7 @@ async function supervise(ctx: Context, initialRollback = false): Promise<void> {
   const send=(op:string):Promise<unknown>=>new Promise((resolve,reject)=>{if(!child?.connected)return reject(new Error('Worker is starting.'));const id=++counter;const timer=setTimeout(()=>{waiters.delete(id);reject(new Error('Worker control timed out.'))},8000);waiters.set(id,{resolve,reject,timer});child.send({oneManaged:true,id,op})})
   const stopChild=async()=>{if(!child)return;const c=child;await send('shutdown').catch(()=>{});if(c.exitCode!==null)return;await new Promise<void>((resolve,reject)=>{const t=setTimeout(()=>reject(new Error('Worker did not stop cleanly; no replacement started.')),20000);c.once('exit',()=>{clearTimeout(t);resolve()})})}
   const launch=(file:string):Promise<void>=>new Promise((resolve,reject)=>{
-    ready=false;const c=fork(join(ctx.dir,file),['run','--config',m.config,...m.args],{execPath:process.execPath,execArgv:[],stdio:['inherit','inherit','inherit','ipc'],env:{...process.env,ONE_WORKER_MANAGED_CHILD:'1',ONE_WORKER_MANAGED_DIR:ctx.dir},windowsHide:true});child=c
+    ready=false;const started=spawnSafe(process.execPath,[join(ctx.dir,file),'run','--config',m.config,...m.args],{allow:'exe',cwd:ctx.dir,stdio:['inherit','inherit','inherit','ipc'],env:{...process.env,ONE_WORKER_MANAGED_CHILD:'1',ONE_WORKER_MANAGED_DIR:ctx.dir},windowsHide:true});if(!started.ok)return reject(new Error(started.error));const c=started.child;child=c
     const timer=setTimeout(()=>reject(new Error('New worker did not become ready.')),30000)
     c.on('message',(raw:unknown)=>{const r=raw as {oneManaged?:boolean;ready?:boolean;id?:number;value?:unknown;error?:string};if(!r?.oneManaged)return;if(r.ready){ready=true;clearTimeout(timer);resolve()}if(r.id){const w=waiters.get(r.id);if(w){clearTimeout(w.timer);waiters.delete(r.id);r.error?w.reject(new Error(r.error)):w.resolve(r.value)}}})
     c.once('error',e=>{clearTimeout(timer);reject(e)})

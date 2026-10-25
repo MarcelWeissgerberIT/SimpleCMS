@@ -10,12 +10,13 @@ import { checkAttachments, visionOf } from '../src/worker/copilot-media.ts'
 import { readFile } from 'node:fs/promises'
 import { looksLikeKey } from '../../src/shared/ai/keys.ts'
 import { sanitizeRoute, isRouteKey } from '../../src/shared/ai/route.ts'
-import { requiredGen, AI_POLICY_GEN } from '../../src/shared/ai/policy.ts'
+import { GEN } from '../../src/shared/ai/generations.ts'
+import { requiredGen } from '../../src/shared/ai/policy.ts'
 
 test('Copilot is a preserved policy destination; older builds must reload; typed GitHub secrets are refused', () => {
   assert.deepEqual(sanitizeRoute({p:'copilot',m:'claude-opus-5.5'}),{p:'copilot',m:'claude-opus-5.5'})
   assert.equal(isRouteKey('copilot:claude-opus-5.5'),true)
-  assert.equal(requiredGen({routes:{terminal:[{p:'copilot',m:'claude-opus-5.5'}]}}),AI_POLICY_GEN)
+  assert.equal(requiredGen({routes:{terminal:[{p:'copilot',m:'claude-opus-5.5'}]}}),GEN.copilot)
   assert.ok(looksLikeKey('github_pat_abc1234567890123456789'));assert.ok(looksLikeKey('ghp_abc1234567890123456789'))
 })
 test('Copilot catalogue checks login without inference; browser JSON and function arguments are validated', async()=>{

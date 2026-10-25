@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// SimpleCMS One — coding worker 1.32.0 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp/src/worker
+// SimpleCMS One — coding worker 1.32.1 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp/src/worker
 // Runs coding tasks from One with Claude Code on this computer. Setup: node one-worker.mjs --help
 // Docs and security model: https://github.com/MarcelWeissgerberIT/SimpleCMS/blob/main/docs/CODING.md
 import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);
@@ -10948,7 +10948,7 @@ var require_cross_spawn = __commonJS({
       enoent.hookChildProcess(spawned, parsed);
       return spawned;
     }
-    function spawnSync3(command2, args, options) {
+    function spawnSync2(command2, args, options) {
       const parsed = parse4(command2, args, options);
       const result = cp.spawnSync(parsed.command, parsed.args, parsed.options);
       result.error = result.error || enoent.verifyENOENTSync(result.status, parsed);
@@ -10956,7 +10956,7 @@ var require_cross_spawn = __commonJS({
     }
     module.exports = spawn3;
     module.exports.spawn = spawn3;
-    module.exports.sync = spawnSync3;
+    module.exports.sync = spawnSync2;
     module.exports._parse = parse4;
     module.exports._enoent = enoent;
   }
@@ -14751,763 +14751,12 @@ var require_websocket_server = __commonJS({
 
 // src/worker/managed.ts
 import { createHash as createHash2, randomBytes } from "node:crypto";
-import { fork, spawnSync, execFileSync } from "node:child_process";
-import { createServer, connect } from "node:net";
-import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
-import { homedir } from "node:os";
-
-// src/worker/preset.ts
-import { timingSafeEqual, createHash } from "node:crypto";
-
-// ../src/app/features/coding/protocol.ts
-var WORKER_DEFAULT_PORT = 47322;
-var WORKER_SUBPROTOCOL = "one-worker.v1";
-var WORKER_CLOSE_REPLACED = 4001;
-var WORKER_CLOSE_REFUSED = 4003;
-var CLAIM_STALE_MS = 10 * 6e4;
-var HEARTBEAT_MS = 6e4;
-var LOG_MAX = 2e3;
-var PARALLEL_MAX = 2;
-var CODING_AGENTS = ["claude", "codex", "local", "minimax", "ollama", "copilot"];
-var isCodingAgent = (v) => CODING_AGENTS.includes(v);
-var STAGE_KINDS = ["queue", "import", "analyze", "plan", "doc", "gate", "implement", "test", "git", "done"];
-var PERMISSION_MODES = ["plan", "acceptEdits", "default"];
-var GIT_ACTIONS = ["commit", "push", "pr", "update-base", "comment", "merge"];
-var WORKER_CAN = ["data-flow", "shared-models", "source-review", "copilot-options", "text-models", "copilot-chat", "copilot-media", "analyze", "git:comment", "git:merge", "doc", "model", "mcp-list", "ship", "continue", "permission", "agent:codex", "agent:local", "agent:minimax", "agent:ollama", "agent:copilot", "delivery-qa", "harness-quality", "personal-secrets"];
-var MODEL_NAME = /^[A-Za-z0-9][A-Za-z0-9._:[\]-]{0,99}$/;
-function cleanModel(v) {
-  if (typeof v !== "string") return null;
-  const m = v.trim();
-  return MODEL_NAME.test(m) ? m : null;
-}
-var GIT_VERBS = ["refresh", "commit", "push", "force-push", "pr", "update-base", "discard", "cleanup", "reveal", "comment-pr", "merge-pr"];
-var SHIP_TRAILER = "One-Task";
-var WEB_BASE = /^https?:\/\/[a-z0-9.-]+(?::\d{1,5})?(?:\/[A-Za-z0-9_.-]+){2,}$/;
-function cleanWeb(raw) {
-  if (!raw || typeof raw !== "object") return null;
-  const { base, forge } = raw;
-  if (typeof base !== "string" || base.length > 300 || !WEB_BASE.test(base)) return null;
-  if (base.split("/").slice(3).some((seg) => seg === "." || seg === "..")) return null;
-  return forge === "github" || forge === "gitlab" ? { base, forge } : null;
-}
-var GIT_SHA = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/;
-var REPO_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
-var WORKSPACE_ID = /^(local|team):[A-Za-z0-9_-]{1,64}$/;
-var PRESET_GLOBAL = "ONE_WORKER_PRESET";
-var PAIR_SECRET = /^[A-Za-z0-9_-]{43}$/;
-var PERMISSION_WAIT_MS = 15 * 6e4;
-var PERMISSION_VERBS = ["once", "always", "deny"];
-var PERMISSION_FIELD_MAX = 4e3;
-var PERMISSION_WHAT_MAX = 4500;
-var EDIT_HUNKS = 6;
-var EDIT_CHARS = 4e3;
-var TAB_CAN = ["permission"];
-var RELAY_WORKER_PATH = "/coding/worker";
-var WORKER_TOKEN = /^onew_[A-Za-z0-9_-]{43}$/;
-var LOOPBACK_HOSTS = /* @__PURE__ */ new Set(["localhost", "127.0.0.1", "[::1]"]);
-function cloudOriginAllowed(origin) {
-  try {
-    const url2 = new URL(origin);
-    return url2.protocol === "https:" || url2.protocol === "http:" && LOOPBACK_HOSTS.has(url2.hostname);
-  } catch {
-    return false;
-  }
-}
-var RELAY_MAX_FRAME = 8 * 1024 * 1024 + 64 * 1024;
-var RELAY_MAX_PLAIN = 6 * 1024 * 1024;
-var RELAY_BOX_INFO = "one-worker-relay v1";
-var RELAY_NONCE = /^[A-Za-z0-9_-]{43}$/;
-var RELAY_IV = /^[A-Za-z0-9_-]{16}$/;
-var RELAY_CLOSE_AUTH = 4401;
-var RELAY_CLOSE_FORBIDDEN = 4403;
-
-// src/policy.ts
-var DEFAULT_ORIGINS = ["https://getonecms.com", "http://localhost:*", "http://127.0.0.1:*"];
-function normalizeOrigin(raw) {
-  const s = raw.trim();
-  if (!s || s === "null") return null;
-  const wild = /:\*$/.test(s);
-  try {
-    const u = new URL(wild ? s.replace(/:\*$/, "") : s);
-    if (u.protocol !== "http:" && u.protocol !== "https:") return null;
-    if (u.username || u.password || u.pathname !== "/" && u.pathname !== "" || u.search || u.hash) return null;
-    return wild ? `${u.protocol}//${u.hostname}:*` : u.origin;
-  } catch {
-    return null;
-  }
-}
-function allowedOrigins(extra, warn = () => {
-}) {
-  const out = [...DEFAULT_ORIGINS];
-  for (const raw of (extra ?? "").split(",")) {
-    if (!raw.trim()) continue;
-    const o = normalizeOrigin(raw);
-    if (!o) warn(`ignoring ONE_ORIGINS entry ${JSON.stringify(raw.trim())} (expected e.g. https://one.example.com or http://localhost:*)`);
-    else if (!out.includes(o)) out.push(o);
-  }
-  return out;
-}
-function isAllowedOrigin(origin, allowed) {
-  if (!origin) return false;
-  const o = normalizeOrigin(origin);
-  if (!o || o.endsWith(":*")) return false;
-  const u = new URL(o);
-  return allowed.some((a) => {
-    if (!a.endsWith(":*")) return a === o;
-    const base = new URL(a.slice(0, -2));
-    return base.protocol === u.protocol && base.hostname === u.hostname;
-  });
-}
-var LOOPBACK = /* @__PURE__ */ new Set(["127.0.0.1", "localhost", "[::1]"]);
-function isAllowedHost(host, port) {
-  if (!host) return false;
-  const m = /^(\[[^\]]+\]|[^:]+)(?::(\d+))?$/.exec(host.trim().toLowerCase());
-  if (!m) return false;
-  return LOOPBACK.has(m[1]) && Number(m[2] ?? 80) === port;
-}
-
-// src/worker/preset.ts
-var isObj = (v) => !!v && typeof v === "object" && !Array.isArray(v);
-var DEV_ORIGINS = ["http://localhost:*", "http://127.0.0.1:*"];
-function readPreset(raw) {
-  if (raw === void 0 || raw === null) return { preset: null, problem: null };
-  if (!isObj(raw)) return { preset: null, problem: "the preset is not an object" };
-  const workspace = typeof raw.workspace === "string" ? raw.workspace.trim() : "";
-  if (!WORKSPACE_ID.test(workspace)) return { preset: null, problem: `the preset's workspace ${JSON.stringify(raw.workspace)} is not a workspace id` };
-  const origin = typeof raw.origin === "string" ? normalizeOrigin(raw.origin) : null;
-  if (!origin || origin.endsWith(":*")) return { preset: null, problem: `the preset's origin ${JSON.stringify(raw.origin)} is not a site origin` };
-  const port = typeof raw.port === "number" && Number.isInteger(raw.port) && raw.port >= 1024 && raw.port <= 65535 ? raw.port : null;
-  if (port === null) return { preset: null, problem: `the preset's port ${JSON.stringify(raw.port)} is not a port (1024\u201365535)` };
-  const pair = typeof raw.pair === "string" && PAIR_SECRET.test(raw.pair) ? raw.pair : null;
-  if (!pair) return { preset: null, problem: "the preset has no pairing secret" };
-  const name = (typeof raw.name === "string" ? raw.name : "").replace(/[\u0000-\u001f\u007f\u2028\u2029]/g, "").trim().slice(0, 120) || "One";
-  let cloud2;
-  if (raw.cloud !== void 0) {
-    const c = isObj(raw.cloud) ? raw.cloud : {};
-    if (typeof c.token !== "string" || !WORKER_TOKEN.test(c.token)) return { preset: null, problem: "the preset's cloud token is not a worker token" };
-    if (!workspace.startsWith("team:")) return { preset: null, problem: "a cloud worker needs a team workspace" };
-    if (!cloudOriginAllowed(origin)) return { preset: null, problem: "a cloud worker needs an https origin (plain http only on this computer)" };
-    cloud2 = { token: c.token };
-  }
-  let updateUrl;
-  if (raw.updateUrl !== void 0) {
-    try {
-      const u = new URL(String(raw.updateUrl));
-      if (u.origin !== origin || u.username || u.password || u.search || u.hash || !u.pathname.endsWith("/mcp/one-worker.mjs")) throw new Error();
-      updateUrl = u.href;
-    } catch {
-      return { preset: null, problem: "invalid same-origin update address" };
-    }
-  }
-  return { preset: { workspace, origin, port, pair, name, ...updateUrl ? { updateUrl } : {}, ...raw.dev === true ? { dev: true } : {}, ...cloud2 ? { cloud: cloud2 } : {} }, problem: null };
-}
-function relayUrl(origin) {
-  const url2 = new URL(RELAY_WORKER_PATH, origin);
-  url2.protocol = url2.protocol === "https:" ? "wss:" : "ws:";
-  return url2.href;
-}
-function filePreset() {
-  return readPreset(globalThis[PRESET_GLOBAL]);
-}
-function workerOrigins(preset2, extra, warn = () => {
-}) {
-  const added = extra.filter(Boolean).join(",");
-  if (!preset2) return allowedOrigins(added, warn);
-  const out = [preset2.origin, ...preset2.dev ? DEV_ORIGINS : []];
-  for (const raw of added.split(",")) {
-    if (!raw.trim()) continue;
-    const o = normalizeOrigin(raw);
-    if (!o) warn(`ignoring the origin ${JSON.stringify(raw.trim())} (expected e.g. https://one.example.com or http://localhost:*)`);
-    else if (!out.includes(o)) out.push(o);
-  }
-  return out;
-}
-function sameSecret(expected, given) {
-  if (typeof given !== "string" || given.length > 200) return false;
-  const a = createHash("sha256").update(expected).digest();
-  const b = createHash("sha256").update(given).digest();
-  return timingSafeEqual(a, b);
-}
-
-// src/worker/managed.ts
-var GLOBAL = "globalThis.ONE_WORKER_PRESET = ";
-var MARKER = /^\/\/ SimpleCMS One — coding worker (\d+\.\d+\.\d+) \(MIT\)\./m;
-var RELEASE = /^\d+\.\d+\.\d+-[a-f0-9]{16}\.mjs$/;
-var MAX_BYTES = 16 * 1024 * 1024;
-var hash = (s) => createHash2("sha256").update(s).digest("hex");
-function profileDir(config2) {
-  return join(dirname(resolve(config2)), basename(config2) === "worker.json" ? "installed-worker" : "installed-worker-" + hash(resolve(config2)).slice(0, 10));
-}
-function privateDir(dir) {
-  if (existsSync(dir) && (lstatSync(dir).isSymbolicLink() || !lstatSync(dir).isDirectory())) throw new Error("Installation folder must be a real directory.");
-  mkdirSync(dir, { recursive: true, mode: 448 });
-  if (process.platform !== "win32") chmodSync(dir, 448);
-  else {
-    const system = join(process.env.SystemRoot ?? "C:\\Windows", "System32");
-    const who = execFileSync(join(system, "whoami.exe"), ["/user", "/fo", "csv", "/nh"], { encoding: "utf8", windowsHide: true });
-    const sid = /S-\d+-\d+(?:-\d+)+/.exec(who)?.[0];
-    if (!sid) throw new Error("Cannot determine Windows account for private worker permissions.");
-    execFileSync(join(system, "icacls.exe"), [dir, "/inheritance:r", "/grant:r", `*${sid}:(OI)(CI)F`, "*S-1-5-18:(OI)(CI)F"], { stdio: "ignore", windowsHide: true });
-  }
-}
-function atomic(file, text2, mode = 384) {
-  const temp = file + "." + randomBytes(8).toString("hex") + ".tmp";
-  writeFileSync(temp, text2, { flag: "wx", mode });
-  renameSync(temp, file);
-  if (process.platform !== "win32") chmodSync(file, mode);
-}
-function manifest(dir) {
-  const m = JSON.parse(readFileSync(join(dir, "current.json"), "utf8"));
-  if (m.schema !== 1 || !RELEASE.test(m.current) || m.previous !== null && !RELEASE.test(m.previous) || !Array.isArray(m.args) || m.args.some((a) => a !== "--no-browser" && a !== "--model-host") || typeof m.config !== "string") throw new Error("Invalid installation manifest; reinstall from a trusted ONE download.");
-  return m;
-}
-function codePreset(source) {
-  const line = source.split("\n")[1] ?? "";
-  if (!line.startsWith(GLOBAL)) throw new Error("This installation has no pairing. Download a paired worker from ONE first.");
-  const p = readPreset(JSON.parse(line.slice(GLOBAL.length)));
-  if (!p.preset) throw new Error("Invalid installed pairing.");
-  return p.preset;
-}
-function importWorkerPreset(file) {
-  if (lstatSync(file).size > MAX_BYTES) throw new Error("The existing worker file is too large.");
-  const line = readFileSync(file, "utf8").split("\n")[1] ?? "";
-  const raw = /^globalThis\.ONE_WORKER_PRESET\s*=\s*(.+?)\s*;?\s*$/.exec(line)?.[1];
-  if (!raw) throw new Error("No JSON pairing found in that file. Select the existing paired worker, not a plain public bundle.");
-  let value2;
-  try {
-    value2 = JSON.parse(raw);
-  } catch {
-    throw new Error("The existing pairing is not a JSON literal. It was not executed.");
-  }
-  const checked = readPreset(value2);
-  if (!checked.preset) throw new Error("The existing worker pairing is invalid.");
-  return checked.preset;
-}
-function unpairedSource(source) {
-  const lines = source.split("\n");
-  if (/^globalThis\.ONE_WORKER_PRESET\s*=/.test(lines[1] ?? "")) lines.splice(1, 1);
-  return lines.join("\n");
-}
-function samePair(a, b) {
-  return a.workspace === b.workspace && a.origin === b.origin && a.port === b.port && sameSecret(a.pair, b.pair) && a.cloud?.token === b.cloud?.token;
-}
-function paired(source, preset2) {
-  const n = source.indexOf("\n");
-  return source.slice(0, n + 1) + GLOBAL + JSON.stringify(preset2).replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029") + "\n" + source.slice(n + 1);
-}
-function updateAddress(p) {
-  const url2 = new URL(p.updateUrl ?? "/mcp/one-worker.mjs", p.origin);
-  if (url2.origin !== p.origin || url2.username || url2.password || url2.search || url2.hash || !url2.pathname.endsWith("/mcp/one-worker.mjs") || url2.protocol !== "https:" && !(p.dev && ["127.0.0.1", "localhost", "[::1]"].includes(url2.hostname))) throw new Error("Updates require the original HTTPS ONE site (localhost only for development).");
-  return url2.href;
-}
-function starterText(node2, dir) {
-  return `// ONE Worker stable starter. No tokens or pairing secrets.
-const fs=require('node:fs'),path=require('node:path'),cp=require('node:child_process');
-const dir=${JSON.stringify(dir)},m=JSON.parse(fs.readFileSync(path.join(dir,'current.json'),'utf8'));
-if(!/^\\d+\\.\\d+\\.\\d+-[a-f0-9]{16}\\.mjs$/.test(m.current))throw Error('Invalid worker release');
-const verb=process.argv[2]||'start';
-if(!['start','setup','status','update','rollback','cancel'].includes(verb))throw Error('Use start, setup, status, update, rollback or cancel');
-const child=cp.spawn(${JSON.stringify(node2)},[path.join(dir,m.current),'managed-'+verb,'--config',m.config],{stdio:'inherit',windowsHide:false});
-child.on('error',e=>{console.error(e.message);process.exitCode=1});child.on('exit',c=>{process.exitCode=c===null?1:c});
-for(const s of ['SIGINT','SIGTERM'])process.on(s,()=>{if(child.exitCode!==null)return;if(process.platform!=='win32'){child.kill(s);return}try{const c=JSON.parse(fs.readFileSync(path.join(dir,'control.json'),'utf8')),socket=require('node:net').connect(c.port,'127.0.0.1');socket.on('connect',()=>socket.end(JSON.stringify({key:c.key,op:'shutdown'})+'\\n'));socket.on('error',()=>{});}catch{console.error('Worker is still starting; close its window after startup.')}});
-`;
-}
-function quoteSh(s) {
-  return "'" + s.replace(/'/g, "'\\''") + "'";
-}
-function shortcutText(node2, start, windows) {
-  if (windows) {
-    if (/[\r\n"]/.test(node2 + start)) throw new Error("Unsupported launcher path.");
-    return '@echo off\r\nsetlocal DisableDelayedExpansion\r\n"' + node2.replace(/%/g, "%%") + '" "' + start.replace(/%/g, "%%") + '"\r\nif errorlevel 1 pause\r\n';
-  }
-  return "#!/bin/sh\nexec " + quoteSh(node2) + " " + quoteSh(start) + "\n";
-}
-function release(dir, source) {
-  const v = MARKER.exec(source)?.[1];
-  if (!v || !source.startsWith("#!")) throw new Error("Not an official ONE worker bundle.");
-  const name = v + "-" + hash(source).slice(0, 16) + ".mjs";
-  const file = join(dir, name);
-  if (existsSync(file)) {
-    if (lstatSync(file).isSymbolicLink() || !lstatSync(file).isFile() || hash(readFileSync(file)) !== hash(source)) throw new Error("Installed release was changed; refusing to execute it.");
-  } else atomic(file, source);
-  const check = spawnSync(process.execPath, ["--check", file], { timeout: 15e3, encoding: "utf8", windowsHide: true });
-  if (check.status !== 0) throw new Error("Worker validation failed; the installed version is unchanged.");
-  return name;
-}
-async function request(dir, op) {
-  const c = JSON.parse(readFileSync(join(dir, "control.json"), "utf8"));
-  if (!Number.isInteger(c.port) || c.port < 1024 || c.port > 65535 || !/^[A-Za-z0-9_-]{43}$/.test(c.key)) throw new Error("Invalid worker control.");
-  return new Promise((resolve12, reject) => {
-    const socket = connect(c.port, "127.0.0.1");
-    let data = "";
-    socket.setTimeout(45e3, () => socket.destroy(new Error("Worker control timed out.")));
-    socket.on("connect", () => socket.write(JSON.stringify({ key: c.key, op }) + "\n"));
-    socket.on("data", (chunk) => {
-      data += chunk;
-      if (data.length > 16e3) return socket.destroy(new Error("Invalid response."));
-      if (data.includes("\n")) {
-        socket.end();
-        try {
-          const v = JSON.parse(data);
-          if (v.error && v.failed) reject(new Error(v.error));
-          else resolve12(v);
-        } catch (e) {
-          reject(e);
-        }
-      }
-    });
-    socket.on("error", reject);
-    socket.on("end", () => {
-      if (!data.includes("\n")) reject(new Error("Worker control closed."));
-    });
-  });
-}
-function lock(dir) {
-  const file = join(dir, "supervisor.lock");
-  try {
-    mkdirSync(file, { mode: 448 });
-  } catch {
-    let pid;
-    try {
-      pid = Number(readFileSync(join(file, "pid"), "utf8"));
-      if (!Number.isInteger(pid) || pid < 1) throw new Error("bad pid");
-    } catch {
-      throw new Error("Worker lock is incomplete. Close the other starter; if it crashed, remove supervisor.lock manually.");
-    }
-    let alive = true;
-    try {
-      process.kill(pid, 0);
-    } catch (e) {
-      if (e.code === "ESRCH") alive = false;
-    }
-    if (alive) throw new Error("ONE Worker is already starting/running. Use its existing window or the ONE settings.");
-    rmSync(file, { recursive: true });
-    mkdirSync(file, { mode: 448 });
-  }
-  writeFileSync(join(file, "pid"), String(process.pid), { mode: 384 });
-  return () => rmSync(file, { recursive: true, force: true });
-}
-async function installManaged(ctx, replace = false) {
-  if (!ctx.preset) throw new Error("Download the paired worker from ONE before installing.");
-  updateAddress(ctx.preset);
-  privateDir(ctx.dir);
-  try {
-    await request(ctx.dir, "status");
-    throw new Error("Worker is running. Use Update in ONE; stop it before reinstalling or changing pairing.");
-  } catch (e) {
-    if (!["ENOENT", "ECONNREFUSED"].includes(e.code ?? "")) throw e;
-  }
-  const unlock = lock(ctx.dir);
-  try {
-    const source = paired(unpairedSource(readFileSync(ctx.file, "utf8")), ctx.preset), file = release(ctx.dir, source);
-    if (process.platform !== "win32") chmodSync(ctx.file, 384);
-    let old = null;
-    if (existsSync(join(ctx.dir, "current.json"))) {
-      old = manifest(ctx.dir);
-      const oldPair = codePreset(readFileSync(join(ctx.dir, old.current), "utf8"));
-      if (!samePair(oldPair, ctx.preset) && !replace) throw new Error("This download has another pairing. For software updates use the installed starter with update. To intentionally reconnect: install --replace-pairing (worker stopped).");
-    }
-    const m = { schema: 1, config: ctx.config, workspace: ctx.preset.workspace, origin: ctx.preset.origin, name: ctx.preset.name, current: file, previous: old && samePair(codePreset(readFileSync(join(ctx.dir, old.current), "utf8")), ctx.preset) ? old.current !== file ? old.current : old.previous : null, updateUrl: updateAddress(ctx.preset), args: ctx.args };
-    atomic(join(ctx.dir, "start.cjs"), starterText(process.execPath, ctx.dir));
-    const safeName = ctx.preset.name.replace(/[^\p{L}\p{N} _.-]/gu, "").slice(0, 45) || "Workspace";
-    const shortcut = `ONE Worker - ${safeName} - ${hash(ctx.dir).slice(0, 6)}.${process.platform === "win32" ? "cmd" : "command"}`;
-    const script = shortcutText(process.execPath, join(ctx.dir, "start.cjs"), process.platform === "win32");
-    atomic(join(ctx.dir, shortcut), script, 448);
-    const desktop = ctx.desktop === void 0 ? join(homedir(), "Desktop") : ctx.desktop;
-    if (!process.argv.includes("--no-shortcut") && desktop && existsSync(desktop)) {
-      try {
-        atomic(join(desktop, shortcut), script, 448);
-      } catch {
-      }
-    }
-    atomic(join(ctx.dir, "current.json"), JSON.stringify(m, null, 2) + "\n");
-    return join(ctx.dir, "start.cjs");
-  } finally {
-    unlock();
-  }
-}
-async function fetchRelease(m, dir) {
-  const p = codePreset(readFileSync(join(dir, m.current), "utf8"));
-  const url2 = updateAddress({ ...p, updateUrl: m.updateUrl });
-  const downloadDeadline = AbortSignal.timeout(3e4);
-  const get = async (address, limit) => {
-    const res = await fetch(address, { redirect: "error", credentials: "omit", signal: downloadDeadline, headers: { "Cache-Control": "no-cache" } });
-    if (!res.ok || Number(res.headers.get("content-length")) > limit) throw new Error("Update download failed; installed worker retained.");
-    const reader = res.body?.getReader();
-    if (!reader) throw new Error("Empty update response.");
-    const chunks = [];
-    let size = 0;
-    try {
-      while (true) {
-        const r = await reader.read();
-        if (r.done) break;
-        size += r.value.length;
-        if (size > limit) throw new Error("Update exceeds size limit.");
-        chunks.push(Buffer.from(r.value));
-      }
-    } finally {
-      await reader.cancel().catch(() => {
-      });
-    }
-    return Buffer.concat(chunks);
-  };
-  const meta2 = JSON.parse((await get(url2.replace(/one-worker\.mjs$/, "one-worker.release.json"), 4096)).toString());
-  if (!/^\d+\.\d+\.\d+$/.test(meta2.version) || !/^[a-f0-9]{64}$/.test(meta2.sha256) || !Number.isInteger(meta2.size) || meta2.size < 1 || meta2.size > MAX_BYTES) throw new Error("Invalid release manifest.");
-  const body = await get(url2, MAX_BYTES);
-  if (body.length !== meta2.size || hash(body) !== meta2.sha256 || MARKER.exec(body.toString())?.[1] !== meta2.version || body.toString().split("\n")[1]?.startsWith(GLOBAL)) throw new Error("Update checksum/version mismatch; installed worker retained.");
-  const current = MARKER.exec(readFileSync(join(dir, m.current), "utf8"))?.[1] ?? "0.0.0";
-  const compare = (a, b) => {
-    const x2 = a.split(".").map(Number), y = b.split(".").map(Number);
-    for (let i2 = 0; i2 < 3; i2++) {
-      if (x2[i2] !== y[i2]) return x2[i2] - y[i2];
-    }
-    return 0;
-  };
-  if (compare(meta2.version, current) < 0) throw new Error("The server offers an older worker. Use explicit rollback instead.");
-  return release(dir, paired(body.toString(), p));
-}
-async function managedCommand(ctx, command2) {
-  if (command2 === "install") {
-    const start = await installManaged(ctx, process.argv.includes("--replace-pairing"));
-    process.stdout.write(`ONE Worker installed for ${ctx.preset?.name}.
-Start: node ${JSON.stringify(start)}
-Update: node ${JSON.stringify(start)} update
-Pairing, repositories and settings retained. A workspace-named starter is available in the installation folder and, when writable, on your Desktop.
-`);
-    return;
-  }
-  if (command2 !== "managed-start" && command2 !== "managed-setup") {
-    try {
-      const r = await request(ctx.dir, command2.replace("managed-", ""));
-      process.stdout.write(JSON.stringify(r, null, 2) + "\n");
-      return;
-    } catch (e) {
-      if (!["ENOENT", "ECONNREFUSED"].includes(e.code ?? "")) throw e;
-      if (command2 === "managed-status") {
-        const m = manifest(ctx.dir);
-        process.stdout.write(JSON.stringify({ installed: true, version: m.current.split("-")[0], previous: m.previous?.split("-")[0] ?? null, phase: "stopped", path: ctx.dir }, null, 2) + "\n");
-        return;
-      }
-      if (command2 === "managed-rollback") return supervise(ctx, true);
-      throw new Error("Start the installed ONE Worker before updating or cancelling an update.");
-    }
-  }
-  try {
-    const r = await request(ctx.dir, "open");
-    process.stdout.write(`ONE Worker already running \xB7 ${r.version} \xB7 ${r.phase}
-`);
-    return;
-  } catch (e) {
-    if (!["ENOENT", "ECONNREFUSED"].includes(e.code ?? "")) throw e;
-  }
-  await supervise(ctx);
-}
-async function redirectInstalled(ctx, setup) {
-  if (process.env.ONE_WORKER_MANAGED_CHILD === "1" || !existsSync(join(ctx.dir, "current.json"))) return false;
-  const m = manifest(ctx.dir), p = codePreset(readFileSync(join(ctx.dir, m.current), "utf8"));
-  if (ctx.preset && !samePair(p, ctx.preset)) throw new Error(`This is an older/different pairing. Start the installed ONE Worker: node ${JSON.stringify(join(ctx.dir, "start.cjs"))}. Reconnect explicitly only when intended.`);
-  process.stderr.write("[one-worker] Using the fixed installation instead of this download.\n");
-  await managedCommand(ctx, setup ? "managed-setup" : "managed-start");
-  return true;
-}
-async function supervise(ctx, initialRollback = false) {
-  const unlock = lock(ctx.dir);
-  let m = manifest(ctx.dir), child = null, closed = false, switching = false, pending = null, draining = false, ready = false, error2, available;
-  let phase = "starting", counter = 0;
-  const waiters = /* @__PURE__ */ new Map();
-  const status = () => ({ installed: true, version: m.current.split("-")[0], previous: m.previous?.split("-")[0] ?? null, phase, ...error2 ? { error: error2 } : {}, ...available ? { available } : {}, path: ctx.dir });
-  const send = (op) => new Promise((resolve12, reject) => {
-    if (!child?.connected) return reject(new Error("Worker is starting."));
-    const id = ++counter;
-    const timer = setTimeout(() => {
-      waiters.delete(id);
-      reject(new Error("Worker control timed out."));
-    }, 8e3);
-    waiters.set(id, { resolve: resolve12, reject, timer });
-    child.send({ oneManaged: true, id, op });
-  });
-  const stopChild = async () => {
-    if (!child) return;
-    const c = child;
-    await send("shutdown").catch(() => {
-    });
-    if (c.exitCode !== null) return;
-    await new Promise((resolve12, reject) => {
-      const t = setTimeout(() => reject(new Error("Worker did not stop cleanly; no replacement started.")), 2e4);
-      c.once("exit", () => {
-        clearTimeout(t);
-        resolve12();
-      });
-    });
-  };
-  const launch = (file) => new Promise((resolve12, reject) => {
-    ready = false;
-    const c = fork(join(ctx.dir, file), ["run", "--config", m.config, ...m.args], { execPath: process.execPath, execArgv: [], stdio: ["inherit", "inherit", "inherit", "ipc"], env: { ...process.env, ONE_WORKER_MANAGED_CHILD: "1", ONE_WORKER_MANAGED_DIR: ctx.dir }, windowsHide: true });
-    child = c;
-    const timer = setTimeout(() => reject(new Error("New worker did not become ready.")), 3e4);
-    c.on("message", (raw) => {
-      const r = raw;
-      if (!r?.oneManaged) return;
-      if (r.ready) {
-        ready = true;
-        clearTimeout(timer);
-        resolve12();
-      }
-      if (r.id) {
-        const w = waiters.get(r.id);
-        if (w) {
-          clearTimeout(w.timer);
-          waiters.delete(r.id);
-          r.error ? w.reject(new Error(r.error)) : w.resolve(r.value);
-        }
-      }
-    });
-    c.once("error", (e) => {
-      clearTimeout(timer);
-      reject(e);
-    });
-    c.once("exit", (code) => {
-      clearTimeout(timer);
-      if (!ready) reject(new Error("New worker exited before readiness."));
-      if (!closed && !switching) {
-        error2 = `Worker stopped (exit ${code ?? "signal"}). Start ONE Worker again; no automatic restart loop.`;
-        phase = "stopped";
-        void close(code ?? 1);
-      }
-    });
-  });
-  const close = async (code = 0) => {
-    if (closed) return;
-    closed = true;
-    phase = "stopping";
-    if (poll) clearInterval(poll);
-    await stopChild().catch((e) => process.stderr.write(String(e) + "\n"));
-    server.close();
-    rmSync(join(ctx.dir, "control.json"), { force: true });
-    unlock();
-    process.exitCode = code;
-  };
-  const swap = async () => {
-    if (!pending || switching || closed) return;
-    switching = true;
-    const target = pending;
-    pending = null;
-    const old = m;
-    try {
-      phase = "switching";
-      await stopChild();
-      await launch(target);
-      m = { ...m, current: target, previous: old.current };
-      atomic(join(ctx.dir, "current.json"), JSON.stringify(m, null, 2) + "\n");
-      draining = false;
-      phase = "running";
-      error2 = void 0;
-      process.stderr.write(`[one-worker] Active release ${status().version}; pairing and configuration retained.
-`);
-    } catch (e) {
-      error2 = e instanceof Error ? e.message : String(e);
-      phase = "rolling-back";
-      if (child && child.exitCode === null) {
-        child.kill("SIGTERM");
-        await new Promise((r) => {
-          if (child.exitCode !== null) return r();
-          child.once("exit", () => r());
-        });
-      }
-      m = old;
-      atomic(join(ctx.dir, "current.json"), JSON.stringify(old, null, 2) + "\n");
-      await launch(old.current);
-      draining = false;
-      phase = "running";
-      process.stderr.write("[one-worker] Update failed; previous release restored.\n");
-    } finally {
-      switching = false;
-    }
-  };
-  let operation = false;
-  const action = async (op) => {
-    if (op === "status") return status();
-    if (op === "shutdown") {
-      setTimeout(() => void close(), 100);
-      return status();
-    }
-    if (op === "open") {
-      await send("open");
-      return status();
-    }
-    if (op === "cancel") {
-      if (switching || operation) throw new Error("Wait for the current update operation.");
-      pending = null;
-      draining = false;
-      await send("resume");
-      phase = "running";
-      return status();
-    }
-    if (op !== "update" && op !== "rollback") throw new Error("Unknown worker management action.");
-    if (operation || pending || switching) throw new Error("An update is already being prepared or waiting for current work.");
-    operation = true;
-    error2 = void 0;
-    try {
-      phase = "checking";
-      const target = op === "rollback" ? m.previous : await fetchRelease(m, ctx.dir);
-      if (!target) throw new Error("No previous release is available.");
-      if (target === m.current) {
-        phase = "running";
-        return status();
-      }
-      available = target.split("-")[0];
-      pending = target;
-      draining = true;
-      phase = "waiting-for-idle";
-      await send("drain");
-      return status();
-    } catch (e) {
-      pending = null;
-      draining = false;
-      await send("resume").catch(() => {
-      });
-      phase = "running";
-      error2 = e instanceof Error ? e.message : String(e);
-      throw e;
-    } finally {
-      operation = false;
-    }
-  };
-  const key = randomBytes(32).toString("base64url");
-  const server = createServer((socket) => {
-    let input = "";
-    socket.setTimeout(5e3, () => socket.destroy());
-    socket.on("error", () => {
-    });
-    socket.on("data", (chunk) => {
-      input += chunk;
-      if (input.length > 4096) return socket.destroy();
-      if (!input.includes("\n")) return;
-      socket.removeAllListeners("data");
-      void (async () => {
-        try {
-          const r = JSON.parse(input);
-          socket.setTimeout(45e3, () => socket.destroy());
-          if (!sameSecret(key, r.key)) throw new Error("Worker control authentication failed.");
-          socket.end(JSON.stringify(await action(r.op)) + "\n");
-        } catch (e) {
-          socket.end(JSON.stringify({ failed: true, error: e instanceof Error ? e.message : String(e) }) + "\n");
-        }
-      })();
-    });
-  });
-  let poll;
-  try {
-    await new Promise((r, j) => {
-      server.once("error", j);
-      server.listen(0, "127.0.0.1", r);
-    });
-    atomic(join(ctx.dir, "control.json"), JSON.stringify({ port: server.address().port, key, pid: process.pid }));
-    switching = true;
-    const original = m;
-    try {
-      if (initialRollback) {
-        if (!m.previous) throw new Error("No previous release is available.");
-        await launch(m.previous);
-        m = { ...m, current: m.previous, previous: m.current };
-        atomic(join(ctx.dir, "current.json"), JSON.stringify(m, null, 2) + "\n");
-      } else {
-        try {
-          await launch(m.current);
-        } catch (e) {
-          if (!original.previous) throw e;
-          await stopChild().catch(() => {
-          });
-          if (child?.exitCode === null) throw new Error("Failed startup is still running; no fallback was started.");
-          error2 = "Current release failed to start; previous release restored.";
-          await launch(original.previous);
-          m = { ...original, current: original.previous, previous: original.current };
-          atomic(join(ctx.dir, "current.json"), JSON.stringify(m, null, 2) + "\n");
-        }
-      }
-    } finally {
-      switching = false;
-    }
-    phase = "running";
-    if (commandWantsSetup(ctx)) void send("open").catch(() => {
-    });
-    poll = setInterval(() => {
-      if (draining && !switching && !closed) void send("idle").then((idle) => {
-        if (idle === true) void swap().catch((e) => {
-          error2 = String(e);
-          void close(1);
-        });
-      }).catch(() => {
-      });
-    }, 750);
-    for (const signal of process.platform === "win32" ? ["SIGINT", "SIGTERM", "SIGBREAK"] : ["SIGINT", "SIGTERM", "SIGHUP"]) process.once(signal, () => void close());
-    process.stderr.write(`[one-worker] Fixed installation \xB7 ${status().version} \xB7 ${m.name}
-[one-worker] Starter: ${join(ctx.dir, "start.cjs")}
-`);
-  } catch (e) {
-    await close(1);
-    throw e;
-  }
-}
-function commandWantsSetup(_ctx) {
-  return process.argv.includes("managed-setup");
-}
-function managedChild(handlers) {
-  if (process.env.ONE_WORKER_MANAGED_CHILD !== "1" || !process.send) return;
-  const answer = (v) => {
-    if (process.connected) process.send?.(v);
-  };
-  process.on("message", async (raw) => {
-    const r = raw;
-    if (!r?.oneManaged) return;
-    try {
-      let value2;
-      if (r.op === "drain") {
-        handlers.drain();
-        value2 = true;
-      } else if (r.op === "resume") {
-        handlers.resume();
-        value2 = true;
-      } else if (r.op === "idle") value2 = handlers.idle();
-      else if (r.op === "open") value2 = await handlers.open();
-      else if (r.op === "shutdown") {
-        answer({ oneManaged: true, id: r.id, value: true });
-        await handlers.shutdown();
-        return;
-      } else throw new Error("Unknown management action");
-      answer({ oneManaged: true, id: r.id, value: value2 });
-    } catch (e) {
-      answer({ oneManaged: true, id: r.id, error: e instanceof Error ? e.message : String(e) });
-    }
-  });
-  if (handlers.ready()) answer({ oneManaged: true, ready: true });
-  process.once("disconnect", () => {
-    handlers.drain();
-    const t = setInterval(() => {
-      if (handlers.idle()) {
-        clearInterval(t);
-        void handlers.shutdown();
-      }
-    }, 500);
-  });
-}
-async function manageInstalled(op) {
-  const dir = process.env.ONE_WORKER_MANAGED_DIR;
-  if (process.env.ONE_WORKER_MANAGED_CHILD !== "1" || !dir) throw new Error("This worker is running from a download. Install it first with: node <downloaded-worker.mjs> install");
-  return request(dir, op);
-}
-
-// src/worker/demo-compare.ts
-import { readFile, writeFile, mkdir, mkdtemp as mkdtemp3, rm as rm4, realpath } from "node:fs/promises";
-import { join as join10, dirname as dirname5 } from "node:path";
-import { tmpdir as tmpdir4 } from "node:os";
 
 // src/worker/exec.ts
-import { spawn, spawnSync as spawnSync2 } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { closeSync, openSync, readSync, readdirSync, statSync } from "node:fs";
-import { homedir as homedir2 } from "node:os";
-import { join as join2, posix, win32 } from "node:path";
+import { homedir } from "node:os";
+import { join, posix, win32 } from "node:path";
 var READ_MAX = 64 * 1024;
 var PATHEXT_DEFAULT = [".COM", ".EXE", ".BAT", ".CMD"];
 var JS = /* @__PURE__ */ new Set([".js", ".mjs", ".cjs"]);
@@ -15574,7 +14823,7 @@ var homeEntry = (d, env, home) => {
   }
   return h.startsWith("/") && !h.includes(":") ? h + d.slice(1) : null;
 };
-function pathAbsolute(env, platform = process.platform, home = homedir2) {
+function pathAbsolute(env, platform = process.platform, home = homedir) {
   const sep5 = platform === "win32" ? ";" : ":";
   let out = env;
   for (const k of Object.keys(env)) {
@@ -15731,7 +14980,7 @@ function plantedProgram(dir, opts = {}) {
     const n = winName(name);
     if (program(n)) return name;
     const ascii = foldsTo(n);
-    if (ascii !== null && program(ascii) && exists(join2(dir, ascii))) return name;
+    if (ascii !== null && program(ascii) && exists(join(dir, ascii))) return name;
   }
   return null;
 }
@@ -15969,7 +15218,7 @@ function execFileSyncSafe(cmd, args, opts) {
   const win2 = c.platform === "win32";
   const run2 = spawnForm(r, c.cwd, c.platform);
   try {
-    const res = spawnSync2(run2.file, run2.args, {
+    const res = spawnSync(run2.file, run2.args, {
       cwd: win2 ? c.cwd : opts.cwd,
       env: childEnv(env, r, allow, c.platform),
       encoding: "utf8",
@@ -16051,6 +15300,763 @@ function taskkillTree(pid, opts = {}) {
     }
   });
 }
+function starterText(node2, dir) {
+  return `// ONE Worker stable starter. No tokens or pairing secrets.
+const fs=require('node:fs'),path=require('node:path'),cp=require('node:child_process');
+const dir=${JSON.stringify(dir)},m=JSON.parse(fs.readFileSync(path.join(dir,'current.json'),'utf8'));
+if(!/^\\d+\\.\\d+\\.\\d+-[a-f0-9]{16}\\.mjs$/.test(m.current))throw Error('Invalid worker release');
+const verb=process.argv[2]||'start';
+if(!['start','setup','status','update','rollback','cancel'].includes(verb))throw Error('Use start, setup, status, update, rollback or cancel');
+const child=cp.spawn(${JSON.stringify(node2)},[path.join(dir,m.current),'managed-'+verb,'--config',m.config],{stdio:'inherit',windowsHide:false});
+child.on('error',e=>{console.error(e.message);process.exitCode=1});child.on('exit',c=>{process.exitCode=c===null?1:c});
+for(const s of ['SIGINT','SIGTERM'])process.on(s,()=>{if(child.exitCode!==null)return;if(process.platform!=='win32'){child.kill(s);return}try{const c=JSON.parse(fs.readFileSync(path.join(dir,'control.json'),'utf8')),socket=require('node:net').connect(c.port,'127.0.0.1');socket.on('connect',()=>socket.end(JSON.stringify({key:c.key,op:'shutdown'})+'\\n'));socket.on('error',()=>{});}catch{console.error('Worker is still starting; close its window after startup.')}});
+`;
+}
+
+// src/worker/managed.ts
+import { createServer, connect } from "node:net";
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { basename, dirname, join as join2, resolve } from "node:path";
+import { homedir as homedir2 } from "node:os";
+
+// src/worker/preset.ts
+import { timingSafeEqual, createHash } from "node:crypto";
+
+// ../src/app/features/coding/protocol.ts
+var WORKER_DEFAULT_PORT = 47322;
+var WORKER_SUBPROTOCOL = "one-worker.v1";
+var WORKER_CLOSE_REPLACED = 4001;
+var WORKER_CLOSE_REFUSED = 4003;
+var CLAIM_STALE_MS = 10 * 6e4;
+var HEARTBEAT_MS = 6e4;
+var LOG_MAX = 2e3;
+var PARALLEL_MAX = 2;
+var CODING_AGENTS = ["claude", "codex", "local", "minimax", "ollama", "copilot"];
+var isCodingAgent = (v) => CODING_AGENTS.includes(v);
+var STAGE_KINDS = ["queue", "import", "analyze", "plan", "doc", "gate", "implement", "test", "git", "done"];
+var PERMISSION_MODES = ["plan", "acceptEdits", "default"];
+var GIT_ACTIONS = ["commit", "push", "pr", "update-base", "comment", "merge"];
+var WORKER_CAN = ["data-flow", "shared-models", "source-review", "copilot-options", "text-models", "copilot-chat", "copilot-media", "analyze", "git:comment", "git:merge", "doc", "model", "mcp-list", "ship", "continue", "permission", "agent:codex", "agent:local", "agent:minimax", "agent:ollama", "agent:copilot", "delivery-qa", "harness-quality", "personal-secrets"];
+var MODEL_NAME = /^[A-Za-z0-9][A-Za-z0-9._:[\]-]{0,99}$/;
+function cleanModel(v) {
+  if (typeof v !== "string") return null;
+  const m = v.trim();
+  return MODEL_NAME.test(m) ? m : null;
+}
+var GIT_VERBS = ["refresh", "commit", "push", "force-push", "pr", "update-base", "discard", "cleanup", "reveal", "comment-pr", "merge-pr"];
+var SHIP_TRAILER = "One-Task";
+var WEB_BASE = /^https?:\/\/[a-z0-9.-]+(?::\d{1,5})?(?:\/[A-Za-z0-9_.-]+){2,}$/;
+function cleanWeb(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const { base, forge } = raw;
+  if (typeof base !== "string" || base.length > 300 || !WEB_BASE.test(base)) return null;
+  if (base.split("/").slice(3).some((seg) => seg === "." || seg === "..")) return null;
+  return forge === "github" || forge === "gitlab" ? { base, forge } : null;
+}
+var GIT_SHA = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/;
+var REPO_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+var WORKSPACE_ID = /^(local|team):[A-Za-z0-9_-]{1,64}$/;
+var PRESET_GLOBAL = "ONE_WORKER_PRESET";
+var PAIR_SECRET = /^[A-Za-z0-9_-]{43}$/;
+var PERMISSION_WAIT_MS = 15 * 6e4;
+var PERMISSION_VERBS = ["once", "always", "deny"];
+var PERMISSION_FIELD_MAX = 4e3;
+var PERMISSION_WHAT_MAX = 4500;
+var EDIT_HUNKS = 6;
+var EDIT_CHARS = 4e3;
+var TAB_CAN = ["permission"];
+var RELAY_WORKER_PATH = "/coding/worker";
+var WORKER_TOKEN = /^onew_[A-Za-z0-9_-]{43}$/;
+var LOOPBACK_HOSTS = /* @__PURE__ */ new Set(["localhost", "127.0.0.1", "[::1]"]);
+function cloudOriginAllowed(origin) {
+  try {
+    const url2 = new URL(origin);
+    return url2.protocol === "https:" || url2.protocol === "http:" && LOOPBACK_HOSTS.has(url2.hostname);
+  } catch {
+    return false;
+  }
+}
+var RELAY_MAX_FRAME = 8 * 1024 * 1024 + 64 * 1024;
+var RELAY_MAX_PLAIN = 6 * 1024 * 1024;
+var RELAY_BOX_INFO = "one-worker-relay v1";
+var RELAY_NONCE = /^[A-Za-z0-9_-]{43}$/;
+var RELAY_IV = /^[A-Za-z0-9_-]{16}$/;
+var RELAY_CLOSE_AUTH = 4401;
+var RELAY_CLOSE_FORBIDDEN = 4403;
+
+// src/policy.ts
+var DEFAULT_ORIGINS = ["https://getonecms.com", "http://localhost:*", "http://127.0.0.1:*"];
+function normalizeOrigin(raw) {
+  const s = raw.trim();
+  if (!s || s === "null") return null;
+  const wild = /:\*$/.test(s);
+  try {
+    const u = new URL(wild ? s.replace(/:\*$/, "") : s);
+    if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+    if (u.username || u.password || u.pathname !== "/" && u.pathname !== "" || u.search || u.hash) return null;
+    return wild ? `${u.protocol}//${u.hostname}:*` : u.origin;
+  } catch {
+    return null;
+  }
+}
+function allowedOrigins(extra, warn = () => {
+}) {
+  const out = [...DEFAULT_ORIGINS];
+  for (const raw of (extra ?? "").split(",")) {
+    if (!raw.trim()) continue;
+    const o = normalizeOrigin(raw);
+    if (!o) warn(`ignoring ONE_ORIGINS entry ${JSON.stringify(raw.trim())} (expected e.g. https://one.example.com or http://localhost:*)`);
+    else if (!out.includes(o)) out.push(o);
+  }
+  return out;
+}
+function isAllowedOrigin(origin, allowed) {
+  if (!origin) return false;
+  const o = normalizeOrigin(origin);
+  if (!o || o.endsWith(":*")) return false;
+  const u = new URL(o);
+  return allowed.some((a) => {
+    if (!a.endsWith(":*")) return a === o;
+    const base = new URL(a.slice(0, -2));
+    return base.protocol === u.protocol && base.hostname === u.hostname;
+  });
+}
+var LOOPBACK = /* @__PURE__ */ new Set(["127.0.0.1", "localhost", "[::1]"]);
+function isAllowedHost(host, port) {
+  if (!host) return false;
+  const m = /^(\[[^\]]+\]|[^:]+)(?::(\d+))?$/.exec(host.trim().toLowerCase());
+  if (!m) return false;
+  return LOOPBACK.has(m[1]) && Number(m[2] ?? 80) === port;
+}
+
+// src/worker/preset.ts
+var isObj = (v) => !!v && typeof v === "object" && !Array.isArray(v);
+var DEV_ORIGINS = ["http://localhost:*", "http://127.0.0.1:*"];
+function readPreset(raw) {
+  if (raw === void 0 || raw === null) return { preset: null, problem: null };
+  if (!isObj(raw)) return { preset: null, problem: "the preset is not an object" };
+  const workspace = typeof raw.workspace === "string" ? raw.workspace.trim() : "";
+  if (!WORKSPACE_ID.test(workspace)) return { preset: null, problem: `the preset's workspace ${JSON.stringify(raw.workspace)} is not a workspace id` };
+  const origin = typeof raw.origin === "string" ? normalizeOrigin(raw.origin) : null;
+  if (!origin || origin.endsWith(":*")) return { preset: null, problem: `the preset's origin ${JSON.stringify(raw.origin)} is not a site origin` };
+  const port = typeof raw.port === "number" && Number.isInteger(raw.port) && raw.port >= 1024 && raw.port <= 65535 ? raw.port : null;
+  if (port === null) return { preset: null, problem: `the preset's port ${JSON.stringify(raw.port)} is not a port (1024\u201365535)` };
+  const pair = typeof raw.pair === "string" && PAIR_SECRET.test(raw.pair) ? raw.pair : null;
+  if (!pair) return { preset: null, problem: "the preset has no pairing secret" };
+  const name = (typeof raw.name === "string" ? raw.name : "").replace(/[\u0000-\u001f\u007f\u2028\u2029]/g, "").trim().slice(0, 120) || "One";
+  let cloud2;
+  if (raw.cloud !== void 0) {
+    const c = isObj(raw.cloud) ? raw.cloud : {};
+    if (typeof c.token !== "string" || !WORKER_TOKEN.test(c.token)) return { preset: null, problem: "the preset's cloud token is not a worker token" };
+    if (!workspace.startsWith("team:")) return { preset: null, problem: "a cloud worker needs a team workspace" };
+    if (!cloudOriginAllowed(origin)) return { preset: null, problem: "a cloud worker needs an https origin (plain http only on this computer)" };
+    cloud2 = { token: c.token };
+  }
+  let updateUrl;
+  if (raw.updateUrl !== void 0) {
+    try {
+      const u = new URL(String(raw.updateUrl));
+      if (u.origin !== origin || u.username || u.password || u.search || u.hash || !u.pathname.endsWith("/mcp/one-worker.mjs")) throw new Error();
+      updateUrl = u.href;
+    } catch {
+      return { preset: null, problem: "invalid same-origin update address" };
+    }
+  }
+  return { preset: { workspace, origin, port, pair, name, ...updateUrl ? { updateUrl } : {}, ...raw.dev === true ? { dev: true } : {}, ...cloud2 ? { cloud: cloud2 } : {} }, problem: null };
+}
+function relayUrl(origin) {
+  const url2 = new URL(RELAY_WORKER_PATH, origin);
+  url2.protocol = url2.protocol === "https:" ? "wss:" : "ws:";
+  return url2.href;
+}
+function filePreset() {
+  return readPreset(globalThis[PRESET_GLOBAL]);
+}
+function workerOrigins(preset2, extra, warn = () => {
+}) {
+  const added = extra.filter(Boolean).join(",");
+  if (!preset2) return allowedOrigins(added, warn);
+  const out = [preset2.origin, ...preset2.dev ? DEV_ORIGINS : []];
+  for (const raw of added.split(",")) {
+    if (!raw.trim()) continue;
+    const o = normalizeOrigin(raw);
+    if (!o) warn(`ignoring the origin ${JSON.stringify(raw.trim())} (expected e.g. https://one.example.com or http://localhost:*)`);
+    else if (!out.includes(o)) out.push(o);
+  }
+  return out;
+}
+function sameSecret(expected, given) {
+  if (typeof given !== "string" || given.length > 200) return false;
+  const a = createHash("sha256").update(expected).digest();
+  const b = createHash("sha256").update(given).digest();
+  return timingSafeEqual(a, b);
+}
+
+// src/worker/managed.ts
+var GLOBAL = "globalThis.ONE_WORKER_PRESET = ";
+var MARKER = /^\/\/ SimpleCMS One — coding worker (\d+\.\d+\.\d+) \(MIT\)\./m;
+var RELEASE = /^\d+\.\d+\.\d+-[a-f0-9]{16}\.mjs$/;
+var MAX_BYTES = 16 * 1024 * 1024;
+var hash = (s) => createHash2("sha256").update(s).digest("hex");
+function profileDir(config2) {
+  return join2(dirname(resolve(config2)), basename(config2) === "worker.json" ? "installed-worker" : "installed-worker-" + hash(resolve(config2)).slice(0, 10));
+}
+function privateDir(dir) {
+  if (existsSync(dir) && (lstatSync(dir).isSymbolicLink() || !lstatSync(dir).isDirectory())) throw new Error("Installation folder must be a real directory.");
+  mkdirSync(dir, { recursive: true, mode: 448 });
+  if (process.platform !== "win32") chmodSync(dir, 448);
+  else {
+    const system = join2(process.env.SystemRoot ?? "C:\\Windows", "System32");
+    const identity = execFileSyncSafe(join2(system, "whoami.exe"), ["/user", "/fo", "csv", "/nh"], { allow: "exe", timeoutMs: 5e3 });
+    if (identity.code !== 0) throw new Error("Cannot determine Windows account for private worker permissions.");
+    const who = identity.stdout;
+    const sid = /S-\d+-\d+(?:-\d+)+/.exec(who)?.[0];
+    if (!sid) throw new Error("Cannot determine Windows account for private worker permissions.");
+    const acl = execFileSyncSafe(join2(system, "icacls.exe"), [dir, "/inheritance:r", "/grant:r", `*${sid}:(OI)(CI)F`, "*S-1-5-18:(OI)(CI)F"], { allow: "exe", timeoutMs: 1e4 });
+    if (acl.code !== 0) throw new Error("Cannot protect the Windows worker installation.");
+  }
+}
+function atomic(file, text2, mode = 384) {
+  const temp = file + "." + randomBytes(8).toString("hex") + ".tmp";
+  writeFileSync(temp, text2, { flag: "wx", mode });
+  renameSync(temp, file);
+  if (process.platform !== "win32") chmodSync(file, mode);
+}
+function manifest(dir) {
+  const m = JSON.parse(readFileSync(join2(dir, "current.json"), "utf8"));
+  if (m.schema !== 1 || !RELEASE.test(m.current) || m.previous !== null && !RELEASE.test(m.previous) || !Array.isArray(m.args) || m.args.some((a) => a !== "--no-browser" && a !== "--model-host") || typeof m.config !== "string") throw new Error("Invalid installation manifest; reinstall from a trusted ONE download.");
+  return m;
+}
+function codePreset(source) {
+  const line = source.split("\n")[1] ?? "";
+  if (!line.startsWith(GLOBAL)) throw new Error("This installation has no pairing. Download a paired worker from ONE first.");
+  const p = readPreset(JSON.parse(line.slice(GLOBAL.length)));
+  if (!p.preset) throw new Error("Invalid installed pairing.");
+  return p.preset;
+}
+function importWorkerPreset(file) {
+  if (lstatSync(file).size > MAX_BYTES) throw new Error("The existing worker file is too large.");
+  const line = readFileSync(file, "utf8").split("\n")[1] ?? "";
+  const raw = /^globalThis\.ONE_WORKER_PRESET\s*=\s*(.+?)\s*;?\s*$/.exec(line)?.[1];
+  if (!raw) throw new Error("No JSON pairing found in that file. Select the existing paired worker, not a plain public bundle.");
+  let value2;
+  try {
+    value2 = JSON.parse(raw);
+  } catch {
+    throw new Error("The existing pairing is not a JSON literal. It was not executed.");
+  }
+  const checked = readPreset(value2);
+  if (!checked.preset) throw new Error("The existing worker pairing is invalid.");
+  return checked.preset;
+}
+function unpairedSource(source) {
+  const lines = source.split("\n");
+  if (/^globalThis\.ONE_WORKER_PRESET\s*=/.test(lines[1] ?? "")) lines.splice(1, 1);
+  return lines.join("\n");
+}
+function samePair(a, b) {
+  return a.workspace === b.workspace && a.origin === b.origin && a.port === b.port && sameSecret(a.pair, b.pair) && a.cloud?.token === b.cloud?.token;
+}
+function paired(source, preset2) {
+  const n = source.indexOf("\n");
+  return source.slice(0, n + 1) + GLOBAL + JSON.stringify(preset2).replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029") + "\n" + source.slice(n + 1);
+}
+function updateAddress(p) {
+  const url2 = new URL(p.updateUrl ?? "/mcp/one-worker.mjs", p.origin);
+  if (url2.origin !== p.origin || url2.username || url2.password || url2.search || url2.hash || !url2.pathname.endsWith("/mcp/one-worker.mjs") || url2.protocol !== "https:" && !(p.dev && ["127.0.0.1", "localhost", "[::1]"].includes(url2.hostname))) throw new Error("Updates require the original HTTPS ONE site (localhost only for development).");
+  return url2.href;
+}
+function quoteSh(s) {
+  return "'" + s.replace(/'/g, "'\\''") + "'";
+}
+function shortcutText(node2, start, windows) {
+  if (windows) {
+    if (/[\r\n"]/.test(node2 + start)) throw new Error("Unsupported launcher path.");
+    return '@echo off\r\nsetlocal DisableDelayedExpansion\r\n"' + node2.replace(/%/g, "%%") + '" "' + start.replace(/%/g, "%%") + '"\r\nif errorlevel 1 pause\r\n';
+  }
+  return "#!/bin/sh\nexec " + quoteSh(node2) + " " + quoteSh(start) + "\n";
+}
+function release(dir, source) {
+  const v = MARKER.exec(source)?.[1];
+  if (!v || !source.startsWith("#!")) throw new Error("Not an official ONE worker bundle.");
+  const name = v + "-" + hash(source).slice(0, 16) + ".mjs";
+  const file = join2(dir, name);
+  if (existsSync(file)) {
+    if (lstatSync(file).isSymbolicLink() || !lstatSync(file).isFile() || hash(readFileSync(file)) !== hash(source)) throw new Error("Installed release was changed; refusing to execute it.");
+  } else atomic(file, source);
+  const check = execFileSyncSafe(process.execPath, ["--check", file], { allow: "exe", timeoutMs: 15e3 });
+  if (check.code !== 0) throw new Error("Worker validation failed; the installed version is unchanged.");
+  return name;
+}
+async function request(dir, op) {
+  const c = JSON.parse(readFileSync(join2(dir, "control.json"), "utf8"));
+  if (!Number.isInteger(c.port) || c.port < 1024 || c.port > 65535 || !/^[A-Za-z0-9_-]{43}$/.test(c.key)) throw new Error("Invalid worker control.");
+  return new Promise((resolve12, reject) => {
+    const socket = connect(c.port, "127.0.0.1");
+    let data = "";
+    socket.setTimeout(45e3, () => socket.destroy(new Error("Worker control timed out.")));
+    socket.on("connect", () => socket.write(JSON.stringify({ key: c.key, op }) + "\n"));
+    socket.on("data", (chunk) => {
+      data += chunk;
+      if (data.length > 16e3) return socket.destroy(new Error("Invalid response."));
+      if (data.includes("\n")) {
+        socket.end();
+        try {
+          const v = JSON.parse(data);
+          if (v.error && v.failed) reject(new Error(v.error));
+          else resolve12(v);
+        } catch (e) {
+          reject(e);
+        }
+      }
+    });
+    socket.on("error", reject);
+    socket.on("end", () => {
+      if (!data.includes("\n")) reject(new Error("Worker control closed."));
+    });
+  });
+}
+function lock(dir) {
+  const file = join2(dir, "supervisor.lock");
+  try {
+    mkdirSync(file, { mode: 448 });
+  } catch {
+    let pid;
+    try {
+      pid = Number(readFileSync(join2(file, "pid"), "utf8"));
+      if (!Number.isInteger(pid) || pid < 1) throw new Error("bad pid");
+    } catch {
+      throw new Error("Worker lock is incomplete. Close the other starter; if it crashed, remove supervisor.lock manually.");
+    }
+    let alive = true;
+    try {
+      process.kill(pid, 0);
+    } catch (e) {
+      if (e.code === "ESRCH") alive = false;
+    }
+    if (alive) throw new Error("ONE Worker is already starting/running. Use its existing window or the ONE settings.");
+    rmSync(file, { recursive: true });
+    mkdirSync(file, { mode: 448 });
+  }
+  writeFileSync(join2(file, "pid"), String(process.pid), { mode: 384 });
+  return () => rmSync(file, { recursive: true, force: true });
+}
+async function installManaged(ctx, replace = false) {
+  if (!ctx.preset) throw new Error("Download the paired worker from ONE before installing.");
+  updateAddress(ctx.preset);
+  privateDir(ctx.dir);
+  try {
+    await request(ctx.dir, "status");
+    throw new Error("Worker is running. Use Update in ONE; stop it before reinstalling or changing pairing.");
+  } catch (e) {
+    if (!["ENOENT", "ECONNREFUSED"].includes(e.code ?? "")) throw e;
+  }
+  const unlock = lock(ctx.dir);
+  try {
+    const source = paired(unpairedSource(readFileSync(ctx.file, "utf8")), ctx.preset), file = release(ctx.dir, source);
+    if (process.platform !== "win32") chmodSync(ctx.file, 384);
+    let old = null;
+    if (existsSync(join2(ctx.dir, "current.json"))) {
+      old = manifest(ctx.dir);
+      const oldPair = codePreset(readFileSync(join2(ctx.dir, old.current), "utf8"));
+      if (!samePair(oldPair, ctx.preset) && !replace) throw new Error("This download has another pairing. For software updates use the installed starter with update. To intentionally reconnect: install --replace-pairing (worker stopped).");
+    }
+    const m = { schema: 1, config: ctx.config, workspace: ctx.preset.workspace, origin: ctx.preset.origin, name: ctx.preset.name, current: file, previous: old && samePair(codePreset(readFileSync(join2(ctx.dir, old.current), "utf8")), ctx.preset) ? old.current !== file ? old.current : old.previous : null, updateUrl: updateAddress(ctx.preset), args: ctx.args };
+    atomic(join2(ctx.dir, "start.cjs"), starterText(process.execPath, ctx.dir));
+    const safeName = ctx.preset.name.replace(/[^\p{L}\p{N} _.-]/gu, "").slice(0, 45) || "Workspace";
+    const shortcut = `ONE Worker - ${safeName} - ${hash(ctx.dir).slice(0, 6)}.${process.platform === "win32" ? "cmd" : "command"}`;
+    const script = shortcutText(process.execPath, join2(ctx.dir, "start.cjs"), process.platform === "win32");
+    atomic(join2(ctx.dir, shortcut), script, 448);
+    const desktop = ctx.desktop === void 0 ? join2(homedir2(), "Desktop") : ctx.desktop;
+    if (!process.argv.includes("--no-shortcut") && desktop && existsSync(desktop)) {
+      try {
+        atomic(join2(desktop, shortcut), script, 448);
+      } catch {
+      }
+    }
+    atomic(join2(ctx.dir, "current.json"), JSON.stringify(m, null, 2) + "\n");
+    return join2(ctx.dir, "start.cjs");
+  } finally {
+    unlock();
+  }
+}
+async function fetchRelease(m, dir) {
+  const p = codePreset(readFileSync(join2(dir, m.current), "utf8"));
+  const url2 = updateAddress({ ...p, updateUrl: m.updateUrl });
+  const downloadDeadline = AbortSignal.timeout(3e4);
+  const get = async (address, limit) => {
+    const res = await fetch(address, { redirect: "error", credentials: "omit", signal: downloadDeadline, headers: { "Cache-Control": "no-cache" } });
+    if (!res.ok || Number(res.headers.get("content-length")) > limit) throw new Error("Update download failed; installed worker retained.");
+    const reader = res.body?.getReader();
+    if (!reader) throw new Error("Empty update response.");
+    const chunks = [];
+    let size = 0;
+    try {
+      while (true) {
+        const r = await reader.read();
+        if (r.done) break;
+        size += r.value.length;
+        if (size > limit) throw new Error("Update exceeds size limit.");
+        chunks.push(Buffer.from(r.value));
+      }
+    } finally {
+      await reader.cancel().catch(() => {
+      });
+    }
+    return Buffer.concat(chunks);
+  };
+  const meta2 = JSON.parse((await get(url2.replace(/one-worker\.mjs$/, "one-worker.release.json"), 4096)).toString());
+  if (!/^\d+\.\d+\.\d+$/.test(meta2.version) || !/^[a-f0-9]{64}$/.test(meta2.sha256) || !Number.isInteger(meta2.size) || meta2.size < 1 || meta2.size > MAX_BYTES) throw new Error("Invalid release manifest.");
+  const body = await get(url2, MAX_BYTES);
+  if (body.length !== meta2.size || hash(body) !== meta2.sha256 || MARKER.exec(body.toString())?.[1] !== meta2.version || body.toString().split("\n")[1]?.startsWith(GLOBAL)) throw new Error("Update checksum/version mismatch; installed worker retained.");
+  const current = MARKER.exec(readFileSync(join2(dir, m.current), "utf8"))?.[1] ?? "0.0.0";
+  const compare = (a, b) => {
+    const x2 = a.split(".").map(Number), y = b.split(".").map(Number);
+    for (let i2 = 0; i2 < 3; i2++) {
+      if (x2[i2] !== y[i2]) return x2[i2] - y[i2];
+    }
+    return 0;
+  };
+  if (compare(meta2.version, current) < 0) throw new Error("The server offers an older worker. Use explicit rollback instead.");
+  return release(dir, paired(body.toString(), p));
+}
+async function managedCommand(ctx, command2) {
+  if (command2 === "install") {
+    const start = await installManaged(ctx, process.argv.includes("--replace-pairing"));
+    process.stdout.write(`ONE Worker installed for ${ctx.preset?.name}.
+Start: node ${JSON.stringify(start)}
+Update: node ${JSON.stringify(start)} update
+Pairing, repositories and settings retained. A workspace-named starter is available in the installation folder and, when writable, on your Desktop.
+`);
+    return;
+  }
+  if (command2 !== "managed-start" && command2 !== "managed-setup") {
+    try {
+      const r = await request(ctx.dir, command2.replace("managed-", ""));
+      process.stdout.write(JSON.stringify(r, null, 2) + "\n");
+      return;
+    } catch (e) {
+      if (!["ENOENT", "ECONNREFUSED"].includes(e.code ?? "")) throw e;
+      if (command2 === "managed-status") {
+        const m = manifest(ctx.dir);
+        process.stdout.write(JSON.stringify({ installed: true, version: m.current.split("-")[0], previous: m.previous?.split("-")[0] ?? null, phase: "stopped", path: ctx.dir }, null, 2) + "\n");
+        return;
+      }
+      if (command2 === "managed-rollback") return supervise(ctx, true);
+      throw new Error("Start the installed ONE Worker before updating or cancelling an update.");
+    }
+  }
+  try {
+    const r = await request(ctx.dir, "open");
+    process.stdout.write(`ONE Worker already running \xB7 ${r.version} \xB7 ${r.phase}
+`);
+    return;
+  } catch (e) {
+    if (!["ENOENT", "ECONNREFUSED"].includes(e.code ?? "")) throw e;
+  }
+  await supervise(ctx);
+}
+async function redirectInstalled(ctx, setup) {
+  if (process.env.ONE_WORKER_MANAGED_CHILD === "1" || !existsSync(join2(ctx.dir, "current.json"))) return false;
+  const m = manifest(ctx.dir), p = codePreset(readFileSync(join2(ctx.dir, m.current), "utf8"));
+  if (ctx.preset && !samePair(p, ctx.preset)) throw new Error(`This is an older/different pairing. Start the installed ONE Worker: node ${JSON.stringify(join2(ctx.dir, "start.cjs"))}. Reconnect explicitly only when intended.`);
+  process.stderr.write("[one-worker] Using the fixed installation instead of this download.\n");
+  await managedCommand(ctx, setup ? "managed-setup" : "managed-start");
+  return true;
+}
+async function supervise(ctx, initialRollback = false) {
+  const unlock = lock(ctx.dir);
+  let m = manifest(ctx.dir), child = null, closed = false, switching = false, pending = null, draining = false, ready = false, error2, available;
+  let phase = "starting", counter = 0;
+  const waiters = /* @__PURE__ */ new Map();
+  const status = () => ({ installed: true, version: m.current.split("-")[0], previous: m.previous?.split("-")[0] ?? null, phase, ...error2 ? { error: error2 } : {}, ...available ? { available } : {}, path: ctx.dir });
+  const send = (op) => new Promise((resolve12, reject) => {
+    if (!child?.connected) return reject(new Error("Worker is starting."));
+    const id = ++counter;
+    const timer = setTimeout(() => {
+      waiters.delete(id);
+      reject(new Error("Worker control timed out."));
+    }, 8e3);
+    waiters.set(id, { resolve: resolve12, reject, timer });
+    child.send({ oneManaged: true, id, op });
+  });
+  const stopChild = async () => {
+    if (!child) return;
+    const c = child;
+    await send("shutdown").catch(() => {
+    });
+    if (c.exitCode !== null) return;
+    await new Promise((resolve12, reject) => {
+      const t = setTimeout(() => reject(new Error("Worker did not stop cleanly; no replacement started.")), 2e4);
+      c.once("exit", () => {
+        clearTimeout(t);
+        resolve12();
+      });
+    });
+  };
+  const launch = (file) => new Promise((resolve12, reject) => {
+    ready = false;
+    const started = spawnSafe(process.execPath, [join2(ctx.dir, file), "run", "--config", m.config, ...m.args], { allow: "exe", cwd: ctx.dir, stdio: ["inherit", "inherit", "inherit", "ipc"], env: { ...process.env, ONE_WORKER_MANAGED_CHILD: "1", ONE_WORKER_MANAGED_DIR: ctx.dir }, windowsHide: true });
+    if (!started.ok) return reject(new Error(started.error));
+    const c = started.child;
+    child = c;
+    const timer = setTimeout(() => reject(new Error("New worker did not become ready.")), 3e4);
+    c.on("message", (raw) => {
+      const r = raw;
+      if (!r?.oneManaged) return;
+      if (r.ready) {
+        ready = true;
+        clearTimeout(timer);
+        resolve12();
+      }
+      if (r.id) {
+        const w = waiters.get(r.id);
+        if (w) {
+          clearTimeout(w.timer);
+          waiters.delete(r.id);
+          r.error ? w.reject(new Error(r.error)) : w.resolve(r.value);
+        }
+      }
+    });
+    c.once("error", (e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
+    c.once("exit", (code) => {
+      clearTimeout(timer);
+      if (!ready) reject(new Error("New worker exited before readiness."));
+      if (!closed && !switching) {
+        error2 = `Worker stopped (exit ${code ?? "signal"}). Start ONE Worker again; no automatic restart loop.`;
+        phase = "stopped";
+        void close(code ?? 1);
+      }
+    });
+  });
+  const close = async (code = 0) => {
+    if (closed) return;
+    closed = true;
+    phase = "stopping";
+    if (poll) clearInterval(poll);
+    await stopChild().catch((e) => process.stderr.write(String(e) + "\n"));
+    server.close();
+    rmSync(join2(ctx.dir, "control.json"), { force: true });
+    unlock();
+    process.exitCode = code;
+  };
+  const swap = async () => {
+    if (!pending || switching || closed) return;
+    switching = true;
+    const target = pending;
+    pending = null;
+    const old = m;
+    try {
+      phase = "switching";
+      await stopChild();
+      await launch(target);
+      m = { ...m, current: target, previous: old.current };
+      atomic(join2(ctx.dir, "current.json"), JSON.stringify(m, null, 2) + "\n");
+      draining = false;
+      phase = "running";
+      error2 = void 0;
+      process.stderr.write(`[one-worker] Active release ${status().version}; pairing and configuration retained.
+`);
+    } catch (e) {
+      error2 = e instanceof Error ? e.message : String(e);
+      phase = "rolling-back";
+      if (child && child.exitCode === null) {
+        child.kill("SIGTERM");
+        await new Promise((r) => {
+          if (child.exitCode !== null) return r();
+          child.once("exit", () => r());
+        });
+      }
+      m = old;
+      atomic(join2(ctx.dir, "current.json"), JSON.stringify(old, null, 2) + "\n");
+      await launch(old.current);
+      draining = false;
+      phase = "running";
+      process.stderr.write("[one-worker] Update failed; previous release restored.\n");
+    } finally {
+      switching = false;
+    }
+  };
+  let operation = false;
+  const action = async (op) => {
+    if (op === "status") return status();
+    if (op === "shutdown") {
+      setTimeout(() => void close(), 100);
+      return status();
+    }
+    if (op === "open") {
+      await send("open");
+      return status();
+    }
+    if (op === "cancel") {
+      if (switching || operation) throw new Error("Wait for the current update operation.");
+      pending = null;
+      draining = false;
+      await send("resume");
+      phase = "running";
+      return status();
+    }
+    if (op !== "update" && op !== "rollback") throw new Error("Unknown worker management action.");
+    if (operation || pending || switching) throw new Error("An update is already being prepared or waiting for current work.");
+    operation = true;
+    error2 = void 0;
+    try {
+      phase = "checking";
+      const target = op === "rollback" ? m.previous : await fetchRelease(m, ctx.dir);
+      if (!target) throw new Error("No previous release is available.");
+      if (target === m.current) {
+        phase = "running";
+        return status();
+      }
+      available = target.split("-")[0];
+      pending = target;
+      draining = true;
+      phase = "waiting-for-idle";
+      await send("drain");
+      return status();
+    } catch (e) {
+      pending = null;
+      draining = false;
+      await send("resume").catch(() => {
+      });
+      phase = "running";
+      error2 = e instanceof Error ? e.message : String(e);
+      throw e;
+    } finally {
+      operation = false;
+    }
+  };
+  const key = randomBytes(32).toString("base64url");
+  const server = createServer((socket) => {
+    let input = "";
+    socket.setTimeout(5e3, () => socket.destroy());
+    socket.on("error", () => {
+    });
+    socket.on("data", (chunk) => {
+      input += chunk;
+      if (input.length > 4096) return socket.destroy();
+      if (!input.includes("\n")) return;
+      socket.removeAllListeners("data");
+      void (async () => {
+        try {
+          const r = JSON.parse(input);
+          socket.setTimeout(45e3, () => socket.destroy());
+          if (!sameSecret(key, r.key)) throw new Error("Worker control authentication failed.");
+          socket.end(JSON.stringify(await action(r.op)) + "\n");
+        } catch (e) {
+          socket.end(JSON.stringify({ failed: true, error: e instanceof Error ? e.message : String(e) }) + "\n");
+        }
+      })();
+    });
+  });
+  let poll;
+  try {
+    await new Promise((r, j) => {
+      server.once("error", j);
+      server.listen(0, "127.0.0.1", r);
+    });
+    atomic(join2(ctx.dir, "control.json"), JSON.stringify({ port: server.address().port, key, pid: process.pid }));
+    switching = true;
+    const original = m;
+    try {
+      if (initialRollback) {
+        if (!m.previous) throw new Error("No previous release is available.");
+        await launch(m.previous);
+        m = { ...m, current: m.previous, previous: m.current };
+        atomic(join2(ctx.dir, "current.json"), JSON.stringify(m, null, 2) + "\n");
+      } else {
+        try {
+          await launch(m.current);
+        } catch (e) {
+          if (!original.previous) throw e;
+          await stopChild().catch(() => {
+          });
+          if (child?.exitCode === null) throw new Error("Failed startup is still running; no fallback was started.");
+          error2 = "Current release failed to start; previous release restored.";
+          await launch(original.previous);
+          m = { ...original, current: original.previous, previous: original.current };
+          atomic(join2(ctx.dir, "current.json"), JSON.stringify(m, null, 2) + "\n");
+        }
+      }
+    } finally {
+      switching = false;
+    }
+    phase = "running";
+    if (commandWantsSetup(ctx)) void send("open").catch(() => {
+    });
+    poll = setInterval(() => {
+      if (draining && !switching && !closed) void send("idle").then((idle) => {
+        if (idle === true) void swap().catch((e) => {
+          error2 = String(e);
+          void close(1);
+        });
+      }).catch(() => {
+      });
+    }, 750);
+    for (const signal of process.platform === "win32" ? ["SIGINT", "SIGTERM", "SIGBREAK"] : ["SIGINT", "SIGTERM", "SIGHUP"]) process.once(signal, () => void close());
+    process.stderr.write(`[one-worker] Fixed installation \xB7 ${status().version} \xB7 ${m.name}
+[one-worker] Starter: ${join2(ctx.dir, "start.cjs")}
+`);
+  } catch (e) {
+    await close(1);
+    throw e;
+  }
+}
+function commandWantsSetup(_ctx) {
+  return process.argv.includes("managed-setup");
+}
+function managedChild(handlers) {
+  if (process.env.ONE_WORKER_MANAGED_CHILD !== "1" || !process.send) return;
+  const answer = (v) => {
+    if (process.connected) process.send?.(v);
+  };
+  process.on("message", async (raw) => {
+    const r = raw;
+    if (!r?.oneManaged) return;
+    try {
+      let value2;
+      if (r.op === "drain") {
+        handlers.drain();
+        value2 = true;
+      } else if (r.op === "resume") {
+        handlers.resume();
+        value2 = true;
+      } else if (r.op === "idle") value2 = handlers.idle();
+      else if (r.op === "open") value2 = await handlers.open();
+      else if (r.op === "shutdown") {
+        answer({ oneManaged: true, id: r.id, value: true });
+        await handlers.shutdown();
+        return;
+      } else throw new Error("Unknown management action");
+      answer({ oneManaged: true, id: r.id, value: value2 });
+    } catch (e) {
+      answer({ oneManaged: true, id: r.id, error: e instanceof Error ? e.message : String(e) });
+    }
+  });
+  if (handlers.ready()) answer({ oneManaged: true, ready: true });
+  process.once("disconnect", () => {
+    handlers.drain();
+    const t = setInterval(() => {
+      if (handlers.idle()) {
+        clearInterval(t);
+        void handlers.shutdown();
+      }
+    }, 500);
+  });
+}
+async function manageInstalled(op) {
+  const dir = process.env.ONE_WORKER_MANAGED_DIR;
+  if (process.env.ONE_WORKER_MANAGED_CHILD !== "1" || !dir) throw new Error("This worker is running from a download. Install it first with: node <downloaded-worker.mjs> install");
+  return request(dir, op);
+}
+
+// src/worker/demo-compare.ts
+import { readFile, writeFile, mkdir, mkdtemp as mkdtemp3, rm as rm4, realpath } from "node:fs/promises";
+import { join as join10, dirname as dirname5 } from "node:path";
+import { tmpdir as tmpdir4 } from "node:os";
 
 // src/worker/git.ts
 import { createHash as createHash3 } from "node:crypto";
@@ -16535,7 +16541,7 @@ async function ensureWorktree(repo, state, task, wanted, note, scrub) {
   await sweepLeftovers(repo, state);
   await tryFetch(repo, note, scrub);
   const base = await baseRef(repo);
-  const fork2 = (await gitOk(repo.path, ["rev-parse", `${base}^{commit}`])).trim();
+  const fork = (await gitOk(repo.path, ["rev-parse", `${base}^{commit}`])).trim();
   let branch = `${repo.branchPrefix}${slug(task.title)}-${shortId(task.id)}`;
   for (let n = 2; await branchExists(repo, branch) && n < 50; n++) branch = `${repo.branchPrefix}${slug(task.title)}-${shortId(task.id)}-${n}`;
   if (!await validBranch(repo, branch)) throw new GitError(`"${branch}" is not a valid branch name (check branchPrefix in worker.json)`);
@@ -16544,7 +16550,7 @@ async function ensureWorktree(repo, state, task, wanted, note, scrub) {
   mkdirSync2(dirname2(dir), { recursive: true });
   note?.("git", `New branch ${branch} from ${base} in its own worktree\u2026`, "newBranch", { branch, base });
   await addWorktree(repo, state, ["-b", branch, dir, base], dir, branch, branch, note);
-  state.remember(repo.name, branch, { task: task.id, worktree: dir, branchCreated: true, fork: fork2, at: Date.now() });
+  state.remember(repo.name, branch, { task: task.id, worktree: dir, branchCreated: true, fork, at: Date.now() });
   state.setTask(task.id, { repo: repo.name, branch, worktree: dir });
   return { dir, branch, created: true };
 }
@@ -20657,7 +20663,7 @@ async function runTests(repo, cwd, signal, onLine, scrub) {
   const after = await git(cwd, ["rev-parse", "HEAD"], 5e3, { local: true });
   const afterState = await git(cwd, ["status", "--porcelain"], 5e3, { local: true });
   const commit = before.code === 0 && /^[a-f0-9]{40,64}$/.test(before.stdout.trim()) ? before.stdout.trim() : null;
-  return { ...result, execution: { command: repo.testCommand.map((x2) => (scrub ? scrub(x2) : x2).slice(0, 1e3)).slice(0, 50), commit, dirty: state.code !== 0 || !!state.stdout.trim(), changedDuring: before.stdout !== after.stdout || state.stdout !== afterState.stdout, platform: process.platform, startedAt, finishedAt } };
+  return { ...result, execution: { command: repo.testCommand.map((x2, i2) => (i2 === 0 ? commandName(x2) : scrub ? scrub(x2) : x2).slice(0, 1e3)).slice(0, 50), commit, dirty: state.code !== 0 || !!state.stdout.trim(), changedDuring: before.stdout !== after.stdout || state.stdout !== afterState.stdout, platform: process.platform, startedAt, finishedAt } };
 }
 function runAnalysis(repo, cwd, signal, onLine, scrub) {
   return runCommand(repo.analyzeCommand, repo.analyzeTimeoutSec, "analysis", cwd, signal, onLine, scrub);
@@ -49403,7 +49409,7 @@ var WorkerWorkspaces = class {
 
 // src/worker/index.ts
 var workspaceHost = null;
-var VERSION = true ? "1.32.0" : "dev";
+var VERSION = true ? "1.32.1" : "dev";
 var quiet = process.env.ONE_WORKER_QUIET === "1";
 var recent = [];
 var log = (msg) => {

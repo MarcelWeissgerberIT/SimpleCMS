@@ -67,6 +67,10 @@ jobs:
       - name: Ports Windows keeps for itself
         if: runner.os == 'Windows'
         run: node mcp/test/ports.mjs
+      - name: Build installation release
+        run: npm --prefix mcp run build
+      - name: Managed installation and safe update (native OS)
+        run: node --test mcp/test/worker-managed.test.ts
       - run: npm --prefix mcp test
 
   smoke:
