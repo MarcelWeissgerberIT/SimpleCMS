@@ -1100,3 +1100,9 @@ export async function requestWorkerMcp(body: WorkerMcpRequest, signal?: AbortSig
 /** Configure only this member’s paired cloud worker, never someone else’s model host. */
 export const modelShareStatus = () => request({op:"model-share-status"} as never, 15000)
 export const configureModelShare = (choice:{model:string;label:string;enabled:boolean}) => request({op:"model-share-config",choice} as never, 45000)
+
+
+export interface ManagedWorkerStatus { path?: string; installed: boolean; version: string; previous: string | null; phase: string; error?: string; available?: string }
+export async function manageWorker(action: 'status' | 'update' | 'rollback' | 'cancel'): Promise<ManagedWorkerStatus> {
+  return await request({ op: 'worker-manage', action } as never, 50_000) as ManagedWorkerStatus
+}

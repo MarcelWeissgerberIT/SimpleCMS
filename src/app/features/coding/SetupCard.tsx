@@ -21,6 +21,8 @@ import { workerOutdated, workerUnsafe } from './protocol'
 import { outdatedNotice } from './outdated'
 import { openWorkerSetup, viaFor, workerOldHere } from './service'
 import { openCodingSettings } from './open'
+import { ManagedWorker } from './ManagedWorker'
+import { installedStartLines } from './startLines'
 import { CloudSetupCard } from './CloudSetupCard'
 import { useCoding } from './state'
 import { OsSwitch, StartBlock, useStartOs } from './StartBlock'
@@ -207,23 +209,24 @@ function LocalSetupCard({ code }: { code: string }) {
           {ws.name}
         </span>
       </header>
+      <ManagedWorker />
       <ol className="cs-steps">
         <Step
           n={1}
           state={state(0)}
           title={t('features.coding.card.step1')}
           action={
-            <button type="button" className={pair ? 'btn btn--sm' : 'btn btn--primary'} onClick={() => void download()} disabled={busy} data-testid="coding-download">
-              <Download size={14} strokeWidth={1.8} aria-hidden /> {busy ? t('features.coding.card.downloading') : pair ? t('features.coding.card.downloadAgain') : t('features.coding.card.download')}
+            <button type="button" className={pair || connected ? 'btn btn--sm' : 'btn btn--primary'} onClick={() => void download()} disabled={busy} data-testid="coding-download">
+              <Download size={14} strokeWidth={1.8} aria-hidden /> {busy ? t('features.coding.card.downloading') : connected && s.worker?.managed ? t('features.coding.managed.reconnect') : pair ? t('features.coding.card.downloadAgain') : t('features.coding.card.download')}
             </button>
           }
         >
-          <p className="cs-hint">{pair ? t('features.coding.card.step1Done', { when }) : t('features.coding.card.step1Hint', { name: ws.name })}</p>
+          <p className="cs-hint">{connected && s.worker?.managed ? t('features.coding.managed.reconnectHint') : pair ? t('features.coding.card.step1Done', { when }) : t('features.coding.card.step1Hint', { name: ws.name })}</p>
         </Step>
         <Step n={2} state={state(1)} title={t('features.coding.card.step2')}>
-          <p className="cs-hint">{t('features.coding.card.step2Hint')}</p>
-          <OsSwitch />
-          <StartBlock make={(os) => [startLines(WORKER_FILE, { os })]} label={t('features.coding.card.startLabel')} testId="coding-start-command" />
+          <p className="cs-hint">{t(connected && s.worker?.managed ? 'features.coding.managed.ready' : 'features.coding.card.step2Hint')}</p>
+          {!(connected && s.worker?.managed) && <><OsSwitch />
+          <StartBlock make={(os) => connected && s.worker?.managed ? [installedStartLines(null, os)] : [startLines(WORKER_FILE, { os, args: ['install'] }), installedStartLines(null, os)]} label={t('features.coding.card.startLabel')} testId="coding-start-command" /></>}
           {os === 'windows' && (
             <>
               <p className="cs-hint">{t('features.coding.card.windows')}</p>

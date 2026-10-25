@@ -4,6 +4,7 @@
 // src/mcpb.ts — manifest, icon, README; deterministic, so an unchanged rebuild gives the same bytes).
 //   node build.mjs            (npm run build:mcp at the repo root)
 import { build } from 'esbuild'
+import { createHash } from 'node:crypto'
 import { chmodSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
@@ -73,6 +74,7 @@ await build({
 })
 // vscode-jsonrpc has a diagnostic template with a trailing space. Escape it without changing the string value.
 writeFileSync(workerFile, readFileSync(workerFile, 'utf8').replace('Error is: \n', 'Error is:\\x20\n'))
+writeFileSync(new URL('../public/mcp/one-worker.release.json', import.meta.url), JSON.stringify({ version: pkg.version, sha256: createHash('sha256').update(readFileSync(workerFile)).digest('hex'), size: statSync(workerFile).size }) + '\n')
 chmodSync(workerFile, 0o755)
 console.log(`built ${workerFile} (${Math.round(statSync(workerFile).size / 1024)} KB)`)
 

@@ -10,6 +10,10 @@ export class SharedModelHost {
   private choice:Choice|null=null
   private timer:ReturnType<typeof setTimeout>|null=null
   private stopped=false
+  private draining=false
+  drain(){this.draining=true}
+  resume(){this.draining=false}
+  get idle(){return !this.active&&!this.polling&&!this.changing&&!this.outcome}
   private polling=false
   private active:{id:string;abort:AbortController}|null=null
   private outcome:{id:string;box?:SharedBox}|undefined
@@ -61,7 +65,7 @@ export class SharedModelHost {
       if(Date.now()-this.checked>30000){this.available=(await textModels(this.config.file)).some(m=>m.provider==='local'&&m.model===this.choice!.model);this.checked=Date.now()}
       const keys=await this.keys,publicKey=await globalThis.crypto.subtle.exportKey('jwk',keys.publicKey)
       const sent=this.outcome
-      const reply=await this.api('poll',{publicKey,dataFlow:true,busy:this.occupied()||!!this.active,available:this.available,active:this.active?.id??null,...(sent?{outcome:sent}:{})})
+      const reply=await this.api('poll',{publicKey,dataFlow:true,busy:this.draining||this.occupied()||!!this.active,available:this.available,active:this.active?.id??null,...(sent?{outcome:sent}:{})})
       if(this.outcome===sent)this.outcome=undefined
       if(!reply.enabled){this.choice.enabled=false;this.save();this.active?.abort.abort();return}
       if(reply.model!==this.choice.model){this.active?.abort.abort();return}

@@ -20,6 +20,7 @@ export interface Asked {
 }
 
 export interface FakeWorker {
+  onManage: ((action: string) => Json) | null
   /** null: an older worker (no `can`); a list: what a newer one names (with `docs: true`) */
   mcpAsked: Json[]
   onModelMcp: ((request: Json) => Json) | null
@@ -78,6 +79,7 @@ export async function startFakeWorker(port: number, info: WorkerInfo): Promise<F
   const running = () => fake.handed().filter((t) => !finished.has(t))
   const status = () => tab?.send(JSON.stringify({ type: 'status', busy: running().map((t) => ({ taskId: t.id, repo: t.repo, stageId: t.stage.id, since: Date.now(), ...(fake.asks.get(t.id) ? { ask: fake.asks.get(t.id) } : {}) })), spentToday: 0 }))
   const fake: FakeWorker = {
+    onManage: null,
     mcpAsked: [], onModelMcp: null, textModels: [], textAsked: [], onText: null,
     can: null,
     docs: false,
@@ -143,6 +145,7 @@ export async function startFakeWorker(port: number, info: WorkerInfo): Promise<F
         return ask()
       }
       if (m.type === 'nudge') return ask()
+      if (m.type === 'req' && m.op === 'worker-manage') { ws.send(JSON.stringify({type:'res',id:m.id,ok:true,result:fake.onManage?.(m.action) ?? {installed:true,version:info.worker,previous:null,phase:'running'}})); return }
       if (m.type === 'req' && m.op === 'text-models') { ws.send(JSON.stringify({ type: 'res', id: m.id, ok: true, result: fake.textModels })); return }
       if (m.type === 'req' && m.op === 'model-mcp') {
         fake.mcpAsked.push(m.request)

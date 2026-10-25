@@ -9,6 +9,22 @@ summary: Hand coding tasks to Claude Code on your computer — plan, approve, im
 ---
 **#/coding** (⌘K *Coding pipeline*). One keeps the tasks, the approvals, the log and the diff; a small worker on **your** computer runs git and Claude Code. The worker runs on your machine. Selected code and tool results go to the chosen model provider; Local · Ollama runs inference locally.
 
+
+## Fixed installation and safe updates
+
+**Worker already connected?** Use **Keep the existing connection → Download installer · keep pairing**. Its command uses `install --from <existing-worker-file.mjs>`; it reads only the literal JSON pairing from your existing file, without executing that file. Add `--config <existing-path>` for a custom `worker.json`. This creates no cloud token and replaces no browser pairing key. The following download steps are for a new connection.
+
+
+Worker **1.32** adds one fixed starter per worker configuration on macOS and Windows. Download your current personally paired worker once, finish current tasks and stop the old worker with **Ctrl+C**. Install with `node <downloaded-file.mjs> install`. If the browser appended `(1)`, use that exact filename and quote the path.
+
+The installer creates **ONE Worker – workspace name** in the installation folder and, when writable, on your Desktop. It prints the exact start command. The stable program folder is `installed-worker` beside your existing `worker.json`; repositories, model keys, memory and grants stay where they are. The default local command is `node ~/.config/one/installed-worker/start.cjs`. Cloud workers have a separate starter per workspace. Keep its terminal open; this does not install an automatic background/login service.
+
+Afterwards use **Settings → Coding worker → Fixed installation → Check and install update**. New work pauses while current tasks, model requests and pending results finish. **Update later · resume work** cancels that wait. Code and checksum come only from the original ONE HTTPS site; pairing and tokens are neither rotated nor sent in the download request. The candidate is syntax-checked and started before becoming current. A failed startup restores the preceding release. **Previous release** switches back after current work; it does not restore old workspace contents or settings.
+
+**New pairing / another device** is separate: another download creates new credentials. A different pairing cannot silently replace the installation. To reconnect intentionally, stop the worker and run `node <new-file.mjs> install --replace-pairing`. Existing configuration remains; rollback to the old identity is not offered. A running older worker without installation support must be stopped for this one-time migration.
+
+Starting a compatible old download redirects to the fixed installation. Starting twice opens the existing worker management instead of launching another worker. Downloads older than 1.32 do not know this redirect: archive or remove them once the fixed installation works.
+
 ## One device worker for several workspaces
 
 From worker **1.22**, the same local worker connection can serve several explicitly allowed workspaces. Start the updated worker in its original workspace first. In the additional workspace, open **Settings → Coding worker** and choose **Allow this workspace on the device worker**. Use the browser profile that downloaded the original worker. One then connects to the matching context when you switch workspaces.
@@ -27,12 +43,15 @@ You need Node.js 22 or newer, git and the **Claude Code** CLI, signed in once (`
 1. **Download the worker for this workspace.** The file comes ready-paired with this browser and this workspace — nothing to configure. One switches the link on by itself.
 2. **Start it** in a terminal and keep it running. The card shows the line for your computer — switch **Windows | macOS · Linux**. macOS and Linux:
 ```
-node ~/Downloads/one-worker.mjs
+node ~/Downloads/one-worker.mjs install
+node ~/.config/one/installed-worker/start.cjs
 ```
 Windows — in PowerShell (first line) or the Command Prompt (second line); the quotes keep a user folder with a space together:
 ```
-node "$env:USERPROFILE\Downloads\one-worker.mjs"
-node "%USERPROFILE%\Downloads\one-worker.mjs"
+node "$env:USERPROFILE\Downloads\one-worker.mjs" install
+node "$env:USERPROFILE\.config\one\installed-worker\start.cjs"
+node "%USERPROFILE%\Downloads\one-worker.mjs" install
+node "%USERPROFILE%\.config\one\installed-worker\start.cjs"
 ```
 The lines expect the usual Downloads folder. Did your browser save the file somewhere else (or is Downloads moved, e.g. into OneDrive)? Type `node` and a space, paste the file's path — in Explorer: Shift + right-click the file → **Copy as path** — and press Enter.
 3. **Tick your repositories in the page that opens.** The worker finds the git repositories on your computer and opens a page in your browser: tick the ones One may work in, check the base branch and the test command (e.g. `npm test`), then **Save & start**. The card shows *Connected · laptop · 2 repos* and the **WORKER** LED in the status bar turns green.
@@ -45,7 +64,7 @@ New code? The same page clones from **GitLab / GitHub** (an address, or a pick f
 
 To change them later, press **Change repositories** — the worker opens its page again on your computer. One only ever learns the repos' names; paths and commands stay in `~/.config/one/worker.json` on your machine.
 
-> Tip: a new download replaces the pairing — start the file you downloaded last. On a computer without a browser, `node one-worker.mjs --no-browser` asks in the terminal instead (numbers tick, Enter saves).
+> Use “Check and install update” for software updates. A new download replaces the pairing — start the file you downloaded last. On a computer without a browser, `node one-worker.mjs --no-browser` asks in the terminal instead (numbers tick, Enter saves).
 
 ## When the worker does not connect
 The **WORKER** LED stays dark; **Settings → Coding worker** and the *Worker offline* lamp of [Preflight](help:preflight) say why:
@@ -57,7 +76,7 @@ The **WORKER** LED stays dark; **Settings → Coding worker** and the *Worker of
 In a **team workspace on a One server**, **Settings → Coding worker → Where the worker runs** offers **Local | Cloud**. With **Cloud** the worker runs on any computer — a build server, a VM, the desktop at the office — and connects **out** to your One server: no port to open, no VPN.
 
 1. **Download one-worker-cloud.mjs.** It carries a worker token that is only for you and only for this workspace, and a key that only this browser has.
-2. **Copy it to that computer and start it there**: `node one-worker-cloud.mjs` (keep it running — tmux or a service). The file is the key: keep it private (`chmod 600`; on Windows `icacls`, below).
+2. **Copy it to that computer and start it there**: `node one-worker-cloud.mjs install`, then use the fixed starter it prints. The file is the key: keep it private (`chmod 600`; on Windows `icacls`, below).
 3. **Tick the repositories on that computer** — its setup page opens there, or `node one-worker-cloud.mjs setup --no-browser` asks in its terminal.
 
 The card then reads *Connected · build-box · 1 repo · via cloud*. Everything else works as with a local worker.

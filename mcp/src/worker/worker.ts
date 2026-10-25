@@ -1,3 +1,4 @@
+import { manageInstalled } from './managed.ts'
 import { readDataFlow, codingProvider, modelDestinationAllowed, mcpDestinationAllowed } from '../../../src/shared/ai/dataFlow.ts'
 import { SharedModelHost } from './shared-model.ts'
 import { realpath } from 'node:fs/promises'
@@ -314,6 +315,12 @@ export class Worker {
   /** outcomes One has not confirmed yet (retried on every connect) */
   private unsent = new Map<string, { taskId: string; stageId: string; outcome: StageOutcome }>()
   private stopped = false
+  private draining = false
+  private activeRequests = 0
+  isDraining() { return this.draining }
+  drain() { this.draining = true; this.sharedModels.drain() }
+  resume() { this.draining = false; this.sharedModels.resume(); this.tick() }
+  idle() { return !this.runs.size && !this.textRuns.size && !this.polling && !this.activeRequests && !this.intaker?.busy && !this.unsent.size && this.sharedModels.idle }
   /** local branch names per repo name (announced to One for the Branch picker; names only) */
   private branches = new Map<string, string[]>()
 
@@ -360,7 +367,11 @@ export class Worker {
         this.intaker?.drop('One disconnected')
         this.checkAway()
       },
-      onRequest: (msg) => this.onRequest(msg),
+      onRequest: async (msg) => {
+        if (this.draining && !['worker-manage','stop','text-stop','permission','open-setup','intake-chunk','intake-end'].includes(msg.op)) throw new Error('Worker update is waiting for running work. New work is paused.')
+        this.activeRequests++
+        try { return await this.onRequest(msg) } finally { this.activeRequests-- }
+      },
       onNudge: () => this.tick(),
       onTask: (token, tool, args) => opts.routeTask ? opts.routeTask(token, tool, args) : this.onTask(token, tool, args),
     })
@@ -390,6 +401,7 @@ export class Worker {
       claude: { found: this.caps.found, version: this.caps.version },
       setup: !!this.opts.setup,
       paired: !!this.config.preset,
+      managed: !this.opts.virtual && process.env.ONE_WORKER_MANAGED_CHILD === '1',
       personalSecrets: true,
       multiWorkspace: !!this.config.preset && !cloudOf(this.config),
       via: cloudOf(this.config) ? 'cloud' : 'local',
@@ -529,7 +541,7 @@ export class Worker {
 
   /** Ask One for work (one request at a time; again right after, if asked meanwhile). */
   tick(): void {
-    if (this.stopped || !this.workspace || this.sharedModels.busy) return
+    if (this.stopped || this.draining || !this.workspace || this.sharedModels.busy) return
     if (this.polling) {
       this.again = true
       return
@@ -765,6 +777,7 @@ export class Worker {
   private textRuns = new Map<string, AbortController>()
 
   private async onRequest(msg: Extract<TabMessage, { type: 'req' }>): Promise<unknown> {
+    if (msg.op === 'worker-manage') { if (this.opts.virtual) throw new Error('Manage the worker from its owning workspace.'); if (!['status','update','rollback','cancel'].includes(msg.action)) throw new Error('Invalid worker management action.'); return manageInstalled(msg.action) }
     if (msg.op === 'model-share-status') return this.sharedModels.status()
     if (msg.op === 'model-share-config') return this.sharedModels.configure(msg.choice)
     if (msg.op === 'text-models') return textModels(this.config.file)

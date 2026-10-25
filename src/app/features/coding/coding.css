@@ -2847,3 +2847,8 @@ dd:has(> .cw-port) {
 }
 
 .rtype-row__hint { grid-column: 2 / -1; max-width: 640px; color: var(--ink-2); font-size: var(--text-xs); line-height: 1.5; }
+
+.cw-managed { padding: 16px; border: 1px solid var(--rule-strong); border-left: 3px solid var(--signal); margin: 16px; background: var(--surface-2); }
+.cw-managed header { display: flex; gap: 12px; justify-content: space-between; flex-wrap: wrap; }
+.cw-managed p { font-size: 13px; line-height: 1.6; margin: 10px 0; }
+.cw-managed details { margin-top: 12px; }

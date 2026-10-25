@@ -51,6 +51,7 @@ export function presetFor(secret: string): WorkerPreset {
   const ws = workspaceInfo()
   return {
     workspace: ws.id,
+    updateUrl: new URL(resolveAssetUrl(`mcp/${WORKER_FILE}`), window.location.href).href,
     origin: window.location.origin,
     port: useCoding.getState().port,
     pair: secret,
@@ -121,3 +122,8 @@ export async function downloadCloudWorker(): Promise<void> {
  * home folder spelled per shell, the path quoted), macOS · Linux one sh line — startLines.ts (pure).
  */
 export { detectOs, downloadLines, startLines, type StartLine, type StartOs } from './startLines'
+
+/** Plain installation software only: no token request, no new pairing, no browser state mutation. */
+export async function downloadWorkerInstaller(): Promise<void> {
+  save(await workerSource(), 'one-worker-installer.mjs')
+}

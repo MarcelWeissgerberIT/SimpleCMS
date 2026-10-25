@@ -1,3 +1,4 @@
+import { managedCommand, managedChild, profileDir, redirectInstalled, importWorkerPreset } from './managed.ts'
 import { compareDemo } from './demo-compare.ts'
 /**
  * one-worker — runs coding tasks from One with Claude Code on this computer (git worktrees, branches,
@@ -66,8 +67,9 @@ const value = (name: string): string | null => {
   const i = argv.indexOf(name)
   return i >= 0 && argv[i + 1] && !argv[i + 1]!.startsWith('--') ? argv[i + 1]! : null
 }
-const command = argv.find((a) => !a.startsWith('-') && argv[argv.indexOf(a) - 1] !== '--config' && argv[argv.indexOf(a) - 1] !== '--workspace') ?? 'run'
-const { preset, problem: presetProblem } = filePreset()
+const command = argv.find((a) => !a.startsWith('-') && argv[argv.indexOf(a) - 1] !== '--config' && argv[argv.indexOf(a) - 1] !== '--workspace' && argv[argv.indexOf(a) - 1] !== '--from') ?? 'run'
+const fromFile = command === 'install' ? value('--from') : null
+const { preset, problem: presetProblem } = fromFile ? { preset: importWorkerPreset(resolve(fromFile)), problem: null } : filePreset()
 const cloud = preset?.cloud ? { origin: preset.origin, host: new URL(preset.origin).host } : null
 // a cloud worker keeps its own folder: a local worker (and cloud workers of other workspaces) run beside it
 const configFile = resolve(value('--config') ?? process.env.ONE_WORKER_CONFIG ?? (preset?.cloud ? cloudConfigFile(preset.workspace) : defaultConfigFile()))
@@ -114,6 +116,10 @@ Exit code 2: the server let this file go for good (token revoked or replaced, me
 }
   node one-worker.mjs                         run — keep it running while One should hand out work. The first
                                               start finds your git repos and opens a page to tick them.
+  node one-worker.mjs install --from <old>    preserve the JSON pairing of an existing download (never executes it)
+  node one-worker.mjs install                 install a fixed, workspace-named starter (Desktop when writable)
+  node <installation>/start.cjs update        update code without replacing pairing; waits for running work
+  node <installation>/start.cjs rollback      return to the preceding release after current work
   node one-worker.mjs setup                   run and open that page again (change the repos)
   node one-worker.mjs check                   check the config, the repos and Claude Code
   node one-worker.mjs benchmark --agent minimax --limit 3 --budget 1
@@ -130,6 +136,10 @@ Needs: Node.js 22 or newer, git${win ? ' (Git for Windows — Claude Code needs 
 }
 
 async function main() {
+  const managed = { dir: profileDir(configFile), file: self, config: configFile, preset, version: VERSION, args: ['--no-browser', '--model-host'].filter(flag) }
+  if (command === 'install' || ['managed-start','managed-setup','managed-status','managed-update','managed-rollback','managed-cancel'].includes(command)) return managedCommand(managed, command)
+  if ((command === 'run' || command === 'setup') && await redirectInstalled(managed, command === 'setup')) return
+
   if (command === 'compare-demo') {
     const repo = value('--repo'), output = value('--output')
     if (!repo || !output) throw new Error('Use compare-demo --repo /path/to/synthetic-demo --output /path/to/report.json [--model marcel-flow:latest] [--copilot-model auto]')
@@ -243,6 +253,7 @@ async function main() {
   const setup = flag('--no-browser') || flag('--model-host')
     ? null
     : new SetupServer({
+        draining: () => worker?.isDraining() ?? false,
         configFile,
         port: config.port,
         preset,
@@ -298,6 +309,11 @@ async function main() {
       )
     process.exit(1)
   }
+
+  managedChild({ ready: () => true, drain: () => { worker!.drain(); workspaceHost?.drain() },
+    resume: () => { worker!.resume(); workspaceHost?.resume() },
+    idle: () => (workspaceHost?.idle() ?? worker!.idle()) && !(setup?.busy ?? false),
+    open: async () => setup?.open() ?? { opened: false, reason: 'off' }, shutdown: () => shutdown() })
 
   process.on('SIGINT', () => void shutdown())
   process.on('SIGTERM', () => void shutdown())

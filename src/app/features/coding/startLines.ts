@@ -63,3 +63,28 @@ export function downloadLines(url: string, file: string, os: StartOs): StartLine
 export function detectOs(platform: string | null | undefined, userAgent: string): StartOs {
   return /^windows/i.test(platform ?? '') || (!platform && /Windows/i.test(userAgent)) ? 'windows' : 'posix'
 }
+
+/** Stable, token-free starter installed next to this profile's existing worker.json. */
+export function installedStartLines(workspace: string | null, os: StartOs, verb: 'start' | 'update' | 'rollback' = 'start'): StartLine[] {
+  if (workspace !== null && !/^team:[A-Za-z0-9_-]+$/.test(workspace)) throw new Error('Invalid workspace')
+  const folder = workspace ? `cloud/${workspace.replace(/[^A-Za-z0-9_-]/g, '-').slice(0, 80)}/` : ''
+  const relative = `.config/one/${folder}installed-worker/start.cjs`
+  return SHELLS[os].map(shell => {
+    const path = shell === 'sh' ? `"$HOME/${relative}"` : `"${shell === 'powershell' ? '$env:USERPROFILE' : '%USERPROFILE%'}\\${relative.replace(/\//g, '\\')}"`
+    return { shell, line: `node ${path}${verb === 'start' ? '' : ' ' + verb}` }
+  })
+}
+
+/** Exact path reported over the authenticated worker link; shell-quoted without interpolation. */
+export function actualInstalledStartLines(directory: string, os: StartOs): StartLine[] {
+  if (!directory || /[\r\n\0]/.test(directory)) throw new Error('Invalid installation directory')
+  const file = directory.replace(/[\\/]$/, '') + (os === 'windows' ? '\\' : '/') + 'start.cjs'
+  return os === 'windows'
+    ? [{ shell: 'powershell', line: "node '" + file.replace(/'/g, "''") + "'" }]
+    : [{ shell: 'sh', line: "node '" + file.replace(/'/g, "'\\''") + "'" }]
+}
+
+export function migrationLines(file: string, os: StartOs): StartLine[] {
+  if (!FILE.test(file)) throw new Error('Invalid worker filename')
+  return startLines('one-worker-installer.mjs', {os, args:['install']}).map(l => ({...l, line: l.line + ' --from ' + where(l.shell, 'downloads', file)}))
+}

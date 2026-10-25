@@ -9,6 +9,22 @@ summary: Gib Programmieraufgaben an Claude Code auf deinem Rechner — planen, f
 ---
 **#/coding** (⌘K *Coding-Pipeline*). One verwaltet die Aufgaben, die Freigaben, das Log und den Diff; ein kleiner Worker auf **deinem** Rechner führt Git und Claude Code aus. Der Worker läuft auf deinem Rechner. Ausgewählter Code und Werkzeugergebnisse gehen an den gewählten Modellanbieter; Lokal · Ollama führt das Modell lokal aus.
 
+
+## Fest installieren und sicher aktualisieren
+
+**Worker bereits verbunden?** Nutze **Bestehende Verbindung übernehmen → Installer laden · Kopplung behalten**. Die angezeigte Zeile verwendet `install --from <vorhandene-worker-datei.mjs>`; sie liest ausschließlich die JSON-Kopplung aus deiner vorhandenen Datei und führt deren Code nicht aus. Bei einer eigenen `worker.json` zusätzlich `--config <bisheriger-pfad>` angeben. Dabei wird kein Cloud-Token erstellt und kein Browser-Kopplungsschlüssel ersetzt. Die folgenden Download-Schritte sind für eine neue Verbindung.
+
+
+Ab Worker **1.32** gibt es einen festen Starter pro Worker-Konfiguration auf macOS und Windows. Einmal den aktuellen, persönlich gekoppelten Worker herunterladen. Laufende Aufgaben abschließen und den bisherigen Worker mit **Ctrl+C** beenden. Die Datei installieren: `node <heruntergeladene-datei.mjs> install`. Bei einem Browser-Zusatz wie `(1)` genau diesen Dateinamen verwenden und den Pfad in Anführungszeichen setzen.
+
+Der Installer legt den Starter **ONE Worker – Workspace-Name** im Installationsordner und, wenn beschreibbar, auf dem Schreibtisch an. Er gibt den genauen Startbefehl aus. Der feste Programmordner liegt neben der bestehenden `worker.json` unter `installed-worker`; Repositories, Modellschlüssel, Memory und Freigaben bleiben an ihrem bisherigen Ort. Für den normalen lokalen Worker lautet der Startbefehl `node ~/.config/one/installed-worker/start.cjs`. Cloud-Worker erhalten ihren eigenen Starter je Workspace. Das Terminal offen lassen; ein automatischer Hintergrund- oder Anmeldedienst wird nicht eingerichtet.
+
+Danach in **Einstellungen → Coding-Worker → Fest installiert → Update prüfen und installieren** aktualisieren. Neue Arbeit pausiert, laufende Aufgaben, Modellanfragen und ausstehende Ergebnisse werden abgewartet. **Update später · Arbeit fortsetzen** hebt das Warten auf. Software und Prüfsumme kommen ausschließlich von der ursprünglichen ONE-Seite über HTTPS; Kopplung und Token werden weder erneuert noch im Download-Request mitgeschickt. Eine neue Version wird zunächst auf Syntax und Start geprüft. Bei einem fehlgeschlagenen Start kehrt der Starter zur vorherigen Programmversion zurück. **Vorherige Version** wechselt nach aktueller Arbeit zurück; das stellt keine alten Workspace-Inhalte oder Einstellungen wieder her.
+
+**Neu koppeln / weiteres Gerät** ist davon getrennt: Ein weiterer Download erstellt neue Zugangsdaten. Eine abweichende Kopplung überschreibt die Installation nicht unbemerkt. Ein bewusstes Umkoppeln erfolgt bei gestopptem Worker mit `node <neue-datei.mjs> install --replace-pairing`. Dabei bleibt die bestehende Konfiguration erhalten; ein Rückwechsel auf die alte Identität wird nicht angeboten. Bereits laufende, ältere Worker ohne Installationsfunktion müssen für die einmalige Umstellung beendet werden.
+
+Wird eine kompatible ältere Downloadkopie gestartet, verweist sie auf die feste Installation. Ein erneuter Starter-Aufruf öffnet die vorhandene Worker-Verwaltung, statt einen zweiten Worker zu starten. Sehr alte Downloads vor Version 1.32 kennen diese Weiterleitung noch nicht: archivieren oder entfernen, sobald die feste Installation funktioniert.
+
 ## Ein Geräte-Worker für mehrere Workspaces
 
 Ab Worker **1.22** kannst du dieselbe lokale Worker-Verbindung für mehrere ausdrücklich freigegebene Workspaces verwenden. Den aktualisierten Worker zuerst im ursprünglichen Workspace starten. Im weiteren Workspace unter **Einstellungen → Coding-Worker** auf **Diesen Workspace am Geräte-Worker freigeben** klicken. Verwende dasselbe Browser-Profil, mit dem der ursprüngliche Worker heruntergeladen wurde. Danach verbindet sich One beim Workspace-Wechsel automatisch mit dem passenden Kontext.
@@ -27,12 +43,15 @@ Du brauchst Node.js 22 oder neuer, Git und die **Claude-Code**-CLI, einmal angem
 1. **Lade den Worker für diesen Arbeitsbereich herunter.** Die Datei ist schon mit diesem Browser und diesem Arbeitsbereich gekoppelt — nichts einzustellen. One schaltet die Verbindung selbst ein.
 2. **Starte ihn** in einem Terminal und lass ihn laufen. Die Karte zeigt die Zeile für deinen Rechner — Schalter **Windows | macOS · Linux**. macOS und Linux:
 ```
-node ~/Downloads/one-worker.mjs
+node ~/Downloads/one-worker.mjs install
+node ~/.config/one/installed-worker/start.cjs
 ```
 Windows — in PowerShell (erste Zeile) oder der Eingabeaufforderung (zweite Zeile); die Anführungszeichen halten einen Benutzerordner mit Leerzeichen zusammen:
 ```
-node "$env:USERPROFILE\Downloads\one-worker.mjs"
-node "%USERPROFILE%\Downloads\one-worker.mjs"
+node "$env:USERPROFILE\Downloads\one-worker.mjs" install
+node "$env:USERPROFILE\.config\one\installed-worker\start.cjs"
+node "%USERPROFILE%\Downloads\one-worker.mjs" install
+node "%USERPROFILE%\.config\one\installed-worker\start.cjs"
 ```
 Die Zeilen erwarten den üblichen Downloads-Ordner. Hat dein Browser die Datei woanders gespeichert (oder liegt Downloads woanders, z. B. in OneDrive)? `node` und ein Leerzeichen tippen, den Pfad der Datei einfügen — im Explorer: Umschalt + Rechtsklick auf die Datei → **Als Pfad kopieren** — und Enter drücken.
 3. **Hak deine Repositories auf der Seite an, die sich öffnet.** Der Worker findet die Git-Repositories auf deinem Rechner und öffnet eine Seite in deinem Browser: Hak die an, in denen One arbeiten darf, prüf Basis-Branch und Testbefehl (z. B. `npm test`), dann **Speichern & starten**. Die Karte zeigt *Verbunden · laptop · 2 Repos*, und die **WORKER**-LED in der Statusleiste wird grün.
@@ -45,7 +64,7 @@ Neuer Code? Dieselbe Seite klont von **GitLab / GitHub** (eine Adresse oder ein 
 
 Später ändern: **Repositories ändern** — der Worker öffnet seine Seite wieder auf deinem Rechner. One erfährt immer nur die Namen der Repos; Pfade und Befehle bleiben in `~/.config/one/worker.json` auf deinem Rechner.
 
-> Tipp: Ein neuer Download ersetzt die Kopplung — starte die zuletzt heruntergeladene Datei. Auf einem Rechner ohne Browser fragt `node one-worker.mjs --no-browser` stattdessen im Terminal (Zahlen haken an, Enter speichert).
+> Für Software-Updates „Update prüfen und installieren“ verwenden. Ein neuer Download ersetzt die Kopplung — starte die zuletzt heruntergeladene Datei. Auf einem Rechner ohne Browser fragt `node one-worker.mjs --no-browser` stattdessen im Terminal (Zahlen haken an, Enter speichert).
 
 ## Wenn sich der Worker nicht verbindet
 Die **WORKER**-LED bleibt dunkel; **Einstellungen → Coding-Worker** und die Lampe *Worker offline* im [Vorflug-Check](help:preflight) sagen, warum:
@@ -57,7 +76,7 @@ Die **WORKER**-LED bleibt dunkel; **Einstellungen → Coding-Worker** und die La
 In einem **Team-Arbeitsbereich auf einem One-Server** bietet **Einstellungen → Coding-Worker → Wo der Worker läuft** die Wahl **Lokal | Cloud**. Mit **Cloud** läuft der Worker auf einem beliebigen Rechner — Build-Server, VM, der Rechner im Büro — und verbindet sich selbst mit deinem One-Server: kein Port, kein VPN.
 
 1. **one-worker-cloud.mjs herunterladen.** Die Datei enthält einen Worker-Token nur für dich und nur für diesen Arbeitsbereich und einen Schlüssel, den nur dieser Browser hat.
-2. **Auf den Rechner kopieren und dort starten**: `node one-worker-cloud.mjs` (laufen lassen — tmux oder ein Dienst). Die Datei ist der Schlüssel: Behandle sie vertraulich (`chmod 600`; unter Windows `icacls`, siehe unten).
+2. **Auf den Rechner kopieren und dort starten**: `node one-worker-cloud.mjs install`, danach den ausgegebenen festen Starter nutzen. Die Datei ist der Schlüssel: Behandle sie vertraulich (`chmod 600`; unter Windows `icacls`, siehe unten).
 3. **Dort die Repositories anhaken** — die Einrichtungsseite öffnet sich auf jenem Rechner, oder `node one-worker-cloud.mjs setup --no-browser` fragt in seinem Terminal.
 
 Die Karte zeigt dann *Verbunden · build-box · 1 Repo · über Cloud*. Alles andere funktioniert wie mit einem lokalen Worker.

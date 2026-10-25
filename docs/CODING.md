@@ -16,6 +16,22 @@ One tab (browser) ──ws://127.0.0.1:47322──▶ one-worker.mjs ──▶ g
 Paths and commands never leave your machine. One learns repo **names**, base branches, branch names, git status,
 diffs, logs, test output and cost — nothing else. One can never send a command: only task data and fixed git verbs.
 
+## Managed installation (1.32+)
+
+Existing connections migrate with the plain public installer and `node one-worker-installer.mjs install --from <existing-paired-worker.mjs> [--config <existing-worker.json>]`. The legacy file is read as data: only its validated literal JSON preset line is accepted, never eval/import. Old no-space/semicolon formatting is accepted. No token creation, browser key rotation or account switch is involved. ONE offers this as **Keep the existing connection** while a non-managed worker is connected.
+
+`node <paired-download.mjs> install` installs into `installed-worker` beside the existing configuration, with a private `current.json`, private paired release files, a token-free `start.cjs`, and a workspace-named `.command` (macOS/Linux) or `.cmd` (Windows) starter. A Desktop copy is created only when writable. No root/admin rights, login service or repository/config migration is needed. Windows restricts the installation ACL to the current user and SYSTEM; Unix directories/files use 0700/0600. Use `--no-shortcut` to omit the Desktop copy.
+
+Start using the generated shortcut or `node <installation>/start.cjs`. Commands: `setup`, `status`, `update`, `cancel`, `rollback`. Keep the terminal open. The starter remembers the Node executable used for installation; if that Node installation is removed, reinstall with the new Node executable. Downloads from 1.32+ redirect to an existing installation only when their pairing matches; older pre-1.32 downloads must be retired manually. Re-pairing uses an explicitly stopped worker and `install --replace-pairing`; it clears the previous-release pointer to avoid restoring another account identity.
+
+The supervisor takes an exclusive per-profile lock, owns exactly one worker child and authenticates management over a random loopback port with a private 256-bit control key. A duplicate starter opens the existing setup page. Stale PID files are never used to kill a process; a stale lock is reclaimed only when its process no longer exists. An incomplete lock fails closed. Nothing is exposed on LAN interfaces.
+
+Updates fetch the adjacent `one-worker.release.json` and bundle from the original, pinned HTTPS ONE origin (development: loopback only), no redirects, credentials or worker tokens. Size, SHA-256, bundle marker/version and syntax are checked. The checksum ensures artifact consistency over TLS; this is not an independent code-signing authority. The existing validated preset is injected into the new private release. Updates cannot change identity, configuration path or host flags. No automatic downgrade, update trigger from model tools or task-triggered software execution is provided.
+
+A pending update drains all granted workspaces, in-flight polls, coding/git/text requests, shared model work, imports and setup writes, including result acknowledgments. Permission answers, stop and continuation of an existing ZIP upload remain available. Cancel resumes the old worker. On idle, the supervisor shuts down the old child, starts the candidate and commits the release pointer only after its local listener is ready. Startup failure restores the previous release. A subsequent fatal token revocation is not retried in a restart loop. Rollback affects the executable only, not user configuration/workspace data.
+
+UI: Settings → Coding worker → Fixed installation. Update and New pairing / another device are distinct. Existing pre-1.32 workers need a one-time current download, finish/stop, install and restart. OS behavior is covered by the existing Linux/macOS/Windows CI matrix; local macOS validation does not substitute for a customer Windows end-to-end run.
+
 ## Set up — three steps
 
 **Runs on** macOS, Linux and Windows 10 / 11 (natively from worker 1.9.0 — § Windows); WSL2 works too.
@@ -1463,8 +1479,8 @@ state: pending | active, online }` — what `node one-worker-cloud.mjs check` pr
   restart the worker.
 - **This stage needs a newer coding worker** (or *A newer worker is on the site* on #/coding) — the worker running
   was downloaded before One could hand out this kind of stage (document stages of Business analysis / QA, Static
-  analysis, Post review, Merge, a stage with a model — worker 1.5 or newer). **Download again** (#/coding, or Settings → Coding worker), stop the old worker
-  (Ctrl+C), start the new file — the browser may have saved it as `one-worker (1).mjs` — then **Retry** on the task.
+  analysis, Post review, Merge, a stage with a model — worker 1.5 or newer). **Update** in the Fixed installation panel. Pre-1.32 workers need one current download, then finish tasks, stop the old worker
+  (Ctrl+C), install and use the fixed starter instead of repeatedly starting downloaded copies — the browser may have saved it as `one-worker (1).mjs` — then **Retry** on the task.
 - **Claude Code was not found** — install it and sign in once interactively, then **Retry** on the task: the worker
   looks for Claude Code again — on the `PATH` it started with and in its native installer's folder
   (`%USERPROFILE%\.local\bin`, `~/.local/bin`) —, and its setup page notices a new install within seconds; no restart

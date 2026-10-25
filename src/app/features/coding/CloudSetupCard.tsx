@@ -21,6 +21,9 @@ import { cloudWorkerPort } from './protocol'
 import { CLOUD_WORKER_FILE, downloadCloudWorker } from './download'
 import { cloudRevoked } from './service'
 import { useCoding } from './state'
+import { ManagedWorker } from './ManagedWorker'
+import { OsSwitch, StartBlock } from './StartBlock'
+import { installedStartLines, startLines } from './startLines'
 import { CodeBlock } from './CodeBlock'
 import { ChangeReposButton, NeedsLine, OutdatedWorker, Step, type StepState } from './SetupCard'
 import { workerStateText } from './stateText'
@@ -123,6 +126,7 @@ export function CloudSetupCard({ code }: { code: string }) {
           {ws.name}
         </span>
       </header>
+      <ManagedWorker />
       <ol className="cs-steps">
         <Step
           n={1}
@@ -130,8 +134,8 @@ export function CloudSetupCard({ code }: { code: string }) {
           title={t('features.coding.cloud.step1')}
           action={
             <div className="cs-keys">
-              <button type="button" className={here || other ? 'btn btn--sm' : 'btn btn--primary'} onClick={askDownload} disabled={busy || viewer} data-testid="coding-cloud-download">
-                <Download size={14} strokeWidth={1.8} aria-hidden /> {downloadLabel}
+              <button type="button" className={here || other || connected ? 'btn btn--sm' : 'btn btn--primary'} onClick={askDownload} disabled={busy || viewer} data-testid="coding-cloud-download">
+                <Download size={14} strokeWidth={1.8} aria-hidden /> {s.worker?.managed && connected ? t('features.coding.managed.reconnect') : downloadLabel}
               </button>
               {!!workers?.length && (
                 <button type="button" className="btn btn--sm btn--ghost" onClick={() => setConfirm('revoke')} data-testid="coding-cloud-revoke">
@@ -142,12 +146,13 @@ export function CloudSetupCard({ code }: { code: string }) {
           }
         >
           <p className="cs-hint" data-testid="coding-cloud-step1">
-            {step1Text}
+            {connected && s.worker?.managed ? t('features.coding.managed.reconnectHint') : step1Text}
           </p>
         </Step>
         <Step n={2} state={state(1)} title={t('features.coding.cloud.step2')}>
-          <p className="cs-hint">{t('features.coding.cloud.step2Hint', { host })}</p>
-          <CodeBlock code={`node ${CLOUD_WORKER_FILE}`} label={t('features.coding.cloud.startLabel')} testId="coding-cloud-start-command" />
+          <p className="cs-hint">{t(connected && s.worker?.managed ? 'features.coding.managed.ready' : 'features.coding.cloud.step2Hint', { host })}</p>
+          {!(connected && s.worker?.managed) && <><OsSwitch />
+          <StartBlock make={os => connected && s.worker?.managed ? [installedStartLines(ws.id, os)] : [startLines(CLOUD_WORKER_FILE, { os, args: ['install'] }), installedStartLines(ws.id, os)]} label={t('features.coding.cloud.startLabel')} testId="coding-cloud-start-command" /></>}
           <NeedsLine />
         </Step>
         <Step n={3} state={state(2)} title={t('features.coding.cloud.step3')} action={<ChangeReposButton />}>

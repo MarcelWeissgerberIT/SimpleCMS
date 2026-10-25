@@ -117,9 +117,13 @@ export class WorkerWorkspaces {
     this.workers.add(primary)
     primary.state.globalSpent = () => this.spent()
   }
+  private draining = false
+  drain() { this.draining = true; for (const w of this.workers) w.drain() }
+  resume() { this.draining = false; for (const w of this.workers) w.resume() }
+  idle() { return !this.claims.size && [...this.workers].every(w => w.idle()) }
   busyRepos = () => new Set([...this.workers].flatMap(w => w.activeRepos()).concat([...this.claims.values()].flat()))
   reserve = (repos: string[]) => {
-    if (this.closed || this.claims.size + [...this.workers].reduce((n, w) => n + w.runningCount(), 0) >= this.primary.config.parallel) return null
+    if (this.closed || this.draining || this.claims.size + [...this.workers].reduce((n, w) => n + w.runningCount(), 0) >= this.primary.config.parallel) return null
     if (repos.some(repo => this.busyRepos().has(repo))) return null
     const id = Symbol(); this.claims.set(id, repos)
     let released = false
@@ -134,7 +138,7 @@ export class WorkerWorkspaces {
     return workspaceSpending(this.primary.config, this.primary.state.spentToday())
   }
   async route(socket: WebSocket, hello: Hello): Promise<boolean> {
-    if (this.closed || this.revoking.has(hello.workspace.id) || hello.workspace.id === this.primary.config.workspace) return false
+    if (this.closed || this.draining || this.revoking.has(hello.workspace.id) || hello.workspace.id === this.primary.config.workspace) return false
     const workspace = workspaceOf(hello.workspace)
     if (!workspace) return false
     let grant = this.grants.get(workspace.id)
@@ -151,6 +155,7 @@ export class WorkerWorkspaces {
       pending = (async () => {
         const worker = new Worker({ ...this.options, config, virtual: true, routeLocal: undefined, routeTask: undefined, workspaceChallenge: undefined, canGrantWorkspace: false, reserveWork: this.reserve, busyRepos: this.busyRepos, capacityChanged: this.changed })
         worker.state.globalSpent = () => this.spent()
+        if (this.draining) worker.drain()
         this.workers.add(worker)
         try { await worker.start(); if (this.closed) { await worker.stop(); throw new Error('Worker stopped.') }; return worker }
         catch (error) { await worker.stop().catch(() => {}); this.workers.delete(worker); this.children.delete(workspace.id); throw error }

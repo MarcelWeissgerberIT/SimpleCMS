@@ -55,6 +55,7 @@ const secs = (ms: number) => `${(ms / 1000).toFixed(1)} s`
 const TASK_ID = /^[A-Za-z0-9_-]{1,64}$/
 
 export class Intake {
+  get busy() { return !!this.upload || !!this.running }
   private upload: Upload | null = null
   private running: string | null = null
 

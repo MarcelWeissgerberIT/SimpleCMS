@@ -54,6 +54,7 @@ export interface SetupLive {
 }
 
 export interface SetupHost {
+  draining?: () => boolean
   workspaces?: { list: () => { id: string; name: string }[]; revoke: (id: string) => Promise<void> }
   configFile: string
   port: number
@@ -186,6 +187,9 @@ export class SetupServer {
     this.host = host
     this.home = host.home ?? homedir()
   }
+
+  private updating = 0
+  get busy() { return !!this.clone?.running || this.updating > 0 }
 
   url(): string {
     return `http://127.0.0.1:${this.host.port}/setup#k=${this.token}`
@@ -543,6 +547,11 @@ export class SetupServer {
 
   /** Answer a request under /setup (false: not ours). */
   async handle(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
+    const mutation = req.method === 'POST' && (req.url ?? '').startsWith('/setup/api/')
+    if (mutation) this.updating++
+    try { return await this.handleRequest(req, res) } finally { if (mutation) this.updating-- }
+  }
+  private async handleRequest(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
     const path = (req.url ?? '/').split(/[?#]/)[0]!
     if (path !== '/setup' && !path.startsWith('/setup/')) return false
     const send = (status: number, type: string, body: string, extra: Record<string, string> = {}) => {
@@ -571,6 +580,7 @@ export class SetupServer {
       if (op === 'projects') return json(200, await this.listProjects()), true
       return json(404, { error: 'unknown' }), true
     }
+    if (req.method === 'POST' && this.host.draining?.()) return json(409, { error: 'Worker update pending. Wait for the new version before changing settings.' }), true
     if (req.method !== 'POST') return json(405, { error: 'method' }), true
     // a POST comes from this page only: same origin, JSON
     if (req.headers.origin !== `http://127.0.0.1:${this.host.port}`) return json(403, { error: 'forbidden' }), true

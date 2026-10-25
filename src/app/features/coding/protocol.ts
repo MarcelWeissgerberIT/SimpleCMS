@@ -296,6 +296,8 @@ export const PRESET_GLOBAL = 'ONE_WORKER_PRESET'
 export const PAIR_SECRET = /^[A-Za-z0-9_-]{43}$/
 
 export interface WorkerPreset {
+  /** Same-origin release bundle; update preserves the existing pairing. */
+  updateUrl?: string;
   workspace: string
   /** the One site the download came from (the only page origin the worker accepts) */
   origin: string
@@ -630,6 +632,7 @@ export interface WorkerInfo {
   paired?: boolean
   /** Multiple explicitly granted workspace contexts share this device's model/MCP configuration. */
   multiWorkspace?: boolean
+  managed?: boolean
   personalSecrets?: boolean
   /** how it reaches One: 127.0.0.1 (local) or the team server's relay (cloud); older workers send none */
   via?: 'local' | 'cloud'
@@ -675,6 +678,7 @@ export type TabMessage =
   | { type: 'req'; id: string; op: 'git'; taskId: string; verb: GitVerb; repo: string; branch: string | null; title: string; message?: string }
   /** "Change repositories": the worker opens its setup page locally (a fixed verb — One can never tick or add a repo) */
   | { type: 'req'; id: string; op: 'open-setup' }
+  | { type: 'req'; id: string; op: 'worker-manage'; action: 'status' | 'update' | 'rollback' | 'cancel' }
   | { type: 'req'; id: string; op: 'model-share-status' }
   | { type: 'req'; id: string; op: 'model-share-config'; choice: {model:string;label:string;enabled:boolean} }
   | { type: 'req'; id: string; op: 'text-models' }
