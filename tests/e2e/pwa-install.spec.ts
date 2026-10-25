@@ -142,14 +142,8 @@ test('German instructions and website language switching remain usable at deskto
   }
 })
 
-test('workspace toolbar offers direct installation in a regular fullscreen tab, even without a native prompt', async ({ page }) => {
+test('workspace toolbar offers direct installation in a regular browser tab, even without a native prompt', async ({ page }) => {
   await browserIdentity(page, WINDOWS_EDGE)
-  await page.addInitScript(() => {
-    const match = window.matchMedia.bind(window)
-    window.matchMedia = query => query.includes('display-mode: fullscreen')
-      ? { ...match(query), matches: true, addEventListener() {}, removeEventListener() {} } as MediaQueryList
-      : match(query)
-  })
   await openApp(page)
   const key = page.getByTestId('install-one-topbar')
   await expect(key).toBeVisible()
@@ -175,3 +169,20 @@ test('workspace toolbar consumes a native install prompt and hides after accepta
   expect(await page.evaluate(() => (window as unknown as {__installCalls:number}).__installCalls)).toBe(1)
   await expect(page.getByTestId('install-one-topbar')).toHaveCount(0)
 })
+
+for (const mode of ['standalone', 'fullscreen', 'minimal-ui', 'window-controls-overlay']) {
+  test(`installed workspace in ${mode} mode hides both installation entry points`, async ({ page }) => {
+    await browserIdentity(page, WINDOWS_EDGE)
+    await page.addInitScript(mode => {
+      const match = window.matchMedia.bind(window)
+      window.matchMedia = query => query === `(display-mode: ${mode})`
+        ? { ...match(query), matches: true, addEventListener() {}, removeEventListener() {} } as MediaQueryList
+        : match(query)
+    }, mode)
+    await openApp(page)
+    await expect(page.locator('.tb')).toBeVisible()
+    await expect(page.getByTestId('install-one-topbar')).toHaveCount(0)
+    await page.locator('aside.sb .sb-head__ws').click()
+    await expect(page.getByRole('menuitem', {name:'Install One',exact:true})).toHaveCount(0)
+  })
+}
