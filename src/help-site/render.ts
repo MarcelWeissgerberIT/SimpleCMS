@@ -317,7 +317,7 @@ function changelogPage(news: SiteNews, lib: HelpLibrary, lang: HelpLang, opts: S
             <p class="lbl news-meta"><time datetime="${esc(e.date)}">${esc(entryDateLabel(e.date, lang))}</time><span aria-hidden="true">·</span><span>${esc(fig(i))}</span><a class="news-anchor" href="#${esc(e.id)}" aria-label="${esc(t('help.site.news.permalink'))}: ${esc(e.title)}">#</a></p>
             <h2 id="${esc(e.id)}-h" class="news-title">${platformText(e.title)}</h2>
             ${e.summary ? `<p class="news-sum">${platformText(e.summary)}</p>` : ''}
-            <figure class="news-fig"><a href="${esc(src)}"><img src="${esc(src)}"${dims} alt="${esc(e.alt)}" loading="lazy" decoding="async" /></a><figcaption><span class="lbl news-fig__n">${esc(fig(i))}</span> ${esc(e.alt)}</figcaption></figure>
+            ${e.image ? `<figure class="news-fig"><a href="${esc(src)}"><img src="${esc(src)}"${dims} alt="${esc(e.alt)}" loading="lazy" decoding="async" /></a><figcaption><span class="lbl news-fig__n">${esc(fig(i))}</span> ${esc(e.alt)}</figcaption></figure>` : ''}
             <div class="doc news-doc">
 ${blocksHtml(e.blocks, href)}
             </div>
@@ -373,7 +373,7 @@ export function changelogFeed(news: SiteNews, lib: HelpLibrary, opts: SiteOption
     .map((e) => {
       const size = news.sizes[e.image]
       const dims = size ? ` width="${size[0]}" height="${size[1]}"` : ''
-      const html = `<p><img src="${esc(abs(e.image))}"${dims} alt="${esc(e.alt)}" /></p>
+      const html = `${e.image ? `<p><img src="${esc(abs(e.image))}"${dims} alt="${esc(e.alt)}" /></p>` : ''}
 ${blocksHtml(e.blocks, (id) => abs(helpPath('en', id)))}`
       return `  <entry>
     <id>${xml(`${page}#${e.id}`)}</id>

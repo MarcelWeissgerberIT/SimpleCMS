@@ -1,6 +1,6 @@
 ---
 id: 2026-10-23-shared-local-model
-order: 0
+order: 1
 help: coding-harness
 date: 2026-10-23
 title: A local model for your workspace

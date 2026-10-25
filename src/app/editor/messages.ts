@@ -1,3 +1,4 @@
+import { tableCellMessages } from '../features/ai/table-cells/messages'
 import type { Messages } from '@/shared/i18n'
 import { syncedMessages } from './synced/messages'
 import { iconMessages } from './icons/messages'
@@ -10,6 +11,7 @@ import { drawingMessages } from './handdrawn/messages'
 /** Strings for the editor area. Keys MUST be prefixed with "editor." — always add both en and de. */
 export const messages: Messages = {
   en: {
+    ...tableCellMessages.en,
     ...syncedMessages.en,
     ...iconMessages.en,
     ...contextMessages.en,
@@ -558,6 +560,7 @@ export const messages: Messages = {
     'editor.file.tools': 'File tools',
   },
   de: {
+    ...tableCellMessages.de,
     ...syncedMessages.de,
     ...iconMessages.de,
     ...contextMessages.de,

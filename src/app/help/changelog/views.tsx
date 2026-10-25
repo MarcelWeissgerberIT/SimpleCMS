@@ -49,7 +49,7 @@ function useNewSince(entries: ChangelogEntry[]): (e: ChangelogEntry) => boolean 
 function Thumb({ entry, className }: { entry: ChangelogEntry; className: string }) {
   return (
     <span className={className} aria-hidden>
-      <img src={resolveAssetUrl(entry.image)} alt="" loading="lazy" decoding="async" draggable={false} />
+      {entry.image && <img src={resolveAssetUrl(entry.image)} alt="" loading="lazy" decoding="async" draggable={false} />}
     </span>
   )
 }
@@ -223,7 +223,7 @@ export function ChangeView({ id }: { id: string }) {
         {entry.title}
       </h3>
       {entry.summary && <p className="help-art__summary">{entry.summary}</p>}
-      <figure className="cl-fig">
+      {entry.image && <figure className="cl-fig">
         <button type="button" className="cl-fig__btn" onClick={() => setZoom(true)} aria-haspopup="dialog" aria-label={`${t('help.news.enlarge')}: ${entry.alt}`}>
           <img className="cl-fig__img" src={src} alt={entry.alt} decoding="async" draggable={false} />
           <span className="cl-fig__zoom" aria-hidden>
@@ -233,7 +233,7 @@ export function ChangeView({ id }: { id: string }) {
         <figcaption className="cl-fig__cap">
           <span className="label cl-fig__n">{fig}</span> {entry.alt}
         </figcaption>
-      </figure>
+      </figure>}
       <Doc blocks={entry.blocks} nav={nav} platformKeys />
       {entry.try && (
         <div className="cl-try" role="group" aria-label={t('help.news.try')}>

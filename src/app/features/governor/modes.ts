@@ -26,6 +26,7 @@ export interface ModeRow {
 const row = (mode: ModeRow['mode'], answer: AnswerKind, series: string): ModeRow => ({ mode, answer, series })
 
 export const RUN_MODES: Readonly<Record<PurposeId, ModeRow>> = {
+  'table.cells': row('interactive', 'text', 'table-cells'),
   'menu.action': row('interactive', 'text', 'ai'),
   'menu.ask': row('interactive', 'text', 'ai'),
   'menu.tasks': row('interactive', 'text', 'ai'),

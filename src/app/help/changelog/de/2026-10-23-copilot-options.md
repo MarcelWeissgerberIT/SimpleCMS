@@ -1,6 +1,6 @@
 ---
 id: 2026-10-23-copilot-options
-order: 0
+order: 3
 help: copilot-coding
 image: assets/shots/changelog/copilot-options.png
 alt: Copilot-Laufnachweis in einer simulierten Coding-Aufgabe.

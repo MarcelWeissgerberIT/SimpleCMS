@@ -9,6 +9,15 @@ summary: Space on an empty line, or Ask AI on a selection — the AI writes, edi
 ---
 The menu starts with the prompt: ask in your own words and press <kbd>Enter</kbd>. Below it, the actions used most for what you opened it on — text, several blocks, an image, a file or an empty line; **Translate**, **Transform into…** and **More…** open a submenu (<kbd>→</kbd>, back with <kbd>←</kbd> or <kbd>Backspace</kbd>). **More…** holds everything else. Typing searches every action, wherever it sits.
 
+## Fill existing table cells — with any supported text model
+Click inside a normal page table, including one inside a workshop plate, then choose **Fill existing cells with AI** (the sparkle key in the table toolbar). Choose the exact cells, or **Select empty cells**, and enter the task with its source notes. The provider and model controls apply to this request only. This works with configured Claude, OpenRouter, Local Ollama (including a shared workspace model), Ollama Cloud, MiniMax, Codex and Copilot text routes; the route must allow this page’s data.
+
+**Propose values** sends the current table values and the chosen cell addresses. Other page text stays here unless you enable **Include the page context approved for AI**; context marks still apply. This action attaches no MCP tools, memory or web research. Paste the relevant Atlas excerpt as source notes when needed. The model is asked to leave unsupported facts open; check its suggestions against the sources yourself.
+
+Nothing is written until you review **Before → Suggestion** per cell, select changes and press **Apply selected changes**. ONE applies literal text to those existing cells, preserving the table structure, merged cells, cell and paragraph attributes, the surrounding plate, and all other inputs. A version is saved first; one undo restores the batch. If a target or table structure changed meanwhile, the proposal is refused. Concurrent changes in other cells are retained.
+
+Up to 30 text cells per request, 4,000 characters per value and 18,000 characters of combined prompt data. Cells with embedded images, mentions, tasks or other rich blocks stay manual. Formatting within the replaced value may be replaced by plain text. This action is for **page tables**, not spreadsheet formulas or database properties. Tool-capable Claude/Copilot agents additionally use `read_tables` → `update_table_cells`; existing-cell edits still wait for review. A shared text model gains this cell action without receiving general agent or MCP access.
+
 ## Which AI answers
 The menu runs on the provider your rules pick for writing — Claude, or an OpenRouter model if you set it up ([AI providers](help:ai-providers)). The label under the prompt names it; click it (or <kbd>Tab</kbd> to it) to pick another model for this request. Data the rules keep from that provider never goes out — the menu says so and offers **Change rule**.
 

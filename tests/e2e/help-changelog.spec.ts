@@ -106,7 +106,7 @@ test.describe('What’s new in the Help panel', () => {
     await expect(list.locator(`.cl-row[data-entry="2026-10-05-ai-terminal"] time`)).toHaveText('05 OCT 2026')
     await expect(list.locator(`.cl-row[data-entry="2026-10-04-gmail"] time`)).toHaveText('04 OCT 2026')
     // every thumbnail loads (under the /SimpleCMS/ base)
-    for (const src of await rows.locator('img').evaluateAll((els) => els.map((e) => (e as HTMLImageElement).getAttribute('src')))) expect(src).toMatch(/^\/SimpleCMS\/assets\/shots\/changelog\/[a-z0-9-]+\.webp$/)
+    for (const src of await rows.locator('img').evaluateAll((els) => els.map((e) => (e as HTMLImageElement).getAttribute('src')))) expect(src).toMatch(/^\/SimpleCMS\/assets\/shots\/changelog\/[a-z0-9-]+\.(?:webp|png)$/)
     await rows.first().scrollIntoViewIfNeeded()
     expect(await naturalWidth(page, '.cl-row img')).toBeGreaterThan(0)
   })
@@ -336,7 +336,7 @@ test.describe('public "What’s new" (/help/changelog/)', () => {
     expect(order).toEqual(ENTRIES.map((e) => e.id))
     expect(en).toContain(`<img src="/SimpleCMS/${TERMINAL.image}" width="1440" height="900" alt=`)
     const imgs = [...en.matchAll(/<img src="([^"]+)"([^>]*)>/g)]
-    expect(imgs).toHaveLength(ENTRIES.length)
+    expect(imgs).toHaveLength(ENTRIES.filter(e => e.image).length)
     for (const [, , attrs] of imgs) {
       expect(attrs).toContain('loading="lazy"')
       expect(attrs).toMatch(/width="\d+" height="\d+"/)
@@ -368,7 +368,7 @@ test.describe('public "What’s new" (/help/changelog/)', () => {
       if (path.endsWith('/')) for (const m of (await res.text()).matchAll(/(?:href|src)="(\/SimpleCMS\/[^"#]*)"/g)) seen.add(m[1])
     }
     for (const url of seen) expect((await request.get(url)).status(), url).toBe(200)
-    expect([...seen].filter((u) => u.includes('/assets/shots/changelog/'))).toHaveLength(ENTRIES.length)
+    expect([...seen].filter((u) => u.includes('/assets/shots/changelog/'))).toHaveLength(new Set(ENTRIES.filter(e => e.image).map(e => e.image)).size)
   })
 
   test('the page renders: anchors, the language switch, and the landing footer links it', async ({ page }) => {

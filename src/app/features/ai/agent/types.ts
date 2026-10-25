@@ -27,6 +27,8 @@ export type ToolName =
   | 'append_to_page'
   /** changes existing content, block by block (staged one change per edit, kind 'edit') */
   | 'edit_page'
+  | 'read_tables'
+  | 'update_table_cells'
   | 'create_row'
   | 'update_row'
   /** rows found by their key (store/keys.ts): one staged create_row / update_row (rename, append) per row, in one call */

@@ -17,7 +17,9 @@ import { docForRoute, retrieve, workspaceDocs, type Doc } from '../workspace'
 import { coerceProperties, coerceProperty, findProp, isSettable, mergeProps } from './props'
 import { canBeKey, isHandOnly, keyPropOf, keyText } from '../../../store/keys'
 import { holderText, intentValue, keyConflict, keyHolders, type KeyHolder } from './keys'
-import { keepsSingle, knownOf, planEdits, readWithRefs, settlesItems, stripRefs, type RawEdit } from './edit'
+import { keepsSingle, knownOf, pageDoc, planEdits, readWithRefs, settlesItems, stripRefs, type RawEdit } from './edit'
+import { pageTableIds, snapshotTable, cellText, planCellPatches, resolveCellPatch, type TableSnapshot } from '@/shared/ai/tableCells'
+import { redactInScope } from '@/shared/ai/redact'
 import type { ChangeKind, ColumnSpec, ColumnType, PropChange, StagedChange, ToolName } from './types'
 import { SCRIPT_REFERENCE } from '../../script/reference'
 import { currentReadLimit, currentToolScope, LIMITED_NOTE, ToolInputError } from './toolScope'
@@ -1555,8 +1557,66 @@ const writeScript: AgentTool = {
   },
 }
 
+/** Snapshots belong to this staging session, never to a model-supplied version or another user's run. */
+const tableReads = new WeakMap<ItemSession, Map<string, TableSnapshot>>()
+function readableTableDoc(stage: StageApi, rawId: string) {
+  const page = pageOrThrow(stage, rawId), doc = pageDoc(page.id)?.toJSON() as JSONContent | undefined
+  if (!doc) throw new ToolInputError('Page content unavailable.')
+  const limit = currentReadLimit()?.(page.id)
+  if (limit?.mode === 'none') throw new ToolInputError(LIMITED_NOTE)
+  const ids = limit ? new Set(limit.ids ?? []) : null
+  return { page, doc: { ...doc, content: (doc.content ?? []).filter((n, i) => !ids || ids.has(n.attrs?.id ?? `#${i}`)) } }
+}
+const readTables: AgentTool = {
+  name: 'read_tables', write: false,
+  description: 'Read existing PAGE tables, including tables inside cards/toggles. First pass id alone to list table ids; then pass table_id to read stable cellId addresses and values. Not a database or a spreadsheet. update_table_cells changes only addressed plain-text cells and retains layout; read the target table first in this session. A header or non-text cell is not an invitation to overwrite it.',
+  input_schema: { type: 'object', properties: { id: { type: 'string' }, table_id: { type: 'string' } }, required: ['id'], additionalProperties: false },
+  run(input, stage) {
+    const { page, doc } = readableTableDoc(stage, str(input, 'id', { required: true, max: 80 }).trim())
+    const tableId = str(input, 'table_id', { max: 100 }).trim()
+    if (!tableId) return { content: JSON.stringify({ pageId: page.id, tables: pageTableIds(doc).slice(0, 40), next: 'Read one table with table_id before proposing cell updates.' }), summary: titleOf(page), state: 'ok' }
+    try {
+      const snapshot = snapshotTable(doc, tableId)
+      const cells = snapshot.cells.map(c => ({ cellId: c.id, address: c.address, header: c.header, editable: c.editable, text: cellText(redactInScope(c.node)) }))
+      const content = JSON.stringify({ pageId: page.id, tableId, rows: snapshot.rows, columns: snapshot.columns, cells })
+      if (content.length > 24000) throw new ToolInputError('This table is too large for a cell-edit request. Use a smaller page table.')
+      let reads = tableReads.get(stage.items)
+      if (!reads) tableReads.set(stage.items, reads = new Map())
+      reads.set(`${page.id}:${tableId}`, snapshot)
+      if (reads.size > 24) reads.delete(reads.keys().next().value!)
+      return { content, summary: titleOf(page), state: 'ok' }
+    } catch (e) { if (e instanceof ToolInputError) throw e; throw new ToolInputError('Table unavailable, too large, or structurally unsupported. Open the page and read it again; do not replace its container.') }
+  },
+}
+const updateTableCells: AgentTool = {
+  name: 'update_table_cells', write: true,
+  description: 'Propose changes to EXISTING page-table cells read with read_tables in this session. Supply only explicitly requested cellId/value pairs (plain text, max 30). Keep headers, other cells, table/card layout and unrelated content unchanged. Missing source information stays open; never invent requirements or test results. Each changed cell is a reviewable edit; no write happens before approval. Read-only, scoped and context-mark limits still apply.',
+  input_schema: { type: 'object', properties: { id: { type: 'string' }, table_id: { type: 'string' }, cells: { type: 'array', maxItems: 30, items: { type: 'object', properties: { cellId: { type: 'string' }, value: { type: 'string', maxLength: 4000 } }, required: ['cellId', 'value'], additionalProperties: false } } }, required: ['id', 'table_id', 'cells'], additionalProperties: false },
+  run(input, stage) {
+    const { page, doc } = readableTableDoc(stage, str(input, 'id', { required: true, max: 80 }).trim())
+    const tableId = str(input, 'table_id', { required: true, max: 100 }).trim(), snapshot = tableReads.get(stage.items)?.get(`${page.id}:${tableId}`)
+    if (!snapshot || !pageTableIds(doc).includes(tableId)) throw new ToolInputError('Read this permitted table with read_tables first in this session.')
+    try {
+      const patches = planCellPatches(snapshot, input.cells as { cellId: string; value: string }[])
+      // Validate the whole proposal before staging any of it.
+      for (const patch of patches) {
+        resolveCellPatch(doc, patch)
+        for (const c of stage.list().filter(c => c.kind === 'edit' && c.pageId === page.id && c.status === 'pending' && !c.edit?.cell)) {
+          if (c.edit?.op === 'replace_all' || JSON.stringify(c.edit?.targets).includes(patch.cellId)) throw new ToolInputError('A pending block edit overlaps these cells. Review it first.')
+        }
+      }
+      const changes = patches.map(cell => {
+        const edit = { op: 'replace' as const, targets: [], refs: `${cell.address} · ${tableId}`, cell }
+        const pending = stage.list().find(c => c.kind === 'edit' && c.pageId === page.id && c.status === 'pending' && c.edit?.cell?.cellId === cell.cellId)
+        return pending ? stage.update(pending.id, { edit }) : stage.add({ kind: 'edit', pageId: page.id, title: titleOf(page), edit })
+      })
+      return { content: changes.length ? `Staged cell edits: ${changes.map(c => `#${c.n} ${c.edit!.cell!.address}`).join(', ')}. Nothing written; review each cell. Layout and other cells remain unchanged.` : 'No cell values changed.', summary: titleOf(page), state: changes.length ? 'staged' : 'ok', ...(changes[0] ? { changeId: changes[0].id } : {}) }
+    } catch (e) { if (e instanceof ToolInputError) throw e; throw new ToolInputError('Cell proposal refused: unknown/non-text cell, duplicate target, oversized value, or changed table/cell. Read the table again; never replace the whole card.') }
+  },
+}
+
 /** Stable order: the tool list is part of the cached prompt prefix. */
-export const AGENT_TOOLS: AgentTool[] = [searchPages, readPage, listDatabases, queryDatabase, currentPage, createPage, appendToPage, editPage, createRow, updateRow, upsertRows, setPageTitle, runQuery, listWorkItems, updateWorkItem]
+export const AGENT_TOOLS: AgentTool[] = [searchPages, readPage, listDatabases, queryDatabase, currentPage, createPage, appendToPage, editPage, readTables, updateTableCells, createRow, updateRow, upsertRows, setPageTitle, runQuery, listWorkItems, updateWorkItem]
 
 /**
  * The workspace agent's (the AI terminal's) tools: AGENT_TOOLS plus the database tools, write_script
@@ -1580,6 +1640,8 @@ export function argLabel(name: ToolName, input: Record<string, unknown>, stage: 
     case 'search_pages':
       return `“${s('query')}”`
     case 'read_page':
+    case 'read_tables':
+    case 'update_table_cells':
     case 'append_to_page':
     case 'update_row':
       return title(s('id'))

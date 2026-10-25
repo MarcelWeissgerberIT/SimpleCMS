@@ -104,7 +104,8 @@ function touchedClasses(ids: Iterable<ID>, o: { mcp: boolean; memory: boolean })
 /* ------------------------------------------------------------------ */
 
 /** When to change existing text (edit_page) instead of adding to it. */
-const EDIT_RULE = `- To add to a page use append_to_page. Change existing text with edit_page only when the job asks to fix, update or remove it: read the page with read_page and refs: true and cite the refs of exactly the blocks concerned; never rewrite blocks the job does not touch.`
+const EDIT_RULE = `For existing page-table values, use read_tables then update_table_cells with only the requested existing cellIds. Never rewrite the whole table or plate to fill cells. Cell edits always wait for review. Missing facts stay missing.
+- To add to a page use append_to_page. Change existing text with edit_page only when the job asks to fix, update or remove it: read the page with read_page and refs: true and cite the refs of exactly the blocks concerned; never rewrite blocks the job does not touch.`
 
 /** Mirroring items into a database by their key (store/keys.ts). */
 const UPSERT_RULE = `- To keep a database in step with items from elsewhere (an external system, a list), use upsert_rows: it finds each row by its key (list_databases marks a database's key) and stages a new row or only the values that changed — one call for up to 50 rows. Never write properties marked "read-only for agents": people fill them in by hand.`

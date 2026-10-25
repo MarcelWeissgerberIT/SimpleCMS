@@ -2,7 +2,7 @@
 id: 2026-10-23-harness-source-review
 date: 2026-10-23
 title: Der Harness öffnet Türen – das Team entscheidet
-order: 0
+order: 2
 summary: Gemeinsame Begleitregeln, prüfbare Quellenzitate und aktive Atlas-Wissensablage.
 help: coding-harness
 ---

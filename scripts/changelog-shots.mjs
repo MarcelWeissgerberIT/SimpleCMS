@@ -942,6 +942,28 @@ function orderPlanAnswer(caseId, body) {
 }
 
 const shots = {
+  async 'table-cells'(browser) {
+    const { ctx, page } = await freshPage(browser, { claude: { text: () => JSON.stringify({ cells: [{ cellId: 'workshop-result', value: 'The team confirms the simulated response matches the requirement. Source: supplied test note.' }] }) } })
+    const cell = (id, text, header = false) => ({ type: header ? 'tableHeader' : 'tableCell', content: [{ type: 'paragraph', attrs: { id }, content: text ? [{ type: 'text', text }] : [] }] })
+    const id = await createPage(page, 'Workshop · Review the result', doc(
+      h(2, 'Keep the structure. Change the right cells.'),
+      { type: 'callout', attrs: { color: 'orange' }, content: [para('Requirement → implementation → evidence'), { type: 'table', attrs: { id: 'workshop-table' }, content: [
+        { type: 'tableRow', content: [cell('heading-source', 'Source', true), cell('heading-result', 'Result', true)] },
+        { type: 'tableRow', content: [cell('workshop-input', 'Team test note: the simulated response matches the expected result.'), cell('workshop-result', 'Draft result')] },
+        { type: 'tableRow', content: [cell('workshop-keep', 'Human decision'), cell('workshop-owner', 'The team decides — keep this input.')] },
+      ] }] },
+    ))
+    await openPage(page, id)
+    await page.locator('[contenteditable="true"]').getByText('Draft result', { exact: true }).click()
+    await page.getByRole('button', { name: 'Fill existing cells with AI', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: /Fill existing cells|Review cell changes/ })
+    await dialog.getByRole('textbox', { name: 'Task and source material' }).fill('Update only the selected result from the supplied test note. Leave the human decision unchanged.')
+    await dialog.getByRole('button', { name: 'Propose values', exact: true }).click()
+    await dialog.getByText('The team confirms the simulated response matches the requirement. Source: supplied test note.', { exact: true }).waitFor()
+    await rest(page)
+    await save(page, 'table-cells')
+    await ctx.close()
+  },
   async 'setup-buttons'(browser) {
     const { ctx, page } = await freshPage(browser)
     const id = await createPage(page, 'Set up your coding worker', {type:'doc',content:[

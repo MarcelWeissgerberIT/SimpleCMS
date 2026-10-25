@@ -203,6 +203,8 @@ function applyOrder(changes: StagedChange[]): StagedChange[] {
 const FINAL = () => true
 
 export interface ApplyOpts {
+  /** Caller access/workspace guard, rechecked after asynchronous snapshotting before an existing-content write. */
+  editGuard?: () => void
   /**
    * Who applies (store/writer.ts): the terminal's batch, an agent's run, an MCP call. Every synchronous burst of a
    * change runs under it (terminal / agent: with the change's id). The Undo's caller opens its own frame (you~undo).
@@ -376,7 +378,7 @@ export async function applyChanges(changes: StagedChange[], all: StagedChange[],
       if (!edits.length) continue
       let res!: Awaited<ReturnType<typeof applyPageEdits>>
       const undoEdits = await onTask(pageId, opts, async () => {
-        res = await applyPageEdits(pageId, edits, opts.writer, itemOpts())
+        res = await applyPageEdits(pageId, edits, opts.writer, itemOpts(), opts.editGuard)
         return res.undo
       })
       if (res.applied.length) undos.push({ ids: res.applied, fn: undoEdits })

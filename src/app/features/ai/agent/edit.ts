@@ -17,6 +17,7 @@ import { Transform } from '@tiptap/pm/transform'
 import { closeHistory } from '@tiptap/pm/history'
 import { useWorkspace } from '../../../store/store'
 import { useCloud } from '../../../cloud'
+import { readableBlocks } from '../../../editor/context/read'
 import { withWriter, writerOfChanges, type Writer } from '../../../store/writer'
 import type { ID } from '../../../store/types'
 import { docSchema, docToFileMarkdown, editAs, endUndoStep, liveEditorOf, startUndoStep } from '../../../editor'
@@ -30,6 +31,7 @@ import { contentKey, snapshotNow } from '../../history/snapshots'
 import { diffDocs, type DocItem } from '../../history/docDiff'
 import type { StagedChange } from './types'
 import { livePage, withPageNodes } from './links'
+import { pageTableIds, resolveCellPatch, type CellPatch } from '@/shared/ai/tableCells'
 
 export type EditOp = 'replace' | 'delete' | 'insert_after' | 'replace_all'
 export const EDIT_OPS: EditOp[] = ['replace', 'delete', 'insert_after', 'replace_all']
@@ -56,6 +58,8 @@ export interface BlockEdit {
   /** replace_all: the whole page then (its key, and the doc for the review once applied) */
   pageKey?: string
   pageBefore?: JSONContent
+  /** A plain-text value for one addressed table cell; never a whole-table Markdown replacement. */
+  cell?: CellPatch
 }
 
 const ITEMS = new Set(['listItem', 'taskItem'])
@@ -261,8 +265,28 @@ const overlaps = (a: Span, b: Span) => {
   return a.from < b.to && b.from < a.to
 }
 
+/** Resolve inside the addressed table, never inside a foreign synced projection with matching anchors. */
+function cellSpan(doc: PMNode, cell: CellPatch): Span | null {
+  let found: Span | null = null
+  doc.descendants((table, tablePos) => {
+    if (table.type.name === 'syncedBlock' && table.attrs.sourcePageId) return false
+    if (table.type.name !== 'table' || table.attrs.id !== cell.tableId) return
+    table.descendants((n, offset) => {
+      if (n.type.name === 'syncedBlock' && n.attrs.sourcePageId) return false
+      if ((n.type.name === 'tableCell' || n.type.name === 'tableHeader') && n.firstChild?.attrs.id === cell.cellId) {
+        const from = tablePos + 1 + offset
+        found = { from, to: from + n.nodeSize }
+        return false
+      }
+    })
+    return false
+  })
+  return found
+}
+
 /** Where a staged edit sits in a doc now (null: its blocks are gone or changed). */
 function spanOf(doc: PMNode, e: BlockEdit): Span | null {
+  if (e.cell) return cellSpan(doc, e.cell)
   if (e.op === 'replace_all') return { from: 0, to: doc.content.size, all: true }
   const locs = e.targets.map((x) => locate(doc, x))
   if (!locs.length || locs.some((l) => !l)) return null
@@ -475,6 +499,14 @@ function spotOf(doc: PMNode, c: StagedChange, items: EditItems = DEFAULT_ITEMS):
   if (!e) return { error: goneNote() }
   const schema = doc.type.schema
   try {
+    if (e.cell) {
+      const resolved = resolveCellPatch(doc.toJSON(), e.cell)
+      const span = cellSpan(doc, e.cell)
+      if (!span) return { error: goneNote() }
+      const after = schema.nodeFromJSON(resolved.after)
+      after.check()
+      return { id: c.id, n: c.n, ...span, nodes: [after] }
+    }
     if (e.op === 'replace_all') {
       if (contentKey(doc.toJSON() as JSONContent) !== e.pageKey) return { error: changedNote() }
       const fit = settledFit(schema, c, doc, null, doc, doc.toJSON() as JSONContent, items)
@@ -551,11 +583,20 @@ export interface PageEditResult {
 }
 
 /** Apply edits of one page: a version first, then ONE transaction (one ⌘Z in the open editor), origin 'ai'. */
-export async function applyPageEdits(pageId: ID, changes: StagedChange[], run: Writer, items: EditItems = DEFAULT_ITEMS): Promise<PageEditResult> {
+export async function applyPageEdits(pageId: ID, changes: StagedChange[], run: Writer, items: EditItems = DEFAULT_ITEMS, beforeWrite?: () => void): Promise<PageEditResult> {
   const none: PageEditResult = { applied: [], failed: [], undo: () => true }
   if (!useWorkspace.getState().pages[pageId]) return { ...none, failed: changes.map((c) => ({ id: c.id, error: goneNote() })) }
+  beforeWrite?.()
+  const workspace = JSON.stringify(useCloud.getState().active)
   await snapshotNow(pageId, 'ai')
+  beforeWrite?.()
   const editor = liveEditorOf(pageId)
+  if (changes.some(c => c.edit?.cell)) {
+    const p = useWorkspace.getState().pages[pageId]
+    const allowed = pageTableIds({ type: 'doc', content: readableBlocks(pageId) })
+    if (!p || p.trashed || p.settings.locked || useCloud.getState().readOnly || JSON.stringify(useCloud.getState().active) !== workspace || (editor && (editor.isDestroyed || !editor.isEditable)) || changes.some(c => c.edit?.cell && !allowed.includes(c.edit.cell.tableId)))
+      return { ...none, failed: changes.map(c => ({ id: c.id, error: goneNote() })) }
+  }
   const doc = pageDoc(pageId)
   if (!doc) return { ...none, failed: changes.map((c) => ({ id: c.id, error: goneNote() })) }
   const { spots, failed } = spotsFor(doc, changes, items)
@@ -622,6 +663,11 @@ export type EditPreview = { state: 'ready'; items: DocItem[] } | { state: 'chang
 export function stagedItems(c: StagedChange, items: EditItems = DEFAULT_ITEMS): DocItem[] {
   const e = c.edit
   if (!e) return []
+  if (e.cell) {
+    // Read only the persisted literal value for an already applied/discarded proposal.
+    const p = (e.cell.before.content?.[0] ?? { type: 'paragraph' }) as JSONContent
+    return diffDocs({ type: 'doc', content: e.cell.before.content as JSONContent[] }, { type: 'doc', content: [{ ...p, content: e.cell.value ? [{ type: 'text', text: e.cell.value }] : [] }] })
+  }
   const targets = e.targets.map((x) => x.block)
   // the review shows what Apply writes: tasks written back stay tasks, new ones get the ids staging minted (see fitted)
   const ctx = itemCtx(c, { pageId: c.pageId, private: pagePrivate(c.pageId), known: knownOf(e), keepSingle: keepsSingle(e) }, items, true)

@@ -2,7 +2,7 @@
 id: 2026-10-23-guided-orders
 date: 2026-10-23
 title: Vom Ziel zur fachlichen Abnahme
-order: 1
+order: 4
 summary: Geführter Aufgabenstart, sichtbare Arbeitsannahmen und Abnahme anhand der Worker-Nachweise.
 image: assets/shots/changelog/guided-orders.png
 alt: Die Aufgabenbegleitung nach fachlicher Abnahme in einem simulierten Prüfauftrag.

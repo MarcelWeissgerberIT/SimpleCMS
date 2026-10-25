@@ -39,6 +39,7 @@ const p = (cls: FeatureClass, needs: DataClass[], may: DataClass[], caps: Need[]
 })
 
 export const PURPOSES = {
+  'table.cells': p('write', ['selection'], ['page']),
   'menu.action': p('write', ['selection'], ['page', 'mcp']),
   'menu.ask': p('ask', ['selection'], ['page', 'memory', 'mcp']),
   'menu.tasks': p('write', ['selection', 'people'], ['page', 'mcp']),
