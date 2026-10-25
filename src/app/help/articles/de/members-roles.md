@@ -25,3 +25,13 @@ Der Bereich **Privat** in der Seitenleiste hält Seiten, die nur du siehst — n
 - Alles unter einer privaten Seite ist ebenfalls privat.
 
 Verschieben zwischen Privat und dem Workspace braucht eine Verbindung. Mails aus dem **Gmail-Sync** landen immer in Privat.
+
+## Zugang als Teilnehmer oder Gast testen
+
+In einem Team-Workspace finden Inhaber und Admins unter **Workspace → Personen → Zugang testen** die Mitglieder und ihre vorbereiteten Begrüßungs-Einträge. Wähle eine Person und starte die Testansicht. Eine Anmeldung oder Einladung dieser Person ist dafür nicht nötig; es wird keine Mail verschickt.
+
+Die Ansicht gilt für alle ONE-Tabs dieses Browsers und ist für höchstens **20 Minuten nur lesend**. Ein Testbalken zeigt Person, Restzeit und **Zurück zu deinem Konto**. Deine Einstellungen und Verbindungen bleiben erhalten und werden nicht in den Test übernommen. Warte vor dem Wechsel, bis deine Änderungen synchronisiert sind.
+
+Die Prüfung betrifft gemeinsame Workspace-Inhalte und den lesenden Zugriff, auch auf Serverseite. Private Seiten, persönliche Secrets und Atlas-Zugangslinks anderer Personen werden nicht geöffnet. KI, MCP, Worker und automatische Arbeitsläufe bleiben im Test aus. Auch bei Teammitgliedern ist dieser Modus nur lesend: ihre Schreibrechte sowie die echte E-Mail-Anmeldung und Atlas-Verbindung prüfst du separat. Ein vorbereiteter Zugang zeigt die konfigurierte Sicht; er bestätigt noch keine erfolgreiche Anmeldung der Person.
+
+Nach Ablauf oder einem Verbindungsproblem kannst du über den Testbalken zu deiner ursprünglichen Sitzung zurückkehren. Ist auch diese abgelaufen, melde dich erneut an.

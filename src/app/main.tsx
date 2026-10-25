@@ -1,3 +1,5 @@
+import { isTestAccess, listenTestAccess } from './cloud/testScope'
+listenTestAccess()
 import { localStorageId } from './lib/localWorkspace'
 import { personalSettings, startPersonalSettings } from './store/personal'
 import { rememberLocalWorkspace } from './store/localWorkspaces'
@@ -97,11 +99,12 @@ async function boot() {
     mode = await cloud.bootCloud()
   } catch (e) {
     console.error('[one] cloud boot failed — opening the local workspace', e)
-    cloud.useCloud.setState({ status: 'local', active: { kind: 'local', id: localStorageId }, role: null, readOnly: false })
+    if (isTestAccess()) { mode = 'signed-out'; cloud.useCloud.setState({ status: 'signed-out', user: null, workspaces: [], role: null, readOnly: true }); useWorkspace.getState().hydrate(emptyWorkspace()) }
+    else cloud.useCloud.setState({ status: 'local', active: { kind: 'local', id: localStorageId }, role: null, readOnly: false })
   }
   if (mode === 'local') await bootLocal()
 
-  if (mode !== 'signed-out') {
+  if (mode !== 'signed-out' && !isTestAccess()) {
     // the Regler's brake at the gate (no I/O; the ledger is read after the first frame, only while a budget is set) —
     // before any service below can start an AI request
     startService('governor', installGovernor)
@@ -138,7 +141,7 @@ async function boot() {
 
   // PWA share target (/app/?title=…&text=…&url=…) → the #/clip route, before the first render
   startService('foreign links', installForeignLinks)
-  if (mode !== 'signed-out') startService('share target', consumeShareTarget)
+  if (mode !== 'signed-out' && !isTestAccess()) startService('share target', consumeShareTarget)
   // "#/" → the start page before the first render (the home screen is not built for nothing)
   if (mode !== 'signed-out') startService('start page', bootRedirect)
 

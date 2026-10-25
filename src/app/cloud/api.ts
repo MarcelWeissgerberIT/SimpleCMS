@@ -1,3 +1,4 @@
+import { isTestAccess, testScope, setTestScope, type TestScope } from './testScope'
 /**
  * REST wrappers (docs/CLOUD.md § REST API). Same origin, session cookie, JSON. Every failure is a
  * CloudError(code, message, status): server errors keep the server's code, a failed fetch is
@@ -159,8 +160,8 @@ export interface Account {
   workspaces: CloudWorkspace[]
   serverAdmin: boolean
 }
-type RawAccount = { user: RawUser; workspaces?: RawWorkspace[]; server_admin?: boolean }
-const toAccount = (r: RawAccount): Account => ({ user: toUser(r.user), workspaces: (r.workspaces ?? []).map(toWorkspace), serverAdmin: r.server_admin === true })
+type RawAccount = { user: RawUser; workspaces?: RawWorkspace[]; server_admin?: boolean; test_access?: TestScope }
+const toAccount = (r: RawAccount): Account => { setTestScope(r.test_access ?? null); return { user: toUser(r.user), workspaces: (r.workspaces ?? []).map(toWorkspace), serverAdmin: r.server_admin === true } }
 
 export async function getMe(): Promise<Account> {
   return toAccount(await request<RawAccount>('GET', 'api/me'))
@@ -387,7 +388,7 @@ export async function getFileBlob(wsId: string, fileId: string): Promise<{ blob:
   if (!SERVER_CAPABLE || serverKnown === false) return null
   let res: Response
   try {
-    res = await fetch(`${BASE}api/workspaces/${encodeURIComponent(wsId)}/files/${encodeURIComponent(fileId)}`, { credentials: 'same-origin' })
+    res = await fetch(`${BASE}api/workspaces/${encodeURIComponent(wsId)}/files/${encodeURIComponent(fileId)}${isTestAccess() ? `?test_access=${encodeURIComponent(testScope()?.id ?? 'pending')}` : ''}`, { credentials: 'same-origin', ...(isTestAccess() ? {cache: 'no-store' as const} : {}) })
   } catch {
     return null
   }

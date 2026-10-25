@@ -1,3 +1,4 @@
+import { isTestAccess } from '../cloud/testScope'
 import { Suspense } from 'react'
 import { useRoute, type Route } from '../lib/router'
 import { useWorkspace } from '../store/store'
@@ -32,6 +33,7 @@ import { SignInScreen } from './cloud/SignIn'
 import { InviteScreen } from './cloud/InviteScreen'
 import { SignupScreen } from './cloud/SignupScreen'
 import { CloudDialogs } from './cloud/Dialogs'
+import { TestAccessBanner } from './cloud/TestAccess'
 import { CloudBanner } from './cloud/Sync'
 import { CheckoutBanner } from './cloud/Checkout'
 import { CaptureHost } from './capture/QuickCapture'
@@ -52,7 +54,7 @@ export function App() {
   const lookScope = useCloud((s) => (s.active.id))
   const look = useWorkspace((s) => s.look ?? null)
   const ready = useWorkspace((s) => s.ready)
-  useWorkspaceLook({ route: route.name, scope: lookScope, look, ready, persist: !signedOut })
+  useWorkspaceLook({ route: route.name, scope: lookScope, look, ready, persist: !signedOut && !isTestAccess() })
   if (route.name === 'share')
     return (
       <ErrorBoundary>
@@ -86,6 +88,7 @@ export function App() {
   if (signedOut)
     return (
       <ErrorBoundary>
+        <TestAccessBanner />
         <SignInScreen />
         <Toasts />
       </ErrorBoundary>
@@ -135,6 +138,7 @@ function Workspace({ route }: { route: Route }) {
       </a>
       <Sidebar />
       <div className="app-main">
+        <TestAccessBanner />
         <CloudBanner />
         <CheckoutBanner />
         <Topbar route={route} />

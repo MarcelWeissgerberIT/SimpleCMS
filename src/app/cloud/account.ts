@@ -1,3 +1,4 @@
+import { isTestAccess } from './testScope'
 /** Account, workspaces, members and invites — the REST side of the public API, keeping useCloud current. */
 import { useWorkspace } from '../store/store'
 import {
@@ -63,6 +64,7 @@ export async function requestSignInImpl(email: string, opts?: { invite?: string;
 }
 
 export async function signOutImpl(opts: { forgetDevice?: boolean } = {}): Promise<void> {
+  if (isTestAccess()) return
   try {
     await postLogout()
   } finally {
@@ -85,6 +87,7 @@ export async function signOutImpl(opts: { forgetDevice?: boolean } = {}): Promis
  * downloads it afresh). The open workspace's copy goes at the reload into the local workspace.
  */
 export async function removeDeviceCopyImpl(wsId: string): Promise<void> {
+  if (isTestAccess()) return
   scheduleForget([wsId])
   const active = useCloud.getState().active
   if (active.kind === 'cloud' && active.id === wsId) {

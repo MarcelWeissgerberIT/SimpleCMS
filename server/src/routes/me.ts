@@ -11,6 +11,12 @@ import { publicUser, publicWorkspace } from '../repo.ts'
 
 /** The signed-in person, their workspaces (own one first) and — for server admins only — `server_admin: true`. */
 function account(s: Services, auth: Auth) {
+  if (auth.testAccess) {
+    const t = auth.testAccess
+    const actor = s.repo.db.get<{ name: string | null; email: string }>('SELECT name, email FROM users WHERE id = ?', t.actor_id)!
+    return { user: publicUser(auth.user), workspaces: [publicWorkspace(s.repo.workspaceById(t.workspace_id)!, 'viewer')],
+      test_access: { id: t.session_id, workspaceId: t.workspace_id, name: t.target_name, guest: !!t.guest, role: t.target_role, expiresAt: t.expires_at, actorName: actor.name || actor.email } }
+  }
   return {
     user: publicUser(auth.user),
     workspaces: s.repo.workspacesForUser(auth.user.id).map((w) => publicWorkspace(w, w.role, auth.user.id)),

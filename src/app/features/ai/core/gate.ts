@@ -1,3 +1,4 @@
+import { isTestAccess } from '../../../cloud/testScope'
 import { flowAllows, flowPageVisible, flowRestrictions, assertModelFlow, flowSignature } from './dataFlow'
 import { inferencePlace } from '@/shared/ai/dataFlow'
 import { SHARED_PREFIX } from '@/shared/ai/shared-model'
@@ -646,7 +647,7 @@ function gate(input: PrepareInput, held: boolean, backstopToo = false): Prepared
   // 1 · a key typed into a request
   if (typedTexts(input.typed).some(looksLikeKey)) throw new AIError('key_in_text')
   // 2 · AUS
-  if (offHook()) throw new AIError('off')
+  if (isTestAccess() || offHook()) throw new AIError('off')
   // 3 · what the request carries: needs ∪ carries ∪ the sources' classes (one classOfPage memo per request)
   const purpose = purposeOf(input.purpose)
   const w = sourceWorld()

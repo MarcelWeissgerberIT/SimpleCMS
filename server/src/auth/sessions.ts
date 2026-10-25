@@ -1,6 +1,6 @@
 import type { Context } from 'hono'
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
-import type { Repo, UserRow } from '../repo.ts'
+import { atLeast, type Role, type Repo, type UserRow } from '../repo.ts'
 import { DAY, newId, randomToken } from '../tokens.ts'
 
 export const SESSION_COOKIE = 'one_session'
@@ -16,9 +16,25 @@ export interface SessionRow {
   expires_at: number
   user_agent: string | null
   last_used_at: number
+  test_access?: number
+}
+
+export interface TestAccess {
+  session_id: string
+  source_session_id: string
+  actor_id: string
+  source_workspace_id: string
+  workspace_id: string
+  target_user_id: string | null
+  target_name: string
+  target_email: string
+  target_role: Role
+  guest: number
+  expires_at: number
 }
 
 export interface Auth {
+  testAccess?: TestAccess
   session: SessionRow
   user: UserRow
 }
@@ -62,16 +78,55 @@ export class Sessions {
     )
     if (!row) return null
     const { u_email, u_name, u_created_at, u_last_seen_at, ...session } = row
-    return { session, user: { id: row.user_id, email: u_email, name: u_name, created_at: u_created_at, last_seen_at: u_last_seen_at } }
+    const testAccess = this.testAccess(session.id)
+    if ((session.test_access && !testAccess) || (testAccess && !this.validTest(testAccess))) return null
+    return { session, user: testAccess
+      ? { id: `test_${session.id}`, email: testAccess.target_email, name: `${testAccess.target_name} (Test)`, created_at: session.created_at, last_seen_at: null }
+      : { id: row.user_id, email: u_email, name: u_name, created_at: u_created_at, last_seen_at: u_last_seen_at }, ...(testAccess ? { testAccess } : {}) }
   }
 
   isValid(sessionId: string): boolean {
-    return !!this.repo.db.get('SELECT 1 FROM sessions WHERE id = ? AND expires_at > ?', sessionId, Date.now())
+    const session = this.repo.db.get<SessionRow>('SELECT * FROM sessions WHERE id = ? AND expires_at > ?', sessionId, Date.now())
+    if (!session) return false
+    const t = this.testAccess(sessionId)
+    return session.test_access ? !!t && this.validTest(t) : !t
+  }
+
+  testAccess(sessionId: string): TestAccess | undefined {
+    return this.repo.db.get<TestAccess>('SELECT * FROM test_access_sessions WHERE session_id = ?', sessionId)
+  }
+
+  private validTest(t: TestAccess): boolean {
+    if (t.expires_at <= Date.now()) return false
+    const source = this.repo.db.get<SessionRow>('SELECT * FROM sessions WHERE id = ? AND expires_at > ?', t.source_session_id, Date.now())
+    if (!source || source.user_id !== t.actor_id || this.testAccess(source.id)) return false
+    for (const id of [t.workspace_id, t.source_workspace_id]) {
+      const role = this.repo.memberRole(id, t.actor_id)
+      if (!role || !atLeast(role, 'admin') || this.repo.workspaceById(id)?.personal_of) return false
+    }
+    if (t.target_user_id) {
+      const m = this.repo.members(t.workspace_id).find(m => m.id === t.target_user_id)
+      if (!m || m.role !== t.target_role || m.guest !== t.guest) return false
+    }
+    return true
+  }
+
+  role(auth: Auth, workspaceId: string): Role | undefined {
+    return auth.testAccess ? (auth.testAccess.workspace_id === workspaceId && this.validTest(auth.testAccess) ? 'viewer' : undefined) : this.repo.memberRole(workspaceId, auth.user.id)
+  }
+
+  roleForSession(sessionId: string, workspaceId: string): Role | undefined {
+    if (!this.isValid(sessionId)) return undefined
+    const t = this.testAccess(sessionId)
+    if (t) return t.workspace_id === workspaceId ? 'viewer' : undefined
+    const s = this.repo.db.get<SessionRow>('SELECT * FROM sessions WHERE id = ?', sessionId)
+    return s ? this.repo.memberRole(workspaceId, s.user_id) : undefined
   }
 
   /** Slides the expiry forward (at most once per REFRESH_EVERY). Returns true when the cookie should be re-sent. */
   touch(session: SessionRow): boolean {
     const now = Date.now()
+    if (this.testAccess(session.id)) return false
     if (now - session.last_used_at < REFRESH_EVERY) return false
     session.last_used_at = now
     session.expires_at = now + SESSION_TTL

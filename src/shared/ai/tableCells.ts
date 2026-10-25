@@ -63,17 +63,17 @@ export function snapshotTable(doc: TableNode, tableId: string): TableSnapshot {
   const found: TableNode[] = [], ids = new Map<string, number>()
   walk(doc, n => { const id = idOf(n); if (id) ids.set(id, (ids.get(id) ?? 0) + 1); if (n.type === 'table' && id === tableId) found.push(n) })
   if (found.length !== 1 || !tableId) throw new TableCellError('missing')
-  const table = found[0], rows = table.content ?? [], cells: TableField[] = [], occupied: string[][] = []
+  const table = found[0]!, rows = table.content ?? [], cells: TableField[] = [], occupied: string[][] = []
   if (!rows.length || rows.length > TABLE_CELL_LIMIT) throw new TableCellError('limit')
   const layout: unknown[] = []
   for (let r = 0; r < rows.length; r++) {
-    const row = rows[r]
+    const row = rows[r]!
     if (row.type !== 'tableRow') throw new TableCellError('unsupported')
     occupied[r] ??= []
     let column = 0
     for (const cell of row.content ?? []) {
       if (!CELL.has(cell.type ?? '')) throw new TableCellError('unsupported')
-      while (occupied[r][column]) column++
+      while (occupied[r]![column]) column++
       const colspan = cell.attrs?.colspan ?? 1, rowspan = cell.attrs?.rowspan ?? 1
       if (!Number.isSafeInteger(colspan) || !Number.isSafeInteger(rowspan) || colspan < 1 || rowspan < 1 || colspan > 50 || r + rowspan > rows.length || column + colspan > 50) throw new TableCellError('unsupported')
       const id = idOf(cell.content?.[0])
@@ -82,8 +82,8 @@ export function snapshotTable(doc: TableNode, tableId: string): TableSnapshot {
       for (let y = r; y < r + rowspan; y++) {
         occupied[y] ??= []
         for (let x = column; x < column + colspan; x++) {
-          if (occupied[y][x]) throw new TableCellError('unsupported')
-          occupied[y][x] = address
+          if (occupied[y]![x]) throw new TableCellError('unsupported')
+          occupied[y]![x] = address
         }
       }
       cells.push({ id, address, row: r + 1, column: column + 1, header: cell.type === 'tableHeader', editable, text: cellText(cell), node: clone(cell) })
@@ -128,7 +128,7 @@ export function resolveCellPatch(doc: TableNode, patch: CellPatch): { before: Ta
   if (live.layout !== patch.layout || !cell?.editable || key(cell.node) !== key(patch.before)) throw new TableCellError('changed')
   // Revalidate persisted/untrusted proposals too. No model JSON nodes, Markdown or attributes are ever applied.
   parseCellAnswer(JSON.stringify({ cells: [{ cellId: patch.cellId, value: patch.value }] }), [patch.cellId])
-  const paragraph = clone(cell.node.content![0])
+  const paragraph = clone(cell.node.content![0]!)
   paragraph.content = patch.value.split('\n').flatMap((line, i) => [...(i ? [{ type: 'hardBreak' }] : []), ...(line ? [{ type: 'text', text: line }] : [])])
   return { before: clone(cell.node), after: { ...clone(cell.node), content: [paragraph] } }
 }

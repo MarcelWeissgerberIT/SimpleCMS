@@ -67,7 +67,7 @@ export function createCollab(deps: { config: Config; log: Logger; repo: Repo; se
       if (!doc) throw deny('invalid-document')
       const auth = sessions.resolve(cookieFromHeader(requestHeaders.get('cookie'), SESSION_COOKIE))
       if (!auth) throw deny('unauthenticated')
-      const role = repo.memberRole(doc.workspaceId, auth.user.id)
+      const role = sessions.role(auth, doc.workspaceId)
       if (!role) throw deny('forbidden')
       // private documents (docs/CLOUD.md § Private pages) open for their owner only — never for
       // another member, whatever the role (the owner of the workspace included)
@@ -84,7 +84,7 @@ export function createCollab(deps: { config: Config; log: Logger; repo: Repo; se
 
     async connected({ context, connection }) {
       // membership may have changed while the document was loading
-      const role = repo.memberRole(context.workspaceId, context.userId)
+      const role = sessions.roleForSession(context.sessionId, context.workspaceId)
       if (role !== context.role) {
         connection.close({ code: 4403, reason: role ? 'role-changed' : 'membership-revoked' })
         return

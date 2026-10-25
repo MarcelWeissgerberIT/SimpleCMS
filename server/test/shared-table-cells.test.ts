@@ -47,9 +47,9 @@ test('shared local queue carries text-only cell proposals; decryption and review
     const changes = planCellPatches(snapshot, parseCellAnswer(result.result.text, ['target']), ['target'])
     assert.deepEqual(document, before) // receiving a model response never writes a document
     assert.equal(changes.length, 1)
-    const resolved = resolveCellPatch(document, changes[0])
+    const resolved = resolveCellPatch(document, changes[0]!)
     assert.equal(cellText(resolved.after), 'Proposal based on supplied team note')
-    assert.deepEqual(document.content![0].content![0].content![0], before.content![0].content![0].content![0])
+    assert.deepEqual(document.content![0]!.content![0]!.content![0], before.content![0]!.content![0]!.content![0])
     assert.throws(() => planCellPatches(snapshot, parseCellAnswer('{"cells":[{"cellId":"source","value":"overwrite"}]}', ['target']), ['target']))
   } finally { await server.stop() }
 })

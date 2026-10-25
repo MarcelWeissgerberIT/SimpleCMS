@@ -443,4 +443,20 @@ export const migrations: Migration[] = [
       enabled INTEGER NOT NULL CHECK(enabled IN (0,1))
     ); CREATE INDEX shared_models_workspace ON shared_models(workspace_id);`,
   },
+  {
+    version: 17,
+    name: 'bounded read-only access tests without participant impersonation',
+    sql: `ALTER TABLE sessions ADD COLUMN test_access INTEGER NOT NULL DEFAULT 0;
+    CREATE TABLE test_access_sessions (
+      session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+      source_session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+      actor_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      source_workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      target_user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+      target_name TEXT NOT NULL, target_email TEXT NOT NULL,
+      target_role TEXT NOT NULL, guest INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL
+    );`,
+  },
 ]

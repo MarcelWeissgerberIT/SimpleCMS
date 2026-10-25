@@ -1,3 +1,4 @@
+import { isTestAccess } from './testScope'
 /**
  * Small browser helpers for the cloud area: guarded localStorage, the remembered workspace choice
  * (per browser, `?w=<id>` overrides it for one tab), the last known session (for offline boots)
@@ -67,6 +68,7 @@ export function hasStoredChoice(): boolean {
 }
 
 export function writeChoice(ref: WorkspaceRef): void {
+  if (isTestAccess()) return
   lsSet(CHOICE_KEY, ref.kind === 'local' ? (ref.id === 'local' ? 'local' : `local:${ref.id}`) : ref.id)
 }
 
@@ -78,6 +80,7 @@ export interface SessionCache {
 
 /** The last answer of GET /api/me — lets a cloud workspace open while the server can't be reached. */
 export function readSession(): SessionCache | null {
+  if (isTestAccess()) return null
   try {
     const v = JSON.parse(lsGet(SESSION_KEY) ?? 'null') as SessionCache | null
     return v && v.user && typeof v.user.id === 'string' && Array.isArray(v.workspaces) ? v : null
@@ -87,6 +90,7 @@ export function readSession(): SessionCache | null {
 }
 
 export function writeSession(v: SessionCache | null): void {
+  if (isTestAccess()) return
   lsSet(SESSION_KEY, v ? JSON.stringify(v) : null)
 }
 

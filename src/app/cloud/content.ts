@@ -1,3 +1,4 @@
+import { isTestAccess, testCopyName } from './testScope'
 /**
  * Page content documents (`ws:<id>:p:<pageId>`, docs/CLOUD.md § Realtime documents; a private page's
  * is `ws:<id>:u:<userId>:p:<pageId>`, § Private pages — the name follows the page's `private` marker).
@@ -140,10 +141,10 @@ export function contentContext(): ContentContext | null {
 
 const docName = (pageId: ID, priv: boolean) => (priv ? `ws:${ctx!.wsId}:u:${ctx!.userId}:p:${pageId}` : `ws:${ctx!.wsId}:p:${pageId}`)
 /** This build's local copy of a page document: one per document schema generation (see the top). */
-const idbName = (pageId: ID, priv: boolean) => `one:g${DOC_SCHEMA_VERSION}:${docName(pageId, priv)}`
+const idbName = (pageId: ID, priv: boolean) => testCopyName(`one:g${DOC_SCHEMA_VERSION}:${docName(pageId, priv)}`)
 /** Older generations' copies of the same document: generation 0 had no prefix. */
 const olderNames = (pageId: ID, priv: boolean): OlderCopy[] =>
-  Array.from({ length: DOC_SCHEMA_VERSION }, (_, gen) => ({ name: gen ? `one:g${gen}:${docName(pageId, priv)}` : `one:${docName(pageId, priv)}`, gen }))
+  isTestAccess() ? [] : Array.from({ length: DOC_SCHEMA_VERSION }, (_, gen) => ({ name: gen ? `one:g${gen}:${docName(pageId, priv)}` : `one:${docName(pageId, priv)}`, gen }))
 /**
  * Every older copy of a page: under its document's name first, then under the other scope's — the page may have
  * moved between Private and the workspace (another device) since an older build wrote it; a move copies the

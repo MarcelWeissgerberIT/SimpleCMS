@@ -12,7 +12,7 @@ import { atLeast, type Role } from '../repo.ts'
 export function access(s: Services, c: Context<AppEnv>, min: Role) {
   const auth = requireAuth(c)
   const id = c.req.param('id') ?? ''
-  const role = idSchema.safeParse(id).success ? s.repo.memberRole(id, auth.user.id) : undefined
+  const role = idSchema.safeParse(id).success ? s.sessions.role(auth, id) : undefined
   const workspace = role ? s.repo.workspaceById(id) : undefined
   if (!role || !workspace) throw notFound('workspace_not_found', 'Workspace not found')
   if (!atLeast(role, min)) throw forbidden('forbidden', `This needs the ${min} role or higher`)

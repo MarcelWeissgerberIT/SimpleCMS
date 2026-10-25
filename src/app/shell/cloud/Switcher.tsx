@@ -1,3 +1,4 @@
+import { isTestAccess } from '../../cloud/testScope'
 import { useEffect, useState } from 'react'
 import { localWorkspaces, onLocalWorkspacesChange, type LocalWorkspace } from '../../store/localWorkspaces'
 import { BookOpen, CloudDownload, GitCompareArrows, LogIn, LogOut, Plus, UserPlus } from 'lucide-react'
@@ -31,12 +32,14 @@ export function useWorkspaceEntries(): MenuEntry[] {
   const localName = useWorkspace((x) => (isLocal ? x.settings.workspaceName.trim() : ''))
   const [locals, setLocals] = useState<LocalWorkspace[]>([{ id: 'local', name: 'One', createdAt: 0 }])
   useEffect(() => {
+    if (isTestAccess()) return
     let alive = true
     const refresh = () => { void localWorkspaces().then(v => { if (alive) setLocals(v) }).catch(console.warn) }
     refresh()
     const off = onLocalWorkspacesChange(refresh)
     return () => { alive = false; off() }
   }, [localName])
+  if (isTestAccess()) return workspaces.map(w => ({ id: `ws-${w.id}`, label: w.name, checked: true, disabled: true, hint: roleLabel(t, 'viewer').toUpperCase() }))
   const entries: MenuEntry[] = [
     { kind: 'section', label: t('shell.cloud.switcher.workspaces') },
     ...locals.map((w): MenuEntry => ({

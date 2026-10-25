@@ -1,3 +1,4 @@
+import { testCopyName } from '../cloud/testScope'
 /**
  * Local file storage (images, attachments) in IndexedDB.
  * Stored files are referenced as "onefile:<id>" strings inside content/properties.
@@ -7,7 +8,13 @@ import { useEffect, useState } from 'react'
 import { createStore, get, getMany, set, del, keys } from 'idb-keyval'
 import { newId } from './ids'
 
-const fileStore = typeof indexedDB !== 'undefined' ? createStore('one-files', 'files') : undefined
+const fileStores = new Map<string, ReturnType<typeof createStore>>()
+function filesStore() {
+  if (typeof indexedDB === 'undefined') return undefined
+  const name = testCopyName('one-files')
+  if (!fileStores.has(name)) fileStores.set(name, createStore(name, 'files'))
+  return fileStores.get(name)
+}
 
 export interface StoredFile {
   blob: Blob
@@ -56,9 +63,9 @@ export function knownFileStamp(ref: string): string | undefined {
 /** Read the stamps of these files from this device (the record only — nothing is fetched from a server). */
 export async function loadFileStamps(refs: Iterable<string>): Promise<void> {
   const ids = [...new Set([...refs].filter((r) => r.startsWith(FILE_PREFIX)).map((r) => r.slice(FILE_PREFIX.length)))].filter((id) => !stamps.has(id))
-  if (!ids.length || !fileStore) return
+  if (!ids.length || !filesStore()) return
   try {
-    const recs = await getMany<StoredFile | undefined>(ids, fileStore)
+    const recs = await getMany<StoredFile | undefined>(ids, filesStore())
     ids.forEach((id, i) => noteStamp(id, recs[i]))
   } catch {
     /* no IndexedDB: the reference check alone decides */
@@ -86,7 +93,7 @@ export async function saveFile(blob: Blob, name = 'file'): Promise<string> {
   const id = newId()
   const ws = stampOf()
   const rec: StoredFile = { blob, name, type: blob.type, size: blob.size, createdAt: Date.now(), ...(ws ? { ws } : {}) }
-  await set(id, rec, fileStore)
+  await set(id, rec, filesStore())
   noteStamp(id, rec)
   cloudHooks?.saved(id, rec)
   return FILE_PREFIX + id
@@ -96,7 +103,7 @@ export async function saveFile(blob: Blob, name = 'file'): Promise<string> {
 export async function saveDetachedFile(blob: Blob, name: string, ws: string): Promise<string> {
   const id = newId()
   const rec: StoredFile = { blob, name, type: blob.type, size: blob.size, createdAt: Date.now(), ws }
-  await set(id, rec, fileStore)
+  await set(id, rec, filesStore())
   noteStamp(id, rec)
   return FILE_PREFIX + id
 }
@@ -108,7 +115,7 @@ const fetching = new Map<string, Promise<StoredFile | undefined>>()
 export async function getLocalFile(ref: string): Promise<StoredFile | undefined> {
   if (!ref.startsWith(FILE_PREFIX)) return undefined
   const id = ref.slice(FILE_PREFIX.length)
-  const rec = await get<StoredFile>(id, fileStore)
+  const rec = await get<StoredFile>(id, filesStore())
   noteStamp(id, rec)
   return rec
 }
@@ -116,7 +123,7 @@ export async function getLocalFile(ref: string): Promise<StoredFile | undefined>
 export async function getFile(ref: string): Promise<StoredFile | undefined> {
   if (!ref.startsWith(FILE_PREFIX)) return undefined
   const id = ref.slice(FILE_PREFIX.length)
-  const local = await get<StoredFile>(id, fileStore)
+  const local = await get<StoredFile>(id, filesStore())
   noteStamp(id, local)
   const hooks = cloudHooks
   if (local || !hooks) return local
@@ -129,7 +136,7 @@ export async function getFile(ref: string): Promise<StoredFile | undefined> {
         // cache on this device, stamped with the team workspace it came from (a failed cache write still shows the file)
         const ws = stampOf()
         const rec: StoredFile = { ...remote, ...(ws ? { ws } : {}) }
-        await set(id, rec, fileStore).catch(() => {})
+        await set(id, rec, filesStore()).catch(() => {})
         noteStamp(id, rec)
         return rec
       })
@@ -141,11 +148,11 @@ export async function getFile(ref: string): Promise<StoredFile | undefined> {
 }
 
 export async function deleteFile(ref: string): Promise<void> {
-  if (ref.startsWith(FILE_PREFIX)) await del(ref.slice(FILE_PREFIX.length), fileStore)
+  if (ref.startsWith(FILE_PREFIX)) await del(ref.slice(FILE_PREFIX.length), filesStore())
 }
 
 export async function listFileRefs(): Promise<string[]> {
-  return (await keys(fileStore)).map((k) => FILE_PREFIX + String(k))
+  return (await keys(filesStore())).map((k) => FILE_PREFIX + String(k))
 }
 
 const urlCache = new Map<string, string>()

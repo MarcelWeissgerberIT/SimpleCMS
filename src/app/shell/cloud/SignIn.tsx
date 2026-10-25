@@ -1,3 +1,4 @@
+import { isTestAccess } from '../../cloud/testScope'
 import { useEffect, useId, useRef, useState } from 'react'
 import { AlertTriangle, ArrowRight, CornerDownLeft, HardDrive } from 'lucide-react'
 import { useLang, useT } from '../../i18n'
@@ -205,6 +206,7 @@ export function SignInScreen() {
 /** "Use this browser's local workspace instead" — always there, never a dead end. */
 export function LocalEscape() {
   const t = useT()
+  if (isTestAccess()) return null
   return (
     <div className="cl-escape">
       <button type="button" className="cl-escape__btn" onClick={() => cloudApi.switchWorkspace({ kind: 'local', id: 'local' })}>

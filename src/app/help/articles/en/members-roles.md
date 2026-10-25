@@ -23,3 +23,13 @@ The sidebar's **Private** section holds pages only you can see — not even the 
 - Everything below a private page is private too.
 
 Moving between Private and the workspace needs a connection. Mails from **Gmail sync** always land in Private.
+
+## Test access as a participant or guest
+
+In a team workspace, owners and admins can open **Workspace → People → Test access** to choose a member or a recipient from their prepared welcome draft. No participant sign-in or invitation is needed; no email is sent.
+
+The view applies to all ONE tabs in this browser and is **read-only for up to 20 minutes**. A banner shows the person, time remaining and **Return to your account**. Your settings and connections stay intact and are not loaded into the test. Wait for your changes to sync before switching.
+
+The test checks shared workspace content and read access, enforced by the server. It does not open another person's private pages, personal secrets or Atlas access links. AI, MCP, workers and automatic runs stay off. Members are also tested read-only: verify their writing permissions, actual email sign-in and Atlas connection separately. Prepared access shows the configured view; it is not proof that the participant has signed in successfully.
+
+After expiry or a connection issue, use the banner to return to your original session. If that session also expired, sign in again.

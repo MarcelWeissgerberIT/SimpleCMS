@@ -1,3 +1,4 @@
+import { isTestAccess } from './testScope'
 /** Same-session receipts only. Never reads tokens, probes Atlas or starts a model. */
 import {useCoding} from '../features/coding/state'
 import {useEffect} from 'react'
@@ -7,6 +8,7 @@ import {useWorkspace} from '../store/store'
 import {atlasReadProof,type ReadinessObservation} from '../../shared/readiness'
 export interface ReadinessScope {workspace:string;user:string;projects:string[]}
 export function captureReadiness():ReadinessScope|null {
+  if(isTestAccess())return null
   const c=useCloud.getState()
   if(c.active.kind!=='cloud'||c.status!=='online'||!c.user||!c.supports?.includes('readiness:1'))return null
   const projects=Object.values(useWorkspace.getState().databases).flatMap(d=>d.readiness?.automation?.atlasProjects??[])

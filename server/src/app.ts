@@ -14,6 +14,7 @@ import { ApiError, notFound } from './errors.ts'
 import { csrfGuard, securityHeaders } from './http/security.ts'
 import { mountStatic } from './http/static.ts'
 import { MCP_PATH, mcpRoutes } from './mcp/index.ts'
+import { testAccessRoutes, guardTestAccess } from './routes/testAccess.ts'
 import { welcomeRoutes } from './routes/welcome.ts'
 import { readinessRoutes } from './routes/readiness.ts'
 import { authRoutes } from './routes/auth.ts'
@@ -76,10 +77,11 @@ export function buildApp(s: Services, extra: { model?: WorkspaceModel; agents?: 
       // 'signoffs' = it guards the fuseSignoffs map the same way (the Patchbay's allowed paths — the app writes it only then);
       // 'mcp:2' = its /mcp serves contract 2 of the MCP tools (src/shared/mcp: strict arguments, duplicate answers, the
       // error codes); 'mcp:3' follows with train T-b
-      supports: ['ai', 'governor', 'signoffs', 'agent-invocation', 'checkout:1', 'personal-secrets:1', 'welcome:1', 'readiness:1', 'block-authors:1', 'block-changes:1', 'guided-orders:1', 'copilot-options:1', 'source-review:1', 'shared-models:1', 'guests:1', MCP_SERVER_SUPPORTS],
+      supports: ['ai', 'governor', 'signoffs', 'agent-invocation', 'checkout:1', 'personal-secrets:1', 'welcome:1', 'readiness:1', 'block-authors:1', 'block-changes:1', 'guided-orders:1', 'copilot-options:1', 'source-review:1', 'shared-models:1', 'guests:1', 'test-access:1', MCP_SERVER_SUPPORTS],
     }),
   )
 
+  app.route('/api', testAccessRoutes(s))
   app.route('/api/auth', authRoutes(s))
   app.route('/api/me', meRoutes(s))
   app.route('/api/session', sessionRoutes(s))
@@ -141,12 +143,17 @@ export const redactPath = (path: string) =>
 /** Resolves the session cookie on every API request and slides its expiry (not on the public API). */
 function sessionMiddleware(s: Services): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
+    const token = s.sessions.readCookie(c)
+    const auth = token ? s.sessions.resolve(token) : null
+    if (auth?.testAccess) {
+      c.set('auth', auth)
+      const response = guardTestAccess(c, auth.testAccess)
+      return response ?? next()
+    }
     if (c.req.path.startsWith(PUBLIC_API)) {
       c.set('auth', null)
       return next()
     }
-    const token = s.sessions.readCookie(c)
-    const auth = token ? s.sessions.resolve(token) : null
     c.set('auth', auth)
     if (token && !auth) s.sessions.clearCookie(c)
     if (token && auth && s.sessions.touch(auth.session)) s.sessions.setCookie(c, token)

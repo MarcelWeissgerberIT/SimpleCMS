@@ -1,3 +1,4 @@
+import { isTestAccess, testScope } from './testScope'
 /**
  * Boot: is there a server, which workspace does this tab show, is there a session?
  *
@@ -128,6 +129,27 @@ function fallBackToLocal(error: string | null, forget: boolean) {
 }
 
 export async function bootCloud(): Promise<'local' | 'cloud' | 'signed-out'> {
+  // Test tabs fail closed while offline/expired: never open the owner's cached local or cloud workspace.
+  if (SERVER_CAPABLE && isTestAccess()) {
+    try {
+      const cfg = await probeServer(4000)
+      if (cfg !== 'absent' && cfg !== 'network') {
+        applyConfig(cfg)
+        const me = await getSession()
+        const t = testScope()
+        if (me && t) {
+          const ws = me.workspaces.find(w => w.id === t.workspaceId)!
+          useCloud.setState({ available: true, active: { kind: 'cloud', id: ws.id }, user: me.user, workspaces: me.workspaces, serverAdmin: false, role: 'viewer', readOnly: true, status: 'connecting' })
+          await openCloudWorkspace(ws, me.user, true)
+          return 'cloud'
+        }
+        if (me) return bootCloud() // the owner returned in another tab; normal boot, same device settings
+      }
+    } catch (error) { console.warn('[one] test view unavailable', error) /* never open an offline owner copy */ }
+    useCloud.setState({ status: 'signed-out', user: null, workspaces: [], serverAdmin: false, role: null, readOnly: true })
+    await hydrateSignedOut()
+    return 'signed-out'
+  }
   const { loadCheckout } = await import('./checkout')
   await loadCheckout()
   if (!SERVER_CAPABLE) {
@@ -244,6 +266,7 @@ export async function refreshMe(): Promise<Me | null> {
 
 /** Remember the choice for this browser and reload the app into that workspace. */
 export function switchWorkspaceImpl(ref: WorkspaceRef): void {
+  if (isTestAccess()) return
   void switchSaved(ref).catch(async e => {
     console.warn('[one] workspace switch could not save', e)
     const { useUI } = await import('../store/ui')
