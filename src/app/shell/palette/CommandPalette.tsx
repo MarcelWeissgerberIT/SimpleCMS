@@ -756,7 +756,7 @@ function AskPanel({ question, pageId, onDone, chipHandle, onChipClosed }: { ques
   }
 
   /** the model the answer comes from (the chip, else the rules) */
-  const headLabel = useMemo(() => routeFor('palette.ask', { route: chip }).label.toUpperCase(), [chip, model])
+  const headLabel = routeFor('palette.ask', { route: chip }).label.toUpperCase()
 
   const askWriter = (): Writer => aiWriterOf({ id: runId.current || newId(), route: receipt.current?.route, served: receipt.current?.served }, 'ask')
 
