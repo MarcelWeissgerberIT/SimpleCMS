@@ -19,8 +19,8 @@ test('local context keeps a large Atlas conversation closed and preserves its or
   assert.deepEqual(messages, before)
   assert.deepEqual(packed.slice(0, 3), before.slice(0, 3))
   assert.deepEqual(packed[4], before[4])
-  assert.equal(packed[5].content, before[5].content, 'preserve the newest result when older discovery can be excerpted')
-  assert.match(packed[3].content, /Harness context excerpt/)
+  assert.equal(packed[5]!.content, before[5]!.content, 'preserve the newest result when older discovery can be excerpted')
+  assert.match(packed[3]!.content, /Harness context excerpt/)
   const native = localChatMessages(packed)
   assert.equal(native[3].tool_call_id, 'discover')
   assert.equal(native[5].tool_call_id, 'identity')
@@ -36,7 +36,7 @@ test('one-shot result envelopes retain ids and explicit tool errors when latest 
     { role: 'user' as const, content: JSON.stringify({ tool_result: { id: 'get', is_error: true, content: 'Source unavailable: ' + 'x'.repeat(20000) } }) },
   ]
   const packed = fitLocalToolContext(messages, next => size(next) <= 3000)
-  const result = JSON.parse(packed[3].content).tool_result
+  const result = JSON.parse(packed[3]!.content).tool_result
   assert.equal(result.id, 'get'); assert.equal(result.is_error, true)
   assert.match(result.content, /Source unavailable/); assert.match(result.content, /Harness context excerpt/)
   assert.ok(size(packed) <= 3000)
@@ -46,5 +46,5 @@ test('one-shot result envelopes retain ids and explicit tool errors when latest 
 test('an oversized task or unrelated JSON cannot be silently removed to fit local context', () => {
   const task = [{ role: 'user' as const, content: JSON.stringify({ tool_result: { id: 'invented', content: 'x'.repeat(10000) } }) }]
   assert.throws(() => fitLocalToolContext(task, next => size(next) <= 2000), /fresh task or select a smaller/)
-  assert.equal(task[0].content.length > 10000, true)
+  assert.equal(task[0]!.content.length > 10000, true)
 })

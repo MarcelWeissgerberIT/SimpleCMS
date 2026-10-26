@@ -31,7 +31,7 @@ export function fitLocalToolContext<T extends Message>(messages: T[], fits: (mes
     if (result.text.length <= minimum + OMITTED.length) continue
     const excerpt = (end: number) => {
       // Never split a UTF-16 surrogate pair when selecting the prefix.
-      if (end > 0 && /[\uD800-\uDBFF]/.test(result.text[end - 1])) end--
+      if (end > 0 && /[\uD800-\uDBFF]/.test(result.text.charAt(end - 1))) end--
       return result.text.slice(0, end) + OMITTED
     }
     result.set(excerpt(minimum))
