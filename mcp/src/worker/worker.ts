@@ -402,6 +402,7 @@ export class Worker {
       setup: !!this.opts.setup,
       paired: !!this.config.preset,
       managed: !this.opts.virtual && process.env.ONE_WORKER_MANAGED_CHILD === '1',
+      managedHost: !!this.opts.virtual && process.env.ONE_WORKER_MANAGED_CHILD === '1',
       personalSecrets: true,
       multiWorkspace: !!this.config.preset && !cloudOf(this.config),
       via: cloudOf(this.config) ? 'cloud' : 'local',

@@ -88,3 +88,10 @@ export function migrationLines(file: string, os: StartOs): StartLine[] {
   if (!FILE.test(file)) throw new Error('Invalid worker filename')
   return startLines('one-worker-installer.mjs', {os, args:['install']}).map(l => ({...l, line: l.line + ' --from ' + where(l.shell, 'downloads', file)}))
 }
+
+/** A file explicitly selected from Downloads, including the browser's duplicate suffix.
+ * Restrict the basename before placing it inside shell quotes; never interpolate file contents. */
+export function selectedInstallLines(file: string, os: StartOs): StartLine[] {
+  if (!/^[\p{L}\p{N}_. ()-]{1,180}\.mjs$/u.test(file) || file.startsWith('.')) throw new Error('Invalid worker filename')
+  return SHELLS[os].map(shell => ({ shell, line: `node ${shell === 'sh' ? `"$HOME/Downloads/${file}"` : where(shell, 'downloads', file)} install` }))
+}

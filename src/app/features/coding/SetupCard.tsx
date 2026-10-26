@@ -22,7 +22,8 @@ import { outdatedNotice } from './outdated'
 import { openWorkerSetup, viaFor, workerOldHere } from './service'
 import { openCodingSettings } from './open'
 import { ManagedWorker } from './ManagedWorker'
-import { installedStartLines } from './startLines'
+import { WorkerRecovery } from './WorkerRecovery'
+import { Modal } from '../../ui/Modal'
 import { CloudSetupCard } from './CloudSetupCard'
 import { useCoding } from './state'
 import { OsSwitch, StartBlock, useStartOs } from './StartBlock'
@@ -142,11 +143,7 @@ export function OutdatedWorker({ only, download, busy: cardBusy }: { only?: 'sec
   const viaCloud = !download && viaFor(workspaceInfo()) === 'cloud'
   const pending = cardBusy ?? busy
   const press = async () => {
-    if (download) return void download()
-    if (viaCloud) return openCodingSettings()
-    setBusy(true)
-    await downloadWithToast(t)
-    setBusy(false)
+    openCodingSettings()
   }
   return (
     <p className="cv-plate__old" data-kind={unsafe || windows ? 'security' : 'outdated'} role="status" data-testid={unsafe ? 'coding-worker-unsafe' : windows ? 'coding-worker-windows' : 'coding-worker-outdated'}>
@@ -159,7 +156,7 @@ export function OutdatedWorker({ only, download, busy: cardBusy }: { only?: 'sec
         <span>{outdatedNotice(t, can)}</span>
       )}
       <button type="button" className="btn btn--sm" onClick={() => void press()} disabled={pending} data-testid="coding-download-again">
-        <Download size={13} strokeWidth={1.75} aria-hidden /> {viaCloud ? t('features.coding.worker.toDownload') : pending ? t('features.coding.card.downloading') : t('features.coding.card.downloadAgain')}
+        <Download size={13} strokeWidth={1.75} aria-hidden /> {t('features.coding.managed.update')}
       </button>
     </p>
   )
@@ -184,6 +181,7 @@ function LocalSetupCard({ code }: { code: string }) {
   const ws = workspaceInfo()
   const id = useId()
   const [busy, setBusy] = useState(false)
+  const [confirmPair, setConfirmPair] = useState(false)
   const pair = s.pairs[ws.id] ?? null
   const connected = s.enabled && s.conn === 'connected'
   const repos = connected ? (s.worker?.repos.length ?? 0) : 0
@@ -194,6 +192,7 @@ function LocalSetupCard({ code }: { code: string }) {
   const when = pair ? new Date(pair.at).toLocaleString(lang === 'de' ? 'de-DE' : 'en-US', { dateStyle: 'medium', timeStyle: 'short' }) : ''
 
   const download = async () => {
+    setConfirmPair(false)
     setBusy(true)
     await downloadWithToast(t)
     setBusy(false)
@@ -216,17 +215,16 @@ function LocalSetupCard({ code }: { code: string }) {
           state={state(0)}
           title={t('features.coding.card.step1')}
           action={
-            <button type="button" className={pair || connected ? 'btn btn--sm' : 'btn btn--primary'} onClick={() => void download()} disabled={busy} data-testid="coding-download">
-              <Download size={14} strokeWidth={1.8} aria-hidden /> {busy ? t('features.coding.card.downloading') : connected && s.worker?.managed ? t('features.coding.managed.reconnect') : pair ? t('features.coding.card.downloadAgain') : t('features.coding.card.download')}
+            <button type="button" className={pair || connected ? 'btn btn--sm' : 'btn btn--primary'} onClick={() => pair || connected ? setConfirmPair(true) : void download()} disabled={busy} data-testid="coding-download">
+              <Download size={14} strokeWidth={1.8} aria-hidden /> {busy ? t('features.coding.card.downloading') : pair || connected ? t('features.coding.managed.reconnect') : t('features.coding.card.download')}
             </button>
           }
         >
-          <p className="cs-hint">{connected && s.worker?.managed ? t('features.coding.managed.reconnectHint') : pair ? t('features.coding.card.step1Done', { when }) : t('features.coding.card.step1Hint', { name: ws.name })}</p>
+          <p className="cs-hint">{pair ? t('features.coding.card.step1Done', { when }) : connected && (s.worker?.managed || s.worker?.managedHost) ? t('features.coding.managed.reconnectHint') : t('features.coding.card.step1Hint', { name: ws.name })}</p>
         </Step>
         <Step n={2} state={state(1)} title={t('features.coding.card.step2')}>
-          <p className="cs-hint">{t(connected && s.worker?.managed ? 'features.coding.managed.ready' : 'features.coding.card.step2Hint')}</p>
-          {!(connected && s.worker?.managed) && <><OsSwitch />
-          <StartBlock make={(os) => connected && s.worker?.managed ? [installedStartLines(null, os)] : [startLines(WORKER_FILE, { os, args: ['install'] }), installedStartLines(null, os)]} label={t('features.coding.card.startLabel')} testId="coding-start-command" /></>}
+          <p className="cs-hint">{t(connected && (s.worker?.managed || s.worker?.managedHost) ? 'features.coding.managed.ready' : 'features.coding.card.step2Hint')}</p>
+          {!(connected && (s.worker?.managed || s.worker?.managedHost)) && <WorkerRecovery />}
           {os === 'windows' && (
             <>
               <p className="cs-hint">{t('features.coding.card.windows')}</p>
@@ -248,6 +246,7 @@ function LocalSetupCard({ code }: { code: string }) {
         {/* the whole text, wrapped: a refusal or the browser's block says what to do */}
         <span className="cs-live__v cs-live__v--wrap">{s.enabled ? workerStateText(t, s) : t('features.coding.card.idle')}</span>
       </footer>
+      {confirmPair && <Modal open onClose={() => setConfirmPair(false)} title={t('features.coding.managed.reconnect')} label={t('features.coding.card.kicker')} footer={<><button className="btn btn--ghost" onClick={() => setConfirmPair(false)}>{t('common.cancel')}</button><button className="btn btn--primary" onClick={() => void download()} data-testid="coding-repair-confirm">{t('features.coding.recovery.replace')}</button></>}><p>{t('features.coding.recovery.confirm')}</p></Modal>}
     </section>
   )
 }

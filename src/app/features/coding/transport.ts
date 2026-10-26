@@ -47,23 +47,37 @@ export interface LinkHandle {
 /** The worker on this computer. */
 export function openLocalLink(port: number, h: LinkHandlers): LinkHandle {
   const ws = new WebSocket(`ws://127.0.0.1:${port}`, WORKER_SUBPROTOCOL)
-  ws.onopen = () => h.open()
+  let ended = false
+  const finish = (code: number, reason: string) => {
+    if (ended) return
+    ended = true; window.clearTimeout(timer); h.close(code, reason)
+  }
+  // Chrome can leave a socket CONNECTING while waiting for device access. Do not
+  // leave ONE's status spinning forever: the normal retry checks that permission.
+  const timer = window.setTimeout(() => {
+    finish(1006, 'Worker handshake timed out')
+    if (ws.readyState <= WebSocket.OPEN) ws.close(1000, 'Retry connection')
+  }, 12000)
+  ws.onopen = () => { if (!ended) h.open() }
   ws.onmessage = (e) => {
+    if (ended) return
     let msg: WorkerMessage
     try {
       msg = JSON.parse(String(e.data)) as WorkerMessage
     } catch {
       return
     }
+    if (msg.type === 'welcome' || msg.type === 'refused') window.clearTimeout(timer)
     h.message(msg)
   }
-  ws.onclose = (e) => h.close(e.code, e.reason)
+  ws.onclose = (e) => finish(e.code, e.reason)
   return {
     via: 'local',
     send: (m) => {
       if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(m))
     },
     close: (code, reason) => {
+      window.clearTimeout(timer)
       if (ws.readyState <= WebSocket.OPEN) ws.close(code, reason)
     },
   }

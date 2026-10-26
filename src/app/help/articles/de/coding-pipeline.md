@@ -12,6 +12,13 @@ summary: Gib Programmieraufgaben an Claude Code auf deinem Rechner — planen, f
 
 ## Fest installieren und sicher aktualisieren
 
+**Schon heruntergeladen, aber nicht verbunden?** Kein zweites Mal herunterladen. In Schritt 2 zuerst den festen Starter ausführen und **Verbindung erneut prüfen** wählen. Falls noch nicht installiert: **Noch nicht installiert? Vorhandenen Download nutzen** öffnen und die vorhandene `.mjs`-Datei in Downloads auswählen. ONE liest nur ihre Kopplungsdaten lokal und zeigt den Installationsbefehl mit dem tatsächlichen Dateinamen, einschließlich `(1)`. Die Datei wird nicht hochgeladen. Ein falscher Workspace oder eine veraltete lokale Kopplung wird zurückgewiesen. **Neu koppeln / weiteres Gerät** erstellt erst nach ausdrücklicher Bestätigung eine weitere Datei und neue Kopplung.
+
+Bei **Verbinde…** wartet ONE höchstens zwölf Sekunden auf die erste Worker-Antwort und prüft danach beim Wiederverbinden die Browser-Freigabe. In Chrome kann **Apps auf dem Gerät** für die ONE-Seite erforderlich sein. Ein Download ersetzt diese Freigabe nicht.
+
+Ein weiterer freigegebener Workspace zeigt **Fest installiert**, wenn er die Installation des Geräte-Workers nutzt. Updates bleiben beim ursprünglichen Workspace beziehungsweise beim lokalen Starter mit `update`; die zusätzliche Workspace-Freigabe gibt keine Verwaltungsrechte.
+
+
 **Worker bereits verbunden?** Nutze **Bestehende Verbindung übernehmen → Installer laden · Kopplung behalten**. Die angezeigte Zeile verwendet `install --from <vorhandene-worker-datei.mjs>`; sie liest ausschließlich die JSON-Kopplung aus deiner vorhandenen Datei und führt deren Code nicht aus. Bei einer eigenen `worker.json` zusätzlich `--config <bisheriger-pfad>` angeben. Dabei wird kein Cloud-Token erstellt und kein Browser-Kopplungsschlüssel ersetzt. Die folgenden Download-Schritte sind für eine neue Verbindung.
 
 

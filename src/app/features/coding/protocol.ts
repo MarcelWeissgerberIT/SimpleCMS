@@ -635,6 +635,8 @@ export interface WorkerInfo {
   /** Multiple explicitly granted workspace contexts share this device's model/MCP configuration. */
   multiWorkspace?: boolean
   managed?: boolean
+  /** A granted workspace uses the owner's fixed installation, without management permission. */
+  managedHost?: boolean
   personalSecrets?: boolean
   /** how it reaches One: 127.0.0.1 (local) or the team server's relay (cloud); older workers send none */
   via?: 'local' | 'cloud'

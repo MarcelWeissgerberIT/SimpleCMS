@@ -12,6 +12,13 @@ summary: Hand coding tasks to Claude Code on your computer — plan, approve, im
 
 ## Fixed installation and safe updates
 
+**Already downloaded but not connected?** Do not download another copy. In step 2, run the fixed starter and choose **Check connection again**. If not installed yet, open **Not installed yet? Use the existing download** and select the `.mjs` file already in Downloads. ONE reads its pairing locally and shows the install command using the actual filename, including `(1)`. The file is not uploaded. A wrong workspace or outdated local pairing is rejected. **New pairing / another device** creates another file and pairing only after explicit confirmation.
+
+For **Connecting…**, ONE waits at most twelve seconds for the first worker response, then checks the browser permission when reconnecting. Chrome may require **Apps on device** for the ONE site. Another download cannot grant that permission.
+
+An additional granted workspace shows **Fixed installation** when it uses the device worker’s installed host. Updates remain with the owning workspace or the local starter and its `update` command; workspace enrollment grants no management rights.
+
+
 **Worker already connected?** Use **Keep the existing connection → Download installer · keep pairing**. Its command uses `install --from <existing-worker-file.mjs>`; it reads only the literal JSON pairing from your existing file, without executing that file. Add `--config <existing-path>` for a custom `worker.json`. This creates no cloud token and replaces no browser pairing key. The following download steps are for a new connection.
 
 

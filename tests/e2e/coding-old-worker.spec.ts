@@ -92,13 +92,13 @@ test('an older worker (no `can`) is never handed a document stage: the task fail
     await expect(plate).toContainText('old-box')
     const outdated = plate.getByTestId('coding-worker-outdated')
     await expect(outdated).toContainText('A newer worker is on the site')
-    await expect(outdated.getByTestId('coding-download-again')).toHaveText('Download again')
+    await expect(outdated.getByTestId('coding-download-again')).toHaveText('Check and install update')
     // 1.1.0 came before the ZIP import: no security notice, only the capability text
     await expect(page.getByTestId('coding-worker-unsafe')).toHaveCount(0)
     await expect(page.getByTestId('coding-needs')).toContainText('Invoice approval flow')
-    const [download] = await Promise.all([page.waitForEvent('download'), outdated.getByTestId('coding-download-again').click()])
-    expect(download.suggestedFilename()).toBe('one-worker.mjs')
-    await expect(page.locator('.toast').filter({ hasText: 'Saved one-worker.mjs — now start it.' })).toBeVisible()
+    await outdated.getByTestId('coding-download-again').click()
+    await expect(page.getByTestId('coding-settings')).toBeVisible()
+    await page.keyboard.press('Escape')
     await expect(plate.getByTestId('coding-worker-outdated')).toBeVisible()
     // more rounds: the failed task stays failed (it is not handed out, not patched again)
     const rounds = fake.asked.length
@@ -165,7 +165,7 @@ test('the worker the Business analysis / QA pipelines came with (`docs: true`, n
     const plate = page.getByTestId('coding-worker')
     await expect(plate).toContainText('ba-box')
     await expect(plate.getByTestId('coding-worker-unsafe')).toContainText('This worker (1.3.1) has a security gap in ZIP import')
-    await expect(plate.getByTestId('coding-worker-unsafe').getByTestId('coding-download-again')).toHaveText('Download again')
+    await expect(plate.getByTestId('coding-worker-unsafe').getByTestId('coding-download-again')).toHaveText('Check and install update')
     await expect(page.getByTestId('coding-worker-outdated')).toHaveCount(0)
     await expect(page.getByTestId('coding-needs')).toHaveCount(0)
   } finally {
@@ -274,9 +274,9 @@ test('a worker with the ZIP-import gap (1.8.0, every capability) is named with i
     await expect(unsafe.locator('.cv-plate__sec')).toHaveText('Security')
     await expect(unsafe).toContainText('This worker (1.8.0) has a security gap in ZIP import — download the new one, stop the old one (Ctrl+C) and start the new file.')
     await expect(page.getByTestId('coding-worker-outdated')).toHaveCount(0)
-    const [download] = await Promise.all([page.waitForEvent('download'), unsafe.getByTestId('coding-download-again').click()])
-    expect(download.suggestedFilename()).toBe('one-worker.mjs')
-    await expect(page.locator('.toast').filter({ hasText: 'Saved one-worker.mjs — now start it.' })).toBeVisible()
+    await unsafe.getByTestId('coding-download-again').click()
+    await expect(page.getByTestId('coding-settings')).toBeVisible()
+    await page.keyboard.press('Escape')
     // until the new file connects, the old one is still this one
     await expect(unsafe).toBeVisible()
 
@@ -285,14 +285,14 @@ test('a worker with the ZIP-import gap (1.8.0, every capability) is named with i
     await page.getByRole('tab', { name: /Coding worker|Coding-Worker/ }).click()
     const card = page.getByTestId('coding-setup-card')
     await expect(card.getByTestId('coding-worker-unsafe')).toContainText('This worker (1.8.0) has a security gap in ZIP import')
-    await expect(card.getByTestId('coding-worker-unsafe').getByTestId('coding-download-again')).toHaveText('Download again')
+    await expect(card.getByTestId('coding-worker-unsafe').getByTestId('coding-download-again')).toHaveText('Check and install update')
     await page.keyboard.press('Escape')
 
     // German
     await wsEval(page, (s) => s.updateSettings({ language: 'de' }))
     await expect(unsafe.locator('.cv-plate__sec')).toHaveText('Sicherheit')
     await expect(unsafe).toContainText('Dieser Worker (1.8.0) hat eine Sicherheitslücke beim ZIP-Import – lade den neuen herunter, beende den alten (Ctrl+C) und starte die neue Datei.')
-    await expect(unsafe.getByTestId('coding-download-again')).toHaveText('Erneut herunterladen')
+    await expect(unsafe.getByTestId('coding-download-again')).toHaveText('Update prüfen und installieren')
   } finally {
     await fake.close()
   }
@@ -345,15 +345,16 @@ test.describe('a browser on Windows', () => {
       await expect(win).toContainText('On Windows, this worker (1.8.1) can start a program named git.exe or claude.exe that a cloned or imported repository brings along — download the new one, stop the old one (Ctrl+C) and start the new file. Running it in WSL? Then this does not apply.')
       await expect(page.getByTestId('coding-worker-unsafe')).toHaveCount(0)
       await expect(page.getByTestId('coding-worker-outdated')).toHaveCount(0)
-      const [download] = await Promise.all([page.waitForEvent('download'), win.getByTestId('coding-download-again').click()])
-      expect(download.suggestedFilename()).toBe('one-worker.mjs')
+      await win.getByTestId('coding-download-again').click()
+      await expect(page.getByTestId('coding-settings')).toBeVisible()
+      await page.keyboard.press('Escape')
 
       // Settings → Coding worker: the setup card shows the security notices alone — this one too
       await page.evaluate(() => (window as unknown as { __one: { ui: { getState: () => { openModal: (m: unknown) => void } } } }).__one.ui.getState().openModal({ type: 'settings' }))
       await page.getByRole('tab', { name: /Coding worker|Coding-Worker/ }).click()
       const card = page.getByTestId('coding-setup-card')
       await expect(card.getByTestId('coding-worker-windows')).toContainText('On Windows, this worker (1.8.1)')
-      await expect(card.getByTestId('coding-worker-windows').getByTestId('coding-download-again')).toHaveText('Download again')
+      await expect(card.getByTestId('coding-worker-windows').getByTestId('coding-download-again')).toHaveText('Check and install update')
       await page.keyboard.press('Escape')
 
       // German
@@ -428,7 +429,7 @@ test('the task panel names Claude Code\'s own MCP servers for the task; a task t
   }
 })
 
-test('an older worker names no MCP servers: the task panel shows no MCP line', async ({ page, errors }) => {
+test('an older worker names no MCP servers: the task panel identifies only One task tools', async ({ page, errors }) => {
   errors.allow(/WebSocket connection to 'ws:\/\/127\.0\.0\.1/)
   const fake = await startFakeWorker(PORT, { worker: '1.6.0', name: 'mid-box', repos: [{ name: 'website', baseBranch: 'main' }], parallel: 1, busy: [], spentToday: 0, dayLimit: null, claude: { found: true, version: '2.0.0' } })
   fake.can = ['analyze', 'git:comment', 'git:merge', 'doc', 'model']
@@ -443,7 +444,7 @@ test('an older worker names no MCP servers: the task panel shows no MCP line', a
     await page.getByTestId('coding-new-goal').fill('Use MCP.')
     await page.getByTestId('coding-create').click()
     await expect(page.getByTestId('coding-panel')).toBeVisible()
-    await expect(page.getByTestId('coding-task-mcp')).toHaveCount(0)
+    await expect(page.getByTestId('coding-task-mcp')).toContainText('only One’s task tools')
   } finally {
     await fake.close()
   }

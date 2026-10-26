@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// SimpleCMS One — coding worker 1.33.0 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp/src/worker
+// SimpleCMS One — coding worker 1.33.1 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp/src/worker
 // Runs coding tasks from One with Claude Code on this computer. Setup: node one-worker.mjs --help
 // Docs and security model: https://github.com/MarcelWeissgerberIT/SimpleCMS/blob/main/docs/CODING.md
 import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);
@@ -20782,7 +20782,7 @@ async function candidateSnapshot(cwd, signal) {
 }
 
 // src/worker/testrun.ts
-var VERSION = true ? "1.33.0" : "dev";
+var VERSION = true ? "1.33.1" : "dev";
 var TEST_OUTPUT_MAX = 64e3;
 async function runTests(repo, cwd, signal, onLine, scrub) {
   if (!repo.testCommand?.length) return runCommand(repo.testCommand, repo.testTimeoutSec, "tests", cwd, signal, onLine, scrub);
@@ -43982,6 +43982,7 @@ var Worker2 = class {
       setup: !!this.opts.setup,
       paired: !!this.config.preset,
       managed: !this.opts.virtual && process.env.ONE_WORKER_MANAGED_CHILD === "1",
+      managedHost: !!this.opts.virtual && process.env.ONE_WORKER_MANAGED_CHILD === "1",
       personalSecrets: true,
       multiWorkspace: !!this.config.preset && !cloudOf(this.config),
       via: cloudOf(this.config) ? "cloud" : "local",
@@ -49594,7 +49595,7 @@ var WorkerWorkspaces = class {
 
 // src/worker/index.ts
 var workspaceHost = null;
-var VERSION2 = true ? "1.33.0" : "dev";
+var VERSION2 = true ? "1.33.1" : "dev";
 var quiet = process.env.ONE_WORKER_QUIET === "1";
 var recent = [];
 var log = (msg) => {

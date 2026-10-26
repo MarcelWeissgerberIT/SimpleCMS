@@ -30,6 +30,11 @@ export function ManagedWorker() {
   const phase = status?.phase ?? 'running'
   const waiting = ['checking', 'waiting-for-idle', 'switching', 'rolling-back'].includes(phase)
   if (!worker) return null
+  if (worker.managedHost) return <section className="cw-managed" data-testid="coding-managed-host">
+    <header><span className="label">{t('features.coding.managed.title')}</span><strong>v{worker.worker} · {worker.name}</strong></header>
+    <p>{t('features.coding.recovery.host')}</p>
+    <details><summary>{t('features.coding.managed.starter')}</summary><OsSwitch /><StartBlock make={os => [installedStartLines(null, os)]} label={t('features.coding.managed.starter')} /></details>
+  </section>
   if (!worker.managed) return <section className="cw-managed" data-testid="coding-install-existing">
     <header><span className="label">{t('features.coding.managed.migrate')}</span><strong>v{worker.worker} · {worker.name}</strong></header>
     <p>{t('features.coding.managed.migrateHint')}</p>
