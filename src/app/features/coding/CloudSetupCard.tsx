@@ -150,7 +150,7 @@ export function CloudSetupCard({ code }: { code: string }) {
         </Step>
         <Step n={2} state={state(1)} title={t('features.coding.cloud.step2')}>
           <p className="cs-hint">{t(connected && s.worker?.managed ? 'features.coding.managed.ready' : 'features.coding.cloud.step2Hint', { host })}</p>
-          {!(connected && s.worker?.managed) && <WorkerRecovery cloud />}
+          {!(connected && s.worker?.managed) && <WorkerRecovery cloud firstInstall={!!fresh} />}
           <NeedsLine />
         </Step>
         <Step n={3} state={state(2)} title={t('features.coding.cloud.step3')} action={<ChangeReposButton />}>

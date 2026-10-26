@@ -8,6 +8,12 @@ import type { Messages } from '@/shared/i18n'
  */
 export const messages: Messages = {
   en: {
+    'features.ai.mcp.check.model': 'Model for connection tests and usage guides',
+    'features.ai.mcp.check.default': 'Use current default · {model}',
+    'features.ai.mcp.check.scope': 'Saved on this device for MCP setup only. Choosing a model does not send a request or grant data access.',
+    'features.ai.mcp.check.allow': 'Allow MCP connections for {provider} on this device',
+    'features.ai.mcp.check.privacy': 'Your personal worker connects to Atlas. The model receives selected tool definitions and permitted results, never the Atlas token. Private pages, mail and memory stay separate.',
+    'features.ai.mcp.check.forbidden': 'This workspace forbids MCP for this provider. Ask its owner before continuing.',
     'features.ai.mcp.cw.label': 'Codeword',
     'features.ai.mcp.cw.hint': 'Start a request with {cw} — Claude then answers with this server’s tools first, even where it is not used otherwise.',
     'features.ai.mcp.cw.hintEmpty': 'Optional. A short word like “kb”: a request starting with kb: then goes to this server first.',
@@ -57,6 +63,12 @@ export const messages: Messages = {
     'features.ai.mcp.ov.note': '“Off” = not used, not even through its codeword. Claude Code in the coding worker has its own MCP servers (your claude mcp setup, ticked per repo on the worker’s setup page): a server of the same name or codeword counts here, a name One does not know gets a row of its own.',
   },
   de: {
+    'features.ai.mcp.check.model': 'Modell für Verbindungstests und Anleitungen',
+    'features.ai.mcp.check.default': 'Aktuelle Vorgabe verwenden · {model}',
+    'features.ai.mcp.check.scope': 'Gilt auf diesem Gerät nur für die MCP-Einrichtung. Die Modellwahl sendet keine Anfrage und erteilt keine Datenfreigabe.',
+    'features.ai.mcp.check.allow': 'MCP-Verbindungen für {provider} auf diesem Gerät erlauben',
+    'features.ai.mcp.check.privacy': 'Dein persönlicher Worker verbindet Atlas. Das Modell erhält ausgewählte Werkzeugbeschreibungen und erlaubte Ergebnisse, niemals den Atlas-Token. Private Seiten, Mail und Gedächtnis bleiben getrennt.',
+    'features.ai.mcp.check.forbidden': 'Dieser Workspace sperrt MCP für diesen Anbieter. Vor dem Fortsetzen den Inhaber fragen.',
     'features.ai.mcp.cw.label': 'Codewort',
     'features.ai.mcp.cw.hint': 'Beginne eine Anfrage mit {cw} — dann antwortet Claude zuerst mit den Werkzeugen dieses Servers, auch wo er sonst nicht dabei ist.',
     'features.ai.mcp.cw.hintEmpty': 'Optional. Ein kurzes Wort wie „kb“: Eine Anfrage, die mit kb: beginnt, geht dann zuerst an diesen Server.',

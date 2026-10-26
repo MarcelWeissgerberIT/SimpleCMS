@@ -43,6 +43,7 @@ import { CodeArea, markdownTokenizer } from '../../../ui/code'
 import { McpOverview } from './McpOverview'
 import { AINeedsSetup, useAIStatus } from '../setup/AINeedsSetup'
 import { quietSettings } from '../setup/openAISetup'
+import { McpCheckSetup } from './McpCheckSetup'
 import './mcp-servers.css'
 
 type T = ReturnType<typeof useT>
@@ -675,6 +676,7 @@ function Prompt({ server, hasKey, blocked, running }: { server: McpServerConfig;
   const disabled = !hasKey || blocked || !!running
   return (
     <div className="mcps-prompt">
+      <McpCheckSetup disabled={!!running} />
       <div className="mcps-prompt__head">
         <label className="mcps-field__label" htmlFor={id}>
           {t('features.ai.mcp.prompt')}

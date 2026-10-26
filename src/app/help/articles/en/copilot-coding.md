@@ -16,6 +16,8 @@ Open **Copilot setup** from the coding task or the worker's local setup page. **
 
 Credentials remain in Copilot CLI's own authentication or its supported environment variables, such as `COPILOT_GITHUB_TOKEN`. Do not paste tokens into task text or the model field. One neither exports these credentials nor saves them in the workspace.
 
+On Windows, GitHub requires **PowerShell 6 or newer**. If needed and approved by your organization, install the CLI with `winget install GitHub.Copilot` or `npm install -g @github/copilot`. Node 24 meets the Node prerequisite. [Official installation](https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli). For the workshop use current worker **1.34.1 or newer**; Claude is optional.
+
 ## Model per task and role
 Worker **1.27.0** adds a dedicated model, reasoning effort and context-budget choice below **GitHub Copilot** in a coding task. **Refresh account models** loads the signed-in worker's catalog without a model prompt. Only advertised models are offered; an existing choice remains visible when availability cannot currently be verified. An unavailable fixed model is rejected before prompting, without substitution.
 

@@ -81,3 +81,7 @@ Anfragen gehen an `api.anthropic.com`; Anthropic verbindet sich mit dem Server, 
 ## Persönliche Tokens für Claude Code
 
 Unter [Meine Secrets](help:personal-secrets) speicherst du Atlas- und Agenten-Tokens pro Person mit eigener Passphrase. In einer Coding-Aufgabe gibst du die benötigten Verbindungen ausdrücklich für den aktuellen Worker frei. Diese Freigabe ist getrennt von den normalen MCP-Verbindungen für Browser-Agenten; bestehende Verbindungen werden nicht automatisch migriert.
+
+
+## Modell und Freigabe direkt beim Verbindungstest
+Öffne beim Server **Erweitert**. Im Bereich für Verbindungstests und Anleitungen lässt sich ein verfügbares MCP-fähiges Modell wählen; diese Wahl wird für diesen Zweck auf deinem Gerät gespeichert. Für Copilot und lokale Modelle steht daneben eine getrennte persönliche MCP-Erlaubnis. Die Modellwahl allein erteilt keine Datenfreigabe. Eine Workspace-Sperre bleibt wirksam. Dein eigener Worker und persönlicher Atlas-Zugang sind auch beim geteilten Atlas Flow nötig; der Modellhost bekommt keine Zugangstokens.

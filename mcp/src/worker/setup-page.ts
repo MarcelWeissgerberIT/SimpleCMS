@@ -229,7 +229,8 @@ export const SETUP_JS = String.raw`(function () {
 
     kicker: '§ ONE WORKER — {ws}',
     title: 'Pick the repositories One may work in',
-    lead: 'Tick a repository and One can hand it coding tasks: Claude Code works on a branch in its own worktree, your checkout stays as it is. Paths and commands stay on this computer — One only learns the names.',
+    lead: 'Select a repository for coding tasks. Your chosen coding provider works on a branch in its own worktree; your checkout stays as it is. Paths and commands stay on this computer — One only learns the names.',
+    claudeOptional: 'Optional: set up Claude Code — not needed for Copilot or shared Atlas Flow',
     loading: 'Looking for git repositories…',
     searching: 'Searching… {d} folders · {n} found',
     reading: 'Reading the repositories… {f} of {n}',
@@ -415,7 +416,8 @@ export const SETUP_JS = String.raw`(function () {
 
     kicker: '§ ONE WORKER — {ws}',
     title: 'Wähle die Repositories, in denen One arbeiten darf',
-    lead: 'Hak ein Repository an, und One kann ihm Coding-Aufgaben geben: Claude Code arbeitet auf einem Branch in einem eigenen Worktree, dein Checkout bleibt, wie er ist. Pfade und Befehle bleiben auf diesem Rechner – One erfährt nur die Namen.',
+    lead: 'Wähle ein Repository für Coding-Aufgaben. Der gewählte Coding-Anbieter arbeitet auf einem Branch in einem eigenen Worktree; dein Checkout bleibt, wie er ist. Pfade und Befehle bleiben auf diesem Rechner – One erfährt nur die Namen.',
+    claudeOptional: 'Optional: Claude Code einrichten – für Copilot und geteiltes Atlas Flow nicht nötig',
     loading: 'Suche Git-Repositories…',
     searching: 'Suche läuft … {d} Ordner · {n} gefunden',
     reading: 'Lese die Repositories … {f} von {n}',
@@ -915,7 +917,7 @@ export const SETUP_JS = String.raw`(function () {
       })
       app.appendChild(spaces)
     }
-    if (state.live && state.live.claude && !state.live.claude.found) app.appendChild(el('p', { className: 'msg', text: t(windows() ? 'noClaudeWin' : 'noClaude') }))
+    if (state.live && state.live.claude && !state.live.claude.found) app.appendChild(el('details', { className: 'hint', 'data-testid': 'optional-claude-setup' }, [el('summary', { text: t('claudeOptional') }), el('p', { text: t(windows() ? 'noClaudeWin' : 'noClaude') })]))
     if (state.marked && state.marked.length) app.appendChild(marksNote(state.marked))
     var sc = state.scan
     var meta = ''

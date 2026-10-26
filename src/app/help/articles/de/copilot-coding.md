@@ -16,6 +16,8 @@ GitHub Copilot CLI **ab 1.0.102** auf demselben Rechner wie den One-Worker insta
 
 Zugangsdaten bleiben in der eigenen Copilot-CLI-Anmeldung oder unterstützten Umgebungsvariablen wie `COPILOT_GITHUB_TOKEN`. Tokens nicht in Aufgabentext oder Modellfeld einfügen. One exportiert diese Zugangsdaten nicht und speichert sie nicht im Workspace.
 
+Windows: GitHub setzt **PowerShell 6 oder neuer** voraus. CLI bei Bedarf mit `winget install GitHub.Copilot` oder `npm install -g @github/copilot` installieren, soweit vom Unternehmen freigegeben. Node 24 erfüllt die Node-Voraussetzung. [Offizielle Installation](https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli). Für den Workshop den aktuellen Worker **1.34.1 oder neuer** verwenden; Claude ist optional.
+
 ## Modell pro Aufgabe und Rolle
 Ab Worker **1.27.0** bietet die Aufgabe unter **GitHub Copilot** eine eigene Modellwahl, Denkaufwand und Kontextbudget. **Kontomodelle aktualisieren** fragt den Katalog des angemeldeten Workers ab, ohne Modellprompt. Nur dort gemeldete Modelle werden angeboten; eine gespeicherte, gerade nicht prüfbare Wahl bleibt sichtbar. Ein nicht verfügbares festes Modell wird vor dem Prompt abgewiesen, ohne Ersatzmodell.
 

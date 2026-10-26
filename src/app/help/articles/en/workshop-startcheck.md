@@ -9,17 +9,23 @@ summary: Check accounts, the worker, the internal checkout and Atlas before the 
 ---
 Run this check on the computer that can access the internal repository. A successful organizer test proves neither access inside the company network nor the quality of the eventual solution. Each person's credentials remain personal; workspace packages contain no personal connections.
 
-For Tuesday, use worker **1.30.0 or newer** from One’s current download. This includes bounded Copilot format correction and execution receipts. Older feature-version notes indicate when a capability was introduced, not the recommended workshop build.
+For Tuesday, use worker **1.34.1 or newer** from One’s current download. This includes bounded Copilot format correction and execution receipts. Older feature-version notes indicate when a capability was introduced, not the recommended workshop build.
 
 ## 1 · Workspace and access
 Open the intended team workspace and check its name and your own role. Workshop guests can read approved shared pages; editing, inviting and agent/coding execution remain blocked. A sign-in link does not establish Atlas rights or access to internal repositories. Check the Atlas tenant, actual project and your own agent separately. Never paste shared tokens into pages or chats; personal Atlas connections belong in **My secrets**.
 
 ## 2 · Worker and model
-Download the current worker and start it on the same laptop. Worker **1.26.0** includes Copilot text, tools and conditional media support. Connect under **Settings → Coding worker**; with multiple workspaces, verify explicit permission for this workspace. On Windows use the downloads and shortcuts shown for that platform.
+Tomorrow’s path is **Windows → Copilot first, Atlas Flow optional**. Check `node --version`, `git --version`, `copilot --version` and `$PSVersionTable.PSVersion`. The **Copilot CLI** is required; the VS Code extension alone is insufficient. GitHub requires **PowerShell 6 or newer** on Windows. The Angular demo requires Node **24.15 or newer**; C++ additionally needs a C++17 compiler.
 
-For GitHub Copilot, install CLI **1.0.102** or newer, run `copilot login` and approve authentication yourself. On the local setup page press **Check CLI and login (no model request)**. Use only offered models; a Free account may expose only `auto`. The desktop app and CLI may have different entitlement requirements. This check buys no subscription and sends no project prompt.
+If missing, install the CLI only with company approval: `winget install GitHub.Copilot` or `npm install -g @github/copilot`. Then run `copilot login` using your own account. The organization may need to enable CLI access. See the official [Windows prerequisites and installation](https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli). Do not bypass company policies or PowerShell safeguards.
 
-Refresh worker models under **Settings → AI**. Choose a provider and model for the individual request; allow page, file and MCP access separately. A pipeline task's coding-agent choice is independent of the default for browser agents and text actions.
+Under **Settings → Coding worker → Cloud**, download your **personally paired** current worker **1.34.1 or newer** once. First-time setup shows two commands: **install**, then **run the fixed starter**. Use the starter afterwards; reconnecting downloads nothing. If the filename contains “(1)”, select the existing downloaded file in the installation section to get the correct command. Allow only the intended local repository. Copilot requires neither Claude nor a model API key in ONE.
+
+On the local setup page press **Check CLI and login (no model request)**. Under **Settings → AI**, refresh worker models, then choose GitHub Copilot and an actually offered model under **This device → Default for everything** (`auto`, if offered). This persists on this device. Tasks and BA/coding/QA roles have independent choices. Credentials remain in the CLI, not in the workspace.
+
+For Atlas, configure your own access under **Settings → AI → MCP servers → ATLAS → Details**. Model selection and a separate personal MCP permission switch now sit beside **Test connection**. Choose Copilot or Atlas Flow and explicitly allow MCP; choosing a model alone grants nothing. The check reads the tool catalogue. Then read one permitted record in tenant `one`. A personal Atlas sign-in link is not automatically an agent MCP token.
+
+**Atlas Flow optional:** Select the shared workshop model; participants need neither Ollama nor a model key. Personal Atlas MCP calls need their own worker and Atlas access. Atlas Flow supports text/code suggestions, permitted ONE tools and MCP. Sharing inference does not provide a remote coding executor: repository pipelines use the selected engine on your own laptop. For the group comparison, transfer proposals into the demo repository and actually run its tests.
 
 ## 3 · Internal checkout and simulation
 Register the existing local checkout in the worker. It may use internal Git; no copy to an external repository is needed. Agree the exact working branch, build command, test command and simulation with the team. Run those commands manually first. An empty or example check is not project evidence.

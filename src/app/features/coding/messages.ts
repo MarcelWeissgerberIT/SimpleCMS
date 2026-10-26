@@ -7,6 +7,9 @@ import type { Messages } from '@/shared/i18n'
  */
 export const messages: Messages = {
   en: {
+    'features.coding.recovery.first': 'First installation on this computer: run both lines below in order. The first installs your downloaded worker; the second starts it. If the downloaded file has a different name or folder, select that existing file below to get its exact command.',
+    'features.coding.recovery.firstLabel': 'Install once, then start',
+    'features.coding.recovery.haveInstall': 'Already installed? Show the fixed starter',
     'features.coding.recovery.hint': 'Already downloaded? Start your installed ONE Worker below, then check the connection. Downloading again neither starts nor updates the running worker.',
     'features.coding.recovery.retry': 'Check connection again',
     'features.coding.recovery.install': 'Not installed yet? Use the existing download',
@@ -378,7 +381,7 @@ export const messages: Messages = {
     'features.coding.card.step2': 'Install once, then use the fixed starter',
     'features.coding.card.step2Hint': 'One-time setup: finish current tasks and stop the old worker with Ctrl+C. Install the downloaded file using the first line, then start using the second. If the browser added (1), use that exact filename for install. Afterwards use the workspace-named Desktop starter; software updates need no new download or pairing.',
     'features.coding.card.startLabel': 'Start command',
-    'features.coding.card.needs': 'Needs {node} and {claude}, signed in once (claude).',
+    'features.coding.card.needs': 'Needs {node} and {git}. Set up only your chosen coding provider: {copilot} or {claude}. Shared Atlas Flow for ONE text actions needs no personal model API key.',
     'features.coding.card.node': 'Node.js 22 or newer',
     'features.coding.card.claude': 'Claude Code',
     'features.coding.card.step3': 'Tick your repositories in the page that opens',
@@ -950,6 +953,9 @@ export const messages: Messages = {
     'features.coding.worker.outdatedFix': 'A newer worker is on the site — {adds}. This one still runs every stage, but a stage can go on “working” after Claude Code is done. Use Settings → Coding worker to update the fixed installation or migrate the existing connection.',
   },
   de: {
+    'features.coding.recovery.first': 'Erste Einrichtung auf diesem Rechner: Beide Zeilen unten nacheinander ausführen. Die erste installiert den heruntergeladenen Worker, die zweite startet ihn. Hat die Datei einen anderen Namen oder Ordner, unten genau diesen vorhandenen Download auswählen, um den passenden Befehl zu erhalten.',
+    'features.coding.recovery.firstLabel': 'Einmal installieren, dann starten',
+    'features.coding.recovery.haveInstall': 'Schon installiert? Festen Starter anzeigen',
     'features.coding.recovery.hint': 'Schon heruntergeladen? Starte deinen installierten ONE Worker unten und prüfe danach die Verbindung. Ein erneuter Download startet und aktualisiert den laufenden Worker nicht.',
     'features.coding.recovery.retry': 'Verbindung erneut prüfen',
     'features.coding.recovery.install': 'Noch nicht installiert? Vorhandenen Download nutzen',
@@ -1321,7 +1327,7 @@ export const messages: Messages = {
     'features.coding.card.step2': 'Einmal installieren, danach den festen Starter nutzen',
     'features.coding.card.step2Hint': 'Einmalige Einrichtung: Laufende Aufgaben fertigstellen und den alten Worker mit Ctrl+C beenden. Die heruntergeladene Datei mit der ersten Zeile installieren, mit der zweiten starten. Hat der Browser (1) angehängt, zum Installieren genau diesen Dateinamen verwenden. Danach den Desktop-Starter mit Workspace-Namen nutzen; Updates brauchen keinen neuen Download und keine neue Kopplung.',
     'features.coding.card.startLabel': 'Startbefehl',
-    'features.coding.card.needs': 'Braucht {node} und {claude}, einmal angemeldet (claude).',
+    'features.coding.card.needs': 'Braucht {node} und {git}. Nur den gewählten Coding-Anbieter einrichten: {copilot} oder {claude}. Geteiltes Atlas Flow für ONE-Textaktionen braucht keinen eigenen Modell-API-Key.',
     'features.coding.card.node': 'Node.js 22 oder neuer',
     'features.coding.card.claude': 'Claude Code',
     'features.coding.card.step3': 'Hak deine Repositories auf der Seite an, die sich öffnet',

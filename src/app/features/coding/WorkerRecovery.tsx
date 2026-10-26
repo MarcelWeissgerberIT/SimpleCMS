@@ -5,15 +5,18 @@ import { useCoding } from './state'
 import { reconnect } from './service'
 import { OsSwitch, StartBlock } from './StartBlock'
 import { installedStartLines, selectedInstallLines } from './startLines'
+import { CLOUD_WORKER_FILE, WORKER_FILE, startLines } from './download'
 
 /** Reconnecting never downloads software or rotates a pairing. Offline users can start an
  * existing installation, or select their already downloaded file for the one-time install. */
-export function WorkerRecovery({ cloud = false }: { cloud?: boolean }) {
+export function WorkerRecovery({ cloud = false, firstInstall = false }: { cloud?: boolean; firstInstall?: boolean }) {
   const t = useT()
   const [file, setFile] = useState<string | null>(null)
   const [error, setError] = useState(false)
+  const [alreadyInstalled, setAlreadyInstalled] = useState(false)
   const ws = workspaceInfo()
-  useEffect(() => { setFile(null); setError(false) }, [ws.id, cloud])
+  useEffect(() => { setFile(null); setError(false); setAlreadyInstalled(false) }, [ws.id, cloud])
+  const install = firstInstall && !alreadyInstalled
   const select = async (chosen: File | undefined) => {
     setFile(null); setError(false)
     if (!chosen) return
@@ -30,9 +33,12 @@ export function WorkerRecovery({ cloud = false }: { cloud?: boolean }) {
     } catch { setError(true) }
   }
   return <section className="cw-managed" data-testid="coding-worker-recovery">
-    <p>{t('features.coding.recovery.hint')}</p>
+    <p>{t(install ? 'features.coding.recovery.first' : 'features.coding.recovery.hint')}</p>
     <OsSwitch />
-    <StartBlock make={os => [installedStartLines(cloud ? ws.id : null, os)]} label={t('features.coding.managed.starter')} testId="coding-recovery-start" />
+    {install ? <>
+      <StartBlock make={os => [startLines(cloud ? CLOUD_WORKER_FILE : WORKER_FILE, { os, args: ['install'] }), installedStartLines(cloud ? ws.id : null, os)]} label={t('features.coding.recovery.firstLabel')} testId="coding-first-install" />
+      <button type="button" className="btn btn--sm" onClick={() => setAlreadyInstalled(true)}>{t('features.coding.recovery.haveInstall')}</button>
+    </> : <StartBlock make={os => [installedStartLines(cloud ? ws.id : null, os)]} label={t('features.coding.managed.starter')} testId="coding-recovery-start" />}
     <button type="button" className="btn btn--primary btn--sm" onClick={() => reconnect()} data-testid="coding-recovery-retry">{t('features.coding.recovery.retry')}</button>
     <details>
       <summary>{t('features.coding.recovery.install')}</summary>

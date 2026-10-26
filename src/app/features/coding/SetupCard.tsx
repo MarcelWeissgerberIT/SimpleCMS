@@ -34,6 +34,8 @@ type T = ReturnType<typeof useT>
 
 const NODE_URL = 'https://nodejs.org/en/download'
 const CLAUDE_CODE_URL = 'https://docs.anthropic.com/en/docs/claude-code/setup'
+const COPILOT_URL = 'https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli'
+const GIT_URL = 'https://git-scm.com/downloads'
 
 /** "Needs {node} and {claude}" → text with the two links in place. */
 function withLinks(text: string, links: Record<string, ReactNode>): ReactNode[] {
@@ -79,6 +81,8 @@ export function NeedsLine() {
             {t('features.coding.card.node')}
           </a>
         ),
+        git: <a href={GIT_URL} target="_blank" rel="noreferrer noopener">Git</a>,
+        copilot: <a href={COPILOT_URL} target="_blank" rel="noreferrer noopener">GitHub Copilot CLI</a>,
         claude: (
           <a href={CLAUDE_CODE_URL} target="_blank" rel="noreferrer noopener">
             {t('features.coding.card.claude')}

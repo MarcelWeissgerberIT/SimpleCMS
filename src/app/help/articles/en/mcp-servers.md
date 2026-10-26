@@ -81,3 +81,7 @@ Requests go to `api.anthropic.com`; Anthropic connects to the server while Claud
 ## Personal tokens for Claude Code
 
 [My secrets](help:personal-secrets) stores Atlas and agent tokens per person with a separate passphrase. In a coding task, explicitly grant the connections needed to the current worker. This grant is separate from regular MCP connections for browser agents; existing connections are not automatically migrated.
+
+
+## Model and permission beside the connection test
+Open a server’s **Details**. Choose an available MCP-capable model in the connection-check and guide section; ONE remembers this choice for this purpose on your device. Copilot and local models have a separate personal MCP permission beside it. Choosing a model grants no data access. Workspace restrictions still apply. Your own worker and personal Atlas access remain necessary with shared Atlas Flow; the model host receives no access tokens.
