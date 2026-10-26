@@ -10,10 +10,10 @@ import { DataFlowSettings } from '../data-flow/DataFlowSettings'
  */
 import { useEffect, useRef, useState } from 'react'
 import { ArrowRight } from 'lucide-react'
-import type { FeatureClass, MemberClass, ProviderId, RouteRule } from '@/shared/ai/types'
+import type { FeatureClass, MemberClass, ProviderId, Route, RouteRule } from '@/shared/ai/types'
 import { presetOf } from '@/shared/ai/policy'
 import { MODELS } from '@/shared/ai/models'
-import { PROVIDER_ORDER, PROVIDERS, providerInfo } from '@/shared/ai/providers'
+import { PROVIDER_ORDER, PROVIDERS, providerInfo, isWorkerProvider } from '@/shared/ai/providers'
 import { JEV_ROUTER, JEV_TIERS } from '@/shared/ai/jev'
 import { OWNER } from '@/shared/ai/owner'
 import { routeKey } from '@/shared/ai/route'
@@ -43,6 +43,7 @@ import { Rich } from './AINeedsSetup'
 import { GateSetting } from '../decide/ui/GateRow'
 import { isJevModel } from '@/shared/ai/jev'
 import { WorkerModelsSettings } from './WorkerModelsSettings'
+import { listedWorkerModelRows, workerModelInfo, useWorkerModels } from '../core/workerModels'
 import { CostSettings } from './CostSettings'
 import './plates.css'
 import './settings.css'
@@ -249,8 +250,8 @@ function Plates() {
   )
 }
 
-/** The routes a device row may pick: Claude's models (a key here), the OpenRouter list and the Jev Router (a key here). */
-function routeOptions(t: ReturnType<typeof useT>, classes: FeatureClass[]): Array<{ value: string; label: string; rule: RouteRule }> {
+/** Device defaults use the same compact worker catalog as the request picker. */
+function routeOptions(t: ReturnType<typeof useT>, classes: FeatureClass[], current?: Route): Array<{ value: string; label: string; rule: RouteRule }> {
   const s = useWorkspace.getState().settings
   const out: Array<{ value: string; label: string; rule: RouteRule }> = []
   if (hasKeyIn(s, 'anthropic')) for (const m of MODELS) if (m.route.p === 'anthropic' && m.selectable) out.push({ value: routeKey(m.route), label: m.label, rule: [{ p: 'anthropic', m: m.route.m }] })
@@ -260,6 +261,15 @@ function routeOptions(t: ReturnType<typeof useT>, classes: FeatureClass[]): Arra
     if (OWNER.jevRouter && list.length >= 2)
       for (const tier of JEV_TIERS) out.push({ value: `openrouter:${JEV_ROUTER}#${tier}`, label: t('features.ai.jev.router.row', { tier: t(`features.ai.jev.router.tier.${tier}`) }), rule: [{ p: 'openrouter', m: JEV_ROUTER, effort: tier }] })
   }
+  const preferred = current ?? s.ai?.routes?.[classes[0]!]?.[0] ?? s.ai?.default?.[0]
+  for (const m of listedWorkerModelRows(preferred)) if (classes.every(c => routable(m.route.p, c))) {
+    out.push({ value: routeKey(m.route), label: labelFor(m.route), rule: [m.route] })
+  }
+  // Keep an older saved profile visible as the current value, without advertising
+  // all retired aliases again or rewriting the person's configuration.
+  if (preferred && isWorkerProvider(preferred.p) && workerModelInfo(preferred) && classes.every(c => routable(preferred.p, c)) && !out.some(o => o.value === routeKey(preferred))) {
+    out.push({ value: routeKey(preferred), label: labelFor(preferred), rule: [preferred] })
+  }
   return out
 }
 
@@ -267,11 +277,12 @@ const valueOf = (rule: RouteRule | undefined | null): string => (rule?.[0] ? `${
 
 function DeviceRows() {
   const t = useT()
+  useWorkerModels()
   const device = useWorkspace((s) => s.settings.ai)
   // the options follow the keys and the list of this device
   useWorkspace((s) => [s.settings.aiApiKey, s.settings.aiKeys?.openrouter ?? '', s.settings.ai?.models?.length ?? 0].join('|'))
   const orKey = useWorkspace((s) => hasKeyIn(s.settings, 'openrouter'))
-  const def = routeOptions(t, ['write'])
+  const def = routeOptions(t, ['write'], device?.default?.[0])
   const set = (classes: FeatureClass[], v: string, opts: Array<{ value: string; rule: RouteRule }>) => {
     const rule = v ? (opts.find((o) => o.value === v)?.rule ?? null) : null
     for (const c of classes) setDeviceRule(c, rule)

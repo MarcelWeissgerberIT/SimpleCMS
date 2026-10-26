@@ -22,6 +22,7 @@ test('one Atlas Flow option in the UI; existing legacy routes still execute unch
     await page.getByRole('tab', { name: /AI$/ }).click()
     await expect(page.getByTestId('worker-model-settings')).toContainText('atlas-flow:latest')
     await expect(page.getByTestId('worker-model-settings').locator(':scope > ul > li')).toHaveCount(2)
+    await expect(page.getByTestId('device-row-ask')).toHaveValue('local:atlas-flow:latest')
     await page.keyboard.press('Escape')
     await page.keyboard.press(`${MOD}+k`)
     const palette = page.getByRole('dialog', { name: 'Command palette' })
@@ -41,5 +42,8 @@ test('one Atlas Flow option in the UI; existing legacy routes still execute unch
     await expect(palette.locator('.ask__answer')).toContainText('Worker text answer.')
     expect(fake.textAsked).toHaveLength(1)
     expect(fake.textAsked[0].model).toBe('marcel-flow:latest')
+    await page.keyboard.press('Escape')
+    await uiEval(page, s => s.openModal({ type: 'settings', tab: 'ai' }))
+    await expect(page.getByTestId('device-row-ask')).toHaveValue('local:marcel-flow:latest')
   } finally { await fake.close() }
 })
