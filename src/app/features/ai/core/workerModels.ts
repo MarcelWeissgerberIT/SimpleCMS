@@ -1,7 +1,8 @@
 import { assertModelFlow } from './dataFlow'
 import { sharedModelRows, sharedModels, refreshSharedModels, useSharedModels, sendSharedText } from './sharedModels'
 import { flowChoices } from './flowChoices'
-import { SHARED_PREFIX } from '@/shared/ai/shared-model'
+import { SHARED_INPUT_MAX, SHARED_PREFIX } from '@/shared/ai/shared-model'
+import { fitLocalToolContext } from '@/shared/ai/local-context'
 /** Request-only routes discovered from the paired worker. No credentials or persisted model claims. */
 import { useEffect, useSyncExternalStore } from 'react'
 import type { Caps, ModelInfo, Route } from '@/shared/ai/types'
@@ -59,6 +60,13 @@ export function useWorkerModels(): number {
 export async function sendWorkerText(route: Route, messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>, maxTokens: number, signal?: AbortSignal, extra: { tools?: WorkerFunction[]; schema?: Record<string, unknown>; attachments?: WorkerAttachment[] } = {}) {
   assertModelFlow(route.p)
   if (!isWorkerProvider(route.p)) throw new AIError('capability')
+  if (route.p === 'local') {
+    const context = workerModelInfo(route)?.caps.context ?? 32768
+    const budget = Math.min(context - Math.min(maxTokens, 16384) - 2048 - 512, route.m.startsWith(SHARED_PREFIX) ? SHARED_INPUT_MAX - 512 : Infinity)
+    try {
+      messages = fitLocalToolContext(messages, next => new TextEncoder().encode(JSON.stringify({ messages: next, tools: extra.tools, schema: extra.schema })).length <= budget)
+    } catch (e) { throw new AIError('context', e instanceof Error ? e.message : String(e)) }
+  }
   if (route.p === 'local' && route.m.startsWith(SHARED_PREFIX)) {
     if (extra.attachments?.length) throw new AIError('capability')
     try { return await sendSharedText(route.m, messages, maxTokens, signal, undefined, extra) } catch (e) { throw new AIError(signal?.aborted ? 'aborted' : 'unknown', e instanceof Error ? e.message : String(e)) }

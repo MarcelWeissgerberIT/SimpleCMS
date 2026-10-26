@@ -77,6 +77,28 @@ test.describe('Atlas Flow across workspace features',()=>{
     expect(fake.mcpAsked.find(r=>r.action==='call')).toMatchObject({name:'atlas_get',servers:[{allow:['atlas_get']}]})
   })
 
+  test('a large Atlas result fits the next local terminal round without losing the task or executing a tool twice',async({page})=>{
+    const id=await createPage(page,{title:'Local Atlas context source',content:doc(para('Approved workshop source. '.repeat(100)))})
+    await gotoPage(page,id)
+    await wsEval(page,s=>s.updateSettings({mcpServers:[{id:'atlas-context',name:'atlas',url:'https://atlas.example.org/mcp',token:'private-context-test-token',enabled:true,prompt:'Use approved Atlas sources.',tools:['atlas_whoami'],checkedAt:Date.now()}]}))
+    fake.onModelMcp=r=>r.action==='search'?{tools:[{server:'atlas',name:'atlas_whoami',description:'Read identity. '+ 'Known permission description. '.repeat(100),inputSchema:{type:'object',properties:{},additionalProperties:false}}]}:{result:JSON.stringify({content:[{type:'text',text:'Active tenant: one. '+ 'Ö🙂'.repeat(3000)}]})}
+    let round=0
+    fake.onText=r=>{const n=round++;return {model:r.model,text:n===2?'Atlas identity confirmed; active tenant one.':'',...(n<2?{calls:[n===0?{id:'find-identity',name:'one_mcp_search',arguments:{query:'atlas_whoami'}}:{id:'read-identity',name:'one_mcp_call',arguments:{server:'atlas',name:'atlas_whoami',arguments:{}}}]}:{}),inputTokens:200,outputTokens:30,usd:0}}
+    await page.evaluate(async model=>(await (window as any).__oneAI.rules()).setDeviceDefault([{p:'local',m:model}]),MODEL)
+    await page.keyboard.press(`${MOD}+j`)
+    const term=page.getByRole('region',{name:'AI terminal'}),prompt=term.getByRole('textbox',{name:'Task for the agent'})
+    const task='Use atlas_whoami and report the active tenant. Do not change anything.'
+    await prompt.fill(task);await prompt.press('Enter')
+    await expect(term.locator('.term-answer')).toContainText('Atlas identity confirmed',{timeout:20000})
+    expect(fake.textAsked).toHaveLength(3)
+    expect(JSON.stringify(fake.textAsked[2].messages)).toContain('Harness context excerpt')
+    expect(JSON.stringify(fake.textAsked[2].messages)).toContain(task)
+    for(const request of fake.textAsked)expect(Buffer.byteLength(JSON.stringify([request.messages,request.tools,request.schema]))+request.maxTokens+2048).toBeLessThan(32768)
+    expect(fake.mcpAsked.filter(r=>r.action==='call')).toHaveLength(1)
+    expect(JSON.stringify(fake.textAsked)).not.toContain('private-context-test-token')
+    expect(await wsEval(page,(s,id)=>JSON.stringify(s.pages[id].content),id)).toContain('Approved workshop source.')
+  })
+
   test('a local model cannot skip workspace discovery to stage a write',async({page})=>{
     const id=await createPage(page,{title:'Untouched source',content:doc(para('Keep this exact source.'))})
     await gotoPage(page,id)

@@ -120,4 +120,6 @@ Worker 1.34.0 adds tool-capable local Ollama models to page questions, structure
 
 The harness discovers relevant tools, reads sources and stages changes for acceptance. ONE enforces scope; the team decides. Repeated identical calls stop, missing sources and context limits stay visible, and no cloud-AI fallback happens silently.
 
+Before every local model round, ONE checks the serialized UTF-8 input budget including tool definitions and an answer reserve. When necessary, older tool results become explicitly marked excerpts first. The task, system rules, tool arguments and saved run history stay intact. Omitted facts must not be invented; retrieve a narrower source when needed. If the unchanged task itself cannot fit, ONE stops before the next inference request: start a fresh task or select a smaller source passage. It never evades the boundary by silently switching to cloud AI.
+
 With a shared model, the host performs inference. ONE tools execute in your browser; Atlas MCP uses your personal worker. The host receives approved context and tool results, never tokens. Private pages, mail and personal memory are not shared automatically. Moving the model host to a controlled VM later keeps this separation and does not require publicly exposing Ollama.
