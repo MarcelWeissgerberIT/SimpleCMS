@@ -99,6 +99,46 @@ test.describe('Atlas Flow across workspace features',()=>{
     expect(await wsEval(page,(s,id)=>JSON.stringify(s.pages[id].content),id)).toContain('Approved workshop source.')
   })
 
+  test('terminal repairs a printed MCP tag once, records discovery and never executes the printed call',async({page})=>{
+    await wsEval(page,s=>s.updateSettings({mcpServers:[{id:'atlas-format',name:'atlas',url:'https://atlas.example.org/mcp',token:'private-format-token',enabled:true,prompt:'Use approved sources.',tools:['atlas_whoami'],checkedAt:Date.now()}]}))
+    fake.onModelMcp=r=>r.action==='search'?{tools:[{server:'atlas',name:'atlas_whoami',inputSchema:{type:'object',properties:{}}}]}:{result:JSON.stringify({content:[{type:'text',text:'Identity verified from real tool receipt.'}]})}
+    let round=0
+    fake.onText=r=>{const n=round++;return {model:r.model,text:n===0?'Cannot find atlas_whoami.<tool_call>':n===3?'Atlas access verified.':'',...(n===1?{calls:[{id:'find',name:'one_mcp_search',arguments:{query:'atlas_whoami'}}]}:n===2?{calls:[{id:'identity',name:'one_mcp_call',arguments:{server:'atlas',name:'atlas_whoami',arguments:{}}}]}:{}),inputTokens:100,outputTokens:20,usd:0}}
+    await page.evaluate(async model=>(await (window as any).__oneAI.rules()).setDeviceDefault([{p:'local',m:model}]),MODEL)
+    await page.keyboard.press(`${MOD}+j`)
+    const term=page.getByRole('region',{name:'AI terminal'}),prompt=term.getByRole('textbox',{name:'Task for the agent'})
+    await prompt.fill('atlas_whoami');await prompt.press('Enter')
+    await expect(term.locator('.term-answer')).toContainText('Atlas access verified.',{timeout:20000})
+    await expect(term).not.toContainText('Cannot find atlas_whoami.')
+    await expect(term).toContainText('one_mcp_search')
+    expect(fake.textAsked).toHaveLength(4)
+    expect(JSON.stringify(fake.textAsked[1].messages)).toContain('only format-correction retry')
+    expect(fake.mcpAsked.map(r=>r.action)).toEqual(['search','call'])
+    await expect(term).toContainText('2/40')
+  })
+
+  test('a second printed tool call is a visible failure, with no execution or unbounded retry',async({page})=>{
+    fake.onText=r=>({model:r.model,text:'<tool_call>append_to_page</tool_call>',inputTokens:100,outputTokens:20,usd:0})
+    await page.evaluate(async model=>(await (window as any).__oneAI.rules()).setDeviceDefault([{p:'local',m:model}]),MODEL)
+    await page.keyboard.press(`${MOD}+j`)
+    const term=page.getByRole('region',{name:'AI terminal'}),prompt=term.getByRole('textbox',{name:'Task for the agent'})
+    await prompt.fill('Read a page.');await prompt.press('Enter')
+    await expect(term).toContainText('even after one correction',{timeout:20000})
+    expect(fake.textAsked).toHaveLength(2)
+    expect(fake.mcpAsked).toHaveLength(0)
+    await expect(term.locator('.term-answer')).toHaveCount(0)
+  })
+
+  test('text completion repairs one malformed native call and stops a second malformed response',async({page})=>{
+    await wsEval(page,s=>s.updateSettings({mcpServers:[{id:'atlas-once-format',name:'atlas',url:'https://atlas.example.org/mcp',token:'private-format-once',enabled:true,prompt:'Read sources.',tools:['atlas_whoami'],checkedAt:Date.now()}]}))
+    fake.onText=r=>({model:r.model,text:'<function=one_mcp_search>',inputTokens:100,outputTokens:20,usd:0})
+    const result=await page.evaluate(model=>(window as any).__oneAI.ask({purpose:'palette.ask',prompt:'Read Atlas identity.',mcp:'free',route:{p:'local',m:model}}),MODEL)
+    expect(result.ok).toBe(false)
+    expect(JSON.stringify(result)).toContain('features.ai.local.toolFormat')
+    expect(fake.textAsked).toHaveLength(2)
+    expect(fake.mcpAsked).toHaveLength(0)
+  })
+
   test('a local model cannot skip workspace discovery to stage a write',async({page})=>{
     const id=await createPage(page,{title:'Untouched source',content:doc(para('Keep this exact source.'))})
     await gotoPage(page,id)

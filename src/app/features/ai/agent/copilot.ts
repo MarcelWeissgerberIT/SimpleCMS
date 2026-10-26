@@ -12,6 +12,7 @@ import { sendWorkerText } from '../core/workerModels'
 import type { Turn } from '@/shared/ai/types'
 import type { WorkerFunction } from '@/shared/ai/worker'
 import { WORKER_MCP_FUNCTIONS, isWorkerMcpFunction, workerMcpSession } from '../core/workerMcp'
+import { hasTextToolCall, TOOL_FORMAT_REPAIR, WORKER_MCP_GUIDE } from '../core/toolFormat'
 import { AGENT_SYSTEM, type runAgent, type RunEnd } from './run'
 import { TERMINAL_TOOLS, MAX_TOOL_CALLS, RESULT_CHARS, argLabel, clipResult, withReadLimit, withToolScope } from './tools'
 
@@ -43,11 +44,11 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
   const shape = shapeOf(prepared), seen = shape ? prepared.visible : null
   const tools = opts.tools ?? TERMINAL_TOOLS
   let remote: ReturnType<typeof workerMcpSession> | null = null
-  let calls = 0, rounds = 0, spent = 0
+  let calls = 0, rounds = 0, spent = 0, formatRepairs = 0
   const used: import('@/shared/ai/types').Usage[] = [], repeated = new Map<string, number>()
   const call = meterCall(prepared, { source: opts.run?.source ?? opts.ledgerSource, signal })
   const local = route.p === 'local' ? localWorkspaceTools(tools) : null
-  const system = (opts.system ?? AGENT_SYSTEM) + (opts.mcp ? '\n\n' + opts.mcp.system : '') + (local ? LOCAL_WORKSPACE_GUIDE : '')
+  const system = (opts.system ?? AGENT_SYSTEM) + (opts.mcp ? '\n\n' + opts.mcp.system + WORKER_MCP_GUIDE : '') + (local ? LOCAL_WORKSPACE_GUIDE : '')
   // Credentials remain only on the authenticated worker/MCP path, never in definitions or messages.
   if (opts.mcp) {
     if (!opts.mcp.worker || !prepared.allows('mcp')) throw new AIError('capability', 'Selected MCP connections are unavailable on this route.')
@@ -65,16 +66,19 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
       const turn: Turn = { kind: 'chat', parts: [{ type: 'text', text: result.text }], stop: result.calls?.length ? 'tool_calls' : 'end', usage, served: result.model, streamedChars: result.text.length }
       const entry = call.response(neutralResponse(turn, { price: priceFor(prepared.route!), promptChars: system.length + JSON.stringify(messages).length + JSON.stringify(definitions).length }))
       if (entry) { spent += entry.usd ?? 0; used.push(entry.usage); hooks.usage(entry.usage, entry) }
-      if (result.text) hooks.text(result.text)
-      hooks.textDone(result.calls?.length ? 'note' : 'answer')
+      const repair = !!local && !result.calls?.length && hasTextToolCall(result.text)
+      if (repair && formatRepairs++ >= 1) throw new AIError('capability', 'features.ai.local.toolFormat')
+      if (result.text && !repair) hooks.text(result.text)
+      if (!repair) hooks.textDone(result.calls?.length ? 'note' : 'answer')
       messages.push({ role: 'assistant', content: [...(result.text ? [{ type: 'text' as const, text: result.text }] : []), ...(result.calls ?? []).map(c => ({ type: 'tool_use' as const, id: c.id, name: c.name, input: c.arguments }))] })
-      if (!result.calls?.length) return calls >= MAX_TOOL_CALLS ? 'limit' as const : 'done' as const
+      if (!result.calls?.length && !repair) return calls >= MAX_TOOL_CALLS ? 'limit' as const : 'done' as const
       if (used.length) {
         const verdict = await beforeRound({ prepared, spent, last: used[used.length - 1]!, steps: used, pending: { low: 0, high: 0 }, mcpIterations: 0, cold: true, history: () => messages, thinks: () => false, mcpAttached: false })
         if ('stop' in verdict || 'halt' in verdict) { if ('stop' in verdict) hooks.held?.(verdict); return 'held' as const }
       }
+      if (repair) { messages.push({role:'user',content:TOOL_FORMAT_REPAIR}); continue }
       const results = []
-      for (const c of result.calls) {
+      for (const c of result.calls ?? []) {
         assertPreparedFlow(prepared)
         if (signal.aborted) throw new AIError('aborted')
         const key = JSON.stringify([c.name, c.arguments]), n = (repeated.get(key) ?? 0) + 1

@@ -11,11 +11,12 @@ import { sendWorkerText } from './workerModels'
 import { neutralResponse } from './meter'
 import type { NeutralOpts } from './call'
 import type { McpCall } from '../mcp-servers/activity'
+import { hasTextToolCall, TOOL_FORMAT_REPAIR, WORKER_MCP_GUIDE } from './toolFormat'
 export async function sendCopilotCompletion(prepared: Prepared, req: ChatRequest, o: NeutralOpts): Promise<Turn> {
   if (req.tools?.length) throw new AIError('capability')
   const material = new CopilotContent(o.signal)
-  const messages = [{ role: 'system' as const, content: req.system + (o.mcp ? '\n\n' + o.mcp.system : '') }, ...await Promise.all(req.messages.map(async m => ({ role: m.role, content: (await Promise.all(m.parts.map(p=>material.part(p)))).join('\n') })))]
-  let remote: ReturnType<typeof workerMcpSession> | null = null, spent = 0
+  const messages = [{ role: 'system' as const, content: req.system + (o.mcp ? '\n\n' + o.mcp.system + WORKER_MCP_GUIDE : '') }, ...await Promise.all(req.messages.map(async m => ({ role: m.role, content: (await Promise.all(m.parts.map(p=>material.part(p)))).join('\n') })))]
+  let remote: ReturnType<typeof workerMcpSession> | null = null, spent = 0, formatRepairs = 0
   const used: Usage[] = [], activity: McpCall[] = [], repeated = new Set<string>()
   if (o.mcp) {
     if (!prepared.allows('mcp') || !o.mcp.worker) throw new AIError('policy', 'mcp')
@@ -29,11 +30,14 @@ export async function sendCopilotCompletion(prepared: Prepared, req: ChatRequest
     const turn: Turn = { kind: 'chat', parts: [{ type: 'text', text: result.text }], stop: result.calls?.length ? 'tool_calls' : 'end', usage, served: result.copilotReceipt?.models.at(-1) ?? null, streamedChars: result.text.length }
     const entry = o.call.response(neutralResponse(turn, { price: priceFor(prepared.route!), promptChars: JSON.stringify(messages).length + JSON.stringify(tools).length }))
     if (entry) { used.push(entry.usage); spent += entry.usd ?? 0 }
-    if (!result.calls?.length) { o.onToken?.(result.text); return turn }
+    const repair = prepared.provider==='local' && tools.length>0 && !result.calls?.length && hasTextToolCall(result.text)
+    if (repair && formatRepairs++ >= 1) throw new AIError('capability','features.ai.local.toolFormat')
+    if (!result.calls?.length && !repair) { o.onToken?.(result.text); return turn }
     const verdict = used.length ? await beforeRound({ prepared, spent, last: used[used.length - 1]!, steps: used, pending: { low: 0, high: 0 }, mcpIterations: 0, cold: true, history: () => [], thinks: () => false, mcpAttached: false }) : {go:true}
     if (!('go' in verdict)) throw new AIError('budget')
     messages.push({ role: 'assistant', content: JSON.stringify({ content: result.text, tool_calls: result.calls }) })
-    for (const c of result.calls) {
+    if (repair) { messages.push({role:'user',content:TOOL_FORMAT_REPAIR}); continue }
+    for (const c of result.calls ?? []) {
       if (o.signal?.aborted) throw new AIError('aborted')
       const key = JSON.stringify([c.name,c.arguments])
       if(!remote)throw new AIError('capability')
