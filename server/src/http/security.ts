@@ -7,7 +7,9 @@ import { ApiError } from '../errors.ts'
  * CSP for the app and landing page:
  * - scripts/styles/fonts come from this origin (inline styles: the boot screen, React style props, KaTeX)
  * - connect: own API + /collab websocket, plus any https: — the browser calls api.anthropic.com with the
- *   user's own key and posts automation webhooks to user-configured endpoints (n8n, Make, Zapier …)
+ *   user's own key and posts automation webhooks to user-configured endpoints (n8n, Make, Zapier …).
+ *   The Local worker/MCP transport uses numeric IPv4 loopback only, on the person's chosen port;
+ *   its own Origin/Host checks, workspace pairing and browser device-access permission still apply.
  * - frames: page embeds (YouTube, Figma, Maps, any https page); the app itself may never be framed
  */
 export function appCsp(config: Config): string {
@@ -20,7 +22,7 @@ export function appCsp(config: Config): string {
     "img-src 'self' data: blob: https:",
     "font-src 'self' data:",
     "media-src 'self' data: blob: https:",
-    `connect-src 'self' ${ws} https:`,
+    `connect-src 'self' ${ws} https: ws://127.0.0.1:*`,
     // blob: the PDF viewer shows a local file through the browser's own viewer
     'frame-src https: blob:',
     "worker-src 'self' blob:",

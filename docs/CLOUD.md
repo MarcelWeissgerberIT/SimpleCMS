@@ -1261,8 +1261,10 @@ Work orders (docs/CODING.md § Work orders) need nothing new from the server:
   "Ohne Bestätigung starten" does not exist in a team.
 - **Data rules** of the workspace apply to the planner like to any request; a member's refusal reads "Regel des
   Arbeitsbereichs — eine Admin kann sie ändern" (no change key).
-- A team server's CSP (`connect-src 'self' <own ws> https:`) refuses a **Local** worker link (`ws://127.0.0.1:<port>`) in
-  the app it serves — on a self-hosted server a member uses the Cloud worker (pre-existing, not specific to work orders).
+- The team app supports **Local** worker/MCP links on numeric IPv4 loopback (`ws://127.0.0.1:<port>`), including
+  a person's chosen port. CSP allows that exact host only, not arbitrary plaintext WebSockets or LAN targets.
+  Chrome device-access permission and the worker's Origin/Host allowlist plus workspace pairing still apply.
+  **Cloud** remains the outbound, encrypted team-relay route for a worker on another computer.
 
 ## Security notes
 
@@ -1299,7 +1301,7 @@ Work orders (docs/CODING.md § Work orders) need nothing new from the server:
   120/min) and 30 failed authentications per client IP per minute; the usual 256 KB body limit.
 - Security headers on all responses (CSP for the app, frame-ancestors 'none', referrer policy).
 - As implemented: the app CSP allows scripts/styles/fonts from the origin only (`'unsafe-inline'` for
-  styles), `connect-src 'self' wss://<host> https:` — `https:` because the browser calls
+  styles), `connect-src 'self' wss://<host> https: ws://127.0.0.1:*` — `https:` because the browser calls
   api.anthropic.com with the user's own key **and** posts automation webhooks to user-chosen endpoints —
   and `frame-src https:` for page embeds. API responses get `default-src 'none'; sandbox`; downloads a
   sandboxed CSP. Also `nosniff`, `X-Frame-Options: DENY`, COOP `same-origin`, a restrictive

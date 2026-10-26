@@ -37,6 +37,11 @@ test('landing, app shell and SPA fallback', async () => {
     assert.ok(csp.includes(part), `CSP has ${part}`)
   }
   assert.match(csp, /connect-src 'self' ws:\/\/localhost:\d+ https:/)
+  assert.ok(csp.includes('ws://127.0.0.1:*'), 'the Local worker advertised by ONE remains reachable from the team app')
+  const connect = csp.split(';').find(p => p.trim().startsWith('connect-src'))!.trim().split(/\s+/).slice(1)
+  // The fixture's configured public URL uses localhost:0; its listener gets a random port.
+  assert.deepEqual([connect[0], ...connect.slice(2)], ["'self'", 'https:', 'ws://127.0.0.1:*'])
+  assert.ok(!connect.includes('ws:') && !connect.includes('*'), 'no arbitrary plaintext WebSocket or LAN targets')
   assert.equal(landing.h('x-frame-options'), 'DENY')
   assert.equal(landing.h('x-content-type-options'), 'nosniff')
 

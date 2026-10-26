@@ -1,6 +1,40 @@
-import { test, expect, openApp } from './fixtures'
+import { test, expect, openApp, waitForApp } from './fixtures'
 import { startFakeWorker } from './helpers/fakeWorker'
+import { appCsp } from '../../server/src/http/security'
+import { createServer } from 'node:http'
 const PORT=47443
+
+test('the team-server CSP allows the paired Local worker and a granted workspace shows its fixed host without management rights',async({page,errors})=>{
+  errors.allow(/WebSocket connection to 'ws:\/\/127\.0\.0\.1/)
+  const port=47445
+  const worker=await startFakeWorker(port,{worker:'1.33.1',name:'installed-host',repos:[{name:'demo',baseBranch:'main'}],parallel:1,busy:[],spentToday:0,dayLimit:null,claude:{found:true,version:'fixture'},managedHost:true,paired:true,via:'local'})
+  // Serve real HTTP responses: Playwright route.fulfill marks synthetic responses
+  // as public address space, introducing an unrelated Chrome device-access gate.
+  const upstream=String(test.info().project.use.baseURL)
+  const proxy=createServer(async(req,res)=>{
+    try{
+      const response=await fetch(new URL(req.url!,upstream),{redirect:'manual'})
+      const headers=Object.fromEntries(response.headers)
+      delete headers['content-encoding'];delete headers['content-length']
+      const origin='http://127.0.0.1:'+String((proxy.address() as any).port)
+      if(headers['content-type']?.includes('text/html'))headers['content-security-policy']=appCsp({publicUrl:origin} as any)
+      res.writeHead(response.status,headers);res.end(Buffer.from(await response.arrayBuffer()))
+    }catch{res.writeHead(502);res.end()}
+  })
+  await new Promise<void>(resolve=>proxy.listen(0,'127.0.0.1',resolve))
+  try{
+    const url=new URL('app/?e2e',upstream);url.port=String((proxy.address() as any).port)
+    await page.goto(url.href);await waitForApp(page)
+    await page.evaluate(()=>(window as any).__one.ui.getState().openModal({type:'settings'}))
+    await page.getByRole('tab',{name:/Coding worker|Coding-Worker/}).click()
+    await page.getByLabel('Port',{exact:true}).fill(String(port));await page.getByLabel('Port',{exact:true}).press('Enter')
+    await page.getByRole('switch',{name:'Connect to a coding worker on this computer'}).click()
+    await expect(page.getByTestId('coding-conn')).toContainText('Connected')
+    await expect(page.getByTestId('coding-managed-host')).toContainText('v1.33.1')
+    await expect(page.getByTestId('coding-install-existing')).toHaveCount(0)
+    await expect(page.getByTestId('coding-managed-update')).toHaveCount(0)
+  }finally{await worker.close();await new Promise<void>(resolve=>proxy.close(()=>resolve()))}
+})
 
 test('fixed installation separates update, waiting, cancel, rollback and re-pairing; responsive plate',async({page,errors})=>{
   errors.allow(/WebSocket connection to 'ws:\/\/127\.0\.0\.1/)
