@@ -2,6 +2,8 @@ import { isTestAccess } from '../../../cloud/testScope'
 import { flowAllows, flowPageVisible, flowRestrictions, assertModelFlow, flowSignature } from './dataFlow'
 import { inferencePlace } from '@/shared/ai/dataFlow'
 import { SHARED_PREFIX } from '@/shared/ai/shared-model'
+import { sharedModels } from './sharedModels'
+import { flowChoices } from './flowChoices'
 import { workerProviderReady, workerModelRows } from './workerModels'
 import { isWorkerProvider } from '@/shared/ai/providers'
 /**
@@ -892,7 +894,7 @@ export function routeChoices(purposeId: PurposeId, o: { sources?: readonly Sourc
   // Claude's models (a key here)
   const claudeKey = !!s.settings.aiApiKey.trim()
   if (claudeKey) for (const m of MODELS) if (m.route.p === 'anthropic' && m.selectable) add(row({ p: 'anthropic', m: m.route.m }, 'models'))
-  for (const model of workerModelRows()) add(row(model.route, 'models'))
+  for (const choice of flowChoices(workerModelRows().map(model => row(model.route, 'models')), sharedModels(), now)) add(choice)
   // the OpenRouter shortlist (a key here)
   const orKey = hasAIKey('openrouter')
   const list = shortlist()

@@ -1,5 +1,6 @@
 import { assertModelFlow } from './dataFlow'
-import { sharedModelRows, refreshSharedModels, useSharedModels, sendSharedText } from './sharedModels'
+import { sharedModelRows, sharedModels, refreshSharedModels, useSharedModels, sendSharedText } from './sharedModels'
+import { flowChoices } from './flowChoices'
 import { SHARED_PREFIX } from '@/shared/ai/shared-model'
 /** Request-only routes discovered from the paired worker. No credentials or persisted model claims. */
 import { useEffect, useSyncExternalStore } from 'react'
@@ -18,6 +19,7 @@ const listeners = new Set<() => void>()
 const publish = (next: ModelInfo[]) => { if (!next.length) details=[]; rows = next; revision++; for (const fn of listeners) fn() }
 let loading: Promise<void> | null = null
 export const workerModelRows = () => [...rows, ...sharedModelRows()]
+export const listedWorkerModelRows = (preferred?: Route | null) => flowChoices(workerModelRows(), sharedModels(), preferred)
 export const workerModelInfo = (route: Route) => workerModelRows().find(r => r.route.p === route.p && r.route.m === route.m) ?? null
 export const workerProviderReady = (p: string) => (p === 'local' && sharedModelRows().length > 0) || (useCoding.getState().conn === 'connected' && rows.some(r => r.route.p === p))
 

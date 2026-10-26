@@ -6,7 +6,7 @@ import { useT } from '../../../i18n'
 import { useWorkspace } from '../../../store/store'
 import { aiRulesAllowed, setDeviceAI, setWorkspaceAI } from '../../../store/aiRules'
 import { useCoding, openCodingSettings } from '../../coding'
-import { useWorkerModels, workerModelRows, refreshWorkerModels } from '../core/workerModels'
+import { useWorkerModels, listedWorkerModelRows, refreshWorkerModels } from '../core/workerModels'
 import { MemberData } from './MemberData'
 import { DataRules } from '../routing/DataRules'
 
@@ -18,7 +18,7 @@ export function WorkerModelsSettings() {
   const ws = useWorkspace(s => s.ai)
   const device = useWorkspace(s => s.settings.ai)
   const connected = useCoding(s => s.conn === 'connected' && !!s.can?.includes('text-models'))
-  const models = workerModelRows()
+  const models = listedWorkerModelRows(device?.routes?.ask?.[0] ?? device?.default?.[0] ?? ws?.routes?.ask?.[0] ?? ws?.routes?.['*']?.[0])
   return <section className="aip__section" data-testid="worker-model-settings">
     <h4 className="st-h">{t('features.ai.prov.chip.workerTitle')}</h4>
     <p className="st-p">{t('features.ai.prov.chip.workerDetail')}</p>
