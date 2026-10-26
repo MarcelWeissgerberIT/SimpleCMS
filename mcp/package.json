@@ -1,8 +1,8 @@
 {
   "name": "one-mcp",
   "private": true,
-  "version": "1.32.2",
-  "description": "SimpleCMS One \u2014 local MCP bridge: lets Claude Desktop, Claude Code or any MCP client work in the One tab open in your browser.",
+  "version": "1.33.0",
+  "description": "SimpleCMS One — local MCP bridge: lets Claude Desktop, Claude Code or any MCP client work in the One tab open in your browser.",
   "license": "MIT",
   "type": "module",
   "engines": {

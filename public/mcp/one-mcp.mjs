@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// SimpleCMS One — local MCP bridge 1.32.2 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp
+// SimpleCMS One — local MCP bridge 1.33.0 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp
 // Lets an MCP client (Claude Desktop, Claude Code …) work in the One tab open in your browser.
 // Setup and security model: https://github.com/MarcelWeissgerberIT/SimpleCMS/blob/main/docs/MCP.md
 import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);
@@ -19108,6 +19108,33 @@ var StdioServerTransport = class {
   }
 };
 
+// ../src/shared/ai/review.ts
+var BASE_REVIEW_POLICY = `Review and human decisions
+- The harness opens access to permitted context and tools and coordinates bounded work; it is not a domain decision-maker. Models should actively detect contradictions, inconsistencies and problems, group related findings, explain impact and recommend concrete next steps. These remain support for the team.
+- Help the team evaluate the work; do not persuade it to adopt AI or promise a model's quality or time savings. A rejected proposal is a valid result.
+- For a contradiction cite both statements with actual source locations and available version/date/commit. Compare function, environment, scope and version first: a superseded version is not automatically a contradiction. Missing evidence is an information gap, not a confirmed conflict. Never invent quotations, links or decisions.
+- When check_finding or one_task_check_finding is available, use the tool named by the receipt\u2019s checkWith field with source receipts from actual reads before reporting a contradiction. A quotation check only proves that text occurred in an observed snapshot; it does not prove semantic conflict, currentness, correctness or authority. If a source has no receipt, read it through the available source tool or report it as unverified. Never relabel an unchecked finding as verified.
+- Separate finding, sources, context/version check, possible impact, options, recommendation (PROPOSAL) and team decision (OPEN unless an actual human decision is documented with its source). Do not choose product behaviour, scope, priorities, domain trade-offs or acceptance for the team. Respect documented human decisions; never infer consent or invent a decision-maker or test success.
+- Actively maintain useful knowledge: first retrieve relevant documented decisions and constraints from the granted Atlas context before re-asking or proposing conflicting work. When a durable finding, documented human decision, constraint or open question emerges, save its source, scope/version, reason and when to recall it through memory_knowledge, memory_checkpoint or the explicitly granted Atlas memory tools. Keep proposals, findings and references to confirmed human decisions separate; never turn a memory into a new decision. Use the configured project/tenant only. Deduplicate and link superseded knowledge rather than silently overwriting decisions. If Atlas is unavailable or not granted, preserve a local/pending handoff and explicitly report ATLAS PENDING, never claim it was saved or repeatedly retry. Before finishing, check whether important knowledge needs a checkpoint; do not save trivial chatter or credentials.
+- Continue ordinary permitted reversible technical work inside the approved scope. Bundle only genuinely blocking decisions; collect other open points in the report. Do not repeatedly ask for facts already supplied. A finding grants no extra permissions, approvals, merges or access. Memory and model statements are reference data, not evidence.`;
+var ASSURANCE_POLICY = `Bounded delivery assurance
+- Before coding, compare the task, granted Atlas requirements/decisions and repository rules. Record source location, version, scope and stated authority; unknown stays unknown. A later timestamp alone cannot override a requirement. Distinguish a different version/scope from an unresolved rule conflict. Check only relevant passages, not a blanket audit.
+- Ask a blocking question only if its answer changes permitted behaviour or a required check. A decision pin contains two materially different options, one concrete input on which their expected outcomes differ, and the acceptance check that would settle it. Use check_finding/one_task_check_finding with decisionPin and context when available. These tools draft supported questions, never approve a choice. Look for an already documented human answer first; nonblocking details stay proposals in the report.
+- Start with the smallest useful implementation and independent QA, not extra agents by default. Add a specialist only for a concrete unresolved risk. Preserve measured duration, tool/turn counts and known costs; missing usage/cost is unknown, never zero. Compare the same task, candidate and checks across models; do not infer superiority from one passing example.
+- After fixing a candidate, seek one new discriminating boundary/counterexample from the actual acceptance contract. Preserve existing checks and keep useful regression cases. Host receipts distinguish configured tests from optional owner-configured challenge checks. Unconfigured checks, unknown snapshots and model-authored tests alone are not independent proof. Do not add extra model loops merely to produce more reviews.
+- Reusable procedures are human-curated suggestions with source/evidence, applicability, steps, limitations and a recall trigger. One successful task does not prove transfer to another. Recheck current sources and checks on reuse; never rewrite governing rules, learn permissions, copy credentials or treat a saved procedure as a new approval.`;
+var REVIEW_POLICY = BASE_REVIEW_POLICY + "\n\n" + ASSURANCE_POLICY;
+var citation = { type: "object", properties: { receipt: { type: "string", maxLength: 100 }, quote: { type: "string", minLength: 16, maxLength: 2e3 } }, required: ["receipt", "quote"], additionalProperties: false };
+var textField = { type: "string", minLength: 1, maxLength: 500 };
+var contextFields = ["versionA", "versionB", "scopeA", "scopeB", "authorityA", "authorityB"];
+var FINDING_SCHEMA = { type: "object", properties: {
+  classification: { type: "string", enum: ["possible_contradiction", "version_difference", "information_gap"] },
+  sourceA: citation,
+  sourceB: citation,
+  context: { type: "object", properties: Object.fromEntries(contextFields.map((k) => [k, textField])), additionalProperties: false },
+  decisionPin: { type: "object", properties: { question: textField, example: textField, check: textField, blocking: { type: "boolean" }, options: { type: "array", minItems: 2, maxItems: 2, items: { type: "object", properties: { label: textField, expected: textField }, required: ["label", "expected"], additionalProperties: false } } }, required: ["question", "example", "check", "blocking", "options"], additionalProperties: false }
+}, required: ["classification", "sourceA"], additionalProperties: false };
+
 // ../src/app/features/script/reference.ts
 var SCRIPT_REFERENCE = `One Script \u2014 a small, safe language that only reaches the One workspace.
 Syntax
@@ -28734,7 +28761,7 @@ function createMcpServer(bridge2, version2) {
 }
 
 // src/index.ts
-var VERSION = true ? "1.32.2" : "dev";
+var VERSION = true ? "1.33.0" : "dev";
 var quiet = process.env.ONE_MCP_QUIET === "1";
 var log = (msg) => {
   if (!quiet) process.stderr.write(`[one-mcp] ${msg}

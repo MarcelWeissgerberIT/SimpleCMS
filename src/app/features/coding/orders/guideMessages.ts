@@ -1,6 +1,14 @@
 import type { Messages } from '@/shared/i18n'
 export const messages: Messages = {
   de: {
+    'features.coding.guide.patternBodyLabel': 'Einsatz, Vorgehen und Grenzen',
+    'features.coding.guide.issue.candidate': 'Der Teststand ist unbekannt, wurde verändert oder die konfigurierte Gegenprobe ist nicht bestanden. Abschließende QA mit aktuellem Worker erneut ausführen.',
+    'features.coding.guide.pattern': 'Arbeitsmuster entwerfen',
+    'features.coding.guide.patternHint': 'Nur die Vorgehensweise festhalten: Wann passt sie, welche Schritte helfen, wo liegen die Grenzen? Der Nachweis gilt für diesen Auftrag. Übertragbarkeit auf andere Aufgaben ist noch nicht belegt.',
+    'features.coding.guide.patternTitle': 'Arbeitsmuster aus diesem Auftrag',
+    'features.coding.guide.patternBody': 'Einsatz / Abruf: …\nVorgehen: …\nGrenzen / Gegenbeispiele: …\nBei Wiederverwendung: aktuelle Quellen und Tests prüfen.\nÜbertragung auf andere Aufgaben: noch nicht belegt.',
+    'features.coding.guide.patternSave': 'Geprüftes Muster im Gedächtnis speichern',
+    'features.coding.guide.patternSaved': 'Arbeitsmuster im One-Gedächtnis gespeichert. Es ist eine Arbeitshilfe, keine neue Freigabe.',
     "features.coding.guide.packetLimit": "Nachweispaket aus tatsächlichen Gerätebeobachtungen. Fehlende Angaben bleiben unbekannt; es enthält keine Rohprompts oder Zugangsdaten. Der gespeicherte Stand ersetzt keine erneute Prüfung späterer Änderungen.",
     "features.coding.guide.packetJson": "Strukturierter Nachweis · JSON zum Kopieren",
     "features.coding.guide.packetTitle": "Nachweispaket",
@@ -79,6 +87,14 @@ export const messages: Messages = {
     'features.coding.guide.note': 'ONE nutzt diese Seite als Ausgangspunkt, schlägt Arbeitspakete vor und begleitet sie bis zur Abnahme. Rückfragen nur bei entscheidenden Lücken; Ausführung nach dem Planstart.',
   },
   en: {
+    'features.coding.guide.patternBodyLabel': 'Applicability, steps and limitations',
+    'features.coding.guide.issue.candidate': 'The tested candidate is unknown, changed, or its configured challenge did not pass. Rerun final QA using the current worker.',
+    'features.coding.guide.pattern': 'Draft a reusable procedure',
+    'features.coding.guide.patternHint': 'Keep the method: when it applies, useful steps and limitations. This receipt covers this delivery only. Transfer to other tasks has not been established.',
+    'features.coding.guide.patternTitle': 'Procedure from this delivery',
+    'features.coding.guide.patternBody': 'Applicability / recall trigger: …\nSteps: …\nLimitations / counterexamples: …\nOn reuse: recheck current sources and tests.\nTransfer to other tasks: not established.',
+    'features.coding.guide.patternSave': 'Save reviewed procedure in memory',
+    'features.coding.guide.patternSaved': 'Procedure saved in One memory. It is a work aid, not a new approval.',
     "features.coding.guide.packetLimit": "Evidence packet from actual device observations. Missing data stays unknown; it contains no raw prompts or credentials. The saved snapshot does not replace rechecking later changes.",
     "features.coding.guide.packetJson": "Structured evidence \u00b7 JSON to copy",
     "features.coding.guide.packetTitle": "Evidence packet",

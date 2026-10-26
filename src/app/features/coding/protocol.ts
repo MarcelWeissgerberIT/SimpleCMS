@@ -550,7 +550,8 @@ export interface GitInfo {
 
 export interface TestResult {
   /** Actual host execution only; absent for legacy/skipped/not-started checks. Never inferred from model text. */
-  execution?: { command:string[]; commit:string|null; dirty:boolean; changedDuring:boolean; platform:string; startedAt:number; finishedAt:number }
+  execution?: import('../../../shared/coding/evidence').HostExecution
+  challenge?: import('../../../shared/coding/evidence').ChallengeEvidence
 
   ok: boolean
   /** the output's tail (paths of this machine replaced) */
@@ -564,6 +565,7 @@ export interface TestResult {
 export type OutcomeStatus = 'ok' | 'failed' | 'question' | 'stopped' | 'limit' | 'refused'
 
 export interface StageOutcome {
+  runEvidence?: import('../../../shared/coding/evidence').StageRunEvidence
   copilotReceipts?: import('../../../shared/copilot').CopilotReceipt[]
   status: OutcomeStatus
   /** Claude's closing summary / what the git stage did */

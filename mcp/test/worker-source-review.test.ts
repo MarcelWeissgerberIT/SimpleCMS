@@ -40,7 +40,7 @@ test('common local adapter verifies quotations and captures source-backed knowle
     default:return call('finish_task',{status:'completed',summary:'Constraint captured with source; no domain decision made.',next:''})
    }
   }})
-  assert.equal(run.ok,true,run.error);assert.ok(results.some(s=>s.includes('semanticConflict')&&s.includes('not_verified')))
+  assert.equal(run.ok,true,run.error);assert.equal(run.cost,undefined,'An adapter without a cost meter must not invent zero cost');assert.ok(results.some(s=>s.includes('semanticConflict')&&s.includes('not_verified')))
   assert.ok(results.some(s=>s.includes('candidate_not_a_team_decision')));assert.match(run.text,/ATLAS PENDING/)
  } finally { await rm(cwd,{recursive:true,force:true}) }
 })

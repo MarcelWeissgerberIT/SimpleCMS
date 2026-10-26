@@ -45,3 +45,14 @@ test('quotation checks cannot stitch separate JSON fields into a fabricated pass
  const check = s.check({classification:'possible_contradiction',sourceA:{receipt:observed._oneSource.receipt,quote:'First unrelated statement.\nSecond unrelated statement.'}})
  assert.equal(check.sourceA.verified,false)
 })
+
+test('decision pins preserve a separating example and check; authority and human decision stay unverified',()=>{
+ const s=new ReviewSources(),sourceA=observed(s,quoteA),sourceB=observed(s,quoteB)
+ const decisionPin={question:'Which timeout applies?',example:'A response arrives at 20 seconds.',check:'Boundary fixture: response at 20 seconds',blocking:true,options:[{label:'10 seconds',expected:'Timeout'},{label:'30 seconds',expected:'Success'}]}
+ const input={classification:'possible_contradiction',sourceA,sourceB,context:{scopeA:'simulator',scopeB:'simulator',versionA:'R1',versionB:'old notes',authorityA:'project requirement'},decisionPin}
+ const out=s.check(input);assert.equal(out.decisionPin?.readyToAsk,true);assert.equal(out.decisionPin?.teamDecision,'open');assert.equal(out.context?.authority,'not_verified');assert.equal(out.decisionPin?.saveAs,'open_question_not_a_decision')
+ assert.equal(s.check({...input,decisionPin:{...decisionPin,blocking:false}}).decisionPin?.readyToAsk,false)
+ s.clear();assert.equal(s.check(input).decisionPin?.readyToAsk,false)
+ for(const bad of [{...decisionPin,approved:true},{...decisionPin,example:''},{...decisionPin,options:[{label:'A',expected:'same'},{label:'B',expected:'same'}]}])assert.throws(()=>s.check({...input,decisionPin:bad}))
+ assert.throws(()=>s.check({...input,context:{authority:'approved by model'}}))
+})

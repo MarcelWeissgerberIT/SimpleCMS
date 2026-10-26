@@ -110,6 +110,7 @@ export interface PageRepo extends FoundRepo {
   mcp: string
   /** the Static analysis stage's command as one line (configured, else the guess) */
   analyzeLine: string
+  challengeLine?: string
   /** Claude Code may load this repo's own settings (worker.json says so, else: on unless `source`) */
   ownSettings: boolean
   /** why it counts as code from elsewhere — its own settings off by default (config.ts sourceOf); null: the person's own */
@@ -281,6 +282,7 @@ export class SetupServer {
         testLine: joinArgs(r.testCommand),
         mcp: r.claude.mcpServers.join(', '),
         analyzeLine: joinArgs(r.analyzeCommand),
+        challengeLine: joinArgs(r.challengeCommand ?? null),
         ownSettings: r.claude.projectSettingsSet ? r.claude.projectSettings : source === null,
         source,
         allowed: [...r.claude.allowedTools],
@@ -513,6 +515,7 @@ export class SetupServer {
         if (mcpServers.length > 20) return ['At most 20 MCP servers per repository.']
       }
       const analyze = typeof item.analyze === 'string' ? splitArgs(item.analyze) : undefined
+      const challenge = typeof item.challenge === 'string' ? splitArgs(item.challenge) : undefined
       // the switch "Use this repo's own Claude Code settings" (absent: leave worker.json as it is)
       const projectSettings = typeof item.projectSettings === 'boolean' ? item.projectSettings : undefined
       // the host type (absent or unknown: leave worker.json as it is)
@@ -526,7 +529,7 @@ export class SetupServer {
         const was = Array.isArray(item.allowedWas) ? (item.allowedWas as unknown[]).filter((x): x is string => typeof x === 'string') : repo.allowed
         allowedRemove = was.filter((rule) => !kept.includes(rule))
       }
-      choices.push({ path: repo.path, name, baseBranch, remote: repo.remote, testCommand: test?.length ? test : null, ...(analyze !== undefined ? { analyzeCommand: analyze?.length ? analyze : null } : {}), push: item.push === true, pr: item.pr === 'none' ? 'none' : 'gh', maxUsdPerTask: limit, mcpServers, projectSettings, ...(forge !== undefined ? { forge } : {}), ...(allowedRemove?.length ? { allowedRemove } : {}) })
+      choices.push({ path: repo.path, name, baseBranch, remote: repo.remote, testCommand: test?.length ? test : null, ...(challenge !== undefined ? { challengeCommand: challenge?.length ? challenge : null } : {}), ...(analyze !== undefined ? { analyzeCommand: analyze?.length ? analyze : null } : {}), push: item.push === true, pr: item.pr === 'none' ? 'none' : 'gh', maxUsdPerTask: limit, mcpServers, projectSettings, ...(forge !== undefined ? { forge } : {}), ...(allowedRemove?.length ? { allowedRemove } : {}) })
     }
     let workerMcp: string[] | undefined
     if (isObj(body) && typeof body.mcpServers === 'string') {

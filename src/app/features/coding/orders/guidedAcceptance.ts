@@ -1,4 +1,4 @@
-import {readHostExecution,evidenceMarker} from '@/shared/coding/evidence'
+import {readHostExecution,readChallenge,readStageRun,evidenceMarker} from '@/shared/coding/evidence'
 import type { JSONContent } from '@tiptap/core'
 import { useWorkspace } from '../../../store/store'
 import { useCloud } from '../../../cloud'
@@ -61,7 +61,8 @@ export async function acceptanceSnapshot(rowId: string, rec: OrderRecord): Promi
   const request = { ...row, content: { type: 'doc', content: row.content?.content?.filter(b => b.attrs?.id !== own) ?? [] } }
   const pageHashes = await Promise.all(steps.map(async s => [s.id, await pageFp(ws.pages[s.id])] as const))
   const modelEvidence=steps.flatMap(s=>(taskLocal(s.id).copilotRuns??[]).slice(-8).map(run=>({task:s.id,...run})))
-  const hash = await textFp(canonicalJson({ run: chain.run, ...(modelEvidence.length?{modelEvidence}:{}), evidence, request: [await pageFp(request), row.properties], pageHashes, inputPins, pins, context: rec.draft?.plan.context ?? null, server: rec.draft?.source.server ?? null, contracts: steps.map(s => s.delivery) }))
+  const stageEvidence=steps.flatMap(s=>(taskLocal(s.id).stageRuns??[]).slice(-40).flatMap(run=>{const receipt=readStageRun(run.receipt);return receipt?[{task:s.id,stage:run.stage,status:run.status,receipt}]:[]}))
+  const hash = await textFp(canonicalJson({ run: chain.run, ...(stageEvidence.length?{stageEvidence}:{}), ...(modelEvidence.length?{modelEvidence}:{}), evidence, request: [await pageFp(request), row.properties], pageHashes, inputPins, pins, context: rec.draft?.plan.context ?? null, server: rec.draft?.source.server ?? null, contracts: steps.map(s => s.delivery) }))
   const accepted = rec.accepted?.run === chain.run && rec.accepted.evidence === hash
   const lines = [
     `# ${row.title || t('common.untitled')}`,
@@ -75,7 +76,13 @@ export async function acceptanceSnapshot(rowId: string, rec: OrderRecord): Promi
     }),
     ...steps.flatMap(s=>(taskLocal(s.id).copilotRuns??[]).slice(-8).map(run=>{const r=run.receipt;return `- Copilot · ONE #/p/${s.id} · ${run.stage} · ${run.status}: requested=${r.requestedModel} (${r.source}); formatCorrections=${r.formatRepairs??'unknown'}; CLI=${r.models.join(', ')||'unknown'}; context=${r.contextTokens}; input=${r.inputTokens??'unknown'}; output=${r.outputTokens??'unknown'}; nano-AIU=${r.nanoAiu??'unknown'}; money=unknown; ${new Date(r.finishedAt).toISOString()}`})),
     ...acceptanceIssues(evidence).map(k => `- ${t(`${G}.issue.${k}`)}`),
-    ...steps.flatMap(s=>{const ex=readHostExecution(taskLocal(s.id).test?.execution);return ex?[`- Host · ONE #/p/${s.id} · ${JSON.stringify(ex.command)} · commit=${ex.commit??'unknown'} · dirty=${ex.dirty} · changedDuring=${ex.changedDuring} · ${ex.platform} · ${new Date(ex.startedAt).toISOString()}`]:[]}),
+    ...stageEvidence.map(({task,stage,status,receipt:r})=>`- Run · ONE #/p/${task} · ${stage} · ${status} · executor=${r.executor} · requestedModel=${r.requestedModel??'worker default / unknown'} · elapsed=${r.finishedAt-r.startedAt}ms · turns=${r.turns??'unknown'} · costUSD=${r.costUsd??'unknown'}`),
+    ...steps.flatMap(s=>{const local=taskLocal(s.id),ex=readHostExecution(local.test?.execution),challenge=readChallenge(local.test?.challenge);return ex?[
+      `- Host · ONE #/p/${s.id} · ${JSON.stringify(ex.command)} · commit=${ex.commit??'unknown'} · dirty=${ex.dirty} · changedDuring=${ex.changedDuring} · ${ex.platform} · ${new Date(ex.startedAt).toISOString()}`,
+      `- Candidate · before=${ex.candidate?.before??'unknown'} · after=${ex.candidate?.after??'unknown'} · files=${ex.candidate?.files??'unknown'} · Node=${ex.candidate?.node??'unknown'} · worker=${ex.candidate?.worker??'unknown'}`,
+      `- Counterexample challenge · ${challenge?.state??'unknown'}${challenge?.execution?` · ${JSON.stringify(challenge.execution.command)} · candidate=${challenge.execution.candidate?.after??'unknown'}`:''}`,
+      `- Measured · tests=${local.test?.ms??'unknown'}ms · challenge=${challenge?.ms??'unknown'}ms · recordedCostUSD=${local.spentUsd??'unknown'} · total inference/time across all providers=unknown`,
+    ]:[]}),
     ...(facts.at(-1)?.test ? ['', t(`${G}.testOutput`), taskLocal(steps.at(-1)!.id).test?.output.slice(-3000) ?? ''] : []),
     '', t(`${G}.targets`), ...(rec.draft?.plan.context?.links ?? []),
     '', t(`${G}.receiptLimit`),

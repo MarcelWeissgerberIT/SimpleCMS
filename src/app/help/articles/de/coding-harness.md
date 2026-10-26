@@ -83,3 +83,31 @@ node /pfad/one-worker.mjs compare-demo --repo /pfad/ONE-Demo --output /pfad/verg
 ```
 
 Dieser CLI-Befehl nutzt den lokalen Ollama und die persönlich angemeldete Copilot-CLI direkt. Er benötigt keine Kundendaten und gibt den Modellen keinen Shell-Zugriff. Der Bericht enthält Kontext-/Test-Prüfsummen, tatsächliches Modell soweit gemeldet, Laufzeit, Verbrauch und Prüfresultate. `auto` ist kein festes Modell; für wiederholbare Vergleiche ein freigeschaltetes Copilot-Modell explizit wählen. Ein Test des Freigabekanals muss zusätzlich durch die Workspace-Warteschlange laufen. Zwei kleine Aufgaben beweisen weder einen vollständigen schwierigen Merge noch allgemeine Modellqualität, Angular-Build, Browser-Verhalten oder Kundennetz-Zugriff. Subscription-Kontingent und Strom werden nicht als kostenlos ausgewiesen.
+
+## Entscheidungsfragen und Regeln vor dem Start
+ONE soll zuerst die erlaubten Quellen lesen: Auftrag, Atlas-Requirement beziehungsweise dokumentierte Entscheidung und einschlägige Repository-Regeln. Unterschiedliche Versionen oder Geltungsbereiche sind nicht automatisch ein Widerspruch. Unbekannte Zuständigkeit bleibt unbekannt; ein neueres Datum setzt keine fachliche Regel außer Kraft.
+
+Nur eine Antwort, die das gewünschte Verhalten, den erlaubten Zugriff oder eine erforderliche Prüfung verändert, gehört als Blocker in die Rückfragen. Eine **Entscheidungsfrage** nennt zwei Varianten, einen konkreten Eingabefall mit unterschiedlichen erwarteten Ergebnissen und den betroffenen Abnahmetest. Bereits dokumentierte Antworten werden wiederverwendet. Beispiel: „Antwort nach 20 Sekunden: A bricht nach 10 Sekunden ab, B wartet bis 30 Sekunden. Was gilt? Nachweis: Timeout-Grenzfall.“
+
+Die gemeinsamen Werkzeuge `check_finding` / `one_task_check_finding` unterstützen dafür optional `context` (Version, Geltungsbereich und angegebene Autorität beider Quellen) und `decisionPin` (Frage, Beispiel, zwei Optionen mit erwartetem Ergebnis, Prüfung und Blocker-Kennzeichen). Sie prüfen echte Zitate aus aktuellen Lese-Belegen. Kontext und Autorität sind deklarierte Angaben; Bedeutung und fachliche Entscheidung bleiben ungeprüft. Ein belegter Frageentwurf ist noch keine bestätigte Entscheidung. Die Antwort gehört anschließend mit Quelle in Atlas und in die Abnahmekriterien. Der reine geteilte Textkanal stellt diese Werkzeuge nicht selbst bereit.
+
+## Nachweise am gleichen Code-Stand
+Ab Worker **1.33.0** tragen Testnachweise zusätzlich einen SHA-256-Fingerabdruck vor und nach dem Test, die Anzahl erfasster Dateien sowie Node- und Worker-Version. Erfasst werden HEAD, Dateinamen, ausführbare Dateirechte und Inhalte der von Git erfassten sowie nicht ignorierten neuen Dateien. Damit werden auch Änderungen innerhalb bereits geänderter Dateien erkannt. Lockfiles gehören zum Fingerabdruck, installierte Abhängigkeiten und externe Dienste jedoch nicht.
+
+Die geführte Abnahme benötigt einen stabilen Fingerabdruck der abschließenden QA. Alte Worker-Belege, unbekannte Stände, Änderungen während der Prüfung oder eine fehlgeschlagene konfigurierte Gegenprobe lassen sich durch gute Scores oder einen Erfolgsbericht nicht ausgleichen. Den Worker aktualisieren und abschließende QA erneut ausführen. Quellen- und Auftragsänderungen in ONE machen die gespeicherte Abnahme ungültig. Änderungen außerhalb von ONE werden nicht laufend überwacht: nach späteren Codeänderungen QA erneut starten.
+
+Grenzen: maximal 25.000 Dateien, 128 MiB pro Datei, 512 MiB insgesamt und begrenzte Lesezeit. Ignorierte Build-Ausgaben bleiben außerhalb des Nachweises. Nicht lesbare Dateien, Submodule oder überschrittene Grenzen ergeben **unbekannt**, keinen Teil-Erfolg. Zwei Beobachtungen sind keine atomare Dateisperre und keine Betriebssystem-Sandbox.
+
+## Neue Gegenprobe nach dem Review
+Auf der geschützten Worker-Einrichtungsseite findest du beim Repository **Gegenprobe · optional**. Dort kannst du einen von dir gepflegten Prüfbefehl hinterlegen, möglichst mit Testlogik außerhalb des veränderbaren Worktrees. In `worker.json` entspricht das beispielsweise:
+
+```json
+{"challengeCommand": ["node", "../verification/counterexamples.mjs"]}
+```
+
+Die abschließende QA führt erst die bestehenden Tests, dann das Review und anschließend einmal diese Gegenprobe am gleichen beobachteten Stand aus. Der Befehl darf Git-sichtbare Dateien nicht verändern. Eine Änderung oder ein nicht ausführbarer Befehl bleibt ein Blocker; ein echter Testfehler geht nur im bereits erlaubten Reparaturbudget zurück zur Umsetzung. Bestehende Prüfskripte werden bei automatischer Reparatur geschützt. Ohne Befehl steht ausdrücklich **not_configured** im Nachweis. Die Auswahl neuer Grenzfälle bleibt eine quellengebundene Arbeitsmethode; ONE behauptet keine automatisch erzeugte unabhängige Testabdeckung. Neue nützliche Regressionstests anschließend bewusst im Projekt erhalten.
+
+## Arbeitsmuster und Aufwand
+Nach einer menschlichen Abnahme bietet die Aufgabenbegleitung **Arbeitsmuster entwerfen** an. Beschreibe Einsatz und Abrufbedingung, kurze Schritte sowie Grenzen. Erst **Geprüftes Muster im Gedächtnis speichern** legt eine Procedure im One-Gedächtnis an. Sie trägt Auftrag und Nachweiskennung, keine kopierte Komplettlösung. Beim Wiederverwenden aktuelle Quellen und Tests erneut prüfen. Eine erfolgreiche Aufgabe beweist noch keine Übertragbarkeit; dafür das Muster an einer anderen realen Aufgabe prüfen. Diese Funktion schreibt nicht selbst nach Atlas und erweitert keine Freigaben.
+
+Neue Worker speichern pro Stufenlauf Ausführer, angefragtes Modell soweit bekannt, verstrichene Zeit, gemeldete Runden und bekannte Kosten. Die Angaben erscheinen im Nachweispaket. Copilot behält zusätzlich seine tatsächlichen Modell- und Token-Belege. Fehlende Kosten oder Token bleiben unbekannt. Vergleiche dieselbe Aufgabe, denselben Stand und dieselben Checks. Zusätzliche Spezialisten nur für ein konkretes ungelöstes Risiko einsetzen; mehr Agenten bedeuten nicht automatisch mehr Qualität.

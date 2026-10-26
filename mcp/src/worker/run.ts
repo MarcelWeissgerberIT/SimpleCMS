@@ -42,6 +42,8 @@ import { readOllamaCloud } from './ollama-cloud-config.ts'
 import { miniMaxInference } from './minimax-inference.ts'
 import { readMiniMax, MINIMAX_MODEL } from './minimax-config.ts'
 import { deliveryReview } from './delivery-review.ts'
+import { challengeCandidate } from './challenge.ts'
+import { stableCandidate } from '../../../src/shared/coding/evidence.ts'
 
 export interface StageContext {
   repo: RepoConfig
@@ -367,6 +369,13 @@ async function gitSnapshot(ctx: StageContext, wt: TaskWorktree, scrub: Scrubber)
 
 /** Run the task's current stage. Never throws: problems are a 'failed' outcome. */
 export async function runStage(ctx: StageContext): Promise<StageOutcome> {
+  const startedAt=Date.now(),out=await runStageInner(ctx)
+  const modelStage=['plan','implement','doc'].includes(ctx.task.stage.kind)
+  const agent=ctx.task.agent??'claude'
+  const requestedModel=modelStage?(agent==='copilot'?ctx.task.stage.copilot?.model??null:agent==='claude'?ctx.task.stage.model??ctx.repo.claude.model??null:null):null
+  return {...out,runEvidence:{executor:modelStage?agent:'host',requestedModel,startedAt,finishedAt:Date.now(),turns:out.turns??null,costUsd:out.cost??null}}
+}
+async function runStageInner(ctx: StageContext): Promise<StageOutcome> {
   const { repo, task } = ctx
   const destination = codingProvider(task.agent ?? 'claude')
   if (task.dataFlow && (!destination || (['plan','implement','doc'].includes(task.stage.kind) && !modelDestinationAllowed(destination, task.dataFlow)))) return { status: 'refused', error: 'The task data-flow rule excludes this model destination.' }
@@ -392,7 +401,7 @@ export async function runStage(ctx: StageContext): Promise<StageOutcome> {
       if (kind === 'doc' && task.quality?.review) {
         if (!branch || !dir || !repo.testCommand?.length) return { status: 'failed', error: 'Delivery QA requires the combined coding branch and a configured repository test command.' }
         const policy=task.quality.repair
-        const manifest=policy?await checkManifest(dir,[repo.testCommand??[],repo.analyzeCommand??[]]):{}
+        const manifest=policy?await checkManifest(dir,[repo.testCommand??[],repo.analyzeCommand??[],repo.challengeCommand??[]]):{}
         const journalDir=join(dirname(ctx.state.file),'qa-repairs')
         const scope=JSON.stringify([task.id,task.stage.id,branch,policy])
         const journal=policy?await readRepairJournal(journalDir,scope):{attempts:0}
@@ -406,12 +415,16 @@ export async function runStage(ctx: StageContext): Promise<StageOutcome> {
             const checked=await runTests(repo,dir,ctx.signal,undefined,s=>scrub.text(s))
             const test:TestResult={...(checked.execution?{execution:checked.execution}:{}),ok:checked.ok,output:scrub.text(checked.output).slice(-20000),ms:checked.ms,code:checked.code}
             if(!checked.ok||checked.notStarted)return {status:'failed',test,error:(checked.notStarted?'Delivery QA checks unavailable: ':'Delivery QA checks failed: ')+scrub.text(checked.output).slice(-6000)}
+            if(!stableCandidate(test.execution))return {status:'failed',test:{...test,ok:false},error:'Delivery QA checks unavailable: the candidate was not fully observed or changed during tests. No review accepted.'}
             const reviewed=await docStage({...ctx,repo:stageRepo,task:{...task,stage:{...task.stage,maxTurns:remaining}}},scrub,log,branch,dir)
             if(reviewed.status==='ok' && task.agent!=='local' && task.agent!=='minimax' && task.agent!=='ollama' && task.agent!=='copilot') {
               const verdict=deliveryReview(reviewed.plan??reviewed.summary??'')
               if(!verdict||verdict.status!=='completed')return {...reviewed,status:'failed',test,error:verdict?`${verdict.status}: ${verdict.summary}\nNext: ${verdict.next}`:'Delivery QA requires a structured final verdict; no completion was accepted.'}
             }
-            return {...reviewed,test,summary:[reviewed.summary,'Delivery QA: configured tests passed on the combined branch.'].filter(Boolean).join('\n')}
+            if(reviewed.status!=='ok')return {...reviewed,test}
+            const challenge=await challengeCandidate(repo,dir,ctx.signal,test,s=>scrub.text(s))
+            if(challenge.error)return {...reviewed,status:'failed',test:challenge.test,error:challenge.error}
+            return {...reviewed,test:challenge.test,summary:[reviewed.summary,'Delivery QA: configured tests and review refer to the same observed candidate.',`Counterexample challenge: ${challenge.test.challenge?.state??'unavailable'}.`].filter(Boolean).join('\n')}
           },
           repair:async(finding,remaining)=>{
             if(!policy)return {status:'refused',error:'No automatic repair authority.'}

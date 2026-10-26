@@ -32,6 +32,7 @@ import { navigate, parseHash } from '../../lib/router'
 import { aiWrite } from '../history/snapshots'
 import { currentLang, t } from '../../i18n'
 import { CLAIM_STALE_MS, MCP_SERVER_NAME, claudeRuns, cleanModel, stageNeeds, workerCan, type GitInfo, type ShipRecord, type StageOutcome, type TaskPayload, type WorkerInfo } from './protocol'
+import { readStageRun } from '@/shared/coding/evidence'
 import { CASE_TYPES, FOLLOW_UPS, PIPELINE_KINDS, caseProps, codingProps, createProject, currentProjectId, ensureCaseDb, ensurePipelineDb, addRepoOptions, inTeam, isPipelineKind, kindOfDb, nextStage, optionByName, optionName, pipelineDbIds, priorityRank, readPipeline, stageNear, stageOfRow, type CodingProps, type PipelineKind, type ResolvedStage } from './schema'
 import { parseStories, splitSections, type DocSection, type Story } from './outputs'
 import { createPrivatePage } from '../../cloud'
@@ -427,6 +428,8 @@ export async function finishStage(taskId: ID, stageId: ID, outcome: StageOutcome
   noteRun(w)
   const stillThere = !!stage && ctx.stage?.id === stage.id
   const patch: Partial<TaskLocal> = { state: 'idle', error: null, question: null, stageId, resume: false, stepLimit: null }
+  const runEvidence=readStageRun(outcome.runEvidence)
+  if(runEvidence)patch.stageRuns=[...(local.stageRuns??[]),{run:local.run??`receipt-${runEvidence.startedAt}`,stageId,stage:stage?.name??stageId,status:outcome.status,receipt:runEvidence}].slice(-40)
   // worker 1.11.0: the stage's permission requests (the panel's summary line) — the newest run's only
   const receipts = (Array.isArray(outcome.copilotReceipts) ? outcome.copilotReceipts : []).slice(0, 8).map(readCopilotReceipt).filter((r): r is NonNullable<typeof r> => !!r)
   if (receipts.length) patch.copilotRuns = [...(local.copilotRuns ?? []), ...receipts.map((receipt,i) => ({ run:local.run ?? `receipt-${Date.now()}`, stageId, stage:receipt.stageKind==='implement'&&stage?.kind==='doc'?t('features.coding.copilotOptions.repair'):stage?.name ?? stageId, status:receipt.status ?? outcome.status, ...(outcome.branch ? {branch:outcome.branch} : {}), ...(outcome.test && i===receipts.length-1 ? {test:{ok:outcome.test.ok,code:outcome.test.code,skipped:outcome.test.skipped}} : {}), receipt }))].slice(-40)

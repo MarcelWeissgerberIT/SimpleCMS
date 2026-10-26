@@ -83,3 +83,31 @@ node /path/one-worker.mjs compare-demo --repo /path/ONE-Demo --output /path/comp
 ```
 
 This command uses local Ollama and your signed-in Copilot CLI directly, with identical inputs, a 4,096-token output budget and unchanged tests. No customer data or model shell tools are used. Reports retain prompt/test hashes, actual model where reported, elapsed time, usage and real test results. `auto` is not a fixed model; pin an available Copilot model for repeatability. Testing the shared transport additionally requires a run through the workspace queue. Two small tasks do not establish full merge or general model quality, Angular build/browser behavior or customer-network access. Subscription quota and electricity are not reported as free.
+
+## Decision questions and rule checks before starting
+ONE should first consult permitted task sources, Atlas requirements/documented decisions and relevant repository rules. Different versions or scopes do not automatically conflict. Unknown authority stays unknown; a newer date does not override a product requirement.
+
+Only an answer that changes required behaviour, permitted access or a required check belongs in blocking questions. A **decision question** names two options, a concrete input with different expected outcomes and the affected acceptance check. Reuse documented human answers. Example: “Response at 20 seconds: A times out after 10 seconds, B waits until 30 seconds. Which applies? Check: timeout boundary fixture.”
+
+The shared `check_finding` / `one_task_check_finding` tools optionally accept `context` (each source's declared version, scope and authority) and `decisionPin` (question, example, two options with expected outcomes, check and blocking flag). They check quotations from actual current-run read receipts. Context and authority are declarations; meaning and the product decision remain unverified. A supported question draft is not a confirmed decision. Record the actual human answer with its source in Atlas and acceptance criteria. The shared text-only model channel does not itself provide these tools.
+
+## Evidence for the same code candidate
+Worker **1.33.0** adds SHA-256 fingerprints before and after tests, file count, Node version and worker version. The fingerprint covers HEAD, names, executable bits and contents of tracked files and nonignored untracked files. This catches edits inside already-dirty files. Lockfiles are included; installed dependencies and external services are outside this observation.
+
+Guided acceptance requires a stable fingerprint from final QA. Legacy receipts, unknown candidates, changes during checks or failed configured challenges cannot be offset by scores or a success narrative. Update the worker and rerun final QA. Changed sources/tasks in ONE invalidate stored acceptance. Later external code changes are not continuously monitored: rerun QA after changing code.
+
+Limits: 25,000 files, 128 MiB per file, 512 MiB total and bounded read time. Ignored build outputs are excluded. Unreadable files, submodules or exceeded bounds yield **unknown**, not partial success. Two observations are not an atomic file lock or an OS sandbox.
+
+## A fresh challenge after review
+The protected worker setup page exposes **Counterexample challenge · optional** for each repository. Configure an owner-maintained check, preferably with verification logic outside the editable worktree. The `worker.json` equivalent is:
+
+```json
+{"challengeCommand": ["node", "../verification/counterexamples.mjs"]}
+```
+
+Final QA runs existing tests, review, then this command once against the same observed candidate. The command must not change Git-visible files. A mutation or unavailable command remains a blocker; a real test failure returns to implementation only within the already approved repair budget. Existing check scripts are protected during automatic repair. With no command, evidence explicitly says **not_configured**. Finding fresh boundary cases remains a source-grounded working method; ONE does not claim automatically generated independent coverage. Deliberately retain useful regression tests in the project afterwards.
+
+## Reusable procedures and effort
+After human acceptance, task guidance offers **Draft a reusable procedure**. Describe applicability/recall trigger, short steps and limitations. Only **Save reviewed procedure in memory** creates a Procedure in One memory. It retains the task and evidence identifier, rather than a copied complete solution. Recheck current sources and tests on reuse. One successful task does not establish transfer; validate the method on another real task. This action does not itself write to Atlas or expand approvals.
+
+New workers record executor, requested model when known, elapsed time, reported turns and known costs per stage. These appear in the evidence packet. Copilot additionally retains actual model/token receipts. Missing usage/cost stays unknown. Compare the same task, candidate and checks. Add a specialist only for a concrete unresolved risk: more agents do not automatically improve quality.

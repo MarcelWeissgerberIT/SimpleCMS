@@ -10,6 +10,7 @@ import { planKeyHits } from '../../src/app/features/coding/orders/keys'
 import { readOrderRecord } from '../../src/app/features/coding/orders/record'
 
 const delivery = { requirements: [{ id: 'R1', text: 'The simulator preserves a valid timeout.' }], acceptance: ['The regression check passes.'] }
+const execution = {command:['node','test.mjs'],commit:'a'.repeat(40),dirty:true,changedDuring:false,platform:'darwin',startedAt:1,finishedAt:2,candidate:{schema:1 as const,before:'b'.repeat(64),after:'b'.repeat(64),files:3,node:'v24.18.1',worker:'1.33.0'}}
 const step = (kind: 'coding' | 'qa', needs: number[]) => ({ kind, title: kind === 'coding' ? 'Fix simulated timeout' : 'Verify combined change', goal: 'Demonstrate the timeout requirement.', criteria: ['Regression check passes'], repo: 'demo', branch: null, refs: [], priority: 'medium', why: 'Bounded work', needs, covers: ['R1'] })
 const proposal = () => ({ v: 1, summary: 'A bounded simulator repair and final QA.', assumptions: ['Use a new branch and follow the existing test convention.'], delivery, context: null, steps: [step('coding', []), step('qa', [1])], questions: [], refused: null })
 const ctx = { kinds: ['coding', 'qa'] as const, repos: [{ name: 'demo', base: 'main', branches: [] }], refs: [], titleOf: () => null, server: null }
@@ -33,13 +34,15 @@ unit('assumptions round-trip, affect exact confirmation and cannot carry secrets
 unit('narrative success, skipped tests, changed sources and post-QA work never satisfy acceptance', () => {
   const good: GuidedEvidence = { state: 'done', contract: true, sourceChanged: false, steps: [
     { id: 'c', kind: 'coding', done: true, failed: false, skipped: false, test: null, qa: null, changedAt: 10 },
-    { id: 'q', kind: 'qa', done: true, failed: false, skipped: false, test: { ok: true, code: 0 }, qa: { at: 20, branch: 'one/demo' }, changedAt: 20 },
+    { id: 'q', kind: 'qa', done: true, failed: false, skipped: false, test: { ok: true, code: 0, execution }, qa: { at: 20, branch: 'one/demo' }, changedAt: 20 },
   ] }
   expect(acceptanceIssues(good)).toEqual([])
   for (const [change, issue] of [
     [(x: GuidedEvidence) => { x.steps[1]!.qa = null }, 'qa'],
     [(x: GuidedEvidence) => { x.steps[1]!.test!.skipped = true }, 'checks'],
     [(x: GuidedEvidence) => { x.steps[1]!.test!.code = null }, 'checks'],
+    [(x: GuidedEvidence) => { x.steps[1]!.test!.execution = undefined }, 'candidate'],
+    [(x: GuidedEvidence) => { (x.steps[1]!.test!.execution as any).candidate.after = 'c'.repeat(64) }, 'candidate'],
     [(x: GuidedEvidence) => { x.sourceChanged = true }, 'sources'],
     [(x: GuidedEvidence) => { x.steps[0]!.changedAt = 21 }, 'afterQa'],
     [(x: GuidedEvidence) => { x.steps[0]!.skipped = true }, 'skipped'],
@@ -57,7 +60,7 @@ test('a guided goal runs through final QA and one human acceptance; Atlas is a d
   fake.can = [...WORKER_CAN]
   fake.auto = task => task.stage.kind === 'implement'
     ? { status: 'ok', summary: 'Fixed the simulated timeout.', branch: 'one/demo' }
-    : { status: 'ok', plan: '{"status":"completed","summary":"Checked the combined branch.","next":""}', branch: 'one/demo', test: { ok: true, output: '1 regression passed', ms: 12, code: 0 } }
+    : { status: 'ok', plan: '{"status":"completed","summary":"Checked the combined branch.","next":""}', branch: 'one/demo', test: { ok: true, output: '1 regression passed', ms: 12, code: 0, execution } }
   const call = (name: string, ...args: unknown[]) => page.evaluate(([name, args]) => (window as any).__oneOrders[name](...args), [name, args] as const)
   try {
     await page.addInitScript(port => {
@@ -104,6 +107,16 @@ test('a guided goal runs through final QA and one human acceptance; Atlas is a d
     await page.getByTestId('guided-order').screenshot({ path: test.info().outputPath('guided-acceptance.png') })
     const accepted = await call('record', row)
     expect(accepted.accepted.evidence).toMatch(/^[a-f0-9]{64}$/)
+    await page.getByTestId('delivery-pattern').locator('summary').click()
+    await expect(page.getByTestId('pattern-save')).toBeDisabled()
+    await page.getByTestId('pattern-title').fill('Reproduce a timeout before fixing it')
+    await page.getByTestId('pattern-body').fill('Use for simulator timeout changes. Reproduce the boundary case, fix the implementation, rerun tests. Recheck the current requirement on reuse; this has only been tried on this delivery.')
+    await page.getByTestId('pattern-save').click()
+    await expect(page.getByTestId('delivery-pattern')).toContainText('Procedure saved')
+    const memories=await wsEval(page,s=>Object.values(s.pages).filter((p:any)=>p.title==='Reproduce a timeout before fixing it'))
+    expect(memories).toHaveLength(1)
+    expect(JSON.stringify(memories[0])).toContain(accepted.accepted.evidence)
+    await page.getByTestId('delivery-pattern').screenshot({path:test.info().outputPath('source-backed-procedure.png')})
     const count = await wsEval(page, (s, row) => s.pages[row].content.content.filter((b: any) => b.attrs?.id?.includes('-accept-')).length, row)
     expect(count).toBe(1)
     await page.getByTestId('guided-atlas').click()

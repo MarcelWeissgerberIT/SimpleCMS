@@ -18,6 +18,7 @@ export interface LocalInference {
   (request: LocalInferenceRequest): Promise<LocalInferenceResponse>
   /** Subscription provider without a USD usage price. Never report it as free. */
   unmetered?: boolean
+  /** Actual/provider-estimated inference charge only. Absent means unknown, never an implicit zero. */
   cost?: () => number
   profile?: (model: string, signal: AbortSignal) => Promise<string>
 }

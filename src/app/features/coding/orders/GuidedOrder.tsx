@@ -15,6 +15,7 @@ import type { OrderRecord, OrderStatusKey } from './types'
 import {makeEvidencePacket,publishEvidencePacket,downloadEvidencePacket} from './evidencePacket'
 import {verifyAtlasHandoff} from './guidedHandoff'
 import {patchOrderRecord} from './records'
+import DeliveryPattern from './DeliveryPattern'
 import './guided.css'
 
 const G = 'features.coding.guide'
@@ -129,11 +130,12 @@ export default function GuidedOrder({ rowId, rec, status, planning, viewer, serv
       {phase === 'accept' && <div className="og-accept" data-testid="guided-acceptance">
         {!snapshot ? <p>{t(`${G}.loading`)}</p> : <>
           {issues.length > 0 && <ul className="og-issues">{issues.map(k => <li key={k}>{t(`${G}.issue.${k}`)}</li>)}</ul>}
-          {!viewer && issues.some(k => ['qa', 'checks', 'afterQa'].includes(k)) && steps.at(-1)?.kind === 'qa' && <a className="btn btn--sm" href={`#/p/${steps.at(-1)!.id}`}>{t(`${G}.openQa`)}</a>}
+          {!viewer && issues.some(k => ['qa', 'checks', 'afterQa', 'candidate'].includes(k)) && steps.at(-1)?.kind === 'qa' && <a className="btn btn--sm" href={`#/p/${steps.at(-1)!.id}`}>{t(`${G}.openQa`)}</a>}
           <details><summary>{t(`${G}.showEvidence`)}</summary><pre className="og-evidence">{snapshot.report}</pre></details>
           {!viewer && !snapshot.accepted && <button type="button" className="btn btn--primary btn--sm" disabled={busy || issues.length > 0} onClick={() => void accept()} data-testid="guided-accept">{t(`${G}.accept`)}</button>}
           {!viewer && targetServer && <button type="button" className="btn btn--sm" disabled={busy||!snapshot.accepted} onClick={() => void handoff()} data-testid="guided-atlas">{t(`${G}.handoff`, { server: targetServer })}</button>}
           <p className="og-quiet">{t(`${G}.handoffHint`)}</p>
+          {!viewer&&snapshot.accepted&&<DeliveryPattern key={`${rowId}-${snapshot.hash}`} rowId={rowId} snapshot={snapshot}/>}
           <div className="og-proof-tools" data-testid="guided-proof-tools">
             <button className="btn btn--sm" type="button" disabled={busy} onClick={()=>void downloadPacket()}>{t(`${G}.packetDownload`)}</button>
             {!viewer&&<><label>{t(`${G}.packetTarget`)}<select className="input" value={parent} onChange={e=>setParent(e.target.value)} data-testid="packet-target"><option value="">{t(`${G}.packetChoose`)}</option>{Object.values(useWorkspace.getState().pages).filter(p=>!p.private&&!p.trashed&&p.kind==='page'&&!p.databaseId).map(p=><option key={p.id} value={p.id}>{p.title||t('common.untitled')}</option>)}</select></label>

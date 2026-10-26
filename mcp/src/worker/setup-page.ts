@@ -273,6 +273,8 @@ export const SETUP_JS = String.raw`(function () {
     testLabel: 'Test command',
     testHint: 'Runs without a shell — && | > are plain words. A program inside the repository needs its path (./gradlew). Empty: no test stage.',
     testHintWin: 'Runs without a shell — && | > are plain words. A program inside the repository needs its path (.\\gradlew.bat); it is looked up in PATH only, never in the repository. Empty: no test stage.',
+    challengeLabel: 'Counterexample challenge · optional',
+    challengeHint: 'Run after final QA against the same candidate. Use an owner-maintained check outside the worktree when possible. It must not modify Git-visible files. Empty: coverage is explicitly not claimed.',
     analyzeLabel: 'Static analysis',
     analyzeHint: 'The Static analysis stage runs this (a linter, dotnet build, go vet …) — its findings go into the task page. Empty: none.',
     noTests: 'No test stage',
@@ -457,6 +459,8 @@ export const SETUP_JS = String.raw`(function () {
     testLabel: 'Testbefehl',
     testHint: 'Läuft ohne Shell – && | > sind normale Wörter. Ein Programm im Repository braucht seinen Pfad (./gradlew). Leer: keine Test-Stufe.',
     testHintWin: 'Läuft ohne Shell – && | > sind normale Wörter. Ein Programm im Repository braucht seinen Pfad (.\\gradlew.bat); gesucht wird nur im PATH, nie im Repository. Leer: keine Test-Stufe.',
+    challengeLabel: 'Gegenprobe · optional',
+    challengeHint: 'Läuft nach der abschließenden QA am selben Stand. Möglichst eine von dir gepflegte Prüfung außerhalb des Worktrees verwenden. Sie darf Git-sichtbare Dateien nicht ändern. Leer: keine Gegenprobenabdeckung behauptet.',
     analyzeLabel: 'Statische Analyse',
     analyzeHint: 'Die Stufe „Statische Analyse“ führt das aus (ein Linter, dotnet build, go vet …) – die Befunde kommen in die Aufgabenseite. Leer: keine.',
     noTests: 'Keine Test-Stufe',
@@ -655,7 +659,7 @@ export const SETUP_JS = String.raw`(function () {
   }
 
   function editOf(r) {
-    if (!edits[r.path]) edits[r.path] = { ticked: r.ticked, name: r.name, base: r.base, test: r.testLine, push: r.push, pr: r.pr, forge: r.forge || 'auto', limit: r.maxUsdPerTask === null ? '' : String(r.maxUsdPerTask), mcp: r.mcp || '', analyze: r.analyzeLine || '', own: r.ownSettings, own0: r.ownSettings, allowed: (r.allowed || []).slice(), allowed0: (r.allowed || []).slice() }
+    if (!edits[r.path]) edits[r.path] = { ticked: r.ticked, name: r.name, base: r.base, test: r.testLine, push: r.push, pr: r.pr, forge: r.forge || 'auto', limit: r.maxUsdPerTask === null ? '' : String(r.maxUsdPerTask), mcp: r.mcp || '', analyze: r.analyzeLine || '', challenge: r.challengeLine || '', own: r.ownSettings, own0: r.ownSettings, allowed: (r.allowed || []).slice(), allowed0: (r.allowed || []).slice() }
     return edits[r.path]
   }
 
@@ -785,6 +789,7 @@ export const SETUP_JS = String.raw`(function () {
       el('div', { className: 'field' }, [el('label', { className: 'label', for: id + 'n', text: t('nameLabel') }), el('input', { type: 'text', id: id + 'n', value: e.name, maxlength: 64, spellcheck: 'false', oninput: function (ev) { e.name = ev.target.value } })]),
       el('div', { className: 'field' }, [el('label', { className: 'label', for: id + 'b', text: t('baseLabel') }), base]),
       el('div', { className: 'field' }, [el('label', { className: 'label', for: id + 't', text: t('testLabel') }), el('input', { type: 'text', id: id + 't', value: e.test, spellcheck: 'false', autocomplete: 'off', oninput: function (ev) { e.test = ev.target.value; drawKeys() } }), keys, el('span', { className: 'hint', text: t(windows() ? 'testHintWin' : 'testHint') })]),
+      el('div', { className: 'field' }, [el('label', { className: 'label', for: id + 'ch', text: t('challengeLabel') }), el('input', { type: 'text', id: id + 'ch', value: e.challenge, spellcheck: 'false', autocomplete: 'off', oninput: function (ev) { e.challenge = ev.target.value } }), el('span', { className: 'hint', text: t('challengeHint') })]),
       el('div', { className: 'field' }, [el('label', { className: 'label', for: id + 'a', text: t('analyzeLabel') }), el('input', { type: 'text', id: id + 'a', value: e.analyze, spellcheck: 'false', autocomplete: 'off', oninput: function (ev) { e.analyze = ev.target.value } }), el('span', { className: 'hint', text: t('analyzeHint') })]),
       el('div', { className: 'field field--wide' }, [el('div', { className: 'toggles' }, toggles)]),
       forge,
@@ -1206,7 +1211,7 @@ export const SETUP_JS = String.raw`(function () {
     var repos = state.repos.filter(function (r) { return editOf(r).ticked }).map(function (r) {
       var e = editOf(r)
       var limit = parseFloat(String(e.limit).replace(',', '.'))
-      return { path: r.path, name: e.name.trim(), baseBranch: e.base, test: e.test, analyze: e.analyze, push: e.push, pr: e.pr, forge: e.forge, maxUsdPerTask: isFinite(limit) && limit > 0 ? limit : null, mcp: e.mcp, projectSettings: e.own, allowed: e.allowed, allowedWas: e.allowed0 }
+      return { path: r.path, name: e.name.trim(), baseBranch: e.base, test: e.test, analyze: e.analyze, challenge: e.challenge, push: e.push, pr: e.pr, forge: e.forge, maxUsdPerTask: isFinite(limit) && limit > 0 ? limit : null, mcp: e.mcp, projectSettings: e.own, allowed: e.allowed, allowedWas: e.allowed0 }
     })
     busy = 'save'
     note = null

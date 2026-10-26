@@ -24,8 +24,33 @@ export function atlasEvidenceProof(raw:unknown,expected:{ref:number;project:stri
  return /^[a-f0-9]{64}$/.test(expected.evidence)&&body.includes(evidenceMarker(expected.evidence))
 }
 
-export interface HostExecution { command:string[]; commit:string|null; dirty:boolean; changedDuring:boolean; platform:string; startedAt:number; finishedAt:number }
+export interface CandidateEvidence { schema:1; before:string|null; after:string|null; files:number; node:string; worker:string }
+export interface ChallengeEvidence { state:'not_configured'|'passed'|'failed'|'unavailable'; code:number|null; ms:number; execution:HostExecution|null }
+export interface StageRunEvidence { executor:string; requestedModel:string|null; startedAt:number; finishedAt:number; turns:number|null; costUsd:number|null }
+export function readStageRun(v:unknown):StageRunEvidence|null{
+ if(!obj(v)||!['host','claude','codex','copilot','local','ollama','minimax'].includes(v.executor)||v.requestedModel!==null&&(typeof v.requestedModel!=='string'||v.requestedModel.length>200)||!Number.isSafeInteger(v.startedAt)||!Number.isSafeInteger(v.finishedAt)||v.startedAt<0||v.finishedAt<v.startedAt||v.turns!==null&&(!Number.isSafeInteger(v.turns)||v.turns<0||v.turns>10000)||v.costUsd!==null&&(typeof v.costUsd!=='number'||!Number.isFinite(v.costUsd)||v.costUsd<0))return null
+ return {executor:v.executor,requestedModel:v.requestedModel,startedAt:v.startedAt,finishedAt:v.finishedAt,turns:v.turns,costUsd:v.costUsd}
+}
+export interface HostExecution { command:string[]; commit:string|null; dirty:boolean; changedDuring:boolean; platform:string; startedAt:number; finishedAt:number; candidate?:CandidateEvidence }
 export function readHostExecution(v:unknown):HostExecution|null{
  if(!obj(v)||!Array.isArray(v.command)||!v.command.length||v.command.length>50||!v.command.every((s:unknown)=>typeof s==='string'&&s.length<=1000)||v.commit!==null&&(typeof v.commit!=='string'||!/^[a-f0-9]{40,64}$/.test(v.commit))||typeof v.dirty!=='boolean'||typeof v.changedDuring!=='boolean'||typeof v.platform!=='string'||!['win32','darwin','linux','freebsd','openbsd','aix','sunos','android'].includes(v.platform)||!Number.isSafeInteger(v.startedAt)||!Number.isSafeInteger(v.finishedAt)||v.startedAt<0||v.finishedAt<v.startedAt)return null
- return {command:[...v.command],commit:v.commit,dirty:v.dirty,changedDuring:v.changedDuring,platform:v.platform,startedAt:v.startedAt,finishedAt:v.finishedAt}
+ let candidate:CandidateEvidence|undefined
+ if(v.candidate!==undefined){const c=v.candidate,hash=(x:unknown)=>x===null||typeof x==='string'&&/^[a-f0-9]{64}$/.test(x)
+  if(!obj(c)||c.schema!==1||!hash(c.before)||!hash(c.after)||!Number.isSafeInteger(c.files)||c.files<0||c.files>25000||typeof c.node!=='string'||!/^v\d+\.\d+\.\d+$/.test(c.node)||typeof c.worker!=='string'||!/^(dev|\d+\.\d+\.\d+)$/.test(c.worker))return null
+  candidate={schema:1,before:c.before,after:c.after,files:c.files,node:c.node,worker:c.worker}
+ }
+ return {command:[...v.command],commit:v.commit,dirty:v.dirty,changedDuring:v.changedDuring,platform:v.platform,startedAt:v.startedAt,finishedAt:v.finishedAt,...(candidate?{candidate}:{})}
+}
+
+/** Required for new delivery acceptance. Legacy receipts remain readable, but cannot prove the candidate. */
+export function stableCandidate(execution:unknown):boolean{
+ const ex=readHostExecution(execution),c=ex?.candidate
+ return !!ex&&!ex.changedDuring&&!!c?.before&&c.before===c.after
+}
+export function readChallenge(v:unknown):ChallengeEvidence|null{
+ if(!obj(v)||!['not_configured','passed','failed','unavailable'].includes(v.state)||v.code!==null&&(!Number.isSafeInteger(v.code)||Math.abs(v.code)>2147483647)||typeof v.ms!=='number'||!Number.isFinite(v.ms)||v.ms<0)return null
+ const execution=v.execution===null?null:readHostExecution(v.execution)
+ if(v.execution!==null&&!execution)return null
+ if(v.state==='passed'&&(v.code!==0||!execution||!stableCandidate(execution)))return null
+ return {state:v.state,code:v.code,ms:v.ms,execution}
 }

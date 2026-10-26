@@ -6,7 +6,7 @@ import {scrubSecrets} from '@/shared/ai/keys'
 import {readCopilotReceipt} from '@/shared/copilot'
 import {writeOrderBlock} from './summary'
 import type {AtlasHandoff} from '@/shared/coding/evidence'
-import {readHostExecution,evidenceMarker} from '@/shared/coding/evidence'
+import {readHostExecution,readChallenge,readStageRun,evidenceMarker} from '@/shared/coding/evidence'
 import {taskLocal} from '../local'
 import {orderScope} from './records'
 import {acceptanceSnapshot,type AcceptanceSnapshot} from './guidedAcceptance'
@@ -20,7 +20,9 @@ export function makeEvidencePacket(rowId:string,rec:OrderRecord,snapshot:Accepta
  const ws=useWorkspace.getState(),row=ws.pages[rowId]
  const clean=(s:string)=>scrubSecrets(s).slice(0,50000)
  return {schema:1,kind:'one-evidence-packet',snapshot:snapshot.hash,marker:evidenceMarker(snapshot.hash),run:rec.chain!.run,at:Date.now(),title:clean(row?.title??''),accepted:snapshot.accepted,limitations:t(`${G}.packetLimit`),report:clean(snapshot.report),atlas:rec.handoff?.evidence===snapshot.hash?rec.handoff:null,steps:rec.chain!.steps.map(st=>{const local=taskLocal(st.id),ex=readHostExecution(local.test?.execution)
-  return {id:st.id,kind:st.kind,title:clean(ws.pages[st.id]?.title??st.title??''),branch:clean(local.deliveryQa?.branch??local.git?.branch??''),test:local.test?{ok:local.test.ok,code:local.test.code,skipped:!!local.test.skipped,ms:local.test.ms,...(ex?{execution:{...ex,command:ex.command.map(clean)}}:{execution:null})}:null,copilot:(local.copilotRuns??[]).slice(-8).flatMap(r=>{const receipt=readCopilotReceipt(r.receipt);return receipt?[{phase:r.stage,status:r.status,receipt}]:[]})}
+  const challenge=readChallenge(local.test?.challenge)
+  const runs=(local.stageRuns??[]).slice(-40).flatMap(r=>{const receipt=readStageRun(r.receipt);return receipt?[{phase:clean(r.stage),status:clean(r.status),receipt:{...receipt,requestedModel:receipt.requestedModel?clean(receipt.requestedModel):null}}]:[]})
+  return {id:st.id,kind:st.kind,title:clean(ws.pages[st.id]?.title??st.title??''),branch:clean(local.deliveryQa?.branch??local.git?.branch??''),runs,recordedCostUsd:typeof local.spentUsd==='number'&&Number.isFinite(local.spentUsd)?local.spentUsd:null,test:local.test?{ok:local.test.ok,code:local.test.code,skipped:!!local.test.skipped,ms:local.test.ms,...(ex?{execution:{...ex,command:ex.command.map(clean)}}:{execution:null}),challenge:challenge?{...challenge,execution:challenge.execution?{...challenge.execution,command:challenge.execution.command.map(clean)}:null}:null}:null,copilot:(local.copilotRuns??[]).slice(-8).flatMap(r=>{const receipt=readCopilotReceipt(r.receipt);return receipt?[{phase:r.stage,status:r.status,receipt}]:[]})}
  })}
 }
 function publicTarget(id:string):boolean{

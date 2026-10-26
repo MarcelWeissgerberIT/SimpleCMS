@@ -17,9 +17,20 @@ test('handoff reader strips extra fields, rejects tokens in URLs and preserves b
  assert.equal(readHandoff({...h,evidence:'wrong'}),null)
 })
 
-import {readHostExecution} from '../../src/shared/coding/evidence.ts'
+import {readHostExecution,stableCandidate,readChallenge,readStageRun} from '../../src/shared/coding/evidence.ts'
 test('host execution export strips unknown fields and rejects malformed receipts instead of inventing metadata',()=>{
  const proof={command:['npm','test'],commit:'a'.repeat(40),dirty:true,changedDuring:false,platform:'win32',startedAt:1,finishedAt:2,token:'private'}
  assert.deepEqual(readHostExecution(proof)?.command,['npm','test']);assert.ok(!('token' in readHostExecution(proof)!))
  for(const bad of [{...proof,command:'npm test'},{...proof,commit:'model said passed'},{...proof,finishedAt:0},{...proof,platform:'private-hostname'}])assert.equal(readHostExecution(bad),null)
+})
+test('new receipts require matching candidate bytes; challenge and metrics cannot turn unknown into success or zero',()=>{
+ const ex={command:['node','test.mjs'],commit:'a'.repeat(40),dirty:true,changedDuring:false,platform:'win32',startedAt:1,finishedAt:2,candidate:{schema:1,before:'b'.repeat(64),after:'b'.repeat(64),files:3,node:'v24.18.1',worker:'1.33.0',key:'secret'}}
+ assert.ok(stableCandidate(ex));assert.equal('key' in readHostExecution(ex)!.candidate!,false)
+ for(const candidate of [undefined,{...ex.candidate,before:null},{...ex.candidate,after:'c'.repeat(64)}])assert.equal(stableCandidate({...ex,candidate}),false)
+ assert.equal(stableCandidate({...ex,changedDuring:true}),false)
+ assert.equal(readChallenge({state:'passed',code:0,ms:1,execution:null}),null)
+ assert.equal(readChallenge({state:'not_configured',code:null,ms:0,execution:null})?.code,null)
+ const metrics={executor:'local',requestedModel:null,startedAt:1,finishedAt:2,turns:null,costUsd:null,token:'secret'}
+ assert.deepEqual(readStageRun(metrics),{executor:'local',requestedModel:null,startedAt:1,finishedAt:2,turns:null,costUsd:null})
+ for(const x of [{...metrics,costUsd:-1},{...metrics,executor:'unknown-model'},{...metrics,finishedAt:0}])assert.equal(readStageRun(x),null)
 })

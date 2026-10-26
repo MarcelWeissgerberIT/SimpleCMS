@@ -56,6 +56,8 @@ export interface RepoConfig {
   /** argv, run in the worktree (null = no test stage on this repo) */
   testCommand: string[] | null
   testTimeoutSec: number
+  /** Optional owner-controlled counterexamples, run after review on the frozen candidate. Never chosen by a model. */
+  challengeCommand?: string[] | null
   /** the Static analysis stage: argv run in the task's worktree (or the main checkout) — a report, never a gate (null: none) */
   analyzeCommand: string[] | null
   analyzeTimeoutSec: number
@@ -446,6 +448,12 @@ function repoConfig(raw: unknown, index: number, configDir: string, problems: st
     }
   }
   let analyzeCommand: string[] | null = null
+  let challengeCommand: string[] | null = null
+  if (raw.challengeCommand !== undefined && raw.challengeCommand !== null) {
+    const argv = strings(raw.challengeCommand, 50)
+    if (Array.isArray(raw.challengeCommand) && argv.length && argv.length===raw.challengeCommand.length && raw.challengeCommand.every(x=>typeof x==='string'&&!!x.trim()&&x.length<=300)) challengeCommand = argv
+    else { problems.push(`${at}: "challengeCommand" must be a nonempty argv list; repository withheld until corrected`); return null }
+  }
   if (raw.analyzeCommand !== undefined && raw.analyzeCommand !== null) {
     if (typeof raw.analyzeCommand === 'string') problems.push(`${at}: "analyzeCommand" must be a list (argv), e.g. ["npx", "eslint", "."] — a command line is never run through a shell`)
     else {
@@ -467,6 +475,7 @@ function repoConfig(raw: unknown, index: number, configDir: string, problems: st
     branchPrefix,
     worktreeDir,
     testCommand,
+    ...(raw.challengeCommand !== undefined ? { challengeCommand } : {}),
     testTimeoutSec: Math.floor(num(raw.testTimeoutSec, 600, 5, 7200)),
     analyzeCommand,
     analyzeTimeoutSec: Math.floor(num(raw.analyzeTimeoutSec, 900, 5, 7200)),
@@ -625,6 +634,8 @@ export function exampleConfig(workspace: string | null): string {
       // The Test stage runs this in the worktree — an argv list, never a shell line. Leave it out: no tests.
       "testCommand": ["npm", "test"],
       "testTimeoutSec": 600,
+      // Optional independent boundary cases after final QA (owner-maintained command; no shell string):
+      // "challengeCommand": ["node", "../verification/counterexamples.mjs"],
       // The Static analysis stage runs this (a report: its findings go into the task page). Leave it out: none.
       // "analyzeCommand": ["npx", "eslint", "."],
 
@@ -741,6 +752,7 @@ export interface RepoChoice {
   baseBranch: string
   remote: string | null
   testCommand: string[] | null
+  challengeCommand?: string[] | null
   /** undefined: leave as it is */
   analyzeCommand?: string[] | null
   push: boolean
@@ -796,6 +808,10 @@ export function saveRepos(file: string, choices: RepoChoice[], workspace: string
     if (c.remote && c.remote !== 'origin') entry.remote = c.remote
     if (c.testCommand?.length) entry.testCommand = c.testCommand
     else delete entry.testCommand
+    if (c.challengeCommand !== undefined) {
+      if (c.challengeCommand?.length) entry.challengeCommand = c.challengeCommand
+      else delete entry.challengeCommand
+    }
     if (c.analyzeCommand !== undefined) {
       if (c.analyzeCommand?.length) entry.analyzeCommand = c.analyzeCommand
       else delete entry.analyzeCommand

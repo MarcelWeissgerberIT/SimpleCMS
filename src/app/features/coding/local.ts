@@ -21,6 +21,7 @@ import { LOG_MAX, type GitInfo, type LogLine, type TestResult } from './protocol
 
 /** What this device knows about a task's run (the row holds what everyone sees). */
 export interface TaskLocal {
+  stageRuns?: Array<{run:string;stageId:ID;stage:string;status:string;receipt:import('@/shared/coding/evidence').StageRunEvidence}>
   copilot?: import('@/shared/copilot').CopilotChoice
   copilotRole?: import('@/shared/copilot').CopilotChoice
   copilotRuns?: Array<{ run: string; stageId: ID; stage: string; status: string; branch?: string; test?: {ok:boolean;code:number|null;skipped?:boolean}; receipt: import('@/shared/copilot').CopilotReceipt }>
