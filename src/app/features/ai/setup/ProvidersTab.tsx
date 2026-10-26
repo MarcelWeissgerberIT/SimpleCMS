@@ -70,7 +70,8 @@ const ROWS: Array<{ id: string; classes: FeatureClass[] }> = [
   { id: 'agents', classes: ['agents'] },
   { id: 'scripts', classes: ['scripts'] },
   { id: 'help', classes: ['help'] },
-  { id: 'mcp', classes: ['mcp-setup', 'generate'] },
+  { id: 'mcp', classes: ['mcp-setup'] },
+  { id: 'media', classes: ['generate'] },
 ]
 // 'review' is a slice of its own (S6); 'gate' (slice SJ) has its own row below: Jev versions only, starts off
 
@@ -314,7 +315,7 @@ function DeviceRows() {
         {ROWS.map((row) => {
           const opts = routeOptions(t, row.classes)
           const later = orKey && !row.classes.every((c) => routable('openrouter', c))
-          const label = row.id === 'ask' ? t('features.ai.prov.tab.ask') : row.id === 'mcp' ? t('features.ai.prov.tab.mcpRow') : t(`features.ai.prov.class.${row.id}`)
+          const label = row.id === 'ask' ? t('features.ai.prov.tab.ask') : row.id === 'mcp' ? t('features.ai.prov.tab.mcpRow') : row.id === 'media' ? t('features.ai.prov.tab.mediaRow') : t(`features.ai.prov.class.${row.id}`)
           return (
             <label key={row.id} className="aip__row" data-row={row.id}>
               <span className="aip__work">

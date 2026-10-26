@@ -91,4 +91,19 @@ test.describe('Atlas Flow across workspace features',()=>{
     await expect(term.locator('.term-step[data-tool="append_to_page"]')).toHaveCount(0)
   })
 
+  test('personal Atlas connections can be tested with a local model and no Claude key',async({page})=>{
+    fake.onModelMcp=r=>({tools:[{name:'remote_mcp_0',server:'atlas',tool:'atlas_get',description:'Read approved source',parameters:{type:'object',properties:{ref:{type:'integer'}},required:['ref']}}]})
+    await wsEval(page,(s,model)=>s.updateSettings({ai:{allow:{local:['mcp']},routes:{'mcp-setup':[{p:'local',m:model}]}},mcpServers:[{id:'test-atlas',name:'atlas',url:'https://atlas.example.org/mcp',token:'local-test-credential',enabled:true,prompt:'Existing instructions.',checkedAt:Date.now()}]}),MODEL)
+    await page.evaluate(()=>(window as any).__one.ui.getState().openModal({type:'settings'}))
+    await page.getByRole('tab',{name:/AI$/}).click()
+    await expect(page.getByTestId('device-row-mcp')).toHaveValue('local:'+MODEL)
+    const servers=page.getByTestId('mcp-servers')
+    await servers.locator('.mcps-card[data-id="test-atlas"] button[aria-expanded]').click()
+    const check=servers.locator('.mcps-prompt button').first()
+    await expect(check).toBeEnabled();await check.click()
+    await expect.poll(()=>fake.mcpAsked.length).toBe(1)
+    expect(fake.mcpAsked[0].action).toBe('list')
+    expect(fake.textAsked).toHaveLength(0)
+  })
+
 })

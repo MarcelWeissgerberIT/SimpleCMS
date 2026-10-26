@@ -41,7 +41,7 @@ import { openMcpConnections } from '../../mcp/connections/open'
 import { HelpLink } from '../../../help'
 import { CodeArea, markdownTokenizer } from '../../../ui/code'
 import { McpOverview } from './McpOverview'
-import { AINeedsSetup } from '../setup/AINeedsSetup'
+import { AINeedsSetup, useAIStatus } from '../setup/AINeedsSetup'
 import { quietSettings } from '../setup/openAISetup'
 import './mcp-servers.css'
 
@@ -59,7 +59,7 @@ export function McpServers({ openId, add }: { openId?: string; add?: boolean } =
   const t = useT()
   const raw = useWorkspace((s) => s.settings.mcpServers)
   const servers = useMemo(() => readServers({ mcpServers: raw }), [raw])
-  const hasKey = useWorkspace((s) => !!s.settings.aiApiKey.trim())
+  const hasKey = useAIStatus('mcp-setup.inspect').ready
   /** the add form is open */
   const [adding, setAdding] = useState(!!add && servers.length < MAX_SERVERS)
   /** the server whose details are open */

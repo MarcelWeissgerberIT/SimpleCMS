@@ -37,7 +37,7 @@ test('Copilot catalogue checks login without inference; browser JSON and functio
     assert.equal((await textRequest(file,{...req,tools},new AbortController().signal)).calls?.[0]?.name,'read_page')
     process.env.COPILOT_ANSWERS=JSON.stringify([{content:'',tool_calls:[{function:{name:'read_page',arguments:{id:42}}}]}])
     await assert.rejects(textRequest(file,{...req,tools},new AbortController().signal),/arguments/)
-    assert.throws(()=>checkTextRequest({...req,url:'https://example.org'}));assert.throws(()=>checkTextRequest({...req,provider:'local',tools:[]}))
+    assert.throws(()=>checkTextRequest({...req,url:'https://example.org'}));assert.throws(()=>checkTextRequest({...req,provider:'ollama',tools:[]}))
   }finally{process.env=previous;globalThis.fetch=fetch;await rm(dir,{recursive:true,force:true})}
 })
 test('Browser MCP uses selected HTTPS credentials only; denied tools and malformed arguments never execute',async()=>{
