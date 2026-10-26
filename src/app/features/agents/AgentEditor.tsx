@@ -1,5 +1,5 @@
 import { useAIStatus } from '../ai/setup/AINeedsSetup'
-import { useWorkerModels, workerModelRows } from '../ai/core/workerModels'
+import { useWorkerModels, workerModelRows, listedWorkerModelRows } from '../ai/core/workerModels'
 import { routeFor } from '../ai/core/gate'
 import { readAgentRoute } from '@/shared/ai/route'
 /**
@@ -199,8 +199,8 @@ export function AgentEditor({
   useWorkerModels()
   const [d, setD] = useState<CustomAgent>(initial)
   const pins = readAgentRoute(d.route)
-  const copilotPin = Array.isArray(pins) && pins[0]?.p === 'copilot' ? pins[0] : null
-  const subscription = d.runner === 'browser' && (!!copilotPin || !d.model && !Array.isArray(pins) && routeFor('agents.run').route.p === 'copilot')
+  const workerPin = Array.isArray(pins) && ['copilot','local'].includes(pins[0]?.p ?? '') ? pins[0] : null
+  const subscription = d.runner === 'browser' && (workerPin?.p === 'copilot' || !d.model && !Array.isArray(pins) && routeFor('agents.run').route.p === 'copilot')
   // unsaved changes: the Patchbay's hint links say "save first" instead of leaving (they would drop the change)
   const dirty = !isNew && !sameAgent(d, initial)
   const [errors, setErrors] = useState<Errors>({})
@@ -416,14 +416,14 @@ export function AgentEditor({
           {inCloud && !serverOk && <p className="agx-note">{runtime && !runtime.available ? t('features.agents.server.off') : t('features.agents.runner.serverOff')}</p>}
           <div className="agx-grid2">
             <Field label={t('features.agents.ed.model')} id={`${uid}-model`}>
-              <select id={`${uid}-model`} className="input" value={copilotPin ? `copilot:${copilotPin.m}` : d.model ?? ''} onChange={(e) => { const worker = workerModelRows().find(m => m.route.p === 'copilot' && `copilot:${m.route.m}` === e.target.value); set(worker ? {route:[worker.route],model:null} : {route:null,model:e.target.value || null}) }}>
+              <select id={`${uid}-model`} className="input" value={workerPin ? `${workerPin.p}:${workerPin.m}` : d.model ?? ''} onChange={(e) => { const worker = workerModelRows().find(m => ['copilot','local'].includes(m.route.p) && `${m.route.p}:${m.route.m}` === e.target.value); set(worker ? {route:[worker.route],model:null} : {route:null,model:e.target.value || null}) }}>
                 <option value="">{t(d.runner === 'server' ? 'features.agents.model.server' : 'features.agents.model.inherit')}</option>
                 {AI_MODELS.map((m) => (
                   <option key={m.id} value={m.id}>
                     {m.name}
                   </option>
                 ))}
-                {d.runner === 'browser' && <optgroup label="GitHub Copilot">{workerModelRows().filter(m => m.route.p === 'copilot' && m.caps.tools).map(m => <option key={m.route.m} value={`copilot:${m.route.m}`}>{m.label}</option>)}</optgroup>}
+                {d.runner === 'browser' && (['copilot','local'] as const).map(p => <optgroup key={p} label={p === 'copilot' ? 'GitHub Copilot' : 'Atlas Flow · Ollama'}>{listedWorkerModelRows(workerPin).filter(m => m.route.p === p && m.caps.tools).map(m => <option key={m.route.m} value={`${p}:${m.route.m}`}>{m.label}</option>)}</optgroup>)}
               </select>
               <AgentModelHint agent={d} />
             </Field>

@@ -8,12 +8,14 @@ export interface SharedModel {
   id: string; workspace: string; model: string; label: string; owner: string; mine: boolean;
   /** Host checks local model metadata before sending context to inference. */
   dataFlow?: boolean;
+  /** Function inference only; tools run in the requesting member’s browser/worker. */
+  tools?: boolean;
   /** Fresh outbound host heartbeat, separate from installed-model availability. Older servers omit these. */
   hostOnline?: boolean; modelAvailable?: boolean | null;
   enabled: boolean; online: boolean; queued: number; running: boolean; publicKey: SharedPublicKey | null
 }
 export interface SharedText {
-  model: string; messages: {role: 'system'|'user'|'assistant';content:string}[]; maxTokens:number
+  model: string; messages: {role: 'system'|'user'|'assistant';content:string}[]; maxTokens:number; tools?: import('./worker.ts').WorkerFunction[]; schema?: Record<string,unknown>
 }
 export interface SharedBox {v:1;iv:string;data:string;key?:string}
 const bytes = (s:string) => Uint8Array.from(atob(s),c=>c.charCodeAt(0))

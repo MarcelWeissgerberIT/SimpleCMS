@@ -430,9 +430,9 @@ function McpProviders() {
   return (
     <p className="aip__mcp" data-testid="mcp-providers">
       <span className="label">{t('features.ai.prov.mcp.label')}</span>
-      {PLATE_ORDER.map((p) => (
+      {[...PLATE_ORDER, 'copilot' as const, 'local' as const].map((p) => (
         <span key={p} className="aip__mcpcell">
-          <b>{providerInfo(p).name}</b> {p === 'anthropic' ? t('features.ai.prov.mcp.yes', { company: providerInfo(p).company }) : p === 'openai' ? t('features.ai.prov.mcp.notYet') : t('features.ai.prov.chip.why.mcp')}
+          <b>{providerInfo(p).name}</b> {p === 'anthropic' ? t('features.ai.prov.mcp.yes', { company: providerInfo(p).company }) : ['copilot','local'].includes(p) ? t('features.ai.prov.mcp.worker') : p === 'openai' ? t('features.ai.prov.mcp.notYet') : t('features.ai.prov.chip.why.mcp')}
         </span>
       ))}
     </p>

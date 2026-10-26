@@ -1,5 +1,6 @@
 /** The harness only consumes this contract. Model selection and wire format stay in the adapter. */
 export interface LocalInferenceRequest {
+  schema?: Record<string, unknown>
   /** Copilot accepts in-memory image blobs; no arbitrary files or URLs. */
   attachments?: import('../../../src/shared/ai/worker.ts').WorkerAttachment[]
   model: string
@@ -41,7 +42,7 @@ export function ollamaInference(base: URL): LocalInference {
     if (metadata.remote_host || metadata.remote_model || request.model.endsWith('-cloud')) throw new Error('A cloud-backed Ollama model cannot run as local inference.')
     const response = await fetch(new URL('/api/chat', base), {
       method: 'POST', redirect: 'error', signal: AbortSignal.any([request.signal, AbortSignal.timeout(180000)]), headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: request.model, messages: request.messages, tools: request.tools, stream: false, keep_alive: '30m', options: { num_ctx: request.contextTokens, num_predict: request.outputTokens, temperature: 0.2 } }),
+      body: JSON.stringify({ model: request.model, messages: request.messages, tools: request.tools, ...(request.schema ? { format: request.schema } : {}), stream: false, keep_alive: '30m', options: { num_ctx: request.contextTokens, num_predict: request.outputTokens, temperature: 0.2 } }),
     })
     if (!response.ok) throw new Error(`Ollama could not run the local coding task (HTTP ${response.status}).`)
     const data = await response.json() as { message?: any; prompt_eval_count?: number; eval_count?: number }

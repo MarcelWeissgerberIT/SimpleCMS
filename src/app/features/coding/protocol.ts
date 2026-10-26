@@ -70,7 +70,7 @@ export type GitAction = (typeof GIT_ACTIONS)[number]
  * worker that names it) and 'permission' (Claude Code's permission prompts come to One as PermissionAsk; the person
  * answers with a PermissionVerb).
  */
-export const WORKER_CAN = ['data-flow', 'shared-models', 'source-review', 'copilot-options', 'text-models', 'copilot-chat', 'copilot-media', 'analyze', 'git:comment', 'git:merge', 'doc', 'model', 'mcp-list', 'ship', 'continue', 'permission', 'agent:codex', 'agent:local', 'agent:minimax', 'agent:ollama', 'agent:copilot', 'delivery-qa', 'harness-quality', 'personal-secrets'] as const
+export const WORKER_CAN = ['local-chat', 'data-flow', 'shared-models', 'source-review', 'copilot-options', 'text-models', 'copilot-chat', 'copilot-media', 'analyze', 'git:comment', 'git:merge', 'doc', 'model', 'mcp-list', 'ship', 'continue', 'permission', 'agent:codex', 'agent:local', 'agent:minimax', 'agent:ollama', 'agent:copilot', 'delivery-qa', 'harness-quality', 'personal-secrets'] as const
 /**
  * What a worker runs, read from its `next`. Document stages came before `can`, together with `docs: true`: a worker
  * that sends either knows them, so a `can` without 'doc' (1.3.x) or `docs` without a `can` (1.3.1 before `can`)

@@ -1,3 +1,4 @@
+import { priceFor } from './registry'
 import { assertPreparedFlow } from './gate'
 /** Text/JSON one-shots with selected remote tools. The browser owns the loop and OUT lock. */
 import type { ChatRequest, Turn, Usage } from '@/shared/ai/types'
@@ -18,7 +19,7 @@ export async function sendCopilotCompletion(prepared: Prepared, req: ChatRequest
   const used: Usage[] = [], activity: McpCall[] = [], repeated = new Set<string>()
   if (o.mcp) {
     if (!prepared.allows('mcp') || !o.mcp.worker) throw new AIError('policy', 'mcp')
-    remote = workerMcpSession(o.mcp.worker, o.signal, c => { const i=activity.findIndex(v=>v.id===c.id);if(i<0)activity.push(c);else activity[i]=c;o.onMcp?.([...activity]) })
+    remote = workerMcpSession(o.mcp.worker, o.signal, c => { const i=activity.findIndex(v=>v.id===c.id);if(i<0)activity.push(c);else activity[i]=c;o.onMcp?.([...activity]) }, prepared.provider==='local'?6000:12000)
   }
   const tools = remote ? WORKER_MCP_FUNCTIONS : []
   for (let round = 0; round < 12; round++) {
@@ -26,10 +27,10 @@ export async function sendCopilotCompletion(prepared: Prepared, req: ChatRequest
     const result = await sendWorkerText(req.route, messages, Math.min(req.maxTokens, 8192), o.signal, { ...(material.attachments.length ? { attachments: material.attachments } : {}), ...(tools.length ? { tools } : {}), ...(req.output.kind === 'json' ? { schema: req.output.schema } : {}) })
     const usage = result.inputTokens !== null && result.outputTokens !== null ? { input: result.inputTokens, output: result.outputTokens, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0, reasoning: 0 } : null
     const turn: Turn = { kind: 'chat', parts: [{ type: 'text', text: result.text }], stop: result.calls?.length ? 'tool_calls' : 'end', usage, served: result.copilotReceipt?.models.at(-1) ?? null, streamedChars: result.text.length }
-    const entry = o.call.response(neutralResponse(turn, { price: null, promptChars: JSON.stringify(messages).length + JSON.stringify(tools).length }))
+    const entry = o.call.response(neutralResponse(turn, { price: priceFor(prepared.route!), promptChars: JSON.stringify(messages).length + JSON.stringify(tools).length }))
     if (entry) { used.push(entry.usage); spent += entry.usd ?? 0 }
     if (!result.calls?.length) { o.onToken?.(result.text); return turn }
-    const verdict = await beforeRound({ prepared, spent, last: used[used.length - 1]!, steps: used, pending: { low: 0, high: 0 }, mcpIterations: 0, cold: true, history: () => [], thinks: () => false, mcpAttached: false })
+    const verdict = used.length ? await beforeRound({ prepared, spent, last: used[used.length - 1]!, steps: used, pending: { low: 0, high: 0 }, mcpIterations: 0, cold: true, history: () => [], thinks: () => false, mcpAttached: false }) : {go:true}
     if (!('go' in verdict)) throw new AIError('budget')
     messages.push({ role: 'assistant', content: JSON.stringify({ content: result.text, tool_calls: result.calls }) })
     for (const c of result.calls) {
@@ -39,8 +40,8 @@ export async function sendCopilotCompletion(prepared: Prepared, req: ChatRequest
       if(repeated.has(key))throw new AIError('mcp','Repeated identical MCP call; stopped before executing again.')
       repeated.add(key)
       const result = await remote(c.name,c.arguments,c.id)
-      messages.push({ role: 'user', content: JSON.stringify({ tool_result: { id: c.id, content: result } }) })
+      messages.push({ role: 'user', content: JSON.stringify({ tool_result: { id: c.id, content: prepared.provider==='local'&&result.length>6000?result.slice(0,6000)+'\n[Truncated tool result. Ask a narrower source question.]':result } }) })
     }
   }
-  throw new AIError('mcp', 'Copilot reached the twelve-round limit.')
+  throw new AIError('mcp', 'Model reached the twelve-round limit.')
 }

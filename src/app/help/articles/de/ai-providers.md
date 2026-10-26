@@ -26,7 +26,7 @@ Mit mindestens zwei Modellen in deiner OpenRouter-Liste kann **Jev Router** (von
 Die Zeile **Vorprüfer** in Schritt 03 steht zuerst auf **Aus**. **Jev 1.13 wählen** lässt Jev (ein Entscheidungsmodell von TypeSafe) zu jedem Vorschlag eines Agenten, dessen Abschnitt 06 die Vorprüfung einschaltet, vier feste Fragen beantworten — er markiert oder hält zurück, er schreibt nie. Siehe [Jev als Vorprüfer](help:ai-jev).
 
 ## Was in dieser Version wo läuft
-Das KI-Menü, ⌘K **?**, Arbeitsbereich fragen, Umwandeln, Bilder und Dateien, Autofill, Besprechungsnotizen, das Gedächtnis und **Fragen** in der Hilfe können über OpenRouter laufen. Das KI-Terminal, Agenten, Skripte, Ausgang-Entwürfe und alles mit MCP-Servern laufen vorerst mit Claude — ihre Karten sagen es.
+Das KI-Menü, ⌘K **?**, Arbeitsbereich fragen, Umwandeln, Bilder und Dateien, Autofill, Besprechungsnotizen, das Gedächtnis und **Fragen** in der Hilfe können über OpenRouter laufen. KI-Terminal und Browser-Agenten unterstützen Claude, Copilot und werkzeugfähige lokale Modelle. Die Modellfähigkeit und Datenregeln entscheiden, welche weiteren Aktionen verfügbar sind; MCP nutzt die unten beschriebene persönliche Verbindung.
 
 ## Einstellungen → KI
 Eine Platte je Anbieter: Zustand, **Prüfen (kostenlos)**, **Schlüssel ändern**, **Entfernen …** (nur den Schlüssel, oder Schlüssel und die Regeln dieses Geräts dafür, mit Rückgängig). Darunter: **Dieses Gerät** — ein Standard und eine Zeile je Art von Arbeit —, die Datenzeilen, deine eigenen Daten, der heutige Verbrauch und die MCP-Server.
@@ -49,3 +49,13 @@ Die Anbieterliste trennt Name und Verfügbarkeit. Gesperrte Einträge erklären 
 Unter **Kostenanzeige** gilt EUR/USD für alle erfassten Anbieter. Kurs und Datum werden genannt, gespeicherte Kosten und Limits bleiben USD. **Kosten unbekannt** bedeutet fehlenden Einzelpreis und niemals kostenlos. MiniMax ist eine Schätzung aus Tokenpreisen; Ollama Cloud und Codex können Tarifquoten nutzen. Ein USD-Limit kann Anfragen mit unbekanntem Preis blockieren.
 
 Wenn Regeln für Worker-Anbieter gespeichert werden, fordert ein noch geöffnetes älteres One-Fenster zum Neuladen auf. So können ältere Fenster neue Anbieter- und Budgetregeln nicht übergehen.
+
+## Atlas Flow und MCP in allen Textbereichen
+
+Ab Worker 1.34.0 kannst du ein werkzeugfähiges lokales Ollama-Modell auch für Seitenfragen, strukturierte Textaktionen, das KI-Terminal und Browser-Agenten wählen. In **Agenten → Bearbeiten → Modell** setzt du die Ausnahme für einen Agenten; **Einstellungen → KI → Dieses Gerät** setzt den Standard je Arbeitsart. Modelle ohne bestätigte Werkzeugfähigkeit bleiben Textmodelle. Bilderkennung kommt dadurch nicht hinzu.
+
+**Atlas einrichten:** Unter **Einstellungen → KI → MCP-Server** deine persönliche Atlas-Verbindung hinzufügen und prüfen. Unter den persönlichen Datenregeln MCP für **Lokal · Ollama** erlauben. Für externe MCP-Aufrufe muss dein eigener Worker verbunden sein. Im Agenten zusätzlich Atlas und nur die benötigten Werkzeuge auswählen. Eine Modellfreigabe übernimmt keine fremden Atlas-Rechte.
+
+Das lokale Modell findet passende Werkzeuge über den Harness, liest Quellen und schlägt Änderungen vor. ONE prüft den Seitenbereich und hält Änderungen zur Abnahme bereit. Das Team entscheidet. Wiederholte identische Aufrufe werden begrenzt; fehlende Quellen und Kontextgrenzen bleiben sichtbar. Es gibt keinen stillen Wechsel zu einer Cloud-KI.
+
+Beim geteilten Modell rechnet der freigegebene Host. ONE-Werkzeuge laufen in deinem Browser, Atlas-MCP über deinen persönlichen Worker. Der Modellhost erhält freigegebenen Kontext und Werkzeugergebnisse, keine Tokens. Private Seiten, Mail und persönliches Gedächtnis werden nicht automatisch geteilt. Zum Modellhost-Ausbau auf einer eigenen VM bleibt dieser Ablauf gleich; Ollama wird nicht öffentlich geöffnet.

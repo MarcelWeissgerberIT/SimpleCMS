@@ -4,7 +4,7 @@ import {useEffect,useSyncExternalStore} from 'react'
 import {useCloud,cloudRequest} from '../../../cloud'
 import {SHARED_PREFIX,SHARED_INPUT_MAX,sharedRequestBox,openShared,type SharedModel,type SharedBox} from '@/shared/ai/shared-model'
 import type {ModelInfo} from '@/shared/ai/types'
-import type {WorkerTextResult} from '@/shared/ai/worker'
+import type {WorkerFunction,WorkerTextResult} from '@/shared/ai/worker'
 
 let scope='',rows:SharedModel[]=[],revision=0,loading:Promise<void>|null=null
 const listeners=new Set<()=>void>()
@@ -13,7 +13,7 @@ let timer:ReturnType<typeof setInterval>|undefined
 const publish=()=>{revision++;for(const fn of listeners)fn()}
 export const sharedScope=()=>{const c=useCloud.getState();return c.active.kind==='cloud'&&c.user&&!c.readOnly?c.active.id+':'+c.user.id:''}
 export const sharedModels=()=>scope===sharedScope()?rows:[]
-export const sharedModelRows=():ModelInfo[]=>sharedModels().filter(r=>r.enabled&&r.online&&r.publicKey).map(r=>({route:{p:'local',m:SHARED_PREFIX+r.id},label:r.label+' · '+r.model,short:r.label.toUpperCase().slice(0,22),vendor:'local',caps:{structured:false,tools:false,vision:false,pdf:false,mcp:false,mcpListing:false,cache:false,effort:false,reasoning:false,web:false,notes:false,refusalFallback:false,context:32768,maxOutput:4096},price:{input:0,output:0,cacheRead:0,cacheWrite:0,source:'table',at:'local'}}))
+export const sharedModelRows=():ModelInfo[]=>sharedModels().filter(r=>r.enabled&&r.online&&r.publicKey).map(r=>({route:{p:'local',m:SHARED_PREFIX+r.id},label:r.label+' · '+r.model,short:r.label.toUpperCase().slice(0,22),vendor:'local',caps:{structured:r.tools===true,tools:r.tools===true,vision:false,pdf:false,mcp:r.tools?'allow-only':false,mcpListing:r.tools===true,cache:false,effort:false,reasoning:false,web:false,notes:false,refusalFallback:false,context:32768,maxOutput:4096},price:{input:0,output:0,cacheRead:0,cacheWrite:0,source:'table',at:'local'}}))
 export async function refreshSharedModels(){
   const want=sharedScope()
   if(scope!==want){scope=want;rows=[];publish()}
@@ -33,14 +33,15 @@ let progress:QueueProgress|null=null
 export const sharedProgress=()=>progress
 const setProgress=(p:QueueProgress|null)=>{progress=p;publish()}
 const pause=(signal?:AbortSignal)=>new Promise<void>((resolve,reject)=>{if(signal?.aborted)return reject(new Error('Request cancelled'));const stop=()=>{clearTimeout(t);reject(new Error('Request cancelled'))};const t=setTimeout(()=>{signal?.removeEventListener('abort',stop);resolve()},1000);signal?.addEventListener('abort',stop,{once:true})})
-export async function sendSharedText(model:string,messages:{role:'system'|'user'|'assistant';content:string}[],maxTokens:number,signal?:AbortSignal,onProgress?:(p:QueueProgress)=>void):Promise<WorkerTextResult>{
+export async function sendSharedText(model:string,messages:{role:'system'|'user'|'assistant';content:string}[],maxTokens:number,signal?:AbortSignal,onProgress:((p:QueueProgress)=>void)|undefined=undefined,extra:{tools?:WorkerFunction[];schema?:Record<string,unknown>}={}):Promise<WorkerTextResult>{
   const selectedScope=sharedScope(),workspace=useCloud.getState().active.id
   const share=sharedModels().find(r=>SHARED_PREFIX+r.id===model&&r.enabled&&r.online)
   if(!selectedScope||!share?.publicKey)throw new Error('Shared model offline. Refresh the model list.')
   const workspaceState=useWorkspace.getState()
   if((hasFlowLimits(workspaceState.ai?.dataFlow)||workspaceState.ai?.policy?.restricted?.length||workspaceState.settings.ai?.restricted?.length)&&!share.dataFlow)throw new Error('Update the model host worker to use explicit data-route boundaries.')
+  if((extra.tools?.length||extra.schema)&&!share.tools)throw new Error('Update the shared model host for function support.')
   signal?.throwIfAborted()
-  const id=crypto.randomUUID(),payload={model:share.model,messages,maxTokens:Math.min(maxTokens,4096)}
+  const id=crypto.randomUUID(),payload={model:share.model,messages,maxTokens:Math.min(maxTokens,4096),...extra}
   if(new TextEncoder().encode(JSON.stringify(payload)).length>SHARED_INPUT_MAX)throw new Error('Shared model: select a smaller passage (22 KB maximum).')
   const {key,box}=await sharedRequestBox(payload,share.publicKey,share.id,id)
   const path=`api/workspaces/${workspace}/model-jobs/${id}`
@@ -63,7 +64,7 @@ export async function sendSharedText(model:string,messages:{role:'system'|'user'
         const reply=await openShared<{ok:boolean;result:WorkerTextResult}>(state.box,key,share.id,id)
         signal?.throwIfAborted()
         if(sharedScope()!==selectedScope)throw new Error('Workspace changed; request cancelled.')
-        if(!reply.ok||reply.result?.model!==share.model||typeof reply.result.text!=='string'||reply.result.calls?.length)throw new Error('Invalid shared model response')
+        if(!reply.ok||reply.result?.model!==share.model||typeof reply.result.text!=='string'||reply.result.calls && (!Array.isArray(reply.result.calls)||reply.result.calls.length>8||reply.result.calls.some(c=>typeof c.id!=='string'||!extra.tools?.some(t=>t.name===c.name)||!c.arguments||typeof c.arguments!=='object'||Array.isArray(c.arguments))))throw new Error('Invalid shared model response')
         finished=true;return {...reply.result,usd:0}
       }
       if(['failed','cancelled'].includes(state.state))throw new Error('Shared model request ended without an answer. Check the host, then retry explicitly.')

@@ -98,7 +98,7 @@ async function inspectOnce(server: McpServerConfig, mode: 'test' | 'guide', sign
   if (!mcp) throw markUnsent(new AIError('mcp', 'the token is not available in this browser', server.name))
   let sdk: SDKModule | null = null
   try {
-    if(prepared.provider==='copilot'){
+    if(['copilot','local'].includes(prepared.provider)){
       if(!mcp.worker)throw new AIError('mcp')
       const listed=await requestWorkerMcp({action:'list',servers:mcp.worker},signal) as {tools:WorkerMcpTool[]}
       if(!Array.isArray(listed?.tools))throw new AIError('mcp')

@@ -133,7 +133,7 @@ function filterPin(route: Route, input: ResolveInput, w: RouteWorld, forcedPool?
   const missing = input.caps.find((n) => !canDo(info.caps, n))
   if (missing) return { ok: false, code: 'capability', detail: missing, step: { k: 'capability', from: key, code: missing }, fix: missing === 'decisions' ? { kind: 'step', step: 'models', provider: 'openrouter' } : { kind: 'pick', need: missing } }
   // 4 · the data rule
-  const refused = (route.p === 'local' && route.m.startsWith(SHARED_PREFIX) ? input.classes.find(c => MEMBER_CLASSES.some(m => m === c)) : undefined) ?? refusedClasses(route.p, input.classes, w.ws, w.device)[0]
+  const refused = (route.p === 'local' && route.m.startsWith(SHARED_PREFIX) ? input.classes.find(c => MEMBER_CLASSES.some(m => m === c && !(m === 'mcp' && info.caps.mcp))) : undefined) ?? refusedClasses(route.p, input.classes, w.ws, w.device)[0]
   if (refused) return { ok: false, code: 'policy', detail: refused, step: { k: 'policy', from: key, cls: refused }, fix: { kind: 'step', step: 'data', provider: route.p, data: refused } }
   return { ok: true, info, ...(pool ? { pool } : {}) }
 }

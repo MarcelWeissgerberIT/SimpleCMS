@@ -9,7 +9,7 @@ import { codexArgs } from '../src/worker/codex.ts'
 test('plain inference rejects tool/URL/path injection and oversize requests', () => {
   const good = { provider: 'local', model: 'atlas-flow:latest', messages: [{ role: 'user', content: 'Summarize this text' }], maxTokens: 256 }
   assert.deepEqual(checkTextRequest(good), good)
-  for (const patch of [{ url: 'https://evil.test' }, { tools: [] }, { model: '../secret' }, { maxTokens: 0 }, { maxTokens: 20000 }, { messages: [{ role: 'tool', content: 'x' }] }, { messages: [{ role: 'user', content: 'x'.repeat(180001) }] }]) assert.throws(() => checkTextRequest({ ...good, ...patch }))
+  for (const patch of [{ url: 'https://evil.test' }, { tools: [{name:'run_shell'}] }, { model: '../secret' }, { maxTokens: 0 }, { maxTokens: 20000 }, { messages: [{ role: 'tool', content: 'x' }] }, { messages: [{ role: 'user', content: 'x'.repeat(180001) }] }]) assert.throws(() => checkTextRequest({ ...good, ...patch }))
 })
 
 test('cloud catalogue is request-only; selected model reaches Ollama Cloud, worker key never leaves that fixed host', async () => {

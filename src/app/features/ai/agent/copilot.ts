@@ -1,7 +1,9 @@
+import { LOCAL_WORKSPACE_FUNCTIONS, LOCAL_WORKSPACE_GUIDE, localWorkspaceTools } from './localTools'
+import { priceFor } from '../core/registry'
 /** Browser-owned One tools; Copilot supplies bounded decisions through the personal worker. */
 import type { BetaMessageParam } from '@anthropic-ai/sdk/resources/beta/messages/messages'
 import type { Prepared } from '../core/gate'
-import { beforeRound } from '../core/gate'
+import { beforeRound, assertPreparedFlow } from '../core/gate'
 import { AIError } from '../core/errors'
 import { meterCall, neutralResponse } from '../core/meter'
 import { shapeOf, withShape } from '../core/shape'
@@ -27,7 +29,7 @@ export async function copilotMessages(messages: BetaMessageParam[], material: Co
       else if (b.type==='text') parts.push({...b,text:await material.part({type:'text',text:b.text})})
       else if (b.type==='tool_use') parts.push(b)
       else if (b.type==='tool_result') {
-        if (Array.isArray(b.content) && b.content.some(p=>p.type!=='text')) throw new AIError('capability','Copilot accepts text tool results only.')
+        if (Array.isArray(b.content) && b.content.some(p=>p.type!=='text')) throw new AIError('capability','This model accepts text tool results only.')
         const content=typeof b.content==='string'?await material.part({type:'text',text:b.content}):await Promise.all((b.content??[]).map(async p=>({...p,text:await material.part({type:'text',text:p.type==='text'?p.text:''})})))
         parts.push({...b,content})
       } else throw new AIError('capability','Unsupported private provider history. Start a fresh task.')
@@ -44,22 +46,24 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
   let calls = 0, rounds = 0, spent = 0
   const used: import('@/shared/ai/types').Usage[] = [], repeated = new Map<string, number>()
   const call = meterCall(prepared, { source: opts.run?.source ?? opts.ledgerSource, signal })
-  const system = (opts.system ?? AGENT_SYSTEM) + (opts.mcp ? '\n\n' + opts.mcp.system : '')
+  const local = route.p === 'local' ? localWorkspaceTools(tools) : null
+  const system = (opts.system ?? AGENT_SYSTEM) + (opts.mcp ? '\n\n' + opts.mcp.system : '') + (local ? LOCAL_WORKSPACE_GUIDE : '')
   // Credentials remain only on the authenticated worker/MCP path, never in definitions or messages.
   if (opts.mcp) {
     if (!opts.mcp.worker || !prepared.allows('mcp')) throw new AIError('capability', 'Selected MCP connections are unavailable on this route.')
-    remote = workerMcpSession(opts.mcp.worker, signal, hooks.mcp)
+    remote = workerMcpSession(opts.mcp.worker, signal, hooks.mcp, route.p==='local'?6000:12000)
   }
-  const definitions: WorkerFunction[] = [...tools.map(t => ({ name: t.name, description: t.description.slice(0,400), parameters: t.input_schema })), ...(remote ? WORKER_MCP_FUNCTIONS : [])]
+  const definitions: WorkerFunction[] = [...(local ? LOCAL_WORKSPACE_FUNCTIONS : tools.map(t => ({ name: t.name, description: t.description.slice(0,400), parameters: t.input_schema }))), ...(remote ? WORKER_MCP_FUNCTIONS : [])]
   const material = new CopilotContent(signal)
   const run = async () => {
     while (++rounds <= 40) {
+      assertPreparedFlow(prepared)
       if (signal.aborted) throw new AIError('aborted')
       const transcript = await copilotMessages(messages, material)
-      const result = await sendWorkerText(route, [{ role: 'system', content: system }, ...transcript], Math.min(8192, prepared.maxTokens ?? 8192), signal, { tools: calls < MAX_TOOL_CALLS ? definitions : [], ...(material.attachments.length ? {attachments:material.attachments} : {}) })
+      const result = await sendWorkerText(route, [{ role: 'system', content: system }, ...transcript], Math.min(local ? 4096 : 8192, prepared.maxTokens ?? 8192), signal, { tools: calls < MAX_TOOL_CALLS ? definitions : [], ...(material.attachments.length ? {attachments:material.attachments} : {}) })
       const usage = result.inputTokens !== null && result.outputTokens !== null ? { input: result.inputTokens, output: result.outputTokens, cacheRead: 0, cacheWrite: 0, cacheWrite1h: 0, reasoning: 0 } : null
       const turn: Turn = { kind: 'chat', parts: [{ type: 'text', text: result.text }], stop: result.calls?.length ? 'tool_calls' : 'end', usage, served: result.model, streamedChars: result.text.length }
-      const entry = call.response(neutralResponse(turn, { price: null, promptChars: system.length + JSON.stringify(messages).length + JSON.stringify(definitions).length }))
+      const entry = call.response(neutralResponse(turn, { price: priceFor(prepared.route!), promptChars: system.length + JSON.stringify(messages).length + JSON.stringify(definitions).length }))
       if (entry) { spent += entry.usd ?? 0; used.push(entry.usage); hooks.usage(entry.usage, entry) }
       if (result.text) hooks.text(result.text)
       hooks.textDone(result.calls?.length ? 'note' : 'answer')
@@ -71,24 +75,28 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
       }
       const results = []
       for (const c of result.calls) {
+        assertPreparedFlow(prepared)
         if (signal.aborted) throw new AIError('aborted')
         const key = JSON.stringify([c.name, c.arguments]), n = (repeated.get(key) ?? 0) + 1
         repeated.set(key, n)
-        if (++calls > MAX_TOOL_CALLS || n > 3 || n > 1 && (tools.find(t => t.name === c.name)?.write || isWorkerMcpFunction(c.name))) { hooks.limit(); return 'limit' as const }
+        if (++calls > MAX_TOOL_CALLS || n > 3 || n > 1 && (tools.find(t => t.name === c.name)?.write || isWorkerMcpFunction(c.name) || c.name==='one_workspace_call')) { hooks.limit(); return 'limit' as const }
         let content: string, failed = false
-        const tool = tools.find(t => t.name === c.name)
-        if (tool) {
+        const resolved = local && c.name==='one_workspace_call' ? local.resolve(c.arguments) : null
+        const tool = resolved?.tool ?? (!local ? tools.find(t => t.name === c.name) : undefined)
+        const input = resolved?.input ?? c.arguments
+        if (local && c.name==='one_workspace_search') { content = local.search(c.arguments) }
+        else if (tool) {
           const start = performance.now()
-          const id = hooks.toolStart(tool.name, argLabel(tool.name, c.arguments, stage))
+          const id = hooks.toolStart(tool.name, argLabel(tool.name, input, stage))
           try {
-            const out = await withShape(shape, () => withToolScope(seen, () => withReadLimit(opts.readLimit ?? null, () => tool.run(c.arguments, stage))))
+            const out = await withShape(shape, () => withToolScope(seen, () => withReadLimit(opts.readLimit ?? null, () => tool.run(input, stage))))
             hooks.toolEnd(id, { state: out.state, summary: out.summary, changeId: out.changeId, ms: performance.now() - start })
-            content = clipResult(out.content, RESULT_CHARS + 2000)
+            content = clipResult(out.content, local ? 6000 : RESULT_CHARS + 2000)
           } catch (e) { failed = true; content = e instanceof Error ? e.message : 'Tool failed.'; hooks.toolEnd(id, { state: 'err', summary: '', ms: performance.now() - start }) }
         } else if (remote && isWorkerMcpFunction(c.name)) {
-          try { const raw = await remote(c.name, c.arguments, c.id);failed=JSON.parse(raw).isError===true;content = clipResult(raw, RESULT_CHARS + 2000) }
+          try { const raw = await remote(c.name, c.arguments, c.id);failed=JSON.parse(raw).isError===true;content = clipResult(raw, local ? 6000 : RESULT_CHARS + 2000) }
           catch { failed=true;content='MCP discovery/call failed. Check the exact selected tool, its arguments and connection.' }
-        } else throw new AIError('capability', 'Unknown Copilot function.')
+        } else throw new AIError('capability', 'Unknown model function.')
         results.push({ type: 'tool_result' as const, tool_use_id: c.id, content, ...(failed ? { is_error: true } : {}) })
       }
       messages.push({ role: 'user', content: results })
@@ -96,5 +104,8 @@ export async function runCopilotAgent(opts: Parameters<typeof runAgent>[0], prep
     hooks.limit()
     return 'limit' as const
   }
-  try { return await run() } finally { hooks.history(messages) }
+  try { return await run() } catch (e) {
+    if (e instanceof AIError && !e.label) throw new AIError(e.code,e.detail,e.server,prepared.label,e.fixes)
+    throw e
+  } finally { hooks.history(messages) }
 }

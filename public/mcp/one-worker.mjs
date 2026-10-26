@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// SimpleCMS One — coding worker 1.33.1 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp/src/worker
+// SimpleCMS One — coding worker 1.34.0 (MIT). Source: https://github.com/MarcelWeissgerberIT/SimpleCMS/tree/main/mcp/src/worker
 // Runs coding tasks from One with Claude Code on this computer. Setup: node one-worker.mjs --help
 // Docs and security model: https://github.com/MarcelWeissgerberIT/SimpleCMS/blob/main/docs/CODING.md
 import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);
@@ -15336,7 +15336,7 @@ var isCodingAgent = (v) => CODING_AGENTS.includes(v);
 var STAGE_KINDS = ["queue", "import", "analyze", "plan", "doc", "gate", "implement", "test", "git", "done"];
 var PERMISSION_MODES = ["plan", "acceptEdits", "default"];
 var GIT_ACTIONS = ["commit", "push", "pr", "update-base", "comment", "merge"];
-var WORKER_CAN = ["data-flow", "shared-models", "source-review", "copilot-options", "text-models", "copilot-chat", "copilot-media", "analyze", "git:comment", "git:merge", "doc", "model", "mcp-list", "ship", "continue", "permission", "agent:codex", "agent:local", "agent:minimax", "agent:ollama", "agent:copilot", "delivery-qa", "harness-quality", "personal-secrets"];
+var WORKER_CAN = ["local-chat", "data-flow", "shared-models", "source-review", "copilot-options", "text-models", "copilot-chat", "copilot-media", "analyze", "git:comment", "git:merge", "doc", "model", "mcp-list", "ship", "continue", "permission", "agent:codex", "agent:local", "agent:minimax", "agent:ollama", "agent:copilot", "delivery-qa", "harness-quality", "personal-secrets"];
 var MODEL_NAME = /^[A-Za-z0-9][A-Za-z0-9._:[\]-]{0,99}$/;
 function cleanModel(v) {
   if (typeof v !== "string") return null;
@@ -17441,7 +17441,7 @@ function ollamaInference(base) {
       redirect: "error",
       signal: AbortSignal.any([request3.signal, AbortSignal.timeout(18e4)]),
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model: request3.model, messages: request3.messages, tools: request3.tools, stream: false, keep_alive: "30m", options: { num_ctx: request3.contextTokens, num_predict: request3.outputTokens, temperature: 0.2 } })
+      body: JSON.stringify({ model: request3.model, messages: request3.messages, tools: request3.tools, ...request3.schema ? { format: request3.schema } : {}, stream: false, keep_alive: "30m", options: { num_ctx: request3.contextTokens, num_predict: request3.outputTokens, temperature: 0.2 } })
     });
     if (!response.ok) throw new Error(`Ollama could not run the local coding task (HTTP ${response.status}).`);
     const data = await response.json();
@@ -18853,6 +18853,58 @@ var AjvJsonSchemaValidator = class {
   }
 };
 
+// src/worker/local-chat.ts
+import { randomUUID as randomUUID2 } from "node:crypto";
+function localChatMessages(messages) {
+  const names2 = /* @__PURE__ */ new Map();
+  return messages.flatMap((message) => {
+    let parsed;
+    try {
+      parsed = JSON.parse(message.content);
+    } catch {
+      return [message];
+    }
+    if (message.role === "assistant") {
+      const blocks = Array.isArray(parsed) ? parsed : null;
+      const calls = blocks ? blocks.filter((b) => b.type === "tool_use").map((b) => ({ id: b.id, name: b.name, arguments: b.input })) : parsed?.tool_calls;
+      if (!Array.isArray(calls) || !calls.length) return [message];
+      for (const c of calls) names2.set(c.id, c.name);
+      return [{
+        role: "assistant",
+        content: blocks ? blocks.filter((b) => b.type === "text").map((b) => b.text).join("\n") : parsed.content ?? "",
+        tool_calls: calls.map((c) => ({ id: c.id, type: "function", function: { name: c.name, arguments: c.arguments } }))
+      }];
+    }
+    if (message.role === "user") {
+      const results = Array.isArray(parsed) && parsed.every((b) => b.type === "tool_result") ? parsed.map((b) => ({ id: b.tool_use_id, content: b.content })) : parsed?.tool_result ? [parsed.tool_result] : null;
+      if (results) return results.map((r) => ({ role: "tool", tool_call_id: r.id, ...names2.has(r.id) ? { tool_name: names2.get(r.id) } : {}, content: typeof r.content === "string" ? r.content : JSON.stringify(r.content) }));
+    }
+    return [message];
+  });
+}
+function localChatResult(message, request3) {
+  if (!message || message.content !== void 0 && typeof message.content !== "string") throw new Error("Invalid local model answer.");
+  const raw = message.tool_calls ?? [];
+  if (!Array.isArray(raw) || raw.length > 8 || raw.length && !request3.tools?.length) throw new Error("Unexpected local tool calls.");
+  const validator = new AjvJsonSchemaValidator();
+  const calls = raw.map((c) => {
+    const tool = request3.tools?.find((t) => t.name === c?.function?.name);
+    if (!tool || !c.function.arguments || typeof c.function.arguments !== "object" || Array.isArray(c.function.arguments) || !validator.getValidator(tool.parameters)(c.function.arguments).valid) throw new Error("Invalid local tool arguments; no function was executed.");
+    return { id: randomUUID2(), name: tool.name, arguments: c.function.arguments };
+  });
+  const text2 = message.content ?? "";
+  if (!calls.length && request3.schema) {
+    let answer;
+    try {
+      answer = JSON.parse(text2);
+    } catch {
+      throw new Error("The local model did not return valid JSON.");
+    }
+    if (!validator.getValidator(request3.schema)(answer).valid) throw new Error("The local answer does not match the requested schema.");
+  }
+  return { text: text2, ...calls.length ? { calls } : {} };
+}
+
 // src/worker/text-models.ts
 var copilotCatalog = null;
 async function copilotModels() {
@@ -18874,7 +18926,15 @@ async function textModels(file) {
     const res = await fetch(new URL("/api/tags", localBase()), { redirect: "error", signal: AbortSignal.timeout(3e3) });
     const data = res.ok ? await res.json() : null;
     for (const m of (Array.isArray(data?.models) ? data.models : []).slice(0, 100)) {
-      if (validWorkerModel(m.name) && !m.remote_host && !m.remote_model && !m.name.endsWith("-cloud")) out.push({ provider: "local", model: m.name, context: 32768 });
+      if (validWorkerModel(m.name) && !m.remote_host && !m.remote_model && !m.name.endsWith("-cloud")) {
+        let chat = false;
+        try {
+          const facts = await ollamaInference(localBase()).inspect(m.name, AbortSignal.timeout(3e3));
+          chat = facts.tools === true;
+        } catch {
+        }
+        out.push({ provider: "local", model: m.name, context: 32768, ...chat ? { chat: true } : {} });
+      }
     }
   } catch {
   }
@@ -18918,7 +18978,7 @@ async function textModels(file) {
 function checkTextRequest(raw) {
   const r = raw;
   if (!r || typeof r !== "object" || !isWorkerProvider(r.provider) || !validWorkerModel(r.model) || !Number.isSafeInteger(r.maxTokens) || r.maxTokens < 1 || r.maxTokens > 16384 || !Array.isArray(r.messages) || !r.messages.length || r.messages.length > 64) throw new Error("Invalid text request.");
-  if (Object.keys(r).some((k) => !["provider", "model", "messages", "maxTokens", ...r.provider === "copilot" ? ["tools", "schema", "attachments"] : []].includes(k))) throw new Error("Unknown text request field.");
+  if (Object.keys(r).some((k) => !["provider", "model", "messages", "maxTokens", ...["copilot", "local"].includes(r.provider) ? ["tools", "schema"] : [], ...r.provider === "copilot" ? ["attachments"] : []].includes(k))) throw new Error("Unknown text request field.");
   if (r.tools !== void 0 && (!Array.isArray(r.tools) || r.tools.length > 160 || r.tools.some((t) => !t || typeof t.name !== "string" || !/^[A-Za-z0-9_-]{1,100}$/.test(t.name) || typeof t.description !== "string" || !t.parameters || typeof t.parameters !== "object" || Array.isArray(t.parameters) || Object.keys(t).some((k) => !["name", "description", "parameters"].includes(k))) || new Set(r.tools.map((t) => t.name)).size !== r.tools.length)) throw new Error("Invalid function definitions.");
   if (r.schema !== void 0 && (!r.schema || typeof r.schema !== "object" || Array.isArray(r.schema))) throw new Error("Invalid output schema.");
   if (JSON.stringify([r.tools, r.schema]).length > 1e5) throw new Error("Function/schema payload is too large.");
@@ -18977,11 +19037,20 @@ async function textRequest(file, raw, signal) {
     if (!res.ok) throw new Error("Local model metadata is unavailable.");
     const data2 = await res.json();
     if (data2.remote_host || data2.remote_model) throw new Error("This is a cloud model. Choose Ollama Cloud explicitly.");
+    if ((r.tools?.length || r.schema) && (!model2.chat || !Array.isArray(data2.capabilities) || !data2.capabilities.includes("tools"))) throw new Error("This installed model has no verified tool support. Choose a tool-capable model.");
+    const validator = new AjvJsonSchemaValidator();
+    for (const t of r.tools ?? []) validator.getValidator(t.parameters);
+    if (r.schema) validator.getValidator(r.schema);
   }
-  const data = await inference({ model: r.model, messages: r.messages, tools: [], contextTokens: model2.context, outputTokens: r.maxTokens, signal });
+  const data = await inference({ model: r.model, messages: r.provider === "local" ? localChatMessages(r.messages) : r.messages, tools: (r.tools ?? []).map((t) => ({ type: "function", function: t })), ...r.schema ? { schema: r.schema } : {}, contextTokens: model2.context, outputTokens: r.maxTokens, signal });
+  if (r.provider === "local") {
+    const answer = localChatResult(data.message, r);
+    if (Buffer.byteLength(JSON.stringify(answer)) > 25e4) throw new Error("Model answer is too large.");
+    return { model: r.model, ...answer, inputTokens: data.inputTokens ?? null, outputTokens: data.outputTokens ?? null, usd: 0 };
+  }
   if (data.message?.tool_calls?.length || typeof data.message?.content !== "string") throw new Error("The model did not return a plain text answer.");
   if (Buffer.byteLength(data.message.content) > 25e4) throw new Error("Model answer is too large.");
-  return { model: r.model, text: data.message.content, inputTokens: data.inputTokens ?? null, outputTokens: data.outputTokens ?? null, usd: r.provider === "local" ? 0 : inference.cost?.() ?? null };
+  return { model: r.model, text: data.message.content, inputTokens: data.inputTokens ?? null, outputTokens: data.outputTokens ?? null, usd: inference.cost?.() ?? null };
 }
 
 // src/worker/demo-compare.ts
@@ -20782,7 +20851,7 @@ async function candidateSnapshot(cwd, signal) {
 }
 
 // src/worker/testrun.ts
-var VERSION = true ? "1.33.1" : "dev";
+var VERSION = true ? "1.34.0" : "dev";
 var TEST_OUTPUT_MAX = 64e3;
 async function runTests(repo, cwd, signal, onLine, scrub) {
   if (!repo.testCommand?.length) return runCommand(repo.testCommand, repo.testTimeoutSec, "tests", cwd, signal, onLine, scrub);
@@ -40817,6 +40886,7 @@ var SharedModelHost = class {
   outcome;
   keys = modelShareKey();
   available = false;
+  tools = false;
   checked = 0;
   changing = false;
   constructor(privateConfig, privateBusy, privateLog) {
@@ -40898,12 +40968,14 @@ var SharedModelHost = class {
     try {
       if (!this.choice?.enabled || !cloudOf(this.config)) return;
       if (Date.now() - this.checked > 3e4) {
-        this.available = (await textModels(this.config.file)).some((m) => m.provider === "local" && m.model === this.choice.model);
+        const selected = (await textModels(this.config.file)).find((m) => m.provider === "local" && m.model === this.choice.model);
+        this.available = !!selected;
+        this.tools = selected?.chat === true;
         this.checked = Date.now();
       }
       const keys = await this.keys, publicKey = await globalThis.crypto.subtle.exportKey("jwk", keys.publicKey);
       const sent = this.outcome;
-      const reply = await this.api("poll", { publicKey, dataFlow: true, busy: this.draining || this.occupied() || !!this.active, available: this.available, active: this.active?.id ?? null, ...sent ? { outcome: sent } : {} });
+      const reply = await this.api("poll", { publicKey, dataFlow: true, tools: this.tools, busy: this.draining || this.occupied() || !!this.active, available: this.available, active: this.active?.id ?? null, ...sent ? { outcome: sent } : {} });
       if (this.outcome === sent) this.outcome = void 0;
       if (!reply.enabled) {
         this.choice.enabled = false;
@@ -40933,14 +41005,15 @@ var SharedModelHost = class {
       const key = await sharedWorkerKey(box, (await this.keys).privateKey);
       const share = await this.apiInfo();
       const request3 = await openShared(box, key, share, id);
-      if (!this.choice?.enabled || request3.model !== this.choice.model || Buffer.byteLength(JSON.stringify(request3)) > SHARED_INPUT_MAX || Object.keys(request3).some((k) => !["model", "messages", "maxTokens"].includes(k)) || request3.maxTokens > 4096) throw new Error("Shared request outside the allowed model or size");
+      if (!this.choice?.enabled || request3.model !== this.choice.model || Buffer.byteLength(JSON.stringify(request3)) > SHARED_INPUT_MAX || Object.keys(request3).some((k) => !["model", "messages", "maxTokens", "tools", "schema"].includes(k)) || request3.maxTokens > 4096) throw new Error("Shared request outside the allowed model or size");
+      if ((request3.tools?.length || request3.schema) && !this.tools) throw new Error("Shared model has no verified function support");
       const r = checkTextRequest({ ...request3, provider: "local" });
       const result = await textRequest(this.config.file, r, abort.signal);
       if (Buffer.byteLength(JSON.stringify(result)) > 12e4) throw new Error("Answer too large");
       const sealed = await sealShared({ ok: true, result }, key, share, id);
       if (!abort.signal.aborted) this.outcome = { id, box: sealed };
       else this.outcome = { id };
-      this.log("Shared local model: one text request completed (no project tools).");
+      this.log("Shared local model: one inference request completed (no host tools executed).");
     } catch {
       this.outcome = { id };
     } finally {
@@ -49595,7 +49668,7 @@ var WorkerWorkspaces = class {
 
 // src/worker/index.ts
 var workspaceHost = null;
-var VERSION2 = true ? "1.33.1" : "dev";
+var VERSION2 = true ? "1.34.0" : "dev";
 var quiet = process.env.ONE_WORKER_QUIET === "1";
 var recent = [];
 var log = (msg) => {

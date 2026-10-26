@@ -8,7 +8,7 @@ import { agentAIReadable, readAgentRoute } from '@/shared/ai/route'
 import type { CustomAgent } from '../../store/types'
 
 /** Browser engines in this build. The team server enforces its own Claude-only guard. */
-export const RUNNABLE_PROVIDERS: readonly ProviderId[] = ['anthropic', 'copilot']
+export const RUNNABLE_PROVIDERS: readonly ProviderId[] = ['anthropic', 'copilot', 'local']
 
 export function routeBlock(agent: Pick<CustomAgent, 'route' | 'review' | 'saverRule' | 'applyOn'>): 'route' | null {
   const route = readAgentRoute(agent.route)

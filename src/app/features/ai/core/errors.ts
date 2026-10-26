@@ -44,7 +44,7 @@ export function providerOfLabel(label: string): ProviderId {
 /** The friendly sentence for an error code (in the current UI language) — naming the company and host of the route. */
 export function aiErrorText(code: AIErrorCode, v: { model: string; detail?: string; server?: string }): string {
   // Local material errors survive stored-run reconstruction; only known keys become UI text.
-  if ((code === 'context' || code === 'capability') && ['features.ai.copilot.mediaLimit','features.ai.copilot.pdfLimit','features.ai.copilot.pdfScan','features.ai.copilot.unsupportedPart'].includes(v.detail ?? '')) return t(v.detail!)
+  if ((code === 'context' || code === 'capability') && ['features.ai.local.discovery','features.ai.copilot.mediaLimit','features.ai.copilot.pdfLimit','features.ai.copilot.pdfScan','features.ai.copilot.unsupportedPart'].includes(v.detail ?? '')) return t(v.detail!)
   if (code === 'policy' && (v.detail === 'destination' || v.detail === 'mcp-destination')) return t('features.ai.flow.blocked')
   if (code === 'policy' && v.detail === 'legacy-flow') return t('features.ai.flow.legacy')
   if (code === 'mcp') return t(v.server ? 'features.ai.err.mcp' : 'features.ai.err.mcpAny', { server: v.server ?? '', detail: v.detail ?? '' })

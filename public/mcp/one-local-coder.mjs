@@ -39590,7 +39590,7 @@ function ollamaInference(base) {
       redirect: "error",
       signal: AbortSignal.any([request.signal, AbortSignal.timeout(18e4)]),
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model: request.model, messages: request.messages, tools: request.tools, stream: false, keep_alive: "30m", options: { num_ctx: request.contextTokens, num_predict: request.outputTokens, temperature: 0.2 } })
+      body: JSON.stringify({ model: request.model, messages: request.messages, tools: request.tools, ...request.schema ? { format: request.schema } : {}, stream: false, keep_alive: "30m", options: { num_ctx: request.contextTokens, num_predict: request.outputTokens, temperature: 0.2 } })
     });
     if (!response.ok) throw new Error(`Ollama could not run the local coding task (HTTP ${response.status}).`);
     const data = await response.json();

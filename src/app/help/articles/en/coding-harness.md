@@ -111,3 +111,13 @@ Final QA runs existing tests, review, then this command once against the same ob
 After human acceptance, task guidance offers **Draft a reusable procedure**. Describe applicability/recall trigger, short steps and limitations. Only **Save reviewed procedure in memory** creates a Procedure in One memory. It retains the task and evidence identifier, rather than a copied complete solution. Recheck current sources and tests on reuse. One successful task does not establish transfer; validate the method on another real task. This action does not itself write to Atlas or expand approvals.
 
 New workers record executor, requested model when known, elapsed time, reported turns and known costs per stage. These appear in the evidence packet. Copilot additionally retains actual model/token receipts. Missing usage/cost stays unknown. Compare the same task, candidate and checks. Add a specialist only for a concrete unresolved risk: more agents do not automatically improve quality.
+
+## Atlas Flow and MCP across text workflows
+
+Worker 1.34.0 adds tool-capable local Ollama models to page questions, structured text actions, the AI terminal and browser agents. Set an agent override in **Agents → Edit → Model** or a workflow default in **Settings → AI → This device**. Models without verified function support remain text-only. This does not add image recognition.
+
+**Set up Atlas:** Add and test your personal connection under **Settings → AI → MCP servers**. Permit MCP for **Local · Ollama** in your personal data rules. Your own paired worker is required for remote MCP calls. Also select Atlas and the necessary tools in each agent. Sharing a model never shares another person's Atlas account.
+
+The harness discovers relevant tools, reads sources and stages changes for acceptance. ONE enforces scope; the team decides. Repeated identical calls stop, missing sources and context limits stay visible, and no cloud-AI fallback happens silently.
+
+With a shared model, the host performs inference. ONE tools execute in your browser; Atlas MCP uses your personal worker. The host receives approved context and tool results, never tokens. Private pages, mail and personal memory are not shared automatically. Moving the model host to a controlled VM later keeps this separation and does not require publicly exposing Ollama.

@@ -377,7 +377,7 @@ async function runInner(agent: CustomAgent, req: RunRequest, reg: { decide: stri
   // a model route this version cannot run (a newer version saved it): no request, an error run that says so
   if (routeBlock(agent)) return blockedRun(agent, req, t('features.agents.blocked.route'), t('features.agents.blocked.routeShort'))
   const picked = readAgentRoute(agent.route)
-  if (Array.isArray(picked) && picked[0]?.p === 'copilot' && !workerProviderReady('copilot')) await refreshWorkerModels()
+  if (Array.isArray(picked) && ['copilot','local'].includes(picked[0]?.p ?? '') && !workerProviderReady(picked[0]!.p)) await refreshWorkerModels()
   const block = runBlock(req.invocation ? { ...agent, output: null } : agent, useWorkspace.getState().pages, t('common.untitled'))
   if (block) return blockedRun(agent, req, blockText(t, block), block.lost.map((l) => lostText(t, l)).join(' '))
   // what earlier runs left: the last successful one (context), the agent's saved state (runTools.ts)

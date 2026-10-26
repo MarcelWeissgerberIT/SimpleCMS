@@ -19,6 +19,7 @@ export class SharedModelHost {
   private outcome:{id:string;box?:SharedBox}|undefined
   private keys= modelShareKey()
   private available=false
+  private tools=false
   private checked=0
   private changing=false
   constructor(privateConfig:WorkerConfig,privateBusy:()=>boolean,privateLog:(line:string)=>void){
@@ -62,10 +63,10 @@ export class SharedModelHost {
     this.polling=true
     try{
       if(!this.choice?.enabled||!cloudOf(this.config))return
-      if(Date.now()-this.checked>30000){this.available=(await textModels(this.config.file)).some(m=>m.provider==='local'&&m.model===this.choice!.model);this.checked=Date.now()}
+      if(Date.now()-this.checked>30000){const selected=(await textModels(this.config.file)).find(m=>m.provider==='local'&&m.model===this.choice!.model);this.available=!!selected;this.tools=selected?.chat===true;this.checked=Date.now()}
       const keys=await this.keys,publicKey=await globalThis.crypto.subtle.exportKey('jwk',keys.publicKey)
       const sent=this.outcome
-      const reply=await this.api('poll',{publicKey,dataFlow:true,busy:this.draining||this.occupied()||!!this.active,available:this.available,active:this.active?.id??null,...(sent?{outcome:sent}:{})})
+      const reply=await this.api('poll',{publicKey,dataFlow:true,tools:this.tools,busy:this.draining||this.occupied()||!!this.active,available:this.available,active:this.active?.id??null,...(sent?{outcome:sent}:{})})
       if(this.outcome===sent)this.outcome=undefined
       if(!reply.enabled){this.choice.enabled=false;this.save();this.active?.abort.abort();return}
       if(reply.model!==this.choice.model){this.active?.abort.abort();return}
@@ -83,14 +84,15 @@ export class SharedModelHost {
       const key=await sharedWorkerKey(box,(await this.keys).privateKey)
       const share=(await this.apiInfo())
       const request=await openShared<SharedText>(box,key,share,id)
-      if(!this.choice?.enabled||request.model!==this.choice.model||Buffer.byteLength(JSON.stringify(request))>SHARED_INPUT_MAX||Object.keys(request).some(k=>!['model','messages','maxTokens'].includes(k))||request.maxTokens>4096)throw new Error('Shared request outside the allowed model or size')
+      if(!this.choice?.enabled||request.model!==this.choice.model||Buffer.byteLength(JSON.stringify(request))>SHARED_INPUT_MAX||Object.keys(request).some(k=>!['model','messages','maxTokens','tools','schema'].includes(k))||request.maxTokens>4096)throw new Error('Shared request outside the allowed model or size')
+      if((request.tools?.length||request.schema)&&!this.tools)throw new Error('Shared model has no verified function support')
       const r=checkTextRequest({...request,provider:'local'})
-      // No tool definitions, project paths, personal secrets or remote model URLs enter this path.
+      // Function definitions are inference data only. No function executes here; no owner MCP credentials, project paths or arbitrary model URLs enter this path.
       const result=await textRequest(this.config.file,r,abort.signal)
       if(Buffer.byteLength(JSON.stringify(result))>120000)throw new Error('Answer too large')
       const sealed=await sealShared({ok:true,result},key,share,id)
       if(!abort.signal.aborted)this.outcome={id,box:sealed};else this.outcome={id}
-      this.log('Shared local model: one text request completed (no project tools).')
+      this.log('Shared local model: one inference request completed (no host tools executed).')
     }catch{this.outcome={id}}
     finally{clearTimeout(timer);this.active=null}
   }

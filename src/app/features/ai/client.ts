@@ -219,8 +219,8 @@ export async function streamCompletion(opts: StreamOptions): Promise<string> {
     // are said, by name (nothing opened)
     if (prepared.provider !== 'anthropic' && prepared.provider !== 'demo') {
       const names = opts.mcp === false ? [] : mcpNames(opts.setup ?? currentSetup(), opts.mcp ?? 'fixed', cw?.forced)
-      const workerMcp = prepared.provider === 'copilot' && opts.mcp !== false && prepared.allows('mcp') ? await attachMcp(opts.setup ?? currentSetup(), opts.mcp ?? 'fixed', { forced: cw?.forced, picked: cw?.picked }) : null
-      if (names.length && prepared.provider !== 'copilot') opts.onMcp?.(names.map((n) => skippedCall(n, 'provider', providerLabel(prepared.provider as ProviderId))))
+      const workerMcp = ['copilot','local'].includes(prepared.provider) && prepared.caps?.mcp && opts.mcp !== false && prepared.allows('mcp') ? await attachMcp(opts.setup ?? currentSetup(), opts.mcp ?? 'fixed', { forced: cw?.forced, picked: cw?.picked }) : null
+      if (names.length && (!['copilot','local'].includes(prepared.provider) || !prepared.caps?.mcp)) opts.onMcp?.(names.map((n) => skippedCall(n, 'provider', providerLabel(prepared.provider as ProviderId))))
       return await viaNeutral(prepared, call, { system: opts.system, parts: [{ type: 'text', text: opts.prompt }], output: { kind: 'text' }, maxTokens: 8000, mcp: workerMcp }, opts)
     }
     return await streamOnce(opts, false, prepared, call)
@@ -366,7 +366,7 @@ export async function completeStructured(opts: StructuredOptions): Promise<strin
         used(e)
         return e
       } }
-      const workerMcp = prepared.provider === 'copilot' && opts.mcp !== false && prepared.allows('mcp') ? await attachMcp(opts.setup ?? currentSetup(), opts.mcp ?? 'fixed', { forced, allow: opts.allow }) : null
+      const workerMcp = ['copilot','local'].includes(prepared.provider) && prepared.caps?.mcp && opts.mcp !== false && prepared.allows('mcp') ? await attachMcp(opts.setup ?? currentSetup(), opts.mcp ?? 'fixed', { forced, allow: opts.allow }) : null
       return await viaNeutral(prepared, tapped, { system: opts.system, parts: [{ type: 'text', text: opts.prompt }], output: { kind: 'json', name: 'answer', schema: opts.schema }, maxTokens: opts.maxTokens ?? 4096, mcp: workerMcp }, opts)
     }
     return await structuredOnce(opts, false, prepared, call)

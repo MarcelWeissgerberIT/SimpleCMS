@@ -304,3 +304,34 @@ Work-order settings optionally allow 1–2 automatic QA repair sub-runs, off by 
 The new opt-in local evaluation runs 24 synthetic cases, including multi-file contracts, conflicting source documents, page scope and resume. Acceptance scripts are outside the model worktree. No personal repository, MCP or cloud is attached; scripts are not protected by an OS sandbox. Run `node one-worker.mjs evaluate --limit 3 --cases module-integration,source-conflict,resume-package`; full runs use `--limit 24 --repeats 3`. Select a local model/context with the usual environment settings. JSON includes a suite hash, per-case receipts, false completions, timing and steps. These cases are workload templates, not an evaluation of private FeliX/ICM data or proof of frontier-model parity. Keep successful and failed reports to compare changes honestly.
 
 Initial local baseline on 20 October 2026 (Apple M3 Max, 48 GiB; Qwen3-Coder 30B Q4_K_M via the then-named `marcel-flow:latest` profile (now Atlas Flow, `atlas-flow:latest`), 32768 context): the selected `module-integration` and `resume-package` cases passed; `source-conflict` failed after the bounded tool-format correction. Result: 2/3, zero false completions, not 24/24. The complete initial [JSON report](evals/2026-10-20-marcel-flow-32k.json) includes the failed case. This sample is too small for a general model ranking. A preliminary 65536-context run passed only 1/3 under the then-current harness; it was not a controlled final comparison and does not establish that a larger context improves quality.
+
+## ONE tools and Atlas in every local-model surface (worker 1.34.0)
+
+A verified tool-capable Ollama model can now serve page questions, writing, structured text actions,
+the AI terminal and browser agents. Choose **Local · Ollama** before the model; browser agents also
+have a local-model option in their own model setting and the device default. Old workers and models
+without verified function support remain text-only. Images still require a vision-capable route.
+
+The browser owns the bounded tool loop. Small local models discover up to three relevant ONE tool
+schemas at a time instead of receiving the entire workspace catalog. Existing scope checks,
+read-only agents, staged page changes, existing-cell edits and human acceptance remain in force.
+Repeated identical calls stop before duplicate effects. Long requests fail with a context message;
+there is no silent fallback to a cloud AI.
+
+For Atlas, each person configures **Settings → AI → MCP servers** with their own Atlas connection,
+and permits MCP for Local Ollama under their own data rules. Their paired worker performs selected
+MCP calls. Discovery sends only relevant schemas; credentials remain on the personal connection path.
+A local model can read approved requirements, compare sources and propose follow-up work. It does not
+approve team decisions, invent missing evidence or research the internet automatically.
+
+A shared workspace model can use this same browser-owned tool loop. Upgrade the model host to 1.34.0;
+its heartbeat advertises verified function support. The host receives encrypted inference requests
+containing schemas, context and allowed results. It NEVER executes requested functions or opens its
+owner's MCP connections. ONE tools run in the requesting browser; Atlas runs through that person's
+own paired worker and credentials. Private memory, private pages and mail are still excluded from
+shared inference automatically. Tool results selected for an inference do reach the model host.
+
+This separation also allows moving the model host to a controlled server later: keep the worker and
+Ollama together, bind Ollama to loopback and let the worker poll the existing authenticated queue.
+No public unauthenticated Ollama endpoint is necessary. Size the server only after measuring latency,
+context requirements, throughput and quality on the workshop tasks; no server is provisioned by this change.

@@ -17,6 +17,7 @@ import { probeCopilot, COPILOT_CONTEXT, validCopilotModel } from './copilot.ts'
 import { prepareCopilotRun } from './copilot-run.ts'
 import { checkAttachments } from './copilot-media.ts'
 import { AjvJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/ajv-provider.js'
+import { localChatMessages, localChatResult } from './local-chat.ts'
 
 let copilotCatalog: { key: string; until: number; rows: WorkerModel[] } | null = null
 async function copilotModels(): Promise<WorkerModel[]> {
@@ -40,7 +41,11 @@ export async function textModels(file: string): Promise<WorkerModel[]> {
     const res = await fetch(new URL('/api/tags', localBase()), { redirect: 'error', signal: AbortSignal.timeout(3000) })
     const data = res.ok ? await res.json() as any : null
     for (const m of (Array.isArray(data?.models) ? data.models : []).slice(0, 100)) {
-      if (validWorkerModel(m.name) && !m.remote_host && !m.remote_model && !m.name.endsWith('-cloud')) out.push({ provider: 'local', model: m.name, context: 32768 })
+      if (validWorkerModel(m.name) && !m.remote_host && !m.remote_model && !m.name.endsWith('-cloud')) {
+        let chat = false
+        try { const facts = await ollamaInference(localBase()).inspect!(m.name, AbortSignal.timeout(3000)); chat = facts.tools === true } catch { /* Unknown capabilities stay text-only. */ }
+        out.push({ provider: 'local', model: m.name, context: 32768, ...(chat ? { chat: true } : {}) })
+      }
     }
   } catch { /* An unavailable local server does not hide the other providers. */ }
   try {
@@ -71,7 +76,7 @@ export async function textModels(file: string): Promise<WorkerModel[]> {
 export function checkTextRequest(raw: unknown): WorkerTextRequest {
   const r = raw as WorkerTextRequest
   if (!r || typeof r !== 'object' || !isWorkerProvider(r.provider) || !validWorkerModel(r.model) || !Number.isSafeInteger(r.maxTokens) || r.maxTokens < 1 || r.maxTokens > 16384 || !Array.isArray(r.messages) || !r.messages.length || r.messages.length > 64) throw new Error('Invalid text request.')
-  if (Object.keys(r).some(k => !['provider', 'model', 'messages', 'maxTokens', ...(r.provider === 'copilot' ? ['tools', 'schema', 'attachments'] : [])].includes(k))) throw new Error('Unknown text request field.')
+  if (Object.keys(r).some(k => !['provider', 'model', 'messages', 'maxTokens', ...(['copilot','local'].includes(r.provider) ? ['tools', 'schema'] : []), ...(r.provider === 'copilot' ? ['attachments'] : [])].includes(k))) throw new Error('Unknown text request field.')
   if (r.tools !== undefined && (!Array.isArray(r.tools) || r.tools.length > 160 || r.tools.some(t => !t || typeof t.name !== 'string' || !/^[A-Za-z0-9_-]{1,100}$/.test(t.name) || typeof t.description !== 'string' || !t.parameters || typeof t.parameters !== 'object' || Array.isArray(t.parameters) || Object.keys(t).some(k => !['name','description','parameters'].includes(k))) || new Set(r.tools.map(t => t.name)).size !== r.tools.length)) throw new Error('Invalid function definitions.')
   if (r.schema !== undefined && (!r.schema || typeof r.schema !== 'object' || Array.isArray(r.schema))) throw new Error('Invalid output schema.')
   if (JSON.stringify([r.tools, r.schema]).length > 100000) throw new Error('Function/schema payload is too large.')
@@ -125,9 +130,19 @@ export async function textRequest(file: string, raw: unknown, signal: AbortSigna
     if (!res.ok) throw new Error('Local model metadata is unavailable.')
     const data = await res.json() as any
     if (data.remote_host || data.remote_model) throw new Error('This is a cloud model. Choose Ollama Cloud explicitly.')
+    if ((r.tools?.length || r.schema) && (!model.chat || !Array.isArray(data.capabilities) || !data.capabilities.includes('tools'))) throw new Error('This installed model has no verified tool support. Choose a tool-capable model.')
+    // Validate schemas before inference. Schemas cannot load remote references.
+    const validator = new AjvJsonSchemaValidator()
+    for (const t of r.tools ?? []) validator.getValidator(t.parameters)
+    if (r.schema) validator.getValidator(r.schema)
   }
-  const data = await inference({ model: r.model, messages: r.messages, tools: [], contextTokens: model.context, outputTokens: r.maxTokens, signal })
+  const data = await inference({ model: r.model, messages: r.provider === 'local' ? localChatMessages(r.messages) : r.messages, tools: (r.tools ?? []).map(t => ({type:'function',function:t})), ...(r.schema ? {schema:r.schema} : {}), contextTokens: model.context, outputTokens: r.maxTokens, signal })
+  if (r.provider === 'local') {
+    const answer = localChatResult(data.message, r)
+    if (Buffer.byteLength(JSON.stringify(answer)) > 250000) throw new Error('Model answer is too large.')
+    return {model:r.model,...answer,inputTokens:data.inputTokens??null,outputTokens:data.outputTokens??null,usd:0}
+  }
   if (data.message?.tool_calls?.length || typeof data.message?.content !== 'string') throw new Error('The model did not return a plain text answer.')
   if (Buffer.byteLength(data.message.content) > 250000) throw new Error('Model answer is too large.')
-  return { model: r.model, text: data.message.content, inputTokens: data.inputTokens ?? null, outputTokens: data.outputTokens ?? null, usd: r.provider === 'local' ? 0 : inference.cost?.() ?? null }
+  return { model: r.model, text: data.message.content, inputTokens: data.inputTokens ?? null, outputTokens: data.outputTokens ?? null, usd: inference.cost?.() ?? null }
 }

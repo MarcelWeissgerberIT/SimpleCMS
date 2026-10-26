@@ -311,7 +311,7 @@ export async function runAgent(opts: {
     // the tool reads of a route that does not see everything: built for it, pages it may not see out of scope (B6)
     const shape = shapeOf(prepared)
     const seen = shape ? prepared.visible : null
-    if (prepared.route?.p === 'copilot') {
+    if (['copilot','local'].includes(prepared.route?.p ?? '')) {
       const { runCopilotAgent } = await import('./copilot')
       return await runCopilotAgent(opts, prepared, messages)
     }

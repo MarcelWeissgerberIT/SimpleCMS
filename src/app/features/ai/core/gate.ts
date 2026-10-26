@@ -671,9 +671,10 @@ function gate(input: PrepareInput, held: boolean, backstopToo = false): Prepared
   const shared = route.p === 'local' && route.m.startsWith(SHARED_PREFIX)
   const sees = !shared && !flowRestrictions().length && seesEverything(route.p, s.ai, s.settings.ai) ? 'all' : 'filtered'
   const redact = redactionFor(route.p, s.ai, s.settings.ai)
-  const hiddenMember: DataClass[] = MEMBER_CLASSES.filter((c) => shared || !allowedFor(route.p, c, s.ai, s.settings.ai))
+  const hiddenForShare = (c: DataClass) => shared && MEMBER_CLASSES.some(m => m === c) && !(c === 'mcp' && res.info.caps.mcp)
+  const hiddenMember: DataClass[] = MEMBER_CLASSES.filter((c) => hiddenForShare(c) || !allowedFor(route.p, c, s.ai, s.settings.ai))
   const visible = (id: ID): boolean => flowPageVisible(route.p, id) && (!hiddenMember.length || ![...classOfPage(id, w)].some((c) => hiddenMember.includes(c)))
-  const allows = (c: DataClass): boolean => !(shared && MEMBER_CLASSES.some(m => m === c)) && allowedFor(route.p, c, s.ai, s.settings.ai)
+  const allows = (c: DataClass): boolean => !hiddenForShare(c) && allowedFor(route.p, c, s.ai, s.settings.ai)
   // 5 · the backstop (D-S2-5): text built without the route's redaction / filter never goes to a route that may not see it
   const concerned = held || backstopToo ? backstop({ classes: [...classes], pageDerived: PAGE_DERIVED, sees, redact, hidden: hiddenMember, applied: input.applied, route: routeKey(route) }) : null
   if (concerned) throw new AIError('policy', concerned, undefined, label, [{ kind: 'step', step: 'data', provider: route.p, data: concerned }])
@@ -701,7 +702,7 @@ function gate(input: PrepareInput, held: boolean, backstopToo = false): Prepared
     run,
     chip: !!input.route && (input.pinned ?? 'person') === 'person',
     // MCP joins Claude routes that may receive it only (client.ts attachMcp)
-    mcp: input.mcp && ['anthropic', 'copilot'].includes(route.p) && allows('mcp') ? { servers: Math.max(0, input.mcp.servers), toolChars: input.mcp.toolChars ?? [], ...(input.mcp.rounds ? { rounds: input.mcp.rounds } : {}) } : { servers: 0, toolChars: [] },
+    mcp: input.mcp && ['anthropic', 'copilot', 'local'].includes(route.p) && allows('mcp') ? { servers: Math.max(0, input.mcp.servers), toolChars: input.mcp.toolChars ?? [], ...(input.mcp.rounds ? { rounds: input.mcp.rounds } : {}) } : { servers: 0, toolChars: [] },
     price: price !== undefined ? price : priceRow(route),
     ...(hints ? { hints } : {}),
     label,

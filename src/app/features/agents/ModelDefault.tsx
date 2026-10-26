@@ -1,4 +1,4 @@
-import { useWorkerModels, workerModelRows } from '../ai/core/workerModels'
+import { useWorkerModels, workerModelRows, listedWorkerModelRows } from '../ai/core/workerModels'
 import { readAgentRoute } from '@/shared/ai/route'
 import { labelFor } from '../ai/core/registry'
 import { useState } from 'react'
@@ -25,13 +25,13 @@ export function AgentModelDefault() {
     <label className="label" htmlFor="agent-default-model">{t('features.agents.model.default')}</label>
     <select id="agent-default-model" className="input" value={value} onChange={e => {
       const model = e.target.value
-      const worker = workerModelRows().find(m => `${m.route.p}:${m.route.m}` === model && m.route.p === 'copilot')
+      const worker = workerModelRows().find(m => `${m.route.p}:${m.route.m}` === model && ['copilot','local'].includes(m.route.p))
       setError(!withWriter({kind:'you',via:'patchbay'}, () => setDeviceRule('agents', model ? [worker?.route ?? {p:'anthropic',m:model}] : null)))
     }}>
       <option value="">{t('features.agents.model.inherit')}</option>
-      {value && !AI_MODELS.some(m => m.id === value) && <option value={value} disabled>{t('features.agents.model.existing')}</option>}
+      {value && !AI_MODELS.some(m => m.id === value) && !workerModelRows().some(m => `${m.route.p}:${m.route.m}` === value) && <option value={value} disabled>{t('features.agents.model.existing')}</option>}
       {AI_MODELS.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-      <optgroup label="GitHub Copilot">{workerModelRows().filter(m => m.route.p === 'copilot' && m.caps.tools).map(m => <option key={m.route.m} value={`copilot:${m.route.m}`}>{m.label}</option>)}</optgroup>
+      {(['copilot','local'] as const).map(p => <optgroup key={p} label={p === 'copilot' ? 'GitHub Copilot' : 'Atlas Flow · Ollama'}>{listedWorkerModelRows().filter(m => m.route.p === p && m.caps.tools).map(m => <option key={m.route.m} value={`${p}:${m.route.m}`}>{m.label}</option>)}</optgroup>)}
     </select>
     <p>{t('features.agents.model.defaultHint')}</p>
     <p className="label">{t('features.agents.model.resolved', {model:routeFor('agents.run').label})}</p>

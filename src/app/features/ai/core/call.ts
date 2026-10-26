@@ -117,7 +117,7 @@ export async function sendNeutral(prepared: Prepared, req: ChatRequest, o: Neutr
   assertPreparedFlow(prepared)
   const route = prepared.route
   if (!route) throw new AIError('no_key')
-  if (route.p === 'copilot') return (await import('./copilotCall')).sendCopilotCompletion(prepared, req, o)
+  if (route.p === 'copilot' || route.p === 'local' && prepared.caps?.tools) return (await import('./copilotCall')).sendCopilotCompletion(prepared, req, o)
   if (isWorkerProvider(route.p)) {
     if (req.kind !== 'chat' || req.output.kind !== 'text' || req.tools?.length || req.messages.some(m => m.parts.some(p => p.type !== 'text'))) throw new AIError('capability')
     const result = await sendWorkerText(route, [{ role: 'system', content: req.system }, ...req.messages.map(m => ({ role: m.role, content: m.parts.map(p => p.type === 'text' ? p.text : '').join('\n') }))], Math.min(req.maxTokens, 16384), o.signal)
