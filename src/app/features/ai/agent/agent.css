@@ -136,8 +136,8 @@
   flex: none;
   align-items: center;
   gap: 8px;
-  height: 34px;
-  padding: 0 6px 0 12px;
+  min-height: 34px;
+  padding: 4px 6px 4px 12px;
   border-bottom: 1px solid var(--rule);
   background: var(--surface);
   font-size: var(--text-2xs);
@@ -153,15 +153,19 @@
   color: var(--ink);
 }
 
-.term-head .route-controls { flex: 1 1 auto; min-width: 0; max-width: 24em; }
+.term-head .route-controls { flex: 0 1 auto; min-width: 0; max-width: min(60%, 42rem); }
 .term-head .route-provider { min-width: 0; max-width: 7em; }
 .term-head .route-chip { min-width: 0; }
+/* Shared inference adds a queue readout. Let the header grow with its controls,
+   instead of centering a multi-line group outside a fixed-height strip. */
+.term-head .route-chip__queue { flex: 1 1 100%; white-space: normal; line-height: 1.4; color: var(--ink-2); }
 @container (max-width: 640px) {
-  .term-head { gap: 4px; }
+  .term-head { gap: 4px; flex-wrap: wrap; }
   .term-head__sep, .term-head > .term-spacer { display: none; }
-  .term-head .route-controls { max-width: 44%; }
+  .term-head .route-controls { flex: 1 1 100%; max-width: none; order: 1; }
   .term-head .route-provider { max-width: 5em; }
   .term-head__title { letter-spacing: 0; }
+  .term-head__status { margin-left: auto; }
 }
 
 .term-head__sep {
@@ -1660,8 +1664,8 @@
   }
 
   .term-head {
-    height: 44px;
-    padding: env(safe-area-inset-top) 4px 0 14px;
+    min-height: 44px;
+    padding: calc(env(safe-area-inset-top) + 4px) 4px 4px 14px;
   }
 
   .term-key {
