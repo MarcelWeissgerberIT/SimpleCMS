@@ -537,9 +537,30 @@
   font-size: calc(14px * var(--text-scale));
   line-height: 1.6;
 }
-.ask__answer--wait {
-  font-family: var(--font-mono);
-  color: var(--ink-3);
+/* Quiet feedback before the first token, also for non-streaming worker models. */
+.ask-activity {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  margin: 10px 0;
+  border: 1px solid var(--rule-strong);
+  border-left: 3px solid var(--signal);
+  border-radius: var(--radius-1);
+  background: var(--surface);
+}
+.ask-activity__spin {
+  flex-shrink: 0;
+  color: var(--signal-ink);
+  animation: ask-spin 1.5s linear infinite;
+}
+.ask-activity__text { flex: 1; min-width: 0; }
+.ask-activity__text p { margin: 0; font-size: var(--text-sm); font-weight: 600; }
+.ask-activity__text small { display: block; margin-top: 5px; color: var(--ink-3); line-height: 1.4; }
+.ask-activity__time { flex-shrink: 0; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+@keyframes ask-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .ask-activity__spin { animation: none; }
 }
 .ask__doc {
   --doc-size: calc(14px * var(--text-scale));

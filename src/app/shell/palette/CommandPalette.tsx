@@ -38,6 +38,7 @@ import { useReadOnly } from '../cloud/state'
 import { openHelp, useHelpHits } from '../../help'
 import { looksLikeKey } from '@/shared/ai/keys'
 import { useTour } from '../tour/state'
+import { AskActivity } from './AskActivity'
 import './palette.css'
 
 export function CommandPalette() {
@@ -660,6 +661,7 @@ function AskPanel({ question, pageId, onDone, chipHandle, onChipClosed }: { ques
   const configured = offersAI(askStatus)
   const [answer, setAnswer] = useState('')
   const [state, setState] = useState<'idle' | 'running' | 'done' | 'error'>('idle')
+  const [stopped, setStopped] = useState(false)
   const [error, setError] = useState('')
   /** MCP activity of the answer (a server addressed by codeword that stayed out is noted) */
   const [mcpCalls, setMcpCalls] = useState<McpCall[]>([])
@@ -696,6 +698,7 @@ function AskPanel({ question, pageId, onDone, chipHandle, onChipClosed }: { ques
     setMcpCalls([])
     setMedia([])
     setError('')
+    setStopped(false)
     setState('running')
     // the One memory: the memories that fit the question go along — only where the route may receive them (D-S2-29)
     let mem: ReturnType<typeof memoryFor> = { block: '', use: null }
@@ -727,7 +730,7 @@ function AskPanel({ question, pageId, onDone, chipHandle, onChipClosed }: { ques
         context,
         signal: ctrl.signal,
         // runAI streams deltas, not the text so far
-        onToken: (delta) => setAnswer((prev) => prev + delta),
+        onToken: (delta) => !ctrl.signal.aborted && setAnswer((prev) => prev + delta),
         onMcp: (calls) => !ctrl.signal.aborted && setMcpCalls(calls),
         onMedia: (items) => !ctrl.signal.aborted && setMedia(items),
         onRun: (r) => (receipt.current = r),
@@ -817,11 +820,13 @@ function AskPanel({ question, pageId, onDone, chipHandle, onChipClosed }: { ques
             {headLabel}
             {memory && <MemoryNote use={memory} onOpen={onDone} />}
             {state === 'running' && (
-              <button type="button" className="ask__stop" onClick={() => (abort.current?.abort(), setState('done'))}>
+              <button type="button" className="ask__stop" onClick={() => { abort.current?.abort(); setStopped(true); setState('done') }}>
                 <Square size={10} /> {t('shell.ask.stop')}
               </button>
             )}
           </div>
+          {state === 'running' && <AskActivity local={routeFor('palette.ask', { route: chip }).route.p === 'local'} receiving={!!answer} />}
+          {stopped && <p className="ask__note" role="status">{t('shell.ask.activity.stopped')}</p>}
           <McpSkippedNote calls={mcpCalls} />
           {notes.length > 0 && (
             <p className="ask__note" role="note" data-testid="ask-notes">
@@ -896,7 +901,7 @@ function AskPanel({ question, pageId, onDone, chipHandle, onChipClosed }: { ques
 function AskAnswer({ markdown }: { markdown: string }) {
   const shown = useThrottled(markdown, 140)
   const doc = useMemo(() => (shown.trim() ? claudeDoc(shown) : null), [shown])
-  if (!doc) return <div className="ask__answer ask__answer--wait">…</div>
+  if (!doc) return null
   return (
     <div className="ask__answer">
       <ReadOnlyDoc content={doc} className="doc--small ask__doc" />
