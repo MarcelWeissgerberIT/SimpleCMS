@@ -69,6 +69,12 @@ Mitglieder wählen den Eintrag unter **Lokal · Ollama** in der Modellwahl einer
 
 Dieser erste Freigabekanal verarbeitet **Text, Reviews und Codevorschläge**: höchstens 22 KB Eingabe und 4.096 Ausgabetokens. Er startet keine Coding-Pipeline, führt keine Werkzeuge aus und teilt weder Repositories noch Atlas-Tokens. Gäste und andere Workspaces haben keinen Zugriff. Der ausgewählte Kontext erreicht den Rechner des Hosts. Browser und Worker verschlüsseln Inhalte mit einem zufälligen Schlüssel je Anfrage; der Teamserver vermittelt verschlüsselte Inhalte und sieht Metadaten. Der Host entschlüsselt zur Inferenz. Der Host-Schlüssel wird bei Neustart gewechselt; er ist keine unabhängig verifizierte Identitätsbescheinigung. Eine kompromittierte ONE-Webanwendung bzw. ein kompromittierter Host liegt außerhalb dieser Transportabsicherung. Der Relay speichert keine Prompts oder Antworten in der Datenbank; kurzlebige Warteschlangen und Ergebnisse liegen im Arbeitsspeicher. Lokale Berechnung über den Frankfurter Teamserver ist kein vollständig lokaler LAN-Betrieb.
 
+### Verfügbarkeit mit einer echten Antwort testen
+
+Unter **Einstellungen → KI → Lokales Modell freigeben** zeigt jede Freigabe getrennt **Host verbunden**, **Modell verfügbar** und **Antwort bestätigt**. Die ersten beiden Anzeigen beruhen auf regelmäßigen Meldungen des Modellhosts; eine bestehende Freigabe allein bestätigt noch keine Inferenz. **Verfügbarkeit testen** schickt genau eine feste kurze Testnachricht über dieselbe verschlüsselte Warteschlange wie eine normale Textanfrage. Es werden keine Seiteninhalte, Dateien, Zugangsdaten oder Atlas-Aufrufe angehängt.
+
+Der Test kann das lokale Modell erst laden und wartet hinter vorhandener Arbeit. Nach höchstens 90 Sekunden einschließlich Wartezeit endet er; **Test abbrechen** beendet die Anfrage auch früher. Eine erfolgreiche Antwort zeigt Zeitpunkt und Gesamtdauer einschließlich Warteschlange. Nach einer Minute, einem Neustart des Hosts oder bei Offline-Status gilt die Bestätigung nicht mehr als aktuell. Der Test verändert keine Freigaben und weicht auf keinen Cloud-Anbieter aus. Er prüft den Textkanal, keine Coding-Werkzeuge, Modellqualität oder Atlas-Verbindung.
+
 ### Kleiner Vergleich mit Copilot am Demo-Repo
 Die synthetische Teilnehmer-Demo enthält absichtlich fehlerhafte C++- und TypeScript-Validierung. Ein reproduzierbarer Text-zu-Code-Vergleich verwendet für beide Anbieter dieselben Eingaben, maximal 4.096 Ausgabetokens und unveränderte Tests. Im entpackten Demo-Repository:
 

@@ -365,8 +365,8 @@ export async function movePagePrivacy(pageId: ID, toPrivate: boolean, target?: {
  * 'api/workspaces/<id>/tokens'): same origin, session cookie, the CSRF content type. Failures are
  * CloudError with the server's code (docs/CLOUD.md), like every call above.
  */
-export function cloudRequest<T>(method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE', path: string, body?: unknown): Promise<T> {
-  return request<T>(method, path, body)
+export function cloudRequest<T>(method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE', path: string, body?: unknown, opts: {signal?: AbortSignal} = {}): Promise<T> {
+  return request<T>(method, path, body, opts)
 }
 
 /**

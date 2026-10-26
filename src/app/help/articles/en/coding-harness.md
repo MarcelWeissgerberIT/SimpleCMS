@@ -69,6 +69,12 @@ Members select its entry under **Local · Ollama** for a text action without a w
 
 The first shared channel supports **text, reviews and code proposals**: up to 22 KB input and 4,096 output tokens. It does not run a coding pipeline, execute tools or share repositories or Atlas tokens. Guests and other workspaces cannot use it. Selected context reaches the host computer. Browser and worker encrypt contents with a fresh key per request; the team relay sees metadata and forwards ciphertext. The host decrypts for inference. Restart rotates the host key; the key is not independently identity-verified. A compromised ONE web application or host is outside this transport protection. No prompts or answers are stored in the database; short-lived jobs and results live in memory. Local computation through the Frankfurt relay is not a fully local LAN deployment.
 
+### Test availability with a real response
+
+Under **Settings → AI → Share a local model**, each share shows **Host connected**, **Model available** and **Response confirmed** separately. The first two indicators use regular model host heartbeats. **Test availability** sends one fixed short message through the same encrypted queue as a normal text request, without page content, files, credentials or Atlas calls.
+
+The test may load the model and waits behind current work. It ends after at most 90 seconds including queue time; **Cancel test** stops it earlier. Success shows the time checked and total duration including queue time. After a minute, a host restart or offline status, the confirmation is no longer current. The test changes no sharing permissions and never falls back to a cloud provider. It verifies the text channel, not coding tools, model quality or the Atlas connection.
+
 ### Small demo comparison with Copilot
 Use the synthetic participant demo containing intentionally broken C++ and TypeScript validation:
 

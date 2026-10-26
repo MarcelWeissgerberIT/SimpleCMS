@@ -7,6 +7,7 @@ import {workerModelRows} from '../core/workerModels'
 import {useSharedModels,sharedModels,sharedProgress,refreshSharedModels} from '../core/sharedModels'
 import {SHARED_PREFIX} from '@/shared/ai/shared-model'
 import './shared-model.css'
+import {SharedModelProbe} from './SharedModelProbe'
 
 export function SharedModelSettings(){
   const t=useT();useSharedModels()
@@ -36,6 +37,7 @@ export function SharedModelSettings(){
         <div><strong>{s.label}</strong><span>{s.model} · {s.owner}</span></div>
         <span className="model-share__status" data-online={s.online}>{t(s.online?'features.ai.prov.share.online':'features.ai.prov.share.offline')} · {t('features.ai.prov.share.queue',{n:s.queued})}{s.running?' · '+t('features.ai.prov.share.running'):''}</span>
         {s.mine&&s.enabled&&<button className="btn btn--sm" disabled={busy} onClick={async()=>{setBusy(true);setError('');try{await cloudRequest('DELETE',`api/workspaces/${active.id}/model-shares/${s.id}`);if(can)await configureModelShare({model:s.model,label:s.label,enabled:false});await refreshSharedModels()}catch(e){setError(String(e))}finally{setBusy(false)}}}>{t('features.ai.prov.share.disable')}</button>}
+        <SharedModelProbe share={s}/>
       </div>)}
       {!shares.length&&<p>{t('features.ai.prov.share.empty')}</p>}
       {progress&&<p role="status">{t(progress.state==='queued'?'features.ai.prov.share.waiting':'features.ai.prov.share.running',{n:progress.position})}</p>}

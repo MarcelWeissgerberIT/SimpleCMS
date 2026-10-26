@@ -10,3 +10,12 @@
 .model-share__status{font:11px 'JetBrains Mono Variable',monospace}
 .model-share__status[data-online=true]:before{content:'● ';color:var(--c-green,#298743)}
 .model-share__status[data-online=false]:before{content:'● ';color:var(--c-text-muted,#888)}
+.model-share__row>.model-share__probe{flex-basis:100%;min-width:0;display:block;border-left:3px solid var(--c-accent,#f50);padding:10px 14px;background:var(--c-bg-alt,#e7e5df)}
+.model-share__checks,.model-share__probe-actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.model-share__checks{font:11px 'JetBrains Mono Variable',monospace;margin-bottom:12px}
+.model-share__checks>span:before{content:'○ ';color:var(--c-text-muted,#888)}
+.model-share__checks>span[data-pass=true]:before{content:'● ';color:var(--c-green,#298743)}
+.model-share .model-share__probe-hint{font-size:12px;color:var(--c-text-muted,#666)}
+.model-share__probe [role=status]{font-size:13px;overflow-wrap:anywhere}
+.model-share__probe [data-state=ready]{color:var(--c-green,#298743)}
+.model-share__probe [data-state=failed],.model-share__probe [data-state=missing]{color:var(--c-accent,#f50)}

@@ -33,7 +33,7 @@ let progress:QueueProgress|null=null
 export const sharedProgress=()=>progress
 const setProgress=(p:QueueProgress|null)=>{progress=p;publish()}
 const pause=(signal?:AbortSignal)=>new Promise<void>((resolve,reject)=>{if(signal?.aborted)return reject(new Error('Request cancelled'));const stop=()=>{clearTimeout(t);reject(new Error('Request cancelled'))};const t=setTimeout(()=>{signal?.removeEventListener('abort',stop);resolve()},1000);signal?.addEventListener('abort',stop,{once:true})})
-export async function sendSharedText(model:string,messages:{role:'system'|'user'|'assistant';content:string}[],maxTokens:number,signal?:AbortSignal):Promise<WorkerTextResult>{
+export async function sendSharedText(model:string,messages:{role:'system'|'user'|'assistant';content:string}[],maxTokens:number,signal?:AbortSignal,onProgress?:(p:QueueProgress)=>void):Promise<WorkerTextResult>{
   const selectedScope=sharedScope(),workspace=useCloud.getState().active.id
   const share=sharedModels().find(r=>SHARED_PREFIX+r.id===model&&r.enabled&&r.online)
   if(!selectedScope||!share?.publicKey)throw new Error('Shared model offline. Refresh the model list.')
@@ -47,15 +47,22 @@ export async function sendSharedText(model:string,messages:{role:'system'|'user'
   let created=false,finished=false
   try{
     signal?.throwIfAborted()
-    await cloudRequest('POST',`api/workspaces/${workspace}/model-shares/${share.id}/jobs`,{id,box,keyId:share.publicKey.n});created=true
+    if(sharedScope()!==selectedScope)throw new Error('Workspace changed; request cancelled.')
+    // Cancel by id even when an aborted POST lost its acknowledgement after the relay accepted it.
+    created=true
+    await cloudRequest('POST',`api/workspaces/${workspace}/model-shares/${share.id}/jobs`,{id,box,keyId:share.publicKey.n},{signal})
     const until=Date.now()+12*60000
     while(Date.now()<until){
       signal?.throwIfAborted()
       if(sharedScope()!==selectedScope)throw new Error('Workspace changed; request cancelled.')
-      const state=await cloudRequest<{state:string;position:number;started:number|null;box?:SharedBox}>('GET',path)
-      setProgress(state)
+      const state=await cloudRequest<{state:string;position:number;started:number|null;box?:SharedBox}>('GET',path,undefined,{signal})
+      signal?.throwIfAborted()
+      if(sharedScope()!==selectedScope)throw new Error('Workspace changed; request cancelled.')
+      if(onProgress)onProgress(state);else setProgress(state)
       if(state.state==='done'&&state.box){
         const reply=await openShared<{ok:boolean;result:WorkerTextResult}>(state.box,key,share.id,id)
+        signal?.throwIfAborted()
+        if(sharedScope()!==selectedScope)throw new Error('Workspace changed; request cancelled.')
         if(!reply.ok||reply.result?.model!==share.model||typeof reply.result.text!=='string'||reply.result.calls?.length)throw new Error('Invalid shared model response')
         finished=true;return {...reply.result,usd:0}
       }
@@ -63,5 +70,5 @@ export async function sendSharedText(model:string,messages:{role:'system'|'user'
       await pause(signal)
     }
     throw new Error('Shared model queue timed out.')
-  }finally{setProgress(null);if(created)void cloudRequest('DELETE',path).catch(()=>{});if(!finished)void refreshSharedModels()}
+  }finally{if(!onProgress)setProgress(null);if(created)void cloudRequest('DELETE',path,undefined,{signal:AbortSignal.timeout(10000)}).catch(()=>{});if(!finished)void refreshSharedModels()}
 }
