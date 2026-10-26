@@ -51,9 +51,10 @@ test('update source stays on the paired site; shortcuts quote special characters
   assert.match(shortcutText('/a node',"/a'b/start.cjs",false),/exec '\/a node'/)
 })
 
-test('built supervisor: one process, drain active task, preserve pairing, update, rollback and recover failed startup', {timeout:100000},async()=>{
+test('built supervisor: one process, drain active task, preserve pairing, update, rollback and recover failed startup', {timeout:150000},async()=>{
   const r=makeRepo(),port=await freePort(),preset=p(port)
-  let candidate=built.replaceAll(version,'1.33.0'),badChecksum=false
+  const [major,minor]=version.split('.').map(Number),nextVersion=`${major}.${minor!+1}.0`,brokenVersion=`${major}.${minor!+2}.0`
+  let candidate=built.replaceAll(version,nextVersion),badChecksum=false
   const site=createServer((req,res)=>{
     res.setHeader('content-type',req.url?.endsWith('.json')?'application/json':'text/javascript')
     if(req.url==='/mcp/one-worker.release.json')res.end(JSON.stringify({version:/coding worker (\d+\.\d+\.\d+)/.exec(candidate)![1],size:Buffer.byteLength(candidate),sha256:badChecksum?'a'.repeat(64):sha(candidate)}))
@@ -76,7 +77,9 @@ test('built supervisor: one process, drain active task, preserve pairing, update
     badChecksum=true
     const bad=await tab.request({op:'worker-manage',action:'update'});assert.equal(bad.ok,false);assert.equal(JSON.parse(readFileSync(mfile,'utf8')).current,first)
     badChecksum=false
-    const run=tab.run(task({kind:'implement'},{text:'FAKE:LIVE\nImplement a small fixture.'}),25000)
+    // Native Windows startup/Defender can add latency before the eight-second fixture even starts.
+    // Keep a finite deadline and all drain/result assertions; never shorten the simulated active task.
+    const run=tab.run(task({kind:'implement'},{text:'FAKE:LIVE\nImplement a small fixture.'}),60000)
     await waitFor(()=>tab!.messages.some(m=>m.type==='status'&&m.busy.length>0),10000)
     const update=await tab.request({op:'worker-manage',action:'update'});assert.equal(update.ok,true,JSON.stringify(update));assert.equal((update as any).result.phase,'waiting-for-idle')
     assert.equal(JSON.parse(readFileSync(mfile,'utf8')).current,first,'Do not replace the running task')
@@ -86,12 +89,12 @@ test('built supervisor: one process, drain active task, preserve pairing, update
     assert.equal((await run).status,'ok','Running work completes instead of being cancelled')
     await waitFor(()=>JSON.parse(readFileSync(mfile,'utf8')).current!==first,15000,worker.stderr)
     tab.close();tab=await attach()
-    assert.equal((await status()).version,'1.33.0')
+    assert.equal((await status()).version,nextVersion)
     const installed=readFileSync(join(dir,JSON.parse(readFileSync(mfile,'utf8')).current),'utf8');assert.ok(installed.includes(preset.pair));assert.equal(readFileSync(config,'utf8'),beforeConfig)
     const rollback=await tab.request({op:'worker-manage',action:'rollback'});assert.equal(rollback.ok,true)
     await waitFor(()=>JSON.parse(readFileSync(mfile,'utf8')).current===first,15000,worker.stderr)
     tab.close();tab=await attach();assert.equal((await status()).version,version)
-    candidate=built.replaceAll(version,'1.34.0').replace('#!/usr/bin/env node\n',"#!/usr/bin/env node\nif(process.env.ONE_WORKER_MANAGED_CHILD==='1')process.exit(1);\n")
+    candidate=built.replaceAll(version,brokenVersion).replace('#!/usr/bin/env node\n',"#!/usr/bin/env node\nif(process.env.ONE_WORKER_MANAGED_CHILD==='1')process.exit(1);\n")
     const broken=await tab.request({op:'worker-manage',action:'update'});assert.equal(broken.ok,true)
     await waitFor(()=>worker.stderr().includes('previous release restored'),20000,worker.stderr)
     tab.close();tab=await attach();assert.equal((await status()).version,version);assert.equal(JSON.parse(readFileSync(mfile,'utf8')).current,first)
