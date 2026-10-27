@@ -80,6 +80,13 @@ test('an invited member prepares both real routes from the illustrated guide; gu
   await viewer.getByTestId('first-start-entry').getByRole('button',{name:'Start step by step'}).click()
   const guest=viewer.getByTestId('first-start-tools');await expect(guest).toContainText('Guest · read only');await expect(guest.getByRole('button',{name:'Prepare Copilot test'})).toHaveCount(0);await expect(guest.getByRole('button',{name:'Set up worker'})).toHaveCount(0)
   await viewer.screenshot({path:info.outputPath('09-gastpfad.png'),animations:'disabled'})
+  await viewer.route(`**/api/workspaces/${ws}/welcome-access`,r=>r.fulfill({json:[{id:'guest-fixture'}]}))
+  await viewer.route(`**/api/workspaces/${ws}/welcome-access/guest-fixture/open`,r=>r.fulfill({json:{name:'Workshop guest',atlasLink:'https://atlas.example.test/?token=guest-test-only',atlasToken:''}}))
+  await viewer.reload();await waitForApp(viewer);await waitOnline(viewer)
+  await viewer.getByTestId('atlas-welcome').getByRole('button',{name:'Set up Atlas access'}).click()
+  await expect(viewer.getByRole('dialog')).toContainText('separate Atlas browser sign-in')
+  await expect(viewer.getByRole('dialog').getByRole('button',{name:'Set up Atlas MCP'})).toHaveCount(0)
+  await expect(viewer.getByRole('dialog').getByLabel('Atlas agent token',{exact:true})).toHaveCount(0)
   await member.reload();await waitForApp(member);await waitOnline(member);await expect(member.getByTestId('first-start-tools')).toBeVisible()
  }finally{if(timer)clearInterval(timer);while(polling)await new Promise(r=>setTimeout(r,20));await fake.close();await member.context().close();await viewer.context().close()}
 })
