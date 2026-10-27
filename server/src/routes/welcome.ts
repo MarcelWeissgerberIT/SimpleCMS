@@ -42,7 +42,7 @@ export function welcomeRoutes(s:Services) {
     const {workspace,auth}=access(s,c,'admin'),d=read(workspace.id,auth.user.id),r=d.recipients.find(r=>r.id===c.req.param('recipient'))
     if(!r)throw notFound('welcome_recipient','Recipient not found')
     const w=target(auth.user.id,r.workspaceId)
-    return c.json(welcomeMail(d.lang,{name:r.name,title:d.title,workspace:w.name,link:'[Personal ONE invitation is created only when you press Send]',atlasLink:r.atlasLink?'https://'+new URL(r.atlasLink).host+'/[personal-link-hidden]':'[Atlas link missing]',startLink:s.config.publicUrl+`/app/?w=${encodeURIComponent(w.id)}#/workspace/people`,guest:r.guest,note:r.note}))
+    return c.json(welcomeMail(d.lang,{name:r.name,title:d.title,workspace:w.name,link:'[Personal ONE invitation is created only when you press Send]',atlasLink:r.atlasLink?'https://'+new URL(r.atlasLink).host+'/[personal-link-hidden]':'[Atlas link missing]',startLink:s.config.publicUrl+`/app/?w=${encodeURIComponent(w.id)}#/`,guest:r.guest,note:r.note}))
   })
   app.post('/:id/welcome/send',async c=>{
     const {workspace,auth}=access(s,c,'admin'),{revision}=await body(c,z.object({revision:z.number().int()})),k=key(workspace.id,auth.user.id)
@@ -69,7 +69,7 @@ export function welcomeRoutes(s:Services) {
           const link=member?s.config.publicUrl+`/app/?w=${encodeURIComponent(w.id)}`:s.config.publicUrl+'/app/#/invite/'+s.repo.createInvite({workspaceId:w.id,role:r.role,guest:r.guest,email:r.email,createdBy:auth.user.id,ttl:7*DAY,maxUses:1}).token
           if(r.guest&&member==='viewer'&&existing)s.repo.setRole(w.id,existing.id,'viewer',true)
           store.grant(workspace.id,auth.user.id,newId(),r,Date.now()+7*DAY)
-          const mail=welcomeMail(d.lang,{name:r.name,title:d.title,workspace:w.name,link,atlasLink:r.atlasLink,startLink:s.config.publicUrl+`/app/?w=${encodeURIComponent(w.id)}#/workspace/people`,guest:r.guest,note:r.note})
+          const mail=welcomeMail(d.lang,{name:r.name,title:d.title,workspace:w.name,link,atlasLink:r.atlasLink,startLink:s.config.publicUrl+`/app/?w=${encodeURIComponent(w.id)}#/`,guest:r.guest,note:r.note})
           await s.mailer.send({to:r.email,link,...mail});r.status='sent';r.sentAt=Date.now()
         }catch{r.status='uncertain'}
         d.revision++;store.save(workspace.id,auth.user.id,d)

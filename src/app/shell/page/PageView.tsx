@@ -27,6 +27,7 @@ import { MarginRail, railHasContent } from './MarginRail'
 import { scrollHostOf } from './outline'
 import { toggleMarginRail, useMarginRailOpen } from './railPref'
 import { TourOffer } from '../tour/TourOffer'
+import {FirstStartTools} from '../firstStart/FirstStart'
 import './page.css'
 
 export type PageVariant = 'main' | 'pane' | 'peek'
@@ -91,6 +92,7 @@ function PageViewInner({ page, variant, language }: { page: Page; variant: PageV
           <PageTitle page={page} readOnly={readOnly} variant={variant} onEnter={() => focusEditor('start')} />
           {!trashed && <TranslationControls pageId={page.id} />}
           {!trashed && <PageAgentActivity pageId={page.id} />}
+          {variant === 'main' && !trashed && <FirstStartTools page={page} />}
           {/* a freshly seeded workspace: "Take the 3-minute tour" on its Welcome page (shell/tour) */}
           {variant === 'main' && !readOnly && <TourOffer pageId={page.id} />}
           {/* a database with send routes or slips: IN OUTBOX · SENT TODAY (features/outbox) */}

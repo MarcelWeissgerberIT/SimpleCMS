@@ -16,6 +16,7 @@ import { useIsTouch, useKbdHint, useNow } from '../lib/hooks'
 import { NextDays, NextDaysActions } from '../agenda/NextDays'
 import { useInCloud, useReadOnly } from '../cloud/state'
 import { AtlasWelcome } from '../cloud/Welcome'
+import { FirstStartEntry } from '../firstStart/FirstStart'
 import './home.css'
 
 /** Words per page object (immutable: a changed page is a new object) — the stats re-count only what changed. */
@@ -54,6 +55,7 @@ export function Home() {
             </span>
           </div>
         )}
+        <FirstStartEntry />
         <AtlasWelcome />
         <PreflightHome />
         {mode === 'full' ? <h1 className="visually-hidden">{greeting}</h1> : <HomeSections greeting={greeting} />}

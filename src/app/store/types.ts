@@ -66,6 +66,8 @@ export type PageCover =
 export type PageFont = 'sans' | 'serif' | 'mono'
 
 export interface PageSettings {
+  /** Optional illustrated, account-aware workshop entry; contains no secrets. */
+  firstStart?: import('../shell/firstStart/model').FirstStart
   fullWidth: boolean
   smallText: boolean
   font: PageFont

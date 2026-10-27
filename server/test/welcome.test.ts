@@ -80,7 +80,7 @@ test('preparation is private, encrypted and side-effect free; time/revision/gues
   assert.equal((await put(owner,draft())).status,409)
   assert.equal((await owner.post(path()+'/send',{revision:1})).status,409)
   const preview=(await owner.get(path()+'/preview/alice')).body
-  assert.ok(preview.text.includes('My secrets'));assert.ok(!JSON.stringify(preview).includes('ALICE-'))
+  assert.ok(preview.text.includes('My secrets'));assert.ok(preview.text.includes('Start step by step'));assert.ok(preview.text.includes('MCP servers'));assert.ok(!preview.text.includes('#/workspace/people'));assert.ok(!JSON.stringify(preview).includes('ALICE-'))
   const db=new DatabaseSync(join(server.dataDir,'one.sqlite'));try{const row=db.prepare('SELECT sealed FROM welcome_drafts').get() as {sealed:string};assert.ok(row.sealed.startsWith('v1.'));assert.ok(!row.sealed.includes('ALICE'));assert.ok(!row.sealed.includes('welcome.test'))}finally{db.close()}
   r=await put(owner,{...draft(),revision:1,notBefore:0});assert.equal(r.status,200);assert.equal(r.body.revision,2)
 })

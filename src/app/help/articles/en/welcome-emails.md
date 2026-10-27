@@ -32,7 +32,7 @@ Team members receive their team workspace. Guests can observe the same workspace
 ## A personal button on Start
 After sign-in and acceptance of the ONE invitation, **Set up Atlas access** appears on Start and under Workspace → People. Only a click reads the person's own access values. The modal initially masks the personal link and optional agent token; **Show values**, Copy and Open Atlas are explicit actions. Other members and admins cannot open someone else's values through this feature.
 
-First task: open Atlas, put your own agent token in **My secrets**, select the exact MCP URL and needed tools, test the connection and read one approved record. An invitation token in a link is not an MCP agent token. If no agent token is supplied, create your own in Atlas first.
+First task: follow **Home → Start step by step** where the workspace has an illustrated guide. Open Atlas, configure your own agent token under **Settings → AI → MCP servers**, select the exact MCP URL and needed read tools, test the connection and read one approved record. **My secrets** additionally supports explicitly handing personal connections to coding tasks. An invitation token in a link is not an MCP agent token. If no agent token is supplied, create your own in Atlas first.
 
 After a successful test, confirm **I have successfully tested my personal connection** and press **Atlas access works · dismiss reminder**. This is the person's own confirmation, not an automatic test claimed by One. Only their reminder disappears; connections and tokens are neither deleted nor revoked at Atlas.
 
